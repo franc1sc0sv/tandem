@@ -13,10 +13,15 @@ El usuario escribe en español: documentación, mensajes de commit y PRs en espa
 ## Protocolo del backlog
 
 - Cada tarea: `docs/tasks/T-<id>.md` con frontmatter `status: todo | in-progress | blocked | done`, `depends_on`, `needs`.
-- `needs`: `none` (se puede hacer sin hardware), `windows-hw`, `mac-hw`, `user` (requiere al usuario). Las tareas con algo distinto de `none` no se toman en lotes automáticos.
-- Una tarea = una rama `task/T-<id>` = un PR en borrador. Nunca commit a `main`, nunca merge, nunca force-push.
-- En tu PR, pon `status: done` en el archivo de la tarea y marca los criterios cumplidos; el merge del usuario la cierra.
-- Si no puedes cumplir un criterio, `status: blocked` con la razón en `## Notas`.
+- `needs`:
+  - `none`: se hace sin hardware.
+  - `windows-hw` / `mac-hw`: **también se implementa**, con código completo, pruebas con backends simulados y CI en las tres plataformas. Lo que solo se puede comprobar en el equipo real va en una sección `## Verificación en hardware pendiente` (lista con casillas) del archivo de la tarea; la tarea cuenta como `done` aunque esa lista quede pendiente.
+  - `user` (requiere una acción física del usuario): no se toma.
+- **Rama de integración: `develop`.** Las tareas salen de `origin/develop` y sus PRs apuntan a `develop`. `main` solo la toca el usuario: nunca commit, push, PR ni merge a `main`.
+- Una tarea = una rama `task/T-<id>` = un PR hacia `develop`.
+- **Merge autónomo a `develop`** (autorizado por el usuario): `gh pr merge <n> --squash --delete-branch`, solo si los tres jobs de CI están en verde y el agente reviewer aprobó. Si `develop` avanzó, rebase sobre `origin/develop` y `git push --force-with-lease origin task/T-<id>` (solo ramas `task/*`).
+- En tu PR, pon `status: done` en el archivo de la tarea y marca los criterios cumplidos.
+- Si no puedes cumplir un criterio que no sea de hardware, `status: blocked` con la razón en `## Notas`.
 - Solo edita el archivo de tu tarea, no los de otras.
 
 ## Calidad (obligatorio antes de commit o PR; un hook lo exige)
@@ -27,7 +32,14 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Para código de Windows además: `cargo check --workspace --target x86_64-pc-windows-gnu`.
+Para código de Windows, el CI de `windows-latest` es la verificación. `cargo check --target x86_64-pc-windows-gnu` en WSL solo funciona si está instalado `mingw-w64` (crates con C como `ring`); si falta, no es un bloqueo.
+
+## Pruebas (maximizar; ver `docs/TESTING.md`)
+
+- Toda lógica nueva lleva pruebas unitarias. Los invariantes llevan pruebas de propiedades (`proptest`).
+- Todo código de plataforma va detrás de un trait con un doble de prueba, para que la lógica se pruebe en Linux.
+- Las rutas entre las dos máquinas se prueban con dos agentes dentro del mismo proceso, por loopback (`tandem-sim`).
+- Un bug encontrado = primero una prueba que falla, después el arreglo.
 
 ## Convenciones de Rust
 
