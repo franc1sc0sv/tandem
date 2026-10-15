@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tandem — mockup</title>
+<style>
+  :root {
+    --bg: #0f1013;
+    --panel: #16171b;
+    --panel-2: #1c1d22;
+    --line: #26282e;
+    --line-2: #32353d;
+    --text: #e7e7ea;
+    --dim: #8c8f98;
+    --faint: #5b5e67;
+    --mac: #7aa7e6;
+    --pc: #a99be8;
+    --ok: #6cc59a;
+    --warn: #d9a75a;
+    --r: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    font-family: "SF Pro Text", "Segoe UI Variable", "Inter", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    font-size: 14px;
+  }
+  .app { height: 100%; display: grid; grid-template-rows: auto 1fr auto; padding: 20px 28px 24px; gap: 16px; }
+
+  /* top bar */
+  .top { display: flex; align-items: center; gap: 10px; }
+  .logo { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 16px; letter-spacing: .2px; }
+  .logo svg { width: 22px; height: 22px; }
+  .spacer { flex: 1; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font-size: 12.5px; color: var(--dim); user-select: none; }
+  .pill b { color: var(--text); font-weight: 550; }
+  .pill.btn { cursor: pointer; }
+  .pill.btn:hover { border-color: var(--line-2); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+  .dot.warn { background: var(--warn); }
+
+  /* scene */
+  .scene { display: grid; grid-template-columns: 1fr 200px 1fr; min-height: 0; }
+  .side { position: relative; border-radius: 20px; background: var(--panel); border: 1px solid var(--line); display: grid; grid-template-rows: auto 1fr auto; padding: 20px; transition: border-color .2s, opacity .3s; }
+  .side.drop { border-color: var(--accent); }
+  .side.mac { --accent: var(--mac); }
+  .side.pc { --accent: var(--pc); }
+  .side.asleep { opacity: .55; }
+  .side-head { display: flex; align-items: center; gap: 10px; }
+  .side-head .name { font-size: 17px; font-weight: 650; }
+  .side-head .state { font-size: 12px; color: var(--dim); }
+  .role { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 5px 9px; border-radius: 8px; border: 1px solid var(--line-2); color: var(--dim); }
+  .role svg { width: 14px; height: 14px; color: var(--accent); }
+
+  .desk { display: flex; align-items: flex-end; justify-content: center; gap: 22px; flex-wrap: wrap; min-height: 240px; padding: 10px 0; }
+  .desk .empty { color: var(--faint); font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .desk .empty svg { width: 36px; height: 36px; }
+
+  .monitor { cursor: grab; display: flex; flex-direction: column; align-items: center; }
+  .monitor:active { cursor: grabbing; }
+  .screen { border-radius: 9px; padding: 6px; background: #0b0c0e; border: 1px solid var(--line-2); }
+  .screen .wall { width: 100%; height: 100%; border-radius: 4px; background: var(--wall); transition: background .5s; }
+  .m34 .screen { width: 268px; height: 115px; }
+  .m32 .screen { width: 194px; height: 109px; }
+  .stand { width: 8px; height: 22px; background: #22242a; }
+  .base { width: 80px; height: 5px; border-radius: 4px; background: #22242a; }
+  .mlabel { margin-top: 9px; font-size: 12.5px; color: var(--dim); display: flex; gap: 7px; align-items: center; }
+  .mlabel b { color: var(--text); font-weight: 600; }
+  .port { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line-2); color: var(--dim); font-family: ui-monospace, "SF Mono", monospace; }
+  .monitor.busy .wall { animation: flick .9s ease-in-out; }
+  @keyframes flick { 40% { opacity: .1; } 100% { opacity: 1; } }
+
+  .machine { display: flex; justify-content: center; align-items: end; gap: 16px; }
+  .machine svg.hw { height: 88px; }
+
+  /* built-in display control */
+  .builtin { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--line); }
+  .seg button { all: unset; cursor: pointer; display: grid; place-items: center; width: 34px; height: 26px; border-radius: 6px; color: var(--faint); }
+  .seg button svg { width: 16px; height: 16px; }
+  .seg button:hover { color: var(--dim); }
+  .seg button.sel { background: var(--line-2); color: var(--text); }
+  .seg button[disabled] { cursor: not-allowed; opacity: .35; }
+  .bi-note { font-size: 11px; color: var(--faint); height: 13px; }
+
+  .hub { cursor: pointer; display: inline-flex; flex-direction: column; align-items: center; gap: 5px; font-size: 11px; color: var(--dim); padding: 8px 10px; border-radius: 10px; border: 1px dashed transparent; }
+  .hub:hover { border-color: var(--line-2); }
+  .hub svg { width: 42px; height: 26px; }
+  .hub.ghost { opacity: .15; }
+
+  .power { width: 46px; height: 46px; border-radius: 50%; cursor: pointer; display: grid; place-items: center; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--faint); position: relative; }
+  .power svg { width: 20px; height: 20px; }
+  .power.on { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
+  .power.boot { color: var(--warn); }
+  .power.boot::after { content: ""; position: absolute; inset: -3px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--warn); animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* links */
+  .links { display: flex; flex-direction: column; justify-content: center; gap: 18px; padding: 0 4px; }
+  .link { position: relative; height: 34px; }
+  .link svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .link line.rail { stroke: var(--line-2); stroke-width: 1.5; }
+  .link line.flow { stroke: var(--c); stroke-width: 1.5; stroke-dasharray: 3 9; animation: flow var(--sp) linear infinite; opacity: .9; }
+  .link.down line.flow { opacity: 0; }
+  .link.down line.rail { stroke-dasharray: 2 5; }
+  .link .tag { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); font-size: 12px; white-space: nowrap; color: var(--dim); }
+  .link .tag svg { position: static; width: 13px; height: 13px; color: var(--c); }
+  .link .tag b { color: var(--text); font-weight: 550; }
+  .link.active .tag { border-color: var(--line-2); }
+  .link.down .tag { opacity: .45; }
+  .link.down .tag svg { color: var(--faint); }
+  @keyframes flow { to { stroke-dashoffset: -24; } }
+  .plane { font-size: 10px; color: var(--faint); }
+
+  /* bottom */
+  .bottom { display: grid; grid-template-columns: 1fr auto; gap: 16px; align-items: end; }
+  .modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .mode { cursor: pointer; border-radius: var(--r); padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); display: flex; align-items: center; gap: 14px; transition: border-color .2s, background .2s; }
+  .mode:hover { border-color: var(--line-2); }
+  .mode.sel { background: var(--panel-2); border-color: #4a4e58; }
+  .mode .ico { display: flex; gap: 3px; align-items: flex-end; }
+  .mode .ico span { width: 22px; height: 14px; border-radius: 3px; background: var(--c); opacity: .85; }
+  .mode .ico span.w { width: 30px; }
+  .mode .t { font-weight: 600; font-size: 14.5px; }
+  .mode .k { margin-left: auto; font-size: 11px; color: var(--faint); font-family: ui-monospace, "SF Mono", monospace; }
+
+  .services { display: flex; gap: 8px; padding: 8px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); align-items: center; }
+  .svc { width: 48px; height: 48px; border-radius: 11px; display: grid; place-items: center; background: var(--panel-2); color: var(--dim); position: relative; cursor: pointer; }
+  .svc svg { width: 21px; height: 21px; }
+  .svc:hover { color: var(--text); }
+  .svc .tip { position: absolute; bottom: 58px; left: 50%; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--line-2); padding: 5px 9px; border-radius: 8px; font-size: 12px; white-space: nowrap; opacity: 0; pointer-events: none; transition: opacity .15s; color: var(--text); }
+  .svc:hover .tip { opacity: 1; }
+  .services.locked .svc { opacity: .35; cursor: not-allowed; }
+  .services .lock { display: none; font-size: 12px; color: var(--warn); padding: 0 8px; }
+  .services.locked .lock { display: block; }
+
+  /* toast */
+  .toast { position: fixed; left: 50%; top: 70px; transform: translate(-50%, -10px); opacity: 0; pointer-events: none; z-index: 10; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line-2); box-shadow: 0 12px 30px rgba(0,0,0,.35); display: flex; gap: 8px; align-items: center; transition: all .25s ease-out; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .step { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--faint); }
+  .step i { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--line-2); display: grid; place-items: center; font-style: normal; font-size: 9px; }
+  .step.run { color: var(--text); }
+  .step.run i { border-color: var(--warn); border-top-color: transparent; animation: spin .7s linear infinite; }
+  .step.done { color: var(--dim); }
+  .step.done i { border-color: var(--ok); color: var(--ok); }
+  .step.done i::after { content: "✓"; }
+  .sep { width: 10px; height: 1px; background: var(--line-2); }
+
+  .hint { position: fixed; right: 16px; bottom: 8px; font-size: 11px; color: #3c3f47; }
+  ::view-transition-group(*) { animation-duration: .45s; animation-timing-function: cubic-bezier(.2,.8,.2,1); }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="logo">
+      <svg viewBox="0 0 32 32" fill="none"><circle cx="11.5" cy="16" r="8" stroke="#7aa7e6" stroke-width="2.4"/><circle cx="20.5" cy="16" r="8" stroke="#a99be8" stroke-width="2.4"/></svg>
+      Tandem
+    </div>
+    <span class="spacer"></span>
+    <span class="pill" id="deskflowPill"><span class="dot"></span> Deskflow <b id="dfText">Mac → PC</b></span>
+    <span class="pill" id="linkPill"><span class="dot" id="linkDot"></span> <b id="linkText">USB4 · 18 Gb/s</b></span>
+    <span class="pill btn" id="cableToggle" title="Simular cables conectados / desconectados"><span id="cableText">Simular sin cables</span></span>
+  </header>
+
+  <main class="scene">
+    <!-- MAC -->
+    <section class="side mac" data-owner="mac">
+      <div class="side-head">
+        <span class="name">MacBook Pro</span><span class="state">M5</span>
+        <span class="role" id="roleMac"></span>
+      </div>
+      <div class="desk" data-owner="mac"></div>
+      <div class="machine">
+        <div class="builtin">
+          <svg class="hw" viewBox="0 0 220 110"><rect x="32" y="4" width="156" height="92" rx="8" fill="#1c1e23" stroke="#33363e"/><rect id="lapScr" x="40" y="11" width="140" height="78" rx="3" fill="#2d3e55"/><g id="lapIcon"></g><path d="M10 98h200l-10 9H20z" fill="#22242a" stroke="#33363e"/></svg>
+          <div class="seg" id="biSeg">
+            <button data-v="off" title="Apagada: las ventanas nunca van ahí"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M4 4l16 16"/></svg></button>
+            <button data-v="mirror" title="Espejo de un monitor externo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="6" width="9" height="8" rx="1.5"/><rect x="13" y="6" width="9" height="8" rx="1.5"/><path d="M6.5 18h11"/></svg></button>
+            <button data-v="extend" title="Extendida: pantalla independiente"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="5" width="18" height="12" rx="2"/><path d="M9 20h6"/></svg></button>
+            <button data-v="gather" title="Traer las ventanas de la pantalla de la Mac al monitor principal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h12M11 7l5 5-5 5M20 5v14"/></svg></button>
+          </div>
+          <div class="bi-note" id="biNote"></div>
+        </div>
+        <div class="hub" data-at="mac" title="Clic: conectar el hub USB aquí"><svg viewBox="0 0 48 30" fill="none"><rect x="2" y="6" width="44" height="18" rx="6" fill="#1c1e23" stroke="currentColor"/><rect x="9" y="12" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="21" y="12" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="33" y="12" width="6" height="6" rx="1.5" fill="currentColor"/></svg>hub USB</div>
+      </div>
+    </section>
+
+    <!-- LINKS -->
+    <section class="links" id="links">
+      <div class="link active" data-k="usb4" style="--c:var(--mac); --sp:.6s">
+        <svg viewBox="0 0 200 34" preserveAspectRatio="none"><line class="rail" x1="0" y1="17" x2="200" y2="17"/><line class="flow" x1="0" y1="17" x2="200" y2="17"/></svg>
+        <span class="tag"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg><b>USB4</b> 18 Gb/s</span>
+      </div>
+      <div class="link" data-k="eth" style="--c:var(--ok); --sp:1s">
+        <svg viewBox="0 0 200 34" preserveAspectRatio="none"><line class="rail" x1="0" y1="17" x2="200" y2="17"/><line class="flow" x1="0" y1="17" x2="200" y2="17"/></svg>
+        <span class="tag"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 4h14v10h-3v3h-2v3h-4v-3H8v-3H5z"/></svg><b>Ethernet</b> 2.5 Gb/s</span>
+      </div>
+      <div class="link" data-k="wifi" style="--c:var(--warn); --sp:2s">
+        <svg viewBox="0 0 200 34" preserveAspectRatio="none"><line class="rail" x1="0" y1="17" x2="200" y2="17"/><line class="flow" x1="0" y1="17" x2="200" y2="17"/></svg>
+        <span class="tag"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM6.3 13.3l1.4 1.4a6 6 0 0 1 8.6 0l1.4-1.4a8 8 0 0 0-11.4 0zM2.8 9.8l1.4 1.4a11 11 0 0 1 15.6 0l1.4-1.4a13 13 0 0 0-18.4 0z"/></svg><b>Wi-Fi</b> <span class="plane">solo control</span></span>
+      </div>
+    </section>
+
+    <!-- PC -->
+    <section class="side pc" data-owner="pc">
+      <div class="side-head">
+        <span class="name">PC</span><span class="state" id="pcState">RTX 5080</span>
+        <span class="role" id="rolePc"></span>
+      </div>
+      <div class="desk" data-owner="pc"></div>
+      <div class="machine">
+        <div class="hub" data-at="pc" title="Clic: conectar el hub USB aquí"><svg viewBox="0 0 48 30" fill="none"><rect x="2" y="6" width="44" height="18" rx="6" fill="#1c1e23" stroke="currentColor"/><rect x="9" y="12" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="21" y="12" width="6" height="6" rx="1.5" fill="currentColor"/><rect x="33" y="12" width="6" height="6" rx="1.5" fill="currentColor"/></svg>hub USB</div>
+        <svg class="hw" viewBox="0 0 90 120"><rect x="8" y="4" width="74" height="112" rx="8" fill="#1c1e23" stroke="#33363e"/><rect x="16" y="14" width="40" height="92" rx="4" fill="#141518" stroke="#2a2c32"/><circle cx="36" cy="38" r="11" stroke="#4a4560" stroke-width="2" fill="none"/><circle cx="36" cy="78" r="11" stroke="#4a4560" stroke-width="2" fill="none"/><rect x="64" y="14" width="10" height="3" rx="1.5" fill="#a99be8" opacity=".7"/></svg>
+        <button class="power on" id="power" title="Encender / apagar la PC"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg></button>
+      </div>
+    </section>
+  </main>
+
+  <footer class="bottom">
+    <div class="modes">
+      <div class="mode" data-mode="mac">
+        <div class="ico"><span class="w" style="--c:var(--mac)"></span><span style="--c:var(--mac)"></span></div>
+        <div class="t">Solo Mac</div><span class="k">⌃⌥1</span>
+      </div>
+      <div class="mode" data-mode="shared">
+        <div class="ico"><span class="w" style="--c:var(--pc)"></span><span style="--c:var(--mac)"></span></div>
+        <div class="t">Compartido</div><span class="k">⌃⌥2</span>
+      </div>
+      <div class="mode" data-mode="pc">
+        <div class="ico"><span class="w" style="--c:var(--pc)"></span><span style="--c:var(--pc)"></span></div>
+        <div class="t">Solo Windows</div><span class="k">⌃⌥3</span>
+      </div>
+    </div>
+    <div class="services" id="services">
+      <div class="svc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m5 8 4 4-4 4M12 16h7"/></svg><span class="tip">Terminal SSH</span></div>
+      <div class="svc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="tip">Carpetas compartidas</span></div>
+      <div class="svc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="10" rx="2"/><path d="M8 7V4M12 7V4M16 7V4M8 20v-3M12 20v-3M16 20v-3"/></svg><span class="tip">RTX 5080 (GPU remota)</span></div>
+      <div class="svc"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span class="tip">Enviar archivos</span></div>
+      <span class="lock">requiere cable</span>
+    </div>
+  </footer>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="hint">mockup · arrastra monitores · clic en el hub · pantalla de la Mac · encendido</div>
+
+<script>
+const S = {
+  owner: { m34: "mac", m32: "mac" },
+  hub: "mac",
+  pc: "on",          // on | boot | off
+  cables: true,
+  builtin: "off",    // off | mirror | extend  (preferencia del usuario)
+  busy: false,
+};
+const MON = { m34: { label: '34"', cls: "m34" }, m32: { label: '32"', cls: "m32" } };
+const WALL = {
+  mac: "linear-gradient(160deg, #34496a, #222d3d)",
+  pc:  "linear-gradient(160deg, #463d63, #2a2539)",
+};
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const macExternals = () => Object.keys(S.owner).filter(k => S.owner[k] === "mac");
+// Si la Mac se queda sin monitores externos, su pantalla se enciende sola.
+const builtinEffective = () => macExternals().length === 0 ? "extend" : S.builtin;
+
+function monitorEl(id) {
+  const o = S.owner[id];
+  const el = document.createElement("div");
+  el.className = `monitor ${MON[id].cls}`;
+  el.draggable = true;
+  el.dataset.id = id;
+  el.style.viewTransitionName = id;
+  el.style.setProperty("--wall", WALL[o]);
+  el.innerHTML = `<div class="screen"><div class="wall"></div></div><div class="stand"></div><div class="base"></div>
+    <div class="mlabel"><b>${MON[id].label}</b><span class="port">${o === "mac" ? "HDMI" : "DP"}</span></div>`;
+  el.addEventListener("dragstart", e => e.dataTransfer.setData("text/plain", id));
+  return el;
+}
+
+function render() {
+  for (const desk of $$(".desk")) {
+    const who = desk.dataset.owner;
+    desk.innerHTML = "";
+    const mine = Object.keys(S.owner).filter(k => S.owner[k] === who);
+    mine.forEach(id => desk.appendChild(monitorEl(id)));
+    if (!mine.length) {
+      desk.innerHTML = `<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>${who === "pc" && S.pc !== "on" ? "PC apagada" : "Arrastra un monitor aquí"}</div>`;
+    }
+  }
+  const server = S.hub, pcOn = S.pc === "on";
+  const kb = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>`;
+  const cur = `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 3l14 7-6 2-2 6z"/></svg>`;
+  const roleHtml = who => !pcOn && who === "pc" ? "" : !pcOn ? "" : server === who ? `${kb} Servidor` : `${cur} Cliente`;
+  for (const [id, who] of [["#roleMac", "mac"], ["#rolePc", "pc"]]) {
+    const h = server === who && who === "mac" && !pcOn ? `${kb} Teclado aquí` : roleHtml(who);
+    $(id).innerHTML = h; $(id).style.display = h ? "" : "none";
+  }
+  $$(".hub").forEach(h => h.classList.toggle("ghost", h.dataset.at !== S.hub));
+  $("#dfText").textContent = pcOn ? (server === "mac" ? "Mac → PC" : "PC → Mac") : "esperando a la PC";
+  $("#deskflowPill .dot").classList.toggle("warn", !pcOn);
+
+  const p = $("#power");
+  p.className = "power " + (S.pc === "on" ? "on" : S.pc === "boot" ? "boot" : "");
+  $("#pcState").textContent = S.pc === "on" ? "RTX 5080" : S.pc === "boot" ? "arrancando…" : "apagada";
+  $(".side.pc").classList.toggle("asleep", S.pc !== "on");
+
+  // pantalla de la Mac
+  const eff = builtinEffective(), forced = macExternals().length === 0;
+  $$("#biSeg button").forEach(b => {
+    const v = b.dataset.v;
+    b.classList.toggle("sel", v === eff);
+    b.disabled = forced && v !== "extend" || (v === "gather" && eff !== "extend");
+  });
+  $("#lapScr").setAttribute("fill", eff === "off" ? "#111214" : "#2d3e55");
+  $("#lapIcon").innerHTML = eff === "mirror"
+    ? `<g transform="translate(96 36)" stroke="#9fb6d8" stroke-width="2.4" fill="none" stroke-linecap="round"><rect x="0" y="0" width="12" height="10" rx="2"/><rect x="16" y="0" width="12" height="10" rx="2"/><path d="M6 17h16"/></g>`
+    : eff === "off" ? `<g transform="translate(100 38)" stroke="#3a3d45" stroke-width="2.4" fill="none" stroke-linecap="round"><path d="M0 0l20 20M20 0 0 20"/></g>` : "";
+  $("#biNote").textContent = forced ? "encendida: no hay monitores" : { off: "apagada", mirror: "espejo del 32\"", extend: "extendida" }[eff];
+
+  const up = { usb4: S.cables && pcOn, eth: S.cables && pcOn, wifi: pcOn };
+  const best = ["usb4", "eth", "wifi"].find(k => up[k]);
+  $$(".link").forEach(l => { const k = l.dataset.k; l.classList.toggle("down", !up[k]); l.classList.toggle("active", k === best); });
+  const names = { usb4: "USB4 · 18 Gb/s", eth: "Ethernet · 2.5 Gb/s", wifi: "Wi-Fi · solo control" };
+  $("#linkText").textContent = best ? names[best] : "sin enlace";
+  $("#linkDot").classList.toggle("warn", best !== "usb4");
+  $("#services").classList.toggle("locked", !(best === "usb4" || best === "eth"));
+  $("#cableText").textContent = S.cables ? "Simular sin cables" : "Simular con cables";
+
+  const o = S.owner;
+  const mode = o.m34 === "mac" && o.m32 === "mac" ? "mac" : o.m34 === "pc" && o.m32 === "pc" ? "pc" : "shared";
+  $$(".mode").forEach(m => m.classList.toggle("sel", m.dataset.mode === mode));
+}
+
+function transition(fn) {
+  if (document.startViewTransition) document.startViewTransition(() => { fn(); render(); });
+  else { fn(); render(); }
+}
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function runSteps(steps) {
+  const t = $("#toast");
+  t.innerHTML = steps.map((s, i) => `${i ? '<span class="sep"></span>' : ""}<span class="step"><i></i>${s}</span>`).join("");
+  t.classList.add("show");
+  for (const el of $$(".step", t)) { el.classList.add("run"); await sleep(480); el.classList.remove("run"); el.classList.add("done"); }
+  await sleep(800);
+  t.classList.remove("show");
+}
+async function ensurePc() {
+  if (S.pc === "on") return;
+  S.pc = "boot"; render();
+  await runSteps(["Wake-on-LAN", "Arrancando Windows", "Agente conectado"]);
+  S.pc = "on"; render();
+}
+async function assign(target) {
+  if (S.busy) return;
+  S.busy = true;
+  const moving = Object.keys(target).filter(k => S.owner[k] !== target[k]);
+  if (moving.some(k => target[k] === "pc")) await ensurePc();
+  if (moving.length) {
+    const before = builtinEffective();
+    const steps = moving.map(k => `${MON[k].label} → ${target[k] === "pc" ? "DP" : "HDMI"}`);
+    steps.push("Pantallas fantasma", "Layout Deskflow");
+    const after = Object.keys(target).filter(k => target[k] === "mac").length === 0 ? "extend" : S.builtin;
+    if (before !== after) steps.push(after === "extend" ? "Pantalla Mac encendida" : "Pantalla Mac apagada");
+    const p = runSteps(steps);
+    await sleep(450);
+    transition(() => Object.assign(S.owner, target));
+    await sleep(60);
+    moving.forEach(k => $(`.monitor[data-id="${k}"]`)?.classList.add("busy"));
+    await p;
+  }
+  S.busy = false;
+}
+
+$$(".mode").forEach(m => m.addEventListener("click", () => {
+  const md = m.dataset.mode;
+  assign(md === "mac" ? { m34: "mac", m32: "mac" } : md === "pc" ? { m34: "pc", m32: "pc" } : { m34: "pc", m32: "mac" });
+}));
+addEventListener("keydown", e => {
+  if (e.ctrlKey && e.altKey && ["1", "2", "3"].includes(e.key)) $$(".mode")[+e.key - 1].click();
+});
+$$(".side").forEach(side => {
+  side.addEventListener("dragover", e => { e.preventDefault(); side.classList.add("drop"); });
+  side.addEventListener("dragleave", e => { if (!side.contains(e.relatedTarget)) side.classList.remove("drop"); });
+  side.addEventListener("drop", e => {
+    e.preventDefault(); side.classList.remove("drop");
+    const id = e.dataTransfer.getData("text/plain");
+    if (id && S.owner[id] !== side.dataset.owner) assign({ ...S.owner, [id]: side.dataset.owner });
+  });
+});
+$$(".hub").forEach(h => h.addEventListener("click", async () => {
+  if (h.dataset.at === S.hub || S.busy) return;
+  if (h.dataset.at === "pc" && S.pc !== "on") return;
+  S.busy = true;
+  const p = runSteps(["Hub detectado", "Intercambiando roles", "Deskflow listo"]);
+  await sleep(500); transition(() => { S.hub = h.dataset.at; });
+  await p; S.busy = false;
+}));
+$$("#biSeg button").forEach(b => b.addEventListener("click", async () => {
+  if (b.disabled || S.busy) return;
+  if (b.dataset.v === "gather") { S.busy = true; await runSteps(["Buscando ventanas", "3 ventanas → 34\""]); S.busy = false; return; }
+  S.builtin = b.dataset.v; render();
+}));
+$("#power").addEventListener("click", async () => {
+  if (S.busy) return;
+  if (S.pc === "on") {
+    S.busy = true;
+    const p = runSteps(["Monitores → HDMI", "Deteniendo Deskflow", "Apagado limpio"]);
+    await sleep(450);
+    transition(() => { S.owner.m34 = "mac"; S.owner.m32 = "mac"; S.hub = "mac"; });
+    await p; S.pc = "off"; render(); S.busy = false;
+  } else if (S.pc === "off") {
+    S.busy = true; await ensurePc(); S.busy = false;
+  }
+});
+$("#cableToggle").addEventListener("click", () => { S.cables = !S.cables; render(); });
+render();
+</script>
+</body>
+</html>
