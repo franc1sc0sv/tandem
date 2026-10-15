@@ -93,8 +93,27 @@ impl Drop for UnixIpcListener {
 mod tests {
     use super::*;
 
+    /// El sandbox de desarrollo (WSL) no deja crear sockets Unix. Ahí se omiten estas
+    /// pruebas; en CI (`CI` definido) corren siempre, así que no se pierde cobertura.
+    fn sockets_unavailable() -> bool {
+        if std::env::var_os("CI").is_some() {
+            return false;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        match std::os::unix::net::UnixListener::bind(dir.path().join("probe.sock")) {
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
+                eprintln!("omitida: este entorno no permite sockets Unix");
+                true
+            }
+            _ => false,
+        }
+    }
+
     #[tokio::test]
     async fn socket_is_owner_only_and_removed_on_drop() {
+        if sockets_unavailable() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("run/tandemd.sock");
         let l = bind(&path).await.unwrap();
@@ -112,6 +131,9 @@ mod tests {
 
     #[tokio::test]
     async fn second_agent_is_refused() {
+        if sockets_unavailable() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tandemd.sock");
         let _first = bind(&path).await.unwrap();
@@ -123,6 +145,9 @@ mod tests {
 
     #[tokio::test]
     async fn stale_socket_is_replaced() {
+        if sockets_unavailable() {
+            return;
+        }
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tandemd.sock");
         // Un socket que quedó de un agente que murió sin limpiar.
