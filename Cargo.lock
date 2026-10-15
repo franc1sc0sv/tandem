@@ -493,6 +493,7 @@ name = "tandem-core"
 version = "0.1.0"
 dependencies = [
  "pollster",
+ "proptest",
  "serde",
  "thiserror",
  "toml",
