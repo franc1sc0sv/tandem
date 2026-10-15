@@ -6,18 +6,26 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+bytes.workspace = true
 ed25519-dalek.workspace = true
 getrandom.workspace = true
+quinn.workspace = true
 rcgen.workspace = true
+rustls.workspace = true
 serde.workspace = true
 sha2.workspace = true
+tandem-proto = { path = "../tandem-proto" }
 thiserror.workspace = true
+tokio = { workspace = true, features = ["net", "rt", "time", "sync"] }
 toml.workspace = true
+tracing.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+tandem-core = { path = "../tandem-core" }
 tempfile.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true
