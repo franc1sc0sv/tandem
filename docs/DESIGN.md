@@ -127,7 +127,7 @@ tools/               scripts de diagnóstico (DDC, etc.)
 - **Geometría**: solo cuentan las pantallas que cada máquina está mostrando de verdad, así el cursor nunca pasa por un monitor fantasma. Se recalcula en caliente con cada cambio de modo.
 - **Portapapeles**: texto, texto enriquecido e imágenes en v1; archivos en v3, por el plano de datos.
 - **Windows, escritorio seguro**: el agente corre como servicio SYSTEM y lanza un helper en el escritorio activo (incluido Winlogon), para que el mouse funcione en UAC y en la pantalla de inicio de sesión.
-- Diseño del motor: [research/input-engine.md](research/input-engine.md) (pendiente).
+- Diseño del motor: [research/input-engine.md](research/input-engine.md).
 
 ## 8. Monitores
 

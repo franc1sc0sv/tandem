@@ -1,1 +1,5 @@
 /target
+.claude/worktrees/
+.claude/settings.local.json
+CLAUDE.local.md
+node_modules/
