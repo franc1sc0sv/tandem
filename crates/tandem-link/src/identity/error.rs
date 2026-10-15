@@ -39,6 +39,8 @@ pub enum IdentityError {
     SelfPairing,
     #[error("el par confirmó el código {remote}, pero aquí se muestra {local}")]
     CodeMismatch { local: String, remote: String },
+    #[error("el nonce revelado no coincide con el compromiso del par")]
+    CommitMismatch,
     #[error("el emparejamiento no está confirmado en ambos lados")]
     NotConfirmed,
 }

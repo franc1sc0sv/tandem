@@ -2,7 +2,8 @@
 //!
 //! Cada agente tiene una llave Ed25519 propia. Dos agentes se emparejan una
 //! sola vez comparando un código de 6 dígitos que ambos derivan de sus llaves
-//! públicas; al confirmarlo en los dos lados, cada uno guarda la llave del otro
+//! públicas y de un nonce por lado, con compromiso previo de quien inicia para
+//! que un intermediario no pueda forzar el mismo código; al confirmarlo en los dos lados, cada uno guarda la llave del otro
 //! en su [`TrustStore`]. El transporte (T-004) fija esa llave al verificar el
 //! certificado autofirmado que genera [`Identity::tls_certificate`].
 //!
@@ -20,6 +21,9 @@ mod trust;
 pub use cert::{TLS_SERVER_NAME, TlsIdentity};
 pub use error::IdentityError;
 pub use key::Identity;
-pub use pairing::{Pairing, PairingCode, pairing_code};
+pub use pairing::{
+    NONCE_LEN, Pairing, PairingAnswer, PairingCode, PairingCommitment, PairingInitiator,
+    PairingNonce, PairingOffer, PairingResponder, PairingReveal, pairing_code,
+};
 pub use public_key::PublicKey;
 pub use trust::{TrustStore, TrustedPeer};
