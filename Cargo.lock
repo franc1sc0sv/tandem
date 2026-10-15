@@ -99,6 +99,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem-clipboard"
+version = "0.1.0"
+
+[[package]]
 name = "tandem-core"
 version = "0.1.0"
 dependencies = [
@@ -107,6 +111,34 @@ dependencies = [
  "thiserror",
  "toml",
 ]
+
+[[package]]
+name = "tandem-display"
+version = "0.1.0"
+
+[[package]]
+name = "tandem-input"
+version = "0.1.0"
+
+[[package]]
+name = "tandem-link"
+version = "0.1.0"
+
+[[package]]
+name = "tandem-peripherals"
+version = "0.1.0"
+
+[[package]]
+name = "tandem-power"
+version = "0.1.0"
+
+[[package]]
+name = "tandem-proto"
+version = "0.1.0"
+
+[[package]]
+name = "tandemd"
+version = "0.1.0"
 
 [[package]]
 name = "thiserror"

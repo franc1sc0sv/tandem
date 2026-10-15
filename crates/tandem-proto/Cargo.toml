@@ -1,0 +1,11 @@
+[package]
+name = "tandem-proto"
+description = "Mensajes entre agentes y UI, versionado"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
