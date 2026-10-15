@@ -3,6 +3,24 @@
 version = 4
 
 [[package]]
+name = "anyhow"
+version = "1.0.104"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+
+[[package]]
+name = "arraydeque"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d902e3d592a523def97af8f317b08ce16b7ab854c1985a0c671e6f15cebc236"
+
+[[package]]
+name = "arrayvec"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
+
+[[package]]
 name = "asn1-rs"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -474,6 +492,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "heck"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -501,6 +525,30 @@ dependencies = [
  "cfg-if",
  "futures-util",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "keycode"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "29541831d33940ea1c68a1b8980382c1a507c95a528a98c0e335b361b9726975"
+dependencies = [
+ "arraydeque",
+ "arrayvec",
+ "bitflags",
+ "keycode_macro",
+]
+
+[[package]]
+name = "keycode_macro"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4facccc788054d521c263b66648eee8caf470f59cf8340d8cd0cce4a74ebcab2"
+dependencies = [
+ "anyhow",
+ "heck",
+ "proc-macro2",
+ "quote",
 ]
 
 [[package]]
@@ -1126,6 +1174,14 @@ version = "0.1.0"
 [[package]]
 name = "tandem-input"
 version = "0.1.0"
+dependencies = [
+ "keycode",
+ "postcard",
+ "proptest",
+ "serde",
+ "thiserror",
+ "toml",
+]
 
 [[package]]
 name = "tandem-link"

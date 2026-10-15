@@ -6,6 +6,14 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+keycode.workspace = true
+serde.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+postcard.workspace = true
+proptest.workspace = true
+toml.workspace = true
