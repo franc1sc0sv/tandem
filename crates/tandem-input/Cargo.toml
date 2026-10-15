@@ -1,0 +1,11 @@
+[package]
+name = "tandem-input"
+description = "Motor de teclado y mouse: captura, inyección, mapa de teclas, bordes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

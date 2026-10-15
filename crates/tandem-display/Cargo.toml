@@ -1,0 +1,11 @@
+[package]
+name = "tandem-display"
+description = "Trait MonitorSwitcher + backends (ddc-windows, ddc-macos, manual, kvm); trait DisplayTopology + backends (windows, macos)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
