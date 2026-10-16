@@ -21,13 +21,13 @@ pub use msg::{
     ControlMsg, DisplayInfo, DisplayProfile, EdidId, Hello, HubReport, InputPermission,
     InputStatus, Link, ManualSwitchEvent, PairingMsg, PairingStatus, Peer, PeerStatus, PowerEvent,
     ProbeAnswer, ProbeAsk, ProbeEvent, ProbeMonitor, ProbeOutcome, ProbePlace, ProbeScreen, Reply,
-    SavedProfile, ScreenRect, StepOutcome, TxnEvent, UiCommand, UiRequest, UndoFailure,
+    SavedProfile, ScreenRect, SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest, UndoFailure,
 };
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 8;
+pub const PROTOCOL_VERSION: u16 = 9;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ProtoError {
@@ -44,4 +44,16 @@ pub enum ProtoError {
         "versión de protocolo incompatible: la nuestra es {ours}, la del otro lado es {theirs}"
     )]
     IncompatibleVersion { ours: u16, theirs: u16 },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PROTOCOL_VERSION;
+
+    /// T-081 ya publicó la v8 con otro juego de mensajes; T-082 debe ir por encima para que
+    /// dos binarios con mensajes distintos nunca se acepten como compatibles.
+    #[test]
+    fn la_version_queda_por_encima_de_la_de_t081() {
+        assert_eq!(PROTOCOL_VERSION, 9);
+    }
 }

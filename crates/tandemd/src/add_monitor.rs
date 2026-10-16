@@ -4,7 +4,7 @@
 //! Al terminar bien:
 //! - el perfil se guarda como perfil del usuario (`<datos>/profiles/ddc/<PNP>.toml`, T-079)
 //!   y se ofrece para exportarlo;
-//! - si el monitor está en la configuración, sus códigos pasan a [`LiveDdc`], que es lo
+//! - si el monitor está en la configuración, sus códigos pasan a [`LiveDesk`], que es lo
 //!   que leen los pasos de pantalla: el siguiente cambio de modo ya los usa, sin reiniciar
 //!   el agente; y se escriben en `tandem.toml` ([`crate::config_edit`]) para el próximo
 //!   arranque.
@@ -42,9 +42,17 @@ pub const NOT_RUNNING: &str = "no hay ninguna calibración en curso";
 /// Abre el bus DDC para calibrar (en el hilo de la calibración).
 pub type CalibrationBus = Arc<dyn Fn() -> Result<Box<dyn DdcBus + Send>, DdcError> + Send + Sync>;
 
-/// Los códigos DDC aprendidos en caliente, por encima de los de `tandem.toml`.
+/// Lo que cambia en caliente por encima de `tandem.toml`: los códigos DDC aprendidos al
+/// calibrar y el cableado elegido en la UI (T-082). Los pasos de pantalla y los planes lo
+/// leen en cada cambio de modo, así que vale sin reiniciar el agente.
 #[derive(Debug, Clone, Default)]
-pub struct LiveDdc(Arc<RwLock<BTreeMap<MonitorId, Learned>>>);
+pub struct LiveDesk(Arc<RwLock<Overlay>>);
+
+#[derive(Debug, Default)]
+struct Overlay {
+    learned: BTreeMap<MonitorId, Learned>,
+    wiring: BTreeMap<MonitorId, BTreeMap<Machine, Input>>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Learned {
@@ -53,22 +61,35 @@ struct Learned {
     edid_model: Option<String>,
 }
 
-impl LiveDdc {
+impl LiveDesk {
     pub fn learn(&self, monitor: MonitorId, ddc: DdcProfile, edid_model: Option<String>) {
         self.0
             .write()
             .unwrap_or_else(PoisonError::into_inner)
+            .learned
             .insert(monitor, Learned { ddc, edid_model });
     }
 
-    /// `monitor` con lo aprendido: los códigos nuevos, y el modelo si no tenía.
+    /// El cableado nuevo de `monitor`.
+    pub fn rewire(&self, monitor: MonitorId, wiring: BTreeMap<Machine, Input>) {
+        self.0
+            .write()
+            .unwrap_or_else(PoisonError::into_inner)
+            .wiring
+            .insert(monitor, wiring);
+    }
+
+    /// `monitor` con lo aprendido: los códigos nuevos, el modelo si no tenía y el cableado.
     pub fn apply(&self, monitor: &mut MonitorConfig) {
-        let learned = self.0.read().unwrap_or_else(PoisonError::into_inner);
-        if let Some(l) = learned.get(&monitor.id) {
+        let overlay = self.0.read().unwrap_or_else(PoisonError::into_inner);
+        if let Some(l) = overlay.learned.get(&monitor.id) {
             monitor.ddc = Some(l.ddc.clone());
             if monitor.edid_model.is_none() {
                 monitor.edid_model = l.edid_model.clone();
             }
+        }
+        if let Some(w) = overlay.wiring.get(&monitor.id) {
+            monitor.wiring = w.clone();
         }
     }
 
@@ -105,7 +126,7 @@ pub struct MonitorWizard {
     user_dir: Option<PathBuf>,
     /// `tandem.toml`; sin él lo aprendido dura hasta reiniciar el agente.
     config: Option<PathBuf>,
-    live: LiveDdc,
+    live: LiveDesk,
     options: CalibrationOptions,
     running: Mutex<Option<CancelToken>>,
 }
@@ -137,7 +158,7 @@ impl MonitorWizard {
         open: CalibrationBus,
         user_dir: Option<PathBuf>,
         config: Option<PathBuf>,
-        live: LiveDdc,
+        live: LiveDesk,
     ) -> Self {
         MonitorWizard {
             open,
@@ -589,6 +610,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
                     serial_number: 0,
                     name: Some(name.into()),
                     serial_text: None,
+                    size_cm: None,
                 }),
             }),
             ..Default::default()
@@ -640,7 +662,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
         let config = dir.path().join("tandem.toml");
         std::fs::write(&config, PC).unwrap();
         let cfg = AgentConfig::load(&config).unwrap();
-        let live = LiveDdc::default();
+        let live = LiveDesk::default();
         let manual = Arc::new(ManualSwitcher::new());
         let mut local = DisplaySteps::new(Machine::Pc, cfg.desk.clone())
             .with_desktop(Arc::new(Desk))
@@ -1040,7 +1062,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
     #[test]
     fn learned_codes_go_over_the_config_and_fill_a_missing_model() {
         let cfg = AgentConfig::from_toml(PC).unwrap();
-        let live = LiveDdc::default();
+        let live = LiveDesk::default();
         let codes = DdcProfile {
             hdmi: 0x05,
             display_port: 0x0F,

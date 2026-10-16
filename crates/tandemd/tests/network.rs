@@ -504,3 +504,70 @@ async fn calibration_is_confirmed_from_the_other_machine() {
     pc.stop().await;
     mac.stop().await;
 }
+
+/// Arranca un agente de la PC sin par en `bind`, con esos puertos de reserva.
+fn start_on(
+    dir: &std::path::Path,
+    bind: SocketAddr,
+    fallback_ports: Vec<u16>,
+) -> Result<Daemon, String> {
+    let paths = Paths {
+        config: dir.join("tandem.toml"),
+        data_dir: dir.to_owned(),
+    };
+    let cfg = AgentConfig::from_toml(&format!("machine = \"pc\"\n{DESK}")).unwrap();
+    daemon::start(
+        cfg,
+        &paths,
+        Backends::Custom {
+            local: Arc::new(Fake::default()),
+            manual: Arc::new(ManualSwitcher::new()),
+            input: None,
+        },
+        NetOptions {
+            bind: Some(bind),
+            fallback_ports,
+            mdns: false,
+            ..NetOptions::default()
+        },
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// T-082: el puerto del agente ocupado (en la PC real, reservado por Windows) no impide
+/// arrancar: se usa el primero libre de la lista de reserva, y es el que se anunciaría.
+#[tokio::test]
+async fn an_occupied_port_falls_back_to_a_free_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let busy = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let taken = busy.local_addr().unwrap().port();
+    let other = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let also_taken = other.local_addr().unwrap().port();
+    let free = free_port();
+    let d = start_on(dir.path(), loopback(taken), vec![also_taken, free]).unwrap();
+    assert_eq!(d.network.local_addr(), loopback(free));
+    assert_eq!(d.agent.peer_status(), PeerStatus::Unpaired);
+    d.network.shutdown().await;
+}
+
+/// Si ningún puerto abre, el error dice cuáles se probaron, la causa y cómo arreglarlo.
+#[tokio::test]
+async fn no_free_port_explains_how_to_fix_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let busy = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let taken = busy.local_addr().unwrap().port();
+    let busy2 = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let taken2 = busy2.local_addr().unwrap().port();
+    let Err(text) = start_on(dir.path(), loopback(taken), vec![taken2]) else {
+        panic!("arrancó con todos los puertos ocupados");
+    };
+    for want in [
+        taken.to_string(),
+        taken2.to_string(),
+        "excludedportrange".into(),
+        "[network] port".into(),
+        "tandem.toml".into(),
+    ] {
+        assert!(text.contains(&want), "falta «{want}» en: {text}");
+    }
+}

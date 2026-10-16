@@ -1,18 +1,20 @@
 //! El estado vivo del agente y lo que contesta a la UI.
 
+use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tandem_core::plan::PlanError;
-use tandem_core::{Machine, Mode, Plan, State, Step};
+use tandem_core::{Config, Input, Machine, Mode, MonitorId, Plan, State, Step};
 use tandem_display::switcher::{ManualEvent, ManualSwitcher};
 use tandem_link::transport::{Connection, ControlStream};
 use tandem_proto::{
     CalibrationUpdate, Channel, HubReport, InputStatus, PairingStatus, PeerStatus, PowerEvent,
-    ProbeEvent, Reply, ScreenRect, TxnEvent, UiCommand,
+    ProbeEvent, Reply, ScreenRect, SetupInfo, TxnEvent, UiCommand,
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
-use crate::add_monitor::{LiveDdc, MonitorWizard, NOT_HERE};
+use crate::add_monitor::{LiveDesk, MonitorWizard, NOT_HERE};
 use crate::calibration::{DesktopLocator, ProbeBoard};
 use crate::config::AgentConfig;
 use crate::display::DisplaySteps;
@@ -63,11 +65,17 @@ pub struct Agent {
     /// Sube con cada `UpdateInputGeometry`: hay que volver a leer las pantallas.
     geometry: Arc<watch::Sender<u64>>,
     /// Los códigos DDC aprendidos al calibrar, que los pasos de pantalla leen en caliente.
-    live: LiveDdc,
+    live: LiveDesk,
     /// «Agregar monitor» (solo en la PC).
     wizard: Mutex<Option<Arc<MonitorWizard>>>,
     /// El avance de la calibración, para la UI.
     calibration: broadcast::Sender<CalibrationUpdate>,
+    /// El puesto con lo cambiado en caliente ([`LiveDesk`]), para avisar a la UI.
+    desk: watch::Sender<Config>,
+    /// `tandem.toml`, donde se guarda lo que se cambia desde la UI; sin él, solo en memoria.
+    config_file: Mutex<Option<PathBuf>>,
+    /// De dónde salió la configuración y en qué puerto escucha el agente.
+    setup: Mutex<SetupInfo>,
 }
 
 impl std::fmt::Debug for dyn PairingControl {
@@ -158,7 +166,7 @@ impl Agent {
     pub fn with_platform(cfg: AgentConfig, store: StateStore) -> Self {
         let manual = Arc::new(ManualSwitcher::new());
         let geometry = Arc::new(watch::Sender::new(0));
-        let live = LiveDdc::default();
+        let live = LiveDesk::default();
         let local = Arc::new(
             DisplaySteps::platform(&cfg, manual.clone(), geometry.clone()).with_live(live.clone()),
         );
@@ -197,16 +205,110 @@ impl Agent {
             input_status: watch::Sender::new(InputStatus::new(cfg.input.server)),
             inbox: PeerInbox::new(),
             geometry: Arc::new(watch::Sender::new(0)),
-            live: LiveDdc::default(),
+            live: LiveDesk::default(),
             wizard: Mutex::new(None),
             calibration: broadcast::channel(CALIBRATION_BUFFER).0,
+            desk: watch::Sender::new(cfg.desk.clone()),
+            config_file: Mutex::new(None),
+            setup: Mutex::new(SetupInfo {
+                config_file: None,
+                generated: false,
+                port: None,
+            }),
             cfg,
         }
     }
 
+    /// El archivo de la configuración, donde se guarda lo que se cambia desde la UI.
+    pub fn set_config_file(&self, path: PathBuf) {
+        self.setup
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .config_file = Some(path.display().to_string());
+        *self
+            .config_file
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Some(path);
+    }
+
+    /// El agente generó la configuración al arrancar (T-082): la UI lo dice.
+    pub fn set_generated(&self, generated: bool) {
+        self.setup
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .generated = generated;
+    }
+
+    /// El puerto real de la red (puede no ser el de la config, si estaba ocupado).
+    pub fn set_port(&self, port: u16) {
+        self.setup
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .port = Some(port);
+    }
+
+    pub fn setup(&self) -> SetupInfo {
+        self.setup
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// El puesto que vale ahora: el de la configuración con lo cambiado en caliente.
+    pub fn desk(&self) -> Config {
+        self.live.desk(&self.cfg.desk)
+    }
+
+    /// Avisa cada vez que cambia el puesto.
+    pub fn subscribe_desk(&self) -> watch::Receiver<Config> {
+        self.desk.subscribe()
+    }
+
+    /// Cambia qué entrada del monitor va a cada máquina: se guarda en `tandem.toml` y vale
+    /// desde el siguiente cambio de modo. No mueve nada: el monitor sigue en la entrada en
+    /// la que está. Con un cambio de modo en curso se rechaza.
+    fn set_wiring(&self, monitor: MonitorId, wiring: BTreeMap<Machine, Input>) -> Reply {
+        if self.cfg.desk.monitor(&monitor).is_none() {
+            return Reply::Rejected(format!(
+                "el monitor `{monitor}` no está en la configuración"
+            ));
+        }
+        if wiring.is_empty() {
+            return Reply::Rejected(format!(
+                "{monitor} tiene que ir cableado al menos a una máquina"
+            ));
+        }
+        let inputs: Vec<Input> = wiring.values().copied().collect();
+        if inputs.len() == 2 && inputs[0] == inputs[1] {
+            return Reply::Rejected(format!(
+                "{monitor}: las dos máquinas no pueden ir a la misma entrada"
+            ));
+        }
+        if self.orch.try_begin().is_none() {
+            return Reply::Rejected(BUSY.into());
+        }
+        let file = self
+            .config_file
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let saved = match file {
+            Some(path) => crate::config_edit::set_monitor_wiring(&path, &monitor, &wiring)
+                .map_err(|e| format!("no se guardó el cableado: {e}")),
+            None => Ok(()),
+        };
+        if saved.is_ok() {
+            tracing::info!(%monitor, ?wiring, "cableado cambiado desde la UI");
+            self.live.rewire(monitor, wiring);
+            self.desk.send_replace(self.desk());
+        }
+        self.orch.end();
+        done(saved)
+    }
+
     /// Los códigos DDC aprendidos en caliente que leen los pasos de pantalla de
     /// [`Agent::with_platform`] (con otros pasos, los que se le hayan dado a ellos).
-    pub fn live_ddc(&self) -> &LiveDdc {
+    pub fn live_desk(&self) -> &LiveDesk {
         &self.live
     }
 
@@ -419,7 +521,9 @@ impl Agent {
     pub fn handle(self: &Arc<Self>, cmd: UiCommand) -> Reply {
         match cmd {
             UiCommand::GetState => Reply::State(self.state()),
-            UiCommand::GetDesk => Reply::Desk(self.cfg.desk.clone()),
+            UiCommand::GetDesk => Reply::Desk(self.desk()),
+            UiCommand::GetSetup => Reply::Setup(self.setup()),
+            UiCommand::SetWiring { monitor, wiring } => self.set_wiring(monitor, wiring),
             UiCommand::GetPeer => Reply::Peer(self.peer_status()),
             UiCommand::GetPairing => Reply::Pairing(self.pairing_status()),
             UiCommand::StartPairing => self.pair(|p| p.start()),
@@ -450,7 +554,7 @@ impl Agent {
                 Err(e) => Reply::Rejected(e.to_string()),
             },
             // Abren el bus DDC, que bloquea: la IPC los pide con `respond`.
-            UiCommand::ListDisplays => match self.wizard().and_then(|w| w.list(&self.cfg.desk)) {
+            UiCommand::ListDisplays => match self.wizard().and_then(|w| w.list(&self.desk())) {
                 Ok(displays) => Reply::Displays(displays),
                 Err(e) => Reply::Rejected(e),
             },
@@ -498,7 +602,8 @@ impl Agent {
         };
         let busy = Busy(self.clone());
         let from = self.state();
-        let plan = match plan_for(&self.cfg.desk, &from) {
+        let desk = self.desk();
+        let plan = match plan_for(&desk, &from) {
             Ok(p) => p,
             Err(e) => return Reply::Rejected(e.to_string()),
         };
@@ -506,10 +611,7 @@ impl Agent {
         tokio::spawn(async move {
             let agent = busy.0.clone();
             let mut state = from;
-            let outcome = agent
-                .orch
-                .run(txn, &agent.cfg.desk, &mut state, &plan)
-                .await;
+            let outcome = agent.orch.run(txn, &desk, &mut state, &plan).await;
             match &outcome {
                 Ok(_) => tracing::info!(txn, "cambio de modo aplicado"),
                 Err(e) => tracing::warn!(txn, "cambio de modo fallido: {e}"),
@@ -565,6 +667,121 @@ pub(crate) mod tests {
         let a = agent(dir.path());
         assert_eq!(a.machine(), Machine::Mac);
         assert_eq!(a.state(), State::initial(&a.config().desk));
+    }
+
+    fn swapped() -> BTreeMap<Machine, Input> {
+        [
+            (Machine::Pc, Input::Hdmi),
+            (Machine::Mac, Input::DisplayPort),
+        ]
+        .into()
+    }
+
+    /// T-082: el cableado elegido en la UI queda en `tandem.toml`, se avisa y el siguiente
+    /// cambio de modo ya pide la entrada nueva.
+    #[tokio::test]
+    async fn wiring_from_the_ui_is_saved_and_used_by_the_next_plan() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tandem.toml");
+        std::fs::write(&file, fixtures::DESK).unwrap();
+        let a = Arc::new(agent(dir.path()));
+        a.set_config_file(file.clone());
+        a.set_generated(true);
+        let mut desk = a.subscribe_desk();
+        let reply = a.handle(UiCommand::SetWiring {
+            monitor: "m32".into(),
+            wiring: swapped(),
+        });
+        assert_eq!(reply, Reply::Done);
+        assert!(desk.has_changed().unwrap());
+        assert_eq!(
+            desk.borrow_and_update()
+                .monitor(&"m32".into())
+                .unwrap()
+                .wiring,
+            swapped()
+        );
+        let Reply::Desk(d) = a.handle(UiCommand::GetDesk) else {
+            panic!("sin puesto")
+        };
+        assert_eq!(d.monitor(&"m32".into()).unwrap().wiring, swapped());
+        let saved = AgentConfig::load(&file).unwrap();
+        assert_eq!(saved.desk.monitor(&"m32".into()).unwrap().wiring, swapped());
+        assert_eq!(
+            a.handle(UiCommand::GetSetup),
+            Reply::Setup(SetupInfo {
+                config_file: Some(file.display().to_string()),
+                generated: true,
+                port: None,
+            })
+        );
+
+        let mut txns = a.subscribe_txns();
+        assert!(matches!(
+            a.handle(UiCommand::SetMode(Mode::SoloPc)),
+            Reply::Accepted { .. }
+        ));
+        let events = until_outcome(&mut txns).await;
+        let TxnEvent::Started { steps, .. } = &events[0] else {
+            panic!("{events:?}")
+        };
+        let input_of = |id: &str| {
+            steps.iter().find_map(|s| match s {
+                Step::SwitchInput { monitor, input, .. } if monitor.0 == id => Some(*input),
+                _ => None,
+            })
+        };
+        assert_eq!(input_of("m32"), Some(Input::Hdmi));
+        assert_eq!(input_of("m34"), Some(Input::DisplayPort));
+    }
+
+    #[test]
+    fn bad_wiring_is_rejected_and_nothing_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tandem.toml");
+        std::fs::write(&file, fixtures::DESK).unwrap();
+        let a = Arc::new(agent(dir.path()));
+        a.set_config_file(file.clone());
+        let same = [(Machine::Pc, Input::Hdmi), (Machine::Mac, Input::Hdmi)].into();
+        for (monitor, wiring) in [("m99", swapped()), ("m32", BTreeMap::new()), ("m32", same)] {
+            let reply = a.handle(UiCommand::SetWiring {
+                monitor: monitor.into(),
+                wiring,
+            });
+            assert!(matches!(reply, Reply::Rejected(_)), "{reply:?}");
+        }
+        // Sin poder escribir el archivo, tampoco cambia en memoria.
+        std::fs::write(&file, "machine = ").unwrap();
+        let reply = a.handle(UiCommand::SetWiring {
+            monitor: "m32".into(),
+            wiring: swapped(),
+        });
+        assert!(
+            matches!(&reply, Reply::Rejected(r) if r.starts_with("no se guardó el cableado")),
+            "{reply:?}"
+        );
+        assert_eq!(a.desk(), a.config().desk);
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "machine = ");
+    }
+
+    #[tokio::test]
+    async fn wiring_waits_for_a_mode_change_in_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        let _txn = a.orchestrator().try_begin().unwrap();
+        let reply = a.handle(UiCommand::SetWiring {
+            monitor: "m32".into(),
+            wiring: swapped(),
+        });
+        assert_eq!(reply, Reply::Rejected(BUSY.into()));
+        a.orchestrator().end();
+        // Sin archivo (pruebas, agente sin `tandem.toml`) vale en memoria.
+        let reply = a.handle(UiCommand::SetWiring {
+            monitor: "m32".into(),
+            wiring: swapped(),
+        });
+        assert_eq!(reply, Reply::Done);
+        assert_eq!(a.desk().monitor(&"m32".into()).unwrap().wiring, swapped());
     }
 
     #[test]

@@ -605,8 +605,11 @@ fn choose_mode(app: &AppHandle, key: ModeKey) {
             ActionResult::Rejected { reason } => tell(&app, reason),
             ActionResult::Unavailable { reason } => tell(&app, format!("Sin agente: {reason}")),
             // El avance llega como cualquier otra transacción.
-            // Un SetMode nunca contesta Displays.
-            ActionResult::Accepted { .. } | ActionResult::Done | ActionResult::Displays { .. } => {}
+            // Un SetMode nunca contesta Displays ni Setup.
+            ActionResult::Accepted { .. }
+            | ActionResult::Done
+            | ActionResult::Displays { .. }
+            | ActionResult::Setup { .. } => {}
         }
     });
 }

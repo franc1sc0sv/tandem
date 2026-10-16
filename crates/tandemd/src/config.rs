@@ -4,10 +4,10 @@
 //! machine = "mac"
 //!
 //! [network]
-//! port = 47770
+//! port = 52000
 //! peers = [
-//!     { kind = "usb4", addr = "10.77.1.2:47770" },
-//!     { kind = "ethernet", addr = "10.77.2.2:47770" },
+//!     { kind = "usb4", addr = "10.77.1.2:52000" },
+//!     { kind = "ethernet", addr = "10.77.2.2:52000" },
 //! ]
 //!
 //! [orchestrator]
@@ -55,8 +55,15 @@ use tandem_link::manager::LinkCandidate;
 use tandem_peripherals::HubConfig;
 use tandem_power::WolTarget;
 
-/// Puerto UDP predeterminado del plano de control (QUIC).
-pub const DEFAULT_PORT: u16 = 47770;
+/// Puerto UDP predeterminado del plano de control (QUIC). Fuera de 47000–48999: Windows
+/// reserva ese rango en las PCs con WSL o Hyper-V (el 47770 de antes daba `os error 10048`).
+pub const DEFAULT_PORT: u16 = 52000;
+
+/// Los que se prueban, en orden, si el configurado no se puede abrir
+/// ([`crate::network::bind_first`]). Repartidos en varios bloques, porque Windows reserva
+/// los puertos de a rangos, y todos fuera de 47000–48999. Cada uno deja libre el siguiente
+/// para el emparejamiento.
+pub const FALLBACK_PORTS: [u16; 8] = [52000, 52100, 53100, 54200, 55300, 56400, 45500, 44600];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentConfig {

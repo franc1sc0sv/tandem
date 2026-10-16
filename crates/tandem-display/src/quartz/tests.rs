@@ -56,6 +56,15 @@ fn finds_monitor_by_edid_model_ignoring_case() {
 }
 
 #[test]
+fn finds_monitor_by_pnp_id() {
+    let mut t = topo();
+    // `external(2, ..)`: fabricante 0x4C2D (SAM), producto 0x7002.
+    assert_eq!(find(&mut t, &monitor("x", "sam7002")).unwrap().id, D34);
+    // Un trozo del id no basta.
+    assert!(find(&mut t, &monitor("x", "SAM70")).is_err());
+}
+
+#[test]
 fn monitor_without_edid_model_never_matches() {
     let mut cfg = m34();
     cfg.edid_model = None;

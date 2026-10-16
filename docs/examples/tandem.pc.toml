@@ -1,6 +1,9 @@
 # tandem.toml de la PC. Va en %APPDATA%\Tandem\tandem.toml (o donde diga
 # `tandemd --config`). Se valida con `tandemd --check-config <archivo>`.
 #
+# No hace falta escribirlo: si no existe, tandemd lo genera al arrancar con los
+# monitores que detecta (T-082). Este ejemplo muestra todas las opciones, para editarlo.
+#
 # El puesto ([[monitors]]) es el mismo que en la Mac; cambian `machine` y las
 # direcciones del otro agente.
 #
@@ -13,13 +16,13 @@
 machine = "pc"
 
 [network]
-port = 47770
+port = 52000
 # Donde esta PC espera a la Mac mientras se empareja (por omisión, port + 1).
-# pairing_port = 47771
+# pairing_port = 52001
 # La Mac en cada enlace directo (DESIGN §6). La LAN de casa se descubre por mDNS.
 peers = [
-    { kind = "usb4", addr = "10.77.1.1:47770" },
-    { kind = "ethernet", addr = "10.77.2.1:47770" },
+    { kind = "usb4", addr = "10.77.1.1:52000" },
+    { kind = "ethernet", addr = "10.77.2.1:52000" },
 ]
 
 [input]

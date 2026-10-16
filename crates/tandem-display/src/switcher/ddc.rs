@@ -156,6 +156,7 @@ mod tests {
                     serial_number: 0,
                     name: Some(name.into()),
                     serial_text: None,
+                    size_cm: None,
                 }),
             }),
             ..Default::default()

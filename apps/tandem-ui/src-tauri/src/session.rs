@@ -9,6 +9,7 @@
 //! usan la IPC en memoria con un agente real; la app, el socket o pipe y los eventos de
 //! Tauri.
 
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,7 +19,8 @@ use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State
 use tandem_proto::{
     AgentToUi, CalibrationOutcome, CalibrationStep, CalibrationUpdate, DisplayInfo, DisplayProfile,
     InputPermission, InputStatus, Link, ManualSwitchEvent, PairingStatus, PeerStatus, PowerEvent,
-    ProbeAnswer, ProbeAsk, ProbeEvent, ProbePlace, Reply, SavedProfile, TxnEvent, UiCommand,
+    ProbeAnswer, ProbeAsk, ProbeEvent, ProbePlace, Reply, SavedProfile, SetupInfo, TxnEvent,
+    UiCommand,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -661,6 +663,13 @@ pub enum Action {
         #[serde(default)]
         monitor: Option<MonitorId>,
     },
+    /// Cambiar el cableado de un monitor (T-082); el puesto nuevo llega en la escena.
+    SetWiring {
+        monitor: MonitorId,
+        wiring: BTreeMap<Machine, Input>,
+    },
+    /// De dónde salió la configuración; contesta [`ActionResult::Setup`].
+    GetSetup,
 }
 
 impl From<Action> for UiCommand {
@@ -685,6 +694,8 @@ impl From<Action> for UiCommand {
             }
             Action::CancelCalibration => UiCommand::CancelCalibration,
             Action::UseProfile { display, monitor } => UiCommand::UseProfile { display, monitor },
+            Action::SetWiring { monitor, wiring } => UiCommand::SetWiring { monitor, wiring },
+            Action::GetSetup => UiCommand::GetSetup,
         }
     }
 }
@@ -709,6 +720,10 @@ pub enum ActionResult {
     Displays {
         displays: Vec<DisplayView>,
     },
+    /// La configuración del agente: archivo, si la generó él y su puerto.
+    Setup {
+        setup: SetupInfo,
+    },
 }
 
 impl From<Reply> for ActionResult {
@@ -719,6 +734,7 @@ impl From<Reply> for ActionResult {
             Reply::Displays(list) => ActionResult::Displays {
                 displays: list.into_iter().map(Into::into).collect(),
             },
+            Reply::Setup(setup) => ActionResult::Setup { setup },
             Reply::Done
             | Reply::State(_)
             | Reply::Desk(_)
@@ -1001,6 +1017,7 @@ impl Runner {
             AgentToUi::Peer(status) => self.update_peer(status.into()),
             AgentToUi::Pairing(status) => self.update_pairing(status.into()),
             AgentToUi::Input(status) => self.update_input(status.into()),
+            AgentToUi::Desk(new) => self.update_desk(new),
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}
         }
@@ -1010,6 +1027,16 @@ impl Runner {
         self.update(|c| match c {
             Snapshot::Connected { state, .. } if *state != new => {
                 *state = new;
+                true
+            }
+            _ => false,
+        });
+    }
+
+    fn update_desk(&self, new: Config) {
+        self.update(|c| match c {
+            Snapshot::Connected { desk, .. } if *desk != new => {
+                *desk = new;
                 true
             }
             _ => false,
@@ -1221,6 +1248,56 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 input: InputStatus::new(Machine::Mac).into(),
             }
         );
+    }
+
+    /// T-082: un clic en la UI cambia el cableado; la escena recibe el puesto nuevo y
+    /// `GetSetup` dice de dónde salió la configuración.
+    #[tokio::test]
+    async fn rewiring_a_monitor_updates_the_scene() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let file = dir.path().join("tandem.toml");
+        std::fs::write(&file, CONFIG).unwrap();
+        a.agent.set_config_file(file.clone());
+        a.agent.set_generated(true);
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+
+        let swapped: BTreeMap<Machine, Input> = [
+            (Machine::Pc, Input::Hdmi),
+            (Machine::Mac, Input::DisplayPort),
+        ]
+        .into();
+        let action: Action = serde_json::from_value(serde_json::json!({
+            "kind": "set_wiring",
+            "monitor": "m32",
+            "wiring": { "pc": "hdmi", "mac": "displayport" },
+        }))
+        .unwrap();
+        assert_eq!(handle.act(action).await, ActionResult::Done);
+        let rewired = |s: &Snapshot| {
+            matches!(s, Snapshot::Connected { desk, .. }
+                if desk.monitor(&"m32".into()).is_some_and(|m| m.wiring == swapped))
+        };
+        rec.until(|snaps, _| snaps.last().is_some_and(rewired))
+            .await;
+        assert!(rewired(&handle.snapshot()));
+
+        let got = handle.act(Action::GetSetup).await;
+        assert_eq!(
+            got,
+            ActionResult::Setup {
+                setup: SetupInfo {
+                    config_file: Some(file.display().to_string()),
+                    generated: true,
+                    port: None,
+                }
+            }
+        );
+        let v = serde_json::to_value(&got).unwrap();
+        assert_eq!(v["kind"], "setup");
+        assert_eq!(v["setup"]["generated"], true);
     }
 
     #[tokio::test]

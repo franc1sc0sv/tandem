@@ -13,7 +13,7 @@ fn launch(args: &[&std::ffi::OsStr]) -> std::process::ExitStatus {
 fn forwards_arguments_and_exit_code() {
     let dir = tempfile::tempdir().unwrap();
     let valid = dir.path().join("valida.toml");
-    std::fs::write(&valid, tandemd::install::INITIAL_PC_CONFIG).unwrap();
+    std::fs::write(&valid, "machine = \"pc\"\nmonitors = []\n").unwrap();
     let invalid = dir.path().join("invalida.toml");
     std::fs::write(&invalid, "machine = ").unwrap();
 

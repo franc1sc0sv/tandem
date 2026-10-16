@@ -19,29 +19,54 @@ Qué deja el instalador:
 | Qué | Dónde |
 |---|---|
 | Programa (la app, `tandemd.exe`, `tandemw.exe`, `uninstall.exe`) | `%LOCALAPPDATA%\Tandem` |
-| Configuración (`tandem.toml`) | `%APPDATA%\Tandem\tandem.toml` |
+| Configuración (`tandem.toml`, la genera el agente al arrancar) | `%APPDATA%\Tandem\tandem.toml` |
 | Estado y logs del agente | `%APPDATA%\Tandem` (`state.json`, `logs\`) |
 | Arranque con la sesión | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, valor `tandemd` |
 | Accesos directos | Menú Inicio (y escritorio en la instalación desatendida) |
 
-### Configuración inicial
+### Configuración automática
 
-Si no hay `%APPDATA%\Tandem\tandem.toml`, el instalador crea uno con `machine = "pc"` y los dos
-monitores del puesto (plantilla en `crates/tandemd/templates/tandem.pc.toml`). **Nunca
-sobrescribe** uno existente: reinstalar o actualizar conserva tus cambios. Después de editarlo:
+El instalador no trae configuración. La primera vez que arranca, `tandemd` crea
+`%APPDATA%\Tandem\tandem.toml` con lo que ve (`tandemd::autoconfig`, T-082), igual que en la
+Mac:
+
+- `machine = "pc"`;
+- un `[[monitors]]` por cada monitor con EDID que ven la topología de Windows y el bus DDC
+  (dxva2), de izquierda a derecha: id = id PnP en minúsculas (`sam711a`, `sam7489`),
+  `edid_model` = id PnP, etiqueta = tamaño (`34"`, `32"`) o modelo, y `ddc` con los códigos
+  de la base de perfiles (`profiles/ddc`) si el modelo está en ella (los dos Samsung del
+  puesto lo están: 34" HDMI 0x06 / DP 0x09, 32" HDMI 0x05 / DP 0x0F);
+- cableado por omisión DisplayPort a la PC y HDMI a la Mac; se cambia con un clic en
+  **Puesto** (botón de la ventana) y se guarda en `tandem.toml`;
+- red, entrada y energía con sus valores por omisión, sin datos de ejemplo.
+
+Reinstalar o actualizar **nunca** toca un `tandem.toml` existente. Se puede editar (formato en
+`docs/examples/tandem.pc.toml`); para detectar los monitores de nuevo, bórralo y reinicia el
+agente (cerrar sesión, o terminar `tandemd.exe` y ejecutar `tandemw.exe`). Para validar uno
+editado a mano:
 
 ```
 "%LOCALAPPDATA%\Tandem\tandemd.exe" --check-config "%APPDATA%\Tandem\tandem.toml"
 ```
 
-y reinicia el agente (cerrar sesión, o terminar `tandemd.exe` y ejecutar `tandemw.exe`).
+### Puerto
+
+El puerto por omisión es el UDP **52000**. En las PCs con WSL o Hyper-V, Windows reserva rangos
+de puertos (en el puesto real, 47000–48999: el 47770 de antes fallaba con `os error 10048`). Si
+el puerto configurado no se puede abrir, el agente prueba otros (52000, 52100, 53100, 54200,
+55300, 56400, 45500, 44600) y anuncia el real por mDNS, así la Mac lo encuentra igual; el de
+emparejamiento es el siguiente al que quedó. Si ninguno abre, el error del log dice cuáles
+probó y cómo arreglarlo. Los rangos reservados se ven con:
+
+```
+netsh interface ipv4 show excludedportrange protocol=udp
+```
 
 ## Arranque automático
 
-Al terminar de copiar, el instalador ejecuta `tandemd --install`, que:
-
-1. crea la configuración inicial si falta;
-2. registra en la clave `Run` de `HKCU` el valor `tandemd` = `"…\Tandem\tandemw.exe"`.
+Al terminar de copiar, el instalador ejecuta `tandemd --install`, que registra en la clave
+`Run` de `HKCU` el valor `tandemd` = `"…\Tandem\tandemw.exe"`, y arranca el agente (que
+genera la configuración si no hay).
 
 `tandemw.exe` es un lanzador de subsistema gráfico que arranca `tandemd.exe` con
 `CREATE_NO_WINDOW`: `tandemd` es una aplicación de consola (su CLI escribe en la terminal) y
@@ -109,7 +134,8 @@ Piezas:
 
 El job `instalador (windows)` construye el instalador, lo sube como artefacto
 `tandem-windows-installer` y corre `test-installer.ps1`: instala en silencio, comprueba los
-archivos, el valor de `Run`, que la config inicial sea válida y que `tandemd` esté corriendo;
+archivos, el valor de `Run`, que `tandemd` esté corriendo y que haya generado una config de la
+PC válida (el instalador no trae ninguna);
 reinstala encima y comprueba que la config del usuario no cambió; desinstala y comprueba que
 el agente se detuvo, que el valor de `Run` y los binarios desaparecieron y que la config se
 conservó. **No lo corras en la PC de uso diario**: instala y desinstala de verdad.

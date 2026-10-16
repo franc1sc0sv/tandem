@@ -632,6 +632,7 @@ mod tests {
                 serial_number: 7,
                 name: Some("LC34G55T".into()),
                 serial_text: None,
+                size_cm: None,
             }),
         };
         let p = Probe {

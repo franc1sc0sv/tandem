@@ -1,6 +1,7 @@
 # Prueba de punta a punta del instalador NSIS en una maquina limpia (lo corre el CI en
-# windows-latest): instalar, comprobar el arranque con la sesion y la config inicial,
-# reinstalar encima (actualizacion), desinstalar y comprobar que no queda nada del programa.
+# windows-latest): instalar, comprobar el arranque con la sesion y que el agente arranca sin
+# config y la genera solo (T-082: el instalador no trae plantilla), reinstalar encima
+# (actualizacion), desinstalar y comprobar que no queda nada del programa.
 #
 # Uso: pwsh tools/windows/installer/test-installer.ps1 -Installer <Tandem_..._x64-setup.exe>
 # Ojo: instala y desinstala de verdad para el usuario actual; no correrlo en la PC de uso diario.
@@ -69,15 +70,18 @@ function Assert-Installed {
     $actual = Get-RunValue
     if ($actual -ne $expected) { Fail "clave Run: se esperaba $expected y hay '$actual'" }
     Ok "clave Run -> $actual"
-    if (-not (Test-Path $config)) { Fail "no se creo $config" }
-    & $daemon --check-config $config
-    if ($LASTEXITCODE -ne 0) { Fail "la config inicial no es valida" }
-    Ok 'config inicial valida'
     Wait-Until { Get-Process -Name tandemd -ErrorAction SilentlyContinue } 20 'tandemd no arranco tras instalar'
     Ok 'tandemd corriendo'
+    # La genera el agente al arrancar, con los monitores que detecta.
+    Wait-Until { Test-Path $config } 30 "tandemd no genero $config"
+    & $daemon --check-config $config
+    if ($LASTEXITCODE -ne 0) { Fail 'la config generada no es valida' }
+    if (-not (Select-String -Path $config -Pattern '^machine = "pc"' -Quiet)) { Fail 'la config generada no es de la PC' }
+    Ok 'config generada por el agente y valida'
 }
 
 if ((Test-Path $installDir) -or (Get-RunValue)) { Fail 'la maquina no esta limpia: ya hay un Tandem instalado' }
+if (Test-Path $config) { Fail "la maquina no esta limpia: ya hay $config" }
 
 Write-Host '== instalar'
 Install-Silent

@@ -74,6 +74,7 @@ fn samsung(product_code: u16, name: &str, description: &str) -> MonitorInfo {
             serial_number: 0,
             name: Some(name.into()),
             serial_text: None,
+            size_cm: None,
         }),
     }
 }

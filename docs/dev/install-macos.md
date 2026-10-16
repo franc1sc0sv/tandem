@@ -19,12 +19,39 @@ pide para capturar e inyectar teclado y mouse.
    desde una copia temporal (*App Translocation*, pasa con apps en cuarentena fuera de
    Aplicaciones), la app no instala el agente y lo dice en la guía: el LaunchAgent apuntaría
    a una ruta que desaparece.
-4. Escribe `~/Library/Application Support/Tandem/tandem.toml` (formato en
-   `crates/tandemd/src/config.rs`). Sin él, `tandemd` sale con error y launchd lo vuelve a
-   intentar cada 30 s; arranca solo en cuanto el archivo es válido. Para comprobarlo:
-   ```sh
-   /Applications/Tandem.app/Contents/MacOS/tandemd --check-config ~/Library/Application\ Support/Tandem/tandem.toml
-   ```
+
+No hay que escribir ninguna configuración. La primera vez que arranca, `tandemd` crea
+`~/Library/Application Support/Tandem/tandem.toml` con lo que ve (ver
+[Configuración automática](#configuración-automática)).
+
+## Configuración automática
+
+Si no hay `tandem.toml`, `tandemd` lo genera al arrancar (`tandemd::autoconfig`, T-082):
+
+- `machine = "mac"`;
+- un `[[monitors]]` por cada monitor externo que macOS ve con EDID (Quartz), de izquierda a
+  derecha: el id es el id PnP del monitor en minúsculas (`sam711a`, el mismo que genera la
+  PC), `edid_model` el id PnP, la etiqueta el tamaño (`34"`) o el modelo, y los códigos DDC de
+  la base de perfiles si el modelo está en ella;
+- cableado por omisión: DisplayPort a la PC y HDMI a la Mac. Si tu cableado es otro, se
+  cambia con un clic en **Puesto** (botón de la ventana) y queda guardado en `tandem.toml`;
+- red, entrada y energía con sus valores por omisión (puerto 52000, sin enlaces fijos, sin
+  Wake-on-LAN ni hub: nada inventado).
+
+La pantalla integrada no entra. Un monitor que la Mac no ve (por ejemplo, uno cableado solo a
+la PC) se completa al sincronizar con la PC. El archivo se puede editar (formato en
+`crates/tandemd/src/config.rs` y `docs/examples/tandem.mac.toml`); mientras exista, el agente no
+lo vuelve a generar. Para detectar los monitores de nuevo, bórralo y reinicia el agente
+(`launchctl kickstart -k gui/$(id -u)/com.franc1sc0sv.tandem.tandemd`). Para validar uno
+editado a mano:
+
+```sh
+/Applications/Tandem.app/Contents/MacOS/tandemd --check-config ~/Library/Application\ Support/Tandem/tandem.toml
+```
+
+Si el puerto UDP configurado no se puede abrir, el agente prueba otros (52000, 52100, 53100…,
+siempre fuera de 47000–48999) y anuncia el real por mDNS. Si ninguno abre, el log dice cuáles
+probó y cómo elegir otro en `[network] port`.
 
 ## El agente de inicio de sesión
 

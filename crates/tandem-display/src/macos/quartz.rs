@@ -67,6 +67,7 @@ unsafe extern "C" {
     fn CGDisplayModelNumber(display: u32) -> u32;
     fn CGDisplaySerialNumber(display: u32) -> u32;
     fn CGDisplayBounds(display: u32) -> CgRect;
+    fn CGDisplayScreenSize(display: u32) -> CgSize;
     fn CGBeginDisplayConfiguration(config: *mut CgDisplayConfigRef) -> CgError;
     fn CGConfigureDisplayMirrorOfDisplay(
         config: CgDisplayConfigRef,
@@ -193,7 +194,7 @@ fn online_ids() -> Result<Vec<u32>, TopologyError> {
 
 fn describe(id: u32) -> CgDisplay {
     // SAFETY: funciones de consulta sin efectos; con un id desconocido devuelven 0/rect nulo.
-    let (builtin, main, active, mirror, vendor, model, serial, rect) = unsafe {
+    let (builtin, main, active, mirror, vendor, model, serial, rect, size) = unsafe {
         (
             CGDisplayIsBuiltin(id) != 0,
             CGDisplayIsMain(id) != 0,
@@ -203,6 +204,7 @@ fn describe(id: u32) -> CgDisplay {
             CGDisplayModelNumber(id),
             CGDisplaySerialNumber(id),
             CGDisplayBounds(id),
+            CGDisplayScreenSize(id),
         )
     };
     CgDisplay {
@@ -211,6 +213,9 @@ fn describe(id: u32) -> CgDisplay {
         vendor,
         model,
         serial,
+        // Sin EDID con tamaño, CoreGraphics da 0 x 0.
+        size_mm: (size.width >= 1.0 && size.height >= 1.0)
+            .then(|| (size.width.round() as u32, size.height.round() as u32)),
         builtin,
         main,
         // En un grupo de espejo por hardware solo la principal cuenta como "activa", pero

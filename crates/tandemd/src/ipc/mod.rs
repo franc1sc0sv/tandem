@@ -10,7 +10,8 @@
 //! el par o el enlace con él, [`AgentToUi::Pairing`] con cada paso del emparejamiento,
 //! [`AgentToUi::Input`] cuando cambia el teclado y mouse (roles, sesión, permisos
 //! que faltan), [`AgentToUi::Probe`] con las sondas de calibración que mostrar y
-//! [`AgentToUi::Calibration`] con el avance de «Agregar monitor».
+//! [`AgentToUi::Calibration`] con el avance de «Agregar monitor» y [`AgentToUi::Desk`]
+//! cuando cambia el puesto (el cableado elegido en la UI).
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -158,6 +159,8 @@ where
     pairing.mark_unchanged();
     let mut input = agent.subscribe_input();
     input.mark_unchanged();
+    let mut desk = agent.subscribe_desk();
+    desk.mark_unchanged();
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
@@ -233,6 +236,13 @@ where
                 }
                 let status = input.borrow_and_update().clone();
                 conn.send(&AgentToUi::Input(status)).await?;
+            }
+            changed = desk.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+                let d = desk.borrow_and_update().clone();
+                conn.send(&AgentToUi::Desk(d)).await?;
             }
             () = stopped(&mut shutdown) => return Ok(()),
         }
