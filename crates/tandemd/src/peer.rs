@@ -401,12 +401,14 @@ mod tests {
             }
         );
         assert_eq!(state, initial);
-        // La PC deshizo el cambio de entrada después del paso colgado, no antes.
+        // La PC deshizo el paso colgado (incierto) y el cambio de entrada después de
+        // él, no antes.
         assert_eq!(
             pc_steps.steps(),
             [
                 switch_34_to_pc(),
-                attach_pc,
+                attach_pc.clone(),
+                attach_pc.inverse(&cfg).unwrap(),
                 switch_34_to_pc().inverse(&cfg).unwrap()
             ]
         );

@@ -5,6 +5,11 @@
 //! control ([`PeerLink`]), siempre con un tiempo máximo ([`StepTimeouts`]). La vuelta
 //! atrás la hace [`tandem_core::run`]; aquí solo se despacha y se publica el avance
 //! como [`TxnEvent`] para la UI.
+//!
+//! Un paso que falla por tiempo o porque se cortó la conexión con el otro agente
+//! pudo haberse hecho igual (se perdió la respuesta, no el pedido). Ese paso incierto
+//! también se deshace, antes que los demás; los pasos son idempotentes, así que
+//! deshacer uno que no llegó a hacerse no cambia nada.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -223,11 +228,38 @@ impl Orchestrator {
         });
         let mut d = Dispatcher {
             orch: self,
+            cfg,
             txn,
             next: 0,
             failed: false,
+            uncertain_undo_failures: Vec::new(),
         };
-        tandem_core::run(cfg, state, plan, &mut d).await
+        let outcome = tandem_core::run(cfg, state, plan, &mut d).await;
+        if d.uncertain_undo_failures.is_empty() {
+            return outcome;
+        }
+        // No se pudo deshacer el paso incierto: el estado real no se sabe.
+        let mut undo_failures = d.uncertain_undo_failures;
+        match outcome {
+            Err(TxnError::RolledBack { step, error }) => Err(TxnError::Inconsistent {
+                step,
+                error,
+                undo_failures,
+            }),
+            Err(TxnError::Inconsistent {
+                step,
+                error,
+                undo_failures: rest,
+            }) => {
+                undo_failures.extend(rest);
+                Err(TxnError::Inconsistent {
+                    step,
+                    error,
+                    undo_failures,
+                })
+            }
+            ok => ok,
+        }
     }
 
     /// Publica el desenlace a la UI y el estado final al otro agente.
@@ -258,32 +290,37 @@ impl Orchestrator {
 
     /// Un paso con su tiempo máximo, en la máquina que le toca.
     pub async fn dispatch(&self, step: &Step) -> Result<(), String> {
+        self.attempt(step).await.map_err(|f| f.error)
+    }
+
+    async fn attempt(&self, step: &Step) -> Result<(), StepFailure> {
         let limit = self.timeouts.for_step(step);
+        let local = || async { self.local.execute(step).await.map_err(StepFailure::certain) };
         let work = async {
             match target(step) {
-                Target::On(m) if m == self.me => self.local.execute(step).await,
+                Target::On(m) if m == self.me => local().await,
                 Target::On(_) => self.remote(step).await,
                 Target::Both => {
-                    self.local.execute(step).await?;
+                    local().await?;
                     self.remote(step).await
                 }
             }
         };
         match tokio::time::timeout(limit, work).await {
             Ok(r) => r,
-            Err(_) => Err(format!(
-                "{}: sin respuesta en {} s",
-                describe(step),
-                limit.as_secs()
-            )),
+            Err(_) => Err(StepFailure {
+                error: format!("{}: sin respuesta en {} s", describe(step), limit.as_secs()),
+                uncertain: true,
+            }),
         }
     }
 
-    async fn remote(&self, step: &Step) -> Result<(), String> {
+    async fn remote(&self, step: &Step) -> Result<(), StepFailure> {
         let peer = self.peer();
-        peer.execute(step)
-            .await
-            .map_err(|e| format!("{}: {e}", self.me.other()))
+        peer.execute(step).await.map_err(|e| StepFailure {
+            uncertain: e == PEER_LOST,
+            error: format!("{}: {e}", self.me.other()),
+        })
     }
 
     /// Un paso pedido por el otro agente: solo se aceptan los que le tocan a esta máquina.
@@ -310,15 +347,34 @@ impl Orchestrator {
     }
 }
 
+/// Por qué falló un paso.
+struct StepFailure {
+    error: String,
+    /// Si pudo haberse hecho igual: venció el tiempo o se cortó la conexión.
+    uncertain: bool,
+}
+
+impl StepFailure {
+    fn certain(error: String) -> Self {
+        StepFailure {
+            error,
+            uncertain: false,
+        }
+    }
+}
+
 /// El [`Executor`] de una transacción: despacha y cuenta los pasos para la UI.
 ///
 /// [`tandem_core::run`] llama primero a los pasos del plan en orden y, tras el primer
 /// fallo, solo a los inversos: por eso alcanza con un contador.
 struct Dispatcher<'a> {
     orch: &'a Orchestrator,
+    cfg: &'a Config,
     txn: u64,
     next: u32,
     failed: bool,
+    /// El inverso del paso incierto, si tampoco se pudo hacer.
+    uncertain_undo_failures: Vec<(Step, String)>,
 }
 
 impl Executor for Dispatcher<'_> {
@@ -332,13 +388,13 @@ impl Executor for Dispatcher<'_> {
         }
         let (txn, index) = (self.txn, self.next);
         self.orch.emit(TxnEvent::StepStarted { txn, index });
-        let r = self.orch.dispatch(step).await;
-        match &r {
+        match self.orch.attempt(step).await {
             Ok(()) => {
                 self.orch.emit(TxnEvent::StepDone { txn, index });
                 self.next += 1;
+                Ok(())
             }
-            Err(error) => {
+            Err(StepFailure { error, uncertain }) => {
                 tracing::warn!(txn, index, "falló un paso: {error}");
                 self.orch.emit(TxnEvent::StepFailed {
                     txn,
@@ -347,9 +403,17 @@ impl Executor for Dispatcher<'_> {
                 });
                 self.orch.emit(TxnEvent::RollingBack { txn });
                 self.failed = true;
+                // La geometría no hace falta: la vuelta atrás la recalcula al final.
+                let undo = step.inverse(self.cfg).filter(|_| uncertain);
+                if let Some(inv) = undo.filter(|inv| *inv != Step::UpdateInputGeometry)
+                    && let Err(e) = self.orch.dispatch(&inv).await
+                {
+                    tracing::error!(txn, "no se pudo deshacer el paso incierto: {e}");
+                    self.uncertain_undo_failures.push((inv, e));
+                }
+                Err(error)
             }
         }
-        r
     }
 }
 
@@ -368,6 +432,8 @@ pub(crate) mod tests {
         pub log: Mutex<Vec<Step>>,
         pub fail_on: Vec<Step>,
         pub delays: Vec<(Step, Duration)>,
+        /// Se aplican, pero la respuesta se pierde con la conexión.
+        pub lost_reply_on: Vec<Step>,
     }
 
     impl LocalSteps for FakeSteps {
@@ -382,6 +448,8 @@ pub(crate) mod tests {
                 }
                 if self.fail_on.contains(step) {
                     Err("falla simulada".to_owned())
+                } else if self.lost_reply_on.contains(step) {
+                    Err(PEER_LOST.to_owned())
                 } else {
                     Ok(())
                 }
@@ -629,10 +697,17 @@ pub(crate) mod tests {
             last,
             TxnEvent::Inconsistent {
                 txn: 2,
-                undo_failures: vec![UndoFailure {
-                    step: back,
-                    error: "pc: falla simulada".into()
-                }]
+                // La geometría sigue fallando al recalcularla al final de la vuelta atrás.
+                undo_failures: vec![
+                    UndoFailure {
+                        step: back,
+                        error: "pc: falla simulada".into()
+                    },
+                    UndoFailure {
+                        step: Step::UpdateInputGeometry,
+                        error: "falla simulada".into()
+                    }
+                ]
             }
         );
     }
@@ -668,7 +743,11 @@ pub(crate) mod tests {
         );
         assert_eq!(start.elapsed(), Duration::from_secs(10));
         assert_eq!(state, initial);
-        assert_eq!(local.steps(), [detach_mac]);
+        // El paso vencido es incierto: también se deshace.
+        assert_eq!(
+            local.steps(),
+            [detach_mac.clone(), detach_mac.inverse(&cfg).unwrap()]
+        );
         // En la PC: entrada, agregar, y después quitar y devolver la entrada.
         let back = switch_34_to_pc().inverse(&cfg).unwrap();
         assert_eq!(
@@ -718,5 +797,101 @@ pub(crate) mod tests {
             }
         ));
         assert_eq!(state, State::initial(&cfg));
+    }
+
+    /// La PC agrega el 34" pero la respuesta se pierde: la Mac no sabe si se hizo, así
+    /// que también lo deshace antes de deshacer el resto.
+    #[tokio::test]
+    async fn uncertain_step_is_undone_too() {
+        let cfg = fixtures::desk().desk;
+        let attach_pc = Step::Attach {
+            machine: Machine::Pc,
+            monitor: "m34".into(),
+        };
+        let (o, _, peer) = mac(
+            FakeSteps::default(),
+            FakeSteps {
+                lost_reply_on: vec![attach_pc.clone()],
+                ..Default::default()
+            },
+        );
+        let mut state = State::initial(&cfg);
+        state.pc_on = true;
+        let initial = state.clone();
+        let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
+        let plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+        let err = o.run(1, &cfg, &mut state, &plan).await.unwrap_err();
+        assert!(matches!(err, TxnError::RolledBack { .. }), "{err:?}");
+        assert_eq!(state, initial);
+        assert_eq!(
+            peer.steps(),
+            [
+                switch_34_to_pc(),
+                attach_pc.clone(),
+                attach_pc.inverse(&cfg).unwrap(),
+                switch_34_to_pc().inverse(&cfg).unwrap(),
+            ]
+        );
+    }
+
+    /// Un paso que falla con certeza no se deshace: no llegó a hacerse.
+    #[tokio::test]
+    async fn certain_failure_is_not_undone() {
+        let cfg = fixtures::desk().desk;
+        let attach_pc = Step::Attach {
+            machine: Machine::Pc,
+            monitor: "m34".into(),
+        };
+        let (o, _, peer) = mac(
+            FakeSteps::default(),
+            FakeSteps {
+                fail_on: vec![attach_pc.clone()],
+                ..Default::default()
+            },
+        );
+        let mut state = State::initial(&cfg);
+        state.pc_on = true;
+        let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
+        let plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+        o.run(1, &cfg, &mut state, &plan).await.unwrap_err();
+        assert_eq!(
+            peer.steps(),
+            [
+                switch_34_to_pc(),
+                attach_pc,
+                switch_34_to_pc().inverse(&cfg).unwrap(),
+            ]
+        );
+    }
+
+    /// Si tampoco se puede deshacer el paso incierto, el resultado es incierto.
+    #[tokio::test]
+    async fn failed_undo_of_uncertain_step_is_inconsistent() {
+        let cfg = fixtures::desk().desk;
+        let attach_pc = Step::Attach {
+            machine: Machine::Pc,
+            monitor: "m34".into(),
+        };
+        let detach_pc = attach_pc.inverse(&cfg).unwrap();
+        let (o, _, _) = mac(
+            FakeSteps::default(),
+            FakeSteps {
+                lost_reply_on: vec![attach_pc],
+                fail_on: vec![detach_pc.clone()],
+                ..Default::default()
+            },
+        );
+        let mut state = State::initial(&cfg);
+        state.pc_on = true;
+        let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
+        let plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+        let err = o.run(1, &cfg, &mut state, &plan).await.unwrap_err();
+        let TxnError::Inconsistent { undo_failures, .. } = err else {
+            panic!("{err:?}");
+        };
+        assert_eq!(
+            undo_failures,
+            [(detach_pc, "pc: falla simulada".to_owned())]
+        );
     }
 }
