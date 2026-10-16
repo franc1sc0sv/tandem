@@ -1,0 +1,19 @@
+# Samsung Odyssey G5 34" (LC34G55T). docs/research/ddc-34-LC34G55T.md
+pnp_id = "SAM711A"
+name = "LC34G55T"
+edid_names = ["LC34G55T"]
+notes = """
+Declara 60 = {12, 0F, 10} en el capabilities string, pero no obedece esos valores.
+0x03 también lleva a HDMI. 0x09 estando ya en DP re-sincroniza (1-2 s en negro).
+La lectura de 0x60 no sirve para saber en qué entrada está: siempre da 0x09."""
+verified_by = "franc1sc0sv (T-050)"
+verified_on = "2026-10-16"
+
+[codes]
+hdmi = 0x06
+display_port = 0x09
+
+# Lectura de 0x60 estando en cada entrada.
+[reported]
+hdmi = 0x09
+display_port = 0x09

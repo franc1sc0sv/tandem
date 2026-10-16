@@ -26,4 +26,4 @@ Leer `0x60` estando en HDMI devolvió `0x05`, y el 34" devuelve siempre `0x09`, 
 
 ## Perfil
 
-`hdmi = 0x05`, `display_port = 0x0F` (`known_profile` en `crates/tandem-display/src/ddc/switch.rs`, configs de `docs/examples/`). El nombre "Odyssey G5" lo comparten varios modelos, así que el perfil se aplica por id PnP (`SAM7489`).
+`hdmi = 0x05`, `display_port = 0x0F` ([`profiles/ddc/SAM7489.toml`](../../profiles/ddc/SAM7489.toml), configs de `docs/examples/`). El nombre "Odyssey G5" lo comparten varios modelos, así que el perfil se aplica por id PnP (`SAM7489`).

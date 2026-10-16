@@ -47,33 +47,12 @@ pub fn mccs_standard() -> InputCodes {
     }
 }
 
-/// Perfil probado de un monitor conocido, buscado por el nombre del EDID.
-/// Devuelve el nombre del perfil y sus códigos.
-pub fn known_profile(info: &MonitorInfo) -> Option<(&'static str, InputCodes)> {
-    let edid = info.edid.as_ref()?;
-    let name = edid.name.as_deref().unwrap_or("").to_ascii_uppercase();
-    if name.contains("LC34G55T") {
-        // docs/research/ddc-34-LC34G55T.md, verificado en el equipo (T-050).
-        return Some((
-            "LC34G55T",
-            InputCodes {
-                hdmi: vec![0x06],
-                display_port: vec![0x09],
-            },
-        ));
-    }
-    // El 32" se anuncia solo como "Odyssey G5" (lo comparten varios modelos): se lo
-    // reconoce por el id PnP. docs/research/ddc-32-odyssey-g5.md, verificado (T-050).
-    if edid.pnp_id() == "SAM7489" {
-        return Some((
-            "Odyssey G5 32\" (SAM7489)",
-            InputCodes {
-                hdmi: vec![0x05],
-                display_port: vec![0x0F],
-            },
-        ));
-    }
-    None
+/// Perfil probado de un monitor conocido, de la base del repo (`profiles/ddc/`).
+/// Devuelve el nombre del perfil y sus códigos. Con los perfiles del usuario:
+/// [`ProfileDb::load`](super::profiles::ProfileDb::load).
+pub fn known_profile(info: &MonitorInfo) -> Option<(String, InputCodes)> {
+    let (entry, _) = super::profiles::ProfileDb::builtin().find(info)?;
+    Some((entry.profile.name.clone(), entry.profile.input_codes()))
 }
 
 /// Espera interrumpible. Permite probar la lógica sin relojes reales.
