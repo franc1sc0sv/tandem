@@ -26,6 +26,9 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
+      # Scripts del workflow de release (notas y versión); bash 4+, por eso solo en Linux.
+      - if: runner.os == 'Linux'
+        run: scripts/release/test.sh
 
   # La app de Tauri (feature `app`) se compila aparte, con el frontend ya construido
   # (`frontendDist`), en los tres sistemas: la barra de menú (macOS), la bandeja (Windows) y

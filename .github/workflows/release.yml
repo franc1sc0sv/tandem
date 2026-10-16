@@ -1,0 +1,220 @@
+name: Release
+
+# Construye los instaladores de macOS (.dmg) y Windows (NSIS), sus checksums y las notas, y
+# crea un release en BORRADOR con todo eso. Ver docs/dev/release.md.
+#
+# - Tag `v*` empujado: release en borrador para ese tag (tiene que coincidir con la versión).
+# - A mano (workflow_dispatch): por omisión en modo prueba, que deja los instaladores, los
+#   checksums y las notas como artefactos del workflow y no crea ningún release ni tag.
+# - PR que toque este workflow o scripts/release: siempre en modo prueba.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      prueba:
+        description: 'Modo prueba: solo artefactos, sin crear el release'
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - scripts/release/**
+
+# Solo el job `release` (que no corre en modo prueba) recibe permiso de escritura.
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  preparar:
+    name: preparar
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.modo.outputs.version }}
+      tag: ${{ steps.modo.outputs.tag }}
+      publicar: ${{ steps.modo.outputs.publicar }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # las notas recorren la historia desde el tag anterior
+      - run: scripts/release/test.sh
+      - name: Versión y modo
+        id: modo
+        env:
+          EVENTO: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          PRUEBA: ${{ inputs.prueba }}
+        run: |
+          publicar=false
+          if [ "$EVENTO" = push ] && [ "$REF_TYPE" = tag ]; then
+            version=$(scripts/release/version.sh "$REF_NAME")
+            tag=$REF_NAME
+            publicar=true
+          else
+            version=$(scripts/release/version.sh)
+            tag=v$version
+            # Solo publica si alguien desmarcó «modo prueba» a mano; cualquier otro valor es prueba.
+            if [ "$EVENTO" = workflow_dispatch ] && [ "$PRUEBA" = false ]; then
+              scripts/release/version.sh "$tag" >/dev/null
+              publicar=true
+            fi
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "publicar=$publicar"
+          } >> "$GITHUB_OUTPUT"
+          if [ "$publicar" = true ]; then
+            echo "Release en borrador: $tag" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Modo prueba: $tag, solo artefactos (sin release)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Notas
+        env:
+          VERSION: ${{ steps.modo.outputs.version }}
+        run: |
+          scripts/release/notes.sh --version "$VERSION" --hasta HEAD > notas.md
+          cat notas.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notas
+          path: notas.md
+          if-no-files-found: error
+
+  # Lo mismo que el job `dmg (macos-latest)` del CI (T-070): firma ad-hoc salvo que haya
+  # variables de firma de Apple (docs/dev/install-macos.md).
+  macos:
+    name: dmg (macos-latest)
+    needs: preparar
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/tandem-ui/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/tandem-ui/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bundle
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/tandem-ui
+      - run: scripts/macos/bundle.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instalador-macos
+          path: target/*-apple-darwin/release/bundle/dmg/Tandem_*.dmg
+          if-no-files-found: error
+
+  # Lo mismo que el job `instalador (windows)` del CI (T-071), con la prueba de instalar y
+  # desinstalar: no se publica un instalador que no se probó.
+  windows:
+    name: instalador (windows)
+    needs: preparar
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/tandem-ui/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/tandem-ui/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: installer
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/tandem-ui
+      - name: Construir el instalador
+        id: build
+        shell: pwsh
+        run: ./tools/windows/installer/build-installer.ps1
+      - name: Probar instalar y desinstalar
+        shell: pwsh
+        run: ./tools/windows/installer/test-installer.ps1 -Installer "${{ steps.build.outputs.installer }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: instalador-windows
+          path: ${{ steps.build.outputs.installer }}
+          if-no-files-found: error
+
+  # Junta los dos instaladores, comprueba que hay exactamente uno de cada y genera los
+  # checksums. El artefacto `tandem-<versión>` es lo que se publicaría.
+  artefactos:
+    name: checksums
+    needs: [preparar, macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: instalador-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          name: notas
+      - name: Checksums
+        working-directory: dist
+        run: |
+          shopt -s nullglob
+          dmg=(Tandem_*.dmg) exe=(Tandem_*-setup.exe)
+          [ ${#dmg[@]} -eq 1 ] || { echo "se esperaba un .dmg: ${dmg[*]}" >&2; exit 1; }
+          [ ${#exe[@]} -eq 1 ] || { echo "se esperaba un -setup.exe: ${exe[*]}" >&2; exit 1; }
+          sha256sum "${dmg[0]}" "${exe[0]}" > SHA256SUMS.txt
+          sha256sum -c SHA256SUMS.txt
+          { echo '```'; cat SHA256SUMS.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tandem-${{ needs.preparar.outputs.version }}
+          path: |
+            dist/*
+            notas.md
+          if-no-files-found: error
+
+  release:
+    name: release (borrador)
+    needs: [preparar, artefactos]
+    if: needs.preparar.outputs.publicar == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tandem-${{ needs.preparar.outputs.version }}
+      - name: Crear el release en borrador
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.preparar.outputs.tag }}
+          VERSION: ${{ needs.preparar.outputs.version }}
+          TAG_PUSH: ${{ github.event_name == 'push' }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "ya hay un release $TAG: bórralo (si es un borrador) y vuelve a correr el workflow" >&2
+            exit 1
+          fi
+          # Con un tag empujado, el release es de ese tag. A mano, el tag v<versión> lo crea
+          # GitHub en este commit recién al publicar el borrador.
+          verificar=()
+          [ "$TAG_PUSH" = true ] && verificar=(--verify-tag)
+          gh release create "$TAG" --draft "${verificar[@]}" --target "$GITHUB_SHA" \
+            --title "Tandem $VERSION" --notes-file notas.md \
+            dist/Tandem_*.dmg dist/Tandem_*-setup.exe dist/SHA256SUMS.txt
