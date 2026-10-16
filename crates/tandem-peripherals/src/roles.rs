@@ -24,6 +24,26 @@ pub enum Selector {
     Manual(Machine),
 }
 
+/// Lo que un agente le reporta al otro: si el hub está en su máquina y a quién
+/// tiene él de servidor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PeerReport {
+    pub hub: bool,
+    pub server: Machine,
+}
+
+/// Lo que este agente sabe del otro.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Peer {
+    /// Sin conexión, o todavía sin reporte.
+    Unknown,
+    /// Se lo da por apagado (`pc_on = false` en la Mac): una máquina apagada no
+    /// ve ningún dispositivo USB, así que no tiene el hub.
+    Off,
+    /// Su último reporte. `server` falta si solo reportó el hub.
+    Seen { hub: bool, server: Option<Machine> },
+}
+
 /// Decide qué máquina es el servidor con lo que sabe este agente: si el hub está
 /// aquí (ya con antirrebote), lo que reporta el otro agente y el selector.
 ///
@@ -34,14 +54,19 @@ pub enum Selector {
 /// aparece en ninguna o aparece en las dos, se queda el servidor que había: una
 /// desconexión larga del hub o del enlace no invierte los roles, y las dos
 /// máquinas no pueden separarse por verlo distinto mientras no se hablan.
+///
+/// La excepción es un otro agente apagado ([`RoleArbiter::set_peer_off`], T-066):
+/// la Mac decide sola, porque la PC apagada no tiene el hub. Mientras tanto la PC
+/// no se entera, así que al volver puede traer otro servidor; si el hub tampoco
+/// decide entonces (en ninguna o en las dos), manda el de la Mac, que es la que
+/// siguió prendida. La PC lo adopta del [`PeerReport`] de la Mac.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoleArbiter {
     me: Machine,
     selector: Selector,
     /// `None` hasta la primera lectura.
     local_hub: Option<bool>,
-    /// `None` mientras el otro agente no lo haya reportado (o sin conexión).
-    peer_hub: Option<bool>,
+    peer: Peer,
     server: Machine,
 }
 
@@ -52,7 +77,7 @@ impl RoleArbiter {
             me,
             selector: Selector::Auto,
             local_hub: None,
-            peer_hub: None,
+            peer: Peer::Unknown,
             server,
         }
     }
@@ -81,8 +106,26 @@ impl RoleArbiter {
         self.local_hub
     }
 
+    /// Si el hub está en la otra máquina, según su reporte; `Some(false)` si está apagada.
     pub fn peer_hub(&self) -> Option<bool> {
-        self.peer_hub
+        match self.peer {
+            Peer::Unknown => None,
+            Peer::Off => Some(false),
+            Peer::Seen { hub, .. } => Some(hub),
+        }
+    }
+
+    /// Si se da al otro agente por apagado.
+    pub fn peer_off(&self) -> bool {
+        self.peer == Peer::Off
+    }
+
+    /// Lo que este agente le reporta al otro.
+    pub fn report(&self) -> Option<PeerReport> {
+        self.local_hub.map(|hub| PeerReport {
+            hub,
+            server: self.server,
+        })
     }
 
     /// Cambia el selector. Devuelve el servidor nuevo si cambió.
@@ -97,19 +140,48 @@ impl RoleArbiter {
         self.resolve()
     }
 
-    /// Lo que reporta el otro agente; `None` al perder la conexión con él.
+    /// Lo que reporta el otro agente, solo el hub; `None` al perder la conexión con él.
     pub fn set_peer_hub(&mut self, present: Option<bool>) -> Option<Machine> {
-        self.peer_hub = present;
+        self.peer = match present {
+            Some(hub) => Peer::Seen { hub, server: None },
+            None => Peer::Unknown,
+        };
+        self.resolve()
+    }
+
+    /// El reporte completo del otro agente; `None` al perder la conexión con él.
+    pub fn set_peer(&mut self, report: Option<PeerReport>) -> Option<Machine> {
+        self.peer = match report {
+            Some(r) => Peer::Seen {
+                hub: r.hub,
+                server: Some(r.server),
+            },
+            None => Peer::Unknown,
+        };
+        self.resolve()
+    }
+
+    /// El otro agente se da por apagado (en la Mac, `pc_on = false`): cuenta como
+    /// que no tiene el hub. Lo quita el siguiente reporte suyo o perder la conexión.
+    pub fn set_peer_off(&mut self) -> Option<Machine> {
+        self.peer = Peer::Off;
         self.resolve()
     }
 
     fn resolve(&mut self) -> Option<Machine> {
         let next = match self.selector {
             Selector::Manual(machine) => machine,
-            Selector::Auto => match (self.local_hub, self.peer_hub) {
+            Selector::Auto => match (self.local_hub, self.peer_hub()) {
                 (Some(true), Some(false)) => self.me,
                 (Some(false), Some(true)) => self.me.other(),
-                _ => self.server,
+                // Empate: en la PC manda el servidor de la Mac (ver arriba).
+                _ => match self.peer {
+                    Peer::Seen {
+                        server: Some(theirs),
+                        ..
+                    } if self.me == Machine::Pc => theirs,
+                    _ => self.server,
+                },
             },
         };
         (next != self.server).then(|| {
@@ -348,6 +420,241 @@ mod tests {
                 if desk.connected && desk.mac.selector() == Selector::Auto && desk.hub_on_mac != desk.hub_on_pc {
                     let at = if desk.hub_on_mac { Machine::Mac } else { Machine::Pc };
                     prop_assert_eq!(desk.mac.server(), at);
+                }
+            }
+        }
+    }
+
+    // --- La PC apagada (T-066) ---
+
+    #[test]
+    fn with_the_pc_off_the_mac_decides_alone() {
+        // La PC tenía el hub; se apaga y el hub pasa a la Mac.
+        let mut mac = RoleArbiter::new(Machine::Mac, Machine::Pc);
+        mac.set_local_hub(false);
+        mac.set_peer_hub(Some(true));
+        assert_eq!(mac.server(), Machine::Pc);
+        assert_eq!(mac.set_peer_off(), None, "sin el hub aquí no cambia nada");
+        assert!(mac.peer_off());
+        assert_eq!(mac.peer_hub(), Some(false));
+        assert_eq!(mac.set_local_hub(true), Some(Machine::Mac));
+        // Perder el hub aquí tampoco devuelve el servidor a la PC apagada.
+        assert_eq!(mac.set_local_hub(false), None);
+        assert_eq!(mac.server(), Machine::Mac);
+    }
+
+    #[test]
+    fn peer_off_ends_with_its_next_report_or_without_connection() {
+        let mut mac = RoleArbiter::new(Machine::Mac, Machine::Mac);
+        mac.set_peer_off();
+        mac.set_peer(Some(PeerReport {
+            hub: true,
+            server: Machine::Mac,
+        }));
+        assert!(!mac.peer_off());
+        assert_eq!(mac.peer_hub(), Some(true));
+        mac.set_peer_off();
+        mac.set_peer(None);
+        assert!(!mac.peer_off());
+        assert_eq!(mac.peer_hub(), None);
+    }
+
+    #[test]
+    fn the_pc_coming_back_follows_the_mac_on_a_tie() {
+        // La Mac quedó de servidor mientras la PC estaba apagada; al volver la
+        // PC trae lo último que guardó, y el hub no está en ninguna.
+        let mut pc = RoleArbiter::new(Machine::Pc, Machine::Pc);
+        let mut mac = RoleArbiter::new(Machine::Mac, Machine::Mac);
+        mac.set_local_hub(false);
+        assert_eq!(pc.set_local_hub(false), None);
+        assert_eq!(pc.set_peer(mac.report()), Some(Machine::Mac));
+        assert_eq!(mac.set_peer(pc.report()), None);
+        assert_eq!(mac.server(), Machine::Mac);
+    }
+
+    #[test]
+    fn the_mac_keeps_its_server_on_a_tie() {
+        let mut mac = RoleArbiter::new(Machine::Mac, Machine::Mac);
+        mac.set_local_hub(true);
+        let theirs = PeerReport {
+            hub: true,
+            server: Machine::Pc,
+        };
+        assert_eq!(mac.set_peer(Some(theirs)), None);
+        assert_eq!(mac.server(), Machine::Mac);
+    }
+
+    #[test]
+    fn the_hub_still_wins_over_the_reported_server() {
+        let mut pc = RoleArbiter::new(Machine::Pc, Machine::Mac);
+        pc.set_local_hub(true);
+        let mac = PeerReport {
+            hub: false,
+            server: Machine::Mac,
+        };
+        assert_eq!(pc.set_peer(Some(mac)), Some(Machine::Pc));
+    }
+
+    #[test]
+    fn the_report_needs_a_local_reading() {
+        let mut a = RoleArbiter::new(Machine::Pc, Machine::Mac);
+        assert_eq!(a.report(), None);
+        a.set_local_hub(true);
+        assert_eq!(
+            a.report(),
+            Some(PeerReport {
+                hub: true,
+                server: Machine::Mac
+            })
+        );
+    }
+
+    /// Un hecho del puesto con la PC que se apaga y vuelve.
+    #[derive(Debug, Clone, Copy)]
+    enum PowerOp {
+        Selector(Selector),
+        /// Dónde está el hub de verdad (en la PC apagada no se ve).
+        Hub(Machine, bool),
+        LinkDown,
+        LinkUp,
+        /// La PC se apaga (o pierde la corriente) y la Mac, pasado el umbral, lo sabe.
+        PcOff,
+        /// Los enlaces caen el tiempo suficiente para que la Mac dé la PC por
+        /// apagada, aunque siga prendida (T-063).
+        PresumedOff,
+        /// La PC arranca con el servidor que haya guardado, sea cual sea.
+        PcOn(Machine),
+    }
+
+    fn power_op() -> impl Strategy<Value = PowerOp> {
+        prop_oneof![
+            prop_oneof![Just(Selector::Auto), machine().prop_map(Selector::Manual)]
+                .prop_map(PowerOp::Selector),
+            (machine(), any::<bool>()).prop_map(|(m, p)| PowerOp::Hub(m, p)),
+            (machine(), any::<bool>()).prop_map(|(m, p)| PowerOp::Hub(m, p)),
+            Just(PowerOp::LinkDown),
+            Just(PowerOp::LinkUp),
+            Just(PowerOp::PcOff),
+            Just(PowerOp::PresumedOff),
+            machine().prop_map(PowerOp::PcOn),
+        ]
+    }
+
+    struct PoweredDesk {
+        mac: RoleArbiter,
+        pc: RoleArbiter,
+        hub_on_mac: bool,
+        hub_on_pc: bool,
+        pc_running: bool,
+        link: bool,
+        mac_thinks_off: bool,
+    }
+
+    impl PoweredDesk {
+        fn new(start: Machine) -> Self {
+            let mut d = PoweredDesk {
+                mac: RoleArbiter::new(Machine::Mac, start),
+                pc: RoleArbiter::new(Machine::Pc, start),
+                hub_on_mac: false,
+                hub_on_pc: false,
+                pc_running: true,
+                link: true,
+                mac_thinks_off: false,
+            };
+            d.deliver();
+            d
+        }
+
+        fn connected(&self) -> bool {
+            self.pc_running && self.link
+        }
+
+        fn apply(&mut self, op: PowerOp) {
+            match op {
+                PowerOp::Selector(s) => {
+                    self.mac.set_selector(s);
+                    if self.pc_running {
+                        self.pc.set_selector(s);
+                    }
+                }
+                PowerOp::Hub(Machine::Mac, p) => self.hub_on_mac = p,
+                PowerOp::Hub(Machine::Pc, p) => self.hub_on_pc = p,
+                PowerOp::LinkDown => self.link = false,
+                PowerOp::LinkUp => self.link = true,
+                PowerOp::PcOff => {
+                    self.pc_running = false;
+                    self.mac_thinks_off = true;
+                }
+                PowerOp::PresumedOff => {
+                    self.link = false;
+                    self.mac_thinks_off = true;
+                }
+                PowerOp::PcOn(saved) => {
+                    if !self.pc_running {
+                        // El selector se aplica en los dos agentes.
+                        self.pc = RoleArbiter::new(Machine::Pc, saved);
+                        self.pc.set_selector(self.mac.selector());
+                        self.pc_running = true;
+                        self.link = true;
+                    }
+                }
+            }
+            self.deliver();
+        }
+
+        /// Cada agente lee su hub y, si se hablan, intercambian reportes hasta
+        /// que no cambia nada (cada cambio de servidor se vuelve a reportar).
+        fn deliver(&mut self) {
+            self.mac.set_local_hub(self.hub_on_mac);
+            if self.pc_running {
+                self.pc.set_local_hub(self.hub_on_pc);
+            }
+            if self.connected() {
+                // Flanco de subida: la Mac vuelve a dar la PC por prendida.
+                self.mac_thinks_off = false;
+                for _ in 0..4 {
+                    self.mac.set_peer(self.pc.report());
+                    self.pc.set_peer(self.mac.report());
+                }
+            } else {
+                if self.mac_thinks_off {
+                    self.mac.set_peer_off();
+                } else {
+                    self.mac.set_peer(None);
+                }
+                if self.pc_running {
+                    self.pc.set_peer(None);
+                }
+            }
+        }
+    }
+
+    proptest! {
+        /// Con la PC apagada y el hub en la Mac, la Mac es el servidor; y cuando
+        /// las dos se hablan, coinciden, sea cual sea el servidor que la PC
+        /// traiga al arrancar.
+        #[test]
+        fn roles_converge_after_the_pc_is_off(
+            start in machine(),
+            ops in proptest::collection::vec(power_op(), 0..40),
+        ) {
+            let mut desk = PoweredDesk::new(start);
+            for op in ops {
+                desk.apply(op);
+                let auto = desk.mac.selector() == Selector::Auto;
+                if desk.connected() {
+                    prop_assert_eq!(desk.mac.server(), desk.pc.server(), "{:?}", op);
+                    let pc_hub = desk.hub_on_pc;
+                    if auto && desk.hub_on_mac != pc_hub {
+                        let at = if desk.hub_on_mac { Machine::Mac } else { Machine::Pc };
+                        prop_assert_eq!(desk.mac.server(), at);
+                    }
+                }
+                if auto && desk.mac_thinks_off && desk.hub_on_mac {
+                    prop_assert_eq!(desk.mac.server(), Machine::Mac);
+                }
+                if let Selector::Manual(m) = desk.mac.selector() {
+                    prop_assert_eq!(desk.mac.server(), m);
                 }
             }
         }

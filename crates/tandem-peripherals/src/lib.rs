@@ -24,7 +24,7 @@ mod windows;
 
 pub use debounce::Debouncer;
 pub use id::{ParseUsbIdError, UsbId};
-pub use roles::{Role, RoleArbiter, Selector};
+pub use roles::{PeerReport, Role, RoleArbiter, Selector};
 pub use watcher::{
     DEFAULT_DEBOUNCE, DEFAULT_POLL, DeviceScanner, HubConfig, HubTracker, HubWatcher, Presence,
     WatchConfig,

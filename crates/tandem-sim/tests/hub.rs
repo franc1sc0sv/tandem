@@ -8,7 +8,7 @@ use std::time::Duration;
 use tandem_core::{Machine, Mode};
 use tandem_link::manager::LinkKind;
 use tandem_peripherals::{
-    DeviceScanner, HubConfig, HubWatcher, Presence, RoleArbiter, UsbId, WatchConfig,
+    DeviceScanner, HubConfig, HubWatcher, Presence, Role, RoleArbiter, UsbId, WatchConfig,
 };
 use tandem_sim::world::World;
 use tandem_sim::{Desk, Outcome, Power};
@@ -64,20 +64,41 @@ impl Roles {
             RoleArbiter::new(Machine::Mac, Machine::Mac),
             RoleArbiter::new(Machine::Pc, Machine::Mac),
         ])));
-        let (world, net, r) = (d.world.clone(), d.net.clone(), roles.clone());
+        let (world, net, mac_agent, r) =
+            (d.world.clone(), d.net.clone(), d.mac.clone(), roles.clone());
         tokio::spawn(async move {
+            let mut was_on = world.power() == Power::On;
             loop {
                 tokio::time::sleep(Duration::from_millis(100)).await;
                 let pc_on = world.power() == Power::On;
                 let connected = pc_on && LinkKind::ALL.iter().any(|k| net.is_up(*k));
                 let (mac, pc) = (mac_rx.borrow().hub(), pc_rx.borrow().hub());
                 let mut a = r.0.lock().unwrap_or_else(PoisonError::into_inner);
+                // Con la PC apagada su agente no corre; al arrancar empieza de
+                // cero con el último servidor que guardó.
+                if pc_on && !was_on {
+                    let saved = a[1].server();
+                    a[1] = RoleArbiter::new(Machine::Pc, saved);
+                }
+                was_on = pc_on;
                 a[0].set_local_hub(mac);
-                a[0].set_peer_hub(connected.then_some(pc));
-                // Con la PC apagada su agente no corre.
                 if pc_on {
                     a[1].set_local_hub(pc);
-                    a[1].set_peer_hub(connected.then_some(mac));
+                }
+                if connected {
+                    let (to_mac, to_pc) = (a[1].report(), a[0].report());
+                    a[0].set_peer(to_mac);
+                    a[1].set_peer(to_pc);
+                } else {
+                    // La Mac no sabe si la PC está prendida: lo que cree su agente (T-063).
+                    if mac_agent.state().pc_on {
+                        a[0].set_peer(None);
+                    } else {
+                        a[0].set_peer_off();
+                    }
+                    if pc_on {
+                        a[1].set_peer(None);
+                    }
                 }
             }
         });
@@ -95,6 +116,16 @@ impl Roles {
             );
         }
         a[0].server()
+    }
+
+    /// El chip de teclado y mouse que muestra la UI de cada máquina: el papel que
+    /// le da su árbitro.
+    fn chip(&self, on: Machine) -> Role {
+        let a = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        match on {
+            Machine::Mac => a[0].role(),
+            Machine::Pc => a[1].role(),
+        }
     }
 }
 
@@ -134,19 +165,20 @@ async fn mover_el_hub_con_el_puesto_completo() {
     d.net.restore(LinkKind::Usb4);
     d.net.restore(LinkKind::Ethernet);
 
-    // Hub en la PC y la PC se apaga: sin el reporte de la PC no se invierte nada
-    // (no hay con quién ponerse de acuerdo)...
+    // Hub en la PC y la PC se apaga: la Mac la da por apagada y, con el hub
+    // ahora en ella, es el servidor sin esperar a la PC (T-066).
     d.world.plug_hub(Machine::Pc);
     tokio::time::sleep(Duration::from_secs(5)).await;
     assert_eq!(roles.server(true), Machine::Pc);
     let run = d.shutdown_pc().await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed));
     d.world.plug_hub(Machine::Mac);
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    tokio::time::sleep(Duration::from_secs(5)).await;
     assert_eq!(d.world.power(), Power::Off);
-    assert_eq!(roles.server(false), Machine::Pc);
+    assert_eq!(roles.server(false), Machine::Mac);
+    assert_eq!(roles.chip(Machine::Mac), Role::Server);
 
-    // ...y en cuanto la PC vuelve y reporta que no lo tiene, la Mac es el servidor.
+    // La PC vuelve, no tiene el hub y se pone de cliente.
     let run = d
         .set_mode(
             Machine::Mac,
@@ -157,4 +189,57 @@ async fn mover_el_hub_con_el_puesto_completo() {
     assert_eq!(run.outcome(), Some(Outcome::Committed));
     tokio::time::sleep(Duration::from_secs(5)).await;
     assert_eq!(roles.server(true), Machine::Mac);
+    assert_eq!(roles.chip(Machine::Pc), Role::Client);
+}
+
+/// QA ronda 2: la PC pierde la corriente con el hub conectado y el hub pasa a la
+/// Mac. Mientras la Mac no da la PC por apagada nada cambia; pasado el umbral de
+/// T-063, la Mac es el servidor y su UI lo muestra. Al volver la PC (con el
+/// servidor que tenía guardado, la PC) los roles convergen como siempre.
+#[tokio::test(start_paused = true)]
+async fn la_pc_se_apaga_con_el_hub() {
+    let d = Desk::new().await.unwrap();
+    let roles = Roles::start(&d);
+    let run = d
+        .set_mode(
+            Machine::Mac,
+            Mode::Shared([("m34".into(), Machine::Pc)].into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(run.outcome(), Some(Outcome::Committed));
+    d.world.plug_hub(Machine::Pc);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(roles.server(true), Machine::Pc);
+    assert_eq!(roles.chip(Machine::Mac), Role::Client);
+
+    let lost_after = d.mac.config().power.pc_lost_after();
+    d.pull_pc_plug();
+    d.world.plug_hub(Machine::Mac);
+    // Dentro del umbral la Mac todavía no sabe si la PC sigue ahí.
+    tokio::time::sleep(lost_after - Duration::from_secs(1)).await;
+    assert!(d.mac.state().pc_on);
+    assert_eq!(roles.server(false), Machine::Pc);
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(!d.mac.state().pc_on);
+    assert_eq!(roles.server(false), Machine::Mac);
+    assert_eq!(roles.chip(Machine::Mac), Role::Server);
+
+    // La PC vuelve con su botón: el hub sigue en la Mac y la PC se pone de cliente.
+    d.press_pc_power_button();
+    let mut states = d.mac.subscribe();
+    tokio::time::timeout(Duration::from_secs(3600), states.wait_for(|s| s.pc_on))
+        .await
+        .unwrap()
+        .unwrap();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(roles.server(true), Machine::Mac);
+    assert_eq!(roles.chip(Machine::Pc), Role::Client);
+
+    // Y mover el hub a la PC invierte los roles igual que antes.
+    d.world.plug_hub(Machine::Pc);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(roles.server(true), Machine::Pc);
+    assert_eq!(roles.chip(Machine::Mac), Role::Client);
 }
