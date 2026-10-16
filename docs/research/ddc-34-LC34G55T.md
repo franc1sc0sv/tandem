@@ -20,7 +20,7 @@ El monitor **declara** `60 = {12, 0F, 10}`, pero **no obedece** esos valores.
 |---|---|
 | `0x03` | ✅ cambia a HDMI (imagen de la Mac) |
 | `0x06` | ✅ cambia a HDMI (imagen de la Mac) |
-| `0x09` / `0x0F` | ✅ regresa a DisplayPort (la secuencia mandó ambos; falta aislar cuál basta) |
+| `0x09` | ✅ regresa a DisplayPort (aislado el 2026-10-16, T-050) |
 | `0x09` estando ya en DP | provoca re-sincronización (~1–2 s en negro) |
 | `0x01`, `0x02`, `0x04`, `0x05`, `0x07`, `0x08`, `0x0A`–`0x0E` | sin efecto |
 | `0x10`–`0x1F` (incluye los declarados `0x12`, `0x10`) | sin efecto, también repitiendo la orden |
@@ -40,6 +40,6 @@ por el HDMI integrado y por el cable USB-C→HDMI.
 
 ## Pendiente
 
-- [ ] Aislar si la vuelta funciona con `0x09` o con `0x0F`.
-- [ ] Repetir todo con el 32" conectado por DP a la PC.
+- [x] Aislar si la vuelta funciona con `0x09` o con `0x0F`: basta `0x09` (T-050).
+- [x] Repetir todo con el 32" conectado por DP a la PC: ver `ddc-32-odyssey-g5.md`.
 - [ ] Ver si Windows conserva el canal DDC con el monitor desactivado en la topología (`SetDisplayConfig`), o si hace falta I2C por NvAPI.

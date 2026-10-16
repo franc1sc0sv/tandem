@@ -644,10 +644,10 @@ mod tests {
         let (r, out, waits) = exec(&mut b, &["switch", "0", "hdmi", "--return-after", "8"]);
         r.unwrap();
         let writes: Vec<_> = b.writes.iter().map(|w| (w.1, w.2)).collect();
-        assert_eq!(writes, vec![(0x60, 0x06), (0x60, 0x0F), (0x60, 0x09)]);
+        assert_eq!(writes, vec![(0x60, 0x06), (0x60, 0x09)]);
         assert_eq!(waits[0], Duration::from_secs(8));
         assert!(out.contains("perfil LC34G55T"));
-        assert!(out.contains("vuelta: 0x60 = 0x0F: ok"));
+        assert!(out.contains("vuelta: 0x60 = 0x09: ok"));
         assert!(out.ends_with("listo\n"));
     }
 
@@ -745,7 +745,7 @@ mod tests {
         let (r, out, _) = exec(&mut b, &["switch", "0", "dp", "--return-after", "5"]);
         r.unwrap();
         let writes: Vec<_> = b.writes.iter().map(|w| w.2).collect();
-        assert_eq!(writes, vec![0x0F, 0x09, 0x06]);
+        assert_eq!(writes, vec![0x09, 0x06]);
         assert!(out.contains("vuelta a hdmi (0x06)"), "{out}");
     }
 

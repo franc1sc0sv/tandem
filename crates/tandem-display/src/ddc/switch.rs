@@ -22,8 +22,8 @@ pub const RETRY_GAP: Duration = Duration::from_secs(1);
 
 /// Códigos de `0x60` que se mandan para llegar a cada entrada, en orden.
 ///
-/// Es una lista porque hay monitores que no está claro cuál obedecen: el 34" vuelve a DP
-/// con `0x0F` o con `0x09` (spike S8), así que la vuelta manda los dos.
+/// Es una lista para monitores de los que no se sabe qué código obedecen: se mandan en
+/// orden. Los perfiles conocidos llevan un solo código por entrada, probado en el equipo.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InputCodes {
     pub hdmi: Vec<u8>,
@@ -50,14 +50,26 @@ pub fn mccs_standard() -> InputCodes {
 /// Perfil probado de un monitor conocido, buscado por el nombre del EDID.
 /// Devuelve el nombre del perfil y sus códigos.
 pub fn known_profile(info: &MonitorInfo) -> Option<(&'static str, InputCodes)> {
-    let name = info.edid.as_ref()?.name.as_deref()?.to_ascii_uppercase();
+    let edid = info.edid.as_ref()?;
+    let name = edid.name.as_deref().unwrap_or("").to_ascii_uppercase();
     if name.contains("LC34G55T") {
-        // docs/research/ddc-34-LC34G55T.md: HDMI con 0x06 (o 0x03); DP con 0x0F/0x09.
+        // docs/research/ddc-34-LC34G55T.md, verificado en el equipo (T-050).
         return Some((
             "LC34G55T",
             InputCodes {
                 hdmi: vec![0x06],
-                display_port: vec![0x0F, 0x09],
+                display_port: vec![0x09],
+            },
+        ));
+    }
+    // El 32" se anuncia solo como "Odyssey G5" (lo comparten varios modelos): se lo
+    // reconoce por el id PnP. docs/research/ddc-32-odyssey-g5.md, verificado (T-050).
+    if edid.pnp_id() == "SAM7489" {
+        return Some((
+            "Odyssey G5 32\" (SAM7489)",
+            InputCodes {
+                hdmi: vec![0x05],
+                display_port: vec![0x0F],
             },
         ));
     }
@@ -480,6 +492,24 @@ mod tests {
     }
 
     #[test]
+    fn known_profile_matches_the_32_by_pnp_id() {
+        let mut e = edid::parse(&edid::tests::sample("Odyssey G5", "S")).unwrap();
+        let info = |e: &edid::Edid| MonitorInfo {
+            index: 1,
+            description: String::new(),
+            device: String::new(),
+            edid: Some(e.clone()),
+        };
+        // Otro Odyssey G5 (otro id PnP) no usa el perfil del 32".
+        assert!(known_profile(&info(&e)).is_none());
+        e.manufacturer = "SAM".into();
+        e.product_code = 0x7489;
+        let (_, codes) = known_profile(&info(&e)).unwrap();
+        assert_eq!(codes.for_input(Input::Hdmi), &[0x05]);
+        assert_eq!(codes.for_input(Input::DisplayPort), &[0x0F]);
+    }
+
+    #[test]
     fn known_profile_matches_lc34g55t_by_edid_name() {
         let info = |name: &str| MonitorInfo {
             index: 0,
@@ -490,7 +520,7 @@ mod tests {
         let (name, codes) = known_profile(&info("LC34G55T")).unwrap();
         assert_eq!(name, "LC34G55T");
         assert_eq!(codes.for_input(Input::Hdmi), &[0x06]);
-        assert_eq!(codes.for_input(Input::DisplayPort), &[0x0F, 0x09]);
+        assert_eq!(codes.for_input(Input::DisplayPort), &[0x09]);
         assert!(known_profile(&info("U2720Q")).is_none());
         let mut no_edid = info("LC34G55T");
         no_edid.edid = None;
