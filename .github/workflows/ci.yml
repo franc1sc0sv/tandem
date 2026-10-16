@@ -27,6 +27,41 @@ jobs:
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
 
+  # La app de Tauri (feature `app`) necesita WebKitGTK: se compila aparte, con el
+  # frontend ya construido (`frontendDist`). La lógica portable de tandem-ui ya corre
+  # en la matriz de arriba.
+  ui:
+    name: ui (ubuntu-latest)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/tandem-ui
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencias de sistema de Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev libssl-dev
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/tandem-ui/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/tandem-ui/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ui
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build
+      - run: cargo clippy -p tandem-ui --features app --all-targets
+      - run: cargo build -p tandem-ui --features app
+
   # Informativo: no bloquea el merge. Objetivo ≥ 80 % en los crates portables (docs/TESTING.md).
   coverage:
     name: cobertura
