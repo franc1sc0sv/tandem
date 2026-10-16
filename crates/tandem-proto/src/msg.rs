@@ -136,6 +136,21 @@ pub enum AgentToUi {
     State(State),
     Txn(TxnEvent),
     ManualSwitch(ManualSwitchEvent),
+    Power(PowerEvent),
+}
+
+/// Cambios de energía de la PC que no vienen de un cambio de modo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PowerEvent {
+    /// La PC dejó de contestar por todos los enlaces sin que nadie la apagara (lo más
+    /// probable, un corte de corriente): el agente de la Mac la da por apagada.
+    PcLost {
+        /// Texto para mostrar en la UI.
+        reason: String,
+        /// Monitores que siguen en la entrada de la PC y quedan en negro hasta
+        /// encenderla: la Mac no puede cambiarles la entrada sin ella.
+        stranded: Vec<MonitorId>,
+    },
 }
 
 /// Un monitor sin DDC: el usuario tiene que cambiar la entrada a mano y confirmarlo con
@@ -443,6 +458,14 @@ pub(crate) mod samples {
                 input: Input::DisplayPort,
             }),
             AgentToUi::ManualSwitch(ManualSwitchEvent::Closed { id: 1 }),
+            AgentToUi::Power(PowerEvent::PcLost {
+                reason: "la PC no responde".into(),
+                stranded: vec!["m34".into()],
+            }),
+            AgentToUi::Power(PowerEvent::PcLost {
+                reason: String::new(),
+                stranded: vec![],
+            }),
         ];
         v.extend(txn_events().into_iter().map(AgentToUi::Txn));
         v
@@ -454,6 +477,7 @@ pub(crate) mod samples {
             AgentToUi::State(_) => 1,
             AgentToUi::Txn(_) => 2,
             AgentToUi::ManualSwitch(_) => 3,
+            AgentToUi::Power(_) => 4,
         }
     }
 
@@ -508,7 +532,7 @@ mod tests {
         covers(&control(), control_arm, 6);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
         covers(&cmds, ui_command_arm, 5);
-        covers(&to_ui(), to_ui_arm, 4);
+        covers(&to_ui(), to_ui_arm, 5);
         let replies: Vec<_> = to_ui()
             .into_iter()
             .filter_map(|m| match m {

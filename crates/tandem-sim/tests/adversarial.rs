@@ -199,14 +199,17 @@ async fn sin_ethernet_la_pc_no_despierta() {
     d.check().await.unwrap();
 }
 
-/// La PC se queda sin corriente en Compartido. Un cambio que necesita a la PC
-/// falla enseguida y limpio (no hay con quién hablar), y la Mac conserva su monitor.
+/// La PC se queda sin corriente en Compartido. Antes de que la Mac la dé por
+/// apagada (`power.pc_lost_after_secs`, ver `power_cut.rs`), un cambio que necesita
+/// a la PC falla enseguida y limpio (no hay con quién hablar), y la Mac conserva su
+/// monitor.
 #[tokio::test(start_paused = true)]
 async fn la_pc_se_queda_sin_corriente() {
     let d = Desk::new().await.unwrap();
     committed(&d, &d.set_mode(Machine::Mac, shared()).await.unwrap()).await;
     d.pull_pc_plug();
     d.settle().await;
+    assert!(d.mac.state().pc_on, "todavía dentro del umbral");
     assert_eq!(d.active_link(Machine::Mac), None);
     assert_eq!(
         d.world.shows(&m34()),

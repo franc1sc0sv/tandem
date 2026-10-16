@@ -14,6 +14,10 @@
 //! power_on_timeout_secs = 120
 //! step_timeout_secs = 10
 //!
+//! [power]
+//! # Solo en la Mac: sin enlaces con la PC durante esto, se la da por apagada.
+//! pc_lost_after_secs = 15
+//!
 //! # Solo en la Mac: Wake-on-LAN por el enlace Ethernet directo.
 //! [power.wol]
 //! mac = "9c:6b:00:1a:2b:ff"
@@ -116,12 +120,36 @@ impl OrchestratorConfig {
 }
 
 /// Encendido y apagado de la PC.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PowerConfig {
+    /// Cuánto tiempo sin ningún enlace con la PC hace que la Mac la dé por apagada
+    /// (un corte de corriente). Más corto que un reinicio de Windows no sirve de
+    /// mucho, pero cualquier caída breve de los cables tiene que quedar por debajo.
+    #[serde(default = "default_pc_lost_after")]
+    pub pc_lost_after_secs: u64,
     /// Cómo despertar la PC. Sin esta sección, encenderla falla con un error claro.
     #[serde(default)]
     pub wol: Option<WolTarget>,
+}
+
+fn default_pc_lost_after() -> u64 {
+    15
+}
+
+impl Default for PowerConfig {
+    fn default() -> Self {
+        PowerConfig {
+            pc_lost_after_secs: default_pc_lost_after(),
+            wol: None,
+        }
+    }
+}
+
+impl PowerConfig {
+    pub fn pc_lost_after(&self) -> Duration {
+        Duration::from_secs(self.pc_lost_after_secs)
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -140,6 +168,10 @@ pub enum ConfigError {
     ZeroPort,
     #[error("los tiempos máximos de los pasos no pueden ser 0")]
     ZeroTimeout,
+    #[error(
+        "power.pc_lost_after_secs no puede ser 0: cualquier parpadeo de los enlaces daría la PC por apagada"
+    )]
+    ZeroPcLostAfter,
     #[error("el puerto del Wake-on-LAN no puede ser 0")]
     ZeroWolPort,
     #[error(
@@ -177,6 +209,9 @@ impl AgentConfig {
         let o = &self.orchestrator;
         if o.power_on_timeout_secs == 0 || o.step_timeout_secs == 0 {
             return Err(ConfigError::ZeroTimeout);
+        }
+        if self.power.pc_lost_after_secs == 0 {
+            return Err(ConfigError::ZeroPcLostAfter);
         }
         if let Some(wol) = &self.power.wol {
             if wol.port == 0 {
@@ -421,6 +456,19 @@ mod tests {
     fn power_is_optional() {
         assert_eq!(fixtures::desk().power, PowerConfig::default());
         assert_eq!(fixtures::desk().power.wol, None);
+    }
+
+    #[test]
+    fn pc_lost_threshold_is_configurable_but_not_zero() {
+        assert_eq!(
+            fixtures::desk().power.pc_lost_after(),
+            Duration::from_secs(15)
+        );
+        let base = "machine = \"mac\"\nmonitors = []\n[power]\n";
+        let cfg = AgentConfig::from_toml(&format!("{base}pc_lost_after_secs = 40")).unwrap();
+        assert_eq!(cfg.power.pc_lost_after(), Duration::from_secs(40));
+        let err = AgentConfig::from_toml(&format!("{base}pc_lost_after_secs = 0")).unwrap_err();
+        assert!(matches!(err, ConfigError::ZeroPcLostAfter), "{err}");
     }
 
     #[test]

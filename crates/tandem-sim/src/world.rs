@@ -244,7 +244,11 @@ impl World {
             ));
         }
         for m in &w.cfg.monitors {
-            let want = state.owner.get(&m.id).copied();
+            // Un monitor en la entrada de la PC apagada (tras un corte) está en negro.
+            let want = match state.owner.get(&m.id).copied() {
+                Some(Machine::Pc) if !state.pc_on => None,
+                owner => owner,
+            };
             let shows = w.shows(&m.id);
             if shows != want {
                 errors.push(format!(

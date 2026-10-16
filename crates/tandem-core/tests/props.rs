@@ -50,6 +50,9 @@ impl Executor for Sim {
         self.calls += 1;
         let r = if Some(n) == self.fail_at {
             Err(format!("fallo inyectado en la llamada {n}"))
+        } else if matches!(step, Step::SwitchInput { .. }) && !self.phys.pc_on {
+            // Las entradas las cambia la PC (DESIGN §8): apagada no puede.
+            Err(format!("la PC está apagada (llamada {n})"))
         } else {
             match step {
                 Step::PowerOnPc => self.phys.pc_on = true,
@@ -122,7 +125,8 @@ fn wired_machine(m: &MonitorConfig, pick: bool) -> Machine {
 }
 
 /// Estado coherente con el cableado: cada monitor muestra una máquina cableada y,
-/// si alguno muestra la PC, la PC está prendida.
+/// si alguno muestra la PC, la PC está prendida, salvo tras un corte de corriente
+/// (`cut`): la PC se apagó sola y sus monitores siguen en su entrada, en negro.
 fn state(cfg: &Config) -> impl Strategy<Value = State> + use<> {
     let cfg = cfg.clone();
     let n = cfg.monitors.len();
@@ -130,15 +134,16 @@ fn state(cfg: &Config) -> impl Strategy<Value = State> + use<> {
         proptest::collection::vec(any::<bool>(), n),
         any::<bool>(),
         builtin(),
+        proptest::bool::weighted(0.2),
     )
-        .prop_map(move |(picks, pc_on, builtin_pref)| {
+        .prop_map(move |(picks, pc_on, builtin_pref, cut)| {
             let owner: BTreeMap<_, _> = cfg
                 .monitors
                 .iter()
                 .zip(picks)
                 .map(|(m, p)| (m.id.clone(), wired_machine(m, p)))
                 .collect();
-            let pc_on = pc_on || owner.values().any(|o| *o == Machine::Pc);
+            let pc_on = !cut && (pc_on || owner.values().any(|o| *o == Machine::Pc));
             State {
                 owner,
                 pc_on,
