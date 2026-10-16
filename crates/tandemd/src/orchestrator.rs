@@ -179,6 +179,10 @@ pub struct Orchestrator {
     /// puede empezar un cambio propio, y una que orquesta no acepta pasos ajenos.
     /// Las dos comprobaciones van bajo este candado para que no se crucen.
     peer_lease: Mutex<Option<tokio::time::Instant>>,
+    /// Los pasos del otro agente corren de a uno aunque lleguen por streams (enlaces)
+    /// distintos: si un enlace cae con un paso a mitad, el inverso que llega por el
+    /// siguiente espera a que ese paso termine en vez de adelantársele.
+    peer_turn: tokio::sync::Mutex<()>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -203,6 +207,7 @@ impl Orchestrator {
             next_txn: AtomicU64::new(1),
             busy: AtomicBool::new(false),
             peer_lease: Mutex::new(None),
+            peer_turn: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -425,6 +430,8 @@ impl Orchestrator {
             }
             _ => {}
         }
+        // La espera está acotada: quien tiene el turno corre con su tiempo máximo.
+        let _turn = self.peer_turn.lock().await;
         {
             let mut lease = self.lease();
             if self.busy.load(Ordering::Acquire) {
@@ -1227,6 +1234,42 @@ pub(crate) mod tests {
         o.end();
         o.execute_for_peer(&Step::PowerOnPc).await.unwrap();
         assert_eq!(local.steps(), [Step::PowerOnPc]);
+    }
+
+    // T-064: con el enlace caído a mitad de un paso, el inverso llega por otro stream
+    // mientras el paso sigue corriendo; no puede adelantársele.
+    #[tokio::test(start_paused = true)]
+    async fn peer_steps_from_different_streams_run_one_at_a_time() {
+        let attach = Step::Attach {
+            machine: Machine::Mac,
+            monitor: "m34".into(),
+        };
+        let detach = Step::Detach {
+            machine: Machine::Mac,
+            monitor: "m34".into(),
+        };
+        let (o, local, _) = mac(
+            FakeSteps {
+                delays: vec![(attach.clone(), Duration::from_secs(3))],
+                ..Default::default()
+            },
+            FakeSteps::default(),
+        );
+        let start = tokio::time::Instant::now();
+        let (first, second) = tokio::join!(
+            async {
+                o.execute_for_peer(&attach).await.unwrap();
+                start.elapsed()
+            },
+            async {
+                tokio::task::yield_now().await;
+                o.execute_for_peer(&detach).await.unwrap();
+                start.elapsed()
+            },
+        );
+        assert_eq!(first, Duration::from_secs(3));
+        assert!(second >= first, "el inverso terminó antes: {second:?}");
+        assert_eq!(local.steps(), [attach, detach]);
     }
 
     #[tokio::test(start_paused = true)]

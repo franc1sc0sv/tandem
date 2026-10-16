@@ -291,7 +291,8 @@ impl Prober for SimProber {
 }
 
 /// El otro agente visto por el orquestador: cada pedido va por el enlace activo en
-/// ese momento, el que eligió el gestor de enlaces.
+/// ese momento, el que eligió el gestor de enlaces, y falla con `PEER_LOST` si ese
+/// enlace cae antes de la respuesta.
 pub struct ManagedPeer {
     links: LinkManager<SimHandle>,
 }
@@ -313,9 +314,10 @@ impl ManagedPeer {
 impl PeerLink for ManagedPeer {
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a> {
         let active = self.links.active();
+        let links = self.links.watch();
         Box::pin(async move {
             match active {
-                Some(a) => a.handle.client.execute(step).await,
+                Some(a) => peer::over_link(links, a.kind, a.handle.client.execute(step)).await,
                 None => Err(PEER_NOT_CONNECTED.to_owned()),
             }
         })
