@@ -281,6 +281,48 @@ mod tests {
         assert!(matches!(decode_hello(&[]), Err(ProtoError::Decode(_))));
     }
 
+    #[test]
+    fn zero_length_frame_is_an_empty_payload_not_a_stall() {
+        let mut dec = FrameDecoder::new();
+        dec.push(&[0, 0, 0, 0]);
+        dec.push(&encode_frame(&ControlMsg::GetState).unwrap());
+        assert_eq!(dec.next_frame(), Ok(Some(Vec::new())));
+        // La siguiente trama sigue alineada.
+        assert_eq!(
+            dec.next_message::<ControlMsg>(),
+            Ok(Some(ControlMsg::GetState))
+        );
+        // Y un mensaje vacío no es un mensaje válido.
+        assert!(matches!(
+            decode::<ControlMsg>(&[]),
+            Err(ProtoError::Decode(_))
+        ));
+    }
+
+    #[test]
+    fn oversized_frame_error_is_sticky() {
+        // Tras FrameTooLarge no hay resincronización: el error se repite, no se
+        // interpreta el cuerpo como tramas nuevas.
+        let mut dec = FrameDecoder::with_max_len(8);
+        dec.push(&9u32.to_le_bytes());
+        dec.push(&encode_frame(&ControlMsg::GetState).unwrap());
+        for _ in 0..3 {
+            assert_eq!(
+                dec.next_frame(),
+                Err(ProtoError::FrameTooLarge { len: 9, max: 8 })
+            );
+        }
+    }
+
+    #[test]
+    fn frame_of_exactly_max_len_is_accepted() {
+        let mut dec = FrameDecoder::with_max_len(3);
+        dec.push(&3u32.to_le_bytes());
+        dec.push(&[1, 2, 3]);
+        assert_eq!(dec.next_frame(), Ok(Some(vec![1, 2, 3])));
+        assert_eq!(dec.buffered(), 0);
+    }
+
     fn control_msg() -> impl Strategy<Value = ControlMsg> {
         prop_oneof![
             any::<u64>().prop_map(|nonce| ControlMsg::Ping { nonce }),
@@ -309,6 +351,40 @@ mod tests {
         ) {
             let bytes = stream(&msgs);
             prop_assert_eq!(feed_in_chunks(&bytes, &sizes), msgs);
+        }
+
+        /// Bytes cualesquiera del otro lado nunca hacen entrar en pánico al
+        /// decodificador ni a ningún tipo de mensaje: siempre `Ok` o `Err`.
+        #[test]
+        fn garbage_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..256)) {
+            let _ = decode::<ControlMsg>(&bytes);
+            let _ = decode::<crate::UiRequest>(&bytes);
+            let _ = decode::<crate::AgentToUi>(&bytes);
+            let _ = decode_hello(&bytes);
+            let mut dec = FrameDecoder::with_max_len(64);
+            dec.push(&bytes);
+            // Cada trama consume al menos la cabecera: el bucle termina.
+            for _ in 0..=bytes.len() / HEADER_LEN {
+                match dec.next_message::<ControlMsg>() {
+                    Ok(None) | Err(ProtoError::FrameTooLarge { .. }) => break,
+                    Ok(Some(_)) | Err(_) => {}
+                }
+            }
+            prop_assert!(dec.buffered() <= bytes.len());
+        }
+
+        /// Un mensaje válido seguido de basura: el válido sale entero y la basura
+        /// queda para la siguiente trama, sin contaminar al anterior.
+        #[test]
+        fn valid_frame_survives_trailing_garbage(
+            msg in control_msg(),
+            tail in proptest::collection::vec(any::<u8>(), 0..64),
+        ) {
+            let mut dec = FrameDecoder::new();
+            dec.push(&encode_frame(&msg).unwrap());
+            dec.push(&tail);
+            prop_assert_eq!(dec.next_message::<ControlMsg>(), Ok(Some(msg)));
+            prop_assert_eq!(dec.buffered(), tail.len());
         }
     }
 }

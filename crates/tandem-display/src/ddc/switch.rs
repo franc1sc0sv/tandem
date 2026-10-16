@@ -214,7 +214,9 @@ pub fn switch_with_return(
     waiter: &mut dyn Waiter,
     on_event: &mut dyn FnMut(&SwitchEvent),
 ) -> Result<SwitchReport, DdcError> {
-    // Validar antes de escribir: con un índice malo no habría a quién mandar la vuelta.
+    // Validar antes de escribir: sin vuelta válida, o con un índice malo, la ida podría
+    // dejar al monitor en la otra entrada.
+    plan.validate()?;
     if plan.monitor >= bus.monitors().len() {
         return Err(DdcError::NoSuchMonitor(plan.monitor));
     }
@@ -427,6 +429,29 @@ mod tests {
         let err = switch_with_return(&mut bus, &p, &mut FakeWaiter::default(), &mut |_| {});
         assert_eq!(err, Err(DdcError::NoSuchMonitor(3)));
         assert!(bus.writes.is_empty());
+    }
+
+    // QA ronda 1: `switch_with_return` es público y solo la CLI validaba el plan. Un
+    // plan sin códigos de vuelta mandaba la ida y dejaba al monitor en la otra entrada.
+    #[test]
+    fn invalid_plan_writes_nothing() {
+        let cases: [fn(&mut SwitchPlan); 4] = [
+            |p| p.return_codes.clear(),
+            |p| p.target_codes.clear(),
+            |p| p.return_to = p.target,
+            |p| p.return_after = Duration::ZERO,
+        ];
+        for break_plan in cases {
+            let mut bus = bus();
+            let mut p = plan();
+            break_plan(&mut p);
+            let expected = p.validate().unwrap_err();
+            let mut waiter = FakeWaiter::default();
+            let err = switch_with_return(&mut bus, &p, &mut waiter, &mut |_| {});
+            assert_eq!(err, Err(DdcError::InvalidPlan(expected)));
+            assert!(bus.writes.is_empty(), "{:?}", bus.writes);
+            assert!(waiter.waits.is_empty());
+        }
     }
 
     #[test]

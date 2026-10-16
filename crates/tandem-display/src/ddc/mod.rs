@@ -30,6 +30,9 @@ pub enum DdcError {
     },
     #[error("DDC/CI no está disponible en esta plataforma")]
     Unsupported,
+    /// Un plan de cambio que no garantiza la vuelta no se ejecuta.
+    #[error(transparent)]
+    InvalidPlan(#[from] switch::PlanError),
 }
 
 /// Monitor físico tal como se enumeró.

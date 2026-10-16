@@ -161,7 +161,11 @@ fn split_key(text: &str) -> (Option<String>, String) {
     let split_at = match known {
         Some(k) => text.len() - k.len(),
         // Clave desconocida: la última palabra es la clave, lo anterior es texto suelto.
-        None => text.rfind(char::is_whitespace).map_or(0, |p| p + 1),
+        // El espacio puede ser de varios bytes (NBSP): se corta después del carácter entero.
+        None => text
+            .char_indices()
+            .rfind(|(_, c)| c.is_whitespace())
+            .map_or(0, |(p, c)| p + c.len_utf8()),
     };
     let bare = text[..split_at].trim();
     let key = text[split_at..].trim().to_ascii_lowercase();
@@ -222,6 +226,10 @@ fn hex_list(key: &str, s: &str) -> Result<Vec<u8>, CapsError> {
             key: key.to_owned(),
             token: token.to_owned(),
         };
+        // `from_str_radix` aceptaría un `+` inicial: solo se admiten dígitos hexadecimales.
+        if !token.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(bad());
+        }
         if token.len() % 2 != 0 && token.len() != 1 {
             return Err(bad());
         }
@@ -343,5 +351,92 @@ mod tests {
     fn values_never_attach_to_a_previous_group() {
         // `14(05)(06)`: el segundo grupo no tiene código propio.
         assert!(parse("(vcp(14(05)(06)))").is_err());
+    }
+
+    // QA ronda 1: el texto suelto antes de una clave desconocida puede traer espacios
+    // Unicode de varios bytes (NBSP, espacio ideográfico). Cortar en `p + 1` partía el
+    // carácter y el parser entraba en pánico con datos del monitor.
+    #[test]
+    fn multibyte_whitespace_before_unknown_key_does_not_panic() {
+        let caps = parse("(ACME\u{A0}foo(bar))").unwrap();
+        assert_eq!(caps.bare, vec!["ACME".to_owned()]);
+        assert_eq!(caps.other, vec![("foo".to_owned(), "bar".to_owned())]);
+        let caps = parse("(X\u{3000}y(1))").unwrap();
+        assert_eq!(caps.other, vec![("y".to_owned(), "1".to_owned())]);
+    }
+
+    // QA ronda 1: `u8::from_str_radix` acepta un `+` inicial; un código VCP con signo
+    // no es hexadecimal válido y no debe colarse como otro código.
+    #[test]
+    fn signed_hex_tokens_are_rejected() {
+        assert!(matches!(parse("(vcp(+1))"), Err(CapsError::BadHex { .. })));
+        assert!(matches!(parse("(vcp(+F))"), Err(CapsError::BadHex { .. })));
+        assert!(matches!(
+            parse("(vcp(60(+F)))"),
+            Err(CapsError::BadHex { .. })
+        ));
+        assert!(matches!(parse("(cmds(+1))"), Err(CapsError::BadHex { .. })));
+    }
+
+    use proptest::prelude::*;
+
+    /// Capabilities bien formado a partir de un mapa de códigos → valores.
+    fn render(cmds: &[u8], vcp: &BTreeMap<u8, Vec<u8>>, glued: bool) -> String {
+        let hex = |b: &u8| format!("{b:02X}");
+        let sep = if glued { "" } else { " " };
+        let cmds = cmds.iter().map(hex).collect::<Vec<_>>().join(sep);
+        let vcp = vcp
+            .iter()
+            .map(|(code, values)| {
+                if values.is_empty() {
+                    hex(code)
+                } else {
+                    let v = values.iter().map(hex).collect::<Vec<_>>().join(" ");
+                    format!("{}({v})", hex(code))
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!("(prot(monitor)type(lcd)SAMSUNGcmds({cmds})vcp({vcp})mccs_ver(2.1))")
+    }
+
+    proptest! {
+        /// Con cualquier texto (lo que devuelva un monitor roto), el parser contesta
+        /// `Ok` o `Err`, nunca entra en pánico.
+        #[test]
+        fn never_panics_on_arbitrary_text(raw in "\\PC{0,80}") {
+            let _ = parse(&raw);
+        }
+
+        /// Igual, con texto armado de las piezas que el parser trata de forma especial.
+        #[test]
+        fn never_panics_on_capability_like_text(
+            parts in prop::collection::vec(
+                prop::sample::select(vec![
+                    "(", ")", " ", "\u{A0}", "\u{3000}", "\0", "vcp", "cmds", "vcpname",
+                    "SAMSUNG", "60", "0F", "+1", "é", "1", "ZZ", "model",
+                ]),
+                0..40,
+            ),
+        ) {
+            let _ = parse(&parts.concat());
+        }
+
+        /// Lo que se declara se recupera igual, con o sin espacios entre los bytes de `cmds`.
+        #[test]
+        fn declared_codes_round_trip(
+            cmds in prop::collection::vec(any::<u8>(), 0..8),
+            vcp in prop::collection::btree_map(
+                any::<u8>(),
+                prop::collection::vec(any::<u8>(), 0..5),
+                0..12,
+            ),
+            glued in any::<bool>(),
+        ) {
+            let caps = parse(&render(&cmds, &vcp, glued)).unwrap();
+            prop_assert_eq!(caps.cmds, cmds);
+            prop_assert_eq!(caps.vcp, vcp);
+            prop_assert_eq!(caps.bare, vec!["SAMSUNG".to_owned()]);
+        }
     }
 }
