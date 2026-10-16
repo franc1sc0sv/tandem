@@ -1,15 +1,88 @@
-//! El bucle principal: acepta conexiones de la UI hasta el apagado y lo hace en orden.
+//! El agente armado ([`start`]) y su bucle principal ([`run`]): acepta conexiones de la
+//! UI hasta el apagado y lo hace en orden.
 
 use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
+use tandem_display::switcher::ManualSwitcher;
+use tandem_link::identity::{Identity, IdentityError, TrustStore};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
 use crate::agent::Agent;
+use crate::config::AgentConfig;
 use crate::ipc::{Listener, serve_connection};
-use crate::store::StoreError;
+use crate::network::{NetError, NetOptions, Network};
+use crate::orchestrator::LocalSteps;
+use crate::paths::Paths;
+use crate::store::{StateStore, StoreError};
+
+/// Los pasos que esta máquina sabe hacer.
+pub enum Backends {
+    /// Los de la plataforma ([`crate::DisplaySteps::platform`]).
+    Platform,
+    /// Otros (en las pruebas, simulados). `manual` es el que `local` usa para los
+    /// cambios de entrada a mano, como en [`Agent::with_backends`].
+    Custom {
+        local: Arc<dyn LocalSteps>,
+        manual: Arc<ManualSwitcher>,
+    },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum StartError {
+    #[error("identidad de esta máquina: {0}")]
+    Identity(#[source] IdentityError),
+    #[error("confianza en el par: {0}")]
+    Trust(#[source] IdentityError),
+    #[error(transparent)]
+    Net(#[from] NetError),
+}
+
+/// Un agente con su red en marcha; falta atender la UI con [`Daemon::serve`].
+pub struct Daemon {
+    pub agent: Arc<Agent>,
+    pub network: Network,
+}
+
+/// Arma el agente completo sobre el directorio de datos de `paths`: el estado
+/// guardado, la identidad Ed25519 (se crea la primera vez), la confianza en el par y
+/// la red. Tiene que llamarse dentro de un runtime de tokio.
+pub fn start(
+    cfg: AgentConfig,
+    paths: &Paths,
+    backends: Backends,
+    net: NetOptions,
+) -> Result<Daemon, StartError> {
+    let store = StateStore::new(paths.state_file());
+    let agent = Arc::new(match backends {
+        Backends::Platform => Agent::with_platform(cfg, store),
+        Backends::Custom { local, manual } => Agent::with_backends(cfg, store, local, manual),
+    });
+    let identity =
+        Identity::load_or_create(&paths.identity_file()).map_err(StartError::Identity)?;
+    tracing::info!(
+        llave = %identity.public_key().to_hex(),
+        "identidad de esta máquina"
+    );
+    let trust = TrustStore::open(paths.trust_file()).map_err(StartError::Trust)?;
+    let network = Network::start(agent.clone(), &identity, trust, net)?;
+    Ok(Daemon { agent, network })
+}
+
+impl Daemon {
+    /// Atiende la UI hasta que termina `shutdown`; después cierra la red.
+    pub async fn serve<L: Listener>(
+        self,
+        listener: L,
+        shutdown: impl Future<Output = ()>,
+    ) -> Result<(), StoreError> {
+        let result = run(self.agent, listener, shutdown).await;
+        self.network.shutdown().await;
+        result
+    }
+}
 
 /// Lo que se espera a que las conexiones abiertas terminen antes de cortarlas.
 pub const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);

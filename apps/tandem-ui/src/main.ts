@@ -16,6 +16,7 @@ import {
   monitorsOf,
   other,
   pcPower,
+  peerPill,
   type ModeKey,
   type MonitorView,
   type Progress,
@@ -269,11 +270,12 @@ function renderControls() {
     m.setAttribute("aria-pressed", String(sel));
   }
 
-  // Sin estado del enlace en la IPC: los tres se ven sin datos y los servicios, bloqueados.
   const linkPill = $("#link-pill");
+  const pill = peerPill(snap.peer);
   linkPill.hidden = false;
-  $("#link-text").textContent = "enlace sin datos";
-  linkPill.title = "El agente todavía no informa el estado de los enlaces";
+  $("#link-text").textContent = pill.text;
+  $("#link-dot").classList.toggle("warn", !pill.ok);
+  linkPill.title = pill.title;
 }
 
 function renderToast() {

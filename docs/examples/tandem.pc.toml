@@ -1,0 +1,37 @@
+# tandem.toml de la PC. Va en %APPDATA%\Tandem\tandem.toml (o donde diga
+# `tandemd --config`). Se valida con `tandemd --check-config <archivo>`.
+#
+# El puesto ([[monitors]]) es el mismo que en la Mac; cambian `machine` y las
+# direcciones del otro agente.
+#
+# En el directorio de datos el agente guarda:
+# - identity.key: su llave Ed25519. Se crea sola la primera vez; no se comparte.
+# - trust.toml: las llaves de los pares emparejados. Sin par, el agente trabaja solo
+#   y la UI lo indica. Hasta que el emparejamiento llegue a la UI se escribe a mano:
+#
+#     version = 1
+#     [[peer]]
+#     public_key = "<64 dígitos hex: la llave de la Mac, la que registra su log al arrancar>"
+#     name = "Mac"
+
+machine = "pc"
+
+[network]
+port = 47770
+# La Mac en cada enlace directo (DESIGN §6). La LAN de casa se descubre por mDNS.
+peers = [
+    { kind = "usb4", addr = "10.77.1.1:47770" },
+    { kind = "ethernet", addr = "10.77.2.1:47770" },
+]
+
+[[monitors]]
+id = "m34"
+label = '34"'
+edid_model = "LC34G55T"
+wiring = { pc = "displayport", mac = "hdmi" }
+ddc = { hdmi = 0x06, display_port = 0x0F }
+
+[[monitors]]
+id = "m32"
+label = '32"'
+wiring = { pc = "displayport", mac = "hdmi" }

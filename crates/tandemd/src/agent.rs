@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use tandem_core::plan::PlanError;
 use tandem_core::{Machine, Mode, Plan, State, Step};
 use tandem_display::switcher::{ManualEvent, ManualSwitcher};
-use tandem_proto::{PowerEvent, Reply, TxnEvent, UiCommand};
+use tandem_proto::{PeerStatus, PowerEvent, Reply, TxnEvent, UiCommand};
 use tokio::sync::{broadcast, watch};
 
 use crate::config::AgentConfig;
@@ -31,6 +31,8 @@ pub struct Agent {
     manual: Arc<ManualSwitcher>,
     /// Avisos de energía de la PC que no vienen de una transacción.
     power: broadcast::Sender<PowerEvent>,
+    /// Con quién está emparejado y por qué enlace lo ve; lo actualiza la red.
+    peer_status: watch::Sender<PeerStatus>,
 }
 
 /// Avisos de energía que se guardan para un suscriptor lento.
@@ -77,6 +79,8 @@ impl Agent {
             orch,
             manual,
             power: broadcast::channel(POWER_EVENT_BUFFER).0,
+            // Hasta que la red diga otra cosa, el agente trabaja solo.
+            peer_status: watch::Sender::new(PeerStatus::Unpaired),
         }
     }
 
@@ -102,6 +106,24 @@ impl Agent {
     /// Avisos de energía de la PC (por ejemplo, que se la dio por apagada), para la UI.
     pub fn subscribe_power(&self) -> broadcast::Receiver<PowerEvent> {
         self.power.subscribe()
+    }
+
+    /// El par y el enlace con él, para la UI.
+    pub fn peer_status(&self) -> PeerStatus {
+        self.peer_status.borrow().clone()
+    }
+
+    /// Avisa cada vez que cambia el par o su enlace.
+    pub fn subscribe_peer(&self) -> watch::Receiver<PeerStatus> {
+        self.peer_status.subscribe()
+    }
+
+    pub fn set_peer_status(&self, status: PeerStatus) {
+        self.peer_status.send_if_modified(|s| {
+            let changed = *s != status;
+            *s = status;
+            changed
+        });
     }
 
     pub(crate) fn emit_power(&self, event: PowerEvent) {
@@ -162,6 +184,7 @@ impl Agent {
         match cmd {
             UiCommand::GetState => Reply::State(self.state()),
             UiCommand::GetDesk => Reply::Desk(self.cfg.desk.clone()),
+            UiCommand::GetPeer => Reply::Peer(self.peer_status()),
             UiCommand::SetMode(mode) => self.start(mode),
             UiCommand::SetPcPower(on) => self.start_power(on),
             UiCommand::MoveMonitor { monitor, to } => {
@@ -283,6 +306,28 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let a = Arc::new(agent(dir.path()));
         assert_eq!(a.handle(UiCommand::GetState), Reply::State(a.state()));
+    }
+
+    #[test]
+    fn starts_unpaired_and_reports_the_peer() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        assert_eq!(
+            a.handle(UiCommand::GetPeer),
+            Reply::Peer(PeerStatus::Unpaired)
+        );
+        let mut rx = a.subscribe_peer();
+        let paired = PeerStatus::Paired {
+            name: "PC".into(),
+            link: None,
+        };
+        a.set_peer_status(paired.clone());
+        assert!(rx.has_changed().unwrap());
+        assert_eq!(*rx.borrow_and_update(), paired);
+        // Lo mismo otra vez no es un cambio.
+        a.set_peer_status(paired.clone());
+        assert!(!rx.has_changed().unwrap());
+        assert_eq!(a.handle(UiCommand::GetPeer), Reply::Peer(paired));
     }
 
     #[test]

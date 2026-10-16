@@ -5,9 +5,11 @@ import type {
   Desk,
   DeskState,
   Input,
+  Link,
   Machine,
   Mode,
   MonitorConfig,
+  PeerView,
   Step,
   TxnView,
 } from "./model";
@@ -15,6 +17,20 @@ import type {
 export const MACHINES: Machine[] = ["mac", "pc"];
 export const MACHINE_NAME: Record<Machine, string> = { mac: "Mac", pc: "PC" };
 export const PORT: Record<Input, string> = { hdmi: "HDMI", displayport: "DP" };
+
+export const LINK_NAME: Record<Link, string> = { usb4: "USB4", ethernet: "Ethernet", wifi: "Wi-Fi" };
+
+/** La píldora del enlace: con qué se ve al otro agente, o por qué no. */
+export function peerPill(peer: PeerView): { text: string; title: string; ok: boolean } {
+  if (peer.kind === "unpaired") {
+    return { text: "sin par", title: "Sin par emparejado: esta máquina trabaja sola", ok: false };
+  }
+  if (peer.link === null) {
+    return { text: "sin enlace", title: `Ningún enlace ve a ${peer.name}`, ok: false };
+  }
+  const note = peer.link === "wifi" ? " (solo control: los servicios requieren cable)" : "";
+  return { text: LINK_NAME[peer.link], title: `${peer.name} por ${LINK_NAME[peer.link]}${note}`, ok: true };
+}
 
 export type ModeKey = "mac" | "shared" | "pc";
 export const MODES: ModeKey[] = ["mac", "shared", "pc"];

@@ -22,9 +22,14 @@ export interface DeskState {
   builtin_pref: BuiltinDisplay;
 }
 
+export type Link = "usb4" | "ethernet" | "wifi";
+
+/** El otro agente: sin par, esta máquina trabaja sola. `link` es `null` si no se lo ve. */
+export type PeerView = { kind: "unpaired" } | { kind: "paired"; name: string; link: Link | null };
+
 export type Snapshot =
   | { kind: "connecting" }
-  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState }
+  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView }
   | { kind: "unavailable"; endpoint: string | null; reason: string };
 
 export type Step =

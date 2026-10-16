@@ -10,6 +10,8 @@ const APP_DIR: &str = "Tandem";
 const CONFIG_FILE: &str = "tandem.toml";
 const STATE_FILE: &str = "state.json";
 const LOG_DIR: &str = "logs";
+const IDENTITY_FILE: &str = "identity.key";
+const TRUST_FILE: &str = "trust.toml";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
@@ -49,6 +51,16 @@ impl Paths {
     pub fn log_dir(&self) -> PathBuf {
         self.data_dir.join(LOG_DIR)
     }
+
+    /// La llave Ed25519 de esta máquina (DESIGN §9).
+    pub fn identity_file(&self) -> PathBuf {
+        self.data_dir.join(IDENTITY_FILE)
+    }
+
+    /// Las llaves de los pares emparejados.
+    pub fn trust_file(&self) -> PathBuf {
+        self.data_dir.join(TRUST_FILE)
+    }
 }
 
 /// Crea el directorio (y sus padres) accesible solo para el usuario actual.
@@ -76,6 +88,8 @@ mod tests {
         assert_eq!(p.config, PathBuf::from("/x/t.toml"));
         assert_eq!(p.state_file(), Path::new("/d").join("state.json"));
         assert_eq!(p.log_dir(), Path::new("/d").join("logs"));
+        assert_eq!(p.identity_file(), Path::new("/d").join("identity.key"));
+        assert_eq!(p.trust_file(), Path::new("/d").join("trust.toml"));
     }
 
     #[test]
