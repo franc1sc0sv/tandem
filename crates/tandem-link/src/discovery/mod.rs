@@ -9,6 +9,8 @@
 //!   [`Fingerprint`] de su llave y busca la de su par emparejado
 //!   ([`PeerResolver`]); los anuncios de otros agentes se ignoran. Lo que se
 //!   descubre entra como candidato Wi-Fi.
+//! - Mientras se empareja, quien espera anuncia `_tandem-pair._udp` y quien busca
+//!   acepta a cualquier agente ([`MdnsDiscovery::pairing`]).
 //!
 //! Encontrar al par por mDNS no le da confianza: el transporte sigue
 //! verificando la llave por pinning al conectar.
@@ -19,7 +21,9 @@ mod peer;
 mod statics;
 
 pub use fingerprint::Fingerprint;
-pub use mdns::{MdnsDiscovery, SERVICE_TYPE, announcement, discovery_event, service_info};
+pub use mdns::{
+    MdnsDiscovery, PAIRING_SERVICE_TYPE, SERVICE_TYPE, announcement, discovery_event, service_info,
+};
 pub use peer::{Announcement, DiscoveryEvent, PeerResolver, TXT_FINGERPRINT};
 pub use statics::{link_candidates, validate_static_links};
 

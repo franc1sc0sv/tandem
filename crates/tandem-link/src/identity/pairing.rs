@@ -84,6 +84,11 @@ impl PairingCode {
     pub fn value(self) -> u32 {
         self.0
     }
+
+    /// El código que manda el par al confirmar; `None` si no tiene 6 dígitos.
+    pub fn from_value(value: u32) -> Option<Self> {
+        (value < 1_000_000).then_some(Self(value))
+    }
 }
 
 impl fmt::Display for PairingCode {
@@ -338,6 +343,14 @@ mod tests {
         assert!(code.value() < 1_000_000);
         assert_eq!(code.to_string().len(), 6);
         assert_eq!(PairingCode(42).to_string(), "000042");
+    }
+
+    #[test]
+    fn el_codigo_recibido_tiene_seis_digitos() {
+        assert_eq!(PairingCode::from_value(0), Some(PairingCode(0)));
+        assert_eq!(PairingCode::from_value(999_999), Some(PairingCode(999_999)));
+        assert_eq!(PairingCode::from_value(1_000_000), None);
+        assert_eq!(PairingCode::from_value(u32::MAX), None);
     }
 
     #[test]

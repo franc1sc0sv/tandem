@@ -1,7 +1,7 @@
 //! Mensajes entre agentes y UI, versionado.
 //!
-//! - [`msg`]: los mensajes: [`Hello`] de apertura, control entre agentes ([`ControlMsg`])
-//!   y la API local de la UI ([`UiRequest`], [`AgentToUi`]).
+//! - [`msg`]: los mensajes: [`Hello`] de apertura, control entre agentes ([`ControlMsg`]),
+//!   emparejamiento ([`PairingMsg`]) y la API local de la UI ([`UiRequest`], [`AgentToUi`]).
 //! - [`frame`]: codificación `postcard` y framing por longitud (u32 LE).
 //!
 //! Toda conexión empieza con un [`Hello`] en cada sentido, que se lee con
@@ -17,14 +17,14 @@ mod wire;
 
 pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encode_frame};
 pub use msg::{
-    AgentToUi, ControlMsg, Hello, Link, ManualSwitchEvent, Peer, PeerStatus, PowerEvent, Reply,
-    StepOutcome, TxnEvent, UiCommand, UiRequest, UndoFailure,
+    AgentToUi, ControlMsg, Hello, Link, ManualSwitchEvent, PairingMsg, PairingStatus, Peer,
+    PeerStatus, PowerEvent, Reply, StepOutcome, TxnEvent, UiCommand, UiRequest, UndoFailure,
 };
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 3;
+pub const PROTOCOL_VERSION: u16 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ProtoError {

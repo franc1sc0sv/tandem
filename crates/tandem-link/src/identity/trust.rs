@@ -104,6 +104,20 @@ impl TrustStore {
         Ok(())
     }
 
+    /// Quita y persiste (desemparejar); si no se puede guardar, el par sigue como
+    /// estaba, para que la memoria nunca diga algo distinto del disco. Devuelve si
+    /// estaba.
+    pub fn remove_and_save(&mut self, key: &PublicKey) -> Result<bool, IdentityError> {
+        let Some(previous) = self.peers.remove(key) else {
+            return Ok(false);
+        };
+        if let Err(e) = self.save() {
+            self.peers.insert(*key, previous);
+            return Err(e);
+        }
+        Ok(true)
+    }
+
     /// Escribe el trust store (atómico, 0600 en Unix).
     pub fn save(&self) -> Result<(), IdentityError> {
         let file = TrustFile {
@@ -144,6 +158,26 @@ mod tests {
             reloaded.verify(&peer(2, "").public_key).unwrap().name,
             "Mac"
         );
+    }
+
+    #[test]
+    fn quitar_persiste_y_si_no_se_puede_guardar_no_cambia_nada() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trust.toml");
+        let mut store = TrustStore::open(&path).unwrap();
+        store.add_and_save(peer(1, "PC")).unwrap();
+        let key = peer(1, "").public_key;
+        assert!(!store.remove_and_save(&peer(2, "").public_key).unwrap());
+        assert!(store.remove_and_save(&key).unwrap());
+        assert!(!TrustStore::open(&path).unwrap().is_trusted(&key));
+
+        // Si donde iba su directorio aparece un archivo, no se puede guardar.
+        let mut broken = TrustStore::open(dir.path().join("sub/trust.toml")).unwrap();
+        std::fs::write(dir.path().join("sub"), b"x").unwrap();
+        broken.add(peer(3, "Mac"));
+        let key = peer(3, "").public_key;
+        assert!(broken.remove_and_save(&key).is_err());
+        assert!(broken.is_trusted(&key));
     }
 
     #[test]

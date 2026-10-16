@@ -317,3 +317,64 @@ async fn stream_partido_escribe_y_lee_a_la_vez_en_los_dos_sentidos() {
         }
     }
 }
+
+/// El endpoint de emparejamiento conecta con llaves que nadie conoce todavía, y cada
+/// lado ve la llave real del otro (la que firmó el handshake).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn el_endpoint_de_emparejamiento_acepta_llaves_desconocidas() {
+    let (mac, pc) = (identity(30), identity(31));
+    let mac_ep = Endpoint::bind_pairing(LOOPBACK, &mac).unwrap();
+    let pc_ep = Endpoint::bind_pairing(LOOPBACK, &pc).unwrap();
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+    assert_eq!(to_pc.peer(), pc.public_key());
+    assert_eq!(to_mac.peer(), mac.public_key());
+
+    let (mac_hello, pc_hello) = (
+        Hello::new(Peer::Agent(Machine::Mac)),
+        Hello::new(Peer::Agent(Machine::Pc)),
+    );
+    let (opened, accepted) = within(async {
+        tokio::join!(
+            to_pc.open_control(&mac_hello),
+            to_mac.accept_control(&pc_hello)
+        )
+    })
+    .await;
+    let (mut a, _) = opened.unwrap();
+    let (mut b, _) = accepted.unwrap();
+    a.send(&ControlMsg::Ping { nonce: 1 }).await.unwrap();
+    assert_eq!(
+        within(b.recv::<ControlMsg>()).await.unwrap(),
+        Some(ControlMsg::Ping { nonce: 1 })
+    );
+}
+
+/// Con otro ALPN, el endpoint de emparejamiento no habla con uno normal en ningún
+/// sentido, aunque el normal confíe en la llave: un par a medio emparejar no llega al
+/// plano de control, y el endpoint normal nunca acepta llaves desconocidas.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn emparejamiento_y_control_no_se_mezclan() {
+    let (mac, pc) = (identity(32), identity(33));
+    let pairing = Endpoint::bind_pairing(LOOPBACK, &mac).unwrap();
+    let normal = endpoint(&pc, trusting(&[&mac]));
+
+    // quinn solo avanza el handshake de quien acepta: los dos lados a la vez.
+    let (c, s) = within(async {
+        tokio::join!(
+            pairing.connect(normal.local_addr().unwrap()),
+            normal.accept()
+        )
+    })
+    .await;
+    assert!(c.is_err(), "conectó con otro ALPN");
+    assert!(matches!(s, Some(Err(_))), "aceptó otro ALPN");
+    let (c, s) = within(async {
+        tokio::join!(
+            normal.connect(pairing.local_addr().unwrap()),
+            pairing.accept()
+        )
+    })
+    .await;
+    assert!(c.is_err(), "conectó con otro ALPN");
+    assert!(matches!(s, Some(Err(_))), "aceptó otro ALPN");
+}

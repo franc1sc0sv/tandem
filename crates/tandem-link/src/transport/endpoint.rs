@@ -8,8 +8,10 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tandem_proto::Hello;
 
 use super::control::ControlStream;
-use super::verify::{PeerTrust, PinnedClientVerifier, PinnedServerVerifier, peer_public_key};
-use super::{ALPN, TransportError};
+use super::verify::{
+    AnyKey, PeerTrust, PinnedClientVerifier, PinnedServerVerifier, peer_public_key,
+};
+use super::{ALPN, PAIRING_ALPN, TransportError};
 use crate::identity::{Identity, PublicKey, TLS_SERVER_NAME};
 
 /// Endpoint QUIC de un agente: escucha y también abre conexiones, con el
@@ -27,7 +29,25 @@ impl Endpoint {
         identity: &Identity,
         trust: Arc<dyn PeerTrust>,
     ) -> Result<Self, TransportError> {
-        let (server, client) = configs(identity, trust)?;
+        Self::bind_with(addr, identity, trust, ALPN)
+    }
+
+    /// Endpoint solo para emparejarse: acepta cualquier llave Ed25519 (el par todavía
+    /// no es de confianza) pero exige que la otra punta firme el handshake con ella,
+    /// así [`Connection::peer`] es la llave real del otro lado. Usa otro ALPN
+    /// ([`PAIRING_ALPN`]): no puede hablar con un endpoint normal ni al revés, y lo
+    /// único que pasa por él es el emparejamiento.
+    pub fn bind_pairing(addr: SocketAddr, identity: &Identity) -> Result<Self, TransportError> {
+        Self::bind_with(addr, identity, Arc::new(AnyKey), PAIRING_ALPN)
+    }
+
+    fn bind_with(
+        addr: SocketAddr,
+        identity: &Identity,
+        trust: Arc<dyn PeerTrust>,
+        alpn: &[u8],
+    ) -> Result<Self, TransportError> {
+        let (server, client) = configs(identity, trust, alpn)?;
         let mut inner = quinn::Endpoint::server(server, addr).map_err(TransportError::Bind)?;
         inner.set_default_client_config(client);
         Ok(Self { inner })
@@ -71,6 +91,7 @@ impl Endpoint {
 fn configs(
     identity: &Identity,
     trust: Arc<dyn PeerTrust>,
+    alpn: &[u8],
 ) -> Result<(quinn::ServerConfig, quinn::ClientConfig), TransportError> {
     // ring y no aws-lc-rs: ya lo usa rcgen y compila sin cmake en Windows.
     let provider = Arc::new(rustls::crypto::ring::default_provider());
@@ -85,14 +106,14 @@ fn configs(
             &provider,
         )))
         .with_single_cert(vec![cert.clone()], key())?;
-    server.alpn_protocols = vec![ALPN.to_vec()];
+    server.alpn_protocols = vec![alpn.to_vec()];
 
     let mut client = rustls::ClientConfig::builder_with_provider(provider.clone())
         .with_protocol_versions(&[&rustls::version::TLS13])?
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(PinnedServerVerifier::new(trust, &provider)))
         .with_client_auth_cert(vec![cert], key())?;
-    client.alpn_protocols = vec![ALPN.to_vec()];
+    client.alpn_protocols = vec![alpn.to_vec()];
 
     let server = quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(server)?));
     let client = quinn::ClientConfig::new(Arc::new(QuicClientConfig::try_from(client)?));

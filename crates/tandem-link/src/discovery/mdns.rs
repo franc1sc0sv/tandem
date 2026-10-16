@@ -12,14 +12,26 @@ use crate::identity::PublicKey;
 /// Tipo de servicio DNS-SD que anuncia cada agente.
 pub const SERVICE_TYPE: &str = "_tandem._udp.local.";
 
+/// Lo que anuncia un agente solo mientras empareja, con el puerto de su endpoint de
+/// emparejamiento. Es otro tipo para que nadie lo confunda con el de un par.
+pub const PAIRING_SERVICE_TYPE: &str = "_tandem-pair._udp.local.";
+
 /// Anuncio propio: instancia y host `tandem-<huella corta>`, el puerto QUIC
 /// del agente y la huella completa en la clave TXT `fp`. Las direcciones las
 /// pone mdns-sd según las interfaces que haya en cada momento.
 pub fn service_info(own: &Fingerprint, port: u16) -> Result<ServiceInfo, DiscoveryError> {
+    service_info_of(SERVICE_TYPE, own, port)
+}
+
+fn service_info_of(
+    service_type: &str,
+    own: &Fingerprint,
+    port: u16,
+) -> Result<ServiceInfo, DiscoveryError> {
     let name = format!("tandem-{}", own.short());
     let host = format!("{name}.local.");
     let txt = [(TXT_FINGERPRINT, own.to_hex())];
-    let info = ServiceInfo::new(SERVICE_TYPE, &name, &host, "", port, &txt[..])?;
+    let info = ServiceInfo::new(service_type, &name, &host, "", port, &txt[..])?;
     Ok(info.enable_addr_auto())
 }
 
@@ -75,10 +87,29 @@ impl MdnsDiscovery {
         trusted: impl IntoIterator<Item = PublicKey>,
     ) -> Result<Self, DiscoveryError> {
         let own = Fingerprint::of(own);
-        let mut resolver = PeerResolver::new(own, trusted.into_iter().map(|k| Fingerprint::of(&k)));
+        let resolver = PeerResolver::new(own, trusted.into_iter().map(|k| Fingerprint::of(&k)));
+        Self::run(SERVICE_TYPE, own, Some(port), resolver)
+    }
+
+    /// Para emparejarse: anuncia el endpoint de emparejamiento en `port` (si hay) y
+    /// busca a cualquier otro agente que esté emparejando ([`PAIRING_SERVICE_TYPE`]).
+    /// Tiene que llamarse dentro de un runtime de tokio.
+    pub fn pairing(own: &PublicKey, port: Option<u16>) -> Result<Self, DiscoveryError> {
+        let own = Fingerprint::of(own);
+        Self::run(PAIRING_SERVICE_TYPE, own, port, PeerResolver::any(own))
+    }
+
+    fn run(
+        service_type: &str,
+        own: Fingerprint,
+        port: Option<u16>,
+        mut resolver: PeerResolver,
+    ) -> Result<Self, DiscoveryError> {
         let daemon = ServiceDaemon::new()?;
-        daemon.register(service_info(&own, port)?)?;
-        let browse = daemon.browse(SERVICE_TYPE)?;
+        if let Some(port) = port {
+            daemon.register(service_info_of(service_type, &own, port)?)?;
+        }
+        let browse = daemon.browse(service_type)?;
         let (tx, peers) = watch::channel(Vec::new());
         let task = tokio::spawn(async move {
             // Termina cuando el daemon se apaga y cierra el canal.

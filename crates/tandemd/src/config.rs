@@ -66,6 +66,10 @@ pub struct NetworkConfig {
     /// USB4 y Ethernet). La de la LAN se descubre por mDNS si no se fija.
     #[serde(default)]
     pub peers: Vec<LinkCandidate>,
+    /// Puerto UDP donde la PC espera mientras se empareja (y al que la Mac le pide
+    /// emparejarse por los enlaces fijos). Por omisión, el siguiente a `port`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pairing_port: Option<u16>,
 }
 
 fn default_port() -> u16 {
@@ -77,6 +81,7 @@ impl Default for NetworkConfig {
         NetworkConfig {
             port: DEFAULT_PORT,
             peers: Vec::new(),
+            pairing_port: None,
         }
     }
 }
@@ -166,6 +171,8 @@ pub enum ConfigError {
     Desk(#[from] tandem_core::model::ConfigError),
     #[error("el puerto de red no puede ser 0")]
     ZeroPort,
+    #[error("el puerto de emparejamiento ({0}) no puede ser 0 ni el mismo que el de red")]
+    BadPairingPort(u16),
     #[error("los tiempos máximos de los pasos no pueden ser 0")]
     ZeroTimeout,
     #[error(
@@ -205,6 +212,10 @@ impl AgentConfig {
         if self.network.port == 0 {
             return Err(ConfigError::ZeroPort);
         }
+        let pairing = self.network.pairing_port();
+        if pairing == 0 || pairing == self.network.port {
+            return Err(ConfigError::BadPairingPort(pairing));
+        }
         validate_static_links(&self.network.peers)?;
         let o = &self.orchestrator;
         if o.power_on_timeout_secs == 0 || o.step_timeout_secs == 0 {
@@ -235,6 +246,12 @@ impl NetworkConfig {
     /// descubierto en la LAN (`discovered`, de la mejor a la peor dirección).
     pub fn link_candidates(&self, discovered: &[std::net::SocketAddr]) -> Vec<LinkCandidate> {
         link_candidates(&self.peers, discovered)
+    }
+
+    /// Ver [`NetworkConfig::pairing_port`](field@NetworkConfig::pairing_port).
+    pub fn pairing_port(&self) -> u16 {
+        self.pairing_port
+            .unwrap_or_else(|| self.port.checked_add(1).unwrap_or(self.port - 1))
     }
 }
 
@@ -384,6 +401,25 @@ mod tests {
         let err = AgentConfig::from_toml("machine = \"mac\"\nmonitors = []\n[network]\nport = 0")
             .unwrap_err();
         assert!(matches!(err, ConfigError::ZeroPort));
+    }
+
+    #[test]
+    fn pairing_port_defaults_to_the_next_one() {
+        let cfg = |net: &str| {
+            AgentConfig::from_toml(&format!(
+                "machine = \"pc\"\nmonitors = []\n[network]\n{net}"
+            ))
+        };
+        assert_eq!(cfg("port = 47770").unwrap().network.pairing_port(), 47771);
+        assert_eq!(cfg("port = 65535").unwrap().network.pairing_port(), 65534);
+        let fixed = cfg("port = 47770\npairing_port = 50000").unwrap();
+        assert_eq!(fixed.network.pairing_port(), 50000);
+        for bad in ["pairing_port = 0", "port = 5000\npairing_port = 5000"] {
+            assert!(
+                matches!(cfg(bad), Err(ConfigError::BadPairingPort(_))),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

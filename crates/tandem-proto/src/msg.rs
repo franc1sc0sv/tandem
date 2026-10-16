@@ -1,7 +1,9 @@
 //! Los mensajes del protocolo.
 //!
-//! Hay dos canales y los dos empiezan con un [`Hello`]:
+//! Hay tres canales y todos empiezan con un [`Hello`]:
 //! - agente ↔ agente: [`ControlMsg`] en los dos sentidos;
+//! - agente ↔ agente antes de confiar el uno en el otro: [`PairingMsg`], solo por la
+//!   conexión de emparejamiento;
 //! - UI → agente: [`UiRequest`]; agente → UI: [`AgentToUi`].
 
 use serde::{Deserialize, Serialize};
@@ -76,6 +78,35 @@ pub enum ControlMsg {
     State(State),
 }
 
+/// Emparejamiento por comparación numérica (DESIGN §9), en el orden en que se mandan:
+/// quien inicia manda `Offer`, quien responde `Answer`, quien inicia `Reveal`; después
+/// cada lado manda `Confirm` cuando su usuario confirma el código, o `Reject`.
+///
+/// Las llaves van en bytes crudos: este crate no conoce los tipos de identidad. Quien
+/// los recibe comprueba que sean las mismas que autenticó la conexión.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PairingMsg {
+    Offer {
+        public_key: [u8; 32],
+        name: String,
+        commitment: [u8; 32],
+    },
+    Answer {
+        public_key: [u8; 32],
+        name: String,
+        nonce: [u8; 32],
+    },
+    Reveal {
+        nonce: [u8; 32],
+    },
+    /// El usuario de este lado confirmó que ve `code`.
+    Confirm {
+        code: u32,
+    },
+    /// El usuario de este lado rechazó el código o canceló.
+    Reject,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StepOutcome {
     Done,
@@ -130,6 +161,16 @@ pub enum UiCommand {
     SetPcPower(bool),
     /// Con quién está emparejado el agente y por qué enlace lo ve.
     GetPeer,
+    /// En qué va el emparejamiento.
+    GetPairing,
+    /// Buscar a la otra máquina para emparejarse; su avance llega en [`AgentToUi::Pairing`].
+    StartPairing,
+    /// El usuario ve el mismo código en las dos pantallas.
+    ConfirmPairing,
+    /// El usuario rechaza el código, o deja de buscar.
+    CancelPairing,
+    /// Olvidar al par: se borra de la confianza y deja de buscarse.
+    Unpair,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,6 +186,30 @@ pub enum AgentToUi {
     Power(PowerEvent),
     /// Aviso espontáneo cuando cambia el par o el enlace con él.
     Peer(PeerStatus),
+    /// Aviso espontáneo con cada paso del emparejamiento.
+    Pairing(PairingStatus),
+}
+
+/// El emparejamiento visto desde la UI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PairingStatus {
+    /// Nadie pidió emparejar (o se canceló).
+    Idle,
+    /// Buscando a la otra máquina, que también tiene que estar emparejando.
+    Searching,
+    /// Las dos máquinas se encontraron: el usuario compara `code` en las dos pantallas.
+    Comparing {
+        /// Los 6 dígitos, con los ceros a la izquierda.
+        code: String,
+        /// El nombre con que se presentó el otro agente.
+        peer: String,
+        /// El usuario de esta máquina ya confirmó; falta el de la otra.
+        confirmed: bool,
+    },
+    /// Emparejado y guardado en la confianza.
+    Done { peer: String },
+    /// No se emparejó; no se guardó nada.
+    Failed { reason: String },
 }
 
 /// El otro agente visto desde este.
@@ -210,6 +275,7 @@ pub enum Reply {
     Done,
     Desk(Config),
     Peer(PeerStatus),
+    Pairing(PairingStatus),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso y nunca una pantalla
@@ -397,6 +463,60 @@ pub(crate) mod samples {
         }
     }
 
+    pub fn pairing() -> Vec<PairingMsg> {
+        vec![
+            PairingMsg::Offer {
+                public_key: [1; 32],
+                name: "Mac".into(),
+                commitment: [2; 32],
+            },
+            PairingMsg::Answer {
+                public_key: [3; 32],
+                name: "PC".into(),
+                nonce: [4; 32],
+            },
+            PairingMsg::Reveal { nonce: [5; 32] },
+            PairingMsg::Confirm { code: 42 },
+            PairingMsg::Reject,
+        ]
+    }
+
+    pub fn pairing_arm(m: &PairingMsg) -> usize {
+        match m {
+            PairingMsg::Offer { .. } => 0,
+            PairingMsg::Answer { .. } => 1,
+            PairingMsg::Reveal { .. } => 2,
+            PairingMsg::Confirm { .. } => 3,
+            PairingMsg::Reject => 4,
+        }
+    }
+
+    pub fn pairing_statuses() -> Vec<PairingStatus> {
+        vec![
+            PairingStatus::Idle,
+            PairingStatus::Searching,
+            PairingStatus::Comparing {
+                code: "004217".into(),
+                peer: "PC".into(),
+                confirmed: false,
+            },
+            PairingStatus::Done { peer: "PC".into() },
+            PairingStatus::Failed {
+                reason: "la otra máquina rechazó el código".into(),
+            },
+        ]
+    }
+
+    pub fn pairing_status_arm(s: &PairingStatus) -> usize {
+        match s {
+            PairingStatus::Idle => 0,
+            PairingStatus::Searching => 1,
+            PairingStatus::Comparing { .. } => 2,
+            PairingStatus::Done { .. } => 3,
+            PairingStatus::Failed { .. } => 4,
+        }
+    }
+
     pub fn ui_requests() -> Vec<UiRequest> {
         let mut cmds = vec![
             UiCommand::GetState,
@@ -413,6 +533,11 @@ pub(crate) mod samples {
             UiCommand::SetPcPower(true),
             UiCommand::SetPcPower(false),
             UiCommand::GetPeer,
+            UiCommand::GetPairing,
+            UiCommand::StartPairing,
+            UiCommand::ConfirmPairing,
+            UiCommand::CancelPairing,
+            UiCommand::Unpair,
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
         cmds.into_iter()
@@ -434,6 +559,11 @@ pub(crate) mod samples {
             UiCommand::GetDesk => 5,
             UiCommand::SetPcPower(_) => 6,
             UiCommand::GetPeer => 7,
+            UiCommand::GetPairing => 8,
+            UiCommand::StartPairing => 9,
+            UiCommand::ConfirmPairing => 10,
+            UiCommand::CancelPairing => 11,
+            UiCommand::Unpair => 12,
         }
     }
 
@@ -537,6 +667,11 @@ pub(crate) mod samples {
                 stranded: vec![],
             }),
         ];
+        v.push(AgentToUi::Reply {
+            id: 7,
+            reply: Reply::Pairing(PairingStatus::Searching),
+        });
+        v.extend(pairing_statuses().into_iter().map(AgentToUi::Pairing));
         v.extend(txn_events().into_iter().map(AgentToUi::Txn));
         v.extend(links().into_iter().map(|link| {
             AgentToUi::Peer(PeerStatus::Paired {
@@ -567,6 +702,7 @@ pub(crate) mod samples {
             AgentToUi::ManualSwitch(_) => 3,
             AgentToUi::Power(_) => 4,
             AgentToUi::Peer(_) => 5,
+            AgentToUi::Pairing(_) => 6,
         }
     }
 
@@ -578,6 +714,7 @@ pub(crate) mod samples {
             Reply::Done => 3,
             Reply::Desk(_) => 4,
             Reply::Peer(_) => 5,
+            Reply::Pairing(_) => 6,
         }
     }
 
@@ -622,8 +759,10 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
         covers(&control(), control_arm, 6);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 8);
-        covers(&to_ui(), to_ui_arm, 6);
+        covers(&cmds, ui_command_arm, 13);
+        covers(&to_ui(), to_ui_arm, 7);
+        covers(&pairing(), pairing_arm, 5);
+        covers(&pairing_statuses(), pairing_status_arm, 5);
         covers(&links(), link_arm, 3);
         let replies: Vec<_> = to_ui()
             .into_iter()
@@ -632,7 +771,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 6);
+        covers(&replies, reply_arm, 7);
         covers(&txn_events(), txn_arm, 8);
     }
 
@@ -644,6 +783,11 @@ mod tests {
     #[test]
     fn control_round_trip() {
         round_trip(&control());
+    }
+
+    #[test]
+    fn pairing_round_trip() {
+        round_trip(&pairing());
     }
 
     #[test]

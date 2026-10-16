@@ -1,7 +1,8 @@
 import "./styles.css";
 
 import { bridgeFailed, tauriBridge, type Bridge } from "./bridge";
-import type { Action, Bindings, BuiltinDisplay, Machine, ManualView, Notice, Permission, SetupView, ShortcutAction, ShortcutsView, Snapshot } from "./model";
+import type { Action, Bindings, BuiltinDisplay, Machine, ManualView, Notice, PairingView, Permission, SetupView, ShortcutAction, ShortcutsView, Snapshot } from "./model";
+import { isActive, needsDismiss, pairLine, pairScreen, shouldOpen } from "./pairing";
 import {
   MACHINE_NAME,
   MACHINES,
@@ -58,12 +59,15 @@ let message: { text: string; sticky: boolean } | null = null;
 let messageTimer: number | undefined;
 let lastOwner: Record<string, Machine> | null = null;
 let keys: ShortcutsView | null = null;
+let lastPairing: PairingView | null = null;
 const MAC = isMacPlatform();
 
 // ---------------------------------------------------------------------------------------
 // Estado
 
 function setSnapshot(next: Snapshot) {
+  const pairingBefore = lastPairing;
+  lastPairing = next.kind === "connected" ? next.pairing : null;
   const before = lastOwner;
   const after = next.kind === "connected" ? { ...next.state.owner } : null;
   const moved = before && after ? Object.keys(after).filter((id) => before[id] !== after[id]) : [];
@@ -74,6 +78,7 @@ function setSnapshot(next: Snapshot) {
   } else {
     render(moved);
   }
+  syncPair(pairingBefore);
 }
 
 function onNotice(n: Notice) {
@@ -124,11 +129,13 @@ function showMessage(text: string, sticky = false) {
   renderToast();
 }
 
-async function act(action: Action) {
-  if (!bridge) return;
+/** Pide `action`; si no se puede, devuelve por qué (y, salvo `quiet`, lo muestra en el aviso). */
+async function act(action: Action, quiet = false): Promise<string | null> {
+  if (!bridge) return null;
   const r = await bridge.act(action).catch((e: unknown) => ({ kind: "unavailable" as const, reason: String(e) }));
-  if (r.kind === "rejected") showMessage(r.reason);
-  else if (r.kind === "unavailable") showMessage(`Sin agente: ${r.reason}`);
+  const why = r.kind === "rejected" ? r.reason : r.kind === "unavailable" ? `Sin agente: ${r.reason}` : null;
+  if (why && !quiet) showMessage(why);
+  return why;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -275,7 +282,8 @@ function renderControls() {
   linkPill.hidden = false;
   $("#link-text").textContent = pill.text;
   $("#link-dot").classList.toggle("warn", !pill.ok);
-  linkPill.title = pill.title;
+  $("#link-act").hidden = snap.peer.kind === "paired";
+  linkPill.title = snap.peer.kind === "paired" ? `${pill.title}. Clic: ver el par` : `${pill.title}. Clic: emparejar`;
 }
 
 function renderToast() {
@@ -573,6 +581,164 @@ function wireSetup() {
 }
 
 // ---------------------------------------------------------------------------------------
+// Emparejamiento (DESIGN §9): el mismo código en las dos pantallas
+
+let askUnpair = false;
+/** Lo que el agente rechazó desde el diálogo: el aviso de abajo queda tapado por él. */
+let pairError: string | null = null;
+const ICON_CHECK = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>`;
+
+function pairDialog() {
+  return $<HTMLDialogElement>("#pair");
+}
+
+function openPair() {
+  if (snap.kind !== "connected") return;
+  askUnpair = false;
+  pairError = null;
+  renderPair();
+  if (!pairDialog().open) pairDialog().showModal();
+}
+
+/** Abre el diálogo si el emparejamiento empezó (o mostró su código) y lo redibuja. */
+function syncPair(before: PairingView | null) {
+  const d = pairDialog();
+  if (snap.kind !== "connected") {
+    if (d.open) d.close();
+    return;
+  }
+  if (!d.open && shouldOpen(before, snap.pairing)) {
+    openPair();
+    return;
+  }
+  if (d.open) renderPair();
+}
+
+function kbtn(text: string, onClick: () => void, cls = "") {
+  const b = el("button", `kbtn ${cls}`.trim(), text);
+  b.type = "button";
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function renderPair() {
+  if (snap.kind !== "connected") return;
+  const { agent, peer, pairing } = snap;
+  const screen = pairScreen(agent, peer, pairing, askUnpair);
+  $("#pair-scene").dataset.line = pairLine(screen);
+  for (const tile of $$("#pair-scene .ptile")) {
+    $("em", tile).textContent = tile.dataset.m === agent ? "esta máquina" : "";
+  }
+
+  const body: Node[] = [];
+  const foot: Node[] = [];
+  const title = (text: string) => {
+    const h = el("h2", undefined, text);
+    h.id = "pair-title";
+    body.push(h);
+  };
+  const close = (text = "Cerrar") => kbtn(text, () => pairDialog().close());
+  switch (screen.kind) {
+    case "intro":
+      title(`Emparejar con la ${screen.other}`);
+      body.push(el("p", undefined, `Se hace una sola vez. Pulsa «Emparejar» aquí y en la ${screen.other}, y comprueba que las dos pantallas muestran el mismo código.`));
+      foot.push(close(), el("span", "spacer"), kbtn("Emparejar", () => void pairAct({ kind: "start_pairing" }), "primary"));
+      break;
+    case "searching":
+      title(`Buscando la ${screen.other}…`);
+      body.push(el("p", undefined, screen.hint), el("p", undefined, "Las dos tienen que estar en el mismo cable o en la misma red."));
+      foot.push(el("span", "spacer"), close("Cancelar"));
+      break;
+    case "compare": {
+      title(`¿La ${screen.peer} muestra este código?`);
+      const code = el("div", "pcode");
+      code.setAttribute("aria-label", `Código ${screen.digits.join(" ")}`);
+      code.append(el("span", undefined, screen.digits[0]), el("span", undefined, screen.digits[1]));
+      body.push(code);
+      if (screen.confirmed) {
+        body.push(el("p", "pok", `Confirmado aquí. Falta confirmar en la ${screen.peer}.`));
+      } else {
+        body.push(el("p", undefined, "Si es el mismo, confírmalo en las dos máquinas. Si no, recházalo: otra máquina podría estar haciéndose pasar por ella."));
+      }
+      const yes = kbtn("Coinciden", () => void pairAct({ kind: "confirm_pairing" }), "primary");
+      yes.disabled = screen.confirmed;
+      foot.push(close("No coinciden"), el("span", "spacer"), yes);
+      break;
+    }
+    case "done": {
+      title(`Emparejado con ${screen.peer}`);
+      const ok = el("div", "stile");
+      ok.innerHTML = ICON_CHECK;
+      ok.style.color = "var(--ok)";
+      body.push(ok, el("p", undefined, "Desde ahora se conectan solas, cifradas y por el mejor enlace."));
+      foot.push(el("span", "spacer"), close("Listo"));
+      break;
+    }
+    case "failed":
+      title("No se emparejó");
+      body.push(el("p", "pwarn", capitalize(screen.reason)), el("p", undefined, "No se guardó nada en ninguna de las dos máquinas."));
+      foot.push(close(), el("span", "spacer"), kbtn("Reintentar", () => void pairAct({ kind: "start_pairing" }), "primary"));
+      break;
+    case "paired":
+      title(`Emparejado con ${screen.name}`);
+      body.push(el("p", undefined, `Esta máquina solo acepta a la ${screen.name}: toda la conexión entre las dos va cifrada.`));
+      foot.push(
+        kbtn("Desemparejar…", () => {
+          askUnpair = true;
+          renderPair();
+        }, "danger"),
+        el("span", "spacer"),
+        close(),
+      );
+      break;
+    case "unpair":
+      title(`¿Desemparejar la ${screen.name}?`);
+      body.push(el("p", undefined, `Esta máquina olvida su llave y deja de conectarse con ella. Para volver a usarlas juntas hay que emparejarlas de nuevo; desemparéjala también en la ${screen.name}.`));
+      foot.push(
+        kbtn("Cancelar", () => {
+          askUnpair = false;
+          renderPair();
+        }),
+        el("span", "spacer"),
+        kbtn("Desemparejar", () => void unpair(), "danger"),
+      );
+      break;
+  }
+  if (pairError) body.push(el("p", "pwarn", capitalize(pairError)));
+  $("#pair-body").replaceChildren(...body);
+  $("#pair-foot").replaceChildren(...foot);
+}
+
+/** Un pedido desde el diálogo: el motivo de un rechazo se muestra dentro de él. */
+async function pairAct(action: Action) {
+  pairError = await act(action, true);
+  renderPair();
+}
+
+function capitalize(text: string) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+async function unpair() {
+  askUnpair = false;
+  pairError = await act({ kind: "unpair" }, true);
+  if (pairError) renderPair();
+  else if (pairDialog().open) pairDialog().close();
+}
+
+function wirePair() {
+  $("#link-pill").addEventListener("click", openPair);
+  // Cerrar (con un botón o Escape) cancela lo que esté vivo y descarta un resultado.
+  pairDialog().addEventListener("close", () => {
+    askUnpair = false;
+    pairError = null;
+    if (snap.kind === "connected" && (isActive(snap.pairing) || needsDismiss(snap.pairing))) {
+      void act({ kind: "cancel_pairing" });
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------------------
 // Controles
 
 function chooseMode(key: ModeKey) {
@@ -586,7 +752,7 @@ function wire() {
   }
   // Los atajos que el sistema no dejó registrar como globales los atiende la ventana.
   addEventListener("keydown", (e) => {
-    if (!keys || $<HTMLDialogElement>("#keys").open || $<HTMLDialogElement>("#setup").open) return;
+    if (!keys || $<HTMLDialogElement>("#keys").open || $<HTMLDialogElement>("#setup").open || pairDialog().open) return;
     const a = localAction(e, keys);
     if (!a) return;
     e.preventDefault();
@@ -596,6 +762,7 @@ function wire() {
   });
   wireKeys();
   wireSetup();
+  wirePair();
 
   for (const side of $$(".side")) {
     const to = side.dataset.owner as Machine;

@@ -15,27 +15,33 @@
 //!   [`pc_watch`](crate::pc_watch) en la Mac y lo que la UI ve como [`PeerStatus`].
 //! - Sin par emparejado no hay gestor ni descubrimiento: el agente trabaja solo y la
 //!   UI recibe [`PeerStatus::Unpaired`].
+//! - La UI empareja y desempareja en caliente ([`PairingControl`]): al emparejar se
+//!   empieza a seguir al par nuevo; al desemparejar se lo borra de la confianza, se
+//!   deja de seguirlo y se cortan sus conexiones.
 //!
 //! [`NetworkConfig::link_candidates`]: crate::NetworkConfig::link_candidates
 
+use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 use std::time::Duration;
 
 use tandem_core::{Machine, State, Step};
 use tandem_link::discovery::MdnsDiscovery;
-use tandem_link::identity::{Identity, PublicKey, TrustStore};
+use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_link::manager::{
     HealthConfig, LinkCandidate, LinkKind, LinkManager, ManagerError, Prober, QuicProber,
     QuicSession,
 };
 use tandem_link::transport::{Connection, Endpoint, TransportError};
-use tandem_proto::{Hello, Link, Peer, PeerStatus};
-use tokio::sync::watch;
+use tandem_proto::{Hello, Link, PairingStatus, Peer, PeerStatus};
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
-use crate::agent::Agent;
+use crate::agent::{Agent, NO_NETWORK, PairingControl};
 use crate::orchestrator::{LinkHold, PEER_NOT_CONNECTED, PeerLink, StepFuture};
+use crate::pairing::{self, PairingTimeouts};
 use crate::peer::{self, PeerClient, PeerError};
 
 /// Lo que se espera a que el par se entere del cierre de las conexiones al apagar.
@@ -51,6 +57,7 @@ pub struct NetOptions {
     /// Anunciar y buscar al par en la LAN por mDNS.
     pub mdns: bool,
     pub health: HealthConfig,
+    pub pairing: PairingTimeouts,
 }
 
 impl Default for NetOptions {
@@ -59,6 +66,7 @@ impl Default for NetOptions {
             bind: None,
             mdns: true,
             health: HealthConfig::default(),
+            pairing: PairingTimeouts::default(),
         }
     }
 }
@@ -96,16 +104,81 @@ pub fn link_of(kind: LinkKind) -> Link {
 }
 
 /// La red en marcha. Al soltarla se cierran las conexiones y se detienen el gestor de
-/// enlaces y el descubrimiento.
+/// enlaces, el descubrimiento y el emparejamiento en curso.
 pub struct Network {
+    shared: Arc<Shared>,
+}
+
+/// Lo que comparten la red, el emparejamiento y quien atiende sus pedidos.
+struct Shared {
+    agent: Arc<Agent>,
+    identity: Identity,
     endpoint: Arc<Endpoint>,
     local_addr: SocketAddr,
+    /// Con candado: el emparejamiento desde la UI agrega y quita pares en caliente, y
+    /// el pinning del endpoint lo ve en las conexiones nuevas.
+    trust: Arc<RwLock<TrustStore>>,
+    opts: NetOptions,
+    conns: Arc<Conns>,
+    accept: JoinHandle<()>,
+    /// El par que se sigue (gestor de enlaces, mDNS y `pc_watch`), si hay.
+    peer: Mutex<Option<Following>>,
+    pairing: Mutex<Option<PairingRun>>,
+}
+
+struct Following {
+    key: PublicKey,
     tasks: Vec<JoinHandle<()>>,
 }
 
+struct PairingRun {
+    answers: mpsc::UnboundedSender<pairing::Answer>,
+    task: JoinHandle<()>,
+}
+
+/// Las conexiones que abrió el otro agente, para cortarlas al desemparejar: el
+/// pinning solo mira la confianza en el handshake.
+#[derive(Default)]
+struct Conns {
+    next: AtomicU64,
+    open: Mutex<BTreeMap<u64, Connection>>,
+}
+
+impl Conns {
+    fn add(&self, conn: Connection) -> u64 {
+        let id = self.next.fetch_add(1, Ordering::Relaxed);
+        lock(&self.open).insert(id, conn);
+        id
+    }
+
+    fn remove(&self, id: u64) {
+        lock(&self.open).remove(&id);
+    }
+
+    fn close_from(&self, key: &PublicKey) {
+        for conn in lock(&self.open).values().filter(|c| c.peer() == *key) {
+            conn.close("desemparejado");
+        }
+    }
+}
+
+/// Si otro hilo entró en pánico con el candado, lo de adentro sigue sirviendo.
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Lo que la UI recibe al pedir emparejar con un par ya emparejado.
+pub fn already_paired(name: &str) -> String {
+    format!("ya está emparejado con {name}: desemparéjalo primero")
+}
+pub const PAIRING_IN_PROGRESS: &str = "ya hay un emparejamiento en curso";
+pub const NOTHING_TO_CONFIRM: &str = "no hay ningún código que confirmar";
+pub const NOT_PAIRED: &str = "no hay ningún par emparejado";
+
 impl Network {
     /// Abre el endpoint y, si hay un par emparejado en `trust`, empieza a buscarlo.
-    /// Tiene que llamarse dentro de un runtime de tokio.
+    /// Atiende los pedidos de emparejamiento del agente. Tiene que llamarse dentro de
+    /// un runtime de tokio.
     pub fn start(
         agent: Arc<Agent>,
         identity: &Identity,
@@ -117,83 +190,55 @@ impl Network {
             .bind
             .unwrap_or_else(|| default_bind(net_cfg.port, &net_cfg.peers));
         // El primer par de la confianza: por ahora un agente se empareja con uno solo.
-        let paired = trust.peers().next().map(|p| (p.public_key, p.name.clone()));
-        let trusted: Vec<PublicKey> = trust.peers().map(|p| p.public_key).collect();
-        // Con candado: el emparejamiento desde la UI va a agregar pares en caliente.
+        let paired = trust.peers().next().cloned();
         let trust = Arc::new(RwLock::new(trust));
-        let endpoint =
-            Arc::new(
-                Endpoint::bind(addr, identity, trust).map_err(|source| NetError::Bind {
-                    addr,
-                    source: Box::new(source),
-                })?,
-            );
+        let endpoint = Arc::new(Endpoint::bind(addr, identity, trust.clone()).map_err(
+            |source| NetError::Bind {
+                addr,
+                source: Box::new(source),
+            },
+        )?);
         let local_addr = endpoint.local_addr().map_err(|source| NetError::Bind {
             addr,
             source: Box::new(source),
         })?;
         tracing::info!(addr = %local_addr, "endpoint QUIC escuchando");
 
-        let mut tasks = vec![tokio::spawn(accept_loop(endpoint.clone(), agent.clone()))];
-        let Some((key, name)) = paired else {
-            tracing::info!("sin par emparejado: el agente trabaja solo");
-            agent.set_peer_status(PeerStatus::Unpaired);
-            return Ok(Network {
-                endpoint,
-                local_addr,
-                tasks,
-            });
-        };
-        tracing::info!(par = %name, llave = %key.to_hex(), "par emparejado");
-        agent.set_peer_status(PeerStatus::Paired {
-            name: name.clone(),
-            link: None,
-        });
-
-        let discovery = if opts.mdns {
-            match MdnsDiscovery::start(&identity.public_key(), local_addr.port(), trusted) {
-                Ok(d) => Some(d),
-                // Sin multicast quedan los enlaces fijos: no es motivo para no arrancar.
-                Err(e) => {
-                    tracing::warn!("mDNS no disponible, solo se usan los enlaces fijos: {e}");
-                    None
-                }
-            }
-        } else {
-            None
-        };
-
-        let (reachable_tx, reachable) = watch::channel(false);
-        tasks.push(tokio::spawn(supervise(
-            agent.clone(),
-            endpoint.clone(),
-            name,
-            discovery,
-            opts.health,
-            reachable_tx,
-        )));
-        // En la PC no hace nada: que la Mac no conteste no dice nada de la corriente.
-        tasks.push(tokio::spawn(crate::pc_watch::watch(agent, reachable)));
-        Ok(Network {
+        let conns = Arc::new(Conns::default());
+        let accept = tokio::spawn(accept_loop(endpoint.clone(), agent.clone(), conns.clone()));
+        let shared = Arc::new(Shared {
+            agent: agent.clone(),
+            identity: identity.clone(),
             endpoint,
             local_addr,
-            tasks,
-        })
+            trust,
+            opts,
+            conns,
+            accept,
+            peer: Mutex::new(None),
+            pairing: Mutex::new(None),
+        });
+        agent.set_pairing(Arc::new(Pairer(Arc::downgrade(&shared))));
+        match paired {
+            Some(peer) => shared.follow(peer),
+            None => {
+                tracing::info!("sin par emparejado: el agente trabaja solo");
+                agent.set_peer_status(PeerStatus::Unpaired);
+            }
+        }
+        Ok(Network { shared })
     }
 
     /// Dirección real del endpoint (con el puerto elegido si se pidió el 0).
     pub fn local_addr(&self) -> SocketAddr {
-        self.local_addr
+        self.shared.local_addr
     }
 
     /// Cierra las conexiones y espera un poco a que el par se entere, para que no
     /// tenga que esperar a que se le venzan los pings.
     pub async fn shutdown(self) {
-        for t in &self.tasks {
-            t.abort();
-        }
-        self.endpoint.close();
-        if tokio::time::timeout(CLOSE_TIMEOUT, self.endpoint.wait_idle())
+        self.shared.stop();
+        if tokio::time::timeout(CLOSE_TIMEOUT, self.shared.endpoint.wait_idle())
             .await
             .is_err()
         {
@@ -204,20 +249,223 @@ impl Network {
 
 impl Drop for Network {
     fn drop(&mut self) {
-        for t in &self.tasks {
-            t.abort();
+        self.shared.stop();
+    }
+}
+
+impl Shared {
+    fn stop(&self) {
+        self.accept.abort();
+        if let Some(f) = lock(&self.peer).as_ref() {
+            for t in &f.tasks {
+                t.abort();
+            }
+        }
+        if let Some(p) = lock(&self.pairing).as_ref() {
+            p.task.abort();
         }
         self.endpoint.close();
+    }
+
+    /// Empieza a seguir a `peer`: mDNS, gestor de enlaces y, en la Mac, `pc_watch`.
+    fn follow(&self, peer: TrustedPeer) {
+        let TrustedPeer { public_key, name } = peer;
+        tracing::info!(par = %name, llave = %public_key.to_hex(), "par emparejado");
+        let agent = &self.agent;
+        agent.set_peer_status(PeerStatus::Paired {
+            name: name.clone(),
+            link: None,
+        });
+        let discovery = if self.opts.mdns {
+            match MdnsDiscovery::start(
+                &self.identity.public_key(),
+                self.local_addr.port(),
+                [public_key],
+            ) {
+                Ok(d) => Some(d),
+                // Sin multicast quedan los enlaces fijos: no es motivo para no arrancar.
+                Err(e) => {
+                    tracing::warn!("mDNS no disponible, solo se usan los enlaces fijos: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let (reachable_tx, reachable) = watch::channel(false);
+        let tasks = vec![
+            tokio::spawn(supervise(
+                agent.clone(),
+                self.endpoint.clone(),
+                name,
+                discovery,
+                self.opts.health,
+                reachable_tx,
+            )),
+            // En la PC no hace nada: que la Mac no conteste no dice nada de la corriente.
+            tokio::spawn(crate::pc_watch::watch(agent.clone(), reachable)),
+        ];
+        let previous = lock(&self.peer).replace(Following {
+            key: public_key,
+            tasks,
+        });
+        if let Some(p) = previous {
+            for t in p.tasks {
+                t.abort();
+            }
+        }
+    }
+
+    /// Olvida al par: lo borra de la confianza, deja de buscarlo y corta sus
+    /// conexiones. Si no se puede guardar la confianza, no cambia nada.
+    fn forget(&self) -> Result<(), String> {
+        let mut following = lock(&self.peer);
+        let Some(key) = following.as_ref().map(|f| f.key) else {
+            return Err(NOT_PAIRED.into());
+        };
+        {
+            let mut trust = self.trust.write().unwrap_or_else(|e| e.into_inner());
+            trust
+                .remove_and_save(&key)
+                .map_err(|e| format!("no se pudo guardar la confianza: {e}"))?;
+        }
+        if let Some(f) = following.take() {
+            for t in f.tasks {
+                t.abort();
+            }
+        }
+        drop(following);
+        // `supervise` no llega a soltar el par al abortarse.
+        self.agent.orchestrator().clear_peer();
+        self.conns.close_from(&key);
+        tracing::info!(llave = %key.to_hex(), "desemparejado");
+        self.agent.set_peer_status(PeerStatus::Unpaired);
+        self.agent.set_pairing_status(PairingStatus::Idle);
+        Ok(())
+    }
+
+    fn paired_name(&self) -> Option<String> {
+        let key = lock(&self.peer).as_ref().map(|f| f.key)?;
+        let trust = self.trust.read().unwrap_or_else(|e| e.into_inner());
+        Some(
+            trust
+                .verify(&key)
+                .map(|p| p.name.clone())
+                .unwrap_or_default(),
+        )
+    }
+
+    fn pairing_running(&self) -> bool {
+        lock(&self.pairing)
+            .as_ref()
+            .is_some_and(|p| !p.task.is_finished())
+    }
+
+    fn start_pairing(self: &Arc<Self>) -> Result<(), String> {
+        if let Some(name) = self.paired_name() {
+            return Err(already_paired(&name));
+        }
+        let mut slot = lock(&self.pairing);
+        if slot.as_ref().is_some_and(|p| !p.task.is_finished()) {
+            return Err(PAIRING_IN_PROGRESS.into());
+        }
+        let (answers, mut rx) = mpsc::unbounded_channel();
+        let ctx = pairing::Ctx {
+            agent: self.agent.clone(),
+            identity: self.identity.clone(),
+            trust: self.trust.clone(),
+            bind_ip: self.local_addr.ip(),
+            mdns: self.opts.mdns,
+            timeouts: self.opts.pairing,
+        };
+        // Antes de devolver: la UI que pidió empezar ya ve que se está buscando.
+        self.agent.set_pairing_status(PairingStatus::Searching);
+        let shared = self.clone();
+        let task = tokio::spawn(async move {
+            let outcome = pairing::run(&ctx, &mut rx).await;
+            let status = match outcome {
+                pairing::Outcome::Paired(peer) => {
+                    let name = peer.name.clone();
+                    shared.follow(peer);
+                    PairingStatus::Done { peer: name }
+                }
+                pairing::Outcome::Cancelled => PairingStatus::Idle,
+                pairing::Outcome::Failed(reason) => {
+                    tracing::warn!("no se emparejó: {reason}");
+                    PairingStatus::Failed { reason }
+                }
+            };
+            shared.agent.set_pairing_status(status);
+        });
+        *slot = Some(PairingRun { answers, task });
+        Ok(())
+    }
+
+    fn answer(&self, answer: pairing::Answer) -> bool {
+        lock(&self.pairing)
+            .as_ref()
+            .filter(|p| !p.task.is_finished())
+            .is_some_and(|p| p.answers.send(answer).is_ok())
+    }
+}
+
+/// Lo que el agente usa para emparejar. Débil: la red es de quien la arrancó, y sin
+/// ella los pedidos se rechazan.
+struct Pairer(Weak<Shared>);
+
+impl Pairer {
+    fn shared(&self) -> Result<Arc<Shared>, String> {
+        self.0.upgrade().ok_or_else(|| NO_NETWORK.to_owned())
+    }
+}
+
+impl PairingControl for Pairer {
+    fn start(&self) -> Result<(), String> {
+        self.shared()?.start_pairing()
+    }
+
+    fn confirm(&self) -> Result<(), String> {
+        let shared = self.shared()?;
+        let waiting = matches!(
+            shared.agent.pairing_status(),
+            PairingStatus::Comparing {
+                confirmed: false,
+                ..
+            }
+        );
+        if waiting && shared.answer(pairing::Answer::Confirm) {
+            Ok(())
+        } else {
+            Err(NOTHING_TO_CONFIRM.into())
+        }
+    }
+
+    fn cancel(&self) -> Result<(), String> {
+        let shared = self.shared()?;
+        if !shared.answer(pairing::Answer::Cancel) && !shared.pairing_running() {
+            // Nada en curso: la UI cierra un resultado ya mostrado.
+            shared.agent.set_pairing_status(PairingStatus::Idle);
+        }
+        Ok(())
+    }
+
+    fn unpair(&self) -> Result<(), String> {
+        self.shared()?.forget()
     }
 }
 
 /// Atiende cada conexión entrante. El pinning ya rechazó a quien no esté en la confianza.
-async fn accept_loop(endpoint: Arc<Endpoint>, agent: Arc<Agent>) {
+async fn accept_loop(endpoint: Arc<Endpoint>, agent: Arc<Agent>, conns: Arc<Conns>) {
     while let Some(conn) = endpoint.accept().await {
         match conn {
             Ok(conn) => {
                 tracing::debug!(from = %conn.remote_address(), "conexión del otro agente");
-                tokio::spawn(peer::accept_streams(conn, agent.clone()));
+                let (agent, conns) = (agent.clone(), conns.clone());
+                let id = conns.add(conn.clone());
+                tokio::spawn(async move {
+                    peer::accept_streams(conn, agent).await;
+                    conns.remove(id);
+                });
             }
             Err(e) => tracing::debug!("conexión entrante rechazada: {e}"),
         }

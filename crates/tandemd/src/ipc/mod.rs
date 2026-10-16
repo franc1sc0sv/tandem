@@ -6,8 +6,8 @@
 //! [`AgentToUi`]. El agente además empuja [`AgentToUi::State`] cada vez que el estado cambia
 //! y [`AgentToUi::Txn`] con el avance de cada cambio de modo, [`AgentToUi::ManualSwitch`]
 //! cuando hay que cambiar a mano la entrada de un monitor, [`AgentToUi::Power`] cuando
-//! la PC se da por apagada sin que nadie la apagara y [`AgentToUi::Peer`] cuando cambia
-//! el par o el enlace con él.
+//! la PC se da por apagada sin que nadie la apagara, [`AgentToUi::Peer`] cuando cambia
+//! el par o el enlace con él y [`AgentToUi::Pairing`] con cada paso del emparejamiento.
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -149,6 +149,8 @@ where
     let mut power = agent.subscribe_power();
     let mut peer = agent.subscribe_peer();
     peer.mark_unchanged();
+    let mut pairing = agent.subscribe_pairing();
+    pairing.mark_unchanged();
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
@@ -194,6 +196,13 @@ where
                 }
                 let status = peer.borrow_and_update().clone();
                 conn.send(&AgentToUi::Peer(status)).await?;
+            }
+            changed = pairing.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+                let status = pairing.borrow_and_update().clone();
+                conn.send(&AgentToUi::Pairing(status)).await?;
             }
             () = stopped(&mut shutdown) => return Ok(()),
         }
@@ -317,6 +326,27 @@ mod tests {
         };
         agent.set_peer_status(paired.clone());
         assert_eq!(c.next_event().await.unwrap(), Some(AgentToUi::Peer(paired)));
+    }
+
+    #[tokio::test]
+    async fn pairing_status_is_answered_and_pushed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agent, io, _stop) = start(dir.path());
+        let mut c = IpcClient::handshake(io).await.unwrap();
+        assert_eq!(
+            c.request(UiCommand::GetPairing).await.unwrap(),
+            Reply::Pairing(tandem_proto::PairingStatus::Idle)
+        );
+        let comparing = tandem_proto::PairingStatus::Comparing {
+            code: "012345".into(),
+            peer: "PC".into(),
+            confirmed: false,
+        };
+        agent.set_pairing_status(comparing.clone());
+        assert_eq!(
+            c.next_event().await.unwrap(),
+            Some(AgentToUi::Pairing(comparing))
+        );
     }
 
     #[tokio::test]

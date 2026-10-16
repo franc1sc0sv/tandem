@@ -197,6 +197,7 @@ mod tests {
     use tandemd::AgentConfig;
 
     use super::*;
+    use crate::session::PairingView;
 
     fn paired() -> PeerView {
         PeerView::Paired {
@@ -284,6 +285,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             desk: d,
             state: s,
             peer: PeerView::Unpaired,
+            pairing: PairingView::Idle,
         };
         assert_eq!(mode_for(ModeKey::SoloPc, &ok), Ok(Mode::SoloPc));
         let down = Snapshot::Unavailable {
@@ -321,6 +323,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             desk: desk(),
             state: state(Pc, Mac),
             peer: paired(),
+            pairing: PairingView::Idle,
         });
         assert_eq!(v.current, Some(ModeKey::Shared));
         assert!(v.modes_enabled);
@@ -332,6 +335,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             desk: desk(),
             state: State::initial(&desk()),
             peer: paired(),
+            pairing: PairingView::Idle,
         });
         assert_eq!(off.status, "Solo Mac · PC apagada");
 
@@ -341,6 +345,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             desk: desk(),
             state: State::initial(&desk()),
             peer: PeerView::Unpaired,
+            pairing: PairingView::Idle,
         });
         assert_eq!(alone.status, "Solo Mac · PC apagada · sin par emparejado");
     }
@@ -363,6 +368,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             desk: Config { monitors: vec![] },
             state: state(Mac, Mac),
             peer: paired(),
+            pairing: PairingView::Idle,
         };
         let v = MenuView::of(&empty);
         assert!(!v.modes_enabled);
