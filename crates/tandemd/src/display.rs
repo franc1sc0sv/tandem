@@ -16,6 +16,7 @@ use tandem_proto::ManualSwitchEvent;
 
 use crate::config::AgentConfig;
 use crate::orchestrator::{LocalSteps, STEP_NOT_IMPLEMENTED, StepFuture, Unimplemented, describe};
+use crate::power::PowerSteps;
 
 /// Ejecutor local de los pasos de pantalla; el resto va a `others`.
 pub struct DisplaySteps {
@@ -66,9 +67,12 @@ impl DisplaySteps {
 
     /// Los backends reales de esta máquina. En la PC: DDC para los monitores con perfil
     /// y el cambio manual por la UI para los demás, y la topología de Windows para el
-    /// escritorio. La Mac todavía no tiene backend de escritorio (T-012).
+    /// escritorio. La Mac todavía no tiene backend de escritorio (T-012). Los pasos de
+    /// energía van a [`PowerSteps`].
     pub fn platform(cfg: &AgentConfig, manual: Arc<ManualSwitcher>) -> Self {
-        let mut steps = DisplaySteps::new(cfg.machine, cfg.desk.clone());
+        let mut steps = DisplaySteps::new(cfg.machine, cfg.desk.clone()).with_others(Arc::new(
+            PowerSteps::for_machine(cfg, Arc::new(Unimplemented)),
+        ));
         if cfg.machine == Machine::Pc {
             steps = steps.with_switcher(Arc::new(PerMonitor {
                 ddc: Arc::new(ddc_backend()),
@@ -492,6 +496,18 @@ mod tests {
                 "{e}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn platform_routes_power_steps_to_power_backends() {
+        // Sin [power.wol] la Mac no puede despertar a la PC, y lo dice.
+        let cfg = fixtures::desk();
+        let mac = DisplaySteps::platform(&cfg, Arc::new(ManualSwitcher::new()));
+        let e = mac.execute(&Step::PowerOnPc).await.unwrap_err();
+        assert!(e.contains(crate::power::WOL_NOT_CONFIGURED), "{e}");
+        // Lo que no es de energía ni de pantalla sigue sin implementar.
+        let e = mac.execute(&Step::UpdateInputGeometry).await.unwrap_err();
+        assert!(e.contains(STEP_NOT_IMPLEMENTED), "{e}");
     }
 
     /// La PC orquesta Solo Windows: el 34" cambia por DDC (simulado) y el 32" lo cambia el

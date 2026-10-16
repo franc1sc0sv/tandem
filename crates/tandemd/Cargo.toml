@@ -13,6 +13,7 @@ serde_json.workspace = true
 tandem-core = { path = "../tandem-core" }
 tandem-display = { path = "../tandem-display" }
 tandem-link = { path = "../tandem-link" }
+tandem-power = { path = "../tandem-power" }
 tandem-proto = { path = "../tandem-proto" }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }

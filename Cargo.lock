@@ -1512,6 +1512,13 @@ dependencies = [
 [[package]]
 name = "tandem-power"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "thiserror",
+ "toml",
+ "windows",
+]
 
 [[package]]
 name = "tandem-proto"
@@ -1550,6 +1557,7 @@ dependencies = [
  "tandem-core",
  "tandem-display",
  "tandem-link",
+ "tandem-power",
  "tandem-proto",
  "tempfile",
  "thiserror",

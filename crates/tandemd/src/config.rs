@@ -14,6 +14,12 @@
 //! power_on_timeout_secs = 120
 //! step_timeout_secs = 10
 //!
+//! # Solo en la Mac: Wake-on-LAN por el enlace Ethernet directo.
+//! [power.wol]
+//! mac = "9c:6b:00:1a:2b:ff"
+//! source = "10.77.2.1"
+//! broadcast = "10.77.2.3"
+//!
 //! [[monitors]]
 //! id = "m34"
 //! label = '34"'
@@ -27,6 +33,7 @@ use serde::{Deserialize, Serialize};
 use tandem_core::{Config, Machine};
 use tandem_link::discovery::{DiscoveryError, link_candidates, validate_static_links};
 use tandem_link::manager::LinkCandidate;
+use tandem_power::WolTarget;
 
 /// Puerto UDP predeterminado del plano de control (QUIC).
 pub const DEFAULT_PORT: u16 = 47770;
@@ -39,6 +46,8 @@ pub struct AgentConfig {
     pub network: NetworkConfig,
     #[serde(default)]
     pub orchestrator: OrchestratorConfig,
+    #[serde(default)]
+    pub power: PowerConfig,
     /// El puesto: es el mismo archivo en las dos máquinas, salvo `machine`.
     #[serde(flatten)]
     pub desk: Config,
@@ -106,6 +115,15 @@ impl OrchestratorConfig {
     }
 }
 
+/// Encendido y apagado de la PC.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PowerConfig {
+    /// Cómo despertar la PC. Sin esta sección, encenderla falla con un error claro.
+    #[serde(default)]
+    pub wol: Option<WolTarget>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("no se pudo leer {path}: {source}")]
@@ -122,6 +140,15 @@ pub enum ConfigError {
     ZeroPort,
     #[error("los tiempos máximos de los pasos no pueden ser 0")]
     ZeroTimeout,
+    #[error("el puerto del Wake-on-LAN no puede ser 0")]
+    ZeroWolPort,
+    #[error(
+        "Wake-on-LAN: el origen {source_ip} y el destino {broadcast} no son de la misma familia (IPv4/IPv6)"
+    )]
+    WolFamilyMismatch {
+        source_ip: std::net::IpAddr,
+        broadcast: std::net::IpAddr,
+    },
     #[error(transparent)]
     Peers(#[from] DiscoveryError),
 }
@@ -150,6 +177,19 @@ impl AgentConfig {
         let o = &self.orchestrator;
         if o.power_on_timeout_secs == 0 || o.step_timeout_secs == 0 {
             return Err(ConfigError::ZeroTimeout);
+        }
+        if let Some(wol) = &self.power.wol {
+            if wol.port == 0 {
+                return Err(ConfigError::ZeroWolPort);
+            }
+            if let Some(source_ip) = wol.source
+                && source_ip.is_ipv4() != wol.broadcast.is_ipv4()
+            {
+                return Err(ConfigError::WolFamilyMismatch {
+                    source_ip,
+                    broadcast: wol.broadcast,
+                });
+            }
         }
         Ok(())
     }
@@ -373,6 +413,43 @@ mod tests {
     #[test]
     fn rejects_unknown_network_field() {
         let err = AgentConfig::from_toml("machine = \"mac\"\nmonitors = []\n[network]\nprot = 1")
+            .unwrap_err();
+        assert!(matches!(err, ConfigError::Parse(_)), "{err}");
+    }
+
+    #[test]
+    fn power_is_optional() {
+        assert_eq!(fixtures::desk().power, PowerConfig::default());
+        assert_eq!(fixtures::desk().power.wol, None);
+    }
+
+    #[test]
+    fn parses_wake_on_lan() {
+        let cfg = AgentConfig::from_toml(
+            "machine = \"mac\"\nmonitors = []\n[power.wol]\nmac = \"9c-6b-00-1a-2b-ff\"\nsource = \"10.77.2.1\"\nbroadcast = \"10.77.2.3\"",
+        )
+        .unwrap();
+        let wol = cfg.power.wol.unwrap();
+        assert_eq!(wol.mac.to_string(), "9c:6b:00:1a:2b:ff");
+        assert_eq!(wol.destination(), "10.77.2.3:9".parse().unwrap());
+    }
+
+    #[test]
+    fn rejects_bad_wake_on_lan() {
+        let base = "machine = \"mac\"\nmonitors = []\n[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n";
+        let err = AgentConfig::from_toml(&format!("{base}port = 0")).unwrap_err();
+        assert!(matches!(err, ConfigError::ZeroWolPort), "{err}");
+        let err = AgentConfig::from_toml(&format!("{base}source = \"fe80::1\"")).unwrap_err();
+        assert!(
+            matches!(err, ConfigError::WolFamilyMismatch { .. }),
+            "{err}"
+        );
+        let err = AgentConfig::from_toml(
+            "machine = \"mac\"\nmonitors = []\n[power.wol]\nmac = \"no-es-una-mac\"",
+        )
+        .unwrap_err();
+        assert!(matches!(err, ConfigError::Parse(_)), "{err}");
+        let err = AgentConfig::from_toml("machine = \"mac\"\nmonitors = []\n[power]\nwake = 1")
             .unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
