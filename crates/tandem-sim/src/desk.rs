@@ -14,7 +14,7 @@ use tokio::sync::{broadcast, watch};
 use crate::fault::{FaultPlan, Faults};
 use crate::net::{ManagedPeer, SimNet, SimProber};
 use crate::steps::{HardwareTimes, SimSteps};
-use crate::world::World;
+use crate::world::{Power, World};
 
 /// El puesto real: 34" (LC34G55T, con su perfil DDC) a la izquierda y 32" a la
 /// derecha; DisplayPort a la PC y HDMI a la Mac.
@@ -175,10 +175,13 @@ impl DeskBuilder {
             });
             Ok(Arc::new(ManagedPeer::new(manager)))
         };
+        // La Mac concilia `pc_on` con lo que ve su gestor de enlaces.
+        let mac_reach = mac_up_tx.subscribe();
         let mac_links = links(&pc, mac_up_tx)?;
         let pc_links = links(&mac, pc_up_tx)?;
         mac.set_peer(mac_links.clone());
         pc.set_peer(pc_links.clone());
+        let pc_watch = tokio::spawn(tandemd::pc_watch::watch(mac.clone(), mac_reach));
 
         Ok(Desk {
             mac,
@@ -189,6 +192,8 @@ impl DeskBuilder {
             pc_links,
             faults,
             cfg,
+            times: self.times,
+            pc_watch,
             _dir: dir,
         })
     }
@@ -204,11 +209,14 @@ pub struct Desk {
     pc_links: Arc<ManagedPeer>,
     faults: Faults,
     cfg: Config,
+    times: HardwareTimes,
+    pc_watch: tokio::task::JoinHandle<()>,
     _dir: tempfile::TempDir,
 }
 
 impl Drop for Desk {
     fn drop(&mut self) {
+        self.pc_watch.abort();
         // Rompe el ciclo agente → gestor de enlaces → agente del otro lado.
         self.mac.set_peer(Arc::new(NoPeer));
         self.pc.set_peer(Arc::new(NoPeer));
@@ -331,6 +339,22 @@ impl Desk {
     pub fn pull_pc_plug(&self) {
         self.world.lock().power_off();
         self.net.drop_all();
+    }
+
+    /// Alguien enciende la PC con su botón, sin Wake-on-LAN.
+    pub fn press_pc_power_button(&self) {
+        {
+            let mut w = self.world.lock();
+            if w.power != Power::Off {
+                return;
+            }
+            w.power = Power::Booting;
+        }
+        let (world, boot) = (self.world.clone(), self.times.boot);
+        tokio::spawn(async move {
+            tokio::time::sleep(boot).await;
+            world.lock().boot_done();
+        });
     }
 
     /// Deja pasar el tiempo para que termine lo que quedó en el aire.

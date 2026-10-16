@@ -4,8 +4,9 @@
 //! Habla los mensajes UI ↔ agente de `tandem-proto`: cada lado manda su [`Hello`]
 //! (el agente primero), y después la UI manda [`UiRequest`] y el agente contesta con
 //! [`AgentToUi`]. El agente además empuja [`AgentToUi::State`] cada vez que el estado cambia
-//! y [`AgentToUi::Txn`] con el avance de cada cambio de modo, y [`AgentToUi::ManualSwitch`]
-//! cuando hay que cambiar a mano la entrada de un monitor.
+//! y [`AgentToUi::Txn`] con el avance de cada cambio de modo, [`AgentToUi::ManualSwitch`]
+//! cuando hay que cambiar a mano la entrada de un monitor y [`AgentToUi::Power`] cuando
+//! la PC se da por apagada sin que nadie la apagara.
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -144,6 +145,7 @@ where
     states.mark_unchanged();
     let mut txns = agent.subscribe_txns();
     let mut manual = agent.subscribe_manual();
+    let mut power = agent.subscribe_power();
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
@@ -172,6 +174,14 @@ where
                 // Un pedido perdido vence con su paso, y la UI lo ve en la transacción.
                 Err(RecvError::Lagged(n)) => {
                     tracing::warn!("la UI se atrasó y perdió {n} pedidos de cambio manual");
+                }
+                Err(RecvError::Closed) => return Ok(()),
+            },
+            event = power.recv() => match event {
+                Ok(event) => conn.send(&AgentToUi::Power(event)).await?,
+                // El estado empujado ya dice que la PC está apagada.
+                Err(RecvError::Lagged(n)) => {
+                    tracing::warn!("la UI se atrasó y perdió {n} avisos de energía");
                 }
                 Err(RecvError::Closed) => return Ok(()),
             },
@@ -336,6 +346,20 @@ mod tests {
         s.pc_on = true;
         agent.set_state(s.clone()).unwrap();
         assert_eq!(c.next_event().await.unwrap(), Some(AgentToUi::State(s)));
+    }
+
+    #[tokio::test]
+    async fn power_events_are_pushed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agent, io, _stop) = start(dir.path());
+        let mut c = IpcClient::handshake(io).await.unwrap();
+        c.get_state().await.unwrap();
+        let ev = tandem_proto::PowerEvent::PcLost {
+            reason: "sin enlaces".into(),
+            stranded: vec!["m34".into()],
+        };
+        agent.emit_power(ev.clone());
+        assert_eq!(c.next_event().await.unwrap(), Some(AgentToUi::Power(ev)));
     }
 
     #[tokio::test]

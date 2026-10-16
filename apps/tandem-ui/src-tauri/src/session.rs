@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State, Step};
-use tandem_proto::{AgentToUi, ManualSwitchEvent, Reply, TxnEvent, UiCommand};
+use tandem_proto::{AgentToUi, ManualSwitchEvent, PowerEvent, Reply, TxnEvent, UiCommand};
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Notify, mpsc, oneshot, watch};
@@ -47,8 +47,26 @@ pub enum Snapshot {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Notice {
-    Txn { event: TxnView },
-    ManualSwitch { event: ManualView },
+    Txn {
+        event: TxnView,
+    },
+    ManualSwitch {
+        event: ManualView,
+    },
+    /// La PC se dio por apagada sin que nadie la apagara (corte de corriente):
+    /// `reason` se muestra tal cual y `stranded` son los monitores que quedan en negro.
+    Power {
+        reason: String,
+        stranded: Vec<MonitorId>,
+    },
+}
+
+impl From<PowerEvent> for Notice {
+    fn from(e: PowerEvent) -> Self {
+        match e {
+            PowerEvent::PcLost { reason, stranded } => Notice::Power { reason, stranded },
+        }
+    }
 }
 
 /// [`TxnEvent`] en JSON legible para el frontend (los pasos con su etiqueta `step`).
@@ -425,6 +443,7 @@ impl Runner {
             AgentToUi::ManualSwitch(event) => self.sink.notice(&Notice::ManualSwitch {
                 event: event.into(),
             }),
+            AgentToUi::Power(event) => self.sink.notice(&event.into()),
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}
         }
@@ -841,6 +860,18 @@ wiring = { pc = "displayport", mac = "hdmi" }
             serde_json::to_value(&m).unwrap(),
             serde_json::json!({ "kind": "manual_switch", "event": { "type": "closed", "id": 2 } })
         );
+        let p = Notice::from(PowerEvent::PcLost {
+            reason: "la PC dejó de responder".into(),
+            stranded: vec!["m34".into()],
+        });
+        assert_eq!(
+            serde_json::to_value(&p).unwrap(),
+            serde_json::json!({
+                "kind": "power",
+                "reason": "la PC dejó de responder",
+                "stranded": ["m34"]
+            })
+        );
         assert_eq!(
             serde_json::to_value(ActionResult::Rejected { reason: "x".into() }).unwrap(),
             serde_json::json!({ "kind": "rejected", "reason": "x" })
@@ -978,5 +1009,32 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 input: Input::DisplayPort,
             }
         );
+    }
+
+    #[test]
+    fn power_event_reaches_the_window_with_its_reason() {
+        let rec = Arc::new(Recorder::default());
+        let (snapshot, _) = watch::channel(Snapshot::Connecting);
+        let (_, actions) = mpsc::channel(1);
+        let runner = Runner {
+            endpoint: None,
+            sink: rec.clone(),
+            snapshot,
+            actions,
+            retry: Arc::new(Notify::new()),
+        };
+        runner.on_event(AgentToUi::Power(PowerEvent::PcLost {
+            reason: "la PC dejó de responder (¿corte de corriente?)".into(),
+            stranded: vec!["m34".into(), "m32".into()],
+        }));
+        assert_eq!(
+            *rec.notices.lock().unwrap(),
+            vec![Notice::Power {
+                reason: "la PC dejó de responder (¿corte de corriente?)".into(),
+                stranded: vec!["m34".into(), "m32".into()],
+            }]
+        );
+        // Un aviso de energía no toca el estado: ese llega empujado aparte.
+        assert!(rec.snapshots.lock().unwrap().is_empty());
     }
 }

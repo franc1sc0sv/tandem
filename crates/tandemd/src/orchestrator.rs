@@ -385,6 +385,20 @@ impl Orchestrator {
         self.attempt(step).await.map_err(|f| f.error)
     }
 
+    /// Un paso solo en esta máquina, aunque también le toque a la otra, con su tiempo
+    /// máximo. Sirve cuando la otra no puede contestar (la PC se quedó sin corriente).
+    pub async fn run_here(&self, step: &Step) -> Result<(), String> {
+        let limit = self.timeouts.for_step(step);
+        match tokio::time::timeout(limit, self.local.execute(step)).await {
+            Ok(r) => r,
+            Err(_) => Err(format!(
+                "{}: sin respuesta en {} s",
+                describe(step),
+                limit.as_secs()
+            )),
+        }
+    }
+
     async fn attempt(&self, step: &Step) -> Result<(), StepFailure> {
         let limit = self.timeouts.for_step(step);
         let work = async {

@@ -52,7 +52,8 @@ export type ManualView =
 
 export type Notice =
   | { kind: "txn"; event: TxnView }
-  | { kind: "manual_switch"; event: ManualView };
+  | { kind: "manual_switch"; event: ManualView }
+  | { kind: "power"; reason: string; stranded: string[] };
 
 export type Mode =
   | { mode: "solo_mac" }

@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use tandem_core::plan::PlanError;
 use tandem_core::{Machine, Mode, Plan, State, Step};
 use tandem_display::switcher::{ManualEvent, ManualSwitcher};
-use tandem_proto::{Reply, TxnEvent, UiCommand};
+use tandem_proto::{PowerEvent, Reply, TxnEvent, UiCommand};
 use tokio::sync::{broadcast, watch};
 
 use crate::config::AgentConfig;
@@ -29,7 +29,12 @@ pub struct Agent {
     orch: Orchestrator,
     /// Los cambios de entrada que el usuario hace a mano y confirma desde la UI.
     manual: Arc<ManualSwitcher>,
+    /// Avisos de energía de la PC que no vienen de una transacción.
+    power: broadcast::Sender<PowerEvent>,
 }
+
+/// Avisos de energía que se guardan para un suscriptor lento.
+const POWER_EVENT_BUFFER: usize = 16;
 
 impl Agent {
     /// Arranca desde el estado guardado (o el inicial, si no hay), sin backends de
@@ -71,6 +76,7 @@ impl Agent {
             persisting: Mutex::new(()),
             orch,
             manual,
+            power: broadcast::channel(POWER_EVENT_BUFFER).0,
         }
     }
 
@@ -91,6 +97,16 @@ impl Agent {
     /// Pedidos de cambio manual de entrada, para la UI.
     pub fn subscribe_manual(&self) -> broadcast::Receiver<ManualEvent> {
         self.manual.subscribe()
+    }
+
+    /// Avisos de energía de la PC (por ejemplo, que se la dio por apagada), para la UI.
+    pub fn subscribe_power(&self) -> broadcast::Receiver<PowerEvent> {
+        self.power.subscribe()
+    }
+
+    pub(crate) fn emit_power(&self, event: PowerEvent) {
+        // Sin UI conectada no hay a quién avisar, y eso no es un error.
+        let _ = self.power.send(event);
     }
 
     pub fn machine(&self) -> Machine {

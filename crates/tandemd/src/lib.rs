@@ -10,6 +10,7 @@
 //! - [`orchestrator`]: los cambios de modo como transacciones repartidas entre las dos máquinas.
 //! - [`display`]: los pasos de pantalla de esta máquina (entradas, escritorio, pantalla integrada).
 //! - [`power`]: Wake-on-LAN en la Mac y apagado limpio en la PC.
+//! - [`pc_watch`]: en la Mac, da la PC por apagada si ningún enlace la ve (corte de corriente).
 //! - [`peer`]: el otro agente por el plano de control (pedirle pasos y atender los suyos).
 //! - [`ipc`]: la API local para la UI (Unix socket / named pipe).
 //! - [`daemon`]: el bucle principal y el apagado ordenado.
@@ -24,6 +25,7 @@ pub mod ipc;
 pub mod logging;
 pub mod orchestrator;
 pub mod paths;
+pub mod pc_watch;
 pub mod peer;
 pub mod power;
 pub mod store;

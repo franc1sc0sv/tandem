@@ -17,8 +17,8 @@ mod wire;
 
 pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encode_frame};
 pub use msg::{
-    AgentToUi, ControlMsg, Hello, ManualSwitchEvent, Peer, Reply, StepOutcome, TxnEvent, UiCommand,
-    UiRequest, UndoFailure,
+    AgentToUi, ControlMsg, Hello, ManualSwitchEvent, Peer, PowerEvent, Reply, StepOutcome,
+    TxnEvent, UiCommand, UiRequest, UndoFailure,
 };
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.

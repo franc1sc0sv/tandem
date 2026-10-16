@@ -132,13 +132,13 @@ impl Plan {
     /// Orden: encender la PC si hace falta → por cada monitor que se mueve, cambiar la
     /// entrada, agregarlo en su nueva máquina y quitarlo de la anterior → pantalla
     /// integrada → geometría del motor de entrada.
+    ///
+    /// La PC hace falta si va a mostrar algo y también si hay que cambiar alguna
+    /// entrada, porque las cambia ella (DESIGN §8): tras un corte de corriente puede
+    /// haber monitores en su entrada con la PC apagada.
     pub fn to_mode(cfg: &Config, from: &State, mode: &Mode) -> Result<Plan, PlanError> {
         let target = mode.assignment(cfg);
         let mut steps = Vec::new();
-
-        if !from.pc_on && target.values().any(|m| *m == Machine::Pc) {
-            steps.push(Step::PowerOnPc);
-        }
 
         let mut next = from.clone();
         for m in &cfg.monitors {
@@ -171,6 +171,10 @@ impl Plan {
             next.owner.insert(m.id.clone(), to);
         }
 
+        if !from.pc_on && (!steps.is_empty() || target.values().any(|m| *m == Machine::Pc)) {
+            steps.insert(0, Step::PowerOnPc);
+        }
+
         let (before, after) = (from.builtin_effective(cfg), next.builtin_effective(cfg));
         if before != after {
             steps.push(Step::SetBuiltin {
@@ -185,9 +189,12 @@ impl Plan {
     }
 
     /// Apagado limpio: todo a la Mac primero, para que nunca se quede sin pantallas.
+    ///
+    /// Si la PC estaba apagada pero hubo que encenderla para devolver un monitor, se
+    /// vuelve a apagar al final.
     pub fn shutdown_pc(cfg: &Config, from: &State) -> Result<Plan, PlanError> {
         let mut plan = Plan::to_mode(cfg, from, &Mode::SoloMac)?;
-        if from.pc_on {
+        if from.pc_on || plan.steps.first() == Some(&Step::PowerOnPc) {
             plan.steps.push(Step::PowerOffPc);
         }
         Ok(plan)
@@ -272,6 +279,44 @@ mod tests {
             })
         ));
         assert_eq!(plan.steps.last(), Some(&Step::PowerOffPc));
+    }
+
+    /// Tras un corte de corriente: el 34" sigue en la entrada de la PC, apagada.
+    fn stranded_34() -> State {
+        let mut s = State::initial(&desk());
+        s.owner.insert("m34".into(), Machine::Pc);
+        s
+    }
+
+    #[test]
+    fn back_to_mac_with_the_pc_off_powers_it_on_first() {
+        let cfg = desk();
+        let plan = Plan::to_mode(&cfg, &stranded_34(), &Mode::SoloMac).unwrap();
+        assert_eq!(plan.steps.first(), Some(&Step::PowerOnPc));
+        assert!(plan.steps.contains(&Step::SwitchInput {
+            monitor: "m34".into(),
+            from: Machine::Pc,
+            to: Machine::Mac,
+            input: Input::Hdmi
+        }));
+    }
+
+    #[test]
+    fn staying_on_the_pc_with_the_pc_off_only_powers_it_on() {
+        let cfg = desk();
+        let plan = Plan::to_mode(&cfg, &stranded_34(), &shared_34_to_pc()).unwrap();
+        assert_eq!(plan.steps, vec![Step::PowerOnPc, Step::UpdateInputGeometry]);
+    }
+
+    #[test]
+    fn shutdown_with_a_stranded_monitor_powers_on_and_off_again() {
+        let cfg = desk();
+        let plan = Plan::shutdown_pc(&cfg, &stranded_34()).unwrap();
+        assert_eq!(plan.steps.first(), Some(&Step::PowerOnPc));
+        assert_eq!(plan.steps.last(), Some(&Step::PowerOffPc));
+        // Con todo en la Mac y la PC apagada no hay nada que hacer.
+        let off = State::initial(&cfg);
+        assert!(Plan::shutdown_pc(&cfg, &off).unwrap().steps.is_empty());
     }
 
     #[test]
