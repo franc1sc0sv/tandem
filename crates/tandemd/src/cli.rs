@@ -31,6 +31,9 @@ pub enum Command {
 pub struct RunArgs {
     pub config: Option<PathBuf>,
     pub data_dir: Option<PathBuf>,
+    /// Backends simulados (`--sim-backends`). Solo existe con la feature
+    /// `sim-backends`, que usan las pruebas de punta a punta con el binario.
+    pub sim_backends: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -44,6 +47,9 @@ pub enum CliError {
     #[error("`{0}` y `{1}` no van juntas")]
     Conflict(&'static str, &'static str),
 }
+
+/// No aparece en [`USAGE`]: no es para usuarios.
+const SIM_FLAG: &str = "--sim-backends";
 
 /// Qué hacer en vez de arrancar el agente; solo puede haber una.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -97,8 +103,18 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
             }
             Some("--install") => set_action(Action::Install)?,
             Some("--uninstall") => set_action(Action::Uninstall)?,
+            Some(SIM_FLAG) if cfg!(feature = "sim-backends") => {
+                if run.sim_backends {
+                    return Err(CliError::Repeated(SIM_FLAG));
+                }
+                run.sim_backends = true;
+            }
             _ => return Err(CliError::Unknown(arg.to_string_lossy().into_owned())),
         }
+    }
+    // Simular solo tiene sentido al correr el agente.
+    if let (true, Some(action)) = (run.sim_backends, action) {
+        return Err(CliError::Conflict(action.flag(), SIM_FLAG));
     }
     Ok(match (action, check) {
         (Some(Action::Check), Some(path)) => Command::CheckConfig(path),
@@ -128,6 +144,7 @@ mod tests {
             Ok(Command::Run(RunArgs {
                 config: Some("a.toml".into()),
                 data_dir: Some("d".into()),
+                ..RunArgs::default()
             }))
         );
     }
@@ -147,7 +164,7 @@ mod tests {
             p(&["--config", "a.toml", "--install"]),
             Ok(Command::Install(RunArgs {
                 config: Some("a.toml".into()),
-                data_dir: None,
+                ..RunArgs::default()
             }))
         );
         assert_eq!(p(&["--uninstall"]), Ok(Command::Uninstall));
@@ -162,6 +179,40 @@ mod tests {
         assert_eq!(
             p(&["--uninstall", "--uninstall"]),
             Err(CliError::Repeated("--uninstall"))
+        );
+    }
+
+    #[cfg(feature = "sim-backends")]
+    #[test]
+    fn sim_backends_only_when_running() {
+        assert_eq!(
+            p(&["--sim-backends", "--data-dir", "d"]),
+            Ok(Command::Run(RunArgs {
+                data_dir: Some("d".into()),
+                sim_backends: true,
+                ..RunArgs::default()
+            }))
+        );
+        assert_eq!(
+            p(&["--sim-backends", "--sim-backends"]),
+            Err(CliError::Repeated("--sim-backends"))
+        );
+        assert_eq!(
+            p(&["--sim-backends", "--install"]),
+            Err(CliError::Conflict("--install", "--sim-backends"))
+        );
+        assert_eq!(
+            p(&["--check-config", "t.toml", "--sim-backends"]),
+            Err(CliError::Conflict("--check-config", "--sim-backends"))
+        );
+    }
+
+    #[cfg(not(feature = "sim-backends"))]
+    #[test]
+    fn sim_backends_is_unknown_without_the_feature() {
+        assert_eq!(
+            p(&["--sim-backends"]),
+            Err(CliError::Unknown("--sim-backends".into()))
         );
     }
 

@@ -4131,6 +4131,7 @@ dependencies = [
  "tandem-peripherals",
  "tandem-power",
  "tandem-proto",
+ "tandemd",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

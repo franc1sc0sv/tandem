@@ -57,7 +57,7 @@ fn main() -> ExitCode {
 }
 
 fn run(args: RunArgs) -> anyhow::Result<()> {
-    let paths = Paths::resolve(args.config, args.data_dir)?;
+    let paths = Paths::resolve(args.config.clone(), args.data_dir.clone())?;
     paths::create_private_dir(&paths.data_dir)
         .with_context(|| format!("no se pudo crear {}", paths.data_dir.display()))?;
     let log = logging::init(&paths.log_dir()).context("no se pudo iniciar el log")?;
@@ -79,10 +79,27 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         let endpoint = ipc::default_endpoint(&paths.data_dir)?;
         let listener = ipc::bind(&endpoint).await?;
         tracing::info!("IPC escuchando en {}", endpoint.display());
-        let daemon = daemon::start(cfg, &paths, Backends::Platform, NetOptions::default())?;
+        let (backends, net) = backends(&args, &paths);
+        let daemon = daemon::start(cfg, &paths, backends, net)?;
         daemon.serve(listener, daemon::shutdown_signal()).await?;
         Ok(())
     })
+}
+
+/// Los de la plataforma, salvo con `--sim-backends`: pasos simulados y sin mDNS, para
+/// que dos agentes de prueba no se mezclen con nada de la LAN.
+fn backends(args: &RunArgs, paths: &Paths) -> (Backends, NetOptions) {
+    #[cfg(feature = "sim-backends")]
+    if args.sim_backends {
+        tracing::warn!("backends simulados: esta máquina no toca monitores, entrada ni energía");
+        let net = NetOptions {
+            mdns: false,
+            ..NetOptions::default()
+        };
+        return (tandemd::sim::backends(&paths.data_dir), net);
+    }
+    let _ = (args, paths);
+    (Backends::Platform, NetOptions::default())
 }
 
 #[cfg(windows)]

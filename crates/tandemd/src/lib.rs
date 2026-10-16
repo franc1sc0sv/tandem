@@ -19,6 +19,7 @@
 //! - [`ipc`]: la API local para la UI (Unix socket / named pipe).
 //! - [`daemon`]: el agente armado, el bucle principal y el apagado ordenado.
 //! - [`logging`]: `tracing` a stdout y a archivo.
+//! - `sim` (feature `sim-backends`): pasos simulados para probar el binario sin hardware.
 
 pub mod agent;
 pub mod cli;
@@ -36,6 +37,8 @@ pub mod paths;
 pub mod pc_watch;
 pub mod peer;
 pub mod power;
+#[cfg(feature = "sim-backends")]
+pub mod sim;
 pub mod store;
 
 pub use agent::{Agent, PairingControl};

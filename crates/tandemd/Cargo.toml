@@ -7,6 +7,11 @@ license.workspace = true
 # `tandemw` es el lanzador sin consola para el arranque con la sesión de Windows.
 default-run = "tandemd"
 
+[features]
+# Backends simulados y la opción `--sim-backends`, solo para las pruebas de punta a punta
+# con el binario (tests/two_processes.rs). El binario que se distribuye no la trae.
+sim-backends = []
+
 [dependencies]
 anyhow.workspace = true
 dirs.workspace = true
@@ -37,6 +42,8 @@ windows = { workspace = true, features = [
 
 [dev-dependencies]
 proptest.workspace = true
+# Las pruebas (y el binario que lanzan) se compilan con los backends simulados.
+tandemd = { path = ".", features = ["sim-backends"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "test-util", "time"] }
 
