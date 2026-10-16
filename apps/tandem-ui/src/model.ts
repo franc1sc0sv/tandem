@@ -86,3 +86,16 @@ export interface ShortcutsView {
   warning: string | null;
   file: string | null;
 }
+
+// Primer arranque en macOS (`tandem_ui::setup`).
+export type Permission = "accessibility" | "input_monitoring" | "local_network";
+
+export interface SetupView {
+  /** Hay guía en este sistema (solo macOS). */
+  available: boolean;
+  /** Mostrarla al abrir: todavía no se terminó. */
+  show: boolean;
+  permissions: Permission[];
+  /** Cómo quedó el agente de inicio de sesión (`tandemd`), si la app intentó instalarlo. */
+  agent: { ok: boolean; text: string } | null;
+}

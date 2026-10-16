@@ -1,7 +1,7 @@
 import "./styles.css";
 
 import { bridgeFailed, tauriBridge, type Bridge } from "./bridge";
-import type { Action, Bindings, BuiltinDisplay, Machine, ManualView, Notice, ShortcutAction, ShortcutsView, Snapshot } from "./model";
+import type { Action, Bindings, BuiltinDisplay, Machine, ManualView, Notice, Permission, SetupView, ShortcutAction, ShortcutsView, Snapshot } from "./model";
 import {
   MACHINE_NAME,
   MACHINES,
@@ -33,6 +33,7 @@ import {
   readCombo,
   windowCommand,
 } from "./shortcuts";
+import { PERMISSION_INFO, back as setupBack, isFirst, isLast, next as setupNext, screensOf, start as setupStart, type Wizard } from "./setup";
 
 // Cuánto queda a la vista el progreso ya terminado y un mensaje suelto.
 const DONE_LINGER_MS = 800;
@@ -460,6 +461,116 @@ function wireKeys() {
 }
 
 // ---------------------------------------------------------------------------------------
+// Primer arranque (macOS): la guía de permisos
+
+let setupView: SetupView | null = null;
+let wizard: Wizard | null = null;
+let setupError: string | null = null;
+
+const ICON_LOGO = `<svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="11.5" cy="16" r="8" stroke="#7aa7e6" stroke-width="2.4"/><circle cx="20.5" cy="16" r="8" stroke="#a99be8" stroke-width="2.4"/></svg>`;
+const ICON_PERMISSION: Record<Permission, string> = {
+  accessibility: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="4.5" r="1.8"/><path d="M5 8.5l7 1.5 7-1.5M12 10v4.5M12 14.5 9 21M12 14.5l3 6.5"/></svg>`,
+  input_monitoring: ICON_KB,
+  local_network: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="5" rx="1.2"/><rect x="3" y="16" width="6" height="5" rx="1.2"/><rect x="15" y="16" width="6" height="5" rx="1.2"/><path d="M12 8v4M6 16v-4h12v4"/></svg>`,
+};
+
+function openSetup() {
+  if (!setupView?.available) return;
+  wizard = setupStart(setupView);
+  setupError = null;
+  renderSetup();
+  const d = $<HTMLDialogElement>("#setup");
+  if (!d.open) d.showModal();
+}
+
+function renderSetup() {
+  if (!setupView || !wizard) return;
+  const w = wizard;
+  const screen = screensOf(setupView)[w.index];
+  const dots = Array.from({ length: w.total }, (_, i) => el("span", i <= w.index ? "on" : undefined));
+  $("#setup-dots").replaceChildren(...dots);
+
+  const body: Node[] = [];
+  if (!screen || screen.kind === "intro") {
+    const logo = el("div", "slogo");
+    logo.innerHTML = ICON_LOGO;
+    body.push(logo, el("h2", undefined, "Tandem en esta Mac"));
+    const title = body[1] as HTMLElement;
+    title.id = "setup-title";
+    body.push(el("p", undefined, "tandemd es el agente que habla con la PC: arranca solo al iniciar sesión. Para llevar el teclado, el mouse y los monitores de una máquina a la otra, macOS le pide tres permisos."));
+    const agent = setupView.agent;
+    if (agent) {
+      const line = el("div", "sagent");
+      line.append(el("span", `dot${agent.ok ? "" : " warn"}`), agent.text);
+      body.push(line);
+    }
+    const list = el("div", "slist");
+    for (const p of setupView.permissions) {
+      const row = el("div");
+      row.innerHTML = ICON_PERMISSION[p];
+      row.append(PERMISSION_INFO[p].title);
+      list.append(row);
+    }
+    body.push(list);
+  } else {
+    const p = screen.permission;
+    const info = PERMISSION_INFO[p];
+    const tile = el("div", "stile");
+    tile.innerHTML = ICON_PERMISSION[p];
+    const title = el("h2", undefined, info.title);
+    title.id = "setup-title";
+    body.push(tile, title, el("p", undefined, info.why), el("p", "how", info.how));
+    const open = el("button", "kbtn primary sopen", "Abrir Ajustes del Sistema");
+    open.type = "button";
+    open.addEventListener("click", () => {
+      setupError = null;
+      bridge?.openSettings(p).catch((e: unknown) => {
+        setupError = `No se pudo abrir Ajustes: ${e instanceof Error ? e.message : String(e)}`;
+        renderSetup();
+      });
+    });
+    body.push(open);
+  }
+  if (setupError) body.push(el("p", "serr", setupError));
+  $("#setup-body").replaceChildren(...body);
+
+  $<HTMLButtonElement>("#setup-back").hidden = isFirst(w);
+  $("#setup-next").textContent = isLast(w) ? "Terminar" : isFirst(w) ? "Empezar" : "Siguiente";
+}
+
+async function finishSetup() {
+  if (!bridge) return;
+  try {
+    setupView = await bridge.finishSetup();
+    $<HTMLDialogElement>("#setup").close();
+  } catch (e) {
+    setupError = `No se guardó: ${e instanceof Error ? e.message : String(e)}`;
+    renderSetup();
+  }
+}
+
+function wireSetup() {
+  $("#setup-btn").addEventListener("click", openSetup);
+  $("#setup-later").addEventListener("click", () => $<HTMLDialogElement>("#setup").close());
+  $("#setup-back").addEventListener("click", () => {
+    if (!wizard) return;
+    wizard = setupBack(wizard);
+    setupError = null;
+    renderSetup();
+  });
+  $("#setup-next").addEventListener("click", () => {
+    if (!wizard) return;
+    if (isLast(wizard)) {
+      void finishSetup();
+      return;
+    }
+    wizard = setupNext(wizard);
+    setupError = null;
+    renderSetup();
+  });
+}
+
+// ---------------------------------------------------------------------------------------
 // Controles
 
 function chooseMode(key: ModeKey) {
@@ -473,7 +584,7 @@ function wire() {
   }
   // Los atajos que el sistema no dejó registrar como globales los atiende la ventana.
   addEventListener("keydown", (e) => {
-    if (!keys || $<HTMLDialogElement>("#keys").open) return;
+    if (!keys || $<HTMLDialogElement>("#keys").open || $<HTMLDialogElement>("#setup").open) return;
     const a = localAction(e, keys);
     if (!a) return;
     e.preventDefault();
@@ -482,6 +593,7 @@ function wire() {
     else void bridge?.hideMain();
   });
   wireKeys();
+  wireSetup();
 
   for (const side of $$(".side")) {
     const to = side.dataset.owner as Machine;
@@ -543,6 +655,9 @@ async function boot() {
     keys = await bridge.shortcuts().catch(() => null);
     $("#keys-btn").hidden = keys === null;
     renderModeKeys();
+    setupView = await bridge.setup().catch(() => null);
+    $("#setup-btn").hidden = !setupView?.available;
+    if (setupView?.show) openSetup();
     const first = await bridge.snapshot();
     // Si ya llegó uno empujado, es más nuevo que esta respuesta.
     if (!pushed) setSnapshot(first);

@@ -1,6 +1,6 @@
 // Cómo habla la ventana con el núcleo de la app (y él con tandemd).
 
-import type { Action, ActionResult, Bindings, Notice, ShortcutsView, Snapshot } from "./model";
+import type { Action, ActionResult, Bindings, Notice, Permission, SetupView, ShortcutsView, Snapshot } from "./model";
 
 export interface Bridge {
   snapshot(): Promise<Snapshot>;
@@ -20,6 +20,12 @@ export interface Bridge {
   /** El atajo de mostrar u ocultar, atendido por la ventana principal al frente. */
   hideMain(): Promise<void>;
   hideTray(): Promise<void>;
+  /** La guía de permisos del primer arranque (macOS). */
+  setup(): Promise<SetupView>;
+  /** Abre el panel de Ajustes del Sistema que concede el permiso. */
+  openSettings(permission: Permission): Promise<void>;
+  /** Marca la guía como vista: no vuelve a abrirse sola. */
+  finishSetup(): Promise<SetupView>;
 }
 
 // Nombres de `tandem_ui::app`.
@@ -52,6 +58,9 @@ export async function tauriBridge(): Promise<Bridge> {
     showMain: () => invoke<void>("ui_show_main"),
     hideMain: () => invoke<void>("ui_hide_main"),
     hideTray: () => invoke<void>("ui_hide_tray"),
+    setup: () => invoke<SetupView>("setup_get"),
+    openSettings: (permission) => invoke<void>("setup_open", { permission }),
+    finishSetup: () => invoke<SetupView>("setup_finish"),
   };
 }
 

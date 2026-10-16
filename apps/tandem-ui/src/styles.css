@@ -203,3 +203,24 @@ button { font: inherit; color: inherit; }
 .kbtn { cursor: pointer; padding: 7px 14px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--line-2); font-size: 13px; }
 .kbtn:hover { border-color: var(--focus); }
 .kbtn.primary { background: #2a3140; border-color: #3d4a62; }
+
+/* primer arranque: guía de permisos (macOS) */
+.setup { width: min(520px, calc(100% - 40px)); padding: 22px 24px; border-radius: 18px; background: var(--panel); border: 1px solid var(--line-2); color: var(--text); box-shadow: 0 24px 60px rgba(0,0,0,.45); }
+.setup::backdrop { background: rgba(8, 9, 11, .6); }
+.sdots { display: flex; gap: 6px; justify-content: center; margin-bottom: 18px; }
+.sdots span { width: 22px; height: 4px; border-radius: 2px; background: var(--line-2); }
+.sdots span.on { background: var(--mac); }
+.sbody { display: grid; justify-items: center; text-align: center; gap: 10px; min-height: 250px; align-content: start; }
+.sbody h2 { margin: 4px 0 0; font-size: 17px; font-weight: 650; }
+.sbody p { margin: 0; color: var(--dim); font-size: 13px; line-height: 1.5; max-width: 420px; }
+.sbody p.how { color: var(--faint); font-size: 12.5px; word-break: break-word; }
+.stile { width: 64px; height: 64px; border-radius: 16px; display: grid; place-items: center; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--mac); }
+.stile svg { width: 30px; height: 30px; }
+.slogo svg { width: 46px; height: 46px; }
+.sagent { display: inline-flex; align-items: center; gap: 8px; margin-top: 4px; padding: 7px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line); font-size: 12.5px; color: var(--text); text-align: left; }
+.sagent .dot { flex: none; }
+.slist { display: grid; gap: 6px; margin-top: 6px; width: 100%; max-width: 340px; }
+.slist div { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px; border: 1px solid var(--line); font-size: 13px; text-align: left; }
+.slist svg { width: 16px; height: 16px; color: var(--mac); flex: none; }
+.sopen { margin-top: 6px; }
+.serr { color: var(--warn) !important; }
