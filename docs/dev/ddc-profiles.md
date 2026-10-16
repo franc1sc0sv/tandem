@@ -42,8 +42,17 @@ hdmi = 0x05
 - Las claves desconocidas son un error (así un error de tipeo no pasa en silencio).
 - `[reported]` es la pista de T-050: varios monitores reportan en `0x60` el código de la entrada en la que están, aunque no obedezcan el valor estándar. Sirve a la calibración (T-077) para probar primero lo más probable.
 
+## Calibrar un monitor nuevo (T-080)
+
+No hace falta encontrar los códigos a mano: la calibración (motor de T-077) los busca y **siempre vuelve** a la entrada de partida con un código ya verificado.
+
+- **Desde la UI de la PC:** botón «Monitores» → «Agregar monitor». Lista los monitores que ve el bus DDC, si ya tienen perfil (configurado, de la base o tuyo) y a qué `[[monitors]]` de `tandem.toml` corresponden (por `edid_model`; si no se reconoce, se elige en la lista). «Calibrar» pide pasar el monitor a la otra entrada desde su menú y prueba códigos; cada sonda «¿Ves esto?» aparece en el monitor, en la máquina que debería verse (T-078), o en la ventana de la PC si la otra máquina no está. Al terminar: el perfil queda en `<datos>/profiles/ddc/<PNP>.toml`, los códigos se escriben en el `[[monitors]]` de `tandem.toml` de la PC (sin tocar comentarios) y el siguiente cambio de modo ya los usa, sin reiniciar `tandemd`. «Copiar perfil» lo exporta. Para un monitor que ya está en la base, «Usar perfil» lo aplica sin calibrar.
+- **Desde la terminal de la PC:** `tandem-ddc calibrate <monitor> [--from hdmi|dp] [--no-save]`. Confirmas con Enter («lo veo») o `n`; sin respuesta, a los 8 s cuenta como no visto. Ctrl+C cancela y vuelve. Imprime el resultado (`Odyssey G5: HDMI ✓ 0x05 · DP ✓ 0x0F`), la línea `ddc = { … }` para `tandem.toml` y guarda el perfil del usuario.
+
+Un perfil calibrado lleva `generic_name = true` (solo se probó ese modelo) y `verified_by = "calibración de Tandem"`. La `tandem.toml` de la Mac no se toca: allí los códigos no se usan (las entradas las cambia la PC).
+
 ## Cómo aportar un perfil
 
-1. Encuentra los códigos con `tandem-ddc switch <monitor> hdmi|dp --return-after 10 --code <hex>` (siempre vuelve solo) mirando el monitor. Anota también qué devuelve `tandem-ddc get <monitor> 60` estando en cada entrada.
+1. Encuentra los códigos con `tandem-ddc calibrate <monitor>` (arriba) o a mano con `tandem-ddc switch <monitor> hdmi|dp --return-after 10 --code <hex>` (siempre vuelve solo) mirando el monitor. Anota también qué devuelve `tandem-ddc get <monitor> 60` estando en cada entrada.
 2. Escribe el perfil en `<datos>/profiles/ddc/<PNP>.toml` y comprueba con `tandem-ddc profile <monitor>` que se aplica, y con un `switch` sin `--code` que funciona.
 3. `tandem-ddc profile export <monitor>` imprime el TOML normalizado. Para sumarlo al repo: guárdalo como `profiles/ddc/<PNP>.toml` (el nombre del archivo debe ser el id PnP), agrégalo a `BUILTIN` en `crates/tandem-display/src/ddc/profiles.rs` y abre un PR con lo que probaste. La prueba `every_repo_file_is_embedded_and_valid` falla si falta en `BUILTIN`, si el archivo no es válido o si su nombre no coincide con el id PnP.

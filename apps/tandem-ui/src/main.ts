@@ -1,9 +1,10 @@
 import "./styles.css";
 
 import { bridgeFailed, tauriBridge, type Bridge } from "./bridge";
-import type { Action, Bindings, BuiltinDisplay, Machine, ManualView, Notice, PairingView, Permission, ProbeShow, SetupView, ShortcutAction, ShortcutsView, Snapshot } from "./model";
+import { INPUTS, SHORT, actions as rowActions, advance as advanceCalibration, badge, headline, hint, labelOf, laneText, unbound, type Calibration } from "./addmonitor";
+import type { Action, Bindings, BuiltinDisplay, DisplayView, Machine, ManualView, Notice, PairingView, Permission, ProbeShow, SetupView, ShortcutAction, ShortcutsView, Snapshot } from "./model";
 import { isActive, needsDismiss, pairLine, pairScreen, shouldOpen } from "./pairing";
-import { nextQuestion, questionText } from "./probe";
+import { PORT_NAME, nextQuestion, questionText } from "./probe";
 import {
   MACHINE_NAME,
   MACHINES,
@@ -117,7 +118,15 @@ function onNotice(n: Notice) {
     // La sonda a pantalla completa tiene su propia ventana; aquí solo la pregunta.
     const before = question;
     question = nextQuestion(question, n.event);
-    if (question !== before) renderToast();
+    if (question !== before) {
+      renderToast();
+      if (addmonDialog().open) renderAddmon();
+    }
+  } else if (n.kind === "calibration") {
+    calibration = advanceCalibration(calibration, n.event);
+    // Una calibración que arrancó (desde esta u otra ventana) se sigue en el diálogo.
+    if (n.event.type === "started" && !addmonDialog().open) addmonDialog().showModal();
+    renderAddmon();
   } else if (n.event.type === "requested") {
     manual = n.event;
     renderToast();
@@ -351,6 +360,7 @@ function render(moved: string[]) {
   $("#scene").hidden = !connected;
   $("#bottom").hidden = !connected;
   $("#stage").hidden = connected;
+  $("#monitors-btn").hidden = !connected;
   if (!connected) $("#link-pill").hidden = true;
   renderUnavailable();
   renderDesks(moved);
@@ -761,6 +771,199 @@ function wirePair() {
 }
 
 // ---------------------------------------------------------------------------------------
+// «Agregar monitor» (T-080): los monitores que ve la PC y la calibración de los que no
+// tienen perfil
+
+let displays: DisplayView[] | null = null;
+let displaysError: string | null = null;
+let calibration: Calibration | null = null;
+let addmonError: string | null = null;
+/** El monitor de la configuración que el usuario eligió para uno que no se reconoció. */
+const bindChoice: Record<number, string> = {};
+let copied = false;
+
+const ICON_MONITOR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`;
+
+function addmonDialog() {
+  return $<HTMLDialogElement>("#addmon");
+}
+
+function openAddmon() {
+  if (snap.kind !== "connected") return;
+  if (calibration?.outcome) calibration = null;
+  addmonError = null;
+  copied = false;
+  renderAddmon();
+  if (!addmonDialog().open) addmonDialog().showModal();
+  if (!calibration) void refreshDisplays();
+}
+
+async function refreshDisplays() {
+  if (!bridge) return;
+  displays = null;
+  displaysError = null;
+  renderAddmon();
+  const r = await bridge.act({ kind: "list_displays" }).catch((e: unknown) => ({ kind: "unavailable" as const, reason: String(e) }));
+  if (r.kind === "displays") displays = r.displays;
+  else displaysError = r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "el agente no devolvió la lista";
+  renderAddmon();
+}
+
+/** Un pedido desde el diálogo: el motivo de un rechazo se muestra dentro de él. */
+async function addmonAct(action: Action) {
+  addmonError = await act(action, true);
+  renderAddmon();
+}
+
+function copyProfile(toml: string) {
+  const done = () => {
+    copied = true;
+    renderAddmon();
+  };
+  if (navigator.clipboard) navigator.clipboard.writeText(toml).then(done, () => (addmonError = "No se pudo copiar: selecciona el texto del perfil."));
+  else addmonError = "No se pudo copiar: selecciona el texto del perfil.";
+  renderAddmon();
+}
+
+function exportBlock(toml: string): Node {
+  const box = el("details", "aexport");
+  box.append(el("summary", undefined, "Ver el perfil (TOML)"), el("pre", undefined, toml));
+  return box;
+}
+
+function renderAddmon() {
+  const d = addmonDialog();
+  if (!d.open && !calibration) return;
+  const desk = snap.kind === "connected" ? snap.desk : null;
+  const body: Node[] = [];
+  const foot: Node[] = [];
+  const title = (text: string) => {
+    const h = el("h2", undefined, text);
+    h.id = "addmon-title";
+    body.push(h);
+  };
+
+  if (calibration) {
+    const run = calibration;
+    const label = labelOf(desk, run.monitor, run.name);
+    const monitor = run.monitor ? desk?.monitors.find((m) => m.id === run.monitor) : undefined;
+    title(headline(run, label));
+    body.push(el("p", "ahint", hint(run)));
+    const lanes = el("div", "alanes");
+    for (const input of INPUTS) {
+      const l = run.lanes[input];
+      const row = el("div", `alane ${l.state}`);
+      const who = monitor ? (Object.entries(monitor.wiring).find(([, i]) => i === input)?.[0] as Machine | undefined) : undefined;
+      if (who) row.dataset.m = who;
+      const name = el("span", "aport");
+      name.append(el("b", undefined, SHORT[input]), el("small", undefined, who ? MACHINE_NAME[who] : PORT_NAME[input]));
+      row.append(el("i"), name, el("span", "astate", laneText(l)));
+      if (input === run.start) row.append(el("span", "ahome", "partida"));
+      lanes.append(row);
+    }
+    body.push(lanes);
+    if (question && !run.outcome) {
+      const q = question;
+      const text = questionText(q);
+      const box = el("div", "aquestion");
+      box.append(el("p", undefined, text.text));
+      const yes = kbtn(text.yes, () => void act({ kind: "answer_probe", id: q.id, seen: true }), "primary");
+      const no = kbtn(text.no, () => void act({ kind: "answer_probe", id: q.id, seen: false }));
+      const row = el("div", "abtns");
+      row.append(no, yes);
+      box.append(row);
+      body.push(box);
+    }
+    const out = run.outcome;
+    if (out?.kind === "saved") {
+      if (out.file) {
+        const where = el("p", "afile", "Perfil guardado en ");
+        where.append(el("code", undefined, out.file));
+        body.push(where);
+      }
+      for (const note of out.notes) body.push(el("p", "pwarn", note));
+      if (out.toml) body.push(exportBlock(out.toml));
+    }
+    if (addmonError) body.push(el("p", "pwarn", addmonError));
+    if (!out) {
+      foot.push(kbtn("Seguir en segundo plano", () => addmonDialog().close()), el("span", "spacer"), kbtn("Cancelar", () => void addmonAct({ kind: "cancel_calibration" }), "danger"));
+    } else {
+      const back = kbtn("Volver a la lista", () => {
+        calibration = null;
+        copied = false;
+        void refreshDisplays();
+      });
+      foot.push(back, el("span", "spacer"));
+      if (out.kind === "saved" && out.toml) {
+        const toml = out.toml;
+        foot.push(kbtn(copied ? "Copiado" : "Copiar perfil", () => copyProfile(toml)));
+      }
+      foot.push(kbtn("Listo", () => addmonDialog().close(), "primary"));
+    }
+  } else {
+    title("Agregar monitor");
+    body.push(el("p", "ahint", "Los monitores que ve la PC por DDC/CI. Los que no tienen perfil se calibran: Tandem prueba códigos y siempre vuelve a la entrada de partida."));
+    if (displaysError) body.push(el("p", "pwarn", capitalize(displaysError)));
+    else if (!displays) body.push(el("p", "ahint", "Buscando monitores…"));
+    else if (!displays.length) body.push(el("p", "ahint", "La PC no ve ningún monitor con DDC/CI."));
+    const free = unbound(desk, displays ?? []);
+    const list = el("div", "alist");
+    for (const dv of displays ?? []) {
+      const row = el("div", "arow");
+      const icon = el("span", "aicon");
+      icon.innerHTML = ICON_MONITOR;
+      const info = el("div", "ainfo");
+      info.append(el("b", undefined, labelOf(desk, dv.monitor, dv.name)), el("small", undefined, [dv.name, dv.pnp_id].filter(Boolean).join(" · ")));
+      const b = badge(dv.profile);
+      const tag = el("span", `abadge ${b.kind}`, b.text);
+      if (b.codes) tag.title = b.codes;
+      const codes = el("span", "acodes", b.codes ?? "");
+      const btns = el("div", "abtns");
+      if (!dv.monitor && free.length) {
+        const pick = el("select", "apick");
+        pick.setAttribute("aria-label", `¿Cuál de la configuración es ${dv.name}?`);
+        pick.append(new Option("¿Cuál es?", ""));
+        for (const m of free) pick.append(new Option(m.label, m.id, false, bindChoice[dv.index] === m.id));
+        pick.addEventListener("change", () => {
+          if (pick.value) bindChoice[dv.index] = pick.value;
+          else delete bindChoice[dv.index];
+        });
+        btns.append(pick);
+      }
+      const monitor = () => dv.monitor ?? bindChoice[dv.index] ?? null;
+      for (const a of rowActions(dv)) {
+        if (a === "calibrate" || a === "recalibrate") {
+          btns.append(kbtn(a === "calibrate" ? "Calibrar" : "Calibrar de nuevo", () => void addmonAct({ kind: "start_calibration", display: dv.index, monitor: monitor() }), a === "calibrate" ? "primary" : ""));
+        } else if (a === "use") {
+          btns.append(kbtn("Usar perfil", () => void addmonAct({ kind: "use_profile", display: dv.index, monitor: monitor() }).then(refreshDisplays), "primary"));
+        } else if (dv.profile.kind === "known") {
+          const toml = dv.profile.toml;
+          btns.append(kbtn("Exportar", () => copyProfile(toml)));
+        }
+      }
+      row.append(icon, info, tag, codes, btns);
+      list.append(row);
+    }
+    body.push(list);
+    if (copied) body.push(el("p", "pok", "Perfil copiado: pégalo en un archivo <PNP>.toml para compartirlo."));
+    if (addmonError) body.push(el("p", "pwarn", capitalize(addmonError)));
+    foot.push(kbtn("Cerrar", () => addmonDialog().close()), el("span", "spacer"), kbtn("Buscar de nuevo", () => void refreshDisplays()));
+  }
+  $("#addmon-body").replaceChildren(...body);
+  $("#addmon-foot").replaceChildren(...foot);
+}
+
+function wireAddmon() {
+  $("#monitors-btn").addEventListener("click", openAddmon);
+  // Cerrar no corta la calibración: sus avisos siguen en los monitores. Un resultado
+  // ya visto se descarta.
+  addmonDialog().addEventListener("close", () => {
+    if (calibration?.outcome) calibration = null;
+    addmonError = null;
+  });
+}
+
+// ---------------------------------------------------------------------------------------
 // Controles
 
 function chooseMode(key: ModeKey) {
@@ -774,7 +977,7 @@ function wire() {
   }
   // Los atajos que el sistema no dejó registrar como globales los atiende la ventana.
   addEventListener("keydown", (e) => {
-    if (!keys || $<HTMLDialogElement>("#keys").open || $<HTMLDialogElement>("#setup").open || pairDialog().open) return;
+    if (!keys || $<HTMLDialogElement>("#keys").open || $<HTMLDialogElement>("#setup").open || pairDialog().open || addmonDialog().open) return;
     const a = localAction(e, keys);
     if (!a) return;
     e.preventDefault();
@@ -785,6 +988,7 @@ function wire() {
   wireKeys();
   wireSetup();
   wirePair();
+  wireAddmon();
 
   for (const side of $$(".side")) {
     const to = side.dataset.owner as Machine;
@@ -852,6 +1056,8 @@ async function boot() {
     const first = await bridge.snapshot();
     // Si ya llegó uno empujado, es más nuevo que esta respuesta.
     if (!pushed) setSnapshot(first);
+    // Modo demo: `/?demo&addmon` abre «Agregar monitor».
+    if (import.meta.env.DEV && new URLSearchParams(location.search).has("addmon")) openAddmon();
   } catch (e) {
     setSnapshot(bridgeFailed(e));
   }

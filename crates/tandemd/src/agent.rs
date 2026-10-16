@@ -7,11 +7,12 @@ use tandem_core::{Machine, Mode, Plan, State, Step};
 use tandem_display::switcher::{ManualEvent, ManualSwitcher};
 use tandem_link::transport::{Connection, ControlStream};
 use tandem_proto::{
-    Channel, HubReport, InputStatus, PairingStatus, PeerStatus, PowerEvent, ProbeEvent, Reply,
-    ScreenRect, TxnEvent, UiCommand,
+    CalibrationUpdate, Channel, HubReport, InputStatus, PairingStatus, PeerStatus, PowerEvent,
+    ProbeEvent, Reply, ScreenRect, TxnEvent, UiCommand,
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
+use crate::add_monitor::{LiveDdc, MonitorWizard, NOT_HERE};
 use crate::calibration::{DesktopLocator, ProbeBoard};
 use crate::config::AgentConfig;
 use crate::display::DisplaySteps;
@@ -61,6 +62,12 @@ pub struct Agent {
     inbox: PeerInbox,
     /// Sube con cada `UpdateInputGeometry`: hay que volver a leer las pantallas.
     geometry: Arc<watch::Sender<u64>>,
+    /// Los códigos DDC aprendidos al calibrar, que los pasos de pantalla leen en caliente.
+    live: LiveDdc,
+    /// «Agregar monitor» (solo en la PC).
+    wizard: Mutex<Option<Arc<MonitorWizard>>>,
+    /// El avance de la calibración, para la UI.
+    calibration: broadcast::Sender<CalibrationUpdate>,
 }
 
 impl std::fmt::Debug for dyn PairingControl {
@@ -128,6 +135,8 @@ impl PeerInbox {
 
 /// Avisos de energía que se guardan para un suscriptor lento.
 const POWER_EVENT_BUFFER: usize = 16;
+/// Avance de una calibración guardado para una UI lenta (cada código son unos pocos).
+const CALIBRATION_BUFFER: usize = 128;
 
 impl Agent {
     /// Arranca desde el estado guardado (o el inicial, si no hay), sin backends de
@@ -149,16 +158,16 @@ impl Agent {
     pub fn with_platform(cfg: AgentConfig, store: StateStore) -> Self {
         let manual = Arc::new(ManualSwitcher::new());
         let geometry = Arc::new(watch::Sender::new(0));
-        let local = Arc::new(DisplaySteps::platform(
-            &cfg,
-            manual.clone(),
-            geometry.clone(),
-        ));
+        let live = LiveDdc::default();
+        let local = Arc::new(
+            DisplaySteps::platform(&cfg, manual.clone(), geometry.clone()).with_live(live.clone()),
+        );
         let locator = tandem_display::desktop::native(cfg.machine)
             .map(|d| Arc::new(DesktopLocator(d)) as Arc<dyn crate::calibration::ScreenLocator>);
         let mut agent = Self::with_backends(cfg, store, local, manual);
         agent.geometry = geometry;
         agent.probes = ProbeBoard::new(locator);
+        agent.live = live;
         agent
     }
 
@@ -188,8 +197,52 @@ impl Agent {
             input_status: watch::Sender::new(InputStatus::new(cfg.input.server)),
             inbox: PeerInbox::new(),
             geometry: Arc::new(watch::Sender::new(0)),
+            live: LiveDdc::default(),
+            wizard: Mutex::new(None),
+            calibration: broadcast::channel(CALIBRATION_BUFFER).0,
             cfg,
         }
+    }
+
+    /// Los códigos DDC aprendidos en caliente que leen los pasos de pantalla de
+    /// [`Agent::with_platform`] (con otros pasos, los que se le hayan dado a ellos).
+    pub fn live_ddc(&self) -> &LiveDdc {
+        &self.live
+    }
+
+    /// Quién atiende «Agregar monitor» (en la PC, al arrancar).
+    pub fn set_wizard(&self, wizard: Arc<MonitorWizard>) {
+        *self.wizard.lock().unwrap_or_else(PoisonError::into_inner) = Some(wizard);
+    }
+
+    fn wizard(&self) -> Result<Arc<MonitorWizard>, String> {
+        self.wizard
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+            .ok_or_else(|| NOT_HERE.to_owned())
+    }
+
+    /// El avance de las calibraciones, para la UI.
+    pub fn subscribe_calibration(&self) -> broadcast::Receiver<CalibrationUpdate> {
+        self.calibration.subscribe()
+    }
+
+    pub(crate) fn emit_calibration(&self, update: CalibrationUpdate) {
+        // Sin UI conectada no hay a quién avisar.
+        let _ = self.calibration.send(update);
+    }
+
+    /// Como [`Agent::handle`], pero lo que bloquea (abrir el bus DDC) va fuera del
+    /// runtime. Es lo que usa la IPC.
+    pub async fn respond(self: &Arc<Self>, cmd: UiCommand) -> Reply {
+        if matches!(cmd, UiCommand::ListDisplays | UiCommand::UseProfile { .. }) {
+            let me = self.clone();
+            return tokio::task::spawn_blocking(move || me.handle(cmd))
+                .await
+                .unwrap_or_else(|e| Reply::Rejected(format!("el bus DDC terminó mal: {e}")));
+        }
+        self.handle(cmd)
     }
 
     /// El teclado y mouse, para la UI.
@@ -396,6 +449,19 @@ impl Agent {
                 Ok(()) => Reply::Done,
                 Err(e) => Reply::Rejected(e.to_string()),
             },
+            // Abren el bus DDC, que bloquea: la IPC los pide con `respond`.
+            UiCommand::ListDisplays => match self.wizard().and_then(|w| w.list(&self.cfg.desk)) {
+                Ok(displays) => Reply::Displays(displays),
+                Err(e) => Reply::Rejected(e),
+            },
+            UiCommand::UseProfile { display, monitor } => done(
+                self.wizard()
+                    .and_then(|w| w.use_profile(self, display, monitor)),
+            ),
+            UiCommand::StartCalibration { display, monitor } => {
+                done(self.wizard().and_then(|w| w.start(self, display, monitor)))
+            }
+            UiCommand::CancelCalibration => done(self.wizard().and_then(|w| w.cancel())),
         }
     }
 
@@ -457,6 +523,13 @@ impl Agent {
             agent.orch.finish(txn, &state, &outcome);
         });
         Reply::Accepted { txn }
+    }
+}
+
+fn done(r: Result<(), String>) -> Reply {
+    match r {
+        Ok(()) => Reply::Done,
+        Err(why) => Reply::Rejected(why),
     }
 }
 

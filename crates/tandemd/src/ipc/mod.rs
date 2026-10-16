@@ -9,7 +9,8 @@
 //! la PC se da por apagada sin que nadie la apagara, [`AgentToUi::Peer`] cuando cambia
 //! el par o el enlace con él, [`AgentToUi::Pairing`] con cada paso del emparejamiento,
 //! [`AgentToUi::Input`] cuando cambia el teclado y mouse (roles, sesión, permisos
-//! que faltan) y [`AgentToUi::Probe`] con las sondas de calibración que mostrar.
+//! que faltan), [`AgentToUi::Probe`] con las sondas de calibración que mostrar y
+//! [`AgentToUi::Calibration`] con el avance de «Agregar monitor».
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -149,6 +150,7 @@ where
     let mut txns = agent.subscribe_txns();
     let mut manual = agent.subscribe_manual();
     let mut probes = agent.subscribe_probes();
+    let mut calibration = agent.subscribe_calibration();
     let mut power = agent.subscribe_power();
     let mut peer = agent.subscribe_peer();
     peer.mark_unchanged();
@@ -161,7 +163,7 @@ where
             req = conn.recv::<UiRequest>() => {
                 let Some(req) = req? else { return Ok(()) };
                 tracing::debug!(id = req.id, command = ?req.command, "pedido de la UI");
-                let reply = agent.handle(req.command);
+                let reply = agent.respond(req.command).await;
                 conn.send(&AgentToUi::Reply { id: req.id, reply }).await?;
             }
             changed = states.changed() => {
@@ -192,6 +194,14 @@ where
                 // Una sonda perdida vence sola y cuenta como no vista.
                 Err(RecvError::Lagged(n)) => {
                     tracing::warn!("la UI se atrasó y perdió {n} avisos de sondas de calibración");
+                }
+                Err(RecvError::Closed) => return Ok(()),
+            },
+            event = calibration.recv() => match event {
+                Ok(event) => conn.send(&AgentToUi::Calibration(event)).await?,
+                // El resultado final llega igual; solo se pierde parte del avance.
+                Err(RecvError::Lagged(n)) => {
+                    tracing::warn!("la UI se atrasó y perdió {n} avisos de calibración");
                 }
                 Err(RecvError::Closed) => return Ok(()),
             },

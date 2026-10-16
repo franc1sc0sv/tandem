@@ -10,6 +10,9 @@ use tandem_link::identity::{Identity, IdentityError, TrustStore};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
+use tandem_display::ddc::profiles;
+
+use crate::add_monitor::{MonitorWizard, platform_bus};
 use crate::agent::Agent;
 use crate::config::AgentConfig;
 use crate::input::{Input, InputSetup};
@@ -63,6 +66,7 @@ pub fn start(
 ) -> Result<Daemon, StartError> {
     let store = StateStore::new(paths.state_file());
     let me = cfg.machine;
+    let platform = matches!(backends, Backends::Platform);
     let (agent, input) = match backends {
         Backends::Platform => (
             Agent::with_platform(cfg, store),
@@ -75,6 +79,15 @@ pub fn start(
         } => (Agent::with_backends(cfg, store, local, manual), input),
     };
     let agent = Arc::new(agent);
+    // «Agregar monitor» calibra con el DDC de la PC, que es la que cambia las entradas.
+    if platform && me == tandem_core::Machine::Pc {
+        agent.set_wizard(Arc::new(MonitorWizard::new(
+            platform_bus(),
+            Some(profiles::user_dir(&paths.data_dir)),
+            Some(paths.config.clone()),
+            agent.live_ddc().clone(),
+        )));
+    }
     let identity =
         Identity::load_or_create(&paths.identity_file()).map_err(StartError::Identity)?;
     tracing::info!(

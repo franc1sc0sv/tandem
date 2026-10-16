@@ -17,16 +17,17 @@ mod wire;
 
 pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encode_frame};
 pub use msg::{
-    AgentToUi, CalibrationProbe, Channel, ControlMsg, EdidId, Hello, HubReport, InputPermission,
+    AgentToUi, CalibrationOutcome, CalibrationProbe, CalibrationStep, CalibrationUpdate, Channel,
+    ControlMsg, DisplayInfo, DisplayProfile, EdidId, Hello, HubReport, InputPermission,
     InputStatus, Link, ManualSwitchEvent, PairingMsg, PairingStatus, Peer, PeerStatus, PowerEvent,
-    ProbeAsk, ProbeEvent, ProbeMonitor, ProbeOutcome, ProbePlace, ProbeScreen, Reply, ScreenRect,
-    StepOutcome, TxnEvent, UiCommand, UiRequest, UndoFailure,
+    ProbeAsk, ProbeEvent, ProbeMonitor, ProbeOutcome, ProbePlace, ProbeScreen, Reply, SavedProfile,
+    ScreenRect, StepOutcome, TxnEvent, UiCommand, UiRequest, UndoFailure,
 };
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 6;
+pub const PROTOCOL_VERSION: u16 = 7;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ProtoError {
