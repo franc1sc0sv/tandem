@@ -63,11 +63,12 @@ id = "m34"
 label = '34"'
 edid_model = "LC34G55T"
 wiring = { pc = "displayport", mac = "hdmi" }
-ddc = { hdmi = 0x06, display_port = 0x0F }
+ddc = { hdmi = 0x06, display_port = 0x09 }
 
 [[monitors]]
 id = "m32"
 label = '32"'
-# Sin edid_model no se lo encuentra en el escritorio: ni para quitarlo (fantasma) ni para
-# la geometría del teclado y mouse, que lo deja fuera. Ponerlo al confirmar el modelo.
+# El EDID solo dice "Odyssey G5" (id PnP SAM7489); códigos DDC verificados en T-050.
+edid_model = "Odyssey G5"
 wiring = { pc = "displayport", mac = "hdmi" }
+ddc = { hdmi = 0x05, display_port = 0x0F }
