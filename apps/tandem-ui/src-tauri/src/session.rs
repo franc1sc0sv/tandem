@@ -19,7 +19,8 @@ use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State
 use tandem_proto::{
     AgentToUi, CalibrationOutcome, CalibrationStep, CalibrationUpdate, DisplayInfo, DisplayProfile,
     InputPermission, InputStatus, Link, ManualSwitchEvent, PairingStatus, PeerStatus, PowerEvent,
-    ProbeAnswer, ProbeAsk, ProbeEvent, ProbePlace, Reply, SavedProfile, SetupInfo, TxnEvent, UiCommand,
+    ProbeAnswer, ProbeAsk, ProbeEvent, ProbePlace, Reply, SavedProfile, SetupInfo, TxnEvent,
+    UiCommand,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
