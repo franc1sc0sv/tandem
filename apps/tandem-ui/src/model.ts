@@ -79,9 +79,44 @@ export type ManualView =
   | { type: "requested"; id: number; monitor: string; label: string; to: Machine; input: Input }
   | { type: "closed"; id: number };
 
+/** Qué confirma el usuario en una sonda de calibración (`tandem_ui::session::AskView`). */
+export type ProbeAsk = { kind: "candidate"; code: number } | { kind: "user_switch" };
+
+/** Dónde lo ve el agente, en coordenadas del sistema. */
+export interface ProbeScreen {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * A pantalla completa en el monitor; en ninguna parte si el agente lo buscó y no está en el
+ * escritorio (`offscreen`); o la pregunta Sí/No de respaldo en la ventana principal.
+ */
+export type ProbePlace =
+  | { kind: "monitor"; screen: ProbeScreen | null }
+  | { kind: "offscreen" }
+  | { kind: "question" };
+
+export type ProbeShow = {
+  type: "show";
+  id: number;
+  /** El nombre del monitor (EDID o descripción del sistema). */
+  monitor: string;
+  /** La entrada que debería verse. */
+  input: Input;
+  ask: ProbeAsk;
+  timeout_ms: number;
+  place: ProbePlace;
+};
+
+export type ProbeView = ProbeShow | { type: "hide"; id: number };
+
 export type Notice =
   | { kind: "txn"; event: TxnView }
   | { kind: "manual_switch"; event: ManualView }
+  | { kind: "probe"; event: ProbeView }
   | { kind: "power"; reason: string; stranded: string[] };
 
 export type Mode =
@@ -95,6 +130,7 @@ export type Action =
   | { kind: "set_builtin"; display: BuiltinDisplay }
   | { kind: "set_pc_power"; on: boolean }
   | { kind: "answer_manual_switch"; id: number; done: boolean }
+  | { kind: "answer_probe"; id: number; seen: boolean }
   | { kind: "start_pairing" }
   | { kind: "confirm_pairing" }
   | { kind: "cancel_pairing" }

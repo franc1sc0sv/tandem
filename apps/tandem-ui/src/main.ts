@@ -1,8 +1,9 @@
 import "./styles.css";
 
 import { bridgeFailed, tauriBridge, type Bridge } from "./bridge";
-import type { Action, Bindings, BuiltinDisplay, Machine, ManualView, Notice, PairingView, Permission, SetupView, ShortcutAction, ShortcutsView, Snapshot } from "./model";
+import type { Action, Bindings, BuiltinDisplay, Machine, ManualView, Notice, PairingView, Permission, ProbeShow, SetupView, ShortcutAction, ShortcutsView, Snapshot } from "./model";
 import { isActive, needsDismiss, pairLine, pairScreen, shouldOpen } from "./pairing";
+import { nextQuestion, questionText } from "./probe";
 import {
   MACHINE_NAME,
   MACHINES,
@@ -57,6 +58,8 @@ let bridge: Bridge | null = null;
 let snap: Snapshot = { kind: "connecting" };
 let progress: Progress | null = null;
 let manual: Extract<ManualView, { type: "requested" }> | null = null;
+/** La pregunta de respaldo de una calibración sin la otra máquina (T-078). */
+let question: ProbeShow | null = null;
 let message: { text: string; sticky: boolean } | null = null;
 let messageTimer: number | undefined;
 let lastOwner: Record<string, Machine> | null = null;
@@ -110,6 +113,11 @@ function onNotice(n: Notice) {
   } else if (n.kind === "power") {
     // Fijo: los monitores que quedaron en la PC siguen en negro hasta encenderla.
     showMessage(n.reason, n.stranded.length > 0);
+  } else if (n.kind === "probe") {
+    // La sonda a pantalla completa tiene su propia ventana; aquí solo la pregunta.
+    const before = question;
+    question = nextQuestion(question, n.event);
+    if (question !== before) renderToast();
   } else if (n.event.type === "requested") {
     manual = n.event;
     renderToast();
@@ -294,7 +302,16 @@ function renderControls() {
 function renderToast() {
   const t = $("#toast");
   const parts: Node[] = [];
-  if (manual) {
+  if (question) {
+    const q = question;
+    const text = questionText(q);
+    parts.push(el("span", "msg", text.text));
+    const yes = el("button", "act", text.yes);
+    const no = el("button", "act", text.no);
+    yes.addEventListener("click", () => void act({ kind: "answer_probe", id: q.id, seen: true }));
+    no.addEventListener("click", () => void act({ kind: "answer_probe", id: q.id, seen: false }));
+    parts.push(yes, no);
+  } else if (manual) {
     const m = manual;
     parts.push(el("span", "msg", `Cambia el ${m.label} a ${PORT[m.input]} con los botones del monitor`));
     const done = el("button", "act", "Listo");

@@ -29,7 +29,7 @@ use std::time::Duration;
 use tandem_core::{
     BuiltinDisplay, Config, Executor, Machine, Plan, State, Step, TxnError, TxnReport,
 };
-use tandem_proto::{TxnEvent, UndoFailure};
+use tandem_proto::{CalibrationProbe, ProbeOutcome, TxnEvent, UndoFailure};
 use tokio::sync::{broadcast, watch};
 
 /// Lo que responde un paso que esta máquina todavía no sabe hacer. Dispara la vuelta atrás.
@@ -47,6 +47,9 @@ pub const WOL_RESEND: Duration = Duration::from_secs(5);
 
 /// Resultado de un paso: el error es un texto para mostrar en la UI.
 pub type StepFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+
+/// Respuesta del otro agente a una sonda de calibración; `Err` = no hubo con quién hablar.
+pub type ProbeFuture<'a> = Pin<Box<dyn Future<Output = Result<ProbeOutcome, String>> + Send + 'a>>;
 
 /// Los pasos que esta máquina hace por sí misma (DDC, topología, energía...).
 ///
@@ -77,6 +80,12 @@ pub trait PeerLink: Send + Sync {
     /// al soltar lo devuelto. Sin gestor de enlaces no hay nada que retener.
     fn hold_link(&self) -> Option<LinkHold> {
         None
+    }
+    /// Pide al otro agente que muestre una sonda de calibración y espera la respuesta
+    /// (T-078). Al soltar el futuro se le pide que la quite. Sin conexión, `Err`.
+    fn show_probe<'a>(&'a self, probe: &'a CalibrationProbe) -> ProbeFuture<'a> {
+        let _ = probe;
+        Box::pin(async { Err(PEER_NOT_CONNECTED.to_owned()) })
     }
 }
 

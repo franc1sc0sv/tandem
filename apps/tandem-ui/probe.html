@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tandem: calibración</title>
+  </head>
+  <body class="probe">
+    <main class="frame" id="probe" aria-live="polite">
+      <div class="pcard">
+        <svg class="plogo" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <circle cx="11.5" cy="16" r="8" stroke="#7aa7e6" stroke-width="2.4" />
+          <circle cx="20.5" cy="16" r="8" stroke="#a99be8" stroke-width="2.4" />
+        </svg>
+        <h1 id="probe-title"></h1>
+        <p class="pdetail" id="probe-detail"></p>
+        <button type="button" class="pbig" id="probe-seen" autofocus>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></svg>
+          <span id="probe-button"></span>
+        </button>
+        <div class="pbar" aria-hidden="true"><span id="probe-bar"></span></div>
+        <p class="pcount" id="probe-count"></p>
+      </div>
+    </main>
+    <script type="module" src="/src/probe-window.ts"></script>
+  </body>
+</html>

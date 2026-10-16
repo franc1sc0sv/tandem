@@ -15,9 +15,9 @@ use std::task::{Context, Poll};
 
 use tandem_core::{State, Step};
 use tandem_link::manager::{LinkCandidate, LinkKind, LinkManager, Prober};
-use tandem_proto::ControlMsg;
+use tandem_proto::{CalibrationProbe, ControlMsg};
 use tandemd::ipc::Framed;
-use tandemd::orchestrator::{LinkHold, PEER_NOT_CONNECTED, PeerLink, StepFuture};
+use tandemd::orchestrator::{LinkHold, PEER_NOT_CONNECTED, PeerLink, ProbeFuture, StepFuture};
 use tandemd::{Agent, PeerClient, peer};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
@@ -331,5 +331,16 @@ impl PeerLink for ManagedPeer {
 
     fn hold_link(&self) -> Option<LinkHold> {
         Some(Box::new(self.links.hold()))
+    }
+
+    fn show_probe<'a>(&'a self, probe: &'a CalibrationProbe) -> ProbeFuture<'a> {
+        let active = self.links.active();
+        let links = self.links.watch();
+        Box::pin(async move {
+            match active {
+                Some(a) => peer::over_link(links, a.kind, a.handle.client.show_probe(probe)).await,
+                None => Err(PEER_NOT_CONNECTED.to_owned()),
+            }
+        })
     }
 }

@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use tandem_core::{BuiltinDisplay, Machine, MonitorConfig};
 
-use crate::topology::{self, DisplayTopology, PlacedScreen};
+use crate::topology::{self, Bounds, DisplayTopology, EdidKey, PlacedScreen};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0}")]
@@ -26,6 +26,13 @@ pub trait DesktopControl: Send + Sync {
     /// Las pantallas del escritorio con su lugar ([`topology::placed_screens`]).
     fn screens(&self, monitors: &[MonitorConfig]) -> Result<Vec<PlacedScreen>, DesktopError> {
         let _ = monitors;
+        Err(DesktopError(
+            "este escritorio no informa sus pantallas".to_owned(),
+        ))
+    }
+    /// Dónde está el monitor con ese EDID, si está en el escritorio ([`topology::locate`]).
+    fn locate(&self, key: &EdidKey) -> Result<Option<Bounds>, DesktopError> {
+        let _ = key;
         Err(DesktopError(
             "este escritorio no informa sus pantallas".to_owned(),
         ))
@@ -95,6 +102,12 @@ impl<T: DisplayTopology + Send> DesktopControl for TopologyDesktop<T> {
             .map(|d| topology::placed_screens(&d, monitors))
             .map_err(|e| DesktopError(e.to_string()))
     }
+
+    fn locate(&self, key: &EdidKey) -> Result<Option<Bounds>, DesktopError> {
+        self.with(|t| t.displays())
+            .map(|d| topology::locate(&d, key))
+            .map_err(|e| DesktopError(e.to_string()))
+    }
 }
 
 /// El escritorio real de `machine`, si este sistema es el de esa máquina: la topología de
@@ -129,6 +142,27 @@ mod tests {
             .filter(|x| x.active)
             .map(|x| x.model().to_owned())
             .collect()
+    }
+
+    #[test]
+    fn locates_a_monitor_by_edid_on_the_desktop() {
+        let mut topo = FakeTopology::two_monitors();
+        for (i, d) in topo.monitors.values_mut().enumerate() {
+            d.bounds = Some(Bounds {
+                x: i as i32 * 3440,
+                y: 0,
+                width: 3440,
+                height: 1440,
+            });
+        }
+        let d = TopologyDesktop::new(topo);
+        let key = EdidKey {
+            manufacturer: "SAM".into(),
+            product_code: 0x7140,
+            serial_number: 0,
+            name: Some("S32BG85".into()),
+        };
+        assert_eq!(d.locate(&key).unwrap().map(|b| b.x), Some(3440));
     }
 
     #[test]
