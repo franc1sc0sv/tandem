@@ -61,6 +61,10 @@ async function act(action: Action) {
 }
 
 function onNotice(n: Notice) {
+  if (n.kind === "power") {
+    say(n.reason);
+    return;
+  }
   if (n.kind !== "txn") {
     // El cambio manual de entrada se contesta en la ventana principal.
     if (n.event.type === "requested") say(`Cambia el ${n.event.label} a mano: abre Tandem`);
