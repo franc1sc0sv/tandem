@@ -10,6 +10,9 @@ Opciones:
   --config <archivo>        tandem.toml a usar (por omisión, el del directorio de la app)
   --data-dir <dir>          directorio de estado, logs y socket (por omisión, el de la app)
   --check-config <archivo>  valida la configuración y sale (código ≠ 0 si es inválida)
+  --install                 crea la configuración inicial si falta y registra el arranque
+                            con la sesión (Windows; lo usa el instalador)
+  --uninstall               quita el arranque con la sesión (deja la configuración)
   -h, --help                muestra esta ayuda
   -V, --version             muestra la versión";
 
@@ -17,6 +20,9 @@ Opciones:
 pub enum Command {
     Run(RunArgs),
     CheckConfig(PathBuf),
+    /// Las rutas de `RunArgs` son las que usará el agente al arrancar con la sesión.
+    Install(RunArgs),
+    Uninstall,
     Help,
     Version,
 }
@@ -35,6 +41,26 @@ pub enum CliError {
     Unknown(String),
     #[error("`{0}` aparece dos veces")]
     Repeated(&'static str),
+    #[error("`{0}` y `{1}` no van juntas")]
+    Conflict(&'static str, &'static str),
+}
+
+/// Qué hacer en vez de arrancar el agente; solo puede haber una.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Action {
+    Check,
+    Install,
+    Uninstall,
+}
+
+impl Action {
+    fn flag(self) -> &'static str {
+        match self {
+            Action::Check => "--check-config",
+            Action::Install => "--install",
+            Action::Uninstall => "--uninstall",
+        }
+    }
 }
 
 /// `args` sin el nombre del programa.
@@ -42,6 +68,15 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
     let mut args = args.into_iter();
     let mut run = RunArgs::default();
     let mut check = None;
+    let mut action: Option<Action> = None;
+    let mut set_action = |new: Action| match action {
+        Some(old) if old == new => Err(CliError::Repeated(new.flag())),
+        Some(old) => Err(CliError::Conflict(old.flag(), new.flag())),
+        None => {
+            action = Some(new);
+            Ok(())
+        }
+    };
     while let Some(arg) = args.next() {
         let mut value = |name: &'static str, slot: &mut Option<PathBuf>| {
             if slot.is_some() {
@@ -56,13 +91,20 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
             Some("-V" | "--version") => return Ok(Command::Version),
             Some("--config") => value("--config", &mut run.config)?,
             Some("--data-dir") => value("--data-dir", &mut run.data_dir)?,
-            Some("--check-config") => value("--check-config", &mut check)?,
+            Some("--check-config") => {
+                value("--check-config", &mut check)?;
+                set_action(Action::Check)?;
+            }
+            Some("--install") => set_action(Action::Install)?,
+            Some("--uninstall") => set_action(Action::Uninstall)?,
             _ => return Err(CliError::Unknown(arg.to_string_lossy().into_owned())),
         }
     }
-    Ok(match check {
-        Some(path) => Command::CheckConfig(path),
-        None => Command::Run(run),
+    Ok(match (action, check) {
+        (Some(Action::Check), Some(path)) => Command::CheckConfig(path),
+        (Some(Action::Install), _) => Command::Install(run),
+        (Some(Action::Uninstall), _) => Command::Uninstall,
+        _ => Command::Run(run),
     })
 }
 
@@ -95,6 +137,31 @@ mod tests {
         assert_eq!(
             p(&["--check-config", "t.toml"]),
             Ok(Command::CheckConfig("t.toml".into()))
+        );
+    }
+
+    #[test]
+    fn install_and_uninstall() {
+        assert_eq!(p(&["--install"]), Ok(Command::Install(RunArgs::default())));
+        assert_eq!(
+            p(&["--config", "a.toml", "--install"]),
+            Ok(Command::Install(RunArgs {
+                config: Some("a.toml".into()),
+                data_dir: None,
+            }))
+        );
+        assert_eq!(p(&["--uninstall"]), Ok(Command::Uninstall));
+        assert_eq!(
+            p(&["--install", "--uninstall"]),
+            Err(CliError::Conflict("--install", "--uninstall"))
+        );
+        assert_eq!(
+            p(&["--check-config", "t.toml", "--install"]),
+            Err(CliError::Conflict("--check-config", "--install"))
+        );
+        assert_eq!(
+            p(&["--uninstall", "--uninstall"]),
+            Err(CliError::Repeated("--uninstall"))
         );
     }
 

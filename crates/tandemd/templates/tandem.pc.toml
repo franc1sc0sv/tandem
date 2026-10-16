@@ -1,0 +1,25 @@
+# Configuración inicial de Tandem en la PC. La crea el instalador solo si no existe y nunca
+# la sobrescribe. El puesto (los monitores) es el mismo en las dos máquinas: si cambias algo
+# aquí, cámbialo igual en la Mac. Valídala con `tandemd --check-config <este archivo>`.
+machine = "pc"
+
+[network]
+port = 47770
+# Direcciones fijas de la Mac por los enlaces directos (USB4 y Ethernet). La de la LAN se
+# descubre sola por mDNS.
+# peers = [
+#     { kind = "usb4", addr = "10.77.1.1:47770" },
+#     { kind = "ethernet", addr = "10.77.2.1:47770" },
+# ]
+
+[[monitors]]
+id = "m34"
+label = '34"'
+edid_model = "LC34G55T"
+wiring = { pc = "displayport", mac = "hdmi" }
+ddc = { hdmi = 0x06, display_port = 0x0F }
+
+[[monitors]]
+id = "m32"
+label = '32"'
+wiring = { pc = "displayport", mac = "hdmi" }
