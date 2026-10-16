@@ -100,6 +100,7 @@ pub fn local(
         name: m.label.clone(),
         switch: switch(Some(m)),
         ddc: switch(Some(m)) && m.ddc.is_some(),
+        seen: false,
     };
     let monitors = match seen {
         Some(seen) => {
@@ -120,6 +121,7 @@ pub fn local(
                         name: s.name.clone(),
                         switch: switch(m),
                         ddc: switch(m) && m.is_some_and(|m| m.ddc.is_some()),
+                        seen: true,
                     }
                 })
                 .collect();
@@ -277,6 +279,13 @@ mod tests {
         assert_eq!(c.monitors[2].monitor, Some("m32".into()));
         assert!(c.monitors[2].switch);
         assert_eq!(c.monitors.len(), 3);
+        // Solo los detectados cuentan como vistos: es la pista para preguntar (T-085).
+        assert!(c.monitors[0].seen && c.monitors[1].seen);
+        assert!(!c.monitors[2].seen);
+        assert!(
+            caps(Machine::Pc).monitors.iter().all(|m| !m.seen),
+            "sin detección"
+        );
     }
 
     #[test]

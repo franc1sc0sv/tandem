@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tandem_core::plan::PlanError;
-use tandem_core::{Config, Machine, Mode, Plan, State};
+use tandem_core::{Config, Machine, Mode, MonitorId, Plan, State};
 use tandem_link::manager::{HealthConfig, LinkKind, LinkManager};
 use tandem_proto::{Reply, TxnEvent, UiCommand};
 use tandemd::{Agent, AgentConfig, NoPeer, StateStore};
@@ -103,6 +103,7 @@ pub struct DeskBuilder {
     links: Vec<LinkKind>,
     times: HardwareTimes,
     principal: Machine,
+    unconfirmed: bool,
 }
 
 impl Default for DeskBuilder {
@@ -111,6 +112,7 @@ impl Default for DeskBuilder {
             links: LinkKind::ALL.to_vec(),
             times: HardwareTimes::default(),
             principal: Machine::Mac,
+            unconfirmed: false,
         }
     }
 }
@@ -131,6 +133,13 @@ impl DeskBuilder {
     /// apagada (por omisión la Mac; con la PC, los escenarios espejo de DESIGN §3.7).
     pub fn principal(mut self, principal: Machine) -> Self {
         self.principal = principal;
+        self
+    }
+
+    /// Los dos agentes arrancan como en el primer arranque real (T-085): sin estado
+    /// guardado, ninguno sabe lo que muestra cada monitor. Lo físico sigue en la principal.
+    pub fn unconfirmed(mut self) -> Self {
+        self.unconfirmed = true;
         self
     }
 
@@ -169,16 +178,19 @@ impl DeskBuilder {
         };
         let mac = agent(mac_cfg, mac_up);
         let pc = agent(pc_cfg, pc_up);
-        // La principal sabe lo que muestra cada monitor (todo es suyo); la otra arranca
-        // con lo que crea y se pone al día con el primer estado que le llegue.
+        // La principal sabe lo que muestra cada monitor (todo es suyo: como si el usuario
+        // lo hubiera confirmado, T-085); la otra arranca con lo que crea y se pone al día
+        // con el primer estado que le llegue. Con `unconfirmed`, ninguna sabe nada.
         let principal = match self.principal {
             Machine::Mac => &mac,
             Machine::Pc => &pc,
         };
-        let mut start = principal.state();
-        start.owner.values_mut().for_each(|o| *o = self.principal);
-        if let Err(e) = principal.set_state(start) {
-            return Err(SimError::Setup(e.to_string()));
+        if !self.unconfirmed {
+            let mut start = principal.state().confirmed();
+            start.owner.values_mut().for_each(|o| *o = self.principal);
+            if let Err(e) = principal.set_state(start) {
+                return Err(SimError::Setup(e.to_string()));
+            }
         }
 
         // Cada agente con su gestor de enlaces real, que pinguea al otro por cada cable.
@@ -327,16 +339,36 @@ impl Desk {
 
     /// Pide un modo por la misma vía que la UI y espera el desenlace.
     pub async fn set_mode(&self, on: Machine, mode: Mode) -> Result<TxnRun, SimError> {
+        self.request(on, UiCommand::SetMode(mode)).await
+    }
+
+    /// «Aplicar modo» desde la UI de `on` (T-085): la entrada de todos los monitores.
+    pub async fn apply_mode(&self, on: Machine, mode: Mode) -> Result<TxnRun, SimError> {
+        self.request(on, UiCommand::ApplyMode(mode)).await
+    }
+
+    /// El usuario dice en la UI de `on` lo que muestra cada monitor (T-085).
+    pub async fn set_shown(
+        &self,
+        on: Machine,
+        shows: impl IntoIterator<Item = (MonitorId, Option<Machine>)>,
+    ) -> Result<TxnRun, SimError> {
+        self.request(on, UiCommand::SetShown(shows.into_iter().collect()))
+            .await
+    }
+
+    /// Un pedido de la UI que arranca una transacción; espera su desenlace.
+    async fn request(&self, on: Machine, cmd: UiCommand) -> Result<TxnRun, SimError> {
         let agent = self.agent(on);
         let mut rx = agent.subscribe_txns();
-        let txn = match agent.handle(UiCommand::SetMode(mode)) {
+        let txn = match agent.handle(cmd) {
             Reply::Accepted { txn } => txn,
             Reply::Rejected(why) => return Err(SimError::Rejected(why)),
             other => return Err(SimError::Rejected(format!("{other:?}"))),
         };
         let mut events = Vec::new();
         loop {
-            let e = match within("el desenlace del cambio de modo", rx.recv()).await? {
+            let e = match within("el desenlace de la transacción", rx.recv()).await? {
                 Ok(e) => e,
                 Err(broadcast::error::RecvError::Lagged(n)) => {
                     return Err(SimError::Setup(format!("se perdieron {n} avisos")));

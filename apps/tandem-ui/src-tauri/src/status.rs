@@ -192,8 +192,10 @@ wiring = { pc = "displayport", mac = "hdmi" }
             owner: Default::default(),
             on: tandem_core::Powered::both(),
             builtin_pref: BuiltinDisplay::Mirror,
+            doubt: Default::default(),
         };
         state.owner.insert("m34".into(), Machine::Pc);
+        state.doubt.insert("m32".into(), tandem_core::Doubt::Stale);
         let ok = AgentStatus::Connected {
             agent: Machine::Mac,
             state,
@@ -203,7 +205,12 @@ wiring = { pc = "displayport", mac = "hdmi" }
             serde_json::json!({
                 "kind": "connected",
                 "agent": "mac",
-                "state": { "owner": { "m34": "pc" }, "on": { "mac": true, "pc": true }, "builtin_pref": "mirror" }
+                "state": {
+                    "owner": { "m34": "pc" },
+                    "on": { "mac": true, "pc": true },
+                    "builtin_pref": "mirror",
+                    "doubt": { "m32": "stale" }
+                }
             })
         );
         let down = AgentStatus::Unavailable {

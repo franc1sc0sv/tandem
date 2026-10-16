@@ -1557,7 +1557,7 @@ pub(crate) mod tests {
                 ..Default::default()
             },
         );
-        let mut state = State::initial(&cfg, Machine::Mac);
+        let mut state = State::initial(&cfg, Machine::Mac).confirmed();
         state.on.pc = true;
         state.owner.insert("m34".into(), Machine::Pc);
         let plan =
@@ -1566,7 +1566,7 @@ pub(crate) mod tests {
         assert_eq!(report.applied, plan.steps);
         assert!(!state.on.pc);
         assert_eq!(state, {
-            let mut s = State::initial(&cfg, Machine::Mac);
+            let mut s = State::initial(&cfg, Machine::Mac).confirmed();
             s.builtin_pref = state.builtin_pref;
             s
         });

@@ -16,11 +16,19 @@ export interface Desk {
   monitors: MonitorConfig[];
 }
 
+/**
+ * Por qué no se sabe lo que muestra un monitor (T-085): nunca se supo, es de un arranque
+ * anterior, o el usuario dijo que está en negro.
+ */
+export type Doubt = "unknown" | "stale" | "blank";
+
 export interface DeskState {
   owner: Record<string, Machine>;
   /** Qué máquinas están encendidas. La del agente siempre lo está para sí misma (T-084). */
   on: Record<Machine, boolean>;
   builtin_pref: BuiltinDisplay;
+  /** Los monitores sin confirmar; el próximo cambio les manda la entrada (T-085). */
+  doubt: Partial<Record<string, Doubt>>;
 }
 
 /** Lo que tiene y sabe hacer una máquina, según su anuncio (`tandem_ui::session::MachineView`). */
@@ -29,7 +37,8 @@ export interface MachineCaps {
   /** El nombre de la máquina en el sistema. */
   name: string;
   os: string;
-  monitors: { monitor: string | null; pnp_id: string | null; name: string; switch: boolean; ddc: boolean }[];
+  /** `seen`: la máquina lo detectó al arrancar (pista para preguntar lo que muestra, T-085). */
+  monitors: { monitor: string | null; pnp_id: string | null; name: string; switch: boolean; ddc: boolean; seen: boolean }[];
   builtin: boolean;
   hub: boolean | null;
   input: { capture: boolean; inject: boolean; missing: ("accessibility" | "input_monitoring")[] };
@@ -227,7 +236,11 @@ export type Action =
   | { kind: "cancel_calibration" }
   | { kind: "use_profile"; display: number; monitor: string | null }
   | { kind: "set_wiring"; monitor: string; wiring: Partial<Record<Machine, Input>> }
-  | { kind: "get_setup" };
+  | { kind: "get_setup" }
+  /** «Aplicar modo» (T-085): manda la entrada de todos los monitores. */
+  | { kind: "apply_mode"; mode: Mode }
+  /** Lo que el usuario dice que muestra cada monitor; `null`: nada (en negro). */
+  | { kind: "set_shown"; shows: Record<string, Machine | null> };
 
 /** De dónde salió la configuración del agente (`tandem_proto::SetupInfo`). */
 export interface AgentSetup {

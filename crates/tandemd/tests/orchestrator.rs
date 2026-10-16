@@ -135,6 +135,11 @@ async fn desk(initial: impl Fn(&mut State), mac_steps: Fake, pc_steps: Fake) -> 
     let (mac_steps, pc_steps) = (Arc::new(mac_steps), Arc::new(pc_steps));
     let mac = agent(Machine::Mac, mac_steps.clone());
     let pc = agent(Machine::Pc, pc_steps.clone());
+    // Lo guardado vuelve sin confirmar (T-085); aquí se da por sabido, para ver solo los
+    // pasos de lo que cambia.
+    for a in [&mac, &pc] {
+        a.set_state(a.state().confirmed()).unwrap();
+    }
     let (ui, _, link) = link(&mac, &pc).await;
     Desk {
         mac,

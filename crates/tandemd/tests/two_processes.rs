@@ -437,6 +437,39 @@ fn all_on(state: &State, machine: Machine) -> bool {
     state.owner.values().all(|m| *m == machine)
 }
 
+/// Los monitores a los que `steps` les manda la entrada de `to` (siempre por la PC, la
+/// única que cambia entradas en este puesto), en orden.
+fn switched(steps: &[Step], to: Machine) -> Vec<String> {
+    let mut ids: Vec<String> = steps
+        .iter()
+        .filter_map(|st| match st {
+            Step::SwitchInput {
+                monitor,
+                to: t,
+                by: Machine::Pc,
+                ..
+            } if *t == to => Some(monitor.to_string()),
+            _ => None,
+        })
+        .collect();
+    ids.sort();
+    ids
+}
+
+/// El motivo por el que el agente rechaza `cmd` (reintenta si está ocupado).
+async fn rejected(ui: &mut Ui, cmd: UiCommand) -> String {
+    within("pedido rechazado", async {
+        loop {
+            match ui.request(cmd.clone()).await.unwrap() {
+                Reply::Rejected(why) if why == BUSY => tokio::time::sleep(POLL).await,
+                Reply::Rejected(why) => return why,
+                other => panic!("{cmd:?}: se esperaba un rechazo: {other:?}"),
+            }
+        }
+    })
+    .await
+}
+
 /// Lo que se agregó al rastro de `spec` desde que tenía `before` pasos.
 fn new_steps(spec: &Spec, before: usize) -> Vec<Step> {
     spec.steps().split_off(before)
@@ -461,10 +494,19 @@ async fn modes_across_two_real_processes() {
     let pair = Pair::new();
     let (mac, mut ui_mac, pc, mut ui_pc) = running_pair(&pair).await;
 
-    // Solo Mac: ya está así, transacción vacía; la PC queda con el mismo estado.
+    // Al arrancar no se sabe lo que muestra cada monitor (T-085): aunque Tandem crea que
+    // todo está en la Mac, el primer Solo Mac manda las dos entradas (las cambia la PC)
+    // y deja el estado confirmado.
+    let unconfirmed = ui_mac.get_state().await.unwrap();
+    assert!(!unconfirmed.is_confirmed() && all_on(&unconfirmed, Machine::Mac));
     let (steps, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(Mode::SoloMac)).await;
-    assert!(steps.is_empty());
-    assert!(s.on.pc && all_on(&s, Machine::Mac));
+    assert_eq!(switched(&steps, Machine::Mac), ["m32", "m34"], "{steps:?}");
+    assert!(s.is_confirmed() && s.on.pc && all_on(&s, Machine::Mac));
+
+    // Ya confirmado, pedir lo mismo es una transacción vacía; la PC queda igual.
+    let (steps, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(Mode::SoloMac)).await;
+    assert!(steps.is_empty(), "{steps:?}");
+    assert!(s.is_confirmed() && s.on.pc && all_on(&s, Machine::Mac));
 
     // Compartido: el 34" a la PC. La PC cambia la entrada y lo agrega; la Mac lo quita.
     let (mac_before, pc_before) = (mac.spec.steps().len(), pc.spec.steps().len());
@@ -609,12 +651,45 @@ async fn killing_the_pc_mid_change_leaves_the_mac_coherent() {
         Reply::Peer(PeerStatus::Paired { link: None, .. })
     ));
 
-    // Y sigue atendiendo: el orquestador no quedó tomado.
-    let txn = begin(&mut ui_mac, UiCommand::SetMode(Mode::SoloMac)).await;
-    assert!(matches!(
-        outcome(&mut ui_mac, txn).await.last(),
-        Some(TxnEvent::Committed { .. })
-    ));
+    // El estado sigue sin confirmar, así que Solo Mac tendría que mandar las entradas, y
+    // solo las cambia la PC, que está muerta: se rechaza en vez de inventar (T-085).
+    assert!(!s.is_confirmed());
+    assert_eq!(
+        rejected(&mut ui_mac, UiCommand::SetMode(Mode::SoloMac)).await,
+        "pc está apagada y la otra máquina no puede encenderla"
+    );
+
+    // Y sigue atendiendo: el orquestador no quedó tomado. Decir lo que muestra cada
+    // monitor no manda ninguna entrada y confirma el estado.
+    let mac_before = mac.spec.steps().len();
+    let shows = BTreeMap::from([
+        ("m34".into(), Some(Machine::Mac)),
+        ("m32".into(), Some(Machine::Mac)),
+    ]);
+    let txn = begin(&mut ui_mac, UiCommand::SetShown(shows)).await;
+    let events = outcome(&mut ui_mac, txn).await;
+    let Some(TxnEvent::Started { steps, .. }) = events.first() else {
+        panic!("se esperaba Started: {events:?}");
+    };
+    assert!(
+        !steps
+            .iter()
+            .any(|st| matches!(st, Step::SwitchInput { .. })),
+        "{steps:?}"
+    );
+    let Some(TxnEvent::Committed { state: s, .. }) = events.last() else {
+        panic!("se esperaba Committed: {events:?}");
+    };
+    let s = s.clone();
+    assert!(s.is_confirmed() && !s.on.pc && all_on(&s, Machine::Mac));
+    assert_eq!(ui_mac.get_state().await.unwrap(), s);
+    let mac_steps = new_steps(&mac.spec, mac_before);
+    assert!(
+        !mac_steps
+            .iter()
+            .any(|st| matches!(st, Step::SwitchInput { .. })),
+        "{mac_steps:?}"
+    );
     assert!(mac.running());
     let (spec, status) = mac.stop().await;
     assert!(status.success());
@@ -653,11 +728,22 @@ async fn killing_the_mac_mid_change_leaves_the_pc_coherent() {
     assert_eq!(ui_pc.get_state().await.unwrap(), s);
     assert!(pc.running());
 
-    // La Mac vuelve con lo que había guardado: coincide con la PC y se puede seguir.
+    // La Mac vuelve con lo que había guardado: los mismos dueños que la PC, pero sin
+    // confirmar ([`State::forget`]): desde que murió, todo pudo cambiar a mano.
     let (_mac, mut ui_mac) = restart(mac_spec).await;
-    assert_eq!(ui_mac.get_state().await.unwrap(), s);
+    let back = ui_mac.get_state().await.unwrap();
+    assert_eq!(
+        (&back.owner, &back.on, back.builtin_pref),
+        (&s.owner, &s.on, s.builtin_pref),
+        "{back:?}"
+    );
+    assert!(!back.is_confirmed(), "{back:?}");
     linked(&mut ui_mac).await;
     linked(&mut ui_pc).await;
-    let (_, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(Mode::SoloPc)).await;
-    assert!(all_on(&s, Machine::Pc));
+
+    // Se puede seguir: Solo Windows manda las dos entradas (también la del 34", que ya
+    // parecía estar en la PC) y deja todo confirmado en las dos máquinas.
+    let (steps, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(Mode::SoloPc)).await;
+    assert_eq!(switched(&steps, Machine::Pc), ["m32", "m34"], "{steps:?}");
+    assert!(s.is_confirmed() && all_on(&s, Machine::Pc));
 }

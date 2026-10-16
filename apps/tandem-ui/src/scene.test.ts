@@ -31,7 +31,7 @@ const desk: Desk = {
 };
 
 function state(m34: "mac" | "pc", m32: "mac" | "pc", extra: Partial<DeskState> = {}): DeskState {
-  return { owner: { m34, m32 }, on: { mac: true, pc: m34 === "pc" || m32 === "pc" }, builtin_pref: "off", ...extra };
+  return { owner: { m34, m32 }, on: { mac: true, pc: m34 === "pc" || m32 === "pc" }, builtin_pref: "off", doubt: {}, ...extra };
 }
 
 /** Lo que anuncia cada máquina del puesto real. */
@@ -41,7 +41,7 @@ function machineCaps(machine: "mac" | "pc", extra: Partial<MachineCaps> = {}): M
     machine,
     name: pc ? "ESCRITORIO" : "MacBook-Pro",
     os: pc ? "windows" : "macos",
-    monitors: ["m34", "m32"].map((id) => ({ monitor: id, pnp_id: null, name: id, switch: pc, ddc: pc })),
+    monitors: ["m34", "m32"].map((id) => ({ monitor: id, pnp_id: null, name: id, switch: pc, ddc: pc, seen: true })),
     builtin: !pc,
     hub: null,
     input: { capture: true, inject: true, missing: [] },
@@ -64,7 +64,7 @@ describe("modos", () => {
   });
 
   it("un monitor sin dueño guardado está en la Mac", () => {
-    expect(modeOf(desk, { owner: {}, on: { mac: true, pc: false }, builtin_pref: "off" })).toBe("mac");
+    expect(modeOf(desk, { owner: {}, on: { mac: true, pc: false }, builtin_pref: "off", doubt: {} })).toBe("mac");
   });
 
   it("compartido manda el monitor de la izquierda a la PC", () => {
@@ -95,14 +95,16 @@ describe("monitores", () => {
   it("cada máquina muestra los suyos, en el orden del escritorio, con su entrada", () => {
     const s = state("pc", "mac");
     expect(monitorsOf(desk, s, "pc")).toEqual([
-      { id: "m34", label: '34"', owner: "pc", port: "DP", wide: true, movable: true },
+      { id: "m34", label: '34"', owner: "pc", port: "DP", wide: true, movable: true, doubt: null },
     ]);
     expect(monitorsOf(desk, s, "mac").map((m) => [m.id, m.port, m.wide])).toEqual([["m32", "HDMI", false]]);
+    // Sin confirmar (T-085), la escena lo marca.
+    expect(monitorsOf(desk, { ...s, doubt: { m34: "stale" } }, "pc")[0].doubt).toBe("stale");
   });
 
   it("un monitor cableado a una sola máquina no se puede mover", () => {
     const solo: Desk = { monitors: [{ id: "x", label: "TV", wiring: { mac: "hdmi" } }] };
-    expect(monitorsOf(solo, { owner: { x: "mac" }, on: { mac: true, pc: false }, builtin_pref: "off" }, "mac")[0].movable).toBe(false);
+    expect(monitorsOf(solo, { owner: { x: "mac" }, on: { mac: true, pc: false }, builtin_pref: "off", doubt: {} }, "mac")[0].movable).toBe(false);
   });
 
   it("sin nadie que pueda cambiarle la entrada, tampoco (T-084)", () => {
@@ -136,7 +138,7 @@ describe("pantalla integrada", () => {
   });
 
   it("sin monitores en la Mac se enciende sola", () => {
-    expect(builtinOf(desk, state("pc", "pc", { builtin_pref: "off" }))).toEqual({
+    expect(builtinOf(desk, state("pc", "pc", { builtin_pref: "off", doubt: {} }))).toEqual({
       effective: "extend",
       forced: true,
       note: "encendida: no hay monitores",
@@ -359,14 +361,14 @@ describe("sin centro fijo (T-084)", () => {
   it("un agente nunca se ve apagado a sí mismo", () => {
     for (const agent of ["mac", "pc"] as const) {
       // Aunque el estado venga con las dos apagadas (uno guardado viejo).
-      const s: DeskState = { owner: { m34: agent, m32: agent }, on: { mac: false, pc: false }, builtin_pref: "off" };
+      const s: DeskState = { owner: { m34: agent, m32: agent }, on: { mac: false, pc: false }, builtin_pref: "off", doubt: {} };
       expect(machineState(s, agent, agent, null)).toBe("esta máquina");
       expect(machineState(s, agent, agent === "mac" ? "pc" : "mac", null)).toBe("apagada");
     }
   });
 
   it("en la PC, la PC está encendida y la que duerme es la Mac", () => {
-    const s: DeskState = { owner: { m34: "pc", m32: "pc" }, on: { mac: false, pc: true }, builtin_pref: "off" };
+    const s: DeskState = { owner: { m34: "pc", m32: "pc" }, on: { mac: false, pc: true }, builtin_pref: "off", doubt: {} };
     expect(machineState(s, "pc", "pc", null)).toBe("esta máquina");
     expect(machineState(s, "pc", "mac", null)).toBe("apagada");
     expect(peerPower(s, "pc", null)).toBe("off");
@@ -374,7 +376,7 @@ describe("sin centro fijo (T-084)", () => {
   });
 
   it("el botón de encendido solo aparece si alguna puede", () => {
-    const awake: DeskState = { owner: { m34: "pc", m32: "mac" }, on: { mac: true, pc: true }, builtin_pref: "off" };
+    const awake: DeskState = { owner: { m34: "pc", m32: "mac" }, on: { mac: true, pc: true }, builtin_pref: "off", doubt: {} };
     // La PC sabe apagarse limpio: desde la Mac se ofrece apagarla.
     expect(powerButton(caps("mac"), awake, "mac", null)).toMatchObject({ visible: true, on: false, label: "Apagar la PC" });
     // La Mac no: desde la PC no se ofrece apagarla.
@@ -389,7 +391,7 @@ describe("sin centro fijo (T-084)", () => {
 
   it("sin Wake-on-LAN en esta máquina no se ofrece encender la otra", () => {
     // Hallazgo del PR #56: la PC sin [power.wol] mostraba «Encender la Mac», que fallaba siempre.
-    const asleep: DeskState = { owner: { m34: "pc", m32: "pc" }, on: { mac: false, pc: true }, builtin_pref: "off" };
+    const asleep: DeskState = { owner: { m34: "pc", m32: "pc" }, on: { mac: false, pc: true }, builtin_pref: "off", doubt: {} };
     const noWol = machineCaps("pc", { power: { wake_peer: false, wakeable: true, power_off: true } });
     expect(powerButton({ here: noWol, peer: machineCaps("mac") }, asleep, "pc", null).visible).toBe(false);
     // Tampoco sin el anuncio de la Mac: lo que falta es de esta.

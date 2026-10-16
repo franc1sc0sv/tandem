@@ -4,6 +4,7 @@
 import "./styles.css";
 import "./tray.css";
 
+import { isConfirmed } from "./confirm";
 import { bridgeFailed, tauriBridge, type Bridge } from "./bridge";
 import type { Action, Notice, ShortcutsView, Snapshot } from "./model";
 import {
@@ -142,7 +143,8 @@ function renderMini() {
 
 function renderModes() {
   const connected = snap.kind === "connected";
-  const mode = snap.kind === "connected" ? modeOf(snap.desk, snap.state) : null;
+  // Sin confirmar (T-085) no se marca ningún modo.
+  const mode = snap.kind === "connected" && isConfirmed(snap.desk, snap.state) ? modeOf(snap.desk, snap.state) : null;
   const running = isRunning(progress);
   for (const b of $$<HTMLButtonElement>(".pmode")) {
     const key = b.dataset.mode as ModeKey;
@@ -176,7 +178,8 @@ function wire() {
   for (const b of $$<HTMLButtonElement>(".pmode")) {
     b.addEventListener("click", () => {
       if (snap.kind !== "connected") return;
-      void act({ kind: "set_mode", mode: modeRequest(b.dataset.mode as ModeKey, snap.desk, snap.state) });
+      const mode = modeRequest(b.dataset.mode as ModeKey, snap.desk, snap.state);
+      void act(isConfirmed(snap.desk, snap.state) ? { kind: "set_mode", mode } : { kind: "apply_mode", mode });
     });
   }
   $("#open").addEventListener("click", () => void bridge?.showMain());

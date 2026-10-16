@@ -142,6 +142,10 @@ pub struct MonitorCaps {
     pub switch: bool,
     /// ...y lo hace por DDC, sin el usuario.
     pub ddc: bool,
+    /// Esta máquina lo detectó al arrancar (no es solo el del puesto). Sirve de pista
+    /// para preguntar lo que muestra (T-085): no alcanza para saberlo, porque cada sistema
+    /// ve como activo al monitor que muestra a la otra.
+    pub seen: bool,
 }
 
 /// El motor de teclado y mouse de una máquina.
@@ -463,6 +467,14 @@ pub enum UiCommand {
     GetSetup,
     /// Lo que puede cada máquina ([`DeskCapabilities`]).
     GetCapabilities,
+    /// «Aplicar modo» (T-085): como [`UiCommand::SetMode`], pero manda la entrada de
+    /// todos los monitores aunque Tandem crea que ya están donde van. Es el camino para
+    /// confirmar un estado sin confirmar.
+    ApplyMode(#[serde(with = "wire::mode")] Mode),
+    /// El usuario dice lo que muestra cada monitor: una máquina, o nada (`None`, en negro).
+    /// Corrige el estado sin mandar ninguna entrada; cada escritorio se pone al día y el
+    /// estado nuevo llega a la otra máquina (T-085).
+    SetShown(BTreeMap<MonitorId, Option<Machine>>),
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -815,6 +827,10 @@ pub(crate) mod samples {
             owner: BTreeMap::from([("m34".into(), Machine::Pc), ("m32".into(), Machine::Mac)]),
             on: tandem_core::Powered::both(),
             builtin_pref: BuiltinDisplay::Mirror,
+            doubt: BTreeMap::from([
+                ("m34".into(), tandem_core::Doubt::Unknown),
+                ("m32".into(), tandem_core::Doubt::Blank),
+            ]),
         }
     }
 
@@ -1000,6 +1016,7 @@ pub(crate) mod samples {
                         name: "LC34G55T".into(),
                         switch: true,
                         ddc: true,
+                        seen: true,
                     },
                     MonitorCaps {
                         monitor: None,
@@ -1007,6 +1024,7 @@ pub(crate) mod samples {
                         name: "Monitor PnP genérico".into(),
                         switch: true,
                         ddc: false,
+                        seen: false,
                     },
                 ],
                 builtin: false,
@@ -1352,8 +1370,14 @@ pub(crate) mod samples {
             },
             UiCommand::GetSetup,
             UiCommand::GetCapabilities,
+            UiCommand::SetShown(BTreeMap::from([
+                ("m34".into(), Some(Machine::Pc)),
+                ("m32".into(), None),
+            ])),
+            UiCommand::SetShown(BTreeMap::new()),
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
+        cmds.extend(modes().into_iter().map(UiCommand::ApplyMode));
         cmds.into_iter()
             .enumerate()
             .map(|(i, command)| UiRequest {
@@ -1387,6 +1411,8 @@ pub(crate) mod samples {
             UiCommand::SetWiring { .. } => 19,
             UiCommand::GetSetup => 20,
             UiCommand::GetCapabilities => 21,
+            UiCommand::ApplyMode(_) => 22,
+            UiCommand::SetShown(_) => 23,
         }
     }
 
@@ -1776,7 +1802,7 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
         covers(&control(), control_arm, 14);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 22);
+        covers(&cmds, ui_command_arm, 24);
         covers(&to_ui(), to_ui_arm, 12);
         let profiles: Vec<_> = displays().into_iter().map(|d| d.profile).collect();
         covers(&profiles, display_profile_arm, 3);
