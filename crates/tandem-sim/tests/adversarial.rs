@@ -243,12 +243,14 @@ async fn la_pc_se_queda_sin_corriente() {
 }
 
 /// El USB4 parpadea (se corta y vuelve cada 700 ms) durante un cambio, con
-/// Ethernet sano. Pase lo que pase con ese cambio, si el agente dice que terminó
-/// bien o que volvió atrás, el puesto coincide; y en cuanto el cable se queda
-/// quieto, el siguiente cambio funciona.
+/// Ethernet sano. El cambio termina siempre limpio (aplicado o vuelto atrás, con el
+/// puesto coincidiendo): el gestor pasa a Ethernet y, por la histéresis (T-065), no
+/// vuelve al USB4 mientras parpadea, así que los pasos y la vuelta atrás van por un
+/// enlace sano. En cuanto el cable se queda quieto, se vuelve a él y el siguiente
+/// cambio funciona.
 #[tokio::test(start_paused = true)]
 async fn usb4_intermitente_durante_un_cambio() {
-    for offset_ms in [0u64, 200, 450] {
+    for offset_ms in (0u64..700).step_by(50) {
         let d = Desk::new().await.unwrap();
         committed(&d, &d.set_mode(Machine::Mac, shared()).await.unwrap()).await;
         let net = d.net.clone();
@@ -264,18 +266,20 @@ async fn usb4_intermitente_durante_un_cambio() {
         let run = d.set_mode(Machine::Mac, Mode::SoloPc).await.unwrap();
         flapping.await.unwrap();
         let case = format!("desfase {offset_ms} ms: {:?}", run.outcome());
+        // Mientras parpadeaba, el gestor se quedó en Ethernet.
+        assert_eq!(
+            d.active_link(Machine::Mac),
+            Some(LinkKind::Ethernet),
+            "{case}"
+        );
         match run.outcome() {
             Some(Outcome::Committed | Outcome::RolledBack) => {
                 if let Err(e) = d.check().await {
                     panic!("{case}: {e}");
                 }
             }
-            Some(Outcome::Inconsistent) => {}
-            None => panic!("{case}"),
+            _ => panic!("{case}: {:#?}", run.events),
         }
-        // Justo después del último corte el gestor todavía puede tener el USB4
-        // muerto como activo (lo nota en hasta 1,25 s): se deja asentar.
-        d.settle().await;
         d.wait_link(LinkKind::Usb4).await.unwrap();
         for mode in [Mode::SoloMac, Mode::SoloPc] {
             committed(&d, &d.set_mode(Machine::Mac, mode).await.unwrap()).await;

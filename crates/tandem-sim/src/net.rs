@@ -17,7 +17,7 @@ use tandem_core::{State, Step};
 use tandem_link::manager::{LinkCandidate, LinkKind, LinkManager, Prober};
 use tandem_proto::ControlMsg;
 use tandemd::ipc::Framed;
-use tandemd::orchestrator::{PEER_NOT_CONNECTED, PeerLink, StepFuture};
+use tandemd::orchestrator::{LinkHold, PEER_NOT_CONNECTED, PeerLink, StepFuture};
 use tandemd::{Agent, PeerClient, peer};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
@@ -325,5 +325,9 @@ impl PeerLink for ManagedPeer {
         if let Some(a) = self.links.active() {
             a.handle.client.publish_state(state);
         }
+    }
+
+    fn hold_link(&self) -> Option<LinkHold> {
+        Some(Box::new(self.links.hold()))
     }
 }
