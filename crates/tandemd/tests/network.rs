@@ -129,12 +129,17 @@ async fn start(
     }
     let cfg = AgentConfig::from_toml(&format!("machine = \"{machine}\"\n{network}{DESK}")).unwrap();
     let steps = Arc::new(Fake::default());
-    let Daemon { agent, network } = daemon::start(
+    let Daemon {
+        agent,
+        network,
+        input,
+    } = daemon::start(
         cfg,
         &paths,
         Backends::Custom {
             local: steps.clone(),
             manual: Arc::new(ManualSwitcher::new()),
+            input: None,
         },
         NetOptions {
             bind: Some(loopback(port)),
@@ -150,6 +155,7 @@ async fn start(
         Daemon {
             agent: agent.clone(),
             network,
+            input,
         }
         .serve(listener, async {
             let _ = stopped.await;
@@ -320,6 +326,7 @@ async fn identity_is_created_once_and_kept() {
     let backends = || Backends::Custom {
         local: Arc::new(Fake::default()),
         manual: Arc::new(ManualSwitcher::new()),
+        input: None,
     };
     let first = daemon::start(cfg.clone(), &paths, backends(), opts.clone()).unwrap();
     let key = Identity::load(&paths.identity_file()).unwrap().public_key();

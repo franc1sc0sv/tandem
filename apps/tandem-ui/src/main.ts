@@ -18,9 +18,11 @@ import {
   other,
   pcPower,
   peerPill,
+  roleChip,
   type ModeKey,
   type MonitorView,
   type Progress,
+  type RoleChip,
 } from "./scene";
 import {
   ACTION_LABEL,
@@ -142,6 +144,9 @@ async function act(action: Action, quiet = false): Promise<string | null> {
 // Dibujo
 
 const ICON_KB = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg>`;
+const ICON_CURSOR = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3l14 7-6 2-2 6z"/></svg>`;
+const ICON_WARN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/></svg>`;
+const ROLE_ICON: Record<RoleChip["icon"], string> = { keyboard: ICON_KB, cursor: ICON_CURSOR, warn: ICON_WARN };
 const ICON_EMPTY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>`;
 const LAP_MIRROR = `<g transform="translate(96 36)" stroke="#9fb6d8" stroke-width="2.4" fill="none" stroke-linecap="round"><rect x="0" y="0" width="12" height="10" rx="2"/><rect x="16" y="0" width="12" height="10" rx="2"/><path d="M6 17h16"/></g>`;
 const LAP_OFF = `<g transform="translate(100 38)" stroke="#3a3d45" stroke-width="2.4" fill="none" stroke-linecap="round"><path d="M0 0l20 20M20 0 0 20"/></g>`;
@@ -238,12 +243,12 @@ function renderControls() {
   for (const who of MACHINES) {
     $(`#state-${who}`).textContent =
       who === "pc" ? { on: "encendida", boot: "arrancando…", off: "apagada" }[power] : agent === who ? "esta máquina" : "";
-    // El agente todavía no informa dónde está el hub: chip neutro en esta máquina.
     const role = $(`#role-${who}`);
-    if (who === agent) {
-      role.className = "role unknown";
-      role.innerHTML = `${ICON_KB} sin datos`;
-      role.title = "Teclado y mouse: el agente todavía no informa quién es el servidor";
+    const chip = roleChip(snap.input, agent, who, power === "on");
+    if (chip) {
+      role.className = `role ${chip.kind}`;
+      role.innerHTML = `${ROLE_ICON[chip.icon]} ${chip.text}`;
+      role.title = chip.title;
       role.hidden = false;
     } else {
       role.hidden = true;

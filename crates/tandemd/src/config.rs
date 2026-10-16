@@ -24,6 +24,18 @@
 //! source = "10.77.2.1"
 //! broadcast = "10.77.2.3"
 //!
+//! [input]
+//! # Servidor de teclado y mouse al arrancar, hasta que el hub decida.
+//! server = "mac"
+//! # Bloquea el cursor en la máquina donde está (nombres de `KeyboardEvent.code`).
+//! lock_shortcut = ["ScrollLock"]
+//! clipboard = true
+//!
+//! # El teclado y el mouse del hub, por VID:PID. Sin esta sección no hay roles automáticos.
+//! [input.hub]
+//! keyboard = "046d:c33f"
+//! mouse = "046d:c539"
+//!
 //! [[monitors]]
 //! id = "m34"
 //! label = '34"'
@@ -35,8 +47,12 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{Config, Machine};
+use tandem_input::HidUsage;
+use tandem_input::event::RemapPolicy;
+use tandem_input::event::keymap::from_code_name;
 use tandem_link::discovery::{DiscoveryError, link_candidates, validate_static_links};
 use tandem_link::manager::LinkCandidate;
+use tandem_peripherals::HubConfig;
 use tandem_power::WolTarget;
 
 /// Puerto UDP predeterminado del plano de control (QUIC).
@@ -52,6 +68,8 @@ pub struct AgentConfig {
     pub orchestrator: OrchestratorConfig,
     #[serde(default)]
     pub power: PowerConfig,
+    #[serde(default)]
+    pub input: InputConfig,
     /// El puesto: es el mismo archivo en las dos máquinas, salvo `machine`.
     #[serde(flatten)]
     pub desk: Config,
@@ -157,6 +175,63 @@ impl PowerConfig {
     }
 }
 
+/// Teclado, mouse y portapapeles compartidos (DESIGN §7).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InputConfig {
+    /// El servidor con el que se arranca, hasta que el hub (o el otro agente) diga otra cosa.
+    #[serde(default = "default_server")]
+    pub server: Machine,
+    /// El teclado y el mouse del hub. Sin esto los roles no cambian solos.
+    #[serde(default)]
+    pub hub: Option<HubConfig>,
+    /// Reasignación de modificadores por dirección; por omisión Cmd↔Ctrl.
+    #[serde(default)]
+    pub remap: RemapPolicy,
+    /// Teclas (nombres de `KeyboardEvent.code`, todas a la vez) que bloquean el cursor
+    /// en la máquina donde está. Vacío = sin atajo.
+    #[serde(default = "default_lock_shortcut")]
+    pub lock_shortcut: Vec<String>,
+    /// Sincronizar el portapapeles.
+    #[serde(default = "default_true")]
+    pub clipboard: bool,
+}
+
+fn default_server() -> Machine {
+    Machine::Mac
+}
+
+/// ScrollLock, como en Synergy/Deskflow. En la Mac llega como F14 y vale igual.
+fn default_lock_shortcut() -> Vec<String> {
+    vec!["ScrollLock".to_owned()]
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for InputConfig {
+    fn default() -> Self {
+        InputConfig {
+            server: default_server(),
+            hub: None,
+            remap: RemapPolicy::default(),
+            lock_shortcut: default_lock_shortcut(),
+            clipboard: true,
+        }
+    }
+}
+
+impl InputConfig {
+    /// Las teclas del atajo de bloqueo. La config ya validada no falla.
+    pub fn lock_keys(&self) -> Result<Vec<HidUsage>, ConfigError> {
+        self.lock_shortcut
+            .iter()
+            .map(|name| from_code_name(name).ok_or_else(|| ConfigError::UnknownKey(name.clone())))
+            .collect()
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("no se pudo leer {path}: {source}")]
@@ -190,6 +265,10 @@ pub enum ConfigError {
     },
     #[error(transparent)]
     Peers(#[from] DiscoveryError),
+    #[error(
+        "input.lock_shortcut: «{0}» no es una tecla (se usan los nombres de KeyboardEvent.code, como ScrollLock o KeyL)"
+    )]
+    UnknownKey(String),
 }
 
 impl AgentConfig {
@@ -224,6 +303,7 @@ impl AgentConfig {
         if self.power.pc_lost_after_secs == 0 {
             return Err(ConfigError::ZeroPcLostAfter);
         }
+        self.input.lock_keys()?;
         if let Some(wol) = &self.power.wol {
             if wol.port == 0 {
                 return Err(ConfigError::ZeroWolPort);
@@ -535,6 +615,61 @@ mod tests {
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
         let err = AgentConfig::from_toml("machine = \"mac\"\nmonitors = []\n[power]\nwake = 1")
             .unwrap_err();
+        assert!(matches!(err, ConfigError::Parse(_)), "{err}");
+    }
+
+    #[test]
+    fn input_defaults() {
+        let cfg = fixtures::desk();
+        assert_eq!(cfg.input, InputConfig::default());
+        assert_eq!(cfg.input.server, Machine::Mac);
+        assert!(cfg.input.clipboard && cfg.input.hub.is_none());
+        assert_eq!(cfg.input.lock_keys().unwrap(), [HidUsage::key(0x47)]);
+        assert_eq!(cfg.input.remap, RemapPolicy::default());
+    }
+
+    #[test]
+    fn parses_input() {
+        let cfg = AgentConfig::from_toml(
+            r#"
+            machine = "pc"
+            monitors = []
+            [input]
+            server = "pc"
+            lock_shortcut = ["ControlLeft", "KeyL"]
+            clipboard = false
+            [input.hub]
+            keyboard = "046d:c33f"
+            mouse = "046d:c539"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(cfg.input.server, Machine::Pc);
+        assert!(!cfg.input.clipboard);
+        assert_eq!(
+            cfg.input.lock_keys().unwrap(),
+            [HidUsage::key(0xE0), HidUsage::key(0x0F)]
+        );
+        let hub = cfg.input.hub.unwrap();
+        assert_eq!(hub.keyboard.to_string(), "046d:c33f");
+        let none =
+            AgentConfig::from_toml("machine = \"mac\"\nmonitors = []\n[input]\nlock_shortcut = []")
+                .unwrap();
+        assert!(none.input.lock_keys().unwrap().is_empty());
+    }
+
+    #[test]
+    fn rejects_bad_input() {
+        let base = "machine = \"mac\"\nmonitors = []\n[input]\n";
+        let err = AgentConfig::from_toml(&format!("{base}lock_shortcut = [\"Bloq\"]")).unwrap_err();
+        assert!(
+            matches!(err, ConfigError::UnknownKey(ref k) if k == "Bloq"),
+            "{err}"
+        );
+        let err = AgentConfig::from_toml(&format!("{base}sever = \"pc\"")).unwrap_err();
+        assert!(matches!(err, ConfigError::Parse(_)), "{err}");
+        let err =
+            AgentConfig::from_toml(&format!("{base}[input.hub]\nkeyboard = \"1:2\"")).unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
 

@@ -300,6 +300,20 @@ impl Layout {
     /// pasa a otra pantalla local o se queda contra el borde de la actual, como hace
     /// el sistema. Sin pantallas visibles devuelve `pos` tal cual.
     pub fn step(&self, machine: Machine, pos: Point, dx: f64, dy: f64) -> Motion {
+        self.step_inner(machine, pos, dx, dy, true)
+    }
+
+    /// Como [`Layout::step`], sin cruzar nunca a la otra máquina: el cursor bloqueado
+    /// (el atajo del servidor) se queda contra el borde.
+    pub fn step_within(&self, machine: Machine, pos: Point, dx: f64, dy: f64) -> Point {
+        match self.step_inner(machine, pos, dx, dy, false) {
+            Motion::Local(p) => p,
+            // `step_inner` sin cruce no devuelve otra cosa.
+            Motion::Cross { .. } => pos,
+        }
+    }
+
+    fn step_inner(&self, machine: Machine, pos: Point, dx: f64, dy: f64, cross: bool) -> Motion {
         let ml = self.machine(machine);
         let Some(cur) = self.screen_index(machine, pos) else {
             return Motion::Local(pos);
@@ -312,7 +326,7 @@ impl Layout {
         if ml.screens.iter().any(|s| s.rect.contains(target)) {
             return Motion::Local(target);
         }
-        if let Some(cross) = self.crossing(machine, cur, pos, dx, dy) {
+        if cross && let Some(cross) = self.crossing(machine, cur, pos, dx, dy) {
             return cross;
         }
         Motion::Local(screen.rect.clamp(target))

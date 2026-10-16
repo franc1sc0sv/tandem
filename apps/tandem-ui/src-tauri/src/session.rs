@@ -16,8 +16,8 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State, Step};
 use tandem_proto::{
-    AgentToUi, Link, ManualSwitchEvent, PairingStatus, PeerStatus, PowerEvent, Reply, TxnEvent,
-    UiCommand,
+    AgentToUi, InputPermission, InputStatus, Link, ManualSwitchEvent, PairingStatus, PeerStatus,
+    PowerEvent, Reply, TxnEvent, UiCommand,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -43,6 +43,8 @@ pub enum Snapshot {
         peer: PeerView,
         /// En qué va el emparejamiento.
         pairing: PairingView,
+        /// El teclado y mouse compartidos: el chip de cada máquina.
+        input: InputView,
     },
     Unavailable {
         endpoint: Option<String>,
@@ -121,6 +123,50 @@ impl From<PairingStatus> for PairingView {
             },
             PairingStatus::Done { peer } => PairingView::Done { peer },
             PairingStatus::Failed { reason } => PairingView::Failed { reason },
+        }
+    }
+}
+
+/// [`InputStatus`] en JSON para el frontend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InputView {
+    /// La máquina que tiene el teclado y el mouse.
+    pub server: Machine,
+    /// Si el hub está en esta máquina; `None` sin detección.
+    pub hub_here: Option<bool>,
+    /// La sesión con el otro agente está establecida.
+    pub session: bool,
+    /// El cursor está bloqueado en su máquina.
+    pub locked: bool,
+    /// Permisos de macOS que faltan: la ventana lo avisa.
+    pub missing: Vec<PermissionView>,
+    pub problem: Option<String>,
+}
+
+/// Los mismos nombres que la guía de permisos ([`crate::setup`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PermissionView {
+    Accessibility,
+    InputMonitoring,
+}
+
+impl From<InputStatus> for InputView {
+    fn from(s: InputStatus) -> Self {
+        InputView {
+            server: s.server,
+            hub_here: s.hub_here,
+            session: s.session,
+            locked: s.locked,
+            missing: s
+                .missing
+                .into_iter()
+                .map(|p| match p {
+                    InputPermission::Accessibility => PermissionView::Accessibility,
+                    InputPermission::InputMonitoring => PermissionView::InputMonitoring,
+                })
+                .collect(),
+            problem: s.problem,
         }
     }
 }
@@ -309,9 +355,12 @@ impl From<Reply> for ActionResult {
         match r {
             Reply::Accepted { txn } => ActionResult::Accepted { txn },
             Reply::Rejected(reason) => ActionResult::Rejected { reason },
-            Reply::Done | Reply::State(_) | Reply::Desk(_) | Reply::Peer(_) | Reply::Pairing(_) => {
-                ActionResult::Done
-            }
+            Reply::Done
+            | Reply::State(_)
+            | Reply::Desk(_)
+            | Reply::Peer(_)
+            | Reply::Pairing(_)
+            | Reply::Input(_) => ActionResult::Done,
         }
     }
 }
@@ -432,6 +481,7 @@ struct Opened<S> {
     state: State,
     peer: PeerView,
     pairing: PairingView,
+    input: InputView,
 }
 
 /// Por qué terminó una conexión.
@@ -456,6 +506,7 @@ impl Runner {
                     state,
                     peer,
                     pairing,
+                    input,
                 }) => {
                     let agent = client.agent();
                     self.publish(Snapshot::Connected {
@@ -464,6 +515,7 @@ impl Runner {
                         state,
                         peer,
                         pairing,
+                        input,
                     });
                     match self.serve(client).await {
                         Ended::Released => return,
@@ -508,11 +560,16 @@ impl Runner {
                 Reply::Pairing(p) => p.into(),
                 other => return Err(IpcError::UnexpectedReply(other)),
             };
+            let input = match client.request(UiCommand::GetInput).await? {
+                Reply::Input(i) => i.into(),
+                other => return Err(IpcError::UnexpectedReply(other)),
+            };
             Ok(Opened {
                 client,
                 desk,
                 state,
                 peer,
+                input,
                 pairing,
             })
         };
@@ -573,6 +630,7 @@ impl Runner {
             AgentToUi::Power(event) => self.sink.notice(&event.into()),
             AgentToUi::Peer(status) => self.update_peer(status.into()),
             AgentToUi::Pairing(status) => self.update_pairing(status.into()),
+            AgentToUi::Input(status) => self.update_input(status.into()),
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}
         }
@@ -614,6 +672,16 @@ impl Runner {
         if change(&mut next) {
             self.publish(next);
         }
+    }
+
+    fn update_input(&self, new: InputView) {
+        self.update(|c| match c {
+            Snapshot::Connected { input, .. } if *input != new => {
+                *input = new;
+                true
+            }
+            _ => false,
+        });
     }
 
     /// Espera hasta el próximo intento; mientras, los pedidos se contestan sin agente.
@@ -780,6 +848,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 state: a.agent.state(),
                 peer: PeerView::Unpaired,
                 pairing: PairingView::Idle,
+                input: InputStatus::new(Machine::Mac).into(),
             }
         );
     }
@@ -816,6 +885,27 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 reason: tandemd::agent::NO_NETWORK.into()
             }
         );
+    }
+
+    #[tokio::test]
+    async fn pushed_input_status_updates_the_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+
+        let status = InputStatus {
+            missing: vec![InputPermission::Accessibility],
+            ..InputStatus::new(Machine::Pc)
+        };
+        a.agent.set_input_status(status.clone());
+        let want = InputView::from(status);
+        rec.until(|snaps, _| {
+            matches!(snaps.last(), Some(Snapshot::Connected { input, .. }) if *input == want)
+        })
+        .await;
+        assert!(matches!(handle.snapshot(), Snapshot::Connected { input, .. } if input == want));
     }
 
     #[tokio::test]
@@ -1037,8 +1127,28 @@ wiring = { pc = "displayport", mac = "hdmi" }
             state,
             peer: PeerView::Unpaired,
             pairing: PairingView::Idle,
+            input: InputStatus {
+                server: Machine::Pc,
+                hub_here: Some(false),
+                session: true,
+                locked: false,
+                missing: vec![InputPermission::InputMonitoring],
+                problem: None,
+            }
+            .into(),
         };
         let v = serde_json::to_value(&snap).unwrap();
+        assert_eq!(
+            v["input"],
+            serde_json::json!({
+                "server": "pc",
+                "hub_here": false,
+                "session": true,
+                "locked": false,
+                "missing": ["input_monitoring"],
+                "problem": null,
+            })
+        );
         assert_eq!(v["kind"], "connected");
         assert_eq!(v["desk"]["monitors"][0]["label"], "34\"");
         assert_eq!(v["desk"]["monitors"][0]["wiring"]["pc"], "displayport");

@@ -124,6 +124,62 @@ struct Shared {
     /// El par que se sigue (gestor de enlaces, mDNS y `pc_watch`), si hay.
     peer: Mutex<Option<Following>>,
     pairing: Mutex<Option<PairingRun>>,
+    /// El enlace activo con el par que se sigue, para el motor de entrada. Vive aquí y
+    /// no en cada `supervise`: el par puede emparejarse o desemparejarse en caliente, y
+    /// quien lo escucha desde el arranque tiene que ver cada enlace nuevo.
+    active: LinkFeed,
+}
+
+/// El enlace activo y quién puede escribirlo: solo el `supervise` del par que se
+/// sigue ahora. Uno que ya se abortó puede estar a mitad de un poll; sin la
+/// generación podría reponer el enlace de un par olvidado.
+struct LinkFeed {
+    tx: watch::Sender<Option<ActiveLink>>,
+    generation: AtomicU64,
+}
+
+impl LinkFeed {
+    fn new() -> Self {
+        LinkFeed {
+            tx: watch::channel(None).0,
+            generation: AtomicU64::new(0),
+        }
+    }
+
+    /// Invalida al escritor anterior y deja el enlace en `None`. Devuelve la
+    /// generación del escritor nuevo.
+    fn reset(&self) -> u64 {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.tx.send_replace(None);
+        generation
+    }
+
+    /// Publica `link` si `generation` sigue siendo la vigente y cambió algo. La
+    /// comparación va dentro del candado del canal: `reset` escribe con ese mismo
+    /// candado, así que lo que se publique antes lo pisa el `None`.
+    fn publish(&self, generation: u64, link: Option<ActiveLink>) {
+        self.tx.send_if_modified(|old| {
+            if self.generation.load(Ordering::SeqCst) != generation || same_link(old, &link) {
+                return false;
+            }
+            *old = link;
+            true
+        });
+    }
+}
+
+/// Lo que `supervise` usa para publicar el enlace activo.
+struct LinkWriter {
+    shared: Weak<Shared>,
+    generation: u64,
+}
+
+impl LinkWriter {
+    fn publish(&self, link: Option<ActiveLink>) {
+        if let Some(shared) = self.shared.upgrade() {
+            shared.active.publish(self.generation, link);
+        }
+    }
 }
 
 struct Following {
@@ -175,6 +231,29 @@ pub const PAIRING_IN_PROGRESS: &str = "ya hay un emparejamiento en curso";
 pub const NOTHING_TO_CONFIRM: &str = "no hay ningún código que confirmar";
 pub const NOT_PAIRED: &str = "no hay ningún par emparejado";
 
+/// El enlace por el que va todo en este momento: el motor de entrada abre ahí sus
+/// streams y manda sus avisos.
+#[derive(Clone)]
+pub struct ActiveLink {
+    pub kind: LinkKind,
+    pub handle: PeerHandle,
+}
+
+impl ActiveLink {
+    /// La misma sesión: mismo enlace y misma conexión.
+    pub fn same(&self, other: &ActiveLink) -> bool {
+        self.kind == other.kind && Arc::ptr_eq(&self.handle.client, &other.handle.client)
+    }
+}
+
+fn same_link(a: &Option<ActiveLink>, b: &Option<ActiveLink>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a.same(b),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
 impl Network {
     /// Abre el endpoint y, si hay un par emparejado en `trust`, empieza a buscarlo.
     /// Atiende los pedidos de emparejamiento del agente. Tiene que llamarse dentro de
@@ -217,6 +296,7 @@ impl Network {
             accept,
             peer: Mutex::new(None),
             pairing: Mutex::new(None),
+            active: LinkFeed::new(),
         });
         agent.set_pairing(Arc::new(Pairer(Arc::downgrade(&shared))));
         match paired {
@@ -227,6 +307,11 @@ impl Network {
             }
         }
         Ok(Network { shared })
+    }
+
+    /// El enlace activo con el otro agente; `None` si ninguno lo ve (o no hay par).
+    pub fn active_link(&self) -> watch::Receiver<Option<ActiveLink>> {
+        self.shared.active.tx.subscribe()
     }
 
     /// Dirección real del endpoint (con el puerto elegido si se pidió el 0).
@@ -268,7 +353,7 @@ impl Shared {
     }
 
     /// Empieza a seguir a `peer`: mDNS, gestor de enlaces y, en la Mac, `pc_watch`.
-    fn follow(&self, peer: TrustedPeer) {
+    fn follow(self: &Arc<Self>, peer: TrustedPeer) {
         let TrustedPeer { public_key, name } = peer;
         tracing::info!(par = %name, llave = %public_key.to_hex(), "par emparejado");
         let agent = &self.agent;
@@ -293,6 +378,17 @@ impl Shared {
             None
         };
         let (reachable_tx, reachable) = watch::channel(false);
+        let mut following = lock(&self.peer);
+        // Primero se calla al anterior: su enlace no es el del par nuevo.
+        if let Some(p) = following.take() {
+            for t in p.tasks {
+                t.abort();
+            }
+        }
+        let link = LinkWriter {
+            shared: Arc::downgrade(self),
+            generation: self.active.reset(),
+        };
         let tasks = vec![
             tokio::spawn(supervise(
                 agent.clone(),
@@ -301,19 +397,15 @@ impl Shared {
                 discovery,
                 self.opts.health,
                 reachable_tx,
+                link,
             )),
             // En la PC no hace nada: que la Mac no conteste no dice nada de la corriente.
             tokio::spawn(crate::pc_watch::watch(agent.clone(), reachable)),
         ];
-        let previous = lock(&self.peer).replace(Following {
+        *following = Some(Following {
             key: public_key,
             tasks,
         });
-        if let Some(p) = previous {
-            for t in p.tasks {
-                t.abort();
-            }
-        }
     }
 
     /// Olvida al par: lo borra de la confianza, deja de buscarlo y corta sus
@@ -334,6 +426,8 @@ impl Shared {
                 t.abort();
             }
         }
+        // Sin par no hay enlace: el motor de entrada cierra su sesión.
+        self.active.reset();
         drop(following);
         // `supervise` no llega a soltar el par al abortarse.
         self.agent.orchestrator().clear_peer();
@@ -483,6 +577,7 @@ async fn supervise(
     discovery: Option<MdnsDiscovery>,
     health: HealthConfig,
     reachable: watch::Sender<bool>,
+    active_link: LinkWriter,
 ) {
     let mut discovered = discovery.as_ref().map(MdnsDiscovery::peer_addrs);
     let lan = |d: &Option<watch::Receiver<Vec<SocketAddr>>>| {
@@ -504,9 +599,14 @@ async fn supervise(
         let mut links = managed.as_ref().map(|m| m.links.watch());
         let mut installed = false;
         loop {
-            let active = links
-                .as_ref()
-                .and_then(|l| l.borrow().active.as_ref().map(|a| a.kind));
+            let current = links.as_ref().and_then(|l| {
+                l.borrow().active.as_ref().map(|a| ActiveLink {
+                    kind: a.kind,
+                    handle: a.handle.clone(),
+                })
+            });
+            let active = current.as_ref().map(|a| a.kind);
+            active_link.publish(current);
             match (&managed, active.is_some(), installed) {
                 (Some(m), true, false) => {
                     agent.set_peer(m.clone());
@@ -552,6 +652,7 @@ async fn supervise(
         if installed {
             agent.orchestrator().clear_peer();
         }
+        active_link.publish(None);
     }
 }
 

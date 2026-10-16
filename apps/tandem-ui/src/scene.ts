@@ -5,6 +5,7 @@ import type {
   Desk,
   DeskState,
   Input,
+  InputView,
   Link,
   Machine,
   Mode,
@@ -30,6 +31,53 @@ export function peerPill(peer: PeerView): { text: string; title: string; ok: boo
   }
   const note = peer.link === "wifi" ? " (solo control: los servicios requieren cable)" : "";
   return { text: LINK_NAME[peer.link], title: `${peer.name} por ${LINK_NAME[peer.link]}${note}`, ok: true };
+}
+
+export const PERMISSION_NAME: Record<InputView["missing"][number], string> = {
+  accessibility: "Accesibilidad",
+  input_monitoring: "Monitorización de entrada",
+};
+
+/** El chip de teclado y mouse de una máquina; `null` si no se muestra. */
+export interface RoleChip {
+  kind: "server" | "client" | "warn" | "idle";
+  icon: "keyboard" | "cursor" | "warn";
+  text: string;
+  title: string;
+}
+
+/**
+ * El chip de `who` visto desde el agente de `agent`. Con la PC apagada solo la Mac lleva
+ * chip, si tiene el teclado. Los permisos que faltan y los problemas son de esta máquina:
+ * su chip los avisa antes que nada.
+ */
+export function roleChip(input: InputView, agent: Machine, who: Machine, pcOn: boolean): RoleChip | null {
+  const mine = who === agent;
+  if (mine && input.missing.length > 0) {
+    const names = input.missing.map((p) => PERMISSION_NAME[p]).join(" y ");
+    return {
+      kind: "warn",
+      icon: "warn",
+      text: "faltan permisos",
+      title: `Teclado y mouse: falta ${names} (Ajustes del Sistema → Privacidad y seguridad)`,
+    };
+  }
+  if (mine && input.problem) {
+    return { kind: "warn", icon: "warn", text: "sin teclado y mouse", title: `Teclado y mouse: ${input.problem}` };
+  }
+  if (!pcOn) {
+    return who === "mac" && input.server === "mac"
+      ? { kind: "server", icon: "keyboard", text: "Teclado aquí", title: "El teclado y el mouse están en la Mac" }
+      : null;
+  }
+  const server = input.server === who;
+  const base = server
+    ? { kind: "server" as const, icon: "keyboard" as const, text: input.locked ? "Servidor · bloqueado" : "Servidor" }
+    : { kind: "client" as const, icon: "cursor" as const, text: "Cliente" };
+  const titles = [server ? `${MACHINE_NAME[who]} tiene el teclado y el mouse` : `${MACHINE_NAME[who]} recibe el teclado y el mouse`];
+  if (server && input.locked) titles.push("el cursor está bloqueado en su pantalla (atajo)");
+  if (!input.session) titles.push("sin sesión con el otro agente");
+  return { ...base, kind: input.session ? base.kind : "idle", title: titles.join(" · ") };
 }
 
 export type ModeKey = "mac" | "shared" | "pc";

@@ -35,9 +35,25 @@ export type PairingView =
   | { kind: "done"; peer: string }
   | { kind: "failed"; reason: string };
 
+/** El teclado y mouse compartidos (`tandem_ui::session::InputView`). */
+export interface InputView {
+  /** La máquina que tiene el teclado y el mouse. */
+  server: Machine;
+  /** Si el hub está en esta máquina; `null` sin detección. */
+  hub_here: boolean | null;
+  /** La sesión con el otro agente está establecida. */
+  session: boolean;
+  /** El cursor está bloqueado en su máquina (atajo del servidor). */
+  locked: boolean;
+  /** Permisos de macOS que le faltan a esta máquina. */
+  missing: ("accessibility" | "input_monitoring")[];
+  /** Por qué el motor de entrada de esta máquina no funciona, si no funciona. */
+  problem: string | null;
+}
+
 export type Snapshot =
   | { kind: "connecting" }
-  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView; pairing: PairingView }
+  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView; pairing: PairingView; input: InputView }
   | { kind: "unavailable"; endpoint: string | null; reason: string };
 
 export type Step =

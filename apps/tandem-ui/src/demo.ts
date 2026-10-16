@@ -7,6 +7,8 @@
 // pudo instalar); `?demo&peer=none`, un agente sin par emparejado. Emparejar desde ahí simula
 // a la otra máquina: aparece el código y, al confirmar, confirma ella también
 // (`&pair=reject`: la otra máquina rechaza; `&pair=code`: arranca mostrando el código).
+// `?demo&hub=pc`, el hub en la PC; `?demo&perms=missing`, a la Mac le falta el permiso de
+// Accesibilidad.
 
 import type { Bridge } from "./bridge";
 import type {
@@ -89,7 +91,22 @@ export function demoBridge(query: string): Bridge {
   const snapshot = (): Snapshot =>
     params.get("agent") === "off"
       ? { kind: "unavailable", endpoint: "~/Library/Application Support/Tandem/tandemd.sock", reason: "tandemd no está corriendo: no hay nadie escuchando en la IPC local" }
-      : { kind: "connected", agent: "mac", desk: DESK, state, peer, pairing };
+      : {
+          kind: "connected",
+          agent: "mac",
+          desk: DESK,
+          state,
+          peer,
+          pairing,
+          input: {
+            server: params.get("hub") === "pc" ? "pc" : "mac",
+            hub_here: params.get("hub") !== "pc",
+            session: state.pc_on && peer.kind === "paired",
+            locked: false,
+            missing: params.get("perms") === "missing" ? ["accessibility"] : [],
+            problem: null,
+          },
+        };
   let keys: ShortcutsView = {
     bindings: { ...DEFAULT_BINDINGS },
     failed: params.get("keys") === "busy" ? { shared: "el sistema no dejó registrar Ctrl+Alt+Digit2 (¿lo usa otra app?)" } : {},

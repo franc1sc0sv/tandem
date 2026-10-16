@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use tandem_core::{BuiltinDisplay, Machine, MonitorConfig};
 
-use crate::topology::{self, DisplayTopology};
+use crate::topology::{self, DisplayTopology, PlacedScreen};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0}")]
@@ -23,6 +23,13 @@ pub trait DesktopControl: Send + Sync {
     fn detach(&self, monitor: &MonitorConfig) -> Result<(), DesktopError>;
     /// Solo tiene sentido en la Mac.
     fn set_builtin(&self, mode: BuiltinDisplay) -> Result<(), DesktopError>;
+    /// Las pantallas del escritorio con su lugar ([`topology::placed_screens`]).
+    fn screens(&self, monitors: &[MonitorConfig]) -> Result<Vec<PlacedScreen>, DesktopError> {
+        let _ = monitors;
+        Err(DesktopError(
+            "este escritorio no informa sus pantallas".to_owned(),
+        ))
+    }
 }
 
 /// Escritorio sobre una [`DisplayTopology`], buscando el monitor por su `edid_model`
@@ -80,6 +87,12 @@ impl<T: DisplayTopology + Send> DesktopControl for TopologyDesktop<T> {
     fn set_builtin(&self, mode: BuiltinDisplay) -> Result<(), DesktopError> {
         self.with(|t| topology::set_builtin(t, mode))
             .map(drop)
+            .map_err(|e| DesktopError(e.to_string()))
+    }
+
+    fn screens(&self, monitors: &[MonitorConfig]) -> Result<Vec<PlacedScreen>, DesktopError> {
+        self.with(|t| t.displays())
+            .map(|d| topology::placed_screens(&d, monitors))
             .map_err(|e| DesktopError(e.to_string()))
     }
 }
@@ -178,6 +191,24 @@ mod tests {
         let topo = d.into_inner();
         let b = topo.api().get(crate::quartz::DisplayId(1)).unwrap();
         assert!(b.enabled && b.mirror_of.is_some());
+    }
+
+    #[test]
+    fn the_desktop_reports_its_screens() {
+        let d = TopologyDesktop::new(MacTopology::new(FakeQuartz::desk()));
+        let mut m34 = request("m34", Machine::Mac).monitor;
+        m34.edid_model = Some("LC34G55T".into());
+        let screens = d.screens(&[m34]).unwrap();
+        let m34_pc = || {
+            let mut m = request("m34", Machine::Pc).monitor;
+            m.edid_model = Some("LC34G55T".into());
+            m
+        };
+        assert!(screens.iter().any(|s| s.monitor.is_none()), "la integrada");
+        assert!(screens.iter().any(|s| s.monitor == Some("m34".into())));
+        // El doble de Windows no da el lugar de sus monitores: no se inventa ninguno.
+        let d = TopologyDesktop::new(FakeTopology::two_monitors());
+        assert!(d.screens(&[m34_pc()]).unwrap().is_empty());
     }
 
     #[test]

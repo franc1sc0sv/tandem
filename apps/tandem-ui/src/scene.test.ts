@@ -13,8 +13,10 @@ import {
   monitorsOf,
   pcPower,
   peerPill,
+  roleChip,
   type Progress,
 } from "./scene";
+import type { InputView } from "./model";
 
 const desk: Desk = {
   monitors: [
@@ -228,5 +230,56 @@ describe("par", () => {
     const wifi = peerPill({ kind: "paired", name: "PC", link: "wifi" });
     expect(wifi.text).toBe("Wi-Fi");
     expect(wifi.title).toContain("requieren cable");
+  });
+});
+
+describe("chip de teclado y mouse", () => {
+  const input = (extra: Partial<InputView> = {}): InputView => ({
+    server: "pc",
+    hub_here: false,
+    session: true,
+    locked: false,
+    missing: [],
+    problem: null,
+    ...extra,
+  });
+
+  it("el servidor y el cliente, con la sesión establecida", () => {
+    expect(roleChip(input(), "mac", "pc", true)).toMatchObject({ kind: "server", icon: "keyboard", text: "Servidor" });
+    expect(roleChip(input(), "mac", "mac", true)).toMatchObject({ kind: "client", icon: "cursor", text: "Cliente" });
+  });
+
+  it("sin sesión el chip queda apagado y lo dice", () => {
+    const c = roleChip(input({ session: false }), "mac", "pc", true);
+    expect(c?.kind).toBe("idle");
+    expect(c?.title).toContain("sin sesión");
+  });
+
+  it("el cursor bloqueado se ve en el servidor", () => {
+    const c = roleChip(input({ locked: true }), "pc", "pc", true);
+    expect(c?.text).toBe("Servidor · bloqueado");
+    expect(c?.title).toContain("bloqueado");
+  });
+
+  it("con la PC apagada solo la Mac, si tiene el teclado", () => {
+    expect(roleChip(input({ server: "mac" }), "mac", "mac", false)?.text).toBe("Teclado aquí");
+    expect(roleChip(input({ server: "mac" }), "mac", "pc", false)).toBeNull();
+    expect(roleChip(input(), "mac", "mac", false)).toBeNull();
+  });
+
+  it("los permisos que faltan en esta máquina son un aviso", () => {
+    const c = roleChip(input({ missing: ["accessibility", "input_monitoring"] }), "mac", "mac", true);
+    expect(c).toMatchObject({ kind: "warn", icon: "warn", text: "faltan permisos" });
+    expect(c?.title).toContain("Accesibilidad y Monitorización de entrada");
+    // En la otra máquina no: son de esta.
+    expect(roleChip(input({ missing: ["accessibility"] }), "mac", "pc", true)?.kind).toBe("server");
+    // Aunque la PC esté apagada.
+    expect(roleChip(input({ missing: ["accessibility"] }), "mac", "mac", false)?.kind).toBe("warn");
+  });
+
+  it("un problema del motor de esta máquina también", () => {
+    const c = roleChip(input({ problem: "no se pudo crear el CGEventTap" }), "mac", "mac", true);
+    expect(c).toMatchObject({ kind: "warn", text: "sin teclado y mouse" });
+    expect(c?.title).toContain("CGEventTap");
   });
 });

@@ -19,7 +19,7 @@ mod props;
 
 use std::fmt;
 
-use tandem_core::{BuiltinDisplay, MonitorConfig};
+use tandem_core::{BuiltinDisplay, MonitorConfig, MonitorId};
 
 use crate::ddc::Edid;
 
@@ -215,6 +215,41 @@ pub fn find_monitor<'a, Id: fmt::Display>(
         .as_deref()
         .ok_or(TopologyError::MissingModel)?;
     one(displays.iter().filter(|d| d.is_monitor(model)), model)
+}
+
+/// Una pantalla del escritorio, para la geometría del teclado y mouse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlacedScreen {
+    /// El monitor de la configuración; `None` es la pantalla integrada.
+    pub monitor: Option<MonitorId>,
+    pub bounds: Bounds,
+}
+
+/// Las pantallas que forman parte del escritorio, con su lugar. Las que son espejo de
+/// otra no cuentan (el cursor no las recorre aparte) y un monitor externo que no es de
+/// la configuración (o no tiene `edid_model`) tampoco: Tandem no sabe dónde está.
+pub fn placed_screens<Id>(
+    displays: &[Display<Id>],
+    monitors: &[MonitorConfig],
+) -> Vec<PlacedScreen> {
+    displays
+        .iter()
+        .filter(|d| d.active && d.mirror_of.is_none())
+        .filter_map(|d| {
+            let bounds = d.bounds?;
+            let monitor = if d.builtin {
+                None
+            } else {
+                let m = monitors.iter().find(|m| {
+                    m.edid_model
+                        .as_deref()
+                        .is_some_and(|model| d.is_monitor(model))
+                })?;
+                Some(m.id.clone())
+            };
+            Some(PlacedScreen { monitor, bounds })
+        })
+        .collect()
 }
 
 fn one<'a, Id: fmt::Display>(
@@ -579,6 +614,75 @@ mod tests {
         assert_eq!(
             t.set_mirror(id, None),
             Err(TopologyError::Unsupported("el espejo de pantallas"))
+        );
+    }
+
+    #[test]
+    fn placed_screens_are_the_active_ones_of_the_config() {
+        let bounds = |x| Bounds {
+            x,
+            y: 0,
+            width: 100,
+            height: 50,
+        };
+        let base = Display {
+            id: 0u32,
+            name: "LC34G55T".into(),
+            device_path: String::new(),
+            edid: None,
+            builtin: false,
+            main: false,
+            active: true,
+            mirror_of: None,
+            bounds: Some(bounds(0)),
+        };
+        let displays = vec![
+            base.clone(),
+            Display {
+                id: 1,
+                name: "Integrada".into(),
+                builtin: true,
+                bounds: Some(bounds(100)),
+                ..base.clone()
+            },
+            // Inactivo, espejo, sin lugar y desconocido: no cuentan.
+            Display {
+                id: 2,
+                name: "S32BG85".into(),
+                active: false,
+                ..base.clone()
+            },
+            Display {
+                id: 3,
+                mirror_of: Some(0),
+                ..base.clone()
+            },
+            Display {
+                id: 4,
+                bounds: None,
+                ..base.clone()
+            },
+            Display {
+                id: 5,
+                name: "OTRO".into(),
+                ..base.clone()
+            },
+        ];
+        let mut m32 = monitor_by_model("m32", "S32BG85");
+        m32.edid_model = None;
+        let monitors = [monitor_by_model("m34", "LC34G55T"), m32];
+        assert_eq!(
+            placed_screens(&displays, &monitors),
+            vec![
+                PlacedScreen {
+                    monitor: Some("m34".into()),
+                    bounds: bounds(0)
+                },
+                PlacedScreen {
+                    monitor: None,
+                    bounds: bounds(100)
+                },
+            ]
         );
     }
 

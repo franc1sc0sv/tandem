@@ -1,12 +1,16 @@
 //! El estado vivo del agente y lo que contesta a la UI.
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use tandem_core::plan::PlanError;
 use tandem_core::{Machine, Mode, Plan, State, Step};
 use tandem_display::switcher::{ManualEvent, ManualSwitcher};
-use tandem_proto::{PairingStatus, PeerStatus, PowerEvent, Reply, TxnEvent, UiCommand};
-use tokio::sync::{broadcast, watch};
+use tandem_link::transport::{Connection, ControlStream};
+use tandem_proto::{
+    Channel, HubReport, InputStatus, PairingStatus, PeerStatus, PowerEvent, Reply, ScreenRect,
+    TxnEvent, UiCommand,
+};
+use tokio::sync::{broadcast, mpsc, watch};
 
 use crate::config::AgentConfig;
 use crate::display::DisplaySteps;
@@ -48,11 +52,74 @@ pub struct Agent {
     /// En qué va el emparejamiento; lo actualiza la red.
     pairing_status: watch::Sender<PairingStatus>,
     pairing: Mutex<Option<Arc<dyn PairingControl>>>,
+    /// El teclado y mouse como lo ve la UI; lo actualiza [`crate::input`].
+    input_status: watch::Sender<InputStatus>,
+    /// Lo que el otro agente manda para el teclado y mouse.
+    inbox: PeerInbox,
+    /// Sube con cada `UpdateInputGeometry`: hay que volver a leer las pantallas.
+    geometry: Arc<watch::Sender<u64>>,
 }
 
 impl std::fmt::Debug for dyn PairingControl {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("PairingControl")
+    }
+}
+
+/// Lo último que mandó el otro agente para el teclado y mouse, y a quién pasarle los
+/// streams de entrada y portapapeles que abre.
+#[derive(Debug)]
+pub struct PeerInbox {
+    pub hub: watch::Sender<Option<HubReport>>,
+    pub screens: watch::Sender<Option<Vec<ScreenRect>>>,
+    channels: Mutex<Option<mpsc::UnboundedSender<IncomingChannel>>>,
+}
+
+/// Un stream de entrada o de portapapeles que abrió el otro agente, sobre su conexión
+/// (los datagramas del mouse llegan por la misma).
+pub struct IncomingChannel {
+    pub channel: Channel,
+    pub conn: Connection,
+    pub stream: ControlStream,
+}
+
+impl std::fmt::Debug for IncomingChannel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IncomingChannel")
+            .field("channel", &self.channel)
+            .field("from", &self.conn.remote_address())
+            .finish_non_exhaustive()
+    }
+}
+
+impl PeerInbox {
+    fn new() -> Self {
+        PeerInbox {
+            hub: watch::Sender::new(None),
+            screens: watch::Sender::new(None),
+            channels: Mutex::new(None),
+        }
+    }
+
+    /// Quien atiende los streams de entrada y portapapeles; reemplaza al anterior.
+    pub fn set_channels(&self, tx: mpsc::UnboundedSender<IncomingChannel>) {
+        *self.channels.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
+    }
+
+    /// Entrega el stream; sin nadie que lo atienda se descarta (se cierra).
+    pub fn deliver(&self, incoming: IncomingChannel) {
+        let tx = self.channels.lock().unwrap_or_else(PoisonError::into_inner);
+        match tx.as_ref() {
+            Some(tx) => {
+                if let Err(e) = tx.send(incoming) {
+                    tracing::debug!(canal = ?e.0.channel, "stream del otro agente sin quien lo atienda");
+                }
+            }
+            None => tracing::debug!(
+                canal = ?incoming.channel,
+                "stream del otro agente sin motor de entrada: se cierra"
+            ),
+        }
     }
 }
 
@@ -78,8 +145,15 @@ impl Agent {
     /// Con los backends reales de esta máquina ([`DisplaySteps::platform`]).
     pub fn with_platform(cfg: AgentConfig, store: StateStore) -> Self {
         let manual = Arc::new(ManualSwitcher::new());
-        let local = Arc::new(DisplaySteps::platform(&cfg, manual.clone()));
-        Self::with_backends(cfg, store, local, manual)
+        let geometry = Arc::new(watch::Sender::new(0));
+        let local = Arc::new(DisplaySteps::platform(
+            &cfg,
+            manual.clone(),
+            geometry.clone(),
+        ));
+        let mut agent = Self::with_backends(cfg, store, local, manual);
+        agent.geometry = geometry;
+        agent
     }
 
     /// `manual` es el backend que `local` usa para los cambios a mano: sus pedidos
@@ -93,7 +167,6 @@ impl Agent {
         let state = store.load_or_initial(&cfg.desk);
         let orch = Orchestrator::new(cfg.machine, local, cfg.orchestrator.timeouts());
         Agent {
-            cfg,
             store,
             state: watch::Sender::new(state),
             persisting: Mutex::new(()),
@@ -104,7 +177,39 @@ impl Agent {
             peer_status: watch::Sender::new(PeerStatus::Unpaired),
             pairing_status: watch::Sender::new(PairingStatus::Idle),
             pairing: Mutex::new(None),
+            input_status: watch::Sender::new(InputStatus::new(cfg.input.server)),
+            inbox: PeerInbox::new(),
+            geometry: Arc::new(watch::Sender::new(0)),
+            cfg,
         }
+    }
+
+    /// El teclado y mouse, para la UI.
+    pub fn input_status(&self) -> InputStatus {
+        self.input_status.borrow().clone()
+    }
+
+    /// Avisa cada vez que cambia el teclado y mouse.
+    pub fn subscribe_input(&self) -> watch::Receiver<InputStatus> {
+        self.input_status.subscribe()
+    }
+
+    pub fn set_input_status(&self, status: InputStatus) {
+        self.input_status.send_if_modified(|s| {
+            let changed = *s != status;
+            *s = status;
+            changed
+        });
+    }
+
+    /// Lo que el otro agente manda para el teclado y mouse.
+    pub fn inbox(&self) -> &PeerInbox {
+        &self.inbox
+    }
+
+    /// Cambia con cada paso `UpdateInputGeometry` hecho en esta máquina.
+    pub fn subscribe_geometry(&self) -> watch::Receiver<u64> {
+        self.geometry.subscribe()
     }
 
     pub fn orchestrator(&self) -> &Orchestrator {
@@ -250,6 +355,7 @@ impl Agent {
             UiCommand::ConfirmPairing => self.pair(|p| p.confirm()),
             UiCommand::CancelPairing => self.pair(|p| p.cancel()),
             UiCommand::Unpair => self.pair(|p| p.unpair()),
+            UiCommand::GetInput => Reply::Input(self.input_status()),
             UiCommand::SetMode(mode) => self.start(mode),
             UiCommand::SetPcPower(on) => self.start_power(on),
             UiCommand::MoveMonitor { monitor, to } => {
