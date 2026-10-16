@@ -6,6 +6,10 @@
 //! pedidos de cambio manual. [`MESSAGE_EVENT`] lleva lo que pasó con un pedido hecho desde
 //! fuera de la ventana (un atajo global o el menú del ícono). [`SHORTCUTS_EVENT`] lleva los
 //! atajos nuevos cuando se cambian, para que cada ventana muestre los vigentes.
+//!
+//! En macOS, al arrancar instala o pone al día el LaunchAgent de `tandemd`
+//! ([`crate::launch_agent`]) y ofrece la guía de permisos del primer arranque
+//! ([`crate::setup`]).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -20,7 +24,9 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, Tray
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow, WindowEvent, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcut, ShortcutState};
 
+use crate::launch_agent::Report;
 use crate::session::{self, Action, ActionResult, Handle, Notice, Sink, Snapshot};
+use crate::setup::{self, Permission, SetupView};
 use crate::shortcuts::{self, Bindings, ShortcutAction, Shortcuts, ShortcutsView};
 use crate::status;
 use crate::tray::{self, Area, MenuView, ModeKey};
@@ -59,6 +65,22 @@ struct Ui {
     menu: Option<TrayMenu>,
     keys: Mutex<Keys>,
     tray_hidden_at: Mutex<Option<Instant>>,
+    first_run: FirstRun,
+}
+
+/// La guía del primer arranque y cómo quedó el agente de inicio de sesión.
+struct FirstRun {
+    /// `setup.done`; sin directorio de configuración no se puede recordar.
+    file: Option<PathBuf>,
+    agent: Option<Report>,
+}
+
+impl FirstRun {
+    fn view(&self) -> SetupView {
+        // Sin archivo donde recordarlo, la guía saldría en cada arranque: mejor no ofrecerla sola.
+        let done = self.file.as_deref().is_none_or(setup::is_done);
+        SetupView::new(cfg!(target_os = "macos"), done, self.agent.clone())
+    }
 }
 
 struct Keys {
@@ -176,6 +198,81 @@ fn shortcuts_set(
     // La mini escena no se destruye al cerrarla: sin el aviso seguiría con los de antes.
     let _ = app.emit(SHORTCUTS_EVENT, &view);
     Ok(view)
+}
+
+#[tauri::command]
+fn setup_get(ui: tauri::State<'_, Ui>) -> SetupView {
+    ui.first_run.view()
+}
+
+/// Abre el panel de Ajustes del Sistema que concede `permission`.
+#[tauri::command]
+fn setup_open(permission: Permission) -> Result<(), String> {
+    open_settings(permission)
+}
+
+#[tauri::command]
+fn setup_finish(ui: tauri::State<'_, Ui>) -> Result<SetupView, String> {
+    if let Some(file) = &ui.first_run.file {
+        setup::mark_done(file, env!("CARGO_PKG_VERSION"))
+            .map_err(|e| format!("no se pudo guardar {}: {e}", file.display()))?;
+    }
+    Ok(ui.first_run.view())
+}
+
+#[cfg(target_os = "macos")]
+fn open_settings(permission: Permission) -> Result<(), String> {
+    let status = std::process::Command::new("/usr/bin/open")
+        .arg(permission.settings_url())
+        .status()
+        .map_err(|e| format!("no se pudo abrir Ajustes del Sistema: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "open {} terminó con {status}",
+            permission.settings_url()
+        ))
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_settings(_: Permission) -> Result<(), String> {
+    Err("estos permisos solo existen en macOS".to_owned())
+}
+
+/// macOS: instala o pone al día el LaunchAgent de `tandemd`. Son un par de llamadas a
+/// `launchctl` (milisegundos); si algo falla, la guía del primer arranque lo dice.
+#[cfg(target_os = "macos")]
+fn install_agent() -> Option<Report> {
+    use crate::launch_agent::{self, system::SystemLaunchd};
+    let failed = |text: String| Report { ok: false, text };
+    let exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => return Some(failed(format!("no se pudo saber dónde está la app: {e}"))),
+    };
+    let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else {
+        return Some(failed("no está definido HOME".to_owned()));
+    };
+    let launchd = match SystemLaunchd::current_user() {
+        Ok(l) => l,
+        Err(e) => return Some(failed(e)),
+    };
+    let report = launch_agent::install_from(
+        &exe,
+        std::path::Path::new(&home),
+        env!("CARGO_PKG_VERSION"),
+        &launchd,
+    );
+    if !report.ok {
+        eprintln!("tandem-ui: {}", report.text);
+    }
+    Some(report)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn install_agent() -> Option<Report> {
+    None
 }
 
 /// «Abrir Tandem» desde la mini escena.
@@ -491,10 +588,17 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut keys = load_keys();
     keys.failed = register(&handle, &keys.current);
+    let first_run = FirstRun {
+        file: Paths::resolve(None, None)
+            .ok()
+            .map(|p| setup::setup_file_for(&p.config)),
+        agent: install_agent(),
+    };
     app.manage(Ui {
         menu,
         keys: Mutex::new(keys),
         tray_hidden_at: Mutex::new(None),
+        first_run,
     });
 
     let session = start_session(&handle);
@@ -517,6 +621,9 @@ pub fn run() -> Result<(), tauri::Error> {
             agent_retry,
             shortcuts_get,
             shortcuts_set,
+            setup_get,
+            setup_open,
+            setup_finish,
             ui_show_main,
             ui_hide_main,
             ui_hide_tray

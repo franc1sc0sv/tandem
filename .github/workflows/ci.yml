@@ -68,6 +68,34 @@ jobs:
       - run: cargo clippy -p tandem-ui --features app --all-targets
       - run: cargo build -p tandem-ui --features app
 
+  # El instalador de macOS (T-070): Tandem.app con tandemd dentro y el .dmg, firmados ad-hoc
+  # (sin secretos en CI). El script además comprueba el sidecar, el Info.plist y la firma.
+  bundle-macos:
+    name: dmg (macos-latest)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/tandem-ui/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/tandem-ui/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bundle
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/tandem-ui
+      - run: scripts/macos/bundle.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tandem-macos-dmg
+          path: target/*-apple-darwin/release/bundle/dmg/Tandem_*.dmg
+          if-no-files-found: error
+
   # Informativo: no bloquea el merge. Objetivo ≥ 80 % en los crates portables (docs/TESTING.md).
   coverage:
     name: cobertura

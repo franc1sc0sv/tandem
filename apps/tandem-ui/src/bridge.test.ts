@@ -47,3 +47,15 @@ it("esconde la ventana principal con su comando", async () => {
   await bridge.hideMain();
   expect(invoke).toHaveBeenCalledWith("ui_hide_main");
 });
+
+it("usa los comandos de la guía de permisos de `tandem_ui::app`", async () => {
+  const bridge = await tauriBridge();
+  await bridge.setup();
+  await bridge.openSettings("input_monitoring");
+  await bridge.finishSetup();
+  expect(invoke.mock.calls).toEqual([
+    ["setup_get"],
+    ["setup_open", { permission: "input_monitoring" }],
+    ["setup_finish"],
+  ]);
+});

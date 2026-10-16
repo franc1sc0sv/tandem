@@ -2,7 +2,9 @@
 // Solo se carga en desarrollo: el build de la app nunca lo incluye.
 //
 // `?demo&agent=off` simula que tandemd no corre; `?demo&pc=on` arranca con la PC encendida;
-// `?demo&keys=busy` simula que el sistema no dejó registrar el atajo de Compartido.
+// `?demo&keys=busy` simula que el sistema no dejó registrar el atajo de Compartido;
+// `?demo&setup` abre la guía de permisos del primer arranque (`&setup=fail`: tandemd no se
+// pudo instalar).
 
 import type { Bridge } from "./bridge";
 import type {
@@ -14,6 +16,7 @@ import type {
   Machine,
   Mode,
   Notice,
+  SetupView,
   ShortcutAction,
   ShortcutsView,
   Snapshot,
@@ -80,6 +83,16 @@ export function demoBridge(query: string): Bridge {
     failed: params.get("keys") === "busy" ? { shared: "el sistema no dejó registrar Ctrl+Alt+Digit2 (¿lo usa otra app?)" } : {},
     warning: null,
     file: "~/Library/Application Support/Tandem/ui.toml",
+  };
+  const setupParam = params.get("setup");
+  let setup: SetupView = {
+    available: setupParam !== null,
+    show: setupParam !== null,
+    permissions: setupParam !== null ? ["accessibility", "input_monitoring", "local_network"] : [],
+    agent:
+      setupParam === "fail"
+        ? { ok: false, text: "tandemd no se instaló: la app corre desde la imagen de disco; cópiala a Aplicaciones y ábrela desde ahí" }
+        : { ok: true, text: "tandemd quedó instalado: arranca solo al iniciar sesión" },
   };
   const messages: ((text: string) => void)[] = [];
   const shortcutsCbs: ((view: ShortcutsView) => void)[] = [];
@@ -150,6 +163,14 @@ export function demoBridge(query: string): Bridge {
       messages.forEach((cb) => cb("Aquí la ventana se escondería (atajo atendido por la ventana)"));
     },
     hideTray: async () => {},
+    setup: async () => setup,
+    openSettings: async (p) => {
+      messages.forEach((cb) => cb(`Aquí se abriría Ajustes del Sistema (${p})`));
+    },
+    finishSetup: async () => {
+      setup = { ...setup, show: false };
+      return setup;
+    },
     snapshot: async () => snapshot(),
     retry: async () => {},
     onSnapshot: async (cb) => {
