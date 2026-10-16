@@ -84,6 +84,9 @@ function onNotice(n: Notice) {
     // monitores no se vuelven a dibujar para no cortar su animación.
     renderControls();
     renderToast();
+  } else if (n.kind === "power") {
+    // Fijo: los monitores que quedaron en la PC siguen en negro hasta encenderla.
+    showMessage(n.reason, n.stranded.length > 0);
   } else if (n.event.type === "requested") {
     manual = n.event;
     renderToast();
