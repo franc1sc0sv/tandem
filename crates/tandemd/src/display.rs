@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use tandem_core::{BuiltinDisplay, Config, Machine, MonitorConfig, MonitorId, Step};
-use tandem_display::desktop::{DesktopControl, DesktopError};
+use tandem_display::desktop::{self, DesktopControl, DesktopError};
 use tandem_display::switcher::{
     DdcSwitcher, ManualEvent, ManualSwitcher, MonitorSwitcher, PerMonitor, SwitchRequest,
 };
@@ -66,9 +66,9 @@ impl DisplaySteps {
     }
 
     /// Los backends reales de esta máquina. En la PC: DDC para los monitores con perfil
-    /// y el cambio manual por la UI para los demás, y la topología de Windows para el
-    /// escritorio. La Mac todavía no tiene backend de escritorio (T-012). Los pasos de
-    /// energía van a [`PowerSteps`].
+    /// y el cambio manual por la UI para los demás. El escritorio es la topología del
+    /// sistema (Windows en la PC, Quartz en la Mac), si el agente corre en el suyo. Los
+    /// pasos de energía van a [`PowerSteps`].
     pub fn platform(cfg: &AgentConfig, manual: Arc<ManualSwitcher>) -> Self {
         let mut steps = DisplaySteps::new(cfg.machine, cfg.desk.clone()).with_others(Arc::new(
             PowerSteps::for_machine(cfg, Arc::new(Unimplemented)),
@@ -78,9 +78,9 @@ impl DisplaySteps {
                 ddc: Arc::new(ddc_backend()),
                 manual,
             }));
-            if let Some(desktop) = pc_desktop() {
-                steps = steps.with_desktop(desktop);
-            }
+        }
+        if let Some(desktop) = desktop::native(cfg.machine) {
+            steps = steps.with_desktop(desktop);
         }
         steps
     }
@@ -147,18 +147,6 @@ impl LocalSteps for DisplaySteps {
             r.map_err(|e| format!("{}: {e}", describe(step)))
         })
     }
-}
-
-#[cfg(windows)]
-fn pc_desktop() -> Option<Arc<dyn DesktopControl>> {
-    use tandem_display::desktop::TopologyDesktop;
-    use tandem_display::windows::topology::WindowsTopology;
-    Some(Arc::new(TopologyDesktop::new(WindowsTopology)))
-}
-
-#[cfg(not(windows))]
-fn pc_desktop() -> Option<Arc<dyn DesktopControl>> {
-    None
 }
 
 #[cfg(windows)]
@@ -476,8 +464,8 @@ mod tests {
         assert!(mac.switcher.is_none());
         cfg.machine = Machine::Pc;
         let pc = DisplaySteps::platform(&cfg, manual.clone());
-        assert!(mac.desktop.is_none());
-        // La topología de la PC solo existe en Windows.
+        // El escritorio de cada máquina solo existe en su sistema.
+        assert_eq!(mac.desktop.is_some(), cfg!(target_os = "macos"));
         assert_eq!(pc.desktop.is_some(), cfg!(windows));
         // El 32" no tiene perfil DDC: se pide a mano, y sin UI falla enseguida.
         let e = pc.execute(&switch("m32", Machine::Pc)).await.unwrap_err();

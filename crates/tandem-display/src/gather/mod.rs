@@ -18,7 +18,8 @@ pub mod fake;
 
 use std::fmt;
 
-use crate::quartz::{Bounds, Display, DisplayId, TopologyError};
+use crate::quartz::{Bounds, CgDisplay, DisplayId};
+use crate::topology::TopologyError;
 
 /// Ventana dentro del último listado de [`WindowApi::windows`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -31,7 +32,7 @@ impl fmt::Display for WindowId {
 }
 
 /// Una ventana de una aplicación, en puntos del escritorio global (las mismas
-/// coordenadas que [`Display::bounds`]).
+/// coordenadas que [`CgDisplay::bounds`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
     pub id: WindowId,
@@ -114,7 +115,7 @@ impl GatherReport {
 }
 
 /// Decide qué ventanas mover y adónde, sin tocar nada.
-pub fn plan(displays: &[Display], windows: &[Window]) -> Result<Plan, GatherError> {
+pub fn plan(displays: &[CgDisplay], windows: &[Window]) -> Result<Plan, GatherError> {
     let builtin = displays
         .iter()
         .find(|d| d.builtin)
@@ -124,7 +125,7 @@ pub fn plan(displays: &[Display], windows: &[Window]) -> Result<Plan, GatherErro
         return Ok(Plan::default());
     }
     // Las que reflejan a otra comparten sus coordenadas: no cuentan como lugar propio.
-    let screens: Vec<&Display> = displays
+    let screens: Vec<&CgDisplay> = displays
         .iter()
         .filter(|d| d.enabled && d.mirror_of.is_none())
         .collect();
@@ -161,7 +162,7 @@ pub fn plan(displays: &[Display], windows: &[Window]) -> Result<Plan, GatherErro
 /// Lista las ventanas y mueve las de la pantalla integrada al monitor principal.
 pub fn gather<A: WindowApi>(
     api: &mut A,
-    displays: &[Display],
+    displays: &[CgDisplay],
 ) -> Result<GatherReport, GatherError> {
     let windows = api.windows()?;
     let plan = plan(displays, &windows)?;
@@ -192,7 +193,7 @@ fn apply<A: WindowApi>(api: &mut A, m: &Move) -> Result<(), GatherError> {
 }
 
 /// Pantalla con la que más se solapa el rectángulo, si se solapa con alguna.
-fn screen_of(screens: &[&Display], frame: Bounds) -> Option<DisplayId> {
+fn screen_of(screens: &[&CgDisplay], frame: Bounds) -> Option<DisplayId> {
     screens
         .iter()
         .map(|d| (overlap(d.bounds, frame), d.id))

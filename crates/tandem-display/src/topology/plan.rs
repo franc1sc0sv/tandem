@@ -46,7 +46,7 @@ pub fn plan_detach(paths: &[PathSlot], target: TargetId) -> Result<Vec<usize>, T
         .map(|(i, _)| i)
         .collect();
     if !off.is_empty() && active(paths).all(|(_, p)| p.target_id() == target) {
-        return Err(TopologyError::LastDisplay(target));
+        return Err(TopologyError::LastDisplay(target.to_string()));
     }
     Ok(off)
 }
@@ -76,8 +76,8 @@ pub fn plan_attach(paths: &[PathSlot], target: TargetId) -> Result<Option<usize>
     }
     match best {
         Some((_, i)) => Ok(Some(i)),
-        None if connected => Err(TopologyError::NoFreeSource(target)),
-        None => Err(TopologyError::NotConnected(target)),
+        None if connected => Err(TopologyError::NoFreeSource(target.to_string())),
+        None => Err(TopologyError::NotConnected(target.to_string())),
     }
 }
 
@@ -162,7 +162,7 @@ mod tests {
         paths[3].active = false;
         assert_eq!(
             plan_detach(&paths, tid(1)),
-            Err(TopologyError::LastDisplay(tid(1)))
+            Err(TopologyError::LastDisplay(tid(1).to_string()))
         );
         // Si ya estaba fuera y no queda nada activo, no hay nada que hacer.
         paths[0].active = false;
@@ -185,7 +185,7 @@ mod tests {
         let paths = vec![slot(0, 1, true, true), slot(0, 2, false, true)];
         assert_eq!(
             plan_attach(&paths, tid(2)),
-            Err(TopologyError::NoFreeSource(tid(2)))
+            Err(TopologyError::NoFreeSource(tid(2).to_string()))
         );
     }
 
@@ -194,11 +194,11 @@ mod tests {
         assert_eq!(plan_attach(&sample(), tid(1)), Ok(None));
         assert_eq!(
             plan_attach(&sample(), tid(3)),
-            Err(TopologyError::NotConnected(tid(3)))
+            Err(TopologyError::NotConnected(tid(3).to_string()))
         );
         assert_eq!(
             plan_attach(&sample(), tid(9)),
-            Err(TopologyError::NotConnected(tid(9)))
+            Err(TopologyError::NotConnected(tid(9).to_string()))
         );
     }
 

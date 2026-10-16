@@ -10,7 +10,7 @@ use super::{Display, DisplayTopology, TargetId, TopologyError};
 pub struct FakeTopology {
     pub paths: Vec<PathSlot>,
     /// Identidad de cada target conectado (el `active` se ignora: sale de las rutas).
-    pub monitors: BTreeMap<TargetId, Display>,
+    pub monitors: BTreeMap<TargetId, Display<TargetId>>,
     /// Si es `true`, el próximo cambio falla como lo haría `SetDisplayConfig`.
     pub fail_next: bool,
     /// Cambios aplicados con éxito.
@@ -39,11 +39,9 @@ impl FakeTopology {
             t.monitors.insert(
                 id,
                 Display {
-                    target: id,
-                    name: name.into(),
                     device_path: format!(r"\\?\DISPLAY#SAM7140#5&2a1b3c&0&{uid}#{{e6f07b5f}}"),
                     edid: Some(sample_edid(name, serial)),
-                    active: false,
+                    ..unnamed(id, name.into())
                 },
             );
         }
@@ -61,18 +59,33 @@ fn sample_edid(name: &str, serial: &str) -> crate::ddc::Edid {
     }
 }
 
+/// Monitor sin EDID ni ruta, como lo listaría Windows si no pudo leer más.
+fn unnamed(id: TargetId, name: String) -> Display<TargetId> {
+    Display {
+        id,
+        name,
+        device_path: String::new(),
+        edid: None,
+        builtin: false,
+        main: false,
+        active: false,
+        mirror_of: None,
+        bounds: None,
+    }
+}
+
 impl DisplayTopology for FakeTopology {
-    fn displays(&mut self) -> Result<Vec<Display>, TopologyError> {
+    type Id = TargetId;
+
+    fn displays(&mut self) -> Result<Vec<Display<TargetId>>, TopologyError> {
         Ok(plan::targets(&self.paths)
             .into_iter()
             .map(|(target, active)| {
-                let mut d = self.monitors.get(&target).cloned().unwrap_or(Display {
-                    target,
-                    name: format!("Monitor simulado {target}"),
-                    device_path: String::new(),
-                    edid: None,
-                    active,
-                });
+                let mut d = self
+                    .monitors
+                    .get(&target)
+                    .cloned()
+                    .unwrap_or_else(|| unnamed(target, format!("Monitor simulado {target}")));
                 d.active = active;
                 d
             })
@@ -91,8 +104,7 @@ impl DisplayTopology for FakeTopology {
         if std::mem::take(&mut self.fail_next) {
             return Err(TopologyError::Os {
                 op: "SetDisplayConfig",
-                code: 87,
-                message: "parámetro incorrecto (simulado)".into(),
+                message: "parámetro incorrecto (simulado) (0x00000057)".into(),
             });
         }
         if let Some(i) = on {

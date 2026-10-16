@@ -19,7 +19,7 @@ fn bounds(x: i32, y: i32, width: i32, height: i32) -> Bounds {
 
 /// El puesto: el 34" es la principal en (0, 0), el 32" a su derecha y la integrada
 /// abajo a la izquierda.
-fn desk() -> Vec<Display> {
+fn desk() -> Vec<CgDisplay> {
     let mut b = builtin();
     b.main = false;
     b.bounds = bounds(-1512, 1440, 1512, 982);
@@ -31,7 +31,7 @@ fn desk() -> Vec<Display> {
     vec![b, m34, m32]
 }
 
-fn display(displays: &mut [Display], id: DisplayId) -> &mut Display {
+fn display(displays: &mut [CgDisplay], id: DisplayId) -> &mut CgDisplay {
     displays.iter_mut().find(|d| d.id == id).unwrap()
 }
 
@@ -255,7 +255,7 @@ proptest! {
         let mut displays = desk();
         display(&mut displays, D34).bounds = bounds(0, 0, tw, th);
         display(&mut displays, D32).bounds = bounds(tw, 0, 2560, 1440);
-        let screens: Vec<&Display> = displays.iter().collect();
+        let screens: Vec<&CgDisplay> = displays.iter().collect();
         let p = plan(&displays, &windows).unwrap();
         for m in &p.moves {
             prop_assert!(contains(bounds(0, 0, tw, th), m.to), "{:?}", m);
@@ -276,7 +276,7 @@ proptest! {
     #[test]
     fn gather_leaves_builtin_empty(windows in arb_windows()) {
         let displays = desk();
-        let screens: Vec<&Display> = displays.iter().collect();
+        let screens: Vec<&CgDisplay> = displays.iter().collect();
         let mut api = FakeWindows::new(windows);
         let r = gather(&mut api, &displays).unwrap();
         prop_assert!(r.complete());
