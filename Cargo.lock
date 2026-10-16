@@ -1310,13 +1310,18 @@ dependencies = [
 name = "tandem-input"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "keycode",
  "postcard",
  "proptest",
  "serde",
  "tandem-core",
+ "tandem-link",
+ "tandem-proto",
  "thiserror",
+ "tokio",
  "toml",
+ "tracing",
  "windows",
 ]
 
