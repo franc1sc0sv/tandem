@@ -410,8 +410,17 @@ async fn commit(mac: &mut Ui, pc: &mut Ui, cmd: UiCommand) -> (Vec<Step>, State)
     (steps, state)
 }
 
-/// La PC tiene `expected`: ya lo tenía o le llega empujado por la IPC.
+/// `state` tal como lo guarda `machine`: cada agente se ve prendido a sí mismo
+/// (`Agent::set_state`), aunque la otra máquina lo dé por apagado.
+fn as_seen_by(state: &State, machine: Machine) -> State {
+    let mut seen = state.clone();
+    seen.on.set(machine, true);
+    seen
+}
+
+/// La PC tiene `expected` (visto por ella): ya lo tenía o le llega empujado por la IPC.
 async fn pc_agrees(pc: &mut Ui, expected: &State) {
+    let expected = &as_seen_by(expected, Machine::Pc);
     if pc.get_state().await.unwrap() == *expected {
         return;
     }
@@ -516,12 +525,14 @@ async fn modes_across_two_real_processes() {
         })
     );
 
-    // El apagado ordenado de los dos guarda el mismo estado.
+    // El apagado ordenado de los dos guarda el mismo estado, salvo que cada uno se ve
+    // prendido a sí mismo: la PC guarda `on.pc = true` aunque la Mac la dé por apagada.
     drop((ui_mac, ui_pc));
     for p in [mac, pc] {
         let (spec, status) = p.stop().await;
         assert!(status.success(), "{}: {status}", spec.machine);
-        assert_eq!(spec.saved_state(), Some(s.clone()), "{}", spec.machine);
+        let expected = as_seen_by(&s, spec.machine);
+        assert_eq!(spec.saved_state(), Some(expected), "{}", spec.machine);
     }
 }
 
