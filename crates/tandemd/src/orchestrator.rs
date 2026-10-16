@@ -72,7 +72,16 @@ pub trait PeerLink: Send + Sync {
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a>;
     /// Le avisa del estado final de una transacción, sin esperar respuesta.
     fn publish_state(&self, state: &State);
+    /// Retiene el enlace por el que van los pasos mientras dure una transacción
+    /// propia: no se cambia de enlace a medias salvo que el activo caiga. Se libera
+    /// al soltar lo devuelto. Sin gestor de enlaces no hay nada que retener.
+    fn hold_link(&self) -> Option<LinkHold> {
+        None
+    }
 }
+
+/// Lo que devuelve [`PeerLink::hold_link`]; la retención dura lo que viva.
+pub type LinkHold = Box<dyn Send + Sync>;
 
 /// Sin conexión con el otro agente.
 #[derive(Debug, Default, Clone, Copy)]
@@ -183,6 +192,8 @@ pub struct Orchestrator {
     /// distintos: si un enlace cae con un paso a mitad, el inverso que llega por el
     /// siguiente espera a que ese paso termine en vez de adelantársele.
     peer_turn: tokio::sync::Mutex<()>,
+    /// El enlace retenido durante la transacción propia en curso.
+    link_hold: Mutex<Option<LinkHold>>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -208,6 +219,7 @@ impl Orchestrator {
             busy: AtomicBool::new(false),
             peer_lease: Mutex::new(None),
             peer_turn: tokio::sync::Mutex::new(()),
+            link_hold: Mutex::new(None),
         }
     }
 
@@ -246,10 +258,19 @@ impl Orchestrator {
         if lease.is_some_and(|until| tokio::time::Instant::now() < until) {
             return None;
         }
-        self.busy
+        let txn = self
+            .busy
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .ok()
-            .map(|_| self.next_txn.fetch_add(1, Ordering::Relaxed))
+            .map(|_| self.next_txn.fetch_add(1, Ordering::Relaxed))?;
+        *self.hold() = self.peer().hold_link();
+        Some(txn)
+    }
+
+    fn hold(&self) -> std::sync::MutexGuard<'_, Option<LinkHold>> {
+        self.link_hold
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
     fn lease(&self) -> std::sync::MutexGuard<'_, Option<tokio::time::Instant>> {
@@ -273,6 +294,8 @@ impl Orchestrator {
 
     /// Libera lo reservado con [`Orchestrator::try_begin`].
     pub fn end(&self) {
+        // Primero el enlace: el aviso final al otro agente ya puede ir por el mejor.
+        drop(self.hold().take());
         self.busy.store(false, Ordering::Release);
     }
 
@@ -1284,6 +1307,53 @@ pub(crate) mod tests {
         assert_eq!(first, Duration::from_secs(3));
         assert!(second >= first, "el inverso terminó antes: {second:?}");
         assert_eq!(local.steps(), [attach, detach]);
+    }
+
+    /// Un otro agente que cuenta cuántas retenciones de enlace hay vivas.
+    struct HoldingPeer(Arc<std::sync::atomic::AtomicUsize>);
+
+    struct CountedHold(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Drop for CountedHold {
+        fn drop(&mut self) {
+            self.0.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    impl PeerLink for HoldingPeer {
+        fn execute<'a>(&'a self, _step: &'a Step) -> StepFuture<'a> {
+            Box::pin(async { Ok(()) })
+        }
+        fn publish_state(&self, _state: &State) {}
+        fn hold_link(&self) -> Option<LinkHold> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Some(Box::new(CountedHold(self.0.clone())))
+        }
+    }
+
+    // T-065: durante una transacción propia el enlace no cambia salvo que caiga.
+    #[test]
+    fn a_transaction_holds_the_link_until_it_ends() {
+        let holds = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let o = Orchestrator::new(
+            Machine::Mac,
+            Arc::new(FakeSteps::default()),
+            StepTimeouts::default(),
+        );
+        o.set_peer(Arc::new(HoldingPeer(holds.clone())));
+        let count = || holds.load(Ordering::SeqCst);
+
+        assert_eq!(count(), 0);
+        o.try_begin().unwrap();
+        assert_eq!(count(), 1);
+        // Un segundo intento rechazado no retiene nada más.
+        assert_eq!(o.try_begin(), None);
+        assert_eq!(count(), 1);
+        o.end();
+        assert_eq!(count(), 0);
+        o.try_begin().unwrap();
+        o.end();
+        assert_eq!(count(), 0);
     }
 
     #[tokio::test(start_paused = true)]
