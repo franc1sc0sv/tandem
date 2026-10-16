@@ -26,6 +26,7 @@ use tandem_display::ddc::profiles::ProfileDb;
 use tandem_display::ddc::{Edid, MonitorInfo};
 use tandem_display::topology::Display;
 
+use crate::capabilities::Seen;
 use crate::config::{AgentConfig, ConfigError, DEFAULT_PORT};
 use crate::paths;
 
@@ -162,6 +163,29 @@ pub fn monitors(detected: &[Detected], db: &ProfileDb) -> Vec<MonitorConfig> {
                 wiring: default_wiring(),
                 ddc,
             }
+        })
+        .collect()
+}
+
+/// Lo que esta máquina anuncia de los monitores que ve (T-084): el id PnP y el mismo
+/// nombre que tendrían en una configuración generada, de izquierda a derecha.
+pub fn seen(detected: &[Detected]) -> Vec<Seen> {
+    let mut sorted: Vec<&Detected> = detected.iter().collect();
+    sorted.sort_by_key(|d| (d.x.is_none(), d.x.unwrap_or(0)));
+    let labels = labels(&sorted);
+    sorted
+        .iter()
+        .zip(labels)
+        .map(|(d, name)| Seen {
+            pnp_id: Some(d.edid.pnp_id()),
+            model: d
+                .edid
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_owned),
+            name,
         })
         .collect()
 }
@@ -465,6 +489,42 @@ pub(crate) mod tests {
             display(Some(m32()), Some(3440), false),
             display(Some(m34()), Some(0), false),
         ])
+    }
+
+    /// Hallazgo del PR #56: lo detectado al arrancar es lo que se anuncia (no los
+    /// `[[monitors]]` del puesto), atado a los monitores de la configuración.
+    #[test]
+    fn what_is_detected_is_what_is_announced() {
+        let seen = seen(&pc_desk());
+        assert_eq!(
+            seen,
+            [
+                Seen {
+                    pnp_id: Some("SAM711A".into()),
+                    model: Some("LC34G55T".into()),
+                    name: "34\"".into(),
+                },
+                Seen {
+                    pnp_id: Some("SAM7489".into()),
+                    model: Some("Odyssey G5".into()),
+                    name: "32\"".into(),
+                },
+            ]
+        );
+        let cfg = AgentConfig::from_toml(&generate(Machine::Pc, &pc_desk(), ProfileDb::builtin()))
+            .unwrap();
+        let input = tandem_proto::InputStatus::new(Machine::Pc);
+        let caps = crate::capabilities::local(&cfg, &cfg.desk, Some(&seen), &input);
+        let bound: Vec<_> = caps.monitors.iter().map(|m| m.monitor.clone()).collect();
+        assert_eq!(bound, [Some("sam711a".into()), Some("sam7489".into())]);
+        assert!(caps.monitors.iter().all(|m| m.switch && m.ddc));
+
+        // La PC que solo ve el 34" no dice que ve el 32"... salvo que esté cableado a ella.
+        let mut only_34 = cfg.clone();
+        only_34.desk.monitors[1].wiring.remove(&Machine::Pc);
+        let caps = crate::capabilities::local(&only_34, &only_34.desk, Some(&seen[..1]), &input);
+        assert_eq!(caps.monitors.len(), 1, "{:?}", caps.monitors);
+        assert_eq!(caps.monitors[0].name, "34\"");
     }
 
     #[test]
