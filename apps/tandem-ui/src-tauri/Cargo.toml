@@ -20,6 +20,8 @@ required-features = ["app"]
 
 [dependencies]
 serde.workspace = true
+# La vista de la sonda viaja como JSON en la URL de su ventana.
+serde_json.workspace = true
 tandem-core = { path = "../../../crates/tandem-core" }
 tandem-proto = { path = "../../../crates/tandem-proto" }
 tandemd = { path = "../../../crates/tandemd" }

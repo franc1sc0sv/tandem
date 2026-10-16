@@ -9,6 +9,8 @@
 //! - [`agent`]: el estado vivo del agente y las respuestas a la UI.
 //! - [`orchestrator`]: los cambios de modo como transacciones repartidas entre las dos máquinas.
 //! - [`display`]: los pasos de pantalla de esta máquina (entradas, escritorio, pantalla integrada).
+//! - [`calibration`]: la sonda de calibración DDC y el `Confirmer` que la muestra en la
+//!   máquina que debería verse (T-078).
 //! - [`power`]: Wake-on-LAN en la Mac y apagado limpio en la PC.
 //! - [`pc_watch`]: en la Mac, da la PC por apagada si ningún enlace la ve (corte de corriente).
 //! - [`peer`]: el otro agente por el plano de control (pedirle pasos y atender los suyos).
@@ -22,6 +24,7 @@
 //! - `sim` (feature `sim-backends`): pasos simulados para probar el binario sin hardware.
 
 pub mod agent;
+pub mod calibration;
 pub mod cli;
 pub mod config;
 pub mod daemon;
@@ -42,6 +45,7 @@ pub mod sim;
 pub mod store;
 
 pub use agent::{Agent, PairingControl};
+pub use calibration::{AgentConfirmer, ProbeBoard};
 pub use config::{AgentConfig, ConfigError, NetworkConfig, OrchestratorConfig, PowerConfig};
 pub use display::DisplaySteps;
 pub use orchestrator::{LocalSteps, NoPeer, Orchestrator, PeerLink, StepTimeouts, Unimplemented};

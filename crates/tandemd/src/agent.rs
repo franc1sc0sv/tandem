@@ -7,11 +7,12 @@ use tandem_core::{Machine, Mode, Plan, State, Step};
 use tandem_display::switcher::{ManualEvent, ManualSwitcher};
 use tandem_link::transport::{Connection, ControlStream};
 use tandem_proto::{
-    Channel, HubReport, InputStatus, PairingStatus, PeerStatus, PowerEvent, Reply, ScreenRect,
-    TxnEvent, UiCommand,
+    Channel, HubReport, InputStatus, PairingStatus, PeerStatus, PowerEvent, ProbeEvent, Reply,
+    ScreenRect, TxnEvent, UiCommand,
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
+use crate::calibration::{DesktopLocator, ProbeBoard};
 use crate::config::AgentConfig;
 use crate::display::DisplaySteps;
 use crate::orchestrator::{LocalSteps, Orchestrator, PeerLink, Unimplemented};
@@ -45,6 +46,8 @@ pub struct Agent {
     orch: Orchestrator,
     /// Los cambios de entrada que el usuario hace a mano y confirma desde la UI.
     manual: Arc<ManualSwitcher>,
+    /// Las sondas de calibración que muestra la UI de esta máquina (T-078).
+    probes: ProbeBoard,
     /// Avisos de energía de la PC que no vienen de una transacción.
     power: broadcast::Sender<PowerEvent>,
     /// Con quién está emparejado y por qué enlace lo ve; lo actualiza la red.
@@ -151,8 +154,11 @@ impl Agent {
             manual.clone(),
             geometry.clone(),
         ));
+        let locator = tandem_display::desktop::native(cfg.machine)
+            .map(|d| Arc::new(DesktopLocator(d)) as Arc<dyn crate::calibration::ScreenLocator>);
         let mut agent = Self::with_backends(cfg, store, local, manual);
         agent.geometry = geometry;
+        agent.probes = ProbeBoard::new(locator);
         agent
     }
 
@@ -172,6 +178,8 @@ impl Agent {
             persisting: Mutex::new(()),
             orch,
             manual,
+            // Sin escritorio que consultar, la UI busca el monitor por su nombre.
+            probes: ProbeBoard::new(None),
             power: broadcast::channel(POWER_EVENT_BUFFER).0,
             // Hasta que la red diga otra cosa, el agente trabaja solo.
             peer_status: watch::Sender::new(PeerStatus::Unpaired),
@@ -229,6 +237,16 @@ impl Agent {
     /// Pedidos de cambio manual de entrada, para la UI.
     pub fn subscribe_manual(&self) -> broadcast::Receiver<ManualEvent> {
         self.manual.subscribe()
+    }
+
+    /// Las sondas de calibración de esta máquina: las muestra su UI.
+    pub fn probes(&self) -> &ProbeBoard {
+        &self.probes
+    }
+
+    /// Sondas de calibración que mostrar o quitar, para la UI.
+    pub fn subscribe_probes(&self) -> broadcast::Receiver<ProbeEvent> {
+        self.probes.subscribe()
     }
 
     /// Avisos de energía de la PC (por ejemplo, que se la dio por apagada), para la UI.
@@ -371,6 +389,10 @@ impl Agent {
             // La preferencia de la pantalla integrada no es un modo: llega con su tarea.
             UiCommand::SetBuiltin(_) => Reply::Rejected(NOT_IMPLEMENTED.into()),
             UiCommand::AnswerManualSwitch { id, done } => match self.manual.answer(id, done) {
+                Ok(()) => Reply::Done,
+                Err(e) => Reply::Rejected(e.to_string()),
+            },
+            UiCommand::AnswerProbe { id, seen } => match self.probes.answer(id, seen) {
                 Ok(()) => Reply::Done,
                 Err(e) => Reply::Rejected(e.to_string()),
             },

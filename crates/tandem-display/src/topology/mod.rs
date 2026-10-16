@@ -252,6 +252,74 @@ pub fn placed_screens<Id>(
         .collect()
 }
 
+/// Un monitor por su EDID, venga de donde venga (la otra máquina lo leyó por su cable).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdidKey {
+    pub manufacturer: String,
+    pub product_code: u16,
+    /// 0 = sin serie numérica.
+    pub serial_number: u32,
+    /// Nombre del EDID, para distinguir modelos con el mismo código de producto.
+    pub name: Option<String>,
+}
+
+impl EdidKey {
+    pub fn of(edid: &Edid) -> Self {
+        EdidKey {
+            manufacturer: edid.manufacturer.clone(),
+            product_code: edid.product_code,
+            serial_number: edid.serial_number,
+            name: edid.name.clone(),
+        }
+    }
+}
+
+/// Dónde está en el escritorio el monitor con ese EDID (la sonda de calibración, T-078).
+///
+/// Solo cuentan los que tienen lugar en el escritorio. Fabricante y producto tienen que
+/// coincidir; la serie y el nombre solo desempatan cuando hay varios iguales, porque un
+/// lado puede leerlos y el otro no. Si aun así quedan varios, `None`: mostrar la sonda
+/// en otro monitor daría un «lo veo» falso.
+pub fn locate<Id>(displays: &[Display<Id>], key: &EdidKey) -> Option<Bounds> {
+    let mut hits: Vec<(&Display<Id>, Bounds)> = displays
+        .iter()
+        .filter(|d| d.active && !d.builtin)
+        .filter_map(|d| Some((d, d.bounds?)))
+        .filter(|(d, _)| {
+            d.edid.as_ref().is_some_and(|e| {
+                e.manufacturer.eq_ignore_ascii_case(&key.manufacturer)
+                    && e.product_code == key.product_code
+            })
+        })
+        .collect();
+    let narrow = |hits: &mut Vec<(&Display<Id>, Bounds)>, keep: &dyn Fn(&Edid) -> bool| {
+        if hits.len() > 1 {
+            let kept: Vec<_> = hits
+                .iter()
+                .filter(|(d, _)| d.edid.as_ref().is_some_and(keep))
+                .copied()
+                .collect();
+            if !kept.is_empty() {
+                *hits = kept;
+            }
+        }
+    };
+    if key.serial_number != 0 {
+        narrow(&mut hits, &|e| e.serial_number == key.serial_number);
+    }
+    if let Some(name) = key.name.as_deref() {
+        narrow(&mut hits, &|e| {
+            e.name
+                .as_deref()
+                .is_some_and(|n| n.trim().eq_ignore_ascii_case(name.trim()))
+        });
+    }
+    match hits.as_slice() {
+        [(_, bounds)] => Some(*bounds),
+        _ => None,
+    }
+}
+
 fn one<'a, Id: fmt::Display>(
     hits: impl Iterator<Item = &'a Display<Id>>,
     query: &str,
@@ -726,5 +794,96 @@ mod tests {
             "Monitor en 0x100000002/4 (integrada) (principal) [espejo de 0x100000002/4] \
              [activo] 1512x982 en (-1512, 0)"
         );
+    }
+
+    fn screen(id: u32, product: u16, serial: u32, name: &str, x: i32) -> Display<u32> {
+        Display {
+            id,
+            name: name.into(),
+            device_path: String::new(),
+            edid: Some(Edid {
+                manufacturer: "SAM".into(),
+                product_code: product,
+                serial_number: serial,
+                name: Some(name.into()),
+                serial_text: None,
+            }),
+            builtin: false,
+            main: false,
+            active: true,
+            mirror_of: None,
+            bounds: Some(Bounds {
+                x,
+                y: 0,
+                width: 2560,
+                height: 1440,
+            }),
+        }
+    }
+
+    fn key(product: u16, serial: u32, name: Option<&str>) -> EdidKey {
+        EdidKey {
+            manufacturer: "SAM".into(),
+            product_code: product,
+            serial_number: serial,
+            name: name.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn locate_finds_the_monitor_by_edid() {
+        let ds = [
+            screen(1, 0x711A, 0, "LC34G55T", -3440),
+            screen(2, 0x7489, 7, "Odyssey G5", 0),
+        ];
+        let at = |b: Option<Bounds>| b.map(|b| b.x);
+        assert_eq!(at(locate(&ds, &key(0x7489, 0, None))), Some(0));
+        // El fabricante no distingue mayúsculas; serie y nombre que el otro lado no leyó
+        // no estorban.
+        let mut k = key(0x711A, 99, Some("otro nombre"));
+        k.manufacturer = "sam".into();
+        assert_eq!(at(locate(&ds, &k)), Some(-3440));
+        assert_eq!(locate(&ds, &key(0x1234, 0, None)), None);
+    }
+
+    #[test]
+    fn locate_skips_inactive_builtin_and_unplaced() {
+        let mut off = screen(1, 0x7489, 0, "Odyssey G5", 0);
+        off.active = false;
+        let mut builtin = screen(2, 0x7489, 0, "Odyssey G5", 0);
+        builtin.builtin = true;
+        let mut unplaced = screen(3, 0x7489, 0, "Odyssey G5", 0);
+        unplaced.bounds = None;
+        let mut no_edid = screen(4, 0x7489, 0, "Odyssey G5", 0);
+        no_edid.edid = None;
+        assert_eq!(
+            locate(&[off, builtin, unplaced, no_edid], &key(0x7489, 0, None)),
+            None
+        );
+    }
+
+    #[test]
+    fn locate_breaks_ties_by_serial_then_name_and_refuses_to_guess() {
+        // Como en el doble de Windows: mismo producto, nombres distintos.
+        let ds = [
+            screen(1, 0x7140, 0, "LC34G55T", -3440),
+            screen(2, 0x7140, 0, "S32BG85", 0),
+        ];
+        assert_eq!(
+            locate(&ds, &key(0x7140, 0, Some("s32bg85"))).map(|b| b.x),
+            Some(0)
+        );
+        // Dos idénticos salvo la serie.
+        let twins = [
+            screen(1, 0x7489, 11, "Odyssey G5", -2560),
+            screen(2, 0x7489, 22, "Odyssey G5", 0),
+        ];
+        assert_eq!(
+            locate(&twins, &key(0x7489, 22, Some("Odyssey G5"))).map(|b| b.x),
+            Some(0)
+        );
+        // Sin nada que los distinga no se adivina.
+        assert_eq!(locate(&twins, &key(0x7489, 0, Some("Odyssey G5"))), None);
+        assert_eq!(locate(&ds, &key(0x7140, 0, None)), None);
     }
 }

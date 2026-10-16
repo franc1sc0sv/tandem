@@ -1,6 +1,7 @@
 //! UI de Tandem (Tauri 2).
 //!
 //! - [`session`]: la conexión viva con `tandemd` que alimenta la escena principal.
+//! - [`probe`]: en qué monitor abrir la ventana de la sonda de calibración.
 //! - [`status`]: lo que la ventana muestra del agente, pedido a `tandemd` por la IPC local.
 //! - [`shortcuts`]: los atajos globales, su forma canónica y `ui.toml`.
 //! - [`tray`]: el menú del ícono de la barra de menú / bandeja y la mini escena.
@@ -9,6 +10,7 @@
 //! - `app` (feature `app`): la app de Tauri y sus comandos.
 
 pub mod launch_agent;
+pub mod probe;
 pub mod session;
 pub mod setup;
 pub mod shortcuts;

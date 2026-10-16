@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Lo que la ventana principal y la mini escena del ícono pueden pedirle al núcleo de Tauri.",
-  "windows": ["main", "tray"],
+  "description": "Lo que la ventana principal, la mini escena del ícono y las sondas de calibración pueden pedirle al núcleo de Tauri.",
+  "windows": ["main", "tray", "probe-*"],
   "permissions": ["core:default"]
 }

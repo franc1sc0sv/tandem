@@ -8,7 +8,9 @@
 // a la otra máquina: aparece el código y, al confirmar, confirma ella también
 // (`&pair=reject`: la otra máquina rechaza; `&pair=code`: arranca mostrando el código).
 // `?demo&hub=pc`, el hub en la PC; `?demo&perms=missing`, a la Mac le falta el permiso de
-// Accesibilidad.
+// Accesibilidad. `?demo&probe=question`, la pregunta de respaldo de una calibración sin la
+// otra máquina (`&ask=switch`: el cambio a mano); la sonda a pantalla completa es otra página,
+// `/probe.html?demo`.
 
 import type { Bridge } from "./bridge";
 import type {
@@ -28,6 +30,7 @@ import type {
   Snapshot,
   Step,
 } from "./model";
+import { demoProbe } from "./probe";
 import { builtinOf, modeRequest, type ModeKey } from "./scene";
 import { ACTIONS, DEFAULT_BINDINGS, readCombo } from "./shortcuts";
 
@@ -245,6 +248,10 @@ export function demoBridge(query: string): Bridge {
     },
     onNotice: async (cb) => {
       notices.push(cb);
+      if (params.get("probe") === "question") {
+        const probe = demoProbe(`${query}&place=question&timeout=60000`);
+        window.setTimeout(() => cb({ kind: "probe", event: probe }), 300);
+      }
     },
     act: async (a: Action): Promise<ActionResult> => {
       switch (a.kind) {
@@ -260,6 +267,10 @@ export function demoBridge(query: string): Bridge {
           snapshots.forEach((cb) => cb(snapshot()));
           return { kind: "done" };
         case "answer_manual_switch":
+          return { kind: "done" };
+        case "answer_probe":
+          emit({ kind: "probe", event: { type: "hide", id: a.id } });
+          messages.forEach((cb) => cb(a.seen ? "Sigue la calibración con el próximo paso" : "Se prueba el código siguiente"));
           return { kind: "done" };
         case "start_pairing":
         case "confirm_pairing":

@@ -7,6 +7,10 @@
 //! fuera de la ventana (un atajo global o el menú del ícono). [`SHORTCUTS_EVENT`] lleva los
 //! atajos nuevos cuando se cambian, para que cada ventana muestre los vigentes.
 //!
+//! Las sondas de calibración (T-078) abren una ventana propia sin bordes que cubre el
+//! monitor que se calibra ([`crate::probe`]); la pregunta de respaldo la muestra la
+//! ventana principal.
+//!
 //! En macOS, al arrancar instala o pone al día el LaunchAgent de `tandemd`
 //! ([`crate::launch_agent`]) y ofrece la guía de permisos del primer arranque
 //! ([`crate::setup`]).
@@ -21,11 +25,18 @@ use tandemd::paths::Paths;
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow, WindowEvent, Wry};
+use tauri::window::Color;
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent, Wry,
+};
 use tauri_plugin_global_shortcut::{GlobalShortcut, ShortcutState};
 
 use crate::launch_agent::Report;
-use crate::session::{self, Action, ActionResult, Handle, Notice, Sink, Snapshot};
+use crate::probe;
+use crate::session::{
+    self, Action, ActionResult, Handle, Notice, PlaceView, ProbeView, ScreenView, Sink, Snapshot,
+};
 use crate::setup::{self, Permission, SetupView};
 use crate::shortcuts::{self, Bindings, ShortcutAction, Shortcuts, ShortcutsView};
 use crate::status;
@@ -143,10 +154,105 @@ impl Sink for Windows {
         {
             menu.show(&MenuView::of(snapshot));
         }
+        // Sin agente nadie espera las sondas: no pueden quedar tapando un monitor.
+        if matches!(snapshot, Snapshot::Unavailable { .. }) {
+            close_probes(&self.0);
+        }
     }
 
     fn notice(&self, notice: &Notice) {
         let _ = self.0.emit(NOTICE_EVENT, notice);
+        if let Notice::Probe { event } = notice {
+            on_probe(&self.0, event);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------
+// Sondas de calibración
+
+fn on_probe(app: &AppHandle, event: &ProbeView) {
+    match event {
+        ProbeView::Show {
+            id,
+            monitor,
+            place: PlaceView::Monitor { screen },
+            ..
+        } => {
+            if let Err(e) = open_probe(app, *id, monitor, *screen, event) {
+                eprintln!("tandem-ui: no se pudo abrir la sonda de calibración: {e}");
+            }
+        }
+        // La pregunta de respaldo la contesta la ventana principal: al frente.
+        ProbeView::Show { .. } => show_main(app),
+        ProbeView::Hide { id } => {
+            if let Some(w) = app.get_webview_window(&probe::window_label(*id)) {
+                let _ = w.destroy();
+            }
+        }
+    }
+}
+
+/// Abre (o mueve, si el monitor cambió de lugar) la ventana de la sonda sobre el monitor.
+fn open_probe(
+    app: &AppHandle,
+    id: u64,
+    name: &str,
+    screen: Option<ScreenView>,
+    view: &ProbeView,
+) -> Result<(), String> {
+    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
+    let areas: Vec<probe::Area> = monitors
+        .iter()
+        .map(|m| probe::Area {
+            x: m.position().x,
+            y: m.position().y,
+            width: m.size().width,
+            height: m.size().height,
+            scale: m.scale_factor(),
+            name: m.name().cloned(),
+        })
+        .collect();
+    // Sin saber cuál es, la principal: el texto de la sonda dice qué monitor mirar.
+    let target = probe::pick(screen, probe::Units::NATIVE, name, &areas)
+        .and_then(|i| monitors.get(i).cloned())
+        .or_else(|| app.primary_monitor().ok().flatten());
+    let label = probe::window_label(id);
+    let window = match app.get_webview_window(&label) {
+        Some(w) => w,
+        None => {
+            let script = probe::init_script(view).map_err(|e| e.to_string())?;
+            WebviewWindowBuilder::new(app, &label, WebviewUrl::App(probe::PAGE.into()))
+                .title("Tandem: calibración")
+                .initialization_script(script)
+                .decorations(false)
+                .resizable(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .visible(false)
+                .background_color(Color(0x0f, 0x10, 0x13, 0xff))
+                .build()
+                .map_err(|e| e.to_string())?
+        }
+    };
+    if let Some(m) = target {
+        // Si el sistema se niega a moverla, queda donde la abrió: la sonda sigue sirviendo.
+        let _ = window.set_simple_fullscreen(false);
+        let _ = window.set_position(*m.position());
+        let _ = window.set_size(*m.size());
+    }
+    let _ = window.show();
+    // Sin espacio nuevo en macOS (la animación de pantalla completa tarda segundos).
+    let _ = window.set_simple_fullscreen(true);
+    let _ = window.set_focus();
+    Ok(())
+}
+
+fn close_probes(app: &AppHandle) {
+    for (label, w) in app.webview_windows() {
+        if probe::probe_id(&label).is_some() {
+            let _ = w.destroy();
+        }
     }
 }
 

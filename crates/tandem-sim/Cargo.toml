@@ -18,6 +18,8 @@ tracing.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+# El motor de calibración de T-077 y sus monitores simulados (T-078).
+tandem-display = { path = "../tandem-display" }
 tandem-peripherals = { path = "../tandem-peripherals" }
 
 [lints]

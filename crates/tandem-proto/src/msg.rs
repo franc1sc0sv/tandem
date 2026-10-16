@@ -83,6 +83,104 @@ pub enum ControlMsg {
     Hub(HubReport),
     /// Las pantallas visibles de quien lo manda, para la geometría del teclado y mouse.
     Screens(Vec<ScreenRect>),
+    /// Calibración (T-078): quien calibra acaba de pasar un monitor a la entrada de quien
+    /// lo recibe; este muestra la sonda en ese monitor y contesta [`ControlMsg::ProbeResult`]
+    /// con el mismo `id` (a más tardar en [`CalibrationProbe::timeout_ms`]).
+    ShowProbe {
+        id: u64,
+        probe: CalibrationProbe,
+    },
+    /// Quien calibra ya no espera la sonda `id` (venció o se canceló): se quita.
+    HideProbe {
+        id: u64,
+    },
+    ProbeResult {
+        id: u64,
+        outcome: ProbeOutcome,
+    },
+}
+
+/// Un monitor por calibrar, como lo identifica su EDID.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProbeMonitor {
+    /// `None` si el monitor no dio EDID: la otra máquina solo tiene el nombre.
+    pub edid: Option<EdidId>,
+    /// Para mostrar: el nombre del EDID o, sin él, la descripción del sistema.
+    pub name: String,
+}
+
+/// Lo que identifica un monitor en el EDID de las dos máquinas (el mismo cable no hace
+/// falta: el EDID es del monitor).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EdidId {
+    /// Código PnP de tres letras (`SAM`).
+    pub manufacturer: String,
+    pub product_code: u16,
+    /// 0 si el monitor no lo informa.
+    pub serial_number: u32,
+}
+
+/// Qué tiene que confirmar el usuario en la sonda.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProbeAsk {
+    /// Se mandó el código `code`: ¿se ve esta pantalla?
+    Candidate { code: u8 },
+    /// El usuario cambia la entrada desde el menú del monitor y confirma al ver esta pantalla.
+    UserSwitch,
+}
+
+/// Una sonda de calibración: «¿ves esto en el monitor?».
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CalibrationProbe {
+    pub monitor: ProbeMonitor,
+    /// La entrada que debería verse; la máquina que la muestra sale del cableado.
+    pub input: Input,
+    pub ask: ProbeAsk,
+    /// Pasado este tiempo sin clic cuenta como no visto y la sonda se quita.
+    pub timeout_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProbeOutcome {
+    /// El usuario hizo clic en la sonda.
+    Seen,
+    /// Nadie hizo clic a tiempo, o el usuario dijo que no.
+    Unseen,
+    /// No se pudo mostrar (por ejemplo, sin UI abierta en esa máquina).
+    Failed(String),
+}
+
+/// Dónde muestra la UI una sonda.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProbePlace {
+    /// A pantalla completa en el monitor que se calibra, con un botón grande.
+    /// `screen` es dónde está en el escritorio de esta máquina (coordenadas del sistema);
+    /// `None` si el agente no lo sabe: la UI lo busca por el nombre del EDID.
+    Monitor { screen: Option<ProbeScreen> },
+    /// Respaldo sin la otra máquina: la ventana pregunta «¿el monitor cambió?» con Sí/No.
+    Question,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProbeScreen {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Sondas de calibración para la UI; se contestan con [`UiCommand::AnswerProbe`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProbeEvent {
+    /// Mostrar la sonda `id`. Puede repetirse con el mismo `id` si el monitor cambia de
+    /// lugar (aparece en el escritorio al cambiarle la entrada): la UI la mueve.
+    Show {
+        id: u64,
+        probe: CalibrationProbe,
+        place: ProbePlace,
+    },
+    /// Ya no espera respuesta (contestada, vencida o cancelada).
+    Hide { id: u64 },
 }
 
 /// Los streams propios de la entrada y del portapapeles, aparte del de pedidos: una
@@ -213,6 +311,11 @@ pub enum UiCommand {
     Unpair,
     /// Quién es el servidor de teclado y mouse y si a esta máquina le faltan permisos.
     GetInput,
+    /// Respuesta a [`ProbeEvent::Show`]: `seen` si el usuario hizo clic (o dijo que sí).
+    AnswerProbe {
+        id: u64,
+        seen: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -232,6 +335,8 @@ pub enum AgentToUi {
     Pairing(PairingStatus),
     /// Aviso espontáneo cuando cambia el teclado y mouse (roles, sesión, permisos).
     Input(InputStatus),
+    /// Sondas de calibración que mostrar o quitar.
+    Probe(ProbeEvent),
 }
 
 /// El emparejamiento visto desde la UI.
@@ -537,7 +642,22 @@ pub(crate) mod samples {
             }),
             ControlMsg::Screens(vec![]),
             ControlMsg::Screens(screens()),
+            ControlMsg::HideProbe { id: 3 },
         ];
+        v.extend(
+            probes()
+                .into_iter()
+                .enumerate()
+                .map(|(i, probe)| ControlMsg::ShowProbe {
+                    id: i as u64,
+                    probe,
+                }),
+        );
+        v.extend(
+            probe_outcomes()
+                .into_iter()
+                .map(|outcome| ControlMsg::ProbeResult { id: 4, outcome }),
+        );
         v.extend(
             steps()
                 .into_iter()
@@ -558,6 +678,103 @@ pub(crate) mod samples {
             ControlMsg::Open(_) => 6,
             ControlMsg::Hub(_) => 7,
             ControlMsg::Screens(_) => 8,
+            ControlMsg::ShowProbe { .. } => 9,
+            ControlMsg::HideProbe { .. } => 10,
+            ControlMsg::ProbeResult { .. } => 11,
+        }
+    }
+
+    /// Con y sin EDID, de cada tipo y en cada entrada.
+    pub fn probes() -> Vec<CalibrationProbe> {
+        vec![
+            CalibrationProbe {
+                monitor: ProbeMonitor {
+                    edid: Some(EdidId {
+                        manufacturer: "SAM".into(),
+                        product_code: 0x7489,
+                        serial_number: 0x4d32_5a48,
+                    }),
+                    name: "Odyssey G5".into(),
+                },
+                input: Input::Hdmi,
+                ask: ProbeAsk::Candidate { code: 0x05 },
+                timeout_ms: 8000,
+            },
+            CalibrationProbe {
+                monitor: ProbeMonitor {
+                    edid: None,
+                    name: "Monitor PnP genérico".into(),
+                },
+                input: Input::DisplayPort,
+                ask: ProbeAsk::UserSwitch,
+                timeout_ms: 120_000,
+            },
+        ]
+    }
+
+    pub fn probe_ask_arm(a: &ProbeAsk) -> usize {
+        match a {
+            ProbeAsk::Candidate { .. } => 0,
+            ProbeAsk::UserSwitch => 1,
+        }
+    }
+
+    pub fn probe_outcomes() -> Vec<ProbeOutcome> {
+        vec![
+            ProbeOutcome::Seen,
+            ProbeOutcome::Unseen,
+            ProbeOutcome::Failed("no hay una UI abierta".into()),
+        ]
+    }
+
+    pub fn probe_outcome_arm(o: &ProbeOutcome) -> usize {
+        match o {
+            ProbeOutcome::Seen => 0,
+            ProbeOutcome::Unseen => 1,
+            ProbeOutcome::Failed(_) => 2,
+        }
+    }
+
+    pub fn probe_events() -> Vec<ProbeEvent> {
+        let [a, b] = <[CalibrationProbe; 2]>::try_from(probes()).unwrap();
+        vec![
+            ProbeEvent::Show {
+                id: 1,
+                probe: a.clone(),
+                place: ProbePlace::Monitor {
+                    screen: Some(ProbeScreen {
+                        x: -2560,
+                        y: 0,
+                        width: 2560,
+                        height: 1440,
+                    }),
+                },
+            },
+            ProbeEvent::Show {
+                id: 1,
+                probe: a,
+                place: ProbePlace::Monitor { screen: None },
+            },
+            ProbeEvent::Show {
+                id: 2,
+                probe: b,
+                place: ProbePlace::Question,
+            },
+            ProbeEvent::Hide { id: 2 },
+        ]
+    }
+
+    pub fn probe_event_arm(e: &ProbeEvent) -> usize {
+        match e {
+            ProbeEvent::Show {
+                place: ProbePlace::Monitor { .. },
+                ..
+            } => 0,
+            ProbeEvent::Show {
+                place: ProbePlace::Question,
+                ..
+            } => 1,
+            ProbeEvent::Hide { .. } => 2,
         }
     }
 
@@ -675,6 +892,8 @@ pub(crate) mod samples {
             UiCommand::CancelPairing,
             UiCommand::Unpair,
             UiCommand::GetInput,
+            UiCommand::AnswerProbe { id: 1, seen: true },
+            UiCommand::AnswerProbe { id: 2, seen: false },
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
         cmds.into_iter()
@@ -702,6 +921,7 @@ pub(crate) mod samples {
             UiCommand::CancelPairing => 11,
             UiCommand::Unpair => 12,
             UiCommand::GetInput => 13,
+            UiCommand::AnswerProbe { .. } => 14,
         }
     }
 
@@ -816,6 +1036,7 @@ pub(crate) mod samples {
         v.extend(pairing_statuses().into_iter().map(AgentToUi::Pairing));
         v.extend(input_status().into_iter().map(AgentToUi::Input));
         v.extend(txn_events().into_iter().map(AgentToUi::Txn));
+        v.extend(probe_events().into_iter().map(AgentToUi::Probe));
         v.extend(links().into_iter().map(|link| {
             AgentToUi::Peer(PeerStatus::Paired {
                 name: "Mac".into(),
@@ -847,6 +1068,7 @@ pub(crate) mod samples {
             AgentToUi::Peer(_) => 5,
             AgentToUi::Pairing(_) => 6,
             AgentToUi::Input(_) => 7,
+            AgentToUi::Probe(_) => 8,
         }
     }
 
@@ -902,10 +1124,14 @@ mod tests {
         covers(&steps(), step_arm, 7);
         covers(&modes(), mode_arm, 3);
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
-        covers(&control(), control_arm, 9);
+        covers(&control(), control_arm, 12);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 14);
-        covers(&to_ui(), to_ui_arm, 8);
+        covers(&cmds, ui_command_arm, 15);
+        covers(&to_ui(), to_ui_arm, 9);
+        let asks: Vec<_> = probes().into_iter().map(|p| p.ask).collect();
+        covers(&asks, probe_ask_arm, 2);
+        covers(&probe_outcomes(), probe_outcome_arm, 3);
+        covers(&probe_events(), probe_event_arm, 3);
         covers(&pairing(), pairing_arm, 5);
         covers(&pairing_statuses(), pairing_status_arm, 5);
         covers(&links(), link_arm, 3);

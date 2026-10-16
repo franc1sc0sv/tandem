@@ -6,24 +6,28 @@
 //! streams atendidos también contestan pings: sirven igual para el que abre el
 //! gestor de enlaces.
 //!
+//! Las sondas de calibración (T-078) van por el mismo stream de pedidos, pero se
+//! atienden aparte: esperan el clic del usuario y no frenan los pasos ni entre ellas.
+//!
 //! La lógica va sobre [`ControlChannel`]: en el agente es el stream de control de
 //! QUIC y en las pruebas puede ser un flujo en memoria.
 
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tandem_core::{Machine, State, Step};
 use tandem_link::manager::{LinkKind, Snapshot};
 use tandem_link::transport::{Connection, ControlStream, TransportError};
-use tandem_proto::{Channel, ControlMsg, Hello, Peer};
+use tandem_proto::{CalibrationProbe, Channel, ControlMsg, Hello, Peer, ProbeOutcome};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::agent::{Agent, IncomingChannel};
 use crate::ipc::Framed;
-use crate::orchestrator::{PEER_LOST, PeerLink, StepFuture};
+use crate::orchestrator::{PEER_LOST, PeerLink, ProbeFuture, StepFuture};
 use crate::store::reconcile;
 
 /// Mensajes de control en los dos sentidos.
@@ -58,6 +62,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> ControlChannel for Fram
 
 enum Outgoing {
     Step(Step, oneshot::Sender<Result<(), String>>),
+    Probe {
+        id: u64,
+        probe: CalibrationProbe,
+        reply: oneshot::Sender<ProbeOutcome>,
+    },
     Msg(ControlMsg),
 }
 
@@ -65,6 +74,8 @@ enum Outgoing {
 pub struct PeerClient {
     tx: mpsc::UnboundedSender<Outgoing>,
     task: JoinHandle<()>,
+    /// Las sondas se numeran aquí: quien espera tiene que saber qué sonda quitar.
+    next_probe: AtomicU64,
 }
 
 impl PeerClient {
@@ -74,6 +85,7 @@ impl PeerClient {
         PeerClient {
             tx,
             task: tokio::spawn(client_loop(chan, rx)),
+            next_probe: AtomicU64::new(1),
         }
     }
 
@@ -105,6 +117,46 @@ impl PeerLink for PeerClient {
     fn publish_state(&self, state: &State) {
         self.send(ControlMsg::State(state.clone()));
     }
+
+    fn show_probe<'a>(&'a self, probe: &'a CalibrationProbe) -> ProbeFuture<'a> {
+        Box::pin(async move {
+            let id = self.next_probe.fetch_add(1, Ordering::Relaxed);
+            let (reply, result) = oneshot::channel();
+            self.tx
+                .send(Outgoing::Probe {
+                    id,
+                    probe: probe.clone(),
+                    reply,
+                })
+                .map_err(|_| PEER_LOST.to_owned())?;
+            let mut hide = HideProbe {
+                tx: &self.tx,
+                id,
+                answered: false,
+            };
+            let outcome = result.await.map_err(|_| PEER_LOST.to_owned())?;
+            hide.answered = true;
+            Ok(outcome)
+        })
+    }
+}
+
+/// Si quien espera la sonda deja de esperarla (venció en el motor o se canceló), se le
+/// pide al otro agente que la quite.
+struct HideProbe<'a> {
+    tx: &'a mpsc::UnboundedSender<Outgoing>,
+    id: u64,
+    answered: bool,
+}
+
+impl Drop for HideProbe<'_> {
+    fn drop(&mut self) {
+        if !self.answered {
+            let _ = self
+                .tx
+                .send(Outgoing::Msg(ControlMsg::HideProbe { id: self.id }));
+        }
+    }
 }
 
 impl PeerClient {
@@ -118,6 +170,7 @@ impl PeerClient {
 async fn client_loop<C: ControlChannel>(mut chan: C, mut rx: mpsc::UnboundedReceiver<Outgoing>) {
     // Al salir se sueltan las respuestas pendientes: quien espera ve [`PEER_LOST`].
     let mut pending: HashMap<u64, oneshot::Sender<Result<(), String>>> = HashMap::new();
+    let mut probes: HashMap<u64, oneshot::Sender<ProbeOutcome>> = HashMap::new();
     let mut next_id = 0u64;
     loop {
         // El envío va fuera del `select!`: cortarlo a medias desalinearía el stream.
@@ -132,6 +185,11 @@ async fn client_loop<C: ControlChannel>(mut chan: C, mut rx: mpsc::UnboundedRece
                         // Si quien pidió ya se cansó de esperar, nadie escucha.
                         if let Some(reply) = pending.remove(&id) {
                             let _ = reply.send(outcome.into());
+                        }
+                    }
+                    Ok(Some(ControlMsg::ProbeResult { id, outcome })) => {
+                        if let Some(reply) = probes.remove(&id) {
+                            let _ = reply.send(outcome);
                         }
                     }
                     Ok(Some(ControlMsg::Ping { nonce })) => {
@@ -158,7 +216,17 @@ async fn client_loop<C: ControlChannel>(mut chan: C, mut rx: mpsc::UnboundedRece
                 pending.insert(id, reply);
                 chan.send(&ControlMsg::ExecuteStep { id, step }).await
             }
-            Outgoing::Msg(msg) => chan.send(&msg).await,
+            Outgoing::Probe { id, probe, reply } => {
+                probes.retain(|_, r| !r.is_closed());
+                probes.insert(id, reply);
+                chan.send(&ControlMsg::ShowProbe { id, probe }).await
+            }
+            Outgoing::Msg(msg) => {
+                if let ControlMsg::HideProbe { id } = &msg {
+                    probes.remove(id);
+                }
+                chan.send(&msg).await
+            }
         };
         if let Err(e) = sent {
             tracing::debug!("stream de pedidos al otro agente: {e}");
@@ -172,13 +240,13 @@ async fn client_loop<C: ControlChannel>(mut chan: C, mut rx: mpsc::UnboundedRece
 /// timeouts largos). La caída se nota en un ping, unos 1,25 s; el tiempo máximo del
 /// paso es de 10 s. Así la transacción deshace (o sigue) enseguida por el enlace
 /// siguiente.
-pub async fn over_link<H, F>(
+pub async fn over_link<H, F, T>(
     mut links: watch::Receiver<Snapshot<H>>,
     kind: LinkKind,
     request: F,
-) -> Result<(), String>
+) -> Result<T, String>
 where
-    F: Future<Output = Result<(), String>>,
+    F: Future<Output = Result<T, String>>,
 {
     // El gestor tarda al menos un ping en volver a dar el enlace por sano, así que
     // la foto con el enlace caído no se pierde entre dos lecturas.
@@ -197,11 +265,59 @@ where
 /// Los pasos se ejecutan de a uno y en orden: así el inverso de un paso que venció
 /// en el otro lado nunca corre antes que el paso mismo. Si el inverso llega por otro
 /// stream (cayó el enlace), el turno del orquestador lo hace esperar igual.
-pub async fn serve<C: ControlChannel>(mut chan: C, agent: Arc<Agent>) -> Result<(), String> {
-    while let Some(msg) = chan.recv().await? {
-        respond(&mut chan, &agent, msg).await?;
+///
+/// Las sondas de calibración ([`ControlMsg::ShowProbe`]) corren en su propia tarea y su
+/// respuesta sale cuando el usuario contesta o vence el plazo; al cerrarse el stream se
+/// quitan todas las que sigan a la vista.
+pub async fn serve<C: ControlChannel>(chan: C, agent: Arc<Agent>) -> Result<(), String> {
+    serve_from(chan, agent, None).await
+}
+
+async fn serve_from<C: ControlChannel>(
+    mut chan: C,
+    agent: Arc<Agent>,
+    mut first: Option<ControlMsg>,
+) -> Result<(), String> {
+    let (done_tx, mut done) = mpsc::unbounded_channel::<(u64, ProbeOutcome)>();
+    let mut probes: HashMap<u64, Abort> = HashMap::new();
+    loop {
+        let msg = match first.take() {
+            Some(msg) => msg,
+            None => tokio::select! {
+                msg = chan.recv() => match msg? {
+                    Some(msg) => msg,
+                    None => return Ok(()),
+                },
+                Some((id, outcome)) = done.recv() => {
+                    probes.remove(&id);
+                    chan.send(&ControlMsg::ProbeResult { id, outcome }).await?;
+                    continue;
+                }
+            },
+        };
+        match msg {
+            ControlMsg::ShowProbe { id, probe } => {
+                let (agent, done) = (agent.clone(), done_tx.clone());
+                let task = tokio::spawn(async move {
+                    let outcome = agent.probes().show(&probe, false).await;
+                    let _ = done.send((id, outcome));
+                });
+                probes.insert(id, Abort(task));
+            }
+            // Soltar la tarea suelta la sonda, y eso la quita de la UI.
+            ControlMsg::HideProbe { id } => drop(probes.remove(&id)),
+            msg => respond(&mut chan, &agent, msg).await?,
+        }
     }
-    Ok(())
+}
+
+/// Una sonda atendida para el otro agente; se quita si el stream se cierra.
+struct Abort(JoinHandle<()>);
+
+impl Drop for Abort {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 async fn respond<C: ControlChannel>(
@@ -239,7 +355,11 @@ async fn respond<C: ControlChannel>(
             ControlMsg::Open(channel) => {
                 return Err(format!("canal {channel:?} abierto a mitad de un stream"));
             }
-            ControlMsg::Pong { .. } | ControlMsg::StepResult { .. } => {}
+            // Las sondas las atiende `serve_from`; las respuestas son del que pide.
+            ControlMsg::ShowProbe { .. } | ControlMsg::HideProbe { .. } => {}
+            ControlMsg::Pong { .. }
+            | ControlMsg::StepResult { .. }
+            | ControlMsg::ProbeResult { .. } => {}
         }
     }
     Ok(())
@@ -303,8 +423,7 @@ async fn serve_stream(
         });
         return Ok(());
     }
-    respond(&mut stream, &agent, first).await?;
-    serve(stream, agent).await
+    serve_from(stream, agent, Some(first)).await
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -482,6 +601,198 @@ mod tests {
         assert!(task.await.unwrap().is_err());
     }
 
+    fn probe(timeout_ms: u64) -> CalibrationProbe {
+        CalibrationProbe {
+            monitor: tandem_proto::ProbeMonitor {
+                edid: None,
+                name: "Odyssey G5".into(),
+            },
+            input: Input::Hdmi,
+            ask: tandem_proto::ProbeAsk::Candidate { code: 0x05 },
+            timeout_ms,
+        }
+    }
+
+    async fn shown(rx: &mut tokio::sync::broadcast::Receiver<tandem_proto::ProbeEvent>) -> u64 {
+        match rx.recv().await.unwrap() {
+            tandem_proto::ProbeEvent::Show { id, .. } => id,
+            other => panic!("se esperaba Show: {other:?}"),
+        }
+    }
+
+    /// T-078: la PC pide la sonda, la UI de la Mac la muestra y el clic vuelve a la PC.
+    #[tokio::test(start_paused = true)]
+    async fn a_remote_probe_is_shown_and_answered_by_the_peer() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pc, _) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (mac, _) = agent(dir.path(), Machine::Mac, FakeSteps::default());
+        let _serve = link(&pc, &mac);
+        let mut ui = mac.subscribe_probes();
+        let peer = pc.orchestrator().peer();
+        let wanted = probe(8000);
+        let ask = peer.show_probe(&wanted);
+        let click = async {
+            let id = shown(&mut ui).await;
+            mac.probes().answer(id, true).unwrap();
+            id
+        };
+        let (outcome, id) = tokio::join!(ask, click);
+        assert_eq!(outcome, Ok(ProbeOutcome::Seen));
+        assert_eq!(
+            ui.recv().await.unwrap(),
+            tandem_proto::ProbeEvent::Hide { id }
+        );
+    }
+
+    /// Sin clic, la Mac cuenta la sonda como no vista en su plazo y la quita sola.
+    #[tokio::test(start_paused = true)]
+    async fn without_a_click_the_peer_answers_unseen_in_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pc, _) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (mac, _) = agent(dir.path(), Machine::Mac, FakeSteps::default());
+        let _serve = link(&pc, &mac);
+        let mut ui = mac.subscribe_probes();
+        let start = tokio::time::Instant::now();
+        let outcome = pc.orchestrator().peer().show_probe(&probe(8000)).await;
+        assert_eq!(outcome, Ok(ProbeOutcome::Unseen));
+        assert_eq!(start.elapsed(), Duration::from_secs(8));
+        let id = shown(&mut ui).await;
+        assert_eq!(
+            ui.recv().await.unwrap(),
+            tandem_proto::ProbeEvent::Hide { id }
+        );
+    }
+
+    /// Si la PC deja de esperar (el motor venció o se canceló), la sonda de la Mac se
+    /// quita en ese momento, sin esperar su plazo.
+    #[tokio::test(start_paused = true)]
+    async fn giving_up_hides_the_peers_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pc, _) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (mac, _) = agent(dir.path(), Machine::Mac, FakeSteps::default());
+        let _serve = link(&pc, &mac);
+        let mut ui = mac.subscribe_probes();
+        let peer = pc.orchestrator().peer();
+        let wanted = probe(120_000);
+        let start = tokio::time::Instant::now();
+        let gave_up = tokio::time::timeout(Duration::from_secs(2), peer.show_probe(&wanted)).await;
+        assert!(gave_up.is_err());
+        let id = shown(&mut ui).await;
+        assert_eq!(
+            ui.recv().await.unwrap(),
+            tandem_proto::ProbeEvent::Hide { id }
+        );
+        assert!(start.elapsed() < Duration::from_secs(3));
+        // Un clic tardío ya no llega a nadie.
+        assert!(mac.probes().answer(id, true).is_err());
+    }
+
+    /// Una sonda esperando el clic no frena los pasos que pide el mismo agente.
+    #[tokio::test(start_paused = true)]
+    async fn a_pending_probe_does_not_block_steps() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mac, _) = agent(dir.path(), Machine::Mac, FakeSteps::default());
+        let (pc, pc_steps) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let _serve = link(&mac, &pc);
+        let mut ui = pc.subscribe_probes();
+        let peer = mac.orchestrator().peer();
+        let wanted = probe(120_000);
+        let pending = peer.show_probe(&wanted);
+        tokio::pin!(pending);
+        let step = async {
+            shown(&mut ui).await;
+            peer.execute(&switch_34_to_pc()).await
+        };
+        tokio::select! {
+            r = step => assert_eq!(r, Ok(())),
+            _ = &mut pending => panic!("la sonda no debería contestarse sola"),
+        }
+        assert_eq!(pc_steps.steps(), [switch_34_to_pc()]);
+    }
+
+    /// Sin UI en la otra máquina la sonda falla enseguida: quien calibra pregunta aquí.
+    #[tokio::test(start_paused = true)]
+    async fn a_peer_without_a_window_fails_the_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pc, _) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (mac, _) = agent(dir.path(), Machine::Mac, FakeSteps::default());
+        let _serve = link(&pc, &mac);
+        let outcome = pc.orchestrator().peer().show_probe(&probe(8000)).await;
+        assert_eq!(
+            outcome,
+            Ok(ProbeOutcome::Failed(crate::calibration::NO_UI.into()))
+        );
+    }
+
+    /// El `Confirmer` real: lo de la entrada propia se muestra aquí, lo de la otra en la
+    /// otra máquina, y si ella no puede mostrarlo (sin ventana) se pregunta aquí.
+    #[tokio::test(start_paused = true)]
+    async fn the_confirmer_routes_each_probe_to_the_machine_that_should_see_it() {
+        use tandem_display::calibrate::{Confirmer, Probe, ProbeKind};
+        use tandem_display::ddc::MonitorInfo;
+        let dir = tempfile::tempdir().unwrap();
+        let (pc, _) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (mac, _) = agent(dir.path(), Machine::Mac, FakeSteps::default());
+        let _serve = link(&pc, &mac);
+        let confirmer = crate::AgentConfirmer::new(pc.clone(), Input::DisplayPort);
+        let probe = |input| Probe {
+            monitor: MonitorInfo {
+                index: 0,
+                description: "Monitor PnP genérico".into(),
+                device: String::new(),
+                edid: None,
+            },
+            input,
+            kind: ProbeKind::Candidate { code: 0x0F },
+            timeout: Duration::from_secs(8),
+        };
+        let mut pc_ui = pc.subscribe_probes();
+
+        // DisplayPort es de la PC: su propia UI, a pantalla completa.
+        let dp = probe(Input::DisplayPort);
+        let (seen, ()) = tokio::join!(confirmer.confirm(&dp), async {
+            let e = pc_ui.recv().await.unwrap();
+            let tandem_proto::ProbeEvent::Show { id, place, .. } = e else {
+                panic!("{e:?}")
+            };
+            assert_eq!(place, tandem_proto::ProbePlace::Monitor { screen: None });
+            pc.probes().answer(id, true).unwrap();
+        });
+        assert_eq!(seen, Ok(true));
+        pc_ui.recv().await.unwrap();
+
+        // HDMI es de la Mac, que no tiene ventana abierta: la PC pregunta.
+        let hdmi = probe(Input::Hdmi);
+        let (seen, ()) = tokio::join!(confirmer.confirm(&hdmi), async {
+            let e = pc_ui.recv().await.unwrap();
+            let tandem_proto::ProbeEvent::Show { id, place, .. } = e else {
+                panic!("{e:?}")
+            };
+            assert_eq!(place, tandem_proto::ProbePlace::Question);
+            pc.probes().answer(id, false).unwrap();
+        });
+        assert_eq!(seen, Ok(false));
+
+        // Sin ventana en ninguna de las dos, la calibración no puede seguir.
+        drop(pc_ui);
+        let err = confirmer.confirm(&hdmi).await.unwrap_err();
+        assert_eq!(err.0, crate::calibration::NO_UI);
+    }
+
+    /// Sin par, `NoPeer` no tiene a quién pedirle la sonda.
+    #[tokio::test]
+    async fn without_a_peer_there_is_no_remote_probe() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pc, _) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        assert!(
+            pc.orchestrator()
+                .peer()
+                .show_probe(&probe(8000))
+                .await
+                .is_err()
+        );
+    }
+
     #[test]
     fn peer_must_be_the_other_machine() {
         assert!(check_peer(Machine::Mac, Peer::Agent(Machine::Pc)).is_ok());
@@ -591,7 +902,11 @@ mod tests {
     async fn request_fails_when_its_link_goes_down() {
         let (tx, rx) = watch::channel(snapshot(&[LinkKind::Usb4, LinkKind::Ethernet]));
         let start = tokio::time::Instant::now();
-        let request = over_link(rx, LinkKind::Usb4, std::future::pending());
+        let request = over_link(
+            rx,
+            LinkKind::Usb4,
+            std::future::pending::<Result<(), String>>(),
+        );
         let cut = async {
             tokio::time::sleep(Duration::from_millis(1250)).await;
             // Caer otro enlace no afecta al pedido.
@@ -616,13 +931,21 @@ mod tests {
             Ok(())
         );
         assert_eq!(
-            over_link(rx, LinkKind::Usb4, async { Err("falla".to_owned()) }).await,
+            over_link(rx, LinkKind::Usb4, async {
+                Err::<(), _>("falla".to_owned())
+            })
+            .await,
             Err("falla".to_owned())
         );
         // Con el enlace ya caído no hay a quién pedirle nada.
         tx.send_replace(snapshot(&[]));
         assert_eq!(
-            over_link(tx.subscribe(), LinkKind::Usb4, std::future::pending()).await,
+            over_link(
+                tx.subscribe(),
+                LinkKind::Usb4,
+                std::future::pending::<Result<(), String>>()
+            )
+            .await,
             Err(PEER_LOST.to_owned())
         );
     }
@@ -633,7 +956,12 @@ mod tests {
         let (tx, rx) = watch::channel(snapshot(&[LinkKind::Usb4]));
         drop(tx);
         assert_eq!(
-            over_link(rx, LinkKind::Usb4, std::future::pending()).await,
+            over_link(
+                rx,
+                LinkKind::Usb4,
+                std::future::pending::<Result<(), String>>()
+            )
+            .await,
             Err(PEER_LOST.to_owned())
         );
     }

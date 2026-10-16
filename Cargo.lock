@@ -4085,6 +4085,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "tandem-core",
+ "tandem-display",
  "tandem-link",
  "tandem-peripherals",
  "tandem-proto",

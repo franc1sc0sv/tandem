@@ -389,3 +389,100 @@ async fn power_on_waits_for_the_pc_agent() {
     pc.stop().await;
     mac.stop().await;
 }
+
+/// El usuario frente a una UI conectada por la IPC: cambia la entrada a mano cuando se
+/// le pide y hace clic en la sonda solo si el monitor muestra su máquina (`mine`).
+async fn calibration_user(
+    ui: &mut IpcClient<tokio::io::DuplexStream>,
+    sim: &tandem_display::calibrate::sim::SimMonitor,
+    mine: tandem_core::Input,
+) {
+    use tandem_display::calibrate::sim::Showing;
+    use tandem_proto::{ProbeAsk, ProbeEvent};
+    loop {
+        let Some(AgentToUi::Probe(ProbeEvent::Show { id, probe, .. })) =
+            ui.next_event().await.unwrap()
+        else {
+            continue;
+        };
+        if probe.ask == ProbeAsk::UserSwitch {
+            sim.lock().showing = Showing::Input(probe.input);
+        }
+        if probe.input == mine && sim.showing() == Showing::Input(mine) {
+            // Puede llegar tarde (otro Show de la misma sonda): un rechazo no importa.
+            let _ = ui
+                .request(UiCommand::AnswerProbe { id, seen: true })
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// T-078 por QUIC real: la PC calibra el 32" simulado y la Mac confirma lo de HDMI con
+/// clics de su UI, por la IPC y el enlace en loopback.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn calibration_is_confirmed_from_the_other_machine() {
+    use tandem_core::{DdcProfile, Input};
+    use tandem_display::calibrate::sim::{Showing, SimMonitor, samsung_32};
+    use tandem_display::calibrate::{CalibrationOptions, CalibrationRequest, CancelToken};
+
+    let (mac_id, pc_id) = (Identity::from_seed([5; 32]), Identity::from_seed([6; 32]));
+    let (mac_port, pc_port) = (free_port(), free_port());
+    let mut mac = start(
+        Machine::Mac,
+        &mac_id,
+        mac_port,
+        Some((pc_id.public_key(), pc_port)),
+    )
+    .await;
+    let mut pc = start(
+        Machine::Pc,
+        &pc_id,
+        pc_port,
+        Some((mac_id.public_key(), mac_port)),
+    )
+    .await;
+    until_peer(&mac.agent, paired("pc", Some(Link::Usb4))).await;
+    until_peer(&pc.agent, paired("mac", Some(Link::Usb4))).await;
+
+    let sim = SimMonitor::new(samsung_32(), Input::DisplayPort);
+    let req = CalibrationRequest {
+        monitor: 0,
+        start: Input::DisplayPort,
+        known: Vec::new(),
+        // Relojes reales: plazos cortos para que la prueba no tarde.
+        options: CalibrationOptions {
+            confirm_timeout: Duration::from_secs(5),
+            user_switch_timeout: Duration::from_secs(5),
+            settle: Duration::from_millis(50),
+            retry_gap: Duration::from_millis(10),
+            ..CalibrationOptions::default()
+        },
+    };
+    let confirmer = tandemd::AgentConfirmer::new(pc.agent.clone(), Input::DisplayPort);
+    let mut bus = sim.clone();
+    let (cancel, mut on_event) = (CancelToken::new(), |_: &_| {});
+    let result = within(async {
+        tokio::select! {
+            r = tandem_display::calibrate::calibrate(
+                &mut bus, &req, &confirmer, &cancel, &mut on_event,
+            ) => r,
+            () = calibration_user(&mut mac.ui, &sim, Input::Hdmi) => unreachable!(),
+            () = calibration_user(&mut pc.ui, &sim, Input::DisplayPort) => unreachable!(),
+        }
+    })
+    .await;
+    let profile = result.unwrap();
+    assert_eq!(
+        profile.ddc_profile(),
+        Some(DdcProfile {
+            hdmi: 0x05,
+            display_port: 0x0F
+        })
+    );
+    // Cada código se vio al primer intento: nada esperó el plazo.
+    assert_eq!(profile.attempts, 2);
+    assert_eq!(sim.showing(), Showing::Input(Input::DisplayPort));
+    pc.stop().await;
+    mac.stop().await;
+}

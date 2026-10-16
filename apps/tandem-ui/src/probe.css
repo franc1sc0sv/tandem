@@ -1,0 +1,29 @@
+/* La sonda de calibración: cubre todo el monitor, así que el marco deja claro cuál es. */
+body.probe { display: grid; place-items: stretch; padding: 28px; }
+.frame {
+  border: 2px dashed var(--line-2);
+  border-radius: 22px;
+  display: grid;
+  place-items: center;
+}
+.pcard { display: grid; justify-items: center; gap: 18px; text-align: center; max-width: 680px; padding: 24px; }
+.plogo { width: 44px; height: 44px; opacity: .9; }
+.pcard h1 { margin: 0; font-size: 38px; font-weight: 650; letter-spacing: .2px; }
+.pdetail { margin: 0; color: var(--dim); font-size: 17px; line-height: 1.5; }
+.pbig {
+  margin-top: 14px;
+  display: inline-flex; align-items: center; gap: 14px;
+  padding: 22px 46px;
+  border-radius: 18px;
+  border: 1px solid var(--line-2);
+  background: var(--panel-2);
+  font-size: 22px; font-weight: 600;
+  cursor: pointer;
+  transition: background .15s, border-color .15s;
+}
+.pbig svg { width: 28px; height: 28px; color: var(--ok); }
+.pbig:hover { background: #22242a; border-color: var(--focus); }
+.pbig.done { border-color: var(--ok); color: var(--ok); cursor: default; }
+.pbar { width: 280px; height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.pbar span { display: block; height: 100%; width: 100%; background: var(--faint); transform-origin: left; transition: transform .25s linear; }
+.pcount { margin: 0; color: var(--faint); font-size: 13px; }

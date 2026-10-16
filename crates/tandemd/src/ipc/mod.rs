@@ -7,9 +7,9 @@
 //! y [`AgentToUi::Txn`] con el avance de cada cambio de modo, [`AgentToUi::ManualSwitch`]
 //! cuando hay que cambiar a mano la entrada de un monitor, [`AgentToUi::Power`] cuando
 //! la PC se da por apagada sin que nadie la apagara, [`AgentToUi::Peer`] cuando cambia
-//! el par o el enlace con él, [`AgentToUi::Pairing`] con cada paso del emparejamiento
-//! y [`AgentToUi::Input`] cuando cambia el teclado y mouse (roles, sesión, permisos
-//! que faltan).
+//! el par o el enlace con él, [`AgentToUi::Pairing`] con cada paso del emparejamiento,
+//! [`AgentToUi::Input`] cuando cambia el teclado y mouse (roles, sesión, permisos
+//! que faltan) y [`AgentToUi::Probe`] con las sondas de calibración que mostrar.
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -148,6 +148,7 @@ where
     states.mark_unchanged();
     let mut txns = agent.subscribe_txns();
     let mut manual = agent.subscribe_manual();
+    let mut probes = agent.subscribe_probes();
     let mut power = agent.subscribe_power();
     let mut peer = agent.subscribe_peer();
     peer.mark_unchanged();
@@ -183,6 +184,14 @@ where
                 // Un pedido perdido vence con su paso, y la UI lo ve en la transacción.
                 Err(RecvError::Lagged(n)) => {
                     tracing::warn!("la UI se atrasó y perdió {n} pedidos de cambio manual");
+                }
+                Err(RecvError::Closed) => return Ok(()),
+            },
+            event = probes.recv() => match event {
+                Ok(event) => conn.send(&AgentToUi::Probe(event)).await?,
+                // Una sonda perdida vence sola y cuenta como no vista.
+                Err(RecvError::Lagged(n)) => {
+                    tracing::warn!("la UI se atrasó y perdió {n} avisos de sondas de calibración");
                 }
                 Err(RecvError::Closed) => return Ok(()),
             },
@@ -449,6 +458,56 @@ mod tests {
         };
         agent.emit_power(ev.clone());
         assert_eq!(c.next_event().await.unwrap(), Some(AgentToUi::Power(ev)));
+    }
+
+    /// T-078: la sonda llega a la UI, el clic vuelve por la IPC y la sonda se quita.
+    #[tokio::test]
+    async fn probes_are_pushed_and_answered() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agent, io, _stop) = start(dir.path());
+        let mut c = IpcClient::handshake(io).await.unwrap();
+        c.get_state().await.unwrap();
+        let probe = tandem_proto::CalibrationProbe {
+            monitor: tandem_proto::ProbeMonitor {
+                edid: None,
+                name: "Odyssey G5".into(),
+            },
+            input: tandem_core::Input::Hdmi,
+            ask: tandem_proto::ProbeAsk::UserSwitch,
+            timeout_ms: 60_000,
+        };
+        let shown = tokio::spawn({
+            let (agent, probe) = (agent.clone(), probe.clone());
+            async move { agent.probes().show(&probe, false).await }
+        });
+        let Some(AgentToUi::Probe(tandem_proto::ProbeEvent::Show {
+            id,
+            probe: got,
+            place,
+        })) = c.next_event().await.unwrap()
+        else {
+            panic!("se esperaba la sonda");
+        };
+        assert_eq!(got, probe);
+        assert_eq!(place, tandem_proto::ProbePlace::Monitor { screen: None });
+        assert_eq!(
+            c.request(UiCommand::AnswerProbe { id, seen: true })
+                .await
+                .unwrap(),
+            Reply::Done
+        );
+        assert_eq!(shown.await.unwrap(), tandem_proto::ProbeOutcome::Seen);
+        assert_eq!(
+            c.next_event().await.unwrap(),
+            Some(AgentToUi::Probe(tandem_proto::ProbeEvent::Hide { id }))
+        );
+        // Contestar una que ya no está se rechaza.
+        assert!(matches!(
+            c.request(UiCommand::AnswerProbe { id, seen: true })
+                .await
+                .unwrap(),
+            Reply::Rejected(_)
+        ));
     }
 
     #[tokio::test]
