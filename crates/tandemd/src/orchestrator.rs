@@ -15,11 +15,15 @@
 //! pudo haberse hecho igual (se perdió la respuesta, no el pedido). Ese paso incierto
 //! también se deshace, antes que los demás; los pasos son idempotentes, así que
 //! deshacer uno que no llegó a hacerse no cambia nada.
+//!
+//! Las dos máquinas pueden orquestar, pero de a una: la que hace pasos para la otra
+//! queda prestada hasta recibir su estado final, y la que orquesta rechaza los pasos
+//! ajenos.
 
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, PoisonError, RwLock};
+use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::Duration;
 
 use tandem_core::{
@@ -34,6 +38,8 @@ pub const STEP_NOT_IMPLEMENTED: &str = "no implementado";
 pub const PEER_NOT_CONNECTED: &str = "el otro agente no está conectado";
 /// Se cortó la conexión con el otro agente con un paso pendiente.
 pub const PEER_LOST: &str = "se perdió la conexión con el otro agente";
+/// El otro agente pidió un paso mientras esta máquina orquesta su propio cambio.
+pub const BUSY_HERE: &str = "esta máquina está en medio de otro cambio";
 
 /// Cada cuánto se repite el Wake-on-LAN mientras se espera a la PC: un paquete UDP
 /// se puede perder, y la tarjeta tarda en quedar lista tras cortarse la luz.
@@ -168,6 +174,11 @@ pub struct Orchestrator {
     events: broadcast::Sender<TxnEvent>,
     next_txn: AtomicU64,
     busy: AtomicBool,
+    /// Hasta cuándo esta máquina está prestada a una transacción del otro agente.
+    /// Las dos máquinas tocan el mismo puesto: mientras una orquesta, la otra no
+    /// puede empezar un cambio propio, y una que orquesta no acepta pasos ajenos.
+    /// Las dos comprobaciones van bajo este candado para que no se crucen.
+    peer_lease: Mutex<Option<tokio::time::Instant>>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -191,6 +202,7 @@ impl Orchestrator {
             events: broadcast::channel(EVENT_BUFFER).0,
             next_txn: AtomicU64::new(1),
             busy: AtomicBool::new(false),
+            peer_lease: Mutex::new(None),
         }
     }
 
@@ -222,12 +234,36 @@ impl Orchestrator {
         self.events.subscribe()
     }
 
-    /// Reserva el orquestador para una transacción; `None` si ya hay una en curso.
+    /// Reserva el orquestador para una transacción; `None` si ya hay una en curso,
+    /// propia o del otro agente.
     pub fn try_begin(&self) -> Option<u64> {
+        let lease = self.lease();
+        if lease.is_some_and(|until| tokio::time::Instant::now() < until) {
+            return None;
+        }
         self.busy
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .ok()
             .map(|_| self.next_txn.fetch_add(1, Ordering::Relaxed))
+    }
+
+    fn lease(&self) -> std::sync::MutexGuard<'_, Option<tokio::time::Instant>> {
+        self.peer_lease
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// La transacción del otro agente terminó (llegó su estado final).
+    pub fn release_peer_lease(&self) {
+        *self.lease() = None;
+    }
+
+    /// Cuánto dura el préstamo tras cada paso del otro agente: lo más que puede
+    /// tardar él en pedir el siguiente (un paso propio con su tiempo máximo, el
+    /// más largo es encender la PC) más un paso nuestro. Si se pierde su estado
+    /// final, la máquina queda libre a lo sumo tras esto.
+    fn lease_length(&self) -> Duration {
+        self.timeouts.power_on + self.timeouts.step
     }
 
     /// Libera lo reservado con [`Orchestrator::try_begin`].
@@ -389,6 +425,13 @@ impl Orchestrator {
             }
             _ => {}
         }
+        {
+            let mut lease = self.lease();
+            if self.busy.load(Ordering::Acquire) {
+                return Err(format!("{}: {BUSY_HERE}", describe(step)));
+            }
+            *lease = Some(tokio::time::Instant::now() + self.lease_length());
+        }
         let limit = self.timeouts.for_step(step);
         match tokio::time::timeout(limit, self.run_local(step)).await {
             Ok(r) => r,
@@ -479,6 +522,24 @@ impl Executor for Dispatcher<'_> {
                 self.orch.emit(TxnEvent::StepDone { txn, index });
                 self.next += 1;
                 step.apply_to(&mut self.state);
+                Ok(())
+            }
+            // El apagado es lo último del plan, con todo ya en la Mac. Si la respuesta
+            // no llega, lo más probable es que la PC se haya apagado (o esté en eso):
+            // deshacer devolvería los monitores a una PC sin imagen y la Mac se
+            // quitaría los suyos. Se da por hecho; si la PC sigue prendida, queda sin
+            // monitores y el próximo cambio la vuelve a esperar con Wake-on-LAN.
+            Err(StepFailure {
+                error,
+                uncertain: true,
+            }) if *step == Step::PowerOffPc => {
+                tracing::warn!(
+                    txn,
+                    index,
+                    "el apagado no respondió; se da por hecho: {error}"
+                );
+                self.orch.emit(TxnEvent::StepDone { txn, index });
+                self.next += 1;
                 Ok(())
             }
             Err(StepFailure { error, uncertain }) => {
@@ -1152,5 +1213,87 @@ pub(crate) mod tests {
             undo_failures,
             [(detach_pc, "pc: falla simulada".to_owned())]
         );
+    }
+
+    // QA ronda 2: cada agente solo se cuidaba de sus propias transacciones, así que
+    // la Mac y la PC podían orquestar a la vez sobre el mismo puesto.
+    #[tokio::test]
+    async fn while_orchestrating_peer_steps_are_refused_without_running() {
+        let (o, local, _) = mac(FakeSteps::default(), FakeSteps::default());
+        let _txn = o.try_begin().unwrap();
+        let e = o.execute_for_peer(&Step::PowerOnPc).await.unwrap_err();
+        assert!(e.contains(BUSY_HERE), "{e}");
+        assert!(local.steps().is_empty());
+        o.end();
+        o.execute_for_peer(&Step::PowerOnPc).await.unwrap();
+        assert_eq!(local.steps(), [Step::PowerOnPc]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn serving_the_peer_blocks_own_changes_until_it_finishes() {
+        let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
+        o.execute_for_peer(&Step::UpdateInputGeometry)
+            .await
+            .unwrap();
+        assert_eq!(o.try_begin(), None, "la máquina está prestada");
+        // Llega el estado final de la transacción del otro: queda libre.
+        o.release_peer_lease();
+        let txn = o.try_begin().unwrap();
+        o.end();
+
+        // Si el estado final se pierde, el préstamo vence solo.
+        o.execute_for_peer(&Step::UpdateInputGeometry)
+            .await
+            .unwrap();
+        let t = StepTimeouts::default();
+        tokio::time::advance(t.power_on + t.step - Duration::from_millis(1)).await;
+        assert_eq!(o.try_begin(), None);
+        tokio::time::advance(Duration::from_millis(1)).await;
+        assert!(o.try_begin().is_some_and(|next| next > txn));
+    }
+
+    // QA ronda 2: si la respuesta del apagado se perdía, la Mac deshacía todo lo
+    // anterior y se quitaba los monitores aunque la PC ya se estuviera apagando.
+    #[tokio::test]
+    async fn lost_reply_to_power_off_is_taken_as_done() {
+        let cfg = fixtures::desk().desk;
+        let (o, local, peer) = mac(
+            FakeSteps::default(),
+            FakeSteps {
+                lost_reply_on: vec![Step::PowerOffPc],
+                ..Default::default()
+            },
+        );
+        let mut state = State::initial(&cfg);
+        state.pc_on = true;
+        state.owner.insert("m34".into(), Machine::Pc);
+        let plan = Plan::shutdown_pc(&cfg, &state).unwrap();
+        let report = o.run(1, &cfg, &mut state, &plan).await.unwrap();
+        assert_eq!(report.applied, plan.steps);
+        assert!(!state.pc_on);
+        assert_eq!(state, {
+            let mut s = State::initial(&cfg);
+            s.builtin_pref = state.builtin_pref;
+            s
+        });
+        // Nada se deshizo.
+        assert_eq!(peer.steps().last(), Some(&Step::PowerOffPc));
+        assert_eq!(local.steps().last(), Some(&Step::UpdateInputGeometry));
+
+        // Un apagado que falla con certeza sí se deshace.
+        let (o, _, peer) = mac(
+            FakeSteps::default(),
+            FakeSteps {
+                fail_on: vec![Step::PowerOffPc],
+                ..Default::default()
+            },
+        );
+        let mut state = State::initial(&cfg);
+        state.pc_on = true;
+        state.owner.insert("m34".into(), Machine::Pc);
+        let before = state.clone();
+        o.run(2, &cfg, &mut state, &plan).await.unwrap_err();
+        assert_eq!(state, before);
+        assert_ne!(peer.steps().last(), Some(&Step::PowerOffPc));
     }
 }

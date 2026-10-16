@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc a0243a814bafac547a043d35bf344df11f3053436d0abede1242b5e822597115 # shrinks to actions = [Action { op: Mode(SoloPc), from_pc: false, fault: Some(Fault { index: Index(2049638230412172402), on_mac: false, kind: Fail }) }, Action { op: Shutdown, from_pc: false, fault: Some(Fault { index: Index(0), on_mac: false, kind: LostReply }) }]

@@ -16,5 +16,9 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time", "test-util"] }
 tracing.workspace = true
 
+[dev-dependencies]
+proptest.workspace = true
+tandem-peripherals = { path = "../tandem-peripherals" }
+
 [lints]
 workspace = true

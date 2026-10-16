@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use tandem_core::{Config, Machine, Step};
+use tandem_link::manager::LinkKind;
 use tandemd::orchestrator::{LocalSteps, StepFuture, describe};
 use tokio::sync::watch;
 
@@ -113,10 +114,14 @@ impl SimSteps {
     }
 
     /// Wake-on-LAN y esperar a que el agente de la PC conteste por algún enlace.
+    ///
+    /// El paquete mágico solo sale por Ethernet (DESIGN §6): sin ese cable la PC no
+    /// se entera y el paso vence por tiempo.
     async fn power_on(&self) -> Result<(), String> {
+        let ethernet = self.net.is_up(LinkKind::Ethernet);
         let send_wol = {
             let mut w = self.world.lock();
-            let off = w.power == Power::Off;
+            let off = w.power == Power::Off && ethernet;
             if off {
                 w.power = Power::Booting;
             }

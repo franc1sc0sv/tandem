@@ -24,6 +24,9 @@ pub struct DisplaySteps {
     desk: Config,
     switcher: Option<Arc<dyn MonitorSwitcher>>,
     desktop: Option<Arc<dyn DesktopControl>>,
+    /// Turno del escritorio: un paso que venció sigue corriendo en su hilo
+    /// bloqueante, y el siguiente (su inverso) tiene que esperar a que termine.
+    desktop_turn: Arc<tokio::sync::Mutex<()>>,
     others: Arc<dyn LocalSteps>,
 }
 
@@ -45,6 +48,7 @@ impl DisplaySteps {
             desk,
             switcher: None,
             desktop: None,
+            desktop_turn: Arc::default(),
             others: Arc::new(Unimplemented),
         }
     }
@@ -114,11 +118,15 @@ impl DisplaySteps {
             return Err(format!("no le corresponde a {}", self.me));
         }
         let desktop = self.desktop.clone().ok_or(STEP_NOT_IMPLEMENTED)?;
+        let turn = self.desktop_turn.clone().lock_owned().await;
         // Las APIs de topología bloquean (SetDisplayConfig tarda cientos de ms).
-        tokio::task::spawn_blocking(move || op(desktop.as_ref()))
-            .await
-            .map_err(|e| format!("el backend de pantallas terminó mal: {e}"))?
-            .map_err(|e| e.to_string())
+        tokio::task::spawn_blocking(move || {
+            let _turn = turn;
+            op(desktop.as_ref())
+        })
+        .await
+        .map_err(|e| format!("el backend de pantallas terminó mal: {e}"))?
+        .map_err(|e| e.to_string())
     }
 }
 
@@ -176,7 +184,7 @@ pub fn manual_event_to_ui(ev: ManualEvent) -> ManualSwitchEvent {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, PoisonError};
+    use std::sync::{Mutex, PoisonError, mpsc};
 
     use tandem_core::{Input, Mode, State};
     use tandem_display::switcher::{SwitchError, SwitchFuture};
@@ -609,5 +617,75 @@ mod tests {
             manual_event_to_ui(ManualEvent::Closed { id: 3 }),
             ManualSwitchEvent::Closed { id: 3 }
         );
+    }
+
+    /// Aviso de que empezó, permiso para seguir y aviso de que terminó.
+    type Gate = (mpsc::Sender<()>, mpsc::Receiver<()>, mpsc::Sender<()>);
+
+    /// Un escritorio cuyo primer `attach` se queda bloqueado hasta que la prueba lo suelta.
+    struct GatedDesktop {
+        inner: Desktop,
+        gate: Mutex<Option<Gate>>,
+    }
+
+    impl DesktopControl for GatedDesktop {
+        fn attach(&self, monitor: &MonitorConfig) -> Result<(), DesktopError> {
+            let gate = self.gate.lock().unwrap().take();
+            if let Some((started, release, _)) = &gate {
+                started.send(()).unwrap();
+                release.recv().unwrap();
+            }
+            let r = self.inner.attach(monitor);
+            if let Some((_, _, done)) = gate {
+                done.send(()).unwrap();
+            }
+            r
+        }
+        fn detach(&self, monitor: &MonitorConfig) -> Result<(), DesktopError> {
+            self.inner.detach(monitor)
+        }
+        fn set_builtin(&self, mode: BuiltinDisplay) -> Result<(), DesktopError> {
+            self.inner.set_builtin(mode)
+        }
+    }
+
+    // QA ronda 2: si agregar un monitor vencía, su hilo bloqueante seguía y el
+    // inverso (quitarlo) podía correr antes: el monitor quedaba agregado, fantasma.
+    #[tokio::test]
+    async fn a_timed_out_desktop_step_cannot_land_after_its_inverse() {
+        let (started_tx, started) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel();
+        let (done_tx, done) = mpsc::channel();
+        let desktop = Arc::new(GatedDesktop {
+            inner: Desktop::default(),
+            gate: Mutex::new(Some((started_tx, release_rx, done_tx))),
+        });
+        let pc = Arc::new(DisplaySteps::new(Machine::Pc, desk()).with_desktop(desktop.clone()));
+        let attach = Step::Attach {
+            machine: Machine::Pc,
+            monitor: "m34".into(),
+        };
+        {
+            let mut first = pc.execute(&attach);
+            tokio::select! {
+                biased;
+                _ = &mut first => panic!("el paso colgado terminó"),
+                _ = tokio::task::spawn_blocking(move || started.recv()) => {}
+            }
+        }
+        let undo = tokio::spawn({
+            let (pc, inv) = (pc.clone(), attach.inverse(&desk()).unwrap());
+            async move { pc.execute(&inv).await }
+        });
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        release.send(()).unwrap();
+        undo.await.unwrap().unwrap();
+        tokio::task::spawn_blocking(move || done.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(desktop.inner.calls(), ["attach m34", "detach m34"]);
     }
 }

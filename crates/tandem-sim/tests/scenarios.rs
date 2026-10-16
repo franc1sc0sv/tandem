@@ -171,6 +171,11 @@ async fn every_step_rolls_back(leg: Leg, action: FaultAction) {
             Target::Both => vec![Machine::Mac, Machine::Pc],
         };
         for machine in machines {
+            // Un apagado sin respuesta se da por hecho, no se deshace: lo prueba
+            // `adversarial.rs`.
+            if *step == Step::PowerOffPc && action == FaultAction::Hang {
+                continue;
+            }
             let case = format!("{leg:?}: {action:?} en {machine} al {step:?}");
             let d = leg.prepare().await;
             let (before, physical) = (d.mac.state(), d.world.physical());
