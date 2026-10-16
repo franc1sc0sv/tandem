@@ -1,0 +1,19 @@
+# Samsung Odyssey G5 32". docs/research/ddc-32-odyssey-g5.md
+pnp_id = "SAM7489"
+name = "Odyssey G5 32\" (SAM7489)"
+edid_names = ["Odyssey G5"]
+# "Odyssey G5" lo comparten varios modelos: solo se reconoce por el id PnP.
+generic_name = true
+notes = """
+Declara 60 = {01, 03, 04, 11, 12, 0F, 10}; el código de HDMI no está en esa lista.
+0x06 lleva a una entrada sin señal (negro); 0x0F lo recupera."""
+verified_by = "franc1sc0sv (T-050)"
+verified_on = "2026-10-16"
+
+[codes]
+hdmi = 0x05
+display_port = 0x0F
+
+# Lectura de 0x60 estando en cada entrada (en HDMI da el código real).
+[reported]
+hdmi = 0x05

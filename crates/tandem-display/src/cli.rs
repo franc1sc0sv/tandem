@@ -6,9 +6,10 @@ use std::time::Duration;
 
 use tandem_core::model::Input;
 
+use crate::ddc::profiles::{DdcProfile, Entry, ProfileDb};
 use crate::ddc::switch::{
-    self, PlanError, SwitchError, SwitchEvent, SwitchPlan, Waiter, input_name, known_profile,
-    mccs_standard, other_input,
+    self, PlanError, SwitchError, SwitchEvent, SwitchPlan, Waiter, input_name, mccs_standard,
+    other_input,
 };
 use crate::ddc::{DdcBus, DdcError, MonitorInfo, VCP_INPUT_SOURCE, VCP_POWER_MODE, caps};
 
@@ -21,6 +22,8 @@ USO:
   tandem-ddc get <monitor> <vcp>
   tandem-ddc set <monitor> <vcp> <valor>
   tandem-ddc switch <monitor> hdmi|dp --return-after <s> [opciones]
+  tandem-ddc profile <monitor>
+  tandem-ddc profile export <monitor>
 
 <monitor>  índice de `list`, o texto que coincida con un solo monitor (modelo, id PnP, serie)
 <vcp>      código en hexadecimal: 60 o 0x60
@@ -33,6 +36,11 @@ con reintentos. Ctrl+C adelanta la vuelta, no la cancela.
   --return-to hdmi|dp   entrada de vuelta (por omisión, la otra: hdmi→dp, dp→hdmi);
                         no puede ser la misma de la ida
   --return-code <hex>   código de vuelta (repetible); por omisión, el del perfil
+
+`profile` muestra el perfil que usaría `switch` y de dónde sale; `profile export`
+imprime su TOML para compartirlo. Los perfiles propios van en
+<datos>/profiles/ddc/<PNP>.toml (<datos>: %APPDATA%\\Tandem en Windows) y ganan sobre
+los del repo con el mismo id PnP (docs/dev/ddc-profiles.md).
 
 `set` no acepta 0x60 (usa `switch`) ni 0xD6 (energía): podrían dejarte sin imagen.
 ";
@@ -64,6 +72,18 @@ pub enum Command {
     Get(MonitorSelector, u8),
     Set(MonitorSelector, u8, u32),
     Switch(SwitchArgs),
+    Profile(MonitorSelector),
+    ProfileExport(MonitorSelector),
+}
+
+impl Command {
+    /// Los comandos que consultan la base de perfiles (para avisar de archivos inválidos).
+    pub fn uses_profiles(&self) -> bool {
+        matches!(
+            self,
+            Command::Switch(_) | Command::Profile(_) | Command::ProfileExport(_)
+        )
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -76,6 +96,8 @@ pub enum CliError {
     Ambiguous { query: String, matches: String },
     #[error("no se encontró ningún monitor con DDC/CI")]
     NoMonitors,
+    #[error("{0}: no hay perfil para este monitor (ni en el repo ni del usuario)")]
+    NoProfile(String),
     #[error(
         "`set` no escribe el VCP {0:#04X}: puede dejarte sin imagen. Usa `switch`, que vuelve solo."
     )]
@@ -148,6 +170,13 @@ where
             ))
         }
         "switch" => parse_switch(rest).map(Command::Switch),
+        "profile" => match rest {
+            [monitor] if monitor != "export" => Ok(Command::Profile(parse_monitor(monitor))),
+            [export, monitor] if export == "export" => {
+                Ok(Command::ProfileExport(parse_monitor(monitor)))
+            }
+            _ => Err(usage("`profile` espera <monitor> o `export <monitor>`")),
+        },
         other => Err(usage(format!("comando desconocido `{other}`"))),
     }
 }
@@ -270,13 +299,13 @@ fn hex_list(codes: &[u8]) -> String {
 pub fn plan_switch(
     info: &MonitorInfo,
     args: &SwitchArgs,
+    profiles: &ProfileDb,
     out: &mut dyn Write,
 ) -> Result<SwitchPlan, CliError> {
-    let profile = known_profile(info);
-    let codes = match &profile {
-        Some((name, codes)) => {
-            writeln!(out, "perfil {name}")?;
-            codes.clone()
+    let codes = match profiles.find(info) {
+        Some((entry, _)) => {
+            writeln!(out, "perfil {} ({})", entry.profile.name, entry.source)?;
+            entry.profile.input_codes()
         }
         None => {
             if args.codes.is_empty() || args.return_codes.is_empty() {
@@ -312,6 +341,7 @@ pub fn run(
     cmd: &Command,
     bus: &mut dyn DdcBus,
     waiter: &mut dyn Waiter,
+    profiles: &ProfileDb,
     out: &mut dyn Write,
 ) -> Result<(), CliError> {
     match cmd {
@@ -370,7 +400,7 @@ pub fn run(
         Command::Switch(args) => {
             let i = select(bus.monitors(), &args.monitor)?;
             let info = bus.monitors()[i].clone();
-            let plan = plan_switch(&info, args, out)?;
+            let plan = plan_switch(&info, args, profiles, out)?;
             writeln!(
                 out,
                 "{info}: {} ({}), vuelta a {} ({}) en {} s",
@@ -391,6 +421,81 @@ pub fn run(
             }
             report.outcome()?;
             writeln!(out, "listo")?;
+        }
+        Command::Profile(sel) => {
+            let i = select(bus.monitors(), sel)?;
+            let info = &bus.monitors()[i];
+            writeln!(out, "{info}")?;
+            match profiles.find(info) {
+                Some((entry, by)) => {
+                    print_profile(out, entry)?;
+                    writeln!(out, "coincide por: {by}")?;
+                }
+                None => {
+                    let mccs = mccs_standard();
+                    writeln!(
+                        out,
+                        "sin perfil: `switch` usaría los códigos MCCS estándar (hdmi {}, dp {}), que muchos monitores no obedecen",
+                        hex_list(mccs.for_input(Input::Hdmi)),
+                        hex_list(mccs.for_input(Input::DisplayPort)),
+                    )?;
+                }
+            }
+        }
+        Command::ProfileExport(sel) => {
+            let i = select(bus.monitors(), sel)?;
+            let info = &bus.monitors()[i];
+            let (entry, _) = profiles
+                .find(info)
+                .ok_or_else(|| CliError::NoProfile(info.to_string()))?;
+            write!(out, "{}", entry.profile.to_toml())?;
+        }
+    }
+    Ok(())
+}
+
+fn print_profile(out: &mut dyn Write, entry: &Entry) -> std::io::Result<()> {
+    let p: &DdcProfile = &entry.profile;
+    writeln!(out, "perfil {} ({})", p.name, p.pnp_id)?;
+    writeln!(out, "origen: {}", entry.source)?;
+    if let Some(prev) = &entry.overrides {
+        writeln!(out, "reemplaza a: {prev}")?;
+    }
+    let c = &p.codes;
+    let mut codes = format!("hdmi {:#04X}, dp {:#04X}", c.hdmi, c.display_port);
+    for (name, code) in [("hdmi2", c.hdmi2), ("dp2", c.display_port2)] {
+        if let Some(code) = code {
+            codes.push_str(&format!(", {name} {code:#04X}"));
+        }
+    }
+    writeln!(out, "códigos: {codes}")?;
+    let r = &p.reported;
+    let reported: Vec<String> = [
+        ("hdmi", r.hdmi),
+        ("dp", r.display_port),
+        ("hdmi2", r.hdmi2),
+        ("dp2", r.display_port2),
+    ]
+    .iter()
+    .filter_map(|(name, code)| code.map(|c| format!("{name} {c:#04X}")))
+    .collect();
+    if !reported.is_empty() {
+        writeln!(
+            out,
+            "lectura de 0x60 en cada entrada: {}",
+            reported.join(", ")
+        )?;
+    }
+    match (&p.verified_by, &p.verified_on) {
+        (Some(by), Some(on)) => writeln!(out, "verificado por {by} el {on}")?,
+        (Some(by), None) => writeln!(out, "verificado por {by}")?,
+        (None, Some(on)) => writeln!(out, "verificado el {on}")?,
+        (None, None) => writeln!(out, "sin verificar")?,
+    }
+    if let Some(notes) = &p.notes {
+        writeln!(out, "notas:")?;
+        for line in notes.lines() {
+            writeln!(out, "  {line}")?;
         }
     }
     Ok(())
@@ -470,7 +575,8 @@ mod tests {
     fn exec(bus: &mut FakeDdc, args: &[&str]) -> (Result<(), CliError>, String, Vec<Duration>) {
         let mut out = Vec::new();
         let mut waiter = NoWait(Vec::new());
-        let result = parse_args(args).and_then(|cmd| run(&cmd, bus, &mut waiter, &mut out));
+        let result = parse_args(args)
+            .and_then(|cmd| run(&cmd, bus, &mut waiter, ProfileDb::builtin(), &mut out));
         (result, String::from_utf8(out).unwrap(), waiter.0)
     }
 
@@ -617,7 +723,14 @@ mod tests {
     fn run_also_refuses_unsafe_set() {
         let mut b = bus();
         let cmd = Command::Set(MonitorSelector::Index(0), 0x60, 6);
-        let err = run(&cmd, &mut b, &mut NoWait(Vec::new()), &mut Vec::new()).unwrap_err();
+        let err = run(
+            &cmd,
+            &mut b,
+            &mut NoWait(Vec::new()),
+            ProfileDb::builtin(),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
         assert!(matches!(err, CliError::Unsafe(0x60)));
         assert!(b.writes.is_empty());
         assert!(matches!(
@@ -747,6 +860,100 @@ mod tests {
         let writes: Vec<_> = b.writes.iter().map(|w| w.2).collect();
         assert_eq!(writes, vec![0x09, 0x06]);
         assert!(out.contains("vuelta a hdmi (0x06)"), "{out}");
+    }
+
+    fn odyssey_32() -> FakeMonitor {
+        let mut m = monitor("Odyssey G5", "CCC");
+        let edid = m.info.as_mut().and_then(|i| i.edid.as_mut()).unwrap();
+        edid.manufacturer = "SAM".into();
+        edid.product_code = 0x7489;
+        m
+    }
+
+    #[test]
+    fn parses_profile_commands() {
+        assert_eq!(
+            parse_args(["profile", "1"]).unwrap(),
+            Command::Profile(MonitorSelector::Index(1))
+        );
+        assert_eq!(
+            parse_args(["profile", "export", "SAM7489"]).unwrap(),
+            Command::ProfileExport(MonitorSelector::Text("SAM7489".into()))
+        );
+        for bad in [
+            &["profile"][..],
+            &["profile", "x", "0"],
+            &["profile", "export"],
+        ] {
+            assert!(
+                matches!(parse_args(bad), Err(CliError::Usage(_))),
+                "{bad:?}"
+            );
+        }
+        assert!(parse_args(["profile", "0"]).unwrap().uses_profiles());
+        assert!(!Command::List.uses_profiles());
+    }
+
+    #[test]
+    fn profile_shows_what_switch_would_use_and_where_it_comes_from() {
+        let mut b = FakeDdc::new(vec![odyssey_32(), monitor("U2720Q", "BBB")]);
+        let (r, out, _) = exec(&mut b, &["profile", "0"]);
+        r.unwrap();
+        assert!(
+            out.contains("perfil Odyssey G5 32\" (SAM7489) (SAM7489)"),
+            "{out}"
+        );
+        assert!(out.contains("origen: base del repo (profiles/ddc/SAM7489.toml)"));
+        assert!(out.contains("códigos: hdmi 0x05, dp 0x0F"));
+        assert!(out.contains("lectura de 0x60 en cada entrada: hdmi 0x05"));
+        assert!(out.contains("verificado por "));
+        assert!(out.contains("coincide por: id PnP"));
+
+        let (r, out, _) = exec(&mut bus(), &["profile", "LC34G55T"]);
+        r.unwrap();
+        assert!(
+            out.contains("coincide por: nombre del EDID `LC34G55T`"),
+            "{out}"
+        );
+
+        let (r, out, _) = exec(&mut b, &["profile", "1"]);
+        r.unwrap();
+        assert!(out.contains("sin perfil"), "{out}");
+        assert!(out.contains("hdmi 0x11, dp 0x0F"));
+        assert!(b.writes.is_empty());
+    }
+
+    #[test]
+    fn profile_export_prints_toml_that_reads_back() {
+        let mut b = FakeDdc::new(vec![odyssey_32(), monitor("U2720Q", "BBB")]);
+        let (r, out, _) = exec(&mut b, &["profile", "export", "0"]);
+        r.unwrap();
+        let p = DdcProfile::parse(&out).unwrap();
+        assert_eq!(&p, &ProfileDb::builtin().get("SAM7489").unwrap().profile);
+        let (r, out, _) = exec(&mut b, &["profile", "export", "1"]);
+        let err = r.unwrap_err();
+        assert!(matches!(err, CliError::NoProfile(_)), "{err}");
+        assert!(err.to_string().contains("U2720Q"));
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn switch_uses_user_profile_over_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("SAM7489.toml"),
+            "pnp_id = \"SAM7489\"\nname = \"mío\"\n[codes]\nhdmi = 0x07\ndisplay_port = 0x0F\n",
+        )
+        .unwrap();
+        let db = ProfileDb::load(Some(dir.path()));
+        let mut b = FakeDdc::new(vec![odyssey_32()]);
+        let cmd = parse_args(["switch", "0", "hdmi", "--return-after", "2"]).unwrap();
+        let mut out = Vec::new();
+        run(&cmd, &mut b, &mut NoWait(Vec::new()), &db, &mut out).unwrap();
+        let writes: Vec<_> = b.writes.iter().map(|w| w.2).collect();
+        assert_eq!(writes, vec![0x07, 0x0F]);
+        let out = String::from_utf8(out).unwrap();
+        assert!(out.contains("perfil mío (perfil del usuario"), "{out}");
     }
 
     #[test]

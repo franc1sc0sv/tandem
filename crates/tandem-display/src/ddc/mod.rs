@@ -1,9 +1,11 @@
-//! DDC/CI portable: el trait del bus, el parser de capabilities, el EDID y el cambio de
-//! entrada con vuelta automática. La implementación real vive en `crate::windows::ddc`.
+//! DDC/CI portable: el trait del bus, el parser de capabilities, el EDID, la base de
+//! perfiles y el cambio de entrada con vuelta automática. La implementación real vive en
+//! `crate::windows::ddc`.
 
 pub mod caps;
 pub mod edid;
 pub mod fake;
+pub mod profiles;
 pub mod switch;
 
 use std::fmt;
