@@ -1307,6 +1307,7 @@ dependencies = [
  "postcard",
  "proptest",
  "serde",
+ "tandem-core",
  "thiserror",
  "toml",
 ]
