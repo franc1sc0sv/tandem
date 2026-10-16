@@ -11,6 +11,7 @@ import {
   isMacPlatform,
   localAction,
   readCombo,
+  windowCommand,
 } from "./shortcuts";
 
 const key = (code: string, mods: Partial<KeyboardEvent> = {}) => ({
@@ -106,6 +107,18 @@ describe("qué atiende la ventana", () => {
     expect(localAction(key("Digit1", { shiftKey: true }), v)).toBeNull();
     expect(localAction(key("Numpad1"), v)).toBeNull();
     expect(localAction(key("Digit1"), v)).toBe("solo_mac");
+  });
+
+  it("mostrar u ocultar también, si no se pudo registrar", () => {
+    expect(localAction(key("Digit0"), view({}))).toBeNull();
+    expect(localAction(key("Digit0"), view({ toggle_window: "ocupado" }))).toBe("toggle_window");
+  });
+
+  it("un modo se pide; mostrar u ocultar esconde la ventana, que está al frente", () => {
+    expect(windowCommand("solo_mac")).toEqual({ kind: "mode", mode: "mac" });
+    expect(windowCommand("shared")).toEqual({ kind: "mode", mode: "shared" });
+    expect(windowCommand("solo_pc")).toEqual({ kind: "mode", mode: "pc" });
+    expect(windowCommand("toggle_window")).toEqual({ kind: "hide_main" });
   });
 });
 

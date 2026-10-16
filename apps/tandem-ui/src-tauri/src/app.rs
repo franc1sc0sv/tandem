@@ -4,7 +4,8 @@
 //! La sesión empuja a las ventanas dos eventos: [`SNAPSHOT_EVENT`] con todo lo necesario
 //! para dibujar la escena y [`NOTICE_EVENT`] con el avance de las transacciones y los
 //! pedidos de cambio manual. [`MESSAGE_EVENT`] lleva lo que pasó con un pedido hecho desde
-//! fuera de la ventana (un atajo global o el menú del ícono).
+//! fuera de la ventana (un atajo global o el menú del ícono). [`SHORTCUTS_EVENT`] lleva los
+//! atajos nuevos cuando se cambian, para que cada ventana muestre los vigentes.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -27,6 +28,7 @@ use crate::tray::{self, Area, MenuView, ModeKey};
 pub const SNAPSHOT_EVENT: &str = "agent-snapshot";
 pub const NOTICE_EVENT: &str = "agent-notice";
 pub const MESSAGE_EVENT: &str = "ui-message";
+pub const SHORTCUTS_EVENT: &str = "ui-shortcuts";
 
 const MAIN_WINDOW: &str = "main";
 /// La mini escena que abre el ícono (`tray.html`).
@@ -170,7 +172,10 @@ fn shortcuts_set(
     keys.failed = register(&app, &next);
     keys.current = next;
     keys.warning = None;
-    Ok(keys.view())
+    let view = keys.view();
+    // La mini escena no se destruye al cerrarla: sin el aviso seguiría con los de antes.
+    let _ = app.emit(SHORTCUTS_EVENT, &view);
+    Ok(view)
 }
 
 /// «Abrir Tandem» desde la mini escena.
@@ -178,6 +183,15 @@ fn shortcuts_set(
 fn ui_show_main(app: AppHandle) {
     hide_tray(&app);
     show_main(&app);
+}
+
+/// El atajo de mostrar u ocultar, atendido por la ventana misma cuando el sistema no dejó
+/// registrarlo: si la ventana recibe la tecla es porque está al frente, así que se esconde.
+#[tauri::command]
+fn ui_hide_main(app: AppHandle) {
+    if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
+        let _ = w.hide();
+    }
 }
 
 #[tauri::command]
@@ -504,6 +518,7 @@ pub fn run() -> Result<(), tauri::Error> {
             shortcuts_get,
             shortcuts_set,
             ui_show_main,
+            ui_hide_main,
             ui_hide_tray
         ])
         .build(tauri::generate_context!())?;

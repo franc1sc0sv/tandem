@@ -193,6 +193,11 @@ async function boot() {
     });
     await bridge.onNotice(onNotice);
     await bridge.onMessage(say);
+    // La ventana se esconde pero no se destruye: los atajos cambiados llegan por aviso.
+    await bridge.onShortcuts((view) => {
+      keys = view;
+      renderModes();
+    });
     keys = await bridge.shortcuts().catch(() => null);
     const first = await bridge.snapshot();
     if (!pushed) snap = first;

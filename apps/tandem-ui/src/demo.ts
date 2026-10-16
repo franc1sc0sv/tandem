@@ -82,6 +82,7 @@ export function demoBridge(query: string): Bridge {
     file: "~/Library/Application Support/Tandem/ui.toml",
   };
   const messages: ((text: string) => void)[] = [];
+  const shortcutsCbs: ((view: ShortcutsView) => void)[] = [];
   const snapshots: ((s: Snapshot) => void)[] = [];
   const notices: ((n: Notice) => void)[] = [];
   const emit = (n: Notice) => notices.forEach((cb) => cb(n));
@@ -134,13 +135,20 @@ export function demoBridge(query: string): Bridge {
       messages.push(cb);
     },
     shortcuts: async () => keys,
+    onShortcuts: async (cb) => {
+      shortcutsCbs.push(cb);
+    },
     setShortcuts: async (bindings: Bindings) => {
       const used = Object.values(bindings).filter((b): b is string => !!b);
       if (new Set(used).size !== used.length) throw "dos acciones usan el mismo atajo";
       keys = { ...keys, bindings: { ...bindings }, failed: {} };
+      shortcutsCbs.forEach((cb) => cb(keys));
       return keys;
     },
     showMain: async () => {},
+    hideMain: async () => {
+      messages.forEach((cb) => cb("Aquí la ventana se escondería (atajo atendido por la ventana)"));
+    },
     hideTray: async () => {},
     snapshot: async () => snapshot(),
     retry: async () => {},

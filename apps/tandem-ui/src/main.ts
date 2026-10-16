@@ -31,6 +31,7 @@ import {
   isMacPlatform,
   localAction,
   readCombo,
+  windowCommand,
 } from "./shortcuts";
 
 // Cuánto queda a la vista el progreso ya terminado y un mensaje suelto.
@@ -473,8 +474,9 @@ function wire() {
     const a = localAction(e, keys);
     if (!a) return;
     e.preventDefault();
-    const mode = (Object.keys(ACTION_OF_MODE) as ModeKey[]).find((k) => ACTION_OF_MODE[k] === a);
-    if (mode) chooseMode(mode);
+    const cmd = windowCommand(a);
+    if (cmd.kind === "mode") chooseMode(cmd.mode);
+    else void bridge?.hideMain();
   });
   wireKeys();
 
@@ -531,6 +533,10 @@ async function boot() {
     });
     await bridge.onNotice(onNotice);
     await bridge.onMessage((text) => showMessage(text));
+    await bridge.onShortcuts((view) => {
+      keys = view;
+      renderModeKeys();
+    });
     keys = await bridge.shortcuts().catch(() => null);
     $("#keys-btn").hidden = keys === null;
     renderModeKeys();

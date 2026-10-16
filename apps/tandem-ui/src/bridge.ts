@@ -11,10 +11,14 @@ export interface Bridge {
   /** Lo que pasó con un pedido hecho desde fuera de la ventana (atajo global, menú del ícono). */
   onMessage(cb: (text: string) => void): Promise<void>;
   shortcuts(): Promise<ShortcutsView>;
+  /** Los atajos nuevos cada vez que se cambian (desde cualquier ventana). */
+  onShortcuts(cb: (view: ShortcutsView) => void): Promise<void>;
   /** Rechaza con la razón si no se pueden usar (repetidos, inválidos, sin poder guardar). */
   setShortcuts(bindings: Bindings): Promise<ShortcutsView>;
   /** Desde la mini escena del ícono. */
   showMain(): Promise<void>;
+  /** El atajo de mostrar u ocultar, atendido por la ventana principal al frente. */
+  hideMain(): Promise<void>;
   hideTray(): Promise<void>;
 }
 
@@ -22,6 +26,7 @@ export interface Bridge {
 const SNAPSHOT_EVENT = "agent-snapshot";
 const NOTICE_EVENT = "agent-notice";
 const MESSAGE_EVENT = "ui-message";
+const SHORTCUTS_EVENT = "ui-shortcuts";
 
 export async function tauriBridge(): Promise<Bridge> {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -40,8 +45,12 @@ export async function tauriBridge(): Promise<Bridge> {
       await listen<string>(MESSAGE_EVENT, (e) => cb(e.payload));
     },
     shortcuts: () => invoke<ShortcutsView>("shortcuts_get"),
+    onShortcuts: async (cb) => {
+      await listen<ShortcutsView>(SHORTCUTS_EVENT, (e) => cb(e.payload));
+    },
     setShortcuts: (bindings) => invoke<ShortcutsView>("shortcuts_set", { bindings }),
     showMain: () => invoke<void>("ui_show_main"),
+    hideMain: () => invoke<void>("ui_hide_main"),
     hideTray: () => invoke<void>("ui_hide_tray"),
   };
 }

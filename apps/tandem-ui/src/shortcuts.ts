@@ -111,6 +111,17 @@ export function localAction(e: KeyLike, view: ShortcutsView): ShortcutAction | n
   return hit && hit in view.failed ? hit : null;
 }
 
+export type WindowCommand = { kind: "mode"; mode: ModeKey } | { kind: "hide_main" };
+
+/**
+ * Qué hace la ventana principal con una acción que atiende ella misma. Si recibe la tecla
+ * es porque está al frente: mostrar u ocultar, entonces, la esconde.
+ */
+export function windowCommand(action: ShortcutAction): WindowCommand {
+  const mode = (Object.keys(ACTION_OF_MODE) as ModeKey[]).find((k) => ACTION_OF_MODE[k] === action);
+  return mode ? { kind: "mode", mode } : { kind: "hide_main" };
+}
+
 /** Atajos repetidos en lo que se está editando (el núcleo también lo rechaza). */
 export function duplicateOf(bindings: Bindings, action: ShortcutAction, accel: string): ShortcutAction | null {
   return ACTIONS.find((a) => a !== action && bindings[a] === accel) ?? null;
