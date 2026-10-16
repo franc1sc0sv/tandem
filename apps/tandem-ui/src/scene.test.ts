@@ -387,6 +387,15 @@ describe("sin centro fijo (T-084)", () => {
     expect(powerButton(caps("pc", false), asleep, "pc", null).visible).toBe(true);
   });
 
+  it("sin Wake-on-LAN en esta máquina no se ofrece encender la otra", () => {
+    // Hallazgo del PR #56: la PC sin [power.wol] mostraba «Encender la Mac», que fallaba siempre.
+    const asleep: DeskState = { owner: { m34: "pc", m32: "pc" }, on: { mac: false, pc: true }, builtin_pref: "off" };
+    const noWol = machineCaps("pc", { power: { wake_peer: false, wakeable: true, power_off: true } });
+    expect(powerButton({ here: noWol, peer: machineCaps("mac") }, asleep, "pc", null).visible).toBe(false);
+    // Tampoco sin el anuncio de la Mac: lo que falta es de esta.
+    expect(powerButton({ here: noWol, peer: null }, asleep, "pc", null).visible).toBe(false);
+  });
+
   it("la pantalla integrada es de la que la anuncia", () => {
     expect(hasBuiltin(caps("pc"), "mac")).toBe(true);
     expect(hasBuiltin(caps("pc"), "pc")).toBe(false);

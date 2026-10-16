@@ -32,6 +32,9 @@ label = '32"'
 wiring = { pc = "displayport", mac = "hdmi" }
 "#;
 
+/// La tarjeta de red a la que va el Wake-on-LAN (simulado) de cada agente.
+const WOL_MAC: &str = "9c:6b:00:1a:2b:ff";
+
 /// Tope de espera para cualquier cosa de la simulación, en tiempo de tokio (pausado).
 pub const SIM_LIMIT: Duration = Duration::from_secs(3600);
 
@@ -135,9 +138,12 @@ impl DeskBuilder {
     /// de un runtime de tokio de un hilo, idealmente con el reloj pausado.
     pub async fn build(self) -> Result<Desk, SimError> {
         let dir = tempfile::tempdir().map_err(|e| SimError::Setup(e.to_string()))?;
+        // Las dos con `[power.wol]` para despertar a la otra: el Wake-on-LAN es simulado.
         let agent_cfg = |machine: Machine| {
-            AgentConfig::from_toml(&format!("machine = \"{machine}\"\n{DESK_TOML}"))
-                .map_err(|e| SimError::Setup(e.to_string()))
+            AgentConfig::from_toml(&format!(
+                "machine = \"{machine}\"\n{DESK_TOML}\n[power.wol]\nmac = \"{WOL_MAC}\"\n"
+            ))
+            .map_err(|e| SimError::Setup(e.to_string()))
         };
         let (mac_cfg, pc_cfg) = (agent_cfg(Machine::Mac)?, agent_cfg(Machine::Pc)?);
         let cfg = mac_cfg.desk.clone();

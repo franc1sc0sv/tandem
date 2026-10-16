@@ -849,7 +849,10 @@ pub(crate) mod tests {
     use crate::orchestrator::tests::{FakePeer, FakeSteps};
 
     pub fn agent(dir: &Path) -> Agent {
-        Agent::new(fixtures::desk(), StateStore::new(dir.join("state.json")))
+        Agent::new(
+            fixtures::desk_with_wol(),
+            StateStore::new(dir.join("state.json")),
+        )
     }
 
     #[test]
@@ -1176,7 +1179,7 @@ pub(crate) mod tests {
 
     fn with_fakes(dir: &Path, local: FakeSteps, peer: FakeSteps) -> Arc<Agent> {
         let a = Agent::with_local_steps(
-            fixtures::desk(),
+            fixtures::desk_with_wol(),
             StateStore::new(dir.join("state.json")),
             Arc::new(local),
         );

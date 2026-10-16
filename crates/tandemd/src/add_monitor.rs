@@ -612,6 +612,10 @@ id = "m32"
 label = '32"'
 edid_model = "Odyssey G5"
 wiring = { pc = "displayport", mac = "hdmi" }
+
+# Para despertar a la Mac (dormida al arrancar): el plan la enciende si muestra algo.
+[power.wol]
+mac = "9c:6b:00:1a:2b:ff"
 "#;
 
     /// Sin esperas: el usuario simulado contesta enseguida.
@@ -959,13 +963,11 @@ wiring = { pc = "displayport", mac = "hdmi" }
         // pedirlo a mano.
         let before = sim.writes().len();
         let mut txns = a.subscribe_txns();
-        assert!(matches!(
-            a.handle(UiCommand::MoveMonitor {
-                monitor: "m32".into(),
-                to: Machine::Pc
-            }),
-            Reply::Accepted { .. }
-        ));
+        let r = a.handle(UiCommand::MoveMonitor {
+            monitor: "m32".into(),
+            to: Machine::Pc,
+        });
+        assert!(matches!(r, Reply::Accepted { .. }), "{r:?}");
         let events = until_outcome(&mut txns).await;
         assert!(
             matches!(

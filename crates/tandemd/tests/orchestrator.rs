@@ -113,7 +113,11 @@ fn setup(
     desk: &str,
     initial: &impl Fn(&mut State),
 ) -> (AgentConfig, StateStore) {
-    let cfg = AgentConfig::from_toml(&format!("machine = \"{machine}\"\n{desk}")).unwrap();
+    // Con `[power.wol]`: cualquiera de las dos despierta a la otra (los pasos son simulados).
+    let cfg = AgentConfig::from_toml(&format!(
+        "machine = \"{machine}\"\n{desk}\n[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n"
+    ))
+    .unwrap();
     let store = StateStore::new(dir.join(format!("{machine}.json")));
     let mut s = State::initial(&cfg.desk, Machine::Mac);
     initial(&mut s);

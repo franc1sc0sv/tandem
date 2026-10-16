@@ -127,7 +127,8 @@ async fn start(
             loopback(peer_port)
         ));
     }
-    let text = format!("machine = \"{machine}\"\n{network}{DESK}");
+    // Las dos con `[power.wol]` para despertar a la otra (los pasos son simulados).
+    let text = format!("machine = \"{machine}\"\n{network}{DESK}\n{WOL}");
     // En el disco, como en el binario: lo que se cambia desde la UI se guarda ahí.
     std::fs::write(&paths.config, &text).unwrap();
     let cfg = AgentConfig::from_toml(&text).unwrap();
@@ -348,6 +349,9 @@ async fn identity_is_created_once_and_kept() {
     );
     assert_eq!(second.agent.peer_status(), PeerStatus::Unpaired);
 }
+
+/// Lo que hace falta para que una máquina despierte a la otra.
+const WOL: &str = "[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n";
 
 /// Encender la PC termina cuando su agente aparece por un enlace, no antes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

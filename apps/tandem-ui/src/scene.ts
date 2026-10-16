@@ -137,9 +137,9 @@ export interface PowerButton {
 }
 
 /**
- * El botón de encendido de la otra máquina: encenderla si alguna puede despertarla,
- * apagarla si ella sabe apagarse limpio. Sin su anuncio se supone que se la puede
- * despertar (si no, el paso falla con el motivo).
+ * El botón de encendido de la otra máquina: encenderla si esta tiene Wake-on-LAN y la
+ * otra se deja despertar, apagarla si ella sabe apagarse limpio. Sin su anuncio se supone
+ * que se la puede despertar (si no, el paso falla con el motivo).
  */
 export function powerButton(caps: Caps, state: DeskState, agent: Machine, p: Progress | null): PowerButton {
   const peer = other(agent);
@@ -151,7 +151,8 @@ export function powerButton(caps: Caps, state: DeskState, agent: Machine, p: Pro
     const can = theirs?.power.power_off ?? false;
     return { visible: can, on: false, label: `Apagar la ${name}`, power };
   }
-  const can = theirs ? theirs.power.wakeable : true;
+  // Hace falta que esta mande el Wake-on-LAN y que la otra se deje despertar.
+  const can = (capsOf(caps, agent)?.power.wake_peer ?? true) && (theirs?.power.wakeable ?? true);
   return { visible: can, on: true, label: `Encender la ${name}`, power };
 }
 

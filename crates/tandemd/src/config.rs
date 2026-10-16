@@ -396,6 +396,15 @@ pub(crate) mod fixtures {
     pub fn desk() -> AgentConfig {
         AgentConfig::from_toml(DESK).unwrap()
     }
+
+    /// El puesto con `[power.wol]`: esta máquina puede despertar a la otra.
+    pub fn desk_with_wol() -> AgentConfig {
+        let mut cfg = desk();
+        cfg.power.wol = Some(tandem_power::WolTarget::new(
+            "9c:6b:00:1a:2b:ff".parse().unwrap(),
+        ));
+        cfg
+    }
 }
 
 #[cfg(test)]

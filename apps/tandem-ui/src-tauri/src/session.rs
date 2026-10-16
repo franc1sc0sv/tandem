@@ -1265,6 +1265,10 @@ wiring = { pc = "displayport", mac = "hdmi" }
 id = "m32"
 label = '32"'
 wiring = { pc = "displayport", mac = "hdmi" }
+
+# Con qué despertar a la PC: sin esto, el plan ni siquiera intenta encenderla.
+[power.wol]
+mac = "9c:6b:00:1a:2b:ff"
 "#;
 
     #[derive(Default)]
