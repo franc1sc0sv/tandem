@@ -949,6 +949,117 @@ mod tests {
         l.screens(m).iter().any(|s| s.rect.contains(p))
     }
 
+    /// Varias pantallas por máquina, en cualquier posición (pueden solaparse o dejar
+    /// huecos), con la integrada extendida y cualquier dueño de cada monitor.
+    fn arb_multi_layout() -> impl Strategy<Value = Layout> {
+        let machine = prop_oneof![Just(Machine::Mac), Just(Machine::Pc)];
+        let pref = prop_oneof![
+            Just(BuiltinDisplay::Off),
+            Just(BuiltinDisplay::Mirror),
+            Just(BuiltinDisplay::Extend),
+        ];
+        (
+            (arb_screen("m34"), arb_screen("m32")),
+            (arb_screen("m34"), arb_screen("m32")),
+            (-4000i32..4000, -2000i32..3000),
+            (machine.clone(), machine, pref, any::<bool>()),
+            0.0f64..40.0,
+        )
+            .prop_map(
+                |((mac34, mac32), (pc34, pc32), (bx, by), (o34, o32, pref, side), margin)| {
+                    let st = state(o34, o32, true, pref);
+                    let opts = LayoutOptions {
+                        corner_margin: margin,
+                        builtin_side: if side { Side::Left } else { Side::Right },
+                    };
+                    // Cada máquina reporta todo lo que ve, fantasmas incluidos.
+                    let mac = vec![mac34, mac32, builtin(bx, by)];
+                    let pc = vec![pc34, pc32];
+                    Layout::compute(&desk(), &st, &mac, &pc, opts).unwrap()
+                },
+            )
+    }
+
+    // QA ronda 1: las propiedades de arriba solo usan una pantalla por máquina.
+    proptest! {
+        /// Con varias pantallas, solapadas o con huecos, el cursor siempre termina
+        /// dentro de una pantalla visible, y nunca en la máquina que no es visible.
+        #[test]
+        fn varias_pantallas_el_cursor_siempre_queda_en_una_visible(
+            l in arb_multi_layout(),
+            mac in any::<bool>(),
+            pick in any::<prop::sample::Index>(),
+            fx in 0.0f64..1.0,
+            fy in 0.0f64..1.0,
+            dx in -3000.0f64..3000.0,
+            dy in -3000.0f64..3000.0,
+        ) {
+            // La Mac siempre tiene algo visible; la PC no siempre.
+            let m = if mac || l.screens(Machine::Pc).is_empty() {
+                Machine::Mac
+            } else {
+                Machine::Pc
+            };
+            let screens = l.screens(m);
+            let r = pick.get(screens).rect;
+            let p = r.clamp(Point::new(
+                r.left() + fx * f64::from(r.width),
+                r.top() + fy * f64::from(r.height),
+            ));
+            match l.step(m, p, dx, dy) {
+                Motion::Local(q) => prop_assert!(inside(&l, m, q), "{q:?}"),
+                Motion::Cross { to, pos } => {
+                    prop_assert_eq!(to, m.other());
+                    prop_assert!(l.facing(m).is_some());
+                    prop_assert!(inside(&l, to, pos), "{pos:?}");
+                    // Se entra por el lado que mira a la máquina de origen, en el
+                    // borde de alguna pantalla que contiene el punto.
+                    let facing = l.facing(to).unwrap();
+                    let on_edge = l.screens(to).iter().any(|s| {
+                        s.rect.contains(pos)
+                            && match facing {
+                                Side::Left => pos.x == s.rect.left(),
+                                Side::Right => pos.x == s.rect.right() - 1.0,
+                            }
+                    });
+                    prop_assert!(on_edge, "{pos:?} no está en el borde {facing:?}");
+                }
+            }
+        }
+
+        /// Los dos lados siempre se miran: si una máquina puede cruzar, la otra
+        /// también, por el lado opuesto.
+        #[test]
+        fn los_lados_siempre_son_opuestos(l in arb_multi_layout()) {
+            match (l.facing(Machine::Mac), l.facing(Machine::Pc)) {
+                (Some(a), Some(b)) => prop_assert_eq!(a, b.opposite()),
+                (None, None) => {}
+                other => prop_assert!(false, "lados inconsistentes: {other:?}"),
+            }
+        }
+
+        /// Un movimiento nulo nunca cruza ni mueve el cursor que está dentro.
+        #[test]
+        fn sin_movimiento_no_hay_cruce(
+            l in arb_multi_layout(),
+            mac in any::<bool>(),
+            pick in any::<prop::sample::Index>(),
+            fy in 0.0f64..1.0,
+        ) {
+            // La Mac siempre tiene algo visible; la PC no siempre.
+            let m = if mac || l.screens(Machine::Pc).is_empty() {
+                Machine::Mac
+            } else {
+                Machine::Pc
+            };
+            let screens = l.screens(m);
+            let r = pick.get(screens).rect;
+            // En el borde derecho, donde más fácil sería cruzar por error.
+            let p = Point::new(r.right() - 1.0, (r.top() + fy * f64::from(r.height)).floor());
+            prop_assert_eq!(l.step(m, p, 0.0, 0.0), Motion::Local(p));
+        }
+    }
+
     proptest! {
         /// Pase lo que pase, el cursor termina dentro de una pantalla visible.
         #[test]

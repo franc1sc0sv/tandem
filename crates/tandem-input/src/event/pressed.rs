@@ -189,6 +189,41 @@ mod tests {
             }
         }
 
+        /// QA ronda 1: el servidor reasigna y el cliente lleva su propio `Pressed`.
+        /// Soltar todo en el destino y deshacer la reasignación da exactamente lo
+        /// que estaba presionado en el origen: ningún modificador queda pegado.
+        #[test]
+        fn soltar_todo_tras_reasignar_suelta_lo_mismo_que_en_el_origen(
+            events in prop::collection::vec(any_event(), 0..64),
+            perm in Just(ModifierKey::ALL).prop_shuffle(),
+        ) {
+            use super::super::ModifierRemap;
+            let remap = ModifierRemap::new(perm).unwrap();
+            let mut origin = Pressed::new();
+            let mut target = Pressed::new();
+            for e in &events {
+                let a = origin.record(e);
+                let b = target.record(&remap.apply(*e));
+                // La reasignación es biyectiva: el destino ve los mismos cambios.
+                prop_assert_eq!(a, b);
+            }
+            let back: Vec<InputEvent> = target
+                .release_all()
+                .into_iter()
+                .map(|e| remap.inverse().apply(e))
+                .collect();
+            let mut want = origin.release_all();
+            let mut got = back.clone();
+            let key = |e: &InputEvent| format!("{e:?}");
+            want.sort_by_key(key);
+            got.sort_by_key(key);
+            prop_assert_eq!(got, want);
+            // En el destino los modificadores también se sueltan al final.
+            if let Some(i) = back.iter().position(is_modifier) {
+                prop_assert!(back[i..].iter().all(is_modifier));
+            }
+        }
+
         #[test]
         fn modifiers_refleja_las_teclas(events in prop::collection::vec(any_event(), 0..64)) {
             let mut p = Pressed::new();

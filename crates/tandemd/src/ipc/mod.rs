@@ -401,6 +401,105 @@ mod tests {
         assert!(matches!(c.next_event().await, Ok(None)));
     }
 
+    // QA ronda 1: una UI puede mandar varios pedidos sin esperar respuesta; cada
+    // respuesta lleva su id y salen en orden.
+    #[tokio::test]
+    async fn pipelined_requests_are_answered_in_order() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agent, io, _stop) = start(dir.path());
+        let mut c = Framed::new(io);
+        c.send(&Hello::new(Peer::Ui)).await.unwrap();
+        assert_eq!(
+            c.recv_hello().await.unwrap().peer,
+            Peer::Agent(Machine::Mac)
+        );
+        let ids = [7u64, 3, u64::MAX, 3];
+        for id in ids {
+            c.send(&UiRequest {
+                id,
+                command: UiCommand::GetState,
+            })
+            .await
+            .unwrap();
+        }
+        for id in ids {
+            assert_eq!(
+                c.recv::<AgentToUi>().await.unwrap(),
+                Some(AgentToUi::Reply {
+                    id,
+                    reply: Reply::State(agent.state())
+                })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn garbage_request_ends_only_that_connection() {
+        let dir = tempfile::tempdir().unwrap();
+        let agent = Arc::new(agent(dir.path()));
+        let (stop, stop_rx) = watch::channel(false);
+        let (bad_client, bad_server) = duplex(64);
+        let bad = tokio::spawn(serve_connection(bad_server, agent.clone(), stop_rx.clone()));
+        let (good_client, good_server) = duplex(64);
+        tokio::spawn(serve_connection(good_server, agent.clone(), stop_rx));
+
+        let mut b = Framed::new(bad_client);
+        b.send(&Hello::new(Peer::Ui)).await.unwrap();
+        b.recv_hello().await.unwrap();
+        // Una trama bien formada cuyo contenido no es un `UiRequest`.
+        b.io.write_all(&[3, 0, 0, 0, 0xFF, 0xFF, 0xFF])
+            .await
+            .unwrap();
+        let err = bad.await.unwrap().unwrap_err();
+        assert!(
+            matches!(err, IpcError::Proto(ProtoError::Decode(_))),
+            "{err}"
+        );
+
+        // La otra UI sigue atendida.
+        let mut g = IpcClient::handshake(good_client).await.unwrap();
+        assert_eq!(g.get_state().await.unwrap(), agent.state());
+        drop(stop);
+    }
+
+    #[tokio::test]
+    async fn oversized_frame_from_ui_is_rejected_without_reading_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let agent = Arc::new(agent(dir.path()));
+        let (client, server) = duplex(64);
+        let (_stop, stop_rx) = watch::channel(false);
+        let task = tokio::spawn(serve_connection(server, agent, stop_rx));
+        let mut c = Framed::new(client);
+        c.send(&Hello::new(Peer::Ui)).await.unwrap();
+        c.recv_hello().await.unwrap();
+        // Solo la cabecera: anuncia 4 GiB y el agente corta sin esperar el cuerpo.
+        c.io.write_all(&u32::MAX.to_le_bytes()).await.unwrap();
+        let err = task.await.unwrap().unwrap_err();
+        assert!(
+            matches!(err, IpcError::Proto(ProtoError::FrameTooLarge { .. })),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn request_before_hello_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let agent = Arc::new(agent(dir.path()));
+        let (client, server) = duplex(64);
+        let (_stop, stop_rx) = watch::channel(false);
+        let task = tokio::spawn(serve_connection(server, agent, stop_rx));
+        let mut c = Framed::new(client);
+        c.recv_hello().await.unwrap();
+        // Un pedido en lugar del saludo: no se atiende.
+        c.send(&UiRequest {
+            id: 0,
+            command: UiCommand::GetState,
+        })
+        .await
+        .unwrap();
+        assert!(task.await.unwrap().is_err());
+    }
+
     #[tokio::test]
     async fn clean_close_between_messages_is_none() {
         let (a, b) = duplex(64);

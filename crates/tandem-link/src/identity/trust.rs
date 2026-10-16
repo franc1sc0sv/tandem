@@ -215,6 +215,55 @@ mod tests {
         assert!(!store.is_trusted(&p.public_key));
     }
 
+    // QA ronda 1: un archivo editado a mano puede repetir un par; gana la última entrada
+    // y al guardar queda una sola.
+    #[test]
+    fn par_repetido_en_el_archivo_queda_una_vez() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("trust.toml");
+        let key = peer(1, "").public_key;
+        fs::write(
+            &path,
+            format!(
+                "version = 1\n[[peer]]\npublic_key = \"{key}\"\nname = \"vieja\"\n\
+                 [[peer]]\npublic_key = \"{key}\"\nname = \"nueva\"\n"
+            ),
+        )
+        .unwrap();
+        let store = TrustStore::open(&path).unwrap();
+        assert_eq!(store.peers().count(), 1);
+        assert_eq!(store.verify(&key).unwrap().name, "nueva");
+        store.save().unwrap();
+        assert_eq!(TrustStore::open(&path).unwrap().peers().count(), 1);
+    }
+
+    use proptest::prelude::*;
+
+    proptest! {
+        #![proptest_config(ProptestConfig { cases: 64, ..ProptestConfig::default() })]
+
+        /// Cualquier nombre (comillas, saltos de línea, Unicode, controles) sobrevive
+        /// a guardar y abrir: el nombre del par lo elige el otro lado.
+        #[test]
+        fn cualquier_nombre_sobrevive_a_guardar_y_abrir(
+            peers in prop::collection::btree_map(any::<u8>(), any::<String>(), 0..6),
+        ) {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path().join("trust.toml");
+            let mut store = TrustStore::open(&path).unwrap();
+            for (seed, name) in &peers {
+                store.add(peer(*seed, name));
+            }
+            store.save().unwrap();
+            let reloaded = TrustStore::open(&path).unwrap();
+            prop_assert_eq!(reloaded.peers().count(), peers.len());
+            for (seed, name) in &peers {
+                let key = peer(*seed, "").public_key;
+                prop_assert_eq!(&reloaded.verify(&key).unwrap().name, name);
+            }
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn se_guarda_con_permisos_0600() {
