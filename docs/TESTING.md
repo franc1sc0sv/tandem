@@ -9,6 +9,7 @@ Objetivo: cuando se conecte el hardware real, que lo único pendiente de verific
 | Unitarias | Lógica pura: planes, transacciones, geometría, mapa de teclas, protocolo, política de enlaces | Linux / CI x3 |
 | Propiedades (`proptest`) | Invariantes: el framing decodifica cualquier partición; la vuelta atrás restaura el estado; ida y vuelta de teclas HID↔Mac↔Win; ningún modo deja a la Mac sin pantalla | Linux / CI x3 |
 | Integración | Dos `tandemd` en el mismo proceso por loopback (QUIC real) con backends simulados de pantalla, entrada, energía y periféricos | Linux / CI x3 |
+| Binario (`tandemd/tests/two_processes.rs`) | Dos procesos `tandemd` compilados con `--sim-backends`, emparejados por archivos y unidos por QUIC en loopback; la prueba es la UI por la IPC real. Modos, estado en los dos y matar un proceso a mitad de un cambio | CI Linux |
 | Simulación del puesto (`tandem-sim`) | Escenarios de punta a punta: modos, caída de enlaces, cambio de hub, apagado, fallos inyectados en cada paso | Linux / CI x3 |
 | Plataforma | Código real de Windows y macOS: compila y sus pruebas sin dispositivo corren en los runners | CI windows / macos |
 | Hardware | `#[ignore = "hardware"]` y la lista `## Verificación en hardware pendiente` de cada tarea | Equipo real, con el usuario |
@@ -20,6 +21,10 @@ Objetivo: cuando se conecte el hardware real, que lo único pendiente de verific
 - Los relojes se controlan con `tokio::time::pause()`; ninguna prueba usa `sleep` real.
 - Un bug encontrado = primero una prueba que falla, después el arreglo.
 - Cobertura con `cargo llvm-cov` en CI (informativa; objetivo ≥ 80 % en los crates portables).
+
+## Dos procesos reales (`--sim-backends`)
+
+`crates/tandemd/tests/two_processes.rs` lanza el binario dos veces, con configs y directorios de datos temporales, identidades y `trust.toml` preprovisionados y un enlace fijo por loopback. La feature `sim-backends` de `tandemd` (la activa su propia `[dev-dependencies]`, así que solo existe al compilar las pruebas) agrega la opción `--sim-backends`: pasos que siempre salen bien, sin mDNS ni motor de entrada. Como cada proceso es opaco, los pasos dejan rastro en el directorio de datos (`sim-steps.jsonl`, una línea JSON por paso) y se frenan mientras exista `sim-hold`: así la prueba mata un proceso con un paso a medias sin depender de tiempos. Usa relojes reales con tiempos cortos en la config (`step_timeout_secs`, `pc_lost_after_secs`). En el sandbox de WSL, que no deja crear sockets Unix, se omite; en CI nunca.
 
 ## Simulación del puesto (`tandem-sim`)
 

@@ -305,6 +305,7 @@ mod tests {
         let args = RunArgs {
             config: Some(r"D:\cfg\tandem.toml".into()),
             data_dir: Some(r"D:\datos".into()),
+            ..RunArgs::default()
         };
         assert_eq!(
             command_line(Path::new("t.exe"), &args),
