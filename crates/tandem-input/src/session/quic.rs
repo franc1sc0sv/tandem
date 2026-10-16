@@ -39,12 +39,16 @@ pub struct ServerDriver<C> {
     capture: C,
     events: mpsc::UnboundedReceiver<InputEvent>,
     layouts: Option<watch::Receiver<Layout>>,
+    active: watch::Sender<bool>,
     cfg: SessionConfig,
 }
 
 impl<C: Capture> ServerDriver<C> {
     /// `events` es por donde la captura manda lo que captura; se conserva entre
-    /// sesiones (un enlace nuevo sigue con la misma captura).
+    /// sesiones (un enlace nuevo sigue con la misma captura). Lo que llega sin
+    /// sesión solo pone al día lo presionado y el cursor local
+    /// ([`ServerSession::catch_up`]); mientras no hay enlace, [`Self::idle`] lo
+    /// consume para que no se acumule.
     pub fn new(
         session: ServerSession,
         capture: C,
@@ -56,8 +60,15 @@ impl<C: Capture> ServerDriver<C> {
             capture,
             events,
             layouts: None,
+            active: watch::Sender::new(false),
             cfg,
         }
+    }
+
+    /// `true` desde que la sesión está establecida (stream abierto y lo viejo
+    /// descartado) hasta que termina: lo capturado desde ahí sí cuenta.
+    pub fn active(&self) -> watch::Receiver<bool> {
+        self.active.subscribe()
     }
 
     /// Geometría en caliente: cada valor nuevo se aplica al momento.
@@ -74,6 +85,22 @@ impl<C: Capture> ServerDriver<C> {
         &self.capture
     }
 
+    /// Sin enlace: consume lo capturado hasta que `until` se cumpla, sin cruzar
+    /// ni acumular nada. Devuelve `Err` si la captura se cerró.
+    pub async fn idle(&mut self, until: impl Future<Output = ()>) -> Result<(), SessionEnd> {
+        tokio::pin!(until);
+        loop {
+            tokio::select! {
+                biased;
+                () = &mut until => return Ok(()),
+                ev = self.events.recv() => match ev {
+                    Some(ev) => self.session.catch_up(ev),
+                    None => return Err(SessionEnd::CaptureClosed),
+                },
+            }
+        }
+    }
+
     pub async fn run(
         &mut self,
         conn: &Connection,
@@ -81,6 +108,7 @@ impl<C: Capture> ServerDriver<C> {
         stop: impl Future<Output = ()>,
     ) -> SessionEnd {
         let end = self.serve(conn, hello, stop).await;
+        self.active.send_replace(false);
         for out in self.session.link_lost() {
             apply_local(&mut self.capture, out);
         }
@@ -99,9 +127,12 @@ impl<C: Capture> ServerDriver<C> {
             capture,
             events,
             layouts,
+            active,
             cfg,
         } = self;
         tokio::pin!(stop);
+        // Lo capturado sin sesión no se reproduce: haría cruzar solo.
+        catch_up(session, events);
         let mut stream = tokio::select! {
             () = &mut stop => return SessionEnd::Stopped,
             r = time::timeout(cfg.heartbeat_timeout, conn.open_control(hello)) => match r {
@@ -110,6 +141,8 @@ impl<C: Capture> ServerDriver<C> {
                 Err(_) => return SessionEnd::Silent,
             },
         };
+        catch_up(session, events);
+        active.send_replace(true);
 
         let mut heartbeat = time::interval(cfg.heartbeat_interval);
         heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -164,6 +197,13 @@ impl<C: Capture> ServerDriver<C> {
                 },
             }
         }
+    }
+}
+
+/// Vacía lo que ya está en el canal sin esperar.
+fn catch_up(session: &mut ServerSession, events: &mut mpsc::UnboundedReceiver<InputEvent>) {
+    while let Ok(ev) = events.try_recv() {
+        session.catch_up(ev);
     }
 }
 

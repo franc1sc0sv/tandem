@@ -202,10 +202,12 @@ fn spawn_server(
 ) -> (
     Running<ServerDriver<FakeCapture>>,
     watch::Receiver<Vec<CaptureCall>>,
+    watch::Receiver<bool>,
 ) {
     let capture = FakeCapture::new();
     let calls = capture.calls();
     let mut driver = ServerDriver::new(server_session(), capture, events, cfg());
+    let active = driver.active();
     let (stop, rx) = oneshot::channel::<()>();
     let task = tokio::spawn(async move {
         let hello = Hello::new(Peer::Agent(Machine::Pc));
@@ -216,7 +218,13 @@ fn spawn_server(
             .await;
         (driver, end)
     });
-    (Running { stop, task }, calls)
+    (Running { stop, task }, calls, active)
+}
+
+/// Espera a que la sesión del servidor esté establecida: lo que se capture
+/// antes se descarta.
+async fn up(active: &mut watch::Receiver<bool>) {
+    within(active.wait_for(|a| *a)).await.unwrap();
 }
 
 fn spawn_client(
@@ -282,8 +290,9 @@ fn last_position(events: &[InputEvent]) -> Option<Point> {
 async fn una_secuencia_de_eventos_llega_integra_y_en_orden() {
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
-    let (server, mut calls) = spawn_server(l.server.clone(), rx);
+    let (server, mut calls, mut active) = spawn_server(l.server.clone(), rx);
     let (client, mut injected) = spawn_client(l.client.clone());
+    up(&mut active).await;
 
     // Lo que "captura" la PC: cruza a la Mac con Shift apretado, escribe, arrastra
     // con el botón, hace scroll y sigue moviéndose.
@@ -365,6 +374,7 @@ async fn una_secuencia_de_eventos_llega_integra_y_en_orden() {
     // Al detener la sesión (cambio de enlace), la PC recupera su entrada.
     let (server, end) = server.stop().await;
     assert!(matches!(end, SessionEnd::Stopped), "{end}");
+    assert!(!*active.borrow(), "la sesión ya no está activa");
     assert!(!server.session().is_remote());
     assert!(!server.capture().grabbed());
     let (client, end) = client.ended().await;
@@ -411,8 +421,9 @@ fn held(events: &[InputEvent]) -> BTreeSet<HidUsage> {
 async fn caida_del_enlace_con_una_tecla_presionada_la_suelta() {
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
-    let (server, calls) = spawn_server(l.server.clone(), rx);
+    let (server, calls, mut active) = spawn_server(l.server.clone(), rx);
     let (client, mut injected) = spawn_client(l.client.clone());
+    up(&mut active).await;
     hold_s(&tx, &mut injected).await;
     assert_eq!(held(&injected.borrow()).len(), 2);
 
@@ -445,8 +456,9 @@ async fn caida_del_enlace_con_una_tecla_presionada_la_suelta() {
 async fn cable_desconectado_sin_aviso_suelta_la_tecla_y_devuelve_el_foco() {
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
-    let (server, calls) = spawn_server(l.server.clone(), rx);
+    let (server, calls, mut active) = spawn_server(l.server.clone(), rx);
     let (client, mut injected) = spawn_client(l.client.clone());
+    up(&mut active).await;
     hold_s(&tx, &mut injected).await;
 
     // Nadie avisa: solo dejan de llegar paquetes, y con ellos los latidos.
@@ -470,8 +482,9 @@ async fn cable_desconectado_sin_aviso_suelta_la_tecla_y_devuelve_el_foco() {
 async fn cambio_de_enlace_suelta_las_teclas_del_cliente() {
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
-    let (server, _calls) = spawn_server(l.server.clone(), rx);
+    let (server, _calls, mut active) = spawn_server(l.server.clone(), rx);
     let (client, mut injected) = spawn_client(l.client.clone());
+    up(&mut active).await;
     hold_s(&tx, &mut injected).await;
 
     // El gestor de enlaces avisa de un cambio: la sesión de este enlace termina.
@@ -487,4 +500,95 @@ async fn cambio_de_enlace_suelta_las_teclas_del_cliente() {
 
     l.server_ep.close();
     l.client_ep.close();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn lo_capturado_sin_enlace_no_cruza_al_empezar_la_sesion() {
+    let l = link().await;
+    let (tx, rx) = mpsc::unbounded_channel();
+    // Sin enlace (modo Solo Mac, PC apagada) el usuario aprieta Shift y empuja
+    // el mouse contra el borde: eso no puede cruzar cuando el enlace vuelva.
+    for e in [
+        key(0xE1, KeyState::Pressed),
+        rel(60.0, 0.0),
+        rel(60.0, 0.0),
+        InputEvent::Scroll(Scroll::Wheel {
+            dx_v120: 0,
+            dy_v120: -120,
+        }),
+    ] {
+        tx.send(e).unwrap();
+    }
+    let (server, calls, mut active) = spawn_server(l.server.clone(), rx);
+    let (client, mut injected) = spawn_client(l.client.clone());
+    up(&mut active).await;
+
+    // Ya con enlace: una tecla con el foco todavía local (no viaja), después el
+    // cruce de verdad y otra tecla.
+    tx.send(key(0x04, KeyState::Pressed)).unwrap();
+    tx.send(rel(60.0, 0.0)).unwrap();
+    tx.send(key(0x05, KeyState::Pressed)).unwrap();
+    let events = within(injected.wait_for(|ev| ev.contains(&key(0x05, KeyState::Pressed))))
+        .await
+        .unwrap()
+        .clone();
+
+    // Cruza una sola vez, desde donde estaba el cursor y con el Shift que el
+    // usuario sigue apretando; el movimiento y el scroll viejos no llegan.
+    let mut offline = server_session();
+    offline.handle(key(0xE1, KeyState::Pressed));
+    offline.handle(rel(60.0, 0.0));
+    let entry = offline
+        .remote_cursor()
+        .expect("el cruce en vivo entra a la Mac");
+    assert_eq!(
+        events,
+        [
+            InputEvent::MotionAbsolute {
+                x: entry.x,
+                y: entry.y
+            },
+            key(0xE1, KeyState::Pressed),
+            key(0x05, KeyState::Pressed),
+        ]
+    );
+    let grabs = calls
+        .borrow()
+        .iter()
+        .filter(|c| **c == CaptureCall::Grab(true))
+        .count();
+    assert_eq!(grabs, 1);
+
+    let (server, _) = server.stop().await;
+    assert!(!server.capture().grabbed());
+    let _ = client.ended().await;
+    l.server_ep.close();
+    l.client_ep.close();
+}
+
+#[tokio::test]
+async fn sin_enlace_lo_capturado_se_consume_sin_cruzar() {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let mut driver = ServerDriver::new(server_session(), FakeCapture::new(), rx, cfg());
+    let edge = Point::new(3439.0, 720.0);
+    for e in [
+        InputEvent::MotionAbsolute {
+            x: edge.x,
+            y: edge.y,
+        },
+        rel(60.0, 0.0),
+    ] {
+        tx.send(e).unwrap();
+    }
+    // Lo que ya estaba en el canal se consume antes de que `until` se cumpla.
+    let r = within(driver.idle(tokio::time::sleep(Duration::from_millis(50)))).await;
+    assert!(r.is_ok());
+    assert!(!driver.session().is_remote());
+    assert_eq!(driver.session().local_cursor(), edge);
+    assert!(driver.capture().calls().borrow().is_empty());
+
+    // Si la captura se cierra, `idle` lo dice.
+    drop(tx);
+    let r = within(driver.idle(std::future::pending())).await;
+    assert!(matches!(r, Err(SessionEnd::CaptureClosed)));
 }

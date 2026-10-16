@@ -116,6 +116,25 @@ impl ServerSession {
         out
     }
 
+    /// Pone el estado al día con un evento capturado cuando no había sesión (sin
+    /// enlace, o entre una sesión y la siguiente). Solo recuerda lo presionado y
+    /// la posición real del cursor local: el movimiento y el scroll viejos se
+    /// descartan, porque aplicarlos tarde haría cruzar sin que el usuario lo pida.
+    pub fn catch_up(&mut self, event: InputEvent) {
+        match event {
+            InputEvent::Key { .. } | InputEvent::Button { .. } => {
+                self.pressed.record(&event);
+            }
+            InputEvent::MotionAbsolute { x, y } if !self.is_remote() => {
+                self.local = Point::new(x, y);
+            }
+            InputEvent::MotionAbsolute { .. }
+            | InputEvent::MotionRelative { .. }
+            | InputEvent::Scroll(_)
+            | InputEvent::Modifiers(_) => {}
+        }
+    }
+
     fn handle_local(&mut self, event: InputEvent, out: &mut Vec<ServerOutput>) {
         match event {
             InputEvent::Key { .. } | InputEvent::Button { .. } => {
@@ -558,6 +577,36 @@ mod tests {
             s.handle(InputEvent::MotionAbsolute { x: 0.0, y: 0.0 })
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn ponerse_al_dia_no_cruza_ni_mueve_pero_recuerda_lo_presionado() {
+        let mut s = session();
+        s.catch_up(key(0xE1, KeyState::Pressed));
+        s.catch_up(InputEvent::MotionAbsolute {
+            x: edge_pc(),
+            y: 720.0,
+        });
+        // Contra el borde: con `handle` cruzaría.
+        s.catch_up(rel(50.0, 0.0));
+        s.catch_up(InputEvent::Scroll(Scroll::Pixels { dx: 0.0, dy: 3.0 }));
+        assert!(!s.is_remote());
+        assert_eq!(s.local_cursor(), Point::new(edge_pc(), 720.0));
+        assert_eq!(s.flush(), None);
+        // El Shift que sigue apretado entra con el primer cruce de verdad.
+        let out = s.handle(rel(5.0, 0.0));
+        assert!(matches!(
+            out[1],
+            ServerOutput::Stream(StreamMsg::Enter { modifiers, .. })
+                if modifiers == Modifiers::from_iter([ModifierKey::ShiftLeft])
+        ));
+        // Con el foco remoto tampoco mueve nada ni manda nada.
+        let remote = s.remote_cursor();
+        s.catch_up(rel(10.0, 0.0));
+        s.catch_up(InputEvent::MotionAbsolute { x: 0.0, y: 0.0 });
+        assert_eq!(s.remote_cursor(), remote);
+        assert_eq!(s.local_cursor(), Point::new(edge_pc(), 720.0));
+        assert_eq!(s.flush(), None);
     }
 
     #[test]
