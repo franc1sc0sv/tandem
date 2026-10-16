@@ -7,6 +7,10 @@
 //! port = 47770
 //! peers = ["10.77.1.2:47770"]
 //!
+//! [orchestrator]
+//! power_on_timeout_secs = 120
+//! step_timeout_secs = 10
+//!
 //! [[monitors]]
 //! id = "m34"
 //! label = '34"'
@@ -15,6 +19,7 @@
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{Config, Machine};
@@ -28,6 +33,8 @@ pub struct AgentConfig {
     pub machine: Machine,
     #[serde(default)]
     pub network: NetworkConfig,
+    #[serde(default)]
+    pub orchestrator: OrchestratorConfig,
     /// El puesto: es el mismo archivo en las dos máquinas, salvo `machine`.
     #[serde(flatten)]
     pub desk: Config,
@@ -56,6 +63,44 @@ impl Default for NetworkConfig {
     }
 }
 
+/// Tiempos máximos de los pasos de un cambio de modo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OrchestratorConfig {
+    /// Encender la PC y esperar a que su agente responda.
+    #[serde(default = "default_power_on_timeout")]
+    pub power_on_timeout_secs: u64,
+    /// Cualquier otro paso.
+    #[serde(default = "default_step_timeout")]
+    pub step_timeout_secs: u64,
+}
+
+fn default_power_on_timeout() -> u64 {
+    120
+}
+
+fn default_step_timeout() -> u64 {
+    10
+}
+
+impl Default for OrchestratorConfig {
+    fn default() -> Self {
+        OrchestratorConfig {
+            power_on_timeout_secs: default_power_on_timeout(),
+            step_timeout_secs: default_step_timeout(),
+        }
+    }
+}
+
+impl OrchestratorConfig {
+    pub fn timeouts(&self) -> crate::orchestrator::StepTimeouts {
+        crate::orchestrator::StepTimeouts {
+            power_on: Duration::from_secs(self.power_on_timeout_secs),
+            step: Duration::from_secs(self.step_timeout_secs),
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("no se pudo leer {path}: {source}")]
@@ -72,6 +117,8 @@ pub enum ConfigError {
     ZeroPort,
     #[error("la dirección del par `{0}` no tiene puerto")]
     PeerWithoutPort(SocketAddr),
+    #[error("los tiempos máximos de los pasos no pueden ser 0")]
+    ZeroTimeout,
 }
 
 impl AgentConfig {
@@ -97,6 +144,10 @@ impl AgentConfig {
         if let Some(p) = self.network.peers.iter().find(|p| p.port() == 0) {
             return Err(ConfigError::PeerWithoutPort(*p));
         }
+        let o = &self.orchestrator;
+        if o.power_on_timeout_secs == 0 || o.step_timeout_secs == 0 {
+            return Err(ConfigError::ZeroTimeout);
+        }
         Ok(())
     }
 }
@@ -111,6 +162,9 @@ pub(crate) mod fixtures {
         [network]
         port = 47771
         peers = ["10.77.1.2:47770", "[fe80::1]:47770"]
+
+        [orchestrator]
+        step_timeout_secs = 10
 
         [[monitors]]
         id = "m34"
@@ -162,6 +216,40 @@ mod tests {
         .unwrap();
         assert_eq!(cfg.network, NetworkConfig::default());
         assert_eq!(cfg.network.port, DEFAULT_PORT);
+        assert_eq!(cfg.orchestrator, OrchestratorConfig::default());
+        let t = cfg.orchestrator.timeouts();
+        assert_eq!(t.power_on, Duration::from_secs(120));
+        assert_eq!(t.step, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn timeouts_are_configurable() {
+        let cfg = AgentConfig::from_toml(
+            "machine = \"mac\"\nmonitors = []\n[orchestrator]\npower_on_timeout_secs = 90\nstep_timeout_secs = 5",
+        )
+        .unwrap();
+        let t = cfg.orchestrator.timeouts();
+        assert_eq!(t.power_on, Duration::from_secs(90));
+        assert_eq!(t.step, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn rejects_zero_timeout() {
+        for field in ["power_on_timeout_secs", "step_timeout_secs"] {
+            let err = AgentConfig::from_toml(&format!(
+                "machine = \"mac\"\nmonitors = []\n[orchestrator]\n{field} = 0"
+            ))
+            .unwrap_err();
+            assert!(matches!(err, ConfigError::ZeroTimeout), "{err}");
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_orchestrator_field() {
+        let err =
+            AgentConfig::from_toml("machine = \"mac\"\nmonitors = []\n[orchestrator]\ntimeout = 1")
+                .unwrap_err();
+        assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
 
     #[test]

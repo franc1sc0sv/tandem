@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use tandem_core::{Machine, State};
-use tandem_proto::{AgentToUi, Reply, UiCommand};
+use tandem_proto::{AgentToUi, Reply, TxnEvent, UiCommand};
 use tandemd::{Agent, AgentConfig, StateStore, daemon, ipc};
 use tokio::sync::oneshot;
 
@@ -79,13 +79,24 @@ async fn client_requests_state_and_receives_it() {
         other.next_event().await.unwrap(),
         Some(AgentToUi::State(changed.clone()))
     );
-    assert!(matches!(
-        client
-            .request(UiCommand::SetMode(tandem_core::Mode::SoloMac))
-            .await
-            .unwrap(),
-        Reply::Rejected(_)
-    ));
+    // Sin backends ni otro agente, el cambio de modo arranca y vuelve atrás solo.
+    let reply = client
+        .request(UiCommand::SetMode(tandem_core::Mode::SoloMac))
+        .await
+        .unwrap();
+    let Reply::Accepted { txn } = reply else {
+        panic!("se esperaba Accepted: {reply:?}");
+    };
+    loop {
+        match client.next_event().await.unwrap() {
+            Some(AgentToUi::Txn(TxnEvent::RolledBack { txn: t, state })) if t == txn => {
+                assert_eq!(state, changed);
+                break;
+            }
+            Some(AgentToUi::Txn(_)) => {}
+            other => panic!("aviso inesperado: {other:?}"),
+        }
+    }
 
     stop.send(()).unwrap();
     daemon.await.unwrap().unwrap();
