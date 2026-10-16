@@ -658,7 +658,13 @@ mod tests {
         assert!(r.ok, "{r:?}");
         assert_eq!(r.text, Outcome::Created.describe());
         let text = std::fs::read_to_string(plist_path(&home)).unwrap();
-        assert!(text.contains(&format!("<string>{}</string>", s.program.display())));
+        // En Windows, `s.program` mezcla separadores: se compara con el que calcula la app.
+        let program = sidecar_for(&exe).unwrap();
+        assert!(program.is_file());
+        assert!(text.contains(&format!(
+            "<string>{}</string>",
+            escape(&program.to_string_lossy())
+        )));
         assert!(log_path(&home).parent().unwrap().is_dir());
         // La segunda vez no hay nada que hacer.
         let r = install_from(&exe, &home, "0.1.0", &ld);
