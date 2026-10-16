@@ -9,6 +9,7 @@ license.workspace = true
 bytes.workspace = true
 ed25519-dalek.workspace = true
 getrandom.workspace = true
+mdns-sd.workspace = true
 quinn.workspace = true
 rcgen.workspace = true
 rustls.workspace = true

@@ -5,7 +5,10 @@
 //!
 //! [network]
 //! port = 47770
-//! peers = ["10.77.1.2:47770"]
+//! peers = [
+//!     { kind = "usb4", addr = "10.77.1.2:47770" },
+//!     { kind = "ethernet", addr = "10.77.2.2:47770" },
+//! ]
 //!
 //! [orchestrator]
 //! power_on_timeout_secs = 120
@@ -17,12 +20,13 @@
 //! wiring = { pc = "displayport", mac = "hdmi" }
 //! ```
 
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{Config, Machine};
+use tandem_link::discovery::{DiscoveryError, link_candidates, validate_static_links};
+use tandem_link::manager::LinkCandidate;
 
 /// Puerto UDP predeterminado del plano de control (QUIC).
 pub const DEFAULT_PORT: u16 = 47770;
@@ -45,9 +49,10 @@ pub struct AgentConfig {
 pub struct NetworkConfig {
     #[serde(default = "default_port")]
     pub port: u16,
-    /// Direcciones fijas del otro agente (enlaces directos). Vacío: se descubre en la LAN.
+    /// Direcciones fijas del otro agente, una por enlace (los directos:
+    /// USB4 y Ethernet). La de la LAN se descubre por mDNS si no se fija.
     #[serde(default)]
-    pub peers: Vec<SocketAddr>,
+    pub peers: Vec<LinkCandidate>,
 }
 
 fn default_port() -> u16 {
@@ -115,10 +120,10 @@ pub enum ConfigError {
     Desk(#[from] tandem_core::model::ConfigError),
     #[error("el puerto de red no puede ser 0")]
     ZeroPort,
-    #[error("la dirección del par `{0}` no tiene puerto")]
-    PeerWithoutPort(SocketAddr),
     #[error("los tiempos máximos de los pasos no pueden ser 0")]
     ZeroTimeout,
+    #[error(transparent)]
+    Peers(#[from] DiscoveryError),
 }
 
 impl AgentConfig {
@@ -141,14 +146,20 @@ impl AgentConfig {
         if self.network.port == 0 {
             return Err(ConfigError::ZeroPort);
         }
-        if let Some(p) = self.network.peers.iter().find(|p| p.port() == 0) {
-            return Err(ConfigError::PeerWithoutPort(*p));
-        }
+        validate_static_links(&self.network.peers)?;
         let o = &self.orchestrator;
         if o.power_on_timeout_secs == 0 || o.step_timeout_secs == 0 {
             return Err(ConfigError::ZeroTimeout);
         }
         Ok(())
+    }
+}
+
+impl NetworkConfig {
+    /// Candidatos para el gestor de enlaces: los fijos de la config más lo
+    /// descubierto en la LAN (`discovered`, de la mejor a la peor dirección).
+    pub fn link_candidates(&self, discovered: &[std::net::SocketAddr]) -> Vec<LinkCandidate> {
+        link_candidates(&self.peers, discovered)
     }
 }
 
@@ -161,7 +172,10 @@ pub(crate) mod fixtures {
 
         [network]
         port = 47771
-        peers = ["10.77.1.2:47770", "[fe80::1]:47770"]
+        peers = [
+            { kind = "usb4", addr = "10.77.1.2:47770" },
+            { kind = "ethernet", addr = "[fe80::1]:47770" },
+        ]
 
         [orchestrator]
         step_timeout_secs = 10
@@ -187,6 +201,7 @@ pub(crate) mod fixtures {
 #[cfg(test)]
 mod tests {
     use tandem_core::Input;
+    use tandem_link::manager::LinkKind;
 
     use super::*;
 
@@ -299,10 +314,60 @@ mod tests {
     #[test]
     fn rejects_peer_without_port() {
         let err = AgentConfig::from_toml(
-            "machine = \"mac\"\nmonitors = []\n[network]\npeers = [\"10.0.0.1:0\"]",
+            "machine = \"mac\"\nmonitors = []\n[network]\npeers = [{ kind = \"usb4\", addr = \"10.0.0.1:0\" }]",
         )
         .unwrap_err();
-        assert!(matches!(err, ConfigError::PeerWithoutPort(_)));
+        assert!(
+            matches!(
+                err,
+                ConfigError::Peers(DiscoveryError::StaticWithoutPort(_))
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn rejects_peer_without_kind() {
+        let err = AgentConfig::from_toml(
+            "machine = \"mac\"\nmonitors = []\n[network]\npeers = [\"10.0.0.1:47770\"]",
+        )
+        .unwrap_err();
+        assert!(matches!(err, ConfigError::Parse(_)), "{err}");
+    }
+
+    #[test]
+    fn rejects_duplicate_peer_link() {
+        let err = AgentConfig::from_toml(
+            r#"
+            machine = "mac"
+            monitors = []
+            [network]
+            peers = [
+                { kind = "usb4", addr = "10.77.1.2:47770" },
+                { kind = "usb4", addr = "10.77.1.6:47770" },
+            ]
+            "#,
+        )
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                ConfigError::Peers(DiscoveryError::DuplicateStatic(LinkKind::Usb4))
+            ),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn static_peers_become_link_candidates() {
+        let cfg = fixtures::desk();
+        let lan = "192.168.1.20:47770".parse().unwrap();
+        let got = cfg.network.link_candidates(&[lan]);
+        let kinds: Vec<LinkKind> = got.iter().map(|c| c.kind).collect();
+        assert_eq!(kinds, [LinkKind::Usb4, LinkKind::Ethernet, LinkKind::Wifi]);
+        assert_eq!(got[0].addr, "10.77.1.2:47770".parse().unwrap());
+        assert_eq!(got[1].addr, "[fe80::1]:47770".parse().unwrap());
+        assert_eq!(got[2].addr, lan);
     }
 
     #[test]
