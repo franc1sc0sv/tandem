@@ -21,6 +21,10 @@ wiring = { pc = "displayport", mac = "hdmi" }
 id = "m32"
 label = '32"'
 wiring = { pc = "displayport", mac = "hdmi" }
+
+# Con qué despertar a la PC: sin esto el plan rechaza SoloMac desde la PC apagada.
+[power.wol]
+mac = "9c:6b:00:1a:2b:ff"
 "#;
 
 fn endpoint(dir: &std::path::Path) -> PathBuf {
