@@ -4,6 +4,7 @@
 //!
 //! - [`cli`]: argumentos de la línea de órdenes.
 //! - [`config`]: `tandem.toml` (el puesto, la red y qué máquina es esta).
+//! - [`autoconfig`]: el `tandem.toml` que el agente genera solo si no hay ninguno (T-082).
 //! - [`config_edit`]: lo que el agente escribe en `tandem.toml` sin perder los comentarios.
 //! - [`paths`]: dónde viven la configuración, el estado y los logs.
 //! - [`store`]: el [`tandem_core::State`] persistido en JSON.
@@ -28,6 +29,7 @@
 
 pub mod add_monitor;
 pub mod agent;
+pub mod autoconfig;
 pub mod calibration;
 pub mod cli;
 pub mod config;

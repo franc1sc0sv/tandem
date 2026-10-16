@@ -2,9 +2,10 @@
 //!
 //! Lo llama el instalador de Windows (NSIS, `apps/tandem-ui/src-tauri/windows/hooks.nsh`) al
 //! instalar y al desinstalar; ver `docs/dev/install-windows.md`. Instalar es idempotente:
-//! crea la configuración inicial solo si no existe y deja el arranque automático apuntando
-//! al lanzador sin consola ([`LAUNCHER`]). Desinstalar quita el arranque y deja la
-//! configuración y los datos del usuario (el desinstalador los borra solo si se le pide).
+//! deja el arranque automático apuntando al lanzador sin consola ([`LAUNCHER`]). No trae
+//! configuración: el agente la genera al arrancar con lo que detecta ([`crate::autoconfig`],
+//! T-082). Desinstalar quita el arranque y deja la configuración y los datos del usuario
+//! (el desinstalador los borra solo si se le pide).
 //!
 //! El arranque va detrás de [`Autostart`]: en Windows es la clave `Run` de `HKCU`
 //! ([`RunKey`]) y la lógica se prueba con un doble en memoria.
@@ -13,7 +14,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::cli::RunArgs;
-use crate::paths;
 
 #[cfg(windows)]
 mod windows;
@@ -30,9 +30,6 @@ pub const LAUNCHER: &str = "tandemw";
 /// El binario del agente, al lado del lanzador.
 pub const DAEMON: &str = "tandemd";
 
-/// `tandem.toml` que se crea en la PC si no hay ninguno.
-pub const INITIAL_PC_CONFIG: &str = include_str!("../../templates/tandem.pc.toml");
-
 /// Dónde se registra el arranque con la sesión.
 pub trait Autostart {
     /// La orden registrada, si hay una.
@@ -44,43 +41,29 @@ pub trait Autostart {
 
 #[derive(Debug, thiserror::Error)]
 pub enum InstallError {
-    #[error("no se pudo crear la configuración {path}: {source}")]
-    Config {
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
     #[error("no se pudo registrar el arranque automático: {0}")]
     Autostart(#[source] io::Error),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallReport {
-    /// Se escribió la configuración inicial (no había ninguna).
-    pub config_created: bool,
     /// La orden que queda registrada.
     pub command: String,
     /// La orden registrada cambió (o no había).
     pub autostart_changed: bool,
 }
 
-/// Crea la configuración inicial en `config` si falta y registra `command` para el arranque.
+/// Registra `command` para el arranque con la sesión.
 pub fn install(
     autostart: &mut dyn Autostart,
-    config: &Path,
     command: &str,
 ) -> Result<InstallReport, InstallError> {
-    let config_created = write_initial_config(config).map_err(|source| InstallError::Config {
-        path: config.to_owned(),
-        source,
-    })?;
     let autostart_changed =
         autostart.get().map_err(InstallError::Autostart)?.as_deref() != Some(command);
     if autostart_changed {
         autostart.set(command).map_err(InstallError::Autostart)?;
     }
     Ok(InstallReport {
-        config_created,
         command: command.to_owned(),
         autostart_changed,
     })
@@ -89,26 +72,6 @@ pub fn install(
 /// Quita el arranque automático. `true` si estaba registrado.
 pub fn uninstall(autostart: &mut dyn Autostart) -> Result<bool, InstallError> {
     autostart.remove().map_err(InstallError::Autostart)
-}
-
-/// `false` si ya había una: la del usuario nunca se toca, aunque sea inválida.
-fn write_initial_config(config: &Path) -> io::Result<bool> {
-    if let Some(dir) = config.parent().filter(|d| !d.as_os_str().is_empty()) {
-        paths::create_private_dir(dir)?;
-    }
-    // `create_new` en vez de mirar antes si existe: no pisa una que aparezca entre medio.
-    match std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(config)
-    {
-        Ok(mut file) => {
-            io::Write::write_all(&mut file, INITIAL_PC_CONFIG.as_bytes())?;
-            Ok(true)
-        }
-        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => Ok(false),
-        Err(e) => Err(e),
-    }
 }
 
 /// El lanzador al lado de `exe` si existe (`exists`); si no, el propio `exe`, que también
@@ -185,105 +148,59 @@ impl Autostart for MemAutostart {
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    use tandem_core::Machine;
 
     use super::*;
-    use crate::AgentConfig;
 
     #[test]
-    fn initial_config_is_a_valid_pc_config() {
-        let cfg = AgentConfig::from_toml(INITIAL_PC_CONFIG).unwrap();
-        assert_eq!(cfg.machine, Machine::Pc);
-        assert_eq!(cfg.network.port, crate::config::DEFAULT_PORT);
-        assert_eq!(cfg.desk.monitors.len(), 2);
-    }
-
-    #[test]
-    fn install_creates_config_and_registers() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config = tmp.path().join("Tandem").join("tandem.toml");
+    fn install_registers_and_is_idempotent() {
         let mut run = MemAutostart::default();
-        let report = install(&mut run, &config, "\"C:\\T\\tandemw.exe\"").unwrap();
+        let report = install(&mut run, "\"C:\\T\\tandemw.exe\"").unwrap();
         assert_eq!(
             report,
             InstallReport {
-                config_created: true,
                 command: "\"C:\\T\\tandemw.exe\"".into(),
                 autostart_changed: true,
             }
         );
-        assert_eq!(std::fs::read_to_string(&config).unwrap(), INITIAL_PC_CONFIG);
         assert_eq!(run.command.as_deref(), Some("\"C:\\T\\tandemw.exe\""));
-    }
-
-    #[test]
-    fn install_is_idempotent_and_keeps_user_config() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config = tmp.path().join("tandem.toml");
-        std::fs::write(&config, "machine = \"pc\"\n# del usuario\n").unwrap();
-        let mut run = MemAutostart::default();
-        let first = install(&mut run, &config, "a").unwrap();
-        assert!(!first.config_created);
-        assert!(first.autostart_changed);
-        let again = install(&mut run, &config, "a").unwrap();
+        let again = install(&mut run, "\"C:\\T\\tandemw.exe\"").unwrap();
         assert!(!again.autostart_changed);
         assert_eq!(run.writes, 1, "la misma orden no se reescribe");
-        assert_eq!(
-            std::fs::read_to_string(&config).unwrap(),
-            "machine = \"pc\"\n# del usuario\n"
-        );
     }
 
     #[test]
     fn reinstall_updates_a_stale_command() {
-        let tmp = tempfile::tempdir().unwrap();
         let mut run = MemAutostart {
             command: Some("\"C:\\viejo\\tandemd.exe\"".into()),
             ..Default::default()
         };
-        let report = install(&mut run, &tmp.path().join("t.toml"), "nuevo").unwrap();
+        let report = install(&mut run, "nuevo").unwrap();
         assert!(report.autostart_changed);
         assert_eq!(run.command.as_deref(), Some("nuevo"));
     }
 
     #[test]
     fn uninstall_removes_only_autostart() {
-        let tmp = tempfile::tempdir().unwrap();
-        let config = tmp.path().join("tandem.toml");
         let mut run = MemAutostart::default();
-        install(&mut run, &config, "a").unwrap();
+        install(&mut run, "a").unwrap();
         assert!(uninstall(&mut run).unwrap());
         assert_eq!(run.command, None);
-        assert!(config.exists(), "la configuración del usuario se queda");
         // Desinstalar dos veces no es un error.
         assert!(!uninstall(&mut run).unwrap());
     }
 
     #[test]
     fn autostart_errors_are_reported() {
-        let tmp = tempfile::tempdir().unwrap();
         let mut run = MemAutostart {
             fail: true,
             ..Default::default()
         };
-        let err = install(&mut run, &tmp.path().join("t.toml"), "a").unwrap_err();
+        let err = install(&mut run, "a").unwrap_err();
         assert!(matches!(err, InstallError::Autostart(_)), "{err}");
         assert!(matches!(
             uninstall(&mut run),
             Err(InstallError::Autostart(_))
         ));
-    }
-
-    #[test]
-    fn config_errors_are_reported() {
-        let tmp = tempfile::tempdir().unwrap();
-        // El "directorio" de la config es un archivo.
-        let file = tmp.path().join("archivo");
-        std::fs::write(&file, "").unwrap();
-        let mut run = MemAutostart::default();
-        let err = install(&mut run, &file.join("tandem.toml"), "a").unwrap_err();
-        assert!(matches!(err, InstallError::Config { .. }), "{err}");
-        assert_eq!(run.command, None, "sin config no se registra el arranque");
     }
 
     #[test]
@@ -317,11 +234,9 @@ mod tests {
         /// Instalar n veces deja lo mismo que instalar una, y desinstalar lo quita todo.
         #[test]
         fn install_converges(n in 1usize..5, previous in proptest::option::of("[a-z]{1,8}")) {
-            let tmp = tempfile::tempdir().unwrap();
-            let config = tmp.path().join("tandem.toml");
             let mut run = MemAutostart { command: previous, ..Default::default() };
             for _ in 0..n {
-                install(&mut run, &config, "orden").unwrap();
+                install(&mut run, "orden").unwrap();
             }
             prop_assert_eq!(run.command.as_deref(), Some("orden"));
             prop_assert!(run.writes <= 1);

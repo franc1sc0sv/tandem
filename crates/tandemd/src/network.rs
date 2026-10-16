@@ -40,6 +40,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::agent::{Agent, NO_NETWORK, PairingControl};
+use crate::config::FALLBACK_PORTS;
 use crate::orchestrator::{LinkHold, PEER_NOT_CONNECTED, PeerLink, ProbeFuture, StepFuture};
 use crate::pairing::{self, PairingTimeouts};
 use crate::peer::{self, PeerClient, PeerError};
@@ -54,6 +55,9 @@ pub struct NetOptions {
     /// Dirección UDP donde escucha el endpoint. Por omisión, todas las interfaces en el
     /// puerto de la config ([`default_bind`]).
     pub bind: Option<SocketAddr>,
+    /// Los puertos que se prueban, en la misma IP, si el de `bind` (o el de la config) no
+    /// se puede abrir. El real se anuncia por mDNS.
+    pub fallback_ports: Vec<u16>,
     /// Anunciar y buscar al par en la LAN por mDNS.
     pub mdns: bool,
     pub health: HealthConfig,
@@ -64,6 +68,7 @@ impl Default for NetOptions {
     fn default() -> Self {
         NetOptions {
             bind: None,
+            fallback_ports: FALLBACK_PORTS.to_vec(),
             mdns: true,
             health: HealthConfig::default(),
             pairing: PairingTimeouts::default(),
@@ -80,6 +85,79 @@ pub enum NetError {
         #[source]
         source: Box<TransportError>,
     },
+    #[error(
+        "no se pudo abrir ningún puerto UDP para el agente en {ip} (probados: {}): {last}. \
+         Otro programa los está usando o el sistema los reserva; en Windows con WSL o \
+         Hyper-V, `netsh interface ipv4 show excludedportrange protocol=udp` muestra los \
+         rangos reservados. Elige un puerto libre en `[network] port` de tandem.toml y \
+         reinicia el agente",
+        list(tried)
+    )]
+    NoPort {
+        ip: IpAddr,
+        tried: Vec<u16>,
+        /// El error del último intento.
+        last: String,
+    },
+}
+
+fn list(ports: &[u16]) -> String {
+    ports
+        .iter()
+        .map(u16::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// `first` y después `fallbacks`, sin repetir: los puertos a probar.
+pub fn port_candidates(first: u16, fallbacks: &[u16]) -> Vec<u16> {
+    let mut out = vec![first];
+    for p in fallbacks {
+        if !out.contains(p) {
+            out.push(*p);
+        }
+    }
+    out
+}
+
+/// Abre con `bind` el primero de `ports` que se pueda, en `ip`. Solo se sigue probando si
+/// no se pudo abrir el socket (ocupado, reservado o sin permiso); cualquier otro error
+/// (la identidad, TLS) no depende del puerto y se devuelve enseguida.
+pub fn bind_first<T>(
+    ip: IpAddr,
+    ports: &[u16],
+    mut bind: impl FnMut(SocketAddr) -> Result<T, TransportError>,
+) -> Result<(T, SocketAddr), NetError> {
+    let mut last = String::from("no había puertos para probar");
+    for (i, port) in ports.iter().enumerate() {
+        let addr = SocketAddr::new(ip, *port);
+        match bind(addr) {
+            Ok(t) => {
+                if i > 0 {
+                    tracing::warn!(
+                        "el puerto {} no se pudo abrir ({last}): el agente usa el {port}",
+                        ports[0]
+                    );
+                }
+                return Ok((t, addr));
+            }
+            Err(TransportError::Bind(e)) => {
+                tracing::debug!(%addr, "no se pudo abrir: {e}");
+                last = e.to_string();
+            }
+            Err(source) => {
+                return Err(NetError::Bind {
+                    addr,
+                    source: Box::new(source),
+                });
+            }
+        }
+    }
+    Err(NetError::NoPort {
+        ip,
+        tried: ports.to_vec(),
+        last,
+    })
 }
 
 /// Todas las interfaces en `port`. IPv6 solo si algún enlace fijo es IPv6: un socket
@@ -265,23 +343,23 @@ impl Network {
         opts: NetOptions,
     ) -> Result<Self, NetError> {
         let net_cfg = &agent.config().network;
-        let addr = opts
+        let wanted = opts
             .bind
             .unwrap_or_else(|| default_bind(net_cfg.port, &net_cfg.peers));
         // El primer par de la confianza: por ahora un agente se empareja con uno solo.
         let paired = trust.peers().next().cloned();
         let trust = Arc::new(RwLock::new(trust));
-        let endpoint = Arc::new(Endpoint::bind(addr, identity, trust.clone()).map_err(
-            |source| NetError::Bind {
-                addr,
-                source: Box::new(source),
-            },
-        )?);
+        let ports = port_candidates(wanted.port(), &opts.fallback_ports);
+        let (endpoint, addr) = bind_first(wanted.ip(), &ports, |addr| {
+            Endpoint::bind(addr, identity, trust.clone())
+        })?;
+        let endpoint = Arc::new(endpoint);
         let local_addr = endpoint.local_addr().map_err(|source| NetError::Bind {
             addr,
             source: Box::new(source),
         })?;
         tracing::info!(addr = %local_addr, "endpoint QUIC escuchando");
+        agent.set_port(local_addr.port());
 
         let conns = Arc::new(Conns::default());
         let accept = tokio::spawn(accept_loop(endpoint.clone(), agent.clone(), conns.clone()));
@@ -469,6 +547,8 @@ impl Shared {
             identity: self.identity.clone(),
             trust: self.trust.clone(),
             bind_ip: self.local_addr.ip(),
+            port: self.local_addr.port(),
+            fallback_ports: self.opts.fallback_ports.clone(),
             mdns: self.opts.mdns,
             timeouts: self.opts.pairing,
         };

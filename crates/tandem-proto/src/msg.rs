@@ -6,6 +6,8 @@
 //!   conexión de emparejamiento;
 //! - UI → agente: [`UiRequest`]; agente → UI: [`AgentToUi`].
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State, Step};
 
@@ -361,6 +363,25 @@ pub enum UiCommand {
         display: u32,
         monitor: Option<MonitorId>,
     },
+    /// Qué entrada del monitor va a cada máquina (T-082). Se guarda en `tandem.toml` y
+    /// vale desde el siguiente cambio de modo; el puesto nuevo llega en [`AgentToUi::Desk`].
+    SetWiring {
+        monitor: MonitorId,
+        wiring: BTreeMap<Machine, Input>,
+    },
+    /// De dónde salió la configuración de este agente y en qué puerto escucha.
+    GetSetup,
+}
+
+/// La configuración del agente, para que la UI la muestre.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetupInfo {
+    /// `tandem.toml`; `None` si el agente no tiene archivo (pruebas).
+    pub config_file: Option<String>,
+    /// El agente la generó al arrancar por primera vez (T-082).
+    pub generated: bool,
+    /// El puerto UDP real del agente; `None` sin red.
+    pub port: Option<u16>,
 }
 
 /// Un monitor del bus DDC, para «Agregar monitor».
@@ -497,6 +518,8 @@ pub enum AgentToUi {
     Probe(ProbeEvent),
     /// El avance de la calibración de «Agregar monitor».
     Calibration(CalibrationUpdate),
+    /// Aviso espontáneo cuando cambia el puesto (por ejemplo, el cableado de un monitor).
+    Desk(Config),
 }
 
 /// El emparejamiento visto desde la UI.
@@ -629,6 +652,7 @@ pub enum Reply {
     Pairing(PairingStatus),
     Input(InputStatus),
     Displays(Vec<DisplayInfo>),
+    Setup(SetupInfo),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso y nunca una pantalla
@@ -1136,6 +1160,19 @@ pub(crate) mod samples {
                 display: 0,
                 monitor: Some("m34".into()),
             },
+            UiCommand::SetWiring {
+                monitor: "m32".into(),
+                wiring: [
+                    (Machine::Pc, Input::Hdmi),
+                    (Machine::Mac, Input::DisplayPort),
+                ]
+                .into(),
+            },
+            UiCommand::SetWiring {
+                monitor: "m34".into(),
+                wiring: [(Machine::Pc, Input::DisplayPort)].into(),
+            },
+            UiCommand::GetSetup,
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
         cmds.into_iter()
@@ -1168,6 +1205,8 @@ pub(crate) mod samples {
             UiCommand::StartCalibration { .. } => 16,
             UiCommand::CancelCalibration => 17,
             UiCommand::UseProfile { .. } => 18,
+            UiCommand::SetWiring { .. } => 19,
+            UiCommand::GetSetup => 20,
         }
     }
 
@@ -1292,6 +1331,23 @@ pub(crate) mod samples {
             id: 8,
             reply: Reply::Displays(displays()),
         });
+        v.push(AgentToUi::Reply {
+            id: 9,
+            reply: Reply::Setup(SetupInfo {
+                config_file: Some(r"C:\Users\Ana\AppData\Roaming\Tandem\tandem.toml".into()),
+                generated: true,
+                port: Some(52100),
+            }),
+        });
+        v.push(AgentToUi::Reply {
+            id: 10,
+            reply: Reply::Setup(SetupInfo {
+                config_file: None,
+                generated: false,
+                port: None,
+            }),
+        });
+        v.push(AgentToUi::Desk(desk()));
         v.extend(links().into_iter().map(|link| {
             AgentToUi::Peer(PeerStatus::Paired {
                 name: "Mac".into(),
@@ -1464,6 +1520,7 @@ pub(crate) mod samples {
             AgentToUi::Input(_) => 7,
             AgentToUi::Probe(_) => 8,
             AgentToUi::Calibration(_) => 9,
+            AgentToUi::Desk(_) => 10,
         }
     }
 
@@ -1478,6 +1535,7 @@ pub(crate) mod samples {
             Reply::Pairing(_) => 6,
             Reply::Input(_) => 7,
             Reply::Displays(_) => 8,
+            Reply::Setup(_) => 9,
         }
     }
 
@@ -1522,8 +1580,8 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
         covers(&control(), control_arm, 12);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 19);
-        covers(&to_ui(), to_ui_arm, 10);
+        covers(&cmds, ui_command_arm, 21);
+        covers(&to_ui(), to_ui_arm, 11);
         let profiles: Vec<_> = displays().into_iter().map(|d| d.profile).collect();
         covers(&profiles, display_profile_arm, 3);
         covers(&calibration_steps(), calibration_step_arm, 9);
@@ -1542,7 +1600,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 9);
+        covers(&replies, reply_arm, 10);
         covers(&txn_events(), txn_arm, 8);
     }
 

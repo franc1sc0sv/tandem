@@ -13,6 +13,8 @@
 // `/probe.html?demo`. `?demo&addmon` abre «Agregar monitor»: el 34" ya configurado, el 32"
 // sin perfil (calibrarlo simula el recorrido del motor, con la pregunta del cambio a mano) y
 // un monitor que no está en la configuración (`&calib=fail`: ningún código de HDMI funciona).
+// `?demo&desk` abre «Puesto»: la configuración que generó el agente; «Invertir cableado»
+// cambia la del monitor en la escena.
 
 import type { Bridge } from "./bridge";
 import type {
@@ -47,8 +49,8 @@ const DEMO_CODE = "418027";
 
 const DESK: Desk = {
   monitors: [
-    { id: "m34", label: '34"', wiring: { pc: "displayport", mac: "hdmi" } },
-    { id: "m32", label: '32"', wiring: { pc: "displayport", mac: "hdmi" } },
+    { id: "m34", label: '34"', edid_model: "SAM711A", wiring: { pc: "displayport", mac: "hdmi" } },
+    { id: "m32", label: '32"', edid_model: "SAM7489", wiring: { pc: "displayport", mac: "hdmi" } },
   ],
 };
 
@@ -413,6 +415,17 @@ export function demoBridge(query: string): Bridge {
           return { kind: "done" };
         case "use_profile":
           return { kind: "rejected", reason: "en el modo demo ningún monitor tiene perfil en la base" };
+        case "set_wiring": {
+          if (busy) return { kind: "rejected", reason: "ya hay un cambio en curso" };
+          const m = DESK.monitors.find((x) => x.id === a.monitor);
+          if (!m) return { kind: "rejected", reason: `el monitor \`${a.monitor}\` no está en la configuración` };
+          await sleep(200);
+          m.wiring = { ...a.wiring };
+          snapshots.forEach((cb) => cb(snapshot()));
+          return { kind: "done" };
+        }
+        case "get_setup":
+          return { kind: "setup", setup: { config_file: "~/Library/Application Support/Tandem/tandem.toml", generated: true, port: 52000 } };
       }
     },
   };

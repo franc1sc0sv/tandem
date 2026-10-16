@@ -24,6 +24,10 @@
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="2" y="4" width="16" height="11" rx="2" /><path d="M7 19h6M10 15v4M21 6v6M18 9h6" /></svg>
           Monitores
         </button>
+        <button type="button" class="pill btn" id="desk-btn" hidden aria-haspopup="dialog" title="Puesto: la configuración detectada y el cableado de cada monitor">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="2" y="4" width="9" height="7" rx="1.5" /><rect x="13" y="4" width="9" height="7" rx="1.5" /><path d="M6.5 11v4h11v-4M12 15v5" /></svg>
+          Puesto
+        </button>
         <button type="button" class="pill btn" id="keys-btn" hidden aria-haspopup="dialog">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" /></svg>
           Atajos
@@ -175,6 +179,11 @@
     <dialog class="addmon" id="addmon" aria-labelledby="addmon-title">
       <div class="abody" id="addmon-body" aria-live="polite"></div>
       <div class="kfoot" id="addmon-foot"></div>
+    </dialog>
+
+    <dialog class="addmon" id="deskcfg" aria-labelledby="deskcfg-title">
+      <div class="abody" id="deskcfg-body" aria-live="polite"></div>
+      <div class="kfoot" id="deskcfg-foot"></div>
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

@@ -204,14 +204,25 @@ export type Action =
   | { kind: "list_displays" }
   | { kind: "start_calibration"; display: number; monitor: string | null }
   | { kind: "cancel_calibration" }
-  | { kind: "use_profile"; display: number; monitor: string | null };
+  | { kind: "use_profile"; display: number; monitor: string | null }
+  | { kind: "set_wiring"; monitor: string; wiring: Partial<Record<Machine, Input>> }
+  | { kind: "get_setup" };
+
+/** De dónde salió la configuración del agente (`tandem_proto::SetupInfo`). */
+export interface AgentSetup {
+  config_file: string | null;
+  /** El agente la generó al arrancar por primera vez (T-082). */
+  generated: boolean;
+  port: number | null;
+}
 
 export type ActionResult =
   | { kind: "accepted"; txn: number }
   | { kind: "done" }
   | { kind: "rejected"; reason: string }
   | { kind: "unavailable"; reason: string }
-  | { kind: "displays"; displays: DisplayView[] };
+  | { kind: "displays"; displays: DisplayView[] }
+  | { kind: "setup"; setup: AgentSetup };
 
 // Atajos globales (`tandem_ui::shortcuts`).
 export type ShortcutAction = "solo_mac" | "shared" | "solo_pc" | "toggle_window";

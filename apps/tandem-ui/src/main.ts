@@ -2,7 +2,7 @@ import "./styles.css";
 
 import { bridgeFailed, tauriBridge, type Bridge } from "./bridge";
 import { INPUTS, SHORT, actions as rowActions, advance as advanceCalibration, badge, headline, hint, labelOf, laneText, unbound, type Calibration } from "./addmonitor";
-import type { Action, Bindings, BuiltinDisplay, DisplayView, Machine, ManualView, Notice, PairingView, Permission, ProbeShow, SetupView, ShortcutAction, ShortcutsView, Snapshot } from "./model";
+import type { Action, AgentSetup, Bindings, BuiltinDisplay, DisplayView, Machine, ManualView, Notice, PairingView, Permission, ProbeShow, SetupView, ShortcutAction, ShortcutsView, Snapshot } from "./model";
 import { isActive, needsDismiss, pairLine, pairScreen, shouldOpen } from "./pairing";
 import { PORT_NAME, nextQuestion, questionText } from "./probe";
 import {
@@ -39,6 +39,7 @@ import {
   readCombo,
   windowCommand,
 } from "./shortcuts";
+import { modelOf, setupLines, swapWiring, wiringText } from "./desk";
 import { PERMISSION_INFO, back as setupBack, isFirst, isLast, next as setupNext, screensOf, start as setupStart, type Wizard } from "./setup";
 
 // Cuánto queda a la vista el progreso ya terminado y un mensaje suelto.
@@ -361,11 +362,15 @@ function render(moved: string[]) {
   $("#bottom").hidden = !connected;
   $("#stage").hidden = connected;
   $("#monitors-btn").hidden = !connected;
+  $("#desk-btn").hidden = !connected;
   if (!connected) $("#link-pill").hidden = true;
   renderUnavailable();
   renderDesks(moved);
   renderControls();
   renderToast();
+  // El puesto puede cambiar mientras el diálogo está abierto (el cableado recién guardado).
+  if (connected) renderDesk();
+  else if (deskDialog().open) deskDialog().close();
 }
 
 /** El atajo de cada tarjeta de modo, el que esté configurado. */
@@ -540,6 +545,7 @@ function renderSetup() {
     const title = body[1] as HTMLElement;
     title.id = "setup-title";
     body.push(el("p", undefined, "tandemd es el agente que habla con la PC: arranca solo al iniciar sesión. Para llevar el teclado, el mouse y los monitores de una máquina a la otra, macOS le pide tres permisos."));
+    body.push(el("p", undefined, "No hay que escribir ninguna configuración: tandemd detecta los monitores y la crea solo. La ves, y cambias el cableado, en «Puesto»."));
     const agent = setupView.agent;
     if (agent) {
       const line = el("div", "sagent");
@@ -962,6 +968,80 @@ function wireAddmon() {
 }
 
 // ---------------------------------------------------------------------------------------
+// «Puesto» (T-082): la configuración que generó el agente y el cableado de cada monitor
+
+let agentSetup: AgentSetup | null = null;
+let deskError: string | null = null;
+/** El monitor cuyo cableado se está guardando. */
+let rewiring: string | null = null;
+
+function deskDialog() {
+  return $<HTMLDialogElement>("#deskcfg");
+}
+
+async function openDesk() {
+  if (snap.kind !== "connected" || !bridge) return;
+  deskError = null;
+  renderDesk();
+  if (!deskDialog().open) deskDialog().showModal();
+  const r = await bridge.act({ kind: "get_setup" }).catch(() => null);
+  agentSetup = r?.kind === "setup" ? r.setup : null;
+  renderDesk();
+}
+
+async function rewire(id: string, wiring: Partial<Record<Machine, "hdmi" | "displayport">>) {
+  rewiring = id;
+  deskError = null;
+  renderDesk();
+  deskError = await act({ kind: "set_wiring", monitor: id, wiring }, true);
+  rewiring = null;
+  renderDesk();
+}
+
+function renderDesk() {
+  if (!deskDialog().open || snap.kind !== "connected") return;
+  const { agent, desk } = snap;
+  const h = el("h2", undefined, "Puesto");
+  h.id = "deskcfg-title";
+  const body: Node[] = [h];
+  for (const line of setupLines(agent, agentSetup)) body.push(el("p", "ahint", line));
+  if (agentSetup?.config_file) {
+    const where = el("p", "afile", "Se guarda en ");
+    where.append(el("code", undefined, agentSetup.config_file));
+    body.push(where);
+  }
+  if (!desk.monitors.length) {
+    body.push(el("p", "ahint", "Esta máquina no ve ningún monitor externo con EDID. Se agregan al conectarlos con la otra máquina o con «Monitores»."));
+  }
+  const list = el("div", "alist");
+  for (const m of desk.monitors) {
+    const row = el("div", "arow");
+    const icon = el("span", "aicon");
+    icon.innerHTML = ICON_MONITOR;
+    const info = el("div", "ainfo");
+    info.append(el("b", undefined, m.label), el("small", undefined, [modelOf(m), m.id].filter(Boolean).join(" · ")));
+    const wiring = el("span", "acodes", wiringText(m.wiring));
+    wiring.title = "Qué entrada del monitor va a cada máquina";
+    const btns = el("div", "abtns");
+    const swap = kbtn(rewiring === m.id ? "Guardando…" : "Invertir cableado", () => void rewire(m.id, swapWiring(m.wiring)));
+    swap.disabled = rewiring !== null;
+    swap.title = `Pasa a ${wiringText(swapWiring(m.wiring))}`;
+    btns.append(swap);
+    row.append(icon, info, wiring, btns);
+    list.append(row);
+  }
+  body.push(list);
+  body.push(el("p", "ahint", `El cableado vale desde el siguiente cambio de modo. Se guarda en esta máquina: hasta que se sincronicen, cámbialo también en la ${agent === "mac" ? "PC" : "Mac"}.`));
+  if (deskError) body.push(el("p", "pwarn", capitalize(deskError)));
+  $("#deskcfg-body").replaceChildren(...body);
+  $("#deskcfg-foot").replaceChildren(el("span", "spacer"), kbtn("Cerrar", () => deskDialog().close(), "primary"));
+}
+
+function wireDesk() {
+  $("#desk-btn").addEventListener("click", () => void openDesk());
+}
+
+// ---------------------------------------------------------------------------------------
 // Controles
 
 function chooseMode(key: ModeKey) {
@@ -975,7 +1055,7 @@ function wire() {
   }
   // Los atajos que el sistema no dejó registrar como globales los atiende la ventana.
   addEventListener("keydown", (e) => {
-    if (!keys || $<HTMLDialogElement>("#keys").open || $<HTMLDialogElement>("#setup").open || pairDialog().open || addmonDialog().open) return;
+    if (!keys || $<HTMLDialogElement>("#keys").open || $<HTMLDialogElement>("#setup").open || pairDialog().open || addmonDialog().open || deskDialog().open) return;
     const a = localAction(e, keys);
     if (!a) return;
     e.preventDefault();
@@ -987,6 +1067,7 @@ function wire() {
   wireSetup();
   wirePair();
   wireAddmon();
+  wireDesk();
 
   for (const side of $$(".side")) {
     const to = side.dataset.owner as Machine;
@@ -1056,6 +1137,8 @@ async function boot() {
     if (!pushed) setSnapshot(first);
     // Modo demo: `/?demo&addmon` abre «Agregar monitor».
     if (import.meta.env.DEV && new URLSearchParams(location.search).has("addmon")) openAddmon();
+    // `/?demo&desk` abre «Puesto».
+    if (import.meta.env.DEV && new URLSearchParams(location.search).has("desk")) void openDesk();
   } catch (e) {
     setSnapshot(bridgeFailed(e));
   }

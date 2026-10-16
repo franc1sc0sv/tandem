@@ -2,8 +2,9 @@
 ; docs/dev/install-windows.md). tandemd.exe y tandemw.exe se copian a $INSTDIR como sidecars.
 ;
 ; - Antes de copiar y de desinstalar: se detiene el agente, que si no deja los .exe bloqueados.
-; - Al instalar: `tandemd --install` crea la config inicial si falta y registra tandemw.exe
-;   en HKCU\...\Run; despues se arranca el agente para no esperar al proximo inicio de sesion.
+; - Al instalar: `tandemd --install` registra tandemw.exe en HKCU\...\Run; despues se
+;   arranca el agente para no esperar al proximo inicio de sesion. No se instala ninguna
+;   config: el agente la genera al arrancar con los monitores que detecta (T-082).
 ; - Al desinstalar (no en una actualizacion): `tandemd --uninstall` quita el arranque. Los
 ;   datos del usuario (%APPDATA%\Tandem) se borran solo si se marca la casilla de borrar datos.
 

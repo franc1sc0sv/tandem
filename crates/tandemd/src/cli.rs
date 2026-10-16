@@ -7,11 +7,12 @@ pub const USAGE: &str = "\
 Uso: tandemd [opciones]
 
 Opciones:
-  --config <archivo>        tandem.toml a usar (por omisión, el del directorio de la app)
+  --config <archivo>        tandem.toml a usar (por omisión, el del directorio de la app;
+                            si no existe, el agente lo genera con los monitores que detecta)
   --data-dir <dir>          directorio de estado, logs y socket (por omisión, el de la app)
   --check-config <archivo>  valida la configuración y sale (código ≠ 0 si es inválida)
-  --install                 crea la configuración inicial si falta y registra el arranque
-                            con la sesión (Windows; lo usa el instalador)
+  --install                 registra el arranque con la sesión (Windows; lo usa el
+                            instalador)
   --uninstall               quita el arranque con la sesión (deja la configuración)
   -h, --help                muestra esta ayuda
   -V, --version             muestra la versión";

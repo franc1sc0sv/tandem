@@ -56,6 +56,7 @@ fn sample_edid(name: &str, serial: &str) -> crate::ddc::Edid {
         serial_number: 0,
         name: Some(name.into()),
         serial_text: Some(serial.into()),
+        size_cm: None,
     }
 }
 

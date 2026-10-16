@@ -15,7 +15,7 @@ use tandem_display::switcher::{
 use tandem_proto::ManualSwitchEvent;
 use tokio::sync::watch;
 
-use crate::add_monitor::LiveDdc;
+use crate::add_monitor::LiveDesk;
 use crate::config::AgentConfig;
 use crate::input::GeometrySteps;
 use crate::orchestrator::{LocalSteps, STEP_NOT_IMPLEMENTED, StepFuture, Unimplemented, describe};
@@ -32,7 +32,7 @@ pub struct DisplaySteps {
     desktop_turn: Arc<tokio::sync::Mutex<()>>,
     others: Arc<dyn LocalSteps>,
     /// Los códigos DDC aprendidos al calibrar (T-080), por encima de los de `desk`.
-    live: LiveDdc,
+    live: LiveDesk,
 }
 
 impl std::fmt::Debug for DisplaySteps {
@@ -55,12 +55,12 @@ impl DisplaySteps {
             desktop: None,
             desktop_turn: Arc::default(),
             others: Arc::new(Unimplemented),
-            live: LiveDdc::default(),
+            live: LiveDesk::default(),
         }
     }
 
     /// Lo que «Agregar monitor» aprende: el siguiente cambio de modo ya lo usa.
-    pub fn with_live(mut self, live: LiveDdc) -> Self {
+    pub fn with_live(mut self, live: LiveDesk) -> Self {
         self.live = live;
         self
     }

@@ -15,7 +15,7 @@ use std::path::{Component, Path, PathBuf};
 pub const LABEL: &str = "com.franc1sc0sv.tandem.tandemd";
 /// Nombre del sidecar dentro de `Contents/MacOS` (Tauri le quita el sufijo del target).
 pub const SIDECAR: &str = "tandemd";
-/// Si `tandemd` sale con error (por ejemplo, todavía no hay `tandem.toml`), launchd espera
+/// Si `tandemd` sale con error (por ejemplo, un `tandem.toml` inválido), launchd espera
 /// esto antes de volver a lanzarlo: sin espera, un error fijo llenaría el log.
 pub const THROTTLE_SECS: u32 = 30;
 

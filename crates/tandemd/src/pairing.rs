@@ -106,8 +106,27 @@ pub struct Ctx {
     pub trust: Arc<RwLock<TrustStore>>,
     /// La IP del endpoint normal: el de emparejamiento usa la misma familia.
     pub bind_ip: IpAddr,
+    /// El puerto real del endpoint normal (puede no ser el de la config, si estaba ocupado).
+    pub port: u16,
+    /// Los de reserva de la red ([`crate::network::NetOptions::fallback_ports`]).
+    pub fallback_ports: Vec<u16>,
     pub mdns: bool,
     pub timeouts: PairingTimeouts,
+}
+
+/// Dónde puede esperar la PC al emparejar, en orden: el `pairing_port` de la config si se
+/// fijó, si no el siguiente al puerto real del agente; después el siguiente a cada puerto
+/// de reserva. La Mac lo encuentra por el anuncio de mDNS, que lleva el puerto real.
+pub fn pairing_ports(net: &crate::NetworkConfig, port: u16, fallbacks: &[u16]) -> Vec<u16> {
+    let next = |p: u16| p.checked_add(1).unwrap_or(p - 1);
+    let first = net.pairing_port.unwrap_or_else(|| next(port));
+    let mut out = vec![first];
+    for p in fallbacks.iter().map(|p| next(*p)) {
+        if p != port && !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
 }
 
 impl Ctx {
@@ -180,9 +199,11 @@ async fn search(ctx: &Ctx) -> Result<Found, String> {
 
 /// La PC: espera en el puerto de emparejamiento a que la Mac conecte.
 async fn wait_for_mac(ctx: &Ctx) -> Result<Found, String> {
-    let addr = SocketAddr::new(ctx.bind_ip, ctx.agent.config().network.pairing_port());
-    let endpoint = Endpoint::bind_pairing(addr, &ctx.identity)
-        .map_err(|e| format!("no se pudo esperar en {addr}: {e}"))?;
+    let ports = pairing_ports(&ctx.agent.config().network, ctx.port, &ctx.fallback_ports);
+    let (endpoint, addr) = crate::network::bind_first(ctx.bind_ip, &ports, |addr| {
+        Endpoint::bind_pairing(addr, &ctx.identity)
+    })
+    .map_err(|e| format!("no se pudo esperar a la Mac: {e}"))?;
     let port = endpoint
         .local_addr()
         .map(|a| a.port())
@@ -501,6 +522,8 @@ mod tests {
             identity: Identity::from_seed([seed; 32]),
             trust: Arc::new(RwLock::new(trust)),
             bind_ip: LOOPBACK,
+            port: 0,
+            fallback_ports: Vec::new(),
             mdns: false,
             timeouts: PairingTimeouts::default(),
         }
@@ -550,6 +573,29 @@ mod tests {
                 lan,
             ]
         );
+    }
+
+    #[test]
+    fn the_pc_waits_next_to_its_real_port() {
+        let net = |toml: &str| {
+            AgentConfig::from_toml(&format!(
+                "machine = \"pc\"\nmonitors = []\n[network]\n{toml}"
+            ))
+            .unwrap()
+            .network
+        };
+        // El agente quedó en 52100 porque el 52000 estaba ocupado: espera en 52101.
+        let fallbacks = [52000, 52100, 53100];
+        assert_eq!(
+            pairing_ports(&net("port = 52000"), 52100, &fallbacks),
+            [52101, 52001, 53101]
+        );
+        // Un `pairing_port` fijo va primero; ninguno choca con el puerto del agente.
+        assert_eq!(
+            pairing_ports(&net("pairing_port = 50000"), 52001, &fallbacks),
+            [50000, 52101, 53101]
+        );
+        assert_eq!(pairing_ports(&net(""), 65535, &[]), [65534]);
     }
 
     #[tokio::test]

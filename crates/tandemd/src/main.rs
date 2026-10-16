@@ -8,7 +8,7 @@ use tandemd::cli::{self, Command, RunArgs};
 use tandemd::daemon::{self, Backends};
 use tandemd::network::NetOptions;
 use tandemd::paths::{self, Paths};
-use tandemd::{AgentConfig, ipc, logging};
+use tandemd::{AgentConfig, autoconfig, ipc, logging};
 
 fn main() -> ExitCode {
     let cmd = match cli::parse(std::env::args_os().skip(1)) {
@@ -63,12 +63,24 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
     let log = logging::init(&paths.log_dir()).context("no se pudo iniciar el log")?;
     tracing::info!(version = env!("CARGO_PKG_VERSION"), log = %log.display(), "tandemd arranca");
 
-    let cfg = AgentConfig::load(&paths.config)?;
+    // Sin `tandem.toml`, se genera con lo que se detecta (T-082): no hay que escribirlo.
+    let db = tandem_display::ddc::profiles::ProfileDb::load(Some(
+        &tandem_display::ddc::profiles::user_dir(&paths.data_dir),
+    ));
+    let machine = autoconfig::machine_of_os();
+    let loaded = autoconfig::load_or_generate(
+        &paths.config,
+        machine,
+        || machine.map_or(Ok(Vec::new()), autoconfig::platform_scan),
+        &db,
+    )?;
+    let (cfg, generated) = (loaded.config, loaded.generated);
     tracing::info!(
-        "configuración {}: máquina {}, {} monitores",
+        "configuración {}: máquina {}, {} monitores{}",
         paths.config.display(),
         cfg.machine,
-        cfg.desk.monitors.len()
+        cfg.desk.monitors.len(),
+        if generated { " (generada ahora)" } else { "" }
     );
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -81,6 +93,7 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         tracing::info!("IPC escuchando en {}", endpoint.display());
         let (backends, net) = backends(&args, &paths);
         let daemon = daemon::start(cfg, &paths, backends, net)?;
+        daemon.agent.set_generated(generated);
         daemon.serve(listener, daemon::shutdown_signal()).await?;
         Ok(())
     })
@@ -109,15 +122,14 @@ fn install(args: RunArgs) -> anyhow::Result<()> {
     let paths = Paths::resolve(args.config.clone(), args.data_dir.clone())?;
     let exe = std::env::current_exe().context("no se encontró el ejecutable de tandemd")?;
     let launcher = install::launcher_for(&exe, |p| p.is_file());
-    let report = install::install(
-        &mut RunKey,
-        &paths.config,
-        &install::command_line(&launcher, &args),
-    )?;
-    if report.config_created {
-        println!("configuración inicial creada en {}", paths.config.display());
-    } else {
+    let report = install::install(&mut RunKey, &install::command_line(&launcher, &args))?;
+    if paths.config.exists() {
         println!("se conserva la configuración de {}", paths.config.display());
+    } else {
+        println!(
+            "la configuración se genera al arrancar el agente, en {}",
+            paths.config.display()
+        );
     }
     println!("arranque con la sesión: {}", report.command);
     Ok(())

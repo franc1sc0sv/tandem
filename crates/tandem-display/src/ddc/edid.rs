@@ -31,12 +31,22 @@ pub struct Edid {
     pub name: Option<String>,
     /// Descriptor de número de serie en texto (0xFF).
     pub serial_text: Option<String>,
+    /// Tamaño de la imagen en cm (ancho, alto), bytes 21-22. `None` si el monitor no lo da
+    /// (proyectores, o cuando el EDID guarda una relación de aspecto en vez del tamaño).
+    pub size_cm: Option<(u8, u8)>,
 }
 
 impl Edid {
     /// Identificador PnP como lo muestra Windows: `SAM7140`.
     pub fn pnp_id(&self) -> String {
         format!("{}{:04X}", self.manufacturer, self.product_code)
+    }
+
+    /// La diagonal en pulgadas enteras, como se venden los monitores (`34`).
+    pub fn diagonal_inches(&self) -> Option<u32> {
+        let (w, h) = self.size_cm?;
+        let cm = (f64::from(w).powi(2) + f64::from(h).powi(2)).sqrt();
+        Some((cm / 2.54).round() as u32)
     }
 }
 
@@ -67,6 +77,8 @@ pub fn parse(bytes: &[u8]) -> Result<Edid, EdidError> {
         serial_number: u32::from_le_bytes([base[12], base[13], base[14], base[15]]),
         name: None,
         serial_text: None,
+        // Con uno de los dos en 0, los bytes son una relación de aspecto, no un tamaño.
+        size_cm: (base[21] != 0 && base[22] != 0).then_some((base[21], base[22])),
     };
     for offset in DESCRIPTORS {
         let d = &base[offset..offset + 18];
@@ -189,6 +201,24 @@ pub(crate) mod tests {
         assert_eq!(edid.name.as_deref(), Some("LC34G55T"));
         assert_eq!(edid.serial_text.as_deref(), Some("H4ZR900123"));
         assert_eq!(edid.to_string(), "SAM7140 LC34G55T");
+    }
+
+    #[test]
+    fn reads_the_screen_size() {
+        let mut e = sample("LC34G55T", "S");
+        assert_eq!(parse(&e).unwrap().size_cm, None);
+        assert_eq!(parse(&e).unwrap().diagonal_inches(), None);
+        // El 34" ultrawide: 80 x 34 cm.
+        e[21] = 80;
+        e[22] = 34;
+        fix_checksum(&mut e);
+        let edid = parse(&e).unwrap();
+        assert_eq!(edid.size_cm, Some((80, 34)));
+        assert_eq!(edid.diagonal_inches(), Some(34));
+        // Relación de aspecto (alto en 0): no es un tamaño.
+        e[22] = 0;
+        fix_checksum(&mut e);
+        assert_eq!(parse(&e).unwrap().size_cm, None);
     }
 
     #[test]

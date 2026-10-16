@@ -21,13 +21,13 @@ pub use msg::{
     ControlMsg, DisplayInfo, DisplayProfile, EdidId, Hello, HubReport, InputPermission,
     InputStatus, Link, ManualSwitchEvent, PairingMsg, PairingStatus, Peer, PeerStatus, PowerEvent,
     ProbeAnswer, ProbeAsk, ProbeEvent, ProbeMonitor, ProbeOutcome, ProbePlace, ProbeScreen, Reply,
-    SavedProfile, ScreenRect, StepOutcome, TxnEvent, UiCommand, UiRequest, UndoFailure,
+    SavedProfile, ScreenRect, SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest, UndoFailure,
 };
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 8;
+pub const PROTOCOL_VERSION: u16 = 9;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ProtoError {

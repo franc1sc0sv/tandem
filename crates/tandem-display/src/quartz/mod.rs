@@ -45,6 +45,8 @@ pub struct CgDisplay {
     /// Código de producto del EDID.
     pub model: u32,
     pub serial: u32,
+    /// Tamaño físico en mm (`CGDisplayScreenSize`); `None` si el sistema no lo sabe.
+    pub size_mm: Option<(u32, u32)>,
     pub builtin: bool,
     pub main: bool,
     /// Forma parte del escritorio. `false` = desactivada (fantasma quitado).
@@ -63,6 +65,10 @@ impl From<CgDisplay> for Display<DisplayId> {
             serial_number: d.serial,
             name: d.name.clone(),
             serial_text: None,
+            size_cm: d.size_mm.and_then(|(w, h)| {
+                let cm = |mm: u32| u8::try_from((mm + 5) / 10).ok().filter(|c| *c > 0);
+                Some((cm(w)?, cm(h)?))
+            }),
         });
         let name = match d.name {
             Some(n) => n,

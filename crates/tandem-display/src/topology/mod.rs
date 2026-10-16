@@ -97,15 +97,19 @@ impl<Id> Display<Id> {
         fields.iter().any(|f| f.contains(&q))
     }
 
-    /// ¿Es el monitor configurado? El `edid_model` tiene que ser el modelo completo (sin
-    /// distinguir mayúsculas): una búsqueda parcial confundiría `G5` con `LC34G55T`. La
-    /// pantalla integrada nunca es un monitor de la configuración.
+    /// ¿Es el monitor configurado? El `edid_model` tiene que ser el modelo completo o el id
+    /// PnP (`SAM711A`), sin distinguir mayúsculas: una búsqueda parcial confundiría `G5`
+    /// con `LC34G55T`. El id PnP es lo que escribe la configuración generada (T-082):
+    /// identifica al modelo aunque el nombre del EDID sea genérico. La pantalla integrada
+    /// nunca es un monitor de la configuración.
     pub fn is_monitor(&self, model: &str) -> bool {
         let model = model.trim();
+        let pnp = self.edid.as_ref().map(Edid::pnp_id);
         !self.builtin
             && [
                 self.edid.as_ref().and_then(|e| e.name.as_deref()),
                 Some(&self.name),
+                pnp.as_deref(),
             ]
             .into_iter()
             .flatten()
@@ -807,6 +811,7 @@ mod tests {
                 serial_number: serial,
                 name: Some(name.into()),
                 serial_text: None,
+                size_cm: None,
             }),
             builtin: false,
             main: false,

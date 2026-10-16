@@ -79,13 +79,14 @@ pub fn start(
         } => (Agent::with_backends(cfg, store, local, manual), input),
     };
     let agent = Arc::new(agent);
+    agent.set_config_file(paths.config.clone());
     // «Agregar monitor» calibra con el DDC de la PC, que es la que cambia las entradas.
     if platform && me == tandem_core::Machine::Pc {
         agent.set_wizard(Arc::new(MonitorWizard::new(
             platform_bus(),
             Some(profiles::user_dir(&paths.data_dir)),
             Some(paths.config.clone()),
-            agent.live_ddc().clone(),
+            agent.live_desk().clone(),
         )));
     }
     let identity =
