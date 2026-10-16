@@ -9,8 +9,9 @@
 //!   que tarde más que `LowLevelHooksTimeout`, así que ahí no se hace nada más.
 //! - **Hilo de proceso** ([`run_pipeline`], portable): traduce a [`InputEvent`]
 //!   ([`Translator`]: filtro de inyectados, Ctrl falso de AltGr, teclas por
-//!   scancode, deltas de Raw Input) y corre el [`Watchdog`], que prueba los hooks
-//!   con sondas y los reinstala si Windows los quitó.
+//!   scancode, deltas de Raw Input) y corre el [`Watchdog`], que compara los
+//!   hooks con Raw Input de dispositivos reales y los reinstala si Windows los
+//!   quitó. Nunca inyecta nada.
 //!
 //! Contrato con la sesión (T-026): el movimiento llega como `MotionRelative` de
 //! Raw Input (sin aceleración, en píxeles físicos) siempre, y como
@@ -29,7 +30,6 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use crate::event::InputEvent;
-use crate::windows::TANDEM_EXTRA_INFO;
 
 pub use keyboard::{AltGrFilter, key_event};
 pub use mouse::{RawMotion, mouse_event};
@@ -37,11 +37,6 @@ pub use watchdog::{HookKind, Watchdog, WatchdogAction, WatchdogConfig};
 
 #[cfg(windows)]
 pub use sys::{WindowsCapture, ensure_per_monitor_v2};
-
-/// Marca de las sondas del watchdog ("TNDP"): el hook las traga siempre. Debe ser
-/// distinta de [`TANDEM_EXTRA_INFO`], que marca la inyección normal de T-025.
-pub const PROBE_TAG: usize = 0x544E_4450;
-const _: () = assert!(PROBE_TAG != TANDEM_EXTRA_INFO);
 
 /// Constantes de Win32 que usa la lógica portable. `sys` comprueba en compilación
 /// que coinciden con las del crate `windows`.
@@ -77,9 +72,6 @@ pub mod consts {
     pub const VK_MEDIA_PREV_TRACK: u32 = 0xB1;
     pub const VK_MEDIA_STOP: u32 = 0xB2;
     pub const VK_MEDIA_PLAY_PAUSE: u32 = 0xB3;
-    /// Sin asignar en Windows: la sonda de teclado lo usa para no tocar nada si
-    /// el hook ya no está.
-    pub const VK_PROBE: u16 = 0x9F;
 }
 
 /// Copia de `KBDLLHOOKSTRUCT`.
@@ -157,8 +149,11 @@ pub enum HookEvent {
         swallowed: bool,
     },
     Raw(RawMouse),
-    /// Una sonda del watchdog llegó al hook: sigue instalado.
-    Probe(HookKind),
+    /// Raw Input de teclado; solo le sirve al watchdog.
+    RawKeyboard {
+        /// `hDevice`; 0 = inyectado con `SendInput`.
+        device: usize,
+    },
 }
 
 impl HookEvent {
@@ -167,8 +162,20 @@ impl HookEvent {
         match self {
             HookEvent::Keyboard { .. } => Some(HookKind::Keyboard),
             HookEvent::Mouse { .. } => Some(HookKind::Mouse),
-            HookEvent::Probe(kind) => Some(*kind),
-            HookEvent::Raw(_) => None,
+            HookEvent::Raw(_) | HookEvent::RawKeyboard { .. } => None,
+        }
+    }
+
+    /// Qué tipo de entrada real (de un dispositivo, no inyectada) demuestra este
+    /// evento de Raw Input. Un mouse sin movimiento no cuenta: basta con que el
+    /// watchdog no actúe de más.
+    pub fn real_activity(&self) -> Option<HookKind> {
+        match self {
+            HookEvent::Raw(r) if r.device != 0 && (r.last_x != 0 || r.last_y != 0) => {
+                Some(HookKind::Mouse)
+            }
+            HookEvent::RawKeyboard { device } if *device != 0 => Some(HookKind::Keyboard),
+            _ => None,
         }
     }
 }
@@ -180,8 +187,6 @@ pub enum Verdict {
     Pass,
     /// Tragarlo: el foco está en la otra máquina.
     Swallow,
-    /// Sonda del watchdog: se traga y solo cuenta como señal de vida.
-    Probe,
 }
 
 /// Decisión del hook, con memoria de lo que el sistema local vio presionarse.
@@ -203,9 +208,6 @@ impl HookFilter {
     }
 
     pub fn keyboard(&mut self, grab: bool, k: &KeyboardHook) -> Verdict {
-        if k.extra_info == PROBE_TAG {
-            return Verdict::Probe;
-        }
         if k.injected() {
             return Verdict::Pass;
         }
@@ -228,9 +230,6 @@ impl HookFilter {
     }
 
     pub fn mouse(&mut self, grab: bool, m: &MouseHook) -> Verdict {
-        if m.extra_info == PROBE_TAG {
-            return Verdict::Probe;
-        }
         if m.injected() {
             return Verdict::Pass;
         }
@@ -305,7 +304,7 @@ impl Translator {
                     out(InputEvent::MotionRelative { dx, dy });
                 }
             }
-            HookEvent::Probe(_) => {}
+            HookEvent::RawKeyboard { .. } => {}
         }
     }
 
@@ -369,11 +368,9 @@ impl Default for CaptureConfig {
     }
 }
 
-/// Lo que el hilo de proceso le pide al sistema; [`sys`] lo implementa con
-/// `SendInput` y mensajes al hilo de hooks, y las pruebas con un doble.
+/// Lo que el hilo de proceso le pide al sistema; [`sys`] lo implementa con un
+/// mensaje al hilo de hooks, y las pruebas con un doble.
 pub trait HookControl {
-    /// Manda un evento de sonda que solo nuestro hook reconoce y traga.
-    fn probe(&mut self, kind: HookKind);
     /// Quita y vuelve a instalar los dos hooks.
     fn reinstall(&mut self);
 }
@@ -387,7 +384,7 @@ pub fn run_pipeline(
     config: &CaptureConfig,
 ) {
     let mut translator = Translator::new(config.altgr_window);
-    let mut watchdog = Watchdog::new(Instant::now(), config.watchdog);
+    let mut watchdog = Watchdog::new(config.watchdog);
     loop {
         let wait = if translator.has_pending() {
             config.altgr_window
@@ -398,7 +395,10 @@ pub fn run_pipeline(
             Ok(event) => {
                 let now = Instant::now();
                 if let Some(kind) = event.hook_kind() {
-                    watchdog.activity(kind, now);
+                    watchdog.hook_activity(kind, now);
+                }
+                if let Some(kind) = event.real_activity() {
+                    watchdog.real_activity(kind, now);
                 }
                 translator.push(event, now, out);
             }
@@ -410,17 +410,8 @@ pub fn run_pipeline(
         }
         let now = Instant::now();
         translator.flush_expired(now, out);
-        match watchdog.tick(now) {
-            WatchdogAction::Idle => {}
-            WatchdogAction::Probe { keyboard, mouse } => {
-                if keyboard {
-                    control.probe(HookKind::Keyboard);
-                }
-                if mouse {
-                    control.probe(HookKind::Mouse);
-                }
-            }
-            WatchdogAction::Reinstall => control.reinstall(),
+        if watchdog.tick(now) == WatchdogAction::Reinstall {
+            control.reinstall();
         }
     }
 }
@@ -432,6 +423,7 @@ mod tests {
     use super::consts::*;
     use super::*;
     use crate::event::{Button, HidUsage, KeyState, Scroll};
+    use crate::windows::TANDEM_EXTRA_INFO;
 
     pub(super) fn key(scan: u32, flags: u32, time: u32) -> KeyboardHook {
         KeyboardHook {
@@ -464,14 +456,10 @@ mod tests {
 
     #[derive(Default)]
     struct FakeControl {
-        probes: Vec<HookKind>,
         reinstalls: u32,
     }
 
     impl HookControl for FakeControl {
-        fn probe(&mut self, kind: HookKind) {
-            self.probes.push(kind);
-        }
         fn reinstall(&mut self) {
             self.reinstalls += 1;
         }
@@ -528,12 +516,6 @@ mod tests {
             ..a
         };
         assert_eq!(f.keyboard(true, &injected), Verdict::Pass);
-        let probe = KeyboardHook {
-            flags: LLKHF_INJECTED | LLKHF_UP,
-            extra_info: PROBE_TAG,
-            ..a
-        };
-        assert_eq!(f.keyboard(false, &probe), Verdict::Probe);
 
         let mv = mouse(WM_MOUSEMOVE, 0);
         assert_eq!(f.mouse(false, &mv), Verdict::Pass);
@@ -543,11 +525,6 @@ mod tests {
             ..mv
         };
         assert_eq!(f.mouse(true, &injected), Verdict::Pass);
-        let probe = MouseHook {
-            extra_info: PROBE_TAG,
-            ..injected
-        };
-        assert_eq!(f.mouse(true, &probe), Verdict::Probe);
     }
 
     #[test]
@@ -609,7 +586,7 @@ mod tests {
                 last_y: 50,
                 span: (0.0, 0.0),
             }),
-            HookEvent::Probe(HookKind::Mouse),
+            HookEvent::RawKeyboard { device: 7 },
             HookEvent::Mouse {
                 hook: mouse(WM_MOUSEWHEEL, (120u32) << 16),
                 swallowed: true,
@@ -710,19 +687,86 @@ mod tests {
         );
     }
 
-    #[test]
-    fn el_raw_input_no_cuenta_como_vida_de_los_hooks() {
-        let raw = HookEvent::Raw(RawMouse {
-            device: 1,
+    fn raw_mouse(device: usize, dx: i32) -> HookEvent {
+        HookEvent::Raw(RawMouse {
+            device,
             flags: 0,
-            last_x: 1,
-            last_y: 1,
+            last_x: dx,
+            last_y: 0,
             span: (0.0, 0.0),
+        })
+    }
+
+    #[test]
+    fn solo_el_raw_input_real_cuenta_como_entrada_real() {
+        assert_eq!(raw_mouse(1, 1).hook_kind(), None);
+        assert_eq!(raw_mouse(1, 1).real_activity(), Some(HookKind::Mouse));
+        // Inyectado o sin movimiento: no cuenta.
+        assert_eq!(raw_mouse(0, 1).real_activity(), None);
+        assert_eq!(raw_mouse(1, 0).real_activity(), None);
+        let kb_raw = HookEvent::RawKeyboard { device: 4 };
+        assert_eq!(kb_raw.hook_kind(), None);
+        assert_eq!(kb_raw.real_activity(), Some(HookKind::Keyboard));
+        assert_eq!(HookEvent::RawKeyboard { device: 0 }.real_activity(), None);
+        assert_eq!(kb(key(0x1E, 0, 0)).hook_kind(), Some(HookKind::Keyboard));
+        assert_eq!(kb(key(0x1E, 0, 0)).real_activity(), None);
+    }
+
+    /// Corre el pipeline con plazos cortos mientras otro hilo manda `step()` cada
+    /// 5 ms durante unos 300 ms. Devuelve cuántas veces reinstaló.
+    fn reinstalls_with(step: fn() -> Vec<HookEvent>) -> u32 {
+        let (tx, rx) = mpsc::channel();
+        let feeder = std::thread::spawn(move || {
+            for _ in 0..60 {
+                for e in step() {
+                    tx.send(e).unwrap();
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
         });
-        assert_eq!(raw.hook_kind(), None);
+        let config = CaptureConfig {
+            tick: Duration::from_millis(5),
+            watchdog: WatchdogConfig {
+                hook_timeout: Duration::from_millis(100),
+            },
+            ..CaptureConfig::default()
+        };
+        let mut control = FakeControl::default();
+        run_pipeline(&rx, &mut control, &mut |_| {}, &config);
+        feeder.join().unwrap();
+        control.reinstalls
+    }
+
+    #[test]
+    fn pipeline_reinstala_si_el_teclado_real_no_llega_al_hook() {
+        assert!(reinstalls_with(|| vec![HookEvent::RawKeyboard { device: 3 }]) >= 1);
+        assert!(reinstalls_with(|| vec![raw_mouse(3, 2)]) >= 1);
+    }
+
+    #[test]
+    fn pipeline_no_reinstala_con_hooks_vivos_ni_con_entrada_inyectada() {
+        // Inyectado: Raw Input sin hDevice y nada en los hooks.
         assert_eq!(
-            HookEvent::Probe(HookKind::Keyboard).hook_kind(),
-            Some(HookKind::Keyboard)
+            reinstalls_with(|| vec![HookEvent::RawKeyboard { device: 0 }, raw_mouse(0, 2)]),
+            0
         );
+        // Real y visto por los hooks.
+        assert_eq!(
+            reinstalls_with(|| vec![
+                kb(key(0x1E, 0, 0)),
+                HookEvent::RawKeyboard { device: 3 },
+                raw_mouse(3, 2),
+                HookEvent::Mouse {
+                    hook: mouse(WM_MOUSEMOVE, 0),
+                    swallowed: false,
+                },
+            ]),
+            0
+        );
+    }
+
+    #[test]
+    fn pipeline_inactivo_no_toca_nada() {
+        assert_eq!(reinstalls_with(Vec::new), 0);
     }
 }

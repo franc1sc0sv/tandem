@@ -1,4 +1,4 @@
-//! Lo que toca Win32: hilo de hooks, Raw Input, sondas y DPI.
+//! Lo que toca Win32: hilo de hooks, Raw Input y DPI.
 
 use std::cell::{OnceCell, RefCell};
 use std::sync::Arc;
@@ -15,13 +15,10 @@ use ::windows::Win32::UI::HiDpi::{
     AreDpiAwarenessContextsEqual, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     GetThreadDpiAwarenessContext, SetProcessDpiAwarenessContext,
 };
-use ::windows::Win32::UI::Input::KeyboardAndMouse::{
-    INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, MOUSEEVENTF_MOVE,
-    MOUSEINPUT, SendInput, VIRTUAL_KEY,
-};
 use ::windows::Win32::UI::Input::{
-    GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT,
-    RIDEV_INPUTSINK, RIDEV_REMOVE, RIM_TYPEMOUSE, RegisterRawInputDevices,
+    GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTDEVICE_FLAGS, RAWINPUTHEADER,
+    RID_INPUT, RIDEV_INPUTSINK, RIDEV_REMOVE, RIM_TYPEKEYBOARD, RIM_TYPEMOUSE,
+    RegisterRawInputDevices,
 };
 use ::windows::Win32::UI::WindowsAndMessaging::{
     CallNextHookEx, CreateWindowExW, DestroyWindow, DispatchMessageW, GetMessageW,
@@ -34,8 +31,8 @@ use ::windows::core::{PCWSTR, w};
 
 use super::consts;
 use super::{
-    CaptureConfig, CaptureError, HookControl, HookEvent, HookFilter, HookKind, KeyboardHook,
-    MouseHook, PROBE_TAG, RawMouse, Verdict, run_pipeline,
+    CaptureConfig, CaptureError, HookControl, HookEvent, HookFilter, KeyboardHook, MouseHook,
+    RawMouse, Verdict, run_pipeline,
 };
 use crate::event::InputEvent;
 use crate::geometry::Point;
@@ -153,12 +150,9 @@ unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARA
         let swallow = with_ctx(|ctx| {
             ctx.handle(|filter, grab| {
                 let verdict = filter.keyboard(grab, &hook);
-                let event = match verdict {
-                    Verdict::Probe => HookEvent::Probe(HookKind::Keyboard),
-                    v => HookEvent::Keyboard {
-                        hook,
-                        swallowed: v == Verdict::Swallow,
-                    },
+                let event = HookEvent::Keyboard {
+                    hook,
+                    swallowed: verdict == Verdict::Swallow,
                 };
                 (verdict, event)
             })
@@ -188,12 +182,9 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
         let swallow = with_ctx(|ctx| {
             ctx.handle(|filter, grab| {
                 let verdict = filter.mouse(grab, &hook);
-                let event = match verdict {
-                    Verdict::Probe => HookEvent::Probe(HookKind::Mouse),
-                    v => HookEvent::Mouse {
-                        hook,
-                        swallowed: v == Verdict::Swallow,
-                    },
+                let event = HookEvent::Mouse {
+                    hook,
+                    swallowed: verdict == Verdict::Swallow,
                 };
                 (verdict, event)
             })
@@ -247,20 +238,18 @@ impl Drop for Hooks {
     }
 }
 
-fn raw_mouse_device(
-    flags: ::windows::Win32::UI::Input::RAWINPUTDEVICE_FLAGS,
-    hwnd: HWND,
-) -> RAWINPUTDEVICE {
-    // Generic Desktop / Mouse.
-    RAWINPUTDEVICE {
+/// Generic Desktop / Mouse (deltas y watchdog) y Keyboard (solo watchdog).
+fn raw_devices(flags: RAWINPUTDEVICE_FLAGS, hwnd: HWND) -> [RAWINPUTDEVICE; 2] {
+    [0x02, 0x06].map(|usage| RAWINPUTDEVICE {
         usUsagePage: 0x01,
-        usUsage: 0x02,
+        usUsage: usage,
         dwFlags: flags,
         hwndTarget: hwnd,
-    }
+    })
 }
 
-/// Ventana solo de mensajes que recibe Raw Input del mouse aunque no tenga el foco.
+/// Ventana solo de mensajes que recibe Raw Input del mouse y del teclado aunque no
+/// tenga el foco.
 struct SinkWindow(HWND);
 
 impl SinkWindow {
@@ -285,9 +274,9 @@ impl SinkWindow {
         }
         .map_err(|e| os_error("CreateWindowExW", e))?;
         let window = SinkWindow(hwnd);
-        let device = raw_mouse_device(RIDEV_INPUTSINK, hwnd);
-        // SAFETY: arreglo de un elemento con el tamaño de su estructura.
-        unsafe { RegisterRawInputDevices(&[device], size_of::<RAWINPUTDEVICE>() as u32) }
+        let devices = raw_devices(RIDEV_INPUTSINK, hwnd);
+        // SAFETY: arreglo de estructuras con el tamaño de cada una.
+        unsafe { RegisterRawInputDevices(&devices, size_of::<RAWINPUTDEVICE>() as u32) }
             .map_err(|e| os_error("RegisterRawInputDevices", e))?;
         Ok(window)
     }
@@ -295,9 +284,9 @@ impl SinkWindow {
 
 impl Drop for SinkWindow {
     fn drop(&mut self) {
-        let device = raw_mouse_device(RIDEV_REMOVE, HWND::default());
+        let devices = raw_devices(RIDEV_REMOVE, HWND::default());
         // SAFETY: igual que al registrar; RIDEV_REMOVE exige hwndTarget nulo.
-        let _ = unsafe { RegisterRawInputDevices(&[device], size_of::<RAWINPUTDEVICE>() as u32) };
+        let _ = unsafe { RegisterRawInputDevices(&devices, size_of::<RAWINPUTDEVICE>() as u32) };
         // SAFETY: ventana creada por este hilo.
         let _ = unsafe { DestroyWindow(self.0) };
     }
@@ -312,12 +301,12 @@ fn metric_span(
     (f64::from(w), f64::from(h))
 }
 
-/// Lee un WM_INPUT. Solo interesa el mouse.
-fn read_raw(lparam: LPARAM) -> Option<RawMouse> {
+/// Lee un WM_INPUT. Del teclado solo interesa de qué dispositivo vino.
+fn read_raw(lparam: LPARAM) -> Option<HookEvent> {
     let mut raw = RAWINPUT::default();
     let mut size = size_of::<RAWINPUT>() as u32;
     // SAFETY: el búfer es un RAWINPUT completo y `size` dice su tamaño; un
-    // RAWINPUT de mouse siempre cabe.
+    // RAWINPUT de mouse o de teclado siempre cabe.
     let n = unsafe {
         GetRawInputData(
             HRAWINPUT(lparam.0 as *mut _),
@@ -327,7 +316,14 @@ fn read_raw(lparam: LPARAM) -> Option<RawMouse> {
             size_of::<RAWINPUTHEADER>() as u32,
         )
     };
-    if n == 0 || n == u32::MAX || raw.header.dwType != RIM_TYPEMOUSE.0 {
+    if n == 0 || n == u32::MAX {
+        return None;
+    }
+    let device = raw.header.hDevice.0 as usize;
+    if raw.header.dwType == RIM_TYPEKEYBOARD.0 {
+        return Some(HookEvent::RawKeyboard { device });
+    }
+    if raw.header.dwType != RIM_TYPEMOUSE.0 {
         return None;
     }
     // SAFETY: dwType == RIM_TYPEMOUSE: la variante válida de la unión es `mouse`.
@@ -340,13 +336,13 @@ fn read_raw(lparam: LPARAM) -> Option<RawMouse> {
     } else {
         metric_span(SM_CXSCREEN, SM_CYSCREEN)
     };
-    Some(RawMouse {
-        device: raw.header.hDevice.0 as usize,
+    Some(HookEvent::Raw(RawMouse {
+        device,
         flags,
         last_x: mouse.lLastX,
         last_y: mouse.lLastY,
         span,
-    })
+    }))
 }
 
 fn hook_thread(
@@ -396,10 +392,10 @@ fn hook_thread(
             continue;
         }
         if msg.message == WM_INPUT
-            && let Some(raw) = read_raw(msg.lParam)
+            && let Some(event) = read_raw(msg.lParam)
         {
             with_ctx(|ctx| {
-                let _ = ctx.tx.send(HookEvent::Raw(raw));
+                let _ = ctx.tx.send(event);
                 false
             });
         }
@@ -412,46 +408,12 @@ fn hook_thread(
     // El Sender de CTX se suelta al terminar el hilo y el de proceso sale.
 }
 
-/// Sondas y reinstalación, desde el hilo de proceso.
+/// Reinstalación de los hooks, desde el hilo de proceso.
 struct SysControl {
     hook_thread: u32,
 }
 
 impl HookControl for SysControl {
-    fn probe(&mut self, kind: HookKind) {
-        let input = match kind {
-            // Soltar una tecla sin asignar: si nuestro hook ya no está, nadie la nota.
-            HookKind::Keyboard => INPUT {
-                r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 {
-                    ki: KEYBDINPUT {
-                        wVk: VIRTUAL_KEY(consts::VK_PROBE),
-                        wScan: 0,
-                        dwFlags: KEYEVENTF_KEYUP,
-                        time: 0,
-                        dwExtraInfo: PROBE_TAG,
-                    },
-                },
-            },
-            // Movimiento nulo: no mueve el cursor.
-            HookKind::Mouse => INPUT {
-                r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx: 0,
-                        dy: 0,
-                        mouseData: 0,
-                        dwFlags: MOUSEEVENTF_MOVE,
-                        time: 0,
-                        dwExtraInfo: PROBE_TAG,
-                    },
-                },
-            },
-        };
-        // SAFETY: un INPUT bien formado y el tamaño de su estructura.
-        unsafe { SendInput(&[input], size_of::<INPUT>() as i32) };
-    }
-
     fn reinstall(&mut self) {
         // SAFETY: mensaje sin punteros a un hilo con cola.
         let _ = unsafe { PostThreadMessageW(self.hook_thread, WM_REINSTALL, WPARAM(0), LPARAM(0)) };
