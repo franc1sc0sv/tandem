@@ -10,15 +10,20 @@
 // `?demo&hub=pc`, el hub en la PC; `?demo&perms=missing`, a la Mac le falta el permiso de
 // Accesibilidad. `?demo&probe=question`, la pregunta de respaldo de una calibración sin la
 // otra máquina (`&ask=switch`: el cambio a mano); la sonda a pantalla completa es otra página,
-// `/probe.html?demo`.
+// `/probe.html?demo`. `?demo&addmon` abre «Agregar monitor»: el 34" ya configurado, el 32"
+// sin perfil (calibrarlo simula el recorrido del motor, con la pregunta del cambio a mano) y
+// un monitor que no está en la configuración (`&calib=fail`: ningún código de HDMI funciona).
 
 import type { Bridge } from "./bridge";
 import type {
   Action,
   ActionResult,
   Bindings,
+  CalibrationStep,
+  CalibrationView,
   Desk,
   DeskState,
+  DisplayView,
   Machine,
   Mode,
   Notice,
@@ -47,6 +52,33 @@ const DESK: Desk = {
 };
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const CALIB_MS = 650;
+const PROFILE_32 = `# Perfil DDC de Tandem. Formato: docs/dev/ddc-profiles.md
+pnp_id = "SAM7489"
+name = "Odyssey G5 (SAM7489)"
+edid_names = ["Odyssey G5"]
+generic_name = true
+notes = "Calibrado con Tandem: 2 códigos probados, vuelta a dp verificada."
+verified_by = "calibración de Tandem"
+verified_on = "2026-10-16"
+
+[codes]
+hdmi = 0x05
+display_port = 0x0F
+
+[reported]
+hdmi = 0x05
+display_port = 0x0F
+`;
+
+function demoDisplays(): DisplayView[] {
+  return [
+    { index: 0, name: "LC34G55T", pnp_id: "SAM711A", monitor: "m34", profile: { kind: "configured", hdmi: 0x06, display_port: 0x09 } },
+    { index: 1, name: "Odyssey G5", pnp_id: "SAM7489", monitor: "m32", profile: { kind: "none" } },
+    { index: 2, name: "U2720Q", pnp_id: "DEL41A3", monitor: null, profile: { kind: "none" } },
+  ];
+}
 
 /** Mismo orden de pasos que `Plan::to_mode` de tandem-core. */
 function plan(state: DeskState, target: Record<string, Machine>, powerOff = false): Step[] {
@@ -133,6 +165,82 @@ export function demoBridge(query: string): Bridge {
   const emit = (n: Notice) => notices.forEach((cb) => cb(n));
   let txn = 0;
   let busy = false;
+  let displays = demoDisplays();
+  let calibrating: { cancelled: boolean } | null = null;
+  /** La respuesta a la pregunta del cambio a mano que espera la calibración simulada. */
+  let answer: ((seen: boolean) => void) | null = null;
+
+  /** El recorrido del motor (T-077) con el 32": la vuelta primero, después el HDMI. */
+  async function calibrate(d: DisplayView, monitor: string | null) {
+    const run = { cancelled: false };
+    calibrating = run;
+    busy = true;
+    const say = (event: CalibrationView) => emit({ kind: "calibration", event });
+    const step = async (s: CalibrationStep, ms = CALIB_MS) => {
+      say({ type: "progress", step: s });
+      await sleep(ms);
+      return !run.cancelled;
+    };
+    const fail = params.get("calib") === "fail";
+    const finish = (event: CalibrationView) => {
+      busy = false;
+      calibrating = null;
+      say(event);
+    };
+    say({ type: "started", display: d.index, name: d.name, monitor, start: "displayport" });
+    if (!(await step({ kind: "reading" }))) return finish({ type: "finished", outcome: { kind: "cancelled" } });
+    say({ type: "progress", step: { kind: "user_switch", input: "hdmi" } });
+    // Sin la otra máquina, esta ventana pregunta si el monitor cambió.
+    const seen = await new Promise<boolean>((resolve) => {
+      answer = resolve;
+      emit({
+        kind: "probe",
+        event: { type: "show", id: 90, monitor: d.name, input: "hdmi", ask: { kind: "user_switch" }, timeout_ms: 120000, place: { kind: "question" } },
+      });
+    });
+    answer = null;
+    emit({ kind: "probe", event: { type: "hide", id: 90 } });
+    if (run.cancelled) return finish({ type: "finished", outcome: { kind: "cancelled" } });
+    if (!seen) return finish({ type: "finished", outcome: { kind: "failed", reason: "no se confirmó el cambio manual a hdmi desde el menú del monitor" } });
+    const steps: CalibrationStep[] = [
+      { kind: "testing", input: "displayport" },
+      { kind: "trying", input: "displayport", code: 0x0f, attempt: 1, of: 31 },
+      { kind: "seen", input: "displayport", code: 0x0f, seen: true },
+      { kind: "found", input: "displayport", code: 0x0f },
+      { kind: "testing", input: "hdmi" },
+    ];
+    for (const s of steps) if (!(await step(s))) return finish({ type: "finished", outcome: { kind: "cancelled" } });
+    if (fail) {
+      for (const [i, code] of [0x11, 0x12, 0x01].entries()) {
+        if (!(await step({ kind: "trying", input: "hdmi", code, attempt: i + 1, of: 3 }))) return finish({ type: "finished", outcome: { kind: "cancelled" } });
+        await step({ kind: "seen", input: "hdmi", code, seen: false }, 200);
+        await step({ kind: "returned", code: 0x0f }, 300);
+      }
+      return finish({ type: "finished", outcome: { kind: "failed", reason: "ningún código funcionó para hdmi" } });
+    }
+    const last: CalibrationStep[] = [
+      { kind: "trying", input: "hdmi", code: 0x05, attempt: 1, of: 30 },
+      { kind: "seen", input: "hdmi", code: 0x05, seen: true },
+      { kind: "returned", code: 0x0f },
+      { kind: "found", input: "hdmi", code: 0x05 },
+    ];
+    for (const s of last) if (!(await step(s))) return finish({ type: "finished", outcome: { kind: "cancelled" } });
+    displays = displays.map((x) => (x.index === d.index ? { ...x, monitor, profile: { kind: "configured", hdmi: 0x05, display_port: 0x0f } } : x));
+    finish({
+      type: "finished",
+      outcome: {
+        kind: "saved",
+        name: "Odyssey G5 (SAM7489)",
+        hdmi: 0x05,
+        display_port: 0x0f,
+        attempts: 2,
+        monitor,
+        file: "C:\\Users\\PC\\AppData\\Roaming\\Tandem\\profiles\\ddc\\SAM7489.toml",
+        toml: PROFILE_32,
+        notes: monitor ? [] : ["este monitor no está en tandem.toml: agrégalo con su `edid_model` para que los cambios de modo lo usen"],
+      },
+    });
+  }
 
   async function run(steps: Step[]) {
     const id = ++txn;
@@ -269,6 +377,10 @@ export function demoBridge(query: string): Bridge {
         case "answer_manual_switch":
           return { kind: "done" };
         case "answer_probe":
+          if (answer) {
+            answer(a.seen);
+            return { kind: "done" };
+          }
           emit({ kind: "probe", event: { type: "hide", id: a.id } });
           messages.forEach((cb) => cb(a.seen ? "Sigue la calibración con el próximo paso" : "Se prueba el código siguiente"));
           return { kind: "done" };
@@ -277,6 +389,24 @@ export function demoBridge(query: string): Bridge {
         case "cancel_pairing":
         case "unpair":
           return pairAction(a.kind);
+        case "list_displays":
+          await sleep(250);
+          return { kind: "displays", displays };
+        case "start_calibration": {
+          if (calibrating) return { kind: "rejected", reason: "ya hay una calibración en curso" };
+          if (busy) return { kind: "rejected", reason: "ya hay un cambio en curso" };
+          const d = displays.find((x) => x.index === a.display);
+          if (!d) return { kind: "rejected", reason: `ya no hay un monitor ${a.display} en el bus: vuelve a buscar` };
+          void calibrate(d, a.monitor ?? d.monitor);
+          return { kind: "done" };
+        }
+        case "cancel_calibration":
+          if (!calibrating) return { kind: "rejected", reason: "no hay ninguna calibración en curso" };
+          calibrating.cancelled = true;
+          answer?.(false);
+          return { kind: "done" };
+        case "use_profile":
+          return { kind: "rejected", reason: "en el modo demo ningún monitor tiene perfil en la base" };
       }
     },
   };

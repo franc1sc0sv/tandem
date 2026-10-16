@@ -442,6 +442,38 @@ impl ProfileDb {
             .filter(move |e| e.profile.manufacturer().eq_ignore_ascii_case(manufacturer))
     }
 
+    /// Todos los perfiles como pistas de marca para la calibración (el motor se queda con
+    /// los del fabricante del monitor).
+    pub fn brand_profiles(&self) -> Vec<crate::calibrate::BrandProfile> {
+        self.entries()
+            .map(|e| crate::calibrate::BrandProfile {
+                manufacturer: e.profile.manufacturer().to_owned(),
+                codes: e.profile.input_codes(),
+            })
+            .collect()
+    }
+
+    /// Guarda `profile` como perfil del usuario en `dir` y devuelve el archivo. Si ya hay
+    /// uno del usuario con ese id PnP se reemplaza ese mismo archivo (así no quedan dos
+    /// con el mismo id); si no, va a `<PNP>.toml`. Se escribe aparte y se renombra: un
+    /// corte a medias no deja un perfil roto.
+    pub fn save_user(&self, dir: &Path, profile: &DdcProfile) -> io::Result<PathBuf> {
+        profile
+            .validate()
+            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+        let path = match self.get(&profile.pnp_id).map(|e| &e.source) {
+            Some(ProfileSource::User(p)) => p.clone(),
+            _ => dir.join(format!("{}.toml", profile.pnp_id)),
+        };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let tmp = path.with_extension("toml.tmp");
+        std::fs::write(&tmp, profile.to_toml())?;
+        std::fs::rename(&tmp, &path)?;
+        Ok(path)
+    }
+
     /// El perfil de un monitor: por id PnP, o por el nombre del EDID si ese nombre
     /// identifica a un solo modelo de la base.
     pub fn find(&self, info: &MonitorInfo) -> Option<(&Entry, MatchedBy)> {
@@ -640,6 +672,42 @@ mod tests {
             err.to_string()
                 .contains(&dir.path().join("a.toml").display().to_string())
         );
+    }
+
+    #[test]
+    fn saved_user_profile_is_found_next_time_and_reuses_its_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let user = dir.path().join("profiles").join("ddc");
+        let mut p = DdcProfile::parse(&profile("DEL4321", 0x11, 0x0F)).unwrap();
+        // El directorio no existe todavía: se crea.
+        let path = ProfileDb::load(Some(&user)).save_user(&user, &p).unwrap();
+        assert_eq!(path, user.join("DEL4321.toml"));
+        let db = ProfileDb::load(Some(&user));
+        assert_eq!(db.get("DEL4321").unwrap().profile, p);
+        assert!(!user.join("DEL4321.toml.tmp").exists());
+
+        // Con un archivo propio de otro nombre para ese id, se reemplaza ese.
+        std::fs::remove_file(&path).unwrap();
+        std::fs::write(user.join("mio.toml"), profile("DEL4321", 1, 2)).unwrap();
+        let db = ProfileDb::load(Some(&user));
+        p.codes.hdmi = 0x12;
+        let path = db.save_user(&user, &p).unwrap();
+        assert_eq!(path, user.join("mio.toml"));
+        let db = ProfileDb::load(Some(&user));
+        assert!(db.errors().is_empty(), "{:?}", db.errors());
+        assert_eq!(db.get("DEL4321").unwrap().profile.codes.hdmi, 0x12);
+
+        // Uno inválido no se escribe.
+        p.codes.hdmi = 0;
+        assert!(db.save_user(&user, &p).is_err());
+    }
+
+    #[test]
+    fn brand_profiles_are_hints_for_calibration() {
+        let hints = ProfileDb::builtin().brand_profiles();
+        assert_eq!(hints.len(), 2);
+        assert!(hints.iter().all(|h| h.manufacturer == "SAM"));
+        assert!(hints.iter().any(|h| h.codes.hdmi == [0x05]));
     }
 
     #[test]

@@ -2,10 +2,15 @@
 //! El binario solo pone el bus real y la espera real.
 
 use std::io::Write;
+use std::path::Path;
 use std::time::Duration;
 
 use tandem_core::model::Input;
 
+use crate::calibrate::{
+    self, CalibratedProfile, CalibrationError, CalibrationOptions, CalibrationRequest, CancelToken,
+    Confirmer, console,
+};
 use crate::ddc::profiles::{DdcProfile, Entry, ProfileDb};
 use crate::ddc::switch::{
     self, PlanError, SwitchError, SwitchEvent, SwitchPlan, Waiter, input_name, mccs_standard,
@@ -24,6 +29,7 @@ USO:
   tandem-ddc switch <monitor> hdmi|dp --return-after <s> [opciones]
   tandem-ddc profile <monitor>
   tandem-ddc profile export <monitor>
+  tandem-ddc calibrate <monitor> [--from hdmi|dp] [--no-save]
 
 <monitor>  índice de `list`, o texto que coincida con un solo monitor (modelo, id PnP, serie)
 <vcp>      código en hexadecimal: 60 o 0x60
@@ -41,6 +47,12 @@ con reintentos. Ctrl+C adelanta la vuelta, no la cancela.
 imprime su TOML para compartirlo. Los perfiles propios van en
 <datos>/profiles/ddc/<PNP>.toml (<datos>: %APPDATA%\\Tandem en Windows) y ganan sobre
 los del repo con el mismo id PnP (docs/dev/ddc-profiles.md).
+
+`calibrate` encuentra los códigos de un monitor sin perfil: pide pasarlo a la otra
+entrada desde su menú y prueba códigos hasta que confirmes con Enter que ves la máquina
+(n = no la veo). Siempre vuelve a la entrada de partida, con un código ya verificado;
+Ctrl+C cancela y vuelve. El perfil se guarda como perfil del usuario (salvo --no-save).
+  --from hdmi|dp        la entrada en la que está el monitor ahora (por omisión, dp)
 
 `set` no acepta 0x60 (usa `switch`) ni 0xD6 (energía): podrían dejarte sin imagen.
 ";
@@ -65,6 +77,14 @@ pub struct SwitchArgs {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CalibrateArgs {
+    pub monitor: MonitorSelector,
+    /// La entrada en la que está el monitor al empezar: a ella vuelve siempre.
+    pub from: Input,
+    pub save: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Help,
     List,
@@ -74,6 +94,8 @@ pub enum Command {
     Switch(SwitchArgs),
     Profile(MonitorSelector),
     ProfileExport(MonitorSelector),
+    /// Interactivo y asíncrono: se corre con [`run_calibrate`], no con [`run`].
+    Calibrate(CalibrateArgs),
 }
 
 impl Command {
@@ -81,7 +103,10 @@ impl Command {
     pub fn uses_profiles(&self) -> bool {
         matches!(
             self,
-            Command::Switch(_) | Command::Profile(_) | Command::ProfileExport(_)
+            Command::Switch(_)
+                | Command::Profile(_)
+                | Command::ProfileExport(_)
+                | Command::Calibrate(_)
         )
     }
 }
@@ -108,6 +133,12 @@ pub enum CliError {
     Plan(#[from] PlanError),
     #[error(transparent)]
     Switch(#[from] SwitchError),
+    #[error(transparent)]
+    Calibration(#[from] CalibrationError),
+    #[error("no se pudo guardar el perfil: {0}")]
+    Save(String),
+    #[error("`calibrate` necesita quien confirme: se corre con `run_calibrate`")]
+    Interactive,
     #[error("no se pudo escribir la salida: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -116,7 +147,10 @@ impl CliError {
     /// 2 para errores de uso (como las herramientas de Unix), 1 para el resto.
     pub fn exit_code(&self) -> i32 {
         match self {
-            CliError::Usage(_) | CliError::Unsafe(_) | CliError::Plan(_) => 2,
+            CliError::Usage(_)
+            | CliError::Unsafe(_)
+            | CliError::Plan(_)
+            | CliError::Interactive => 2,
             _ => 1,
         }
     }
@@ -177,6 +211,7 @@ where
             }
             _ => Err(usage("`profile` espera <monitor> o `export <monitor>`")),
         },
+        "calibrate" => parse_calibrate(rest).map(Command::Calibrate),
         other => Err(usage(format!("comando desconocido `{other}`"))),
     }
 }
@@ -225,6 +260,34 @@ fn parse_switch(rest: &[String]) -> Result<SwitchArgs, CliError> {
         // La misma entrada no se corrige aquí: la rechaza `SwitchPlan::validate`.
         return_to: return_to.unwrap_or_else(|| other_input(target)),
         return_codes,
+    })
+}
+
+fn parse_calibrate(rest: &[String]) -> Result<CalibrateArgs, CliError> {
+    let mut monitor = None;
+    let mut from = Input::DisplayPort;
+    let mut save = true;
+    let mut it = rest.iter();
+    while let Some(arg) = it.next() {
+        match arg.as_str() {
+            "--from" => {
+                let v = it
+                    .next()
+                    .ok_or_else(|| usage("falta el valor de `--from`"))?;
+                from = parse_input(v)?;
+            }
+            "--no-save" => save = false,
+            flag if flag.starts_with("--") => {
+                return Err(usage(format!("opción desconocida `{flag}`")));
+            }
+            m if monitor.is_none() => monitor = Some(parse_monitor(m)),
+            _ => return Err(usage("`calibrate` espera un solo <monitor>")),
+        }
+    }
+    Ok(CalibrateArgs {
+        monitor: monitor.ok_or_else(|| usage("`calibrate` espera <monitor>"))?,
+        from,
+        save,
     })
 }
 
@@ -450,8 +513,95 @@ pub fn run(
                 .ok_or_else(|| CliError::NoProfile(info.to_string()))?;
             write!(out, "{}", entry.profile.to_toml())?;
         }
+        Command::Calibrate(_) => return Err(CliError::Interactive),
     }
     Ok(())
+}
+
+/// Lo que `calibrate` necesita además del bus.
+pub struct CalibrateEnv<'a> {
+    /// Quien contesta las sondas (en la terminal, [`console::LineConfirmer`]).
+    pub confirmer: &'a dyn Confirmer,
+    pub cancel: &'a CancelToken,
+    pub options: CalibrationOptions,
+    /// `<datos>/profiles/ddc/`; sin él no se guarda.
+    pub user_dir: Option<&'a Path>,
+    /// Para `verified_on`.
+    pub today: Option<String>,
+}
+
+/// `tandem-ddc calibrate`: corre el motor de T-077 contra `bus`, imprime el avance y, si
+/// se pidió, guarda el perfil del usuario. Siempre deja el monitor en `args.from`, salvo
+/// [`CalibrationError::NotReturned`], que lo dice.
+pub async fn run_calibrate(
+    args: &CalibrateArgs,
+    bus: &mut (dyn DdcBus + Send),
+    profiles: &ProfileDb,
+    env: CalibrateEnv<'_>,
+    out: &mut (dyn Write + Send),
+) -> Result<CalibratedProfile, CliError> {
+    let i = select(bus.monitors(), &args.monitor)?;
+    let info = bus.monitors()[i].clone();
+    writeln!(out, "{info}")?;
+    if let Some((entry, _)) = profiles.find(&info) {
+        writeln!(
+            out,
+            "ya tiene perfil: {} ({}); se calibra igual y el resultado queda como perfil del usuario",
+            entry.profile.name, entry.source
+        )?;
+    }
+    writeln!(
+        out,
+        "empieza en {} y siempre vuelve ahí; Ctrl+C cancela y vuelve",
+        console::name(args.from)
+    )?;
+    let req = CalibrationRequest {
+        monitor: i,
+        start: args.from,
+        known: profiles.brand_profiles(),
+        options: env.options.clone(),
+    };
+    let mut io_err = None;
+    let result = calibrate::calibrate(bus, &req, env.confirmer, env.cancel, &mut |e| {
+        if let Some(line) = console::describe(e)
+            && let Err(err) = writeln!(out, "{line}")
+        {
+            io_err.get_or_insert(err);
+        }
+    })
+    .await;
+    if let Some(err) = io_err {
+        return Err(err.into());
+    }
+    let calibrated = result?;
+    writeln!(out, "{}", calibrated.summary(info.model()))?;
+    if let Some(ddc) = calibrated.ddc_profile() {
+        writeln!(
+            out,
+            "en tandem.toml, [[monitors]] de este monitor: ddc = {{ hdmi = {:#04X}, display_port = {:#04X} }}",
+            ddc.hdmi, ddc.display_port
+        )?;
+    }
+    match (args.save, env.user_dir, calibrated.to_profile(env.today)) {
+        (false, ..) => writeln!(out, "no se guardó (--no-save)")?,
+        (true, None, _) => writeln!(out, "no se guardó: no hay directorio de datos")?,
+        (true, Some(_), None) => writeln!(
+            out,
+            "no se guardó: el monitor no dio EDID y sin id PnP no se lo puede reconocer"
+        )?,
+        (true, Some(dir), Some(profile)) => {
+            let path = profiles
+                .save_user(dir, &profile)
+                .map_err(|e| CliError::Save(e.to_string()))?;
+            writeln!(out, "perfil guardado en {}", path.display())?;
+            writeln!(
+                out,
+                "para compartirlo: tandem-ddc profile export {}",
+                profile.pnp_id
+            )?;
+        }
+    }
+    Ok(calibrated)
 }
 
 fn print_profile(out: &mut dyn Write, entry: &Entry) -> std::io::Result<()> {
@@ -535,7 +685,10 @@ fn print_event(out: &mut dyn Write, e: &SwitchEvent) -> std::io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::calibrate::sim::{Showing, SimMonitor, samsung_32};
+    use crate::calibrate::{ConfirmFuture, Probe};
     use crate::ddc::fake::{FakeDdc, FakeMonitor};
+    use crate::ddc::profiles::ProfileSource;
     use crate::ddc::{VcpValue, edid};
 
     struct NoWait(Vec<Duration>);
@@ -969,5 +1122,220 @@ mod tests {
         ));
         assert!(out.contains("(intento 3)"));
         assert!(out.contains("0xC0262589"));
+    }
+
+    fn calibrate_args(args: &[&str]) -> CalibrateArgs {
+        match parse_args(args).unwrap() {
+            Command::Calibrate(a) => a,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_calibrate() {
+        assert_eq!(
+            calibrate_args(&["calibrate", "0"]),
+            CalibrateArgs {
+                monitor: MonitorSelector::Index(0),
+                from: Input::DisplayPort,
+                save: true,
+            }
+        );
+        assert_eq!(
+            calibrate_args(&["calibrate", "--from", "hdmi", "SAM7489", "--no-save"]),
+            CalibrateArgs {
+                monitor: MonitorSelector::Text("SAM7489".into()),
+                from: Input::Hdmi,
+                save: false,
+            }
+        );
+        for bad in [
+            &["calibrate"][..],
+            &["calibrate", "0", "1"],
+            &["calibrate", "0", "--from"],
+            &["calibrate", "0", "--from", "vga"],
+            &["calibrate", "0", "--nope"],
+        ] {
+            assert!(
+                matches!(parse_args(bad), Err(CliError::Usage(_))),
+                "{bad:?}"
+            );
+        }
+        assert!(parse_args(["calibrate", "0"]).unwrap().uses_profiles());
+        // Sin quien confirme no se corre.
+        let cmd = parse_args(["calibrate", "0"]).unwrap();
+        let err = run(
+            &cmd,
+            &mut bus(),
+            &mut NoWait(Vec::new()),
+            ProfileDb::builtin(),
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, CliError::Interactive));
+    }
+
+    fn env<'a>(
+        confirmer: &'a dyn Confirmer,
+        cancel: &'a CancelToken,
+        dir: Option<&'a Path>,
+    ) -> CalibrateEnv<'a> {
+        CalibrateEnv {
+            confirmer,
+            cancel,
+            options: CalibrationOptions::default(),
+            user_dir: dir,
+            today: Some("2026-10-16".into()),
+        }
+    }
+
+    // T-080: sin la base de perfiles, el 32" simulado sale con sus códigos reales y el
+    // perfil queda guardado como del usuario.
+    #[tokio::test(start_paused = true)]
+    async fn calibrate_finds_the_profile_of_the_32_on_the_simulated_bus() {
+        let sim = SimMonitor::new(samsung_32(), Input::DisplayPort);
+        let dir = tempfile::tempdir().unwrap();
+        let mut bus = sim.clone();
+        let mut out = Vec::new();
+        let cancel = CancelToken::new();
+        let p = run_calibrate(
+            &calibrate_args(&["calibrate", "Odyssey"]),
+            &mut bus,
+            &ProfileDb::default(),
+            env(&sim, &cancel, Some(dir.path())),
+            &mut out,
+        )
+        .await
+        .unwrap();
+        let out = String::from_utf8(out).unwrap();
+        assert_eq!(
+            p.ddc_profile(),
+            Some(tandem_core::DdcProfile {
+                hdmi: 0x05,
+                display_port: 0x0F
+            })
+        );
+        assert_eq!(sim.showing(), Showing::Input(Input::DisplayPort));
+        assert!(out.contains("Odyssey G5: HDMI ✓ 0x05 · DP ✓ 0x0F"), "{out}");
+        assert!(
+            out.contains("HDMI: pruebo 0x05 (lectura del monitor, 1 de"),
+            "{out}"
+        );
+        assert!(
+            out.contains("ddc = { hdmi = 0x05, display_port = 0x0F }"),
+            "{out}"
+        );
+        let file = dir.path().join("SAM7489.toml");
+        assert!(out.contains(&format!("perfil guardado en {}", file.display())));
+
+        // La próxima vez ya tiene perfil, y es el del usuario.
+        let db = ProfileDb::load(Some(dir.path()));
+        let (entry, _) = db.find(&sim.monitors()[0]).unwrap();
+        assert_eq!(entry.source, ProfileSource::User(file));
+        assert_eq!(
+            (entry.profile.codes.hdmi, entry.profile.codes.display_port),
+            (0x05, 0x0F)
+        );
+        assert_eq!(entry.profile.verified_on.as_deref(), Some("2026-10-16"));
+    }
+
+    /// El usuario frente a la terminal: mira el monitor simulado y contesta por teclado.
+    struct Keyboard {
+        sim: SimMonitor,
+        keys: tokio::sync::mpsc::UnboundedSender<String>,
+        line: console::LineConfirmer,
+    }
+
+    impl Confirmer for Keyboard {
+        fn confirm<'a>(&'a self, probe: &'a Probe) -> ConfirmFuture<'a> {
+            Box::pin(async move {
+                let user = async {
+                    // Primero la pregunta; después la tecla.
+                    tokio::task::yield_now().await;
+                    let seen = self.sim.confirm(probe).await.unwrap();
+                    let _ = self.keys.send(if seen { "\n" } else { "n\n" }.into());
+                };
+                let (answer, ()) = tokio::join!(self.line.confirm(probe), user);
+                answer
+            })
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct Screen(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+
+    impl Write for Screen {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn calibrate_with_the_keyboard_starting_on_hdmi_without_saving() {
+        let sim = SimMonitor::new(samsung_32(), Input::Hdmi);
+        let (keys, lines) = tokio::sync::mpsc::unbounded_channel();
+        let screen = Screen::default();
+        let user = Keyboard {
+            sim: sim.clone(),
+            keys,
+            line: console::LineConfirmer::new(lines, Box::new(screen.clone())),
+        };
+        let mut bus = sim.clone();
+        let mut out = Vec::new();
+        let cancel = CancelToken::new();
+        let dir = tempfile::tempdir().unwrap();
+        let p = run_calibrate(
+            &calibrate_args(&["calibrate", "0", "--from", "hdmi", "--no-save"]),
+            &mut bus,
+            ProfileDb::builtin(),
+            env(&user, &cancel, Some(dir.path())),
+            &mut out,
+        )
+        .await
+        .unwrap();
+        assert_eq!(p.codes.hdmi, [0x05]);
+        assert_eq!(p.codes.display_port, [0x0F]);
+        assert_eq!(sim.showing(), Showing::Input(Input::Hdmi));
+        let out = String::from_utf8(out).unwrap();
+        assert!(out.contains("ya tiene perfil: Odyssey G5"), "{out}");
+        assert!(out.contains("no se guardó (--no-save)"), "{out}");
+        assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
+        let asked = String::from_utf8(screen.0.lock().unwrap().clone()).unwrap();
+        assert!(
+            asked.contains("Pasa Odyssey G5 a DisplayPort desde el menú"),
+            "{asked}"
+        );
+        assert!(asked.contains("Enter = lo veo"), "{asked}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn calibrate_that_fails_says_why_and_leaves_the_monitor_at_the_start() {
+        let sim = SimMonitor::new(samsung_32(), Input::DisplayPort);
+        // El usuario no cambia la entrada desde el menú.
+        sim.lock().user_switches = false;
+        let mut bus = sim.clone();
+        let cancel = CancelToken::new();
+        let err = run_calibrate(
+            &calibrate_args(&["calibrate", "0"]),
+            &mut bus,
+            ProfileDb::builtin(),
+            env(&sim, &cancel, None),
+            &mut Vec::new(),
+        )
+        .await
+        .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                CliError::Calibration(CalibrationError::UserDidNotSwitch { .. })
+            ),
+            "{err}"
+        );
+        assert!(sim.writes().is_empty());
+        assert_eq!(sim.showing(), Showing::Input(Input::DisplayPort));
     }
 }

@@ -47,6 +47,12 @@ pub struct WindowsDdc {
     handles: Vec<PHYSICAL_MONITOR>,
 }
 
+// SAFETY: los handles de monitor físico de dxva2 no están atados al hilo que los abrió
+// (la API no usa la cola de mensajes del hilo), y `&mut self` en cada operación impide
+// usarlos desde dos hilos a la vez. Hace falta para correr la calibración (T-080) como
+// tarea del runtime.
+unsafe impl Send for WindowsDdc {}
+
 impl WindowsDdc {
     pub fn open() -> Result<Self, DdcError> {
         let mut infos = Vec::new();

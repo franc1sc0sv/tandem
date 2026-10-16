@@ -321,6 +321,128 @@ pub enum UiCommand {
         id: u64,
         seen: bool,
     },
+    /// «Agregar monitor» (T-080): los monitores que ve el bus DDC de esta máquina, con
+    /// su perfil si lo tienen. Solo en la PC, que es la que cambia las entradas.
+    ListDisplays,
+    /// Calibrar el monitor `display` (índice de [`Reply::Displays`]). `monitor` es el de
+    /// la configuración al que corresponde, si la UI lo eligió; si no, el agente lo busca
+    /// por `edid_model`. El avance llega en [`AgentToUi::Calibration`].
+    StartCalibration {
+        display: u32,
+        monitor: Option<MonitorId>,
+    },
+    /// Cortar la calibración en curso; el monitor vuelve a la entrada de partida.
+    CancelCalibration,
+    /// Usar el perfil de la base (o del usuario) que ya tiene `display`, sin calibrar.
+    UseProfile {
+        display: u32,
+        monitor: Option<MonitorId>,
+    },
+}
+
+/// Un monitor del bus DDC, para «Agregar monitor».
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DisplayInfo {
+    /// Para [`UiCommand::StartCalibration`]. Cambia si se conectan o quitan monitores.
+    pub index: u32,
+    /// El modelo según el EDID, o la descripción del sistema.
+    pub name: String,
+    /// `SAM7489`; `None` sin EDID.
+    pub pnp_id: Option<String>,
+    /// El monitor de la configuración al que corresponde (por `edid_model`).
+    pub monitor: Option<MonitorId>,
+    pub profile: DisplayProfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DisplayProfile {
+    /// Sin códigos conocidos: hay que calibrarlo.
+    None,
+    /// Su monitor de la configuración ya tiene `ddc`: es lo que se usa.
+    Configured { hdmi: u8, display_port: u8 },
+    /// Hay un perfil en la base (`user`: del usuario) que todavía no está en la
+    /// configuración. `toml` es el perfil para exportarlo.
+    Known {
+        name: String,
+        user: bool,
+        hdmi: u8,
+        display_port: u8,
+        toml: String,
+    },
+}
+
+/// El avance de una calibración, para la pantalla «Agregar monitor».
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CalibrationUpdate {
+    Started {
+        display: u32,
+        name: String,
+        monitor: Option<MonitorId>,
+        /// La entrada en la que está el monitor: la calibración siempre vuelve a ella.
+        start: Input,
+    },
+    Progress(CalibrationStep),
+    Finished(CalibrationOutcome),
+}
+
+/// Lo que va haciendo el motor de calibración (T-077).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CalibrationStep {
+    Reading,
+    /// Esperando a que el usuario pase el monitor a `input` desde su menú.
+    UserSwitch {
+        input: Input,
+    },
+    Testing {
+        input: Input,
+    },
+    Trying {
+        input: Input,
+        code: u8,
+        attempt: u32,
+        of: u32,
+    },
+    Seen {
+        input: Input,
+        code: u8,
+        seen: bool,
+    },
+    /// Vuelta a la entrada de partida con el código verificado.
+    Returned {
+        code: u8,
+    },
+    Found {
+        input: Input,
+        code: u8,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CalibrationOutcome {
+    Saved(SavedProfile),
+    Failed {
+        reason: String,
+    },
+    /// Cancelada: el monitor quedó en la entrada de partida.
+    Cancelled,
+}
+
+/// Una calibración que terminó bien.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedProfile {
+    pub name: String,
+    pub hdmi: u8,
+    pub display_port: u8,
+    /// Códigos probados en total.
+    pub attempts: u32,
+    /// El monitor de la configuración que se actualizó, si corresponde a uno.
+    pub monitor: Option<MonitorId>,
+    /// Dónde quedó el perfil del usuario; `None` si no se pudo guardar (ver `notes`).
+    pub file: Option<String>,
+    /// El perfil para exportarlo; `None` sin EDID.
+    pub toml: Option<String>,
+    /// Lo que no salió del todo (sin EDID, sin poder escribir la configuración…).
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -342,6 +464,8 @@ pub enum AgentToUi {
     Input(InputStatus),
     /// Sondas de calibración que mostrar o quitar.
     Probe(ProbeEvent),
+    /// El avance de la calibración de «Agregar monitor».
+    Calibration(CalibrationUpdate),
 }
 
 /// El emparejamiento visto desde la UI.
@@ -473,6 +597,7 @@ pub enum Reply {
     Peer(PeerStatus),
     Pairing(PairingStatus),
     Input(InputStatus),
+    Displays(Vec<DisplayInfo>),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso y nunca una pantalla
@@ -908,6 +1033,20 @@ pub(crate) mod samples {
             UiCommand::GetInput,
             UiCommand::AnswerProbe { id: 1, seen: true },
             UiCommand::AnswerProbe { id: 2, seen: false },
+            UiCommand::ListDisplays,
+            UiCommand::StartCalibration {
+                display: 1,
+                monitor: Some("m32".into()),
+            },
+            UiCommand::StartCalibration {
+                display: 0,
+                monitor: None,
+            },
+            UiCommand::CancelCalibration,
+            UiCommand::UseProfile {
+                display: 0,
+                monitor: Some("m34".into()),
+            },
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
         cmds.into_iter()
@@ -936,6 +1075,10 @@ pub(crate) mod samples {
             UiCommand::Unpair => 12,
             UiCommand::GetInput => 13,
             UiCommand::AnswerProbe { .. } => 14,
+            UiCommand::ListDisplays => 15,
+            UiCommand::StartCalibration { .. } => 16,
+            UiCommand::CancelCalibration => 17,
+            UiCommand::UseProfile { .. } => 18,
         }
     }
 
@@ -1051,6 +1194,15 @@ pub(crate) mod samples {
         v.extend(input_status().into_iter().map(AgentToUi::Input));
         v.extend(txn_events().into_iter().map(AgentToUi::Txn));
         v.extend(probe_events().into_iter().map(AgentToUi::Probe));
+        v.extend(
+            calibration_updates()
+                .into_iter()
+                .map(AgentToUi::Calibration),
+        );
+        v.push(AgentToUi::Reply {
+            id: 8,
+            reply: Reply::Displays(displays()),
+        });
         v.extend(links().into_iter().map(|link| {
             AgentToUi::Peer(PeerStatus::Paired {
                 name: "Mac".into(),
@@ -1058,6 +1210,138 @@ pub(crate) mod samples {
             })
         }));
         v
+    }
+
+    pub fn displays() -> Vec<DisplayInfo> {
+        vec![
+            DisplayInfo {
+                index: 0,
+                name: "LC34G55T".into(),
+                pnp_id: Some("SAM711A".into()),
+                monitor: Some("m34".into()),
+                profile: DisplayProfile::Configured {
+                    hdmi: 0x06,
+                    display_port: 0x09,
+                },
+            },
+            DisplayInfo {
+                index: 1,
+                name: "Odyssey G5".into(),
+                pnp_id: Some("SAM7489".into()),
+                monitor: None,
+                profile: DisplayProfile::Known {
+                    name: "Odyssey G5 32\"".into(),
+                    user: false,
+                    hdmi: 0x05,
+                    display_port: 0x0F,
+                    toml: "pnp_id = \"SAM7489\"\n".into(),
+                },
+            },
+            DisplayInfo {
+                index: 2,
+                name: "Monitor PnP genérico".into(),
+                pnp_id: None,
+                monitor: None,
+                profile: DisplayProfile::None,
+            },
+        ]
+    }
+
+    pub fn display_profile_arm(p: &DisplayProfile) -> usize {
+        match p {
+            DisplayProfile::None => 0,
+            DisplayProfile::Configured { .. } => 1,
+            DisplayProfile::Known { .. } => 2,
+        }
+    }
+
+    pub fn calibration_steps() -> Vec<CalibrationStep> {
+        vec![
+            CalibrationStep::Reading,
+            CalibrationStep::UserSwitch { input: Input::Hdmi },
+            CalibrationStep::Testing {
+                input: Input::DisplayPort,
+            },
+            CalibrationStep::Trying {
+                input: Input::Hdmi,
+                code: 0x05,
+                attempt: 1,
+                of: 31,
+            },
+            CalibrationStep::Seen {
+                input: Input::Hdmi,
+                code: 0x05,
+                seen: true,
+            },
+            CalibrationStep::Returned { code: 0x0F },
+            CalibrationStep::Found {
+                input: Input::DisplayPort,
+                code: 0x0F,
+            },
+        ]
+    }
+
+    pub fn calibration_step_arm(s: &CalibrationStep) -> usize {
+        match s {
+            CalibrationStep::Reading => 0,
+            CalibrationStep::UserSwitch { .. } => 1,
+            CalibrationStep::Testing { .. } => 2,
+            CalibrationStep::Trying { .. } => 3,
+            CalibrationStep::Seen { .. } => 4,
+            CalibrationStep::Returned { .. } => 5,
+            CalibrationStep::Found { .. } => 6,
+        }
+    }
+
+    pub fn calibration_updates() -> Vec<CalibrationUpdate> {
+        let mut v = vec![
+            CalibrationUpdate::Started {
+                display: 1,
+                name: "Odyssey G5".into(),
+                monitor: Some("m32".into()),
+                start: Input::DisplayPort,
+            },
+            CalibrationUpdate::Finished(CalibrationOutcome::Saved(SavedProfile {
+                name: "Odyssey G5 (SAM7489)".into(),
+                hdmi: 0x05,
+                display_port: 0x0F,
+                attempts: 2,
+                monitor: Some("m32".into()),
+                file: Some("/datos/profiles/ddc/SAM7489.toml".into()),
+                toml: Some("pnp_id = \"SAM7489\"\n".into()),
+                notes: vec![],
+            })),
+            CalibrationUpdate::Finished(CalibrationOutcome::Saved(SavedProfile {
+                name: "Monitor PnP genérico".into(),
+                hdmi: 0x11,
+                display_port: 0x0F,
+                attempts: 9,
+                monitor: None,
+                file: None,
+                toml: None,
+                notes: vec!["sin EDID: no se guardó el perfil".into()],
+            })),
+            CalibrationUpdate::Finished(CalibrationOutcome::Failed {
+                reason: "ningún código funcionó para hdmi".into(),
+            }),
+            CalibrationUpdate::Finished(CalibrationOutcome::Cancelled),
+        ];
+        v.extend(
+            calibration_steps()
+                .into_iter()
+                .map(CalibrationUpdate::Progress),
+        );
+        v
+    }
+
+    pub fn calibration_update_arm(u: &CalibrationUpdate) -> usize {
+        match u {
+            CalibrationUpdate::Started { .. } => 0,
+            CalibrationUpdate::Progress(_) => 1,
+            CalibrationUpdate::Finished(CalibrationOutcome::Saved(_)) => 2,
+            CalibrationUpdate::Finished(CalibrationOutcome::Failed { .. }) => 3,
+            CalibrationUpdate::Finished(CalibrationOutcome::Cancelled) => 4,
+        }
     }
 
     pub fn links() -> Vec<Link> {
@@ -1083,6 +1367,7 @@ pub(crate) mod samples {
             AgentToUi::Pairing(_) => 6,
             AgentToUi::Input(_) => 7,
             AgentToUi::Probe(_) => 8,
+            AgentToUi::Calibration(_) => 9,
         }
     }
 
@@ -1096,6 +1381,7 @@ pub(crate) mod samples {
             Reply::Peer(_) => 5,
             Reply::Pairing(_) => 6,
             Reply::Input(_) => 7,
+            Reply::Displays(_) => 8,
         }
     }
 
@@ -1140,8 +1426,12 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
         covers(&control(), control_arm, 12);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 15);
-        covers(&to_ui(), to_ui_arm, 9);
+        covers(&cmds, ui_command_arm, 19);
+        covers(&to_ui(), to_ui_arm, 10);
+        let profiles: Vec<_> = displays().into_iter().map(|d| d.profile).collect();
+        covers(&profiles, display_profile_arm, 3);
+        covers(&calibration_steps(), calibration_step_arm, 7);
+        covers(&calibration_updates(), calibration_update_arm, 5);
         let asks: Vec<_> = probes().into_iter().map(|p| p.ask).collect();
         covers(&asks, probe_ask_arm, 2);
         covers(&probe_outcomes(), probe_outcome_arm, 3);
@@ -1156,7 +1446,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 8);
+        covers(&replies, reply_arm, 9);
         covers(&txn_events(), txn_arm, 8);
     }
 

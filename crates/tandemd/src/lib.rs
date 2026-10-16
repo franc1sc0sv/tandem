@@ -4,6 +4,7 @@
 //!
 //! - [`cli`]: argumentos de la línea de órdenes.
 //! - [`config`]: `tandem.toml` (el puesto, la red y qué máquina es esta).
+//! - [`config_edit`]: lo que el agente escribe en `tandem.toml` sin perder los comentarios.
 //! - [`paths`]: dónde viven la configuración, el estado y los logs.
 //! - [`store`]: el [`tandem_core::State`] persistido en JSON.
 //! - [`agent`]: el estado vivo del agente y las respuestas a la UI.
@@ -11,6 +12,8 @@
 //! - [`display`]: los pasos de pantalla de esta máquina (entradas, escritorio, pantalla integrada).
 //! - [`calibration`]: la sonda de calibración DDC y el `Confirmer` que la muestra en la
 //!   máquina que debería verse (T-078).
+//! - [`add_monitor`]: «Agregar monitor» (T-080): lista los monitores del bus DDC, los
+//!   calibra, guarda el perfil y actualiza la configuración en caliente.
 //! - [`power`]: Wake-on-LAN en la Mac y apagado limpio en la PC.
 //! - [`pc_watch`]: en la Mac, da la PC por apagada si ningún enlace la ve (corte de corriente).
 //! - [`peer`]: el otro agente por el plano de control (pedirle pasos y atender los suyos).
@@ -23,10 +26,12 @@
 //! - [`logging`]: `tracing` a stdout y a archivo.
 //! - `sim` (feature `sim-backends`): pasos simulados para probar el binario sin hardware.
 
+pub mod add_monitor;
 pub mod agent;
 pub mod calibration;
 pub mod cli;
 pub mod config;
+pub mod config_edit;
 pub mod daemon;
 pub mod display;
 pub mod input;

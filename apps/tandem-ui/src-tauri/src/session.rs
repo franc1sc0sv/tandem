@@ -16,8 +16,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State, Step};
 use tandem_proto::{
-    AgentToUi, InputPermission, InputStatus, Link, ManualSwitchEvent, PairingStatus, PeerStatus,
-    PowerEvent, ProbeAsk, ProbeEvent, ProbePlace, Reply, TxnEvent, UiCommand,
+    AgentToUi, CalibrationOutcome, CalibrationStep, CalibrationUpdate, DisplayInfo, DisplayProfile,
+    InputPermission, InputStatus, Link, ManualSwitchEvent, PairingStatus, PeerStatus, PowerEvent,
+    ProbeAsk, ProbeEvent, ProbePlace, Reply, SavedProfile, TxnEvent, UiCommand,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -184,6 +185,10 @@ pub enum Notice {
     /// Una sonda de calibración que mostrar o quitar ([`crate::probe`]).
     Probe {
         event: ProbeView,
+    },
+    /// El avance de «Agregar monitor».
+    Calibration {
+        event: CalibrationView,
     },
     /// La PC se dio por apagada sin que nadie la apagara (corte de corriente):
     /// `reason` se muestra tal cual y `stranded` son los monitores que quedan en negro.
@@ -380,6 +385,198 @@ impl From<ProbeEvent> for ProbeView {
     }
 }
 
+/// Un monitor del bus DDC ([`DisplayInfo`]) en JSON para «Agregar monitor».
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DisplayView {
+    pub index: u32,
+    pub name: String,
+    pub pnp_id: Option<String>,
+    pub monitor: Option<MonitorId>,
+    pub profile: DisplayProfileView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DisplayProfileView {
+    None,
+    Configured {
+        hdmi: u8,
+        display_port: u8,
+    },
+    Known {
+        name: String,
+        user: bool,
+        hdmi: u8,
+        display_port: u8,
+        toml: String,
+    },
+}
+
+impl From<DisplayInfo> for DisplayView {
+    fn from(d: DisplayInfo) -> Self {
+        DisplayView {
+            index: d.index,
+            name: d.name,
+            pnp_id: d.pnp_id,
+            monitor: d.monitor,
+            profile: match d.profile {
+                DisplayProfile::None => DisplayProfileView::None,
+                DisplayProfile::Configured { hdmi, display_port } => {
+                    DisplayProfileView::Configured { hdmi, display_port }
+                }
+                DisplayProfile::Known {
+                    name,
+                    user,
+                    hdmi,
+                    display_port,
+                    toml,
+                } => DisplayProfileView::Known {
+                    name,
+                    user,
+                    hdmi,
+                    display_port,
+                    toml,
+                },
+            },
+        }
+    }
+}
+
+/// [`CalibrationUpdate`] en JSON.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CalibrationView {
+    Started {
+        display: u32,
+        name: String,
+        monitor: Option<MonitorId>,
+        start: Input,
+    },
+    Progress {
+        step: StepView,
+    },
+    Finished {
+        outcome: OutcomeView,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum StepView {
+    Reading,
+    UserSwitch {
+        input: Input,
+    },
+    Testing {
+        input: Input,
+    },
+    Trying {
+        input: Input,
+        code: u8,
+        attempt: u32,
+        of: u32,
+    },
+    Seen {
+        input: Input,
+        code: u8,
+        seen: bool,
+    },
+    Returned {
+        code: u8,
+    },
+    Found {
+        input: Input,
+        code: u8,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OutcomeView {
+    Saved {
+        name: String,
+        hdmi: u8,
+        display_port: u8,
+        attempts: u32,
+        monitor: Option<MonitorId>,
+        file: Option<String>,
+        toml: Option<String>,
+        notes: Vec<String>,
+    },
+    Failed {
+        reason: String,
+    },
+    Cancelled,
+}
+
+impl From<CalibrationStep> for StepView {
+    fn from(s: CalibrationStep) -> Self {
+        match s {
+            CalibrationStep::Reading => StepView::Reading,
+            CalibrationStep::UserSwitch { input } => StepView::UserSwitch { input },
+            CalibrationStep::Testing { input } => StepView::Testing { input },
+            CalibrationStep::Trying {
+                input,
+                code,
+                attempt,
+                of,
+            } => StepView::Trying {
+                input,
+                code,
+                attempt,
+                of,
+            },
+            CalibrationStep::Seen { input, code, seen } => StepView::Seen { input, code, seen },
+            CalibrationStep::Returned { code } => StepView::Returned { code },
+            CalibrationStep::Found { input, code } => StepView::Found { input, code },
+        }
+    }
+}
+
+impl From<CalibrationUpdate> for CalibrationView {
+    fn from(u: CalibrationUpdate) -> Self {
+        match u {
+            CalibrationUpdate::Started {
+                display,
+                name,
+                monitor,
+                start,
+            } => CalibrationView::Started {
+                display,
+                name,
+                monitor,
+                start,
+            },
+            CalibrationUpdate::Progress(step) => CalibrationView::Progress { step: step.into() },
+            CalibrationUpdate::Finished(outcome) => CalibrationView::Finished {
+                outcome: match outcome {
+                    CalibrationOutcome::Saved(SavedProfile {
+                        name,
+                        hdmi,
+                        display_port,
+                        attempts,
+                        monitor,
+                        file,
+                        toml,
+                        notes,
+                    }) => OutcomeView::Saved {
+                        name,
+                        hdmi,
+                        display_port,
+                        attempts,
+                        monitor,
+                        file,
+                        toml,
+                        notes,
+                    },
+                    CalibrationOutcome::Failed { reason } => OutcomeView::Failed { reason },
+                    CalibrationOutcome::Cancelled => OutcomeView::Cancelled,
+                },
+            },
+        }
+    }
+}
+
 /// Lo que la ventana puede pedir.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -410,6 +607,19 @@ pub enum Action {
     ConfirmPairing,
     CancelPairing,
     Unpair,
+    /// «Agregar monitor»: los monitores del bus DDC; contesta [`ActionResult::Displays`].
+    ListDisplays,
+    StartCalibration {
+        display: u32,
+        #[serde(default)]
+        monitor: Option<MonitorId>,
+    },
+    CancelCalibration,
+    UseProfile {
+        display: u32,
+        #[serde(default)]
+        monitor: Option<MonitorId>,
+    },
 }
 
 impl From<Action> for UiCommand {
@@ -425,6 +635,12 @@ impl From<Action> for UiCommand {
             Action::ConfirmPairing => UiCommand::ConfirmPairing,
             Action::CancelPairing => UiCommand::CancelPairing,
             Action::Unpair => UiCommand::Unpair,
+            Action::ListDisplays => UiCommand::ListDisplays,
+            Action::StartCalibration { display, monitor } => {
+                UiCommand::StartCalibration { display, monitor }
+            }
+            Action::CancelCalibration => UiCommand::CancelCalibration,
+            Action::UseProfile { display, monitor } => UiCommand::UseProfile { display, monitor },
         }
     }
 }
@@ -445,6 +661,10 @@ pub enum ActionResult {
     Unavailable {
         reason: String,
     },
+    /// Los monitores del bus DDC, para «Agregar monitor».
+    Displays {
+        displays: Vec<DisplayView>,
+    },
 }
 
 impl From<Reply> for ActionResult {
@@ -452,6 +672,9 @@ impl From<Reply> for ActionResult {
         match r {
             Reply::Accepted { txn } => ActionResult::Accepted { txn },
             Reply::Rejected(reason) => ActionResult::Rejected { reason },
+            Reply::Displays(list) => ActionResult::Displays {
+                displays: list.into_iter().map(Into::into).collect(),
+            },
             Reply::Done
             | Reply::State(_)
             | Reply::Desk(_)
@@ -725,6 +948,9 @@ impl Runner {
                 event: event.into(),
             }),
             AgentToUi::Probe(event) => self.sink.notice(&Notice::Probe {
+                event: event.into(),
+            }),
+            AgentToUi::Calibration(event) => self.sink.notice(&Notice::Calibration {
                 event: event.into(),
             }),
             AgentToUi::Power(event) => self.sink.notice(&event.into()),
@@ -1500,14 +1726,178 @@ wiring = { pc = "displayport", mac = "hdmi" }
             read(serde_json::json!({ "kind": "answer_probe", "id": 5, "seen": false })),
             UiCommand::AnswerProbe { id: 5, seen: false }
         );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "start_calibration", "display": 1 })),
+            UiCommand::StartCalibration {
+                display: 1,
+                monitor: None
+            }
+        );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "use_profile", "display": 0, "monitor": "m32" })),
+            UiCommand::UseProfile {
+                display: 0,
+                monitor: Some("m32".into())
+            }
+        );
         for (kind, cmd) in [
             ("start_pairing", UiCommand::StartPairing),
             ("confirm_pairing", UiCommand::ConfirmPairing),
             ("cancel_pairing", UiCommand::CancelPairing),
             ("unpair", UiCommand::Unpair),
+            ("list_displays", UiCommand::ListDisplays),
+            ("cancel_calibration", UiCommand::CancelCalibration),
         ] {
             assert_eq!(read(serde_json::json!({ "kind": kind })), cmd);
         }
+    }
+
+    #[test]
+    fn displays_and_calibration_are_what_the_frontend_reads() {
+        let r = ActionResult::from(Reply::Displays(vec![
+            DisplayInfo {
+                index: 1,
+                name: "Odyssey G5".into(),
+                pnp_id: Some("SAM7489".into()),
+                monitor: Some("m32".into()),
+                profile: DisplayProfile::Known {
+                    name: "Odyssey G5 32\"".into(),
+                    user: true,
+                    hdmi: 5,
+                    display_port: 15,
+                    toml: "x".into(),
+                },
+            },
+            DisplayInfo {
+                index: 2,
+                name: "U2720Q".into(),
+                pnp_id: None,
+                monitor: None,
+                profile: DisplayProfile::None,
+            },
+        ]));
+        assert_eq!(
+            serde_json::to_value(&r).unwrap(),
+            serde_json::json!({
+                "kind": "displays",
+                "displays": [
+                    {
+                        "index": 1, "name": "Odyssey G5", "pnp_id": "SAM7489", "monitor": "m32",
+                        "profile": {
+                            "kind": "known", "name": "Odyssey G5 32\"", "user": true,
+                            "hdmi": 5, "display_port": 15, "toml": "x"
+                        }
+                    },
+                    {
+                        "index": 2, "name": "U2720Q", "pnp_id": null, "monitor": null,
+                        "profile": { "kind": "none" }
+                    }
+                ]
+            })
+        );
+        let configured = DisplayView::from(DisplayInfo {
+            index: 0,
+            name: "a".into(),
+            pnp_id: None,
+            monitor: None,
+            profile: DisplayProfile::Configured {
+                hdmi: 6,
+                display_port: 9,
+            },
+        });
+        assert_eq!(
+            serde_json::to_value(&configured).unwrap()["profile"],
+            serde_json::json!({ "kind": "configured", "hdmi": 6, "display_port": 9 })
+        );
+
+        let json = |u: CalibrationUpdate| {
+            serde_json::to_value(Notice::Calibration { event: u.into() }).unwrap()
+        };
+        assert_eq!(
+            json(CalibrationUpdate::Started {
+                display: 1,
+                name: "Odyssey G5".into(),
+                monitor: None,
+                start: Input::DisplayPort,
+            }),
+            serde_json::json!({
+                "kind": "calibration",
+                "event": { "type": "started", "display": 1, "name": "Odyssey G5", "monitor": null, "start": "displayport" }
+            })
+        );
+        assert_eq!(
+            json(CalibrationUpdate::Progress(CalibrationStep::Trying {
+                input: Input::Hdmi,
+                code: 5,
+                attempt: 1,
+                of: 31,
+            }))["event"],
+            serde_json::json!({
+                "type": "progress",
+                "step": { "kind": "trying", "input": "hdmi", "code": 5, "attempt": 1, "of": 31 }
+            })
+        );
+        for (step, kind) in [
+            (CalibrationStep::Reading, "reading"),
+            (
+                CalibrationStep::UserSwitch { input: Input::Hdmi },
+                "user_switch",
+            ),
+            (CalibrationStep::Testing { input: Input::Hdmi }, "testing"),
+            (
+                CalibrationStep::Seen {
+                    input: Input::Hdmi,
+                    code: 5,
+                    seen: false,
+                },
+                "seen",
+            ),
+            (CalibrationStep::Returned { code: 15 }, "returned"),
+            (
+                CalibrationStep::Found {
+                    input: Input::Hdmi,
+                    code: 5,
+                },
+                "found",
+            ),
+        ] {
+            assert_eq!(
+                json(CalibrationUpdate::Progress(step))["event"]["step"]["kind"],
+                kind
+            );
+        }
+        assert_eq!(
+            json(CalibrationUpdate::Finished(CalibrationOutcome::Saved(
+                SavedProfile {
+                    name: "Odyssey G5 (SAM7489)".into(),
+                    hdmi: 5,
+                    display_port: 15,
+                    attempts: 2,
+                    monitor: Some("m32".into()),
+                    file: Some("/d/SAM7489.toml".into()),
+                    toml: Some("t".into()),
+                    notes: vec!["n".into()],
+                }
+            )))["event"],
+            serde_json::json!({
+                "type": "finished",
+                "outcome": {
+                    "kind": "saved", "name": "Odyssey G5 (SAM7489)", "hdmi": 5, "display_port": 15,
+                    "attempts": 2, "monitor": "m32", "file": "/d/SAM7489.toml", "toml": "t",
+                    "notes": ["n"]
+                }
+            })
+        );
+        assert_eq!(
+            json(CalibrationUpdate::Finished(CalibrationOutcome::Failed {
+                reason: "r".into()
+            }))["event"]["outcome"],
+            serde_json::json!({ "kind": "failed", "reason": "r" })
+        );
+        assert_eq!(
+            json(CalibrationUpdate::Finished(CalibrationOutcome::Cancelled))["event"]["outcome"],
+            serde_json::json!({ "kind": "cancelled" })
+        );
     }
 
     #[test]

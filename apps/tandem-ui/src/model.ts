@@ -113,10 +113,59 @@ export type ProbeShow = {
 
 export type ProbeView = ProbeShow | { type: "hide"; id: number };
 
+// «Agregar monitor» (T-080): `tandem_ui::session::{DisplayView, CalibrationView}`.
+
+/** Los códigos que ya tiene un monitor, o que no tiene. */
+export type DisplayProfile =
+  | { kind: "none" }
+  | { kind: "configured"; hdmi: number; display_port: number }
+  | { kind: "known"; name: string; user: boolean; hdmi: number; display_port: number; toml: string };
+
+/** Un monitor del bus DDC de la PC. `monitor` es el de la configuración al que corresponde. */
+export interface DisplayView {
+  index: number;
+  name: string;
+  pnp_id: string | null;
+  monitor: string | null;
+  profile: DisplayProfile;
+}
+
+export type CalibrationStep =
+  | { kind: "reading" }
+  | { kind: "user_switch"; input: Input }
+  | { kind: "testing"; input: Input }
+  | { kind: "trying"; input: Input; code: number; attempt: number; of: number }
+  | { kind: "seen"; input: Input; code: number; seen: boolean }
+  | { kind: "returned"; code: number }
+  | { kind: "found"; input: Input; code: number };
+
+export type CalibrationOutcome =
+  | {
+      kind: "saved";
+      name: string;
+      hdmi: number;
+      display_port: number;
+      attempts: number;
+      monitor: string | null;
+      /** Dónde quedó el perfil del usuario. */
+      file: string | null;
+      /** El perfil para exportarlo. */
+      toml: string | null;
+      notes: string[];
+    }
+  | { kind: "failed"; reason: string }
+  | { kind: "cancelled" };
+
+export type CalibrationView =
+  | { type: "started"; display: number; name: string; monitor: string | null; start: Input }
+  | { type: "progress"; step: CalibrationStep }
+  | { type: "finished"; outcome: CalibrationOutcome };
+
 export type Notice =
   | { kind: "txn"; event: TxnView }
   | { kind: "manual_switch"; event: ManualView }
   | { kind: "probe"; event: ProbeView }
+  | { kind: "calibration"; event: CalibrationView }
   | { kind: "power"; reason: string; stranded: string[] };
 
 export type Mode =
@@ -134,13 +183,18 @@ export type Action =
   | { kind: "start_pairing" }
   | { kind: "confirm_pairing" }
   | { kind: "cancel_pairing" }
-  | { kind: "unpair" };
+  | { kind: "unpair" }
+  | { kind: "list_displays" }
+  | { kind: "start_calibration"; display: number; monitor: string | null }
+  | { kind: "cancel_calibration" }
+  | { kind: "use_profile"; display: number; monitor: string | null };
 
 export type ActionResult =
   | { kind: "accepted"; txn: number }
   | { kind: "done" }
   | { kind: "rejected"; reason: string }
-  | { kind: "unavailable"; reason: string };
+  | { kind: "unavailable"; reason: string }
+  | { kind: "displays"; displays: DisplayView[] };
 
 // Atajos globales (`tandem_ui::shortcuts`).
 export type ShortcutAction = "solo_mac" | "shared" | "solo_pc" | "toggle_window";

@@ -24,6 +24,8 @@
 //! en un runtime compartido debería darle un hilo propio.
 
 pub mod candidates;
+pub mod console;
+pub mod profile;
 pub mod sim;
 
 #[cfg(test)]

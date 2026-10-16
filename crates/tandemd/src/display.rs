@@ -15,6 +15,7 @@ use tandem_display::switcher::{
 use tandem_proto::ManualSwitchEvent;
 use tokio::sync::watch;
 
+use crate::add_monitor::LiveDdc;
 use crate::config::AgentConfig;
 use crate::input::GeometrySteps;
 use crate::orchestrator::{LocalSteps, STEP_NOT_IMPLEMENTED, StepFuture, Unimplemented, describe};
@@ -30,6 +31,8 @@ pub struct DisplaySteps {
     /// bloqueante, y el siguiente (su inverso) tiene que esperar a que termine.
     desktop_turn: Arc<tokio::sync::Mutex<()>>,
     others: Arc<dyn LocalSteps>,
+    /// Los códigos DDC aprendidos al calibrar (T-080), por encima de los de `desk`.
+    live: LiveDdc,
 }
 
 impl std::fmt::Debug for DisplaySteps {
@@ -52,7 +55,14 @@ impl DisplaySteps {
             desktop: None,
             desktop_turn: Arc::default(),
             others: Arc::new(Unimplemented),
+            live: LiveDdc::default(),
         }
+    }
+
+    /// Lo que «Agregar monitor» aprende: el siguiente cambio de modo ya lo usa.
+    pub fn with_live(mut self, live: LiveDdc) -> Self {
+        self.live = live;
+        self
     }
 
     pub fn with_switcher(mut self, switcher: Arc<dyn MonitorSwitcher>) -> Self {
@@ -98,10 +108,13 @@ impl DisplaySteps {
     }
 
     fn monitor(&self, id: &MonitorId) -> Result<MonitorConfig, String> {
-        self.desk
+        let mut m = self
+            .desk
             .monitor(id)
             .cloned()
-            .ok_or_else(|| format!("el monitor `{id}` no está en la configuración"))
+            .ok_or_else(|| format!("el monitor `{id}` no está en la configuración"))?;
+        self.live.apply(&mut m);
+        Ok(m)
     }
 
     async fn switch_input(&self, monitor: &MonitorId, to: Machine) -> Result<(), String> {
