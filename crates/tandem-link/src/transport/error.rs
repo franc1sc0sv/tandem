@@ -31,6 +31,8 @@ pub enum TransportError {
     Proto(#[from] ProtoError),
     #[error("el par cerró el stream de control a mitad de una trama")]
     TruncatedFrame,
+    #[error("el par cerró el stream de control")]
+    ControlClosed,
     #[error("el par cerró el stream de control antes de su Hello")]
     MissingHello,
     #[error("el par no presentó un certificado Ed25519 válido")]
