@@ -16,7 +16,7 @@ dirs.workspace = true
 serde.workspace = true
 tandem-core = { path = "../tandem-core" }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "sync"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
 toml.workspace = true
 
 [target.'cfg(windows)'.dependencies]
