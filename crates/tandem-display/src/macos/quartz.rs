@@ -12,7 +12,8 @@
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::sync::OnceLock;
 
-use crate::quartz::{Bounds, Display, DisplayId, QuartzApi, TopologyError};
+use crate::quartz::{Bounds, CgDisplay, DisplayId, QuartzApi};
+use crate::topology::TopologyError;
 
 type CgError = i32;
 type CgDisplayConfigRef = *mut c_void;
@@ -132,7 +133,10 @@ fn create_info_fn() -> Option<CreateInfoFn> {
 }
 
 fn os(op: &'static str, code: CgError) -> TopologyError {
-    TopologyError::Os { op, code }
+    TopologyError::Os {
+        op,
+        message: format!("CGError {code}"),
+    }
 }
 
 /// Backend real de macOS.
@@ -187,7 +191,7 @@ fn online_ids() -> Result<Vec<u32>, TopologyError> {
     Ok(ids[..(count as usize).min(MAX_DISPLAYS)].to_vec())
 }
 
-fn describe(id: u32) -> Display {
+fn describe(id: u32) -> CgDisplay {
     // SAFETY: funciones de consulta sin efectos; con un id desconocido devuelven 0/rect nulo.
     let (builtin, main, active, mirror, vendor, model, serial, rect) = unsafe {
         (
@@ -201,7 +205,7 @@ fn describe(id: u32) -> Display {
             CGDisplayBounds(id),
         )
     };
-    Display {
+    CgDisplay {
         id: DisplayId(id),
         name: product_name(id),
         vendor,
@@ -307,7 +311,7 @@ fn cf_string(cf: CfTypeRef) -> Option<String> {
 }
 
 impl QuartzApi for CgApi {
-    fn online(&mut self) -> Result<Vec<Display>, TopologyError> {
+    fn online(&mut self) -> Result<Vec<CgDisplay>, TopologyError> {
         Ok(online_ids()?.into_iter().map(describe).collect())
     }
 
@@ -340,10 +344,11 @@ mod tests {
     use std::thread::sleep;
     use std::time::Duration;
 
-    use tandem_core::{BuiltinDisplay, MonitorConfig};
+    use tandem_core::BuiltinDisplay;
 
     use super::*;
-    use crate::quartz::{BuiltinApplied, MacTopology, RestoreGuard};
+    use crate::quartz::{MacTopology, RestoreGuard};
+    use crate::topology::{self, BuiltinApplied, DisplayTopology, monitor_by_model};
 
     /// Tiempo para que el WindowServer termine de reconfigurar antes de comprobar.
     const SETTLE: Duration = Duration::from_secs(3);
@@ -353,10 +358,7 @@ mod tests {
     }
 
     fn has_external(t: &mut MacTopology<CgApi>) -> bool {
-        t.displays()
-            .unwrap()
-            .iter()
-            .any(|d| !d.builtin && d.enabled)
+        t.displays().unwrap().iter().any(|d| !d.builtin && d.active)
     }
 
     #[test]
@@ -385,18 +387,18 @@ mod tests {
             return;
         }
         let mut g = RestoreGuard(&mut t);
-        let applied = g.set_builtin(BuiltinDisplay::Off).unwrap();
+        let applied = topology::set_builtin(&mut *g, BuiltinDisplay::Off).unwrap();
         eprintln!("Off -> {applied:?}");
         sleep(SETTLE);
-        let b = g.builtin().unwrap();
+        let b = topology::builtin(&mut *g).unwrap();
         match applied {
-            BuiltinApplied::Exact(_) => assert!(!b.enabled, "{b}"),
+            BuiltinApplied::Exact(_) => assert!(!b.active, "{b}"),
             BuiltinApplied::MirrorFallback => assert!(b.mirror_of.is_some(), "{b}"),
         }
-        g.set_builtin(BuiltinDisplay::Extend).unwrap();
+        topology::set_builtin(&mut *g, BuiltinDisplay::Extend).unwrap();
         sleep(SETTLE);
-        let b = g.builtin().unwrap();
-        assert!(b.enabled && b.mirror_of.is_none(), "{b}");
+        let b = topology::builtin(&mut *g).unwrap();
+        assert!(b.active && b.mirror_of.is_none(), "{b}");
     }
 
     #[test]
@@ -407,11 +409,11 @@ mod tests {
             eprintln!("sin monitor externo: no hay de qué hacer espejo");
             return;
         }
-        let r = t.set_builtin(BuiltinDisplay::Mirror);
+        let r = topology::set_builtin(&mut t, BuiltinDisplay::Mirror);
         sleep(SETTLE);
-        let mirrored = t.builtin().map(|b| b.mirror_of.is_some());
+        let mirrored = topology::builtin(&mut t).map(|b| b.mirror_of.is_some());
         // Vuelta automática antes de afirmar nada.
-        t.set_builtin(BuiltinDisplay::Extend).unwrap();
+        topology::set_builtin(&mut t, BuiltinDisplay::Extend).unwrap();
         r.unwrap();
         assert_eq!(mirrored, Ok(true));
     }
@@ -421,29 +423,24 @@ mod tests {
     #[ignore = "hardware"]
     fn detach_external_and_back() {
         let mut t = topo();
-        let Some(ext) = t
-            .displays()
-            .unwrap()
-            .into_iter()
-            .find(|d| !d.builtin && d.enabled && d.name.is_some())
+        let Some(ext) =
+            t.displays().unwrap().into_iter().find(|d| {
+                !d.builtin && d.active && d.edid.as_ref().is_some_and(|e| e.name.is_some())
+            })
         else {
             eprintln!("sin monitor externo con nombre de EDID");
             return;
         };
-        let cfg = MonitorConfig {
-            id: "prueba".into(),
-            label: "prueba".into(),
-            edid_model: ext.name.clone(),
-            wiring: Default::default(),
-            ddc: None,
-        };
+        let cfg = monitor_by_model("prueba", ext.model());
         let mut g = RestoreGuard(&mut t);
-        g.detach(&cfg).unwrap();
+        topology::detach(&mut *g, &cfg).unwrap();
         sleep(SETTLE);
-        let after = g.find(&cfg).unwrap();
-        assert!(!after.enabled, "{after}");
-        g.attach(&cfg).unwrap();
+        let all = g.displays().unwrap();
+        let after = topology::find_monitor(&all, &cfg).unwrap();
+        assert!(!after.active, "{after}");
+        topology::attach(&mut *g, &cfg).unwrap();
         sleep(SETTLE);
-        assert!(g.find(&cfg).unwrap().enabled);
+        let all = g.displays().unwrap();
+        assert!(topology::find_monitor(&all, &cfg).unwrap().active);
     }
 }

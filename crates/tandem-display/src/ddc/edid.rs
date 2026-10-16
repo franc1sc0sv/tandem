@@ -86,8 +86,9 @@ pub fn parse(bytes: &[u8]) -> Result<Edid, EdidError> {
     Ok(edid)
 }
 
-/// Tres letras de 5 bits cada una, `A` = 1.
-fn manufacturer(word: u16) -> String {
+/// Código PnP a partir de la palabra del EDID (bytes 8-9, big endian): tres letras de
+/// 5 bits cada una, `A` = 1. macOS da la misma palabra en `CGDisplayVendorNumber`.
+pub fn manufacturer(word: u16) -> String {
     [10u16, 5, 0]
         .iter()
         .map(|shift| {

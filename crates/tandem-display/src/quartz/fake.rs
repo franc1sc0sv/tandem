@@ -4,7 +4,8 @@
 
 use std::collections::VecDeque;
 
-use super::{Bounds, Display, DisplayId, QuartzApi, TopologyError};
+use super::{Bounds, CgDisplay, DisplayId, QuartzApi};
+use crate::topology::TopologyError;
 
 /// Llamada registrada, para comprobar el orden en las pruebas.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -15,7 +16,7 @@ pub enum Call {
 
 #[derive(Debug, Clone)]
 pub struct FakeQuartz {
-    pub displays: Vec<Display>,
+    pub displays: Vec<CgDisplay>,
     /// Si es `true`, `online` omite las desactivadas (lo que se espera de macOS real).
     pub hide_disabled: bool,
     /// `false` simula un macOS sin `CGSConfigureDisplayEnabled`.
@@ -26,8 +27,8 @@ pub struct FakeQuartz {
 }
 
 /// La pantalla integrada de una MacBook (id 1, principal).
-pub fn builtin() -> Display {
-    Display {
+pub fn builtin() -> CgDisplay {
+    CgDisplay {
         id: DisplayId(1),
         name: Some("Color LCD".into()),
         vendor: 0x0610,
@@ -47,8 +48,8 @@ pub fn builtin() -> Display {
 }
 
 /// Un monitor externo activo con el nombre de EDID dado.
-pub fn external(id: u32, name: &str) -> Display {
-    Display {
+pub fn external(id: u32, name: &str) -> CgDisplay {
+    CgDisplay {
         id: DisplayId(id),
         name: Some(name.into()),
         vendor: 0x4C2D,
@@ -67,8 +68,16 @@ pub fn external(id: u32, name: &str) -> Display {
     }
 }
 
+/// El error que daría CoreGraphics (1000 = `kCGErrorFailure`, 1001 = `kCGErrorIllegalArgument`).
+fn os(op: &'static str, code: i32) -> TopologyError {
+    TopologyError::Os {
+        op,
+        message: format!("CGError {code}"),
+    }
+}
+
 impl FakeQuartz {
-    pub fn new(displays: Vec<Display>) -> Self {
+    pub fn new(displays: Vec<CgDisplay>) -> Self {
         Self {
             displays,
             hide_disabled: true,
@@ -87,7 +96,7 @@ impl FakeQuartz {
         ])
     }
 
-    pub fn get(&self, id: DisplayId) -> Option<&Display> {
+    pub fn get(&self, id: DisplayId) -> Option<&CgDisplay> {
         self.displays.iter().find(|d| d.id == id)
     }
 
@@ -100,18 +109,15 @@ impl FakeQuartz {
         if self.script.pop_front().unwrap_or(true) {
             Ok(())
         } else {
-            Err(TopologyError::Os { op, code: 1000 })
+            Err(os(op, 1000))
         }
     }
 
-    fn display_mut(&mut self, id: DisplayId) -> Result<&mut Display, TopologyError> {
+    fn display_mut(&mut self, id: DisplayId) -> Result<&mut CgDisplay, TopologyError> {
         self.displays
             .iter_mut()
             .find(|d| d.id == id)
-            .ok_or(TopologyError::Os {
-                op: "CGBeginDisplayConfiguration",
-                code: 1001,
-            })
+            .ok_or_else(|| os("CGBeginDisplayConfiguration", 1001))
     }
 
     /// macOS mueve la principal si la desactivada lo era.
@@ -129,7 +135,7 @@ impl FakeQuartz {
 }
 
 impl QuartzApi for FakeQuartz {
-    fn online(&mut self) -> Result<Vec<Display>, TopologyError> {
+    fn online(&mut self) -> Result<Vec<CgDisplay>, TopologyError> {
         Ok(self
             .displays
             .iter()
@@ -165,10 +171,7 @@ impl QuartzApi for FakeQuartz {
         if let Some(m) = master
             && !self.get(m).is_some_and(|d| d.enabled)
         {
-            return Err(TopologyError::Os {
-                op: "CGConfigureDisplayMirrorOfDisplay",
-                code: 1001,
-            });
+            return Err(os("CGConfigureDisplayMirrorOfDisplay", 1001));
         }
         self.display_mut(id)?.mirror_of = master;
         Ok(())

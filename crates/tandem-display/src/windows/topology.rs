@@ -7,10 +7,12 @@
 use std::collections::BTreeMap;
 
 use ::windows::Win32::Devices::Display::{
-    DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME, DISPLAYCONFIG_MODE_INFO, DISPLAYCONFIG_PATH_INFO,
-    DISPLAYCONFIG_TARGET_DEVICE_NAME, DisplayConfigGetDeviceInfo, GetDisplayConfigBufferSizes,
-    QDC_ALL_PATHS, QueryDisplayConfig, SDC_ALLOW_CHANGES, SDC_APPLY, SDC_SAVE_TO_DATABASE,
-    SDC_USE_SUPPLIED_DISPLAY_CONFIG, SET_DISPLAY_CONFIG_FLAGS, SetDisplayConfig,
+    DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_NAME, DISPLAYCONFIG_MODE_INFO,
+    DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE, DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL,
+    DISPLAYCONFIG_PATH_INFO, DISPLAYCONFIG_TARGET_DEVICE_NAME, DisplayConfigGetDeviceInfo,
+    GetDisplayConfigBufferSizes, QDC_ALL_PATHS, QueryDisplayConfig, SDC_ALLOW_CHANGES, SDC_APPLY,
+    SDC_SAVE_TO_DATABASE, SDC_USE_SUPPLIED_DISPLAY_CONFIG, SET_DISPLAY_CONFIG_FLAGS,
+    SetDisplayConfig,
 };
 use ::windows::Win32::Foundation::{ERROR_INSUFFICIENT_BUFFER, ERROR_SUCCESS, LUID};
 use ::windows::core::HRESULT;
@@ -18,7 +20,7 @@ use ::windows::core::HRESULT;
 use super::ddc::{read_edid, wide_to_string};
 use crate::ddc::edid;
 use crate::topology::plan::{self, MODE_IDX_INVALID, PathSlot};
-use crate::topology::{Display, DisplayTopology, TargetId, TopologyError};
+use crate::topology::{Bounds, Display, DisplayTopology, TargetId, TopologyError};
 
 /// `DISPLAYCONFIG_PATH_ACTIVE` (wingdi.h); el crate `windows` no lo exporta.
 const PATH_ACTIVE: u32 = 0x1;
@@ -34,8 +36,7 @@ const SET_FLAGS: SET_DISPLAY_CONFIG_FLAGS = SET_DISPLAY_CONFIG_FLAGS(
 fn os_error(op: &'static str, code: u32) -> TopologyError {
     TopologyError::Os {
         op,
-        code,
-        message: HRESULT::from_win32(code).message(),
+        message: format!("{} ({code:#010X})", HRESULT::from_win32(code).message()),
     }
 }
 
@@ -101,6 +102,33 @@ impl Config {
                 available: p.targetInfo.targetAvailable.as_bool(),
             })
             .collect()
+    }
+
+    /// La ruta activa del target, si está en el escritorio.
+    fn active_path(&self, target: TargetId) -> Option<&DISPLAYCONFIG_PATH_INFO> {
+        self.paths.iter().find(|p| {
+            p.flags & PATH_ACTIVE != 0
+                && luid_to_u64(p.targetInfo.adapterId) == target.adapter
+                && p.targetInfo.id == target.target
+        })
+    }
+
+    /// Rectángulo de la superficie del escritorio que muestra la ruta.
+    fn bounds(&self, path: &DISPLAYCONFIG_PATH_INFO) -> Option<Bounds> {
+        // SAFETY: sin QDC_VIRTUAL_MODE_AWARE la unión siempre contiene el índice plano.
+        let idx = unsafe { path.sourceInfo.Anonymous.modeInfoIdx };
+        let mode = self.modes.get(idx as usize)?;
+        if mode.infoType != DISPLAYCONFIG_MODE_INFO_TYPE_SOURCE {
+            return None;
+        }
+        // SAFETY: `infoType` dice que la unión contiene un modo de fuente.
+        let src = unsafe { mode.Anonymous.sourceMode };
+        Some(Bounds {
+            x: src.position.x,
+            y: src.position.y,
+            width: src.width as i32,
+            height: src.height as i32,
+        })
     }
 
     fn luid(&self, target: TargetId) -> Option<LUID> {
@@ -177,7 +205,9 @@ fn target_name(luid: LUID, target: u32) -> Result<(String, String), TopologyErro
 }
 
 impl DisplayTopology for WindowsTopology {
-    fn displays(&mut self) -> Result<Vec<Display>, TopologyError> {
+    type Id = TargetId;
+
+    fn displays(&mut self) -> Result<Vec<Display<TargetId>>, TopologyError> {
         let cfg = Config::query()?;
         let luids: BTreeMap<u64, LUID> = cfg
             .paths
@@ -194,12 +224,30 @@ impl DisplayTopology for WindowsTopology {
             let edid = edid::registry_key_from_interface(&device_path)
                 .and_then(|key| read_edid(&key))
                 .and_then(|bytes| edid::parse(&bytes).ok());
+            let path = cfg.active_path(target);
+            let bounds = path.and_then(|p| cfg.bounds(p));
+            let builtin = cfg
+                .paths
+                .iter()
+                .find(|p| {
+                    luid_to_u64(p.targetInfo.adapterId) == target.adapter
+                        && p.targetInfo.id == target.target
+                })
+                .is_some_and(|p| {
+                    p.targetInfo.outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL
+                });
             out.push(Display {
-                target,
+                id: target,
                 name,
                 device_path,
                 edid,
+                builtin,
+                // En Windows la principal es la que tiene el origen del escritorio.
+                main: bounds.is_some_and(|b| b.x == 0 && b.y == 0),
                 active,
+                // Los clones de Windows no se usan: el espejo es cosa de la Mac.
+                mirror_of: None,
+                bounds,
             });
         }
         Ok(out)
@@ -208,7 +256,7 @@ impl DisplayTopology for WindowsTopology {
     fn set_active(&mut self, target: TargetId, active: bool) -> Result<(), TopologyError> {
         let cfg = Config::query()?;
         if cfg.luid(target).is_none() {
-            return Err(TopologyError::NotConnected(target));
+            return Err(TopologyError::NotConnected(target.to_string()));
         }
         let slots = cfg.slots();
         if active {
@@ -232,12 +280,16 @@ mod tests {
 
     use super::*;
     use crate::ddc::{DdcBus, DdcError, VCP_INPUT_SOURCE, VcpValue};
-    use crate::topology::{self, Detached};
+    use crate::topology::{self, Detached, monitor_by_model};
     use crate::windows::ddc::WindowsDdc;
 
     /// Monitor de las pruebas en hardware. Por defecto el 34"; se cambia con la variable.
     fn monitor_query() -> String {
         std::env::var("TANDEM_TOPOLOGY_MONITOR").unwrap_or_else(|_| "LC34G55T".into())
+    }
+
+    fn monitor() -> tandem_core::MonitorConfig {
+        monitor_by_model("prueba", &monitor_query())
     }
 
     /// Windows tarda en reconfigurar el escritorio y en volver a enumerar los monitores.
@@ -267,7 +319,7 @@ mod tests {
     #[test]
     fn listing_on_any_machine_is_consistent() {
         if let Ok(ds) = WindowsTopology.displays() {
-            let mut ids: Vec<_> = ds.iter().map(|d| d.target).collect();
+            let mut ids: Vec<_> = ds.iter().map(|d| d.id).collect();
             ids.dedup();
             assert_eq!(ids.len(), ds.len());
         }
@@ -294,7 +346,7 @@ mod tests {
             eprintln!("{d}");
         }
         assert!(ds.iter().any(|d| d.active));
-        let m = topology::find(&ds, &monitor_query()).unwrap();
+        let m = topology::find_monitor(&ds, &monitor()).unwrap();
         assert!(m.edid.is_some(), "{m}: sin EDID");
     }
 
@@ -302,26 +354,26 @@ mod tests {
     #[test]
     #[ignore = "hardware"]
     fn detach_and_attach_round_trip() {
-        let query = monitor_query();
+        let monitor = monitor();
         let mut topo = WindowsTopology;
         let before = topo.displays().unwrap();
         assert!(
             before.iter().filter(|d| d.active).count() >= 2,
             "hacen falta dos monitores activos para no dejar la PC sin pantalla"
         );
-        assert!(topology::find(&before, &query).unwrap().active);
+        assert!(topology::find_monitor(&before, &monitor).unwrap().active);
         {
-            let guard = Detached::new(&mut topo, &query).unwrap();
+            let guard = Detached::new(&mut topo, &monitor).unwrap();
             settle();
-            let target = guard.target();
+            let target = guard.id();
             let now = WindowsTopology.displays().unwrap();
-            let d = now.iter().find(|d| d.target == target).unwrap();
+            let d = now.iter().find(|d| d.id == target).unwrap();
             assert!(!d.active, "{d} sigue activo");
             guard.restore().unwrap();
         }
         settle();
         let after = topo.displays().unwrap();
-        assert!(topology::find(&after, &query).unwrap().active);
+        assert!(topology::find_monitor(&after, &monitor).unwrap().active);
     }
 
     fn read_input(bus: &mut WindowsDdc, monitor: usize) -> Result<VcpValue, DdcError> {
@@ -351,7 +403,7 @@ mod tests {
         eprintln!("S3 antes: {:?}", read_input(&mut bus, idx));
 
         let mut topo = WindowsTopology;
-        let guard = Detached::new(&mut topo, &query).unwrap();
+        let guard = Detached::new(&mut topo, &monitor()).unwrap();
         settle();
         let old_handle = read_input(&mut bus, idx);
         let fresh = WindowsDdc::open().unwrap();
