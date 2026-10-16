@@ -7,14 +7,17 @@
 //!
 //! Los estados se generan desde las dos perspectivas (DESIGN §3.7): orquesta la Mac con
 //! la PC prendida o apagada, u orquesta la PC con la Mac prendida o suspendida.
+//!
+//! Un monitor sin confirmar (T-085) puede estar de verdad en cualquier entrada cableada,
+//! no en la que cree `State`: el modelo físico parte de esa verdad, no de la creencia.
 
 use std::collections::BTreeMap;
 use std::future::Future;
 
 use proptest::prelude::*;
 use tandem_core::{
-    Abilities, BuiltinDisplay, Config, Executor, Input, Machine, Mode, MonitorConfig, MonitorId,
-    Plan, Powered, State, Step, TxnError, run,
+    Abilities, BuiltinDisplay, Config, Doubt, Executor, Input, Machine, Mode, MonitorConfig,
+    MonitorId, Plan, Powered, State, Step, TxnError, run,
 };
 
 /// Lo que se ve en el escritorio real.
@@ -26,9 +29,17 @@ struct Physical {
 }
 
 impl Physical {
-    fn from_state(cfg: &Config, s: &State) -> Self {
+    /// El puesto real: lo que cree `s`, salvo los monitores sin confirmar, que muestran lo
+    /// que diga `truth`.
+    fn new(cfg: &Config, s: &State, truth: &BTreeMap<MonitorId, Machine>) -> Self {
+        let mut owner = s.owner.clone();
+        for (id, m) in truth {
+            if s.in_doubt(id) {
+                owner.insert(id.clone(), *m);
+            }
+        }
         Physical {
-            owner: s.owner.clone(),
+            owner,
             on: s.on,
             builtin: s.builtin_effective(cfg),
         }
@@ -154,8 +165,9 @@ fn state(cfg: &Config, me: Machine) -> impl Strategy<Value = State> + use<> {
         any::<bool>(),
         builtin(),
         proptest::bool::weighted(0.2),
+        proptest::collection::vec(proptest::option::of(doubt()), n),
     )
-        .prop_map(move |(picks, other_on, builtin_pref, cut)| {
+        .prop_map(move |(picks, other_on, builtin_pref, cut, doubts)| {
             let owner: BTreeMap<_, _> = cfg
                 .monitors
                 .iter()
@@ -166,12 +178,35 @@ fn state(cfg: &Config, me: Machine) -> impl Strategy<Value = State> + use<> {
             let other_on = !cut && (other_on || owner.values().any(|o| *o == other));
             let mut on = Powered::only(me);
             on.set(other, other_on);
+            let doubt = cfg
+                .monitors
+                .iter()
+                .zip(doubts)
+                .filter_map(|(m, d)| Some((m.id.clone(), d?)))
+                .collect();
             State {
                 owner,
                 on,
                 builtin_pref,
+                doubt,
             }
         })
+}
+
+fn doubt() -> impl Strategy<Value = Doubt> {
+    prop_oneof![Just(Doubt::Unknown), Just(Doubt::Stale), Just(Doubt::Blank)]
+}
+
+/// Lo que muestra de verdad cada monitor sin confirmar: cualquier máquina cableada.
+fn truth(cfg: &Config) -> impl Strategy<Value = BTreeMap<MonitorId, Machine>> + use<> {
+    let cfg = cfg.clone();
+    proptest::collection::vec(any::<bool>(), cfg.monitors.len()).prop_map(move |picks| {
+        cfg.monitors
+            .iter()
+            .zip(picks)
+            .map(|(m, p)| (m.id.clone(), wired_machine(m, p)))
+            .collect()
+    })
 }
 
 /// Cualquier modo, incluidos repartos con monitores que no existen o que no se pueden cumplir.
@@ -182,13 +217,16 @@ fn mode(cfg: &Config) -> impl Strategy<Value = Mode> + use<> {
     prop_oneof![Just(Mode::SoloMac), Just(Mode::SoloPc), shared]
 }
 
-/// Puesto completo: configuración, estado de partida (desde la Mac o desde la PC) y
-/// modo destino.
-fn scenario() -> impl Strategy<Value = (Config, State, Mode)> {
+/// Puesto completo: configuración, estado de partida (desde la Mac o desde la PC), lo que
+/// muestran de verdad los monitores sin confirmar y modo destino.
+type Scenario = (Config, State, BTreeMap<MonitorId, Machine>, Mode);
+
+fn scenario() -> impl Strategy<Value = Scenario> {
     (config(), machine()).prop_flat_map(|(cfg, me)| {
         let s = state(&cfg, me);
+        let t = truth(&cfg);
         let m = mode(&cfg);
-        (Just(cfg), s, m)
+        (Just(cfg), s, t, m)
     })
 }
 
@@ -199,10 +237,10 @@ fn plan_or_skip(cfg: &Config, s: &State, mode: &Mode) -> Option<Plan> {
         Ok(p) => Some(p),
         Err(e) => {
             let target = mode.assignment(cfg);
-            let unwired = cfg
-                .monitors
-                .iter()
-                .any(|m| s.owner[&m.id] != target[&m.id] && m.input_for(target[&m.id]).is_none());
+            let unwired = cfg.monitors.iter().any(|m| {
+                (s.owner[&m.id] != target[&m.id] || s.in_doubt(&m.id))
+                    && m.input_for(target[&m.id]).is_none()
+            });
             assert!(unwired, "error inesperado al planear: {e}");
             None
         }
@@ -213,15 +251,18 @@ proptest! {
     /// Sin fallos, el plan deja el puesto exactamente en el reparto del modo, `State`
     /// coincide con la realidad y la Mac tiene pantalla.
     #[test]
-    fn plan_reaches_mode((cfg, start, mode) in scenario()) {
+    fn plan_reaches_mode((cfg, start, truth, mode) in scenario()) {
         let Some(plan) = plan_or_skip(&cfg, &start, &mode) else { return Ok(()) };
         let mut s = start.clone();
-        let mut exec = Sim { phys: Physical::from_state(&cfg, &start), calls: 0, fail_at: None };
+        let mut exec = Sim { phys: Physical::new(&cfg, &start, &truth), calls: 0, fail_at: None };
 
         let report = pollster::block_on(run(&cfg, &mut s, &plan, &mut exec));
         prop_assert!(report.is_ok());
         prop_assert_eq!(&s.owner, &mode.assignment(&cfg));
+        // Aunque Tandem creyera otra cosa de un monitor sin confirmar, termina donde va y
+        // el estado queda confirmado (T-085).
         prop_assert_eq!(&exec.phys.owner, &s.owner);
+        prop_assert!(s.doubt.is_empty(), "quedó sin confirmar: {:?}", s.doubt);
         // La pantalla integrada de una Mac apagada no se toca: no hay nada que ver.
         if s.is_on(Machine::Mac) {
             prop_assert_eq!(exec.phys.builtin, s.builtin_effective(&cfg));
@@ -241,12 +282,12 @@ proptest! {
     /// Falle el paso que falle, la vuelta atrás deja el puesto (y `State`) como estaba.
     /// Lo único que puede quedar es una máquina prendida, porque encenderla no se deshace.
     #[test]
-    fn rollback_restores_state((cfg, start, mode) in scenario(), fail in any::<prop::sample::Index>()) {
+    fn rollback_restores_state((cfg, start, truth, mode) in scenario(), fail in any::<prop::sample::Index>()) {
         let Some(plan) = plan_or_skip(&cfg, &start, &mode) else { return Ok(()) };
         prop_assume!(!plan.steps.is_empty());
         let k = fail.index(plan.steps.len());
 
-        let before = Physical::from_state(&cfg, &start);
+        let before = Physical::new(&cfg, &start, &truth);
         let mut s = start.clone();
         let mut exec = Sim { phys: before.clone(), calls: 0, fail_at: Some(k) };
 
@@ -257,31 +298,45 @@ proptest! {
         );
 
         prop_assert_eq!(&s.owner, &start.owner);
+        prop_assert_eq!(&s.doubt, &start.doubt);
         prop_assert_eq!(s.builtin_pref, start.builtin_pref);
         for m in [Machine::Mac, Machine::Pc] {
             let powered_on = plan.steps[..k].contains(&Step::PowerOn { machine: m });
             prop_assert_eq!(s.is_on(m), start.is_on(m) || powered_on);
         }
 
-        prop_assert_eq!(&exec.phys.owner, &before.owner);
+        // Un monitor sin confirmar no tiene a qué volver: si se le mandó la entrada, el
+        // deshacer lo deja en la que creía Tandem; si no, sigue donde estaba.
+        for (id, m) in &exec.phys.owner {
+            if start.in_doubt(id) {
+                prop_assert!(*m == before.owner[id] || *m == start.owner[id], "{} quedó en {}", id, m);
+            } else {
+                prop_assert_eq!(*m, before.owner[id]);
+            }
+        }
         prop_assert_eq!(exec.phys.builtin, before.builtin);
         prop_assert_eq!(exec.phys.on, s.on);
-        prop_assert!(exec.phys.mac_visible(), "la Mac quedó sin pantalla: {:?}", exec.phys);
+        // Si Tandem creía mal lo de un monitor sin confirmar, no hay garantía: la Mac pudo
+        // empezar sin pantalla, o encenderse para un monitor que no estaba donde creía.
+        if before.owner == start.owner {
+            prop_assert!(exec.phys.mac_visible(), "la Mac quedó sin pantalla: {:?}", exec.phys);
+        }
     }
 
     /// El apagado limpio de la otra máquina nunca la apaga mientras muestra algo, y la
     /// que queda tiene todos los monitores.
     #[test]
-    fn shutdown_leaves_everything_on_the_machine_that_stays((cfg, start, _mode) in scenario()) {
+    fn shutdown_leaves_everything_on_the_machine_that_stays((cfg, start, truth, _mode) in scenario()) {
         let me = [Machine::Mac, Machine::Pc].into_iter().find(|m| start.is_on(*m) && !start.is_on(m.other())).unwrap_or(Machine::Mac);
         let off = me.other();
         let Some(plan) = Plan::power_off(&cfg, &start, off, &Abilities::pc_switches(&cfg)).ok() else {
             // Solo puede fallar si algún monitor de la que se apaga no está cableado a la otra.
-            prop_assert!(cfg.monitors.iter().any(|m| start.owner[&m.id] == off && m.input_for(me).is_none()));
+            // (o uno sin confirmar, que se manda igual).
+            prop_assert!(cfg.monitors.iter().any(|m| (start.owner[&m.id] == off || start.in_doubt(&m.id)) && m.input_for(me).is_none()));
             return Ok(());
         };
         let mut s = start.clone();
-        let mut exec = Sim { phys: Physical::from_state(&cfg, &start), calls: 0, fail_at: None };
+        let mut exec = Sim { phys: Physical::new(&cfg, &start, &truth), calls: 0, fail_at: None };
         pollster::block_on(run(&cfg, &mut s, &plan, &mut exec)).unwrap();
 
         prop_assert!(!exec.phys.on.is_on(off));
@@ -289,6 +344,41 @@ proptest! {
         prop_assert!(exec.phys.mac_visible());
         if let Some(pos) = plan.steps.iter().position(|st| *st == Step::PowerOff { machine: off }) {
             prop_assert_eq!(pos, plan.steps.len() - 1, "apagar es lo último");
+        }
+    }
+
+    /// «Aplicar modo» manda la entrada de todos los monitores, y con el puesto en
+    /// cualquier entrada lo deja en el reparto del modo, confirmado.
+    #[test]
+    fn apply_mode_switches_every_monitor_and_confirms((cfg, start, truth, mode) in scenario()) {
+        let Ok(plan) = Plan::apply_mode(&cfg, &start, &mode, &Abilities::pc_switches(&cfg)) else { return Ok(()) };
+        for m in &cfg.monitors {
+            prop_assert!(plan.steps.iter().any(|st| matches!(st, Step::SwitchInput { monitor, .. } if *monitor == m.id)), "{} sin cambio de entrada", m.id);
+        }
+        // Todo lo que muestra el puesto es desconocido, no solo lo marcado.
+        let all_unknown = State { doubt: cfg.monitors.iter().map(|m| (m.id.clone(), Doubt::Unknown)).collect(), ..start.clone() };
+        let mut s = start.clone();
+        let mut exec = Sim { phys: Physical::new(&cfg, &all_unknown, &truth), calls: 0, fail_at: None };
+        pollster::block_on(run(&cfg, &mut s, &plan, &mut exec)).unwrap();
+        prop_assert_eq!(&s.owner, &mode.assignment(&cfg));
+        prop_assert_eq!(&exec.phys.owner, &s.owner);
+        prop_assert!(s.is_confirmed() && s.doubt.is_empty());
+    }
+
+    /// Corregir lo que muestra un monitor nunca manda una entrada (T-085).
+    #[test]
+    fn following_a_correction_never_switches_an_input((cfg, start, truth, _mode) in scenario()) {
+        let mut to = start.clone();
+        for (id, m) in &truth {
+            to.record_shown(id, Some(*m));
+        }
+        let plan = Plan::follow(&cfg, &start, &to);
+        prop_assert!(!plan.steps.iter().any(|st| matches!(st, Step::SwitchInput { .. } | Step::PowerOn { .. } | Step::PowerOff { .. })), "{:?}", plan.steps);
+        prop_assert!(to.is_confirmed());
+        for st in &plan.steps {
+            if let Step::Attach { machine, .. } | Step::Detach { machine, .. } = st {
+                prop_assert!(to.is_on(*machine), "toca el escritorio de {} apagada", machine);
+            }
         }
     }
 }

@@ -27,3 +27,11 @@ Leer `0x60` estando en HDMI devolvió `0x05`, y el 34" devuelve siempre `0x09`, 
 ## Perfil
 
 `hdmi = 0x05`, `display_port = 0x0F` ([`profiles/ddc/SAM7489.toml`](../../profiles/ddc/SAM7489.toml), configs de `docs/examples/`). El nombre "Odyssey G5" lo comparten varios modelos, así que el perfil se aplica por id PnP (`SAM7489`).
+
+## Pendiente: ¿el timing report distingue la entrada? (T-085)
+
+Tras un cambio desde el menú del monitor, `0x60` no se actualiza (sigue con el último código escrito por DDC), así que Tandem no puede saber solo qué muestra el 32": el estado arranca sin confirmar y lo confirma «Aplicar modo» o el usuario (T-085).
+
+Falta probar **con el usuario delante** si el *timing report* (`GetTimingReport` de dxva2, o el VCP de estado de sincronía) cambia según la entrada que muestra: con el 32" en DP (PC), en HDMI (Mac) y en negro, leerlo desde la PC y comparar frecuencias, polaridad y el bit de «fuera de rango / sin señal». En el 34" no sirve (siempre reporta lo de su DP aunque muestre HDMI). Si en el 32" sí distingue, sería una capacidad nueva por perfil, «detección de entrada», y ese monitor podría arrancar confirmado sin preguntar.
+
+- [ ] Leer el timing report del 32" en DP, en HDMI y en negro, y anotar los valores aquí.

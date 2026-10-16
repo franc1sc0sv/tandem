@@ -28,7 +28,7 @@ pub use msg::{
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 10;
+pub const PROTOCOL_VERSION: u16 = 11;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -60,12 +60,13 @@ pub enum ProtoError {
 mod tests {
     use super::PROTOCOL_VERSION;
 
-    /// T-081 publicó la v8 y T-082 la v9, cada una con otro juego de mensajes; T-084 (el
-    /// anuncio de capacidades) va por encima para que dos binarios con mensajes distintos
+    /// T-081 publicó la v8, T-082 la v9 y T-084 (el anuncio de capacidades) la v10. T-085
+    /// agrega al estado lo que no está confirmado y los pedidos «Aplicar modo» y «qué
+    /// muestra»: otra forma de los mensajes, otra versión, para que dos binarios distintos
     /// nunca se acepten como compatibles.
     #[test]
-    fn la_version_queda_por_encima_de_la_de_t082() {
-        assert_eq!(PROTOCOL_VERSION, 10);
-        assert_eq!(super::CAPABILITIES_SINCE, PROTOCOL_VERSION);
+    fn la_version_queda_por_encima_de_la_de_t084() {
+        assert_eq!(PROTOCOL_VERSION, 11);
+        assert_eq!(super::CAPABILITIES_SINCE, 10);
     }
 }

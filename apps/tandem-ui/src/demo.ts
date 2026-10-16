@@ -16,7 +16,9 @@
 // `?demo&desk` abre «Puesto»: la configuración que generó el agente; «Invertir cableado»
 // cambia la del monitor en la escena. `?demo&as=pc` es la ventana de la PC (T-084): la PC
 // a la izquierda, siempre encendida, con los monitores, y la Mac dormida a la derecha
-// (`&mac=on`: despierta).
+// (`&mac=on`: despierta). `?demo&fresh` arranca sin estado guardado (T-085): nadie sabe lo
+// que muestra cada monitor (`&fresh=stale`: lo último que se supo, de un arranque
+// anterior); con la PC apagada se ofrece responder, con `&pc=on` también «Aplicar modo».
 
 import type { Bridge } from "./bridge";
 import type {
@@ -94,7 +96,7 @@ function demoCaps(machine: Machine, missing: MachineCaps["input"]["missing"]): M
     machine,
     name: pc ? "ESCRITORIO" : "MacBook-Pro",
     os: pc ? "windows" : "macos",
-    monitors: DESK.monitors.map((m) => ({ monitor: m.id, pnp_id: m.edid_model ?? null, name: m.label, switch: pc, ddc: pc && m.id === "m34" })),
+    monitors: DESK.monitors.map((m) => ({ monitor: m.id, pnp_id: m.edid_model ?? null, name: m.label, switch: pc, ddc: pc && m.id === "m34", seen: true })),
     builtin: !pc,
     hub: null,
     input: { capture: missing.length === 0, inject: missing.length === 0, missing },
@@ -106,10 +108,13 @@ function demoCaps(machine: Machine, missing: MachineCaps["input"]["missing"]): M
 /** Quién cambia las entradas en el demo: la PC, como en el puesto real. */
 const SWITCHER: Machine = "pc";
 
-/** Mismo orden de pasos que `Plan::to_mode` (y `Plan::power_off`) de tandem-core. */
-function plan(state: DeskState, target: Record<string, Machine>, powerOff: Machine | null = null): Step[] {
+/**
+ * Mismo orden de pasos que `Plan::to_mode` (y `Plan::power_off`) de tandem-core. A un
+ * monitor sin confirmar (o con `all`, «Aplicar modo») se le manda la entrada igual (T-085).
+ */
+function plan(state: DeskState, target: Record<string, Machine>, powerOff: Machine | null = null, all = false): Step[] {
   const steps: Step[] = [];
-  const moves = DESK.monitors.filter((m) => state.owner[m.id] !== target[m.id]);
+  const moves = DESK.monitors.filter((m) => all || state.doubt[m.id] !== undefined || state.owner[m.id] !== target[m.id]);
   const needed = new Set<Machine>(Object.values(target));
   if (moves.length) needed.add(SWITCHER);
   const on = { ...state.on };
@@ -126,8 +131,9 @@ function plan(state: DeskState, target: Record<string, Machine>, powerOff: Machi
     const from = state.owner[m.id];
     const to = target[m.id];
     steps.push({ step: "switch_input", monitor: m.id, from, to, input: m.wiring[to]!, by: SWITCHER });
+    const away: Machine = to === "mac" ? "pc" : "mac";
     if (on[to]) steps.push({ step: "attach", machine: to, monitor: m.id });
-    if (on[from]) steps.push({ step: "detach", machine: from, monitor: m.id });
+    if (on[away]) steps.push({ step: "detach", machine: away, monitor: m.id });
     next.owner[m.id] = to;
   }
   const before = builtinOf(DESK, state).effective;
@@ -155,10 +161,15 @@ export function demoBridge(query: string): Bridge {
   const agent: Machine = params.get("as") === "pc" ? "pc" : "mac";
   const peerMachine: Machine = agent === "mac" ? "pc" : "mac";
   const peerOn = params.get(peerMachine) === "on";
+  // Sin estado guardado, lo inventado es «todo en la Mac» (`State::initial`).
+  const fresh = params.get("fresh");
+  const guess: Machine = fresh === null ? agent : fresh === "stale" ? "pc" : "mac";
+  const doubt = fresh === null ? {} : fresh === "stale" ? { m34: "stale", m32: "stale" } : { m34: "unknown", m32: "unknown" };
   let state: DeskState = {
-    owner: { m34: agent, m32: agent },
+    owner: { m34: guess, m32: guess },
     on: { [agent]: true, [peerMachine]: peerOn } as Record<Machine, boolean>,
     builtin_pref: "off",
+    doubt: doubt as DeskState["doubt"],
   };
   const missing: MachineCaps["input"]["missing"] = params.get("perms") === "missing" ? ["accessibility"] : [];
   const caps = (): Caps => ({
@@ -308,7 +319,10 @@ export function demoBridge(query: string): Bridge {
       if (s.step === "power_off") state.on[s.machine] = false;
       if (s.step === "power_on" && peer.kind === "paired") peer = { ...peer, link: "usb4" };
       if (s.step === "power_off" && peer.kind === "paired") peer = { ...peer, link: null };
-      if (s.step === "switch_input") state.owner[s.monitor] = s.to;
+      if (s.step === "switch_input") {
+        state.owner[s.monitor] = s.to;
+        delete state.doubt[s.monitor];
+      }
       emit({ kind: "txn", event: { type: "step_done", txn: id, index } });
     }
     busy = false;
@@ -474,6 +488,31 @@ export function demoBridge(query: string): Bridge {
         }
         case "get_setup":
           return { kind: "setup", setup: { config_file: "~/Library/Application Support/Tandem/tandem.toml", generated: true, port: 52000 } };
+        case "apply_mode":
+          return start(plan(state, assignment(a.mode), null, true));
+        case "set_shown": {
+          if (busy) return { kind: "rejected", reason: "ya hay un cambio en curso" };
+          // Como `Plan::follow`: sin entradas, solo los escritorios y la geometría.
+          const before = state;
+          state = structuredClone(state);
+          const steps: Step[] = [];
+          for (const [id, shows] of Object.entries(a.shows)) {
+            const was = before.doubt[id] !== undefined || before.owner[id] !== shows;
+            if (shows === null) {
+              state.doubt[id] = "blank";
+              continue;
+            }
+            state.owner[id] = shows;
+            delete state.doubt[id];
+            if (!was) continue;
+            const away: Machine = shows === "mac" ? "pc" : "mac";
+            if (state.on[shows]) steps.push({ step: "attach", machine: shows, monitor: id });
+            if (state.on[away]) steps.push({ step: "detach", machine: away, monitor: id });
+          }
+          if (steps.length) steps.push({ step: "update_input_geometry" });
+          snapshots.forEach((cb) => cb(snapshot()));
+          return start(steps);
+        }
       }
     },
   };

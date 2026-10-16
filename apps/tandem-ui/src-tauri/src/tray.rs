@@ -126,8 +126,15 @@ impl MenuView {
                 peer,
                 ..
             } => {
-                let current = mode_of(desk, state);
-                let mode = current.map_or("sin monitores", ModeKey::label);
+                // Sin confirmar (T-085) no se sabe qué modo es: no se marca ninguno, y
+                // elegir uno lo aplica en todos los monitores.
+                let confirmed = state.is_confirmed();
+                let current = mode_of(desk, state).filter(|_| confirmed);
+                let mode = if desk.monitors.is_empty() {
+                    "sin monitores"
+                } else {
+                    current.map_or("monitores sin confirmar", ModeKey::label)
+                };
                 // Esta máquina está prendida (es la que muestra el menú): se dice cómo
                 // está la otra, sea cual sea (DESIGN §3.7).
                 let other = agent.other();
@@ -145,7 +152,7 @@ impl MenuView {
                     tooltip: format!("Tandem · {mode}"),
                     status,
                     current,
-                    modes_enabled: current.is_some(),
+                    modes_enabled: !desk.monitors.is_empty(),
                 }
             }
             Snapshot::Connecting => MenuView {
@@ -241,6 +248,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 pc: m34 == Machine::Pc || m32 == Machine::Pc,
             },
             builtin_pref: BuiltinDisplay::Off,
+            doubt: Default::default(),
         }
     }
 
@@ -352,7 +360,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
         let off = MenuView::of(&Snapshot::Connected {
             agent: Mac,
             desk: desk(),
-            state: State::initial(&desk(), Machine::Mac),
+            state: State::initial(&desk(), Machine::Mac).confirmed(),
             peer: paired(),
             pairing: PairingView::Idle,
             input: InputStatus::new(Mac).into(),
@@ -364,7 +372,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
         let alone = MenuView::of(&Snapshot::Connected {
             agent: Mac,
             desk: desk(),
-            state: State::initial(&desk(), Machine::Mac),
+            state: State::initial(&desk(), Machine::Mac).confirmed(),
             peer: PeerView::Unpaired,
             pairing: PairingView::Idle,
             input: InputStatus::new(Mac).into(),
@@ -372,8 +380,22 @@ wiring = { pc = "displayport", mac = "hdmi" }
         });
         assert_eq!(alone.status, "Solo Mac · PC apagada · sin par emparejado");
 
+        // Sin estado guardado (T-085): ningún modo marcado, pero se pueden elegir.
+        let fresh = MenuView::of(&Snapshot::Connected {
+            agent: Mac,
+            desk: desk(),
+            state: State::initial(&desk(), Machine::Mac),
+            peer: paired(),
+            pairing: PairingView::Idle,
+            input: InputStatus::new(Mac).into(),
+            caps: crate::session::test_caps(Mac),
+        });
+        assert_eq!(fresh.current, None);
+        assert!(fresh.modes_enabled);
+        assert_eq!(fresh.status, "monitores sin confirmar · PC apagada");
+
         // En la PC: la que se dice apagada es la Mac, nunca la PC misma.
-        let mut s = State::initial(&desk(), Pc);
+        let mut s = State::initial(&desk(), Pc).confirmed();
         s.owner.values_mut().for_each(|o| *o = Pc);
         let on_pc = MenuView::of(&Snapshot::Connected {
             agent: Pc,

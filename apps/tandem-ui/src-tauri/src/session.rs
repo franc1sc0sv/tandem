@@ -178,6 +178,8 @@ pub struct MonitorCapsView {
     pub name: String,
     pub switch: bool,
     pub ddc: bool,
+    /// La máquina lo detectó al arrancar: pista para preguntar lo que muestra (T-085).
+    pub seen: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -216,6 +218,7 @@ impl From<Capabilities> for MachineView {
                     name: m.name,
                     switch: m.switch,
                     ddc: m.ddc,
+                    seen: m.seen,
                 })
                 .collect(),
             builtin: c.builtin,
@@ -788,6 +791,14 @@ pub enum Action {
     },
     /// De dónde salió la configuración; contesta [`ActionResult::Setup`].
     GetSetup,
+    /// «Aplicar modo» (T-085): manda la entrada de todos los monitores.
+    ApplyMode {
+        mode: Mode,
+    },
+    /// Lo que el usuario dice que muestra cada monitor (`null`: nada, en negro).
+    SetShown {
+        shows: BTreeMap<MonitorId, Option<Machine>>,
+    },
 }
 
 impl From<Action> for UiCommand {
@@ -814,6 +825,8 @@ impl From<Action> for UiCommand {
             Action::UseProfile { display, monitor } => UiCommand::UseProfile { display, monitor },
             Action::SetWiring { monitor, wiring } => UiCommand::SetWiring { monitor, wiring },
             Action::GetSetup => UiCommand::GetSetup,
+            Action::ApplyMode { mode } => UiCommand::ApplyMode(mode),
+            Action::SetShown { shows } => UiCommand::SetShown(shows),
         }
     }
 }
@@ -2105,6 +2118,15 @@ mac = "9c:6b:00:1a:2b:ff"
         ] {
             assert_eq!(read(serde_json::json!({ "kind": kind })), cmd);
         }
+        // T-085: «Aplicar modo» y lo que muestra cada monitor (`null`: en negro).
+        assert_eq!(
+            read(serde_json::json!({ "kind": "apply_mode", "mode": { "mode": "solo_pc" } })),
+            UiCommand::ApplyMode(Mode::SoloPc)
+        );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "set_shown", "shows": { "m34": "pc", "m32": null } })),
+            UiCommand::SetShown([("m34".into(), Some(Machine::Pc)), ("m32".into(), None)].into())
+        );
     }
 
     #[test]
@@ -2288,6 +2310,7 @@ mac = "9c:6b:00:1a:2b:ff"
             owner: Default::default(),
             on: tandem_core::Powered::both(),
             builtin_pref: BuiltinDisplay::Off,
+            doubt: Default::default(),
         };
         let cases = [
             (

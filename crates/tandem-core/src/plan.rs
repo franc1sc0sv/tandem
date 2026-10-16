@@ -156,8 +156,10 @@ impl Step {
         match self {
             Step::PowerOn { machine } => state.on.set(*machine, true),
             Step::PowerOff { machine } => state.on.set(*machine, false),
+            // Tandem mandó la entrada: ahora sí sabe lo que muestra (T-085).
             Step::SwitchInput { monitor, to, .. } => {
                 state.owner.insert(monitor.clone(), *to);
+                state.doubt.remove(monitor);
             }
             Step::SetBuiltin { .. }
             | Step::Attach { .. }
@@ -198,11 +200,39 @@ impl Plan {
     /// entrada (`abilities`): tras un corte de corriente puede haber monitores en la
     /// entrada de una máquina apagada. Lo que tocaría el escritorio de una máquina que
     /// sigue apagada no se hace: no hay escritorio que tocar.
+    ///
+    /// A un monitor sin confirmar ([`State::doubt`], T-085) se le manda la entrada aunque
+    /// ya parezca estar donde va: así el primer cambio con el estado sin confirmar hace lo
+    /// mismo que [`Plan::apply_mode`].
     pub fn to_mode(
         cfg: &Config,
         from: &State,
         mode: &Mode,
         abilities: &Abilities,
+    ) -> Result<Plan, PlanError> {
+        Self::reach(cfg, from, mode, abilities, |id| from.in_doubt(id))
+    }
+
+    /// «Aplicar modo» (T-085): como [`Plan::to_mode`], pero manda la entrada de todos los
+    /// monitores y los pone en el escritorio que va, estén donde Tandem crea que están o
+    /// no. Al terminar, el estado queda confirmado.
+    pub fn apply_mode(
+        cfg: &Config,
+        from: &State,
+        mode: &Mode,
+        abilities: &Abilities,
+    ) -> Result<Plan, PlanError> {
+        Self::reach(cfg, from, mode, abilities, |_| true)
+    }
+
+    /// `force`: los monitores a los que se les manda la entrada aunque ya estén en su
+    /// máquina.
+    fn reach(
+        cfg: &Config,
+        from: &State,
+        mode: &Mode,
+        abilities: &Abilities,
+        force: impl Fn(&MonitorId) -> bool,
     ) -> Result<Plan, PlanError> {
         let target = mode.assignment(cfg);
         let mut needed: BTreeSet<Machine> = target.values().copied().collect();
@@ -213,7 +243,7 @@ impl Plan {
                 .get(&m.id)
                 .ok_or_else(|| PlanError::UnknownMonitor(m.id.clone()))?;
             let to = target[&m.id];
-            if cur == to {
+            if cur == to && !force(&m.id) {
                 continue;
             }
             let input = m.input_for(to).ok_or_else(|| PlanError::NotWired {
@@ -259,9 +289,13 @@ impl Plan {
                     monitor: monitor.clone(),
                 });
             }
-            if on.is_on(cur) {
+            // La otra, que lo tenía o lo cree activo (el fantasma), lo quita. Si `cur == to`
+            // (un monitor sin confirmar que ya parecía estar ahí) también: no se sabe qué
+            // tiene cada escritorio.
+            let away = to.other();
+            if on.is_on(away) {
                 steps.push(Step::Detach {
-                    machine: cur,
+                    machine: away,
                     monitor: monitor.clone(),
                 });
             }
@@ -297,6 +331,47 @@ impl Plan {
             plan.steps.push(Step::PowerOff { machine });
         }
         Ok(plan)
+    }
+
+    /// El usuario dijo lo que muestra cada monitor (T-085): `from` es lo que creía Tandem
+    /// y `to`, lo corregido. No se manda ninguna entrada; cada máquina encendida pone en su
+    /// escritorio el monitor que muestra y quita el que no (el fantasma), y se recalcula
+    /// la geometría. Solo se tocan los monitores que cambiaron de dueño o estaban sin
+    /// confirmar; uno en negro no se toca.
+    pub fn follow(cfg: &Config, from: &State, to: &State) -> Plan {
+        let mut steps = Vec::new();
+        for m in &cfg.monitors {
+            let Some(owner) = to.owner.get(&m.id).copied() else {
+                continue;
+            };
+            let moved = from.owner.get(&m.id) != Some(&owner);
+            if to.in_doubt(&m.id) || !(moved || from.in_doubt(&m.id)) {
+                continue;
+            }
+            if to.is_on(owner) {
+                steps.push(Step::Attach {
+                    machine: owner,
+                    monitor: m.id.clone(),
+                });
+            }
+            if to.is_on(owner.other()) {
+                steps.push(Step::Detach {
+                    machine: owner.other(),
+                    monitor: m.id.clone(),
+                });
+            }
+        }
+        let (before, after) = (from.builtin_effective(cfg), to.builtin_effective(cfg));
+        if before != after && to.is_on(Machine::Mac) {
+            steps.push(Step::SetBuiltin {
+                from: before,
+                to: after,
+            });
+        }
+        if !steps.is_empty() {
+            steps.push(Step::UpdateInputGeometry);
+        }
+        Plan { steps }
     }
 
     /// Encender `machine`: solo despertarla. Pedir lo que ya está es un plan vacío.
@@ -336,14 +411,14 @@ mod tests {
             .steps
     }
 
-    /// Visto desde la Mac, con la PC apagada.
+    /// Visto desde la Mac, con la PC apagada y lo que muestra cada monitor confirmado.
     fn mac_alone() -> State {
-        State::initial(&desk(), Machine::Mac)
+        State::initial(&desk(), Machine::Mac).confirmed()
     }
 
     /// Visto desde la PC, con la Mac apagada (o suspendida) y todo en la PC.
     fn pc_alone() -> State {
-        let mut s = State::initial(&desk(), Machine::Pc);
+        let mut s = State::initial(&desk(), Machine::Pc).confirmed();
         for o in s.owner.values_mut() {
             *o = Machine::Pc;
         }
@@ -492,7 +567,7 @@ mod tests {
 
     #[test]
     fn with_the_mac_off_the_pc_takes_the_monitors_without_waking_it() {
-        let mut s = State::initial(&desk(), Machine::Pc);
+        let mut s = State::initial(&desk(), Machine::Pc).confirmed();
         // Lo último que se supo: todo en la Mac.
         assert!(!s.is_on(Machine::Mac));
         let steps = plan(&s, &Mode::SoloPc);
@@ -590,6 +665,130 @@ mod tests {
         assert_eq!(
             Plan::to_mode(&cfg, &stranded_34(), &Mode::SoloMac, &a).unwrap_err(),
             PlanError::NoSwitcher("m34".into())
+        );
+    }
+
+    // T-085: el estado sin confirmar.
+
+    fn switched(steps: &[Step]) -> Vec<MonitorId> {
+        steps
+            .iter()
+            .filter_map(|s| match s {
+                Step::SwitchInput { monitor, .. } => Some(monitor.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_first_change_with_an_unconfirmed_state_sends_every_input() {
+        let mut s = State::initial(&desk(), Machine::Mac);
+        s.on.pc = true;
+        // Compartido solo movería el 34"; sin confirmar, el 32" también recibe su entrada.
+        let steps = plan(&s, &shared_34_to_pc());
+        assert_eq!(
+            switched(&steps),
+            ["m34".into(), "m32".into()] as [MonitorId; 2]
+        );
+        assert!(steps.contains(&switch("m32", Machine::Mac, Machine::Mac, Input::Hdmi)));
+        // Y cada uno queda en su escritorio y fuera del de la otra.
+        assert!(steps.contains(&Step::Attach {
+            machine: Machine::Mac,
+            monitor: "m32".into()
+        }));
+        assert!(steps.contains(&Step::Detach {
+            machine: Machine::Pc,
+            monitor: "m32".into()
+        }));
+        // Pedir lo que «ya está» tampoco es un plan vacío.
+        assert_eq!(switched(&plan(&s, &Mode::SoloMac)).len(), 2);
+        // Confirmado, solo lo que cambia.
+        assert!(plan(&s.clone().confirmed(), &Mode::SoloMac).is_empty());
+    }
+
+    #[test]
+    fn only_the_monitors_in_doubt_are_forced() {
+        let mut s = mac_alone();
+        s.on.pc = true;
+        s.doubt.insert("m32".into(), crate::Doubt::Stale);
+        assert_eq!(
+            switched(&plan(&s, &Mode::SoloMac)),
+            ["m32".into()] as [MonitorId; 1]
+        );
+    }
+
+    #[test]
+    fn apply_mode_sends_every_input_and_confirms() {
+        let cfg = desk();
+        let mut s = mac_alone();
+        s.on.pc = true;
+        let p = Plan::apply_mode(&cfg, &s, &Mode::SoloMac, &abilities()).unwrap();
+        assert_eq!(switched(&p.steps).len(), 2);
+        let mut after = State::initial(&cfg, Machine::Mac);
+        after.on.pc = true;
+        for st in &p.steps {
+            st.apply_to(&mut after);
+        }
+        assert!(after.is_confirmed() && after.doubt.is_empty());
+        assert_eq!(after.owner, Mode::SoloMac.assignment(&cfg));
+    }
+
+    #[test]
+    fn apply_mode_with_the_switcher_off_wakes_it_first() {
+        let p = Plan::apply_mode(&desk(), &mac_alone(), &Mode::SoloMac, &abilities()).unwrap();
+        assert_eq!(
+            p.steps.first(),
+            Some(&Step::PowerOn {
+                machine: Machine::Pc
+            })
+        );
+    }
+
+    #[test]
+    fn following_a_correction_moves_desktops_but_no_input() {
+        let cfg = desk();
+        let mut from = State::initial(&cfg, Machine::Mac);
+        from.on.pc = true;
+        let mut to = from.clone();
+        to.record_shown(&"m34".into(), Some(Machine::Pc));
+        to.record_shown(&"m32".into(), Some(Machine::Mac));
+        let steps = Plan::follow(&cfg, &from, &to).steps;
+        assert!(!steps.iter().any(|s| matches!(s, Step::SwitchInput { .. })));
+        for (machine, monitor) in [(Machine::Pc, "m34"), (Machine::Mac, "m32")] {
+            assert!(steps.contains(&Step::Attach {
+                machine,
+                monitor: monitor.into()
+            }));
+            assert!(steps.contains(&Step::Detach {
+                machine: machine.other(),
+                monitor: monitor.into()
+            }));
+        }
+        assert_eq!(steps.last(), Some(&Step::UpdateInputGeometry));
+
+        // Ya confirmado, decir lo mismo no hace nada; un monitor en negro no se toca.
+        assert!(Plan::follow(&cfg, &to, &to).steps.is_empty());
+        let mut blank = to.clone();
+        blank.record_shown(&"m32".into(), None);
+        assert!(Plan::follow(&cfg, &to, &blank).steps.is_empty());
+    }
+
+    #[test]
+    fn following_a_correction_skips_a_machine_that_is_off() {
+        let cfg = desk();
+        let from = State::initial(&cfg, Machine::Mac);
+        let mut to = from.clone();
+        to.record_shown(&"m34".into(), Some(Machine::Pc));
+        let steps = Plan::follow(&cfg, &from, &to).steps;
+        assert_eq!(
+            steps,
+            [
+                Step::Detach {
+                    machine: Machine::Mac,
+                    monitor: "m34".into()
+                },
+                Step::UpdateInputGeometry
+            ]
         );
     }
 }

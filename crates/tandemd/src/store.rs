@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use tandem_core::{Config, Machine, State};
+use tandem_core::{Config, Doubt, Machine, State};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -114,11 +114,15 @@ impl StateStore {
 }
 
 /// Ajusta un estado guardado a la configuración: se olvidan los monitores que ya no
-/// están y los nuevos se suponen en la Mac, como en [`State::initial`].
+/// están y los nuevos se suponen en la Mac, sin confirmar, como en [`State::initial`].
 pub fn reconcile(mut state: State, cfg: &Config) -> State {
     state.owner.retain(|id, _| cfg.monitor(id).is_some());
+    state.doubt.retain(|id, _| cfg.monitor(id).is_some());
     for m in &cfg.monitors {
-        state.owner.entry(m.id.clone()).or_insert(Machine::Mac);
+        if !state.owner.contains_key(&m.id) {
+            state.owner.insert(m.id.clone(), Machine::Mac);
+            state.doubt.insert(m.id.clone(), Doubt::Unknown);
+        }
     }
     state
 }
@@ -138,6 +142,7 @@ mod tests {
             owner: BTreeMap::from([("m34".into(), Machine::Pc), ("m32".into(), Machine::Mac)]),
             on: tandem_core::Powered::both(),
             builtin_pref: BuiltinDisplay::Mirror,
+            doubt: BTreeMap::from([("m32".into(), Doubt::Stale)]),
         }
     }
 
@@ -271,17 +276,32 @@ mod tests {
         ]
     }
 
+    fn doubt() -> impl Strategy<Value = Doubt> {
+        prop_oneof![Just(Doubt::Unknown), Just(Doubt::Stale), Just(Doubt::Blank)]
+    }
+
     fn state() -> impl Strategy<Value = State> {
         (
             prop::collection::btree_map(any::<String>().prop_map(MonitorId), machine(), 0..6),
             any::<bool>(),
             any::<bool>(),
             builtin(),
+            prop::collection::btree_map(
+                prop_oneof![
+                    Just("m34".to_owned()),
+                    Just("m32".to_owned()),
+                    any::<String>()
+                ]
+                .prop_map(MonitorId),
+                doubt(),
+                0..4,
+            ),
         )
-            .prop_map(|(owner, mac, pc, builtin_pref)| State {
+            .prop_map(|(owner, mac, pc, builtin_pref, doubt)| State {
                 owner,
                 on: tandem_core::Powered { mac, pc },
                 builtin_pref,
+                doubt,
             })
     }
 
@@ -302,12 +322,17 @@ mod tests {
             let mut want: Vec<_> = cfg.monitors.iter().map(|m| m.id.clone()).collect();
             want.sort();
             prop_assert_eq!(ids, want);
-            // Lo que ya estaba asignado se respeta.
+            // Lo que ya estaba asignado se respeta; lo nuevo queda sin confirmar.
             for (id, owner) in &r.owner {
                 if let Some(prev) = s.owner.get(id) {
                     prop_assert_eq!(owner, prev);
+                    prop_assert_eq!(r.doubt.get(id), s.doubt.get(id));
+                } else {
+                    prop_assert_eq!(r.doubt.get(id), Some(&Doubt::Unknown));
                 }
             }
+            // Solo hay dudas de monitores del puesto.
+            prop_assert!(r.doubt.keys().all(|id| cfg.monitor(id).is_some()));
         }
 
         /// Ajustar dos veces es lo mismo que una: arrancar dos veces seguidas no cambia nada.

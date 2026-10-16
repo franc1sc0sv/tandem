@@ -228,7 +228,9 @@ async fn paired_agents_find_each_other_and_change_mode() {
         .unwrap();
 
     // El 34" a la PC: la Mac le pide sus pasos por el enlace. Darla por prendida toma
-    // el orquestador un instante: si coincide, se reintenta.
+    // el orquestador un instante: si coincide, se reintenta. Con lo que muestra cada
+    // monitor confirmado (T-085), solo se mueve el 34".
+    mac.agent.set_state(mac.agent.state().confirmed()).unwrap();
     let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
     let txn = within(async {
         loop {

@@ -221,6 +221,18 @@ impl World {
         self.lock().shows(monitor)
     }
 
+    /// Alguien cambia la entrada de `monitor` a la de `machine` desde el menú del monitor,
+    /// sin Tandem (T-085): ningún agente se entera, y el monitor no lo dice por DDC.
+    pub fn switch_by_hand(&self, monitor: &MonitorId, machine: Machine) {
+        let mut w = self.lock();
+        let Some(input) = w.cfg.monitor(monitor).and_then(|m| m.input_for(machine)) else {
+            return;
+        };
+        if let Some(m) = w.monitors.get_mut(monitor) {
+            m.input = input;
+        }
+    }
+
     /// Lo que devolvería una lectura DDC de `0x60`.
     pub fn read_input_code(&self, monitor: &MonitorId) -> Option<u8> {
         let w = self.lock();

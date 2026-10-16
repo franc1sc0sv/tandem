@@ -78,6 +78,8 @@ pub async fn run<E: Executor>(
                     // Los pasos sin inverso (encender una máquina) dejan su efecto, y eso es lo correcto.
                     state.owner = snapshot.owner;
                     state.builtin_pref = snapshot.builtin_pref;
+                    // Deshecho, se sabe lo mismo que antes: lo que estaba sin confirmar sigue así.
+                    state.doubt = snapshot.doubt;
                     Err(TxnError::RolledBack { step, error })
                 } else {
                     Err(TxnError::Inconsistent {
@@ -124,7 +126,7 @@ mod tests {
     #[test]
     fn success_updates_state() {
         let cfg = desk();
-        let mut s = State::initial(&cfg, Machine::Mac);
+        let mut s = State::initial(&cfg, Machine::Mac).confirmed();
         let plan = Plan::to_mode(&cfg, &s, &mode(), &Abilities::pc_switches(&cfg)).unwrap();
         let mut exec = Fake::default();
         let report = pollster::block_on(run(&cfg, &mut s, &plan, &mut exec)).unwrap();
@@ -136,7 +138,7 @@ mod tests {
     #[test]
     fn failure_rolls_back_in_reverse() {
         let cfg = desk();
-        let mut s = State::initial(&cfg, Machine::Mac);
+        let mut s = State::initial(&cfg, Machine::Mac).confirmed();
         let plan = Plan::to_mode(&cfg, &s, &mode(), &Abilities::pc_switches(&cfg)).unwrap();
         // Falla quitar el 34" de la Mac: hay que deshacer el Attach y el cambio de entrada.
         let failing = plan
@@ -202,7 +204,7 @@ mod tests {
     #[test]
     fn failed_undo_reports_inconsistent() {
         let cfg = desk();
-        let mut s = State::initial(&cfg, Machine::Mac);
+        let mut s = State::initial(&cfg, Machine::Mac).confirmed();
         let plan = Plan::to_mode(&cfg, &s, &mode(), &Abilities::pc_switches(&cfg)).unwrap();
         let back = Step::SwitchInput {
             monitor: "m34".into(),
@@ -224,7 +226,7 @@ mod tests {
     #[test]
     fn rollback_recomputes_geometry_last() {
         let cfg = desk();
-        let mut s = State::initial(&cfg, Machine::Mac);
+        let mut s = State::initial(&cfg, Machine::Mac).confirmed();
         s.on.pc = true;
         s.owner.insert("m34".into(), Machine::Pc);
         let plan = Plan::power_off(&cfg, &s, Machine::Pc, &Abilities::pc_switches(&cfg)).unwrap();
@@ -257,7 +259,7 @@ mod tests {
     #[test]
     fn failed_geometry_step_is_recomputed_after_rollback() {
         let cfg = desk();
-        let mut s = State::initial(&cfg, Machine::Mac);
+        let mut s = State::initial(&cfg, Machine::Mac).confirmed();
         s.on.pc = true;
         let plan = Plan::to_mode(&cfg, &s, &mode(), &Abilities::pc_switches(&cfg)).unwrap();
         let mut exec = FailOnce {
@@ -268,7 +270,7 @@ mod tests {
         assert!(matches!(err, TxnError::RolledBack { .. }), "{err:?}");
         assert_eq!(exec.log.last(), Some(&Step::UpdateInputGeometry));
         assert_eq!(s, {
-            let mut want = State::initial(&cfg, Machine::Mac);
+            let mut want = State::initial(&cfg, Machine::Mac).confirmed();
             want.on.pc = true;
             want
         });

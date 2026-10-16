@@ -215,14 +215,25 @@ mod tests {
         ]
     }
 
+    fn doubt() -> impl Strategy<Value = tandem_core::Doubt> {
+        use tandem_core::Doubt;
+        prop_oneof![Just(Doubt::Unknown), Just(Doubt::Stale), Just(Doubt::Blank)]
+    }
+
     fn state() -> impl Strategy<Value = State> {
-        (assignment(), any::<bool>(), any::<bool>(), builtin()).prop_map(
-            |(owner, mac, pc, builtin_pref)| State {
+        (
+            assignment(),
+            any::<bool>(),
+            any::<bool>(),
+            builtin(),
+            proptest::collection::btree_map(monitor(), doubt(), 0..6),
+        )
+            .prop_map(|(owner, mac, pc, builtin_pref, doubt)| State {
                 owner,
                 on: tandem_core::Powered { mac, pc },
                 builtin_pref,
-            },
-        )
+                doubt,
+            })
     }
 
     proptest! {

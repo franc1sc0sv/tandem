@@ -960,7 +960,9 @@ mac = "9c:6b:00:1a:2b:ff"
         );
 
         // Sin reiniciar: pasar el 32" a la PC lo cambia por DDC con el código nuevo, sin
-        // pedirlo a mano.
+        // pedirlo a mano. Con lo que muestra cada monitor confirmado, para que solo se
+        // mande el 32" (T-085).
+        a.set_state(a.state().confirmed()).unwrap();
         let before = sim.writes().len();
         let mut txns = a.subscribe_txns();
         let r = a.handle(UiCommand::MoveMonitor {

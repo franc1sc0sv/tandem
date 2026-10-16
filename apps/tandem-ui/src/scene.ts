@@ -111,6 +111,15 @@ export function hasBuiltin(caps: Caps, who: Machine): boolean {
   return capsOf(caps, who)?.builtin ?? who === "mac";
 }
 
+/**
+ * El selector de la pantalla integrada va solo en la tarjeta de la máquina que la anuncia
+ * en sus capacidades (T-085): la PC no tiene, y sin el anuncio de la otra se dibuja la
+ * laptop pero sin control.
+ */
+export function builtinControl(caps: Caps, who: Machine): boolean {
+  return capsOf(caps, who)?.builtin === true;
+}
+
 export type PeerPower = "on" | "off" | "boot";
 
 /** La otra máquina: arrancando mientras corre su encendido. */
@@ -208,6 +217,8 @@ export interface MonitorView {
   wide: boolean;
   /** Se puede mandar a la otra máquina (tiene cable hacia allá). */
   movable: boolean;
+  /** Sin confirmar (T-085): no se sabe lo que muestra, o el usuario dijo que está en negro. */
+  doubt: DeskState["doubt"][string] | null;
 }
 
 /** `caps`: sin nadie que pueda cambiarle la entrada, un monitor no se puede mover. */
@@ -224,6 +235,7 @@ export function monitorsOf(desk: Desk, state: DeskState, who: Machine, caps?: Ca
         port: input ? PORT[input] : null,
         wide: isWide(m),
         movable: m.wiring[other(owner)] !== undefined && (caps === undefined || canSwitch(caps, m.id)),
+        doubt: state.doubt?.[m.id] ?? null,
       };
     });
 }

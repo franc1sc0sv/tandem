@@ -146,6 +146,9 @@ tools/               scripts de diagnóstico (DDC, etc.)
 - **Quién cambia las entradas: la máquina que puede, según su anuncio.** Hoy es la PC, por DDC sobre DisplayPort; el canal sigue vivo aunque el monitor esté mostrando HDMI.
 - La otra máquina pide los cambios por el plano de control. Si se logra DDC desde la Mac (sección 11), se agrega como backend `ddc-macos` y la Mac podría operar con la PC apagada.
 - Perfil por monitor con sus códigos reales (el 34": HDMI `0x06`, DP `0x0F`/`0x09`). El monitor no reporta su entrada; el estado lo guarda el agente.
+- **Estado sin confirmar (T-085).** Como ningún monitor dice qué muestra (y cada sistema ve al fantasma como activo), el agente arranca sin confirmar: sin estado guardado, o con uno de un arranque anterior (pudo cambiar a mano). Se confirma de dos formas:
+  - **«Aplicar modo»** (el camino principal, sin preguntar): elegir Solo Mac / Compartido / Solo Windows manda la entrada de *todos* los monitores, crea lo que crea el agente. Necesita encendida y enlazada a la máquina que cambia las entradas. Mientras no está confirmado, cualquier cambio de modo hace esto: no se planea sobre lo inventado.
+  - **Decir qué muestra** (sin parpadeo): la UI pregunta por cada monitor «¿qué muestra ahora?» (una máquina o nada), con una pista si la hay; se responde en cualquiera de las dos y se sincroniza. Lo mismo, en cualquier momento, desde el menú del monitor en la escena («en realidad muestra…»). No se manda ninguna entrada: cada escritorio se pone al día y se recalcula la geometría.
 - **Fantasma**: la máquina que no está mostrando un monitor lo quita de su escritorio.
   - Windows: `SetDisplayConfig`. Riesgo: perder el handle DDC → ver spike S3.
   - macOS: no hay API pública; usar la privada `CGSConfigureDisplayEnabled` (como BetterDisplay) → spike S2.

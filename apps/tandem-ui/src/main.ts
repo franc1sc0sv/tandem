@@ -9,6 +9,7 @@ import {
   MACHINE_NAME,
   PORT,
   advance,
+  builtinControl,
   builtinOf,
   capsOf,
   hasBuiltin,
@@ -44,6 +45,7 @@ import {
   windowCommand,
 } from "./shortcuts";
 import { modelOf, setupLines, swapWiring, wiringText } from "./desk";
+import { applyReady, complete, corrections, doubtNote, initialAnswers, isConfirmed, questions, type Shown } from "./confirm";
 import { PERMISSION_INFO, back as setupBack, isFirst, isLast, next as setupNext, screensOf, start as setupStart, type Wizard } from "./setup";
 
 // Cuánto queda a la vista el progreso ya terminado y un mensaje suelto.
@@ -71,6 +73,10 @@ let messageTimer: number | undefined;
 let lastOwner: Record<string, Machine> | null = null;
 let keys: ShortcutsView | null = null;
 let lastPairing: PairingView | null = null;
+/** «¿Qué muestra ahora cada monitor?» abierta, con lo elegido hasta ahora (T-085). */
+let answers: Record<string, Shown> | null = null;
+/** El monitor con el menú «en realidad muestra…» abierto. */
+let fixing: string | null = null;
 const MAC = isMacPlatform();
 
 // ---------------------------------------------------------------------------------------
@@ -115,6 +121,7 @@ function onNotice(n: Notice) {
     // El botón de encendido y el bloqueo de controles dependen del progreso; los
     // monitores no se vuelven a dibujar para no cortar su animación.
     renderControls();
+    renderConfirm();
     renderToast();
   } else if (n.kind === "power") {
     // Fijo: los monitores que quedaron en la otra máquina siguen en negro.
@@ -177,15 +184,22 @@ function viewName(id: string) {
   return `monitor-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
 
+const ICON_FIX = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>`;
+
 function monitorEl(m: MonitorView, busy: boolean) {
-  const node = el("div", `monitor ${m.owner} ${m.wide ? "wide" : "std"}${busy ? " busy" : ""}`);
+  const doubt = m.doubt === "blank" ? " blank" : m.doubt ? " doubt" : "";
+  const node = el("div", `monitor ${m.owner} ${m.wide ? "wide" : "std"}${busy ? " busy" : ""}${doubt}`);
   node.dataset.id = m.id;
   node.style.viewTransitionName = viewName(m.id);
-  node.innerHTML = `<div class="screen"><div class="wall"></div></div><div class="stand"></div><div class="base"></div>`;
+  node.innerHTML = `<div class="screen"><div class="wall"></div><span class="q" aria-hidden="true">?</span></div><div class="stand"></div><div class="base"></div>`;
   const label = el("div", "mlabel");
   label.append(el("b", undefined, m.label));
   if (m.port) label.append(el("span", "port", m.port));
+  const note = snap.kind === "connected" ? doubtNote(snap.state, m.id) : null;
+  if (note) label.append(el("span", "mnote", note));
+  label.append(fixButton(m));
   node.append(label);
+  if (fixing === m.id) node.append(fixMenu(m));
 
   const to = other(m.owner);
   if (m.movable) {
@@ -205,6 +219,137 @@ function monitorEl(m: MonitorView, busy: boolean) {
     node.setAttribute("aria-label", `${m.label} en ${MACHINE_NAME[m.owner]}`);
   }
   return node;
+}
+
+/** El botón «⋯» del monitor: corregir lo que muestra sin mandar nada (T-085). */
+function fixButton(m: MonitorView) {
+  const b = el("button", "fix");
+  b.type = "button";
+  b.innerHTML = ICON_FIX;
+  b.title = "¿Muestra otra cosa? Corregirlo sin cambiar el monitor";
+  b.setAttribute("aria-label", `${m.label}: en realidad muestra…`);
+  b.setAttribute("aria-expanded", String(fixing === m.id));
+  b.draggable = false;
+  b.addEventListener("click", (e) => {
+    e.stopPropagation();
+    fixing = fixing === m.id ? null : m.id;
+    renderDesks([]);
+  });
+  b.addEventListener("keydown", (e) => e.stopPropagation());
+  return b;
+}
+
+function fixMenu(m: MonitorView) {
+  const menu = el("div", "fixmenu");
+  menu.setAttribute("role", "menu");
+  menu.addEventListener("click", (e) => e.stopPropagation());
+  menu.append(el("span", "ftitle", "En realidad muestra"));
+  const cfg = snap.kind === "connected" ? snap.desk.monitors.find((x) => x.id === m.id) : undefined;
+  if (!cfg || snap.kind !== "connected") return menu;
+  for (const c of corrections(cfg, snap.state)) {
+    const b = el("button", `fopt${c.current ? " sel" : ""}`, c.label);
+    b.type = "button";
+    b.setAttribute("role", "menuitem");
+    if (c.shows) b.dataset.m = c.shows;
+    b.disabled = isRunning(progress);
+    b.addEventListener("click", () => {
+      fixing = null;
+      void act({ kind: "set_shown", shows: { [m.id]: c.shows } });
+      renderDesks([]);
+    });
+    menu.append(b);
+  }
+  menu.append(el("span", "fnote", "Corrige lo que cree Tandem; no cambia el monitor."));
+  return menu;
+}
+
+/**
+ * El estado sin confirmar (T-085): elegir un modo lo aplica en todos los monitores; si la
+ * máquina que cambia las entradas no está, o el usuario prefiere no ver parpadeos, decir
+ * qué muestra cada uno.
+ */
+function renderConfirm() {
+  const box = $("#confirm");
+  if (snap.kind !== "connected" || isConfirmed(snap.desk, snap.state) || isRunning(progress)) {
+    box.hidden = true;
+    if (snap.kind !== "connected" || isConfirmed(snap.desk, snap.state)) answers = null;
+    return;
+  }
+  const { desk, state, caps, agent, peer } = snap;
+  const ready = applyReady(desk, state, caps, agent, peer);
+  const qs = questions(desk, state, caps);
+  // Sin «Aplicar modo» posible, la pregunta va directo.
+  if (!ready.ready && answers === null) answers = initialAnswers(qs);
+  box.hidden = false;
+  const parts: Node[] = [];
+  const head = el("div", "chead");
+  const mark = el("span", "cmark", "?");
+  mark.setAttribute("aria-hidden", "true");
+  const text = el("div", "ctext");
+  text.append(el("b", undefined, "¿Qué muestra cada monitor?"));
+  text.append(
+    el(
+      "span",
+      undefined,
+      ready.ready
+        ? "Tandem no lo sabe desde que arrancó: los monitores no lo dicen. Elige un modo abajo y lo aplica en todos, o dile qué muestra cada uno."
+        : `Tandem no lo sabe desde que arrancó: los monitores no lo dicen. ${capitalize(ready.why ?? "")}; mientras, dile qué muestra cada uno.`,
+    ),
+  );
+  head.append(mark, text);
+  if (ready.ready && answers === null) {
+    head.append(kbtn("Decir qué muestra", () => {
+      answers = initialAnswers(qs);
+      renderConfirm();
+    }));
+  }
+  parts.push(head);
+  if (answers !== null) {
+    const picked = answers;
+    const list = el("div", "cqs");
+    for (const q of qs) {
+      const row = el("div", "cq");
+      row.append(el("b", undefined, q.label));
+      const opts = el("div", "copts");
+      opts.setAttribute("role", "radiogroup");
+      opts.setAttribute("aria-label", `¿Qué muestra ahora el ${q.label}?`);
+      const choices: Shown[] = [...q.choices, null];
+      for (const c of choices) {
+        const b = el("button", `copt${picked[q.id] === c ? " sel" : ""}`, c ? MACHINE_NAME[c] : "Nada");
+        b.type = "button";
+        b.setAttribute("role", "radio");
+        b.setAttribute("aria-checked", String(picked[q.id] === c));
+        if (c) b.dataset.m = c;
+        else b.title = "Negro, sin señal";
+        b.addEventListener("click", () => {
+          answers = { ...picked, [q.id]: c };
+          renderConfirm();
+        });
+        opts.append(b);
+      }
+      row.append(opts);
+      row.append(el("span", "chint", q.hint ? `sugerido: ${q.hint.why}` : ""));
+      list.append(row);
+    }
+    parts.push(list);
+    const foot = el("div", "cfoot");
+    if (ready.ready) {
+      foot.append(kbtn("Mejor aplicar un modo", () => {
+        answers = null;
+        renderConfirm();
+      }));
+    }
+    foot.append(el("span", "spacer"));
+    const done = kbtn("Listo", () => {
+      const shows = Object.fromEntries(qs.map((q) => [q.id, picked[q.id] ?? null]));
+      answers = null;
+      void act({ kind: "set_shown", shows });
+    }, "primary");
+    done.disabled = !complete(qs, picked);
+    foot.append(done);
+    parts.push(foot);
+  }
+  box.replaceChildren(...parts);
 }
 
 function renderAgentPill() {
@@ -273,6 +418,10 @@ function renderSides() {
     if (hasBuiltin(caps, who) && !builtinPlaced) {
       builtinPlaced = true;
       if (builtin.parentElement !== slot) slot.replaceChildren(builtin);
+      // El selector solo con el anuncio de quien la tiene (T-085): nunca en la PC.
+      const control = builtinControl(caps, who);
+      $("#builtin-seg").hidden = !control;
+      $("#builtin-note").hidden = !control;
     } else if (!slot.querySelector(".tower")) {
       const tower = $("#tower", parts).cloneNode(true) as Element;
       tower.removeAttribute("id");
@@ -355,11 +504,15 @@ function renderControls() {
   $("#lap-icon").innerHTML = bi.effective === "mirror" ? LAP_MIRROR : bi.effective === "off" ? LAP_OFF : "";
   $("#builtin-note").textContent = bi.note;
 
-  const mode = modeOf(desk, state);
+  // Sin confirmar no se sabe qué modo es: elegir uno lo aplica en todos los monitores.
+  const confirmed = isConfirmed(desk, state);
+  const mode = confirmed ? modeOf(desk, state) : null;
+  $(".modes").classList.toggle("apply", !confirmed);
   for (const m of $$<HTMLButtonElement>(".mode")) {
     const sel = m.dataset.mode === mode;
     m.classList.toggle("sel", sel);
     m.setAttribute("aria-pressed", String(sel));
+    m.title = confirmed ? "" : "Aplicar: Tandem manda cada monitor a donde va";
   }
 
   const linkPill = $("#link-pill");
@@ -429,6 +582,7 @@ function render(moved: string[]) {
   renderUnavailable();
   renderDesks(moved);
   renderControls();
+  renderConfirm();
   renderToast();
   // El puesto puede cambiar mientras el diálogo está abierto (el cableado recién guardado).
   if (connected) renderDesk();
@@ -1108,7 +1262,9 @@ function wireDesk() {
 
 function chooseMode(key: ModeKey) {
   if (snap.kind !== "connected") return;
-  void act({ kind: "set_mode", mode: modeRequest(key, snap.desk, snap.state) });
+  const mode = modeRequest(key, snap.desk, snap.state);
+  // Sin confirmar, «Aplicar modo» (T-085): la entrada de todos, sin planear sobre lo inventado.
+  void act(isConfirmed(snap.desk, snap.state) ? { kind: "set_mode", mode } : { kind: "apply_mode", mode });
 }
 
 function wire() {
@@ -1130,6 +1286,18 @@ function wire() {
   wirePair();
   wireAddmon();
   wireDesk();
+
+  // El menú «en realidad muestra…» se cierra al hacer clic fuera o con Escape.
+  addEventListener("click", () => {
+    if (fixing === null) return;
+    fixing = null;
+    renderDesks([]);
+  });
+  addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || fixing === null) return;
+    fixing = null;
+    renderDesks([]);
+  });
 
   for (const side of $$(".side")) {
     side.addEventListener("dragover", (e) => {
