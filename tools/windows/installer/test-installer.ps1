@@ -45,9 +45,19 @@ function Wait-Until([scriptblock]$cond, [int]$seconds, [string]$what) {
     Fail "$what (esperado en $seconds s)"
 }
 
+# Start-Process -Wait espera tambien a los descendientes, y el instalador deja corriendo
+# tandemw/tandemd: nunca volveria. Se espera solo al proceso (leer Handle antes conserva
+# el codigo de salida).
+function Invoke-Silent([string]$exe) {
+    $p = Start-Process -FilePath $exe -ArgumentList '/S' -PassThru
+    $null = $p.Handle
+    if (-not $p.WaitForExit(300000)) { Fail "$exe no termino en 5 min" }
+    return $p.ExitCode
+}
+
 function Install-Silent {
-    $p = Start-Process -FilePath $Installer -ArgumentList '/S' -Wait -PassThru
-    if ($p.ExitCode -ne 0) { Fail "el instalador salio con $($p.ExitCode)" }
+    $code = Invoke-Silent $Installer
+    if ($code -ne 0) { Fail "el instalador salio con $code" }
 }
 
 function Assert-Installed {
@@ -82,8 +92,8 @@ if ((Get-Content -Raw $config) -ne $before) { Fail 'reinstalar cambio la config 
 Ok 'config del usuario intacta'
 
 Write-Host '== desinstalar'
-$p = Start-Process -FilePath (Join-Path $installDir 'uninstall.exe') -ArgumentList '/S' -Wait -PassThru
-if ($p.ExitCode -ne 0) { Fail "el desinstalador salio con $($p.ExitCode)" }
+$code = Invoke-Silent (Join-Path $installDir 'uninstall.exe')
+if ($code -ne 0) { Fail "el desinstalador salio con $code" }
 # El desinstalador de NSIS se copia a %TEMP% y sigue desde ahi: se espera a que termine.
 Wait-Until { -not (Test-Path $daemon) -and -not (Test-Path $launcher) } 60 'el desinstalador no borro los binarios'
 Wait-Until { -not (Test-Path (Join-Path $installDir 'uninstall.exe')) } 30 'el desinstalador no termino'
