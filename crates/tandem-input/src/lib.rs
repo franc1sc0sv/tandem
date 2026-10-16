@@ -2,9 +2,11 @@
 //!
 //! - [`event`]: modelo de eventos portable, tablas de teclas y reasignación de modificadores.
 //! - [`geometry`]: pantallas visibles de cada máquina y cruce de bordes entre ellas.
+//! - [`windows`]: captura e inyección en Windows (traducción portable, envío bajo `cfg(windows)`).
 
 pub mod event;
 pub mod geometry;
+pub mod windows;
 
 pub use event::{Button, HidUsage, InputEvent, KeyState, ModifierKey, Modifiers, Scroll};
 pub use geometry::{
