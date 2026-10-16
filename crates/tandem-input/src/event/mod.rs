@@ -197,13 +197,16 @@ pub enum InputEvent {
         button: Button,
         state: KeyState,
     },
-    /// Movimiento relativo, en píxeles lógicos y sin aceleración del origen.
+    /// Movimiento relativo, sin aceleración del origen. La captura lo da en
+    /// unidades nativas de su máquina; por el enlace viaja en puntos lógicos
+    /// (`session`).
     MotionRelative {
         dx: f64,
         dy: f64,
     },
-    /// Posición absoluta en puntos lógicos del escritorio destino; sirve para
-    /// resincronizar tras datagramas perdidos.
+    /// Posición absoluta en las coordenadas nativas del cursor de la máquina
+    /// (las de sus [`Screen`](crate::geometry::Screen)). Es lo que inyecta el
+    /// cliente, y así la resincronización corrige datagramas perdidos.
     MotionAbsolute {
         x: f64,
         y: f64,

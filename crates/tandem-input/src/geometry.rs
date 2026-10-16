@@ -79,7 +79,7 @@ impl Rect {
     }
 
     /// Distancia del punto al rectángulo (0 si está dentro).
-    fn distance(&self, p: Point) -> f64 {
+    pub fn distance(&self, p: Point) -> f64 {
         let dx = (self.left() - p.x).max(p.x - (self.right() - 1.0)).max(0.0);
         let dy = (self.top() - p.y).max(p.y - (self.bottom() - 1.0)).max(0.0);
         dx.hypot(dy)
