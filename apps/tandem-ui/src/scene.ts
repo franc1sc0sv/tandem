@@ -53,13 +53,6 @@ export function modeRequest(key: ModeKey, desk: Desk, state: DeskState): Mode {
   };
 }
 
-/** Atajo de teclado ⌃⌥1/2/3 → tarjeta de modo. Por `code`: en macOS, ⌥ cambia la tecla. */
-export function shortcutMode(e: Pick<KeyboardEvent, "ctrlKey" | "altKey" | "metaKey" | "shiftKey" | "code">): ModeKey | null {
-  if (!e.ctrlKey || !e.altKey || e.metaKey || e.shiftKey) return null;
-  const n = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2 }[e.code];
-  return n === undefined ? null : MODES[n];
-}
-
 /** Los ultrawide (34" o más) se dibujan más anchos. */
 export function isWide(m: MonitorConfig): boolean {
   const inches = Number.parseFloat(m.label);

@@ -1,11 +1,26 @@
 // Agente simulado para desarrollar y sacar capturas en el navegador (`pnpm dev`, `/?demo`).
 // Solo se carga en desarrollo: el build de la app nunca lo incluye.
 //
-// `?demo&agent=off` simula que tandemd no corre; `?demo&pc=on` arranca con la PC encendida.
+// `?demo&agent=off` simula que tandemd no corre; `?demo&pc=on` arranca con la PC encendida;
+// `?demo&keys=busy` simula que el sistema no dejó registrar el atajo de Compartido.
 
 import type { Bridge } from "./bridge";
-import type { Action, ActionResult, Desk, DeskState, Machine, Mode, Notice, Snapshot, Step } from "./model";
-import { builtinOf } from "./scene";
+import type {
+  Action,
+  ActionResult,
+  Bindings,
+  Desk,
+  DeskState,
+  Machine,
+  Mode,
+  Notice,
+  ShortcutAction,
+  ShortcutsView,
+  Snapshot,
+  Step,
+} from "./model";
+import { builtinOf, modeRequest, type ModeKey } from "./scene";
+import { ACTIONS, DEFAULT_BINDINGS, readCombo } from "./shortcuts";
 
 const STEP_MS = 480;
 
@@ -60,6 +75,14 @@ export function demoBridge(query: string): Bridge {
     params.get("agent") === "off"
       ? { kind: "unavailable", endpoint: "~/Library/Application Support/Tandem/tandemd.sock", reason: "tandemd no está corriendo: no hay nadie escuchando en la IPC local" }
       : { kind: "connected", agent: "mac", desk: DESK, state };
+  let keys: ShortcutsView = {
+    bindings: { ...DEFAULT_BINDINGS },
+    failed: params.get("keys") === "busy" ? { shared: "el sistema no dejó registrar Ctrl+Alt+Digit2 (¿lo usa otra app?)" } : {},
+    warning: null,
+    file: "~/Library/Application Support/Tandem/ui.toml",
+  };
+  const messages: ((text: string) => void)[] = [];
+  const shortcutsCbs: ((view: ShortcutsView) => void)[] = [];
   const snapshots: ((s: Snapshot) => void)[] = [];
   const notices: ((n: Notice) => void)[] = [];
   const emit = (n: Notice) => notices.forEach((cb) => cb(n));
@@ -90,7 +113,43 @@ export function demoBridge(query: string): Bridge {
     return { kind: "accepted", txn: txn + 1 };
   }
 
+  // Hace de sistema: los atajos «globales» se atienden aquí, como lo haría el núcleo.
+  const MODE_OF: Partial<Record<ShortcutAction, ModeKey>> = { solo_mac: "mac", shared: "shared", solo_pc: "pc" };
+  addEventListener("keydown", (e) => {
+    const c = readCombo(e);
+    if (c.kind !== "ok") return;
+    const action = ACTIONS.find((a) => keys.bindings[a] === c.accel && !(a in keys.failed));
+    if (!action) return;
+    e.preventDefault();
+    const mode = MODE_OF[action];
+    if (!mode) {
+      messages.forEach((cb) => cb("Aquí la ventana se escondería (atajo global)"));
+      return;
+    }
+    const r = start(plan(state, assignment(modeRequest(mode, DESK, state))));
+    if (r.kind === "rejected") messages.forEach((cb) => cb(r.reason));
+  });
+
   return {
+    onMessage: async (cb) => {
+      messages.push(cb);
+    },
+    shortcuts: async () => keys,
+    onShortcuts: async (cb) => {
+      shortcutsCbs.push(cb);
+    },
+    setShortcuts: async (bindings: Bindings) => {
+      const used = Object.values(bindings).filter((b): b is string => !!b);
+      if (new Set(used).size !== used.length) throw "dos acciones usan el mismo atajo";
+      keys = { ...keys, bindings: { ...bindings }, failed: {} };
+      shortcutsCbs.forEach((cb) => cb(keys));
+      return keys;
+    },
+    showMain: async () => {},
+    hideMain: async () => {
+      messages.forEach((cb) => cb("Aquí la ventana se escondería (atajo atendido por la ventana)"));
+    },
+    hideTray: async () => {},
     snapshot: async () => snapshot(),
     retry: async () => {},
     onSnapshot: async (cb) => {

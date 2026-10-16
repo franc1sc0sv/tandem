@@ -16,6 +16,10 @@
           Tandem
         </div>
         <span class="spacer"></span>
+        <button type="button" class="pill btn" id="keys-btn" hidden aria-haspopup="dialog">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10" /></svg>
+          Atajos
+        </button>
         <span class="pill" id="agent-pill"><span class="dot warn" id="agent-dot"></span> <b id="agent-text">Conectando…</b></span>
         <span class="pill" id="link-pill" hidden><span class="dot warn" id="link-dot"></span> <b id="link-text"></b></span>
       </header>
@@ -94,17 +98,17 @@
 
       <footer class="bottom" id="bottom" hidden>
         <div class="modes" role="group" aria-label="Modos">
-          <button type="button" class="mode" data-mode="mac" aria-keyshortcuts="Control+Alt+1">
+          <button type="button" class="mode" data-mode="mac">
             <div class="ico" aria-hidden="true"><span class="w" style="--c: var(--mac)"></span><span style="--c: var(--mac)"></span></div>
-            <div class="t">Solo Mac</div><span class="k" aria-hidden="true">⌃⌥1</span>
+            <div class="t">Solo Mac</div><span class="k" aria-hidden="true"></span>
           </button>
-          <button type="button" class="mode" data-mode="shared" aria-keyshortcuts="Control+Alt+2">
+          <button type="button" class="mode" data-mode="shared">
             <div class="ico" aria-hidden="true"><span class="w" style="--c: var(--pc)"></span><span style="--c: var(--mac)"></span></div>
-            <div class="t">Compartido</div><span class="k" aria-hidden="true">⌃⌥2</span>
+            <div class="t">Compartido</div><span class="k" aria-hidden="true"></span>
           </button>
-          <button type="button" class="mode" data-mode="pc" aria-keyshortcuts="Control+Alt+3">
+          <button type="button" class="mode" data-mode="pc">
             <div class="ico" aria-hidden="true"><span class="w" style="--c: var(--pc)"></span><span style="--c: var(--pc)"></span></div>
-            <div class="t">Solo Windows</div><span class="k" aria-hidden="true">⌃⌥3</span>
+            <div class="t">Solo Windows</div><span class="k" aria-hidden="true"></span>
           </button>
         </div>
         <div class="services locked" id="services" aria-label="Servicios de datos">
@@ -116,6 +120,20 @@
         </div>
       </footer>
     </div>
+
+    <dialog class="keys" id="keys" aria-labelledby="keys-title">
+      <h2 id="keys-title">Atajos globales</h2>
+      <p class="kintro">Funcionan aunque Tandem esté en segundo plano. Haz clic en uno y pulsa la combinación nueva.</p>
+      <p class="kwarn" id="keys-warning" hidden></p>
+      <div class="klist" id="keys-list"></div>
+      <p class="kfile" id="keys-file"></p>
+      <div class="kfoot">
+        <button type="button" class="kbtn" id="keys-reset">Restablecer</button>
+        <span class="spacer"></span>
+        <button type="button" class="kbtn" id="keys-cancel">Cancelar</button>
+        <button type="button" class="kbtn primary" id="keys-save">Guardar</button>
+      </div>
+    </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script type="module" src="/src/main.ts"></script>

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tandem</title>
+  </head>
+  <body class="tray">
+    <div class="pop">
+      <header class="ptop">
+        <div class="logo">
+          <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <circle cx="11.5" cy="16" r="8" stroke="#7aa7e6" stroke-width="2.4" />
+            <circle cx="20.5" cy="16" r="8" stroke="#a99be8" stroke-width="2.4" />
+          </svg>
+          Tandem
+        </div>
+        <span class="spacer"></span>
+        <span class="pstate"><span class="dot warn" id="agent-dot"></span> <span id="agent-text">Conectando…</span></span>
+      </header>
+
+      <main class="mini" id="mini" aria-label="Escena" hidden>
+        <section class="mside mac" data-owner="mac" aria-label="MacBook Pro">
+          <div class="mhead"><b>Mac</b><span id="state-mac"></span></div>
+          <div class="mdesk" data-owner="mac"></div>
+        </section>
+        <div class="mlink" aria-hidden="true"><span></span></div>
+        <section class="mside pc" data-owner="pc" aria-label="PC">
+          <div class="mhead"><b>PC</b><span id="state-pc"></span></div>
+          <div class="mdesk" data-owner="pc"></div>
+        </section>
+      </main>
+
+      <main class="mstage" id="stage" aria-live="polite" hidden></main>
+
+      <div class="pmodes" id="modes" role="group" aria-label="Modos">
+        <button type="button" class="pmode" data-mode="mac">
+          <span class="ico" aria-hidden="true"><span class="w" style="--c: var(--mac)"></span><span style="--c: var(--mac)"></span></span>
+          <span class="t">Solo Mac</span><span class="k" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="pmode" data-mode="shared">
+          <span class="ico" aria-hidden="true"><span class="w" style="--c: var(--pc)"></span><span style="--c: var(--mac)"></span></span>
+          <span class="t">Compartido</span><span class="k" aria-hidden="true"></span>
+        </button>
+        <button type="button" class="pmode" data-mode="pc">
+          <span class="ico" aria-hidden="true"><span class="w" style="--c: var(--pc)"></span><span style="--c: var(--pc)"></span></span>
+          <span class="t">Solo Windows</span><span class="k" aria-hidden="true"></span>
+        </button>
+      </div>
+
+      <footer class="pfoot">
+        <span class="pmsg" id="msg" role="status" aria-live="polite"></span>
+        <button type="button" class="popen" id="open">Abrir Tandem</button>
+      </footer>
+    </div>
+    <script type="module" src="/src/tray.ts"></script>
+  </body>
+</html>

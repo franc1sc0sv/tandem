@@ -12,7 +12,6 @@ import {
   modeRequest,
   monitorsOf,
   pcPower,
-  shortcutMode,
   type Progress,
 } from "./scene";
 
@@ -60,32 +59,6 @@ describe("modos", () => {
   it("los modos solo no llevan reparto", () => {
     expect(modeRequest("mac", desk, state("pc", "pc"))).toEqual({ mode: "solo_mac" });
     expect(modeRequest("pc", desk, state("mac", "mac"))).toEqual({ mode: "solo_pc" });
-  });
-});
-
-describe("atajos", () => {
-  const key = (code: string, mods: Partial<KeyboardEvent> = {}) => ({
-    ctrlKey: true,
-    altKey: true,
-    metaKey: false,
-    shiftKey: false,
-    code,
-    ...mods,
-  });
-
-  it("⌃⌥1/2/3 eligen las tarjetas en orden", () => {
-    expect(shortcutMode(key("Digit1"))).toBe("mac");
-    expect(shortcutMode(key("Digit2"))).toBe("shared");
-    expect(shortcutMode(key("Digit3"))).toBe("pc");
-    expect(shortcutMode(key("Numpad3"))).toBe("pc");
-  });
-
-  it("sin los dos modificadores, o con otros, no hacen nada", () => {
-    expect(shortcutMode(key("Digit1", { ctrlKey: false }))).toBeNull();
-    expect(shortcutMode(key("Digit1", { altKey: false }))).toBeNull();
-    expect(shortcutMode(key("Digit1", { metaKey: true }))).toBeNull();
-    expect(shortcutMode(key("Digit1", { shiftKey: true }))).toBeNull();
-    expect(shortcutMode(key("Digit4"))).toBeNull();
   });
 });
 

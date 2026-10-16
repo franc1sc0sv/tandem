@@ -8,7 +8,7 @@ license.workspace = true
 # La app de Tauri necesita WebKitGTK en Linux; sin la feature `app` el crate es solo la
 # lógica portable (estado del agente por la IPC) y se prueba en cualquier sistema.
 [features]
-app = ["dep:tauri", "dep:tauri-build"]
+app = ["dep:tauri", "dep:tauri-build", "dep:tauri-plugin-global-shortcut"]
 
 [lib]
 name = "tandem_ui"
@@ -23,13 +23,18 @@ serde.workspace = true
 tandem-core = { path = "../../../crates/tandem-core" }
 tandem-proto = { path = "../../../crates/tandem-proto" }
 tandemd = { path = "../../../crates/tandemd" }
-tauri = { workspace = true, optional = true }
+# Bandeja / barra de menú con su ícono propio (PNG).
+tauri = { workspace = true, optional = true, features = ["tray-icon", "image-png"] }
+tauri-plugin-global-shortcut = { workspace = true, optional = true }
+thiserror.workspace = true
 tokio = { workspace = true, features = ["time"] }
+toml.workspace = true
 
 [build-dependencies]
 tauri-build = { workspace = true, optional = true }
 
 [dev-dependencies]
+proptest.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread", "sync", "test-util", "time"] }

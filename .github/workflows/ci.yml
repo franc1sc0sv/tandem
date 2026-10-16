@@ -27,18 +27,24 @@ jobs:
       - run: cargo clippy --workspace --all-targets
       - run: cargo test --workspace
 
-  # La app de Tauri (feature `app`) necesita WebKitGTK: se compila aparte, con el
-  # frontend ya construido (`frontendDist`). La lógica portable de tandem-ui ya corre
-  # en la matriz de arriba.
+  # La app de Tauri (feature `app`) se compila aparte, con el frontend ya construido
+  # (`frontendDist`), en los tres sistemas: la barra de menú (macOS), la bandeja (Windows) y
+  # los atajos globales tienen código propio de cada uno. En Linux necesita WebKitGTK. La
+  # lógica portable de tandem-ui ya corre en la matriz de arriba.
   ui:
-    name: ui (ubuntu-latest)
-    runs-on: ubuntu-latest
+    name: ui (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     defaults:
       run:
         working-directory: apps/tandem-ui
     steps:
       - uses: actions/checkout@v4
       - name: Dependencias de sistema de Tauri
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev libssl-dev

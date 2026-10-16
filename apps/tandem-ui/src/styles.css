@@ -178,3 +178,28 @@ button { font: inherit; color: inherit; }
 @media (prefers-reduced-motion: reduce) {
   *, ::view-transition-group(*) { animation: none !important; transition: none !important; }
 }
+
+/* atajos globales */
+.pill .ico { width: 15px; height: 15px; color: var(--dim); }
+.keys { width: min(520px, calc(100% - 40px)); padding: 22px 24px; border-radius: 18px; background: var(--panel); border: 1px solid var(--line-2); color: var(--text); box-shadow: 0 24px 60px rgba(0,0,0,.45); }
+.keys::backdrop { background: rgba(8, 9, 11, .6); }
+.keys h2 { margin: 0 0 6px; font-size: 16px; font-weight: 650; }
+.kintro, .kfile { margin: 0; color: var(--dim); font-size: 12.5px; line-height: 1.45; }
+.kfile { color: var(--faint); margin-top: 12px; word-break: break-all; }
+.kwarn { margin: 10px 0 0; color: var(--warn); font-size: 12.5px; line-height: 1.45; }
+.klist { display: grid; gap: 4px; margin-top: 16px; }
+.krow { display: grid; grid-template-columns: 1fr auto auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.klabel { font-size: 13.5px; }
+.combo { min-width: 150px; padding: 6px 10px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line-2); cursor: pointer; font-family: ui-monospace, "SF Mono", monospace; font-size: 12.5px; text-align: center; }
+.combo:hover { border-color: var(--focus); }
+.combo.none { color: var(--faint); font-family: inherit; }
+.combo.rec { border-color: var(--mac); color: var(--mac); font-family: inherit; }
+.kclear { all: unset; cursor: pointer; font-size: 12px; color: var(--dim); padding: 4px 6px; border-radius: 6px; }
+.kclear:hover { color: var(--text); }
+.kclear:disabled { opacity: .3; cursor: default; }
+.kclear:focus-visible { outline: 2px solid var(--focus); }
+.knote { grid-column: 1 / -1; font-size: 12px; color: var(--warn); line-height: 1.4; }
+.kfoot { display: flex; gap: 8px; margin-top: 18px; align-items: center; }
+.kbtn { cursor: pointer; padding: 7px 14px; border-radius: 9px; background: var(--panel-2); border: 1px solid var(--line-2); font-size: 13px; }
+.kbtn:hover { border-color: var(--focus); }
+.kbtn.primary { background: #2a3140; border-color: #3d4a62; }
