@@ -110,6 +110,25 @@ pub enum PlanError {
     NoTargetCodes,
     #[error("no hay códigos para la vuelta")]
     NoReturnCodes,
+    /// Ida y vuelta a la misma entrada no es una vuelta: el monitor se quedaría donde lo
+    /// dejó la ida, como un `set 0x60` suelto.
+    #[error("la vuelta debe ir a otra entrada que la ida (pediste {} en ambas)", input_name(*.0))]
+    SameInput(Input),
+}
+
+pub(crate) fn input_name(input: Input) -> &'static str {
+    match input {
+        Input::Hdmi => "hdmi",
+        Input::DisplayPort => "dp",
+    }
+}
+
+/// La otra entrada: con dos, es la única vuelta posible si no se pide otra cosa.
+pub fn other_input(input: Input) -> Input {
+    match input {
+        Input::Hdmi => Input::DisplayPort,
+        Input::DisplayPort => Input::Hdmi,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +145,9 @@ impl SwitchPlan {
     pub fn validate(&self) -> Result<(), PlanError> {
         if !(MIN_RETURN_AFTER..=MAX_RETURN_AFTER).contains(&self.return_after) {
             return Err(PlanError::ReturnAfterOutOfRange(self.return_after));
+        }
+        if self.target == self.return_to {
+            return Err(PlanError::SameInput(self.target));
         }
         if self.target_codes.is_empty() {
             return Err(PlanError::NoTargetCodes);
@@ -424,6 +446,12 @@ mod tests {
         let mut p = plan();
         p.return_codes.clear();
         assert_eq!(p.validate(), Err(PlanError::NoReturnCodes));
+        for input in [Input::Hdmi, Input::DisplayPort] {
+            let mut p = plan();
+            p.target = input;
+            p.return_to = input;
+            assert_eq!(p.validate(), Err(PlanError::SameInput(input)));
+        }
     }
 
     #[test]
@@ -472,6 +500,8 @@ mod tests {
             let mut p = plan();
             p.target_codes = target;
             p.return_codes = returns.clone();
+            prop_assert_ne!(p.target, p.return_to);
+            prop_assert_eq!(p.validate(), Ok(()));
             let mut waiter = FakeWaiter { interrupt_at, ..Default::default() };
             let mut sent = Vec::new();
             let report = switch_with_return(&mut bus, &p, &mut waiter, &mut |e| {

@@ -7,7 +7,8 @@ use std::time::Duration;
 use tandem_core::model::Input;
 
 use crate::ddc::switch::{
-    self, PlanError, SwitchError, SwitchEvent, SwitchPlan, Waiter, known_profile, mccs_standard,
+    self, PlanError, SwitchError, SwitchEvent, SwitchPlan, Waiter, input_name, known_profile,
+    mccs_standard, other_input,
 };
 use crate::ddc::{DdcBus, DdcError, MonitorInfo, VCP_INPUT_SOURCE, VCP_POWER_MODE, caps};
 
@@ -29,7 +30,8 @@ USO:
 con reintentos. Ctrl+C adelanta la vuelta, no la cancela.
   --return-after <s>    obligatorio
   --code <hex>          código de ida (repetible); por omisión, el del perfil del monitor
-  --return-to hdmi|dp   entrada de vuelta (por omisión dp, la de la PC)
+  --return-to hdmi|dp   entrada de vuelta (por omisión, la otra: hdmi→dp, dp→hdmi);
+                        no puede ser la misma de la ida
   --return-code <hex>   código de vuelta (repetible); por omisión, el del perfil
 
 `set` no acepta 0x60 (usa `switch`) ni 0xD6 (energía): podrían dejarte sin imagen.
@@ -154,7 +156,7 @@ fn parse_switch(rest: &[String]) -> Result<SwitchArgs, CliError> {
     let mut positional = Vec::new();
     let mut return_after = None;
     let mut codes = Vec::new();
-    let mut return_to = Input::DisplayPort;
+    let mut return_to = None;
     let mut return_codes = Vec::new();
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
@@ -172,7 +174,7 @@ fn parse_switch(rest: &[String]) -> Result<SwitchArgs, CliError> {
             }
             "--code" => codes.push(parse_vcp(value(arg)?)?),
             "--return-code" => return_codes.push(parse_vcp(value(arg)?)?),
-            "--return-to" => return_to = parse_input(value(arg)?)?,
+            "--return-to" => return_to = Some(parse_input(value(arg)?)?),
             flag if flag.starts_with("--") => {
                 return Err(usage(format!("opción desconocida `{flag}`")));
             }
@@ -185,12 +187,14 @@ fn parse_switch(rest: &[String]) -> Result<SwitchArgs, CliError> {
     let return_after = return_after.ok_or_else(|| {
         usage("`switch` exige `--return-after <s>`: siempre hay vuelta automática")
     })?;
+    let target = parse_input(target)?;
     Ok(SwitchArgs {
         monitor: parse_monitor(monitor),
-        target: parse_input(target)?,
+        target,
         return_after,
         codes,
-        return_to,
+        // La misma entrada no se corrige aquí: la rechaza `SwitchPlan::validate`.
+        return_to: return_to.unwrap_or_else(|| other_input(target)),
         return_codes,
     })
 }
@@ -251,13 +255,6 @@ pub fn select(monitors: &[MonitorInfo], sel: &MonitorSelector) -> Result<usize, 
                 }),
             }
         }
-    }
-}
-
-fn input_name(input: Input) -> &'static str {
-    match input {
-        Input::Hdmi => "hdmi",
-        Input::DisplayPort => "dp",
     }
 }
 
@@ -697,6 +694,59 @@ mod tests {
         let (r, _, _) = exec(&mut b, &["switch", "0", "hdmi", "--return-after", "301"]);
         assert!(r.is_err());
         assert!(b.writes.is_empty());
+    }
+
+    #[test]
+    fn switch_rejects_same_input_before_writing() {
+        for args in [
+            &[
+                "switch",
+                "0",
+                "hdmi",
+                "--return-after",
+                "5",
+                "--return-to",
+                "hdmi",
+            ][..],
+            &[
+                "switch",
+                "0",
+                "dp",
+                "--return-after",
+                "5",
+                "--return-to",
+                "dp",
+            ][..],
+        ] {
+            let mut b = bus();
+            let (r, _, _) = exec(&mut b, args);
+            let err = r.unwrap_err();
+            assert!(
+                matches!(err, CliError::Plan(PlanError::SameInput(_))),
+                "{args:?}: {err}"
+            );
+            assert_eq!(err.exit_code(), 2);
+            assert!(b.writes.is_empty(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn switch_dp_defaults_to_return_hdmi() {
+        assert_eq!(
+            parse_args(["switch", "0", "hdmi", "--return-after", "5"])
+                .map(|c| match c {
+                    Command::Switch(a) => a.return_to,
+                    _ => unreachable!(),
+                })
+                .unwrap(),
+            Input::DisplayPort
+        );
+        let mut b = bus();
+        let (r, out, _) = exec(&mut b, &["switch", "0", "dp", "--return-after", "5"]);
+        r.unwrap();
+        let writes: Vec<_> = b.writes.iter().map(|w| w.2).collect();
+        assert_eq!(writes, vec![0x0F, 0x09, 0x06]);
+        assert!(out.contains("vuelta a hdmi (0x06)"), "{out}");
     }
 
     #[test]
