@@ -5,6 +5,7 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use tandem_core::{Config, Machine, State};
 
@@ -56,14 +57,24 @@ impl StateStore {
     }
 
     /// Escribe a un archivo temporal y lo renombra: un corte a mitad no deja un JSON a medias.
+    ///
+    /// Cada guardado usa su propio temporal: dos guardados a la vez no se pisan, y el
+    /// rename deja entero el último que termina.
     pub fn save(&self, state: &State) -> Result<(), StoreError> {
+        static NEXT_TMP: AtomicU64 = AtomicU64::new(0);
         if let Some(dir) = self.path.parent() {
             crate::paths::create_private_dir(dir).map_err(|e| self.io(e))?;
         }
         let json = serde_json::to_vec_pretty(state).map_err(StoreError::Serialize)?;
-        let tmp = self.sibling("tmp");
-        std::fs::write(&tmp, json).map_err(|e| self.io(e))?;
-        std::fs::rename(&tmp, &self.path).map_err(|e| self.io(e))
+        let n = NEXT_TMP.fetch_add(1, Ordering::Relaxed);
+        let tmp = self.sibling(&format!("tmp-{}-{n}", std::process::id()));
+        let result = std::fs::write(&tmp, json).and_then(|()| std::fs::rename(&tmp, &self.path));
+        if let Err(e) = result {
+            // Mejor esfuerzo: el error que importa es el de la escritura.
+            let _ = std::fs::remove_file(&tmp);
+            return Err(self.io(e));
+        }
+        Ok(())
     }
 
     /// El estado de arranque, ajustado a la configuración actual.
@@ -202,6 +213,43 @@ mod tests {
         assert_eq!(r.builtin_pref, BuiltinDisplay::Mirror);
     }
 
+    // QA ronda 1: todas las escrituras usaban el mismo `state.json.tmp`. Dos guardados
+    // a la vez (el agente se comparte entre conexiones) se pisaban el temporal: uno
+    // renombraba el archivo a medio escribir del otro y el segundo fallaba con NotFound.
+    #[test]
+    fn concurrent_saves_never_fail_or_tear_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path().join("state.json"));
+        let states: Vec<State> = (0..8)
+            .map(|i| {
+                let mut s = sample();
+                s.pc_on = i % 2 == 0;
+                // Estados de distinto tamaño, para que un archivo mezclado no parsee.
+                for j in 0..i * 20 {
+                    s.owner.insert(MonitorId(format!("m{i}-{j}")), Machine::Pc);
+                }
+                s
+            })
+            .collect();
+        std::thread::scope(|scope| {
+            for s in &states {
+                let store = store.clone();
+                scope.spawn(move || {
+                    for _ in 0..40 {
+                        store.save(s).unwrap();
+                    }
+                });
+            }
+        });
+        let last = store.load().unwrap().unwrap();
+        assert!(states.contains(&last));
+        let names: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["state.json"]);
+    }
+
     fn machine() -> impl Strategy<Value = Machine> {
         prop_oneof![Just(Machine::Mac), Just(Machine::Pc)]
     }
@@ -250,6 +298,14 @@ mod tests {
                     prop_assert_eq!(owner, prev);
                 }
             }
+        }
+
+        /// Ajustar dos veces es lo mismo que una: arrancar dos veces seguidas no cambia nada.
+        #[test]
+        fn reconcile_is_idempotent(s in state()) {
+            let cfg = fixtures::desk().desk;
+            let once = reconcile(s, &cfg);
+            prop_assert_eq!(reconcile(once.clone(), &cfg), once);
         }
     }
 }

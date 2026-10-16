@@ -327,4 +327,66 @@ mod tests {
                 .is_ok()
         );
     }
+
+    // QA ronda 1: olvidar un emparejamiento tiene que valer para las conexiones nuevas
+    // de un endpoint ya abierto, en los dos lados.
+    #[test]
+    fn el_rwlock_ve_pares_olvidados_despues() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(RwLock::new(
+            TrustStore::open(dir.path().join("trust.toml")).unwrap(),
+        ));
+        let key = Identity::from_seed([5; 32]).public_key();
+        store.write().unwrap().add(crate::identity::TrustedPeer {
+            public_key: key,
+            name: "PC".to_owned(),
+        });
+        let p = provider();
+        let client = PinnedClientVerifier::new(store.clone(), &p);
+        let server = PinnedServerVerifier::new(store.clone(), &p);
+        let name = ServerName::try_from("tandem").unwrap();
+        let now = UnixTime::now();
+        assert!(client.verify_client_cert(&cert_of(5), &[], now).is_ok());
+        assert!(
+            server
+                .verify_server_cert(&cert_of(5), &[], &name, &[], now)
+                .is_ok()
+        );
+
+        assert!(store.write().unwrap().remove(&key));
+        assert!(client.verify_client_cert(&cert_of(5), &[], now).is_err());
+        assert!(
+            server
+                .verify_server_cert(&cert_of(5), &[], &name, &[], now)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn un_rwlock_envenenado_sigue_verificando() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Arc::new(RwLock::new(
+            TrustStore::open(dir.path().join("trust.toml")).unwrap(),
+        ));
+        let poisoner = store.clone();
+        let _ = std::thread::spawn(move || {
+            let mut g = poisoner.write().unwrap();
+            g.add(crate::identity::TrustedPeer {
+                public_key: Identity::from_seed([6; 32]).public_key(),
+                name: "PC".to_owned(),
+            });
+            panic!("pánico con el candado de escritura tomado");
+        })
+        .join();
+        assert!(store.is_poisoned());
+        let v = PinnedClientVerifier::new(store, &provider());
+        assert!(
+            v.verify_client_cert(&cert_of(6), &[], UnixTime::now())
+                .is_ok()
+        );
+        assert!(
+            v.verify_client_cert(&cert_of(7), &[], UnixTime::now())
+                .is_err()
+        );
+    }
 }

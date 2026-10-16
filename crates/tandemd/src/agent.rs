@@ -1,5 +1,7 @@
 //! El estado vivo del agente y lo que contesta a la UI.
 
+use std::sync::Mutex;
+
 use tandem_core::{Machine, State};
 use tandem_proto::{Reply, UiCommand};
 use tokio::sync::watch;
@@ -15,6 +17,9 @@ pub struct Agent {
     cfg: AgentConfig,
     store: StateStore,
     state: watch::Sender<State>,
+    /// Leer el estado y guardarlo tiene que ser una sola operación: si no, un
+    /// guardado con el estado viejo puede terminar después de uno con el nuevo.
+    persisting: Mutex<()>,
 }
 
 impl Agent {
@@ -25,6 +30,7 @@ impl Agent {
             cfg,
             store,
             state: watch::Sender::new(state),
+            persisting: Mutex::new(()),
         }
     }
 
@@ -66,7 +72,10 @@ impl Agent {
     }
 
     pub fn persist(&self) -> Result<(), StoreError> {
-        self.store.save(&self.state.borrow())
+        // Si otro hilo entró en pánico guardando, el candado no protege datos: se sigue.
+        let _guard = self.persisting.lock().unwrap_or_else(|e| e.into_inner());
+        let state = self.state.borrow().clone();
+        self.store.save(&state)
     }
 
     /// Contesta un pedido de la UI.
@@ -141,6 +150,35 @@ pub(crate) mod tests {
         assert_eq!(*rx.borrow_and_update(), s);
         // Otro agente sobre el mismo directorio arranca con ese estado.
         assert_eq!(agent(dir.path()).state(), s);
+    }
+
+    // QA ronda 1: `persist` leía el estado y lo guardaba sin exclusión. Con dos
+    // `set_state` a la vez, el que leyó el estado viejo podía escribir último y el
+    // archivo quedaba con un estado que ya no era el vigente.
+    #[test]
+    fn concurrent_set_state_persists_the_final_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent(dir.path());
+        let base = a.state();
+        for round in 0..20 {
+            std::thread::scope(|scope| {
+                for i in 0..8u32 {
+                    let mut s = base.clone();
+                    s.pc_on = (i + round) % 2 == 0;
+                    s.builtin_pref = [
+                        BuiltinDisplay::Off,
+                        BuiltinDisplay::Mirror,
+                        BuiltinDisplay::Extend,
+                    ][(i % 3) as usize];
+                    let a = &a;
+                    scope.spawn(move || a.set_state(s).unwrap());
+                }
+            });
+            let saved = StateStore::new(dir.path().join("state.json"))
+                .load()
+                .unwrap();
+            assert_eq!(saved, Some(a.state()), "ronda {round}");
+        }
     }
 
     #[test]
