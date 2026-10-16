@@ -33,6 +33,18 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         },
+        Command::Install(args) => {
+            if let Err(e) = install(args) {
+                eprintln!("tandemd: {e:#}");
+                return ExitCode::FAILURE;
+            }
+        }
+        Command::Uninstall => {
+            if let Err(e) = uninstall() {
+                eprintln!("tandemd: {e:#}");
+                return ExitCode::FAILURE;
+            }
+        }
         Command::Run(args) => {
             if let Err(e) = run(args) {
                 tracing::error!("{e:#}");
@@ -71,4 +83,46 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         daemon.serve(listener, daemon::shutdown_signal()).await?;
         Ok(())
     })
+}
+
+#[cfg(windows)]
+fn install(args: RunArgs) -> anyhow::Result<()> {
+    use tandemd::install::{self, RunKey};
+
+    let paths = Paths::resolve(args.config.clone(), args.data_dir.clone())?;
+    let exe = std::env::current_exe().context("no se encontró el ejecutable de tandemd")?;
+    let launcher = install::launcher_for(&exe, |p| p.is_file());
+    let report = install::install(
+        &mut RunKey,
+        &paths.config,
+        &install::command_line(&launcher, &args),
+    )?;
+    if report.config_created {
+        println!("configuración inicial creada en {}", paths.config.display());
+    } else {
+        println!("se conserva la configuración de {}", paths.config.display());
+    }
+    println!("arranque con la sesión: {}", report.command);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn uninstall() -> anyhow::Result<()> {
+    if tandemd::install::uninstall(&mut tandemd::install::RunKey)? {
+        println!("arranque con la sesión quitado");
+    } else {
+        println!("el arranque con la sesión no estaba registrado");
+    }
+    Ok(())
+}
+
+// En macOS el arranque es un LaunchAgent que instala la app (T-070).
+#[cfg(not(windows))]
+fn install(_args: RunArgs) -> anyhow::Result<()> {
+    anyhow::bail!("--install solo existe en Windows")
+}
+
+#[cfg(not(windows))]
+fn uninstall() -> anyhow::Result<()> {
+    anyhow::bail!("--uninstall solo existe en Windows")
 }

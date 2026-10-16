@@ -13,6 +13,7 @@
 //! - [`pc_watch`]: en la Mac, da la PC por apagada si ningún enlace la ve (corte de corriente).
 //! - [`peer`]: el otro agente por el plano de control (pedirle pasos y atender los suyos).
 //! - [`network`]: QUIC, descubrimiento del par y gestor de enlaces.
+//! - [`install`]: `--install` / `--uninstall` (config inicial y arranque con la sesión).
 //! - [`ipc`]: la API local para la UI (Unix socket / named pipe).
 //! - [`daemon`]: el agente armado, el bucle principal y el apagado ordenado.
 //! - [`logging`]: `tracing` a stdout y a archivo.
@@ -22,6 +23,7 @@ pub mod cli;
 pub mod config;
 pub mod daemon;
 pub mod display;
+pub mod install;
 pub mod ipc;
 pub mod logging;
 pub mod network;

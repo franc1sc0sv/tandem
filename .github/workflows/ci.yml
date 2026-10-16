@@ -96,6 +96,40 @@ jobs:
           path: target/*-apple-darwin/release/bundle/dmg/Tandem_*.dmg
           if-no-files-found: error
 
+  # Instalador NSIS de Windows (T-071): lo construye, lo sube como artefacto y lo prueba de
+  # punta a punta (instalar, arranque con la sesión, reinstalar, desinstalar) en el runner.
+  installer-windows:
+    name: instalador (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/tandem-ui/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/tandem-ui/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: installer
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/tandem-ui
+      - name: Construir el instalador
+        id: build
+        shell: pwsh
+        run: ./tools/windows/installer/build-installer.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tandem-windows-installer
+          path: target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+      - name: Probar instalar y desinstalar
+        shell: pwsh
+        run: ./tools/windows/installer/test-installer.ps1 -Installer "${{ steps.build.outputs.installer }}"
+
   # Informativo: no bloquea el merge. Objetivo ≥ 80 % en los crates portables (docs/TESTING.md).
   coverage:
     name: cobertura
