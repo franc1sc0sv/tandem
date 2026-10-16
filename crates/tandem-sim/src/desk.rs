@@ -326,6 +326,13 @@ impl Desk {
         Ok(TxnRun { events })
     }
 
+    /// La PC se queda sin corriente de golpe, sin que ningún agente lo pida: los
+    /// monitores en DisplayPort quedan en negro y su agente deja de contestar.
+    pub fn pull_pc_plug(&self) {
+        self.world.lock().power_off();
+        self.net.drop_all();
+    }
+
     /// Deja pasar el tiempo para que termine lo que quedó en el aire.
     pub async fn settle(&self) {
         tokio::time::sleep(SETTLE).await;

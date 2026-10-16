@@ -177,6 +177,7 @@ pub async fn serve<C: ControlChannel>(mut chan: C, agent: Arc<Agent>) -> Result<
             ControlMsg::GetState => chan.send(&ControlMsg::State(agent.state())).await?,
             // El estado final de una transacción del otro agente.
             ControlMsg::State(state) => {
+                agent.orchestrator().release_peer_lease();
                 let state = reconcile(state, &agent.config().desk);
                 if let Err(e) = agent.set_state(state) {
                     tracing::warn!("no se pudo guardar el estado que mandó el otro agente: {e}");
@@ -412,5 +413,38 @@ mod tests {
                 switch_34_to_pc().inverse(&cfg).unwrap()
             ]
         );
+    }
+
+    /// QA ronda 2: mientras la PC hace pasos para la Mac no puede empezar un cambio
+    /// propio; el estado final de la Mac la libera.
+    #[tokio::test]
+    async fn the_peers_final_state_ends_the_loan() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pc, pc_steps) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (a, b) = duplex(64 * 1024);
+        let _task = tokio::spawn(serve(Framed::new(b), pc.clone()));
+        let mut f = Framed::new(a);
+        f.send(&ControlMsg::ExecuteStep {
+            id: 1,
+            step: switch_34_to_pc(),
+        })
+        .await
+        .unwrap();
+        assert!(matches!(
+            f.recv().await.unwrap(),
+            Some(ControlMsg::StepResult {
+                id: 1,
+                outcome: tandem_proto::StepOutcome::Done
+            })
+        ));
+        assert_eq!(pc_steps.steps(), [switch_34_to_pc()]);
+        assert_eq!(pc.orchestrator().try_begin(), None);
+
+        let mut s = pc.state();
+        s.pc_on = true;
+        let mut rx = pc.subscribe();
+        f.send(&ControlMsg::State(s.clone())).await.unwrap();
+        rx.wait_for(|got| *got == s).await.unwrap();
+        assert!(pc.orchestrator().try_begin().is_some());
     }
 }

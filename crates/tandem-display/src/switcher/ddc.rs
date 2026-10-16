@@ -18,6 +18,11 @@ pub struct DdcSwitcher {
     open: BusFactory,
     attempts: u32,
     retry_gap: Duration,
+    /// Turno de las escrituras. Si un cambio vence, su hilo bloqueante sigue
+    /// escribiendo aunque nadie lo espere; el siguiente (su inverso, típicamente)
+    /// tiene que esperar a que termine, o la escritura vieja llega última y deja
+    /// el monitor en la entrada equivocada.
+    turn: Arc<tokio::sync::Mutex<()>>,
 }
 
 impl DdcSwitcher {
@@ -31,6 +36,7 @@ impl DdcSwitcher {
             open,
             attempts: attempts.max(1),
             retry_gap,
+            turn: Arc::default(),
         }
     }
 
@@ -47,6 +53,7 @@ impl MonitorSwitcher for DdcSwitcher {
     fn switch<'a>(&'a self, req: &'a SwitchRequest) -> SwitchFuture<'a> {
         let open = self.open.clone();
         let (attempts, gap) = (self.attempts, self.retry_gap);
+        let turn = self.turn.clone();
         let monitor = req.monitor.clone();
         let input = req.input;
         Box::pin(async move {
@@ -56,8 +63,10 @@ impl MonitorSwitcher for DdcSwitcher {
                 .as_ref()
                 .ok_or_else(|| SwitchError::NoProfile(id.clone()))?
                 .code_for(input);
+            let turn = turn.lock_owned().await;
             // DDC/CI bloquea (cada escritura tarda decenas de ms y los reintentos esperan).
             tokio::task::spawn_blocking(move || {
+                let _turn = turn;
                 let mut bus = open().map_err(|error| SwitchError::Ddc {
                     monitor: monitor.id.clone(),
                     error,
@@ -126,6 +135,8 @@ fn write_input(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Mutex, mpsc};
+
     use tandem_core::Machine;
 
     use super::*;
@@ -236,5 +247,87 @@ mod tests {
             err.to_string(),
             "m34: DDC/CI no está disponible en esta plataforma"
         );
+    }
+
+    /// Aviso de que empezó, permiso para seguir y aviso de que terminó.
+    type Gate = (mpsc::Sender<()>, mpsc::Receiver<()>, mpsc::Sender<()>);
+
+    /// Un bus cuya primera escritura se queda bloqueada hasta que la prueba la suelta.
+    struct GatedBus {
+        inner: SharedFakeDdc,
+        gate: Arc<Mutex<Option<Gate>>>,
+    }
+
+    impl DdcBus for GatedBus {
+        fn monitors(&self) -> &[MonitorInfo] {
+            self.inner.monitors()
+        }
+        fn capabilities(&mut self, monitor: usize) -> Result<String, DdcError> {
+            self.inner.capabilities(monitor)
+        }
+        fn get_vcp(&mut self, monitor: usize, code: u8) -> Result<crate::ddc::VcpValue, DdcError> {
+            self.inner.get_vcp(monitor, code)
+        }
+        fn set_vcp(&mut self, monitor: usize, code: u8, value: u32) -> Result<(), DdcError> {
+            let gate = self.gate.lock().unwrap().take();
+            if let Some((started, release, _)) = &gate {
+                started.send(()).unwrap();
+                release.recv().unwrap();
+            }
+            let r = self.inner.set_vcp(monitor, code, value);
+            if let Some((_, _, done)) = gate {
+                done.send(()).unwrap();
+            }
+            r
+        }
+    }
+
+    // QA ronda 2: un cambio que vence sigue escribiendo en su hilo bloqueante. El
+    // inverso, pedido justo después, escribía antes y la escritura vieja llegaba
+    // última: el monitor quedaba en la entrada de la que se quería volver.
+    #[tokio::test]
+    async fn a_timed_out_switch_cannot_land_after_the_next_one() {
+        let (started_tx, started) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel();
+        let (done_tx, done) = mpsc::channel();
+        let inner = SharedFakeDdc::new(FakeDdc::new(vec![named("S32BG85"), named("LC34G55T")]));
+        let gate = Arc::new(Mutex::new(Some((started_tx, release_rx, done_tx))));
+        let bus = {
+            let (inner, gate) = (inner.clone(), gate.clone());
+            Arc::new(move || {
+                Ok(Box::new(GatedBus {
+                    inner: inner.clone(),
+                    gate: gate.clone(),
+                }) as Box<dyn DdcBus>)
+            })
+        };
+        let s = Arc::new(DdcSwitcher::with_retries(bus, 1, Duration::ZERO));
+
+        // A la PC (DP, 0x0F): la escritura se cuelga y el paso vence (se suelta el futuro).
+        let to_pc = request("m34", Machine::Pc);
+        {
+            let mut first = s.switch(&to_pc);
+            tokio::select! {
+                biased;
+                _ = &mut first => panic!("la escritura colgada terminó"),
+                _ = tokio::task::spawn_blocking(move || started.recv()) => {}
+            }
+        }
+        // El inverso, a la Mac (HDMI, 0x06).
+        let back = tokio::spawn({
+            let s = s.clone();
+            async move { s.switch(&request("m34", Machine::Mac)).await }
+        });
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        release.send(()).unwrap();
+        back.await.unwrap().unwrap();
+        tokio::task::spawn_blocking(move || done.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let codes: Vec<u32> = writes(&inner).iter().map(|w| w.2).collect();
+        assert_eq!(codes, [0x0F, 0x06], "la última escritura manda");
     }
 }
