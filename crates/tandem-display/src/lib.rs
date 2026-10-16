@@ -7,6 +7,8 @@
 //!
 //! - [`ddc`]: DDC/CI portable (EDID, capacidades, cambio de entrada) y [`cli`], la lógica
 //!   del CLI `tandem-ddc`.
+//! - [`calibrate`]: el motor que encuentra los códigos de entrada de un monitor desconocido
+//!   (con vuelta automática siempre), con su monitor simulado.
 //! - [`switcher`]: el cambio de entrada en un cambio de modo (`MonitorSwitcher`: DDC,
 //!   manual o por monitor).
 //! - [`topology`]: el trait único [`topology::DisplayTopology`] (qué monitores forman
@@ -22,6 +24,7 @@
 //!   detrás de su `cfg`.
 //! - [`gather`]: "traer ventanas" de la pantalla integrada de la Mac (con `macos::ax`).
 
+pub mod calibrate;
 pub mod cli;
 pub mod ddc;
 pub mod desktop;
