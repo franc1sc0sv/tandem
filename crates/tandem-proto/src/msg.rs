@@ -155,8 +155,13 @@ pub enum ProbeOutcome {
 pub enum ProbePlace {
     /// A pantalla completa en el monitor que se calibra, con un botón grande.
     /// `screen` es dónde está en el escritorio de esta máquina (coordenadas del sistema);
-    /// `None` si el agente no lo sabe: la UI lo busca por el nombre del EDID.
+    /// `None` si el agente no puede buscarlo (sin escritorio que consultar o sin EDID):
+    /// la UI lo busca por el nombre del EDID.
     Monitor { screen: Option<ProbeScreen> },
+    /// El agente lo buscó y no está en el escritorio de esta máquina (todavía): la UI no
+    /// muestra la sonda en ninguna parte hasta un `Show` con lugar. En otra pantalla
+    /// alguien la vería y aceptaría un código que no funciona.
+    Offscreen,
     /// Respaldo sin la otra máquina: la ventana pregunta «¿el monitor cambió?» con Sí/No.
     Question,
 }
@@ -757,6 +762,11 @@ pub(crate) mod samples {
             },
             ProbeEvent::Show {
                 id: 2,
+                probe: b.clone(),
+                place: ProbePlace::Offscreen,
+            },
+            ProbeEvent::Show {
+                id: 2,
                 probe: b,
                 place: ProbePlace::Question,
             },
@@ -775,6 +785,10 @@ pub(crate) mod samples {
                 ..
             } => 1,
             ProbeEvent::Hide { .. } => 2,
+            ProbeEvent::Show {
+                place: ProbePlace::Offscreen,
+                ..
+            } => 3,
         }
     }
 
@@ -1131,7 +1145,7 @@ mod tests {
         let asks: Vec<_> = probes().into_iter().map(|p| p.ask).collect();
         covers(&asks, probe_ask_arm, 2);
         covers(&probe_outcomes(), probe_outcome_arm, 3);
-        covers(&probe_events(), probe_event_arm, 3);
+        covers(&probe_events(), probe_event_arm, 4);
         covers(&pairing(), pairing_arm, 5);
         covers(&pairing_statuses(), pairing_status_arm, 5);
         covers(&links(), link_arm, 3);

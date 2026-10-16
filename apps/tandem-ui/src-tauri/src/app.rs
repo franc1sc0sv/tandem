@@ -35,7 +35,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcut, ShortcutState};
 use crate::launch_agent::Report;
 use crate::probe;
 use crate::session::{
-    self, Action, ActionResult, Handle, Notice, PlaceView, ProbeView, ScreenView, Sink, Snapshot,
+    self, Action, ActionResult, Handle, Notice, PlaceView, ProbeView, Sink, Snapshot,
 };
 use crate::setup::{self, Permission, SetupView};
 use crate::shortcuts::{self, Bindings, ShortcutAction, Shortcuts, ShortcutsView};
@@ -173,32 +173,36 @@ impl Sink for Windows {
 
 fn on_probe(app: &AppHandle, event: &ProbeView) {
     match event {
+        // La pregunta de respaldo la contesta la ventana principal: al frente.
         ProbeView::Show {
-            id,
-            monitor,
-            place: PlaceView::Monitor { screen },
+            place: PlaceView::Question,
             ..
+        } => show_main(app),
+        ProbeView::Show {
+            id, monitor, place, ..
         } => {
-            if let Err(e) = open_probe(app, *id, monitor, *screen, event) {
+            if let Err(e) = open_probe(app, *id, monitor, *place, event) {
                 eprintln!("tandem-ui: no se pudo abrir la sonda de calibración: {e}");
             }
         }
-        // La pregunta de respaldo la contesta la ventana principal: al frente.
-        ProbeView::Show { .. } => show_main(app),
-        ProbeView::Hide { id } => {
-            if let Some(w) = app.get_webview_window(&probe::window_label(*id)) {
-                let _ = w.destroy();
-            }
-        }
+        ProbeView::Hide { id } => close_probe(app, *id),
+    }
+}
+
+fn close_probe(app: &AppHandle, id: u64) {
+    if let Some(w) = app.get_webview_window(&probe::window_label(id)) {
+        let _ = w.destroy();
     }
 }
 
 /// Abre (o mueve, si el monitor cambió de lugar) la ventana de la sonda sobre el monitor.
+/// Si el monitor no está en este escritorio, la cierra hasta el próximo aviso: sin clic a
+/// tiempo, el agente la cuenta como no vista.
 fn open_probe(
     app: &AppHandle,
     id: u64,
     name: &str,
-    screen: Option<ScreenView>,
+    place: PlaceView,
     view: &ProbeView,
 ) -> Result<(), String> {
     let monitors = app.available_monitors().map_err(|e| e.to_string())?;
@@ -213,10 +217,15 @@ fn open_probe(
             name: m.name().cloned(),
         })
         .collect();
-    // Sin saber cuál es, la principal: el texto de la sonda dice qué monitor mirar.
-    let target = probe::pick(screen, probe::Units::NATIVE, name, &areas)
-        .and_then(|i| monitors.get(i).cloned())
-        .or_else(|| app.primary_monitor().ok().flatten());
+    let target = match probe::pick(place, probe::Units::NATIVE, name, &areas) {
+        probe::Target::Monitor(i) => monitors.get(i).cloned(),
+        // Sin saber cuál es, la principal: el texto de la sonda dice qué monitor mirar.
+        probe::Target::Primary => app.primary_monitor().ok().flatten(),
+        probe::Target::Nowhere => {
+            close_probe(app, id);
+            return Ok(());
+        }
+    };
     let label = probe::window_label(id);
     let window = match app.get_webview_window(&label) {
         Some(w) => w,

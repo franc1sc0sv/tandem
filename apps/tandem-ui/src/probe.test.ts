@@ -68,6 +68,8 @@ describe("pregunta de respaldo", () => {
     expect(nextQuestion(null, QUESTION)).toBe(QUESTION);
     // La sonda de otro monitor no la tapa; el cierre de otra no la quita.
     expect(nextQuestion(QUESTION, CANDIDATE)).toBe(QUESTION);
+    // Una sonda fuera del escritorio no es una pregunta.
+    expect(nextQuestion(null, { ...CANDIDATE, place: { kind: "offscreen" } })).toBeNull();
     expect(nextQuestion(QUESTION, { type: "hide", id: CANDIDATE.id })).toBe(QUESTION);
     expect(nextQuestion(QUESTION, { type: "hide", id: QUESTION.id })).toBeNull();
   });

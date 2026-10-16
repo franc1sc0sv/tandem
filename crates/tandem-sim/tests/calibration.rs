@@ -78,6 +78,8 @@ fn user(agent: &Arc<Agent>, sim: &SimMonitor, mine: Input) -> Seen {
                         let _ = agent.probes().answer(id, true);
                     }
                 }
+                // Fuera del escritorio no se muestra en ninguna parte: nadie la ve.
+                ProbePlace::Offscreen => {}
                 // La pregunta de respaldo se contesta mirando el monitor.
                 ProbePlace::Question => {
                     let _ = agent.probes().answer(id, visible);

@@ -90,8 +90,14 @@ export interface ProbeScreen {
   height: number;
 }
 
-/** A pantalla completa en el monitor, o la pregunta Sí/No de respaldo en la ventana principal. */
-export type ProbePlace = { kind: "monitor"; screen: ProbeScreen | null } | { kind: "question" };
+/**
+ * A pantalla completa en el monitor; en ninguna parte si el agente lo buscó y no está en el
+ * escritorio (`offscreen`); o la pregunta Sí/No de respaldo en la ventana principal.
+ */
+export type ProbePlace =
+  | { kind: "monitor"; screen: ProbeScreen | null }
+  | { kind: "offscreen" }
+  | { kind: "question" };
 
 export type ProbeShow = {
   type: "show";

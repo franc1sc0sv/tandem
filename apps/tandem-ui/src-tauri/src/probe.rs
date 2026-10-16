@@ -2,7 +2,7 @@
 //! monitor que se calibra.
 //!
 //! El agente dice dónde está el monitor en el escritorio de esta máquina (buscado por su
-//! EDID) o solo su nombre. Aquí se decide en cuál de los monitores que ve Tauri abrir la
+//! EDID), que no está, o solo su nombre si no pudo buscarlo. Aquí se decide en cuál de los monitores que ve Tauri abrir la
 //! ventana; la ventana en sí (`probe.html`) la abre y la cierra la app ([`crate::app`]).
 //!
 //! Las coordenadas del agente son las del sistema: píxeles en Windows y puntos en macOS
@@ -10,7 +10,7 @@
 //! cuál es: en una Mac con pantalla Retina, un lugar en puntos cae también dentro de la
 //! integrada en píxeles.
 
-use crate::session::{ProbeView, ScreenView};
+use crate::session::{PlaceView, ProbeView};
 
 /// Prefijo de la etiqueta de cada ventana de sonda (`probe-<id>`).
 pub const LABEL_PREFIX: &str = "probe-";
@@ -63,14 +63,25 @@ pub fn probe_id(label: &str) -> Option<u64> {
     label.strip_prefix(LABEL_PREFIX)?.parse().ok()
 }
 
-/// En cuál monitor abrir la sonda. `None` si no hay forma de saberlo: la app usa el
-/// principal (y el texto de la sonda dice qué monitor es).
-pub fn pick(
-    screen: Option<ScreenView>,
-    units: Units,
-    name: &str,
-    monitors: &[Area],
-) -> Option<usize> {
+/// Dónde abrir la ventana de la sonda.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Target {
+    /// En ese de los monitores que ve Tauri.
+    Monitor(usize),
+    /// El agente no sabe dónde está: en el principal (el texto dice qué monitor es).
+    Primary,
+    /// En ninguno: el monitor no está en este escritorio. La ventana que hubiera se cierra;
+    /// en otra pantalla alguien vería la sonda y aceptaría un código que no funciona.
+    Nowhere,
+}
+
+/// Dónde abrir la sonda que pide `place`. El nombre y el principal solo sirven cuando el
+/// agente no pudo buscar el monitor; si lo buscó, vale solo el lugar que dio.
+pub fn pick(place: PlaceView, units: Units, name: &str, monitors: &[Area]) -> Target {
+    let screen = match place {
+        PlaceView::Monitor { screen } => screen,
+        PlaceView::Offscreen | PlaceView::Question => return Target::Nowhere,
+    };
     if let Some(s) = screen {
         // El centro: un borde compartido entre dos monitores no decide nada.
         let cx = f64::from(s.x) + f64::from(s.width) / 2.0;
@@ -79,13 +90,12 @@ pub fn pick(
             Units::Pixels => m.contains(cx, cy, 1.0),
             Units::Points => m.scale > 0.0 && m.contains(cx, cy, m.scale),
         });
-        if let Some(i) = found {
-            return Some(i);
-        }
+        // Tauri todavía no ve el monitor que el agente ya ve: hasta el próximo aviso.
+        return found.map_or(Target::Nowhere, Target::Monitor);
     }
     let wanted = name.trim().to_lowercase();
     if wanted.is_empty() {
-        return None;
+        return Target::Primary;
     }
     // En macOS el nombre que da el sistema suele ser el del EDID.
     let hits: Vec<usize> = monitors
@@ -100,8 +110,8 @@ pub fn pick(
         .map(|(i, _)| i)
         .collect();
     match hits.as_slice() {
-        [one] => Some(*one),
-        _ => None,
+        [one] => Target::Monitor(*one),
+        _ => Target::Primary,
     }
 }
 
@@ -124,7 +134,7 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
-    use crate::session::{AskView, PlaceView};
+    use crate::session::{AskView, ScreenView};
 
     fn area(x: i32, width: u32, scale: f64, name: &str) -> Area {
         Area {
@@ -137,14 +147,18 @@ mod tests {
         }
     }
 
-    fn screen(x: i32, width: u32, height: u32) -> Option<ScreenView> {
-        Some(ScreenView {
-            x,
-            y: 0,
-            width,
-            height,
-        })
+    fn screen(x: i32, width: u32, height: u32) -> PlaceView {
+        PlaceView::Monitor {
+            screen: Some(ScreenView {
+                x,
+                y: 0,
+                width,
+                height,
+            }),
+        }
     }
+
+    const UNKNOWN: PlaceView = PlaceView::Monitor { screen: None };
 
     #[test]
     fn windows_coordinates_are_pixels() {
@@ -154,9 +168,12 @@ mod tests {
         ];
         assert_eq!(
             pick(screen(2560, 3440, 1440), Units::Pixels, "LC34G55T", &ms),
-            Some(1)
+            Target::Monitor(1)
         );
-        assert_eq!(pick(screen(0, 2560, 1440), Units::Pixels, "", &ms), Some(0));
+        assert_eq!(
+            pick(screen(0, 2560, 1440), Units::Pixels, "", &ms),
+            Target::Monitor(0)
+        );
     }
 
     #[test]
@@ -170,12 +187,15 @@ mod tests {
         ];
         assert_eq!(
             pick(screen(1512, 2560, 1440), Units::Points, "", &ms),
-            Some(1)
+            Target::Monitor(1)
         );
-        assert_eq!(pick(screen(0, 1512, 982), Units::Points, "", &ms), Some(0));
+        assert_eq!(
+            pick(screen(0, 1512, 982), Units::Points, "", &ms),
+            Target::Monitor(0)
+        );
         assert_eq!(
             pick(screen(1512, 2560, 1440), Units::Pixels, "", &ms),
-            Some(0)
+            Target::Monitor(0)
         );
     }
 
@@ -186,22 +206,48 @@ mod tests {
             area(3024, 2560, 1.0, "Odyssey G5"),
             area(5584, 3440, 1.0, "LC34G55T"),
         ];
-        let by_name = |name, ms: &[Area]| pick(None, Units::Points, name, ms);
-        assert_eq!(by_name("odyssey g5", &ms), Some(1));
-        assert_eq!(by_name("LC34G55T", &ms), Some(2));
-        // Un lugar que no está en ningún monitor cae al nombre.
-        assert_eq!(
-            pick(screen(-9000, 10, 10), Units::Pixels, "LC34G55T", &ms),
-            Some(2)
-        );
-        assert_eq!(by_name("Dell", &ms), None);
-        assert_eq!(by_name("  ", &ms), None);
+        let by_name = |name, ms: &[Area]| pick(UNKNOWN, Units::Points, name, ms);
+        assert_eq!(by_name("odyssey g5", &ms), Target::Monitor(1));
+        assert_eq!(by_name("LC34G55T", &ms), Target::Monitor(2));
+        assert_eq!(by_name("Dell", &ms), Target::Primary);
+        assert_eq!(by_name("  ", &ms), Target::Primary);
         // Dos con el mismo nombre: no se adivina.
         let twins = [
             area(0, 10, 1.0, "Odyssey G5"),
             area(10, 10, 1.0, "Odyssey G5"),
         ];
-        assert_eq!(by_name("Odyssey G5", &twins), None);
+        assert_eq!(by_name("Odyssey G5", &twins), Target::Primary);
+    }
+
+    #[test]
+    fn a_monitor_the_agent_could_not_find_gets_no_window() {
+        let ms = [
+            area(0, 3024, 2.0, "Pantalla integrada"),
+            area(3024, 2560, 1.0, "Odyssey G5"),
+        ];
+        // El agente buscó el 32" y no está en este escritorio: ni el principal ni el nombre.
+        for units in [Units::Pixels, Units::Points] {
+            assert_eq!(
+                pick(PlaceView::Offscreen, units, "Odyssey G5", &ms),
+                Target::Nowhere
+            );
+            assert_eq!(pick(PlaceView::Offscreen, units, "", &ms), Target::Nowhere);
+        }
+        // Un lugar que no cae en ningún monitor que vea Tauri (aún no lo agregó) tampoco
+        // cae al nombre ni al principal.
+        assert_eq!(
+            pick(screen(-9000, 10, 10), Units::Pixels, "Odyssey G5", &ms),
+            Target::Nowhere
+        );
+        assert_eq!(
+            pick(screen(-9000, 10, 10), Units::Points, "", &[]),
+            Target::Nowhere
+        );
+        // La pregunta no abre ventana de sonda.
+        assert_eq!(
+            pick(PlaceView::Question, Units::Pixels, "Odyssey G5", &ms),
+            Target::Nowhere
+        );
     }
 
     #[test]
@@ -253,7 +299,7 @@ mod tests {
             let m = &ms[i];
             prop_assert_eq!(
                 pick(screen(m.x, m.width, m.height), Units::Pixels, "", &ms),
-                Some(i)
+                Target::Monitor(i)
             );
         }
     }

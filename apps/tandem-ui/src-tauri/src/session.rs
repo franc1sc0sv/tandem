@@ -336,6 +336,8 @@ pub enum AskView {
 pub enum PlaceView {
     /// A pantalla completa en el monitor; `screen` es dónde lo ve el agente, si lo sabe.
     Monitor { screen: Option<ScreenView> },
+    /// El agente buscó el monitor y no está en el escritorio: la sonda no se muestra.
+    Offscreen,
     /// La pregunta Sí/No en la ventana principal.
     Question,
 }
@@ -369,6 +371,7 @@ impl From<ProbeEvent> for ProbeView {
                             height: s.height,
                         }),
                     },
+                    ProbePlace::Offscreen => PlaceView::Offscreen,
                     ProbePlace::Question => PlaceView::Question,
                 },
             },
@@ -1421,6 +1424,10 @@ wiring = { pc = "displayport", mac = "hdmi" }
         assert_eq!(
             serde_json::to_value(unplaced).unwrap()["place"],
             serde_json::json!({ "kind": "monitor", "screen": null })
+        );
+        assert_eq!(
+            serde_json::to_value(ProbeView::from(probe(ProbePlace::Offscreen))).unwrap()["place"],
+            serde_json::json!({ "kind": "offscreen" })
         );
         let mut switch = probe(ProbePlace::Question);
         if let tandem_proto::ProbeEvent::Show { probe, .. } = &mut switch {

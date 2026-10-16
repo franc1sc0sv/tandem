@@ -3,7 +3,10 @@
 //!
 //! La única prueba fiable de que un código de `0x60` funcionó es que alguien vea la
 //! máquina destino en el monitor. Por eso la sonda se muestra en **esa** máquina, a
-//! pantalla completa en el monitor que se calibra (buscado por su EDID):
+//! pantalla completa en el monitor que se calibra (buscado por su EDID). Si el monitor no
+//! está en el escritorio de esa máquina, la sonda no aparece en ninguna otra pantalla:
+//! ahí alguien la vería y el motor aceptaría un código que no funciona.
+//!
 //!
 //! - Si la entrada que debería verse es la de esta máquina, la muestra su propia UI.
 //! - Si es la de la otra, se le pide por el plano de control ([`PeerLink::show_probe`]):
@@ -92,7 +95,8 @@ impl Drop for Shown<'_> {
 }
 
 impl ProbeBoard {
-    /// Sin `locator` la UI busca el monitor por el nombre del EDID.
+    /// Sin `locator` (o sin EDID) la UI busca el monitor por el nombre del EDID. Con él,
+    /// la sonda solo se muestra mientras el monitor esté en el escritorio.
     pub fn new(locator: Option<Arc<dyn ScreenLocator>>) -> Self {
         ProbeBoard {
             events: broadcast::channel(EVENT_BUFFER).0,
@@ -131,23 +135,17 @@ impl ProbeBoard {
         // En la pregunta no hace falta saber dónde está el monitor: no se mira en él.
         let key = (!question).then(|| edid_key(&probe.monitor)).flatten();
         let locator = key.as_ref().and(self.locator.clone());
-        let mut screen = match (&locator, &key) {
-            (Some(l), Some(k)) => locate(l, k).await,
-            _ => None,
+        let mut place = match (&locator, &key) {
+            (Some(l), Some(k)) => located(l, k).await,
+            _ if question => ProbePlace::Question,
+            _ => ProbePlace::Monitor { screen: None },
         };
-        let place = |screen| {
-            if question {
-                ProbePlace::Question
-            } else {
-                ProbePlace::Monitor { screen }
-            }
-        };
-        let show = |screen| ProbeEvent::Show {
+        let show = |place| ProbeEvent::Show {
             id,
             probe: probe.clone(),
-            place: place(screen),
+            place,
         };
-        if self.events.send(show(screen)).is_err() {
+        if self.events.send(show(place.clone())).is_err() {
             return ProbeOutcome::Failed(NO_UI.to_owned());
         }
         let deadline = tokio::time::sleep_until(deadline);
@@ -163,10 +161,10 @@ impl ProbeBoard {
                 () = &mut deadline => return ProbeOutcome::Unseen,
                 () = tokio::time::sleep(LOCATE_EVERY), if locator.is_some() => {
                     if let (Some(l), Some(k)) = (&locator, &key) {
-                        let now = locate(l, k).await;
-                        if now != screen {
-                            screen = now;
-                            let _ = self.events.send(show(screen));
+                        let now = located(l, k).await;
+                        if now != place {
+                            place = now;
+                            let _ = self.events.send(show(place.clone()));
                         }
                     }
                 }
@@ -175,12 +173,14 @@ impl ProbeBoard {
     }
 }
 
-/// Busca el monitor fuera del runtime. Un error se registra y cuenta como no encontrado:
-/// la UI tiene su propio respaldo (el nombre del EDID).
-async fn locate(locator: &Arc<dyn ScreenLocator>, key: &EdidKey) -> Option<ProbeScreen> {
+/// Dónde mostrar la sonda según el escritorio. Busca fuera del runtime. Si el monitor
+/// no está, o la búsqueda falla, la sonda no se muestra en ninguna parte
+/// ([`ProbePlace::Offscreen`]): en otra pantalla alguien la vería y el motor aceptaría un
+/// código que no funciona; sin verla, el código solo cuenta como no visto.
+async fn located(locator: &Arc<dyn ScreenLocator>, key: &EdidKey) -> ProbePlace {
     let (locator, key) = (locator.clone(), key.clone());
     let found = tokio::task::spawn_blocking(move || locator.locate(&key)).await;
-    match found {
+    let screen = match found {
         Ok(Ok(bounds)) => bounds.and_then(probe_screen),
         Ok(Err(e)) => {
             tracing::debug!("no se pudo buscar el monitor de la sonda: {e}");
@@ -190,6 +190,10 @@ async fn locate(locator: &Arc<dyn ScreenLocator>, key: &EdidKey) -> Option<Probe
             tracing::warn!("la búsqueda del monitor de la sonda terminó mal: {e}");
             None
         }
+    };
+    match screen {
+        Some(s) => ProbePlace::Monitor { screen: Some(s) },
+        None => ProbePlace::Offscreen,
     }
 }
 
@@ -427,10 +431,11 @@ mod tests {
         });
         let first = next(&mut ui).await;
         let id = shown_id(&first);
+        // Mientras no está en el escritorio, la sonda no va a ninguna pantalla.
         assert!(matches!(
             first,
             ProbeEvent::Show {
-                place: ProbePlace::Monitor { screen: None },
+                place: ProbePlace::Offscreen,
                 ..
             }
         ));
@@ -463,6 +468,68 @@ mod tests {
         );
         board.answer(id, true).unwrap();
         assert_eq!(task.await.unwrap(), ProbeOutcome::Seen);
+    }
+
+    /// El monitor nunca llega al escritorio (el código no funcionó), o el sistema no
+    /// contesta.
+    struct Never(Result<Option<Bounds>, String>);
+
+    impl ScreenLocator for Never {
+        fn locate(&self, _: &EdidKey) -> Result<Option<Bounds>, String> {
+            self.0.clone()
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_monitor_not_on_the_desktop_gets_no_probe_and_counts_as_unseen() {
+        for found in [Ok(None), Err("sin respuesta".to_owned())] {
+            let board = Arc::new(ProbeBoard::new(Some(Arc::new(Never(found)))));
+            let mut ui = board.subscribe();
+            let task = tokio::spawn({
+                let board = board.clone();
+                async move { board.show(&probe(8000), false).await }
+            });
+            let shown = next(&mut ui).await;
+            let id = shown_id(&shown);
+            assert!(
+                matches!(
+                    shown,
+                    ProbeEvent::Show {
+                        place: ProbePlace::Offscreen,
+                        ..
+                    }
+                ),
+                "{shown:?}"
+            );
+            assert_eq!(task.await.unwrap(), ProbeOutcome::Unseen);
+            // Ni se repite ni pasa a «no sé dónde»: lo siguiente es quitarla.
+            assert_eq!(next(&mut ui).await, ProbeEvent::Hide { id });
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn without_an_edid_the_agent_cannot_look() {
+        let locator = Arc::new(Appears {
+            calls: AtomicUsize::new(0),
+            keys: Mutex::new(Vec::new()),
+        });
+        let board = Arc::new(ProbeBoard::new(Some(locator.clone())));
+        let mut ui = board.subscribe();
+        let mut bare = probe(2000);
+        bare.monitor.edid = None;
+        let task = tokio::spawn({
+            let board = board.clone();
+            async move { board.show(&bare, false).await }
+        });
+        assert!(matches!(
+            next(&mut ui).await,
+            ProbeEvent::Show {
+                place: ProbePlace::Monitor { screen: None },
+                ..
+            }
+        ));
+        assert_eq!(task.await.unwrap(), ProbeOutcome::Unseen);
+        assert_eq!(locator.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test(start_paused = true)]
