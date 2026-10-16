@@ -5,7 +5,7 @@
 //! - UI → agente: [`UiRequest`]; agente → UI: [`AgentToUi`].
 
 use serde::{Deserialize, Serialize};
-use tandem_core::{BuiltinDisplay, Machine, Mode, MonitorId, State, Step};
+use tandem_core::{BuiltinDisplay, Input, Machine, Mode, MonitorId, State, Step};
 
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
 
@@ -118,6 +118,12 @@ pub enum UiCommand {
     },
     /// Preferencia de la pantalla integrada de la MacBook.
     SetBuiltin(BuiltinDisplay),
+    /// Respuesta a [`ManualSwitchEvent::Requested`]: `done` si el usuario ya cambió la
+    /// entrada con los botones del monitor, `false` si no puede.
+    AnswerManualSwitch {
+        id: u64,
+        done: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +135,23 @@ pub enum AgentToUi {
     /// Aviso espontáneo cuando el estado cambia por cualquier motivo.
     State(State),
     Txn(TxnEvent),
+    ManualSwitch(ManualSwitchEvent),
+}
+
+/// Un monitor sin DDC: el usuario tiene que cambiar la entrada a mano y confirmarlo con
+/// [`UiCommand::AnswerManualSwitch`] antes de que venza el paso.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ManualSwitchEvent {
+    Requested {
+        id: u64,
+        monitor: MonitorId,
+        label: String,
+        /// La máquina que lo va a mostrar.
+        to: Machine,
+        input: Input,
+    },
+    /// Ya no espera respuesta (contestado, vencido o cancelado).
+    Closed { id: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -139,6 +162,8 @@ pub enum Reply {
         txn: u64,
     },
     Rejected(String),
+    /// Pedido atendido, sin nada más que contestar.
+    Done,
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso y nunca una pantalla
@@ -197,8 +222,6 @@ pub(crate) mod samples {
     //! hasta que tenga ejemplo.
 
     use std::collections::BTreeMap;
-
-    use tandem_core::Input;
 
     use super::*;
 
@@ -318,6 +341,8 @@ pub(crate) mod samples {
             UiCommand::SetBuiltin(BuiltinDisplay::Off),
             UiCommand::SetBuiltin(BuiltinDisplay::Mirror),
             UiCommand::SetBuiltin(BuiltinDisplay::Extend),
+            UiCommand::AnswerManualSwitch { id: 3, done: true },
+            UiCommand::AnswerManualSwitch { id: 4, done: false },
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
         cmds.into_iter()
@@ -335,6 +360,7 @@ pub(crate) mod samples {
             UiCommand::SetMode(_) => 1,
             UiCommand::MoveMonitor { .. } => 2,
             UiCommand::SetBuiltin(_) => 3,
+            UiCommand::AnswerManualSwitch { .. } => 4,
         }
     }
 
@@ -404,7 +430,19 @@ pub(crate) mod samples {
                 id: 3,
                 reply: Reply::Rejected("la PC no responde".into()),
             },
+            AgentToUi::Reply {
+                id: 4,
+                reply: Reply::Done,
+            },
             AgentToUi::State(state()),
+            AgentToUi::ManualSwitch(ManualSwitchEvent::Requested {
+                id: 1,
+                monitor: "m32".into(),
+                label: "32\"".into(),
+                to: Machine::Pc,
+                input: Input::DisplayPort,
+            }),
+            AgentToUi::ManualSwitch(ManualSwitchEvent::Closed { id: 1 }),
         ];
         v.extend(txn_events().into_iter().map(AgentToUi::Txn));
         v
@@ -415,6 +453,7 @@ pub(crate) mod samples {
             AgentToUi::Reply { .. } => 0,
             AgentToUi::State(_) => 1,
             AgentToUi::Txn(_) => 2,
+            AgentToUi::ManualSwitch(_) => 3,
         }
     }
 
@@ -423,6 +462,7 @@ pub(crate) mod samples {
             Reply::State(_) => 0,
             Reply::Accepted { .. } => 1,
             Reply::Rejected(_) => 2,
+            Reply::Done => 3,
         }
     }
 
@@ -467,8 +507,8 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
         covers(&control(), control_arm, 6);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 4);
-        covers(&to_ui(), to_ui_arm, 3);
+        covers(&cmds, ui_command_arm, 5);
+        covers(&to_ui(), to_ui_arm, 4);
         let replies: Vec<_> = to_ui()
             .into_iter()
             .filter_map(|m| match m {
@@ -476,7 +516,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 3);
+        covers(&replies, reply_arm, 4);
         covers(&txn_events(), txn_arm, 8);
     }
 

@@ -56,7 +56,10 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         cfg.machine,
         cfg.desk.monitors.len()
     );
-    let agent = Arc::new(Agent::new(cfg, StateStore::new(paths.state_file())));
+    let agent = Arc::new(Agent::with_platform(
+        cfg,
+        StateStore::new(paths.state_file()),
+    ));
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

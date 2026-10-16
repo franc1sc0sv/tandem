@@ -13,6 +13,7 @@ path = "src/bin/tandem-ddc.rs"
 anyhow.workspace = true
 tandem-core = { path = "../tandem-core" }
 thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "sync"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
@@ -25,6 +26,7 @@ windows = { workspace = true, features = [
 
 [dev-dependencies]
 proptest.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util", "time"] }
 
 [lints]
 workspace = true

@@ -1,6 +1,7 @@
 //! Doble de prueba de [`DdcBus`]: monitores en memoria con fallos programables.
 
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::{DdcBus, DdcError, MonitorInfo, VcpValue};
 
@@ -99,5 +100,55 @@ impl DdcBus for FakeDdc {
         });
         entry.current = value;
         Ok(())
+    }
+}
+
+/// Un [`FakeDdc`] compartido: cada [`SharedFakeDdc::open`] da un bus nuevo sobre los
+/// mismos monitores, como abre el bus el backend real en cada cambio. Sirve para ver
+/// desde la prueba lo que se escribió.
+#[derive(Debug, Clone)]
+pub struct SharedFakeDdc {
+    infos: Vec<MonitorInfo>,
+    inner: Arc<Mutex<FakeDdc>>,
+}
+
+impl SharedFakeDdc {
+    pub fn new(fake: FakeDdc) -> Self {
+        Self {
+            infos: fake.monitors().to_vec(),
+            inner: Arc::new(Mutex::new(fake)),
+        }
+    }
+
+    pub fn lock(&self) -> MutexGuard<'_, FakeDdc> {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    pub fn writes(&self) -> Vec<Write> {
+        self.lock().writes.clone()
+    }
+
+    /// Una fábrica de buses para `DdcSwitcher`.
+    pub fn factory(&self) -> crate::switcher::BusFactory {
+        let me = self.clone();
+        Arc::new(move || Ok(Box::new(me.clone()) as Box<dyn DdcBus>))
+    }
+}
+
+impl DdcBus for SharedFakeDdc {
+    fn monitors(&self) -> &[MonitorInfo] {
+        &self.infos
+    }
+
+    fn capabilities(&mut self, monitor: usize) -> Result<String, DdcError> {
+        self.lock().capabilities(monitor)
+    }
+
+    fn get_vcp(&mut self, monitor: usize, code: u8) -> Result<VcpValue, DdcError> {
+        self.lock().get_vcp(monitor, code)
+    }
+
+    fn set_vcp(&mut self, monitor: usize, code: u8, value: u32) -> Result<(), DdcError> {
+        self.lock().set_vcp(monitor, code, value)
     }
 }

@@ -11,6 +11,7 @@ dirs.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tandem-core = { path = "../tandem-core" }
+tandem-display = { path = "../tandem-display" }
 tandem-link = { path = "../tandem-link" }
 tandem-proto = { path = "../tandem-proto" }
 thiserror.workspace = true
