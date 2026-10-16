@@ -6,10 +6,15 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+bytes.workspace = true
 keycode.workspace = true
 serde.workspace = true
 tandem-core = { path = "../tandem-core" }
+tandem-link = { path = "../tandem-link" }
+tandem-proto = { path = "../tandem-proto" }
 thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tracing.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
@@ -20,10 +25,17 @@ windows = { workspace = true, features = [
     "Win32_UI_WindowsAndMessaging",
 ] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { workspace = true, features = ["std", "NSEvent", "NSGraphicsContext", "objc2-core-foundation", "objc2-core-graphics"] }
+objc2-core-foundation = { workspace = true, features = ["std", "CFCGTypes"] }
+objc2-core-graphics = { workspace = true, features = ["std", "CGDirectDisplay", "CGError", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation"] }
+objc2-foundation = { workspace = true, features = ["std", "NSString", "NSUserDefaults"] }
+
 [lints]
 workspace = true
 
 [dev-dependencies]
 postcard.workspace = true
 proptest.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync", "time", "test-util"] }
 toml.workspace = true

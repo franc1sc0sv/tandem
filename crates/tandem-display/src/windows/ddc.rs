@@ -36,7 +36,7 @@ fn os_error(op: &'static str) -> DdcError {
     }
 }
 
-fn wide_to_string(buf: &[u16]) -> String {
+pub(crate) fn wide_to_string(buf: &[u16]) -> String {
     let end = buf.iter().position(|c| *c == 0).unwrap_or(buf.len());
     String::from_utf16_lossy(&buf[..end])
 }
@@ -217,7 +217,7 @@ fn physical_monitors(hmon: HMONITOR) -> Result<Vec<PHYSICAL_MONITOR>, DdcError> 
     Ok(list)
 }
 
-fn read_edid(subkey: &str) -> Option<Vec<u8>> {
+pub(crate) fn read_edid(subkey: &str) -> Option<Vec<u8>> {
     let subkey = HSTRING::from(subkey);
     let mut buf = vec![0u8; EDID_MAX];
     let mut len = buf.len() as u32;

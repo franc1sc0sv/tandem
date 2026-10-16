@@ -8,7 +8,8 @@
 //! [`decode_hello`]: si la versión no coincide se corta ahí con
 //! [`ProtoError::IncompatibleVersion`], antes de interpretar nada más.
 //!
-//! Los mensajes de entrada (teclado y mouse) los define la sesión de entrada (T-026).
+//! Los mensajes de entrada (teclado y mouse) los define la sesión de entrada, en
+//! `tandem_input::session::msg`, con la codificación de este crate.
 
 pub mod frame;
 pub mod msg;
