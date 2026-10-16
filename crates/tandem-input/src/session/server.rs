@@ -9,7 +9,7 @@
 use tandem_core::Machine;
 
 use super::msg::{MotionDatagram, StreamMsg};
-use crate::event::{HidUsage, InputEvent, KeyState, Pressed, Scroll};
+use crate::event::{Change, HidUsage, InputEvent, KeyState, Pressed, Scroll};
 use crate::geometry::{Layout, Motion, Point};
 
 /// Lo que el driver tiene que hacer, en este orden.
@@ -120,11 +120,14 @@ impl ServerSession {
 
     /// Lleva la cuenta de lo presionado y del atajo de bloqueo.
     fn record(&mut self, event: &InputEvent) {
-        self.pressed.record(event);
-        if let InputEvent::Key {
-            usage,
-            state: KeyState::Pressed,
-        } = *event
+        // La repetición automática llega como otro `Pressed`: solo cuenta el
+        // primero, si no mantener el atajo alternaría el bloqueo sin parar.
+        let change = self.pressed.record(event);
+        if change == Change::Changed
+            && let InputEvent::Key {
+                usage,
+                state: KeyState::Pressed,
+            } = *event
             && self.shortcut_hit(usage)
         {
             self.locked = !self.locked;
@@ -790,6 +793,26 @@ mod tests {
         assert_eq!(canonical_key(HidUsage::key(0x69)), HidUsage::key(0x47));
         assert_eq!(canonical_key(HidUsage::key(0x04)), HidUsage::key(0x04));
         assert_eq!(alias_key(HidUsage::consumer(0x47)), None);
+    }
+
+    #[test]
+    fn la_repeticion_automatica_no_alterna_el_bloqueo() {
+        // Las capturas reenvían la repetición como otro `Pressed`.
+        let mut s = session().with_lock_shortcut(vec![HidUsage::key(0x47)]);
+        for _ in 0..3 {
+            s.handle(key(0x47, KeyState::Pressed));
+        }
+        assert!(s.is_locked());
+        s.handle(key(0x47, KeyState::Released));
+        assert!(s.is_locked());
+        // También con el foco remoto y con un atajo de varias teclas.
+        let mut s = session().with_lock_shortcut(vec![HidUsage::key(0xE0), HidUsage::key(0x0F)]);
+        cross(&mut s);
+        s.handle(key(0xE0, KeyState::Pressed));
+        for _ in 0..4 {
+            s.handle(key(0x0F, KeyState::Pressed));
+        }
+        assert!(s.is_locked());
     }
 
     #[test]
