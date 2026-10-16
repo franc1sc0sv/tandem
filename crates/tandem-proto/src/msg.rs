@@ -5,7 +5,7 @@
 //! - UI → agente: [`UiRequest`]; agente → UI: [`AgentToUi`].
 
 use serde::{Deserialize, Serialize};
-use tandem_core::{BuiltinDisplay, Input, Machine, Mode, MonitorId, State, Step};
+use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State, Step};
 
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
 
@@ -124,6 +124,10 @@ pub enum UiCommand {
         id: u64,
         done: bool,
     },
+    /// El puesto configurado (monitores, nombres y cableado), para dibujar la escena.
+    GetDesk,
+    /// Encender (`true`) o apagar la PC; apagar es la transacción de apagado limpio.
+    SetPcPower(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -164,6 +168,7 @@ pub enum Reply {
     Rejected(String),
     /// Pedido atendido, sin nada más que contestar.
     Done,
+    Desk(Config),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso y nunca una pantalla
@@ -231,6 +236,26 @@ pub(crate) mod samples {
             pc_on: true,
             builtin_pref: BuiltinDisplay::Mirror,
         }
+    }
+
+    /// Un puesto con todo lo opcional presente y ausente.
+    pub fn desk() -> Config {
+        Config::from_toml(
+            r#"
+            [[monitors]]
+            id = "m34"
+            label = '34"'
+            edid_model = "LC34G55T"
+            wiring = { pc = "displayport", mac = "hdmi" }
+            ddc = { hdmi = 0x06, display_port = 0x0F }
+
+            [[monitors]]
+            id = "m32"
+            label = '32"'
+            wiring = { mac = "hdmi" }
+            "#,
+        )
+        .unwrap()
     }
 
     pub fn steps() -> Vec<Step> {
@@ -343,6 +368,9 @@ pub(crate) mod samples {
             UiCommand::SetBuiltin(BuiltinDisplay::Extend),
             UiCommand::AnswerManualSwitch { id: 3, done: true },
             UiCommand::AnswerManualSwitch { id: 4, done: false },
+            UiCommand::GetDesk,
+            UiCommand::SetPcPower(true),
+            UiCommand::SetPcPower(false),
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
         cmds.into_iter()
@@ -361,6 +389,8 @@ pub(crate) mod samples {
             UiCommand::MoveMonitor { .. } => 2,
             UiCommand::SetBuiltin(_) => 3,
             UiCommand::AnswerManualSwitch { .. } => 4,
+            UiCommand::GetDesk => 5,
+            UiCommand::SetPcPower(_) => 6,
         }
     }
 
@@ -434,6 +464,10 @@ pub(crate) mod samples {
                 id: 4,
                 reply: Reply::Done,
             },
+            AgentToUi::Reply {
+                id: 5,
+                reply: Reply::Desk(desk()),
+            },
             AgentToUi::State(state()),
             AgentToUi::ManualSwitch(ManualSwitchEvent::Requested {
                 id: 1,
@@ -463,6 +497,7 @@ pub(crate) mod samples {
             Reply::Accepted { .. } => 1,
             Reply::Rejected(_) => 2,
             Reply::Done => 3,
+            Reply::Desk(_) => 4,
         }
     }
 
@@ -507,7 +542,7 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
         covers(&control(), control_arm, 6);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 5);
+        covers(&cmds, ui_command_arm, 7);
         covers(&to_ui(), to_ui_arm, 4);
         let replies: Vec<_> = to_ui()
             .into_iter()
@@ -516,7 +551,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 4);
+        covers(&replies, reply_arm, 5);
         covers(&txn_events(), txn_arm, 8);
     }
 
