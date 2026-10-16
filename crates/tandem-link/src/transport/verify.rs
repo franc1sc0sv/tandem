@@ -42,6 +42,16 @@ impl<T: PeerTrust> PeerTrust for RwLock<T> {
     }
 }
 
+/// Acepta cualquier llave: solo para el endpoint de emparejamiento, donde el par
+/// todavía no es de confianza. La firma del handshake se sigue comprobando.
+pub(crate) struct AnyKey;
+
+impl PeerTrust for AnyKey {
+    fn is_trusted(&self, _key: &PublicKey) -> bool {
+        true
+    }
+}
+
 /// Prefijo DER fijo de un SubjectPublicKeyInfo Ed25519 (RFC 8410): después
 /// vienen los 32 bytes de la llave.
 const ED25519_SPKI_PREFIX: [u8; 12] = [

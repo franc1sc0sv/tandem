@@ -6,6 +6,9 @@
 //! y solo se acepta a un par cuya llave esté en la confianza local
 //! ([`PeerTrust`], normalmente el [`TrustStore`](crate::identity::TrustStore)).
 //!
+//! Para emparejarse hay un endpoint aparte ([`Endpoint::bind_pairing`]), con otro ALPN,
+//! que acepta llaves desconocidas: solo vive mientras el usuario empareja.
+//!
 //! Sobre una [`Connection`] hay dos canales:
 //! - el stream de control ([`ControlStream`]), confiable y ordenado, que empieza
 //!   con un intercambio de [`Hello`](tandem_proto::Hello);
@@ -25,3 +28,6 @@ pub use verify::{PeerTrust, peer_public_key};
 /// Protocolo de aplicación anunciado en ALPN; otra aplicación QUIC en el
 /// mismo puerto no llega a hablar con el agente.
 pub const ALPN: &[u8] = b"tandem/1";
+
+/// ALPN del endpoint de emparejamiento ([`Endpoint::bind_pairing`]).
+pub const PAIRING_ALPN: &[u8] = b"tandem-pair/1";

@@ -27,9 +27,17 @@ export type Link = "usb4" | "ethernet" | "wifi";
 /** El otro agente: sin par, esta máquina trabaja sola. `link` es `null` si no se lo ve. */
 export type PeerView = { kind: "unpaired" } | { kind: "paired"; name: string; link: Link | null };
 
+/** En qué va el emparejamiento (DESIGN §9): `code` son los 6 dígitos, con ceros a la izquierda. */
+export type PairingView =
+  | { kind: "idle" }
+  | { kind: "searching" }
+  | { kind: "comparing"; code: string; peer: string; confirmed: boolean }
+  | { kind: "done"; peer: string }
+  | { kind: "failed"; reason: string };
+
 export type Snapshot =
   | { kind: "connecting" }
-  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView }
+  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView; pairing: PairingView }
   | { kind: "unavailable"; endpoint: string | null; reason: string };
 
 export type Step =
@@ -70,7 +78,11 @@ export type Action =
   | { kind: "move_monitor"; monitor: string; to: Machine }
   | { kind: "set_builtin"; display: BuiltinDisplay }
   | { kind: "set_pc_power"; on: boolean }
-  | { kind: "answer_manual_switch"; id: number; done: boolean };
+  | { kind: "answer_manual_switch"; id: number; done: boolean }
+  | { kind: "start_pairing" }
+  | { kind: "confirm_pairing" }
+  | { kind: "cancel_pairing" }
+  | { kind: "unpair" };
 
 export type ActionResult =
   | { kind: "accepted"; txn: number }
