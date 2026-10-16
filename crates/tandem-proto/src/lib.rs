@@ -45,3 +45,15 @@ pub enum ProtoError {
     )]
     IncompatibleVersion { ours: u16, theirs: u16 },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::PROTOCOL_VERSION;
+
+    /// T-081 ya publicó la v8 con otro juego de mensajes; T-082 debe ir por encima para que
+    /// dos binarios con mensajes distintos nunca se acepten como compatibles.
+    #[test]
+    fn la_version_queda_por_encima_de_la_de_t081() {
+        assert_eq!(PROTOCOL_VERSION, 9);
+    }
+}
