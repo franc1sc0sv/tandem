@@ -17,7 +17,7 @@ mod endpoint;
 mod error;
 mod verify;
 
-pub use control::ControlStream;
+pub use control::{ControlReceiver, ControlSender, ControlStream};
 pub use endpoint::{Connection, Endpoint};
 pub use error::TransportError;
 pub use verify::{PeerTrust, peer_public_key};

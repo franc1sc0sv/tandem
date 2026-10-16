@@ -265,3 +265,55 @@ async fn un_hello_de_otra_version_se_rechaza_en_los_dos_lados() {
     // binario) también fallaría con `IncompatibleVersion`.
     assert_eq!(opened.unwrap().1, current);
 }
+
+/// Con el stream partido, los dos lados pueden mandar mucho a la vez: cada uno
+/// sigue leyendo mientras el control de flujo frena su escritura.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stream_partido_escribe_y_lee_a_la_vez_en_los_dos_sentidos() {
+    let mac = identity(1);
+    let pc = identity(2);
+    let mac_ep = endpoint(&mac, trusting(&[&pc]));
+    let pc_ep = endpoint(&pc, trusting(&[&mac]));
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+    let hello = Hello::new(Peer::Agent(Machine::Mac));
+    let (opened, accepted) =
+        within(async { tokio::join!(to_pc.open_control(&hello), to_mac.accept_control(&hello)) })
+            .await;
+
+    // Más de lo que cabe en las ventanas de QUIC, en los dos sentidos.
+    const FRAMES: usize = 64;
+    let block = vec![0xA5u8; 128 * 1024];
+    async fn exchange(stream: tandem_link::transport::ControlStream, block: &[u8]) -> Vec<Vec<u8>> {
+        let (mut tx, mut rx) = stream.split();
+        let write = async {
+            for i in 0..FRAMES {
+                let mut b = block.to_vec();
+                b[0] = i as u8;
+                tx.send(&b).await.unwrap();
+            }
+            tx.finish().unwrap();
+        };
+        let read = async {
+            let mut got = Vec::new();
+            while let Some(b) = rx.recv::<Vec<u8>>().await.unwrap() {
+                got.push(b);
+            }
+            got
+        };
+        tokio::join!(write, read).1
+    }
+    let (a, b) = within(async {
+        tokio::join!(
+            exchange(opened.unwrap().0, &block),
+            exchange(accepted.unwrap().0, &block)
+        )
+    })
+    .await;
+    for got in [a, b] {
+        assert_eq!(got.len(), FRAMES);
+        for (i, b) in got.iter().enumerate() {
+            assert_eq!(b[0], i as u8);
+            assert_eq!(b.len(), block.len());
+        }
+    }
+}
