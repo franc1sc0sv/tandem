@@ -3,3 +3,12 @@
 .claude/settings.local.json
 CLAUDE.local.md
 node_modules/
+# Marcadores vacíos que crea el sandbox de Claude Code para bloquear rutas; nunca se versionan.
+/.mcp.json
+/.claude/.mcp.json
+/.claude/.claude/
+/.claude/launch.json
+/.claude/loop.md
+/.claude/output-styles
+/.claude/routines
+/.claude/scheduled_tasks.json

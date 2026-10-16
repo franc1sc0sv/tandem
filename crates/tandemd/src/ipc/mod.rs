@@ -4,7 +4,8 @@
 //! Habla los mensajes UI ↔ agente de `tandem-proto`: cada lado manda su [`Hello`]
 //! (el agente primero), y después la UI manda [`UiRequest`] y el agente contesta con
 //! [`AgentToUi`]. El agente además empuja [`AgentToUi::State`] cada vez que el estado cambia
-//! y [`AgentToUi::Txn`] con el avance de cada cambio de modo.
+//! y [`AgentToUi::Txn`] con el avance de cada cambio de modo, y [`AgentToUi::ManualSwitch`]
+//! cuando hay que cambiar a mano la entrada de un monitor.
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -27,6 +28,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 
 use crate::agent::Agent;
+use crate::display::manual_event_to_ui;
 
 pub mod mem;
 #[cfg(unix)]
@@ -141,6 +143,7 @@ where
     let mut states = agent.subscribe();
     states.mark_unchanged();
     let mut txns = agent.subscribe_txns();
+    let mut manual = agent.subscribe_manual();
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
@@ -161,6 +164,14 @@ where
                 // La UI vuelve a sincronizarse con el siguiente estado empujado.
                 Err(RecvError::Lagged(n)) => {
                     tracing::warn!("la UI se atrasó y perdió {n} avisos de transacción");
+                }
+                Err(RecvError::Closed) => return Ok(()),
+            },
+            event = manual.recv() => match event {
+                Ok(event) => conn.send(&AgentToUi::ManualSwitch(manual_event_to_ui(event))).await?,
+                // Un pedido perdido vence con su paso, y la UI lo ve en la transacción.
+                Err(RecvError::Lagged(n)) => {
+                    tracing::warn!("la UI se atrasó y perdió {n} pedidos de cambio manual");
                 }
                 Err(RecvError::Closed) => return Ok(()),
             },

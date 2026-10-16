@@ -8,6 +8,7 @@
 //! - [`store`]: el [`tandem_core::State`] persistido en JSON.
 //! - [`agent`]: el estado vivo del agente y las respuestas a la UI.
 //! - [`orchestrator`]: los cambios de modo como transacciones repartidas entre las dos máquinas.
+//! - [`display`]: los pasos de pantalla de esta máquina (entradas, escritorio, pantalla integrada).
 //! - [`power`]: Wake-on-LAN en la Mac y apagado limpio en la PC.
 //! - [`peer`]: el otro agente por el plano de control (pedirle pasos y atender los suyos).
 //! - [`ipc`]: la API local para la UI (Unix socket / named pipe).
@@ -18,6 +19,7 @@ pub mod agent;
 pub mod cli;
 pub mod config;
 pub mod daemon;
+pub mod display;
 pub mod ipc;
 pub mod logging;
 pub mod orchestrator;
@@ -28,6 +30,7 @@ pub mod store;
 
 pub use agent::Agent;
 pub use config::{AgentConfig, ConfigError, NetworkConfig, OrchestratorConfig, PowerConfig};
+pub use display::DisplaySteps;
 pub use orchestrator::{LocalSteps, NoPeer, Orchestrator, PeerLink, StepTimeouts, Unimplemented};
 pub use peer::PeerClient;
 pub use power::PowerSteps;

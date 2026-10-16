@@ -3,10 +3,12 @@
 use std::sync::{Arc, Mutex};
 
 use tandem_core::{Machine, Mode, Plan, State};
+use tandem_display::switcher::{ManualEvent, ManualSwitcher};
 use tandem_proto::{Reply, TxnEvent, UiCommand};
 use tokio::sync::{broadcast, watch};
 
 use crate::config::AgentConfig;
+use crate::display::DisplaySteps;
 use crate::orchestrator::{LocalSteps, Orchestrator, PeerLink, Unimplemented};
 use crate::store::{StateStore, StoreError};
 
@@ -24,6 +26,8 @@ pub struct Agent {
     /// guardado con el estado viejo puede terminar después de uno con el nuevo.
     persisting: Mutex<()>,
     orch: Orchestrator,
+    /// Los cambios de entrada que el usuario hace a mano y confirma desde la UI.
+    manual: Arc<ManualSwitcher>,
 }
 
 impl Agent {
@@ -39,6 +43,24 @@ impl Agent {
         store: StateStore,
         local: Arc<dyn LocalSteps>,
     ) -> Self {
+        Self::with_backends(cfg, store, local, Arc::new(ManualSwitcher::new()))
+    }
+
+    /// Con los backends reales de esta máquina ([`DisplaySteps::platform`]).
+    pub fn with_platform(cfg: AgentConfig, store: StateStore) -> Self {
+        let manual = Arc::new(ManualSwitcher::new());
+        let local = Arc::new(DisplaySteps::platform(&cfg, manual.clone()));
+        Self::with_backends(cfg, store, local, manual)
+    }
+
+    /// `manual` es el backend que `local` usa para los cambios a mano: sus pedidos
+    /// llegan a la UI y las respuestas de la UI vuelven a él.
+    pub fn with_backends(
+        cfg: AgentConfig,
+        store: StateStore,
+        local: Arc<dyn LocalSteps>,
+        manual: Arc<ManualSwitcher>,
+    ) -> Self {
         let state = store.load_or_initial(&cfg.desk);
         let orch = Orchestrator::new(cfg.machine, local, cfg.orchestrator.timeouts());
         Agent {
@@ -47,6 +69,7 @@ impl Agent {
             state: watch::Sender::new(state),
             persisting: Mutex::new(()),
             orch,
+            manual,
         }
     }
 
@@ -62,6 +85,11 @@ impl Agent {
     /// Avance de las transacciones, para la UI.
     pub fn subscribe_txns(&self) -> broadcast::Receiver<TxnEvent> {
         self.orch.subscribe()
+    }
+
+    /// Pedidos de cambio manual de entrada, para la UI.
+    pub fn subscribe_manual(&self) -> broadcast::Receiver<ManualEvent> {
+        self.manual.subscribe()
     }
 
     pub fn machine(&self) -> Machine {
@@ -129,6 +157,10 @@ impl Agent {
             }
             // La preferencia de la pantalla integrada no es un modo: llega con su tarea.
             UiCommand::SetBuiltin(_) => Reply::Rejected(NOT_IMPLEMENTED.into()),
+            UiCommand::AnswerManualSwitch { id, done } => match self.manual.answer(id, done) {
+                Ok(()) => Reply::Done,
+                Err(e) => Reply::Rejected(e.to_string()),
+            },
         }
     }
 
