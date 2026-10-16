@@ -1,0 +1,20 @@
+[package]
+name = "tandem-sim"
+description = "Simulación del puesto para pruebas: dos agentes en un proceso con backends simulados y fallos inyectados"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+tandem-core = { path = "../tandem-core" }
+tandem-link = { path = "../tandem-link" }
+tandem-proto = { path = "../tandem-proto" }
+tandemd = { path = "../tandemd" }
+tempfile.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time", "test-util"] }
+tracing.workspace = true
+
+[lints]
+workspace = true

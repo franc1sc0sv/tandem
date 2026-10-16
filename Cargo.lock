@@ -1525,6 +1525,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem-sim"
+version = "0.1.0"
+dependencies = [
+ "tandem-core",
+ "tandem-link",
+ "tandem-proto",
+ "tandemd",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "tandemd"
 version = "0.1.0"
 dependencies = [
