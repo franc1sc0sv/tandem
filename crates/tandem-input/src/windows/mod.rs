@@ -1,10 +1,13 @@
 //! Windows: captura e inyección de entrada.
 //!
-//! La traducción de eventos es portable y se prueba en Linux; solo el envío al sistema
-//! (`SendInput`, métricas del escritorio) va bajo `#[cfg(windows)]`.
+//! La lógica (traducción, filtros, watchdog) es portable y se prueba en Linux; solo
+//! las llamadas al sistema (`SendInput`, hooks, métricas del escritorio) van bajo
+//! `cfg(windows)`.
 //!
+//! - [`capture`]: captura de la entrada local (hooks de bajo nivel y Raw Input).
 //! - [`emulate`]: inyección con `SendInput` (scancodes, mouse absoluto, rueda).
 
+pub mod capture;
 pub mod emulate;
 
 /// Marca en `dwExtraInfo` de todo lo que inyecta Tandem ("TNDM"), para que la captura
