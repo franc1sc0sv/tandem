@@ -148,6 +148,18 @@ async fn start(
     peer: (PublicKey, u16),
     fake: FakeInputBackends,
 ) -> Running {
+    start_with(machine, identity, port, peer, fake, "").await
+}
+
+/// Como [`start`], con líneas de más en la sección `[input]`.
+async fn start_with(
+    machine: Machine,
+    identity: &Identity,
+    port: u16,
+    peer: (PublicKey, u16),
+    fake: FakeInputBackends,
+    input_extra: &str,
+) -> Running {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -165,7 +177,8 @@ async fn start(
         "[network]\nport = {port}\npeers = [{{ kind = \"usb4\", addr = \"{}\" }}]\n",
         loopback(peer.1)
     );
-    let cfg = AgentConfig::from_toml(&format!("machine = \"{machine}\"\n{network}{DESK}")).unwrap();
+    let desk = DESK.replacen("[input]\n", &format!("[input]\n{input_extra}"), 1);
+    let cfg = AgentConfig::from_toml(&format!("machine = \"{machine}\"\n{network}{desk}")).unwrap();
     let Daemon {
         agent,
         network,
@@ -441,5 +454,54 @@ async fn a_capture_that_fails_is_reported_and_retried() {
     })
     .await;
     mac.until_input(|s| s.problem.is_none()).await;
+    mac.stop().await;
+}
+
+/// El atajo de bloqueo se escribe con las teclas físicas de quien lo usa. La captura
+/// cambia Ctrl por Cmd antes de que la sesión vea las teclas: aun así, Ctrl+L en la PC
+/// tiene que bloquear el cursor.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
+    let (mac_id, pc_id) = (Identity::from_seed([15; 32]), Identity::from_seed([16; 32]));
+    let (mac_port, pc_port) = (free_port(), free_port());
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let shortcut = "lock_shortcut = [\"ControlLeft\", \"KeyL\"]\n";
+    let mac = start_with(
+        Machine::Mac,
+        &mac_id,
+        mac_port,
+        (pc_id.public_key(), pc_port),
+        mac_fake.clone(),
+        shortcut,
+    )
+    .await;
+    let pc = start_with(
+        Machine::Pc,
+        &pc_id,
+        pc_port,
+        (mac_id.public_key(), mac_port),
+        pc_fake.clone(),
+        shortcut,
+    )
+    .await;
+    pc.until_input(|s| s.session && s.server == Machine::Pc)
+        .await;
+    assert!(!pc.agent.input_status().locked);
+
+    let l = HidUsage::key(0x0F);
+    let ctrl = ModifierKey::ControlLeft.usage();
+    assert!(pc_fake.capture(key(ctrl, KeyState::Pressed)));
+    assert!(pc_fake.capture(key(l, KeyState::Pressed)));
+    pc.until_input(|s| s.locked).await;
+    assert!(pc_fake.capture(key(l, KeyState::Released)));
+    assert!(pc_fake.capture(key(ctrl, KeyState::Released)));
+
+    // Lo mismo otra vez lo desbloquea.
+    assert!(pc_fake.capture(key(ctrl, KeyState::Pressed)));
+    assert!(pc_fake.capture(key(l, KeyState::Pressed)));
+    pc.until_input(|s| !s.locked).await;
+    pc.stop().await;
     mac.stop().await;
 }

@@ -518,6 +518,8 @@ type Server = ServerDriver<backends::DynCapture>;
 async fn new_server(sh: &Arc<Shared>) -> Result<Server, String> {
     let (tx, rx) = mpsc::unbounded_channel();
     let sink = CaptureSink::new(tx, &sh.agent.config().input.remap, sh.me);
+    // La sesión ve las teclas ya reasignadas: el atajo, escrito con las físicas, también.
+    let lock_keys = sh.lock_keys.iter().map(|&k| sink.remap_key(k)).collect();
     let backends = sh.backends.clone();
     let capture = tokio::task::spawn_blocking(move || backends.capture(sink))
         .await
@@ -525,7 +527,7 @@ async fn new_server(sh: &Arc<Shared>) -> Result<Server, String> {
     let layout = sh.layout.borrow().clone();
     let cursor = first_cursor(layout.screens(sh.me));
     let session = ServerSession::new(sh.me, layout, cursor, sh.opts.session.resync_every)
-        .with_lock_shortcut(sh.lock_keys.clone());
+        .with_lock_shortcut(lock_keys);
     let driver = ServerDriver::new(session, capture, rx, sh.opts.session)
         .with_layouts(sh.layout.subscribe());
     let s = sh.clone();

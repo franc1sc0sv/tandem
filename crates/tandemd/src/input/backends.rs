@@ -12,7 +12,7 @@ use tandem_core::{Config, Machine};
 use tandem_display::desktop::{self, DesktopControl};
 use tandem_input::event::{Direction, ModifierRemap, RemapPolicy};
 use tandem_input::session::{Capture, Injector};
-use tandem_input::{InputEvent, Point, Screen};
+use tandem_input::{HidUsage, InputEvent, Point, Screen};
 use tandem_peripherals::{DeviceScanner, UsbId};
 use tandem_proto::InputPermission;
 use tokio::sync::mpsc;
@@ -179,6 +179,15 @@ impl CaptureSink {
     /// `false` si ya nadie recibe lo capturado: la captura tiene que soltar la entrada.
     pub fn send(&self, event: InputEvent) -> bool {
         self.tx.send(self.remap.apply(event)).is_ok()
+    }
+
+    /// Una tecla física como la ve quien recibe lo capturado. El atajo de bloqueo se
+    /// escribe con las teclas de esta máquina, pero la sesión las compara con lo ya
+    /// reasignado.
+    pub fn remap_key(&self, usage: HidUsage) -> HidUsage {
+        usage
+            .modifier()
+            .map_or(usage, |m| self.remap.map(m).usage())
     }
 }
 
@@ -349,7 +358,7 @@ mod platform {
 
 #[cfg(test)]
 mod tests {
-    use tandem_input::{HidUsage, KeyState, ModifierKey};
+    use tandem_input::{KeyState, ModifierKey};
 
     use super::*;
 
@@ -386,6 +395,24 @@ mod tests {
         assert_eq!(rx.try_recv().unwrap(), a);
         drop(rx);
         assert!(!pc.send(a), "sin receptor la captura tiene que soltar");
+    }
+
+    #[test]
+    fn keys_are_remapped_like_the_captured_events() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let policy = RemapPolicy::default();
+        let pc = CaptureSink::new(tx.clone(), &policy, Machine::Pc);
+        assert_eq!(
+            pc.remap_key(ModifierKey::ControlLeft.usage()),
+            ModifierKey::MetaLeft.usage()
+        );
+        let mac = CaptureSink::new(tx, &policy, Machine::Mac);
+        assert_eq!(
+            mac.remap_key(ModifierKey::MetaLeft.usage()),
+            ModifierKey::ControlLeft.usage()
+        );
+        let l = HidUsage::key(0x0F);
+        assert_eq!(pc.remap_key(l), l);
     }
 
     #[test]
