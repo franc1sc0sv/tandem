@@ -11,9 +11,13 @@ path = "src/bin/tandem-ddc.rs"
 
 [dependencies]
 anyhow.workspace = true
+# Directorio de datos de `tandem-ddc`, donde viven los perfiles del usuario.
+dirs.workspace = true
+serde.workspace = true
 tandem-core = { path = "../tandem-core" }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "sync"] }
+toml.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [
@@ -26,6 +30,7 @@ windows = { workspace = true, features = [
 
 [dev-dependencies]
 proptest.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util", "time"] }
 
 [lints]
