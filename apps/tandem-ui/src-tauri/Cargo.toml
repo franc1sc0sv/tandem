@@ -1,0 +1,38 @@
+[package]
+name = "tandem-ui"
+description = "UI de Tandem (Tauri 2): ventana principal y cliente de la IPC local de tandemd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# La app de Tauri necesita WebKitGTK en Linux; sin la feature `app` el crate es solo la
+# lógica portable (estado del agente por la IPC) y se prueba en cualquier sistema.
+[features]
+app = ["dep:tauri", "dep:tauri-build"]
+
+[lib]
+name = "tandem_ui"
+
+[[bin]]
+name = "tandem-ui"
+path = "src/main.rs"
+required-features = ["app"]
+
+[dependencies]
+serde.workspace = true
+tandem-core = { path = "../../../crates/tandem-core" }
+tandem-proto = { path = "../../../crates/tandem-proto" }
+tandemd = { path = "../../../crates/tandemd" }
+tauri = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["time"] }
+
+[build-dependencies]
+tauri-build = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread", "sync", "test-util", "time"] }
+
+[lints]
+workspace = true

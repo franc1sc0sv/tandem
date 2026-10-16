@@ -12,3 +12,5 @@ node_modules/
 /.claude/output-styles
 /.claude/routines
 /.claude/scheduled_tasks.json
+apps/tandem-ui/dist/
+apps/tandem-ui/src-tauri/gen/

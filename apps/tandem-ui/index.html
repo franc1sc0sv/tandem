@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tandem</title>
+  </head>
+  <body>
+    <div class="app">
+      <header class="top">
+        <div class="logo">
+          <svg viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <circle cx="11.5" cy="16" r="8" stroke="#7aa7e6" stroke-width="2.4" />
+            <circle cx="20.5" cy="16" r="8" stroke="#a99be8" stroke-width="2.4" />
+          </svg>
+          Tandem
+        </div>
+        <span class="spacer"></span>
+        <span class="pill" id="agent-pill"><span class="dot warn" id="agent-dot"></span> <b id="agent-text">Conectando…</b></span>
+      </header>
+      <main class="stage" id="stage" aria-live="polite"></main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

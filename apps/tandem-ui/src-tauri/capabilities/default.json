@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Lo que la ventana principal puede pedirle al núcleo de Tauri.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
