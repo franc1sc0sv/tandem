@@ -2,10 +2,13 @@
 //!
 //! Cada enlace configurado (USB4, Ethernet, Wi-Fi) tiene su propia conexión
 //! con el otro agente y un ping de salud cada segundo. El enlace activo es
-//! siempre el sano de mayor prioridad: si cae, se pasa al siguiente en cuanto
-//! falla un solo ping (sin esperar al timeout de inactividad de QUIC) y, si
-//! vuelve uno mejor, se regresa a él. Cada cambio sale como [`LinkEvent`], en
-//! orden.
+//! el sano de mayor prioridad: si cae, se pasa al siguiente en cuanto falla un
+//! solo ping (sin esperar al timeout de inactividad de QUIC). Para volver a un
+//! enlace mejor que ya se cayó, este tiene que llevar
+//! [`HealthConfig::settle`] respondiendo sin cortes (histéresis: un cable que
+//! parpadea no arrastra el tráfico de un lado a otro), y no se sube mientras haya
+//! una transacción en curso ([`LinkManager::hold`]). Cada cambio sale como
+//! [`LinkEvent`], en orden.
 //!
 //! El plano de datos solo existe sobre cable: [`LinkManager::data_plane`]
 //! devuelve [`PlaneError::RequiresCable`] si el activo es Wi-Fi, y no hay
@@ -42,6 +45,9 @@ pub struct HealthConfig {
     pub ping_timeout: Duration,
     /// Tope para abrir la conexión de un enlace caído.
     pub connect_timeout: Duration,
+    /// Cuánto tiene que responder sin cortes un enlace que ya se cayó antes de
+    /// volver a él. Con 0 se vuelve en el primer ping bueno.
+    pub settle: Duration,
 }
 
 impl Default for HealthConfig {
@@ -50,6 +56,7 @@ impl Default for HealthConfig {
             ping_interval: Duration::from_secs(1),
             ping_timeout: Duration::from_millis(250),
             connect_timeout: Duration::from_secs(1),
+            settle: Duration::from_secs(3),
         }
     }
 }
@@ -92,7 +99,27 @@ impl<H> Snapshot<H> {
 /// conexiones de todos los enlaces.
 pub struct LinkManager<H> {
     state: watch::Receiver<Snapshot<H>>,
+    holds: Arc<watch::Sender<usize>>,
     task: JoinHandle<()>,
+}
+
+/// Mientras exista, el gestor no cambia de enlace salvo que el activo caiga.
+/// Al soltar el último, si hay un enlace mejor ya asentado, se pasa a él enseguida.
+#[must_use = "la retención termina al soltarla"]
+pub struct LinkHold {
+    holds: Arc<watch::Sender<usize>>,
+}
+
+impl fmt::Debug for LinkHold {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("LinkHold").finish_non_exhaustive()
+    }
+}
+
+impl Drop for LinkHold {
+    fn drop(&mut self) {
+        self.holds.send_modify(|n| *n = n.saturating_sub(1));
+    }
 }
 
 type Report<H> = (LinkKind, Option<(H, Duration)>);
@@ -115,13 +142,15 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
         {
             return Err(ManagerError::ZeroDuration);
         }
-        let mut table = LinkTable::new(candidates)?;
+        let mut table = LinkTable::new(candidates, config.settle)?;
         let (state_tx, state) = watch::channel(Snapshot {
             active: None,
             links: table.statuses(),
         });
         let (event_tx, events) = mpsc::unbounded_channel();
         let (report_tx, mut reports) = mpsc::unbounded_channel::<Report<H>>();
+        let holds = Arc::new(watch::Sender::new(0usize));
+        let mut held = holds.subscribe();
 
         let prober = Arc::new(prober);
         let mut links = JoinSet::new();
@@ -135,8 +164,18 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
         // aborta los pings.
         let task = tokio::spawn(async move {
             let _links = links;
-            while let Some((kind, up)) = reports.recv().await {
-                let event = table.report(kind, up);
+            loop {
+                let event = tokio::select! {
+                    report = reports.recv() => {
+                        let Some((kind, up)) = report else { return };
+                        let held = *held.borrow_and_update() > 0;
+                        table.report(kind, up, Instant::now(), held)
+                    }
+                    Ok(()) = held.changed() => {
+                        let held = *held.borrow_and_update() > 0;
+                        table.reevaluate(Instant::now(), held)
+                    }
+                };
                 // Primero la foto: quien reciba el evento ya ve el estado nuevo.
                 state_tx.send_replace(snapshot(&table));
                 if let Some(e) = event {
@@ -151,7 +190,18 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
                 }
             }
         });
-        Ok((Self { state, task }, events))
+        Ok((Self { state, holds, task }, events))
+    }
+}
+
+impl<H> LinkManager<H> {
+    /// Retiene el enlace activo durante una transacción: los pasos de un mismo
+    /// cambio no saltan de enlace a medias salvo que el activo caiga.
+    pub fn hold(&self) -> LinkHold {
+        self.holds.send_modify(|n| *n += 1);
+        LinkHold {
+            holds: self.holds.clone(),
+        }
     }
 }
 

@@ -150,12 +150,99 @@ async fn caída_del_preferido_conmuta_en_menos_de_1_5_s_y_vuelve() {
 
     rig.net.set(addr(Usb4), Wire::Up);
     let took = rig.until_active(Some(Usb4)).await;
-    assert!(took <= Duration::from_secs(2), "volvió en {took:?}");
+    // Hasta el próximo ping (1 s) y después 3 s de pings buenos (histéresis).
+    let settle = HealthConfig::default().settle;
+    assert!(
+        took >= settle && took <= settle + Duration::from_millis(1100),
+        "volvió en {took:?}"
+    );
     // Es una conexión nueva, no la que se cortó.
     assert_ne!(rig.manager.active().unwrap().handle, first_usb4);
 }
 
 const ALL_KINDS: [LinkKind; 3] = LinkKind::ALL;
+
+/// Corta y repone el USB4 cada 350 ms (un ciclo de 700 ms) durante `cycles` ciclos.
+async fn flap(net: &FakeNet, cycles: u32) {
+    for _ in 0..cycles {
+        net.set(addr(LinkKind::Usb4), Wire::Cut);
+        time::sleep(Duration::from_millis(350)).await;
+        net.set(addr(LinkKind::Usb4), Wire::Up);
+        time::sleep(Duration::from_millis(350)).await;
+    }
+}
+
+/// Eventos que ya llegaron, sin esperar más.
+fn drain(rig: &mut Rig) -> Vec<LinkEvent> {
+    let mut out = Vec::new();
+    while let Ok(e) = rig.events.try_recv() {
+        rig.seen.push(e);
+        out.push(e);
+    }
+    out
+}
+
+#[tokio::test(start_paused = true)]
+async fn un_usb4_que_parpadea_no_mueve_el_enlace_y_vuelve_tras_asentarse() {
+    use LinkKind::*;
+    // En distintas fases respecto del ping.
+    for offset_ms in [0u64, 100, 250, 400, 600, 999] {
+        let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
+        rig.until_active(Some(Usb4)).await;
+        time::sleep(Duration::from_millis(offset_ms)).await;
+
+        // El primer ping que cae en un corte pasa a Ethernet; después, 30 s de
+        // parpadeo sin ningún cambio.
+        let net = rig.net.clone();
+        let flapping = tokio::spawn(async move { flap(&net, 43).await });
+        rig.until_active(Some(Ethernet)).await;
+        flapping.await.unwrap();
+        let during = drain(&mut rig);
+        assert!(during.is_empty(), "desfase {offset_ms} ms: {during:?}");
+        assert_eq!(rig.manager.active().unwrap().kind, Ethernet);
+
+        // Quieto: vuelve al USB4 a lo sumo tras el próximo ping y 3 s de pings
+        // buenos. Puede ser antes: un corte entre dos pings no se ve, así que la
+        // racha pudo empezar durante los últimos ciclos.
+        let took = rig.until_active(Some(Usb4)).await;
+        let settle = HealthConfig::default().settle;
+        assert!(
+            took <= settle + Duration::from_millis(1100),
+            "desfase {offset_ms} ms: volvió en {took:?}"
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn con_una_transacción_en_curso_solo_se_cambia_si_cae_el_activo() {
+    use LinkKind::*;
+    let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
+    rig.until_active(Some(Usb4)).await;
+    rig.net.set(addr(Usb4), Wire::Cut);
+    rig.until_active(Some(Ethernet)).await;
+
+    let hold = rig.manager.hold();
+    let second = rig.manager.hold();
+    rig.net.set(addr(Usb4), Wire::Up);
+    time::sleep(Duration::from_secs(10)).await;
+    assert!(drain(&mut rig).is_empty());
+    assert_eq!(rig.manager.active().unwrap().kind, Ethernet);
+
+    // Hasta soltar la última retención no se sube; después, enseguida.
+    drop(second);
+    time::sleep(Duration::from_millis(1)).await;
+    assert!(drain(&mut rig).is_empty());
+    let start = Instant::now();
+    drop(hold);
+    rig.until_active(Some(Usb4)).await;
+    assert!(start.elapsed() < Duration::from_millis(10));
+
+    // Con una retención, si cae el activo se conmuta igual.
+    let _hold = rig.manager.hold();
+    rig.net.set(addr(Usb4), Wire::Cut);
+    let took = rig.until_active(Some(Ethernet)).await;
+    assert!(took < MAX_SWITCH, "{took:?}");
+}
 
 #[tokio::test(start_paused = true)]
 async fn la_conmutación_respeta_el_presupuesto_en_cualquier_fase_del_ping() {
