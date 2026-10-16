@@ -26,9 +26,11 @@ windows = { workspace = true, features = [
 ] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+objc2.workspace = true
+# NSEvent: inyección de multimedia (T-023) y lectura de `subtype`/`data1` en la captura (T-022).
 objc2-app-kit = { workspace = true, features = ["std", "NSEvent", "NSGraphicsContext", "objc2-core-foundation", "objc2-core-graphics"] }
-objc2-core-foundation = { workspace = true, features = ["std", "CFCGTypes"] }
-objc2-core-graphics = { workspace = true, features = ["std", "CGDirectDisplay", "CGError", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation"] }
+objc2-core-foundation = { workspace = true, features = ["std", "CFCGTypes", "CFBase", "CFDictionary", "CFMachPort", "CFNumber", "CFPreferences", "CFRunLoop", "CFString"] }
+objc2-core-graphics = { workspace = true, features = ["std", "libc", "CGDirectDisplay", "CGError", "CGEvent", "CGEventSource", "CGEventTypes", "CGRemoteOperation"] }
 objc2-foundation = { workspace = true, features = ["std", "NSString", "NSUserDefaults"] }
 
 [lints]
