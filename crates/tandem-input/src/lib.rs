@@ -4,7 +4,7 @@
 //! - [`geometry`]: pantallas visibles de cada máquina y cruce de bordes entre ellas.
 //! - [`macos`]: inyección en macOS (traducción portable + CoreGraphics).
 //! - [`session`]: sesión de entrada sobre el enlace (servidor y cliente).
-//! - [`windows`]: captura e inyección en Windows (traducción portable, envío bajo `cfg(windows)`).
+//! - [`windows`]: captura e inyección en Windows (lógica portable; las llamadas al sistema, `cfg(windows)`).
 
 pub mod event;
 pub mod geometry;

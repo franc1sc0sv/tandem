@@ -1448,6 +1448,7 @@ dependencies = [
 name = "tandem-input"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bytes",
  "keycode",
  "objc2-app-kit",
