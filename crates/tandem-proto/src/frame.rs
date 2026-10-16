@@ -263,6 +263,28 @@ mod tests {
         }
     }
 
+    /// Un agente de antes de T-084 no anuncia capacidades: se lo rechaza en el saludo,
+    /// con un error que lo dice.
+    #[test]
+    fn an_agent_without_capabilities_is_rejected_with_a_clear_version_error() {
+        let old = Hello {
+            version: crate::CAPABILITIES_SINCE - 1,
+            peer: Peer::Agent(tandem_core::Machine::Pc),
+        };
+        let e = decode_hello(&encode(&old).unwrap()).unwrap_err();
+        assert_eq!(
+            e,
+            ProtoError::IncompatibleVersion {
+                ours: PROTOCOL_VERSION,
+                theirs: 9,
+            }
+        );
+        let text = e.to_string();
+        assert!(text.contains("versión de protocolo incompatible"), "{text}");
+        assert!(text.contains("sin anuncio de capacidades"), "{text}");
+        assert!(text.contains("la misma versión de Tandem"), "{text}");
+    }
+
     #[test]
     fn hello_of_other_version_with_another_shape_is_still_a_version_error() {
         // Un Hello futuro que cambió todo menos el primer campo.

@@ -33,7 +33,7 @@ fn endpoint(dir: &std::path::Path, name: &str) -> PathBuf {
 async fn reads_state_from_a_running_agent() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = AgentConfig::from_toml(CONFIG).unwrap();
-    let mut saved = State::initial(&cfg.desk);
+    let mut saved = State::initial(&cfg.desk, Machine::Mac);
     saved.owner.insert("m34".into(), Machine::Pc);
     let store = StateStore::new(dir.path().join("state.json"));
     store.save(&saved).unwrap();

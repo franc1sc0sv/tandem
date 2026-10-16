@@ -158,7 +158,7 @@ impl<C: Capture> ServerDriver<C> {
             apply_local(&mut self.capture, out);
         }
         self.publish();
-        tracing::info!("sesión de entrada (servidor) terminada: {end}");
+        tracing::info!("sesión de entrada (con el teclado) terminada: {end}");
         end
     }
 
@@ -395,7 +395,7 @@ impl<I: Injector> ClientDriver<I> {
         let release = self.session.link_lost();
         inject(&mut self.injector, release);
         publish(&self.here, false);
-        tracing::info!("sesión de entrada (cliente) terminada: {end}");
+        tracing::info!("sesión de entrada (sin el teclado) terminada: {end}");
         end
     }
 

@@ -120,16 +120,24 @@ impl MenuView {
     pub fn of(snapshot: &Snapshot) -> Self {
         match snapshot {
             Snapshot::Connected {
-                desk, state, peer, ..
+                agent,
+                desk,
+                state,
+                peer,
+                ..
             } => {
                 let current = mode_of(desk, state);
                 let mode = current.map_or("sin monitores", ModeKey::label);
-                let pc = if state.pc_on {
-                    "PC encendida"
+                // Esta máquina está prendida (es la que muestra el menú): se dice cómo
+                // está la otra, sea cual sea (DESIGN §3.7).
+                let other = agent.other();
+                let name = tandemd::capabilities::label(other);
+                let power = if state.is_on(other) {
+                    format!("{name} encendida")
                 } else {
-                    "PC apagada"
+                    format!("{name} apagada")
                 };
-                let mut status = format!("{mode} · {pc}");
+                let mut status = format!("{mode} · {power}");
                 if *peer == PeerView::Unpaired {
                     status.push_str(" · sin par emparejado");
                 }
@@ -228,7 +236,10 @@ wiring = { pc = "displayport", mac = "hdmi" }
     fn state(m34: Machine, m32: Machine) -> State {
         State {
             owner: [("m34".into(), m34), ("m32".into(), m32)].into(),
-            pc_on: m34 == Machine::Pc || m32 == Machine::Pc,
+            on: tandem_core::Powered {
+                mac: true,
+                pc: m34 == Machine::Pc || m32 == Machine::Pc,
+            },
             builtin_pref: BuiltinDisplay::Off,
         }
     }
@@ -241,7 +252,10 @@ wiring = { pc = "displayport", mac = "hdmi" }
         assert_eq!(mode_of(&d, &state(Mac, Mac)), Some(ModeKey::SoloMac));
         assert_eq!(mode_of(&d, &state(Pc, Pc)), Some(ModeKey::SoloPc));
         assert_eq!(mode_of(&d, &state(Pc, Mac)), Some(ModeKey::Shared));
-        assert_eq!(mode_of(&d, &State::initial(&d)), Some(ModeKey::SoloMac));
+        assert_eq!(
+            mode_of(&d, &State::initial(&d, Machine::Mac)),
+            Some(ModeKey::SoloMac)
+        );
         let mut unknown = state(Mac, Mac);
         unknown.owner.clear();
         assert_eq!(mode_of(&d, &unknown), Some(ModeKey::SoloMac));
@@ -288,6 +302,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             peer: PeerView::Unpaired,
             pairing: PairingView::Idle,
             input: InputStatus::new(Mac).into(),
+            caps: crate::session::test_caps(Mac),
         };
         assert_eq!(mode_for(ModeKey::SoloPc, &ok), Ok(Mode::SoloPc));
         let down = Snapshot::Unavailable {
@@ -327,6 +342,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             peer: paired(),
             pairing: PairingView::Idle,
             input: InputStatus::new(Mac).into(),
+            caps: crate::session::test_caps(Mac),
         });
         assert_eq!(v.current, Some(ModeKey::Shared));
         assert!(v.modes_enabled);
@@ -336,10 +352,11 @@ wiring = { pc = "displayport", mac = "hdmi" }
         let off = MenuView::of(&Snapshot::Connected {
             agent: Mac,
             desk: desk(),
-            state: State::initial(&desk()),
+            state: State::initial(&desk(), Machine::Mac),
             peer: paired(),
             pairing: PairingView::Idle,
             input: InputStatus::new(Mac).into(),
+            caps: crate::session::test_caps(Mac),
         });
         assert_eq!(off.status, "Solo Mac · PC apagada");
 
@@ -347,12 +364,27 @@ wiring = { pc = "displayport", mac = "hdmi" }
         let alone = MenuView::of(&Snapshot::Connected {
             agent: Mac,
             desk: desk(),
-            state: State::initial(&desk()),
+            state: State::initial(&desk(), Machine::Mac),
             peer: PeerView::Unpaired,
             pairing: PairingView::Idle,
             input: InputStatus::new(Mac).into(),
+            caps: crate::session::test_caps(Mac),
         });
         assert_eq!(alone.status, "Solo Mac · PC apagada · sin par emparejado");
+
+        // En la PC: la que se dice apagada es la Mac, nunca la PC misma.
+        let mut s = State::initial(&desk(), Pc);
+        s.owner.values_mut().for_each(|o| *o = Pc);
+        let on_pc = MenuView::of(&Snapshot::Connected {
+            agent: Pc,
+            desk: desk(),
+            state: s,
+            peer: paired(),
+            pairing: PairingView::Idle,
+            input: InputStatus::new(Pc).into(),
+            caps: crate::session::test_caps(Pc),
+        });
+        assert_eq!(on_pc.status, "Solo Windows · Mac apagada");
     }
 
     #[test]
@@ -375,6 +407,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             peer: paired(),
             pairing: PairingView::Idle,
             input: InputStatus::new(Mac).into(),
+            caps: crate::session::test_caps(Mac),
         };
         let v = MenuView::of(&empty);
         assert!(!v.modes_enabled);

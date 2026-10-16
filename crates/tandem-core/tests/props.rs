@@ -1,24 +1,27 @@
 //! Invariantes del núcleo con pruebas de propiedades.
 //!
 //! El ejecutor de prueba lleva un modelo "físico" del puesto (qué muestra cada monitor,
-//! si la PC está prendida, qué hace la pantalla integrada) que solo cambia cuando un paso
-//! se ejecuta con éxito. Así se comprueba lo que de verdad le importa al usuario, no solo
-//! lo que `State` cree.
+//! qué máquinas están prendidas, qué hace la pantalla integrada) que solo cambia cuando un
+//! paso se ejecuta con éxito. Así se comprueba lo que de verdad le importa al usuario, no
+//! solo lo que `State` cree.
+//!
+//! Los estados se generan desde las dos perspectivas (DESIGN §3.7): orquesta la Mac con
+//! la PC prendida o apagada, u orquesta la PC con la Mac prendida o suspendida.
 
 use std::collections::BTreeMap;
 use std::future::Future;
 
 use proptest::prelude::*;
 use tandem_core::{
-    BuiltinDisplay, Config, Executor, Input, Machine, Mode, MonitorConfig, MonitorId, Plan, State,
-    Step, TxnError, run,
+    Abilities, BuiltinDisplay, Config, Executor, Input, Machine, Mode, MonitorConfig, MonitorId,
+    Plan, Powered, State, Step, TxnError, run,
 };
 
 /// Lo que se ve en el escritorio real.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Physical {
     owner: BTreeMap<MonitorId, Machine>,
-    pc_on: bool,
+    on: Powered,
     builtin: BuiltinDisplay,
 }
 
@@ -26,14 +29,17 @@ impl Physical {
     fn from_state(cfg: &Config, s: &State) -> Self {
         Physical {
             owner: s.owner.clone(),
-            pc_on: s.pc_on,
+            on: s.on,
             builtin: s.builtin_effective(cfg),
         }
     }
 
-    /// La Mac tiene dónde mirar: un monitor externo o la pantalla integrada encendida.
+    /// La Mac tiene dónde mirar si está prendida: un monitor externo o la pantalla
+    /// integrada encendida.
     fn mac_visible(&self) -> bool {
-        self.owner.values().any(|m| *m == Machine::Mac) || self.builtin != BuiltinDisplay::Off
+        !self.on.mac
+            || self.owner.values().any(|m| *m == Machine::Mac)
+            || self.builtin != BuiltinDisplay::Off
     }
 }
 
@@ -50,13 +56,13 @@ impl Executor for Sim {
         self.calls += 1;
         let r = if Some(n) == self.fail_at {
             Err(format!("fallo inyectado en la llamada {n}"))
-        } else if matches!(step, Step::SwitchInput { .. }) && !self.phys.pc_on {
-            // Las entradas las cambia la PC (DESIGN §8): apagada no puede.
-            Err(format!("la PC está apagada (llamada {n})"))
+        } else if let Some(m) = needs(step).filter(|m| !self.phys.on.is_on(*m)) {
+            // Una máquina apagada no hace pasos (ni cambia entradas, ni toca su escritorio).
+            Err(format!("{m} está apagada (llamada {n})"))
         } else {
             match step {
-                Step::PowerOnPc => self.phys.pc_on = true,
-                Step::PowerOffPc => self.phys.pc_on = false,
+                Step::PowerOn { machine } => self.phys.on.set(*machine, true),
+                Step::PowerOff { machine } => self.phys.on.set(*machine, false),
                 Step::SwitchInput { monitor, to, .. } => {
                     self.phys.owner.insert(monitor.clone(), *to);
                 }
@@ -66,6 +72,18 @@ impl Executor for Sim {
             Ok(())
         };
         async move { r }
+    }
+}
+
+/// La máquina que tiene que estar prendida para hacer el paso.
+fn needs(step: &Step) -> Option<Machine> {
+    match step {
+        Step::PowerOn { machine } => Some(machine.other()),
+        Step::PowerOff { machine } => Some(*machine),
+        Step::SwitchInput { by, .. } => Some(*by),
+        Step::Attach { machine, .. } | Step::Detach { machine, .. } => Some(*machine),
+        Step::SetBuiltin { .. } => Some(Machine::Mac),
+        Step::UpdateInputGeometry => None,
     }
 }
 
@@ -124,10 +142,11 @@ fn wired_machine(m: &MonitorConfig, pick: bool) -> Machine {
     wired[usize::from(pick) % wired.len()]
 }
 
-/// Estado coherente con el cableado: cada monitor muestra una máquina cableada y,
-/// si alguno muestra la PC, la PC está prendida, salvo tras un corte de corriente
-/// (`cut`): la PC se apagó sola y sus monitores siguen en su entrada, en negro.
-fn state(cfg: &Config) -> impl Strategy<Value = State> + use<> {
+/// Estado coherente con el cableado visto desde `me`: `me` está prendida, cada monitor
+/// muestra una máquina cableada y, si alguno muestra la otra, la otra está prendida, salvo
+/// tras un corte de corriente (`cut`): se apagó sola y sus monitores siguen en su entrada,
+/// en negro.
+fn state(cfg: &Config, me: Machine) -> impl Strategy<Value = State> + use<> {
     let cfg = cfg.clone();
     let n = cfg.monitors.len();
     (
@@ -136,17 +155,20 @@ fn state(cfg: &Config) -> impl Strategy<Value = State> + use<> {
         builtin(),
         proptest::bool::weighted(0.2),
     )
-        .prop_map(move |(picks, pc_on, builtin_pref, cut)| {
+        .prop_map(move |(picks, other_on, builtin_pref, cut)| {
             let owner: BTreeMap<_, _> = cfg
                 .monitors
                 .iter()
                 .zip(picks)
                 .map(|(m, p)| (m.id.clone(), wired_machine(m, p)))
                 .collect();
-            let pc_on = !cut && (pc_on || owner.values().any(|o| *o == Machine::Pc));
+            let other = me.other();
+            let other_on = !cut && (other_on || owner.values().any(|o| *o == other));
+            let mut on = Powered::only(me);
+            on.set(other, other_on);
             State {
                 owner,
-                pc_on,
+                on,
                 builtin_pref,
             }
         })
@@ -160,10 +182,11 @@ fn mode(cfg: &Config) -> impl Strategy<Value = Mode> + use<> {
     prop_oneof![Just(Mode::SoloMac), Just(Mode::SoloPc), shared]
 }
 
-/// Puesto completo: configuración, estado de partida y modo destino.
+/// Puesto completo: configuración, estado de partida (desde la Mac o desde la PC) y
+/// modo destino.
 fn scenario() -> impl Strategy<Value = (Config, State, Mode)> {
-    config().prop_flat_map(|cfg| {
-        let s = state(&cfg);
+    (config(), machine()).prop_flat_map(|(cfg, me)| {
+        let s = state(&cfg, me);
         let m = mode(&cfg);
         (Just(cfg), s, m)
     })
@@ -172,7 +195,7 @@ fn scenario() -> impl Strategy<Value = (Config, State, Mode)> {
 /// El plan, o `None` si el modo pide algo que el cableado no permite (y entonces
 /// el error debe decir exactamente eso).
 fn plan_or_skip(cfg: &Config, s: &State, mode: &Mode) -> Option<Plan> {
-    match Plan::to_mode(cfg, s, mode) {
+    match Plan::to_mode(cfg, s, mode, &Abilities::pc_switches(cfg)) {
         Ok(p) => Some(p),
         Err(e) => {
             let target = mode.assignment(cfg);
@@ -199,16 +222,24 @@ proptest! {
         prop_assert!(report.is_ok());
         prop_assert_eq!(&s.owner, &mode.assignment(&cfg));
         prop_assert_eq!(&exec.phys.owner, &s.owner);
-        prop_assert_eq!(exec.phys.builtin, s.builtin_effective(&cfg));
-        if s.owner.values().any(|m| *m == Machine::Pc) {
-            prop_assert!(s.pc_on && exec.phys.pc_on, "la PC muestra algo, así que debe estar prendida");
+        // La pantalla integrada de una Mac apagada no se toca: no hay nada que ver.
+        if s.is_on(Machine::Mac) {
+            prop_assert_eq!(exec.phys.builtin, s.builtin_effective(&cfg));
         }
+        for m in [Machine::Mac, Machine::Pc] {
+            if s.owner.values().any(|o| *o == m) {
+                prop_assert!(s.is_on(m) && exec.phys.on.is_on(m), "{} muestra algo, así que debe estar prendida", m);
+            }
+        }
+        prop_assert_eq!(exec.phys.on, s.on);
         prop_assert!(exec.phys.mac_visible(), "la Mac quedó sin pantalla: {:?}", exec.phys);
-        prop_assert!(s.is_visible(&cfg, Machine::Mac));
+        if s.is_on(Machine::Mac) {
+            prop_assert!(s.is_visible(&cfg, Machine::Mac));
+        }
     }
 
     /// Falle el paso que falle, la vuelta atrás deja el puesto (y `State`) como estaba.
-    /// Lo único que puede quedar es la PC prendida, porque encenderla no se deshace.
+    /// Lo único que puede quedar es una máquina prendida, porque encenderla no se deshace.
     #[test]
     fn rollback_restores_state((cfg, start, mode) in scenario(), fail in any::<prop::sample::Index>()) {
         let Some(plan) = plan_or_skip(&cfg, &start, &mode) else { return Ok(()) };
@@ -225,34 +256,39 @@ proptest! {
             TxnError::RolledBack { step: plan.steps[k].clone(), error: format!("fallo inyectado en la llamada {k}") }
         );
 
-        let powered_on = plan.steps[..k].contains(&Step::PowerOnPc);
         prop_assert_eq!(&s.owner, &start.owner);
         prop_assert_eq!(s.builtin_pref, start.builtin_pref);
-        prop_assert_eq!(s.pc_on, start.pc_on || powered_on);
+        for m in [Machine::Mac, Machine::Pc] {
+            let powered_on = plan.steps[..k].contains(&Step::PowerOn { machine: m });
+            prop_assert_eq!(s.is_on(m), start.is_on(m) || powered_on);
+        }
 
         prop_assert_eq!(&exec.phys.owner, &before.owner);
         prop_assert_eq!(exec.phys.builtin, before.builtin);
-        prop_assert_eq!(exec.phys.pc_on, s.pc_on);
+        prop_assert_eq!(exec.phys.on, s.on);
         prop_assert!(exec.phys.mac_visible(), "la Mac quedó sin pantalla: {:?}", exec.phys);
     }
 
-    /// El apagado limpio nunca apaga la PC mientras muestra algo y deja la Mac con pantalla.
+    /// El apagado limpio de la otra máquina nunca la apaga mientras muestra algo, y la
+    /// que queda tiene todos los monitores.
     #[test]
-    fn shutdown_leaves_mac_visible((cfg, start, _mode) in scenario()) {
-        let Some(plan) = Plan::shutdown_pc(&cfg, &start).ok() else {
-            // Solo puede fallar si algún monitor de la PC no está cableado a la Mac.
-            prop_assert!(cfg.monitors.iter().any(|m| start.owner[&m.id] == Machine::Pc && m.input_for(Machine::Mac).is_none()));
+    fn shutdown_leaves_everything_on_the_machine_that_stays((cfg, start, _mode) in scenario()) {
+        let me = [Machine::Mac, Machine::Pc].into_iter().find(|m| start.is_on(*m) && !start.is_on(m.other())).unwrap_or(Machine::Mac);
+        let off = me.other();
+        let Some(plan) = Plan::power_off(&cfg, &start, off, &Abilities::pc_switches(&cfg)).ok() else {
+            // Solo puede fallar si algún monitor de la que se apaga no está cableado a la otra.
+            prop_assert!(cfg.monitors.iter().any(|m| start.owner[&m.id] == off && m.input_for(me).is_none()));
             return Ok(());
         };
         let mut s = start.clone();
         let mut exec = Sim { phys: Physical::from_state(&cfg, &start), calls: 0, fail_at: None };
         pollster::block_on(run(&cfg, &mut s, &plan, &mut exec)).unwrap();
 
-        prop_assert!(!exec.phys.pc_on);
-        prop_assert!(exec.phys.owner.values().all(|m| *m == Machine::Mac));
+        prop_assert!(!exec.phys.on.is_on(off));
+        prop_assert!(exec.phys.owner.values().all(|m| *m == me));
         prop_assert!(exec.phys.mac_visible());
-        if let Some(pos) = plan.steps.iter().position(|st| *st == Step::PowerOffPc) {
-            prop_assert_eq!(pos, plan.steps.len() - 1, "apagar la PC es lo último");
+        if let Some(pos) = plan.steps.iter().position(|st| *st == Step::PowerOff { machine: off }) {
+            prop_assert_eq!(pos, plan.steps.len() - 1, "apagar es lo último");
         }
     }
 }

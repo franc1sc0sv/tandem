@@ -546,10 +546,10 @@ mod tests {
 
     fn state(m34: Machine, m32: Machine, pc_on: bool, pref: BuiltinDisplay) -> State {
         let cfg = desk();
-        let mut s = State::initial(&cfg);
+        let mut s = State::initial(&cfg, Machine::Mac);
         s.owner.insert("m34".into(), m34);
         s.owner.insert("m32".into(), m32);
-        s.pc_on = pc_on;
+        s.on.pc = pc_on;
         s.builtin_pref = pref;
         s
     }
@@ -889,7 +889,7 @@ mod tests {
     #[test]
     fn rechaza_pantallas_invalidas() {
         let cfg = desk();
-        let st = State::initial(&cfg);
+        let st = State::initial(&cfg, Machine::Mac);
         let bad = [mon("m34", 0, 0, 0, 1440, 1.0)];
         assert!(matches!(
             Layout::compute(&cfg, &st, &bad, &[], LayoutOptions::default()),

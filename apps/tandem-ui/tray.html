@@ -20,14 +20,15 @@
       </header>
 
       <main class="mini" id="mini" aria-label="Escena" hidden>
-        <section class="mside mac" data-owner="mac" aria-label="MacBook Pro">
-          <div class="mhead"><b>Mac</b><span id="state-mac"></span></div>
-          <div class="mdesk" data-owner="mac"></div>
+        <!-- Esta máquina y la otra (T-084): cuál es cuál lo decide el agente al conectarse. -->
+        <section class="mside" data-side="here" aria-label="Esta máquina">
+          <div class="mhead"><b data-part="name"></b><span data-part="state"></span></div>
+          <div class="mdesk"></div>
         </section>
         <div class="mlink" aria-hidden="true"><span></span></div>
-        <section class="mside pc" data-owner="pc" aria-label="PC">
-          <div class="mhead"><b>PC</b><span id="state-pc"></span></div>
-          <div class="mdesk" data-owner="pc"></div>
+        <section class="mside" data-side="peer" aria-label="La otra máquina">
+          <div class="mhead"><b data-part="name"></b><span data-part="state"></span></div>
+          <div class="mdesk"></div>
         </section>
       </main>
 

@@ -85,14 +85,16 @@ async fn apagado_con_la_respuesta_perdida_no_deja_a_la_mac_a_ciegas() {
     committed(&d, &d.set_mode(Machine::Mac, Mode::SoloPc).await.unwrap()).await;
     d.arm(FaultPlan::new().on(
         Machine::Pc,
-        Step::PowerOffPc,
+        Step::PowerOff {
+            machine: Machine::Pc,
+        },
         FaultAction::ApplyThenCut(LinkKind::Usb4),
     ));
     let run = d.shutdown_pc().await.unwrap();
     committed(&d, &run).await;
-    assert_eq!(d.world.power(), Power::Off);
+    assert_eq!(d.world.power_of(Machine::Pc), Power::Off);
     all_on_mac(&d);
-    assert!(!d.mac.state().pc_on);
+    assert!(!d.mac.state().on.pc);
 }
 
 /// Si el apagado se cuelga, también se da por hecho: la Mac se queda con todo y la
@@ -102,12 +104,22 @@ async fn apagado_con_la_respuesta_perdida_no_deja_a_la_mac_a_ciegas() {
 async fn apagado_colgado_deja_todo_en_la_mac_y_el_siguiente_cambio_lo_repara() {
     let d = Desk::new().await.unwrap();
     committed(&d, &d.set_mode(Machine::Mac, Mode::SoloPc).await.unwrap()).await;
-    d.arm(FaultPlan::new().on(Machine::Pc, Step::PowerOffPc, FaultAction::Hang));
+    d.arm(FaultPlan::new().on(
+        Machine::Pc,
+        Step::PowerOff {
+            machine: Machine::Pc,
+        },
+        FaultAction::Hang,
+    ));
     let run = d.shutdown_pc().await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     d.settle().await;
     all_on_mac(&d);
-    assert_eq!(d.world.power(), Power::On, "la PC no se apagó");
+    assert_eq!(
+        d.world.power_of(Machine::Pc),
+        Power::On,
+        "la PC no se apagó"
+    );
     assert!(
         d.world.violations().is_empty(),
         "{:?}",
@@ -130,6 +142,7 @@ async fn tras_un_cambio_inconsistente_el_siguiente_repara_el_puesto() {
         from: Machine::Pc,
         to: Machine::Mac,
         input: Input::Hdmi,
+        by: Machine::Pc,
     };
     d.arm(
         FaultPlan::new()
@@ -182,7 +195,7 @@ async fn sin_ethernet_la_pc_no_despierta() {
     );
     assert_eq!(run.failure().map(|f| f.0), Some(0));
     assert!(start.elapsed() >= Duration::from_secs(120));
-    assert_eq!(d.world.power(), Power::Off);
+    assert_eq!(d.world.power_of(Machine::Pc), Power::Off);
     d.check().await.unwrap();
     all_on_mac(&d);
 
@@ -209,7 +222,7 @@ async fn la_pc_se_queda_sin_corriente() {
     committed(&d, &d.set_mode(Machine::Mac, shared()).await.unwrap()).await;
     d.pull_pc_plug();
     d.settle().await;
-    assert!(d.mac.state().pc_on, "todavía dentro del umbral");
+    assert!(d.mac.state().on.pc, "todavía dentro del umbral");
     assert_eq!(d.active_link(Machine::Mac), None);
     assert_eq!(
         d.world.shows(&m34()),

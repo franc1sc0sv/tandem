@@ -68,12 +68,30 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         &tandem_display::ddc::profiles::user_dir(&paths.data_dir),
     ));
     let machine = autoconfig::machine_of_os();
+    // Lo detectado sirve dos veces: para generar el `tandem.toml` si falta y para anunciar
+    // los monitores que ve esta máquina (T-084). Se detecta una sola vez, aquí: bloquea.
+    let mut scanned = None;
     let loaded = autoconfig::load_or_generate(
         &paths.config,
         machine,
-        || machine.map_or(Ok(Vec::new()), autoconfig::platform_scan),
+        || {
+            let r = machine.map_or(Ok(Vec::new()), autoconfig::platform_scan);
+            scanned = Some(r.clone());
+            r
+        },
         &db,
     )?;
+    // Con backends simulados, esta máquina no toca monitores: no se anuncia lo que ve.
+    let seen = machine.filter(|_| !args.sim_backends).and_then(|m| {
+        match scanned.unwrap_or_else(|| autoconfig::platform_scan(m)) {
+            Ok(detected) => Some(autoconfig::seen(&detected)),
+            Err(e) => {
+                // Sin detección se anuncian los monitores del puesto.
+                tracing::warn!("no se pudieron detectar los monitores para anunciarlos: {e}");
+                None
+            }
+        }
+    });
     let (cfg, generated) = (loaded.config, loaded.generated);
     tracing::info!(
         "configuración {}: máquina {}, {} monitores{}",
@@ -94,6 +112,10 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         let (backends, net) = backends(&args, &paths);
         let daemon = daemon::start(cfg, &paths, backends, net)?;
         daemon.agent.set_generated(generated);
+        if let Some(seen) = seen {
+            tracing::info!("{} monitores detectados en esta máquina", seen.len());
+            daemon.agent.set_seen_monitors(seen);
+        }
         daemon.serve(listener, daemon::shutdown_signal()).await?;
         Ok(())
     })

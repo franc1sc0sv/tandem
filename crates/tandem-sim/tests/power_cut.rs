@@ -43,7 +43,7 @@ async fn next_power(rx: &mut broadcast::Receiver<PowerEvent>) -> PowerEvent {
 }
 
 fn lost_after(d: &Desk) -> Duration {
-    d.mac.config().power.pc_lost_after()
+    d.mac.config().power.peer_lost_after()
 }
 
 /// Corte de corriente en Compartido: tras el umbral la Mac da la PC por apagada y
@@ -61,10 +61,12 @@ async fn corte_de_corriente_en_compartido() {
     let start = Instant::now();
     d.pull_pc_plug();
     tokio::time::sleep(lost_after(&d) - Duration::from_secs(1)).await;
-    assert!(d.mac.state().pc_on, "dentro del umbral no cambia nada");
+    assert!(d.mac.state().on.pc, "dentro del umbral no cambia nada");
     assert!(power.try_recv().is_err());
 
-    let PowerEvent::PcLost { reason, stranded } = next_power(&mut power).await;
+    let PowerEvent::PeerLost {
+        reason, stranded, ..
+    } = next_power(&mut power).await;
     let waited = start.elapsed();
     assert!(
         waited >= lost_after(&d) && waited < lost_after(&d) + Duration::from_secs(2),
@@ -74,7 +76,7 @@ async fn corte_de_corriente_en_compartido() {
     assert_eq!(stranded, [m34()]);
 
     let mut want = before.clone();
-    want.pc_on = false;
+    want.on.pc = false;
     assert_eq!(d.mac.state(), want);
     // El puesto coincide: el 34" en negro, el 32" y la geometría en la Mac.
     d.check().await.unwrap();
@@ -87,9 +89,14 @@ async fn corte_de_corriente_en_compartido() {
     );
 
     let run = d.set_mode(Machine::Mac, shared()).await.unwrap();
-    assert_eq!(planned(&run).first(), Some(&Step::PowerOnPc));
+    assert_eq!(
+        planned(&run).first(),
+        Some(&Step::PowerOn {
+            machine: Machine::Pc
+        })
+    );
     committed(&d, &run).await;
-    assert_eq!(d.world.power(), Power::On);
+    assert_eq!(d.world.power_of(Machine::Pc), Power::On);
     assert_eq!(d.world.shows(&m34()), Some(Machine::Pc));
     d.pc_agrees().await.unwrap();
 }
@@ -106,12 +113,18 @@ async fn tras_el_corte_solo_mac_enciende_la_pc_para_devolver_el_34() {
 
     let run = d.set_mode(Machine::Mac, Mode::SoloMac).await.unwrap();
     let steps = planned(&run);
-    assert_eq!(steps.first(), Some(&Step::PowerOnPc));
+    assert_eq!(
+        steps.first(),
+        Some(&Step::PowerOn {
+            machine: Machine::Pc
+        })
+    );
     assert!(steps.contains(&Step::SwitchInput {
         monitor: m34(),
         from: Machine::Pc,
         to: Machine::Mac,
         input: Input::Hdmi,
+        by: Machine::Pc,
     }));
     committed(&d, &run).await;
     assert_eq!(d.world.shows(&m34()), Some(Machine::Mac));
@@ -126,14 +139,19 @@ async fn corte_de_corriente_en_solo_windows() {
     committed(&d, &d.set_mode(Machine::Mac, Mode::SoloPc).await.unwrap()).await;
     let mut power = d.mac.subscribe_power();
     d.pull_pc_plug();
-    let PowerEvent::PcLost { stranded, .. } = next_power(&mut power).await;
+    let PowerEvent::PeerLost { stranded, .. } = next_power(&mut power).await;
     assert_eq!(stranded, [m34(), m32()]);
-    assert!(!d.mac.state().pc_on);
+    assert!(!d.mac.state().on.pc);
     d.check().await.unwrap();
     assert_eq!(d.world.builtin(), BuiltinDisplay::Extend);
 
     let run = d.set_mode(Machine::Mac, Mode::SoloMac).await.unwrap();
-    assert_eq!(planned(&run).first(), Some(&Step::PowerOnPc));
+    assert_eq!(
+        planned(&run).first(),
+        Some(&Step::PowerOn {
+            machine: Machine::Pc
+        })
+    );
     committed(&d, &run).await;
     assert_eq!(d.world.builtin(), BuiltinDisplay::Off);
 }
@@ -161,7 +179,9 @@ async fn una_caida_breve_de_los_enlaces_no_cambia_pc_on() {
     assert_eq!(d.mac.state(), before);
     assert!(power.try_recv().is_err());
     let run = d.set_mode(Machine::Mac, Mode::SoloMac).await.unwrap();
-    assert!(!planned(&run).contains(&Step::PowerOnPc));
+    assert!(!planned(&run).contains(&Step::PowerOn {
+        machine: Machine::Pc
+    }));
     committed(&d, &run).await;
 }
 
@@ -173,8 +193,8 @@ async fn un_apagado_pedido_no_es_un_corte() {
     let mut power = d.mac.subscribe_power();
     committed(&d, &d.shutdown_pc().await.unwrap()).await;
     tokio::time::sleep(lost_after(&d) * 4).await;
-    assert_eq!(d.world.power(), Power::Off);
-    assert!(!d.mac.state().pc_on);
+    assert_eq!(d.world.power_of(Machine::Pc), Power::Off);
+    assert!(!d.mac.state().on.pc);
     assert!(power.try_recv().is_err());
     d.check().await.unwrap();
 }
@@ -191,7 +211,7 @@ async fn la_pc_encendida_a_mano_tras_el_corte_vuelve_a_contar() {
 
     d.press_pc_power_button();
     let mut states = d.mac.subscribe();
-    tokio::time::timeout(Duration::from_secs(3600), states.wait_for(|s| s.pc_on))
+    tokio::time::timeout(Duration::from_secs(3600), states.wait_for(|s| s.on.pc))
         .await
         .unwrap()
         .unwrap();
@@ -202,6 +222,8 @@ async fn la_pc_encendida_a_mano_tras_el_corte_vuelve_a_contar() {
 
     // Ya no hace falta encenderla.
     let run = d.set_mode(Machine::Mac, Mode::SoloMac).await.unwrap();
-    assert!(!planned(&run).contains(&Step::PowerOnPc));
+    assert!(!planned(&run).contains(&Step::PowerOn {
+        machine: Machine::Pc
+    }));
     committed(&d, &run).await;
 }

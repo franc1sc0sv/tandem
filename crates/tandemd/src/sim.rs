@@ -103,7 +103,9 @@ mod tests {
         let sim = SimSteps::new(dir.path());
         assert!(recorded(dir.path()).unwrap().is_empty());
         let steps = [
-            Step::PowerOnPc,
+            Step::PowerOn {
+                machine: Machine::Pc,
+            },
             Step::Attach {
                 machine: Machine::Pc,
                 monitor: "m34".into(),
@@ -124,12 +126,22 @@ mod tests {
         std::fs::write(&hold, "").unwrap();
         let task = tokio::spawn({
             let sim = sim.clone();
-            async move { sim.execute(&Step::PowerOffPc).await }
+            async move {
+                sim.execute(&Step::PowerOff {
+                    machine: Machine::Pc,
+                })
+                .await
+            }
         });
         tokio::time::sleep(HOLD_POLL * 10).await;
         assert!(!task.is_finished());
         // Ya está anotado: la prueba sabe que el paso empezó.
-        assert_eq!(recorded(dir.path()).unwrap(), [Step::PowerOffPc]);
+        assert_eq!(
+            recorded(dir.path()).unwrap(),
+            [Step::PowerOff {
+                machine: Machine::Pc
+            }]
+        );
         std::fs::remove_file(&hold).unwrap();
         task.await.unwrap().unwrap();
     }
@@ -138,7 +150,12 @@ mod tests {
     async fn unwritable_dir_fails_the_step() {
         let dir = tempfile::tempdir().unwrap();
         let sim = SimSteps::new(&dir.path().join("no-existe"));
-        let err = sim.execute(&Step::PowerOnPc).await.unwrap_err();
+        let err = sim
+            .execute(&Step::PowerOn {
+                machine: Machine::Pc,
+            })
+            .await
+            .unwrap_err();
         assert!(err.contains("encender la PC"), "{err}");
     }
 }

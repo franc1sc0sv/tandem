@@ -127,7 +127,13 @@ mod tests {
     fn each_fault_fires_once_by_default() {
         let faults = Faults::default();
         let plan = FaultPlan::new()
-            .on(Machine::Pc, Step::PowerOffPc, FaultAction::Hang)
+            .on(
+                Machine::Pc,
+                Step::PowerOff {
+                    machine: Machine::Pc,
+                },
+                FaultAction::Hang,
+            )
             .on_matching(
                 Machine::Mac,
                 |s| matches!(s, Step::UpdateInputGeometry),
@@ -135,12 +141,35 @@ mod tests {
             )
             .times(2);
         faults.arm(plan.faults);
-        assert!(faults.take(Machine::Mac, &Step::PowerOffPc).is_empty());
+        assert!(
+            faults
+                .take(
+                    Machine::Mac,
+                    &Step::PowerOff {
+                        machine: Machine::Pc
+                    }
+                )
+                .is_empty()
+        );
         assert_eq!(
-            faults.take(Machine::Pc, &Step::PowerOffPc),
+            faults.take(
+                Machine::Pc,
+                &Step::PowerOff {
+                    machine: Machine::Pc
+                }
+            ),
             [FaultAction::Hang]
         );
-        assert!(faults.take(Machine::Pc, &Step::PowerOffPc).is_empty());
+        assert!(
+            faults
+                .take(
+                    Machine::Pc,
+                    &Step::PowerOff {
+                        machine: Machine::Pc
+                    }
+                )
+                .is_empty()
+        );
         for _ in 0..2 {
             assert_eq!(
                 faults.take(Machine::Mac, &Step::UpdateInputGeometry),

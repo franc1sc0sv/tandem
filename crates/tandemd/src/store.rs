@@ -81,10 +81,10 @@ impl StateStore {
     ///
     /// Si no hay nada guardado, el estado seguro de partida. Si el archivo está dañado,
     /// se aparta como `*.corrupt` (para poder mirarlo) y también se parte del estado seguro.
-    pub fn load_or_initial(&self, cfg: &Config) -> State {
+    pub fn load_or_initial(&self, cfg: &Config, me: Machine) -> State {
         match self.load() {
             Ok(Some(s)) => reconcile(s, cfg),
-            Ok(None) => State::initial(cfg),
+            Ok(None) => State::initial(cfg, me),
             Err(e) => {
                 tracing::warn!("{e}; se parte del estado inicial");
                 if matches!(e, StoreError::Corrupt { .. }) {
@@ -93,7 +93,7 @@ impl StateStore {
                         tracing::warn!("no se pudo apartar {}: {e}", self.path.display());
                     }
                 }
-                State::initial(cfg)
+                State::initial(cfg, me)
             }
         }
     }
@@ -136,7 +136,7 @@ mod tests {
     fn sample() -> State {
         State {
             owner: BTreeMap::from([("m34".into(), Machine::Pc), ("m32".into(), Machine::Mac)]),
-            pc_on: true,
+            on: tandem_core::Powered::both(),
             builtin_pref: BuiltinDisplay::Mirror,
         }
     }
@@ -149,7 +149,10 @@ mod tests {
         assert_eq!(store.load().unwrap(), Some(sample()));
         // Un agente nuevo sobre el mismo archivo arranca donde quedó el anterior.
         let again = StateStore::new(store.path());
-        assert_eq!(again.load_or_initial(&fixtures::desk().desk), sample());
+        assert_eq!(
+            again.load_or_initial(&fixtures::desk().desk, Machine::Mac),
+            sample()
+        );
     }
 
     #[test]
@@ -158,7 +161,7 @@ mod tests {
         let store = StateStore::new(dir.path().join("state.json"));
         store.save(&sample()).unwrap();
         let mut other = sample();
-        other.pc_on = false;
+        other.on.pc = false;
         store.save(&other).unwrap();
         assert_eq!(store.load().unwrap(), Some(other));
         let names: Vec<_> = std::fs::read_dir(dir.path())
@@ -182,7 +185,10 @@ mod tests {
         let store = StateStore::new(dir.path().join("state.json"));
         assert_eq!(store.load().unwrap(), None);
         let cfg = fixtures::desk().desk;
-        assert_eq!(store.load_or_initial(&cfg), State::initial(&cfg));
+        assert_eq!(
+            store.load_or_initial(&cfg, Machine::Mac),
+            State::initial(&cfg, Machine::Mac)
+        );
     }
 
     #[test]
@@ -193,7 +199,10 @@ mod tests {
         let store = StateStore::new(&path);
         assert!(matches!(store.load(), Err(StoreError::Corrupt { .. })));
         let cfg = fixtures::desk().desk;
-        assert_eq!(store.load_or_initial(&cfg), State::initial(&cfg));
+        assert_eq!(
+            store.load_or_initial(&cfg, Machine::Mac),
+            State::initial(&cfg, Machine::Mac)
+        );
         assert!(!path.exists());
         assert!(dir.path().join("state.json.corrupt").exists());
     }
@@ -209,7 +218,7 @@ mod tests {
             r.owner,
             BTreeMap::from([("m34".into(), Machine::Pc), ("m32".into(), Machine::Mac)])
         );
-        assert!(r.pc_on);
+        assert!(r.on.pc);
         assert_eq!(r.builtin_pref, BuiltinDisplay::Mirror);
     }
 
@@ -223,7 +232,7 @@ mod tests {
         let states: Vec<State> = (0..8)
             .map(|i| {
                 let mut s = sample();
-                s.pc_on = i % 2 == 0;
+                s.on.pc = i % 2 == 0;
                 // Estados de distinto tamaño, para que un archivo mezclado no parsee.
                 for j in 0..i * 20 {
                     s.owner.insert(MonitorId(format!("m{i}-{j}")), Machine::Pc);
@@ -266,11 +275,12 @@ mod tests {
         (
             prop::collection::btree_map(any::<String>().prop_map(MonitorId), machine(), 0..6),
             any::<bool>(),
+            any::<bool>(),
             builtin(),
         )
-            .prop_map(|(owner, pc_on, builtin_pref)| State {
+            .prop_map(|(owner, mac, pc, builtin_pref)| State {
                 owner,
-                pc_on,
+                on: tandem_core::Powered { mac, pc },
                 builtin_pref,
             })
     }

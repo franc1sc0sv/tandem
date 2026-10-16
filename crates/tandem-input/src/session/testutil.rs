@@ -26,10 +26,10 @@ pub fn mon(id: &str, x: i32, w: u32, h: u32, scale: f64) -> Screen {
 }
 
 fn state(m34: Machine, m32: Machine) -> State {
-    let mut s = State::initial(&desk());
+    let mut s = State::initial(&desk(), Machine::Mac);
     s.owner.insert("m34".into(), m34);
     s.owner.insert("m32".into(), m32);
-    s.pc_on = true;
+    s.on.pc = true;
     s
 }
 

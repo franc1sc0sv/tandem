@@ -5,7 +5,8 @@
 # monitores que detecta (T-082). Este ejemplo muestra todas las opciones, para editarlo.
 #
 # El puesto ([[monitors]]) es el mismo en las dos máquinas; cambian `machine`, las
-# direcciones del otro agente y lo que solo hace la Mac (Wake-on-LAN, pc_lost_after).
+# direcciones del otro agente y cómo despertarlo (Wake-on-LAN). Las dos máquinas son
+# pares: cualquiera puede ser la principal (DESIGN §3.7).
 #
 # En el directorio de datos el agente guarda:
 # - identity.key: su llave Ed25519. Se crea sola la primera vez; no se comparte.
@@ -34,7 +35,9 @@ step_timeout_secs = 10
 
 [power]
 # Sin ningún enlace con la PC durante esto, se la da por apagada (corte de corriente).
-pc_lost_after_secs = 15
+peer_lost_after_secs = 15
+# La Mac se despierta por Wake-on-LAN desde el reposo («Activar para acceso a la red»).
+wakeable = true
 
 # Wake-on-LAN por el Ethernet directo: la MAC de la tarjeta de la PC, la IP de la Mac
 # en ese enlace y el broadcast de su subred.
@@ -44,16 +47,16 @@ source = "10.77.2.1"
 broadcast = "10.77.2.3"
 
 [input]
-# Quién tiene el teclado y el mouse al arrancar, hasta que el hub decida (DESIGN §7).
-server = "mac"
+# Dónde está el teclado y el mouse al arrancar, hasta que el hub decida (DESIGN §7).
+keyboard = "mac"
 # Bloquea el cursor en la máquina donde está (nombres de KeyboardEvent.code, todas a
 # la vez). ScrollLock de un teclado de PC llega a la Mac como F14 y vale igual.
 lock_shortcut = ["ScrollLock"]
 clipboard = true
 
 # El teclado y el mouse que viajan en el hub USB-C, por VID:PID (en Windows, el
-# Administrador de dispositivos; en macOS, Información del sistema → USB). El servidor es
-# la máquina donde aparecen. Sin esta sección los roles no cambian solos.
+# Administrador de dispositivos; en macOS, Información del sistema → USB). El teclado está
+# en la máquina donde aparecen. Sin esta sección los roles no cambian solos.
 [input.hub]
 keyboard = "046d:c33f"
 mouse = "046d:c539"

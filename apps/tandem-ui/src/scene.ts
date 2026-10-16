@@ -2,6 +2,7 @@
 
 import type {
   BuiltinDisplay,
+  Caps,
   Desk,
   DeskState,
   Input,
@@ -40,18 +41,20 @@ export const PERMISSION_NAME: Record<InputView["missing"][number], string> = {
 
 /** El chip de teclado y mouse de una máquina; `null` si no se muestra. */
 export interface RoleChip {
-  kind: "server" | "client" | "warn" | "idle";
+  /** `keyboard`: el teclado está en esta máquina; `remote`: lo recibe de la otra. */
+  kind: "keyboard" | "remote" | "warn" | "idle";
   icon: "keyboard" | "cursor" | "warn";
   text: string;
   title: string;
 }
 
 /**
- * El chip de `who` visto desde el agente de `agent`. Con la PC apagada solo la Mac lleva
- * chip, si tiene el teclado. Los permisos que faltan y los problemas son de esta máquina:
- * su chip los avisa antes que nada.
+ * El chip de `who` visto desde el agente de `agent`. Con la otra apagada solo lleva chip la
+ * del agente, si tiene el teclado. Los permisos que faltan y los problemas son de esta
+ * máquina: su chip los avisa antes que nada. No hay «servidor» ni «cliente» (T-084): el
+ * teclado está en una máquina y la otra lo recibe, en cualquiera de las dos direcciones.
  */
-export function roleChip(input: InputView, agent: Machine, who: Machine, pcOn: boolean): RoleChip | null {
+export function roleChip(input: InputView, agent: Machine, who: Machine, peerOn: boolean): RoleChip | null {
   const mine = who === agent;
   if (mine && input.missing.length > 0) {
     const names = input.missing.map((p) => PERMISSION_NAME[p]).join(" y ");
@@ -65,19 +68,92 @@ export function roleChip(input: InputView, agent: Machine, who: Machine, pcOn: b
   if (mine && input.problem) {
     return { kind: "warn", icon: "warn", text: "sin teclado y mouse", title: `Teclado y mouse: ${input.problem}` };
   }
-  if (!pcOn) {
-    return who === "mac" && input.server === "mac"
-      ? { kind: "server", icon: "keyboard", text: "Teclado aquí", title: "El teclado y el mouse están en la Mac" }
+  const has = input.server === who;
+  if (!peerOn) {
+    return mine && has
+      ? { kind: "keyboard", icon: "keyboard", text: "Teclado aquí", title: `El teclado y el mouse están en la ${MACHINE_NAME[who]}` }
       : null;
   }
-  const server = input.server === who;
-  const base = server
-    ? { kind: "server" as const, icon: "keyboard" as const, text: input.locked ? "Servidor · bloqueado" : "Servidor" }
-    : { kind: "client" as const, icon: "cursor" as const, text: "Cliente" };
-  const titles = [server ? `${MACHINE_NAME[who]} tiene el teclado y el mouse` : `${MACHINE_NAME[who]} recibe el teclado y el mouse`];
-  if (server && input.locked) titles.push("el cursor está bloqueado en su pantalla (atajo)");
+  const base = has
+    ? { kind: "keyboard" as const, icon: "keyboard" as const, text: `${mine ? "Teclado aquí" : "Tiene el teclado"}${input.locked ? " · bloqueado" : ""}` }
+    : { kind: "remote" as const, icon: "cursor" as const, text: `Teclado de la ${MACHINE_NAME[other(who)]}` };
+  const titles = [has ? `La ${MACHINE_NAME[who]} tiene el teclado y el mouse` : `La ${MACHINE_NAME[who]} usa el teclado y el mouse de la ${MACHINE_NAME[other(who)]}`];
+  if (has && input.locked) titles.push("el cursor está bloqueado en su pantalla (atajo)");
   if (!input.session) titles.push("sin sesión con el otro agente");
   return { ...base, kind: input.session ? base.kind : "idle", title: titles.join(" · ") };
+}
+
+// ---------------------------------------------------------------------------------------
+// Sin centro fijo (T-084): «esta máquina» y «la otra», con lo que cada una anuncia.
+
+/** Las dos tarjetas de la escena: la del agente (siempre encendida) y la otra. */
+export function sides(agent: Machine): { here: Machine; peer: Machine } {
+  return { here: agent, peer: other(agent) };
+}
+
+/** Lo que anunció `who`, si se sabe. */
+export function capsOf(caps: Caps, who: Machine): Caps["here"] | null {
+  if (caps.here.machine === who) return caps.here;
+  return caps.peer && caps.peer.machine === who ? caps.peer : null;
+}
+
+/**
+ * Si alguna de las dos puede cambiarle la entrada a `monitor`. Sin anuncio de la otra se
+ * supone que puede lo que esta no, como hace el agente al planear.
+ */
+export function canSwitch(caps: Caps, monitor: string): boolean {
+  const can = (c: Caps["here"]) => c.monitors.some((m) => m.switch && m.monitor === monitor);
+  return can(caps.here) || caps.peer === null || can(caps.peer);
+}
+
+/** Si `who` tiene pantalla integrada. Sin su anuncio, la MacBook es la que la tiene. */
+export function hasBuiltin(caps: Caps, who: Machine): boolean {
+  return capsOf(caps, who)?.builtin ?? who === "mac";
+}
+
+export type PeerPower = "on" | "off" | "boot";
+
+/** La otra máquina: arrancando mientras corre su encendido. */
+export function peerPower(state: DeskState, agent: Machine, p: Progress | null): PeerPower {
+  const peer = other(agent);
+  if (state.on[peer]) return "on";
+  const waking = p && isRunning(p) && p.steps.some((s, i) => s.step === "power_on" && s.machine === peer && p.status[i] === "run");
+  return waking ? "boot" : "off";
+}
+
+/** El estado escrito bajo el nombre de cada tarjeta. La del agente nunca está apagada. */
+export function machineState(state: DeskState, agent: Machine, who: Machine, p: Progress | null): string {
+  if (who === agent) return "esta máquina";
+  return { on: "encendida", boot: "arrancando…", off: "apagada" }[peerPower(state, agent, p)];
+}
+
+export interface PowerButton {
+  /** Hay algo que se pueda pedir (aunque ahora esté ocupado). */
+  visible: boolean;
+  /** Lo que se pide al pulsarlo; `null` mientras arranca. */
+  on: boolean | null;
+  label: string;
+  power: PeerPower;
+}
+
+/**
+ * El botón de encendido de la otra máquina: encenderla si esta tiene Wake-on-LAN y la
+ * otra se deja despertar, apagarla si ella sabe apagarse limpio. Sin su anuncio se supone
+ * que se la puede despertar (si no, el paso falla con el motivo).
+ */
+export function powerButton(caps: Caps, state: DeskState, agent: Machine, p: Progress | null): PowerButton {
+  const peer = other(agent);
+  const name = MACHINE_NAME[peer];
+  const power = peerPower(state, agent, p);
+  const theirs = capsOf(caps, peer);
+  if (power === "boot") return { visible: true, on: null, label: `La ${name} está arrancando`, power };
+  if (power === "on") {
+    const can = theirs?.power.power_off ?? false;
+    return { visible: can, on: false, label: `Apagar la ${name}`, power };
+  }
+  // Hace falta que esta mande el Wake-on-LAN y que la otra se deje despertar.
+  const can = (capsOf(caps, agent)?.power.wake_peer ?? true) && (theirs?.power.wakeable ?? true);
+  return { visible: can, on: true, label: `Encender la ${name}`, power };
 }
 
 export type ModeKey = "mac" | "shared" | "pc";
@@ -134,7 +210,8 @@ export interface MonitorView {
   movable: boolean;
 }
 
-export function monitorsOf(desk: Desk, state: DeskState, who: Machine): MonitorView[] {
+/** `caps`: sin nadie que pueda cambiarle la entrada, un monitor no se puede mover. */
+export function monitorsOf(desk: Desk, state: DeskState, who: Machine, caps?: Caps): MonitorView[] {
   return desk.monitors
     .filter((m) => ownerOf(state, m.id) === who)
     .map((m) => {
@@ -146,7 +223,7 @@ export function monitorsOf(desk: Desk, state: DeskState, who: Machine): MonitorV
         owner,
         port: input ? PORT[input] : null,
         wide: isWide(m),
-        movable: m.wiring[other(owner)] !== undefined,
+        movable: m.wiring[other(owner)] !== undefined && (caps === undefined || canSwitch(caps, m.id)),
       };
     });
 }
@@ -194,10 +271,10 @@ const BUILTIN_STEP: Record<BuiltinDisplay, string> = {
 /** Clave y texto de cada paso; los pasos seguidos con la misma clave se ven como uno. */
 function describeStep(desk: Desk, s: Step): { key: string; label: string } {
   switch (s.step) {
-    case "power_on_pc":
-      return { key: "power_on", label: "Encender la PC" };
-    case "power_off_pc":
-      return { key: "power_off", label: "Apagado limpio" };
+    case "power_on":
+      return { key: "power_on", label: `Encender la ${MACHINE_NAME[s.machine]}` };
+    case "power_off":
+      return { key: "power_off", label: `Apagado limpio de la ${MACHINE_NAME[s.machine]}` };
     case "switch_input":
       return { key: `monitor:${s.monitor}`, label: `${labelOf(desk, s.monitor)} → ${PORT[s.input]}` };
     // Sumar y quitar el monitor de cada escritorio es parte de moverlo.
@@ -281,9 +358,3 @@ export function isRunning(p: Progress | null): boolean {
   return p !== null && (p.outcome.kind === "running" || p.outcome.kind === "rolling_back");
 }
 
-/** Estado de la PC para el botón de encendido: arrancando mientras corre su encendido. */
-export function pcPower(state: DeskState, p: Progress | null): "on" | "off" | "boot" {
-  if (state.pc_on) return "on";
-  if (p && isRunning(p) && p.steps.some((s, i) => s.step === "power_on_pc" && p.status[i] === "run")) return "boot";
-  return "off";
-}

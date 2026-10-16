@@ -100,6 +100,92 @@ pub enum ControlMsg {
         id: u64,
         outcome: ProbeOutcome,
     },
+    /// Lo que tiene y sabe hacer quien lo manda (T-084). Va al conectarse por cada
+    /// enlace nuevo y cada vez que cambia; las decisiones salen de aquí, no del nombre
+    /// de la máquina (DESIGN §3.7).
+    Capabilities(Capabilities),
+    /// La configuración compartida del puesto de quien lo manda, con su versión. Va al
+    /// conectarse y con cada cambio; gana la versión más nueva (T-084).
+    Desk(DeskSync),
+}
+
+/// Lo que una máquina tiene y sabe hacer, tal como lo anuncia su agente.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Capabilities {
+    pub machine: Machine,
+    /// El nombre de la máquina en el sistema, para la UI.
+    pub name: String,
+    /// `macos`, `windows` o `linux`.
+    pub os: String,
+    /// Los monitores externos que ve esta máquina.
+    pub monitors: Vec<MonitorCaps>,
+    /// Tiene pantalla integrada (la MacBook).
+    pub builtin: bool,
+    /// El hub del teclado y mouse está conectado aquí; `None` sin detección.
+    pub hub: Option<bool>,
+    pub input: InputCaps,
+    pub power: PowerCaps,
+    /// Servicios del plano de datos que ofrece (SSH, carpetas...); vacío hasta v2.
+    pub services: Vec<String>,
+}
+
+/// Un monitor visto por una máquina.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonitorCaps {
+    /// El de la configuración del puesto, si corresponde a uno.
+    pub monitor: Option<MonitorId>,
+    /// El id PnP del EDID (`SAM7489`), si lo dio.
+    pub pnp_id: Option<String>,
+    /// Para mostrar.
+    pub name: String,
+    /// Esta máquina puede cambiarle la entrada (por DDC o pidiéndoselo al usuario).
+    pub switch: bool,
+    /// ...y lo hace por DDC, sin el usuario.
+    pub ddc: bool,
+}
+
+/// El motor de teclado y mouse de una máquina.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputCaps {
+    /// Puede capturar el teclado y el mouse (tenerlos y mandarlos).
+    pub capture: bool,
+    /// Puede inyectarlos (recibirlos de la otra).
+    pub inject: bool,
+    /// Permisos de macOS que le faltan.
+    pub missing: Vec<InputPermission>,
+}
+
+/// Energía de una máquina.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PowerCaps {
+    /// Puede despertar a la otra (tiene su `[power.wol]`).
+    pub wake_peer: bool,
+    /// Se la puede despertar por Wake-on-LAN.
+    pub wakeable: bool,
+    /// Sabe apagarse limpio a pedido de la otra.
+    pub power_off: bool,
+}
+
+/// La configuración compartida del puesto (monitores, perfiles DDC, cableado, atajos)
+/// con su reloj lógico. Lo solo-local (identidad, puerto, rutas, máquina) no viaja.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeskSync {
+    /// Versión: cada cambio sube la más alta conocida en uno.
+    pub rev: u64,
+    /// Quién hizo el último cambio: desempata dos versiones iguales.
+    pub origin: Machine,
+    pub desk: Config,
+    /// El atajo que bloquea el cursor (`[input] lock_shortcut`).
+    pub lock_shortcut: Vec<String>,
+}
+
+/// Lo que sabe cada máquina del puesto, para la UI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeskCapabilities {
+    /// Esta máquina.
+    pub here: Capabilities,
+    /// La otra, según su último anuncio; `None` si nunca se la vio.
+    pub peer: Option<Capabilities>,
 }
 
 /// Un monitor por calibrar, como lo identifica su EDID.
@@ -325,8 +411,12 @@ pub enum UiCommand {
     },
     /// El puesto configurado (monitores, nombres y cableado), para dibujar la escena.
     GetDesk,
-    /// Encender (`true`) o apagar la PC; apagar es la transacción de apagado limpio.
-    SetPcPower(bool),
+    /// Encender o apagar `machine` (la otra, normalmente); apagar es la transacción de
+    /// apagado limpio. Solo si alguna máquina puede (ver [`Capabilities::power`]).
+    SetPower {
+        machine: Machine,
+        on: bool,
+    },
     /// Con quién está emparejado el agente y por qué enlace lo ve.
     GetPeer,
     /// En qué va el emparejamiento.
@@ -371,6 +461,8 @@ pub enum UiCommand {
     },
     /// De dónde salió la configuración de este agente y en qué puerto escucha.
     GetSetup,
+    /// Lo que puede cada máquina ([`DeskCapabilities`]).
+    GetCapabilities,
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -520,6 +612,8 @@ pub enum AgentToUi {
     Calibration(CalibrationUpdate),
     /// Aviso espontáneo cuando cambia el puesto (por ejemplo, el cableado de un monitor).
     Desk(Config),
+    /// Aviso espontáneo cuando cambia lo que puede alguna de las dos máquinas.
+    Capabilities(Box<DeskCapabilities>),
 }
 
 /// El emparejamiento visto desde la UI.
@@ -607,16 +701,17 @@ pub enum Link {
     Wifi,
 }
 
-/// Cambios de energía de la PC que no vienen de un cambio de modo.
+/// Cambios de energía de la otra máquina que no vienen de un cambio de modo.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PowerEvent {
-    /// La PC dejó de contestar por todos los enlaces sin que nadie la apagara (lo más
-    /// probable, un corte de corriente): el agente de la Mac la da por apagada.
-    PcLost {
+    /// La otra máquina dejó de contestar por todos los enlaces sin que nadie la apagara
+    /// (un corte de corriente, o se suspendió): este agente la da por apagada.
+    PeerLost {
+        machine: Machine,
         /// Texto para mostrar en la UI.
         reason: String,
-        /// Monitores que siguen en la entrada de la PC y quedan en negro hasta
-        /// encenderla: la Mac no puede cambiarles la entrada sin ella.
+        /// Monitores que siguen en su entrada y quedan en negro hasta que vuelva o
+        /// alguien que pueda les cambie la entrada.
         stranded: Vec<MonitorId>,
     },
 }
@@ -653,6 +748,7 @@ pub enum Reply {
     Input(InputStatus),
     Displays(Vec<DisplayInfo>),
     Setup(SetupInfo),
+    Capabilities(Box<DeskCapabilities>),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso y nunca una pantalla
@@ -717,7 +813,7 @@ pub(crate) mod samples {
     pub fn state() -> State {
         State {
             owner: BTreeMap::from([("m34".into(), Machine::Pc), ("m32".into(), Machine::Mac)]),
-            pc_on: true,
+            on: tandem_core::Powered::both(),
             builtin_pref: BuiltinDisplay::Mirror,
         }
     }
@@ -744,13 +840,18 @@ pub(crate) mod samples {
 
     pub fn steps() -> Vec<Step> {
         vec![
-            Step::PowerOnPc,
-            Step::PowerOffPc,
+            Step::PowerOn {
+                machine: Machine::Pc,
+            },
+            Step::PowerOff {
+                machine: Machine::Mac,
+            },
             Step::SwitchInput {
                 monitor: "m34".into(),
                 from: Machine::Mac,
                 to: Machine::Pc,
                 input: Input::DisplayPort,
+                by: Machine::Pc,
             },
             Step::Attach {
                 machine: Machine::Pc,
@@ -770,8 +871,8 @@ pub(crate) mod samples {
 
     pub fn step_arm(s: &Step) -> usize {
         match s {
-            Step::PowerOnPc => 0,
-            Step::PowerOffPc => 1,
+            Step::PowerOn { .. } => 0,
+            Step::PowerOff { .. } => 1,
             Step::SwitchInput { .. } => 2,
             Step::Attach { .. } => 3,
             Step::Detach { .. } => 4,
@@ -828,7 +929,14 @@ pub(crate) mod samples {
             ControlMsg::Screens(vec![]),
             ControlMsg::Screens(screens()),
             ControlMsg::HideProbe { id: 3 },
+            ControlMsg::Desk(DeskSync {
+                rev: 4,
+                origin: Machine::Pc,
+                desk: desk(),
+                lock_shortcut: vec!["ScrollLock".into()],
+            }),
         ];
+        v.extend(capabilities().into_iter().map(ControlMsg::Capabilities));
         v.extend(
             probes()
                 .into_iter()
@@ -873,7 +981,71 @@ pub(crate) mod samples {
             ControlMsg::ShowProbe { .. } => 9,
             ControlMsg::HideProbe { .. } => 10,
             ControlMsg::ProbeResult { .. } => 11,
+            ControlMsg::Capabilities(_) => 12,
+            ControlMsg::Desk(_) => 13,
         }
+    }
+
+    /// Las dos máquinas del puesto real y una sin nada.
+    pub fn capabilities() -> Vec<Capabilities> {
+        vec![
+            Capabilities {
+                machine: Machine::Pc,
+                name: "ESCRITORIO".into(),
+                os: "windows".into(),
+                monitors: vec![
+                    MonitorCaps {
+                        monitor: Some("m34".into()),
+                        pnp_id: Some("SAM711A".into()),
+                        name: "LC34G55T".into(),
+                        switch: true,
+                        ddc: true,
+                    },
+                    MonitorCaps {
+                        monitor: None,
+                        pnp_id: None,
+                        name: "Monitor PnP genérico".into(),
+                        switch: true,
+                        ddc: false,
+                    },
+                ],
+                builtin: false,
+                hub: Some(true),
+                input: InputCaps {
+                    capture: true,
+                    inject: true,
+                    missing: vec![],
+                },
+                power: PowerCaps {
+                    wake_peer: false,
+                    wakeable: true,
+                    power_off: true,
+                },
+                services: vec!["ssh".into()],
+            },
+            Capabilities {
+                machine: Machine::Mac,
+                name: "MacBook Pro".into(),
+                os: "macos".into(),
+                monitors: vec![],
+                builtin: true,
+                hub: None,
+                input: InputCaps {
+                    capture: false,
+                    inject: false,
+                    missing: vec![
+                        InputPermission::Accessibility,
+                        InputPermission::InputMonitoring,
+                    ],
+                },
+                power: PowerCaps {
+                    wake_peer: true,
+                    wakeable: false,
+                    power_off: false,
+                },
+                services: vec![],
+            },
+        ]
     }
 
     /// Con y sin EDID, de cada tipo y en cada entrada.
@@ -1121,8 +1293,14 @@ pub(crate) mod samples {
             UiCommand::AnswerManualSwitch { id: 3, done: true },
             UiCommand::AnswerManualSwitch { id: 4, done: false },
             UiCommand::GetDesk,
-            UiCommand::SetPcPower(true),
-            UiCommand::SetPcPower(false),
+            UiCommand::SetPower {
+                machine: Machine::Pc,
+                on: true,
+            },
+            UiCommand::SetPower {
+                machine: Machine::Mac,
+                on: false,
+            },
             UiCommand::GetPeer,
             UiCommand::GetPairing,
             UiCommand::StartPairing,
@@ -1173,6 +1351,7 @@ pub(crate) mod samples {
                 wiring: [(Machine::Pc, Input::DisplayPort)].into(),
             },
             UiCommand::GetSetup,
+            UiCommand::GetCapabilities,
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
         cmds.into_iter()
@@ -1192,7 +1371,7 @@ pub(crate) mod samples {
             UiCommand::SetBuiltin(_) => 3,
             UiCommand::AnswerManualSwitch { .. } => 4,
             UiCommand::GetDesk => 5,
-            UiCommand::SetPcPower(_) => 6,
+            UiCommand::SetPower { .. } => 6,
             UiCommand::GetPeer => 7,
             UiCommand::GetPairing => 8,
             UiCommand::StartPairing => 9,
@@ -1207,6 +1386,7 @@ pub(crate) mod samples {
             UiCommand::UseProfile { .. } => 18,
             UiCommand::SetWiring { .. } => 19,
             UiCommand::GetSetup => 20,
+            UiCommand::GetCapabilities => 21,
         }
     }
 
@@ -1301,11 +1481,13 @@ pub(crate) mod samples {
                 input: Input::DisplayPort,
             }),
             AgentToUi::ManualSwitch(ManualSwitchEvent::Closed { id: 1 }),
-            AgentToUi::Power(PowerEvent::PcLost {
+            AgentToUi::Power(PowerEvent::PeerLost {
+                machine: Machine::Pc,
                 reason: "la PC no responde".into(),
                 stranded: vec!["m34".into()],
             }),
-            AgentToUi::Power(PowerEvent::PcLost {
+            AgentToUi::Power(PowerEvent::PeerLost {
+                machine: Machine::Mac,
                 reason: String::new(),
                 stranded: vec![],
             }),
@@ -1348,6 +1530,18 @@ pub(crate) mod samples {
             }),
         });
         v.push(AgentToUi::Desk(desk()));
+        let [pc, mac] = <[Capabilities; 2]>::try_from(capabilities()).unwrap();
+        v.push(AgentToUi::Capabilities(Box::new(DeskCapabilities {
+            here: mac.clone(),
+            peer: Some(pc),
+        })));
+        v.push(AgentToUi::Reply {
+            id: 11,
+            reply: Reply::Capabilities(Box::new(DeskCapabilities {
+                here: mac,
+                peer: None,
+            })),
+        });
         v.extend(links().into_iter().map(|link| {
             AgentToUi::Peer(PeerStatus::Paired {
                 name: "Mac".into(),
@@ -1521,6 +1715,7 @@ pub(crate) mod samples {
             AgentToUi::Probe(_) => 8,
             AgentToUi::Calibration(_) => 9,
             AgentToUi::Desk(_) => 10,
+            AgentToUi::Capabilities(_) => 11,
         }
     }
 
@@ -1536,6 +1731,7 @@ pub(crate) mod samples {
             Reply::Input(_) => 7,
             Reply::Displays(_) => 8,
             Reply::Setup(_) => 9,
+            Reply::Capabilities(_) => 10,
         }
     }
 
@@ -1578,10 +1774,10 @@ mod tests {
         covers(&steps(), step_arm, 7);
         covers(&modes(), mode_arm, 3);
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
-        covers(&control(), control_arm, 12);
+        covers(&control(), control_arm, 14);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 21);
-        covers(&to_ui(), to_ui_arm, 11);
+        covers(&cmds, ui_command_arm, 22);
+        covers(&to_ui(), to_ui_arm, 12);
         let profiles: Vec<_> = displays().into_iter().map(|d| d.profile).collect();
         covers(&profiles, display_profile_arm, 3);
         covers(&calibration_steps(), calibration_step_arm, 9);
@@ -1600,7 +1796,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 10);
+        covers(&replies, reply_arm, 11);
         covers(&txn_events(), txn_arm, 8);
     }
 

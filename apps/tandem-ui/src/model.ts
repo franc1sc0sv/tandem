@@ -18,8 +18,29 @@ export interface Desk {
 
 export interface DeskState {
   owner: Record<string, Machine>;
-  pc_on: boolean;
+  /** Qué máquinas están encendidas. La del agente siempre lo está para sí misma (T-084). */
+  on: Record<Machine, boolean>;
   builtin_pref: BuiltinDisplay;
+}
+
+/** Lo que tiene y sabe hacer una máquina, según su anuncio (`tandem_ui::session::MachineView`). */
+export interface MachineCaps {
+  machine: Machine;
+  /** El nombre de la máquina en el sistema. */
+  name: string;
+  os: string;
+  monitors: { monitor: string | null; pnp_id: string | null; name: string; switch: boolean; ddc: boolean }[];
+  builtin: boolean;
+  hub: boolean | null;
+  input: { capture: boolean; inject: boolean; missing: ("accessibility" | "input_monitoring")[] };
+  power: { wake_peer: boolean; wakeable: boolean; power_off: boolean };
+  services: string[];
+}
+
+/** Esta máquina y la otra (`null` si nunca se la vio). */
+export interface Caps {
+  here: MachineCaps;
+  peer: MachineCaps | null;
 }
 
 export type Link = "usb4" | "ethernet" | "wifi";
@@ -37,13 +58,13 @@ export type PairingView =
 
 /** El teclado y mouse compartidos (`tandem_ui::session::InputView`). */
 export interface InputView {
-  /** La máquina que tiene el teclado y el mouse. */
+  /** Dónde está el teclado y el mouse (el campo se llama así en el agente). */
   server: Machine;
   /** Si el hub está en esta máquina; `null` sin detección. */
   hub_here: boolean | null;
   /** La sesión con el otro agente está establecida. */
   session: boolean;
-  /** El cursor está bloqueado en su máquina (atajo del servidor). */
+  /** El cursor está bloqueado en su máquina (atajo de la que tiene el teclado). */
   locked: boolean;
   /** Permisos de macOS que le faltan a esta máquina. */
   missing: ("accessibility" | "input_monitoring")[];
@@ -53,13 +74,13 @@ export interface InputView {
 
 export type Snapshot =
   | { kind: "connecting" }
-  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView; pairing: PairingView; input: InputView }
+  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView; pairing: PairingView; input: InputView; caps: Caps }
   | { kind: "unavailable"; endpoint: string | null; reason: string };
 
 export type Step =
-  | { step: "power_on_pc" }
-  | { step: "power_off_pc" }
-  | { step: "switch_input"; monitor: string; from: Machine; to: Machine; input: Input }
+  | { step: "power_on"; machine: Machine }
+  | { step: "power_off"; machine: Machine }
+  | { step: "switch_input"; monitor: string; from: Machine; to: Machine; input: Input; by: Machine }
   | { step: "attach"; machine: Machine; monitor: string }
   | { step: "detach"; machine: Machine; monitor: string }
   | { step: "set_builtin"; from: BuiltinDisplay; to: BuiltinDisplay }
@@ -183,7 +204,7 @@ export type Notice =
   | { kind: "manual_switch"; event: ManualView }
   | { kind: "probe"; event: ProbeView }
   | { kind: "calibration"; event: CalibrationView }
-  | { kind: "power"; reason: string; stranded: string[] };
+  | { kind: "power"; machine: Machine; reason: string; stranded: string[] };
 
 export type Mode =
   | { mode: "solo_mac" }
@@ -194,7 +215,7 @@ export type Action =
   | { kind: "set_mode"; mode: Mode }
   | { kind: "move_monitor"; monitor: string; to: Machine }
   | { kind: "set_builtin"; display: BuiltinDisplay }
-  | { kind: "set_pc_power"; on: boolean }
+  | { kind: "set_power"; machine: Machine; on: boolean }
   | { kind: "answer_manual_switch"; id: number; done: boolean }
   | { kind: "answer_probe"; id: number; answer: ProbeAnswer }
   | { kind: "start_pairing" }

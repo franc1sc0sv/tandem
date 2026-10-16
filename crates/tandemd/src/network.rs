@@ -12,7 +12,7 @@
 //! - Mientras algún enlace ve al otro agente, el orquestador tiene un [`ManagedPeer`]
 //!   que manda cada pedido por el enlace activo; si ninguno lo ve, vuelve a no tener
 //!   par, y encender la PC espera a que aparezca. Lo mismo alimenta a
-//!   [`pc_watch`](crate::pc_watch) en la Mac y lo que la UI ve como [`PeerStatus`].
+//!   [`peer_watch`](crate::peer_watch) en las dos máquinas y lo que la UI ve como [`PeerStatus`].
 //! - Sin par emparejado no hay gestor ni descubrimiento: el agente trabaja solo y la
 //!   UI recibe [`PeerStatus::Unpaired`].
 //! - La UI empareja y desempareja en caliente ([`PairingControl`]): al emparejar se
@@ -35,7 +35,7 @@ use tandem_link::manager::{
     QuicSession,
 };
 use tandem_link::transport::{Connection, Endpoint, TransportError};
-use tandem_proto::{CalibrationProbe, Hello, Link, PairingStatus, Peer, PeerStatus};
+use tandem_proto::{CalibrationProbe, ControlMsg, Hello, Link, PairingStatus, Peer, PeerStatus};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -199,7 +199,7 @@ struct Shared {
     opts: NetOptions,
     conns: Arc<Conns>,
     accept: JoinHandle<()>,
-    /// El par que se sigue (gestor de enlaces, mDNS y `pc_watch`), si hay.
+    /// El par que se sigue (gestor de enlaces, mDNS y `peer_watch`), si hay.
     peer: Mutex<Option<Following>>,
     pairing: Mutex<Option<PairingRun>>,
     /// El enlace activo con el par que se sigue, para el motor de entrada. Vive aquí y
@@ -430,7 +430,7 @@ impl Shared {
         self.endpoint.close();
     }
 
-    /// Empieza a seguir a `peer`: mDNS, gestor de enlaces y, en la Mac, `pc_watch`.
+    /// Empieza a seguir a `peer`: mDNS, gestor de enlaces y la vigilancia del par (`peer_watch`).
     fn follow(self: &Arc<Self>, peer: TrustedPeer) {
         let TrustedPeer { public_key, name } = peer;
         tracing::info!(par = %name, llave = %public_key.to_hex(), "par emparejado");
@@ -477,8 +477,8 @@ impl Shared {
                 reachable_tx,
                 link,
             )),
-            // En la PC no hace nada: que la Mac no conteste no dice nada de la corriente.
-            tokio::spawn(crate::pc_watch::watch(agent.clone(), reachable)),
+            // Las dos vigilan a la otra: cualquiera puede quedarse sola (DESIGN §3.7).
+            tokio::spawn(crate::peer_watch::watch(agent.clone(), reachable)),
         ];
         *following = Some(Following {
             key: public_key,
@@ -838,6 +838,12 @@ impl PeerLink for ManagedPeer {
     fn publish_state(&self, state: &State) {
         if let Some(a) = self.links.active() {
             a.handle.client.publish_state(state);
+        }
+    }
+
+    fn send(&self, msg: ControlMsg) {
+        if let Some(a) = self.links.active() {
+            a.handle.client.send(msg);
         }
     }
 

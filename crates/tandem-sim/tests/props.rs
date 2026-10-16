@@ -7,6 +7,7 @@
 //! está de acuerdo, nada imposible ocurrió y la Mac siempre tiene una pantalla.
 
 use proptest::prelude::*;
+use tandem_core::Abilities;
 use tandem_core::{Machine, Mode, MonitorId, Plan, Step};
 use tandem_link::manager::LinkKind;
 use tandem_sim::{Desk, FaultAction, FaultPlan, Outcome, Power, SimError, TxnRun};
@@ -76,7 +77,7 @@ async fn check_all(d: &Desk, case: &str) -> Result<(), TestCaseError> {
     let fail = |e: SimError| TestCaseError::fail(format!("{case}: {e}"));
     d.check().await.map_err(fail)?;
     d.check_geometry().map_err(fail)?;
-    if d.mac.state().pc_on {
+    if d.mac.state().on.pc {
         d.pc_agrees().await.map_err(fail)?;
     }
     prop_assert!(
@@ -100,15 +101,23 @@ async fn run(actions: Vec<Action>) -> Result<(), TestCaseError> {
     for (i, a) in actions.into_iter().enumerate() {
         // Que llegue el estado final del cambio anterior a la otra máquina.
         d.settle().await;
-        let on = if a.from_pc && d.world.power() == Power::On && !matches!(a.op, Op::Shutdown) {
+        let on = if a.from_pc
+            && d.world.power_of(Machine::Pc) == Power::On
+            && !matches!(a.op, Op::Shutdown)
+        {
             Machine::Pc
         } else {
             Machine::Mac
         };
         let from = d.agent(on).state();
         let plan = match &a.op {
-            Op::Mode(m) => Plan::to_mode(d.config(), &from, m),
-            Op::Shutdown => Plan::shutdown_pc(d.config(), &from),
+            Op::Mode(m) => Plan::to_mode(d.config(), &from, m, &Abilities::pc_switches(d.config())),
+            Op::Shutdown => Plan::power_off(
+                d.config(),
+                &from,
+                Machine::Pc,
+                &Abilities::pc_switches(d.config()),
+            ),
         }
         .map_err(|e| TestCaseError::fail(e.to_string()))?;
         let mut faulted = None;
@@ -124,7 +133,14 @@ async fn run(actions: Vec<Action>) -> Result<(), TestCaseError> {
             let link = d.active_link(Machine::Mac).unwrap_or(LinkKind::Usb4);
             let action = match f.kind {
                 // Un apagado colgado se da por hecho (lo prueba `adversarial.rs`).
-                FaultKind::Hang if step != Step::PowerOffPc => FaultAction::Hang,
+                FaultKind::Hang
+                    if step
+                        != Step::PowerOff {
+                            machine: Machine::Pc,
+                        } =>
+                {
+                    FaultAction::Hang
+                }
                 FaultKind::Fail | FaultKind::Hang => FaultAction::Fail("falla inyectada".into()),
                 FaultKind::LostReply => FaultAction::ApplyThenCut(link),
             };

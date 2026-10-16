@@ -6,7 +6,7 @@ use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use tandem_core::{Machine, Mode, Step};
+use tandem_core::{Input, Machine, Mode, Step};
 use tandem_display::switcher::ManualSwitcher;
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_proto::{AgentToUi, Link, PeerStatus, Reply, TxnEvent, UiCommand};
@@ -127,7 +127,11 @@ async fn start(
             loopback(peer_port)
         ));
     }
-    let cfg = AgentConfig::from_toml(&format!("machine = \"{machine}\"\n{network}{DESK}")).unwrap();
+    // Las dos con `[power.wol]` para despertar a la otra (los pasos son simulados).
+    let text = format!("machine = \"{machine}\"\n{network}{DESK}\n{WOL}");
+    // En el disco, como en el binario: lo que se cambia desde la UI se guarda ahí.
+    std::fs::write(&paths.config, &text).unwrap();
+    let cfg = AgentConfig::from_toml(&text).unwrap();
     let steps = Arc::new(Fake::default());
     let Daemon {
         agent,
@@ -213,9 +217,15 @@ async fn paired_agents_find_each_other_and_change_mode() {
         Reply::Peer(paired("pc", Some(Link::Usb4)))
     );
 
-    // La Mac ve aparecer a la PC y la da por prendida (pc_watch).
+    // La Mac ve aparecer a la PC y la da por prendida (peer_watch), y viceversa.
     let mut mac_state = mac.agent.subscribe();
-    within(mac_state.wait_for(|s| s.pc_on)).await.unwrap();
+    within(mac_state.wait_for(|s| s.is_on(Machine::Pc)))
+        .await
+        .unwrap();
+    let mut pc_state = pc.agent.subscribe();
+    within(pc_state.wait_for(|s| s.is_on(Machine::Mac)))
+        .await
+        .unwrap();
 
     // El 34" a la PC: la Mac le pide sus pasos por el enlace. Darla por prendida toma
     // el orquestador un instante: si coincide, se reintenta.
@@ -251,7 +261,7 @@ async fn paired_agents_find_each_other_and_change_mode() {
         }
     })
     .await;
-    assert!(committed.pc_on);
+    assert!(committed.on.pc);
     assert_eq!(committed.owner[&"m34".into()], Machine::Pc);
     assert_eq!(committed.owner[&"m32".into()], Machine::Mac);
     assert_eq!(mac.agent.state(), committed);
@@ -261,6 +271,7 @@ async fn paired_agents_find_each_other_and_change_mode() {
         from: Machine::Mac,
         to: Machine::Pc,
         input: tandem_core::Input::DisplayPort,
+        by: Machine::Pc,
     };
     let attach = Step::Attach {
         machine: Machine::Pc,
@@ -339,6 +350,9 @@ async fn identity_is_created_once_and_kept() {
     assert_eq!(second.agent.peer_status(), PeerStatus::Unpaired);
 }
 
+/// Lo que hace falta para que una máquina despierte a la otra.
+const WOL: &str = "[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n";
+
 /// Encender la PC termina cuando su agente aparece por un enlace, no antes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn power_on_waits_for_the_pc_agent() {
@@ -352,7 +366,14 @@ async fn power_on_waits_for_the_pc_agent() {
     )
     .await;
     assert_eq!(mac.agent.peer_status(), paired("pc", None));
-    let reply = mac.ui.request(UiCommand::SetPcPower(true)).await.unwrap();
+    let reply = mac
+        .ui
+        .request(UiCommand::SetPower {
+            machine: Machine::Pc,
+            on: true,
+        })
+        .await
+        .unwrap();
     assert!(matches!(reply, Reply::Accepted { .. }), "{reply:?}");
     // El Wake-on-LAN salió y la transacción espera.
     within(async {
@@ -361,7 +382,7 @@ async fn power_on_waits_for_the_pc_agent() {
         }
     })
     .await;
-    assert!(!mac.agent.state().pc_on);
+    assert!(!mac.agent.state().on.pc);
 
     let pc = start(
         Machine::Pc,
@@ -384,8 +405,13 @@ async fn power_on_waits_for_the_pc_agent() {
         }
     })
     .await;
-    assert!(state.pc_on);
-    assert_eq!(mac.steps.steps()[0], Step::PowerOnPc);
+    assert!(state.on.pc);
+    assert_eq!(
+        mac.steps.steps()[0],
+        Step::PowerOn {
+            machine: Machine::Pc
+        }
+    );
     pc.stop().await;
     mac.stop().await;
 }
@@ -570,4 +596,169 @@ async fn no_free_port_explains_how_to_fix_it() {
     ] {
         assert!(text.contains(&want), "falta «{want}» en: {text}");
     }
+}
+
+/// Lo que el puesto tiene en `tandem.toml` de `r` (lo que leería al volver a arrancar).
+fn saved(r: &Running) -> AgentConfig {
+    AgentConfig::load(&r._dir.path().join("tandem.toml")).unwrap()
+}
+
+async fn until_wiring(
+    r: &Running,
+    monitor: &str,
+    want: &std::collections::BTreeMap<Machine, Input>,
+) {
+    let mut rx = r.agent.subscribe_desk();
+    within(rx.wait_for(|d| {
+        d.monitor(&monitor.into())
+            .is_some_and(|m| m.wiring == *want)
+    }))
+    .await
+    .unwrap();
+}
+
+/// T-084: el puesto es de las dos. Cambiar el cableado en la UI de la Mac llega a la PC
+/// (en caliente y en su `tandem.toml`), y al revés; lo solo-local no viaja.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn wiring_changed_on_either_machine_reaches_the_other() {
+    let (mac_id, pc_id) = (Identity::from_seed([5; 32]), Identity::from_seed([6; 32]));
+    let (mac_port, pc_port) = (free_port(), free_port());
+    let mut mac = start(
+        Machine::Mac,
+        &mac_id,
+        mac_port,
+        Some((pc_id.public_key(), pc_port)),
+    )
+    .await;
+    let mut pc = start(
+        Machine::Pc,
+        &pc_id,
+        pc_port,
+        Some((mac_id.public_key(), mac_port)),
+    )
+    .await;
+    until_peer(&mac.agent, paired("pc", Some(Link::Usb4))).await;
+    until_peer(&pc.agent, paired("mac", Some(Link::Usb4))).await;
+
+    // Cada una ve lo que la otra puede: la PC cambia las entradas, la Mac tiene pantalla.
+    let mut caps = mac.agent.subscribe_capabilities();
+    within(caps.wait_for(|c| c.peer.as_ref().is_some_and(|p| p.machine == Machine::Pc)))
+        .await
+        .unwrap();
+    let c = mac.agent.capabilities();
+    assert!(c.peer.as_ref().unwrap().monitors.iter().all(|m| m.switch));
+    assert!(c.here.builtin);
+
+    // En la Mac: el 32" con HDMI a la PC y DisplayPort a la Mac.
+    let swapped: std::collections::BTreeMap<Machine, Input> = [
+        (Machine::Pc, Input::Hdmi),
+        (Machine::Mac, Input::DisplayPort),
+    ]
+    .into();
+    let set = |wiring: &std::collections::BTreeMap<Machine, Input>| UiCommand::SetWiring {
+        monitor: "m32".into(),
+        wiring: wiring.clone(),
+    };
+    let reply = within(mac.ui.request(set(&swapped))).await.unwrap();
+    assert_eq!(reply, Reply::Done);
+    until_wiring(&pc, "m32", &swapped).await;
+    for r in [&mac, &pc] {
+        let cfg = saved(r);
+        assert_eq!(
+            cfg.desk.monitor(&"m32".into()).unwrap().wiring,
+            swapped,
+            "{}",
+            cfg.machine
+        );
+        assert_eq!(cfg.desk_rev, 1);
+        assert_eq!(cfg.desk_origin, Some(Machine::Mac));
+    }
+    // Lo solo-local sigue siendo de cada una.
+    assert_eq!(saved(&pc).machine, Machine::Pc);
+    assert_eq!(saved(&pc).network.port, pc_port);
+
+    // Y el plan de la PC ya usa el cableado nuevo: el 32" a la PC va por HDMI.
+    let plan = tandem_core::Plan::to_mode(
+        &pc.agent.desk(),
+        &pc.agent.state(),
+        &Mode::SoloPc,
+        &pc.agent.abilities(),
+    )
+    .unwrap();
+    assert!(plan.steps.iter().any(|s| matches!(
+        s,
+        Step::SwitchInput { monitor, input: Input::Hdmi, by: Machine::Pc, .. } if monitor.0 == "m32"
+    )));
+
+    // Al revés, desde la PC: vuelve el cableado de siempre.
+    let back: std::collections::BTreeMap<Machine, Input> = [
+        (Machine::Pc, Input::DisplayPort),
+        (Machine::Mac, Input::Hdmi),
+    ]
+    .into();
+    let reply = within(pc.ui.request(set(&back))).await.unwrap();
+    assert_eq!(reply, Reply::Done);
+    until_wiring(&mac, "m32", &back).await;
+    let cfg = saved(&mac);
+    assert_eq!(cfg.desk.monitor(&"m32".into()).unwrap().wiring, back);
+    assert_eq!((cfg.desk_rev, cfg.desk_origin), (2, Some(Machine::Pc)));
+    // La UI de la Mac recibe el puesto nuevo empujado.
+    within(async {
+        loop {
+            if let Some(AgentToUi::Desk(d)) = mac.ui.next_event().await.unwrap()
+                && d.monitor(&"m32".into()).unwrap().wiring == back
+            {
+                break;
+            }
+        }
+    })
+    .await;
+
+    mac.stop().await;
+    pc.stop().await;
+}
+
+/// T-084: la Mac se reconecta tras perderse un cambio (estaba apagada): al volver, se
+/// pone al día con la versión más nueva de la PC.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_change_made_while_the_other_was_away_arrives_on_reconnect() {
+    let (mac_id, pc_id) = (Identity::from_seed([7; 32]), Identity::from_seed([8; 32]));
+    let (mac_port, pc_port) = (free_port(), free_port());
+    let mut pc = start(
+        Machine::Pc,
+        &pc_id,
+        pc_port,
+        Some((mac_id.public_key(), mac_port)),
+    )
+    .await;
+    // La Mac todavía no está: el cambio queda solo en la PC.
+    let swapped: std::collections::BTreeMap<Machine, Input> = [
+        (Machine::Pc, Input::Hdmi),
+        (Machine::Mac, Input::DisplayPort),
+    ]
+    .into();
+    let reply = within(pc.ui.request(UiCommand::SetWiring {
+        monitor: "m34".into(),
+        wiring: swapped.clone(),
+    }))
+    .await
+    .unwrap();
+    assert_eq!(reply, Reply::Done);
+
+    let mac = start(
+        Machine::Mac,
+        &mac_id,
+        mac_port,
+        Some((pc_id.public_key(), pc_port)),
+    )
+    .await;
+    until_wiring(&mac, "m34", &swapped).await;
+    assert_eq!(
+        saved(&mac).desk.monitor(&"m34".into()).unwrap().wiring,
+        swapped
+    );
+    assert_eq!(saved(&mac).desk_rev, 1);
+
+    mac.stop().await;
+    pc.stop().await;
 }

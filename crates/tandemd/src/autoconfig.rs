@@ -26,6 +26,7 @@ use tandem_display::ddc::profiles::ProfileDb;
 use tandem_display::ddc::{Edid, MonitorInfo};
 use tandem_display::topology::Display;
 
+use crate::capabilities::Seen;
 use crate::config::{AgentConfig, ConfigError, DEFAULT_PORT};
 use crate::paths;
 
@@ -166,6 +167,29 @@ pub fn monitors(detected: &[Detected], db: &ProfileDb) -> Vec<MonitorConfig> {
         .collect()
 }
 
+/// Lo que esta máquina anuncia de los monitores que ve (T-084): el id PnP y el mismo
+/// nombre que tendrían en una configuración generada, de izquierda a derecha.
+pub fn seen(detected: &[Detected]) -> Vec<Seen> {
+    let mut sorted: Vec<&Detected> = detected.iter().collect();
+    sorted.sort_by_key(|d| (d.x.is_none(), d.x.unwrap_or(0)));
+    let labels = labels(&sorted);
+    sorted
+        .iter()
+        .zip(labels)
+        .map(|(d, name)| Seen {
+            pnp_id: Some(d.edid.pnp_id()),
+            model: d
+                .edid
+                .name
+                .as_deref()
+                .map(str::trim)
+                .filter(|n| !n.is_empty())
+                .map(str::to_owned),
+            name,
+        })
+        .collect()
+}
+
 /// DisplayPort a la PC y HDMI a la Mac: lo habitual (la MacBook sale por HDMI o USB-C a
 /// HDMI; la tarjeta de la PC tiene sobre todo DisplayPort).
 pub fn default_wiring() -> std::collections::BTreeMap<Machine, tandem_core::Input> {
@@ -259,18 +283,20 @@ port = {DEFAULT_PORT}
 # peers = [{{ kind = \"usb4\", addr = \"<ip>:<puerto>\" }}]
 
 [input]
-# Quién tiene el teclado y el mouse al arrancar, hasta que el hub USB diga otra cosa.
-server = \"mac\"
+# Dónde está el teclado y el mouse al arrancar, hasta que el hub USB diga otra cosa.
+keyboard = \"mac\"
 lock_shortcut = [\"ScrollLock\"]
 clipboard = true
 # Para que los roles cambien solos al mover el hub, agrega [input.hub] con el VID:PID
 # del teclado y el mouse (`keyboard` y `mouse`).
 
 [power]
-# En la Mac: sin ningún enlace con la PC durante esto, se la da por apagada.
-pc_lost_after_secs = 15
-# Para encender la PC desde la Mac, agrega [power.wol] con la MAC de la tarjeta de red
-# de la PC (`mac`).
+# Sin ningún enlace con la otra máquina durante esto, se la da por apagada.
+peer_lost_after_secs = 15
+# Esta máquina se despierta por Wake-on-LAN (se le anuncia a la otra).
+wakeable = true
+# Para encender la otra máquina desde esta, agrega [power.wol] con la MAC de su tarjeta
+# de red (`mac`).
 "
     );
     for m in &monitors {
@@ -463,6 +489,42 @@ pub(crate) mod tests {
             display(Some(m32()), Some(3440), false),
             display(Some(m34()), Some(0), false),
         ])
+    }
+
+    /// Hallazgo del PR #56: lo detectado al arrancar es lo que se anuncia (no los
+    /// `[[monitors]]` del puesto), atado a los monitores de la configuración.
+    #[test]
+    fn what_is_detected_is_what_is_announced() {
+        let seen = seen(&pc_desk());
+        assert_eq!(
+            seen,
+            [
+                Seen {
+                    pnp_id: Some("SAM711A".into()),
+                    model: Some("LC34G55T".into()),
+                    name: "34\"".into(),
+                },
+                Seen {
+                    pnp_id: Some("SAM7489".into()),
+                    model: Some("Odyssey G5".into()),
+                    name: "32\"".into(),
+                },
+            ]
+        );
+        let cfg = AgentConfig::from_toml(&generate(Machine::Pc, &pc_desk(), ProfileDb::builtin()))
+            .unwrap();
+        let input = tandem_proto::InputStatus::new(Machine::Pc);
+        let caps = crate::capabilities::local(&cfg, &cfg.desk, Some(&seen), &input);
+        let bound: Vec<_> = caps.monitors.iter().map(|m| m.monitor.clone()).collect();
+        assert_eq!(bound, [Some("sam711a".into()), Some("sam7489".into())]);
+        assert!(caps.monitors.iter().all(|m| m.switch && m.ddc));
+
+        // La PC que solo ve el 34" no dice que ve el 32"... salvo que esté cableado a ella.
+        let mut only_34 = cfg.clone();
+        only_34.desk.monitors[1].wiring.remove(&Machine::Pc);
+        let caps = crate::capabilities::local(&only_34, &only_34.desk, Some(&seen[..1]), &input);
+        assert_eq!(caps.monitors.len(), 1, "{:?}", caps.monitors);
+        assert_eq!(caps.monitors[0].name, "34\"");
     }
 
     #[test]

@@ -57,7 +57,7 @@ button { font: inherit; color: inherit; }
 .role { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 5px 9px; border-radius: 8px; border: 1px solid var(--line-2); color: var(--dim); }
 .role svg { width: 14px; height: 14px; color: var(--accent); }
 .role.unknown svg, .role.idle svg { color: var(--faint); }
-.role.client svg { color: var(--dim); }
+.role.remote svg { color: var(--dim); }
 .role.warn { color: var(--warn); border-color: var(--warn); }
 .role.warn svg { color: var(--warn); }
 
@@ -83,6 +83,8 @@ button { font: inherit; color: inherit; }
 @keyframes flick { 40% { opacity: .1; } 100% { opacity: 1; } }
 
 .machine { display: flex; justify-content: center; align-items: end; gap: 16px; }
+/* Lo que se pone en cada tarjeta según lo que anuncia su máquina (T-084). */
+.hw-slot, .power-slot { display: contents; }
 .machine svg.hw { height: 88px; }
 
 /* pantalla integrada */

@@ -5,6 +5,7 @@
 
 use std::time::Duration;
 
+use tandem_core::Abilities;
 use tandem_core::{BuiltinDisplay, Machine, Mode, MonitorId, Plan, Step};
 use tandem_link::manager::LinkKind;
 use tandem_sim::world::LC34G55T_READS;
@@ -34,7 +35,7 @@ async fn committed(d: &Desk, run: &TxnRun) {
 async fn recorrido_solo_mac_compartido_solo_windows_apagado() {
     let d = Desk::new().await.unwrap();
     d.check().await.unwrap();
-    assert_eq!(d.world.power(), Power::Off);
+    assert_eq!(d.world.power_of(Machine::Pc), Power::Off);
 
     // Solo Mac → Compartido: Wake-on-LAN, esperar al agente de la PC y mover el 34".
     let start = tokio::time::Instant::now();
@@ -63,12 +64,16 @@ async fn recorrido_solo_mac_compartido_solo_windows_apagado() {
     // Apagado: todo vuelve a la Mac antes de apagar la PC.
     let run = d.shutdown_pc().await.unwrap();
     committed(&d, &run).await;
-    assert_eq!(d.world.power(), Power::Off);
+    assert_eq!(d.world.power_of(Machine::Pc), Power::Off);
     assert_eq!(d.world.builtin(), BuiltinDisplay::Off);
     let calls = d.world.calls();
     let off = calls
         .iter()
-        .position(|(_, s)| *s == Step::PowerOffPc)
+        .position(|(_, s)| {
+            *s == Step::PowerOff {
+                machine: Machine::Pc,
+            }
+        })
         .unwrap();
     assert!(
         calls[..off]
@@ -143,9 +148,9 @@ impl Leg {
     fn plan(self, d: &Desk) -> Plan {
         let (cfg, from) = (d.config(), d.mac.state());
         match self {
-            Leg::ToShared => Plan::to_mode(cfg, &from, &shared()),
-            Leg::ToSoloPc => Plan::to_mode(cfg, &from, &Mode::SoloPc),
-            Leg::Shutdown => Plan::shutdown_pc(cfg, &from),
+            Leg::ToShared => Plan::to_mode(cfg, &from, &shared(), &Abilities::pc_switches(cfg)),
+            Leg::ToSoloPc => Plan::to_mode(cfg, &from, &Mode::SoloPc, &Abilities::pc_switches(cfg)),
+            Leg::Shutdown => Plan::power_off(cfg, &from, Machine::Pc, &Abilities::pc_switches(cfg)),
         }
         .unwrap()
     }
@@ -173,7 +178,12 @@ async fn every_step_rolls_back(leg: Leg, action: FaultAction) {
         for machine in machines {
             // Un apagado sin respuesta se da por hecho, no se deshace: lo prueba
             // `adversarial.rs`.
-            if *step == Step::PowerOffPc && action == FaultAction::Hang {
+            if *step
+                == (Step::PowerOff {
+                    machine: Machine::Pc,
+                })
+                && action == FaultAction::Hang
+            {
                 continue;
             }
             let case = format!("{leg:?}: {action:?} en {machine} al {step:?}");
@@ -196,8 +206,10 @@ async fn every_step_rolls_back(leg: Leg, action: FaultAction) {
             let after = d.mac.state();
             assert_eq!(after.owner, before.owner, "{case}");
             assert_eq!(after.builtin_pref, before.builtin_pref, "{case}");
-            let powered_on = steps[..index].contains(&Step::PowerOnPc);
-            assert_eq!(after.pc_on, before.pc_on || powered_on, "{case}");
+            let powered_on = steps[..index].contains(&Step::PowerOn {
+                machine: Machine::Pc,
+            });
+            assert_eq!(after.on.pc, before.on.pc || powered_on, "{case}");
             if let Err(e) = d.check().await {
                 panic!("{case}: {e}");
             }
@@ -208,7 +220,7 @@ async fn every_step_rolls_back(leg: Leg, action: FaultAction) {
             assert_eq!(now.inputs, physical.inputs, "{case}");
             assert_eq!(now.desktops, physical.desktops, "{case}");
             assert_eq!(now.builtin, physical.builtin, "{case}");
-            if after.pc_on {
+            if after.on.pc {
                 d.pc_agrees().await.unwrap();
             }
         }

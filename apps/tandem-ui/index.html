@@ -37,13 +37,56 @@
       </header>
 
       <main class="scene" id="scene" hidden>
-        <section class="side mac" data-owner="mac" aria-label="MacBook Pro">
+        <!-- Esta máquina y la otra (T-084): cuál es cuál lo decide el agente al conectarse. -->
+        <section class="side" data-side="here" aria-label="Esta máquina">
           <div class="side-head">
-            <span class="name">MacBook Pro</span><span class="state" id="state-mac"></span>
-            <span class="role" id="role-mac"></span>
+            <span class="name" data-part="name"></span><span class="state" data-part="state"></span>
+            <span class="role" data-part="role"></span>
           </div>
-          <div class="desk" data-owner="mac"></div>
+          <div class="desk"></div>
           <div class="machine">
+            <div class="hw-slot"></div>
+            <div class="hub ghost" title="Hub USB: el agente todavía no informa dónde está">
+              <svg viewBox="0 0 48 30" fill="none" aria-hidden="true"><rect x="2" y="6" width="44" height="18" rx="6" fill="#1c1e23" stroke="currentColor" /><rect x="9" y="12" width="6" height="6" rx="1.5" fill="currentColor" /><rect x="21" y="12" width="6" height="6" rx="1.5" fill="currentColor" /><rect x="33" y="12" width="6" height="6" rx="1.5" fill="currentColor" /></svg>hub USB
+            </div>
+            <div class="power-slot"></div>
+          </div>
+        </section>
+
+        <section class="links" id="links" aria-label="Enlaces">
+          <div class="link down" data-k="usb4" style="--c: var(--mac); --sp: 0.6s">
+            <svg viewBox="0 0 200 34" preserveAspectRatio="none" aria-hidden="true"><line class="rail" x1="0" y1="17" x2="200" y2="17" /><line class="flow" x1="0" y1="17" x2="200" y2="17" /></svg>
+            <span class="tag"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z" /></svg><b>USB4</b> <span class="speed"></span></span>
+          </div>
+          <div class="link down" data-k="ethernet" style="--c: var(--ok); --sp: 1s">
+            <svg viewBox="0 0 200 34" preserveAspectRatio="none" aria-hidden="true"><line class="rail" x1="0" y1="17" x2="200" y2="17" /><line class="flow" x1="0" y1="17" x2="200" y2="17" /></svg>
+            <span class="tag"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4h14v10h-3v3h-2v3h-4v-3H8v-3H5z" /></svg><b>Ethernet</b> <span class="speed"></span></span>
+          </div>
+          <div class="link down" data-k="wifi" style="--c: var(--warn); --sp: 2s">
+            <svg viewBox="0 0 200 34" preserveAspectRatio="none" aria-hidden="true"><line class="rail" x1="0" y1="17" x2="200" y2="17" /><line class="flow" x1="0" y1="17" x2="200" y2="17" /></svg>
+            <span class="tag"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM6.3 13.3l1.4 1.4a6 6 0 0 1 8.6 0l1.4-1.4a8 8 0 0 0-11.4 0zM2.8 9.8l1.4 1.4a11 11 0 0 1 15.6 0l1.4-1.4a13 13 0 0 0-18.4 0z" /></svg><b>Wi-Fi</b> <span class="plane">solo control</span></span>
+          </div>
+        </section>
+
+        <section class="side" data-side="peer" aria-label="La otra máquina">
+          <div class="side-head">
+            <span class="name" data-part="name"></span><span class="state" data-part="state"></span>
+            <span class="role" data-part="role"></span>
+          </div>
+          <div class="desk"></div>
+          <div class="machine">
+            <div class="hw-slot"></div>
+            <div class="hub ghost" title="Hub USB: el agente todavía no informa dónde está">
+              <svg viewBox="0 0 48 30" fill="none" aria-hidden="true"><rect x="2" y="6" width="44" height="18" rx="6" fill="#1c1e23" stroke="currentColor" /><rect x="9" y="12" width="6" height="6" rx="1.5" fill="currentColor" /><rect x="21" y="12" width="6" height="6" rx="1.5" fill="currentColor" /><rect x="33" y="12" width="6" height="6" rx="1.5" fill="currentColor" /></svg>hub USB
+            </div>
+            <div class="power-slot"></div>
+          </div>
+        </section>
+
+        <!-- Piezas que la escena pone en la tarjeta que corresponde según lo que anuncia cada
+             máquina (T-084): la pantalla integrada en la que la tiene, el botón de
+             encendido en la otra. -->
+        <div id="parts" hidden>
             <div class="builtin">
               <svg class="hw" viewBox="0 0 220 110" aria-hidden="true">
                 <rect x="32" y="4" width="156" height="92" rx="8" fill="#1c1e23" stroke="#33363e" />
@@ -67,43 +110,11 @@
               </div>
               <div class="bi-note" id="builtin-note"></div>
             </div>
-            <div class="hub ghost" title="Hub USB: el agente todavía no informa dónde está">
-              <svg viewBox="0 0 48 30" fill="none" aria-hidden="true"><rect x="2" y="6" width="44" height="18" rx="6" fill="#1c1e23" stroke="currentColor" /><rect x="9" y="12" width="6" height="6" rx="1.5" fill="currentColor" /><rect x="21" y="12" width="6" height="6" rx="1.5" fill="currentColor" /><rect x="33" y="12" width="6" height="6" rx="1.5" fill="currentColor" /></svg>hub USB
-            </div>
-          </div>
-        </section>
-
-        <section class="links" id="links" aria-label="Enlaces">
-          <div class="link down" data-k="usb4" style="--c: var(--mac); --sp: 0.6s">
-            <svg viewBox="0 0 200 34" preserveAspectRatio="none" aria-hidden="true"><line class="rail" x1="0" y1="17" x2="200" y2="17" /><line class="flow" x1="0" y1="17" x2="200" y2="17" /></svg>
-            <span class="tag"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z" /></svg><b>USB4</b> <span class="speed"></span></span>
-          </div>
-          <div class="link down" data-k="ethernet" style="--c: var(--ok); --sp: 1s">
-            <svg viewBox="0 0 200 34" preserveAspectRatio="none" aria-hidden="true"><line class="rail" x1="0" y1="17" x2="200" y2="17" /><line class="flow" x1="0" y1="17" x2="200" y2="17" /></svg>
-            <span class="tag"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 4h14v10h-3v3h-2v3h-4v-3H8v-3H5z" /></svg><b>Ethernet</b> <span class="speed"></span></span>
-          </div>
-          <div class="link down" data-k="wifi" style="--c: var(--warn); --sp: 2s">
-            <svg viewBox="0 0 200 34" preserveAspectRatio="none" aria-hidden="true"><line class="rail" x1="0" y1="17" x2="200" y2="17" /><line class="flow" x1="0" y1="17" x2="200" y2="17" /></svg>
-            <span class="tag"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM6.3 13.3l1.4 1.4a6 6 0 0 1 8.6 0l1.4-1.4a8 8 0 0 0-11.4 0zM2.8 9.8l1.4 1.4a11 11 0 0 1 15.6 0l1.4-1.4a13 13 0 0 0-18.4 0z" /></svg><b>Wi-Fi</b> <span class="plane">solo control</span></span>
-          </div>
-        </section>
-
-        <section class="side pc" data-owner="pc" aria-label="PC">
-          <div class="side-head">
-            <span class="name">PC</span><span class="state" id="state-pc"></span>
-            <span class="role" id="role-pc"></span>
-          </div>
-          <div class="desk" data-owner="pc"></div>
-          <div class="machine">
-            <div class="hub ghost" title="Hub USB: el agente todavía no informa dónde está">
-              <svg viewBox="0 0 48 30" fill="none" aria-hidden="true"><rect x="2" y="6" width="44" height="18" rx="6" fill="#1c1e23" stroke="currentColor" /><rect x="9" y="12" width="6" height="6" rx="1.5" fill="currentColor" /><rect x="21" y="12" width="6" height="6" rx="1.5" fill="currentColor" /><rect x="33" y="12" width="6" height="6" rx="1.5" fill="currentColor" /></svg>hub USB
-            </div>
-            <svg class="hw" viewBox="0 0 90 120" aria-hidden="true"><rect x="8" y="4" width="74" height="112" rx="8" fill="#1c1e23" stroke="#33363e" /><rect x="16" y="14" width="40" height="92" rx="4" fill="#141518" stroke="#2a2c32" /><circle cx="36" cy="38" r="11" stroke="#4a4560" stroke-width="2" fill="none" /><circle cx="36" cy="78" r="11" stroke="#4a4560" stroke-width="2" fill="none" /><rect x="64" y="14" width="10" height="3" rx="1.5" fill="#a99be8" opacity=".7" /></svg>
+            <svg class="hw tower" id="tower" viewBox="0 0 90 120" aria-hidden="true"><rect x="8" y="4" width="74" height="112" rx="8" fill="#1c1e23" stroke="#33363e" /><rect x="16" y="14" width="40" height="92" rx="4" fill="#141518" stroke="#2a2c32" /><circle cx="36" cy="38" r="11" stroke="#4a4560" stroke-width="2" fill="none" /><circle cx="36" cy="78" r="11" stroke="#4a4560" stroke-width="2" fill="none" /><rect x="64" y="14" width="10" height="3" rx="1.5" fill="#a99be8" opacity=".7" /></svg>
             <button type="button" class="power" id="power">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8" /><path d="M6.3 6.8a8 8 0 1 0 11.4 0" /></svg>
             </button>
-          </div>
-        </section>
+        </div>
       </main>
 
       <main class="stage" id="stage" aria-live="polite" hidden></main>

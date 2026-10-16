@@ -7,10 +7,12 @@ import { isActive, needsDismiss, pairLine, pairScreen, shouldOpen } from "./pair
 import { PORT_NAME, nextQuestion, questionText } from "./probe";
 import {
   MACHINE_NAME,
-  MACHINES,
   PORT,
   advance,
   builtinOf,
+  capsOf,
+  hasBuiltin,
+  machineState,
   groupStatus,
   groupSteps,
   isRunning,
@@ -18,9 +20,11 @@ import {
   modeRequest,
   monitorsOf,
   other,
-  pcPower,
   peerPill,
+  peerPower,
+  powerButton,
   roleChip,
+  sides,
   type ModeKey,
   type MonitorView,
   type Progress,
@@ -113,7 +117,7 @@ function onNotice(n: Notice) {
     renderControls();
     renderToast();
   } else if (n.kind === "power") {
-    // Fijo: los monitores que quedaron en la PC siguen en negro hasta encenderla.
+    // Fijo: los monitores que quedaron en la otra máquina siguen en negro.
     showMessage(n.reason, n.stranded.length > 0);
   } else if (n.kind === "probe") {
     // La sonda a pantalla completa tiene su propia ventana; aquí solo la pregunta.
@@ -235,17 +239,67 @@ function renderUnavailable() {
   stage.replaceChildren(card);
 }
 
+const SIDES = ["here", "peer"] as const;
+
+/** La tarjeta de esta máquina o la de la otra. */
+function sideEl(which: (typeof SIDES)[number]) {
+  return $(`.side[data-side="${which}"]`);
+}
+
+/**
+ * Cada tarjeta es de la máquina que le toca desde este agente (T-084): a la izquierda
+ * siempre esta, a la derecha la otra. La pantalla integrada va con la que la tiene y el
+ * botón de encendido con la otra.
+ */
+function renderSides() {
+  if (snap.kind !== "connected") return;
+  const { agent, caps } = snap;
+  const both = sides(agent);
+  const parts = $("#parts");
+  const builtin = $(".builtin");
+  let builtinPlaced = false;
+  for (const which of SIDES) {
+    const who = both[which];
+    const side = sideEl(which);
+    side.className = `side ${who}${side.classList.contains("drop") ? " drop" : ""}`;
+    side.dataset.owner = who;
+    $(".desk", side).dataset.owner = who;
+    const name = $("[data-part=name]", side);
+    name.textContent = MACHINE_NAME[who];
+    const announced = capsOf(caps, who);
+    name.title = announced ? `${announced.name} · ${announced.os}` : which === "peer" ? "todavía no se la vio" : "";
+    side.setAttribute("aria-label", which === "here" ? `${MACHINE_NAME[who]} (esta máquina)` : MACHINE_NAME[who]);
+    const slot = $(".hw-slot", side);
+    if (hasBuiltin(caps, who) && !builtinPlaced) {
+      builtinPlaced = true;
+      if (builtin.parentElement !== slot) slot.replaceChildren(builtin);
+    } else if (!slot.querySelector(".tower")) {
+      const tower = $("#tower", parts).cloneNode(true) as Element;
+      tower.removeAttribute("id");
+      slot.replaceChildren(tower);
+    }
+    const powerSlot = $(".power-slot", side);
+    const pw = $("#power");
+    if (which === "peer" && pw.parentElement !== powerSlot) powerSlot.replaceChildren(pw);
+  }
+  if (!builtinPlaced && builtin.parentElement !== parts) parts.append(builtin);
+}
+
 function renderDesks(moved: string[]) {
   if (snap.kind !== "connected") return;
-  const { desk, state } = snap;
-  for (const who of MACHINES) {
-    const deskEl = $(`.desk[data-owner="${who}"]`);
-    const mine = monitorsOf(desk, state, who);
+  const { desk, state, agent, caps } = snap;
+  renderSides();
+  const both = sides(agent);
+  for (const which of SIDES) {
+    const who = both[which];
+    const deskEl = $(".desk", sideEl(which));
+    const mine = monitorsOf(desk, state, who, caps);
     deskEl.replaceChildren(...mine.map((m) => monitorEl(m, moved.includes(m.id))));
     if (!mine.length) {
       const empty = el("div", "empty");
       empty.innerHTML = ICON_EMPTY;
-      empty.append(who === "pc" && !state.pc_on ? "PC apagada" : "Arrastra un monitor aquí");
+      const off = which === "peer" && peerPower(state, agent, progress) === "off";
+      empty.append(off ? `${MACHINE_NAME[who]} apagada` : "Arrastra un monitor aquí");
       deskEl.append(empty);
     }
   }
@@ -254,14 +308,18 @@ function renderDesks(moved: string[]) {
 /** Lo que cambia también con el avance de una transacción. */
 function renderControls() {
   if (snap.kind !== "connected") return;
-  const { desk, state, agent } = snap;
+  const { desk, state, agent, caps } = snap;
   const running = isRunning(progress);
-  const power = pcPower(state, progress);
+  const power = peerPower(state, agent, progress);
+  renderSides();
+  const both = sides(agent);
 
-  for (const who of MACHINES) {
-    $(`#state-${who}`).textContent =
-      who === "pc" ? { on: "encendida", boot: "arrancando…", off: "apagada" }[power] : agent === who ? "esta máquina" : "";
-    const role = $(`#role-${who}`);
+  for (const which of SIDES) {
+    const who = both[which];
+    const side = sideEl(which);
+    // Esta máquina nunca está apagada para sí misma (T-084).
+    $("[data-part=state]", side).textContent = machineState(state, agent, who, progress);
+    const role = $("[data-part=role]", side);
     const chip = roleChip(snap.input, agent, who, power === "on");
     if (chip) {
       role.className = `role ${chip.kind}`;
@@ -272,13 +330,17 @@ function renderControls() {
       role.hidden = true;
     }
   }
-  $(".side.pc").classList.toggle("asleep", power !== "on");
+  sideEl("here").classList.remove("asleep");
+  sideEl("peer").classList.toggle("asleep", power !== "on");
 
+  // Solo si alguna máquina puede: despertar a la otra, o que ella se apague limpio.
+  const button = powerButton(caps, state, agent, progress);
   const pw = $<HTMLButtonElement>("#power");
-  pw.className = `power ${power === "off" ? "" : power}`.trim();
-  pw.setAttribute("aria-label", power === "on" ? "Apagar la PC" : power === "boot" ? "La PC está arrancando" : "Encender la PC");
-  pw.title = pw.getAttribute("aria-label") ?? "";
-  pw.setAttribute("aria-disabled", String(running));
+  pw.hidden = !button.visible;
+  pw.className = `power ${button.power === "off" ? "" : button.power}`.trim();
+  pw.setAttribute("aria-label", button.label);
+  pw.title = button.label;
+  pw.setAttribute("aria-disabled", String(running || button.on === null));
 
   const bi = builtinOf(desk, state);
   for (const b of $$<HTMLButtonElement>("#builtin-seg button")) {
@@ -1031,7 +1093,7 @@ function renderDesk() {
     list.append(row);
   }
   body.push(list);
-  body.push(el("p", "ahint", `El cableado vale desde el siguiente cambio de modo. Se guarda en esta máquina: hasta que se sincronicen, cámbialo también en la ${agent === "mac" ? "PC" : "Mac"}.`));
+  body.push(el("p", "ahint", `El cableado vale desde el siguiente cambio de modo y se guarda en las dos máquinas: si la ${MACHINE_NAME[other(agent)]} no está, se pone al día al volver a verla.`));
   if (deskError) body.push(el("p", "pwarn", capitalize(deskError)));
   $("#deskcfg-body").replaceChildren(...body);
   $("#deskcfg-foot").replaceChildren(el("span", "spacer"), kbtn("Cerrar", () => deskDialog().close(), "primary"));
@@ -1070,7 +1132,6 @@ function wire() {
   wireDesk();
 
   for (const side of $$(".side")) {
-    const to = side.dataset.owner as Machine;
     side.addEventListener("dragover", (e) => {
       e.preventDefault();
       side.classList.add("drop");
@@ -1082,7 +1143,9 @@ function wire() {
       e.preventDefault();
       side.classList.remove("drop");
       const id = e.dataTransfer?.getData("text/plain");
-      if (!id || snap.kind !== "connected") return;
+      // De quién es la tarjeta se decide al conectarse: se lee al soltar.
+      const to = side.dataset.owner as Machine | undefined;
+      if (!id || !to || snap.kind !== "connected") return;
       if ((snap.state.owner[id] ?? "mac") !== to) void act({ kind: "move_monitor", monitor: id, to });
     });
   }
@@ -1097,7 +1160,9 @@ function wire() {
 
   $("#power").addEventListener("click", () => {
     if (snap.kind !== "connected" || isRunning(progress)) return;
-    void act({ kind: "set_pc_power", on: !snap.state.pc_on });
+    const button = powerButton(snap.caps, snap.state, snap.agent, progress);
+    if (!button.visible || button.on === null) return;
+    void act({ kind: "set_power", machine: other(snap.agent), on: button.on });
   });
 }
 

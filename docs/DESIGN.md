@@ -8,7 +8,7 @@ Tandem convierte una **MacBook Pro M5** y una **PC Windows** en un solo puesto d
 
 - Dos monitores que se reparten entre las dos máquinas **con un clic**, sin tocar el menú del monitor.
 - Un solo teclado y mouse, con **motor propio** dentro de la app (sin Deskflow), siempre activo.
-- Encender y apagar la PC desde la Mac.
+- Encender y apagar la otra máquina desde la que se está usando (sobre todo la PC desde la Mac, y despertar la Mac desde la PC).
 - Un enlace de red propio entre las dos máquinas: rápido por cable, con Wi-Fi como respaldo solo para control.
 - Más adelante: carpetas compartidas, SSH, usar la RTX 5080 desde la Mac y mandar archivos.
 
@@ -39,6 +39,7 @@ Compras pendientes: adaptador USB-C→Ethernet 2.5G (Mac), cable Cat6, cable USB
 4. **Dos planos de tráfico** (sección 6). El Wi-Fi nunca lleva datos.
 5. **Mecanismos intercambiables.** La forma de cambiar un monitor (DDC desde la PC, DDC local, manual, un KVM futuro) va detrás de una interfaz.
 6. **Seguro por defecto.** Las máquinas se emparejan una vez, el tráfico va cifrado y nadie más en la red puede dar órdenes.
+7. **Pares, sin centro fijo (T-084).** Cualquiera de las dos puede ser la principal (la que el usuario está usando) y orquestar; no hay servidor ni máquina central. Cada agente anuncia lo que tiene y sabe hacer (**capacidades**: monitores que ve y si les cambia la entrada, pantalla integrada, hub, permisos, energía, servicios) y los planes salen de esos anuncios, no del nombre de la máquina. La máquina local nunca está apagada para sí misma; de la otra se sabe por los enlaces y su anuncio. La configuración del puesto es de las dos y se sincroniza.
 
 ## 4. Arquitectura
 
@@ -57,8 +58,14 @@ Compras pendientes: adaptador USB-C→Ethernet 2.5G (Mac), cable Cat6, cable USB
 └─────────────────────────────────────┘        └────────────────────────────────────┘
                                                         │ DDC/CI por DisplayPort
                                                         ▼
-                                               34" · 32"  (la PC controla las entradas)
+                                               34" · 32"  (hoy la PC cambia las entradas)
 ```
+
+El dibujo es del hardware de hoy, no de una jerarquía: los dos agentes son iguales.
+
+- **Anuncio de capacidades** (`ControlMsg::Capabilities`): al conectarse por cada enlace y con cada cambio. Con los dos anuncios cada agente sabe a quién pedirle cada paso: cambiar una entrada a la que puede (hoy la PC por DDC), despertar a quien se deja despertar desde quien tiene su Wake-on-LAN, apagar a quien sabe apagarse limpio. La UI habilita una acción solo si alguna máquina puede hacerla. Sin anuncio de la otra (no se la vio desde que arrancó este agente) se supone que puede lo que esta no; si no, el paso falla con su motivo y se deshace.
+- **Puesto compartido** (`ControlMsg::Desk`): monitores, perfiles DDC, cableado y el atajo de bloqueo, con versión (`desk_rev`) y el origen del último cambio. Va al emparejar, en cada reconexión y con cada cambio; gana la versión más nueva y se guarda en el `tandem.toml` de cada una. Dos configuraciones recién generadas se unen (la Mac no ve el EDID de un monitor que solo está en la PC). Lo solo-local (máquina, identidad, red, puertos, rutas, energía) no viaja.
+- Un agente de una versión anterior (sin anuncio de capacidades) se rechaza en el saludo con un error de versión que dice qué hacer.
 
 ### 4.1 Stack
 
@@ -94,13 +101,16 @@ tools/               scripts de diagnóstico (DDC, etc.)
 | **Solo Windows** | PC | PC | activo |
 
 - En **Compartido** la UI muestra los dos monitores y el usuario los arrastra a cada máquina.
+- Los modos nombran máquinas, no perspectivas: cualquiera de las dos los pide. Un plan enciende cada máquina que va a mostrar algo y la que cambia cada entrada; lo del escritorio de una máquina que sigue apagada (o suspendida) no se toca.
 - Cambiar de modo es una transacción. Ejemplo, de Solo Mac a Compartido (34" → PC):
   1. Si la PC está apagada, Wake-on-LAN y esperar a que su agente responda (timeout 120 s).
   2. PC: DDC `0x60 = DP` en el 34".
   3. PC: activar el 34" en la topología de Windows. Mac: quitar el 34" de macOS (el fantasma).
   4. Recalcular la geometría de pantallas del motor de entrada (cambio en caliente, sin reinicio).
   5. Confirmar el estado y guardarlo. Si algún paso falla, deshacer en orden inverso y avisar en la UI.
-- **Apagar la PC** también es transacción: poner todos los monitores en HDMI → la Mac los toma → ceder el teclado y mouse a la Mac → `shutdown /s /t 0`.
+- Al revés (la PC de principal, la Mac suspendida): Solo Windows no despierta a la Mac, porque las entradas las cambia la PC; Compartido con un monitor para la Mac empieza por despertarla (Wake-on-LAN desde la PC, si la Mac lo anuncia).
+- **Apagar la otra máquina** también es transacción: todos los monitores a la que queda → toma el teclado y mouse → la otra se apaga limpio (la PC con `shutdown /s /t 0`; la Mac todavía no sabe apagarse sola y no lo anuncia).
+- **Vigilancia del par**: las dos máquinas vigilan a la otra. Si ningún enlace la ve durante `peer_lost_after_secs` sin que nadie la apagara (corte de corriente, suspensión), se la da por apagada, se recalcula la geometría y la UI lo avisa con los monitores que quedaron en negro; al volver a verla se la da por prendida.
 - Disparadores: botón en la UI, atajo de teclado global y horarios (opcional).
 
 ## 6. Red: enlaces y planos
@@ -119,13 +129,13 @@ tools/               scripts de diagnóstico (DDC, etc.)
 
 ## 7. Teclado y mouse (motor propio)
 
-- **El servidor es la máquina donde está conectado el hub USB-C.** El agente detecta el teclado y el mouse por VID/PID y, con un pequeño retardo para no reaccionar a desconexiones breves, invierte los roles. La UI tiene un selector manual.
-- **Captura** en el servidor: `CGEventTap` en macOS; hooks de bajo nivel o Raw Input en Windows. Cuando el foco está en la otra máquina, los eventos se tragan y el cursor local se bloquea y oculta.
-- **Inyección** en el cliente: `CGEventPost` en macOS; `SendInput` con scancodes en Windows.
+- **El teclado está en la máquina donde está conectado el hub USB-C**, en cualquiera de las dos direcciones. El agente detecta el teclado y el mouse por VID:PID y, con un pequeño retardo para no reaccionar a desconexiones breves, lo pasa a la otra. Si la otra se da por apagada, la que queda se lo queda. En la UI no hay «servidor» ni «cliente»: «Teclado aquí» / «Teclado de la PC». (En el código los papeles siguen llamándose servidor/cliente o source/sink.)
+- **Captura** en la que tiene el teclado: `CGEventTap` en macOS; hooks de bajo nivel o Raw Input en Windows. Cuando el foco está en la otra máquina, los eventos se tragan y el cursor local se bloquea y oculta.
+- **Inyección** en la otra: `CGEventPost` en macOS; `SendInput` con scancodes en Windows.
 - **Teclas**: representación canónica por código físico (USB HID), así se respeta la distribución física ES/LatAm de cada sistema. Cmd↔Ctrl configurable.
 - **Transporte**: el movimiento del mouse va en datagramas no confiables (coalescidos, baja latencia); las teclas y clics, en un stream confiable. Todo por el enlace cifrado de Tandem, con cambio de enlace inmediato.
-  - Sobre la conexión del enlace activo, la entrada y el portapapeles van cada uno en su propio stream: quien lo abre manda `ControlMsg::Open(canal)` como primer mensaje y el otro agente se lo entrega al motor de entrada. El de entrada lo abre el servidor; el del portapapeles, la Mac.
-  - Los roles se deciden en cada agente con lo que ve del hub y el reporte del otro (`ControlMsg::Hub`); las pantallas de cada máquina viajan con `ControlMsg::Screens` para que el servidor arme la geometría de las dos.
+  - Sobre la conexión del enlace activo, la entrada y el portapapeles van cada uno en su propio stream: quien lo abre manda `ControlMsg::Open(canal)` como primer mensaje y el otro agente se lo entrega al motor de entrada. El de entrada lo abre la que tiene el teclado; el del portapapeles, la Mac.
+  - Los papeles se deciden en cada agente con lo que ve del hub y el reporte del otro (`ControlMsg::Hub`); las pantallas de cada máquina viajan con `ControlMsg::Screens` para que la que tiene el teclado arme la geometría de las dos.
 - **Geometría**: solo cuentan las pantallas que cada máquina está mostrando de verdad, así el cursor nunca pasa por un monitor fantasma. Se recalcula en caliente con cada cambio de modo.
 - **Portapapeles**: texto, texto enriquecido e imágenes en v1; archivos en v3, por el plano de datos.
 - **Windows, escritorio seguro**: el agente corre como servicio SYSTEM y lanza un helper en el escritorio activo (incluido Winlogon), para que el mouse funcione en UAC y en la pantalla de inicio de sesión.
@@ -133,8 +143,8 @@ tools/               scripts de diagnóstico (DDC, etc.)
 
 ## 8. Monitores
 
-- **Quién cambia las entradas: la PC**, por DDC sobre DisplayPort. El canal sigue vivo aunque el monitor esté mostrando HDMI.
-- La Mac pide los cambios por el plano de control. Si se logra DDC desde la Mac (sección 11), se agrega como backend `ddc-macos` y la Mac podría operar con la PC apagada.
+- **Quién cambia las entradas: la máquina que puede, según su anuncio.** Hoy es la PC, por DDC sobre DisplayPort; el canal sigue vivo aunque el monitor esté mostrando HDMI.
+- La otra máquina pide los cambios por el plano de control. Si se logra DDC desde la Mac (sección 11), se agrega como backend `ddc-macos` y la Mac podría operar con la PC apagada.
 - Perfil por monitor con sus códigos reales (el 34": HDMI `0x06`, DP `0x0F`/`0x09`). El monitor no reporta su entrada; el estado lo guarda el agente.
 - **Fantasma**: la máquina que no está mostrando un monitor lo quita de su escritorio.
   - Windows: `SetDisplayConfig`. Riesgo: perder el handle DDC → ver spike S3.
@@ -167,8 +177,9 @@ Dirección visual: oscura y sobria, una sola escena viva en vez de formularios. 
 - **Escena principal**: las dos máquinas dibujadas, los dos monitores con miniatura de color, y las líneas del enlace animadas: grosor y pulso según la velocidad, color según el tipo.
 - Arrastrar un monitor de una máquina a otra = cambiarlo.
 - Tarjetas de modo grandes (Solo Mac / Compartido / Solo Windows) con iconografía, sin texto largo.
-- Botón de encendido de la PC con su estado (apagada, arrancando, lista).
-- Chip de teclado y mouse (quién es servidor, conectado o no).
+- Dos tarjetas: «esta máquina» a la izquierda, siempre encendida, y «la otra» a la derecha con su estado (encendida, arrancando, apagada) y su enlace. Lo que se dibuja en cada una sale de su anuncio de capacidades (pantalla integrada, botón de encendido), no de si es la Mac o la PC.
+- Botón de encendido de la otra máquina con su estado, solo si se la puede despertar o sabe apagarse.
+- Chip de teclado y mouse (dónde está el teclado, conectado o no).
 - Barra de menú / bandeja: mini versión de la escena + los tres modos.
 - Feedback de transacción: una línea de progreso por pasos, con iconos.
 

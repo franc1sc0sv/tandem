@@ -17,7 +17,9 @@ use crate::world::{Power, World, code_for};
 pub struct HardwareTimes {
     /// Desde el Wake-on-LAN hasta que Windows terminó de arrancar.
     pub boot: Duration,
-    /// Desde la orden de apagado hasta que la PC se apaga.
+    /// Desde el Wake-on-LAN hasta que la Mac salió del reposo.
+    pub wake_mac: Duration,
+    /// Desde la orden de apagado hasta que la máquina se apaga.
     pub shutdown: Duration,
 }
 
@@ -25,7 +27,18 @@ impl Default for HardwareTimes {
     fn default() -> Self {
         HardwareTimes {
             boot: Duration::from_secs(45),
+            wake_mac: Duration::from_secs(8),
             shutdown: Duration::from_secs(3),
+        }
+    }
+}
+
+impl HardwareTimes {
+    /// Lo que tarda `machine` en estar lista tras el Wake-on-LAN (o el botón).
+    pub fn boot_of(&self, machine: Machine) -> Duration {
+        match machine {
+            Machine::Pc => self.boot,
+            Machine::Mac => self.wake_mac,
         }
     }
 }
@@ -38,7 +51,7 @@ pub struct SimSteps {
     net: SimNet,
     faults: Faults,
     times: HardwareTimes,
-    /// En la Mac: si su gestor de enlaces ve al agente de la PC.
+    /// Si su gestor de enlaces ve al agente de la otra máquina.
     peer_up: watch::Receiver<bool>,
 }
 
@@ -65,14 +78,18 @@ impl SimSteps {
 
     async fn apply(&self, step: &Step) -> Result<(), String> {
         match step {
-            Step::PowerOnPc => self.power_on().await,
-            Step::PowerOffPc => {
-                let (world, net, after) =
-                    (self.world.clone(), self.net.clone(), self.times.shutdown);
+            Step::PowerOn { machine } => self.power_on(*machine).await,
+            Step::PowerOff { machine } => {
+                let (world, net, after, machine) = (
+                    self.world.clone(),
+                    self.net.clone(),
+                    self.times.shutdown,
+                    *machine,
+                );
                 // Contesta antes de apagarse, como `shutdown /s /t 0` tras responder.
                 tokio::spawn(async move {
                     tokio::time::sleep(after).await;
-                    world.lock().power_off();
+                    world.lock().power_off(machine);
                     net.drop_all();
                 });
                 Ok(())
@@ -113,25 +130,25 @@ impl SimSteps {
         }
     }
 
-    /// Wake-on-LAN y esperar a que el agente de la PC conteste por algún enlace.
+    /// Wake-on-LAN y esperar a que el agente de `machine` conteste por algún enlace.
     ///
-    /// El paquete mágico solo sale por Ethernet (DESIGN §6): sin ese cable la PC no
+    /// El paquete mágico solo sale por Ethernet (DESIGN §6): sin ese cable la otra no
     /// se entera y el paso vence por tiempo.
-    async fn power_on(&self) -> Result<(), String> {
+    async fn power_on(&self, machine: Machine) -> Result<(), String> {
         let ethernet = self.net.is_up(LinkKind::Ethernet);
         let send_wol = {
             let mut w = self.world.lock();
-            let off = w.power == Power::Off && ethernet;
+            let off = w.power_of(machine) == Power::Off && ethernet;
             if off {
-                w.power = Power::Booting;
+                w.set_power(machine, Power::Booting);
             }
             off
         };
         if send_wol {
-            let (world, boot) = (self.world.clone(), self.times.boot);
+            let (world, boot) = (self.world.clone(), self.times.boot_of(machine));
             tokio::spawn(async move {
                 tokio::time::sleep(boot).await;
-                world.lock().boot_done();
+                world.lock().boot_done(machine);
             });
         }
         let mut up = self.peer_up.clone();
@@ -148,8 +165,13 @@ impl LocalSteps for SimSteps {
             let actions = {
                 let mut w = self.world.lock();
                 w.calls.push((self.machine, step.clone()));
-                if self.machine == Machine::Pc && w.power != Power::On {
-                    let v = format!("la PC recibió «{}» estando {:?}", describe(step), w.power);
+                if w.power_of(self.machine) != Power::On {
+                    let v = format!(
+                        "la {} recibió «{}» estando {:?}",
+                        self.machine,
+                        describe(step),
+                        w.power_of(self.machine)
+                    );
                     w.violations.push(v.clone());
                     return Err(v);
                 }

@@ -1,6 +1,7 @@
 //! Cambios que el agente escribe en `tandem.toml` (T-080: los códigos DDC de un monitor
-//! recién calibrado; T-082: el cableado elegido en la UI), sin tocar el resto del archivo:
-//! los comentarios y el orden del usuario se conservan.
+//! recién calibrado; T-082: el cableado elegido en la UI; T-084: el puesto que llegó de la
+//! otra máquina), sin tocar el resto del archivo: los comentarios y el orden del usuario
+//! se conservan.
 //!
 //! El archivo nuevo se valida como configuración completa antes de escribirlo, y se
 //! escribe aparte y se renombra: un error o un corte a medias dejan el anterior intacto.
@@ -8,8 +9,9 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use tandem_core::{DdcProfile, Input, Machine, MonitorId};
-use toml_edit::{DocumentMut, Item, TableLike, Value};
+use tandem_core::{DdcProfile, Input, Machine, MonitorConfig, MonitorId};
+use tandem_proto::DeskSync;
+use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, TableLike, Value};
 
 use crate::config::AgentConfig;
 
@@ -83,6 +85,88 @@ pub fn set_monitor_wiring(
     wiring: &BTreeMap<Machine, Input>,
 ) -> Result<(), ConfigEditError> {
     rewrite(path, |text| with_monitor_wiring(text, id, wiring))
+}
+
+/// El puesto compartido de `sync` sobre el texto de `tandem.toml` (T-084): los
+/// `[[monitors]]` (se actualizan en su lugar los que ya estaban, se agregan los nuevos al
+/// final y se quitan los que ya no están), `[input] lock_shortcut`, `desk_rev` y
+/// `desk_origin`. Lo solo-local (máquina, red, energía, el resto de `[input]`) no se toca.
+pub fn with_desk(text: &str, sync: &DeskSync) -> Result<String, ConfigEditError> {
+    let mut doc: DocumentMut = text
+        .parse()
+        .map_err(|e: toml_edit::TomlError| ConfigEditError::Parse(e.message().to_owned()))?;
+    let mut old: Vec<Table> = match doc.remove("monitors") {
+        Some(Item::ArrayOfTables(monitors)) => monitors.into_iter().collect(),
+        Some(Item::Value(Value::Array(monitors))) => monitors
+            .into_iter()
+            .filter_map(|v| match v {
+                Value::InlineTable(t) => Some(t.into_table()),
+                _ => None,
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+    let mut monitors = ArrayOfTables::new();
+    for m in &sync.desk.monitors {
+        let at = old
+            .iter()
+            .position(|t| t.get("id").and_then(Item::as_str) == Some(m.id.0.as_str()));
+        let mut table = at.map(|i| old.remove(i)).unwrap_or_default();
+        fill_monitor(&mut table, m)?;
+        monitors.push(table);
+    }
+    if monitors.is_empty() {
+        doc.insert(
+            "monitors",
+            Item::Value(Value::Array(toml_edit::Array::new())),
+        );
+    } else {
+        doc.insert("monitors", Item::ArrayOfTables(monitors));
+    }
+    let input = doc
+        .entry("input")
+        .or_insert_with(|| Item::Table(Table::new()));
+    let Some(input) = input.as_table_like_mut() else {
+        return Err(ConfigEditError::Invalid("[input] no es una tabla".into()));
+    };
+    let keys: toml_edit::Array = sync.lock_shortcut.iter().map(String::as_str).collect();
+    input.insert("lock_shortcut", Item::Value(Value::Array(keys)));
+    doc.insert(
+        "desk_rev",
+        toml_edit::value(i64::try_from(sync.rev).unwrap_or(i64::MAX)),
+    );
+    doc.insert("desk_origin", toml_edit::value(sync.origin.to_string()));
+    let out = doc.to_string();
+    AgentConfig::from_toml(&out).map_err(|e| ConfigEditError::Invalid(e.to_string()))?;
+    Ok(out)
+}
+
+/// Lo mismo sobre el archivo.
+pub fn set_desk(path: &Path, sync: &DeskSync) -> Result<(), ConfigEditError> {
+    rewrite(path, |text| with_desk(text, sync))
+}
+
+fn fill_monitor(t: &mut Table, m: &MonitorConfig) -> Result<(), ConfigEditError> {
+    t.insert("id", toml_edit::value(m.id.0.as_str()));
+    t.insert("label", toml_edit::value(m.label.as_str()));
+    match &m.edid_model {
+        Some(model) => {
+            t.insert("edid_model", toml_edit::value(model.as_str()));
+        }
+        None => {
+            t.remove("edid_model");
+        }
+    }
+    t.insert("wiring", Item::Value(wiring_value(&m.wiring)?));
+    match &m.ddc {
+        Some(ddc) => {
+            t.insert("ddc", Item::Value(ddc_value(ddc)?));
+        }
+        None => {
+            t.remove("ddc");
+        }
+    }
+    Ok(())
 }
 
 /// Aplica `edit` al monitor `id` (en `[[monitors]]` o en `monitors = [{ .. }]`) y valida
@@ -188,6 +272,68 @@ id = "m32"
 label = '32"'
 wiring = { pc = "displayport", mac = "hdmi" }
 "#;
+
+    fn sync_of(text: &str, rev: u64) -> DeskSync {
+        let cfg = AgentConfig::from_toml(text).unwrap();
+        DeskSync {
+            rev,
+            origin: Machine::Mac,
+            desk: cfg.desk,
+            lock_shortcut: cfg.input.lock_shortcut,
+        }
+    }
+
+    #[test]
+    fn the_desk_from_the_other_machine_keeps_what_is_local() {
+        let mut sync = sync_of(PC, 3);
+        // El 32" cambió de cableado en la otra máquina, el 34" se fue y llegó uno nuevo.
+        sync.desk.monitors.remove(0);
+        sync.desk.monitors[0].wiring = [
+            (Machine::Pc, Input::Hdmi),
+            (Machine::Mac, Input::DisplayPort),
+        ]
+        .into();
+        sync.desk.monitors.push(MonitorConfig {
+            id: "sam7489".into(),
+            label: "27\"".into(),
+            edid_model: Some("SAM7489".into()),
+            wiring: [(Machine::Pc, Input::DisplayPort)].into(),
+            ddc: Some(CODES),
+        });
+        sync.lock_shortcut = vec!["ControlLeft".into(), "KeyL".into()];
+        let out = with_desk(PC, &sync).unwrap();
+        assert!(out.starts_with("# La PC.\n"), "{out}");
+        assert!(out.contains("machine = \"pc\""), "{out}");
+        // El comentario del 32" sigue: se actualizó en su lugar.
+        assert!(out.contains("# El 32\": todavía sin códigos."), "{out}");
+        let cfg = AgentConfig::from_toml(&out).unwrap();
+        assert_eq!(cfg.machine, Machine::Pc);
+        assert_eq!(cfg.desk, sync.desk);
+        assert_eq!(cfg.input.lock_shortcut, sync.lock_shortcut);
+        assert_eq!(cfg.desk_rev, 3);
+        assert_eq!(cfg.desk_origin, Some(Machine::Mac));
+        // Y otra vez no cambia nada.
+        assert_eq!(with_desk(&out, &sync).unwrap(), out);
+    }
+
+    #[test]
+    fn a_desk_without_monitors_is_still_valid() {
+        let mut sync = sync_of(PC, 1);
+        sync.desk.monitors.clear();
+        let out = with_desk(PC, &sync).unwrap();
+        assert!(
+            AgentConfig::from_toml(&out)
+                .unwrap()
+                .desk
+                .monitors
+                .is_empty()
+        );
+        let back = with_desk(&out, &sync_of(PC, 2)).unwrap();
+        assert_eq!(
+            AgentConfig::from_toml(&back).unwrap().desk.monitors.len(),
+            2
+        );
+    }
 
     const CODES: DdcProfile = DdcProfile {
         hdmi: 0x05,

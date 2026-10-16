@@ -1,9 +1,11 @@
-//! Los pasos de energía de esta máquina: Wake-on-LAN en la Mac y apagado limpio en
-//! la PC (DESIGN §5). El resto de los pasos pasa a otro [`LocalSteps`].
+//! Los pasos de energía de esta máquina: Wake-on-LAN hacia la otra (si tiene su
+//! `[power.wol]`) y apagado limpio de sí misma (si sabe, DESIGN §5). Cualquiera de las
+//! dos puede despertar a la otra (DESIGN §3.7). El resto de los pasos pasa a otro
+//! [`LocalSteps`].
 
 use std::sync::Arc;
 
-use tandem_core::{Machine, Step};
+use tandem_core::Step;
 use tandem_power::{Shutdown, UdpWake, Wake};
 
 use crate::config::AgentConfig;
@@ -41,20 +43,18 @@ impl PowerSteps {
         }
     }
 
-    /// Lo que corresponde a la máquina de `cfg`: la Mac despierta a la PC con
-    /// `[power.wol]` y la PC se apaga a sí misma (solo en Windows).
+    /// Lo que corresponde a la máquina de `cfg`: despierta a la otra con `[power.wol]` y
+    /// se apaga a sí misma si sabe (hoy, Windows).
     pub fn for_machine(cfg: &AgentConfig, inner: Arc<dyn LocalSteps>) -> Self {
-        let wake = match cfg.machine {
-            Machine::Mac => cfg
-                .power
-                .wol
-                .clone()
-                .map(|t| Arc::new(UdpWake::new(t)) as Arc<dyn Wake>),
-            Machine::Pc => None,
-        };
-        let shutdown = match cfg.machine {
-            Machine::Pc => system_shutdown(),
-            Machine::Mac => None,
+        let wake = cfg
+            .power
+            .wol
+            .clone()
+            .map(|t| Arc::new(UdpWake::new(t)) as Arc<dyn Wake>);
+        let shutdown = if crate::capabilities::powers_off(cfg.machine) {
+            system_shutdown()
+        } else {
+            None
         };
         Self::new(inner, wake, shutdown)
     }
@@ -73,7 +73,8 @@ fn system_shutdown() -> Option<Arc<dyn Shutdown>> {
 impl LocalSteps for PowerSteps {
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a> {
         match step {
-            Step::PowerOnPc => {
+            // Encender a la otra (el orquestador solo lo manda a la que no se enciende).
+            Step::PowerOn { .. } => {
                 // Un envío UDP no bloquea: no hace falta sacarlo del runtime.
                 let r = match &self.wake {
                     Some(w) => w.wake().map_err(|e| e.to_string()),
@@ -81,10 +82,11 @@ impl LocalSteps for PowerSteps {
                 };
                 Box::pin(async move { r })
             }
-            Step::PowerOffPc => {
+            // Apagarse a sí misma.
+            Step::PowerOff { .. } => {
                 let r = match &self.shutdown {
                     Some(s) => {
-                        tracing::warn!("apagando la PC a pedido del orquestador");
+                        tracing::warn!("apagando esta máquina a pedido del orquestador");
                         s.power_off().map_err(|e| e.to_string())
                     }
                     None => Err(format!("{}: {STEP_NOT_IMPLEMENTED}", describe(step))),
@@ -101,6 +103,8 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use tandem_power::PowerError;
+
+    use tandem_core::Machine;
 
     use super::*;
     use crate::config::fixtures;
@@ -138,8 +142,16 @@ mod tests {
         let wake = Arc::new(Count::default());
         let off = Arc::new(Count::default());
         let p = PowerSteps::new(inner.clone(), Some(wake.clone()), Some(off.clone()));
-        p.execute(&Step::PowerOnPc).await.unwrap();
-        p.execute(&Step::PowerOffPc).await.unwrap();
+        p.execute(&Step::PowerOn {
+            machine: Machine::Pc,
+        })
+        .await
+        .unwrap();
+        p.execute(&Step::PowerOff {
+            machine: Machine::Pc,
+        })
+        .await
+        .unwrap();
         p.execute(&Step::UpdateInputGeometry).await.unwrap();
         assert_eq!(wake.0.load(Ordering::Relaxed), 1);
         assert_eq!(off.0.load(Ordering::Relaxed), 1);
@@ -150,11 +162,19 @@ mod tests {
     async fn missing_backends_fail_clearly() {
         let p = PowerSteps::new(Arc::new(Unimplemented), None, None);
         assert_eq!(
-            p.execute(&Step::PowerOnPc).await.unwrap_err(),
+            p.execute(&Step::PowerOn {
+                machine: Machine::Pc
+            })
+            .await
+            .unwrap_err(),
             format!("encender la PC: {WOL_NOT_CONFIGURED}")
         );
         assert_eq!(
-            p.execute(&Step::PowerOffPc).await.unwrap_err(),
+            p.execute(&Step::PowerOff {
+                machine: Machine::Pc
+            })
+            .await
+            .unwrap_err(),
             format!("apagar la PC: {STEP_NOT_IMPLEMENTED}")
         );
     }
@@ -162,7 +182,12 @@ mod tests {
     #[tokio::test]
     async fn shutdown_errors_reach_the_orchestrator() {
         let p = PowerSteps::new(Arc::new(Unimplemented), None, Some(Arc::new(Refuse)));
-        let e = p.execute(&Step::PowerOffPc).await.unwrap_err();
+        let e = p
+            .execute(&Step::PowerOff {
+                machine: Machine::Pc,
+            })
+            .await
+            .unwrap_err();
         assert!(e.contains("acceso denegado"), "{e}");
     }
 
@@ -179,9 +204,13 @@ mod tests {
         let p = PowerSteps::for_machine(&cfg, Arc::new(Unimplemented));
         assert!(p.wake.is_some());
 
+        // La PC también puede despertar a la Mac si tiene su [power.wol] (DESIGN §3.7).
         cfg.machine = Machine::Pc;
         let p = PowerSteps::for_machine(&cfg, Arc::new(Unimplemented));
-        assert!(p.wake.is_none(), "la PC no despierta a nadie");
+        assert!(p.wake.is_some(), "la PC despierta a la Mac");
         assert_eq!(p.shutdown.is_some(), cfg!(windows));
+        cfg.power.wol = None;
+        let p = PowerSteps::for_machine(&cfg, Arc::new(Unimplemented));
+        assert!(p.wake.is_none());
     }
 }

@@ -32,6 +32,9 @@ label = '32"'
 wiring = { pc = "displayport", mac = "hdmi" }
 "#;
 
+/// La tarjeta de red a la que va el Wake-on-LAN (simulado) de cada agente.
+const WOL_MAC: &str = "9c:6b:00:1a:2b:ff";
+
 /// Tope de espera para cualquier cosa de la simulación, en tiempo de tokio (pausado).
 pub const SIM_LIMIT: Duration = Duration::from_secs(3600);
 
@@ -99,6 +102,7 @@ fn is_end(e: &TxnEvent) -> Option<u64> {
 pub struct DeskBuilder {
     links: Vec<LinkKind>,
     times: HardwareTimes,
+    principal: Machine,
 }
 
 impl Default for DeskBuilder {
@@ -106,6 +110,7 @@ impl Default for DeskBuilder {
         DeskBuilder {
             links: LinkKind::ALL.to_vec(),
             times: HardwareTimes::default(),
+            principal: Machine::Mac,
         }
     }
 }
@@ -122,17 +127,27 @@ impl DeskBuilder {
         self
     }
 
-    /// Arranca los dos agentes con todo en la Mac y la PC apagada. Llamar dentro de
-    /// un runtime de tokio de un hilo, idealmente con el reloj pausado.
+    /// La máquina que el usuario está usando al empezar: tiene todo y la otra está
+    /// apagada (por omisión la Mac; con la PC, los escenarios espejo de DESIGN §3.7).
+    pub fn principal(mut self, principal: Machine) -> Self {
+        self.principal = principal;
+        self
+    }
+
+    /// Arranca los dos agentes con todo en la principal y la otra apagada. Llamar dentro
+    /// de un runtime de tokio de un hilo, idealmente con el reloj pausado.
     pub async fn build(self) -> Result<Desk, SimError> {
         let dir = tempfile::tempdir().map_err(|e| SimError::Setup(e.to_string()))?;
+        // Las dos con `[power.wol]` para despertar a la otra: el Wake-on-LAN es simulado.
         let agent_cfg = |machine: Machine| {
-            AgentConfig::from_toml(&format!("machine = \"{machine}\"\n{DESK_TOML}"))
-                .map_err(|e| SimError::Setup(e.to_string()))
+            AgentConfig::from_toml(&format!(
+                "machine = \"{machine}\"\n{DESK_TOML}\n[power.wol]\nmac = \"{WOL_MAC}\"\n"
+            ))
+            .map_err(|e| SimError::Setup(e.to_string()))
         };
         let (mac_cfg, pc_cfg) = (agent_cfg(Machine::Mac)?, agent_cfg(Machine::Pc)?);
         let cfg = mac_cfg.desk.clone();
-        let world = World::new(&cfg);
+        let world = World::with_principal(&cfg, self.principal);
         let net = SimNet::new(world.clone(), &self.links);
         let faults = Faults::default();
 
@@ -154,6 +169,17 @@ impl DeskBuilder {
         };
         let mac = agent(mac_cfg, mac_up);
         let pc = agent(pc_cfg, pc_up);
+        // La principal sabe lo que muestra cada monitor (todo es suyo); la otra arranca
+        // con lo que crea y se pone al día con el primer estado que le llegue.
+        let principal = match self.principal {
+            Machine::Mac => &mac,
+            Machine::Pc => &pc,
+        };
+        let mut start = principal.state();
+        start.owner.values_mut().for_each(|o| *o = self.principal);
+        if let Err(e) = principal.set_state(start) {
+            return Err(SimError::Setup(e.to_string()));
+        }
 
         // Cada agente con su gestor de enlaces real, que pinguea al otro por cada cable.
         let links = |far: &Arc<Agent>, up: watch::Sender<bool>| -> Result<_, SimError> {
@@ -175,13 +201,16 @@ impl DeskBuilder {
             });
             Ok(Arc::new(ManagedPeer::new(manager)))
         };
-        // La Mac concilia `pc_on` con lo que ve su gestor de enlaces.
-        let mac_reach = mac_up_tx.subscribe();
+        // Cada una concilia el encendido de la otra con lo que ve su gestor de enlaces.
+        let (mac_reach, pc_reach) = (mac_up_tx.subscribe(), pc_up_tx.subscribe());
         let mac_links = links(&pc, mac_up_tx)?;
         let pc_links = links(&mac, pc_up_tx)?;
         mac.set_peer(mac_links.clone());
         pc.set_peer(pc_links.clone());
-        let pc_watch = tokio::spawn(tandemd::pc_watch::watch(mac.clone(), mac_reach));
+        let watches = [
+            tokio::spawn(watch_while_on(world.clone(), mac.clone(), mac_reach)),
+            tokio::spawn(watch_while_on(world.clone(), pc.clone(), pc_reach)),
+        ];
 
         Ok(Desk {
             mac,
@@ -193,7 +222,8 @@ impl DeskBuilder {
             faults,
             cfg,
             times: self.times,
-            pc_watch,
+            principal: self.principal,
+            watches,
             _dir: dir,
         })
     }
@@ -210,16 +240,41 @@ pub struct Desk {
     faults: Faults,
     cfg: Config,
     times: HardwareTimes,
-    pc_watch: tokio::task::JoinHandle<()>,
+    principal: Machine,
+    watches: [tokio::task::JoinHandle<()>; 2],
     _dir: tempfile::TempDir,
 }
 
 impl Drop for Desk {
     fn drop(&mut self) {
-        self.pc_watch.abort();
+        for w in &self.watches {
+            w.abort();
+        }
         // Rompe el ciclo agente → gestor de enlaces → agente del otro lado.
         self.mac.set_peer(Arc::new(NoPeer));
         self.pc.set_peer(Arc::new(NoPeer));
+    }
+}
+
+/// La vigilancia del par de `agent` mientras su máquina está prendida: una apagada no
+/// corre nada, y al volver arranca de nuevo con lo que tenía guardado.
+async fn watch_while_on(world: World, agent: Arc<Agent>, reach: watch::Receiver<bool>) {
+    let me = agent.machine();
+    let mut power = world.subscribe_power();
+    loop {
+        if power
+            .wait_for(|p| p.get(&me) == Some(&Power::On))
+            .await
+            .is_err()
+        {
+            return;
+        }
+        let task = tokio::spawn(tandemd::peer_watch::watch(agent.clone(), reach.clone()));
+        let off = power.wait_for(|p| p.get(&me) != Some(&Power::On)).await;
+        task.abort();
+        if off.is_err() {
+            return;
+        }
     }
 }
 
@@ -298,19 +353,29 @@ impl Desk {
         }
     }
 
+    /// La máquina que el usuario usaba al empezar.
+    pub fn principal(&self) -> Machine {
+        self.principal
+    }
+
     /// Apagado de la PC orquestado por la Mac (DESIGN §5): todo a la Mac y después apagar.
-    ///
-    /// La UI todavía no tiene un pedido para esto, así que se arma el plan y se corre en
-    /// el orquestador como lo haría el agente.
     pub async fn shutdown_pc(&self) -> Result<TxnRun, SimError> {
-        let agent = &self.mac;
+        self.shutdown(Machine::Mac, Machine::Pc).await
+    }
+
+    /// Apagado limpio de `machine` orquestado por `on`: todo a la otra y después apagar.
+    ///
+    /// Se arma el plan y se corre en el orquestador como lo haría el agente con
+    /// [`UiCommand::SetPower`], para tener los avisos de la transacción.
+    pub async fn shutdown(&self, on: Machine, machine: Machine) -> Result<TxnRun, SimError> {
+        let agent = self.agent(on);
         let orch = agent.orchestrator();
         let mut rx = agent.subscribe_txns();
         let txn = orch
             .try_begin()
             .ok_or_else(|| SimError::Rejected(tandemd::agent::BUSY.into()))?;
         let mut state = agent.state();
-        let plan = match Plan::shutdown_pc(&self.cfg, &state) {
+        let plan = match Plan::power_off(&self.cfg, &state, machine, &agent.abilities()) {
             Ok(p) => p,
             Err(e) => {
                 orch.end();
@@ -334,26 +399,36 @@ impl Desk {
         Ok(TxnRun { events })
     }
 
-    /// La PC se queda sin corriente de golpe, sin que ningún agente lo pida: los
-    /// monitores en DisplayPort quedan en negro y su agente deja de contestar.
+    /// La PC se queda sin corriente de golpe.
     pub fn pull_pc_plug(&self) {
-        self.world.lock().power_off();
+        self.pull_plug(Machine::Pc);
+    }
+
+    /// `machine` se queda sin corriente (o se suspende) de golpe, sin que ningún agente
+    /// lo pida: los monitores en su entrada quedan en negro y su agente deja de contestar.
+    pub fn pull_plug(&self, machine: Machine) {
+        self.world.lock().power_off(machine);
         self.net.drop_all();
     }
 
     /// Alguien enciende la PC con su botón, sin Wake-on-LAN.
     pub fn press_pc_power_button(&self) {
+        self.press_power_button(Machine::Pc);
+    }
+
+    /// Alguien enciende (o despierta) `machine` con su botón, sin Wake-on-LAN.
+    pub fn press_power_button(&self, machine: Machine) {
         {
             let mut w = self.world.lock();
-            if w.power != Power::Off {
+            if w.power_of(machine) != Power::Off {
                 return;
             }
-            w.power = Power::Booting;
+            w.set_power(machine, Power::Booting);
         }
-        let (world, boot) = (self.world.clone(), self.times.boot);
+        let (world, boot) = (self.world.clone(), self.times.boot_of(machine));
         tokio::spawn(async move {
             tokio::time::sleep(boot).await;
-            world.lock().boot_done();
+            world.lock().boot_done(machine);
         });
     }
 
@@ -362,11 +437,16 @@ impl Desk {
         tokio::time::sleep(SETTLE).await;
     }
 
-    /// El puesto físico coincide con lo que cree la Mac, y nada imposible ocurrió.
+    /// El puesto físico coincide con lo que cree la principal, y nada imposible ocurrió.
     pub async fn check(&self) -> Result<(), SimError> {
+        self.check_from(self.principal).await
+    }
+
+    /// El puesto físico coincide con lo que cree `machine`.
+    pub async fn check_from(&self, machine: Machine) -> Result<(), SimError> {
         self.settle().await;
         self.world
-            .check(&self.mac.state())
+            .check(&self.agent(machine).state())
             .map_err(SimError::Mismatch)
     }
 
@@ -377,17 +457,29 @@ impl Desk {
 
     /// Espera a que el agente de la PC tenga el mismo estado que el de la Mac.
     pub async fn pc_agrees(&self) -> Result<State, SimError> {
-        let want = self.mac.state();
-        let mut rx = self.pc.subscribe();
-        within("que la PC reciba el estado", rx.wait_for(|s| *s == want))
-            .await?
-            .map_err(|_| SimError::Setup("el agente de la PC se cerró".into()))?;
+        self.agrees(Machine::Pc).await
+    }
+
+    /// Espera a que el agente de `machine` tenga el mismo estado que el de la otra.
+    pub async fn agrees(&self, machine: Machine) -> Result<State, SimError> {
+        let want = self.agent(machine.other()).state();
+        let mut rx = self.agent(machine).subscribe();
+        within(
+            "que la otra máquina reciba el estado",
+            rx.wait_for(|s| *s == want),
+        )
+        .await?
+        .map_err(|_| SimError::Setup("el agente se cerró".into()))?;
         Ok(want)
     }
 
-    /// Espera a que la Mac vea al agente de la PC por algún enlace.
+    /// Espera a que la principal vea al agente de la otra por algún enlace.
     pub async fn wait_link(&self, kind: LinkKind) -> Result<(), SimError> {
-        let mut rx = self.mac_links.manager().watch();
+        let links = match self.principal {
+            Machine::Mac => &self.mac_links,
+            Machine::Pc => &self.pc_links,
+        };
+        let mut rx = links.manager().watch();
         within(
             "el enlace",
             rx.wait_for(|s| s.active.as_ref().is_some_and(|a| a.kind == kind)),

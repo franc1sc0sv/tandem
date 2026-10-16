@@ -161,6 +161,8 @@ where
     input.mark_unchanged();
     let mut desk = agent.subscribe_desk();
     desk.mark_unchanged();
+    let mut caps = agent.subscribe_capabilities();
+    caps.mark_unchanged();
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
@@ -210,7 +212,7 @@ where
             },
             event = power.recv() => match event {
                 Ok(event) => conn.send(&AgentToUi::Power(event)).await?,
-                // El estado empujado ya dice que la PC está apagada.
+                // El estado empujado ya dice que la otra máquina está apagada.
                 Err(RecvError::Lagged(n)) => {
                     tracing::warn!("la UI se atrasó y perdió {n} avisos de energía");
                 }
@@ -243,6 +245,13 @@ where
                 }
                 let d = desk.borrow_and_update().clone();
                 conn.send(&AgentToUi::Desk(d)).await?;
+            }
+            changed = caps.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+                let c = caps.borrow_and_update().clone();
+                conn.send(&AgentToUi::Capabilities(Box::new(c))).await?;
             }
             () = stopped(&mut shutdown) => return Ok(()),
         }
@@ -404,9 +413,18 @@ mod tests {
             ..initial
         };
         agent.set_input_status(missing.clone());
-        assert_eq!(
-            c.next_event().await.unwrap(),
-            Some(AgentToUi::Input(missing))
+        // Los permisos también cambian lo que anuncia esta máquina (T-084).
+        let mut seen = Vec::new();
+        while seen.len() < 2 {
+            seen.push(c.next_event().await.unwrap());
+        }
+        assert!(seen.contains(&Some(AgentToUi::Input(missing))), "{seen:?}");
+        assert!(
+            seen.iter().any(|e| matches!(
+                e,
+                Some(AgentToUi::Capabilities(c)) if c.here.input.missing == [tandem_proto::InputPermission::Accessibility]
+            )),
+            "{seen:?}"
         );
     }
 
@@ -461,7 +479,7 @@ mod tests {
         // Tras el saludo, la suscripción del servidor ya existe si respondió un pedido.
         c.get_state().await.unwrap();
         let mut s = agent.state();
-        s.pc_on = true;
+        s.on.pc = true;
         agent.set_state(s.clone()).unwrap();
         assert_eq!(c.next_event().await.unwrap(), Some(AgentToUi::State(s)));
     }
@@ -472,7 +490,8 @@ mod tests {
         let (agent, io, _stop) = start(dir.path());
         let mut c = IpcClient::handshake(io).await.unwrap();
         c.get_state().await.unwrap();
-        let ev = tandem_proto::PowerEvent::PcLost {
+        let ev = tandem_proto::PowerEvent::PeerLost {
+            machine: Machine::Pc,
             reason: "sin enlaces".into(),
             stranded: vec!["m34".into()],
         };
@@ -547,7 +566,7 @@ mod tests {
         let mut c = IpcClient::handshake(io).await.unwrap();
         c.get_state().await.unwrap();
         let mut s = agent.state();
-        s.pc_on = true;
+        s.on.pc = true;
         agent.set_state(s.clone()).unwrap();
         // El aviso llega antes que la respuesta; no se pierde.
         assert_eq!(c.get_state().await.unwrap(), s);
