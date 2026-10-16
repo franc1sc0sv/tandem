@@ -1441,6 +1441,7 @@ dependencies = [
  "proptest",
  "tandem-core",
  "thiserror",
+ "tokio",
  "windows",
 ]
 
@@ -1520,6 +1521,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tandem-core",
+ "tandem-display",
  "tandem-link",
  "tandem-proto",
  "tempfile",

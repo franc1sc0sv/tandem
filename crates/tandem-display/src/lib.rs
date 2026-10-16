@@ -4,12 +4,16 @@
 //! - trait `DisplayTopology` + backends (windows, macos).
 //!
 //! Por ahora: DDC/CI portable ([`ddc`]), la topología portable ([`topology`]), sus
-//! backends de Windows, la lógica del CLI `tandem-ddc` ([`cli`]) y la topología de
-//! macOS ([`quartz`] + `macos`).
+//! backends de Windows, la lógica del CLI `tandem-ddc` ([`cli`]), la topología de
+//! macOS ([`quartz`] + `macos`), el cambio de entrada en un cambio de modo
+//! ([`switcher`]) y el trait del escritorio de cada máquina que usa el ejecutor de
+//! pasos ([`desktop`]).
 
 pub mod cli;
 pub mod ddc;
+pub mod desktop;
 pub mod quartz;
+pub mod switcher;
 pub mod topology;
 
 #[cfg(target_os = "macos")]
