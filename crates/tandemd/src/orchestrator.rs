@@ -5,6 +5,11 @@
 //! control ([`PeerLink`]), siempre con un tiempo máximo ([`StepTimeouts`]). La vuelta
 //! atrás la hace [`tandem_core::run`]; aquí solo se despacha y se publica el avance
 //! como [`TxnEvent`] para la UI.
+//!
+//! Dos pasos tienen reglas propias: [`Step::PowerOnPc`] es mandar el Wake-on-LAN
+//! (repetido cada [`WOL_RESEND`]) y esperar a que el agente de la PC se conecte, y
+//! [`Step::PowerOffPc`] solo se despacha si el plan ya devolvió todos los monitores
+//! a la Mac (si no, la Mac se quedaría sin pantallas).
 
 use std::future::Future;
 use std::pin::Pin;
@@ -16,7 +21,7 @@ use tandem_core::{
     BuiltinDisplay, Config, Executor, Machine, Plan, State, Step, TxnError, TxnReport,
 };
 use tandem_proto::{TxnEvent, UndoFailure};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 /// Lo que responde un paso que esta máquina todavía no sabe hacer. Dispara la vuelta atrás.
 pub const STEP_NOT_IMPLEMENTED: &str = "no implementado";
@@ -25,10 +30,17 @@ pub const PEER_NOT_CONNECTED: &str = "el otro agente no está conectado";
 /// Se cortó la conexión con el otro agente con un paso pendiente.
 pub const PEER_LOST: &str = "se perdió la conexión con el otro agente";
 
+/// Cada cuánto se repite el Wake-on-LAN mientras se espera a la PC: un paquete UDP
+/// se puede perder, y la tarjeta tarda en quedar lista tras cortarse la luz.
+pub const WOL_RESEND: Duration = Duration::from_secs(5);
+
 /// Resultado de un paso: el error es un texto para mostrar en la UI.
 pub type StepFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
 
 /// Los pasos que esta máquina hace por sí misma (DDC, topología, energía...).
+///
+/// [`Step::PowerOnPc`] aquí es solo mandar un Wake-on-LAN: esperar a la PC y
+/// repetir el envío lo hace el [`Orchestrator`].
 pub trait LocalSteps: Send + Sync {
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a>;
 }
@@ -145,6 +157,8 @@ pub struct Orchestrator {
     me: Machine,
     local: Arc<dyn LocalSteps>,
     peer: RwLock<Arc<dyn PeerLink>>,
+    /// Si hay conexión con el otro agente: encender la PC termina cuando pasa a `true`.
+    connected: watch::Sender<bool>,
     timeouts: StepTimeouts,
     events: broadcast::Sender<TxnEvent>,
     next_txn: AtomicU64,
@@ -167,6 +181,7 @@ impl Orchestrator {
             me,
             local,
             peer: RwLock::new(Arc::new(NoPeer)),
+            connected: watch::Sender::new(false),
             timeouts,
             events: broadcast::channel(EVENT_BUFFER).0,
             next_txn: AtomicU64::new(1),
@@ -177,6 +192,18 @@ impl Orchestrator {
     /// Cambia la conexión con el otro agente. Los pasos ya en curso siguen con la anterior.
     pub fn set_peer(&self, peer: Arc<dyn PeerLink>) {
         *self.peer.write().unwrap_or_else(PoisonError::into_inner) = peer;
+        self.connected.send_replace(true);
+    }
+
+    /// Se perdió la conexión con el otro agente (por ejemplo, la PC se apagó).
+    pub fn clear_peer(&self) {
+        *self.peer.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(NoPeer);
+        self.connected.send_replace(false);
+    }
+
+    /// Si hay conexión con el otro agente, y avisos cuando cambia.
+    pub fn peer_connected(&self) -> watch::Receiver<bool> {
+        self.connected.subscribe()
     }
 
     pub fn peer(&self) -> Arc<dyn PeerLink> {
@@ -226,6 +253,7 @@ impl Orchestrator {
             txn,
             next: 0,
             failed: false,
+            state: state.clone(),
         };
         tandem_core::run(cfg, state, plan, &mut d).await
     }
@@ -261,10 +289,10 @@ impl Orchestrator {
         let limit = self.timeouts.for_step(step);
         let work = async {
             match target(step) {
-                Target::On(m) if m == self.me => self.local.execute(step).await,
+                Target::On(m) if m == self.me => self.run_local(step).await,
                 Target::On(_) => self.remote(step).await,
                 Target::Both => {
-                    self.local.execute(step).await?;
+                    self.run_local(step).await?;
                     self.remote(step).await
                 }
             }
@@ -276,6 +304,31 @@ impl Orchestrator {
                 describe(step),
                 limit.as_secs()
             )),
+        }
+    }
+
+    async fn run_local(&self, step: &Step) -> Result<(), String> {
+        match step {
+            Step::PowerOnPc => self.power_on_pc().await,
+            _ => self.local.execute(step).await,
+        }
+    }
+
+    /// Wake-on-LAN hasta que el agente de la PC se conecta. El tope lo pone quien llama
+    /// (`power_on_timeout_secs`); un error al mandar el paquete corta enseguida.
+    async fn power_on_pc(&self) -> Result<(), String> {
+        let mut connected = self.connected.subscribe();
+        loop {
+            self.local.execute(&Step::PowerOnPc).await?;
+            tokio::select! {
+                // El emisor vive en `self`: la espera no puede quedarse sin emisor.
+                r = connected.wait_for(|c| *c) => {
+                    return r.map(|_| ()).map_err(|_| PEER_LOST.to_owned());
+                }
+                () = tokio::time::sleep(WOL_RESEND) => {
+                    tracing::debug!("la PC todavía no responde: se repite el Wake-on-LAN");
+                }
+            }
         }
     }
 
@@ -299,7 +352,7 @@ impl Orchestrator {
             _ => {}
         }
         let limit = self.timeouts.for_step(step);
-        match tokio::time::timeout(limit, self.local.execute(step)).await {
+        match tokio::time::timeout(limit, self.run_local(step)).await {
             Ok(r) => r,
             Err(_) => Err(format!(
                 "{}: sin respuesta en {} s",
@@ -319,6 +372,34 @@ struct Dispatcher<'a> {
     txn: u64,
     next: u32,
     failed: bool,
+    /// El estado con los pasos ya aplicados, para validar los que dependen de él.
+    state: State,
+}
+
+impl Dispatcher<'_> {
+    /// Reglas que dependen de lo que el plan ya hizo. Hoy solo una: apagar la PC con un
+    /// monitor todavía en ella dejaría a la Mac sin esa pantalla (DESIGN §5).
+    fn check(&self, step: &Step) -> Result<(), String> {
+        if *step != Step::PowerOffPc {
+            return Ok(());
+        }
+        let on_pc: Vec<String> = self
+            .state
+            .owner
+            .iter()
+            .filter(|(_, m)| **m != Machine::Mac)
+            .map(|(id, _)| id.to_string())
+            .collect();
+        if on_pc.is_empty() {
+            return Ok(());
+        }
+        Err(format!(
+            "{}: {} {} en la PC; primero hay que devolver los monitores a la Mac",
+            describe(step),
+            on_pc.join(", "),
+            if on_pc.len() == 1 { "sigue" } else { "siguen" },
+        ))
+    }
 }
 
 impl Executor for Dispatcher<'_> {
@@ -332,11 +413,15 @@ impl Executor for Dispatcher<'_> {
         }
         let (txn, index) = (self.txn, self.next);
         self.orch.emit(TxnEvent::StepStarted { txn, index });
-        let r = self.orch.dispatch(step).await;
+        let r = match self.check(step) {
+            Ok(()) => self.orch.dispatch(step).await,
+            Err(e) => Err(e),
+        };
         match &r {
             Ok(()) => {
                 self.orch.emit(TxnEvent::StepDone { txn, index });
                 self.next += 1;
+                step.apply_to(&mut self.state);
             }
             Err(error) => {
                 tracing::warn!(txn, index, "falló un paso: {error}");
@@ -681,6 +766,178 @@ pub(crate) mod tests {
                 back
             ]
         );
+    }
+
+    fn pc_with(monitors_on_pc: &[&str]) -> (tandem_core::Config, State) {
+        let cfg = fixtures::desk().desk;
+        let mut state = State::initial(&cfg);
+        state.pc_on = true;
+        for m in monitors_on_pc {
+            state.owner.insert((*m).into(), Machine::Pc);
+        }
+        (cfg, state)
+    }
+
+    #[tokio::test]
+    async fn power_off_is_refused_while_a_monitor_is_on_the_pc() {
+        let (cfg, mut state) = pc_with(&["m34"]);
+        let initial = state.clone();
+        let (o, _, peer) = mac(FakeSteps::default(), FakeSteps::default());
+        let mut rx = o.subscribe();
+        let plan = Plan {
+            steps: vec![Step::PowerOffPc],
+        };
+        let err = o.run(1, &cfg, &mut state, &plan).await.unwrap_err();
+        let TxnError::RolledBack { step, error } = err else {
+            panic!("se esperaba RolledBack");
+        };
+        assert_eq!(step, Step::PowerOffPc);
+        assert_eq!(
+            error,
+            "apagar la PC: m34 sigue en la PC; primero hay que devolver los monitores a la Mac"
+        );
+        assert!(peer.steps().is_empty(), "la PC no recibió la orden");
+        assert_eq!(state, initial);
+        assert!(drain(&mut rx).contains(&TxnEvent::StepFailed {
+            txn: 1,
+            index: 0,
+            error
+        }));
+    }
+
+    #[tokio::test]
+    async fn power_off_after_returning_only_some_monitors_is_refused() {
+        let (cfg, mut state) = pc_with(&["m34", "m32"]);
+        let (o, _, peer) = mac(FakeSteps::default(), FakeSteps::default());
+        // El plan devuelve solo el 34" antes de apagar.
+        let mut plan = Plan::to_mode(
+            &cfg,
+            &state,
+            &Mode::Shared([("m32".into(), Machine::Pc)].into()),
+        )
+        .unwrap();
+        plan.steps.push(Step::PowerOffPc);
+        let err = o.run(1, &cfg, &mut state, &plan).await.unwrap_err();
+        assert!(
+            matches!(&err, TxnError::RolledBack { step: Step::PowerOffPc, error } if error.contains("m32 sigue")),
+            "{err}"
+        );
+        assert!(!peer.steps().contains(&Step::PowerOffPc));
+        // Lo que sí se hizo se deshizo: los dos monitores siguen en la PC.
+        assert_eq!(state.owner[&"m34".into()], Machine::Pc);
+        assert!(state.pc_on);
+    }
+
+    #[tokio::test]
+    async fn shutdown_plan_returns_monitors_then_powers_off() {
+        let (cfg, mut state) = pc_with(&["m34", "m32"]);
+        let (o, _, peer) = mac(FakeSteps::default(), FakeSteps::default());
+        let plan = Plan::shutdown_pc(&cfg, &state).unwrap();
+        o.run(1, &cfg, &mut state, &plan).await.unwrap();
+        assert_eq!(peer.steps().last(), Some(&Step::PowerOffPc));
+        assert!(!state.pc_on);
+        assert!(state.owner.values().all(|m| *m == Machine::Mac));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn power_on_resends_wake_until_the_pc_agent_connects() {
+        let local = Arc::new(FakeSteps::default());
+        let o = Arc::new(Orchestrator::new(
+            Machine::Mac,
+            local.clone(),
+            StepTimeouts::default(),
+        ));
+        assert!(!*o.peer_connected().borrow());
+        let o2 = o.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(12)).await;
+            o2.set_peer(Arc::new(FakePeer(Arc::new(FakeSteps::default()))));
+        });
+        let start = tokio::time::Instant::now();
+        o.dispatch(&Step::PowerOnPc).await.unwrap();
+        assert_eq!(start.elapsed(), Duration::from_secs(12));
+        // Envíos en 0, 5 y 10 s.
+        assert_eq!(local.steps(), vec![Step::PowerOnPc; 3]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn power_on_without_the_pc_agent_times_out() {
+        let local = Arc::new(FakeSteps::default());
+        let o = Orchestrator::new(Machine::Mac, local.clone(), StepTimeouts::default());
+        let e = o.dispatch(&Step::PowerOnPc).await.unwrap_err();
+        assert_eq!(e, "encender la PC: sin respuesta en 120 s");
+        // Un envío cada 5 s desde 0; el de 120 s coincide con el tope y puede salir o no.
+        let sent = local.steps().len();
+        assert!((24..=25).contains(&sent), "{sent} envíos");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn power_on_stops_at_a_send_error() {
+        let o = Orchestrator::new(
+            Machine::Mac,
+            Arc::new(FakeSteps {
+                fail_on: vec![Step::PowerOnPc],
+                ..Default::default()
+            }),
+            StepTimeouts::default(),
+        );
+        let start = tokio::time::Instant::now();
+        assert_eq!(
+            o.dispatch(&Step::PowerOnPc).await.unwrap_err(),
+            "falla simulada"
+        );
+        assert_eq!(start.elapsed(), Duration::ZERO);
+    }
+
+    #[tokio::test]
+    async fn losing_the_peer_makes_power_on_wait_again() {
+        let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
+        assert!(*o.peer_connected().borrow());
+        o.clear_peer();
+        assert!(!*o.peer_connected().borrow());
+        let e = o.dispatch(&switch_34_to_pc()).await.unwrap_err();
+        assert!(e.contains(PEER_NOT_CONNECTED), "{e}");
+    }
+
+    fn machine() -> impl proptest::strategy::Strategy<Value = Machine> {
+        proptest::prop_oneof![
+            proptest::strategy::Just(Machine::Mac),
+            proptest::strategy::Just(Machine::Pc)
+        ]
+    }
+
+    proptest::proptest! {
+        /// Para cualquier reparto de partida y de llegada, apagar la PC al final del
+        /// plan llega a la PC si y solo si el reparto de llegada deja todo en la Mac.
+        #[test]
+        fn power_off_reaches_the_pc_only_with_every_monitor_on_the_mac(
+            from in proptest::collection::vec(machine(), 2),
+            to in proptest::collection::vec(machine(), 2),
+        ) {
+            let cfg = fixtures::desk().desk;
+            let mut state = State::initial(&cfg);
+            state.pc_on = true;
+            let ids = ["m34", "m32"];
+            for (id, m) in ids.iter().zip(&from) {
+                state.owner.insert((*id).into(), *m);
+            }
+            let mode = Mode::Shared(ids.iter().map(|id| (*id).into()).zip(to.iter().copied()).collect());
+            let mut plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+            plan.steps.push(Step::PowerOffPc);
+            let all_mac = to.iter().all(|m| *m == Machine::Mac);
+
+            let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            let (o, _, peer) = mac(FakeSteps::default(), FakeSteps::default());
+            let initial = state.clone();
+            let outcome = rt.block_on(o.run(1, &cfg, &mut state, &plan));
+            proptest::prop_assert_eq!(outcome.is_ok(), all_mac);
+            proptest::prop_assert_eq!(peer.steps().contains(&Step::PowerOffPc), all_mac);
+            if all_mac {
+                proptest::prop_assert!(!state.pc_on);
+            } else {
+                proptest::prop_assert_eq!(state, initial);
+            }
+        }
     }
 
     #[tokio::test(start_paused = true)]

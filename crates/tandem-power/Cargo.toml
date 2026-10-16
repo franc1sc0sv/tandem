@@ -6,6 +6,20 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+serde.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Shutdown",
+    "Win32_System_Threading",
+] }
+
+[dev-dependencies]
+proptest.workspace = true
+toml.workspace = true
 
 [lints]
 workspace = true

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::Context;
 use tandemd::cli::{self, Command, RunArgs};
 use tandemd::paths::{self, Paths};
-use tandemd::{Agent, AgentConfig, StateStore, daemon, ipc, logging};
+use tandemd::{Agent, AgentConfig, PowerSteps, StateStore, Unimplemented, daemon, ipc, logging};
 
 fn main() -> ExitCode {
     let cmd = match cli::parse(std::env::args_os().skip(1)) {
@@ -56,7 +56,13 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         cfg.machine,
         cfg.desk.monitors.len()
     );
-    let agent = Arc::new(Agent::new(cfg, StateStore::new(paths.state_file())));
+    // Por ahora solo la energía tiene backend real; el resto responde «no implementado».
+    let local = Arc::new(PowerSteps::for_machine(&cfg, Arc::new(Unimplemented)));
+    let agent = Arc::new(Agent::with_local_steps(
+        cfg,
+        StateStore::new(paths.state_file()),
+        local,
+    ));
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
