@@ -4,7 +4,7 @@
 // `?demo&agent=off` simula que tandemd no corre; `?demo&pc=on` arranca con la PC encendida;
 // `?demo&keys=busy` simula que el sistema no dejó registrar el atajo de Compartido;
 // `?demo&setup` abre la guía de permisos del primer arranque (`&setup=fail`: tandemd no se
-// pudo instalar).
+// pudo instalar); `?demo&peer=none`, un agente sin par emparejado.
 
 import type { Bridge } from "./bridge";
 import type {
@@ -77,7 +77,13 @@ export function demoBridge(query: string): Bridge {
   const snapshot = (): Snapshot =>
     params.get("agent") === "off"
       ? { kind: "unavailable", endpoint: "~/Library/Application Support/Tandem/tandemd.sock", reason: "tandemd no está corriendo: no hay nadie escuchando en la IPC local" }
-      : { kind: "connected", agent: "mac", desk: DESK, state };
+      : {
+          kind: "connected",
+          agent: "mac",
+          desk: DESK,
+          state,
+          peer: params.get("peer") === "none" ? { kind: "unpaired" } : { kind: "paired", name: "PC", link: "usb4" },
+        };
   let keys: ShortcutsView = {
     bindings: { ...DEFAULT_BINDINGS },
     failed: params.get("keys") === "busy" ? { shared: "el sistema no dejó registrar Ctrl+Alt+Digit2 (¿lo usa otra app?)" } : {},

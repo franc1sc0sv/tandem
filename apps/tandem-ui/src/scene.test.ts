@@ -12,6 +12,7 @@ import {
   modeRequest,
   monitorsOf,
   pcPower,
+  peerPill,
   type Progress,
 } from "./scene";
 
@@ -204,5 +205,28 @@ describe("progreso por pasos", () => {
     ])!;
     expect(groupSteps(desk, p.steps)).toEqual([]);
     expect(isRunning(p)).toBe(false);
+  });
+});
+
+describe("par", () => {
+  it("sin par emparejado lo dice", () => {
+    expect(peerPill({ kind: "unpaired" })).toEqual({
+      text: "sin par",
+      title: "Sin par emparejado: esta máquina trabaja sola",
+      ok: false,
+    });
+  });
+
+  it("emparejado sin enlace avisa", () => {
+    const p = peerPill({ kind: "paired", name: "PC", link: null });
+    expect(p.text).toBe("sin enlace");
+    expect(p.ok).toBe(false);
+  });
+
+  it("muestra el enlace activo; por Wi-Fi, que los servicios requieren cable", () => {
+    expect(peerPill({ kind: "paired", name: "PC", link: "usb4" })).toEqual({ text: "USB4", title: "PC por USB4", ok: true });
+    const wifi = peerPill({ kind: "paired", name: "PC", link: "wifi" });
+    expect(wifi.text).toBe("Wi-Fi");
+    expect(wifi.title).toContain("requieren cable");
   });
 });

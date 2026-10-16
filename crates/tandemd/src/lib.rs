@@ -12,8 +12,9 @@
 //! - [`power`]: Wake-on-LAN en la Mac y apagado limpio en la PC.
 //! - [`pc_watch`]: en la Mac, da la PC por apagada si ningún enlace la ve (corte de corriente).
 //! - [`peer`]: el otro agente por el plano de control (pedirle pasos y atender los suyos).
+//! - [`network`]: QUIC, descubrimiento del par y gestor de enlaces.
 //! - [`ipc`]: la API local para la UI (Unix socket / named pipe).
-//! - [`daemon`]: el bucle principal y el apagado ordenado.
+//! - [`daemon`]: el agente armado, el bucle principal y el apagado ordenado.
 //! - [`logging`]: `tracing` a stdout y a archivo.
 
 pub mod agent;
@@ -23,6 +24,7 @@ pub mod daemon;
 pub mod display;
 pub mod ipc;
 pub mod logging;
+pub mod network;
 pub mod orchestrator;
 pub mod paths;
 pub mod pc_watch;

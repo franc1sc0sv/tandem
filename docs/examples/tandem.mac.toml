@@ -1,0 +1,55 @@
+# tandem.toml de la Mac. Va en ~/Library/Application Support/Tandem/tandem.toml
+# (o donde diga `tandemd --config`). Se valida con `tandemd --check-config <archivo>`.
+#
+# El puesto ([[monitors]]) es el mismo en las dos máquinas; cambian `machine`, las
+# direcciones del otro agente y lo que solo hace la Mac (Wake-on-LAN, pc_lost_after).
+#
+# En el directorio de datos el agente guarda:
+# - identity.key: su llave Ed25519. Se crea sola la primera vez; no se comparte.
+# - trust.toml: las llaves de los pares emparejados. Sin par, el agente trabaja solo
+#   y la UI lo indica. Hasta que el emparejamiento llegue a la UI se escribe a mano:
+#
+#     version = 1
+#     [[peer]]
+#     public_key = "<64 dígitos hex: la llave de la PC, la que registra su log al arrancar>"
+#     name = "PC"
+
+machine = "mac"
+
+[network]
+# Puerto UDP (QUIC) de los dos agentes.
+port = 47770
+# La PC en cada enlace directo (DESIGN §6), de mayor a menor prioridad. La LAN de casa
+# (Wi-Fi) no hace falta fijarla: se descubre por mDNS.
+peers = [
+    { kind = "usb4", addr = "10.77.1.2:47770" },
+    { kind = "ethernet", addr = "10.77.2.2:47770" },
+]
+
+[orchestrator]
+# Encender la PC y esperar a que su agente responda.
+power_on_timeout_secs = 120
+step_timeout_secs = 10
+
+[power]
+# Sin ningún enlace con la PC durante esto, se la da por apagada (corte de corriente).
+pc_lost_after_secs = 15
+
+# Wake-on-LAN por el Ethernet directo: la MAC de la tarjeta de la PC, la IP de la Mac
+# en ese enlace y el broadcast de su subred.
+[power.wol]
+mac = "9c:6b:00:1a:2b:ff"
+source = "10.77.2.1"
+broadcast = "10.77.2.3"
+
+[[monitors]]
+id = "m34"
+label = '34"'
+edid_model = "LC34G55T"
+wiring = { pc = "displayport", mac = "hdmi" }
+ddc = { hdmi = 0x06, display_port = 0x0F }
+
+[[monitors]]
+id = "m32"
+label = '32"'
+wiring = { pc = "displayport", mac = "hdmi" }

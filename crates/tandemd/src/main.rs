@@ -1,12 +1,14 @@
-//! Punto de entrada de `tandemd`.
+//! Punto de entrada de `tandemd`: lee la línea de órdenes y le pasa todo a
+//! [`tandemd::daemon`].
 
 use std::process::ExitCode;
-use std::sync::Arc;
 
 use anyhow::Context;
 use tandemd::cli::{self, Command, RunArgs};
+use tandemd::daemon::{self, Backends};
+use tandemd::network::NetOptions;
 use tandemd::paths::{self, Paths};
-use tandemd::{Agent, AgentConfig, StateStore, daemon, ipc, logging};
+use tandemd::{AgentConfig, ipc, logging};
 
 fn main() -> ExitCode {
     let cmd = match cli::parse(std::env::args_os().skip(1)) {
@@ -56,20 +58,17 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         cfg.machine,
         cfg.desk.monitors.len()
     );
-    let agent = Arc::new(Agent::with_platform(
-        cfg,
-        StateStore::new(paths.state_file()),
-    ));
-
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .context("no se pudo crear el runtime")?;
     rt.block_on(async {
+        // La IPC primero: si ya hay un tandemd corriendo, el error lo dice claro.
         let endpoint = ipc::default_endpoint(&paths.data_dir)?;
         let listener = ipc::bind(&endpoint).await?;
         tracing::info!("IPC escuchando en {}", endpoint.display());
-        daemon::run(agent, listener, daemon::shutdown_signal()).await?;
+        let daemon = daemon::start(cfg, &paths, Backends::Platform, NetOptions::default())?;
+        daemon.serve(listener, daemon::shutdown_signal()).await?;
         Ok(())
     })
 }

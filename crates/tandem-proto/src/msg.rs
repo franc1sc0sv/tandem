@@ -128,6 +128,8 @@ pub enum UiCommand {
     GetDesk,
     /// Encender (`true`) o apagar la PC; apagar es la transacción de apagado limpio.
     SetPcPower(bool),
+    /// Con quién está emparejado el agente y por qué enlace lo ve.
+    GetPeer,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -141,6 +143,29 @@ pub enum AgentToUi {
     Txn(TxnEvent),
     ManualSwitch(ManualSwitchEvent),
     Power(PowerEvent),
+    /// Aviso espontáneo cuando cambia el par o el enlace con él.
+    Peer(PeerStatus),
+}
+
+/// El otro agente visto desde este.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PeerStatus {
+    /// Sin par emparejado: el agente trabaja solo, con lo que esta máquina puede hacer.
+    Unpaired,
+    Paired {
+        /// El nombre con que se guardó en la confianza.
+        name: String,
+        /// El enlace por el que van los pedidos; `None` si ninguno ve al otro agente.
+        link: Option<Link>,
+    },
+}
+
+/// Los enlaces entre las dos máquinas, de mayor a menor prioridad (DESIGN §6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Link {
+    Usb4,
+    Ethernet,
+    Wifi,
 }
 
 /// Cambios de energía de la PC que no vienen de un cambio de modo.
@@ -184,6 +209,7 @@ pub enum Reply {
     /// Pedido atendido, sin nada más que contestar.
     Done,
     Desk(Config),
+    Peer(PeerStatus),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso y nunca una pantalla
@@ -386,6 +412,7 @@ pub(crate) mod samples {
             UiCommand::GetDesk,
             UiCommand::SetPcPower(true),
             UiCommand::SetPcPower(false),
+            UiCommand::GetPeer,
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
         cmds.into_iter()
@@ -406,6 +433,7 @@ pub(crate) mod samples {
             UiCommand::AnswerManualSwitch { .. } => 4,
             UiCommand::GetDesk => 5,
             UiCommand::SetPcPower(_) => 6,
+            UiCommand::GetPeer => 7,
         }
     }
 
@@ -483,6 +511,14 @@ pub(crate) mod samples {
                 id: 5,
                 reply: Reply::Desk(desk()),
             },
+            AgentToUi::Reply {
+                id: 6,
+                reply: Reply::Peer(PeerStatus::Unpaired),
+            },
+            AgentToUi::Peer(PeerStatus::Paired {
+                name: "PC".into(),
+                link: None,
+            }),
             AgentToUi::State(state()),
             AgentToUi::ManualSwitch(ManualSwitchEvent::Requested {
                 id: 1,
@@ -502,7 +538,25 @@ pub(crate) mod samples {
             }),
         ];
         v.extend(txn_events().into_iter().map(AgentToUi::Txn));
+        v.extend(links().into_iter().map(|link| {
+            AgentToUi::Peer(PeerStatus::Paired {
+                name: "Mac".into(),
+                link: Some(link),
+            })
+        }));
         v
+    }
+
+    pub fn links() -> Vec<Link> {
+        vec![Link::Usb4, Link::Ethernet, Link::Wifi]
+    }
+
+    pub fn link_arm(l: &Link) -> usize {
+        match l {
+            Link::Usb4 => 0,
+            Link::Ethernet => 1,
+            Link::Wifi => 2,
+        }
     }
 
     pub fn to_ui_arm(m: &AgentToUi) -> usize {
@@ -512,6 +566,7 @@ pub(crate) mod samples {
             AgentToUi::Txn(_) => 2,
             AgentToUi::ManualSwitch(_) => 3,
             AgentToUi::Power(_) => 4,
+            AgentToUi::Peer(_) => 5,
         }
     }
 
@@ -522,6 +577,7 @@ pub(crate) mod samples {
             Reply::Rejected(_) => 2,
             Reply::Done => 3,
             Reply::Desk(_) => 4,
+            Reply::Peer(_) => 5,
         }
     }
 
@@ -566,8 +622,9 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
         covers(&control(), control_arm, 6);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 7);
-        covers(&to_ui(), to_ui_arm, 5);
+        covers(&cmds, ui_command_arm, 8);
+        covers(&to_ui(), to_ui_arm, 6);
+        covers(&links(), link_arm, 3);
         let replies: Vec<_> = to_ui()
             .into_iter()
             .filter_map(|m| match m {
@@ -575,7 +632,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 5);
+        covers(&replies, reply_arm, 6);
         covers(&txn_events(), txn_arm, 8);
     }
 

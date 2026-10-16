@@ -15,7 +15,9 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State, Step};
-use tandem_proto::{AgentToUi, ManualSwitchEvent, PowerEvent, Reply, TxnEvent, UiCommand};
+use tandem_proto::{
+    AgentToUi, Link, ManualSwitchEvent, PeerStatus, PowerEvent, Reply, TxnEvent, UiCommand,
+};
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Notify, mpsc, oneshot, watch};
@@ -36,11 +38,49 @@ pub enum Snapshot {
         agent: Machine,
         desk: Config,
         state: State,
+        /// El otro agente: sin par, la ventana avisa que esta máquina trabaja sola.
+        peer: PeerView,
     },
     Unavailable {
         endpoint: Option<String>,
         reason: String,
     },
+}
+
+/// [`PeerStatus`] en JSON para el frontend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PeerView {
+    Unpaired,
+    Paired {
+        name: String,
+        /// `None` si ningún enlace ve al otro agente.
+        link: Option<LinkView>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkView {
+    Usb4,
+    Ethernet,
+    Wifi,
+}
+
+impl From<PeerStatus> for PeerView {
+    fn from(p: PeerStatus) -> Self {
+        match p {
+            PeerStatus::Unpaired => PeerView::Unpaired,
+            PeerStatus::Paired { name, link } => PeerView::Paired {
+                name,
+                link: link.map(|l| match l {
+                    Link::Usb4 => LinkView::Usb4,
+                    Link::Ethernet => LinkView::Ethernet,
+                    Link::Wifi => LinkView::Wifi,
+                }),
+            },
+        }
+    }
 }
 
 /// Avisos que no son estado: se muestran una vez y pasan.
@@ -219,7 +259,7 @@ impl From<Reply> for ActionResult {
         match r {
             Reply::Accepted { txn } => ActionResult::Accepted { txn },
             Reply::Rejected(reason) => ActionResult::Rejected { reason },
-            Reply::Done | Reply::State(_) | Reply::Desk(_) => ActionResult::Done,
+            Reply::Done | Reply::State(_) | Reply::Desk(_) | Reply::Peer(_) => ActionResult::Done,
         }
     }
 }
@@ -349,9 +389,14 @@ impl Runner {
     {
         loop {
             let reason = match self.open(connect()).await {
-                Ok((client, desk, state)) => {
+                Ok((client, desk, state, peer)) => {
                     let agent = client.agent();
-                    self.publish(Snapshot::Connected { agent, desk, state });
+                    self.publish(Snapshot::Connected {
+                        agent,
+                        desk,
+                        state,
+                        peer,
+                    });
                     match self.serve(client).await {
                         Ended::Released => return,
                         Ended::Lost(reason) => reason,
@@ -375,7 +420,10 @@ impl Runner {
     }
 
     /// Conecta y pide lo necesario para dibujar la escena, todo con el mismo límite.
-    async fn open<F, S>(&self, connect: F) -> Result<(IpcClient<S>, Config, State), String>
+    async fn open<F, S>(
+        &self,
+        connect: F,
+    ) -> Result<(IpcClient<S>, Config, State, PeerView), String>
     where
         F: Future<Output = Result<IpcClient<S>, IpcError>>,
         S: AsyncRead + AsyncWrite + Unpin,
@@ -387,7 +435,11 @@ impl Runner {
                 other => return Err(IpcError::UnexpectedReply(other)),
             };
             let state = client.get_state().await?;
-            Ok((client, desk, state))
+            let peer = match client.request(UiCommand::GetPeer).await? {
+                Reply::Peer(p) => p.into(),
+                other => return Err(IpcError::UnexpectedReply(other)),
+            };
+            Ok((client, desk, state, peer))
         };
         match tokio::time::timeout(QUERY_TIMEOUT, opening).await {
             Ok(Ok(opened)) => Ok(opened),
@@ -444,6 +496,7 @@ impl Runner {
                 event: event.into(),
             }),
             AgentToUi::Power(event) => self.sink.notice(&event.into()),
+            AgentToUi::Peer(status) => self.update_peer(status.into()),
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}
         }
@@ -451,13 +504,38 @@ impl Runner {
 
     fn update_state(&self, new: State) {
         let current = self.snapshot.borrow().clone();
-        if let Snapshot::Connected { agent, desk, state } = current
+        if let Snapshot::Connected {
+            agent,
+            desk,
+            state,
+            peer,
+        } = current
             && state != new
         {
             self.publish(Snapshot::Connected {
                 agent,
                 desk,
                 state: new,
+                peer,
+            });
+        }
+    }
+
+    fn update_peer(&self, new: PeerView) {
+        let current = self.snapshot.borrow().clone();
+        if let Snapshot::Connected {
+            agent,
+            desk,
+            state,
+            peer,
+        } = current
+            && peer != new
+        {
+            self.publish(Snapshot::Connected {
+                agent,
+                desk,
+                state,
+                peer: new,
             });
         }
     }
@@ -624,8 +702,32 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 agent: Machine::Mac,
                 desk: a.agent.config().desk.clone(),
                 state: a.agent.state(),
+                peer: PeerView::Unpaired,
             }
         );
+    }
+
+    #[tokio::test]
+    async fn pushed_peer_status_updates_the_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+
+        a.agent.set_peer_status(PeerStatus::Paired {
+            name: "PC".into(),
+            link: Some(Link::Ethernet),
+        });
+        let want = PeerView::Paired {
+            name: "PC".into(),
+            link: Some(LinkView::Ethernet),
+        };
+        rec.until(|snaps, _| {
+            matches!(snaps.last(), Some(Snapshot::Connected { peer, .. }) if *peer == want)
+        })
+        .await;
+        assert!(matches!(handle.snapshot(), Snapshot::Connected { peer, .. } if peer == want));
     }
 
     #[tokio::test]
@@ -822,12 +924,30 @@ wiring = { pc = "displayport", mac = "hdmi" }
             agent: Machine::Mac,
             desk: cfg.desk,
             state,
+            peer: PeerView::Unpaired,
         };
         let v = serde_json::to_value(&snap).unwrap();
         assert_eq!(v["kind"], "connected");
         assert_eq!(v["desk"]["monitors"][0]["label"], "34\"");
         assert_eq!(v["desk"]["monitors"][0]["wiring"]["pc"], "displayport");
         assert_eq!(v["state"]["owner"]["m32"], "mac");
+        assert_eq!(v["peer"], serde_json::json!({ "kind": "unpaired" }));
+        assert_eq!(
+            serde_json::to_value(PeerView::from(PeerStatus::Paired {
+                name: "PC".into(),
+                link: Some(Link::Usb4),
+            }))
+            .unwrap(),
+            serde_json::json!({ "kind": "paired", "name": "PC", "link": "usb4" })
+        );
+        assert_eq!(
+            serde_json::to_value(PeerView::from(PeerStatus::Paired {
+                name: "PC".into(),
+                link: None,
+            }))
+            .unwrap(),
+            serde_json::json!({ "kind": "paired", "name": "PC", "link": null })
+        );
 
         let n = Notice::Txn {
             event: TxnView::Started {

@@ -68,3 +68,18 @@ fn bad_arguments_exit_nonzero() {
         .unwrap();
     assert_eq!(out.status.code(), Some(2));
 }
+
+/// Las configs de ejemplo de docs/examples son válidas.
+#[test]
+fn example_configs_are_valid() {
+    let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/examples");
+    for (file, machine) in [("tandem.mac.toml", "mac"), ("tandem.pc.toml", "pc")] {
+        let out = check(&examples.join(file));
+        assert!(out.status.success(), "{file}: {out:?}");
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert!(
+            stdout.contains(&format!("máquina {machine}, 2 monitores")),
+            "{stdout}"
+        );
+    }
+}

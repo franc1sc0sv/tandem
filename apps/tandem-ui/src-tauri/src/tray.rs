@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use tandem_core::{Config, Machine, Mode, MonitorId, State};
 
-use crate::session::Snapshot;
+use crate::session::{PeerView, Snapshot};
 use crate::shortcuts::ShortcutAction;
 
 /// Las tres tarjetas de modo, como las llama la escena.
@@ -119,7 +119,9 @@ pub struct MenuView {
 impl MenuView {
     pub fn of(snapshot: &Snapshot) -> Self {
         match snapshot {
-            Snapshot::Connected { desk, state, .. } => {
+            Snapshot::Connected {
+                desk, state, peer, ..
+            } => {
                 let current = mode_of(desk, state);
                 let mode = current.map_or("sin monitores", ModeKey::label);
                 let pc = if state.pc_on {
@@ -127,9 +129,13 @@ impl MenuView {
                 } else {
                     "PC apagada"
                 };
+                let mut status = format!("{mode} · {pc}");
+                if *peer == PeerView::Unpaired {
+                    status.push_str(" · sin par emparejado");
+                }
                 MenuView {
                     tooltip: format!("Tandem · {mode}"),
-                    status: format!("{mode} · {pc}"),
+                    status,
                     current,
                     modes_enabled: current.is_some(),
                 }
@@ -191,6 +197,13 @@ mod tests {
     use tandemd::AgentConfig;
 
     use super::*;
+
+    fn paired() -> PeerView {
+        PeerView::Paired {
+            name: "PC".into(),
+            link: None,
+        }
+    }
 
     const CONFIG: &str = r#"
 machine = "mac"
@@ -270,6 +283,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             agent: Mac,
             desk: d,
             state: s,
+            peer: PeerView::Unpaired,
         };
         assert_eq!(mode_for(ModeKey::SoloPc, &ok), Ok(Mode::SoloPc));
         let down = Snapshot::Unavailable {
@@ -306,6 +320,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             agent: Mac,
             desk: desk(),
             state: state(Pc, Mac),
+            peer: paired(),
         });
         assert_eq!(v.current, Some(ModeKey::Shared));
         assert!(v.modes_enabled);
@@ -316,8 +331,18 @@ wiring = { pc = "displayport", mac = "hdmi" }
             agent: Mac,
             desk: desk(),
             state: State::initial(&desk()),
+            peer: paired(),
         });
         assert_eq!(off.status, "Solo Mac · PC apagada");
+
+        // Sin par, el menú lo dice: la PC no va a responder.
+        let alone = MenuView::of(&Snapshot::Connected {
+            agent: Mac,
+            desk: desk(),
+            state: State::initial(&desk()),
+            peer: PeerView::Unpaired,
+        });
+        assert_eq!(alone.status, "Solo Mac · PC apagada · sin par emparejado");
     }
 
     #[test]
@@ -337,6 +362,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             agent: Mac,
             desk: Config { monitors: vec![] },
             state: state(Mac, Mac),
+            peer: paired(),
         };
         let v = MenuView::of(&empty);
         assert!(!v.modes_enabled);
