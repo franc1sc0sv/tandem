@@ -26,6 +26,10 @@ const RUN_32: CalibrationView[] = [
   { type: "progress", step: { kind: "seen", input: "hdmi", code: 0x05, seen: true } },
   { type: "progress", step: { kind: "returned", code: 0x0f } },
   { type: "progress", step: { kind: "found", input: "hdmi", code: 0x05 } },
+  { type: "progress", step: { kind: "verifying" } },
+  { type: "progress", step: { kind: "verified", input: "displayport", code: 0x0f } },
+  { type: "progress", step: { kind: "verified", input: "hdmi", code: 0x05 } },
+  { type: "progress", step: { kind: "verified", input: "displayport", code: 0x0f } },
 ];
 
 function play(events: CalibrationView[], from: Calibration | null = null): Calibration | null {
@@ -57,6 +61,13 @@ describe("avance de la calibración", () => {
     const done = after(12);
     expect(laneText(done.lanes.hdmi)).toBe("✓ 0x05");
     expect(laneText(done.lanes.displayport)).toBe("✓ 0x0F");
+    expect(hint(done)).toContain("di qué ves en el monitor: la Mac, la PC o negro");
+
+    // T-081: la ida y vuelta final antes de dar el perfil por bueno.
+    const verifying = after(14);
+    expect(headline(verifying, '32"')).toBe("Verificando: ida y vuelta con los dos códigos…");
+    expect(verifying.lanes.hdmi).toMatchObject({ state: "found", code: 0x05 });
+    expect(headline(after(RUN_32.length), '32"')).toBe("Verificando: ida y vuelta con los dos códigos…");
   });
 
   it("termina con el resultado «32\": HDMI ✓ DP ✓»", () => {

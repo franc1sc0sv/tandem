@@ -27,7 +27,7 @@ export interface Calibration {
   start: Input;
   lanes: Record<Input, Lane>;
   /** Lo que está haciendo ahora, para el título. */
-  now: "reading" | "switch" | "testing" | "returning";
+  now: "reading" | "switch" | "testing" | "returning" | "verifying";
   /** La entrada del cambio a mano o de las pruebas en curso. */
   input: Input | null;
   outcome: CalibrationOutcome | null;
@@ -97,6 +97,12 @@ export function advance(run: Calibration | null, ev: CalibrationView): Calibrati
     case "found":
       lanes[step.input] = { ...lanes[step.input], state: "found", code: step.code };
       break;
+    case "verifying":
+      next.now = "verifying";
+      next.input = null;
+      break;
+    case "verified":
+      break;
   }
   return next;
 }
@@ -140,6 +146,8 @@ export function headline(run: Calibration, label: string): string {
       return `Probando códigos de ${PORT_NAME[run.input ?? "hdmi"]}…`;
     case "returning":
       return `Volviendo a ${PORT_NAME[run.start]}…`;
+    case "verifying":
+      return "Verificando: ida y vuelta con los dos códigos…";
   }
 }
 
@@ -155,8 +163,8 @@ export function hint(run: Calibration): string {
         return `El monitor volvió a ${PORT_NAME[run.start]}. No se guardó nada.`;
     }
   }
-  if (run.now === "switch") return "Cuando veas la otra máquina en ese monitor, haz clic en su aviso.";
-  return `Si ves la pantalla «¿Ves esto?», haz clic. Si no, espera: siempre vuelve a ${PORT_NAME[run.start]}.`;
+  if (run.now === "switch") return "Cuando veas la otra máquina en ese monitor, haz clic en su aviso o di aquí qué ves.";
+  return `Después de cada código, di qué ves en el monitor: la Mac, la PC o negro (o haz clic en «¿Ves esta pantalla?»). Siempre vuelve a ${PORT_NAME[run.start]}.`;
 }
 
 /** «34": HDMI ✓ DP ✓». */

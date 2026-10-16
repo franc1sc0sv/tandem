@@ -5,8 +5,9 @@ use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 
-use tandem_core::model::Input;
+use tandem_core::model::{Config, Input, Machine};
 
+use crate::calibrate::console::Wiring;
 use crate::calibrate::{
     self, CalibratedProfile, CalibrationError, CalibrationOptions, CalibrationRequest, CancelToken,
     Confirmer, console,
@@ -29,7 +30,7 @@ USO:
   tandem-ddc switch <monitor> hdmi|dp --return-after <s> [opciones]
   tandem-ddc profile <monitor>
   tandem-ddc profile export <monitor>
-  tandem-ddc calibrate <monitor> [--from hdmi|dp] [--no-save]
+  tandem-ddc calibrate <monitor> [--from hdmi|dp] [--pc hdmi|dp] [--wait <s>] [--no-save]
 
 <monitor>  índice de `list`, o texto que coincida con un solo monitor (modelo, id PnP, serie)
 <vcp>      código en hexadecimal: 60 o 0x60
@@ -49,13 +50,21 @@ imprime su TOML para compartirlo. Los perfiles propios van en
 los del repo con el mismo id PnP (docs/dev/ddc-profiles.md).
 
 `calibrate` encuentra los códigos de un monitor sin perfil: pide pasarlo a la otra
-entrada desde su menú y prueba códigos hasta que confirmes con Enter que ves la máquina
-(n = no la veo). Siempre vuelve a la entrada de partida, con un código ya verificado;
-Ctrl+C cancela y vuelve. El perfil se guarda como perfil del usuario (salvo --no-save).
+entrada desde su menú y prueba códigos; después de cada uno dices qué ves en el monitor
+(m = la Mac, p = la PC, n = negro o sin señal, c = cancelar). Cada código se prueba con
+el monitor en la entrada contraria y el resultado se verifica con una ida y vuelta.
+Siempre vuelve a la entrada de partida, con un código ya verificado; Ctrl+C cancela y
+vuelve. El perfil se guarda como perfil del usuario (salvo --no-save).
   --from hdmi|dp        la entrada en la que está el monitor ahora (por omisión, dp)
+  --pc hdmi|dp          la entrada de la PC en ese monitor (la Mac va en la otra); por
+                        omisión, la de su [[monitors]] en tandem.toml, o dp
+  --wait <s>            segundos para contestar cada pregunta (5–300; por omisión, 20)
 
 `set` no acepta 0x60 (usa `switch`) ni 0xD6 (energía): podrían dejarte sin imagen.
 ";
+
+/// Plazo aceptado para `calibrate --wait`, en segundos.
+const WAIT_RANGE: std::ops::RangeInclusive<u64> = 5..=300;
 
 /// Códigos que `set` no escribe: sin vuelta automática podrían dejar al usuario sin imagen.
 const UNSAFE_SET: [u8; 2] = [VCP_INPUT_SOURCE, VCP_POWER_MODE];
@@ -81,6 +90,10 @@ pub struct CalibrateArgs {
     pub monitor: MonitorSelector,
     /// La entrada en la que está el monitor al empezar: a ella vuelve siempre.
     pub from: Input,
+    /// La entrada de la PC (`--pc`), si se dio: gana sobre `tandem.toml`.
+    pub pc: Option<Input>,
+    /// Plazo de cada pregunta (`--wait`); por omisión, el del motor.
+    pub wait: Option<Duration>,
     pub save: bool,
 }
 
@@ -266,6 +279,7 @@ fn parse_switch(rest: &[String]) -> Result<SwitchArgs, CliError> {
 fn parse_calibrate(rest: &[String]) -> Result<CalibrateArgs, CliError> {
     let mut monitor = None;
     let mut from = Input::DisplayPort;
+    let (mut pc, mut wait) = (None, None);
     let mut save = true;
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
@@ -275,6 +289,27 @@ fn parse_calibrate(rest: &[String]) -> Result<CalibrateArgs, CliError> {
                     .next()
                     .ok_or_else(|| usage("falta el valor de `--from`"))?;
                 from = parse_input(v)?;
+            }
+            "--pc" => {
+                let v = it.next().ok_or_else(|| usage("falta el valor de `--pc`"))?;
+                pc = Some(parse_input(v)?);
+            }
+            "--wait" => {
+                let v = it
+                    .next()
+                    .ok_or_else(|| usage("falta el valor de `--wait`"))?;
+                let secs = v
+                    .parse::<u64>()
+                    .ok()
+                    .filter(|s| WAIT_RANGE.contains(s))
+                    .ok_or_else(|| {
+                        usage(format!(
+                            "`--wait` espera segundos entre {} y {}",
+                            WAIT_RANGE.start(),
+                            WAIT_RANGE.end()
+                        ))
+                    })?;
+                wait = Some(Duration::from_secs(secs));
             }
             "--no-save" => save = false,
             flag if flag.starts_with("--") => {
@@ -287,6 +322,8 @@ fn parse_calibrate(rest: &[String]) -> Result<CalibrateArgs, CliError> {
     Ok(CalibrateArgs {
         monitor: monitor.ok_or_else(|| usage("`calibrate` espera <monitor>"))?,
         from,
+        pc,
+        wait,
         save,
     })
 }
@@ -520,14 +557,57 @@ pub fn run(
 
 /// Lo que `calibrate` necesita además del bus.
 pub struct CalibrateEnv<'a> {
-    /// Quien contesta las sondas (en la terminal, [`console::LineConfirmer`]).
-    pub confirmer: &'a dyn Confirmer,
+    /// Quien contesta las sondas, armado con el cableado del monitor (en la terminal,
+    /// [`console::LineConfirmer`]).
+    pub confirmer: &'a dyn Fn(Wiring) -> Box<dyn Confirmer + 'a>,
     pub cancel: &'a CancelToken,
     pub options: CalibrationOptions,
     /// `<datos>/profiles/ddc/`; sin él no se guarda.
     pub user_dir: Option<&'a Path>,
+    /// El puesto de `tandem.toml`, si se pudo leer: de ahí sale qué máquina va en cada
+    /// entrada para nombrarla en las preguntas.
+    pub desk: Option<&'a Config>,
     /// Para `verified_on`.
     pub today: Option<String>,
+}
+
+/// Qué máquina va en cada entrada del monitor, y de dónde salió: `--pc`, el
+/// `[[monitors]]` de `tandem.toml` cuyo `edid_model` es este monitor (y ningún otro), o
+/// el puesto por omisión (la PC por DisplayPort).
+pub fn calibration_wiring(
+    args: &CalibrateArgs,
+    monitors: &[MonitorInfo],
+    index: usize,
+    desk: Option<&Config>,
+) -> (Wiring, String) {
+    if let Some(pc) = args.pc {
+        return (Wiring { pc }, "--pc".into());
+    }
+    let configured = desk.and_then(|desk| {
+        let mut found = desk.monitors.iter().filter(|m| {
+            m.edid_model.as_deref().is_some_and(|model| {
+                let hits: Vec<usize> = monitors
+                    .iter()
+                    .filter(|i| i.matches(model))
+                    .map(|i| i.index)
+                    .collect();
+                hits == [index]
+            })
+        });
+        let first = found.next()?;
+        found.next().is_none().then_some(first)
+    });
+    let pc = configured.and_then(|m| {
+        m.input_for(Machine::Pc)
+            .or_else(|| m.input_for(Machine::Mac).map(other_input))
+    });
+    match (configured, pc) {
+        (Some(m), Some(pc)) => (Wiring { pc }, format!("tandem.toml, monitor `{}`", m.id)),
+        _ => (
+            Wiring::default(),
+            "por omisión; si no es así, usa --pc".into(),
+        ),
+    }
 }
 
 /// `tandem-ddc calibrate`: corre el motor de T-077 contra `bus`, imprime el avance y, si
@@ -550,20 +630,32 @@ pub async fn run_calibrate(
             entry.profile.name, entry.source
         )?;
     }
+    let (wiring, from) = calibration_wiring(args, bus.monitors(), i, env.desk);
+    let mut options = env.options.clone();
+    if let Some(wait) = args.wait {
+        options.confirm_timeout = wait;
+    }
     writeln!(
         out,
-        "empieza en {} y siempre vuelve ahí; Ctrl+C cancela y vuelve",
-        console::name(args.from)
+        "empieza en {} ({}) y siempre vuelve ahí; Ctrl+C cancela y vuelve",
+        console::name(args.from),
+        console::machine_name(wiring.machine(args.from))
+    )?;
+    writeln!(
+        out,
+        "{}",
+        console::instructions(wiring, &from, options.confirm_timeout)
     )?;
     let req = CalibrationRequest {
         monitor: i,
         start: args.from,
         known: profiles.brand_profiles(),
-        options: env.options.clone(),
+        options,
     };
+    let confirmer = (env.confirmer)(wiring);
     let mut io_err = None;
-    let result = calibrate::calibrate(bus, &req, env.confirmer, env.cancel, &mut |e| {
-        if let Some(line) = console::describe(e)
+    let result = calibrate::calibrate(bus, &req, confirmer.as_ref(), env.cancel, &mut |e| {
+        if let Some(line) = console::describe(e, wiring)
             && let Err(err) = writeln!(out, "{line}")
         {
             io_err.get_or_insert(err);
@@ -686,7 +778,7 @@ fn print_event(out: &mut dyn Write, e: &SwitchEvent) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use crate::calibrate::sim::{Showing, SimMonitor, samsung_32};
-    use crate::calibrate::{ConfirmFuture, Probe};
+    use crate::calibrate::{Answer, ConfirmFuture, Probe, ProbeKind, Sight};
     use crate::ddc::fake::{FakeDdc, FakeMonitor};
     use crate::ddc::profiles::ProfileSource;
     use crate::ddc::{VcpValue, edid};
@@ -1138,14 +1230,28 @@ mod tests {
             CalibrateArgs {
                 monitor: MonitorSelector::Index(0),
                 from: Input::DisplayPort,
+                pc: None,
+                wait: None,
                 save: true,
             }
         );
         assert_eq!(
-            calibrate_args(&["calibrate", "--from", "hdmi", "SAM7489", "--no-save"]),
+            calibrate_args(&[
+                "calibrate",
+                "--from",
+                "hdmi",
+                "SAM7489",
+                "--no-save",
+                "--pc",
+                "hdmi",
+                "--wait",
+                "45"
+            ]),
             CalibrateArgs {
                 monitor: MonitorSelector::Text("SAM7489".into()),
                 from: Input::Hdmi,
+                pc: Some(Input::Hdmi),
+                wait: Some(Duration::from_secs(45)),
                 save: false,
             }
         );
@@ -1154,6 +1260,11 @@ mod tests {
             &["calibrate", "0", "1"],
             &["calibrate", "0", "--from"],
             &["calibrate", "0", "--from", "vga"],
+            &["calibrate", "0", "--pc", "vga"],
+            &["calibrate", "0", "--wait"],
+            &["calibrate", "0", "--wait", "2"],
+            &["calibrate", "0", "--wait", "301"],
+            &["calibrate", "0", "--wait", "veinte"],
             &["calibrate", "0", "--nope"],
         ] {
             assert!(
@@ -1175,16 +1286,20 @@ mod tests {
         assert!(matches!(err, CliError::Interactive));
     }
 
+    type Factory<'a> = dyn Fn(Wiring) -> Box<dyn Confirmer + 'a> + 'a;
+
     fn env<'a>(
-        confirmer: &'a dyn Confirmer,
+        confirmer: &'a Factory<'a>,
         cancel: &'a CancelToken,
         dir: Option<&'a Path>,
+        desk: Option<&'a Config>,
     ) -> CalibrateEnv<'a> {
         CalibrateEnv {
             confirmer,
             cancel,
             options: CalibrationOptions::default(),
             user_dir: dir,
+            desk,
             today: Some("2026-10-16".into()),
         }
     }
@@ -1198,11 +1313,12 @@ mod tests {
         let mut bus = sim.clone();
         let mut out = Vec::new();
         let cancel = CancelToken::new();
+        let user = |_| Box::new(sim.clone()) as Box<dyn Confirmer>;
         let p = run_calibrate(
             &calibrate_args(&["calibrate", "Odyssey"]),
             &mut bus,
             &ProfileDb::default(),
-            env(&sim, &cancel, Some(dir.path())),
+            env(&user, &cancel, Some(dir.path()), None),
             &mut out,
         )
         .await
@@ -1218,13 +1334,14 @@ mod tests {
         assert_eq!(sim.showing(), Showing::Input(Input::DisplayPort));
         assert!(out.contains("Odyssey G5: HDMI ✓ 0x05 · DP ✓ 0x0F"), "{out}");
         assert!(
-            out.contains("HDMI: pruebo 0x05 (lectura del monitor, 1 de"),
+            out.contains("DisplayPort: pruebo 0x0F (lectura del monitor, 1 de"),
             "{out}"
         );
         assert!(
             out.contains("ddc = { hdmi = 0x05, display_port = 0x0F }"),
             "{out}"
         );
+        assert!(out.contains("verificación final"), "{out}");
         let file = dir.path().join("SAM7489.toml");
         assert!(out.contains(&format!("perfil guardado en {}", file.display())));
 
@@ -1239,11 +1356,25 @@ mod tests {
         assert_eq!(entry.profile.verified_on.as_deref(), Some("2026-10-16"));
     }
 
-    /// El usuario frente a la terminal: mira el monitor simulado y contesta por teclado.
+    /// El usuario frente a la terminal: mira el monitor simulado y teclea la letra de lo
+    /// que ve.
     struct Keyboard {
         sim: SimMonitor,
         keys: tokio::sync::mpsc::UnboundedSender<String>,
         line: console::LineConfirmer,
+        wiring: Wiring,
+    }
+
+    impl Keyboard {
+        fn new(sim: &SimMonitor, wiring: Wiring, screen: &Screen) -> Self {
+            let (keys, lines) = tokio::sync::mpsc::unbounded_channel();
+            Keyboard {
+                sim: sim.clone(),
+                keys,
+                line: console::LineConfirmer::new(lines, Box::new(screen.clone()), wiring),
+                wiring,
+            }
+        }
     }
 
     impl Confirmer for Keyboard {
@@ -1252,8 +1383,15 @@ mod tests {
                 let user = async {
                     // Primero la pregunta; después la tecla.
                     tokio::task::yield_now().await;
-                    let seen = self.sim.confirm(probe).await.unwrap();
-                    let _ = self.keys.send(if seen { "\n" } else { "n\n" }.into());
+                    let key = match self.sim.confirm(probe).await.unwrap() {
+                        Some(Answer::Saw(Sight::Input(i))) => match self.wiring.machine(i) {
+                            Machine::Mac => "m\n",
+                            Machine::Pc => "p\n",
+                        },
+                        Some(Answer::Saw(Sight::Black)) => "n\n",
+                        Some(Answer::Stop) | None => "c\n",
+                    };
+                    let _ = self.keys.send(key.into());
                 };
                 let (answer, ()) = tokio::join!(self.line.confirm(probe), user);
                 answer
@@ -1274,25 +1412,31 @@ mod tests {
         }
     }
 
+    impl Screen {
+        fn text(&self) -> String {
+            String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
+        }
+    }
+
+    /// T-081: la primera prueba real, `tandem-ddc calibrate 1 --from hdmi --no-save` en el
+    /// 32" (la base ya trae su perfil). El monitor ignora lo que no conoce (`0x10`), sigue
+    /// leyendo `0x05` después de pasarlo a mano a DisplayPort, y el usuario tarda 10 s en
+    /// contestar (más que los 8 s de antes). Con el motor de T-077 esto dio HDMI 0x0F /
+    /// DP 0x10; ahora tiene que dar el perfil verificado, 0x05 / 0x0F.
     #[tokio::test(start_paused = true)]
-    async fn calibrate_with_the_keyboard_starting_on_hdmi_without_saving() {
+    async fn the_first_real_calibration_now_finds_the_verified_profile() {
         let sim = SimMonitor::new(samsung_32(), Input::Hdmi);
-        let (keys, lines) = tokio::sync::mpsc::unbounded_channel();
+        sim.lock().answer_delay = Duration::from_secs(10);
         let screen = Screen::default();
-        let user = Keyboard {
-            sim: sim.clone(),
-            keys,
-            line: console::LineConfirmer::new(lines, Box::new(screen.clone())),
-        };
+        let user = |w| Box::new(Keyboard::new(&sim, w, &screen)) as Box<dyn Confirmer>;
         let mut bus = sim.clone();
         let mut out = Vec::new();
         let cancel = CancelToken::new();
-        let dir = tempfile::tempdir().unwrap();
         let p = run_calibrate(
             &calibrate_args(&["calibrate", "0", "--from", "hdmi", "--no-save"]),
             &mut bus,
             ProfileDb::builtin(),
-            env(&user, &cancel, Some(dir.path())),
+            env(&user, &cancel, None, None),
             &mut out,
         )
         .await
@@ -1302,14 +1446,126 @@ mod tests {
         assert_eq!(sim.showing(), Showing::Input(Input::Hdmi));
         let out = String::from_utf8(out).unwrap();
         assert!(out.contains("ya tiene perfil: Odyssey G5"), "{out}");
-        assert!(out.contains("no se guardó (--no-save)"), "{out}");
-        assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
-        let asked = String::from_utf8(screen.0.lock().unwrap().clone()).unwrap();
+        assert!(out.contains("empieza en HDMI (la Mac)"), "{out}");
         assert!(
-            asked.contains("Pasa Odyssey G5 a DisplayPort desde el menú"),
+            out.contains("la Mac va por HDMI y la PC por DisplayPort"),
+            "{out}"
+        );
+        assert!(
+            out.contains("DisplayPort (por omisión; si no es así, usa --pc)"),
+            "{out}"
+        );
+        // La lectura en DisplayPort es la vieja: solo una pista, y no se prueba porque
+        // es la vuelta verificada.
+        assert!(
+            out.contains("en DisplayPort el monitor lee 0x60 = 0x05 (solo una pista)"),
+            "{out}"
+        );
+        assert!(out.contains("HDMI: pruebo 0x05"), "{out}");
+        assert!(out.contains("DisplayPort: pruebo 0x0F (MCCS"), "{out}");
+        assert!(!out.contains("pruebo 0x10"), "{out}");
+        assert!(!out.contains("sin respuesta:"), "{out}");
+        assert!(out.contains("✓ 0x0F → la PC (DisplayPort)"), "{out}");
+        assert!(out.contains("Odyssey G5: HDMI ✓ 0x05 · DP ✓ 0x0F"), "{out}");
+        assert!(out.contains("no se guardó (--no-save)"), "{out}");
+        let asked = screen.text();
+        assert!(
+            asked
+                .contains("Pasa Odyssey G5 a DisplayPort desde el menú del monitor para ver la PC"),
             "{asked}"
         );
-        assert!(asked.contains("Enter = lo veo"), "{asked}");
+        assert!(asked.contains("¿Qué ves en Odyssey G5?"), "{asked}");
+        assert!(asked.contains("[20 s]"), "{asked}");
+        assert!(!asked.contains("Enter = lo veo"), "{asked}");
+    }
+
+    /// El cableado sale del `[[monitors]]` de `tandem.toml` que es este monitor; `--pc`
+    /// gana sobre él.
+    #[tokio::test(start_paused = true)]
+    async fn the_machines_come_from_the_wiring_in_the_config() {
+        let desk = Config::from_toml(
+            r#"
+            machine = "pc"
+            [[monitors]]
+            id = "m32"
+            label = '32"'
+            edid_model = "Odyssey G5"
+            wiring = { pc = "hdmi", mac = "displayport" }
+            "#,
+        )
+        .unwrap();
+        let sim = SimMonitor::new(samsung_32(), Input::DisplayPort);
+        let screen = Screen::default();
+        let user = |w| Box::new(Keyboard::new(&sim, w, &screen)) as Box<dyn Confirmer>;
+        let mut out = Vec::new();
+        let cancel = CancelToken::new();
+        let p = run_calibrate(
+            &calibrate_args(&["calibrate", "0", "--no-save"]),
+            &mut sim.clone(),
+            &ProfileDb::default(),
+            env(&user, &cancel, None, Some(&desk)),
+            &mut out,
+        )
+        .await
+        .unwrap();
+        assert_eq!((p.codes.hdmi[0], p.codes.display_port[0]), (0x05, 0x0F));
+        let out = String::from_utf8(out).unwrap();
+        assert!(out.contains("empieza en DisplayPort (la Mac)"), "{out}");
+        assert!(out.contains("(tandem.toml, monitor `m32`)"), "{out}");
+        assert!(
+            screen.text().contains("para ver la PC"),
+            "{}",
+            screen.text()
+        );
+
+        let info = sim.monitors().to_vec();
+        let args = calibrate_args(&["calibrate", "0", "--pc", "dp"]);
+        assert_eq!(
+            calibration_wiring(&args, &info, 0, Some(&desk)),
+            (
+                Wiring {
+                    pc: Input::DisplayPort
+                },
+                "--pc".into()
+            )
+        );
+        // Un monitor que no es el de la configuración: por omisión.
+        let args = calibrate_args(&["calibrate", "0"]);
+        let mut other = desk.clone();
+        other.monitors[0].edid_model = Some("LC34G55T".into());
+        assert_eq!(
+            calibration_wiring(&args, &info, 0, Some(&other)).0,
+            Wiring::default()
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_sets_the_time_to_answer() {
+        let sim = SimMonitor::new(samsung_32(), Input::DisplayPort);
+        let user = |_| Box::new(sim.clone()) as Box<dyn Confirmer>;
+        let cancel = CancelToken::new();
+        let mut out = Vec::new();
+        run_calibrate(
+            &calibrate_args(&["calibrate", "0", "--no-save", "--wait", "45"]),
+            &mut sim.clone(),
+            &ProfileDb::default(),
+            env(&user, &cancel, None, None),
+            &mut out,
+        )
+        .await
+        .unwrap();
+        let probes = sim.probes();
+        assert!(
+            probes
+                .iter()
+                .filter(|p| matches!(p.kind, ProbeKind::Candidate { .. }))
+                .all(|p| p.timeout == Duration::from_secs(45))
+        );
+        assert!(
+            String::from_utf8(out)
+                .unwrap()
+                .contains("tienes 45 s por pregunta")
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -1319,11 +1575,12 @@ mod tests {
         sim.lock().user_switches = false;
         let mut bus = sim.clone();
         let cancel = CancelToken::new();
+        let user = |_| Box::new(sim.clone()) as Box<dyn Confirmer>;
         let err = run_calibrate(
             &calibrate_args(&["calibrate", "0"]),
             &mut bus,
             ProfileDb::builtin(),
-            env(&sim, &cancel, None),
+            env(&user, &cancel, None, None),
             &mut Vec::new(),
         )
         .await

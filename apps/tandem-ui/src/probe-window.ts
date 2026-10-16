@@ -53,7 +53,7 @@ function show(p: ProbeShow, answer: (a: Action) => Promise<unknown>) {
     button.disabled = true;
     $("probe-button").textContent = "Listo";
     $("probe-count").textContent = "Gracias: sigue la calibración.";
-    void answer({ kind: "answer_probe", id: p.id, seen: true });
+    void answer({ kind: "answer_probe", id: p.id, answer: { kind: "seen" } });
   });
   button.focus();
 }

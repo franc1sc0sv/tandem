@@ -1,16 +1,22 @@
 //! Monitor simulado para calibrar sin hardware: lo que muestra de verdad, cómo responde a
 //! cada código y qué miente al leerlo, más un usuario simulado que contesta las sondas.
 //!
-//! [`samsung_34`] y [`samsung_32`] reproducen lo medido en T-050: declaran códigos que no
-//! obedecen, el 34" lee siempre `0x09` y el 32" lee el código de la entrada en la que
-//! está, y en el 32" el `0x06` lleva a una entrada sin señal.
+//! [`samsung_34`] y [`samsung_32`] reproducen lo medido en T-050 y en la primera
+//! calibración real (T-081): declaran códigos que no obedecen (y los demás los ignoran sin
+//! error), el 34" lee siempre `0x09`, el 32" lee el código del último cambio por DDC (un
+//! cambio desde el menú no actualiza la lectura), y en el 32" el `0x06` lleva a una
+//! entrada sin señal.
+//!
+//! El usuario simulado contesta lo que ve ([`Answer`]), con la demora que se le ponga
+//! ([`SimState::answer_delay`]).
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Duration;
 
 use tandem_core::Input;
 
-use super::{ConfirmFuture, Confirmer, Probe, ProbeKind, Reported};
+use super::{Answer, ConfirmFuture, Confirmer, Probe, ProbeKind, Reported, Sight};
 use crate::ddc::fake::flaky_error;
 use crate::ddc::{DdcBus, DdcError, Edid, MonitorInfo, VcpValue};
 
@@ -35,8 +41,12 @@ pub enum Showing {
 pub enum Reports {
     /// Siempre lo mismo (el 34": `0x09`).
     Fixed(u8),
-    /// El código de la entrada en la que está (el 32"); en negro, el código que lo llevó.
+    /// El código de la entrada en la que está; en negro, el código que lo llevó.
     CurrentCode,
+    /// El código del último cambio de entrada por DDC; antes de ninguno, el de la entrada
+    /// en la que empezó. Un cambio desde el menú no la actualiza: el 32" real leyó `0x05`
+    /// en DisplayPort después de pasarlo a mano desde HDMI (T-081).
+    LastSet,
     /// La lectura falla siempre.
     Fails,
 }
@@ -48,7 +58,8 @@ pub struct SimSpec {
     /// Códigos con efecto; los demás no hacen nada (sin error, como los Samsung).
     pub effects: BTreeMap<u8, Effect>,
     pub reports: Reports,
-    /// El código que reporta cada entrada con [`Reports::CurrentCode`].
+    /// El código que reporta cada entrada con [`Reports::CurrentCode`] y
+    /// [`Reports::LastSet`].
     pub native: Reported,
 }
 
@@ -100,7 +111,7 @@ pub fn samsung_32() -> SimSpec {
             (0x0F, Effect::Select(Input::DisplayPort)),
         ]
         .into(),
-        reports: Reports::CurrentCode,
+        reports: Reports::LastSet,
         native: Reported {
             hdmi: Some(0x05),
             display_port: Some(0x0F),
@@ -118,11 +129,16 @@ pub struct SimState {
     /// Códigos escritos en `0x60` (solo los aceptados).
     pub writes: Vec<u8>,
     pub probes: Vec<Probe>,
+    /// La lectura de [`Reports::LastSet`].
+    pub last_set: u8,
     /// El usuario simulado hace los cambios a mano que se le piden.
     pub user_switches: bool,
-    /// Si es `true`, una sonda que no se ve nunca se contesta (como en la realidad: nadie
-    /// hace clic) y la corta el timeout del motor. Si es `false`, contesta `false` enseguida.
+    /// Si es `true`, el usuario no contesta mientras no vea la máquina que la sonda espera
+    /// (como con la sonda a pantalla completa de T-078: no hay dónde hacer clic) y la corta
+    /// el timeout del motor; sí contesta «¿seguir?». Si es `false`, dice lo que ve.
     pub silent_when_unseen: bool,
+    /// Lo que tarda en contestar (resincronizar el monitor, leer la pregunta).
+    pub answer_delay: Duration,
 }
 
 /// Monitor simulado. Es a la vez el bus del motor y el usuario que mira (el
@@ -137,6 +153,7 @@ impl SimMonitor {
     pub fn new(spec: SimSpec, showing: Input) -> Self {
         let mut info = spec.info.clone();
         info.index = 0;
+        let last_set = spec.native.for_input(showing).unwrap_or(0);
         Self {
             infos: vec![info],
             state: Arc::new(Mutex::new(SimState {
@@ -145,8 +162,10 @@ impl SimMonitor {
                 write_script: VecDeque::new(),
                 writes: Vec::new(),
                 probes: Vec::new(),
+                last_set,
                 user_switches: true,
                 silent_when_unseen: false,
+                answer_delay: Duration::ZERO,
             })),
         }
     }
@@ -188,6 +207,7 @@ impl DdcBus for SimMonitor {
             (Reports::Fixed(v), _) => v,
             (Reports::CurrentCode, Showing::Black(c)) => c,
             (Reports::CurrentCode, Showing::Input(i)) => s.spec.native.for_input(i).unwrap_or(0),
+            (Reports::LastSet, _) => s.last_set,
             (Reports::Fails, _) => return Err(flaky_error("GetVCPFeatureAndVCPFeatureReply")),
         };
         Ok(VcpValue {
@@ -209,9 +229,15 @@ impl DdcBus for SimMonitor {
             return Ok(());
         };
         s.writes.push(value);
-        match s.spec.effects.get(&value) {
-            Some(Effect::Select(input)) => s.showing = Showing::Input(*input),
-            Some(Effect::Black) => s.showing = Showing::Black(value),
+        match s.spec.effects.get(&value).copied() {
+            Some(Effect::Select(input)) => {
+                s.showing = Showing::Input(input);
+                s.last_set = value;
+            }
+            Some(Effect::Black) => {
+                s.showing = Showing::Black(value);
+                s.last_set = value;
+            }
             None => {}
         }
         Ok(())
@@ -228,24 +254,38 @@ impl SimMonitor {
     }
 }
 
+impl Showing {
+    /// Lo que ve el usuario en el monitor.
+    pub fn sight(self) -> Sight {
+        match self {
+            Showing::Input(i) => Sight::Input(i),
+            Showing::Black(_) => Sight::Black,
+        }
+    }
+}
+
 impl Confirmer for SimMonitor {
     fn confirm<'a>(&'a self, probe: &'a Probe) -> ConfirmFuture<'a> {
-        let (seen, silent) = {
+        let (sight, silent, delay) = {
             let mut s = self.lock();
             s.probes.push(probe.clone());
             if probe.kind == ProbeKind::UserSwitch && s.user_switches {
                 s.showing = Showing::Input(probe.input);
             }
+            let sight = s.showing.sight();
+            let stalled = matches!(probe.kind, ProbeKind::Stalled { .. });
             (
-                s.showing == Showing::Input(probe.input),
-                s.silent_when_unseen,
+                sight,
+                s.silent_when_unseen && !stalled && sight != Sight::Input(probe.input),
+                s.answer_delay,
             )
         };
         Box::pin(async move {
-            if !seen && silent {
+            if silent {
                 std::future::pending::<()>().await;
             }
-            Ok(seen)
+            tokio::time::sleep(delay).await;
+            Ok(Some(Answer::Saw(sight)))
         })
     }
 }

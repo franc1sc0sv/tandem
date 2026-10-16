@@ -391,16 +391,18 @@ async fn power_on_waits_for_the_pc_agent() {
 }
 
 /// El usuario frente a una UI conectada por la IPC: cambia la entrada a mano cuando se
-/// le pide y hace clic en la sonda solo si el monitor muestra su máquina (`mine`).
+/// le pide, hace clic en la sonda a pantalla completa si el monitor muestra su máquina
+/// (`mine`) y, en la pregunta de la PC, dice qué ve salvo cuando ve la Mac (ahí hace
+/// clic en la sonda de la Mac).
 async fn calibration_user(
     ui: &mut IpcClient<tokio::io::DuplexStream>,
     sim: &tandem_display::calibrate::sim::SimMonitor,
     mine: tandem_core::Input,
 ) {
     use tandem_display::calibrate::sim::Showing;
-    use tandem_proto::{ProbeAsk, ProbeEvent};
+    use tandem_proto::{ProbeAnswer, ProbeAsk, ProbeEvent, ProbePlace};
     loop {
-        let Some(AgentToUi::Probe(ProbeEvent::Show { id, probe, .. })) =
+        let Some(AgentToUi::Probe(ProbeEvent::Show { id, probe, place })) =
             ui.next_event().await.unwrap()
         else {
             continue;
@@ -408,10 +410,22 @@ async fn calibration_user(
         if probe.ask == ProbeAsk::UserSwitch {
             sim.lock().showing = Showing::Input(probe.input);
         }
-        if probe.input == mine && sim.showing() == Showing::Input(mine) {
+        let showing = sim.showing();
+        let answer = match place {
+            ProbePlace::Question => match showing {
+                Showing::Input(tandem_core::Input::Hdmi) => None,
+                Showing::Input(tandem_core::Input::DisplayPort) => {
+                    Some(ProbeAnswer::Machine(Machine::Pc))
+                }
+                Showing::Black(_) => Some(ProbeAnswer::Black),
+            },
+            _ if probe.input == mine && showing == Showing::Input(mine) => Some(ProbeAnswer::Seen),
+            _ => None,
+        };
+        if let Some(answer) = answer {
             // Puede llegar tarde (otro Show de la misma sonda): un rechazo no importa.
             let _ = ui
-                .request(UiCommand::AnswerProbe { id, seen: true })
+                .request(UiCommand::AnswerProbe { id, answer })
                 .await
                 .unwrap();
         }
@@ -445,7 +459,11 @@ async fn calibration_is_confirmed_from_the_other_machine() {
     until_peer(&mac.agent, paired("pc", Some(Link::Usb4))).await;
     until_peer(&pc.agent, paired("mac", Some(Link::Usb4))).await;
 
-    let sim = SimMonitor::new(samsung_32(), Input::DisplayPort);
+    // Con la lectura al día (no la vieja tras el menú) cada entrada sale al primer
+    // intento: lo que se prueba aquí es el camino de las confirmaciones.
+    let mut spec = samsung_32();
+    spec.reports = tandem_display::calibrate::sim::Reports::CurrentCode;
+    let sim = SimMonitor::new(spec, Input::DisplayPort);
     let req = CalibrationRequest {
         monitor: 0,
         start: Input::DisplayPort,

@@ -3,7 +3,8 @@
 //! la muestra la máquina de la entrada que debería verse, por la red simulada.
 //!
 //! Un usuario simulado mira cada UI: hace clic en la sonda solo si el monitor muestra de
-//! verdad la máquina de esa UI, y cambia la entrada desde el menú cuando se le pide.
+//! verdad la máquina de esa UI, contesta en la PC qué ve («¿qué ves?», T-081) y cambia la
+//! entrada desde el menú cuando se le pide.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -12,9 +13,10 @@ use tandem_core::{DdcProfile, Input, Machine};
 use tandem_display::calibrate::sim::Showing;
 use tandem_display::calibrate::sim::{SimMonitor, SimSpec, samsung_32, samsung_34};
 use tandem_display::calibrate::{
-    CalibrationError, CalibrationOptions, CalibrationRequest, CancelToken, calibrate,
+    CONFIRM_TIMEOUT, CalibrationError, CalibrationEvent, CalibrationOptions, CalibrationRequest,
+    CancelToken, calibrate,
 };
-use tandem_proto::{ProbeAsk, ProbeEvent, ProbePlace};
+use tandem_proto::{ProbeAnswer, ProbeAsk, ProbeEvent, ProbePlace};
 use tandem_sim::Desk;
 use tandemd::{Agent, AgentConfirmer};
 use tokio::sync::broadcast::error::RecvError;
@@ -50,8 +52,11 @@ impl Seen {
     }
 }
 
-/// El usuario frente a la UI de `machine`, que en el monitor ve la entrada `mine`.
-fn user(agent: &Arc<Agent>, sim: &SimMonitor, mine: Input) -> Seen {
+/// El usuario frente a la UI de una máquina, que en el monitor ve la entrada `mine`.
+/// En la sonda a pantalla completa hace clic si la ve. En la pregunta de la PC («¿qué
+/// ves?») dice lo que ve, salvo que vea la Mac y `click_on_mac`: entonces hace clic en
+/// la sonda de la Mac.
+fn user(agent: &Arc<Agent>, sim: &SimMonitor, mine: Input, click_on_mac: bool) -> Seen {
     let seen = Seen::default();
     let mut rx = agent.subscribe_probes();
     let (agent, sim, log) = (agent.clone(), sim.clone(), seen.clone());
@@ -70,20 +75,24 @@ fn user(agent: &Arc<Agent>, sim: &SimMonitor, mine: Input) -> Seen {
                 // Lo pide el motor: el usuario cambia la entrada desde el menú.
                 sim.lock().showing = Showing::Input(probe.input);
             }
-            let visible = sim.showing() == Showing::Input(probe.input);
-            match place {
+            let showing = sim.showing();
+            let answer = match place {
                 // En la pantalla completa solo hay clic si se ve; si no, nadie la ve.
-                ProbePlace::Monitor { .. } => {
-                    if visible && probe.input == mine {
-                        let _ = agent.probes().answer(id, true);
-                    }
-                }
+                ProbePlace::Monitor { .. } => (showing == Showing::Input(probe.input)
+                    && probe.input == mine)
+                    .then_some(ProbeAnswer::Seen),
                 // Fuera del escritorio no se muestra en ninguna parte: nadie la ve.
-                ProbePlace::Offscreen => {}
-                // La pregunta de respaldo se contesta mirando el monitor.
-                ProbePlace::Question => {
-                    let _ = agent.probes().answer(id, visible);
-                }
+                ProbePlace::Offscreen => None,
+                // La pregunta se contesta mirando el monitor (la PC va por DisplayPort).
+                ProbePlace::Question => match showing {
+                    Showing::Input(Input::Hdmi) if click_on_mac => None,
+                    Showing::Input(Input::Hdmi) => Some(ProbeAnswer::Machine(Machine::Mac)),
+                    Showing::Input(Input::DisplayPort) => Some(ProbeAnswer::Machine(Machine::Pc)),
+                    Showing::Black(_) => Some(ProbeAnswer::Black),
+                },
+            };
+            if let Some(answer) = answer {
+                let _ = agent.probes().answer(id, answer);
             }
         }
     });
@@ -113,42 +122,54 @@ async fn both_up(d: &Desk) {
 
 struct Run {
     result: Result<tandem_display::calibrate::CalibratedProfile, CalibrationError>,
+    events: Vec<CalibrationEvent>,
     sim: SimMonitor,
     mac: Seen,
     pc: Seen,
 }
 
-async fn run(d: &Desk, spec: SimSpec) -> Run {
+async fn run(d: &Desk, spec: SimSpec, mac_up: bool) -> Run {
     let sim = SimMonitor::new(spec, Input::DisplayPort);
-    let mac = user(&d.mac, &sim, Input::Hdmi);
-    let pc = user(&d.pc, &sim, Input::DisplayPort);
+    let mac = user(&d.mac, &sim, Input::Hdmi, mac_up);
+    let pc = user(&d.pc, &sim, Input::DisplayPort, mac_up);
     let confirmer = AgentConfirmer::new(d.pc.clone(), Input::DisplayPort);
     let mut bus = sim.clone();
+    let mut events = Vec::new();
     let result = calibrate(
         &mut bus,
         &request(),
         &confirmer,
         &CancelToken::new(),
-        &mut |_| {},
+        &mut |e| events.push(e.clone()),
     )
     .await;
     // Que lleguen los últimos avisos de quitar la sonda.
     tokio::time::sleep(Duration::from_secs(1)).await;
     Run {
         result,
+        events,
         sim,
         mac,
         pc,
     }
 }
 
+fn no_waits(r: &Run) -> bool {
+    !r.events
+        .iter()
+        .any(|e| matches!(e, CalibrationEvent::NoAnswer { .. }))
+}
+
+/// El 32" real (lee el código viejo tras el cambio desde el menú): HDMI se busca entre
+/// varios códigos. Lo que no hace nada lo descarta el usuario diciendo en la PC que ve
+/// la PC; el bueno lo confirma con un clic en la sonda de la Mac.
 #[tokio::test(start_paused = true)]
 async fn the_32_is_calibrated_with_the_mac_confirming_over_the_link() {
     let d = Desk::new().await.unwrap();
     both_up(&d).await;
-    let r = run(&d, samsung_32()).await;
+    let r = run(&d, samsung_32(), true).await;
 
-    let profile = r.result.unwrap();
+    let profile = r.result.as_ref().unwrap();
     assert_eq!(
         profile.ddc_profile(),
         Some(DdcProfile {
@@ -157,43 +178,46 @@ async fn the_32_is_calibrated_with_the_mac_confirming_over_the_link() {
         })
     );
     assert_eq!(r.sim.showing(), Showing::Input(Input::DisplayPort));
+    assert!(no_waits(&r));
 
-    // Lo de HDMI lo vio la Mac en su monitor (el cambio a mano y el código 0x05); lo de
-    // DisplayPort, la PC.
-    let on_monitor = |s: &Seen| {
-        s.shown()
-            .into_iter()
-            .map(|(_, ask, input, place)| {
-                assert!(matches!(place, ProbePlace::Monitor { .. }), "{place:?}");
-                (ask, input)
-            })
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        on_monitor(&r.mac),
-        [
-            (ProbeAsk::UserSwitch, Input::Hdmi),
-            (ProbeAsk::Candidate { code: 0x05 }, Input::Hdmi),
-        ]
+    // Todo lo de HDMI lo mostró la Mac en su monitor, a pantalla completa: el cambio a
+    // mano, cada candidato y la verificación del 0x05.
+    let mac = r.mac.shown();
+    assert!(
+        mac.iter().all(|(_, _, input, place)| *input == Input::Hdmi
+            && matches!(place, ProbePlace::Monitor { .. }))
     );
-    assert_eq!(
-        on_monitor(&r.pc),
-        [(ProbeAsk::Candidate { code: 0x0F }, Input::DisplayPort)]
+    let asks: Vec<ProbeAsk> = mac.iter().map(|(_, ask, ..)| *ask).collect();
+    assert_eq!(asks[0], ProbeAsk::UserSwitch);
+    assert!(asks.contains(&ProbeAsk::Candidate { code: 0x05 }));
+    assert_eq!(asks.last(), Some(&ProbeAsk::Verify { code: 0x05 }));
+    // La PC mostró a pantalla completa solo lo de DisplayPort, y preguntó todo.
+    let pc = r.pc.shown();
+    assert!(
+        pc.iter()
+            .filter(|(.., place)| matches!(place, ProbePlace::Monitor { .. }))
+            .all(|(_, _, input, _)| *input == Input::DisplayPort)
     );
+    let questions = pc
+        .iter()
+        .filter(|(.., place)| *place == ProbePlace::Question)
+        .count();
+    assert_eq!(questions, mac.len() + pc.len() - questions);
     assert!(r.mac.all_hidden() && r.pc.all_hidden());
 }
 
-/// El 34" obedece pocos códigos: los que no hacen nada dejan la sonda de la Mac sin
-/// clic, cada una cuenta como no vista a los 8 s y desaparece.
+/// El 34" obedece pocos códigos: con los que no hacen nada el usuario dice en la PC que
+/// sigue viendo la PC y se pasa al siguiente sin esperar el plazo (T-081: antes cada uno
+/// esperaba 8 s sin respuesta).
 #[tokio::test(start_paused = true)]
-async fn without_a_click_the_candidate_is_unseen_and_the_probe_goes_away() {
+async fn seeing_the_pc_rejects_a_code_without_waiting() {
     let d = Desk::new().await.unwrap();
     both_up(&d).await;
     let start = tokio::time::Instant::now();
-    let r = run(&d, samsung_34()).await;
+    let r = run(&d, samsung_34(), true).await;
 
     // Sin la base de perfiles, el barrido encuentra 0x03 (T-077).
-    let profile = r.result.unwrap();
+    let profile = r.result.as_ref().unwrap();
     assert_eq!(
         profile.ddc_profile(),
         Some(DdcProfile {
@@ -208,55 +232,57 @@ async fn without_a_click_the_candidate_is_unseen_and_the_probe_goes_away() {
         .into_iter()
         .filter_map(|(_, ask, ..)| match ask {
             ProbeAsk::Candidate { code } => Some(code),
-            ProbeAsk::UserSwitch => None,
+            _ => None,
         })
         .collect();
     // Varios códigos sin efecto antes del bueno, y todos mostrados en la Mac.
     assert_eq!(hdmi.last(), Some(&0x03));
     assert!(hdmi.len() > 3, "{hdmi:x?}");
+    assert!(no_waits(&r));
     assert!(r.mac.all_hidden() && r.pc.all_hidden());
-    // Cada código sin efecto esperó su plazo completo.
-    let unseen = (hdmi.len() - 1) as u32;
-    assert!(start.elapsed() >= Duration::from_secs(8) * unseen);
+    // Ningún código esperó su plazo: solo las pausas tras cada vuelta.
+    assert!(
+        start.elapsed() < CONFIRM_TIMEOUT * 4,
+        "{:?}",
+        start.elapsed()
+    );
 }
 
-/// Con la Mac apagada no hay quién muestre la sonda de HDMI: la PC pregunta en su
-/// propia ventana «¿el monitor cambió?».
+/// Con la Mac apagada no hay quién muestre la sonda de HDMI: queda la pregunta de la PC,
+/// que el usuario contesta mirando el monitor.
 #[tokio::test(start_paused = true)]
 async fn without_the_other_machine_the_pc_asks_in_its_own_window() {
     let d = Desk::new().await.unwrap();
     // La PC no está encendida en la simulación de red: ningún enlace llega a la Mac.
     assert_eq!(d.active_link(Machine::Pc), None);
-    let r = run(&d, samsung_32()).await;
+    let r = run(&d, samsung_32(), false).await;
 
     assert_eq!(
-        r.result.unwrap().ddc_profile(),
+        r.result.as_ref().unwrap().ddc_profile(),
         Some(DdcProfile {
             hdmi: 0x05,
             display_port: 0x0F
         })
     );
+    assert!(no_waits(&r));
     assert!(r.mac.shown().is_empty());
-    let places: Vec<_> =
-        r.pc.shown()
-            .into_iter()
-            .map(|(_, ask, input, place)| (ask, input, place))
-            .collect();
+    let pc = r.pc.shown();
+    // Lo de HDMI, solo como pregunta; lo de DisplayPort, también a pantalla completa.
+    for (_, ask, input, place) in &pc {
+        if *input == Input::Hdmi {
+            assert_eq!(*place, ProbePlace::Question, "{ask:?}");
+        }
+    }
     assert_eq!(
-        places,
-        [
-            (ProbeAsk::UserSwitch, Input::Hdmi, ProbePlace::Question),
-            (
-                ProbeAsk::Candidate { code: 0x0F },
-                Input::DisplayPort,
-                ProbePlace::Monitor { screen: None }
-            ),
-            (
-                ProbeAsk::Candidate { code: 0x05 },
-                Input::Hdmi,
-                ProbePlace::Question
-            ),
-        ]
+        pc.iter()
+            .filter(|(_, ask, input, _)| *ask == ProbeAsk::UserSwitch && *input == Input::Hdmi)
+            .count(),
+        1
     );
+    assert!(pc.iter().any(|(_, ask, input, place)| {
+        *ask == ProbeAsk::Candidate { code: 0x0F }
+            && *input == Input::DisplayPort
+            && matches!(place, ProbePlace::Monitor { .. })
+    }));
     assert!(r.pc.all_hidden());
 }

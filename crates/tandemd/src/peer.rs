@@ -458,6 +458,7 @@ mod tests {
     use crate::orchestrator::describe;
     use crate::orchestrator::tests::FakeSteps;
     use crate::store::StateStore;
+    use tandem_proto::ProbeAnswer;
 
     fn agent(
         dir: &std::path::Path,
@@ -608,6 +609,7 @@ mod tests {
                 name: "Odyssey G5".into(),
             },
             input: Input::Hdmi,
+            machine: Machine::Mac,
             ask: tandem_proto::ProbeAsk::Candidate { code: 0x05 },
             timeout_ms,
         }
@@ -633,11 +635,11 @@ mod tests {
         let ask = peer.show_probe(&wanted);
         let click = async {
             let id = shown(&mut ui).await;
-            mac.probes().answer(id, true).unwrap();
+            mac.probes().answer(id, ProbeAnswer::Seen).unwrap();
             id
         };
         let (outcome, id) = tokio::join!(ask, click);
-        assert_eq!(outcome, Ok(ProbeOutcome::Seen));
+        assert_eq!(outcome, Ok(ProbeOutcome::Answered(ProbeAnswer::Seen)));
         assert_eq!(
             ui.recv().await.unwrap(),
             tandem_proto::ProbeEvent::Hide { id }
@@ -654,7 +656,7 @@ mod tests {
         let mut ui = mac.subscribe_probes();
         let start = tokio::time::Instant::now();
         let outcome = pc.orchestrator().peer().show_probe(&probe(8000)).await;
-        assert_eq!(outcome, Ok(ProbeOutcome::Unseen));
+        assert_eq!(outcome, Ok(ProbeOutcome::NoAnswer));
         assert_eq!(start.elapsed(), Duration::from_secs(8));
         let id = shown(&mut ui).await;
         assert_eq!(
@@ -684,7 +686,7 @@ mod tests {
         );
         assert!(start.elapsed() < Duration::from_secs(3));
         // Un clic tardío ya no llega a nadie.
-        assert!(mac.probes().answer(id, true).is_err());
+        assert!(mac.probes().answer(id, ProbeAnswer::Seen).is_err());
     }
 
     /// Una sonda esperando el clic no frena los pasos que pide el mismo agente.
@@ -747,31 +749,88 @@ mod tests {
             timeout: Duration::from_secs(8),
         };
         let mut pc_ui = pc.subscribe_probes();
+        use tandem_display::calibrate::Answer;
+        use tandem_proto::{ProbeEvent, ProbePlace};
 
-        // DisplayPort es de la PC: su propia UI, a pantalla completa.
+        /// Las dos sondas que se muestran a la vez en la PC (pregunta y pantalla completa),
+        /// en el orden que lleguen.
+        async fn shown(
+            ui: &mut tokio::sync::broadcast::Receiver<ProbeEvent>,
+            n: usize,
+        ) -> Vec<(u64, ProbePlace)> {
+            let mut v = Vec::new();
+            while v.len() < n {
+                if let ProbeEvent::Show { id, place, probe } = ui.recv().await.unwrap() {
+                    assert_eq!(
+                        probe.machine,
+                        if probe.input == Input::DisplayPort {
+                            Machine::Pc
+                        } else {
+                            Machine::Mac
+                        }
+                    );
+                    v.push((id, place));
+                }
+            }
+            v
+        }
+
+        // DisplayPort es de la PC: su propia UI a pantalla completa y, a la vez, la
+        // pregunta de opción múltiple. Un clic en la pantalla completa basta.
         let dp = probe(Input::DisplayPort);
         let (seen, ()) = tokio::join!(confirmer.confirm(&dp), async {
-            let e = pc_ui.recv().await.unwrap();
-            let tandem_proto::ProbeEvent::Show { id, place, .. } = e else {
-                panic!("{e:?}")
-            };
-            assert_eq!(place, tandem_proto::ProbePlace::Monitor { screen: None });
-            pc.probes().answer(id, true).unwrap();
+            let both = shown(&mut pc_ui, 2).await;
+            let places: Vec<_> = both.iter().map(|(_, p)| p.clone()).collect();
+            assert!(places.contains(&ProbePlace::Question), "{places:?}");
+            assert!(
+                places.contains(&ProbePlace::Monitor { screen: None }),
+                "{places:?}"
+            );
+            let (id, _) = both
+                .iter()
+                .find(|(_, p)| *p != ProbePlace::Question)
+                .unwrap();
+            pc.probes().answer(*id, ProbeAnswer::Seen).unwrap();
         });
-        assert_eq!(seen, Ok(true));
-        pc_ui.recv().await.unwrap();
+        assert_eq!(seen, Ok(Some(Answer::sees(Input::DisplayPort))));
 
-        // HDMI es de la Mac, que no tiene ventana abierta: la PC pregunta.
+        // HDMI es de la Mac, que no tiene ventana abierta: queda la pregunta de la PC. El
+        // usuario ve la PC: el código no llevó el monitor a HDMI.
         let hdmi = probe(Input::Hdmi);
         let (seen, ()) = tokio::join!(confirmer.confirm(&hdmi), async {
-            let e = pc_ui.recv().await.unwrap();
-            let tandem_proto::ProbeEvent::Show { id, place, .. } = e else {
-                panic!("{e:?}")
+            let (id, place) = loop {
+                let found = shown(&mut pc_ui, 1).await.remove(0);
+                if found.1 == ProbePlace::Question {
+                    break found;
+                }
             };
-            assert_eq!(place, tandem_proto::ProbePlace::Question);
-            pc.probes().answer(id, false).unwrap();
+            assert_eq!(place, ProbePlace::Question);
+            pc.probes()
+                .answer(id, ProbeAnswer::Machine(Machine::Pc))
+                .unwrap();
         });
-        assert_eq!(seen, Ok(false));
+        assert_eq!(seen, Ok(Some(Answer::sees(Input::DisplayPort))));
+
+        // Negro y parar, desde la pregunta.
+        for (answer, want) in [
+            (ProbeAnswer::Black, Answer::black()),
+            (ProbeAnswer::Stop, Answer::Stop),
+            (
+                ProbeAnswer::Machine(Machine::Mac),
+                Answer::sees(Input::Hdmi),
+            ),
+        ] {
+            let (got, ()) = tokio::join!(confirmer.confirm(&hdmi), async {
+                let (id, _) = loop {
+                    let found = shown(&mut pc_ui, 1).await.remove(0);
+                    if found.1 == ProbePlace::Question {
+                        break found;
+                    }
+                };
+                pc.probes().answer(id, answer).unwrap();
+            });
+            assert_eq!(got, Ok(Some(want)));
+        }
 
         // Sin ventana en ninguna de las dos, la calibración no puede seguir.
         drop(pc_ui);

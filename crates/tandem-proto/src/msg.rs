@@ -120,32 +120,53 @@ pub struct EdidId {
     pub serial_number: u32,
 }
 
-/// Qué tiene que confirmar el usuario en la sonda.
+/// Qué se le pregunta al usuario. Siempre contesta qué ve en el monitor (T-081).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProbeAsk {
-    /// Se mandó el código `code`: ¿se ve esta pantalla?
+    /// Se mandó el candidato `code` para la entrada de la sonda.
     Candidate { code: u8 },
-    /// El usuario cambia la entrada desde el menú del monitor y confirma al ver esta pantalla.
+    /// El usuario cambia la entrada desde el menú del monitor.
     UserSwitch,
+    /// Se volvió con el código verificado `code`: tiene que verse la máquina de la sonda
+    /// antes del siguiente candidato.
+    Back { code: u8 },
+    /// Verificación final con el código ya encontrado `code`.
+    Verify { code: u8 },
+    /// Nadie contestó dos veces tras mandar `code`: ¿se sigue? Solo como pregunta.
+    Stalled { code: u8 },
 }
 
 /// Una sonda de calibración: «¿ves esto en el monitor?».
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CalibrationProbe {
     pub monitor: ProbeMonitor,
-    /// La entrada que debería verse; la máquina que la muestra sale del cableado.
+    /// La entrada que debería verse.
     pub input: Input,
+    /// La máquina cableada a `input`: la que debería verse.
+    pub machine: Machine,
     pub ask: ProbeAsk,
     /// Pasado este tiempo sin clic cuenta como no visto y la sonda se quita.
     pub timeout_ms: u64,
 }
 
+/// Lo que contestó el usuario a una sonda.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ProbeAnswer {
+    /// Clic en la sonda a pantalla completa: se ve la máquina que la muestra.
+    Seen,
+    /// En la pregunta: el monitor muestra esta máquina.
+    Machine(Machine),
+    /// En la pregunta: el monitor está negro o sin señal.
+    Black,
+    /// En la pregunta: parar la calibración.
+    Stop,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProbeOutcome {
-    /// El usuario hizo clic en la sonda.
-    Seen,
-    /// Nadie hizo clic a tiempo, o el usuario dijo que no.
-    Unseen,
+    Answered(ProbeAnswer),
+    /// Nadie contestó a tiempo.
+    NoAnswer,
     /// No se pudo mostrar (por ejemplo, sin UI abierta en esa máquina).
     Failed(String),
 }
@@ -162,7 +183,9 @@ pub enum ProbePlace {
     /// muestra la sonda en ninguna parte hasta un `Show` con lugar. En otra pantalla
     /// alguien la vería y aceptaría un código que no funciona.
     Offscreen,
-    /// Respaldo sin la otra máquina: la ventana pregunta «¿el monitor cambió?» con Sí/No.
+    /// En la ventana principal: «¿qué ves en el monitor?», con un botón por máquina, otro
+    /// para negro o sin señal y otro para parar. Acompaña a cada sonda a pantalla completa
+    /// (la contesta quien no la ve) y, sin la otra máquina, es la única.
     Question,
 }
 
@@ -316,10 +339,10 @@ pub enum UiCommand {
     Unpair,
     /// Quién es el servidor de teclado y mouse y si a esta máquina le faltan permisos.
     GetInput,
-    /// Respuesta a [`ProbeEvent::Show`]: `seen` si el usuario hizo clic (o dijo que sí).
+    /// Respuesta a [`ProbeEvent::Show`]: clic en la sonda o lo que eligió en la pregunta.
     AnswerProbe {
         id: u64,
-        seen: bool,
+        answer: ProbeAnswer,
     },
     /// «Agregar monitor» (T-080): los monitores que ve el bus DDC de esta máquina, con
     /// su perfil si lo tienen. Solo en la PC, que es la que cambia las entradas.
@@ -402,6 +425,7 @@ pub enum CalibrationStep {
         attempt: u32,
         of: u32,
     },
+    /// `seen`: se vio la máquina de `input`. Si no, el código no sirve para esa entrada.
     Seen {
         input: Input,
         code: u8,
@@ -412,6 +436,13 @@ pub enum CalibrationStep {
         code: u8,
     },
     Found {
+        input: Input,
+        code: u8,
+    },
+    /// Ida y vuelta final con los dos códigos encontrados.
+    Verifying,
+    /// La verificación vio la máquina de `input` con `code`.
+    Verified {
         input: Input,
         code: u8,
     },
@@ -783,6 +814,13 @@ pub(crate) mod samples {
                     probe,
                 }),
         );
+        v.extend(probe_asks().into_iter().map(|ask| ControlMsg::ShowProbe {
+            id: 7,
+            probe: CalibrationProbe {
+                ask,
+                ..probes()[0].clone()
+            },
+        }));
         v.extend(
             probe_outcomes()
                 .into_iter()
@@ -827,8 +865,9 @@ pub(crate) mod samples {
                     name: "Odyssey G5".into(),
                 },
                 input: Input::Hdmi,
+                machine: Machine::Mac,
                 ask: ProbeAsk::Candidate { code: 0x05 },
-                timeout_ms: 8000,
+                timeout_ms: 20_000,
             },
             CalibrationProbe {
                 monitor: ProbeMonitor {
@@ -836,9 +875,21 @@ pub(crate) mod samples {
                     name: "Monitor PnP genérico".into(),
                 },
                 input: Input::DisplayPort,
+                machine: Machine::Pc,
                 ask: ProbeAsk::UserSwitch,
                 timeout_ms: 120_000,
             },
+        ]
+    }
+
+    /// Cada pregunta posible, para cubrir [`ProbeAsk`].
+    pub fn probe_asks() -> Vec<ProbeAsk> {
+        vec![
+            ProbeAsk::Candidate { code: 0x05 },
+            ProbeAsk::UserSwitch,
+            ProbeAsk::Back { code: 0x0F },
+            ProbeAsk::Verify { code: 0x05 },
+            ProbeAsk::Stalled { code: 0x05 },
         ]
     }
 
@@ -846,21 +897,45 @@ pub(crate) mod samples {
         match a {
             ProbeAsk::Candidate { .. } => 0,
             ProbeAsk::UserSwitch => 1,
+            ProbeAsk::Back { .. } => 2,
+            ProbeAsk::Verify { .. } => 3,
+            ProbeAsk::Stalled { .. } => 4,
+        }
+    }
+
+    pub fn probe_answers() -> Vec<ProbeAnswer> {
+        vec![
+            ProbeAnswer::Seen,
+            ProbeAnswer::Machine(Machine::Mac),
+            ProbeAnswer::Machine(Machine::Pc),
+            ProbeAnswer::Black,
+            ProbeAnswer::Stop,
+        ]
+    }
+
+    pub fn probe_answer_arm(a: &ProbeAnswer) -> usize {
+        match a {
+            ProbeAnswer::Seen => 0,
+            ProbeAnswer::Machine(_) => 1,
+            ProbeAnswer::Black => 2,
+            ProbeAnswer::Stop => 3,
         }
     }
 
     pub fn probe_outcomes() -> Vec<ProbeOutcome> {
-        vec![
-            ProbeOutcome::Seen,
-            ProbeOutcome::Unseen,
-            ProbeOutcome::Failed("no hay una UI abierta".into()),
-        ]
+        let mut v: Vec<ProbeOutcome> = probe_answers()
+            .into_iter()
+            .map(ProbeOutcome::Answered)
+            .collect();
+        v.push(ProbeOutcome::NoAnswer);
+        v.push(ProbeOutcome::Failed("no hay una UI abierta".into()));
+        v
     }
 
     pub fn probe_outcome_arm(o: &ProbeOutcome) -> usize {
         match o {
-            ProbeOutcome::Seen => 0,
-            ProbeOutcome::Unseen => 1,
+            ProbeOutcome::Answered(_) => 0,
+            ProbeOutcome::NoAnswer => 1,
             ProbeOutcome::Failed(_) => 2,
         }
     }
@@ -1031,8 +1106,22 @@ pub(crate) mod samples {
             UiCommand::CancelPairing,
             UiCommand::Unpair,
             UiCommand::GetInput,
-            UiCommand::AnswerProbe { id: 1, seen: true },
-            UiCommand::AnswerProbe { id: 2, seen: false },
+            UiCommand::AnswerProbe {
+                id: 1,
+                answer: ProbeAnswer::Seen,
+            },
+            UiCommand::AnswerProbe {
+                id: 2,
+                answer: ProbeAnswer::Machine(Machine::Pc),
+            },
+            UiCommand::AnswerProbe {
+                id: 3,
+                answer: ProbeAnswer::Black,
+            },
+            UiCommand::AnswerProbe {
+                id: 4,
+                answer: ProbeAnswer::Stop,
+            },
             UiCommand::ListDisplays,
             UiCommand::StartCalibration {
                 display: 1,
@@ -1278,6 +1367,11 @@ pub(crate) mod samples {
                 input: Input::DisplayPort,
                 code: 0x0F,
             },
+            CalibrationStep::Verifying,
+            CalibrationStep::Verified {
+                input: Input::Hdmi,
+                code: 0x05,
+            },
         ]
     }
 
@@ -1290,6 +1384,8 @@ pub(crate) mod samples {
             CalibrationStep::Seen { .. } => 4,
             CalibrationStep::Returned { .. } => 5,
             CalibrationStep::Found { .. } => 6,
+            CalibrationStep::Verifying => 7,
+            CalibrationStep::Verified { .. } => 8,
         }
     }
 
@@ -1430,10 +1526,10 @@ mod tests {
         covers(&to_ui(), to_ui_arm, 10);
         let profiles: Vec<_> = displays().into_iter().map(|d| d.profile).collect();
         covers(&profiles, display_profile_arm, 3);
-        covers(&calibration_steps(), calibration_step_arm, 7);
+        covers(&calibration_steps(), calibration_step_arm, 9);
         covers(&calibration_updates(), calibration_update_arm, 5);
-        let asks: Vec<_> = probes().into_iter().map(|p| p.ask).collect();
-        covers(&asks, probe_ask_arm, 2);
+        covers(&probe_asks(), probe_ask_arm, 5);
+        covers(&probe_answers(), probe_answer_arm, 4);
         covers(&probe_outcomes(), probe_outcome_arm, 3);
         covers(&probe_events(), probe_event_arm, 4);
         covers(&pairing(), pairing_arm, 5);

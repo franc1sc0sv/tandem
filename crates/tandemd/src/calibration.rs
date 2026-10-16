@@ -7,15 +7,15 @@
 //! está en el escritorio de esa máquina, la sonda no aparece en ninguna otra pantalla:
 //! ahí alguien la vería y el motor aceptaría un código que no funciona.
 //!
-//!
 //! - Si la entrada que debería verse es la de esta máquina, la muestra su propia UI.
 //! - Si es la de la otra, se le pide por el plano de control ([`PeerLink::show_probe`]):
 //!   su agente la muestra en su UI y contesta si hubo clic antes del plazo.
-//! - Sin la otra máquina (apagada, sin emparejar o sin UI abierta), respaldo local: esta
-//!   UI pregunta «¿el monitor cambió?» con Sí/No.
+//! - Siempre, a la vez, esta UI pregunta «¿qué ves en el monitor?» con un botón por
+//!   máquina, otro para negro y otro para parar (T-081): así quien ve la otra máquina, o
+//!   nada, lo dice en vez de esperar el plazo, y sin la otra máquina es la única pregunta.
 //!
-//! El plazo lo cumple quien muestra la sonda: sin clic a tiempo cuenta como no visto y
-//! la sonda desaparece, aunque se pierda el aviso de quien calibra.
+//! El plazo lo cumple quien muestra la sonda: sin respuesta a tiempo la sonda desaparece,
+//! aunque se pierda el aviso de quien calibra.
 //!
 //! [`PeerLink::show_probe`]: crate::orchestrator::PeerLink::show_probe
 
@@ -24,13 +24,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use tandem_core::Input;
-use tandem_display::calibrate::{ConfirmError, ConfirmFuture, Confirmer, Probe, ProbeKind};
+use tandem_core::{Input, Machine};
+use tandem_display::calibrate::{Answer, ConfirmError, ConfirmFuture, Confirmer, Probe, ProbeKind};
+use tandem_display::ddc::switch::other_input;
 use tandem_display::desktop::DesktopControl;
 use tandem_display::topology::{Bounds, EdidKey};
 use tandem_proto::{
-    CalibrationProbe, EdidId, ProbeAsk, ProbeEvent, ProbeMonitor, ProbeOutcome, ProbePlace,
-    ProbeScreen,
+    CalibrationProbe, EdidId, ProbeAnswer, ProbeAsk, ProbeEvent, ProbeMonitor, ProbeOutcome,
+    ProbePlace, ProbeScreen,
 };
 use tokio::sync::{broadcast, oneshot};
 
@@ -67,7 +68,7 @@ pub struct UnknownProbe(pub u64);
 /// Las sondas que muestra la UI de esta máquina y sus respuestas.
 pub struct ProbeBoard {
     events: broadcast::Sender<ProbeEvent>,
-    pending: Mutex<HashMap<u64, oneshot::Sender<bool>>>,
+    pending: Mutex<HashMap<u64, oneshot::Sender<ProbeAnswer>>>,
     next: AtomicU64,
     locator: Option<Arc<dyn ScreenLocator>>,
 }
@@ -110,21 +111,21 @@ impl ProbeBoard {
         self.events.subscribe()
     }
 
-    /// La respuesta del usuario: `seen` si hizo clic en la sonda (o dijo que sí).
-    pub fn answer(&self, id: u64, seen: bool) -> Result<(), UnknownProbe> {
+    /// La respuesta del usuario: clic en la sonda o lo que eligió en la pregunta.
+    pub fn answer(&self, id: u64, answer: ProbeAnswer) -> Result<(), UnknownProbe> {
         let tx = self.lock().remove(&id).ok_or(UnknownProbe(id))?;
         // Si justo venció, nadie espera la respuesta; el cierre ya lo avisa la sonda.
-        let _ = tx.send(seen);
+        let _ = tx.send(answer);
         Ok(())
     }
 
-    fn lock(&self) -> MutexGuard<'_, HashMap<u64, oneshot::Sender<bool>>> {
+    fn lock(&self) -> MutexGuard<'_, HashMap<u64, oneshot::Sender<ProbeAnswer>>> {
         self.pending.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Muestra la sonda y espera la respuesta, a lo sumo [`CalibrationProbe::timeout_ms`]:
-    /// sin clic a tiempo es [`ProbeOutcome::Unseen`] y la sonda se quita. `question` es
-    /// el respaldo sin la otra máquina: la ventana pregunta en vez de cubrir el monitor.
+    /// sin respuesta a tiempo es [`ProbeOutcome::NoAnswer`] y la sonda se quita. Con
+    /// `question`, la ventana principal pregunta qué se ve en vez de cubrir el monitor.
     pub async fn show(&self, probe: &CalibrationProbe, question: bool) -> ProbeOutcome {
         let deadline = tokio::time::Instant::now() + Duration::from_millis(probe.timeout_ms);
         let id = self.next.fetch_add(1, Ordering::Relaxed);
@@ -154,11 +155,11 @@ impl ProbeBoard {
             tokio::select! {
                 answer = &mut rx => {
                     return match answer {
-                        Ok(true) => ProbeOutcome::Seen,
-                        Ok(false) | Err(_) => ProbeOutcome::Unseen,
+                        Ok(a) => ProbeOutcome::Answered(a),
+                        Err(_) => ProbeOutcome::NoAnswer,
                     };
                 }
-                () = &mut deadline => return ProbeOutcome::Unseen,
+                () = &mut deadline => return ProbeOutcome::NoAnswer,
                 () = tokio::time::sleep(LOCATE_EVERY), if locator.is_some() => {
                     if let (Some(l), Some(k)) = (&locator, &key) {
                         let now = located(l, k).await;
@@ -216,8 +217,9 @@ fn edid_key(m: &ProbeMonitor) -> Option<EdidKey> {
     })
 }
 
-/// La sonda del motor tal como viaja a la otra máquina y a la UI.
-pub fn wire_probe(probe: &Probe) -> CalibrationProbe {
+/// La sonda del motor tal como viaja a la otra máquina y a la UI. `machine` es la
+/// cableada a la entrada que debería verse.
+pub fn wire_probe(probe: &Probe, machine: Machine) -> CalibrationProbe {
     let edid = probe.monitor.edid.as_ref();
     CalibrationProbe {
         monitor: ProbeMonitor {
@@ -231,15 +233,20 @@ pub fn wire_probe(probe: &Probe) -> CalibrationProbe {
                 .unwrap_or_else(|| probe.monitor.description.clone()),
         },
         input: probe.input,
+        machine,
         ask: match probe.kind {
             ProbeKind::Candidate { code } => ProbeAsk::Candidate { code },
             ProbeKind::UserSwitch => ProbeAsk::UserSwitch,
+            ProbeKind::Back { code } => ProbeAsk::Back { code },
+            ProbeKind::Verify { code } => ProbeAsk::Verify { code },
+            ProbeKind::Stalled { code } => ProbeAsk::Stalled { code },
         },
         timeout_ms: u64::try_from(probe.timeout.as_millis()).unwrap_or(u64::MAX),
     }
 }
 
-/// El [`Confirmer`] real: muestra la sonda en la máquina de la entrada que debería verse.
+/// El [`Confirmer`] real: muestra la sonda en la máquina de la entrada que debería verse
+/// y, a la vez, pregunta en esta UI qué se ve. Contesta lo primero que llegue.
 ///
 /// `home` es la entrada de esta máquina en el monitor que se calibra (en la PC, su
 /// DisplayPort); la otra entrada es la de la otra máquina.
@@ -252,31 +259,83 @@ impl AgentConfirmer {
     pub fn new(agent: Arc<Agent>, home: Input) -> Self {
         AgentConfirmer { agent, home }
     }
+
+    fn machine(&self, input: Input) -> Machine {
+        let here = self.agent.config().machine;
+        if input == self.home {
+            here
+        } else {
+            here.other()
+        }
+    }
+
+    /// La respuesta de la UI en términos del motor.
+    fn answer(&self, probe: &Probe, answer: ProbeAnswer) -> Answer {
+        match answer {
+            // La sonda a pantalla completa solo se ve en la máquina que la muestra.
+            ProbeAnswer::Seen => Answer::sees(probe.input),
+            ProbeAnswer::Machine(m) if m == self.machine(probe.input) => Answer::sees(probe.input),
+            ProbeAnswer::Machine(_) => Answer::sees(other_input(probe.input)),
+            ProbeAnswer::Black => Answer::black(),
+            ProbeAnswer::Stop => Answer::Stop,
+        }
+    }
+
+    /// La sonda a pantalla completa en la máquina que debería verse.
+    async fn on_screen(&self, wire: &CalibrationProbe) -> ProbeOutcome {
+        if wire.input == self.home {
+            return self.agent.probes().show(wire, false).await;
+        }
+        let peer = self.agent.orchestrator().peer();
+        match peer.show_probe(wire).await {
+            Ok(outcome) => outcome,
+            Err(why) => ProbeOutcome::Failed(why),
+        }
+    }
 }
 
 impl Confirmer for AgentConfirmer {
     fn confirm<'a>(&'a self, probe: &'a Probe) -> ConfirmFuture<'a> {
         Box::pin(async move {
-            let wire = wire_probe(probe);
-            let board = self.agent.probes();
-            let outcome = if probe.input == self.home {
-                board.show(&wire, false).await
-            } else {
-                let peer = self.agent.orchestrator().peer();
-                match peer.show_probe(&wire).await {
-                    Ok(ProbeOutcome::Failed(why)) | Err(why) => {
-                        tracing::info!(
-                            "sonda de calibración sin la otra máquina ({why}): se pregunta aquí"
-                        );
-                        board.show(&wire, true).await
+            let wire = wire_probe(probe, self.machine(probe.input));
+            let question = self.agent.probes().show(&wire, true);
+            let screen = self.on_screen(&wire);
+            tokio::pin!(question, screen);
+            // «¿Sigo?» no se contesta con un clic en el monitor.
+            let mut showing = !matches!(probe.kind, ProbeKind::Stalled { .. });
+            let mut asking = true;
+            let mut failed = None;
+            while asking || showing {
+                let outcome = tokio::select! {
+                    out = &mut question, if asking => {
+                        asking = false;
+                        match out {
+                            // El plazo de la pregunta es el del motor: no hay más que esperar.
+                            ProbeOutcome::NoAnswer => return Ok(None),
+                            ProbeOutcome::Failed(why) => {
+                                failed = Some(why);
+                                continue;
+                            }
+                            answered => answered,
+                        }
                     }
-                    Ok(outcome) => outcome,
+                    out = &mut screen, if showing => {
+                        showing = false;
+                        out
+                    }
+                };
+                match outcome {
+                    ProbeOutcome::Answered(a) => return Ok(Some(self.answer(probe, a))),
+                    ProbeOutcome::NoAnswer => {}
+                    ProbeOutcome::Failed(why) => {
+                        tracing::info!("sonda de calibración sin pantalla completa: {why}");
+                    }
                 }
-            };
-            match outcome {
-                ProbeOutcome::Seen => Ok(true),
-                ProbeOutcome::Unseen => Ok(false),
-                ProbeOutcome::Failed(why) => Err(ConfirmError(why)),
+            }
+            // Sin pregunta en esta UI y sin sonda en ninguna parte: nadie puede contestar.
+            match failed {
+                Some(why) => Err(ConfirmError(why)),
+                None => Ok(None),
             }
         })
     }
@@ -301,6 +360,7 @@ mod tests {
                 name: "Odyssey G5".into(),
             },
             input: Input::Hdmi,
+            machine: Machine::Mac,
             ask: ProbeAsk::Candidate { code: 0x05 },
             timeout_ms,
         }
@@ -334,11 +394,14 @@ mod tests {
             }
         ));
         let id = shown_id(&shown);
-        board.answer(id, true).unwrap();
-        assert_eq!(task.await.unwrap(), ProbeOutcome::Seen);
+        board.answer(id, ProbeAnswer::Seen).unwrap();
+        assert_eq!(
+            task.await.unwrap(),
+            ProbeOutcome::Answered(ProbeAnswer::Seen)
+        );
         assert_eq!(next(&mut ui).await, ProbeEvent::Hide { id });
         // Ya contestada no se puede volver a contestar.
-        assert_eq!(board.answer(id, true), Err(UnknownProbe(id)));
+        assert_eq!(board.answer(id, ProbeAnswer::Seen), Err(UnknownProbe(id)));
     }
 
     #[tokio::test(start_paused = true)]
@@ -351,15 +414,15 @@ mod tests {
             async move { board.show(&probe(8000), false).await }
         });
         let id = shown_id(&next(&mut ui).await);
-        assert_eq!(task.await.unwrap(), ProbeOutcome::Unseen);
+        assert_eq!(task.await.unwrap(), ProbeOutcome::NoAnswer);
         assert_eq!(start.elapsed(), Duration::from_millis(8000));
         assert_eq!(next(&mut ui).await, ProbeEvent::Hide { id });
         // Un clic tardío no tiene a quién llegar.
-        assert_eq!(board.answer(id, true), Err(UnknownProbe(id)));
+        assert_eq!(board.answer(id, ProbeAnswer::Seen), Err(UnknownProbe(id)));
     }
 
     #[tokio::test(start_paused = true)]
-    async fn no_and_dropping_the_wait_both_hide_the_probe() {
+    async fn an_answer_and_dropping_the_wait_both_hide_the_probe() {
         let board = Arc::new(ProbeBoard::new(None));
         let mut ui = board.subscribe();
         let task = tokio::spawn({
@@ -374,8 +437,13 @@ mod tests {
                 ..
             }
         ));
-        board.answer(shown_id(&shown), false).unwrap();
-        assert_eq!(task.await.unwrap(), ProbeOutcome::Unseen);
+        board
+            .answer(shown_id(&shown), ProbeAnswer::Machine(Machine::Pc))
+            .unwrap();
+        assert_eq!(
+            task.await.unwrap(),
+            ProbeOutcome::Answered(ProbeAnswer::Machine(Machine::Pc))
+        );
         assert!(matches!(next(&mut ui).await, ProbeEvent::Hide { .. }));
 
         // Quien calibra deja de esperar (canceló): la sonda se quita igual.
@@ -466,8 +534,11 @@ mod tests {
                 name: Some("Odyssey G5".into()),
             }
         );
-        board.answer(id, true).unwrap();
-        assert_eq!(task.await.unwrap(), ProbeOutcome::Seen);
+        board.answer(id, ProbeAnswer::Seen).unwrap();
+        assert_eq!(
+            task.await.unwrap(),
+            ProbeOutcome::Answered(ProbeAnswer::Seen)
+        );
     }
 
     /// El monitor nunca llega al escritorio (el código no funcionó), o el sistema no
@@ -501,7 +572,7 @@ mod tests {
                 ),
                 "{shown:?}"
             );
-            assert_eq!(task.await.unwrap(), ProbeOutcome::Unseen);
+            assert_eq!(task.await.unwrap(), ProbeOutcome::NoAnswer);
             // Ni se repite ni pasa a «no sé dónde»: lo siguiente es quitarla.
             assert_eq!(next(&mut ui).await, ProbeEvent::Hide { id });
         }
@@ -528,7 +599,7 @@ mod tests {
                 ..
             }
         ));
-        assert_eq!(task.await.unwrap(), ProbeOutcome::Unseen);
+        assert_eq!(task.await.unwrap(), ProbeOutcome::NoAnswer);
         assert_eq!(locator.calls.load(Ordering::SeqCst), 0);
     }
 
@@ -545,7 +616,7 @@ mod tests {
             async move { board.show(&probe(2000), true).await }
         });
         next(&mut ui).await;
-        assert_eq!(task.await.unwrap(), ProbeOutcome::Unseen);
+        assert_eq!(task.await.unwrap(), ProbeOutcome::NoAnswer);
         assert_eq!(locator.calls.load(Ordering::SeqCst), 0);
     }
 
@@ -570,7 +641,7 @@ mod tests {
             timeout: Duration::from_secs(8),
         };
         assert_eq!(
-            wire_probe(&p),
+            wire_probe(&p, Machine::Pc),
             CalibrationProbe {
                 monitor: ProbeMonitor {
                     edid: Some(EdidId {
@@ -581,6 +652,7 @@ mod tests {
                     name: "LC34G55T".into(),
                 },
                 input: Input::DisplayPort,
+                machine: Machine::Pc,
                 ask: ProbeAsk::Candidate { code: 0x09 },
                 timeout_ms: 8000,
             }
@@ -595,7 +667,7 @@ mod tests {
             timeout: Duration::from_secs(120),
             ..p
         };
-        let w = wire_probe(&bare);
+        let w = wire_probe(&bare, Machine::Pc);
         assert_eq!(
             w.monitor,
             ProbeMonitor {
@@ -604,6 +676,29 @@ mod tests {
             }
         );
         assert_eq!((w.ask, w.timeout_ms), (ProbeAsk::UserSwitch, 120_000));
+        for (kind, ask) in [
+            (
+                ProbeKind::Back { code: 0x0F },
+                ProbeAsk::Back { code: 0x0F },
+            ),
+            (
+                ProbeKind::Verify { code: 0x05 },
+                ProbeAsk::Verify { code: 0x05 },
+            ),
+            (
+                ProbeKind::Stalled { code: 0x05 },
+                ProbeAsk::Stalled { code: 0x05 },
+            ),
+        ] {
+            let w = wire_probe(
+                &Probe {
+                    kind,
+                    ..bare.clone()
+                },
+                Machine::Mac,
+            );
+            assert_eq!((w.ask, w.machine), (ask, Machine::Mac));
+        }
         assert_eq!(edid_key(&w.monitor), None);
     }
 

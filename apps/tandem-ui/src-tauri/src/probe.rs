@@ -264,6 +264,7 @@ mod tests {
             id: 3,
             monitor: "Odyssey G5 «32»".into(),
             input: tandem_core::Input::Hdmi,
+            machine: tandem_core::Machine::Mac,
             ask: AskView::Candidate { code: 5 },
             timeout_ms: 8000,
             place: PlaceView::Monitor { screen: None },

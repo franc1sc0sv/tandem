@@ -315,11 +315,11 @@ function renderToast() {
     const q = question;
     const text = questionText(q);
     parts.push(el("span", "msg", text.text));
-    const yes = el("button", "act", text.yes);
-    const no = el("button", "act", text.no);
-    yes.addEventListener("click", () => void act({ kind: "answer_probe", id: q.id, seen: true }));
-    no.addEventListener("click", () => void act({ kind: "answer_probe", id: q.id, seen: false }));
-    parts.push(yes, no);
+    for (const c of text.choices) {
+      const b = el("button", "act", c.label);
+      b.addEventListener("click", () => void act({ kind: "answer_probe", id: q.id, answer: c.answer }));
+      parts.push(b);
+    }
   } else if (manual) {
     const m = manual;
     parts.push(el("span", "msg", `Cambia el ${m.label} a ${PORT[m.input]} con los botones del monitor`));
@@ -867,10 +867,8 @@ function renderAddmon() {
       const text = questionText(q);
       const box = el("div", "aquestion");
       box.append(el("p", undefined, text.text));
-      const yes = kbtn(text.yes, () => void act({ kind: "answer_probe", id: q.id, seen: true }), "primary");
-      const no = kbtn(text.no, () => void act({ kind: "answer_probe", id: q.id, seen: false }));
       const row = el("div", "abtns");
-      row.append(no, yes);
+      for (const c of text.choices) row.append(kbtn(c.label, () => void act({ kind: "answer_probe", id: q.id, answer: c.answer }), c.kind));
       box.append(row);
       body.push(box);
     }

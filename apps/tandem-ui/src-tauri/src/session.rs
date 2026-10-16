@@ -18,7 +18,7 @@ use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State
 use tandem_proto::{
     AgentToUi, CalibrationOutcome, CalibrationStep, CalibrationUpdate, DisplayInfo, DisplayProfile,
     InputPermission, InputStatus, Link, ManualSwitchEvent, PairingStatus, PeerStatus, PowerEvent,
-    ProbeAsk, ProbeEvent, ProbePlace, Reply, SavedProfile, TxnEvent, UiCommand,
+    ProbeAnswer, ProbeAsk, ProbeEvent, ProbePlace, Reply, SavedProfile, TxnEvent, UiCommand,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -320,6 +320,8 @@ pub enum ProbeView {
         monitor: String,
         /// La entrada que debería verse.
         input: Input,
+        /// La máquina cableada a esa entrada.
+        machine: Machine,
         ask: AskView,
         timeout_ms: u64,
         place: PlaceView,
@@ -334,6 +336,9 @@ pub enum ProbeView {
 pub enum AskView {
     Candidate { code: u8 },
     UserSwitch,
+    Back { code: u8 },
+    Verify { code: u8 },
+    Stalled { code: u8 },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -343,8 +348,33 @@ pub enum PlaceView {
     Monitor { screen: Option<ScreenView> },
     /// El agente buscó el monitor y no está en el escritorio: la sonda no se muestra.
     Offscreen,
-    /// La pregunta Sí/No en la ventana principal.
+    /// La pregunta «¿qué ves?» de opción múltiple en la ventana principal.
     Question,
+}
+
+/// La respuesta a una sonda, como la manda el frontend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum AnswerView {
+    /// Clic en la sonda a pantalla completa.
+    Seen,
+    /// «Veo la Mac» / «Veo la PC».
+    Machine {
+        machine: Machine,
+    },
+    Black,
+    Stop,
+}
+
+impl From<AnswerView> for ProbeAnswer {
+    fn from(a: AnswerView) -> Self {
+        match a {
+            AnswerView::Seen => ProbeAnswer::Seen,
+            AnswerView::Machine { machine } => ProbeAnswer::Machine(machine),
+            AnswerView::Black => ProbeAnswer::Black,
+            AnswerView::Stop => ProbeAnswer::Stop,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -362,9 +392,13 @@ impl From<ProbeEvent> for ProbeView {
                 id,
                 monitor: probe.monitor.name,
                 input: probe.input,
+                machine: probe.machine,
                 ask: match probe.ask {
                     ProbeAsk::Candidate { code } => AskView::Candidate { code },
                     ProbeAsk::UserSwitch => AskView::UserSwitch,
+                    ProbeAsk::Back { code } => AskView::Back { code },
+                    ProbeAsk::Verify { code } => AskView::Verify { code },
+                    ProbeAsk::Stalled { code } => AskView::Stalled { code },
                 },
                 timeout_ms: probe.timeout_ms,
                 place: match place {
@@ -488,6 +522,11 @@ pub enum StepView {
         input: Input,
         code: u8,
     },
+    Verifying,
+    Verified {
+        input: Input,
+        code: u8,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -529,6 +568,8 @@ impl From<CalibrationStep> for StepView {
             CalibrationStep::Seen { input, code, seen } => StepView::Seen { input, code, seen },
             CalibrationStep::Returned { code } => StepView::Returned { code },
             CalibrationStep::Found { input, code } => StepView::Found { input, code },
+            CalibrationStep::Verifying => StepView::Verifying,
+            CalibrationStep::Verified { input, code } => StepView::Verified { input, code },
         }
     }
 }
@@ -598,10 +639,10 @@ pub enum Action {
         id: u64,
         done: bool,
     },
-    /// Clic en la sonda (`seen`), o la respuesta Sí/No a la pregunta de respaldo.
+    /// Clic en la sonda, o lo que se eligió en la pregunta «¿qué ves?».
     AnswerProbe {
         id: u64,
-        seen: bool,
+        answer: AnswerView,
     },
     StartPairing,
     ConfirmPairing,
@@ -630,7 +671,10 @@ impl From<Action> for UiCommand {
             Action::SetBuiltin { display } => UiCommand::SetBuiltin(display),
             Action::SetPcPower { on } => UiCommand::SetPcPower(on),
             Action::AnswerManualSwitch { id, done } => UiCommand::AnswerManualSwitch { id, done },
-            Action::AnswerProbe { id, seen } => UiCommand::AnswerProbe { id, seen },
+            Action::AnswerProbe { id, answer } => UiCommand::AnswerProbe {
+                id,
+                answer: answer.into(),
+            },
             Action::StartPairing => UiCommand::StartPairing,
             Action::ConfirmPairing => UiCommand::ConfirmPairing,
             Action::CancelPairing => UiCommand::CancelPairing,
@@ -1327,6 +1371,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 name: "LC34G55T".into(),
             },
             input: Input::Hdmi,
+            machine: Machine::Mac,
             ask: tandem_proto::ProbeAsk::Candidate { code: 6 },
             timeout_ms: 60_000,
         };
@@ -1356,10 +1401,18 @@ wiring = { pc = "displayport", mac = "hdmi" }
             })
             .unwrap();
         assert_eq!(
-            handle.act(Action::AnswerProbe { id, seen: true }).await,
+            handle
+                .act(Action::AnswerProbe {
+                    id,
+                    answer: AnswerView::Seen
+                })
+                .await,
             ActionResult::Done
         );
-        assert_eq!(shown.await.unwrap(), tandem_proto::ProbeOutcome::Seen);
+        assert_eq!(
+            shown.await.unwrap(),
+            tandem_proto::ProbeOutcome::Answered(tandem_proto::ProbeAnswer::Seen)
+        );
         rec.until(|_, n| {
             n.iter().any(|n| {
                 *n == Notice::Probe {
@@ -1617,6 +1670,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
                     name: "Odyssey G5".into(),
                 },
                 input: Input::Hdmi,
+                machine: Machine::Mac,
                 ask: tandem_proto::ProbeAsk::Candidate { code: 5 },
                 timeout_ms: 8000,
             },
@@ -1639,6 +1693,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 "kind": "probe",
                 "event": {
                     "type": "show", "id": 7, "monitor": "Odyssey G5", "input": "hdmi",
+                    "machine": "mac",
                     "ask": { "kind": "candidate", "code": 5 }, "timeout_ms": 8000,
                     "place": { "kind": "monitor", "screen": { "x": -2560, "y": 0, "width": 2560, "height": 1440 } }
                 }
@@ -1663,6 +1718,29 @@ wiring = { pc = "displayport", mac = "hdmi" }
             serde_json::to_value(ProbeView::from(switch)).unwrap()["ask"],
             serde_json::json!({ "kind": "user_switch" })
         );
+        for (ask, json) in [
+            (
+                tandem_proto::ProbeAsk::Back { code: 0x0F },
+                serde_json::json!({ "kind": "back", "code": 15 }),
+            ),
+            (
+                tandem_proto::ProbeAsk::Verify { code: 5 },
+                serde_json::json!({ "kind": "verify", "code": 5 }),
+            ),
+            (
+                tandem_proto::ProbeAsk::Stalled { code: 5 },
+                serde_json::json!({ "kind": "stalled", "code": 5 }),
+            ),
+        ] {
+            let mut e = probe(ProbePlace::Question);
+            if let tandem_proto::ProbeEvent::Show { probe, .. } = &mut e {
+                probe.ask = ask;
+            }
+            assert_eq!(
+                serde_json::to_value(ProbeView::from(e)).unwrap()["ask"],
+                json
+            );
+        }
         assert_eq!(
             serde_json::to_value(ProbeView::from(tandem_proto::ProbeEvent::Hide { id: 7 }))
                 .unwrap(),
@@ -1722,10 +1800,24 @@ wiring = { pc = "displayport", mac = "hdmi" }
             read(serde_json::json!({ "kind": "answer_manual_switch", "id": 4, "done": true })),
             UiCommand::AnswerManualSwitch { id: 4, done: true }
         );
-        assert_eq!(
-            read(serde_json::json!({ "kind": "answer_probe", "id": 5, "seen": false })),
-            UiCommand::AnswerProbe { id: 5, seen: false }
-        );
+        for (json, answer) in [
+            (serde_json::json!({ "kind": "seen" }), ProbeAnswer::Seen),
+            (
+                serde_json::json!({ "kind": "machine", "machine": "mac" }),
+                ProbeAnswer::Machine(Machine::Mac),
+            ),
+            (
+                serde_json::json!({ "kind": "machine", "machine": "pc" }),
+                ProbeAnswer::Machine(Machine::Pc),
+            ),
+            (serde_json::json!({ "kind": "black" }), ProbeAnswer::Black),
+            (serde_json::json!({ "kind": "stop" }), ProbeAnswer::Stop),
+        ] {
+            assert_eq!(
+                read(serde_json::json!({ "kind": "answer_probe", "id": 5, "answer": json })),
+                UiCommand::AnswerProbe { id: 5, answer }
+            );
+        }
         assert_eq!(
             read(serde_json::json!({ "kind": "start_calibration", "display": 1 })),
             UiCommand::StartCalibration {
@@ -1859,6 +1951,14 @@ wiring = { pc = "displayport", mac = "hdmi" }
                     code: 5,
                 },
                 "found",
+            ),
+            (CalibrationStep::Verifying, "verifying"),
+            (
+                CalibrationStep::Verified {
+                    input: Input::Hdmi,
+                    code: 5,
+                },
+                "verified",
             ),
         ] {
             assert_eq!(
