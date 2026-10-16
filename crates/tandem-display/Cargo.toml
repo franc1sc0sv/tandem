@@ -5,7 +5,26 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "tandem-ddc"
+path = "src/bin/tandem-ddc.rs"
+
 [dependencies]
+anyhow.workspace = true
+tandem-core = { path = "../tandem-core" }
+thiserror.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Win32_Devices_Display",
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Console",
+    "Win32_System_Registry",
+] }
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

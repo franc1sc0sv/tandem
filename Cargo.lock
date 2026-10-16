@@ -1298,6 +1298,13 @@ dependencies = [
 [[package]]
 name = "tandem-display"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "proptest",
+ "tandem-core",
+ "thiserror",
+ "windows",
+]
 
 [[package]]
 name = "tandem-input"
