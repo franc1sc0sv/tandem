@@ -525,14 +525,21 @@ async fn modes_across_two_real_processes() {
         })
     );
 
-    // El apagado ordenado de los dos guarda el mismo estado, salvo que cada uno se ve
-    // prendido a sí mismo: la PC guarda `on.pc = true` aunque la Mac la dé por apagada.
+    // El apagado ordenado de los dos guarda los mismos dueños y preferencia, y cada uno
+    // se ve prendido a sí mismo (la PC guarda `on.pc = true` aunque la Mac la dé por
+    // apagada). El `on` de la otra no se compara: depende de si alcanzó a ver caer el
+    // enlace antes de cerrarse (la Mac se detiene primero).
     drop((ui_mac, ui_pc));
     for p in [mac, pc] {
         let (spec, status) = p.stop().await;
         assert!(status.success(), "{}: {status}", spec.machine);
-        let expected = as_seen_by(&s, spec.machine);
-        assert_eq!(spec.saved_state(), Some(expected), "{}", spec.machine);
+        let saved = spec.saved_state().unwrap();
+        let me = spec.machine;
+        assert_eq!(
+            (&saved.owner, saved.builtin_pref, saved.on.is_on(me)),
+            (&s.owner, s.builtin_pref, true),
+            "{me}: {saved:?}"
+        );
     }
 }
 
