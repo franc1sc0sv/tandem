@@ -14,6 +14,7 @@
 //! - [`peer`]: el otro agente por el plano de control (pedirle pasos y atender los suyos).
 //! - [`network`]: QUIC, descubrimiento del par y gestor de enlaces.
 //! - [`install`]: `--install` / `--uninstall` (config inicial y arranque con la sesión).
+//! - [`pairing`]: el emparejamiento con el otro agente, pedido desde la UI.
 //! - [`ipc`]: la API local para la UI (Unix socket / named pipe).
 //! - [`daemon`]: el agente armado, el bucle principal y el apagado ordenado.
 //! - [`logging`]: `tracing` a stdout y a archivo.
@@ -28,13 +29,14 @@ pub mod ipc;
 pub mod logging;
 pub mod network;
 pub mod orchestrator;
+pub mod pairing;
 pub mod paths;
 pub mod pc_watch;
 pub mod peer;
 pub mod power;
 pub mod store;
 
-pub use agent::Agent;
+pub use agent::{Agent, PairingControl};
 pub use config::{AgentConfig, ConfigError, NetworkConfig, OrchestratorConfig, PowerConfig};
 pub use display::DisplaySteps;
 pub use orchestrator::{LocalSteps, NoPeer, Orchestrator, PeerLink, StepTimeouts, Unimplemented};

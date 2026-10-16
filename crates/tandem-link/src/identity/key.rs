@@ -13,6 +13,7 @@ use super::{IdentityError, PublicKey, fsutil};
 /// En disco es la semilla de 32 bytes, sin más formato: la migración al
 /// llavero del sistema reemplazará el archivo, así que no vale la pena
 /// versionarlo.
+#[derive(Clone)]
 pub struct Identity {
     signing: SigningKey,
 }

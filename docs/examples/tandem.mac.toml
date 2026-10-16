@@ -7,18 +7,16 @@
 # En el directorio de datos el agente guarda:
 # - identity.key: su llave Ed25519. Se crea sola la primera vez; no se comparte.
 # - trust.toml: las llaves de los pares emparejados. Sin par, el agente trabaja solo
-#   y la UI lo indica. Hasta que el emparejamiento llegue a la UI se escribe a mano:
-#
-#     version = 1
-#     [[peer]]
-#     public_key = "<64 dígitos hex: la llave de la PC, la que registra su log al arrancar>"
-#     name = "PC"
+#   y la UI lo indica. Se llena al emparejar desde la UI (píldora del enlace →
+#   «Emparejar», en las dos máquinas, y comparar el código).
 
 machine = "mac"
 
 [network]
 # Puerto UDP (QUIC) de los dos agentes.
 port = 47770
+# Donde la PC espera mientras se empareja (por omisión, port + 1).
+# pairing_port = 47771
 # La PC en cada enlace directo (DESIGN §6), de mayor a menor prioridad. La LAN de casa
 # (Wi-Fi) no hace falta fijarla: se descubre por mDNS.
 peers = [

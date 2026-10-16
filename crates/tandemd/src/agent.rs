@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use tandem_core::plan::PlanError;
 use tandem_core::{Machine, Mode, Plan, State, Step};
 use tandem_display::switcher::{ManualEvent, ManualSwitcher};
-use tandem_proto::{PeerStatus, PowerEvent, Reply, TxnEvent, UiCommand};
+use tandem_proto::{PairingStatus, PeerStatus, PowerEvent, Reply, TxnEvent, UiCommand};
 use tokio::sync::{broadcast, watch};
 
 use crate::config::AgentConfig;
@@ -17,6 +17,18 @@ use crate::store::{StateStore, StoreError};
 pub const NOT_IMPLEMENTED: &str = "todavía no implementado";
 /// Lo que la UI recibe si pide un cambio con otro en curso.
 pub const BUSY: &str = "ya hay un cambio en curso";
+/// Lo que la UI recibe si pide emparejar sin la red en marcha.
+pub const NO_NETWORK: &str = "la red del agente no está en marcha";
+
+/// Quien sabe emparejar (la red): el agente le pasa los pedidos de la UI y publica
+/// el avance con [`Agent::set_pairing_status`]. Cada método contesta enseguida; lo
+/// que tarda sigue en segundo plano. `Err` es el motivo para la UI.
+pub trait PairingControl: Send + Sync {
+    fn start(&self) -> Result<(), String>;
+    fn confirm(&self) -> Result<(), String>;
+    fn cancel(&self) -> Result<(), String>;
+    fn unpair(&self) -> Result<(), String>;
+}
 
 #[derive(Debug)]
 pub struct Agent {
@@ -33,6 +45,15 @@ pub struct Agent {
     power: broadcast::Sender<PowerEvent>,
     /// Con quién está emparejado y por qué enlace lo ve; lo actualiza la red.
     peer_status: watch::Sender<PeerStatus>,
+    /// En qué va el emparejamiento; lo actualiza la red.
+    pairing_status: watch::Sender<PairingStatus>,
+    pairing: Mutex<Option<Arc<dyn PairingControl>>>,
+}
+
+impl std::fmt::Debug for dyn PairingControl {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PairingControl")
+    }
 }
 
 /// Avisos de energía que se guardan para un suscriptor lento.
@@ -81,6 +102,8 @@ impl Agent {
             power: broadcast::channel(POWER_EVENT_BUFFER).0,
             // Hasta que la red diga otra cosa, el agente trabaja solo.
             peer_status: watch::Sender::new(PeerStatus::Unpaired),
+            pairing_status: watch::Sender::new(PairingStatus::Idle),
+            pairing: Mutex::new(None),
         }
     }
 
@@ -124,6 +147,43 @@ impl Agent {
             *s = status;
             changed
         });
+    }
+
+    /// Quién atiende los pedidos de emparejamiento (la red, al arrancar).
+    pub fn set_pairing(&self, control: Arc<dyn PairingControl>) {
+        *self.pairing.lock().unwrap_or_else(|e| e.into_inner()) = Some(control);
+    }
+
+    pub fn pairing_status(&self) -> PairingStatus {
+        self.pairing_status.borrow().clone()
+    }
+
+    /// Avisa con cada paso del emparejamiento.
+    pub fn subscribe_pairing(&self) -> watch::Receiver<PairingStatus> {
+        self.pairing_status.subscribe()
+    }
+
+    pub fn set_pairing_status(&self, status: PairingStatus) {
+        self.pairing_status.send_if_modified(|s| {
+            let changed = *s != status;
+            *s = status;
+            changed
+        });
+    }
+
+    fn pair(&self, f: impl FnOnce(&dyn PairingControl) -> Result<(), String>) -> Reply {
+        let control = self
+            .pairing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
+        match control {
+            Some(c) => match f(c.as_ref()) {
+                Ok(()) => Reply::Done,
+                Err(why) => Reply::Rejected(why),
+            },
+            None => Reply::Rejected(NO_NETWORK.into()),
+        }
     }
 
     pub(crate) fn emit_power(&self, event: PowerEvent) {
@@ -185,6 +245,11 @@ impl Agent {
             UiCommand::GetState => Reply::State(self.state()),
             UiCommand::GetDesk => Reply::Desk(self.cfg.desk.clone()),
             UiCommand::GetPeer => Reply::Peer(self.peer_status()),
+            UiCommand::GetPairing => Reply::Pairing(self.pairing_status()),
+            UiCommand::StartPairing => self.pair(|p| p.start()),
+            UiCommand::ConfirmPairing => self.pair(|p| p.confirm()),
+            UiCommand::CancelPairing => self.pair(|p| p.cancel()),
+            UiCommand::Unpair => self.pair(|p| p.unpair()),
             UiCommand::SetMode(mode) => self.start(mode),
             UiCommand::SetPcPower(on) => self.start_power(on),
             UiCommand::MoveMonitor { monitor, to } => {
@@ -328,6 +393,77 @@ pub(crate) mod tests {
         a.set_peer_status(paired.clone());
         assert!(!rx.has_changed().unwrap());
         assert_eq!(a.handle(UiCommand::GetPeer), Reply::Peer(paired));
+    }
+
+    #[test]
+    fn pairing_without_network_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        assert_eq!(
+            a.handle(UiCommand::GetPairing),
+            Reply::Pairing(PairingStatus::Idle)
+        );
+        for cmd in [
+            UiCommand::StartPairing,
+            UiCommand::ConfirmPairing,
+            UiCommand::CancelPairing,
+            UiCommand::Unpair,
+        ] {
+            assert_eq!(a.handle(cmd), Reply::Rejected(NO_NETWORK.into()));
+        }
+    }
+
+    /// Anota lo que se le pide; `confirm` falla para ver que el motivo llega a la UI.
+    #[derive(Default)]
+    struct FakePairing(Mutex<Vec<&'static str>>);
+
+    impl PairingControl for FakePairing {
+        fn start(&self) -> Result<(), String> {
+            self.0.lock().unwrap().push("start");
+            Ok(())
+        }
+        fn confirm(&self) -> Result<(), String> {
+            self.0.lock().unwrap().push("confirm");
+            Err("no hay código".into())
+        }
+        fn cancel(&self) -> Result<(), String> {
+            self.0.lock().unwrap().push("cancel");
+            Ok(())
+        }
+        fn unpair(&self) -> Result<(), String> {
+            self.0.lock().unwrap().push("unpair");
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn pairing_commands_go_to_the_network_and_status_is_pushed() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        let fake = Arc::new(FakePairing::default());
+        a.set_pairing(fake.clone());
+        assert_eq!(a.handle(UiCommand::StartPairing), Reply::Done);
+        assert_eq!(
+            a.handle(UiCommand::ConfirmPairing),
+            Reply::Rejected("no hay código".into())
+        );
+        assert_eq!(a.handle(UiCommand::CancelPairing), Reply::Done);
+        assert_eq!(a.handle(UiCommand::Unpair), Reply::Done);
+        assert_eq!(
+            *fake.0.lock().unwrap(),
+            ["start", "confirm", "cancel", "unpair"]
+        );
+
+        let mut rx = a.subscribe_pairing();
+        a.set_pairing_status(PairingStatus::Searching);
+        assert!(rx.has_changed().unwrap());
+        assert_eq!(*rx.borrow_and_update(), PairingStatus::Searching);
+        a.set_pairing_status(PairingStatus::Searching);
+        assert!(!rx.has_changed().unwrap());
+        assert_eq!(
+            a.handle(UiCommand::GetPairing),
+            Reply::Pairing(PairingStatus::Searching)
+        );
     }
 
     #[test]

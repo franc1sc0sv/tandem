@@ -25,7 +25,7 @@
           Atajos
         </button>
         <span class="pill" id="agent-pill"><span class="dot warn" id="agent-dot"></span> <b id="agent-text">Conectando…</b></span>
-        <span class="pill" id="link-pill" hidden><span class="dot warn" id="link-dot"></span> <b id="link-text"></b></span>
+        <button type="button" class="pill btn" id="link-pill" hidden aria-haspopup="dialog"><span class="dot warn" id="link-dot"></span> <b id="link-text"></b><span class="pact" id="link-act" hidden>Emparejar</span></button>
       </header>
 
       <main class="scene" id="scene" hidden>
@@ -148,6 +148,24 @@
         <button type="button" class="kbtn" id="setup-back">Atrás</button>
         <button type="button" class="kbtn primary" id="setup-next">Siguiente</button>
       </div>
+    </dialog>
+
+    <dialog class="pair" id="pair" aria-labelledby="pair-title">
+      <div class="pscene" id="pair-scene" data-line="idle" aria-hidden="true">
+        <div class="ptile" data-m="mac">
+          <svg viewBox="0 0 64 44" fill="none"><rect x="12" y="4" width="40" height="27" rx="3" stroke="currentColor" stroke-width="2.4" /><path d="M4 36h56l-4 4H8z" fill="currentColor" opacity=".8" /></svg>
+          <span>Mac</span><em></em>
+        </div>
+        <div class="pline"><span class="rail"></span><span class="pulse"></span><span class="knot">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></svg>
+        </span></div>
+        <div class="ptile" data-m="pc">
+          <svg viewBox="0 0 64 44" fill="none"><rect x="20" y="2" width="24" height="40" rx="3" stroke="currentColor" stroke-width="2.4" /><circle cx="32" cy="14" r="4" stroke="currentColor" stroke-width="2" /><circle cx="32" cy="29" r="4" stroke="currentColor" stroke-width="2" /></svg>
+          <span>PC</span><em></em>
+        </div>
+      </div>
+      <div class="pbody" id="pair-body" aria-live="polite"></div>
+      <div class="kfoot" id="pair-foot"></div>
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

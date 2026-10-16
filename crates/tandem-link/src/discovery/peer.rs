@@ -32,7 +32,8 @@ pub enum DiscoveryEvent {
 #[derive(Debug, Clone)]
 pub struct PeerResolver {
     own: Fingerprint,
-    wanted: BTreeSet<Fingerprint>,
+    /// `None`: cualquier agente salvo el propio (para emparejarse con uno nuevo).
+    wanted: Option<BTreeSet<Fingerprint>>,
     /// Anuncios aceptados, por instancia.
     found: BTreeMap<String, (Fingerprint, Vec<SocketAddr>)>,
 }
@@ -43,7 +44,18 @@ impl PeerResolver {
         wanted.remove(&own);
         Self {
             own,
-            wanted,
+            wanted: Some(wanted),
+            found: BTreeMap::new(),
+        }
+    }
+
+    /// Acepta a cualquier agente salvo el propio: lo que anuncia quien está
+    /// emparejando, que todavía no es de confianza. Encontrarlo no le da confianza:
+    /// la da la comparación del código.
+    pub fn any(own: Fingerprint) -> Self {
+        Self {
+            own,
+            wanted: None,
             found: BTreeMap::new(),
         }
     }
@@ -51,7 +63,8 @@ impl PeerResolver {
     /// Huella del anuncio si es de un par buscado; `None` si hay que ignorarlo.
     pub fn accepts(&self, ann: &Announcement) -> Option<Fingerprint> {
         let fp: Fingerprint = ann.fingerprint.as_deref()?.parse().ok()?;
-        (fp != self.own && self.wanted.contains(&fp)).then_some(fp)
+        let wanted = self.wanted.as_ref().is_none_or(|w| w.contains(&fp));
+        (fp != self.own && wanted).then_some(fp)
     }
 
     /// Aplica un evento; devuelve si cambiaron las direcciones del par.
@@ -197,6 +210,17 @@ mod tests {
         // Aunque por error se pase la propia llave como par.
         let r = PeerResolver::new(fp(ME), [fp(ME), fp(PEER)]);
         assert_eq!(r.accepts(&ann("yo", Some(fp(ME).to_hex()), &[])), None);
+    }
+
+    #[test]
+    fn sin_lista_acepta_a_cualquiera_menos_a_si_mismo() {
+        let mut r = PeerResolver::any(fp(ME));
+        let extrano = ann("x", Some(fp(STRANGER).to_hex()), &["192.168.1.30:47771"]);
+        assert_eq!(r.accepts(&extrano), Some(fp(STRANGER)));
+        assert_eq!(r.accepts(&ann("yo", Some(fp(ME).to_hex()), &[])), None);
+        assert_eq!(r.accepts(&ann("sin", None, &[])), None);
+        assert!(r.apply(DiscoveryEvent::Resolved(extrano)));
+        assert_eq!(r.addrs(), vec!["192.168.1.30:47771".parse().unwrap()]);
     }
 
     #[test]

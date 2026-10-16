@@ -4,7 +4,9 @@
 // `?demo&agent=off` simula que tandemd no corre; `?demo&pc=on` arranca con la PC encendida;
 // `?demo&keys=busy` simula que el sistema no dejó registrar el atajo de Compartido;
 // `?demo&setup` abre la guía de permisos del primer arranque (`&setup=fail`: tandemd no se
-// pudo instalar); `?demo&peer=none`, un agente sin par emparejado.
+// pudo instalar); `?demo&peer=none`, un agente sin par emparejado. Emparejar desde ahí simula
+// a la otra máquina: aparece el código y, al confirmar, confirma ella también
+// (`&pair=reject`: la otra máquina rechaza; `&pair=code`: arranca mostrando el código).
 
 import type { Bridge } from "./bridge";
 import type {
@@ -16,6 +18,8 @@ import type {
   Machine,
   Mode,
   Notice,
+  PairingView,
+  PeerView,
   SetupView,
   ShortcutAction,
   ShortcutsView,
@@ -26,6 +30,9 @@ import { builtinOf, modeRequest, type ModeKey } from "./scene";
 import { ACTIONS, DEFAULT_BINDINGS, readCombo } from "./shortcuts";
 
 const STEP_MS = 480;
+const PAIR_FOUND_MS = 1400;
+const PAIR_OTHER_MS = 1200;
+const DEMO_CODE = "418027";
 
 const DESK: Desk = {
   monitors: [
@@ -74,16 +81,15 @@ export function demoBridge(query: string): Bridge {
     pc_on: params.get("pc") === "on",
     builtin_pref: "off",
   };
+  const PAIRED: PeerView = { kind: "paired", name: "PC", link: "usb4" };
+  let peer: PeerView = params.get("peer") === "none" ? { kind: "unpaired" } : PAIRED;
+  let pairing: PairingView =
+    params.get("pair") === "code" ? { kind: "comparing", code: DEMO_CODE, peer: "PC", confirmed: false } : { kind: "idle" };
+  let pairTimer: number | undefined;
   const snapshot = (): Snapshot =>
     params.get("agent") === "off"
       ? { kind: "unavailable", endpoint: "~/Library/Application Support/Tandem/tandemd.sock", reason: "tandemd no está corriendo: no hay nadie escuchando en la IPC local" }
-      : {
-          kind: "connected",
-          agent: "mac",
-          desk: DESK,
-          state,
-          peer: params.get("peer") === "none" ? { kind: "unpaired" } : { kind: "paired", name: "PC", link: "usb4" },
-        };
+      : { kind: "connected", agent: "mac", desk: DESK, state, peer, pairing };
   let keys: ShortcutsView = {
     bindings: { ...DEFAULT_BINDINGS },
     failed: params.get("keys") === "busy" ? { shared: "el sistema no dejó registrar Ctrl+Alt+Digit2 (¿lo usa otra app?)" } : {},
@@ -124,6 +130,44 @@ export function demoBridge(query: string): Bridge {
     busy = false;
     snapshots.forEach((cb) => cb(snapshot()));
     emit({ kind: "txn", event: { type: "committed", txn: id, state } });
+  }
+
+  function setPairing(next: PairingView) {
+    pairing = next;
+    snapshots.forEach((cb) => cb(snapshot()));
+  }
+
+  /** Hace de la otra máquina: la encuentra, y confirma (o rechaza) después de esta. */
+  function pairAction(kind: "start_pairing" | "confirm_pairing" | "cancel_pairing" | "unpair"): ActionResult {
+    switch (kind) {
+      case "start_pairing":
+        if (peer.kind === "paired") return { kind: "rejected", reason: `ya está emparejado con ${peer.name}: desemparéjalo primero` };
+        if (pairing.kind === "searching" || pairing.kind === "comparing") return { kind: "rejected", reason: "ya hay un emparejamiento en curso" };
+        setPairing({ kind: "searching" });
+        pairTimer = window.setTimeout(() => setPairing({ kind: "comparing", code: DEMO_CODE, peer: "PC", confirmed: false }), PAIR_FOUND_MS);
+        return { kind: "done" };
+      case "confirm_pairing":
+        if (pairing.kind !== "comparing" || pairing.confirmed) return { kind: "rejected", reason: "no hay ningún código que confirmar" };
+        setPairing({ ...pairing, confirmed: true });
+        pairTimer = window.setTimeout(() => {
+          if (params.get("pair") === "reject") {
+            setPairing({ kind: "failed", reason: "se rechazó en la PC: no se emparejó" });
+            return;
+          }
+          peer = PAIRED;
+          setPairing({ kind: "done", peer: "PC" });
+        }, PAIR_OTHER_MS);
+        return { kind: "done" };
+      case "cancel_pairing":
+        window.clearTimeout(pairTimer);
+        setPairing({ kind: "idle" });
+        return { kind: "done" };
+      case "unpair":
+        if (peer.kind !== "paired") return { kind: "rejected", reason: "no hay ningún par emparejado" };
+        peer = { kind: "unpaired" };
+        setPairing({ kind: "idle" });
+        return { kind: "done" };
+    }
   }
 
   function start(steps: Step[]): ActionResult {
@@ -200,6 +244,11 @@ export function demoBridge(query: string): Bridge {
           return { kind: "done" };
         case "answer_manual_switch":
           return { kind: "done" };
+        case "start_pairing":
+        case "confirm_pairing":
+        case "cancel_pairing":
+        case "unpair":
+          return pairAction(a.kind);
       }
     },
   };
