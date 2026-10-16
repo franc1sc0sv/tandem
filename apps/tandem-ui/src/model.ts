@@ -71,3 +71,17 @@ export type ActionResult =
   | { kind: "done" }
   | { kind: "rejected"; reason: string }
   | { kind: "unavailable"; reason: string };
+
+// Atajos globales (`tandem_ui::shortcuts`).
+export type ShortcutAction = "solo_mac" | "shared" | "solo_pc" | "toggle_window";
+
+/** Acción → combinación canónica (`Ctrl+Alt+Digit1`), o `null` si no tiene. */
+export type Bindings = Record<ShortcutAction, string | null>;
+
+export interface ShortcutsView {
+  bindings: Bindings;
+  /** Los que el sistema no dejó registrar, con la razón: los atiende la ventana. */
+  failed: Partial<Record<ShortcutAction, string>>;
+  warning: string | null;
+  file: string | null;
+}

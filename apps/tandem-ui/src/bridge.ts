@@ -1,6 +1,6 @@
 // Cómo habla la ventana con el núcleo de la app (y él con tandemd).
 
-import type { Action, ActionResult, Notice, Snapshot } from "./model";
+import type { Action, ActionResult, Bindings, Notice, ShortcutsView, Snapshot } from "./model";
 
 export interface Bridge {
   snapshot(): Promise<Snapshot>;
@@ -8,11 +8,20 @@ export interface Bridge {
   retry(): Promise<void>;
   onSnapshot(cb: (s: Snapshot) => void): Promise<void>;
   onNotice(cb: (n: Notice) => void): Promise<void>;
+  /** Lo que pasó con un pedido hecho desde fuera de la ventana (atajo global, menú del ícono). */
+  onMessage(cb: (text: string) => void): Promise<void>;
+  shortcuts(): Promise<ShortcutsView>;
+  /** Rechaza con la razón si no se pueden usar (repetidos, inválidos, sin poder guardar). */
+  setShortcuts(bindings: Bindings): Promise<ShortcutsView>;
+  /** Desde la mini escena del ícono. */
+  showMain(): Promise<void>;
+  hideTray(): Promise<void>;
 }
 
 // Nombres de `tandem_ui::app`.
 const SNAPSHOT_EVENT = "agent-snapshot";
 const NOTICE_EVENT = "agent-notice";
+const MESSAGE_EVENT = "ui-message";
 
 export async function tauriBridge(): Promise<Bridge> {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -27,6 +36,13 @@ export async function tauriBridge(): Promise<Bridge> {
     onNotice: async (cb) => {
       await listen<Notice>(NOTICE_EVENT, (e) => cb(e.payload));
     },
+    onMessage: async (cb) => {
+      await listen<string>(MESSAGE_EVENT, (e) => cb(e.payload));
+    },
+    shortcuts: () => invoke<ShortcutsView>("shortcuts_get"),
+    setShortcuts: (bindings) => invoke<ShortcutsView>("shortcuts_set", { bindings }),
+    showMain: () => invoke<void>("ui_show_main"),
+    hideTray: () => invoke<void>("ui_hide_tray"),
   };
 }
 

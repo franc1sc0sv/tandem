@@ -1,7 +1,7 @@
 import "./styles.css";
 
 import { bridgeFailed, tauriBridge, type Bridge } from "./bridge";
-import type { Action, BuiltinDisplay, Machine, ManualView, Notice, Snapshot } from "./model";
+import type { Action, Bindings, BuiltinDisplay, Machine, ManualView, Notice, ShortcutAction, ShortcutsView, Snapshot } from "./model";
 import {
   MACHINE_NAME,
   MACHINES,
@@ -16,11 +16,22 @@ import {
   monitorsOf,
   other,
   pcPower,
-  shortcutMode,
   type ModeKey,
   type MonitorView,
   type Progress,
 } from "./scene";
+import {
+  ACTION_LABEL,
+  ACTION_OF_MODE,
+  ACTIONS,
+  DEFAULT_BINDINGS,
+  ariaKeys,
+  duplicateOf,
+  formatAccel,
+  isMacPlatform,
+  localAction,
+  readCombo,
+} from "./shortcuts";
 
 // Cuánto queda a la vista el progreso ya terminado y un mensaje suelto.
 const DONE_LINGER_MS = 800;
@@ -43,6 +54,8 @@ let manual: Extract<ManualView, { type: "requested" }> | null = null;
 let message: { text: string; sticky: boolean } | null = null;
 let messageTimer: number | undefined;
 let lastOwner: Record<string, Machine> | null = null;
+let keys: ShortcutsView | null = null;
+const MAC = isMacPlatform();
 
 // ---------------------------------------------------------------------------------------
 // Estado
@@ -308,6 +321,140 @@ function render(moved: string[]) {
   renderToast();
 }
 
+/** El atajo de cada tarjeta de modo, el que esté configurado. */
+function renderModeKeys() {
+  for (const m of $$<HTMLButtonElement>(".mode")) {
+    const accel = keys?.bindings[ACTION_OF_MODE[m.dataset.mode as ModeKey]] ?? null;
+    $(".k", m).textContent = formatAccel(accel, MAC);
+    if (accel) m.setAttribute("aria-keyshortcuts", ariaKeys(accel));
+    else m.removeAttribute("aria-keyshortcuts");
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// Atajos globales: el diálogo para cambiarlos
+
+let draft: Bindings = { ...DEFAULT_BINDINGS };
+let recording: ShortcutAction | null = null;
+const rowError: Partial<Record<ShortcutAction, string>> = {};
+let saveError: string | null = null;
+
+function openKeys() {
+  if (!keys) return;
+  draft = { ...keys.bindings };
+  recording = null;
+  saveError = null;
+  for (const a of ACTIONS) delete rowError[a];
+  renderKeysDialog();
+  $<HTMLDialogElement>("#keys").showModal();
+}
+
+function renderKeysDialog() {
+  const list = $("#keys-list");
+  const rows = ACTIONS.map((a) => {
+    const row = el("div", "krow");
+    row.append(el("span", "klabel", ACTION_LABEL[a]));
+    const combo = el("button", `combo${recording === a ? " rec" : ""}`);
+    combo.type = "button";
+    combo.textContent = recording === a ? "Pulsa la combinación…" : formatAccel(draft[a], MAC) || "sin atajo";
+    if (!draft[a] && recording !== a) combo.classList.add("none");
+    combo.setAttribute("aria-label", `${ACTION_LABEL[a]}: ${combo.textContent}. Cambiar`);
+    combo.dataset.action = a;
+    combo.addEventListener("click", () => {
+      recording = recording === a ? null : a;
+      delete rowError[a];
+      renderKeysDialog();
+    });
+    const clear = el("button", "kclear", "Quitar");
+    clear.type = "button";
+    clear.disabled = !draft[a];
+    clear.setAttribute("aria-label", `Quitar el atajo de ${ACTION_LABEL[a]}`);
+    clear.addEventListener("click", () => {
+      draft = { ...draft, [a]: null };
+      if (recording === a) recording = null;
+      renderKeysDialog();
+    });
+    row.append(combo, clear);
+    // Un atajo que el sistema no dejó registrar solo funciona con la ventana al frente.
+    const failed = keys && draft[a] === keys.bindings[a] ? keys.failed[a] : undefined;
+    const note = rowError[a] ?? (failed ? `${failed}. Funciona solo con Tandem al frente.` : null);
+    if (note) row.append(el("span", "knote", note));
+    return row;
+  });
+  const focused = (document.activeElement as HTMLElement | null)?.dataset?.action;
+  list.replaceChildren(...rows);
+  // Redibujar quita el foco: devolverlo a la fila que se estaba tocando.
+  const again = recording ?? focused;
+  if (again) $<HTMLButtonElement>(`#keys-list .combo[data-action="${again}"]`).focus();
+  const warn = $("#keys-warning");
+  const text = saveError ?? keys?.warning ?? null;
+  warn.textContent = text ?? "";
+  warn.hidden = !text;
+  const file = $("#keys-file");
+  file.textContent = keys?.file ? `Se guardan en ${keys.file}` : "";
+}
+
+function onKeysKeydown(e: KeyboardEvent) {
+  if (!recording || !$<HTMLDialogElement>("#keys").open) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const a = recording;
+  if (e.code === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    recording = null;
+    renderKeysDialog();
+    return;
+  }
+  const c = readCombo(e);
+  if (c.kind === "partial") return;
+  if (c.kind === "invalid") {
+    rowError[a] = c.reason;
+  } else {
+    const dup = duplicateOf(draft, a, c.accel);
+    if (dup) {
+      rowError[a] = `ya lo usa «${ACTION_LABEL[dup]}»`;
+    } else {
+      draft = { ...draft, [a]: c.accel };
+      delete rowError[a];
+      recording = null;
+    }
+  }
+  renderKeysDialog();
+}
+
+async function saveKeys() {
+  if (!bridge) return;
+  try {
+    keys = await bridge.setShortcuts(draft);
+    saveError = null;
+    renderModeKeys();
+    // Si alguno no se pudo registrar, el diálogo queda abierto para que se vea por qué.
+    if (Object.keys(keys.failed).length === 0) $<HTMLDialogElement>("#keys").close();
+    else renderKeysDialog();
+  } catch (e) {
+    saveError = `No se guardó: ${e instanceof Error ? e.message : String(e)}`;
+    renderKeysDialog();
+  }
+}
+
+function wireKeys() {
+  const dialog = $<HTMLDialogElement>("#keys");
+  $("#keys-btn").addEventListener("click", openKeys);
+  // En la ventana y en captura: grabar no depende de dónde quedó el foco.
+  addEventListener("keydown", onKeysKeydown, true);
+  // Escape mientras se graba cancela la grabación, no el diálogo.
+  dialog.addEventListener("cancel", (e) => {
+    if (recording) e.preventDefault();
+  });
+  $("#keys-reset").addEventListener("click", () => {
+    draft = { ...DEFAULT_BINDINGS };
+    recording = null;
+    for (const a of ACTIONS) delete rowError[a];
+    renderKeysDialog();
+  });
+  $("#keys-cancel").addEventListener("click", () => dialog.close());
+  $("#keys-save").addEventListener("click", () => void saveKeys());
+}
+
 // ---------------------------------------------------------------------------------------
 // Controles
 
@@ -320,12 +467,16 @@ function wire() {
   for (const m of $$<HTMLButtonElement>(".mode")) {
     m.addEventListener("click", () => chooseMode(m.dataset.mode as ModeKey));
   }
+  // Los atajos que el sistema no dejó registrar como globales los atiende la ventana.
   addEventListener("keydown", (e) => {
-    const key = shortcutMode(e);
-    if (!key) return;
+    if (!keys || $<HTMLDialogElement>("#keys").open) return;
+    const a = localAction(e, keys);
+    if (!a) return;
     e.preventDefault();
-    chooseMode(key);
+    const mode = (Object.keys(ACTION_OF_MODE) as ModeKey[]).find((k) => ACTION_OF_MODE[k] === a);
+    if (mode) chooseMode(mode);
   });
+  wireKeys();
 
   for (const side of $$(".side")) {
     const to = side.dataset.owner as Machine;
@@ -379,6 +530,10 @@ async function boot() {
       setSnapshot(s);
     });
     await bridge.onNotice(onNotice);
+    await bridge.onMessage((text) => showMessage(text));
+    keys = await bridge.shortcuts().catch(() => null);
+    $("#keys-btn").hidden = keys === null;
+    renderModeKeys();
     const first = await bridge.snapshot();
     // Si ya llegó uno empujado, es más nuevo que esta respuesta.
     if (!pushed) setSnapshot(first);

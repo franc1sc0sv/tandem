@@ -12,12 +12,27 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Tandem",
         "width": 1280,
         "height": 820,
         "minWidth": 720,
         "minHeight": 480,
         "backgroundColor": "#0f1013"
+      },
+      {
+        "label": "tray",
+        "url": "tray.html",
+        "title": "Tandem",
+        "width": 380,
+        "height": 300,
+        "visible": false,
+        "decorations": false,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "focus": true,
+        "backgroundColor": "#16171b"
       }
     ],
     "security": {
