@@ -8,10 +8,16 @@ use std::time::Duration;
 
 use tandem_core::{Machine, Mode};
 use tandem_display::switcher::ManualSwitcher;
+use tandem_input::geometry::{Rect, Screen, ScreenId};
+use tandem_input::session::SessionConfig;
 use tandem_link::identity::{Identity, TrustStore};
-use tandem_proto::{AgentToUi, Link, PairingStatus, PeerStatus, Reply, TxnEvent, UiCommand};
+use tandem_proto::{
+    AgentToUi, InputStatus, Link, PairingStatus, PeerStatus, Reply, TxnEvent, UiCommand,
+};
 use tandemd::agent::NO_NETWORK;
 use tandemd::daemon::{self, Backends, Daemon};
+use tandemd::input::fake::FakeInputBackends;
+use tandemd::input::{InputOptions, InputSetup};
 use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::{NOT_PAIRED, NOTHING_TO_CONFIRM, NetOptions, PAIRING_IN_PROGRESS};
 use tandemd::orchestrator::{LocalSteps, StepFuture};
@@ -108,6 +114,24 @@ async fn start(
     pairing_port: u16,
     timeouts: PairingTimeouts,
 ) -> Running {
+    start_with_input(
+        machine,
+        identity,
+        (port, peer_port, pairing_port),
+        timeouts,
+        None,
+    )
+    .await
+}
+
+/// Como [`start`], con el motor de entrada en marcha si se le dan backends.
+async fn start_with_input(
+    machine: Machine,
+    identity: &Identity,
+    (port, peer_port, pairing_port): (u16, u16, u16),
+    timeouts: PairingTimeouts,
+    input: Option<InputSetup>,
+) -> Running {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -120,12 +144,17 @@ async fn start(
         loopback(peer_port)
     ))
     .unwrap();
-    let Daemon { agent, network } = daemon::start(
+    let Daemon {
+        agent,
+        network,
+        input,
+    } = daemon::start(
         cfg,
         &paths,
         Backends::Custom {
             local: Arc::new(Ok_),
             manual: Arc::new(ManualSwitcher::new()),
+            input: input.map(Box::new),
         },
         NetOptions {
             bind: Some(loopback(port)),
@@ -141,6 +170,7 @@ async fn start(
         Daemon {
             agent: agent.clone(),
             network,
+            input,
         }
         .serve(listener, async {
             let _ = stopped.await;
@@ -207,6 +237,11 @@ fn code_of(s: &PairingStatus) -> String {
         PairingStatus::Comparing { code, .. } => code.clone(),
         other => panic!("se esperaba un código: {other:?}"),
     }
+}
+
+async fn until_input(agent: &Agent, f: impl Fn(&InputStatus) -> bool) {
+    let mut rx = agent.subscribe_input();
+    within(rx.wait_for(|s| f(s))).await.unwrap();
 }
 
 async fn until_peer(agent: &Agent, want: PeerStatus) {
@@ -484,4 +519,70 @@ async fn without_network_pairing_is_rejected() {
         agent.handle(UiCommand::StartPairing),
         Reply::Rejected(NO_NETWORK.into())
     );
+}
+
+fn input_setup(monitor: &str) -> InputSetup {
+    let screen = Screen::new(
+        ScreenId::Monitor(monitor.into()),
+        Rect::new(0, 0, 1920, 1080),
+        1.0,
+    );
+    InputSetup {
+        backends: Arc::new(FakeInputBackends::new(vec![screen])),
+        opts: InputOptions {
+            session: SessionConfig {
+                heartbeat_interval: Duration::from_millis(100),
+                heartbeat_timeout: Duration::from_millis(1500),
+                ..SessionConfig::default()
+            },
+            report_every: Duration::from_millis(200),
+            screens_every: Duration::from_millis(200),
+            permissions_every: Duration::from_millis(50),
+            retry: Duration::from_millis(100),
+            ..InputOptions::default()
+        },
+    }
+}
+
+/// Los agentes arrancan sin par y con el motor de entrada en marcha. Al emparejar
+/// desde la UI, el motor ve el enlace nuevo y abre la sesión sin reiniciar; al
+/// desemparejar, la cierra.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn pairing_hot_opens_the_input_session() {
+    let (mac_id, pc_id) = (Identity::from_seed([90; 32]), Identity::from_seed([91; 32]));
+    let (mac_port, pc_port, pairing_port) = (free_port(), free_port(), free_port());
+    let timeouts = PairingTimeouts::default();
+    let mut mac = start_with_input(
+        Machine::Mac,
+        &mac_id,
+        (mac_port, pc_port, pairing_port),
+        timeouts,
+        Some(input_setup("m34")),
+    )
+    .await;
+    let mut pc = start_with_input(
+        Machine::Pc,
+        &pc_id,
+        (pc_port, mac_port, pairing_port),
+        timeouts,
+        Some(input_setup("m34")),
+    )
+    .await;
+    assert!(!mac.agent.input_status().session);
+
+    assert_eq!(mac.ask(UiCommand::StartPairing).await, Reply::Done);
+    assert_eq!(pc.ask(UiCommand::StartPairing).await, Reply::Done);
+    mac.until_pairing(comparing).await;
+    pc.until_pairing(comparing).await;
+    assert_eq!(mac.ask(UiCommand::ConfirmPairing).await, Reply::Done);
+    assert_eq!(pc.ask(UiCommand::ConfirmPairing).await, Reply::Done);
+
+    until_input(&mac.agent, |s| s.session).await;
+    until_input(&pc.agent, |s| s.session).await;
+
+    assert_eq!(pc.ask(UiCommand::Unpair).await, Reply::Done);
+    until_input(&pc.agent, |s| !s.session).await;
+    until_input(&mac.agent, |s| !s.session).await;
+    pc.stop().await;
+    mac.stop().await;
 }

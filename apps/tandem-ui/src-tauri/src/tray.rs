@@ -194,6 +194,7 @@ pub fn popover_origin(click: (f64, f64), w: f64, h: f64, work: Area) -> (f64, f6
 mod tests {
     use proptest::prelude::*;
     use tandem_core::BuiltinDisplay;
+    use tandem_proto::InputStatus;
     use tandemd::AgentConfig;
 
     use super::*;
@@ -286,6 +287,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             state: s,
             peer: PeerView::Unpaired,
             pairing: PairingView::Idle,
+            input: InputStatus::new(Mac).into(),
         };
         assert_eq!(mode_for(ModeKey::SoloPc, &ok), Ok(Mode::SoloPc));
         let down = Snapshot::Unavailable {
@@ -324,6 +326,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             state: state(Pc, Mac),
             peer: paired(),
             pairing: PairingView::Idle,
+            input: InputStatus::new(Mac).into(),
         });
         assert_eq!(v.current, Some(ModeKey::Shared));
         assert!(v.modes_enabled);
@@ -336,6 +339,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             state: State::initial(&desk()),
             peer: paired(),
             pairing: PairingView::Idle,
+            input: InputStatus::new(Mac).into(),
         });
         assert_eq!(off.status, "Solo Mac · PC apagada");
 
@@ -346,6 +350,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             state: State::initial(&desk()),
             peer: PeerView::Unpaired,
             pairing: PairingView::Idle,
+            input: InputStatus::new(Mac).into(),
         });
         assert_eq!(alone.status, "Solo Mac · PC apagada · sin par emparejado");
     }
@@ -369,6 +374,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             state: state(Mac, Mac),
             peer: paired(),
             pairing: PairingView::Idle,
+            input: InputStatus::new(Mac).into(),
         };
         let v = MenuView::of(&empty);
         assert!(!v.modes_enabled);

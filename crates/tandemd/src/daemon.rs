@@ -12,6 +12,7 @@ use tokio::task::JoinSet;
 
 use crate::agent::Agent;
 use crate::config::AgentConfig;
+use crate::input::{Input, InputSetup};
 use crate::ipc::{Listener, serve_connection};
 use crate::network::{NetError, NetOptions, Network};
 use crate::orchestrator::LocalSteps;
@@ -20,13 +21,16 @@ use crate::store::{StateStore, StoreError};
 
 /// Los pasos que esta máquina sabe hacer.
 pub enum Backends {
-    /// Los de la plataforma ([`crate::DisplaySteps::platform`]).
+    /// Los de la plataforma ([`crate::DisplaySteps::platform`] y
+    /// [`InputSetup::platform`]).
     Platform,
     /// Otros (en las pruebas, simulados). `manual` es el que `local` usa para los
-    /// cambios de entrada a mano, como en [`Agent::with_backends`].
+    /// cambios de entrada a mano, como en [`Agent::with_backends`]. Sin `input` no hay
+    /// teclado, mouse ni portapapeles compartidos.
     Custom {
         local: Arc<dyn LocalSteps>,
         manual: Arc<ManualSwitcher>,
+        input: Option<Box<InputSetup>>,
     },
 }
 
@@ -44,6 +48,8 @@ pub enum StartError {
 pub struct Daemon {
     pub agent: Arc<Agent>,
     pub network: Network,
+    /// El motor de entrada; `None` sin backends de entrada.
+    pub input: Option<Input>,
 }
 
 /// Arma el agente completo sobre el directorio de datos de `paths`: el estado
@@ -56,10 +62,19 @@ pub fn start(
     net: NetOptions,
 ) -> Result<Daemon, StartError> {
     let store = StateStore::new(paths.state_file());
-    let agent = Arc::new(match backends {
-        Backends::Platform => Agent::with_platform(cfg, store),
-        Backends::Custom { local, manual } => Agent::with_backends(cfg, store, local, manual),
-    });
+    let me = cfg.machine;
+    let (agent, input) = match backends {
+        Backends::Platform => (
+            Agent::with_platform(cfg, store),
+            Some(Box::new(InputSetup::platform(me))),
+        ),
+        Backends::Custom {
+            local,
+            manual,
+            input,
+        } => (Agent::with_backends(cfg, store, local, manual), input),
+    };
+    let agent = Arc::new(agent);
     let identity =
         Identity::load_or_create(&paths.identity_file()).map_err(StartError::Identity)?;
     tracing::info!(
@@ -68,7 +83,13 @@ pub fn start(
     );
     let trust = TrustStore::open(paths.trust_file()).map_err(StartError::Trust)?;
     let network = Network::start(agent.clone(), &identity, trust, net)?;
-    Ok(Daemon { agent, network })
+    let input =
+        input.map(|setup| crate::input::start(agent.clone(), network.active_link(), *setup));
+    Ok(Daemon {
+        agent,
+        network,
+        input,
+    })
 }
 
 impl Daemon {
@@ -79,6 +100,8 @@ impl Daemon {
         shutdown: impl Future<Output = ()>,
     ) -> Result<(), StoreError> {
         let result = run(self.agent, listener, shutdown).await;
+        // Primero se suelta la captura: el teclado y el mouse vuelven a esta máquina.
+        drop(self.input);
         self.network.shutdown().await;
         result
     }

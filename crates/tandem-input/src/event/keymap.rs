@@ -153,6 +153,18 @@ pub fn from_win(code: WinScancode) -> Option<HidUsage> {
     tables().from_win.get(&code).copied()
 }
 
+/// La tecla con este nombre de `KeyboardEvent.code` (`ScrollLock`, `KeyL`,
+/// `ControlLeft`), para las teclas de la configuración. Distingue mayúsculas.
+pub fn from_code_name(name: &str) -> Option<HidUsage> {
+    let code: keycode::KeyMappingCode = name.parse().ok()?;
+    PAGES.iter().find_map(|&(page, max)| {
+        (0..=max).find_map(|id| {
+            let km = keycode::KeyMap::from_usb_code(page, id).ok()?;
+            (km.code == Some(code)).then_some(HidUsage::new(page, id))
+        })
+    })
+}
+
 /// Todas las teclas con código directo en Mac, en orden HID.
 pub fn mac_usages() -> impl Iterator<Item = (HidUsage, MacKeycode)> {
     tables().to_mac.iter().map(|(u, c)| (*u, *c))
@@ -167,6 +179,17 @@ pub fn win_usages() -> impl Iterator<Item = (HidUsage, WinScancode)> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
+
+    #[test]
+    fn teclas_por_su_nombre_de_code() {
+        assert_eq!(from_code_name("ScrollLock"), Some(HidUsage::key(0x47)));
+        assert_eq!(from_code_name("KeyL"), Some(HidUsage::key(0x0F)));
+        assert_eq!(from_code_name("ControlLeft"), Some(HidUsage::key(0xE0)));
+        assert_eq!(from_code_name("F14"), Some(HidUsage::key(0x69)));
+        assert_eq!(from_code_name("scrolllock"), None);
+        assert_eq!(from_code_name(""), None);
+        assert_eq!(from_code_name("NoExiste"), None);
+    }
 
     /// Las 105 teclas de un teclado ISO español de PC, por código físico HID.
     /// La `ç` está en Backslash (0x31): así la reportan Windows y macOS.

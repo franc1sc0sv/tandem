@@ -22,6 +22,24 @@ peers = [
     { kind = "ethernet", addr = "10.77.2.1:47770" },
 ]
 
+[input]
+# Quién tiene el teclado y el mouse al arrancar, hasta que el hub decida (DESIGN §7).
+server = "mac"
+# Bloquea el cursor en la máquina donde está (nombres de KeyboardEvent.code, todas a
+# la vez). ScrollLock de un teclado de PC llega a la Mac como F14 y vale igual.
+lock_shortcut = ["ScrollLock"]
+clipboard = true
+
+# El teclado y el mouse que viajan en el hub USB-C, por VID:PID (en Windows, el
+# Administrador de dispositivos; en macOS, Información del sistema → USB). El servidor es
+# la máquina donde aparecen. Sin esta sección los roles no cambian solos.
+[input.hub]
+keyboard = "046d:c33f"
+mouse = "046d:c539"
+
+# Cmd↔Ctrl ya es lo predeterminado; para cambiarlo, una tabla por dirección con los ocho
+# modificadores, por ejemplo [input.remap.mac_to_win] meta_left = "control_left", ...
+
 [[monitors]]
 id = "m34"
 label = '34"'
@@ -32,4 +50,6 @@ ddc = { hdmi = 0x06, display_port = 0x0F }
 [[monitors]]
 id = "m32"
 label = '32"'
+# Sin edid_model no se lo encuentra en el escritorio: ni para quitarlo (fantasma) ni para
+# la geometría del teclado y mouse, que lo deja fuera. Ponerlo al confirmar el modelo.
 wiring = { pc = "displayport", mac = "hdmi" }

@@ -9,7 +9,7 @@
 use tandem_core::Machine;
 
 use super::msg::{MotionDatagram, StreamMsg};
-use crate::event::{InputEvent, Pressed, Scroll};
+use crate::event::{HidUsage, InputEvent, KeyState, Pressed, Scroll};
 use crate::geometry::{Layout, Motion, Point};
 
 /// Lo que el driver tiene que hacer, en este orden.
@@ -63,6 +63,9 @@ pub struct ServerSession {
     /// El cliente recibió por el stream la posición exacta después del último
     /// movimiento.
     synced: bool,
+    /// Atajo que bloquea el cursor en la máquina donde está; vacío = sin atajo.
+    lock_shortcut: Vec<HidUsage>,
+    locked: bool,
 }
 
 impl ServerSession {
@@ -80,6 +83,52 @@ impl ServerSession {
             resync_every,
             since_resync: 0,
             synced: true,
+            lock_shortcut: Vec::new(),
+            locked: false,
+        }
+    }
+
+    /// Atajo de teclado (todas las teclas a la vez) que bloquea y desbloquea el
+    /// cursor en la máquina donde está. Las teclas siguen su camino normal.
+    pub fn with_lock_shortcut(mut self, keys: Vec<HidUsage>) -> Self {
+        self.lock_shortcut = keys;
+        self
+    }
+
+    /// Si el cursor está bloqueado: no cruza a la otra máquina en ningún sentido.
+    pub fn is_locked(&self) -> bool {
+        self.locked
+    }
+
+    pub fn set_locked(&mut self, locked: bool) {
+        self.locked = locked;
+    }
+
+    /// Con la tecla recién presionada, ¿se completó el atajo?
+    fn shortcut_hit(&self, usage: HidUsage) -> bool {
+        let canon = canonical_key(usage);
+        !self.lock_shortcut.is_empty()
+            && self
+                .lock_shortcut
+                .iter()
+                .any(|k| canonical_key(*k) == canon)
+            && self.lock_shortcut.iter().all(|k| {
+                self.pressed.is_key_pressed(*k)
+                    || alias_key(*k).is_some_and(|a| self.pressed.is_key_pressed(a))
+            })
+    }
+
+    /// Lleva la cuenta de lo presionado y del atajo de bloqueo.
+    fn record(&mut self, event: &InputEvent) {
+        self.pressed.record(event);
+        if let InputEvent::Key {
+            usage,
+            state: KeyState::Pressed,
+        } = *event
+            && self.shortcut_hit(usage)
+        {
+            self.locked = !self.locked;
+            tracing::info!(bloqueado = self.locked, "atajo de bloqueo del cursor");
         }
     }
 
@@ -122,9 +171,7 @@ impl ServerSession {
     /// descartan, porque aplicarlos tarde haría cruzar sin que el usuario lo pida.
     pub fn catch_up(&mut self, event: InputEvent) {
         match event {
-            InputEvent::Key { .. } | InputEvent::Button { .. } => {
-                self.pressed.record(&event);
-            }
+            InputEvent::Key { .. } | InputEvent::Button { .. } => self.record(&event),
             InputEvent::MotionAbsolute { x, y } if !self.is_remote() => {
                 self.local = Point::new(x, y);
             }
@@ -137,10 +184,11 @@ impl ServerSession {
 
     fn handle_local(&mut self, event: InputEvent, out: &mut Vec<ServerOutput>) {
         match event {
-            InputEvent::Key { .. } | InputEvent::Button { .. } => {
-                self.pressed.record(&event);
-            }
+            InputEvent::Key { .. } | InputEvent::Button { .. } => self.record(&event),
             InputEvent::MotionAbsolute { x, y } => self.local = Point::new(x, y),
+            InputEvent::MotionRelative { dx, dy } if self.locked => {
+                self.local = self.layout.step_within(self.machine, self.local, dx, dy);
+            }
             InputEvent::MotionRelative { dx, dy } => {
                 match self.layout.step(self.machine, self.local, dx, dy) {
                     Motion::Local(p) => self.local = p,
@@ -156,13 +204,13 @@ impl ServerSession {
     fn handle_remote(&mut self, event: InputEvent, pos: Point, out: &mut Vec<ServerOutput>) {
         match event {
             InputEvent::Key { usage, state } => {
-                self.pressed.record(&event);
+                self.record(&event);
                 // Se reenvía siempre: el cliente decide si cambia algo (una tecla
                 // que se apretó antes de entrar no está presionada allá).
                 out.push(ServerOutput::Stream(StreamMsg::Key { usage, state }));
             }
             InputEvent::Button { button, state } => {
-                self.pressed.record(&event);
+                self.record(&event);
                 out.extend(self.flush().map(ServerOutput::Datagram));
                 out.push(ServerOutput::Stream(StreamMsg::Button {
                     button,
@@ -198,7 +246,12 @@ impl ServerSession {
             Some(s) => s.to_native(lx, ly),
             None => (lx, ly),
         };
-        match self.layout.step(remote, pos, rx, ry) {
+        let motion = if self.locked {
+            Motion::Local(self.layout.step_within(remote, pos, rx, ry))
+        } else {
+            self.layout.step(remote, pos, rx, ry)
+        };
+        match motion {
             Motion::Local(p) => {
                 // El delta que viaja es lógico; se mide sobre lo que de verdad se
                 // movió (contra un borde sin cruce, nada).
@@ -322,6 +375,31 @@ impl ServerSession {
         self.focus = Focus::Local;
         self.pending = Pending::default();
         vec![ServerOutput::Grab(false), ServerOutput::Warp(self.local)]
+    }
+}
+
+/// macOS entrega PrintScreen, ScrollLock y Pause de un teclado de PC como F13, F14
+/// y F15 ([`crate::event::keymap`]): para el atajo son la misma tecla.
+fn alias_key(usage: HidUsage) -> Option<HidUsage> {
+    const PAIRS: [(u16, u16); 3] = [(0x46, 0x68), (0x47, 0x69), (0x48, 0x6A)];
+    if usage.page != crate::event::PAGE_KEYBOARD {
+        return None;
+    }
+    PAIRS.iter().find_map(|&(pc, mac)| {
+        if usage.id == pc {
+            Some(HidUsage::key(mac))
+        } else if usage.id == mac {
+            Some(HidUsage::key(pc))
+        } else {
+            None
+        }
+    })
+}
+
+fn canonical_key(usage: HidUsage) -> HidUsage {
+    match alias_key(usage) {
+        Some(a) if a.id < usage.id => a,
+        _ => usage,
     }
 }
 
@@ -655,6 +733,72 @@ mod tests {
                 pos: Point::new(3540.0, 599.0)
             })]
         );
+    }
+
+    #[test]
+    fn el_atajo_bloquea_el_cursor_en_su_maquina() {
+        // Ctrl izquierdo + ScrollLock.
+        let mut s = session().with_lock_shortcut(vec![HidUsage::key(0xE0), HidUsage::key(0x47)]);
+        s.handle(InputEvent::MotionAbsolute {
+            x: edge_pc(),
+            y: 720.0,
+        });
+        // ScrollLock solo no alcanza.
+        s.handle(key(0x47, KeyState::Pressed));
+        s.handle(key(0x47, KeyState::Released));
+        assert!(!s.is_locked());
+        s.handle(key(0xE0, KeyState::Pressed));
+        s.handle(key(0x47, KeyState::Pressed));
+        assert!(s.is_locked());
+        assert!(s.handle(rel(50.0, 0.0)).is_empty(), "bloqueado no cruza");
+        assert!(!s.is_remote());
+        assert_eq!(s.local_cursor(), Point::new(edge_pc(), 720.0));
+        // Repetir el atajo desbloquea y el cursor cruza otra vez.
+        s.handle(key(0x47, KeyState::Released));
+        s.handle(key(0x47, KeyState::Pressed));
+        s.handle(key(0x47, KeyState::Released));
+        s.handle(key(0xE0, KeyState::Released));
+        assert!(!s.is_locked());
+        assert!(matches!(
+            s.handle(rel(5.0, 0.0))[0],
+            ServerOutput::Grab(true)
+        ));
+    }
+
+    #[test]
+    fn bloqueado_en_la_otra_maquina_no_vuelve() {
+        let mut s = session().with_lock_shortcut(vec![HidUsage::key(0x47)]);
+        cross(&mut s);
+        // El atajo también llega al cliente: es una tecla más.
+        let out = s.handle(key(0x47, KeyState::Pressed));
+        assert!(matches!(
+            out[0],
+            ServerOutput::Stream(StreamMsg::Key { .. })
+        ));
+        assert!(s.is_locked());
+        assert!(s.handle(rel(-500.0, 0.0)).is_empty());
+        assert!(s.is_remote(), "contra el borde, sin volver");
+        assert_eq!(s.remote_cursor().map(|p| p.x), Some(3440.0));
+    }
+
+    #[test]
+    fn scroll_lock_de_un_teclado_de_pc_en_la_mac_es_f14() {
+        let mut s = ServerSession::new(Machine::Mac, layout_pc_mac(), Point::new(3500.0, 10.0), 4)
+            .with_lock_shortcut(vec![HidUsage::key(0x47)]);
+        s.handle(key(0x69, KeyState::Pressed));
+        assert!(s.is_locked());
+        assert_eq!(canonical_key(HidUsage::key(0x69)), HidUsage::key(0x47));
+        assert_eq!(canonical_key(HidUsage::key(0x04)), HidUsage::key(0x04));
+        assert_eq!(alias_key(HidUsage::consumer(0x47)), None);
+    }
+
+    #[test]
+    fn sin_atajo_nunca_se_bloquea() {
+        let mut s = session();
+        s.handle(key(0x47, KeyState::Pressed));
+        assert!(!s.is_locked());
+        s.set_locked(true);
+        assert!(s.is_locked());
     }
 
     #[test]

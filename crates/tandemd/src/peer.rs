@@ -16,12 +16,12 @@ use std::sync::Arc;
 use tandem_core::{Machine, State, Step};
 use tandem_link::manager::{LinkKind, Snapshot};
 use tandem_link::transport::{Connection, ControlStream, TransportError};
-use tandem_proto::{ControlMsg, Hello, Peer};
+use tandem_proto::{Channel, ControlMsg, Hello, Peer};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
-use crate::agent::Agent;
+use crate::agent::{Agent, IncomingChannel};
 use crate::ipc::Framed;
 use crate::orchestrator::{PEER_LOST, PeerLink, StepFuture};
 use crate::store::reconcile;
@@ -58,7 +58,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> ControlChannel for Fram
 
 enum Outgoing {
     Step(Step, oneshot::Sender<Result<(), String>>),
-    State(State),
+    Msg(ControlMsg),
 }
 
 /// Pide pasos al otro agente por un stream propio. Al soltarlo se cierra el stream.
@@ -103,7 +103,15 @@ impl PeerLink for PeerClient {
     }
 
     fn publish_state(&self, state: &State) {
-        let _ = self.tx.send(Outgoing::State(state.clone()));
+        self.send(ControlMsg::State(state.clone()));
+    }
+}
+
+impl PeerClient {
+    /// Manda un aviso sin respuesta (estado, hub, pantallas). Si el stream ya se cerró
+    /// se pierde: quien avisa lo repite al aparecer el enlace siguiente.
+    pub fn send(&self, msg: ControlMsg) {
+        let _ = self.tx.send(Outgoing::Msg(msg));
     }
 }
 
@@ -150,7 +158,7 @@ async fn client_loop<C: ControlChannel>(mut chan: C, mut rx: mpsc::UnboundedRece
                 pending.insert(id, reply);
                 chan.send(&ControlMsg::ExecuteStep { id, step }).await
             }
-            Outgoing::State(state) => chan.send(&ControlMsg::State(state)).await,
+            Outgoing::Msg(msg) => chan.send(&msg).await,
         };
         if let Err(e) = sent {
             tracing::debug!("stream de pedidos al otro agente: {e}");
@@ -191,6 +199,17 @@ where
 /// stream (cayó el enlace), el turno del orquestador lo hace esperar igual.
 pub async fn serve<C: ControlChannel>(mut chan: C, agent: Arc<Agent>) -> Result<(), String> {
     while let Some(msg) = chan.recv().await? {
+        respond(&mut chan, &agent, msg).await?;
+    }
+    Ok(())
+}
+
+async fn respond<C: ControlChannel>(
+    chan: &mut C,
+    agent: &Arc<Agent>,
+    msg: ControlMsg,
+) -> Result<(), String> {
+    {
         match msg {
             ControlMsg::ExecuteStep { id, step } => {
                 let outcome = agent.orchestrator().execute_for_peer(&step).await;
@@ -210,10 +229,33 @@ pub async fn serve<C: ControlChannel>(mut chan: C, agent: Arc<Agent>) -> Result<
                     tracing::warn!("no se pudo guardar el estado que mandó el otro agente: {e}");
                 }
             }
+            ControlMsg::Hub(report) => {
+                agent.inbox().hub.send_replace(Some(report));
+            }
+            ControlMsg::Screens(screens) => {
+                agent.inbox().screens.send_replace(Some(screens));
+            }
+            // Solo vale como primer mensaje ([`accept_streams`]).
+            ControlMsg::Open(channel) => {
+                return Err(format!("canal {channel:?} abierto a mitad de un stream"));
+            }
             ControlMsg::Pong { .. } | ControlMsg::StepResult { .. } => {}
         }
     }
     Ok(())
+}
+
+/// Abre un stream propio de `channel` sobre una conexión con el otro agente
+/// ([`ControlMsg::Open`]); el otro lado lo entrega con [`crate::agent::PeerInbox`].
+pub async fn open_channel(
+    conn: &Connection,
+    me: Machine,
+    channel: Channel,
+) -> Result<ControlStream, PeerError> {
+    let (mut stream, theirs) = conn.open_control(&Hello::new(Peer::Agent(me))).await?;
+    check_peer(me, theirs.peer)?;
+    stream.send(&ControlMsg::Open(channel)).await?;
+    Ok(stream)
 }
 
 /// Atiende cada stream que el otro agente abra en `conn`, hasta que la conexión se cierre.
@@ -232,13 +274,37 @@ pub async fn accept_streams(conn: Connection, agent: Arc<Agent>) {
             tracing::warn!("{e}");
             continue;
         }
-        let agent = agent.clone();
+        let (agent, conn) = (agent.clone(), conn.clone());
         tokio::spawn(async move {
-            if let Err(e) = serve(stream, agent).await {
+            if let Err(e) = serve_stream(stream, conn, agent).await {
                 tracing::debug!("stream del otro agente terminado: {e}");
             }
         });
     }
+}
+
+/// Un stream que abrió el otro agente: el de un canal propio se entrega entero al motor
+/// de entrada; cualquier otro es de pedidos (o de pings) y se atiende aquí.
+async fn serve_stream(
+    mut stream: ControlStream,
+    conn: Connection,
+    agent: Arc<Agent>,
+) -> Result<(), String> {
+    let first = match stream.recv::<ControlMsg>().await {
+        Ok(Some(first)) => first,
+        Ok(None) => return Ok(()),
+        Err(e) => return Err(e.to_string()),
+    };
+    if let ControlMsg::Open(channel) = first {
+        agent.inbox().deliver(IncomingChannel {
+            channel,
+            conn,
+            stream,
+        });
+        return Ok(());
+    }
+    respond(&mut stream, &agent, first).await?;
+    serve(stream, agent).await
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -383,6 +449,37 @@ mod tests {
         ));
         drop(f);
         task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn serve_keeps_the_peers_input_reports() {
+        let dir = tempfile::tempdir().unwrap();
+        let (pc, _) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (a, b) = duplex(64 * 1024);
+        let task = tokio::spawn(serve(Framed::new(b), pc.clone()));
+        let client = PeerClient::spawn(Framed::new(a));
+        let report = tandem_proto::HubReport {
+            hub: true,
+            server: Machine::Mac,
+        };
+        let screens = vec![tandem_proto::ScreenRect {
+            monitor: None,
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 10,
+            scale_milli: 1000,
+        }];
+        let (mut hub, mut scr) = (pc.inbox().hub.subscribe(), pc.inbox().screens.subscribe());
+        client.send(ControlMsg::Hub(report));
+        client.send(ControlMsg::Screens(screens.clone()));
+        hub.wait_for(|h| *h == Some(report)).await.unwrap();
+        scr.wait_for(|s| s.as_ref() == Some(&screens))
+            .await
+            .unwrap();
+        // Abrir un canal a mitad del stream de pedidos lo corta.
+        client.send(ControlMsg::Open(Channel::Input));
+        assert!(task.await.unwrap().is_err());
     }
 
     #[test]

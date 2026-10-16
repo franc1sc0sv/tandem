@@ -12,9 +12,12 @@ anyhow.workspace = true
 dirs.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tandem-clipboard = { path = "../tandem-clipboard" }
 tandem-core = { path = "../tandem-core" }
 tandem-display = { path = "../tandem-display" }
+tandem-input = { path = "../tandem-input" }
 tandem-link = { path = "../tandem-link" }
+tandem-peripherals = { path = "../tandem-peripherals" }
 tandem-power = { path = "../tandem-power" }
 tandem-proto = { path = "../tandem-proto" }
 thiserror.workspace = true

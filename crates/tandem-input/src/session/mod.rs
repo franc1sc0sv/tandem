@@ -21,6 +21,7 @@
 mod client;
 pub mod fake;
 pub mod msg;
+mod platform;
 #[cfg(test)]
 mod props;
 mod quic;
@@ -63,6 +64,11 @@ pub trait Injector: Send {
     type Error: Display;
 
     fn inject(&mut self, event: &InputEvent) -> Result<(), Self::Error>;
+
+    /// Las pantallas de esta máquina cambiaron: volver a leerlas.
+    fn refresh(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
 }
 
 /// Tiempos de la sesión.

@@ -124,6 +124,8 @@ tools/               scripts de diagnóstico (DDC, etc.)
 - **Inyección** en el cliente: `CGEventPost` en macOS; `SendInput` con scancodes en Windows.
 - **Teclas**: representación canónica por código físico (USB HID), así se respeta la distribución física ES/LatAm de cada sistema. Cmd↔Ctrl configurable.
 - **Transporte**: el movimiento del mouse va en datagramas no confiables (coalescidos, baja latencia); las teclas y clics, en un stream confiable. Todo por el enlace cifrado de Tandem, con cambio de enlace inmediato.
+  - Sobre la conexión del enlace activo, la entrada y el portapapeles van cada uno en su propio stream: quien lo abre manda `ControlMsg::Open(canal)` como primer mensaje y el otro agente se lo entrega al motor de entrada. El de entrada lo abre el servidor; el del portapapeles, la Mac.
+  - Los roles se deciden en cada agente con lo que ve del hub y el reporte del otro (`ControlMsg::Hub`); las pantallas de cada máquina viajan con `ControlMsg::Screens` para que el servidor arme la geometría de las dos.
 - **Geometría**: solo cuentan las pantallas que cada máquina está mostrando de verdad, así el cursor nunca pasa por un monitor fantasma. Se recalcula en caliente con cada cambio de modo.
 - **Portapapeles**: texto, texto enriquecido e imágenes en v1; archivos en v3, por el plano de datos.
 - **Windows, escritorio seguro**: el agente corre como servicio SYSTEM y lanza un helper en el escritorio activo (incluido Winlogon), para que el mouse funcione en UAC y en la pantalla de inicio de sesión.

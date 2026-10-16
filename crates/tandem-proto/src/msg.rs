@@ -76,6 +76,46 @@ pub enum ControlMsg {
     },
     GetState,
     State(State),
+    /// Primer mensaje de un stream que no es de pedidos: lo que sigue por él son los
+    /// mensajes de ese canal, no [`ControlMsg`].
+    Open(Channel),
+    /// Dónde ve el hub este agente y a quién tiene de servidor de teclado y mouse.
+    Hub(HubReport),
+    /// Las pantallas visibles de quien lo manda, para la geometría del teclado y mouse.
+    Screens(Vec<ScreenRect>),
+}
+
+/// Los streams propios de la entrada y del portapapeles, aparte del de pedidos: una
+/// imagen grande no frena las teclas, y cada uno tiene sus propios mensajes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Channel {
+    /// La sesión de teclado y mouse: la abre el servidor.
+    Input,
+    /// El portapapeles: lo abre la Mac.
+    Clipboard,
+}
+
+/// Lo que un agente le reporta al otro para decidir los roles (DESIGN §7).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HubReport {
+    /// El hub (ya con antirrebote) está en la máquina de quien lo manda.
+    pub hub: bool,
+    /// Quién es el servidor para quien lo manda.
+    pub server: Machine,
+}
+
+/// Una pantalla visible, en las coordenadas nativas del cursor de su máquina.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenRect {
+    /// El monitor de la configuración; `None` es la pantalla integrada de la MacBook.
+    pub monitor: Option<MonitorId>,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    /// Unidades nativas por punto lógico, en milésimas (1500 = 150 %): entero para que
+    /// el mensaje se pueda comparar.
+    pub scale_milli: u32,
 }
 
 /// Emparejamiento por comparación numérica (DESIGN §9), en el orden en que se mandan:
@@ -171,6 +211,8 @@ pub enum UiCommand {
     CancelPairing,
     /// Olvidar al par: se borra de la confianza y deja de buscarse.
     Unpair,
+    /// Quién es el servidor de teclado y mouse y si a esta máquina le faltan permisos.
+    GetInput,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,6 +230,8 @@ pub enum AgentToUi {
     Peer(PeerStatus),
     /// Aviso espontáneo con cada paso del emparejamiento.
     Pairing(PairingStatus),
+    /// Aviso espontáneo cuando cambia el teclado y mouse (roles, sesión, permisos).
+    Input(InputStatus),
 }
 
 /// El emparejamiento visto desde la UI.
@@ -210,6 +254,48 @@ pub enum PairingStatus {
     Done { peer: String },
     /// No se emparejó; no se guardó nada.
     Failed { reason: String },
+}
+
+/// El teclado y el mouse compartidos, vistos desde este agente (el chip de la UI).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputStatus {
+    /// La máquina que tiene el teclado y el mouse.
+    pub server: Machine,
+    /// Si el hub está en esta máquina; `None` sin detección (sin `[input.hub]` o
+    /// sin escáner en este sistema).
+    pub hub_here: Option<bool>,
+    /// La sesión de entrada con el otro agente está establecida.
+    pub session: bool,
+    /// El cursor está bloqueado en la pantalla actual (atajo del servidor).
+    pub locked: bool,
+    /// Permisos del sistema que faltan para capturar o inyectar (macOS). Vacío si
+    /// no falta ninguno.
+    pub missing: Vec<InputPermission>,
+    /// Por qué el motor de entrada de esta máquina no funciona, si no funciona.
+    pub problem: Option<String>,
+}
+
+impl InputStatus {
+    /// Antes de saber nada: el servidor con el que arranca el agente.
+    pub fn new(server: Machine) -> Self {
+        InputStatus {
+            server,
+            hub_here: None,
+            session: false,
+            locked: false,
+            missing: Vec::new(),
+            problem: None,
+        }
+    }
+}
+
+/// Permisos de macOS (TCC) que necesita el motor de entrada.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InputPermission {
+    /// Accesibilidad: capturar tragando eventos e inyectar.
+    Accessibility,
+    /// Monitorización de entrada: ver el teclado.
+    InputMonitoring,
 }
 
 /// El otro agente visto desde este.
@@ -276,6 +362,7 @@ pub enum Reply {
     Desk(Config),
     Peer(PeerStatus),
     Pairing(PairingStatus),
+    Input(InputStatus),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso y nunca una pantalla
@@ -442,6 +529,14 @@ pub(crate) mod samples {
             },
             ControlMsg::GetState,
             ControlMsg::State(state()),
+            ControlMsg::Open(Channel::Input),
+            ControlMsg::Open(Channel::Clipboard),
+            ControlMsg::Hub(HubReport {
+                hub: true,
+                server: Machine::Pc,
+            }),
+            ControlMsg::Screens(vec![]),
+            ControlMsg::Screens(screens()),
         ];
         v.extend(
             steps()
@@ -460,6 +555,9 @@ pub(crate) mod samples {
             ControlMsg::StepResult { .. } => 3,
             ControlMsg::GetState => 4,
             ControlMsg::State(_) => 5,
+            ControlMsg::Open(_) => 6,
+            ControlMsg::Hub(_) => 7,
+            ControlMsg::Screens(_) => 8,
         }
     }
 
@@ -507,6 +605,27 @@ pub(crate) mod samples {
         ]
     }
 
+    pub fn screens() -> Vec<ScreenRect> {
+        vec![
+            ScreenRect {
+                monitor: Some("m34".into()),
+                x: -3440,
+                y: 0,
+                width: 3440,
+                height: 1440,
+                scale_milli: 1000,
+            },
+            ScreenRect {
+                monitor: None,
+                x: 0,
+                y: 0,
+                width: 1512,
+                height: 982,
+                scale_milli: 2000,
+            },
+        ]
+    }
+
     pub fn pairing_status_arm(s: &PairingStatus) -> usize {
         match s {
             PairingStatus::Idle => 0,
@@ -515,6 +634,23 @@ pub(crate) mod samples {
             PairingStatus::Done { .. } => 3,
             PairingStatus::Failed { .. } => 4,
         }
+    }
+
+    pub fn input_status() -> Vec<InputStatus> {
+        vec![
+            InputStatus::new(Machine::Mac),
+            InputStatus {
+                server: Machine::Pc,
+                hub_here: Some(true),
+                session: true,
+                locked: true,
+                missing: vec![
+                    InputPermission::Accessibility,
+                    InputPermission::InputMonitoring,
+                ],
+                problem: Some("falta el permiso de Accesibilidad".into()),
+            },
+        ]
     }
 
     pub fn ui_requests() -> Vec<UiRequest> {
@@ -538,6 +674,7 @@ pub(crate) mod samples {
             UiCommand::ConfirmPairing,
             UiCommand::CancelPairing,
             UiCommand::Unpair,
+            UiCommand::GetInput,
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
         cmds.into_iter()
@@ -564,6 +701,7 @@ pub(crate) mod samples {
             UiCommand::ConfirmPairing => 10,
             UiCommand::CancelPairing => 11,
             UiCommand::Unpair => 12,
+            UiCommand::GetInput => 13,
         }
     }
 
@@ -666,12 +804,17 @@ pub(crate) mod samples {
                 reason: String::new(),
                 stranded: vec![],
             }),
+            AgentToUi::Reply {
+                id: 7,
+                reply: Reply::Input(InputStatus::new(Machine::Pc)),
+            },
         ];
         v.push(AgentToUi::Reply {
             id: 7,
             reply: Reply::Pairing(PairingStatus::Searching),
         });
         v.extend(pairing_statuses().into_iter().map(AgentToUi::Pairing));
+        v.extend(input_status().into_iter().map(AgentToUi::Input));
         v.extend(txn_events().into_iter().map(AgentToUi::Txn));
         v.extend(links().into_iter().map(|link| {
             AgentToUi::Peer(PeerStatus::Paired {
@@ -703,6 +846,7 @@ pub(crate) mod samples {
             AgentToUi::Power(_) => 4,
             AgentToUi::Peer(_) => 5,
             AgentToUi::Pairing(_) => 6,
+            AgentToUi::Input(_) => 7,
         }
     }
 
@@ -715,6 +859,7 @@ pub(crate) mod samples {
             Reply::Desk(_) => 4,
             Reply::Peer(_) => 5,
             Reply::Pairing(_) => 6,
+            Reply::Input(_) => 7,
         }
     }
 
@@ -757,10 +902,10 @@ mod tests {
         covers(&steps(), step_arm, 7);
         covers(&modes(), mode_arm, 3);
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
-        covers(&control(), control_arm, 6);
+        covers(&control(), control_arm, 9);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 13);
-        covers(&to_ui(), to_ui_arm, 7);
+        covers(&cmds, ui_command_arm, 14);
+        covers(&to_ui(), to_ui_arm, 8);
         covers(&pairing(), pairing_arm, 5);
         covers(&pairing_statuses(), pairing_status_arm, 5);
         covers(&links(), link_arm, 3);
@@ -771,7 +916,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 7);
+        covers(&replies, reply_arm, 8);
         covers(&txn_events(), txn_arm, 8);
     }
 

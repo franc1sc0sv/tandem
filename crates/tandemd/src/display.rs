@@ -13,8 +13,10 @@ use tandem_display::switcher::{
     DdcSwitcher, ManualEvent, ManualSwitcher, MonitorSwitcher, PerMonitor, SwitchRequest,
 };
 use tandem_proto::ManualSwitchEvent;
+use tokio::sync::watch;
 
 use crate::config::AgentConfig;
+use crate::input::GeometrySteps;
 use crate::orchestrator::{LocalSteps, STEP_NOT_IMPLEMENTED, StepFuture, Unimplemented, describe};
 use crate::power::PowerSteps;
 
@@ -73,9 +75,15 @@ impl DisplaySteps {
     /// y el cambio manual por la UI para los demás. El escritorio es la topología del
     /// sistema (Windows en la PC, Quartz en la Mac), si el agente corre en el suyo. Los
     /// pasos de energía van a [`PowerSteps`].
-    pub fn platform(cfg: &AgentConfig, manual: Arc<ManualSwitcher>) -> Self {
+    /// `UpdateInputGeometry` sube `geometry`, para que el motor de entrada vuelva a leer
+    /// las pantallas ([`GeometrySteps`]).
+    pub fn platform(
+        cfg: &AgentConfig,
+        manual: Arc<ManualSwitcher>,
+        geometry: Arc<watch::Sender<u64>>,
+    ) -> Self {
         let mut steps = DisplaySteps::new(cfg.machine, cfg.desk.clone()).with_others(Arc::new(
-            PowerSteps::for_machine(cfg, Arc::new(Unimplemented)),
+            PowerSteps::for_machine(cfg, Arc::new(GeometrySteps::new(geometry))),
         ));
         if cfg.machine == Machine::Pc {
             steps = steps.with_switcher(Arc::new(PerMonitor {
@@ -468,10 +476,11 @@ mod tests {
         let mut cfg = fixtures::desk();
         let manual = Arc::new(ManualSwitcher::new());
         // La Mac no tiene cómo cambiar entradas.
-        let mac = DisplaySteps::platform(&cfg, manual.clone());
+        let geometry = Arc::new(watch::Sender::new(0));
+        let mac = DisplaySteps::platform(&cfg, manual.clone(), geometry.clone());
         assert!(mac.switcher.is_none());
         cfg.machine = Machine::Pc;
-        let pc = DisplaySteps::platform(&cfg, manual.clone());
+        let pc = DisplaySteps::platform(&cfg, manual.clone(), geometry);
         // El escritorio de cada máquina solo existe en su sistema.
         assert_eq!(mac.desktop.is_some(), cfg!(target_os = "macos"));
         assert_eq!(pc.desktop.is_some(), cfg!(windows));
@@ -498,12 +507,15 @@ mod tests {
     async fn platform_routes_power_steps_to_power_backends() {
         // Sin [power.wol] la Mac no puede despertar a la PC, y lo dice.
         let cfg = fixtures::desk();
-        let mac = DisplaySteps::platform(&cfg, Arc::new(ManualSwitcher::new()));
+        let geometry = Arc::new(watch::Sender::new(0));
+        let mut rx = geometry.subscribe();
+        let mac = DisplaySteps::platform(&cfg, Arc::new(ManualSwitcher::new()), geometry);
         let e = mac.execute(&Step::PowerOnPc).await.unwrap_err();
         assert!(e.contains(crate::power::WOL_NOT_CONFIGURED), "{e}");
-        // Lo que no es de energía ni de pantalla sigue sin implementar.
-        let e = mac.execute(&Step::UpdateInputGeometry).await.unwrap_err();
-        assert!(e.contains(STEP_NOT_IMPLEMENTED), "{e}");
+        // La geometría la recalcula el motor de entrada: el paso solo le avisa.
+        mac.execute(&Step::UpdateInputGeometry).await.unwrap();
+        assert!(rx.has_changed().unwrap());
+        assert_eq!(*rx.borrow_and_update(), 1);
     }
 
     /// La PC orquesta Solo Windows: el 34" cambia por DDC (simulado) y el 32" lo cambia el

@@ -7,7 +7,9 @@
 //! y [`AgentToUi::Txn`] con el avance de cada cambio de modo, [`AgentToUi::ManualSwitch`]
 //! cuando hay que cambiar a mano la entrada de un monitor, [`AgentToUi::Power`] cuando
 //! la PC se da por apagada sin que nadie la apagara, [`AgentToUi::Peer`] cuando cambia
-//! el par o el enlace con él y [`AgentToUi::Pairing`] con cada paso del emparejamiento.
+//! el par o el enlace con él, [`AgentToUi::Pairing`] con cada paso del emparejamiento
+//! y [`AgentToUi::Input`] cuando cambia el teclado y mouse (roles, sesión, permisos
+//! que faltan).
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -151,6 +153,8 @@ where
     peer.mark_unchanged();
     let mut pairing = agent.subscribe_pairing();
     pairing.mark_unchanged();
+    let mut input = agent.subscribe_input();
+    input.mark_unchanged();
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
@@ -203,6 +207,13 @@ where
                 }
                 let status = pairing.borrow_and_update().clone();
                 conn.send(&AgentToUi::Pairing(status)).await?;
+            }
+            changed = input.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+                let status = input.borrow_and_update().clone();
+                conn.send(&AgentToUi::Input(status)).await?;
             }
             () = stopped(&mut shutdown) => return Ok(()),
         }
@@ -346,6 +357,27 @@ mod tests {
         assert_eq!(
             c.next_event().await.unwrap(),
             Some(AgentToUi::Pairing(comparing))
+        );
+    }
+
+    #[tokio::test]
+    async fn input_status_is_answered_and_pushed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agent, io, _stop) = start(dir.path());
+        let mut c = IpcClient::handshake(io).await.unwrap();
+        let initial = tandem_proto::InputStatus::new(Machine::Mac);
+        assert_eq!(
+            c.request(UiCommand::GetInput).await.unwrap(),
+            Reply::Input(initial.clone())
+        );
+        let missing = tandem_proto::InputStatus {
+            missing: vec![tandem_proto::InputPermission::Accessibility],
+            ..initial
+        };
+        agent.set_input_status(missing.clone());
+        assert_eq!(
+            c.next_event().await.unwrap(),
+            Some(AgentToUi::Input(missing))
         );
     }
 
