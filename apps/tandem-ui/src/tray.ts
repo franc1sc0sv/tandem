@@ -8,7 +8,6 @@ import { bridgeFailed, tauriBridge, type Bridge } from "./bridge";
 import type { Action, Notice, ShortcutsView, Snapshot } from "./model";
 import {
   MACHINE_NAME,
-  MACHINES,
   advance,
   groupStatus,
   groupSteps,
@@ -16,8 +15,10 @@ import {
   modeOf,
   modeRequest,
   monitorsOf,
+  machineState,
   other,
-  pcPower,
+  peerPower,
+  sides,
   type ModeKey,
   type Progress,
 } from "./scene";
@@ -107,12 +108,21 @@ function renderStage() {
 
 function renderMini() {
   if (snap.kind !== "connected") return;
-  const { desk, state } = snap;
+  const { desk, state, agent, caps } = snap;
   const running = isRunning(progress);
-  const power = pcPower(state, progress);
-  for (const who of MACHINES) {
-    const mine = monitorsOf(desk, state, who);
-    const deskEl = $(`.mdesk[data-owner="${who}"]`);
+  const power = peerPower(state, agent, progress);
+  const both = sides(agent);
+  for (const which of ["here", "peer"] as const) {
+    const who = both[which];
+    const side = $(`.mside[data-side="${which}"]`);
+    side.className = `mside ${who}`;
+    side.dataset.owner = who;
+    side.classList.toggle("asleep", which === "peer" && power !== "on");
+    $("[data-part=name]", side).textContent = MACHINE_NAME[who];
+    $("[data-part=state]", side).textContent = which === "here" ? "" : machineState(state, agent, who, progress);
+    const mine = monitorsOf(desk, state, who, caps);
+    const deskEl = $(".mdesk", side);
+    deskEl.dataset.owner = who;
     deskEl.replaceChildren(
       ...mine.map((m) => {
         const to = other(m.owner);
@@ -126,11 +136,8 @@ function renderMini() {
         return b;
       }),
     );
-    if (!mine.length) deskEl.append(el("span", "mempty", who === "pc" && power === "off" ? "apagada" : "sin monitores"));
+    if (!mine.length) deskEl.append(el("span", "mempty", which === "peer" && power === "off" ? "apagada" : "sin monitores"));
   }
-  $("#state-mac").textContent = "";
-  $("#state-pc").textContent = { on: "encendida", boot: "arrancando…", off: "apagada" }[power];
-  $(".mside.pc").classList.toggle("asleep", power !== "on");
 }
 
 function renderModes() {

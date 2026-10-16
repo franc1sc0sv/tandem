@@ -14,13 +14,17 @@
 // sin perfil (calibrarlo simula el recorrido del motor, con la pregunta del cambio a mano) y
 // un monitor que no está en la configuración (`&calib=fail`: ningún código de HDMI funciona).
 // `?demo&desk` abre «Puesto»: la configuración que generó el agente; «Invertir cableado»
-// cambia la del monitor en la escena.
+// cambia la del monitor en la escena. `?demo&as=pc` es la ventana de la PC (T-084): la PC
+// a la izquierda, siempre encendida, con los monitores, y la Mac dormida a la derecha
+// (`&mac=on`: despierta).
 
 import type { Bridge } from "./bridge";
 import type {
   Action,
   ActionResult,
   Bindings,
+  Caps,
+  MachineCaps,
   CalibrationStep,
   CalibrationView,
   Desk,
@@ -83,25 +87,56 @@ function demoDisplays(): DisplayView[] {
   ];
 }
 
-/** Mismo orden de pasos que `Plan::to_mode` de tandem-core. */
-function plan(state: DeskState, target: Record<string, Machine>, powerOff = false): Step[] {
+/** Lo que anuncia cada máquina del puesto real: la PC cambia las entradas, la Mac tiene pantalla. */
+function demoCaps(machine: Machine, missing: MachineCaps["input"]["missing"]): MachineCaps {
+  const pc = machine === "pc";
+  return {
+    machine,
+    name: pc ? "ESCRITORIO" : "MacBook-Pro",
+    os: pc ? "windows" : "macos",
+    monitors: DESK.monitors.map((m) => ({ monitor: m.id, pnp_id: m.edid_model ?? null, name: m.label, switch: pc, ddc: pc && m.id === "m34" })),
+    builtin: !pc,
+    hub: null,
+    input: { capture: missing.length === 0, inject: missing.length === 0, missing },
+    power: { wake_peer: true, wakeable: true, power_off: pc },
+    services: [],
+  };
+}
+
+/** Quién cambia las entradas en el demo: la PC, como en el puesto real. */
+const SWITCHER: Machine = "pc";
+
+/** Mismo orden de pasos que `Plan::to_mode` (y `Plan::power_off`) de tandem-core. */
+function plan(state: DeskState, target: Record<string, Machine>, powerOff: Machine | null = null): Step[] {
   const steps: Step[] = [];
-  if (!state.pc_on && Object.values(target).includes("pc")) steps.push({ step: "power_on_pc" });
-  const next: DeskState = { ...state, owner: { ...state.owner } };
-  for (const m of DESK.monitors) {
+  const moves = DESK.monitors.filter((m) => state.owner[m.id] !== target[m.id]);
+  const needed = new Set<Machine>(Object.values(target));
+  if (moves.length) needed.add(SWITCHER);
+  const on = { ...state.on };
+  if (moves.length || Object.values(target).some((m) => !state.on[m])) {
+    for (const machine of ["mac", "pc"] as const) {
+      if (needed.has(machine) && !on[machine]) {
+        steps.push({ step: "power_on", machine });
+        on[machine] = true;
+      }
+    }
+  }
+  const next: DeskState = { ...state, owner: { ...state.owner }, on };
+  for (const m of moves) {
     const from = state.owner[m.id];
     const to = target[m.id];
-    if (from === to) continue;
-    steps.push({ step: "switch_input", monitor: m.id, from, to, input: m.wiring[to]! });
-    steps.push({ step: "attach", machine: to, monitor: m.id });
-    steps.push({ step: "detach", machine: from, monitor: m.id });
+    steps.push({ step: "switch_input", monitor: m.id, from, to, input: m.wiring[to]!, by: SWITCHER });
+    if (on[to]) steps.push({ step: "attach", machine: to, monitor: m.id });
+    if (on[from]) steps.push({ step: "detach", machine: from, monitor: m.id });
     next.owner[m.id] = to;
   }
   const before = builtinOf(DESK, state).effective;
   const after = builtinOf(DESK, next).effective;
-  if (before !== after) steps.push({ step: "set_builtin", from: before, to: after });
+  if (before !== after && on.mac) steps.push({ step: "set_builtin", from: before, to: after });
   if (steps.length) steps.push({ step: "update_input_geometry" });
-  if (powerOff && state.pc_on) steps.push({ step: "power_off_pc" });
+  if (powerOff && (state.on[powerOff] || steps.some((s) => s.step === "power_on" && s.machine === powerOff))) {
+    steps.push({ step: "power_off", machine: powerOff });
+  }
   return steps;
 }
 
@@ -116,34 +151,45 @@ function assignment(mode: Mode): Record<string, Machine> {
 
 export function demoBridge(query: string): Bridge {
   const params = new URLSearchParams(query);
+  // La ventana de qué máquina es: la Mac por omisión, la PC con `&as=pc`.
+  const agent: Machine = params.get("as") === "pc" ? "pc" : "mac";
+  const peerMachine: Machine = agent === "mac" ? "pc" : "mac";
+  const peerOn = params.get(peerMachine) === "on";
   let state: DeskState = {
-    owner: { m34: "mac", m32: "mac" },
-    pc_on: params.get("pc") === "on",
+    owner: { m34: agent, m32: agent },
+    on: { [agent]: true, [peerMachine]: peerOn } as Record<Machine, boolean>,
     builtin_pref: "off",
   };
-  const PAIRED: PeerView = { kind: "paired", name: "PC", link: "usb4" };
+  const missing: MachineCaps["input"]["missing"] = params.get("perms") === "missing" ? ["accessibility"] : [];
+  const caps = (): Caps => ({
+    here: demoCaps(agent, agent === "mac" ? missing : []),
+    peer: peer.kind === "paired" ? demoCaps(peerMachine, []) : null,
+  });
+  const PEER_NAME = peerMachine === "pc" ? "PC" : "Mac";
+  const PAIRED: PeerView = { kind: "paired", name: PEER_NAME, link: peerOn ? "usb4" : null };
   let peer: PeerView = params.get("peer") === "none" ? { kind: "unpaired" } : PAIRED;
   let pairing: PairingView =
-    params.get("pair") === "code" ? { kind: "comparing", code: DEMO_CODE, peer: "PC", confirmed: false } : { kind: "idle" };
+    params.get("pair") === "code" ? { kind: "comparing", code: DEMO_CODE, peer: PEER_NAME, confirmed: false } : { kind: "idle" };
   let pairTimer: number | undefined;
   const snapshot = (): Snapshot =>
     params.get("agent") === "off"
       ? { kind: "unavailable", endpoint: "~/Library/Application Support/Tandem/tandemd.sock", reason: "tandemd no está corriendo: no hay nadie escuchando en la IPC local" }
       : {
           kind: "connected",
-          agent: "mac",
+          agent,
           desk: DESK,
           state,
           peer,
           pairing,
           input: {
-            server: params.get("hub") === "pc" ? "pc" : "mac",
-            hub_here: params.get("hub") !== "pc",
-            session: state.pc_on && peer.kind === "paired",
+            server: (params.get("hub") as Machine | null) ?? agent,
+            hub_here: (params.get("hub") ?? agent) === agent,
+            session: state.on[peerMachine] && peer.kind === "paired",
             locked: false,
-            missing: params.get("perms") === "missing" ? ["accessibility"] : [],
+            missing: agent === "mac" ? missing : [],
             problem: null,
           },
+          caps: caps(),
         };
   let keys: ShortcutsView = {
     bindings: { ...DEFAULT_BINDINGS },
@@ -256,10 +302,12 @@ export function demoBridge(query: string): Bridge {
     emit({ kind: "txn", event: { type: "started", txn: id, steps } });
     for (const [index, s] of steps.entries()) {
       emit({ kind: "txn", event: { type: "step_started", txn: id, index } });
-      await sleep(s.step === "power_on_pc" ? STEP_MS * 4 : STEP_MS);
+      await sleep(s.step === "power_on" ? STEP_MS * 4 : STEP_MS);
       state = structuredClone(state);
-      if (s.step === "power_on_pc") state.pc_on = true;
-      if (s.step === "power_off_pc") state.pc_on = false;
+      if (s.step === "power_on") state.on[s.machine] = true;
+      if (s.step === "power_off") state.on[s.machine] = false;
+      if (s.step === "power_on" && peer.kind === "paired") peer = { ...peer, link: "usb4" };
+      if (s.step === "power_off" && peer.kind === "paired") peer = { ...peer, link: null };
       if (s.step === "switch_input") state.owner[s.monitor] = s.to;
       emit({ kind: "txn", event: { type: "step_done", txn: id, index } });
     }
@@ -280,18 +328,18 @@ export function demoBridge(query: string): Bridge {
         if (peer.kind === "paired") return { kind: "rejected", reason: `ya está emparejado con ${peer.name}: desemparéjalo primero` };
         if (pairing.kind === "searching" || pairing.kind === "comparing") return { kind: "rejected", reason: "ya hay un emparejamiento en curso" };
         setPairing({ kind: "searching" });
-        pairTimer = window.setTimeout(() => setPairing({ kind: "comparing", code: DEMO_CODE, peer: "PC", confirmed: false }), PAIR_FOUND_MS);
+        pairTimer = window.setTimeout(() => setPairing({ kind: "comparing", code: DEMO_CODE, peer: PEER_NAME, confirmed: false }), PAIR_FOUND_MS);
         return { kind: "done" };
       case "confirm_pairing":
         if (pairing.kind !== "comparing" || pairing.confirmed) return { kind: "rejected", reason: "no hay ningún código que confirmar" };
         setPairing({ ...pairing, confirmed: true });
         pairTimer = window.setTimeout(() => {
           if (params.get("pair") === "reject") {
-            setPairing({ kind: "failed", reason: "se rechazó en la PC: no se emparejó" });
+            setPairing({ kind: "failed", reason: `se rechazó en la ${PEER_NAME}: no se emparejó` });
             return;
           }
           peer = PAIRED;
-          setPairing({ kind: "done", peer: "PC" });
+          setPairing({ kind: "done", peer: PEER_NAME });
         }, PAIR_OTHER_MS);
         return { kind: "done" };
       case "cancel_pairing":
@@ -375,9 +423,9 @@ export function demoBridge(query: string): Bridge {
           return start(plan(state, assignment(a.mode)));
         case "move_monitor":
           return start(plan(state, { ...state.owner, [a.monitor]: a.to }));
-        case "set_pc_power":
-          if (a.on) return start(state.pc_on ? [] : [{ step: "power_on_pc" }]);
-          return start(plan(state, assignment({ mode: "solo_mac" }), true));
+        case "set_power":
+          if (a.on) return start(state.on[a.machine] ? [] : [{ step: "power_on", machine: a.machine }]);
+          return start(plan(state, assignment({ mode: a.machine === "pc" ? "solo_mac" : "solo_pc" }), a.machine));
         case "set_builtin":
           state = { ...state, builtin_pref: a.display };
           snapshots.forEach((cb) => cb(snapshot()));

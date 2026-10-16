@@ -1,6 +1,9 @@
 //! El puesto físico simulado: lo que de verdad muestran los monitores, qué tiene
-//! cada máquina en su escritorio, la pantalla integrada, la energía de la PC, la
+//! cada máquina en su escritorio, la pantalla integrada, la energía de cada máquina, la
 //! geometría de cada motor de entrada y el hub USB.
+//!
+//! Las dos máquinas son iguales ante la energía (DESIGN §3.7): cualquiera puede estar
+//! apagada (o suspendida) mientras la otra trabaja sola.
 //!
 //! Es la verdad contra la que se compara el [`State`] de los agentes: ellos solo
 //! saben lo que creen haber hecho.
@@ -9,6 +12,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use tandem_core::{BuiltinDisplay, Config, Input, Machine, MonitorId, State, Step};
+use tokio::sync::watch;
 
 /// Lo que el 34" (LC34G55T) contesta siempre al leer `0x60`, esté en la entrada
 /// que esté (docs/research/ddc-34-LC34G55T.md).
@@ -54,7 +58,7 @@ impl SimMonitor {
     }
 }
 
-/// Energía de la PC.
+/// Energía de una máquina.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Power {
     Off,
@@ -77,7 +81,7 @@ pub struct Physical {
     pub inputs: BTreeMap<MonitorId, Input>,
     pub desktops: BTreeMap<Machine, BTreeSet<MonitorId>>,
     pub builtin: BuiltinDisplay,
-    pub power: Power,
+    pub power: BTreeMap<Machine, Power>,
 }
 
 #[derive(Debug)]
@@ -86,7 +90,10 @@ pub(crate) struct Inner {
     pub(crate) monitors: BTreeMap<MonitorId, SimMonitor>,
     pub(crate) desktops: BTreeMap<Machine, BTreeSet<MonitorId>>,
     pub(crate) builtin: BuiltinDisplay,
-    pub(crate) power: Power,
+    pub(crate) power: BTreeMap<Machine, Power>,
+    /// Avisa cada cambio de `power`: la simulación apaga y prende lo que corre en cada
+    /// máquina (la vigilancia del par) como lo haría el sistema.
+    pub(crate) power_tx: watch::Sender<BTreeMap<Machine, Power>>,
     /// Pantallas que cada motor de entrada usó la última vez que recalculó.
     pub(crate) geometry: BTreeMap<Machine, Vec<Screen>>,
     pub(crate) hub: Machine,
@@ -113,6 +120,12 @@ pub struct World(Arc<Mutex<Inner>>);
 impl World {
     /// Todo en HDMI (la Mac), la PC apagada y el hub en la Mac.
     pub fn new(cfg: &Config) -> Self {
+        Self::with_principal(cfg, Machine::Mac)
+    }
+
+    /// Todo en `principal` (cada monitor en su entrada, en su escritorio), la otra
+    /// máquina apagada y el hub en `principal`.
+    pub fn with_principal(cfg: &Config, principal: Machine) -> Self {
         let monitors = cfg
             .monitors
             .iter()
@@ -123,15 +136,19 @@ impl World {
                 )
             })
             .collect();
-        let mac_desktop = cfg.monitors.iter().map(|m| m.id.clone()).collect();
+        let all: BTreeSet<MonitorId> = cfg.monitors.iter().map(|m| m.id.clone()).collect();
         let world = World(Arc::new(Mutex::new(Inner {
             cfg: cfg.clone(),
             monitors,
-            desktops: BTreeMap::from([(Machine::Mac, mac_desktop), (Machine::Pc, BTreeSet::new())]),
+            desktops: BTreeMap::from([(principal, all), (principal.other(), BTreeSet::new())]),
             builtin: BuiltinDisplay::Off,
-            power: Power::Off,
+            power: BTreeMap::from([(principal, Power::On), (principal.other(), Power::Off)]),
+            power_tx: watch::Sender::new(BTreeMap::from([
+                (principal, Power::On),
+                (principal.other(), Power::Off),
+            ])),
             geometry: BTreeMap::new(),
-            hub: Machine::Mac,
+            hub: principal,
             usb: vec![
                 UsbDevice {
                     vid: 0x046D,
@@ -148,11 +165,26 @@ impl World {
             ddc_writes: Vec::new(),
             violations: Vec::new(),
         })));
-        // El agente de la Mac calcula su geometría al arrancar.
+        // Cada monitor en la entrada de la principal, y su agente calcula su geometría al
+        // arrancar.
         {
             let mut w = world.lock();
-            let screens = w.screens(Machine::Mac);
-            w.geometry.insert(Machine::Mac, screens);
+            let inputs: Vec<(MonitorId, Option<Input>)> = cfg
+                .monitors
+                .iter()
+                .map(|m| (m.id.clone(), m.input_for(principal)))
+                .collect();
+            for (id, input) in inputs {
+                if let (Some(input), Some(sim)) = (input, w.monitors.get_mut(&id)) {
+                    sim.input = input;
+                }
+            }
+            if principal == Machine::Pc {
+                // Sin monitores externos, la pantalla de la Mac (apagada) queda encendida.
+                w.builtin = BuiltinDisplay::Extend;
+            }
+            let screens = w.screens(principal);
+            w.geometry.insert(principal, screens);
         }
         world
     }
@@ -161,8 +193,13 @@ impl World {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub fn power(&self) -> Power {
-        self.lock().power
+    pub fn power_of(&self, machine: Machine) -> Power {
+        self.lock().power_of(machine)
+    }
+
+    /// La energía de las dos máquinas, con aviso en cada cambio.
+    pub fn subscribe_power(&self) -> watch::Receiver<BTreeMap<Machine, Power>> {
+        self.lock().power_tx.subscribe()
     }
 
     pub fn physical(&self) -> Physical {
@@ -175,11 +212,11 @@ impl World {
                 .collect(),
             desktops: w.desktops.clone(),
             builtin: w.builtin,
-            power: w.power,
+            power: w.power.clone(),
         }
     }
 
-    /// La máquina que se ve en el monitor, o `None` si está en negro (la PC apagada).
+    /// La máquina que se ve en el monitor, o `None` si está en negro (su máquina apagada).
     pub fn shows(&self, monitor: &MonitorId) -> Option<Machine> {
         self.lock().shows(monitor)
     }
@@ -228,7 +265,7 @@ impl World {
     /// Dispositivos USB que ve una máquina: todos los del hub, o ninguno.
     pub fn usb_devices(&self, machine: Machine) -> Vec<UsbDevice> {
         let w = self.lock();
-        let visible = w.hub == machine && (machine == Machine::Mac || w.power == Power::On);
+        let visible = w.hub == machine && w.power_of(machine) == Power::On;
         if visible { w.usb.clone() } else { Vec::new() }
     }
 
@@ -236,17 +273,24 @@ impl World {
     pub fn check(&self, state: &State) -> Result<(), Vec<String>> {
         let w = self.lock();
         let mut errors = w.violations.clone();
-        let pc_on = w.power == Power::On;
-        if pc_on != state.pc_on {
-            errors.push(format!(
-                "la PC está {:?} pero el agente cree pc_on = {}",
-                w.power, state.pc_on
-            ));
+        for machine in [Machine::Mac, Machine::Pc] {
+            let on = w.power_of(machine) == Power::On;
+            if on != state.is_on(machine) {
+                errors.push(format!(
+                    "la {machine} está {:?} pero el agente la cree {}",
+                    w.power_of(machine),
+                    if state.is_on(machine) {
+                        "prendida"
+                    } else {
+                        "apagada"
+                    }
+                ));
+            }
         }
         for m in &w.cfg.monitors {
-            // Un monitor en la entrada de la PC apagada (tras un corte) está en negro.
+            // Un monitor en la entrada de una máquina apagada (tras un corte) está en negro.
             let want = match state.owner.get(&m.id).copied() {
-                Some(Machine::Pc) if !state.pc_on => None,
+                Some(owner) if !state.is_on(owner) => None,
                 owner => owner,
             };
             let shows = w.shows(&m.id);
@@ -258,7 +302,7 @@ impl World {
             }
         }
         for machine in [Machine::Mac, Machine::Pc] {
-            if machine == Machine::Pc && !pc_on {
+            if w.power_of(machine) != Power::On {
                 continue;
             }
             let want: BTreeSet<_> = state.monitors_of(&w.cfg, machine).cloned().collect();
@@ -270,7 +314,8 @@ impl World {
             }
         }
         let builtin = state.builtin_effective(&w.cfg);
-        if w.builtin != builtin {
+        // La pantalla de una Mac apagada no se ve: se ajusta al volver.
+        if w.power_of(Machine::Mac) == Power::On && w.builtin != builtin {
             errors.push(format!(
                 "la pantalla integrada está {:?} y debería estar {builtin:?}",
                 w.builtin
@@ -288,7 +333,7 @@ impl World {
         let w = self.lock();
         let mut errors = Vec::new();
         for machine in [Machine::Mac, Machine::Pc] {
-            if machine == Machine::Pc && w.power != Power::On {
+            if w.power_of(machine) != Power::On {
                 continue;
             }
             let want = w.screens(machine);
@@ -317,10 +362,16 @@ impl Inner {
             .iter()
             .find(|(_, i)| **i == input)
             .map(|(m, _)| *m)?;
-        match machine {
-            Machine::Pc if self.power != Power::On => None,
-            m => Some(m),
-        }
+        (self.power_of(machine) == Power::On).then_some(machine)
+    }
+
+    pub(crate) fn set_power(&mut self, machine: Machine, power: Power) {
+        self.power.insert(machine, power);
+        self.power_tx.send_replace(self.power.clone());
+    }
+
+    pub(crate) fn power_of(&self, machine: Machine) -> Power {
+        self.power.get(&machine).copied().unwrap_or(Power::Off)
     }
 
     /// Pantallas del escritorio de una máquina, en el orden del puesto.
@@ -353,29 +404,30 @@ impl Inner {
         Ok(())
     }
 
-    /// La PC termina de arrancar: Windows activa los monitores que están en DisplayPort.
-    pub(crate) fn boot_done(&mut self) {
-        self.power = Power::On;
-        let on_dp: BTreeSet<_> = self
+    /// `machine` termina de arrancar (o de despertarse): el sistema activa los monitores
+    /// que están en su entrada.
+    pub(crate) fn boot_done(&mut self, machine: Machine) {
+        self.set_power(machine, Power::On);
+        let mine: BTreeSet<_> = self
             .cfg
             .monitors
             .iter()
             .filter(|m| {
-                m.input_for(Machine::Pc)
+                m.input_for(machine)
                     .is_some_and(|i| self.monitors.get(&m.id).is_some_and(|s| s.input == i))
             })
             .map(|m| m.id.clone())
             .collect();
-        self.desktops.insert(Machine::Pc, on_dp);
-        // Su agente arranca con Windows y calcula su geometría.
-        let screens = self.screens(Machine::Pc);
-        self.geometry.insert(Machine::Pc, screens);
+        self.desktops.insert(machine, mine);
+        // Su agente arranca con el sistema y calcula su geometría.
+        let screens = self.screens(machine);
+        self.geometry.insert(machine, screens);
     }
 
-    pub(crate) fn power_off(&mut self) {
-        self.power = Power::Off;
-        self.desktops.insert(Machine::Pc, BTreeSet::new());
-        self.geometry.remove(&Machine::Pc);
+    pub(crate) fn power_off(&mut self, machine: Machine) {
+        self.set_power(machine, Power::Off);
+        self.desktops.insert(machine, BTreeSet::new());
+        self.geometry.remove(&machine);
     }
 }
 
@@ -431,13 +483,13 @@ mod tests {
         let m34 = MonitorId::from("m34");
         w.lock().write_input(&m34, 0x0F).unwrap();
         assert_eq!(w.shows(&m34), None);
-        w.lock().boot_done();
+        w.lock().boot_done(Machine::Pc);
         assert_eq!(w.shows(&m34), Some(Machine::Pc));
         // Windows arrancó con el 34" en DisplayPort: lo tiene en su escritorio.
         assert_eq!(w.desktop(Machine::Pc), BTreeSet::from([m34.clone()]));
-        let mut state = State::initial(&cfg);
+        let mut state = State::initial(&cfg, Machine::Mac);
         assert!(w.check(&state).is_err());
-        state.pc_on = true;
+        state.on.pc = true;
         state.owner.insert(m34.clone(), Machine::Pc);
         // La Mac todavía tiene el 34" en su escritorio: fantasma.
         let errors = w.check(&state).unwrap_err();
@@ -461,7 +513,7 @@ mod tests {
         assert!(w.usb_devices(Machine::Mac).is_empty());
         // Con la PC apagada nadie ve el teclado.
         assert!(w.usb_devices(Machine::Pc).is_empty());
-        w.lock().boot_done();
+        w.lock().boot_done(Machine::Pc);
         assert!(!w.usb_devices(Machine::Pc).is_empty());
     }
 

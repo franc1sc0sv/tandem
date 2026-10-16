@@ -43,13 +43,16 @@ pub const NOT_RUNNING: &str = "no hay ninguna calibración en curso";
 pub type CalibrationBus = Arc<dyn Fn() -> Result<Box<dyn DdcBus + Send>, DdcError> + Send + Sync>;
 
 /// Lo que cambia en caliente por encima de `tandem.toml`: los códigos DDC aprendidos al
-/// calibrar y el cableado elegido en la UI (T-082). Los pasos de pantalla y los planes lo
-/// leen en cada cambio de modo, así que vale sin reiniciar el agente.
+/// calibrar, el cableado elegido en la UI (T-082) y el puesto que llegó de la otra máquina
+/// (T-084). Los pasos de pantalla y los planes lo leen en cada cambio de modo, así que vale
+/// sin reiniciar el agente.
 #[derive(Debug, Clone, Default)]
 pub struct LiveDesk(Arc<RwLock<Overlay>>);
 
 #[derive(Debug, Default)]
 struct Overlay {
+    /// El puesto entero que reemplaza al de `tandem.toml` (sincronizado con la otra máquina).
+    base: Option<Config>,
     learned: BTreeMap<MonitorId, Learned>,
     wiring: BTreeMap<MonitorId, BTreeMap<Machine, Input>>,
 }
@@ -93,9 +96,24 @@ impl LiveDesk {
         }
     }
 
+    /// Reemplaza el puesto entero (el que llegó de la otra máquina): lo aprendido antes ya
+    /// viene en él.
+    pub fn replace(&self, desk: Config) {
+        let mut overlay = self.0.write().unwrap_or_else(PoisonError::into_inner);
+        overlay.base = Some(desk);
+        overlay.learned.clear();
+        overlay.wiring.clear();
+    }
+
     /// El puesto con lo aprendido.
     pub fn desk(&self, desk: &Config) -> Config {
-        let mut desk = desk.clone();
+        let base = self
+            .0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .base
+            .clone();
+        let mut desk = base.unwrap_or_else(|| desk.clone());
         desk.monitors.iter_mut().for_each(|m| self.apply(m));
         desk
     }
@@ -242,7 +260,7 @@ impl MonitorWizard {
             return Err(NOT_HERE.into());
         }
         if let Some(id) = &monitor
-            && agent.config().desk.monitor(id).is_none()
+            && agent.desk().monitor(id).is_none()
         {
             return Err(format!("el monitor `{id}` no está en la configuración"));
         }
@@ -308,7 +326,7 @@ impl MonitorWizard {
                 "ya no hay un monitor {display} en el bus: vuelve a buscar"
             ));
         };
-        let desk = self.live.desk(&agent.config().desk);
+        let desk = agent.desk();
         let monitor = monitor.or_else(|| bind(&desk, bus.monitors(), index));
         let config = monitor.as_ref().and_then(|id| desk.monitor(id)).cloned();
         let (home, start) = inputs(config.as_ref(), &agent.state().owner);
@@ -334,7 +352,14 @@ impl MonitorWizard {
         })
         .await;
         match result {
-            Ok(p) => CalibrationOutcome::Saved(self.keep(&db, &info, config.as_ref(), &p)),
+            Ok(p) => {
+                let saved = self.keep(&db, &info, config.as_ref(), &p);
+                // El perfil es parte del puesto compartido: la otra máquina también lo guarda.
+                if config.is_some() {
+                    agent.desk_changed();
+                }
+                CalibrationOutcome::Saved(saved)
+            }
             Err(CalibrationError::Cancelled) => CalibrationOutcome::Cancelled,
             Err(e) => failed(e.to_string()),
         }
@@ -446,7 +471,7 @@ impl MonitorWizard {
         let (entry, _) = db
             .find(&info)
             .ok_or_else(|| format!("{} no tiene perfil en la base: calíbralo", info.model()))?;
-        let desk = self.live.desk(&agent.config().desk);
+        let desk = agent.desk();
         let id = monitor
             .or_else(|| bind(&desk, bus.monitors(), index))
             .ok_or_else(|| {
@@ -459,7 +484,9 @@ impl MonitorWizard {
             .monitor(&id)
             .ok_or_else(|| format!("el monitor `{id}` no está en la configuración"))?;
         let c = &entry.profile.codes;
-        match self.update_config(m, c.hdmi, c.display_port, &info) {
+        let note = self.update_config(m, c.hdmi, c.display_port, &info);
+        agent.desk_changed();
+        match note {
             Some(note) => Err(note),
             None => Ok(()),
         }

@@ -75,7 +75,7 @@ pub async fn run<E: Executor>(
                 }
                 let step = step.clone();
                 return if undo_failures.is_empty() {
-                    // Los pasos sin inverso (encender la PC) dejan su efecto, y eso es lo correcto.
+                    // Los pasos sin inverso (encender una máquina) dejan su efecto, y eso es lo correcto.
                     state.owner = snapshot.owner;
                     state.builtin_pref = snapshot.builtin_pref;
                     Err(TxnError::RolledBack { step, error })
@@ -96,7 +96,7 @@ pub async fn run<E: Executor>(
 mod tests {
     use super::*;
     use crate::model::{Machine, fixtures::desk};
-    use crate::plan::Mode;
+    use crate::plan::{Abilities, Mode};
 
     /// Ejecutor de prueba: registra todo y falla en los pasos indicados.
     #[derive(Default)]
@@ -124,20 +124,20 @@ mod tests {
     #[test]
     fn success_updates_state() {
         let cfg = desk();
-        let mut s = State::initial(&cfg);
-        let plan = Plan::to_mode(&cfg, &s, &mode()).unwrap();
+        let mut s = State::initial(&cfg, Machine::Mac);
+        let plan = Plan::to_mode(&cfg, &s, &mode(), &Abilities::pc_switches(&cfg)).unwrap();
         let mut exec = Fake::default();
         let report = pollster::block_on(run(&cfg, &mut s, &plan, &mut exec)).unwrap();
         assert_eq!(report.applied, plan.steps);
-        assert!(s.pc_on);
+        assert!(s.on.pc);
         assert_eq!(s.owner[&"m34".into()], Machine::Pc);
     }
 
     #[test]
     fn failure_rolls_back_in_reverse() {
         let cfg = desk();
-        let mut s = State::initial(&cfg);
-        let plan = Plan::to_mode(&cfg, &s, &mode()).unwrap();
+        let mut s = State::initial(&cfg, Machine::Mac);
+        let plan = Plan::to_mode(&cfg, &s, &mode(), &Abilities::pc_switches(&cfg)).unwrap();
         // Falla quitar el 34" de la Mac: hay que deshacer el Attach y el cambio de entrada.
         let failing = plan
             .steps
@@ -163,7 +163,7 @@ mod tests {
             Machine::Mac,
             "el 34\" vuelve a la Mac"
         );
-        assert!(s.pc_on, "la PC se queda prendida");
+        assert!(s.on.pc, "la PC se queda prendida");
 
         let undo: Vec<_> = exec
             .log
@@ -202,13 +202,14 @@ mod tests {
     #[test]
     fn failed_undo_reports_inconsistent() {
         let cfg = desk();
-        let mut s = State::initial(&cfg);
-        let plan = Plan::to_mode(&cfg, &s, &mode()).unwrap();
+        let mut s = State::initial(&cfg, Machine::Mac);
+        let plan = Plan::to_mode(&cfg, &s, &mode(), &Abilities::pc_switches(&cfg)).unwrap();
         let back = Step::SwitchInput {
             monitor: "m34".into(),
             from: Machine::Pc,
             to: Machine::Mac,
             input: crate::model::Input::Hdmi,
+            by: Machine::Pc,
         };
         let mut exec = Fake {
             fail_on: vec![Step::UpdateInputGeometry, back],
@@ -223,13 +224,20 @@ mod tests {
     #[test]
     fn rollback_recomputes_geometry_last() {
         let cfg = desk();
-        let mut s = State::initial(&cfg);
-        s.pc_on = true;
+        let mut s = State::initial(&cfg, Machine::Mac);
+        s.on.pc = true;
         s.owner.insert("m34".into(), Machine::Pc);
-        let plan = Plan::shutdown_pc(&cfg, &s).unwrap();
-        assert_eq!(plan.steps.last(), Some(&Step::PowerOffPc));
+        let plan = Plan::power_off(&cfg, &s, Machine::Pc, &Abilities::pc_switches(&cfg)).unwrap();
+        assert_eq!(
+            plan.steps.last(),
+            Some(&Step::PowerOff {
+                machine: Machine::Pc
+            })
+        );
         let mut exec = Fake {
-            fail_on: vec![Step::PowerOffPc],
+            fail_on: vec![Step::PowerOff {
+                machine: Machine::Pc,
+            }],
             ..Default::default()
         };
         let err = pollster::block_on(run(&cfg, &mut s, &plan, &mut exec)).unwrap_err();
@@ -249,9 +257,9 @@ mod tests {
     #[test]
     fn failed_geometry_step_is_recomputed_after_rollback() {
         let cfg = desk();
-        let mut s = State::initial(&cfg);
-        s.pc_on = true;
-        let plan = Plan::to_mode(&cfg, &s, &mode()).unwrap();
+        let mut s = State::initial(&cfg, Machine::Mac);
+        s.on.pc = true;
+        let plan = Plan::to_mode(&cfg, &s, &mode(), &Abilities::pc_switches(&cfg)).unwrap();
         let mut exec = FailOnce {
             log: Vec::new(),
             fail: Some(Step::UpdateInputGeometry),
@@ -260,8 +268,8 @@ mod tests {
         assert!(matches!(err, TxnError::RolledBack { .. }), "{err:?}");
         assert_eq!(exec.log.last(), Some(&Step::UpdateInputGeometry));
         assert_eq!(s, {
-            let mut want = State::initial(&cfg);
-            want.pc_on = true;
+            let mut want = State::initial(&cfg, Machine::Mac);
+            want.on.pc = true;
             want
         });
     }

@@ -203,7 +203,7 @@ pub fn start(
         opts: setup.opts,
         lock_keys,
         link,
-        server: watch::Sender::new(cfg.server),
+        server: watch::Sender::new(cfg.keyboard),
         hub_here: watch::Sender::new(None),
         report: watch::Sender::new(None),
         screens: watch::Sender::new(Vec::new()),
@@ -357,7 +357,7 @@ async fn geometry(sh: Arc<Shared>) {
 
 /// Quién es el servidor.
 async fn roles(sh: Arc<Shared>, mut presence: Option<watch::Receiver<Presence>>) {
-    let mut arbiter = RoleArbiter::new(sh.me, sh.agent.config().input.server);
+    let mut arbiter = RoleArbiter::new(sh.me, sh.agent.config().input.keyboard);
     let mut peer = sh.agent.inbox().hub.subscribe();
     let mut link = sh.link.clone();
     let mut state = sh.agent.subscribe();
@@ -367,7 +367,7 @@ async fn roles(sh: Arc<Shared>, mut presence: Option<watch::Receiver<Presence>>)
         }
         let linked = link.borrow_and_update().is_some();
         let report = *peer.borrow_and_update();
-        let pc_on = state.borrow_and_update().pc_on;
+        let peer_on = state.borrow_and_update().is_on(sh.me.other());
         if linked {
             if let Some(r) = report {
                 arbiter.set_peer(Some(PeerReport {
@@ -381,14 +381,14 @@ async fn roles(sh: Arc<Shared>, mut presence: Option<watch::Receiver<Presence>>)
             if report.is_some() {
                 sh.agent.inbox().hub.send_replace(None);
             }
-            if sh.me == Machine::Mac && !pc_on {
+            if !peer_on {
                 arbiter.set_peer_off();
             } else {
                 arbiter.set_peer(None);
             }
         }
         if *sh.server.borrow() != arbiter.server() {
-            tracing::info!(servidor = %arbiter.server(), "cambió el servidor de teclado y mouse");
+            tracing::info!(teclado = %arbiter.server(), "el teclado y mouse pasó a otra máquina");
         }
         set(&sh.server, arbiter.server());
         set(&sh.hub_here, arbiter.local_hub());
@@ -691,7 +691,7 @@ async fn client(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<IncomingCh
             .run_with(&conn, async { Ok::<_, SessionEnd>(stream) }, stop)
             .await;
         set(&sh.receiving, false);
-        tracing::debug!("sesión de cliente: {end}");
+        tracing::debug!("sesión de entrada (recibe el teclado): {end}");
         next = match following {
             Some(f) => Some(f),
             None => streams.recv().await,
@@ -804,7 +804,12 @@ mod tests {
         steps.execute(&Step::UpdateInputGeometry).await.unwrap();
         steps.execute(&Step::UpdateInputGeometry).await.unwrap();
         assert_eq!(*rx.borrow_and_update(), 2);
-        let e = steps.execute(&Step::PowerOnPc).await.unwrap_err();
+        let e = steps
+            .execute(&Step::PowerOn {
+                machine: Machine::Pc,
+            })
+            .await
+            .unwrap_err();
         assert!(e.contains(crate::orchestrator::STEP_NOT_IMPLEMENTED), "{e}");
     }
 

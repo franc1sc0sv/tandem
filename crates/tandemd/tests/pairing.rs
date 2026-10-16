@@ -336,7 +336,7 @@ async fn start_compare_confirm_and_both_are_paired() {
     )
     .await;
     let mut st = mac.agent.subscribe();
-    within(st.wait_for(|s| s.pc_on)).await.unwrap();
+    within(st.wait_for(|s| s.on.pc)).await.unwrap();
     let txn = within(async {
         loop {
             match mac

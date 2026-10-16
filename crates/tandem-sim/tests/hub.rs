@@ -36,8 +36,21 @@ impl DeviceScanner for WorldScanner {
 }
 
 /// Los dos árbitros, alimentados cada 100 ms como lo haría cada agente.
+///
+/// Igual para las dos máquinas (DESIGN §3.7): la que está apagada no corre nada y, al
+/// volver, empieza de cero con lo último que guardó; la que está prendida, sin enlace,
+/// da a la otra por apagada solo cuando su agente lo dice (`peer_watch`).
 #[derive(Clone)]
 struct Roles(Arc<Mutex<[RoleArbiter; 2]>>);
+
+const BOTH: [Machine; 2] = [Machine::Mac, Machine::Pc];
+
+fn index(m: Machine) -> usize {
+    match m {
+        Machine::Mac => 0,
+        Machine::Pc => 1,
+    }
+}
 
 impl Roles {
     fn start(d: &Desk) -> Self {
@@ -58,46 +71,56 @@ impl Roles {
             tokio::spawn(w.run());
             rx
         };
-        let (mac_rx, pc_rx): (watch::Receiver<Presence>, _) =
-            (watch(Machine::Mac), watch(Machine::Pc));
+        let presence: [watch::Receiver<Presence>; 2] = [watch(Machine::Mac), watch(Machine::Pc)];
+        // Al arrancar, el teclado está en la principal (es donde está el hub).
+        let first = d.principal();
         let roles = Roles(Arc::new(Mutex::new([
-            RoleArbiter::new(Machine::Mac, Machine::Mac),
-            RoleArbiter::new(Machine::Pc, Machine::Mac),
+            RoleArbiter::new(Machine::Mac, first),
+            RoleArbiter::new(Machine::Pc, first),
         ])));
-        let (world, net, mac_agent, r) =
-            (d.world.clone(), d.net.clone(), d.mac.clone(), roles.clone());
+        let (world, net, agents, r) = (
+            d.world.clone(),
+            d.net.clone(),
+            [d.mac.clone(), d.pc.clone()],
+            roles.clone(),
+        );
         tokio::spawn(async move {
-            let mut was_on = world.power() == Power::On;
+            let mut was_on = BOTH.map(|m| world.power_of(m) == Power::On);
             loop {
                 tokio::time::sleep(Duration::from_millis(100)).await;
-                let pc_on = world.power() == Power::On;
-                let connected = pc_on && LinkKind::ALL.iter().any(|k| net.is_up(*k));
-                let (mac, pc) = (mac_rx.borrow().hub(), pc_rx.borrow().hub());
+                let on = BOTH.map(|m| world.power_of(m) == Power::On);
+                let connected =
+                    on.iter().all(|o| *o) && LinkKind::ALL.iter().any(|k| net.is_up(*k));
                 let mut a = r.0.lock().unwrap_or_else(PoisonError::into_inner);
-                // Con la PC apagada su agente no corre; al arrancar empieza de
-                // cero con el último servidor que guardó.
-                if pc_on && !was_on {
-                    let saved = a[1].server();
-                    a[1] = RoleArbiter::new(Machine::Pc, saved);
+                for m in BOTH {
+                    let i = index(m);
+                    // Apagada, su agente no corre; al arrancar empieza de cero con el
+                    // último lugar del teclado que guardó.
+                    if on[i] && !was_on[i] {
+                        let saved = a[i].server();
+                        a[i] = RoleArbiter::new(m, saved);
+                    }
+                    if on[i] {
+                        a[i].set_local_hub(presence[i].borrow().hub());
+                    }
                 }
-                was_on = pc_on;
-                a[0].set_local_hub(mac);
-                if pc_on {
-                    a[1].set_local_hub(pc);
-                }
+                was_on = on;
                 if connected {
                     let (to_mac, to_pc) = (a[1].report(), a[0].report());
                     a[0].set_peer(to_mac);
                     a[1].set_peer(to_pc);
                 } else {
-                    // La Mac no sabe si la PC está prendida: lo que cree su agente (T-063).
-                    if mac_agent.state().pc_on {
-                        a[0].set_peer(None);
-                    } else {
-                        a[0].set_peer_off();
-                    }
-                    if pc_on {
-                        a[1].set_peer(None);
+                    for m in BOTH {
+                        let i = index(m);
+                        if !on[i] {
+                            continue;
+                        }
+                        // No sabe si la otra sigue prendida: lo que cree su agente.
+                        if agents[i].state().is_on(m.other()) {
+                            a[i].set_peer(None);
+                        } else {
+                            a[i].set_peer_off();
+                        }
                     }
                 }
             }
@@ -105,27 +128,29 @@ impl Roles {
         roles
     }
 
-    /// El servidor según la Mac y, si la PC está prendida, también según la PC.
-    fn server(&self, pc_on: bool) -> Machine {
+    /// Dónde está el teclado según `from` y, si la otra está prendida, también según ella.
+    fn keyboard_from(&self, from: Machine, both_on: bool) -> Machine {
         let a = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if pc_on {
+        if both_on {
             assert_eq!(
                 a[0].server(),
                 a[1].server(),
                 "las dos máquinas no coinciden"
             );
         }
-        a[0].server()
+        a[index(from)].server()
+    }
+
+    /// Visto desde la Mac (los escenarios de siempre).
+    fn server(&self, pc_on: bool) -> Machine {
+        self.keyboard_from(Machine::Mac, pc_on)
     }
 
     /// El chip de teclado y mouse que muestra la UI de cada máquina: el papel que
     /// le da su árbitro.
     fn chip(&self, on: Machine) -> Role {
         let a = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        match on {
-            Machine::Mac => a[0].role(),
-            Machine::Pc => a[1].role(),
-        }
+        a[index(on)].role()
     }
 }
 
@@ -174,7 +199,7 @@ async fn mover_el_hub_con_el_puesto_completo() {
     assert_eq!(run.outcome(), Some(Outcome::Committed));
     d.world.plug_hub(Machine::Mac);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(d.world.power(), Power::Off);
+    assert_eq!(d.world.power_of(Machine::Pc), Power::Off);
     assert_eq!(roles.server(false), Machine::Mac);
     assert_eq!(roles.chip(Machine::Mac), Role::Server);
 
@@ -213,26 +238,29 @@ async fn la_pc_se_apaga_con_el_hub() {
     assert_eq!(roles.server(true), Machine::Pc);
     assert_eq!(roles.chip(Machine::Mac), Role::Client);
 
-    let lost_after = d.mac.config().power.pc_lost_after();
+    let lost_after = d.mac.config().power.peer_lost_after();
     d.pull_pc_plug();
     d.world.plug_hub(Machine::Mac);
     // Dentro del umbral la Mac todavía no sabe si la PC sigue ahí.
     tokio::time::sleep(lost_after - Duration::from_secs(1)).await;
-    assert!(d.mac.state().pc_on);
+    assert!(d.mac.state().is_on(Machine::Pc));
     assert_eq!(roles.server(false), Machine::Pc);
 
     tokio::time::sleep(Duration::from_secs(3)).await;
-    assert!(!d.mac.state().pc_on);
+    assert!(!d.mac.state().is_on(Machine::Pc));
     assert_eq!(roles.server(false), Machine::Mac);
     assert_eq!(roles.chip(Machine::Mac), Role::Server);
 
     // La PC vuelve con su botón: el hub sigue en la Mac y la PC se pone de cliente.
     d.press_pc_power_button();
     let mut states = d.mac.subscribe();
-    tokio::time::timeout(Duration::from_secs(3600), states.wait_for(|s| s.pc_on))
-        .await
-        .unwrap()
-        .unwrap();
+    tokio::time::timeout(
+        Duration::from_secs(3600),
+        states.wait_for(|s| s.is_on(Machine::Pc)),
+    )
+    .await
+    .unwrap()
+    .unwrap();
     tokio::time::sleep(Duration::from_secs(5)).await;
     assert_eq!(roles.server(true), Machine::Mac);
     assert_eq!(roles.chip(Machine::Pc), Role::Client);
@@ -241,5 +269,106 @@ async fn la_pc_se_apaga_con_el_hub() {
     d.world.plug_hub(Machine::Pc);
     tokio::time::sleep(Duration::from_secs(5)).await;
     assert_eq!(roles.server(true), Machine::Pc);
+    assert_eq!(roles.chip(Machine::Mac), Role::Client);
+}
+
+// Los mismos escenarios con la PC de principal: el usuario trabaja en la PC y la Mac
+// está suspendida o apagada (DESIGN §3.7). Nada cambia salvo los nombres.
+
+/// Espejo de [`mover_el_hub_con_el_puesto_completo`].
+#[tokio::test(start_paused = true)]
+async fn espejo_mover_el_hub_con_la_pc_de_principal() {
+    let d = Desk::builder()
+        .principal(Machine::Pc)
+        .build()
+        .await
+        .unwrap();
+    let roles = Roles::start(&d);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(roles.keyboard_from(Machine::Pc, false), Machine::Pc);
+    assert_eq!(roles.chip(Machine::Pc), Role::Server);
+
+    // Se despierta la Mac (un monitor para ella): no ve el hub y el teclado sigue en la PC.
+    let run = d
+        .set_mode(
+            Machine::Pc,
+            Mode::Shared([("m32".into(), Machine::Mac)].into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(roles.keyboard_from(Machine::Pc, true), Machine::Pc);
+    assert_eq!(roles.chip(Machine::Mac), Role::Client);
+
+    // El hub pasa a la Mac: pasados los 3 s se invierten, en las dos.
+    d.world.plug_hub(Machine::Mac);
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    assert_eq!(roles.keyboard_from(Machine::Pc, true), Machine::Pc);
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(roles.keyboard_from(Machine::Pc, true), Machine::Mac);
+
+    // Hub en la Mac y la PC la apaga: la PC se queda con todo y, con el hub ahora en
+    // ella, tiene el teclado sin esperar a la Mac.
+    let run = d.shutdown(Machine::Pc, Machine::Mac).await.unwrap();
+    assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
+    d.world.plug_hub(Machine::Pc);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(d.world.power_of(Machine::Mac), Power::Off);
+    assert_eq!(roles.keyboard_from(Machine::Pc, false), Machine::Pc);
+    assert_eq!(roles.chip(Machine::Pc), Role::Server);
+}
+
+/// Espejo de [`la_pc_se_apaga_con_el_hub`]: la Mac se suspende con el hub conectado y
+/// el hub pasa a la PC.
+#[tokio::test(start_paused = true)]
+async fn espejo_la_mac_se_suspende_con_el_hub() {
+    let d = Desk::builder()
+        .principal(Machine::Pc)
+        .build()
+        .await
+        .unwrap();
+    let roles = Roles::start(&d);
+    let run = d
+        .set_mode(
+            Machine::Pc,
+            Mode::Shared([("m32".into(), Machine::Mac)].into()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
+    d.world.plug_hub(Machine::Mac);
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(roles.keyboard_from(Machine::Pc, true), Machine::Mac);
+    assert_eq!(roles.chip(Machine::Pc), Role::Client);
+
+    let lost_after = d.pc.config().power.peer_lost_after();
+    d.pull_plug(Machine::Mac);
+    d.world.plug_hub(Machine::Pc);
+    tokio::time::sleep(lost_after - Duration::from_secs(1)).await;
+    assert!(d.pc.state().is_on(Machine::Mac));
+    assert_eq!(roles.keyboard_from(Machine::Pc, false), Machine::Mac);
+
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    assert!(!d.pc.state().is_on(Machine::Mac));
+    assert!(
+        d.pc.state().is_on(Machine::Pc),
+        "la PC nunca se da por apagada a sí misma"
+    );
+    assert_eq!(roles.keyboard_from(Machine::Pc, false), Machine::Pc);
+    assert_eq!(roles.chip(Machine::Pc), Role::Server);
+
+    // La Mac vuelve con su botón: el hub sigue en la PC y la Mac recibe el teclado.
+    d.press_power_button(Machine::Mac);
+    let mut states = d.pc.subscribe();
+    tokio::time::timeout(
+        Duration::from_secs(3600),
+        states.wait_for(|s| s.is_on(Machine::Mac)),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    assert_eq!(roles.keyboard_from(Machine::Pc, true), Machine::Pc);
     assert_eq!(roles.chip(Machine::Mac), Role::Client);
 }

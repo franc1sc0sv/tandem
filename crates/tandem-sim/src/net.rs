@@ -13,7 +13,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 
-use tandem_core::{State, Step};
+use tandem_core::{Machine, State, Step};
 use tandem_link::manager::{LinkCandidate, LinkKind, LinkManager, Prober};
 use tandem_proto::{CalibrationProbe, ControlMsg};
 use tandemd::ipc::Framed;
@@ -106,7 +106,7 @@ impl SimNet {
         }
     }
 
-    /// La PC se apagó: todas las conexiones con su agente mueren.
+    /// Una máquina se apagó: todas las conexiones con su agente mueren.
     pub(crate) fn drop_all(&self) {
         for l in self.lock().links.values_mut() {
             l.generation += 1;
@@ -120,7 +120,10 @@ impl SimNet {
     /// Si una conexión nueva por `kind` llegaría al otro agente, y con qué generación.
     fn reachable(&self, kind: LinkKind) -> Option<u64> {
         let link = *self.lock().links.get(&kind)?;
-        (link.up && self.world.power() == Power::On).then_some(link.generation)
+        let both = [Machine::Mac, Machine::Pc]
+            .iter()
+            .all(|m| self.world.power_of(*m) == Power::On);
+        (link.up && both).then_some(link.generation)
     }
 
     fn alive(&self, kind: LinkKind, generation: u64) -> bool {
@@ -243,7 +246,7 @@ impl Prober for SimProber {
             .kind_of(addr)
             .ok_or_else(|| NetError(format!("{addr} no es un enlace simulado")))?;
         let Some(generation) = self.net.reachable(kind) else {
-            // Sin cable o con la PC apagada nadie contesta: lo corta el gestor.
+            // Sin cable o con la otra máquina apagada nadie contesta: lo corta el gestor.
             return std::future::pending().await;
         };
         // Un flujo para los pings del gestor y otro para los pedidos de pasos, como
@@ -326,6 +329,12 @@ impl PeerLink for ManagedPeer {
     fn publish_state(&self, state: &State) {
         if let Some(a) = self.links.active() {
             a.handle.client.publish_state(state);
+        }
+    }
+
+    fn send(&self, msg: ControlMsg) {
+        if let Some(a) = self.links.active() {
+            a.handle.client.send(msg);
         }
     }
 

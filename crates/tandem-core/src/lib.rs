@@ -11,6 +11,6 @@ pub mod state;
 pub mod txn;
 
 pub use model::{Config, DdcProfile, Input, Machine, MonitorConfig, MonitorId};
-pub use plan::{Mode, Plan, Step};
-pub use state::{BuiltinDisplay, State};
+pub use plan::{Abilities, Mode, Plan, Step};
+pub use state::{BuiltinDisplay, Powered, State};
 pub use txn::{Executor, TxnError, TxnReport, run};

@@ -37,9 +37,9 @@ async fn client_requests_state_and_receives_it() {
     let store = StateStore::new(dir.path().join("state.json"));
     // Un estado guardado por una corrida anterior.
     let cfg = AgentConfig::from_toml(CONFIG).unwrap();
-    let mut saved = State::initial(&cfg.desk);
+    let mut saved = State::initial(&cfg.desk, Machine::Mac);
     saved.owner.insert("m34".into(), Machine::Pc);
-    saved.pc_on = true;
+    saved.on.pc = true;
     store.save(&saved).unwrap();
 
     let agent = Arc::new(Agent::new(cfg, store.clone()));
@@ -69,7 +69,7 @@ async fn client_requests_state_and_receives_it() {
     let mut other = ipc::connect(&path).await.unwrap();
     assert_eq!(other.get_state().await.unwrap(), saved);
     let mut changed = saved.clone();
-    changed.pc_on = false;
+    changed.on.pc = false;
     agent.set_state(changed.clone()).unwrap();
     assert_eq!(
         client.next_event().await.unwrap(),

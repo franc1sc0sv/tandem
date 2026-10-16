@@ -274,7 +274,10 @@ mod tests {
         let store = StateStore::new(dir.path().join("state.json"));
         assert_eq!(
             store.load().unwrap(),
-            Some(State::initial(&agent.config().desk))
+            Some(State::initial(
+                &agent.config().desk,
+                tandem_core::Machine::Mac
+            ))
         );
     }
 }

@@ -266,6 +266,37 @@ async fn un_hello_de_otra_version_se_rechaza_en_los_dos_lados() {
     assert_eq!(opened.unwrap().1, current);
 }
 
+/// T-084: un agente de antes del anuncio de capacidades (protocolo 8) se rechaza en el
+/// saludo, con un error que dice qué pasa y qué hacer.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn un_agente_sin_anuncio_de_capacidades_se_rechaza_con_un_error_claro() {
+    let mac = identity(1);
+    let pc = identity(2);
+    let mac_ep = endpoint(&mac, trusting(&[&pc]));
+    let pc_ep = endpoint(&pc, trusting(&[&mac]));
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+
+    let mut old = Hello::new(Peer::Agent(Machine::Mac));
+    old.version = tandem_proto::CAPABILITIES_SINCE - 1;
+    let current = Hello::new(Peer::Agent(Machine::Pc));
+    let (_, accepted) =
+        within(async { tokio::join!(to_pc.open_control(&old), to_mac.accept_control(&current)) })
+            .await;
+    let Err(e) = accepted else {
+        panic!("se aceptó un agente sin capacidades");
+    };
+    assert!(
+        matches!(
+            e,
+            TransportError::Proto(ProtoError::IncompatibleVersion { theirs: 9, .. })
+        ),
+        "{e}"
+    );
+    let text = e.to_string();
+    assert!(text.contains("versión de protocolo incompatible"), "{text}");
+    assert!(text.contains("sin anuncio de capacidades"), "{text}");
+}
+
 /// Con el stream partido, los dos lados pueden mandar mucho a la vez: cada uno
 /// sigue leyendo mientras el control de flujo frena su escritura.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

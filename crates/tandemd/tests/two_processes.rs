@@ -440,7 +440,7 @@ async fn running_pair(pair: &Pair) -> (Proc, Ui, Proc, Ui) {
     linked(&mut ui_mac).await;
     linked(&mut ui_pc).await;
     // `pc_watch`: la PC aparece por un enlace, así que está prendida.
-    state_until(&mut ui_mac, "la Mac da la PC por prendida", |s| s.pc_on).await;
+    state_until(&mut ui_mac, "la Mac da la PC por prendida", |s| s.on.pc).await;
     (mac, ui_mac, pc, ui_pc)
 }
 
@@ -455,7 +455,7 @@ async fn modes_across_two_real_processes() {
     // Solo Mac: ya está así, transacción vacía; la PC queda con el mismo estado.
     let (steps, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(Mode::SoloMac)).await;
     assert!(steps.is_empty());
-    assert!(s.pc_on && all_on(&s, Machine::Mac));
+    assert!(s.on.pc && all_on(&s, Machine::Mac));
 
     // Compartido: el 34" a la PC. La PC cambia la entrada y lo agrega; la Mac lo quita.
     let (mac_before, pc_before) = (mac.spec.steps().len(), pc.spec.steps().len());
@@ -489,16 +489,31 @@ async fn modes_across_two_real_processes() {
 
     // Solo Windows: todo a la PC.
     let (_, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(Mode::SoloPc)).await;
-    assert!(s.pc_on && all_on(&s, Machine::Pc));
+    assert!(s.on.pc && all_on(&s, Machine::Pc));
 
     // Apagado: primero todo vuelve a la Mac, al final se apaga la PC (en la PC).
     let pc_before = pc.spec.steps().len();
-    let (steps, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetPcPower(false)).await;
-    assert_eq!(steps.last(), Some(&Step::PowerOffPc));
-    assert!(!s.pc_on && all_on(&s, Machine::Mac));
+    let (steps, s) = commit(
+        &mut ui_mac,
+        &mut ui_pc,
+        UiCommand::SetPower {
+            machine: Machine::Pc,
+            on: false,
+        },
+    )
+    .await;
+    assert_eq!(
+        steps.last(),
+        Some(&Step::PowerOff {
+            machine: Machine::Pc
+        })
+    );
+    assert!(!s.on.pc && all_on(&s, Machine::Mac));
     assert_eq!(
         new_steps(&pc.spec, pc_before).last(),
-        Some(&Step::PowerOffPc)
+        Some(&Step::PowerOff {
+            machine: Machine::Pc
+        })
     );
 
     // El apagado ordenado de los dos guarda el mismo estado.
@@ -562,14 +577,14 @@ async fn killing_the_pc_mid_change_leaves_the_mac_coherent() {
 
     // Sin enlaces, la Mac da la PC por apagada y lo avisa; todo sigue en la Mac.
     let ev = event_until(&mut ui_mac, "aviso de PC perdida", |e| {
-        matches!(e, AgentToUi::Power(PowerEvent::PcLost { .. }))
+        matches!(e, AgentToUi::Power(PowerEvent::PeerLost { .. }))
     })
     .await;
-    let AgentToUi::Power(PowerEvent::PcLost { stranded, .. }) = ev else {
+    let AgentToUi::Power(PowerEvent::PeerLost { stranded, .. }) = ev else {
         unreachable!()
     };
     assert!(stranded.is_empty());
-    let s = state_until(&mut ui_mac, "la PC dada por apagada", |s| !s.pc_on).await;
+    let s = state_until(&mut ui_mac, "la PC dada por apagada", |s| !s.on.pc).await;
     assert_eq!(s.owner, before.owner);
     assert!(matches!(
         ui_mac.request(UiCommand::GetPeer).await.unwrap(),

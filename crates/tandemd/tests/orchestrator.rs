@@ -115,7 +115,7 @@ fn setup(
 ) -> (AgentConfig, StateStore) {
     let cfg = AgentConfig::from_toml(&format!("machine = \"{machine}\"\n{desk}")).unwrap();
     let store = StateStore::new(dir.join(format!("{machine}.json")));
-    let mut s = State::initial(&cfg.desk);
+    let mut s = State::initial(&cfg.desk, Machine::Mac);
     initial(&mut s);
     store.save(&s).unwrap();
     (cfg, store)
@@ -215,7 +215,8 @@ async fn apply(ui: &mut Ui, mode: Mode) -> Vec<TxnEvent> {
                     return events;
                 }
             }
-            Some(AgentToUi::State(_)) => {}
+            // El anuncio de capacidades de la otra máquina llega al conectarse (T-084).
+            Some(AgentToUi::State(_) | AgentToUi::Capabilities(_)) => {}
             other => panic!("aviso inesperado: {other:?}"),
         }
     }
@@ -238,7 +239,7 @@ async fn modo_aplicado_de_punta_a_punta() {
     let events = apply(&mut d.ui, shared_34_to_pc()).await;
 
     let mut want = d.mac.state();
-    assert!(want.pc_on);
+    assert!(want.on.pc);
     assert_eq!(want.owner[&"m34".into()], Machine::Pc);
     assert_eq!(want.owner[&"m32".into()], Machine::Mac);
     assert!(matches!(events.last(), Some(TxnEvent::Committed { state, .. }) if *state == want));
@@ -256,7 +257,9 @@ async fn modo_aplicado_de_punta_a_punta() {
     assert_eq!(
         d.mac_steps.steps(),
         [
-            Step::PowerOnPc,
+            Step::PowerOn {
+                machine: Machine::Pc
+            },
             Step::Detach {
                 machine: Machine::Mac,
                 monitor: m34()
@@ -296,7 +299,7 @@ async fn fallo_remoto_vuelve_al_estado_inicial() {
         monitor: "m34".into(),
     };
     let mut d = desk(
-        |s| s.pc_on = true,
+        |s| s.on.pc = true,
         Fake::default(),
         Fake::failing(attach_pc.clone()),
     )
@@ -339,7 +342,7 @@ async fn fallo_remoto_vuelve_al_estado_inicial() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn la_pc_tambien_orquesta() {
     // El mismo protocolo en el otro sentido: la PC pide a la Mac lo que le toca.
-    let d = desk(|s| s.pc_on = true, Fake::default(), Fake::default()).await;
+    let d = desk(|s| s.on.pc = true, Fake::default(), Fake::default()).await;
     let mut rx = d.pc.subscribe_txns();
     assert!(matches!(
         d.pc.handle(UiCommand::SetMode(Mode::SoloPc)),
@@ -456,7 +459,7 @@ async fn pasos_de_pantalla_con_backends_simulados() {
     // La UI de la Mac pide Solo Windows: los cambios de entrada se piden desde la Mac pero
     // los hace la PC, el 34" por DDC y el 32" a mano, confirmado en la UI de la PC.
     let dir = tempfile::tempdir().unwrap();
-    let pc_on = |s: &mut State| s.pc_on = true;
+    let pc_on = |s: &mut State| s.on.pc = true;
     let (mac_desktop, pc_desktop) = (
         Arc::new(Escritorio::default()),
         Arc::new(Escritorio::default()),
@@ -517,7 +520,7 @@ async fn pasos_de_pantalla_con_backends_simulados() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rechazar_el_cambio_manual_vuelve_atras() {
     let dir = tempfile::tempdir().unwrap();
-    let pc_on = |s: &mut State| s.pc_on = true;
+    let pc_on = |s: &mut State| s.on.pc = true;
     let (cfg, store) = setup(dir.path(), Machine::Mac, DESK_DDC, &pc_on);
     let mac_local = DisplaySteps::new(Machine::Mac, cfg.desk.clone())
         .with_desktop(Arc::new(Escritorio::default()))

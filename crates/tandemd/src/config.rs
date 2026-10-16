@@ -15,18 +15,20 @@
 //! step_timeout_secs = 10
 //!
 //! [power]
-//! # Solo en la Mac: sin enlaces con la PC durante esto, se la da por apagada.
-//! pc_lost_after_secs = 15
+//! # Sin enlaces con la otra máquina durante esto, se la da por apagada (las dos vigilan).
+//! peer_lost_after_secs = 15
+//! # Esta máquina se despierta por Wake-on-LAN (lo anuncia a la otra).
+//! wakeable = true
 //!
-//! # Solo en la Mac: Wake-on-LAN por el enlace Ethernet directo.
+//! # Cómo despertar a la otra máquina: Wake-on-LAN por el enlace Ethernet directo.
 //! [power.wol]
 //! mac = "9c:6b:00:1a:2b:ff"
 //! source = "10.77.2.1"
 //! broadcast = "10.77.2.3"
 //!
 //! [input]
-//! # Servidor de teclado y mouse al arrancar, hasta que el hub decida.
-//! server = "mac"
+//! # Dónde está el teclado y mouse al arrancar, hasta que el hub decida.
+//! keyboard = "mac"
 //! # Bloquea el cursor en la máquina donde está (nombres de `KeyboardEvent.code`).
 //! lock_shortcut = ["ScrollLock"]
 //! clipboard = true
@@ -77,9 +79,21 @@ pub struct AgentConfig {
     pub power: PowerConfig,
     #[serde(default)]
     pub input: InputConfig,
-    /// El puesto: es el mismo archivo en las dos máquinas, salvo `machine`.
+    /// Versión de la configuración compartida del puesto (`[[monitors]]` y el atajo de
+    /// bloqueo), que se sincroniza con la otra máquina ([`crate::desk_sync`]). La
+    /// escribe el agente; 0 = nunca se cambió desde que se generó.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub desk_rev: u64,
+    /// Qué máquina hizo el último cambio de `desk_rev`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desk_origin: Option<Machine>,
+    /// El puesto: es el mismo en las dos máquinas, salvo `machine`.
     #[serde(flatten)]
     pub desk: Config,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -149,36 +163,42 @@ impl OrchestratorConfig {
     }
 }
 
-/// Encendido y apagado de la PC.
+/// Encendido y apagado de las dos máquinas (DESIGN §3.7: cualquiera puede ser la principal).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PowerConfig {
-    /// Cuánto tiempo sin ningún enlace con la PC hace que la Mac la dé por apagada
-    /// (un corte de corriente). Más corto que un reinicio de Windows no sirve de
-    /// mucho, pero cualquier caída breve de los cables tiene que quedar por debajo.
-    #[serde(default = "default_pc_lost_after")]
-    pub pc_lost_after_secs: u64,
-    /// Cómo despertar la PC. Sin esta sección, encenderla falla con un error claro.
+    /// Cuánto tiempo sin ningún enlace con la otra máquina hace que esta la dé por
+    /// apagada (un corte de corriente, o se suspendió). Más corto que un reinicio no
+    /// sirve de mucho, pero cualquier caída breve de los cables tiene que quedar por
+    /// debajo. `pc_lost_after_secs` es el nombre de antes.
+    #[serde(default = "default_peer_lost_after", alias = "pc_lost_after_secs")]
+    pub peer_lost_after_secs: u64,
+    /// Esta máquina se despierta por Wake-on-LAN; se le anuncia a la otra.
+    #[serde(default = "default_true")]
+    pub wakeable: bool,
+    /// Cómo despertar a la otra máquina. Sin esta sección, encenderla falla con un error
+    /// claro.
     #[serde(default)]
     pub wol: Option<WolTarget>,
 }
 
-fn default_pc_lost_after() -> u64 {
+fn default_peer_lost_after() -> u64 {
     15
 }
 
 impl Default for PowerConfig {
     fn default() -> Self {
         PowerConfig {
-            pc_lost_after_secs: default_pc_lost_after(),
+            peer_lost_after_secs: default_peer_lost_after(),
+            wakeable: true,
             wol: None,
         }
     }
 }
 
 impl PowerConfig {
-    pub fn pc_lost_after(&self) -> Duration {
-        Duration::from_secs(self.pc_lost_after_secs)
+    pub fn peer_lost_after(&self) -> Duration {
+        Duration::from_secs(self.peer_lost_after_secs)
     }
 }
 
@@ -186,9 +206,10 @@ impl PowerConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InputConfig {
-    /// El servidor con el que se arranca, hasta que el hub (o el otro agente) diga otra cosa.
-    #[serde(default = "default_server")]
-    pub server: Machine,
+    /// Dónde está el teclado y mouse al arrancar, hasta que el hub (o el otro agente) diga
+    /// otra cosa. `server` es el nombre de antes.
+    #[serde(default = "default_keyboard", alias = "server")]
+    pub keyboard: Machine,
     /// El teclado y el mouse del hub. Sin esto los roles no cambian solos.
     #[serde(default)]
     pub hub: Option<HubConfig>,
@@ -204,7 +225,7 @@ pub struct InputConfig {
     pub clipboard: bool,
 }
 
-fn default_server() -> Machine {
+fn default_keyboard() -> Machine {
     Machine::Mac
 }
 
@@ -220,7 +241,7 @@ fn default_true() -> bool {
 impl Default for InputConfig {
     fn default() -> Self {
         InputConfig {
-            server: default_server(),
+            keyboard: default_keyboard(),
             hub: None,
             remap: RemapPolicy::default(),
             lock_shortcut: default_lock_shortcut(),
@@ -258,9 +279,9 @@ pub enum ConfigError {
     #[error("los tiempos máximos de los pasos no pueden ser 0")]
     ZeroTimeout,
     #[error(
-        "power.pc_lost_after_secs no puede ser 0: cualquier parpadeo de los enlaces daría la PC por apagada"
+        "power.peer_lost_after_secs no puede ser 0: cualquier parpadeo de los enlaces daría a la otra máquina por apagada"
     )]
-    ZeroPcLostAfter,
+    ZeroPeerLostAfter,
     #[error("el puerto del Wake-on-LAN no puede ser 0")]
     ZeroWolPort,
     #[error(
@@ -307,8 +328,8 @@ impl AgentConfig {
         if o.power_on_timeout_secs == 0 || o.step_timeout_secs == 0 {
             return Err(ConfigError::ZeroTimeout);
         }
-        if self.power.pc_lost_after_secs == 0 {
-            return Err(ConfigError::ZeroPcLostAfter);
+        if self.power.peer_lost_after_secs == 0 {
+            return Err(ConfigError::ZeroPeerLostAfter);
         }
         self.input.lock_keys()?;
         if let Some(wol) = &self.power.wol {
@@ -584,14 +605,14 @@ mod tests {
     #[test]
     fn pc_lost_threshold_is_configurable_but_not_zero() {
         assert_eq!(
-            fixtures::desk().power.pc_lost_after(),
+            fixtures::desk().power.peer_lost_after(),
             Duration::from_secs(15)
         );
         let base = "machine = \"mac\"\nmonitors = []\n[power]\n";
-        let cfg = AgentConfig::from_toml(&format!("{base}pc_lost_after_secs = 40")).unwrap();
-        assert_eq!(cfg.power.pc_lost_after(), Duration::from_secs(40));
-        let err = AgentConfig::from_toml(&format!("{base}pc_lost_after_secs = 0")).unwrap_err();
-        assert!(matches!(err, ConfigError::ZeroPcLostAfter), "{err}");
+        let cfg = AgentConfig::from_toml(&format!("{base}peer_lost_after_secs = 40")).unwrap();
+        assert_eq!(cfg.power.peer_lost_after(), Duration::from_secs(40));
+        let err = AgentConfig::from_toml(&format!("{base}peer_lost_after_secs = 0")).unwrap_err();
+        assert!(matches!(err, ConfigError::ZeroPeerLostAfter), "{err}");
     }
 
     #[test]
@@ -629,7 +650,7 @@ mod tests {
     fn input_defaults() {
         let cfg = fixtures::desk();
         assert_eq!(cfg.input, InputConfig::default());
-        assert_eq!(cfg.input.server, Machine::Mac);
+        assert_eq!(cfg.input.keyboard, Machine::Mac);
         assert!(cfg.input.clipboard && cfg.input.hub.is_none());
         assert_eq!(cfg.input.lock_keys().unwrap(), [HidUsage::key(0x47)]);
         assert_eq!(cfg.input.remap, RemapPolicy::default());
@@ -642,7 +663,7 @@ mod tests {
             machine = "pc"
             monitors = []
             [input]
-            server = "pc"
+            keyboard = "pc"
             lock_shortcut = ["ControlLeft", "KeyL"]
             clipboard = false
             [input.hub]
@@ -651,7 +672,14 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(cfg.input.server, Machine::Pc);
+        assert_eq!(cfg.input.keyboard, Machine::Pc);
+        // El nombre de antes sigue valiendo.
+        let old = AgentConfig::from_toml(
+            "machine = \"mac\"\nmonitors = []\n[input]\nserver = \"pc\"\n[power]\npc_lost_after_secs = 9",
+        )
+        .unwrap();
+        assert_eq!(old.input.keyboard, Machine::Pc);
+        assert_eq!(old.power.peer_lost_after_secs, 9);
         assert!(!cfg.input.clipboard);
         assert_eq!(
             cfg.input.lock_keys().unwrap(),

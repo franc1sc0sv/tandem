@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tandem_core::{Machine, State, Step};
 use tandem_link::manager::{LinkKind, Snapshot};
 use tandem_link::transport::{Connection, ControlStream, TransportError};
-use tandem_proto::{CalibrationProbe, Channel, ControlMsg, Hello, Peer, ProbeOutcome};
+use tandem_proto::{CalibrationProbe, Channel, ControlMsg, Hello, Peer, ProbeOutcome, ProtoError};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
@@ -116,6 +116,10 @@ impl PeerLink for PeerClient {
 
     fn publish_state(&self, state: &State) {
         self.send(ControlMsg::State(state.clone()));
+    }
+
+    fn send(&self, msg: ControlMsg) {
+        PeerClient::send(self, msg);
     }
 
     fn show_probe<'a>(&'a self, probe: &'a CalibrationProbe) -> ProbeFuture<'a> {
@@ -340,7 +344,7 @@ async fn respond<C: ControlChannel>(
             // El estado final de una transacción del otro agente.
             ControlMsg::State(state) => {
                 agent.orchestrator().release_peer_lease();
-                let state = reconcile(state, &agent.config().desk);
+                let state = reconcile(state, &agent.desk());
                 if let Err(e) = agent.set_state(state) {
                     tracing::warn!("no se pudo guardar el estado que mandó el otro agente: {e}");
                 }
@@ -351,6 +355,8 @@ async fn respond<C: ControlChannel>(
             ControlMsg::Screens(screens) => {
                 agent.inbox().screens.send_replace(Some(screens));
             }
+            ControlMsg::Capabilities(caps) => agent.set_peer_capabilities(caps),
+            ControlMsg::Desk(sync) => agent.receive_desk(sync),
             // Solo vale como primer mensaje ([`accept_streams`]).
             ControlMsg::Open(channel) => {
                 return Err(format!("canal {channel:?} abierto a mitad de un stream"));
@@ -385,6 +391,12 @@ pub async fn accept_streams(conn: Connection, agent: Arc<Agent>) {
     loop {
         let (stream, theirs) = match conn.accept_control(&hello).await {
             Ok(s) => s,
+            // Otra versión (por ejemplo, una anterior sin anuncio de capacidades): no se
+            // le habla, y el log dice por qué y qué hacer.
+            Err(TransportError::Proto(e @ ProtoError::IncompatibleVersion { .. })) => {
+                tracing::warn!("se rechaza al otro agente: {e}");
+                return;
+            }
             Err(e) => {
                 tracing::debug!("conexión con el otro agente terminada: {e}");
                 return;
@@ -450,7 +462,7 @@ fn check_peer(me: Machine, got: Peer) -> Result<(), PeerError> {
 mod tests {
     use std::time::Duration;
 
-    use tandem_core::{Input, Mode, Plan, TxnError};
+    use tandem_core::{Abilities, Input, Mode, Plan, TxnError};
     use tokio::io::duplex;
 
     use super::*;
@@ -489,6 +501,7 @@ mod tests {
             from: Machine::Mac,
             to: Machine::Pc,
             input: Input::DisplayPort,
+            by: Machine::Pc,
         }
     }
 
@@ -513,7 +526,7 @@ mod tests {
         let (pc, _) = agent(dir.path(), Machine::Pc, FakeSteps::default());
         let _serve = link(&mac, &pc);
         let mut s = mac.state();
-        s.pc_on = true;
+        s.on.pc = true;
         s.owner.insert("m34".into(), Machine::Pc);
         let mut rx = pc.subscribe();
         mac.orchestrator().peer().publish_state(&s);
@@ -556,7 +569,9 @@ mod tests {
         // Un paso que no le toca a la PC se rechaza sin ejecutarse.
         f.send(&ControlMsg::ExecuteStep {
             id: 1,
-            step: Step::PowerOnPc,
+            step: Step::PowerOn {
+                machine: Machine::Pc,
+            },
         })
         .await
         .unwrap();
@@ -879,10 +894,10 @@ mod tests {
         let _serve = link(&mac, &pc);
         let cfg = mac.config().desk.clone();
         let mut state = mac.state();
-        state.pc_on = true;
+        state.on.pc = true;
         let initial = state.clone();
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
-        let plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+        let plan = Plan::to_mode(&cfg, &state, &mode, &Abilities::pc_switches(&cfg)).unwrap();
         let err = mac
             .orchestrator()
             .run(1, &cfg, &mut state, &plan)
@@ -934,8 +949,10 @@ mod tests {
         assert_eq!(pc_steps.steps(), [switch_34_to_pc()]);
         assert_eq!(pc.orchestrator().try_begin(), None);
 
+        // El estado final de la Mac: ella prendida (la PC ya lo estaba para sí misma).
         let mut s = pc.state();
-        s.pc_on = true;
+        assert!(s.is_on(Machine::Pc) && !s.is_on(Machine::Mac));
+        s.on.mac = true;
         let mut rx = pc.subscribe();
         f.send(&ControlMsg::State(s.clone())).await.unwrap();
         rx.wait_for(|got| *got == s).await.unwrap();

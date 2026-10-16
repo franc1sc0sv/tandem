@@ -26,16 +26,16 @@ peers = [
 ]
 
 [input]
-# Quién tiene el teclado y el mouse al arrancar, hasta que el hub decida (DESIGN §7).
-server = "mac"
+# Dónde está el teclado y el mouse al arrancar, hasta que el hub decida (DESIGN §7).
+keyboard = "mac"
 # Bloquea el cursor en la máquina donde está (nombres de KeyboardEvent.code, todas a
 # la vez). ScrollLock de un teclado de PC llega a la Mac como F14 y vale igual.
 lock_shortcut = ["ScrollLock"]
 clipboard = true
 
 # El teclado y el mouse que viajan en el hub USB-C, por VID:PID (en Windows, el
-# Administrador de dispositivos; en macOS, Información del sistema → USB). El servidor es
-# la máquina donde aparecen. Sin esta sección los roles no cambian solos.
+# Administrador de dispositivos; en macOS, Información del sistema → USB). El teclado está
+# en la máquina donde aparecen. Sin esta sección los roles no cambian solos.
 [input.hub]
 keyboard = "046d:c33f"
 mouse = "046d:c539"

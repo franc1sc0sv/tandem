@@ -76,9 +76,9 @@ fn layout() -> Layout {
         Rect::new(0, 0, 3440, 1440),
         1.0,
     )];
-    let mut st = State::initial(&desk());
+    let mut st = State::initial(&desk(), Machine::Mac);
     st.owner.insert("m34".into(), Machine::Pc);
-    st.pc_on = true;
+    st.on.pc = true;
     let opts = LayoutOptions {
         corner_margin: 0.0,
         ..LayoutOptions::default()

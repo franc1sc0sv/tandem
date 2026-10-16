@@ -174,7 +174,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
         let dir = tempfile::tempdir().unwrap();
         let (agent, c, _stop) = agent(dir.path());
         let mut s = agent.state();
-        s.pc_on = true;
+        s.on.pc = true;
         agent.set_state(s.clone()).unwrap();
         let status = status_with(here(), connect(&c), QUERY_TIMEOUT).await;
         assert_eq!(
@@ -190,7 +190,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
     async fn json_is_what_the_frontend_reads() {
         let mut state = State {
             owner: Default::default(),
-            pc_on: true,
+            on: tandem_core::Powered::both(),
             builtin_pref: BuiltinDisplay::Mirror,
         };
         state.owner.insert("m34".into(), Machine::Pc);
@@ -203,7 +203,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             serde_json::json!({
                 "kind": "connected",
                 "agent": "mac",
-                "state": { "owner": { "m34": "pc" }, "pc_on": true, "builtin_pref": "mirror" }
+                "state": { "owner": { "m34": "pc" }, "on": { "mac": true, "pc": true }, "builtin_pref": "mirror" }
             })
         );
         let down = AgentStatus::Unavailable {

@@ -3978,6 +3978,7 @@ dependencies = [
  "pollster",
  "proptest",
  "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "toml 0.9.12+spec-1.1.0",
 ]

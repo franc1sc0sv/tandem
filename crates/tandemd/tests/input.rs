@@ -291,7 +291,7 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
 
     // El 34" pasa a la PC: el cambio de modo recalcula la geometría de los dos lados.
     let mut mac_state = mac.agent.subscribe();
-    within(mac_state.wait_for(|s| s.pc_on)).await.unwrap();
+    within(mac_state.wait_for(|s| s.on.pc)).await.unwrap();
     let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
     let txn = within(async {
         loop {

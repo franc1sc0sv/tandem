@@ -1,8 +1,9 @@
 //! Los pasos de pantalla de esta máquina (`SwitchInput`, `Attach`, `Detach`,
 //! `SetBuiltin`), delegados en los backends de `tandem-display`.
 //!
-//! Las entradas las cambia la PC (DESIGN §8): el orquestador ya le manda a ella los
-//! `SwitchInput` pedidos en la Mac, así que la Mac no tiene [`MonitorSwitcher`]. Lo que
+//! Las entradas las cambia la máquina que puede (hoy la PC, DESIGN §8): cada plan dice
+//! quién hace cada `SwitchInput` según los anuncios de capacidades, así que la que no
+//! puede no tiene [`MonitorSwitcher`]. Lo que
 //! todavía no tiene backend responde «no implementado» y dispara la vuelta atrás.
 
 use std::sync::Arc;
@@ -95,7 +96,7 @@ impl DisplaySteps {
         let mut steps = DisplaySteps::new(cfg.machine, cfg.desk.clone()).with_others(Arc::new(
             PowerSteps::for_machine(cfg, Arc::new(GeometrySteps::new(geometry))),
         ));
-        if cfg.machine == Machine::Pc {
+        if crate::capabilities::switches_inputs(cfg.machine) {
             steps = steps.with_switcher(Arc::new(PerMonitor {
                 ddc: Arc::new(ddc_backend()),
                 manual,
@@ -108,18 +109,20 @@ impl DisplaySteps {
     }
 
     fn monitor(&self, id: &MonitorId) -> Result<MonitorConfig, String> {
-        let mut m = self
-            .desk
+        // El puesto vivo: puede traer monitores que llegaron de la otra máquina.
+        self.live
+            .desk(&self.desk)
             .monitor(id)
             .cloned()
-            .ok_or_else(|| format!("el monitor `{id}` no está en la configuración"))?;
-        self.live.apply(&mut m);
-        Ok(m)
+            .ok_or_else(|| format!("el monitor `{id}` no está en la configuración"))
     }
 
     async fn switch_input(&self, monitor: &MonitorId, to: Machine) -> Result<(), String> {
-        if self.me != Machine::Pc {
-            return Err("las entradas de los monitores las cambia la PC".to_owned());
+        if !crate::capabilities::switches_inputs(self.me) {
+            return Err(format!(
+                "la {} no puede cambiar entradas: se lo pide a la que sí",
+                crate::capabilities::label(self.me)
+            ));
         }
         let switcher = self.switcher.as_ref().ok_or(STEP_NOT_IMPLEMENTED)?;
         let monitor = self.monitor(monitor)?;
@@ -169,7 +172,7 @@ impl LocalSteps for DisplaySteps {
                     self.on_desktop(Machine::Mac, move |d| d.set_builtin(to))
                         .await
                 }
-                Step::PowerOnPc | Step::PowerOffPc | Step::UpdateInputGeometry => {
+                Step::PowerOn { .. } | Step::PowerOff { .. } | Step::UpdateInputGeometry => {
                     return self.others.execute(step).await;
                 }
             };
@@ -310,6 +313,7 @@ mod tests {
                 .unwrap()
                 .input_for(to)
                 .unwrap(),
+            by: Machine::Pc,
         }
     }
 
@@ -340,7 +344,7 @@ mod tests {
         let e = mac.execute(&switch("m34", Machine::Pc)).await.unwrap_err();
         assert_eq!(
             e,
-            "cambiar la entrada de m34 a pc: las entradas de los monitores las cambia la PC"
+            "cambiar la entrada de m34 a pc: la Mac no puede cambiar entradas: se lo pide a la que sí"
         );
         assert!(sw.seen().is_empty());
     }
@@ -355,6 +359,7 @@ mod tests {
             from: Machine::Pc,
             to: Machine::Mac,
             input: Input::DisplayPort,
+            by: Machine::Pc,
         };
         pc.execute(&step).await.unwrap();
         assert_eq!(sw.seen(), [("m34".into(), Machine::Mac, Input::Hdmi)]);
@@ -377,6 +382,7 @@ mod tests {
             from: Machine::Mac,
             to: Machine::Pc,
             input: Input::DisplayPort,
+            by: Machine::Pc,
         };
         let e = pc.execute(&unknown).await.unwrap_err();
         assert!(
@@ -412,8 +418,18 @@ mod tests {
                     to: BuiltinDisplay::Extend,
                 },
             ),
-            (&mac, Step::PowerOnPc),
-            (&pc, Step::PowerOffPc),
+            (
+                &mac,
+                Step::PowerOn {
+                    machine: Machine::Pc,
+                },
+            ),
+            (
+                &pc,
+                Step::PowerOff {
+                    machine: Machine::Pc,
+                },
+            ),
             (&pc, Step::UpdateInputGeometry),
         ] {
             let e = steps.execute(&step).await.unwrap_err();
@@ -479,9 +495,21 @@ mod tests {
     async fn other_steps_are_delegated() {
         let others = Arc::new(FakeSteps::default());
         let mac = DisplaySteps::new(Machine::Mac, desk()).with_others(others.clone());
-        mac.execute(&Step::PowerOnPc).await.unwrap();
+        mac.execute(&Step::PowerOn {
+            machine: Machine::Pc,
+        })
+        .await
+        .unwrap();
         mac.execute(&Step::UpdateInputGeometry).await.unwrap();
-        assert_eq!(others.steps(), [Step::PowerOnPc, Step::UpdateInputGeometry]);
+        assert_eq!(
+            others.steps(),
+            [
+                Step::PowerOn {
+                    machine: Machine::Pc
+                },
+                Step::UpdateInputGeometry
+            ]
+        );
     }
 
     #[tokio::test]
@@ -523,7 +551,12 @@ mod tests {
         let geometry = Arc::new(watch::Sender::new(0));
         let mut rx = geometry.subscribe();
         let mac = DisplaySteps::platform(&cfg, Arc::new(ManualSwitcher::new()), geometry);
-        let e = mac.execute(&Step::PowerOnPc).await.unwrap_err();
+        let e = mac
+            .execute(&Step::PowerOn {
+                machine: Machine::Pc,
+            })
+            .await
+            .unwrap_err();
         assert!(e.contains(crate::power::WOL_NOT_CONFIGURED), "{e}");
         // La geometría la recalcula el motor de entrada: el paso solo le avisa.
         mac.execute(&Step::UpdateInputGeometry).await.unwrap();
@@ -555,7 +588,7 @@ mod tests {
         ));
         a.set_peer(Arc::new(FakePeer(Arc::new(FakeSteps::default()))));
         let mut s = a.state();
-        s.pc_on = true;
+        s.on.pc = true;
         a.set_state(s).unwrap();
 
         let mut ui = a.subscribe_manual();

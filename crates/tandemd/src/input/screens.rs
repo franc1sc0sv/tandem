@@ -133,8 +133,8 @@ mod tests {
             Rect::new(0, 0, 3440, 1440),
             1.0,
         );
-        let mut state = State::initial(&desk());
-        state.pc_on = true;
+        let mut state = State::initial(&desk(), Machine::Mac);
+        state.on.pc = true;
         state.owner.insert("m34".into(), Machine::Pc);
         let opts = LayoutOptions::default();
         let pc = layout(

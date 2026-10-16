@@ -13,13 +13,18 @@ use tandem_core::{BuiltinDisplay, Input, Machine, Mode, MonitorId, Step};
 
 #[derive(Serialize, Deserialize)]
 enum StepWire {
-    PowerOnPc,
-    PowerOffPc,
+    PowerOn {
+        machine: Machine,
+    },
+    PowerOff {
+        machine: Machine,
+    },
     SwitchInput {
         monitor: MonitorId,
         from: Machine,
         to: Machine,
         input: Input,
+        by: Machine,
     },
     Attach {
         machine: Machine,
@@ -39,18 +44,20 @@ enum StepWire {
 impl From<&Step> for StepWire {
     fn from(s: &Step) -> Self {
         match s.clone() {
-            Step::PowerOnPc => StepWire::PowerOnPc,
-            Step::PowerOffPc => StepWire::PowerOffPc,
+            Step::PowerOn { machine } => StepWire::PowerOn { machine },
+            Step::PowerOff { machine } => StepWire::PowerOff { machine },
             Step::SwitchInput {
                 monitor,
                 from,
                 to,
                 input,
+                by,
             } => StepWire::SwitchInput {
                 monitor,
                 from,
                 to,
                 input,
+                by,
             },
             Step::Attach { machine, monitor } => StepWire::Attach { machine, monitor },
             Step::Detach { machine, monitor } => StepWire::Detach { machine, monitor },
@@ -63,18 +70,20 @@ impl From<&Step> for StepWire {
 impl From<StepWire> for Step {
     fn from(s: StepWire) -> Self {
         match s {
-            StepWire::PowerOnPc => Step::PowerOnPc,
-            StepWire::PowerOffPc => Step::PowerOffPc,
+            StepWire::PowerOn { machine } => Step::PowerOn { machine },
+            StepWire::PowerOff { machine } => Step::PowerOff { machine },
             StepWire::SwitchInput {
                 monitor,
                 from,
                 to,
                 input,
+                by,
             } => Step::SwitchInput {
                 monitor,
                 from,
                 to,
                 input,
+                by,
             },
             StepWire::Attach { machine, monitor } => Step::Attach { machine, monitor },
             StepWire::Detach { machine, monitor } => Step::Detach { machine, monitor },
@@ -176,16 +185,17 @@ mod tests {
     fn step() -> impl Strategy<Value = Step> {
         let input = prop_oneof![Just(Input::Hdmi), Just(Input::DisplayPort)];
         prop_oneof![
-            Just(Step::PowerOnPc),
-            Just(Step::PowerOffPc),
-            (monitor(), machine(), machine(), input).prop_map(|(monitor, from, to, input)| {
-                Step::SwitchInput {
+            machine().prop_map(|machine| Step::PowerOn { machine }),
+            machine().prop_map(|machine| Step::PowerOff { machine }),
+            (monitor(), machine(), machine(), input, machine()).prop_map(
+                |(monitor, from, to, input, by)| Step::SwitchInput {
                     monitor,
                     from,
                     to,
                     input,
+                    by,
                 }
-            }),
+            ),
             (machine(), monitor()).prop_map(|(machine, monitor)| Step::Attach { machine, monitor }),
             (machine(), monitor()).prop_map(|(machine, monitor)| Step::Detach { machine, monitor }),
             (builtin(), builtin()).prop_map(|(from, to)| Step::SetBuiltin { from, to }),
@@ -206,11 +216,13 @@ mod tests {
     }
 
     fn state() -> impl Strategy<Value = State> {
-        (assignment(), any::<bool>(), builtin()).prop_map(|(owner, pc_on, builtin_pref)| State {
-            owner,
-            pc_on,
-            builtin_pref,
-        })
+        (assignment(), any::<bool>(), any::<bool>(), builtin()).prop_map(
+            |(owner, mac, pc, builtin_pref)| State {
+                owner,
+                on: tandem_core::Powered { mac, pc },
+                builtin_pref,
+            },
+        )
     }
 
     proptest! {

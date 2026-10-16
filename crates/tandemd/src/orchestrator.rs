@@ -6,10 +6,15 @@
 //! atrás la hace [`tandem_core::run`]; aquí solo se despacha y se publica el avance
 //! como [`TxnEvent`] para la UI.
 //!
-//! Dos pasos tienen reglas propias: [`Step::PowerOnPc`] es mandar el Wake-on-LAN
-//! (repetido cada [`WOL_RESEND`]) y esperar a que el agente de la PC se conecte, y
-//! [`Step::PowerOffPc`] solo se despacha si el plan ya devolvió todos los monitores
-//! a la Mac (si no, la Mac se quedaría sin pantallas).
+//! Dos pasos tienen reglas propias: [`Step::PowerOn`] es mandar el Wake-on-LAN desde la
+//! otra máquina (repetido cada [`WOL_RESEND`]) y esperar a que el agente de la encendida
+//! se conecte, y [`Step::PowerOff`] solo se despacha si el plan ya le sacó todos los
+//! monitores a la que se apaga (si no, se quedarían en negro).
+//!
+//! No hay una máquina central (DESIGN §3.7): cualquiera de las dos orquesta y cada paso
+//! dice quién lo hace (`SwitchInput` lleva `by`, la que puede cambiar esa entrada según
+//! los anuncios de capacidades). Lo que les toca a las dos (la geometría) se hace solo en
+//! las que están prendidas.
 //!
 //! Un paso que falla por tiempo o porque se cortó la conexión con el otro agente
 //! pudo haberse hecho igual (se perdió la respuesta, no el pedido). Ese paso incierto
@@ -29,7 +34,9 @@ use std::time::Duration;
 use tandem_core::{
     BuiltinDisplay, Config, Executor, Machine, Plan, State, Step, TxnError, TxnReport,
 };
-use tandem_proto::{CalibrationProbe, ProbeOutcome, TxnEvent, UndoFailure};
+use tandem_proto::{CalibrationProbe, ControlMsg, ProbeOutcome, TxnEvent, UndoFailure};
+
+use crate::capabilities::label;
 use tokio::sync::{broadcast, watch};
 
 /// Lo que responde un paso que esta máquina todavía no sabe hacer. Dispara la vuelta atrás.
@@ -53,7 +60,7 @@ pub type ProbeFuture<'a> = Pin<Box<dyn Future<Output = Result<ProbeOutcome, Stri
 
 /// Los pasos que esta máquina hace por sí misma (DDC, topología, energía...).
 ///
-/// [`Step::PowerOnPc`] aquí es solo mandar un Wake-on-LAN: esperar a la PC y
+/// [`Step::PowerOn`] aquí es solo mandar un Wake-on-LAN a la otra máquina: esperarla y
 /// repetir el envío lo hace el [`Orchestrator`].
 pub trait LocalSteps: Send + Sync {
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a>;
@@ -75,6 +82,11 @@ pub trait PeerLink: Send + Sync {
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a>;
     /// Le avisa del estado final de una transacción, sin esperar respuesta.
     fn publish_state(&self, state: &State);
+    /// Le manda un aviso sin respuesta (capacidades, puesto). Sin conexión se pierde:
+    /// se repite al aparecer el enlace siguiente.
+    fn send(&self, msg: ControlMsg) {
+        let _ = msg;
+    }
     /// Retiene el enlace por el que van los pasos mientras dure una transacción
     /// propia: no se cambia de enlace a medias salvo que el activo caiga. Se libera
     /// al soltar lo devuelto. Sin gestor de enlaces no hay nada que retener.
@@ -115,14 +127,14 @@ pub enum Target {
 /// La máquina que sabe hacer cada paso.
 pub fn target(step: &Step) -> Target {
     match step {
-        // La PC apagada no puede encenderse sola: el Wake-on-LAN sale de la Mac.
-        Step::PowerOnPc => Target::On(Machine::Mac),
-        Step::PowerOffPc => Target::On(Machine::Pc),
-        // Las entradas las cambia la PC por DDC sobre DisplayPort (DESIGN §8).
-        Step::SwitchInput { .. } => Target::On(Machine::Pc),
+        // Una máquina apagada no puede encenderse sola: el Wake-on-LAN sale de la otra.
+        Step::PowerOn { machine } => Target::On(machine.other()),
+        Step::PowerOff { machine } => Target::On(*machine),
+        // La que el plan eligió porque puede cambiar esa entrada.
+        Step::SwitchInput { by, .. } => Target::On(*by),
         Step::Attach { machine, .. } | Step::Detach { machine, .. } => Target::On(*machine),
         Step::SetBuiltin { .. } => Target::On(Machine::Mac),
-        // Cada motor de entrada necesita la geometría nueva, sea servidor o cliente.
+        // Cada motor de entrada necesita la geometría nueva, tenga o no el teclado.
         Step::UpdateInputGeometry => Target::Both,
     }
 }
@@ -130,8 +142,8 @@ pub fn target(step: &Step) -> Target {
 /// Texto corto de un paso, para errores y logs.
 pub fn describe(step: &Step) -> String {
     match step {
-        Step::PowerOnPc => "encender la PC".to_owned(),
-        Step::PowerOffPc => "apagar la PC".to_owned(),
+        Step::PowerOn { machine } => format!("encender la {}", label(*machine)),
+        Step::PowerOff { machine } => format!("apagar la {}", label(*machine)),
         Step::SwitchInput { monitor, to, .. } => format!("cambiar la entrada de {monitor} a {to}"),
         Step::Attach { machine, monitor } => {
             format!("agregar {monitor} al escritorio de {machine}")
@@ -154,7 +166,7 @@ pub fn describe(step: &Step) -> String {
 /// Tiempo máximo por paso.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StepTimeouts {
-    /// Encender la PC incluye esperar a que su agente responda.
+    /// Encender la otra máquina incluye esperar a que su agente responda.
     pub power_on: Duration,
     /// Todos los demás pasos.
     pub step: Duration,
@@ -172,7 +184,7 @@ impl Default for StepTimeouts {
 impl StepTimeouts {
     pub fn for_step(&self, step: &Step) -> Duration {
         match step {
-            Step::PowerOnPc => self.power_on,
+            Step::PowerOn { .. } => self.power_on,
             _ => self.step,
         }
     }
@@ -288,6 +300,15 @@ impl Orchestrator {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
+    /// Ninguna transacción en curso, ni propia ni del otro agente. Es solo una foto: para
+    /// reservar el orquestador está [`Orchestrator::try_begin`].
+    pub fn is_idle(&self) -> bool {
+        let leased = self
+            .lease()
+            .is_some_and(|until| tokio::time::Instant::now() < until);
+        !leased && !self.busy.load(Ordering::Acquire)
+    }
+
     /// La transacción del otro agente terminó (llegó su estado final).
     pub fn release_peer_lease(&self) {
         *self.lease() = None;
@@ -391,11 +412,11 @@ impl Orchestrator {
 
     /// Un paso con su tiempo máximo, en la máquina que le toca.
     pub async fn dispatch(&self, step: &Step) -> Result<(), String> {
-        self.attempt(step).await.map_err(|f| f.error)
+        self.attempt(step, true).await.map_err(|f| f.error)
     }
 
     /// Un paso solo en esta máquina, aunque también le toque a la otra, con su tiempo
-    /// máximo. Sirve cuando la otra no puede contestar (la PC se quedó sin corriente).
+    /// máximo. Sirve cuando la otra no puede contestar (se quedó sin corriente).
     pub async fn run_here(&self, step: &Step) -> Result<(), String> {
         let limit = self.timeouts.for_step(step);
         match tokio::time::timeout(limit, self.local.execute(step)).await {
@@ -408,7 +429,9 @@ impl Orchestrator {
         }
     }
 
-    async fn attempt(&self, step: &Step) -> Result<(), StepFailure> {
+    /// `peer_on`: si la otra máquina está prendida; si no, lo que les toca a las dos se
+    /// hace solo aquí (una apagada no tiene motor de entrada que actualizar).
+    async fn attempt(&self, step: &Step, peer_on: bool) -> Result<(), StepFailure> {
         let limit = self.timeouts.for_step(step);
         let work = async {
             match target(step) {
@@ -418,7 +441,11 @@ impl Orchestrator {
                 Target::On(_) => self.remote(step).await,
                 Target::Both => {
                     self.run_local(step).await.map_err(StepFailure::certain)?;
-                    self.remote(step).await
+                    if peer_on {
+                        self.remote(step).await
+                    } else {
+                        Ok(())
+                    }
                 }
             }
         };
@@ -433,24 +460,27 @@ impl Orchestrator {
 
     async fn run_local(&self, step: &Step) -> Result<(), String> {
         match step {
-            Step::PowerOnPc => self.power_on_pc().await,
+            Step::PowerOn { machine } if *machine != self.me => self.power_on_peer(step).await,
             _ => self.local.execute(step).await,
         }
     }
 
-    /// Wake-on-LAN hasta que el agente de la PC se conecta. El tope lo pone quien llama
-    /// (`power_on_timeout_secs`); un error al mandar el paquete corta enseguida.
-    async fn power_on_pc(&self) -> Result<(), String> {
+    /// Wake-on-LAN hasta que el agente de la otra máquina se conecta. El tope lo pone
+    /// quien llama (`power_on_timeout_secs`); un error al mandar el paquete corta enseguida.
+    async fn power_on_peer(&self, step: &Step) -> Result<(), String> {
         let mut connected = self.connected.subscribe();
         loop {
-            self.local.execute(&Step::PowerOnPc).await?;
+            self.local.execute(step).await?;
             tokio::select! {
                 // El emisor vive en `self`: la espera no puede quedarse sin emisor.
                 r = connected.wait_for(|c| *c) => {
                     return r.map(|_| ()).map_err(|_| PEER_LOST.to_owned());
                 }
                 () = tokio::time::sleep(WOL_RESEND) => {
-                    tracing::debug!("la PC todavía no responde: se repite el Wake-on-LAN");
+                    tracing::debug!(
+                        "la {} todavía no responde: se repite el Wake-on-LAN",
+                        label(self.me.other())
+                    );
                 }
             }
         }
@@ -530,35 +560,45 @@ struct Dispatcher<'a> {
 }
 
 impl Dispatcher<'_> {
-    /// Reglas que dependen de lo que el plan ya hizo. Hoy solo una: apagar la PC con un
-    /// monitor todavía en ella dejaría a la Mac sin esa pantalla (DESIGN §5).
+    /// Reglas que dependen de lo que el plan ya hizo. Hoy solo una: apagar una máquina con
+    /// un monitor todavía en ella lo dejaría en negro (DESIGN §5).
     fn check(&self, step: &Step) -> Result<(), String> {
-        if *step != Step::PowerOffPc {
+        let Step::PowerOff { machine } = step else {
             return Ok(());
-        }
-        let on_pc: Vec<String> = self
+        };
+        let still: Vec<String> = self
             .state
             .owner
             .iter()
-            .filter(|(_, m)| **m != Machine::Mac)
+            .filter(|(_, m)| *m == machine)
             .map(|(id, _)| id.to_string())
             .collect();
-        if on_pc.is_empty() {
+        if still.is_empty() {
             return Ok(());
         }
         Err(format!(
-            "{}: {} {} en la PC; primero hay que devolver los monitores a la Mac",
+            "{}: {} {} en la {}; primero hay que llevar los monitores a la {}",
             describe(step),
-            on_pc.join(", "),
-            if on_pc.len() == 1 { "sigue" } else { "siguen" },
+            still.join(", "),
+            if still.len() == 1 { "sigue" } else { "siguen" },
+            label(*machine),
+            label(machine.other()),
         ))
+    }
+
+    fn peer_on(&self) -> bool {
+        self.state.is_on(self.orch.me.other())
     }
 }
 
 impl Executor for Dispatcher<'_> {
     async fn execute(&mut self, step: &Step) -> Result<(), String> {
         if self.failed {
-            let r = self.orch.dispatch(step).await;
+            let r = self
+                .orch
+                .attempt(step, self.peer_on())
+                .await
+                .map_err(|f| f.error);
             if let Err(e) = &r {
                 tracing::error!(txn = self.txn, "no se pudo deshacer: {e}");
             }
@@ -567,7 +607,7 @@ impl Executor for Dispatcher<'_> {
         let (txn, index) = (self.txn, self.next);
         self.orch.emit(TxnEvent::StepStarted { txn, index });
         let r = match self.check(step) {
-            Ok(()) => self.orch.attempt(step).await,
+            Ok(()) => self.orch.attempt(step, self.peer_on()).await,
             Err(e) => Err(StepFailure::certain(e)),
         };
         match r {
@@ -577,15 +617,15 @@ impl Executor for Dispatcher<'_> {
                 step.apply_to(&mut self.state);
                 Ok(())
             }
-            // El apagado es lo último del plan, con todo ya en la Mac. Si la respuesta
-            // no llega, lo más probable es que la PC se haya apagado (o esté en eso):
-            // deshacer devolvería los monitores a una PC sin imagen y la Mac se
-            // quitaría los suyos. Se da por hecho; si la PC sigue prendida, queda sin
-            // monitores y el próximo cambio la vuelve a esperar con Wake-on-LAN.
+            // El apagado es lo último del plan, con todo ya en la otra máquina. Si la
+            // respuesta no llega, lo más probable es que se haya apagado (o esté en eso):
+            // deshacer devolvería los monitores a una máquina sin imagen y la otra se
+            // quitaría los suyos. Se da por hecho; si sigue prendida, queda sin monitores
+            // y el próximo cambio la vuelve a esperar con Wake-on-LAN.
             Err(StepFailure {
                 error,
                 uncertain: true,
-            }) if *step == Step::PowerOffPc => {
+            }) if matches!(step, Step::PowerOff { .. }) => {
                 tracing::warn!(
                     txn,
                     index,
@@ -607,7 +647,11 @@ impl Executor for Dispatcher<'_> {
                 // La geometría no hace falta: la vuelta atrás la recalcula al final.
                 let undo = step.inverse(self.cfg).filter(|_| uncertain);
                 if let Some(inv) = undo.filter(|inv| *inv != Step::UpdateInputGeometry)
-                    && let Err(e) = self.orch.dispatch(&inv).await
+                    && let Err(e) = self
+                        .orch
+                        .attempt(&inv, self.peer_on())
+                        .await
+                        .map_err(|f| f.error)
                 {
                     tracing::error!(txn, "no se pudo deshacer el paso incierto: {e}");
                     self.uncertain_undo_failures.push((inv, e));
@@ -622,7 +666,7 @@ impl Executor for Dispatcher<'_> {
 pub(crate) mod tests {
     use std::sync::Mutex;
 
-    use tandem_core::{Input, Mode};
+    use tandem_core::{Abilities, Input, Mode};
 
     use super::*;
     use crate::config::fixtures;
@@ -683,6 +727,7 @@ pub(crate) mod tests {
             from: Machine::Mac,
             to: Machine::Pc,
             input: Input::DisplayPort,
+            by: Machine::Pc,
         }
     }
 
@@ -700,8 +745,18 @@ pub(crate) mod tests {
 
     #[test]
     fn routes_each_step_to_its_machine() {
-        assert_eq!(target(&Step::PowerOnPc), Target::On(Machine::Mac));
-        assert_eq!(target(&Step::PowerOffPc), Target::On(Machine::Pc));
+        assert_eq!(
+            target(&Step::PowerOn {
+                machine: Machine::Pc
+            }),
+            Target::On(Machine::Mac)
+        );
+        assert_eq!(
+            target(&Step::PowerOff {
+                machine: Machine::Pc
+            }),
+            Target::On(Machine::Pc)
+        );
         assert_eq!(target(&switch_34_to_pc()), Target::On(Machine::Pc));
         for machine in [Machine::Mac, Machine::Pc] {
             let monitor = "m34".into();
@@ -730,9 +785,19 @@ pub(crate) mod tests {
     #[test]
     fn power_on_gets_the_long_timeout() {
         let t = StepTimeouts::default();
-        assert_eq!(t.for_step(&Step::PowerOnPc), Duration::from_secs(120));
+        assert_eq!(
+            t.for_step(&Step::PowerOn {
+                machine: Machine::Pc
+            }),
+            Duration::from_secs(120)
+        );
         assert_eq!(t.for_step(&switch_34_to_pc()), Duration::from_secs(10));
-        assert_eq!(t.for_step(&Step::PowerOffPc), Duration::from_secs(10));
+        assert_eq!(
+            t.for_step(&Step::PowerOff {
+                machine: Machine::Pc
+            }),
+            Duration::from_secs(10)
+        );
     }
 
     #[tokio::test]
@@ -771,7 +836,12 @@ pub(crate) mod tests {
         );
         let e = o.dispatch(&switch_34_to_pc()).await.unwrap_err();
         assert!(e.contains(PEER_NOT_CONNECTED), "{e}");
-        let e = o.dispatch(&Step::PowerOnPc).await.unwrap_err();
+        let e = o
+            .dispatch(&Step::PowerOn {
+                machine: Machine::Pc,
+            })
+            .await
+            .unwrap_err();
         assert_eq!(e, format!("encender la PC: {STEP_NOT_IMPLEMENTED}"));
     }
 
@@ -779,11 +849,23 @@ pub(crate) mod tests {
     async fn refuses_peer_requests_for_the_peers_own_steps() {
         let (o, local, _) = mac(FakeSteps::default(), FakeSteps::default());
         assert!(o.execute_for_peer(&switch_34_to_pc()).await.is_err());
-        o.execute_for_peer(&Step::PowerOnPc).await.unwrap();
+        o.execute_for_peer(&Step::PowerOn {
+            machine: Machine::Pc,
+        })
+        .await
+        .unwrap();
         o.execute_for_peer(&Step::UpdateInputGeometry)
             .await
             .unwrap();
-        assert_eq!(local.steps(), [Step::PowerOnPc, Step::UpdateInputGeometry]);
+        assert_eq!(
+            local.steps(),
+            [
+                Step::PowerOn {
+                    machine: Machine::Pc
+                },
+                Step::UpdateInputGeometry
+            ]
+        );
     }
 
     #[test]
@@ -805,9 +887,9 @@ pub(crate) mod tests {
         let cfg = fixtures::desk().desk;
         let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
         let mut rx = o.subscribe();
-        let mut state = State::initial(&cfg);
+        let mut state = State::initial(&cfg, Machine::Mac);
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
-        let plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+        let plan = Plan::to_mode(&cfg, &state, &mode, &Abilities::pc_switches(&cfg)).unwrap();
         let outcome = o.run(7, &cfg, &mut state, &plan).await;
         o.finish(7, &state, &outcome);
         assert!(outcome.is_ok());
@@ -839,11 +921,11 @@ pub(crate) mod tests {
             },
         );
         let mut rx = o.subscribe();
-        let mut state = State::initial(&cfg);
-        state.pc_on = true;
+        let mut state = State::initial(&cfg, Machine::Mac);
+        state.on.pc = true;
         let initial = state.clone();
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
-        let plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+        let plan = Plan::to_mode(&cfg, &state, &mode, &Abilities::pc_switches(&cfg)).unwrap();
         let outcome = o.run(1, &cfg, &mut state, &plan).await;
         o.finish(1, &state, &outcome);
         assert!(matches!(outcome, Err(TxnError::RolledBack { .. })));
@@ -887,10 +969,10 @@ pub(crate) mod tests {
             },
         );
         let mut rx = o.subscribe();
-        let mut state = State::initial(&cfg);
-        state.pc_on = true;
+        let mut state = State::initial(&cfg, Machine::Mac);
+        state.on.pc = true;
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
-        let plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+        let plan = Plan::to_mode(&cfg, &state, &mode, &Abilities::pc_switches(&cfg)).unwrap();
         let outcome = o.run(2, &cfg, &mut state, &plan).await;
         o.finish(2, &state, &outcome);
         let last = drain(&mut rx).pop().unwrap();
@@ -928,11 +1010,11 @@ pub(crate) mod tests {
             },
             FakeSteps::default(),
         );
-        let mut state = State::initial(&cfg);
-        state.pc_on = true;
+        let mut state = State::initial(&cfg, Machine::Mac);
+        state.on.pc = true;
         let initial = state.clone();
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
-        let plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+        let plan = Plan::to_mode(&cfg, &state, &mode, &Abilities::pc_switches(&cfg)).unwrap();
         let start = tokio::time::Instant::now();
         let err = o.run(3, &cfg, &mut state, &plan).await.unwrap_err();
         assert_eq!(
@@ -965,8 +1047,8 @@ pub(crate) mod tests {
 
     fn pc_with(monitors_on_pc: &[&str]) -> (tandem_core::Config, State) {
         let cfg = fixtures::desk().desk;
-        let mut state = State::initial(&cfg);
-        state.pc_on = true;
+        let mut state = State::initial(&cfg, Machine::Mac);
+        state.on.pc = true;
         for m in monitors_on_pc {
             state.owner.insert((*m).into(), Machine::Pc);
         }
@@ -980,16 +1062,23 @@ pub(crate) mod tests {
         let (o, _, peer) = mac(FakeSteps::default(), FakeSteps::default());
         let mut rx = o.subscribe();
         let plan = Plan {
-            steps: vec![Step::PowerOffPc],
+            steps: vec![Step::PowerOff {
+                machine: Machine::Pc,
+            }],
         };
         let err = o.run(1, &cfg, &mut state, &plan).await.unwrap_err();
         let TxnError::RolledBack { step, error } = err else {
             panic!("se esperaba RolledBack");
         };
-        assert_eq!(step, Step::PowerOffPc);
+        assert_eq!(
+            step,
+            Step::PowerOff {
+                machine: Machine::Pc
+            }
+        );
         assert_eq!(
             error,
-            "apagar la PC: m34 sigue en la PC; primero hay que devolver los monitores a la Mac"
+            "apagar la PC: m34 sigue en la PC; primero hay que llevar los monitores a la Mac"
         );
         assert!(peer.steps().is_empty(), "la PC no recibió la orden");
         assert_eq!(state, initial);
@@ -1009,28 +1098,39 @@ pub(crate) mod tests {
             &cfg,
             &state,
             &Mode::Shared([("m32".into(), Machine::Pc)].into()),
+            &Abilities::pc_switches(&cfg),
         )
         .unwrap();
-        plan.steps.push(Step::PowerOffPc);
+        plan.steps.push(Step::PowerOff {
+            machine: Machine::Pc,
+        });
         let err = o.run(1, &cfg, &mut state, &plan).await.unwrap_err();
         assert!(
-            matches!(&err, TxnError::RolledBack { step: Step::PowerOffPc, error } if error.contains("m32 sigue")),
+            matches!(&err, TxnError::RolledBack { step: Step::PowerOff { machine: Machine::Pc }, error } if error.contains("m32 sigue")),
             "{err}"
         );
-        assert!(!peer.steps().contains(&Step::PowerOffPc));
+        assert!(!peer.steps().contains(&Step::PowerOff {
+            machine: Machine::Pc
+        }));
         // Lo que sí se hizo se deshizo: los dos monitores siguen en la PC.
         assert_eq!(state.owner[&"m34".into()], Machine::Pc);
-        assert!(state.pc_on);
+        assert!(state.on.pc);
     }
 
     #[tokio::test]
     async fn shutdown_plan_returns_monitors_then_powers_off() {
         let (cfg, mut state) = pc_with(&["m34", "m32"]);
         let (o, _, peer) = mac(FakeSteps::default(), FakeSteps::default());
-        let plan = Plan::shutdown_pc(&cfg, &state).unwrap();
+        let plan =
+            Plan::power_off(&cfg, &state, Machine::Pc, &Abilities::pc_switches(&cfg)).unwrap();
         o.run(1, &cfg, &mut state, &plan).await.unwrap();
-        assert_eq!(peer.steps().last(), Some(&Step::PowerOffPc));
-        assert!(!state.pc_on);
+        assert_eq!(
+            peer.steps().last(),
+            Some(&Step::PowerOff {
+                machine: Machine::Pc
+            })
+        );
+        assert!(!state.on.pc);
         assert!(state.owner.values().all(|m| *m == Machine::Mac));
     }
 
@@ -1049,17 +1149,34 @@ pub(crate) mod tests {
             o2.set_peer(Arc::new(FakePeer(Arc::new(FakeSteps::default()))));
         });
         let start = tokio::time::Instant::now();
-        o.dispatch(&Step::PowerOnPc).await.unwrap();
+        o.dispatch(&Step::PowerOn {
+            machine: Machine::Pc,
+        })
+        .await
+        .unwrap();
         assert_eq!(start.elapsed(), Duration::from_secs(12));
         // Envíos en 0, 5 y 10 s.
-        assert_eq!(local.steps(), vec![Step::PowerOnPc; 3]);
+        assert_eq!(
+            local.steps(),
+            vec![
+                Step::PowerOn {
+                    machine: Machine::Pc
+                };
+                3
+            ]
+        );
     }
 
     #[tokio::test(start_paused = true)]
     async fn power_on_without_the_pc_agent_times_out() {
         let local = Arc::new(FakeSteps::default());
         let o = Orchestrator::new(Machine::Mac, local.clone(), StepTimeouts::default());
-        let e = o.dispatch(&Step::PowerOnPc).await.unwrap_err();
+        let e = o
+            .dispatch(&Step::PowerOn {
+                machine: Machine::Pc,
+            })
+            .await
+            .unwrap_err();
         assert_eq!(e, "encender la PC: sin respuesta en 120 s");
         // Un envío cada 5 s desde 0; el de 120 s coincide con el tope y puede salir o no.
         let sent = local.steps().len();
@@ -1071,14 +1188,20 @@ pub(crate) mod tests {
         let o = Orchestrator::new(
             Machine::Mac,
             Arc::new(FakeSteps {
-                fail_on: vec![Step::PowerOnPc],
+                fail_on: vec![Step::PowerOn {
+                    machine: Machine::Pc,
+                }],
                 ..Default::default()
             }),
             StepTimeouts::default(),
         );
         let start = tokio::time::Instant::now();
         assert_eq!(
-            o.dispatch(&Step::PowerOnPc).await.unwrap_err(),
+            o.dispatch(&Step::PowerOn {
+                machine: Machine::Pc
+            })
+            .await
+            .unwrap_err(),
             "falla simulada"
         );
         assert_eq!(start.elapsed(), Duration::ZERO);
@@ -1110,15 +1233,15 @@ pub(crate) mod tests {
             to in proptest::collection::vec(machine(), 2),
         ) {
             let cfg = fixtures::desk().desk;
-            let mut state = State::initial(&cfg);
-            state.pc_on = true;
+            let mut state = State::initial(&cfg, Machine::Mac);
+            state.on.pc = true;
             let ids = ["m34", "m32"];
             for (id, m) in ids.iter().zip(&from) {
                 state.owner.insert((*id).into(), *m);
             }
             let mode = Mode::Shared(ids.iter().map(|id| (*id).into()).zip(to.iter().copied()).collect());
-            let mut plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
-            plan.steps.push(Step::PowerOffPc);
+            let mut plan = Plan::to_mode(&cfg, &state, &mode, &Abilities::pc_switches(&cfg)).unwrap();
+            plan.steps.push(Step::PowerOff { machine: Machine::Pc });
             let all_mac = to.iter().all(|m| *m == Machine::Mac);
 
             let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
@@ -1126,9 +1249,9 @@ pub(crate) mod tests {
             let initial = state.clone();
             let outcome = rt.block_on(o.run(1, &cfg, &mut state, &plan));
             proptest::prop_assert_eq!(outcome.is_ok(), all_mac);
-            proptest::prop_assert_eq!(peer.steps().contains(&Step::PowerOffPc), all_mac);
+            proptest::prop_assert_eq!(peer.steps().contains(&Step::PowerOff { machine: Machine::Pc }), all_mac);
             if all_mac {
-                proptest::prop_assert!(!state.pc_on);
+                proptest::prop_assert!(!state.on.pc);
             } else {
                 proptest::prop_assert_eq!(state, initial);
             }
@@ -1141,35 +1264,53 @@ pub(crate) mod tests {
         // 60 s para encender la PC está dentro de los 120 s.
         let (o, _, _) = mac(
             FakeSteps {
-                delays: vec![(Step::PowerOnPc, Duration::from_secs(60))],
+                delays: vec![(
+                    Step::PowerOn {
+                        machine: Machine::Pc,
+                    },
+                    Duration::from_secs(60),
+                )],
                 ..Default::default()
             },
             FakeSteps::default(),
         );
-        let mut state = State::initial(&cfg);
-        let plan = Plan::to_mode(&cfg, &state, &Mode::SoloPc).unwrap();
-        assert_eq!(plan.steps[0], Step::PowerOnPc);
+        let mut state = State::initial(&cfg, Machine::Mac);
+        let plan =
+            Plan::to_mode(&cfg, &state, &Mode::SoloPc, &Abilities::pc_switches(&cfg)).unwrap();
+        assert_eq!(
+            plan.steps[0],
+            Step::PowerOn {
+                machine: Machine::Pc
+            }
+        );
         o.run(4, &cfg, &mut state, &plan).await.unwrap();
-        assert!(state.pc_on);
+        assert!(state.on.pc);
 
         // 121 s, no.
         let (o, _, _) = mac(
             FakeSteps {
-                delays: vec![(Step::PowerOnPc, Duration::from_secs(121))],
+                delays: vec![(
+                    Step::PowerOn {
+                        machine: Machine::Pc,
+                    },
+                    Duration::from_secs(121),
+                )],
                 ..Default::default()
             },
             FakeSteps::default(),
         );
-        let mut state = State::initial(&cfg);
+        let mut state = State::initial(&cfg, Machine::Mac);
         let err = o.run(5, &cfg, &mut state, &plan).await.unwrap_err();
         assert!(matches!(
             err,
             TxnError::RolledBack {
-                step: Step::PowerOnPc,
+                step: Step::PowerOn {
+                    machine: Machine::Pc
+                },
                 ..
             }
         ));
-        assert_eq!(state, State::initial(&cfg));
+        assert_eq!(state, State::initial(&cfg, Machine::Mac));
     }
 
     /// La PC agrega el 34" pero la respuesta se pierde: la Mac no sabe si se hizo, así
@@ -1188,11 +1329,11 @@ pub(crate) mod tests {
                 ..Default::default()
             },
         );
-        let mut state = State::initial(&cfg);
-        state.pc_on = true;
+        let mut state = State::initial(&cfg, Machine::Mac);
+        state.on.pc = true;
         let initial = state.clone();
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
-        let plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+        let plan = Plan::to_mode(&cfg, &state, &mode, &Abilities::pc_switches(&cfg)).unwrap();
         let err = o.run(1, &cfg, &mut state, &plan).await.unwrap_err();
         assert!(matches!(err, TxnError::RolledBack { .. }), "{err:?}");
         assert_eq!(state, initial);
@@ -1222,10 +1363,10 @@ pub(crate) mod tests {
                 ..Default::default()
             },
         );
-        let mut state = State::initial(&cfg);
-        state.pc_on = true;
+        let mut state = State::initial(&cfg, Machine::Mac);
+        state.on.pc = true;
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
-        let plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+        let plan = Plan::to_mode(&cfg, &state, &mode, &Abilities::pc_switches(&cfg)).unwrap();
         o.run(1, &cfg, &mut state, &plan).await.unwrap_err();
         assert_eq!(
             peer.steps(),
@@ -1254,10 +1395,10 @@ pub(crate) mod tests {
                 ..Default::default()
             },
         );
-        let mut state = State::initial(&cfg);
-        state.pc_on = true;
+        let mut state = State::initial(&cfg, Machine::Mac);
+        state.on.pc = true;
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
-        let plan = Plan::to_mode(&cfg, &state, &mode).unwrap();
+        let plan = Plan::to_mode(&cfg, &state, &mode, &Abilities::pc_switches(&cfg)).unwrap();
         let err = o.run(1, &cfg, &mut state, &plan).await.unwrap_err();
         let TxnError::Inconsistent { undo_failures, .. } = err else {
             panic!("{err:?}");
@@ -1274,12 +1415,26 @@ pub(crate) mod tests {
     async fn while_orchestrating_peer_steps_are_refused_without_running() {
         let (o, local, _) = mac(FakeSteps::default(), FakeSteps::default());
         let _txn = o.try_begin().unwrap();
-        let e = o.execute_for_peer(&Step::PowerOnPc).await.unwrap_err();
+        let e = o
+            .execute_for_peer(&Step::PowerOn {
+                machine: Machine::Pc,
+            })
+            .await
+            .unwrap_err();
         assert!(e.contains(BUSY_HERE), "{e}");
         assert!(local.steps().is_empty());
         o.end();
-        o.execute_for_peer(&Step::PowerOnPc).await.unwrap();
-        assert_eq!(local.steps(), [Step::PowerOnPc]);
+        o.execute_for_peer(&Step::PowerOn {
+            machine: Machine::Pc,
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            local.steps(),
+            [Step::PowerOn {
+                machine: Machine::Pc
+            }]
+        );
     }
 
     // T-064: con el enlace caído a mitad de un paso, el inverso llega por otro stream
@@ -1396,40 +1551,55 @@ pub(crate) mod tests {
         let (o, local, peer) = mac(
             FakeSteps::default(),
             FakeSteps {
-                lost_reply_on: vec![Step::PowerOffPc],
+                lost_reply_on: vec![Step::PowerOff {
+                    machine: Machine::Pc,
+                }],
                 ..Default::default()
             },
         );
-        let mut state = State::initial(&cfg);
-        state.pc_on = true;
+        let mut state = State::initial(&cfg, Machine::Mac);
+        state.on.pc = true;
         state.owner.insert("m34".into(), Machine::Pc);
-        let plan = Plan::shutdown_pc(&cfg, &state).unwrap();
+        let plan =
+            Plan::power_off(&cfg, &state, Machine::Pc, &Abilities::pc_switches(&cfg)).unwrap();
         let report = o.run(1, &cfg, &mut state, &plan).await.unwrap();
         assert_eq!(report.applied, plan.steps);
-        assert!(!state.pc_on);
+        assert!(!state.on.pc);
         assert_eq!(state, {
-            let mut s = State::initial(&cfg);
+            let mut s = State::initial(&cfg, Machine::Mac);
             s.builtin_pref = state.builtin_pref;
             s
         });
         // Nada se deshizo.
-        assert_eq!(peer.steps().last(), Some(&Step::PowerOffPc));
+        assert_eq!(
+            peer.steps().last(),
+            Some(&Step::PowerOff {
+                machine: Machine::Pc
+            })
+        );
         assert_eq!(local.steps().last(), Some(&Step::UpdateInputGeometry));
 
         // Un apagado que falla con certeza sí se deshace.
         let (o, _, peer) = mac(
             FakeSteps::default(),
             FakeSteps {
-                fail_on: vec![Step::PowerOffPc],
+                fail_on: vec![Step::PowerOff {
+                    machine: Machine::Pc,
+                }],
                 ..Default::default()
             },
         );
-        let mut state = State::initial(&cfg);
-        state.pc_on = true;
+        let mut state = State::initial(&cfg, Machine::Mac);
+        state.on.pc = true;
         state.owner.insert("m34".into(), Machine::Pc);
         let before = state.clone();
         o.run(2, &cfg, &mut state, &plan).await.unwrap_err();
         assert_eq!(state, before);
-        assert_ne!(peer.steps().last(), Some(&Step::PowerOffPc));
+        assert_ne!(
+            peer.steps().last(),
+            Some(&Step::PowerOff {
+                machine: Machine::Pc
+            })
+        );
     }
 }

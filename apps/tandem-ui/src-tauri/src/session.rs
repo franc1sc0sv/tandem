@@ -17,10 +17,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State, Step};
 use tandem_proto::{
-    AgentToUi, CalibrationOutcome, CalibrationStep, CalibrationUpdate, DisplayInfo, DisplayProfile,
-    InputPermission, InputStatus, Link, ManualSwitchEvent, PairingStatus, PeerStatus, PowerEvent,
-    ProbeAnswer, ProbeAsk, ProbeEvent, ProbePlace, Reply, SavedProfile, SetupInfo, TxnEvent,
-    UiCommand,
+    AgentToUi, CalibrationOutcome, CalibrationStep, CalibrationUpdate, Capabilities,
+    DeskCapabilities, DisplayInfo, DisplayProfile, InputPermission, InputStatus, Link,
+    ManualSwitchEvent, PairingStatus, PeerStatus, PowerEvent, ProbeAnswer, ProbeAsk, ProbeEvent,
+    ProbePlace, Reply, SavedProfile, SetupInfo, TxnEvent, UiCommand,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -48,6 +48,9 @@ pub enum Snapshot {
         pairing: PairingView,
         /// El teclado y mouse compartidos: el chip de cada máquina.
         input: InputView,
+        /// Lo que puede cada máquina (T-084): la escena se dibuja con esto, no con el
+        /// nombre de la máquina.
+        caps: Box<CapsView>,
     },
     Unavailable {
         endpoint: Option<String>,
@@ -146,6 +149,116 @@ pub struct InputView {
     pub problem: Option<String>,
 }
 
+/// [`DeskCapabilities`] en JSON para el frontend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CapsView {
+    /// Esta máquina (siempre encendida para sí misma).
+    pub here: MachineView,
+    /// La otra, según su último anuncio; `None` si nunca se la vio.
+    pub peer: Option<MachineView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MachineView {
+    pub machine: Machine,
+    pub name: String,
+    pub os: String,
+    pub monitors: Vec<MonitorCapsView>,
+    pub builtin: bool,
+    pub hub: Option<bool>,
+    pub input: InputCapsView,
+    pub power: PowerCapsView,
+    pub services: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct MonitorCapsView {
+    pub monitor: Option<MonitorId>,
+    pub pnp_id: Option<String>,
+    pub name: String,
+    pub switch: bool,
+    pub ddc: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct InputCapsView {
+    pub capture: bool,
+    pub inject: bool,
+    pub missing: Vec<PermissionView>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct PowerCapsView {
+    pub wake_peer: bool,
+    pub wakeable: bool,
+    pub power_off: bool,
+}
+
+fn permission_view(p: InputPermission) -> PermissionView {
+    match p {
+        InputPermission::Accessibility => PermissionView::Accessibility,
+        InputPermission::InputMonitoring => PermissionView::InputMonitoring,
+    }
+}
+
+impl From<Capabilities> for MachineView {
+    fn from(c: Capabilities) -> Self {
+        MachineView {
+            machine: c.machine,
+            name: c.name,
+            os: c.os,
+            monitors: c
+                .monitors
+                .into_iter()
+                .map(|m| MonitorCapsView {
+                    monitor: m.monitor,
+                    pnp_id: m.pnp_id,
+                    name: m.name,
+                    switch: m.switch,
+                    ddc: m.ddc,
+                })
+                .collect(),
+            builtin: c.builtin,
+            hub: c.hub,
+            input: InputCapsView {
+                capture: c.input.capture,
+                inject: c.input.inject,
+                missing: c.input.missing.into_iter().map(permission_view).collect(),
+            },
+            power: PowerCapsView {
+                wake_peer: c.power.wake_peer,
+                wakeable: c.power.wakeable,
+                power_off: c.power.power_off,
+            },
+            services: c.services,
+        }
+    }
+}
+
+impl From<DeskCapabilities> for CapsView {
+    fn from(c: DeskCapabilities) -> Self {
+        CapsView {
+            here: c.here.into(),
+            peer: c.peer.map(Into::into),
+        }
+    }
+}
+
+/// Lo que anunciaría un agente de `machine` con el puesto de las pruebas, sin par visto.
+#[cfg(test)]
+pub fn test_caps(machine: Machine) -> Box<CapsView> {
+    let mut cfg = tandemd::AgentConfig::from_toml(
+        "machine = \"mac\"\n[[monitors]]\nid = \"m34\"\nlabel = '34\"'\nwiring = { pc = \"displayport\", mac = \"hdmi\" }",
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    cfg.machine = machine;
+    let here = tandemd::capabilities::local(&cfg, &cfg.desk, None, &InputStatus::new(machine));
+    Box::new(CapsView {
+        here: here.into(),
+        peer: None,
+    })
+}
+
 /// Los mismos nombres que la guía de permisos ([`crate::setup`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -161,14 +274,7 @@ impl From<InputStatus> for InputView {
             hub_here: s.hub_here,
             session: s.session,
             locked: s.locked,
-            missing: s
-                .missing
-                .into_iter()
-                .map(|p| match p {
-                    InputPermission::Accessibility => PermissionView::Accessibility,
-                    InputPermission::InputMonitoring => PermissionView::InputMonitoring,
-                })
-                .collect(),
+            missing: s.missing.into_iter().map(permission_view).collect(),
             problem: s.problem,
         }
     }
@@ -192,9 +298,11 @@ pub enum Notice {
     Calibration {
         event: CalibrationView,
     },
-    /// La PC se dio por apagada sin que nadie la apagara (corte de corriente):
-    /// `reason` se muestra tal cual y `stranded` son los monitores que quedan en negro.
+    /// La otra máquina se dio por apagada sin que nadie la apagara (corte de corriente o
+    /// suspendida): `reason` se muestra tal cual y `stranded` son los monitores que
+    /// quedan en negro.
     Power {
+        machine: Machine,
         reason: String,
         stranded: Vec<MonitorId>,
     },
@@ -203,7 +311,15 @@ pub enum Notice {
 impl From<PowerEvent> for Notice {
     fn from(e: PowerEvent) -> Self {
         match e {
-            PowerEvent::PcLost { reason, stranded } => Notice::Power { reason, stranded },
+            PowerEvent::PeerLost {
+                machine,
+                reason,
+                stranded,
+            } => Notice::Power {
+                machine,
+                reason,
+                stranded,
+            },
         }
     }
 }
@@ -634,7 +750,9 @@ pub enum Action {
     SetBuiltin {
         display: BuiltinDisplay,
     },
-    SetPcPower {
+    /// Encender o apagar `machine` (la otra, en la escena).
+    SetPower {
+        machine: Machine,
         on: bool,
     },
     AnswerManualSwitch {
@@ -678,7 +796,7 @@ impl From<Action> for UiCommand {
             Action::SetMode { mode } => UiCommand::SetMode(mode),
             Action::MoveMonitor { monitor, to } => UiCommand::MoveMonitor { monitor, to },
             Action::SetBuiltin { display } => UiCommand::SetBuiltin(display),
-            Action::SetPcPower { on } => UiCommand::SetPcPower(on),
+            Action::SetPower { machine, on } => UiCommand::SetPower { machine, on },
             Action::AnswerManualSwitch { id, done } => UiCommand::AnswerManualSwitch { id, done },
             Action::AnswerProbe { id, answer } => UiCommand::AnswerProbe {
                 id,
@@ -740,7 +858,8 @@ impl From<Reply> for ActionResult {
             | Reply::Desk(_)
             | Reply::Peer(_)
             | Reply::Pairing(_)
-            | Reply::Input(_) => ActionResult::Done,
+            | Reply::Input(_)
+            | Reply::Capabilities(_) => ActionResult::Done,
         }
     }
 }
@@ -862,6 +981,7 @@ struct Opened<S> {
     peer: PeerView,
     pairing: PairingView,
     input: InputView,
+    caps: Box<CapsView>,
 }
 
 /// Por qué terminó una conexión.
@@ -887,6 +1007,7 @@ impl Runner {
                     peer,
                     pairing,
                     input,
+                    caps,
                 }) => {
                     let agent = client.agent();
                     self.publish(Snapshot::Connected {
@@ -896,6 +1017,7 @@ impl Runner {
                         peer,
                         pairing,
                         input,
+                        caps,
                     });
                     match self.serve(client).await {
                         Ended::Released => return,
@@ -944,6 +1066,10 @@ impl Runner {
                 Reply::Input(i) => i.into(),
                 other => return Err(IpcError::UnexpectedReply(other)),
             };
+            let caps = match client.request(UiCommand::GetCapabilities).await? {
+                Reply::Capabilities(c) => Box::new((*c).into()),
+                other => return Err(IpcError::UnexpectedReply(other)),
+            };
             Ok(Opened {
                 client,
                 desk,
@@ -951,6 +1077,7 @@ impl Runner {
                 peer,
                 input,
                 pairing,
+                caps,
             })
         };
         match tokio::time::timeout(QUERY_TIMEOUT, opening).await {
@@ -1018,6 +1145,7 @@ impl Runner {
             AgentToUi::Pairing(status) => self.update_pairing(status.into()),
             AgentToUi::Input(status) => self.update_input(status.into()),
             AgentToUi::Desk(new) => self.update_desk(new),
+            AgentToUi::Capabilities(new) => self.update_caps((*new).into()),
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}
         }
@@ -1069,6 +1197,16 @@ impl Runner {
         if change(&mut next) {
             self.publish(next);
         }
+    }
+
+    fn update_caps(&self, new: CapsView) {
+        self.update(|c| match c {
+            Snapshot::Connected { caps, .. } if **caps != new => {
+                **caps = new;
+                true
+            }
+            _ => false,
+        });
     }
 
     fn update_input(&self, new: InputView) {
@@ -1246,6 +1384,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 peer: PeerView::Unpaired,
                 pairing: PairingView::Idle,
                 input: InputStatus::new(Machine::Mac).into(),
+                caps: Box::new(a.agent.capabilities().into()),
             }
         );
     }
@@ -1387,7 +1526,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
         rec.until(|s, _| connected(s)).await;
 
         let mut s = a.agent.state();
-        s.pc_on = true;
+        s.on.pc = true;
         s.builtin_pref = BuiltinDisplay::Mirror;
         a.agent.set_state(s.clone()).unwrap();
         let want = s.clone();
@@ -1424,7 +1563,12 @@ wiring = { pc = "displayport", mac = "hdmi" }
         else {
             panic!("se esperaba Started: {notices:?}");
         };
-        assert_eq!(steps.first(), Some(&Step::PowerOnPc));
+        assert_eq!(
+            steps.first(),
+            Some(&Step::PowerOn {
+                machine: Machine::Pc
+            })
+        );
         assert!(notices.iter().any(|n| matches!(
             n,
             Notice::Txn {
@@ -1533,7 +1677,12 @@ wiring = { pc = "displayport", mac = "hdmi" }
         assert!(reason.contains("no está corriendo"), "{reason}");
 
         // Los pedidos se contestan sin quedarse colgados.
-        let r = handle.act(Action::SetPcPower { on: true }).await;
+        let r = handle
+            .act(Action::SetPower {
+                machine: Machine::Pc,
+                on: true,
+            })
+            .await;
         assert!(matches!(r, ActionResult::Unavailable { .. }), "{r:?}");
 
         // Arranca el agente: el siguiente intento lo encuentra.
@@ -1624,7 +1773,12 @@ wiring = { pc = "displayport", mac = "hdmi" }
             }
         );
         assert_eq!(
-            handle.act(Action::SetPcPower { on: true }).await,
+            handle
+                .act(Action::SetPower {
+                    machine: Machine::Pc,
+                    on: true
+                })
+                .await,
             ActionResult::Unavailable {
                 reason: "sin HOME".into()
             }
@@ -1635,7 +1789,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
     #[test]
     fn json_is_what_the_frontend_reads() {
         let cfg = AgentConfig::from_toml(CONFIG).unwrap();
-        let state = State::initial(&cfg.desk);
+        let state = State::initial(&cfg.desk, Machine::Mac);
         let snap = Snapshot::Connected {
             agent: Machine::Mac,
             desk: cfg.desk,
@@ -1651,8 +1805,21 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 problem: None,
             }
             .into(),
+            caps: test_caps(Machine::Mac),
         };
         let v = serde_json::to_value(&snap).unwrap();
+        assert_eq!(v["caps"]["here"]["machine"], "mac");
+        assert_eq!(v["caps"]["here"]["builtin"], true);
+        assert_eq!(v["caps"]["here"]["monitors"][0]["switch"], false);
+        assert_eq!(
+            v["caps"]["here"]["power"],
+            serde_json::json!({ "wake_peer": false, "wakeable": true, "power_off": false })
+        );
+        assert_eq!(v["caps"]["peer"], serde_json::Value::Null);
+        assert_eq!(
+            v["state"]["on"],
+            serde_json::json!({ "mac": true, "pc": false })
+        );
         assert_eq!(
             v["input"],
             serde_json::json!({
@@ -1712,12 +1879,15 @@ wiring = { pc = "displayport", mac = "hdmi" }
             event: TxnView::Started {
                 txn: 3,
                 steps: vec![
-                    Step::PowerOnPc,
+                    Step::PowerOn {
+                        machine: Machine::Pc,
+                    },
                     Step::SwitchInput {
                         monitor: "m34".into(),
                         from: Machine::Mac,
                         to: Machine::Pc,
                         input: Input::DisplayPort,
+                        by: Machine::Pc,
                     },
                 ],
             },
@@ -1727,8 +1897,8 @@ wiring = { pc = "displayport", mac = "hdmi" }
             serde_json::json!({
                 "kind": "txn",
                 "event": { "type": "started", "txn": 3, "steps": [
-                    { "step": "power_on_pc" },
-                    { "step": "switch_input", "monitor": "m34", "from": "mac", "to": "pc", "input": "displayport" }
+                    { "step": "power_on", "machine": "pc" },
+                    { "step": "switch_input", "monitor": "m34", "from": "mac", "to": "pc", "input": "displayport", "by": "pc" }
                 ]}
             })
         );
@@ -1823,7 +1993,8 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 .unwrap(),
             serde_json::json!({ "type": "hide", "id": 7 })
         );
-        let p = Notice::from(PowerEvent::PcLost {
+        let p = Notice::from(PowerEvent::PeerLost {
+            machine: Machine::Pc,
             reason: "la PC dejó de responder".into(),
             stranded: vec!["m34".into()],
         });
@@ -1831,6 +2002,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             serde_json::to_value(&p).unwrap(),
             serde_json::json!({
                 "kind": "power",
+                "machine": "pc",
                 "reason": "la PC dejó de responder",
                 "stranded": ["m34"]
             })
@@ -1870,8 +2042,18 @@ wiring = { pc = "displayport", mac = "hdmi" }
             UiCommand::SetBuiltin(BuiltinDisplay::Mirror)
         );
         assert_eq!(
-            read(serde_json::json!({ "kind": "set_pc_power", "on": false })),
-            UiCommand::SetPcPower(false)
+            read(serde_json::json!({ "kind": "set_power", "machine": "pc", "on": false })),
+            UiCommand::SetPower {
+                machine: Machine::Pc,
+                on: false
+            }
+        );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "set_power", "machine": "mac", "on": true })),
+            UiCommand::SetPower {
+                machine: Machine::Mac,
+                on: true
+            }
         );
         assert_eq!(
             read(serde_json::json!({ "kind": "answer_manual_switch", "id": 4, "done": true })),
@@ -2100,7 +2282,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
     fn txn_and_manual_events_keep_their_data() {
         let s = State {
             owner: Default::default(),
-            pc_on: true,
+            on: tandem_core::Powered::both(),
             builtin_pref: BuiltinDisplay::Off,
         };
         let cases = [
@@ -2188,13 +2370,15 @@ wiring = { pc = "displayport", mac = "hdmi" }
             actions,
             retry: Arc::new(Notify::new()),
         };
-        runner.on_event(AgentToUi::Power(PowerEvent::PcLost {
+        runner.on_event(AgentToUi::Power(PowerEvent::PeerLost {
+            machine: Machine::Pc,
             reason: "la PC dejó de responder (¿corte de corriente?)".into(),
             stranded: vec!["m34".into(), "m32".into()],
         }));
         assert_eq!(
             *rec.notices.lock().unwrap(),
             vec![Notice::Power {
+                machine: Machine::Pc,
                 reason: "la PC dejó de responder (¿corte de corriente?)".into(),
                 stranded: vec!["m34".into(), "m32".into()],
             }]

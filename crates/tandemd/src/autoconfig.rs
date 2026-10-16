@@ -259,18 +259,20 @@ port = {DEFAULT_PORT}
 # peers = [{{ kind = \"usb4\", addr = \"<ip>:<puerto>\" }}]
 
 [input]
-# Quién tiene el teclado y el mouse al arrancar, hasta que el hub USB diga otra cosa.
-server = \"mac\"
+# Dónde está el teclado y el mouse al arrancar, hasta que el hub USB diga otra cosa.
+keyboard = \"mac\"
 lock_shortcut = [\"ScrollLock\"]
 clipboard = true
 # Para que los roles cambien solos al mover el hub, agrega [input.hub] con el VID:PID
 # del teclado y el mouse (`keyboard` y `mouse`).
 
 [power]
-# En la Mac: sin ningún enlace con la PC durante esto, se la da por apagada.
-pc_lost_after_secs = 15
-# Para encender la PC desde la Mac, agrega [power.wol] con la MAC de la tarjeta de red
-# de la PC (`mac`).
+# Sin ningún enlace con la otra máquina durante esto, se la da por apagada.
+peer_lost_after_secs = 15
+# Esta máquina se despierta por Wake-on-LAN (se le anuncia a la otra).
+wakeable = true
+# Para encender la otra máquina desde esta, agrega [power.wol] con la MAC de su tarjeta
+# de red (`mac`).
 "
     );
     for m in &monitors {
