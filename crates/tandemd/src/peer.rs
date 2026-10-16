@@ -14,10 +14,11 @@ use std::future::Future;
 use std::sync::Arc;
 
 use tandem_core::{Machine, State, Step};
+use tandem_link::manager::{LinkKind, Snapshot};
 use tandem_link::transport::{Connection, ControlStream, TransportError};
 use tandem_proto::{ControlMsg, Hello, Peer};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 use crate::agent::Agent;
@@ -158,10 +159,36 @@ async fn client_loop<C: ControlChannel>(mut chan: C, mut rx: mpsc::UnboundedRece
     }
 }
 
+/// Un pedido al otro agente que viaja por el enlace `kind`: falla con [`PEER_LOST`]
+/// en cuanto el gestor de enlaces da ese enlace por caído (DESIGN §6: sin esperar
+/// timeouts largos). La caída se nota en un ping, unos 1,25 s; el tiempo máximo del
+/// paso es de 10 s. Así la transacción deshace (o sigue) enseguida por el enlace
+/// siguiente.
+pub async fn over_link<H, F>(
+    mut links: watch::Receiver<Snapshot<H>>,
+    kind: LinkKind,
+    request: F,
+) -> Result<(), String>
+where
+    F: Future<Output = Result<(), String>>,
+{
+    // El gestor tarda al menos un ping en volver a dar el enlace por sano, así que
+    // la foto con el enlace caído no se pierde entre dos lecturas.
+    let lost = links.wait_for(|s| !s.links.iter().any(|l| l.kind == kind && l.rtt.is_some()));
+    tokio::select! {
+        // Si la respuesta ya llegó, vale aunque el enlace haya caído después.
+        biased;
+        r = request => r,
+        // Si el gestor se cerró tampoco queda enlace.
+        _ = lost => Err(PEER_LOST.to_owned()),
+    }
+}
+
 /// Atiende un stream abierto por el otro agente hasta que lo cierre.
 ///
 /// Los pasos se ejecutan de a uno y en orden: así el inverso de un paso que venció
-/// en el otro lado nunca corre antes que el paso mismo.
+/// en el otro lado nunca corre antes que el paso mismo. Si el inverso llega por otro
+/// stream (cayó el enlace), el turno del orquestador lo hace esperar igual.
 pub async fn serve<C: ControlChannel>(mut chan: C, agent: Arc<Agent>) -> Result<(), String> {
     while let Some(msg) = chan.recv().await? {
         match msg {
@@ -446,5 +473,71 @@ mod tests {
         f.send(&ControlMsg::State(s.clone())).await.unwrap();
         rx.wait_for(|got| *got == s).await.unwrap();
         assert!(pc.orchestrator().try_begin().is_some());
+    }
+
+    fn snapshot(up: &[LinkKind]) -> Snapshot<()> {
+        Snapshot {
+            active: None,
+            links: [LinkKind::Usb4, LinkKind::Ethernet]
+                .into_iter()
+                .map(|kind| tandem_link::manager::LinkStatus {
+                    kind,
+                    addr: std::net::SocketAddr::from(([127, 0, 0, 1], 1)),
+                    rtt: up.contains(&kind).then_some(Duration::from_millis(1)),
+                })
+                .collect(),
+        }
+    }
+
+    /// T-064: el pedido no espera su tiempo máximo si el gestor da su enlace por caído.
+    #[tokio::test(start_paused = true)]
+    async fn request_fails_when_its_link_goes_down() {
+        let (tx, rx) = watch::channel(snapshot(&[LinkKind::Usb4, LinkKind::Ethernet]));
+        let start = tokio::time::Instant::now();
+        let request = over_link(rx, LinkKind::Usb4, std::future::pending());
+        let cut = async {
+            tokio::time::sleep(Duration::from_millis(1250)).await;
+            // Caer otro enlace no afecta al pedido.
+            tx.send_replace(snapshot(&[LinkKind::Usb4]));
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            tx.send_replace(snapshot(&[LinkKind::Ethernet]));
+            std::future::pending::<()>().await;
+        };
+        let r = tokio::select! {
+            r = request => r,
+            () = cut => unreachable!(),
+        };
+        assert_eq!(r.unwrap_err(), PEER_LOST);
+        assert_eq!(start.elapsed(), Duration::from_millis(1350));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn request_answered_before_the_drop_keeps_its_result() {
+        let (tx, rx) = watch::channel(snapshot(&[LinkKind::Usb4]));
+        assert_eq!(
+            over_link(rx.clone(), LinkKind::Usb4, async { Ok(()) }).await,
+            Ok(())
+        );
+        assert_eq!(
+            over_link(rx, LinkKind::Usb4, async { Err("falla".to_owned()) }).await,
+            Err("falla".to_owned())
+        );
+        // Con el enlace ya caído no hay a quién pedirle nada.
+        tx.send_replace(snapshot(&[]));
+        assert_eq!(
+            over_link(tx.subscribe(), LinkKind::Usb4, std::future::pending()).await,
+            Err(PEER_LOST.to_owned())
+        );
+    }
+
+    /// Si el gestor se cierra, el pedido tampoco queda esperando.
+    #[tokio::test(start_paused = true)]
+    async fn request_fails_when_the_manager_closes() {
+        let (tx, rx) = watch::channel(snapshot(&[LinkKind::Usb4]));
+        drop(tx);
+        assert_eq!(
+            over_link(rx, LinkKind::Usb4, std::future::pending()).await,
+            Err(PEER_LOST.to_owned())
+        );
     }
 }

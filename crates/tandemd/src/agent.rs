@@ -2,7 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 
-use tandem_core::{Machine, Mode, Plan, State};
+use tandem_core::plan::PlanError;
+use tandem_core::{Machine, Mode, Plan, State, Step};
 use tandem_display::switcher::{ManualEvent, ManualSwitcher};
 use tandem_proto::{PowerEvent, Reply, TxnEvent, UiCommand};
 use tokio::sync::{broadcast, watch};
@@ -160,7 +161,9 @@ impl Agent {
     pub fn handle(self: &Arc<Self>, cmd: UiCommand) -> Reply {
         match cmd {
             UiCommand::GetState => Reply::State(self.state()),
+            UiCommand::GetDesk => Reply::Desk(self.cfg.desk.clone()),
             UiCommand::SetMode(mode) => self.start(mode),
+            UiCommand::SetPcPower(on) => self.start_power(on),
             UiCommand::MoveMonitor { monitor, to } => {
                 if self.cfg.desk.monitor(&monitor).is_none() {
                     return Reply::Rejected(format!(
@@ -181,16 +184,43 @@ impl Agent {
     }
 
     fn start(self: &Arc<Self>, mode: Mode) -> Reply {
+        self.start_plan(&format!("{mode:?}"), |cfg, from| {
+            Plan::to_mode(cfg, from, &mode)
+        })
+    }
+
+    /// Encender es solo despertar la PC; apagar devuelve antes todo a la Mac
+    /// ([`Plan::shutdown_pc`]). Pedir lo que ya está es una transacción vacía.
+    fn start_power(self: &Arc<Self>, on: bool) -> Reply {
+        let what = if on { "encender la PC" } else { "apagar la PC" };
+        self.start_plan(what, |cfg, from| {
+            if !on {
+                Plan::shutdown_pc(cfg, from)
+            } else if from.pc_on {
+                Ok(Plan::default())
+            } else {
+                Ok(Plan {
+                    steps: vec![Step::PowerOnPc],
+                })
+            }
+        })
+    }
+
+    fn start_plan(
+        self: &Arc<Self>,
+        what: &str,
+        plan_for: impl FnOnce(&tandem_core::Config, &State) -> Result<Plan, PlanError>,
+    ) -> Reply {
         let Some(txn) = self.orch.try_begin() else {
             return Reply::Rejected(BUSY.into());
         };
         let busy = Busy(self.clone());
         let from = self.state();
-        let plan = match Plan::to_mode(&self.cfg.desk, &from, &mode) {
+        let plan = match plan_for(&self.cfg.desk, &from) {
             Ok(p) => p,
             Err(e) => return Reply::Rejected(e.to_string()),
         };
-        tracing::info!(txn, ?mode, steps = plan.steps.len(), "cambio de modo");
+        tracing::info!(txn, what, steps = plan.steps.len(), "cambio de modo");
         tokio::spawn(async move {
             let agent = busy.0.clone();
             let mut state = from;
@@ -253,6 +283,68 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let a = Arc::new(agent(dir.path()));
         assert_eq!(a.handle(UiCommand::GetState), Reply::State(a.state()));
+    }
+
+    #[test]
+    fn get_desk_replies_with_the_configured_desk() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        assert_eq!(
+            a.handle(UiCommand::GetDesk),
+            Reply::Desk(a.config().desk.clone())
+        );
+    }
+
+    fn steps_of(events: &[TxnEvent]) -> Vec<Step> {
+        match events.first() {
+            Some(TxnEvent::Started { steps, .. }) => steps.clone(),
+            other => panic!("se esperaba Started: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn power_on_only_wakes_the_pc() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = with_fakes(dir.path(), FakeSteps::default(), FakeSteps::default());
+        let mut rx = a.subscribe_txns();
+        assert!(matches!(
+            a.handle(UiCommand::SetPcPower(true)),
+            Reply::Accepted { .. }
+        ));
+        let events = until_outcome(&mut rx).await;
+        assert_eq!(steps_of(&events), [Step::PowerOnPc]);
+        let mut expected = State::initial(&a.config().desk);
+        expected.pc_on = true;
+        assert_eq!(a.state(), expected);
+
+        // Ya encendida, pedirlo otra vez no hace nada.
+        a.handle(UiCommand::SetPcPower(true));
+        assert!(steps_of(&until_outcome(&mut rx).await).is_empty());
+    }
+
+    #[tokio::test]
+    async fn power_off_returns_monitors_to_the_mac_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = with_fakes(dir.path(), FakeSteps::default(), FakeSteps::default());
+        let mut s = a.state();
+        s.pc_on = true;
+        s.owner.insert("m34".into(), Machine::Pc);
+        a.set_state(s).unwrap();
+        let mut rx = a.subscribe_txns();
+        assert!(matches!(
+            a.handle(UiCommand::SetPcPower(false)),
+            Reply::Accepted { .. }
+        ));
+        let steps = steps_of(&until_outcome(&mut rx).await);
+        assert!(matches!(
+            steps.first(),
+            Some(Step::SwitchInput {
+                to: Machine::Mac,
+                ..
+            })
+        ));
+        assert_eq!(steps.last(), Some(&Step::PowerOffPc));
+        assert_eq!(a.state(), State::initial(&a.config().desk));
     }
 
     /// Avisos de una transacción hasta su desenlace.

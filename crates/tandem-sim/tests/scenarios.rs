@@ -282,8 +282,9 @@ async fn caida_del_enlace_preferido_entre_pasos_sigue_por_ethernet() {
 async fn caida_del_enlace_preferido_con_la_respuesta_en_el_aire() {
     let d = Leg::ToSoloPc.prepare().await;
     // La PC agrega el 32" a su escritorio y el USB4 se cae antes de que la respuesta
-    // llegue: la Mac no sabe que el paso se hizo, lo da por vencido y vuelve atrás
-    // por Ethernet. La PC no puede quedarse con el 32" de fantasma.
+    // llegue: la Mac no sabe que el paso se hizo, lo da por perdido al notar la caída
+    // (T-064) y vuelve atrás por Ethernet. La PC no puede quedarse con el 32" de
+    // fantasma.
     let attach = Step::Attach {
         machine: Machine::Pc,
         monitor: m32(),
@@ -303,7 +304,7 @@ async fn caida_del_enlace_preferido_con_la_respuesta_en_el_aire() {
     );
     assert!(
         run.failure()
-            .is_some_and(|(_, e)| e.contains("sin respuesta")),
+            .is_some_and(|(_, e)| e.contains(tandemd::orchestrator::PEER_LOST)),
         "{:?}",
         run.failure()
     );
@@ -311,6 +312,81 @@ async fn caida_del_enlace_preferido_con_la_respuesta_en_el_aire() {
     assert_eq!(d.world.physical(), before);
     assert_eq!(d.active_link(Machine::Mac), Some(LinkKind::Ethernet));
     d.pc_agrees().await.unwrap();
+}
+
+/// T-064: el USB4 se cae con un paso de la PC a mitad. La Mac no espera los 10 s
+/// del paso: en cuanto su gestor de enlaces nota la caída, el paso falla con
+/// PEER_LOST y la vuelta atrás sigue por Ethernet. La PC termina el paso que ya
+/// había empezado antes de deshacerlo, así que no queda nada de fantasma.
+#[tokio::test(start_paused = true)]
+async fn caida_del_enlace_con_un_paso_a_mitad_falla_enseguida() {
+    let d = Leg::ToSoloPc.prepare().await;
+    assert_eq!(d.active_link(Machine::Mac), Some(LinkKind::Usb4));
+    let attach = Step::Attach {
+        machine: Machine::Pc,
+        monitor: m32(),
+    };
+    d.arm(
+        FaultPlan::new()
+            .on(
+                Machine::Pc,
+                attach.clone(),
+                FaultAction::CutLink(LinkKind::Usb4),
+            )
+            .on(
+                Machine::Pc,
+                attach.clone(),
+                FaultAction::Delay(Duration::from_secs(3)),
+            ),
+    );
+    let index = Leg::ToSoloPc
+        .plan(&d)
+        .steps
+        .iter()
+        .position(|s| *s == attach)
+        .and_then(|i| u32::try_from(i).ok())
+        .unwrap();
+
+    // Cuándo empezó y cuándo falló el paso, en tiempo de tokio.
+    let mut rx = d.mac.subscribe_txns();
+    let timer = tokio::spawn(async move {
+        let mut started = None;
+        loop {
+            match rx.recv().await.unwrap() {
+                tandem_proto::TxnEvent::StepStarted { index: i, .. } if i == index => {
+                    started = Some(tokio::time::Instant::now());
+                }
+                tandem_proto::TxnEvent::StepFailed { index: i, .. } if i == index => {
+                    return started.unwrap().elapsed();
+                }
+                _ => {}
+            }
+        }
+    });
+
+    let before = d.world.physical();
+    let run = Leg::ToSoloPc.run(&d).await;
+    assert_eq!(
+        run.outcome(),
+        Some(Outcome::RolledBack),
+        "{:#?}",
+        run.events
+    );
+    let (failed, error) = run.failure().unwrap();
+    assert_eq!(failed, index);
+    assert!(error.contains(tandemd::orchestrator::PEER_LOST), "{error}");
+    let took = timer.await.unwrap();
+    assert!(
+        took < Duration::from_secs(2),
+        "el paso tardó {took:?} en fallar"
+    );
+
+    d.check().await.unwrap();
+    assert_eq!(d.world.physical(), before);
+    assert_eq!(d.active_link(Machine::Mac), Some(LinkKind::Ethernet));
+    d.pc_agrees().await.unwrap();
+    // Y el siguiente cambio funciona por Ethernet.
+    committed(&d, &Leg::ToSoloPc.run(&d).await).await;
 }
 
 #[tokio::test(start_paused = true)]

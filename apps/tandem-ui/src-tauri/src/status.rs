@@ -80,10 +80,10 @@ where
     }
 }
 
-const CLOSED: &str = "tandemd cerró la conexión sin responder";
+pub(crate) const CLOSED: &str = "tandemd cerró la conexión sin responder";
 
 /// Un error de la IPC dicho de forma que el usuario sepa qué hacer.
-fn explain(e: &IpcError) -> String {
+pub(crate) fn explain(e: &IpcError) -> String {
     match e {
         IpcError::Io(io) => match io.kind() {
             // Sin socket/pipe, o un socket viejo de un agente que ya murió.
