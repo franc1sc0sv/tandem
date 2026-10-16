@@ -113,10 +113,13 @@ jobs:
       - run: pnpm install --frozen-lockfile
         working-directory: apps/tandem-ui
       - run: scripts/macos/bundle.sh
+      # upload-artifact conserva las carpetas a partir del primer comodín
+      # (`aarch64-apple-darwin/release/...`): se copia aparte para que el .dmg quede en la raíz.
+      - run: mkdir dist && cp target/*-apple-darwin/release/bundle/dmg/Tandem_*.dmg dist/
       - uses: actions/upload-artifact@v4
         with:
           name: instalador-macos
-          path: target/*-apple-darwin/release/bundle/dmg/Tandem_*.dmg
+          path: dist/Tandem_*.dmg
           if-no-files-found: error
 
   # Lo mismo que el job `instalador (windows)` del CI (T-071), con la prueba de instalar y
@@ -174,6 +177,7 @@ jobs:
         working-directory: dist
         run: |
           shopt -s nullglob
+          ls -la
           dmg=(Tandem_*.dmg) exe=(Tandem_*-setup.exe)
           [ ${#dmg[@]} -eq 1 ] || { echo "se esperaba un .dmg: ${dmg[*]}" >&2; exit 1; }
           [ ${#exe[@]} -eq 1 ] || { echo "se esperaba un -setup.exe: ${exe[*]}" >&2; exit 1; }
