@@ -7,6 +7,8 @@
 //! - [`paths`]: dónde viven la configuración, el estado y los logs.
 //! - [`store`]: el [`tandem_core::State`] persistido en JSON.
 //! - [`agent`]: el estado vivo del agente y las respuestas a la UI.
+//! - [`orchestrator`]: los cambios de modo como transacciones repartidas entre las dos máquinas.
+//! - [`peer`]: el otro agente por el plano de control (pedirle pasos y atender los suyos).
 //! - [`ipc`]: la API local para la UI (Unix socket / named pipe).
 //! - [`daemon`]: el bucle principal y el apagado ordenado.
 //! - [`logging`]: `tracing` a stdout y a archivo.
@@ -17,9 +19,13 @@ pub mod config;
 pub mod daemon;
 pub mod ipc;
 pub mod logging;
+pub mod orchestrator;
 pub mod paths;
+pub mod peer;
 pub mod store;
 
 pub use agent::Agent;
-pub use config::{AgentConfig, ConfigError, NetworkConfig};
+pub use config::{AgentConfig, ConfigError, NetworkConfig, OrchestratorConfig};
+pub use orchestrator::{LocalSteps, NoPeer, Orchestrator, PeerLink, StepTimeouts, Unimplemented};
+pub use peer::PeerClient;
 pub use store::{StateStore, StoreError};
