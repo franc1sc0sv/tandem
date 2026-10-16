@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 keycode.workspace = true
 serde.workspace = true
+tandem-core = { path = "../tandem-core" }
 thiserror.workspace = true
 
 [lints]
