@@ -2,11 +2,13 @@
 //!
 //! - [`event`]: modelo de eventos portable, tablas de teclas y reasignación de modificadores.
 //! - [`geometry`]: pantallas visibles de cada máquina y cruce de bordes entre ellas.
+//! - [`macos`]: inyección en macOS (traducción portable + CoreGraphics).
 //! - [`session`]: sesión de entrada sobre el enlace (servidor y cliente).
 //! - [`windows`]: captura e inyección en Windows (traducción portable, envío bajo `cfg(windows)`).
 
 pub mod event;
 pub mod geometry;
+pub mod macos;
 pub mod session;
 pub mod windows;
 

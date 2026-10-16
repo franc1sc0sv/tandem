@@ -45,11 +45,13 @@ zeroize = "1.8"
 # Windows
 windows = "0.62.2"
 
-# macOS
+# macOS. Sin features por defecto (arrastran todos los frameworks): cada crate
+# activa `std` y lo que use.
 objc2 = "0.6.5"
-objc2-app-kit = "0.3.2"
-objc2-core-graphics = "0.3.2"
-objc2-foundation = "0.3.2"
+objc2-app-kit = { version = "0.3.2", default-features = false }
+objc2-core-foundation = { version = "0.3.2", default-features = false }
+objc2-core-graphics = { version = "0.3.2", default-features = false }
+objc2-foundation = { version = "0.3.2", default-features = false }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
