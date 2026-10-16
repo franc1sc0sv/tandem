@@ -1450,6 +1450,7 @@ dependencies = [
 name = "tandem-input"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bytes",
  "keycode",
  "objc2",
@@ -1497,6 +1498,16 @@ dependencies = [
 [[package]]
 name = "tandem-peripherals"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "tandem-core",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+ "windows",
+]
 
 [[package]]
 name = "tandem-power"
@@ -1518,6 +1529,20 @@ dependencies = [
  "serde",
  "tandem-core",
  "thiserror",
+]
+
+[[package]]
+name = "tandem-sim"
+version = "0.1.0"
+dependencies = [
+ "tandem-core",
+ "tandem-link",
+ "tandem-proto",
+ "tandemd",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
