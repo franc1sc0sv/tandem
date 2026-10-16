@@ -1494,6 +1494,16 @@ dependencies = [
 [[package]]
 name = "tandem-peripherals"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "tandem-core",
+ "thiserror",
+ "tokio",
+ "toml",
+ "tracing",
+ "windows",
+]
 
 [[package]]
 name = "tandem-power"
