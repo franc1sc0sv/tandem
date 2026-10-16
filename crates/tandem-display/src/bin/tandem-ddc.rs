@@ -83,13 +83,18 @@ fn calibrate(
         .enable_time()
         .build()?;
     let cancel = CancelToken::new();
-    let confirmer = LineConfirmer::stdin(Box::new(std::io::stdout()));
+    let confirmer = |wiring| {
+        Box::new(LineConfirmer::stdin(Box::new(std::io::stdout()), wiring))
+            as Box<dyn tandem_display::calibrate::Confirmer>
+    };
     let dir = user_dir();
+    let desk = load_desk();
     let env = cli::CalibrateEnv {
         confirmer: &confirmer,
         cancel: &cancel,
         options: CalibrationOptions::default(),
         user_dir: dir.as_deref(),
+        desk: desk.as_ref(),
         today: profile::today(),
     };
     let mut out = std::io::stdout();
@@ -103,6 +108,21 @@ fn calibrate(
     runtime
         .block_on(cli::run_calibrate(args, bus, profiles, env, &mut out))
         .map(|_| ())
+}
+
+/// El puesto de `tandem.toml` (el mismo de `tandemd`), para saber qué máquina va en
+/// cada entrada. Sin él, o inválido, se avisa y se usa el cableado por omisión.
+#[cfg(windows)]
+fn load_desk() -> Option<tandem_core::Config> {
+    let path = dirs::config_dir()?.join(DATA_DIR).join("tandem.toml");
+    let text = std::fs::read_to_string(&path).ok()?;
+    match tandem_core::Config::from_toml(&text) {
+        Ok(desk) => Some(desk),
+        Err(e) => {
+            eprintln!("tandem-ddc: aviso: {} ignorado: {e}", path.display());
+            None
+        }
+    }
 }
 
 #[cfg(not(windows))]

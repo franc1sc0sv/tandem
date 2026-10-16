@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use tandem_core::{Config, DdcProfile, Input, Machine, MonitorConfig, MonitorId};
 use tandem_display::calibrate::{
     self, CalibratedProfile, CalibrationError, CalibrationEvent, CalibrationOptions,
-    CalibrationRequest, CancelToken, State as EngineState, profile,
+    CalibrationRequest, CancelToken, Sight, State as EngineState, profile,
 };
 use tandem_display::ddc::profiles::{ProfileDb, ProfileSource};
 use tandem_display::ddc::{DdcBus, DdcError, MonitorInfo};
@@ -486,20 +486,27 @@ fn step(e: &CalibrationEvent) -> Option<CalibrationStep> {
             attempt: n(*attempt),
             of: n(*of),
         },
-        CalibrationEvent::Seen { input, code, seen } => CalibrationStep::Seen {
+        CalibrationEvent::Seen { input, code, sight } => CalibrationStep::Seen {
             input: *input,
             code: *code,
-            seen: *seen,
+            seen: *sight == Sight::Input(*input),
         },
         CalibrationEvent::Returned { code } => CalibrationStep::Returned { code: *code },
         CalibrationEvent::Found { input, code } => CalibrationStep::Found {
             input: *input,
             code: *code,
         },
-        // El final lo dice `Finished`; lo leído no se dibuja.
+        CalibrationEvent::State(EngineState::Verifying) => CalibrationStep::Verifying,
+        CalibrationEvent::Verified { input, code } => CalibrationStep::Verified {
+            input: *input,
+            code: *code,
+        },
+        // El final lo dice `Finished`; lo leído no se dibuja, y la falta de respuesta se
+        // ve en la pregunta («¿sigo?»).
         CalibrationEvent::State(_)
         | CalibrationEvent::Declared(_)
-        | CalibrationEvent::Reported { .. } => {
+        | CalibrationEvent::Reported { .. }
+        | CalibrationEvent::NoAnswer { .. } => {
             return None;
         }
     })
@@ -530,7 +537,7 @@ mod tests {
     use tandem_display::ddc::fake::{FakeDdc, FakeMonitor};
     use tandem_display::desktop::{DesktopControl, DesktopError};
     use tandem_display::switcher::{DdcSwitcher, ManualSwitcher, PerMonitor};
-    use tandem_proto::{ProbeAsk, ProbeEvent, ProbePlace, Reply, UiCommand};
+    use tandem_proto::{ProbeAnswer, ProbeAsk, ProbeEvent, ProbePlace, Reply, UiCommand};
     use tokio::sync::broadcast;
     use tokio::sync::broadcast::error::RecvError;
 
@@ -700,8 +707,24 @@ wiring = { pc = "displayport", mac = "hdmi" }
                 if probe.ask == ProbeAsk::UserSwitch {
                     sim.lock().showing = Showing::Input(probe.input);
                 }
-                let visible = sim.showing() == Showing::Input(probe.input);
-                let _ = agent.probes().answer(id, visible);
+                // En la pregunta dice qué ve; en la sonda a pantalla completa hace clic si
+                // la ve (en el 32" de la PC, la PC va por DisplayPort).
+                let answer = match (place, sim.showing()) {
+                    (ProbePlace::Question, Showing::Input(Input::DisplayPort)) => {
+                        Some(ProbeAnswer::Machine(Machine::Pc))
+                    }
+                    (ProbePlace::Question, Showing::Input(Input::Hdmi)) => {
+                        Some(ProbeAnswer::Machine(Machine::Mac))
+                    }
+                    (ProbePlace::Question, Showing::Black(_)) => Some(ProbeAnswer::Black),
+                    (_, showing) if showing == Showing::Input(probe.input) => {
+                        Some(ProbeAnswer::Seen)
+                    }
+                    _ => None,
+                };
+                if let Some(answer) = answer {
+                    let _ = agent.probes().answer(id, answer);
+                }
             }
         });
     }

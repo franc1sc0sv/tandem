@@ -445,7 +445,7 @@ impl Agent {
                 Ok(()) => Reply::Done,
                 Err(e) => Reply::Rejected(e.to_string()),
             },
-            UiCommand::AnswerProbe { id, seen } => match self.probes.answer(id, seen) {
+            UiCommand::AnswerProbe { id, answer } => match self.probes.answer(id, answer) {
                 Ok(()) => Reply::Done,
                 Err(e) => Reply::Rejected(e.to_string()),
             },

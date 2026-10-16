@@ -29,6 +29,7 @@ import type {
   Notice,
   PairingView,
   PeerView,
+  ProbeAnswer,
   SetupView,
   ShortcutAction,
   ShortcutsView,
@@ -168,7 +169,7 @@ export function demoBridge(query: string): Bridge {
   let displays = demoDisplays();
   let calibrating: { cancelled: boolean } | null = null;
   /** La respuesta a la pregunta del cambio a mano que espera la calibración simulada. */
-  let answer: ((seen: boolean) => void) | null = null;
+  let answer: ((a: ProbeAnswer) => void) | null = null;
 
   /** El recorrido del motor (T-077) con el 32": la vuelta primero, después el HDMI. */
   async function calibrate(d: DisplayView, monitor: string | null) {
@@ -190,18 +191,20 @@ export function demoBridge(query: string): Bridge {
     say({ type: "started", display: d.index, name: d.name, monitor, start: "displayport" });
     if (!(await step({ kind: "reading" }))) return finish({ type: "finished", outcome: { kind: "cancelled" } });
     say({ type: "progress", step: { kind: "user_switch", input: "hdmi" } });
-    // Sin la otra máquina, esta ventana pregunta si el monitor cambió.
-    const seen = await new Promise<boolean>((resolve) => {
+    // Sin la otra máquina, esta ventana pregunta qué se ve en el monitor.
+    const seen = await new Promise<ProbeAnswer>((resolve) => {
       answer = resolve;
       emit({
         kind: "probe",
-        event: { type: "show", id: 90, monitor: d.name, input: "hdmi", ask: { kind: "user_switch" }, timeout_ms: 120000, place: { kind: "question" } },
+        event: { type: "show", id: 90, monitor: d.name, input: "hdmi", machine: "mac", ask: { kind: "user_switch" }, timeout_ms: 120000, place: { kind: "question" } },
       });
     });
     answer = null;
     emit({ kind: "probe", event: { type: "hide", id: 90 } });
-    if (run.cancelled) return finish({ type: "finished", outcome: { kind: "cancelled" } });
-    if (!seen) return finish({ type: "finished", outcome: { kind: "failed", reason: "no se confirmó el cambio manual a hdmi desde el menú del monitor" } });
+    if (run.cancelled || seen.kind === "stop") return finish({ type: "finished", outcome: { kind: "cancelled" } });
+    if (seen.kind !== "machine" || seen.machine !== "mac") {
+      return finish({ type: "finished", outcome: { kind: "failed", reason: "no se confirmó el cambio manual a hdmi desde el menú del monitor" } });
+    }
     const steps: CalibrationStep[] = [
       { kind: "testing", input: "displayport" },
       { kind: "trying", input: "displayport", code: 0x0f, attempt: 1, of: 31 },
@@ -221,8 +224,11 @@ export function demoBridge(query: string): Bridge {
     const last: CalibrationStep[] = [
       { kind: "trying", input: "hdmi", code: 0x05, attempt: 1, of: 30 },
       { kind: "seen", input: "hdmi", code: 0x05, seen: true },
-      { kind: "returned", code: 0x0f },
       { kind: "found", input: "hdmi", code: 0x05 },
+      { kind: "verifying" },
+      { kind: "verified", input: "displayport", code: 0x0f },
+      { kind: "verified", input: "hdmi", code: 0x05 },
+      { kind: "verified", input: "displayport", code: 0x0f },
     ];
     for (const s of last) if (!(await step(s))) return finish({ type: "finished", outcome: { kind: "cancelled" } });
     displays = displays.map((x) => (x.index === d.index ? { ...x, monitor, profile: { kind: "configured", hdmi: 0x05, display_port: 0x0f } } : x));
@@ -378,11 +384,11 @@ export function demoBridge(query: string): Bridge {
           return { kind: "done" };
         case "answer_probe":
           if (answer) {
-            answer(a.seen);
+            answer(a.answer);
             return { kind: "done" };
           }
           emit({ kind: "probe", event: { type: "hide", id: a.id } });
-          messages.forEach((cb) => cb(a.seen ? "Sigue la calibración con el próximo paso" : "Se prueba el código siguiente"));
+          messages.forEach((cb) => cb(a.answer.kind === "stop" ? "Se cancela la calibración y el monitor vuelve" : "Sigue la calibración con el próximo paso"));
           return { kind: "done" };
         case "start_pairing":
         case "confirm_pairing":
@@ -403,7 +409,7 @@ export function demoBridge(query: string): Bridge {
         case "cancel_calibration":
           if (!calibrating) return { kind: "rejected", reason: "no hay ninguna calibración en curso" };
           calibrating.cancelled = true;
-          answer?.(false);
+          answer?.({ kind: "stop" });
           return { kind: "done" };
         case "use_profile":
           return { kind: "rejected", reason: "en el modo demo ningún monitor tiene perfil en la base" };

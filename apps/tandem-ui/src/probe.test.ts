@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ProbeShow } from "./model";
+import type { ProbeAnswer, ProbeShow } from "./model";
 import { countdown, demoProbe, hex, nextQuestion, probeText, questionText, readProbe, secondsLeft } from "./probe";
 
 const CANDIDATE: ProbeShow = {
@@ -8,18 +8,19 @@ const CANDIDATE: ProbeShow = {
   id: 3,
   monitor: "Odyssey G5",
   input: "hdmi",
+  machine: "mac",
   ask: { kind: "candidate", code: 0x05 },
-  timeout_ms: 8000,
+  timeout_ms: 20000,
   place: { kind: "monitor", screen: null },
 };
-const SWITCH: ProbeShow = { ...CANDIDATE, id: 4, input: "displayport", ask: { kind: "user_switch" }, timeout_ms: 120000 };
+const SWITCH: ProbeShow = { ...CANDIDATE, id: 4, input: "displayport", machine: "pc", ask: { kind: "user_switch" }, timeout_ms: 120000 };
 const QUESTION: ProbeShow = { ...CANDIDATE, id: 5, place: { kind: "question" } };
 
 describe("sonda a pantalla completa", () => {
-  it("pregunta si se ve, con el monitor, la entrada y el código", () => {
+  it("pregunta si se ve, con el monitor, la entrada, la máquina y el código", () => {
     expect(probeText(CANDIDATE)).toEqual({
       title: "¿Ves esta pantalla?",
-      detail: "Calibrando el Odyssey G5: entrada HDMI, código 0x05.",
+      detail: "Calibrando el Odyssey G5: mandé 0x05 para HDMI (la Mac).",
       button: "Sí, la veo",
     });
   });
@@ -27,8 +28,15 @@ describe("sonda a pantalla completa", () => {
   it("en el cambio a mano dice qué hacer en el menú del monitor", () => {
     const t = probeText(SWITCH);
     expect(t.title).toBe("Cuando veas esta pantalla, haz clic");
-    expect(t.detail).toBe("Cambia el Odyssey G5 a DisplayPort desde el menú del monitor.");
+    expect(t.detail).toBe("Cambia el Odyssey G5 a DisplayPort desde el menú del monitor: aquí se ve la PC.");
     expect(t.button).toBe("La veo");
+  });
+
+  it("la vuelta y la verificación dicen qué máquina debería verse", () => {
+    expect(probeText({ ...SWITCH, ask: { kind: "back", code: 0x0f } }).detail).toBe(
+      "Volví con 0x0F: el Odyssey G5 debería mostrar la PC.",
+    );
+    expect(probeText({ ...CANDIDATE, ask: { kind: "verify", code: 0x05 } }).detail).toContain("Verificación del Odyssey G5");
   });
 
   it("los códigos van en hexadecimal de dos cifras", () => {
@@ -47,20 +55,37 @@ describe("plazo", () => {
     expect(secondsLeft(8000, 9000)).toBe(0);
   });
 
-  it("sin clic a tiempo dice que cuenta como no vista", () => {
-    expect(countdown(3)).toContain("3 s");
-    expect(countdown(0)).toBe("Sin respuesta: cuenta como no vista.");
+  it("sin respuesta no dice que no se vio: se repite el código", () => {
+    expect(countdown(3)).toBe("Quedan 3 s para contestar.");
+    expect(countdown(0)).toBe("Sin respuesta: se repite el código y después se pregunta si seguir.");
   });
 });
 
-describe("pregunta de respaldo", () => {
-  it("pregunta si el monitor cambió, con Sí y No", () => {
-    expect(questionText(QUESTION)).toEqual({ text: "¿El Odyssey G5 pasó a HDMI? (código 0x05)", yes: "Sí, cambió", no: "No" });
-    expect(questionText({ ...SWITCH, place: { kind: "question" } })).toEqual({
-      text: "Cambia el Odyssey G5 a DisplayPort desde el menú del monitor. ¿Ya cambió?",
-      yes: "Ya cambió",
-      no: "No puedo",
-    });
+describe("pregunta «¿qué ves?»", () => {
+  it("nombra la máquina que debería verse y ofrece una respuesta por máquina, negro y parar", () => {
+    const q = questionText(QUESTION);
+    expect(q.text).toBe("Mandé 0x05 para HDMI (la Mac). ¿Qué ves en el Odyssey G5?");
+    expect(q.choices.map((c) => c.label)).toEqual(["Veo la Mac", "Veo la PC", "Negro o sin señal", "Parar"]);
+    expect(q.choices.map((c) => c.answer)).toEqual<ProbeAnswer[]>([
+      { kind: "machine", machine: "mac" },
+      { kind: "machine", machine: "pc" },
+      { kind: "black" },
+      { kind: "stop" },
+    ]);
+    // Ya no hay «Sí, cambió»: no dice qué se ve.
+    expect(q.choices.some((c) => c.label.startsWith("Sí"))).toBe(false);
+  });
+
+  it("cada tipo de pregunta explica qué pasó", () => {
+    const text = (ask: ProbeShow["ask"], base: ProbeShow = QUESTION) => questionText({ ...base, ask }).text;
+    expect(text({ kind: "user_switch" }, { ...SWITCH, place: { kind: "question" } })).toBe(
+      "Pasa el Odyssey G5 a DisplayPort desde su menú para ver la PC. Cuando cambie, ¿qué ves?",
+    );
+    expect(text({ kind: "back", code: 0x0f })).toBe("Volví con 0x0F: debería verse la Mac. ¿Qué ves en el Odyssey G5?");
+    expect(text({ kind: "verify", code: 0x05 })).toBe("Verificación: mandé 0x05, debería verse la Mac. ¿Qué ves en el Odyssey G5?");
+    expect(text({ kind: "stalled", code: 0x05 })).toBe(
+      "Nadie contestó tras mandar 0x05 dos veces. ¿Sigo? Di qué ves en el Odyssey G5, o para.",
+    );
   });
 
   it("solo las preguntas llegan a la ventana principal, y se van con su cierre", () => {
@@ -82,6 +107,7 @@ describe("lo que recibe la ventana", () => {
     expect(readProbe({ type: "hide", id: 3 })).toBeNull();
     expect(readProbe({ ...CANDIDATE, id: "3" })).toBeNull();
     expect(readProbe({ ...CANDIDATE, timeout_ms: undefined })).toBeNull();
+    expect(readProbe({ ...CANDIDATE, machine: undefined })).toBeNull();
   });
 
   it("el modo demo arma una sonda de muestra", () => {

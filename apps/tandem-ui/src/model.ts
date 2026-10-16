@@ -80,7 +80,20 @@ export type ManualView =
   | { type: "closed"; id: number };
 
 /** Qué confirma el usuario en una sonda de calibración (`tandem_ui::session::AskView`). */
-export type ProbeAsk = { kind: "candidate"; code: number } | { kind: "user_switch" };
+/** Qué se le pregunta al usuario; siempre contesta qué ve (T-081). */
+export type ProbeAsk =
+  | { kind: "candidate"; code: number }
+  | { kind: "user_switch" }
+  | { kind: "back"; code: number }
+  | { kind: "verify"; code: number }
+  | { kind: "stalled"; code: number };
+
+/** La respuesta a una sonda: clic en la pantalla completa, o lo elegido en la pregunta. */
+export type ProbeAnswer =
+  | { kind: "seen" }
+  | { kind: "machine"; machine: Machine }
+  | { kind: "black" }
+  | { kind: "stop" };
 
 /** Dónde lo ve el agente, en coordenadas del sistema. */
 export interface ProbeScreen {
@@ -92,7 +105,7 @@ export interface ProbeScreen {
 
 /**
  * A pantalla completa en el monitor; en ninguna parte si el agente lo buscó y no está en el
- * escritorio (`offscreen`); o la pregunta Sí/No de respaldo en la ventana principal.
+ * escritorio (`offscreen`); o la pregunta «¿qué ves?» de la ventana principal.
  */
 export type ProbePlace =
   | { kind: "monitor"; screen: ProbeScreen | null }
@@ -106,6 +119,8 @@ export type ProbeShow = {
   monitor: string;
   /** La entrada que debería verse. */
   input: Input;
+  /** La máquina cableada a esa entrada. */
+  machine: Machine;
   ask: ProbeAsk;
   timeout_ms: number;
   place: ProbePlace;
@@ -137,7 +152,9 @@ export type CalibrationStep =
   | { kind: "trying"; input: Input; code: number; attempt: number; of: number }
   | { kind: "seen"; input: Input; code: number; seen: boolean }
   | { kind: "returned"; code: number }
-  | { kind: "found"; input: Input; code: number };
+  | { kind: "found"; input: Input; code: number }
+  | { kind: "verifying" }
+  | { kind: "verified"; input: Input; code: number };
 
 export type CalibrationOutcome =
   | {
@@ -179,7 +196,7 @@ export type Action =
   | { kind: "set_builtin"; display: BuiltinDisplay }
   | { kind: "set_pc_power"; on: boolean }
   | { kind: "answer_manual_switch"; id: number; done: boolean }
-  | { kind: "answer_probe"; id: number; seen: boolean }
+  | { kind: "answer_probe"; id: number; answer: ProbeAnswer }
   | { kind: "start_pairing" }
   | { kind: "confirm_pairing" }
   | { kind: "cancel_pairing" }

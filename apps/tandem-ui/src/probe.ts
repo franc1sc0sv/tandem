@@ -1,8 +1,8 @@
-// La sonda de calibración (T-078): lo que dice la ventana a pantalla completa en el monitor
-// que se calibra, la pregunta de respaldo de la ventana principal y cuánto falta para que
-// venza. Pura, para probarla sin DOM.
+// La sonda de calibración (T-078, T-081): lo que dice la ventana a pantalla completa en el
+// monitor que se calibra, la pregunta «¿qué ves?» de la ventana principal y cuánto falta
+// para que venza. Pura, para probarla sin DOM.
 
-import type { Input, ProbeShow, ProbeView } from "./model";
+import type { Input, Machine, ProbeAnswer, ProbeShow, ProbeView } from "./model";
 
 export const PORT_NAME: Record<Input, string> = { hdmi: "HDMI", displayport: "DisplayPort" };
 
@@ -17,36 +17,88 @@ export function hex(code: number): string {
   return `0x${code.toString(16).toUpperCase().padStart(2, "0")}`;
 }
 
-/** Lo que dice la sonda a pantalla completa. */
+/** «la Mac», «la PC». */
+export const THE_MACHINE: Record<Machine, string> = { mac: "la Mac", pc: "la PC" };
+
+/** Lo que dice la sonda a pantalla completa. Solo la ve quien ve esta máquina. */
 export function probeText(p: ProbeShow): ProbeText {
   const port = PORT_NAME[p.input];
-  if (p.ask.kind === "user_switch") {
-    return {
-      title: "Cuando veas esta pantalla, haz clic",
-      detail: `Cambia el ${p.monitor} a ${port} desde el menú del monitor.`,
-      button: "La veo",
-    };
+  const who = THE_MACHINE[p.machine];
+  switch (p.ask.kind) {
+    case "user_switch":
+      return {
+        title: "Cuando veas esta pantalla, haz clic",
+        detail: `Cambia el ${p.monitor} a ${port} desde el menú del monitor: aquí se ve ${who}.`,
+        button: "La veo",
+      };
+    case "candidate":
+    case "stalled":
+      return {
+        title: "¿Ves esta pantalla?",
+        detail: `Calibrando el ${p.monitor}: mandé ${hex(p.ask.code)} para ${port} (${who}).`,
+        button: "Sí, la veo",
+      };
+    case "back":
+      return {
+        title: "¿Ves esta pantalla?",
+        detail: `Volví con ${hex(p.ask.code)}: el ${p.monitor} debería mostrar ${who}.`,
+        button: "Sí, la veo",
+      };
+    case "verify":
+      return {
+        title: "¿Ves esta pantalla?",
+        detail: `Verificación del ${p.monitor}: mandé ${hex(p.ask.code)} para ${port} (${who}).`,
+        button: "Sí, la veo",
+      };
   }
-  return {
-    title: "¿Ves esta pantalla?",
-    detail: `Calibrando el ${p.monitor}: entrada ${port}, código ${hex(p.ask.code)}.`,
-    button: "Sí, la veo",
-  };
+}
+
+export interface Choice {
+  label: string;
+  answer: ProbeAnswer;
+  kind?: "primary" | "danger";
 }
 
 export interface QuestionText {
   text: string;
-  yes: string;
-  no: string;
+  choices: Choice[];
 }
 
-/** La pregunta de respaldo (sin la otra máquina), en la ventana principal. */
+/** Las respuestas de la pregunta: qué máquina se ve, negro, o parar. */
+export const CHOICES: Choice[] = [
+  { label: "Veo la Mac", answer: { kind: "machine", machine: "mac" } },
+  { label: "Veo la PC", answer: { kind: "machine", machine: "pc" } },
+  { label: "Negro o sin señal", answer: { kind: "black" } },
+  { label: "Parar", answer: { kind: "stop" }, kind: "danger" },
+];
+
+/**
+ * La pregunta de la ventana principal: «¿qué ves en el monitor?», con un botón por máquina
+ * (T-081: con «¿se ve la máquina de HDMI?» se confirmó un código viendo Windows).
+ */
 export function questionText(p: ProbeShow): QuestionText {
   const port = PORT_NAME[p.input];
-  if (p.ask.kind === "user_switch") {
-    return { text: `Cambia el ${p.monitor} a ${port} desde el menú del monitor. ¿Ya cambió?`, yes: "Ya cambió", no: "No puedo" };
+  const who = THE_MACHINE[p.machine];
+  const what = `¿Qué ves en el ${p.monitor}?`;
+  let text: string;
+  switch (p.ask.kind) {
+    case "user_switch":
+      text = `Pasa el ${p.monitor} a ${port} desde su menú para ver ${who}. Cuando cambie, ¿qué ves?`;
+      break;
+    case "candidate":
+      text = `Mandé ${hex(p.ask.code)} para ${port} (${who}). ${what}`;
+      break;
+    case "back":
+      text = `Volví con ${hex(p.ask.code)}: debería verse ${who}. ${what}`;
+      break;
+    case "verify":
+      text = `Verificación: mandé ${hex(p.ask.code)}, debería verse ${who}. ${what}`;
+      break;
+    case "stalled":
+      text = `Nadie contestó tras mandar ${hex(p.ask.code)} dos veces. ¿Sigo? Di qué ves en el ${p.monitor}, o para.`;
+      break;
   }
-  return { text: `¿El ${p.monitor} pasó a ${port}? (código ${hex(p.ask.code)})`, yes: "Sí, cambió", no: "No" };
+  return { text, choices: CHOICES };
 }
 
 /** Segundos enteros que faltan, sin bajar de 0. */
@@ -55,7 +107,7 @@ export function secondsLeft(timeoutMs: number, elapsedMs: number): number {
 }
 
 export function countdown(seconds: number): string {
-  return seconds > 0 ? `Si no la ves, no hagas nada: se cierra sola en ${seconds} s.` : "Sin respuesta: cuenta como no vista.";
+  return seconds > 0 ? `Quedan ${seconds} s para contestar.` : "Sin respuesta: se repite el código y después se pregunta si seguir.";
 }
 
 /** La pregunta pendiente de la ventana principal tras un aviso de sonda. */
@@ -72,8 +124,9 @@ export function demoProbe(search: string): ProbeShow {
     id: 1,
     monitor: params.get("monitor") ?? "Odyssey G5",
     input: params.get("input") === "dp" ? "displayport" : "hdmi",
+    machine: params.get("input") === "dp" ? "pc" : "mac",
     ask: params.get("ask") === "switch" ? { kind: "user_switch" } : { kind: "candidate", code: 0x05 },
-    timeout_ms: Number(params.get("timeout") ?? 8000),
+    timeout_ms: Number(params.get("timeout") ?? 20000),
     place: params.get("place") === "question" ? { kind: "question" } : { kind: "monitor", screen: null },
   };
 }
@@ -82,7 +135,7 @@ export function demoProbe(search: string): ProbeShow {
 export function readProbe(injected: unknown): ProbeShow | null {
   if (typeof injected !== "object" || injected === null) return null;
   const v = injected as Partial<ProbeShow>;
-  if (v.type !== "show" || typeof v.id !== "number" || typeof v.monitor !== "string" || !v.ask || !v.input) return null;
+  if (v.type !== "show" || typeof v.id !== "number" || typeof v.monitor !== "string" || !v.ask || !v.input || !v.machine) return null;
   if (typeof v.timeout_ms !== "number") return null;
   return v as ProbeShow;
 }

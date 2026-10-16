@@ -483,6 +483,7 @@ mod tests {
                 name: "Odyssey G5".into(),
             },
             input: tandem_core::Input::Hdmi,
+            machine: tandem_core::Machine::Mac,
             ask: tandem_proto::ProbeAsk::UserSwitch,
             timeout_ms: 60_000,
         };
@@ -501,21 +502,30 @@ mod tests {
         assert_eq!(got, probe);
         assert_eq!(place, tandem_proto::ProbePlace::Monitor { screen: None });
         assert_eq!(
-            c.request(UiCommand::AnswerProbe { id, seen: true })
-                .await
-                .unwrap(),
+            c.request(UiCommand::AnswerProbe {
+                id,
+                answer: tandem_proto::ProbeAnswer::Seen
+            })
+            .await
+            .unwrap(),
             Reply::Done
         );
-        assert_eq!(shown.await.unwrap(), tandem_proto::ProbeOutcome::Seen);
+        assert_eq!(
+            shown.await.unwrap(),
+            tandem_proto::ProbeOutcome::Answered(tandem_proto::ProbeAnswer::Seen)
+        );
         assert_eq!(
             c.next_event().await.unwrap(),
             Some(AgentToUi::Probe(tandem_proto::ProbeEvent::Hide { id }))
         );
         // Contestar una que ya no está se rechaza.
         assert!(matches!(
-            c.request(UiCommand::AnswerProbe { id, seen: true })
-                .await
-                .unwrap(),
+            c.request(UiCommand::AnswerProbe {
+                id,
+                answer: tandem_proto::ProbeAnswer::Seen
+            })
+            .await
+            .unwrap(),
             Reply::Rejected(_)
         ));
     }
