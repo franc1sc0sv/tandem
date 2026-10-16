@@ -229,11 +229,15 @@ fn quote(s: &str) -> String {
     out
 }
 
+/// Hexadecimal solo en mayúsculas: `get()` y `Edid::pnp_id()` comparan contra
+/// `{:04X}`, así que una clave con minúsculas nunca coincidiría sin avisar.
 fn valid_pnp_id(id: &str) -> bool {
     let b = id.as_bytes();
     b.len() == 7
         && b[..3].iter().all(u8::is_ascii_uppercase)
-        && b[3..].iter().all(u8::is_ascii_hexdigit)
+        && b[3..]
+            .iter()
+            .all(|c| c.is_ascii_digit() || (b'A'..=b'F').contains(c))
 }
 
 fn valid_date(date: &str) -> bool {
@@ -596,20 +600,27 @@ mod tests {
             ("a-roto.toml", "pnp_id = \"DEL1234\"\n[codes]\nhdmi = 300\n"),
             ("b-bueno.toml", &good),
             ("c-pnp.toml", &profile("dell123", 1, 2)),
+            // Minúsculas en el producto: get() y el EDID usan mayúsculas, nunca coincidiría.
+            ("cc-pnp.toml", &profile("SAM748a", 1, 2)),
             ("d-desconocido.toml", &(good.clone() + "hdmi3 = 1\n")),
             ("leeme.txt", "no es un perfil"),
         ]);
         let errors = db.errors();
-        assert_eq!(errors.len(), 3, "{errors:?}");
-        for (err, file) in errors.iter().zip(["a-roto", "c-pnp", "d-desconocido"]) {
+        assert_eq!(errors.len(), 4, "{errors:?}");
+        for (err, file) in errors
+            .iter()
+            .zip(["a-roto", "c-pnp", "cc-pnp", "d-desconocido"])
+        {
             let msg = err.to_string();
             assert!(msg.contains(&format!("{file}.toml")), "{msg}");
             assert!(msg.starts_with(&dir.path().display().to_string()), "{msg}");
         }
-        assert!(matches!(
-            errors[1].kind,
-            ProfileFileErrorKind::Invalid(ProfileError::BadPnpId(_))
-        ));
+        for err in &errors[1..3] {
+            assert!(matches!(
+                err.kind,
+                ProfileFileErrorKind::Invalid(ProfileError::BadPnpId(_))
+            ));
+        }
         assert!(db.get("DEL4321").is_some());
         assert!(db.get("SAM711A").is_some());
     }
