@@ -349,6 +349,40 @@ wiring = { pc = "displayport", mac = "hdmi" }
     }
 
     #[test]
+    fn aliases_are_written_and_removed_with_the_monitor() {
+        let mut sync = sync_of(PC, 2);
+        sync.desk.monitors[0].edid_aliases = vec!["SAM7119".into()];
+        let out = with_desk(PC, &sync).unwrap();
+        assert!(out.contains("edid_aliases = [\"SAM7119\"]"), "{out}");
+        assert_eq!(AgentConfig::from_toml(&out).unwrap().desk, sync.desk);
+        // Al quitarlo, el vínculo se va con él (T-087).
+        sync.desk.monitors.remove(0);
+        sync.rev = 3;
+        let out = with_desk(&out, &sync).unwrap();
+        assert!(
+            !out.contains("SAM7119") && !out.contains("LC34G55T"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn the_keyboard_is_saved_without_touching_the_rest() {
+        let text = format!("{PC}\n[input]\nserver = \"mac\"\nclipboard = false\n");
+        let out = with_keyboard(&text, Machine::Pc).unwrap();
+        let cfg = AgentConfig::from_toml(&out).unwrap();
+        assert_eq!(cfg.input.keyboard, Some(Machine::Pc));
+        assert!(!cfg.input.clipboard);
+        assert!(!out.contains("server"), "{out}");
+        assert!(out.starts_with("# La PC.\n"));
+        // Sin sección [input], la crea.
+        let out = with_keyboard(PC, Machine::Mac).unwrap();
+        assert_eq!(
+            AgentConfig::from_toml(&out).unwrap().input.keyboard,
+            Some(Machine::Mac)
+        );
+    }
+
+    #[test]
     fn a_desk_without_monitors_is_still_valid() {
         let mut sync = sync_of(PC, 1);
         sync.desk.monitors.clear();

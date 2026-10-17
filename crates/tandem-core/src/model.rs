@@ -206,6 +206,41 @@ mod tests {
     }
 
     #[test]
+    fn a_monitor_is_known_by_all_its_identities() {
+        let cfg = Config::from_toml(
+            r#"
+            [[monitors]]
+            id = "m34"
+            label = '34"'
+            edid_model = "SAM711A"
+            edid_aliases = ["SAM7119", "LC34G55T"]
+            wiring = { pc = "displayport", mac = "hdmi" }
+            "#,
+        )
+        .unwrap();
+        let m = &cfg.monitors[0];
+        assert_eq!(
+            m.models().collect::<Vec<_>>(),
+            ["SAM711A", "SAM7119", "LC34G55T"]
+        );
+        assert!(m.is_model("sam7119") && m.is_model(" LC34G55T "));
+        assert!(!m.is_model("SAM7489") && !m.is_model(""));
+        // Sin alias el archivo de antes sigue valiendo.
+        let old = fixtures::desk();
+        assert!(old.monitors.iter().all(|m| m.edid_aliases.is_empty()));
+    }
+
+    #[test]
+    fn removing_a_monitor_forgets_it_and_its_aliases() {
+        let mut cfg = fixtures::desk();
+        assert!(cfg.remove_monitor(&"m34".into()));
+        assert!(!cfg.remove_monitor(&"m34".into()));
+        assert_eq!(cfg.monitors.len(), 1);
+        let only = fixtures::desk().only(|m| m.id.0 == "m32");
+        assert_eq!(only.monitors.len(), 1);
+    }
+
+    #[test]
     fn rejects_duplicate_monitor() {
         let err = Config::from_toml(
             r#"

@@ -359,3 +359,32 @@ button { font: inherit; color: inherit; }
 .confirm .cfoot { display: flex; gap: 8px; padding-left: 44px; }
 .modes.apply .mode { border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); }
 .modes.apply .mode:hover { border-color: color-mix(in srgb, var(--warn) 60%, var(--line)); }
+
+/* asistente de configuración inicial (T-087): un paso por pantalla, cada paso verificado */
+.onboard { color-scheme: dark; width: min(720px, calc(100% - 40px)); max-height: calc(100% - 40px); overflow: auto; }
+.ob-dots { display: flex; gap: 6px; justify-content: center; margin-bottom: 16px; }
+.ob-dots span { width: 30px; height: 4px; border-radius: 2px; background: var(--line-2); }
+.ob-dots span.done { background: color-mix(in srgb, var(--ok) 60%, var(--line-2)); }
+.ob-dots span.on { background: var(--mac); }
+.ob-checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ob-check { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; font-size: 13px; }
+.ob-check i { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-style: normal; font-size: 11px; border: 1.5px solid var(--line-2); color: var(--faint); }
+.ob-check b { font-weight: 550; display: block; }
+.ob-check small { display: block; color: var(--dim); font-size: 12px; line-height: 1.45; margin-top: 1px; }
+.ob-check.ok i { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 55%, var(--line-2)); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.ob-check.wait i { color: var(--mac); border-color: var(--mac); border-top-color: transparent; animation: spin .9s linear infinite; font-size: 0; }
+.ob-check.fail i { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 60%, var(--line-2)); }
+.ob-check.idle b { color: var(--dim); font-weight: 450; }
+.ob-code { justify-self: center; font: 650 38px ui-monospace, "SF Mono", Consolas, monospace; letter-spacing: 6px; padding: 12px 26px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--line-2); color: var(--text); }
+.ob-btns, .ob-rbtns, .ob-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+.ob-row { display: grid; gap: 10px; padding: 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); }
+.ob-rhead { display: flex; align-items: baseline; gap: 10px; }
+.ob-rhead b { font-size: 15px; }
+.ob-rhead small { color: var(--faint); font-size: 12px; font-family: ui-monospace, "SF Mono", Consolas, monospace; }
+.ob-q p { margin: 0 0 6px; font-size: 12.5px; color: var(--dim); }
+.kbtn.sel { background: #2a3140; border-color: #3d4a62; }
+.ob-why { font-size: 12px; color: var(--dim); }
+.hiddennote { position: fixed; left: 50%; bottom: 6px; transform: translateX(-50%); z-index: 5; margin: 0; font-size: 12px; color: var(--faint); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.linkbtn { all: unset; cursor: pointer; font-size: 12px; color: var(--mac); text-decoration: underline; text-underline-offset: 3px; }
+.linkbtn:hover, .linkbtn:focus-visible { color: var(--text); }
+.fixmenu .fopt.drop::before { background: var(--warn); }

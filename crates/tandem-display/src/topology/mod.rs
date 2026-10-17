@@ -614,6 +614,66 @@ mod tests {
         );
     }
 
+    /// El mismo monitor tiene otro id PnP en cada máquina (el EDID cambia según la
+    /// entrada): con alias se encuentra por cualquiera, sin confundirlo con otro (T-087).
+    #[test]
+    fn find_monitor_matches_any_of_its_identities() {
+        let mut t = topo();
+        let ds = t.displays().unwrap();
+        // El 34" de la PC es LC34G55T; su alias es lo que ve la otra máquina.
+        let mut mac_side = m("SAM7119");
+        mac_side.edid_aliases = vec!["LC34G55T".into()];
+        assert_eq!(find_monitor(&ds, &mac_side).unwrap().model(), "LC34G55T");
+        let mut pc_side = m("LC34G55T");
+        pc_side.edid_aliases = vec!["SAM7119".into()];
+        assert_eq!(find_monitor(&ds, &pc_side).unwrap().model(), "LC34G55T");
+        // Un alias que no existe no rompe la búsqueda por el principal.
+        pc_side.edid_aliases = vec!["XXX0000".into()];
+        assert!(find_monitor(&ds, &pc_side).is_ok());
+        // Dos identidades de monitores distintos que coinciden con dos pantallas: ambiguo.
+        let mut both = m("LC34G55T");
+        both.edid_aliases = ds
+            .iter()
+            .filter(|d| d.model() != "LC34G55T")
+            .map(|d| d.model().to_owned())
+            .collect();
+        assert!(matches!(
+            find_monitor(&ds, &both),
+            Err(TopologyError::Ambiguous { .. })
+        ));
+    }
+
+    #[test]
+    fn placed_screens_use_the_aliases_too() {
+        let displays = vec![Display {
+            id: 0u32,
+            name: "LC34G55T".into(),
+            device_path: String::new(),
+            edid: None,
+            builtin: false,
+            main: false,
+            active: true,
+            mirror_of: None,
+            output: None,
+            bounds: Some(Bounds {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 50,
+            }),
+        }];
+        // El puesto lo conoce por la identidad de la otra máquina y tiene como alias la de
+        // esta (T-087).
+        let mut by_alias = monitor_by_model("m34", "SAM7119");
+        by_alias.edid_aliases = vec!["LC34G55T".into()];
+        let placed = placed_screens(&displays, &[by_alias]);
+        assert_eq!(placed.len(), 1);
+        assert_eq!(placed[0].monitor, Some("m34".into()));
+        // Sin el alias no se lo encuentra.
+        let plain = monitor_by_model("m34", "SAM7119");
+        assert!(placed_screens(&displays, &[plain]).is_empty());
+    }
+
     #[test]
     fn find_monitor_uses_the_system_name_without_edid() {
         let mut t = topo();

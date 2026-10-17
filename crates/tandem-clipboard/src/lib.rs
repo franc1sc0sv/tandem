@@ -21,7 +21,7 @@ mod system;
 
 pub use clipboard::Clipboard;
 pub use content::{ClipContent, ContentHash, Image};
-pub use driver::{ClipConfig, ClipDriver, SyncEnd};
+pub use driver::{ClipConfig, ClipDriver, ReadBackoff, SyncEnd};
 pub use msg::ClipMsg;
 pub use sync::{Action, ClipSync, SyncConfig, SyncStats};
 pub use system::{ClipboardError, SystemClipboard};

@@ -9,7 +9,11 @@ export interface MonitorConfig {
   id: string;
   label: string;
   edid_model?: string | null;
+  /** Los demás id PnP del mismo monitor: el EDID cambia según la entrada (T-087). */
+  edid_aliases?: string[];
   wiring: Partial<Record<Machine, Input>>;
+  /** Códigos DDC; sin ellos el monitor es de modo manual asistido. */
+  ddc?: { hdmi: number; display_port: number } | null;
 }
 
 export interface Desk {
@@ -31,14 +35,30 @@ export interface DeskState {
   doubt: Partial<Record<string, Doubt>>;
 }
 
+export interface CapsMonitor {
+  monitor: string | null;
+  pnp_id: string | null;
+  name: string;
+  switch: boolean;
+  ddc: boolean;
+  seen: boolean;
+  model?: string | null;
+  serial?: number | null;
+  inches?: number | null;
+  /** Por qué cable lo ve esa máquina, si el sistema lo dice. */
+  output?: Input | null;
+}
+
 /** Lo que tiene y sabe hacer una máquina, según su anuncio (`tandem_ui::session::MachineView`). */
 export interface MachineCaps {
   machine: Machine;
   /** El nombre de la máquina en el sistema. */
   name: string;
   os: string;
-  /** `seen`: la máquina lo detectó al arrancar (pista para preguntar lo que muestra, T-085). */
-  monitors: { monitor: string | null; pnp_id: string | null; name: string; switch: boolean; ddc: boolean; seen: boolean }[];
+  /** Detectó sus monitores: los `seen` son los conectados ahora (T-087). */
+  scanned: boolean;
+  /** `seen`: la máquina lo detectó (conectado ahora; pista para preguntar lo que muestra, T-085). */
+  monitors: CapsMonitor[];
   builtin: boolean;
   hub: boolean | null;
   input: { capture: boolean; inject: boolean; missing: ("accessibility" | "input_monitoring")[] };
@@ -79,11 +99,13 @@ export interface InputView {
   missing: ("accessibility" | "input_monitoring")[];
   /** Por qué el motor de entrada de esta máquina no funciona, si no funciona. */
   problem: string | null;
+  /** Se sabe dónde está el teclado (hub, configuración o asistente); si no, «sin definir». */
+  defined: boolean;
 }
 
 export type Snapshot =
   | { kind: "connecting" }
-  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView; pairing: PairingView; input: InputView; caps: Caps }
+  | { kind: "connected"; agent: Machine; desk: Desk; hidden: MonitorConfig[]; state: DeskState; peer: PeerView; pairing: PairingView; input: InputView; caps: Caps }
   | { kind: "unavailable"; endpoint: string | null; reason: string };
 
 export type Step =
@@ -213,6 +235,7 @@ export type Notice =
   | { kind: "manual_switch"; event: ManualView }
   | { kind: "probe"; event: ProbeView }
   | { kind: "calibration"; event: CalibrationView }
+  | { kind: "key_probe"; event: { armed: boolean; heard: Machine | null } }
   | { kind: "power"; machine: Machine; reason: string; stranded: string[] };
 
 export type Mode =
@@ -235,12 +258,53 @@ export type Action =
   | { kind: "start_calibration"; display: number; monitor: string | null }
   | { kind: "cancel_calibration" }
   | { kind: "use_profile"; display: number; monitor: string | null }
-  | { kind: "set_wiring"; monitor: string; wiring: Partial<Record<Machine, Input>> }
+  /** `confirmed`: el usuario lo confirmó; sin esto el agente lo rechaza (T-087). */
+  | { kind: "set_wiring"; monitor: string; wiring: Partial<Record<Machine, Input>>; confirmed?: boolean }
   | { kind: "get_setup" }
+  /** Asistente (T-087). */
+  | { kind: "scan_monitors" }
+  | { kind: "add_monitors"; monitors: NewMonitor[] }
+  | { kind: "remove_monitor"; monitor: string }
+  | { kind: "reset_desk" }
+  | { kind: "key_probe"; on: boolean }
+  | { kind: "heard_key" }
+  | { kind: "set_keyboard"; machine: Machine }
+  | { kind: "ping_peer" }
+  | { kind: "mark_manual"; monitor: string }
   /** «Aplicar modo» (T-085): manda la entrada de todos los monitores. */
   | { kind: "apply_mode"; mode: Mode }
   /** Lo que el usuario dice que muestra cada monitor; `null`: nada (en negro). */
   | { kind: "set_shown"; shows: Record<string, Machine | null> };
+
+/** Un monitor físico que el asistente agrega al puesto (`tandem_proto::NewMonitor`). */
+export interface NewMonitor {
+  label: string;
+  /** El id PnP de cada máquina, el de la PC primero. */
+  pnp_ids: string[];
+  wiring: Partial<Record<Machine, Input>>;
+}
+
+/** Con qué se vinculó la identidad de una máquina con la de la otra (`LinkBasis`). */
+export type LinkBasis = "Serial" | "Model" | "Single";
+
+export interface MonitorCandidate {
+  label: string;
+  pnp_ids: string[];
+  here: CapsMonitor | null;
+  peer: CapsMonitor | null;
+  basis: LinkBasis;
+  /** El cableado deducido de por dónde lo ve cada máquina; `null`, hay que preguntar. */
+  wiring: Partial<Record<Machine, Input | null>>;
+  in_desk: string | null;
+  profile: string | null;
+}
+
+export interface MonitorScan {
+  candidates: MonitorCandidate[];
+  peer_known: boolean;
+  /** Monitores del puesto que ninguna de las dos máquinas ve ahora. */
+  disconnected: number;
+}
 
 /** De dónde salió la configuración del agente (`tandem_proto::SetupInfo`). */
 export interface AgentSetup {
@@ -256,7 +320,9 @@ export type ActionResult =
   | { kind: "rejected"; reason: string }
   | { kind: "unavailable"; reason: string }
   | { kind: "displays"; displays: DisplayView[] }
-  | { kind: "setup"; setup: AgentSetup };
+  | { kind: "setup"; setup: AgentSetup }
+  | { kind: "scan"; scan: MonitorScan }
+  | { kind: "pong"; link: Link; millis: number };
 
 // Atajos globales (`tandem_ui::shortcuts`).
 export type ShortcutAction = "solo_mac" | "shared" | "solo_pc" | "toggle_window";

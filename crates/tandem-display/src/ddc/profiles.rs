@@ -584,6 +584,38 @@ mod tests {
         assert_eq!(db.by_manufacturer("DEL").count(), 0);
     }
 
+    /// El EDID cambia según la entrada (T-087): el perfil del 34" también es de lo que ve la
+    /// Mac por HDMI, y el del 32" de `SAM748A`.
+    #[test]
+    fn the_repo_profiles_know_the_id_each_machine_sees() {
+        let db = ProfileDb::builtin();
+        for (pc, mac) in [("SAM711A", "SAM7119"), ("SAM7489", "SAM748A")] {
+            let by_pc = db.get(pc).unwrap();
+            let by_mac = db.get(mac).unwrap();
+            assert_eq!(by_pc.profile.pnp_id, pc);
+            assert_eq!(by_mac.profile.pnp_id, pc, "{mac} es un alias de {pc}");
+            assert!(by_pc.profile.pnp_aliases.iter().any(|a| a == mac));
+        }
+        let (e, by) = db.find(&info(("SAM", 0x7119), "otro")).unwrap();
+        assert_eq!(e.profile.pnp_id, "SAM711A");
+        assert_eq!(by, MatchedBy::PnpId);
+        assert!(db.get("sam748a").is_some(), "sin distinguir mayúsculas");
+        assert!(db.get("SAM0000").is_none());
+    }
+
+    #[test]
+    fn aliases_survive_the_toml_round_trip_and_are_validated() {
+        let text = "pnp_id = \"DEL1234\"\npnp_aliases = [\"DEL1235\", \"DEL1236\"]\nname = \"X\"\n[codes]\nhdmi = 0x01\ndisplay_port = 0x02\n";
+        let p = DdcProfile::parse(text).unwrap();
+        assert_eq!(p.pnp_aliases, ["DEL1235", "DEL1236"]);
+        assert_eq!(DdcProfile::parse(&p.to_toml()).unwrap(), p);
+        let bad = text.replace("DEL1235", "mal");
+        assert_eq!(
+            DdcProfile::parse(&bad),
+            Err(ProfileError::BadPnpId("mal".into()))
+        );
+    }
+
     #[test]
     fn finds_by_pnp_then_by_specific_name() {
         let db = ProfileDb::builtin();

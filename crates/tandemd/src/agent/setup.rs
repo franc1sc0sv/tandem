@@ -351,3 +351,240 @@ impl Agent {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use tandem_core::{BuiltinDisplay, Input};
+    use tandem_display::desktop::DesktopError;
+    use tandem_proto::LinkBasis;
+
+    use super::*;
+    use crate::capabilities::Seen;
+    use crate::config::AgentConfig;
+    use crate::display::DisplaySteps;
+    use crate::safety::DetachLedger;
+    use crate::store::StateStore;
+
+    /// Un escritorio que anota todo lo que se le pide.
+    #[derive(Default)]
+    struct Recorder(Mutex<Vec<String>>);
+
+    impl DesktopControl for Recorder {
+        fn attach(&self, m: &MonitorConfig) -> Result<(), DesktopError> {
+            self.0.lock().unwrap().push(format!("attach {}", m.id));
+            Ok(())
+        }
+        fn detach(&self, m: &MonitorConfig) -> Result<(), DesktopError> {
+            self.0.lock().unwrap().push(format!("detach {}", m.id));
+            Ok(())
+        }
+        fn set_builtin(&self, _: BuiltinDisplay) -> Result<(), DesktopError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Debug, Default)]
+    struct Fixed(Vec<Seen>);
+
+    impl MonitorScanner for Fixed {
+        fn scan(&self) -> Result<Vec<Seen>, String> {
+            Ok(self.0.clone())
+        }
+    }
+
+    fn pc_view() -> Vec<Seen> {
+        vec![Seen {
+            pnp_id: Some("SAM711A".into()),
+            model: Some("LC34G55T".into()),
+            name: "34\"".into(),
+            serial: Some(7),
+            inches: Some(34),
+            output: Some(Input::DisplayPort),
+        }]
+    }
+
+    /// Un agente de la PC recién instalado: puesto vacío, un escritorio que anota todo.
+    fn fresh(dir: &std::path::Path) -> (Arc<Agent>, Arc<Recorder>) {
+        let text = crate::autoconfig::generate(Machine::Pc);
+        let file = dir.join("tandem.toml");
+        std::fs::write(&file, &text).unwrap();
+        let cfg = AgentConfig::from_toml(&text).unwrap();
+        let desktop = Arc::new(Recorder::default());
+        let steps = DisplaySteps::new(Machine::Pc, cfg.desk.clone()).with_desktop(desktop.clone());
+        let agent = Agent::with_local_steps(
+            cfg,
+            StateStore::new(dir.join("state.json")),
+            Arc::new(steps),
+        );
+        agent.set_config_file(file);
+        agent.set_data_dir(dir);
+        agent.set_scanner(Arc::new(Fixed(pc_view())));
+        agent.set_seen_monitors(pc_view());
+        (Arc::new(agent), desktop)
+    }
+
+    fn new_34() -> NewMonitor {
+        NewMonitor {
+            label: "34\"".into(),
+            pnp_ids: vec!["SAM711A".into(), "SAM7119".into()],
+            wiring: [
+                (Machine::Pc, Input::DisplayPort),
+                (Machine::Mac, Input::Hdmi),
+            ]
+            .into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_clean_install_has_an_empty_desk_and_nothing_to_draw() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, _) = fresh(dir.path());
+        assert!(a.desk().monitors.is_empty());
+        assert!(a.plan_desk().monitors.is_empty());
+        assert!(a.state().owner.is_empty());
+        assert!(!a.input_status().defined);
+        // Detectar muestra lo conectado pero no agrega nada.
+        let Reply::Scan(scan) = a.respond(tandem_proto::UiCommand::ScanMonitors).await else {
+            panic!("sin escaneo")
+        };
+        assert_eq!(scan.candidates.len(), 1);
+        assert_eq!(scan.candidates[0].basis, LinkBasis::Single);
+        assert!(a.desk().monitors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn none_of_the_wizard_operations_ever_removes_an_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, desktop) = fresh(dir.path());
+        a.respond(tandem_proto::UiCommand::ScanMonitors).await;
+        assert_eq!(
+            a.handle(tandem_proto::UiCommand::AddMonitors(vec![new_34()])),
+            Reply::Done
+        );
+        assert_eq!(
+            a.handle(tandem_proto::UiCommand::MarkManual {
+                monitor: "sam711a".into()
+            }),
+            Reply::Done
+        );
+        a.handle(tandem_proto::UiCommand::KeyProbe { on: true });
+        a.handle(tandem_proto::UiCommand::HeardKey);
+        a.handle(tandem_proto::UiCommand::SetKeyboard(Machine::Pc));
+        // El puesto que manda la otra máquina, con un monitor menos, tampoco.
+        let mut theirs = a.desk_sync();
+        theirs.rev += 1;
+        theirs.desk.monitors.clear();
+        a.receive_desk(theirs);
+        assert!(a.desk().monitors.is_empty());
+        assert_eq!(a.handle(tandem_proto::UiCommand::ResetDesk), Reply::Done);
+        let calls = desktop.0.lock().unwrap().clone();
+        assert!(calls.iter().all(|c| !c.starts_with("detach")), "{calls:?}");
+    }
+
+    #[tokio::test]
+    async fn removing_a_monitor_brings_back_what_this_machine_had_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mut a, desktop) = {
+            let (a, d) = fresh(dir.path());
+            (a, d)
+        };
+        assert_eq!(
+            a.handle(tandem_proto::UiCommand::AddMonitors(vec![new_34()])),
+            Reply::Done
+        );
+        // Esta máquina había quitado el 34" de su escritorio y anotó que lo hizo.
+        let ledger = Arc::new(DetachLedger::in_memory());
+        ledger.detached(&"sam711a".into());
+        let inner = Arc::get_mut(&mut a).unwrap();
+        inner.ledger = ledger.clone();
+        inner.desktop = Some(DesktopHandle(desktop.clone()));
+        assert_eq!(
+            a.handle(tandem_proto::UiCommand::RemoveMonitor {
+                monitor: "sam711a".into()
+            }),
+            Reply::Done
+        );
+        assert_eq!(*desktop.0.lock().unwrap(), ["attach sam711a"]);
+        assert!(ledger.pending().is_empty());
+    }
+
+    #[tokio::test]
+    async fn marking_a_monitor_manual_drops_its_ddc_codes_and_syncs() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, _) = fresh(dir.path());
+        a.handle(tandem_proto::UiCommand::AddMonitors(vec![new_34()]));
+        assert!(a.desk().monitors[0].ddc.is_some());
+        let rev = a.desk_sync().rev;
+        a.handle(tandem_proto::UiCommand::MarkManual {
+            monitor: "sam711a".into(),
+        });
+        assert!(a.desk().monitors[0].ddc.is_none());
+        assert!(a.desk_sync().rev > rev);
+        let saved = AgentConfig::load(&dir.path().join("tandem.toml")).unwrap();
+        assert!(saved.desk.monitors[0].ddc.is_none());
+        // Otra vez: nada que cambiar, no sube la versión.
+        let rev = a.desk_sync().rev;
+        a.handle(tandem_proto::UiCommand::MarkManual {
+            monitor: "sam711a".into(),
+        });
+        assert_eq!(a.desk_sync().rev, rev);
+        assert!(matches!(
+            a.handle(tandem_proto::UiCommand::MarkManual {
+                monitor: "otro".into()
+            }),
+            Reply::Rejected(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn adding_a_monitor_twice_or_with_bad_data_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, _) = fresh(dir.path());
+        assert_eq!(
+            a.handle(tandem_proto::UiCommand::AddMonitors(vec![new_34()])),
+            Reply::Done
+        );
+        let rev = a.desk_sync().rev;
+        // El mismo monitor por su otra identidad.
+        let again = NewMonitor {
+            pnp_ids: vec!["SAM7119".into()],
+            ..new_34()
+        };
+        assert!(matches!(
+            a.handle(tandem_proto::UiCommand::AddMonitors(vec![again])),
+            Reply::Rejected(_)
+        ));
+        assert_eq!(a.desk().monitors.len(), 1);
+        assert_eq!(a.desk_sync().rev, rev);
+        // Una lista vacía no cambia nada.
+        assert_eq!(
+            a.handle(tandem_proto::UiCommand::AddMonitors(vec![])),
+            Reply::Done
+        );
+        assert_eq!(a.desk_sync().rev, rev);
+    }
+
+    #[tokio::test]
+    async fn the_keyboard_is_undefined_until_someone_says_and_never_assumed_mac() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, _) = fresh(dir.path());
+        assert!(!a.input_status().defined);
+        assert_eq!(a.keyboard_declared(), None);
+        // Escuchar sin que llegue una tecla no define nada.
+        a.handle(tandem_proto::UiCommand::KeyProbe { on: true });
+        assert_eq!(a.key_probe_status().heard, None);
+        // Una tecla sin escuchar se ignora.
+        a.handle(tandem_proto::UiCommand::KeyProbe { on: false });
+        a.handle(tandem_proto::UiCommand::HeardKey);
+        assert_eq!(a.key_probe_status(), KeyProbeStatus::default());
+        a.handle(tandem_proto::UiCommand::KeyProbe { on: true });
+        a.handle(tandem_proto::UiCommand::HeardKey);
+        assert_eq!(a.key_probe_status().heard, Some(Machine::Pc));
+        a.handle(tandem_proto::UiCommand::SetKeyboard(Machine::Pc));
+        assert!(a.input_status().defined);
+        let saved = AgentConfig::load(&dir.path().join("tandem.toml")).unwrap();
+        assert_eq!(saved.input.keyboard, Some(Machine::Pc));
+    }
+}

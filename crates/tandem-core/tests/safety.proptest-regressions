@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b6693e9337de5363b20fbcd569f453d9cc52a163cdba2e9ca7c8f5536772af8f # shrinks to (cfg, me, truth, ops) = (Config { monitors: [MonitorConfig { id: MonitorId("m0"), label: "0", edid_model: None, edid_aliases: [], wiring: {Mac: Hdmi, Pc: DisplayPort}, ddc: None }] }, Mac, [Mac], [Change { mode: [Mac], apply: false, fail: Some(Index(11068046444225730970)) }])

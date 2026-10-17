@@ -351,8 +351,7 @@ pub enum Notice {
     },
     /// La prueba «presiona una tecla» del asistente (T-087).
     KeyProbe {
-        armed: bool,
-        heard: Option<Machine>,
+        event: KeyProbeView,
     },
     /// La otra máquina se dio por apagada sin que nadie la apagara (corte de corriente o
     /// suspendida): `reason` se muestra tal cual y `stranded` son los monitores que
@@ -362,6 +361,13 @@ pub enum Notice {
         reason: String,
         stranded: Vec<MonitorId>,
     },
+}
+
+/// [`KeyProbeStatus`] en JSON para el frontend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct KeyProbeView {
+    pub armed: bool,
+    pub heard: Option<Machine>,
 }
 
 impl From<PowerEvent> for Notice {
@@ -1280,7 +1286,9 @@ impl Runner {
             AgentToUi::Desk(new) => self.update_desk(new),
             AgentToUi::Capabilities(new) => self.update_caps((*new).into()),
             AgentToUi::KeyProbe(KeyProbeStatus { armed, heard }) => {
-                self.sink.notice(&Notice::KeyProbe { armed, heard });
+                self.sink.notice(&Notice::KeyProbe {
+                    event: KeyProbeView { armed, heard },
+                });
             }
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}

@@ -12,6 +12,7 @@ Un archivo inválido no impide usar los demás: se ignora y se avisa con su nomb
 ## Cómo se elige el perfil de un monitor
 
 1. Por **id PnP** del EDID (fabricante + producto, por ejemplo `SAM7489`): es lo que identifica al modelo.
+1b. Un perfil también responde a sus `pnp_aliases`: los Samsung exponen un EDID distinto por entrada, y la PC (DisplayPort) y la Mac (HDMI) ven al mismo monitor con ids distintos.
 2. Si no hay, por **nombre del EDID** (descriptor 0xFC), comparado sin mayúsculas, solo si el nombre no es genérico: el perfil no tiene `generic_name = true` y ningún otro perfil usa ese nombre.
 3. Si tampoco, `switch` usa los códigos MCCS estándar (HDMI `0x11`, DP `0x0F`), que muchos monitores no obedecen.
 
@@ -21,6 +22,7 @@ Un archivo inválido no impide usar los demás: se ignora y se avisa con su nomb
 
 ```toml
 pnp_id = "SAM7489"                 # obligatorio: 3 letras mayúsculas + 4 dígitos hex
+pnp_aliases = ["SAM748A"]          # opcional: otros id PnP del mismo modelo (el EDID cambia por entrada)
 name = "Odyssey G5 32\" (SAM7489)" # obligatorio: nombre para mostrar
 edid_names = ["Odyssey G5"]        # nombres del EDID con los que se anuncia
 generic_name = true                # el nombre lo comparten otros modelos: solo por id PnP

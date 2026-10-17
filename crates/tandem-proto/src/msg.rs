@@ -565,6 +565,9 @@ pub enum LinkBasis {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorCandidate {
     pub label: String,
+    /// Sus id PnP, el de la PC primero (es la que cambia las entradas y la del perfil DDC)
+    /// y después el de la Mac: el orden no depende de qué máquina corre el asistente.
+    pub pnp_ids: Vec<String>,
     /// Como lo ve esta máquina y como lo ve la otra.
     pub here: Option<MonitorCaps>,
     pub peer: Option<MonitorCaps>,
@@ -1785,6 +1788,7 @@ pub(crate) mod samples {
             candidates: vec![
                 MonitorCandidate {
                     label: "34\"".into(),
+                    pnp_ids: vec!["SAM711A".into(), "SAM7119".into()],
                     here: pc.monitors.first().cloned(),
                     peer: None,
                     basis: LinkBasis::Serial,
@@ -1798,6 +1802,7 @@ pub(crate) mod samples {
                 },
                 MonitorCandidate {
                     label: "32\"".into(),
+                    pnp_ids: vec!["SAM7489".into()],
                     here: None,
                     peer: None,
                     basis: LinkBasis::Model,
@@ -1807,6 +1812,7 @@ pub(crate) mod samples {
                 },
                 MonitorCandidate {
                     label: "27\"".into(),
+                    pnp_ids: vec![],
                     here: None,
                     peer: None,
                     basis: LinkBasis::Single,

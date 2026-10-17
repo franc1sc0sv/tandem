@@ -19,10 +19,16 @@
 // (`&mac=on`: despierta). `?demo&fresh` arranca sin estado guardado (T-085): nadie sabe lo
 // que muestra cada monitor (`&fresh=stale`: lo último que se supo, de un arranque
 // anterior); con la PC apagada se ofrece responder, con `&pc=on` también «Aplicar modo».
+// `?demo&clean` es una instalación limpia (T-087): el puesto está vacío y el asistente se abre
+// solo; la PC está enlazada y encendida (`&peer=none`: sin emparejar; `&basis=model`: los
+// monitores no comparten número de serie, así que el vínculo se pregunta; `&kb=pc`: la tecla
+// de la prueba llega a la PC; `&unplug=sam7489`: ese monitor no está conectado; `&extra`: un
+// tercer monitor que solo ve la PC). El asistente se abre desde «Asistente».
 
 import type { Bridge } from "./bridge";
 import type {
   Action,
+  CapsMonitor,
   ActionResult,
   Bindings,
   Caps,
@@ -32,6 +38,9 @@ import type {
   Desk,
   DeskState,
   DisplayView,
+  MonitorCandidate,
+  MonitorConfig,
+  MonitorScan,
   Machine,
   Mode,
   Notice,
@@ -59,6 +68,25 @@ const DESK: Desk = {
     { id: "m32", label: '32"', edid_model: "SAM7489", wiring: { pc: "displayport", mac: "hdmi" } },
   ],
 };
+
+/** El puesto real, como lo ve cada máquina: otro id PnP por entrada, el mismo número de serie. */
+interface Physical {
+  label: string;
+  model: string;
+  inches: number;
+  serial: number;
+  /** El id PnP que ve la PC (DisplayPort) y el que ve la Mac (HDMI). */
+  pc: string;
+  mac: string | null;
+  profile: { name: string; hdmi: number; display_port: number } | null;
+}
+
+const PHYSICAL: Physical[] = [
+  { label: '34"', model: "LC34G55T", inches: 34, serial: 0x4d304e30, pc: "SAM711A", mac: "SAM7119", profile: { name: "LC34G55T", hdmi: 0x06, display_port: 0x09 } },
+  { label: '32"', model: "Odyssey G5", inches: 32, serial: 0x4d304e31, pc: "SAM7489", mac: "SAM748A", profile: { name: 'Odyssey G5 32" (SAM7489)', hdmi: 0x05, display_port: 0x0f } },
+  // Solo lo ve la PC (cableado a ella nada más).
+  { label: '27"', model: "U2720Q", inches: 27, serial: 0x41a3, pc: "DEL41A3", mac: null, profile: null },
+];
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -90,13 +118,14 @@ function demoDisplays(): DisplayView[] {
 }
 
 /** Lo que anuncia cada máquina del puesto real: la PC cambia las entradas, la Mac tiene pantalla. */
-function demoCaps(machine: Machine, missing: MachineCaps["input"]["missing"]): MachineCaps {
+function demoCaps(machine: Machine, missing: MachineCaps["input"]["missing"], monitors: CapsMonitor[]): MachineCaps {
   const pc = machine === "pc";
   return {
     machine,
     name: pc ? "ESCRITORIO" : "MacBook-Pro",
     os: pc ? "windows" : "macos",
-    monitors: DESK.monitors.map((m) => ({ monitor: m.id, pnp_id: m.edid_model ?? null, name: m.label, switch: pc, ddc: pc && m.id === "m34", seen: true })),
+    scanned: true,
+    monitors,
     builtin: !pc,
     hub: null,
     input: { capture: missing.length === 0, inject: missing.length === 0, missing },
@@ -112,9 +141,9 @@ const SWITCHER: Machine = "pc";
  * Mismo orden de pasos que `Plan::to_mode` (y `Plan::power_off`) de tandem-core. A un
  * monitor sin confirmar (o con `all`, «Aplicar modo») se le manda la entrada igual (T-085).
  */
-function plan(state: DeskState, target: Record<string, Machine>, powerOff: Machine | null = null, all = false): Step[] {
+function plan(desk: Desk, state: DeskState, target: Record<string, Machine>, powerOff: Machine | null = null, all = false): Step[] {
   const steps: Step[] = [];
-  const moves = DESK.monitors.filter((m) => all || state.doubt[m.id] !== undefined || state.owner[m.id] !== target[m.id]);
+  const moves = desk.monitors.filter((m) => all || state.doubt[m.id] !== undefined || state.owner[m.id] !== target[m.id]);
   const needed = new Set<Machine>(Object.values(target));
   if (moves.length) needed.add(SWITCHER);
   const on = { ...state.on };
@@ -136,8 +165,8 @@ function plan(state: DeskState, target: Record<string, Machine>, powerOff: Machi
     if (on[away]) steps.push({ step: "detach", machine: away, monitor: m.id });
     next.owner[m.id] = to;
   }
-  const before = builtinOf(DESK, state).effective;
-  const after = builtinOf(DESK, next).effective;
+  const before = builtinOf(desk, state).effective;
+  const after = builtinOf(desk, next).effective;
   if (before !== after && on.mac) steps.push({ step: "set_builtin", from: before, to: after });
   if (steps.length) steps.push({ step: "update_input_geometry" });
   if (powerOff && (state.on[powerOff] || steps.some((s) => s.step === "power_on" && s.machine === powerOff))) {
@@ -146,9 +175,9 @@ function plan(state: DeskState, target: Record<string, Machine>, powerOff: Machi
   return steps;
 }
 
-function assignment(mode: Mode): Record<string, Machine> {
+function assignment(desk: Desk, mode: Mode): Record<string, Machine> {
   return Object.fromEntries(
-    DESK.monitors.map((m) => [
+    desk.monitors.map((m) => [
       m.id,
       mode.mode === "solo_mac" ? "mac" : mode.mode === "solo_pc" ? "pc" : (mode.assign[m.id] ?? "mac"),
     ]),
@@ -160,48 +189,91 @@ export function demoBridge(query: string): Bridge {
   // La ventana de qué máquina es: la Mac por omisión, la PC con `&as=pc`.
   const agent: Machine = params.get("as") === "pc" ? "pc" : "mac";
   const peerMachine: Machine = agent === "mac" ? "pc" : "mac";
-  const peerOn = params.get(peerMachine) === "on";
+  // Instalación limpia (T-087): puesto vacío, la PC enlazada y encendida.
+  const clean = params.has("clean");
+  const peerOn = clean ? params.get(peerMachine) !== "off" : params.get(peerMachine) === "on";
+  // El puesto es de este agente y cambia con el asistente.
+  let desk: Desk = clean ? { monitors: [] } : structuredClone(DESK);
   // Sin estado guardado, lo inventado es «todo en la Mac» (`State::initial`).
-  const fresh = params.get("fresh");
+  const fresh = clean ? "new" : params.get("fresh");
   const guess: Machine = fresh === null ? agent : fresh === "stale" ? "pc" : "mac";
-  const doubt = fresh === null ? {} : fresh === "stale" ? { m34: "stale", m32: "stale" } : { m34: "unknown", m32: "unknown" };
+  const doubtKind = fresh === "stale" ? "stale" : "unknown";
   let state: DeskState = {
-    owner: { m34: guess, m32: guess },
+    owner: Object.fromEntries(desk.monitors.map((m) => [m.id, guess])),
     on: { [agent]: true, [peerMachine]: peerOn } as Record<Machine, boolean>,
     builtin_pref: "off",
-    doubt: doubt as DeskState["doubt"],
+    doubt: (fresh === null ? {} : Object.fromEntries(desk.monitors.map((m) => [m.id, doubtKind]))) as DeskState["doubt"],
   };
   const missing: MachineCaps["input"]["missing"] = params.get("perms") === "missing" ? ["accessibility"] : [];
+  // Lo conectado ahora: los dos de siempre, y con `&extra` uno que solo ve la PC.
+  const unplugged = new Set((params.get("unplug") ?? "").split(",").filter(Boolean));
+  const byModel = params.get("basis") === "model";
+  const physical = PHYSICAL.filter((p) => p.mac !== null || params.has("extra"));
+  const side = (p: Physical, machine: Machine): CapsMonitor | null => {
+    const pnp = machine === "pc" ? p.pc : p.mac;
+    if (!pnp) return null;
+    const id = desk.monitors.find((m) => [m.edid_model, ...(m.edid_aliases ?? [])].includes(pnp))?.id ?? null;
+    return {
+      monitor: id,
+      pnp_id: pnp,
+      name: `${p.inches}"`,
+      switch: machine === "pc",
+      ddc: machine === "pc" && id !== null && !!desk.monitors.find((m) => m.id === id)?.ddc,
+      seen: true,
+      model: p.model,
+      serial: byModel ? null : p.serial,
+      inches: p.inches,
+      // Windows dice por qué cable; CoreGraphics no.
+      output: machine === "pc" ? "displayport" : null,
+    };
+  };
+  const plugged = (p: Physical) => !p.pc || ![p.pc, p.mac].some((id) => id && (unplugged.has(id) || unplugged.has(id.toLowerCase())));
+  const seenBy = (machine: Machine): CapsMonitor[] => physical.filter(plugged).flatMap((p) => side(p, machine) ?? []);
   const caps = (): Caps => ({
-    here: demoCaps(agent, agent === "mac" ? missing : []),
-    peer: peer.kind === "paired" ? demoCaps(peerMachine, []) : null,
+    here: demoCaps(agent, agent === "mac" ? missing : [], seenBy(agent)),
+    peer: peer.kind === "paired" ? demoCaps(peerMachine, [], seenBy(peerMachine)) : null,
   });
+  /** Los del puesto que alguna máquina ve conectados ahora (como `capabilities::connected`). */
+  const connectedIds = () => {
+    const c = caps();
+    const ids = new Set<string>();
+    for (const m of [c.here, c.peer]) for (const x of m?.monitors ?? []) if (x.seen && x.monitor) ids.add(x.monitor);
+    return ids;
+  };
   const PEER_NAME = peerMachine === "pc" ? "PC" : "Mac";
-  const PAIRED: PeerView = { kind: "paired", name: PEER_NAME, link: peerOn ? "usb4" : null };
+  const PAIRED: PeerView = { kind: "paired", name: PEER_NAME, link: peerOn ? (clean ? "wifi" : "usb4") : null };
   let peer: PeerView = params.get("peer") === "none" ? { kind: "unpaired" } : PAIRED;
   let pairing: PairingView =
     params.get("pair") === "code" ? { kind: "comparing", code: DEMO_CODE, peer: PEER_NAME, confirmed: false } : { kind: "idle" };
   let pairTimer: number | undefined;
-  const snapshot = (): Snapshot =>
-    params.get("agent") === "off"
-      ? { kind: "unavailable", endpoint: "~/Library/Application Support/Tandem/tandemd.sock", reason: "tandemd no está corriendo: no hay nadie escuchando en la IPC local" }
-      : {
-          kind: "connected",
-          agent,
-          desk: DESK,
-          state,
-          peer,
-          pairing,
-          input: {
-            server: (params.get("hub") as Machine | null) ?? agent,
-            hub_here: (params.get("hub") ?? agent) === agent,
-            session: state.on[peerMachine] && peer.kind === "paired",
-            locked: false,
-            missing: agent === "mac" ? missing : [],
-            problem: null,
-          },
-          caps: caps(),
-        };
+  /** Dónde está el teclado según el asistente; sin respuesta, «sin definir» (T-087). */
+  let keyboard: Machine | null = clean ? null : ((params.get("hub") as Machine | null) ?? agent);
+  let keyProbe: { armed: boolean; heard: Machine | null } = { armed: false, heard: null };
+  const snapshot = (): Snapshot => {
+    if (params.get("agent") === "off") {
+      return { kind: "unavailable", endpoint: "~/Library/Application Support/Tandem/tandemd.sock", reason: "tandemd no está corriendo: no hay nadie escuchando en la IPC local" };
+    }
+    const on = connectedIds();
+    return {
+      kind: "connected",
+      agent,
+      desk: { monitors: desk.monitors.filter((m) => on.has(m.id)) },
+      hidden: desk.monitors.filter((m) => !on.has(m.id)),
+      state,
+      peer,
+      pairing,
+      input: {
+        server: keyboard ?? agent,
+        hub_here: clean ? null : (params.get("hub") ?? agent) === agent,
+        session: state.on[peerMachine] && peer.kind === "paired",
+        locked: false,
+        missing: agent === "mac" ? missing : [],
+        problem: null,
+        defined: keyboard !== null,
+      },
+      caps: caps(),
+    };
+  };
   let keys: ShortcutsView = {
     bindings: { ...DEFAULT_BINDINGS },
     failed: params.get("keys") === "busy" ? { shared: "el sistema no dejó registrar Ctrl+Alt+Digit2 (¿lo usa otra app?)" } : {},
@@ -368,10 +440,48 @@ export function demoBridge(query: string): Bridge {
     }
   }
 
+  /** Lo que ven los planes: solo los monitores conectados ahora (T-087). */
+  const connectedDesk = (): Desk => {
+    const on = connectedIds();
+    return { monitors: desk.monitors.filter((m) => on.has(m.id)) };
+  };
+  const pushSnapshot = () => snapshots.forEach((cb) => cb(snapshot()));
+  const emitKeyProbe = () => emit({ kind: "key_probe", event: { ...keyProbe } });
+
+  /** Lo conectado ahora a las dos máquinas, juntado por monitor físico (`wizard::propose`). */
+  function scan(): MonitorScan {
+    const linked = peer.kind === "paired" && peer.link !== null;
+    const on = connectedIds();
+    const candidates: MonitorCandidate[] = [];
+    for (const p of physical.filter(plugged)) {
+      const here = side(p, agent);
+      const there = linked ? side(p, peerMachine) : null;
+      if (!here && !there) continue;
+      const mac = agent === "mac" ? here : there;
+      const pc = agent === "pc" ? here : there;
+      const ids = [pc?.pnp_id, mac?.pnp_id].filter((x): x is string => !!x);
+      candidates.push({
+        label: p.label,
+        pnp_ids: ids,
+        here,
+        peer: there,
+        basis: here && there ? (byModel ? "Model" : "Serial") : "Single",
+        wiring: Object.fromEntries([
+          ...(here ? [[agent, here.output ?? null]] : []),
+          ...(there ? [[peerMachine, there.output ?? null]] : []),
+        ]),
+        in_desk: desk.monitors.find((m) => ids.some((id) => [m.edid_model, ...(m.edid_aliases ?? [])].includes(id)))?.id ?? null,
+        profile: p.profile?.name ?? null,
+      });
+    }
+    return { candidates, peer_known: linked, disconnected: desk.monitors.filter((m) => !on.has(m.id)).length };
+  }
+
   function start(steps: Step[]): ActionResult {
     if (busy) return { kind: "rejected", reason: "ya hay un cambio en curso" };
+    // `run` numera la transacción antes de su primer `await`.
     void run(steps);
-    return { kind: "accepted", txn: txn + 1 };
+    return { kind: "accepted", txn };
   }
 
   // Hace de sistema: los atajos «globales» se atienden aquí, como lo haría el núcleo.
@@ -387,7 +497,8 @@ export function demoBridge(query: string): Bridge {
       messages.forEach((cb) => cb("Aquí la ventana se escondería (atajo global)"));
       return;
     }
-    const r = start(plan(state, assignment(modeRequest(mode, DESK, state))));
+    const cd = connectedDesk();
+    const r = start(plan(cd, state, assignment(cd, modeRequest(mode, cd, state))));
     if (r.kind === "rejected") messages.forEach((cb) => cb(r.reason));
   });
 
@@ -434,12 +545,12 @@ export function demoBridge(query: string): Bridge {
     act: async (a: Action): Promise<ActionResult> => {
       switch (a.kind) {
         case "set_mode":
-          return start(plan(state, assignment(a.mode)));
+          return start(plan(connectedDesk(), state, assignment(connectedDesk(), a.mode)));
         case "move_monitor":
-          return start(plan(state, { ...state.owner, [a.monitor]: a.to }));
+          return start(plan(connectedDesk(), state, { ...state.owner, [a.monitor]: a.to }));
         case "set_power":
           if (a.on) return start(state.on[a.machine] ? [] : [{ step: "power_on", machine: a.machine }]);
-          return start(plan(state, assignment({ mode: a.machine === "pc" ? "solo_mac" : "solo_pc" }), a.machine));
+          return start(plan(connectedDesk(), state, assignment(connectedDesk(), { mode: a.machine === "pc" ? "solo_mac" : "solo_pc" }), a.machine));
         case "set_builtin":
           state = { ...state, builtin_pref: a.display };
           snapshots.forEach((cb) => cb(snapshot()));
@@ -478,8 +589,9 @@ export function demoBridge(query: string): Bridge {
         case "use_profile":
           return { kind: "rejected", reason: "en el modo demo ningún monitor tiene perfil en la base" };
         case "set_wiring": {
+          if (!a.confirmed) return { kind: "rejected", reason: "cambiar el cableado necesita la confirmación del usuario" };
           if (busy) return { kind: "rejected", reason: "ya hay un cambio en curso" };
-          const m = DESK.monitors.find((x) => x.id === a.monitor);
+          const m = desk.monitors.find((x) => x.id === a.monitor);
           if (!m) return { kind: "rejected", reason: `el monitor \`${a.monitor}\` no está en la configuración` };
           await sleep(200);
           m.wiring = { ...a.wiring };
@@ -489,7 +601,88 @@ export function demoBridge(query: string): Bridge {
         case "get_setup":
           return { kind: "setup", setup: { config_file: "~/Library/Application Support/Tandem/tandem.toml", generated: true, port: 52000 } };
         case "apply_mode":
-          return start(plan(state, assignment(a.mode), null, true));
+          return start(plan(connectedDesk(), state, assignment(connectedDesk(), a.mode), null, true));
+        case "scan_monitors":
+          await sleep(300);
+          return { kind: "scan", scan: scan() };
+        case "add_monitors": {
+          if (busy) return { kind: "rejected", reason: "ya hay un cambio en curso" };
+          const added: MonitorConfig[] = [];
+          for (const n of a.monitors) {
+            const [first, ...rest] = n.pnp_ids;
+            if (!first) return { kind: "rejected", reason: `${n.label}: sin id PnP no hay cómo encontrarlo después` };
+            if (desk.monitors.some((m) => [m.edid_model, ...(m.edid_aliases ?? [])].includes(first))) {
+              return { kind: "rejected", reason: `${n.label} ya está en el puesto` };
+            }
+            const known = PHYSICAL.find((p) => [p.pc, p.mac].includes(first));
+            added.push({
+              id: first.toLowerCase(),
+              label: n.label,
+              edid_model: first,
+              edid_aliases: rest,
+              wiring: n.wiring,
+              ddc: known?.profile ? { hdmi: known.profile.hdmi, display_port: known.profile.display_port } : null,
+            });
+          }
+          desk = { monitors: [...desk.monitors, ...added] };
+          state = structuredClone(state);
+          for (const m of added) {
+            state.owner[m.id] = "mac";
+            state.doubt[m.id] = "unknown";
+          }
+          pushSnapshot();
+          return { kind: "done" };
+        }
+        case "remove_monitor":
+        case "reset_desk": {
+          if (busy) return { kind: "rejected", reason: "ya hay un cambio en curso" };
+          const gone = a.kind === "reset_desk" ? desk.monitors.map((m) => m.id) : [a.monitor];
+          if (a.kind === "remove_monitor" && !desk.monitors.some((m) => m.id === a.monitor)) {
+            return { kind: "rejected", reason: `el monitor \`${a.monitor}\` no está en el puesto` };
+          }
+          desk = { monitors: desk.monitors.filter((m) => !gone.includes(m.id)) };
+          state = structuredClone(state);
+          for (const id of gone) {
+            delete state.owner[id];
+            delete state.doubt[id];
+          }
+          pushSnapshot();
+          return { kind: "done" };
+        }
+        case "mark_manual": {
+          const m = desk.monitors.find((x) => x.id === a.monitor);
+          if (!m) return { kind: "rejected", reason: `el monitor \`${a.monitor}\` no está en el puesto` };
+          m.ddc = null;
+          pushSnapshot();
+          return { kind: "done" };
+        }
+        case "key_probe":
+          keyProbe = a.on ? { armed: true, heard: null } : { armed: false, heard: null };
+          emitKeyProbe();
+          // Hace de la otra máquina: si el teclado está en ella, la tecla le llega a ella.
+          if (a.on && params.get("kb") === peerMachine) {
+            window.setTimeout(() => {
+              if (!keyProbe.armed || keyProbe.heard) return;
+              keyProbe = { armed: true, heard: peerMachine };
+              emitKeyProbe();
+            }, 1600);
+          }
+          return { kind: "done" };
+        case "heard_key":
+          if (keyProbe.armed && !keyProbe.heard) {
+            keyProbe = { armed: true, heard: agent };
+            emitKeyProbe();
+          }
+          return { kind: "done" };
+        case "set_keyboard":
+          keyboard = a.machine;
+          pushSnapshot();
+          return { kind: "done" };
+        case "ping_peer": {
+          await sleep(350);
+          if (peer.kind !== "paired" || peer.link === null) return { kind: "rejected", reason: "ningún enlace ve a la otra máquina" };
+          return { kind: "pong", link: peer.link, millis: peer.link === "wifi" ? 7 : 1 };
+        }
         case "set_shown": {
           if (busy) return { kind: "rejected", reason: "ya hay un cambio en curso" };
           // Como `Plan::follow`: sin entradas, solo los escritorios y la geometría.

@@ -35,3 +35,13 @@ Tras un cambio desde el menú del monitor, `0x60` no se actualiza (sigue con el 
 Falta probar **con el usuario delante** si el *timing report* (`GetTimingReport` de dxva2, o el VCP de estado de sincronía) cambia según la entrada que muestra: con el 32" en DP (PC), en HDMI (Mac) y en negro, leerlo desde la PC y comparar frecuencias, polaridad y el bit de «fuera de rango / sin señal». En el 34" no sirve (siempre reporta lo de su DP aunque muestre HDMI). Si en el 32" sí distingue, sería una capacidad nueva por perfil, «detección de entrada», y ese monitor podría arrancar confirmado sin preguntar.
 
 - [ ] Leer el timing report del 32" en DP, en HDMI y en negro, y anotar los valores aquí.
+
+## El EDID cambia según la entrada (T-087)
+
+Hecho de la primera prueba con las dos máquinas: el mismo monitor tiene un id PnP distinto en cada entrada, así que la PC (DisplayPort) y la Mac (HDMI) lo ven con ids distintos. El número de serie del EDID suele coincidir y sirve para vincular las dos identidades; si no, se vincula por modelo o tamaño y el usuario lo confirma en el asistente.
+
+| | PC (DisplayPort) | Mac (HDMI) |
+|---|---|---|
+| 32" Odyssey G5 | `SAM7489` | `SAM748A` |
+
+Por eso el perfil lleva `pnp_aliases` (`profiles/ddc/`) y el puesto, `edid_aliases` en cada `[[monitors]]`: cualquiera de las dos identidades encuentra el monitor (DDC, topología de Windows y Quartz). Antes de T-087 la sincronización los trataba como dos monitores y el puesto quedaba duplicado.

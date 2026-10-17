@@ -54,14 +54,22 @@ fn link(a: &MonitorCaps, b: &MonitorCaps) -> Option<LinkBasis> {
     (same_id || same_size).then_some(LinkBasis::Model)
 }
 
-/// Los id PnP de un monitor visto por una o dos máquinas, sin repetir.
-fn pnp_ids(here: Option<&MonitorCaps>, peer: Option<&MonitorCaps>) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for id in [here, peer]
+/// Los id PnP de un monitor visto por una o dos máquinas, sin repetir y con el de la PC
+/// primero: así el id del monitor y su `edid_model` no dependen de qué máquina corre el
+/// asistente.
+fn pnp_ids(
+    here: Option<(&MonitorCaps, Machine)>,
+    peer: Option<(&MonitorCaps, Machine)>,
+) -> Vec<String> {
+    let mut seen: Vec<(Machine, String)> = [here, peer]
         .into_iter()
         .flatten()
-        .filter_map(|m| m.pnp_id.clone())
-    {
+        .filter_map(|(m, machine)| Some((machine, m.pnp_id.clone()?)))
+        .collect();
+    // `Machine::Mac < Machine::Pc`: de mayor a menor deja a la PC primero.
+    seen.sort_by_key(|(machine, _)| std::cmp::Reverse(*machine));
+    let mut out: Vec<String> = Vec::new();
+    for (_, id) in seen {
         if !out.iter().any(|o| o.eq_ignore_ascii_case(&id)) {
             out.push(id);
         }
@@ -131,7 +139,10 @@ pub fn propose(
     let mut candidates: Vec<MonitorCandidate> = pairs
         .into_iter()
         .map(|(h, p, basis)| {
-            let ids = pnp_ids(h.as_ref(), p.as_ref());
+            let ids = pnp_ids(
+                h.as_ref().map(|m| (m, machine_of(true))),
+                p.as_ref().map(|m| (m, machine_of(false))),
+            );
             let mut wiring: BTreeMap<Machine, Option<Input>> = BTreeMap::new();
             if let Some(h) = &h {
                 wiring.insert(machine_of(true), h.output);
@@ -163,6 +174,7 @@ pub fn propose(
                 .map(|e| e.profile.name.clone());
             MonitorCandidate {
                 label,
+                pnp_ids: ids,
                 here: h,
                 peer: p,
                 basis,
