@@ -19,16 +19,17 @@ pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encod
 pub use msg::{
     AgentToUi, CalibrationOutcome, CalibrationProbe, CalibrationStep, CalibrationUpdate,
     Capabilities, Channel, ControlMsg, DeskCapabilities, DeskSync, DisplayInfo, DisplayProfile,
-    EdidId, Hello, HubReport, InputCaps, InputPermission, InputStatus, Link, ManualSwitchEvent,
-    MonitorCaps, PairingMsg, PairingStatus, Peer, PeerStatus, PowerCaps, PowerEvent, ProbeAnswer,
-    ProbeAsk, ProbeEvent, ProbeMonitor, ProbeOutcome, ProbePlace, ProbeScreen, Reply, SavedProfile,
+    EdidId, Hello, HubReport, InputCaps, InputPermission, InputStatus, KeyProbeMsg, KeyProbeStatus,
+    Link, LinkBasis, ManualSwitchEvent, MonitorCandidate, MonitorCaps, MonitorScan, NewMonitor,
+    PairingMsg, PairingStatus, Peer, PeerStatus, PowerCaps, PowerEvent, ProbeAnswer, ProbeAsk,
+    ProbeEvent, ProbeMonitor, ProbeOutcome, ProbePlace, ProbeScreen, Reply, SavedProfile,
     ScreenRect, SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest, UndoFailure,
 };
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 11;
+pub const PROTOCOL_VERSION: u16 = 12;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -63,10 +64,11 @@ mod tests {
     /// T-081 publicó la v8, T-082 la v9 y T-084 (el anuncio de capacidades) la v10. T-085
     /// agrega al estado lo que no está confirmado y los pedidos «Aplicar modo» y «qué
     /// muestra»: otra forma de los mensajes, otra versión, para que dos binarios distintos
-    /// nunca se acepten como compatibles.
+    /// nunca se acepten como compatibles. T-087 (asistente: monitores físicos, teclado por
+    /// pulsación) sube a la v12.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 11);
+        assert_eq!(PROTOCOL_VERSION, 12);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
     }
 }

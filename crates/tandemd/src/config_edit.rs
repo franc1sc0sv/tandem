@@ -87,6 +87,31 @@ pub fn set_monitor_wiring(
     rewrite(path, |text| with_monitor_wiring(text, id, wiring))
 }
 
+/// `keyboard = "pc"` en `[input]`: dónde está el teclado y el mouse, dicho por el usuario
+/// en el asistente (T-087).
+pub fn with_keyboard(text: &str, machine: Machine) -> Result<String, ConfigEditError> {
+    let mut doc: DocumentMut = text
+        .parse()
+        .map_err(|e: toml_edit::TomlError| ConfigEditError::Parse(e.message().to_owned()))?;
+    let input = doc
+        .entry("input")
+        .or_insert_with(|| Item::Table(Table::new()));
+    let Some(input) = input.as_table_like_mut() else {
+        return Err(ConfigEditError::Invalid("[input] no es una tabla".into()));
+    };
+    // El nombre de antes (`server`) valdría lo mismo; se deja uno solo.
+    input.remove("server");
+    input.insert("keyboard", toml_edit::value(machine.to_string()));
+    let out = doc.to_string();
+    AgentConfig::from_toml(&out).map_err(|e| ConfigEditError::Invalid(e.to_string()))?;
+    Ok(out)
+}
+
+/// Lo mismo sobre el archivo.
+pub fn set_keyboard(path: &Path, machine: Machine) -> Result<(), ConfigEditError> {
+    rewrite(path, |text| with_keyboard(text, machine))
+}
+
 /// El puesto compartido de `sync` sobre el texto de `tandem.toml` (T-084): los
 /// `[[monitors]]` (se actualizan en su lugar los que ya estaban, se agregan los nuevos al
 /// final y se quitan los que ya no están), `[input] lock_shortcut`, `desk_rev` y
@@ -149,6 +174,12 @@ pub fn set_desk(path: &Path, sync: &DeskSync) -> Result<(), ConfigEditError> {
 fn fill_monitor(t: &mut Table, m: &MonitorConfig) -> Result<(), ConfigEditError> {
     t.insert("id", toml_edit::value(m.id.0.as_str()));
     t.insert("label", toml_edit::value(m.label.as_str()));
+    if m.edid_aliases.is_empty() {
+        t.remove("edid_aliases");
+    } else {
+        let aliases: toml_edit::Array = m.edid_aliases.iter().map(String::as_str).collect();
+        t.insert("edid_aliases", Item::Value(Value::Array(aliases)));
+    }
     match &m.edid_model {
         Some(model) => {
             t.insert("edid_model", toml_edit::value(model.as_str()));
@@ -297,6 +328,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             id: "sam7489".into(),
             label: "27\"".into(),
             edid_model: Some("SAM7489".into()),
+            edid_aliases: Vec::new(),
             wiring: [(Machine::Pc, Input::DisplayPort)].into(),
             ddc: Some(CODES),
         });

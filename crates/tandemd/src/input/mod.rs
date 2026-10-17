@@ -203,7 +203,7 @@ pub fn start(
         opts: setup.opts,
         lock_keys,
         link,
-        server: watch::Sender::new(cfg.keyboard),
+        server: watch::Sender::new(cfg.keyboard()),
         hub_here: watch::Sender::new(None),
         report: watch::Sender::new(None),
         screens: watch::Sender::new(Vec::new()),
@@ -357,11 +357,21 @@ async fn geometry(sh: Arc<Shared>) {
 
 /// Quién es el servidor.
 async fn roles(sh: Arc<Shared>, mut presence: Option<watch::Receiver<Presence>>) {
-    let mut arbiter = RoleArbiter::new(sh.me, sh.agent.config().input.keyboard);
+    let mut arbiter = RoleArbiter::new(sh.me, sh.agent.config().input.keyboard());
     let mut peer = sh.agent.inbox().hub.subscribe();
     let mut link = sh.link.clone();
     let mut state = sh.agent.subscribe();
+    // Lo que el usuario dijo en el asistente (T-087).
+    let mut declared = sh.agent.subscribe_keyboard();
+    let mut last_declared = *declared.borrow_and_update();
     loop {
+        let now = *declared.borrow_and_update();
+        if now != last_declared {
+            last_declared = now;
+            if let Some(machine) = now {
+                arbiter.declare(machine);
+            }
+        }
         if let Some(p) = presence.as_mut() {
             arbiter.set_local_hub(p.borrow_and_update().hub());
         }
@@ -409,6 +419,7 @@ async fn roles(sh: Arc<Shared>, mut presence: Option<watch::Receiver<Presence>>)
             () = changed(&mut peer) => {}
             () = changed(&mut link) => {}
             () = changed(&mut state) => {}
+            () = changed(&mut declared) => {}
         }
     }
 }
@@ -476,6 +487,8 @@ async fn status(sh: Arc<Shared>) {
             } else {
                 rx.7.borrow_and_update().clone()
             },
+            // El hub, la configuración o el asistente lo dicen; si no, es «sin definir».
+            defined: sh.agent.keyboard_declared().is_some() || sh.hub_here.borrow().is_some(),
         };
         sh.agent.set_input_status(status);
         tokio::select! {

@@ -35,6 +35,10 @@ pub const BUILTIN: &[(&str, &str)] = builtin!("SAM711A.toml", "SAM7489.toml");
 pub struct DdcProfile {
     /// Fabricante (tres letras) y producto (cuatro dígitos hexadecimales): `SAM7489`.
     pub pnp_id: String,
+    /// Otros id PnP del mismo modelo (T-087): los Samsung exponen un EDID distinto por
+    /// entrada, así que el 34" es `SAM711A` por DisplayPort y `SAM7119` por HDMI.
+    #[serde(default)]
+    pub pnp_aliases: Vec<String>,
     /// Nombre para mostrar.
     pub name: String,
     /// Nombres del descriptor 0xFC del EDID con los que se anuncia este modelo.
@@ -109,6 +113,9 @@ impl DdcProfile {
         if !valid_pnp_id(&self.pnp_id) {
             return Err(ProfileError::BadPnpId(self.pnp_id.clone()));
         }
+        if let Some(bad) = self.pnp_aliases.iter().find(|a| !valid_pnp_id(a)) {
+            return Err(ProfileError::BadPnpId(bad.clone()));
+        }
         if self.name.trim().is_empty() {
             return Err(ProfileError::EmptyName);
         }
@@ -159,6 +166,10 @@ impl DdcProfile {
         let mut out = String::from("# Perfil DDC de Tandem. Formato: docs/dev/ddc-profiles.md\n");
         let mut line = |key: &str, value: String| out.push_str(&format!("{key} = {value}\n"));
         line("pnp_id", quote(&self.pnp_id));
+        if !self.pnp_aliases.is_empty() {
+            let aliases: Vec<String> = self.pnp_aliases.iter().map(|a| quote(a)).collect();
+            line("pnp_aliases", format!("[{}]", aliases.join(", ")));
+        }
         line("name", quote(&self.name));
         let names: Vec<String> = self.edid_names.iter().map(|n| quote(n)).collect();
         line("edid_names", format!("[{}]", names.join(", ")));
@@ -432,8 +443,14 @@ impl ProfileDb {
         self.by_pnp.values()
     }
 
+    /// El perfil de un id PnP, sea el principal o uno de sus alias.
     pub fn get(&self, pnp_id: &str) -> Option<&Entry> {
-        self.by_pnp.get(&pnp_id.to_ascii_uppercase())
+        let id = pnp_id.to_ascii_uppercase();
+        self.by_pnp.get(&id).or_else(|| {
+            self.by_pnp
+                .values()
+                .find(|e| e.profile.pnp_aliases.contains(&id))
+        })
     }
 
     /// Perfiles de un fabricante (`SAM`), para probar sus códigos en monitores nuevos.
@@ -767,6 +784,7 @@ mod tests {
             edid_names in proptest::collection::vec(
                 "[ -~]{1,13}".prop_filter("no vacío", |s| !s.trim().is_empty()), 0..3),
             generic_name in any::<bool>(),
+            aliases in proptest::collection::vec(any::<u16>(), 0..3),
             codes in (arb_code(), arb_code(), proptest::option::of(arb_code()), proptest::option::of(arb_code())),
             reported in proptest::collection::vec(proptest::option::of(any::<u8>()), 4),
             notes in proptest::option::of("\\PC{0,40}|[\"\\\\\n\t]{1,5}"),
@@ -775,6 +793,7 @@ mod tests {
         ) -> DdcProfile {
             DdcProfile {
                 pnp_id: format!("{mfr}{product:04X}"),
+                pnp_aliases: aliases.into_iter().map(|a| format!("{mfr}{a:04X}")).collect(),
                 name,
                 edid_names,
                 generic_name,

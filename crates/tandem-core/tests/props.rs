@@ -140,6 +140,7 @@ fn config() -> impl Strategy<Value = Config> {
                 id: MonitorId(format!("m{i}")),
                 label: format!("monitor {i}"),
                 edid_model: None,
+                edid_aliases: Vec::new(),
                 wiring,
                 ddc: None,
             })

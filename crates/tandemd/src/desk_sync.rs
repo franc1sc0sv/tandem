@@ -8,10 +8,10 @@
 //! - Un cambio local sube la versión a la más alta conocida + 1, con esta máquina de origen.
 //! - Al recibir, gana la versión más nueva; dos iguales las desempata el origen (así las
 //!   dos máquinas eligen la misma sin hablar más).
-//! - Las dos en la versión 0 (recién generadas, T-082) se unen: la Mac no ve el EDID de
-//!   los monitores que solo están en la PC, y la PC puede no ver alguno de la Mac. La
-//!   unión es la misma desde los dos lados: los de la PC en su orden y después los que
-//!   solo tiene la Mac.
+//! - Las dos en la versión 0 (recién generadas) no se mezclan: **la sincronización nunca
+//!   crea monitores** (T-087). Los monitores salen solo del asistente o de «Agregar
+//!   monitor», que suben la versión; antes (T-083) se unían y por eso un mismo monitor
+//!   quedaba duplicado al verse con un id PnP distinto en cada máquina.
 //!
 //! Lo solo-local (máquina, identidad, red, puertos, rutas, energía) nunca viaja.
 
@@ -21,9 +21,7 @@ use tandem_proto::DeskSync;
 /// Qué hacer con el puesto que mandó la otra máquina: `Some` es el que queda aquí.
 pub fn receive(mine: &DeskSync, theirs: &DeskSync) -> Option<DeskSync> {
     if mine.rev == 0 && theirs.rev == 0 {
-        let merged = merge(mine, theirs);
-        let same = merged.desk == mine.desk && merged.lock_shortcut == mine.lock_shortcut;
-        return (!same).then_some(merged);
+        return None;
     }
     let newer = (theirs.rev, theirs.origin) > (mine.rev, mine.origin);
     (newer && theirs.desk.validate().is_ok()).then(|| theirs.clone())
@@ -39,27 +37,6 @@ pub fn bump(rev: u64, me: Machine, desk: Config, lock_shortcut: Vec<String>) -> 
     }
 }
 
-/// La unión de dos puestos en la versión 0, igual desde los dos lados.
-fn merge(a: &DeskSync, b: &DeskSync) -> DeskSync {
-    let (pc, mac) = if a.origin == Machine::Pc {
-        (a, b)
-    } else {
-        (b, a)
-    };
-    let mut desk = pc.desk.clone();
-    for m in &mac.desk.monitors {
-        if desk.monitor(&m.id).is_none() {
-            desk.monitors.push(m.clone());
-        }
-    }
-    DeskSync {
-        rev: 0,
-        origin: Machine::Pc,
-        desk,
-        lock_shortcut: pc.lock_shortcut.clone(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -72,6 +49,7 @@ mod tests {
             id: id.into(),
             label: id.to_owned(),
             edid_model: Some(id.to_ascii_uppercase()),
+            edid_aliases: Vec::new(),
             wiring: [
                 (Machine::Pc, Input::DisplayPort),
                 (Machine::Mac, Input::Hdmi),
@@ -109,21 +87,24 @@ mod tests {
     }
 
     #[test]
-    fn two_fresh_desks_are_joined() {
-        // La Mac solo ve el 34"; la PC ve los dos.
+    fn two_fresh_desks_are_never_joined() {
+        // Ninguna sincronización crea monitores (T-087): ni con puestos distintos, ni con
+        // uno vacío y otro con monitores de una versión anterior.
         let mac = sync(0, Machine::Mac, &["sam711a"]);
         let pc = sync(0, Machine::Pc, &["sam711a", "sam7489"]);
-        let on_mac = receive(&mac, &pc).unwrap();
-        assert_eq!(on_mac.desk, pc.desk);
-        // La PC no cambia: ya tiene todo.
+        assert_eq!(receive(&mac, &pc), None);
         assert_eq!(receive(&pc, &mac), None);
-        // Uno que solo tiene la Mac se agrega al final, en las dos.
-        let mac = sync(0, Machine::Mac, &["dell"]);
-        let a = receive(&mac, &pc).unwrap();
-        let b = receive(&pc, &mac).unwrap();
-        assert_eq!(a, b);
-        let ids: Vec<&str> = a.desk.monitors.iter().map(|m| m.id.0.as_str()).collect();
-        assert_eq!(ids, ["sam711a", "sam7489", "dell"]);
+        let empty = sync(0, Machine::Mac, &[]);
+        assert_eq!(receive(&empty, &pc), None);
+        assert_eq!(receive(&pc, &empty), None);
+    }
+
+    #[test]
+    fn a_desk_with_monitors_wins_over_a_fresh_one_only_if_it_was_changed() {
+        let fresh = sync(0, Machine::Mac, &[]);
+        let built = sync(1, Machine::Pc, &["sam711a", "sam7489"]);
+        assert_eq!(receive(&fresh, &built), Some(built.clone()));
+        assert_eq!(receive(&built, &fresh), None);
     }
 
     #[test]
@@ -157,12 +138,27 @@ mod tests {
         #[test]
         fn both_sides_converge(a in any_sync(), b in any_sync()) {
             prop_assume!(a.origin != b.origin);
+            // Dos puestos sin cambiar nunca se mezclan: cada uno queda como estaba.
+            prop_assume!(a.rev != 0 || b.rev != 0);
             let on_a = receive(&a, &b).unwrap_or_else(|| a.clone());
             let on_b = receive(&b, &a).unwrap_or_else(|| b.clone());
             prop_assert_eq!(&on_a.desk, &on_b.desk);
             prop_assert_eq!(on_a.rev, on_b.rev);
             // Y volver a mandarse lo que quedó no cambia nada.
             prop_assert_eq!(receive(&on_a, &on_b), None);
+        }
+
+        /// La sincronización nunca inventa un puesto: o deja el que hay o adopta entero el
+        /// de la otra máquina, que alguien cambió a propósito. Sin cambios, no hace nada.
+        #[test]
+        fn sync_never_creates_monitors(a in any_sync(), b in any_sync()) {
+            match receive(&a, &b) {
+                None => {}
+                Some(next) => {
+                    prop_assert_eq!(&next, &b);
+                    prop_assert!(b.rev > 0, "un puesto sin cambiar no se adopta");
+                }
+            }
         }
     }
 }

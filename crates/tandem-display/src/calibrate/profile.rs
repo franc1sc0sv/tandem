@@ -47,6 +47,7 @@ impl CalibratedProfile {
         Some(DdcProfile {
             name: format!("{name} ({pnp_id})"),
             pnp_id,
+            pnp_aliases: Vec::new(),
             edid_names: self.edid_name.clone().into_iter().collect(),
             generic_name: true,
             codes: ProfileCodes {

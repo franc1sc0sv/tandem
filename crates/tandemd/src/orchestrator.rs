@@ -93,6 +93,11 @@ pub trait PeerLink: Send + Sync {
     fn hold_link(&self) -> Option<LinkHold> {
         None
     }
+    /// El enlace activo con el otro agente y lo que tardó su último ping (T-087: el asistente
+    /// lo muestra). `None` sin enlace.
+    fn rtt(&self) -> Option<(tandem_proto::Link, Duration)> {
+        None
+    }
     /// Pide al otro agente que muestre una sonda de calibración y espera la respuesta
     /// (T-078). Al soltar el futuro se le pide que la quite. Sin conexión, `Err`.
     fn show_probe<'a>(&'a self, probe: &'a CalibrationProbe) -> ProbeFuture<'a> {
@@ -354,6 +359,7 @@ impl Orchestrator {
             next: 0,
             failed: false,
             state: state.clone(),
+            start: state.clone(),
             uncertain_undo_failures: Vec::new(),
         };
         let outcome = tandem_core::run(cfg, state, plan, &mut d).await;
@@ -555,6 +561,8 @@ struct Dispatcher<'a> {
     failed: bool,
     /// El estado con los pasos ya aplicados, para validar los que dependen de él.
     state: State,
+    /// El estado de partida, para deshacer sin dejar a una máquina sin su monitor.
+    start: State,
     /// El inverso del paso incierto, si tampoco se pudo hacer.
     uncertain_undo_failures: Vec<(Step, String)>,
 }
@@ -645,7 +653,7 @@ impl Executor for Dispatcher<'_> {
                 self.orch.emit(TxnEvent::RollingBack { txn });
                 self.failed = true;
                 // La geometría no hace falta: la vuelta atrás la recalcula al final.
-                let undo = step.inverse(self.cfg).filter(|_| uncertain);
+                let undo = step.undo(self.cfg, &self.start).filter(|_| uncertain);
                 if let Some(inv) = undo.filter(|inv| *inv != Step::UpdateInputGeometry)
                     && let Err(e) = self
                         .orch

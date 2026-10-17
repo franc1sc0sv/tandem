@@ -21,6 +21,7 @@ use crate::config::AgentConfig;
 use crate::input::GeometrySteps;
 use crate::orchestrator::{LocalSteps, STEP_NOT_IMPLEMENTED, StepFuture, Unimplemented, describe};
 use crate::power::PowerSteps;
+use crate::safety::DetachLedger;
 
 /// Ejecutor local de los pasos de pantalla; el resto va a `others`.
 pub struct DisplaySteps {
@@ -34,6 +35,9 @@ pub struct DisplaySteps {
     others: Arc<dyn LocalSteps>,
     /// Los códigos DDC aprendidos al calibrar (T-080), por encima de los de `desk`.
     live: LiveDesk,
+    /// Lo que esta máquina quitó de su escritorio, para reactivarlo si el agente se cierra
+    /// a mitad de un cambio de modo (T-087).
+    ledger: Arc<DetachLedger>,
 }
 
 impl std::fmt::Debug for DisplaySteps {
@@ -57,7 +61,14 @@ impl DisplaySteps {
             desktop_turn: Arc::default(),
             others: Arc::new(Unimplemented),
             live: LiveDesk::default(),
+            ledger: Arc::new(DetachLedger::in_memory()),
         }
+    }
+
+    /// Dónde anotar las salidas que se quitan ([`DetachLedger`]).
+    pub fn with_ledger(mut self, ledger: Arc<DetachLedger>) -> Self {
+        self.ledger = ledger;
+        self
     }
 
     /// Lo que «Agregar monitor» aprende: el siguiente cambio de modo ya lo usa.
@@ -160,11 +171,26 @@ impl LocalSteps for DisplaySteps {
             let r = match step {
                 Step::SwitchInput { monitor, to, .. } => self.switch_input(monitor, *to).await,
                 Step::Attach { machine, monitor } => match self.monitor(monitor) {
-                    Ok(m) => self.on_desktop(*machine, move |d| d.attach(&m)).await,
+                    Ok(m) => {
+                        let r = self.on_desktop(*machine, move |d| d.attach(&m)).await;
+                        if r.is_ok() {
+                            self.ledger.attached(monitor);
+                        }
+                        r
+                    }
                     Err(e) => Err(e),
                 },
                 Step::Detach { machine, monitor } => match self.monitor(monitor) {
-                    Ok(m) => self.on_desktop(*machine, move |d| d.detach(&m)).await,
+                    Ok(m) => {
+                        // Primero se anota y después se quita: si el agente muere en
+                        // medio, al arrancar se reactiva.
+                        self.ledger.detached(monitor);
+                        let r = self.on_desktop(*machine, move |d| d.detach(&m)).await;
+                        if r.is_err() {
+                            self.ledger.attached(monitor);
+                        }
+                        r
+                    }
                     Err(e) => Err(e),
                 },
                 Step::SetBuiltin { to, .. } => {

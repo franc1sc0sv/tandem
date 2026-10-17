@@ -10,10 +10,12 @@ use tandem_display::switcher::{ManualEvent, ManualSwitcher};
 use tandem_link::transport::{Connection, ControlStream};
 use tandem_proto::{
     CalibrationUpdate, Capabilities, Channel, ControlMsg, DeskCapabilities, DeskSync, HubReport,
-    InputStatus, PairingStatus, PeerStatus, PowerEvent, ProbeEvent, Reply, ScreenRect, SetupInfo,
-    TxnEvent, UiCommand,
+    InputStatus, KeyProbeStatus, PairingStatus, PeerStatus, PowerEvent, ProbeEvent, Reply,
+    ScreenRect, SetupInfo, TxnEvent, UiCommand,
 };
 use tokio::sync::{broadcast, mpsc, watch};
+
+mod setup;
 
 use crate::add_monitor::{LiveDesk, MonitorWizard, NOT_HERE};
 use crate::calibration::{DesktopLocator, ProbeBoard};
@@ -21,12 +23,18 @@ use crate::capabilities::{self, Seen};
 use crate::config::AgentConfig;
 use crate::display::DisplaySteps;
 use crate::orchestrator::{LocalSteps, Orchestrator, PeerLink, Unimplemented};
+use crate::safety::DetachLedger;
 use crate::store::{StateStore, StoreError};
+use crate::wizard::MonitorScanner;
 
 /// Lo que la UI recibe cuando pide algo que este agente todavía no sabe hacer.
 pub const NOT_IMPLEMENTED: &str = "todavía no implementado";
 /// Lo que la UI recibe si pide un cambio con otro en curso.
 pub const BUSY: &str = "ya hay un cambio en curso";
+/// Lo que la UI recibe si cambia el cableado sin que el usuario lo haya confirmado.
+pub const NEEDS_CONFIRMATION: &str = "cambiar el cableado necesita la confirmación del usuario";
+/// Lo que la UI recibe si pide detectar monitores donde no se puede.
+pub const NO_SCANNER: &str = "esta máquina no detecta monitores";
 /// Lo que la UI recibe si pide emparejar sin la red en marcha.
 pub const NO_NETWORK: &str = "la red del agente no está en marcha";
 
@@ -85,6 +93,19 @@ pub struct Agent {
     /// El reloj del puesto compartido ([`crate::desk_sync`]) y el atajo de bloqueo, que
     /// también es del puesto.
     sync: Mutex<SyncClock>,
+    /// Quien detecta de nuevo los monitores conectados, para el asistente (T-087).
+    scanner: Mutex<Option<Arc<dyn MonitorScanner>>>,
+    /// `<datos>/profiles/ddc/`: los perfiles del usuario, que se borran con su monitor.
+    user_profiles: Mutex<Option<PathBuf>>,
+    /// Lo que esta máquina quitó de su escritorio (seguridad de pantallas, T-087).
+    ledger: Arc<DetachLedger>,
+    /// El escritorio de esta máquina, solo para reactivar lo quitado de un monitor que se
+    /// borra del puesto.
+    desktop: Option<setup::DesktopHandle>,
+    /// La prueba «presiona una tecla» del asistente.
+    key_probe: watch::Sender<KeyProbeStatus>,
+    /// Dónde está el teclado según la configuración o el asistente; `None`, sin definir.
+    keyboard: watch::Sender<Option<Machine>>,
 }
 
 #[derive(Debug, Clone)]
@@ -183,15 +204,29 @@ impl Agent {
         let manual = Arc::new(ManualSwitcher::new());
         let geometry = Arc::new(watch::Sender::new(0));
         let live = LiveDesk::default();
+        // Lo que esta máquina quitó antes y no volvió a poner (T-087): el estado de un
+        // arranque siempre es «sin confirmar», así que se reactiva antes de hacer nada.
+        let ledger = Arc::new(DetachLedger::open(
+            store.path().with_file_name("detached.json"),
+        ));
+        let desktop = tandem_display::desktop::native(cfg.machine);
+        if let Some(d) = &desktop {
+            crate::safety::restore_on_boot(&ledger, d.as_ref(), &cfg.desk, false);
+        }
         let local = Arc::new(
-            DisplaySteps::platform(&cfg, manual.clone(), geometry.clone()).with_live(live.clone()),
+            DisplaySteps::platform(&cfg, manual.clone(), geometry.clone())
+                .with_live(live.clone())
+                .with_ledger(ledger.clone()),
         );
-        let locator = tandem_display::desktop::native(cfg.machine)
+        let locator = desktop
+            .clone()
             .map(|d| Arc::new(DesktopLocator(d)) as Arc<dyn crate::calibration::ScreenLocator>);
         let mut agent = Self::with_backends(cfg, store, local, manual);
         agent.geometry = geometry;
         agent.probes = ProbeBoard::new(locator);
         agent.live = live;
+        agent.ledger = ledger;
+        agent.desktop = desktop.map(setup::DesktopHandle);
         agent
     }
 
@@ -212,7 +247,8 @@ impl Agent {
         // diga lo que muestra cada uno, queda sin confirmar.
         state.forget();
         let orch = Orchestrator::new(cfg.machine, local, cfg.orchestrator.timeouts());
-        let input = InputStatus::new(cfg.input.keyboard);
+        let mut input = InputStatus::new(cfg.input.keyboard());
+        input.defined = cfg.input.keyboard_defined();
         let here = capabilities::local(&cfg, &cfg.desk, None, &input);
         Agent {
             store,
@@ -247,6 +283,12 @@ impl Agent {
                 origin: cfg.desk_origin.unwrap_or(cfg.machine),
                 lock_shortcut: cfg.input.lock_shortcut.clone(),
             }),
+            scanner: Mutex::new(None),
+            user_profiles: Mutex::new(None),
+            ledger: Arc::new(DetachLedger::in_memory()),
+            desktop: None,
+            key_probe: watch::Sender::new(KeyProbeStatus::default()),
+            keyboard: watch::Sender::new(cfg.input.keyboard),
             cfg,
         }
     }
@@ -299,7 +341,17 @@ impl Agent {
     /// Cambia qué entrada del monitor va a cada máquina: se guarda en `tandem.toml` y vale
     /// desde el siguiente cambio de modo. No mueve nada: el monitor sigue en la entrada en
     /// la que está. Con un cambio de modo en curso se rechaza.
-    fn set_wiring(&self, monitor: MonitorId, wiring: BTreeMap<Machine, Input>) -> Reply {
+    fn set_wiring(
+        &self,
+        monitor: MonitorId,
+        wiring: BTreeMap<Machine, Input>,
+        confirmed: bool,
+    ) -> Reply {
+        // Fuera del asistente, un cableado mal puesto manda el cambio de modo a una
+        // entrada donde no hay nada (T-087): se pide la confirmación explícita.
+        if !confirmed {
+            return Reply::Rejected(NEEDS_CONFIRMATION.into());
+        }
         if self.desk().monitor(&monitor).is_none() {
             return Reply::Rejected(format!(
                 "el monitor `{monitor}` no está en la configuración"
@@ -404,6 +456,15 @@ impl Agent {
             clock.origin = next.origin;
             clock.lock_shortcut = next.lock_shortcut.clone();
         }
+        // Lo que la otra máquina borró (un monitor quitado, «Restablecer puesto») se borra
+        // también aquí: sus salidas quitadas vuelven y su perfil del usuario se va (T-087).
+        let removed: Vec<_> = self
+            .desk()
+            .monitors
+            .into_iter()
+            .filter(|m| next.desk.monitor(&m.id).is_none())
+            .collect();
+        self.forget_removed(&removed, &next.desk);
         self.live.replace(next.desk.clone());
         self.save_desk(&next);
         // Los monitores nuevos se suponen donde los dejaría el estado inicial.
@@ -520,7 +581,10 @@ impl Agent {
     /// Como [`Agent::handle`], pero lo que bloquea (abrir el bus DDC) va fuera del
     /// runtime. Es lo que usa la IPC.
     pub async fn respond(self: &Arc<Self>, cmd: UiCommand) -> Reply {
-        if matches!(cmd, UiCommand::ListDisplays | UiCommand::UseProfile { .. }) {
+        if matches!(
+            cmd,
+            UiCommand::ListDisplays | UiCommand::UseProfile { .. } | UiCommand::ScanMonitors
+        ) {
             let me = self.clone();
             return tokio::task::spawn_blocking(move || me.handle(cmd))
                 .await
@@ -715,7 +779,29 @@ impl Agent {
             UiCommand::GetDesk => Reply::Desk(self.desk()),
             UiCommand::GetSetup => Reply::Setup(self.setup()),
             UiCommand::GetCapabilities => Reply::Capabilities(Box::new(self.capabilities())),
-            UiCommand::SetWiring { monitor, wiring } => self.set_wiring(monitor, wiring),
+            UiCommand::SetWiring {
+                monitor,
+                wiring,
+                confirmed,
+            } => self.set_wiring(monitor, wiring, confirmed),
+            UiCommand::ScanMonitors => self.scan_monitors(),
+            UiCommand::AddMonitors(new) => self.add_monitors(&new),
+            UiCommand::RemoveMonitor { monitor } => self.remove_monitor(&monitor),
+            UiCommand::ResetDesk => self.reset_desk(),
+            UiCommand::MarkManual { monitor } => self.mark_manual(&monitor),
+            UiCommand::KeyProbe { on } => {
+                self.key_probe(on);
+                Reply::Done
+            }
+            UiCommand::HeardKey => {
+                self.heard_key();
+                Reply::Done
+            }
+            UiCommand::SetKeyboard(machine) => {
+                self.set_keyboard(machine);
+                Reply::Done
+            }
+            UiCommand::PingPeer => self.ping_peer(),
             UiCommand::GetPeer => Reply::Peer(self.peer_status()),
             UiCommand::GetPairing => Reply::Pairing(self.pairing_status()),
             UiCommand::StartPairing => self.pair(|p| p.start()),
@@ -849,7 +935,9 @@ impl Agent {
             return Reply::Rejected(BUSY.into());
         };
         let busy = Busy(self.clone());
-        let desk = self.desk();
+        // Solo los monitores conectados ahora a alguna de las dos máquinas (T-087): los
+        // demás no aparecen en el plan ni se tocan.
+        let desk = self.plan_desk();
         let (from, plan) = match prepare(&desk, &self.state()) {
             Ok(p) => p,
             Err(e) => return Reply::Rejected(e.to_string()),
@@ -941,6 +1029,7 @@ pub(crate) mod tests {
         let reply = a.handle(UiCommand::SetWiring {
             monitor: "m32".into(),
             wiring: swapped(),
+            confirmed: true,
         });
         assert_eq!(reply, Reply::Done);
         assert!(desk.has_changed().unwrap());
@@ -997,6 +1086,7 @@ pub(crate) mod tests {
             let reply = a.handle(UiCommand::SetWiring {
                 monitor: monitor.into(),
                 wiring,
+                confirmed: true,
             });
             assert!(matches!(reply, Reply::Rejected(_)), "{reply:?}");
         }
@@ -1005,6 +1095,7 @@ pub(crate) mod tests {
         let reply = a.handle(UiCommand::SetWiring {
             monitor: "m32".into(),
             wiring: swapped(),
+            confirmed: true,
         });
         assert!(
             matches!(&reply, Reply::Rejected(r) if r.starts_with("no se guardó el cableado")),
@@ -1022,6 +1113,7 @@ pub(crate) mod tests {
         let reply = a.handle(UiCommand::SetWiring {
             monitor: "m32".into(),
             wiring: swapped(),
+            confirmed: true,
         });
         assert_eq!(reply, Reply::Rejected(BUSY.into()));
         a.orchestrator().end();
@@ -1029,6 +1121,7 @@ pub(crate) mod tests {
         let reply = a.handle(UiCommand::SetWiring {
             monitor: "m32".into(),
             wiring: swapped(),
+            confirmed: true,
         });
         assert_eq!(reply, Reply::Done);
         assert_eq!(a.desk().monitor(&"m32".into()).unwrap().wiring, swapped());
@@ -1334,15 +1427,16 @@ pub(crate) mod tests {
         assert!(matches!(events.last(), Some(TxnEvent::Committed { .. })));
         let steps = steps_of(&events);
         assert!(switched(&steps).is_empty(), "sin DDC: {steps:?}");
-        // El 34" pasa al escritorio de la PC y sale del de la Mac.
+        // El 34" pasa al escritorio de la PC; a la Mac no se le quita nada: lo dicho por
+        // el usuario no es un cambio de entrada que haya salido bien (T-087).
         assert!(steps.contains(&Step::Attach {
             machine: Machine::Pc,
             monitor: "m34".into()
         }));
-        assert!(steps.contains(&Step::Detach {
-            machine: Machine::Mac,
-            monitor: "m34".into()
-        }));
+        assert!(
+            !steps.iter().any(|s| matches!(s, Step::Detach { .. })),
+            "{steps:?}"
+        );
         let st = a.state();
         assert_eq!(st.owner[&"m34".into()], Machine::Pc);
         assert!(st.is_confirmed());
@@ -1367,6 +1461,7 @@ pub(crate) mod tests {
         a.handle(UiCommand::SetWiring {
             monitor: "m32".into(),
             wiring: [(Machine::Mac, Input::Hdmi)].into(),
+            confirmed: true,
         });
         let before = a.state();
         for shows in [

@@ -90,7 +90,7 @@ fn find(bus: &dyn DdcBus, monitor: &MonitorConfig) -> Result<usize, SwitchError>
     let hits: Vec<usize> = bus
         .monitors()
         .iter()
-        .filter(|m| m.matches(model))
+        .filter(|m| monitor.models().any(|alias| m.matches(alias)))
         .map(|m| m.index)
         .collect();
     match hits[..] {

@@ -851,6 +851,17 @@ impl PeerLink for ManagedPeer {
         Some(Box::new(self.links.hold()))
     }
 
+    fn rtt(&self) -> Option<(tandem_proto::Link, std::time::Duration)> {
+        let active = self.links.active()?;
+        let rtt = self
+            .links
+            .links()
+            .into_iter()
+            .find(|l| l.kind == active.kind)
+            .and_then(|l| l.rtt)?;
+        Some((link_of(active.kind), rtt))
+    }
+
     fn show_probe<'a>(&'a self, probe: &'a CalibrationProbe) -> ProbeFuture<'a> {
         let active = self.links.active();
         let links = self.links.watch();
