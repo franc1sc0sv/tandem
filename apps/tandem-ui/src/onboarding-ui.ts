@@ -18,6 +18,10 @@ import {
   verifyStep,
   viewOf,
   AskDeadline,
+  abandonOnClose,
+  keepInFlight,
+  moveEnded,
+  type Abandoned,
   type Btn,
   type Check,
   type Onboarding,
@@ -117,13 +121,21 @@ export function initOnboarding(host: Host): Onboard {
       if (r.kind === "accepted") {
         waiting = { txn: r.txn, then: "move", monitor: e.monitor };
       } else {
+        settle(e.monitor, "rejected");
         verify(e.monitor, { type: "moved", ok: false, reason: reasonOf(r) ?? "no se pudo pasar el monitor" });
       }
     }
   }
 
   /** Los monitores cuya primera ida se está completando cuando se cierra el asistente. */
-  const abandoned = new Set<string>();
+  let abandoned: Abandoned = new Map();
+  /** Cierra el rastro de un movimiento: borra la marca y, si tocaba, manda el monitor de vuelta. */
+  const settle = (monitor: string, end: Parameters<typeof moveEnded>[2]) => {
+    const r = moveEnded(abandoned, monitor, end);
+    abandoned = r.abandoned;
+    if (r.returnTo) void host.request({ kind: "move_monitor", monitor, to: r.returnTo });
+    return r.returnTo !== null;
+  };
   const deadline = new AskDeadline({ set: (fn, ms) => window.setTimeout(fn, ms), clear: (h) => window.clearTimeout(h as number) }, (monitor) => {
     // Sin respuesta cuenta como «no»: el monitor vuelve solo a donde estaba.
     verify(monitor, { type: "timeout" });
@@ -386,9 +398,7 @@ export function initOnboarding(host: Host): Onboard {
   dialog.addEventListener("close", () => {
     // Cerrar a mitad de una prueba: lo que espera respuesta vuelve ya; lo que todavía se está
     // moviendo vuelve en cuanto termine el movimiento.
-    for (const [monitor, entry] of Object.entries(o.verify)) {
-      if (entry.phase.kind === "moving") abandoned.add(monitor);
-    }
+    abandoned = abandonOnClose(o.verify, abandoned);
     deadline.expireAll();
     disarmKeys();
     set({ ...o, keyboard: { ...o.keyboard, armed: false } });
@@ -401,6 +411,7 @@ export function initOnboarding(host: Host): Onboard {
   return {
     open() {
       o = begin();
+      abandoned = keepInFlight(abandoned, waiting?.then === "move" ? waiting.monitor : null);
       opened = true;
       if (!dialog.open) dialog.showModal();
       render();
@@ -424,17 +435,18 @@ export function initOnboarding(host: Host): Onboard {
       if (e.type === "committed" && e.txn === waiting.txn) {
         const w = waiting;
         waiting = null;
-        if (w.then === "move" && abandoned.delete(w.monitor)) {
-          // El asistente se cerró mientras se pasaba el monitor: vuelve sin preguntar.
-          verify(w.monitor, { type: "moved", ok: true });
-          verify(w.monitor, { type: "timeout" });
-        } else if (w.then === "move") verify(w.monitor, { type: "moved", ok: true });
+        // Cerrado a mitad del movimiento: vuelve directo, sin pasar por la prueba.
+        if (w.then === "move" && settle(w.monitor, "committed")) return;
+        if (w.then === "move") verify(w.monitor, { type: "moved", ok: true });
         else set({ ...o, initial: { ...o.initial, applying: false, applied: true } });
       } else if ((e.type === "rolled_back" || e.type === "inconsistent") && e.txn === waiting.txn) {
         const w = waiting;
         waiting = null;
         const reason = e.type === "rolled_back" ? "el cambio no se pudo hacer y se deshizo" : "no se pudo deshacer todo: revisa los monitores";
-        if (w.then === "move") verify(w.monitor, { type: "moved", ok: false, reason });
+        if (w.then === "move") {
+          settle(w.monitor, e.type);
+          verify(w.monitor, { type: "moved", ok: false, reason });
+        }
         else set({ ...o, error: reason, initial: { ...o.initial, applying: false } });
       }
     },

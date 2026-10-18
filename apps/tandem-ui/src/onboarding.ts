@@ -311,7 +311,8 @@ export function verifyStep(monitor: string, entry: VerifyEntry, e: VerifyEvent):
         return { next: { home, phase: { kind: "ask", machine: other(home) } }, effects: [] };
       }
       if (phase.kind === "returning") {
-        if (phase.failed) return manual(phase.failed);
+        // Si la vuelta también falla, el monitor quizá no volvió: se dice junto al motivo.
+        if (phase.failed) return manual(e.ok ? phase.failed : `${phase.failed}; además ${e.reason ?? "no se pudo volver"}: puede que el monitor no haya vuelto`);
         if (!e.ok) return manual(e.reason ?? `no se pudo volver a la ${MACHINE_NAME[home]}`);
         return { next: { home, phase: { kind: "ask_home" } }, effects: [] };
       }
@@ -896,4 +897,35 @@ export class AskDeadline {
   get pending(): number {
     return this.timers.size;
   }
+}
+
+// ---- Cerrar el asistente a mitad del movimiento
+
+/** Monitores que el asistente estaba pasando a la otra máquina al cerrarse, con su `home`. */
+export type Abandoned = ReadonlyMap<string, Machine>;
+
+/** Al cerrar: lo que todavía se mueve vuelve a `home` cuando el movimiento termine. */
+export function abandonOnClose(verify: Record<string, VerifyEntry>, prev: Abandoned): Abandoned {
+  const next = new Map(prev);
+  for (const [monitor, e] of Object.entries(verify)) {
+    if (e.phase.kind === "moving") next.set(monitor, e.home);
+  }
+  return next;
+}
+
+/**
+ * El movimiento de `monitor` terminó. Con la marca y `committed`, hay que mandarlo de vuelta
+ * a su `home` directamente (sin pasar por `verify`, que pudo reiniciarse); en cualquier caso
+ * la marca se borra: no puede quedar para la siguiente prueba.
+ */
+export function moveEnded(ab: Abandoned, monitor: string, end: "committed" | "rolled_back" | "inconsistent" | "rejected"): { abandoned: Abandoned; returnTo: Machine | null } {
+  const next = new Map(ab);
+  const home = next.get(monitor) ?? null;
+  next.delete(monitor);
+  return { abandoned: next, returnTo: end === "committed" ? home : null };
+}
+
+/** Al reabrir: solo se conservan las marcas de movimientos que siguen en vuelo. */
+export function keepInFlight(ab: Abandoned, inFlight: string | null): Abandoned {
+  return new Map([...ab].filter(([m]) => m === inFlight));
 }

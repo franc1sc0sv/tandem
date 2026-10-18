@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   ASK_TIMEOUT_MS,
+  abandonOnClose,
+  keepInFlight,
+  moveEnded,
   AskDeadline,
   STEPS,
   addAction,
@@ -791,5 +794,54 @@ describe("paso 5: plazos y monitores de una sola máquina", () => {
     d.expireAll();
     expect(expired.sort()).toEqual(["a", "b"]);
     expect(d.pending).toBe(0);
+  });
+});
+
+describe("cerrar el asistente a mitad del movimiento", () => {
+  const moving = (home: "mac" | "pc" = "mac"): Record<string, VerifyEntry> => ({
+    m34: { home, phase: { kind: "moving", to: home === "mac" ? "pc" : "mac" } },
+    m32: { home: "mac", phase: { kind: "ask", machine: "pc" } },
+  });
+
+  it("solo marca lo que todavía se mueve, con su home", () => {
+    const ab = abandonOnClose(moving("pc"), new Map());
+    expect([...ab]).toEqual([["m34", "pc"]]);
+  });
+
+  it("al terminar el movimiento con la marca, vuelve directo a su home y la marca se borra", () => {
+    const ab = abandonOnClose(moving(), new Map());
+    const r = moveEnded(ab, "m34", "committed");
+    expect(r.returnTo).toBe("mac");
+    expect(r.abandoned.size).toBe(0);
+    // Una segunda vez ya no hay nada que volver.
+    expect(moveEnded(r.abandoned, "m34", "committed").returnTo).toBeNull();
+  });
+
+  it.each(["rolled_back", "inconsistent", "rejected"] as const)("si el movimiento termina en %s la marca se limpia y no vuelve nada", (end) => {
+    const ab = abandonOnClose(moving(), new Map());
+    const r = moveEnded(ab, "m34", end);
+    expect(r.returnTo).toBeNull();
+    expect(r.abandoned.size).toBe(0);
+    // La siguiente prueba del monitor no se dispara sola.
+    expect(moveEnded(r.abandoned, "m34", "committed").returnTo).toBeNull();
+  });
+
+  it("cerrar y reabrir antes del committed conserva la marca del movimiento en vuelo", () => {
+    const ab = abandonOnClose(moving(), new Map());
+    const reopened = keepInFlight(ab, "m34");
+    expect(moveEnded(reopened, "m34", "committed").returnTo).toBe("mac");
+    // Si ya no hay movimiento en vuelo, la marca vieja se descarta.
+    expect(keepInFlight(ab, null).size).toBe(0);
+    expect(keepInFlight(ab, "m32").size).toBe(0);
+  });
+
+  it("si la vuelta también falla estando de regreso, se dice que quizá no volvió", () => {
+    const e: VerifyEntry = { home: "mac", phase: { kind: "returning", failed: "no se vio la PC" } };
+    const r = verifyStep("m", e, { type: "moved", ok: false, reason: "la PC no responde" });
+    expect(r.next.phase).toMatchObject({ kind: "manual" });
+    const why = (r.next.phase as { reason: string }).reason;
+    expect(why).toContain("no se vio la PC");
+    expect(why).toContain("la PC no responde");
+    expect(why).toContain("no haya vuelto");
   });
 });
