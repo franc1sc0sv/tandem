@@ -130,10 +130,18 @@ export function initOnboarding(host: Host): Onboard {
   /** Los monitores cuya primera ida se está completando cuando se cierra el asistente. */
   let abandoned: Abandoned = new Map();
   /** Cierra el rastro de un movimiento: borra la marca y, si tocaba, manda el monitor de vuelta. */
+  /** La vuelta automática tras cerrar: si no se acepta o se deshace, se avisa (el monitor quedó en la otra máquina). */
+  async function sendHome(monitor: string, to: Machine) {
+    const r = await host.request({ kind: "move_monitor", monitor, to });
+    if (r.kind === "accepted") returning.set(r.txn, monitor);
+    else host.message(`No se pudo devolver el monitor a la ${to === "pc" ? "PC" : "Mac"}: ${reasonOf(r) ?? "sin respuesta"}. Revísalo.`);
+  }
+  /** Vueltas automáticas en curso: txn → monitor. */
+  const returning = new Map<number, string>();
   const settle = (monitor: string, end: Parameters<typeof moveEnded>[2]) => {
     const r = moveEnded(abandoned, monitor, end);
     abandoned = r.abandoned;
-    if (r.returnTo) void host.request({ kind: "move_monitor", monitor, to: r.returnTo });
+    if (r.returnTo) void sendHome(monitor, r.returnTo);
     return r.returnTo !== null;
   };
   const deadline = new AskDeadline({ set: (fn, ms) => window.setTimeout(fn, ms), clear: (h) => window.clearTimeout(h as number) }, (monitor) => {
@@ -429,6 +437,15 @@ export function initOnboarding(host: Host): Onboard {
         // También lo arma el asistente de la otra máquina: se refleja en el paso.
         set({ ...o, keyboard: { ...o.keyboard, armed: n.event.armed, heard: n.event.heard } });
         return;
+      }
+      if (n.kind === "txn" && "txn" in n.event) {
+        const monitor = returning.get(n.event.txn);
+        if (monitor !== undefined && n.event.type !== "started") {
+          if (n.event.type === "rolled_back" || n.event.type === "inconsistent") {
+            returning.delete(n.event.txn);
+            host.message(`No se pudo devolver el ${monitor} a donde estaba: el cambio se deshizo. Revisa el monitor.`);
+          } else if (n.event.type === "committed") returning.delete(n.event.txn);
+        }
       }
       if (n.kind !== "txn" || !waiting) return;
       const e = n.event;

@@ -179,6 +179,7 @@ pub fn start(
     setup: InputSetup,
 ) -> Input {
     let cfg = &agent.config().input;
+    agent.set_input_engine();
     let me = agent.machine();
     // La config ya se validó al cargarla.
     let lock_keys = cfg.lock_keys().unwrap_or_default();
@@ -479,6 +480,8 @@ async fn status(sh: Arc<Shared>) {
         sh.capture_problem.subscribe(),
         sh.inject_problem.subscribe(),
         sh.agent.inbox().hub.subscribe(),
+        // Lo que el usuario declara en el asistente (T-087).
+        sh.agent.subscribe_keyboard(),
     );
     loop {
         let server = *rx.0.borrow_and_update();
@@ -488,7 +491,7 @@ async fn status(sh: Arc<Shared>) {
         // escritura (el candado da prioridad a quien escribe).
         let hub_here = *rx.1.borrow_and_update();
         let peer_hub = rx.8.borrow_and_update().is_some();
-        let declared = sh.agent.keyboard_declared();
+        let declared = *rx.9.borrow_and_update();
         let status = InputStatus {
             server,
             hub_here,
@@ -518,6 +521,7 @@ async fn status(sh: Arc<Shared>) {
             () = changed(&mut rx.6) => {}
             () = changed(&mut rx.7) => {}
             () = changed(&mut rx.8) => {}
+            () = changed(&mut rx.9) => {}
         }
     }
 }

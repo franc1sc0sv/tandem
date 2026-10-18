@@ -334,10 +334,20 @@ impl Agent {
             );
         }
         self.keyboard.send_replace(Some(machine));
-        let mut status = self.input_status();
-        status.server = machine;
-        status.defined = true;
-        self.set_input_status(status);
+        // Con motor de entrada, su tarea de estado escucha la declaración y publica el
+        // estado; sin él (pruebas, backends simulados) se actualiza aquí.
+        if !self.input_engine.load(std::sync::atomic::Ordering::Acquire) {
+            let mut status = self.input_status();
+            status.server = machine;
+            status.defined = true;
+            self.set_input_status(status);
+        }
+    }
+
+    /// Hay un motor de entrada armando el estado: [`Agent::subscribe_keyboard`] lo despierta.
+    pub fn set_input_engine(&self) {
+        self.input_engine
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
     /// La latencia del enlace con la otra máquina, para mostrarla en el asistente.

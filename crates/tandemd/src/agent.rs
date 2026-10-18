@@ -104,6 +104,9 @@ pub struct Agent {
     desktop: Option<setup::DesktopHandle>,
     /// La prueba «presiona una tecla» del asistente.
     key_probe: watch::Sender<KeyProbeStatus>,
+    /// Hay un motor de entrada que arma el [`InputStatus`] (su tarea de estado escucha lo que
+    /// el usuario declara); sin él, el agente lo actualiza directamente.
+    input_engine: std::sync::atomic::AtomicBool,
     /// Dónde está el teclado según la configuración o el asistente; `None`, sin definir.
     keyboard: watch::Sender<Option<Machine>>,
 }
@@ -289,6 +292,7 @@ impl Agent {
             desktop: None,
             key_probe: watch::Sender::new(KeyProbeStatus::default()),
             keyboard: watch::Sender::new(cfg.input.keyboard),
+            input_engine: std::sync::atomic::AtomicBool::new(false),
             cfg,
         }
     }
