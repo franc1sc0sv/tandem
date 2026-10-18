@@ -690,6 +690,11 @@ async fn presionar_una_tecla_dice_en_que_maquina_esta_el_teclado_y_se_recuerda()
         .await
         .unwrap();
     for r in [&mac, &pc] {
+        // El estado se publica un instante después de la declaración: se espera.
+        let mut st = r.agent.subscribe_input();
+        within(st.wait_for(|i| i.defined && i.server == Machine::Pc))
+            .await
+            .unwrap();
         let input = r.agent.input_status();
         assert!(input.defined);
         assert_eq!(input.server, Machine::Pc);
