@@ -173,7 +173,7 @@ impl LocalSteps for DisplaySteps {
                 Step::Attach { machine, monitor } => match self.monitor(monitor) {
                     Ok(m) => {
                         let r = self.on_desktop(*machine, move |d| d.attach(&m)).await;
-                        if r.is_ok() {
+                        if r.is_ok() && *machine == self.me {
                             self.ledger.attached(monitor);
                         }
                         r
@@ -182,14 +182,14 @@ impl LocalSteps for DisplaySteps {
                 },
                 Step::Detach { machine, monitor } => match self.monitor(monitor) {
                     Ok(m) => {
+                        // Solo se anota lo que esta máquina quita de su propio escritorio.
                         // Primero se anota y después se quita: si el agente muere en
-                        // medio, al arrancar se reactiva.
-                        self.ledger.detached(monitor);
-                        let r = self.on_desktop(*machine, move |d| d.detach(&m)).await;
-                        if r.is_err() {
-                            self.ledger.attached(monitor);
+                        // medio, al arrancar se reactiva. Un error no borra la nota (puede
+                        // ser incierto, como un tiempo agotado): reactivar de más es inocuo.
+                        if *machine == self.me {
+                            self.ledger.detached(monitor);
                         }
-                        r
+                        self.on_desktop(*machine, move |d| d.detach(&m)).await
                     }
                     Err(e) => Err(e),
                 },
@@ -341,6 +341,35 @@ mod tests {
                 .unwrap(),
             by: Machine::Pc,
         }
+    }
+
+    #[tokio::test]
+    async fn a_failed_or_foreign_detach_never_clears_or_writes_the_ledger_wrongly() {
+        let ledger = Arc::new(DetachLedger::in_memory());
+        let desktop = Arc::new(Desktop::default());
+        let mac = DisplaySteps::new(Machine::Mac, desk())
+            .with_desktop(desktop.clone())
+            .with_ledger(ledger.clone());
+        // Un Detach de la otra máquina no es de aquí: ni se ejecuta ni se anota.
+        let foreign = Step::Detach {
+            machine: Machine::Pc,
+            monitor: "m34".into(),
+        };
+        assert!(mac.execute(&foreign).await.is_err());
+        assert!(ledger.pending().is_empty());
+        // Uno propio se anota y se queda anotado hasta que un Attach exitoso lo limpie.
+        let own = Step::Detach {
+            machine: Machine::Mac,
+            monitor: "m34".into(),
+        };
+        mac.execute(&own).await.unwrap();
+        assert_eq!(ledger.pending().len(), 1);
+        let attach = Step::Attach {
+            machine: Machine::Mac,
+            monitor: "m34".into(),
+        };
+        mac.execute(&attach).await.unwrap();
+        assert!(ledger.pending().is_empty());
     }
 
     #[tokio::test]

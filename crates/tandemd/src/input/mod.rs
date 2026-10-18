@@ -457,6 +457,16 @@ async fn permissions(sh: Arc<Shared>) {
     }
 }
 
+/// Se sabe dónde está el teclado si lo dijo el usuario o la configuración, si el hub de
+/// esta máquina se detecta o si la otra máquina reporta el suyo (T-087).
+fn keyboard_defined(
+    declared: Option<tandem_core::Machine>,
+    hub_here: Option<bool>,
+    peer_reports_hub: bool,
+) -> bool {
+    declared.is_some() || hub_here.is_some() || peer_reports_hub
+}
+
 /// Lo que ve la UI.
 async fn status(sh: Arc<Shared>) {
     let mut rx = (
@@ -468,6 +478,7 @@ async fn status(sh: Arc<Shared>) {
         sh.missing.subscribe(),
         sh.capture_problem.subscribe(),
         sh.inject_problem.subscribe(),
+        sh.agent.inbox().hub.subscribe(),
     );
     loop {
         let server = *rx.0.borrow_and_update();
@@ -488,7 +499,11 @@ async fn status(sh: Arc<Shared>) {
                 rx.7.borrow_and_update().clone()
             },
             // El hub, la configuración o el asistente lo dicen; si no, es «sin definir».
-            defined: sh.agent.keyboard_declared().is_some() || sh.hub_here.borrow().is_some(),
+            defined: keyboard_defined(
+                sh.agent.keyboard_declared(),
+                *sh.hub_here.borrow(),
+                sh.agent.inbox().hub.borrow().is_some(),
+            ),
         };
         sh.agent.set_input_status(status);
         tokio::select! {
@@ -500,6 +515,7 @@ async fn status(sh: Arc<Shared>) {
             () = changed(&mut rx.5) => {}
             () = changed(&mut rx.6) => {}
             () = changed(&mut rx.7) => {}
+            () = changed(&mut rx.8) => {}
         }
     }
 }
@@ -807,6 +823,19 @@ async fn clipboard(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<Incomin
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_keyboard_is_defined_by_the_user_or_any_hub_report() {
+        use super::keyboard_defined as f;
+        use tandem_core::Machine;
+        assert!(!f(None, None, false), "sin nada, sin definir");
+        assert!(f(Some(Machine::Pc), None, false));
+        assert!(f(None, Some(false), false), "el hub de aquí se detecta");
+        assert!(
+            f(None, None, true),
+            "el hub de la otra máquina también cuenta"
+        );
+    }
+
     use super::*;
 
     #[tokio::test]

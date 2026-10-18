@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ASK_TIMEOUT_MS,
+  AskDeadline,
   STEPS,
   addAction,
   advanceTo,
@@ -141,6 +143,14 @@ function at(step: StepId, patch: Partial<Onboarding> = {}): Onboarding {
 
 const withScan = (s: MonitorScan, choices: Onboarding["monitors"]["choices"] = {}): Onboarding =>
   at("monitors", { monitors: { ...begin().monitors, scan: s, choices } });
+
+/** Contesta todas las preguntas de un monitor ligado: vínculo sí, PC por DisplayPort, Mac por HDMI. */
+function answered(o: Onboarding, c: MonitorCandidate): Onboarding {
+  const k = candidateKey(c);
+  let n = o;
+  for (const id of [`link:${k}:yes`, `wire:${k}:pc:displayport`, `wire:${k}:mac:hdmi`]) n = answerChoice(n, id)!;
+  return n;
+}
 
 const ids = (v: { buttons: { id: string }[] }) => v.buttons.map((b) => b.id);
 const btn = (v: { buttons: { id: string; enabled: boolean }[] }, id: string) => v.buttons.find((b) => b.id === id);
@@ -298,8 +308,10 @@ describe("paso 4: monitores", () => {
     const link = row.questions[0]!;
     expect(link.text).toContain("¿Este monitor de la Mac es este de la PC?");
     expect(link.text).toContain("mismo número de serie");
-    // Con el mismo número de serie viene confirmado de antemano.
-    expect(link.options.find((o) => o.id.endsWith(":yes"))!.selected).toBe(true);
+    // Con el mismo número de serie solo se sugiere: no viene contestado.
+    expect(link.options.find((o) => o.id.endsWith(":yes"))!.label).toContain("sugerido");
+    expect(link.options.every((o) => !o.selected)).toBe(true);
+    expect(choiceOf(o, candidate()).linked).toBeNull();
   });
 
   it("por modelo o tamaño el vínculo no se supone: hay que contestar", () => {
@@ -317,16 +329,24 @@ describe("paso 4: monitores", () => {
 
   it("el cableado se deduce de por dónde lo ve cada máquina y se pregunta lo que no se sabe", () => {
     const c = candidate();
-    const o = withScan(scan([c]));
+    // El cable se pregunta después de confirmar el vínculo.
+    const o = answerChoice(withScan(scan([c])), `link:${candidateKey(c)}:yes`)!;
     const row = viewOf(o, snap()).rows[0]!;
     // La PC lo ve por DisplayPort (detectado); de la Mac no se sabe.
     const pc = row.questions.find((q) => q.text.startsWith("PC:"))!;
     expect(pc.text).toContain("DisplayPort (detectado)");
-    expect(pc.options.find((x) => x.selected)!.id).toContain(":pc:displayport");
+    // Detectado = sugerido, no elegido.
+    expect(pc.options.every((x) => !x.selected)).toBe(true);
+    expect(pc.options.find((x) => x.id.endsWith(":displayport"))!.label).toContain("sugerido");
     const mac = row.questions.find((q) => q.text.startsWith("¿Por qué cable va a la Mac?"))!;
     expect(mac.options.every((x) => !x.selected)).toBe(true);
     expect(candidateReady(o, c, "mac")).toBe(false);
-    const done = answerChoice(o, `wire:${candidateKey(c)}:mac:hdmi`)!;
+    // Lo detectado no alcanza: cada pregunta pide su pulsación.
+    const macOnly = answerChoice(o, `wire:${candidateKey(c)}:mac:hdmi`)!;
+    expect(candidateReady(macOnly, c, "mac")).toBe(false);
+    const link = answerChoice(macOnly, `link:${candidateKey(c)}:yes`)!;
+    expect(candidateReady(link, c, "mac")).toBe(false);
+    const done = answerChoice(link, `wire:${candidateKey(c)}:pc:displayport`)!;
     expect(candidateReady(done, c, "mac")).toBe(true);
   });
 
@@ -338,8 +358,7 @@ describe("paso 4: monitores", () => {
 
   it("agrega un monitor con las dos identidades y el cableado confirmado", () => {
     const c = candidate();
-    let o = withScan(scan([c]));
-    o = answerChoice(o, `wire:${candidateKey(c)}:mac:hdmi`)!;
+    const o = answered(withScan(scan([c])), c);
     expect(newMonitors(o, "mac")).toEqual([
       { label: '34"', pnp_ids: ["SAM711A", "SAM7119"], wiring: { mac: "hdmi", pc: "displayport" } },
     ]);
@@ -360,6 +379,7 @@ describe("paso 4: monitores", () => {
     const key = candidateKey(c);
     o = answerChoice(o, `link:${key}:no`)!;
     o = answerChoice(o, `wire:${key}:mac:hdmi`)!;
+    o = answerChoice(o, `wire:${key}:pc:displayport`)!;
     const got = newMonitors(o, "mac");
     expect(got).toHaveLength(2);
     expect(got.map((m) => m.pnp_ids)).toEqual([["SAM7119"], ["SAM711A"]]);
@@ -377,7 +397,7 @@ describe("paso 4: monitores", () => {
   it("el usuario elige cuáles agregar", () => {
     const [a, b] = [candidate(), c32()];
     let o = withScan(scan([a, b]));
-    for (const c of [a, b]) o = answerChoice(o, `wire:${candidateKey(c)}:mac:hdmi`)!;
+    for (const c of [a, b]) o = answered(o, c);
     expect(newMonitors(o, "mac")).toHaveLength(2);
     o = answerChoice(o, `add:${candidateKey(b)}`)!;
     expect(newMonitors(o, "mac").map((m) => m.label)).toEqual(['34"']);
@@ -537,8 +557,6 @@ describe("paso 5: verificar cada monitor", () => {
   it("no se puede probar si la otra máquina está apagada o no hay cable hacia ella", () => {
     const off = snap({ monitors: [M34], state: { owner: { sam711a: "mac" }, on: { mac: true, pc: false }, builtin_pref: "off", doubt: {} } });
     expect(viewOf(at("verify"), off).rows[0]!.buttons[0]).toMatchObject({ enabled: false, hint: "la PC tiene que estar encendida" });
-    const lonely: MonitorConfig = { ...M34, wiring: { mac: "hdmi" } };
-    expect(viewOf(at("verify"), snap({ monitors: [lonely] })).rows[0]!.buttons[0]).toMatchObject({ enabled: false, hint: "solo está cableado a una máquina" });
   });
 
   it("queda verificado cuando todos pasaron o quedaron en manual (dicho claramente)", () => {
@@ -680,5 +698,98 @@ describe("presionar una tecla", () => {
     expect(countsAsKeyProbe({ key: "Enter", targetIsButton: false })).toBe(true);
     expect(countsAsKeyProbe({ key: "Shift", targetIsButton: false })).toBe(false);
     expect(countsAsKeyProbe({ key: "a", repeat: true, targetIsButton: false })).toBe(false);
+  });
+});
+
+describe("paso 5: plazos y monitores de una sola máquina", () => {
+  const lonely: MonitorConfig = { ...M32, wiring: { mac: "hdmi" } };
+
+  it("un monitor cableado a una sola máquina no atasca el paso: queda dicho y verificado", () => {
+    const s = snap({ monitors: [M34, lonely] });
+    const v = viewOf(at("verify", { verify: { sam711a: { home: "mac", phase: { kind: "ok" } } } }), s);
+    expect(v.verified).toBe(true);
+    const row = v.rows[1]!;
+    expect(row.buttons).toEqual([]);
+    expect(row.checks.at(-1)).toMatchObject({ label: "Solo cableado a una máquina: sin ida y vuelta" });
+    // Solo, también.
+    expect(viewOf(at("verify"), snap({ monitors: [lonely] })).verified).toBe(true);
+    expect(summaryChecks(at("summary"), s).some((l) => (l.detail ?? "").includes("sin ida y vuelta"))).toBe(true);
+  });
+
+  it("sin respuesta cuenta como «no»: vuelve a donde estaba y queda en manual", () => {
+    const asked: VerifyEntry = { home: "mac", phase: { kind: "ask", machine: "pc" } };
+    const r = verifyStep("m", asked, { type: "timeout" });
+    expect(r.next.phase).toEqual({ kind: "returning", failed: "no se vio la PC" });
+    expect(r.effects).toEqual([{ kind: "move", monitor: "m", to: "mac" }]);
+    // También al volver.
+    const home: VerifyEntry = { home: "mac", phase: { kind: "ask_home" } };
+    expect(verifyStep("m", home, { type: "timeout" }).next.phase.kind).toBe("manual");
+    // Fuera de turno no hace nada.
+    const idle: VerifyEntry = { home: "mac", phase: { kind: "idle" } };
+    expect(verifyStep("m", idle, { type: "timeout" }).next).toBe(idle);
+  });
+
+  /** Reloj simulado a mano. */
+  function fake() {
+    let now = 0;
+    const timers = new Map<number, { at: number; fn: () => void }>();
+    let n = 0;
+    return {
+      clock: {
+        set: (fn: () => void, ms: number) => {
+          timers.set(++n, { at: now + ms, fn });
+          return n;
+        },
+        clear: (h: unknown) => void timers.delete(h as number),
+      },
+      advance(ms: number) {
+        now += ms;
+        for (const [id, t] of [...timers]) if (t.at <= now) {
+          timers.delete(id);
+          t.fn();
+        }
+      },
+    };
+  }
+
+  it("el plazo vence a los 20 s de esperar una respuesta y solo una vez", () => {
+    const { clock, advance } = fake();
+    const expired: string[] = [];
+    const d = new AskDeadline(clock, (m) => expired.push(m));
+    d.track("m34", "moving");
+    advance(60_000);
+    expect(expired).toEqual([]);
+    d.track("m34", "ask");
+    d.track("m34", "ask");
+    expect(d.pending).toBe(1);
+    advance(ASK_TIMEOUT_MS - 1);
+    expect(expired).toEqual([]);
+    advance(1);
+    expect(expired).toEqual(["m34"]);
+    advance(60_000);
+    expect(expired).toEqual(["m34"]);
+  });
+
+  it("contestar a tiempo desarma el plazo", () => {
+    const { clock, advance } = fake();
+    const expired: string[] = [];
+    const d = new AskDeadline(clock, (m) => expired.push(m));
+    d.track("m34", "ask");
+    d.track("m34", "returning");
+    advance(ASK_TIMEOUT_MS * 2);
+    expect(expired).toEqual([]);
+    expect(d.pending).toBe(0);
+  });
+
+  it("cerrar el diálogo a mitad de la prueba vence todo lo pendiente ya", () => {
+    const { clock } = fake();
+    const expired: string[] = [];
+    const d = new AskDeadline(clock, (m) => expired.push(m));
+    d.track("a", "ask");
+    d.track("b", "ask_home");
+    d.track("c", "moving");
+    d.expireAll();
+    expect(expired.sort()).toEqual(["a", "b"]);
+    expect(d.pending).toBe(0);
   });
 });

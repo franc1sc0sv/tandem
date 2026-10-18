@@ -17,6 +17,7 @@ import {
   shouldOpen,
   verifyStep,
   viewOf,
+  AskDeadline,
   type Btn,
   type Check,
   type Onboarding,
@@ -121,6 +122,13 @@ export function initOnboarding(host: Host): Onboard {
     }
   }
 
+  /** Los monitores cuya primera ida se está completando cuando se cierra el asistente. */
+  const abandoned = new Set<string>();
+  const deadline = new AskDeadline({ set: (fn, ms) => window.setTimeout(fn, ms), clear: (h) => window.clearTimeout(h as number) }, (monitor) => {
+    // Sin respuesta cuenta como «no»: el monitor vuelve solo a donde estaba.
+    verify(monitor, { type: "timeout" });
+  });
+
   function verify(monitor: string, e: VerifyEvent) {
     const s = host.snap();
     const entry =
@@ -129,6 +137,7 @@ export function initOnboarding(host: Host): Onboard {
     if (!entry) return;
     const r = verifyStep(monitor, entry, e);
     set({ ...o, verify: { ...o.verify, [monitor]: r.next } });
+    deadline.track(monitor, r.next.phase.kind);
     void runEffects(r.effects);
   }
 
@@ -375,6 +384,12 @@ export function initOnboarding(host: Host): Onboard {
   });
 
   dialog.addEventListener("close", () => {
+    // Cerrar a mitad de una prueba: lo que espera respuesta vuelve ya; lo que todavía se está
+    // moviendo vuelve en cuanto termine el movimiento.
+    for (const [monitor, entry] of Object.entries(o.verify)) {
+      if (entry.phase.kind === "moving") abandoned.add(monitor);
+    }
+    deadline.expireAll();
     disarmKeys();
     set({ ...o, keyboard: { ...o.keyboard, armed: false } });
     syncPolling();
@@ -409,7 +424,11 @@ export function initOnboarding(host: Host): Onboard {
       if (e.type === "committed" && e.txn === waiting.txn) {
         const w = waiting;
         waiting = null;
-        if (w.then === "move") verify(w.monitor, { type: "moved", ok: true });
+        if (w.then === "move" && abandoned.delete(w.monitor)) {
+          // El asistente se cerró mientras se pasaba el monitor: vuelve sin preguntar.
+          verify(w.monitor, { type: "moved", ok: true });
+          verify(w.monitor, { type: "timeout" });
+        } else if (w.then === "move") verify(w.monitor, { type: "moved", ok: true });
         else set({ ...o, initial: { ...o.initial, applying: false, applied: true } });
       } else if ((e.type === "rolled_back" || e.type === "inconsistent") && e.txn === waiting.txn) {
         const w = waiting;

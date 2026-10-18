@@ -212,20 +212,12 @@ export function choiceOf(o: Onboarding, c: MonitorCandidate): MonitorChoice {
   const both = c.here !== null && c.peer !== null;
   return {
     add: picked.add ?? c.in_desk === null,
-    // Con el mismo número de serie está confirmado de antemano (el usuario puede cambiarlo);
-    // por modelo o tamaño hay que preguntar.
-    linked: picked.linked ?? (!both ? true : c.basis === "Serial" ? true : null),
-    wiring: { ...deduced(c), ...picked.wiring },
+    // Lo detectado (mismo serie, cable por la topología) es solo una sugerencia: hace
+    // falta una pulsación explícita en cada pregunta. Con un solo lado no hay vínculo que
+    // confirmar.
+    linked: picked.linked ?? (!both ? true : null),
+    wiring: { ...picked.wiring },
   };
-}
-
-/** El cableado que se deduce de por dónde ve cada máquina al monitor. */
-function deduced(c: MonitorCandidate): Partial<Record<Machine, Input>> {
-  const out: Partial<Record<Machine, Input>> = {};
-  for (const [m, i] of Object.entries(c.wiring) as [Machine, Input | null][]) {
-    if (i) out[m] = i;
-  }
-  return out;
 }
 
 /** Las máquinas que ven el monitor (las que hay que cablear). */
@@ -285,7 +277,9 @@ function wiringFor(c: MonitorCandidate, ch: MonitorChoice, agent: Machine, only:
 export type VerifyEvent =
   | { type: "start" }
   | { type: "moved"; ok: boolean; reason?: string }
-  | { type: "answer"; yes: boolean };
+  | { type: "answer"; yes: boolean }
+  /** Nadie contestó a tiempo (o se cerró el asistente): cuenta como «no» y el monitor vuelve. */
+  | { type: "timeout" };
 
 export type VerifyEffect = { kind: "move"; monitor: string; to: Machine } | { kind: "mark_manual"; monitor: string };
 
@@ -322,6 +316,9 @@ export function verifyStep(monitor: string, entry: VerifyEntry, e: VerifyEvent):
         return { next: { home, phase: { kind: "ask_home" } }, effects: [] };
       }
       return stay;
+    case "timeout":
+      if (phase.kind === "ask" || phase.kind === "ask_home") return verifyStep(monitor, entry, { type: "answer", yes: false });
+      return stay;
     case "answer":
       if (phase.kind === "ask") {
         // Vuelve a donde estaba en cualquier caso; si dijo que no, queda dicho por qué.
@@ -335,6 +332,12 @@ export function verifyStep(monitor: string, entry: VerifyEntry, e: VerifyEvent):
       }
       return stay;
   }
+}
+
+/** Un monitor cableado a una sola máquina no tiene a dónde ir: no hay ida y vuelta que probar. */
+export function soloWired(m: MonitorConfig, entry: VerifyEntry | undefined): boolean {
+  const wired = (["mac", "pc"] as Machine[]).filter((w) => m.wiring[w] !== undefined);
+  return wired.length < 2 && !verifyDone(entry);
 }
 
 export function verifyDone(entry: VerifyEntry | undefined): boolean {
@@ -550,7 +553,7 @@ function monitorsStep(o: Onboarding, snap: Snapshot): StepView {
       row.questions.push({
         text: `¿Este monitor de la ${MACHINE_NAME[agent]} es este de la ${MACHINE_NAME[other(agent)]}? (${how})`,
         options: [
-          { id: `link:${key}:yes`, label: "Sí, es el mismo", selected: ch.linked === true },
+          { id: `link:${key}:yes`, label: cand.basis === "Serial" ? "Sí, es el mismo (sugerido)" : "Sí, es el mismo", selected: ch.linked === true },
           { id: `link:${key}:no`, label: "No, son distintos", selected: ch.linked === false },
         ],
       });
@@ -561,11 +564,11 @@ function monitorsStep(o: Onboarding, snap: Snapshot): StepView {
         const chosen = ch.wiring[who];
         row.questions.push({
           text: known
-            ? `${MACHINE_NAME[who]}: lo ve por ${INPUT_NAME[known]} (detectado). ¿Es correcto?`
+            ? `${MACHINE_NAME[who]}: lo ve por ${INPUT_NAME[known]} (detectado). Confirma el cable:`
             : `¿Por qué cable va a la ${MACHINE_NAME[who]}?`,
           options: (["displayport", "hdmi"] as Input[]).map((i) => ({
             id: `wire:${key}:${who}:${i}`,
-            label: INPUT_NAME[i],
+            label: known === i ? `${INPUT_NAME[i]} (sugerido)` : INPUT_NAME[i],
             selected: chosen === i,
           })),
         });
@@ -621,7 +624,9 @@ function verifyStepView(o: Onboarding, snap: Snapshot): StepView {
     const home = entry?.home ?? c.state.owner[m.id] ?? "mac";
     const row: Row = { key: m.id, title: m.label, subtitle: [m.edid_model, ...(m.edid_aliases ?? [])].filter(Boolean).join(" + ") || m.id, checks: verifyChecks(m, entry), questions: [], buttons: [] };
     const p = entry?.phase;
-    if (p?.kind === "ask") {
+    if (soloWired(m, entry)) {
+      row.checks[row.checks.length - 1] = { state: "idle", label: "Solo cableado a una máquina: sin ida y vuelta", detail: "no hay otra entrada a la que pasarlo" };
+    } else if (p?.kind === "ask") {
       row.questions.push({
         text: `¿Ves la ${MACHINE_NAME[p.machine]} en el ${m.label}?`,
         options: [
@@ -651,7 +656,7 @@ function verifyStepView(o: Onboarding, snap: Snapshot): StepView {
     v.rows.push(row);
   }
   const rows = c.desk.monitors;
-  v.verified = rows.length > 0 && rows.every((m) => verifyDone(o.verify[m.id]));
+  v.verified = rows.length > 0 && rows.every((m) => soloWired(m, o.verify[m.id]) || verifyDone(o.verify[m.id]));
   if (!rows.length) {
     v.verified = true;
     v.checks.push({ state: "idle", label: "No hay monitores que probar" });
@@ -723,7 +728,7 @@ export function summaryChecks(o: Onboarding, snap: Snapshot): Check[] {
     const e = o.verify[m.id];
     const ids = [m.edid_model, ...(m.edid_aliases ?? [])].filter(Boolean).join(" + ");
     const wiring = (["pc", "mac"] as Machine[]).flatMap((w) => (m.wiring[w] ? [`${PORT[m.wiring[w]!]} → ${MACHINE_NAME[w]}`] : [])).join(" · ");
-    const mode = e?.phase.kind === "manual" ? "modo manual asistido" : e?.phase.kind === "ok" ? "ida y vuelta verificada" : "sin probar";
+    const mode = e?.phase.kind === "manual" ? "modo manual asistido" : e?.phase.kind === "ok" ? "ida y vuelta verificada" : soloWired(m, e) ? "solo cableado a una máquina: sin ida y vuelta" : "sin probar";
     out.push({ state: e?.phase.kind === "ok" ? "ok" : e?.phase.kind === "manual" ? "fail" : "idle", label: `${m.label} (${ids})`, detail: `${wiring} · ${m.ddc ? "perfil DDC" : "sin perfil"} · ${mode}` });
   }
   out.push(
@@ -837,4 +842,58 @@ export function countsAsKeyProbe(e: { key: string; repeat?: boolean; targetIsBut
   if (e.repeat) return false;
   if (e.targetIsButton && ["Enter", " ", "Tab"].includes(e.key)) return false;
   return !["Shift", "Control", "Alt", "Meta", "CapsLock", "Dead", "Unidentified"].includes(e.key);
+}
+
+/** Cuánto se espera una respuesta de «¿ves la X?» antes de contarla como «no» y volver. */
+export const ASK_TIMEOUT_MS = 20_000;
+
+/** Reloj inyectable, para probar el plazo con tiempo simulado. */
+export interface Clock {
+  set(fn: () => void, ms: number): unknown;
+  clear(handle: unknown): void;
+}
+
+/**
+ * Un plazo por monitor mientras espera una respuesta: si vence, `onExpire(monitor)`. Se arma
+ * al entrar en `ask`/`ask_home` y se desarma al salir; `expireAll` es el cierre del diálogo
+ * a mitad de la prueba. Toda prueba que cambia una entrada vuelve sola (CLAUDE.md).
+ */
+export class AskDeadline {
+  private timers = new Map<string, unknown>();
+  constructor(
+    private clock: Clock,
+    private onExpire: (monitor: string) => void,
+    private ms = ASK_TIMEOUT_MS,
+  ) {}
+
+  /** Llamar con la fase de cada monitor después de cada cambio. */
+  track(monitor: string, phase: VerifyPhase["kind"]) {
+    const waiting = phase === "ask" || phase === "ask_home";
+    const has = this.timers.has(monitor);
+    if (waiting && !has) {
+      this.timers.set(
+        monitor,
+        this.clock.set(() => {
+          this.timers.delete(monitor);
+          this.onExpire(monitor);
+        }, this.ms),
+      );
+    } else if (!waiting && has) {
+      this.clock.clear(this.timers.get(monitor));
+      this.timers.delete(monitor);
+    }
+  }
+
+  /** Vence ya todo lo que esperaba respuesta. */
+  expireAll() {
+    for (const [monitor, h] of [...this.timers]) {
+      this.clock.clear(h);
+      this.timers.delete(monitor);
+      this.onExpire(monitor);
+    }
+  }
+
+  get pending(): number {
+    return this.timers.size;
+  }
 }
