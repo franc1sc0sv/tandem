@@ -5,7 +5,7 @@
 //! Con el reloj de tokio pausado, como el resto de los escenarios.
 
 use tandem_core::{Machine, Mode, MonitorId};
-use tandem_sim::{Desk, Outcome, Power, TxnRun};
+use tandem_sim::{Desk, Outcome, Power, SimError, TxnRun};
 
 fn m34() -> MonitorId {
     "m34".into()
@@ -110,7 +110,7 @@ async fn corregir_un_monitor_no_manda_ddc_y_llega_a_la_otra() {
         .set_shown(Machine::Pc, [(m32(), Some(Machine::Pc))])
         .await
         .unwrap();
-    committed(&d, Machine::Pc, &run).await;
+    assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     assert_eq!(d.world.ddc_writes(), writes, "ninguna escritura DDC");
     let new_calls = &d.world.calls()[calls..];
     assert!(
@@ -120,10 +120,21 @@ async fn corregir_un_monitor_no_manda_ddc_y_llega_a_la_otra() {
         "{new_calls:?}"
     );
     assert_eq!(d.pc.state().owner[&m32()], Machine::Pc);
-    // La Mac recibe lo corregido y su vista coincide con el puesto.
+    // La Mac recibe lo corregido.
     let agreed = d.agrees(Machine::Mac).await.unwrap();
     assert_eq!(agreed.owner[&m32()], Machine::Pc);
-    d.check_from(Machine::Mac).await.unwrap();
+    // Lo dicho por el usuario no se comprueba con ninguna entrada, así que a la Mac no se
+    // le quita nada (T-087): el 32" sigue en su escritorio como fantasma, y es lo único
+    // que difiere. El PC sí lo tiene.
+    let SimError::Mismatch(diffs) = d.check_from(Machine::Mac).await.unwrap_err() else {
+        panic!("se esperaba una diferencia")
+    };
+    assert_eq!(diffs.len(), 1, "{diffs:?}");
+    assert!(diffs[0].contains("escritorio de mac"), "{diffs:?}");
+    // «Aplicar modo» sí manda la entrada y después quita el fantasma.
+    let both_pc = Mode::Shared([(m34(), Machine::Pc), (m32(), Machine::Pc)].into());
+    let run = d.apply_mode(Machine::Mac, both_pc).await.unwrap();
+    committed(&d, Machine::Mac, &run).await;
 }
 
 /// Responder «¿qué muestra ahora?» tras un arranque sin estado, en cualquiera de las dos

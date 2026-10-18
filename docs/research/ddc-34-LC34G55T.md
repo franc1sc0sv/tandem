@@ -43,3 +43,13 @@ por el HDMI integrado y por el cable USB-C→HDMI.
 - [x] Aislar si la vuelta funciona con `0x09` o con `0x0F`: basta `0x09` (T-050).
 - [x] Repetir todo con el 32" conectado por DP a la PC: ver `ddc-32-odyssey-g5.md`.
 - [ ] Ver si Windows conserva el canal DDC con el monitor desactivado en la topología (`SetDisplayConfig`), o si hace falta I2C por NvAPI.
+
+## El EDID cambia según la entrada (T-087)
+
+Hecho de la primera prueba con las dos máquinas: el mismo monitor tiene un id PnP distinto en cada entrada, así que la PC (DisplayPort) y la Mac (HDMI) lo ven con ids distintos. El número de serie del EDID suele coincidir y sirve para vincular las dos identidades; si no, se vincula por modelo o tamaño y el usuario lo confirma en el asistente.
+
+| | PC (DisplayPort) | Mac (HDMI) |
+|---|---|---|
+| 34" LC34G55T | `SAM711A` | `SAM7119` |
+
+Por eso el perfil lleva `pnp_aliases` (`profiles/ddc/`) y el puesto, `edid_aliases` en cada `[[monitors]]`: cualquiera de las dos identidades encuentra el monitor (DDC, topología de Windows y Quartz). Antes de T-087 la sincronización los trataba como dos monitores y el puesto quedaba duplicado.

@@ -84,6 +84,8 @@ impl From<CgDisplay> for Display<DisplayId> {
             main: d.main,
             active: d.enabled,
             mirror_of: d.mirror_of,
+            // CoreGraphics no dice por qué cable sale.
+            output: None,
             // Una desactivada conserva el último rectángulo; ya no está en el escritorio.
             bounds: d.enabled.then_some(d.bounds),
         }

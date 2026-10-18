@@ -68,6 +68,18 @@ export function roleChip(input: InputView, agent: Machine, who: Machine, peerOn:
   if (mine && input.problem) {
     return { kind: "warn", icon: "warn", text: "sin teclado y mouse", title: `Teclado y mouse: ${input.problem}` };
   }
+  // Sin hub, configuración ni respuesta del usuario no se sabe dónde está: nunca se supone
+  // la Mac (T-087). Lo dice el chip de esta máquina; el de la otra no.
+  if (!input.defined) {
+    return mine
+      ? {
+          kind: "idle",
+          icon: "keyboard",
+          text: "Teclado sin definir",
+          title: "No se sabe en qué máquina está el teclado: se dice en el asistente (presionando una tecla)",
+        }
+      : null;
+  }
   const has = input.server === who;
   if (!peerOn) {
     return mine && has

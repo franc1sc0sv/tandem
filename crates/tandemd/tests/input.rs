@@ -52,6 +52,19 @@ label = '32"'
 wiring = { pc = "displayport", mac = "hdmi" }
 "#;
 
+/// Sin hub ni teclado dicho: lo que genera el primer arranque (T-087).
+const DESK_BARE: &str = r#"
+[input]
+
+[[monitors]]
+id = "m34"
+label = '34"'
+wiring = { pc = "displayport", mac = "hdmi" }
+"#;
+
+/// Marca para `start_with`: usar [`DESK_BARE`].
+const BARE: &str = "<bare>";
+
 /// Tope para que una prueba rota falle en vez de colgarse.
 const TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -177,7 +190,9 @@ async fn start_with(
         "[network]\nport = {port}\npeers = [{{ kind = \"usb4\", addr = \"{}\" }}]\n",
         loopback(peer.1)
     );
-    let desk = DESK.replacen("[input]\n", &format!("[input]\n{input_extra}"), 1);
+    let base = if input_extra == BARE { DESK_BARE } else { DESK };
+    let extra = if input_extra == BARE { "" } else { input_extra };
+    let desk = base.replacen("[input]\n", &format!("[input]\n{extra}"), 1);
     let cfg = AgentConfig::from_toml(&format!("machine = \"{machine}\"\n{network}{desk}")).unwrap();
     let Daemon {
         agent,
@@ -503,5 +518,38 @@ async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
     assert!(pc_fake.capture(key(l, KeyState::Pressed)));
     pc.until_input(|s| !s.locked).await;
     pc.stop().await;
+    mac.stop().await;
+}
+
+/// T-087: el estado de entrada se rehace cuando el usuario declara dónde está el teclado,
+/// también si declara la máquina que ya era el servidor (no cambian `server` ni el hub, así
+/// que solo la declaración puede despertar la tarea de estado).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn declaring_the_keyboard_on_the_server_machine_refreshes_defined() {
+    let (mac_id, pc_id) = (Identity::from_seed([21; 32]), Identity::from_seed([22; 32]));
+    let (mac_port, pc_port) = (free_port(), free_port());
+    let fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    let mac = start_with(
+        Machine::Mac,
+        &mac_id,
+        mac_port,
+        (pc_id.public_key(), pc_port),
+        fake,
+        BARE,
+    )
+    .await;
+    // Sin hub ni declaración: sin definir, y el motor arranca como si fuera la Mac.
+    mac.until_input(|s| s.server == Machine::Mac && !s.defined)
+        .await;
+    // Se declara la Mac: ya era el servidor, así que nada más cambia.
+    let reply = mac
+        .agent
+        .handle(tandem_proto::UiCommand::SetKeyboard(Machine::Mac));
+    assert_eq!(reply, tandem_proto::Reply::Done);
+    mac.until_input(|s| s.defined && s.server == Machine::Mac)
+        .await;
+    // Y se mantiene: la tarea de estado también ve la declaración.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(mac.agent.input_status().defined);
     mac.stop().await;
 }

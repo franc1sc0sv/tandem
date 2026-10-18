@@ -10,6 +10,8 @@
 use std::future::Future;
 use std::time::Duration;
 
+use tokio::time::Instant;
+
 use tandem_link::transport::{ControlSender, ControlStream, TransportError};
 use tokio::sync::{mpsc, watch};
 use tokio::time::{self, MissedTickBehavior};
@@ -43,6 +45,49 @@ pub enum SyncEnd {
     Stopped,
     #[error("enlace: {0}")]
     Link(#[from] TransportError),
+}
+
+/// Espera progresiva cuando otra app tiene el portapapeles abierto y no se puede leer
+/// (en Windows, «being held by another party»): sin esto, cada vuelta del sondeo reintenta
+/// y vuelve a quejarse en el log (T-087).
+///
+/// Cada fallo seguido espera el doble que el anterior (con `base` de partida, hasta
+/// [`ReadBackoff::MAX`]) y solo el primero de la racha se avisa en el log.
+#[derive(Debug, Default)]
+pub struct ReadBackoff {
+    failures: u32,
+    retry_at: Option<Instant>,
+}
+
+impl ReadBackoff {
+    /// Lo máximo que se espera entre dos intentos.
+    pub const MAX: Duration = Duration::from_secs(5);
+
+    /// Si ya toca volver a intentar.
+    pub fn ready(&self, now: Instant) -> bool {
+        self.retry_at.is_none_or(|at| now >= at)
+    }
+
+    /// La lectura falló. `true` si es la primera de la racha: la única que se avisa.
+    pub fn failed(&mut self, now: Instant, base: Duration) -> bool {
+        let first = self.failures == 0;
+        let shift = self.failures.min(16);
+        self.failures = self.failures.saturating_add(1);
+        let wait = base
+            .checked_mul(1u32 << shift)
+            .map_or(Self::MAX, |d| d.min(Self::MAX));
+        self.retry_at = Some(now + wait);
+        first
+    }
+
+    /// La lectura salió. `Some(n)` si cerraba una racha de `n` fallos.
+    pub fn succeeded(&mut self) -> Option<u32> {
+        self.retry_at = None;
+        match std::mem::take(&mut self.failures) {
+            0 => None,
+            n => Some(n),
+        }
+    }
 }
 
 pub struct ClipDriver<C> {
@@ -125,11 +170,12 @@ impl<C: Clipboard> ClipDriver<C> {
             stats,
             cfg,
         } = self;
+        let mut backoff = ReadBackoff::default();
         let main = async {
             if let Some(f) = focus.as_mut() {
                 let _ = sync.set_focus(*f.borrow_and_update());
             }
-            let acts = match read_local(clipboard, last_count) {
+            let acts = match read_local(clipboard, last_count, &mut backoff, cfg.poll) {
                 Some(local) => sync.start(local),
                 None => sync.resume(),
             };
@@ -157,8 +203,9 @@ impl<C: Clipboard> ClipDriver<C> {
                         None => *focus = None,
                     },
                     _ = poll.tick() => {
-                        if changed(clipboard, last_count)
-                            && let Some(local) = read_local(clipboard, last_count)
+                        if backoff.ready(Instant::now())
+                            && changed(clipboard, last_count)
+                            && let Some(local) = read_local(clipboard, last_count, &mut backoff, cfg.poll)
                         {
                             let acts = sync.local_changed(local);
                             apply(clipboard, last_count, &mut tx, acts).await?;
@@ -220,15 +267,27 @@ fn changed<C: Clipboard>(clipboard: &mut C, last: &Option<u64>) -> bool {
 fn read_local<C: Clipboard>(
     clipboard: &mut C,
     last: &mut Option<u64>,
+    backoff: &mut ReadBackoff,
+    base: Duration,
 ) -> Option<Option<ClipContent>> {
     match clipboard.change_count() {
         Ok(n) => *last = Some(n),
         Err(e) => tracing::debug!("portapapeles: contador: {e}"),
     }
     match clipboard.read() {
-        Ok(c) => Some(c),
+        Ok(c) => {
+            if let Some(n) = backoff.succeeded() {
+                tracing::info!("portapapeles: se pudo leer de nuevo tras {n} intentos");
+            }
+            Some(c)
+        }
         Err(e) => {
-            tracing::warn!("portapapeles: no se pudo leer: {e}");
+            // Un solo aviso por racha: el resto, a depuración, con espera creciente.
+            if backoff.failed(Instant::now(), base) {
+                tracing::warn!("portapapeles: no se pudo leer ({e}); se reintenta con espera");
+            } else {
+                tracing::debug!("portapapeles: sigue sin poder leerse: {e}");
+            }
             *last = None;
             None
         }
@@ -262,4 +321,55 @@ async fn apply<C: Clipboard>(
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const BASE: Duration = Duration::from_millis(250);
+
+    #[test]
+    fn waits_double_each_time_up_to_the_cap() {
+        let t0 = Instant::now();
+        let mut b = ReadBackoff::default();
+        assert!(b.ready(t0));
+        let mut waits = Vec::new();
+        for _ in 0..8 {
+            b.failed(t0, BASE);
+            // El primer instante en que ya toca: busca por intervalos de 50 ms.
+            let w = (0..200u64)
+                .map(|i| Duration::from_millis(i * 50))
+                .find(|d| b.ready(t0 + *d))
+                .unwrap();
+            waits.push(w.as_millis());
+        }
+        assert_eq!(waits, [250, 500, 1000, 2000, 4000, 5000, 5000, 5000]);
+    }
+
+    #[test]
+    fn only_the_first_failure_of_a_streak_is_reported() {
+        let t0 = Instant::now();
+        let mut b = ReadBackoff::default();
+        assert!(b.failed(t0, BASE));
+        assert!(!b.failed(t0, BASE));
+        assert!(!b.failed(t0, BASE));
+        assert_eq!(b.succeeded(), Some(3));
+        // Una racha nueva vuelve a avisar una vez.
+        assert!(b.failed(t0, BASE));
+        assert_eq!(b.succeeded(), Some(1));
+        assert_eq!(b.succeeded(), None);
+        assert!(b.ready(t0));
+    }
+
+    #[test]
+    fn a_huge_streak_never_overflows() {
+        let t0 = Instant::now();
+        let mut b = ReadBackoff::default();
+        for _ in 0..200 {
+            b.failed(t0, Duration::from_secs(3600));
+        }
+        assert!(!b.ready(t0 + Duration::from_secs(4)));
+        assert!(b.ready(t0 + ReadBackoff::MAX));
+    }
 }

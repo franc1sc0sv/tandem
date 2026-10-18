@@ -208,8 +208,11 @@ impl PowerConfig {
 pub struct InputConfig {
     /// Dónde está el teclado y mouse al arrancar, hasta que el hub (o el otro agente) diga
     /// otra cosa. `server` es el nombre de antes.
-    #[serde(default = "default_keyboard", alias = "server")]
-    pub keyboard: Machine,
+    /// Sin él (la configuración que genera T-087 no lo escribe) no se sabe: el motor arranca
+    /// como si fuera la Mac, pero la UI dice «sin definir» hasta que el hub o el asistente
+    /// lo digan ([`InputConfig::keyboard`], [`InputConfig::keyboard_defined`]).
+    #[serde(default, alias = "server", skip_serializing_if = "Option::is_none")]
+    pub keyboard: Option<Machine>,
     /// El teclado y el mouse del hub. Sin esto los roles no cambian solos.
     #[serde(default)]
     pub hub: Option<HubConfig>,
@@ -229,6 +232,19 @@ fn default_keyboard() -> Machine {
     Machine::Mac
 }
 
+impl InputConfig {
+    /// Dónde arranca el motor de entrada: lo configurado o, sin definir, la Mac (que
+    /// siempre tiene teclado integrado). Para la UI, mira [`InputConfig::keyboard_defined`].
+    pub fn keyboard(&self) -> Machine {
+        self.keyboard.unwrap_or_else(default_keyboard)
+    }
+
+    /// Si el teclado está dicho en la configuración.
+    pub fn keyboard_defined(&self) -> bool {
+        self.keyboard.is_some()
+    }
+}
+
 /// ScrollLock, como en Synergy/Deskflow. En la Mac llega como F14 y vale igual.
 fn default_lock_shortcut() -> Vec<String> {
     vec!["ScrollLock".to_owned()]
@@ -241,7 +257,7 @@ fn default_true() -> bool {
 impl Default for InputConfig {
     fn default() -> Self {
         InputConfig {
-            keyboard: default_keyboard(),
+            keyboard: None,
             hub: None,
             remap: RemapPolicy::default(),
             lock_shortcut: default_lock_shortcut(),
@@ -659,7 +675,11 @@ mod tests {
     fn input_defaults() {
         let cfg = fixtures::desk();
         assert_eq!(cfg.input, InputConfig::default());
-        assert_eq!(cfg.input.keyboard, Machine::Mac);
+        assert_eq!(cfg.input.keyboard(), Machine::Mac);
+        assert!(
+            !cfg.input.keyboard_defined(),
+            "sin definir: no se supone la Mac"
+        );
         assert!(cfg.input.clipboard && cfg.input.hub.is_none());
         assert_eq!(cfg.input.lock_keys().unwrap(), [HidUsage::key(0x47)]);
         assert_eq!(cfg.input.remap, RemapPolicy::default());
@@ -681,13 +701,14 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(cfg.input.keyboard, Machine::Pc);
+        assert_eq!(cfg.input.keyboard(), Machine::Pc);
+        assert!(cfg.input.keyboard_defined());
         // El nombre de antes sigue valiendo.
         let old = AgentConfig::from_toml(
             "machine = \"mac\"\nmonitors = []\n[input]\nserver = \"pc\"\n[power]\npc_lost_after_secs = 9",
         )
         .unwrap();
-        assert_eq!(old.input.keyboard, Machine::Pc);
+        assert_eq!(old.input.keyboard(), Machine::Pc);
         assert_eq!(old.power.peer_lost_after_secs, 9);
         assert!(!cfg.input.clipboard);
         assert_eq!(

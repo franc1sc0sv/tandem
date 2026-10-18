@@ -1,5 +1,7 @@
 # Samsung Odyssey G5 34" (LC34G55T). docs/research/ddc-34-LC34G55T.md
 pnp_id = "SAM711A"
+# La Mac lo ve por HDMI con otro id: el EDID cambia según la entrada (T-087).
+pnp_aliases = ["SAM7119"]
 name = "LC34G55T"
 edid_names = ["LC34G55T"]
 notes = """

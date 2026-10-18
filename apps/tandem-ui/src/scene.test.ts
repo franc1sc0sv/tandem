@@ -41,6 +41,7 @@ function machineCaps(machine: "mac" | "pc", extra: Partial<MachineCaps> = {}): M
     machine,
     name: pc ? "ESCRITORIO" : "MacBook-Pro",
     os: pc ? "windows" : "macos",
+    scanned: true,
     monitors: ["m34", "m32"].map((id) => ({ monitor: id, pnp_id: null, name: id, switch: pc, ddc: pc, seen: true })),
     builtin: !pc,
     hub: null,
@@ -278,6 +279,15 @@ describe("par", () => {
 });
 
 describe("chip de teclado y mouse", () => {
+  it("sin definir no se supone la Mac: solo lo dice el chip de esta máquina (T-087)", () => {
+    const undef = { server: "mac" as const, hub_here: null, session: true, locked: false, missing: [], problem: null, defined: false };
+    expect(roleChip(undef, "mac", "mac", true)).toMatchObject({ kind: "idle", text: "Teclado sin definir" });
+    expect(roleChip(undef, "mac", "pc", true)).toBeNull();
+    expect(roleChip(undef, "pc", "pc", false)).toMatchObject({ text: "Teclado sin definir" });
+    // Un permiso que falta se avisa antes.
+    expect(roleChip({ ...undef, missing: ["accessibility"] }, "mac", "mac", true)).toMatchObject({ kind: "warn" });
+  });
+
   const input = (extra: Partial<InputView> = {}): InputView => ({
     server: "pc",
     hub_here: false,
@@ -285,6 +295,7 @@ describe("chip de teclado y mouse", () => {
     locked: false,
     missing: [],
     problem: null,
+    defined: true,
     ...extra,
   });
 

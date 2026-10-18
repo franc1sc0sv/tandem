@@ -71,6 +71,7 @@ fn unnamed(id: TargetId, name: String) -> Display<TargetId> {
         main: false,
         active: false,
         mirror_of: None,
+        output: None,
         bounds: None,
     }
 }

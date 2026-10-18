@@ -22,6 +22,7 @@ function machineCaps(machine: "mac" | "pc", extra: Partial<MachineCaps> = {}): M
     machine,
     name: pc ? "ESCRITORIO" : "MacBook-Pro",
     os: pc ? "windows" : "macos",
+    scanned: true,
     monitors: ["m34", "m32"].map((id) => ({ monitor: id, pnp_id: null, name: id, switch: pc, ddc: pc, seen: true })),
     builtin: !pc,
     hub: null,

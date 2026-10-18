@@ -46,6 +46,7 @@ import {
 } from "./shortcuts";
 import { modelOf, setupLines, swapWiring, wiringText } from "./desk";
 import { applyReady, complete, corrections, doubtNote, initialAnswers, isConfirmed, questions, type Shown } from "./confirm";
+import { initOnboarding, type Onboard } from "./onboarding-ui";
 import { PERMISSION_INFO, back as setupBack, isFirst, isLast, next as setupNext, screensOf, start as setupStart, type Wizard } from "./setup";
 
 // Cuánto queda a la vista el progreso ya terminado y un mensaje suelto.
@@ -63,6 +64,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 }
 
 let bridge: Bridge | null = null;
+/** El asistente de configuración inicial (T-087). */
+let onboard: Onboard | null = null;
 let snap: Snapshot = { kind: "connecting" };
 let progress: Progress | null = null;
 let manual: Extract<ManualView, { type: "requested" }> | null = null;
@@ -96,9 +99,14 @@ function setSnapshot(next: Snapshot) {
     render(moved);
   }
   syncPair(pairingBefore);
+  onboard?.onSnapshot(next);
+  // Instalación limpia (o puesto restablecido): el asistente se abre solo.
+  if (next.kind === "connected" && !$<HTMLDialogElement>("#setup").open) onboard?.maybeOpen(next);
 }
 
 function onNotice(n: Notice) {
+  onboard?.onNotice(n);
+  if (n.kind === "key_probe") return;
   if (n.kind === "txn") {
     progress = advance(progress, n.event);
     const p = progress;
@@ -260,6 +268,15 @@ function fixMenu(m: MonitorView) {
     menu.append(b);
   }
   menu.append(el("span", "fnote", "Corrige lo que cree Tandem; no cambia el monitor."));
+  const drop = el("button", "fopt drop", "Quitar del puesto…");
+  drop.type = "button";
+  drop.setAttribute("role", "menuitem");
+  drop.addEventListener("click", () => {
+    fixing = null;
+    renderDesks([]);
+    void removeMonitor(m.id, m.label);
+  });
+  menu.append(drop);
   return menu;
 }
 
@@ -350,6 +367,28 @@ function renderConfirm() {
     parts.push(foot);
   }
   box.replaceChildren(...parts);
+}
+
+/** «1 monitor del puesto no está conectado». */
+function hiddenText(n: number) {
+  return n === 1 ? "1 monitor del puesto no está conectado." : `${n} monitores del puesto no están conectados.`;
+}
+
+/** El aviso discreto de los monitores del puesto que ninguna máquina ve (T-087). */
+function renderHidden() {
+  const note = $("#hiddennote");
+  const n = snap.kind === "connected" ? snap.hidden.length : 0;
+  note.hidden = n === 0;
+  if (n === 0 || snap.kind !== "connected") return;
+  const list = snap.hidden;
+  note.replaceChildren(el("span", undefined, hiddenText(n)));
+  for (const m of list) {
+    const drop = el("button", "linkbtn", `Quitar ${m.label}`);
+    drop.type = "button";
+    drop.title = "Quitar del puesto: se borra todo lo suyo";
+    drop.addEventListener("click", () => void removeMonitor(m.id, m.label));
+    note.append(drop);
+  }
 }
 
 function renderAgentPill() {
@@ -448,7 +487,14 @@ function renderDesks(moved: string[]) {
       const empty = el("div", "empty");
       empty.innerHTML = ICON_EMPTY;
       const off = which === "peer" && peerPower(state, agent, progress) === "off";
-      empty.append(off ? `${MACHINE_NAME[who]} apagada` : "Arrastra un monitor aquí");
+      const none = desk.monitors.length === 0;
+      empty.append(off ? `${MACHINE_NAME[who]} apagada` : none ? "Sin monitores todavía" : "Arrastra un monitor aquí");
+      if (none && which === "here" && !off) {
+        const go = el("button", "linkbtn", "Abrir el asistente");
+        go.type = "button";
+        go.addEventListener("click", () => onboard?.open());
+        empty.append(go);
+      }
       deskEl.append(empty);
     }
   }
@@ -578,11 +624,13 @@ function render(moved: string[]) {
   $("#stage").hidden = connected;
   $("#monitors-btn").hidden = !connected;
   $("#desk-btn").hidden = !connected;
+  $("#onboard-btn").hidden = !connected;
   if (!connected) $("#link-pill").hidden = true;
   renderUnavailable();
   renderDesks(moved);
   renderControls();
   renderConfirm();
+  renderHidden();
   renderToast();
   // El puesto puede cambiar mientras el diálogo está abierto (el cableado recién guardado).
   if (connected) renderDesk();
@@ -969,6 +1017,53 @@ async function pairAct(action: Action) {
   renderPair();
 }
 
+/**
+ * Pide una confirmación explícita (T-087): borrar un monitor o cambiar el cableado fuera
+ * del asistente no se hace de un clic. Devuelve lo que el usuario eligió.
+ */
+function askConfirm(title: string, lines: string[], confirm: string, danger = false): Promise<boolean> {
+  const dialog = $<HTMLDialogElement>("#ask");
+  const h = el("h2", undefined, title);
+  h.id = "ask-title";
+  $("#ask-body").replaceChildren(h, ...lines.map((l) => el("p", "ahint", l)));
+  return new Promise((resolve) => {
+    const done = (yes: boolean) => {
+      dialog.removeEventListener("close", onClose);
+      dialog.close();
+      resolve(yes);
+    };
+    const onClose = () => resolve(false);
+    dialog.addEventListener("close", onClose, { once: true });
+    $("#ask-foot").replaceChildren(
+      kbtn("Cancelar", () => done(false)),
+      el("span", "spacer"),
+      kbtn(confirm, () => done(true), danger ? "danger" : "primary"),
+    );
+    dialog.showModal();
+  });
+}
+
+/** Quita un monitor del puesto y todo lo suyo, en las dos máquinas, tras confirmarlo. */
+async function removeMonitor(id: string, label: string) {
+  const yes = await askConfirm(
+    `¿Quitar el ${label} del puesto?`,
+    ["Se borra todo lo suyo en las dos máquinas: su entrada en la configuración, el vínculo entre sus identidades, su cableado, su perfil del usuario y su estado.", "Para volver a tenerlo se agrega de nuevo con el asistente."],
+    "Quitar monitor",
+    true,
+  );
+  if (yes) await act({ kind: "remove_monitor", monitor: id });
+}
+
+async function resetDesk() {
+  const yes = await askConfirm(
+    "¿Restablecer el puesto?",
+    ["Se quitan todos los monitores, sus vínculos, sus perfiles del usuario y el estado, en las dos máquinas. El teclado, la red y el emparejamiento no se tocan.", "Después el asistente vuelve a abrirse."],
+    "Restablecer puesto",
+    true,
+  );
+  if (yes) await act({ kind: "reset_desk" });
+}
+
 function capitalize(text: string) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -1206,10 +1301,19 @@ async function openDesk() {
 }
 
 async function rewire(id: string, wiring: Partial<Record<Machine, "hdmi" | "displayport">>) {
+  // Fuera del asistente, un cableado mal puesto manda el cambio de modo a una entrada donde
+  // no hay nada: se pide la confirmación explícita (T-087).
+  const label = snap.kind === "connected" ? (snap.desk.monitors.find((m) => m.id === id)?.label ?? id) : id;
+  const yes = await askConfirm(
+    `¿Cambiar el cableado del ${label}?`,
+    [`Quedaría ${wiringText(wiring)}.`, "Vale desde el siguiente cambio de modo. Si no coincide con los cables de verdad, el monitor irá a una entrada donde no hay nada."],
+    "Cambiar cableado",
+  );
+  if (!yes) return;
   rewiring = id;
   deskError = null;
   renderDesk();
-  deskError = await act({ kind: "set_wiring", monitor: id, wiring }, true);
+  deskError = await act({ kind: "set_wiring", monitor: id, wiring, confirmed: true }, true);
   rewiring = null;
   renderDesk();
 }
@@ -1221,13 +1325,16 @@ function renderDesk() {
   h.id = "deskcfg-title";
   const body: Node[] = [h];
   for (const line of setupLines(agent, agentSetup)) body.push(el("p", "ahint", line));
+  if (snap.hidden.length) {
+    body.push(el("p", "ahint", `${hiddenText(snap.hidden.length)} Ninguna máquina los ve ahora; no aparecen en la escena ni en los planes.`));
+  }
   if (agentSetup?.config_file) {
     const where = el("p", "afile", "Se guarda en ");
     where.append(el("code", undefined, agentSetup.config_file));
     body.push(where);
   }
   if (!desk.monitors.length) {
-    body.push(el("p", "ahint", "Esta máquina no ve ningún monitor externo con EDID. Se agregan al conectarlos con la otra máquina o con «Monitores»."));
+    body.push(el("p", "ahint", "El puesto está vacío. Los monitores se agregan con el asistente (solo salen los conectados ahora) o con «Monitores»."));
   }
   const list = el("div", "alist");
   for (const m of desk.monitors) {
@@ -1242,11 +1349,18 @@ function renderDesk() {
     const swap = kbtn(rewiring === m.id ? "Guardando…" : "Invertir cableado", () => void rewire(m.id, swapWiring(m.wiring)));
     swap.disabled = rewiring !== null;
     swap.title = `Pasa a ${wiringText(swapWiring(m.wiring))}`;
-    btns.append(swap);
+    const drop = kbtn("Quitar", () => void removeMonitor(m.id, m.label), "danger");
+    drop.title = "Quita el monitor del puesto y todo lo suyo, en las dos máquinas";
+    btns.append(swap, drop);
     row.append(icon, info, wiring, btns);
     list.append(row);
   }
   body.push(list);
+  if (desk.monitors.length || snap.hidden.length) {
+    const reset = kbtn("Restablecer puesto", () => void resetDesk(), "danger");
+    reset.title = "Borra monitores, vínculos, perfiles del usuario y estado, en las dos máquinas";
+    body.push(reset);
+  }
   body.push(el("p", "ahint", `El cableado vale desde el siguiente cambio de modo y se guarda en las dos máquinas: si la ${MACHINE_NAME[other(agent)]} no está, se pone al día al volver a verla.`));
   if (deskError) body.push(el("p", "pwarn", capitalize(deskError)));
   $("#deskcfg-body").replaceChildren(...body);
@@ -1286,6 +1400,9 @@ function wire() {
   wirePair();
   wireAddmon();
   wireDesk();
+  $("#onboard-btn").addEventListener("click", () => onboard?.open());
+  // La guía de permisos va antes: al cerrarla, el asistente se abre si el puesto sigue vacío.
+  $<HTMLDialogElement>("#setup").addEventListener("close", () => onboard?.maybeOpen(snap));
 
   // El menú «en realidad muestra…» se cierra al hacer clic fuera o con Escape.
   addEventListener("click", () => {
@@ -1348,6 +1465,12 @@ async function boot() {
   render([]);
   try {
     bridge = await pickBridge();
+    onboard = initOnboarding({
+      snap: () => snap,
+      request: (action) => bridge!.act(action).catch((e: unknown) => ({ kind: "unavailable" as const, reason: String(e) })),
+      bridge: () => bridge,
+      message: (text) => showMessage(text),
+    });
     let pushed = false;
     await bridge.onSnapshot((s) => {
       pushed = true;

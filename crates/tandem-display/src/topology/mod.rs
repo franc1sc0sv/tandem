@@ -67,6 +67,9 @@ pub struct Display<Id> {
     pub active: bool,
     /// Pantalla de la que es espejo, si lo es.
     pub mirror_of: Option<Id>,
+    /// Tecnología de la salida por la que se conecta (DisplayPort o HDMI), si el sistema la
+    /// dice: Windows sí; macOS no. Sirve para deducir el cableado (T-087).
+    pub output: Option<tandem_core::Input>,
     /// Dónde está en el escritorio, si el sistema lo dice (solo las activas tienen).
     pub bounds: Option<Bounds>,
 }
@@ -200,6 +203,17 @@ pub trait DisplayTopology {
     }
 }
 
+/// La entrada del monitor que corresponde a un `DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY` de
+/// Windows: DisplayPort (externo, embebido o por túnel USB) o HDMI; el resto no es una
+/// entrada que Tandem sepa cablear.
+pub fn input_of_windows_output(technology: i32) -> Option<tandem_core::Input> {
+    match technology {
+        10 | 11 | 18 => Some(tandem_core::Input::DisplayPort),
+        5 => Some(tandem_core::Input::Hdmi),
+        _ => None,
+    }
+}
+
 /// Busca un único monitor conectado que coincida con un texto libre (diagnóstico).
 pub fn find<'a, Id: fmt::Display>(
     displays: &'a [Display<Id>],
@@ -218,7 +232,13 @@ pub fn find_monitor<'a, Id: fmt::Display>(
         .edid_model
         .as_deref()
         .ok_or(TopologyError::MissingModel)?;
-    one(displays.iter().filter(|d| d.is_monitor(model)), model)
+    // Con alias (T-087): el mismo monitor tiene otro id PnP en cada entrada.
+    one(
+        displays
+            .iter()
+            .filter(|d| monitor.models().any(|m| d.is_monitor(m))),
+        model,
+    )
 }
 
 /// Una pantalla del escritorio, para la geometría del teclado y mouse.
@@ -244,11 +264,9 @@ pub fn placed_screens<Id>(
             let monitor = if d.builtin {
                 None
             } else {
-                let m = monitors.iter().find(|m| {
-                    m.edid_model
-                        .as_deref()
-                        .is_some_and(|model| d.is_monitor(model))
-                })?;
+                let m = monitors
+                    .iter()
+                    .find(|m| m.models().any(|model| d.is_monitor(model)))?;
                 Some(m.id.clone())
             };
             Some(PlacedScreen { monitor, bounds })
@@ -506,6 +524,7 @@ pub fn monitor_by_model(id: &str, model: &str) -> MonitorConfig {
         id: id.into(),
         label: id.into(),
         edid_model: Some(model.into()),
+        edid_aliases: Vec::new(),
         wiring: Default::default(),
         ddc: None,
     }
@@ -513,6 +532,20 @@ pub fn monitor_by_model(id: &str, model: &str) -> MonitorConfig {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn windows_output_technologies_map_to_inputs() {
+        use super::input_of_windows_output as f;
+        use tandem_core::Input::{DisplayPort, Hdmi};
+        assert_eq!(f(10), Some(DisplayPort));
+        assert_eq!(f(11), Some(DisplayPort));
+        assert_eq!(f(18), Some(DisplayPort));
+        assert_eq!(f(5), Some(Hdmi));
+        // DVI, VGA, interna u otra: no es una entrada que se cablee.
+        for other in [0, 4, -1, i32::MIN] {
+            assert_eq!(f(other), None);
+        }
+    }
+
     use super::fake::FakeTopology;
     use super::*;
     use crate::ddc::edid;
@@ -579,6 +612,66 @@ mod tests {
             find_monitor(&ds, &m("")),
             Err(TopologyError::NoMatch("".into()))
         );
+    }
+
+    /// El mismo monitor tiene otro id PnP en cada máquina (el EDID cambia según la
+    /// entrada): con alias se encuentra por cualquiera, sin confundirlo con otro (T-087).
+    #[test]
+    fn find_monitor_matches_any_of_its_identities() {
+        let mut t = topo();
+        let ds = t.displays().unwrap();
+        // El 34" de la PC es LC34G55T; su alias es lo que ve la otra máquina.
+        let mut mac_side = m("SAM7119");
+        mac_side.edid_aliases = vec!["LC34G55T".into()];
+        assert_eq!(find_monitor(&ds, &mac_side).unwrap().model(), "LC34G55T");
+        let mut pc_side = m("LC34G55T");
+        pc_side.edid_aliases = vec!["SAM7119".into()];
+        assert_eq!(find_monitor(&ds, &pc_side).unwrap().model(), "LC34G55T");
+        // Un alias que no existe no rompe la búsqueda por el principal.
+        pc_side.edid_aliases = vec!["XXX0000".into()];
+        assert!(find_monitor(&ds, &pc_side).is_ok());
+        // Dos identidades de monitores distintos que coinciden con dos pantallas: ambiguo.
+        let mut both = m("LC34G55T");
+        both.edid_aliases = ds
+            .iter()
+            .filter(|d| d.model() != "LC34G55T")
+            .map(|d| d.model().to_owned())
+            .collect();
+        assert!(matches!(
+            find_monitor(&ds, &both),
+            Err(TopologyError::Ambiguous { .. })
+        ));
+    }
+
+    #[test]
+    fn placed_screens_use_the_aliases_too() {
+        let displays = vec![Display {
+            id: 0u32,
+            name: "LC34G55T".into(),
+            device_path: String::new(),
+            edid: None,
+            builtin: false,
+            main: false,
+            active: true,
+            mirror_of: None,
+            output: None,
+            bounds: Some(Bounds {
+                x: 0,
+                y: 0,
+                width: 100,
+                height: 50,
+            }),
+        }];
+        // El puesto lo conoce por la identidad de la otra máquina y tiene como alias la de
+        // esta (T-087).
+        let mut by_alias = monitor_by_model("m34", "SAM7119");
+        by_alias.edid_aliases = vec!["LC34G55T".into()];
+        let placed = placed_screens(&displays, &[by_alias]);
+        assert_eq!(placed.len(), 1);
+        assert_eq!(placed[0].monitor, Some("m34".into()));
+        // Sin el alias no se lo encuentra.
+        let plain = monitor_by_model("m34", "SAM7119");
+        assert!(placed_screens(&displays, &[plain]).is_empty());
     }
 
     #[test]
@@ -706,6 +799,7 @@ mod tests {
             main: false,
             active: true,
             mirror_of: None,
+            output: None,
             bounds: Some(bounds(0)),
         };
         let displays = vec![
@@ -727,6 +821,7 @@ mod tests {
             Display {
                 id: 3,
                 mirror_of: Some(0),
+                output: None,
                 ..base.clone()
             },
             Display {
@@ -772,6 +867,7 @@ mod tests {
             main: false,
             active: false,
             mirror_of: None,
+            output: None,
             bounds: None,
         };
         assert_eq!(
@@ -784,6 +880,7 @@ mod tests {
             main: true,
             active: true,
             mirror_of: Some(d.id),
+            output: None,
             bounds: Some(Bounds {
                 x: -1512,
                 y: 0,
@@ -817,6 +914,7 @@ mod tests {
             main: false,
             active: true,
             mirror_of: None,
+            output: None,
             bounds: Some(Bounds {
                 x,
                 y: 0,

@@ -10,7 +10,9 @@
 //! tiene pantalla integrada. Eso vive aquí, en una función por capacidad, y el resto
 //! del agente pregunta por la capacidad.
 
-use tandem_core::{Abilities, Config, Machine, MonitorConfig};
+use std::collections::BTreeSet;
+
+use tandem_core::{Abilities, Config, Machine, MonitorConfig, MonitorId};
 use tandem_proto::{Capabilities, InputCaps, InputStatus, MonitorCaps, PowerCaps};
 
 use crate::config::AgentConfig;
@@ -53,8 +55,8 @@ pub fn host_name() -> Option<String> {
         .filter(|n| !n.is_empty())
 }
 
-/// Un monitor externo que esta máquina detectó al arrancar.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Un monitor externo que esta máquina detectó (al arrancar o al escanear en el asistente).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Seen {
     /// `SAM7489`, si dio EDID.
     pub pnp_id: Option<String>,
@@ -62,12 +64,19 @@ pub struct Seen {
     /// `tandem.toml` escrito a mano.
     pub model: Option<String>,
     pub name: String,
+    /// Número de serie numérico del EDID, si no es 0.
+    pub serial: Option<u32>,
+    /// Diagonal en pulgadas enteras.
+    pub inches: Option<u32>,
+    /// Por qué cable lo ve esta máquina, si el sistema lo dice.
+    pub output: Option<tandem_core::Input>,
 }
 
 impl Seen {
-    /// Si es ese monitor del puesto: su `edid_model` es el id PnP o el modelo.
+    /// Si es ese monitor del puesto: alguno de sus id PnP o modelos (`edid_model` y alias)
+    /// es el id PnP o el modelo que se ve.
     fn is(&self, m: &MonitorConfig) -> bool {
-        m.edid_model.as_deref().is_some_and(|e| {
+        m.models().any(|e| {
             [&self.pnp_id, &self.model]
                 .into_iter()
                 .flatten()
@@ -101,6 +110,10 @@ pub fn local(
         switch: switch(Some(m)),
         ddc: switch(Some(m)) && m.ddc.is_some(),
         seen: false,
+        model: None,
+        serial: None,
+        inches: None,
+        output: None,
     };
     let monitors = match seen {
         Some(seen) => {
@@ -122,6 +135,10 @@ pub fn local(
                         switch: switch(m),
                         ddc: switch(m) && m.is_some_and(|m| m.ddc.is_some()),
                         seen: true,
+                        model: s.model.clone(),
+                        serial: s.serial,
+                        inches: s.inches,
+                        output: s.output,
                     }
                 })
                 .collect();
@@ -140,6 +157,7 @@ pub fn local(
         machine: me,
         name: host_name().unwrap_or_else(|| label(me).to_owned()),
         os: os_name().to_owned(),
+        scanned: seen.is_some(),
         monitors,
         builtin: has_builtin(me),
         hub: input.hub_here,
@@ -155,6 +173,58 @@ pub fn local(
         },
         services: Vec::new(),
     }
+}
+
+/// Los monitores del puesto que alguna de las dos máquinas tiene conectados ahora (T-087).
+///
+/// Una máquina que detectó sus monitores ([`Capabilities::scanned`]) dice cuáles ve; una
+/// que no (pruebas, Linux, un backend que falló) no puede decirlo, y se suponen conectados
+/// los que están cableados a ella: no se esconde nada por no saber. De la otra máquina,
+/// mientras no se la vea, no se supone nada.
+pub fn connected(
+    desk: &Config,
+    here: &Capabilities,
+    peer: Option<&Capabilities>,
+) -> BTreeSet<MonitorId> {
+    connected_by(
+        desk,
+        std::iter::once(here).chain(peer).map(|c| {
+            let seen = c
+                .monitors
+                .iter()
+                .filter(|m| m.seen)
+                .filter_map(|m| m.monitor.clone());
+            (c.machine, c.scanned, seen.collect::<Vec<_>>())
+        }),
+    )
+}
+
+/// Lo mismo con lo mínimo de cada máquina: cuál es, si detectó sus monitores y cuáles del
+/// puesto vio. Es lo que tiene la UI además del agente.
+pub fn connected_by(
+    desk: &Config,
+    machines: impl IntoIterator<Item = (Machine, bool, Vec<MonitorId>)>,
+) -> BTreeSet<MonitorId> {
+    let mut out = BTreeSet::new();
+    for (machine, scanned, seen) in machines {
+        if scanned {
+            out.extend(seen);
+        } else {
+            out.extend(
+                desk.monitors
+                    .iter()
+                    .filter(|m| m.wiring.contains_key(&machine))
+                    .map(|m| m.id.clone()),
+            );
+        }
+    }
+    out
+}
+
+/// El puesto sin los monitores que ninguna máquina tiene conectados.
+pub fn connected_desk(desk: &Config, here: &Capabilities, peer: Option<&Capabilities>) -> Config {
+    let on = connected(desk, here, peer);
+    desk.only(|m| on.contains(&m.id))
 }
 
 /// Lo que el plan puede pedirle a cada máquina, visto desde `here`.
@@ -259,11 +329,13 @@ mod tests {
                 pnp_id: Some(pnp),
                 model: None,
                 name: "34".into(),
+                ..Seen::default()
             },
             Seen {
                 pnp_id: None,
                 model: None,
                 name: "sin EDID".into(),
+                ..Seen::default()
             },
         ];
         let c = local(&cfg, &cfg.desk, Some(&seen), &InputStatus::new(Machine::Pc));
@@ -297,6 +369,7 @@ mod tests {
             pnp_id: Some("SAM711A".into()),
             model: Some("LC34G55T".into()),
             name: "34\"".into(),
+            ..Seen::default()
         }];
         let c = local(&cfg, &cfg.desk, Some(&seen), &InputStatus::new(Machine::Pc));
         assert_eq!(c.monitors[0].monitor, Some("m34".into()));
@@ -330,6 +403,7 @@ mod tests {
             pnp_id: Some("SAM7489".into()),
             model: None,
             name: "32".into(),
+            ..Seen::default()
         }];
         let c = local(&cfg, &cfg.desk, Some(&seen), &input);
         let m32 = c
