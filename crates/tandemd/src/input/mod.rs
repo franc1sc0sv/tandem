@@ -483,9 +483,15 @@ async fn status(sh: Arc<Shared>) {
     loop {
         let server = *rx.0.borrow_and_update();
         let is_server = server == sh.me;
+        // Cada lectura de un `watch` se copia aquí, fuera del literal: dos lecturas del mismo
+        // candado dentro de una expresión pueden bloquearse si entre ellas llega una
+        // escritura (el candado da prioridad a quien escribe).
+        let hub_here = *rx.1.borrow_and_update();
+        let peer_hub = rx.8.borrow_and_update().is_some();
+        let declared = sh.agent.keyboard_declared();
         let status = InputStatus {
             server,
-            hub_here: *rx.1.borrow_and_update(),
+            hub_here,
             session: if is_server {
                 *rx.2.borrow_and_update()
             } else {
@@ -499,11 +505,7 @@ async fn status(sh: Arc<Shared>) {
                 rx.7.borrow_and_update().clone()
             },
             // El hub, la configuración o el asistente lo dicen; si no, es «sin definir».
-            defined: keyboard_defined(
-                sh.agent.keyboard_declared(),
-                *sh.hub_here.borrow(),
-                sh.agent.inbox().hub.borrow().is_some(),
-            ),
+            defined: keyboard_defined(declared, hub_here, peer_hub),
         };
         sh.agent.set_input_status(status);
         tokio::select! {
