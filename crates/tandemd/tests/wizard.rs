@@ -422,9 +422,18 @@ async fn un_asistente_completo_deja_exactamente_dos_monitores_vinculados_y_el_es
 
     // Cada máquina reconoce a sus monitores por la identidad que ve, sin duplicarlos.
     for a in [&mac.agent, &pc.agent] {
-        let caps = a.capabilities().here;
-        let bound: Vec<_> = caps.monitors.iter().map(|m| m.monitor.clone()).collect();
-        assert_eq!(bound, [Some("sam711a".into()), Some("sam7489".into())]);
+        let want = [Some("sam711a".into()), Some("sam7489".into())];
+        let mut caps = a.subscribe_capabilities();
+        within(caps.wait_for(|c| {
+            c.here
+                .monitors
+                .iter()
+                .map(|m| m.monitor.clone())
+                .collect::<Vec<_>>()
+                == want
+        }))
+        .await
+        .unwrap();
     }
     // Y un segundo escaneo ya los marca como agregados.
     let again = scan_until_linked(&mut mac.ui, 2).await;
