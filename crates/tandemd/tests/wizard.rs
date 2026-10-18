@@ -440,6 +440,19 @@ async fn un_asistente_completo_deja_exactamente_dos_monitores_vinculados_y_el_es
     assert!(again.candidates.iter().all(|c| c.in_desk.is_some()));
 
     // Paso 6: «Aplicar modo» manda todas las entradas y deja el estado confirmado en las dos.
+    // Antes, la Mac sabe que la PC puede cambiar la entrada de los dos (su anuncio ya los trae).
+    let mut caps = mac.agent.subscribe_capabilities();
+    within(caps.wait_for(|c| {
+        c.peer.as_ref().is_some_and(|p| {
+            p.monitors
+                .iter()
+                .filter(|m| m.switch && m.monitor.is_some())
+                .count()
+                == 2
+        })
+    }))
+    .await
+    .unwrap();
     let mut state = mac.agent.subscribe();
     within(state.wait_for(|s| s.is_on(Machine::Pc)))
         .await
