@@ -660,6 +660,7 @@ async fn wiring_changed_on_either_machine_reaches_the_other() {
     let set = |wiring: &std::collections::BTreeMap<Machine, Input>| UiCommand::SetWiring {
         monitor: "m32".into(),
         wiring: wiring.clone(),
+        confirmed: true,
     };
     let reply = within(mac.ui.request(set(&swapped))).await.unwrap();
     assert_eq!(reply, Reply::Done);
@@ -742,6 +743,7 @@ async fn a_change_made_while_the_other_was_away_arrives_on_reconnect() {
     let reply = within(pc.ui.request(UiCommand::SetWiring {
         monitor: "m34".into(),
         wiring: swapped.clone(),
+        confirmed: true,
     }))
     .await
     .unwrap();

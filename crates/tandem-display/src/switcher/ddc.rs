@@ -90,7 +90,7 @@ fn find(bus: &dyn DdcBus, monitor: &MonitorConfig) -> Result<usize, SwitchError>
     let hits: Vec<usize> = bus
         .monitors()
         .iter()
-        .filter(|m| m.matches(model))
+        .filter(|m| monitor.models().any(|alias| m.matches(alias)))
         .map(|m| m.index)
         .collect();
     match hits[..] {
@@ -194,6 +194,17 @@ mod tests {
                 (1, VCP_INPUT_SOURCE, 0x0F, true)
             ]
         );
+    }
+
+    /// El bus ve el monitor por una identidad y el puesto lo conoce por otra (T-087).
+    #[tokio::test]
+    async fn finds_the_monitor_by_an_alias() {
+        let (s, inner) = desk_bus(&[]);
+        let mut by_alias = request("m34", Machine::Mac);
+        by_alias.monitor.edid_model = Some("SAM7119".into());
+        by_alias.monitor.edid_aliases = vec!["LC34G55T".into()];
+        s.switch(&by_alias).await.unwrap();
+        assert_eq!(writes(&inner), [(1, VCP_INPUT_SOURCE, 0x06, true)]);
     }
 
     #[tokio::test]

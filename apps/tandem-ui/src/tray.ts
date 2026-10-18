@@ -68,7 +68,7 @@ function onNotice(n: Notice) {
     return;
   }
   // Las sondas de calibración tienen su ventana, y la pregunta trae al frente la principal.
-  if (n.kind === "probe") return;
+  if (n.kind === "probe" || n.kind === "key_probe") return;
   if (n.kind !== "txn") {
     // El cambio manual de entrada se contesta en la ventana principal.
     if (n.event.type === "requested") say(`Cambia el ${n.event.label} a mano: abre Tandem`);

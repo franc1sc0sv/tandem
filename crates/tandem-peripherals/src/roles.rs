@@ -129,6 +129,14 @@ impl RoleArbiter {
     }
 
     /// Cambia el selector. Devuelve el servidor nuevo si cambió.
+    /// El usuario dijo dónde está el teclado (el asistente, T-087). Sin hub que decida, es
+    /// el servidor; con hub, la próxima lectura del hub manda otra vez.
+    pub fn declare(&mut self, server: Machine) -> Option<Machine> {
+        let before = self.server;
+        self.server = server;
+        (before != server).then_some(server)
+    }
+
     pub fn set_selector(&mut self, selector: Selector) -> Option<Machine> {
         self.selector = selector;
         self.resolve()

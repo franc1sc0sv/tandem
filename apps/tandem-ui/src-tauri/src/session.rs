@@ -11,16 +11,18 @@
 
 use std::collections::BTreeMap;
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use tandem_core::MonitorConfig;
 use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State, Step};
 use tandem_proto::{
     AgentToUi, CalibrationOutcome, CalibrationStep, CalibrationUpdate, Capabilities,
-    DeskCapabilities, DisplayInfo, DisplayProfile, InputPermission, InputStatus, Link,
-    ManualSwitchEvent, PairingStatus, PeerStatus, PowerEvent, ProbeAnswer, ProbeAsk, ProbeEvent,
-    ProbePlace, Reply, SavedProfile, SetupInfo, TxnEvent, UiCommand,
+    DeskCapabilities, DisplayInfo, DisplayProfile, InputPermission, InputStatus, KeyProbeStatus,
+    Link, ManualSwitchEvent, MonitorScan, NewMonitor, PairingStatus, PeerStatus, PowerEvent,
+    ProbeAnswer, ProbeAsk, ProbeEvent, ProbePlace, Reply, SavedProfile, SetupInfo, TxnEvent,
+    UiCommand,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -33,6 +35,8 @@ use crate::status::{CLOSED, QUERY_TIMEOUT, explain};
 pub const RETRY_EVERY: Duration = Duration::from_secs(2);
 
 /// Todo lo que la escena necesita para dibujarse.
+// Una sola escena conectada viva a la vez: no vale la pena una caja más.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Snapshot {
@@ -40,7 +44,12 @@ pub enum Snapshot {
     Connected {
         /// Máquina en la que corre el agente (y esta ventana).
         agent: Machine,
+        /// Los monitores del puesto que alguna de las dos máquinas tiene conectados ahora
+        /// (T-087): lo único que dibuja la escena y de lo que hablan los planes.
         desk: Config,
+        /// Los del puesto que ninguna ve ahora; la escena solo avisa «N monitores no están
+        /// conectados» y ofrece quitarlos.
+        hidden: Vec<MonitorConfig>,
         state: State,
         /// El otro agente: sin par, la ventana avisa que esta máquina trabaja sola.
         peer: PeerView,
@@ -147,6 +156,9 @@ pub struct InputView {
     /// Permisos de macOS que faltan: la ventana lo avisa.
     pub missing: Vec<PermissionView>,
     pub problem: Option<String>,
+    /// Se sabe dónde está el teclado (hub, configuración o asistente). Si no, la ventana
+    /// dice «sin definir» y nunca supone la Mac (T-087).
+    pub defined: bool,
 }
 
 /// [`DeskCapabilities`] en JSON para el frontend.
@@ -163,6 +175,8 @@ pub struct MachineView {
     pub machine: Machine,
     pub name: String,
     pub os: String,
+    /// Detectó sus monitores: los `seen` son los conectados ahora (T-087).
+    pub scanned: bool,
     pub monitors: Vec<MonitorCapsView>,
     pub builtin: bool,
     pub hub: Option<bool>,
@@ -178,8 +192,13 @@ pub struct MonitorCapsView {
     pub name: String,
     pub switch: bool,
     pub ddc: bool,
-    /// La máquina lo detectó al arrancar: pista para preguntar lo que muestra (T-085).
+    /// La máquina lo detectó (T-085): conectado ahora y pista para preguntar lo que muestra.
     pub seen: bool,
+    pub model: Option<String>,
+    pub serial: Option<u32>,
+    pub inches: Option<u32>,
+    /// Por qué cable lo ve esa máquina, si el sistema lo dice.
+    pub output: Option<Input>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -209,6 +228,7 @@ impl From<Capabilities> for MachineView {
             machine: c.machine,
             name: c.name,
             os: c.os,
+            scanned: c.scanned,
             monitors: c
                 .monitors
                 .into_iter()
@@ -219,6 +239,10 @@ impl From<Capabilities> for MachineView {
                     switch: m.switch,
                     ddc: m.ddc,
                     seen: m.seen,
+                    model: m.model,
+                    serial: m.serial,
+                    inches: m.inches,
+                    output: m.output,
                 })
                 .collect(),
             builtin: c.builtin,
@@ -235,6 +259,29 @@ impl From<Capabilities> for MachineView {
             },
             services: c.services,
         }
+    }
+}
+
+impl CapsView {
+    /// El puesto repartido en lo conectado ahora y lo que no (T-087).
+    fn split(&self, all: &Config) -> (Config, Vec<MonitorConfig>) {
+        let parts = std::iter::once(&self.here).chain(&self.peer).map(|m| {
+            let seen = m
+                .monitors
+                .iter()
+                .filter(|c| c.seen)
+                .filter_map(|c| c.monitor.clone())
+                .collect::<Vec<_>>();
+            (m.machine, m.scanned, seen)
+        });
+        let on = tandemd::capabilities::connected_by(all, parts);
+        let hidden = all
+            .monitors
+            .iter()
+            .filter(|m| !on.contains(&m.id))
+            .cloned()
+            .collect();
+        (all.only(|m| on.contains(&m.id)), hidden)
     }
 }
 
@@ -279,6 +326,7 @@ impl From<InputStatus> for InputView {
             locked: s.locked,
             missing: s.missing.into_iter().map(permission_view).collect(),
             problem: s.problem,
+            defined: s.defined,
         }
     }
 }
@@ -301,6 +349,10 @@ pub enum Notice {
     Calibration {
         event: CalibrationView,
     },
+    /// La prueba «presiona una tecla» del asistente (T-087).
+    KeyProbe {
+        event: KeyProbeView,
+    },
     /// La otra máquina se dio por apagada sin que nadie la apagara (corte de corriente o
     /// suspendida): `reason` se muestra tal cual y `stranded` son los monitores que
     /// quedan en negro.
@@ -309,6 +361,13 @@ pub enum Notice {
         reason: String,
         stranded: Vec<MonitorId>,
     },
+}
+
+/// [`KeyProbeStatus`] en JSON para el frontend.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct KeyProbeView {
+    pub armed: bool,
+    pub heard: Option<Machine>,
 }
 
 impl From<PowerEvent> for Notice {
@@ -788,6 +847,31 @@ pub enum Action {
     SetWiring {
         monitor: MonitorId,
         wiring: BTreeMap<Machine, Input>,
+        /// El usuario lo confirmó; sin esto el agente lo rechaza (T-087).
+        #[serde(default)]
+        confirmed: bool,
+    },
+    /// Asistente (T-087): los monitores conectados ahora, juntados por monitor físico.
+    ScanMonitors,
+    AddMonitors {
+        monitors: Vec<NewMonitor>,
+    },
+    RemoveMonitor {
+        monitor: MonitorId,
+    },
+    /// «Restablecer puesto».
+    ResetDesk,
+    KeyProbe {
+        on: bool,
+    },
+    /// La ventana oyó una tecla durante la prueba.
+    HeardKey,
+    SetKeyboard {
+        machine: Machine,
+    },
+    PingPeer,
+    MarkManual {
+        monitor: MonitorId,
     },
     /// De dónde salió la configuración; contesta [`ActionResult::Setup`].
     GetSetup,
@@ -823,7 +907,24 @@ impl From<Action> for UiCommand {
             }
             Action::CancelCalibration => UiCommand::CancelCalibration,
             Action::UseProfile { display, monitor } => UiCommand::UseProfile { display, monitor },
-            Action::SetWiring { monitor, wiring } => UiCommand::SetWiring { monitor, wiring },
+            Action::SetWiring {
+                monitor,
+                wiring,
+                confirmed,
+            } => UiCommand::SetWiring {
+                monitor,
+                wiring,
+                confirmed,
+            },
+            Action::ScanMonitors => UiCommand::ScanMonitors,
+            Action::AddMonitors { monitors } => UiCommand::AddMonitors(monitors),
+            Action::RemoveMonitor { monitor } => UiCommand::RemoveMonitor { monitor },
+            Action::ResetDesk => UiCommand::ResetDesk,
+            Action::KeyProbe { on } => UiCommand::KeyProbe { on },
+            Action::HeardKey => UiCommand::HeardKey,
+            Action::SetKeyboard { machine } => UiCommand::SetKeyboard(machine),
+            Action::PingPeer => UiCommand::PingPeer,
+            Action::MarkManual { monitor } => UiCommand::MarkManual { monitor },
             Action::GetSetup => UiCommand::GetSetup,
             Action::ApplyMode { mode } => UiCommand::ApplyMode(mode),
             Action::SetShown { shows } => UiCommand::SetShown(shows),
@@ -855,6 +956,15 @@ pub enum ActionResult {
     Setup {
         setup: SetupInfo,
     },
+    /// Los monitores conectados ahora, para el asistente.
+    Scan {
+        scan: MonitorScan,
+    },
+    /// Lo que tardó el ping por el enlace.
+    Pong {
+        link: LinkView,
+        millis: u32,
+    },
 }
 
 impl From<Reply> for ActionResult {
@@ -866,6 +976,15 @@ impl From<Reply> for ActionResult {
                 displays: list.into_iter().map(Into::into).collect(),
             },
             Reply::Setup(setup) => ActionResult::Setup { setup },
+            Reply::Scan(scan) => ActionResult::Scan { scan },
+            Reply::Pong { link, millis } => ActionResult::Pong {
+                link: match link {
+                    Link::Usb4 => LinkView::Usb4,
+                    Link::Ethernet => LinkView::Ethernet,
+                    Link::Wifi => LinkView::Wifi,
+                },
+                millis,
+            },
             Reply::Done
             | Reply::State(_)
             | Reply::Desk(_)
@@ -969,6 +1088,7 @@ where
         retry: retry.clone(),
     };
     let runner = Runner {
+        all: std::sync::Mutex::new(Config { monitors: vec![] }),
         endpoint,
         sink,
         snapshot: snapshot_tx,
@@ -979,6 +1099,9 @@ where
 }
 
 struct Runner {
+    /// El puesto entero, para volver a repartirlo en conectado y no conectado cuando
+    /// cambian las capacidades (T-087).
+    all: std::sync::Mutex<Config>,
     endpoint: Option<String>,
     sink: Arc<dyn Sink>,
     snapshot: watch::Sender<Snapshot>,
@@ -1023,9 +1146,12 @@ impl Runner {
                     caps,
                 }) => {
                     let agent = client.agent();
+                    let (visible, hidden) = caps.split(&desk);
+                    *self.all.lock().unwrap_or_else(PoisonError::into_inner) = desk;
                     self.publish(Snapshot::Connected {
                         agent,
-                        desk,
+                        desk: visible,
+                        hidden,
                         state,
                         peer,
                         pairing,
@@ -1159,6 +1285,11 @@ impl Runner {
             AgentToUi::Input(status) => self.update_input(status.into()),
             AgentToUi::Desk(new) => self.update_desk(new),
             AgentToUi::Capabilities(new) => self.update_caps((*new).into()),
+            AgentToUi::KeyProbe(KeyProbeStatus { armed, heard }) => {
+                self.sink.notice(&Notice::KeyProbe {
+                    event: KeyProbeView { armed, heard },
+                });
+            }
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}
         }
@@ -1176,8 +1307,15 @@ impl Runner {
 
     fn update_desk(&self, new: Config) {
         self.update(|c| match c {
-            Snapshot::Connected { desk, .. } if *desk != new => {
-                *desk = new;
+            Snapshot::Connected {
+                desk, hidden, caps, ..
+            } => {
+                let split = caps.split(&new);
+                *self.all.lock().unwrap_or_else(PoisonError::into_inner) = new;
+                if (&*desk, &*hidden) == (&split.0, &split.1) {
+                    return false;
+                }
+                (*desk, *hidden) = split;
                 true
             }
             _ => false,
@@ -1214,7 +1352,11 @@ impl Runner {
 
     fn update_caps(&self, new: CapsView) {
         self.update(|c| match c {
-            Snapshot::Connected { caps, .. } if **caps != new => {
+            Snapshot::Connected {
+                caps, desk, hidden, ..
+            } if **caps != new => {
+                let all = self.all.lock().unwrap_or_else(PoisonError::into_inner);
+                (*desk, *hidden) = new.split(&all);
                 **caps = new;
                 true
             }
@@ -1396,6 +1538,7 @@ mac = "9c:6b:00:1a:2b:ff"
             handle.snapshot(),
             Snapshot::Connected {
                 agent: Machine::Mac,
+                hidden: vec![],
                 desk: a.agent.config().desk.clone(),
                 state: a.agent.state(),
                 peer: PeerView::Unpaired,
@@ -1429,6 +1572,18 @@ mac = "9c:6b:00:1a:2b:ff"
             "kind": "set_wiring",
             "monitor": "m32",
             "wiring": { "pc": "hdmi", "mac": "displayport" },
+        }))
+        .unwrap();
+        // Sin confirmación explícita del usuario el agente lo rechaza (T-087).
+        assert!(matches!(
+            handle.act(action).await,
+            ActionResult::Rejected { .. }
+        ));
+        let action: Action = serde_json::from_value(serde_json::json!({
+            "kind": "set_wiring",
+            "monitor": "m32",
+            "wiring": { "pc": "hdmi", "mac": "displayport" },
+            "confirmed": true,
         }))
         .unwrap();
         assert_eq!(handle.act(action).await, ActionResult::Done);
@@ -1809,6 +1964,7 @@ mac = "9c:6b:00:1a:2b:ff"
         let state = State::initial(&cfg.desk, Machine::Mac);
         let snap = Snapshot::Connected {
             agent: Machine::Mac,
+            hidden: vec![],
             desk: cfg.desk,
             state,
             peer: PeerView::Unpaired,
@@ -1820,6 +1976,7 @@ mac = "9c:6b:00:1a:2b:ff"
                 locked: false,
                 missing: vec![InputPermission::InputMonitoring],
                 problem: None,
+                defined: true,
             }
             .into(),
             caps: test_caps(Machine::Mac),
@@ -1846,6 +2003,7 @@ mac = "9c:6b:00:1a:2b:ff"
                 "locked": false,
                 "missing": ["input_monitoring"],
                 "problem": null,
+                "defined": true,
             })
         );
         assert_eq!(v["kind"], "connected");
@@ -2391,6 +2549,7 @@ mac = "9c:6b:00:1a:2b:ff"
         let (snapshot, _) = watch::channel(Snapshot::Connecting);
         let (_, actions) = mpsc::channel(1);
         let runner = Runner {
+            all: std::sync::Mutex::new(Config { monitors: vec![] }),
             endpoint: None,
             sink: rec.clone(),
             snapshot,

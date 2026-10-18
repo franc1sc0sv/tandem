@@ -151,6 +151,20 @@ impl Step {
         })
     }
 
+    /// Como [`Step::inverse`], pero sin quitar de una máquina el monitor que ya estaba
+    /// mostrando antes del plan (`start`): un `Attach` sobre un monitor que la máquina ya
+    /// tenía (un «Aplicar modo» con el estado sin confirmar) no se deshace con un `Detach`,
+    /// porque la dejaría sin imagen (T-087, DESIGN §8).
+    pub fn undo(&self, cfg: &Config, start: &State) -> Option<Step> {
+        let inv = self.inverse(cfg)?;
+        if let (Step::Attach { machine, monitor }, Step::Detach { .. }) = (self, &inv)
+            && start.owner.get(monitor) == Some(machine)
+        {
+            return None;
+        }
+        Some(inv)
+    }
+
     /// Refleja en `state` el efecto del paso ya aplicado.
     pub fn apply_to(&self, state: &mut State) {
         match self {
@@ -334,9 +348,8 @@ impl Plan {
     }
 
     /// El usuario dijo lo que muestra cada monitor (T-085): `from` es lo que creía Tandem
-    /// y `to`, lo corregido. No se manda ninguna entrada; cada máquina encendida pone en su
-    /// escritorio el monitor que muestra y quita el que no (el fantasma), y se recalcula
-    /// la geometría. Solo se tocan los monitores que cambiaron de dueño o estaban sin
+    /// y `to`, lo corregido. No se manda ninguna entrada; la máquina que lo muestra lo pone
+    /// en su escritorio (a la otra no se le quita nada) y se recalcula la geometría. Solo se tocan los monitores que cambiaron de dueño o estaban sin
     /// confirmar; uno en negro no se toca.
     pub fn follow(cfg: &Config, from: &State, to: &State) -> Plan {
         let mut steps = Vec::new();
@@ -348,15 +361,13 @@ impl Plan {
             if to.in_doubt(&m.id) || !(moved || from.in_doubt(&m.id)) {
                 continue;
             }
+            // Solo se agrega al escritorio de quien lo muestra. Quitarlo de la otra (el
+            // fantasma) espera al siguiente cambio de modo: ahí lo hace después de que el
+            // cambio de entrada de ese monitor tuvo éxito, y nunca por lo que diga una
+            // respuesta sin comprobar (T-087, DESIGN §8).
             if to.is_on(owner) {
                 steps.push(Step::Attach {
                     machine: owner,
-                    monitor: m.id.clone(),
-                });
-            }
-            if to.is_on(owner.other()) {
-                steps.push(Step::Detach {
-                    machine: owner.other(),
                     monitor: m.id.clone(),
                 });
             }
@@ -759,11 +770,10 @@ mod tests {
                 machine,
                 monitor: monitor.into()
             }));
-            assert!(steps.contains(&Step::Detach {
-                machine: machine.other(),
-                monitor: monitor.into()
-            }));
         }
+        // Lo que dijo el usuario no es un cambio de entrada que haya salido bien: a la otra
+        // máquina no se le quita nada (T-087).
+        assert!(!steps.iter().any(|s| matches!(s, Step::Detach { .. })));
         assert_eq!(steps.last(), Some(&Step::UpdateInputGeometry));
 
         // Ya confirmado, decir lo mismo no hace nada; un monitor en negro no se toca.
@@ -779,16 +789,8 @@ mod tests {
         let from = State::initial(&cfg, Machine::Mac);
         let mut to = from.clone();
         to.record_shown(&"m34".into(), Some(Machine::Pc));
-        let steps = Plan::follow(&cfg, &from, &to).steps;
-        assert_eq!(
-            steps,
-            [
-                Step::Detach {
-                    machine: Machine::Mac,
-                    monitor: "m34".into()
-                },
-                Step::UpdateInputGeometry
-            ]
-        );
+        // La PC está apagada: no hay escritorio que poner, y a la Mac no se le quita
+        // nada por lo que diga el usuario.
+        assert!(Plan::follow(&cfg, &from, &to).steps.is_empty());
     }
 }

@@ -62,7 +62,7 @@ pub async fn run<E: Executor>(
                         geometry = true;
                         continue;
                     }
-                    let Some(inv) = done.inverse(cfg) else {
+                    let Some(inv) = done.undo(cfg, &snapshot) else {
                         continue;
                     };
                     match exec.execute(&inv).await {

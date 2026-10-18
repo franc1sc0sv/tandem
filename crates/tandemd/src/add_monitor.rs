@@ -123,12 +123,9 @@ impl LiveDesk {
 /// `edid_model` coincide con ese monitor y con ningún otro.
 pub fn bind(desk: &Config, monitors: &[MonitorInfo], index: usize) -> Option<MonitorId> {
     let mut found = desk.monitors.iter().filter(|m| {
-        let Some(model) = m.edid_model.as_deref() else {
-            return false;
-        };
         let hits: Vec<usize> = monitors
             .iter()
-            .filter(|i| i.matches(model))
+            .filter(|i| m.models().any(|model| i.matches(model)))
             .map(|i| i.index)
             .collect();
         hits == [index]

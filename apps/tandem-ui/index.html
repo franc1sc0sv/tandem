@@ -16,6 +16,10 @@
           Tandem
         </div>
         <span class="spacer"></span>
+        <button type="button" class="pill btn" id="onboard-btn" hidden aria-haspopup="dialog" title="Asistente: configurar el puesto paso a paso, con cada paso verificado">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m4 12 5 5L20 6" /></svg>
+          Asistente
+        </button>
         <button type="button" class="pill btn" id="setup-btn" hidden aria-haspopup="dialog">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z" /><path d="m9 12 2 2 4-4" /></svg>
           Permisos
@@ -122,6 +126,8 @@
       <footer class="bottom" id="bottom" hidden>
         <!-- El estado sin confirmar (T-085): aplicar un modo o decir qué muestra cada monitor. -->
         <section class="confirm" id="confirm" hidden aria-live="polite" aria-label="Lo que muestra cada monitor"></section>
+        <!-- Monitores del puesto que ninguna máquina ve ahora (T-087): un aviso discreto. -->
+        <p class="hiddennote" id="hiddennote" hidden></p>
         <div class="modes" role="group" aria-label="Modos">
           <button type="button" class="mode" data-mode="mac">
             <div class="ico" aria-hidden="true"><span class="w" style="--c: var(--mac)"></span><span style="--c: var(--mac)"></span></div>
@@ -197,6 +203,17 @@
     <dialog class="addmon" id="deskcfg" aria-labelledby="deskcfg-title">
       <div class="abody" id="deskcfg-body" aria-live="polite"></div>
       <div class="kfoot" id="deskcfg-foot"></div>
+    </dialog>
+
+    <dialog class="addmon onboard" id="onboard" aria-labelledby="onboard-title">
+      <div class="ob-dots" id="onboard-dots" aria-hidden="true"></div>
+      <div class="abody" id="onboard-body" aria-live="polite"></div>
+      <div class="kfoot" id="onboard-foot"></div>
+    </dialog>
+
+    <dialog class="setup" id="ask" aria-labelledby="ask-title">
+      <div class="sbody" id="ask-body"></div>
+      <div class="kfoot" id="ask-foot"></div>
     </dialog>
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>

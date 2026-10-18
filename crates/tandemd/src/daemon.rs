@@ -80,6 +80,12 @@ pub fn start(
     };
     let agent = Arc::new(agent);
     agent.set_config_file(paths.config.clone());
+    // Los perfiles del usuario viven en el directorio de datos (se borran con su monitor).
+    agent.set_data_dir(&paths.data_dir);
+    // El asistente detecta de nuevo lo conectado con el detector del sistema.
+    if platform {
+        agent.set_scanner(Arc::new(crate::wizard::PlatformScanner(me)));
+    }
     // «Agregar monitor» calibra con el DDC de la PC, que es la que cambia las entradas.
     if platform && me == tandem_core::Machine::Pc {
         agent.set_wizard(Arc::new(MonitorWizard::new(

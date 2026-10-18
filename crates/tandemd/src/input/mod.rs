@@ -179,6 +179,7 @@ pub fn start(
     setup: InputSetup,
 ) -> Input {
     let cfg = &agent.config().input;
+    agent.set_input_engine();
     let me = agent.machine();
     // La config ya se validó al cargarla.
     let lock_keys = cfg.lock_keys().unwrap_or_default();
@@ -203,7 +204,7 @@ pub fn start(
         opts: setup.opts,
         lock_keys,
         link,
-        server: watch::Sender::new(cfg.keyboard),
+        server: watch::Sender::new(cfg.keyboard()),
         hub_here: watch::Sender::new(None),
         report: watch::Sender::new(None),
         screens: watch::Sender::new(Vec::new()),
@@ -357,11 +358,21 @@ async fn geometry(sh: Arc<Shared>) {
 
 /// Quién es el servidor.
 async fn roles(sh: Arc<Shared>, mut presence: Option<watch::Receiver<Presence>>) {
-    let mut arbiter = RoleArbiter::new(sh.me, sh.agent.config().input.keyboard);
+    let mut arbiter = RoleArbiter::new(sh.me, sh.agent.config().input.keyboard());
     let mut peer = sh.agent.inbox().hub.subscribe();
     let mut link = sh.link.clone();
     let mut state = sh.agent.subscribe();
+    // Lo que el usuario dijo en el asistente (T-087).
+    let mut declared = sh.agent.subscribe_keyboard();
+    let mut last_declared = *declared.borrow_and_update();
     loop {
+        let now = *declared.borrow_and_update();
+        if now != last_declared {
+            last_declared = now;
+            if let Some(machine) = now {
+                arbiter.declare(machine);
+            }
+        }
         if let Some(p) = presence.as_mut() {
             arbiter.set_local_hub(p.borrow_and_update().hub());
         }
@@ -409,6 +420,7 @@ async fn roles(sh: Arc<Shared>, mut presence: Option<watch::Receiver<Presence>>)
             () = changed(&mut peer) => {}
             () = changed(&mut link) => {}
             () = changed(&mut state) => {}
+            () = changed(&mut declared) => {}
         }
     }
 }
@@ -446,6 +458,16 @@ async fn permissions(sh: Arc<Shared>) {
     }
 }
 
+/// Se sabe dónde está el teclado si lo dijo el usuario o la configuración, si el hub de
+/// esta máquina se detecta o si la otra máquina reporta el suyo (T-087).
+fn keyboard_defined(
+    declared: Option<tandem_core::Machine>,
+    hub_here: Option<bool>,
+    peer_reports_hub: bool,
+) -> bool {
+    declared.is_some() || hub_here.is_some() || peer_reports_hub
+}
+
 /// Lo que ve la UI.
 async fn status(sh: Arc<Shared>) {
     let mut rx = (
@@ -457,13 +479,22 @@ async fn status(sh: Arc<Shared>) {
         sh.missing.subscribe(),
         sh.capture_problem.subscribe(),
         sh.inject_problem.subscribe(),
+        sh.agent.inbox().hub.subscribe(),
+        // Lo que el usuario declara en el asistente (T-087).
+        sh.agent.subscribe_keyboard(),
     );
     loop {
         let server = *rx.0.borrow_and_update();
         let is_server = server == sh.me;
+        // Cada lectura de un `watch` se copia aquí, fuera del literal: dos lecturas del mismo
+        // candado dentro de una expresión pueden bloquearse si entre ellas llega una
+        // escritura (el candado da prioridad a quien escribe).
+        let hub_here = *rx.1.borrow_and_update();
+        let peer_hub = rx.8.borrow_and_update().is_some();
+        let declared = *rx.9.borrow_and_update();
         let status = InputStatus {
             server,
-            hub_here: *rx.1.borrow_and_update(),
+            hub_here,
             session: if is_server {
                 *rx.2.borrow_and_update()
             } else {
@@ -476,6 +507,8 @@ async fn status(sh: Arc<Shared>) {
             } else {
                 rx.7.borrow_and_update().clone()
             },
+            // El hub, la configuración o el asistente lo dicen; si no, es «sin definir».
+            defined: keyboard_defined(declared, hub_here, peer_hub),
         };
         sh.agent.set_input_status(status);
         tokio::select! {
@@ -487,6 +520,8 @@ async fn status(sh: Arc<Shared>) {
             () = changed(&mut rx.5) => {}
             () = changed(&mut rx.6) => {}
             () = changed(&mut rx.7) => {}
+            () = changed(&mut rx.8) => {}
+            () = changed(&mut rx.9) => {}
         }
     }
 }
@@ -794,6 +829,19 @@ async fn clipboard(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<Incomin
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn the_keyboard_is_defined_by_the_user_or_any_hub_report() {
+        use super::keyboard_defined as f;
+        use tandem_core::Machine;
+        assert!(!f(None, None, false), "sin nada, sin definir");
+        assert!(f(Some(Machine::Pc), None, false));
+        assert!(f(None, Some(false), false), "el hub de aquí se detecta");
+        assert!(
+            f(None, None, true),
+            "el hub de la otra máquina también cuenta"
+        );
+    }
+
     use super::*;
 
     #[tokio::test]

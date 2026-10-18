@@ -21,6 +21,7 @@ use crate::config::AgentConfig;
 use crate::input::GeometrySteps;
 use crate::orchestrator::{LocalSteps, STEP_NOT_IMPLEMENTED, StepFuture, Unimplemented, describe};
 use crate::power::PowerSteps;
+use crate::safety::DetachLedger;
 
 /// Ejecutor local de los pasos de pantalla; el resto va a `others`.
 pub struct DisplaySteps {
@@ -34,6 +35,9 @@ pub struct DisplaySteps {
     others: Arc<dyn LocalSteps>,
     /// Los códigos DDC aprendidos al calibrar (T-080), por encima de los de `desk`.
     live: LiveDesk,
+    /// Lo que esta máquina quitó de su escritorio, para reactivarlo si el agente se cierra
+    /// a mitad de un cambio de modo (T-087).
+    ledger: Arc<DetachLedger>,
 }
 
 impl std::fmt::Debug for DisplaySteps {
@@ -57,7 +61,14 @@ impl DisplaySteps {
             desktop_turn: Arc::default(),
             others: Arc::new(Unimplemented),
             live: LiveDesk::default(),
+            ledger: Arc::new(DetachLedger::in_memory()),
         }
+    }
+
+    /// Dónde anotar las salidas que se quitan ([`DetachLedger`]).
+    pub fn with_ledger(mut self, ledger: Arc<DetachLedger>) -> Self {
+        self.ledger = ledger;
+        self
     }
 
     /// Lo que «Agregar monitor» aprende: el siguiente cambio de modo ya lo usa.
@@ -160,11 +171,26 @@ impl LocalSteps for DisplaySteps {
             let r = match step {
                 Step::SwitchInput { monitor, to, .. } => self.switch_input(monitor, *to).await,
                 Step::Attach { machine, monitor } => match self.monitor(monitor) {
-                    Ok(m) => self.on_desktop(*machine, move |d| d.attach(&m)).await,
+                    Ok(m) => {
+                        let r = self.on_desktop(*machine, move |d| d.attach(&m)).await;
+                        if r.is_ok() && *machine == self.me {
+                            self.ledger.attached(monitor);
+                        }
+                        r
+                    }
                     Err(e) => Err(e),
                 },
                 Step::Detach { machine, monitor } => match self.monitor(monitor) {
-                    Ok(m) => self.on_desktop(*machine, move |d| d.detach(&m)).await,
+                    Ok(m) => {
+                        // Solo se anota lo que esta máquina quita de su propio escritorio.
+                        // Primero se anota y después se quita: si el agente muere en
+                        // medio, al arrancar se reactiva. Un error no borra la nota (puede
+                        // ser incierto, como un tiempo agotado): reactivar de más es inocuo.
+                        if *machine == self.me {
+                            self.ledger.detached(monitor);
+                        }
+                        self.on_desktop(*machine, move |d| d.detach(&m)).await
+                    }
                     Err(e) => Err(e),
                 },
                 Step::SetBuiltin { to, .. } => {
@@ -315,6 +341,35 @@ mod tests {
                 .unwrap(),
             by: Machine::Pc,
         }
+    }
+
+    #[tokio::test]
+    async fn a_failed_or_foreign_detach_never_clears_or_writes_the_ledger_wrongly() {
+        let ledger = Arc::new(DetachLedger::in_memory());
+        let desktop = Arc::new(Desktop::default());
+        let mac = DisplaySteps::new(Machine::Mac, desk())
+            .with_desktop(desktop.clone())
+            .with_ledger(ledger.clone());
+        // Un Detach de la otra máquina no es de aquí: ni se ejecuta ni se anota.
+        let foreign = Step::Detach {
+            machine: Machine::Pc,
+            monitor: "m34".into(),
+        };
+        assert!(mac.execute(&foreign).await.is_err());
+        assert!(ledger.pending().is_empty());
+        // Uno propio se anota y se queda anotado hasta que un Attach exitoso lo limpie.
+        let own = Step::Detach {
+            machine: Machine::Mac,
+            monitor: "m34".into(),
+        };
+        mac.execute(&own).await.unwrap();
+        assert_eq!(ledger.pending().len(), 1);
+        let attach = Step::Attach {
+            machine: Machine::Mac,
+            monitor: "m34".into(),
+        };
+        mac.execute(&attach).await.unwrap();
+        assert!(ledger.pending().is_empty());
     }
 
     #[tokio::test]

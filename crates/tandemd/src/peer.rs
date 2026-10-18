@@ -357,6 +357,13 @@ async fn respond<C: ControlChannel>(
             }
             ControlMsg::Capabilities(caps) => agent.set_peer_capabilities(caps),
             ControlMsg::Desk(sync) => agent.receive_desk(sync),
+            ControlMsg::KeyProbe(msg) => agent.receive_key_probe(msg),
+            ControlMsg::Keyboard(machine) => agent.receive_keyboard(machine),
+            // Detectar bloquea (abre la topología y el bus DDC): fuera del runtime.
+            ControlMsg::Rescan => {
+                let agent = agent.clone();
+                tokio::task::spawn_blocking(move || agent.rescan());
+            }
             // Solo vale como primer mensaje ([`accept_streams`]).
             ControlMsg::Open(channel) => {
                 return Err(format!("canal {channel:?} abierto a mitad de un stream"));

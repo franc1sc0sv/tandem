@@ -236,6 +236,16 @@ impl DisplayTopology for WindowsTopology {
                 .is_some_and(|p| {
                     p.targetInfo.outputTechnology == DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL
                 });
+            let output = cfg
+                .paths
+                .iter()
+                .find(|p| {
+                    luid_to_u64(p.targetInfo.adapterId) == target.adapter
+                        && p.targetInfo.id == target.target
+                })
+                .and_then(|p| {
+                    crate::topology::input_of_windows_output(p.targetInfo.outputTechnology.0)
+                });
             out.push(Display {
                 id: target,
                 name,
@@ -247,6 +257,7 @@ impl DisplayTopology for WindowsTopology {
                 active,
                 // Los clones de Windows no se usan: el espejo es cosa de la Mac.
                 mirror_of: None,
+                output,
                 bounds,
             });
         }

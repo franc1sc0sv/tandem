@@ -305,6 +305,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
         let s = state(Mac, Mac);
         let ok = Snapshot::Connected {
             agent: Mac,
+            hidden: vec![],
             desk: d,
             state: s,
             peer: PeerView::Unpaired,
@@ -345,6 +346,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
     fn menu_marks_the_current_mode() {
         let v = MenuView::of(&Snapshot::Connected {
             agent: Mac,
+            hidden: vec![],
             desk: desk(),
             state: state(Pc, Mac),
             peer: paired(),
@@ -359,6 +361,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
 
         let off = MenuView::of(&Snapshot::Connected {
             agent: Mac,
+            hidden: vec![],
             desk: desk(),
             state: State::initial(&desk(), Machine::Mac).confirmed(),
             peer: paired(),
@@ -371,6 +374,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
         // Sin par, el menú lo dice: la PC no va a responder.
         let alone = MenuView::of(&Snapshot::Connected {
             agent: Mac,
+            hidden: vec![],
             desk: desk(),
             state: State::initial(&desk(), Machine::Mac).confirmed(),
             peer: PeerView::Unpaired,
@@ -383,6 +387,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
         // Sin estado guardado (T-085): ningún modo marcado, pero se pueden elegir.
         let fresh = MenuView::of(&Snapshot::Connected {
             agent: Mac,
+            hidden: vec![],
             desk: desk(),
             state: State::initial(&desk(), Machine::Mac),
             peer: paired(),
@@ -399,6 +404,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
         s.owner.values_mut().for_each(|o| *o = Pc);
         let on_pc = MenuView::of(&Snapshot::Connected {
             agent: Pc,
+            hidden: vec![],
             desk: desk(),
             state: s,
             peer: paired(),
@@ -424,6 +430,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
         }
         let empty = Snapshot::Connected {
             agent: Mac,
+            hidden: vec![],
             desk: Config { monitors: vec![] },
             state: state(Mac, Mac),
             peer: paired(),

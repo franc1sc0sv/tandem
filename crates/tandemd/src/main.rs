@@ -63,27 +63,13 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
     let log = logging::init(&paths.log_dir()).context("no se pudo iniciar el log")?;
     tracing::info!(version = env!("CARGO_PKG_VERSION"), log = %log.display(), "tandemd arranca");
 
-    // Sin `tandem.toml`, se genera con lo que se detecta (T-082): no hay que escribirlo.
-    let db = tandem_display::ddc::profiles::ProfileDb::load(Some(
-        &tandem_display::ddc::profiles::user_dir(&paths.data_dir),
-    ));
+    // Sin `tandem.toml`, se genera vacío (T-087): los monitores los agrega el asistente.
     let machine = autoconfig::machine_of_os();
-    // Lo detectado sirve dos veces: para generar el `tandem.toml` si falta y para anunciar
-    // los monitores que ve esta máquina (T-084). Se detecta una sola vez, aquí: bloquea.
-    let mut scanned = None;
-    let loaded = autoconfig::load_or_generate(
-        &paths.config,
-        machine,
-        || {
-            let r = machine.map_or(Ok(Vec::new()), autoconfig::platform_scan);
-            scanned = Some(r.clone());
-            r
-        },
-        &db,
-    )?;
+    let loaded = autoconfig::load_or_generate(&paths.config, machine)?;
     // Con backends simulados, esta máquina no toca monitores: no se anuncia lo que ve.
+    // Se detecta una sola vez aquí (bloquea) para anunciar lo que esta máquina ve conectado.
     let seen = machine.filter(|_| !args.sim_backends).and_then(|m| {
-        match scanned.unwrap_or_else(|| autoconfig::platform_scan(m)) {
+        match autoconfig::platform_scan(m) {
             Ok(detected) => Some(autoconfig::seen(&detected)),
             Err(e) => {
                 // Sin detección se anuncian los monitores del puesto.

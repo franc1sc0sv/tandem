@@ -53,9 +53,11 @@ pub mod paths;
 pub mod peer;
 pub mod peer_watch;
 pub mod power;
+pub mod safety;
 #[cfg(feature = "sim-backends")]
 pub mod sim;
 pub mod store;
+pub mod wizard;
 
 pub use agent::{Agent, PairingControl};
 pub use calibration::{AgentConfirmer, ProbeBoard};

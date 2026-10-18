@@ -1,5 +1,7 @@
 # Samsung Odyssey G5 32". docs/research/ddc-32-odyssey-g5.md
 pnp_id = "SAM7489"
+# La Mac lo ve por HDMI con otro id: el EDID cambia según la entrada (T-087).
+pnp_aliases = ["SAM748A"]
 name = "Odyssey G5 32\" (SAM7489)"
 edid_names = ["Odyssey G5"]
 # "Odyssey G5" lo comparten varios modelos: solo se reconoce por el id PnP.

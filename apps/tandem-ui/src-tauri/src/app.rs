@@ -609,7 +609,9 @@ fn choose_mode(app: &AppHandle, key: ModeKey) {
             ActionResult::Accepted { .. }
             | ActionResult::Done
             | ActionResult::Displays { .. }
-            | ActionResult::Setup { .. } => {}
+            | ActionResult::Setup { .. }
+            | ActionResult::Scan { .. }
+            | ActionResult::Pong { .. } => {}
         }
     });
 }

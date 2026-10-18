@@ -291,3 +291,92 @@ async fn el_par_que_cierra_el_stream_termina_la_sesion() {
     let (_, end) = within(pc.task).await.unwrap();
     assert!(matches!(end, SyncEnd::Link(_)), "{end}");
 }
+
+/// El portapapeles de Windows ocupado por otra app («being held by another party»): la
+/// lectura falla un rato. Cada falla seguida espera el doble (T-087), no se reintenta en
+/// cada vuelta del sondeo, y apenas se libera la copia llega al otro lado.
+mod ocupado {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use tandem_clipboard::Clipboard;
+
+    use super::*;
+
+    /// Un portapapeles que no deja leer las primeras `busy` veces.
+    struct Busy {
+        inner: FakeClipboard,
+        busy: u32,
+        attempts: Arc<AtomicU32>,
+        at: Arc<Mutex<Vec<std::time::Instant>>>,
+    }
+
+    impl Clipboard for Busy {
+        type Error = String;
+
+        fn change_count(&mut self) -> Result<u64, String> {
+            self.inner.change_count().map_err(|e| match e {})
+        }
+
+        fn read(&mut self) -> Result<Option<ClipContent>, String> {
+            let n = self.attempts.fetch_add(1, Ordering::SeqCst);
+            self.at.lock().unwrap().push(std::time::Instant::now());
+            if n < self.busy {
+                return Err("Clipboard occupied: being held by another party".into());
+            }
+            self.inner.read().map_err(|e| match e {})
+        }
+
+        fn write(&mut self, content: &ClipContent) -> Result<(), String> {
+            self.inner.write(content).map_err(|e| match e {})
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn la_lectura_ocupada_reintenta_con_espera_progresiva() {
+        let l = link().await;
+        let (ms, ps) = streams(&l).await;
+        let mac_cb = FakeClipboard::new();
+        let pc_cb = FakeClipboard::new();
+        let attempts = Arc::new(AtomicU32::new(0));
+        let at = Arc::new(Mutex::new(Vec::new()));
+        // Ocupado en las 4 primeras lecturas (la de arranque y tres más).
+        let busy = Busy {
+            inner: mac_cb.clone(),
+            busy: 4,
+            attempts: attempts.clone(),
+            at: at.clone(),
+        };
+        let mac = ClipDriver::new(busy, cfg(), true);
+        let pc = ClipDriver::new(pc_cb.clone(), cfg(), false);
+        let (stop, rx) = oneshot::channel::<()>();
+        let mac_task = tokio::spawn(async move {
+            let mut mac = mac;
+            let end = mac
+                .run(ms, async {
+                    let _ = rx.await;
+                })
+                .await;
+            (mac, end)
+        });
+        let pc = spawn(pc, ps);
+
+        mac_cb.copy(Some(rich("tras la espera")));
+        wait_state(&pc_cb, |s| !s.writes.is_empty()).await;
+        assert_eq!(pc_cb.state().content, Some(rich("tras la espera")));
+
+        // 4 fallos y un acierto, no un reintento por cada vuelta de 5 ms; y cada espera
+        // es mayor que la anterior (5, 10, 20, 40 ms de base).
+        let times = at.lock().unwrap().clone();
+        assert!(times.len() <= 8, "{} lecturas", times.len());
+        let gaps: Vec<Duration> = times.windows(2).map(|w| w[1] - w[0]).collect();
+        assert!(
+            gaps[3] >= Duration::from_millis(35),
+            "la cuarta espera debía ser de unos 40 ms: {gaps:?}"
+        );
+
+        let _ = stop.send(());
+        let _ = within(mac_task).await.unwrap();
+        pc.stop().await;
+    }
+}
