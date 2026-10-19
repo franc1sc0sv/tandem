@@ -86,6 +86,14 @@ const MAC = isMacPlatform();
 // ---------------------------------------------------------------------------------------
 // Estado
 
+/** Lo que la guía muestra del agente: re-dibujarla solo si cambia, para no quitarle el foco al teclado. */
+function permissionsKey(s: Snapshot): string {
+  if (s.kind !== "connected") return "";
+  const i = s.caps.here.input;
+  return `${i.missing.join(",")}|${i.process.pid}|${i.process.started}`;
+}
+let lastPermissionsKey = "";
+
 function setSnapshot(next: Snapshot) {
   const pairingBefore = lastPairing;
   lastPairing = next.kind === "connected" ? next.pairing : null;
@@ -102,7 +110,8 @@ function setSnapshot(next: Snapshot) {
   syncPair(pairingBefore);
   onboard?.onSnapshot(next);
   // La guía de permisos muestra lo que el agente sabe: se pone al día con cada estado (T-090).
-  if (wizard && $<HTMLDialogElement>("#setup").open) renderSetup();
+  if (wizard && $<HTMLDialogElement>("#setup").open && permissionsKey(next) !== lastPermissionsKey) renderSetup();
+  lastPermissionsKey = permissionsKey(next);
   // Instalación limpia (o puesto restablecido): el asistente se abre solo.
   if (next.kind === "connected" && !$<HTMLDialogElement>("#setup").open) onboard?.maybeOpen(next);
 }

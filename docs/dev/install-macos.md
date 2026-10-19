@@ -111,6 +111,10 @@ macOS concede estos permisos a un binario concreto, y el que cuenta es el que co
 5. Si estaba activado y sigue faltando, la entrada es de otra versión o ruta: quítala con
    **−**, pulsa **Pedir permisos** y reinicia el agente.
 
+Dos avisos: **Reiniciar agente** con el permiso todavía sin conceder lo vuelve a pedir en el
+proceso nuevo, y macOS puede mostrar su diálogo otra vez. Y el protocolo v13 exige actualizar
+Mac y PC a la vez: un agente v12 rechaza el enlace con `IncompatibleVersion`.
+
 Verificación en hardware pendiente de este flujo: `docs/tasks/T-090.md`.
 
 En Accesibilidad y Monitorización de entrada, si `tandemd` no aparece en la lista, pulsa **+**

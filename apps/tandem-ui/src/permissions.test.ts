@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 
 import type { MachineCaps } from "./model";
-import { MISSING_HELP, PERMISSION_NAMES, agentBinary, grantTo, permissionLabel, permissionState } from "./permissions";
+import { MISSING_HELP, PERMISSION_NAMES, agentBinary, grantTo, permissionLabel, permissionState, pressPermission } from "./permissions";
 
 function mac(exe: string): MachineCaps {
   return {
@@ -51,4 +51,35 @@ it("el estado de un permiso sale de lo que anuncia el agente", () => {
   // La red local la pregunta macOS solo; el agente no la comprueba.
   expect(permissionState(here, "local_network")).toBe("unknown");
   expect(permissionState(null, "accessibility")).toBe("unknown");
+});
+
+const deps = (over: Partial<Parameters<typeof pressPermission>[1]> = {}) => ({
+  request: async () => ({ kind: "done" as const }),
+  restartAgent: async () => {},
+  openSettings: async () => {},
+  ...over,
+});
+
+it("«Pedir permisos» devuelve la razón si el agente la rechaza", async () => {
+  expect(await pressPermission("request", deps())).toEqual({ error: null });
+  const r = await pressPermission("request", deps({ request: async () => ({ kind: "rejected" as const, reason: "no" }) }));
+  expect(r.error).toBe("no");
+});
+
+it("«Reiniciar agente» avisa solo si de verdad reinició", async () => {
+  const ok = await pressPermission("restart", deps());
+  expect(ok.error).toBeNull();
+  expect(ok.message).toContain("se reinicia");
+  const none = await pressPermission("restart", deps({ restartAgent: null }));
+  expect(none.message).toBeUndefined();
+  expect(none.error).toContain("No se pudo reiniciar");
+  const bad = await pressPermission("restart", deps({ restartAgent: async () => { throw new Error("launchctl"); } }));
+  expect(bad.message).toBeUndefined();
+  expect(bad.error).toContain("launchctl");
+});
+
+it("cualquier otro botón de permisos abre el panel de Ajustes", async () => {
+  let opened = 0;
+  await pressPermission("accessibility", deps({ openSettings: async () => { opened++; } }));
+  expect(opened).toBe(1);
 });

@@ -32,6 +32,7 @@ import {
   type VerifyEffect,
   type VerifyEvent,
 } from "./onboarding";
+import { pressPermission } from "./permissions";
 import { modeRequest, type ModeKey } from "./scene";
 
 /** Cada cuánto se vuelve a buscar mientras el paso de monitores está a la vista. */
@@ -190,21 +191,15 @@ export function initOnboarding(host: Host): Onboard {
     const [kind, a, c] = id.split(":");
     switch (kind) {
       case "perm": {
-        // «Pedir permisos» y «Reiniciar agente» (T-090); el resto abre el panel de Ajustes.
-        if (a === "request") {
-          const why = reasonOf(await host.request({ kind: "request_permissions" }));
-          return set({ ...o, error: why });
-        }
-        if (a === "restart") {
-          try {
-            await host.bridge()?.restartAgent();
-            host.message("tandemd se reinicia: en unos segundos se vuelven a comprobar los permisos");
-            return set({ ...o, error: null });
-          } catch (e) {
-            return set({ ...o, error: `No se pudo reiniciar el agente: ${e instanceof Error ? e.message : String(e)}` });
-          }
-        }
-        await host.bridge()?.openSettings(a as Permission);
+        // «Pedir permisos», «Reiniciar agente» y los paneles de Ajustes (T-090).
+        const bridge = host.bridge();
+        const r = await pressPermission(a!, {
+          request: () => host.request({ kind: "request_permissions" }),
+          restartAgent: bridge ? () => bridge.restartAgent() : null,
+          openSettings: bridge ? () => bridge.openSettings(a as Permission) : null,
+        });
+        if (r.message) host.message(r.message);
+        if (a === "request" || a === "restart") set({ ...o, error: r.error });
         return;
       }
       case "pair": {

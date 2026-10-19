@@ -1,7 +1,7 @@
 // Los permisos de macOS tal como el usuario los ve: el nombre en español y el del panel en
 // inglés (la Mac puede estar en inglés), y a qué binario se conceden (T-090). Sin DOM.
 
-import type { MachineCaps, Permission } from "./model";
+import type { ActionResult, MachineCaps, Permission } from "./model";
 
 export const PERMISSION_NAMES: Record<Permission, { es: string; en: string }> = {
   accessibility: { es: "Accesibilidad", en: "Accessibility" },
@@ -48,3 +48,34 @@ export const MISSING_HELP = [
   "3. Pulsa «Reiniciar agente» para que valga el permiso recién dado.",
   "Si ya estaba activado y sigue faltando, quita la entrada vieja con «−», pulsa «Pedir permisos» y reinicia el agente.",
 ].join(" ");
+
+/** Lo que hacen los botones de permisos, sin DOM: cada uno devuelve el error a mostrar y el aviso. */
+export interface PermissionDeps {
+  request(): Promise<ActionResult>;
+  /** `null` fuera de la app (no hay con qué reiniciar el agente). */
+  restartAgent: (() => Promise<void>) | null;
+  openSettings: (() => Promise<void>) | null;
+}
+
+export interface PermissionOutcome {
+  error: string | null;
+  message?: string;
+}
+
+export async function pressPermission(action: string, d: PermissionDeps): Promise<PermissionOutcome> {
+  if (action === "request") {
+    const r = await d.request();
+    return { error: r.kind === "rejected" ? r.reason : r.kind === "unavailable" ? `sin agente: ${r.reason}` : null };
+  }
+  if (action === "restart") {
+    if (!d.restartAgent) return { error: "No se pudo reiniciar el agente: la app no está disponible" };
+    try {
+      await d.restartAgent();
+      return { error: null, message: "tandemd se reinicia: en unos segundos se vuelven a comprobar los permisos" };
+    } catch (e) {
+      return { error: `No se pudo reiniciar el agente: ${e instanceof Error ? e.message : String(e)}` };
+    }
+  }
+  await d.openSettings?.();
+  return { error: null };
+}
