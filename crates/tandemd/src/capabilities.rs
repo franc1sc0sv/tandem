@@ -13,7 +13,7 @@
 use std::collections::BTreeSet;
 
 use tandem_core::{Abilities, Config, Machine, MonitorConfig, MonitorId};
-use tandem_proto::{Capabilities, InputCaps, InputStatus, MonitorCaps, PowerCaps};
+use tandem_proto::{Capabilities, InputCaps, InputStatus, MonitorCaps, PowerCaps, ProcessInfo};
 
 use crate::config::AgentConfig;
 
@@ -85,6 +85,20 @@ impl Seen {
     }
 }
 
+/// El proceso que corre ahora: macOS concede los permisos a este binario exacto, así que la
+/// UI lo muestra tal cual (T-090).
+pub fn current_process() -> ProcessInfo {
+    ProcessInfo {
+        exe: std::env::current_exe()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default(),
+        pid: std::process::id(),
+        started: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs()),
+    }
+}
+
 /// Lo que esta máquina anuncia. `seen` son los monitores que detectó al arrancar
 /// ([`crate::autoconfig::seen`]), atados al puesto por su id PnP o su modelo; sin detección (pruebas, Linux, un backend que falló) se
 /// toman los del puesto.
@@ -98,6 +112,7 @@ pub fn local(
     desk: &Config,
     seen: Option<&[Seen]>,
     input: &InputStatus,
+    process: &ProcessInfo,
 ) -> Capabilities {
     let me = cfg.machine;
     let switch = |m: Option<&MonitorConfig>| {
@@ -165,6 +180,7 @@ pub fn local(
             capture: works,
             inject: works,
             missing: input.missing.clone(),
+            process: process.clone(),
         },
         power: PowerCaps {
             wake_peer: cfg.power.wol.is_some(),
@@ -281,7 +297,13 @@ mod tests {
     fn caps(machine: Machine) -> Capabilities {
         let mut cfg = fixtures::desk_with_wol();
         cfg.machine = machine;
-        local(&cfg, &cfg.desk, None, &InputStatus::new(Machine::Mac))
+        local(
+            &cfg,
+            &cfg.desk,
+            None,
+            &InputStatus::new(Machine::Mac),
+            &ProcessInfo::default(),
+        )
     }
 
     fn without_wol(machine: Machine) -> Capabilities {
@@ -304,7 +326,13 @@ mod tests {
         assert_eq!(mac.os, std::env::consts::OS);
         let mut cfg = fixtures::desk();
         cfg.machine = Machine::Pc;
-        let c = local(&cfg, &cfg.desk, None, &InputStatus::new(Machine::Pc));
+        let c = local(
+            &cfg,
+            &cfg.desk,
+            None,
+            &InputStatus::new(Machine::Pc),
+            &ProcessInfo::default(),
+        );
         assert!(!c.power.wake_peer, "sin [power.wol] no despierta a nadie");
     }
 
@@ -338,7 +366,13 @@ mod tests {
                 ..Seen::default()
             },
         ];
-        let c = local(&cfg, &cfg.desk, Some(&seen), &InputStatus::new(Machine::Pc));
+        let c = local(
+            &cfg,
+            &cfg.desk,
+            Some(&seen),
+            &InputStatus::new(Machine::Pc),
+            &ProcessInfo::default(),
+        );
         assert_eq!(c.monitors[0].monitor, Some(first.id));
         assert!(c.monitors[0].switch && c.monitors[0].ddc);
         assert_eq!(c.monitors[1].monitor, None);
@@ -371,7 +405,13 @@ mod tests {
             name: "34\"".into(),
             ..Seen::default()
         }];
-        let c = local(&cfg, &cfg.desk, Some(&seen), &InputStatus::new(Machine::Pc));
+        let c = local(
+            &cfg,
+            &cfg.desk,
+            Some(&seen),
+            &InputStatus::new(Machine::Pc),
+            &ProcessInfo::default(),
+        );
         assert_eq!(c.monitors[0].monitor, Some("m34".into()));
         assert_eq!(c.monitors[0].pnp_id.as_deref(), Some("SAM711A"));
         assert_eq!(
@@ -380,6 +420,28 @@ mod tests {
             "sin duplicar el 34\": {:?}",
             c.monitors
         );
+    }
+
+    #[test]
+    fn the_running_process_is_announced_with_the_input_caps() {
+        let cfg = fixtures::desk();
+        let process = ProcessInfo {
+            exe: "/Applications/Tandem.app/Contents/MacOS/tandemd".into(),
+            pid: 77,
+            started: 5,
+        };
+        let c = local(
+            &cfg,
+            &cfg.desk,
+            None,
+            &InputStatus::new(Machine::Mac),
+            &process,
+        );
+        assert_eq!(c.input.process, process);
+        // El de verdad: esta misma prueba, con su pid y un ejecutable no vacío.
+        let now = current_process();
+        assert_eq!(now.pid, std::process::id());
+        assert!(!now.exe.is_empty() && now.started > 0);
     }
 
     #[test]
@@ -395,7 +457,7 @@ mod tests {
         m32.wiring.remove(&Machine::Pc);
         m32.edid_model = Some("SAM7489".into());
         let input = InputStatus::new(Machine::Pc);
-        let c = local(&cfg, &cfg.desk, Some(&[]), &input);
+        let c = local(&cfg, &cfg.desk, Some(&[]), &input, &ProcessInfo::default());
         assert_eq!(c.monitors.len(), 1, "{:?}", c.monitors);
         assert_eq!(c.monitors[0].monitor, Some("m34".into()));
         // Detectado (le llega señal por otro lado) sigue sin cambiarse desde aquí.
@@ -405,7 +467,13 @@ mod tests {
             name: "32".into(),
             ..Seen::default()
         }];
-        let c = local(&cfg, &cfg.desk, Some(&seen), &input);
+        let c = local(
+            &cfg,
+            &cfg.desk,
+            Some(&seen),
+            &input,
+            &ProcessInfo::default(),
+        );
         let m32 = c
             .monitors
             .iter()
@@ -413,7 +481,7 @@ mod tests {
             .unwrap();
         assert!(!m32.switch && !m32.ddc);
         // Sin detección, tampoco se dice que se lo pueda cambiar.
-        let c = local(&cfg, &cfg.desk, None, &input);
+        let c = local(&cfg, &cfg.desk, None, &input, &ProcessInfo::default());
         let m32 = c
             .monitors
             .iter()

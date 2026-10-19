@@ -206,6 +206,15 @@ pub struct InputCapsView {
     pub capture: bool,
     pub inject: bool,
     pub missing: Vec<PermissionView>,
+    /// El binario al que macOS concede los permisos (T-090).
+    pub process: ProcessView,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProcessView {
+    pub exe: String,
+    pub pid: u32,
+    pub started: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -251,6 +260,11 @@ impl From<Capabilities> for MachineView {
                 capture: c.input.capture,
                 inject: c.input.inject,
                 missing: c.input.missing.into_iter().map(permission_view).collect(),
+                process: ProcessView {
+                    exe: c.input.process.exe,
+                    pid: c.input.process.pid,
+                    started: c.input.process.started,
+                },
             },
             power: PowerCapsView {
                 wake_peer: c.power.wake_peer,
@@ -302,7 +316,13 @@ pub fn test_caps(machine: Machine) -> Box<CapsView> {
     )
     .unwrap_or_else(|e| panic!("{e}"));
     cfg.machine = machine;
-    let here = tandemd::capabilities::local(&cfg, &cfg.desk, None, &InputStatus::new(machine));
+    let here = tandemd::capabilities::local(
+        &cfg,
+        &cfg.desk,
+        None,
+        &InputStatus::new(machine),
+        &Default::default(),
+    );
     Box::new(CapsView {
         here: here.into(),
         peer: None,
@@ -870,6 +890,8 @@ pub enum Action {
         machine: Machine,
     },
     PingPeer,
+    /// «Pedir permisos» (T-090): macOS muestra su diálogo a nombre de `tandemd`.
+    RequestPermissions,
     MarkManual {
         monitor: MonitorId,
         #[serde(default)]
@@ -932,6 +954,7 @@ impl From<Action> for UiCommand {
             Action::HeardKey => UiCommand::HeardKey,
             Action::SetKeyboard { machine } => UiCommand::SetKeyboard(machine),
             Action::PingPeer => UiCommand::PingPeer,
+            Action::RequestPermissions => UiCommand::RequestPermissions,
             Action::MarkManual {
                 monitor,
                 discard_codes,

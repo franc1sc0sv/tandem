@@ -84,11 +84,38 @@ correspondiente de **Ajustes del Sistema → Privacidad y seguridad**; se vuelve
 botón **Permisos**. Al pulsar **Terminar** queda marcada en
 `~/Library/Application Support/Tandem/setup.done` y no vuelve a salir sola.
 
-| Permiso | Para qué | Panel |
+| Permiso (macOS en inglés) | Para qué | Panel |
 |---|---|---|
-| Accesibilidad | Inyectar teclado y mouse que llegan de la PC; «Traer ventanas» | `Privacy_Accessibility` |
-| Monitorización de entrada | Capturar teclado y mouse de la Mac para mandarlos a la PC | `Privacy_ListenEvent` |
-| Red local | Descubrir la PC por mDNS (`_tandem._udp`) y hablar con ella por QUIC | `Privacy_LocalNetwork` |
+| Accesibilidad (Accessibility) | Inyectar teclado y mouse que llegan de la PC; «Traer ventanas» | `Privacy_Accessibility` |
+| Monitorización de entrada (Input Monitoring) | Capturar teclado y mouse de la Mac para mandarlos a la PC | `Privacy_ListenEvent` |
+| Red local (Local Network) | Descubrir la PC por mDNS (`_tandem._udp`) y hablar con ella por QUIC | `Privacy_LocalNetwork` |
+
+### Flujo para conceder Accesibilidad y Monitorización de entrada (T-090)
+
+macOS concede estos permisos a un binario concreto, y el que cuenta es el que corre:
+`tandemd`, lanzado por el LaunchAgent. Por eso la app no depende de agregarlo a mano:
+
+1. Al arrancar, `tandemd` pide una vez los permisos que faltan (macOS muestra su diálogo, y
+   así registra el binario real). Después solo los pide con el botón **Pedir permisos**,
+   nunca en bucle.
+2. El paso 1 del asistente («Esta máquina») y la guía **Permisos** muestran el estado que
+   informa el agente, y «Concede el permiso a este binario: `<ruta>` (pid N)». Esa ruta y ese
+   pid son los del proceso que está corriendo, no una suposición.
+3. Concede el permiso en **System Settings → Privacy & Security → Accessibility** y **Input
+   Monitoring** (Ajustes del Sistema → Privacidad y seguridad → Accesibilidad / Monitorización
+   de entrada). Si `tandemd` no aparece, pulsa **Pedir permisos** primero; como último recurso
+   **+** y la ruta mostrada (⌘⇧G para escribirla).
+4. Pulsa **Reiniciar agente** (`launchctl kickstart -k`, sin terminal): macOS evalúa parte de
+   los permisos una vez por proceso, así que lo concedido vale en el proceso nuevo (el pid
+   cambia). El aviso «faltan permisos» desaparece solo.
+5. Si estaba activado y sigue faltando, la entrada es de otra versión o ruta: quítala con
+   **−**, pulsa **Pedir permisos** y reinicia el agente.
+
+Dos avisos: **Reiniciar agente** con el permiso todavía sin conceder lo vuelve a pedir en el
+proceso nuevo, y macOS puede mostrar su diálogo otra vez. Y el protocolo v14 exige actualizar
+Mac y PC a la vez: un agente v13 rechaza el enlace con `IncompatibleVersion`.
+
+Verificación en hardware pendiente de este flujo: `docs/tasks/T-090.md`.
 
 En Accesibilidad y Monitorización de entrada, si `tandemd` no aparece en la lista, pulsa **+**
 y elige `/Applications/Tandem.app/Contents/MacOS/tandemd` (⌘⇧G para escribir la ruta). La
@@ -165,5 +192,4 @@ local.
 
 - Binario universal (Intel + Apple Silicon): hoy el `.dmg` es de la arquitectura de la Mac
   que lo construye (`TANDEM_TARGET=x86_64-apple-darwin` para Intel).
-- Que la guía muestre si cada permiso ya está concedido: lo sabe `tandemd`, no la app, y la
-  IPC todavía no lo informa.
+- Verificar en la Mac el flujo de permisos de T-090 (ver su sección de hardware pendiente).

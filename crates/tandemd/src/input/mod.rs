@@ -451,10 +451,29 @@ async fn report(sh: Arc<Shared>) {
     }
 }
 
+/// Mantiene al día los permisos que faltan y los pide al sistema dos veces como máximo sin
+/// que el usuario lo ordene: una al arrancar, si falta alguno (macOS así registra el binario
+/// que realmente corre y muestra su diálogo), y después solo por orden explícita de la UI
+/// ([`UiCommand::RequestPermissions`]). Nunca en bucle: cada pedido es un diálogo.
 async fn permissions(sh: Arc<Shared>) {
+    let mut asks = sh.agent.subscribe_permission_requests();
+    asks.borrow_and_update();
+    let mut first = true;
     loop {
-        set(&sh.missing, sh.backends.missing_permissions());
-        tokio::time::sleep(sh.opts.permissions_every).await;
+        let mut now = sh.backends.missing_permissions();
+        if first && !now.is_empty() {
+            now = sh.backends.request_permissions();
+        }
+        first = false;
+        set(&sh.missing, now);
+        let asked = tokio::select! {
+            () = tokio::time::sleep(sh.opts.permissions_every) => false,
+            r = asks.changed() => r.is_ok(),
+        };
+        if asked {
+            set(&sh.missing, sh.backends.request_permissions());
+            first = false;
+        }
     }
 }
 

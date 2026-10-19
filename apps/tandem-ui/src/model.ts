@@ -61,7 +61,13 @@ export interface MachineCaps {
   monitors: CapsMonitor[];
   builtin: boolean;
   hub: boolean | null;
-  input: { capture: boolean; inject: boolean; missing: ("accessibility" | "input_monitoring")[] };
+  input: {
+    capture: boolean;
+    inject: boolean;
+    missing: ("accessibility" | "input_monitoring")[];
+    /** El proceso del agente: macOS concede los permisos a ese binario exacto (T-090). */
+    process: { exe: string; pid: number; started: number };
+  };
   power: { wake_peer: boolean; wakeable: boolean; power_off: boolean };
   services: string[];
 }
@@ -274,6 +280,8 @@ export type Action =
   | { kind: "mark_manual"; monitor: string; discard_codes?: boolean }
   /** Ida y vuelta del asistente (T-089): solo la entrada, y el agente lo devuelve a `back` solo. */
   | { kind: "probe_input"; monitor: string; to: Machine; back: Machine }
+  /** «Pedir permisos» (T-090): macOS muestra su diálogo a nombre de `tandemd`. */
+  | { kind: "request_permissions" }
   /** «Aplicar modo» (T-085): manda la entrada de todos los monitores. */
   | { kind: "apply_mode"; mode: Mode }
   /** Lo que el usuario dice que muestra cada monitor; `null`: nada (en negro). */

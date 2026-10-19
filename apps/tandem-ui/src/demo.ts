@@ -128,7 +128,14 @@ function demoCaps(machine: Machine, missing: MachineCaps["input"]["missing"], mo
     monitors,
     builtin: !pc,
     hub: null,
-    input: { capture: missing.length === 0, inject: missing.length === 0, missing },
+    input: {
+      capture: missing.length === 0,
+      inject: missing.length === 0,
+      missing,
+      process: pc
+        ? { exe: "C:\\Program Files\\Tandem\\tandemd.exe", pid: 5120, started: 1_760_000_000 }
+        : { exe: "/Applications/Tandem.app/Contents/MacOS/tandemd", pid: 4242, started: 1_760_000_000 },
+    },
     power: { wake_peer: true, wakeable: true, power_off: pc },
     services: [],
   };
@@ -204,7 +211,7 @@ export function demoBridge(query: string): Bridge {
     builtin_pref: "off",
     doubt: (fresh === null ? {} : Object.fromEntries(desk.monitors.map((m) => [m.id, doubtKind]))) as DeskState["doubt"],
   };
-  const missing: MachineCaps["input"]["missing"] = params.get("perms") === "missing" ? ["accessibility"] : [];
+  const missing: MachineCaps["input"]["missing"] = params.get("perms") === "missing" ? ["accessibility", "input_monitoring"] : [];
   // Lo conectado ahora: los dos de siempre, y con `&extra` uno que solo ve la PC.
   const unplugged = new Set((params.get("unplug") ?? "").split(",").filter(Boolean));
   const byModel = params.get("basis") === "model";
@@ -526,6 +533,9 @@ export function demoBridge(query: string): Bridge {
     openSettings: async (p) => {
       messages.forEach((cb) => cb(`Aquí se abriría Ajustes del Sistema (${p})`));
     },
+    restartAgent: async () => {
+      messages.forEach((cb) => cb("Aquí se reiniciaría tandemd (launchctl kickstart -k)"));
+    },
     finishSetup: async () => {
       setup = { ...setup, show: false };
       return setup;
@@ -680,6 +690,9 @@ export function demoBridge(query: string): Bridge {
         case "set_keyboard":
           keyboard = a.machine;
           pushSnapshot();
+          return { kind: "done" };
+        case "request_permissions":
+          messages.forEach((cb) => cb("Aquí macOS mostraría su diálogo de permisos para tandemd"));
           return { kind: "done" };
         case "ping_peer": {
           await sleep(350);

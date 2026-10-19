@@ -26,12 +26,14 @@ function machineCaps(machine: "mac" | "pc", extra: Partial<MachineCaps> = {}): M
     monitors: ["m34", "m32"].map((id) => ({ monitor: id, pnp_id: null, name: id, switch: pc, ddc: pc, seen: true })),
     builtin: !pc,
     hub: null,
-    input: { capture: true, inject: true, missing: [] },
+    input: { capture: true, inject: true, missing: [], process: PROCESS },
     power: { wake_peer: true, wakeable: true, power_off: pc },
     services: [],
     ...extra,
   };
 }
+
+const PROCESS = { exe: "/Applications/Tandem.app/Contents/MacOS/tandemd", pid: 4242, started: 1 };
 
 function caps(agent: "mac" | "pc", peerSeen = true): Caps {
   return { here: machineCaps(agent), peer: peerSeen ? machineCaps(agent === "mac" ? "pc" : "mac") : null };

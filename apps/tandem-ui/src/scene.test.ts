@@ -45,7 +45,7 @@ function machineCaps(machine: "mac" | "pc", extra: Partial<MachineCaps> = {}): M
     monitors: ["m34", "m32"].map((id) => ({ monitor: id, pnp_id: null, name: id, switch: pc, ddc: pc, seen: true })),
     builtin: !pc,
     hub: null,
-    input: { capture: true, inject: true, missing: [] },
+    input: { capture: true, inject: true, missing: [], process: { exe: "", pid: 0, started: 0 } },
     power: { wake_peer: true, wakeable: true, power_off: pc },
     services: [],
     ...extra,

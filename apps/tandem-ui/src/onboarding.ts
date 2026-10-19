@@ -17,6 +17,7 @@ import type {
   NewMonitor,
   Snapshot,
 } from "./model";
+import { MISSING_HELP, grantTo, permissionLabel } from "./permissions";
 import { LINK_NAME, MACHINE_NAME, PORT, other, type ModeKey } from "./scene";
 
 export type StepId = "machine" | "pair" | "keyboard" | "monitors" | "verify" | "initial" | "summary";
@@ -455,9 +456,16 @@ function machineStep(snap: Snapshot): StepView {
       v.checks.push({ state: "ok", label: "Permisos de macOS", detail: "Accesibilidad y Monitorización de entrada concedidos" });
     }
     for (const p of missing) {
-      const name = p === "accessibility" ? "Accesibilidad" : "Monitorización de entrada";
-      v.checks.push({ state: "fail", label: `Permiso: ${name}`, detail: "falta; se comprueba solo en cuanto lo concedes" });
-      v.buttons.push({ id: `perm:${p}`, label: `Abrir ajustes: ${name}`, enabled: true });
+      v.checks.push({ state: "fail", label: `Permiso: ${permissionLabel(p)}`, detail: "falta; se comprueba solo en cuanto lo concedes" });
+    }
+    if (missing.length > 0) {
+      // macOS concede los permisos a un binario concreto: se le dice cuál es, sin terminal (T-090).
+      const binary = grantTo(here);
+      if (binary) v.checks.push({ state: "wait", label: "Binario del agente", detail: binary });
+      v.checks.push({ state: "wait", label: "Cómo conceder", detail: MISSING_HELP });
+      v.buttons.push({ id: "perm:request", label: "Pedir permisos", kind: "primary", enabled: true, hint: "macOS muestra su diálogo para tandemd" });
+      for (const p of missing) v.buttons.push({ id: `perm:${p}`, label: `Abrir ajustes: ${permissionLabel(p)}`, enabled: true });
+      v.buttons.push({ id: "perm:restart", label: "Reiniciar agente", enabled: true, hint: "para que valgan los permisos recién dados" });
     }
   } else {
     v.checks.push({ state: "ok", label: "Permisos", detail: "esta máquina no necesita ninguno" });

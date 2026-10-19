@@ -29,6 +29,10 @@ struct Inner {
     sink: Option<CaptureSink>,
     screens: Vec<Screen>,
     missing: Vec<InputPermission>,
+    /// Cuántas veces se pidieron los permisos al sistema.
+    requested: u32,
+    /// Lo que macOS concede al pedirlos: si `true`, ya no falta ninguno.
+    grant_on_request: bool,
     fail_capture: Option<String>,
 }
 
@@ -98,6 +102,16 @@ impl FakeInputBackends {
         self.lock().missing = missing;
     }
 
+    /// Cuántas veces el agente pidió los permisos al sistema.
+    pub fn permission_requests(&self) -> u32 {
+        self.lock().requested
+    }
+
+    /// Al pedir los permisos, el «usuario» los concede.
+    pub fn grant_on_request(&self, grant: bool) {
+        self.lock().grant_on_request = grant;
+    }
+
     /// Mientras tenga un error, arrancar la captura falla con él (un permiso que falta).
     pub fn fail_capture(&self, error: Option<String>) {
         self.lock().fail_capture = error;
@@ -159,5 +173,14 @@ impl InputBackends for FakeInputBackends {
 
     fn missing_permissions(&self) -> Vec<InputPermission> {
         self.lock().missing.clone()
+    }
+
+    fn request_permissions(&self) -> Vec<InputPermission> {
+        let mut inner = self.lock();
+        inner.requested += 1;
+        if inner.grant_on_request {
+            inner.missing.clear();
+        }
+        inner.missing.clone()
     }
 }

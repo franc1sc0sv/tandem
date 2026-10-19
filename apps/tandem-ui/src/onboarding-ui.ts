@@ -32,6 +32,7 @@ import {
   type VerifyEffect,
   type VerifyEvent,
 } from "./onboarding";
+import { pressPermission } from "./permissions";
 import { modeRequest, type ModeKey } from "./scene";
 
 /** Cada cuánto se vuelve a buscar mientras el paso de monitores está a la vista. */
@@ -189,9 +190,18 @@ export function initOnboarding(host: Host): Onboard {
     const id = b.id;
     const [kind, a, c] = id.split(":");
     switch (kind) {
-      case "perm":
-        await host.bridge()?.openSettings(a as Permission);
+      case "perm": {
+        // «Pedir permisos», «Reiniciar agente» y los paneles de Ajustes (T-090).
+        const bridge = host.bridge();
+        const r = await pressPermission(a!, {
+          request: () => host.request({ kind: "request_permissions" }),
+          restartAgent: bridge ? () => bridge.restartAgent() : null,
+          openSettings: bridge ? () => bridge.openSettings(a as Permission) : null,
+        });
+        if (r.message) host.message(r.message);
+        if (a === "request" || a === "restart") set({ ...o, error: r.error });
         return;
+      }
       case "pair": {
         if (a === "skip") return set({ ...o, pair: { ...o.pair, skipped: true } });
         const action = a === "start" ? "start_pairing" : a === "confirm" ? "confirm_pairing" : "cancel_pairing";

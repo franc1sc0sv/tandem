@@ -210,6 +210,13 @@ pub trait InputBackends: Send + Sync + 'static {
 
     /// Permisos del sistema que faltan para capturar o inyectar.
     fn missing_permissions(&self) -> Vec<InputPermission>;
+
+    /// Pide al sistema los permisos que faltan (en macOS, su diálogo) y devuelve los que
+    /// siguen faltando. Lo concedido suele valer recién al reiniciar el proceso. Sin
+    /// diálogo posible, es lo mismo que [`Self::missing_permissions`].
+    fn request_permissions(&self) -> Vec<InputPermission> {
+        self.missing_permissions()
+    }
 }
 
 /// Los backends reales de este sistema: CGEventTap/CGEventPost en macOS, hooks y
@@ -259,11 +266,17 @@ impl InputBackends for PlatformInput {
     fn missing_permissions(&self) -> Vec<InputPermission> {
         platform::missing_permissions()
     }
+
+    fn request_permissions(&self) -> Vec<InputPermission> {
+        platform::request_permissions()
+    }
 }
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use tandem_input::macos::capture::{MacCapture, Permission, permissions};
+    use tandem_input::macos::capture::{
+        MacCapture, Permission, Permissions, permissions, request_permissions as ask,
+    };
     use tandem_input::macos::emulate::{CgSink, MacEmulator};
     use tandem_proto::InputPermission;
 
@@ -286,15 +299,23 @@ mod platform {
         Some(DynScanner::new(tandem_peripherals::SystemScanner::new()))
     }
 
-    pub fn missing_permissions() -> Vec<InputPermission> {
-        permissions()
-            .missing()
+    fn wire(p: Permissions) -> Vec<InputPermission> {
+        p.missing()
             .into_iter()
             .map(|p| match p {
                 Permission::Accessibility => InputPermission::Accessibility,
                 Permission::InputMonitoring => InputPermission::InputMonitoring,
             })
             .collect()
+    }
+
+    pub fn missing_permissions() -> Vec<InputPermission> {
+        wire(permissions())
+    }
+
+    /// Diálogo de macOS (Accesibilidad) y alta en Monitorización de entrada.
+    pub fn request_permissions() -> Vec<InputPermission> {
+        wire(ask())
     }
 }
 
@@ -329,6 +350,10 @@ mod platform {
     pub fn missing_permissions() -> Vec<InputPermission> {
         Vec::new()
     }
+
+    pub fn request_permissions() -> Vec<InputPermission> {
+        missing_permissions()
+    }
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -353,6 +378,10 @@ mod platform {
 
     pub fn missing_permissions() -> Vec<InputPermission> {
         Vec::new()
+    }
+
+    pub fn request_permissions() -> Vec<InputPermission> {
+        missing_permissions()
     }
 }
 

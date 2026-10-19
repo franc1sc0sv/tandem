@@ -553,3 +553,63 @@ async fn declaring_the_keyboard_on_the_server_machine_refreshes_defined() {
     assert!(mac.agent.input_status().defined);
     mac.stop().await;
 }
+
+/// T-090: con permisos que faltan, el agente los pide al sistema una vez al arrancar (para
+/// que macOS registre el binario real), no los vuelve a pedir solo por más que sigan
+/// faltando, y los vuelve a pedir cuando la UI lo ordena. Las capacidades llevan el proceso.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn missing_permissions_are_requested_once_and_on_the_users_order() {
+    let (mac_id, pc_id) = (Identity::from_seed([15; 32]), Identity::from_seed([16; 32]));
+    let fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    fake.set_missing(vec![
+        InputPermission::Accessibility,
+        InputPermission::InputMonitoring,
+    ]);
+    let mut mac = start(
+        Machine::Mac,
+        &mac_id,
+        free_port(),
+        (pc_id.public_key(), free_port()),
+        fake.clone(),
+    )
+    .await;
+    mac.until_input(|s| s.missing.len() == 2).await;
+    // Varias lecturas de permisos después (cada 50 ms), sigue siendo un solo pedido.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(fake.permission_requests(), 1);
+
+    // Orden explícita de la UI: se pide otra vez, y esta vez el usuario concede.
+    fake.grant_on_request(true);
+    assert_eq!(
+        mac.ui.request(UiCommand::RequestPermissions).await.unwrap(),
+        Reply::Done
+    );
+    mac.until_input(|s| s.missing.is_empty()).await;
+    assert_eq!(fake.permission_requests(), 2);
+
+    // El proceso que corre llega a las capacidades para que la UI diga a quién conceder.
+    let process = mac.agent.capabilities().here.input.process;
+    assert_eq!(process.pid, std::process::id());
+    assert!(!process.exe.is_empty());
+    assert!(process.started > 0);
+
+    mac.stop().await;
+}
+
+/// Sin permisos que pedir, el arranque no abre ningún diálogo.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn nothing_is_requested_when_nothing_is_missing() {
+    let (mac_id, pc_id) = (Identity::from_seed([17; 32]), Identity::from_seed([18; 32]));
+    let fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let mac = start(
+        Machine::Mac,
+        &mac_id,
+        free_port(),
+        (pc_id.public_key(), free_port()),
+        fake.clone(),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(fake.permission_requests(), 0);
+    mac.stop().await;
+}

@@ -62,7 +62,7 @@ export function roleChip(input: InputView, agent: Machine, who: Machine, peerOn:
       kind: "warn",
       icon: "warn",
       text: "faltan permisos",
-      title: `Teclado y mouse: falta ${names} (Ajustes del Sistema → Privacidad y seguridad)`,
+      title: `Teclado y mouse: falta ${names} (Ajustes del Sistema → Privacidad y seguridad / System Settings → Privacy & Security). Se piden y se reinicia el agente desde el paso «Esta máquina» del asistente o desde Permisos`,
     };
   }
   if (mine && input.problem) {

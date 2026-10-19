@@ -47,6 +47,7 @@ import {
 import { modelOf, setupLines, swapWiring, wiringText } from "./desk";
 import { applyReady, complete, corrections, doubtNote, initialAnswers, isConfirmed, questions, type Shown } from "./confirm";
 import { initOnboarding, type Onboard } from "./onboarding-ui";
+import { MISSING_HELP, grantTo, permissionState } from "./permissions";
 import { PERMISSION_INFO, back as setupBack, isFirst, isLast, next as setupNext, screensOf, start as setupStart, type Wizard } from "./setup";
 
 // Cuánto queda a la vista el progreso ya terminado y un mensaje suelto.
@@ -85,6 +86,14 @@ const MAC = isMacPlatform();
 // ---------------------------------------------------------------------------------------
 // Estado
 
+/** Lo que la guía muestra del agente: re-dibujarla solo si cambia, para no quitarle el foco al teclado. */
+function permissionsKey(s: Snapshot): string {
+  if (s.kind !== "connected") return "";
+  const i = s.caps.here.input;
+  return `${i.missing.join(",")}|${i.process.pid}|${i.process.started}`;
+}
+let lastPermissionsKey = "";
+
 function setSnapshot(next: Snapshot) {
   const pairingBefore = lastPairing;
   lastPairing = next.kind === "connected" ? next.pairing : null;
@@ -100,6 +109,9 @@ function setSnapshot(next: Snapshot) {
   }
   syncPair(pairingBefore);
   onboard?.onSnapshot(next);
+  // La guía de permisos muestra lo que el agente sabe: se pone al día con cada estado (T-090).
+  if (wizard && $<HTMLDialogElement>("#setup").open && permissionsKey(next) !== lastPermissionsKey) renderSetup();
+  lastPermissionsKey = permissionsKey(next);
   // Instalación limpia (o puesto restablecido): el asistente se abre solo.
   if (next.kind === "connected" && !$<HTMLDialogElement>("#setup").open) onboard?.maybeOpen(next);
 }
@@ -832,6 +844,17 @@ function renderSetup() {
     const title = el("h2", undefined, info.title);
     title.id = "setup-title";
     body.push(tile, title, el("p", undefined, info.why), el("p", "how", info.how));
+    // Lo que el agente sabe: si falta y a qué binario concederlo (T-090).
+    const here = snap.kind === "connected" ? snap.caps.here : null;
+    const state = permissionState(here, p);
+    if (state !== "unknown") {
+      const line = el("div", "sagent");
+      line.append(el("span", `dot${state === "granted" ? "" : " warn"}`), state === "granted" ? "Concedido: tandemd ya puede usarlo" : "Falta: tandemd todavía no lo tiene");
+      body.push(line);
+    }
+    const binary = grantTo(here);
+    if (binary) body.push(el("p", "how", binary));
+    if (state === "missing") body.push(el("p", "how", MISSING_HELP));
     const open = el("button", "kbtn primary sopen", "Abrir Ajustes del Sistema");
     open.type = "button";
     open.addEventListener("click", () => {
@@ -842,6 +865,24 @@ function renderSetup() {
       });
     });
     body.push(open);
+    if (state !== "unknown") {
+      const ask = el("button", "kbtn sopen", "Pedir permisos");
+      ask.type = "button";
+      ask.addEventListener("click", () => {
+        setupError = null;
+        void act({ kind: "request_permissions" });
+      });
+      const restart = el("button", "kbtn sopen", "Reiniciar agente");
+      restart.type = "button";
+      restart.addEventListener("click", () => {
+        setupError = null;
+        bridge?.restartAgent().catch((e: unknown) => {
+          setupError = `No se pudo reiniciar el agente: ${e instanceof Error ? e.message : String(e)}`;
+          renderSetup();
+        });
+      });
+      body.push(ask, restart);
+    }
   }
   if (setupError) body.push(el("p", "serr", setupError));
   $("#setup-body").replaceChildren(...body);
