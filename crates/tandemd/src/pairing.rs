@@ -749,14 +749,17 @@ mod tests {
         );
     }
 
-    #[tokio::test(start_paused = true)]
+    // Reloj real: con `start_paused` y QUIC por loopback, tokio salta al siguiente temporizador
+    // en cuanto no hay tareas listas y el handshake vencía antes de que llegara el paquete
+    // (pasaba en WSL fuera del sandbox).
+    #[tokio::test]
     async fn nobody_confirming_times_out_without_saving() {
         let dir = tempfile::tempdir().unwrap();
         let (mut mac, mut pc) = (
             ctx(Machine::Mac, 1, dir.path()),
             ctx(Machine::Pc, 2, dir.path()),
         );
-        mac.timeouts.confirm = Duration::from_secs(5);
+        mac.timeouts.confirm = Duration::from_millis(300);
         pc.timeouts.confirm = Duration::from_secs(60);
         let (to_pc, to_mac, _a, _b) = connect(&mac, &pc).await;
         let (m, p) = tokio::join!(initiate(&mac, &to_pc), respond(&pc, &to_mac));
