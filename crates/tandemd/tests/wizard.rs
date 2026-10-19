@@ -492,6 +492,75 @@ async fn un_asistente_completo_deja_exactamente_dos_monitores_vinculados_y_el_es
     pc.stop().await;
 }
 
+/// T-089: la ida y vuelta del paso 5, con el estado sin confirmar, solo manda la entrada
+/// del monitor probado (el 32"): ni el 34", ni ningún escritorio, ni cambia el estado.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn la_ida_y_vuelta_del_asistente_solo_toca_la_entrada_del_monitor_probado() {
+    let Pair { mut mac, pc } = pair().await;
+    let scan = scan_until_linked(&mut mac.ui, 2).await;
+    assert_eq!(
+        mac.ui
+            .request(UiCommand::AddMonitors(chosen(&scan)))
+            .await
+            .unwrap(),
+        Reply::Done
+    );
+    until_desk(&pc.agent, |d| d.monitors.len() == 2).await;
+    // La Mac sabe que la PC puede cambiar la entrada de los dos (su anuncio ya los trae).
+    let mut caps = mac.agent.subscribe_capabilities();
+    within(caps.wait_for(|c| {
+        c.peer.as_ref().is_some_and(|p| {
+            p.monitors
+                .iter()
+                .filter(|m| m.switch && m.monitor.is_some())
+                .count()
+                == 2
+        })
+    }))
+    .await
+    .unwrap();
+    let before = mac.agent.state();
+    assert!(!before.is_confirmed());
+
+    let probe = |to, back| UiCommand::ProbeInput {
+        monitor: "sam7489".into(),
+        to,
+        back,
+    };
+    for (to, back) in [(Machine::Pc, Machine::Mac), (Machine::Mac, Machine::Mac)] {
+        let txn = loop {
+            match mac.ui.request(probe(to, back)).await.unwrap() {
+                Reply::Accepted { txn } => break txn,
+                Reply::Rejected(why) if why == tandemd::agent::BUSY => {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                other => panic!("se esperaba Accepted: {other:?}"),
+            }
+        };
+        until_committed(&mut mac.ui, txn).await;
+    }
+    let steps = pc.steps.steps();
+    let switched: Vec<_> = steps
+        .iter()
+        .map(|s| match s {
+            Step::SwitchInput { monitor, to, .. } => (monitor.to_string(), *to),
+            other => panic!("solo se manda entradas: {other:?}"),
+        })
+        .collect();
+    assert_eq!(
+        switched,
+        [
+            ("sam7489".to_owned(), Machine::Pc),
+            ("sam7489".to_owned(), Machine::Mac)
+        ]
+    );
+    assert!(mac.steps.steps().is_empty(), "la Mac no toca su escritorio");
+    assert_eq!(mac.agent.state(), before);
+    assert!(mac.agent.pending_returns().is_empty());
+    mac.stop().await;
+    pc.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn quitar_un_monitor_borra_todo_lo_suyo_en_las_dos_maquinas() {
     let Pair { mut mac, mut pc } = pair().await;

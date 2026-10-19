@@ -872,6 +872,8 @@ pub enum Action {
     PingPeer,
     MarkManual {
         monitor: MonitorId,
+        #[serde(default)]
+        discard_codes: bool,
     },
     /// De dónde salió la configuración; contesta [`ActionResult::Setup`].
     GetSetup,
@@ -882,6 +884,12 @@ pub enum Action {
     /// Lo que el usuario dice que muestra cada monitor (`null`: nada, en negro).
     SetShown {
         shows: BTreeMap<MonitorId, Option<Machine>>,
+    },
+    /// Ida y vuelta del asistente (T-089): solo la entrada, con vuelta automática a `back`.
+    ProbeInput {
+        monitor: MonitorId,
+        to: Machine,
+        back: Machine,
     },
 }
 
@@ -924,10 +932,17 @@ impl From<Action> for UiCommand {
             Action::HeardKey => UiCommand::HeardKey,
             Action::SetKeyboard { machine } => UiCommand::SetKeyboard(machine),
             Action::PingPeer => UiCommand::PingPeer,
-            Action::MarkManual { monitor } => UiCommand::MarkManual { monitor },
+            Action::MarkManual {
+                monitor,
+                discard_codes,
+            } => UiCommand::MarkManual {
+                monitor,
+                discard_codes,
+            },
             Action::GetSetup => UiCommand::GetSetup,
             Action::ApplyMode { mode } => UiCommand::ApplyMode(mode),
             Action::SetShown { shows } => UiCommand::SetShown(shows),
+            Action::ProbeInput { monitor, to, back } => UiCommand::ProbeInput { monitor, to, back },
         }
     }
 }

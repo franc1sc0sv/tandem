@@ -125,7 +125,7 @@ pub fn bind(desk: &Config, monitors: &[MonitorInfo], index: usize) -> Option<Mon
     let mut found = desk.monitors.iter().filter(|m| {
         let hits: Vec<usize> = monitors
             .iter()
-            .filter(|i| m.models().any(|model| i.matches(model)))
+            .filter(|i| m.models().any(|model| i.is_model(model)))
             .map(|i| i.index)
             .collect();
         hits == [index]
@@ -326,6 +326,18 @@ impl MonitorWizard {
         let desk = agent.desk();
         let monitor = monitor.or_else(|| bind(&desk, bus.monitors(), index));
         let config = monitor.as_ref().and_then(|id| desk.monitor(id)).cloned();
+        // El índice y el monitor llegan por separado: si no son el mismo, el perfil iría a
+        // parar al monitor equivocado (T-089). Antes de escribir nada en el bus.
+        if let Some(c) = &config
+            && c.models().next().is_some()
+            && !c.models().any(|m| info.is_model(m))
+        {
+            return failed(format!(
+                "el monitor {display} del bus ({}) no es {}: vuelve a buscar los monitores",
+                info.model(),
+                c.label
+            ));
+        }
         let (home, start) = inputs(config.as_ref(), &agent.state().owner);
 
         agent.emit_calibration(CalibrationUpdate::Started {
@@ -480,6 +492,13 @@ impl MonitorWizard {
         let m = desk
             .monitor(&id)
             .ok_or_else(|| format!("el monitor `{id}` no está en la configuración"))?;
+        if m.models().next().is_some() && !m.models().any(|x| info.is_model(x)) {
+            return Err(format!(
+                "el monitor {display} del bus ({}) no es {}: vuelve a buscar los monitores",
+                info.model(),
+                m.label
+            ));
+        }
         let c = &entry.profile.codes;
         let note = self.update_config(m, c.hdmi, c.display_port, &info);
         agent.desk_changed();
@@ -836,6 +855,35 @@ mac = "9c:6b:00:1a:2b:ff"
             (list[2].monitor.clone(), list[2].profile.clone()),
             (None, DisplayProfile::None)
         );
+    }
+
+    // T-089: la UI manda el índice del bus y el monitor por separado; si el orden del bus
+    // cambió entre «listar» y «calibrar», el perfil iba a parar al monitor equivocado.
+    #[tokio::test]
+    async fn a_display_that_is_not_the_named_monitor_is_never_calibrated() {
+        let sim = SimMonitor::new(samsung_32(), Input::Hdmi);
+        let pc = pc(three_monitors(), Some(&sim));
+        let a = &pc.agent;
+        let mut rx = a.subscribe_calibration();
+        // El índice 0 es el 34" (`SAM711A`), pero se pide como si fuera el 32".
+        assert_eq!(
+            a.respond(UiCommand::StartCalibration {
+                display: 0,
+                monitor: Some("m32".into())
+            })
+            .await,
+            Reply::Done
+        );
+        let updates = finished(&mut rx).await;
+        let Some(CalibrationUpdate::Finished(CalibrationOutcome::Failed { reason })) =
+            updates.last()
+        else {
+            panic!("{updates:?}");
+        };
+        assert!(reason.contains("no es"), "{reason}");
+        assert!(!pc.profiles.exists(), "no se guarda ningún perfil");
+        assert!(a.desk().monitor(&"m32".into()).unwrap().ddc.is_none());
+        assert!(a.orchestrator().is_idle(), "el orquestador queda libre");
     }
 
     #[tokio::test]

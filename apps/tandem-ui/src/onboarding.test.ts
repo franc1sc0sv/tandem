@@ -13,6 +13,7 @@ import {
   begin,
   canAdvance,
   candidateKey,
+  candidateBlocker,
   candidateReady,
   countsAsKeyProbe,
   choiceOf,
@@ -22,6 +23,7 @@ import {
   shouldOpen,
   summaryChecks,
   verifyStep,
+  homeOf,
   viewOf,
   type Onboarding,
   type StepId,
@@ -359,6 +361,24 @@ describe("paso 4: monitores", () => {
     expect(candidateReady(o, c, "mac")).toBe(false);
   });
 
+  // T-089: el botón deshabilitado decía «responde las preguntas de esta fila» aunque todo
+  // estuviera contestado y la causa fuera el cable igual en las dos máquinas.
+  it("dice el motivo concreto de por qué no se puede agregar", () => {
+    const c = candidate();
+    const key = candidateKey(c);
+    let o = answerChoice(withScan(scan([c])), `link:${key}:yes`)!;
+    o = answerChoice(o, `wire:${key}:mac:displayport`)!;
+    expect(candidateBlocker(o, c, "mac")).toBe("falta confirmar por qué cable va a la PC");
+    o = answerChoice(o, `wire:${key}:pc:displayport`)!;
+    const why = candidateBlocker(o, c, "mac")!;
+    expect(why).toContain("no pueden ir al mismo cable (DisplayPort en las dos)");
+    const v = viewOf(o, snap());
+    expect(btn(v, "add")).toMatchObject({ hint: `34": ${why}` });
+    expect(v.rows[0]!.buttons[0]!.hint).toBe(why);
+    o = answerChoice(o, `wire:${key}:mac:hdmi`)!;
+    expect(candidateBlocker(o, c, "mac")).toBeNull();
+  });
+
   it("agrega un monitor con las dos identidades y el cableado confirmado", () => {
     const c = candidate();
     const o = answered(withScan(scan([c])), c);
@@ -372,7 +392,7 @@ describe("paso 4: monitores", () => {
 
   it("no se puede agregar con respuestas sin contestar", () => {
     const v = viewOf(withScan(scan([candidate()])), snap());
-    expect(btn(v, "add")).toMatchObject({ enabled: false, hint: "faltan respuestas" });
+    expect(btn(v, "add")).toMatchObject({ enabled: false, hint: '34": falta confirmar si el monitor de la PC y el de la Mac son el mismo' });
     expect(newMonitors(withScan(scan([candidate()])), "mac")).toEqual([]);
   });
 
@@ -461,8 +481,8 @@ describe("paso 5: verificar cada monitor", () => {
     expect(entry.phase).toEqual({ kind: "ok" });
     // Va a la PC y vuelve a la Mac por sí solo; no hace falta marcarlo manual.
     expect(effects).toEqual([
-      { kind: "move", monitor: "m", to: "pc" },
-      { kind: "move", monitor: "m", to: "mac" },
+      { kind: "move", monitor: "m", to: "pc", back: "mac" },
+      { kind: "move", monitor: "m", to: "mac", back: "mac" },
     ]);
   });
 
@@ -476,9 +496,9 @@ describe("paso 5: verificar cada monitor", () => {
     );
     expect(entry.phase).toEqual({ kind: "manual", reason: "no se vio la PC" });
     expect(effects).toEqual([
-      { kind: "move", monitor: "m", to: "pc" },
-      { kind: "move", monitor: "m", to: "mac" },
-      { kind: "mark_manual", monitor: "m" },
+      { kind: "move", monitor: "m", to: "pc", back: "mac" },
+      { kind: "move", monitor: "m", to: "mac", back: "mac" },
+      { kind: "mark_manual", monitor: "m", discard: true },
     ]);
   });
 
@@ -494,10 +514,23 @@ describe("paso 5: verificar cada monitor", () => {
     expect(entry.phase).toMatchObject({ kind: "manual", reason: "no se vio la PC al volver" });
   });
 
-  it("si no se pudo pasar, no hay nada que volver y queda manual con el motivo", () => {
+  it("si no se pudo pasar, no hay nada que volver y queda manual con el motivo, sin tirar el perfil", () => {
     const { entry, effects } = run(home({ kind: "idle" }), { type: "start" }, { type: "moved", ok: false, reason: "la PC no responde" });
     expect(entry.phase).toEqual({ kind: "manual", reason: "la PC no responde" });
     expect(effects.map((e) => e.kind)).toEqual(["move", "mark_manual"]);
+    // Un fallo de transporte no prueba nada contra los códigos (T-089).
+    expect(effects[1]).toMatchObject({ discard: false });
+  });
+
+  it("si falla la vuelta tampoco se tira el perfil", () => {
+    const { effects } = run(
+      home({ kind: "idle" }),
+      { type: "start" },
+      { type: "moved", ok: true },
+      { type: "answer", yes: true },
+      { type: "moved", ok: false },
+    );
+    expect(effects.at(-1)).toMatchObject({ kind: "mark_manual", discard: false });
   });
 
   it("si falla la vuelta se dice", () => {
@@ -524,20 +557,35 @@ describe("paso 5: verificar cada monitor", () => {
 
   const two = snap({ monitors: [M34, M32] });
 
-  it("cada monitor muestra su perfil y se puede probar", () => {
+  // Con el estado sin confirmar (el del asistente) no se sabe dónde está cada monitor.
+  const said = (id: string, h: "mac" | "pc" = "mac"): Partial<Onboarding> => ({ verify: { [id]: { home: h, phase: { kind: "idle" } } } });
+
+  it("cada monitor muestra su perfil; con estado sin confirmar primero se pregunta dónde está", () => {
     const v = viewOf(at("verify"), two);
     expect(v.rows.map((r) => r.title)).toEqual(['34"', '32"']);
     expect(v.rows[0]!.checks[0]).toMatchObject({ state: "ok", label: "Perfil DDC", detail: "DP 0x09 · HDMI 0x06" });
     expect(v.rows[1]!.checks[0]).toMatchObject({ state: "idle", label: "Sin perfil DDC" });
-    expect(v.rows[0]!.buttons[0]).toMatchObject({ id: "verify:sam711a", label: "Probar la ida y vuelta", enabled: true });
-    expect(v.rows[1]!.buttons[0]).toMatchObject({ label: "Probar (manual asistido)" });
+    // Sin suponer la Mac: no hay botón de probar hasta que el usuario lo diga.
+    expect(v.rows[0]!.buttons).toEqual([]);
+    expect(v.rows[0]!.questions[0]!.text).toBe('¿Qué ves ahora en el 34"?');
+    expect(v.rows[0]!.questions[0]!.options.map((x) => x.id)).toEqual(["home:sam711a:pc", "home:sam711a:mac"]);
+    expect(viewOf(at("verify", said("sam711a")), two).rows[0]!.buttons[0]).toMatchObject({ id: "verify:sam711a", label: "Probar la ida y vuelta", enabled: true });
     expect(v.verified).toBe(false);
   });
 
-  it("calibrar solo se ofrece en la PC, que es la que cambia las entradas", () => {
-    expect(viewOf(at("verify"), two).rows[1]!.buttons.map((b) => b.id)).toEqual(["verify:sam7489"]);
+  it("homeOf: lo dicho manda; confirmado, el estado; sin confirmar y sin decir, nada", () => {
+    const c = viewOf(at("verify"), two) && (two as Extract<typeof two, { kind: "connected" }>);
+    expect(homeOf(at("verify"), c.state, "sam711a")).toBeNull();
+    expect(homeOf(at("verify", said("sam711a", "pc")), c.state, "sam711a")).toBe("pc");
+    expect(homeOf(at("verify"), { ...c.state, doubt: {} }, "sam711a")).toBe(c.state.owner["sam711a"]);
+  });
+
+  it("sin perfil DDC no hay ida y vuelta automática: se calibra (solo en la PC) o se cambia a mano", () => {
+    expect(viewOf(at("verify"), two).rows[1]!.buttons.map((b) => b.id)).toEqual(["manual:sam7489"]);
     const pc = snap({ agent: "pc", monitors: [M34, M32] });
-    expect(viewOf(at("verify"), pc).rows[1]!.buttons.map((b) => b.id)).toEqual(["verify:sam7489", "calibrate:sam7489"]);
+    expect(viewOf(at("verify"), pc).rows[1]!.buttons.map((b) => b.id)).toEqual(["calibrate:sam7489", "manual:sam7489"]);
+    // Ni aunque ya se sepa dónde está: antes va la calibración.
+    expect(viewOf(at("verify", said("sam7489")), pc).rows[1]!.buttons.map((b) => b.id)).toEqual(["calibrate:sam7489", "manual:sam7489"]);
   });
 
   it("pregunta qué se ve, con botones de sí y no", () => {
@@ -568,7 +616,7 @@ describe("paso 5: verificar cada monitor", () => {
     expect(v.verified).toBe(true);
     expect(v.rows[1]!.checks.at(-1)).toMatchObject({ state: "fail", label: "Modo manual asistido" });
     expect(v.rows[1]!.checks.at(-1)!.detail).toContain("no se vio la PC");
-    expect(v.rows[1]!.buttons[0]).toMatchObject({ label: "Probar de nuevo" });
+    expect(v.rows[1]!.buttons.map((b) => b.id)).toEqual(["manual:sam7489"]);
     expect(viewOf(at("verify", { verify: { sam711a: home({ kind: "ok" }) } }), two).verified).toBe(false);
   });
 });
@@ -723,7 +771,7 @@ describe("paso 5: plazos y monitores de una sola máquina", () => {
     const asked: VerifyEntry = { home: "mac", phase: { kind: "ask", machine: "pc" } };
     const r = verifyStep("m", asked, { type: "timeout" });
     expect(r.next.phase).toEqual({ kind: "returning", failed: "no se vio la PC" });
-    expect(r.effects).toEqual([{ kind: "move", monitor: "m", to: "mac" }]);
+    expect(r.effects).toEqual([{ kind: "move", monitor: "m", to: "mac", back: "mac" }]);
     // También al volver.
     const home: VerifyEntry = { home: "mac", phase: { kind: "ask_home" } };
     expect(verifyStep("m", home, { type: "timeout" }).next.phase.kind).toBe("manual");

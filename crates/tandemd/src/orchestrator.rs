@@ -361,8 +361,17 @@ impl Orchestrator {
             state: state.clone(),
             start: state.clone(),
             uncertain_undo_failures: Vec::new(),
+            deferred: Vec::new(),
         };
         let outcome = tandem_core::run(cfg, state, plan, &mut d).await;
+        if matches!(outcome, Err(TxnError::RolledBack { .. })) {
+            for inv in std::mem::take(&mut d.deferred) {
+                if let Err(f) = d.orch.attempt(&inv, d.peer_on()).await {
+                    tracing::error!(txn, "no se pudo deshacer el paso incierto: {}", f.error);
+                    d.uncertain_undo_failures.push((inv, f.error));
+                }
+            }
+        }
         if d.uncertain_undo_failures.is_empty() {
             return outcome;
         }
@@ -565,6 +574,8 @@ struct Dispatcher<'a> {
     start: State,
     /// El inverso del paso incierto, si tampoco se pudo hacer.
     uncertain_undo_failures: Vec<(Step, String)>,
+    /// Quitar salidas pendientes hasta que la vuelta atrás devuelva las entradas.
+    deferred: Vec<Step>,
 }
 
 impl Dispatcher<'_> {
@@ -654,15 +665,21 @@ impl Executor for Dispatcher<'_> {
                 self.failed = true;
                 // La geometría no hace falta: la vuelta atrás la recalcula al final.
                 let undo = step.undo(self.cfg, &self.start).filter(|_| uncertain);
-                if let Some(inv) = undo.filter(|inv| *inv != Step::UpdateInputGeometry)
-                    && let Err(e) = self
+                // Quitar una salida (inverso de un `Attach` incierto) espera a que la entrada
+                // haya vuelto: antes, el monitor sigue en esa máquina y quedaría en negro
+                // (T-089, DESIGN §8). Se hace al terminar la vuelta atrás.
+                if let Some(inv) = undo.filter(|inv| *inv != Step::UpdateInputGeometry) {
+                    if matches!(inv, Step::Detach { .. }) {
+                        self.deferred.push(inv);
+                    } else if let Err(e) = self
                         .orch
                         .attempt(&inv, self.peer_on())
                         .await
                         .map_err(|f| f.error)
-                {
-                    tracing::error!(txn, "no se pudo deshacer el paso incierto: {e}");
-                    self.uncertain_undo_failures.push((inv, e));
+                    {
+                        tracing::error!(txn, "no se pudo deshacer el paso incierto: {e}");
+                        self.uncertain_undo_failures.push((inv, e));
+                    }
                 }
                 Err(error)
             }
@@ -1039,16 +1056,17 @@ pub(crate) mod tests {
             local.steps(),
             [detach_mac.clone(), detach_mac.inverse(&cfg).unwrap()]
         );
-        // En la PC: entrada, agregar, y después quitar y devolver la entrada.
+        // En la PC: entrada, agregar, y después devolver la entrada y solo entonces quitar
+        // la salida (T-089: quitarla antes dejaba el monitor en negro).
         let back = switch_34_to_pc().inverse(&cfg).unwrap();
         assert_eq!(
             peer.steps()[2..],
             [
+                back,
                 Step::Detach {
                     machine: Machine::Pc,
                     monitor: "m34".into()
                 },
-                back
             ]
         );
     }
@@ -1350,8 +1368,8 @@ pub(crate) mod tests {
             [
                 switch_34_to_pc(),
                 attach_pc.clone(),
-                attach_pc.inverse(&cfg).unwrap(),
                 switch_34_to_pc().inverse(&cfg).unwrap(),
+                attach_pc.inverse(&cfg).unwrap(),
             ]
         );
     }

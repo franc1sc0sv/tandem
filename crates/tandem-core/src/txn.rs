@@ -57,6 +57,13 @@ pub async fn run<E: Executor>(
                 // una sola vez, al final, con todo ya deshecho. Si el paso que falló es
                 // ella misma, pudo haber quedado hecha en una de las dos máquinas.
                 let mut geometry = *step == Step::UpdateInputGeometry;
+                // Orden de la vuelta atrás (T-089): primero se reactiva lo quitado, después
+                // vuelven las entradas y por último se quitan las salidas que el plan había
+                // agregado, y solo las de un monitor cuya entrada volvió: quitar la salida
+                // mientras el monitor sigue en esa entrada lo dejaría en negro (DESIGN §8).
+                let mut reactivate = Vec::new();
+                let mut inputs = Vec::new();
+                let mut deactivate = Vec::new();
                 for done in applied.iter().rev() {
                     if *done == Step::UpdateInputGeometry {
                         geometry = true;
@@ -65,6 +72,30 @@ pub async fn run<E: Executor>(
                     let Some(inv) = done.undo(cfg, &snapshot) else {
                         continue;
                     };
+                    match inv {
+                        Step::Attach { .. } => reactivate.push(inv),
+                        Step::Detach { .. } => deactivate.push(inv),
+                        _ => inputs.push(inv),
+                    }
+                }
+                let mut stuck: Vec<crate::model::MonitorId> = Vec::new();
+                for inv in reactivate.into_iter().chain(inputs) {
+                    match exec.execute(&inv).await {
+                        Ok(()) => inv.apply_to(state),
+                        Err(e) => {
+                            if let Step::SwitchInput { monitor, .. } = &inv {
+                                stuck.push(monitor.clone());
+                            }
+                            undo_failures.push((inv, e));
+                        }
+                    }
+                }
+                for inv in deactivate {
+                    if let Step::Detach { monitor, .. } = &inv
+                        && stuck.contains(monitor)
+                    {
+                        continue;
+                    }
                     match exec.execute(&inv).await {
                         Ok(()) => inv.apply_to(state),
                         Err(e) => undo_failures.push((inv, e)),
@@ -182,22 +213,112 @@ mod tests {
         assert!(
             matches!(
                 undo[0],
-                Step::Detach {
-                    machine: Machine::Pc,
-                    ..
-                }
-            ),
-            "primero se deshace el Attach"
-        );
-        assert!(
-            matches!(
-                undo[1],
                 Step::SwitchInput {
                     to: Machine::Mac,
                     ..
                 }
             ),
-            "después la entrada"
+            "primero la entrada"
+        );
+        assert!(
+            matches!(
+                undo[1],
+                Step::Detach {
+                    machine: Machine::Pc,
+                    ..
+                }
+            ),
+            "la salida de la PC se quita al final (T-089)"
+        );
+    }
+
+    /// T-089: al fallar el último paso, la vuelta atrás quitaba la salida de la PC
+    /// (inverso del `Attach`) antes de devolver la entrada: el monitor seguía en la PC y
+    /// sin salida activa. Primero se reactiva, después se devuelve la entrada y por último
+    /// se quita, y solo si la entrada volvió.
+    #[test]
+    fn rollback_never_removes_an_output_before_the_input_is_back() {
+        let cfg = desk();
+        let mut s = State::initial(&cfg, Machine::Mac).confirmed();
+        let plan = Plan::to_mode(&cfg, &s, &mode(), &Abilities::pc_switches(&cfg)).unwrap();
+        let detach_mac = Step::Detach {
+            machine: Machine::Mac,
+            monitor: "m34".into(),
+        };
+        let mut exec = Fake {
+            fail_on: vec![detach_mac],
+            ..Default::default()
+        };
+        pollster::block_on(run(&cfg, &mut s, &plan, &mut exec)).unwrap_err();
+        let undo = &exec.log[plan
+            .steps
+            .iter()
+            .position(|st| matches!(st, Step::Detach { .. }))
+            .unwrap()
+            + 1..];
+        let at = |f: &dyn Fn(&Step) -> bool| undo.iter().position(f).unwrap();
+        let switch_back = at(&|st| {
+            matches!(
+                st,
+                Step::SwitchInput {
+                    to: Machine::Mac,
+                    ..
+                }
+            )
+        });
+        let drop_pc = at(&|st| {
+            matches!(
+                st,
+                Step::Detach {
+                    machine: Machine::Pc,
+                    ..
+                }
+            )
+        });
+        assert!(switch_back < drop_pc, "{undo:?}");
+    }
+
+    /// Si la entrada no volvió, la salida de la PC se queda activa.
+    #[test]
+    fn rollback_keeps_the_output_when_the_input_cannot_come_back() {
+        let cfg = desk();
+        let mut s = State::initial(&cfg, Machine::Mac).confirmed();
+        let plan = Plan::to_mode(&cfg, &s, &mode(), &Abilities::pc_switches(&cfg)).unwrap();
+        let back = Step::SwitchInput {
+            monitor: "m34".into(),
+            from: Machine::Pc,
+            to: Machine::Mac,
+            input: crate::model::Input::Hdmi,
+            by: Machine::Pc,
+        };
+        let mut exec = Fake {
+            fail_on: vec![
+                Step::Detach {
+                    machine: Machine::Mac,
+                    monitor: "m34".into(),
+                },
+                back,
+            ],
+            ..Default::default()
+        };
+        let err = pollster::block_on(run(&cfg, &mut s, &plan, &mut exec)).unwrap_err();
+        assert!(matches!(err, TxnError::Inconsistent { .. }));
+        let first_undo = plan
+            .steps
+            .iter()
+            .position(|st| matches!(st, Step::Detach { .. }))
+            .unwrap()
+            + 1;
+        assert!(
+            !exec.log[first_undo..].iter().any(|st| matches!(
+                st,
+                Step::Detach {
+                    machine: Machine::Pc,
+                    ..
+                }
+            )),
+            "{:?}",
+            exec.log
         );
     }
 

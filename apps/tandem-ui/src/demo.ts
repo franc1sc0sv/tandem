@@ -546,6 +546,9 @@ export function demoBridge(query: string): Bridge {
       switch (a.kind) {
         case "set_mode":
           return start(plan(connectedDesk(), state, assignment(connectedDesk(), a.mode)));
+        case "probe_input":
+          // Solo la entrada: el estado y los escritorios no cambian (T-089).
+          return start([]);
         case "move_monitor":
           return start(plan(connectedDesk(), state, { ...state.owner, [a.monitor]: a.to }));
         case "set_power":
@@ -652,7 +655,7 @@ export function demoBridge(query: string): Bridge {
         case "mark_manual": {
           const m = desk.monitors.find((x) => x.id === a.monitor);
           if (!m) return { kind: "rejected", reason: `el monitor \`${a.monitor}\` no está en el puesto` };
-          m.ddc = null;
+          if (a.discard_codes) m.ddc = null;
           pushSnapshot();
           return { kind: "done" };
         }

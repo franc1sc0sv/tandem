@@ -588,7 +588,7 @@ pub fn calibration_wiring(
             m.edid_model.as_deref().is_some_and(|model| {
                 let hits: Vec<usize> = monitors
                     .iter()
-                    .filter(|i| i.matches(model))
+                    .filter(|i| i.is_model(model))
                     .map(|i| i.index)
                     .collect();
                 hits == [index]

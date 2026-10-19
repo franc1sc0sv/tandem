@@ -15,6 +15,7 @@ use tandem_proto::{
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
+mod probe;
 mod setup;
 
 use crate::add_monitor::{LiveDesk, MonitorWizard, NOT_HERE};
@@ -109,6 +110,8 @@ pub struct Agent {
     input_engine: std::sync::atomic::AtomicBool,
     /// Dónde está el teclado según la configuración o el asistente; `None`, sin definir.
     keyboard: watch::Sender<Option<Machine>>,
+    /// Las vueltas automáticas de la ida y vuelta del asistente (T-089).
+    returns: Mutex<probe::Returns>,
 }
 
 #[derive(Debug, Clone)]
@@ -293,6 +296,7 @@ impl Agent {
             key_probe: watch::Sender::new(KeyProbeStatus::default()),
             keyboard: watch::Sender::new(cfg.input.keyboard),
             input_engine: std::sync::atomic::AtomicBool::new(false),
+            returns: Mutex::default(),
             cfg,
         }
     }
@@ -792,7 +796,10 @@ impl Agent {
             UiCommand::AddMonitors(new) => self.add_monitors(&new),
             UiCommand::RemoveMonitor { monitor } => self.remove_monitor(&monitor),
             UiCommand::ResetDesk => self.reset_desk(),
-            UiCommand::MarkManual { monitor } => self.mark_manual(&monitor),
+            UiCommand::MarkManual {
+                monitor,
+                discard_codes,
+            } => self.mark_manual(&monitor, discard_codes),
             UiCommand::KeyProbe { on } => {
                 self.key_probe(on);
                 Reply::Done
@@ -816,6 +823,7 @@ impl Agent {
             UiCommand::SetMode(mode) => self.start(mode),
             UiCommand::ApplyMode(mode) => self.apply(mode),
             UiCommand::SetShown(shows) => self.set_shown(shows),
+            UiCommand::ProbeInput { monitor, to, back } => self.probe_input(&monitor, to, back),
             UiCommand::SetPower { machine, on } => self.start_power(machine, on),
             UiCommand::MoveMonitor { monitor, to } => {
                 if self.desk().monitor(&monitor).is_none() {
@@ -946,6 +954,12 @@ impl Agent {
             Ok(p) => p,
             Err(e) => return Reply::Rejected(e.to_string()),
         };
+        // Lo que este plan manda a un monitor manda sobre una vuelta de prueba pendiente.
+        for step in &plan.steps {
+            if let tandem_core::Step::SwitchInput { monitor, .. } = step {
+                self.disarm_return(monitor);
+            }
+        }
         tracing::info!(txn, what, steps = plan.steps.len(), "cambio de modo");
         tokio::spawn(async move {
             let agent = busy.0.clone();
@@ -1659,5 +1673,192 @@ pub(crate) mod tests {
         let rx = a.subscribe();
         a.set_state(a.state()).unwrap();
         assert!(!rx.has_changed().unwrap());
+    }
+
+    // T-089: ida y vuelta del asistente.
+
+    fn with_handles(
+        dir: &Path,
+        local: FakeSteps,
+        peer: FakeSteps,
+    ) -> (Arc<Agent>, Arc<FakeSteps>, Arc<FakeSteps>) {
+        let (local, peer) = (Arc::new(local), Arc::new(peer));
+        let a = Agent::with_local_steps(
+            fixtures::desk_with_wol(),
+            StateStore::new(dir.join("state.json")),
+            local.clone(),
+        );
+        a.set_peer(Arc::new(FakePeer(peer.clone())));
+        (Arc::new(a), local, peer)
+    }
+
+    fn probe(monitor: &str, to: Machine, back: Machine) -> UiCommand {
+        UiCommand::ProbeInput {
+            monitor: monitor.into(),
+            to,
+            back,
+        }
+    }
+
+    fn sw(monitor: &str, from: Machine, to: Machine) -> Step {
+        Step::SwitchInput {
+            monitor: monitor.into(),
+            from,
+            to,
+            input: if to == Machine::Pc {
+                Input::DisplayPort
+            } else {
+                Input::Hdmi
+            },
+            by: Machine::Pc,
+        }
+    }
+
+    /// Con el estado sin confirmar (el del asistente), la ida solo cambia la entrada del
+    /// monitor probado: ni el otro monitor ni ningún escritorio, y el estado no cambia. La
+    /// vuelta sale sola aunque nadie la pida. Antes se usaba un cambio de modo, que mandaba
+    /// también la entrada del otro monitor (sin confirmar) y quitaba salidas.
+    #[tokio::test(start_paused = true)]
+    async fn the_wizard_probe_touches_only_one_input_and_returns_by_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, local, peer) = with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
+        a.set_state({
+            let mut s = a.state();
+            s.on.pc = true;
+            s
+        })
+        .unwrap();
+        let before = a.state();
+        assert!(!before.is_confirmed());
+        let mut rx = a.subscribe_txns();
+        assert!(matches!(
+            a.handle(probe("m34", Machine::Pc, Machine::Mac)),
+            Reply::Accepted { .. }
+        ));
+        until_outcome(&mut rx).await;
+        assert_eq!(peer.steps(), [sw("m34", Machine::Mac, Machine::Pc)]);
+        assert!(local.steps().is_empty(), "nada en el escritorio de la Mac");
+        assert_eq!(a.state(), before, "la prueba no cambia lo que se sabe");
+        assert_eq!(a.pending_returns(), ["m34".into()]);
+
+        // Nadie contesta: el agente devuelve el monitor al cumplirse el plazo.
+        tokio::time::sleep(probe::PROBE_HOLD + Duration::from_secs(1)).await;
+        until_outcome(&mut rx).await;
+        assert_eq!(
+            peer.steps(),
+            [
+                sw("m34", Machine::Mac, Machine::Pc),
+                sw("m34", Machine::Pc, Machine::Mac)
+            ]
+        );
+        assert!(a.pending_returns().is_empty());
+        assert!(
+            !peer
+                .steps()
+                .iter()
+                .any(|s| matches!(s, Step::Attach { .. } | Step::Detach { .. }))
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn answering_brings_the_monitor_back_at_once_and_cancels_the_timer() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, _local, peer) =
+            with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
+        let mut rx = a.subscribe_txns();
+        a.handle(probe("m34", Machine::Pc, Machine::Mac));
+        until_outcome(&mut rx).await;
+        assert!(matches!(
+            a.handle(probe("m34", Machine::Mac, Machine::Mac)),
+            Reply::Accepted { .. }
+        ));
+        until_outcome(&mut rx).await;
+        assert!(a.pending_returns().is_empty());
+        tokio::time::sleep(probe::PROBE_HOLD * 3).await;
+        // Una ida y una vuelta; el plazo no manda una segunda.
+        assert_eq!(
+            peer.steps(),
+            [
+                sw("m34", Machine::Mac, Machine::Pc),
+                sw("m34", Machine::Pc, Machine::Mac)
+            ]
+        );
+    }
+
+    /// Una ida que no responde pudo haber llegado: se devuelve de inmediato, sin esperar
+    /// el plazo, y no queda ningún escritorio tocado.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_probe_is_returned_without_waiting() {
+        let dir = tempfile::tempdir().unwrap();
+        let go = sw("m34", Machine::Mac, Machine::Pc);
+        let (a, local, peer) = with_handles(
+            dir.path(),
+            FakeSteps::default(),
+            FakeSteps {
+                delays: vec![(go.clone(), Duration::from_secs(3600))],
+                ..Default::default()
+            },
+        );
+        let mut rx = a.subscribe_txns();
+        a.handle(probe("m34", Machine::Pc, Machine::Mac));
+        until_outcome(&mut rx).await;
+        until_outcome(&mut rx).await;
+        let steps = peer.steps();
+        assert_eq!(steps[0], go);
+        assert!(
+            steps.contains(&sw("m34", Machine::Pc, Machine::Mac)),
+            "{steps:?}"
+        );
+        assert!(steps.iter().all(|s| matches!(s, Step::SwitchInput { .. })));
+        assert!(local.steps().is_empty());
+    }
+
+    /// Sin perfil DDC no hay vuelta automática: no se manda nada.
+    #[tokio::test]
+    async fn a_monitor_without_a_profile_is_not_probed() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, local, peer) = with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
+        let Reply::Rejected(why) = a.handle(probe("m32", Machine::Pc, Machine::Mac)) else {
+            panic!("se esperaba Rejected");
+        };
+        assert!(why.contains("perfil DDC"), "{why}");
+        assert!(peer.steps().is_empty() && local.steps().is_empty());
+        assert!(a.pending_returns().is_empty());
+        // Con el perfil que se le calibró después, sí.
+        a.live_desk().learn(
+            "m32".into(),
+            tandem_core::DdcProfile {
+                hdmi: 0x05,
+                display_port: 0x0F,
+            },
+            None,
+        );
+        assert!(matches!(
+            a.handle(probe("m32", Machine::Pc, Machine::Mac)),
+            Reply::Accepted { .. }
+        ));
+    }
+
+    /// Un cambio de modo que manda la entrada del monitor probado manda sobre el plazo.
+    #[tokio::test(start_paused = true)]
+    async fn a_mode_change_cancels_the_pending_return() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, _local, peer) =
+            with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
+        let mut s = a.state().confirmed();
+        s.on.pc = true;
+        a.set_state(s).unwrap();
+        let mut rx = a.subscribe_txns();
+        a.handle(probe("m34", Machine::Pc, Machine::Mac));
+        until_outcome(&mut rx).await;
+        a.handle(UiCommand::MoveMonitor {
+            monitor: "m34".into(),
+            to: Machine::Pc,
+        });
+        until_outcome(&mut rx).await;
+        assert!(a.pending_returns().is_empty());
+        tokio::time::sleep(probe::PROBE_HOLD * 2).await;
+        let back = sw("m34", Machine::Pc, Machine::Mac);
+        assert!(!peer.steps().contains(&back), "{:?}", peer.steps());
     }
 }
