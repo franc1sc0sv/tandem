@@ -187,6 +187,21 @@ pub struct InputCaps {
     pub inject: bool,
     /// Permisos de macOS que le faltan.
     pub missing: Vec<InputPermission>,
+    /// El proceso que corre el agente: macOS concede los permisos a ese binario exacto, y
+    /// la UI le dice al usuario cuál es sin pasar por una terminal (T-090).
+    pub process: ProcessInfo,
+}
+
+/// Qué proceso es el agente.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessInfo {
+    /// Ruta del ejecutable en marcha (`/Applications/Tandem.app/Contents/MacOS/tandemd`);
+    /// vacía si el sistema no la dio.
+    pub exe: String,
+    pub pid: u32,
+    /// Cuándo arrancó, en segundos desde la época Unix: tras reiniciar el agente cambia, y
+    /// así la UI sabe que los permisos recién dados ya se evalúan en un proceso nuevo.
+    pub started: u64,
 }
 
 /// Energía de una máquina.
@@ -473,6 +488,10 @@ pub enum UiCommand {
     Unpair,
     /// Quién es el servidor de teclado y mouse y si a esta máquina le faltan permisos.
     GetInput,
+    /// Pedir a macOS los permisos que falten (diálogo del sistema), a nombre de este
+    /// agente. Solo por orden explícita del usuario; el estado nuevo llega con las
+    /// capacidades (T-090).
+    RequestPermissions,
     /// Respuesta a [`ProbeEvent::Show`]: clic en la sonda o lo que eligió en la pregunta.
     AnswerProbe {
         id: u64,
@@ -1198,6 +1217,7 @@ pub(crate) mod samples {
                     capture: true,
                     inject: true,
                     missing: vec![],
+                    process: ProcessInfo::default(),
                 },
                 power: PowerCaps {
                     wake_peer: false,
@@ -1221,6 +1241,11 @@ pub(crate) mod samples {
                         InputPermission::Accessibility,
                         InputPermission::InputMonitoring,
                     ],
+                    process: ProcessInfo {
+                        exe: "/Applications/Tandem.app/Contents/MacOS/tandemd".into(),
+                        pid: 4242,
+                        started: 1_760_000_000,
+                    },
                 },
                 power: PowerCaps {
                     wake_peer: true,
@@ -1577,6 +1602,7 @@ pub(crate) mod samples {
                 monitor: "m32".into(),
                 discard_codes: false,
             },
+            UiCommand::RequestPermissions,
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
         cmds.extend(modes().into_iter().map(UiCommand::ApplyMode));
@@ -1625,6 +1651,7 @@ pub(crate) mod samples {
             UiCommand::PingPeer => 31,
             UiCommand::MarkManual { .. } => 32,
             UiCommand::ProbeInput { .. } => 33,
+            UiCommand::RequestPermissions => 34,
         }
     }
 
@@ -2077,7 +2104,7 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
         covers(&control(), control_arm, 17);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 34);
+        covers(&cmds, ui_command_arm, 35);
         covers(&to_ui(), to_ui_arm, 13);
         let profiles: Vec<_> = displays().into_iter().map(|d| d.profile).collect();
         covers(&profiles, display_profile_arm, 3);

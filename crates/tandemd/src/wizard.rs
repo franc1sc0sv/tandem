@@ -303,6 +303,7 @@ mod tests {
                 capture: true,
                 inject: true,
                 missing: vec![],
+                process: Default::default(),
             },
             power: PowerCaps {
                 wake_peer: false,

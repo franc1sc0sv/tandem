@@ -24,6 +24,8 @@ export interface Bridge {
   setup(): Promise<SetupView>;
   /** Abre el panel de Ajustes del Sistema que concede el permiso. */
   openSettings(permission: Permission): Promise<void>;
+  /** Reinicia `tandemd` (launchd lo vuelve a levantar) para que valgan los permisos recién dados. */
+  restartAgent(): Promise<void>;
   /** Marca la guía como vista: no vuelve a abrirse sola. */
   finishSetup(): Promise<SetupView>;
 }
@@ -60,6 +62,7 @@ export async function tauriBridge(): Promise<Bridge> {
     hideTray: () => invoke<void>("ui_hide_tray"),
     setup: () => invoke<SetupView>("setup_get"),
     openSettings: (permission) => invoke<void>("setup_open", { permission }),
+    restartAgent: () => invoke<void>("agent_restart"),
     finishSetup: () => invoke<SetupView>("setup_finish"),
   };
 }

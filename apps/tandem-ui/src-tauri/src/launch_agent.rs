@@ -156,6 +156,20 @@ pub trait Launchd {
     fn bootout(&self, label: &str) -> Result<(), String>;
     /// Lo carga desde el plist; con `RunAtLoad` arranca enseguida.
     fn bootstrap(&self, plist: &Path) -> Result<(), String>;
+    /// Mata el servicio y lo vuelve a lanzar (`launchctl kickstart -k`).
+    fn kickstart(&self, label: &str) -> Result<(), String>;
+}
+
+/// Reinicia `tandemd` para que los permisos recién concedidos valgan: macOS evalúa varios
+/// de ellos (Monitorización de entrada, sobre todo) una sola vez por proceso. No arranca un
+/// agente que no está cargado: eso es cosa de [`ensure`], al abrir la app.
+pub fn restart(launchd: &dyn Launchd) -> Result<(), String> {
+    if !launchd.is_loaded(LABEL) {
+        return Err(
+            "tandemd no está cargado en launchd; abre Tandem.app desde Aplicaciones".to_owned(),
+        );
+    }
+    launchd.kickstart(LABEL)
 }
 
 /// Qué hizo [`ensure`].
@@ -371,6 +385,11 @@ pub mod system {
             }
             Err(last)
         }
+
+        fn kickstart(&self, label: &str) -> Result<(), String> {
+            let target = format!("{}/{label}", self.domain);
+            self.run(&["kickstart", "-k", target.as_str()])
+        }
     }
 }
 
@@ -416,6 +435,10 @@ mod tests {
                 return Err("Bootstrap failed: 5".into());
             }
             *self.loaded.borrow_mut() = true;
+            Ok(())
+        }
+        fn kickstart(&self, label: &str) -> Result<(), String> {
+            self.calls.borrow_mut().push(format!("kickstart {label}"));
             Ok(())
         }
     }
@@ -647,6 +670,22 @@ mod tests {
         // El plist queda escrito: el próximo arranque de la app solo intenta cargarlo.
         assert_eq!(std::fs::read_to_string(&file).unwrap(), plist(&s));
     }
+    #[test]
+    fn restart_kicks_the_loaded_agent() {
+        let ld = FakeLaunchd::default();
+        *ld.loaded.borrow_mut() = true;
+        restart(&ld).unwrap();
+        assert_eq!(ld.calls(), ["kickstart com.franc1sc0sv.tandem.tandemd"]);
+    }
+
+    #[test]
+    fn restart_without_a_loaded_agent_says_so_and_starts_nothing() {
+        let ld = FakeLaunchd::default();
+        let e = restart(&ld).unwrap_err();
+        assert!(e.contains("no está cargado"), "{e}");
+        assert!(ld.calls().is_empty());
+    }
+
     #[test]
     fn install_from_a_bundle() {
         let dir = tempfile::tempdir().unwrap();

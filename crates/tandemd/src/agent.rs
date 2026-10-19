@@ -112,6 +112,11 @@ pub struct Agent {
     keyboard: watch::Sender<Option<Machine>>,
     /// Las vueltas automáticas de la ida y vuelta del asistente (T-089).
     returns: Mutex<probe::Returns>,
+    /// Cuántas veces el usuario pidió los permisos de macOS (T-090): el motor de entrada
+    /// escucha el contador y los pide al sistema.
+    permission_requests: watch::Sender<u64>,
+    /// Este proceso, para anunciarlo en las capacidades.
+    process: tandem_proto::ProcessInfo,
 }
 
 #[derive(Debug, Clone)]
@@ -255,7 +260,8 @@ impl Agent {
         let orch = Orchestrator::new(cfg.machine, local, cfg.orchestrator.timeouts());
         let mut input = InputStatus::new(cfg.input.keyboard());
         input.defined = cfg.input.keyboard_defined();
-        let here = capabilities::local(&cfg, &cfg.desk, None, &input);
+        let process = capabilities::current_process();
+        let here = capabilities::local(&cfg, &cfg.desk, None, &input, &process);
         Agent {
             store,
             state: watch::Sender::new(state),
@@ -297,6 +303,8 @@ impl Agent {
             keyboard: watch::Sender::new(cfg.input.keyboard),
             input_engine: std::sync::atomic::AtomicBool::new(false),
             returns: Mutex::default(),
+            permission_requests: watch::Sender::new(0),
+            process,
             cfg,
         }
     }
@@ -496,6 +504,11 @@ impl Agent {
         }
     }
 
+    /// Avisa cada vez que el usuario pide los permisos de macOS.
+    pub fn subscribe_permission_requests(&self) -> watch::Receiver<u64> {
+        self.permission_requests.subscribe()
+    }
+
     /// Lo que puede cada máquina, para la UI.
     pub fn capabilities(&self) -> DeskCapabilities {
         self.caps.borrow().clone()
@@ -524,6 +537,7 @@ impl Agent {
             &self.desk(),
             seen.as_deref(),
             &self.input_status(),
+            &self.process,
         );
         let changed = self.caps.send_if_modified(|c| {
             let changed = c.here != here;
@@ -820,6 +834,10 @@ impl Agent {
             UiCommand::CancelPairing => self.pair(|p| p.cancel()),
             UiCommand::Unpair => self.pair(|p| p.unpair()),
             UiCommand::GetInput => Reply::Input(self.input_status()),
+            UiCommand::RequestPermissions => {
+                self.permission_requests.send_modify(|n| *n += 1);
+                Reply::Done
+            }
             UiCommand::SetMode(mode) => self.start(mode),
             UiCommand::ApplyMode(mode) => self.apply(mode),
             UiCommand::SetShown(shows) => self.set_shown(shows),

@@ -50,6 +50,8 @@ const M32: MonitorConfig = {
   wiring: { pc: "displayport", mac: "hdmi" },
 };
 
+const PROCESS = { exe: "/Applications/Tandem.app/Contents/MacOS/tandemd", pid: 4242, started: 1 };
+
 function caps(machine: "mac" | "pc", extra: Partial<MachineCaps> = {}): MachineCaps {
   const pc = machine === "pc";
   return {
@@ -60,7 +62,7 @@ function caps(machine: "mac" | "pc", extra: Partial<MachineCaps> = {}): MachineC
     monitors: [],
     builtin: !pc,
     hub: null,
-    input: { capture: true, inject: true, missing: [] },
+    input: { capture: true, inject: true, missing: [], process: PROCESS },
     power: { wake_peer: true, wakeable: true, power_off: pc },
     services: [],
     ...extra,
@@ -185,19 +187,28 @@ describe("paso 1: esta máquina", () => {
   });
 
   it("en la Mac verifica los permisos en vivo: mientras falte uno no se avanza", () => {
-    const missing = caps("mac", { input: { capture: false, inject: false, missing: ["accessibility", "input_monitoring"] } });
+    const missing = caps("mac", { input: { capture: false, inject: false, missing: ["accessibility", "input_monitoring"], process: PROCESS } });
     const v = viewOf(at("machine"), snap({ here: missing }));
     expect(v.verified).toBe(false);
     expect(v.blocker).toBe("faltan permisos de macOS");
-    expect(ids(v)).toEqual(["perm:accessibility", "perm:input_monitoring"]);
+    expect(ids(v)).toEqual(["perm:request", "perm:accessibility", "perm:input_monitoring", "perm:restart"]);
     expect(v.checks.filter((c) => c.state === "fail")).toHaveLength(2);
+    // Los nombres salen también como los llama macOS en inglés.
+    expect(v.checks.some((c) => c.label === "Permiso: Accesibilidad (Accessibility)")).toBe(true);
+    expect(v.checks.some((c) => c.label === "Permiso: Monitorización de entrada (Input Monitoring)")).toBe(true);
+    // Y a qué binario concederlos, sin abrir una terminal.
+    const binary = v.checks.find((c) => c.label === "Binario del agente");
+    expect(binary?.detail).toContain("/Applications/Tandem.app/Contents/MacOS/tandemd");
+    expect(v.checks.some((c) => c.label === "Cómo conceder" && (c.detail ?? "").includes("Reiniciar agente"))).toBe(true);
     // Se concede uno: el otro sigue.
-    const one = caps("mac", { input: { capture: true, inject: true, missing: ["input_monitoring"] } });
-    expect(ids(viewOf(at("machine"), snap({ here: one })))).toEqual(["perm:input_monitoring"]);
+    const one = caps("mac", { input: { capture: true, inject: true, missing: ["input_monitoring"], process: PROCESS } });
+    expect(ids(viewOf(at("machine"), snap({ here: one })))).toEqual(["perm:request", "perm:input_monitoring", "perm:restart"]);
     // Se conceden todos: se comprueba solo.
     const ok = viewOf(at("machine"), snap());
     expect(ok.verified).toBe(true);
     expect(ok.checks.some((c) => c.label === "Permisos de macOS" && c.state === "ok")).toBe(true);
+    // Con todo concedido no se ofrece pedir ni reiniciar nada.
+    expect(ids(ok)).toEqual([]);
   });
 
   it("sin agente no hay nada que verificar", () => {

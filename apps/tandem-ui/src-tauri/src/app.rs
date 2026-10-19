@@ -326,6 +326,24 @@ fn setup_open(permission: Permission) -> Result<(), String> {
     open_settings(permission)
 }
 
+/// «Reiniciar agente»: `launchctl kickstart -k` de `tandemd`, para que los permisos recién
+/// concedidos en Ajustes valgan sin pedirle comandos al usuario.
+#[tauri::command]
+fn agent_restart() -> Result<(), String> {
+    restart_agent()
+}
+
+#[cfg(target_os = "macos")]
+fn restart_agent() -> Result<(), String> {
+    use crate::launch_agent::{self, system::SystemLaunchd};
+    launch_agent::restart(&SystemLaunchd::current_user()?)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn restart_agent() -> Result<(), String> {
+    Err("el agente de inicio de sesión solo existe en macOS".to_owned())
+}
+
 #[tauri::command]
 fn setup_finish(ui: tauri::State<'_, Ui>) -> Result<SetupView, String> {
     if let Some(file) = &ui.first_run.file {
@@ -744,6 +762,7 @@ pub fn run() -> Result<(), tauri::Error> {
             shortcuts_set,
             setup_get,
             setup_open,
+            agent_restart,
             setup_finish,
             ui_show_main,
             ui_hide_main,

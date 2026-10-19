@@ -189,9 +189,24 @@ export function initOnboarding(host: Host): Onboard {
     const id = b.id;
     const [kind, a, c] = id.split(":");
     switch (kind) {
-      case "perm":
+      case "perm": {
+        // «Pedir permisos» y «Reiniciar agente» (T-090); el resto abre el panel de Ajustes.
+        if (a === "request") {
+          const why = reasonOf(await host.request({ kind: "request_permissions" }));
+          return set({ ...o, error: why });
+        }
+        if (a === "restart") {
+          try {
+            await host.bridge()?.restartAgent();
+            host.message("tandemd se reinicia: en unos segundos se vuelven a comprobar los permisos");
+            return set({ ...o, error: null });
+          } catch (e) {
+            return set({ ...o, error: `No se pudo reiniciar el agente: ${e instanceof Error ? e.message : String(e)}` });
+          }
+        }
         await host.bridge()?.openSettings(a as Permission);
         return;
+      }
       case "pair": {
         if (a === "skip") return set({ ...o, pair: { ...o.pair, skipped: true } });
         const action = a === "start" ? "start_pairing" : a === "confirm" ? "confirm_pairing" : "cancel_pairing";
