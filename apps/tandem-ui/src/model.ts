@@ -270,7 +270,10 @@ export type Action =
   | { kind: "heard_key" }
   | { kind: "set_keyboard"; machine: Machine }
   | { kind: "ping_peer" }
-  | { kind: "mark_manual"; monitor: string }
+  /** `discard_codes`: el usuario dijo que no vio lo que se mandó; sin él se conservan los códigos. */
+  | { kind: "mark_manual"; monitor: string; discard_codes?: boolean }
+  /** Ida y vuelta del asistente (T-089): solo la entrada, y el agente lo devuelve a `back` solo. */
+  | { kind: "probe_input"; monitor: string; to: Machine; back: Machine }
   /** «Aplicar modo» (T-085): manda la entrada de todos los monitores. */
   | { kind: "apply_mode"; mode: Mode }
   /** Lo que el usuario dice que muestra cada monitor; `null`: nada (en negro). */

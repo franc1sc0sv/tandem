@@ -361,8 +361,32 @@ impl Orchestrator {
             state: state.clone(),
             start: state.clone(),
             uncertain_undo_failures: Vec::new(),
+            deferred: Vec::new(),
         };
-        let outcome = tandem_core::run(cfg, state, plan, &mut d).await;
+        let mut outcome = tandem_core::run(cfg, state, plan, &mut d).await;
+        // Con la vuelta atrás incompleta no se quita ninguna salida: el monitor pudo no
+        // haber vuelto de esa entrada. Se dice, para que la UI lo muestre (T-089).
+        if let Err(TxnError::Inconsistent { undo_failures, .. }) = &mut outcome {
+            for inv in std::mem::take(&mut d.deferred) {
+                tracing::warn!(
+                    txn,
+                    "no se quita la salida ({}): la vuelta atrás no terminó",
+                    describe(&inv)
+                );
+                undo_failures.push((
+                    inv,
+                    "se dejó la salida activa: la entrada pudo no haber vuelto".to_owned(),
+                ));
+            }
+        }
+        if matches!(outcome, Err(TxnError::RolledBack { .. })) {
+            for inv in std::mem::take(&mut d.deferred) {
+                if let Err(f) = d.orch.attempt(&inv, d.peer_on()).await {
+                    tracing::error!(txn, "no se pudo deshacer el paso incierto: {}", f.error);
+                    d.uncertain_undo_failures.push((inv, f.error));
+                }
+            }
+        }
         if d.uncertain_undo_failures.is_empty() {
             return outcome;
         }
@@ -565,6 +589,8 @@ struct Dispatcher<'a> {
     start: State,
     /// El inverso del paso incierto, si tampoco se pudo hacer.
     uncertain_undo_failures: Vec<(Step, String)>,
+    /// Quitar salidas pendientes hasta que la vuelta atrás devuelva las entradas.
+    deferred: Vec<Step>,
 }
 
 impl Dispatcher<'_> {
@@ -654,15 +680,21 @@ impl Executor for Dispatcher<'_> {
                 self.failed = true;
                 // La geometría no hace falta: la vuelta atrás la recalcula al final.
                 let undo = step.undo(self.cfg, &self.start).filter(|_| uncertain);
-                if let Some(inv) = undo.filter(|inv| *inv != Step::UpdateInputGeometry)
-                    && let Err(e) = self
+                // Quitar una salida (inverso de un `Attach` incierto) espera a que la entrada
+                // haya vuelto: antes, el monitor sigue en esa máquina y quedaría en negro
+                // (T-089, DESIGN §8). Se hace al terminar la vuelta atrás.
+                if let Some(inv) = undo.filter(|inv| *inv != Step::UpdateInputGeometry) {
+                    if matches!(inv, Step::Detach { .. }) {
+                        self.deferred.push(inv);
+                    } else if let Err(e) = self
                         .orch
                         .attempt(&inv, self.peer_on())
                         .await
                         .map_err(|f| f.error)
-                {
-                    tracing::error!(txn, "no se pudo deshacer el paso incierto: {e}");
-                    self.uncertain_undo_failures.push((inv, e));
+                    {
+                        tracing::error!(txn, "no se pudo deshacer el paso incierto: {e}");
+                        self.uncertain_undo_failures.push((inv, e));
+                    }
                 }
                 Err(error)
             }
@@ -1018,7 +1050,7 @@ pub(crate) mod tests {
             },
             FakeSteps::default(),
         );
-        let mut state = State::initial(&cfg, Machine::Mac);
+        let mut state = State::initial(&cfg, Machine::Mac).confirmed();
         state.on.pc = true;
         let initial = state.clone();
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
@@ -1039,16 +1071,17 @@ pub(crate) mod tests {
             local.steps(),
             [detach_mac.clone(), detach_mac.inverse(&cfg).unwrap()]
         );
-        // En la PC: entrada, agregar, y después quitar y devolver la entrada.
+        // En la PC: entrada, agregar, y después devolver la entrada y solo entonces quitar
+        // la salida (T-089: quitarla antes dejaba el monitor en negro).
         let back = switch_34_to_pc().inverse(&cfg).unwrap();
         assert_eq!(
             peer.steps()[2..],
             [
+                back,
                 Step::Detach {
                     machine: Machine::Pc,
                     monitor: "m34".into()
                 },
-                back
             ]
         );
     }
@@ -1337,7 +1370,7 @@ pub(crate) mod tests {
                 ..Default::default()
             },
         );
-        let mut state = State::initial(&cfg, Machine::Mac);
+        let mut state = State::initial(&cfg, Machine::Mac).confirmed();
         state.on.pc = true;
         let initial = state.clone();
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
@@ -1350,8 +1383,8 @@ pub(crate) mod tests {
             [
                 switch_34_to_pc(),
                 attach_pc.clone(),
-                attach_pc.inverse(&cfg).unwrap(),
                 switch_34_to_pc().inverse(&cfg).unwrap(),
+                attach_pc.inverse(&cfg).unwrap(),
             ]
         );
     }
@@ -1403,7 +1436,7 @@ pub(crate) mod tests {
                 ..Default::default()
             },
         );
-        let mut state = State::initial(&cfg, Machine::Mac);
+        let mut state = State::initial(&cfg, Machine::Mac).confirmed();
         state.on.pc = true;
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
         let plan = Plan::to_mode(&cfg, &state, &mode, &Abilities::pc_switches(&cfg)).unwrap();
@@ -1415,6 +1448,40 @@ pub(crate) mod tests {
             undo_failures,
             [(detach_pc, "pc: falla simulada".to_owned())]
         );
+    }
+
+    /// Con la vuelta atrás incompleta (la entrada no volvió), el `Detach` diferido del paso
+    /// incierto no se ejecuta y se informa (T-089).
+    #[tokio::test]
+    async fn deferred_detach_is_reported_not_run_when_the_rollback_is_incomplete() {
+        let cfg = fixtures::desk().desk;
+        let attach_pc = Step::Attach {
+            machine: Machine::Pc,
+            monitor: "m34".into(),
+        };
+        let detach_pc = attach_pc.inverse(&cfg).unwrap();
+        let back = switch_34_to_pc().inverse(&cfg).unwrap();
+        let (o, _, peer) = mac(
+            FakeSteps::default(),
+            FakeSteps {
+                lost_reply_on: vec![attach_pc],
+                fail_on: vec![back],
+                ..Default::default()
+            },
+        );
+        let mut state = State::initial(&cfg, Machine::Mac).confirmed();
+        state.on.pc = true;
+        let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
+        let plan = Plan::to_mode(&cfg, &state, &mode, &Abilities::pc_switches(&cfg)).unwrap();
+        let err = o.run(1, &cfg, &mut state, &plan).await.unwrap_err();
+        let TxnError::Inconsistent { undo_failures, .. } = err else {
+            panic!("{err:?}");
+        };
+        assert!(
+            undo_failures.iter().any(|(s, _)| *s == detach_pc),
+            "{undo_failures:?}"
+        );
+        assert!(!peer.steps().contains(&detach_pc), "{:?}", peer.steps());
     }
 
     // QA ronda 2: cada agente solo se cuidaba de sus propias transacciones, así que

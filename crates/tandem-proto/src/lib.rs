@@ -29,7 +29,7 @@ pub use msg::{
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 12;
+pub const PROTOCOL_VERSION: u16 = 13;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -65,10 +65,11 @@ mod tests {
     /// agrega al estado lo que no está confirmado y los pedidos «Aplicar modo» y «qué
     /// muestra»: otra forma de los mensajes, otra versión, para que dos binarios distintos
     /// nunca se acepten como compatibles. T-087 (asistente: monitores físicos, teclado por
-    /// pulsación) sube a la v12.
+    /// pulsación) sube a la v12. T-089 (`ProbeInput` y `MarkManual` con `discard_codes`, que cambian
+    /// la forma de los pedidos de la UI) sube a la v13.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 12);
+        assert_eq!(PROTOCOL_VERSION, 13);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
     }
 }

@@ -7,6 +7,7 @@ import { isConfirmed } from "./confirm";
 import type {
   Action,
   CapsMonitor,
+  DeskState,
   Input,
   Link,
   Machine,
@@ -81,7 +82,7 @@ export type VerifyPhase =
   /** ¿Se ve `machine`? */
   | { kind: "ask"; machine: Machine }
   /** De vuelta a donde estaba; `failed` si algo salió mal antes y ya solo se vuelve. */
-  | { kind: "returning"; failed: string | null }
+  | { kind: "returning"; failed: string | null; silent?: boolean }
   | { kind: "ask_home" }
   | { kind: "ok" }
   | { kind: "manual"; reason: string };
@@ -89,6 +90,8 @@ export type VerifyPhase =
 export interface VerifyEntry {
   /** Donde estaba el monitor al empezar; vuelve ahí siempre. */
   home: Machine;
+  /** `home` es un relleno (el monitor se marcó manual sin saber dónde estaba): no cuenta como dicho. */
+  unknownHome?: boolean;
   phase: VerifyPhase;
 }
 
@@ -237,6 +240,31 @@ export function candidateReady(o: Onboarding, c: MonitorCandidate, agent: Machin
   return new Set(inputs).size === inputs.length;
 }
 
+/** El motivo del primer monitor elegido que no está listo, con su nombre. */
+function blockedReason(o: Onboarding, pending: MonitorCandidate[], agent: Machine): string {
+  for (const cand of pending) {
+    const why = candidateBlocker(o, cand, agent);
+    if (why) return `${cand.label}: ${why}`;
+  }
+  return "faltan respuestas";
+}
+
+/** Por qué una fila no está lista para agregarse, con el motivo concreto; `null` si lo está. */
+export function candidateBlocker(o: Onboarding, c: MonitorCandidate, agent: Machine): string | null {
+  const ch = choiceOf(o, c);
+  if (ch.linked === null) return "falta confirmar si el monitor de la PC y el de la Mac son el mismo";
+  const machines = seenBy(c, agent);
+  const missing = machines.filter((m) => ch.wiring[m] === undefined);
+  if (missing.length) return `falta confirmar por qué cable va a la ${missing.map((m) => MACHINE_NAME[m]).join(" y a la ")}`;
+  if (ch.linked) {
+    const inputs = machines.map((m) => ch.wiring[m]!);
+    if (new Set(inputs).size !== inputs.length) {
+      return `la ${machines.map((m) => MACHINE_NAME[m]).join(" y la ")} no pueden ir al mismo cable (${INPUT_NAME[inputs[0]!]} en las dos): una va por DisplayPort y la otra por HDMI`;
+    }
+  }
+  return null;
+}
+
 /**
  * Lo que se agrega al puesto: un monitor por cada fila marcada; si el usuario dijo que no
  * son el mismo, cada identidad queda como su propio monitor.
@@ -281,7 +309,19 @@ export type VerifyEvent =
   /** Nadie contestó a tiempo (o se cerró el asistente): cuenta como «no» y el monitor vuelve. */
   | { type: "timeout" };
 
-export type VerifyEffect = { kind: "move"; monitor: string; to: Machine } | { kind: "mark_manual"; monitor: string };
+/** `move`: pasar el monitor a `to` (o devolverlo, con `to === back`); `back` es donde estaba. */
+export type VerifyEffect = { kind: "move"; monitor: string; to: Machine; back: Machine } | { kind: "mark_manual"; monitor: string; discard: boolean };
+
+/**
+ * Dónde está ahora el monitor: lo que el usuario dijo en el paso 5, o el estado si ya está
+ * confirmado. Con el estado sin confirmar y sin respuesta, `null`: no se supone.
+ */
+export function homeOf(o: Onboarding, state: DeskState, monitor: string): Machine | null {
+  const entry = o.verify[monitor];
+  if (entry && !entry.unknownHome) return entry.home;
+  const owner = state.owner[monitor];
+  return owner && !state.doubt[monitor] ? owner : null;
+}
 
 /** Un monitor sin entrada propia a donde ir (cableado a una sola máquina) no se puede probar. */
 export function canRoundTrip(m: MonitorConfig, home: Machine): boolean {
@@ -296,14 +336,16 @@ export function canRoundTrip(m: MonitorConfig, home: Machine): boolean {
 export function verifyStep(monitor: string, entry: VerifyEntry, e: VerifyEvent): { next: VerifyEntry; effects: VerifyEffect[] } {
   const { home, phase } = entry;
   const stay = { next: entry, effects: [] as VerifyEffect[] };
-  const manual = (reason: string): { next: VerifyEntry; effects: VerifyEffect[] } => ({
+  // Solo lo que el usuario dice haber visto (o no) habla contra los códigos del perfil; un fallo
+  // al pasar el monitor o al volver (tiempos agotados, enlace) no prueba nada contra ellos.
+  const manual = (reason: string, discard = false): { next: VerifyEntry; effects: VerifyEffect[] } => ({
     next: { home, phase: { kind: "manual", reason } },
-    effects: [{ kind: "mark_manual", monitor }],
+    effects: [{ kind: "mark_manual", monitor, discard }],
   });
   switch (e.type) {
     case "start":
       if (phase.kind !== "idle" && phase.kind !== "manual") return stay;
-      return { next: { home, phase: { kind: "moving", to: other(home) } }, effects: [{ kind: "move", monitor, to: other(home) }] };
+      return { next: { home, phase: { kind: "moving", to: other(home) } }, effects: [{ kind: "move", monitor, to: other(home), back: home }] };
     case "moved":
       if (phase.kind === "moving" && phase.to === other(home)) {
         // No pasó: sigue donde estaba, así que no hay nada que volver.
@@ -312,24 +354,32 @@ export function verifyStep(monitor: string, entry: VerifyEntry, e: VerifyEvent):
       }
       if (phase.kind === "returning") {
         // Si la vuelta también falla, el monitor quizá no volvió: se dice junto al motivo.
-        if (phase.failed) return manual(e.ok ? phase.failed : `${phase.failed}; además ${e.reason ?? "no se pudo volver"}: puede que el monitor no haya vuelto`);
+        // `failed` solo lo pone un «no» del usuario: eso sí habla contra los códigos.
+        if (phase.failed) return manual(e.ok ? phase.failed : `${phase.failed}; además ${e.reason ?? "no se pudo volver"}: puede que el monitor no haya vuelto`, !phase.silent);
         if (!e.ok) return manual(e.reason ?? `no se pudo volver a la ${MACHINE_NAME[home]}`);
         return { next: { home, phase: { kind: "ask_home" } }, effects: [] };
       }
       return stay;
     case "timeout":
-      if (phase.kind === "ask" || phase.kind === "ask_home") return verifyStep(monitor, entry, { type: "answer", yes: false });
+      // Sin contestar no es un «no»: no habla contra los códigos del perfil. Vuelve y queda manual.
+      if (phase.kind === "ask") {
+        return {
+          next: { home, phase: { kind: "returning", failed: `sin respuesta a «¿ves la ${MACHINE_NAME[phase.machine]}?»`, silent: true } },
+          effects: [{ kind: "move", monitor, to: home, back: home }],
+        };
+      }
+      if (phase.kind === "ask_home") return manual(`sin respuesta a «¿ves la ${MACHINE_NAME[home]}?» al volver`);
       return stay;
     case "answer":
       if (phase.kind === "ask") {
         // Vuelve a donde estaba en cualquier caso; si dijo que no, queda dicho por qué.
         return {
           next: { home, phase: { kind: "returning", failed: e.yes ? null : `no se vio la ${MACHINE_NAME[phase.machine]}` } },
-          effects: [{ kind: "move", monitor, to: home }],
+          effects: [{ kind: "move", monitor, to: home, back: home }],
         };
       }
       if (phase.kind === "ask_home") {
-        return e.yes ? { next: { home, phase: { kind: "ok" } }, effects: [] } : manual(`no se vio la ${MACHINE_NAME[home]} al volver`);
+        return e.yes ? { next: { home, phase: { kind: "ok" } }, effects: [] } : manual(`no se vio la ${MACHINE_NAME[home]} al volver`, true);
       }
       return stay;
   }
@@ -583,7 +633,7 @@ function monitorsStep(o: Onboarding, snap: Snapshot): StepView {
       id: `add:${key}`,
       label: ch.add ? "Se agregará" : "No agregar",
       enabled: true,
-      hint: ready ? undefined : "responde las preguntas de esta fila",
+      hint: ready ? undefined : (candidateBlocker(o, cand, agent) ?? undefined),
     });
     v.rows.push(row);
   }
@@ -603,7 +653,7 @@ function monitorsStep(o: Onboarding, snap: Snapshot): StepView {
       label: m.adding ? "Agregando…" : `Agregar ${pending.length} monitor${pending.length === 1 ? "" : "es"}`,
       kind: "primary",
       enabled: ready && !m.adding,
-      hint: ready ? undefined : "faltan respuestas",
+      hint: ready ? undefined : blockedReason(o, pending, agent),
     });
   }
   if (!hasDesk && !m.skipped) v.buttons.push({ id: "monitors:skip", label: "Seguir sin monitores", enabled: true });
@@ -622,7 +672,10 @@ function verifyStepView(o: Onboarding, snap: Snapshot): StepView {
   const busy = Object.values(o.verify).some((e) => ["moving", "ask", "returning", "ask_home"].includes(e.phase.kind));
   for (const m of c.desk.monitors) {
     const entry = o.verify[m.id];
-    const home = entry?.home ?? c.state.owner[m.id] ?? "mac";
+    // Con el estado sin confirmar Tandem no sabe dónde está el monitor: lo dice el usuario.
+    // Suponer la Mac mandaba el monitor de vuelta a donde no estaba (T-089).
+    const known = homeOf(o, c.state, m.id);
+    const home: Machine = known ?? "mac";
     const row: Row = { key: m.id, title: m.label, subtitle: [m.edid_model, ...(m.edid_aliases ?? [])].filter(Boolean).join(" + ") || m.id, checks: verifyChecks(m, entry), questions: [], buttons: [] };
     const p = entry?.phase;
     if (soloWired(m, entry)) {
@@ -644,15 +697,33 @@ function verifyStepView(o: Onboarding, snap: Snapshot): StepView {
         ],
       });
     } else if (!verifyDone(entry) || p?.kind === "manual") {
-      const can = canRoundTrip(m, home);
-      row.buttons.push({
-        id: `verify:${m.id}`,
-        label: p?.kind === "manual" ? "Probar de nuevo" : m.ddc ? "Probar la ida y vuelta" : "Probar (manual asistido)",
-        kind: "primary",
-        enabled: can && !busy && c.state.on[other(home)],
-        hint: !can ? "solo está cableado a una máquina" : !c.state.on[other(home)] ? `la ${MACHINE_NAME[other(home)]} tiene que estar encendida` : undefined,
-      });
-      if (!m.ddc && c.agent === "pc") row.buttons.push({ id: `calibrate:${m.id}`, label: "Calibrar", enabled: !busy });
+      if (!m.ddc) {
+        // La calibración va antes que cualquier cambio de entrada: la ida y vuelta, el estado
+        // inicial y «Aplicar modo» usan los códigos de este monitor (T-089). Sin perfil no se
+        // manda nada automático; o se calibra o se declara el modo manual asistido.
+        row.questions.length = 0;
+        if (c.agent === "pc") row.buttons.push({ id: `calibrate:${m.id}`, label: "Calibrar", kind: "primary", enabled: !busy });
+        row.buttons.push({
+          id: `manual:${m.id}`,
+          label: "Cambiar a mano (modo manual asistido)",
+          enabled: !busy,
+          hint: c.agent === "pc" ? undefined : "la calibración se hace desde la PC",
+        });
+      } else if (known === null) {
+        row.questions.push({
+          text: `¿Qué ves ahora en el ${m.label}?`,
+          options: (["pc", "mac"] as Machine[]).map((w) => ({ id: `home:${m.id}:${w}`, label: `La ${MACHINE_NAME[w]}`, selected: false })),
+        });
+      } else {
+        const can = canRoundTrip(m, home);
+        row.buttons.push({
+          id: `verify:${m.id}`,
+          label: p?.kind === "manual" ? "Probar de nuevo" : "Probar la ida y vuelta",
+          kind: "primary",
+          enabled: can && !busy && c.state.on[other(home)],
+          hint: !can ? "solo está cableado a una máquina" : !c.state.on[other(home)] ? `la ${MACHINE_NAME[other(home)]} tiene que estar encendida` : undefined,
+        });
+      }
     }
     v.rows.push(row);
   }

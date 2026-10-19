@@ -900,7 +900,7 @@ mod tests {
         );
         let _serve = link(&mac, &pc);
         let cfg = mac.config().desk.clone();
-        let mut state = mac.state();
+        let mut state = mac.state().confirmed();
         state.on.pc = true;
         let initial = state.clone();
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
@@ -918,15 +918,15 @@ mod tests {
             }
         );
         assert_eq!(state, initial);
-        // La PC deshizo el paso colgado (incierto) y el cambio de entrada después de
-        // él, no antes.
+        // La PC devolvió el cambio de entrada y solo después quitó la salida del paso
+        // colgado (incierto): quitarla antes dejaba el monitor en negro (T-089).
         assert_eq!(
             pc_steps.steps(),
             [
                 switch_34_to_pc(),
                 attach_pc.clone(),
+                switch_34_to_pc().inverse(&cfg).unwrap(),
                 attach_pc.inverse(&cfg).unwrap(),
-                switch_34_to_pc().inverse(&cfg).unwrap()
             ]
         );
     }

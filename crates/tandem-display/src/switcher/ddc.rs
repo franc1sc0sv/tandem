@@ -90,7 +90,7 @@ fn find(bus: &dyn DdcBus, monitor: &MonitorConfig) -> Result<usize, SwitchError>
     let hits: Vec<usize> = bus
         .monitors()
         .iter()
-        .filter(|m| monitor.models().any(|alias| m.matches(alias)))
+        .filter(|m| monitor.models().any(|alias| m.is_model(alias)))
         .map(|m| m.index)
         .collect();
     match hits[..] {
@@ -205,6 +205,95 @@ mod tests {
         by_alias.monitor.edid_aliases = vec!["LC34G55T".into()];
         s.switch(&by_alias).await.unwrap();
         assert_eq!(writes(&inner), [(1, VCP_INPUT_SOURCE, 0x06, true)]);
+    }
+
+    /// Un monitor del bus con id PnP y nombre propios (los dos Samsung del puesto real).
+    fn samsung(index: usize, product: u16, name: &str) -> FakeMonitor {
+        let mut m = named(name);
+        if let Some(info) = &mut m.info {
+            info.index = index;
+            if let Some(e) = &mut info.edid {
+                e.product_code = product;
+            }
+        }
+        m
+    }
+
+    /// El puesto real de la PC: el 34" es `SAM711A`, el 32" `SAM7489`.
+    fn real_bus() -> (DdcSwitcher, SharedFakeDdc) {
+        bus(
+            vec![
+                samsung(0, 0x711A, "LC34G55T"),
+                samsung(1, 0x7489, "Odyssey G5"),
+            ],
+            &[],
+        )
+    }
+
+    fn by_pnp(id: &str, pnp: &str, aliases: &[&str], code: u8) -> SwitchRequest {
+        let mut r = request("m34", Machine::Mac);
+        r.monitor.id = id.into();
+        r.monitor.edid_model = Some(pnp.into());
+        r.monitor.edid_aliases = aliases.iter().map(|a| (*a).to_owned()).collect();
+        r.monitor.ddc = Some(tandem_core::DdcProfile {
+            hdmi: code,
+            display_port: code,
+        });
+        r
+    }
+
+    // T-089: «Probar de nuevo» en el 32" movió el 34". La identidad coincide exacta, no
+    // por texto contenido: un id parcial o el nombre de otro modelo no es el monitor.
+    #[tokio::test]
+    async fn the_identity_is_exact_never_a_substring() {
+        let (s, inner) = real_bus();
+        for partial in ["SAM7", "SAM711", "G5", "Odyssey", "LC34", "DISPLAY"] {
+            let err = s
+                .switch(&by_pnp("x", partial, &[], 0x05))
+                .await
+                .unwrap_err();
+            assert!(
+                matches!(err, SwitchError::NotFound { .. }),
+                "{partial}: {err:?}"
+            );
+        }
+        assert!(writes(&inner).is_empty());
+    }
+
+    #[tokio::test]
+    async fn each_monitor_of_the_desk_moves_only_itself() {
+        let (s, inner) = real_bus();
+        // El 32" por sus dos identidades (DisplayPort en la PC, HDMI en la Mac).
+        s.switch(&by_pnp("sam7489", "SAM7489", &["SAM748A"], 0x0F))
+            .await
+            .unwrap();
+        s.switch(&by_pnp("sam748a-first", "SAM748A", &["SAM7489"], 0x0F))
+            .await
+            .unwrap();
+        // El 34".
+        s.switch(&by_pnp("sam711a", "SAM711A", &["SAM7119"], 0x09))
+            .await
+            .unwrap();
+        s.switch(&by_pnp("sam7119-first", "SAM7119", &["SAM711A"], 0x09))
+            .await
+            .unwrap();
+        let monitors: Vec<usize> = writes(&inner).iter().map(|w| w.0).collect();
+        assert_eq!(monitors, [1, 1, 0, 0]);
+    }
+
+    /// Una entrada que nombra a los dos monitores del bus no elige ninguno.
+    #[tokio::test]
+    async fn an_identity_shared_by_two_monitors_is_ambiguous() {
+        let (s, inner) = real_bus();
+        let err = s
+            .switch(&by_pnp("x", "SAM711A", &["SAM7489"], 0x09))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, SwitchError::Ambiguous { count: 2, .. }),
+            "{err:?}"
+        );
+        assert!(writes(&inner).is_empty());
     }
 
     #[tokio::test]

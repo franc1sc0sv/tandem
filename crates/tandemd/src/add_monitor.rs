@@ -125,13 +125,24 @@ pub fn bind(desk: &Config, monitors: &[MonitorInfo], index: usize) -> Option<Mon
     let mut found = desk.monitors.iter().filter(|m| {
         let hits: Vec<usize> = monitors
             .iter()
-            .filter(|i| m.models().any(|model| i.matches(model)))
+            .filter(|i| m.models().any(|model| i.is_model(model)))
             .map(|i| i.index)
             .collect();
         hits == [index]
     });
     let first = found.next()?;
     found.next().is_none().then(|| first.id.clone())
+}
+
+/// ¿El monitor `info` del bus no es `c`? Con `edid_model` se compara su identidad; sin él no
+/// hay con qué compararla, y entonces es otro si algún monitor distinto del puesto lo reconoce.
+fn not_this_monitor(desk: &Config, c: &MonitorConfig, info: &MonitorInfo) -> bool {
+    if c.models().next().is_some() {
+        return !c.models().any(|m| info.is_model(m));
+    }
+    desk.monitors
+        .iter()
+        .any(|o| o.id != c.id && o.models().any(|m| info.is_model(m)))
 }
 
 /// El servicio de «Agregar monitor» de la PC.
@@ -326,6 +337,17 @@ impl MonitorWizard {
         let desk = agent.desk();
         let monitor = monitor.or_else(|| bind(&desk, bus.monitors(), index));
         let config = monitor.as_ref().and_then(|id| desk.monitor(id)).cloned();
+        // El índice y el monitor llegan por separado: si no son el mismo, el perfil iría a
+        // parar al monitor equivocado (T-089). Antes de escribir nada en el bus.
+        if let Some(c) = &config
+            && not_this_monitor(&desk, c, &info)
+        {
+            return failed(format!(
+                "el monitor {display} del bus ({}) no es {}: vuelve a buscar los monitores",
+                info.model(),
+                c.label
+            ));
+        }
         let (home, start) = inputs(config.as_ref(), &agent.state().owner);
 
         agent.emit_calibration(CalibrationUpdate::Started {
@@ -480,6 +502,13 @@ impl MonitorWizard {
         let m = desk
             .monitor(&id)
             .ok_or_else(|| format!("el monitor `{id}` no está en la configuración"))?;
+        if not_this_monitor(&desk, m, &info) {
+            return Err(format!(
+                "el monitor {display} del bus ({}) no es {}: vuelve a buscar los monitores",
+                info.model(),
+                m.label
+            ));
+        }
         let c = &entry.profile.codes;
         let note = self.update_config(m, c.hdmi, c.display_port, &info);
         agent.desk_changed();
@@ -835,6 +864,59 @@ mac = "9c:6b:00:1a:2b:ff"
         assert_eq!(
             (list[2].monitor.clone(), list[2].profile.clone()),
             (None, DisplayProfile::None)
+        );
+    }
+
+    // T-089: la UI manda el índice del bus y el monitor por separado; si el orden del bus
+    // cambió entre «listar» y «calibrar», el perfil iba a parar al monitor equivocado.
+    #[tokio::test]
+    async fn a_display_that_is_not_the_named_monitor_is_never_calibrated() {
+        let sim = SimMonitor::new(samsung_32(), Input::Hdmi);
+        let pc = pc(three_monitors(), Some(&sim));
+        let a = &pc.agent;
+        let mut rx = a.subscribe_calibration();
+        // El índice 0 es el 34" (`SAM711A`), pero se pide como si fuera el 32".
+        assert_eq!(
+            a.respond(UiCommand::StartCalibration {
+                display: 0,
+                monitor: Some("m32".into())
+            })
+            .await,
+            Reply::Done
+        );
+        let updates = finished(&mut rx).await;
+        let Some(CalibrationUpdate::Finished(CalibrationOutcome::Failed { reason })) =
+            updates.last()
+        else {
+            panic!("{updates:?}");
+        };
+        assert!(reason.contains("no es"), "{reason}");
+        assert!(!pc.profiles.exists(), "no se guarda ningún perfil");
+        assert!(a.desk().monitor(&"m32".into()).unwrap().ddc.is_none());
+        assert!(a.orchestrator().is_idle(), "el orquestador queda libre");
+    }
+
+    // T-089 (revisión): la guarda también vale si el monitor nombrado aún no tiene modelo.
+    #[test]
+    fn a_monitor_without_a_model_is_not_the_one_another_monitor_claims() {
+        let desk = AgentConfig::from_toml(PC).unwrap().desk;
+        let bare = MonitorConfig {
+            id: "nuevo".into(),
+            label: "nuevo".into(),
+            edid_model: None,
+            ..desk.monitor(&"m32".into()).unwrap().clone()
+        };
+        let mut all = desk.clone();
+        all.monitors.push(bare.clone());
+        let bus = FakeDdc::new(vec![
+            info("SAM", 0x711A, "LC34G55T"),
+            info("DEL", 0x4321, "U2720Q"),
+        ]);
+        let (m34, other) = (&bus.monitors()[0], &bus.monitors()[1]);
+        assert!(not_this_monitor(&all, &bare, m34), "el 34\" es de m34");
+        assert!(
+            !not_this_monitor(&all, &bare, other),
+            "uno que nadie reclama puede ser el nuevo"
         );
     }
 

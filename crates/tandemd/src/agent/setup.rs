@@ -163,7 +163,7 @@ impl Agent {
 
     /// El monitor no respondió a DDC: pierde sus códigos y queda en modo manual asistido
     /// (cada cambio de entrada se lo pide al usuario).
-    pub(super) fn mark_manual(&self, monitor: &MonitorId) -> Reply {
+    pub(super) fn mark_manual(&self, monitor: &MonitorId, discard_codes: bool) -> Reply {
         if self.orch.try_begin().is_none() {
             return Reply::Rejected(BUSY.into());
         }
@@ -171,7 +171,7 @@ impl Agent {
         let reply = match desk.monitors.iter_mut().find(|m| &m.id == monitor) {
             None => Reply::Rejected(format!("el monitor `{monitor}` no está en el puesto")),
             Some(m) => {
-                if m.ddc.take().is_some() {
+                if discard_codes && m.ddc.take().is_some() {
                     self.commit_desk(desk, &[]);
                 }
                 Reply::Done
@@ -475,7 +475,8 @@ mod tests {
         );
         assert_eq!(
             a.handle(tandem_proto::UiCommand::MarkManual {
-                monitor: "sam711a".into()
+                monitor: "sam711a".into(),
+                discard_codes: true,
             }),
             Reply::Done
         );
@@ -529,6 +530,7 @@ mod tests {
         let rev = a.desk_sync().rev;
         a.handle(tandem_proto::UiCommand::MarkManual {
             monitor: "sam711a".into(),
+            discard_codes: true,
         });
         assert!(a.desk().monitors[0].ddc.is_none());
         assert!(a.desk_sync().rev > rev);
@@ -538,14 +540,35 @@ mod tests {
         let rev = a.desk_sync().rev;
         a.handle(tandem_proto::UiCommand::MarkManual {
             monitor: "sam711a".into(),
+            discard_codes: true,
         });
         assert_eq!(a.desk_sync().rev, rev);
         assert!(matches!(
             a.handle(tandem_proto::UiCommand::MarkManual {
-                monitor: "otro".into()
+                monitor: "otro".into(),
+                discard_codes: true,
             }),
             Reply::Rejected(_)
         ));
+    }
+
+    // T-089: una ida y vuelta fallida por el transporte dejaba al monitor sin su perfil de
+    // la base («Sin perfil DDC» en el paso 5). Solo la respuesta «no lo vi» lo descarta.
+    #[tokio::test]
+    async fn a_failed_round_trip_keeps_the_database_profile() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, _) = fresh(dir.path());
+        a.handle(tandem_proto::UiCommand::AddMonitors(vec![new_34()]));
+        let rev = a.desk_sync().rev;
+        assert_eq!(
+            a.handle(tandem_proto::UiCommand::MarkManual {
+                monitor: "sam711a".into(),
+                discard_codes: false,
+            }),
+            Reply::Done
+        );
+        assert!(a.desk().monitors[0].ddc.is_some());
+        assert_eq!(a.desk_sync().rev, rev);
     }
 
     #[tokio::test]

@@ -154,11 +154,12 @@ impl Step {
     /// Como [`Step::inverse`], pero sin quitar de una máquina el monitor que ya estaba
     /// mostrando antes del plan (`start`): un `Attach` sobre un monitor que la máquina ya
     /// tenía (un «Aplicar modo» con el estado sin confirmar) no se deshace con un `Detach`,
-    /// porque la dejaría sin imagen (T-087, DESIGN §8).
+    /// porque la dejaría sin imagen (T-087, DESIGN §8). Tampoco si el monitor estaba sin
+    /// confirmar: no se sabe qué tenía cada escritorio y, sin confirmar, no se quita nada (T-089).
     pub fn undo(&self, cfg: &Config, start: &State) -> Option<Step> {
         let inv = self.inverse(cfg)?;
         if let (Step::Attach { machine, monitor }, Step::Detach { .. }) = (self, &inv)
-            && start.owner.get(monitor) == Some(machine)
+            && (start.owner.get(monitor) == Some(machine) || start.in_doubt(monitor))
         {
             return None;
         }
@@ -201,6 +202,13 @@ pub enum PlanError {
     NoSwitcher(MonitorId),
     #[error("{0} está apagada y la otra máquina no puede encenderla")]
     CannotWake(Machine),
+    /// Con el estado confirmado, la máquina que no muestra el monitor ya lo quitó de su
+    /// escritorio (el fantasma): mandarle la entrada lo dejaría en negro.
+    #[error("la {machine} no tiene a `{monitor}` en su escritorio: no se le puede pasar")]
+    OutputRemoved {
+        monitor: MonitorId,
+        machine: Machine,
+    },
 }
 
 impl Plan {
@@ -383,6 +391,67 @@ impl Plan {
             steps.push(Step::UpdateInputGeometry);
         }
         Plan { steps }
+    }
+
+    /// La ida (`to != back`) o la vuelta (`to == back`) de la prueba del asistente (T-089):
+    /// solo un `SwitchInput`, sin `Attach` ni `Detach` y sin cambiar el estado. `back` es
+    /// donde el monitor está ahora.
+    ///
+    /// Con el monitor confirmado (o conocido alguna vez), la otra máquina lo quitó de su
+    /// escritorio al ceder: solo se acepta la vuelta a donde de verdad está.
+    pub fn probe(
+        cfg: &Config,
+        from: &State,
+        monitor: &MonitorId,
+        to: Machine,
+        back: Machine,
+        abilities: &Abilities,
+    ) -> Result<Plan, PlanError> {
+        let m = cfg
+            .monitor(monitor)
+            .ok_or_else(|| PlanError::UnknownMonitor(monitor.clone()))?;
+        for machine in [to, back] {
+            if m.input_for(machine).is_none() {
+                return Err(PlanError::NotWired {
+                    monitor: monitor.clone(),
+                    machine,
+                });
+            }
+        }
+        // Solo un monitor que nunca se supo dónde está (`Unknown`) puede probarse en las
+        // dos máquinas: ningún plan lo tocó. Si alguna vez se supo (confirmado, de un arranque
+        // anterior o en negro), la otra máquina pudo quitarlo de su escritorio.
+        if from.doubt.get(monitor) != Some(&crate::state::Doubt::Unknown) {
+            let owner = from.owner.get(monitor).copied();
+            if owner != Some(back) {
+                return Err(PlanError::OutputRemoved {
+                    monitor: monitor.clone(),
+                    machine: back,
+                });
+            }
+            if to != back {
+                return Err(PlanError::OutputRemoved {
+                    monitor: monitor.clone(),
+                    machine: to,
+                });
+            }
+        }
+        let by = abilities
+            .switcher(monitor, from)
+            .ok_or_else(|| PlanError::NoSwitcher(monitor.clone()))?;
+        let input = m.input_for(to).ok_or_else(|| PlanError::NotWired {
+            monitor: monitor.clone(),
+            machine: to,
+        })?;
+        Ok(Plan {
+            steps: vec![Step::SwitchInput {
+                monitor: monitor.clone(),
+                from: if to == back { to.other() } else { back },
+                to,
+                input,
+                by,
+            }],
+        })
     }
 
     /// Encender `machine`: solo despertarla. Pedir lo que ya está es un plan vacío.

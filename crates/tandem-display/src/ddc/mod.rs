@@ -57,6 +57,23 @@ impl MonitorInfo {
             .unwrap_or(&self.description)
     }
 
+    /// ¿Es este el monitor de `model`, un id PnP (`SAM711A`) o el nombre completo del EDID?
+    /// Exacto y sin distinguir mayúsculas: una coincidencia por texto contenido (`G5`,
+    /// `SAM7`) elegía el monitor equivocado (T-089). Igual que `Display::is_monitor` en la
+    /// topología, para que el mismo texto señale al mismo monitor en DDC y en el escritorio.
+    /// Sin EDID solo queda la descripción del sistema.
+    pub fn is_model(&self, model: &str) -> bool {
+        let model = model.trim();
+        if model.is_empty() {
+            return false;
+        }
+        let same = |s: &str| s.trim().eq_ignore_ascii_case(model);
+        match &self.edid {
+            Some(e) => same(&e.pnp_id()) || e.name.as_deref().is_some_and(same),
+            None => same(&self.description),
+        }
+    }
+
     /// ¿Coincide con un texto de búsqueda (modelo, id PnP, descripción o salida)?
     pub fn matches(&self, query: &str) -> bool {
         let q = query.to_lowercase();

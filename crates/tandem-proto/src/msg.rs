@@ -435,6 +435,14 @@ pub enum UiCommand {
         monitor: MonitorId,
         to: Machine,
     },
+    /// Ida y vuelta del asistente (T-089): solo cambia la entrada de `monitor` a la de `to`
+    /// (sin tocar escritorios), y el agente lo devuelve solo a `back`, donde estaba, pasado un
+    /// plazo. Con `to == back` adelanta la vuelta.
+    ProbeInput {
+        monitor: MonitorId,
+        to: Machine,
+        back: Machine,
+    },
     /// Preferencia de la pantalla integrada de la MacBook.
     SetBuiltin(BuiltinDisplay),
     /// Respuesta a [`ManualSwitchEvent::Requested`]: `done` si el usuario ya cambió la
@@ -533,9 +541,13 @@ pub enum UiCommand {
     SetKeyboard(Machine),
     /// Latencia visible del enlace con la otra máquina.
     PingPeer,
-    /// El monitor no respondió a DDC: queda en modo manual asistido (sin códigos DDC).
+    /// El monitor queda en modo manual asistido. Con `discard_codes` pierde además sus
+    /// códigos DDC (el usuario dijo que no vio lo que se mandó: los códigos están mal); sin
+    /// él se conservan, porque un fallo de transporte o de otro paso no prueba nada contra
+    /// el perfil (T-089).
     MarkManual {
         monitor: MonitorId,
+        discard_codes: bool,
     },
 }
 
@@ -1532,6 +1544,11 @@ pub(crate) mod samples {
                 ("m32".into(), None),
             ])),
             UiCommand::SetShown(BTreeMap::new()),
+            UiCommand::ProbeInput {
+                monitor: "m34".into(),
+                to: Machine::Mac,
+                back: Machine::Pc,
+            },
             UiCommand::ScanMonitors,
             UiCommand::AddMonitors(vec![NewMonitor {
                 label: "34\"".into(),
@@ -1554,6 +1571,11 @@ pub(crate) mod samples {
             UiCommand::PingPeer,
             UiCommand::MarkManual {
                 monitor: "m32".into(),
+                discard_codes: true,
+            },
+            UiCommand::MarkManual {
+                monitor: "m32".into(),
+                discard_codes: false,
             },
         ];
         cmds.extend(modes().into_iter().map(UiCommand::SetMode));
@@ -1602,6 +1624,7 @@ pub(crate) mod samples {
             UiCommand::SetKeyboard(_) => 30,
             UiCommand::PingPeer => 31,
             UiCommand::MarkManual { .. } => 32,
+            UiCommand::ProbeInput { .. } => 33,
         }
     }
 
@@ -2054,7 +2077,7 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
         covers(&control(), control_arm, 17);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 33);
+        covers(&cmds, ui_command_arm, 34);
         covers(&to_ui(), to_ui_arm, 13);
         let profiles: Vec<_> = displays().into_iter().map(|d| d.profile).collect();
         covers(&profiles, display_profile_arm, 3);

@@ -19,6 +19,7 @@ import {
   viewOf,
   AskDeadline,
   abandonOnClose,
+  homeOf,
   keepInFlight,
   moveEnded,
   type Abandoned,
@@ -26,6 +27,7 @@ import {
   type Check,
   type Onboarding,
   type Row,
+  type VerifyEntry,
   type StepView,
   type VerifyEffect,
   type VerifyEvent,
@@ -114,12 +116,15 @@ export function initOnboarding(host: Host): Onboard {
   async function runEffects(effects: VerifyEffect[]) {
     for (const e of effects) {
       if (e.kind === "mark_manual") {
-        await host.request({ kind: "mark_manual", monitor: e.monitor });
+        await host.request({ kind: "mark_manual", monitor: e.monitor, discard_codes: e.discard });
         continue;
       }
-      const r = await host.request({ kind: "move_monitor", monitor: e.monitor, to: e.to });
+      const r = await host.request({ kind: "probe_input", monitor: e.monitor, to: e.to, back: e.back });
       if (r.kind === "accepted") {
         waiting = { txn: r.txn, then: "move", monitor: e.monitor };
+      } else if (r.kind === "done") {
+        // La vuelta pedida justo cuando corre la automática: ya va en camino (no es un fallo).
+        verify(e.monitor, { type: "moved", ok: true });
       } else {
         settle(e.monitor, "rejected");
         verify(e.monitor, { type: "moved", ok: false, reason: reasonOf(r) ?? "no se pudo pasar el monitor" });
@@ -132,7 +137,7 @@ export function initOnboarding(host: Host): Onboard {
   /** Cierra el rastro de un movimiento: borra la marca y, si tocaba, manda el monitor de vuelta. */
   /** La vuelta automática tras cerrar: si no se acepta o se deshace, se avisa (el monitor quedó en la otra máquina). */
   async function sendHome(monitor: string, to: Machine) {
-    const r = await host.request({ kind: "move_monitor", monitor, to });
+    const r = await host.request({ kind: "probe_input", monitor, to, back: to });
     if (r.kind === "accepted") returning.set(r.txn, monitor);
     else host.message(`No se pudo devolver el monitor a la ${to === "pc" ? "PC" : "Mac"}: ${reasonOf(r) ?? "sin respuesta"}. Revísalo.`);
   }
@@ -151,9 +156,9 @@ export function initOnboarding(host: Host): Onboard {
 
   function verify(monitor: string, e: VerifyEvent) {
     const s = host.snap();
-    const entry =
-      o.verify[monitor] ??
-      (s.kind === "connected" ? { home: s.state.owner[monitor] ?? "mac", phase: { kind: "idle" as const } } : null);
+    // Sin saber dónde está el monitor no hay a dónde devolverlo: no se manda nada.
+    const home = s.kind === "connected" ? homeOf(o, s.state, monitor) : null;
+    const entry = o.verify[monitor] ?? (home ? { home, phase: { kind: "idle" as const } } : null);
     if (!entry) return;
     const r = verifyStep(monitor, entry, e);
     set({ ...o, verify: { ...o.verify, [monitor]: r.next } });
@@ -227,6 +232,20 @@ export function initOnboarding(host: Host): Onboard {
       }
       case "monitors":
         return set({ ...o, monitors: { ...o.monitors, skipped: true } });
+      case "home":
+        // Lo que el usuario ve ahora: de ahí sale y ahí vuelve la prueba.
+        return set({ ...o, verify: { ...o.verify, [a!]: { home: c as Machine, phase: { kind: "idle" } } } });
+      case "manual": {
+        const why = reasonOf(await host.request({ kind: "mark_manual", monitor: a!, discard_codes: false }));
+        const s = host.snap();
+        const home = s.kind === "connected" ? homeOf(o, s.state, a!) : null;
+        // Sin saber dónde está, no se inventa: el relleno no cuenta como dicho por el usuario,
+        // y si luego se calibra, el paso vuelve a preguntar «¿qué ves ahora?».
+        const entry: VerifyEntry = home
+          ? { home, phase: { kind: "manual", reason: "sin perfil DDC" } }
+          : { home: "mac", unknownHome: true, phase: { kind: "manual", reason: "sin perfil DDC" } };
+        return set({ ...o, error: why, verify: { ...o.verify, [a!]: entry } });
+      }
       case "verify":
         return verify(a!, { type: "start" });
       case "ask":
