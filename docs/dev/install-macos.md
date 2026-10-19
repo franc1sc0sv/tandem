@@ -112,8 +112,8 @@ macOS concede estos permisos a un binario concreto, y el que cuenta es el que co
    **−**, pulsa **Pedir permisos** y reinicia el agente.
 
 Dos avisos: **Reiniciar agente** con el permiso todavía sin conceder lo vuelve a pedir en el
-proceso nuevo, y macOS puede mostrar su diálogo otra vez. Y el protocolo v13 exige actualizar
-Mac y PC a la vez: un agente v12 rechaza el enlace con `IncompatibleVersion`.
+proceso nuevo, y macOS puede mostrar su diálogo otra vez. Y el protocolo v14 exige actualizar
+Mac y PC a la vez: un agente v13 rechaza el enlace con `IncompatibleVersion`.
 
 Verificación en hardware pendiente de este flujo: `docs/tasks/T-090.md`.
 
