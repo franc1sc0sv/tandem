@@ -580,6 +580,13 @@ describe("paso 5: verificar cada monitor", () => {
     expect(homeOf(at("verify"), { ...c.state, doubt: {} }, "sam711a")).toBe(c.state.owner["sam711a"]);
   });
 
+  it("un monitor marcado manual sin saber dónde estaba no cuenta como «dicho»: al calibrar vuelve a preguntar", () => {
+    const c = two as Extract<typeof two, { kind: "connected" }>;
+    const filler = at("verify", { verify: { sam711a: { home: "mac", unknownHome: true, phase: { kind: "manual", reason: "sin perfil DDC" } } } });
+    expect(homeOf(filler, c.state, "sam711a")).toBeNull();
+    expect(viewOf(filler, two).rows[0]!.questions[0]!.text).toBe('¿Qué ves ahora en el 34"?');
+  });
+
   it("sin perfil DDC no hay ida y vuelta automática: se calibra (solo en la PC) o se cambia a mano", () => {
     expect(viewOf(at("verify"), two).rows[1]!.buttons.map((b) => b.id)).toEqual(["manual:sam7489"]);
     const pc = snap({ agent: "pc", monitors: [M34, M32] });
@@ -767,14 +774,20 @@ describe("paso 5: plazos y monitores de una sola máquina", () => {
     expect(summaryChecks(at("summary"), s).some((l) => (l.detail ?? "").includes("sin ida y vuelta"))).toBe(true);
   });
 
-  it("sin respuesta cuenta como «no»: vuelve a donde estaba y queda en manual", () => {
+  it("sin respuesta vuelve a donde estaba y queda en manual, sin tirar el perfil", () => {
     const asked: VerifyEntry = { home: "mac", phase: { kind: "ask", machine: "pc" } };
     const r = verifyStep("m", asked, { type: "timeout" });
-    expect(r.next.phase).toEqual({ kind: "returning", failed: "no se vio la PC" });
+    expect(r.next.phase).toMatchObject({ kind: "returning", silent: true });
     expect(r.effects).toEqual([{ kind: "move", monitor: "m", to: "mac", back: "mac" }]);
+    // Una pregunta sin contestar no es un «no» del usuario: los códigos se conservan (T-089).
+    const back = verifyStep("m", r.next, { type: "moved", ok: true });
+    expect(back.next.phase.kind).toBe("manual");
+    expect(back.effects).toEqual([{ kind: "mark_manual", monitor: "m", discard: false }]);
     // También al volver.
     const home: VerifyEntry = { home: "mac", phase: { kind: "ask_home" } };
-    expect(verifyStep("m", home, { type: "timeout" }).next.phase.kind).toBe("manual");
+    const late = verifyStep("m", home, { type: "timeout" });
+    expect(late.next.phase.kind).toBe("manual");
+    expect(late.effects).toEqual([{ kind: "mark_manual", monitor: "m", discard: false }]);
     // Fuera de turno no hace nada.
     const idle: VerifyEntry = { home: "mac", phase: { kind: "idle" } };
     expect(verifyStep("m", idle, { type: "timeout" }).next).toBe(idle);

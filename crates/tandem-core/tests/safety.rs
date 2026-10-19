@@ -63,13 +63,15 @@ struct Sim {
     world: World,
     calls: usize,
     fail_at: Option<usize>,
+    /// Un segundo fallo, en una llamada de la vuelta atrás.
+    fail_also: Option<usize>,
 }
 
 impl Executor for Sim {
     fn execute(&mut self, step: &Step) -> impl Future<Output = Result<(), String>> + Send {
         let n = self.calls;
         self.calls += 1;
-        let r = if Some(n) == self.fail_at {
+        let r = if Some(n) == self.fail_at || Some(n) == self.fail_also {
             Err(format!("fallo inyectado en la llamada {n}"))
         } else {
             self.apply(step)
@@ -165,11 +167,16 @@ enum Op {
         mode: Vec<Machine>,
         apply: bool,
         fail: Option<prop::sample::Index>,
+        /// Falla además una de las primeras llamadas de deshacer.
+        undo_fail: Option<prop::sample::Index>,
     },
     /// El usuario dice lo que muestra cada monitor (el agente solo corrige su creencia).
     Say(Vec<Option<Machine>>),
     /// El agente de `0` arranca de nuevo (el estado vuelve a quedar sin confirmar).
     Boot(Machine),
+    /// La ida y vuelta del asistente sobre un monitor: ida a la máquina dada y vuelta
+    /// automática a donde el usuario lo ve (que es donde está de verdad). Solo `SwitchInput`.
+    Probe(prop::sample::Index, Machine),
     /// Sincronizar con la otra máquina, escanear, agregar, quitar, el asistente cancelado:
     /// no tocan ningún escritorio.
     Wizard,
@@ -181,11 +188,13 @@ fn op(n: usize) -> impl Strategy<Value = Op> {
             proptest::collection::vec(machine(), n),
             any::<bool>(),
             proptest::option::of(any::<prop::sample::Index>()),
+            proptest::option::of(any::<prop::sample::Index>()),
         )
-            .prop_map(|(mode, apply, fail)| Op::Change { mode, apply, fail }),
+            .prop_map(|(mode, apply, fail, undo_fail)| Op::Change { mode, apply, fail, undo_fail }),
         2 => proptest::collection::vec(proptest::option::of(machine()), n).prop_map(Op::Say),
         2 => machine().prop_map(Op::Boot),
         1 => Just(Op::Wizard),
+        3 => (any::<prop::sample::Index>(), machine()).prop_map(|(m, to)| Op::Probe(m, to)),
     ]
 }
 
@@ -221,6 +230,27 @@ proptest! {
                     state.forget();
                 }
                 Op::Wizard => {}
+                Op::Probe(i, to) => {
+                    let monitor = &cfg.monitors[i.index(cfg.monitors.len())].id;
+                    // El usuario mira el monitor: dice dónde está de verdad.
+                    let back = world.shown[monitor];
+                    let go = Plan::probe(&cfg, &state, monitor, to, back, &abilities(&cfg));
+                    let ret = Plan::probe(&cfg, &state, monitor, back, back, &abilities(&cfg));
+                    if let (Ok(go), Ok(ret)) = (go, ret) {
+                        let only_inputs = go.steps.iter().chain(&ret.steps).all(|s| matches!(s, Step::SwitchInput { .. }));
+                        prop_assert!(only_inputs);
+                        let mut sim = Sim { world: world.clone(), calls: 0, fail_at: None, fail_also: None };
+                        let mut scratch = state.clone();
+                        let _ = pollster::block_on(run(&cfg, &mut scratch, &go, &mut sim));
+                        // Mientras dura la prueba el monitor se ve en una máquina que lo tiene.
+                        if let Err(e) = sim.world.check() {
+                            return Err(TestCaseError::fail(format!("durante la prueba: {e}")));
+                        }
+                        // La vuelta sale sola, pase lo que pase con la ida.
+                        let _ = pollster::block_on(run(&cfg, &mut scratch, &ret, &mut sim));
+                        world = sim.world;
+                    }
+                }
                 Op::Say(says) => {
                     let mut to = state.clone();
                     for (m, say) in cfg.monitors.iter().zip(says) {
@@ -231,14 +261,14 @@ proptest! {
                     // nunca quita una salida.
                     let detaches = plan.steps.iter().filter(|s| matches!(s, Step::Detach { .. })).count();
                     prop_assert_eq!(detaches, 0);
-                    let mut sim = Sim { world: world.clone(), calls: 0, fail_at: None };
+                    let mut sim = Sim { world: world.clone(), calls: 0, fail_at: None, fail_also: None };
                     let mut next = state.clone();
                     if pollster::block_on(run(&cfg, &mut next, &plan, &mut sim)).is_ok() {
                         world = sim.world;
                         state = to;
                     }
                 }
-                Op::Change { mode, apply, fail } => {
+                Op::Change { mode, apply, fail, undo_fail } => {
                     let assign: BTreeMap<_, _> = cfg
                         .monitors
                         .iter()
@@ -253,11 +283,22 @@ proptest! {
                     };
                     let Ok(plan) = plan else { continue };
                     let fail_at = fail.filter(|_| !plan.steps.is_empty()).map(|f| f.index(plan.steps.len()));
-                    let mut sim = Sim { world: world.clone(), calls: 0, fail_at };
+                    let fail_also = fail_at.zip(undo_fail).map(|(_, u)| plan.steps.len() + u.index(4));
+                    let mut sim = Sim { world: world.clone(), calls: 0, fail_at, fail_also };
                     let mut next = state.clone();
                     let out = pollster::block_on(run(&cfg, &mut next, &plan, &mut sim));
                     world = sim.world;
-                    if out.is_ok() {
+                    // Con un segundo fallo al deshacer puede quedar un monitor sin salida (el
+                    // plan manda la entrada antes que la salida, y si las dos vueltas fallan no
+                    // hay nada más que hacer), pero nunca en silencio: el desenlace es
+                    // `Inconsistent` y el agente lo avisa. La secuencia termina ahí.
+                    if undo_fail.is_some() && world.check().is_err() {
+                        let reported = matches!(out, Err(tandem_core::TxnError::Inconsistent { .. }));
+                        prop_assert!(reported, "violación sin avisar: {out:?}");
+                        return Ok(());
+                    }
+                    // Como el agente: un desenlace incierto también guarda el estado que dejó.
+                    if out.is_ok() || matches!(out, Err(tandem_core::TxnError::Inconsistent { .. })) {
                         state = next;
                     } else {
                         // Se deshizo: lo que Tandem cree no cambia, salvo máquinas encendidas.
@@ -343,6 +384,7 @@ fn undoing_an_attach_never_strips_the_monitor_the_machine_already_showed() {
             world: World::new(&cfg, &truth, Powered::both()),
             calls: 0,
             fail_at: Some(fail_at),
+            fail_also: None,
         };
         let mut next = state.clone();
         let _ = pollster::block_on(run(&cfg, &mut next, &plan, &mut sim));

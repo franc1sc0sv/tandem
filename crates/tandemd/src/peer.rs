@@ -900,7 +900,7 @@ mod tests {
         );
         let _serve = link(&mac, &pc);
         let cfg = mac.config().desk.clone();
-        let mut state = mac.state();
+        let mut state = mac.state().confirmed();
         state.on.pc = true;
         let initial = state.clone();
         let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());

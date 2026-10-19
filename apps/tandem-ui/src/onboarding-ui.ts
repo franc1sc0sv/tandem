@@ -27,6 +27,7 @@ import {
   type Check,
   type Onboarding,
   type Row,
+  type VerifyEntry,
   type StepView,
   type VerifyEffect,
   type VerifyEvent,
@@ -121,6 +122,9 @@ export function initOnboarding(host: Host): Onboard {
       const r = await host.request({ kind: "probe_input", monitor: e.monitor, to: e.to, back: e.back });
       if (r.kind === "accepted") {
         waiting = { txn: r.txn, then: "move", monitor: e.monitor };
+      } else if (r.kind === "done") {
+        // La vuelta pedida justo cuando corre la automática: ya va en camino (no es un fallo).
+        verify(e.monitor, { type: "moved", ok: true });
       } else {
         settle(e.monitor, "rejected");
         verify(e.monitor, { type: "moved", ok: false, reason: reasonOf(r) ?? "no se pudo pasar el monitor" });
@@ -235,7 +239,12 @@ export function initOnboarding(host: Host): Onboard {
         const why = reasonOf(await host.request({ kind: "mark_manual", monitor: a!, discard_codes: false }));
         const s = host.snap();
         const home = s.kind === "connected" ? homeOf(o, s.state, a!) : null;
-        return set({ ...o, error: why, verify: { ...o.verify, [a!]: { home: home ?? "mac", phase: { kind: "manual", reason: "sin perfil DDC" } } } });
+        // Sin saber dónde está, no se inventa: el relleno no cuenta como dicho por el usuario,
+        // y si luego se calibra, el paso vuelve a preguntar «¿qué ves ahora?».
+        const entry: VerifyEntry = home
+          ? { home, phase: { kind: "manual", reason: "sin perfil DDC" } }
+          : { home: "mac", unknownHome: true, phase: { kind: "manual", reason: "sin perfil DDC" } };
+        return set({ ...o, error: why, verify: { ...o.verify, [a!]: entry } });
       }
       case "verify":
         return verify(a!, { type: "start" });

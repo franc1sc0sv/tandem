@@ -134,6 +134,17 @@ pub fn bind(desk: &Config, monitors: &[MonitorInfo], index: usize) -> Option<Mon
     found.next().is_none().then(|| first.id.clone())
 }
 
+/// ¿El monitor `info` del bus no es `c`? Con `edid_model` se compara su identidad; sin él no
+/// hay con qué compararla, y entonces es otro si algún monitor distinto del puesto lo reconoce.
+fn not_this_monitor(desk: &Config, c: &MonitorConfig, info: &MonitorInfo) -> bool {
+    if c.models().next().is_some() {
+        return !c.models().any(|m| info.is_model(m));
+    }
+    desk.monitors
+        .iter()
+        .any(|o| o.id != c.id && o.models().any(|m| info.is_model(m)))
+}
+
 /// El servicio de «Agregar monitor» de la PC.
 pub struct MonitorWizard {
     open: CalibrationBus,
@@ -329,8 +340,7 @@ impl MonitorWizard {
         // El índice y el monitor llegan por separado: si no son el mismo, el perfil iría a
         // parar al monitor equivocado (T-089). Antes de escribir nada en el bus.
         if let Some(c) = &config
-            && c.models().next().is_some()
-            && !c.models().any(|m| info.is_model(m))
+            && not_this_monitor(&desk, c, &info)
         {
             return failed(format!(
                 "el monitor {display} del bus ({}) no es {}: vuelve a buscar los monitores",
@@ -492,7 +502,7 @@ impl MonitorWizard {
         let m = desk
             .monitor(&id)
             .ok_or_else(|| format!("el monitor `{id}` no está en la configuración"))?;
-        if m.models().next().is_some() && !m.models().any(|x| info.is_model(x)) {
+        if not_this_monitor(&desk, m, &info) {
             return Err(format!(
                 "el monitor {display} del bus ({}) no es {}: vuelve a buscar los monitores",
                 info.model(),
@@ -884,6 +894,30 @@ mac = "9c:6b:00:1a:2b:ff"
         assert!(!pc.profiles.exists(), "no se guarda ningún perfil");
         assert!(a.desk().monitor(&"m32".into()).unwrap().ddc.is_none());
         assert!(a.orchestrator().is_idle(), "el orquestador queda libre");
+    }
+
+    // T-089 (revisión): la guarda también vale si el monitor nombrado aún no tiene modelo.
+    #[test]
+    fn a_monitor_without_a_model_is_not_the_one_another_monitor_claims() {
+        let desk = AgentConfig::from_toml(PC).unwrap().desk;
+        let bare = MonitorConfig {
+            id: "nuevo".into(),
+            label: "nuevo".into(),
+            edid_model: None,
+            ..desk.monitor(&"m32".into()).unwrap().clone()
+        };
+        let mut all = desk.clone();
+        all.monitors.push(bare.clone());
+        let bus = FakeDdc::new(vec![
+            info("SAM", 0x711A, "LC34G55T"),
+            info("DEL", 0x4321, "U2720Q"),
+        ]);
+        let (m34, other) = (&bus.monitors()[0], &bus.monitors()[1]);
+        assert!(not_this_monitor(&all, &bare, m34), "el 34\" es de m34");
+        assert!(
+            !not_this_monitor(&all, &bare, other),
+            "uno que nadie reclama puede ser el nuevo"
+        );
     }
 
     #[tokio::test]

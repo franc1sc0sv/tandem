@@ -954,19 +954,23 @@ impl Agent {
             Ok(p) => p,
             Err(e) => return Reply::Rejected(e.to_string()),
         };
-        // Lo que este plan manda a un monitor manda sobre una vuelta de prueba pendiente.
-        for step in &plan.steps {
-            if let tandem_core::Step::SwitchInput { monitor, .. } = step {
-                self.disarm_return(monitor);
-            }
-        }
         tracing::info!(txn, what, steps = plan.steps.len(), "cambio de modo");
         tokio::spawn(async move {
             let agent = busy.0.clone();
             let mut state = from;
             let outcome = agent.orch.run(txn, &desk, &mut state, &plan).await;
             match &outcome {
-                Ok(_) => tracing::info!(txn, "cambio de modo aplicado"),
+                Ok(_) => {
+                    tracing::info!(txn, "cambio de modo aplicado");
+                    // Lo que este plan mandó a un monitor manda sobre una vuelta de prueba
+                    // pendiente. Si falla, el plazo sigue: el monitor puede seguir en la
+                    // entrada de prueba (T-089).
+                    for step in &plan.steps {
+                        if let tandem_core::Step::SwitchInput { monitor, .. } = step {
+                            agent.disarm_return(monitor);
+                        }
+                    }
+                }
                 Err(e) => tracing::warn!(txn, "cambio de modo fallido: {e}"),
             }
             // Primero el estado, después el aviso: quien lo reciba ya ve el estado nuevo.
@@ -1845,7 +1849,7 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (a, _local, peer) =
             with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
-        let mut s = a.state().confirmed();
+        let mut s = a.state();
         s.on.pc = true;
         a.set_state(s).unwrap();
         let mut rx = a.subscribe_txns();
@@ -1860,5 +1864,118 @@ pub(crate) mod tests {
         tokio::time::sleep(probe::PROBE_HOLD * 2).await;
         let back = sw("m34", Machine::Pc, Machine::Mac);
         assert!(!peer.steps().contains(&back), "{:?}", peer.steps());
+    }
+
+    // T-089 (revisión): fantasma, cancelación del plazo y enlace caído.
+
+    /// Con el monitor confirmado en la Mac, la PC lo quitó de su escritorio: no se le pasa.
+    #[tokio::test]
+    async fn a_probe_never_targets_a_machine_that_removed_the_monitor() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, local, peer) = with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
+        let mut s = a.state().confirmed();
+        s.on.pc = true;
+        a.set_state(s).unwrap();
+        let Reply::Rejected(why) = a.handle(probe("m34", Machine::Pc, Machine::Mac)) else {
+            panic!("se esperaba Rejected");
+        };
+        assert!(why.contains("no tiene a `m34` en su escritorio"), "{why}");
+        // Tampoco si el usuario dice que está donde Tandem sabe que no está.
+        assert!(matches!(
+            a.handle(probe("m34", Machine::Mac, Machine::Pc)),
+            Reply::Rejected(_)
+        ));
+        assert!(peer.steps().is_empty() && local.steps().is_empty());
+        assert!(a.pending_returns().is_empty());
+    }
+
+    /// Un cambio de modo que falla antes de llegar al monitor probado no cancela la vuelta.
+    #[tokio::test(start_paused = true)]
+    async fn a_failed_mode_change_keeps_the_pending_return() {
+        let dir = tempfile::tempdir().unwrap();
+        let fail = Step::Attach {
+            machine: Machine::Pc,
+            monitor: "m34".into(),
+        };
+        let (a, _local, peer) = with_handles(
+            dir.path(),
+            FakeSteps::default(),
+            FakeSteps {
+                fail_on: vec![fail],
+                ..Default::default()
+            },
+        );
+        a.set_state({
+            let mut s = a.state();
+            s.on.pc = true;
+            s
+        })
+        .unwrap();
+        let mut rx = a.subscribe_txns();
+        a.handle(probe("m34", Machine::Pc, Machine::Mac));
+        until_outcome(&mut rx).await;
+        a.handle(UiCommand::MoveMonitor {
+            monitor: "m34".into(),
+            to: Machine::Pc,
+        });
+        until_outcome(&mut rx).await;
+        assert_eq!(a.pending_returns(), ["m34".into()], "el plazo sigue armado");
+        tokio::time::sleep(probe::PROBE_HOLD * 2).await;
+        until_outcome(&mut rx).await;
+        assert!(a.pending_returns().is_empty(), "y el monitor volvió solo");
+        assert!(peer.steps().contains(&sw("m34", Machine::Pc, Machine::Mac)));
+    }
+
+    /// La PC (la que hace el DDC) inalcanzable durante todo el plazo: se reintenta con
+    /// espera creciente, se avisa a la UI y, al volver el enlace, el monitor vuelve.
+    #[tokio::test(start_paused = true)]
+    async fn an_unreachable_pc_is_retried_warned_and_served_on_reconnect() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, _local, peer) =
+            with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
+        let mut rx = a.subscribe_txns();
+        let mut power = a.subscribe_power();
+        a.handle(probe("m34", Machine::Pc, Machine::Mac));
+        until_outcome(&mut rx).await;
+        // Se cae el enlace con la PC durante la prueba.
+        a.orchestrator().clear_peer();
+        tokio::time::sleep(probe::PROBE_HOLD + probe::GIVE_UP_AFTER + Duration::from_secs(30))
+            .await;
+        assert_eq!(a.pending_returns(), ["m34".into()], "sigue pendiente");
+        let tandem_proto::PowerEvent::PeerLost { stranded, .. } = power.try_recv().unwrap();
+        assert_eq!(stranded, ["m34".into()]);
+        assert_eq!(peer.steps().len(), 1, "solo la ida: la PC no estaba");
+        // Vuelve el enlace: la vuelta sale de inmediato, sin esperar al siguiente reintento.
+        a.set_peer(Arc::new(FakePeer(peer.clone())));
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(a.pending_returns().is_empty());
+        assert_eq!(
+            peer.steps().last(),
+            Some(&sw("m34", Machine::Pc, Machine::Mac))
+        );
+    }
+
+    /// Pedir la vuelta justo cuando corre la automática no es un fallo.
+    #[tokio::test(start_paused = true)]
+    async fn asking_to_return_while_the_automatic_one_runs_is_not_busy() {
+        let dir = tempfile::tempdir().unwrap();
+        let back = sw("m34", Machine::Pc, Machine::Mac);
+        let (a, _local, _peer) = with_handles(
+            dir.path(),
+            FakeSteps::default(),
+            FakeSteps {
+                delays: vec![(back, Duration::from_secs(5))],
+                ..Default::default()
+            },
+        );
+        let mut rx = a.subscribe_txns();
+        a.handle(probe("m34", Machine::Pc, Machine::Mac));
+        until_outcome(&mut rx).await;
+        // El plazo vence y su vuelta tarda; la pedida llega en medio.
+        tokio::time::sleep(probe::PROBE_HOLD + Duration::from_secs(1)).await;
+        assert_eq!(
+            a.handle(probe("m34", Machine::Mac, Machine::Mac)),
+            Reply::Done
+        );
     }
 }

@@ -7,7 +7,7 @@
 
 use std::future::Future;
 
-use crate::model::Config;
+use crate::model::{Config, Machine};
 use crate::plan::{Plan, Step};
 use crate::state::State;
 
@@ -79,7 +79,32 @@ pub async fn run<E: Executor>(
                     }
                 }
                 let mut stuck: Vec<crate::model::MonitorId> = Vec::new();
-                for inv in reactivate.into_iter().chain(inputs) {
+                let mut unreachable: Vec<(Machine, crate::model::MonitorId)> = Vec::new();
+                for inv in reactivate {
+                    match exec.execute(&inv).await {
+                        Ok(()) => inv.apply_to(state),
+                        Err(e) => {
+                            if let Step::Attach { machine, monitor } = &inv {
+                                unreachable.push((*machine, monitor.clone()));
+                            }
+                            undo_failures.push((inv, e));
+                        }
+                    }
+                }
+                for inv in inputs {
+                    // La salida de esa máquina no volvió: mandarle la entrada dejaría el
+                    // monitor sin imagen. Se queda donde está (T-089).
+                    if let Step::SwitchInput { monitor, to, .. } = &inv
+                        && unreachable.contains(&(*to, monitor.clone()))
+                    {
+                        stuck.push(monitor.clone());
+                        undo_failures.push((
+                            inv,
+                            "no se devolvió la entrada: la salida de esa máquina no se reactivó"
+                                .to_owned(),
+                        ));
+                        continue;
+                    }
                     match exec.execute(&inv).await {
                         Ok(()) => inv.apply_to(state),
                         Err(e) => {
@@ -113,6 +138,18 @@ pub async fn run<E: Executor>(
                     state.doubt = snapshot.doubt;
                     Err(TxnError::RolledBack { step, error })
                 } else {
+                    // El estado real es incierto: lo que el plan tocó vuelve a estar sin
+                    // confirmar, y una salida pudo quedar quitada (T-089).
+                    for step in applied.iter().chain(std::iter::once(&step)) {
+                        if let Step::SwitchInput { monitor, .. }
+                        | Step::Attach { monitor, .. }
+                        | Step::Detach { monitor, .. } = step
+                        {
+                            state
+                                .doubt
+                                .insert(monitor.clone(), crate::state::Doubt::Stale);
+                        }
+                    }
                     Err(TxnError::Inconsistent {
                         step,
                         error,
@@ -319,6 +356,41 @@ mod tests {
             )),
             "{:?}",
             exec.log
+        );
+    }
+
+    /// T-089 (revisión): el inverso del anterior. Si no se pudo reactivar la salida de la
+    /// Mac, devolver la entrada a la Mac la dejaría sin salida: no se manda.
+    #[test]
+    fn rollback_keeps_the_input_when_the_output_cannot_come_back() {
+        let cfg = desk();
+        let mut s = State::initial(&cfg, Machine::Mac).confirmed();
+        let plan = Plan::to_mode(&cfg, &s, &mode(), &Abilities::pc_switches(&cfg)).unwrap();
+        let attach_mac = Step::Attach {
+            machine: Machine::Mac,
+            monitor: "m34".into(),
+        };
+        let mut exec = Fake {
+            // Falla el último paso (ya se había quitado el 34" de la Mac) y, al deshacer, la
+            // reactivación de la Mac.
+            fail_on: vec![Step::UpdateInputGeometry, attach_mac],
+            ..Default::default()
+        };
+        let err = pollster::block_on(run(&cfg, &mut s, &plan, &mut exec)).unwrap_err();
+        assert!(matches!(err, TxnError::Inconsistent { .. }), "{err:?}");
+        let undo = &exec.log[plan.steps.len()..];
+        assert!(
+            !undo.iter().any(|st| matches!(
+                st,
+                Step::SwitchInput {
+                    to: Machine::Mac,
+                    ..
+                } | Step::Detach {
+                    machine: Machine::Pc,
+                    ..
+                }
+            )),
+            "{undo:?}"
         );
     }
 

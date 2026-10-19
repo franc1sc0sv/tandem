@@ -82,7 +82,7 @@ export type VerifyPhase =
   /** ¿Se ve `machine`? */
   | { kind: "ask"; machine: Machine }
   /** De vuelta a donde estaba; `failed` si algo salió mal antes y ya solo se vuelve. */
-  | { kind: "returning"; failed: string | null }
+  | { kind: "returning"; failed: string | null; silent?: boolean }
   | { kind: "ask_home" }
   | { kind: "ok" }
   | { kind: "manual"; reason: string };
@@ -90,6 +90,8 @@ export type VerifyPhase =
 export interface VerifyEntry {
   /** Donde estaba el monitor al empezar; vuelve ahí siempre. */
   home: Machine;
+  /** `home` es un relleno (el monitor se marcó manual sin saber dónde estaba): no cuenta como dicho. */
+  unknownHome?: boolean;
   phase: VerifyPhase;
 }
 
@@ -315,8 +317,8 @@ export type VerifyEffect = { kind: "move"; monitor: string; to: Machine; back: M
  * confirmado. Con el estado sin confirmar y sin respuesta, `null`: no se supone.
  */
 export function homeOf(o: Onboarding, state: DeskState, monitor: string): Machine | null {
-  const said = o.verify[monitor]?.home;
-  if (said) return said;
+  const entry = o.verify[monitor];
+  if (entry && !entry.unknownHome) return entry.home;
   const owner = state.owner[monitor];
   return owner && !state.doubt[monitor] ? owner : null;
 }
@@ -353,13 +355,20 @@ export function verifyStep(monitor: string, entry: VerifyEntry, e: VerifyEvent):
       if (phase.kind === "returning") {
         // Si la vuelta también falla, el monitor quizá no volvió: se dice junto al motivo.
         // `failed` solo lo pone un «no» del usuario: eso sí habla contra los códigos.
-        if (phase.failed) return manual(e.ok ? phase.failed : `${phase.failed}; además ${e.reason ?? "no se pudo volver"}: puede que el monitor no haya vuelto`, true);
+        if (phase.failed) return manual(e.ok ? phase.failed : `${phase.failed}; además ${e.reason ?? "no se pudo volver"}: puede que el monitor no haya vuelto`, !phase.silent);
         if (!e.ok) return manual(e.reason ?? `no se pudo volver a la ${MACHINE_NAME[home]}`);
         return { next: { home, phase: { kind: "ask_home" } }, effects: [] };
       }
       return stay;
     case "timeout":
-      if (phase.kind === "ask" || phase.kind === "ask_home") return verifyStep(monitor, entry, { type: "answer", yes: false });
+      // Sin contestar no es un «no»: no habla contra los códigos del perfil. Vuelve y queda manual.
+      if (phase.kind === "ask") {
+        return {
+          next: { home, phase: { kind: "returning", failed: `sin respuesta a «¿ves la ${MACHINE_NAME[phase.machine]}?»`, silent: true } },
+          effects: [{ kind: "move", monitor, to: home, back: home }],
+        };
+      }
+      if (phase.kind === "ask_home") return manual(`sin respuesta a «¿ves la ${MACHINE_NAME[home]}?» al volver`);
       return stay;
     case "answer":
       if (phase.kind === "ask") {
