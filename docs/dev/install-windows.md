@@ -31,19 +31,14 @@ El instalador no trae configuración. La primera vez que arranca, `tandemd` crea
 Mac:
 
 - `machine = "pc"`;
-- un `[[monitors]]` por cada monitor con EDID que ven la topología de Windows y el bus DDC
-  (dxva2), de izquierda a derecha: id = id PnP en minúsculas (`sam711a`, `sam7489`),
-  `edid_model` = id PnP, etiqueta = tamaño (`34"`, `32"`) o modelo, y `ddc` con los códigos
-  de la base de perfiles (`profiles/ddc`) si el modelo está en ella (los dos Samsung del
-  puesto lo están: 34" HDMI 0x06 / DP 0x09, 32" HDMI 0x05 / DP 0x0F);
-- cableado por omisión DisplayPort a la PC y HDMI a la Mac; se cambia con un clic en
-  **Puesto** (botón de la ventana) y se guarda en `tandem.toml`;
+- el puesto vacío: sin `[[screens]]`, el motor de entrada usa los monitores del escritorio
+  virtual de Windows para mover el cursor y la Mac va a la izquierda (DESIGN §7);
 - red, entrada y energía con sus valores por omisión, sin datos de ejemplo.
 
-Reinstalar o actualizar **nunca** toca un `tandem.toml` existente. Se puede editar (formato en
-`docs/examples/tandem.pc.toml`); para detectar los monitores de nuevo, bórralo y reinicia el
-agente (cerrar sesión, o terminar `tandemd.exe` y ejecutar `tandemw.exe`). Para validar uno
-editado a mano:
+Tandem no controla monitores (DESIGN §8). Reinstalar o actualizar **nunca** toca un
+`tandem.toml` existente. Se puede editar (formato en `docs/examples/tandem.pc.toml`): las
+pantallas se declaran con `[[screens]]` y el lado de la Mac con `[arrangement]`. Una sección
+`[[monitors]]` de v0.1 se ignora con un aviso en el log. Para validar uno editado a mano:
 
 ```
 "%LOCALAPPDATA%\Tandem\tandemd.exe" --check-config "%APPDATA%\Tandem\tandem.toml"

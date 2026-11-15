@@ -530,7 +530,6 @@ mod tests {
             label = '34"'
             edid_model = "LC34G55T"
             wiring = { pc = "displayport", mac = "hdmi" }
-            ddc = { hdmi = 0x06, display_port = 0x0F }
         "#;
         let cfg = AgentConfig::from_toml(old).unwrap();
         assert_eq!(cfg.desk, tandem_core::Config::default());

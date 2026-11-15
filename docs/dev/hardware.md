@@ -4,7 +4,7 @@
 
 - Desde WSL: `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`. El sandbox bloquea el puente WSL→Windows, así que cada uso requiere aprobación (es intencional).
 - Binarios de Windows: `cargo build --target x86_64-pc-windows-gnu` (requiere `sudo apt install -y mingw-w64`), copiarlos a `C:\Users\PC\AppData\Local\Temp\tandem\` y ejecutarlos por interop.
-- **Monitores:** toda prueba que cambie una entrada lleva vuelta automática; el 34" es la única pantalla de la PC.
+- **Monitores:** Tandem ya no los controla (DESIGN §8, T-092); ninguna prueba cambia entradas. El 34" es la única pantalla de la PC.
 
 ## Mac (pendiente, tarea T-051)
 
