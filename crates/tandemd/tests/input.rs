@@ -3,20 +3,23 @@
 //! ([`FakeInputBackends`]). El cursor cruza el borde y los eventos llegan al otro
 //! lado, mover el hub invierte los roles, el portapapeles se sincroniza y los permisos
 //! que faltan en la Mac llegan a la UI.
+//!
+//! La geometría es la del acomodo (DESIGN §7): el de omisión (la Mac a la izquierda, con
+//! las pantallas que lee cada una), uno editado que llega por `ControlMsg::Desk` y uno
+//! escrito a mano en `tandem.toml`.
 
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use tandem_clipboard::ClipContent;
-use tandem_core::{Machine, Mode, Step};
-use tandem_display::switcher::ManualSwitcher;
-use tandem_input::geometry::{LayoutOptions, Rect, Screen, ScreenId};
+use tandem_core::{Machine, Side, Step};
+use tandem_input::geometry::{LayoutOptions, Rect, Screen};
 use tandem_input::session::SessionConfig;
 use tandem_input::{HidUsage, InputEvent, KeyState, ModifierKey};
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_peripherals::{UsbId, WatchConfig};
-use tandem_proto::{AgentToUi, InputPermission, InputStatus, Reply, TxnEvent, UiCommand};
+use tandem_proto::{AgentToUi, InputPermission, InputStatus, Reply, UiCommand};
 use tandemd::daemon::{self, Backends, Daemon};
 use tandemd::input::fake::{CaptureCall, FakeInputBackends};
 use tandemd::input::{InputOptions, InputSetup};
@@ -31,8 +34,7 @@ use tokio::task::JoinHandle;
 const KEYBOARD: UsbId = UsbId::new(0x046D, 0xC33F);
 const MOUSE: UsbId = UsbId::new(0x046D, 0xC539);
 
-/// El 34" a la izquierda y el 32" a la derecha: con el 34" en la PC, la Mac queda a su
-/// derecha.
+/// El hub del teclado y el mouse, y el acomodo por omisión: la Mac a la izquierda de la PC.
 const DESK: &str = r#"
 [input]
 server = "pc"
@@ -40,26 +42,11 @@ server = "pc"
 [input.hub]
 keyboard = "046d:c33f"
 mouse = "046d:c539"
-
-[[monitors]]
-id = "m34"
-label = '34"'
-wiring = { pc = "displayport", mac = "hdmi" }
-
-[[monitors]]
-id = "m32"
-label = '32"'
-wiring = { pc = "displayport", mac = "hdmi" }
 "#;
 
 /// Sin hub ni teclado dicho: lo que genera el primer arranque (T-087).
 const DESK_BARE: &str = r#"
 [input]
-
-[[monitors]]
-id = "m34"
-label = '34"'
-wiring = { pc = "displayport", mac = "hdmi" }
 "#;
 
 /// Marca para `start_with`: usar [`DESK_BARE`].
@@ -117,10 +104,7 @@ fn fast() -> InputOptions {
             poll: Duration::from_millis(20),
             debounce: Duration::from_millis(150),
         },
-        layout: LayoutOptions {
-            corner_margin: 0.0,
-            ..LayoutOptions::default()
-        },
+        layout: LayoutOptions { corner_margin: 0.0 },
         report_every: Duration::from_millis(200),
         screens_every: Duration::from_millis(200),
         permissions_every: Duration::from_millis(50),
@@ -129,7 +113,7 @@ fn fast() -> InputOptions {
 }
 
 fn screen(id: &str, w: u32, h: u32) -> Screen {
-    Screen::new(ScreenId::Monitor(id.into()), Rect::new(0, 0, w, h), 1.0)
+    Screen::new(id.into(), Rect::new(0, 0, w, h), 1.0)
 }
 
 struct Running {
@@ -173,6 +157,20 @@ async fn start_with(
     fake: FakeInputBackends,
     input_extra: &str,
 ) -> Running {
+    start_full(machine, identity, port, peer, fake, input_extra, "").await
+}
+
+/// Como [`start_with`], con secciones de más al final de `tandem.toml` (un acomodo
+/// escrito a mano).
+async fn start_full(
+    machine: Machine,
+    identity: &Identity,
+    port: u16,
+    peer: (PublicKey, u16),
+    fake: FakeInputBackends,
+    input_extra: &str,
+    tail: &str,
+) -> Running {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -193,7 +191,9 @@ async fn start_with(
     let base = if input_extra == BARE { DESK_BARE } else { DESK };
     let extra = if input_extra == BARE { "" } else { input_extra };
     let desk = base.replacen("[input]\n", &format!("[input]\n{extra}"), 1);
-    let cfg = AgentConfig::from_toml(&format!("machine = \"{machine}\"\n{network}{desk}")).unwrap();
+    let text = format!("machine = \"{machine}\"\n{network}{desk}\n{tail}");
+    std::fs::write(&paths.config, &text).unwrap();
+    let cfg = AgentConfig::load(&paths.config).unwrap();
     let Daemon {
         agent,
         network,
@@ -203,7 +203,6 @@ async fn start_with(
         &paths,
         Backends::Custom {
             local: Arc::new(Steps::default()),
-            manual: Arc::new(ManualSwitcher::new()),
             input: Some(Box::new(InputSetup {
                 backends: Arc::new(fake.clone()),
                 opts: fast(),
@@ -253,7 +252,13 @@ async fn until_injected(fake: &FakeInputBackends, f: impl Fn(&[InputEvent]) -> b
 
 /// Lleva el cursor del servidor a `x` y lo empuja `dx` hacia el borde, hasta que la otra
 /// máquina reciba la entrada (la geometría nueva puede tardar un instante en llegar).
-async fn cross(server: &FakeInputBackends, client: &FakeInputBackends, x: f64, dx: f64) {
+/// Devuelve dónde entró.
+async fn cross(
+    server: &FakeInputBackends,
+    client: &FakeInputBackends,
+    x: f64,
+    dx: f64,
+) -> (f64, f64) {
     within(async {
         loop {
             let before = client.injected().borrow().len();
@@ -262,13 +267,26 @@ async fn cross(server: &FakeInputBackends, client: &FakeInputBackends, x: f64, d
             tokio::time::sleep(Duration::from_millis(50)).await;
             let entered = client.injected().borrow()[before..]
                 .iter()
-                .any(|e| matches!(e, InputEvent::MotionAbsolute { .. }));
-            if entered {
-                return;
+                .find_map(|e| match e {
+                    InputEvent::MotionAbsolute { x, y } => Some((*x, *y)),
+                    _ => None,
+                });
+            if let Some(at) = entered {
+                return at;
             }
         }
     })
-    .await;
+    .await
+}
+
+/// Espera a que cada agente vea a la otra máquina prendida: sin eso sus pantallas no
+/// cuentan en la geometría.
+async fn both_on(a: &Running, b: &Running) {
+    for r in [a, b] {
+        let other = r.agent.machine().other();
+        let mut rx = r.agent.subscribe();
+        within(rx.wait_for(|s| s.is_on(other))).await.unwrap();
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -304,54 +322,14 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     assert_eq!(mac.agent.input_status().hub_here, Some(false));
     assert!(pc_fake.capturing());
 
-    // El 34" pasa a la PC: el cambio de modo recalcula la geometría de los dos lados.
-    let mut mac_state = mac.agent.subscribe();
-    within(mac_state.wait_for(|s| s.on.pc)).await.unwrap();
-    let mode = Mode::Shared([("m34".into(), Machine::Pc)].into());
-    let txn = within(async {
-        loop {
-            match mac
-                .ui
-                .request(UiCommand::SetMode(mode.clone()))
-                .await
-                .unwrap()
-            {
-                Reply::Accepted { txn } => break txn,
-                Reply::Rejected(why) if why == tandemd::agent::BUSY => {
-                    tokio::time::sleep(Duration::from_millis(20)).await;
-                }
-                other => panic!("se esperaba Accepted: {other:?}"),
-            }
-        }
-    })
-    .await;
-    within(async {
-        loop {
-            match mac.ui.next_event().await.unwrap().unwrap() {
-                AgentToUi::Txn(TxnEvent::Committed { txn: t, .. }) if t == txn => break,
-                AgentToUi::Txn(
-                    e @ (TxnEvent::RolledBack { .. } | TxnEvent::Inconsistent { .. }),
-                ) => panic!("el cambio falló: {e:?}"),
-                _ => {}
-            }
-        }
-    })
-    .await;
+    // Acomodo por omisión: la Mac a la izquierda de la PC, con las pantallas que lee cada una.
+    both_on(&mac, &pc).await;
 
-    // El cursor sale por el borde derecho de la PC y entra a la Mac.
-    cross(&pc_fake, &mac_fake, 3439.0, 5.0).await;
+    // El cursor sale por el borde izquierdo de la PC y entra a la Mac por su borde derecho.
+    let (x, _) = cross(&pc_fake, &mac_fake, 0.0, -5.0).await;
     let calls = pc_fake.capture_calls().borrow().clone();
     assert!(calls.contains(&CaptureCall::Grab(true)), "{calls:?}");
-    let entered = mac_fake
-        .injected()
-        .borrow()
-        .iter()
-        .find_map(|e| match e {
-            InputEvent::MotionAbsolute { x, .. } => Some(*x),
-            _ => None,
-        })
-        .unwrap();
-    assert_eq!(entered, 0.0, "entra por el borde izquierdo de la Mac");
+    assert_eq!(x, 1919.0, "entra por el borde derecho de la Mac");
 
     // Las teclas llegan, con Ctrl de la PC como Cmd en la Mac.
     let a = HidUsage::key(0x04);
@@ -408,8 +386,9 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
         "{calls:?}"
     );
 
-    // Ahora la Mac captura y el cursor cruza por su borde izquierdo a la PC.
-    cross(&mac_fake, &pc_fake, 0.0, -5.0).await;
+    // Ahora la Mac captura y el cursor cruza por su borde derecho a la PC.
+    let (x, _) = cross(&mac_fake, &pc_fake, 1919.0, 5.0).await;
+    assert_eq!(x, 0.0, "entra por el borde izquierdo de la PC");
     let b = HidUsage::key(0x05);
     mac_fake.capture(key(b, KeyState::Pressed));
     until_injected(&pc_fake, |e| e.last() == Some(&key(b, KeyState::Pressed))).await;
@@ -435,6 +414,119 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     // Sin el otro agente no hay sesión, y la Mac, con el hub, sigue de servidor.
     mac.until_input(|s| !s.session && s.server == Machine::Mac)
         .await;
+    mac.stop().await;
+}
+
+/// Un acomodo editado en la PC llega a la Mac por `ControlMsg::Desk` y cambia por dónde
+/// cruza el cursor que ella tiene (DESIGN §7).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
+    let (mac_id, pc_id) = (Identity::from_seed([31; 32]), Identity::from_seed([32; 32]));
+    let (mac_port, pc_port) = (free_port(), free_port());
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    // El hub en la Mac: ella captura y decide por dónde cruza.
+    mac_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let mac = start(
+        Machine::Mac,
+        &mac_id,
+        mac_port,
+        (pc_id.public_key(), pc_port),
+        mac_fake.clone(),
+    )
+    .await;
+    let pc = start(
+        Machine::Pc,
+        &pc_id,
+        pc_port,
+        (mac_id.public_key(), mac_port),
+        pc_fake.clone(),
+    )
+    .await;
+    let mac_serving = |s: &InputStatus| s.server == Machine::Mac && s.session;
+    mac.until_input(mac_serving).await;
+    both_on(&mac, &pc).await;
+
+    // Por omisión la Mac está a la izquierda: cruza por su borde derecho.
+    let (x, _) = cross(&mac_fake, &pc_fake, 1919.0, 5.0).await;
+    assert_eq!(x, 0.0);
+    // El cursor vuelve a la Mac por donde entró (el borde izquierdo de la PC): la Mac
+    // suelta la captura.
+    within(async {
+        loop {
+            mac_fake.capture(InputEvent::MotionRelative { dx: -5.0, dy: 0.0 });
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let calls = mac_fake.capture_calls().borrow().clone();
+            let last = calls
+                .iter()
+                .rev()
+                .find(|c| matches!(c, CaptureCall::Grab(_)));
+            if last == Some(&CaptureCall::Grab(false)) {
+                return;
+            }
+        }
+    })
+    .await;
+
+    // En la PC el acomodo pasa a «la Mac a la derecha».
+    let mut desk = pc.agent.desk();
+    desk.arrangement.mac_side = Side::Right;
+    pc.agent.set_desk(desk.clone()).unwrap();
+    let mut mac_desk = mac.agent.subscribe_desk();
+    within(mac_desk.wait_for(|d| *d == desk)).await.unwrap();
+    assert_eq!(mac.agent.desk_sync().rev, pc.agent.desk_sync().rev);
+
+    // Ahora la Mac cruza por su borde izquierdo y entra a la PC por el derecho.
+    let (x, _) = cross(&mac_fake, &pc_fake, 0.0, -5.0).await;
+    assert_eq!(x, 3439.0, "entra por el borde derecho de la PC");
+    pc.stop().await;
+    mac.stop().await;
+}
+
+/// Un `[[screens]]` escrito a mano en `tandem.toml` cambia la geometría: la PC declara su
+/// pantalla de 2000×720 aunque lea 3440×1440, y la Mac a su derecha. El cruce sale del
+/// acomodo declarado, y el puesto editado llega también a la Mac.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
+    let (mac_id, pc_id) = (Identity::from_seed([33; 32]), Identity::from_seed([34; 32]));
+    let (mac_port, pc_port) = (free_port(), free_port());
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let mac = start(
+        Machine::Mac,
+        &mac_id,
+        mac_port,
+        (pc_id.public_key(), pc_port),
+        mac_fake.clone(),
+    )
+    .await;
+    let declared = "[[screens]]\nmachine = \"pc\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 2000\nheight = 720\n\n[arrangement]\nmac_side = \"right\"\n";
+    let pc = start_full(
+        Machine::Pc,
+        &pc_id,
+        pc_port,
+        (mac_id.public_key(), mac_port),
+        pc_fake.clone(),
+        "",
+        declared,
+    )
+    .await;
+    let pc_serving = |s: &InputStatus| s.server == Machine::Pc && s.session;
+    pc.until_input(pc_serving).await;
+    both_on(&mac, &pc).await;
+
+    // A 500 de 720 por el borde derecho declarado (x = 1999) entra a la Mac a 750 de 1080.
+    let (x, y) = cross(&pc_fake, &mac_fake, 1999.0, 5.0).await;
+    assert_eq!(x, 0.0, "entra por el borde izquierdo de la Mac");
+    assert!((y - 750.0).abs() < 1e-6, "{y}");
+
+    // Lo escrito a mano es un cambio de la PC: la Mac lo adopta.
+    let want = pc.agent.desk();
+    assert_eq!(want.screens.len(), 1);
+    let mut mac_desk = mac.agent.subscribe_desk();
+    within(mac_desk.wait_for(|d| *d == want)).await.unwrap();
+    pc.stop().await;
     mac.stop().await;
 }
 

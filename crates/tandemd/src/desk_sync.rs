@@ -1,17 +1,17 @@
 //! El puesto compartido entre las dos máquinas (T-084).
 //!
-//! Los monitores, sus perfiles DDC, el cableado y el atajo de bloqueo son del puesto, no
-//! de una máquina: un cambio hecho en la UI de cualquiera vale para las dos. Cada agente
+//! El acomodo de pantallas (`[[screens]]`, `[arrangement]`) y el atajo de bloqueo son del
+//! puesto, no de una máquina: un cambio hecho en cualquiera vale para las dos. Cada agente
 //! guarda su copia en `tandem.toml` con un reloj lógico (`desk_rev`, `desk_origin`) y se la
 //! manda al otro al conectarse y con cada cambio ([`tandem_proto::ControlMsg::Desk`]).
 //!
 //! - Un cambio local sube la versión a la más alta conocida + 1, con esta máquina de origen.
 //! - Al recibir, gana la versión más nueva; dos iguales las desempata el origen (así las
 //!   dos máquinas eligen la misma sin hablar más).
-//! - Las dos en la versión 0 (recién generadas) no se mezclan: **la sincronización nunca
-//!   crea monitores** (T-087). Los monitores salen solo del asistente o de «Agregar
-//!   monitor», que suben la versión; antes (T-083) se unían y por eso un mismo monitor
-//!   quedaba duplicado al verse con un id PnP distinto en cada máquina.
+//! - Las dos en la versión 0 (recién generadas) no se mezclan: cada una se queda con lo
+//!   suyo hasta que alguien cambie algo.
+//! - Un `tandem.toml` editado a mano no coincide con la huella que escribió el agente
+//!   ([`fingerprint`]): al arrancar cuenta como un cambio de esta máquina.
 //!
 //! Lo solo-local (máquina, identidad, red, puertos, rutas, energía) nunca viaja.
 
@@ -37,25 +37,51 @@ pub fn bump(rev: u64, me: Machine, desk: Config, lock_shortcut: Vec<String>) -> 
     }
 }
 
+/// Huella estable del puesto y el atajo (FNV-1a de 64 bits sobre su JSON), en hexadecimal:
+/// no depende de la versión de Rust ni de la del agente, así que no cambia sola entre
+/// arranques.
+pub fn fingerprint(desk: &Config, lock_shortcut: &[String]) -> String {
+    // Serializar estos tipos a JSON no falla: no hay mapas con claves no textuales.
+    let json = serde_json::to_vec(&(desk, lock_shortcut)).unwrap_or_default();
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in json {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{h:016x}")
+}
+
+/// Si el puesto de `tandem.toml` lo cambió alguien a mano desde que el agente lo escribió.
+/// Sin huella (un archivo generado o de una versión anterior), solo si no es el de
+/// fábrica.
+pub fn edited_by_hand(
+    desk: &Config,
+    lock_shortcut: &[String],
+    sum: Option<&str>,
+    default_lock: &[String],
+) -> bool {
+    match sum {
+        Some(sum) => fingerprint(desk, lock_shortcut) != sum,
+        None => *desk != Config::default() || lock_shortcut != default_lock,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    use tandem_core::{Input, MonitorConfig};
+    use tandem_core::{Scale, ScreenSpec};
 
     use super::*;
 
-    fn monitor(id: &str) -> MonitorConfig {
-        MonitorConfig {
-            id: id.into(),
-            label: id.to_owned(),
-            edid_model: Some(id.to_ascii_uppercase()),
-            edid_aliases: Vec::new(),
-            wiring: [
-                (Machine::Pc, Input::DisplayPort),
-                (Machine::Mac, Input::Hdmi),
-            ]
-            .into(),
-            ddc: None,
+    fn screen(id: &str) -> ScreenSpec {
+        ScreenSpec {
+            machine: Machine::Pc,
+            id: id.to_owned(),
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1080,
+            scale: Scale::ONE,
         }
     }
 
@@ -64,7 +90,8 @@ mod tests {
             rev,
             origin,
             desk: Config {
-                monitors: ids.iter().map(|id| monitor(id)).collect(),
+                screens: ids.iter().map(|id| screen(id)).collect(),
+                ..Config::default()
             },
             lock_shortcut: vec!["ScrollLock".into()],
         }
@@ -88,21 +115,16 @@ mod tests {
 
     #[test]
     fn two_fresh_desks_are_never_joined() {
-        // Ninguna sincronización crea monitores (T-087): ni con puestos distintos, ni con
-        // uno vacío y otro con monitores de una versión anterior.
-        let mac = sync(0, Machine::Mac, &["sam711a"]);
-        let pc = sync(0, Machine::Pc, &["sam711a", "sam7489"]);
+        let mac = sync(0, Machine::Mac, &["a"]);
+        let pc = sync(0, Machine::Pc, &["a", "b"]);
         assert_eq!(receive(&mac, &pc), None);
         assert_eq!(receive(&pc, &mac), None);
-        let empty = sync(0, Machine::Mac, &[]);
-        assert_eq!(receive(&empty, &pc), None);
-        assert_eq!(receive(&pc, &empty), None);
     }
 
     #[test]
-    fn a_desk_with_monitors_wins_over_a_fresh_one_only_if_it_was_changed() {
+    fn a_changed_desk_wins_over_a_fresh_one() {
         let fresh = sync(0, Machine::Mac, &[]);
-        let built = sync(1, Machine::Pc, &["sam711a", "sam7489"]);
+        let built = sync(1, Machine::Pc, &["a", "b"]);
         assert_eq!(receive(&fresh, &built), Some(built.clone()));
         assert_eq!(receive(&built, &fresh), None);
     }
@@ -110,8 +132,7 @@ mod tests {
     #[test]
     fn a_broken_desk_is_ignored() {
         let mine = sync(1, Machine::Mac, &["a"]);
-        let mut theirs = sync(2, Machine::Pc, &["a"]);
-        theirs.desk.monitors.push(monitor("a"));
+        let theirs = sync(2, Machine::Pc, &["a", "a"]);
         assert_eq!(receive(&mine, &theirs), None);
     }
 
@@ -121,6 +142,24 @@ mod tests {
         let next = bump(mine.rev, Machine::Mac, mine.desk.clone(), vec![]);
         assert_eq!((next.rev, next.origin), (8, Machine::Mac));
         assert_eq!(receive(&mine, &next), Some(next.clone()));
+    }
+
+    #[test]
+    fn a_hand_edit_is_noticed_by_the_fingerprint() {
+        let lock = vec!["ScrollLock".to_owned()];
+        let desk = sync(1, Machine::Pc, &["a"]).desk;
+        let sum = fingerprint(&desk, &lock);
+        assert_eq!(sum.len(), 16);
+        assert!(!edited_by_hand(&desk, &lock, Some(&sum), &lock));
+        let other = sync(1, Machine::Pc, &["b"]).desk;
+        assert!(edited_by_hand(&other, &lock, Some(&sum), &lock));
+        assert!(edited_by_hand(&desk, &[], Some(&sum), &lock));
+        // Sin huella: lo de fábrica no es una edición; cualquier otra cosa, sí.
+        assert!(!edited_by_hand(&Config::default(), &lock, None, &lock));
+        assert!(edited_by_hand(&desk, &lock, None, &lock));
+        assert!(edited_by_hand(&Config::default(), &[], None, &lock));
+        // La huella es estable: la misma entrada da lo mismo.
+        assert_eq!(fingerprint(&desk, &lock), sum);
     }
 
     fn any_sync() -> impl Strategy<Value = DeskSync> {
@@ -149,9 +188,9 @@ mod tests {
         }
 
         /// La sincronización nunca inventa un puesto: o deja el que hay o adopta entero el
-        /// de la otra máquina, que alguien cambió a propósito. Sin cambios, no hace nada.
+        /// de la otra máquina, que alguien cambió a propósito.
         #[test]
-        fn sync_never_creates_monitors(a in any_sync(), b in any_sync()) {
+        fn sync_never_mixes_desks(a in any_sync(), b in any_sync()) {
             match receive(&a, &b) {
                 None => {}
                 Some(next) => {

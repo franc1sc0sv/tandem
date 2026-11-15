@@ -3,15 +3,10 @@
 //! Si la otra máquina se queda sin corriente (o se suspende) nadie corre su `PowerOff`:
 //! sin esto este agente la seguiría creyendo prendida y ningún plan volvería a mandar el
 //! Wake-on-LAN. Cuando ningún enlace la ve durante [`crate::PowerConfig::peer_lost_after`],
-//! se la da por apagada: `on` la marca apagada, esta máquina recupera lo que puede sola y
-//! la UI recibe [`PowerEvent::PeerLost`] con la razón. Una caída más corta no cambia nada.
-//!
-//! Lo que se puede recuperar sin la otra es poco: los monitores que estaban en su entrada
-//! siguen ahí, en negro, y el estado lo dice (siguen siendo suyos). Esta máquina recalcula
-//! la geometría del teclado y mouse para que el cursor no vaya a pantallas apagadas; la
-//! pantalla integrada ya sigue la regla de [`tandem_core::State::builtin_effective`]. El
-//! siguiente cambio lleva los monitores a donde se pida: si los cambia esta máquina no
-//! hace falta la otra; si los cambia la otra, empieza por encenderla.
+//! se la da por apagada: `on` la marca apagada y la UI recibe [`PowerEvent::PeerLost`] con
+//! la razón. El motor de entrada saca sus pantallas de la geometría en cuanto el estado
+//! cambia, así que el cursor no va a pantallas apagadas y, sin la otra, el teclado y el
+//! mouse se quedan aquí. Una caída más corta no cambia nada.
 //!
 //! Al revés, si la otra vuelve a verse estando apagada (la encendieron a mano, se
 //! despertó, o este agente arrancó sin saberlo), se la da por prendida.
@@ -22,7 +17,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tandem_core::{MonitorId, Step};
 use tandem_proto::PowerEvent;
 use tokio::sync::watch;
 use tokio::time::Instant;
@@ -62,7 +56,7 @@ pub async fn watch(agent: Arc<Agent>, mut reachable: watch::Receiver<bool>) {
         {
             let due = since + lost_after;
             if Instant::now() >= due {
-                if mark_lost(&agent, since).await {
+                if mark_lost(&agent, since) {
                     continue;
                 }
                 wake = Some(Instant::now() + BUSY_RETRY);
@@ -109,7 +103,7 @@ impl Drop for Held<'_> {
 }
 
 /// Da la otra por apagada. `false` si el orquestador está ocupado con un cambio.
-async fn mark_lost(agent: &Agent, since: Instant) -> bool {
+fn mark_lost(agent: &Agent, since: Instant) -> bool {
     if agent.orchestrator().try_begin().is_none() {
         return false;
     }
@@ -120,26 +114,13 @@ async fn mark_lost(agent: &Agent, since: Instant) -> bool {
     if !state.is_on(peer) {
         return true;
     }
-    let cfg = agent.desk();
-    let stranded: Vec<MonitorId> = state.monitors_of(&cfg, peer).cloned().collect();
     state.on.set(peer, false);
     let secs = since.elapsed().as_secs();
     let name = crate::capabilities::label(peer);
-    let mut reason = format!(
+    let reason = format!(
         "La {name} no responde por ningún enlace desde hace {secs} s sin que nadie la apagara \
          (¿corte de corriente o suspendida?): se da por apagada"
     );
-    if !stranded.is_empty() {
-        let names: Vec<&str> = stranded
-            .iter()
-            .map(|id| cfg.monitor(id).map_or(id.0.as_str(), |m| m.label.as_str()))
-            .collect();
-        reason.push_str(&format!(
-            "; {} {} en negro hasta llevarlos a otra máquina o encenderla",
-            names.join(", "),
-            if names.len() == 1 { "queda" } else { "quedan" }
-        ));
-    }
     tracing::warn!("{reason}");
     // Primero el estado, después el aviso: quien lo reciba ya la ve apagada.
     if let Err(e) = agent.set_state(state) {
@@ -148,16 +129,7 @@ async fn mark_lost(agent: &Agent, since: Instant) -> bool {
     agent.emit_power(PowerEvent::PeerLost {
         machine: peer,
         reason,
-        stranded,
     });
-    // Solo aquí: la otra no puede contestar.
-    if let Err(e) = agent
-        .orchestrator()
-        .run_here(&Step::UpdateInputGeometry)
-        .await
-    {
-        tracing::warn!("tras perder a {peer}: {e}");
-    }
     drop(held);
     true
 }
@@ -206,8 +178,7 @@ mod tests {
         task: tokio::task::JoinHandle<()>,
     }
 
-    /// El agente de `me` en Compartido (el 34" en la otra máquina), con la otra
-    /// prendida o no y visible según `up`. Las mismas pruebas valen desde las dos
+    /// El agente de `me`, con la otra prendida o no y visible según `up`. Las mismas pruebas valen desde las dos
     /// máquinas: no hay una que vigile y otra vigilada.
     fn rig(dir: &Path, me: Machine, peer_on: bool, up: bool) -> Rig {
         let mut cfg = fixtures::desk();
@@ -218,11 +189,7 @@ mod tests {
             Agent::with_local_steps(cfg, StateStore::new(dir.join("state.json")), local.clone());
         agent.set_peer(Arc::new(FakePeer(peer.clone())));
         let mut s = agent.state();
-        s.owner.values_mut().for_each(|o| *o = me);
         s.on.set(me.other(), peer_on);
-        if peer_on {
-            s.owner.insert("m34".into(), me.other());
-        }
         agent.set_state(s).unwrap();
         let agent = Arc::new(agent);
         let (up, rx) = watch::channel(up);
@@ -278,21 +245,14 @@ mod tests {
 
             let mut want = before.clone();
             want.on.set(me.other(), false);
-            // El 34" sigue en la entrada de la otra; esta máquina sigue encendida.
             assert_eq!(r.agent.state(), want, "{me}");
             assert!(
                 r.agent.state().is_on(me),
                 "{me}: nunca apagada para sí misma"
             );
-            let PowerEvent::PeerLost {
-                machine,
-                reason,
-                stranded,
-            } = r.events.try_recv().unwrap();
+            let PowerEvent::PeerLost { machine, reason } = r.events.try_recv().unwrap();
             assert_eq!(machine, me.other());
-            assert_eq!(stranded, [MonitorId::from("m34")]);
             assert!(reason.contains("15 s"), "{reason}");
-            assert!(reason.contains("34\""), "{reason}");
             assert!(
                 reason.starts_with(&format!(
                     "La {} no responde",
@@ -300,8 +260,8 @@ mod tests {
                 )),
                 "{reason}"
             );
-            // Recalcula su geometría sola; a la otra no se le pide nada.
-            assert_eq!(r.local.steps(), [Step::UpdateInputGeometry]);
+            // Ningún paso: ni aquí ni a la otra.
+            assert!(r.local.steps().is_empty());
             assert!(r.peer.steps().is_empty());
             // Y queda guardado.
             let saved = StateStore::new(dir.path().join("state.json"))
@@ -346,7 +306,6 @@ mod tests {
             sleep(LOST_AFTER.as_secs_f64() + 5.0).await;
             let mut s = r.agent.state();
             s.on.set(me.other(), false);
-            s.owner.insert("m34".into(), me);
             r.agent.set_state(s.clone()).unwrap();
             r.agent.orchestrator().end();
             sleep(60.0).await;
@@ -378,12 +337,11 @@ mod tests {
             assert!(!peer_on(&r));
             r.events.try_recv().unwrap();
 
-            // La encendieron a mano (o se despertó) con el 34" en su entrada.
+            // La encendieron a mano (o se despertó).
             r.up.send_replace(true);
             sleep(0.1).await;
             let s = r.agent.state();
             assert!(s.is_on(me.other()), "{me}");
-            assert_eq!(s.owner[&MonitorId::from("m34")], me.other());
             assert!(r.events.try_recv().is_err());
         }
     }
@@ -402,7 +360,7 @@ mod tests {
             let (_up, rx) = watch::channel(true);
             let task = tokio::spawn(watch(agent.clone(), rx));
             sleep(0.1).await;
-            let mut want = State::initial(&agent.desk(), me);
+            let mut want = State::initial(me);
             want.on.set(me.other(), true);
             assert_eq!(agent.state(), want, "{me}");
             task.abort();

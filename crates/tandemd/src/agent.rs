@@ -1,41 +1,27 @@
 //! El estado vivo del agente y lo que contesta a la UI.
 
-use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tandem_core::plan::PlanError;
-use tandem_core::{Abilities, Config, Input, Machine, Mode, MonitorId, Plan, State};
-use tandem_display::switcher::{ManualEvent, ManualSwitcher};
+use tandem_core::{Abilities, Config, Machine, Plan, State};
 use tandem_link::transport::{Connection, ControlStream};
 use tandem_proto::{
-    CalibrationUpdate, Capabilities, Channel, ControlMsg, DeskCapabilities, DeskSync, HubReport,
-    InputStatus, KeyProbeStatus, PairingStatus, PeerStatus, PowerEvent, ProbeEvent, Reply,
-    ScreenRect, SetupInfo, TxnEvent, UiCommand,
+    Capabilities, Channel, ControlMsg, DeskCapabilities, DeskSync, HubReport, InputStatus,
+    KeyProbeStatus, PairingStatus, PeerStatus, PowerEvent, Reply, ScreenRect, SetupInfo, TxnEvent,
+    UiCommand,
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
-mod probe;
 mod setup;
 
-use crate::add_monitor::{LiveDesk, MonitorWizard, NOT_HERE};
-use crate::calibration::{DesktopLocator, ProbeBoard};
-use crate::capabilities::{self, Seen};
-use crate::config::AgentConfig;
-use crate::display::DisplaySteps;
+use crate::capabilities;
+use crate::config::{AgentConfig, InputConfig};
 use crate::orchestrator::{LocalSteps, Orchestrator, PeerLink, Unimplemented};
-use crate::safety::DetachLedger;
 use crate::store::{StateStore, StoreError};
-use crate::wizard::MonitorScanner;
 
-/// Lo que la UI recibe cuando pide algo que este agente todavía no sabe hacer.
-pub const NOT_IMPLEMENTED: &str = "todavía no implementado";
 /// Lo que la UI recibe si pide un cambio con otro en curso.
 pub const BUSY: &str = "ya hay un cambio en curso";
-/// Lo que la UI recibe si cambia el cableado sin que el usuario lo haya confirmado.
-pub const NEEDS_CONFIRMATION: &str = "cambiar el cableado necesita la confirmación del usuario";
-/// Lo que la UI recibe si pide detectar monitores donde no se puede.
-pub const NO_SCANNER: &str = "esta máquina no detecta monitores";
 /// Lo que la UI recibe si pide emparejar sin la red en marcha.
 pub const NO_NETWORK: &str = "la red del agente no está en marcha";
 
@@ -58,11 +44,7 @@ pub struct Agent {
     /// guardado con el estado viejo puede terminar después de uno con el nuevo.
     persisting: Mutex<()>,
     orch: Orchestrator,
-    /// Los cambios de entrada que el usuario hace a mano y confirma desde la UI.
-    manual: Arc<ManualSwitcher>,
-    /// Las sondas de calibración que muestra la UI de esta máquina (T-078).
-    probes: ProbeBoard,
-    /// Avisos de energía de la PC que no vienen de una transacción.
+    /// Avisos de energía de la otra máquina que no vienen de una transacción.
     power: broadcast::Sender<PowerEvent>,
     /// Con quién está emparejado y por qué enlace lo ve; lo actualiza la red.
     peer_status: watch::Sender<PeerStatus>,
@@ -73,36 +55,20 @@ pub struct Agent {
     input_status: watch::Sender<InputStatus>,
     /// Lo que el otro agente manda para el teclado y mouse.
     inbox: PeerInbox,
-    /// Sube con cada `UpdateInputGeometry`: hay que volver a leer las pantallas.
-    geometry: Arc<watch::Sender<u64>>,
-    /// Los códigos DDC aprendidos al calibrar, que los pasos de pantalla leen en caliente.
-    live: LiveDesk,
-    /// «Agregar monitor» (solo en la PC).
-    wizard: Mutex<Option<Arc<MonitorWizard>>>,
-    /// El avance de la calibración, para la UI.
-    calibration: broadcast::Sender<CalibrationUpdate>,
-    /// El puesto con lo cambiado en caliente ([`LiveDesk`]), para avisar a la UI.
+    /// El puesto compartido que vale ahora (el de `tandem.toml` o el que llegó de la otra).
     desk: watch::Sender<Config>,
-    /// `tandem.toml`, donde se guarda lo que se cambia desde la UI; sin él, solo en memoria.
+    /// `tandem.toml`, donde se guarda lo que cambia; sin él, solo en memoria.
     config_file: Mutex<Option<PathBuf>>,
     /// De dónde salió la configuración y en qué puerto escucha el agente.
     setup: Mutex<SetupInfo>,
     /// Lo que puede esta máquina y lo último que anunció la otra (T-084).
     caps: watch::Sender<DeskCapabilities>,
-    /// Los monitores que esta máquina detectó al arrancar; sin detección, los del puesto.
-    seen: Mutex<Option<Vec<Seen>>>,
     /// El reloj del puesto compartido ([`crate::desk_sync`]) y el atajo de bloqueo, que
     /// también es del puesto.
     sync: Mutex<SyncClock>,
-    /// Quien detecta de nuevo los monitores conectados, para el asistente (T-087).
-    scanner: Mutex<Option<Arc<dyn MonitorScanner>>>,
-    /// `<datos>/profiles/ddc/`: los perfiles del usuario, que se borran con su monitor.
-    user_profiles: Mutex<Option<PathBuf>>,
-    /// Lo que esta máquina quitó de su escritorio (seguridad de pantallas, T-087).
-    ledger: Arc<DetachLedger>,
-    /// El escritorio de esta máquina, solo para reactivar lo quitado de un monitor que se
-    /// borra del puesto.
-    desktop: Option<setup::DesktopHandle>,
+    /// El puesto de `tandem.toml` se editó a mano: al conocer el archivo se le escribe la
+    /// versión nueva.
+    hand_edited: bool,
     /// La prueba «presiona una tecla» del asistente.
     key_probe: watch::Sender<KeyProbeStatus>,
     /// Hay un motor de entrada que arma el [`InputStatus`] (su tarea de estado escucha lo que
@@ -110,8 +76,6 @@ pub struct Agent {
     input_engine: std::sync::atomic::AtomicBool,
     /// Dónde está el teclado según la configuración o el asistente; `None`, sin definir.
     keyboard: watch::Sender<Option<Machine>>,
-    /// Las vueltas automáticas de la ida y vuelta del asistente (T-089).
-    returns: Mutex<probe::Returns>,
     /// Cuántas veces el usuario pidió los permisos de macOS (T-090): el motor de entrada
     /// escucha el contador y los pide al sistema.
     permission_requests: watch::Sender<u64>,
@@ -191,8 +155,6 @@ impl PeerInbox {
 
 /// Avisos de energía que se guardan para un suscriptor lento.
 const POWER_EVENT_BUFFER: usize = 16;
-/// Avance de una calibración guardado para una UI lenta (cada código son unos pocos).
-const CALIBRATION_BUFFER: usize = 128;
 
 impl Agent {
     /// Arranca desde el estado guardado (o el inicial, si no hay), sin backends de
@@ -201,75 +163,54 @@ impl Agent {
         Self::with_local_steps(cfg, store, Arc::new(Unimplemented))
     }
 
+    /// Con los backends reales de esta máquina ([`crate::PowerSteps::for_machine`]).
+    pub fn with_platform(cfg: AgentConfig, store: StateStore) -> Self {
+        let local = Arc::new(crate::power::PowerSteps::for_machine(&cfg));
+        Self::with_local_steps(cfg, store, local)
+    }
+
     /// Como [`Agent::new`], con los pasos que esta máquina sabe hacer.
     pub fn with_local_steps(
         cfg: AgentConfig,
         store: StateStore,
         local: Arc<dyn LocalSteps>,
     ) -> Self {
-        Self::with_backends(cfg, store, local, Arc::new(ManualSwitcher::new()))
-    }
-
-    /// Con los backends reales de esta máquina ([`DisplaySteps::platform`]).
-    pub fn with_platform(cfg: AgentConfig, store: StateStore) -> Self {
-        let manual = Arc::new(ManualSwitcher::new());
-        let geometry = Arc::new(watch::Sender::new(0));
-        let live = LiveDesk::default();
-        // Lo que esta máquina quitó antes y no volvió a poner (T-087): el estado de un
-        // arranque siempre es «sin confirmar», así que se reactiva antes de hacer nada.
-        let ledger = Arc::new(DetachLedger::open(
-            store.path().with_file_name("detached.json"),
-        ));
-        let desktop = tandem_display::desktop::native(cfg.machine);
-        if let Some(d) = &desktop {
-            crate::safety::restore_on_boot(&ledger, d.as_ref(), &cfg.desk, false);
-        }
-        let local = Arc::new(
-            DisplaySteps::platform(&cfg, manual.clone(), geometry.clone())
-                .with_live(live.clone())
-                .with_ledger(ledger.clone()),
-        );
-        let locator = desktop
-            .clone()
-            .map(|d| Arc::new(DesktopLocator(d)) as Arc<dyn crate::calibration::ScreenLocator>);
-        let mut agent = Self::with_backends(cfg, store, local, manual);
-        agent.geometry = geometry;
-        agent.probes = ProbeBoard::new(locator);
-        agent.live = live;
-        agent.ledger = ledger;
-        agent.desktop = desktop.map(setup::DesktopHandle);
-        agent
-    }
-
-    /// `manual` es el backend que `local` usa para los cambios a mano: sus pedidos
-    /// llegan a la UI y las respuestas de la UI vuelven a él.
-    pub fn with_backends(
-        cfg: AgentConfig,
-        store: StateStore,
-        local: Arc<dyn LocalSteps>,
-        manual: Arc<ManualSwitcher>,
-    ) -> Self {
-        let mut state = store.load_or_initial(&cfg.desk, cfg.machine);
+        let mut state = store.load_or_initial(cfg.machine);
         // Esta máquina siempre está prendida para sí misma (DESIGN §3.7); la otra, hasta
         // que los enlaces digan otra cosa, como quedó.
         state.on.set(cfg.machine, true);
-        // Lo guardado es de un arranque anterior: desde entonces los monitores pudieron
-        // cambiar a mano y ninguno lo dice (T-085). Hasta «Aplicar modo» o que el usuario
-        // diga lo que muestra cada uno, queda sin confirmar.
-        state.forget();
         let orch = Orchestrator::new(cfg.machine, local, cfg.orchestrator.timeouts());
         let mut input = InputStatus::new(cfg.input.keyboard());
         input.defined = cfg.input.keyboard_defined();
         let process = capabilities::current_process();
-        let here = capabilities::local(&cfg, &cfg.desk, None, &input, &process);
+        let here = capabilities::local(&cfg, &input, &process);
+        // Un puesto editado a mano en `tandem.toml` es un cambio de esta máquina: versión
+        // nueva, para que la otra lo adopte y no lo pise con el suyo.
+        let hand_edited = crate::desk_sync::edited_by_hand(
+            &cfg.desk,
+            &cfg.input.lock_shortcut,
+            cfg.desk_sum.as_deref(),
+            &InputConfig::default().lock_shortcut,
+        );
+        let sync = if hand_edited {
+            tracing::info!("el puesto de tandem.toml cambió a mano: se le manda a la otra máquina");
+            SyncClock {
+                rev: cfg.desk_rev + 1,
+                origin: cfg.machine,
+                lock_shortcut: cfg.input.lock_shortcut.clone(),
+            }
+        } else {
+            SyncClock {
+                rev: cfg.desk_rev,
+                origin: cfg.desk_origin.unwrap_or(cfg.machine),
+                lock_shortcut: cfg.input.lock_shortcut.clone(),
+            }
+        };
         Agent {
             store,
             state: watch::Sender::new(state),
             persisting: Mutex::new(()),
             orch,
-            manual,
-            // Sin escritorio que consultar, la UI busca el monitor por su nombre.
-            probes: ProbeBoard::new(None),
             power: broadcast::channel(POWER_EVENT_BUFFER).0,
             // Hasta que la red diga otra cosa, el agente trabaja solo.
             peer_status: watch::Sender::new(PeerStatus::Unpaired),
@@ -277,10 +218,6 @@ impl Agent {
             pairing: Mutex::new(None),
             input_status: watch::Sender::new(input),
             inbox: PeerInbox::new(),
-            geometry: Arc::new(watch::Sender::new(0)),
-            live: LiveDesk::default(),
-            wizard: Mutex::new(None),
-            calibration: broadcast::channel(CALIBRATION_BUFFER).0,
             desk: watch::Sender::new(cfg.desk.clone()),
             config_file: Mutex::new(None),
             setup: Mutex::new(SetupInfo {
@@ -289,27 +226,19 @@ impl Agent {
                 port: None,
             }),
             caps: watch::Sender::new(DeskCapabilities { here, peer: None }),
-            seen: Mutex::new(None),
-            sync: Mutex::new(SyncClock {
-                rev: cfg.desk_rev,
-                origin: cfg.desk_origin.unwrap_or(cfg.machine),
-                lock_shortcut: cfg.input.lock_shortcut.clone(),
-            }),
-            scanner: Mutex::new(None),
-            user_profiles: Mutex::new(None),
-            ledger: Arc::new(DetachLedger::in_memory()),
-            desktop: None,
+            sync: Mutex::new(sync),
+            hand_edited,
             key_probe: watch::Sender::new(KeyProbeStatus::default()),
             keyboard: watch::Sender::new(cfg.input.keyboard),
             input_engine: std::sync::atomic::AtomicBool::new(false),
-            returns: Mutex::default(),
             permission_requests: watch::Sender::new(0),
             process,
             cfg,
         }
     }
 
-    /// El archivo de la configuración, donde se guarda lo que se cambia desde la UI.
+    /// El archivo de la configuración, donde se guarda lo que cambia. Si el puesto se editó
+    /// a mano, se le escribe ya la versión nueva.
     pub fn set_config_file(&self, path: PathBuf) {
         self.setup
             .lock()
@@ -319,6 +248,9 @@ impl Agent {
             .config_file
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = Some(path);
+        if self.hand_edited {
+            self.save_desk(&self.desk_sync());
+        }
     }
 
     /// El agente generó la configuración al arrancar (T-082): la UI lo dice.
@@ -344,9 +276,9 @@ impl Agent {
             .clone()
     }
 
-    /// El puesto que vale ahora: el de la configuración con lo cambiado en caliente.
+    /// El puesto compartido que vale ahora.
     pub fn desk(&self) -> Config {
-        self.live.desk(&self.cfg.desk)
+        self.desk.borrow().clone()
     }
 
     /// Avisa cada vez que cambia el puesto.
@@ -354,57 +286,16 @@ impl Agent {
         self.desk.subscribe()
     }
 
-    /// Cambia qué entrada del monitor va a cada máquina: se guarda en `tandem.toml` y vale
-    /// desde el siguiente cambio de modo. No mueve nada: el monitor sigue en la entrada en
-    /// la que está. Con un cambio de modo en curso se rechaza.
-    fn set_wiring(
-        &self,
-        monitor: MonitorId,
-        wiring: BTreeMap<Machine, Input>,
-        confirmed: bool,
-    ) -> Reply {
-        // Fuera del asistente, un cableado mal puesto manda el cambio de modo a una
-        // entrada donde no hay nada (T-087): se pide la confirmación explícita.
-        if !confirmed {
-            return Reply::Rejected(NEEDS_CONFIRMATION.into());
+    /// Cambia el puesto desde esta máquina (el editor del acomodo, T-096): se valida, sube
+    /// la versión, va a `tandem.toml`, a la UI y a la otra máquina.
+    pub fn set_desk(&self, desk: Config) -> Result<(), String> {
+        desk.validate().map_err(|e| e.to_string())?;
+        if self.desk() == desk {
+            return Ok(());
         }
-        if self.desk().monitor(&monitor).is_none() {
-            return Reply::Rejected(format!(
-                "el monitor `{monitor}` no está en la configuración"
-            ));
-        }
-        if wiring.is_empty() {
-            return Reply::Rejected(format!(
-                "{monitor} tiene que ir cableado al menos a una máquina"
-            ));
-        }
-        let inputs: Vec<Input> = wiring.values().copied().collect();
-        if inputs.len() == 2 && inputs[0] == inputs[1] {
-            return Reply::Rejected(format!(
-                "{monitor}: las dos máquinas no pueden ir a la misma entrada"
-            ));
-        }
-        if self.orch.try_begin().is_none() {
-            return Reply::Rejected(BUSY.into());
-        }
-        let file = self
-            .config_file
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
-        let saved = match file {
-            Some(path) => crate::config_edit::set_monitor_wiring(&path, &monitor, &wiring)
-                .map_err(|e| format!("no se guardó el cableado: {e}")),
-            None => Ok(()),
-        };
-        if saved.is_ok() {
-            tracing::info!(%monitor, ?wiring, "cableado cambiado desde la UI");
-            self.live.rewire(monitor, wiring);
-            // Es del puesto: la otra máquina lo guarda también (T-084).
-            self.desk_changed();
-        }
-        self.orch.end();
-        done(saved)
+        self.desk.send_replace(desk);
+        self.desk_changed();
+        Ok(())
     }
 
     /// El puesto compartido como se le manda a la otra máquina.
@@ -432,8 +323,7 @@ impl Agent {
             .clone()
     }
 
-    /// El puesto cambió aquí (cableado, perfil DDC): versión nueva, a `tandem.toml`, a la
-    /// UI y a la otra máquina.
+    /// El puesto cambió aquí: versión nueva, a `tandem.toml`, a la UI y a la otra máquina.
     pub fn desk_changed(&self) {
         let next = {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
@@ -448,13 +338,11 @@ impl Agent {
             next
         };
         self.save_desk(&next);
-        self.desk.send_replace(next.desk.clone());
-        self.refresh_capabilities();
         self.orch.peer().send(ControlMsg::Desk(next));
     }
 
-    /// El puesto que mandó la otra máquina: si es más nuevo (o, recién generados los
-    /// dos, se unen), queda aquí, en caliente y en `tandem.toml`.
+    /// El puesto que mandó la otra máquina: si es más nuevo, queda aquí, en caliente y en
+    /// `tandem.toml`. El motor de entrada recalcula la geometría con él.
     pub fn receive_desk(&self, theirs: DeskSync) {
         let mine = self.desk_sync();
         let Some(next) = crate::desk_sync::receive(&mine, &theirs) else {
@@ -463,7 +351,7 @@ impl Agent {
         tracing::info!(
             rev = next.rev,
             origen = %next.origin,
-            monitores = next.desk.monitors.len(),
+            pantallas = next.desk.screens.len(),
             "puesto actualizado desde la otra máquina"
         );
         {
@@ -472,28 +360,12 @@ impl Agent {
             clock.origin = next.origin;
             clock.lock_shortcut = next.lock_shortcut.clone();
         }
-        // Lo que la otra máquina borró (un monitor quitado, «Restablecer puesto») se borra
-        // también aquí: sus salidas quitadas vuelven y su perfil del usuario se va (T-087).
-        let removed: Vec<_> = self
-            .desk()
-            .monitors
-            .into_iter()
-            .filter(|m| next.desk.monitor(&m.id).is_none())
-            .collect();
-        self.forget_removed(&removed, &next.desk);
-        self.live.replace(next.desk.clone());
         self.save_desk(&next);
-        // Los monitores nuevos se suponen donde los dejaría el estado inicial.
-        let state = crate::store::reconcile(self.state(), &next.desk);
-        if let Err(e) = self.set_state(state) {
-            tracing::warn!("{e}");
-        }
         self.desk.send_if_modified(|d| {
             let changed = *d != next.desk;
             *d = next.desk;
             changed
         });
-        self.refresh_capabilities();
     }
 
     fn save_desk(&self, sync: &DeskSync) {
@@ -519,26 +391,9 @@ impl Agent {
         self.caps.subscribe()
     }
 
-    /// Los monitores que esta máquina detectó (al arrancar, `daemon`).
-    pub fn set_seen_monitors(&self, seen: Vec<Seen>) {
-        *self.seen.lock().unwrap_or_else(PoisonError::into_inner) = Some(seen);
-        self.refresh_capabilities();
-    }
-
     /// Vuelve a armar lo que puede esta máquina; si cambió, se lo dice a la UI y a la otra.
     pub fn refresh_capabilities(&self) {
-        let seen = self
-            .seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone();
-        let here = capabilities::local(
-            &self.cfg,
-            &self.desk(),
-            seen.as_deref(),
-            &self.input_status(),
-            &self.process,
-        );
+        let here = capabilities::local(&self.cfg, &self.input_status(), &self.process);
         let changed = self.caps.send_if_modified(|c| {
             let changed = c.here != here;
             c.here = here.clone();
@@ -568,51 +423,7 @@ impl Agent {
     /// Lo que el plan puede pedirle a cada máquina ([`capabilities::abilities`]).
     pub fn abilities(&self) -> Abilities {
         let caps = self.caps.borrow();
-        capabilities::abilities(&self.desk(), &caps.here, caps.peer.as_ref())
-    }
-
-    /// Los códigos DDC aprendidos en caliente que leen los pasos de pantalla de
-    /// [`Agent::with_platform`] (con otros pasos, los que se le hayan dado a ellos).
-    pub fn live_desk(&self) -> &LiveDesk {
-        &self.live
-    }
-
-    /// Quién atiende «Agregar monitor» (en la PC, al arrancar).
-    pub fn set_wizard(&self, wizard: Arc<MonitorWizard>) {
-        *self.wizard.lock().unwrap_or_else(PoisonError::into_inner) = Some(wizard);
-    }
-
-    fn wizard(&self) -> Result<Arc<MonitorWizard>, String> {
-        self.wizard
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-            .ok_or_else(|| NOT_HERE.to_owned())
-    }
-
-    /// El avance de las calibraciones, para la UI.
-    pub fn subscribe_calibration(&self) -> broadcast::Receiver<CalibrationUpdate> {
-        self.calibration.subscribe()
-    }
-
-    pub(crate) fn emit_calibration(&self, update: CalibrationUpdate) {
-        // Sin UI conectada no hay a quién avisar.
-        let _ = self.calibration.send(update);
-    }
-
-    /// Como [`Agent::handle`], pero lo que bloquea (abrir el bus DDC) va fuera del
-    /// runtime. Es lo que usa la IPC.
-    pub async fn respond(self: &Arc<Self>, cmd: UiCommand) -> Reply {
-        if matches!(
-            cmd,
-            UiCommand::ListDisplays | UiCommand::UseProfile { .. } | UiCommand::ScanMonitors
-        ) {
-            let me = self.clone();
-            return tokio::task::spawn_blocking(move || me.handle(cmd))
-                .await
-                .unwrap_or_else(|e| Reply::Rejected(format!("el bus DDC terminó mal: {e}")));
-        }
-        self.handle(cmd)
+        capabilities::abilities(&caps.here, caps.peer.as_ref())
     }
 
     /// El teclado y mouse, para la UI.
@@ -642,11 +453,6 @@ impl Agent {
         &self.inbox
     }
 
-    /// Cambia con cada paso `UpdateInputGeometry` hecho en esta máquina.
-    pub fn subscribe_geometry(&self) -> watch::Receiver<u64> {
-        self.geometry.subscribe()
-    }
-
     pub fn orchestrator(&self) -> &Orchestrator {
         &self.orch
     }
@@ -662,21 +468,6 @@ impl Agent {
     /// Avance de las transacciones, para la UI.
     pub fn subscribe_txns(&self) -> broadcast::Receiver<TxnEvent> {
         self.orch.subscribe()
-    }
-
-    /// Pedidos de cambio manual de entrada, para la UI.
-    pub fn subscribe_manual(&self) -> broadcast::Receiver<ManualEvent> {
-        self.manual.subscribe()
-    }
-
-    /// Las sondas de calibración de esta máquina: las muestra su UI.
-    pub fn probes(&self) -> &ProbeBoard {
-        &self.probes
-    }
-
-    /// Sondas de calibración que mostrar o quitar, para la UI.
-    pub fn subscribe_probes(&self) -> broadcast::Receiver<ProbeEvent> {
-        self.probes.subscribe()
     }
 
     /// Avisos de energía de la otra máquina (por ejemplo, que se la dio por apagada), para la UI.
@@ -767,8 +558,8 @@ impl Agent {
 
     /// Publica el estado nuevo y lo guarda.
     ///
-    /// Se publica aunque falle el guardado: el cambio ya ocurrió en el puesto y la UI
-    /// tiene que verlo; el error se devuelve para registrarlo.
+    /// Se publica aunque falle el guardado: el cambio ya ocurrió y la UI tiene que verlo;
+    /// el error se devuelve para registrarlo.
     pub fn set_state(&self, mut new: State) -> Result<(), StoreError> {
         // Venga de donde venga (la otra máquina, una transacción), esta está prendida.
         new.on.set(self.cfg.machine, true);
@@ -792,28 +583,15 @@ impl Agent {
 
     /// Contesta un pedido de la UI.
     ///
-    /// Los cambios de modo y de monitor arrancan una transacción en segundo plano y
-    /// se contestan con [`Reply::Accepted`]; el avance llega como [`TxnEvent`]. Tiene
-    /// que llamarse dentro de un runtime de tokio.
+    /// Encender y apagar arrancan una transacción en segundo plano y se contestan con
+    /// [`Reply::Accepted`]; el avance llega como [`TxnEvent`]. Tiene que llamarse dentro de
+    /// un runtime de tokio.
     pub fn handle(self: &Arc<Self>, cmd: UiCommand) -> Reply {
         match cmd {
             UiCommand::GetState => Reply::State(self.state()),
             UiCommand::GetDesk => Reply::Desk(self.desk()),
             UiCommand::GetSetup => Reply::Setup(self.setup()),
             UiCommand::GetCapabilities => Reply::Capabilities(Box::new(self.capabilities())),
-            UiCommand::SetWiring {
-                monitor,
-                wiring,
-                confirmed,
-            } => self.set_wiring(monitor, wiring, confirmed),
-            UiCommand::ScanMonitors => self.scan_monitors(),
-            UiCommand::AddMonitors(new) => self.add_monitors(&new),
-            UiCommand::RemoveMonitor { monitor } => self.remove_monitor(&monitor),
-            UiCommand::ResetDesk => self.reset_desk(),
-            UiCommand::MarkManual {
-                monitor,
-                discard_codes,
-            } => self.mark_manual(&monitor, discard_codes),
             UiCommand::KeyProbe { on } => {
                 self.key_probe(on);
                 Reply::Done
@@ -838,97 +616,12 @@ impl Agent {
                 self.permission_requests.send_modify(|n| *n += 1);
                 Reply::Done
             }
-            UiCommand::SetMode(mode) => self.start(mode),
-            UiCommand::ApplyMode(mode) => self.apply(mode),
-            UiCommand::SetShown(shows) => self.set_shown(shows),
-            UiCommand::ProbeInput { monitor, to, back } => self.probe_input(&monitor, to, back),
             UiCommand::SetPower { machine, on } => self.start_power(machine, on),
-            UiCommand::MoveMonitor { monitor, to } => {
-                if self.desk().monitor(&monitor).is_none() {
-                    return Reply::Rejected(format!(
-                        "el monitor `{monitor}` no está en la configuración"
-                    ));
-                }
-                let mut assign = self.state().owner;
-                assign.insert(monitor, to);
-                self.start(Mode::Shared(assign))
-            }
-            // La preferencia de la pantalla integrada no es un modo: llega con su tarea.
-            UiCommand::SetBuiltin(_) => Reply::Rejected(NOT_IMPLEMENTED.into()),
-            UiCommand::AnswerManualSwitch { id, done } => match self.manual.answer(id, done) {
-                Ok(()) => Reply::Done,
-                Err(e) => Reply::Rejected(e.to_string()),
-            },
-            UiCommand::AnswerProbe { id, answer } => match self.probes.answer(id, answer) {
-                Ok(()) => Reply::Done,
-                Err(e) => Reply::Rejected(e.to_string()),
-            },
-            // Abren el bus DDC, que bloquea: la IPC los pide con `respond`.
-            UiCommand::ListDisplays => match self.wizard().and_then(|w| w.list(&self.desk())) {
-                Ok(displays) => Reply::Displays(displays),
-                Err(e) => Reply::Rejected(e),
-            },
-            UiCommand::UseProfile { display, monitor } => done(
-                self.wizard()
-                    .and_then(|w| w.use_profile(self, display, monitor)),
-            ),
-            UiCommand::StartCalibration { display, monitor } => {
-                done(self.wizard().and_then(|w| w.start(self, display, monitor)))
-            }
-            UiCommand::CancelCalibration => done(self.wizard().and_then(|w| w.cancel())),
         }
     }
 
-    fn start(self: &Arc<Self>, mode: Mode) -> Reply {
-        let abilities = self.abilities();
-        self.start_plan(&format!("{mode:?}"), move |cfg, from| {
-            Plan::to_mode(cfg, from, &mode, &abilities)
-        })
-    }
-
-    /// «Aplicar modo» (T-085): la entrada de todos los monitores, crea Tandem lo que crea.
-    fn apply(self: &Arc<Self>, mode: Mode) -> Reply {
-        let abilities = self.abilities();
-        self.start_plan(&format!("aplicar {mode:?}"), move |cfg, from| {
-            Plan::apply_mode(cfg, from, &mode, &abilities)
-        })
-    }
-
-    /// Lo que el usuario dice que muestra cada monitor (T-085): se corrige el estado sin
-    /// mandar ninguna entrada, cada escritorio sigue a lo corregido ([`Plan::follow`]) y el
-    /// estado final llega a la otra máquina como el de cualquier transacción.
-    fn set_shown(self: &Arc<Self>, shows: BTreeMap<MonitorId, Option<Machine>>) -> Reply {
-        if shows.is_empty() {
-            return Reply::Rejected("no se dijo lo que muestra ningún monitor".into());
-        }
-        let desk = self.desk();
-        for (id, shown) in &shows {
-            let Some(m) = desk.monitor(id) else {
-                return Reply::Rejected(format!("el monitor `{id}` no está en la configuración"));
-            };
-            if let Some(machine) = shown
-                && m.input_for(*machine).is_none()
-            {
-                return Reply::Rejected(format!(
-                    "{} no está cableado a la {}: no puede mostrarla",
-                    m.label,
-                    capabilities::label(*machine)
-                ));
-            }
-        }
-        tracing::info!(?shows, "el usuario dice lo que muestra cada monitor");
-        self.start_txn("lo que muestra cada monitor", move |cfg, from| {
-            let mut to = from.clone();
-            for (id, shown) in &shows {
-                to.record_shown(id, *shown);
-            }
-            let plan = Plan::follow(cfg, from, &to);
-            Ok((to, plan))
-        })
-    }
-
-    /// Encender es solo despertar `machine`; apagar le saca antes todos los monitores
-    /// ([`Plan::power_off`]). Pedir lo que ya está es una transacción vacía.
+    /// Encender es solo despertar `machine`; apagar es su apagado limpio. Pedir lo que ya
+    /// está es una transacción vacía.
     fn start_power(self: &Arc<Self>, machine: Machine, on: bool) -> Reply {
         let name = capabilities::label(machine);
         let what = if on {
@@ -937,11 +630,11 @@ impl Agent {
             format!("apagar la {name}")
         };
         let abilities = self.abilities();
-        self.start_plan(&what, move |cfg, from| {
+        self.start_plan(&what, move |from| {
             if on {
                 Plan::power_on(from, machine, &abilities)
             } else {
-                Plan::power_off(cfg, from, machine, &abilities)
+                Ok(Plan::power_off(from, machine))
             }
         })
     }
@@ -949,47 +642,25 @@ impl Agent {
     fn start_plan(
         self: &Arc<Self>,
         what: &str,
-        plan_for: impl FnOnce(&tandem_core::Config, &State) -> Result<Plan, PlanError>,
-    ) -> Reply {
-        self.start_txn(what, |cfg, from| Ok((from.clone(), plan_for(cfg, from)?)))
-    }
-
-    /// Como [`Agent::start_plan`], pero `prepare` también da el estado del que parte la
-    /// transacción (el corregido por el usuario, en [`Agent::set_shown`]).
-    fn start_txn(
-        self: &Arc<Self>,
-        what: &str,
-        prepare: impl FnOnce(&tandem_core::Config, &State) -> Result<(State, Plan), PlanError>,
+        plan_for: impl FnOnce(&State) -> Result<Plan, PlanError>,
     ) -> Reply {
         let Some(txn) = self.orch.try_begin() else {
             return Reply::Rejected(BUSY.into());
         };
         let busy = Busy(self.clone());
-        // Solo los monitores conectados ahora a alguna de las dos máquinas (T-087): los
-        // demás no aparecen en el plan ni se tocan.
-        let desk = self.plan_desk();
-        let (from, plan) = match prepare(&desk, &self.state()) {
+        let from = self.state();
+        let plan = match plan_for(&from) {
             Ok(p) => p,
             Err(e) => return Reply::Rejected(e.to_string()),
         };
-        tracing::info!(txn, what, steps = plan.steps.len(), "cambio de modo");
+        tracing::info!(txn, what, steps = plan.steps.len(), "transacción");
         tokio::spawn(async move {
             let agent = busy.0.clone();
             let mut state = from;
-            let outcome = agent.orch.run(txn, &desk, &mut state, &plan).await;
+            let outcome = agent.orch.run(txn, &mut state, &plan).await;
             match &outcome {
-                Ok(_) => {
-                    tracing::info!(txn, "cambio de modo aplicado");
-                    // Lo que este plan mandó a un monitor manda sobre una vuelta de prueba
-                    // pendiente. Si falla, el plazo sigue: el monitor puede seguir en la
-                    // entrada de prueba (T-089).
-                    for step in &plan.steps {
-                        if let tandem_core::Step::SwitchInput { monitor, .. } = step {
-                            agent.disarm_return(monitor);
-                        }
-                    }
-                }
-                Err(e) => tracing::warn!(txn, "cambio de modo fallido: {e}"),
+                Ok(_) => tracing::info!(txn, "transacción aplicada"),
+                Err(e) => tracing::warn!(txn, "transacción fallida: {e}"),
             }
             // Primero el estado, después el aviso: quien lo reciba ya ve el estado nuevo.
             if let Err(e) = agent.set_state(state.clone()) {
@@ -1000,13 +671,6 @@ impl Agent {
             agent.orch.finish(txn, &state, &outcome);
         });
         Reply::Accepted { txn }
-    }
-}
-
-fn done(r: Result<(), String>) -> Reply {
-    match r {
-        Ok(()) => Reply::Done,
-        Err(why) => Reply::Rejected(why),
     }
 }
 
@@ -1022,10 +686,9 @@ impl Drop for Busy {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::path::Path;
-
     use std::time::Duration;
 
-    use tandem_core::{BuiltinDisplay, Step};
+    use tandem_core::{Scale, ScreenSpec, Side, Step};
 
     use super::*;
     use crate::config::fixtures;
@@ -1044,127 +707,7 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let a = agent(dir.path());
         assert_eq!(a.machine(), Machine::Mac);
-        assert_eq!(a.state(), State::initial(&a.config().desk, Machine::Mac));
-    }
-
-    fn swapped() -> BTreeMap<Machine, Input> {
-        [
-            (Machine::Pc, Input::Hdmi),
-            (Machine::Mac, Input::DisplayPort),
-        ]
-        .into()
-    }
-
-    /// T-082: el cableado elegido en la UI queda en `tandem.toml`, se avisa y el siguiente
-    /// cambio de modo ya pide la entrada nueva.
-    #[tokio::test]
-    async fn wiring_from_the_ui_is_saved_and_used_by_the_next_plan() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("tandem.toml");
-        std::fs::write(&file, fixtures::DESK).unwrap();
-        let a = Arc::new(agent(dir.path()));
-        a.set_config_file(file.clone());
-        a.set_generated(true);
-        let mut desk = a.subscribe_desk();
-        let reply = a.handle(UiCommand::SetWiring {
-            monitor: "m32".into(),
-            wiring: swapped(),
-            confirmed: true,
-        });
-        assert_eq!(reply, Reply::Done);
-        assert!(desk.has_changed().unwrap());
-        assert_eq!(
-            desk.borrow_and_update()
-                .monitor(&"m32".into())
-                .unwrap()
-                .wiring,
-            swapped()
-        );
-        let Reply::Desk(d) = a.handle(UiCommand::GetDesk) else {
-            panic!("sin puesto")
-        };
-        assert_eq!(d.monitor(&"m32".into()).unwrap().wiring, swapped());
-        let saved = AgentConfig::load(&file).unwrap();
-        assert_eq!(saved.desk.monitor(&"m32".into()).unwrap().wiring, swapped());
-        assert_eq!(
-            a.handle(UiCommand::GetSetup),
-            Reply::Setup(SetupInfo {
-                config_file: Some(file.display().to_string()),
-                generated: true,
-                port: None,
-            })
-        );
-
-        let mut txns = a.subscribe_txns();
-        assert!(matches!(
-            a.handle(UiCommand::SetMode(Mode::SoloPc)),
-            Reply::Accepted { .. }
-        ));
-        let events = until_outcome(&mut txns).await;
-        let TxnEvent::Started { steps, .. } = &events[0] else {
-            panic!("{events:?}")
-        };
-        let input_of = |id: &str| {
-            steps.iter().find_map(|s| match s {
-                Step::SwitchInput { monitor, input, .. } if monitor.0 == id => Some(*input),
-                _ => None,
-            })
-        };
-        assert_eq!(input_of("m32"), Some(Input::Hdmi));
-        assert_eq!(input_of("m34"), Some(Input::DisplayPort));
-    }
-
-    #[test]
-    fn bad_wiring_is_rejected_and_nothing_changes() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("tandem.toml");
-        std::fs::write(&file, fixtures::DESK).unwrap();
-        let a = Arc::new(agent(dir.path()));
-        a.set_config_file(file.clone());
-        let same = [(Machine::Pc, Input::Hdmi), (Machine::Mac, Input::Hdmi)].into();
-        for (monitor, wiring) in [("m99", swapped()), ("m32", BTreeMap::new()), ("m32", same)] {
-            let reply = a.handle(UiCommand::SetWiring {
-                monitor: monitor.into(),
-                wiring,
-                confirmed: true,
-            });
-            assert!(matches!(reply, Reply::Rejected(_)), "{reply:?}");
-        }
-        // Sin poder escribir el archivo, tampoco cambia en memoria.
-        std::fs::write(&file, "machine = ").unwrap();
-        let reply = a.handle(UiCommand::SetWiring {
-            monitor: "m32".into(),
-            wiring: swapped(),
-            confirmed: true,
-        });
-        assert!(
-            matches!(&reply, Reply::Rejected(r) if r.starts_with("no se guardó el cableado")),
-            "{reply:?}"
-        );
-        assert_eq!(a.desk(), a.config().desk);
-        assert_eq!(std::fs::read_to_string(&file).unwrap(), "machine = ");
-    }
-
-    #[tokio::test]
-    async fn wiring_waits_for_a_mode_change_in_progress() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = Arc::new(agent(dir.path()));
-        let _txn = a.orchestrator().try_begin().unwrap();
-        let reply = a.handle(UiCommand::SetWiring {
-            monitor: "m32".into(),
-            wiring: swapped(),
-            confirmed: true,
-        });
-        assert_eq!(reply, Reply::Rejected(BUSY.into()));
-        a.orchestrator().end();
-        // Sin archivo (pruebas, agente sin `tandem.toml`) vale en memoria.
-        let reply = a.handle(UiCommand::SetWiring {
-            monitor: "m32".into(),
-            wiring: swapped(),
-            confirmed: true,
-        });
-        assert_eq!(reply, Reply::Done);
-        assert_eq!(a.desk().monitor(&"m32".into()).unwrap().wiring, swapped());
+        assert_eq!(a.state(), State::initial(Machine::Mac));
     }
 
     #[test]
@@ -1284,6 +827,29 @@ pub(crate) mod tests {
         }
     }
 
+    /// Avisos de una transacción hasta su desenlace.
+    pub async fn until_outcome(rx: &mut broadcast::Receiver<TxnEvent>) -> Vec<TxnEvent> {
+        let mut events = Vec::new();
+        loop {
+            let ev = rx.recv().await.unwrap();
+            let end = matches!(ev, TxnEvent::Committed { .. } | TxnEvent::Failed { .. });
+            events.push(ev);
+            if end {
+                return events;
+            }
+        }
+    }
+
+    fn with_fakes(dir: &Path, local: FakeSteps, peer: FakeSteps) -> Arc<Agent> {
+        let a = Agent::with_local_steps(
+            fixtures::desk_with_wol(),
+            StateStore::new(dir.join("state.json")),
+            Arc::new(local),
+        );
+        a.set_peer(Arc::new(FakePeer(Arc::new(peer))));
+        Arc::new(a)
+    }
+
     #[tokio::test]
     async fn power_on_only_wakes_the_pc() {
         let dir = tempfile::tempdir().unwrap();
@@ -1303,7 +869,7 @@ pub(crate) mod tests {
                 machine: Machine::Pc
             }]
         );
-        let mut expected = State::initial(&a.config().desk, Machine::Mac);
+        let mut expected = State::initial(Machine::Mac);
         expected.on.pc = true;
         assert_eq!(a.state(), expected);
 
@@ -1316,12 +882,11 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn power_off_returns_monitors_to_the_mac_first() {
+    async fn power_off_is_only_the_clean_shutdown() {
         let dir = tempfile::tempdir().unwrap();
         let a = with_fakes(dir.path(), FakeSteps::default(), FakeSteps::default());
-        let mut s = a.state().confirmed();
+        let mut s = a.state();
         s.on.pc = true;
-        s.owner.insert("m34".into(), Machine::Pc);
         a.set_state(s).unwrap();
         let mut rx = a.subscribe_txns();
         assert!(matches!(
@@ -1331,214 +896,35 @@ pub(crate) mod tests {
             }),
             Reply::Accepted { .. }
         ));
-        let steps = steps_of(&until_outcome(&mut rx).await);
-        assert!(matches!(
-            steps.first(),
-            Some(Step::SwitchInput {
-                to: Machine::Mac,
-                ..
-            })
-        ));
         assert_eq!(
-            steps.last(),
-            Some(&Step::PowerOff {
+            steps_of(&until_outcome(&mut rx).await),
+            [Step::PowerOff {
                 machine: Machine::Pc
-            })
+            }]
         );
-        assert_eq!(
-            a.state(),
-            State::initial(&a.config().desk, Machine::Mac).confirmed()
-        );
-    }
-
-    /// Avisos de una transacción hasta su desenlace.
-    pub async fn until_outcome(rx: &mut broadcast::Receiver<TxnEvent>) -> Vec<TxnEvent> {
-        let mut events = Vec::new();
-        loop {
-            let ev = rx.recv().await.unwrap();
-            let end = matches!(
-                ev,
-                TxnEvent::Committed { .. }
-                    | TxnEvent::RolledBack { .. }
-                    | TxnEvent::Inconsistent { .. }
-            );
-            events.push(ev);
-            if end {
-                return events;
-            }
-        }
-    }
-
-    fn with_fakes(dir: &Path, local: FakeSteps, peer: FakeSteps) -> Arc<Agent> {
-        let a = Agent::with_local_steps(
-            fixtures::desk_with_wol(),
-            StateStore::new(dir.join("state.json")),
-            Arc::new(local),
-        );
-        a.set_peer(Arc::new(FakePeer(Arc::new(peer))));
-        Arc::new(a)
-    }
-
-    // T-085: el estado inicial real del puesto.
-
-    fn switched(steps: &[Step]) -> Vec<MonitorId> {
-        steps
-            .iter()
-            .filter_map(|s| match s {
-                Step::SwitchInput { monitor, .. } => Some(monitor.clone()),
-                _ => None,
-            })
-            .collect()
-    }
-
-    #[test]
-    fn without_a_saved_state_and_after_a_restart_nothing_is_confirmed() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = agent(dir.path());
-        assert!(!a.state().is_confirmed());
-        let mut s = a.state().confirmed();
-        s.owner.insert("m34".into(), Machine::Pc);
-        a.set_state(s).unwrap();
-        assert!(a.state().is_confirmed());
-        // Otro arranque: lo último que se supo, pero sin confirmar (pudo cambiar a mano).
-        let again = agent(dir.path()).state();
-        assert_eq!(again.owner[&"m34".into()], Machine::Pc);
-        assert!(!again.is_confirmed());
-        assert_eq!(again.doubt[&"m34".into()], tandem_core::Doubt::Stale);
+        assert_eq!(a.state(), State::initial(Machine::Mac));
     }
 
     #[tokio::test]
-    async fn apply_mode_sends_every_input_and_leaves_the_state_confirmed() {
+    async fn without_backends_a_power_change_fails_and_keeps_the_state() {
         let dir = tempfile::tempdir().unwrap();
-        let a = with_fakes(dir.path(), FakeSteps::default(), FakeSteps::default());
-        let mut s = a.state();
-        s.on.pc = true;
-        a.set_state(s).unwrap();
+        let a = Arc::new(agent(dir.path()));
         let mut rx = a.subscribe_txns();
-        assert!(matches!(
-            a.handle(UiCommand::ApplyMode(Mode::SoloMac)),
-            Reply::Accepted { .. }
-        ));
-        let events = until_outcome(&mut rx).await;
-        assert!(matches!(events.last(), Some(TxnEvent::Committed { .. })));
-        assert_eq!(
-            switched(&steps_of(&events)),
-            ["m34".into(), "m32".into()] as [MonitorId; 2]
-        );
-        let st = a.state();
-        assert!(st.is_confirmed() && st.doubt.is_empty(), "{st:?}");
-        assert_eq!(st.owner, Mode::SoloMac.assignment(&a.desk()));
-        // Confirmado, «Aplicar modo» igual manda todo (por si alguien tocó el menú).
-        a.handle(UiCommand::ApplyMode(Mode::SoloMac));
-        assert_eq!(switched(&steps_of(&until_outcome(&mut rx).await)).len(), 2);
-    }
-
-    #[tokio::test]
-    async fn the_first_mode_change_with_an_unconfirmed_state_sends_every_input() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = with_fakes(dir.path(), FakeSteps::default(), FakeSteps::default());
-        let mut rx = a.subscribe_txns();
-        let shared = Mode::Shared([("m34".into(), Machine::Pc)].into());
-        a.handle(UiCommand::SetMode(shared.clone()));
-        let steps = steps_of(&until_outcome(&mut rx).await);
-        assert_eq!(
-            switched(&steps),
-            ["m34".into(), "m32".into()] as [MonitorId; 2]
-        );
-        assert!(a.state().is_confirmed());
-        // El siguiente ya planea sobre lo confirmado: pedir lo mismo no hace nada.
-        a.handle(UiCommand::SetMode(shared));
-        assert!(steps_of(&until_outcome(&mut rx).await).is_empty());
-    }
-
-    #[tokio::test]
-    async fn saying_what_a_monitor_shows_corrects_the_state_without_switching() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = with_fakes(dir.path(), FakeSteps::default(), FakeSteps::default());
-        let mut s = a.state();
-        s.on.pc = true;
-        a.set_state(s).unwrap();
-        let mut rx = a.subscribe_txns();
-        let reply = a.handle(UiCommand::SetShown(
-            [("m34".into(), Some(Machine::Pc)), ("m32".into(), None)].into(),
-        ));
-        assert!(matches!(reply, Reply::Accepted { .. }), "{reply:?}");
-        let events = until_outcome(&mut rx).await;
-        assert!(matches!(events.last(), Some(TxnEvent::Committed { .. })));
-        let steps = steps_of(&events);
-        assert!(switched(&steps).is_empty(), "sin DDC: {steps:?}");
-        // El 34" pasa al escritorio de la PC; a la Mac no se le quita nada: lo dicho por
-        // el usuario no es un cambio de entrada que haya salido bien (T-087).
-        assert!(steps.contains(&Step::Attach {
+        let Reply::Accepted { txn } = a.handle(UiCommand::SetPower {
             machine: Machine::Pc,
-            monitor: "m34".into()
-        }));
-        assert!(
-            !steps.iter().any(|s| matches!(s, Step::Detach { .. })),
-            "{steps:?}"
-        );
-        let st = a.state();
-        assert_eq!(st.owner[&"m34".into()], Machine::Pc);
-        assert!(st.is_confirmed());
-        assert_eq!(st.doubt[&"m32".into()], tandem_core::Doubt::Blank);
-        // El 32" en negro recibe su entrada en el próximo cambio.
-        a.handle(UiCommand::SetMode(Mode::Shared(
-            [("m34".into(), Machine::Pc)].into(),
-        )));
-        assert_eq!(
-            switched(&steps_of(&until_outcome(&mut rx).await)),
-            ["m32".into()] as [MonitorId; 1]
-        );
-    }
-
-    #[tokio::test]
-    async fn saying_what_a_monitor_shows_is_checked_first() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("tandem.toml");
-        std::fs::write(&file, fixtures::DESK).unwrap();
-        let a = Arc::new(agent(dir.path()));
-        // El 32" solo a la Mac: no puede mostrar la PC.
-        a.handle(UiCommand::SetWiring {
-            monitor: "m32".into(),
-            wiring: [(Machine::Mac, Input::Hdmi)].into(),
-            confirmed: true,
-        });
-        let before = a.state();
-        for shows in [
-            BTreeMap::new(),
-            [("m99".into(), Some(Machine::Pc))].into(),
-            [("m32".into(), Some(Machine::Pc))].into(),
-        ] {
-            let r = a.handle(UiCommand::SetShown(shows));
-            assert!(matches!(r, Reply::Rejected(_)), "{r:?}");
-        }
-        assert_eq!(a.state(), before);
-        let _txn = a.orchestrator().try_begin().unwrap();
-        assert_eq!(
-            a.handle(UiCommand::SetShown(
-                [("m34".into(), Some(Machine::Mac))].into()
-            )),
-            Reply::Rejected(BUSY.into())
-        );
-    }
-
-    #[tokio::test]
-    async fn without_backends_a_mode_change_rolls_back() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = Arc::new(agent(dir.path()));
-        let mut rx = a.subscribe_txns();
-        let Reply::Accepted { txn } = a.handle(UiCommand::SetMode(Mode::SoloPc)) else {
+            on: true,
+        }) else {
             panic!("se esperaba Accepted");
         };
         let events = until_outcome(&mut rx).await;
-        let initial = State::initial(&a.config().desk, Machine::Mac);
+        let initial = State::initial(Machine::Mac);
         assert!(events.iter().any(|e| matches!(
             e,
             TxnEvent::StepFailed { error, .. } if error.contains(STEP_NOT_IMPLEMENTED)
         )));
         assert_eq!(
             events.last(),
-            Some(&TxnEvent::RolledBack {
+            Some(&TxnEvent::Failed {
                 txn,
                 state: initial.clone()
             })
@@ -1547,46 +933,25 @@ pub(crate) mod tests {
     }
 
     #[tokio::test]
-    async fn move_monitor_is_a_shared_mode() {
+    async fn a_machine_that_cannot_be_woken_is_rejected_without_touching_state() {
         let dir = tempfile::tempdir().unwrap();
-        let a = with_fakes(dir.path(), FakeSteps::default(), FakeSteps::default());
-        let mut s = a.state().confirmed();
-        s.on.pc = true;
-        a.set_state(s.clone()).unwrap();
+        // Sin `[power.wol]` la Mac no tiene con qué despertar a la PC.
+        let a = Arc::new(Agent::new(
+            fixtures::desk(),
+            StateStore::new(dir.path().join("state.json")),
+        ));
         let mut rx = a.subscribe_txns();
-        let reply = a.handle(UiCommand::MoveMonitor {
-            monitor: "m32".into(),
-            to: Machine::Pc,
-        });
-        assert!(matches!(reply, Reply::Accepted { .. }));
-        until_outcome(&mut rx).await;
-        s.owner.insert("m32".into(), Machine::Pc);
-        assert_eq!(a.state(), s);
-        // Y queda guardado; al volver a arrancar es lo último que se supo, sin confirmar.
-        let again = agent(dir.path()).state();
-        assert_eq!(again.owner, s.owner);
-        assert!(!again.is_confirmed());
-    }
-
-    #[tokio::test]
-    async fn same_mode_commits_without_steps() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = Arc::new(agent(dir.path()));
-        a.set_state(a.state().confirmed()).unwrap();
-        let mut rx = a.subscribe_txns();
-        let Reply::Accepted { txn } = a.handle(UiCommand::SetMode(Mode::SoloMac)) else {
-            panic!("se esperaba Accepted");
-        };
-        assert_eq!(
-            until_outcome(&mut rx).await,
-            [
-                TxnEvent::Started { txn, steps: vec![] },
-                TxnEvent::Committed {
-                    txn,
-                    state: a.state()
-                }
-            ]
-        );
+        assert!(matches!(
+            a.handle(UiCommand::SetPower {
+                machine: Machine::Pc,
+                on: true
+            }),
+            Reply::Rejected(_)
+        ));
+        assert_eq!(a.state(), State::initial(Machine::Mac));
+        assert!(rx.try_recv().is_err());
+        // Un rechazo no deja el orquestador ocupado.
+        assert!(a.orchestrator().try_begin().is_some());
     }
 
     #[tokio::test(start_paused = true)]
@@ -1606,43 +971,15 @@ pub(crate) mod tests {
             FakeSteps::default(),
         );
         let mut rx = a.subscribe_txns();
-        assert!(matches!(
-            a.handle(UiCommand::SetMode(Mode::SoloPc)),
-            Reply::Accepted { .. }
-        ));
-        assert_eq!(
-            a.handle(UiCommand::SetMode(Mode::SoloMac)),
-            Reply::Rejected(BUSY.into())
-        );
+        let on = UiCommand::SetPower {
+            machine: Machine::Pc,
+            on: true,
+        };
+        assert!(matches!(a.handle(on.clone()), Reply::Accepted { .. }));
+        assert_eq!(a.handle(on.clone()), Reply::Rejected(BUSY.into()));
         until_outcome(&mut rx).await;
         // Terminada la primera, se acepta la siguiente.
-        assert!(matches!(
-            a.handle(UiCommand::SetMode(Mode::SoloMac)),
-            Reply::Accepted { .. }
-        ));
-    }
-
-    #[tokio::test]
-    async fn bad_requests_are_rejected_without_touching_state() {
-        let dir = tempfile::tempdir().unwrap();
-        let a = Arc::new(agent(dir.path()));
-        let mut rx = a.subscribe_txns();
-        for cmd in [
-            UiCommand::MoveMonitor {
-                monitor: "no-existe".into(),
-                to: Machine::Pc,
-            },
-            UiCommand::SetBuiltin(BuiltinDisplay::Mirror),
-        ] {
-            assert!(matches!(a.handle(cmd), Reply::Rejected(_)));
-        }
-        assert_eq!(a.state(), State::initial(&a.config().desk, Machine::Mac));
-        assert!(rx.try_recv().is_err());
-        // Un rechazo no deja el orquestador ocupado.
-        assert!(matches!(
-            a.handle(UiCommand::SetMode(Mode::SoloMac)),
-            Reply::Accepted { .. }
-        ));
+        assert!(matches!(a.handle(on), Reply::Accepted { .. }));
     }
 
     #[test]
@@ -1672,11 +1009,6 @@ pub(crate) mod tests {
                 for i in 0..8u32 {
                     let mut s = base.clone();
                     s.on.pc = (i + round) % 2 == 0;
-                    s.builtin_pref = [
-                        BuiltinDisplay::Off,
-                        BuiltinDisplay::Mirror,
-                        BuiltinDisplay::Extend,
-                    ][(i % 3) as usize];
                     let a = &a;
                     scope.spawn(move || a.set_state(s).unwrap());
                 }
@@ -1697,303 +1029,94 @@ pub(crate) mod tests {
         assert!(!rx.has_changed().unwrap());
     }
 
-    // T-089: ida y vuelta del asistente.
-
-    fn with_handles(
-        dir: &Path,
-        local: FakeSteps,
-        peer: FakeSteps,
-    ) -> (Arc<Agent>, Arc<FakeSteps>, Arc<FakeSteps>) {
-        let (local, peer) = (Arc::new(local), Arc::new(peer));
-        let a = Agent::with_local_steps(
-            fixtures::desk_with_wol(),
-            StateStore::new(dir.join("state.json")),
-            local.clone(),
-        );
-        a.set_peer(Arc::new(FakePeer(peer.clone())));
-        (Arc::new(a), local, peer)
-    }
-
-    fn probe(monitor: &str, to: Machine, back: Machine) -> UiCommand {
-        UiCommand::ProbeInput {
-            monitor: monitor.into(),
-            to,
-            back,
+    fn screen(machine: Machine, id: &str, width: u32) -> ScreenSpec {
+        ScreenSpec {
+            machine,
+            id: id.into(),
+            x: 0,
+            y: 0,
+            width,
+            height: 1440,
+            scale: Scale::ONE,
         }
     }
 
-    fn sw(monitor: &str, from: Machine, to: Machine) -> Step {
-        Step::SwitchInput {
-            monitor: monitor.into(),
-            from,
-            to,
-            input: if to == Machine::Pc {
-                Input::DisplayPort
-            } else {
-                Input::Hdmi
-            },
-            by: Machine::Pc,
-        }
+    #[test]
+    fn a_desk_from_the_other_machine_is_adopted_saved_and_announced() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tandem.toml");
+        std::fs::write(&file, crate::autoconfig::generate(Machine::Mac)).unwrap();
+        let a = agent(dir.path());
+        a.set_config_file(file.clone());
+        let rx = a.subscribe_desk();
+        let mut theirs = a.desk_sync();
+        theirs.rev = 5;
+        theirs.origin = Machine::Pc;
+        theirs.desk.screens = vec![screen(Machine::Pc, "34", 3440)];
+        theirs.desk.arrangement.mac_side = Side::Right;
+        a.receive_desk(theirs.clone());
+        assert!(rx.has_changed().unwrap());
+        assert_eq!(a.desk(), theirs.desk);
+        assert_eq!(a.desk_sync(), theirs);
+        let saved = AgentConfig::load(&file).unwrap();
+        assert_eq!(saved.desk, theirs.desk);
+        assert_eq!(saved.desk_rev, 5);
+        // Uno más viejo no cambia nada.
+        let mut old = theirs.clone();
+        old.rev = 2;
+        old.desk.screens.clear();
+        a.receive_desk(old);
+        assert_eq!(a.desk(), theirs.desk);
     }
 
-    /// Con el estado sin confirmar (el del asistente), la ida solo cambia la entrada del
-    /// monitor probado: ni el otro monitor ni ningún escritorio, y el estado no cambia. La
-    /// vuelta sale sola aunque nadie la pida. Antes se usaba un cambio de modo, que mandaba
-    /// también la entrada del otro monitor (sin confirmar) y quitaba salidas.
-    #[tokio::test(start_paused = true)]
-    async fn the_wizard_probe_touches_only_one_input_and_returns_by_itself() {
+    #[test]
+    fn a_local_desk_change_bumps_the_version_and_validates() {
         let dir = tempfile::tempdir().unwrap();
-        let (a, local, peer) = with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
-        a.set_state({
-            let mut s = a.state();
-            s.on.pc = true;
-            s
-        })
-        .unwrap();
-        let before = a.state();
-        assert!(!before.is_confirmed());
-        let mut rx = a.subscribe_txns();
-        assert!(matches!(
-            a.handle(probe("m34", Machine::Pc, Machine::Mac)),
-            Reply::Accepted { .. }
-        ));
-        until_outcome(&mut rx).await;
-        assert_eq!(peer.steps(), [sw("m34", Machine::Mac, Machine::Pc)]);
-        assert!(local.steps().is_empty(), "nada en el escritorio de la Mac");
-        assert_eq!(a.state(), before, "la prueba no cambia lo que se sabe");
-        assert_eq!(a.pending_returns(), ["m34".into()]);
-
-        // Nadie contesta: el agente devuelve el monitor al cumplirse el plazo.
-        tokio::time::sleep(probe::PROBE_HOLD + Duration::from_secs(1)).await;
-        until_outcome(&mut rx).await;
-        assert_eq!(
-            peer.steps(),
-            [
-                sw("m34", Machine::Mac, Machine::Pc),
-                sw("m34", Machine::Pc, Machine::Mac)
-            ]
-        );
-        assert!(a.pending_returns().is_empty());
-        assert!(
-            !peer
-                .steps()
-                .iter()
-                .any(|s| matches!(s, Step::Attach { .. } | Step::Detach { .. }))
-        );
+        let a = agent(dir.path());
+        let rev = a.desk_sync().rev;
+        let mut desk = a.desk();
+        desk.screens.push(screen(Machine::Mac, "laptop", 1512));
+        a.set_desk(desk.clone()).unwrap();
+        assert_eq!(a.desk(), desk);
+        assert_eq!(a.desk_sync().rev, rev + 1);
+        assert_eq!(a.desk_sync().origin, Machine::Mac);
+        // Lo mismo otra vez no sube la versión; uno inválido se rechaza.
+        a.set_desk(desk.clone()).unwrap();
+        assert_eq!(a.desk_sync().rev, rev + 1);
+        desk.screens.push(screen(Machine::Mac, "laptop", 1512));
+        assert!(a.set_desk(desk).is_err());
+        assert_eq!(a.desk_sync().rev, rev + 1);
     }
 
-    #[tokio::test(start_paused = true)]
-    async fn answering_brings_the_monitor_back_at_once_and_cancels_the_timer() {
+    /// Un `[[screens]]` escrito a mano es un cambio de esta máquina: sube la versión y se
+    /// guarda con su huella, para que la otra lo adopte y no lo pise.
+    #[test]
+    fn a_hand_edited_desk_is_a_change_of_this_machine() {
         let dir = tempfile::tempdir().unwrap();
-        let (a, _local, peer) =
-            with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
-        let mut rx = a.subscribe_txns();
-        a.handle(probe("m34", Machine::Pc, Machine::Mac));
-        until_outcome(&mut rx).await;
-        assert!(matches!(
-            a.handle(probe("m34", Machine::Mac, Machine::Mac)),
-            Reply::Accepted { .. }
-        ));
-        until_outcome(&mut rx).await;
-        assert!(a.pending_returns().is_empty());
-        tokio::time::sleep(probe::PROBE_HOLD * 3).await;
-        // Una ida y una vuelta; el plazo no manda una segunda.
-        assert_eq!(
-            peer.steps(),
-            [
-                sw("m34", Machine::Mac, Machine::Pc),
-                sw("m34", Machine::Pc, Machine::Mac)
-            ]
+        let file = dir.path().join("tandem.toml");
+        let mut text = crate::autoconfig::generate(Machine::Pc).replacen(
+            "\nmachine = \"pc\"\n",
+            "\nmachine = \"pc\"\ndesk_rev = 4\ndesk_origin = \"mac\"\n",
+            1,
         );
-    }
-
-    /// Una ida que no responde pudo haber llegado: se devuelve de inmediato, sin esperar
-    /// el plazo, y no queda ningún escritorio tocado.
-    #[tokio::test(start_paused = true)]
-    async fn a_failed_probe_is_returned_without_waiting() {
-        let dir = tempfile::tempdir().unwrap();
-        let go = sw("m34", Machine::Mac, Machine::Pc);
-        let (a, local, peer) = with_handles(
-            dir.path(),
-            FakeSteps::default(),
-            FakeSteps {
-                delays: vec![(go.clone(), Duration::from_secs(3600))],
-                ..Default::default()
-            },
+        text.push_str(
+            "\n[[screens]]\nmachine = \"pc\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 3440\nheight = 1440\n",
         );
-        let mut rx = a.subscribe_txns();
-        a.handle(probe("m34", Machine::Pc, Machine::Mac));
-        until_outcome(&mut rx).await;
-        until_outcome(&mut rx).await;
-        let steps = peer.steps();
-        assert_eq!(steps[0], go);
-        assert!(
-            steps.contains(&sw("m34", Machine::Pc, Machine::Mac)),
-            "{steps:?}"
-        );
-        assert!(steps.iter().all(|s| matches!(s, Step::SwitchInput { .. })));
-        assert!(local.steps().is_empty());
-    }
-
-    /// Sin perfil DDC no hay vuelta automática: no se manda nada.
-    #[tokio::test]
-    async fn a_monitor_without_a_profile_is_not_probed() {
-        let dir = tempfile::tempdir().unwrap();
-        let (a, local, peer) = with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
-        let Reply::Rejected(why) = a.handle(probe("m32", Machine::Pc, Machine::Mac)) else {
-            panic!("se esperaba Rejected");
-        };
-        assert!(why.contains("perfil DDC"), "{why}");
-        assert!(peer.steps().is_empty() && local.steps().is_empty());
-        assert!(a.pending_returns().is_empty());
-        // Con el perfil que se le calibró después, sí.
-        a.live_desk().learn(
-            "m32".into(),
-            tandem_core::DdcProfile {
-                hdmi: 0x05,
-                display_port: 0x0F,
-            },
-            None,
-        );
-        assert!(matches!(
-            a.handle(probe("m32", Machine::Pc, Machine::Mac)),
-            Reply::Accepted { .. }
-        ));
-    }
-
-    /// Un cambio de modo que manda la entrada del monitor probado manda sobre el plazo.
-    #[tokio::test(start_paused = true)]
-    async fn a_mode_change_cancels_the_pending_return() {
-        let dir = tempfile::tempdir().unwrap();
-        let (a, _local, peer) =
-            with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
-        let mut s = a.state();
-        s.on.pc = true;
-        a.set_state(s).unwrap();
-        let mut rx = a.subscribe_txns();
-        a.handle(probe("m34", Machine::Pc, Machine::Mac));
-        until_outcome(&mut rx).await;
-        a.handle(UiCommand::MoveMonitor {
-            monitor: "m34".into(),
-            to: Machine::Pc,
-        });
-        until_outcome(&mut rx).await;
-        assert!(a.pending_returns().is_empty());
-        tokio::time::sleep(probe::PROBE_HOLD * 2).await;
-        let back = sw("m34", Machine::Pc, Machine::Mac);
-        assert!(!peer.steps().contains(&back), "{:?}", peer.steps());
-    }
-
-    // T-089 (revisión): fantasma, cancelación del plazo y enlace caído.
-
-    /// Con el monitor confirmado en la Mac, la PC lo quitó de su escritorio: no se le pasa.
-    #[tokio::test]
-    async fn a_probe_never_targets_a_machine_that_removed_the_monitor() {
-        let dir = tempfile::tempdir().unwrap();
-        let (a, local, peer) = with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
-        let mut s = a.state().confirmed();
-        s.on.pc = true;
-        a.set_state(s).unwrap();
-        let Reply::Rejected(why) = a.handle(probe("m34", Machine::Pc, Machine::Mac)) else {
-            panic!("se esperaba Rejected");
-        };
-        assert!(why.contains("no tiene a `m34` en su escritorio"), "{why}");
-        // Tampoco si el usuario dice que está donde Tandem sabe que no está.
-        assert!(matches!(
-            a.handle(probe("m34", Machine::Mac, Machine::Pc)),
-            Reply::Rejected(_)
-        ));
-        assert!(peer.steps().is_empty() && local.steps().is_empty());
-        assert!(a.pending_returns().is_empty());
-    }
-
-    /// Un cambio de modo que falla antes de llegar al monitor probado no cancela la vuelta.
-    #[tokio::test(start_paused = true)]
-    async fn a_failed_mode_change_keeps_the_pending_return() {
-        let dir = tempfile::tempdir().unwrap();
-        let fail = Step::Attach {
-            machine: Machine::Pc,
-            monitor: "m34".into(),
-        };
-        let (a, _local, peer) = with_handles(
-            dir.path(),
-            FakeSteps::default(),
-            FakeSteps {
-                fail_on: vec![fail],
-                ..Default::default()
-            },
-        );
-        a.set_state({
-            let mut s = a.state();
-            s.on.pc = true;
-            s
-        })
-        .unwrap();
-        let mut rx = a.subscribe_txns();
-        a.handle(probe("m34", Machine::Pc, Machine::Mac));
-        until_outcome(&mut rx).await;
-        a.handle(UiCommand::MoveMonitor {
-            monitor: "m34".into(),
-            to: Machine::Pc,
-        });
-        until_outcome(&mut rx).await;
-        assert_eq!(a.pending_returns(), ["m34".into()], "el plazo sigue armado");
-        tokio::time::sleep(probe::PROBE_HOLD * 2).await;
-        until_outcome(&mut rx).await;
-        assert!(a.pending_returns().is_empty(), "y el monitor volvió solo");
-        assert!(peer.steps().contains(&sw("m34", Machine::Pc, Machine::Mac)));
-    }
-
-    /// La PC (la que hace el DDC) inalcanzable durante todo el plazo: se reintenta con
-    /// espera creciente, se avisa a la UI y, al volver el enlace, el monitor vuelve.
-    #[tokio::test(start_paused = true)]
-    async fn an_unreachable_pc_is_retried_warned_and_served_on_reconnect() {
-        let dir = tempfile::tempdir().unwrap();
-        let (a, _local, peer) =
-            with_handles(dir.path(), FakeSteps::default(), FakeSteps::default());
-        let mut rx = a.subscribe_txns();
-        let mut power = a.subscribe_power();
-        a.handle(probe("m34", Machine::Pc, Machine::Mac));
-        until_outcome(&mut rx).await;
-        // Se cae el enlace con la PC durante la prueba.
-        a.orchestrator().clear_peer();
-        tokio::time::sleep(probe::PROBE_HOLD + probe::GIVE_UP_AFTER + Duration::from_secs(30))
-            .await;
-        assert_eq!(a.pending_returns(), ["m34".into()], "sigue pendiente");
-        let tandem_proto::PowerEvent::PeerLost { stranded, .. } = power.try_recv().unwrap();
-        assert_eq!(stranded, ["m34".into()]);
-        assert_eq!(peer.steps().len(), 1, "solo la ida: la PC no estaba");
-        // Vuelve el enlace: la vuelta sale de inmediato, sin esperar al siguiente reintento.
-        a.set_peer(Arc::new(FakePeer(peer.clone())));
-        tokio::time::sleep(Duration::from_secs(1)).await;
-        assert!(a.pending_returns().is_empty());
-        assert_eq!(
-            peer.steps().last(),
-            Some(&sw("m34", Machine::Pc, Machine::Mac))
-        );
-    }
-
-    /// Pedir la vuelta justo cuando corre la automática no es un fallo.
-    #[tokio::test(start_paused = true)]
-    async fn asking_to_return_while_the_automatic_one_runs_is_not_busy() {
-        let dir = tempfile::tempdir().unwrap();
-        let back = sw("m34", Machine::Pc, Machine::Mac);
-        let (a, _local, _peer) = with_handles(
-            dir.path(),
-            FakeSteps::default(),
-            FakeSteps {
-                delays: vec![(back, Duration::from_secs(5))],
-                ..Default::default()
-            },
-        );
-        let mut rx = a.subscribe_txns();
-        a.handle(probe("m34", Machine::Pc, Machine::Mac));
-        until_outcome(&mut rx).await;
-        // El plazo vence y su vuelta tarda; la pedida llega en medio.
-        tokio::time::sleep(probe::PROBE_HOLD + Duration::from_secs(1)).await;
-        assert_eq!(
-            a.handle(probe("m34", Machine::Mac, Machine::Mac)),
-            Reply::Done
-        );
+        std::fs::write(&file, &text).unwrap();
+        let cfg = AgentConfig::load(&file).unwrap();
+        let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
+        assert_eq!(a.desk_sync().rev, 5);
+        assert_eq!(a.desk_sync().origin, Machine::Pc);
+        a.set_config_file(file.clone());
+        let saved = AgentConfig::load(&file).unwrap();
+        assert_eq!(saved.desk_rev, 5);
+        assert!(saved.desk_sum.is_some());
+        // Al volver a arrancar sin tocar nada, ya no es una edición.
+        let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
+        assert_eq!(again.desk_sync().rev, 5);
+        // Un archivo recién generado tampoco.
+        let fresh = AgentConfig::from_toml(&crate::autoconfig::generate(Machine::Pc)).unwrap();
+        let fresh = Agent::new(fresh, StateStore::new(dir.path().join("other.json")));
+        assert_eq!(fresh.desk_sync().rev, 0);
     }
 }

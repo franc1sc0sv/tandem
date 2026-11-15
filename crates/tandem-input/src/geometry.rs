@@ -1,11 +1,10 @@
 //! Geometría de pantallas y cruce de bordes entre las dos máquinas.
 //!
-//! Cada máquina reporta sus pantallas en sus coordenadas nativas del cursor
-//! (puntos en macOS, píxeles físicos en Windows Per-Monitor-V2). [`Layout`] se
-//! queda solo con las que el [`State`] dice que se están mirando de verdad
-//! (DESIGN §7 y §8.1), así el cursor nunca entra en un monitor fantasma, y pone
-//! las dos máquinas una al lado de la otra según el orden de los monitores en el
-//! escritorio. Se recalcula entero con cada cambio de estado: es un valor, no hay
+//! Cada máquina tiene sus pantallas en sus coordenadas nativas del cursor (puntos en
+//! macOS, píxeles físicos en Windows Per-Monitor-V2). [`Layout`] las toma del acomodo
+//! ([`Arrangement`], DESIGN §7): las declaradas en el puesto compartido o, sin declarar,
+//! las que lee cada máquina; y pone las dos máquinas una al lado de la otra según de qué
+//! lado de la PC está la Mac. Se recalcula entero con cada cambio: es un valor, no hay
 //! nada que invalidar.
 //!
 //! El cruce se prueba contra el borde de la pantalla donde está el cursor, nunca
@@ -16,7 +15,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use tandem_core::{BuiltinDisplay, Config, Machine, MonitorId, State};
+use tandem_core::Machine;
+pub use tandem_core::Side;
 
 /// Posición del cursor en las coordenadas nativas de una máquina.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -86,14 +86,21 @@ impl Rect {
     }
 }
 
-/// Qué es una pantalla para Tandem.
+/// El id de una pantalla en el acomodo (`mac-1`, o el de un `[[screens]]`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ScreenId {
-    /// Un monitor externo de la configuración.
-    Monitor(MonitorId),
-    /// La pantalla integrada de la MacBook.
-    Builtin,
+#[serde(transparent)]
+pub struct ScreenId(pub String);
+
+impl From<&str> for ScreenId {
+    fn from(s: &str) -> Self {
+        ScreenId(s.to_owned())
+    }
+}
+
+impl std::fmt::Display for ScreenId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 /// Una pantalla tal como la reporta su máquina.
@@ -124,28 +131,8 @@ impl Screen {
     }
 }
 
-/// Lado del escritorio.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Side {
-    Left,
-    Right,
-}
-
-impl Side {
-    pub fn opposite(self) -> Self {
-        match self {
-            Side::Left => Side::Right,
-            Side::Right => Side::Left,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct LayoutOptions {
-    /// Lado de la PC en que queda la Mac cuando solo tiene su pantalla integrada:
-    /// la laptop no tiene lugar en el orden de los monitores.
-    pub builtin_side: Side,
     /// Margen de las esquinas en puntos lógicos: ahí no se cruza, para no
     /// pelear con las esquinas activas de macOS ni con los botones de las ventanas.
     pub corner_margin: f64,
@@ -154,7 +141,6 @@ pub struct LayoutOptions {
 impl Default for LayoutOptions {
     fn default() -> Self {
         Self {
-            builtin_side: Side::Right,
             corner_margin: 16.0,
         }
     }
@@ -168,6 +154,16 @@ pub enum GeometryError {
     InvalidScale { id: ScreenId, scale: f64 },
     #[error("el margen de las esquinas es inválido ({0})")]
     InvalidMargin(f64),
+}
+
+/// El acomodo de las dos máquinas: las pantallas de cada una y de qué lado de la PC está
+/// la Mac. Una máquina sin pantallas (apagada, o que todavía no las mandó) no tiene a
+/// dónde cruzar.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Arrangement {
+    pub mac: Vec<Screen>,
+    pub pc: Vec<Screen>,
+    pub mac_side: Side,
 }
 
 /// Tramo del borde que mira a la otra máquina y por el que se puede cruzar.
@@ -194,7 +190,7 @@ struct Facing {
 #[derive(Debug, Clone, PartialEq)]
 struct MachineLayout {
     screens: Vec<Screen>,
-    /// `None` si la otra máquina no es visible: no hay a dónde cruzar.
+    /// `None` si alguna de las dos no tiene pantallas: no hay a dónde cruzar.
     side: Option<Facing>,
 }
 
@@ -207,7 +203,7 @@ pub enum Motion {
     Cross { to: Machine, pos: Point },
 }
 
-/// Pantallas visibles de las dos máquinas y cómo se tocan.
+/// Pantallas de las dos máquinas y cómo se tocan.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layout {
     opts: LayoutOptions,
@@ -216,23 +212,13 @@ pub struct Layout {
 }
 
 impl Layout {
-    /// Arma el layout a partir de lo que reporta cada máquina y del estado.
-    ///
-    /// Se descartan las pantallas que no se están mirando: monitores que el estado
-    /// asigna a la otra máquina (fantasmas que el sistema no pudo quitar), monitores
-    /// que no están en la configuración, la pantalla integrada si no está extendida
-    /// y todas las de una máquina que no es visible.
-    pub fn compute(
-        cfg: &Config,
-        state: &State,
-        mac: &[Screen],
-        pc: &[Screen],
-        opts: LayoutOptions,
-    ) -> Result<Self, GeometryError> {
+    /// Arma el layout a partir del acomodo. Todas las pantallas cuentan: el acomodo ya es
+    /// lo que se mira.
+    pub fn compute(arr: &Arrangement, opts: LayoutOptions) -> Result<Self, GeometryError> {
         if !opts.corner_margin.is_finite() || opts.corner_margin < 0.0 {
             return Err(GeometryError::InvalidMargin(opts.corner_margin));
         }
-        for s in mac.iter().chain(pc) {
+        for s in arr.mac.iter().chain(&arr.pc) {
             if s.rect.width == 0 || s.rect.height == 0 {
                 return Err(GeometryError::EmptyScreen(s.id.clone()));
             }
@@ -244,19 +230,9 @@ impl Layout {
             }
         }
 
-        let mac_screens = visible_screens(cfg, state, Machine::Mac, mac);
-        let pc_screens = visible_screens(cfg, state, Machine::Pc, pc);
-
-        let mac_facing = if mac_screens.is_empty() || pc_screens.is_empty() {
-            None
-        } else {
-            Some(mac_facing(
-                cfg,
-                &mac_screens,
-                &pc_screens,
-                opts.builtin_side,
-            ))
-        };
+        // La Mac, de un lado de la PC, mira hacia el otro.
+        let mac_facing =
+            (!arr.mac.is_empty() && !arr.pc.is_empty()).then(|| arr.mac_side.opposite());
 
         let build = |screens: Vec<Screen>, facing: Option<Side>| {
             let side = facing.map(|facing| Facing {
@@ -268,8 +244,8 @@ impl Layout {
 
         Ok(Self {
             opts,
-            mac: build(mac_screens, mac_facing),
-            pc: build(pc_screens, mac_facing.map(Side::opposite)),
+            mac: build(arr.mac.clone(), mac_facing),
+            pc: build(arr.pc.clone(), mac_facing.map(Side::opposite)),
         })
     }
 
@@ -277,7 +253,7 @@ impl Layout {
         self.opts
     }
 
-    /// Pantallas visibles de una máquina.
+    /// Pantallas de una máquina.
     pub fn screens(&self, machine: Machine) -> &[Screen] {
         &self.machine(machine).screens
     }
@@ -298,7 +274,7 @@ impl Layout {
     /// Si el movimiento sale por el borde que mira a la otra máquina, fuera del
     /// margen de las esquinas, devuelve dónde aparece en la otra. Si no, el cursor
     /// pasa a otra pantalla local o se queda contra el borde de la actual, como hace
-    /// el sistema. Sin pantallas visibles devuelve `pos` tal cual.
+    /// el sistema. Sin pantallas devuelve `pos` tal cual.
     pub fn step(&self, machine: Machine, pos: Point, dx: f64, dy: f64) -> Motion {
         self.step_inner(machine, pos, dx, dy, true)
     }
@@ -420,51 +396,6 @@ impl Layout {
     }
 }
 
-fn visible_screens(
-    cfg: &Config,
-    state: &State,
-    machine: Machine,
-    reported: &[Screen],
-) -> Vec<Screen> {
-    if !state.is_visible(cfg, machine) {
-        return Vec::new();
-    }
-    reported
-        .iter()
-        .filter(|s| match &s.id {
-            ScreenId::Monitor(id) => {
-                cfg.monitor(id).is_some() && state.owner.get(id) == Some(&machine)
-            }
-            // En espejo la integrada no agrega espacio al escritorio.
-            ScreenId::Builtin => {
-                machine == Machine::Mac && state.builtin_effective(cfg) == BuiltinDisplay::Extend
-            }
-        })
-        .cloned()
-        .collect()
-}
-
-/// Lado por el que la Mac mira a la PC: el orden de los monitores en el escritorio
-/// dice cuál máquina está a la izquierda.
-fn mac_facing(cfg: &Config, mac: &[Screen], pc: &[Screen], builtin_side: Side) -> Side {
-    let first_desk_pos = |screens: &[Screen]| {
-        screens
-            .iter()
-            .filter_map(|s| match &s.id {
-                ScreenId::Monitor(id) => cfg.monitors.iter().position(|m| &m.id == id),
-                ScreenId::Builtin => None,
-            })
-            .min()
-    };
-    let mac_side = match (first_desk_pos(mac), first_desk_pos(pc)) {
-        (Some(m), Some(p)) if m < p => Side::Left,
-        (Some(_), Some(_)) => Side::Right,
-        // La Mac solo tiene la integrada.
-        _ => builtin_side,
-    };
-    mac_side.opposite()
-}
-
 /// Tramos del lado `facing` de cada pantalla que no tocan otra pantalla local.
 fn exposed_edge(screens: &[Screen], facing: Side) -> Vec<Segment> {
     let mut edge = Vec::new();
@@ -518,84 +449,49 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    /// El puesto real: 34" a la izquierda, 32" a la derecha.
-    fn desk() -> Config {
-        Config::from_toml(
-            r#"
-            [[monitors]]
-            id = "m34"
-            label = '34"'
-            wiring = { pc = "displayport", mac = "hdmi" }
-
-            [[monitors]]
-            id = "m32"
-            label = '32"'
-            wiring = { pc = "displayport", mac = "hdmi" }
-            "#,
-        )
-        .unwrap()
-    }
-
     fn mon(id: &str, x: i32, y: i32, w: u32, h: u32, scale: f64) -> Screen {
-        Screen::new(ScreenId::Monitor(id.into()), Rect::new(x, y, w, h), scale)
+        Screen::new(id.into(), Rect::new(x, y, w, h), scale)
     }
 
-    fn builtin(x: i32, y: i32) -> Screen {
-        Screen::new(ScreenId::Builtin, Rect::new(x, y, 1512, 982), 1.0)
+    fn laptop(x: i32, y: i32) -> Screen {
+        Screen::new("laptop".into(), Rect::new(x, y, 1512, 982), 1.0)
     }
 
-    fn state(m34: Machine, m32: Machine, pc_on: bool, pref: BuiltinDisplay) -> State {
-        let cfg = desk();
-        let mut s = State::initial(&cfg, Machine::Mac);
-        s.owner.insert("m34".into(), m34);
-        s.owner.insert("m32".into(), m32);
-        s.on.pc = pc_on;
-        s.builtin_pref = pref;
-        s
+    fn arr(mac: Vec<Screen>, pc: Vec<Screen>, mac_side: Side) -> Arrangement {
+        Arrangement { mac, pc, mac_side }
     }
 
     fn no_margin() -> LayoutOptions {
-        LayoutOptions {
-            corner_margin: 0.0,
-            ..LayoutOptions::default()
-        }
+        LayoutOptions { corner_margin: 0.0 }
     }
 
-    /// Lo que reporta cada máquina si tuviera los dos monitores puestos; el estado
-    /// decide cuáles cuentan. La PC tiene el 34" a 1440p y el 32" a 4K con 150 %.
-    fn reported() -> (Vec<Screen>, Vec<Screen>) {
-        let mac = vec![
-            mon("m34", 0, 0, 3440, 1440, 1.0),
-            mon("m32", 3440, 0, 1920, 1080, 1.0),
-            builtin(0, 1440),
-        ];
-        let pc = vec![
-            mon("m34", 0, 0, 3440, 1440, 1.0),
-            mon("m32", 3440, 0, 3840, 2160, 1.5),
-        ];
-        (mac, pc)
-    }
-
-    /// Compartido: 34" en la PC (izquierda), 32" en la Mac (derecha).
+    /// El 34" (3440×1440) en la PC a la izquierda; el 32" (1920×1080) en la Mac a la derecha.
     fn shared(opts: LayoutOptions) -> Layout {
-        let (mac, pc) = reported();
-        let st = state(Machine::Pc, Machine::Mac, true, BuiltinDisplay::Off);
-        Layout::compute(&desk(), &st, &mac, &pc, opts).unwrap()
+        let mac = vec![mon("m32", 3440, 0, 1920, 1080, 1.0)];
+        let pc = vec![mon("m34", 0, 0, 3440, 1440, 1.0)];
+        Layout::compute(&arr(mac, pc, Side::Right), opts).unwrap()
     }
 
     #[test]
-    fn compartido_solo_cuenta_las_pantallas_que_se_miran() {
+    fn cada_maquina_mira_hacia_la_otra_segun_el_acomodo() {
         let l = shared(no_margin());
-        let ids = |m| {
-            l.screens(m)
-                .iter()
-                .map(|s| s.id.clone())
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(ids(Machine::Pc), vec![ScreenId::Monitor("m34".into())]);
-        assert_eq!(ids(Machine::Mac), vec![ScreenId::Monitor("m32".into())]);
+        assert_eq!(l.screens(Machine::Pc)[0].id, "m34".into());
+        assert_eq!(l.screens(Machine::Mac)[0].id, "m32".into());
         assert_eq!(l.facing(Machine::Pc), Some(Side::Right));
         assert_eq!(l.facing(Machine::Mac), Some(Side::Left));
+
+        // Sin acomodo declarado la Mac va a la izquierda.
+        let l = Layout::compute(
+            &Arrangement {
+                mac: vec![laptop(0, 0)],
+                pc: vec![mon("m34", 0, 0, 3440, 1440, 1.0)],
+                ..Arrangement::default()
+            },
+            no_margin(),
+        )
+        .unwrap();
+        assert_eq!(l.facing(Machine::Mac), Some(Side::Right));
+        assert_eq!(l.facing(Machine::Pc), Some(Side::Left));
     }
 
     #[test]
@@ -654,7 +550,6 @@ mod tests {
     fn esquinas_muertas() {
         let l = shared(LayoutOptions {
             corner_margin: 20.0,
-            ..LayoutOptions::default()
         });
         let at = |y| l.step(Machine::Pc, Point::new(3439.0, y), 4.0, 0.0);
         // Dentro del margen de arriba y de abajo el cursor se queda contra el borde.
@@ -681,18 +576,15 @@ mod tests {
 
     #[test]
     fn el_margen_de_las_esquinas_se_escala_por_dpi() {
-        // Solo Windows salvo el 32", que la PC muestra a 150 %: la Mac a la derecha
-        // con su integrada, la PC con los dos monitores.
-        let (mac, pc) = reported();
-        let st = state(Machine::Pc, Machine::Pc, true, BuiltinDisplay::Off);
+        // La PC con el 34" y el 32" a 150 %; la Mac a la derecha con su pantalla.
+        let pc = vec![
+            mon("m34", 0, 0, 3440, 1440, 1.0),
+            mon("m32", 3440, 0, 3840, 2160, 1.5),
+        ];
         let l = Layout::compute(
-            &desk(),
-            &st,
-            &mac,
-            &pc,
+            &arr(vec![laptop(0, 0)], pc, Side::Right),
             LayoutOptions {
                 corner_margin: 20.0,
-                builtin_side: Side::Right,
             },
         )
         .unwrap();
@@ -714,12 +606,32 @@ mod tests {
                 ..
             }
         ));
+        // Mitad del 32" de la PC (2160 de alto) → mitad de la pantalla de la Mac (982).
+        let l = Layout::compute(
+            &arr(
+                vec![laptop(0, 0)],
+                vec![
+                    mon("m34", 0, 0, 3440, 1440, 1.0),
+                    mon("m32", 3440, 0, 3840, 2160, 1.5),
+                ],
+                Side::Right,
+            ),
+            no_margin(),
+        )
+        .unwrap();
+        assert_eq!(
+            l.step(Machine::Pc, Point::new(7279.0, 1080.0), 2.0, 0.0),
+            Motion::Cross {
+                to: Machine::Mac,
+                pos: Point::new(0.0, 491.0)
+            }
+        );
     }
 
     #[test]
     fn la_velocidad_se_escala_por_dpi() {
-        let (_, pc) = reported();
-        let (m34, m32) = (&pc[0], &pc[1]);
+        let m34 = mon("m34", 0, 0, 3440, 1440, 1.0);
+        let m32 = mon("m32", 3440, 0, 3840, 2160, 1.5);
         // 30 píxeles en el 32" a 150 % son 20 puntos; en el 34" a 100 %, 20 píxeles.
         let (lx, ly) = m32.to_logical(30.0, -15.0);
         assert_eq!((lx, ly), (20.0, -10.0));
@@ -740,84 +652,51 @@ mod tests {
     }
 
     #[test]
-    fn layout_recalculado_cuando_cambia_el_estado() {
-        let cfg = desk();
-        let (mac, pc) = reported();
-        let opts = no_margin();
-
-        // Solo Mac con la PC apagada: no hay a dónde cruzar.
-        let st = state(Machine::Mac, Machine::Mac, false, BuiltinDisplay::Off);
-        let l = Layout::compute(&cfg, &st, &mac, &pc, opts).unwrap();
-        assert!(l.screens(Machine::Pc).is_empty());
+    fn sin_pantallas_de_la_otra_no_hay_cruce_y_el_lado_sale_del_acomodo() {
+        let mac = vec![
+            mon("m34", 0, 0, 3440, 1440, 1.0),
+            mon("m32", 3440, 0, 1920, 1080, 1.0),
+        ];
+        let pc = vec![mon("pc", 0, 0, 2560, 1440, 1.0)];
+        // La PC apagada (o sin pantallas todavía): no hay a dónde cruzar.
+        let l = Layout::compute(&arr(mac.clone(), vec![], Side::Left), no_margin()).unwrap();
         assert_eq!(l.facing(Machine::Mac), None);
-        assert_eq!(
-            l.screens(Machine::Mac).len(),
-            2,
-            "la integrada apagada no cuenta"
-        );
         assert_eq!(
             l.step(Machine::Mac, Point::new(5359.0, 10.0), 50.0, 0.0),
             Motion::Local(Point::new(5359.0, 10.0))
         );
-
-        // Solo Mac con la PC prendida: la PC no tiene qué mostrar, sigue sin cruce.
-        let st = state(Machine::Mac, Machine::Mac, true, BuiltinDisplay::Off);
-        let l = Layout::compute(&cfg, &st, &mac, &pc, opts).unwrap();
-        assert_eq!(l.facing(Machine::Mac), None);
-
-        // El 34" pasa a la PC: la PC queda a la izquierda.
-        let st = state(Machine::Pc, Machine::Mac, true, BuiltinDisplay::Off);
-        let l = Layout::compute(&cfg, &st, &mac, &pc, opts).unwrap();
-        assert_eq!(l.facing(Machine::Pc), Some(Side::Right));
-
-        // Al revés: el 32" en la PC y el 34" en la Mac, la PC queda a la derecha.
-        let st = state(Machine::Mac, Machine::Pc, true, BuiltinDisplay::Off);
-        let l = Layout::compute(&cfg, &st, &mac, &pc, opts).unwrap();
-        assert_eq!(l.facing(Machine::Pc), Some(Side::Left));
+        // La Mac a la izquierda: su borde derecho lleva a la PC.
+        let l = Layout::compute(&arr(mac.clone(), pc.clone(), Side::Left), no_margin()).unwrap();
         assert_eq!(l.facing(Machine::Mac), Some(Side::Right));
         assert!(matches!(
-            l.step(Machine::Mac, Point::new(3439.0, 700.0), 3.0, 0.0),
+            l.step(Machine::Mac, Point::new(5359.0, 500.0), 3.0, 0.0),
             Motion::Cross {
                 to: Machine::Pc,
                 ..
             }
         ));
-
-        // Solo Windows: la Mac se queda sin monitores externos y usa su integrada,
-        // aunque la preferencia sea apagada.
-        let st = state(Machine::Pc, Machine::Pc, true, BuiltinDisplay::Off);
-        let l = Layout::compute(&cfg, &st, &mac, &pc, opts).unwrap();
-        assert_eq!(
-            l.screens(Machine::Mac)
-                .iter()
-                .map(|s| &s.id)
-                .collect::<Vec<_>>(),
-            vec![&ScreenId::Builtin]
-        );
+        // A la derecha: el izquierdo.
+        let l = Layout::compute(&arr(mac, pc, Side::Right), no_margin()).unwrap();
         assert_eq!(l.facing(Machine::Mac), Some(Side::Left));
-        // Mitad del 32" de la PC (2160 de alto) → mitad de la integrada (982).
-        assert_eq!(
-            l.step(Machine::Pc, Point::new(7279.0, 1080.0), 2.0, 0.0),
+        assert!(matches!(
+            l.step(Machine::Mac, Point::new(0.0, 500.0), -3.0, 0.0),
             Motion::Cross {
-                to: Machine::Mac,
-                pos: Point::new(0.0, 1440.0 + 491.0)
+                to: Machine::Pc,
+                ..
             }
-        );
+        ));
     }
 
     #[test]
-    fn la_integrada_extendida_suma_su_borde() {
-        let cfg = desk();
-        // La Mac tiene el 34" (izquierda) y la integrada debajo, alineada a la derecha.
+    fn dos_pantallas_apiladas_suman_su_borde() {
+        // La Mac tiene el 34" y su pantalla debajo, alineada a la derecha.
         let mac = vec![
             mon("m34", 0, 0, 3440, 1440, 1.0),
-            Screen::new(ScreenId::Builtin, Rect::new(1928, 1440, 1512, 982), 1.0),
+            Screen::new("laptop".into(), Rect::new(1928, 1440, 1512, 982), 1.0),
         ];
         let pc = vec![mon("m32", 0, 0, 2560, 1440, 1.0)];
-        let st = state(Machine::Mac, Machine::Pc, true, BuiltinDisplay::Extend);
-        let l = Layout::compute(&cfg, &st, &mac, &pc, no_margin()).unwrap();
-        assert_eq!(l.screens(Machine::Mac).len(), 2);
-        // El borde derecho de la Mac mide 1440 + 982; la integrada ocupa la parte de abajo.
+        let l = Layout::compute(&arr(mac, pc, Side::Left), no_margin()).unwrap();
+        // El borde derecho de la Mac mide 1440 + 982; la de abajo ocupa la parte de abajo.
         let m = l.step(Machine::Mac, Point::new(3439.0, 1440.0 + 491.0), 1.0, 0.0);
         let Motion::Cross { pos, .. } = m else {
             panic!("no cruzó: {m:?}");
@@ -825,36 +704,14 @@ mod tests {
         let expected = (1440.0 + 491.0) / (1440.0 + 982.0) * 1440.0;
         assert!((pos.y - expected).abs() < 1e-9);
         assert_eq!(pos.x, 0.0);
-
-        // En espejo la integrada no agrega espacio.
-        let st = state(Machine::Mac, Machine::Pc, true, BuiltinDisplay::Mirror);
-        let l = Layout::compute(&cfg, &st, &mac, &pc, no_margin()).unwrap();
-        assert_eq!(l.screens(Machine::Mac).len(), 1);
     }
 
     #[test]
     fn un_borde_tapado_por_otra_pantalla_local_no_cruza() {
-        let cfg = desk();
-        // La Mac reporta los dos monitores, pero el 34" lo está mostrando la PC:
-        // es un fantasma que macOS no pudo quitar.
         let mac = vec![
             mon("m34", 0, 0, 3440, 1440, 1.0),
             mon("m32", 3440, 0, 1920, 1080, 1.0),
         ];
-        let pc = vec![mon("m34", 0, 0, 3440, 1440, 1.0)];
-        let st = state(Machine::Pc, Machine::Mac, true, BuiltinDisplay::Off);
-        let l = Layout::compute(&cfg, &st, &mac, &pc, no_margin()).unwrap();
-        // El 34" que la Mac no pudo quitar no cuenta: el cursor nunca entra ahí.
-        assert_eq!(l.screens(Machine::Mac).len(), 1);
-        let m = l.step(Machine::Mac, Point::new(3440.0, 500.0), -1.0, 0.0);
-        assert!(matches!(
-            m,
-            Motion::Cross {
-                to: Machine::Pc,
-                ..
-            }
-        ));
-
         // Con las dos pantallas en la Mac, la unión entre ellas no es un borde.
         let edge = exposed_edge(&mac, Side::Right);
         assert_eq!(
@@ -876,10 +733,11 @@ mod tests {
 
     #[test]
     fn pasa_a_otra_pantalla_local_sin_cruzar() {
-        let cfg = desk();
-        let (mac, pc) = reported();
-        let st = state(Machine::Pc, Machine::Pc, true, BuiltinDisplay::Off);
-        let l = Layout::compute(&cfg, &st, &mac, &pc, no_margin()).unwrap();
+        let pc = vec![
+            mon("m34", 0, 0, 3440, 1440, 1.0),
+            mon("m32", 3440, 0, 3840, 2160, 1.5),
+        ];
+        let l = Layout::compute(&arr(vec![laptop(0, 0)], pc, Side::Right), no_margin()).unwrap();
         assert_eq!(
             l.step(Machine::Pc, Point::new(3439.0, 500.0), 2.0, 0.0),
             Motion::Local(Point::new(3441.0, 500.0))
@@ -888,33 +746,28 @@ mod tests {
 
     #[test]
     fn rechaza_pantallas_invalidas() {
-        let cfg = desk();
-        let st = State::initial(&cfg, Machine::Mac);
-        let bad = [mon("m34", 0, 0, 0, 1440, 1.0)];
+        let bad = arr(vec![mon("m34", 0, 0, 0, 1440, 1.0)], vec![], Side::Left);
         assert!(matches!(
-            Layout::compute(&cfg, &st, &bad, &[], LayoutOptions::default()),
+            Layout::compute(&bad, LayoutOptions::default()),
             Err(GeometryError::EmptyScreen(_))
         ));
-        let bad = [mon("m34", 0, 0, 10, 10, 0.0)];
+        let bad = arr(vec![], vec![mon("m34", 0, 0, 10, 10, 0.0)], Side::Left);
         assert!(matches!(
-            Layout::compute(&cfg, &st, &[], &bad, LayoutOptions::default()),
+            Layout::compute(&bad, LayoutOptions::default()),
             Err(GeometryError::InvalidScale { .. })
         ));
         let opts = LayoutOptions {
             corner_margin: f64::NAN,
-            ..LayoutOptions::default()
         };
         assert!(matches!(
-            Layout::compute(&cfg, &st, &[], &[], opts),
+            Layout::compute(&Arrangement::default(), opts),
             Err(GeometryError::InvalidMargin(_))
         ));
     }
 
     #[test]
     fn sin_pantallas_el_cursor_no_se_mueve() {
-        let cfg = desk();
-        let st = state(Machine::Mac, Machine::Mac, false, BuiltinDisplay::Off);
-        let l = Layout::compute(&cfg, &st, &[], &[], LayoutOptions::default()).unwrap();
+        let l = Layout::compute(&Arrangement::default(), LayoutOptions::default()).unwrap();
         let p = Point::new(10.0, 10.0);
         assert_eq!(l.step(Machine::Pc, p, 5.0, 5.0), Motion::Local(p));
         assert!(l.screen_at(Machine::Pc, p).is_none());
@@ -931,32 +784,20 @@ mod tests {
             .prop_map(move |(x, y, w, h, scale)| mon(id, x, y, w, h, scale))
     }
 
+    fn side() -> impl Strategy<Value = Side> {
+        prop_oneof![Just(Side::Left), Just(Side::Right)]
+    }
+
+    /// Una pantalla por máquina, en cualquier lugar, la Mac de cualquier lado.
     fn arb_layout() -> impl Strategy<Value = Layout> {
-        (
-            arb_screen("m34"),
-            arb_screen("m32"),
-            any::<bool>(),
-            0.0f64..40.0,
-        )
-            .prop_map(|(a, b, pc_left, margin)| {
-                let (m34, m32) = if pc_left {
-                    (Machine::Pc, Machine::Mac)
-                } else {
-                    (Machine::Mac, Machine::Pc)
-                };
-                let st = state(m34, m32, true, BuiltinDisplay::Off);
+        (arb_screen("a"), arb_screen("b"), side(), 0.0f64..40.0).prop_map(
+            |(a, b, mac_side, margin)| {
                 let opts = LayoutOptions {
                     corner_margin: margin,
-                    ..LayoutOptions::default()
                 };
-                // Cada máquina reporta solo su monitor; da igual dónde lo ponga.
-                let (mac, pc) = if pc_left {
-                    (vec![b], vec![a])
-                } else {
-                    (vec![a], vec![b])
-                };
-                Layout::compute(&desk(), &st, &mac, &pc, opts).unwrap()
-            })
+                Layout::compute(&arr(vec![a], vec![b], mac_side), opts).unwrap()
+            },
+        )
     }
 
     fn inside(l: &Layout, m: Machine, p: Point) -> bool {
@@ -964,42 +805,28 @@ mod tests {
     }
 
     /// Varias pantallas por máquina, en cualquier posición (pueden solaparse o dejar
-    /// huecos), con la integrada extendida y cualquier dueño de cada monitor.
+    /// huecos); a veces la PC sin ninguna.
     fn arb_multi_layout() -> impl Strategy<Value = Layout> {
-        let machine = prop_oneof![Just(Machine::Mac), Just(Machine::Pc)];
-        let pref = prop_oneof![
-            Just(BuiltinDisplay::Off),
-            Just(BuiltinDisplay::Mirror),
-            Just(BuiltinDisplay::Extend),
-        ];
         (
-            (arb_screen("m34"), arb_screen("m32")),
-            (arb_screen("m34"), arb_screen("m32")),
-            (-4000i32..4000, -2000i32..3000),
-            (machine.clone(), machine, pref, any::<bool>()),
+            proptest::collection::vec(arb_screen("mac"), 1..4),
+            proptest::collection::vec(arb_screen("pc"), 0..4),
+            side(),
             0.0f64..40.0,
         )
-            .prop_map(
-                |((mac34, mac32), (pc34, pc32), (bx, by), (o34, o32, pref, side), margin)| {
-                    let st = state(o34, o32, true, pref);
-                    let opts = LayoutOptions {
-                        corner_margin: margin,
-                        builtin_side: if side { Side::Left } else { Side::Right },
-                    };
-                    // Cada máquina reporta todo lo que ve, fantasmas incluidos.
-                    let mac = vec![mac34, mac32, builtin(bx, by)];
-                    let pc = vec![pc34, pc32];
-                    Layout::compute(&desk(), &st, &mac, &pc, opts).unwrap()
-                },
-            )
+            .prop_map(|(mac, pc, mac_side, margin)| {
+                let opts = LayoutOptions {
+                    corner_margin: margin,
+                };
+                Layout::compute(&arr(mac, pc, mac_side), opts).unwrap()
+            })
     }
 
-    // QA ronda 1: las propiedades de arriba solo usan una pantalla por máquina.
+    // QA ronda 1: las propiedades de abajo solo usan una pantalla por máquina.
     proptest! {
         /// Con varias pantallas, solapadas o con huecos, el cursor siempre termina
-        /// dentro de una pantalla visible, y nunca en la máquina que no es visible.
+        /// dentro de una pantalla, y nunca en la máquina que no tiene ninguna.
         #[test]
-        fn varias_pantallas_el_cursor_siempre_queda_en_una_visible(
+        fn varias_pantallas_el_cursor_siempre_queda_en_una_pantalla(
             l in arb_multi_layout(),
             mac in any::<bool>(),
             pick in any::<prop::sample::Index>(),
@@ -1008,7 +835,7 @@ mod tests {
             dx in -3000.0f64..3000.0,
             dy in -3000.0f64..3000.0,
         ) {
-            // La Mac siempre tiene algo visible; la PC no siempre.
+            // La Mac siempre tiene algo; la PC no siempre.
             let m = if mac || l.screens(Machine::Pc).is_empty() {
                 Machine::Mac
             } else {
@@ -1060,7 +887,6 @@ mod tests {
             pick in any::<prop::sample::Index>(),
             fy in 0.0f64..1.0,
         ) {
-            // La Mac siempre tiene algo visible; la PC no siempre.
             let m = if mac || l.screens(Machine::Pc).is_empty() {
                 Machine::Mac
             } else {
@@ -1075,9 +901,9 @@ mod tests {
     }
 
     proptest! {
-        /// Pase lo que pase, el cursor termina dentro de una pantalla visible.
+        /// Pase lo que pase, el cursor termina dentro de una pantalla.
         #[test]
-        fn el_cursor_siempre_queda_en_una_pantalla_visible(
+        fn el_cursor_siempre_queda_en_una_pantalla(
             l in arb_layout(),
             mac in any::<bool>(),
             fx in 0.0f64..1.0,

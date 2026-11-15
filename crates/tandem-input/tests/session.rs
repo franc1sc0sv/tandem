@@ -7,9 +7,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use tandem_core::{Config, Machine, State};
+use tandem_core::Machine;
 use tandem_input::event::KeyState;
-use tandem_input::geometry::{Layout, LayoutOptions, Point, Rect, Screen, ScreenId};
+use tandem_input::geometry::{Arrangement, Layout, LayoutOptions, Point, Rect, Screen, Side};
 use tandem_input::session::fake::{CaptureCall, FakeCapture, FakeInjector};
 use tandem_input::session::{
     ClientDriver, ClientSession, ServerDriver, ServerOutput, ServerSession, SessionConfig,
@@ -44,26 +44,9 @@ fn cfg() -> SessionConfig {
     }
 }
 
-fn desk() -> Config {
-    Config::from_toml(
-        r#"
-        [[monitors]]
-        id = "m34"
-        label = '34"'
-        wiring = { pc = "displayport", mac = "hdmi" }
-
-        [[monitors]]
-        id = "m32"
-        label = '32"'
-        wiring = { pc = "displayport", mac = "hdmi" }
-        "#,
-    )
-    .unwrap()
-}
-
 fn mac_screens() -> Vec<Screen> {
     vec![Screen::new(
-        ScreenId::Monitor("m32".into()),
+        "m32".into(),
         Rect::new(3440, 0, 1920, 1080),
         1.0,
     )]
@@ -71,19 +54,13 @@ fn mac_screens() -> Vec<Screen> {
 
 /// 34" en la PC (servidor, izquierda); 32" en la Mac (cliente, derecha).
 fn layout() -> Layout {
-    let pc = [Screen::new(
-        ScreenId::Monitor("m34".into()),
-        Rect::new(0, 0, 3440, 1440),
-        1.0,
-    )];
-    let mut st = State::initial(&desk(), Machine::Mac);
-    st.owner.insert("m34".into(), Machine::Pc);
-    st.on.pc = true;
-    let opts = LayoutOptions {
-        corner_margin: 0.0,
-        ..LayoutOptions::default()
+    let pc = vec![Screen::new("m34".into(), Rect::new(0, 0, 3440, 1440), 1.0)];
+    let arr = Arrangement {
+        mac: mac_screens(),
+        pc,
+        mac_side: Side::Right,
     };
-    Layout::compute(&desk(), &st, &mac_screens(), &pc, opts).unwrap()
+    Layout::compute(&arr, LayoutOptions { corner_margin: 0.0 }).unwrap()
 }
 
 fn start() -> Point {

@@ -1,11 +1,11 @@
 # tandem.toml de la PC. Va en %APPDATA%\Tandem\tandem.toml (o donde diga
 # `tandemd --config`). Se valida con `tandemd --check-config <archivo>`.
 #
-# No hace falta escribirlo: si no existe, tandemd lo genera al arrancar con los
-# monitores que detecta (T-082). Este ejemplo muestra todas las opciones, para editarlo.
+# No hace falta escribirlo: si no existe, tandemd lo genera al arrancar con el puesto
+# vacío (T-082). Este ejemplo muestra todas las opciones, para editarlo.
 #
-# El puesto ([[monitors]]) es el mismo que en la Mac; cambian `machine` y las
-# direcciones del otro agente.
+# El puesto ([[screens]] y [arrangement]) es el mismo que en la Mac; cambian `machine`
+# y las direcciones del otro agente.
 #
 # En el directorio de datos el agente guarda:
 # - identity.key: su llave Ed25519. Se crea sola la primera vez; no se comparte.
@@ -43,17 +43,39 @@ mouse = "046d:c539"
 # Cmd↔Ctrl ya es lo predeterminado; para cambiarlo, una tabla por dirección con los ocho
 # modificadores, por ejemplo [input.remap.mac_to_win] meta_left = "control_left", ...
 
-[[monitors]]
-id = "m34"
-label = '34"'
-edid_model = "LC34G55T"
-wiring = { pc = "displayport", mac = "hdmi" }
-ddc = { hdmi = 0x06, display_port = 0x09 }
+# El acomodo de pantallas para el teclado y el mouse (DESIGN §7). Es del puesto: el mismo
+# en las dos máquinas, y se sincroniza solo. Cada pantalla va en las coordenadas nativas
+# del cursor de su máquina: puntos en macOS, píxeles físicos del escritorio virtual en
+# Windows. Sin [[screens]] de una máquina valen las que ella misma lee.
+[[screens]]
+machine = "pc"
+id = "34"
+x = 0
+y = 0
+width = 3440
+height = 1440
+scale = 1.0
 
-[[monitors]]
-id = "m32"
-label = '32"'
-# El EDID solo dice "Odyssey G5" (id PnP SAM7489); códigos DDC verificados en T-050.
-edid_model = "Odyssey G5"
-wiring = { pc = "displayport", mac = "hdmi" }
-ddc = { hdmi = 0x05, display_port = 0x0F }
+[[screens]]
+machine = "pc"
+id = "32"
+x = 3440
+y = 0
+width = 3840
+height = 2160
+# Windows al 150 %: el acomodo lleva la escala de cada pantalla.
+scale = 1.5
+
+[[screens]]
+machine = "mac"
+id = "34"
+x = 0
+y = 0
+width = 3440
+height = 1440
+
+# De qué lado de la PC está la Mac (sin esta sección, a la izquierda). `offset` lo usará
+# el editor del acomodo (T-096); hoy el cruce es proporcional a lo largo del borde.
+[arrangement]
+mac_side = "left"
+offset = 0

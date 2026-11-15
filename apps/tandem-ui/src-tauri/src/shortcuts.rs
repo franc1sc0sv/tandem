@@ -22,26 +22,19 @@ pub const UI_FILE: &str = "ui.toml";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShortcutAction {
-    SoloMac,
-    Shared,
-    SoloPc,
-    /// Mostrar u ocultar la ventana principal.
+    /// Mostrar u ocultar la ventana principal. Los atajos de los modos de monitores se
+    /// fueron con ellos (DESIGN §8); un `ui.toml` que todavía los tiene se lee igual.
     ToggleWindow,
 }
 
+/// Los atajos de los modos de v0.1: se ignoran al leer `ui.toml`.
+const RETIRED: [&str; 3] = ["solo_mac", "shared", "solo_pc"];
+
 impl ShortcutAction {
-    pub const ALL: [ShortcutAction; 4] = [
-        ShortcutAction::SoloMac,
-        ShortcutAction::Shared,
-        ShortcutAction::SoloPc,
-        ShortcutAction::ToggleWindow,
-    ];
+    pub const ALL: [ShortcutAction; 1] = [ShortcutAction::ToggleWindow];
 
     pub fn label(self) -> &'static str {
         match self {
-            ShortcutAction::SoloMac => "Solo Mac",
-            ShortcutAction::Shared => "Compartido",
-            ShortcutAction::SoloPc => "Solo Windows",
             ShortcutAction::ToggleWindow => "Mostrar u ocultar Tandem",
         }
     }
@@ -209,7 +202,7 @@ pub enum BindingsError {
 }
 
 impl Default for Shortcuts {
-    /// ⌃⌥1/2/3 para los modos (los de la escena) y ⌃⌥0 para la ventana.
+    /// ⌃⌥0 para la ventana.
     fn default() -> Self {
         let accel = |key: &str| {
             Some(Accel {
@@ -220,12 +213,10 @@ impl Default for Shortcuts {
                 key: key.into(),
             })
         };
-        Shortcuts(BTreeMap::from([
-            (ShortcutAction::SoloMac, accel("Digit1")),
-            (ShortcutAction::Shared, accel("Digit2")),
-            (ShortcutAction::SoloPc, accel("Digit3")),
-            (ShortcutAction::ToggleWindow, accel("Digit0")),
-        ]))
+        Shortcuts(BTreeMap::from([(
+            ShortcutAction::ToggleWindow,
+            accel("Digit0"),
+        )]))
     }
 }
 
@@ -323,7 +314,14 @@ pub fn load(path: &Path) -> Loaded {
         }
         Err(e) => return fallback(path, &e.to_string()),
     };
-    let file: UiFile = match toml::from_str(&text) {
+    let mut table: toml::Table = match toml::from_str(&text) {
+        Ok(t) => t,
+        Err(e) => return fallback(path, e.message()),
+    };
+    if let Some(toml::Value::Table(shortcuts)) = table.get_mut("shortcuts") {
+        shortcuts.retain(|k, _| !RETIRED.contains(&k));
+    }
+    let file: UiFile = match UiFile::deserialize(table) {
         Ok(f) => f,
         Err(e) => return fallback(path, e.message()),
     };
@@ -428,103 +426,84 @@ mod tests {
     }
 
     #[test]
-    fn defaults_are_the_scene_shortcuts() {
+    fn the_default_is_the_window_shortcut() {
         let d = Shortcuts::default();
         assert_eq!(
-            d.get(ShortcutAction::SoloMac).map(Accel::to_string),
-            Some("Ctrl+Alt+Digit1".into())
+            d.get(ShortcutAction::ToggleWindow).map(Accel::to_string),
+            Some("Ctrl+Alt+Digit0".into())
         );
-        assert_eq!(
-            d.get(ShortcutAction::Shared).map(Accel::to_string),
-            Some("Ctrl+Alt+Digit2".into())
-        );
-        assert_eq!(
-            d.get(ShortcutAction::SoloPc).map(Accel::to_string),
-            Some("Ctrl+Alt+Digit3".into())
-        );
-        assert_eq!(d.active().count(), 4);
+        assert_eq!(d.active().count(), 1);
     }
 
     #[test]
-    fn bindings_round_trip_and_keep_missing_defaults() {
-        let b: Bindings = [
-            (ShortcutAction::SoloPc, Some("cmd+alt+KeyP".into())),
-            (ShortcutAction::ToggleWindow, None),
-        ]
-        .into();
+    fn bindings_round_trip() {
+        let b: Bindings = [(ShortcutAction::ToggleWindow, Some("cmd+alt+KeyP".into()))].into();
         let s = Shortcuts::from_bindings(&b).unwrap();
         let back = s.bindings();
         assert_eq!(
-            back[&ShortcutAction::SoloPc].as_deref(),
+            back[&ShortcutAction::ToggleWindow].as_deref(),
             Some("Alt+Super+KeyP")
-        );
-        assert_eq!(back[&ShortcutAction::ToggleWindow], None);
-        assert_eq!(
-            back[&ShortcutAction::SoloMac].as_deref(),
-            Some("Ctrl+Alt+Digit1")
         );
         assert_eq!(Shortcuts::from_bindings(&back).unwrap(), s);
     }
 
     #[test]
     fn empty_string_removes_a_shortcut() {
-        let b: Bindings = [(ShortcutAction::Shared, Some("  ".into()))].into();
+        let b: Bindings = [(ShortcutAction::ToggleWindow, Some("  ".into()))].into();
         let s = Shortcuts::from_bindings(&b).unwrap();
-        assert_eq!(s.get(ShortcutAction::Shared), None);
-    }
-
-    #[test]
-    fn duplicates_are_rejected() {
-        let b: Bindings = [(ShortcutAction::ToggleWindow, Some("Alt+Ctrl+Digit1".into()))].into();
-        let e = Shortcuts::from_bindings(&b).unwrap_err();
-        assert_eq!(
-            e,
-            BindingsError::Duplicate(
-                ShortcutAction::SoloMac,
-                ShortcutAction::ToggleWindow,
-                "Ctrl+Alt+Digit1".into()
-            )
-        );
-        assert!(
-            e.to_string()
-                .contains("Solo Mac y Mostrar u ocultar Tandem")
-        );
+        assert_eq!(s.get(ShortcutAction::ToggleWindow), None);
     }
 
     #[test]
     fn invalid_binding_names_the_action() {
-        let b: Bindings = [(ShortcutAction::Shared, Some("Shift+KeyA".into()))].into();
+        let b: Bindings = [(ShortcutAction::ToggleWindow, Some("Shift+KeyA".into()))].into();
         let e = Shortcuts::from_bindings(&b).unwrap_err();
-        assert!(e.to_string().starts_with("Compartido: "), "{e}");
+        assert!(
+            e.to_string().starts_with("Mostrar u ocultar Tandem: "),
+            "{e}"
+        );
     }
 
     #[test]
     fn json_is_what_the_frontend_reads() {
         let view = ShortcutsView {
             bindings: Shortcuts::default().bindings(),
-            failed: [(ShortcutAction::Shared, "ocupado".into())].into(),
+            failed: [(ShortcutAction::ToggleWindow, "ocupado".into())].into(),
             warning: None,
             file: Some("/x/ui.toml".into()),
         };
         assert_eq!(
             serde_json::to_value(&view).unwrap(),
             serde_json::json!({
-                "bindings": {
-                    "solo_mac": "Ctrl+Alt+Digit1",
-                    "shared": "Ctrl+Alt+Digit2",
-                    "solo_pc": "Ctrl+Alt+Digit3",
-                    "toggle_window": "Ctrl+Alt+Digit0"
-                },
-                "failed": { "shared": "ocupado" },
+                "bindings": { "toggle_window": "Ctrl+Alt+Digit0" },
+                "failed": { "toggle_window": "ocupado" },
                 "warning": null,
                 "file": "/x/ui.toml"
             })
         );
-        let from: Bindings = serde_json::from_value(
-            serde_json::json!({ "solo_mac": "Ctrl+Shift+KeyM", "toggle_window": null }),
+        let from: Bindings =
+            serde_json::from_value(serde_json::json!({ "toggle_window": null })).unwrap();
+        assert_eq!(from[&ShortcutAction::ToggleWindow], None);
+    }
+
+    /// Un `ui.toml` de v0.1, con los atajos de los modos, se lee sin avisos.
+    #[test]
+    fn the_old_mode_shortcuts_are_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("ui.toml");
+        std::fs::write(
+            &path,
+            "[shortcuts]\nsolo_mac = \"Ctrl+Alt+Digit1\"\nshared = \"Ctrl+Alt+Digit2\"\nsolo_pc = \"Ctrl+Alt+Digit3\"\ntoggle_window = \"Ctrl+Alt+KeyT\"\n",
         )
         .unwrap();
-        assert_eq!(from[&ShortcutAction::ToggleWindow], None);
+        let l = load(&path);
+        assert_eq!(l.warning, None);
+        assert_eq!(
+            l.shortcuts
+                .get(ShortcutAction::ToggleWindow)
+                .map(Accel::to_string),
+            Some("Ctrl+Alt+KeyT".into())
+        );
     }
 
     #[test]
@@ -539,11 +518,7 @@ mod tests {
     fn saved_shortcuts_load_back() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("sub").join("ui.toml");
-        let b: Bindings = [
-            (ShortcutAction::Shared, Some("Ctrl+Shift+KeyS".into())),
-            (ShortcutAction::ToggleWindow, None),
-        ]
-        .into();
+        let b: Bindings = [(ShortcutAction::ToggleWindow, None)].into();
         let s = Shortcuts::from_bindings(&b).unwrap();
         save(&path, &s).unwrap();
         let l = load(&path);
@@ -560,14 +535,14 @@ mod tests {
         let path = dir.path().join("ui.toml");
         std::fs::write(
             &path,
-            "otra = 1\n[shortcuts]\nsolo_pc = \"Alt+Ctrl+KeyW\"\n",
+            "otra = 1\n[shortcuts]\ntoggle_window = \"Alt+Ctrl+KeyW\"\n",
         )
         .unwrap();
         let l = load(&path);
         assert_eq!(l.warning, None);
         assert_eq!(
             l.shortcuts
-                .get(ShortcutAction::SoloPc)
+                .get(ShortcutAction::ToggleWindow)
                 .map(Accel::to_string),
             Some("Ctrl+Alt+KeyW".into())
         );
@@ -579,8 +554,7 @@ mod tests {
         let path = dir.path().join("ui.toml");
         for bad in [
             "[shortcuts\n",
-            "[shortcuts]\nsolo_mac = \"KeyA\"\n",
-            "[shortcuts]\nsolo_mac = \"Ctrl+KeyA\"\nshared = \"Ctrl+KeyA\"\n",
+            "[shortcuts]\ntoggle_window = \"KeyA\"\n",
             "[shortcuts]\nno_existe = \"Ctrl+KeyA\"\n",
         ] {
             std::fs::write(&path, bad).unwrap();

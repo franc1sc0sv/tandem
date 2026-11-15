@@ -4,14 +4,12 @@
 //! Habla los mensajes UI ↔ agente de `tandem-proto`: cada lado manda su [`Hello`]
 //! (el agente primero), y después la UI manda [`UiRequest`] y el agente contesta con
 //! [`AgentToUi`]. El agente además empuja [`AgentToUi::State`] cada vez que el estado cambia
-//! y [`AgentToUi::Txn`] con el avance de cada cambio de modo, [`AgentToUi::ManualSwitch`]
-//! cuando hay que cambiar a mano la entrada de un monitor, [`AgentToUi::Power`] cuando
-//! la PC se da por apagada sin que nadie la apagara, [`AgentToUi::Peer`] cuando cambia
-//! el par o el enlace con él, [`AgentToUi::Pairing`] con cada paso del emparejamiento,
-//! [`AgentToUi::Input`] cuando cambia el teclado y mouse (roles, sesión, permisos
-//! que faltan), [`AgentToUi::Probe`] con las sondas de calibración que mostrar y
-//! [`AgentToUi::Calibration`] con el avance de «Agregar monitor» y [`AgentToUi::Desk`]
-//! cuando cambia el puesto (el cableado elegido en la UI).
+//! y [`AgentToUi::Txn`] con el avance de cada encendido o apagado, [`AgentToUi::Power`]
+//! cuando la otra máquina se da por apagada sin que nadie la apagara, [`AgentToUi::Peer`]
+//! cuando cambia el par o el enlace con él, [`AgentToUi::Pairing`] con cada paso del
+//! emparejamiento, [`AgentToUi::Input`] cuando cambia el teclado y mouse (roles, sesión,
+//! permisos que faltan), [`AgentToUi::Desk`] cuando cambia el puesto compartido y
+//! [`AgentToUi::Capabilities`] cuando cambia lo que puede alguna de las dos.
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -34,7 +32,6 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 
 use crate::agent::Agent;
-use crate::display::manual_event_to_ui;
 
 pub mod mem;
 #[cfg(unix)]
@@ -149,9 +146,6 @@ where
     let mut states = agent.subscribe();
     states.mark_unchanged();
     let mut txns = agent.subscribe_txns();
-    let mut manual = agent.subscribe_manual();
-    let mut probes = agent.subscribe_probes();
-    let mut calibration = agent.subscribe_calibration();
     let mut power = agent.subscribe_power();
     let mut peer = agent.subscribe_peer();
     peer.mark_unchanged();
@@ -168,7 +162,7 @@ where
             req = conn.recv::<UiRequest>() => {
                 let Some(req) = req? else { return Ok(()) };
                 tracing::debug!(id = req.id, command = ?req.command, "pedido de la UI");
-                let reply = agent.respond(req.command).await;
+                let reply = agent.handle(req.command);
                 conn.send(&AgentToUi::Reply { id: req.id, reply }).await?;
             }
             changed = states.changed() => {
@@ -183,30 +177,6 @@ where
                 // La UI vuelve a sincronizarse con el siguiente estado empujado.
                 Err(RecvError::Lagged(n)) => {
                     tracing::warn!("la UI se atrasó y perdió {n} avisos de transacción");
-                }
-                Err(RecvError::Closed) => return Ok(()),
-            },
-            event = manual.recv() => match event {
-                Ok(event) => conn.send(&AgentToUi::ManualSwitch(manual_event_to_ui(event))).await?,
-                // Un pedido perdido vence con su paso, y la UI lo ve en la transacción.
-                Err(RecvError::Lagged(n)) => {
-                    tracing::warn!("la UI se atrasó y perdió {n} pedidos de cambio manual");
-                }
-                Err(RecvError::Closed) => return Ok(()),
-            },
-            event = probes.recv() => match event {
-                Ok(event) => conn.send(&AgentToUi::Probe(event)).await?,
-                // Una sonda perdida vence sola y cuenta como no vista.
-                Err(RecvError::Lagged(n)) => {
-                    tracing::warn!("la UI se atrasó y perdió {n} avisos de sondas de calibración");
-                }
-                Err(RecvError::Closed) => return Ok(()),
-            },
-            event = calibration.recv() => match event {
-                Ok(event) => conn.send(&AgentToUi::Calibration(event)).await?,
-                // El resultado final llega igual; solo se pierde parte del avance.
-                Err(RecvError::Lagged(n)) => {
-                    tracing::warn!("la UI se atrasó y perdió {n} avisos de calibración");
                 }
                 Err(RecvError::Closed) => return Ok(()),
             },
@@ -429,23 +399,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mode_change_progress_is_pushed() {
+    async fn power_change_progress_is_pushed() {
         let dir = tempfile::tempdir().unwrap();
         let (agent, io, _stop) = start(dir.path());
         let mut c = IpcClient::handshake(io).await.unwrap();
         let r = c
-            .request(UiCommand::SetMode(tandem_core::Mode::SoloPc))
+            .request(UiCommand::SetPower {
+                machine: Machine::Pc,
+                on: true,
+            })
             .await
             .unwrap();
         let Reply::Accepted { txn } = r else {
             panic!("se esperaba Accepted: {r:?}");
         };
-        // Sin backends, el primer paso falla con un motivo claro y todo vuelve atrás.
+        // Sin backends, el primer paso falla con un motivo claro y el estado no cambia.
         let mut events = Vec::new();
         loop {
             match c.next_event().await.unwrap().unwrap() {
                 AgentToUi::Txn(e) => {
-                    let end = matches!(e, TxnEvent::RolledBack { .. });
+                    let end = matches!(e, TxnEvent::Failed { .. });
                     events.push(e);
                     if end {
                         break;
@@ -460,10 +433,9 @@ mod tests {
             &events[2],
             TxnEvent::StepFailed { index: 0, error, .. } if error.contains(STEP_NOT_IMPLEMENTED)
         ));
-        assert_eq!(events[3], TxnEvent::RollingBack { txn });
         assert_eq!(
-            events[4],
-            TxnEvent::RolledBack {
+            events[3],
+            TxnEvent::Failed {
                 txn,
                 state: agent.state()
             }
@@ -493,70 +465,9 @@ mod tests {
         let ev = tandem_proto::PowerEvent::PeerLost {
             machine: Machine::Pc,
             reason: "sin enlaces".into(),
-            stranded: vec!["m34".into()],
         };
         agent.emit_power(ev.clone());
         assert_eq!(c.next_event().await.unwrap(), Some(AgentToUi::Power(ev)));
-    }
-
-    /// T-078: la sonda llega a la UI, el clic vuelve por la IPC y la sonda se quita.
-    #[tokio::test]
-    async fn probes_are_pushed_and_answered() {
-        let dir = tempfile::tempdir().unwrap();
-        let (agent, io, _stop) = start(dir.path());
-        let mut c = IpcClient::handshake(io).await.unwrap();
-        c.get_state().await.unwrap();
-        let probe = tandem_proto::CalibrationProbe {
-            monitor: tandem_proto::ProbeMonitor {
-                edid: None,
-                name: "Odyssey G5".into(),
-            },
-            input: tandem_core::Input::Hdmi,
-            machine: tandem_core::Machine::Mac,
-            ask: tandem_proto::ProbeAsk::UserSwitch,
-            timeout_ms: 60_000,
-        };
-        let shown = tokio::spawn({
-            let (agent, probe) = (agent.clone(), probe.clone());
-            async move { agent.probes().show(&probe, false).await }
-        });
-        let Some(AgentToUi::Probe(tandem_proto::ProbeEvent::Show {
-            id,
-            probe: got,
-            place,
-        })) = c.next_event().await.unwrap()
-        else {
-            panic!("se esperaba la sonda");
-        };
-        assert_eq!(got, probe);
-        assert_eq!(place, tandem_proto::ProbePlace::Monitor { screen: None });
-        assert_eq!(
-            c.request(UiCommand::AnswerProbe {
-                id,
-                answer: tandem_proto::ProbeAnswer::Seen
-            })
-            .await
-            .unwrap(),
-            Reply::Done
-        );
-        assert_eq!(
-            shown.await.unwrap(),
-            tandem_proto::ProbeOutcome::Answered(tandem_proto::ProbeAnswer::Seen)
-        );
-        assert_eq!(
-            c.next_event().await.unwrap(),
-            Some(AgentToUi::Probe(tandem_proto::ProbeEvent::Hide { id }))
-        );
-        // Contestar una que ya no está se rechaza.
-        assert!(matches!(
-            c.request(UiCommand::AnswerProbe {
-                id,
-                answer: tandem_proto::ProbeAnswer::Seen
-            })
-            .await
-            .unwrap(),
-            Reply::Rejected(_)
-        ));
     }
 
     #[tokio::test]

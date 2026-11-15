@@ -6,7 +6,6 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tandem_clipboard::fake::FakeClipboard;
-use tandem_core::Config;
 use tandem_input::session::{Capture, Injector};
 use tandem_input::{InputEvent, Point, Screen};
 use tandem_peripherals::fake::{FakeDevices, FakeScanner};
@@ -167,7 +166,7 @@ impl InputBackends for FakeInputBackends {
         Some(DynScanner::new(self.scanner.clone()))
     }
 
-    fn screens(&self, _desk: &Config) -> Result<Vec<Screen>, String> {
+    fn screens(&self) -> Result<Vec<Screen>, String> {
         Ok(self.lock().screens.clone())
     }
 

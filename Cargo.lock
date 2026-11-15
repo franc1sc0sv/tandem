@@ -3984,22 +3984,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tandem-display"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "dirs",
- "proptest",
- "serde",
- "tandem-core",
- "tempfile",
- "thiserror 2.0.21",
- "tokio",
- "toml 0.9.12+spec-1.1.0",
- "windows",
-]
-
-[[package]]
 name = "tandem-input"
 version = "0.1.0"
 dependencies = [
@@ -4090,7 +4074,6 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "tandem-core",
- "tandem-display",
  "tandem-link",
  "tandem-peripherals",
  "tandem-proto",
@@ -4131,7 +4114,6 @@ dependencies = [
  "serde_json",
  "tandem-clipboard",
  "tandem-core",
- "tandem-display",
  "tandem-input",
  "tandem-link",
  "tandem-peripherals",

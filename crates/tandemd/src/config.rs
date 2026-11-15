@@ -1,4 +1,5 @@
-//! `tandem.toml`: el puesto ([`tandem_core::Config`]), la red y qué máquina es esta.
+//! `tandem.toml`: el puesto compartido ([`tandem_core::Config`]), la red y qué máquina es
+//! esta.
 //!
 //! ```toml
 //! machine = "mac"
@@ -38,11 +39,23 @@
 //! keyboard = "046d:c33f"
 //! mouse = "046d:c539"
 //!
-//! [[monitors]]
-//! id = "m34"
-//! label = '34"'
-//! wiring = { pc = "displayport", mac = "hdmi" }
+//! # El acomodo de pantallas (DESIGN §7). Sin `[[screens]]` de una máquina valen las que
+//! # ella misma lee; sin `[arrangement]`, la Mac a la izquierda de la PC.
+//! [[screens]]
+//! machine = "pc"
+//! id = "34"
+//! x = 0
+//! y = 0
+//! width = 3440
+//! height = 1440
+//! scale = 1.0
+//!
+//! [arrangement]
+//! mac_side = "left"
 //! ```
+//!
+//! Una configuración de v0.1 con `[[monitors]]` sigue cargando: la sección se ignora con
+//! un aviso en el log ([`AgentConfig::warnings`]).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -79,14 +92,27 @@ pub struct AgentConfig {
     pub power: PowerConfig,
     #[serde(default)]
     pub input: InputConfig,
-    /// Versión de la configuración compartida del puesto (`[[monitors]]` y el atajo de
-    /// bloqueo), que se sincroniza con la otra máquina ([`crate::desk_sync`]). La
-    /// escribe el agente; 0 = nunca se cambió desde que se generó.
+    /// Versión de la configuración compartida del puesto (`[[screens]]`, `[arrangement]` y
+    /// el atajo de bloqueo), que se sincroniza con la otra máquina ([`crate::desk_sync`]).
+    /// La escribe el agente; 0 = nunca se cambió desde que se generó.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub desk_rev: u64,
     /// Qué máquina hizo el último cambio de `desk_rev`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desk_origin: Option<Machine>,
+    /// La huella del puesto que escribió el agente con `desk_rev`
+    /// ([`crate::desk_sync::fingerprint`]). Si no coincide, alguien lo editó a mano: es un
+    /// cambio de esta máquina y se le manda a la otra.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desk_sum: Option<String>,
+    /// Cuántos `[[monitors]]` de v0.1 trae: se lee solo para avisar que ya no se usa.
+    #[serde(
+        default,
+        rename = "monitors",
+        deserialize_with = "count_entries",
+        skip_serializing
+    )]
+    pub legacy_monitors: Option<usize>,
     /// El puesto: es el mismo en las dos máquinas, salvo `machine`.
     #[serde(flatten)]
     pub desk: Config,
@@ -94,6 +120,13 @@ pub struct AgentConfig {
 
 fn is_zero(n: &u64) -> bool {
     *n == 0
+}
+
+fn count_entries<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<usize>, D::Error> {
+    Ok(Some(match toml::Value::deserialize(d)? {
+        toml::Value::Array(a) => a.len(),
+        _ => 1,
+    }))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -322,12 +355,30 @@ impl AgentConfig {
         Ok(cfg)
     }
 
+    /// Lee `path` y deja en el log lo que se ignora ([`AgentConfig::warnings`]).
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         let text = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
             path: path.to_owned(),
             source,
         })?;
-        Self::from_toml(&text)
+        let cfg = Self::from_toml(&text)?;
+        for w in cfg.warnings() {
+            tracing::warn!("{}: {w}", path.display());
+        }
+        Ok(cfg)
+    }
+
+    /// Lo que la configuración trae y ya no se usa. Un `monitors = []` vacío (lo que
+    /// generaba v0.1) no molesta a nadie y no se avisa.
+    pub fn warnings(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if self.legacy_monitors.is_some_and(|n| n > 0) {
+            out.push(
+                "la sección [[monitors]] ya no se usa (v0.2 quitó el control de monitores): se ignora"
+                    .to_owned(),
+            );
+        }
+        out
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
@@ -395,18 +446,6 @@ pub(crate) mod fixtures {
 
         [orchestrator]
         step_timeout_secs = 10
-
-        [[monitors]]
-        id = "m34"
-        label = '34"'
-        edid_model = "LC34G55T"
-        wiring = { pc = "displayport", mac = "hdmi" }
-        ddc = { hdmi = 0x06, display_port = 0x0F }
-
-        [[monitors]]
-        id = "m32"
-        label = '32"'
-        wiring = { pc = "displayport", mac = "hdmi" }
     "#;
 
     pub fn desk() -> AgentConfig {
@@ -425,7 +464,7 @@ pub(crate) mod fixtures {
 
 #[cfg(test)]
 mod tests {
-    use tandem_core::Input;
+    use tandem_core::Side;
     use tandem_link::manager::LinkKind;
 
     use super::*;
@@ -436,24 +475,82 @@ mod tests {
         assert_eq!(cfg.machine, Machine::Mac);
         assert_eq!(cfg.network.port, 47771);
         assert_eq!(cfg.network.peers.len(), 2);
-        assert_eq!(cfg.desk.monitors.len(), 2);
-        let m34 = cfg.desk.monitor(&"m34".into()).unwrap();
-        assert_eq!(m34.input_for(Machine::Pc), Some(Input::DisplayPort));
-        assert_eq!(m34.ddc.as_ref().unwrap().display_port, 0x0F);
+        assert!(cfg.desk.screens.is_empty());
+        assert!(cfg.warnings().is_empty());
+    }
+
+    #[test]
+    fn parses_the_declared_screens() {
+        let cfg = AgentConfig::from_toml(
+            r#"
+            machine = "pc"
+
+            [[screens]]
+            machine = "pc"
+            id = "34"
+            x = 0
+            y = 0
+            width = 3440
+            height = 1440
+
+            [[screens]]
+            machine = "mac"
+            id = "laptop"
+            x = 0
+            y = 0
+            width = 1512
+            height = 982
+            scale = 2.0
+
+            [arrangement]
+            mac_side = "right"
+            "#,
+        )
+        .unwrap();
+        assert_eq!(cfg.desk.screens.len(), 2);
+        assert_eq!(cfg.desk.screens_of(Machine::Mac).count(), 1);
+        assert_eq!(cfg.desk.arrangement.mac_side, Side::Right);
+        let err = AgentConfig::from_toml(
+            "machine = \"pc\"\n[[screens]]\nmachine = \"pc\"\nid = \"a\"\nx = 0\ny = 0\nwidth = 0\nheight = 1\n",
+        )
+        .unwrap_err();
+        assert!(matches!(err, ConfigError::Desk(_)), "{err}");
+    }
+
+    /// Una configuración de v0.1 sigue cargando: `[[monitors]]` se ignora con un aviso.
+    #[test]
+    fn an_old_config_with_monitors_still_loads_with_a_warning() {
+        let old = r#"
+            machine = "mac"
+            desk_rev = 3
+            desk_origin = "pc"
+
+            [[monitors]]
+            id = "m34"
+            label = '34"'
+            edid_model = "LC34G55T"
+            wiring = { pc = "displayport", mac = "hdmi" }
+            ddc = { hdmi = 0x06, display_port = 0x0F }
+        "#;
+        let cfg = AgentConfig::from_toml(old).unwrap();
+        assert_eq!(cfg.desk, tandem_core::Config::default());
+        assert_eq!(cfg.desk_rev, 3);
+        let w = cfg.warnings();
+        assert_eq!(w.len(), 1);
+        assert!(w[0].contains("[[monitors]]"), "{w:?}");
+        // Lo que generaba v0.1 (`monitors = []`) no avisa.
+        let generated = AgentConfig::from_toml("machine = \"pc\"").unwrap();
+        assert!(generated.warnings().is_empty());
+        // Y desde el archivo también carga.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tandem.toml");
+        std::fs::write(&path, old).unwrap();
+        assert_eq!(AgentConfig::load(&path).unwrap(), cfg);
     }
 
     #[test]
     fn network_is_optional() {
-        let cfg = AgentConfig::from_toml(
-            r#"
-            machine = "pc"
-            [[monitors]]
-            id = "a"
-            label = "a"
-            wiring = { pc = "hdmi" }
-            "#,
-        )
-        .unwrap();
+        let cfg = AgentConfig::from_toml("machine = \"pc\"").unwrap();
         assert_eq!(cfg.network, NetworkConfig::default());
         assert_eq!(cfg.network.port, DEFAULT_PORT);
         assert_eq!(cfg.orchestrator, OrchestratorConfig::default());
@@ -465,7 +562,7 @@ mod tests {
     #[test]
     fn timeouts_are_configurable() {
         let cfg = AgentConfig::from_toml(
-            "machine = \"mac\"\nmonitors = []\n[orchestrator]\npower_on_timeout_secs = 90\nstep_timeout_secs = 5",
+            "machine = \"mac\"\n[orchestrator]\npower_on_timeout_secs = 90\nstep_timeout_secs = 5",
         )
         .unwrap();
         let t = cfg.orchestrator.timeouts();
@@ -476,10 +573,9 @@ mod tests {
     #[test]
     fn rejects_zero_timeout() {
         for field in ["power_on_timeout_secs", "step_timeout_secs"] {
-            let err = AgentConfig::from_toml(&format!(
-                "machine = \"mac\"\nmonitors = []\n[orchestrator]\n{field} = 0"
-            ))
-            .unwrap_err();
+            let err =
+                AgentConfig::from_toml(&format!("machine = \"mac\"\n[orchestrator]\n{field} = 0"))
+                    .unwrap_err();
             assert!(matches!(err, ConfigError::ZeroTimeout), "{err}");
         }
     }
@@ -487,8 +583,7 @@ mod tests {
     #[test]
     fn rejects_unknown_orchestrator_field() {
         let err =
-            AgentConfig::from_toml("machine = \"mac\"\nmonitors = []\n[orchestrator]\ntimeout = 1")
-                .unwrap_err();
+            AgentConfig::from_toml("machine = \"mac\"\n[orchestrator]\ntimeout = 1").unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
 
@@ -500,49 +595,20 @@ mod tests {
 
     #[test]
     fn rejects_unknown_machine() {
-        let err = AgentConfig::from_toml("machine = \"linux\"\nmonitors = []").unwrap_err();
+        let err = AgentConfig::from_toml("machine = \"linux\"").unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
 
     #[test]
-    fn rejects_duplicate_monitor() {
-        let err = AgentConfig::from_toml(
-            r#"
-            machine = "mac"
-            [[monitors]]
-            id = "a"
-            label = "a"
-            wiring = { pc = "hdmi" }
-            [[monitors]]
-            id = "a"
-            label = "b"
-            wiring = { mac = "hdmi" }
-            "#,
-        )
-        .unwrap_err();
-        assert!(
-            matches!(
-                err,
-                ConfigError::Desk(tandem_core::model::ConfigError::DuplicateMonitor(_))
-            ),
-            "{err}"
-        );
-    }
-
-    #[test]
     fn rejects_port_zero() {
-        let err = AgentConfig::from_toml("machine = \"mac\"\nmonitors = []\n[network]\nport = 0")
-            .unwrap_err();
+        let err = AgentConfig::from_toml("machine = \"mac\"\n[network]\nport = 0").unwrap_err();
         assert!(matches!(err, ConfigError::ZeroPort));
     }
 
     #[test]
     fn pairing_port_defaults_to_the_next_one() {
-        let cfg = |net: &str| {
-            AgentConfig::from_toml(&format!(
-                "machine = \"pc\"\nmonitors = []\n[network]\n{net}"
-            ))
-        };
+        let cfg =
+            |net: &str| AgentConfig::from_toml(&format!("machine = \"pc\"\n[network]\n{net}"));
         assert_eq!(cfg("port = 47770").unwrap().network.pairing_port(), 47771);
         assert_eq!(cfg("port = 65535").unwrap().network.pairing_port(), 65534);
         let fixed = cfg("port = 47770\npairing_port = 50000").unwrap();
@@ -558,7 +624,7 @@ mod tests {
     #[test]
     fn rejects_peer_without_port() {
         let err = AgentConfig::from_toml(
-            "machine = \"mac\"\nmonitors = []\n[network]\npeers = [{ kind = \"usb4\", addr = \"10.0.0.1:0\" }]",
+            "machine = \"mac\"\n[network]\npeers = [{ kind = \"usb4\", addr = \"10.0.0.1:0\" }]",
         )
         .unwrap_err();
         assert!(
@@ -572,10 +638,9 @@ mod tests {
 
     #[test]
     fn rejects_peer_without_kind() {
-        let err = AgentConfig::from_toml(
-            "machine = \"mac\"\nmonitors = []\n[network]\npeers = [\"10.0.0.1:47770\"]",
-        )
-        .unwrap_err();
+        let err =
+            AgentConfig::from_toml("machine = \"mac\"\n[network]\npeers = [\"10.0.0.1:47770\"]")
+                .unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
 
@@ -584,7 +649,6 @@ mod tests {
         let err = AgentConfig::from_toml(
             r#"
             machine = "mac"
-            monitors = []
             [network]
             peers = [
                 { kind = "usb4", addr = "10.77.1.2:47770" },
@@ -616,8 +680,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_network_field() {
-        let err = AgentConfig::from_toml("machine = \"mac\"\nmonitors = []\n[network]\nprot = 1")
-            .unwrap_err();
+        let err = AgentConfig::from_toml("machine = \"mac\"\n[network]\nprot = 1").unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
 
@@ -633,7 +696,7 @@ mod tests {
             fixtures::desk().power.peer_lost_after(),
             Duration::from_secs(15)
         );
-        let base = "machine = \"mac\"\nmonitors = []\n[power]\n";
+        let base = "machine = \"mac\"\n[power]\n";
         let cfg = AgentConfig::from_toml(&format!("{base}peer_lost_after_secs = 40")).unwrap();
         assert_eq!(cfg.power.peer_lost_after(), Duration::from_secs(40));
         let err = AgentConfig::from_toml(&format!("{base}peer_lost_after_secs = 0")).unwrap_err();
@@ -643,7 +706,7 @@ mod tests {
     #[test]
     fn parses_wake_on_lan() {
         let cfg = AgentConfig::from_toml(
-            "machine = \"mac\"\nmonitors = []\n[power.wol]\nmac = \"9c-6b-00-1a-2b-ff\"\nsource = \"10.77.2.1\"\nbroadcast = \"10.77.2.3\"",
+            "machine = \"mac\"\n[power.wol]\nmac = \"9c-6b-00-1a-2b-ff\"\nsource = \"10.77.2.1\"\nbroadcast = \"10.77.2.3\"",
         )
         .unwrap();
         let wol = cfg.power.wol.unwrap();
@@ -653,7 +716,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_wake_on_lan() {
-        let base = "machine = \"mac\"\nmonitors = []\n[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n";
+        let base = "machine = \"mac\"\n[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n";
         let err = AgentConfig::from_toml(&format!("{base}port = 0")).unwrap_err();
         assert!(matches!(err, ConfigError::ZeroWolPort), "{err}");
         let err = AgentConfig::from_toml(&format!("{base}source = \"fe80::1\"")).unwrap_err();
@@ -661,13 +724,10 @@ mod tests {
             matches!(err, ConfigError::WolFamilyMismatch { .. }),
             "{err}"
         );
-        let err = AgentConfig::from_toml(
-            "machine = \"mac\"\nmonitors = []\n[power.wol]\nmac = \"no-es-una-mac\"",
-        )
-        .unwrap_err();
-        assert!(matches!(err, ConfigError::Parse(_)), "{err}");
-        let err = AgentConfig::from_toml("machine = \"mac\"\nmonitors = []\n[power]\nwake = 1")
+        let err = AgentConfig::from_toml("machine = \"mac\"\n[power.wol]\nmac = \"no-es-una-mac\"")
             .unwrap_err();
+        assert!(matches!(err, ConfigError::Parse(_)), "{err}");
+        let err = AgentConfig::from_toml("machine = \"mac\"\n[power]\nwake = 1").unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
 
@@ -690,7 +750,6 @@ mod tests {
         let cfg = AgentConfig::from_toml(
             r#"
             machine = "pc"
-            monitors = []
             [input]
             keyboard = "pc"
             lock_shortcut = ["ControlLeft", "KeyL"]
@@ -705,7 +764,7 @@ mod tests {
         assert!(cfg.input.keyboard_defined());
         // El nombre de antes sigue valiendo.
         let old = AgentConfig::from_toml(
-            "machine = \"mac\"\nmonitors = []\n[input]\nserver = \"pc\"\n[power]\npc_lost_after_secs = 9",
+            "machine = \"mac\"\n[input]\nserver = \"pc\"\n[power]\npc_lost_after_secs = 9",
         )
         .unwrap();
         assert_eq!(old.input.keyboard(), Machine::Pc);
@@ -718,14 +777,13 @@ mod tests {
         let hub = cfg.input.hub.unwrap();
         assert_eq!(hub.keyboard.to_string(), "046d:c33f");
         let none =
-            AgentConfig::from_toml("machine = \"mac\"\nmonitors = []\n[input]\nlock_shortcut = []")
-                .unwrap();
+            AgentConfig::from_toml("machine = \"mac\"\n[input]\nlock_shortcut = []").unwrap();
         assert!(none.input.lock_keys().unwrap().is_empty());
     }
 
     #[test]
     fn rejects_bad_input() {
-        let base = "machine = \"mac\"\nmonitors = []\n[input]\n";
+        let base = "machine = \"mac\"\n[input]\n";
         let err = AgentConfig::from_toml(&format!("{base}lock_shortcut = [\"Bloq\"]")).unwrap_err();
         assert!(
             matches!(err, ConfigError::UnknownKey(ref k) if k == "Bloq"),

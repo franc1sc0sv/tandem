@@ -136,7 +136,7 @@ mod tests {
             )
             .on_matching(
                 Machine::Mac,
-                |s| matches!(s, Step::UpdateInputGeometry),
+                |s| matches!(s, Step::PowerOn { .. }),
                 FaultAction::Fail("x".into()),
             )
             .times(2);
@@ -172,13 +172,23 @@ mod tests {
         );
         for _ in 0..2 {
             assert_eq!(
-                faults.take(Machine::Mac, &Step::UpdateInputGeometry),
+                faults.take(
+                    Machine::Mac,
+                    &Step::PowerOn {
+                        machine: Machine::Pc
+                    }
+                ),
                 [FaultAction::Fail("x".into())]
             );
         }
         assert!(
             faults
-                .take(Machine::Mac, &Step::UpdateInputGeometry)
+                .take(
+                    Machine::Mac,
+                    &Step::PowerOn {
+                        machine: Machine::Pc
+                    }
+                )
                 .is_empty()
         );
     }

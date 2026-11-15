@@ -112,7 +112,6 @@ pub(crate) fn explain(e: &IpcError) -> String {
 mod tests {
     use std::sync::Arc;
 
-    use tandem_core::BuiltinDisplay;
     use tandem_proto::{Hello, PROTOCOL_VERSION, Peer};
     use tandemd::ipc::Framed;
     use tandemd::ipc::mem::{self, MemConnector};
@@ -124,11 +123,6 @@ mod tests {
 
     const CONFIG: &str = r#"
 machine = "pc"
-
-[[monitors]]
-id = "m34"
-label = '34"'
-wiring = { pc = "displayport", mac = "hdmi" }
 "#;
 
     fn here() -> &'static Path {
@@ -188,14 +182,9 @@ wiring = { pc = "displayport", mac = "hdmi" }
 
     #[tokio::test]
     async fn json_is_what_the_frontend_reads() {
-        let mut state = State {
-            owner: Default::default(),
+        let state = State {
             on: tandem_core::Powered::both(),
-            builtin_pref: BuiltinDisplay::Mirror,
-            doubt: Default::default(),
         };
-        state.owner.insert("m34".into(), Machine::Pc);
-        state.doubt.insert("m32".into(), tandem_core::Doubt::Stale);
         let ok = AgentStatus::Connected {
             agent: Machine::Mac,
             state,
@@ -205,12 +194,7 @@ wiring = { pc = "displayport", mac = "hdmi" }
             serde_json::json!({
                 "kind": "connected",
                 "agent": "mac",
-                "state": {
-                    "owner": { "m34": "pc" },
-                    "on": { "mac": true, "pc": true },
-                    "builtin_pref": "mirror",
-                    "doubt": { "m32": "stale" }
-                }
+                "state": { "on": { "mac": true, "pc": true } }
             })
         );
         let down = AgentStatus::Unavailable {

@@ -1,6 +1,6 @@
 [package]
 name = "tandem-core"
-description = "Modelo de dominio de Tandem: máquinas, monitores, modos, planes y transacciones"
+description = "Modelo de dominio de Tandem: máquinas, puesto compartido, energía y transacciones"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

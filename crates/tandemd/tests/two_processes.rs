@@ -14,26 +14,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::Duration;
 
-use tandem_core::{Machine, Mode, MonitorId, State, Step};
+use tandem_core::{Machine, State, Step};
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
-use tandem_proto::{AgentToUi, PeerStatus, PowerEvent, Reply, TxnEvent, UiCommand};
+use tandem_proto::{AgentToUi, PeerStatus, Reply, TxnEvent, UiCommand};
 use tandemd::agent::BUSY;
 use tandemd::ipc::{self, IpcClient};
 use tandemd::sim::{self, HOLD_FILE};
 use tandemd::store::StateStore;
 use tokio::net::UnixStream;
-
-const DESK: &str = r#"
-[[monitors]]
-id = "m34"
-label = '34"'
-wiring = { pc = "displayport", mac = "hdmi" }
-
-[[monitors]]
-id = "m32"
-label = '32"'
-wiring = { pc = "displayport", mac = "hdmi" }
-"#;
 
 /// Tiempos cortos para que un paso colgado o una PC perdida se resuelvan pronto.
 const TIMING: &str = "
@@ -117,7 +105,7 @@ impl Spec {
                 "machine = \"{machine}\"\n\
                  [network]\nport = {port}\n\
                  peers = [{{ kind = \"usb4\", addr = \"127.0.0.1:{peer_port}\" }}]\n\
-                 {TIMING}{DESK}"
+                 {TIMING}"
             ),
         )
         .unwrap();
@@ -352,12 +340,7 @@ async fn outcome(ui: &mut Ui, txn: u64) -> Vec<TxnEvent> {
         else {
             unreachable!()
         };
-        let end = matches!(
-            ev,
-            TxnEvent::Committed { .. }
-                | TxnEvent::RolledBack { .. }
-                | TxnEvent::Inconsistent { .. }
-        );
+        let end = matches!(ev, TxnEvent::Committed { .. } | TxnEvent::Failed { .. });
         events.push(ev);
         if end {
             return events;
@@ -371,10 +354,8 @@ fn txn_of(ev: &TxnEvent) -> u64 {
         | TxnEvent::StepStarted { txn, .. }
         | TxnEvent::StepDone { txn, .. }
         | TxnEvent::StepFailed { txn, .. }
-        | TxnEvent::RollingBack { txn }
         | TxnEvent::Committed { txn, .. }
-        | TxnEvent::RolledBack { txn, .. }
-        | TxnEvent::Inconsistent { txn, .. } => *txn,
+        | TxnEvent::Failed { txn, .. } => *txn,
     }
 }
 
@@ -433,29 +414,6 @@ async fn pc_agrees(pc: &mut Ui, expected: &State) {
     assert_eq!(pc.get_state().await.unwrap(), *expected);
 }
 
-fn all_on(state: &State, machine: Machine) -> bool {
-    state.owner.values().all(|m| *m == machine)
-}
-
-/// Los monitores a los que `steps` les manda la entrada de `to` (siempre por la PC, la
-/// única que cambia entradas en este puesto), en orden.
-fn switched(steps: &[Step], to: Machine) -> Vec<String> {
-    let mut ids: Vec<String> = steps
-        .iter()
-        .filter_map(|st| match st {
-            Step::SwitchInput {
-                monitor,
-                to: t,
-                by: Machine::Pc,
-                ..
-            } if *t == to => Some(monitor.to_string()),
-            _ => None,
-        })
-        .collect();
-    ids.sort();
-    ids
-}
-
 /// El motivo por el que el agente rechaza `cmd` (reintenta si está ocupado).
 async fn rejected(ui: &mut Ui, cmd: UiCommand) -> String {
     within("pedido rechazado", async {
@@ -486,209 +444,93 @@ async fn running_pair(pair: &Pair) -> (Proc, Ui, Proc, Ui) {
     (mac, ui_mac, pc, ui_pc)
 }
 
+fn off(machine: Machine) -> UiCommand {
+    UiCommand::SetPower { machine, on: false }
+}
+
 #[tokio::test(flavor = "multi_thread")]
-async fn modes_across_two_real_processes() {
+async fn power_across_two_real_processes() {
     if !unix_sockets_allowed() {
         return;
     }
     let pair = Pair::new();
     let (mac, mut ui_mac, pc, mut ui_pc) = running_pair(&pair).await;
 
-    // Al arrancar no se sabe lo que muestra cada monitor (T-085): aunque Tandem crea que
-    // todo está en la Mac, el primer Solo Mac manda las dos entradas (las cambia la PC)
-    // y deja el estado confirmado.
-    let unconfirmed = ui_mac.get_state().await.unwrap();
-    assert!(!unconfirmed.is_confirmed() && all_on(&unconfirmed, Machine::Mac));
-    let (steps, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(Mode::SoloMac)).await;
-    assert_eq!(switched(&steps, Machine::Mac), ["m32", "m34"], "{steps:?}");
-    assert!(s.is_confirmed() && s.on.pc && all_on(&s, Machine::Mac));
-
-    // Ya confirmado, pedir lo mismo es una transacción vacía; la PC queda igual.
-    let (steps, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(Mode::SoloMac)).await;
-    assert!(steps.is_empty(), "{steps:?}");
-    assert!(s.is_confirmed() && s.on.pc && all_on(&s, Machine::Mac));
-
-    // Compartido: el 34" a la PC. La PC cambia la entrada y lo agrega; la Mac lo quita.
-    let (mac_before, pc_before) = (mac.spec.steps().len(), pc.spec.steps().len());
-    let shared = Mode::Shared([("m34".into(), Machine::Pc)].into());
-    let (steps, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(shared)).await;
-    assert_eq!(s.owner[&MonitorId::from("m34")], Machine::Pc);
-    assert_eq!(s.owner[&MonitorId::from("m32")], Machine::Mac);
-    let switch = steps
-        .iter()
-        .find(|st| matches!(st, Step::SwitchInput { .. }))
-        .unwrap()
-        .clone();
-    let pc_steps = new_steps(&pc.spec, pc_before);
-    let mac_steps = new_steps(&mac.spec, mac_before);
-    assert!(pc_steps.contains(&switch), "{pc_steps:?}");
-    assert!(pc_steps.contains(&Step::Attach {
-        machine: Machine::Pc,
-        monitor: "m34".into()
-    }));
-    assert!(mac_steps.contains(&Step::Detach {
-        machine: Machine::Mac,
-        monitor: "m34".into()
-    }));
-    // La geometría se recalcula en las dos máquinas.
-    assert!(pc_steps.contains(&Step::UpdateInputGeometry));
-    assert!(mac_steps.contains(&Step::UpdateInputGeometry));
-    assert!(
-        !mac_steps.contains(&switch),
-        "las entradas las cambia la PC"
-    );
-
-    // Solo Windows: todo a la PC.
-    let (_, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(Mode::SoloPc)).await;
-    assert!(s.on.pc && all_on(&s, Machine::Pc));
-
-    // Apagado: primero todo vuelve a la Mac, al final se apaga la PC (en la PC).
-    let pc_before = pc.spec.steps().len();
+    // Encender lo que ya está prendido es una transacción vacía; la PC queda igual.
     let (steps, s) = commit(
         &mut ui_mac,
         &mut ui_pc,
         UiCommand::SetPower {
             machine: Machine::Pc,
-            on: false,
+            on: true,
         },
     )
     .await;
-    assert_eq!(
-        steps.last(),
-        Some(&Step::PowerOff {
-            machine: Machine::Pc
-        })
-    );
-    assert!(!s.on.pc && all_on(&s, Machine::Mac));
-    assert_eq!(
-        new_steps(&pc.spec, pc_before).last(),
-        Some(&Step::PowerOff {
-            machine: Machine::Pc
-        })
-    );
+    assert!(steps.is_empty(), "{steps:?}");
+    assert!(s.on.pc);
 
-    // El apagado ordenado de los dos guarda los mismos dueños y preferencia, y cada uno
-    // se ve prendido a sí mismo (la PC guarda `on.pc = true` aunque la Mac la dé por
-    // apagada). El `on` de la otra no se compara: depende de si alcanzó a ver caer el
-    // enlace antes de cerrarse (la Mac se detiene primero).
+    // Apagado: el paso corre en la PC.
+    let (mac_before, pc_before) = (mac.spec.steps().len(), pc.spec.steps().len());
+    let (steps, s) = commit(&mut ui_mac, &mut ui_pc, off(Machine::Pc)).await;
+    let want = [Step::PowerOff {
+        machine: Machine::Pc,
+    }];
+    assert_eq!(steps, want);
+    assert!(!s.on.pc);
+    assert_eq!(new_steps(&pc.spec, pc_before), want);
+    assert!(new_steps(&mac.spec, mac_before).is_empty());
+
+    // El apagado ordenado de los dos guarda el estado, y cada uno se ve prendido a sí
+    // mismo (la PC guarda `on.pc = true` aunque la Mac la dé por apagada).
     drop((ui_mac, ui_pc));
     for p in [mac, pc] {
         let (spec, status) = p.stop().await;
         assert!(status.success(), "{}: {status}", spec.machine);
         let saved = spec.saved_state().unwrap();
-        let me = spec.machine;
-        assert_eq!(
-            (&saved.owner, saved.builtin_pref, saved.on.is_on(me)),
-            (&s.owner, s.builtin_pref, true),
-            "{me}: {saved:?}"
-        );
+        assert!(saved.on.is_on(spec.machine), "{}: {saved:?}", spec.machine);
     }
 }
 
+/// La PC muere con el apagado a medias: la Mac no recibe la respuesta, lo da por hecho y
+/// sigue atendiendo; sin enlaces la sigue viendo apagada.
 #[tokio::test(flavor = "multi_thread")]
-async fn killing_the_pc_mid_change_leaves_the_mac_coherent() {
+async fn killing_the_pc_mid_shutdown_leaves_the_mac_coherent() {
     if !unix_sockets_allowed() {
         return;
     }
     let pair = Pair::new();
     let (mut mac, mut ui_mac, pc, _ui_pc) = running_pair(&pair).await;
-    let before = ui_mac.get_state().await.unwrap();
-    assert!(all_on(&before, Machine::Mac));
-
-    // La PC se queda en su primer paso (cambiar una entrada) y ahí se la mata.
     pc.spec.hold(true);
-    let txn = begin(&mut ui_mac, UiCommand::SetMode(Mode::SoloPc)).await;
-    within("la PC empieza a cambiar una entrada", async {
-        while !pc
-            .spec
-            .steps()
-            .iter()
-            .any(|s| matches!(s, Step::SwitchInput { .. }))
-        {
+    let txn = begin(&mut ui_mac, off(Machine::Pc)).await;
+    within("la PC empieza a apagarse", async {
+        while pc.spec.steps().is_empty() {
             tokio::time::sleep(POLL).await;
         }
     })
     .await;
     let _pc = pc.kill();
 
-    // La Mac no sabe si la entrada llegó a cambiar y no la puede devolver: lo dice.
     let events = outcome(&mut ui_mac, txn).await;
     assert!(
-        events
-            .iter()
-            .any(|e| matches!(e, TxnEvent::StepFailed { index: 0, .. })),
+        matches!(events.last(), Some(TxnEvent::Committed { state, .. }) if !state.on.pc),
         "{events:?}"
     );
-    let Some(TxnEvent::Inconsistent { undo_failures, .. }) = events.last() else {
-        panic!("se esperaba Inconsistent: {events:?}");
-    };
-    assert!(
-        undo_failures.iter().any(|f| matches!(
-            f.step,
-            Step::SwitchInput {
-                to: Machine::Mac,
-                ..
-            }
-        )),
-        "{undo_failures:?}"
-    );
-    // Ningún monitor se dio por movido.
-    assert_eq!(ui_mac.get_state().await.unwrap().owner, before.owner);
-
-    // Sin enlaces, la Mac da la PC por apagada y lo avisa; todo sigue en la Mac.
-    let ev = event_until(&mut ui_mac, "aviso de PC perdida", |e| {
-        matches!(e, AgentToUi::Power(PowerEvent::PeerLost { .. }))
-    })
-    .await;
-    let AgentToUi::Power(PowerEvent::PeerLost { stranded, .. }) = ev else {
-        unreachable!()
-    };
-    assert!(stranded.is_empty());
     let s = state_until(&mut ui_mac, "la PC dada por apagada", |s| !s.on.pc).await;
-    assert_eq!(s.owner, before.owner);
     assert!(matches!(
         ui_mac.request(UiCommand::GetPeer).await.unwrap(),
         Reply::Peer(PeerStatus::Paired { link: None, .. })
     ));
-
-    // El estado sigue sin confirmar, así que Solo Mac tendría que mandar las entradas, y
-    // solo las cambia la PC, que está muerta: se rechaza en vez de inventar (T-085).
-    assert!(!s.is_confirmed());
+    // Sigue atendiendo: el orquestador no quedó tomado.
     assert_eq!(
-        rejected(&mut ui_mac, UiCommand::SetMode(Mode::SoloMac)).await,
+        rejected(
+            &mut ui_mac,
+            UiCommand::SetPower {
+                machine: Machine::Pc,
+                on: true
+            }
+        )
+        .await,
         "pc está apagada y la otra máquina no puede encenderla"
-    );
-
-    // Y sigue atendiendo: el orquestador no quedó tomado. Decir lo que muestra cada
-    // monitor no manda ninguna entrada y confirma el estado.
-    let mac_before = mac.spec.steps().len();
-    let shows = BTreeMap::from([
-        ("m34".into(), Some(Machine::Mac)),
-        ("m32".into(), Some(Machine::Mac)),
-    ]);
-    let txn = begin(&mut ui_mac, UiCommand::SetShown(shows)).await;
-    let events = outcome(&mut ui_mac, txn).await;
-    let Some(TxnEvent::Started { steps, .. }) = events.first() else {
-        panic!("se esperaba Started: {events:?}");
-    };
-    assert!(
-        !steps
-            .iter()
-            .any(|st| matches!(st, Step::SwitchInput { .. })),
-        "{steps:?}"
-    );
-    let Some(TxnEvent::Committed { state: s, .. }) = events.last() else {
-        panic!("se esperaba Committed: {events:?}");
-    };
-    let s = s.clone();
-    assert!(s.is_confirmed() && !s.on.pc && all_on(&s, Machine::Mac));
-    assert_eq!(ui_mac.get_state().await.unwrap(), s);
-    let mac_steps = new_steps(&mac.spec, mac_before);
-    assert!(
-        !mac_steps
-            .iter()
-            .any(|st| matches!(st, Step::SwitchInput { .. })),
-        "{mac_steps:?}"
     );
     assert!(mac.running());
     let (spec, status) = mac.stop().await;
@@ -696,6 +538,8 @@ async fn killing_the_pc_mid_change_leaves_the_mac_coherent() {
     assert_eq!(spec.saved_state(), Some(s));
 }
 
+/// La Mac muere con la PC a mitad del paso que le pidió: la PC lo reporta, se queda con su
+/// estado y al volver la Mac se puede seguir.
 #[tokio::test(flavor = "multi_thread")]
 async fn killing_the_mac_mid_change_leaves_the_pc_coherent() {
     if !unix_sockets_allowed() {
@@ -703,13 +547,9 @@ async fn killing_the_mac_mid_change_leaves_the_pc_coherent() {
     }
     let pair = Pair::new();
     let (mac, mut ui_mac, mut pc, mut ui_pc) = running_pair(&pair).await;
-    let shared = Mode::Shared([("m34".into(), Machine::Pc)].into());
-    let (_, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(shared)).await;
-
-    // La Mac pide Solo Windows y muere con la PC a mitad del primer paso.
     pc.spec.hold(true);
     let pc_before = pc.spec.steps().len();
-    begin(&mut ui_mac, UiCommand::SetMode(Mode::SoloPc)).await;
+    begin(&mut ui_mac, off(Machine::Pc)).await;
     within("la PC empieza el paso de la Mac", async {
         while pc.spec.steps().len() == pc_before {
             tokio::time::sleep(POLL).await;
@@ -720,30 +560,16 @@ async fn killing_the_mac_mid_change_leaves_the_pc_coherent() {
     let mac_spec = mac.kill();
     pc.spec.hold(false);
 
-    // La PC lo reporta (sin enlace) y se queda con el último estado confirmado.
     event_until(&mut ui_pc, "la PC deja de ver a la Mac", |e| {
         matches!(e, AgentToUi::Peer(PeerStatus::Paired { link: None, .. }))
     })
     .await;
-    assert_eq!(ui_pc.get_state().await.unwrap(), s);
+    assert!(ui_pc.get_state().await.unwrap().on.pc);
     assert!(pc.running());
 
-    // La Mac vuelve con lo que había guardado: los mismos dueños que la PC, pero sin
-    // confirmar ([`State::forget`]): desde que murió, todo pudo cambiar a mano.
+    // La Mac vuelve y se vuelven a ver.
     let (_mac, mut ui_mac) = restart(mac_spec).await;
-    let back = ui_mac.get_state().await.unwrap();
-    assert_eq!(
-        (&back.owner, &back.on, back.builtin_pref),
-        (&s.owner, &s.on, s.builtin_pref),
-        "{back:?}"
-    );
-    assert!(!back.is_confirmed(), "{back:?}");
     linked(&mut ui_mac).await;
     linked(&mut ui_pc).await;
-
-    // Se puede seguir: Solo Windows manda las dos entradas (también la del 34", que ya
-    // parecía estar en la PC) y deja todo confirmado en las dos máquinas.
-    let (steps, s) = commit(&mut ui_mac, &mut ui_pc, UiCommand::SetMode(Mode::SoloPc)).await;
-    assert_eq!(switched(&steps, Machine::Pc), ["m32", "m34"], "{steps:?}");
-    assert!(s.is_confirmed() && all_on(&s, Machine::Pc));
+    state_until(&mut ui_mac, "la Mac da la PC por prendida", |s| s.on.pc).await;
 }

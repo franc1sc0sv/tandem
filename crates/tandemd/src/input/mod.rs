@@ -4,9 +4,10 @@
 //! - **Roles**: el [`RoleArbiter`] decide quién es el servidor con el hub de aquí
 //!   ([`HubWatcher`]) y el [`ControlMsg::Hub`] del otro agente. Sin enlace, la Mac con
 //!   la PC dada por apagada decide sola (T-066).
-//! - **Geometría**: las pantallas de esta máquina (de los backends, otra vez con cada
-//!   `UpdateInputGeometry`), las que manda el otro agente ([`ControlMsg::Screens`]) y el
-//!   [`State`](tandem_core::State) arman el [`Layout`]; se recalcula en caliente.
+//! - **Geometría**: el acomodo del puesto compartido (DESIGN §7): las `[[screens]]`
+//!   declaradas o, sin declarar, las que lee esta máquina (de los backends, cada tanto) y
+//!   las que manda el otro agente ([`ControlMsg::Screens`]); una máquina apagada según el
+//!   [`State`](tandem_core::State) no cuenta. Arman el [`Layout`]; se recalcula en caliente.
 //! - **Sesión**: el servidor abre un stream propio sobre el enlace activo
 //!   ([`Channel::Input`]) y corre su [`ServerDriver`]; el cliente recibe ese stream del
 //!   otro agente y corre su [`ClientDriver`]. Cuando el enlace cambia la sesión termina
@@ -27,8 +28,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tandem_clipboard::{ClipConfig, ClipDriver};
-use tandem_core::{Machine, Step};
-use tandem_input::geometry::{Layout, LayoutOptions};
+use tandem_core::Machine;
+use tandem_input::geometry::{Arrangement, Layout, LayoutOptions};
 use tandem_input::session::{
     ClientDriver, ClientSession, ServerDriver, ServerSession, SessionConfig, SessionEnd,
 };
@@ -40,7 +41,6 @@ use tokio::task::JoinHandle;
 
 use crate::agent::{Agent, IncomingChannel};
 use crate::network::ActiveLink;
-use crate::orchestrator::{LocalSteps, StepFuture, describe};
 use crate::peer::open_channel;
 
 pub use backends::{CaptureSink, InputBackends, PlatformInput};
@@ -56,8 +56,8 @@ pub struct InputOptions {
     /// Cada cuánto se repiten el hub y las pantallas al otro agente, por si un aviso
     /// se perdió en un cambio de enlace.
     pub report_every: Duration,
-    /// Cada cuánto se vuelven a leer las pantallas aunque no haya cambio de modo (un
-    /// monitor que se enchufa).
+    /// Cada cuánto se vuelven a leer las pantallas de esta máquina (un monitor que se
+    /// enchufa, un cambio de resolución).
     pub screens_every: Duration,
     /// Cada cuánto se miran los permisos de macOS (el usuario los concede en Ajustes).
     pub permissions_every: Duration,
@@ -94,37 +94,6 @@ impl InputSetup {
             backends: Arc::new(PlatformInput::new(me)),
             opts: InputOptions::default(),
         }
-    }
-}
-
-/// El paso `UpdateInputGeometry`: le avisa al motor de entrada que vuelva a leer las
-/// pantallas; la geometría nueva sale de ahí y del estado final del cambio de modo.
-/// Cualquier otro paso que llegue aquí no le corresponde.
-pub struct GeometrySteps {
-    geometry: Arc<watch::Sender<u64>>,
-}
-
-impl GeometrySteps {
-    pub fn new(geometry: Arc<watch::Sender<u64>>) -> Self {
-        GeometrySteps { geometry }
-    }
-}
-
-impl LocalSteps for GeometrySteps {
-    fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a> {
-        Box::pin(async move {
-            match step {
-                Step::UpdateInputGeometry => {
-                    self.geometry.send_modify(|n| *n = n.wrapping_add(1));
-                    Ok(())
-                }
-                other => Err(format!(
-                    "{}: {}",
-                    describe(other),
-                    crate::orchestrator::STEP_NOT_IMPLEMENTED
-                )),
-            }
-        })
     }
 }
 
@@ -184,13 +153,7 @@ pub fn start(
     // La config ya se validó al cargarla.
     let lock_keys = cfg.lock_keys().unwrap_or_default();
     // Sin pantallas solo falla un margen de esquinas inválido.
-    let initial = Layout::compute(
-        &agent.config().desk,
-        &agent.state(),
-        &[],
-        &[],
-        setup.opts.layout,
-    );
+    let initial = Layout::compute(&Arrangement::default(), setup.opts.layout);
     let initial = match initial {
         Ok(l) => l,
         Err(e) => {
@@ -290,16 +253,15 @@ async fn route(
     }
 }
 
-/// Lee las pantallas de esta máquina al arrancar, con cada `UpdateInputGeometry` y
-/// cada tanto.
+/// Lee las pantallas de esta máquina al arrancar y cada tanto.
 async fn read_screens(sh: Arc<Shared>) {
-    let mut geometry = sh.agent.subscribe_geometry();
     let mut tick = tokio::time::interval(sh.opts.screens_every);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut warned = false;
     loop {
-        let (backends, desk) = (sh.backends.clone(), sh.agent.config().desk.clone());
-        match tokio::task::spawn_blocking(move || backends.screens(&desk)).await {
+        tick.tick().await;
+        let backends = sh.backends.clone();
+        match tokio::task::spawn_blocking(move || backends.screens()).await {
             Ok(Ok(list)) => {
                 warned = false;
                 set(&sh.screens, list);
@@ -312,20 +274,18 @@ async fn read_screens(sh: Arc<Shared>) {
             }
             Err(e) => tracing::error!("lectura de pantallas: {e}"),
         }
-        tokio::select! {
-            () = changed(&mut geometry) => {}
-            _ = tick.tick() => {}
-        }
     }
 }
 
-/// Recalcula la geometría con cada cambio de estado o de pantallas.
+/// Recalcula la geometría con cada cambio de estado, del puesto o de pantallas.
 async fn geometry(sh: Arc<Shared>) {
     let mut state = sh.agent.subscribe();
+    let mut desk = sh.agent.subscribe_desk();
     let mut mine = sh.screens.subscribe();
     let mut theirs = sh.agent.inbox().screens.subscribe();
     loop {
         let st = state.borrow_and_update().clone();
+        let d = desk.borrow_and_update().clone();
         let local = mine.borrow_and_update().clone();
         let remote: Vec<Screen> = theirs
             .borrow_and_update()
@@ -334,14 +294,7 @@ async fn geometry(sh: Arc<Shared>) {
             .iter()
             .map(screens::from_wire)
             .collect();
-        match screens::layout(
-            &sh.agent.config().desk,
-            &st,
-            sh.me,
-            &local,
-            &remote,
-            sh.opts.layout,
-        ) {
+        match screens::layout(&d, &st, sh.me, &local, &remote, sh.opts.layout) {
             Ok(l) => {
                 set(&sh.visible, l.screens(sh.me).to_vec());
                 set(&sh.layout, l);
@@ -350,6 +303,7 @@ async fn geometry(sh: Arc<Shared>) {
         }
         tokio::select! {
             () = changed(&mut state) => {}
+            () = changed(&mut desk) => {}
             () = changed(&mut mine) => {}
             () = changed(&mut theirs) => {}
         }
@@ -425,7 +379,8 @@ async fn roles(sh: Arc<Shared>, mut presence: Option<watch::Receiver<Presence>>)
     }
 }
 
-/// Le cuenta al otro agente el hub y las pantallas de aquí, cuando cambian y cada tanto.
+/// Le cuenta al otro agente el hub y las pantallas que lee aquí, cuando cambian y cada
+/// tanto.
 async fn report(sh: Arc<Shared>) {
     let mut link = sh.link.clone();
     let mut hub = sh.report.subscribe();
@@ -863,28 +818,11 @@ mod tests {
 
     use super::*;
 
-    #[tokio::test]
-    async fn geometry_step_only_bumps_the_counter() {
-        let tx = Arc::new(watch::Sender::new(0));
-        let mut rx = tx.subscribe();
-        let steps = GeometrySteps::new(tx);
-        steps.execute(&Step::UpdateInputGeometry).await.unwrap();
-        steps.execute(&Step::UpdateInputGeometry).await.unwrap();
-        assert_eq!(*rx.borrow_and_update(), 2);
-        let e = steps
-            .execute(&Step::PowerOn {
-                machine: Machine::Pc,
-            })
-            .await
-            .unwrap_err();
-        assert!(e.contains(crate::orchestrator::STEP_NOT_IMPLEMENTED), "{e}");
-    }
-
     #[test]
     fn the_cursor_starts_in_the_middle_of_the_first_screen() {
-        use tandem_input::geometry::{Rect, ScreenId};
+        use tandem_input::geometry::Rect;
         assert_eq!(first_cursor(&[]), Point::new(0.0, 0.0));
-        let s = Screen::new(ScreenId::Builtin, Rect::new(-100, 0, 200, 100), 1.0);
+        let s = Screen::new("mac-1".into(), Rect::new(-100, 0, 200, 100), 1.0);
         assert_eq!(first_cursor(&[s]), Point::new(0.0, 50.0));
     }
 

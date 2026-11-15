@@ -3,14 +3,14 @@
 
 use std::time::Duration;
 
-use tandem_core::{Config, Machine, Step};
+use tandem_core::{Machine, Step};
 use tandem_link::manager::LinkKind;
 use tandemd::orchestrator::{LocalSteps, StepFuture, describe};
 use tokio::sync::watch;
 
 use crate::fault::{FaultAction, Faults};
 use crate::net::SimNet;
-use crate::world::{Power, World, code_for};
+use crate::world::{Power, World};
 
 /// Tiempos del hardware simulado.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,10 +43,9 @@ impl HardwareTimes {
     }
 }
 
-/// Los backends simulados de una máquina (pantallas, energía, entrada).
+/// Los backends simulados de una máquina (energía).
 pub struct SimSteps {
     machine: Machine,
-    cfg: Config,
     world: World,
     net: SimNet,
     faults: Faults,
@@ -58,7 +57,6 @@ pub struct SimSteps {
 impl SimSteps {
     pub(crate) fn new(
         machine: Machine,
-        cfg: Config,
         world: World,
         net: SimNet,
         faults: Faults,
@@ -67,7 +65,6 @@ impl SimSteps {
     ) -> Self {
         SimSteps {
             machine,
-            cfg,
             world,
             net,
             faults,
@@ -92,39 +89,6 @@ impl SimSteps {
                     world.lock().power_off(machine);
                     net.drop_all();
                 });
-                Ok(())
-            }
-            Step::SwitchInput { monitor, input, .. } => {
-                let code = code_for(&self.cfg, monitor, *input)
-                    .ok_or_else(|| format!("{monitor}: no está en la configuración"))?;
-                self.world.lock().write_input(monitor, code)
-            }
-            Step::Attach { machine, monitor } => {
-                self.world
-                    .lock()
-                    .desktops
-                    .entry(*machine)
-                    .or_default()
-                    .insert(monitor.clone());
-                Ok(())
-            }
-            Step::Detach { machine, monitor } => {
-                self.world
-                    .lock()
-                    .desktops
-                    .entry(*machine)
-                    .or_default()
-                    .remove(monitor);
-                Ok(())
-            }
-            Step::SetBuiltin { to, .. } => {
-                self.world.lock().builtin = *to;
-                Ok(())
-            }
-            Step::UpdateInputGeometry => {
-                let mut w = self.world.lock();
-                let screens = w.screens(self.machine);
-                w.geometry.insert(self.machine, screens);
                 Ok(())
             }
         }

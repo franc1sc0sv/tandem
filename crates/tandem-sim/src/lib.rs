@@ -5,13 +5,14 @@
 //! enlace por cable (USB4, Ethernet, Wi-Fi) que se puede cortar. Los backends de
 //! plataforma se reemplazan por un puesto físico simulado:
 //!
-//! - [`world`]: lo que de verdad muestran los monitores (con el 34" que siempre lee
-//!   `0x09`), los escritorios, la pantalla integrada, la energía de la PC, la geometría
-//!   de cada motor de entrada y el hub USB.
+//! - [`world`]: la energía de cada máquina y el hub USB.
 //! - [`steps`]: los pasos de cada máquina sobre ese puesto.
 //! - [`net`]: los enlaces y el `PeerLink` que sigue al enlace activo.
 //! - [`fault`]: [`FaultPlan`] para fallar, colgar o tardar un paso y cortar enlaces.
 //! - [`desk`]: [`Desk`], que arma todo y comprueba el puesto contra el estado.
+//!
+//! El motor de entrada no corre aquí: su geometría y sus sesiones se prueban en
+//! `tandemd/tests/input.rs`, con dos agentes por loopback.
 //!
 //! Todo corre con el reloj de tokio pausado: los tiempos (arranque de la PC, pings,
 //! timeouts) son exactos y no hay esperas reales.
@@ -25,4 +26,4 @@ pub mod world;
 pub use desk::{Desk, DeskBuilder, Outcome, SimError, TxnRun};
 pub use fault::{FaultAction, FaultPlan};
 pub use steps::HardwareTimes;
-pub use world::{Physical, Power, Screen, World};
+pub use world::{Physical, Power, World};
