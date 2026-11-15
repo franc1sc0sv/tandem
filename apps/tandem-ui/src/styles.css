@@ -388,3 +388,15 @@ button { font: inherit; color: inherit; }
 .linkbtn { all: unset; cursor: pointer; font-size: 12px; color: var(--mac); text-decoration: underline; text-underline-offset: 3px; }
 .linkbtn:hover, .linkbtn:focus-visible { color: var(--text); }
 .fixmenu .fopt.drop::before { background: var(--warn); }
+
+/* v0.2: el equipo de cada máquina y lo que queda en pausa hasta el firmware propio (DESIGN §8). */
+.scene { grid-template-rows: 1fr auto; row-gap: 14px; }
+.machine { display: flex; align-items: flex-end; justify-content: center; gap: 22px; min-height: 170px; padding: 16px 0 6px; }
+.machine .hw.laptop { width: 200px; height: auto; }
+.machine .hw.tower { width: 80px; height: auto; }
+.screens-note { margin: 0; text-align: center; font-size: 11.5px; color: var(--faint); }
+.monitors-soon { grid-column: 1 / -1; display: grid; justify-items: center; gap: 8px; padding: 12px; border-radius: 14px; border: 1px dashed var(--line-2); }
+.soon-row { display: flex; align-items: flex-end; gap: 22px; }
+.monitor.soon { cursor: not-allowed; opacity: .4; filter: grayscale(1); --wall: linear-gradient(160deg, #2a2d33, #1d1f24); }
+.soon-note { margin: 0; font-size: 11.5px; color: var(--faint); letter-spacing: .01em; }
+.mode.soon, .mode.soon:hover { cursor: not-allowed; opacity: .45; border-style: dashed; border-color: var(--line); background: transparent; }

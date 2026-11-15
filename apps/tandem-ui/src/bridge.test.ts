@@ -33,7 +33,7 @@ it("recibe los atajos nuevos por el evento de `tandem_ui::app`", async () => {
   const seen: ShortcutsView[] = [];
   await bridge.onShortcuts((v) => seen.push(v));
   const view: ShortcutsView = {
-    bindings: { solo_mac: "Ctrl+Alt+KeyM", shared: null, solo_pc: null, toggle_window: null },
+    bindings: { toggle_window: "Ctrl+Alt+KeyM" },
     failed: {},
     warning: null,
     file: null,

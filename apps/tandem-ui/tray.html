@@ -34,20 +34,13 @@
 
       <main class="mstage" id="stage" aria-live="polite" hidden></main>
 
-      <div class="pmodes" id="modes" role="group" aria-label="Modos">
-        <button type="button" class="pmode" data-mode="mac">
-          <span class="ico" aria-hidden="true"><span class="w" style="--c: var(--mac)"></span><span style="--c: var(--mac)"></span></span>
-          <span class="t">Solo Mac</span><span class="k" aria-hidden="true"></span>
-        </button>
-        <button type="button" class="pmode" data-mode="shared">
-          <span class="ico" aria-hidden="true"><span class="w" style="--c: var(--pc)"></span><span style="--c: var(--mac)"></span></span>
-          <span class="t">Compartido</span><span class="k" aria-hidden="true"></span>
-        </button>
-        <button type="button" class="pmode" data-mode="pc">
-          <span class="ico" aria-hidden="true"><span class="w" style="--c: var(--pc)"></span><span style="--c: var(--pc)"></span></span>
-          <span class="t">Solo Windows</span><span class="k" aria-hidden="true"></span>
-        </button>
+      <!-- Los modos dependen de los monitores: en pausa hasta el firmware propio (DESIGN §5). -->
+      <div class="pmodes soon" id="modes" role="group" aria-label="Modos (próximamente)" title="Próximamente: firmware propio">
+        <button type="button" class="pmode" disabled><span class="t">Solo Mac</span></button>
+        <button type="button" class="pmode" disabled><span class="t">Compartido</span></button>
+        <button type="button" class="pmode" disabled><span class="t">Solo Windows</span></button>
       </div>
+      <p class="psoon">Monitores y modos: próximamente, con el firmware propio</p>
 
       <footer class="pfoot">
         <span class="pmsg" id="msg" role="status" aria-live="polite"></span>

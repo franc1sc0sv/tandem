@@ -96,40 +96,24 @@ describe("qué atiende la ventana", () => {
     file: null,
   });
 
-  it("solo los que el sistema no dejó registrar como globales", () => {
-    expect(localAction(key("Digit2"), view({}))).toBeNull();
-    expect(localAction(key("Digit2"), view({ shared: "ocupado" }))).toBe("shared");
-    expect(localAction(key("Digit1"), view({ shared: "ocupado" }))).toBeNull();
-  });
-
-  it("con la combinación exacta", () => {
-    const v = view({ solo_mac: "x" });
-    expect(localAction(key("Digit1", { shiftKey: true }), v)).toBeNull();
-    expect(localAction(key("Numpad1"), v)).toBeNull();
-    expect(localAction(key("Digit1"), v)).toBe("solo_mac");
-  });
-
-  it("mostrar u ocultar también, si no se pudo registrar", () => {
+  it("solo los que el sistema no dejó registrar como globales, con la combinación exacta", () => {
     expect(localAction(key("Digit0"), view({}))).toBeNull();
     expect(localAction(key("Digit0"), view({ toggle_window: "ocupado" }))).toBe("toggle_window");
+    expect(localAction(key("Digit0", { shiftKey: true }), view({ toggle_window: "x" }))).toBeNull();
+    expect(localAction(key("Digit1"), view({ toggle_window: "x" }))).toBeNull();
   });
 
-  it("un modo se pide; mostrar u ocultar esconde la ventana, que está al frente", () => {
-    expect(windowCommand("solo_mac")).toEqual({ kind: "mode", mode: "mac" });
-    expect(windowCommand("shared")).toEqual({ kind: "mode", mode: "shared" });
-    expect(windowCommand("solo_pc")).toEqual({ kind: "mode", mode: "pc" });
+  it("mostrar u ocultar esconde la ventana, que está al frente", () => {
     expect(windowCommand("toggle_window")).toEqual({ kind: "hide_main" });
   });
 });
 
 describe("editar", () => {
-  it("los de siempre son ⌃⌥1/2/3 y ⌃⌥0", () => {
-    expect(ACTIONS.map((a) => formatAccel(DEFAULT_BINDINGS[a], true))).toEqual(["⌃⌥1", "⌃⌥2", "⌃⌥3", "⌃⌥0"]);
+  it("el de siempre es ⌃⌥0, y los atajos de los modos ya no existen", () => {
+    expect(ACTIONS.map((a) => formatAccel(DEFAULT_BINDINGS[a], true))).toEqual(["⌃⌥0"]);
   });
 
-  it("detecta un atajo repetido en otra acción", () => {
-    expect(duplicateOf(DEFAULT_BINDINGS, "toggle_window", "Ctrl+Alt+Digit1")).toBe("solo_mac");
-    expect(duplicateOf(DEFAULT_BINDINGS, "solo_mac", "Ctrl+Alt+Digit1")).toBeNull();
-    expect(duplicateOf(DEFAULT_BINDINGS, "solo_mac", "Ctrl+Alt+KeyM")).toBeNull();
+  it("con una sola acción no hay repetidos", () => {
+    expect(duplicateOf(DEFAULT_BINDINGS, "toggle_window", "Ctrl+Alt+Digit0")).toBeNull();
   });
 });

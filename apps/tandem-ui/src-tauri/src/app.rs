@@ -3,13 +3,9 @@
 //!
 //! La sesión empuja a las ventanas dos eventos: [`SNAPSHOT_EVENT`] con todo lo necesario
 //! para dibujar la escena y [`NOTICE_EVENT`] con el avance de las transacciones y los
-//! pedidos de cambio manual. [`MESSAGE_EVENT`] lleva lo que pasó con un pedido hecho desde
-//! fuera de la ventana (un atajo global o el menú del ícono). [`SHORTCUTS_EVENT`] lleva los
-//! atajos nuevos cuando se cambian, para que cada ventana muestre los vigentes.
-//!
-//! Las sondas de calibración (T-078) abren una ventana propia sin bordes que cubre el
-//! monitor que se calibra ([`crate::probe`]); la pregunta de respaldo la muestra la
-//! ventana principal.
+//! avisos de energía. [`MESSAGE_EVENT`] lleva lo que pasó con un pedido hecho desde fuera
+//! de la ventana. [`SHORTCUTS_EVENT`] lleva los atajos nuevos cuando se cambian, para que
+//! cada ventana muestre los vigentes.
 //!
 //! En macOS, al arrancar instala o pone al día el LaunchAgent de `tandemd`
 //! ([`crate::launch_agent`]) y ofrece la guía de permisos del primer arranque
@@ -23,24 +19,17 @@ use std::time::{Duration, Instant};
 use tandemd::ipc;
 use tandemd::paths::Paths;
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem};
+use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
-use tauri::window::Color;
-use tauri::{
-    AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
-    WindowEvent, Wry,
-};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewWindow, WindowEvent, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcut, ShortcutState};
 
 use crate::launch_agent::Report;
-use crate::probe;
-use crate::session::{
-    self, Action, ActionResult, Handle, Notice, PlaceView, ProbeView, Sink, Snapshot,
-};
+use crate::session::{self, Action, ActionResult, Handle, Notice, Sink, Snapshot};
 use crate::setup::{self, Permission, SetupView};
 use crate::shortcuts::{self, Bindings, ShortcutAction, Shortcuts, ShortcutsView};
 use crate::status;
-use crate::tray::{self, Area, MenuView, ModeKey};
+use crate::tray::{self, Area, MenuView};
 
 pub const SNAPSHOT_EVENT: &str = "agent-snapshot";
 pub const NOTICE_EVENT: &str = "agent-notice";
@@ -112,10 +101,9 @@ impl Keys {
     }
 }
 
-/// El menú del ícono: estado, los tres modos, abrir y salir.
+/// El menú del ícono: estado, abrir y salir. Los modos están en pausa (DESIGN §8).
 struct TrayMenu {
     status: MenuItem<Wry>,
-    modes: Vec<(ModeKey, CheckMenuItem<Wry>)>,
     tray: TrayIcon<Wry>,
 }
 
@@ -123,23 +111,7 @@ impl TrayMenu {
     fn show(&self, v: &MenuView) {
         // Si el sistema rechaza un cambio del menú, el menú queda como estaba: nada que hacer.
         let _ = self.status.set_text(&v.status);
-        for (key, item) in &self.modes {
-            let _ = item.set_checked(v.current == Some(*key));
-            let _ = item.set_enabled(v.modes_enabled);
-        }
         let _ = self.tray.set_tooltip(Some(&v.tooltip));
-    }
-}
-
-fn mode_menu_id(key: ModeKey) -> String {
-    format!("mode:{}", mode_name(key))
-}
-
-fn mode_name(key: ModeKey) -> &'static str {
-    match key {
-        ModeKey::SoloMac => "solo_mac",
-        ModeKey::Shared => "shared",
-        ModeKey::SoloPc => "solo_pc",
     }
 }
 
@@ -154,114 +126,10 @@ impl Sink for Windows {
         {
             menu.show(&MenuView::of(snapshot));
         }
-        // Sin agente nadie espera las sondas: no pueden quedar tapando un monitor.
-        if matches!(snapshot, Snapshot::Unavailable { .. }) {
-            close_probes(&self.0);
-        }
     }
 
     fn notice(&self, notice: &Notice) {
         let _ = self.0.emit(NOTICE_EVENT, notice);
-        if let Notice::Probe { event } = notice {
-            on_probe(&self.0, event);
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------------
-// Sondas de calibración
-
-fn on_probe(app: &AppHandle, event: &ProbeView) {
-    match event {
-        // La pregunta de respaldo la contesta la ventana principal: al frente.
-        ProbeView::Show {
-            place: PlaceView::Question,
-            ..
-        } => show_main(app),
-        ProbeView::Show {
-            id, monitor, place, ..
-        } => {
-            if let Err(e) = open_probe(app, *id, monitor, *place, event) {
-                eprintln!("tandem-ui: no se pudo abrir la sonda de calibración: {e}");
-            }
-        }
-        ProbeView::Hide { id } => close_probe(app, *id),
-    }
-}
-
-fn close_probe(app: &AppHandle, id: u64) {
-    if let Some(w) = app.get_webview_window(&probe::window_label(id)) {
-        let _ = w.destroy();
-    }
-}
-
-/// Abre (o mueve, si el monitor cambió de lugar) la ventana de la sonda sobre el monitor.
-/// Si el monitor no está en este escritorio, la cierra hasta el próximo aviso: sin clic a
-/// tiempo, el agente la cuenta como no vista.
-fn open_probe(
-    app: &AppHandle,
-    id: u64,
-    name: &str,
-    place: PlaceView,
-    view: &ProbeView,
-) -> Result<(), String> {
-    let monitors = app.available_monitors().map_err(|e| e.to_string())?;
-    let areas: Vec<probe::Area> = monitors
-        .iter()
-        .map(|m| probe::Area {
-            x: m.position().x,
-            y: m.position().y,
-            width: m.size().width,
-            height: m.size().height,
-            scale: m.scale_factor(),
-            name: m.name().cloned(),
-        })
-        .collect();
-    let target = match probe::pick(place, probe::Units::NATIVE, name, &areas) {
-        probe::Target::Monitor(i) => monitors.get(i).cloned(),
-        // Sin saber cuál es, la principal: el texto de la sonda dice qué monitor mirar.
-        probe::Target::Primary => app.primary_monitor().ok().flatten(),
-        probe::Target::Nowhere => {
-            close_probe(app, id);
-            return Ok(());
-        }
-    };
-    let label = probe::window_label(id);
-    let window = match app.get_webview_window(&label) {
-        Some(w) => w,
-        None => {
-            let script = probe::init_script(view).map_err(|e| e.to_string())?;
-            WebviewWindowBuilder::new(app, &label, WebviewUrl::App(probe::PAGE.into()))
-                .title("Tandem: calibración")
-                .initialization_script(script)
-                .decorations(false)
-                .resizable(false)
-                .always_on_top(true)
-                .skip_taskbar(true)
-                .visible(false)
-                .background_color(Color(0x0f, 0x10, 0x13, 0xff))
-                .build()
-                .map_err(|e| e.to_string())?
-        }
-    };
-    if let Some(m) = target {
-        // Si el sistema se niega a moverla, queda donde la abrió: la sonda sigue sirviendo.
-        let _ = window.set_simple_fullscreen(false);
-        let _ = window.set_position(*m.position());
-        let _ = window.set_size(*m.size());
-    }
-    let _ = window.show();
-    // Sin espacio nuevo en macOS (la animación de pantalla completa tarda segundos).
-    let _ = window.set_simple_fullscreen(true);
-    let _ = window.set_focus();
-    Ok(())
-}
-
-fn close_probes(app: &AppHandle) {
-    for (label, w) in app.webview_windows() {
-        if probe::probe_id(&label).is_some() {
-            let _ = w.destroy();
-        }
     }
 }
 
@@ -526,35 +394,10 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
 
 fn build_tray(app: &AppHandle) -> tauri::Result<TrayMenu> {
     let status = MenuItem::with_id(app, MENU_STATUS, "Conectando…", false, None::<&str>)?;
-    let mut modes = Vec::new();
-    for key in ModeKey::ALL {
-        let item = CheckMenuItem::with_id(
-            app,
-            mode_menu_id(key),
-            key.label(),
-            false,
-            false,
-            None::<&str>,
-        )?;
-        modes.push((key, item));
-    }
     let open = MenuItem::with_id(app, MENU_OPEN, "Abrir Tandem", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, MENU_QUIT, "Salir de Tandem", true, None::<&str>)?;
-    let sep1 = PredefinedMenuItem::separator(app)?;
-    let sep2 = PredefinedMenuItem::separator(app)?;
-    let menu = Menu::with_items(
-        app,
-        &[
-            &status,
-            &sep1,
-            &modes[0].1,
-            &modes[1].1,
-            &modes[2].1,
-            &sep2,
-            &open,
-            &quit,
-        ],
-    )?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(app, &[&status, &sep, &open, &quit])?;
     let tray = TrayIconBuilder::with_id("tandem")
         .icon(Image::from_bytes(TRAY_ICON)?)
         .icon_as_template(cfg!(target_os = "macos"))
@@ -575,69 +418,23 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayMenu> {
             }
         })
         .build(app)?;
-    Ok(TrayMenu {
-        status,
-        modes,
-        tray,
-    })
+    Ok(TrayMenu { status, tray })
 }
 
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     match event.id().as_ref() {
         MENU_OPEN => show_main(app),
         MENU_QUIT => app.exit(0),
-        id => {
-            if let Some(key) = ModeKey::ALL.into_iter().find(|&k| mode_menu_id(k) == id) {
-                choose_mode(app, key);
-            }
-        }
-    }
-    // El sistema marca la entrada al hacer clic; la marca la manda el estado del agente.
-    if let (Some(ui), Some(session)) = (app.try_state::<Ui>(), app.try_state::<Handle>())
-        && let Some(menu) = &ui.menu
-    {
-        menu.show(&MenuView::of(&session.snapshot()));
+        _ => {}
     }
 }
 
 // ---------------------------------------------------------------------------------------
-// Atajos globales y modos pedidos desde fuera de la ventana
-
-/// Cuéntale a las ventanas lo que pasó con un pedido hecho desde un atajo o el menú.
-fn tell(app: &AppHandle, text: String) {
-    let _ = app.emit(MESSAGE_EVENT, text);
-}
-
-fn choose_mode(app: &AppHandle, key: ModeKey) {
-    let Some(session) = app.try_state::<Handle>() else {
-        return;
-    };
-    let session = session.inner().clone();
-    let mode = match tray::mode_for(key, &session.snapshot()) {
-        Ok(mode) => mode,
-        Err(why) => return tell(app, format!("{}: {why}", key.label())),
-    };
-    let app = app.clone();
-    tauri::async_runtime::spawn(async move {
-        match session.act(Action::SetMode { mode }).await {
-            ActionResult::Rejected { reason } => tell(&app, reason),
-            ActionResult::Unavailable { reason } => tell(&app, format!("Sin agente: {reason}")),
-            // El avance llega como cualquier otra transacción.
-            // Un SetMode nunca contesta Displays ni Setup.
-            ActionResult::Accepted { .. }
-            | ActionResult::Done
-            | ActionResult::Displays { .. }
-            | ActionResult::Setup { .. }
-            | ActionResult::Scan { .. }
-            | ActionResult::Pong { .. } => {}
-        }
-    });
-}
+// Atajos globales
 
 fn fire(app: &AppHandle, action: ShortcutAction) {
-    match ModeKey::of_action(action) {
-        Some(key) => choose_mode(app, key),
-        None => toggle_main(app),
+    match action {
+        ShortcutAction::ToggleWindow => toggle_main(app),
     }
 }
 
@@ -779,15 +576,4 @@ pub fn run() -> Result<(), tauri::Error> {
         let _ = (app, event);
     });
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn menu_ids_name_each_mode() {
-        let ids: Vec<String> = ModeKey::ALL.into_iter().map(mode_menu_id).collect();
-        assert_eq!(ids, ["mode:solo_mac", "mode:shared", "mode:solo_pc"]);
-    }
 }

@@ -1,51 +1,29 @@
 import "./styles.css";
 
 import { bridgeFailed, tauriBridge, type Bridge } from "./bridge";
-import { INPUTS, SHORT, actions as rowActions, advance as advanceCalibration, badge, headline, hint, labelOf, laneText, unbound, type Calibration } from "./addmonitor";
-import type { Action, AgentSetup, Bindings, BuiltinDisplay, DisplayView, Machine, ManualView, Notice, PairingView, Permission, ProbeShow, SetupView, ShortcutAction, ShortcutsView, Snapshot } from "./model";
+import type { Action, Bindings, Notice, PairingView, Permission, SetupView, ShortcutAction, ShortcutsView, Snapshot } from "./model";
 import { isActive, needsDismiss, pairLine, pairScreen, shouldOpen } from "./pairing";
-import { PORT_NAME, nextQuestion, questionText } from "./probe";
 import {
   MACHINE_NAME,
-  PORT,
+  MODES_SOON,
+  MONITORS_SOON,
+  SOON,
   advance,
-  builtinControl,
-  builtinOf,
   capsOf,
-  hasBuiltin,
-  machineState,
-  groupStatus,
-  groupSteps,
+  declaredScreens,
   isRunning,
-  modeOf,
-  modeRequest,
-  monitorsOf,
+  machineState,
   other,
   peerPill,
   peerPower,
   powerButton,
   roleChip,
   sides,
-  type ModeKey,
-  type MonitorView,
+  stepLabel,
   type Progress,
   type RoleChip,
 } from "./scene";
-import {
-  ACTION_LABEL,
-  ACTION_OF_MODE,
-  ACTIONS,
-  DEFAULT_BINDINGS,
-  ariaKeys,
-  duplicateOf,
-  formatAccel,
-  isMacPlatform,
-  localAction,
-  readCombo,
-  windowCommand,
-} from "./shortcuts";
-import { modelOf, setupLines, swapWiring, wiringText } from "./desk";
-import { applyReady, complete, corrections, doubtNote, initialAnswers, isConfirmed, questions, type Shown } from "./confirm";
+import { ACTION_LABEL, ACTIONS, DEFAULT_BINDINGS, duplicateOf, formatAccel, isMacPlatform, localAction, readCombo, windowCommand } from "./shortcuts";
 import { initOnboarding, type Onboard } from "./onboarding-ui";
 import { MISSING_HELP, grantTo, permissionState } from "./permissions";
 import { PERMISSION_INFO, back as setupBack, isFirst, isLast, next as setupNext, screensOf, start as setupStart, type Wizard } from "./setup";
@@ -65,22 +43,14 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 }
 
 let bridge: Bridge | null = null;
-/** El asistente de configuración inicial (T-087). */
+/** El asistente de configuración inicial (DESIGN §5). */
 let onboard: Onboard | null = null;
 let snap: Snapshot = { kind: "connecting" };
 let progress: Progress | null = null;
-let manual: Extract<ManualView, { type: "requested" }> | null = null;
-/** La pregunta de respaldo de una calibración sin la otra máquina (T-078). */
-let question: ProbeShow | null = null;
 let message: { text: string; sticky: boolean } | null = null;
 let messageTimer: number | undefined;
-let lastOwner: Record<string, Machine> | null = null;
 let keys: ShortcutsView | null = null;
 let lastPairing: PairingView | null = null;
-/** «¿Qué muestra ahora cada monitor?» abierta, con lo elegido hasta ahora (T-085). */
-let answers: Record<string, Shown> | null = null;
-/** El monitor con el menú «en realidad muestra…» abierto. */
-let fixing: string | null = null;
 const MAC = isMacPlatform();
 
 // ---------------------------------------------------------------------------------------
@@ -97,22 +67,14 @@ let lastPermissionsKey = "";
 function setSnapshot(next: Snapshot) {
   const pairingBefore = lastPairing;
   lastPairing = next.kind === "connected" ? next.pairing : null;
-  const before = lastOwner;
-  const after = next.kind === "connected" ? { ...next.state.owner } : null;
-  const moved = before && after ? Object.keys(after).filter((id) => before[id] !== after[id]) : [];
   snap = next;
-  lastOwner = after;
-  if (moved.length && document.startViewTransition) {
-    document.startViewTransition(() => render(moved));
-  } else {
-    render(moved);
-  }
+  render();
   syncPair(pairingBefore);
   onboard?.onSnapshot(next);
   // La guía de permisos muestra lo que el agente sabe: se pone al día con cada estado (T-090).
   if (wizard && $<HTMLDialogElement>("#setup").open && permissionsKey(next) !== lastPermissionsKey) renderSetup();
   lastPermissionsKey = permissionsKey(next);
-  // Instalación limpia (o puesto restablecido): el asistente se abre solo.
+  // Instalación limpia: el asistente se abre solo.
   if (next.kind === "connected" && !$<HTMLDialogElement>("#setup").open) onboard?.maybeOpen(next);
 }
 
@@ -130,41 +92,14 @@ function onNotice(n: Notice) {
         }
       }, DONE_LINGER_MS);
     }
-    if (p && p.outcome.kind === "rolled_back") {
-      showMessage(`No se pudo: ${p.outcome.error}. Todo volvió como estaba.`);
+    if (p && p.outcome.kind === "failed") {
+      showMessage(`No se pudo: ${p.outcome.error}.`);
       progress = null;
     }
-    if (p && p.outcome.kind === "inconsistent") {
-      showMessage(`No se pudo deshacer todo: ${p.outcome.error}. Revisa los monitores.`, true);
-      progress = null;
-    }
-    // El botón de encendido y el bloqueo de controles dependen del progreso; los
-    // monitores no se vuelven a dibujar para no cortar su animación.
     renderControls();
-    renderConfirm();
     renderToast();
   } else if (n.kind === "power") {
-    // Fijo: los monitores que quedaron en la otra máquina siguen en negro.
-    showMessage(n.reason, n.stranded.length > 0);
-  } else if (n.kind === "probe") {
-    // La sonda a pantalla completa tiene su propia ventana; aquí solo la pregunta.
-    const before = question;
-    question = nextQuestion(question, n.event);
-    if (question !== before) {
-      renderToast();
-      if (addmonDialog().open) renderAddmon();
-    }
-  } else if (n.kind === "calibration") {
-    calibration = advanceCalibration(calibration, n.event);
-    // Una calibración que arrancó (desde esta u otra ventana) se sigue en el diálogo.
-    if (n.event.type === "started" && !addmonDialog().open) addmonDialog().showModal();
-    renderAddmon();
-  } else if (n.event.type === "requested") {
-    manual = n.event;
-    renderToast();
-  } else if (manual && manual.id === n.event.id) {
-    manual = null;
-    renderToast();
+    showMessage(n.reason, true);
   }
 }
 
@@ -196,211 +131,21 @@ const ICON_KB = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 const ICON_CURSOR = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M5 3l14 7-6 2-2 6z"/></svg>`;
 const ICON_WARN = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l9.5 17h-19z"/><path d="M12 10v4M12 17h.01"/></svg>`;
 const ROLE_ICON: Record<RoleChip["icon"], string> = { keyboard: ICON_KB, cursor: ICON_CURSOR, warn: ICON_WARN };
-const ICON_EMPTY = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M9 20h6M12 16v4"/></svg>`;
-const LAP_MIRROR = `<g transform="translate(96 36)" stroke="#9fb6d8" stroke-width="2.4" fill="none" stroke-linecap="round"><rect x="0" y="0" width="12" height="10" rx="2"/><rect x="16" y="0" width="12" height="10" rx="2"/><path d="M6 17h16"/></g>`;
-const LAP_OFF = `<g transform="translate(100 38)" stroke="#3a3d45" stroke-width="2.4" fill="none" stroke-linecap="round"><path d="M0 0l20 20M20 0 0 20"/></g>`;
-
-function viewName(id: string) {
-  return `monitor-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-}
-
-const ICON_FIX = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>`;
-
-function monitorEl(m: MonitorView, busy: boolean) {
-  const doubt = m.doubt === "blank" ? " blank" : m.doubt ? " doubt" : "";
-  const node = el("div", `monitor ${m.owner} ${m.wide ? "wide" : "std"}${busy ? " busy" : ""}${doubt}`);
-  node.dataset.id = m.id;
-  node.style.viewTransitionName = viewName(m.id);
-  node.innerHTML = `<div class="screen"><div class="wall"></div><span class="q" aria-hidden="true">?</span></div><div class="stand"></div><div class="base"></div>`;
-  const label = el("div", "mlabel");
-  label.append(el("b", undefined, m.label));
-  if (m.port) label.append(el("span", "port", m.port));
-  const note = snap.kind === "connected" ? doubtNote(snap.state, m.id) : null;
-  if (note) label.append(el("span", "mnote", note));
-  label.append(fixButton(m));
-  node.append(label);
-  if (fixing === m.id) node.append(fixMenu(m));
-
-  const to = other(m.owner);
-  if (m.movable) {
-    node.draggable = true;
-    node.tabIndex = 0;
-    node.setAttribute("role", "button");
-    node.setAttribute("aria-label", `${m.label} en ${MACHINE_NAME[m.owner]}. Enter: pasarlo a la ${MACHINE_NAME[to]}`);
-    node.addEventListener("dragstart", (e) => e.dataTransfer?.setData("text/plain", m.id));
-    node.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        void act({ kind: "move_monitor", monitor: m.id, to });
-      }
-    });
-  } else {
-    node.classList.add("fixed");
-    node.setAttribute("aria-label", `${m.label} en ${MACHINE_NAME[m.owner]}`);
-  }
-  return node;
-}
-
-/** El botón «⋯» del monitor: corregir lo que muestra sin mandar nada (T-085). */
-function fixButton(m: MonitorView) {
-  const b = el("button", "fix");
-  b.type = "button";
-  b.innerHTML = ICON_FIX;
-  b.title = "¿Muestra otra cosa? Corregirlo sin cambiar el monitor";
-  b.setAttribute("aria-label", `${m.label}: en realidad muestra…`);
-  b.setAttribute("aria-expanded", String(fixing === m.id));
-  b.draggable = false;
-  b.addEventListener("click", (e) => {
-    e.stopPropagation();
-    fixing = fixing === m.id ? null : m.id;
-    renderDesks([]);
-  });
-  b.addEventListener("keydown", (e) => e.stopPropagation());
-  return b;
-}
-
-function fixMenu(m: MonitorView) {
-  const menu = el("div", "fixmenu");
-  menu.setAttribute("role", "menu");
-  menu.addEventListener("click", (e) => e.stopPropagation());
-  menu.append(el("span", "ftitle", "En realidad muestra"));
-  const cfg = snap.kind === "connected" ? snap.desk.monitors.find((x) => x.id === m.id) : undefined;
-  if (!cfg || snap.kind !== "connected") return menu;
-  for (const c of corrections(cfg, snap.state)) {
-    const b = el("button", `fopt${c.current ? " sel" : ""}`, c.label);
-    b.type = "button";
-    b.setAttribute("role", "menuitem");
-    if (c.shows) b.dataset.m = c.shows;
-    b.disabled = isRunning(progress);
-    b.addEventListener("click", () => {
-      fixing = null;
-      void act({ kind: "set_shown", shows: { [m.id]: c.shows } });
-      renderDesks([]);
-    });
-    menu.append(b);
-  }
-  menu.append(el("span", "fnote", "Corrige lo que cree Tandem; no cambia el monitor."));
-  const drop = el("button", "fopt drop", "Quitar del puesto…");
-  drop.type = "button";
-  drop.setAttribute("role", "menuitem");
-  drop.addEventListener("click", () => {
-    fixing = null;
-    renderDesks([]);
-    void removeMonitor(m.id, m.label);
-  });
-  menu.append(drop);
-  return menu;
-}
 
 /**
- * El estado sin confirmar (T-085): elegir un modo lo aplica en todos los monitores; si la
- * máquina que cambia las entradas no está, o el usuario prefiere no ver parpadeos, decir
- * qué muestra cada uno.
+ * Un monitor deshabilitado: el control de monitores está en pausa hasta el firmware propio
+ * (DESIGN §8). Se dibuja para que el puesto se reconozca, sin nada que tocar.
  */
-function renderConfirm() {
-  const box = $("#confirm");
-  if (snap.kind !== "connected" || isConfirmed(snap.desk, snap.state) || isRunning(progress)) {
-    box.hidden = true;
-    if (snap.kind !== "connected" || isConfirmed(snap.desk, snap.state)) answers = null;
-    return;
-  }
-  const { desk, state, caps, agent, peer } = snap;
-  const ready = applyReady(desk, state, caps, agent, peer);
-  const qs = questions(desk, state, caps);
-  // Sin «Aplicar modo» posible, la pregunta va directo.
-  if (!ready.ready && answers === null) answers = initialAnswers(qs);
-  box.hidden = false;
-  const parts: Node[] = [];
-  const head = el("div", "chead");
-  const mark = el("span", "cmark", "?");
-  mark.setAttribute("aria-hidden", "true");
-  const text = el("div", "ctext");
-  text.append(el("b", undefined, "¿Qué muestra cada monitor?"));
-  text.append(
-    el(
-      "span",
-      undefined,
-      ready.ready
-        ? "Tandem no lo sabe desde que arrancó: los monitores no lo dicen. Elige un modo abajo y lo aplica en todos, o dile qué muestra cada uno."
-        : `Tandem no lo sabe desde que arrancó: los monitores no lo dicen. ${capitalize(ready.why ?? "")}; mientras, dile qué muestra cada uno.`,
-    ),
-  );
-  head.append(mark, text);
-  if (ready.ready && answers === null) {
-    head.append(kbtn("Decir qué muestra", () => {
-      answers = initialAnswers(qs);
-      renderConfirm();
-    }));
-  }
-  parts.push(head);
-  if (answers !== null) {
-    const picked = answers;
-    const list = el("div", "cqs");
-    for (const q of qs) {
-      const row = el("div", "cq");
-      row.append(el("b", undefined, q.label));
-      const opts = el("div", "copts");
-      opts.setAttribute("role", "radiogroup");
-      opts.setAttribute("aria-label", `¿Qué muestra ahora el ${q.label}?`);
-      const choices: Shown[] = [...q.choices, null];
-      for (const c of choices) {
-        const b = el("button", `copt${picked[q.id] === c ? " sel" : ""}`, c ? MACHINE_NAME[c] : "Nada");
-        b.type = "button";
-        b.setAttribute("role", "radio");
-        b.setAttribute("aria-checked", String(picked[q.id] === c));
-        if (c) b.dataset.m = c;
-        else b.title = "Negro, sin señal";
-        b.addEventListener("click", () => {
-          answers = { ...picked, [q.id]: c };
-          renderConfirm();
-        });
-        opts.append(b);
-      }
-      row.append(opts);
-      row.append(el("span", "chint", q.hint ? `sugerido: ${q.hint.why}` : ""));
-      list.append(row);
-    }
-    parts.push(list);
-    const foot = el("div", "cfoot");
-    if (ready.ready) {
-      foot.append(kbtn("Mejor aplicar un modo", () => {
-        answers = null;
-        renderConfirm();
-      }));
-    }
-    foot.append(el("span", "spacer"));
-    const done = kbtn("Listo", () => {
-      const shows = Object.fromEntries(qs.map((q) => [q.id, picked[q.id] ?? null]));
-      answers = null;
-      void act({ kind: "set_shown", shows });
-    }, "primary");
-    done.disabled = !complete(qs, picked);
-    foot.append(done);
-    parts.push(foot);
-  }
-  box.replaceChildren(...parts);
-}
-
-/** «1 monitor del puesto no está conectado». */
-function hiddenText(n: number) {
-  return n === 1 ? "1 monitor del puesto no está conectado." : `${n} monitores del puesto no están conectados.`;
-}
-
-/** El aviso discreto de los monitores del puesto que ninguna máquina ve (T-087). */
-function renderHidden() {
-  const note = $("#hiddennote");
-  const n = snap.kind === "connected" ? snap.hidden.length : 0;
-  note.hidden = n === 0;
-  if (n === 0 || snap.kind !== "connected") return;
-  const list = snap.hidden;
-  note.replaceChildren(el("span", undefined, hiddenText(n)));
-  for (const m of list) {
-    const drop = el("button", "linkbtn", `Quitar ${m.label}`);
-    drop.type = "button";
-    drop.title = "Quitar del puesto: se borra todo lo suyo";
-    drop.addEventListener("click", () => void removeMonitor(m.id, m.label));
-    note.append(drop);
-  }
+function monitorSoon(label: string, wide: boolean) {
+  const node = el("div", `monitor soon ${wide ? "wide" : "std"}`);
+  node.innerHTML = `<div class="screen"><div class="wall"></div></div><div class="stand"></div><div class="base"></div>`;
+  const tag = el("div", "mlabel");
+  tag.append(el("b", undefined, label));
+  node.append(tag);
+  node.title = SOON;
+  node.setAttribute("aria-label", `${label}: ${SOON}`);
+  node.setAttribute("aria-disabled", "true");
+  return node;
 }
 
 function renderAgentPill() {
@@ -435,91 +180,62 @@ function renderUnavailable() {
   stage.replaceChildren(card);
 }
 
-const SIDES = ["here", "peer"] as const;
+const SIDES = ["left", "right"] as const;
 
-/** La tarjeta de esta máquina o la de la otra. */
 function sideEl(which: (typeof SIDES)[number]) {
   return $(`.side[data-side="${which}"]`);
 }
 
 /**
- * Cada tarjeta es de la máquina que le toca desde este agente (T-084): a la izquierda
- * siempre esta, a la derecha la otra. La pantalla integrada va con la que la tiene y el
- * botón de encendido con la otra.
+ * Las dos tarjetas en el orden del acomodo (DESIGN §7): la Mac a la izquierda salvo que el
+ * puesto diga otra cosa. Cada una con su equipo, sus pantallas declaradas y, en la que no
+ * es esta, el botón de encendido.
  */
 function renderSides() {
   if (snap.kind !== "connected") return;
-  const { agent, caps } = snap;
-  const both = sides(agent);
-  const parts = $("#parts");
-  const builtin = $(".builtin");
-  let builtinPlaced = false;
+  const { agent, caps, desk } = snap;
+  const both = sides(agent, desk);
   for (const which of SIDES) {
     const who = both[which];
     const side = sideEl(which);
-    side.className = `side ${who}${side.classList.contains("drop") ? " drop" : ""}`;
+    side.className = `side ${who}`;
     side.dataset.owner = who;
-    $(".desk", side).dataset.owner = who;
     const name = $("[data-part=name]", side);
     name.textContent = MACHINE_NAME[who];
     const announced = capsOf(caps, who);
-    name.title = announced ? `${announced.name} · ${announced.os}` : which === "peer" ? "todavía no se la vio" : "";
-    side.setAttribute("aria-label", which === "here" ? `${MACHINE_NAME[who]} (esta máquina)` : MACHINE_NAME[who]);
+    name.title = announced ? `${announced.name} · ${announced.os}` : who !== agent ? "todavía no se la vio" : "";
+    side.setAttribute("aria-label", who === agent ? `${MACHINE_NAME[who]} (esta máquina)` : MACHINE_NAME[who]);
     const slot = $(".hw-slot", side);
-    if (hasBuiltin(caps, who) && !builtinPlaced) {
-      builtinPlaced = true;
-      if (builtin.parentElement !== slot) slot.replaceChildren(builtin);
-      // El selector solo con el anuncio de quien la tiene (T-085): nunca en la PC.
-      const control = builtinControl(caps, who);
-      $("#builtin-seg").hidden = !control;
-      $("#builtin-note").hidden = !control;
-    } else if (!slot.querySelector(".tower")) {
-      const tower = $("#tower", parts).cloneNode(true) as Element;
-      tower.removeAttribute("id");
-      slot.replaceChildren(tower);
-    }
+    const hw = $(who === "mac" ? "#laptop" : "#tower", $("#parts")).cloneNode(true) as Element;
+    hw.removeAttribute("id");
+    slot.replaceChildren(hw);
+    const declared = declaredScreens(desk, who);
+    $("[data-part=screens]", side).textContent = declared.length
+      ? `${declared.length} ${declared.length === 1 ? "pantalla declarada" : "pantallas declaradas"}`
+      : "pantallas que lee el sistema";
     const powerSlot = $(".power-slot", side);
     const pw = $("#power");
-    if (which === "peer" && pw.parentElement !== powerSlot) powerSlot.replaceChildren(pw);
+    if (who !== agent && pw.parentElement !== powerSlot) powerSlot.replaceChildren(pw);
   }
-  if (!builtinPlaced && builtin.parentElement !== parts) parts.append(builtin);
 }
 
-function renderDesks(moved: string[]) {
-  if (snap.kind !== "connected") return;
-  const { desk, state, agent, caps } = snap;
-  renderSides();
-  const both = sides(agent);
-  for (const which of SIDES) {
-    const who = both[which];
-    const deskEl = $(".desk", sideEl(which));
-    const mine = monitorsOf(desk, state, who, caps);
-    deskEl.replaceChildren(...mine.map((m) => monitorEl(m, moved.includes(m.id))));
-    if (!mine.length) {
-      const empty = el("div", "empty");
-      empty.innerHTML = ICON_EMPTY;
-      const off = which === "peer" && peerPower(state, agent, progress) === "off";
-      const none = desk.monitors.length === 0;
-      empty.append(off ? `${MACHINE_NAME[who]} apagada` : none ? "Sin monitores todavía" : "Arrastra un monitor aquí");
-      if (none && which === "here" && !off) {
-        const go = el("button", "linkbtn", "Abrir el asistente");
-        go.type = "button";
-        go.addEventListener("click", () => onboard?.open());
-        empty.append(go);
-      }
-      deskEl.append(empty);
-    }
-  }
+/** Los monitores del puesto, deshabilitados, entre las dos máquinas. */
+function renderMonitors() {
+  const box = $("#monitors-soon");
+  if (box.childElementCount) return;
+  const row = el("div", "soon-row");
+  row.append(...MONITORS_SOON.map((m) => monitorSoon(m.label, m.wide)));
+  box.replaceChildren(row, el("p", "soon-note", SOON));
 }
 
 /** Lo que cambia también con el avance de una transacción. */
 function renderControls() {
   if (snap.kind !== "connected") return;
-  const { desk, state, agent, caps } = snap;
+  const { state, agent, caps, desk } = snap;
   const running = isRunning(progress);
   const power = peerPower(state, agent, progress);
   renderSides();
-  const both = sides(agent);
+  const both = sides(agent, desk);
 
   for (const which of SIDES) {
     const who = both[which];
@@ -536,9 +252,8 @@ function renderControls() {
     } else {
       role.hidden = true;
     }
+    side.classList.toggle("asleep", who !== agent && power !== "on");
   }
-  sideEl("here").classList.remove("asleep");
-  sideEl("peer").classList.toggle("asleep", power !== "on");
 
   // Solo si alguna máquina puede: despertar a la otra, o que ella se apague limpio.
   const button = powerButton(caps, state, agent, progress);
@@ -549,30 +264,6 @@ function renderControls() {
   pw.title = button.label;
   pw.setAttribute("aria-disabled", String(running || button.on === null));
 
-  const bi = builtinOf(desk, state);
-  for (const b of $$<HTMLButtonElement>("#builtin-seg button")) {
-    const v = b.dataset.v;
-    if (v === "gather") continue;
-    const sel = v === bi.effective;
-    b.classList.toggle("sel", sel);
-    b.setAttribute("aria-checked", String(sel));
-    b.disabled = running || (bi.forced && v !== "extend");
-  }
-  $("#lap-screen").setAttribute("fill", bi.effective === "off" ? "#111214" : "#2d3e55");
-  $("#lap-icon").innerHTML = bi.effective === "mirror" ? LAP_MIRROR : bi.effective === "off" ? LAP_OFF : "";
-  $("#builtin-note").textContent = bi.note;
-
-  // Sin confirmar no se sabe qué modo es: elegir uno lo aplica en todos los monitores.
-  const confirmed = isConfirmed(desk, state);
-  const mode = confirmed ? modeOf(desk, state) : null;
-  $(".modes").classList.toggle("apply", !confirmed);
-  for (const m of $$<HTMLButtonElement>(".mode")) {
-    const sel = m.dataset.mode === mode;
-    m.classList.toggle("sel", sel);
-    m.setAttribute("aria-pressed", String(sel));
-    m.title = confirmed ? "" : "Aplicar: Tandem manda cada monitor a donde va";
-  }
-
   const linkPill = $("#link-pill");
   const pill = peerPill(snap.peer);
   linkPill.hidden = false;
@@ -580,39 +271,22 @@ function renderControls() {
   $("#link-dot").classList.toggle("warn", !pill.ok);
   $("#link-act").hidden = snap.peer.kind === "paired";
   linkPill.title = snap.peer.kind === "paired" ? `${pill.title}. Clic: ver el par` : `${pill.title}. Clic: emparejar`;
+  // El enlace activo, encendido en la escena.
+  const link = snap.peer.kind === "paired" ? snap.peer.link : null;
+  for (const l of $$("#links .link")) l.classList.toggle("down", l.dataset.k !== link);
 }
 
 function renderToast() {
   const t = $("#toast");
   const parts: Node[] = [];
-  if (question) {
-    const q = question;
-    const text = questionText(q);
-    parts.push(el("span", "msg", text.text));
-    for (const c of text.choices) {
-      const b = el("button", "act", c.label);
-      b.addEventListener("click", () => void act({ kind: "answer_probe", id: q.id, answer: c.answer }));
-      parts.push(b);
-    }
-  } else if (manual) {
-    const m = manual;
-    parts.push(el("span", "msg", `Cambia el ${m.label} a ${PORT[m.input]} con los botones del monitor`));
-    const done = el("button", "act", "Listo");
-    const cant = el("button", "act", "No puedo");
-    done.addEventListener("click", () => void act({ kind: "answer_manual_switch", id: m.id, done: true }));
-    cant.addEventListener("click", () => void act({ kind: "answer_manual_switch", id: m.id, done: false }));
-    parts.push(done, cant);
-  } else if (progress && snap.kind === "connected") {
+  if (progress) {
     const p = progress;
-    groupSteps(snap.desk, p.steps).forEach((g, i) => {
+    p.steps.forEach((step, i) => {
       if (i) parts.push(el("span", "sep"));
-      const s = el("span", `step ${groupStatus(p, g)}`);
-      s.append(el("i"), g.label);
+      const s = el("span", `step ${p.status[i]}`);
+      s.append(el("i"), stepLabel(step));
       parts.push(s);
     });
-    if (p.outcome.kind === "rolling_back") {
-      parts.push(el("span", "break"), el("span", "msg warn", `Deshaciendo: ${p.outcome.error}`));
-    }
   } else if (message) {
     parts.push(el("span", "msg warn", message.text));
     if (message.sticky) {
@@ -628,35 +302,36 @@ function renderToast() {
   t.classList.toggle("show", parts.length > 0);
 }
 
-function render(moved: string[]) {
+/** Las tarjetas de modo, deshabilitadas con su leyenda (DESIGN §5). */
+function renderModes() {
+  const box = $("#modes");
+  if (box.childElementCount) return;
+  box.append(
+    ...MODES_SOON.map((label) => {
+      const b = el("button", "mode soon");
+      b.type = "button";
+      b.disabled = true;
+      b.title = SOON;
+      b.setAttribute("aria-label", `${label}: ${SOON}`);
+      b.append(el("div", "t", label), el("span", "k", "próximamente"));
+      return b;
+    }),
+  );
+}
+
+function render() {
   renderAgentPill();
   const connected = snap.kind === "connected";
   $("#scene").hidden = !connected;
   $("#bottom").hidden = !connected;
   $("#stage").hidden = connected;
-  $("#monitors-btn").hidden = !connected;
-  $("#desk-btn").hidden = !connected;
   $("#onboard-btn").hidden = !connected;
   if (!connected) $("#link-pill").hidden = true;
   renderUnavailable();
-  renderDesks(moved);
+  renderMonitors();
+  renderModes();
   renderControls();
-  renderConfirm();
-  renderHidden();
   renderToast();
-  // El puesto puede cambiar mientras el diálogo está abierto (el cableado recién guardado).
-  if (connected) renderDesk();
-  else if (deskDialog().open) deskDialog().close();
-}
-
-/** El atajo de cada tarjeta de modo, el que esté configurado. */
-function renderModeKeys() {
-  for (const m of $$<HTMLButtonElement>(".mode")) {
-    const accel = keys?.bindings[ACTION_OF_MODE[m.dataset.mode as ModeKey]] ?? null;
-    $(".k", m).textContent = formatAccel(accel, MAC);
-    if (accel) m.setAttribute("aria-keyshortcuts", ariaKeys(accel));
-    else m.removeAttribute("aria-keyshortcuts");
-  }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -754,7 +429,6 @@ async function saveKeys() {
   try {
     keys = await bridge.setShortcuts(draft);
     saveError = null;
-    renderModeKeys();
     // Si alguno no se pudo registrar, el diálogo queda abierto para que se vea por qué.
     if (Object.keys(keys.failed).length === 0) $<HTMLDialogElement>("#keys").close();
     else renderKeysDialog();
@@ -1058,53 +732,6 @@ async function pairAct(action: Action) {
   renderPair();
 }
 
-/**
- * Pide una confirmación explícita (T-087): borrar un monitor o cambiar el cableado fuera
- * del asistente no se hace de un clic. Devuelve lo que el usuario eligió.
- */
-function askConfirm(title: string, lines: string[], confirm: string, danger = false): Promise<boolean> {
-  const dialog = $<HTMLDialogElement>("#ask");
-  const h = el("h2", undefined, title);
-  h.id = "ask-title";
-  $("#ask-body").replaceChildren(h, ...lines.map((l) => el("p", "ahint", l)));
-  return new Promise((resolve) => {
-    const done = (yes: boolean) => {
-      dialog.removeEventListener("close", onClose);
-      dialog.close();
-      resolve(yes);
-    };
-    const onClose = () => resolve(false);
-    dialog.addEventListener("close", onClose, { once: true });
-    $("#ask-foot").replaceChildren(
-      kbtn("Cancelar", () => done(false)),
-      el("span", "spacer"),
-      kbtn(confirm, () => done(true), danger ? "danger" : "primary"),
-    );
-    dialog.showModal();
-  });
-}
-
-/** Quita un monitor del puesto y todo lo suyo, en las dos máquinas, tras confirmarlo. */
-async function removeMonitor(id: string, label: string) {
-  const yes = await askConfirm(
-    `¿Quitar el ${label} del puesto?`,
-    ["Se borra todo lo suyo en las dos máquinas: su entrada en la configuración, el vínculo entre sus identidades, su cableado, su perfil del usuario y su estado.", "Para volver a tenerlo se agrega de nuevo con el asistente."],
-    "Quitar monitor",
-    true,
-  );
-  if (yes) await act({ kind: "remove_monitor", monitor: id });
-}
-
-async function resetDesk() {
-  const yes = await askConfirm(
-    "¿Restablecer el puesto?",
-    ["Se quitan todos los monitores, sus vínculos, sus perfiles del usuario y el estado, en las dos máquinas. El teclado, la red y el emparejamiento no se tocan.", "Después el asistente vuelve a abrirse."],
-    "Restablecer puesto",
-    true,
-  );
-  if (yes) await act({ kind: "reset_desk" });
-}
-
 function capitalize(text: string) {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -1128,361 +755,21 @@ function wirePair() {
   });
 }
 
-// ---------------------------------------------------------------------------------------
-// «Agregar monitor» (T-080): los monitores que ve la PC y la calibración de los que no
-// tienen perfil
-
-let displays: DisplayView[] | null = null;
-let displaysError: string | null = null;
-let calibration: Calibration | null = null;
-let addmonError: string | null = null;
-/** El monitor de la configuración que el usuario eligió para uno que no se reconoció. */
-const bindChoice: Record<number, string> = {};
-let copied = false;
-
-const ICON_MONITOR = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>`;
-
-function addmonDialog() {
-  return $<HTMLDialogElement>("#addmon");
-}
-
-function openAddmon() {
-  if (snap.kind !== "connected") return;
-  if (calibration?.outcome) calibration = null;
-  addmonError = null;
-  copied = false;
-  renderAddmon();
-  if (!addmonDialog().open) addmonDialog().showModal();
-  if (!calibration) void refreshDisplays();
-}
-
-async function refreshDisplays() {
-  if (!bridge) return;
-  displays = null;
-  displaysError = null;
-  renderAddmon();
-  const r = await bridge.act({ kind: "list_displays" }).catch((e: unknown) => ({ kind: "unavailable" as const, reason: String(e) }));
-  if (r.kind === "displays") displays = r.displays;
-  else displaysError = r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "el agente no devolvió la lista";
-  renderAddmon();
-}
-
-/** Un pedido desde el diálogo: el motivo de un rechazo se muestra dentro de él. */
-async function addmonAct(action: Action) {
-  addmonError = await act(action, true);
-  renderAddmon();
-}
-
-function copyProfile(toml: string) {
-  const done = () => {
-    copied = true;
-    renderAddmon();
-  };
-  if (navigator.clipboard) navigator.clipboard.writeText(toml).then(done, () => (addmonError = "No se pudo copiar: selecciona el texto del perfil."));
-  else addmonError = "No se pudo copiar: selecciona el texto del perfil.";
-  renderAddmon();
-}
-
-function exportBlock(toml: string): Node {
-  const box = el("details", "aexport");
-  box.append(el("summary", undefined, "Ver el perfil (TOML)"), el("pre", undefined, toml));
-  return box;
-}
-
-function renderAddmon() {
-  const d = addmonDialog();
-  if (!d.open && !calibration) return;
-  const desk = snap.kind === "connected" ? snap.desk : null;
-  const body: Node[] = [];
-  const foot: Node[] = [];
-  const title = (text: string) => {
-    const h = el("h2", undefined, text);
-    h.id = "addmon-title";
-    body.push(h);
-  };
-
-  if (calibration) {
-    const run = calibration;
-    const label = labelOf(desk, run.monitor, run.name);
-    const monitor = run.monitor ? desk?.monitors.find((m) => m.id === run.monitor) : undefined;
-    title(headline(run, label));
-    body.push(el("p", "ahint", hint(run)));
-    const lanes = el("div", "alanes");
-    for (const input of INPUTS) {
-      const l = run.lanes[input];
-      const row = el("div", `alane ${l.state}`);
-      const who = monitor ? (Object.entries(monitor.wiring).find(([, i]) => i === input)?.[0] as Machine | undefined) : undefined;
-      if (who) row.dataset.m = who;
-      const name = el("span", "aport");
-      name.append(el("b", undefined, SHORT[input]), el("small", undefined, who ? MACHINE_NAME[who] : PORT_NAME[input]));
-      row.append(el("i"), name, el("span", "astate", laneText(l)));
-      if (input === run.start) row.append(el("span", "ahome", "partida"));
-      lanes.append(row);
-    }
-    body.push(lanes);
-    if (question && !run.outcome) {
-      const q = question;
-      const text = questionText(q);
-      const box = el("div", "aquestion");
-      box.append(el("p", undefined, text.text));
-      const row = el("div", "abtns");
-      for (const c of text.choices) row.append(kbtn(c.label, () => void act({ kind: "answer_probe", id: q.id, answer: c.answer }), c.kind));
-      box.append(row);
-      body.push(box);
-    }
-    const out = run.outcome;
-    if (out?.kind === "saved") {
-      if (out.file) {
-        const where = el("p", "afile", "Perfil guardado en ");
-        where.append(el("code", undefined, out.file));
-        body.push(where);
-      }
-      for (const note of out.notes) body.push(el("p", "pwarn", note));
-      if (out.toml) body.push(exportBlock(out.toml));
-    }
-    if (addmonError) body.push(el("p", "pwarn", addmonError));
-    if (!out) {
-      foot.push(kbtn("Seguir en segundo plano", () => addmonDialog().close()), el("span", "spacer"), kbtn("Cancelar", () => void addmonAct({ kind: "cancel_calibration" }), "danger"));
-    } else {
-      const back = kbtn("Volver a la lista", () => {
-        calibration = null;
-        copied = false;
-        void refreshDisplays();
-      });
-      foot.push(back, el("span", "spacer"));
-      if (out.kind === "saved" && out.toml) {
-        const toml = out.toml;
-        foot.push(kbtn(copied ? "Copiado" : "Copiar perfil", () => copyProfile(toml)));
-      }
-      foot.push(kbtn("Listo", () => addmonDialog().close(), "primary"));
-    }
-  } else {
-    title("Agregar monitor");
-    body.push(el("p", "ahint", "Los monitores que ve la PC por DDC/CI. Los que no tienen perfil se calibran: Tandem prueba códigos y siempre vuelve a la entrada de partida."));
-    if (displaysError) body.push(el("p", "pwarn", capitalize(displaysError)));
-    else if (!displays) body.push(el("p", "ahint", "Buscando monitores…"));
-    else if (!displays.length) body.push(el("p", "ahint", "La PC no ve ningún monitor con DDC/CI."));
-    const free = unbound(desk, displays ?? []);
-    const list = el("div", "alist");
-    for (const dv of displays ?? []) {
-      const row = el("div", "arow");
-      const icon = el("span", "aicon");
-      icon.innerHTML = ICON_MONITOR;
-      const info = el("div", "ainfo");
-      info.append(el("b", undefined, labelOf(desk, dv.monitor, dv.name)), el("small", undefined, [dv.name, dv.pnp_id].filter(Boolean).join(" · ")));
-      const b = badge(dv.profile);
-      const tag = el("span", `abadge ${b.kind}`, b.text);
-      if (b.codes) tag.title = b.codes;
-      const codes = el("span", "acodes", b.codes ?? "");
-      const btns = el("div", "abtns");
-      if (!dv.monitor && free.length) {
-        const pick = el("select", "apick");
-        pick.setAttribute("aria-label", `¿Cuál de la configuración es ${dv.name}?`);
-        pick.append(new Option("¿Cuál es?", ""));
-        for (const m of free) pick.append(new Option(m.label, m.id, false, bindChoice[dv.index] === m.id));
-        pick.addEventListener("change", () => {
-          if (pick.value) bindChoice[dv.index] = pick.value;
-          else delete bindChoice[dv.index];
-        });
-        btns.append(pick);
-      }
-      const monitor = () => dv.monitor ?? bindChoice[dv.index] ?? null;
-      for (const a of rowActions(dv)) {
-        if (a === "calibrate" || a === "recalibrate") {
-          btns.append(kbtn(a === "calibrate" ? "Calibrar" : "Calibrar de nuevo", () => void addmonAct({ kind: "start_calibration", display: dv.index, monitor: monitor() }), a === "calibrate" ? "primary" : ""));
-        } else if (a === "use") {
-          btns.append(kbtn("Usar perfil", () => void addmonAct({ kind: "use_profile", display: dv.index, monitor: monitor() }).then(refreshDisplays), "primary"));
-        } else if (dv.profile.kind === "known") {
-          const toml = dv.profile.toml;
-          btns.append(kbtn("Exportar", () => copyProfile(toml)));
-        }
-      }
-      row.append(icon, info, tag, codes, btns);
-      list.append(row);
-    }
-    body.push(list);
-    if (copied) body.push(el("p", "pok", "Perfil copiado: pégalo en un archivo <PNP>.toml para compartirlo."));
-    if (addmonError) body.push(el("p", "pwarn", capitalize(addmonError)));
-    foot.push(kbtn("Cerrar", () => addmonDialog().close()), el("span", "spacer"), kbtn("Buscar de nuevo", () => void refreshDisplays()));
-  }
-  $("#addmon-body").replaceChildren(...body);
-  $("#addmon-foot").replaceChildren(...foot);
-}
-
-function wireAddmon() {
-  $("#monitors-btn").addEventListener("click", openAddmon);
-  // Cerrar no corta la calibración: sus avisos siguen en los monitores. Un resultado
-  // ya visto se descarta.
-  addmonDialog().addEventListener("close", () => {
-    if (calibration?.outcome) calibration = null;
-    addmonError = null;
-  });
-}
-
-// ---------------------------------------------------------------------------------------
-// «Puesto» (T-082): la configuración que generó el agente y el cableado de cada monitor
-
-let agentSetup: AgentSetup | null = null;
-let deskError: string | null = null;
-/** El monitor cuyo cableado se está guardando. */
-let rewiring: string | null = null;
-
-function deskDialog() {
-  return $<HTMLDialogElement>("#deskcfg");
-}
-
-async function openDesk() {
-  if (snap.kind !== "connected" || !bridge) return;
-  deskError = null;
-  renderDesk();
-  if (!deskDialog().open) deskDialog().showModal();
-  const r = await bridge.act({ kind: "get_setup" }).catch(() => null);
-  agentSetup = r?.kind === "setup" ? r.setup : null;
-  renderDesk();
-}
-
-async function rewire(id: string, wiring: Partial<Record<Machine, "hdmi" | "displayport">>) {
-  // Fuera del asistente, un cableado mal puesto manda el cambio de modo a una entrada donde
-  // no hay nada: se pide la confirmación explícita (T-087).
-  const label = snap.kind === "connected" ? (snap.desk.monitors.find((m) => m.id === id)?.label ?? id) : id;
-  const yes = await askConfirm(
-    `¿Cambiar el cableado del ${label}?`,
-    [`Quedaría ${wiringText(wiring)}.`, "Vale desde el siguiente cambio de modo. Si no coincide con los cables de verdad, el monitor irá a una entrada donde no hay nada."],
-    "Cambiar cableado",
-  );
-  if (!yes) return;
-  rewiring = id;
-  deskError = null;
-  renderDesk();
-  deskError = await act({ kind: "set_wiring", monitor: id, wiring, confirmed: true }, true);
-  rewiring = null;
-  renderDesk();
-}
-
-function renderDesk() {
-  if (!deskDialog().open || snap.kind !== "connected") return;
-  const { agent, desk } = snap;
-  const h = el("h2", undefined, "Puesto");
-  h.id = "deskcfg-title";
-  const body: Node[] = [h];
-  for (const line of setupLines(agent, agentSetup)) body.push(el("p", "ahint", line));
-  if (snap.hidden.length) {
-    body.push(el("p", "ahint", `${hiddenText(snap.hidden.length)} Ninguna máquina los ve ahora; no aparecen en la escena ni en los planes.`));
-  }
-  if (agentSetup?.config_file) {
-    const where = el("p", "afile", "Se guarda en ");
-    where.append(el("code", undefined, agentSetup.config_file));
-    body.push(where);
-  }
-  if (!desk.monitors.length) {
-    body.push(el("p", "ahint", "El puesto está vacío. Los monitores se agregan con el asistente (solo salen los conectados ahora) o con «Monitores»."));
-  }
-  const list = el("div", "alist");
-  for (const m of desk.monitors) {
-    const row = el("div", "arow");
-    const icon = el("span", "aicon");
-    icon.innerHTML = ICON_MONITOR;
-    const info = el("div", "ainfo");
-    info.append(el("b", undefined, m.label), el("small", undefined, [modelOf(m), m.id].filter(Boolean).join(" · ")));
-    const wiring = el("span", "acodes", wiringText(m.wiring));
-    wiring.title = "Qué entrada del monitor va a cada máquina";
-    const btns = el("div", "abtns");
-    const swap = kbtn(rewiring === m.id ? "Guardando…" : "Invertir cableado", () => void rewire(m.id, swapWiring(m.wiring)));
-    swap.disabled = rewiring !== null;
-    swap.title = `Pasa a ${wiringText(swapWiring(m.wiring))}`;
-    const drop = kbtn("Quitar", () => void removeMonitor(m.id, m.label), "danger");
-    drop.title = "Quita el monitor del puesto y todo lo suyo, en las dos máquinas";
-    btns.append(swap, drop);
-    row.append(icon, info, wiring, btns);
-    list.append(row);
-  }
-  body.push(list);
-  if (desk.monitors.length || snap.hidden.length) {
-    const reset = kbtn("Restablecer puesto", () => void resetDesk(), "danger");
-    reset.title = "Borra monitores, vínculos, perfiles del usuario y estado, en las dos máquinas";
-    body.push(reset);
-  }
-  body.push(el("p", "ahint", `El cableado vale desde el siguiente cambio de modo y se guarda en las dos máquinas: si la ${MACHINE_NAME[other(agent)]} no está, se pone al día al volver a verla.`));
-  if (deskError) body.push(el("p", "pwarn", capitalize(deskError)));
-  $("#deskcfg-body").replaceChildren(...body);
-  $("#deskcfg-foot").replaceChildren(el("span", "spacer"), kbtn("Cerrar", () => deskDialog().close(), "primary"));
-}
-
-function wireDesk() {
-  $("#desk-btn").addEventListener("click", () => void openDesk());
-}
-
-// ---------------------------------------------------------------------------------------
-// Controles
-
-function chooseMode(key: ModeKey) {
-  if (snap.kind !== "connected") return;
-  const mode = modeRequest(key, snap.desk, snap.state);
-  // Sin confirmar, «Aplicar modo» (T-085): la entrada de todos, sin planear sobre lo inventado.
-  void act(isConfirmed(snap.desk, snap.state) ? { kind: "set_mode", mode } : { kind: "apply_mode", mode });
-}
-
 function wire() {
-  for (const m of $$<HTMLButtonElement>(".mode")) {
-    m.addEventListener("click", () => chooseMode(m.dataset.mode as ModeKey));
-  }
   // Los atajos que el sistema no dejó registrar como globales los atiende la ventana.
   addEventListener("keydown", (e) => {
-    if (!keys || $<HTMLDialogElement>("#keys").open || $<HTMLDialogElement>("#setup").open || pairDialog().open || addmonDialog().open || deskDialog().open) return;
-    const a = localAction(e, keys);
+    if (!keys || $<HTMLDialogElement>("#keys").open || $<HTMLDialogElement>("#setup").open || pairDialog().open) return;
+    const a: ShortcutAction | null = localAction(e, keys);
     if (!a) return;
     e.preventDefault();
-    const cmd = windowCommand(a);
-    if (cmd.kind === "mode") chooseMode(cmd.mode);
-    else void bridge?.hideMain();
+    if (windowCommand(a).kind === "hide_main") void bridge?.hideMain();
   });
   wireKeys();
   wireSetup();
   wirePair();
-  wireAddmon();
-  wireDesk();
   $("#onboard-btn").addEventListener("click", () => onboard?.open());
-  // La guía de permisos va antes: al cerrarla, el asistente se abre si el puesto sigue vacío.
+  // La guía de permisos va antes: al cerrarla, el asistente se abre si hace falta.
   $<HTMLDialogElement>("#setup").addEventListener("close", () => onboard?.maybeOpen(snap));
-
-  // El menú «en realidad muestra…» se cierra al hacer clic fuera o con Escape.
-  addEventListener("click", () => {
-    if (fixing === null) return;
-    fixing = null;
-    renderDesks([]);
-  });
-  addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || fixing === null) return;
-    fixing = null;
-    renderDesks([]);
-  });
-
-  for (const side of $$(".side")) {
-    side.addEventListener("dragover", (e) => {
-      e.preventDefault();
-      side.classList.add("drop");
-    });
-    side.addEventListener("dragleave", (e) => {
-      if (!side.contains(e.relatedTarget as Node | null)) side.classList.remove("drop");
-    });
-    side.addEventListener("drop", (e) => {
-      e.preventDefault();
-      side.classList.remove("drop");
-      const id = e.dataTransfer?.getData("text/plain");
-      // De quién es la tarjeta se decide al conectarse: se lee al soltar.
-      const to = side.dataset.owner as Machine | undefined;
-      if (!id || !to || snap.kind !== "connected") return;
-      if ((snap.state.owner[id] ?? "mac") !== to) void act({ kind: "move_monitor", monitor: id, to });
-    });
-  }
-
-  for (const b of $$<HTMLButtonElement>("#builtin-seg button")) {
-    if (b.dataset.v === "gather") continue;
-    b.addEventListener("click", () => {
-      if (b.disabled || b.classList.contains("sel")) return;
-      void act({ kind: "set_builtin", display: b.dataset.v as BuiltinDisplay });
-    });
-  }
 
   $("#power").addEventListener("click", () => {
     if (snap.kind !== "connected" || isRunning(progress)) return;
@@ -1503,7 +790,7 @@ async function pickBridge(): Promise<Bridge> {
 
 async function boot() {
   wire();
-  render([]);
+  render();
   try {
     bridge = await pickBridge();
     onboard = initOnboarding({
@@ -1521,21 +808,15 @@ async function boot() {
     await bridge.onMessage((text) => showMessage(text));
     await bridge.onShortcuts((view) => {
       keys = view;
-      renderModeKeys();
     });
     keys = await bridge.shortcuts().catch(() => null);
     $("#keys-btn").hidden = keys === null;
-    renderModeKeys();
     setupView = await bridge.setup().catch(() => null);
     $("#setup-btn").hidden = !setupView?.available;
     if (setupView?.show) openSetup();
     const first = await bridge.snapshot();
     // Si ya llegó uno empujado, es más nuevo que esta respuesta.
     if (!pushed) setSnapshot(first);
-    // Modo demo: `/?demo&addmon` abre «Agregar monitor».
-    if (import.meta.env.DEV && new URLSearchParams(location.search).has("addmon")) openAddmon();
-    // `/?demo&desk` abre «Puesto».
-    if (import.meta.env.DEV && new URLSearchParams(location.search).has("desk")) void openDesk();
   } catch (e) {
     setSnapshot(bridgeFailed(e));
   }

@@ -4,24 +4,16 @@
 // dos lados la fijan.
 
 import type { Bindings, ShortcutAction, ShortcutsView } from "./model";
-import type { ModeKey } from "./scene";
 
-export const ACTIONS: ShortcutAction[] = ["solo_mac", "shared", "solo_pc", "toggle_window"];
+// Los atajos de los modos se fueron con ellos (DESIGN §8): queda el de la ventana.
+export const ACTIONS: ShortcutAction[] = ["toggle_window"];
 
 export const ACTION_LABEL: Record<ShortcutAction, string> = {
-  solo_mac: "Solo Mac",
-  shared: "Compartido",
-  solo_pc: "Solo Windows",
   toggle_window: "Mostrar u ocultar Tandem",
 };
 
-export const ACTION_OF_MODE: Record<ModeKey, ShortcutAction> = { mac: "solo_mac", shared: "shared", pc: "solo_pc" };
-
 /** Los de siempre (`Shortcuts::default`). */
 export const DEFAULT_BINDINGS: Bindings = {
-  solo_mac: "Ctrl+Alt+Digit1",
-  shared: "Ctrl+Alt+Digit2",
-  solo_pc: "Ctrl+Alt+Digit3",
   toggle_window: "Ctrl+Alt+Digit0",
 };
 
@@ -111,15 +103,17 @@ export function localAction(e: KeyLike, view: ShortcutsView): ShortcutAction | n
   return hit && hit in view.failed ? hit : null;
 }
 
-export type WindowCommand = { kind: "mode"; mode: ModeKey } | { kind: "hide_main" };
+export type WindowCommand = { kind: "hide_main" };
 
 /**
  * Qué hace la ventana principal con una acción que atiende ella misma. Si recibe la tecla
  * es porque está al frente: mostrar u ocultar, entonces, la esconde.
  */
 export function windowCommand(action: ShortcutAction): WindowCommand {
-  const mode = (Object.keys(ACTION_OF_MODE) as ModeKey[]).find((k) => ACTION_OF_MODE[k] === action);
-  return mode ? { kind: "mode", mode } : { kind: "hide_main" };
+  switch (action) {
+    case "toggle_window":
+      return { kind: "hide_main" };
+  }
 }
 
 /** Atajos repetidos en lo que se está editando (el núcleo también lo rechaza). */

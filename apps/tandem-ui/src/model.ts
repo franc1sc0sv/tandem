@@ -2,51 +2,29 @@
 // las pruebas de los dos lados fijan la forma.
 
 export type Machine = "mac" | "pc";
-export type BuiltinDisplay = "off" | "mirror" | "extend";
-export type Input = "hdmi" | "displayport";
+export type Side = "left" | "right";
 
-export interface MonitorConfig {
+/** Una pantalla del acomodo declarado (DESIGN §7), en coordenadas nativas de su máquina. */
+export interface ScreenSpec {
+  machine: Machine;
   id: string;
-  label: string;
-  edid_model?: string | null;
-  /** Los demás id PnP del mismo monitor: el EDID cambia según la entrada (T-087). */
-  edid_aliases?: string[];
-  wiring: Partial<Record<Machine, Input>>;
-  /** Códigos DDC; sin ellos el monitor es de modo manual asistido. */
-  ddc?: { hdmi: number; display_port: number } | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  scale: number;
 }
 
+/** El puesto compartido: el acomodo de pantallas para el teclado y el mouse. */
 export interface Desk {
-  monitors: MonitorConfig[];
+  screens: ScreenSpec[];
+  /** De qué lado de la PC está la Mac; `offset` lo usa el editor del acomodo (T-096). */
+  arrangement: { mac_side: Side; offset: number };
 }
-
-/**
- * Por qué no se sabe lo que muestra un monitor (T-085): nunca se supo, es de un arranque
- * anterior, o el usuario dijo que está en negro.
- */
-export type Doubt = "unknown" | "stale" | "blank";
 
 export interface DeskState {
-  owner: Record<string, Machine>;
   /** Qué máquinas están encendidas. La del agente siempre lo está para sí misma (T-084). */
   on: Record<Machine, boolean>;
-  builtin_pref: BuiltinDisplay;
-  /** Los monitores sin confirmar; el próximo cambio les manda la entrada (T-085). */
-  doubt: Partial<Record<string, Doubt>>;
-}
-
-export interface CapsMonitor {
-  monitor: string | null;
-  pnp_id: string | null;
-  name: string;
-  switch: boolean;
-  ddc: boolean;
-  seen: boolean;
-  model?: string | null;
-  serial?: number | null;
-  inches?: number | null;
-  /** Por qué cable lo ve esa máquina, si el sistema lo dice. */
-  output?: Input | null;
 }
 
 /** Lo que tiene y sabe hacer una máquina, según su anuncio (`tandem_ui::session::MachineView`). */
@@ -55,11 +33,6 @@ export interface MachineCaps {
   /** El nombre de la máquina en el sistema. */
   name: string;
   os: string;
-  /** Detectó sus monitores: los `seen` son los conectados ahora (T-087). */
-  scanned: boolean;
-  /** `seen`: la máquina lo detectó (conectado ahora; pista para preguntar lo que muestra, T-085). */
-  monitors: CapsMonitor[];
-  builtin: boolean;
   hub: boolean | null;
   input: {
     capture: boolean;
@@ -111,211 +84,38 @@ export interface InputView {
 
 export type Snapshot =
   | { kind: "connecting" }
-  | { kind: "connected"; agent: Machine; desk: Desk; hidden: MonitorConfig[]; state: DeskState; peer: PeerView; pairing: PairingView; input: InputView; caps: Caps }
+  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView; pairing: PairingView; input: InputView; caps: Caps }
   | { kind: "unavailable"; endpoint: string | null; reason: string };
 
-export type Step =
-  | { step: "power_on"; machine: Machine }
-  | { step: "power_off"; machine: Machine }
-  | { step: "switch_input"; monitor: string; from: Machine; to: Machine; input: Input; by: Machine }
-  | { step: "attach"; machine: Machine; monitor: string }
-  | { step: "detach"; machine: Machine; monitor: string }
-  | { step: "set_builtin"; from: BuiltinDisplay; to: BuiltinDisplay }
-  | { step: "update_input_geometry" };
+export type Step = { step: "power_on"; machine: Machine } | { step: "power_off"; machine: Machine };
 
 export type TxnView =
   | { type: "started"; txn: number; steps: Step[] }
   | { type: "step_started"; txn: number; index: number }
   | { type: "step_done"; txn: number; index: number }
   | { type: "step_failed"; txn: number; index: number; error: string }
-  | { type: "rolling_back"; txn: number }
   | { type: "committed"; txn: number; state: DeskState }
-  | { type: "rolled_back"; txn: number; state: DeskState }
-  | { type: "inconsistent"; txn: number; undo_failures: { step: Step; error: string }[] };
-
-export type ManualView =
-  | { type: "requested"; id: number; monitor: string; label: string; to: Machine; input: Input }
-  | { type: "closed"; id: number };
-
-/** Qué confirma el usuario en una sonda de calibración (`tandem_ui::session::AskView`). */
-/** Qué se le pregunta al usuario; siempre contesta qué ve (T-081). */
-export type ProbeAsk =
-  | { kind: "candidate"; code: number }
-  | { kind: "user_switch" }
-  | { kind: "back"; code: number }
-  | { kind: "verify"; code: number }
-  | { kind: "stalled"; code: number };
-
-/** La respuesta a una sonda: clic en la pantalla completa, o lo elegido en la pregunta. */
-export type ProbeAnswer =
-  | { kind: "seen" }
-  | { kind: "machine"; machine: Machine }
-  | { kind: "black" }
-  | { kind: "stop" };
-
-/** Dónde lo ve el agente, en coordenadas del sistema. */
-export interface ProbeScreen {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-/**
- * A pantalla completa en el monitor; en ninguna parte si el agente lo buscó y no está en el
- * escritorio (`offscreen`); o la pregunta «¿qué ves?» de la ventana principal.
- */
-export type ProbePlace =
-  | { kind: "monitor"; screen: ProbeScreen | null }
-  | { kind: "offscreen" }
-  | { kind: "question" };
-
-export type ProbeShow = {
-  type: "show";
-  id: number;
-  /** El nombre del monitor (EDID o descripción del sistema). */
-  monitor: string;
-  /** La entrada que debería verse. */
-  input: Input;
-  /** La máquina cableada a esa entrada. */
-  machine: Machine;
-  ask: ProbeAsk;
-  timeout_ms: number;
-  place: ProbePlace;
-};
-
-export type ProbeView = ProbeShow | { type: "hide"; id: number };
-
-// «Agregar monitor» (T-080): `tandem_ui::session::{DisplayView, CalibrationView}`.
-
-/** Los códigos que ya tiene un monitor, o que no tiene. */
-export type DisplayProfile =
-  | { kind: "none" }
-  | { kind: "configured"; hdmi: number; display_port: number }
-  | { kind: "known"; name: string; user: boolean; hdmi: number; display_port: number; toml: string };
-
-/** Un monitor del bus DDC de la PC. `monitor` es el de la configuración al que corresponde. */
-export interface DisplayView {
-  index: number;
-  name: string;
-  pnp_id: string | null;
-  monitor: string | null;
-  profile: DisplayProfile;
-}
-
-export type CalibrationStep =
-  | { kind: "reading" }
-  | { kind: "user_switch"; input: Input }
-  | { kind: "testing"; input: Input }
-  | { kind: "trying"; input: Input; code: number; attempt: number; of: number }
-  | { kind: "seen"; input: Input; code: number; seen: boolean }
-  | { kind: "returned"; code: number }
-  | { kind: "found"; input: Input; code: number }
-  | { kind: "verifying" }
-  | { kind: "verified"; input: Input; code: number };
-
-export type CalibrationOutcome =
-  | {
-      kind: "saved";
-      name: string;
-      hdmi: number;
-      display_port: number;
-      attempts: number;
-      monitor: string | null;
-      /** Dónde quedó el perfil del usuario. */
-      file: string | null;
-      /** El perfil para exportarlo. */
-      toml: string | null;
-      notes: string[];
-    }
-  | { kind: "failed"; reason: string }
-  | { kind: "cancelled" };
-
-export type CalibrationView =
-  | { type: "started"; display: number; name: string; monitor: string | null; start: Input }
-  | { type: "progress"; step: CalibrationStep }
-  | { type: "finished"; outcome: CalibrationOutcome };
+  /** Falló un paso: `state` es lo que quedó hecho. */
+  | { type: "failed"; txn: number; state: DeskState };
 
 export type Notice =
   | { kind: "txn"; event: TxnView }
-  | { kind: "manual_switch"; event: ManualView }
-  | { kind: "probe"; event: ProbeView }
-  | { kind: "calibration"; event: CalibrationView }
   | { kind: "key_probe"; event: { armed: boolean; heard: Machine | null } }
-  | { kind: "power"; machine: Machine; reason: string; stranded: string[] };
-
-export type Mode =
-  | { mode: "solo_mac" }
-  | { mode: "solo_pc" }
-  | { mode: "shared"; assign: Record<string, Machine> };
+  | { kind: "power"; machine: Machine; reason: string };
 
 export type Action =
-  | { kind: "set_mode"; mode: Mode }
-  | { kind: "move_monitor"; monitor: string; to: Machine }
-  | { kind: "set_builtin"; display: BuiltinDisplay }
   | { kind: "set_power"; machine: Machine; on: boolean }
-  | { kind: "answer_manual_switch"; id: number; done: boolean }
-  | { kind: "answer_probe"; id: number; answer: ProbeAnswer }
   | { kind: "start_pairing" }
   | { kind: "confirm_pairing" }
   | { kind: "cancel_pairing" }
   | { kind: "unpair" }
-  | { kind: "list_displays" }
-  | { kind: "start_calibration"; display: number; monitor: string | null }
-  | { kind: "cancel_calibration" }
-  | { kind: "use_profile"; display: number; monitor: string | null }
-  /** `confirmed`: el usuario lo confirmó; sin esto el agente lo rechaza (T-087). */
-  | { kind: "set_wiring"; monitor: string; wiring: Partial<Record<Machine, Input>>; confirmed?: boolean }
   | { kind: "get_setup" }
-  /** Asistente (T-087). */
-  | { kind: "scan_monitors" }
-  | { kind: "add_monitors"; monitors: NewMonitor[] }
-  | { kind: "remove_monitor"; monitor: string }
-  | { kind: "reset_desk" }
   | { kind: "key_probe"; on: boolean }
   | { kind: "heard_key" }
   | { kind: "set_keyboard"; machine: Machine }
   | { kind: "ping_peer" }
-  /** `discard_codes`: el usuario dijo que no vio lo que se mandó; sin él se conservan los códigos. */
-  | { kind: "mark_manual"; monitor: string; discard_codes?: boolean }
-  /** Ida y vuelta del asistente (T-089): solo la entrada, y el agente lo devuelve a `back` solo. */
-  | { kind: "probe_input"; monitor: string; to: Machine; back: Machine }
   /** «Pedir permisos» (T-090): macOS muestra su diálogo a nombre de `tandemd`. */
-  | { kind: "request_permissions" }
-  /** «Aplicar modo» (T-085): manda la entrada de todos los monitores. */
-  | { kind: "apply_mode"; mode: Mode }
-  /** Lo que el usuario dice que muestra cada monitor; `null`: nada (en negro). */
-  | { kind: "set_shown"; shows: Record<string, Machine | null> };
-
-/** Un monitor físico que el asistente agrega al puesto (`tandem_proto::NewMonitor`). */
-export interface NewMonitor {
-  label: string;
-  /** El id PnP de cada máquina, el de la PC primero. */
-  pnp_ids: string[];
-  wiring: Partial<Record<Machine, Input>>;
-}
-
-/** Con qué se vinculó la identidad de una máquina con la de la otra (`LinkBasis`). */
-export type LinkBasis = "Serial" | "Model" | "Single";
-
-export interface MonitorCandidate {
-  label: string;
-  pnp_ids: string[];
-  here: CapsMonitor | null;
-  peer: CapsMonitor | null;
-  basis: LinkBasis;
-  /** El cableado deducido de por dónde lo ve cada máquina; `null`, hay que preguntar. */
-  wiring: Partial<Record<Machine, Input | null>>;
-  in_desk: string | null;
-  profile: string | null;
-}
-
-export interface MonitorScan {
-  candidates: MonitorCandidate[];
-  peer_known: boolean;
-  /** Monitores del puesto que ninguna de las dos máquinas ve ahora. */
-  disconnected: number;
-}
+  | { kind: "request_permissions" };
 
 /** De dónde salió la configuración del agente (`tandem_proto::SetupInfo`). */
 export interface AgentSetup {
@@ -330,15 +130,13 @@ export type ActionResult =
   | { kind: "done" }
   | { kind: "rejected"; reason: string }
   | { kind: "unavailable"; reason: string }
-  | { kind: "displays"; displays: DisplayView[] }
   | { kind: "setup"; setup: AgentSetup }
-  | { kind: "scan"; scan: MonitorScan }
   | { kind: "pong"; link: Link; millis: number };
 
 // Atajos globales (`tandem_ui::shortcuts`).
-export type ShortcutAction = "solo_mac" | "shared" | "solo_pc" | "toggle_window";
+export type ShortcutAction = "toggle_window";
 
-/** Acción → combinación canónica (`Ctrl+Alt+Digit1`), o `null` si no tiene. */
+/** Acción → combinación canónica (`Ctrl+Alt+Digit0`), o `null` si no tiene. */
 export type Bindings = Record<ShortcutAction, string | null>;
 
 export interface ShortcutsView {
