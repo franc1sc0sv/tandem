@@ -1,16 +1,18 @@
 # Tandem — Documento de diseño
 
-> Estado: borrador v0.1 (2026-10-15). Fuente de verdad del proyecto; las decisiones nuevas se agregan aquí.
+> Estado: v0.2 (2026-11-15). Fuente de verdad del proyecto; las decisiones nuevas se agregan aquí.
+>
+> **Cambio de rumbo v0.2:** el control de monitores por DDC de fábrica (perfiles, calibración, identidades por EDID, monitor fantasma, pantalla integrada, lectura de la topología) se elimina. Lo va a reemplazar un firmware propio del 34" que reporta su estado real ([§8](#8-monitores-en-pausa-firmware-propio)). Mientras tanto Tandem se concentra en teclado y mouse, el enlace por cable y la energía.
 
 ## 1. Qué es
 
 Tandem convierte una **MacBook Pro M5** y una **PC Windows** en un solo puesto de trabajo:
 
-- Dos monitores que se reparten entre las dos máquinas **con un clic**, sin tocar el menú del monitor.
-- Un solo teclado y mouse, con **motor propio** dentro de la app (sin Deskflow), siempre activo.
-- Encender y apagar la otra máquina desde la que se está usando (sobre todo la PC desde la Mac, y despertar la Mac desde la PC).
-- Un enlace de red propio entre las dos máquinas: rápido por cable, con Wi-Fi como respaldo solo para control.
-- Más adelante: carpetas compartidas, SSH, usar la RTX 5080 desde la Mac y mandar archivos.
+- Un solo teclado y mouse, con **motor propio** dentro de la app (sin Deskflow), siempre activo, sin retraso perceptible y respetando el acomodo de las pantallas.
+- Un enlace de red propio entre las dos máquinas: un **cable USB-C directo** como enlace principal, Ethernet como segundo y el Wi-Fi solo para control.
+- Encender y apagar la otra máquina desde la que se está usando.
+- Portapapeles compartido.
+- **Más adelante:** los monitores, cuando el firmware propio esté listo ([§8](#8-monitores-en-pausa-firmware-propio)); carpetas compartidas, SSH, usar la RTX 5080 desde la Mac y mandar archivos.
 
 La UI debe ser **hermosa y visual**: entender el estado de un vistazo, leer poco.
 
@@ -19,27 +21,27 @@ La UI debe ser **hermosa y visual**: entender el estado de un vistazo, leer poco
 | | Mac | PC |
 |---|---|---|
 | Equipo | MacBook Pro M5 | Gigabyte X870 GAMING X WIFI7 · Ryzen 7 9800X3D · RTX 5080 |
-| Red | Wi-Fi; 3× Thunderbolt/USB-C | Wi-Fi 7 · Realtek **2.5GbE** · **USB4** |
-| Video | HDMI → ambos monitores (uno por cable USB-C→HDMI) | DisplayPort → ambos monitores |
+| Red | Wi-Fi; 3× Thunderbolt/USB-C | Wi-Fi 7 · Realtek **2.5GbE** · **USB4** (ASMedia ASM4242) |
+| Video | HDMI → ambos monitores | DisplayPort → ambos monitores |
 
-| Monitor | Modelo | Entradas | DDC |
-|---|---|---|---|
-| 34" | Samsung Odyssey G5 **LC34G55T** | DP (PC) + HDMI (Mac) | ✅ desde la PC — ver [research/ddc-34-LC34G55T.md](research/ddc-34-LC34G55T.md) |
-| 32" | Samsung Odyssey G5 (modelo por confirmar) | DP (PC) + HDMI (Mac) | ⏳ sin probar |
+| Monitor | Modelo | Control |
+|---|---|---|
+| 34" | Samsung Odyssey G5 **LC34G55T** | Firmware propio en desarrollo (`personal-projects/monitor-firmware`) |
+| 32" | Samsung Odyssey G5 | Sin control por ahora |
 
 Periféricos: teclado y mouse en un **hub USB-C** que se conecta físicamente a una máquina u otra.
 
-Compras pendientes: adaptador USB-C→Ethernet 2.5G (Mac), cable Cat6, cable USB4/TB 40 Gbps.
+Cables: un cable USB-C a USB-C de un monitor Samsung de 27" (10 Gbps, con video) para el enlace directo ([§6.1](#61-enlace-directo-por-usb-c)). Pendiente: adaptador USB-C→Ethernet 2.5G para la Mac y cable Cat6.
 
 ## 3. Principios
 
 1. **Una sola app, todo en Rust.** Teclado y mouse compartidos con un motor propio (`tandem-input`) que viaja por nuestro enlace cifrado. Deskflow solo sirve de referencia: cómo resolvió cada caso raro. Ver [research/deskflow.md](research/deskflow.md).
-2. **Cada cambio de modo es una transacción**: pasos, timeouts y vuelta atrás. Nunca dejar al usuario con una pantalla negra sin explicación.
-3. **El estado lo lleva Tandem.** Los monitores mienten sobre su entrada, así que el agente guarda dónde está cada uno.
+2. **La entrada es lo primero.** Nada en el agente (red, portapapeles, UI) puede frenar el camino captura → enlace → inyección. Cada cambio en ese camino se mide ([§7.1](#71-latencia-y-fiabilidad)).
+3. **Cada acción con efecto en la otra máquina es una transacción**: pasos, timeouts y vuelta atrás (hoy: encender y apagar).
 4. **Dos planos de tráfico** (sección 6). El Wi-Fi nunca lleva datos.
-5. **Mecanismos intercambiables.** La forma de cambiar un monitor (DDC desde la PC, DDC local, manual, un KVM futuro) va detrás de una interfaz.
+5. **Nada de adivinar el estado de un monitor.** Tandem no controla monitores hasta tener el firmware propio, que dice la verdad. No se vuelven a agregar perfiles, calibraciones ni preguntas al usuario sobre qué muestra un monitor.
 6. **Seguro por defecto.** Las máquinas se emparejan una vez, el tráfico va cifrado y nadie más en la red puede dar órdenes.
-7. **Pares, sin centro fijo (T-084).** Cualquiera de las dos puede ser la principal (la que el usuario está usando) y orquestar; no hay servidor ni máquina central. Cada agente anuncia lo que tiene y sabe hacer (**capacidades**: monitores que ve y si les cambia la entrada, pantalla integrada, hub, permisos, energía, servicios) y los planes salen de esos anuncios, no del nombre de la máquina. La máquina local nunca está apagada para sí misma; de la otra se sabe por los enlaces y su anuncio. La configuración del puesto es de las dos y se sincroniza.
+7. **Pares, sin centro fijo (T-084).** Cualquiera de las dos puede ser la principal. Cada agente anuncia lo que tiene y sabe hacer (**capacidades**: hub, permisos, energía, servicios) y las acciones salen de esos anuncios, no del nombre de la máquina.
 
 ## 4. Arquitectura
 
@@ -48,131 +50,134 @@ Compras pendientes: adaptador USB-C→Ethernet 2.5G (Mac), cable Cat6, cable USB
 │  Tandem UI (Tauri, barra de menú)   │        │  Tandem UI (Tauri, bandeja)        │
 │            │ IPC local              │        │            │ IPC local             │
 │  tandemd (agente, servicio)         │◄──────►│  tandemd (agente, servicio)        │
-│   ├ orchestrator (modos, txns)      │ control│   ├ orchestrator                   │
-│   ├ link  (USB4/Eth/Wi-Fi, salud)   │ + datos│   ├ link                           │
-│   ├ display (fantasma macOS)        │        │   ├ display (DDC dxva2 + topología)│
+│   ├ orchestrator (energía, txns)    │ control│   ├ orchestrator                   │
+│   ├ link  (USB-C/Eth/Wi-Fi, salud)  │ + datos│   ├ link                           │
 │   ├ input (captura/inyección)       │        │   ├ input (captura/inyección)      │
 │   ├ peripherals (¿hub aquí?)        │        │   ├ peripherals                    │
-│   └ power (Wake-on-LAN)             │        │   └ power (apagado limpio)         │
-│   └ clipboard                       │        │   └ clipboard + helper de escritorio seguro │
+│   ├ power (Wake-on-LAN)             │        │   ├ power (apagado limpio)         │
+│   └ clipboard                       │        │   └ clipboard                      │
 └─────────────────────────────────────┘        └────────────────────────────────────┘
-                                                        │ DDC/CI por DisplayPort
-                                                        ▼
-                                               34" · 32"  (hoy la PC cambia las entradas)
+                                                  (futuro) tandem-monitor ── firmware del 34"
 ```
 
-El dibujo es del hardware de hoy, no de una jerarquía: los dos agentes son iguales.
-
-- **Anuncio de capacidades** (`ControlMsg::Capabilities`): al conectarse por cada enlace y con cada cambio. Con los dos anuncios cada agente sabe a quién pedirle cada paso: cambiar una entrada a la que puede (hoy la PC por DDC), despertar a quien se deja despertar desde quien tiene su Wake-on-LAN, apagar a quien sabe apagarse limpio. La UI habilita una acción solo si alguna máquina puede hacerla. Sin anuncio de la otra (no se la vio desde que arrancó este agente) se supone que puede lo que esta no; si no, el paso falla con su motivo y se deshace.
-- **Puesto compartido** (`ControlMsg::Desk`): monitores, perfiles DDC, cableado y el atajo de bloqueo, con versión (`desk_rev`) y el origen del último cambio. Va al emparejar, en cada reconexión y con cada cambio; gana la versión más nueva y se guarda en el `tandem.toml` de cada una. Dos configuraciones recién generadas se unen (la Mac no ve el EDID de un monitor que solo está en la PC). Lo solo-local (máquina, identidad, red, puertos, rutas, energía) no viaja.
-- Un agente de una versión anterior (sin anuncio de capacidades) se rechaza en el saludo con un error de versión que dice qué hacer.
+- **Anuncio de capacidades** (`ControlMsg::Capabilities`): al conectarse por cada enlace y con cada cambio. Con los dos anuncios cada agente sabe a quién pedirle cada paso (despertar, apagar). La UI habilita una acción solo si alguna máquina puede hacerla.
+- **Puesto compartido** (`ControlMsg::Desk`): el acomodo de pantallas de cada máquina para el motor de entrada ([§7](#7-teclado-y-mouse-motor-propio)) y el atajo de bloqueo, con versión (`desk_rev`). Va al emparejar, en cada reconexión y con cada cambio; gana la versión más nueva.
+- Un agente de una versión anterior se rechaza en el saludo con un error de versión que dice qué hacer. v0.2 sube la versión del protocolo: los mensajes de monitores desaparecen.
 
 ### 4.1 Stack
 
-- **Agente `tandemd`: Rust.** Un binario nativo por sistema. Llama directo a las APIs del sistema: `dxva2`/`SetDisplayConfig`/NvAPI en Windows, IOKit/CoreGraphics en macOS. Por FFI no hace falta C ni C++ propios.
-- **UI: Tauri 2 + frontend web** (TypeScript, animaciones). Una sola UI para los dos sistemas, ícono en la barra de menú y en la bandeja, ventana principal.
-- **Protocolo**: mensajes tipados (serde) sobre QUIC o TLS (rustls) con autenticación mutua por claves Ed25519.
+- **Agente `tandemd`: Rust.** Un binario nativo por sistema, con FFI directo a las APIs del sistema (hooks y `SendInput` en Windows; `CGEventTap`/`CGEventPost` en macOS).
+- **UI: Tauri 2 + frontend web** (TypeScript, animaciones).
+- **Protocolo**: mensajes tipados (serde) sobre QUIC (rustls) con autenticación mutua por claves Ed25519.
 
-### 4.2 Workspace (propuesto)
+### 4.2 Workspace
 
 ```
 crates/
-  tandem-core        modelo de dominio, modos, máquina de estados, transacciones
+  tandem-core        modelo de dominio, máquina de estados, transacciones
   tandem-proto       mensajes entre agentes y UI, versionado
   tandem-link        descubrimiento, enlaces, salud, prioridad, política de planos
-  tandem-display     trait MonitorSwitcher + backends (ddc-windows, ddc-macos, manual, kvm)
-                     trait DisplayTopology + backends (windows, macos)
   tandem-input       motor de teclado y mouse: captura, inyección, mapa de teclas, bordes
   tandem-clipboard   sincronización del portapapeles
   tandem-peripherals detección del hub USB (VID/PID)
   tandem-power       Wake-on-LAN, apagado remoto
+  tandem-sim         puesto simulado para pruebas
   tandemd            binario del agente (servicio launchd / Windows Service)
+  (futuro) tandem-monitor  cliente del firmware propio (§8)
 apps/
   tandem-ui          Tauri
-tools/               scripts de diagnóstico (DDC, etc.)
 ```
 
-## 5. Modos
+`tandem-display` y la CLI `tandem-ddc` se eliminan en T-092.
 
-| Modo | 34" | 32" | Teclado/mouse |
-|---|---|---|---|
-| **Solo Mac** | Mac | Mac | activo si la PC está prendida |
-| **Compartido** | elegido en la UI | elegido en la UI | activo |
-| **Solo Windows** | PC | PC | activo |
+## 5. Energía y estado del puesto
 
-- En **Compartido** la UI muestra los dos monitores y el usuario los arrastra a cada máquina.
-- Los modos nombran máquinas, no perspectivas: cualquiera de las dos los pide. Un plan enciende cada máquina que va a mostrar algo y la que cambia cada entrada; lo del escritorio de una máquina que sigue apagada (o suspendida) no se toca.
-- Cambiar de modo es una transacción. Ejemplo, de Solo Mac a Compartido (34" → PC):
-  1. Si la PC está apagada, Wake-on-LAN y esperar a que su agente responda (timeout 120 s).
-  2. PC: DDC `0x60 = DP` en el 34".
-  3. PC: activar el 34" en la topología de Windows. Mac: quitar el 34" de macOS (el fantasma).
-  4. Recalcular la geometría de pantallas del motor de entrada (cambio en caliente, sin reinicio).
-  5. Confirmar el estado y guardarlo. Si algún paso falla, deshacer en orden inverso y avisar en la UI.
-- Al revés (la PC de principal, la Mac suspendida): Solo Windows no despierta a la Mac, porque las entradas las cambia la PC; Compartido con un monitor para la Mac empieza por despertarla (Wake-on-LAN desde la PC, si la Mac lo anuncia).
-- **Apagar la otra máquina** también es transacción: todos los monitores a la que queda → toma el teclado y mouse → la otra se apaga limpio (la PC con `shutdown /s /t 0`; la Mac todavía no sabe apagarse sola y no lo anuncia).
-- **Vigilancia del par**: las dos máquinas vigilan a la otra. Si ningún enlace la ve durante `peer_lost_after_secs` sin que nadie la apagara (corte de corriente, suspensión), se la da por apagada, se recalcula la geometría y la UI lo avisa con los monitores que quedaron en negro; al volver a verla se la da por prendida.
-- Disparadores: botón en la UI, atajo de teclado global y horarios (opcional).
-- **El puesto empieza vacío (T-087).** La configuración generada solo trae la máquina, la red y valores por omisión: ni monitores ni teclado definido. La escena muestra «esta máquina» y «la otra» sin monitores hasta pasar por el **asistente de inicio**, y el teclado figura «sin definir» (nunca se supone la Mac) hasta que lo diga el hub o el usuario. Eso es solo lo que dice la UI: sin teclado definido el motor de entrada sigue arrancando como si estuviera en la Mac (`InputConfig::keyboard()`), hasta que el hub o el usuario decidan.
-- **Asistente de inicio.** Un paso por pantalla, cada uno verificado antes de pasar al siguiente: (1) esta máquina y sus permisos, (2) emparejar con la otra y ver el ping del enlace, (3) «presiona una tecla»: la máquina que la recibe tiene el teclado, y se confirma, (4) monitores conectados ahora, con el vínculo entre las identidades de las dos máquinas y el cableado confirmados, (5) perfil DDC (o calibración) e ida y vuelta real de cada monitor («¿ves la PC?» / «¿ves la Mac?»; si falla, queda en modo manual asistido y se dice), (6) «Aplicar modo» con verificación visual, (7) resumen. Se abre solo con el puesto vacío y se puede volver a abrir. «Restablecer puesto» borra monitores, vínculos, perfiles del usuario de esos monitores y estado, en las dos máquinas.
-- **Solo lo conectado.** La escena y los planes incluyen únicamente los monitores del puesto que alguna máquina ve conectados ahora; de los demás solo queda un aviso discreto. La sincronización nunca crea monitores: solo el asistente o «Agregar monitor». Quitar un monitor pide confirmación y borra todo lo suyo en las dos máquinas.
+Los modos Solo Mac / Compartido / Solo Windows dependían de cambiar monitores y **quedan en pausa** hasta el firmware. La UI los muestra deshabilitados («próximamente»).
+
+- **Encender la otra máquina**: Wake-on-LAN desde la que tiene su MAC y un enlace por Ethernet o LAN; se espera a que su agente responda (timeout 120 s).
+- **Apagar la otra máquina** es una transacción: el teclado y mouse vuelven a la que queda → la otra se apaga limpio (la PC con `shutdown /s /t 0`; la Mac todavía no sabe apagarse sola y no lo anuncia).
+- **Vigilancia del par**: si ningún enlace ve a la otra durante `peer_lost_after_secs` sin que nadie la apagara (corte de corriente, suspensión), se la da por apagada, el motor de entrada la saca de la geometría y la UI lo avisa.
+- **Asistente de inicio** (sin monitores): (1) esta máquina y sus permisos, (2) emparejar y ver el ping del enlace, (3) «presiona una tecla»: la máquina que la recibe tiene el teclado, (4) resumen. Con T-096 se agrega, antes del resumen, el acomodo de pantallas ([§7](#7-teclado-y-mouse-motor-propio)) con una prueba de cruce del mouse.
+- **Teclado sin definir (T-087).** La configuración generada no supone dónde está el teclado: la UI dice «sin definir» hasta que lo diga el hub o el usuario. Solo en la UI: el motor de entrada arranca como si estuviera en la Mac (`InputConfig::keyboard()`).
 
 ## 6. Red: enlaces y planos
 
 | Enlace | Prioridad | Plano de control | Plano de datos |
 |---|---|---|---|
-| USB4 / Thunderbolt directo | 1 | ✅ | ✅ |
+| USB-C directo (red USB4 / Thunderbolt) | 1 | ✅ | ✅ |
 | Ethernet 2.5G directo | 2 | ✅ | ✅ |
 | Wi-Fi (LAN de casa) | 3 | ✅ | ❌ **nunca** |
 
-- **Control** = teclado, mouse, portapapeles, mensajes entre agentes, monitores, modos, apagado.
+- **Control** = teclado, mouse, portapapeles, mensajes entre agentes, energía.
 - **Datos** = SSH, carpetas compartidas, servicios GPU, archivos. Solo se publican en interfaces de cable. Si se cae el cable, se pausan y la UI los muestra deshabilitados ("requiere cable"). **No hay interruptor para forzarlos por Wi-Fi.**
-- IPs estáticas en los enlaces directos (por ejemplo `10.77.1.0/30` USB4 y `10.77.2.0/30` Ethernet) y descubrimiento en la LAN.
-- Revisión de salud 1 vez por segundo por enlace. El agente elige el mejor y mueve el tráfico de entrada al siguiente en cuanto uno falla, sin esperar timeouts largos.
-- Wake-on-LAN solo por Ethernet. Requiere: BIOS con ErP **apagado** y WoL **encendido**, y Windows con Inicio rápido **desactivado** (para un arranque limpio de verdad).
+- Revisión de salud 1 vez por segundo por enlace. El agente elige el mejor y mueve el tráfico de entrada al siguiente en cuanto uno falla, sin esperar timeouts largos (con histéresis al volver, T-065).
+- Wake-on-LAN solo por Ethernet o LAN (no por USB-C: con la máquina apagada el controlador USB4 no tiene red). Requiere BIOS con ErP **apagado** y WoL **encendido**, y Windows con Inicio rápido **desactivado**.
+
+### 6.1 Enlace directo por USB-C
+
+**Qué es «Ethernet» en la tabla:** un cable de red normal (RJ45) entre el puerto 2.5GbE de la PC y la Mac con un adaptador USB-C→Ethernet. Es el respaldo si el USB-C no da red.
+
+**El cable USB-C como red.** Dos computadoras con USB4/Thunderbolt conectadas con un cable USB-C forman una red punto a punto (*USB4 inter-domain networking*): en macOS aparece la interfaz **Thunderbolt Bridge** (`bridge0`); en Windows, un adaptador de red **USB4 / Thunderbolt Networking**. No es USB normal: un cable USB 3 entre dos hosts sin USB4 no hace nada.
+
+- **El cable del monitor de 27":** si ese cable lleva video del monitor (DisplayPort alt mode), tiene los pares de alta velocidad, que son los mismos que usa USB4. Un cable pasivo de 10 Gbps (USB 3.2 Gen 2) normalmente negocia **USB4 Gen 2 (2×10 = 20 Gbps de enlace)**; descontando el protocolo, la red rinde del orden de **5–10 Gbps**. Para teclado, mouse y portapapeles sobra: basta con ~1 Mbps y lo que importa es la latencia, que en cable directo es de décimas de milisegundo.
+- **Riesgo principal (spike S5):** la red USB4 entre hosts en Windows depende del controlador. La X870 usa un ASMedia ASM4242 y no está confirmado que Windows le dé el adaptador de red host a host. Se prueba primero con el hardware real; si no aparece la interfaz, el enlace principal es Ethernet.
+- **Detección automática (T-094):** el agente vigila las interfaces del sistema y reconoce la del cable por su tipo (Thunderbolt Bridge en macOS; descripción USB4/Thunderbolt Networking en Windows), sin configurar nada a mano:
+  1. Al aparecer la interfaz, usa las direcciones IPv6 *link-local* (siempre existen, sin DHCP) y, como respaldo, una dirección fija del rango `10.77.1.0/30` que cada agente se asigna según su lado.
+  2. Descubre al par con mDNS **solo en esa interfaz** y abre la conexión QUIC. Cada extremo clasifica el enlace por su interfaz de salida y se intercambian la clasificación: **vale la peor de las dos** (si la PC sale por Ethernet al router y la Mac llega por Wi-Fi, el enlace es Wi-Fi y no lleva datos).
+  3. Mide el enlace (latencia de ida y vuelta y, a pedido, el ancho de banda con una prueba corta **solo en enlaces de cable**: la prueba es tráfico de datos) y la UI lo muestra: «USB-C · 20 Gbps · 0.3 ms».
+  4. Al desconectar el cable, el gestor de enlaces pasa la entrada al siguiente en menos de un segundo.
+- Los `peers` estáticos de la configuración siguen funcionando como respaldo manual.
 
 ## 7. Teclado y mouse (motor propio)
 
-- **El teclado está en la máquina donde está conectado el hub USB-C**, en cualquiera de las dos direcciones. El agente detecta el teclado y el mouse por VID:PID y, con un pequeño retardo para no reaccionar a desconexiones breves, lo pasa a la otra. Si la otra se da por apagada, la que queda se lo queda. En la UI no hay «servidor» ni «cliente»: «Teclado aquí» / «Teclado de la PC». (En el código los papeles siguen llamándose servidor/cliente o source/sink.)
+- **El teclado está en la máquina donde está conectado el hub USB-C**, en cualquiera de las dos direcciones. El agente detecta el teclado y el mouse por VID:PID y, con un pequeño retardo para no reaccionar a desconexiones breves, lo pasa a la otra. Si la otra se da por apagada, la que queda se lo queda. En la UI no hay «servidor» ni «cliente»: «Teclado aquí» / «Teclado de la PC».
 - **Captura** en la que tiene el teclado: `CGEventTap` en macOS; hooks de bajo nivel o Raw Input en Windows. Cuando el foco está en la otra máquina, los eventos se tragan y el cursor local se bloquea y oculta.
 - **Inyección** en la otra: `CGEventPost` en macOS; `SendInput` con scancodes en Windows.
 - **Teclas**: representación canónica por código físico (USB HID), así se respeta la distribución física ES/LatAm de cada sistema. Cmd↔Ctrl configurable.
 - **Transporte**: el movimiento del mouse va en datagramas no confiables (coalescidos, baja latencia); las teclas y clics, en un stream confiable. Todo por el enlace cifrado de Tandem, con cambio de enlace inmediato.
-  - Sobre la conexión del enlace activo, la entrada y el portapapeles van cada uno en su propio stream: quien lo abre manda `ControlMsg::Open(canal)` como primer mensaje y el otro agente se lo entrega al motor de entrada. El de entrada lo abre la que tiene el teclado; el del portapapeles, la Mac.
-  - Los papeles se deciden en cada agente con lo que ve del hub y el reporte del otro (`ControlMsg::Hub`); las pantallas de cada máquina viajan con `ControlMsg::Screens` para que la que tiene el teclado arme la geometría de las dos.
-- **Geometría**: solo cuentan las pantallas que cada máquina está mostrando de verdad, así el cursor nunca pasa por un monitor fantasma. Se recalcula en caliente con cada cambio de modo.
+  - Sobre la conexión del enlace activo, la entrada y el portapapeles van cada uno en su propio stream (`ControlMsg::Open(canal)`).
+  - Los papeles se deciden en cada agente con lo que ve del hub y el reporte del otro (`ControlMsg::Hub`); las pantallas viajan con `ControlMsg::Screens`.
+- **Geometría (v0.2): acomodo declarado.** Se elimina la topología de `tandem-display` (monitores, EDID, salidas activas, fantasma, pantalla integrada). La geometría sale del **acomodo** del puesto compartido: `[[screens]]` por máquina, cada pantalla con un id, su rectángulo en las **coordenadas nativas del cursor de esa máquina** (puntos en macOS, píxeles físicos del escritorio virtual en Windows) y su escala; más la posición de un escritorio respecto del otro (qué borde de cuál toca cuál, y el desplazamiento). Se edita a mano en `tandem.toml` (T-092) y con un editor visual en la UI (T-096).
+  - **Valor por omisión:** los límites que el propio motor de entrada ya lee para clampear el cursor al inyectar (`CGDisplayBounds` en `tandem-input` para macOS; `SM_*VIRTUALSCREEN` en Windows). No es control de monitores: es lo mínimo que la inyección necesita, y evita que con un 34" de 3440×1440 el mouse cruce a media pantalla. Sin acomodo declarado, la Mac va a la izquierda de la PC.
+  - `tandem_input::geometry` **sí cambia**: hoy depende de `tandem_core::{Config, State, MonitorId, BuiltinDisplay}` (dueño de cada monitor, pantalla integrada efectiva, orden de `cfg.monitors`). En T-092 pasa a recibir solo el acomodo (rectángulos por máquina y posición relativa); el algoritmo de cruce de bordes se conserva.
+  - Si el acomodo no coincide con las pantallas reales, el cursor cruza en el lugar equivocado: el asistente termina con una prueba de cruce (cuando exista el editor, T-096). Cuando llegue el firmware, las pantallas que muestran la otra máquina salen de la geometría solas ([§8](#8-monitores-en-pausa-firmware-propio)).
 - **Portapapeles**: texto, texto enriquecido e imágenes en v1; archivos en v3, por el plano de datos.
-- **Windows, escritorio seguro**: el agente corre como servicio SYSTEM y lanza un helper en el escritorio activo (incluido Winlogon), para que el mouse funcione en UAC y en la pantalla de inicio de sesión.
+- **Windows, escritorio seguro** (T-027): el agente corre como servicio SYSTEM y lanza un helper en el escritorio activo, para que el mouse funcione en UAC y en la pantalla de inicio de sesión.
 - Diseño del motor: [research/input-engine.md](research/input-engine.md).
 
-## 8. Monitores
+### 7.1 Latencia y fiabilidad
 
-- **Quién cambia las entradas: la máquina que puede, según su anuncio.** Hoy es la PC, por DDC sobre DisplayPort; el canal sigue vivo aunque el monitor esté mostrando HDMI.
-- La otra máquina pide los cambios por el plano de control. Si se logra DDC desde la Mac (sección 11), se agrega como backend `ddc-macos` y la Mac podría operar con la PC apagada.
-- Perfil por monitor con sus códigos reales (el 34": HDMI `0x06`, DP `0x0F`/`0x09`). El monitor no reporta su entrada; el estado lo guarda el agente.
-- **Estado sin confirmar (T-085).** Como ningún monitor dice qué muestra (y cada sistema ve al fantasma como activo), el agente arranca sin confirmar: sin estado guardado, o con uno de un arranque anterior (pudo cambiar a mano). Se confirma de dos formas:
-  - **«Aplicar modo»** (el camino principal, sin preguntar): elegir Solo Mac / Compartido / Solo Windows manda la entrada de *todos* los monitores, crea lo que crea el agente. Necesita encendida y enlazada a la máquina que cambia las entradas. Mientras no está confirmado, cualquier cambio de modo hace esto: no se planea sobre lo inventado.
-  - **Decir qué muestra** (sin parpadeo): la UI pregunta por cada monitor «¿qué muestra ahora?» (una máquina o nada), con una pista si la hay; se responde en cualquiera de las dos y se sincroniza. Lo mismo, en cualquier momento, desde el menú del monitor en la escena («en realidad muestra…»). No se manda ninguna entrada: la máquina que lo muestra lo pone en su escritorio y se recalcula la geometría; a la otra no se le quita nada (el fantasma se quita en el siguiente cambio de modo, tras su `SwitchInput`).
-- **Un monitor, dos identidades (T-087).** El EDID cambia por entrada: el 34" es `SAM711A` por DisplayPort y `SAM7119` por HDMI; el 32", `SAM7489` y `SAM748A`. Cada `[[monitors]]` lleva su `edid_model` y los `edid_aliases` de las demás máquinas, y los perfiles DDC, `pnp_aliases`. El asistente propone el vínculo por número de serie del EDID, o por modelo o tamaño pidiendo confirmación; el cableado se deduce de por dónde ve cada máquina al monitor (tecnología de salida de la topología, cuando el sistema la da) y se confirma. Cambiar el cableado fuera del asistente pide confirmación explícita.
-- **Seguridad de pantallas (regla dura, T-087).** Ninguna máquina quita de su escritorio ni apaga la salida de un monitor al arrancar, al sincronizar, durante el asistente ni con el estado sin confirmar. `Detach` solo ocurre dentro de un cambio de modo y después de que el `SwitchInput` de ese monitor tuvo éxito; lo que diga el usuario («qué muestra») nunca quita una salida. Si un paso falla, la vuelta atrás reactiva lo quitado y no deja a una máquina sin el monitor que ya mostraba (un `Attach` sobre lo que ya tenía no se deshace). La máquina anota lo que ella misma quita (`detached.json`) y, al arrancar con el estado sin confirmar (siempre), lo reactiva. La propiedad se prueba con `proptest` (`crates/tandem-core/tests/safety.rs`).
-- **Ida y vuelta del asistente (T-089).** La prueba del paso 5 no es un cambio de modo: es solo un `SwitchInput` del monitor probado (`UiCommand::ProbeInput`), sin `Attach` ni `Detach`, sin tocar los demás monitores y sin cambiar el estado, aunque esté sin confirmar. Como la PC conserva su salida activa, el canal DDC sigue vivo con el monitor en la otra entrada (arriba), y de ahí sale la vuelta. La vuelta no depende de la UI: al mandar la ida, el agente que recibió el pedido arma un plazo (30 s, más que la espera de la respuesta del usuario) y devuelve el monitor él solo, con reintentos; pedir la vuelta la adelanta, y un cambio de modo que mande la entrada de ese monitor cancela el plazo. La ida se niega si la máquina destino pudo quitar el monitor de su escritorio (el fantasma; `Plan::probe`). Solo se prueba un monitor con perfil DDC (sin él no hay vuelta automática: se calibra antes, o queda en modo manual asistido), y con el estado sin confirmar el usuario dice primero dónde lo ve ahora (no se supone la Mac). Un fallo de transporte no descarta el perfil; solo el «no lo vi» del usuario lo hace. Límite conocido: si el agente muere dentro del plazo, el monitor se queda en la entrada de prueba (se devuelve desde su menú).
-- **Vuelta atrás sin dejar monitores en negro (T-089).** Al deshacer un plan, primero se reactivan las salidas quitadas, después vuelven las entradas y por último se quitan las salidas que el plan había agregado, y solo las de un monitor cuya entrada volvió: quitar la salida de una máquina mientras el monitor sigue en su entrada lo dejaba en negro. Un paso que no responde (tiempo agotado) no deja nada desactivado.
-- **Un monitor se reconoce por su identidad exacta (T-089).** En DDC, `edid_model` y los alias se comparan completos (id PnP o nombre del EDID, sin distinguir mayúsculas), igual que en la topología; nunca por texto contenido. La calibración se niega si el monitor del bus que se pidió por índice no es el de la configuración que se nombró.
-- **Fantasma**: la máquina que no está mostrando un monitor lo quita de su escritorio, solo después de que el cambio de entrada de ese monitor salió bien.
-  - Windows: `SetDisplayConfig`. Riesgo: perder el handle DDC → ver spike S3.
-  - macOS: no hay API pública; usar la privada `CGSConfigureDisplayEnabled` (como BetterDisplay) → spike S2.
-  - Plan C si falla: dejar la pantalla activa pero vacía, moviendo las ventanas fuera, y excluirla de la geometría del motor de entrada.
+Objetivo medible (T-093), de evento capturado a evento inyectado, en la máquina remota:
 
-### 8.1 Pantalla integrada de la MacBook
+| Enlace | p50 | p99 |
+|---|---|---|
+| USB-C / Ethernet directo | ≤ 1 ms | ≤ 4 ms |
+| Wi-Fi | ≤ 5 ms | ≤ 20 ms |
 
-La laptop se queda casi cerrada pero no del todo (se usan su micrófono y sus audífonos), así que su pantalla queda activa y las ventanas se van ahí sin que se vean.
+- **Medición siempre disponible:** cada datagrama y mensaje de entrada lleva una marca de tiempo del reloj monotónico del servidor; el cliente estima el desfase con los heartbeats y publica p50/p99 en la UI (chip del enlace) y en los logs. Un banco de pruebas (`tandem-sim` + loopback) mide la ruta interna: en CI con un umbral holgado que solo detecta regresiones grandes (los runners compartidos tienen pausas); el objetivo de 1 ms se comprueba como benchmark local.
+- **Sin colas en el camino caliente:** la captura entrega a un canal dedicado; el envío del datagrama no espera a un runtime ocupado con el portapapeles o la UI (tarea con prioridad propia o hilo dedicado). Los datagramas de entrada no esperan al *pacing* del control de congestión de QUIC.
+- **Fallos conocidos a cubrir:** Windows quita en silencio un hook lento (`LowLevelHooksTimeout`): el callback no hace trabajo y el watchdog lo reinstala; macOS desactiva el tap por timeout (`kCGEventTapDisabledByTimeout`): se reactiva y se registra; teclas pegadas al cambiar de máquina o caer el enlace: se sueltan todas en los dos lados; escala por monitor en Windows (DPI): el acomodo declarado lleva la escala.
 
-- **Modos de la pantalla integrada** (selector en la UI, junto al dibujo de la laptop):
-  - **Apagada** (predeterminado): se quita del escritorio de macOS. Las ventanas no pueden ir ahí y el motor de entrada la excluye. Es el mismo mecanismo de API privada que el fantasma (spike S2).
-  - **Espejo**: refleja un monitor externo (API pública `CGConfigureDisplayMirrorOfDisplay`). Sirve como respaldo si la API privada falla.
-  - **Extendida**: comportamiento normal de macOS.
-  - **Traer ventanas**: acción puntual que mueve las ventanas de la pantalla integrada al monitor principal (API de Accesibilidad).
-- **Regla automática**: si la Mac se queda sin monitores externos (modo Solo Windows o los monitores en DP), la pantalla integrada **se enciende sola**. Al volver un monitor externo, se aplica otra vez la preferencia del usuario.
-- La geometría de pantallas del motor de entrada se calcula siempre a partir de este estado, para que el cursor nunca entre en una pantalla que no se está mirando.
+## 8. Monitores (en pausa: firmware propio)
+
+Todo el control de monitores de v0.1 se elimina en T-092: DDC por `dxva2`, perfiles y calibración, identidades por EDID, «¿qué muestra ahora?», monitor fantasma (`SetDisplayConfig`, `CGSConfigureDisplayEnabled`), pantalla integrada de la MacBook, lectura de la topología de pantallas y los modos que dependían de todo eso. La razón: los monitores de fábrica mienten sobre su entrada (el 34" responde con el puerto por donde llegó la pregunta, no con lo que muestra), así que todo era adivinar.
+
+**El reemplazo es un firmware propio del 34"** (proyecto `personal-projects/monitor-firmware`, v3.1 ya flasheado). Sobre MCCS normal agrega:
+
+| VCP | Qué da |
+|---|---|
+| `0x60` (corregido en v1) | La entrada real en pantalla, no el puerto de la pregunta |
+| `0xEA`–`0xED` | Registro de eventos con número de secuencia y hora: cambio de entrada, señal, energía, ajustes del menú, y el **veredicto de un cambio** (`switch-done` / `switch-failed`) |
+| `0xEE` | Estado en vivo: puerto, selector de fuente, energía, señal |
+| `0xF0`–`0xF6` | Lectura de memoria, escritura de ajustes y aplicar opciones del menú |
+
+**Integración prevista (T-095, después de que el firmware esté listo):**
+
+- Crate nuevo `tandem-monitor` con el protocolo del firmware, detrás de un trait con doble de prueba. Sin perfiles ni calibración: si el monitor no habla el protocolo (VCP `0xEA` sin soporte), no se controla.
+- **Un solo lector por monitor.** El cursor de eventos (`0xEB`) y la dirección (`0xF0`/`0xF1`) son estado global del monitor: dos lectores a la vez se pisan. Lee el agente de la máquina con canal DDC (hoy la PC) y reparte los eventos a la otra por el plano de control.
+- El estado de cada monitor sale de los eventos; un cambio de entrada termina con el veredicto del firmware, no con un plazo ni con una pregunta.
+- Vuelven los modos y el arrastre de monitores en la UI, y la geometría del motor de entrada saca sola las pantallas que muestran la otra máquina.
+- Límite conocido: solo la PC tiene canal DDC hoy (la Mac no lo tiene por HDMI). Con la PC apagada no hay control, salvo que funcione el backend de macOS (`IOAVService`, sin probar).
 
 ## 9. Seguridad
 
@@ -183,46 +188,42 @@ La laptop se queda casi cerrada pero no del todo (se usan su micrófono y sus au
 
 ## 10. UI
 
-Dirección visual: oscura y sobria, una sola escena viva en vez de formularios. Colores apagados (un acento suave por máquina), sin brillos de neón, sin degradados llamativos ni fondos animados: que no parezca "app de IA".
+Dirección visual: oscura y sobria, una sola escena viva en vez de formularios. Colores apagados (un acento suave por máquina), sin brillos de neón, sin degradados llamativos ni fondos animados.
 
-- **Escena principal**: las dos máquinas dibujadas, los dos monitores con miniatura de color, y las líneas del enlace animadas: grosor y pulso según la velocidad, color según el tipo.
-- Arrastrar un monitor de una máquina a otra = cambiarlo.
-- Tarjetas de modo grandes (Solo Mac / Compartido / Solo Windows) con iconografía, sin texto largo.
-- Dos tarjetas: «esta máquina» a la izquierda, siempre encendida, y «la otra» a la derecha con su estado (encendida, arrancando, apagada) y su enlace. Lo que se dibuja en cada una sale de su anuncio de capacidades (pantalla integrada, botón de encendido), no de si es la Mac o la PC.
+- **Escena principal**: las dos máquinas y el enlace entre ellas, vivo: el tipo de enlace activo (USB-C, Ethernet, Wi-Fi), su velocidad y la latencia de la entrada (p50/p99) con un pulso que sigue el tráfico real.
+- **El cursor en vivo**: un punto que se mueve en el acomodo de pantallas mostrando en qué máquina está el foco, y un destello en el borde cuando cruza.
+- **Acomodo de pantallas**: rectángulos arrastrables por máquina (§7); se guardan en el puesto compartido.
+- Chip de teclado y mouse (dónde está el hub, conectado o no).
 - Botón de encendido de la otra máquina con su estado, solo si se la puede despertar o sabe apagarse.
-- Chip de teclado y mouse (dónde está el teclado, conectado o no).
-- Barra de menú / bandeja: mini versión de la escena + los tres modos.
-- Feedback de transacción: una línea de progreso por pasos, con iconos.
+- **Monitores**: la tarjeta queda visible pero **deshabilitada** («próximamente: firmware propio»), igual que los modos.
+- Barra de menú / bandeja: mini versión de la escena.
 
-Mockups en [`../mockups/`](../mockups/).
+Mockups: [`../mockups/main.html`](../mockups/main.html) (v0.1) y [`../mockups/next.html`](../mockups/next.html) (v0.2).
 
-## 11. Riesgos y spikes (Fase 0)
+## 11. Riesgos y spikes
 
 | # | Spike | Por qué importa |
 |---|---|---|
-| S1 | DDC del 32" desde la PC | Saber si los dos monitores se pueden controlar |
-| S2 | Quitar/devolver una pantalla en macOS por API privada (monitores externos **y** pantalla integrada); espejo como respaldo | Monitor fantasma y pantalla integrada |
-| S3 | ¿DDC sobrevive si Windows desactiva el monitor? Si no, I2C por NvAPI | Monitor fantasma en Windows sin perder el control |
-| S4 | DDC desde la Mac: HDMI integrado vs cable USB-C→HDMI (m1ddc / IOAVService) | Operar monitores con la PC apagada |
-| S5 | Red USB4 Mac↔Windows (cuando llegue el cable) | Enlace prioritario |
+| S5 | Red USB4 host a host Mac↔Windows con el cable del monitor de 27" (ASM4242 en la X870) | Enlace principal; si no hay interfaz en Windows, el principal es Ethernet |
 | S6 | Wake-on-LAN desde apagado total en la X870 | Encendido remoto |
-| S7 | Permisos de macOS (Accesibilidad / Input Monitoring) para capturar e inyectar | Experiencia de instalación |
-| S9 | Escritorio seguro de Windows (UAC, Ctrl+Alt+Supr, inicio de sesión) con servicio SYSTEM + helper | El mouse no puede "morir" en UAC |
-| S10 | Prototipo de captura e inyección + mapa de teclas ES/LatAm Mac↔Windows | Base del motor propio |
-| S8 | Aislar el código de vuelta a DP (`0x09` vs `0x0F`) | Perfil del 34" |
+| S7 | Permisos de macOS (Accesibilidad / Input Monitoring) | Experiencia de instalación |
+| S9 | Escritorio seguro de Windows con servicio SYSTEM + helper | El mouse no puede "morir" en UAC |
+| S11 | Latencia real captura → inyección en los dos sentidos, por cable y por Wi-Fi | Objetivo de §7.1 |
+| S12 | Firmware: lector único de eventos desde Tandem y control del 32" | Integración de monitores (T-095) |
+
+Los spikes de DDC de fábrica (S1–S4, S8) quedan cerrados: se reemplazan por el firmware propio.
 
 ## 12. Fases
 
 | Fase | Contenido | Cómo se considera terminada |
 |---|---|---|
-| **F0 Spikes** | S1–S4, S6–S8 | Cada spike con nota en `docs/research/` |
-| **F1 Núcleo** | workspace, tandemd en los dos sistemas, emparejamiento, enlace (Wi-Fi primero), protocolo, CI que compile mac y win | Los agentes se ven y hablan cifrado |
-| **F2 Teclado y mouse** | `tandem-input` (captura, inyección, bordes, mapa de teclas), portapapeles, roles por hub USB, escritorio seguro | Uso diario sin Deskflow; cambiar el hub invierte los roles |
-| **F3 Monitores y modos** | MonitorSwitcher, topología, transacciones, los tres modos | Un clic cambia el modo completo, con vuelta atrás |
-| **F4 Energía** | Wake-on-LAN y apagado transaccional | Encender y apagar la PC desde la Mac |
-| **F5 UI** | escena, arrastrar monitores, barra de menú, atajos | La UI de los mockups, funcionando |
-| **v2 Datos** | SSH, carpetas compartidas (SMB), servicios GPU (Ollama, etc.) solo por cable | Accesos directos en la UI |
-| **v3 Archivos** | arrastrar y soltar o "enviar a" entre máquinas | Mandar un archivo con un gesto |
+| F0–F5 (v0.1) | Núcleo, entrada, monitores por DDC, energía, UI | Hecho; los monitores se retiran en v0.2 |
+| **G1 Limpieza** | T-092: fuera monitores, DDC y pantallas | El agente y la UI compilan y prueban sin `tandem-display` |
+| **G2 Entrada** | T-093: latencia medida y fallos conocidos cubiertos | Objetivos de §7.1 en el banco y en el puesto |
+| **G3 Enlace USB-C** | T-094: detección automática del cable | Conectar el cable lo pone como enlace principal sin configurar |
+| **G4 UI viva** | T-096: escena con enlace, cursor y acomodo de pantallas | La UI de `mockups/next.html`, funcionando |
+| **G5 Monitores** | T-095: firmware propio | Cambios con veredicto del monitor, modos de vuelta |
+| v2 Datos / v3 Archivos | SSH, SMB, GPU; mandar archivos | Igual que en v0.1 |
 
 ## 13. Flujo de desarrollo
 
@@ -233,6 +234,7 @@ Mockups en [`../mockups/`](../mockups/).
 
 ## 14. Preguntas abiertas
 
-- Modelo exacto del 32".
+- Modelo exacto del 32" y si su firmware se puede modificar igual que el del 34".
+- ¿La X870 da red USB4 host a host en Windows? (S5)
 - ¿Horarios automáticos en v1 o después?
 - ¿Qué servicios GPU concretos en v2 (Ollama, ComfyUI, Jupyter)?
