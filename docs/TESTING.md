@@ -7,10 +7,10 @@ Objetivo: cuando se conecte el hardware real, que lo único pendiente de verific
 | Capa | Qué | Dónde corre |
 |---|---|---|
 | Unitarias | Lógica pura: planes, transacciones, geometría, mapa de teclas, protocolo, política de enlaces | Linux / CI x3 |
-| Propiedades (`proptest`) | Invariantes: el framing decodifica cualquier partición; la vuelta atrás restaura el estado; ida y vuelta de teclas HID↔Mac↔Win; ningún modo deja a la Mac sin pantalla | Linux / CI x3 |
+| Propiedades (`proptest`) | Invariantes: el framing decodifica cualquier partición; la vuelta atrás restaura el estado; ida y vuelta de teclas HID↔Mac↔Win | Linux / CI x3 |
 | Integración | Dos `tandemd` en el mismo proceso por loopback (QUIC real) con backends simulados de pantalla, entrada, energía y periféricos | Linux / CI x3 |
-| Binario (`tandemd/tests/two_processes.rs`) | Dos procesos `tandemd` compilados con `--sim-backends`, emparejados por archivos y unidos por QUIC en loopback; la prueba es la UI por la IPC real. Modos, estado en los dos y matar un proceso a mitad de un cambio | CI Linux |
-| Simulación del puesto (`tandem-sim`) | Escenarios de punta a punta: modos, caída de enlaces, cambio de hub, apagado, fallos inyectados en cada paso | Linux / CI x3 |
+| Binario (`tandemd/tests/two_processes.rs`) | Dos procesos `tandemd` compilados con `--sim-backends`, emparejados por archivos y unidos por QUIC en loopback; la prueba es la UI por la IPC real. Encendido, estado en los dos y matar un proceso a mitad de un cambio | CI Linux |
+| Simulación del puesto (`tandem-sim`) | Escenarios de punta a punta: energía, caída de enlaces, cambio de hub, apagado, fallos inyectados en cada paso | Linux / CI x3 |
 | Plataforma | Código real de Windows y macOS: compila y sus pruebas sin dispositivo corren en los runners | CI windows / macos |
 | Hardware | `#[ignore = "hardware"]` y la lista `## Verificación en hardware pendiente` de cada tarea | Equipo real, con el usuario |
 
@@ -30,11 +30,11 @@ Objetivo: cuando se conecte el hardware real, que lo único pendiente de verific
 
 `crates/tandem-sim` levanta dos `tandemd` reales en el mismo proceso: cada uno con su orquestador, su gestor de enlaces (`tandem-link`) y el protocolo de control real (`PeerClient` / `peer::serve`). Lo único simulado es lo de afuera:
 
-- **Puesto físico** (`world`): la entrada real de cada monitor (el 34" obedece `0x06`/`0x03` para HDMI y `0x0F`/`0x09` para DP, ignora los demás códigos sin error y al leer `0x60` siempre dice `0x09`), el escritorio de cada máquina, la pantalla integrada, la energía de la PC (Wake-on-LAN, que solo llega por Ethernet; arranque de 45 s; apagado), la geometría de cada motor de entrada y el hub USB.
+- **Puesto físico** (`world`): la energía de la PC (Wake-on-LAN, que solo llega por Ethernet; arranque de 45 s; apagado), la geometría de cada motor de entrada y el hub USB.
 - **Red** (`net`): un enlace en memoria por USB4, Ethernet y Wi-Fi. Cortar un enlace es silencio, como un cable desenchufado; los flujos abiertos por él no vuelven aunque el cable vuelva. Con la PC apagada su agente no contesta por ningún enlace.
 - **Fallos** (`FaultPlan`): en el paso que se quiera de cualquiera de las dos máquinas, `Fail` (falla sin aplicarse), `Hang` (no termina: lo corta el tiempo máximo), `Delay`, `CutLink` (se cae un enlace al empezar el paso) y `ApplyThenCut` (se aplica y la respuesta se pierde con el enlace). También `cut_link_at` para cortar un enlace en un instante. Cada fallo se dispara una vez salvo `.times(n)`, así el inverso del paso no falla también.
 
-Las comprobaciones comparan la verdad física con lo que cree el agente: `Desk::check` (monitores, energía, escritorios sin fantasmas, pantalla integrada y ningún paso imposible, como uno en la PC apagada), `Desk::check_geometry` y `Desk::pc_agrees` (el agente de la PC tiene el mismo estado).
+Las comprobaciones comparan la verdad física con lo que cree el agente: `Desk::check` (energía y ningún paso imposible, como uno en la PC apagada), `Desk::check_geometry` y `Desk::pc_agrees` (el agente de la PC tiene el mismo estado).
 
 ### Agregar un escenario
 
@@ -68,4 +68,4 @@ async fn mi_escenario() {
 
 - Nada de `std::thread::sleep` ni de esperas reales: para dejar pasar el tiempo, `tokio::time::sleep` (con el reloj pausado avanza solo) o `Desk::settle`.
 - Para un paso nuevo de `tandem_core::Step`, agregar su efecto en `SimSteps::apply` (`steps.rs`) y lo que haga falta en `World` y en `World::check`.
-- Para un backend nuevo (por ejemplo el `MonitorSwitcher` real detrás de un trait), el doble va en el crate del backend; `tandem-sim` solo modela lo físico.
+- Para un backend nuevo (por ejemplo uno real detrás de un trait), el doble va en el crate del backend; `tandem-sim` solo modela lo físico.

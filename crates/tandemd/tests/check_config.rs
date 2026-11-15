@@ -6,11 +6,13 @@ use std::process::{Command, Output};
 const VALID: &str = r#"
 machine = "pc"
 
-[[monitors]]
-id = "m34"
-label = '34"'
-wiring = { pc = "displayport", mac = "hdmi" }
-ddc = { hdmi = 0x06, display_port = 0x0F }
+[[screens]]
+machine = "pc"
+id = "34"
+x = 0
+y = 0
+width = 3440
+height = 1440
 "#;
 
 fn check(path: &Path) -> Output {
@@ -34,6 +36,7 @@ fn valid_config_exits_zero() {
     assert!(out.status.success(), "{out:?}");
     let stdout = String::from_utf8(out.stdout).unwrap();
     assert!(stdout.contains("configuración válida"), "{stdout}");
+    assert!(stdout.contains("1 pantallas declaradas"), "{stdout}");
 }
 
 #[test]
@@ -45,12 +48,24 @@ fn invalid_toml_exits_nonzero() {
 
 #[test]
 fn invalid_desk_exits_nonzero() {
-    // Monitor sin cablear a ninguna máquina.
-    let out =
-        check_text("machine = \"mac\"\n[[monitors]]\nid = \"a\"\nlabel = \"a\"\nwiring = {}\n");
+    // Una pantalla sin área.
+    let out = check_text(
+        "machine = \"mac\"\n[[screens]]\nmachine = \"mac\"\nid = \"a\"\nx = 0\ny = 0\nwidth = 0\nheight = 10\n",
+    );
     assert!(!out.status.success());
     let stderr = String::from_utf8(out.stderr).unwrap();
-    assert!(stderr.contains("no está cableado"), "{stderr}");
+    assert!(stderr.contains("no tiene área"), "{stderr}");
+}
+
+/// Una configuración de v0.1 es válida: los `[[monitors]]` se ignoran con un aviso.
+#[test]
+fn an_old_config_with_monitors_is_valid_with_a_warning() {
+    let out = check_text(
+        "machine = \"pc\"\n[[monitors]]\nid = \"m34\"\nlabel = '34\"'\nwiring = { pc = \"displayport\" }\n",
+    );
+    assert!(out.status.success(), "{out:?}");
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("[[monitors]]"), "{stderr}");
 }
 
 #[test]
@@ -78,8 +93,9 @@ fn example_configs_are_valid() {
         assert!(out.status.success(), "{file}: {out:?}");
         let stdout = String::from_utf8(out.stdout).unwrap();
         assert!(
-            stdout.contains(&format!("máquina {machine}, 2 monitores")),
+            stdout.contains(&format!("máquina {machine}, 3 pantallas declaradas")),
             "{stdout}"
         );
+        assert!(out.stderr.is_empty(), "{file}: sin avisos");
     }
 }

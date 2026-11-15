@@ -1,7 +1,6 @@
 //! Los pasos de energía de esta máquina: Wake-on-LAN hacia la otra (si tiene su
 //! `[power.wol]`) y apagado limpio de sí misma (si sabe, DESIGN §5). Cualquiera de las
-//! dos puede despertar a la otra (DESIGN §3.7). El resto de los pasos pasa a otro
-//! [`LocalSteps`].
+//! dos puede despertar a la otra (DESIGN §3.7).
 
 use std::sync::Arc;
 
@@ -14,9 +13,8 @@ use crate::orchestrator::{LocalSteps, STEP_NOT_IMPLEMENTED, StepFuture, describe
 /// Falta `[power.wol]` en `tandem.toml`.
 pub const WOL_NOT_CONFIGURED: &str = "falta [power.wol] en tandem.toml";
 
-/// Envuelve los pasos de una máquina y agrega los de energía.
+/// Los pasos de energía de una máquina.
 pub struct PowerSteps {
-    inner: Arc<dyn LocalSteps>,
     wake: Option<Arc<dyn Wake>>,
     shutdown: Option<Arc<dyn Shutdown>>,
 }
@@ -31,21 +29,13 @@ impl std::fmt::Debug for PowerSteps {
 }
 
 impl PowerSteps {
-    pub fn new(
-        inner: Arc<dyn LocalSteps>,
-        wake: Option<Arc<dyn Wake>>,
-        shutdown: Option<Arc<dyn Shutdown>>,
-    ) -> Self {
-        PowerSteps {
-            inner,
-            wake,
-            shutdown,
-        }
+    pub fn new(wake: Option<Arc<dyn Wake>>, shutdown: Option<Arc<dyn Shutdown>>) -> Self {
+        PowerSteps { wake, shutdown }
     }
 
     /// Lo que corresponde a la máquina de `cfg`: despierta a la otra con `[power.wol]` y
     /// se apaga a sí misma si sabe (hoy, Windows).
-    pub fn for_machine(cfg: &AgentConfig, inner: Arc<dyn LocalSteps>) -> Self {
+    pub fn for_machine(cfg: &AgentConfig) -> Self {
         let wake = cfg
             .power
             .wol
@@ -56,7 +46,7 @@ impl PowerSteps {
         } else {
             None
         };
-        Self::new(inner, wake, shutdown)
+        Self::new(wake, shutdown)
     }
 }
 
@@ -93,7 +83,6 @@ impl LocalSteps for PowerSteps {
                 };
                 Box::pin(async move { r })
             }
-            _ => self.inner.execute(step),
         }
     }
 }
@@ -108,8 +97,6 @@ mod tests {
 
     use super::*;
     use crate::config::fixtures;
-    use crate::orchestrator::Unimplemented;
-    use crate::orchestrator::tests::FakeSteps;
 
     #[derive(Default)]
     struct Count(AtomicUsize);
@@ -137,11 +124,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn power_steps_go_to_their_backends_and_the_rest_to_inner() {
-        let inner = Arc::new(FakeSteps::default());
+    async fn power_steps_go_to_their_backends() {
         let wake = Arc::new(Count::default());
         let off = Arc::new(Count::default());
-        let p = PowerSteps::new(inner.clone(), Some(wake.clone()), Some(off.clone()));
+        let p = PowerSteps::new(Some(wake.clone()), Some(off.clone()));
         p.execute(&Step::PowerOn {
             machine: Machine::Pc,
         })
@@ -152,15 +138,13 @@ mod tests {
         })
         .await
         .unwrap();
-        p.execute(&Step::UpdateInputGeometry).await.unwrap();
         assert_eq!(wake.0.load(Ordering::Relaxed), 1);
         assert_eq!(off.0.load(Ordering::Relaxed), 1);
-        assert_eq!(inner.steps(), [Step::UpdateInputGeometry]);
     }
 
     #[tokio::test]
     async fn missing_backends_fail_clearly() {
-        let p = PowerSteps::new(Arc::new(Unimplemented), None, None);
+        let p = PowerSteps::new(None, None);
         assert_eq!(
             p.execute(&Step::PowerOn {
                 machine: Machine::Pc
@@ -181,7 +165,7 @@ mod tests {
 
     #[tokio::test]
     async fn shutdown_errors_reach_the_orchestrator() {
-        let p = PowerSteps::new(Arc::new(Unimplemented), None, Some(Arc::new(Refuse)));
+        let p = PowerSteps::new(None, Some(Arc::new(Refuse)));
         let e = p
             .execute(&Step::PowerOff {
                 machine: Machine::Pc,
@@ -194,23 +178,23 @@ mod tests {
     #[test]
     fn each_machine_gets_its_own_backends() {
         let mut cfg = fixtures::desk();
-        let p = PowerSteps::for_machine(&cfg, Arc::new(Unimplemented));
+        let p = PowerSteps::for_machine(&cfg);
         assert!(p.wake.is_none(), "sin [power.wol] no hay con qué despertar");
         assert!(p.shutdown.is_none(), "la Mac no se apaga desde Tandem");
 
         cfg.power.wol = Some(tandem_power::WolTarget::new(
             "9c:6b:00:1a:2b:ff".parse().unwrap(),
         ));
-        let p = PowerSteps::for_machine(&cfg, Arc::new(Unimplemented));
+        let p = PowerSteps::for_machine(&cfg);
         assert!(p.wake.is_some());
 
         // La PC también puede despertar a la Mac si tiene su [power.wol] (DESIGN §3.7).
         cfg.machine = Machine::Pc;
-        let p = PowerSteps::for_machine(&cfg, Arc::new(Unimplemented));
+        let p = PowerSteps::for_machine(&cfg);
         assert!(p.wake.is_some(), "la PC despierta a la Mac");
         assert_eq!(p.shutdown.is_some(), cfg!(windows));
         cfg.power.wol = None;
-        let p = PowerSteps::for_machine(&cfg, Arc::new(Unimplemented));
+        let p = PowerSteps::for_machine(&cfg);
         assert!(p.wake.is_none());
     }
 }

@@ -5,14 +5,10 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tandem_display::switcher::ManualSwitcher;
 use tandem_link::identity::{Identity, IdentityError, TrustStore};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
-use tandem_display::ddc::profiles;
-
-use crate::add_monitor::{MonitorWizard, platform_bus};
 use crate::agent::Agent;
 use crate::config::AgentConfig;
 use crate::input::{Input, InputSetup};
@@ -24,15 +20,13 @@ use crate::store::{StateStore, StoreError};
 
 /// Los pasos que esta máquina sabe hacer.
 pub enum Backends {
-    /// Los de la plataforma ([`crate::DisplaySteps::platform`] y
+    /// Los de la plataforma ([`crate::PowerSteps::for_machine`] y
     /// [`InputSetup::platform`]).
     Platform,
-    /// Otros (en las pruebas, simulados). `manual` es el que `local` usa para los
-    /// cambios de entrada a mano, como en [`Agent::with_backends`]. Sin `input` no hay
-    /// teclado, mouse ni portapapeles compartidos.
+    /// Otros (en las pruebas, simulados). Sin `input` no hay teclado, mouse ni
+    /// portapapeles compartidos.
     Custom {
         local: Arc<dyn LocalSteps>,
-        manual: Arc<ManualSwitcher>,
         input: Option<Box<InputSetup>>,
     },
 }
@@ -66,35 +60,15 @@ pub fn start(
 ) -> Result<Daemon, StartError> {
     let store = StateStore::new(paths.state_file());
     let me = cfg.machine;
-    let platform = matches!(backends, Backends::Platform);
     let (agent, input) = match backends {
         Backends::Platform => (
             Agent::with_platform(cfg, store),
             Some(Box::new(InputSetup::platform(me))),
         ),
-        Backends::Custom {
-            local,
-            manual,
-            input,
-        } => (Agent::with_backends(cfg, store, local, manual), input),
+        Backends::Custom { local, input } => (Agent::with_local_steps(cfg, store, local), input),
     };
     let agent = Arc::new(agent);
     agent.set_config_file(paths.config.clone());
-    // Los perfiles del usuario viven en el directorio de datos (se borran con su monitor).
-    agent.set_data_dir(&paths.data_dir);
-    // El asistente detecta de nuevo lo conectado con el detector del sistema.
-    if platform {
-        agent.set_scanner(Arc::new(crate::wizard::PlatformScanner(me)));
-    }
-    // «Agregar monitor» calibra con el DDC de la PC, que es la que cambia las entradas.
-    if platform && me == tandem_core::Machine::Pc {
-        agent.set_wizard(Arc::new(MonitorWizard::new(
-            platform_bus(),
-            Some(profiles::user_dir(&paths.data_dir)),
-            Some(paths.config.clone()),
-            agent.live_desk().clone(),
-        )));
-    }
     let identity =
         Identity::load_or_create(&paths.identity_file()).map_err(StartError::Identity)?;
     tracing::info!(
@@ -280,10 +254,7 @@ mod tests {
         let store = StateStore::new(dir.path().join("state.json"));
         assert_eq!(
             store.load().unwrap(),
-            Some(State::initial(
-                &agent.config().desk,
-                tandem_core::Machine::Mac
-            ))
+            Some(State::initial(tandem_core::Machine::Mac))
         );
     }
 }

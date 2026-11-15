@@ -6,9 +6,8 @@ use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tandem_core::{Machine, Mode};
-use tandem_display::switcher::ManualSwitcher;
-use tandem_input::geometry::{Rect, Screen, ScreenId};
+use tandem_core::Machine;
+use tandem_input::geometry::{Rect, Screen};
 use tandem_input::session::SessionConfig;
 use tandem_link::identity::{Identity, TrustStore};
 use tandem_proto::{
@@ -26,13 +25,6 @@ use tandemd::paths::Paths;
 use tandemd::{Agent, AgentConfig, StoreError};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-
-const DESK: &str = r#"
-[[monitors]]
-id = "m34"
-label = '34"'
-wiring = { pc = "displayport", mac = "hdmi" }
-"#;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -140,7 +132,7 @@ async fn start_with_input(
     identity.save(&paths.identity_file()).unwrap();
     let cfg = AgentConfig::from_toml(&format!(
         "machine = \"{machine}\"\n[network]\nport = {port}\npairing_port = {pairing_port}\n\
-         peers = [{{ kind = \"usb4\", addr = \"{}\" }}]\n{DESK}",
+         peers = [{{ kind = \"usb4\", addr = \"{}\" }}]\n",
         loopback(peer_port)
     ))
     .unwrap();
@@ -153,7 +145,6 @@ async fn start_with_input(
         &paths,
         Backends::Custom {
             local: Arc::new(Ok_),
-            manual: Arc::new(ManualSwitcher::new()),
             input: input.map(Box::new),
         },
         NetOptions {
@@ -341,7 +332,10 @@ async fn start_compare_confirm_and_both_are_paired() {
         loop {
             match mac
                 .ui
-                .request(UiCommand::SetMode(Mode::SoloPc))
+                .request(UiCommand::SetPower {
+                    machine: Machine::Pc,
+                    on: false,
+                })
                 .await
                 .unwrap()
             {
@@ -358,11 +352,7 @@ async fn start_compare_confirm_and_both_are_paired() {
         loop {
             match mac.ui.next_event().await.unwrap().unwrap() {
                 AgentToUi::Txn(TxnEvent::Committed { txn: t, .. }) if t == txn => break,
-                AgentToUi::Txn(
-                    e @ (TxnEvent::RolledBack { .. } | TxnEvent::Inconsistent { .. }),
-                ) => {
-                    panic!("el cambio falló: {e:?}")
-                }
+                AgentToUi::Txn(e @ TxnEvent::Failed { .. }) => panic!("el apagado falló: {e:?}"),
                 _ => {}
             }
         }
@@ -510,7 +500,7 @@ async fn unpairing_from_the_ui() {
 #[tokio::test]
 async fn without_network_pairing_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
-    let cfg = AgentConfig::from_toml(&format!("machine = \"mac\"\n{DESK}")).unwrap();
+    let cfg = AgentConfig::from_toml("machine = \"mac\"").unwrap();
     let agent = Arc::new(Agent::new(
         cfg,
         tandemd::StateStore::new(dir.path().join("state.json")),
@@ -521,12 +511,8 @@ async fn without_network_pairing_is_rejected() {
     );
 }
 
-fn input_setup(monitor: &str) -> InputSetup {
-    let screen = Screen::new(
-        ScreenId::Monitor(monitor.into()),
-        Rect::new(0, 0, 1920, 1080),
-        1.0,
-    );
+fn input_setup(id: &str) -> InputSetup {
+    let screen = Screen::new(id.into(), Rect::new(0, 0, 1920, 1080), 1.0);
     InputSetup {
         backends: Arc::new(FakeInputBackends::new(vec![screen])),
         opts: InputOptions {

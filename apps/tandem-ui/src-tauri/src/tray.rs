@@ -1,107 +1,10 @@
-//! La barra de menú (macOS) y la bandeja (Windows): qué muestra el menú del ícono, qué
-//! modo pide cada entrada (y cada atajo global) y dónde se abre la mini escena.
+//! La barra de menú (macOS) y la bandeja (Windows): qué muestra el menú del ícono y dónde
+//! se abre la mini escena. Los modos de monitores están en pausa hasta el firmware propio
+//! (DESIGN §8): el menú ya no los ofrece.
 //!
 //! Todo es puro sobre el [`Snapshot`] para probarlo sin Tauri; `app` solo lo dibuja.
 
-use std::collections::BTreeMap;
-
-use serde::{Deserialize, Serialize};
-use tandem_core::{Config, Machine, Mode, MonitorId, State};
-
 use crate::session::{PeerView, Snapshot};
-use crate::shortcuts::ShortcutAction;
-
-/// Las tres tarjetas de modo, como las llama la escena.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ModeKey {
-    SoloMac,
-    Shared,
-    SoloPc,
-}
-
-impl ModeKey {
-    pub const ALL: [ModeKey; 3] = [ModeKey::SoloMac, ModeKey::Shared, ModeKey::SoloPc];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            ModeKey::SoloMac => "Solo Mac",
-            ModeKey::Shared => "Compartido",
-            ModeKey::SoloPc => "Solo Windows",
-        }
-    }
-
-    pub fn of_action(a: ShortcutAction) -> Option<ModeKey> {
-        match a {
-            ShortcutAction::SoloMac => Some(ModeKey::SoloMac),
-            ShortcutAction::Shared => Some(ModeKey::Shared),
-            ShortcutAction::SoloPc => Some(ModeKey::SoloPc),
-            ShortcutAction::ToggleWindow => None,
-        }
-    }
-}
-
-/// Un monitor sin dueño guardado está en la Mac: el estado seguro de partida.
-fn owner_of(state: &State, id: &MonitorId) -> Machine {
-    state.owner.get(id).copied().unwrap_or(Machine::Mac)
-}
-
-/// El modo que describe el reparto actual (igual que `modeOf` de la escena).
-pub fn mode_of(desk: &Config, state: &State) -> Option<ModeKey> {
-    if desk.monitors.is_empty() {
-        return None;
-    }
-    let owners: Vec<Machine> = desk
-        .monitors
-        .iter()
-        .map(|m| owner_of(state, &m.id))
-        .collect();
-    Some(if owners.iter().all(|&o| o == Machine::Mac) {
-        ModeKey::SoloMac
-    } else if owners.iter().all(|&o| o == Machine::Pc) {
-        ModeKey::SoloPc
-    } else {
-        ModeKey::Shared
-    })
-}
-
-/// Qué pedir al elegir un modo, con la misma regla que las tarjetas de la escena
-/// (`modeRequest`): Compartido desde un modo «solo» manda el primer monitor a la PC y deja
-/// el resto en la Mac; si ya es compartido, conserva el reparto.
-pub fn mode_request(key: ModeKey, desk: &Config, state: &State) -> Mode {
-    match key {
-        ModeKey::SoloMac => Mode::SoloMac,
-        ModeKey::SoloPc => Mode::SoloPc,
-        ModeKey::Shared => {
-            let keep = mode_of(desk, state) == Some(ModeKey::Shared);
-            let assign: BTreeMap<MonitorId, Machine> = desk
-                .monitors
-                .iter()
-                .enumerate()
-                .map(|(i, m)| {
-                    let owner = if keep {
-                        owner_of(state, &m.id)
-                    } else if i == 0 {
-                        Machine::Pc
-                    } else {
-                        Machine::Mac
-                    };
-                    (m.id.clone(), owner)
-                })
-                .collect();
-            Mode::Shared(assign)
-        }
-    }
-}
-
-/// Por qué no se puede pedir un modo ahora.
-pub fn mode_for(key: ModeKey, snapshot: &Snapshot) -> Result<Mode, String> {
-    match snapshot {
-        Snapshot::Connected { desk, state, .. } => Ok(mode_request(key, desk, state)),
-        Snapshot::Connecting => Err("todavía conectando con tandemd".into()),
-        Snapshot::Unavailable { reason, .. } => Err(format!("sin agente: {reason}")),
-    }
-}
 
 /// Lo que muestra el menú del ícono.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,31 +13,14 @@ pub struct MenuView {
     pub tooltip: String,
     /// Línea de estado, deshabilitada, arriba del menú.
     pub status: String,
-    /// Modo actual (marcado), si hay agente.
-    pub current: Option<ModeKey>,
-    /// Los modos solo se pueden pedir con agente y con monitores.
-    pub modes_enabled: bool,
 }
 
 impl MenuView {
     pub fn of(snapshot: &Snapshot) -> Self {
         match snapshot {
             Snapshot::Connected {
-                agent,
-                desk,
-                state,
-                peer,
-                ..
+                agent, state, peer, ..
             } => {
-                // Sin confirmar (T-085) no se sabe qué modo es: no se marca ninguno, y
-                // elegir uno lo aplica en todos los monitores.
-                let confirmed = state.is_confirmed();
-                let current = mode_of(desk, state).filter(|_| confirmed);
-                let mode = if desk.monitors.is_empty() {
-                    "sin monitores"
-                } else {
-                    current.map_or("monitores sin confirmar", ModeKey::label)
-                };
                 // Esta máquina está prendida (es la que muestra el menú): se dice cómo
                 // está la otra, sea cual sea (DESIGN §3.7).
                 let other = agent.other();
@@ -144,28 +30,22 @@ impl MenuView {
                 } else {
                     format!("{name} apagada")
                 };
-                let mut status = format!("{mode} · {power}");
+                let mut status = power.clone();
                 if *peer == PeerView::Unpaired {
                     status.push_str(" · sin par emparejado");
                 }
                 MenuView {
-                    tooltip: format!("Tandem · {mode}"),
+                    tooltip: format!("Tandem · {power}"),
                     status,
-                    current,
-                    modes_enabled: !desk.monitors.is_empty(),
                 }
             }
             Snapshot::Connecting => MenuView {
                 tooltip: "Tandem · conectando…".into(),
                 status: "Conectando con tandemd…".into(),
-                current: None,
-                modes_enabled: false,
             },
             Snapshot::Unavailable { .. } => MenuView {
                 tooltip: "Tandem · sin agente".into(),
                 status: "Sin agente".into(),
-                current: None,
-                modes_enabled: false,
             },
         }
     }
@@ -208,12 +88,13 @@ pub fn popover_origin(click: (f64, f64), w: f64, h: f64, work: Area) -> (f64, f6
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    use tandem_core::BuiltinDisplay;
+    use tandem_core::{Config, Machine, State};
     use tandem_proto::InputStatus;
-    use tandemd::AgentConfig;
 
     use super::*;
     use crate::session::PairingView;
+
+    use Machine::{Mac, Pc};
 
     fn paired() -> PeerView {
         PeerView::Paired {
@@ -222,225 +103,49 @@ mod tests {
         }
     }
 
-    const CONFIG: &str = r#"
-machine = "mac"
-
-[[monitors]]
-id = "m34"
-label = '34"'
-wiring = { pc = "displayport", mac = "hdmi" }
-
-[[monitors]]
-id = "m32"
-label = '32"'
-wiring = { pc = "displayport", mac = "hdmi" }
-"#;
-
-    fn desk() -> Config {
-        AgentConfig::from_toml(CONFIG).unwrap().desk
-    }
-
-    fn state(m34: Machine, m32: Machine) -> State {
-        State {
-            owner: [("m34".into(), m34), ("m32".into(), m32)].into(),
-            on: tandem_core::Powered {
-                mac: true,
-                pc: m34 == Machine::Pc || m32 == Machine::Pc,
-            },
-            builtin_pref: BuiltinDisplay::Off,
-            doubt: Default::default(),
+    fn connected(agent: Machine, state: State, peer: PeerView) -> Snapshot {
+        Snapshot::Connected {
+            agent,
+            desk: Config::default(),
+            state,
+            peer,
+            pairing: PairingView::Idle,
+            input: InputStatus::new(agent).into(),
+            caps: crate::session::test_caps(agent),
         }
     }
 
-    use Machine::{Mac, Pc};
-
     #[test]
-    fn mode_follows_the_owners() {
-        let d = desk();
-        assert_eq!(mode_of(&d, &state(Mac, Mac)), Some(ModeKey::SoloMac));
-        assert_eq!(mode_of(&d, &state(Pc, Pc)), Some(ModeKey::SoloPc));
-        assert_eq!(mode_of(&d, &state(Pc, Mac)), Some(ModeKey::Shared));
-        assert_eq!(
-            mode_of(&d, &State::initial(&d, Machine::Mac)),
-            Some(ModeKey::SoloMac)
-        );
-        let mut unknown = state(Mac, Mac);
-        unknown.owner.clear();
-        assert_eq!(mode_of(&d, &unknown), Some(ModeKey::SoloMac));
-        let empty = Config { monitors: vec![] };
-        assert_eq!(mode_of(&empty, &state(Mac, Mac)), None);
-    }
+    fn the_menu_says_how_the_other_machine_is() {
+        let mut on = State::initial(Mac);
+        on.on.pc = true;
+        let v = MenuView::of(&connected(Mac, on, paired()));
+        assert_eq!(v.tooltip, "Tandem · PC encendida");
+        assert_eq!(v.status, "PC encendida");
 
-    #[test]
-    fn requests_match_the_scene_cards() {
-        let d = desk();
-        assert_eq!(
-            mode_request(ModeKey::SoloMac, &d, &state(Pc, Pc)),
-            Mode::SoloMac
-        );
-        assert_eq!(
-            mode_request(ModeKey::SoloPc, &d, &state(Mac, Mac)),
-            Mode::SoloPc
-        );
-        // Desde un modo «solo», el primero (el de la izquierda) a la PC.
-        let first_to_pc = Mode::Shared([("m34".into(), Pc), ("m32".into(), Mac)].into());
-        assert_eq!(
-            mode_request(ModeKey::Shared, &d, &state(Mac, Mac)),
-            first_to_pc
-        );
-        assert_eq!(
-            mode_request(ModeKey::Shared, &d, &state(Pc, Pc)),
-            first_to_pc
-        );
-        // Ya compartido: conserva el reparto.
-        assert_eq!(
-            mode_request(ModeKey::Shared, &d, &state(Mac, Pc)),
-            Mode::Shared([("m34".into(), Mac), ("m32".into(), Pc)].into())
-        );
-    }
-
-    #[test]
-    fn modes_need_an_agent() {
-        let d = desk();
-        let s = state(Mac, Mac);
-        let ok = Snapshot::Connected {
-            agent: Mac,
-            hidden: vec![],
-            desk: d,
-            state: s,
-            peer: PeerView::Unpaired,
-            pairing: PairingView::Idle,
-            input: InputStatus::new(Mac).into(),
-            caps: crate::session::test_caps(Mac),
-        };
-        assert_eq!(mode_for(ModeKey::SoloPc, &ok), Ok(Mode::SoloPc));
-        let down = Snapshot::Unavailable {
-            endpoint: None,
-            reason: "no está corriendo".into(),
-        };
-        assert_eq!(
-            mode_for(ModeKey::SoloPc, &down),
-            Err("sin agente: no está corriendo".into())
-        );
-        assert!(mode_for(ModeKey::SoloPc, &Snapshot::Connecting).is_err());
-    }
-
-    #[test]
-    fn shortcut_actions_map_to_modes() {
-        assert_eq!(
-            ModeKey::of_action(ShortcutAction::SoloMac),
-            Some(ModeKey::SoloMac)
-        );
-        assert_eq!(
-            ModeKey::of_action(ShortcutAction::Shared),
-            Some(ModeKey::Shared)
-        );
-        assert_eq!(
-            ModeKey::of_action(ShortcutAction::SoloPc),
-            Some(ModeKey::SoloPc)
-        );
-        assert_eq!(ModeKey::of_action(ShortcutAction::ToggleWindow), None);
-    }
-
-    #[test]
-    fn menu_marks_the_current_mode() {
-        let v = MenuView::of(&Snapshot::Connected {
-            agent: Mac,
-            hidden: vec![],
-            desk: desk(),
-            state: state(Pc, Mac),
-            peer: paired(),
-            pairing: PairingView::Idle,
-            input: InputStatus::new(Mac).into(),
-            caps: crate::session::test_caps(Mac),
-        });
-        assert_eq!(v.current, Some(ModeKey::Shared));
-        assert!(v.modes_enabled);
-        assert_eq!(v.tooltip, "Tandem · Compartido");
-        assert_eq!(v.status, "Compartido · PC encendida");
-
-        let off = MenuView::of(&Snapshot::Connected {
-            agent: Mac,
-            hidden: vec![],
-            desk: desk(),
-            state: State::initial(&desk(), Machine::Mac).confirmed(),
-            peer: paired(),
-            pairing: PairingView::Idle,
-            input: InputStatus::new(Mac).into(),
-            caps: crate::session::test_caps(Mac),
-        });
-        assert_eq!(off.status, "Solo Mac · PC apagada");
+        let off = MenuView::of(&connected(Mac, State::initial(Mac), paired()));
+        assert_eq!(off.status, "PC apagada");
 
         // Sin par, el menú lo dice: la PC no va a responder.
-        let alone = MenuView::of(&Snapshot::Connected {
-            agent: Mac,
-            hidden: vec![],
-            desk: desk(),
-            state: State::initial(&desk(), Machine::Mac).confirmed(),
-            peer: PeerView::Unpaired,
-            pairing: PairingView::Idle,
-            input: InputStatus::new(Mac).into(),
-            caps: crate::session::test_caps(Mac),
-        });
-        assert_eq!(alone.status, "Solo Mac · PC apagada · sin par emparejado");
-
-        // Sin estado guardado (T-085): ningún modo marcado, pero se pueden elegir.
-        let fresh = MenuView::of(&Snapshot::Connected {
-            agent: Mac,
-            hidden: vec![],
-            desk: desk(),
-            state: State::initial(&desk(), Machine::Mac),
-            peer: paired(),
-            pairing: PairingView::Idle,
-            input: InputStatus::new(Mac).into(),
-            caps: crate::session::test_caps(Mac),
-        });
-        assert_eq!(fresh.current, None);
-        assert!(fresh.modes_enabled);
-        assert_eq!(fresh.status, "monitores sin confirmar · PC apagada");
+        let alone = MenuView::of(&connected(Mac, State::initial(Mac), PeerView::Unpaired));
+        assert_eq!(alone.status, "PC apagada · sin par emparejado");
 
         // En la PC: la que se dice apagada es la Mac, nunca la PC misma.
-        let mut s = State::initial(&desk(), Pc).confirmed();
-        s.owner.values_mut().for_each(|o| *o = Pc);
-        let on_pc = MenuView::of(&Snapshot::Connected {
-            agent: Pc,
-            hidden: vec![],
-            desk: desk(),
-            state: s,
-            peer: paired(),
-            pairing: PairingView::Idle,
-            input: InputStatus::new(Pc).into(),
-            caps: crate::session::test_caps(Pc),
-        });
-        assert_eq!(on_pc.status, "Solo Windows · Mac apagada");
+        let on_pc = MenuView::of(&connected(Pc, State::initial(Pc), paired()));
+        assert_eq!(on_pc.status, "Mac apagada");
     }
 
     #[test]
-    fn menu_without_agent_disables_the_modes() {
-        for s in [
-            Snapshot::Connecting,
-            Snapshot::Unavailable {
-                endpoint: None,
-                reason: "x".into(),
-            },
-        ] {
-            let v = MenuView::of(&s);
-            assert_eq!(v.current, None);
-            assert!(!v.modes_enabled);
-        }
-        let empty = Snapshot::Connected {
-            agent: Mac,
-            hidden: vec![],
-            desk: Config { monitors: vec![] },
-            state: state(Mac, Mac),
-            peer: paired(),
-            pairing: PairingView::Idle,
-            input: InputStatus::new(Mac).into(),
-            caps: crate::session::test_caps(Mac),
-        };
-        let v = MenuView::of(&empty);
-        assert!(!v.modes_enabled);
-        assert_eq!(v.status, "sin monitores · PC apagada");
+    fn the_menu_without_agent_says_so() {
+        assert_eq!(
+            MenuView::of(&Snapshot::Connecting).status,
+            "Conectando con tandemd…"
+        );
+        let v = MenuView::of(&Snapshot::Unavailable {
+            endpoint: None,
+            reason: "x".into(),
+        });
+        assert_eq!(v.status, "Sin agente");
     }
 
     const SCREEN: Area = Area {

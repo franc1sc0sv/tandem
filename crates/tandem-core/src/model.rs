@@ -1,7 +1,7 @@
-use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Las dos máquinas del puesto. Tandem está pensado para exactamente dos.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -29,103 +29,125 @@ impl fmt::Display for Machine {
     }
 }
 
-/// Entrada física de un monitor.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Lado de un escritorio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Input {
-    Hdmi,
-    DisplayPort,
+pub enum Side {
+    /// Sin acomodo declarado, la Mac va a la izquierda de la PC (DESIGN §7).
+    #[default]
+    Left,
+    Right,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct MonitorId(pub String);
-
-impl fmt::Display for MonitorId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl From<&str> for MonitorId {
-    fn from(s: &str) -> Self {
-        MonitorId(s.to_owned())
-    }
-}
-
-/// Códigos DDC/CI (VCP 0x60) que el monitor obedece de verdad.
-///
-/// Los Samsung declaran unos valores en su capabilities string y obedecen otros,
-/// así que se configuran a mano a partir de pruebas (ver `docs/research/`).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DdcProfile {
-    pub hdmi: u8,
-    pub display_port: u8,
-}
-
-impl DdcProfile {
-    pub fn code_for(&self, input: Input) -> u8 {
-        match input {
-            Input::Hdmi => self.hdmi,
-            Input::DisplayPort => self.display_port,
+impl Side {
+    pub fn opposite(self) -> Self {
+        match self {
+            Side::Left => Side::Right,
+            Side::Right => Side::Left,
         }
     }
 }
 
+/// Unidades nativas del cursor por punto lógico, guardada en milésimas para que el puesto
+/// se pueda comparar (y viajar) exacto. En `tandem.toml` se escribe como número: `1.5`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Scale(u32);
+
+impl Scale {
+    pub const ONE: Scale = Scale(1000);
+
+    pub fn from_milli(milli: u32) -> Self {
+        Scale(milli)
+    }
+
+    pub fn milli(self) -> u32 {
+        self.0
+    }
+
+    pub fn as_f64(self) -> f64 {
+        f64::from(self.0) / 1000.0
+    }
+
+    /// `None` si no es un número positivo representable.
+    pub fn from_f64(v: f64) -> Option<Self> {
+        let milli = (v * 1000.0).round();
+        let valid = v.is_finite() && milli >= 1.0 && milli <= f64::from(u32::MAX);
+        // `as` satura; solo se usa con el valor ya comprobado.
+        valid.then_some(Scale(milli as u32))
+    }
+}
+
+impl Default for Scale {
+    fn default() -> Self {
+        Scale::ONE
+    }
+}
+
+impl Serialize for Scale {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_f64(self.as_f64())
+    }
+}
+
+impl<'de> Deserialize<'de> for Scale {
+    fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let v = f64::deserialize(d)?;
+        Scale::from_f64(v).ok_or_else(|| serde::de::Error::custom(format!("escala inválida: {v}")))
+    }
+}
+
+/// Una pantalla del acomodo declarado, en las coordenadas nativas del cursor de su
+/// máquina: puntos en macOS, píxeles físicos del escritorio virtual en Windows (DESIGN §7).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MonitorConfig {
-    pub id: MonitorId,
-    /// Nombre para la UI, por ejemplo `34"`.
-    pub label: String,
-    /// Modelo tal como lo reporta el EDID (por ejemplo `LC34G55T`); sirve para encontrar el monitor.
-    pub edid_model: Option<String>,
-    /// Otros id PnP del mismo monitor físico (T-087). Los Samsung exponen un EDID distinto
-    /// por entrada: el 34" es `SAM711A` para la PC (DisplayPort) y `SAM7119` para la Mac
-    /// (HDMI). `edid_model` es el principal; aquí van los demás.
+#[serde(deny_unknown_fields)]
+pub struct ScreenSpec {
+    pub machine: Machine,
+    /// Para reconocerla en la UI y en los logs; único por máquina.
+    pub id: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
     #[serde(default)]
-    pub edid_aliases: Vec<String>,
-    /// Qué entrada del monitor va cableada a cada máquina.
-    pub wiring: BTreeMap<Machine, Input>,
-    pub ddc: Option<DdcProfile>,
+    pub scale: Scale,
 }
 
-impl MonitorConfig {
-    pub fn input_for(&self, machine: Machine) -> Option<Input> {
-        self.wiring.get(&machine).copied()
-    }
-
-    /// Todas las formas de reconocer este monitor: `edid_model` y sus alias.
-    pub fn models(&self) -> impl Iterator<Item = &str> {
-        self.edid_model
-            .iter()
-            .chain(&self.edid_aliases)
-            .map(String::as_str)
-            .filter(|m| !m.trim().is_empty())
-    }
-
-    /// Si `model` (un id PnP o un modelo de EDID) es de este monitor, sin distinguir
-    /// mayúsculas.
-    pub fn is_model(&self, model: &str) -> bool {
-        self.models()
-            .any(|m| m.trim().eq_ignore_ascii_case(model.trim()))
-    }
+/// Dónde queda un escritorio respecto del otro.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Arrangement {
+    /// El lado de la PC en que está la Mac.
+    #[serde(default)]
+    pub mac_side: Side,
+    /// Desplazamiento vertical de la Mac respecto de la PC, en puntos lógicos (positivo:
+    /// más abajo). Lo dibuja el editor del acomodo (T-096); el cruce sigue siendo
+    /// proporcional a lo largo del borde compartido, así que hoy no lo cambia.
+    #[serde(default)]
+    pub offset: i32,
 }
 
-/// Configuración estática del puesto.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// El puesto compartido entre las dos máquinas (DESIGN §4): el acomodo de pantallas para el
+/// motor de entrada. Sin `[[screens]]` de una máquina valen las que ella misma lee.
+///
+/// Viaja con postcard (`ControlMsg::Desk`): ningún campo puede saltarse al serializar.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Config {
-    /// Monitores ordenados de izquierda a derecha sobre el escritorio.
-    pub monitors: Vec<MonitorConfig>,
+    #[serde(default)]
+    pub screens: Vec<ScreenSpec>,
+    #[serde(default)]
+    pub arrangement: Arrangement,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("configuración inválida: {0}")]
     Parse(#[from] toml::de::Error),
-    #[error("el monitor `{0}` está repetido")]
-    DuplicateMonitor(MonitorId),
-    #[error("el monitor `{0}` no está cableado a ninguna máquina")]
-    Unwired(MonitorId),
+    #[error("la pantalla `{id}` de la {machine} está repetida")]
+    DuplicateScreen { machine: Machine, id: String },
+    #[error("la pantalla `{id}` de la {machine} no tiene área")]
+    EmptyScreen { machine: Machine, id: String },
+    #[error("una pantalla de la {0} no tiene id")]
+    UnnamedScreen(Machine),
 }
 
 impl Config {
@@ -136,59 +158,30 @@ impl Config {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
-        let mut seen = std::collections::BTreeSet::new();
-        for m in &self.monitors {
-            if !seen.insert(&m.id) {
-                return Err(ConfigError::DuplicateMonitor(m.id.clone()));
+        let mut seen = BTreeSet::new();
+        for s in &self.screens {
+            if s.id.trim().is_empty() {
+                return Err(ConfigError::UnnamedScreen(s.machine));
             }
-            if m.wiring.is_empty() {
-                return Err(ConfigError::Unwired(m.id.clone()));
+            if s.width == 0 || s.height == 0 {
+                return Err(ConfigError::EmptyScreen {
+                    machine: s.machine,
+                    id: s.id.clone(),
+                });
+            }
+            if !seen.insert((s.machine, s.id.as_str())) {
+                return Err(ConfigError::DuplicateScreen {
+                    machine: s.machine,
+                    id: s.id.clone(),
+                });
             }
         }
         Ok(())
     }
 
-    pub fn monitor(&self, id: &MonitorId) -> Option<&MonitorConfig> {
-        self.monitors.iter().find(|m| &m.id == id)
-    }
-
-    /// Quita `id` del puesto; `true` si estaba.
-    pub fn remove_monitor(&mut self, id: &MonitorId) -> bool {
-        let before = self.monitors.len();
-        self.monitors.retain(|m| &m.id != id);
-        self.monitors.len() != before
-    }
-
-    /// El puesto sin los monitores que no están en `keep`.
-    pub fn only(&self, keep: impl Fn(&MonitorConfig) -> bool) -> Config {
-        Config {
-            monitors: self.monitors.iter().filter(|m| keep(m)).cloned().collect(),
-        }
-    }
-}
-
-#[cfg(test)]
-pub(crate) mod fixtures {
-    use super::*;
-
-    /// El puesto real: 34" a la izquierda, 32" a la derecha; DP a la PC, HDMI a la Mac.
-    pub fn desk() -> Config {
-        Config::from_toml(
-            r#"
-            [[monitors]]
-            id = "m34"
-            label = '34"'
-            edid_model = "LC34G55T"
-            wiring = { pc = "displayport", mac = "hdmi" }
-            ddc = { hdmi = 0x06, display_port = 0x0F }
-
-            [[monitors]]
-            id = "m32"
-            label = '32"'
-            wiring = { pc = "displayport", mac = "hdmi" }
-            "#,
-        )
-        .unwrap()
+    /// Las pantallas declaradas de `machine`, en el orden del archivo.
+    pub fn screens_of(&self, machine: Machine) -> impl Iterator<Item = &ScreenSpec> {
+        self.screens.iter().filter(move |s| s.machine == machine)
     }
 }
 
@@ -197,64 +190,131 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_desk_config() {
-        let cfg = fixtures::desk();
-        let m34 = cfg.monitor(&"m34".into()).unwrap();
-        assert_eq!(m34.input_for(Machine::Pc), Some(Input::DisplayPort));
-        assert_eq!(m34.ddc.as_ref().unwrap().code_for(Input::Hdmi), 0x06);
-        assert!(cfg.monitor(&"m32".into()).unwrap().ddc.is_none());
+    fn an_empty_desk_is_valid_and_puts_the_mac_on_the_left() {
+        let cfg = Config::from_toml("").unwrap();
+        assert!(cfg.screens.is_empty());
+        assert_eq!(cfg.arrangement.mac_side, Side::Left);
+        assert_eq!(cfg.arrangement.offset, 0);
     }
 
     #[test]
-    fn a_monitor_is_known_by_all_its_identities() {
+    fn parses_declared_screens_and_arrangement() {
         let cfg = Config::from_toml(
             r#"
-            [[monitors]]
-            id = "m34"
-            label = '34"'
-            edid_model = "SAM711A"
-            edid_aliases = ["SAM7119", "LC34G55T"]
-            wiring = { pc = "displayport", mac = "hdmi" }
+            [[screens]]
+            machine = "pc"
+            id = "34"
+            x = 0
+            y = 0
+            width = 3440
+            height = 1440
+
+            [[screens]]
+            machine = "pc"
+            id = "32"
+            x = 3440
+            y = 0
+            width = 3840
+            height = 2160
+            scale = 1.5
+
+            [[screens]]
+            machine = "mac"
+            id = "laptop"
+            x = 0
+            y = 0
+            width = 1512
+            height = 982
+            scale = 2
+
+            [arrangement]
+            mac_side = "right"
+            offset = -120
             "#,
         )
         .unwrap();
-        let m = &cfg.monitors[0];
-        assert_eq!(
-            m.models().collect::<Vec<_>>(),
-            ["SAM711A", "SAM7119", "LC34G55T"]
+        let pc: Vec<_> = cfg.screens_of(Machine::Pc).map(|s| s.id.as_str()).collect();
+        assert_eq!(pc, ["34", "32"]);
+        assert_eq!(cfg.screens[0].scale, Scale::ONE);
+        assert_eq!(cfg.screens[1].scale.milli(), 1500);
+        assert_eq!(cfg.screens[2].scale.as_f64(), 2.0);
+        assert_eq!(cfg.arrangement.mac_side, Side::Right);
+        assert_eq!(cfg.arrangement.offset, -120);
+    }
+
+    #[test]
+    fn rejects_bad_screens() {
+        let screen = |machine: &str, id: &str, w: u32, scale: &str| {
+            format!(
+                "[[screens]]\nmachine = \"{machine}\"\nid = \"{id}\"\nx = 0\ny = 0\nwidth = {w}\nheight = 10\nscale = {scale}\n"
+            )
+        };
+        let twice = format!(
+            "{}{}",
+            screen("pc", "a", 10, "1"),
+            screen("pc", "a", 10, "1")
         );
-        assert!(m.is_model("sam7119") && m.is_model(" LC34G55T "));
-        assert!(!m.is_model("SAM7489") && !m.is_model(""));
-        // Sin alias el archivo de antes sigue valiendo.
-        let old = fixtures::desk();
-        assert!(old.monitors.iter().all(|m| m.edid_aliases.is_empty()));
+        assert!(matches!(
+            Config::from_toml(&twice),
+            Err(ConfigError::DuplicateScreen { .. })
+        ));
+        // El mismo id en cada máquina vale.
+        let both = format!(
+            "{}{}",
+            screen("pc", "a", 10, "1"),
+            screen("mac", "a", 10, "1")
+        );
+        assert!(Config::from_toml(&both).is_ok());
+        assert!(matches!(
+            Config::from_toml(&screen("mac", "a", 0, "1")),
+            Err(ConfigError::EmptyScreen { .. })
+        ));
+        assert!(matches!(
+            Config::from_toml(&screen("mac", " ", 10, "1")),
+            Err(ConfigError::UnnamedScreen(Machine::Mac))
+        ));
+        for bad in ["0", "-1", "nan"] {
+            assert!(
+                matches!(
+                    Config::from_toml(&screen("mac", "a", 10, bad)),
+                    Err(ConfigError::Parse(_))
+                ),
+                "{bad}"
+            );
+        }
+        assert!(matches!(
+            Config::from_toml("[arrangement]\nside = \"left\""),
+            Err(ConfigError::Parse(_))
+        ));
     }
 
     #[test]
-    fn removing_a_monitor_forgets_it_and_its_aliases() {
-        let mut cfg = fixtures::desk();
-        assert!(cfg.remove_monitor(&"m34".into()));
-        assert!(!cfg.remove_monitor(&"m34".into()));
-        assert_eq!(cfg.monitors.len(), 1);
-        let only = fixtures::desk().only(|m| m.id.0 == "m32");
-        assert_eq!(only.monitors.len(), 1);
+    fn the_desk_round_trips_through_toml() {
+        let cfg = Config {
+            screens: vec![ScreenSpec {
+                machine: Machine::Mac,
+                id: "laptop".into(),
+                x: -1512,
+                y: 10,
+                width: 1512,
+                height: 982,
+                scale: Scale::from_milli(1250),
+            }],
+            arrangement: Arrangement {
+                mac_side: Side::Right,
+                offset: 40,
+            },
+        };
+        let text = toml::to_string(&cfg).unwrap();
+        assert_eq!(Config::from_toml(&text).unwrap(), cfg);
     }
 
     #[test]
-    fn rejects_duplicate_monitor() {
-        let err = Config::from_toml(
-            r#"
-            [[monitors]]
-            id = "a"
-            label = "a"
-            wiring = { pc = "hdmi" }
-            [[monitors]]
-            id = "a"
-            label = "b"
-            wiring = { pc = "hdmi" }
-            "#,
-        )
-        .unwrap_err();
-        assert!(matches!(err, ConfigError::DuplicateMonitor(_)));
+    fn scale_conversions() {
+        assert_eq!(Scale::from_f64(1.25), Some(Scale::from_milli(1250)));
+        assert_eq!(Scale::from_f64(0.0), None);
+        assert_eq!(Scale::from_f64(f64::INFINITY), None);
+        assert_eq!(Scale::default(), Scale::ONE);
+        assert_eq!(Side::Left.opposite(), Side::Right);
     }
 }

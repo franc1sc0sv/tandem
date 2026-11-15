@@ -2,27 +2,22 @@
 //!
 //! La ventana no pregunta: la sesión mantiene una conexión abierta, pide el puesto y el
 //! estado al conectar y después reenvía lo que el agente empuja (estado, avance de las
-//! transacciones, pedidos de cambio manual). Si el agente no está o se cae, la ventana
+//! transacciones, emparejamiento, teclado y mouse). Si el agente no está o se cae, la ventana
 //! lo ve como [`Snapshot::Unavailable`] y la sesión reintenta sola.
 //!
 //! Es genérica sobre el transporte y sobre a quién se le avisa ([`Sink`]): las pruebas
 //! usan la IPC en memoria con un agente real; la app, el socket o pipe y los eventos de
 //! Tauri.
 
-use std::collections::BTreeMap;
 use std::future::Future;
-use std::sync::{Arc, PoisonError};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tandem_core::MonitorConfig;
-use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State, Step};
+use tandem_core::{Config, Machine, State, Step};
 use tandem_proto::{
-    AgentToUi, CalibrationOutcome, CalibrationStep, CalibrationUpdate, Capabilities,
-    DeskCapabilities, DisplayInfo, DisplayProfile, InputPermission, InputStatus, KeyProbeStatus,
-    Link, ManualSwitchEvent, MonitorScan, NewMonitor, PairingStatus, PeerStatus, PowerEvent,
-    ProbeAnswer, ProbeAsk, ProbeEvent, ProbePlace, Reply, SavedProfile, SetupInfo, TxnEvent,
-    UiCommand,
+    AgentToUi, Capabilities, DeskCapabilities, InputPermission, InputStatus, KeyProbeStatus, Link,
+    PairingStatus, PeerStatus, PowerEvent, Reply, SetupInfo, TxnEvent, UiCommand,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -44,12 +39,8 @@ pub enum Snapshot {
     Connected {
         /// Máquina en la que corre el agente (y esta ventana).
         agent: Machine,
-        /// Los monitores del puesto que alguna de las dos máquinas tiene conectados ahora
-        /// (T-087): lo único que dibuja la escena y de lo que hablan los planes.
+        /// El puesto compartido: el acomodo de pantallas declarado (DESIGN §7).
         desk: Config,
-        /// Los del puesto que ninguna ve ahora; la escena solo avisa «N monitores no están
-        /// conectados» y ofrece quitarlos.
-        hidden: Vec<MonitorConfig>,
         state: State,
         /// El otro agente: sin par, la ventana avisa que esta máquina trabaja sola.
         peer: PeerView,
@@ -175,30 +166,10 @@ pub struct MachineView {
     pub machine: Machine,
     pub name: String,
     pub os: String,
-    /// Detectó sus monitores: los `seen` son los conectados ahora (T-087).
-    pub scanned: bool,
-    pub monitors: Vec<MonitorCapsView>,
-    pub builtin: bool,
     pub hub: Option<bool>,
     pub input: InputCapsView,
     pub power: PowerCapsView,
     pub services: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct MonitorCapsView {
-    pub monitor: Option<MonitorId>,
-    pub pnp_id: Option<String>,
-    pub name: String,
-    pub switch: bool,
-    pub ddc: bool,
-    /// La máquina lo detectó (T-085): conectado ahora y pista para preguntar lo que muestra.
-    pub seen: bool,
-    pub model: Option<String>,
-    pub serial: Option<u32>,
-    pub inches: Option<u32>,
-    /// Por qué cable lo ve esa máquina, si el sistema lo dice.
-    pub output: Option<Input>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -237,24 +208,6 @@ impl From<Capabilities> for MachineView {
             machine: c.machine,
             name: c.name,
             os: c.os,
-            scanned: c.scanned,
-            monitors: c
-                .monitors
-                .into_iter()
-                .map(|m| MonitorCapsView {
-                    monitor: m.monitor,
-                    pnp_id: m.pnp_id,
-                    name: m.name,
-                    switch: m.switch,
-                    ddc: m.ddc,
-                    seen: m.seen,
-                    model: m.model,
-                    serial: m.serial,
-                    inches: m.inches,
-                    output: m.output,
-                })
-                .collect(),
-            builtin: c.builtin,
             hub: c.hub,
             input: InputCapsView {
                 capture: c.input.capture,
@@ -276,29 +229,6 @@ impl From<Capabilities> for MachineView {
     }
 }
 
-impl CapsView {
-    /// El puesto repartido en lo conectado ahora y lo que no (T-087).
-    fn split(&self, all: &Config) -> (Config, Vec<MonitorConfig>) {
-        let parts = std::iter::once(&self.here).chain(&self.peer).map(|m| {
-            let seen = m
-                .monitors
-                .iter()
-                .filter(|c| c.seen)
-                .filter_map(|c| c.monitor.clone())
-                .collect::<Vec<_>>();
-            (m.machine, m.scanned, seen)
-        });
-        let on = tandemd::capabilities::connected_by(all, parts);
-        let hidden = all
-            .monitors
-            .iter()
-            .filter(|m| !on.contains(&m.id))
-            .cloned()
-            .collect();
-        (all.only(|m| on.contains(&m.id)), hidden)
-    }
-}
-
 impl From<DeskCapabilities> for CapsView {
     fn from(c: DeskCapabilities) -> Self {
         CapsView {
@@ -311,18 +241,10 @@ impl From<DeskCapabilities> for CapsView {
 /// Lo que anunciaría un agente de `machine` con el puesto de las pruebas, sin par visto.
 #[cfg(test)]
 pub fn test_caps(machine: Machine) -> Box<CapsView> {
-    let mut cfg = tandemd::AgentConfig::from_toml(
-        "machine = \"mac\"\n[[monitors]]\nid = \"m34\"\nlabel = '34\"'\nwiring = { pc = \"displayport\", mac = \"hdmi\" }",
-    )
-    .unwrap_or_else(|e| panic!("{e}"));
+    let mut cfg =
+        tandemd::AgentConfig::from_toml("machine = \"mac\"").unwrap_or_else(|e| panic!("{e}"));
     cfg.machine = machine;
-    let here = tandemd::capabilities::local(
-        &cfg,
-        &cfg.desk,
-        None,
-        &InputStatus::new(machine),
-        &Default::default(),
-    );
+    let here = tandemd::capabilities::local(&cfg, &InputStatus::new(machine), &Default::default());
     Box::new(CapsView {
         here: here.into(),
         peer: None,
@@ -358,28 +280,15 @@ pub enum Notice {
     Txn {
         event: TxnView,
     },
-    ManualSwitch {
-        event: ManualView,
-    },
-    /// Una sonda de calibración que mostrar o quitar ([`crate::probe`]).
-    Probe {
-        event: ProbeView,
-    },
-    /// El avance de «Agregar monitor».
-    Calibration {
-        event: CalibrationView,
-    },
     /// La prueba «presiona una tecla» del asistente (T-087).
     KeyProbe {
         event: KeyProbeView,
     },
     /// La otra máquina se dio por apagada sin que nadie la apagara (corte de corriente o
-    /// suspendida): `reason` se muestra tal cual y `stranded` son los monitores que
-    /// quedan en negro.
+    /// suspendida): `reason` se muestra tal cual.
     Power {
         machine: Machine,
         reason: String,
-        stranded: Vec<MonitorId>,
     },
 }
 
@@ -393,15 +302,7 @@ pub struct KeyProbeView {
 impl From<PowerEvent> for Notice {
     fn from(e: PowerEvent) -> Self {
         match e {
-            PowerEvent::PeerLost {
-                machine,
-                reason,
-                stranded,
-            } => Notice::Power {
-                machine,
-                reason,
-                stranded,
-            },
+            PowerEvent::PeerLost { machine, reason } => Notice::Power { machine, reason },
         }
     }
 }
@@ -427,27 +328,15 @@ pub enum TxnView {
         index: u32,
         error: String,
     },
-    RollingBack {
-        txn: u64,
-    },
     Committed {
         txn: u64,
         state: State,
     },
-    RolledBack {
+    /// Falló un paso: `state` es lo que quedó hecho.
+    Failed {
         txn: u64,
         state: State,
     },
-    Inconsistent {
-        txn: u64,
-        undo_failures: Vec<UndoView>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct UndoView {
-    pub step: Step,
-    pub error: String,
 }
 
 impl From<TxnEvent> for TxnView {
@@ -457,363 +346,8 @@ impl From<TxnEvent> for TxnView {
             TxnEvent::StepStarted { txn, index } => TxnView::StepStarted { txn, index },
             TxnEvent::StepDone { txn, index } => TxnView::StepDone { txn, index },
             TxnEvent::StepFailed { txn, index, error } => TxnView::StepFailed { txn, index, error },
-            TxnEvent::RollingBack { txn } => TxnView::RollingBack { txn },
             TxnEvent::Committed { txn, state } => TxnView::Committed { txn, state },
-            TxnEvent::RolledBack { txn, state } => TxnView::RolledBack { txn, state },
-            TxnEvent::Inconsistent { txn, undo_failures } => TxnView::Inconsistent {
-                txn,
-                undo_failures: undo_failures
-                    .into_iter()
-                    .map(|u| UndoView {
-                        step: u.step,
-                        error: u.error,
-                    })
-                    .collect(),
-            },
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ManualView {
-    Requested {
-        id: u64,
-        monitor: MonitorId,
-        label: String,
-        to: Machine,
-        input: Input,
-    },
-    Closed {
-        id: u64,
-    },
-}
-
-impl From<ManualSwitchEvent> for ManualView {
-    fn from(e: ManualSwitchEvent) -> Self {
-        match e {
-            ManualSwitchEvent::Requested {
-                id,
-                monitor,
-                label,
-                to,
-                input,
-            } => ManualView::Requested {
-                id,
-                monitor,
-                label,
-                to,
-                input,
-            },
-            ManualSwitchEvent::Closed { id } => ManualView::Closed { id },
-        }
-    }
-}
-
-/// [`ProbeEvent`] en JSON para el frontend y para la ventana de la sonda.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ProbeView {
-    Show {
-        id: u64,
-        /// El nombre del monitor (EDID o descripción del sistema).
-        monitor: String,
-        /// La entrada que debería verse.
-        input: Input,
-        /// La máquina cableada a esa entrada.
-        machine: Machine,
-        ask: AskView,
-        timeout_ms: u64,
-        place: PlaceView,
-    },
-    Hide {
-        id: u64,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum AskView {
-    Candidate { code: u8 },
-    UserSwitch,
-    Back { code: u8 },
-    Verify { code: u8 },
-    Stalled { code: u8 },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum PlaceView {
-    /// A pantalla completa en el monitor; `screen` es dónde lo ve el agente, si lo sabe.
-    Monitor { screen: Option<ScreenView> },
-    /// El agente buscó el monitor y no está en el escritorio: la sonda no se muestra.
-    Offscreen,
-    /// La pregunta «¿qué ves?» de opción múltiple en la ventana principal.
-    Question,
-}
-
-/// La respuesta a una sonda, como la manda el frontend.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum AnswerView {
-    /// Clic en la sonda a pantalla completa.
-    Seen,
-    /// «Veo la Mac» / «Veo la PC».
-    Machine {
-        machine: Machine,
-    },
-    Black,
-    Stop,
-}
-
-impl From<AnswerView> for ProbeAnswer {
-    fn from(a: AnswerView) -> Self {
-        match a {
-            AnswerView::Seen => ProbeAnswer::Seen,
-            AnswerView::Machine { machine } => ProbeAnswer::Machine(machine),
-            AnswerView::Black => ProbeAnswer::Black,
-            AnswerView::Stop => ProbeAnswer::Stop,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-pub struct ScreenView {
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-}
-
-impl From<ProbeEvent> for ProbeView {
-    fn from(e: ProbeEvent) -> Self {
-        match e {
-            ProbeEvent::Show { id, probe, place } => ProbeView::Show {
-                id,
-                monitor: probe.monitor.name,
-                input: probe.input,
-                machine: probe.machine,
-                ask: match probe.ask {
-                    ProbeAsk::Candidate { code } => AskView::Candidate { code },
-                    ProbeAsk::UserSwitch => AskView::UserSwitch,
-                    ProbeAsk::Back { code } => AskView::Back { code },
-                    ProbeAsk::Verify { code } => AskView::Verify { code },
-                    ProbeAsk::Stalled { code } => AskView::Stalled { code },
-                },
-                timeout_ms: probe.timeout_ms,
-                place: match place {
-                    ProbePlace::Monitor { screen } => PlaceView::Monitor {
-                        screen: screen.map(|s| ScreenView {
-                            x: s.x,
-                            y: s.y,
-                            width: s.width,
-                            height: s.height,
-                        }),
-                    },
-                    ProbePlace::Offscreen => PlaceView::Offscreen,
-                    ProbePlace::Question => PlaceView::Question,
-                },
-            },
-            ProbeEvent::Hide { id } => ProbeView::Hide { id },
-        }
-    }
-}
-
-/// Un monitor del bus DDC ([`DisplayInfo`]) en JSON para «Agregar monitor».
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-pub struct DisplayView {
-    pub index: u32,
-    pub name: String,
-    pub pnp_id: Option<String>,
-    pub monitor: Option<MonitorId>,
-    pub profile: DisplayProfileView,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum DisplayProfileView {
-    None,
-    Configured {
-        hdmi: u8,
-        display_port: u8,
-    },
-    Known {
-        name: String,
-        user: bool,
-        hdmi: u8,
-        display_port: u8,
-        toml: String,
-    },
-}
-
-impl From<DisplayInfo> for DisplayView {
-    fn from(d: DisplayInfo) -> Self {
-        DisplayView {
-            index: d.index,
-            name: d.name,
-            pnp_id: d.pnp_id,
-            monitor: d.monitor,
-            profile: match d.profile {
-                DisplayProfile::None => DisplayProfileView::None,
-                DisplayProfile::Configured { hdmi, display_port } => {
-                    DisplayProfileView::Configured { hdmi, display_port }
-                }
-                DisplayProfile::Known {
-                    name,
-                    user,
-                    hdmi,
-                    display_port,
-                    toml,
-                } => DisplayProfileView::Known {
-                    name,
-                    user,
-                    hdmi,
-                    display_port,
-                    toml,
-                },
-            },
-        }
-    }
-}
-
-/// [`CalibrationUpdate`] en JSON.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CalibrationView {
-    Started {
-        display: u32,
-        name: String,
-        monitor: Option<MonitorId>,
-        start: Input,
-    },
-    Progress {
-        step: StepView,
-    },
-    Finished {
-        outcome: OutcomeView,
-    },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum StepView {
-    Reading,
-    UserSwitch {
-        input: Input,
-    },
-    Testing {
-        input: Input,
-    },
-    Trying {
-        input: Input,
-        code: u8,
-        attempt: u32,
-        of: u32,
-    },
-    Seen {
-        input: Input,
-        code: u8,
-        seen: bool,
-    },
-    Returned {
-        code: u8,
-    },
-    Found {
-        input: Input,
-        code: u8,
-    },
-    Verifying,
-    Verified {
-        input: Input,
-        code: u8,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum OutcomeView {
-    Saved {
-        name: String,
-        hdmi: u8,
-        display_port: u8,
-        attempts: u32,
-        monitor: Option<MonitorId>,
-        file: Option<String>,
-        toml: Option<String>,
-        notes: Vec<String>,
-    },
-    Failed {
-        reason: String,
-    },
-    Cancelled,
-}
-
-impl From<CalibrationStep> for StepView {
-    fn from(s: CalibrationStep) -> Self {
-        match s {
-            CalibrationStep::Reading => StepView::Reading,
-            CalibrationStep::UserSwitch { input } => StepView::UserSwitch { input },
-            CalibrationStep::Testing { input } => StepView::Testing { input },
-            CalibrationStep::Trying {
-                input,
-                code,
-                attempt,
-                of,
-            } => StepView::Trying {
-                input,
-                code,
-                attempt,
-                of,
-            },
-            CalibrationStep::Seen { input, code, seen } => StepView::Seen { input, code, seen },
-            CalibrationStep::Returned { code } => StepView::Returned { code },
-            CalibrationStep::Found { input, code } => StepView::Found { input, code },
-            CalibrationStep::Verifying => StepView::Verifying,
-            CalibrationStep::Verified { input, code } => StepView::Verified { input, code },
-        }
-    }
-}
-
-impl From<CalibrationUpdate> for CalibrationView {
-    fn from(u: CalibrationUpdate) -> Self {
-        match u {
-            CalibrationUpdate::Started {
-                display,
-                name,
-                monitor,
-                start,
-            } => CalibrationView::Started {
-                display,
-                name,
-                monitor,
-                start,
-            },
-            CalibrationUpdate::Progress(step) => CalibrationView::Progress { step: step.into() },
-            CalibrationUpdate::Finished(outcome) => CalibrationView::Finished {
-                outcome: match outcome {
-                    CalibrationOutcome::Saved(SavedProfile {
-                        name,
-                        hdmi,
-                        display_port,
-                        attempts,
-                        monitor,
-                        file,
-                        toml,
-                        notes,
-                    }) => OutcomeView::Saved {
-                        name,
-                        hdmi,
-                        display_port,
-                        attempts,
-                        monitor,
-                        file,
-                        toml,
-                        notes,
-                    },
-                    CalibrationOutcome::Failed { reason } => OutcomeView::Failed { reason },
-                    CalibrationOutcome::Cancelled => OutcomeView::Cancelled,
-                },
-            },
+            TxnEvent::Failed { txn, state } => TxnView::Failed { txn, state },
         }
     }
 }
@@ -822,65 +356,15 @@ impl From<CalibrationUpdate> for CalibrationView {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Action {
-    SetMode {
-        mode: Mode,
-    },
-    MoveMonitor {
-        monitor: MonitorId,
-        to: Machine,
-    },
-    SetBuiltin {
-        display: BuiltinDisplay,
-    },
     /// Encender o apagar `machine` (la otra, en la escena).
     SetPower {
         machine: Machine,
         on: bool,
     },
-    AnswerManualSwitch {
-        id: u64,
-        done: bool,
-    },
-    /// Clic en la sonda, o lo que se eligió en la pregunta «¿qué ves?».
-    AnswerProbe {
-        id: u64,
-        answer: AnswerView,
-    },
     StartPairing,
     ConfirmPairing,
     CancelPairing,
     Unpair,
-    /// «Agregar monitor»: los monitores del bus DDC; contesta [`ActionResult::Displays`].
-    ListDisplays,
-    StartCalibration {
-        display: u32,
-        #[serde(default)]
-        monitor: Option<MonitorId>,
-    },
-    CancelCalibration,
-    UseProfile {
-        display: u32,
-        #[serde(default)]
-        monitor: Option<MonitorId>,
-    },
-    /// Cambiar el cableado de un monitor (T-082); el puesto nuevo llega en la escena.
-    SetWiring {
-        monitor: MonitorId,
-        wiring: BTreeMap<Machine, Input>,
-        /// El usuario lo confirmó; sin esto el agente lo rechaza (T-087).
-        #[serde(default)]
-        confirmed: bool,
-    },
-    /// Asistente (T-087): los monitores conectados ahora, juntados por monitor físico.
-    ScanMonitors,
-    AddMonitors {
-        monitors: Vec<NewMonitor>,
-    },
-    RemoveMonitor {
-        monitor: MonitorId,
-    },
-    /// «Restablecer puesto».
-    ResetDesk,
     KeyProbe {
         on: bool,
     },
@@ -892,80 +376,24 @@ pub enum Action {
     PingPeer,
     /// «Pedir permisos» (T-090): macOS muestra su diálogo a nombre de `tandemd`.
     RequestPermissions,
-    MarkManual {
-        monitor: MonitorId,
-        #[serde(default)]
-        discard_codes: bool,
-    },
     /// De dónde salió la configuración; contesta [`ActionResult::Setup`].
     GetSetup,
-    /// «Aplicar modo» (T-085): manda la entrada de todos los monitores.
-    ApplyMode {
-        mode: Mode,
-    },
-    /// Lo que el usuario dice que muestra cada monitor (`null`: nada, en negro).
-    SetShown {
-        shows: BTreeMap<MonitorId, Option<Machine>>,
-    },
-    /// Ida y vuelta del asistente (T-089): solo la entrada, con vuelta automática a `back`.
-    ProbeInput {
-        monitor: MonitorId,
-        to: Machine,
-        back: Machine,
-    },
 }
 
 impl From<Action> for UiCommand {
     fn from(a: Action) -> Self {
         match a {
-            Action::SetMode { mode } => UiCommand::SetMode(mode),
-            Action::MoveMonitor { monitor, to } => UiCommand::MoveMonitor { monitor, to },
-            Action::SetBuiltin { display } => UiCommand::SetBuiltin(display),
             Action::SetPower { machine, on } => UiCommand::SetPower { machine, on },
-            Action::AnswerManualSwitch { id, done } => UiCommand::AnswerManualSwitch { id, done },
-            Action::AnswerProbe { id, answer } => UiCommand::AnswerProbe {
-                id,
-                answer: answer.into(),
-            },
             Action::StartPairing => UiCommand::StartPairing,
             Action::ConfirmPairing => UiCommand::ConfirmPairing,
             Action::CancelPairing => UiCommand::CancelPairing,
             Action::Unpair => UiCommand::Unpair,
-            Action::ListDisplays => UiCommand::ListDisplays,
-            Action::StartCalibration { display, monitor } => {
-                UiCommand::StartCalibration { display, monitor }
-            }
-            Action::CancelCalibration => UiCommand::CancelCalibration,
-            Action::UseProfile { display, monitor } => UiCommand::UseProfile { display, monitor },
-            Action::SetWiring {
-                monitor,
-                wiring,
-                confirmed,
-            } => UiCommand::SetWiring {
-                monitor,
-                wiring,
-                confirmed,
-            },
-            Action::ScanMonitors => UiCommand::ScanMonitors,
-            Action::AddMonitors { monitors } => UiCommand::AddMonitors(monitors),
-            Action::RemoveMonitor { monitor } => UiCommand::RemoveMonitor { monitor },
-            Action::ResetDesk => UiCommand::ResetDesk,
             Action::KeyProbe { on } => UiCommand::KeyProbe { on },
             Action::HeardKey => UiCommand::HeardKey,
             Action::SetKeyboard { machine } => UiCommand::SetKeyboard(machine),
             Action::PingPeer => UiCommand::PingPeer,
             Action::RequestPermissions => UiCommand::RequestPermissions,
-            Action::MarkManual {
-                monitor,
-                discard_codes,
-            } => UiCommand::MarkManual {
-                monitor,
-                discard_codes,
-            },
             Action::GetSetup => UiCommand::GetSetup,
-            Action::ApplyMode { mode } => UiCommand::ApplyMode(mode),
-            Action::SetShown { shows } => UiCommand::SetShown(shows),
-            Action::ProbeInput { monitor, to, back } => UiCommand::ProbeInput { monitor, to, back },
         }
     }
 }
@@ -986,17 +414,9 @@ pub enum ActionResult {
     Unavailable {
         reason: String,
     },
-    /// Los monitores del bus DDC, para «Agregar monitor».
-    Displays {
-        displays: Vec<DisplayView>,
-    },
     /// La configuración del agente: archivo, si la generó él y su puerto.
     Setup {
         setup: SetupInfo,
-    },
-    /// Los monitores conectados ahora, para el asistente.
-    Scan {
-        scan: MonitorScan,
     },
     /// Lo que tardó el ping por el enlace.
     Pong {
@@ -1010,11 +430,7 @@ impl From<Reply> for ActionResult {
         match r {
             Reply::Accepted { txn } => ActionResult::Accepted { txn },
             Reply::Rejected(reason) => ActionResult::Rejected { reason },
-            Reply::Displays(list) => ActionResult::Displays {
-                displays: list.into_iter().map(Into::into).collect(),
-            },
             Reply::Setup(setup) => ActionResult::Setup { setup },
-            Reply::Scan(scan) => ActionResult::Scan { scan },
             Reply::Pong { link, millis } => ActionResult::Pong {
                 link: match link {
                     Link::Usb4 => LinkView::Usb4,
@@ -1126,7 +542,6 @@ where
         retry: retry.clone(),
     };
     let runner = Runner {
-        all: std::sync::Mutex::new(Config { monitors: vec![] }),
         endpoint,
         sink,
         snapshot: snapshot_tx,
@@ -1137,9 +552,6 @@ where
 }
 
 struct Runner {
-    /// El puesto entero, para volver a repartirlo en conectado y no conectado cuando
-    /// cambian las capacidades (T-087).
-    all: std::sync::Mutex<Config>,
     endpoint: Option<String>,
     sink: Arc<dyn Sink>,
     snapshot: watch::Sender<Snapshot>,
@@ -1184,12 +596,9 @@ impl Runner {
                     caps,
                 }) => {
                     let agent = client.agent();
-                    let (visible, hidden) = caps.split(&desk);
-                    *self.all.lock().unwrap_or_else(PoisonError::into_inner) = desk;
                     self.publish(Snapshot::Connected {
                         agent,
-                        desk: visible,
-                        hidden,
+                        desk,
                         state,
                         peer,
                         pairing,
@@ -1299,24 +708,13 @@ impl Runner {
             AgentToUi::Txn(event) => {
                 // El estado final también llega empujado; tomarlo aquí evita que la
                 // escena se quede un instante con el de antes al cerrar el progreso.
-                if let TxnEvent::Committed { state, .. } | TxnEvent::RolledBack { state, .. } =
-                    &event
-                {
+                if let TxnEvent::Committed { state, .. } | TxnEvent::Failed { state, .. } = &event {
                     self.update_state(state.clone());
                 }
                 self.sink.notice(&Notice::Txn {
                     event: event.into(),
                 });
             }
-            AgentToUi::ManualSwitch(event) => self.sink.notice(&Notice::ManualSwitch {
-                event: event.into(),
-            }),
-            AgentToUi::Probe(event) => self.sink.notice(&Notice::Probe {
-                event: event.into(),
-            }),
-            AgentToUi::Calibration(event) => self.sink.notice(&Notice::Calibration {
-                event: event.into(),
-            }),
             AgentToUi::Power(event) => self.sink.notice(&event.into()),
             AgentToUi::Peer(status) => self.update_peer(status.into()),
             AgentToUi::Pairing(status) => self.update_pairing(status.into()),
@@ -1345,15 +743,8 @@ impl Runner {
 
     fn update_desk(&self, new: Config) {
         self.update(|c| match c {
-            Snapshot::Connected {
-                desk, hidden, caps, ..
-            } => {
-                let split = caps.split(&new);
-                *self.all.lock().unwrap_or_else(PoisonError::into_inner) = new;
-                if (&*desk, &*hidden) == (&split.0, &split.1) {
-                    return false;
-                }
-                (*desk, *hidden) = split;
+            Snapshot::Connected { desk, .. } if *desk != new => {
+                *desk = new;
                 true
             }
             _ => false,
@@ -1390,11 +781,7 @@ impl Runner {
 
     fn update_caps(&self, new: CapsView) {
         self.update(|c| match c {
-            Snapshot::Connected {
-                caps, desk, hidden, ..
-            } if **caps != new => {
-                let all = self.all.lock().unwrap_or_else(PoisonError::into_inner);
-                (*desk, *hidden) = new.split(&all);
+            Snapshot::Connected { caps, .. } if **caps != new => {
                 **caps = new;
                 true
             }
@@ -1448,16 +835,6 @@ mod tests {
 
     const CONFIG: &str = r#"
 machine = "mac"
-
-[[monitors]]
-id = "m34"
-label = '34"'
-wiring = { pc = "displayport", mac = "hdmi" }
-
-[[monitors]]
-id = "m32"
-label = '32"'
-wiring = { pc = "displayport", mac = "hdmi" }
 
 # Con qué despertar a la PC: sin esto, el plan ni siquiera intenta encenderla.
 [power.wol]
@@ -1576,7 +953,6 @@ mac = "9c:6b:00:1a:2b:ff"
             handle.snapshot(),
             Snapshot::Connected {
                 agent: Machine::Mac,
-                hidden: vec![],
                 desk: a.agent.config().desk.clone(),
                 state: a.agent.state(),
                 peer: PeerView::Unpaired,
@@ -1587,10 +963,10 @@ mac = "9c:6b:00:1a:2b:ff"
         );
     }
 
-    /// T-082: un clic en la UI cambia el cableado; la escena recibe el puesto nuevo y
-    /// `GetSetup` dice de dónde salió la configuración.
+    /// El acomodo cambiado en el agente llega a la escena, y `GetSetup` dice de dónde
+    /// salió la configuración.
     #[tokio::test]
-    async fn rewiring_a_monitor_updates_the_scene() {
+    async fn a_desk_change_updates_the_scene() {
         let dir = tempfile::tempdir().unwrap();
         let a = agent_in(dir.path());
         let file = dir.path().join("tandem.toml");
@@ -1601,37 +977,12 @@ mac = "9c:6b:00:1a:2b:ff"
         let (handle, rec) = session(&slot);
         rec.until(|s, _| connected(s)).await;
 
-        let swapped: BTreeMap<Machine, Input> = [
-            (Machine::Pc, Input::Hdmi),
-            (Machine::Mac, Input::DisplayPort),
-        ]
-        .into();
-        let action: Action = serde_json::from_value(serde_json::json!({
-            "kind": "set_wiring",
-            "monitor": "m32",
-            "wiring": { "pc": "hdmi", "mac": "displayport" },
-        }))
-        .unwrap();
-        // Sin confirmación explícita del usuario el agente lo rechaza (T-087).
-        assert!(matches!(
-            handle.act(action).await,
-            ActionResult::Rejected { .. }
-        ));
-        let action: Action = serde_json::from_value(serde_json::json!({
-            "kind": "set_wiring",
-            "monitor": "m32",
-            "wiring": { "pc": "hdmi", "mac": "displayport" },
-            "confirmed": true,
-        }))
-        .unwrap();
-        assert_eq!(handle.act(action).await, ActionResult::Done);
-        let rewired = |s: &Snapshot| {
-            matches!(s, Snapshot::Connected { desk, .. }
-                if desk.monitor(&"m32".into()).is_some_and(|m| m.wiring == swapped))
-        };
-        rec.until(|snaps, _| snaps.last().is_some_and(rewired))
-            .await;
-        assert!(rewired(&handle.snapshot()));
+        let mut desk = a.agent.desk();
+        desk.arrangement.mac_side = tandem_core::Side::Right;
+        a.agent.set_desk(desk.clone()).unwrap();
+        let moved = |s: &Snapshot| matches!(s, Snapshot::Connected { desk: d, .. } if *d == desk);
+        rec.until(|snaps, _| snaps.last().is_some_and(moved)).await;
+        assert!(moved(&handle.snapshot()));
 
         let got = handle.act(Action::GetSetup).await;
         assert_eq!(
@@ -1737,7 +1088,6 @@ mac = "9c:6b:00:1a:2b:ff"
 
         let mut s = a.agent.state();
         s.on.pc = true;
-        s.builtin_pref = BuiltinDisplay::Mirror;
         a.agent.set_state(s.clone()).unwrap();
         let want = s.clone();
         rec.until(|snaps, _| {
@@ -1748,22 +1098,27 @@ mac = "9c:6b:00:1a:2b:ff"
     }
 
     #[tokio::test]
-    async fn mode_change_reports_each_step() {
+    async fn a_power_change_reports_each_step() {
         let dir = tempfile::tempdir().unwrap();
         let a = agent_in(dir.path());
         let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
         let (handle, rec) = session(&slot);
         rec.until(|s, _| connected(s)).await;
 
-        let r = handle.act(Action::SetMode { mode: Mode::SoloPc }).await;
+        let r = handle
+            .act(Action::SetPower {
+                machine: Machine::Pc,
+                on: true,
+            })
+            .await;
         let ActionResult::Accepted { txn } = r else {
             panic!("se esperaba Accepted: {r:?}");
         };
-        // Sin backends, el agente intenta y deshace: la ventana ve cada paso.
+        // Sin backends, el agente intenta y falla: la ventana ve cada paso.
         rec.until(|_, n| {
-            n.iter().any(|n| {
-                matches!(n, Notice::Txn { event: TxnView::RolledBack { txn: t, .. } } if *t == txn)
-            })
+            n.iter().any(
+                |n| matches!(n, Notice::Txn { event: TxnView::Failed { txn: t, .. } } if *t == txn),
+            )
         })
         .await;
         let notices = rec.notices.lock().unwrap().clone();
@@ -1787,74 +1142,6 @@ mac = "9c:6b:00:1a:2b:ff"
         )));
     }
 
-    /// T-078: la sonda llega como aviso, el clic de la ventana vuelve al agente y la
-    /// sonda se cierra.
-    #[tokio::test]
-    async fn probes_reach_the_window_and_the_click_goes_back() {
-        let dir = tempfile::tempdir().unwrap();
-        let running = agent_in(dir.path());
-        let slot = Arc::new(Mutex::new(Some(running.connector.clone())));
-        let (handle, rec) = session(&slot);
-        rec.until(|s, _| connected(s)).await;
-        let probe = tandem_proto::CalibrationProbe {
-            monitor: tandem_proto::ProbeMonitor {
-                edid: None,
-                name: "LC34G55T".into(),
-            },
-            input: Input::Hdmi,
-            machine: Machine::Mac,
-            ask: tandem_proto::ProbeAsk::Candidate { code: 6 },
-            timeout_ms: 60_000,
-        };
-        let agent = running.agent.clone();
-        let shown = tokio::spawn(async move { agent.probes().show(&probe, false).await });
-        rec.until(|_, n| {
-            n.iter().any(|n| {
-                matches!(
-                    n,
-                    Notice::Probe {
-                        event: ProbeView::Show { .. }
-                    }
-                )
-            })
-        })
-        .await;
-        let id = rec
-            .notices
-            .lock()
-            .unwrap()
-            .iter()
-            .find_map(|n| match n {
-                Notice::Probe {
-                    event: ProbeView::Show { id, .. },
-                } => Some(*id),
-                _ => None,
-            })
-            .unwrap();
-        assert_eq!(
-            handle
-                .act(Action::AnswerProbe {
-                    id,
-                    answer: AnswerView::Seen
-                })
-                .await,
-            ActionResult::Done
-        );
-        assert_eq!(
-            shown.await.unwrap(),
-            tandem_proto::ProbeOutcome::Answered(tandem_proto::ProbeAnswer::Seen)
-        );
-        rec.until(|_, n| {
-            n.iter().any(|n| {
-                *n == Notice::Probe {
-                    event: ProbeView::Hide { id },
-                }
-            })
-        })
-        .await;
-        drop(running.stop);
-    }
-
     #[tokio::test]
     async fn rejections_are_passed_through() {
         let dir = tempfile::tempdir().unwrap();
@@ -1862,15 +1149,13 @@ mac = "9c:6b:00:1a:2b:ff"
         let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
         let (handle, rec) = session(&slot);
         rec.until(|s, _| connected(s)).await;
-        let r = handle
-            .act(Action::MoveMonitor {
-                monitor: "no-existe".into(),
-                to: Machine::Pc,
-            })
-            .await;
-        assert!(
-            matches!(&r, ActionResult::Rejected { reason } if reason.contains("no-existe")),
-            "{r:?}"
+        // Sin red no se puede emparejar: el motivo del agente llega tal cual.
+        let r = handle.act(Action::ConfirmPairing).await;
+        assert_eq!(
+            r,
+            ActionResult::Rejected {
+                reason: tandemd::agent::NO_NETWORK.into()
+            }
         );
     }
 
@@ -1998,13 +1283,14 @@ mac = "9c:6b:00:1a:2b:ff"
 
     #[test]
     fn json_is_what_the_frontend_reads() {
-        let cfg = AgentConfig::from_toml(CONFIG).unwrap();
-        let state = State::initial(&cfg.desk, Machine::Mac);
+        let cfg = AgentConfig::from_toml(
+            "machine = \"mac\"\n[[screens]]\nmachine = \"pc\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 3440\nheight = 1440\nscale = 1.5\n",
+        )
+        .unwrap();
         let snap = Snapshot::Connected {
             agent: Machine::Mac,
-            hidden: vec![],
             desk: cfg.desk,
-            state,
+            state: State::initial(Machine::Mac),
             peer: PeerView::Unpaired,
             pairing: PairingView::Idle,
             input: InputStatus {
@@ -2020,17 +1306,26 @@ mac = "9c:6b:00:1a:2b:ff"
             caps: test_caps(Machine::Mac),
         };
         let v = serde_json::to_value(&snap).unwrap();
+        assert_eq!(v["kind"], "connected");
         assert_eq!(v["caps"]["here"]["machine"], "mac");
-        assert_eq!(v["caps"]["here"]["builtin"], true);
-        assert_eq!(v["caps"]["here"]["monitors"][0]["switch"], false);
         assert_eq!(
             v["caps"]["here"]["power"],
             serde_json::json!({ "wake_peer": false, "wakeable": true, "power_off": false })
         );
         assert_eq!(v["caps"]["peer"], serde_json::Value::Null);
         assert_eq!(
-            v["state"]["on"],
-            serde_json::json!({ "mac": true, "pc": false })
+            v["state"],
+            serde_json::json!({ "on": { "mac": true, "pc": false } })
+        );
+        assert_eq!(
+            v["desk"],
+            serde_json::json!({
+                "screens": [{
+                    "machine": "pc", "id": "34", "x": 0, "y": 0,
+                    "width": 3440, "height": 1440, "scale": 1.5
+                }],
+                "arrangement": { "mac_side": "left", "offset": 0 }
+            })
         );
         assert_eq!(
             v["input"],
@@ -2044,17 +1339,9 @@ mac = "9c:6b:00:1a:2b:ff"
                 "defined": true,
             })
         );
-        assert_eq!(v["kind"], "connected");
-        assert_eq!(v["desk"]["monitors"][0]["label"], "34\"");
-        assert_eq!(v["desk"]["monitors"][0]["wiring"]["pc"], "displayport");
-        assert_eq!(v["state"]["owner"]["m32"], "mac");
         assert_eq!(v["peer"], serde_json::json!({ "kind": "unpaired" }));
         assert_eq!(v["pairing"], serde_json::json!({ "kind": "idle" }));
         let pairing = |p: PairingStatus| serde_json::to_value(PairingView::from(p)).unwrap();
-        assert_eq!(
-            pairing(PairingStatus::Searching),
-            serde_json::json!({ "kind": "searching" })
-        );
         assert_eq!(
             pairing(PairingStatus::Comparing {
                 code: "012345".into(),
@@ -2064,14 +1351,6 @@ mac = "9c:6b:00:1a:2b:ff"
             serde_json::json!({ "kind": "comparing", "code": "012345", "peer": "PC", "confirmed": true })
         );
         assert_eq!(
-            pairing(PairingStatus::Done { peer: "PC".into() }),
-            serde_json::json!({ "kind": "done", "peer": "PC" })
-        );
-        assert_eq!(
-            pairing(PairingStatus::Failed { reason: "x".into() }),
-            serde_json::json!({ "kind": "failed", "reason": "x" })
-        );
-        assert_eq!(
             serde_json::to_value(PeerView::from(PeerStatus::Paired {
                 name: "PC".into(),
                 link: Some(Link::Usb4),
@@ -2079,30 +1358,12 @@ mac = "9c:6b:00:1a:2b:ff"
             .unwrap(),
             serde_json::json!({ "kind": "paired", "name": "PC", "link": "usb4" })
         );
-        assert_eq!(
-            serde_json::to_value(PeerView::from(PeerStatus::Paired {
-                name: "PC".into(),
-                link: None,
-            }))
-            .unwrap(),
-            serde_json::json!({ "kind": "paired", "name": "PC", "link": null })
-        );
-
         let n = Notice::Txn {
             event: TxnView::Started {
                 txn: 3,
-                steps: vec![
-                    Step::PowerOn {
-                        machine: Machine::Pc,
-                    },
-                    Step::SwitchInput {
-                        monitor: "m34".into(),
-                        from: Machine::Mac,
-                        to: Machine::Pc,
-                        input: Input::DisplayPort,
-                        by: Machine::Pc,
-                    },
-                ],
+                steps: vec![Step::PowerOn {
+                    machine: Machine::Pc,
+                }],
             },
         };
         assert_eq!(
@@ -2110,106 +1371,13 @@ mac = "9c:6b:00:1a:2b:ff"
             serde_json::json!({
                 "kind": "txn",
                 "event": { "type": "started", "txn": 3, "steps": [
-                    { "step": "power_on", "machine": "pc" },
-                    { "step": "switch_input", "monitor": "m34", "from": "mac", "to": "pc", "input": "displayport", "by": "pc" }
+                    { "step": "power_on", "machine": "pc" }
                 ]}
             })
-        );
-        let m = Notice::ManualSwitch {
-            event: ManualView::Closed { id: 2 },
-        };
-        assert_eq!(
-            serde_json::to_value(&m).unwrap(),
-            serde_json::json!({ "kind": "manual_switch", "event": { "type": "closed", "id": 2 } })
-        );
-        let probe = |place| tandem_proto::ProbeEvent::Show {
-            id: 7,
-            probe: tandem_proto::CalibrationProbe {
-                monitor: tandem_proto::ProbeMonitor {
-                    edid: None,
-                    name: "Odyssey G5".into(),
-                },
-                input: Input::Hdmi,
-                machine: Machine::Mac,
-                ask: tandem_proto::ProbeAsk::Candidate { code: 5 },
-                timeout_ms: 8000,
-            },
-            place,
-        };
-        let shown = Notice::Probe {
-            event: probe(ProbePlace::Monitor {
-                screen: Some(tandem_proto::ProbeScreen {
-                    x: -2560,
-                    y: 0,
-                    width: 2560,
-                    height: 1440,
-                }),
-            })
-            .into(),
-        };
-        assert_eq!(
-            serde_json::to_value(&shown).unwrap(),
-            serde_json::json!({
-                "kind": "probe",
-                "event": {
-                    "type": "show", "id": 7, "monitor": "Odyssey G5", "input": "hdmi",
-                    "machine": "mac",
-                    "ask": { "kind": "candidate", "code": 5 }, "timeout_ms": 8000,
-                    "place": { "kind": "monitor", "screen": { "x": -2560, "y": 0, "width": 2560, "height": 1440 } }
-                }
-            })
-        );
-        let asked = serde_json::to_value(ProbeView::from(probe(ProbePlace::Question))).unwrap();
-        assert_eq!(asked["place"], serde_json::json!({ "kind": "question" }));
-        let unplaced = ProbeView::from(probe(ProbePlace::Monitor { screen: None }));
-        assert_eq!(
-            serde_json::to_value(unplaced).unwrap()["place"],
-            serde_json::json!({ "kind": "monitor", "screen": null })
-        );
-        assert_eq!(
-            serde_json::to_value(ProbeView::from(probe(ProbePlace::Offscreen))).unwrap()["place"],
-            serde_json::json!({ "kind": "offscreen" })
-        );
-        let mut switch = probe(ProbePlace::Question);
-        if let tandem_proto::ProbeEvent::Show { probe, .. } = &mut switch {
-            probe.ask = tandem_proto::ProbeAsk::UserSwitch;
-        }
-        assert_eq!(
-            serde_json::to_value(ProbeView::from(switch)).unwrap()["ask"],
-            serde_json::json!({ "kind": "user_switch" })
-        );
-        for (ask, json) in [
-            (
-                tandem_proto::ProbeAsk::Back { code: 0x0F },
-                serde_json::json!({ "kind": "back", "code": 15 }),
-            ),
-            (
-                tandem_proto::ProbeAsk::Verify { code: 5 },
-                serde_json::json!({ "kind": "verify", "code": 5 }),
-            ),
-            (
-                tandem_proto::ProbeAsk::Stalled { code: 5 },
-                serde_json::json!({ "kind": "stalled", "code": 5 }),
-            ),
-        ] {
-            let mut e = probe(ProbePlace::Question);
-            if let tandem_proto::ProbeEvent::Show { probe, .. } = &mut e {
-                probe.ask = ask;
-            }
-            assert_eq!(
-                serde_json::to_value(ProbeView::from(e)).unwrap()["ask"],
-                json
-            );
-        }
-        assert_eq!(
-            serde_json::to_value(ProbeView::from(tandem_proto::ProbeEvent::Hide { id: 7 }))
-                .unwrap(),
-            serde_json::json!({ "type": "hide", "id": 7 })
         );
         let p = Notice::from(PowerEvent::PeerLost {
             machine: Machine::Pc,
             reason: "la PC dejó de responder".into(),
-            stranded: vec!["m34".into()],
         });
         assert_eq!(
             serde_json::to_value(&p).unwrap(),
@@ -2217,7 +1385,6 @@ mac = "9c:6b:00:1a:2b:ff"
                 "kind": "power",
                 "machine": "pc",
                 "reason": "la PC dejó de responder",
-                "stranded": ["m34"]
             })
         );
         assert_eq!(
@@ -2231,30 +1398,6 @@ mac = "9c:6b:00:1a:2b:ff"
         let read =
             |v: serde_json::Value| UiCommand::from(serde_json::from_value::<Action>(v).unwrap());
         assert_eq!(
-            read(serde_json::json!({ "kind": "set_mode", "mode": { "mode": "solo_mac" } })),
-            UiCommand::SetMode(Mode::SoloMac)
-        );
-        assert_eq!(
-            read(serde_json::json!({
-                "kind": "set_mode",
-                "mode": { "mode": "shared", "assign": { "m34": "pc", "m32": "mac" } }
-            })),
-            UiCommand::SetMode(Mode::Shared(
-                [("m34".into(), Machine::Pc), ("m32".into(), Machine::Mac)].into()
-            ))
-        );
-        assert_eq!(
-            read(serde_json::json!({ "kind": "move_monitor", "monitor": "m32", "to": "pc" })),
-            UiCommand::MoveMonitor {
-                monitor: "m32".into(),
-                to: Machine::Pc
-            }
-        );
-        assert_eq!(
-            read(serde_json::json!({ "kind": "set_builtin", "display": "mirror" })),
-            UiCommand::SetBuiltin(BuiltinDisplay::Mirror)
-        );
-        assert_eq!(
             read(serde_json::json!({ "kind": "set_power", "machine": "pc", "on": false })),
             UiCommand::SetPower {
                 machine: Machine::Pc,
@@ -2262,223 +1405,29 @@ mac = "9c:6b:00:1a:2b:ff"
             }
         );
         assert_eq!(
-            read(serde_json::json!({ "kind": "set_power", "machine": "mac", "on": true })),
-            UiCommand::SetPower {
-                machine: Machine::Mac,
-                on: true
-            }
+            read(serde_json::json!({ "kind": "key_probe", "on": true })),
+            UiCommand::KeyProbe { on: true }
         );
         assert_eq!(
-            read(serde_json::json!({ "kind": "answer_manual_switch", "id": 4, "done": true })),
-            UiCommand::AnswerManualSwitch { id: 4, done: true }
-        );
-        for (json, answer) in [
-            (serde_json::json!({ "kind": "seen" }), ProbeAnswer::Seen),
-            (
-                serde_json::json!({ "kind": "machine", "machine": "mac" }),
-                ProbeAnswer::Machine(Machine::Mac),
-            ),
-            (
-                serde_json::json!({ "kind": "machine", "machine": "pc" }),
-                ProbeAnswer::Machine(Machine::Pc),
-            ),
-            (serde_json::json!({ "kind": "black" }), ProbeAnswer::Black),
-            (serde_json::json!({ "kind": "stop" }), ProbeAnswer::Stop),
-        ] {
-            assert_eq!(
-                read(serde_json::json!({ "kind": "answer_probe", "id": 5, "answer": json })),
-                UiCommand::AnswerProbe { id: 5, answer }
-            );
-        }
-        assert_eq!(
-            read(serde_json::json!({ "kind": "start_calibration", "display": 1 })),
-            UiCommand::StartCalibration {
-                display: 1,
-                monitor: None
-            }
-        );
-        assert_eq!(
-            read(serde_json::json!({ "kind": "use_profile", "display": 0, "monitor": "m32" })),
-            UiCommand::UseProfile {
-                display: 0,
-                monitor: Some("m32".into())
-            }
+            read(serde_json::json!({ "kind": "set_keyboard", "machine": "mac" })),
+            UiCommand::SetKeyboard(Machine::Mac)
         );
         for (kind, cmd) in [
             ("start_pairing", UiCommand::StartPairing),
             ("confirm_pairing", UiCommand::ConfirmPairing),
             ("cancel_pairing", UiCommand::CancelPairing),
             ("unpair", UiCommand::Unpair),
-            ("list_displays", UiCommand::ListDisplays),
-            ("cancel_calibration", UiCommand::CancelCalibration),
+            ("heard_key", UiCommand::HeardKey),
+            ("ping_peer", UiCommand::PingPeer),
+            ("request_permissions", UiCommand::RequestPermissions),
+            ("get_setup", UiCommand::GetSetup),
         ] {
             assert_eq!(read(serde_json::json!({ "kind": kind })), cmd);
         }
-        // T-085: «Aplicar modo» y lo que muestra cada monitor (`null`: en negro).
-        assert_eq!(
-            read(serde_json::json!({ "kind": "apply_mode", "mode": { "mode": "solo_pc" } })),
-            UiCommand::ApplyMode(Mode::SoloPc)
-        );
-        assert_eq!(
-            read(serde_json::json!({ "kind": "set_shown", "shows": { "m34": "pc", "m32": null } })),
-            UiCommand::SetShown([("m34".into(), Some(Machine::Pc)), ("m32".into(), None)].into())
-        );
-    }
-
-    #[test]
-    fn displays_and_calibration_are_what_the_frontend_reads() {
-        let r = ActionResult::from(Reply::Displays(vec![
-            DisplayInfo {
-                index: 1,
-                name: "Odyssey G5".into(),
-                pnp_id: Some("SAM7489".into()),
-                monitor: Some("m32".into()),
-                profile: DisplayProfile::Known {
-                    name: "Odyssey G5 32\"".into(),
-                    user: true,
-                    hdmi: 5,
-                    display_port: 15,
-                    toml: "x".into(),
-                },
-            },
-            DisplayInfo {
-                index: 2,
-                name: "U2720Q".into(),
-                pnp_id: None,
-                monitor: None,
-                profile: DisplayProfile::None,
-            },
-        ]));
-        assert_eq!(
-            serde_json::to_value(&r).unwrap(),
-            serde_json::json!({
-                "kind": "displays",
-                "displays": [
-                    {
-                        "index": 1, "name": "Odyssey G5", "pnp_id": "SAM7489", "monitor": "m32",
-                        "profile": {
-                            "kind": "known", "name": "Odyssey G5 32\"", "user": true,
-                            "hdmi": 5, "display_port": 15, "toml": "x"
-                        }
-                    },
-                    {
-                        "index": 2, "name": "U2720Q", "pnp_id": null, "monitor": null,
-                        "profile": { "kind": "none" }
-                    }
-                ]
-            })
-        );
-        let configured = DisplayView::from(DisplayInfo {
-            index: 0,
-            name: "a".into(),
-            pnp_id: None,
-            monitor: None,
-            profile: DisplayProfile::Configured {
-                hdmi: 6,
-                display_port: 9,
-            },
-        });
-        assert_eq!(
-            serde_json::to_value(&configured).unwrap()["profile"],
-            serde_json::json!({ "kind": "configured", "hdmi": 6, "display_port": 9 })
-        );
-
-        let json = |u: CalibrationUpdate| {
-            serde_json::to_value(Notice::Calibration { event: u.into() }).unwrap()
-        };
-        assert_eq!(
-            json(CalibrationUpdate::Started {
-                display: 1,
-                name: "Odyssey G5".into(),
-                monitor: None,
-                start: Input::DisplayPort,
-            }),
-            serde_json::json!({
-                "kind": "calibration",
-                "event": { "type": "started", "display": 1, "name": "Odyssey G5", "monitor": null, "start": "displayport" }
-            })
-        );
-        assert_eq!(
-            json(CalibrationUpdate::Progress(CalibrationStep::Trying {
-                input: Input::Hdmi,
-                code: 5,
-                attempt: 1,
-                of: 31,
-            }))["event"],
-            serde_json::json!({
-                "type": "progress",
-                "step": { "kind": "trying", "input": "hdmi", "code": 5, "attempt": 1, "of": 31 }
-            })
-        );
-        for (step, kind) in [
-            (CalibrationStep::Reading, "reading"),
-            (
-                CalibrationStep::UserSwitch { input: Input::Hdmi },
-                "user_switch",
-            ),
-            (CalibrationStep::Testing { input: Input::Hdmi }, "testing"),
-            (
-                CalibrationStep::Seen {
-                    input: Input::Hdmi,
-                    code: 5,
-                    seen: false,
-                },
-                "seen",
-            ),
-            (CalibrationStep::Returned { code: 15 }, "returned"),
-            (
-                CalibrationStep::Found {
-                    input: Input::Hdmi,
-                    code: 5,
-                },
-                "found",
-            ),
-            (CalibrationStep::Verifying, "verifying"),
-            (
-                CalibrationStep::Verified {
-                    input: Input::Hdmi,
-                    code: 5,
-                },
-                "verified",
-            ),
-        ] {
-            assert_eq!(
-                json(CalibrationUpdate::Progress(step))["event"]["step"]["kind"],
-                kind
-            );
+        // Lo de los monitores ya no existe: la ventana no puede pedirlo.
+        for gone in ["set_mode", "list_displays", "scan_monitors", "answer_probe"] {
+            assert!(serde_json::from_value::<Action>(serde_json::json!({ "kind": gone })).is_err());
         }
-        assert_eq!(
-            json(CalibrationUpdate::Finished(CalibrationOutcome::Saved(
-                SavedProfile {
-                    name: "Odyssey G5 (SAM7489)".into(),
-                    hdmi: 5,
-                    display_port: 15,
-                    attempts: 2,
-                    monitor: Some("m32".into()),
-                    file: Some("/d/SAM7489.toml".into()),
-                    toml: Some("t".into()),
-                    notes: vec!["n".into()],
-                }
-            )))["event"],
-            serde_json::json!({
-                "type": "finished",
-                "outcome": {
-                    "kind": "saved", "name": "Odyssey G5 (SAM7489)", "hdmi": 5, "display_port": 15,
-                    "attempts": 2, "monitor": "m32", "file": "/d/SAM7489.toml", "toml": "t",
-                    "notes": ["n"]
-                }
-            })
-        );
-        assert_eq!(
-            json(CalibrationUpdate::Finished(CalibrationOutcome::Failed {
-                reason: "r".into()
-            }))["event"]["outcome"],
-            serde_json::json!({ "kind": "failed", "reason": "r" })
-        );
-        assert_eq!(
-            json(CalibrationUpdate::Finished(CalibrationOutcome::Cancelled))["event"]["outcome"],
-            serde_json::json!({ "kind": "cancelled" })
-        );
     }
 
     #[test]
@@ -2498,15 +1447,22 @@ mac = "9c:6b:00:1a:2b:ff"
                 reason: "no".into()
             }
         );
+        assert_eq!(
+            ActionResult::from(Reply::Pong {
+                link: Link::Ethernet,
+                millis: 3
+            }),
+            ActionResult::Pong {
+                link: LinkView::Ethernet,
+                millis: 3
+            }
+        );
     }
 
     #[test]
-    fn txn_and_manual_events_keep_their_data() {
+    fn txn_events_keep_their_data() {
         let s = State {
-            owner: Default::default(),
             on: tandem_core::Powered::both(),
-            builtin_pref: BuiltinDisplay::Off,
-            doubt: Default::default(),
         };
         let cases = [
             (
@@ -2530,10 +1486,6 @@ mac = "9c:6b:00:1a:2b:ff"
                 },
             ),
             (
-                TxnEvent::RollingBack { txn: 1 },
-                TxnView::RollingBack { txn: 1 },
-            ),
-            (
                 TxnEvent::Committed {
                     txn: 1,
                     state: s.clone(),
@@ -2544,41 +1496,16 @@ mac = "9c:6b:00:1a:2b:ff"
                 },
             ),
             (
-                TxnEvent::Inconsistent {
+                TxnEvent::Failed {
                     txn: 1,
-                    undo_failures: vec![tandem_proto::UndoFailure {
-                        step: Step::UpdateInputGeometry,
-                        error: "x".into(),
-                    }],
+                    state: s.clone(),
                 },
-                TxnView::Inconsistent {
-                    txn: 1,
-                    undo_failures: vec![UndoView {
-                        step: Step::UpdateInputGeometry,
-                        error: "x".into(),
-                    }],
-                },
+                TxnView::Failed { txn: 1, state: s },
             ),
         ];
         for (event, view) in cases {
             assert_eq!(TxnView::from(event), view);
         }
-        assert_eq!(
-            ManualView::from(ManualSwitchEvent::Requested {
-                id: 1,
-                monitor: "m32".into(),
-                label: "32\"".into(),
-                to: Machine::Pc,
-                input: Input::DisplayPort,
-            }),
-            ManualView::Requested {
-                id: 1,
-                monitor: "m32".into(),
-                label: "32\"".into(),
-                to: Machine::Pc,
-                input: Input::DisplayPort,
-            }
-        );
     }
 
     #[test]
@@ -2587,7 +1514,6 @@ mac = "9c:6b:00:1a:2b:ff"
         let (snapshot, _) = watch::channel(Snapshot::Connecting);
         let (_, actions) = mpsc::channel(1);
         let runner = Runner {
-            all: std::sync::Mutex::new(Config { monitors: vec![] }),
             endpoint: None,
             sink: rec.clone(),
             snapshot,
@@ -2597,14 +1523,12 @@ mac = "9c:6b:00:1a:2b:ff"
         runner.on_event(AgentToUi::Power(PowerEvent::PeerLost {
             machine: Machine::Pc,
             reason: "la PC dejó de responder (¿corte de corriente?)".into(),
-            stranded: vec!["m34".into(), "m32".into()],
         }));
         assert_eq!(
             *rec.notices.lock().unwrap(),
             vec![Notice::Power {
                 machine: Machine::Pc,
                 reason: "la PC dejó de responder (¿corte de corriente?)".into(),
-                stranded: vec!["m34".into(), "m32".into()],
             }]
         );
         // Un aviso de energía no toca el estado: ese llega empujado aparte.

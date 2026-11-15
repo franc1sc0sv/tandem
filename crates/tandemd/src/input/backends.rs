@@ -5,11 +5,8 @@
 //! Los tipos de cada backend son distintos en cada sistema; aquí todos se ven con el
 //! error como texto ([`Stringly`]) y en caja, así el resto del agente es uno solo.
 
-use std::sync::Arc;
-
 use tandem_clipboard::{ClipContent, Clipboard};
-use tandem_core::{Config, Machine};
-use tandem_display::desktop::{self, DesktopControl};
+use tandem_core::Machine;
 use tandem_input::event::{Direction, ModifierRemap, RemapPolicy};
 use tandem_input::session::{Capture, Injector};
 use tandem_input::{HidUsage, InputEvent, Point, Screen};
@@ -17,7 +14,7 @@ use tandem_peripherals::{DeviceScanner, UsbId};
 use tandem_proto::InputPermission;
 use tokio::sync::mpsc;
 
-use super::screens::from_placed;
+use super::screens::detected;
 
 /// Adapta el error de un backend a texto.
 pub struct Stringly<T>(pub T);
@@ -192,7 +189,7 @@ impl CaptureSink {
 }
 
 /// Lo que cada máquina aporta al teclado, el mouse y el portapapeles compartidos.
-/// Las llamadas pueden bloquear (crear un tap, leer la topología): el agente las hace
+/// Las llamadas pueden bloquear (crear un tap, leer las pantallas): el agente las hace
 /// fuera del runtime.
 pub trait InputBackends: Send + Sync + 'static {
     /// Arranca la captura; lo capturado va a `sink`.
@@ -205,8 +202,9 @@ pub trait InputBackends: Send + Sync + 'static {
     /// `None` si este sistema no sabe listar sus dispositivos USB.
     fn scanner(&self) -> Option<DynScanner>;
 
-    /// Las pantallas del escritorio, en las coordenadas nativas del cursor.
-    fn screens(&self, desk: &Config) -> Result<Vec<Screen>, String>;
+    /// Las pantallas de esta máquina, en las coordenadas nativas del cursor: el acomodo por
+    /// omisión cuando el puesto no declara las suyas (DESIGN §7).
+    fn screens(&self) -> Result<Vec<Screen>, String>;
 
     /// Permisos del sistema que faltan para capturar o inyectar.
     fn missing_permissions(&self) -> Vec<InputPermission>;
@@ -220,18 +218,17 @@ pub trait InputBackends: Send + Sync + 'static {
 }
 
 /// Los backends reales de este sistema: CGEventTap/CGEventPost en macOS, hooks y
-/// `SendInput` en Windows, `arboard` para el portapapeles, IOKit/SetupAPI para el hub y
-/// la topología de `tandem-display` para las pantallas. En otros sistemas no hay
-/// captura ni inyección, y el agente lo informa.
+/// `SendInput` en Windows, `arboard` para el portapapeles e IOKit/SetupAPI para el hub.
+/// Las pantallas son los límites que ya lee la inyección (`CGDisplayBounds` en macOS, los
+/// monitores del escritorio virtual en Windows). En otros sistemas no hay captura ni
+/// inyección, y el agente lo informa.
 pub struct PlatformInput {
-    desktop: Option<Arc<dyn DesktopControl>>,
+    me: Machine,
 }
 
 impl PlatformInput {
     pub fn new(me: Machine) -> Self {
-        PlatformInput {
-            desktop: desktop::native(me),
-        }
+        PlatformInput { me }
     }
 }
 
@@ -254,13 +251,8 @@ impl InputBackends for PlatformInput {
         platform::scanner()
     }
 
-    fn screens(&self, desk: &Config) -> Result<Vec<Screen>, String> {
-        let desktop = self
-            .desktop
-            .as_ref()
-            .ok_or("este sistema no informa sus pantallas")?;
-        let placed = desktop.screens(&desk.monitors).map_err(|e| e.0)?;
-        Ok(placed.into_iter().filter_map(from_placed).collect())
+    fn screens(&self) -> Result<Vec<Screen>, String> {
+        Ok(detected(self.me, &platform::screens()?))
     }
 
     fn missing_permissions(&self) -> Vec<InputPermission> {
@@ -274,13 +266,20 @@ impl InputBackends for PlatformInput {
 
 #[cfg(target_os = "macos")]
 mod platform {
+    use tandem_input::Rect;
     use tandem_input::macos::capture::{
         MacCapture, Permission, Permissions, permissions, request_permissions as ask,
     };
-    use tandem_input::macos::emulate::{CgSink, MacEmulator};
+    use tandem_input::macos::emulate::{CgSink, MacEmulator, MacSink};
     use tandem_proto::InputPermission;
 
     use super::{CaptureSink, DynCapture, DynInjector, DynScanner};
+
+    /// Los límites de cada pantalla activa (`CGDisplayBounds`), en puntos.
+    pub fn screens() -> Result<Vec<Rect>, String> {
+        let mut sink = CgSink::new().map_err(|e| e.to_string())?;
+        sink.screens().map_err(|e| e.to_string())
+    }
 
     pub fn capture(sink: CaptureSink) -> Result<DynCapture, String> {
         MacCapture::start(move |ev| sink.send(ev))
@@ -321,11 +320,25 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
+    use tandem_input::Rect;
     use tandem_input::windows::capture::{CaptureConfig, WindowsCapture};
-    use tandem_input::windows::emulate::{Emulator, SendInputSink};
+    use tandem_input::windows::emulate::{Emulator, InputSink, SendInputSink};
     use tandem_proto::InputPermission;
 
     use super::{CaptureSink, DynCapture, DynInjector, DynScanner};
+
+    /// Cada monitor del escritorio virtual, en píxeles físicos (el proceso es
+    /// Per-Monitor-V2); sin monitores, el escritorio virtual entero.
+    pub fn screens() -> Result<Vec<Rect>, String> {
+        let desktop = SendInputSink::new()
+            .and_then(|sink| sink.desktop())
+            .map_err(|e| e.to_string())?;
+        Ok(if desktop.monitors.is_empty() {
+            vec![desktop.virtual_rect]
+        } else {
+            desktop.monitors
+        })
+    }
 
     pub fn capture(sink: CaptureSink) -> Result<DynCapture, String> {
         WindowsCapture::start(CaptureConfig::default(), move |ev| {
@@ -358,11 +371,16 @@ mod platform {
 
 #[cfg(not(any(windows, target_os = "macos")))]
 mod platform {
+    use tandem_input::Rect;
     use tandem_proto::InputPermission;
 
     use super::{CaptureSink, DynCapture, DynInjector, DynScanner};
 
     const UNSUPPORTED: &str = "este sistema no tiene captura ni inyección de teclado y mouse";
+
+    pub fn screens() -> Result<Vec<Rect>, String> {
+        Err("este sistema no informa sus pantallas".to_owned())
+    }
 
     pub fn capture(_sink: CaptureSink) -> Result<DynCapture, String> {
         Err(UNSUPPORTED.to_owned())
@@ -455,10 +473,7 @@ mod tests {
                     .is_err()
             );
             assert!(p.scanner().is_none());
-            assert!(
-                p.screens(&Config::from_toml("monitors = []").unwrap())
-                    .is_err()
-            );
+            assert!(p.screens().is_err());
         }
         if cfg!(not(target_os = "macos")) {
             assert!(p.missing_permissions().is_empty());

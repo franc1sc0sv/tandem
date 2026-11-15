@@ -1,13 +1,11 @@
-//! El [`State`] persistido en JSON.
-//!
-//! Los monitores no dicen de verdad qué entrada muestran (DESIGN §3), así que lo que se
-//! guarda aquí es lo único que sabe el agente al arrancar.
+//! El [`State`] persistido en JSON: lo que sabe el agente al arrancar (qué máquinas
+//! estaban encendidas).
 
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use tandem_core::{Config, Doubt, Machine, State};
+use tandem_core::{Machine, State};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -77,14 +75,14 @@ impl StateStore {
         Ok(())
     }
 
-    /// El estado de arranque, ajustado a la configuración actual.
+    /// El estado de arranque.
     ///
     /// Si no hay nada guardado, el estado seguro de partida. Si el archivo está dañado,
     /// se aparta como `*.corrupt` (para poder mirarlo) y también se parte del estado seguro.
-    pub fn load_or_initial(&self, cfg: &Config, me: Machine) -> State {
+    pub fn load_or_initial(&self, me: Machine) -> State {
         match self.load() {
-            Ok(Some(s)) => reconcile(s, cfg),
-            Ok(None) => State::initial(cfg, me),
+            Ok(Some(s)) => s,
+            Ok(None) => State::initial(me),
             Err(e) => {
                 tracing::warn!("{e}; se parte del estado inicial");
                 if matches!(e, StoreError::Corrupt { .. }) {
@@ -93,7 +91,7 @@ impl StateStore {
                         tracing::warn!("no se pudo apartar {}: {e}", self.path.display());
                     }
                 }
-                State::initial(cfg, me)
+                State::initial(me)
             }
         }
     }
@@ -113,36 +111,15 @@ impl StateStore {
     }
 }
 
-/// Ajusta un estado guardado a la configuración: se olvidan los monitores que ya no
-/// están y los nuevos se suponen en la Mac, sin confirmar, como en [`State::initial`].
-pub fn reconcile(mut state: State, cfg: &Config) -> State {
-    state.owner.retain(|id, _| cfg.monitor(id).is_some());
-    state.doubt.retain(|id, _| cfg.monitor(id).is_some());
-    for m in &cfg.monitors {
-        if !state.owner.contains_key(&m.id) {
-            state.owner.insert(m.id.clone(), Machine::Mac);
-            state.doubt.insert(m.id.clone(), Doubt::Unknown);
-        }
-    }
-    state
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
-
     use proptest::prelude::*;
-    use tandem_core::{BuiltinDisplay, MonitorId};
 
     use super::*;
-    use crate::config::fixtures;
 
     fn sample() -> State {
         State {
-            owner: BTreeMap::from([("m34".into(), Machine::Pc), ("m32".into(), Machine::Mac)]),
             on: tandem_core::Powered::both(),
-            builtin_pref: BuiltinDisplay::Mirror,
-            doubt: BTreeMap::from([("m32".into(), Doubt::Stale)]),
         }
     }
 
@@ -154,10 +131,7 @@ mod tests {
         assert_eq!(store.load().unwrap(), Some(sample()));
         // Un agente nuevo sobre el mismo archivo arranca donde quedó el anterior.
         let again = StateStore::new(store.path());
-        assert_eq!(
-            again.load_or_initial(&fixtures::desk().desk, Machine::Mac),
-            sample()
-        );
+        assert_eq!(again.load_or_initial(Machine::Mac), sample());
     }
 
     #[test]
@@ -189,10 +163,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = StateStore::new(dir.path().join("state.json"));
         assert_eq!(store.load().unwrap(), None);
-        let cfg = fixtures::desk().desk;
         assert_eq!(
-            store.load_or_initial(&cfg, Machine::Mac),
-            State::initial(&cfg, Machine::Mac)
+            store.load_or_initial(Machine::Mac),
+            State::initial(Machine::Mac)
         );
     }
 
@@ -203,28 +176,26 @@ mod tests {
         std::fs::write(&path, b"{ no es json").unwrap();
         let store = StateStore::new(&path);
         assert!(matches!(store.load(), Err(StoreError::Corrupt { .. })));
-        let cfg = fixtures::desk().desk;
         assert_eq!(
-            store.load_or_initial(&cfg, Machine::Mac),
-            State::initial(&cfg, Machine::Mac)
+            store.load_or_initial(Machine::Pc),
+            State::initial(Machine::Pc)
         );
         assert!(!path.exists());
         assert!(dir.path().join("state.json.corrupt").exists());
     }
 
+    /// Un estado guardado por v0.1 (con los monitores) sigue cargando.
     #[test]
-    fn reconcile_follows_config() {
-        let cfg = fixtures::desk().desk;
-        let mut s = sample();
-        s.owner.remove(&MonitorId::from("m32"));
-        s.owner.insert("viejo".into(), Machine::Pc);
-        let r = reconcile(s, &cfg);
-        assert_eq!(
-            r.owner,
-            BTreeMap::from([("m34".into(), Machine::Pc), ("m32".into(), Machine::Mac)])
-        );
-        assert!(r.on.pc);
-        assert_eq!(r.builtin_pref, BuiltinDisplay::Mirror);
+    fn a_state_saved_with_monitors_still_loads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        std::fs::write(
+            &path,
+            r#"{"owner":{"m34":"pc"},"on":{"mac":true,"pc":true},"builtin_pref":"off","doubt":{}}"#,
+        )
+        .unwrap();
+        let store = StateStore::new(&path);
+        assert_eq!(store.load_or_initial(Machine::Mac), sample());
     }
 
     // QA ronda 1: todas las escrituras usaban el mismo `state.json.tmp`. Dos guardados
@@ -238,10 +209,7 @@ mod tests {
             .map(|i| {
                 let mut s = sample();
                 s.on.pc = i % 2 == 0;
-                // Estados de distinto tamaño, para que un archivo mezclado no parsee.
-                for j in 0..i * 20 {
-                    s.owner.insert(MonitorId(format!("m{i}-{j}")), Machine::Pc);
-                }
+                s.on.mac = i % 3 == 0;
                 s
             })
             .collect();
@@ -264,45 +232,10 @@ mod tests {
         assert_eq!(names, ["state.json"]);
     }
 
-    fn machine() -> impl Strategy<Value = Machine> {
-        prop_oneof![Just(Machine::Mac), Just(Machine::Pc)]
-    }
-
-    fn builtin() -> impl Strategy<Value = BuiltinDisplay> {
-        prop_oneof![
-            Just(BuiltinDisplay::Off),
-            Just(BuiltinDisplay::Mirror),
-            Just(BuiltinDisplay::Extend),
-        ]
-    }
-
-    fn doubt() -> impl Strategy<Value = Doubt> {
-        prop_oneof![Just(Doubt::Unknown), Just(Doubt::Stale), Just(Doubt::Blank)]
-    }
-
     fn state() -> impl Strategy<Value = State> {
-        (
-            prop::collection::btree_map(any::<String>().prop_map(MonitorId), machine(), 0..6),
-            any::<bool>(),
-            any::<bool>(),
-            builtin(),
-            prop::collection::btree_map(
-                prop_oneof![
-                    Just("m34".to_owned()),
-                    Just("m32".to_owned()),
-                    any::<String>()
-                ]
-                .prop_map(MonitorId),
-                doubt(),
-                0..4,
-            ),
-        )
-            .prop_map(|(owner, mac, pc, builtin_pref, doubt)| State {
-                owner,
-                on: tandem_core::Powered { mac, pc },
-                builtin_pref,
-                doubt,
-            })
+        (any::<bool>(), any::<bool>()).prop_map(|(mac, pc)| State {
+            on: tandem_core::Powered { mac, pc },
+        })
     }
 
     proptest! {
@@ -312,35 +245,6 @@ mod tests {
             let store = StateStore::new(dir.path().join("state.json"));
             store.save(&s).unwrap();
             prop_assert_eq!(store.load().unwrap(), Some(s));
-        }
-
-        #[test]
-        fn reconciled_owner_matches_config_monitors(s in state()) {
-            let cfg = fixtures::desk().desk;
-            let r = reconcile(s.clone(), &cfg);
-            let ids: Vec<_> = r.owner.keys().cloned().collect();
-            let mut want: Vec<_> = cfg.monitors.iter().map(|m| m.id.clone()).collect();
-            want.sort();
-            prop_assert_eq!(ids, want);
-            // Lo que ya estaba asignado se respeta; lo nuevo queda sin confirmar.
-            for (id, owner) in &r.owner {
-                if let Some(prev) = s.owner.get(id) {
-                    prop_assert_eq!(owner, prev);
-                    prop_assert_eq!(r.doubt.get(id), s.doubt.get(id));
-                } else {
-                    prop_assert_eq!(r.doubt.get(id), Some(&Doubt::Unknown));
-                }
-            }
-            // Solo hay dudas de monitores del puesto.
-            prop_assert!(r.doubt.keys().all(|id| cfg.monitor(id).is_some()));
-        }
-
-        /// Ajustar dos veces es lo mismo que una: arrancar dos veces seguidas no cambia nada.
-        #[test]
-        fn reconcile_is_idempotent(s in state()) {
-            let cfg = fixtures::desk().desk;
-            let once = reconcile(s, &cfg);
-            prop_assert_eq!(reconcile(once.clone(), &cfg), once);
         }
     }
 }

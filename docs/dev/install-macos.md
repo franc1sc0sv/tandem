@@ -29,21 +29,18 @@ No hay que escribir ninguna configuración. La primera vez que arranca, `tandemd
 Si no hay `tandem.toml`, `tandemd` lo genera al arrancar (`tandemd::autoconfig`, T-082):
 
 - `machine = "mac"`;
-- un `[[monitors]]` por cada monitor externo que macOS ve con EDID (Quartz), de izquierda a
-  derecha: el id es el id PnP del monitor en minúsculas (`sam711a`, el mismo que genera la
-  PC), `edid_model` el id PnP, la etiqueta el tamaño (`34"`) o el modelo, y los códigos DDC de
-  la base de perfiles si el modelo está en ella;
-- cableado por omisión: DisplayPort a la PC y HDMI a la Mac. Si tu cableado es otro, se
-  cambia con un clic en **Puesto** (botón de la ventana) y queda guardado en `tandem.toml`;
+- el puesto vacío: sin `[[screens]]`, el motor de entrada usa las pantallas que lee macOS
+  para mover el cursor y la Mac va a la izquierda de la PC (DESIGN §7);
 - red, entrada y energía con sus valores por omisión (puerto 52000, sin enlaces fijos, sin
   Wake-on-LAN ni hub: nada inventado).
 
-La pantalla integrada no entra. Un monitor que la Mac no ve (por ejemplo, uno cableado solo a
-la PC) se completa al sincronizar con la PC. El archivo se puede editar (formato en
-`crates/tandemd/src/config.rs` y `docs/examples/tandem.mac.toml`); mientras exista, el agente no
-lo vuelve a generar. Para detectar los monitores de nuevo, bórralo y reinicia el agente
-(`launchctl kickstart -k gui/$(id -u)/com.franc1sc0sv.tandem.tandemd`). Para validar uno
-editado a mano:
+Tandem no controla monitores (DESIGN §8): no cambia entradas ni apaga pantallas. Si el
+acomodo por omisión no coincide con tu escritorio, declara las pantallas a mano con
+`[[screens]]` (id, x, y, ancho, alto en las coordenadas del cursor de esa máquina, y escala)
+y `[arrangement]` (`mac_side`); el cambio llega a la otra máquina con el puesto. El archivo se
+puede editar (formato en `crates/tandemd/src/config.rs` y `docs/examples/tandem.mac.toml`);
+mientras exista, el agente no lo vuelve a generar. Una sección `[[monitors]]` de v0.1 se
+ignora con un aviso en el log. Para validar uno editado a mano:
 
 ```sh
 /Applications/Tandem.app/Contents/MacOS/tandemd --check-config ~/Library/Application\ Support/Tandem/tandem.toml

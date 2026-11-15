@@ -35,13 +35,13 @@ use tandem_link::manager::{
     QuicSession,
 };
 use tandem_link::transport::{Connection, Endpoint, TransportError};
-use tandem_proto::{CalibrationProbe, ControlMsg, Hello, Link, PairingStatus, Peer, PeerStatus};
+use tandem_proto::{ControlMsg, Hello, Link, PairingStatus, Peer, PeerStatus};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::agent::{Agent, NO_NETWORK, PairingControl};
 use crate::config::FALLBACK_PORTS;
-use crate::orchestrator::{LinkHold, PEER_NOT_CONNECTED, PeerLink, ProbeFuture, StepFuture};
+use crate::orchestrator::{LinkHold, PEER_NOT_CONNECTED, PeerLink, StepFuture};
 use crate::pairing::{self, PairingTimeouts};
 use crate::peer::{self, PeerClient, PeerError};
 
@@ -860,17 +860,6 @@ impl PeerLink for ManagedPeer {
             .find(|l| l.kind == active.kind)
             .and_then(|l| l.rtt)?;
         Some((link_of(active.kind), rtt))
-    }
-
-    fn show_probe<'a>(&'a self, probe: &'a CalibrationProbe) -> ProbeFuture<'a> {
-        let active = self.links.active();
-        let links = self.links.watch();
-        Box::pin(async move {
-            match active {
-                Some(a) => peer::over_link(links, a.kind, a.handle.client.show_probe(probe)).await,
-                None => Err(PEER_NOT_CONNECTED.to_owned()),
-            }
-        })
     }
 }
 

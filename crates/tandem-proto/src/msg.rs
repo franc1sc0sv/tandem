@@ -6,10 +6,8 @@
 //!   conexión de emparejamiento;
 //! - UI → agente: [`UiRequest`]; agente → UI: [`AgentToUi`].
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
-use tandem_core::{BuiltinDisplay, Config, Input, Machine, Mode, MonitorId, State, Step};
+use tandem_core::{Config, Machine, State, Step};
 
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
 
@@ -83,38 +81,22 @@ pub enum ControlMsg {
     Open(Channel),
     /// Dónde ve el hub este agente y a quién tiene de servidor de teclado y mouse.
     Hub(HubReport),
-    /// Las pantallas visibles de quien lo manda, para la geometría del teclado y mouse.
+    /// Las pantallas que lee quien lo manda (las que usa si el puesto no declara las
+    /// suyas), para la geometría del teclado y mouse.
     Screens(Vec<ScreenRect>),
-    /// Calibración (T-078): quien calibra acaba de pasar un monitor a la entrada de quien
-    /// lo recibe; este muestra la sonda en ese monitor y contesta [`ControlMsg::ProbeResult`]
-    /// con el mismo `id` (a más tardar en [`CalibrationProbe::timeout_ms`]).
-    ShowProbe {
-        id: u64,
-        probe: CalibrationProbe,
-    },
-    /// Quien calibra ya no espera la sonda `id` (venció o se canceló): se quita.
-    HideProbe {
-        id: u64,
-    },
-    ProbeResult {
-        id: u64,
-        outcome: ProbeOutcome,
-    },
     /// Lo que tiene y sabe hacer quien lo manda (T-084). Va al conectarse por cada
     /// enlace nuevo y cada vez que cambia; las decisiones salen de aquí, no del nombre
     /// de la máquina (DESIGN §3.7).
     Capabilities(Capabilities),
-    /// La configuración compartida del puesto de quien lo manda, con su versión. Va al
-    /// conectarse y con cada cambio; gana la versión más nueva (T-084).
+    /// El puesto compartido de quien lo manda (el acomodo de pantallas y el atajo de
+    /// bloqueo), con su versión. Va al conectarse y con cada cambio; gana la versión más
+    /// nueva (T-084).
     Desk(DeskSync),
     /// «Presiona una tecla» del asistente (T-087): armar o desarmar la escucha, o avisar
     /// que aquí se oyó la tecla.
     KeyProbe(KeyProbeMsg),
     /// El usuario dijo en el asistente dónde está el teclado y el mouse.
     Keyboard(Machine),
-    /// El asistente de la otra máquina pide detectar de nuevo los monitores conectados: se
-    /// contesta con un [`ControlMsg::Capabilities`] nuevo.
-    Rescan,
 }
 
 /// Los mensajes de la prueba «presiona una tecla» entre los dos agentes.
@@ -134,48 +116,12 @@ pub struct Capabilities {
     pub name: String,
     /// `macos`, `windows` o `linux`.
     pub os: String,
-    /// Los monitores externos que ve esta máquina.
-    pub monitors: Vec<MonitorCaps>,
-    /// Esta máquina detectó sus monitores (T-087): los de `monitors` con `seen` son los
-    /// conectados ahora y los demás no. Sin detección (pruebas, Linux, un backend que
-    /// falló) no se sabe cuáles están conectados y se suponen los del puesto.
-    pub scanned: bool,
-    /// Tiene pantalla integrada (la MacBook).
-    pub builtin: bool,
     /// El hub del teclado y mouse está conectado aquí; `None` sin detección.
     pub hub: Option<bool>,
     pub input: InputCaps,
     pub power: PowerCaps,
     /// Servicios del plano de datos que ofrece (SSH, carpetas...); vacío hasta v2.
     pub services: Vec<String>,
-}
-
-/// Un monitor visto por una máquina.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MonitorCaps {
-    /// El de la configuración del puesto, si corresponde a uno.
-    pub monitor: Option<MonitorId>,
-    /// El id PnP del EDID (`SAM7489`), si lo dio.
-    pub pnp_id: Option<String>,
-    /// Para mostrar.
-    pub name: String,
-    /// Esta máquina puede cambiarle la entrada (por DDC o pidiéndoselo al usuario).
-    pub switch: bool,
-    /// ...y lo hace por DDC, sin el usuario.
-    pub ddc: bool,
-    /// Esta máquina lo detectó al arrancar (no es solo el del puesto). Sirve de pista
-    /// para preguntar lo que muestra (T-085): no alcanza para saberlo, porque cada sistema
-    /// ve como activo al monitor que muestra a la otra.
-    pub seen: bool,
-    /// El modelo del EDID (`LC34G55T`), si lo dio.
-    pub model: Option<String>,
-    /// Número de serie numérico del EDID; `None` si es 0 o no lo dio. El de los Samsung
-    /// suele ser el mismo por las dos entradas, y es lo que ata una identidad a la otra.
-    pub serial: Option<u32>,
-    /// Diagonal en pulgadas enteras, si el EDID dio el tamaño.
-    pub inches: Option<u32>,
-    /// Por qué cable lo ve esta máquina (DisplayPort o HDMI), si el sistema lo dice.
-    pub output: Option<Input>,
 }
 
 /// El motor de teclado y mouse de una máquina.
@@ -215,8 +161,8 @@ pub struct PowerCaps {
     pub power_off: bool,
 }
 
-/// La configuración compartida del puesto (monitores, perfiles DDC, cableado, atajos)
-/// con su reloj lógico. Lo solo-local (identidad, puerto, rutas, máquina) no viaja.
+/// El puesto compartido (el acomodo de pantallas y el atajo de bloqueo) con su reloj
+/// lógico. Lo solo-local (identidad, puerto, rutas, máquina) no viaja.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeskSync {
     /// Versión: cada cambio sube la más alta conocida en uno.
@@ -235,117 +181,6 @@ pub struct DeskCapabilities {
     pub here: Capabilities,
     /// La otra, según su último anuncio; `None` si nunca se la vio.
     pub peer: Option<Capabilities>,
-}
-
-/// Un monitor por calibrar, como lo identifica su EDID.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProbeMonitor {
-    /// `None` si el monitor no dio EDID: la otra máquina solo tiene el nombre.
-    pub edid: Option<EdidId>,
-    /// Para mostrar: el nombre del EDID o, sin él, la descripción del sistema.
-    pub name: String,
-}
-
-/// Lo que identifica un monitor en el EDID de las dos máquinas (el mismo cable no hace
-/// falta: el EDID es del monitor).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EdidId {
-    /// Código PnP de tres letras (`SAM`).
-    pub manufacturer: String,
-    pub product_code: u16,
-    /// 0 si el monitor no lo informa.
-    pub serial_number: u32,
-}
-
-/// Qué se le pregunta al usuario. Siempre contesta qué ve en el monitor (T-081).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProbeAsk {
-    /// Se mandó el candidato `code` para la entrada de la sonda.
-    Candidate { code: u8 },
-    /// El usuario cambia la entrada desde el menú del monitor.
-    UserSwitch,
-    /// Se volvió con el código verificado `code`: tiene que verse la máquina de la sonda
-    /// antes del siguiente candidato.
-    Back { code: u8 },
-    /// Verificación final con el código ya encontrado `code`.
-    Verify { code: u8 },
-    /// Nadie contestó dos veces tras mandar `code`: ¿se sigue? Solo como pregunta.
-    Stalled { code: u8 },
-}
-
-/// Una sonda de calibración: «¿ves esto en el monitor?».
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CalibrationProbe {
-    pub monitor: ProbeMonitor,
-    /// La entrada que debería verse.
-    pub input: Input,
-    /// La máquina cableada a `input`: la que debería verse.
-    pub machine: Machine,
-    pub ask: ProbeAsk,
-    /// Pasado este tiempo sin clic cuenta como no visto y la sonda se quita.
-    pub timeout_ms: u64,
-}
-
-/// Lo que contestó el usuario a una sonda.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProbeAnswer {
-    /// Clic en la sonda a pantalla completa: se ve la máquina que la muestra.
-    Seen,
-    /// En la pregunta: el monitor muestra esta máquina.
-    Machine(Machine),
-    /// En la pregunta: el monitor está negro o sin señal.
-    Black,
-    /// En la pregunta: parar la calibración.
-    Stop,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProbeOutcome {
-    Answered(ProbeAnswer),
-    /// Nadie contestó a tiempo.
-    NoAnswer,
-    /// No se pudo mostrar (por ejemplo, sin UI abierta en esa máquina).
-    Failed(String),
-}
-
-/// Dónde muestra la UI una sonda.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProbePlace {
-    /// A pantalla completa en el monitor que se calibra, con un botón grande.
-    /// `screen` es dónde está en el escritorio de esta máquina (coordenadas del sistema);
-    /// `None` si el agente no puede buscarlo (sin escritorio que consultar o sin EDID):
-    /// la UI lo busca por el nombre del EDID.
-    Monitor { screen: Option<ProbeScreen> },
-    /// El agente lo buscó y no está en el escritorio de esta máquina (todavía): la UI no
-    /// muestra la sonda en ninguna parte hasta un `Show` con lugar. En otra pantalla
-    /// alguien la vería y aceptaría un código que no funciona.
-    Offscreen,
-    /// En la ventana principal: «¿qué ves en el monitor?», con un botón por máquina, otro
-    /// para negro o sin señal y otro para parar. Acompaña a cada sonda a pantalla completa
-    /// (la contesta quien no la ve) y, sin la otra máquina, es la única.
-    Question,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ProbeScreen {
-    pub x: i32,
-    pub y: i32,
-    pub width: u32,
-    pub height: u32,
-}
-
-/// Sondas de calibración para la UI; se contestan con [`UiCommand::AnswerProbe`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProbeEvent {
-    /// Mostrar la sonda `id`. Puede repetirse con el mismo `id` si el monitor cambia de
-    /// lugar (aparece en el escritorio al cambiarle la entrada): la UI la mueve.
-    Show {
-        id: u64,
-        probe: CalibrationProbe,
-        place: ProbePlace,
-    },
-    /// Ya no espera respuesta (contestada, vencida o cancelada).
-    Hide { id: u64 },
 }
 
 /// Los streams propios de la entrada y del portapapeles, aparte del de pedidos: una
@@ -367,11 +202,11 @@ pub struct HubReport {
     pub server: Machine,
 }
 
-/// Una pantalla visible, en las coordenadas nativas del cursor de su máquina.
+/// Una pantalla, en las coordenadas nativas del cursor de su máquina.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScreenRect {
-    /// El monitor de la configuración; `None` es la pantalla integrada de la MacBook.
-    pub monitor: Option<MonitorId>,
+    /// Su id en el acomodo (`mac-1`, o el de un `[[screens]]`).
+    pub id: String,
     pub x: i32,
     pub y: i32,
     pub width: u32,
@@ -444,29 +279,7 @@ pub struct UiRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UiCommand {
     GetState,
-    SetMode(#[serde(with = "wire::mode")] Mode),
-    /// Arrastrar un monitor a la otra máquina.
-    MoveMonitor {
-        monitor: MonitorId,
-        to: Machine,
-    },
-    /// Ida y vuelta del asistente (T-089): solo cambia la entrada de `monitor` a la de `to`
-    /// (sin tocar escritorios), y el agente lo devuelve solo a `back`, donde estaba, pasado un
-    /// plazo. Con `to == back` adelanta la vuelta.
-    ProbeInput {
-        monitor: MonitorId,
-        to: Machine,
-        back: Machine,
-    },
-    /// Preferencia de la pantalla integrada de la MacBook.
-    SetBuiltin(BuiltinDisplay),
-    /// Respuesta a [`ManualSwitchEvent::Requested`]: `done` si el usuario ya cambió la
-    /// entrada con los botones del monitor, `false` si no puede.
-    AnswerManualSwitch {
-        id: u64,
-        done: bool,
-    },
-    /// El puesto configurado (monitores, nombres y cableado), para dibujar la escena.
+    /// El puesto compartido (el acomodo de pantallas declarado).
     GetDesk,
     /// Encender o apagar `machine` (la otra, normalmente); apagar es la transacción de
     /// apagado limpio. Solo si alguna máquina puede (ver [`Capabilities::power`]).
@@ -492,63 +305,10 @@ pub enum UiCommand {
     /// agente. Solo por orden explícita del usuario; el estado nuevo llega con las
     /// capacidades (T-090).
     RequestPermissions,
-    /// Respuesta a [`ProbeEvent::Show`]: clic en la sonda o lo que eligió en la pregunta.
-    AnswerProbe {
-        id: u64,
-        answer: ProbeAnswer,
-    },
-    /// «Agregar monitor» (T-080): los monitores que ve el bus DDC de esta máquina, con
-    /// su perfil si lo tienen. Solo en la PC, que es la que cambia las entradas.
-    ListDisplays,
-    /// Calibrar el monitor `display` (índice de [`Reply::Displays`]). `monitor` es el de
-    /// la configuración al que corresponde, si la UI lo eligió; si no, el agente lo busca
-    /// por `edid_model`. El avance llega en [`AgentToUi::Calibration`].
-    StartCalibration {
-        display: u32,
-        monitor: Option<MonitorId>,
-    },
-    /// Cortar la calibración en curso; el monitor vuelve a la entrada de partida.
-    CancelCalibration,
-    /// Usar el perfil de la base (o del usuario) que ya tiene `display`, sin calibrar.
-    UseProfile {
-        display: u32,
-        monitor: Option<MonitorId>,
-    },
-    /// Qué entrada del monitor va a cada máquina (T-082). Se guarda en `tandem.toml` y
-    /// vale desde el siguiente cambio de modo; el puesto nuevo llega en [`AgentToUi::Desk`].
-    ///
-    /// `confirmed`: el usuario lo confirmó explícitamente; fuera del asistente un cambio
-    /// de cableado sin confirmar se rechaza (T-087).
-    SetWiring {
-        monitor: MonitorId,
-        wiring: BTreeMap<Machine, Input>,
-        confirmed: bool,
-    },
     /// De dónde salió la configuración de este agente y en qué puerto escucha.
     GetSetup,
     /// Lo que puede cada máquina ([`DeskCapabilities`]).
     GetCapabilities,
-    /// «Aplicar modo» (T-085): como [`UiCommand::SetMode`], pero manda la entrada de
-    /// todos los monitores aunque Tandem crea que ya están donde van. Es el camino para
-    /// confirmar un estado sin confirmar.
-    ApplyMode(#[serde(with = "wire::mode")] Mode),
-    /// El usuario dice lo que muestra cada monitor: una máquina, o nada (`None`, en negro).
-    /// Corrige el estado sin mandar ninguna entrada; cada escritorio se pone al día y el
-    /// estado nuevo llega a la otra máquina (T-085).
-    SetShown(BTreeMap<MonitorId, Option<Machine>>),
-    /// Asistente (T-087): los monitores conectados ahora a cada máquina, juntados en
-    /// monitores físicos con el vínculo propuesto entre sus identidades.
-    ScanMonitors,
-    /// Asistente (T-087): agregar al puesto los monitores elegidos. Es lo único, junto
-    /// con «Agregar monitor», que crea monitores: la sincronización nunca.
-    AddMonitors(Vec<NewMonitor>),
-    /// Quitar `monitor` del puesto y borrar todo lo suyo, en las dos máquinas (T-087).
-    RemoveMonitor {
-        monitor: MonitorId,
-    },
-    /// «Restablecer puesto»: sin monitores, sin estado y sin perfiles del usuario de esos
-    /// monitores, en las dos máquinas (T-087).
-    ResetDesk,
     /// «Presiona una tecla»: las dos máquinas escuchan (o dejan de escuchar).
     KeyProbe {
         on: bool,
@@ -560,66 +320,6 @@ pub enum UiCommand {
     SetKeyboard(Machine),
     /// Latencia visible del enlace con la otra máquina.
     PingPeer,
-    /// El monitor queda en modo manual asistido. Con `discard_codes` pierde además sus
-    /// códigos DDC (el usuario dijo que no vio lo que se mandó: los códigos están mal); sin
-    /// él se conservan, porque un fallo de transporte o de otro paso no prueba nada contra
-    /// el perfil (T-089).
-    MarkManual {
-        monitor: MonitorId,
-        discard_codes: bool,
-    },
-}
-
-/// Un monitor físico que el asistente agrega al puesto.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NewMonitor {
-    /// Nombre para la UI (`34"`).
-    pub label: String,
-    /// Sus id PnP, el de cada máquina (`SAM711A`, `SAM7119`). El primero es el principal.
-    pub pnp_ids: Vec<String>,
-    /// Qué entrada va a cada máquina.
-    pub wiring: BTreeMap<Machine, Input>,
-}
-
-/// Con qué se vinculó la identidad que ve una máquina con la que ve la otra.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LinkBasis {
-    /// El mismo número de serie en el EDID.
-    Serial,
-    /// El mismo modelo o, si no, el mismo tamaño. Hay que confirmarlo.
-    Model,
-    /// Solo una máquina lo ve.
-    Single,
-}
-
-/// Un monitor físico tal como lo propone el asistente.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MonitorCandidate {
-    pub label: String,
-    /// Sus id PnP, el de la PC primero (es la que cambia las entradas y la del perfil DDC)
-    /// y después el de la Mac: el orden no depende de qué máquina corre el asistente.
-    pub pnp_ids: Vec<String>,
-    /// Como lo ve esta máquina y como lo ve la otra.
-    pub here: Option<MonitorCaps>,
-    pub peer: Option<MonitorCaps>,
-    pub basis: LinkBasis,
-    /// El cableado deducido de por dónde lo ve cada máquina; `None` en la máquina cuya
-    /// salida no se pudo saber (hay que preguntar).
-    pub wiring: BTreeMap<Machine, Option<Input>>,
-    /// Ya está en el puesto con este id.
-    pub in_desk: Option<MonitorId>,
-    /// El nombre del perfil DDC que ya existe para alguno de sus id PnP.
-    pub profile: Option<String>,
-}
-
-/// Lo que ve el asistente de los monitores conectados ahora.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MonitorScan {
-    pub candidates: Vec<MonitorCandidate>,
-    /// Se conoce lo que ve la otra máquina; si no, solo están los de esta.
-    pub peer_known: bool,
-    /// Monitores del puesto que ninguna de las dos ve ahora.
-    pub disconnected: u32,
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -633,119 +333,6 @@ pub struct SetupInfo {
     pub port: Option<u16>,
 }
 
-/// Un monitor del bus DDC, para «Agregar monitor».
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DisplayInfo {
-    /// Para [`UiCommand::StartCalibration`]. Cambia si se conectan o quitan monitores.
-    pub index: u32,
-    /// El modelo según el EDID, o la descripción del sistema.
-    pub name: String,
-    /// `SAM7489`; `None` sin EDID.
-    pub pnp_id: Option<String>,
-    /// El monitor de la configuración al que corresponde (por `edid_model`).
-    pub monitor: Option<MonitorId>,
-    pub profile: DisplayProfile,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DisplayProfile {
-    /// Sin códigos conocidos: hay que calibrarlo.
-    None,
-    /// Su monitor de la configuración ya tiene `ddc`: es lo que se usa.
-    Configured { hdmi: u8, display_port: u8 },
-    /// Hay un perfil en la base (`user`: del usuario) que todavía no está en la
-    /// configuración. `toml` es el perfil para exportarlo.
-    Known {
-        name: String,
-        user: bool,
-        hdmi: u8,
-        display_port: u8,
-        toml: String,
-    },
-}
-
-/// El avance de una calibración, para la pantalla «Agregar monitor».
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CalibrationUpdate {
-    Started {
-        display: u32,
-        name: String,
-        monitor: Option<MonitorId>,
-        /// La entrada en la que está el monitor: la calibración siempre vuelve a ella.
-        start: Input,
-    },
-    Progress(CalibrationStep),
-    Finished(CalibrationOutcome),
-}
-
-/// Lo que va haciendo el motor de calibración (T-077).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CalibrationStep {
-    Reading,
-    /// Esperando a que el usuario pase el monitor a `input` desde su menú.
-    UserSwitch {
-        input: Input,
-    },
-    Testing {
-        input: Input,
-    },
-    Trying {
-        input: Input,
-        code: u8,
-        attempt: u32,
-        of: u32,
-    },
-    /// `seen`: se vio la máquina de `input`. Si no, el código no sirve para esa entrada.
-    Seen {
-        input: Input,
-        code: u8,
-        seen: bool,
-    },
-    /// Vuelta a la entrada de partida con el código verificado.
-    Returned {
-        code: u8,
-    },
-    Found {
-        input: Input,
-        code: u8,
-    },
-    /// Ida y vuelta final con los dos códigos encontrados.
-    Verifying,
-    /// La verificación vio la máquina de `input` con `code`.
-    Verified {
-        input: Input,
-        code: u8,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum CalibrationOutcome {
-    Saved(SavedProfile),
-    Failed {
-        reason: String,
-    },
-    /// Cancelada: el monitor quedó en la entrada de partida.
-    Cancelled,
-}
-
-/// Una calibración que terminó bien.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SavedProfile {
-    pub name: String,
-    pub hdmi: u8,
-    pub display_port: u8,
-    /// Códigos probados en total.
-    pub attempts: u32,
-    /// El monitor de la configuración que se actualizó, si corresponde a uno.
-    pub monitor: Option<MonitorId>,
-    /// Dónde quedó el perfil del usuario; `None` si no se pudo guardar (ver `notes`).
-    pub file: Option<String>,
-    /// El perfil para exportarlo; `None` sin EDID.
-    pub toml: Option<String>,
-    /// Lo que no salió del todo (sin EDID, sin poder escribir la configuración…).
-    pub notes: Vec<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentToUi {
     Reply {
@@ -755,7 +342,6 @@ pub enum AgentToUi {
     /// Aviso espontáneo cuando el estado cambia por cualquier motivo.
     State(State),
     Txn(TxnEvent),
-    ManualSwitch(ManualSwitchEvent),
     Power(PowerEvent),
     /// Aviso espontáneo cuando cambia el par o el enlace con él.
     Peer(PeerStatus),
@@ -763,11 +349,7 @@ pub enum AgentToUi {
     Pairing(PairingStatus),
     /// Aviso espontáneo cuando cambia el teclado y mouse (roles, sesión, permisos).
     Input(InputStatus),
-    /// Sondas de calibración que mostrar o quitar.
-    Probe(ProbeEvent),
-    /// El avance de la calibración de «Agregar monitor».
-    Calibration(CalibrationUpdate),
-    /// Aviso espontáneo cuando cambia el puesto (por ejemplo, el cableado de un monitor).
+    /// Aviso espontáneo cuando cambia el puesto compartido.
     Desk(Config),
     /// Aviso espontáneo cuando cambia lo que puede alguna de las dos máquinas.
     Capabilities(Box<DeskCapabilities>),
@@ -874,7 +456,7 @@ pub enum Link {
     Wifi,
 }
 
-/// Cambios de energía de la otra máquina que no vienen de un cambio de modo.
+/// Cambios de energía de la otra máquina que no vienen de una transacción.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PowerEvent {
     /// La otra máquina dejó de contestar por todos los enlaces sin que nadie la apagara
@@ -883,26 +465,7 @@ pub enum PowerEvent {
         machine: Machine,
         /// Texto para mostrar en la UI.
         reason: String,
-        /// Monitores que siguen en su entrada y quedan en negro hasta que vuelva o
-        /// alguien que pueda les cambie la entrada.
-        stranded: Vec<MonitorId>,
     },
-}
-
-/// Un monitor sin DDC: el usuario tiene que cambiar la entrada a mano y confirmarlo con
-/// [`UiCommand::AnswerManualSwitch`] antes de que venza el paso.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ManualSwitchEvent {
-    Requested {
-        id: u64,
-        monitor: MonitorId,
-        label: String,
-        /// La máquina que lo va a mostrar.
-        to: Machine,
-        input: Input,
-    },
-    /// Ya no espera respuesta (contestado, vencido o cancelado).
-    Closed { id: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -919,10 +482,8 @@ pub enum Reply {
     Peer(PeerStatus),
     Pairing(PairingStatus),
     Input(InputStatus),
-    Displays(Vec<DisplayInfo>),
     Setup(SetupInfo),
     Capabilities(Box<DeskCapabilities>),
-    Scan(MonitorScan),
     /// Lo que tarda un ping por el enlace de `link`.
     Pong {
         link: Link,
@@ -930,8 +491,7 @@ pub enum Reply {
     },
 }
 
-/// Avance de una transacción, para que la UI muestre cada paso y nunca una pantalla
-/// negra sin explicación.
+/// Avance de una transacción, para que la UI muestre cada paso.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TxnEvent {
     Started {
@@ -953,30 +513,16 @@ pub enum TxnEvent {
         index: u32,
         error: String,
     },
-    RollingBack {
-        txn: u64,
-    },
     Committed {
         txn: u64,
         state: State,
     },
-    /// Falló y se deshizo todo: `state` es el de partida.
-    RolledBack {
+    /// Falló un paso: `state` tiene lo que sí quedó hecho (los pasos de energía no se
+    /// deshacen).
+    Failed {
         txn: u64,
         state: State,
     },
-    /// Falló y no se pudo deshacer todo: el estado real es incierto.
-    Inconsistent {
-        txn: u64,
-        undo_failures: Vec<UndoFailure>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UndoFailure {
-    #[serde(with = "wire::step")]
-    pub step: Step,
-    pub error: String,
 }
 
 #[cfg(test)]
@@ -985,40 +531,44 @@ pub(crate) mod samples {
     //! variante nueva no compila hasta tener número, y la prueba de cobertura falla
     //! hasta que tenga ejemplo.
 
-    use std::collections::BTreeMap;
+    use tandem_core::{Arrangement, Scale, ScreenSpec, Side};
 
     use super::*;
 
     pub fn state() -> State {
         State {
-            owner: BTreeMap::from([("m34".into(), Machine::Pc), ("m32".into(), Machine::Mac)]),
             on: tandem_core::Powered::both(),
-            builtin_pref: BuiltinDisplay::Mirror,
-            doubt: BTreeMap::from([
-                ("m34".into(), tandem_core::Doubt::Unknown),
-                ("m32".into(), tandem_core::Doubt::Blank),
-            ]),
         }
     }
 
-    /// Un puesto con todo lo opcional presente y ausente.
+    /// Un puesto con pantallas declaradas de las dos máquinas.
     pub fn desk() -> Config {
-        Config::from_toml(
-            r#"
-            [[monitors]]
-            id = "m34"
-            label = '34"'
-            edid_model = "LC34G55T"
-            wiring = { pc = "displayport", mac = "hdmi" }
-            ddc = { hdmi = 0x06, display_port = 0x0F }
-
-            [[monitors]]
-            id = "m32"
-            label = '32"'
-            wiring = { mac = "hdmi" }
-            "#,
-        )
-        .unwrap()
+        Config {
+            screens: vec![
+                ScreenSpec {
+                    machine: Machine::Pc,
+                    id: "34".into(),
+                    x: 0,
+                    y: 0,
+                    width: 3440,
+                    height: 1440,
+                    scale: Scale::ONE,
+                },
+                ScreenSpec {
+                    machine: Machine::Mac,
+                    id: "laptop".into(),
+                    x: 0,
+                    y: 0,
+                    width: 1512,
+                    height: 982,
+                    scale: Scale::from_milli(2000),
+                },
+            ],
+            arrangement: Arrangement {
+                mac_side: Side::Right,
+                offset: -40,
+            },
+        }
     }
 
     pub fn steps() -> Vec<Step> {
@@ -1029,26 +579,6 @@ pub(crate) mod samples {
             Step::PowerOff {
                 machine: Machine::Mac,
             },
-            Step::SwitchInput {
-                monitor: "m34".into(),
-                from: Machine::Mac,
-                to: Machine::Pc,
-                input: Input::DisplayPort,
-                by: Machine::Pc,
-            },
-            Step::Attach {
-                machine: Machine::Pc,
-                monitor: "m34".into(),
-            },
-            Step::Detach {
-                machine: Machine::Mac,
-                monitor: "m34".into(),
-            },
-            Step::SetBuiltin {
-                from: BuiltinDisplay::Off,
-                to: BuiltinDisplay::Extend,
-            },
-            Step::UpdateInputGeometry,
         ]
     }
 
@@ -1056,28 +586,6 @@ pub(crate) mod samples {
         match s {
             Step::PowerOn { .. } => 0,
             Step::PowerOff { .. } => 1,
-            Step::SwitchInput { .. } => 2,
-            Step::Attach { .. } => 3,
-            Step::Detach { .. } => 4,
-            Step::SetBuiltin { .. } => 5,
-            Step::UpdateInputGeometry => 6,
-        }
-    }
-
-    pub fn modes() -> Vec<Mode> {
-        vec![
-            Mode::SoloMac,
-            Mode::Shared(BTreeMap::from([("m34".into(), Machine::Pc)])),
-            Mode::Shared(BTreeMap::new()),
-            Mode::SoloPc,
-        ]
-    }
-
-    pub fn mode_arm(m: &Mode) -> usize {
-        match m {
-            Mode::SoloMac => 0,
-            Mode::Shared(_) => 1,
-            Mode::SoloPc => 2,
         }
     }
 
@@ -1099,7 +607,7 @@ pub(crate) mod samples {
             },
             ControlMsg::StepResult {
                 id: 8,
-                outcome: StepOutcome::Failed("DDC no responde".into()),
+                outcome: StepOutcome::Failed("no hay Wake-on-LAN".into()),
             },
             ControlMsg::GetState,
             ControlMsg::State(state()),
@@ -1111,41 +619,24 @@ pub(crate) mod samples {
             }),
             ControlMsg::Screens(vec![]),
             ControlMsg::Screens(screens()),
-            ControlMsg::HideProbe { id: 3 },
             ControlMsg::KeyProbe(KeyProbeMsg::Arm),
             ControlMsg::KeyProbe(KeyProbeMsg::Disarm),
             ControlMsg::KeyProbe(KeyProbeMsg::Heard),
             ControlMsg::Keyboard(Machine::Pc),
-            ControlMsg::Rescan,
             ControlMsg::Desk(DeskSync {
                 rev: 4,
                 origin: Machine::Pc,
                 desk: desk(),
                 lock_shortcut: vec!["ScrollLock".into()],
             }),
+            ControlMsg::Desk(DeskSync {
+                rev: 0,
+                origin: Machine::Mac,
+                desk: Config::default(),
+                lock_shortcut: vec![],
+            }),
         ];
         v.extend(capabilities().into_iter().map(ControlMsg::Capabilities));
-        v.extend(
-            probes()
-                .into_iter()
-                .enumerate()
-                .map(|(i, probe)| ControlMsg::ShowProbe {
-                    id: i as u64,
-                    probe,
-                }),
-        );
-        v.extend(probe_asks().into_iter().map(|ask| ControlMsg::ShowProbe {
-            id: 7,
-            probe: CalibrationProbe {
-                ask,
-                ..probes()[0].clone()
-            },
-        }));
-        v.extend(
-            probe_outcomes()
-                .into_iter()
-                .map(|outcome| ControlMsg::ProbeResult { id: 4, outcome }),
-        );
         v.extend(
             steps()
                 .into_iter()
@@ -1166,52 +657,20 @@ pub(crate) mod samples {
             ControlMsg::Open(_) => 6,
             ControlMsg::Hub(_) => 7,
             ControlMsg::Screens(_) => 8,
-            ControlMsg::ShowProbe { .. } => 9,
-            ControlMsg::HideProbe { .. } => 10,
-            ControlMsg::ProbeResult { .. } => 11,
-            ControlMsg::Capabilities(_) => 12,
-            ControlMsg::Desk(_) => 13,
-            ControlMsg::KeyProbe(_) => 14,
-            ControlMsg::Keyboard(_) => 15,
-            ControlMsg::Rescan => 16,
+            ControlMsg::Capabilities(_) => 9,
+            ControlMsg::Desk(_) => 10,
+            ControlMsg::KeyProbe(_) => 11,
+            ControlMsg::Keyboard(_) => 12,
         }
     }
 
-    /// Las dos máquinas del puesto real y una sin nada.
+    /// Las dos máquinas del puesto real.
     pub fn capabilities() -> Vec<Capabilities> {
         vec![
             Capabilities {
                 machine: Machine::Pc,
                 name: "ESCRITORIO".into(),
                 os: "windows".into(),
-                scanned: true,
-                monitors: vec![
-                    MonitorCaps {
-                        monitor: Some("m34".into()),
-                        pnp_id: Some("SAM711A".into()),
-                        name: "LC34G55T".into(),
-                        switch: true,
-                        ddc: true,
-                        seen: true,
-                        model: Some("LC34G55T".into()),
-                        serial: Some(1_234_567),
-                        inches: Some(34),
-                        output: Some(Input::DisplayPort),
-                    },
-                    MonitorCaps {
-                        monitor: None,
-                        pnp_id: None,
-                        name: "Monitor PnP genérico".into(),
-                        switch: true,
-                        ddc: false,
-                        seen: false,
-                        model: None,
-                        serial: None,
-                        inches: None,
-                        output: None,
-                    },
-                ],
-                builtin: false,
                 hub: Some(true),
                 input: InputCaps {
                     capture: true,
@@ -1230,9 +689,6 @@ pub(crate) mod samples {
                 machine: Machine::Mac,
                 name: "MacBook Pro".into(),
                 os: "macos".into(),
-                scanned: false,
-                monitors: vec![],
-                builtin: true,
                 hub: None,
                 input: InputCaps {
                     capture: false,
@@ -1255,146 +711,6 @@ pub(crate) mod samples {
                 services: vec![],
             },
         ]
-    }
-
-    /// Con y sin EDID, de cada tipo y en cada entrada.
-    pub fn probes() -> Vec<CalibrationProbe> {
-        vec![
-            CalibrationProbe {
-                monitor: ProbeMonitor {
-                    edid: Some(EdidId {
-                        manufacturer: "SAM".into(),
-                        product_code: 0x7489,
-                        serial_number: 0x4d32_5a48,
-                    }),
-                    name: "Odyssey G5".into(),
-                },
-                input: Input::Hdmi,
-                machine: Machine::Mac,
-                ask: ProbeAsk::Candidate { code: 0x05 },
-                timeout_ms: 20_000,
-            },
-            CalibrationProbe {
-                monitor: ProbeMonitor {
-                    edid: None,
-                    name: "Monitor PnP genérico".into(),
-                },
-                input: Input::DisplayPort,
-                machine: Machine::Pc,
-                ask: ProbeAsk::UserSwitch,
-                timeout_ms: 120_000,
-            },
-        ]
-    }
-
-    /// Cada pregunta posible, para cubrir [`ProbeAsk`].
-    pub fn probe_asks() -> Vec<ProbeAsk> {
-        vec![
-            ProbeAsk::Candidate { code: 0x05 },
-            ProbeAsk::UserSwitch,
-            ProbeAsk::Back { code: 0x0F },
-            ProbeAsk::Verify { code: 0x05 },
-            ProbeAsk::Stalled { code: 0x05 },
-        ]
-    }
-
-    pub fn probe_ask_arm(a: &ProbeAsk) -> usize {
-        match a {
-            ProbeAsk::Candidate { .. } => 0,
-            ProbeAsk::UserSwitch => 1,
-            ProbeAsk::Back { .. } => 2,
-            ProbeAsk::Verify { .. } => 3,
-            ProbeAsk::Stalled { .. } => 4,
-        }
-    }
-
-    pub fn probe_answers() -> Vec<ProbeAnswer> {
-        vec![
-            ProbeAnswer::Seen,
-            ProbeAnswer::Machine(Machine::Mac),
-            ProbeAnswer::Machine(Machine::Pc),
-            ProbeAnswer::Black,
-            ProbeAnswer::Stop,
-        ]
-    }
-
-    pub fn probe_answer_arm(a: &ProbeAnswer) -> usize {
-        match a {
-            ProbeAnswer::Seen => 0,
-            ProbeAnswer::Machine(_) => 1,
-            ProbeAnswer::Black => 2,
-            ProbeAnswer::Stop => 3,
-        }
-    }
-
-    pub fn probe_outcomes() -> Vec<ProbeOutcome> {
-        let mut v: Vec<ProbeOutcome> = probe_answers()
-            .into_iter()
-            .map(ProbeOutcome::Answered)
-            .collect();
-        v.push(ProbeOutcome::NoAnswer);
-        v.push(ProbeOutcome::Failed("no hay una UI abierta".into()));
-        v
-    }
-
-    pub fn probe_outcome_arm(o: &ProbeOutcome) -> usize {
-        match o {
-            ProbeOutcome::Answered(_) => 0,
-            ProbeOutcome::NoAnswer => 1,
-            ProbeOutcome::Failed(_) => 2,
-        }
-    }
-
-    pub fn probe_events() -> Vec<ProbeEvent> {
-        let [a, b] = <[CalibrationProbe; 2]>::try_from(probes()).unwrap();
-        vec![
-            ProbeEvent::Show {
-                id: 1,
-                probe: a.clone(),
-                place: ProbePlace::Monitor {
-                    screen: Some(ProbeScreen {
-                        x: -2560,
-                        y: 0,
-                        width: 2560,
-                        height: 1440,
-                    }),
-                },
-            },
-            ProbeEvent::Show {
-                id: 1,
-                probe: a,
-                place: ProbePlace::Monitor { screen: None },
-            },
-            ProbeEvent::Show {
-                id: 2,
-                probe: b.clone(),
-                place: ProbePlace::Offscreen,
-            },
-            ProbeEvent::Show {
-                id: 2,
-                probe: b,
-                place: ProbePlace::Question,
-            },
-            ProbeEvent::Hide { id: 2 },
-        ]
-    }
-
-    pub fn probe_event_arm(e: &ProbeEvent) -> usize {
-        match e {
-            ProbeEvent::Show {
-                place: ProbePlace::Monitor { .. },
-                ..
-            } => 0,
-            ProbeEvent::Show {
-                place: ProbePlace::Question,
-                ..
-            } => 1,
-            ProbeEvent::Hide { .. } => 2,
-            ProbeEvent::Show {
-                place: ProbePlace::Offscreen,
-                ..
-            } => 3,
-        }
     }
 
     pub fn pairing() -> Vec<PairingMsg> {
@@ -1444,7 +760,7 @@ pub(crate) mod samples {
     pub fn screens() -> Vec<ScreenRect> {
         vec![
             ScreenRect {
-                monitor: Some("m34".into()),
+                id: "pc-1".into(),
                 x: -3440,
                 y: 0,
                 width: 3440,
@@ -1452,7 +768,7 @@ pub(crate) mod samples {
                 scale_milli: 1000,
             },
             ScreenRect {
-                monitor: None,
+                id: "laptop".into(),
                 x: 0,
                 y: 0,
                 width: 1512,
@@ -1491,17 +807,8 @@ pub(crate) mod samples {
     }
 
     pub fn ui_requests() -> Vec<UiRequest> {
-        let mut cmds = vec![
+        let cmds = vec![
             UiCommand::GetState,
-            UiCommand::MoveMonitor {
-                monitor: "m32".into(),
-                to: Machine::Pc,
-            },
-            UiCommand::SetBuiltin(BuiltinDisplay::Off),
-            UiCommand::SetBuiltin(BuiltinDisplay::Mirror),
-            UiCommand::SetBuiltin(BuiltinDisplay::Extend),
-            UiCommand::AnswerManualSwitch { id: 3, done: true },
-            UiCommand::AnswerManualSwitch { id: 4, done: false },
             UiCommand::GetDesk,
             UiCommand::SetPower {
                 machine: Machine::Pc,
@@ -1518,94 +825,15 @@ pub(crate) mod samples {
             UiCommand::CancelPairing,
             UiCommand::Unpair,
             UiCommand::GetInput,
-            UiCommand::AnswerProbe {
-                id: 1,
-                answer: ProbeAnswer::Seen,
-            },
-            UiCommand::AnswerProbe {
-                id: 2,
-                answer: ProbeAnswer::Machine(Machine::Pc),
-            },
-            UiCommand::AnswerProbe {
-                id: 3,
-                answer: ProbeAnswer::Black,
-            },
-            UiCommand::AnswerProbe {
-                id: 4,
-                answer: ProbeAnswer::Stop,
-            },
-            UiCommand::ListDisplays,
-            UiCommand::StartCalibration {
-                display: 1,
-                monitor: Some("m32".into()),
-            },
-            UiCommand::StartCalibration {
-                display: 0,
-                monitor: None,
-            },
-            UiCommand::CancelCalibration,
-            UiCommand::UseProfile {
-                display: 0,
-                monitor: Some("m34".into()),
-            },
-            UiCommand::SetWiring {
-                monitor: "m32".into(),
-                wiring: [
-                    (Machine::Pc, Input::Hdmi),
-                    (Machine::Mac, Input::DisplayPort),
-                ]
-                .into(),
-                confirmed: true,
-            },
-            UiCommand::SetWiring {
-                monitor: "m34".into(),
-                wiring: [(Machine::Pc, Input::DisplayPort)].into(),
-                confirmed: false,
-            },
+            UiCommand::RequestPermissions,
             UiCommand::GetSetup,
             UiCommand::GetCapabilities,
-            UiCommand::SetShown(BTreeMap::from([
-                ("m34".into(), Some(Machine::Pc)),
-                ("m32".into(), None),
-            ])),
-            UiCommand::SetShown(BTreeMap::new()),
-            UiCommand::ProbeInput {
-                monitor: "m34".into(),
-                to: Machine::Mac,
-                back: Machine::Pc,
-            },
-            UiCommand::ScanMonitors,
-            UiCommand::AddMonitors(vec![NewMonitor {
-                label: "34\"".into(),
-                pnp_ids: vec!["SAM711A".into(), "SAM7119".into()],
-                wiring: [
-                    (Machine::Pc, Input::DisplayPort),
-                    (Machine::Mac, Input::Hdmi),
-                ]
-                .into(),
-            }]),
-            UiCommand::AddMonitors(vec![]),
-            UiCommand::RemoveMonitor {
-                monitor: "m34".into(),
-            },
-            UiCommand::ResetDesk,
             UiCommand::KeyProbe { on: true },
             UiCommand::KeyProbe { on: false },
             UiCommand::HeardKey,
             UiCommand::SetKeyboard(Machine::Pc),
             UiCommand::PingPeer,
-            UiCommand::MarkManual {
-                monitor: "m32".into(),
-                discard_codes: true,
-            },
-            UiCommand::MarkManual {
-                monitor: "m32".into(),
-                discard_codes: false,
-            },
-            UiCommand::RequestPermissions,
         ];
-        cmds.extend(modes().into_iter().map(UiCommand::SetMode));
-        cmds.extend(modes().into_iter().map(UiCommand::ApplyMode));
         cmds.into_iter()
             .enumerate()
             .map(|(i, command)| UiRequest {
@@ -1618,40 +846,22 @@ pub(crate) mod samples {
     pub fn ui_command_arm(c: &UiCommand) -> usize {
         match c {
             UiCommand::GetState => 0,
-            UiCommand::SetMode(_) => 1,
-            UiCommand::MoveMonitor { .. } => 2,
-            UiCommand::SetBuiltin(_) => 3,
-            UiCommand::AnswerManualSwitch { .. } => 4,
-            UiCommand::GetDesk => 5,
-            UiCommand::SetPower { .. } => 6,
-            UiCommand::GetPeer => 7,
-            UiCommand::GetPairing => 8,
-            UiCommand::StartPairing => 9,
-            UiCommand::ConfirmPairing => 10,
-            UiCommand::CancelPairing => 11,
-            UiCommand::Unpair => 12,
-            UiCommand::GetInput => 13,
-            UiCommand::AnswerProbe { .. } => 14,
-            UiCommand::ListDisplays => 15,
-            UiCommand::StartCalibration { .. } => 16,
-            UiCommand::CancelCalibration => 17,
-            UiCommand::UseProfile { .. } => 18,
-            UiCommand::SetWiring { .. } => 19,
-            UiCommand::GetSetup => 20,
-            UiCommand::GetCapabilities => 21,
-            UiCommand::ApplyMode(_) => 22,
-            UiCommand::SetShown(_) => 23,
-            UiCommand::ScanMonitors => 24,
-            UiCommand::AddMonitors(_) => 25,
-            UiCommand::RemoveMonitor { .. } => 26,
-            UiCommand::ResetDesk => 27,
-            UiCommand::KeyProbe { .. } => 28,
-            UiCommand::HeardKey => 29,
-            UiCommand::SetKeyboard(_) => 30,
-            UiCommand::PingPeer => 31,
-            UiCommand::MarkManual { .. } => 32,
-            UiCommand::ProbeInput { .. } => 33,
-            UiCommand::RequestPermissions => 34,
+            UiCommand::GetDesk => 1,
+            UiCommand::SetPower { .. } => 2,
+            UiCommand::GetPeer => 3,
+            UiCommand::GetPairing => 4,
+            UiCommand::StartPairing => 5,
+            UiCommand::ConfirmPairing => 6,
+            UiCommand::CancelPairing => 7,
+            UiCommand::Unpair => 8,
+            UiCommand::GetInput => 9,
+            UiCommand::RequestPermissions => 10,
+            UiCommand::GetSetup => 11,
+            UiCommand::GetCapabilities => 12,
+            UiCommand::KeyProbe { .. } => 13,
+            UiCommand::HeardKey => 14,
+            UiCommand::SetKeyboard(_) => 15,
+            UiCommand::PingPeer => 16,
         }
     }
 
@@ -1669,27 +879,16 @@ pub(crate) mod samples {
             TxnEvent::StepDone { txn: 1, index: 0 },
             TxnEvent::StepFailed {
                 txn: 1,
-                index: 2,
+                index: 1,
                 error: "timeout".into(),
             },
-            TxnEvent::RollingBack { txn: 1 },
             TxnEvent::Committed {
                 txn: 1,
                 state: state(),
             },
-            TxnEvent::RolledBack {
+            TxnEvent::Failed {
                 txn: 1,
                 state: state(),
-            },
-            TxnEvent::Inconsistent {
-                txn: 1,
-                undo_failures: steps()
-                    .into_iter()
-                    .map(|step| UndoFailure {
-                        step,
-                        error: "sin respuesta".into(),
-                    })
-                    .collect(),
             },
         ]
     }
@@ -1700,10 +899,8 @@ pub(crate) mod samples {
             TxnEvent::StepStarted { .. } => 1,
             TxnEvent::StepDone { .. } => 2,
             TxnEvent::StepFailed { .. } => 3,
-            TxnEvent::RollingBack { .. } => 4,
-            TxnEvent::Committed { .. } => 5,
-            TxnEvent::RolledBack { .. } => 6,
-            TxnEvent::Inconsistent { .. } => 7,
+            TxnEvent::Committed { .. } => 4,
+            TxnEvent::Failed { .. } => 5,
         }
     }
 
@@ -1738,23 +935,13 @@ pub(crate) mod samples {
                 link: None,
             }),
             AgentToUi::State(state()),
-            AgentToUi::ManualSwitch(ManualSwitchEvent::Requested {
-                id: 1,
-                monitor: "m32".into(),
-                label: "32\"".into(),
-                to: Machine::Pc,
-                input: Input::DisplayPort,
-            }),
-            AgentToUi::ManualSwitch(ManualSwitchEvent::Closed { id: 1 }),
             AgentToUi::Power(PowerEvent::PeerLost {
                 machine: Machine::Pc,
                 reason: "la PC no responde".into(),
-                stranded: vec!["m34".into()],
             }),
             AgentToUi::Power(PowerEvent::PeerLost {
                 machine: Machine::Mac,
                 reason: String::new(),
-                stranded: vec![],
             }),
             AgentToUi::Reply {
                 id: 7,
@@ -1768,16 +955,6 @@ pub(crate) mod samples {
         v.extend(pairing_statuses().into_iter().map(AgentToUi::Pairing));
         v.extend(input_status().into_iter().map(AgentToUi::Input));
         v.extend(txn_events().into_iter().map(AgentToUi::Txn));
-        v.extend(probe_events().into_iter().map(AgentToUi::Probe));
-        v.extend(
-            calibration_updates()
-                .into_iter()
-                .map(AgentToUi::Calibration),
-        );
-        v.push(AgentToUi::Reply {
-            id: 8,
-            reply: Reply::Displays(displays()),
-        });
         v.push(AgentToUi::Reply {
             id: 9,
             reply: Reply::Setup(SetupInfo {
@@ -1800,10 +977,6 @@ pub(crate) mod samples {
             armed: true,
             heard: Some(Machine::Pc),
         }));
-        v.push(AgentToUi::Reply {
-            id: 12,
-            reply: Reply::Scan(scan()),
-        });
         v.push(AgentToUi::Reply {
             id: 13,
             reply: Reply::Pong {
@@ -1832,189 +1005,6 @@ pub(crate) mod samples {
         v
     }
 
-    pub fn scan() -> MonitorScan {
-        let [pc, _] = <[Capabilities; 2]>::try_from(capabilities()).unwrap();
-        MonitorScan {
-            candidates: vec![
-                MonitorCandidate {
-                    label: "34\"".into(),
-                    pnp_ids: vec!["SAM711A".into(), "SAM7119".into()],
-                    here: pc.monitors.first().cloned(),
-                    peer: None,
-                    basis: LinkBasis::Serial,
-                    wiring: [
-                        (Machine::Pc, Some(Input::DisplayPort)),
-                        (Machine::Mac, None),
-                    ]
-                    .into(),
-                    in_desk: Some("m34".into()),
-                    profile: Some("LC34G55T".into()),
-                },
-                MonitorCandidate {
-                    label: "32\"".into(),
-                    pnp_ids: vec!["SAM7489".into()],
-                    here: None,
-                    peer: None,
-                    basis: LinkBasis::Model,
-                    wiring: BTreeMap::new(),
-                    in_desk: None,
-                    profile: None,
-                },
-                MonitorCandidate {
-                    label: "27\"".into(),
-                    pnp_ids: vec![],
-                    here: None,
-                    peer: None,
-                    basis: LinkBasis::Single,
-                    wiring: BTreeMap::new(),
-                    in_desk: None,
-                    profile: None,
-                },
-            ],
-            peer_known: true,
-            disconnected: 1,
-        }
-    }
-
-    pub fn displays() -> Vec<DisplayInfo> {
-        vec![
-            DisplayInfo {
-                index: 0,
-                name: "LC34G55T".into(),
-                pnp_id: Some("SAM711A".into()),
-                monitor: Some("m34".into()),
-                profile: DisplayProfile::Configured {
-                    hdmi: 0x06,
-                    display_port: 0x09,
-                },
-            },
-            DisplayInfo {
-                index: 1,
-                name: "Odyssey G5".into(),
-                pnp_id: Some("SAM7489".into()),
-                monitor: None,
-                profile: DisplayProfile::Known {
-                    name: "Odyssey G5 32\"".into(),
-                    user: false,
-                    hdmi: 0x05,
-                    display_port: 0x0F,
-                    toml: "pnp_id = \"SAM7489\"\n".into(),
-                },
-            },
-            DisplayInfo {
-                index: 2,
-                name: "Monitor PnP genérico".into(),
-                pnp_id: None,
-                monitor: None,
-                profile: DisplayProfile::None,
-            },
-        ]
-    }
-
-    pub fn display_profile_arm(p: &DisplayProfile) -> usize {
-        match p {
-            DisplayProfile::None => 0,
-            DisplayProfile::Configured { .. } => 1,
-            DisplayProfile::Known { .. } => 2,
-        }
-    }
-
-    pub fn calibration_steps() -> Vec<CalibrationStep> {
-        vec![
-            CalibrationStep::Reading,
-            CalibrationStep::UserSwitch { input: Input::Hdmi },
-            CalibrationStep::Testing {
-                input: Input::DisplayPort,
-            },
-            CalibrationStep::Trying {
-                input: Input::Hdmi,
-                code: 0x05,
-                attempt: 1,
-                of: 31,
-            },
-            CalibrationStep::Seen {
-                input: Input::Hdmi,
-                code: 0x05,
-                seen: true,
-            },
-            CalibrationStep::Returned { code: 0x0F },
-            CalibrationStep::Found {
-                input: Input::DisplayPort,
-                code: 0x0F,
-            },
-            CalibrationStep::Verifying,
-            CalibrationStep::Verified {
-                input: Input::Hdmi,
-                code: 0x05,
-            },
-        ]
-    }
-
-    pub fn calibration_step_arm(s: &CalibrationStep) -> usize {
-        match s {
-            CalibrationStep::Reading => 0,
-            CalibrationStep::UserSwitch { .. } => 1,
-            CalibrationStep::Testing { .. } => 2,
-            CalibrationStep::Trying { .. } => 3,
-            CalibrationStep::Seen { .. } => 4,
-            CalibrationStep::Returned { .. } => 5,
-            CalibrationStep::Found { .. } => 6,
-            CalibrationStep::Verifying => 7,
-            CalibrationStep::Verified { .. } => 8,
-        }
-    }
-
-    pub fn calibration_updates() -> Vec<CalibrationUpdate> {
-        let mut v = vec![
-            CalibrationUpdate::Started {
-                display: 1,
-                name: "Odyssey G5".into(),
-                monitor: Some("m32".into()),
-                start: Input::DisplayPort,
-            },
-            CalibrationUpdate::Finished(CalibrationOutcome::Saved(SavedProfile {
-                name: "Odyssey G5 (SAM7489)".into(),
-                hdmi: 0x05,
-                display_port: 0x0F,
-                attempts: 2,
-                monitor: Some("m32".into()),
-                file: Some("/datos/profiles/ddc/SAM7489.toml".into()),
-                toml: Some("pnp_id = \"SAM7489\"\n".into()),
-                notes: vec![],
-            })),
-            CalibrationUpdate::Finished(CalibrationOutcome::Saved(SavedProfile {
-                name: "Monitor PnP genérico".into(),
-                hdmi: 0x11,
-                display_port: 0x0F,
-                attempts: 9,
-                monitor: None,
-                file: None,
-                toml: None,
-                notes: vec!["sin EDID: no se guardó el perfil".into()],
-            })),
-            CalibrationUpdate::Finished(CalibrationOutcome::Failed {
-                reason: "ningún código funcionó para hdmi".into(),
-            }),
-            CalibrationUpdate::Finished(CalibrationOutcome::Cancelled),
-        ];
-        v.extend(
-            calibration_steps()
-                .into_iter()
-                .map(CalibrationUpdate::Progress),
-        );
-        v
-    }
-
-    pub fn calibration_update_arm(u: &CalibrationUpdate) -> usize {
-        match u {
-            CalibrationUpdate::Started { .. } => 0,
-            CalibrationUpdate::Progress(_) => 1,
-            CalibrationUpdate::Finished(CalibrationOutcome::Saved(_)) => 2,
-            CalibrationUpdate::Finished(CalibrationOutcome::Failed { .. }) => 3,
-            CalibrationUpdate::Finished(CalibrationOutcome::Cancelled) => 4,
-        }
-    }
-
     pub fn links() -> Vec<Link> {
         vec![Link::Usb4, Link::Ethernet, Link::Wifi]
     }
@@ -2032,16 +1022,13 @@ pub(crate) mod samples {
             AgentToUi::Reply { .. } => 0,
             AgentToUi::State(_) => 1,
             AgentToUi::Txn(_) => 2,
-            AgentToUi::ManualSwitch(_) => 3,
-            AgentToUi::Power(_) => 4,
-            AgentToUi::Peer(_) => 5,
-            AgentToUi::Pairing(_) => 6,
-            AgentToUi::Input(_) => 7,
-            AgentToUi::Probe(_) => 8,
-            AgentToUi::Calibration(_) => 9,
-            AgentToUi::Desk(_) => 10,
-            AgentToUi::Capabilities(_) => 11,
-            AgentToUi::KeyProbe(_) => 12,
+            AgentToUi::Power(_) => 3,
+            AgentToUi::Peer(_) => 4,
+            AgentToUi::Pairing(_) => 5,
+            AgentToUi::Input(_) => 6,
+            AgentToUi::Desk(_) => 7,
+            AgentToUi::Capabilities(_) => 8,
+            AgentToUi::KeyProbe(_) => 9,
         }
     }
 
@@ -2055,11 +1042,9 @@ pub(crate) mod samples {
             Reply::Peer(_) => 5,
             Reply::Pairing(_) => 6,
             Reply::Input(_) => 7,
-            Reply::Displays(_) => 8,
-            Reply::Setup(_) => 9,
-            Reply::Capabilities(_) => 10,
-            Reply::Scan(_) => 11,
-            Reply::Pong { .. } => 12,
+            Reply::Setup(_) => 8,
+            Reply::Capabilities(_) => 9,
+            Reply::Pong { .. } => 10,
         }
     }
 
@@ -2099,21 +1084,12 @@ mod tests {
 
     #[test]
     fn samples_cover_every_variant() {
-        covers(&steps(), step_arm, 7);
-        covers(&modes(), mode_arm, 3);
+        covers(&steps(), step_arm, 2);
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
-        covers(&control(), control_arm, 17);
+        covers(&control(), control_arm, 13);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 35);
-        covers(&to_ui(), to_ui_arm, 13);
-        let profiles: Vec<_> = displays().into_iter().map(|d| d.profile).collect();
-        covers(&profiles, display_profile_arm, 3);
-        covers(&calibration_steps(), calibration_step_arm, 9);
-        covers(&calibration_updates(), calibration_update_arm, 5);
-        covers(&probe_asks(), probe_ask_arm, 5);
-        covers(&probe_answers(), probe_answer_arm, 4);
-        covers(&probe_outcomes(), probe_outcome_arm, 3);
-        covers(&probe_events(), probe_event_arm, 4);
+        covers(&cmds, ui_command_arm, 17);
+        covers(&to_ui(), to_ui_arm, 10);
         covers(&pairing(), pairing_arm, 5);
         covers(&pairing_statuses(), pairing_status_arm, 5);
         covers(&links(), link_arm, 3);
@@ -2124,8 +1100,8 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 13);
-        covers(&txn_events(), txn_arm, 8);
+        covers(&replies, reply_arm, 11);
+        covers(&txn_events(), txn_arm, 6);
     }
 
     #[test]

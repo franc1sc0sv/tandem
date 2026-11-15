@@ -17,19 +17,16 @@ mod wire;
 
 pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encode_frame};
 pub use msg::{
-    AgentToUi, CalibrationOutcome, CalibrationProbe, CalibrationStep, CalibrationUpdate,
-    Capabilities, Channel, ControlMsg, DeskCapabilities, DeskSync, DisplayInfo, DisplayProfile,
-    EdidId, Hello, HubReport, InputCaps, InputPermission, InputStatus, KeyProbeMsg, KeyProbeStatus,
-    Link, LinkBasis, ManualSwitchEvent, MonitorCandidate, MonitorCaps, MonitorScan, NewMonitor,
-    PairingMsg, PairingStatus, Peer, PeerStatus, PowerCaps, PowerEvent, ProbeAnswer, ProbeAsk,
-    ProbeEvent, ProbeMonitor, ProbeOutcome, ProbePlace, ProbeScreen, ProcessInfo, Reply,
-    SavedProfile, ScreenRect, SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest, UndoFailure,
+    AgentToUi, Capabilities, Channel, ControlMsg, DeskCapabilities, DeskSync, Hello, HubReport,
+    InputCaps, InputPermission, InputStatus, KeyProbeMsg, KeyProbeStatus, Link, PairingMsg,
+    PairingStatus, Peer, PeerStatus, PowerCaps, PowerEvent, ProcessInfo, Reply, ScreenRect,
+    SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest,
 };
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 14;
+pub const PROTOCOL_VERSION: u16 = 15;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -67,10 +64,11 @@ mod tests {
     /// nunca se acepten como compatibles. T-087 (asistente: monitores físicos, teclado por
     /// pulsación) sube a la v12. T-089 (`ProbeInput` y `MarkManual` con `discard_codes`, que cambian
     /// la forma de los pedidos de la UI) sube a la v13. T-090 (proceso del agente en las
-    /// capacidades y pedido de permisos) sube a la v14.
+    /// capacidades y pedido de permisos) sube a la v14. T-092 (fuera los monitores, las
+    /// sondas y los modos; pantallas con id propio y acomodo declarado) sube a la v15.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 14);
+        assert_eq!(PROTOCOL_VERSION, 15);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
     }
 }

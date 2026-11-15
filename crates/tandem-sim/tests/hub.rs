@@ -5,7 +5,7 @@
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use tandem_core::{Machine, Mode};
+use tandem_core::Machine;
 use tandem_link::manager::LinkKind;
 use tandem_peripherals::{
     DeviceScanner, HubConfig, HubWatcher, Presence, Role, RoleArbiter, UsbId, WatchConfig,
@@ -162,7 +162,7 @@ async fn mover_el_hub_con_el_puesto_completo() {
     assert_eq!(roles.server(false), Machine::Mac);
 
     // Arranca la PC: no ve el hub y la Mac sigue de servidor.
-    let run = d.set_mode(Machine::Mac, Mode::SoloPc).await.unwrap();
+    let run = d.power_on(Machine::Pc).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed));
     tokio::time::sleep(Duration::from_secs(5)).await;
     assert_eq!(roles.server(true), Machine::Mac);
@@ -204,13 +204,7 @@ async fn mover_el_hub_con_el_puesto_completo() {
     assert_eq!(roles.chip(Machine::Mac), Role::Server);
 
     // La PC vuelve, no tiene el hub y se pone de cliente.
-    let run = d
-        .set_mode(
-            Machine::Mac,
-            Mode::Shared([("m34".into(), Machine::Pc)].into()),
-        )
-        .await
-        .unwrap();
+    let run = d.power_on(Machine::Pc).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed));
     tokio::time::sleep(Duration::from_secs(5)).await;
     assert_eq!(roles.server(true), Machine::Mac);
@@ -225,13 +219,7 @@ async fn mover_el_hub_con_el_puesto_completo() {
 async fn la_pc_se_apaga_con_el_hub() {
     let d = Desk::new().await.unwrap();
     let roles = Roles::start(&d);
-    let run = d
-        .set_mode(
-            Machine::Mac,
-            Mode::Shared([("m34".into(), Machine::Pc)].into()),
-        )
-        .await
-        .unwrap();
+    let run = d.power_on(Machine::Pc).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed));
     d.world.plug_hub(Machine::Pc);
     tokio::time::sleep(Duration::from_secs(5)).await;
@@ -288,14 +276,8 @@ async fn espejo_mover_el_hub_con_la_pc_de_principal() {
     assert_eq!(roles.keyboard_from(Machine::Pc, false), Machine::Pc);
     assert_eq!(roles.chip(Machine::Pc), Role::Server);
 
-    // Se despierta la Mac (un monitor para ella): no ve el hub y el teclado sigue en la PC.
-    let run = d
-        .set_mode(
-            Machine::Pc,
-            Mode::Shared([("m32".into(), Machine::Mac)].into()),
-        )
-        .await
-        .unwrap();
+    // Se despierta la Mac: no ve el hub y el teclado sigue en la PC.
+    let run = d.power_on(Machine::Mac).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     tokio::time::sleep(Duration::from_secs(5)).await;
     assert_eq!(roles.keyboard_from(Machine::Pc, true), Machine::Pc);
@@ -329,13 +311,7 @@ async fn espejo_la_mac_se_suspende_con_el_hub() {
         .await
         .unwrap();
     let roles = Roles::start(&d);
-    let run = d
-        .set_mode(
-            Machine::Pc,
-            Mode::Shared([("m32".into(), Machine::Mac)].into()),
-        )
-        .await
-        .unwrap();
+    let run = d.power_on(Machine::Mac).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     d.world.plug_hub(Machine::Mac);
     tokio::time::sleep(Duration::from_secs(5)).await;

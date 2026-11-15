@@ -22,12 +22,17 @@ fn main() -> ExitCode {
         Command::Help => println!("{}", cli::USAGE),
         Command::Version => println!("tandemd {}", env!("CARGO_PKG_VERSION")),
         Command::CheckConfig(path) => match AgentConfig::load(&path) {
-            Ok(cfg) => println!(
-                "{}: configuración válida (máquina {}, {} monitores)",
-                path.display(),
-                cfg.machine,
-                cfg.desk.monitors.len()
-            ),
+            Ok(cfg) => {
+                println!(
+                    "{}: configuración válida (máquina {}, {} pantallas declaradas)",
+                    path.display(),
+                    cfg.machine,
+                    cfg.desk.screens.len()
+                );
+                for w in cfg.warnings() {
+                    eprintln!("tandemd: {}: aviso: {w}", path.display());
+                }
+            }
             Err(e) => {
                 eprintln!("tandemd: {}: {e}", path.display());
                 return ExitCode::FAILURE;
@@ -63,27 +68,15 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
     let log = logging::init(&paths.log_dir()).context("no se pudo iniciar el log")?;
     tracing::info!(version = env!("CARGO_PKG_VERSION"), log = %log.display(), "tandemd arranca");
 
-    // Sin `tandem.toml`, se genera vacío (T-087): los monitores los agrega el asistente.
+    // Sin `tandem.toml`, se genera con el puesto vacío (T-087).
     let machine = autoconfig::machine_of_os();
     let loaded = autoconfig::load_or_generate(&paths.config, machine)?;
-    // Con backends simulados, esta máquina no toca monitores: no se anuncia lo que ve.
-    // Se detecta una sola vez aquí (bloquea) para anunciar lo que esta máquina ve conectado.
-    let seen = machine.filter(|_| !args.sim_backends).and_then(|m| {
-        match autoconfig::platform_scan(m) {
-            Ok(detected) => Some(autoconfig::seen(&detected)),
-            Err(e) => {
-                // Sin detección se anuncian los monitores del puesto.
-                tracing::warn!("no se pudieron detectar los monitores para anunciarlos: {e}");
-                None
-            }
-        }
-    });
     let (cfg, generated) = (loaded.config, loaded.generated);
     tracing::info!(
-        "configuración {}: máquina {}, {} monitores{}",
+        "configuración {}: máquina {}, {} pantallas declaradas{}",
         paths.config.display(),
         cfg.machine,
-        cfg.desk.monitors.len(),
+        cfg.desk.screens.len(),
         if generated { " (generada ahora)" } else { "" }
     );
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -98,10 +91,6 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
         let (backends, net) = backends(&args, &paths);
         let daemon = daemon::start(cfg, &paths, backends, net)?;
         daemon.agent.set_generated(generated);
-        if let Some(seen) = seen {
-            tracing::info!("{} monitores detectados en esta máquina", seen.len());
-            daemon.agent.set_seen_monitors(seen);
-        }
         daemon.serve(listener, daemon::shutdown_signal()).await?;
         Ok(())
     })
@@ -112,7 +101,7 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
 fn backends(args: &RunArgs, paths: &Paths) -> (Backends, NetOptions) {
     #[cfg(feature = "sim-backends")]
     if args.sim_backends {
-        tracing::warn!("backends simulados: esta máquina no toca monitores, entrada ni energía");
+        tracing::warn!("backends simulados: esta máquina no toca la entrada ni la energía");
         let net = NetOptions {
             mdns: false,
             ..NetOptions::default()

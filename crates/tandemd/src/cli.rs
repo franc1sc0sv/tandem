@@ -8,7 +8,7 @@ Uso: tandemd [opciones]
 
 Opciones:
   --config <archivo>        tandem.toml a usar (por omisión, el del directorio de la app;
-                            si no existe, el agente lo genera con los monitores que detecta)
+                            si no existe, el agente lo genera con el puesto vacío)
   --data-dir <dir>          directorio de estado, logs y socket (por omisión, el de la app)
   --check-config <archivo>  valida la configuración y sale (código ≠ 0 si es inválida)
   --install                 registra el arranque con la sesión (Windows; lo usa el

@@ -11,11 +11,6 @@ use tokio::sync::oneshot;
 
 const CONFIG: &str = r#"
 machine = "mac"
-
-[[monitors]]
-id = "m34"
-label = '34"'
-wiring = { pc = "displayport", mac = "hdmi" }
 "#;
 
 fn endpoint(dir: &std::path::Path, name: &str) -> PathBuf {
@@ -33,8 +28,8 @@ fn endpoint(dir: &std::path::Path, name: &str) -> PathBuf {
 async fn reads_state_from_a_running_agent() {
     let dir = tempfile::tempdir().unwrap();
     let cfg = AgentConfig::from_toml(CONFIG).unwrap();
-    let mut saved = State::initial(&cfg.desk, Machine::Mac);
-    saved.owner.insert("m34".into(), Machine::Pc);
+    let mut saved = State::initial(Machine::Mac);
+    saved.on.pc = true;
     let store = StateStore::new(dir.path().join("state.json"));
     store.save(&saved).unwrap();
     let agent = Arc::new(Agent::new(cfg, store));

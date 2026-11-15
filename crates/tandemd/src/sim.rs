@@ -1,8 +1,8 @@
 //! Backends simulados para correr el binario sin hardware (`--sim-backends`).
 //!
 //! Solo existen con la feature `sim-backends`: las pruebas de punta a punta lanzan dos
-//! `tandemd` reales y necesitan que los pasos de cada máquina «funcionen» sin DDC, sin
-//! escritorios y sin Wake-on-LAN. Cada proceso es opaco para la prueba, así que los
+//! `tandemd` reales y necesitan que los pasos de cada máquina «funcionen» sin Wake-on-LAN
+//! y sin apagar nada. Cada proceso es opaco para la prueba, así que los
 //! pasos dejan rastro en el directorio de datos y se pueden frenar desde afuera:
 //!
 //! - [`STEPS_FILE`]: cada paso que empieza, una línea JSON (el [`Step`] serializado).
@@ -17,7 +17,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tandem_core::Step;
-use tandem_display::switcher::ManualSwitcher;
 
 use crate::daemon::Backends;
 use crate::orchestrator::{LocalSteps, StepFuture, describe};
@@ -73,7 +72,6 @@ impl LocalSteps for SimSteps {
 pub fn backends(data_dir: &Path) -> Backends {
     Backends::Custom {
         local: Arc::new(SimSteps::new(data_dir)),
-        manual: Arc::new(ManualSwitcher::new()),
         input: None,
     }
 }
@@ -106,11 +104,9 @@ mod tests {
             Step::PowerOn {
                 machine: Machine::Pc,
             },
-            Step::Attach {
-                machine: Machine::Pc,
-                monitor: "m34".into(),
+            Step::PowerOff {
+                machine: Machine::Mac,
             },
-            Step::UpdateInputGeometry,
         ];
         for s in &steps {
             sim.execute(s).await.unwrap();

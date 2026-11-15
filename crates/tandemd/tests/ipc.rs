@@ -12,17 +12,7 @@ use tokio::sync::oneshot;
 const CONFIG: &str = r#"
 machine = "mac"
 
-[[monitors]]
-id = "m34"
-label = '34"'
-wiring = { pc = "displayport", mac = "hdmi" }
-
-[[monitors]]
-id = "m32"
-label = '32"'
-wiring = { pc = "displayport", mac = "hdmi" }
-
-# Con qué despertar a la PC: sin esto el plan rechaza SoloMac desde la PC apagada.
+# Con qué despertar a la PC: sin esto el plan rechaza encenderla.
 [power.wol]
 mac = "9c:6b:00:1a:2b:ff"
 "#;
@@ -41,8 +31,7 @@ async fn client_requests_state_and_receives_it() {
     let store = StateStore::new(dir.path().join("state.json"));
     // Un estado guardado por una corrida anterior.
     let cfg = AgentConfig::from_toml(CONFIG).unwrap();
-    let mut saved = State::initial(&cfg.desk, Machine::Mac);
-    saved.owner.insert("m34".into(), Machine::Pc);
+    let mut saved = State::initial(Machine::Mac);
     saved.on.pc = true;
     store.save(&saved).unwrap();
 
@@ -83,9 +72,12 @@ async fn client_requests_state_and_receives_it() {
         other.next_event().await.unwrap(),
         Some(AgentToUi::State(changed.clone()))
     );
-    // Sin backends ni otro agente, el cambio de modo arranca y vuelve atrás solo.
+    // Sin backends ni otro agente, encender la PC arranca y falla solo.
     let reply = client
-        .request(UiCommand::SetMode(tandem_core::Mode::SoloMac))
+        .request(UiCommand::SetPower {
+            machine: Machine::Pc,
+            on: true,
+        })
         .await
         .unwrap();
     let Reply::Accepted { txn } = reply else {
@@ -93,7 +85,7 @@ async fn client_requests_state_and_receives_it() {
     };
     loop {
         match client.next_event().await.unwrap() {
-            Some(AgentToUi::Txn(TxnEvent::RolledBack { txn: t, state })) if t == txn => {
+            Some(AgentToUi::Txn(TxnEvent::Failed { txn: t, state })) if t == txn => {
                 assert_eq!(state, changed);
                 break;
             }

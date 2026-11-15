@@ -9,6 +9,8 @@ Punto de partida para la próxima sesión. Léelo entero antes de tocar nada.
 - Pendientes que necesitan al usuario: **T-027** (servicio SYSTEM en Windows; requiere decidir la firma Authenticode), **T-051** (SSH a la Mac; bloqueado: la Mac es de trabajo y Remote Login queda en Off, probablemente por MDM; no forzarlo).
 - Por decidir con el usuario: firmar y notarizar en macOS (Apple Developer, 99 USD al año). Sin eso, Gatekeeper bloquea la app y hay que usar *Abrir igualmente* o `xattr -dr com.apple.quarantine`.
 
+> **v0.2 (T-092):** Tandem ya no controla monitores; vuelve con el firmware propio del 34" (DESIGN §8). La tabla de abajo queda como referencia para ese firmware. Un `[[monitors]]` viejo en `tandem.toml` se ignora con un aviso y un `state.json` de v0.1 sigue cargando (solo se lee la energía).
+
 ## Hechos de hardware verificados (no volver a investigar)
 
 | | 34" Samsung LC34G55T | 32" Samsung Odyssey G5 |
@@ -28,7 +30,7 @@ Punto de partida para la próxima sesión. Léelo entero antes de tocar nada.
 
 - **PC:** Tandem instalado (versión T-085) en `%LOCALAPPDATA%\Tandem`, con `tandemd` arrancando con la sesión. La config `%APPDATA%\Tandem\tandem.toml` tiene **el puesto duplicado (4 monitores)** que dejó la primera sincronización. Antes de probar T-087 hay que hacer «Restablecer puesto», o vaciar `[[monitors]]` a mano y borrar `state.json`. Respaldo de la primera config en `tandem.toml.original`. Está **emparejada** con la Mac (`trust.toml`).
 - **Mac:** Tandem instalado desde el `.dmg` de CI. El usuario **detuvo el agente** con `launchctl bootout gui/$(id -u)/com.franc1sc0sv.tandem.tandemd` porque el 32" quedó en negro. Para volver a cargarlo: `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.franc1sc0sv.tandem.tandemd.plist`, o abrir la app. Su config la generó T-082 y también tiene el puesto duplicado.
-- Herramienta de diagnóstico en la PC: `%LOCALAPPDATA%\Temp\tandem\tandem-ddc.exe` (`list`, `caps`, `profile`, `switch … --return-after`, `calibrate`).
+- La herramienta de diagnóstico de monitores (`tandem-ddc`) se eliminó en T-092; si quedó una copia en `%LOCALAPPDATA%\Temp\tandem`, se puede borrar.
 
 ## Cómo trabajamos (flujo probado)
 
