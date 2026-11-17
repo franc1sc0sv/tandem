@@ -849,3 +849,51 @@ async fn the_wifi_data_cap_reaches_the_connections_already_open() {
     a.stop().await;
     b.stop().await;
 }
+
+/// Lo que el puesto muestra en memoria ya está en `tandem.toml`: al conocerse, las dos
+/// máquinas se anotan en el puesto, y antes se publicaba en memoria (lo veían la UI, la
+/// otra máquina y las pruebas) un instante antes de guardarlo. Una prueba que comparaba el
+/// archivo con la memoria fallaba de vez en cuando en macOS (T-093, revisión de #78).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_desk_in_memory_is_never_ahead_of_tandem_toml() {
+    for seed in 0..6u8 {
+        let (mac_id, pc_id) = sides(
+            Identity::from_seed([90 + seed; 32]),
+            Identity::from_seed([100 + seed; 32]),
+        );
+        let (mac, pc) = tandemd::start_pair!(
+            |mac_port, pc_port| start(
+                Machine::A,
+                &mac_id,
+                mac_port,
+                Some((pc_id.public_key(), pc_port)),
+            ),
+            start(
+                Machine::B,
+                &pc_id,
+                pc_port,
+                Some((mac_id.public_key(), mac_port)),
+            )
+        );
+        let known =
+            |d: &tandem_core::Config| Machine::ALL.iter().all(|m| d.machines.get(*m).is_some());
+        let mut rx = mac.agent.subscribe_desk();
+        within(async {
+            loop {
+                rx.changed().await.unwrap();
+                let shown = rx.borrow_and_update().clone();
+                if known(&shown) {
+                    // En el instante en que se ve, el archivo ya lo tiene.
+                    assert!(
+                        known(&saved(&mac).desk),
+                        "el puesto se mostró antes de guardarse"
+                    );
+                    return;
+                }
+            }
+        })
+        .await;
+        mac.stop().await;
+        pc.stop().await;
+    }
+}

@@ -478,8 +478,7 @@ impl Agent {
         // Al emparejar, las escenas de siempre con los nombres reales (D6).
         let scenes = (mine || theirs) && scenes::add_defaults(&mut desk);
         if mine || theirs || colors || scenes {
-            self.desk.send_replace(desk);
-            self.bump_desk();
+            self.commit_desk(desk);
         }
     }
 
@@ -533,8 +532,7 @@ impl Agent {
         if self.desk() == desk {
             return Ok(());
         }
-        self.desk.send_replace(desk);
-        self.bump_desk();
+        self.commit_desk(desk);
         Ok(())
     }
 
@@ -666,6 +664,15 @@ impl Agent {
         let next = self
             .desk_sync()
             .change(self.desk(), self.machine(), now_millis());
+        self.commit_local(next);
+    }
+
+    /// `desk` como versión nueva de esta máquina. No se publica en memoria antes de
+    /// [`Agent::commit_local`]: así lo que ven la UI, la otra máquina y las pruebas ya está
+    /// en `tandem.toml` (antes se veía un instante antes de guardarse). Se llama con el cambio
+    /// tomado ([`Agent::edit`]).
+    fn commit_desk(&self, desk: Config) {
+        let next = self.desk_sync().change(desk, self.machine(), now_millis());
         self.commit_local(next);
     }
 
