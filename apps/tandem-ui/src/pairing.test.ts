@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { PairingView, PeerView } from "./model";
 import { isActive, needsDismiss, pairButton, pairLine, pairScreen, shouldOpen, splitCode } from "./pairing";
+import { MACHINE_NAME } from "./scene";
+
+// Los nombres que pondría `learnNames` con el puesto de ejemplo (A, una Mac; B, una PC).
+Object.assign(MACHINE_NAME, { a: "Mac", b: "PC" });
 
 const UNPAIRED: PeerView = { kind: "unpaired" };
 const PAIRED: PeerView = { kind: "paired", name: "PC", link: "usb4" };
@@ -11,35 +15,35 @@ const COMPARING: PairingView = { kind: "comparing", code: "042917", peer: "PC", 
 
 describe("pantalla", () => {
   it("sin par ofrece emparejar con la otra máquina", () => {
-    expect(pairScreen("mac", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "PC" });
-    expect(pairScreen("pc", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Mac" });
+    expect(pairScreen("a", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "PC" });
+    expect(pairScreen("b", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Mac" });
   });
 
   it("emparejado muestra con quién y pide confirmar antes de desemparejar", () => {
-    expect(pairScreen("mac", PAIRED, IDLE)).toEqual({ kind: "paired", name: "PC" });
-    expect(pairScreen("mac", PAIRED, IDLE, true)).toEqual({ kind: "unpair", name: "PC" });
+    expect(pairScreen("a", PAIRED, IDLE)).toEqual({ kind: "paired", name: "PC" });
+    expect(pairScreen("a", PAIRED, IDLE, true)).toEqual({ kind: "unpair", name: "PC" });
     // Sin par no hay nada que desemparejar.
-    expect(pairScreen("mac", UNPAIRED, IDLE, true).kind).toBe("intro");
+    expect(pairScreen("a", UNPAIRED, IDLE, true).kind).toBe("intro");
   });
 
   it("buscando dice qué hacer en la otra máquina", () => {
-    const s = pairScreen("mac", UNPAIRED, SEARCHING);
+    const s = pairScreen("a", UNPAIRED, SEARCHING);
     expect(s).toMatchObject({ kind: "searching", other: "PC" });
     expect(s.kind === "searching" && s.hint).toContain("En la PC");
-    expect(pairScreen("pc", UNPAIRED, SEARCHING)).toMatchObject({ other: "Mac" });
+    expect(pairScreen("b", UNPAIRED, SEARCHING)).toMatchObject({ other: "Mac" });
   });
 
   it("el código se muestra igual en las dos máquinas, en dos grupos", () => {
-    const mac = pairScreen("mac", UNPAIRED, COMPARING);
-    const pc = pairScreen("pc", UNPAIRED, { ...COMPARING, peer: "Mac" });
+    const mac = pairScreen("a", UNPAIRED, COMPARING);
+    const pc = pairScreen("b", UNPAIRED, { ...COMPARING, peer: "Mac" });
     expect(mac).toEqual({ kind: "compare", digits: ["042", "917"], peer: "PC", confirmed: false });
     expect(pc.kind === "compare" && pc.digits).toEqual(["042", "917"]);
-    expect(pairScreen("mac", UNPAIRED, { ...COMPARING, confirmed: true })).toMatchObject({ confirmed: true });
+    expect(pairScreen("a", UNPAIRED, { ...COMPARING, confirmed: true })).toMatchObject({ confirmed: true });
   });
 
   it("el resultado manda sobre el par", () => {
-    expect(pairScreen("mac", PAIRED, { kind: "done", peer: "PC" })).toEqual({ kind: "done", peer: "PC" });
-    expect(pairScreen("mac", UNPAIRED, { kind: "failed", reason: "se rechazó en la PC" })).toEqual({
+    expect(pairScreen("a", PAIRED, { kind: "done", peer: "PC" })).toEqual({ kind: "done", peer: "PC" });
+    expect(pairScreen("a", UNPAIRED, { kind: "failed", reason: "se rechazó en la PC" })).toEqual({
       kind: "failed",
       reason: "se rechazó en la PC",
     });
@@ -56,7 +60,7 @@ describe("código", () => {
 
 describe("línea entre las máquinas", () => {
   it("sigue el avance", () => {
-    const line = (p: PairingView, peer: PeerView = UNPAIRED, ask = false) => pairLine(pairScreen("mac", peer, p, ask));
+    const line = (p: PairingView, peer: PeerView = UNPAIRED, ask = false) => pairLine(pairScreen("a", peer, p, ask));
     expect(line(IDLE)).toBe("idle");
     expect(line(SEARCHING)).toBe("searching");
     expect(line(COMPARING)).toBe("found");

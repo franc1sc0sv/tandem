@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Caps, Desk, DeskState, InputView, MachineCaps, Step } from "./model";
+import type { Caps, Desk, DeskState, InputView, MachineCaps, Snapshot, Step } from "./model";
 import {
   MODES_SOON,
   MONITORS_SOON,
@@ -15,22 +15,26 @@ import {
   roleChip,
   sides,
   stepLabel,
-  type Progress,
-} from "./scene";
+  type Progress, learnNames, machineInfo } from "./scene";
+import { MACHINE_NAME } from "./scene";
 
-const desk: Desk = { screens: [], arrangement: { mac_side: "left", offset: 0 } };
+// Los nombres que pondría `learnNames` con el puesto de ejemplo (A, una Mac; B, una PC).
+Object.assign(MACHINE_NAME, { a: "Mac", b: "PC" });
+
+const desk: Desk = { screens: [], arrangement: { a_side: "left", offset: 0 } };
 
 function on(mac: boolean, pc: boolean): DeskState {
-  return { on: { mac, pc } };
+  return { on: { a: mac, b: pc } };
 }
 
 /** Lo que anuncia cada máquina del puesto real. */
-function machineCaps(machine: "mac" | "pc", extra: Partial<MachineCaps> = {}): MachineCaps {
-  const pc = machine === "pc";
+function machineCaps(machine: "a" | "b", extra: Partial<MachineCaps> = {}): MachineCaps {
+  const pc = machine === "b";
   return {
     machine,
     name: pc ? "ESCRITORIO" : "MacBook-Pro",
     os: pc ? "windows" : "macos",
+    color: pc ? "#a99be8" : "#7aa7e6",
     hub: null,
     input: { capture: true, inject: true, missing: [], process: { exe: "", pid: 0, started: 0 } },
     power: { wake_peer: true, wakeable: true, power_off: pc },
@@ -39,8 +43,8 @@ function machineCaps(machine: "mac" | "pc", extra: Partial<MachineCaps> = {}): M
   };
 }
 
-function caps(agent: "mac" | "pc", peerSeen = true): Caps {
-  return { here: machineCaps(agent), peer: peerSeen ? machineCaps(agent === "mac" ? "pc" : "mac") : null };
+function caps(agent: "a" | "b", peerSeen = true): Caps {
+  return { here: machineCaps(agent), peer: peerSeen ? machineCaps(agent === "a" ? "b" : "a") : null };
 }
 
 describe("monitores y modos en pausa (DESIGN §8)", () => {
@@ -54,31 +58,31 @@ describe("monitores y modos en pausa (DESIGN §8)", () => {
 
 describe("acomodo", () => {
   it("sin declarar, la Mac a la izquierda; el puesto puede ponerla a la derecha", () => {
-    expect(sides("mac", desk)).toMatchObject({ left: "mac", right: "pc", here: "mac", peer: "pc" });
-    expect(sides("pc")).toMatchObject({ left: "mac", right: "pc", here: "pc", peer: "mac" });
-    const right: Desk = { ...desk, arrangement: { mac_side: "right", offset: 0 } };
-    expect(sides("pc", right)).toMatchObject({ left: "pc", right: "mac" });
+    expect(sides("a", desk)).toMatchObject({ left: "a", right: "b", here: "a", peer: "b" });
+    expect(sides("b")).toMatchObject({ left: "a", right: "b", here: "b", peer: "a" });
+    const right: Desk = { ...desk, arrangement: { a_side: "right", offset: 0 } };
+    expect(sides("b", right)).toMatchObject({ left: "b", right: "a" });
   });
 
   it("las pantallas declaradas son de cada máquina", () => {
     const d: Desk = {
       ...desk,
       screens: [
-        { machine: "pc", id: "34", x: 0, y: 0, width: 3440, height: 1440, scale: 1 },
-        { machine: "mac", id: "laptop", x: 0, y: 0, width: 1512, height: 982, scale: 2 },
+        { machine: "b", id: "34", x: 0, y: 0, width: 3440, height: 1440, scale: 1 },
+        { machine: "a", id: "laptop", x: 0, y: 0, width: 1512, height: 982, scale: 2 },
       ],
     };
-    expect(declaredScreens(d, "pc").map((s) => s.id)).toEqual(["34"]);
-    expect(declaredScreens(desk, "mac")).toEqual([]);
+    expect(declaredScreens(d, "b").map((s) => s.id)).toEqual(["34"]);
+    expect(declaredScreens(desk, "a")).toEqual([]);
   });
 });
 
 describe("progreso por pasos", () => {
-  const steps: Step[] = [{ step: "power_on", machine: "pc" }];
+  const steps: Step[] = [{ step: "power_on", machine: "b" }];
 
   it("nombra cada paso", () => {
-    expect(stepLabel({ step: "power_on", machine: "pc" })).toBe("Encender la PC");
-    expect(stepLabel({ step: "power_off", machine: "mac" })).toBe("Apagar la Mac");
+    expect(stepLabel({ step: "power_on", machine: "b" })).toBe("Encender la PC");
+    expect(stepLabel({ step: "power_off", machine: "a" })).toBe("Apagar la Mac");
   });
 
   it("sigue cada paso hasta confirmar", () => {
@@ -109,9 +113,9 @@ describe("progreso por pasos", () => {
   it("la otra máquina arranca mientras corre su encendido", () => {
     let p: Progress | null = advance(null, { type: "started", txn: 4, steps });
     p = advance(p, { type: "step_started", txn: 4, index: 0 });
-    expect(peerPower(on(true, false), "mac", p)).toBe("boot");
-    expect(machineState(on(true, false), "mac", "pc", p)).toBe("arrancando…");
-    expect(powerButton(caps("mac"), on(true, false), "mac", p)).toMatchObject({ on: null, power: "boot" });
+    expect(peerPower(on(true, false), "a", p)).toBe("boot");
+    expect(machineState(on(true, false), "a", "b", p)).toBe("arrancando…");
+    expect(powerButton(caps("a"), on(true, false), "a", p)).toMatchObject({ on: null, power: "boot" });
   });
 });
 
@@ -140,16 +144,16 @@ describe("par", () => {
 
 describe("chip de teclado y mouse", () => {
   it("sin definir no se supone la Mac: solo lo dice el chip de esta máquina (T-087)", () => {
-    const undef = { server: "mac" as const, hub_here: null, session: true, locked: false, missing: [], problem: null, defined: false };
-    expect(roleChip(undef, "mac", "mac", true)).toMatchObject({ kind: "idle", text: "Teclado sin definir" });
-    expect(roleChip(undef, "mac", "pc", true)).toBeNull();
-    expect(roleChip(undef, "pc", "pc", false)).toMatchObject({ text: "Teclado sin definir" });
+    const undef = { server: "a" as const, hub_here: null, session: true, locked: false, missing: [], problem: null, defined: false };
+    expect(roleChip(undef, "a", "a", true)).toMatchObject({ kind: "idle", text: "Teclado sin definir" });
+    expect(roleChip(undef, "a", "b", true)).toBeNull();
+    expect(roleChip(undef, "b", "b", false)).toMatchObject({ text: "Teclado sin definir" });
     // Un permiso que falta se avisa antes.
-    expect(roleChip({ ...undef, missing: ["accessibility"] }, "mac", "mac", true)).toMatchObject({ kind: "warn" });
+    expect(roleChip({ ...undef, missing: ["accessibility"] }, "a", "a", true)).toMatchObject({ kind: "warn" });
   });
 
   const input = (extra: Partial<InputView> = {}): InputView => ({
-    server: "pc",
+    server: "b",
     hub_here: false,
     session: true,
     locked: false,
@@ -160,18 +164,18 @@ describe("chip de teclado y mouse", () => {
   });
 
   it("dónde está el teclado y quién lo recibe, con la sesión establecida", () => {
-    expect(roleChip(input(), "mac", "pc", true)).toMatchObject({ kind: "keyboard", icon: "keyboard", text: "Tiene el teclado" });
-    expect(roleChip(input(), "mac", "mac", true)).toMatchObject({ kind: "remote", icon: "cursor", text: "Teclado de la PC" });
+    expect(roleChip(input(), "a", "b", true)).toMatchObject({ kind: "keyboard", icon: "keyboard", text: "Tiene el teclado" });
+    expect(roleChip(input(), "a", "a", true)).toMatchObject({ kind: "remote", icon: "cursor", text: "Teclado de la PC" });
     // Desde la PC, igual pero al revés: aquí es «Teclado aquí».
-    expect(roleChip(input(), "pc", "pc", true)).toMatchObject({ kind: "keyboard", text: "Teclado aquí" });
-    expect(roleChip(input({ server: "mac" }), "pc", "pc", true)).toMatchObject({ kind: "remote", text: "Teclado de la Mac" });
+    expect(roleChip(input(), "b", "b", true)).toMatchObject({ kind: "keyboard", text: "Teclado aquí" });
+    expect(roleChip(input({ server: "a" }), "b", "b", true)).toMatchObject({ kind: "remote", text: "Teclado de la Mac" });
   });
 
   it("ningún texto habla de servidor ni de cliente (T-084)", () => {
     const texts: string[] = [];
-    for (const server of ["mac", "pc"] as const) {
-      for (const agent of ["mac", "pc"] as const) {
-        for (const who of ["mac", "pc"] as const) {
+    for (const server of ["a", "b"] as const) {
+      for (const agent of ["a", "b"] as const) {
+        for (const who of ["a", "b"] as const) {
           for (const peerOn of [true, false]) {
             for (const extra of [{}, { locked: true }, { session: false }]) {
               const c = roleChip(input({ server, ...extra }), agent, who, peerOn);
@@ -186,38 +190,38 @@ describe("chip de teclado y mouse", () => {
   });
 
   it("sin sesión el chip queda apagado y lo dice", () => {
-    const c = roleChip(input({ session: false }), "mac", "pc", true);
+    const c = roleChip(input({ session: false }), "a", "b", true);
     expect(c?.kind).toBe("idle");
     expect(c?.title).toContain("sin sesión");
   });
 
   it("el cursor bloqueado se ve en la que tiene el teclado", () => {
-    const c = roleChip(input({ locked: true }), "pc", "pc", true);
+    const c = roleChip(input({ locked: true }), "b", "b", true);
     expect(c?.text).toBe("Teclado aquí · bloqueado");
     expect(c?.title).toContain("bloqueado");
   });
 
   it("con la otra apagada solo esta, si tiene el teclado", () => {
-    expect(roleChip(input({ server: "mac" }), "mac", "mac", false)?.text).toBe("Teclado aquí");
-    expect(roleChip(input({ server: "mac" }), "mac", "pc", false)).toBeNull();
-    expect(roleChip(input(), "mac", "mac", false)).toBeNull();
+    expect(roleChip(input({ server: "a" }), "a", "a", false)?.text).toBe("Teclado aquí");
+    expect(roleChip(input({ server: "a" }), "a", "b", false)).toBeNull();
+    expect(roleChip(input(), "a", "a", false)).toBeNull();
     // Y en la PC con la Mac dormida, lo mismo.
-    expect(roleChip(input(), "pc", "pc", false)?.text).toBe("Teclado aquí");
-    expect(roleChip(input(), "pc", "mac", false)).toBeNull();
+    expect(roleChip(input(), "b", "b", false)?.text).toBe("Teclado aquí");
+    expect(roleChip(input(), "b", "a", false)).toBeNull();
   });
 
   it("los permisos que faltan en esta máquina son un aviso", () => {
-    const c = roleChip(input({ missing: ["accessibility", "input_monitoring"] }), "mac", "mac", true);
+    const c = roleChip(input({ missing: ["accessibility", "input_monitoring"] }), "a", "a", true);
     expect(c).toMatchObject({ kind: "warn", icon: "warn", text: "faltan permisos" });
     expect(c?.title).toContain("Accesibilidad y Monitorización de entrada");
     // En la otra máquina no: son de esta.
-    expect(roleChip(input({ missing: ["accessibility"] }), "mac", "pc", true)?.kind).toBe("keyboard");
+    expect(roleChip(input({ missing: ["accessibility"] }), "a", "b", true)?.kind).toBe("keyboard");
     // Aunque la PC esté apagada.
-    expect(roleChip(input({ missing: ["accessibility"] }), "mac", "mac", false)?.kind).toBe("warn");
+    expect(roleChip(input({ missing: ["accessibility"] }), "a", "a", false)?.kind).toBe("warn");
   });
 
   it("un problema del motor de esta máquina también", () => {
-    const c = roleChip(input({ problem: "no se pudo crear el CGEventTap" }), "mac", "mac", true);
+    const c = roleChip(input({ problem: "no se pudo crear el CGEventTap" }), "a", "a", true);
     expect(c).toMatchObject({ kind: "warn", text: "sin teclado y mouse" });
     expect(c?.title).toContain("CGEventTap");
   });
@@ -225,42 +229,69 @@ describe("chip de teclado y mouse", () => {
 
 describe("sin centro fijo (T-084)", () => {
   it("un agente nunca se ve apagado a sí mismo", () => {
-    for (const agent of ["mac", "pc"] as const) {
+    for (const agent of ["a", "b"] as const) {
       // Aunque el estado venga con las dos apagadas (uno guardado viejo).
       const s = on(false, false);
       expect(machineState(s, agent, agent, null)).toBe("esta máquina");
-      expect(machineState(s, agent, agent === "mac" ? "pc" : "mac", null)).toBe("apagada");
+      expect(machineState(s, agent, agent === "a" ? "b" : "a", null)).toBe("apagada");
     }
   });
 
   it("en la PC, la PC está encendida y la que duerme es la Mac", () => {
     const s = on(false, true);
-    expect(machineState(s, "pc", "pc", null)).toBe("esta máquina");
-    expect(machineState(s, "pc", "mac", null)).toBe("apagada");
-    expect(peerPower(s, "pc", null)).toBe("off");
-    expect(powerButton(caps("pc"), s, "pc", null)).toMatchObject({ visible: true, on: true, label: "Encender la Mac" });
+    expect(machineState(s, "b", "b", null)).toBe("esta máquina");
+    expect(machineState(s, "b", "a", null)).toBe("apagada");
+    expect(peerPower(s, "b", null)).toBe("off");
+    expect(powerButton(caps("b"), s, "b", null)).toMatchObject({ visible: true, on: true, label: "Encender la Mac" });
   });
 
   it("el botón de encendido solo aparece si alguna puede", () => {
     const awake = on(true, true);
     // La PC sabe apagarse limpio: desde la Mac se ofrece apagarla.
-    expect(powerButton(caps("mac"), awake, "mac", null)).toMatchObject({ visible: true, on: false, label: "Apagar la PC" });
+    expect(powerButton(caps("a"), awake, "a", null)).toMatchObject({ visible: true, on: false, label: "Apagar la PC" });
     // La Mac no: desde la PC no se ofrece apagarla.
-    expect(powerButton(caps("pc"), awake, "pc", null).visible).toBe(false);
+    expect(powerButton(caps("b"), awake, "b", null).visible).toBe(false);
     // Una que dice que no se despierta por la red no ofrece encenderla.
     const asleep = on(false, true);
-    const noWake: Caps = { here: machineCaps("pc"), peer: machineCaps("mac", { power: { wake_peer: false, wakeable: false, power_off: false } }) };
-    expect(powerButton(noWake, asleep, "pc", null).visible).toBe(false);
+    const noWake: Caps = { here: machineCaps("b"), peer: machineCaps("a", { power: { wake_peer: false, wakeable: false, power_off: false } }) };
+    expect(powerButton(noWake, asleep, "b", null).visible).toBe(false);
     // Sin su anuncio, se intenta (el agente explica si no se pudo).
-    expect(powerButton(caps("pc", false), asleep, "pc", null).visible).toBe(true);
+    expect(powerButton(caps("b", false), asleep, "b", null).visible).toBe(true);
   });
 
   it("sin Wake-on-LAN en esta máquina no se ofrece encender la otra", () => {
     // Hallazgo del PR #56: la PC sin [power.wol] mostraba «Encender la Mac», que fallaba siempre.
     const asleep = on(false, true);
-    const noWol = machineCaps("pc", { power: { wake_peer: false, wakeable: true, power_off: true } });
-    expect(powerButton({ here: noWol, peer: machineCaps("mac") }, asleep, "pc", null).visible).toBe(false);
+    const noWol = machineCaps("b", { power: { wake_peer: false, wakeable: true, power_off: true } });
+    expect(powerButton({ here: noWol, peer: machineCaps("a") }, asleep, "b", null).visible).toBe(false);
     // Tampoco sin el anuncio de la Mac: lo que falta es de esta.
-    expect(powerButton({ here: noWol, peer: null }, asleep, "pc", null).visible).toBe(false);
+    expect(powerButton({ here: noWol, peer: null }, asleep, "b", null).visible).toBe(false);
   });
 });
+
+describe("nombres de cada lado (T-097)", () => {
+  const snapOf = (caps: Caps, machines?: Desk["machines"]): Snapshot => ({
+    kind: "connected",
+    agent: "a",
+    desk: { ...desk, machines },
+    state: on(true, true),
+    peer: { kind: "unpaired" },
+    pairing: { kind: "idle" },
+    input: { server: "a", hub_here: null, session: false, locked: false, missing: [], problem: null, defined: false },
+    caps,
+  });
+
+  it("salen de lo anunciado, después del puesto y si no, «máquina A»; nunca «Mac» o «PC» fijos", () => {
+    const here = { ...machineCaps("a"), name: "Torre", os: "windows" as const };
+    learnNames(snapOf({ here, peer: null }, { a: null, b: { os: "windows", name: "Otra torre", color: "#5fbfb0" } }));
+    expect(MACHINE_NAME).toEqual({ a: "Torre", b: "Otra torre" });
+    // Dos Windows: el sistema de cada uno sale de su anuncio o del puesto, no del lado.
+    expect(machineInfo(snapOf({ here, peer: null }), "a")?.os).toBe("windows");
+    learnNames(snapOf({ here, peer: null }));
+    expect(MACHINE_NAME.b).toBe("máquina B");
+    learnNames({ kind: "connecting" });
+    expect(MACHINE_NAME).toEqual({ a: "máquina A", b: "máquina B" });
+    Object.assign(MACHINE_NAME, { a: "Mac", b: "PC" });
+  });
+});
+

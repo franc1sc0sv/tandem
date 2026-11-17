@@ -16,8 +16,8 @@ body.tray { background: var(--panel); font-size: 13px; }
 .mmon:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .mmon:disabled { cursor: default; }
 .mscreen { display: block; border-radius: 4px; border: 1px solid var(--line-2); background: var(--wall); transition: background .5s; }
-.mmon.mac { --wall: linear-gradient(160deg, #34496a, #222d3d); }
-.mmon.pc { --wall: linear-gradient(160deg, #463d63, #2a2539); }
+.mmon.a { --wall: linear-gradient(160deg, #34496a, #222d3d); }
+.mmon.b { --wall: linear-gradient(160deg, #463d63, #2a2539); }
 .mmon.wide .mscreen { width: 66px; height: 30px; }
 .mmon.std .mscreen { width: 48px; height: 28px; }
 .mmon:not(:disabled):hover .mscreen { border-color: var(--focus); }

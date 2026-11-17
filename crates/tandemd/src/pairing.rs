@@ -57,8 +57,9 @@ impl Default for PairingTimeouts {
 
 /// Los tres mensajes del protocolo, sin contar la espera del usuario.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-/// Cada intento de conexión de la Mac; si la PC todavía no espera, se reintenta.
-const CONNECT_ATTEMPT: Duration = Duration::from_secs(2);
+/// Lo que se espera a un intento de conexión antes de darlo por perdido; mientras, se
+/// siguen lanzando otros (ver [`look`]).
+const CONNECT_ATTEMPT: Duration = Duration::from_secs(10);
 const RETRY_EVERY: Duration = Duration::from_millis(300);
 /// Lo que se espera a que el otro lado reciba el último mensaje antes de cortar.
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
@@ -213,6 +214,7 @@ async fn search(ctx: &Ctx) -> Result<Found, String> {
         None
     };
     let lan = discovery.as_ref().map(MdnsDiscovery::peer_addrs);
+    let endpoint = Arc::new(endpoint);
     tokio::select! {
         found = wait(ctx, &endpoint) => found,
         found = look(ctx, &endpoint, lan, port) => found,
@@ -251,43 +253,61 @@ async fn wait(ctx: &Ctx, endpoint: &Endpoint) -> Result<Found, String> {
 
 /// Prueba las direcciones de la otra hasta que una conteste. Si esta máquina resulta ser
 /// `B`, deja de buscar: la otra (A) la llama a ella y [`wait`] la atiende.
+///
+/// Cada intento corre aparte y no se corta por empezar otro: con la máquina cargada (o en
+/// Windows, donde un puerto sin nadie no falla enseguida) un handshake puede tardar más que
+/// el intervalo entre intentos, y cortarlo cada vez dejaba a las dos buscándose para siempre.
 async fn look(
     ctx: &Ctx,
-    endpoint: &Endpoint,
+    endpoint: &Arc<Endpoint>,
     lan: Option<tokio::sync::watch::Receiver<Vec<SocketAddr>>>,
     own: u16,
 ) -> Result<Found, String> {
+    let mut attempts = tokio::task::JoinSet::new();
+    let mut trying = BTreeSet::new();
     loop {
         let discovered = lan.as_ref().map(|l| l.borrow().clone()).unwrap_or_default();
         for addr in candidates(ctx, &discovered, own) {
-            let conn = match tokio::time::timeout(CONNECT_ATTEMPT, endpoint.connect(addr)).await {
-                Ok(Ok(conn)) => conn,
-                Ok(Err(e)) => {
-                    tracing::debug!(%addr, "la otra máquina no contesta al emparejamiento: {e}");
-                    continue;
-                }
-                Err(_) => continue,
-            };
-            match ctx.side_on(&conn) {
-                Ok(Machine::A) => {}
-                Ok(Machine::B) => {
-                    conn.close("emparejamiento: llama la otra");
-                    tracing::debug!(%addr, "esta máquina es B: espera a que la otra llame");
-                    return std::future::pending().await;
-                }
-                // Esta misma máquina (su propio puerto en loopback).
-                Err(_) => {
-                    conn.close("emparejamiento: es esta misma máquina");
-                    continue;
-                }
-            }
-            match tokio::time::timeout(HANDSHAKE_TIMEOUT, initiate(ctx, &conn)).await {
-                Ok(Ok((stream, pairing))) => return Ok((conn, stream, pairing)),
-                Ok(Err(e)) => tracing::warn!(%addr, "emparejamiento rechazado: {e}"),
-                Err(_) => tracing::warn!(%addr, "emparejamiento sin respuesta"),
+            if trying.insert(addr) {
+                let endpoint = endpoint.clone();
+                attempts.spawn(async move {
+                    let r = tokio::time::timeout(CONNECT_ATTEMPT, endpoint.connect(addr)).await;
+                    (addr, r)
+                });
             }
         }
-        tokio::time::sleep(RETRY_EVERY).await;
+        let done = tokio::select! {
+            Some(done) = attempts.join_next() => done,
+            () = tokio::time::sleep(RETRY_EVERY) => continue,
+        };
+        let Ok((addr, result)) = done else { continue };
+        trying.remove(&addr);
+        let conn = match result {
+            Ok(Ok(conn)) => conn,
+            Ok(Err(e)) => {
+                tracing::debug!(%addr, "la otra máquina no contesta al emparejamiento: {e}");
+                continue;
+            }
+            Err(_) => continue,
+        };
+        match ctx.side_on(&conn) {
+            Ok(Machine::A) => {}
+            Ok(Machine::B) => {
+                conn.close("emparejamiento: llama la otra");
+                tracing::debug!(%addr, "esta máquina es B: espera a que la otra llame");
+                return std::future::pending().await;
+            }
+            // Esta misma máquina.
+            Err(_) => {
+                conn.close("emparejamiento: es esta misma máquina");
+                continue;
+            }
+        }
+        match tokio::time::timeout(HANDSHAKE_TIMEOUT, initiate(ctx, &conn)).await {
+            Ok(Ok((stream, pairing))) => return Ok((conn, stream, pairing)),
+            Ok(Err(e)) => tracing::warn!(%addr, "emparejamiento rechazado: {e}"),
+            Err(_) => tracing::warn!(%addr, "emparejamiento sin respuesta"),
+        }
     }
 }
 

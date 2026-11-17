@@ -15,15 +15,20 @@ import {
   type StepId,
 } from "./onboarding";
 import type { InputView, MachineCaps, PairingView, PeerView, Snapshot } from "./model";
+import { MACHINE_NAME } from "./scene";
+
+// Los nombres que pondría `learnNames` con el puesto de ejemplo (A, una Mac; B, una PC).
+Object.assign(MACHINE_NAME, { a: "Mac", b: "PC" });
 
 const PROCESS = { exe: "/Applications/Tandem.app/Contents/MacOS/tandemd", pid: 4242, started: 1 };
 
-function caps(machine: "mac" | "pc", extra: Partial<MachineCaps> = {}): MachineCaps {
-  const pc = machine === "pc";
+function caps(machine: "a" | "b", extra: Partial<MachineCaps> = {}): MachineCaps {
+  const pc = machine === "b";
   return {
     machine,
     name: pc ? "ESCRITORIO" : "MacBook-Pro",
     os: pc ? "windows" : "macos",
+    color: pc ? "#a99be8" : "#7aa7e6",
     hub: null,
     input: { capture: true, inject: true, missing: [], process: PROCESS },
     power: { wake_peer: true, wakeable: true, power_off: pc },
@@ -32,12 +37,12 @@ function caps(machine: "mac" | "pc", extra: Partial<MachineCaps> = {}): MachineC
   };
 }
 
-const INPUT: InputView = { server: "mac", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: false };
+const INPUT: InputView = { server: "a", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: false };
 const PAIRED: PeerView = { kind: "paired", name: "PC", link: "usb4" };
 const IDLE: PairingView = { kind: "idle" };
 
 interface Parts {
-  agent: "mac" | "pc";
+  agent: "a" | "b";
   peer: PeerView;
   pairing: PairingView;
   here: MachineCaps;
@@ -45,16 +50,16 @@ interface Parts {
 }
 
 function snap(over: Partial<Parts> = {}): Snapshot {
-  const agent = over.agent ?? "mac";
+  const agent = over.agent ?? "a";
   return {
     kind: "connected",
     agent,
-    desk: { screens: [], arrangement: { mac_side: "left", offset: 0 } },
-    state: { on: { mac: true, pc: true } },
+    desk: { screens: [], arrangement: { a_side: "left", offset: 0 } },
+    state: { on: { a: true, b: true } },
     peer: over.peer ?? PAIRED,
     pairing: over.pairing ?? IDLE,
     input: over.input ?? INPUT,
-    caps: { here: over.here ?? caps(agent), peer: caps(agent === "mac" ? "pc" : "mac") },
+    caps: { here: over.here ?? caps(agent), peer: caps(agent === "a" ? "b" : "a") },
   };
 }
 
@@ -82,13 +87,13 @@ describe("los pasos", () => {
 
 describe("paso 1: esta máquina", () => {
   it("dice cómo se detectó la máquina", () => {
-    const v = viewOf(at("machine"), snap({ agent: "pc" }));
+    const v = viewOf(at("machine"), snap({ agent: "b" }));
     expect(v.checks[0]).toMatchObject({ state: "ok", label: "PC · ESCRITORIO", detail: expect.stringContaining("Windows") });
     expect(v.verified).toBe(true);
   });
 
   it("en la Mac verifica los permisos en vivo: mientras falte uno no se avanza", () => {
-    const missing = caps("mac", { input: { capture: false, inject: false, missing: ["accessibility", "input_monitoring"], process: PROCESS } });
+    const missing = caps("a", { input: { capture: false, inject: false, missing: ["accessibility", "input_monitoring"], process: PROCESS } });
     const v = viewOf(at("machine"), snap({ here: missing }));
     expect(v.verified).toBe(false);
     expect(v.blocker).toBe("faltan permisos de macOS");
@@ -102,7 +107,7 @@ describe("paso 1: esta máquina", () => {
     expect(binary?.detail).toContain("/Applications/Tandem.app/Contents/MacOS/tandemd");
     expect(v.checks.some((c) => c.label === "Cómo conceder" && (c.detail ?? "").includes("Reiniciar agente"))).toBe(true);
     // Se concede uno: el otro sigue.
-    const one = caps("mac", { input: { capture: true, inject: true, missing: ["input_monitoring"], process: PROCESS } });
+    const one = caps("a", { input: { capture: true, inject: true, missing: ["input_monitoring"], process: PROCESS } });
     expect(ids(viewOf(at("machine"), snap({ here: one })))).toEqual(["perm:request", "perm:input_monitoring", "perm:restart"]);
     // Se conceden todos: se comprueba solo.
     const ok = viewOf(at("machine"), snap());
@@ -171,11 +176,11 @@ describe("paso 2: la otra máquina", () => {
 });
 
 describe("paso 3: teclado y mouse", () => {
-  it("al principio no hay nada definido y nunca se supone la Mac", () => {
+  it("al principio no hay nada definido y nunca se supone una máquina", () => {
     const v = viewOf(at("keyboard"), snap());
     expect(v.verified).toBe(false);
-    expect(ids(v)).toEqual(["key:start", "key:pick:pc", "key:pick:mac", "key:skip"]);
-    expect(v.checks.some((c) => c.detail === "nunca se supone que está en la Mac")).toBe(true);
+    expect(ids(v)).toEqual(["key:start", "key:pick:b", "key:pick:a", "key:skip"]);
+    expect(v.checks.some((c) => c.detail === "nunca se supone en qué máquina está")).toBe(true);
   });
 
   it("escucha en las dos máquinas mientras espera la tecla", () => {
@@ -186,16 +191,16 @@ describe("paso 3: teclado y mouse", () => {
   });
 
   it("la máquina que recibió la tecla la tiene, pero hay que confirmarlo", () => {
-    const heard = at("keyboard", { keyboard: { ...begin().keyboard, armed: true, heard: "pc" } });
+    const heard = at("keyboard", { keyboard: { ...begin().keyboard, armed: true, heard: "b" } });
     const v = viewOf(heard, snap());
     expect(v.checks[0]!.label).toBe("La tecla llegó a la PC");
-    expect(ids(v)).toEqual(["key:yes:pc", "key:yes:mac", "key:again"]);
+    expect(ids(v)).toEqual(["key:yes:b", "key:yes:a", "key:again"]);
     expect(v.verified).toBe(false);
     expect(v.blocker).toBe("confirma dónde está el teclado");
   });
 
   it("confirmado queda verificado", () => {
-    const v = viewOf(at("keyboard", { keyboard: { ...begin().keyboard, confirmed: "pc" } }), snap());
+    const v = viewOf(at("keyboard", { keyboard: { ...begin().keyboard, confirmed: "b" } }), snap());
     expect(v.verified).toBe(true);
     expect(v.checks[0]).toMatchObject({ state: "ok", label: "El teclado y el mouse están en la PC" });
   });
@@ -216,7 +221,7 @@ describe("paso 4: resumen", () => {
   it("junta todo lo verificado y dice que los monitores vienen con el firmware propio", () => {
     const o = at("summary", {
       pair: { ...begin().pair, ping: { link: "usb4", millis: 2 } },
-      keyboard: { ...begin().keyboard, confirmed: "pc" },
+      keyboard: { ...begin().keyboard, confirmed: "b" },
     });
     const text = summaryChecks(o, snap()).map((l) => `${l.state}|${l.label}|${l.detail ?? ""}`);
     expect(text).toEqual([
@@ -259,7 +264,7 @@ describe("navegación", () => {
     const facts: Record<StepId, Partial<Onboarding>> = {
       machine: {},
       pair: { pair: { ...begin().pair, ping: { link: "usb4", millis: 3 } } },
-      keyboard: { keyboard: { ...begin().keyboard, confirmed: "pc" } },
+      keyboard: { keyboard: { ...begin().keyboard, confirmed: "b" } },
       summary: {},
     };
     for (let i = 0; i < 3; i++) {

@@ -7,7 +7,7 @@ import "./tray.css";
 
 import { bridgeFailed, tauriBridge, type Bridge } from "./bridge";
 import type { Notice, Snapshot } from "./model";
-import { MACHINE_NAME, advance, isRunning, machineState, peerPill, peerPower, sides, stepLabel, type Progress } from "./scene";
+import { MACHINE_NAME, advance, learnNames, isRunning, machineState, peerPill, peerPower, sides, stepLabel, type Progress } from "./scene";
 
 const MESSAGE_MS = 5000;
 
@@ -50,6 +50,7 @@ function onNotice(n: Notice) {
 }
 
 function render() {
+  learnNames(snap);
   const connected = snap.kind === "connected";
   $("#agent-text").textContent =
     snap.kind === "connected" ? `tandemd · ${MACHINE_NAME[snap.agent]}` : snap.kind === "connecting" ? "Conectando…" : "Sin agente";

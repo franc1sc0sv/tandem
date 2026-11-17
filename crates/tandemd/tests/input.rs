@@ -515,6 +515,22 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
     })
     .await;
 
+    // Antes de editar, las dos ya anotaron a las dos máquinas en el puesto (una versión
+    // propia del conocerse); si no, esa versión podría llegar después y pisar la edición.
+    for r in [&mac, &pc] {
+        let mut d = r.agent.subscribe_desk();
+        within(d.wait_for(|d| Machine::ALL.iter().all(|m| d.machines.get(*m).is_some())))
+            .await
+            .unwrap();
+    }
+    within(async {
+        while mac.agent.desk_sync().rev != pc.agent.desk_sync().rev
+            || mac.agent.desk() != pc.agent.desk()
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
     // En la PC el acomodo pasa a «la Mac a la derecha».
     let mut desk = pc.agent.desk();
     desk.arrangement.a_side = Side::Right;
@@ -572,7 +588,9 @@ async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
     let want = pc.agent.desk();
     assert_eq!(want.screens.len(), 1);
     let mut mac_desk = mac.agent.subscribe_desk();
-    within(mac_desk.wait_for(|d| *d == want)).await.unwrap();
+    within(mac_desk.wait_for(|d| d.screens == want.screens && d.arrangement == want.arrangement))
+        .await
+        .unwrap();
     pc.stop().await;
     mac.stop().await;
 }

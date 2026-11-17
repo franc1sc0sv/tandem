@@ -13,6 +13,10 @@ import {
   readCombo,
   windowCommand,
 } from "./shortcuts";
+import { MACHINE_NAME } from "./scene";
+
+// Los nombres que pondría `learnNames` con el puesto de ejemplo (A, una Mac; B, una PC).
+Object.assign(MACHINE_NAME, { a: "Mac", b: "PC" });
 
 const key = (code: string, mods: Partial<KeyboardEvent> = {}) => ({
   ctrlKey: true,
