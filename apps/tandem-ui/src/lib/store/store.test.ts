@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bridge } from "../bridge";
 import type { Snapshot } from "../model";
 import { formatHash, parseHash, SCREEN_TOPICS } from "../routes";
-import { DemoSource, demoDesk, demoOptions, isDemo } from "./demo";
+import { DEMO_NOW, DemoSource, demoDesk, demoOptions, isDemo } from "./demo";
 import { deskFromSnapshot, LiveSource } from "./live";
 import { SHELL_TOPICS, Store, TRAY_TOPICS, topicsFor } from "./store.svelte";
 
@@ -31,7 +31,7 @@ describe("store", () => {
     expect(set(src.watched.at(-1))).toEqual(new Set([...SHELL_TOPICS, ...SCREEN_TOPICS.puesto]));
     // El contador de túneles de la barra lateral sigue vivo en cualquier pantalla.
     store.go({ screen: "red" });
-    expect(set(src.watched.at(-1))).toEqual(new Set(["machines", "tunnels", "link"]));
+    expect(set(src.watched.at(-1))).toEqual(new Set(["machines", "tunnels", "link", "network"]));
     store.go({ screen: "tuneles" });
     expect(set(src.watched.at(-1))).toEqual(new Set(["machines", "tunnels"]));
     for (const screen of ["puesto", "tuneles", "monitores", "acomodo", "red", "ajustes"] as const) {
@@ -287,6 +287,58 @@ describe("modo demo", () => {
     expect(perms.machines.a?.modules.find((m) => m.id === "input")?.state).toBe("unavailable");
     expect(demoDesk(demoOptions("demo&trouble=no-agent")).troubleText).toContain("agente");
     expect(demoOptions("demo&trouble=otra").trouble).toBe("none");
+  });
+});
+
+describe("red en el demo (T-102)", () => {
+  it("los caminos de V3-Red: principal, sin cable y respaldo, con 60 s y el cambio a Wi-Fi", () => {
+    const n = demoDesk(demoOptions("demo&still")).network;
+    expect(n.paths.map((p) => [p.kind, p.state])).toEqual([
+      ["usb4", "primary"],
+      ["ethernet", "unplugged"],
+      ["wifi", "backup"],
+    ]);
+    const usb = n.paths[0]!;
+    expect([usb.rttMs, usb.inputP50Ms, usb.inputP99Ms, usb.targetMs, usb.gbps]).toEqual([0.3, 0.4, 1.9, 4, 9.4]);
+    expect(n.paths.every((p) => p.history.length === 60)).toBe(true);
+    expect(n.paths[2]?.targetMs).toBe(20);
+    expect(n.switches[1]).toMatchObject({ from: "usb4", to: "wifi", tookMs: 600 });
+    expect(n.switches[0]?.at).toBeGreaterThan(n.switches[1]!.at);
+    // El pico de la gráfica es del Wi-Fi, en el segundo del corte (hace 25 s).
+    const wifi = n.paths[2]!.history;
+    const peak = Math.max(...wifi.map((h) => h.inputP99Ms ?? 0));
+    expect(wifi.findIndex((h) => h.inputP99Ms === peak)).toBe(59 - 25);
+    expect(DEMO_NOW - n.switches[1]!.at).toBe(25_000);
+    // Sin enlace, todos sin cable.
+    const off = demoDesk(demoOptions("demo&trouble=peer-off")).network;
+    expect(off.paths.every((p) => p.state === "unplugged" && p.history.length === 0)).toBe(true);
+  });
+
+  it("el historial solo avanza con la pantalla Red visible", async () => {
+    vi.useFakeTimers();
+    const src = new DemoSource(demoOptions("demo"));
+    const store = new Store(src);
+    await store.start();
+    const usb = () => store.desk.network.paths[0]!.history.map((h) => h.rttMs).join(",");
+    const before = usb();
+    vi.advanceTimersByTime(5000);
+    expect(usb()).toBe(before);
+    store.go({ screen: "red" });
+    vi.advanceTimersByTime(1600);
+    expect(usb()).not.toBe(before);
+    expect(store.desk.network.paths[0]!.history).toHaveLength(60);
+    // El que no responde no avanza.
+    expect(store.desk.network.paths[1]!.history.every((h) => h.rttMs === null)).toBe(true);
+  });
+
+  it("medir cualquier camino que responde", async () => {
+    const src = new DemoSource(demoOptions("demo&still"));
+    const store = new Store(src);
+    await store.start();
+    expect(await src.measureLink("wifi")).toEqual({ ok: true, text: "410 Mbps" });
+    expect(store.desk.network.paths[2]?.gbps).toBe(0.41);
+    expect(await src.measureLink()).toEqual({ ok: true, text: "9.4 Gbps" });
+    expect((await src.measureLink("ethernet")).ok).toBe(false);
   });
 });
 

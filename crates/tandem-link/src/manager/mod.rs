@@ -19,6 +19,7 @@ mod probe;
 mod quic;
 mod table;
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -85,6 +86,8 @@ pub struct Snapshot<H> {
     pub active: Option<ActiveLink<H>>,
     /// Todos los enlaces configurados, en orden de prioridad.
     pub links: Vec<LinkStatus>,
+    /// La conexión de cada enlace sano (el activo incluido).
+    pub handles: BTreeMap<LinkKind, H>,
 }
 
 /// Gestor en marcha. Al soltarlo se detienen los pings y se cierran las
@@ -138,6 +141,7 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
         let (state_tx, state) = watch::channel(Snapshot {
             active: None,
             links: table.statuses(),
+            handles: BTreeMap::new(),
         });
         let (event_tx, events) = mpsc::unbounded_channel();
         let (report_tx, mut reports) = mpsc::unbounded_channel::<Report<H>>();
@@ -231,7 +235,11 @@ fn snapshot<H: Clone>(table: &LinkTable<H>) -> Snapshot<H> {
             handle: handle.clone(),
         })
     });
-    Snapshot { active, links }
+    Snapshot {
+        active,
+        links,
+        handles: table.handles(),
+    }
 }
 
 enum Failure<E> {

@@ -8,7 +8,7 @@ import type { Bindings, Permission, ShortcutsView } from "../model";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
 import type { UpdateView } from "../updates";
-import type { ActResult, DeskView, PairActionKind, Source, Topic } from "./types";
+import type { ActResult, DeskView, LinkKind, PairActionKind, Source, Topic } from "./types";
 
 /** Pasos del asistente que se abren desde otras partes (índices de `WIZARD_STEPS`). */
 export const WIZARD_PAIR = 1;
@@ -122,8 +122,8 @@ export class Store implements CommandContext {
     return this.report(this.source.setPower(machine, on));
   }
 
-  measureLink(): Promise<ActResult> {
-    return this.report(this.source.measureLink());
+  measureLink(path?: LinkKind): Promise<ActResult> {
+    return this.report(this.source.measureLink(path));
   }
 
   setModule(machine: Machine, module: string, on: boolean): Promise<ActResult> {

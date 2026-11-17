@@ -477,7 +477,9 @@ impl From<Reply> for ActionResult {
             | Reply::Monitors(_)
             | Reply::Update(_)
             | Reply::Tunnel(_)
-            | Reply::Tunnels(_) => ActionResult::Done,
+            | Reply::Tunnels(_)
+            // `MeasureLink` lo pide la pantalla Red (T-118); esta sesión aún no.
+            | Reply::Bandwidth { .. } => ActionResult::Done,
         }
     }
 }
@@ -790,6 +792,9 @@ impl Runner {
             AgentToUi::Resources { .. } => {}
             // La pantalla Túneles (solo lectura, D9) llega con su tarea de UI.
             AgentToUi::Tunnels(_) => {}
+            // Llega solo si se pidió `WatchNetwork`, y esta sesión aún no lo pide (la
+            // pantalla Red, T-118).
+            AgentToUi::Network(_) => {}
         }
     }
 

@@ -20,6 +20,7 @@ use tokio::sync::{broadcast, mpsc, watch};
 mod env;
 mod modules;
 mod monitors;
+mod net;
 mod scenes;
 mod setup;
 mod update;
@@ -127,6 +128,8 @@ pub struct Agent {
     update: watch::Sender<UpdateStatus>,
     /// Lo que hace los pasos de escena de monitor y geometría (T-100; T-111 lo conecta).
     scene_backend: std::sync::RwLock<Arc<dyn SceneBackend>>,
+    /// Métricas de red y la conexión de cada camino sano (T-102).
+    net: net::NetState,
 }
 
 #[derive(Debug, Clone)]
@@ -358,6 +361,7 @@ impl Agent {
                 ..UpdateStatus::default()
             }),
             scene_backend: std::sync::RwLock::new(Arc::new(NoSceneMonitors)),
+            net: net::NetState::default(),
             cfg,
         }
     }
@@ -1075,6 +1079,11 @@ impl Agent {
             // ([`crate::tunnels::handle`]).
             UiCommand::OpenTunnel { .. } | UiCommand::CloseTunnel { .. } => {
                 Reply::Rejected(crate::tunnels::CLIENTS_ONLY.into())
+            }
+            // También de la conexión: la suscripción y la medición, que tarda unos segundos
+            // ([`Agent::measure_link`]).
+            UiCommand::WatchNetwork { .. } | UiCommand::MeasureLink { .. } => {
+                Reply::Rejected("la red se pide por una conexión de la IPC".into())
             }
         }
     }

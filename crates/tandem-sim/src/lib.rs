@@ -37,5 +37,5 @@ pub use input::{InputPair, SimAgent};
 pub use monitors::{MachineBus, MonitorSpec, SimMonitors};
 pub use scenes::SceneScreens;
 pub use steps::HardwareTimes;
-pub use wifi::{SimWifi, WifiWriter};
+pub use wifi::{SimWifi, WifiReader, WifiWriter};
 pub use world::{Physical, Power, World};

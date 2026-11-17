@@ -14,6 +14,7 @@
 pub mod env;
 pub mod frame;
 pub mod msg;
+pub mod net;
 pub mod tunnel;
 mod wire;
 
@@ -29,6 +30,9 @@ pub use msg::{
     PowerCaps, PowerEvent, ProcessInfo, Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent,
     UiCommand, UiRequest, UpdateMsg, UpdateStatus,
 };
+pub use net::{
+    Bandwidth, LatencySample, MeasureReport, NetworkStatus, PathMetrics, PathState, PathSwitch,
+};
 pub use tunnel::{
     Client, ClientKind, FlowId, FlowInfo, Project, ProjectTunnels, Tunnel, TunnelDown, TunnelId,
     TunnelState, TunnelUp, group_by_project,
@@ -37,7 +41,7 @@ pub use tunnel::{
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 26;
+pub const PROTOCOL_VERSION: u16 = 28;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -101,10 +105,11 @@ mod tests {
     /// T-103 (túneles: el canal `Tunnel`, el saludo de los clientes, sus pedidos y el aviso a
     /// la UI) sube a la v25. T-093 (marcas de tiempo y latidos con eco en la entrada,
     /// arbitraje del teclado sin dueño y latencia en el estado de la entrada) sube a la v26:
-    /// iba a ser la v24, pero entró después de T-103.
+    /// iba a ser la v24, pero entró después de T-103. T-102 (métricas de red, el canal de la
+    /// prueba de ancho de banda) sube a la v28.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 26);
+        assert_eq!(PROTOCOL_VERSION, 28);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

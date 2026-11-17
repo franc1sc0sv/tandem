@@ -12,11 +12,13 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tandem_core::{Machine, State, Step};
 use tandem_link::manager::{LinkKind, Snapshot};
 use tandem_link::qos::StreamClass;
 use tandem_link::transport::{Connection, ControlStream, TransportError};
+use tandem_proto::net::MEASURE_SECS;
 use tandem_proto::{Channel, ControlMsg, Hello, Peer, ProtoError};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -337,6 +339,9 @@ async fn serve_stream(
         // Los túneles no van al motor de entrada: los atiende su módulo.
         return crate::tunnels::serve(stream, &conn, &agent).await;
     }
+    if first == ControlMsg::Open(Channel::Measure) {
+        return answer_measure(stream).await;
+    }
     if let ControlMsg::Open(channel) = first {
         // La prioridad es de quien escribe: lo que este lado mande por el canal también.
         if let Err(e) = stream.set_class(StreamClass::of(channel)) {
@@ -350,6 +355,43 @@ async fn serve_stream(
         return Ok(());
     }
     serve_from(stream, agent, Some(first)).await
+}
+
+/// Lo más que puede tardar una prueba de ancho de banda, de punta a punta: la prueba y
+/// lo que tarde en vaciarse lo que quedó en camino.
+pub const MEASURE_TIMEOUT: Duration = Duration::from_secs(MEASURE_SECS + 10);
+
+/// Mide el ancho de banda de `conn` hacia el otro agente (T-102): datos sin tope durante
+/// [`MEASURE_SECS`] por un stream de datos; cuenta el otro lado. En bytes por segundo. Se
+/// corta si el `Qos` del camino pausa los datos.
+pub async fn measure(conn: &Connection, me: Machine) -> Result<u64, String> {
+    let run = async {
+        let stream = open_channel(conn, me, Channel::Measure)
+            .await
+            .map_err(|e| e.to_string())?;
+        let report = stream
+            .measure(Duration::from_secs(MEASURE_SECS), conn.qos())
+            .await
+            .map_err(|e| e.to_string())?;
+        report
+            .bytes_per_sec()
+            .ok_or_else(|| "no llegó nada que medir".to_owned())
+    };
+    tokio::time::timeout(MEASURE_TIMEOUT, run)
+        .await
+        .map_err(|_| "la prueba no terminó a tiempo".to_owned())?
+}
+
+/// El otro lado de [`measure`].
+async fn answer_measure(stream: ControlStream) -> Result<(), String> {
+    match tokio::time::timeout(MEASURE_TIMEOUT, stream.answer_measure()).await {
+        Ok(Ok(report)) => {
+            tracing::debug!(?report, "prueba de ancho de banda contestada");
+            Ok(())
+        }
+        Ok(Err(e)) => Err(e.to_string()),
+        Err(_) => Err("la prueba de ancho de banda no terminó a tiempo".to_owned()),
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -595,6 +637,7 @@ mod tests {
                     rtt: up.contains(&kind).then_some(Duration::from_millis(1)),
                 })
                 .collect(),
+            handles: up.iter().map(|k| (*k, ())).collect(),
         }
     }
 

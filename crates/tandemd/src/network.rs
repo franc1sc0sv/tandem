@@ -34,6 +34,7 @@ use tandem_link::manager::{
     HealthConfig, LinkCandidate, LinkKind, LinkManager, ManagerError, Prober, QuicProber,
     QuicSession,
 };
+use tandem_link::metrics;
 use tandem_link::qos::LinkQos;
 use tandem_link::transport::{Connection, Endpoint, TransportError};
 use tandem_proto::{ControlMsg, Hello, Link, PairingStatus, Peer, PeerStatus};
@@ -735,6 +736,19 @@ async fn supervise(
             });
             let active = current.as_ref().map(|a| a.kind);
             active_link.publish(current);
+            // Cada camino sano, para medir su ancho de banda aunque no sea el activo (T-102).
+            agent.set_path_conns(
+                links
+                    .as_ref()
+                    .map(|l| {
+                        l.borrow()
+                            .handles
+                            .iter()
+                            .map(|(k, h)| (*k, h.conn.clone()))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            );
             match (&managed, active.is_some(), installed) {
                 (Some(m), true, false) => {
                     agent.set_peer(m.clone());
@@ -781,6 +795,7 @@ async fn supervise(
             agent.orchestrator().clear_peer();
         }
         active_link.publish(None);
+        agent.set_path_conns(BTreeMap::new());
     }
 }
 
@@ -804,8 +819,15 @@ fn spawn_manager(
         candidates,
         agent.link_qos().clone(),
     );
-    // Los cambios de enlace ya los registra el gestor; la foto basta para seguirlos.
-    let (links, _events) = LinkManager::spawn(candidates, prober, health)?;
+    let (links, events) = LinkManager::spawn(candidates, prober, health)?;
+    // Las métricas de la pantalla Red siguen a este gestor mientras viva (T-102).
+    tokio::spawn(metrics::follow(
+        agent.net_metrics().clone(),
+        links.watch(),
+        events,
+        agent.link_qos().clone(),
+        metrics::SAMPLE_EVERY,
+    ));
     tracing::info!(?candidates, "gestor de enlaces en marcha");
     Ok(Arc::new(ManagedPeer { links }))
 }

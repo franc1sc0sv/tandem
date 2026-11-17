@@ -12,6 +12,7 @@ use tandem_core::{
 };
 
 use crate::env::{Environment, Hardware, Resources};
+use crate::net::NetworkStatus;
 use crate::tunnel::{ClientKind, Project, ProjectTunnels, Tunnel, TunnelId};
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
 
@@ -419,6 +420,10 @@ pub enum Channel {
     /// Un pedido de túnel ([`crate::TunnelUp`]): lo abre el origen. Si es
     /// [`crate::TunnelUp::Attach`], el stream pasa a ser el canal de datos del túnel.
     Tunnel,
+    /// La prueba de ancho de banda de un camino (T-102): quien la pide manda datos sin
+    /// trama durante [`crate::net::MEASURE_SECS`] y cierra; el otro contesta
+    /// [`crate::net::MeasureReport`].
+    Measure,
 }
 
 /// Lo que un agente le reporta al otro para decidir los roles (DESIGN §7).
@@ -615,6 +620,17 @@ pub enum UiCommand {
     },
     /// Los túneles de las dos máquinas, agrupados por proyecto ([`Reply::Tunnels`]).
     GetTunnels,
+    /// Recibir (o dejar de recibir) [`AgentToUi::Network`] una vez por segundo por esta
+    /// conexión, mientras la pantalla Red esté visible (T-102).
+    WatchNetwork {
+        on: bool,
+    },
+    /// Medir el ancho de banda de un camino (una prueba de
+    /// [`crate::net::MEASURE_SECS`] por un stream de datos). Se contesta al terminar con
+    /// [`Reply::Bandwidth`] o el motivo del rechazo.
+    MeasureLink {
+        path: Link,
+    },
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -679,6 +695,9 @@ pub enum AgentToUi {
     /// Aviso espontáneo cuando cambia algún túnel abierto (T-103): agrupados por proyecto,
     /// solo para mirar (D9).
     Tunnels(Vec<ProjectTunnels>),
+    /// Las métricas de cada camino, a las conexiones que pidieron
+    /// [`UiCommand::WatchNetwork`] (T-102).
+    Network(Box<NetworkStatus>),
 }
 
 /// El emparejamiento visto desde la UI.
@@ -839,6 +858,11 @@ pub enum Reply {
     /// El túnel que se abrió.
     Tunnel(Box<Tunnel>),
     Tunnels(Vec<ProjectTunnels>),
+    /// Lo que dio la medición de [`UiCommand::MeasureLink`].
+    Bandwidth {
+        link: Link,
+        bytes_per_sec: u64,
+    },
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso.
@@ -1083,6 +1107,7 @@ pub(crate) mod samples {
             ControlMsg::Open(Channel::Input),
             ControlMsg::Open(Channel::Clipboard),
             ControlMsg::Open(Channel::Tunnel),
+            ControlMsg::Open(Channel::Measure),
             ControlMsg::Hub(HubReport {
                 hub: true,
                 server: Machine::B,
@@ -1446,6 +1471,8 @@ pub(crate) mod samples {
                 id: crate::TunnelId(u64::MAX),
             },
             UiCommand::GetTunnels,
+            UiCommand::WatchNetwork { on: true },
+            UiCommand::MeasureLink { path: Link::Wifi },
         ];
         let mut cmds = cmds;
         cmds.extend(
@@ -1495,6 +1522,8 @@ pub(crate) mod samples {
             UiCommand::OpenTunnel { .. } => 28,
             UiCommand::CloseTunnel { .. } => 29,
             UiCommand::GetTunnels => 30,
+            UiCommand::WatchNetwork { .. } => 31,
+            UiCommand::MeasureLink { .. } => 32,
         }
     }
 
@@ -1727,6 +1756,15 @@ pub(crate) mod samples {
                     resources: Box::new(r),
                 }),
         );
+        v.push(AgentToUi::Network(Box::new(crate::net::samples::status())));
+        v.push(AgentToUi::Network(Box::default()));
+        v.push(AgentToUi::Reply {
+            id: 14,
+            reply: Reply::Bandwidth {
+                link: Link::Wifi,
+                bytes_per_sec: 51_250_000,
+            },
+        });
         v.extend(links().into_iter().map(|link| {
             AgentToUi::Peer(PeerStatus::Paired {
                 name: "Mac".into(),
@@ -1781,6 +1819,7 @@ pub(crate) mod samples {
             AgentToUi::Resources { .. } => 12,
             AgentToUi::Update(_) => 13,
             AgentToUi::Tunnels(_) => 14,
+            AgentToUi::Network(_) => 15,
         }
     }
 
@@ -1802,6 +1841,7 @@ pub(crate) mod samples {
             Reply::Update(_) => 13,
             Reply::Tunnel(_) => 14,
             Reply::Tunnels(_) => 15,
+            Reply::Bandwidth { .. } => 16,
         }
     }
 
@@ -1865,9 +1905,9 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 19);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 31);
+        covers(&cmds, ui_command_arm, 33);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 15);
+        covers(&to_ui(), to_ui_arm, 16);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
         let kinds: Vec<_> = capabilities()
             .iter()
@@ -1884,7 +1924,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 16);
+        covers(&replies, reply_arm, 17);
         covers(&txn_events(), txn_arm, 7);
     }
 

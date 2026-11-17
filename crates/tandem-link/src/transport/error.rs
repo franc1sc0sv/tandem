@@ -39,4 +39,6 @@ pub enum TransportError {
     NoPeerIdentity,
     #[error("escritura en un stream de datos: {0}")]
     Data(#[source] io::Error),
+    #[error("la entrada pasó su objetivo: se cortó la prueba de ancho de banda")]
+    InputLate,
 }

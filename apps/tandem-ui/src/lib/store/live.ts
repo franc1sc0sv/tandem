@@ -10,6 +10,7 @@ import { machineColor, machineName, other } from "../machines";
 import type { ActionResult, Bindings, Caps, Link, Machine, MachineCaps, Permission, SetupView, ShortcutsView, Snapshot } from "../model";
 import { grantTo, permissionState } from "../permissions";
 import type { UpdateView } from "../updates";
+import { EMPTY_NETWORK } from "./types";
 import type { ActResult, DeskView, MachineView, PairActionKind, PermissionsView, Source, Topic } from "./types";
 
 const MAC_PERMISSIONS: Permission[] = ["accessibility", "input_monitoring", "local_network"];
@@ -23,6 +24,7 @@ export const EMPTY_DESK: DeskView = {
   here: "a",
   machines: { a: null, b: null },
   link: { kind: null, gbps: null, ms: null, inputP99: null },
+  network: EMPTY_NETWORK,
   tunnels: [],
   scenes: [],
   activeScene: null,
