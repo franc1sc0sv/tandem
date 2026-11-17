@@ -284,7 +284,7 @@ describe("modo demo", () => {
     const down = demoDesk(demoOptions("demo&trouble=link-down"));
     expect(down.machines.b?.power).toBe("lost");
     const perms = demoDesk(demoOptions("demo&trouble=permissions"));
-    expect(perms.machines.a?.modules.find((m) => m.id === "input")?.state).toBe("unavailable");
+    expect(perms.permissions.rows.filter((r) => r.state === "missing").map((r) => r.id)).toEqual(["accessibility", "input_monitoring"]);
     expect(demoDesk(demoOptions("demo&trouble=no-agent")).troubleText).toContain("agente");
     expect(demoOptions("demo&trouble=otra").trouble).toBe("none");
   });

@@ -1,7 +1,7 @@
 import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
 
-import { SHOTS, SIDEBAR_GATE, appUrl, mask } from "./shots-spec.ts";
+import { SHOTS, SIDEBAR_GATE, appUrl, crop, mask } from "./shots-spec.ts";
 
 function solid(w: number, h: number, rgb: [number, number, number]): Buffer {
   const p = new PNG({ width: w, height: h });
@@ -42,7 +42,20 @@ describe("arnés de capturas", () => {
       ["barra lateral", SIDEBAR_GATE],
       ["contenido", SIDEBAR_GATE],
     ]);
-    expect(SHOTS.find((s) => s.name === "maquina-a")?.mockup).toBe("F-MaquinaMac");
+    const a = SHOTS.find((s) => s.name === "maquina-a");
+    expect(a?.mockup).toBe("F-MaquinaMac");
+    // El estado que dibuja el mockup (falta un permiso) y solo el contenido, con umbral.
+    expect(a?.query).toContain("trouble=permissions");
+    expect(a?.content?.min).toEqual(SIDEBAR_GATE);
+    expect(a?.content?.appWidth).toBe(1492);
+    expect(a?.content?.masks.map((m) => m.reason.split(":")[0])).toEqual(["D17", "G4"]);
+    // Nada tapado en V3-Maquina más allá de D1.
+    expect(SHOTS.find((s) => s.name === "maquina-b")?.ignore?.every((i) => i.reason.startsWith("D1"))).toBe(true);
+  });
+
+  it("recorta la zona pedida", () => {
+    const out = PNG.sync.read(crop(solid(6, 5, [9, 9, 9]), { x: 1, y: 2, width: 3, height: 9 }));
+    expect([out.width, out.height]).toEqual([3, 3]);
   });
 
   it("tapa las zonas pedidas y nada más", () => {

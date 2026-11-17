@@ -22,8 +22,12 @@ const MAC_PERMISSIONS: Permission[] = ["accessibility", "input_monitoring", "loc
 
 const OS_NAME = { macos: "macOS", windows: "Windows" } as const;
 
+/** El nombre del puesto cuando no tiene uno propio. */
+export const DEFAULT_DESK_NAME = "Mi puesto";
+
 export const EMPTY_DESK: DeskView = {
   ready: false,
+  deskName: DEFAULT_DESK_NAME,
   trouble: "none",
   troubleText: "",
   here: "a",
@@ -143,6 +147,7 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}): DeskV
   return {
     ...EMPTY_DESK,
     ready: true,
+    deskName: snap.desk.name?.trim() || DEFAULT_DESK_NAME,
     trouble,
     troubleText,
     here,

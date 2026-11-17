@@ -13,6 +13,7 @@
     gb,
     gpuSub,
     headerSub,
+    missingPermission,
     orderEnvs,
     pct,
     ramSub,
@@ -41,7 +42,8 @@
   const warn = $derived(vramWarn(live));
   const envs = $derived(orderEnvs(m?.environments ?? []));
   const tunnels = $derived(m?.modules.find((x) => x.id === "tunnels") ?? null);
-  const missing = $derived(store.desk.permissions.rows.find((r) => r.state === "missing")?.id ?? null);
+  // La fila «Permisos» (F-MaquinaMac): solo en la página de esta máquina, si falta alguno.
+  const perm = $derived(m?.here ? missingPermission(store.desk.permissions.rows.filter((r) => r.state === "missing").map((r) => r.id)) : null);
 
   const fmt = (n: number | null | undefined, unit: string) => (n === null || n === undefined ? "—" : `${Math.round(n)} ${unit}`);
 
@@ -257,34 +259,49 @@
               {/if}
               <div class="gc">
                 <span class="mut s115">Temperatura</span><b class="mono big">{fmt(gpu?.temp, "°C")}</b>
-                {#if gpu?.fans != null}<span class="mut s115">ventiladores {gpu.fans} %</span>{/if}
+                {#if gpu?.fans != null}<span class="mut s115">ventiladores {gpu.fans} %</span>{:else if hw?.fanless}<span class="mut s115">sin ventilador</span>{/if}
               </div>
             </div>
           </div>
         {/if}
       </section>
     {/if}
-    {#if live?.disk}
+    {#if live?.disk || live?.battery}
       <div class="disk mut">
-        <Icon name="disk" size={15} stroke={1.8} />Disco<div class="bar2 dbar">
-          <span style="width:{100 - pct(live.disk.free, live.disk.total)}%;background:#6a6d76"></span>
-        </div>
-        <span class="mono">{diskText(live.disk.free, live.disk.total)}</span>
+        {#if live.disk}
+          <Icon name="disk" size={15} stroke={1.8} />Disco<div class="bar2 dbar" class:short={!!live.battery}>
+            <span style="width:{100 - pct(live.disk.free, live.disk.total)}%;background:#6a6d76"></span>
+          </div>
+          <span class="mono">{diskText(live.disk.free, live.disk.total)}</span>
+        {/if}
+        {#if live.battery}
+          {#if live.disk}<span class="gap"></span>{/if}
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"
+            ><rect x="2" y="7" width="18" height="10" rx="2"></rect><path d="M22 11v2"></path><rect
+              x="4"
+              y="9"
+              width={Math.max(1, Math.round((12 * live.battery.percent) / 100))}
+              height="6"
+              rx="1"
+              fill={live.battery.percent <= 20 ? "#d9a75a" : "#6cc59a"}
+              stroke="none"
+            ></rect></svg
+          >Batería<span class="mono">{Math.round(live.battery.percent)} % · {live.battery.plugged ? "conectada" : "con batería"}</span>
+        {/if}
       </div>
     {/if}
 
-    <div class="lower">
+    <!-- La página de esta máquina usa la lista compacta de `F-MaquinaMac`; la de la otra, la de
+         `V3-Maquina`. -->
+    <div class="lower" class:compact={m.here}>
       <section class="card mods" aria-label="Módulos">
         <div class="mh"><h2 class="h3">Módulos</h2></div>
-        {#each m.modules as mod (mod.id)}
-          {@const action = m.here && mod.id === "input" && mod.state === "unavailable" && missing}
+        {#each m.modules as mod, i (mod.id)}
           <div class="mod">
             <span class="d {mod.state}"></span>
             <b>{mod.name}</b>
             <span class:mut={mod.state !== "unavailable"} class:amber={mod.state === "unavailable"}>{mod.detail}</span>
-            {#if action && missing}
-              <Button icon="external" variant="pri" motion="lift" style="--btn-h:34px;--btn-px:13px;--btn-fs:12.5px" onclick={() => store.openPermission(missing)}>Abrir ajustes</Button>
-            {:else if canSwitch(mod)}
+            {#if canSwitch(mod)}
               <button
                 type="button"
                 class="chip tog {mod.state}"
@@ -299,6 +316,15 @@
               <span class="chip {mod.state}" title={mod.state === "unavailable" ? mod.detail : undefined}>{MODULE_TEXT[mod.state]}</span>
             {/if}
           </div>
+          {#if i === 0 && perm}
+            {@const id = perm.id}
+            <div class="mod">
+              <span class="d unavailable"></span>
+              <b>Permisos</b>
+              <span class="amber">{perm.text}</span>
+              <Button icon="external" variant="pri" size="sm" motion="lift" style="--btn-h:34px;--btn-px:13px" onclick={() => store.openPermission(id)}>Abrir ajustes</Button>
+            </div>
+          {/if}
         {/each}
       </section>
 
@@ -319,14 +345,18 @@
         </div>
         {#if envs.main}
           <div class="env main" style="border-color:{m.color};background:{tint(m.color)}">
-            <span class="en"><b>{envLabel(envs.main)}</b><span class="fill"></span><span class="chip s11">predeterminado</span></span>
+            <span class="en"
+              ><b>{envLabel(envs.main)}</b><span class="fill"></span>{#if m.here}<span class="mut s11">predeterminado</span>{:else}<span class="chip s11"
+                  >predeterminado</span
+                >{/if}</span
+            >
             <span class="mono mut s115">{envs.main.detail}</span>
           </div>
         {/if}
         {#each envs.rest as e (e.id)}
           <div class="env"><b>{envLabel(e)}</b><span class="mono mut s115">{e.detail}</span></div>
         {/each}
-        {#if tunnels}
+        {#if tunnels && !m.here}
           <div class="remote">
             <span>Permitir ejecución remota</span><span class="fill"></span>
             <Switch
@@ -370,6 +400,7 @@
   .s12 {
     font-size: 12px;
   }
+  .s11,
   .chip.s11 {
     font-size: 11px;
   }
@@ -601,9 +632,16 @@
     gap: 12px;
     font-size: 12.5px;
     padding: 0 4px;
+    flex-wrap: wrap;
   }
   .dbar {
     flex: 0 1 220px;
+  }
+  .dbar.short {
+    flex-basis: 200px;
+  }
+  .gap {
+    width: 16px;
   }
 
   /* Módulos y entornos, estirados al mismo alto. */
@@ -618,6 +656,13 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+  }
+  /* Compacta (F-MaquinaMac): filas de 37 px; el chip no las agranda. */
+  .compact .mods {
+    gap: 0;
+  }
+  .compact .mod .chip {
+    margin: -5px 0;
   }
   .mh {
     display: flex;

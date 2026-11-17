@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   HISTORY,
   checkName,
+  missingPermission,
   cpuSub,
   diskText,
   envLabel,
@@ -180,6 +181,14 @@ describe("muestras del agente → vista en vivo", () => {
     expect(r.gpu?.label).toBe("14.1/16 GB");
     const mac = summaryOf(nextLive(null, sample({ gpus: [{ name: "M5", load: 60, vram_used: null, vram_total: null, temperature: null }] })));
     expect([mac.gpuLabel, mac.gpu?.label]).toEqual(["GPU", "6 %"]);
+  });
+});
+
+describe("fila «Permisos»", () => {
+  it("muestra primero el que deja sin teclado", () => {
+    expect(missingPermission(["accessibility", "input_monitoring"])?.id).toBe("input_monitoring");
+    expect(missingPermission(["local_network", "accessibility"])?.text).toContain("«Accesibilidad»");
+    expect(missingPermission([])).toBeNull();
   });
 });
 

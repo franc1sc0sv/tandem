@@ -421,12 +421,27 @@
   "maquina-a": {
     "mockup": "F-MaquinaMac",
     "pantalla": {
-      "name": "pantalla",
-      "similarity": 0.9542,
-      "worstTile": 0.4519,
+      "name": "contenido",
+      "similarity": 0.9999,
+      "worstTile": 0.9836,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
       "ok": true
     },
-    "zonas": [],
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 0.9999,
+        "worstTile": 0.9836,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
     "errores": []
   },
   "maquina-b": {

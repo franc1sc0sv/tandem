@@ -141,7 +141,7 @@ const MACBOOK: Spec = {
   },
   screens: [BUILTIN_14],
   system: "macOS 26",
-  hardware: { cpu: "Apple M5", cores: 12, memory: 24 * GIB, gpu: { name: "Apple M5", vram: null } },
+  hardware: { cpu: "Apple M5", cores: 12, memory: 24 * GIB, gpu: { name: "Apple M5", vram: null }, fanless: true },
   environments: [
     { id: "zsh", kind: "shell", name: "zsh", default: true, ready: true, detail: "uv · node · pnpm · cargo · git" },
     { id: "docker", kind: "docker", name: "Docker", default: false, ready: true, detail: "arm64 · sin GPU" },
@@ -151,6 +151,7 @@ const MACBOOK: Spec = {
     ram: { used: 12.4 * GIB, total: 24 * GIB, history: fromY(22, [14, 13, 13, 12, 12, 11, 12, 12, 11]) },
     gpu: { percent: 6, vramUsed: 1.2 * GIB, vramTotal: null, temp: 44, fans: null, history: fromY(26, [22, 21, 22, 19, 22, 21, 22, 21, 22]) },
     disk: { free: 231 * GIB, total: 1024 * GIB },
+    battery: { percent: 84, plugged: true },
   },
 };
 
@@ -179,6 +180,7 @@ const DESKTOP: Spec = {
     ram: { used: 17.1 * GIB, total: 24 * GIB, history: fromY(22, [14, 13, 13, 11, 10, 9, 9, 8, 8]) },
     gpu: { percent: 97, vramUsed: 14.1 * GIB, vramTotal: 16 * GIB, temp: 71, fans: 58, history: fromY(26, [8, 5, 6, 4, 5, 4, 5, 4, 4]) },
     disk: { free: 412 * GIB, total: 1.8 * 1024 * GIB },
+    battery: null,
   },
 };
 
@@ -211,24 +213,26 @@ const PAIRS: Record<DemoPair, [Spec, Spec]> = {
   "mac-mac": [MACBOOK, MINI],
 };
 
-function modulesOf(os: Os, otherName: string, permissions: boolean, envs: number): ModuleView[] {
+function modulesOf(os: Os, name: string, otherName: string, envs: number): ModuleView[] {
   const mac = os === "macos";
+  // Con un permiso de macOS faltando, la página lo muestra en su propia fila («Permisos», como
+  // `F-MaquinaMac`); el módulo sigue con lo que sí puede hacer.
   const list: ModuleView[] = [
-    mac && permissions
-      ? { id: "input", name: "Teclado y mouse", state: "unavailable", detail: "Falta «Monitorización de entrada»: no puede mandar el teclado. Se comprueba solo.", switchable: true }
-      : { id: "input", name: "Teclado y mouse", state: "active", detail: mac ? "Captura con CGEventTap e inyección con CGEventPost" : "Captura e inyección (hooks de bajo nivel, SendInput)", switchable: true },
+    { id: "input", name: "Teclado y mouse", state: "active", detail: mac ? "Captura con CGEventTap e inyección con CGEventPost" : "Captura e inyección (hooks de bajo nivel, SendInput)", switchable: true },
     { id: "clipboard", name: "Portapapeles", state: "active", detail: "Texto, HTML e imagen", switchable: true },
     mac
-      ? { id: "monitors", name: "Monitores", state: "off", detail: `Por HDMI solo hay canal DDC mientras el monitor muestra esta máquina. Hoy los controla ${otherName}.`, switchable: true }
+      ? { id: "monitors", name: "Monitores", state: "off", detail: `Por HDMI solo hay canal DDC mientras el monitor muestra la ${name.split(" ")[0]}. Hoy los controla ${otherName}.`, switchable: true }
       : { id: "monitors", name: "Monitores", state: "active", detail: 'Canal DDC por DisplayPort a 2 monitores. Dueño del 34".', switchable: true },
     {
       id: "power",
       name: "Energía",
-      state: "active",
-      detail: mac ? "Puede despertar a la otra por Wake-on-LAN. No se apaga sola." : `Se apaga sola. Se despierta por Wake-on-LAN desde ${otherName}.`,
+      state: mac ? "off" : "active",
+      detail: mac ? "Puede despertar a otras por Wake-on-LAN. No se apaga sola." : `Se apaga sola. Se despierta por Wake-on-LAN desde ${otherName}.`,
       switchable: false,
     },
-    { id: "tunnels", name: "Túneles", state: "active", detail: `Recibe túneles de Claude en ${envs} entornos, como administrador.`, switchable: true },
+    mac
+      ? { id: "tunnels", name: "Cómputo remoto", state: "active", detail: `${envs} entornos · admin (LaunchDaemon instalado)`, switchable: true }
+      : { id: "tunnels", name: "Túneles", state: "active", detail: `Recibe túneles de Claude en ${envs} entornos, como administrador.`, switchable: true },
   ];
   if (!mac) list.push({ id: "secure_desktop", name: "Pantallas protegidas", state: "active", detail: "El mouse y el teclado también funcionan en avisos de UAC y en el inicio de sesión.", switchable: true });
   return list;
@@ -359,7 +363,7 @@ export function demoDesk(o: DemoOptions): DeskView {
       here,
       power,
       resources: power === "on" ? { ...s.resources, history: [...s.resources.history] } : null,
-      modules: modulesOf(s.os, otherName, here && o.trouble === "permissions", s.environments.length),
+      modules: modulesOf(s.os, s.name, otherName, s.environments.length),
       system: s.system,
       hardware: s.hardware,
       environments: s.environments.map((e) => ({ ...e })),
@@ -370,6 +374,7 @@ export function demoDesk(o: DemoOptions): DeskView {
   const linkUp = o.trouble !== "peer-off" && o.trouble !== "link-down" && o.trouble !== "no-agent";
   return {
     ready: true,
+    deskName: "Mi puesto",
     trouble: o.trouble,
     troubleText: TROUBLE_TEXT[o.trouble](peerSpec.name),
     here: o.here,

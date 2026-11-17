@@ -50,6 +50,35 @@ export interface ShotSpec {
   min?: { similarity: number; worstTile: number };
   ignore?: Ignore[];
   regions?: Region[];
+  /** Comparar solo el contenido, cuando el mockup no tiene la barra lateral (ver `Content`). */
+  content?: Content;
+}
+
+/** Una zona tapada en las dos capturas: la caja de `app` en la app y la de `mockup` en el mockup. */
+export interface ContentMask {
+  app: string;
+  mockup?: string;
+  /** La diferencia permitida de `mockups/README.md` que la justifica. */
+  reason: string;
+}
+
+/**
+ * Comparación del contenido para un mockup de flujo sin barra lateral (`F-MaquinaMac`): la app
+ * se captura con `appWidth` de ancho, para que su contenido mida lo mismo que el del mockup, y
+ * se recortan las dos desde la esquina de `app`/`mockup` hasta el borde de abajo.
+ */
+export interface Content {
+  appWidth: number;
+  /**
+   * CSS que se agrega a la app solo para esta captura. Con la barra lateral flexible, su ancho
+   * (y el borde izquierdo del contenido) cae en una fracción de píxel y todo el texto se ve
+   * corrido medio píxel; se fija en 220 px, fuera de la zona que se compara.
+   */
+  appStyle?: string;
+  app: string;
+  mockup: string;
+  masks: ContentMask[];
+  min: { similarity: number; worstTile: number };
 }
 
 /** La barra lateral de las pantallas principales (V3-Puesto, V3-Acomodo, V3-Red…). */
@@ -61,19 +90,15 @@ export const NO_ADD_MACHINE: Ignore = {
   reason: "D1: sin «Agregar máquina» (exactamente dos máquinas)",
 };
 
-/**
- * Solo `V3-Maquina` dice «Mi puesto» junto al logo; la barra lateral es una sola para todas las
- * pantallas y su referencia es la de `V3-Puesto` (T-112).
- */
-export const DESK_LABEL: Ignore = {
-  mockupSelector: 'nav[aria-label="Principal"] > div:first-child > span.mut',
-  reason: "la barra lateral es la de V3-Puesto (sin «Mi puesto»)",
-};
-
 /** Criterio de T-112: la barra lateral igual a la de `V3-Puesto`. */
 export const SIDEBAR_GATE = { similarity: 0.99, worstTile: 0.97 };
 
 const W = 1280;
+/**
+ * Ancho de la ventana con el que el contenido de la app (barra lateral fija en 220 px y el
+ * relleno de `main`, 2 × 28) mide lo mismo que el de `F-MaquinaMac` (1280 − 2 × 32 = 1216 px).
+ */
+export const MAC_PAGE_WIDTH = 220 + 2 * 28 + 1216;
 const H = 860;
 const DEMO = "demo&still";
 
@@ -156,8 +181,6 @@ export const SHOTS: ShotSpec[] = [
   ...ACOMODO,
   { name: "red", page: "index.html", query: DEMO, hash: "#/red", mockup: "V3-Red", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   // T-115: la página de la otra máquina, con umbral en la barra lateral y en el contenido.
-  // `F-MaquinaMac` (esta máquina) no tiene barra lateral (G3 la pide) ni el selector de color
-  // (alcance 4 de T-115): se captura para verla, sin umbral.
   {
     name: "maquina-b",
     page: "index.html",
@@ -166,13 +189,34 @@ export const SHOTS: ShotSpec[] = [
     mockup: "V3-Maquina",
     width: W,
     height: H,
-    ignore: [NO_ADD_MACHINE, DESK_LABEL],
+    ignore: [NO_ADD_MACHINE],
     regions: [
       { ...SIDEBAR, min: SIDEBAR_GATE },
       { name: "contenido", mockupSelector: "main", min: SIDEBAR_GATE },
     ],
   },
-  { name: "maquina-a", page: "index.html", query: DEMO, hash: "#/maquina/a", mockup: "F-MaquinaMac", width: W, height: H },
+  // T-115: esta máquina contra `F-MaquinaMac`, en el estado que dibuja (falta un permiso). Solo
+  // el contenido, con las diferencias de `mockups/README.md` tapadas.
+  {
+    name: "maquina-a",
+    page: "index.html",
+    query: `${DEMO}&trouble=permissions`,
+    hash: "#/maquina/a",
+    mockup: "F-MaquinaMac",
+    width: W,
+    height: H,
+    content: {
+      appWidth: MAC_PAGE_WIDTH,
+      appStyle: 'nav[aria-label="Principal"] { flex: 0 0 220px !important; }',
+      app: "main header",
+      mockup: "header",
+      masks: [
+        { app: '[role="radiogroup"][aria-label="Color de la máquina"]', reason: "D17: el color de la máquina se edita en su página" },
+        { app: ".mod > :last-child", mockup: ".mod > :last-child", reason: "G4: el estado del módulo es el chip uniforme (interruptor)" },
+      ],
+      min: SIDEBAR_GATE,
+    },
+  },
   { name: "ajustes", page: "index.html", query: DEMO, hash: "#/ajustes", mockup: "F-Ajustes", width: W, height: H },
   { name: "paleta", page: "index.html", query: DEMO, hash: "#/puesto", mockup: "F-Paleta", width: W, height: H, keys: ["Control+k"] },
   { name: "estados", page: "index.html", query: `${DEMO}&trouble=peer-off`, hash: "#/puesto", mockup: "V3-Estados", width: W, height: H },
@@ -200,6 +244,18 @@ export function mask(png: Buffer, rects: Rect[], rgb: [number, number, number] =
     }
   }
   return PNG.sync.write(img);
+}
+
+/** Recorta `rect` de la imagen (acotado a sus bordes). */
+export function crop(png: Buffer, rect: Rect): Buffer {
+  const img = PNG.sync.read(png);
+  const x0 = Math.max(0, Math.floor(rect.x));
+  const y0 = Math.max(0, Math.floor(rect.y));
+  const w = Math.max(0, Math.min(img.width - x0, Math.floor(rect.width)));
+  const h = Math.max(0, Math.min(img.height - y0, Math.floor(rect.height)));
+  const out = new PNG({ width: w, height: h });
+  for (let y = 0; y < h; y++) img.data.copy(out.data, y * w * 4, ((y0 + y) * img.width + x0) * 4, ((y0 + y) * img.width + x0 + w) * 4);
+  return PNG.sync.write(out);
 }
 
 /** La URL de la app servida por el arnés. */

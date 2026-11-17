@@ -37,6 +37,8 @@ export interface Desk {
   /** De qué lado de `b` está `a` y con qué alineación (D18); `null` sin declarar: `a` a la
    * izquierda de `b` y todo el borde cruza (T-099). */
   arrangement: { a_side: Side; align: Align } | null;
+  /** Nombre del puesto, si el agente lo manda (todavía no viaja: la UI usa «Mi puesto»). */
+  name?: string | null;
 }
 
 export interface DeskState {

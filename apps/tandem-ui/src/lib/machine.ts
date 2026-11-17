@@ -2,7 +2,7 @@
 // muestra, y cómo se arma la vista en vivo con las muestras del agente. Puro: se prueba sin
 // pantalla.
 
-import type { ResourceSample } from "./model";
+import type { Permission, ResourceSample } from "./model";
 import type { EnvView, HardwareView, LiveView, MachineView, ModuleState, Power, Resources } from "./store/types";
 
 const GIB = 2 ** 30;
@@ -139,6 +139,22 @@ export function orderEnvs(envs: EnvView[]): { main: EnvView | null; rest: EnvVie
   return { main, rest: envs.filter((e) => e !== main) };
 }
 
+// Qué deja de andar sin cada permiso de macOS (la fila «Permisos», `F-MaquinaMac`).
+const PERMISSION_TEXT: Record<Permission, string> = {
+  input_monitoring: "Falta «Monitorización de entrada»: no puede mandar el teclado. Se comprueba solo.",
+  accessibility: "Falta «Accesibilidad»: no puede mover el mouse ni escribir aquí. Se comprueba solo.",
+  local_network: "Falta «Red local»: no encuentra a la otra máquina. Se comprueba solo.",
+};
+
+// El que más se nota primero: sin teclado no se puede trabajar.
+const PERMISSION_ORDER: Permission[] = ["input_monitoring", "accessibility", "local_network"];
+
+/** El permiso que falta y que la fila «Permisos» muestra primero, con su texto. */
+export function missingPermission(missing: Permission[]): { id: Permission; text: string } | null {
+  const id = PERMISSION_ORDER.find((p) => missing.includes(p));
+  return id ? { id, text: PERMISSION_TEXT[id] } : null;
+}
+
 export const MODULE_TEXT: Record<ModuleState, string> = { active: "activo", off: "apagado", unavailable: "no disponible" };
 
 // ---- Líneas de tendencia ------------------------------------------------------------------
@@ -181,6 +197,7 @@ export function nextLive(prev: LiveView | null, s: ResourceSample): LiveView {
         }
       : null,
     disk: s.disk,
+    battery: prev?.battery ?? null,
   };
 }
 

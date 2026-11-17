@@ -47,6 +47,8 @@ export interface HardwareView {
   memory: number;
   /** `vram` en bytes; `null` si comparte la RAM. */
   gpu: { name: string; vram: number | null } | null;
+  /** El equipo no tiene ventilador (el agente todavía no lo dice). */
+  fanless?: boolean;
 }
 
 /** Recursos en vivo para la página Máquina (bytes y porcentajes 0–100). */
@@ -63,6 +65,8 @@ export interface LiveView {
     history: number[];
   } | null;
   disk: { free: number; total: number } | null;
+  /** Batería, si tiene (el agente todavía no la manda). */
+  battery: { percent: number; plugged: boolean } | null;
 }
 
 export interface Usage {
@@ -232,6 +236,8 @@ export type Trouble = "none" | "no-agent" | "peer-off" | "link-down" | "permissi
 export interface DeskView {
   /** `connecting` mientras no hay primer estado. */
   ready: boolean;
+  /** El nombre del puesto (junto al logo en `V3-Maquina`); «Mi puesto» si no tiene. */
+  deskName: string;
   trouble: Trouble;
   /** Por qué, en una línea (para el estado difícil). */
   troubleText: string;

@@ -13,6 +13,7 @@ import type { Action, ResourceSample, Snapshot } from "../lib/model";
 import { DemoSource, demoOptions } from "../lib/store/demo";
 import { LiveSource } from "../lib/store/live";
 import { Store } from "../lib/store/store.svelte";
+import Shell from "../shell/Shell.svelte";
 import Maquina from "./Maquina.svelte";
 
 afterEach(() => {
@@ -150,17 +151,47 @@ describe("F-MaquinaMac (esta máquina)", () => {
     expect(r.getByText("Memoria")).toBeInTheDocument();
     expect(r.getByText("de la RAM")).toBeInTheDocument();
     expect(r.queryByText("VRAM casi llena")).toBeNull();
+    expect(r.getByText("sin ventilador")).toBeInTheDocument();
     expect(screen.getByText("231 GB libres de 1 TB")).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "Entornos" })).getByText("zsh")).toBeInTheDocument();
+    expect(screen.getByText("84 % · conectada")).toBeInTheDocument();
+    const envs = within(screen.getByRole("region", { name: "Entornos" }));
+    expect(envs.getByText("zsh")).toBeInTheDocument();
+    expect(envs.getByText("predeterminado")).not.toHaveClass("chip");
+    // El módulo de túneles de esta máquina se apaga desde su fila: sin el interruptor de abajo.
+    expect(envs.queryByRole("switch", { name: "Permitir ejecución remota" })).toBeNull();
+    expect(screen.getByRole("switch", { name: "Cómputo remoto" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("si falta un permiso, el módulo lo dice y «Abrir ajustes» lo pide", async () => {
+  it("el nombre del puesto va junto al logo solo en las páginas de máquina (V3-Maquina)", async () => {
+    const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/puesto" });
+    await store.start();
+    render(Shell, { context: new Map([[STORE_KEY, store]]) });
+    await tick();
+    const nav = screen.getByRole("navigation", { name: "Principal" });
+    expect(within(nav).queryByText("Mi puesto")).toBeNull();
+    store.go({ screen: "maquina", machine: "b" });
+    await tick();
+    expect(within(nav).getByText("Mi puesto")).toBeInTheDocument();
+  });
+
+  it("si falta un permiso, la fila «Permisos» lo dice y «Abrir ajustes» lo pide", async () => {
     const { store } = await mount("demo&still&trouble=permissions", "a");
     const mods = within(screen.getByRole("region", { name: "Módulos" }));
-    expect(mods.getByText(/Falta «Monitorización de entrada»/)).toBeInTheDocument();
+    const names = mods.getAllByText(/^(Teclado y mouse|Permisos|Portapapeles)$/).map((e) => e.textContent);
+    expect(names).toEqual(["Teclado y mouse", "Permisos", "Portapapeles"]);
+    expect(mods.getByText("Falta «Monitorización de entrada»: no puede mandar el teclado. Se comprueba solo.")).toBeInTheDocument();
     const spy = vi.spyOn(store, "openPermission");
     await userEvent.click(mods.getByRole("button", { name: "Abrir ajustes" }));
-    expect(spy).toHaveBeenCalledWith("accessibility");
+    expect(spy).toHaveBeenCalledWith("input_monitoring");
+    // Concedido ese, la fila pasa al que sigue faltando; con todo concedido, desaparece.
+    await vi.waitFor(() => expect(mods.getByText(/Falta «Accesibilidad»/)).toBeInTheDocument());
+    await userEvent.click(mods.getByRole("button", { name: "Abrir ajustes" }));
+    await vi.waitFor(() => expect(mods.queryByText("Permisos")).toBeNull());
+  });
+
+  it("la página de la otra máquina no tiene la fila «Permisos»", async () => {
+    await mount("demo&still&trouble=permissions", "b");
+    expect(screen.queryByText("Permisos")).toBeNull();
   });
 
   it("con dos Mac, nombres, colores e íconos salen de cada máquina (D2)", async () => {

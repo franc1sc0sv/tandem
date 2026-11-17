@@ -24,7 +24,7 @@ import { fileURLToPath } from "node:url";
 import { ORIGIN, installRoutes, waitForMockup } from "@tandem/mockup-render";
 import { capture, compare, compareWithMockup, launchBrowser, mockupShotPath, settle, type CompareResult } from "@tandem/mockup-render/harness";
 import type { Browser, Page } from "playwright";
-import { SHOTS, appUrl, mask, type Rect, type ShotSpec } from "./shots-spec.ts";
+import { SHOTS, appUrl, crop, mask, type Rect, type ShotSpec } from "./shots-spec.ts";
 import { runStyleParity } from "./style-parity.ts";
 import { formatReport } from "./style-parity-spec.ts";
 
@@ -100,6 +100,64 @@ async function mockupRects(browser: Browser, spec: ShotSpec, selectors: string[]
   }
 }
 
+/** Las cajas de todos los elementos de cada selector. */
+async function boxes(page: Page, selectors: string[]): Promise<Record<string, Rect[]>> {
+  const out: Record<string, Rect[]> = {};
+  for (const sel of selectors) {
+    out[sel] = [];
+    for (const el of await page.locator(sel).all()) {
+      const b = await el.boundingBox();
+      if (b) out[sel].push(b);
+    }
+  }
+  return out;
+}
+
+/** Cajas del mockup (todas las de cada selector). */
+async function mockupBoxes(browser: Browser, spec: ShotSpec, selectors: string[]): Promise<Record<string, Rect[]>> {
+  const context = await browser.newContext({ viewport: { width: spec.width, height: spec.height }, deviceScaleFactor: 1, locale: "es-ES", colorScheme: "dark" });
+  try {
+    await installRoutes(context);
+    const page = await context.newPage();
+    await page.goto(`${ORIGIN}/${spec.mockup}.dc.html`);
+    await waitForMockup(page);
+    await settle(page);
+    return await boxes(page, selectors);
+  } finally {
+    await context.close();
+  }
+}
+
+/**
+ * Compara solo el contenido (`ShotSpec.content`): recorta la app y el mockup desde la esquina
+ * de su elemento, del mismo tamaño, y tapa en los dos las zonas permitidas de cada lado.
+ */
+function compareContent(spec: ShotSpec, png: Buffer, appBoxes: Record<string, Rect[]>, mockBoxes: Record<string, Rect[]>, diffPath?: string): Measure {
+  const c = spec.content;
+  const a = appBoxes[c?.app ?? ""]?.[0];
+  const m = mockBoxes[c?.mockup ?? ""]?.[0];
+  if (!c || !a || !m) throw new Error(`${spec.name}: no se encontró el contenido en la app o en el mockup`);
+  const appImg = pngSize(png);
+  const width = Math.floor(Math.min(a.width, m.width));
+  const height = Math.floor(Math.min(appImg.height - a.y, spec.height - m.y));
+  const rel = (r: Rect, o: Rect): Rect => ({ x: r.x - o.x, y: r.y - o.y, width: r.width, height: r.height });
+  const holes: Rect[] = [];
+  for (const k of c.masks) {
+    for (const r of appBoxes[k.app] ?? []) holes.push(rel(r, a));
+    if (k.mockup) for (const r of mockBoxes[k.mockup] ?? []) holes.push(rel(r, m));
+  }
+  const app = mask(crop(png, { x: a.x, y: a.y, width, height }), holes);
+  const ref = mask(crop(readFileSync(mockupShotPath(spec.mockup)), { x: m.x, y: m.y, width, height }), holes);
+  const r = compare(app, ref);
+  if (diffPath) writeFileSync(diffPath, r.diffPng);
+  const ok = r.similarity >= c.min.similarity && r.worstTile.similarity >= c.min.worstTile;
+  return { name: "contenido", similarity: round(r.similarity), worstTile: round(r.worstTile.similarity), min: c.min, ok };
+}
+
+function pngSize(png: Buffer): { width: number; height: number } {
+  return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
+}
+
 async function serveApp(page: Page, errors: string[]): Promise<void> {
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
@@ -117,7 +175,7 @@ async function serveApp(page: Page, errors: string[]): Promise<void> {
 async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<ShotResult> {
   const errors: string[] = [];
   const context = await browser.newContext({
-    viewport: { width: spec.width, height: spec.height },
+    viewport: { width: spec.content?.appWidth ?? spec.width, height: spec.height },
     deviceScaleFactor: 1,
     locale: "es-ES",
     timezoneId: "UTC",
@@ -125,6 +183,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     reducedMotion: "no-preference",
   });
   let png: Buffer;
+  let appBoxes: Record<string, Rect[]> = {};
   try {
     const page = await context.newPage();
     page.on("console", (m) => {
@@ -134,6 +193,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     await serveApp(page, errors);
     await page.goto(appUrl(APP_ORIGIN, spec));
     await page.waitForSelector("#app > *", { timeout: 10_000 });
+    if (spec.content?.appStyle) await page.addStyleTag({ content: spec.content.appStyle });
     await settle(page);
     for (const k of spec.keys ?? []) {
       await page.keyboard.press(k);
@@ -147,12 +207,20 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     const text = await page.evaluate(() => document.body.innerText);
     for (const bad of ["{{", "undefined", "NaN"]) if (text.includes(bad)) errors.push(`texto visible con «${bad}»`);
     png = await capture(page);
+    if (spec.content) appBoxes = await boxes(page, [spec.content.app, ...spec.content.masks.map((k) => k.app)]);
   } finally {
     await context.close();
   }
 
   const file = join(OUT, `${spec.name}.png`);
   writeFileSync(file, png);
+  if (spec.content) {
+    const sels = [spec.content.mockup, ...spec.content.masks.flatMap((k) => (k.mockup ? [k.mockup] : []))];
+    const mock = await mockupBoxes(browser, spec, sels);
+    const diffPath = args.diffDir ? join(args.diffDir, `${spec.name}.diff.png`) : undefined;
+    const content = compareContent(spec, png, appBoxes, mock, diffPath);
+    return { name: spec.name, mockup: spec.mockup, file, errors, full: content, regions: [content] };
+  }
   // Con zonas tapadas se compara contra la referencia tapada igual; si no, directo contra la
   // captura del mockup (`compareWithMockup`).
   let ref: Buffer | null = null;
