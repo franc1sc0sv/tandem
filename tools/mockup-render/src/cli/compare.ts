@@ -18,6 +18,10 @@ const { values, positionals } = parseArgs({
 });
 
 const min = Number(values.min);
+if (values.min.trim() === '' || !(min >= 0 && min <= 1)) {
+  console.error(`mockups:compare: --min tiene que ser un número entre 0 y 1 (llegó ${JSON.stringify(values.min)})`);
+  process.exit(2);
+}
 const [first, second] = positionals;
 if (!first || !second) {
   console.error('uso: mockups:compare <app.png> <mockup.png> [--diff diff.png] [--min 0.99]');

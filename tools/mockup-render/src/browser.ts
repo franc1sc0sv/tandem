@@ -1,9 +1,40 @@
-import type { BrowserContext, Page } from 'playwright';
+import type { Browser, BrowserContext, LaunchOptions, Page } from 'playwright';
 import { FONT_ORIGIN, fontAsset, googleFontsCss, mockupAsset } from './assets.ts';
 import { MOCKUPS_DIR } from './paths.ts';
 
 /** Origen ficticio desde el que se sirven los mockups dentro del navegador. */
 export const ORIGIN = 'http://mockups.local';
+
+/**
+ * Argumentos de Chromium para que la misma página dé siempre el mismo PNG.
+ *
+ * Con «partial raster» (lo normal), Chromium vuelve a rasterizar solo la parte invalidada de
+ * cada baldosa y deja el resto como estaba. El resultado final depende entonces de qué cuadros
+ * intermedios llegó a pintar durante una transición: en `V3-Acomodo` la pantalla con
+ * `opacity: .4` salía con ±1 de color en toda su área según la corrida (hasta ~10 600 píxeles
+ * distintos). Rasterizando la baldosa entera cada vez, el PNG ya no depende del historial.
+ */
+export const CHROMIUM_ARGS: readonly string[] = ['--disable-partial-raster'];
+
+/**
+ * Abre Chromium headless con `CHROMIUM_ARGS`. El arnés de la app (T-112) tiene que lanzar el
+ * navegador así para que sus capturas se comparen en igualdad de condiciones con las de los
+ * mockups.
+ */
+export async function launchBrowser(opts: LaunchOptions = {}): Promise<Browser> {
+  const { chromium } = await import('playwright');
+  return chromium.launch({ ...opts, args: [...CHROMIUM_ARGS, ...(opts.args ?? [])] });
+}
+
+/**
+ * Captura la página como se capturan los mockups: espera a que quede quieta (`settle`) y saca
+ * la captura con las animaciones infinitas quitadas (quedan con su estilo base) y sin el cursor
+ * de texto. Devuelve el PNG y, si se pasa `path`, también lo guarda.
+ */
+export async function capture(page: Page, path?: string): Promise<Buffer> {
+  await settle(page);
+  return page.screenshot({ path, animations: 'disabled', caret: 'hide' });
+}
 
 export interface RouteOptions {
   /** Carpeta de mockups (por omisión `mockups/v03`). */
@@ -54,8 +85,8 @@ export async function waitForMockup(page: Page, timeoutMs = 15_000): Promise<voi
 /**
  * Espera a que la página quede quieta: fuentes cargadas y todas las animaciones y transiciones
  * finitas terminadas (las de entrada, las de un clic). Las infinitas (pulsos, brillos) no
- * terminan nunca: para la captura se usa `animations: 'disabled'`, que las deja en su estado
- * inicial. Sirve igual para la app (T-112) que para los mockups.
+ * terminan nunca: para la captura se usa `animations: 'disabled'`, que las quita y deja el
+ * estilo base del elemento. Sirve igual para la app (T-112) que para los mockups.
  */
 export async function settle(page: Page, timeoutMs = 6_000): Promise<void> {
   await page.evaluate(async (timeout) => {

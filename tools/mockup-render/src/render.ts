@@ -1,7 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { chromium, type Browser } from 'playwright';
-import { ORIGIN, checkPage, installRoutes, settle, waitForMockup } from './browser.ts';
+import type { Browser } from 'playwright';
+import { ORIGIN, capture, checkPage, installRoutes, launchBrowser, settle, waitForMockup } from './browser.ts';
 import { MOCKUP_SUFFIX, MOCKUPS_DIR, listMockups, mockupViewport, shotName } from './paths.ts';
 import { type Step, statesOf } from './states.ts';
 
@@ -34,9 +34,9 @@ export interface RenderOptions {
   outDir?: string;
   /** Incluir los estados interactivos de `states.ts` (por omisión, sí). */
   states?: boolean;
-  /** Páginas en paralelo. */
+  /** Páginas en paralelo (entero ≥ 1; por omisión 4). */
   concurrency?: number;
-  /** Navegador ya abierto (las pruebas lo reutilizan). */
+  /** Navegador ya abierto (las pruebas lo reutilizan); ábrelo con `launchBrowser()`. */
   browser?: Browser;
 }
 
@@ -52,6 +52,25 @@ export function problems(r: RenderResult): string[] {
     ...r.dcMissing.map((e) => `valor ausente: ${e}`),
     ...r.fontErrors.map((e) => `fuente: ${e}`),
   ];
+}
+
+/** Valida `--concurrency` / `concurrency`: un entero ≥ 1, o un error que dice qué llegó. */
+export function parseConcurrency(value: string | number): number {
+  const n = typeof value === 'number' ? value : value.trim() === '' ? NaN : Number(value);
+  if (!Number.isInteger(n) || n < 1) {
+    throw new RangeError(`concurrency tiene que ser un entero ≥ 1 (llegó ${JSON.stringify(value)})`);
+  }
+  return n;
+}
+
+/**
+ * Capturas de `existing` (nombres de archivo) que no corresponden a ningún trabajo de `jobs`:
+ * las de un estado o un mockup que ya no existe. Sale de los trabajos y no de los resultados,
+ * así un trabajo que falló antes de capturar no hace borrar su referencia.
+ */
+export function staleShots(existing: string[], jobs: RenderJob[]): string[] {
+  const keep = new Set(jobs.map((j) => shotName(j.mockup, j.state)));
+  return existing.filter((f) => f.endsWith('.png') && !keep.has(f)).sort();
 }
 
 export function jobsFor(names: string[], withStates = true): RenderJob[] {
@@ -114,7 +133,7 @@ async function runJob(browser: Browser, job: RenderJob, dir: string, outDir?: st
     result.fontErrors = check.fontErrors;
     if (outDir) {
       result.file = join(outDir, shotName(job.mockup, job.state));
-      await page.screenshot({ path: result.file, animations: 'disabled', caret: 'hide' });
+      await capture(page, result.file);
     }
   } catch (e) {
     result.pageErrors.push((e as Error).message.split('\n')[0] ?? String(e));
@@ -126,10 +145,11 @@ async function runJob(browser: Browser, job: RenderJob, dir: string, outDir?: st
 
 /** Renderiza mockups (y sus estados) en Chromium headless; opcionalmente guarda las capturas. */
 export async function renderMockups(opts: RenderOptions = {}): Promise<RenderResult[]> {
+  const concurrency = parseConcurrency(opts.concurrency ?? 4);
   const dir = opts.dir ?? MOCKUPS_DIR;
   const jobs = jobsFor(opts.names ?? listMockups(dir), opts.states ?? true);
   if (opts.outDir) mkdirSync(opts.outDir, { recursive: true });
-  const browser = opts.browser ?? (await chromium.launch());
+  const browser = opts.browser ?? (await launchBrowser());
   const results: RenderResult[] = new Array(jobs.length);
   let next = 0;
   const worker = async () => {
@@ -140,7 +160,7 @@ export async function renderMockups(opts: RenderOptions = {}): Promise<RenderRes
     }
   };
   try {
-    await Promise.all(Array.from({ length: Math.max(1, opts.concurrency ?? 4) }, worker));
+    await Promise.all(Array.from({ length: concurrency }, worker));
   } finally {
     if (!opts.browser) await browser.close();
   }

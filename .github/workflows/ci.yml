@@ -74,8 +74,9 @@ jobs:
   # Mockups de v0.3 (T-125): renderiza mockups/v03 con el support.js propio en Chromium
   # headless, prueba el renderizador y la comparación de capturas, y sube las capturas (cada
   # mockup y cada estado con nombre) como artefacto. Al final las compara con las de
-  # docs/mockups-png: la captura es determinista (sin red, fuentes empaquetadas, Chromium fijado
-  # por el lockfile), así que si difieren es que un mockup cambió sin regenerarlas
+  # docs/mockups-png: la captura es determinista en una máquina (sin red, fuentes empaquetadas,
+  # Chromium fijado por el lockfile y sin partial raster) y entre máquinas solo puede variar
+  # dentro de la tolerancia de compare(), así que si baja de 0.999 es que un mockup cambió sin regenerarlas
   # (`pnpm mockups:shot`); las diferencias quedan en el artefacto `mockups-diff`.
   mockups:
     name: ui (mockups)
