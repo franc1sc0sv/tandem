@@ -206,7 +206,7 @@ pub fn with_desk(
     let prefs = section(&mut doc, "prefs")?;
     prefs.insert("cmd_ctrl", toml_edit::value(desk.prefs.cmd_ctrl));
     prefs.insert("drag_files", toml_edit::value(desk.prefs.drag_files));
-    prefs.insert("clipboard", toml_edit::value(desk.prefs.clipboard));
+    prefs.remove("clipboard");
     fill_modules(&mut doc, &desk.modules)?;
     // Lo que antes guardaba el puesto en `[input]`.
     if let Some(input) = doc.get_mut("input").and_then(Item::as_table_like_mut) {
@@ -513,17 +513,17 @@ scale = 2.0
         assert!(!back.legacy_desk, "{out}");
         assert_eq!(back.desk, cfg.desk);
         assert_eq!(back.desk.shortcuts.lock, ["KeyL"]);
-        assert!(!back.desk.prefs.clipboard);
+        assert_eq!(back.desk.modules.get(Machine::B, "clipboard"), Some(false));
         assert_eq!(back.input.keyboard, Some(Machine::A));
     }
 
     #[test]
     fn the_keyboard_is_saved_without_touching_the_rest() {
-        let text = format!("{PC}\n[input]\nserver = \"a\"\n\n[prefs]\nclipboard = false\n");
+        let text = format!("{PC}\n[input]\nserver = \"a\"\n\n[prefs]\ndrag_files = false\n");
         let out = with_keyboard(&text, Machine::B).unwrap();
         let cfg = AgentConfig::from_toml(&out).unwrap();
         assert_eq!(cfg.input.keyboard, Some(Machine::B));
-        assert!(!cfg.desk.prefs.clipboard);
+        assert!(!cfg.desk.prefs.drag_files);
         assert!(!out.contains("server"), "{out}");
         assert!(out.starts_with("# La PC.\n"));
         // Sin sección [input], la crea.
@@ -600,7 +600,7 @@ scale = 2.0
     /// Cambiar de lado reescribe todo lo que nombra un lado y deja lo demás.
     #[test]
     fn the_sides_are_rewritten_in_place() {
-        let text = format!("{PC}\n[input]\nserver = \"a\"\n\n[prefs]\nclipboard = false\n");
+        let text = format!("{PC}\n[input]\nserver = \"a\"\n\n[prefs]\ndrag_files = false\n");
         let cfg = AgentConfig::from_toml(&text).unwrap().with_side(Machine::A);
         let sync = version(cfg.desk.clone(), 1, Machine::A);
         let out = with_sides(&text, cfg.machine, cfg.input.keyboard, &sync).unwrap();
@@ -609,7 +609,7 @@ scale = 2.0
         assert!(!back.rewrite_sides);
         assert_eq!(back.machine, Machine::A);
         assert_eq!(back.input.keyboard, Some(Machine::B));
-        assert!(!back.desk.prefs.clipboard);
+        assert!(!back.desk.prefs.drag_files);
         assert_eq!(back.desk, cfg.desk);
         assert_eq!(back.desk.screens_of(Machine::A).next().unwrap().id, "34");
     }
@@ -635,6 +635,99 @@ scale = 2.0
                 !line.contains("\"mac\"") && !line.contains("\"pc\"") && !line.contains("mac_side"),
                 "{line}"
             );
+        }
+    }
+
+    fn any_desk() -> impl proptest::strategy::Strategy<Value = Config> {
+        use proptest::prelude::*;
+        let side = || prop_oneof![Just(Machine::A), Just(Machine::B)];
+        let info = |os: tandem_core::Os, color: &'static str| {
+            proptest::option::of("[A-Za-z][A-Za-z0-9 ]{0,10}[a-z]").prop_map(move |name| {
+                name.map(|name| MachineInfo {
+                    os,
+                    name,
+                    color: color.to_owned(),
+                })
+            })
+        };
+        let screen = (side(), "[a-z0-9]{1,5}", -5000i32..5000, 1u32..6000, 1u32..4).prop_map(
+            |(machine, id, x, width, s)| ScreenSpec {
+                machine,
+                id,
+                x,
+                y: -x / 2,
+                width,
+                height: width / 2 + 1,
+                scale: Scale::from_milli(s * 500),
+            },
+        );
+        let arrangement = proptest::option::of(
+            (
+                proptest::sample::select(tandem_core::Side::ALL.to_vec()),
+                proptest::sample::select(Align::ALL.to_vec()),
+            )
+                .prop_map(|(a_side, align)| Arrangement { a_side, align }),
+        );
+        (
+            (
+                info(tandem_core::Os::MacOs, "#7aa7e6"),
+                info(tandem_core::Os::Windows, "#5fbfb0"),
+            ),
+            proptest::collection::vec(screen, 0..4),
+            arrangement,
+            proptest::collection::btree_set("[a-z]{1,5}", 0..3),
+            proptest::sample::subsequence(vec!["ScrollLock", "ControlLeft", "KeyL"], 0..=3),
+            (any::<bool>(), any::<bool>(), any::<bool>()),
+            proptest::collection::btree_map("[a-z]{1,6}", any::<bool>(), 0..3),
+        )
+            .prop_map(
+                |((a, b), screens, arrangement, scenes, lock, prefs, modules)| {
+                    let mut seen = std::collections::BTreeSet::new();
+                    Config {
+                        machines: Machines { a, b },
+                        screens: screens
+                            .into_iter()
+                            .filter(|s| seen.insert((s.machine, s.id.clone())))
+                            .collect(),
+                        arrangement,
+                        scenes: scenes
+                            .into_iter()
+                            .map(|id| Scene {
+                                name: id.to_uppercase(),
+                                id,
+                            })
+                            .collect(),
+                        shortcuts: tandem_core::Shortcuts {
+                            lock: lock.into_iter().map(str::to_owned).collect(),
+                        },
+                        prefs: tandem_core::InputPrefs {
+                            cmd_ctrl: prefs.0,
+                            drag_files: prefs.1,
+                        },
+                        modules: tandem_core::Modules {
+                            a: modules.clone(),
+                            b: modules.into_iter().map(|(k, v)| (k, !v)).collect(),
+                        },
+                    }
+                },
+            )
+    }
+
+    proptest::proptest! {
+        // Cada caso valida el archivo entero dos veces: con 64 alcanza y no frena la puerta.
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+
+        /// Cualquier puesto escrito en `tandem.toml` (sobre el de la PC, con sus comentarios)
+        /// se vuelve a leer igual, con su sello, y escribirlo otra vez no cambia el archivo.
+        #[test]
+        fn any_desk_round_trips_through_the_file(desk in any_desk(), rev in 0u64..1000) {
+            let sync = version(desk, rev, Machine::A);
+            let out = with_desk(PC, Machine::B, &sync).unwrap();
+            let back = AgentConfig::from_toml(&out).unwrap();
+            proptest::prop_assert_eq!(&back.desk, &sync.desk);
+            proptest::prop_assert_eq!(back.desk_rev, rev);
+            proptest::prop_assert!(!back.legacy_desk);
+            proptest::prop_assert_eq!(with_desk(&out, Machine::B, &sync).unwrap(), out);
         }
     }
 

@@ -74,7 +74,7 @@ mod tests {
         assert!(!edited_by_hand(&Desk::default(), None));
         assert!(edited_by_hand(&d, None));
         let mut prefs = Desk::default();
-        prefs.prefs.clipboard = false;
+        prefs.prefs.drag_files = false;
         assert!(edited_by_hand(&prefs, None));
         // La huella es estable: la misma entrada da lo mismo.
         assert_eq!(fingerprint(&d), sum);

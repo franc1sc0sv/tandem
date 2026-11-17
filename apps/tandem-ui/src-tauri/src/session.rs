@@ -1404,7 +1404,7 @@ mac = "9c:6b:00:1a:2b:ff"
                 "arrangement": null,
                 "scenes": [],
                 "shortcuts": { "lock": ["ScrollLock"] },
-                "prefs": { "cmd_ctrl": true, "drag_files": true, "clipboard": true },
+                "prefs": { "cmd_ctrl": true, "drag_files": true },
                 "modules": { "a": {}, "b": {} }
             })
         );

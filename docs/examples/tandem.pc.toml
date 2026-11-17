@@ -87,8 +87,8 @@ align = "center"
 [shortcuts]
 lock = ["ScrollLock"]
 
-# Teclado y mouse: Cmd↔Ctrl entre macOS y Windows, arrastrar archivos y portapapeles.
+# Teclado y mouse: Cmd↔Ctrl entre macOS y Windows y arrastrar archivos. Compartir el
+# portapapeles es un módulo de cada máquina: se apaga con `[modules.<lado>] clipboard = false`.
 [prefs]
 cmd_ctrl = true
 drag_files = true
-clipboard = true

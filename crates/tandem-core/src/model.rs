@@ -72,7 +72,7 @@ impl fmt::Display for Machine {
 
 /// El sistema de una máquina. Lo que cambia según el sistema (los backends) se compila con
 /// `#[cfg]`; el resto del código pregunta por esto o por las capacidades, nunca por el lado.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum Os {
     #[serde(rename = "macos")]
     MacOs,
@@ -132,7 +132,7 @@ pub fn default_color(side: Machine) -> &'static str {
 
 /// Lo que identifica a una máquina en la UI: su sistema, su nombre y su color. Viaja en el
 /// anuncio de capacidades y se guarda en el puesto compartido ([`Config::machines`]).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct MachineInfo {
     pub os: Os,
@@ -158,7 +158,7 @@ impl MachineInfo {
 }
 
 /// Lo que se sabe de cada lado. Vacío hasta que cada máquina se anuncia.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct Machines {
     #[serde(default)]
@@ -221,7 +221,9 @@ impl Machines {
 }
 
 /// Lado de un escritorio (DECISIONS D18: cualquiera de los cuatro).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, PartialOrd, Ord,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Side {
     /// Sin acomodo declarado, A va a la izquierda de B.
@@ -253,7 +255,9 @@ impl Side {
 /// Cómo se alinean los dos escritorios a lo largo del borde que comparten: inicio (arriba o
 /// izquierda), centro o fin (abajo o derecha). Es simétrica: vale lo mismo vista desde
 /// cualquiera de las dos máquinas.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, PartialOrd, Ord,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum Align {
     Start,
@@ -325,7 +329,7 @@ impl<'de> Deserialize<'de> for Scale {
 
 /// Una pantalla del acomodo declarado, en las coordenadas nativas del cursor de su
 /// máquina: puntos en macOS, píxeles físicos del escritorio virtual en Windows (DESIGN §7).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct ScreenSpec {
     pub machine: Machine,
@@ -341,7 +345,7 @@ pub struct ScreenSpec {
 
 /// Dónde queda un escritorio respecto del otro (DECISIONS D18): de qué lado y con qué
 /// alineación, sin coordenadas a mano. El borde de cruce es el tramo que comparten.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct Arrangement {
     /// El lado de B en que está A.
@@ -370,7 +374,7 @@ impl Arrangement {
 /// misma lee; sin acomodo, A a la izquierda de B con el cruce proporcional de siempre.
 ///
 /// Viaja con postcard (`ControlMsg::Desk`): ningún campo puede saltarse al serializar.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct Desk {
     #[serde(default)]
     pub machines: Machines,
@@ -505,7 +509,7 @@ mod tests {
         assert!(cfg.machines.is_empty());
         assert_eq!(cfg.arrangement, None);
         assert_eq!(cfg.shortcuts.lock, ["ScrollLock"]);
-        assert!(cfg.prefs.cmd_ctrl && cfg.prefs.clipboard && cfg.prefs.drag_files);
+        assert!(cfg.prefs.cmd_ctrl && cfg.prefs.drag_files);
         assert!(cfg.scenes.is_empty());
     }
 
@@ -556,7 +560,7 @@ mod tests {
             lock = ["ControlLeft", "KeyL"]
 
             [prefs]
-            clipboard = false
+            drag_files = false
 
             [modules.b]
             clipboard = false
@@ -577,7 +581,7 @@ mod tests {
         );
         assert_eq!(cfg.scenes[0].name, "Trabajo");
         assert_eq!(cfg.shortcuts.lock, ["ControlLeft", "KeyL"]);
-        assert!(!cfg.prefs.clipboard && cfg.prefs.cmd_ctrl);
+        assert!(!cfg.prefs.drag_files && cfg.prefs.cmd_ctrl);
         assert_eq!(cfg.modules.get(Machine::B, "clipboard"), Some(false));
         assert_eq!(cfg.modules.get(Machine::A, "clipboard"), None);
         let a = cfg.machines.get(Machine::A).unwrap();

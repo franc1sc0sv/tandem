@@ -17,9 +17,9 @@ mod wire;
 
 pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encode_frame};
 pub use msg::{
-    AgentToUi, Capabilities, Channel, ControlMsg, DeskCapabilities, Environment, Hello,
-    HubReport, InputCaps, InputPermission, InputStatus, KeyProbeMsg, KeyProbeStatus, Link,
-    ModuleId, ModuleInfo, ModuleState, MonitorChannel, PairingMsg, PairingStatus, Peer, PeerStatus,
+    AgentToUi, Capabilities, Channel, ControlMsg, DeskCapabilities, Environment, Hello, HubReport,
+    InputCaps, InputPermission, InputStatus, KeyProbeMsg, KeyProbeStatus, Link, ModuleId,
+    ModuleInfo, ModuleState, MonitorChannel, PairingMsg, PairingStatus, Peer, PeerStatus,
     PowerCaps, PowerEvent, ProcessInfo, Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent,
     UiCommand, UiRequest,
 };

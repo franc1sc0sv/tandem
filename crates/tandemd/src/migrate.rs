@@ -112,8 +112,13 @@ pub fn sides_v02(table: &mut Table) -> bool {
 /// (D18). El acomodo que escribía el agente de T-097 sin que nadie lo declarara (A a la
 /// izquierda) se toma por no declarado; uno a la derecha queda con alineación al centro.
 /// Uno de v0.2 (`mac_side`) dice dónde está la Mac y se conserva tal cual: lo traduce
-/// [`sides_v02`] después. Devuelve si había algo que traducir.
-pub fn desk_v03(table: &mut Table) -> bool {
+/// [`sides_v02`] después.
+///
+/// El portapapeles es un módulo de cada máquina, y lo encendido o apagado de cada una está en
+/// el puesto (`[modules.<lado>] clipboard`, D4): si esta lo tenía apagado, eso es un cambio
+/// suyo (`local`), para que la otra lo adopte. Si no, las dos podrían quedar con la misma
+/// versión y distinto puesto. Encendido es lo de omisión y no se escribe.
+pub fn desk_v03(table: &mut Table) -> DeskMigration {
     let mut changed = false;
     if let Some(Value::Table(arr)) = table.get_mut("arrangement")
         && arr.remove("offset").is_some()
@@ -132,20 +137,57 @@ pub fn desk_v03(table: &mut Table) -> bool {
         Some(Value::Table(input)) => (input.remove("lock_shortcut"), input.remove("clipboard")),
         _ => (None, None),
     };
+    // `true` si el valor pasó a su sección nueva.
     let mut move_to = |section: &str, key: &str, value: Option<Value>| {
-        let Some(value) = value else { return };
+        let Some(value) = value else { return false };
         changed = true;
         if table.contains_key(section) {
             // Lo nuevo manda: lo de antes sobra.
-            return;
+            return false;
         }
         let mut t = Table::new();
         t.insert(key.into(), value);
         table.insert(section.into(), Value::Table(t));
+        true
     };
     move_to("shortcuts", "lock", lock);
-    move_to("prefs", "clipboard", clipboard);
-    changed
+    if clipboard.is_some() {
+        changed = true;
+    }
+    let mut local = false;
+    if clipboard.as_ref().and_then(Value::as_bool) == Some(false) {
+        // El lado de esta máquina; uno de v0.2 (`mac`/`pc`) queda como `a` en
+        // [`sides_v02`], igual que ella.
+        // `B` también vale (como se muestra).
+        let side = match table.get("machine").and_then(Value::as_str) {
+            Some("b" | "B") => "b",
+            _ => "a",
+        };
+        let modules = table
+            .entry("modules")
+            .or_insert_with(|| Value::Table(Table::new()));
+        if let Some(modules) = modules.as_table_mut() {
+            let mine = modules
+                .entry(side)
+                .or_insert_with(|| Value::Table(Table::new()));
+            if let Some(mine) = mine.as_table_mut()
+                && !mine.contains_key("clipboard")
+            {
+                mine.insert("clipboard".into(), Value::Boolean(false));
+                local = true;
+            }
+        }
+    }
+    DeskMigration { changed, local }
+}
+
+/// Lo que hizo [`desk_v03`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DeskMigration {
+    /// Había algo del formato de antes.
+    pub changed: bool,
+    /// Pasó al puesto un valor que era de esta máquina y no el de omisión.
+    pub local: bool,
 }
 
 #[cfg(test)]
@@ -166,28 +208,53 @@ mod tests {
             "#
         .parse()
         .unwrap();
-        assert!(desk_v03(&mut t));
+        assert_eq!(
+            desk_v03(&mut t),
+            DeskMigration {
+                changed: true,
+                local: true
+            },
+            "el portapapeles apagado era de esta máquina"
+        );
         assert!(
             t.get("arrangement").is_none(),
             "el de omisión no se declara"
         );
         assert_eq!(t["shortcuts"]["lock"].as_array().unwrap().len(), 1);
-        assert_eq!(t["prefs"]["clipboard"].as_bool(), Some(false));
+        assert_eq!(t["modules"]["a"]["clipboard"].as_bool(), Some(false));
         assert_eq!(t["input"].as_table().unwrap().len(), 1);
         // Una segunda vez no hay nada que hacer.
-        assert!(!desk_v03(&mut t));
+        assert_eq!(desk_v03(&mut t), DeskMigration::default());
 
         let mut right: Table = "[arrangement]\na_side = \"right\"\noffset = 40\n[shortcuts]\nlock = []\n[input]\nlock_shortcut = [\"KeyL\"]\n"
             .parse()
             .unwrap();
-        assert!(desk_v03(&mut right));
+        assert_eq!(
+            desk_v03(&mut right),
+            DeskMigration {
+                changed: true,
+                local: false
+            }
+        );
+        // Encendido (lo de omisión) no es un cambio de nadie.
+        let mut on: Table = "machine = \"b\"\n[input]\nclipboard = true\n"
+            .parse()
+            .unwrap();
+        assert!(!desk_v03(&mut on).local);
+        assert!(on.get("modules").is_none() && on.get("prefs").is_none());
+        // Apagado en B va al lado B.
+        let mut off: Table = "machine = \"b\"\n[input]\nclipboard = false\n"
+            .parse()
+            .unwrap();
+        assert!(desk_v03(&mut off).local);
+        assert_eq!(off["modules"]["b"]["clipboard"].as_bool(), Some(false));
         assert_eq!(right["arrangement"]["a_side"].as_str(), Some("right"));
         assert!(right["arrangement"].get("offset").is_none());
         assert!(right["shortcuts"]["lock"].as_array().unwrap().is_empty());
         // Un archivo nuevo queda igual.
         let text = "[arrangement]\na_side = \"up\"\nalign = \"end\"\n";
         let mut new: Table = text.parse().unwrap();
-        assert!(!desk_v03(&mut new));
+        assert_eq!(desk_v03(&mut new), DeskMigration::default());
         assert_eq!(new, text.parse::<Table>().unwrap());
     }
 

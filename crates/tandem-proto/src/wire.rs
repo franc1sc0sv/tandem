@@ -153,7 +153,6 @@ mod tests {
                         prefs: InputPrefs {
                             cmd_ctrl: prefs.0,
                             drag_files: prefs.1,
-                            clipboard: prefs.2,
                         },
                         modules: tandem_core::Modules {
                             a: modules,

@@ -105,6 +105,18 @@ async fn start(
     port: u16,
     peer: Option<(PublicKey, u16)>,
 ) -> Running {
+    start_with(machine, identity, port, peer, "").await
+}
+
+/// Como [`start`], con `extra` justo después de `machine` en `tandem.toml` (claves de arriba
+/// y tablas propias, como un archivo de una versión anterior).
+async fn start_with(
+    machine: Machine,
+    identity: &Identity,
+    port: u16,
+    peer: Option<(PublicKey, u16)>,
+    extra: &str,
+) -> Running {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -126,7 +138,7 @@ async fn start(
         ));
     }
     // Las dos con `[power.wol]` para despertar a la otra (los pasos son simulados).
-    let text = format!("machine = \"{machine}\"\n{network}\n{WOL}");
+    let text = format!("machine = \"{machine}\"\n{extra}\n{network}\n{WOL}");
     // En el disco, como en el binario: lo que se cambia desde la UI se guarda ahí.
     std::fs::write(&paths.config, &text).unwrap();
     let mut cfg = AgentConfig::from_toml(&text).unwrap();
@@ -684,7 +696,7 @@ async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
     // empatan en versión y A tiene la fecha igual o más nueva (y el empate es de A), o A
     // ya había recibido la de B y la suya es la siguiente.
     let prefs = tandem_core::InputPrefs {
-        clipboard: false,
+        drag_files: false,
         ..tandem_core::InputPrefs::default()
     };
     b.agent.edit_desk(DeskPatch::Prefs(prefs)).unwrap();
@@ -713,7 +725,7 @@ async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
     assert_eq!(back, mine_on_b.desk);
     until_same_desk(&a, &b).await;
     assert_eq!(a.agent.desk(), mine_on_b.desk);
-    assert!(!saved(&a).desk.prefs.clipboard);
+    assert!(!saved(&a).desk.prefs.drag_files);
     // Ahora el aviso es para A.
     let (by, _, summary, _) = next_desk_changed(&mut a).await;
     assert_eq!(by, Machine::B);
@@ -723,6 +735,60 @@ async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
     };
     assert_eq!(h[0].stamp, a.agent.desk_sync().stamp);
 
+    a.stop().await;
+    b.stop().await;
+}
+
+/// Un `tandem.toml` de antes de T-099, con las dos máquinas ya conocidas y la misma versión
+/// del puesto. `input` va en su `[input]`.
+fn before_t099(input: &str) -> String {
+    format!(
+        "desk_rev = 3\ndesk_origin = \"a\"\ndesk_sum = \"0123456789abcdef\"\n\n\
+         [machines.a]\nos = \"macos\"\nname = \"Mac\"\ncolor = \"#7aa7e6\"\n\n\
+         [machines.b]\nos = \"windows\"\nname = \"PC\"\ncolor = \"#a99be8\"\n\n\
+         [arrangement]\na_side = \"left\"\noffset = 0\n\n\
+         [input]\nlock_shortcut = [\"ScrollLock\"]\n{input}\n"
+    )
+}
+
+/// Revisión de #74: antes de T-099 el portapapeles era de cada máquina (`[input]
+/// clipboard`); ahora es un módulo de cada una, en el puesto (`[modules.b] clipboard`). Si una lo tenía apagado y la otra no, las dos
+/// arrancaban con el mismo sello y distinto puesto, y no convergían nunca. Al conectarse
+/// tienen que quedar iguales, con el portapapeles como lo dejó quien lo había cambiado.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_local_setting_moved_to_the_desk_does_not_leave_the_machines_apart() {
+    let (a_id, b_id) = sides(Identity::from_seed([43; 32]), Identity::from_seed([44; 32]));
+    let (a_port, b_port) = (free_port(), free_port());
+    let a = start_with(
+        Machine::A,
+        &a_id,
+        a_port,
+        Some((b_id.public_key(), b_port)),
+        &before_t099(""),
+    )
+    .await;
+    let b = start_with(
+        Machine::B,
+        &b_id,
+        b_port,
+        Some((a_id.public_key(), a_port)),
+        &before_t099("clipboard = false"),
+    )
+    .await;
+    until_peer(&a.agent, paired("B", Some(Link::Usb4))).await;
+    until_peer(&b.agent, paired("A", Some(Link::Usb4))).await;
+    until_same_desk(&a, &b).await;
+    assert_eq!(
+        a.agent.desk().modules.get(Machine::B, "clipboard"),
+        Some(false)
+    );
+    assert_eq!(
+        saved(&a).desk.modules.get(Machine::B, "clipboard"),
+        Some(false)
+    );
+    // Cada una aplica lo de su lado: B lo tiene apagado, A no.
+    assert!(!b.agent.module_on(tandem_proto::ModuleId::Clipboard));
+    assert!(a.agent.module_on(tandem_proto::ModuleId::Clipboard));
     a.stop().await;
     b.stop().await;
 }

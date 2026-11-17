@@ -66,7 +66,10 @@
 //! [prefs]
 //! cmd_ctrl = true
 //! drag_files = true
-//! clipboard = true
+//!
+//! # Módulos que el usuario apagó en cada máquina (los demás, encendidos).
+//! [modules.b]
+//! clipboard = false
 //! ```
 //!
 //! Todo lo que no es de esta máquina (`[machines]`, `[[screens]]`, `[arrangement]`,
@@ -121,6 +124,10 @@ pub struct AgentConfig {
     /// como un cambio.
     #[serde(skip)]
     pub legacy_desk: bool,
+    /// La migración pasó al puesto algo que era de esta máquina (el portapapeles apagado):
+    /// cuenta como un cambio suyo, con versión nueva, para que la otra lo adopte.
+    #[serde(skip)]
+    pub local_to_desk: bool,
     #[serde(default)]
     pub network: NetworkConfig,
     #[serde(default)]
@@ -376,11 +383,12 @@ impl AgentConfig {
         let mut table: toml::Table = s.parse()?;
         // Primero el puesto: decide si el acomodo era el de omisión con los nombres que
         // trae el archivo, antes de traducirlos.
-        let legacy_desk = crate::migrate::desk_v03(&mut table);
+        let migrated = crate::migrate::desk_v03(&mut table);
         let legacy = crate::migrate::sides_v02(&mut table);
         let mut cfg: AgentConfig = table.try_into()?;
         cfg.rewrite_sides = legacy;
-        cfg.legacy_desk = legacy_desk;
+        cfg.legacy_desk = migrated.changed;
+        cfg.local_to_desk = migrated.local;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -822,7 +830,7 @@ mod tests {
             !cfg.input.keyboard_defined(),
             "sin definir: no se supone la Mac"
         );
-        assert!(cfg.desk.prefs.clipboard && cfg.input.hub.is_none());
+        assert!(cfg.desk.modules.b.is_empty() && cfg.input.hub.is_none());
         assert_eq!(
             shortcut_keys(&cfg.desk.shortcuts.lock).unwrap(),
             [HidUsage::key(0x47)]
@@ -857,7 +865,7 @@ mod tests {
         assert_eq!(old.power.peer_lost_after_secs, 9);
         // El atajo y el portapapeles de antes pasan al puesto.
         assert!(cfg.legacy_desk);
-        assert!(!cfg.desk.prefs.clipboard);
+        assert_eq!(cfg.desk.modules.get(Machine::B, "clipboard"), Some(false));
         assert_eq!(
             shortcut_keys(&cfg.desk.shortcuts.lock).unwrap(),
             [HidUsage::key(0xE0), HidUsage::key(0x0F)]
@@ -871,7 +879,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(new.desk.shortcuts.lock, ["KeyL"]);
-        assert!(!new.desk.prefs.cmd_ctrl && new.desk.prefs.clipboard);
+        assert!(!new.desk.prefs.cmd_ctrl && new.desk.prefs.drag_files);
         assert!(!new.legacy_desk);
     }
 

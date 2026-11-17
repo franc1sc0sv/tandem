@@ -211,15 +211,12 @@ fn paired_desk() -> DeskVersion {
 fn patch() -> impl Strategy<Value = DeskPatch> {
     prop_oneof![
         arrangement().prop_map(DeskPatch::Arrangement),
-        (any::<bool>(), any::<bool>(), any::<bool>()).prop_map(
-            |(cmd_ctrl, drag_files, clipboard)| {
-                DeskPatch::Prefs(InputPrefs {
-                    cmd_ctrl,
-                    drag_files,
-                    clipboard,
-                })
-            }
-        ),
+        (any::<bool>(), any::<bool>()).prop_map(|(cmd_ctrl, drag_files)| {
+            DeskPatch::Prefs(InputPrefs {
+                cmd_ctrl,
+                drag_files,
+            })
+        }),
         proptest::collection::vec("[A-Z][a-z]{0,5}", 0..3)
             .prop_map(|lock| DeskPatch::Shortcuts(Shortcuts { lock })),
         proptest::collection::btree_set("[a-z]{1,4}", 0..3).prop_map(|ids| {

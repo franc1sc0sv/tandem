@@ -11,7 +11,8 @@ use tandem_core::{
 use tandem_link::transport::{Connection, ControlStream};
 use tandem_proto::{
     Capabilities, Channel, ControlMsg, DeskCapabilities, HubReport, InputStatus, KeyProbeStatus,
-    PairingStatus, PeerStatus, PowerEvent, Reply, ScreenRect, SetupInfo, TxnEvent, UiCommand,
+    ModuleId, PairingStatus, PeerStatus, PowerEvent, Reply, ScreenRect, SetupInfo, TxnEvent,
+    UiCommand,
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
@@ -228,9 +229,11 @@ impl Agent {
         let process = capabilities::current_process();
         // Un puesto editado a mano en `tandem.toml` es un cambio de esta máquina: versión
         // nueva, para que la otra lo adopte y no lo pise con el suyo. Uno del formato de antes
-        // de T-099 tiene una huella vieja: se reescribe sin contarlo como cambio.
-        let hand_edited = !cfg.legacy_desk
-            && crate::desk_sync::edited_by_hand(&cfg.desk, cfg.desk_sum.as_deref());
+        // de T-099 tiene una huella vieja: se reescribe sin contarlo como cambio, salvo que
+        // haya pasado al puesto algo que era de esta máquina (revisión de #74).
+        let hand_edited = cfg.local_to_desk
+            || (!cfg.legacy_desk
+                && crate::desk_sync::edited_by_hand(&cfg.desk, cfg.desk_sum.as_deref()));
         let info = local_info(&cfg, me, &cfg.desk);
         let registry = Registry::for_os(cfg.os);
         let switches = modules::initial_switches(&cfg);
@@ -478,6 +481,28 @@ impl Agent {
         Ok(self.desk())
     }
 
+    /// Los interruptores de los módulos de esta máquina salen del puesto (`Desk.modules` de
+    /// su lado, D4): se copian cada vez que el puesto cambia, venga de donde venga. Lo que
+    /// aquí no se puede encender ni apagar se ignora.
+    fn sync_switches(&self) {
+        let me = self.machine();
+        let desk = self.desk();
+        self.modules.send_if_modified(|s| {
+            let mut changed = false;
+            for id in tandem_proto::ModuleId::ALL {
+                if self.registry.check_switch(id).is_err() {
+                    continue;
+                }
+                let on = desk.modules.get(me, id.as_str()) != Some(false);
+                if s.set(id, on) {
+                    tracing::info!(modulo = ?id, encendido = on, "módulo cambiado");
+                    changed = true;
+                }
+            }
+            changed
+        });
+    }
+
     /// «Deshacer» (`UiCommand::UndoDesk`): vuelve a la versión `to_rev` del historial con un
     /// cambio nuevo, que gana como cualquier otro.
     pub fn undo_desk(&self, to_rev: u64) -> Result<Config, String> {
@@ -573,7 +598,8 @@ impl Agent {
             changed
         });
         self.orch.peer().send(ControlMsg::Desk(Box::new(next)));
-        // El nombre y el color de esta máquina pueden haber cambiado.
+        self.sync_switches();
+        // El nombre y el color de esta máquina (o sus módulos) pueden haber cambiado.
         self.refresh_capabilities();
     }
 
@@ -581,6 +607,11 @@ impl Agent {
     /// `tandem.toml`, y la UI recibe el aviso con lo que cambió. El motor de entrada
     /// recalcula la geometría con él.
     pub fn receive_desk(&self, theirs: DeskVersion) {
+        // Un atajo con teclas que esta versión no conoce no se podría guardar.
+        if let Err(e) = crate::config::shortcut_keys(&theirs.desk.shortcuts.lock) {
+            tracing::warn!("puesto de la otra máquina ignorado: {e}");
+            return;
+        }
         let editing = self.edit();
         let mine = self.desk_sync();
         let Some(next) = mine.receive(&theirs) else {
@@ -607,6 +638,7 @@ impl Agent {
             changed
         });
         drop(editing);
+        self.sync_switches();
         if let Some(summary) = summary
             && by != self.machine()
         {
@@ -877,6 +909,20 @@ impl Agent {
                 Reply::Done
             }
             UiCommand::PingPeer => self.ping_peer(),
+            UiCommand::EditDesk {
+                patch:
+                    DeskPatch::Module {
+                        machine,
+                        module,
+                        on,
+                    },
+            } => match ModuleId::parse(module.trim()) {
+                Some(id) => match self.switch_module(machine, id, on) {
+                    Reply::Done => Reply::Desk(self.desk()),
+                    other => other,
+                },
+                None => Reply::Rejected(format!("«{module}» no es un módulo de Tandem")),
+            },
             UiCommand::EditDesk { patch } => match self.edit_desk(patch) {
                 Ok(desk) => Reply::Desk(desk),
                 Err(why) => Reply::Rejected(why),
@@ -1484,7 +1530,7 @@ pub(crate) mod tests {
             Reply::Rejected(_)
         ));
         let prefs = tandem_core::InputPrefs {
-            clipboard: false,
+            drag_files: false,
             ..tandem_core::InputPrefs::default()
         };
         a.handle(UiCommand::EditDesk {
@@ -1492,7 +1538,7 @@ pub(crate) mod tests {
         });
         assert_eq!(a.desk_sync().stamp.rev, start.stamp.rev + 2);
         let saved = AgentConfig::load(&file).unwrap();
-        assert!(!saved.desk.prefs.clipboard);
+        assert!(!saved.desk.prefs.drag_files);
         assert_eq!(saved.desk.arrangement, Some(arr));
 
         let Reply::DeskHistory(h) = a.handle(UiCommand::GetDeskHistory) else {

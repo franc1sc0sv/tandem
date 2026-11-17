@@ -22,7 +22,7 @@ pub const MAX_NAME: usize = 40;
 
 /// Una escena (D6). Por ahora solo su nombre; lo que muestra cada monitor y el acomodo
 /// llegan con T-100.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct Scene {
     pub id: String,
@@ -30,7 +30,7 @@ pub struct Scene {
 }
 
 /// Los atajos del puesto. Las teclas van con los nombres de `KeyboardEvent.code`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct Shortcuts {
     /// Bloquea el cursor en la máquina donde está (todas a la vez). Vacío = sin atajo.
@@ -51,8 +51,9 @@ impl Default for Shortcuts {
     }
 }
 
-/// Preferencias de teclado y mouse.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Preferencias de teclado y mouse. Compartir el portapapeles no está aquí: es un módulo de
+/// cada máquina (`modules`, «clipboard»), una sola fuente (D3, D4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct InputPrefs {
     /// Cmd↔Ctrl entre macOS y Windows (la tabla de cada dirección es local, `[input.remap]`).
@@ -61,9 +62,6 @@ pub struct InputPrefs {
     /// Arrastrar archivos al cruzar el borde (D14).
     #[serde(default = "yes")]
     pub drag_files: bool,
-    /// Compartir el portapapeles.
-    #[serde(default = "yes")]
-    pub clipboard: bool,
 }
 
 fn yes() -> bool {
@@ -75,14 +73,13 @@ impl Default for InputPrefs {
         InputPrefs {
             cmd_ctrl: true,
             drag_files: true,
-            clipboard: true,
         }
     }
 }
 
 /// Qué módulos encendió o apagó el usuario en cada máquina (D3). Un módulo que no aparece
 /// queda como lo deja su máquina.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct Modules {
     #[serde(default)]
@@ -347,12 +344,17 @@ impl DeskVersion {
     /// Qué hacer con la versión que mandó la otra máquina: `Some` es la que queda aquí.
     /// Dos puestos recién generados (versión 0) no se mezclan: cada máquina se queda con lo
     /// suyo hasta que alguien cambie algo. Un puesto inválido se ignora.
+    ///
+    /// Con el mismo sello y otro puesto (no debería pasar: una máquina nunca repite versión,
+    /// pero un archivo copiado o una migración pueden dejarlo así) gana el puesto mayor, en el
+    /// mismo orden en las dos: nunca quedan distintas para siempre.
     pub fn receive(&self, theirs: &DeskVersion) -> Option<DeskVersion> {
         if self.stamp.rev == 0 && theirs.stamp.rev == 0 {
             return None;
         }
-        (theirs.stamp.wins_over(&self.stamp) && theirs.desk.validate().is_ok())
-            .then(|| theirs.clone())
+        let wins = theirs.stamp.wins_over(&self.stamp)
+            || (theirs.stamp == self.stamp && theirs.desk > self.desk);
+        (wins && theirs.desk.validate().is_ok()).then(|| theirs.clone())
     }
 
     /// `desk` como cambio hecho en `me` a las `now` sobre esta versión.
@@ -544,6 +546,16 @@ mod tests {
         assert_eq!(theirs.receive(&mine), None);
         let changed = v(1, 0, Machine::B, known());
         assert_eq!(mine.receive(&changed), Some(changed.clone()));
+        // El mismo sello con otro puesto: las dos eligen el mismo.
+        let mut other = known();
+        other.prefs.drag_files = false;
+        let x = v(4, 9, Machine::A, known());
+        let y = v(4, 9, Machine::A, other);
+        let (on_x, on_y) = (
+            x.receive(&y).unwrap_or_else(|| x.clone()),
+            y.receive(&x).unwrap_or_else(|| y.clone()),
+        );
+        assert_eq!(on_x, on_y);
         let mut broken = known();
         broken.screens = vec![screen(Machine::A, "x"), screen(Machine::A, "x")];
         assert_eq!(mine.receive(&v(2, 0, Machine::B, broken)), None);
@@ -555,7 +567,7 @@ mod tests {
         let next = cur
             .edit(
                 DeskPatch::Prefs(InputPrefs {
-                    clipboard: false,
+                    drag_files: false,
                     ..InputPrefs::default()
                 }),
                 Machine::A,
@@ -571,7 +583,7 @@ mod tests {
                 by: Machine::A
             }
         );
-        assert!(!next.desk.prefs.clipboard);
+        assert!(!next.desk.prefs.drag_files);
         assert_eq!(
             cur.edit(DeskPatch::Prefs(InputPrefs::default()), Machine::A, 300),
             Ok(None)
@@ -701,7 +713,7 @@ mod tests {
         assert_eq!(old.summary_of_changes(&new), None);
         new.arrangement = Some(Arrangement::default());
         assert_eq!(old.summary_of_changes(&new).as_deref(), Some("Acomodo"));
-        new.prefs.clipboard = false;
+        new.prefs.drag_files = false;
         new.shortcuts.lock.clear();
         assert_eq!(
             old.summary_of_changes(&new).as_deref(),

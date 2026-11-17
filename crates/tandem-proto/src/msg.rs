@@ -150,6 +150,25 @@ pub enum ModuleId {
 }
 
 impl ModuleId {
+    /// Como se guarda en el puesto (`[modules.a] clipboard = false`): estable, no cambia
+    /// aunque cambie el nombre que muestra la UI.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ModuleId::Input => "input",
+            ModuleId::Clipboard => "clipboard",
+            ModuleId::Files => "files",
+            ModuleId::Tunnels => "tunnels",
+            ModuleId::Monitors => "monitors",
+            ModuleId::Power => "power",
+            ModuleId::SecureDesktop => "secure_desktop",
+        }
+    }
+
+    /// Lo inverso de [`ModuleId::as_str`].
+    pub fn parse(s: &str) -> Option<ModuleId> {
+        ModuleId::ALL.into_iter().find(|m| m.as_str() == s)
+    }
+
     pub const ALL: [ModuleId; 7] = [
         ModuleId::Input,
         ModuleId::Clipboard,
@@ -1081,7 +1100,6 @@ pub(crate) mod samples {
             DeskPatch::Prefs(tandem_core::InputPrefs {
                 cmd_ctrl: false,
                 drag_files: true,
-                clipboard: false,
             }),
             DeskPatch::Module {
                 machine: Machine::B,
@@ -1358,6 +1376,15 @@ mod tests {
             .collect();
         covers(&replies, reply_arm, 12);
         covers(&txn_events(), txn_arm, 6);
+    }
+
+    #[test]
+    fn module_ids_have_a_stable_text() {
+        for m in ModuleId::ALL {
+            assert_eq!(ModuleId::parse(m.as_str()), Some(m));
+        }
+        assert_eq!(ModuleId::Clipboard.as_str(), "clipboard");
+        assert_eq!(ModuleId::parse("Clipboard"), None);
     }
 
     #[test]
