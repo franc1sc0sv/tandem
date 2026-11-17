@@ -3,6 +3,7 @@ use serde::de::DeserializeOwned;
 use tandem_proto::{FrameDecoder, Hello, decode, decode_hello, encode_frame};
 
 use super::TransportError;
+use crate::qos::{DataStream, Qos, StreamClass};
 
 /// Stream bidireccional confiable con mensajes de `tandem-proto` en tramas.
 pub struct ControlStream {
@@ -59,6 +60,23 @@ impl ControlStream {
         self.tx.finish()
     }
 
+    /// La prioridad del lado de escritura (ver [`StreamClass`]). Cada lado pone la de lo
+    /// que manda: la de un stream aceptado no viene del que lo abrió.
+    pub fn set_class(&self, class: StreamClass) -> Result<(), TransportError> {
+        self.tx.set_class(class)
+    }
+
+    /// Pasa el stream a datos (túneles, archivos): prioridad mínima y la pausa y el tope
+    /// de `qos`, el de su conexión ([`Connection::qos`](super::Connection::qos)). Se sigue
+    /// leyendo con el receptor.
+    pub fn into_data(
+        self,
+        qos: &Qos,
+    ) -> Result<(DataStream<quinn::SendStream>, ControlReceiver), TransportError> {
+        self.set_class(StreamClass::Data)?;
+        Ok((qos.data_stream(self.tx.send), self.rx))
+    }
+
     /// Separa las dos mitades, para leer y escribir a la vez: quien manda
     /// mucho (el portapapeles) no deja de leer mientras el control de flujo
     /// lo frena, y dos lados escribiendo a la vez no se bloquean entre sí.
@@ -77,6 +95,16 @@ impl ControlSender {
     /// Avisa al par de que no se enviará nada más por este stream.
     pub fn finish(&mut self) -> Result<(), TransportError> {
         Ok(self.send.finish()?)
+    }
+
+    /// Ver [`ControlStream::set_class`].
+    pub fn set_class(&self, class: StreamClass) -> Result<(), TransportError> {
+        Ok(self.send.set_priority(class.priority())?)
+    }
+
+    /// La prioridad que tiene ahora el lado de escritura.
+    pub fn priority(&self) -> Result<i32, TransportError> {
+        Ok(self.send.priority()?)
     }
 }
 

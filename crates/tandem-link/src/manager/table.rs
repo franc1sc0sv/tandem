@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use tokio::time::Instant;
 
-use super::{LinkCandidate, LinkKind, ManagerError, Plane};
+use super::{LinkCandidate, LinkKind, ManagerError};
 
 /// Cambio del enlace activo. `seq` crece de uno en uno desde 0, así que un
 /// consumidor puede comprobar que no se perdió ni se reordenó ninguno.
@@ -17,9 +17,6 @@ pub struct LinkEvent {
     pub seq: u64,
     pub from: Option<LinkKind>,
     pub to: Option<LinkKind>,
-    /// Si con el enlace nuevo hay plano de datos. Al pasar a `false`, los
-    /// servicios de datos se pausan ("requiere cable").
-    pub data_plane: bool,
 }
 
 /// Salud de un enlace según el último ping.
@@ -127,7 +124,6 @@ impl<H> LinkTable<H> {
             seq: self.next_seq,
             from: self.active,
             to: best,
-            data_plane: best.is_some_and(|k| k.allows(Plane::Data)),
         };
         self.next_seq += 1;
         self.active = best;
@@ -260,14 +256,10 @@ mod tests {
         assert_eq!(c.active(), None);
 
         let e = c.at(0, LinkKind::Wifi, Some(3)).unwrap();
-        assert_eq!(
-            (e.seq, e.from, e.to, e.data_plane),
-            (0, None, Some(LinkKind::Wifi), false)
-        );
+        assert_eq!((e.seq, e.from, e.to), (0, None, Some(LinkKind::Wifi)));
         // Un enlace que nunca se cayó entra enseguida (el arranque no espera).
         let e = c.at(1, LinkKind::Usb4, Some(1)).unwrap();
         assert_eq!(e.to, Some(LinkKind::Usb4));
-        assert!(e.data_plane);
         // Un enlace peor que sube no cambia nada.
         assert_eq!(c.at(2, LinkKind::Ethernet, Some(2)), None);
         // Pings repetidos tampoco.
@@ -344,7 +336,6 @@ mod tests {
         c.at(1500, LinkKind::Usb4, Some(1));
         let e = c.at(2000, LinkKind::Ethernet, None).unwrap();
         assert_eq!(e.to, Some(LinkKind::Wifi));
-        assert!(!e.data_plane);
         // Pero sin otra opción, se usa el que parpadea.
         let e = c.at(2100, LinkKind::Wifi, None).unwrap();
         assert_eq!(e.to, Some(LinkKind::Usb4));
@@ -355,10 +346,7 @@ mod tests {
         let mut c = Clock::new(all());
         c.at(0, LinkKind::Ethernet, Some(2));
         let e = c.at(1, LinkKind::Ethernet, None).unwrap();
-        assert_eq!(
-            (e.from, e.to, e.data_plane),
-            (Some(LinkKind::Ethernet), None, false)
-        );
+        assert_eq!((e.from, e.to), (Some(LinkKind::Ethernet), None));
         assert_eq!(c.active(), None);
     }
 
@@ -452,7 +440,6 @@ mod tests {
                         prop_assert_eq!(e.from, last);
                         prop_assert_ne!(e.from, e.to);
                         prop_assert_eq!(e.to, active);
-                        prop_assert_eq!(e.data_plane, e.to.is_some_and(|k| k.is_wired()));
                         seq += 1;
                         last = e.to;
                     }

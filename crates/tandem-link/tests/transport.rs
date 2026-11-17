@@ -409,3 +409,122 @@ async fn emparejamiento_y_control_no_se_mezclan() {
     assert!(c.is_err(), "conectó con otro ALPN");
     assert!(matches!(s, Some(Err(_))), "aceptó otro ALPN");
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn los_datos_van_por_un_stream_de_prioridad_mínima_y_con_el_tope_del_wifi() {
+    use tandem_link::manager::LinkKind;
+    use tandem_link::qos::StreamClass;
+
+    let a = identity(1);
+    let b = identity(2);
+    let a_ep = endpoint(&a, trusting(&[&b]));
+    let b_ep = endpoint(&b, trusting(&[&a]));
+    let (to_b, to_a) = pair(&a_ep, &b_ep).await;
+    let a_hello = Hello::new(Peer::Agent(Machine::A));
+    let b_hello = Hello::new(Peer::Agent(Machine::B));
+
+    // El de la entrada, con la prioridad más alta.
+    let (opened, accepted) =
+        within(async { tokio::join!(to_b.open_control(&a_hello), to_a.accept_control(&b_hello)) })
+            .await;
+    let (input, _) = opened.unwrap();
+    let _keep = accepted.unwrap();
+    input.set_class(StreamClass::Input).unwrap();
+    let (input_tx, _) = input.split();
+    assert_eq!(input_tx.priority().unwrap(), StreamClass::Input.priority());
+
+    // Por Wi-Fi medido en 400 kB/s, los datos tienen 200 kB/s.
+    to_b.qos().set_link(Some(LinkKind::Wifi));
+    to_b.qos().set_measured(400_000);
+    assert_eq!(to_b.qos().cap(), Some(200_000));
+    let (opened, accepted) =
+        within(async { tokio::join!(to_b.open_control(&a_hello), to_a.accept_control(&b_hello)) })
+            .await;
+    let (mut data, _) = opened.unwrap().0.into_data(to_b.qos()).unwrap();
+    let (mut rx, _) = accepted.unwrap();
+    assert_eq!(
+        data.get_ref().priority().unwrap(),
+        StreamClass::Data.priority()
+    );
+
+    let chunk = vec![7u8; 30_000];
+    let start = Instant::now();
+    let reader = tokio::spawn(async move {
+        for _ in 0..10 {
+            let msg = within(rx.recv::<Vec<u8>>()).await.unwrap().unwrap();
+            assert_eq!(msg.len(), 30_000);
+        }
+    });
+    for _ in 0..10 {
+        within(data.send(&chunk)).await.unwrap();
+    }
+    within(reader).await.unwrap();
+    // 300 kB a 200 kB/s, con la ráfaga del principio (2 kB): no menos de 1,4 s.
+    let took = start.elapsed();
+    assert!(took >= Duration::from_millis(1400), "tardó {took:?}");
+}
+
+/// Entre las dos máquinas hay dos conexiones (la que abre cada una). Con el `Qos` del camino
+/// compartido, los datos que A manda por las dos a la vez no pasan juntos el tope.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn las_dos_conexiones_de_un_camino_comparten_el_tope() {
+    use tandem_link::manager::LinkKind;
+    use tandem_link::qos::{LinkQos, StreamClass};
+
+    let a = identity(1);
+    let b = identity(2);
+    let a_ep = endpoint(&a, trusting(&[&b]));
+    let b_ep = endpoint(&b, trusting(&[&a]));
+    let a_hello = Hello::new(Peer::Agent(Machine::A));
+    let b_hello = Hello::new(Peer::Agent(Machine::B));
+
+    let qos = LinkQos::default();
+    let wifi = qos.get(LinkKind::Wifi);
+    wifi.set_measured(400_000);
+    assert_eq!(wifi.cap(), Some(200_000));
+    // La que abre A y la que A acepta de B, las dos por Wi-Fi.
+    let (a_out, b_in) = pair(&a_ep, &b_ep).await;
+    let (b_out, a_in) = pair(&b_ep, &a_ep).await;
+    let a_out = a_out.with_qos(qos.get(LinkKind::Wifi));
+    let a_in = a_in.with_qos(qos.get(LinkKind::Wifi));
+    assert!(a_out.qos().same(a_in.qos()));
+
+    let mut streams = Vec::new();
+    for (mine, theirs) in [(&a_out, &b_in), (&a_in, &b_out)] {
+        let (opened, accepted) = within(async {
+            tokio::join!(mine.open_control(&a_hello), theirs.accept_control(&b_hello))
+        })
+        .await;
+        let (data, _) = opened.unwrap().0.into_data(mine.qos()).unwrap();
+        let (accepted, _) = accepted.unwrap();
+        // El lado que acepta pone su propia prioridad para lo que mande.
+        accepted.set_class(StreamClass::Clipboard).unwrap();
+        let (tx, rx) = accepted.split();
+        assert_eq!(tx.priority().unwrap(), StreamClass::Clipboard.priority());
+        streams.push((data, rx));
+    }
+
+    // Las dos escrituras (150 kB cada una) a la vez: 300 kB a 200 kB/s entre las dos.
+    let start = Instant::now();
+    let mut tasks = Vec::new();
+    for (mut data, mut rx) in streams {
+        tasks.push(tokio::spawn(async move {
+            let chunk = vec![1u8; 30_000];
+            for _ in 0..5 {
+                within(data.send(&chunk)).await.unwrap();
+            }
+            // Que el stream siga vivo hasta que el otro lado lea todo.
+            let mut got = 0;
+            while got < 5 {
+                let msg = within(rx.recv::<Vec<u8>>()).await.unwrap().unwrap();
+                assert_eq!(msg.len(), 30_000);
+                got += 1;
+            }
+        }));
+    }
+    for t in tasks {
+        within(t).await.unwrap();
+    }
+    let took = start.elapsed();
+    assert!(took >= Duration::from_millis(1400), "tardó {took:?}");
+}

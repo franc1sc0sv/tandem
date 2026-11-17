@@ -3,4 +3,5 @@
 pub mod discovery;
 pub mod identity;
 pub mod manager;
+pub mod qos;
 pub mod transport;

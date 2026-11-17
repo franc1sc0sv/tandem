@@ -8,6 +8,7 @@ use tandem_core::{
     Abilities, Config, DeskHistory, DeskPatch, DeskStamp, DeskVersion, HistoryEntry, Machine,
     MachineInfo, Plan, State,
 };
+use tandem_link::qos::LinkQos;
 use tandem_link::transport::{Connection, ControlStream};
 use tandem_proto::{
     Capabilities, Channel, ControlMsg, DeskCapabilities, HubReport, InputStatus, KeyProbeStatus,
@@ -48,6 +49,8 @@ pub trait PairingControl: Send + Sync {
 #[derive(Debug)]
 pub struct Agent {
     cfg: AgentConfig,
+    /// Prioridad, tope y pausa de los datos, uno por camino (T-101).
+    link_qos: LinkQos,
     /// El lado de esta máquina. Sale de la identidad: cambia una sola vez, si al emparejar
     /// resulta que esta máquina es el otro lado ([`Agent::adopt_side`]).
     me: watch::Sender<Machine>,
@@ -280,7 +283,10 @@ impl Agent {
                 desk: cfg.desk.clone(),
             }),
         };
+        let link_qos = LinkQos::default();
+        link_qos.set_prefs(cfg.desk.data);
         Agent {
+            link_qos,
             me: watch::Sender::new(me),
             editing: Mutex::new(()),
             rewrite_sides: cfg.rewrite_sides,
@@ -466,6 +472,15 @@ impl Agent {
     /// El puesto compartido que vale ahora.
     pub fn desk(&self) -> Config {
         self.desk.borrow().clone()
+    }
+
+    /// Prioridad, tope y pausa de los datos con la otra máquina, uno por camino y compartido
+    /// por todas las conexiones de ese camino (T-101). La red se lo pone a cada conexión y le
+    /// lleva el `[data]` del puesto. Quien mide la latencia de la entrada (T-093) la anota
+    /// con `conn.qos().record_input_latency(..)` o `link_qos().get(camino)`, en las dos
+    /// máquinas.
+    pub fn link_qos(&self) -> &LinkQos {
+        &self.link_qos
     }
 
     /// Avisa cada vez que cambia el puesto.

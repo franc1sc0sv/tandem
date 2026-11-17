@@ -34,6 +34,7 @@ use tandem_link::manager::{
     HealthConfig, LinkCandidate, LinkKind, LinkManager, ManagerError, Prober, QuicProber,
     QuicSession,
 };
+use tandem_link::qos::LinkQos;
 use tandem_link::transport::{Connection, Endpoint, TransportError};
 use tandem_proto::{ControlMsg, Hello, Link, PairingStatus, Peer, PeerStatus};
 use tokio::sync::{mpsc, watch};
@@ -206,6 +207,8 @@ struct Shared {
     /// no en cada `supervise`: el par puede emparejarse o desemparejarse en caliente, y
     /// quien lo escucha desde el arranque tiene que ver cada enlace nuevo.
     active: LinkFeed,
+    /// Lleva el `[data]` del puesto a los `Qos` de cada camino.
+    desk_follow: JoinHandle<()>,
 }
 
 /// El enlace activo y quién puede escribirlo: solo el `supervise` del par que se
@@ -375,6 +378,7 @@ impl Network {
             peer: Mutex::new(None),
             pairing: Mutex::new(None),
             active: LinkFeed::new(),
+            desk_follow: follow_desk(&agent),
         });
         agent.set_pairing(Arc::new(Pairer(Arc::downgrade(&shared))));
         match paired {
@@ -419,6 +423,7 @@ impl Drop for Network {
 impl Shared {
     fn stop(&self) {
         self.accept.abort();
+        self.desk_follow.abort();
         if let Some(f) = lock(&self.peer).as_ref() {
             for t in &f.tasks {
                 t.abort();
@@ -640,6 +645,12 @@ async fn accept_loop(endpoint: Arc<Endpoint>, agent: Arc<Agent>, conns: Arc<Conn
         match conn {
             Ok(conn) => {
                 tracing::debug!(from = %conn.remote_address(), "conexión del otro agente");
+                // Lo que este lado mande por ella (respuestas, el portapapeles de la
+                // otra) comparte el tope y la pausa de su camino con la conexión que abre
+                // este agente (T-101).
+                let statics = agent.config().network.link_candidates(&[]);
+                let kind = kind_of_remote(&statics, conn.remote_address());
+                let conn = conn.with_qos(agent.link_qos().get(kind));
                 let (agent, conns) = (agent.clone(), conns.clone());
                 let id = conns.add(conn.clone());
                 tokio::spawn(async move {
@@ -650,6 +661,37 @@ async fn accept_loop(endpoint: Arc<Endpoint>, agent: Arc<Agent>, conns: Arc<Conn
             Err(e) => tracing::debug!("conexión entrante rechazada: {e}"),
         }
     }
+}
+
+/// El `[data]` del puesto, cada vez que cambia (desde la UI, la otra máquina o a mano), en
+/// el [`LinkQos`] del agente: llega a todas las conexiones, abiertas y aceptadas (T-101).
+fn follow_desk(agent: &Agent) -> JoinHandle<()> {
+    let qos = agent.link_qos().clone();
+    let mut desk = agent.subscribe_desk();
+    tokio::spawn(async move {
+        loop {
+            let data = desk.borrow_and_update().data;
+            qos.set_prefs(data);
+            if desk.changed().await.is_err() {
+                return;
+            }
+        }
+    })
+}
+
+/// Por qué camino llegó una conexión que abrió el otro agente: el de la dirección fija
+/// con la misma IP; si no hay, la LAN (Wi-Fi), que es la que se descubre por mDNS. Ante
+/// la duda, el tope del Wi-Fi: un cable con tope solo es más lento, un Wi-Fi sin tope le
+/// mete latencia a la entrada.
+fn kind_of_remote(statics: &[LinkCandidate], remote: SocketAddr) -> LinkKind {
+    let ip = |a: SocketAddr| match a.ip() {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
+        v4 => v4,
+    };
+    statics
+        .iter()
+        .find(|c| ip(c.addr) == ip(remote))
+        .map_or(LinkKind::Wifi, |c| c.kind)
 }
 
 /// Arma el gestor de enlaces con los candidatos de cada momento y sigue su enlace
@@ -756,7 +798,12 @@ fn spawn_manager(
     candidates: &[LinkCandidate],
     health: HealthConfig,
 ) -> Result<Arc<ManagedPeer>, ManagerError> {
-    let prober = AgentProber::new(endpoint.clone(), agent.machine());
+    let prober = AgentProber::new(
+        endpoint.clone(),
+        agent.machine(),
+        candidates,
+        agent.link_qos().clone(),
+    );
     // Los cambios de enlace ya los registra el gestor; la foto basta para seguirlos.
     let (links, _events) = LinkManager::spawn(candidates, prober, health)?;
     tracing::info!(?candidates, "gestor de enlaces en marcha");
@@ -782,13 +829,23 @@ pub struct AgentSession {
 pub struct AgentProber {
     quic: QuicProber,
     me: Machine,
+    /// Por qué camino va cada dirección, para darle a su conexión el `Qos` del camino.
+    kinds: Vec<LinkCandidate>,
+    qos: LinkQos,
 }
 
 impl AgentProber {
-    pub fn new(endpoint: Arc<Endpoint>, me: Machine) -> Self {
+    pub fn new(
+        endpoint: Arc<Endpoint>,
+        me: Machine,
+        candidates: &[LinkCandidate],
+        qos: LinkQos,
+    ) -> Self {
         AgentProber {
             quic: QuicProber::new(endpoint, Hello::new(Peer::Agent(me))),
             me,
+            kinds: candidates.to_vec(),
+            qos,
         }
     }
 }
@@ -800,7 +857,12 @@ impl Prober for AgentProber {
 
     async fn connect(&self, addr: SocketAddr) -> Result<AgentSession, PeerError> {
         let quic = self.quic.connect(addr).await?;
-        let conn = QuicProber::handle(&quic);
+        let kind = self
+            .kinds
+            .iter()
+            .find(|c| c.addr == addr)
+            .map_or(LinkKind::Wifi, |c| c.kind);
+        let conn = QuicProber::handle(&quic).with_qos(self.qos.get(kind));
         let client = Arc::new(PeerClient::open(&conn, self.me).await?);
         Ok(AgentSession {
             quic,
@@ -890,6 +952,24 @@ mod tests {
             link(LinkKind::Ethernet, "[fe80::1]:47770"),
         ];
         assert_eq!(default_bind(1, &mixed), "[::]:1".parse().unwrap());
+    }
+
+    #[test]
+    fn an_incoming_connection_takes_the_kind_of_its_static_address_or_wifi() {
+        let statics = [
+            link(LinkKind::Usb4, "10.77.1.2:47770"),
+            link(LinkKind::Ethernet, "[fe80::1]:47770"),
+        ];
+        let from = |a: &str| kind_of_remote(&statics, a.parse().unwrap());
+        // El puerto de origen no importa: el otro agente puede salir por otro.
+        assert_eq!(from("10.77.1.2:52000"), LinkKind::Usb4);
+        assert_eq!(from("[::ffff:10.77.1.2]:47770"), LinkKind::Usb4);
+        assert_eq!(from("[fe80::1]:1"), LinkKind::Ethernet);
+        assert_eq!(from("192.168.1.20:47770"), LinkKind::Wifi);
+        assert_eq!(
+            kind_of_remote(&[], "10.77.1.2:1".parse().unwrap()),
+            LinkKind::Wifi
+        );
     }
 
     #[test]

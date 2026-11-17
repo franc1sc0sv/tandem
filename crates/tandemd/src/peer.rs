@@ -15,6 +15,7 @@ use std::sync::Arc;
 
 use tandem_core::{Machine, State, Step};
 use tandem_link::manager::{LinkKind, Snapshot};
+use tandem_link::qos::StreamClass;
 use tandem_link::transport::{Connection, ControlStream, TransportError};
 use tandem_proto::{Channel, ControlMsg, Hello, Peer, ProtoError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -272,12 +273,15 @@ async fn respond<C: ControlChannel>(
 
 /// Abre un stream propio de `channel` sobre una conexión con el otro agente
 /// ([`ControlMsg::Open`]); el otro lado lo entrega con [`crate::agent::PeerInbox`].
+/// Cada canal tiene su prioridad ([`StreamClass::of`]): las teclas no esperan detrás de
+/// una imagen del portapapeles.
 pub async fn open_channel(
     conn: &Connection,
     me: Machine,
     channel: Channel,
 ) -> Result<ControlStream, PeerError> {
     let (mut stream, theirs) = conn.open_control(&Hello::new(Peer::Agent(me))).await?;
+    stream.set_class(StreamClass::of(channel))?;
     check_peer(me, theirs.peer)?;
     stream.send(&ControlMsg::Open(channel)).await?;
     Ok(stream)
@@ -327,6 +331,10 @@ async fn serve_stream(
         Err(e) => return Err(e.to_string()),
     };
     if let ControlMsg::Open(channel) = first {
+        // La prioridad es de quien escribe: lo que este lado mande por el canal también.
+        if let Err(e) = stream.set_class(StreamClass::of(channel)) {
+            return Err(e.to_string());
+        }
         agent.inbox().deliver(IncomingChannel {
             channel,
             conn,

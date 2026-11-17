@@ -145,38 +145,45 @@ mod tests {
             proptest::collection::vec("[a-z]{1,6}", 0..3),
             (any::<bool>(), any::<bool>(), any::<bool>()),
             proptest::collection::btree_map("[a-z]{1,6}", any::<bool>(), 0..3),
+            (1u8..=100, proptest::option::of(1u32..10_000)),
         )
             .prop_map(
-                |((rev, at, by), screens, arrangement, lock, scenes, prefs, modules)| DeskVersion {
-                    stamp: DeskStamp { rev, at, by },
-                    desk: tandem_core::Config {
-                        machines: tandem_core::Machines {
-                            a: Some(tandem_core::MachineInfo::new(
-                                Machine::A,
-                                tandem_core::Os::Windows,
-                                None,
-                            )),
-                            b: None,
+                |((rev, at, by), screens, arrangement, lock, scenes, prefs, modules, data)| {
+                    DeskVersion {
+                        stamp: DeskStamp { rev, at, by },
+                        desk: tandem_core::Config {
+                            machines: tandem_core::Machines {
+                                a: Some(tandem_core::MachineInfo::new(
+                                    Machine::A,
+                                    tandem_core::Os::Windows,
+                                    None,
+                                )),
+                                b: None,
+                            },
+                            screens,
+                            arrangement,
+                            scenes: scenes
+                                .into_iter()
+                                .map(|id| Scene {
+                                    name: id.clone(),
+                                    id,
+                                })
+                                .collect(),
+                            shortcuts: Shortcuts { lock },
+                            prefs: InputPrefs {
+                                cmd_ctrl: prefs.0,
+                                drag_files: prefs.1,
+                            },
+                            modules: tandem_core::Modules {
+                                a: modules,
+                                b: Default::default(),
+                            },
+                            data: tandem_core::DataPrefs {
+                                wifi_cap_percent: data.0,
+                                wifi_cap_mbps: data.1,
+                            },
                         },
-                        screens,
-                        arrangement,
-                        scenes: scenes
-                            .into_iter()
-                            .map(|id| Scene {
-                                name: id.clone(),
-                                id,
-                            })
-                            .collect(),
-                        shortcuts: Shortcuts { lock },
-                        prefs: InputPrefs {
-                            cmd_ctrl: prefs.0,
-                            drag_files: prefs.1,
-                        },
-                        modules: tandem_core::Modules {
-                            a: modules,
-                            b: Default::default(),
-                        },
-                    },
+                    }
                 },
             )
     }

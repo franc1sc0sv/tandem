@@ -795,3 +795,45 @@ async fn a_local_setting_moved_to_the_desk_does_not_leave_the_machines_apart() {
     a.stop().await;
     b.stop().await;
 }
+
+/// T-101: un cambio de `[data]` llega al `Qos` de todas las conexiones, también a la que
+/// cada agente aceptó del otro (comparten el `Qos` de su camino).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_wifi_data_cap_reaches_the_connections_already_open() {
+    use tandem_link::manager::LinkKind;
+
+    let (a_id, b_id) = sides(Identity::from_seed([7; 32]), Identity::from_seed([8; 32]));
+    let (a_port, b_port) = (free_port(), free_port());
+    let a = start(Machine::A, &a_id, a_port, Some((b_id.public_key(), b_port))).await;
+    let b = start(Machine::B, &b_id, b_port, Some((a_id.public_key(), a_port))).await;
+    until_peer(&a.agent, paired("B", Some(Link::Usb4))).await;
+    until_peer(&b.agent, paired("A", Some(Link::Usb4))).await;
+    until_both_known(&a, &b).await;
+
+    // Las conexiones ya están abiertas (cada una la suya y la que aceptó de la otra) y usan
+    // el `Qos` de su camino, el mismo que se pide aquí.
+    let b_usb4 = b.agent.link_qos().get(LinkKind::Usb4);
+    let b_wifi = b.agent.link_qos().get(LinkKind::Wifi);
+    let before = b_wifi.cap().unwrap();
+
+    let data = tandem_core::DataPrefs {
+        wifi_cap_percent: 10,
+        wifi_cap_mbps: None,
+    };
+    let desk = a
+        .agent
+        .edit_desk(tandem_core::DeskPatch::Data(data))
+        .unwrap();
+    assert_eq!(desk.data, data);
+    until_desk(&b, &desk).await;
+    within(async {
+        while b_usb4.prefs() != desk.data || a.agent.link_qos().prefs() != desk.data {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    assert_eq!(b_wifi.prefs(), desk.data);
+    assert_eq!(b_wifi.cap(), Some(before / 5));
+    a.stop().await;
+    b.stop().await;
+}

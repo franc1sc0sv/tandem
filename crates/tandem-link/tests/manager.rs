@@ -10,8 +10,7 @@ use std::time::{Duration, Instant};
 use tandem_core::Machine;
 use tandem_link::identity::{Identity, PublicKey};
 use tandem_link::manager::{
-    HealthConfig, LinkCandidate, LinkEvent, LinkKind, LinkManager, PlaneError, QuicProber,
-    answer_pings,
+    HealthConfig, LinkCandidate, LinkEvent, LinkKind, LinkManager, QuicProber, answer_pings,
 };
 use tandem_link::transport::{Connection, Endpoint, PeerTrust};
 use tandem_proto::{Hello, Peer};
@@ -178,7 +177,6 @@ async fn caída_y_vuelta_del_enlace_preferido() {
     let took = desk.until_active(Some(Ethernet)).await;
     println!("USB4 → Ethernet en {took:?}");
     assert!(took < MAX_SWITCH, "conmutó en {took:?}");
-    assert!(desk.manager.data_plane_available());
 
     desk.relay(Usb4).plug(true);
     let took = desk.until_active(Some(Usb4)).await;
@@ -201,22 +199,17 @@ async fn caída_y_vuelta_del_enlace_preferido() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn con_solo_wifi_no_hay_plano_de_datos() {
+async fn con_solo_wifi_todo_va_por_wifi() {
     use LinkKind::*;
     let mut desk = Desk::new(&[Ethernet, Wifi]).await;
     desk.relay(Ethernet).plug(false);
     desk.until_active(Some(Wifi)).await;
-    // Ethernet nunca respondió, así que Wi-Fi sigue activo.
-    assert_eq!(desk.manager.active().unwrap().kind, Wifi);
-
-    assert!(!desk.manager.data_plane_available());
-    assert_eq!(
-        desk.manager.data_plane().err(),
-        Some(PlaneError::RequiresCable { active: Wifi })
-    );
-    assert_eq!(desk.manager.control_plane().unwrap().kind, Wifi);
+    // Ethernet nunca respondió, así que Wi-Fi sigue activo, y para todo (DECISIONS A2).
+    let wifi = desk.manager.active().unwrap();
+    assert_eq!(wifi.kind, Wifi);
+    assert!(wifi.handle.max_datagram_size().is_some());
 
     desk.relay(Ethernet).plug(true);
     desk.until_active(Some(Ethernet)).await;
-    assert_eq!(desk.manager.data_plane().unwrap().kind, Ethernet);
+    assert_eq!(desk.manager.active().unwrap().kind, Ethernet);
 }

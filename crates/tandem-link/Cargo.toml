@@ -15,16 +15,16 @@ rcgen.workspace = true
 rustls.workspace = true
 serde.workspace = true
 sha2.workspace = true
+tandem-core = { path = "../tandem-core" }
 tandem-proto = { path = "../tandem-proto" }
 thiserror.workspace = true
-tokio = { workspace = true, features = ["macros", "net", "rt", "time", "sync"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "time", "sync"] }
 toml.workspace = true
 tracing.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
-tandem-core = { path = "../tandem-core" }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }
 

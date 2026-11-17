@@ -7,7 +7,9 @@
 
 use std::path::Path;
 
-use tandem_core::{Align, DeskVersion, Machine, MachineInfo, Machines, ScreenSpec, Side};
+use tandem_core::{
+    Align, DataPrefs, DeskVersion, Machine, MachineInfo, Machines, ScreenSpec, Side,
+};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
 use crate::config::AgentConfig;
@@ -128,7 +130,7 @@ pub fn set_keyboard(path: &Path, machine: Machine) -> Result<(), ConfigEditError
 /// El puesto compartido de `sync` sobre el texto de `tandem.toml` (T-084, T-099): los
 /// `[[screens]]` (se actualizan en su lugar los que ya estaban, se agregan los nuevos al
 /// final y se quitan los que ya no están), `[machines]`, `[arrangement]`, `[[scenes]]`,
-/// `[shortcuts]`, `[prefs]`, `[modules]` y el sello (`desk_rev`, `desk_at`, `desk_origin`,
+/// `[shortcuts]`, `[prefs]`, `[modules]`, `[data]` y el sello (`desk_rev`, `desk_at`, `desk_origin`,
 /// `desk_sum`). Lo solo-local (máquina, red, energía, `[input]`) no se toca. Los
 /// `[[monitors]]` de v0.1 y lo del puesto que antes vivía en `[input]` se borran.
 ///
@@ -208,6 +210,7 @@ pub fn with_desk(
     prefs.insert("drag_files", toml_edit::value(desk.prefs.drag_files));
     prefs.remove("clipboard");
     fill_modules(&mut doc, &desk.modules)?;
+    fill_data(&mut doc, &desk.data)?;
     // Lo que antes guardaba el puesto en `[input]`.
     if let Some(input) = doc.get_mut("input").and_then(Item::as_table_like_mut) {
         input.remove("lock_shortcut");
@@ -241,6 +244,28 @@ fn section<'a>(
         .or_insert_with(|| Item::Table(Table::new()))
         .as_table_like_mut()
         .ok_or_else(|| ConfigEditError::Invalid(format!("[{name}] no es una tabla")))
+}
+
+/// `[data]`: el tope de los datos por Wi-Fi (T-101). Con los valores de omisión y sin la
+/// tabla en el archivo, no se agrega.
+fn fill_data(doc: &mut DocumentMut, data: &DataPrefs) -> Result<(), ConfigEditError> {
+    if *data == DataPrefs::default() && !doc.contains_key("data") {
+        return Ok(());
+    }
+    let t = section(doc, "data")?;
+    t.insert(
+        "wifi_cap_percent",
+        toml_edit::value(i64::from(data.wifi_cap_percent)),
+    );
+    match data.wifi_cap_mbps {
+        Some(m) => {
+            t.insert("wifi_cap_mbps", toml_edit::value(i64::from(m)));
+        }
+        None => {
+            t.remove("wifi_cap_mbps");
+        }
+    }
+    Ok(())
 }
 
 fn side_str(side: Side) -> &'static str {
@@ -518,6 +543,31 @@ scale = 2.0
     }
 
     #[test]
+    fn the_wifi_data_cap_travels_with_the_desk() {
+        // Con los valores de omisión no aparece una tabla nueva.
+        let plain = with_desk(PC, Machine::B, &sync_of(PC, 2)).unwrap();
+        assert!(!plain.contains("[data]"));
+
+        let mut sync = sync_of(PC, 3);
+        sync.desk.data = DataPrefs {
+            wifi_cap_percent: 30,
+            wifi_cap_mbps: Some(80),
+        };
+        let out = with_desk(PC, Machine::B, &sync).unwrap();
+        let cfg = AgentConfig::from_toml(&out).unwrap();
+        assert_eq!(cfg.desk.data, sync.desk.data);
+
+        // Volver al porcentaje quita el tope fijo.
+        sync.desk.data.wifi_cap_mbps = None;
+        let back = with_desk(&out, Machine::B, &sync).unwrap();
+        assert!(!back.contains("wifi_cap_mbps"));
+        assert_eq!(
+            AgentConfig::from_toml(&back).unwrap().desk.data,
+            sync.desk.data
+        );
+    }
+
+    #[test]
     fn the_keyboard_is_saved_without_touching_the_rest() {
         let text = format!("{PC}\n[input]\nserver = \"a\"\n\n[prefs]\ndrag_files = false\n");
         let out = with_keyboard(&text, Machine::B).unwrap();
@@ -679,9 +729,10 @@ scale = 2.0
             proptest::sample::subsequence(vec!["ScrollLock", "ControlLeft", "KeyL"], 0..=3),
             (any::<bool>(), any::<bool>(), any::<bool>()),
             proptest::collection::btree_map("[a-z]{1,6}", any::<bool>(), 0..3),
+            (1u8..=100, proptest::option::of(1u32..10_000)),
         )
             .prop_map(
-                |((a, b), screens, arrangement, scenes, lock, prefs, modules)| {
+                |((a, b), screens, arrangement, scenes, lock, prefs, modules, data)| {
                     let mut seen = std::collections::BTreeSet::new();
                     Config {
                         machines: Machines { a, b },
@@ -707,6 +758,10 @@ scale = 2.0
                         modules: tandem_core::Modules {
                             a: modules.clone(),
                             b: modules.into_iter().map(|(k, v)| (k, !v)).collect(),
+                        },
+                        data: DataPrefs {
+                            wifi_cap_percent: data.0,
+                            wifi_cap_mbps: data.1,
                         },
                     }
                 },

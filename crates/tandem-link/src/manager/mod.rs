@@ -10,9 +10,9 @@
 //! una transacción en curso ([`LinkManager::hold`]). Cada cambio sale como
 //! [`LinkEvent`], en orden.
 //!
-//! El plano de datos solo existe sobre cable: [`LinkManager::data_plane`]
-//! devuelve [`PlaneError::RequiresCable`] si el activo es Wi-Fi, y no hay
-//! opción para forzarlo.
+//! Todo el tráfico va por el activo, también los datos (DECISIONS A2): lo que los
+//! frena en Wi-Fi para cuidar la entrada es el [`Qos`](crate::qos::Qos) de cada
+//! conexión, no el gestor.
 
 mod kind;
 mod probe;
@@ -28,7 +28,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::{JoinHandle, JoinSet};
 use tokio::time::{self, Instant, MissedTickBehavior};
 
-pub use kind::{LinkCandidate, LinkKind, Plane, PlaneError, check_plane};
+pub use kind::{LinkCandidate, LinkKind};
 pub use probe::Prober;
 pub use quic::{QuicProber, QuicSession, answer_pings};
 pub use table::{LinkEvent, LinkStatus};
@@ -85,14 +85,6 @@ pub struct Snapshot<H> {
     pub active: Option<ActiveLink<H>>,
     /// Todos los enlaces configurados, en orden de prioridad.
     pub links: Vec<LinkStatus>,
-}
-
-impl<H> Snapshot<H> {
-    pub fn data_plane_available(&self) -> bool {
-        self.active
-            .as_ref()
-            .is_some_and(|a| a.kind.allows(Plane::Data))
-    }
 }
 
 /// Gestor en marcha. Al soltarlo se detienen los pings y se cierran las
@@ -182,7 +174,6 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
                     tracing::info!(
                         from = ?e.from,
                         to = ?e.to,
-                        data_plane = e.data_plane,
                         "cambio de enlace activo"
                     );
                     // Si nadie escucha los eventos, el gestor sigue igual.
@@ -221,28 +212,6 @@ impl<H: Clone> LinkManager<H> {
 
     pub fn links(&self) -> Vec<LinkStatus> {
         self.state.borrow().links.clone()
-    }
-
-    /// Si ahora hay un enlace de cable sano para el plano de datos.
-    pub fn data_plane_available(&self) -> bool {
-        self.state.borrow().data_plane_available()
-    }
-
-    /// Enlace para `plane`, o por qué no lo hay.
-    pub fn plane(&self, plane: Plane) -> Result<ActiveLink<H>, PlaneError> {
-        let state = self.state.borrow();
-        check_plane(plane, state.active.as_ref().map(|a| a.kind))?;
-        state.active.clone().ok_or(PlaneError::NoLink)
-    }
-
-    pub fn control_plane(&self) -> Result<ActiveLink<H>, PlaneError> {
-        self.plane(Plane::Control)
-    }
-
-    /// El enlace para el plano de datos. Con solo Wi-Fi activo devuelve
-    /// [`PlaneError::RequiresCable`].
-    pub fn data_plane(&self) -> Result<ActiveLink<H>, PlaneError> {
-        self.plane(Plane::Data)
     }
 }
 
