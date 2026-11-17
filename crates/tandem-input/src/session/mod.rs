@@ -36,6 +36,7 @@ use std::time::Duration;
 
 pub use client::ClientSession;
 pub use follow::{Follow, FollowConfig};
+pub use latency::Captured;
 pub use msg::{Datagram, MotionDatagram, StreamMsg};
 pub use quic::{ClientDriver, ServerDriver, SessionEnd};
 pub use server::{ServerOutput, ServerSession};

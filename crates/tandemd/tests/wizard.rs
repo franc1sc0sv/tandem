@@ -3,7 +3,7 @@
 //! y sus permisos, (2) emparejar y ver el ping del enlace, (3) «presiona una tecla» y (4)
 //! el resumen. Solo los pasos de cada máquina son simulados.
 
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +16,7 @@ use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::NetOptions;
 use tandemd::orchestrator::{LocalSteps, StepFuture};
 use tandemd::paths::Paths;
+use tandemd::test_ports::{PortTaken, port_taken};
 use tandemd::{Agent, AgentConfig, StoreError, autoconfig};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -44,14 +45,6 @@ impl LocalSteps for Ok_ {
     fn execute<'a>(&'a self, _step: &'a Step) -> StepFuture<'a> {
         Box::pin(async { Ok(()) })
     }
-}
-
-fn free_port() -> u16 {
-    UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
 }
 
 fn loopback(port: u16) -> SocketAddr {
@@ -83,7 +76,7 @@ async fn start(
     identity: &Identity,
     port: u16,
     peer: (PublicKey, u16),
-) -> Running {
+) -> Result<Running, PortTaken> {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -111,11 +104,7 @@ async fn start(
         tandem_core::Config::default(),
         "instalación limpia"
     );
-    let Daemon {
-        agent,
-        network,
-        input,
-    } = daemon::start(
+    let started = daemon::start(
         cfg,
         &paths,
         Backends::Custom {
@@ -126,10 +115,16 @@ async fn start(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
+            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            fallback_ports: Vec::new(),
             ..NetOptions::default()
         },
-    )
-    .unwrap();
+    );
+    let Daemon {
+        agent,
+        network,
+        input,
+    } = port_taken(started).unwrap()?;
     let (listener, connector) = mem::pair();
     let (stop, stopped) = oneshot::channel::<()>();
     let task = tokio::spawn(
@@ -145,22 +140,23 @@ async fn start(
     let ui = IpcClient::handshake(connector.connect().unwrap())
         .await
         .unwrap();
-    Running {
+    Ok(Running {
         agent,
         ui,
         config: paths.config.clone(),
         stop: Some(stop),
         task,
         _dir: dir,
-    }
+    })
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn el_asistente_reducido_de_punta_a_punta() {
     let (mac_id, pc_id) = sides(Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
-    let mut mac = start(Machine::A, &mac_id, mac_port, (pc_id.public_key(), pc_port)).await;
-    let mut pc = start(Machine::B, &pc_id, pc_port, (mac_id.public_key(), mac_port)).await;
+    let (mut mac, mut pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(Machine::A, &mac_id, mac_port, (pc_id.public_key(), pc_port)),
+        start(Machine::B, &pc_id, pc_port, (mac_id.public_key(), mac_port))
+    );
 
     // (1) Esta máquina y sus permisos: lo que puede y el proceso al que darle permisos.
     let Reply::Capabilities(caps) = mac.ui.request(UiCommand::GetCapabilities).await.unwrap()

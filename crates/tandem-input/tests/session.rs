@@ -12,8 +12,8 @@ use tandem_input::event::KeyState;
 use tandem_input::geometry::{Arrangement, Layout, LayoutOptions, Point, Rect, Screen, Side};
 use tandem_input::session::fake::{CaptureCall, FakeCapture, FakeInjector};
 use tandem_input::session::{
-    ClientDriver, ClientSession, ServerDriver, ServerOutput, ServerSession, SessionConfig,
-    SessionEnd,
+    Captured, ClientDriver, ClientSession, ServerDriver, ServerOutput, ServerSession,
+    SessionConfig, SessionEnd,
 };
 use tandem_input::{Button, HidUsage, InputEvent, Scroll};
 use tandem_link::identity::{Identity, PublicKey};
@@ -177,7 +177,7 @@ impl<D> Running<D> {
 
 fn spawn_server(
     conn: Connection,
-    events: mpsc::UnboundedReceiver<InputEvent>,
+    events: mpsc::UnboundedReceiver<Captured>,
 ) -> (
     Running<ServerDriver<FakeCapture>>,
     watch::Receiver<Vec<CaptureCall>>,
@@ -323,7 +323,7 @@ async fn una_secuencia_de_eventos_llega_integra_y_en_orden() {
     // En tandas, como llegarían de la captura.
     for chunk in script.chunks(7) {
         for e in chunk {
-            tx.send(*e).unwrap();
+            tx.send(Captured::now(*e)).unwrap();
         }
         tokio::task::yield_now().await;
     }
@@ -367,7 +367,7 @@ async fn una_secuencia_de_eventos_llega_integra_y_en_orden() {
 /// Cruza a la Mac y deja la tecla `S` presionada; espera a que el cliente la
 /// inyecte.
 async fn hold_s(
-    tx: &mpsc::UnboundedSender<InputEvent>,
+    tx: &mpsc::UnboundedSender<Captured>,
     injected: &mut watch::Receiver<Vec<InputEvent>>,
 ) {
     for e in [
@@ -375,7 +375,7 @@ async fn hold_s(
         key(0xE0, KeyState::Pressed),
         key(0x16, KeyState::Pressed),
     ] {
-        tx.send(e).unwrap();
+        tx.send(Captured::now(e)).unwrap();
     }
     within(injected.wait_for(|ev| ev.contains(&key(0x16, KeyState::Pressed))))
         .await
@@ -496,7 +496,7 @@ async fn lo_capturado_sin_enlace_no_cruza_al_empezar_la_sesion() {
             dy_v120: -120,
         }),
     ] {
-        tx.send(e).unwrap();
+        tx.send(Captured::now(e)).unwrap();
     }
     let (server, calls, mut active) = spawn_server(l.server.clone(), rx);
     let (client, mut injected) = spawn_client(l.client.clone());
@@ -504,9 +504,11 @@ async fn lo_capturado_sin_enlace_no_cruza_al_empezar_la_sesion() {
 
     // Ya con enlace: una tecla con el foco todavía local (no viaja), después el
     // cruce de verdad y otra tecla.
-    tx.send(key(0x04, KeyState::Pressed)).unwrap();
-    tx.send(rel(60.0, 0.0)).unwrap();
-    tx.send(key(0x05, KeyState::Pressed)).unwrap();
+    tx.send(Captured::now(key(0x04, KeyState::Pressed)))
+        .unwrap();
+    tx.send(Captured::now(rel(60.0, 0.0))).unwrap();
+    tx.send(Captured::now(key(0x05, KeyState::Pressed)))
+        .unwrap();
     let events = within(injected.wait_for(|ev| ev.contains(&key(0x05, KeyState::Pressed))))
         .await
         .unwrap()
@@ -557,7 +559,7 @@ async fn sin_enlace_lo_capturado_se_consume_sin_cruzar() {
         },
         rel(60.0, 0.0),
     ] {
-        tx.send(e).unwrap();
+        tx.send(Captured::now(e)).unwrap();
     }
     // Lo que ya estaba en el canal se consume antes de que `until` se cumpla.
     let r = within(driver.idle(tokio::time::sleep(Duration::from_millis(50)))).await;
@@ -615,14 +617,16 @@ async fn la_latencia_se_mide_en_el_cliente_y_llega_al_servidor() {
     // Dos latidos con eco antes de medir: sin desfase estimado no se mide nada.
     tokio::time::sleep(cfg().heartbeat_interval * 3).await;
 
-    tx.send(rel(60.0, 0.0)).unwrap();
+    tx.send(Captured::now(rel(60.0, 0.0))).unwrap();
     let moves = 100usize;
     for _ in 0..moves {
-        tx.send(rel(1.0, 0.0)).unwrap();
+        tx.send(Captured::now(rel(1.0, 0.0))).unwrap();
         tokio::time::sleep(Duration::from_millis(3)).await;
     }
-    tx.send(key(0x04, KeyState::Pressed)).unwrap();
-    tx.send(key(0x04, KeyState::Released)).unwrap();
+    tx.send(Captured::now(key(0x04, KeyState::Pressed)))
+        .unwrap();
+    tx.send(Captured::now(key(0x04, KeyState::Released)))
+        .unwrap();
     within(injected.wait_for(|e| e.iter().filter(|e| is_discrete(e)).count() == 2))
         .await
         .unwrap();
@@ -654,6 +658,99 @@ async fn la_latencia_se_mide_en_el_cliente_y_llega_al_servidor() {
     // Loopback: holgado para un runner cargado.
     let p99 = all[all.len() * 99 / 100];
     assert!(p99 < Duration::from_millis(50), "p99 {p99:?}");
+
+    let _ = stop_s.send(());
+    let _ = stop_c.send(());
+    within(s).await.unwrap();
+    within(c).await.unwrap();
+    l.server_ep.close();
+    l.client_ep.close();
+}
+
+/// Captura que tarda en tomar la entrada: mientras tanto el driver está ocupado y lo que
+/// se captura espera en el canal.
+struct SlowCapture(Duration);
+
+impl tandem_input::session::Capture for SlowCapture {
+    type Error = std::convert::Infallible;
+
+    fn set_grab(&mut self, _grab: bool) -> Result<(), Self::Error> {
+        std::thread::sleep(self.0);
+        Ok(())
+    }
+
+    fn warp(&mut self, _pos: Point) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+/// T-093 (revisión): la latencia cuenta desde la captura, no desde que el driver saca el
+/// evento del canal. Con el driver ocupado 60 ms (tomar la entrada al cruzar), lo que se
+/// capturó mientras tanto llega con esa espera en la muestra.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn la_latencia_incluye_la_espera_con_el_driver_ocupado() {
+    let busy = Duration::from_millis(60);
+    let l = link().await;
+    let (tx, rx) = mpsc::unbounded_channel();
+    let mut server = ServerDriver::new(server_session(), SlowCapture(busy), rx, cfg());
+    let mut active = server.active();
+    let samples = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = samples.clone();
+    let mut client = ClientDriver::new(
+        ClientSession::new(mac_screens()),
+        FakeInjector::new(),
+        cfg(),
+    )
+    .on_latency_sample(move |d| seen.lock().unwrap().push(d));
+    let (stop_s, stop_rx_s) = oneshot::channel::<()>();
+    let (stop_c, stop_rx_c) = oneshot::channel::<()>();
+    let conn = l.server.clone();
+    let s = tokio::spawn(async move {
+        let hello = Hello::new(Peer::Agent(Machine::B));
+        server
+            .run(&conn, &hello, async {
+                let _ = stop_rx_s.await;
+            })
+            .await
+    });
+    let conn = l.client.clone();
+    let c = tokio::spawn(async move {
+        let hello = Hello::new(Peer::Agent(Machine::A));
+        client
+            .run(&conn, &hello, async {
+                let _ = stop_rx_c.await;
+            })
+            .await
+    });
+    up(&mut active).await;
+    // Latidos con eco antes de medir.
+    tokio::time::sleep(cfg().heartbeat_interval * 3).await;
+
+    // Cruzar ocupa al driver tomando la entrada; lo que sigue espera en el canal.
+    // Lo que sigue se captura desde otro hilo, como el del hook o el tap: el driver
+    // ocupado puede tener tomado el hilo del runtime donde corre la prueba.
+    tx.send(Captured::now(rel(60.0, 0.0))).unwrap();
+    let more = tx.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(5));
+        for _ in 0..5 {
+            more.send(Captured::now(rel(1.0, 0.0))).unwrap();
+        }
+    })
+    .join()
+    .unwrap();
+    within(async {
+        while samples.lock().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    let worst = samples.lock().unwrap().iter().copied().max().unwrap();
+    // Se capturó ~5 ms después de que el driver empezó a esperar 60 ms.
+    assert!(
+        worst >= Duration::from_millis(40),
+        "la muestra no cuenta la espera en el canal: {worst:?}"
+    );
 
     let _ = stop_s.send(());
     let _ = stop_c.send(());

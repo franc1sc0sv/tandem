@@ -5,7 +5,7 @@
 //! A diferencia del resto de `tandem-sim`, aquí el reloj es el real: lo que se mide es
 //! tiempo de verdad.
 
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,6 +19,7 @@ use tandemd::ipc::mem;
 use tandemd::network::NetOptions;
 use tandemd::orchestrator::{LocalSteps, StepFuture};
 use tandemd::paths::Paths;
+use tandemd::test_ports::{PortTaken, port_taken, two_ports};
 use tandemd::{Agent, AgentConfig};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -91,13 +92,6 @@ pub struct InputPair {
     pub b: SimAgent,
 }
 
-fn free_port() -> Result<u16, SimError> {
-    UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
-        .and_then(|s| s.local_addr())
-        .map(|a| a.port())
-        .map_err(|e| SimError::Setup(e.to_string()))
-}
-
 fn loopback(port: u16) -> SocketAddr {
     SocketAddr::from((Ipv4Addr::LOCALHOST, port))
 }
@@ -105,39 +99,40 @@ fn loopback(port: u16) -> SocketAddr {
 impl InputPair {
     /// Arranca las dos con estas pantallas (las que lee cada una) y estos tiempos. El
     /// teclado arranca en `A`; el enlace es «USB4» (en loopback).
+    ///
+    /// Las identidades son nuevas en cada par: dos bancos que corren a la vez (otra suite,
+    /// otro checkout) no se pueden confundir de agente aunque se crucen de puerto. Los
+    /// puertos se abren sin reserva y, si otra suite tomó alguno, se eligen otros
+    /// ([`tandemd::test_ports`]).
     pub async fn start(
         screens_a: Vec<tandem_input::Screen>,
         screens_b: Vec<tandem_input::Screen>,
         opts: InputOptions,
     ) -> Result<Self, SimError> {
-        let (x, y) = (Identity::from_seed([71; 32]), Identity::from_seed([72; 32]));
+        let setup = |e: &dyn std::fmt::Display| SimError::Setup(e.to_string());
+        let (x, y) = (
+            Identity::generate().map_err(|e| setup(&e))?,
+            Identity::generate().map_err(|e| setup(&e))?,
+        );
         let (id_a, id_b) = if x.public_key().as_bytes() < y.public_key().as_bytes() {
             (x, y)
         } else {
             (y, x)
         };
-        let (port_a, port_b) = (free_port()?, free_port()?);
-        let a = start_one(
-            Machine::A,
-            &id_a,
-            &id_b,
-            port_a,
-            port_b,
-            FakeInputBackends::new(screens_a),
-            opts,
-        )
-        .await?;
-        let b = start_one(
-            Machine::B,
-            &id_b,
-            &id_a,
-            port_b,
-            port_a,
-            FakeInputBackends::new(screens_b),
-            opts,
-        )
-        .await?;
-        Ok(InputPair { a, b })
+        for _ in 0..tandemd::test_ports::ATTEMPTS {
+            let (port_a, port_b) = two_ports().map_err(|e| setup(&e))?;
+            let fake_a = FakeInputBackends::new(screens_a.clone());
+            let Ok(a) = start_one(Machine::A, &id_a, &id_b, port_a, port_b, fake_a, opts).await?
+            else {
+                continue;
+            };
+            let fake_b = FakeInputBackends::new(screens_b.clone());
+            match start_one(Machine::B, &id_b, &id_a, port_b, port_a, fake_b, opts).await? {
+                Ok(b) => return Ok(InputPair { a, b }),
+                Err(PortTaken) => a.stop().await,
+            }
+        }
+        Err(SimError::Setup("no se encontraron puertos libres".into()))
     }
 
     pub async fn stop(self) {
@@ -154,7 +149,7 @@ async fn start_one(
     peer_port: u16,
     fake: FakeInputBackends,
     opts: InputOptions,
-) -> Result<SimAgent, SimError> {
+) -> Result<Result<SimAgent, PortTaken>, SimError> {
     let setup = |e: &dyn std::fmt::Display| SimError::Setup(e.to_string());
     let dir = tempfile::tempdir().map_err(|e| setup(&e))?;
     let paths = Paths {
@@ -179,11 +174,7 @@ async fn start_one(
         Machine::A => Os::MacOs,
         Machine::B => Os::Windows,
     };
-    let Daemon {
-        agent,
-        network,
-        input,
-    } = daemon::start(
+    let started = daemon::start(
         cfg,
         &paths,
         Backends::Custom {
@@ -197,10 +188,19 @@ async fn start_one(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
+            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            fallback_ports: Vec::new(),
             ..NetOptions::default()
         },
-    )
-    .map_err(|e| setup(&e))?;
+    );
+    let Daemon {
+        agent,
+        network,
+        input,
+    } = match port_taken(started).map_err(|e| setup(&e))? {
+        Ok(d) => d,
+        Err(PortTaken) => return Ok(Err(PortTaken)),
+    };
     let (listener, _connector) = mem::pair();
     let (stop, stopped) = oneshot::channel::<()>();
     let daemon = Daemon {
@@ -215,11 +215,11 @@ async fn start_one(
             })
             .await;
     });
-    Ok(SimAgent {
+    Ok(Ok(SimAgent {
         agent,
         fake,
         stop: Some(stop),
         task: Some(task),
         _dir: dir,
-    })
+    }))
 }

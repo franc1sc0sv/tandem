@@ -108,6 +108,9 @@ fn backends(args: &RunArgs, paths: &Paths) -> (Backends, NetOptions) {
         tracing::warn!("backends simulados: esta máquina no toca la entrada ni la energía");
         let net = NetOptions {
             mdns: false,
+            // Las pruebas de dos procesos fijan los puertos de los dos: un puerto tomado
+            // tiene que fallar enseguida, no pasarse a uno que el otro no conoce.
+            fallback_ports: Vec::new(),
             ..NetOptions::default()
         };
         return (tandemd::sim::backends(&paths.data_dir), net);

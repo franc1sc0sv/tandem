@@ -2,7 +2,7 @@
 //! enciende o apaga en la otra llega por el plano de control, y las dos UIs ven el estado
 //! nuevo en [`AgentToUi::Machines`].
 
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,6 +14,7 @@ use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::NetOptions;
 use tandemd::orchestrator::{LocalSteps, StepFuture};
 use tandemd::paths::Paths;
+use tandemd::test_ports::{PortTaken, port_taken};
 use tandemd::{AgentConfig, StoreError, autoconfig};
 use tokio::io::DuplexStream;
 use tokio::sync::oneshot;
@@ -42,14 +43,6 @@ impl LocalSteps for Ok_ {
     fn execute<'a>(&'a self, _step: &'a Step) -> StepFuture<'a> {
         Box::pin(async { Ok(()) })
     }
-}
-
-fn free_port() -> u16 {
-    UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
 }
 
 fn loopback(port: u16) -> SocketAddr {
@@ -100,7 +93,7 @@ async fn start(
     identity: &Identity,
     port: u16,
     peer: (PublicKey, u16),
-) -> Running {
+) -> Result<Running, PortTaken> {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -123,11 +116,7 @@ async fn start(
     );
     std::fs::write(&paths.config, &text).unwrap();
     let cfg = AgentConfig::load(&paths.config).unwrap();
-    let Daemon {
-        agent,
-        network,
-        input,
-    } = daemon::start(
+    let started = daemon::start(
         cfg,
         &paths,
         Backends::Custom {
@@ -138,10 +127,16 @@ async fn start(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
+            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            fallback_ports: Vec::new(),
             ..NetOptions::default()
         },
-    )
-    .unwrap();
+    );
+    let Daemon {
+        agent,
+        network,
+        input,
+    } = port_taken(started).unwrap()?;
     let (listener, connector) = mem::pair();
     let (stop, stopped) = oneshot::channel::<()>();
     let task = tokio::spawn(
@@ -157,12 +152,12 @@ async fn start(
     let ui = IpcClient::handshake(connector.connect().unwrap())
         .await
         .unwrap();
-    Running {
+    Ok(Running {
         ui,
         stop: Some(stop),
         task,
         _dir: dir,
-    }
+    })
 }
 
 fn module(caps: &Capabilities, id: ModuleId) -> ModuleState {
@@ -178,9 +173,10 @@ fn module(caps: &Capabilities, id: ModuleId) -> ModuleState {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn switching_a_remote_module_shows_in_both_uis() {
     let (a_id, b_id) = sides(Identity::from_seed([7; 32]), Identity::from_seed([8; 32]));
-    let (a_port, b_port) = (free_port(), free_port());
-    let mut a = start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)).await;
-    let mut b = start(Machine::B, &b_id, b_port, (a_id.public_key(), a_port)).await;
+    let (mut a, mut b) = tandemd::start_pair!(
+        |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
+        start(Machine::B, &b_id, b_port, (a_id.public_key(), a_port))
+    );
 
     // Hasta que A tiene enlace con B y conoce sus módulos (su anuncio llega al conectarse).
     within(async {

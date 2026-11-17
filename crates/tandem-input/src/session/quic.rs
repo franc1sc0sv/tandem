@@ -21,7 +21,7 @@ use tandem_proto::{Hello, InputLatency};
 use tokio::sync::{mpsc, watch};
 use tokio::time::{self, Instant, MissedTickBehavior};
 
-use super::latency::{Beats, Histogram, now_us};
+use super::latency::{Beats, Captured, Histogram, now_us};
 use super::msg::{Datagram, StreamMsg};
 use super::{Capture, ClientSession, Injector, ServerOutput, ServerSession, SessionConfig};
 use crate::event::InputEvent;
@@ -46,7 +46,7 @@ pub enum SessionEnd {
 pub struct ServerDriver<C> {
     session: ServerSession,
     capture: C,
-    events: mpsc::UnboundedReceiver<InputEvent>,
+    events: mpsc::UnboundedReceiver<Captured>,
     layouts: Option<watch::Receiver<Layout>>,
     active: watch::Sender<bool>,
     remote: watch::Sender<bool>,
@@ -80,7 +80,7 @@ impl<C: Capture> ServerDriver<C> {
     pub fn new(
         session: ServerSession,
         capture: C,
-        events: mpsc::UnboundedReceiver<InputEvent>,
+        events: mpsc::UnboundedReceiver<Captured>,
         cfg: SessionConfig,
     ) -> Self {
         Self {
@@ -155,7 +155,7 @@ impl<C: Capture> ServerDriver<C> {
                 ev = self.events.recv() => match ev {
                     Some(ev) => {
                         touch(&self.activity);
-                        self.session.catch_up(ev);
+                        self.session.catch_up(ev.event);
                         self.publish();
                     }
                     None => return Err(SessionEnd::CaptureClosed),
@@ -253,10 +253,11 @@ impl<C: Capture> ServerDriver<C> {
                     touch(activity);
                     // Se manda enseguida; solo se junta lo que llegó mientras se
                     // mandaba lo anterior (está en el canal): así se coalesce el
-                    // movimiento sin esperar a nadie.
-                    let mut outs = session.handle_at(ev, now_us());
+                    // movimiento sin esperar a nadie. Cada evento lleva la marca de cuando
+                    // se capturó: la espera en el canal cuenta en la latencia.
+                    let mut outs = session.handle_at(ev.event, ev.t_us);
                     while let Ok(ev) = events.try_recv() {
-                        outs.extend(session.handle_at(ev, now_us()));
+                        outs.extend(session.handle_at(ev.event, ev.t_us));
                     }
                     outs.extend(session.flush().map(ServerOutput::Datagram));
                     let sent = apply(capture, &mut stream, conn, outs).await;
@@ -329,12 +330,12 @@ fn publish(tx: &watch::Sender<bool>, value: bool) {
 /// Vacía lo que ya está en el canal sin esperar.
 fn catch_up(
     session: &mut ServerSession,
-    events: &mut mpsc::UnboundedReceiver<InputEvent>,
+    events: &mut mpsc::UnboundedReceiver<Captured>,
     activity: &watch::Sender<Option<Instant>>,
 ) {
     while let Ok(ev) = events.try_recv() {
         touch(activity);
-        session.catch_up(ev);
+        session.catch_up(ev.event);
     }
 }
 

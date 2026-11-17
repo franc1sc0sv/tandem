@@ -15,6 +15,7 @@ use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::NetOptions;
 use tandemd::orchestrator::{LocalSteps, StepFuture};
 use tandemd::paths::Paths;
+use tandemd::test_ports::{PortTaken, port_taken};
 use tandemd::{Agent, AgentConfig, StoreError};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -104,7 +105,7 @@ async fn start(
     identity: &Identity,
     port: u16,
     peer: Option<(PublicKey, u16)>,
-) -> Running {
+) -> Result<Running, PortTaken> {
     start_with(machine, identity, port, peer, "").await
 }
 
@@ -116,7 +117,7 @@ async fn start_with(
     port: u16,
     peer: Option<(PublicKey, u16)>,
     extra: &str,
-) -> Running {
+) -> Result<Running, PortTaken> {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -149,11 +150,7 @@ async fn start_with(
         Machine::B => tandem_core::Os::Windows,
     };
     let steps = Arc::new(Fake::default());
-    let Daemon {
-        agent,
-        network,
-        input,
-    } = daemon::start(
+    let started = daemon::start(
         cfg,
         &paths,
         Backends::Custom {
@@ -164,10 +161,16 @@ async fn start_with(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
+            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            fallback_ports: Vec::new(),
             ..NetOptions::default()
         },
-    )
-    .unwrap();
+    );
+    let Daemon {
+        agent,
+        network,
+        input,
+    } = port_taken(started).unwrap()?;
     assert_eq!(network.local_addr(), loopback(port));
     let (listener, connector) = mem::pair();
     let (stop, stopped) = oneshot::channel::<()>();
@@ -184,14 +187,14 @@ async fn start_with(
     let ui = IpcClient::handshake(connector.connect().unwrap())
         .await
         .unwrap();
-    Running {
+    Ok(Running {
         agent,
         steps,
         ui,
         stop: Some(stop),
         task,
         _dir: dir,
-    }
+    })
 }
 
 fn paired(name: &str, link: Option<Link>) -> PeerStatus {
@@ -209,21 +212,20 @@ async fn until_peer(agent: &Agent, want: PeerStatus) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn paired_agents_find_each_other_and_shut_down_the_pc() {
     let (mac_id, pc_id) = sides(Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
-    let mut mac = start(
-        Machine::A,
-        &mac_id,
-        mac_port,
-        Some((pc_id.public_key(), pc_port)),
-    )
-    .await;
-    let pc = start(
-        Machine::B,
-        &pc_id,
-        pc_port,
-        Some((mac_id.public_key(), mac_port)),
-    )
-    .await;
+    let (mut mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            Some((pc_id.public_key(), pc_port)),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            Some((mac_id.public_key(), mac_port)),
+        )
+    );
 
     // Cada uno ve al otro por el único enlace fijo, y la UI lo recibe.
     until_peer(&mac.agent, paired("B", Some(Link::Usb4))).await;
@@ -295,7 +297,7 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
 #[tokio::test]
 async fn unpaired_agent_works_alone_and_says_so() {
     let identity = Identity::from_seed([3; 32]);
-    let mut a = start(Machine::A, &identity, free_port(), None).await;
+    let mut a = tandemd::start_solo!(|port, _peer| start(Machine::A, &identity, port, None));
     assert_eq!(a.agent.peer_status(), PeerStatus::Unpaired);
     assert_eq!(
         a.ui.request(UiCommand::GetPeer).await.unwrap(),
@@ -352,14 +354,16 @@ const WOL: &str = "[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n";
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn power_on_waits_for_the_pc_agent() {
     let (mac_id, pc_id) = sides(Identity::from_seed([4; 32]), Identity::from_seed([5; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
-    let mut mac = start(
-        Machine::A,
-        &mac_id,
-        mac_port,
-        Some((pc_id.public_key(), pc_port)),
-    )
-    .await;
+    let (mut mac, mac_port, pc_port) = tandemd::start_solo!(|mac_port, pc_port| async {
+        let r = start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            Some((pc_id.public_key(), pc_port)),
+        )
+        .await;
+        r.map(|r| (r, mac_port, pc_port))
+    });
     assert_eq!(mac.agent.peer_status(), paired("B", None));
     let reply = mac
         .ui
@@ -379,13 +383,16 @@ async fn power_on_waits_for_the_pc_agent() {
     .await;
     assert!(!mac.agent.state().on.b);
 
+    // La PC arranca después, a propósito: si otra suite tomó su puerto mientras tanto,
+    // falla enseguida (sin puertos de reserva) en vez de colgarse.
     let pc = start(
         Machine::B,
         &pc_id,
         pc_port,
         Some((mac_id.public_key(), mac_port)),
     )
-    .await;
+    .await
+    .expect("el puerto de la PC se tomó mientras tanto");
     let state = within(async {
         loop {
             match mac.ui.next_event().await.unwrap().unwrap() {
@@ -515,21 +522,20 @@ async fn until_both_known(a: &Running, b: &Running) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_desk_changed_on_either_machine_reaches_the_other() {
     let (mac_id, pc_id) = sides(Identity::from_seed([5; 32]), Identity::from_seed([6; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
-    let mut mac = start(
-        Machine::A,
-        &mac_id,
-        mac_port,
-        Some((pc_id.public_key(), pc_port)),
-    )
-    .await;
-    let pc = start(
-        Machine::B,
-        &pc_id,
-        pc_port,
-        Some((mac_id.public_key(), mac_port)),
-    )
-    .await;
+    let (mut mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            Some((pc_id.public_key(), pc_port)),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            Some((mac_id.public_key(), mac_port)),
+        )
+    );
     until_peer(&mac.agent, paired("B", Some(Link::Usb4))).await;
     until_peer(&pc.agent, paired("A", Some(Link::Usb4))).await;
 
@@ -563,7 +569,7 @@ async fn the_desk_changed_on_either_machine_reaches_the_other() {
     }
     // Lo solo-local sigue siendo de cada una.
     assert_eq!(saved(&pc).machine, Machine::B);
-    assert_eq!(saved(&pc).network.port, pc_port);
+    assert_eq!(saved(&pc).network.port, pc.agent.config().network.port);
 
     // Al revés, desde la PC: vuelve el acomodo de siempre.
     let mut back = desk.clone();
@@ -597,14 +603,16 @@ async fn the_desk_changed_on_either_machine_reaches_the_other() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_change_made_while_the_other_was_away_arrives_on_reconnect() {
     let (mac_id, pc_id) = sides(Identity::from_seed([7; 32]), Identity::from_seed([8; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
-    let pc = start(
-        Machine::B,
-        &pc_id,
-        pc_port,
-        Some((mac_id.public_key(), mac_port)),
-    )
-    .await;
+    let (pc, mac_port, pc_port) = tandemd::start_solo!(|mac_port, pc_port| async {
+        let r = start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            Some((mac_id.public_key(), mac_port)),
+        )
+        .await;
+        r.map(|r| (r, mac_port, pc_port))
+    });
     // La Mac todavía no está: el cambio queda solo en la PC.
     let mut desk = pc.agent.desk();
     desk.arrangement = Some(tandem_core::Arrangement {
@@ -613,13 +621,16 @@ async fn a_change_made_while_the_other_was_away_arrives_on_reconnect() {
     });
     pc.agent.set_desk(desk.clone()).unwrap();
 
+    // La Mac arranca después, a propósito: si otra suite tomó su puerto mientras tanto,
+    // falla enseguida (sin puertos de reserva) en vez de colgarse.
     let mac = start(
         Machine::A,
         &mac_id,
         mac_port,
         Some((pc_id.public_key(), pc_port)),
     )
-    .await;
+    .await
+    .expect("el puerto de la Mac se tomó mientras tanto");
     until_layout(&mac, &desk).await;
     // Además del cambio, al conocerse se anotan las dos máquinas: una versión más.
     until_both_known(&mac, &pc).await;
@@ -667,9 +678,10 @@ async fn until_same_desk(a: &Running, b: &Running) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
     let (a_id, b_id) = sides(Identity::from_seed([41; 32]), Identity::from_seed([42; 32]));
-    let (a_port, b_port) = (free_port(), free_port());
-    let mut a = start(Machine::A, &a_id, a_port, Some((b_id.public_key(), b_port))).await;
-    let mut b = start(Machine::B, &b_id, b_port, Some((a_id.public_key(), a_port))).await;
+    let (mut a, mut b) = tandemd::start_pair!(
+        |a_port, b_port| start(Machine::A, &a_id, a_port, Some((b_id.public_key(), b_port))),
+        start(Machine::B, &b_id, b_port, Some((a_id.public_key(), a_port)))
+    );
     until_peer(&a.agent, paired("B", Some(Link::Usb4))).await;
     until_peer(&b.agent, paired("A", Some(Link::Usb4))).await;
     until_both_known(&a, &b).await;
@@ -761,23 +773,22 @@ fn before_t099(input: &str) -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_local_setting_moved_to_the_desk_does_not_leave_the_machines_apart() {
     let (a_id, b_id) = sides(Identity::from_seed([43; 32]), Identity::from_seed([44; 32]));
-    let (a_port, b_port) = (free_port(), free_port());
-    let a = start_with(
-        Machine::A,
-        &a_id,
-        a_port,
-        Some((b_id.public_key(), b_port)),
-        &before_t099(""),
-    )
-    .await;
-    let b = start_with(
-        Machine::B,
-        &b_id,
-        b_port,
-        Some((a_id.public_key(), a_port)),
-        &before_t099("clipboard = false"),
-    )
-    .await;
+    let (a, b) = tandemd::start_pair!(
+        |a_port, b_port| start_with(
+            Machine::A,
+            &a_id,
+            a_port,
+            Some((b_id.public_key(), b_port)),
+            &before_t099(""),
+        ),
+        start_with(
+            Machine::B,
+            &b_id,
+            b_port,
+            Some((a_id.public_key(), a_port)),
+            &before_t099("clipboard = false"),
+        )
+    );
     until_peer(&a.agent, paired("B", Some(Link::Usb4))).await;
     until_peer(&b.agent, paired("A", Some(Link::Usb4))).await;
     until_same_desk(&a, &b).await;

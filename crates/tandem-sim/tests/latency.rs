@@ -70,6 +70,11 @@ impl Run {
 /// Cruza el cursor de A a B y manda `n` movimientos de 1 px a 1000 por segundo desde un
 /// hilo propio (como el de una captura real). Devuelve la latencia de cada uno.
 async fn bench(pair: &InputPair, n: usize) -> Run {
+    if let Ok(filter) = std::env::var("TANDEM_TEST_LOG") {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+            .try_init();
+    }
     let a = &pair.a;
     let b = &pair.b;
     a.until_input(LIMIT, |s| s.session && s.server == a.machine())
@@ -103,11 +108,15 @@ async fn bench(pair: &InputPair, n: usize) -> Run {
     .await
     .unwrap_or_else(|_| {
         panic!(
-            "el cursor no cruzó a B.\n A: {:?}\n B: {:?}\n estado de A: {:?}\n pantallas de B en A: {:?}",
+            "el cursor no cruzó a B.\n A: {:?}\n B: {:?}\n estado de A: {:?}\n pantallas de B en A: {:?}\n acomodo de A: {:?}\n captura de A: {} {:?}\n inyectado en B: {}",
             a.input(),
             b.input(),
             a.agent.state(),
             a.agent.inbox().screens.borrow().clone(),
+            a.agent.desk().arrangement,
+            a.fake.capturing(),
+            a.fake.capture_calls().borrow().clone(),
+            b.fake.timeline().len(),
         )
     });
     assert_eq!(entered, 0.0, "entra por el borde izquierdo de B");

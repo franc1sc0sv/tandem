@@ -21,6 +21,25 @@ pub fn now_us() -> u64 {
     u64::try_from(start.elapsed().as_micros()).unwrap_or(u64::MAX)
 }
 
+/// Un evento tal como sale de la captura, con la marca de [`now_us`] puesta en el hilo
+/// que lo capturó (el del hook o el tap): la latencia publicada cuenta también lo que
+/// espera en el canal hasta que el driver lo procesa.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Captured {
+    pub t_us: u64,
+    pub event: crate::event::InputEvent,
+}
+
+impl Captured {
+    /// `event`, capturado ahora.
+    pub fn now(event: crate::event::InputEvent) -> Self {
+        Self {
+            t_us: now_us(),
+            event,
+        }
+    }
+}
+
 /// Bits de la mantisa: 32 cubetas por potencia de dos, error relativo ≤ 1/32.
 const SUB_BITS: u32 = 5;
 const SUB: u64 = 1 << SUB_BITS;
