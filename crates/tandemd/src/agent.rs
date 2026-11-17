@@ -13,7 +13,7 @@ use tandem_link::transport::{Connection, ControlStream};
 use tandem_proto::{
     Capabilities, Channel, ControlMsg, DeskCapabilities, HubReport, InputStatus, KeyProbeStatus,
     ModuleId, PairingStatus, PeerStatus, PowerEvent, Reply, ScreenRect, SetupInfo, TxnEvent,
-    UiCommand,
+    UiCommand, UpdateMsg, UpdateStatus,
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
@@ -21,6 +21,7 @@ mod env;
 mod modules;
 mod monitors;
 mod setup;
+mod update;
 
 pub use env::ResourceWatch;
 
@@ -35,6 +36,8 @@ use crate::store::{StateStore, StoreError};
 pub const BUSY: &str = "ya hay un cambio en curso";
 /// Lo que la UI recibe si pide emparejar sin la red en marcha.
 pub const NO_NETWORK: &str = "la red del agente no está en marcha";
+/// La versión de Tandem que corre este agente: la app y el agente van en el mismo paquete.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Quien sabe emparejar (la red): el agente le pasa los pedidos de la UI y publica
 /// el avance con [`Agent::set_pairing_status`]. Cada método contesta enseguida; lo
@@ -116,6 +119,8 @@ pub struct Agent {
     monitors: Arc<MonitorHub>,
     /// Entornos detectados y recursos en vivo (T-105).
     env: env::EnvState,
+    /// Las versiones de las dos máquinas y el pedido de actualizar esta (T-122).
+    update: watch::Sender<UpdateStatus>,
 }
 
 #[derive(Debug, Clone)]
@@ -323,6 +328,10 @@ impl Agent {
             monitors,
             // Sin backends no se encuentra nada; [`Agent::with_env_host`] pone el real.
             env: env::EnvState::new(Arc::new(tandem_env::Host::none())),
+            update: watch::Sender::new(UpdateStatus {
+                here: VERSION.to_owned(),
+                ..UpdateStatus::default()
+            }),
             cfg,
         }
     }
@@ -812,6 +821,7 @@ impl Agent {
         if !reports.is_empty() {
             peer.send(ControlMsg::Monitors(reports));
         }
+        peer.send(ControlMsg::Update(UpdateMsg::Version(VERSION.to_owned())));
     }
 
     /// Avance de las transacciones, para la UI.
@@ -1008,6 +1018,8 @@ impl Agent {
             UiCommand::WatchResources { .. } => {
                 Reply::Rejected("los recursos se piden por una conexión de la IPC".into())
             }
+            UiCommand::GetUpdate => Reply::Update(self.update_status()),
+            UiCommand::UpdatePeer { version } => self.update_peer(version),
         }
     }
 

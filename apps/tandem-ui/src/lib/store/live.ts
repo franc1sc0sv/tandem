@@ -9,6 +9,7 @@ import type { Bridge } from "../bridge";
 import { machineColor, machineName, other } from "../machines";
 import type { ActionResult, Bindings, Caps, Link, Machine, MachineCaps, Permission, SetupView, ShortcutsView, Snapshot } from "../model";
 import { grantTo, permissionState } from "../permissions";
+import type { UpdateView } from "../updates";
 import type { ActResult, DeskView, MachineView, PairActionKind, PermissionsView, Source, Topic } from "./types";
 
 const MAC_PERMISSIONS: Permission[] = ["accessibility", "input_monitoring", "local_network"];
@@ -218,6 +219,27 @@ export class LiveSource implements Source {
 
   hideMain(): Promise<void> {
     return this.bridge.hideMain();
+  }
+
+  private updateListener: ((v: UpdateView) => void) | null = null;
+
+  async updates(onChange: (v: UpdateView) => void): Promise<UpdateView> {
+    // Un solo oyente del evento: la pestaña puede abrirse y cerrarse muchas veces.
+    if (this.updateListener === null) await this.bridge.onUpdates((v) => this.updateListener?.(v));
+    this.updateListener = onChange;
+    return this.bridge.updates();
+  }
+
+  checkUpdates(): Promise<UpdateView> {
+    return this.bridge.checkUpdates();
+  }
+
+  updateAll(): Promise<UpdateView> {
+    return this.bridge.updateAll();
+  }
+
+  setAutoUpdate(on: boolean): Promise<UpdateView> {
+    return this.bridge.setAutoUpdate(on);
   }
 
   can(what: "scenes" | "modules" | "power" | "measure"): boolean {

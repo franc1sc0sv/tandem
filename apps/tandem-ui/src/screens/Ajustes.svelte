@@ -1,6 +1,7 @@
 <script lang="ts">
   // Ajustes: base de T-112 (pestañas con íconos de `F-Ajustes`). T-120 las llena y las
-  // conecta a la configuración compartida (por ahora «General» y «Atajos»).
+  // conecta a la configuración compartida (por ahora «General», «Atajos» y, de T-122,
+  // «Actualizaciones»).
   import { useStore } from "../lib/context";
   import PageHeader from "../shell/PageHeader.svelte";
   import Button from "../ui/Button.svelte";
@@ -8,11 +9,13 @@
   import Icon from "../ui/Icon.svelte";
   import type { IconName } from "../ui/icons";
   import Shortcuts from "./Shortcuts.svelte";
+  import Updates from "./Updates.svelte";
 
   const store = useStore();
   const TABS: { id: string; label: string; icon: IconName }[] = [
     { id: "general", label: "General", icon: "ajustes" },
     { id: "atajos", label: "Atajos", icon: "keyboard" },
+    { id: "upd", label: "Actualizaciones", icon: "download" },
   ];
   let tab = $state("general");
 </script>
@@ -40,6 +43,8 @@
             <span class="fill">Asistente de configuración</span>
             <Button icon="arrow-right" motion="go" iconAfter onclick={() => store.openWizard(0)}>Abrir</Button>
           </div>
+        {:else if tab === "upd"}
+          <Updates />
         {:else}
           <Shortcuts />
         {/if}

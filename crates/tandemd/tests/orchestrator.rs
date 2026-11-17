@@ -214,8 +214,13 @@ async fn power(ui: &mut Ui, machine: Machine, on: bool) -> Vec<TxnEvent> {
                 }
             }
             // El anuncio de capacidades de la otra máquina llega al conectarse (T-084), y con
-            // él se anotan las dos máquinas en el puesto (T-097).
-            Some(AgentToUi::State(_) | AgentToUi::Machines { .. } | AgentToUi::Desk(_)) => {}
+            // él se anotan las dos máquinas en el puesto (T-097). También su versión (T-122).
+            Some(
+                AgentToUi::State(_)
+                | AgentToUi::Machines { .. }
+                | AgentToUi::Desk(_)
+                | AgentToUi::Update(_),
+            ) => {}
             other => panic!("aviso inesperado: {other:?}"),
         }
     }

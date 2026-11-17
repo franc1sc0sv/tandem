@@ -114,6 +114,34 @@ pub enum ControlMsg {
     /// Volver a escanear los entornos de quien lo recibe; lo encontrado va en su próximo
     /// [`ControlMsg::Capabilities`].
     Rescan,
+    /// Actualizar las dos máquinas, una a la vez (T-122).
+    Update(UpdateMsg),
+}
+
+/// Lo que se dicen los dos agentes para actualizarse (T-122). Las versiones son las de la
+/// app (`x.y.z` o `x.y.z-rc.n`); quien las compara es la UI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UpdateMsg {
+    /// La versión que corre quien lo manda. Va al conectarse: así la otra sabe cuándo
+    /// volvió con la versión nueva.
+    Version(String),
+    /// «Instala `version`»: el agente que lo recibe se lo pasa a su UI, que es la que
+    /// descarga y reinicia.
+    Install { version: String },
+}
+
+/// Las versiones de las dos máquinas, para la UI.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateStatus {
+    /// La de este agente.
+    pub here: String,
+    /// La última que anunció la otra; `None` si nunca se la oyó.
+    pub peer: Option<String>,
+    /// La otra pidió que esta máquina instale esta versión.
+    pub install: Option<String>,
+    /// La otra se conectó hablando otra versión del protocolo (la suya): corre otra
+    /// versión de Tandem, aunque no se pueda saber cuál.
+    pub peer_protocol: Option<u16>,
 }
 
 /// Los mensajes de la prueba «presiona una tecla» entre los dos agentes.
@@ -536,6 +564,13 @@ pub enum UiCommand {
     WatchResources {
         on: bool,
     },
+    /// Las versiones de las dos máquinas (T-122).
+    GetUpdate,
+    /// Pedirle a la otra máquina que instale `version` (T-122); su avance se ve en
+    /// [`AgentToUi::Update`] cuando vuelve con la versión nueva.
+    UpdatePeer {
+        version: String,
+    },
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -594,6 +629,9 @@ pub enum AgentToUi {
         machine: Machine,
         resources: Box<Resources>,
     },
+    /// Las versiones de las dos máquinas y si la otra pidió actualizar esta (T-122), con
+    /// cada cambio.
+    Update(UpdateStatus),
 }
 
 /// El emparejamiento visto desde la UI.
@@ -731,6 +769,8 @@ pub enum Reply {
     /// El historial del puesto, de la versión más nueva a la más vieja.
     DeskHistory(Vec<HistoryEntry>),
     Monitors(Vec<MonitorView>),
+    /// Las versiones de las dos máquinas (T-122).
+    Update(UpdateStatus),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso.
@@ -963,6 +1003,10 @@ pub(crate) mod samples {
             ControlMsg::Rescan,
             ControlMsg::Monitors(vec![]),
             ControlMsg::Monitors(vec![monitor_report()]),
+            ControlMsg::Update(UpdateMsg::Version("0.3.0".into())),
+            ControlMsg::Update(UpdateMsg::Install {
+                version: "0.3.1-rc.2".into(),
+            }),
             ControlMsg::Desk(Box::new(DeskVersion {
                 stamp: DeskStamp {
                     rev: 4,
@@ -1014,6 +1058,7 @@ pub(crate) mod samples {
             ControlMsg::WatchResources { .. } => 14,
             ControlMsg::Resources(_) => 15,
             ControlMsg::Rescan => 16,
+            ControlMsg::Update(_) => 17,
         }
     }
 
@@ -1269,6 +1314,10 @@ pub(crate) mod samples {
             },
             UiCommand::WatchResources { on: true },
             UiCommand::WatchResources { on: false },
+            UiCommand::GetUpdate,
+            UiCommand::UpdatePeer {
+                version: "0.3.1".into(),
+            },
         ];
         let mut cmds = cmds;
         cmds.extend(
@@ -1312,6 +1361,8 @@ pub(crate) mod samples {
             UiCommand::SwitchMonitor { .. } => 22,
             UiCommand::Rescan { .. } => 23,
             UiCommand::WatchResources { .. } => 24,
+            UiCommand::UpdatePeer { .. } => 25,
+            UiCommand::GetUpdate => 26,
         }
     }
 
@@ -1529,6 +1580,22 @@ pub(crate) mod samples {
                 link: Some(link),
             })
         }));
+        v.push(AgentToUi::Update(UpdateStatus::default()));
+        v.push(AgentToUi::Reply {
+            id: 14,
+            reply: Reply::Update(UpdateStatus {
+                here: "0.3.0".into(),
+                peer: None,
+                install: None,
+                peer_protocol: None,
+            }),
+        });
+        v.push(AgentToUi::Update(UpdateStatus {
+            here: "0.3.0".into(),
+            peer: Some("0.3.1".into()),
+            install: Some("0.3.1".into()),
+            peer_protocol: Some(PROTOCOL_VERSION + 1),
+        }));
         v
     }
 
@@ -1559,6 +1626,7 @@ pub(crate) mod samples {
             AgentToUi::DeskChanged { .. } => 10,
             AgentToUi::Monitors(_) => 11,
             AgentToUi::Resources { .. } => 12,
+            AgentToUi::Update(_) => 13,
         }
     }
 
@@ -1577,6 +1645,7 @@ pub(crate) mod samples {
             Reply::Pong { .. } => 10,
             Reply::DeskHistory(_) => 11,
             Reply::Monitors(_) => 12,
+            Reply::Update(_) => 13,
         }
     }
 
@@ -1618,11 +1687,11 @@ mod tests {
     fn samples_cover_every_variant() {
         covers(&steps(), step_arm, 3);
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
-        covers(&control(), control_arm, 17);
+        covers(&control(), control_arm, 18);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 25);
+        covers(&cmds, ui_command_arm, 27);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 13);
+        covers(&to_ui(), to_ui_arm, 14);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
         let kinds: Vec<_> = capabilities()
             .iter()
@@ -1639,7 +1708,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 13);
+        covers(&replies, reply_arm, 14);
         covers(&txn_events(), txn_arm, 6);
     }
 

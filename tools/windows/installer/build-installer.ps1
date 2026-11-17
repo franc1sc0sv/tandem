@@ -9,6 +9,10 @@
 #   TANDEM_WINDOWS_TIMESTAMP_URL    servidor de sellado de tiempo (por omision, el de DigiCert)
 #   TANDEM_WINDOWS_SIGN_COMMAND     orden propia de firma; "%1" es el archivo a firmar
 #                                   (por ejemplo, Azure Trusted Signing). Gana sobre la huella.
+#
+# Paquete del updater (T-122): con TANDEM_UPDATER_ARTIFACTS=1 tambien deja la firma minisign
+# del instalador (<instalador>.sig) para latest.json. Necesita TAURI_SIGNING_PRIVATE_KEY (y
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD si la llave tiene clave); ver docs/dev/release.md.
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -40,6 +44,11 @@ foreach ($name in 'tandemd', 'tandemw') {
 }
 
 $configs = @((Join-Path $srcTauri 'windows\installer.conf.json'))
+if ($env:TANDEM_UPDATER_ARTIFACTS -eq '1') {
+    if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw 'TANDEM_UPDATER_ARTIFACTS=1 necesita TAURI_SIGNING_PRIVATE_KEY (docs/dev/release.md)' }
+    $configs += (Join-Path $srcTauri 'tauri.updater.json')
+    Write-Host 'Con paquete firmado del updater'
+}
 $signing = $null
 if ($env:TANDEM_WINDOWS_SIGN_COMMAND) {
     $signing = @{ signCommand = $env:TANDEM_WINDOWS_SIGN_COMMAND }

@@ -7,6 +7,7 @@ import type { Machine } from "../model";
 import type { Bindings, Permission, ShortcutsView } from "../model";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
+import type { UpdateView } from "../updates";
 import type { ActResult, DeskView, PairActionKind, Source, Topic } from "./types";
 
 /** Pasos del asistente que se abren desde otras partes (índices de `WIZARD_STEPS`). */
@@ -173,6 +174,22 @@ export class Store implements CommandContext {
 
   hideMain(): Promise<void> {
     return this.source.hideMain();
+  }
+
+  updates(onChange: (v: UpdateView) => void): Promise<UpdateView> {
+    return this.source.updates(onChange);
+  }
+
+  checkUpdates(): Promise<UpdateView> {
+    return this.source.checkUpdates();
+  }
+
+  updateAll(): Promise<UpdateView> {
+    return this.source.updateAll();
+  }
+
+  setAutoUpdate(on: boolean): Promise<UpdateView> {
+    return this.source.setAutoUpdate(on);
   }
 
   /** Paso del asistente con el que se abre (0 = el primero). */

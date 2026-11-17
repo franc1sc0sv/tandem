@@ -260,6 +260,7 @@ async fn respond<C: ControlChannel>(
             ControlMsg::WatchResources { on } => agent.receive_watch_resources(on),
             ControlMsg::Resources(r) => agent.receive_peer_resources(*r),
             ControlMsg::Rescan => agent.receive_rescan(),
+            ControlMsg::Update(msg) => agent.receive_update(msg),
             // Solo vale como primer mensaje ([`accept_streams`]).
             ControlMsg::Open(channel) => {
                 return Err(format!("canal {channel:?} abierto a mitad de un stream"));
@@ -296,8 +297,9 @@ pub async fn accept_streams(conn: Connection, agent: Arc<Agent>) {
             Ok(s) => s,
             // Otra versión (por ejemplo, una anterior sin anuncio de capacidades): no se
             // le habla, y el log dice por qué y qué hacer.
-            Err(TransportError::Proto(e @ ProtoError::IncompatibleVersion { .. })) => {
+            Err(TransportError::Proto(e @ ProtoError::IncompatibleVersion { theirs, .. })) => {
                 tracing::warn!("se rechaza al otro agente: {e}");
+                agent.peer_protocol_mismatch(theirs);
                 return;
             }
             Err(e) => {

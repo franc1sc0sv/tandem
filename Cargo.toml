@@ -44,6 +44,8 @@ tauri = "2.12.4"
 tauri-build = "2.7.3"
 # Atajos globales de la UI (T-042).
 tauri-plugin-global-shortcut = "2.4.1"
+# Actualización automática desde GitHub Releases, con firma minisign propia (T-122).
+tauri-plugin-updater = "2.14.1"
 tempfile = "3"
 thiserror = "2"
 tokio = "1.53.3"
