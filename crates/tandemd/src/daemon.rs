@@ -25,10 +25,11 @@ pub enum Backends {
     /// [`InputSetup::platform`]).
     Platform,
     /// Otros (en las pruebas, simulados). Sin `input` no hay teclado, mouse ni
-    /// portapapeles compartidos.
+    /// portapapeles compartidos; sin `env` no se encuentran entornos ni se miden recursos.
     Custom {
         local: Arc<dyn LocalSteps>,
         input: Option<Box<InputSetup>>,
+        env: Option<Arc<tandem_env::Host>>,
     },
 }
 
@@ -90,13 +91,22 @@ pub fn start(
             Agent::with_platform(cfg, store),
             Some(Box::new(InputSetup::platform())),
         ),
-        Backends::Custom { local, input } => (Agent::with_local_steps(cfg, store, local), input),
+        Backends::Custom { local, input, env } => {
+            let agent = Agent::with_local_steps(cfg, store, local);
+            let agent = match env {
+                Some(host) => agent.with_env_host(host),
+                None => agent,
+            };
+            (agent, input)
+        }
     };
     let agent = Arc::new(agent);
     agent.set_config_file(paths.config.clone());
     if platform {
         start_monitors(&agent);
     }
+    // Los entornos se escanean en segundo plano: pueden tardar (WSL arranca su distro).
+    agent.rescan();
     let network = Network::start(agent.clone(), &identity, trust, net)?;
     let input =
         input.map(|setup| crate::input::start(agent.clone(), network.active_link(), *setup));
@@ -360,6 +370,7 @@ mod tests {
         let backends = Backends::Custom {
             local: Arc::new(crate::orchestrator::Unimplemented),
             input: None,
+            env: None,
         };
         let d = start(cfg, &paths, backends, net).unwrap();
         assert_eq!(d.agent.machine(), Machine::B);

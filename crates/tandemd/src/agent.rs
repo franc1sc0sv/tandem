@@ -16,9 +16,12 @@ use tandem_proto::{
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
+mod env;
 mod modules;
 mod monitors;
 mod setup;
+
+pub use env::ResourceWatch;
 
 use crate::capabilities;
 use crate::config::AgentConfig;
@@ -108,6 +111,8 @@ pub struct Agent {
     process: tandem_proto::ProcessInfo,
     /// Los monitores del puesto: canales, dueños y lo que leyó cada dueño (T-110).
     monitors: Arc<MonitorHub>,
+    /// Entornos detectados y recursos en vivo (T-105).
+    env: env::EnvState,
 }
 
 #[derive(Debug, Clone)]
@@ -210,10 +215,12 @@ impl Agent {
         Self::with_local_steps(cfg, store, Arc::new(Unimplemented))
     }
 
-    /// Con los backends reales de esta máquina ([`crate::PowerSteps::for_machine`]).
+    /// Con los backends reales de esta máquina ([`crate::PowerSteps::for_machine`] y el
+    /// escaneo de entornos de [`tandem_env::Host::system`]).
     pub fn with_platform(cfg: AgentConfig, store: StateStore) -> Self {
         let local = Arc::new(crate::power::PowerSteps::for_machine(&cfg));
         Self::with_local_steps(cfg, store, local)
+            .with_env_host(Arc::new(tandem_env::Host::system()))
     }
 
     /// Como [`Agent::new`], con los pasos que esta máquina sabe hacer.
@@ -308,6 +315,8 @@ impl Agent {
             permission_requests: watch::Sender::new(0),
             process,
             monitors,
+            // Sin backends no se encuentra nada; [`Agent::with_env_host`] pone el real.
+            env: env::EnvState::new(Arc::new(tandem_env::Host::none())),
             cfg,
         }
     }
@@ -978,6 +987,11 @@ impl Agent {
             UiCommand::GetMonitors => Reply::Monitors(self.monitors()),
             UiCommand::SwitchMonitor { monitor, input } => {
                 self.start_switch_monitor(monitor, input)
+            }
+            UiCommand::Rescan { machine } => self.rescan_machine(machine),
+            // La suscripción es de la conexión: la atiende la IPC ([`Agent::watch_resources`]).
+            UiCommand::WatchResources { .. } => {
+                Reply::Rejected("los recursos se piden por una conexión de la IPC".into())
             }
         }
     }

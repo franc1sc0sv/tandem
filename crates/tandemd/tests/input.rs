@@ -254,6 +254,7 @@ async fn start_os(
                 backends: Arc::new(fake.clone()),
                 opts: fast(),
             })),
+            env: None,
         },
         NetOptions {
             bind: Some(loopback(port)),

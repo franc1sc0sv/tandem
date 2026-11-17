@@ -1,0 +1,16 @@
+@@git
+git version 2.55.0.windows.5
+@@node
+v24.21.0
+@@npm
+12.0.2
+@@uv
+uv 0.12.12 (c4be69153 2026-09-09 x86_64-pc-windows-msvc)
+@@winget
+v1.29.380
+@@nvcc
+nvcc: NVIDIA (R) Cuda compiler driver
+Copyright (c) 2005-2026 NVIDIA Corporation
+Built on Sun_Aug_03_13:24:32_Pacific_Standard_Time_2026
+Cuda compilation tools, release 13.4, V13.4.59
+Build cuda_13.4.r13.4/compiler.38657139_0

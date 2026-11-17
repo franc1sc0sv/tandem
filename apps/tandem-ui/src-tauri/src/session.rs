@@ -757,6 +757,9 @@ impl Runner {
             // El puesto nuevo ya llega con `Desk`; el aviso con «Deshacer» lo muestra la UI
             // nueva (T-112), no esta.
             AgentToUi::DeskChanged { .. } => {}
+            // Llegan solo si se pidió `WatchResources`, y esta sesión aún no lo pide (la
+            // pantalla Máquina, T-115).
+            AgentToUi::Resources { .. } => {}
         }
     }
 

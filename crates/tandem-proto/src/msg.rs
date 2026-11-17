@@ -11,6 +11,7 @@ use tandem_core::{
     Config, DeskPatch, DeskVersion, HistoryEntry, Machine, MachineInfo, MonitorInput, State, Step,
 };
 
+use crate::env::{Environment, Hardware, Resources};
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
 
 /// Quién abre la conexión.
@@ -102,6 +103,17 @@ pub enum ControlMsg {
     /// está encendido y los últimos eventos. Solo el dueño lee eventos; la otra máquina los
     /// conoce por aquí. Va cada vez que cambia algo y al aparecer un enlace.
     Monitors(Vec<MonitorReport>),
+    /// Quien lo manda quiere los recursos en vivo de quien lo recibe (T-105). Con `on` se
+    /// renueva cada pocos segundos mientras alguien mira: si deja de llegar (el enlace se
+    /// cayó), el otro deja de mandarlos solo.
+    WatchResources {
+        on: bool,
+    },
+    /// Una muestra de los recursos de quien lo manda.
+    Resources(Box<Resources>),
+    /// Volver a escanear los entornos de quien lo recibe; lo encontrado va en su próximo
+    /// [`ControlMsg::Capabilities`].
+    Rescan,
 }
 
 /// Los mensajes de la prueba «presiona una tecla» entre los dos agentes.
@@ -129,8 +141,10 @@ pub struct Capabilities {
     /// Los módulos que existen en su sistema, con su estado (DECISIONS D3, T-098). Los
     /// que no existen allí no aparecen.
     pub modules: Vec<ModuleInfo>,
-    /// Entornos de ejecución detectados. Vacío hasta T-105.
+    /// Entornos de ejecución detectados (T-105); vacío hasta que termina el primer escaneo.
     pub environments: Vec<Environment>,
+    /// El equipo según el escaneo (T-105).
+    pub hardware: Hardware,
     /// Monitores con canal DDC vivo desde esta máquina. Vacío hasta T-110.
     pub monitors: Vec<MonitorChannel>,
 }
@@ -207,13 +221,6 @@ pub struct ModuleInfo {
     pub state: ModuleState,
     /// El usuario lo puede encender y apagar ([`UiCommand::SetModule`]).
     pub switchable: bool,
-}
-
-/// Un entorno de ejecución detectado (shell, WSL, Docker...). Lo llena T-105.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Environment {
-    pub name: String,
-    pub detail: String,
 }
 
 /// Un monitor con canal DDC vivo desde la máquina que lo anuncia (T-110): contestó al
@@ -519,6 +526,16 @@ pub enum UiCommand {
         monitor: String,
         input: MonitorInput,
     },
+    /// Volver a escanear los entornos de `machine`; lo encontrado llega en
+    /// [`AgentToUi::Machines`] (T-105).
+    Rescan {
+        machine: Machine,
+    },
+    /// Recibir (o dejar de recibir) [`AgentToUi::Resources`] de las dos máquinas por esta
+    /// conexión. Se muestrea solo mientras alguien mira; al cerrarse la conexión se deja.
+    WatchResources {
+        on: bool,
+    },
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -571,6 +588,12 @@ pub enum AgentToUi {
     },
     /// Aviso espontáneo cuando cambia algún monitor (canal, dueño, entrada, eventos).
     Monitors(Vec<MonitorView>),
+    /// Recursos en vivo de `machine`, a las conexiones que pidieron
+    /// [`UiCommand::WatchResources`] (T-105).
+    Resources {
+        machine: Machine,
+        resources: Box<Resources>,
+    },
 }
 
 /// El emparejamiento visto desde la UI.
@@ -935,6 +958,9 @@ pub(crate) mod samples {
             ControlMsg::KeyProbe(KeyProbeMsg::Disarm),
             ControlMsg::KeyProbe(KeyProbeMsg::Heard),
             ControlMsg::Keyboard(Machine::B),
+            ControlMsg::WatchResources { on: true },
+            ControlMsg::WatchResources { on: false },
+            ControlMsg::Rescan,
             ControlMsg::Monitors(vec![]),
             ControlMsg::Monitors(vec![monitor_report()]),
             ControlMsg::Desk(Box::new(DeskVersion {
@@ -954,6 +980,11 @@ pub(crate) mod samples {
             capabilities()
                 .into_iter()
                 .map(|c| ControlMsg::Capabilities(Box::new(c))),
+        );
+        v.extend(
+            crate::env::samples::resources()
+                .into_iter()
+                .map(|r| ControlMsg::Resources(Box::new(r))),
         );
         v.extend(
             steps()
@@ -980,6 +1011,9 @@ pub(crate) mod samples {
             ControlMsg::KeyProbe(_) => 11,
             ControlMsg::Keyboard(_) => 12,
             ControlMsg::Monitors(_) => 13,
+            ControlMsg::WatchResources { .. } => 14,
+            ControlMsg::Resources(_) => 15,
+            ControlMsg::Rescan => 16,
         }
     }
 
@@ -1007,10 +1041,8 @@ pub(crate) mod samples {
                 },
                 services: vec!["ssh".into()],
                 modules: modules(),
-                environments: vec![Environment {
-                    name: "PowerShell 7".into(),
-                    detail: "winget · python · git".into(),
-                }],
+                environments: crate::env::samples::environments(),
+                hardware: crate::env::samples::hardware(),
                 monitors: vec![
                     MonitorChannel {
                         id: "lc34g55t-0a1b2c3d".into(),
@@ -1057,6 +1089,7 @@ pub(crate) mod samples {
                 services: vec![],
                 modules: vec![],
                 environments: vec![],
+                hardware: Hardware::default(),
                 monitors: vec![],
             },
         ]
@@ -1231,6 +1264,11 @@ pub(crate) mod samples {
                 monitor: "lc34g55t-0a1b2c3d".into(),
                 input: MonitorInput::DisplayPort,
             },
+            UiCommand::Rescan {
+                machine: Machine::A,
+            },
+            UiCommand::WatchResources { on: true },
+            UiCommand::WatchResources { on: false },
         ];
         let mut cmds = cmds;
         cmds.extend(
@@ -1272,6 +1310,8 @@ pub(crate) mod samples {
             UiCommand::GetDeskHistory => 20,
             UiCommand::GetMonitors => 21,
             UiCommand::SwitchMonitor { .. } => 22,
+            UiCommand::Rescan { .. } => 23,
+            UiCommand::WatchResources { .. } => 24,
         }
     }
 
@@ -1475,6 +1515,14 @@ pub(crate) mod samples {
             id: 12,
             reply: Reply::Monitors(monitor_views()),
         });
+        v.extend(
+            crate::env::samples::resources()
+                .into_iter()
+                .map(|r| AgentToUi::Resources {
+                    machine: Machine::B,
+                    resources: Box::new(r),
+                }),
+        );
         v.extend(links().into_iter().map(|link| {
             AgentToUi::Peer(PeerStatus::Paired {
                 name: "Mac".into(),
@@ -1510,6 +1558,7 @@ pub(crate) mod samples {
             AgentToUi::KeyProbe(_) => 9,
             AgentToUi::DeskChanged { .. } => 10,
             AgentToUi::Monitors(_) => 11,
+            AgentToUi::Resources { .. } => 12,
         }
     }
 
@@ -1569,12 +1618,17 @@ mod tests {
     fn samples_cover_every_variant() {
         covers(&steps(), step_arm, 3);
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
-        covers(&control(), control_arm, 14);
+        covers(&control(), control_arm, 17);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 23);
+        covers(&cmds, ui_command_arm, 25);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 12);
+        covers(&to_ui(), to_ui_arm, 13);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
+        let kinds: Vec<_> = capabilities()
+            .iter()
+            .flat_map(|c| c.environments.iter().map(|e| e.kind))
+            .collect();
+        covers(&kinds, |k| crate::env::samples::env_kind_arm(*k), 3);
         covers(&pairing(), pairing_arm, 5);
         covers(&pairing_statuses(), pairing_status_arm, 5);
         covers(&links(), link_arm, 3);

@@ -1,0 +1,33 @@
+@@os
+PRETTY_NAME="Ubuntu 24.04.5 LTS"
+NAME="Ubuntu"
+VERSION_ID="24.04"
+VERSION="24.04.5 LTS (Noble Numbat)"
+VERSION_CODENAME=noble
+ID=ubuntu
+ID_LIKE=debian
+HOME_URL="https://www.ubuntu.com/"
+SUPPORT_URL="https://help.ubuntu.com/"
+BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"
+PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"
+UBUNTU_CODENAME=noble
+LOGO=ubuntu-logo
+@@path
+/home/ana/.local/bin:/home/ana/.cargo/bin:/run/user/1000/fnm_multishells/4242_1794930623594/bin:/home/ana/.local/bin:/home/ana/.local/share/fnm:/home/ana/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/usr/lib/wsl/lib:/snap/bin
+@@tool git
+git version 2.43.0
+@@tool cargo
+cargo 1.98.1 (797e8a9bc 2026-08-05)
+@@tool rustc
+rustc 1.98.1 (48a229cea 2026-09-01)
+@@tool node
+v24.21.0
+@@tool pnpm
+12.10.1
+@@tool npm
+11.19.0
+@@tool uv
+uv 0.12.20 (x86_64-unknown-linux-gnu)
+@@tool python3
+Python 3.12.3
+@@gpu

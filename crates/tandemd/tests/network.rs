@@ -159,6 +159,7 @@ async fn start_with(
         Backends::Custom {
             local: steps.clone(),
             input: None,
+            env: None,
         },
         NetOptions {
             bind: Some(loopback(port)),
@@ -331,6 +332,7 @@ async fn identity_is_created_once_and_kept() {
     let backends = || Backends::Custom {
         local: Arc::new(Fake::default()),
         input: None,
+        env: None,
     };
     let first = daemon::start(cfg.clone(), &paths, backends(), opts.clone()).unwrap();
     let key = Identity::load(&paths.identity_file()).unwrap().public_key();
@@ -422,6 +424,7 @@ fn start_on(
         Backends::Custom {
             local: Arc::new(Fake::default()),
             input: None,
+            env: None,
         },
         NetOptions {
             bind: Some(bind),

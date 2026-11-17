@@ -256,6 +256,9 @@ async fn respond<C: ControlChannel>(
             ControlMsg::KeyProbe(msg) => agent.receive_key_probe(msg),
             ControlMsg::Keyboard(machine) => agent.receive_keyboard(machine),
             ControlMsg::Monitors(reports) => agent.receive_monitor_reports(reports),
+            ControlMsg::WatchResources { on } => agent.receive_watch_resources(on),
+            ControlMsg::Resources(r) => agent.receive_peer_resources(*r),
+            ControlMsg::Rescan => agent.receive_rescan(),
             // Solo vale como primer mensaje ([`accept_streams`]).
             ControlMsg::Open(channel) => {
                 return Err(format!("canal {channel:?} abierto a mitad de un stream"));

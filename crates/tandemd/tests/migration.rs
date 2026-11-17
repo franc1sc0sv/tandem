@@ -108,6 +108,7 @@ async fn an_agent_rewrites_an_old_file_with_the_sides_of_its_keys() {
         let backends = Backends::Custom {
             local: Arc::new(Unimplemented),
             input: None,
+            env: None,
         };
         let d = daemon::start(cfg, &paths, backends, net).unwrap();
         let pc_side = if mac_low { Machine::B } else { Machine::A };

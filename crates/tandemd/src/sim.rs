@@ -73,6 +73,7 @@ pub fn backends(data_dir: &Path) -> Backends {
     Backends::Custom {
         local: Arc::new(SimSteps::new(data_dir)),
         input: None,
+        env: None,
     }
 }
 
