@@ -124,6 +124,8 @@ struct Shared {
     backends: Arc<dyn InputBackends>,
     opts: InputOptions,
     lock_keys: Vec<HidUsage>,
+    /// Adonde van los atajos de escena que se apretaron.
+    scene_keys: mpsc::UnboundedSender<String>,
     link: watch::Receiver<Option<ActiveLink>>,
     /// El servidor según el árbitro.
     server: watch::Sender<Machine>,
@@ -238,11 +240,13 @@ fn spawn_engine(
             return Input { tasks: Vec::new() };
         }
     };
+    let (scene_keys, scene_fired) = mpsc::unbounded_channel();
     let sh = Arc::new(Shared {
         me,
         backends: setup.backends,
         opts: setup.opts,
         lock_keys,
+        scene_keys,
         link,
         server: watch::Sender::new(keyboard),
         hub_here: watch::Sender::new(None),
@@ -290,6 +294,9 @@ fn spawn_engine(
         tokio::spawn(client(sh.clone(), input_rx)),
     ]);
     tasks.push(tokio::spawn(clipboard_module(sh.clone(), clip_rx)));
+    tasks.push(tokio::spawn(
+        sh.agent.clone().serve_scene_shortcuts(scene_fired),
+    ));
     Input { tasks }
 }
 
@@ -619,7 +626,8 @@ async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String
         &sh.agent.config().input.remap,
         sh.agent.config().os,
         peer,
-    );
+    )
+    .with_scenes(sh.agent.scene_shortcuts(sh.scene_keys.clone()));
     // La sesión ve las teclas ya reasignadas: el atajo, escrito con las físicas, también.
     let lock_keys = sh.lock_keys.iter().map(|&k| sink.remap_key(k)).collect();
     let backends = sh.backends.clone();

@@ -7,7 +7,7 @@
 //! de desincronizarse.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use tandem_core::{Machine, MonitorInput, Step};
+use tandem_core::{Arrangement, Machine, MonitorInput, Step};
 
 #[derive(Serialize, Deserialize)]
 enum StepWire {
@@ -21,6 +21,14 @@ enum StepWire {
         monitor: String,
         input: MonitorInput,
     },
+    ShowMachine {
+        monitor: String,
+        machine: Machine,
+    },
+    Arrange {
+        layout: Option<Arrangement>,
+    },
+    Geometry,
 }
 
 impl From<&Step> for StepWire {
@@ -32,6 +40,12 @@ impl From<&Step> for StepWire {
                 monitor: monitor.clone(),
                 input: *input,
             },
+            Step::ShowMachine { monitor, machine } => StepWire::ShowMachine {
+                monitor: monitor.clone(),
+                machine: *machine,
+            },
+            Step::Arrange { layout } => StepWire::Arrange { layout: *layout },
+            Step::Geometry => StepWire::Geometry,
         }
     }
 }
@@ -42,6 +56,9 @@ impl From<StepWire> for Step {
             StepWire::PowerOn { machine } => Step::PowerOn { machine },
             StepWire::PowerOff { machine } => Step::PowerOff { machine },
             StepWire::SwitchMonitor { monitor, input } => Step::SwitchMonitor { monitor, input },
+            StepWire::ShowMachine { monitor, machine } => Step::ShowMachine { monitor, machine },
+            StepWire::Arrange { layout } => Step::Arrange { layout },
+            StepWire::Geometry => Step::Geometry,
         }
     }
 }
@@ -96,13 +113,23 @@ mod tests {
                 prop_oneof![Just(MonitorInput::DisplayPort), Just(MonitorInput::Hdmi)]
             )
                 .prop_map(|(monitor, input)| Step::SwitchMonitor { monitor, input }),
+            (".{0,24}", machine())
+                .prop_map(|(monitor, machine)| Step::ShowMachine { monitor, machine }),
+            arrangement().prop_map(|layout| Step::Arrange { layout }),
+            Just(Step::Geometry),
         ]
     }
 
     fn state() -> impl Strategy<Value = State> {
-        (any::<bool>(), any::<bool>()).prop_map(|(mac, pc)| State {
-            on: tandem_core::Powered { a: mac, b: pc },
-        })
+        (
+            any::<bool>(),
+            any::<bool>(),
+            proptest::option::of("[a-z-]{1,8}"),
+        )
+            .prop_map(|(mac, pc, scene)| State {
+                on: tandem_core::Powered { a: mac, b: pc },
+                scene,
+            })
     }
 
     fn screen() -> impl Strategy<Value = ScreenSpec> {
@@ -164,10 +191,7 @@ mod tests {
                             arrangement,
                             scenes: scenes
                                 .into_iter()
-                                .map(|id| Scene {
-                                    name: id.clone(),
-                                    id,
-                                })
+                                .map(|id| Scene::new(id.clone(), id))
                                 .collect(),
                             shortcuts: Shortcuts { lock },
                             prefs: InputPrefs {

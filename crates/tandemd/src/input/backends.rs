@@ -158,6 +158,8 @@ impl DeviceScanner for DynScanner {
 pub struct CaptureSink {
     tx: mpsc::UnboundedSender<InputEvent>,
     remap: ModifierRemap,
+    /// Los atajos de escena miran las teclas físicas, antes de reasignarlas.
+    scenes: Option<crate::agent::SceneShortcuts>,
 }
 
 /// La reasignación de modificadores entre dos sistemas: Cmd↔Ctrl entre macOS y Windows;
@@ -182,12 +184,26 @@ impl CaptureSink {
         let remap = direction(from, to)
             .map(|d| *policy.for_direction(d))
             .unwrap_or_default();
-        CaptureSink { tx, remap }
+        CaptureSink {
+            tx,
+            remap,
+            scenes: None,
+        }
     }
 
     /// `false` si ya nadie recibe lo capturado: la captura tiene que soltar la entrada.
     pub fn send(&self, event: InputEvent) -> bool {
+        if let Some(scenes) = &self.scenes {
+            scenes.observe(&event);
+        }
         self.tx.send(self.remap.apply(event)).is_ok()
+    }
+
+    /// Con los atajos de las escenas (funcionan en cualquier máquina del puesto: el teclado
+    /// se captura aquí aunque el cursor esté en la otra).
+    pub fn with_scenes(mut self, scenes: crate::agent::SceneShortcuts) -> Self {
+        self.scenes = Some(scenes);
+        self
     }
 
     /// Una tecla física como la ve quien recibe lo capturado. El atajo de bloqueo se

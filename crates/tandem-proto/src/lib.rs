@@ -32,7 +32,7 @@ pub use msg::{
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 22;
+pub const PROTOCOL_VERSION: u16 = 23;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -91,10 +91,11 @@ mod tests {
     /// `SwitchMonitor`) sube a la v19. T-105 (entornos con herramientas, equipo,
     /// recursos en vivo y re-escaneo) sube a la v20. T-101 (`[data]`, el tope de los datos
     /// por Wi-Fi, en el puesto y en sus parches) sube a la v21. T-122 (versiones de la app y pedido
-    /// de actualizar a la otra) sube a la v22.
+    /// de actualizar a la otra) sube a la v22. T-100 (escenas completas en el puesto, la escena
+    /// activa en el estado, pasos de escena, `StepUndone` y `ApplyScene`) sube a la v23.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 22);
+        assert_eq!(PROTOCOL_VERSION, 23);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

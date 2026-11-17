@@ -42,6 +42,8 @@ export interface Desk {
 export interface DeskState {
   /** Qué máquinas están encendidas. La del agente siempre lo está para sí misma (T-084). */
   on: Record<Machine, boolean>;
+  /** La escena activa (D6), si sigue valiendo. */
+  scene?: string | null;
 }
 
 /** Lo que tiene y sabe hacer una máquina, según su anuncio (`tandem_ui::session::MachineView`). */
@@ -104,13 +106,22 @@ export type Snapshot =
   | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView; pairing: PairingView; input: InputView; caps: Caps }
   | { kind: "unavailable"; endpoint: string | null; reason: string };
 
-export type Step = { step: "power_on"; machine: Machine } | { step: "power_off"; machine: Machine };
+export type Step =
+  | { step: "power_on"; machine: Machine }
+  | { step: "power_off"; machine: Machine }
+  | { step: "switch_monitor"; monitor: string; input: "display_port" | "hdmi" }
+  /** Pasos de escena (T-100): qué máquina muestra un monitor, el acomodo y la geometría. */
+  | { step: "show_machine"; monitor: string; machine: Machine }
+  | { step: "arrange"; layout: unknown }
+  | { step: "geometry" };
 
 export type TxnView =
   | { type: "started"; txn: number; steps: Step[] }
   | { type: "step_started"; txn: number; index: number }
   | { type: "step_done"; txn: number; index: number }
   | { type: "step_failed"; txn: number; index: number; error: string }
+  /** Vuelta atrás: un paso ya hecho se deshizo porque falló uno posterior. */
+  | { type: "step_undone"; txn: number; index: number }
   | { type: "committed"; txn: number; state: DeskState }
   /** Falló un paso: `state` es lo que quedó hecho. */
   | { type: "failed"; txn: number; state: DeskState };

@@ -20,10 +20,12 @@ use tokio::sync::{broadcast, mpsc, watch};
 mod env;
 mod modules;
 mod monitors;
+mod scenes;
 mod setup;
 mod update;
 
 pub use env::ResourceWatch;
+pub use scenes::{NO_SCENE_MONITORS, NoSceneMonitors, SceneBackend, SceneShortcuts};
 
 use crate::capabilities;
 use crate::config::AgentConfig;
@@ -121,6 +123,8 @@ pub struct Agent {
     env: env::EnvState,
     /// Las versiones de las dos máquinas y el pedido de actualizar esta (T-122).
     update: watch::Sender<UpdateStatus>,
+    /// Lo que hace los pasos de escena de monitor y geometría (T-100; T-111 lo conecta).
+    scene_backend: std::sync::RwLock<Arc<dyn SceneBackend>>,
 }
 
 #[derive(Debug, Clone)]
@@ -332,6 +336,7 @@ impl Agent {
                 here: VERSION.to_owned(),
                 ..UpdateStatus::default()
             }),
+            scene_backend: std::sync::RwLock::new(Arc::new(NoSceneMonitors)),
             cfg,
         }
     }
@@ -449,7 +454,9 @@ impl Agent {
         let theirs = learn(&mut desk, peer, info);
         // Los colores se asignan al conocerse y no se repiten (D17).
         let colors = desk.machines.distinct_colors();
-        if mine || theirs || colors {
+        // Al emparejar, las escenas de siempre con los nombres reales (D6).
+        let scenes = (mine || theirs) && scenes::add_defaults(&mut desk);
+        if mine || theirs || colors || scenes {
             self.desk.send_replace(desk);
             self.bump_desk();
         }
@@ -514,8 +521,19 @@ impl Agent {
     /// versión y va a `tandem.toml`, a la UI y a la otra máquina. Devuelve el puesto que
     /// queda, o por qué no se aplicó.
     pub fn edit_desk(&self, patch: DeskPatch) -> Result<Config, String> {
-        if let DeskPatch::Shortcuts(s) = &patch {
-            crate::config::shortcut_keys(&s.lock).map_err(|e| e.to_string())?;
+        match &patch {
+            DeskPatch::Shortcuts(s) => {
+                crate::config::shortcut_keys(&s.lock).map_err(|e| e.to_string())?;
+            }
+            DeskPatch::AddScene(s) | DeskPatch::EditScene(s) => {
+                crate::config::shortcut_keys(&s.shortcut).map_err(|e| e.to_string())?;
+            }
+            DeskPatch::Scenes(scenes) => {
+                for s in scenes {
+                    crate::config::shortcut_keys(&s.shortcut).map_err(|e| e.to_string())?;
+                }
+            }
+            _ => {}
         }
         let _editing = self.edit();
         let current = self.desk_sync();
@@ -648,6 +666,7 @@ impl Agent {
         self.sync_switches();
         // El nombre y el color de esta máquina (o sus módulos) pueden haber cambiado.
         self.refresh_capabilities();
+        self.settle_scene();
     }
 
     /// El puesto que mandó la otra máquina: si gana (D5), queda aquí, en caliente y en
@@ -655,7 +674,7 @@ impl Agent {
     /// recalcula la geometría con él.
     pub fn receive_desk(&self, theirs: DeskVersion) {
         // Un atajo con teclas que esta versión no conoce no se podría guardar.
-        if let Err(e) = crate::config::shortcut_keys(&theirs.desk.shortcuts.lock) {
+        if let Err(e) = crate::config::desk_keys(&theirs.desk) {
             tracing::warn!("puesto de la otra máquina ignorado: {e}");
             return;
         }
@@ -699,6 +718,7 @@ impl Agent {
         }
         // El nombre y el color de esta máquina pueden venir de la otra.
         self.refresh_capabilities();
+        self.settle_scene();
     }
 
     /// Lo que esta máquina dice de sí misma: su sistema y, del puesto, su nombre y color.
@@ -922,6 +942,7 @@ impl Agent {
     pub fn set_state(&self, mut new: State) -> Result<(), StoreError> {
         // Venga de donde venga (la otra máquina, una transacción), esta está prendida.
         new.on.set(self.machine(), true);
+        scenes::settle(&mut new, &self.desk.borrow());
         let changed = self.state.send_if_modified(|s| {
             if *s == new {
                 false
@@ -1004,6 +1025,7 @@ impl Agent {
                 Reply::Done
             }
             UiCommand::SetPower { machine, on } => self.start_power(machine, on),
+            UiCommand::ApplyScene { id } => self.apply_scene(&id),
             UiCommand::SetModule {
                 machine,
                 module,
@@ -1047,6 +1069,17 @@ impl Agent {
         what: &str,
         plan_for: impl FnOnce(&State) -> Result<Plan, PlanError>,
     ) -> Reply {
+        self.start_txn(what, plan_for, None)
+    }
+
+    /// Una transacción en segundo plano; con `scene`, la de aplicar esa escena: sus pasos de
+    /// escena los hace ella y, si todo sale bien, queda como la activa.
+    fn start_txn(
+        self: &Arc<Self>,
+        what: &str,
+        plan_for: impl FnOnce(&State) -> Result<Plan, PlanError>,
+        scene: Option<scenes::SceneRun>,
+    ) -> Reply {
         let Some(txn) = self.orch.try_begin() else {
             return Reply::Rejected(BUSY.into());
         };
@@ -1060,7 +1093,16 @@ impl Agent {
         tokio::spawn(async move {
             let agent = busy.0.clone();
             let mut state = from;
-            let outcome = agent.orch.run(txn, &mut state, &plan).await;
+            let outcome = match &scene {
+                Some(run) => {
+                    let steps = run.steps.clone();
+                    agent.orch.run_scene(txn, &mut state, &plan, steps).await
+                }
+                None => agent.orch.run(txn, &mut state, &plan).await,
+            };
+            if let (Some(run), Ok(_)) = (&scene, &outcome) {
+                state.scene = Some(run.id.clone());
+            }
             match &outcome {
                 Ok(_) => tracing::info!(txn, "transacción aplicada"),
                 Err(e) => tracing::warn!(txn, "transacción fallida: {e}"),

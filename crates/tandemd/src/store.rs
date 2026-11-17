@@ -120,6 +120,7 @@ mod tests {
     fn sample() -> State {
         State {
             on: tandem_core::Powered::both(),
+            scene: None,
         }
     }
 
@@ -247,9 +248,15 @@ mod tests {
     }
 
     fn state() -> impl Strategy<Value = State> {
-        (any::<bool>(), any::<bool>()).prop_map(|(mac, pc)| State {
-            on: tandem_core::Powered { a: mac, b: pc },
-        })
+        (
+            any::<bool>(),
+            any::<bool>(),
+            proptest::option::of("[a-z-]{1,8}"),
+        )
+            .prop_map(|(mac, pc, scene)| State {
+                on: tandem_core::Powered { a: mac, b: pc },
+                scene,
+            })
     }
 
     proptest! {

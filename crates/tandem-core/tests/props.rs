@@ -5,6 +5,7 @@
 //! al usuario, no solo lo que `State` cree. Los estados se generan desde las dos
 //! perspectivas (DESIGN §3.7).
 
+use std::collections::BTreeMap;
 use std::future::Future;
 
 use proptest::prelude::*;
@@ -14,11 +15,39 @@ use tandem_core::{
     Scale, Scene, ScreenSpec, Shortcuts, Side, State, Step, TxnError, run,
 };
 
-/// Ejecutor que falla exactamente en la llamada número `fail_at` (si la hay).
+/// Ejecutor que falla exactamente en la llamada número `fail_at` (si la hay). Lleva también
+/// lo que muestra cada monitor y el acomodo, y sabe deshacer esos pasos.
 struct Sim {
     on: Powered,
     calls: usize,
     fail_at: Option<usize>,
+    shows: BTreeMap<String, Machine>,
+    layout: Option<Arrangement>,
+    /// Lo que había antes de cada paso de escena hecho, para deshacerlo.
+    before: Vec<(Step, Step)>,
+}
+
+impl Sim {
+    fn new(on: Powered, fail_at: Option<usize>) -> Self {
+        Sim {
+            on,
+            calls: 0,
+            fail_at,
+            shows: BTreeMap::new(),
+            layout: None,
+            before: Vec::new(),
+        }
+    }
+
+    fn set(&mut self, step: &Step) {
+        match step {
+            Step::ShowMachine { monitor, machine } => {
+                self.shows.insert(monitor.clone(), *machine);
+            }
+            Step::Arrange { layout } => self.layout = *layout,
+            _ => {}
+        }
+    }
 }
 
 impl Executor for Sim {
@@ -41,11 +70,39 @@ impl Executor for Sim {
                     self.on.set(*machine, false);
                     Ok(())
                 }
-                // Los planes de energía no tienen monitores.
+                // Los planes de energía y de escena no cambian entradas.
                 Step::SwitchMonitor { .. } => Err("sin monitores".to_owned()),
+                Step::ShowMachine { monitor, .. } => {
+                    // Los monitores de la prueba arrancan mostrando A.
+                    let was = self.shows.get(monitor).copied().unwrap_or(Machine::A);
+                    let undo = Step::ShowMachine {
+                        monitor: monitor.clone(),
+                        machine: was,
+                    };
+                    self.before.push((step.clone(), undo));
+                    self.set(step);
+                    Ok(())
+                }
+                Step::Arrange { .. } => {
+                    let undo = Step::Arrange {
+                        layout: self.layout,
+                    };
+                    self.before.push((step.clone(), undo));
+                    self.set(step);
+                    Ok(())
+                }
+                Step::Geometry => Ok(()),
             }
         };
         async move { r }
+    }
+
+    fn undo(&mut self, step: &Step) -> impl Future<Output = Result<(), String>> + Send {
+        if let Some(at) = self.before.iter().rposition(|(done, _)| done == step) {
+            let (_, undo) = self.before.remove(at);
+            self.set(&undo);
+        }
+        async { Ok(()) }
     }
 }
 
@@ -123,7 +180,7 @@ proptest! {
         } else {
             Plan::power_off(&start, other)
         };
-        let mut sim = Sim { on: start.on, calls: 0, fail_at: fail };
+        let mut sim = Sim::new(start.on, fail);
         let mut s = start.clone();
         let r = pollster::block_on(run(&mut s, &plan, &mut sim));
         prop_assert_eq!(s.on, sim.on);
@@ -224,10 +281,7 @@ fn patch() -> impl Strategy<Value = DeskPatch> {
         proptest::collection::btree_set("[a-z]{1,4}", 0..3).prop_map(|ids| {
             DeskPatch::Scenes(
                 ids.into_iter()
-                    .map(|id| Scene {
-                        name: id.to_uppercase(),
-                        id,
-                    })
+                    .map(|id| Scene::new(id.clone(), id.to_uppercase()))
                     .collect(),
             )
         }),
@@ -385,5 +439,70 @@ proptest! {
                 prop_assert_eq!(b.current.receive(&v), Some(v.clone()));
             }
         }
+    }
+}
+
+fn scene() -> impl Strategy<Value = Scene> {
+    (
+        proptest::collection::btree_map("m[0-3]", machine(), 0..4),
+        arrangement(),
+        proptest::option::of(machine()),
+    )
+        .prop_map(|(monitors, layout, require_on)| Scene {
+            monitors: monitors.into_iter().collect(),
+            layout,
+            require_on,
+            ..Scene::new("s", "S")
+        })
+}
+
+proptest! {
+    /// Aplicar una escena, falle donde falle: con éxito, los monitores y el acomodo quedan
+    /// como dice la escena y lo que necesita está encendido; con un fallo, los monitores y el
+    /// acomodo vuelven exactamente a como estaban (la energía queda como se hizo).
+    #[test]
+    fn a_scene_is_all_or_nothing(
+        (me, start) in state(),
+        scene in scene(),
+        current in arrangement(),
+        fail in proptest::option::of(0usize..8),
+    ) {
+        let plan = scene.plan(&start, current, &Abilities::both_wake()).unwrap();
+        let mut sim = Sim::new(start.on, fail);
+        sim.layout = current;
+        let shows = sim.shows.clone();
+        let mut s = start.clone();
+        let r = pollster::block_on(run(&mut s, &plan, &mut sim));
+        prop_assert_eq!(s.on, sim.on);
+        prop_assert!(s.is_on(me));
+        match r {
+            Ok(_) => {
+                prop_assert!(scene.holds(&s));
+                for (monitor, machine) in &scene.monitors {
+                    prop_assert_eq!(sim.shows.get(monitor), Some(machine));
+                }
+                if scene.layout.is_some() {
+                    prop_assert_eq!(sim.layout, scene.layout);
+                }
+            }
+            Err(_) => {
+                // Lo que no había se queda mostrando lo de antes (A en la prueba).
+                for (monitor, machine) in &sim.shows {
+                    prop_assert_eq!(shows.get(monitor).unwrap_or(&Machine::A), machine);
+                }
+                prop_assert_eq!(sim.layout, current);
+            }
+        }
+    }
+
+    /// Los lados cambiados dos veces dejan la escena igual, y lo que necesita sigue siendo
+    /// lo mismo visto desde el otro lado.
+    #[test]
+    fn swapping_a_scene_is_an_involution(scene in scene()) {
+        let swapped = scene.clone().swapped();
+        let needs: std::collections::BTreeSet<Machine> =
+            scene.needs().into_iter().map(Machine::other).collect();
+        prop_assert_eq!(swapped.needs(), needs);
+        prop_assert_eq!(swapped.swapped(), scene);
     }
 }

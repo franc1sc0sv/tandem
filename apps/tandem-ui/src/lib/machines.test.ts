@@ -60,6 +60,8 @@ describe("progreso por pasos", () => {
   it("nombra cada paso con la máquina", () => {
     expect(stepLabel({ step: "power_on", machine: "b" }, name)).toBe("Encender Taller");
     expect(stepLabel({ step: "power_off", machine: "a" }, name)).toBe("Apagar Estudio");
+    expect(stepLabel({ step: "show_machine", monitor: "34", machine: "b" }, name)).toBe("Monitor 34 → Taller");
+    expect(stepLabel({ step: "geometry" }, name)).toBe("Teclado y mouse: geometría nueva");
   });
 
   it("avanza, termina y falla con el error del paso", () => {
@@ -76,6 +78,14 @@ describe("progreso por pasos", () => {
     f = advance(f, { type: "step_failed", txn: 2, index: 0, error: "sin respuesta" });
     f = advance(f, { type: "failed", txn: 2, state: { on: { a: true, b: false } } });
     expect(f?.outcome).toEqual({ kind: "failed", error: "sin respuesta" });
+
+    // Una escena que falla en el segundo monitor deshace el primero.
+    const show = (monitor: string) => ({ step: "show_machine" as const, monitor, machine: "b" as const });
+    let u = advance(null, { type: "started", txn: 4, steps: [show("34"), show("27")] });
+    u = advance(u, { type: "step_done", txn: 4, index: 0 });
+    u = advance(u, { type: "step_failed", txn: 4, index: 1, error: "sin veredicto" });
+    u = advance(u, { type: "step_undone", txn: 4, index: 0 });
+    expect(u?.status).toEqual(["undone", "failed"]);
   });
 
   it("ignora avisos de otra transacción", () => {

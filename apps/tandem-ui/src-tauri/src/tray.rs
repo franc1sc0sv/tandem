@@ -1,6 +1,6 @@
 //! La barra de menú (macOS) y la bandeja (Windows): qué muestra el menú del ícono y dónde
-//! se abre la mini escena. Los modos de monitores están en pausa hasta el firmware propio
-//! (DESIGN §8): el menú ya no los ofrece.
+//! se abre la mini escena. Los modos de antes ya no existen: los reemplazan las escenas
+//! (D6), que el menú todavía no ofrece.
 //!
 //! Todo es puro sobre el [`Snapshot`] para probarlo sin Tauri; `app` solo lo dibuja.
 

@@ -209,7 +209,7 @@ impl Default for NetworkConfig {
     }
 }
 
-/// Tiempos máximos de los pasos de un cambio de modo.
+/// Tiempos máximos de los pasos de una transacción (energía, monitores, escenas).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OrchestratorConfig {
@@ -338,6 +338,15 @@ pub fn shortcut_keys(names: &[String]) -> Result<Vec<HidUsage>, ConfigError> {
         .collect()
 }
 
+/// Todas las teclas de los atajos del puesto (el de bloqueo y los de las escenas) existen.
+pub fn desk_keys(desk: &tandem_core::Desk) -> Result<(), ConfigError> {
+    shortcut_keys(&desk.shortcuts.lock)?;
+    for scene in &desk.scenes {
+        shortcut_keys(&scene.shortcut)?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("no se pudo leer {path}: {source}")]
@@ -452,7 +461,7 @@ impl AgentConfig {
         if self.power.peer_lost_after_secs == 0 {
             return Err(ConfigError::ZeroPeerLostAfter);
         }
-        shortcut_keys(&self.desk.shortcuts.lock)?;
+        desk_keys(&self.desk)?;
         if let Some(wol) = &self.power.wol {
             if wol.port == 0 {
                 return Err(ConfigError::ZeroWolPort);

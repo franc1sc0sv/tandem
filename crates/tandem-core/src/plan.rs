@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::Machine;
+use crate::model::{Arrangement, Machine};
 use crate::monitor::MonitorInput;
 use crate::state::State;
 
@@ -42,6 +42,15 @@ pub enum Step {
         monitor: String,
         input: MonitorInput,
     },
+    /// Paso de escena: que el monitor `monitor` muestre `machine` (DESIGN §5). Es el paso
+    /// abstracto de T-100; T-111 lo traduce a [`Step::SwitchMonitor`] con la entrada de esa
+    /// máquina. Lo hace la máquina que aplica la escena.
+    ShowMachine { monitor: String, machine: Machine },
+    /// Paso de escena: el acomodo de los escritorios (`None`: el de omisión). Es un cambio
+    /// del puesto compartido.
+    Arrange { layout: Option<Arrangement> },
+    /// Paso de escena: el motor de entrada toma la geometría que dejan los pasos anteriores.
+    Geometry,
 }
 
 impl Step {
@@ -52,7 +61,17 @@ impl Step {
             Step::PowerOff { machine } => state.on.set(*machine, false),
             // La entrada real la cuenta el firmware (eventos del dueño), no el estado.
             Step::SwitchMonitor { .. } => {}
+            // La escena activa se anota al terminar la transacción, no paso a paso.
+            Step::ShowMachine { .. } | Step::Arrange { .. } | Step::Geometry => {}
         }
+    }
+
+    /// Si es un paso de escena: lo hace la máquina que la aplica, nunca la otra a pedido.
+    pub fn is_scene(&self) -> bool {
+        matches!(
+            self,
+            Step::ShowMachine { .. } | Step::Arrange { .. } | Step::Geometry
+        )
     }
 }
 

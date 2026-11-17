@@ -52,7 +52,7 @@ impl Powered {
     }
 }
 
-/// Estado del puesto según Tandem: hoy, qué máquinas están encendidas.
+/// Estado del puesto según Tandem: qué máquinas están encendidas y qué escena está puesta.
 ///
 /// Un estado guardado por una versión anterior trae además lo de los monitores (`owner`,
 /// `builtin_pref`, `doubt`); se ignora al leerlo.
@@ -62,6 +62,10 @@ pub struct State {
     /// con lo que ven los enlaces.
     #[serde(default)]
     pub on: Powered,
+    /// El id de la escena que se aplicó por última vez y sigue valiendo (D6). `None` si
+    /// nunca se aplicó una, se borró o se apagó una máquina que necesitaba.
+    #[serde(default)]
+    pub scene: Option<String>,
 }
 
 impl State {
@@ -70,6 +74,7 @@ impl State {
     pub fn initial(me: Machine) -> Self {
         State {
             on: Powered::only(me),
+            scene: None,
         }
     }
 
@@ -81,6 +86,7 @@ impl State {
     pub fn swapped(&self) -> Self {
         State {
             on: self.on.swapped(),
+            scene: self.scene.clone(),
         }
     }
 }

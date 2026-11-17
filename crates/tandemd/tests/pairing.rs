@@ -333,7 +333,7 @@ async fn start_compare_confirm_and_both_are_paired() {
     assert!(mac.trusted(&pc_id));
     assert!(pc.trusted(&mac_id));
 
-    // Sin reiniciar, cada uno sigue al otro por el enlace fijo y el modo cambia.
+    // Sin reiniciar, cada uno sigue al otro por el enlace fijo y el estado cambia.
     until_peer(
         &mac.agent,
         PeerStatus::Paired {

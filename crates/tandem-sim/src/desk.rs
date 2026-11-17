@@ -15,6 +15,7 @@ use tokio::sync::{broadcast, watch};
 use crate::fault::{FaultPlan, Faults};
 use crate::monitors::{MonitorSpec, SimMonitors};
 use crate::net::{ManagedPeer, SimNet, SimProber};
+use crate::scenes::SceneScreens;
 use crate::steps::{HardwareTimes, SimSteps};
 use crate::world::{Power, World};
 
@@ -87,6 +88,7 @@ pub struct DeskBuilder {
     os: [Os; 2],
     /// Los monitores del puesto y quién tiene cable a cada uno (T-110).
     monitors: Vec<MonitorSpec>,
+    scene_screens: SceneScreens,
 }
 
 impl Default for DeskBuilder {
@@ -97,6 +99,7 @@ impl Default for DeskBuilder {
             principal: Machine::A,
             os: [Os::MacOs, Os::Windows],
             monitors: Vec::new(),
+            scene_screens: SceneScreens::default(),
         }
     }
 }
@@ -133,6 +136,13 @@ impl DeskBuilder {
     }
 
     /// Monitores conectados a las máquinas (por omisión, ninguno: el módulo queda sin canal).
+    /// Los monitores de escena (el doble del paso abstracto de T-100) y qué muestra cada uno
+    /// al empezar.
+    pub fn scene_monitors(mut self, monitors: &[(&str, Machine)]) -> Self {
+        self.scene_screens = SceneScreens::new(monitors);
+        self
+    }
+
     pub fn monitors(mut self, specs: Vec<MonitorSpec>) -> Self {
         self.monitors = specs;
         self
@@ -218,6 +228,10 @@ impl DeskBuilder {
             tokio::spawn(watch_while_on(world.clone(), mac.clone(), mac_reach)),
             tokio::spawn(watch_while_on(world.clone(), pc.clone(), pc_reach)),
         ];
+        for agent in [&mac, &pc] {
+            let backend = self.scene_screens.backend(agent.machine(), faults.clone());
+            agent.set_scene_backend(Arc::new(backend));
+        }
         let monitors = (!self.monitors.is_empty()).then(|| SimMonitors::new(&self.monitors));
         if let Some(sim) = &monitors {
             for agent in [&mac, &pc] {
@@ -250,6 +264,7 @@ impl DeskBuilder {
             principal: self.principal,
             watches,
             monitors,
+            scene_screens: self.scene_screens,
             _dir: dir,
         })
     }
@@ -268,6 +283,7 @@ pub struct Desk {
     principal: Machine,
     watches: Vec<tokio::task::JoinHandle<()>>,
     monitors: Option<SimMonitors>,
+    scene_screens: SceneScreens,
     _dir: tempfile::TempDir,
 }
 
@@ -357,6 +373,17 @@ impl Desk {
     ) -> Result<TxnRun, SimError> {
         self.request(on, UiCommand::SetPower { machine, on: up })
             .await
+    }
+
+    /// Aplicar la escena `id` desde la UI de `on` y esperar el desenlace.
+    pub async fn apply_scene(&self, on: Machine, id: &str) -> Result<TxnRun, SimError> {
+        self.request(on, UiCommand::ApplyScene { id: id.to_owned() })
+            .await
+    }
+
+    /// Los monitores de escena ([`DeskBuilder::scene_monitors`]).
+    pub fn scene_screens(&self) -> &SceneScreens {
+        &self.scene_screens
     }
 
     /// Encender `machine` desde la otra.

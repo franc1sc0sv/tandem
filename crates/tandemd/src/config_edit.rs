@@ -198,6 +198,30 @@ pub fn with_desk(
         t.set_position(at);
         t.insert("id", toml_edit::value(s.id.as_str()));
         t.insert("name", toml_edit::value(s.name.as_str()));
+        t.insert("icon", toml_edit::value(s.icon.as_str()));
+        if !s.monitors.is_empty() {
+            let monitors: toml_edit::Array = s
+                .monitors
+                .iter()
+                .map(|(monitor, machine)| {
+                    Value::Array([monitor.as_str(), machine.as_str()].into_iter().collect())
+                })
+                .collect();
+            t.insert("monitors", Item::Value(Value::Array(monitors)));
+        }
+        if let Some(layout) = s.layout {
+            let mut l = toml_edit::InlineTable::new();
+            l.insert("a_side", side_str(layout.a_side).into());
+            l.insert("align", align_str(layout.align).into());
+            t.insert("layout", Item::Value(Value::InlineTable(l)));
+        }
+        if let Some(machine) = s.require_on {
+            t.insert("require_on", toml_edit::value(machine.as_str()));
+        }
+        if !s.shortcut.is_empty() {
+            let keys: toml_edit::Array = s.shortcut.iter().map(String::as_str).collect();
+            t.insert("shortcut", Item::Value(Value::Array(keys)));
+        }
         scenes.push(t);
     }
     if !scenes.is_empty() {
@@ -472,17 +496,15 @@ scale = 2.0
         });
         sync.desk.shortcuts.lock = vec!["ControlLeft".into(), "KeyL".into()];
         sync.desk.prefs.drag_files = false;
-        sync.desk.scenes = vec![Scene {
-            id: "t".into(),
-            name: "Trabajo".into(),
-        }];
+        sync.desk.scenes = tandem_core::default_scenes(&sync.desk.machines, None);
+        sync.desk.scenes[1].monitors = vec![("lc34-01".into(), Machine::A)];
         sync.desk.modules.set(Machine::B, "clipboard", false);
         sync.stamp.at = 1_763_400_000_000;
         let out = with_desk(PC, Machine::B, &sync).unwrap();
         assert!(out.starts_with("# La PC.\n"), "{out}");
         // El comentario del 34" sigue: se actualizó en su lugar.
         assert!(out.contains("# El 34\", medido a mano."), "{out}");
-        assert!(!out.contains("laptop"), "{out}");
+        assert!(!out.contains("id = \"laptop\""), "{out}");
         let cfg = AgentConfig::from_toml(&out).unwrap();
         assert_eq!(cfg.machine, Machine::B);
         assert_eq!(cfg.desk, sync.desk);
@@ -743,9 +765,14 @@ scale = 2.0
                         arrangement,
                         scenes: scenes
                             .into_iter()
-                            .map(|id| Scene {
-                                name: id.to_uppercase(),
-                                id,
+                            .enumerate()
+                            .map(|(i, id)| Scene {
+                                icon: "play".into(),
+                                monitors: vec![(format!("m{i}"), Machine::ALL[i % 2])],
+                                layout: arrangement,
+                                require_on: (i == 1).then_some(Machine::B),
+                                shortcut: vec!["AltLeft".into(), format!("Digit{i}")],
+                                ..Scene::new(id.clone(), id.to_uppercase())
                             })
                             .collect(),
                         shortcuts: tandem_core::Shortcuts {
