@@ -18,6 +18,8 @@
 //!   máquina ([`backends::direction`]); si el de la otra cambia, la captura se rearma.
 //! - **Lado**: si al emparejar esta máquina resulta ser el otro lado
 //!   ([`Agent::adopt_side`]), el motor entero vuelve a arrancar con el lado nuevo.
+//! - **Módulos** (T-098): con «Teclado y mouse» apagado el motor no corre; el portapapeles
+//!   se enciende y se apaga solo, sin cortar la sesión de entrada.
 //! - **Estado para la UI**: [`InputStatus`] (servidor, hub, sesión, cursor bloqueado
 //!   y permisos de macOS que faltan).
 //!
@@ -39,7 +41,7 @@ use tandem_input::session::{
 };
 use tandem_input::{HidUsage, Point, Screen};
 use tandem_peripherals::{HubWatcher, PeerReport, Presence, RoleArbiter, WatchConfig};
-use tandem_proto::{Channel, ControlMsg, HubReport, InputPermission, InputStatus};
+use tandem_proto::{Channel, ControlMsg, HubReport, InputPermission, InputStatus, ModuleId};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -158,19 +160,45 @@ pub fn start(
 }
 
 /// El motor con el lado de ahora; si esta máquina cambia de lado, se suelta entero (la
-/// captura devuelve la entrada) y se arma de nuevo.
+/// captura devuelve la entrada) y se arma de nuevo. Con el módulo «Teclado y mouse»
+/// apagado no corre.
 async fn supervise(
     agent: Arc<Agent>,
     link: watch::Receiver<Option<ActiveLink>>,
     setup: InputSetup,
 ) {
     let mut side = agent.subscribe_machine();
+    let mut modules = agent.subscribe_modules();
     loop {
         side.borrow_and_update();
-        let engine = spawn_engine(agent.clone(), link.clone(), setup.clone());
-        changed(&mut side).await;
+        let on = modules.borrow_and_update().is_on(ModuleId::Input);
+        let engine = on.then(|| spawn_engine(agent.clone(), link.clone(), setup.clone()));
+        if !on {
+            // Sin motor nadie publica el estado: la sesión y el bloqueo ya no existen.
+            let mut status = agent.input_status();
+            status.session = false;
+            status.locked = false;
+            agent.set_input_status(status);
+        }
+        let restart = loop {
+            tokio::select! {
+                () = changed(&mut side) => break true,
+                () = changed(&mut modules) => {
+                    if modules.borrow_and_update().is_on(ModuleId::Input) != on {
+                        break false;
+                    }
+                }
+            }
+        };
         drop(engine);
-        tracing::info!(lado = %agent.machine(), "el motor de entrada vuelve a arrancar");
+        if restart {
+            tracing::info!(lado = %agent.machine(), "el motor de entrada vuelve a arrancar");
+        } else {
+            tracing::info!(
+                encendido = !on,
+                "teclado y mouse encendido o apagado por el usuario"
+            );
+        }
     }
 }
 
@@ -245,9 +273,7 @@ fn spawn_engine(
         tokio::spawn(server(sh.clone())),
         tokio::spawn(client(sh.clone(), input_rx)),
     ]);
-    if sh.agent.config().input.clipboard {
-        tasks.push(tokio::spawn(clipboard(sh.clone(), clip_rx)));
-    }
+    tasks.push(tokio::spawn(clipboard_module(sh.clone(), clip_rx)));
     Input { tasks }
 }
 
@@ -814,14 +840,62 @@ async fn track_focus(sh: Arc<Shared>, tx: watch::Sender<bool>) {
     }
 }
 
+/// El módulo «Portapapeles»: corre mientras el usuario lo tenga encendido. Apagado, lo que
+/// abra el otro agente se cierra enseguida.
+async fn clipboard_module(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<IncomingChannel>) {
+    let mut modules = sh.agent.subscribe_modules();
+    let mut open = true;
+    loop {
+        let on = modules.borrow_and_update().is_on(ModuleId::Clipboard);
+        let until_switched = async {
+            loop {
+                changed(&mut modules).await;
+                if modules.borrow_and_update().is_on(ModuleId::Clipboard) != on {
+                    return;
+                }
+            }
+        };
+        if on {
+            tokio::select! {
+                () = clipboard(sh.clone(), &mut streams) => return,
+                () = until_switched => {}
+            }
+        } else {
+            tokio::pin!(until_switched);
+            loop {
+                tokio::select! {
+                    s = streams.recv(), if open => open = s.is_some(),
+                    () = &mut until_switched => break,
+                }
+            }
+        }
+    }
+}
+
+/// Aborta la tarea al soltarse: el portapapeles se puede apagar a mitad de camino.
+struct AbortOnDrop(JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 /// El portapapeles: el lado A abre el stream en el enlace activo y B lo recibe (da igual
 /// cuál; solo tiene que ser uno, y los dos saben cuál sin hablarse).
-async fn clipboard(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<IncomingChannel>) {
+async fn clipboard(sh: Arc<Shared>, streams: &mut mpsc::UnboundedReceiver<IncomingChannel>) {
     let backends = sh.backends.clone();
     let cb = match tokio::task::spawn_blocking(move || backends.clipboard()).await {
-        Ok(Ok(cb)) => cb,
+        Ok(Ok(cb)) => {
+            sh.agent.set_module_problem(ModuleId::Clipboard, None);
+            cb
+        }
         Ok(Err(e)) => {
             tracing::warn!("sin portapapeles compartido: {e}");
+            sh.agent.set_module_problem(
+                ModuleId::Clipboard,
+                Some(format!("No se pudo abrir el portapapeles del sistema: {e}")),
+            );
             // Lo que abra el otro agente se cierra enseguida.
             while streams.recv().await.is_some() {}
             return;
@@ -832,7 +906,7 @@ async fn clipboard(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<Incomin
         }
     };
     let (focus_tx, focus_rx) = watch::channel(focus(&sh, *sh.server.borrow()));
-    let tracker = tokio::spawn(track_focus(sh.clone(), focus_tx));
+    let _tracker = AbortOnDrop(tokio::spawn(track_focus(sh.clone(), focus_tx)));
     let focused = *focus_rx.borrow();
     let mut driver = ClipDriver::new(cb, sh.opts.clipboard, focused).with_focus(focus_rx);
     if sh.me == Machine::A {
@@ -877,7 +951,6 @@ async fn clipboard(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<Incomin
             };
         }
     }
-    tracker.abort();
 }
 
 #[cfg(test)]

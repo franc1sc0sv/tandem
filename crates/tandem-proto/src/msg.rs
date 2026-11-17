@@ -87,7 +87,7 @@ pub enum ControlMsg {
     /// Lo que tiene y sabe hacer quien lo manda (T-084). Va al conectarse por cada
     /// enlace nuevo y cada vez que cambia; las decisiones salen de aquí, no del nombre
     /// de la máquina (DESIGN §3.7).
-    Capabilities(Capabilities),
+    Capabilities(Box<Capabilities>),
     /// El puesto compartido de quien lo manda (el acomodo de pantallas y el atajo de
     /// bloqueo), con su versión. Va al conectarse y con cada cambio; gana la versión más
     /// nueva (T-084).
@@ -97,6 +97,12 @@ pub enum ControlMsg {
     KeyProbe(KeyProbeMsg),
     /// El usuario dijo en el asistente dónde está el teclado y el mouse.
     Keyboard(Machine),
+    /// Encender o apagar un módulo de quien lo recibe (T-098): lo pidió la UI de quien lo
+    /// manda. El estado nuevo vuelve con su próximo [`ControlMsg::Capabilities`].
+    SetModule {
+        module: ModuleId,
+        on: bool,
+    },
 }
 
 /// Los mensajes de la prueba «presiona una tecla» entre los dos agentes.
@@ -121,6 +127,82 @@ pub struct Capabilities {
     pub power: PowerCaps,
     /// Servicios del plano de datos que ofrece (SSH, carpetas...); vacío hasta v2.
     pub services: Vec<String>,
+    /// Los módulos que existen en su sistema, con su estado (DECISIONS D3, T-098). Los
+    /// que no existen allí no aparecen.
+    pub modules: Vec<ModuleInfo>,
+    /// Entornos de ejecución detectados. Vacío hasta T-105.
+    pub environments: Vec<Environment>,
+    /// Monitores con canal DDC vivo desde esta máquina. Vacío hasta T-110.
+    pub monitors: Vec<MonitorChannel>,
+}
+
+/// Los módulos de Tandem. Cada máquina anuncia solo los que existen en su sistema.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum ModuleId {
+    /// Teclado y mouse compartidos.
+    Input,
+    Clipboard,
+    /// Arrastrar archivos entre máquinas (D14).
+    Files,
+    /// Túneles de Claude (D8).
+    Tunnels,
+    /// Control de monitores por DDC (D11).
+    Monitors,
+    /// Wake-on-LAN y apagado limpio.
+    Power,
+    /// Entrada en el escritorio seguro de Windows (UAC, inicio de sesión; T-027).
+    SecureDesktop,
+}
+
+impl ModuleId {
+    pub const ALL: [ModuleId; 7] = [
+        ModuleId::Input,
+        ModuleId::Clipboard,
+        ModuleId::Files,
+        ModuleId::Tunnels,
+        ModuleId::Monitors,
+        ModuleId::Power,
+        ModuleId::SecureDesktop,
+    ];
+}
+
+/// En qué está un módulo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ModuleState {
+    Active,
+    /// Lo apagó el usuario.
+    Off,
+    /// No puede funcionar; `reason` dice por qué y, si se puede, qué hacer.
+    Unavailable {
+        reason: String,
+    },
+}
+
+/// Un módulo tal como lo anuncia su máquina.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModuleInfo {
+    pub id: ModuleId,
+    /// Para la UI («Teclado y mouse»).
+    pub name: String,
+    /// Qué hace en esta máquina (la línea bajo el nombre).
+    pub detail: String,
+    pub state: ModuleState,
+    /// El usuario lo puede encender y apagar ([`UiCommand::SetModule`]).
+    pub switchable: bool,
+}
+
+/// Un entorno de ejecución detectado (shell, WSL, Docker...). Lo llena T-105.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Environment {
+    pub name: String,
+    pub detail: String,
+}
+
+/// Un monitor con canal DDC vivo desde la máquina que lo anuncia. Lo llena T-110.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonitorChannel {
+    pub id: String,
+    pub name: String,
 }
 
 /// El motor de teclado y mouse de una máquina.
@@ -319,6 +401,13 @@ pub enum UiCommand {
     SetKeyboard(Machine),
     /// Latencia visible del enlace con la otra máquina.
     PingPeer,
+    /// Encender o apagar un módulo de `machine` (de esta o de la otra, por el plano de
+    /// control). El estado nuevo llega en [`AgentToUi::Machines`].
+    SetModule {
+        machine: Machine,
+        module: ModuleId,
+        on: bool,
+    },
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -350,8 +439,13 @@ pub enum AgentToUi {
     Input(InputStatus),
     /// Aviso espontáneo cuando cambia el puesto compartido.
     Desk(Config),
-    /// Aviso espontáneo cuando cambia lo que puede alguna de las dos máquinas.
-    Capabilities(Box<DeskCapabilities>),
+    /// Aviso espontáneo cuando cambia lo que anuncia alguna de las dos máquinas (sistema,
+    /// nombre, color, módulos, entornos, monitores). `remote` es `None` si la otra nunca se
+    /// vio.
+    Machines {
+        local: Box<Capabilities>,
+        remote: Option<Box<Capabilities>>,
+    },
     /// Avance de la prueba «presiona una tecla» del asistente (T-087).
     KeyProbe(KeyProbeStatus),
 }
@@ -630,6 +724,10 @@ pub(crate) mod samples {
             ControlMsg::KeyProbe(KeyProbeMsg::Disarm),
             ControlMsg::KeyProbe(KeyProbeMsg::Heard),
             ControlMsg::Keyboard(Machine::B),
+            ControlMsg::SetModule {
+                module: ModuleId::Clipboard,
+                on: false,
+            },
             ControlMsg::Desk(DeskSync {
                 rev: 4,
                 origin: Machine::B,
@@ -643,7 +741,11 @@ pub(crate) mod samples {
                 lock_shortcut: vec![],
             }),
         ];
-        v.extend(capabilities().into_iter().map(ControlMsg::Capabilities));
+        v.extend(
+            capabilities()
+                .into_iter()
+                .map(|c| ControlMsg::Capabilities(Box::new(c))),
+        );
         v.extend(
             steps()
                 .into_iter()
@@ -668,6 +770,7 @@ pub(crate) mod samples {
             ControlMsg::Desk(_) => 10,
             ControlMsg::KeyProbe(_) => 11,
             ControlMsg::Keyboard(_) => 12,
+            ControlMsg::SetModule { .. } => 13,
         }
     }
 
@@ -694,6 +797,15 @@ pub(crate) mod samples {
                     power_off: true,
                 },
                 services: vec!["ssh".into()],
+                modules: modules(),
+                environments: vec![Environment {
+                    name: "PowerShell 7".into(),
+                    detail: "winget · python · git".into(),
+                }],
+                monitors: vec![MonitorChannel {
+                    id: "dell-34".into(),
+                    name: "Dell 34\"".into(),
+                }],
             },
             Capabilities {
                 machine: Machine::A,
@@ -722,8 +834,48 @@ pub(crate) mod samples {
                     power_off: false,
                 },
                 services: vec![],
+                modules: vec![],
+                environments: vec![],
+                monitors: vec![],
             },
         ]
+    }
+
+    /// Un módulo en cada estado.
+    pub fn modules() -> Vec<ModuleInfo> {
+        vec![
+            ModuleInfo {
+                id: ModuleId::Input,
+                name: "Teclado y mouse".into(),
+                detail: "Captura e inyección".into(),
+                state: ModuleState::Active,
+                switchable: true,
+            },
+            ModuleInfo {
+                id: ModuleId::Clipboard,
+                name: "Portapapeles".into(),
+                detail: "Texto, HTML e imagen".into(),
+                state: ModuleState::Off,
+                switchable: true,
+            },
+            ModuleInfo {
+                id: ModuleId::Monitors,
+                name: "Monitores".into(),
+                detail: String::new(),
+                state: ModuleState::Unavailable {
+                    reason: "Sin canal DDC en esta máquina".into(),
+                },
+                switchable: false,
+            },
+        ]
+    }
+
+    pub fn module_state_arm(s: &ModuleState) -> usize {
+        match s {
+            ModuleState::Active => 0,
+            ModuleState::Off => 1,
+            ModuleState::Unavailable { .. } => 2,
+        }
     }
 
     pub fn pairing() -> Vec<PairingMsg> {
@@ -846,6 +998,11 @@ pub(crate) mod samples {
             UiCommand::HeardKey,
             UiCommand::SetKeyboard(Machine::B),
             UiCommand::PingPeer,
+            UiCommand::SetModule {
+                machine: Machine::B,
+                module: ModuleId::SecureDesktop,
+                on: true,
+            },
         ];
         cmds.into_iter()
             .enumerate()
@@ -875,6 +1032,7 @@ pub(crate) mod samples {
             UiCommand::HeardKey => 14,
             UiCommand::SetKeyboard(_) => 15,
             UiCommand::PingPeer => 16,
+            UiCommand::SetModule { .. } => 17,
         }
     }
 
@@ -998,10 +1156,14 @@ pub(crate) mod samples {
             },
         });
         let [pc, mac] = <[Capabilities; 2]>::try_from(capabilities()).unwrap();
-        v.push(AgentToUi::Capabilities(Box::new(DeskCapabilities {
-            here: mac.clone(),
-            peer: Some(pc),
-        })));
+        v.push(AgentToUi::Machines {
+            local: Box::new(mac.clone()),
+            remote: Some(Box::new(pc)),
+        });
+        v.push(AgentToUi::Machines {
+            local: Box::new(mac.clone()),
+            remote: None,
+        });
         v.push(AgentToUi::Reply {
             id: 11,
             reply: Reply::Capabilities(Box::new(DeskCapabilities {
@@ -1040,7 +1202,7 @@ pub(crate) mod samples {
             AgentToUi::Pairing(_) => 5,
             AgentToUi::Input(_) => 6,
             AgentToUi::Desk(_) => 7,
-            AgentToUi::Capabilities(_) => 8,
+            AgentToUi::Machines { .. } => 8,
             AgentToUi::KeyProbe(_) => 9,
         }
     }
@@ -1099,9 +1261,10 @@ mod tests {
     fn samples_cover_every_variant() {
         covers(&steps(), step_arm, 2);
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
-        covers(&control(), control_arm, 13);
+        covers(&control(), control_arm, 14);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 17);
+        covers(&cmds, ui_command_arm, 18);
+        covers(&modules(), |m| module_state_arm(&m.state), 3);
         covers(&to_ui(), to_ui_arm, 10);
         covers(&pairing(), pairing_arm, 5);
         covers(&pairing_statuses(), pairing_status_arm, 5);

@@ -840,3 +840,99 @@ async fn two_windows_machines_share_the_keyboard_without_remapping() {
     b.stop().await;
     a.stop().await;
 }
+
+/// Los módulos de entrada se apagan de verdad (T-098): sin portapapeles no se comparte lo
+/// copiado y la sesión de teclado y mouse sigue; sin teclado y mouse no hay captura ni
+/// sesión. Al encenderlos vuelve todo.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn switching_off_the_clipboard_and_the_input_stops_them() {
+    use tandem_proto::ModuleId;
+
+    let (mac_id, pc_id) = sides(Identity::from_seed([51; 32]), Identity::from_seed([52; 32]));
+    let (mac_port, pc_port) = (free_port(), free_port());
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let mac = start(
+        Machine::A,
+        &mac_id,
+        mac_port,
+        (pc_id.public_key(), pc_port),
+        mac_fake.clone(),
+    )
+    .await;
+    let pc = start(
+        Machine::B,
+        &pc_id,
+        pc_port,
+        (mac_id.public_key(), mac_port),
+        pc_fake.clone(),
+    )
+    .await;
+    let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
+    mac.until_input(pc_serving).await;
+    pc.until_input(pc_serving).await;
+
+    let text = |s: &str| ClipContent {
+        text: Some(s.into()),
+        html: None,
+        image: None,
+    };
+    // Copia en la Mac hasta que la PC tenga lo copiado; con `arrives` falso, copia una vez y
+    // dice si llegó.
+    let copied = |s: &str, arrives: bool| {
+        let (mac_fake, pc_fake, want) = (mac_fake.clone(), pc_fake.clone(), text(s));
+        async move {
+            let mut pc_clip = pc_fake.clipboard().subscribe();
+            if !arrives {
+                mac_fake.clipboard().copy(Some(want.clone()));
+                tokio::time::sleep(Duration::from_millis(400)).await;
+                return pc_clip.borrow().content.as_ref() == Some(&want);
+            }
+            within(async {
+                loop {
+                    mac_fake.clipboard().copy(Some(want.clone()));
+                    let got = tokio::time::timeout(
+                        Duration::from_millis(300),
+                        pc_clip.wait_for(|c| c.content.as_ref() == Some(&want)),
+                    )
+                    .await;
+                    if matches!(got, Ok(Ok(_))) {
+                        return true;
+                    }
+                }
+            })
+            .await
+        }
+    };
+    assert!(copied("antes", true).await);
+
+    pc.agent.set_module(ModuleId::Clipboard, false).unwrap();
+    assert!(!copied("apagado", false).await, "sin portapapeles no llega");
+    // La entrada no se cortó.
+    assert!(pc.agent.input_status().session);
+
+    pc.agent.set_module(ModuleId::Clipboard, true).unwrap();
+    assert!(copied("encendido", true).await);
+
+    // Sin teclado y mouse en la PC no hay captura ni sesión, en las dos.
+    let still = InputEvent::MotionRelative { dx: 0.0, dy: 0.0 };
+    pc.agent.set_module(ModuleId::Input, false).unwrap();
+    pc.until_input(|s| !s.session).await;
+    mac.until_input(|s| !s.session).await;
+    // La captura se suelta al terminar sus tareas: nadie escucha lo que el usuario hace.
+    within(async {
+        while pc_fake.capture(still) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+
+    pc.agent.set_module(ModuleId::Input, true).unwrap();
+    mac.until_input(pc_serving).await;
+    pc.until_input(pc_serving).await;
+    assert!(pc_fake.capture(still), "la captura volvió");
+
+    pc.stop().await;
+    mac.stop().await;
+}
