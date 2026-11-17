@@ -621,7 +621,7 @@ pub enum UiCommand {
     /// Los túneles de las dos máquinas, agrupados por proyecto ([`Reply::Tunnels`]).
     GetTunnels,
     /// Recibir (o dejar de recibir) [`AgentToUi::Network`] una vez por segundo por esta
-    /// conexión, mientras la pantalla Red (o el Puesto) esté visible (T-102).
+    /// conexión, mientras la pantalla Red esté visible (T-102).
     WatchNetwork {
         on: bool,
     },

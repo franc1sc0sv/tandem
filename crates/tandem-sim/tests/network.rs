@@ -10,7 +10,7 @@ use tandem_core::Machine;
 use tandem_link::manager::LinkKind;
 use tandem_link::metrics::Metrics;
 use tandem_link::metrics::probe::{receive_probe, send_probe};
-use tandem_link::qos::LinkQos;
+use tandem_link::qos::{LinkQos, Qos, input_p99_target};
 use tandem_proto::{Link, NetworkStatus, PathState, PathSwitch};
 use tandem_sim::{Desk, Outcome, SimWifi};
 
@@ -94,7 +94,10 @@ async fn cortar_un_camino_genera_el_evento_con_su_duración_y_cambia_los_estados
 async fn measure(wifi: &SimWifi) -> u64 {
     let (mut w, mut r) = wifi.data_pipe();
     let answer = tokio::spawn(async move { receive_probe(&mut r, 0).await.unwrap() });
-    send_probe(&mut w, Duration::from_secs(3)).await.unwrap();
+    let end = send_probe(&mut w, Duration::from_secs(3), &Qos::default())
+        .await
+        .unwrap();
+    assert!(!end.paused);
     drop(w);
     answer.await.unwrap().bytes_per_sec().unwrap()
 }
@@ -128,4 +131,39 @@ async fn la_medición_da_lo_que_da_el_wifi_simulado_y_fija_el_tope() {
     wifi.set_capacity(CAPACITY / 4);
     let worse = measure(&wifi).await;
     assert!(near(worse, CAPACITY / 4), "{worse} B/s");
+}
+
+/// Revisión de T-102: la prueba de ancho de banda va sin tope pero respeta la pausa de
+/// T-101. Si la entrada pasa su objetivo durante la prueba, se corta antes de los 3 s.
+#[tokio::test(start_paused = true)]
+async fn la_medición_se_corta_si_la_entrada_pasa_su_objetivo() {
+    let wifi = SimWifi::new(8_000_000, Duration::from_millis(2), 256 * 1024);
+    let qos = Qos::default();
+    qos.set_link(Some(LinkKind::Wifi));
+    let late = input_p99_target(Some(LinkKind::Wifi)) * 2;
+    // Entrada a 1000 eventos/s, toda sobre el objetivo.
+    let feed = {
+        let qos = qos.clone();
+        tokio::spawn(async move {
+            loop {
+                qos.record_input_latency(late);
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+    };
+    let (mut w, mut r) = wifi.data_pipe();
+    let answer = tokio::spawn(async move { receive_probe(&mut r, 0).await.unwrap() });
+    let t0 = tokio::time::Instant::now();
+    let end = send_probe(&mut w, Duration::from_secs(3), &qos)
+        .await
+        .unwrap();
+    let took = t0.elapsed();
+    feed.abort();
+    drop(w);
+    assert!(end.paused, "{end:?}");
+    // La pausa salta a los 2 s sobre el objetivo (T-101), antes del final de la prueba.
+    assert!(took < Duration::from_secs(3), "{took:?}");
+    assert!(took >= Duration::from_secs(2), "{took:?}");
+    // El otro lado recibe el fin igual.
+    answer.await.unwrap();
 }

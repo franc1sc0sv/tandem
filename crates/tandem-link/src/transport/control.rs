@@ -82,15 +82,25 @@ impl ControlStream {
 
     /// Manda la prueba de ancho de banda por este stream (ya abierto como
     /// [`Channel::Measure`](tandem_proto::Channel::Measure)) y espera lo que midió el otro
-    /// lado. Va con la prioridad de los datos pero sin el tope: medir a través del tope
-    /// daría el tope.
-    pub async fn measure(self, duration: Duration) -> Result<MeasureReport, TransportError> {
+    /// lado. Va con la prioridad de los datos pero sin el tope (medir a través del tope
+    /// daría el tope), y se corta si `qos`, el del camino, pausa los datos: la entrada
+    /// manda ([`TransportError::InputLate`]).
+    pub async fn measure(
+        self,
+        duration: Duration,
+        qos: &Qos,
+    ) -> Result<MeasureReport, TransportError> {
         self.set_class(StreamClass::Data)?;
         let ControlStream { mut tx, mut rx } = self;
-        send_probe(&mut tx.send, duration)
+        let end = send_probe(&mut tx.send, duration, qos)
             .await
             .map_err(TransportError::Data)?;
-        rx.recv().await?.ok_or(TransportError::ControlClosed)
+        // El otro lado contesta igual; se lee para cerrar el stream limpio.
+        let report = rx.recv().await?.ok_or(TransportError::ControlClosed)?;
+        if end.paused {
+            return Err(TransportError::InputLate);
+        }
+        Ok(report)
     }
 
     /// El otro lado de [`Self::measure`]: lee la prueba hasta el fin y contesta lo medido.

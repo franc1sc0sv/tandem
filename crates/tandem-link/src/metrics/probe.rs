@@ -4,6 +4,9 @@
 //!
 //! Mide quien recibe: lo que el que manda escribe se queda un rato en sus colas (las de
 //! QUIC, las del sistema), así que contar del lado que escribe da de más.
+//!
+//! Va sin el tope de los datos (medir a través del tope daría el tope), pero respeta la
+//! pausa de T-101: si la entrada pasa su objetivo, la prueba se corta (DECISIONS).
 
 use std::io;
 use std::time::Duration;
@@ -12,24 +15,61 @@ use tandem_proto::MeasureReport;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::time::{self, Instant};
 
+use crate::qos::Qos;
+
 const CHUNK: usize = 64 * 1024;
 
-/// Escribe sin parar durante `duration` y cierra la escritura. Devuelve lo escrito.
-pub async fn send_probe<W: AsyncWrite + Unpin>(w: &mut W, duration: Duration) -> io::Result<u64> {
+/// Cómo terminó la parte que manda.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ProbeEnd {
+    /// Bytes escritos.
+    pub sent: u64,
+    /// Se cortó antes de tiempo porque la entrada pasó su objetivo (`qos` en pausa).
+    pub paused: bool,
+}
+
+/// Escribe sin parar durante `duration` y cierra la escritura; antes, si `qos` (el del
+/// camino que se mide) pausa los datos.
+pub async fn send_probe<W: AsyncWrite + Unpin>(
+    w: &mut W,
+    duration: Duration,
+    qos: &Qos,
+) -> io::Result<ProbeEnd> {
     let chunk = vec![0u8; CHUNK];
     let end = Instant::now() + duration;
+    let mut gate = qos.watch_gate();
     let mut sent = 0u64;
-    // Una escritura frenada por el control de flujo no alarga la prueba: se corta al
-    // final (si se cancela, no escribió nada).
-    while let Ok(n) = time::timeout_at(end, w.write(&chunk)).await {
-        let n = n?;
-        if n == 0 {
-            return Err(io::ErrorKind::WriteZero.into());
+    let mut paused = !gate.borrow_and_update().is_open();
+    // Una escritura frenada por el control de flujo no alarga la prueba ni demora el
+    // corte: se cancela (y entonces no escribió nada).
+    while !paused {
+        tokio::select! {
+            written = time::timeout_at(end, w.write(&chunk)) => match written {
+                Ok(n) => {
+                    let n = n?;
+                    if n == 0 {
+                        return Err(io::ErrorKind::WriteZero.into());
+                    }
+                    sent += n as u64;
+                }
+                Err(_) => break,
+            },
+            changed = gate.changed() => {
+                if changed.is_err() {
+                    break;
+                }
+                paused = !gate.borrow_and_update().is_open();
+            }
         }
-        sent += n as u64;
+    }
+    if paused {
+        tracing::info!(
+            sent,
+            "prueba de ancho de banda cortada: la entrada pasó su objetivo"
+        );
     }
     w.shutdown().await?;
-    Ok(sent)
+    Ok(ProbeEnd { sent, paused })
 }
 
 /// Lee hasta el fin y cuenta lo que llegó después de la primera lectura, en el tiempo que
@@ -82,8 +122,16 @@ mod tests {
     async fn quien_manda_para_a_tiempo_aunque_nadie_lea() {
         let (mut a, _b) = duplex(1024);
         let t0 = Instant::now();
-        let sent = send_probe(&mut a, Duration::from_secs(3)).await.unwrap();
-        assert_eq!(sent, 1024);
+        let end = send_probe(&mut a, Duration::from_secs(3), &Qos::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            end,
+            ProbeEnd {
+                sent: 1024,
+                paused: false
+            }
+        );
         assert_eq!(Instant::now() - t0, Duration::from_secs(3));
     }
 

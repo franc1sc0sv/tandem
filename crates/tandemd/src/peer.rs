@@ -362,14 +362,15 @@ async fn serve_stream(
 pub const MEASURE_TIMEOUT: Duration = Duration::from_secs(MEASURE_SECS + 10);
 
 /// Mide el ancho de banda de `conn` hacia el otro agente (T-102): datos sin tope durante
-/// [`MEASURE_SECS`] por un stream de datos; cuenta el otro lado. En bytes por segundo.
+/// [`MEASURE_SECS`] por un stream de datos; cuenta el otro lado. En bytes por segundo. Se
+/// corta si el `Qos` del camino pausa los datos.
 pub async fn measure(conn: &Connection, me: Machine) -> Result<u64, String> {
     let run = async {
         let stream = open_channel(conn, me, Channel::Measure)
             .await
             .map_err(|e| e.to_string())?;
         let report = stream
-            .measure(Duration::from_secs(MEASURE_SECS))
+            .measure(Duration::from_secs(MEASURE_SECS), conn.qos())
             .await
             .map_err(|e| e.to_string())?;
         report

@@ -553,7 +553,10 @@ async fn la_prueba_de_ancho_de_banda_devuelve_lo_que_midió_el_otro_lado() {
     });
     let (mut s, _) = within(to_pc.open_control(&mac_hello)).await.unwrap();
     s.send(&ControlMsg::Open(Channel::Measure)).await.unwrap();
-    let got = within(s.measure(Duration::from_millis(500))).await.unwrap();
+    let qos = to_pc.qos().clone();
+    let got = within(s.measure(Duration::from_millis(500), &qos))
+        .await
+        .unwrap();
     let (answered, _conn) = within(answer).await.unwrap();
     assert_eq!(got, answered);
     assert!(got.bytes > 0, "{got:?}");

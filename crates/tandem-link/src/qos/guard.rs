@@ -101,20 +101,26 @@ impl LatencyGuard {
         self.samples.push_back((now, latency));
     }
 
-    /// El p99 de la ventana que termina en `now`; `None` sin muestras.
+    /// El p99 de la ventana que termina en `now`; `None` sin muestras. Va en el camino de
+    /// cada evaluación (cada 20 ms con entrada): selección en O(n), sin ordenar.
     pub fn p99(&mut self, now: Instant) -> Option<Duration> {
-        self.percentiles(now).map(|(_, p99)| p99)
+        self.forget_before(now);
+        if self.samples.is_empty() {
+            return None;
+        }
+        let mut lat: Vec<Duration> = self.samples.iter().map(|(_, l)| *l).collect();
+        Some(select(&mut lat, 99))
     }
 
-    /// El p50 y el p99 de la ventana que termina en `now` (la pantalla Red, T-102).
+    /// El p50 y el p99 de la ventana que termina en `now`, para la pantalla Red (T-102):
+    /// una vez por segundo, fuera de la evaluación.
     pub fn percentiles(&mut self, now: Instant) -> Option<(Duration, Duration)> {
         self.forget_before(now);
         if self.samples.is_empty() {
             return None;
         }
         let mut lat: Vec<Duration> = self.samples.iter().map(|(_, l)| *l).collect();
-        lat.sort_unstable();
-        Some((percentile(&lat, 50), percentile(&lat, 99)))
+        Some((select(&mut lat, 50), select(&mut lat, 99)))
     }
 
     fn forget_before(&mut self, now: Instant) {
@@ -160,11 +166,14 @@ impl LatencyGuard {
     }
 }
 
-/// El menor valor que deja al `p` % de las muestras (ordenadas, no vacías) en o por
-/// debajo.
-fn percentile(sorted: &[Duration], p: usize) -> Duration {
-    let rank = (sorted.len() * p).div_ceil(100).max(1) - 1;
-    sorted.get(rank).copied().unwrap_or_default()
+/// El menor valor que deja al `p` % de las muestras (no vacías) en o por debajo.
+fn select(lat: &mut [Duration], p: usize) -> Duration {
+    if lat.is_empty() {
+        return Duration::ZERO;
+    }
+    let rank = (lat.len() * p).div_ceil(100).max(1) - 1;
+    let (_, v, _) = lat.select_nth_unstable(rank);
+    *v
 }
 
 #[cfg(test)]
