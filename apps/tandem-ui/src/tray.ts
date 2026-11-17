@@ -6,7 +6,7 @@ import { mount } from "svelte";
 import Tray, { type TrayActions } from "./Tray.svelte";
 import { tauriBridge } from "./lib/bridge";
 import { chooseSource, inTauri } from "./lib/source";
-import { Store } from "./lib/store/store.svelte";
+import { Store, TRAY_TOPICS } from "./lib/store/store.svelte";
 
 const target = document.getElementById("app");
 if (target) {
@@ -16,5 +16,5 @@ if (target) {
     const bridge = await tauriBridge();
     actions = { showMain: () => bridge.showMain(), quit: () => bridge.quit() };
   }
-  mount(Tray, { target, props: { store: new Store(source), actions } });
+  mount(Tray, { target, props: { store: new Store(source, null, TRAY_TOPICS), actions } });
 }

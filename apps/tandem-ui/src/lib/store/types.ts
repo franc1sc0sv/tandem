@@ -5,7 +5,8 @@
 // Los módulos y entornos llegan por la IPC con T-098/T-105; mientras tanto el agente real
 // deja esas listas vacías y el modo demo las simula.
 
-import type { Machine, Os } from "../model";
+import type { Bindings, Machine, Os, PairingView, PeerView, Permission, SetupView, ShortcutsView } from "../model";
+import type { PermissionState } from "../permissions";
 
 export type { Machine, Os };
 
@@ -90,6 +91,26 @@ export interface SceneView {
   shows: Machine;
 }
 
+/** Emparejar con la otra máquina (lo que manda el agente). */
+export interface PairState {
+  peer: PeerView;
+  pairing: PairingView;
+}
+
+/** Un permiso del sistema de esta máquina (macOS, T-090). */
+export interface PermissionRow {
+  id: Permission;
+  state: PermissionState;
+}
+
+export interface PermissionsView {
+  /** Esta máquina pide permisos (macOS); en Windows la lista queda vacía. */
+  needed: boolean;
+  rows: PermissionRow[];
+  /** «Concede el permiso a este binario: …», si el agente lo dijo. */
+  binary: string | null;
+}
+
 /** Los estados difíciles (`V3-Estados`). */
 export type Trouble = "none" | "no-agent" | "peer-off" | "link-down" | "permissions";
 
@@ -105,12 +126,16 @@ export interface DeskView {
   tunnels: TunnelView[];
   scenes: SceneView[];
   activeScene: string | null;
+  pair: PairState;
+  permissions: PermissionsView;
 }
 
 /** Temas de eventos: cada pantalla se suscribe solo a lo que muestra. */
 export type Topic = "machines" | "resources" | "link" | "tunnels" | "scenes" | "monitors";
 
 export const ALL_TOPICS: Topic[] = ["machines", "resources", "link", "tunnels", "scenes", "monitors"];
+
+export type PairActionKind = "start_pairing" | "confirm_pairing" | "cancel_pairing" | "unpair";
 
 /** Resultado de una acción pedida desde la UI. */
 export type ActResult = { ok: true; text?: string } | { ok: false; reason: string };
@@ -127,6 +152,23 @@ export interface Source {
   setPower(machine: Machine, on: boolean): Promise<ActResult>;
   measureLink(): Promise<ActResult>;
   setModule(machine: Machine, module: string, on: boolean): Promise<ActResult>;
+  /** Emparejar (`start_pairing`, `confirm_pairing`, `cancel_pairing`) o desemparejar. */
+  pairAction(kind: PairActionKind): Promise<ActResult>;
+  /** macOS muestra su diálogo de permisos a nombre de tandemd. */
+  requestPermissions(): Promise<ActResult>;
+  /** Abre el panel de Ajustes del Sistema que concede el permiso. */
+  openPermission(p: Permission): Promise<ActResult>;
+  /** Reinicia tandemd para que valgan los permisos recién dados. */
+  restartAgent(): Promise<ActResult>;
+  /** La guía de permisos del primer arranque (macOS): si hay que abrirla sola. */
+  setup(): Promise<SetupView>;
+  /** Marca la guía como vista. */
+  finishSetup(): Promise<void>;
+  shortcuts(): Promise<ShortcutsView>;
+  /** Rechaza con la razón si no se pueden usar. */
+  setShortcuts(b: Bindings): Promise<ShortcutsView>;
+  /** El atajo de la ventana atendido por ella misma (si el sistema no lo dejó registrar). */
+  hideMain(): Promise<void>;
   /** Qué sabe hacer esta fuente hoy (el agente real aún no tiene escenas ni módulos). */
   can(what: "scenes" | "modules" | "power" | "measure"): boolean;
   stop(): void;

@@ -25,7 +25,7 @@
     {:else if desk.trouble === "link-down" && store.can("measure")}
       <Button icon="refresh" motion="spin" onclick={() => store.measureLink()}>Probar de nuevo</Button>
     {:else if desk.trouble === "permissions"}
-      <Button icon="arrow-right" motion="go" iconAfter onclick={() => store.openWizard()}>Revisar permisos</Button>
+      <Button icon="arrow-right" motion="go" iconAfter onclick={() => store.openWizard(2)}>Revisar permisos</Button>
     {/if}
   </Card>
 </div>

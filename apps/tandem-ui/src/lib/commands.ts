@@ -29,7 +29,8 @@ export interface CommandContext {
   applyScene(id: string): Promise<ActResult>;
   setPower(machine: Machine, on: boolean): Promise<ActResult>;
   measureLink(): Promise<ActResult>;
-  openWizard(): void;
+  /** Abre el asistente en un paso (0 = el primero; 1 = emparejar). */
+  openWizard(step?: number): void;
   can(what: "scenes" | "modules" | "power" | "measure"): boolean;
 }
 
@@ -77,7 +78,7 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
     });
   }
   // D1: no hay tercera máquina; sí se puede cambiar la otra (emparejar de nuevo).
-  out.push({ id: "pair:change", group: "Máquinas", title: "Cambiar la otra máquina…", detail: "", key: "", color: TEAL, run: () => ctx.go({ screen: "ajustes" }) });
+  out.push({ id: "pair:change", group: "Máquinas", title: "Cambiar la otra máquina…", detail: "", key: "", color: TEAL, run: () => ctx.openWizard(1) });
 
   for (const t of desk.tunnels.filter((t) => t.state !== "closed")) {
     out.push({

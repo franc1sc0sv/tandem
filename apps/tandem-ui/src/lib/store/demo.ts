@@ -8,8 +8,12 @@
 // - `here=b`: la ventana es la de la máquina B.
 // - `trouble=no-agent|peer-off|link-down|permissions`: un estado difícil (`V3-Estados`).
 // - `still`: sin recursos que cambien solos (para capturas deterministas).
+// - `peer=none`: sin emparejar; emparejar simula a la otra máquina (código y confirmación).
+//   `pair=code` arranca mostrando el código; `pair=reject`: la otra máquina rechaza.
 
-import type { ActResult, DeskView, Machine, MachineView, ModuleView, Os, Resources, SceneView, Source, Topic, Trouble, TunnelView } from "./types";
+import type { Bindings, PairingView, Permission, SetupView, ShortcutsView } from "../model";
+import { DEFAULT_BINDINGS } from "../shortcuts";
+import type { ActResult, DeskView, Machine, MachineView, ModuleView, Os, PairActionKind, PermissionsView, Resources, SceneView, Source, Topic, Trouble, TunnelView } from "./types";
 
 export type DemoPair = "mac-win" | "win-win" | "mac-mac";
 
@@ -18,6 +22,12 @@ export interface DemoOptions {
   here: Machine;
   trouble: Trouble;
   still: boolean;
+  /** Arranca sin emparejar. */
+  unpaired?: boolean;
+  /** Cómo responde la otra máquina al emparejar. */
+  pairing?: "code" | "reject";
+  /** La guía de permisos del primer arranque se abre sola. */
+  firstRun?: boolean;
 }
 
 export function demoOptions(query: string): DemoOptions {
@@ -29,6 +39,9 @@ export function demoOptions(query: string): DemoOptions {
     here: p.get("here") === "b" ? "b" : "a",
     trouble: trouble === "no-agent" || trouble === "peer-off" || trouble === "link-down" || trouble === "permissions" ? trouble : "none",
     still: p.has("still"),
+    unpaired: p.get("peer") === "none",
+    pairing: p.get("pair") === "code" ? "code" : p.get("pair") === "reject" ? "reject" : undefined,
+    firstRun: p.has("setup"),
   };
 }
 
@@ -135,6 +148,21 @@ const TROUBLE_TEXT: Record<Trouble, (peer: string) => string> = {
   permissions: () => "Faltan permisos en esta máquina",
 };
 
+export const DEMO_CODE = "418027";
+
+function permissionsFor(os: Os, missing: boolean): PermissionsView {
+  if (os !== "macos") return { needed: false, rows: [], binary: null };
+  return {
+    needed: true,
+    rows: [
+      { id: "accessibility", state: missing ? "missing" : "granted" },
+      { id: "input_monitoring", state: missing ? "missing" : "granted" },
+      { id: "local_network", state: "unknown" },
+    ],
+    binary: "Concede el permiso a este binario: /Applications/Tandem.app/Contents/MacOS/tandemd (pid 4242)",
+  };
+}
+
 /** El puesto simulado para unas opciones (puro: mismas opciones, mismo puesto). */
 export function demoDesk(o: DemoOptions): DeskView {
   const [sa, sb] = PAIRS[o.pair];
@@ -166,8 +194,16 @@ export function demoDesk(o: DemoOptions): DeskView {
     tunnels: DEMO_TUNNELS.map((t) => ({ ...t })),
     scenes: DEMO_SCENES(sa.name, sb.name),
     activeScene: "trabajo",
+    pair: {
+      peer: o.unpaired ? { kind: "unpaired" } : { kind: "paired", name: peerSpec.name, link: linkUp ? "usb4" : null },
+      pairing: o.pairing === "code" ? { kind: "comparing", code: DEMO_CODE, peer: peerSpec.name, confirmed: false } : { kind: "idle" },
+    },
+    permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions"),
   };
 }
+
+const PAIR_FOUND_MS = 1400;
+const PAIR_OTHER_MS = 1200;
 
 const TICK_MS = 1500;
 
@@ -253,12 +289,86 @@ export class DemoSource implements Source {
     return { ok: true };
   }
 
+  private pairTimer: ReturnType<typeof setTimeout> | undefined;
+  private keys: ShortcutsView = { bindings: { ...DEFAULT_BINDINGS }, failed: {}, warning: null, file: null };
+
+  private setPairing(pairing: PairingView, peer = this.desk.pair.peer): void {
+    this.set({ ...this.desk, pair: { peer, pairing } });
+  }
+
+  /** Simula a la otra máquina: aparece el código y, al confirmar, confirma ella también. */
+  async pairAction(kind: PairActionKind): Promise<ActResult> {
+    clearTimeout(this.pairTimer);
+    const peerName = this.desk.machines[this.desk.here === "a" ? "b" : "a"]?.name ?? "la otra máquina";
+    const p = this.desk.pair.pairing;
+    switch (kind) {
+      case "start_pairing":
+        this.setPairing({ kind: "searching" });
+        this.pairTimer = setTimeout(() => this.setPairing({ kind: "comparing", code: DEMO_CODE, peer: peerName, confirmed: false }), PAIR_FOUND_MS);
+        return { ok: true };
+      case "confirm_pairing":
+        if (p.kind !== "comparing") return { ok: false, reason: "No hay código que confirmar" };
+        this.setPairing({ ...p, confirmed: true });
+        this.pairTimer = setTimeout(() => {
+          if (this.opts.pairing === "reject") this.setPairing({ kind: "failed", reason: `se rechazó en ${peerName}` });
+          else this.setPairing({ kind: "done", peer: peerName }, { kind: "paired", name: peerName, link: "usb4" });
+        }, PAIR_OTHER_MS);
+        return { ok: true };
+      case "cancel_pairing":
+        this.setPairing({ kind: "idle" });
+        return { ok: true };
+      case "unpair":
+        this.setPairing({ kind: "idle" }, { kind: "unpaired" });
+        return { ok: true };
+    }
+  }
+
+  async requestPermissions(): Promise<ActResult> {
+    return { ok: true };
+  }
+
+  /** En el demo, abrir el panel equivale a que el usuario lo concede. */
+  async openPermission(p: Permission): Promise<ActResult> {
+    const perms = this.desk.permissions;
+    const rows = perms.rows.map((r) => (r.id === p && r.state === "missing" ? { ...r, state: "granted" as const } : r));
+    const trouble = rows.some((r) => r.state === "missing") ? this.desk.trouble : this.desk.trouble === "permissions" ? "none" : this.desk.trouble;
+    this.set({ ...this.desk, trouble, troubleText: trouble === "none" ? "" : this.desk.troubleText, permissions: { ...perms, rows } });
+    return { ok: true };
+  }
+
+  async restartAgent(): Promise<ActResult> {
+    return { ok: true, text: "tandemd se reinicia: en unos segundos se vuelven a comprobar los permisos" };
+  }
+
+  private setupShown = false;
+
+  async setup(): Promise<SetupView> {
+    const needed = this.desk.permissions.needed;
+    return { available: needed, show: needed && !!this.opts.firstRun && !this.setupShown, permissions: needed ? ["accessibility", "input_monitoring", "local_network"] : [], agent: null };
+  }
+
+  async finishSetup(): Promise<void> {
+    this.setupShown = true;
+  }
+
+  async shortcuts(): Promise<ShortcutsView> {
+    return this.keys;
+  }
+
+  async setShortcuts(b: Bindings): Promise<ShortcutsView> {
+    this.keys = { ...this.keys, bindings: { ...b }, failed: {} };
+    return this.keys;
+  }
+
+  async hideMain(): Promise<void> {}
+
   can(): boolean {
     return true;
   }
 
   stop(): void {
     clearInterval(this.timer);
+    clearTimeout(this.pairTimer);
     this.timer = undefined;
   }
 

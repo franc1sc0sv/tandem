@@ -1,16 +1,18 @@
 <script lang="ts">
   // Ajustes: base de T-112 (pestañas con íconos de `F-Ajustes`). T-120 las llena y las
-  // conecta a la configuración compartida (por ahora solo «General»).
+  // conecta a la configuración compartida (por ahora «General» y «Atajos»).
   import { useStore } from "../lib/context";
   import PageHeader from "../shell/PageHeader.svelte";
   import Button from "../ui/Button.svelte";
   import Card from "../ui/Card.svelte";
   import Icon from "../ui/Icon.svelte";
   import type { IconName } from "../ui/icons";
+  import Shortcuts from "./Shortcuts.svelte";
 
   const store = useStore();
   const TABS: { id: string; label: string; icon: IconName }[] = [
     { id: "general", label: "General", icon: "ajustes" },
+    { id: "atajos", label: "Atajos", icon: "keyboard" },
   ];
   let tab = $state("general");
 </script>
@@ -25,14 +27,22 @@
     </div>
     {#key tab}
       <Card class="pane" tag="section" label={TABS.find((t) => t.id === tab)?.label}>
+        {#if tab === "general"}
           <div class="row">
             <span class="fill">Cambiar la otra máquina</span>
-            <Button icon="refresh" motion="spin" onclick={() => store.openWizard()}>Emparejar de nuevo</Button>
+            <Button icon="refresh" motion="spin" onclick={() => store.openWizard(1)}>Emparejar de nuevo</Button>
+          </div>
+          <div class="row">
+            <span class="fill">Permisos de esta máquina</span>
+            <Button icon="shield" onclick={() => store.openWizard(2)}>Revisar</Button>
           </div>
           <div class="row">
             <span class="fill">Asistente de configuración</span>
-            <Button icon="arrow-right" motion="go" iconAfter onclick={() => store.openWizard()}>Abrir</Button>
+            <Button icon="arrow-right" motion="go" iconAfter onclick={() => store.openWizard(0)}>Abrir</Button>
           </div>
+        {:else}
+          <Shortcuts />
+        {/if}
       </Card>
     {/key}
   </div>

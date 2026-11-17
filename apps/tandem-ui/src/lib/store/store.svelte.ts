@@ -2,10 +2,27 @@
 // paleta y los avisos. Las pantallas leen de aquí y piden acciones aquí.
 
 import type { CommandContext } from "../commands";
+import { shouldOpen as pairingShouldOpen } from "../pairing";
 import type { Machine } from "../model";
+import type { Bindings, Permission, ShortcutsView } from "../model";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
-import { EMPTY_DESK } from "./live";
-import type { ActResult, DeskView, Source } from "./types";
+import { EMPTY_DESK, deskFromError } from "./live";
+import type { ActResult, DeskView, PairActionKind, Source, Topic } from "./types";
+
+/** Pasos del asistente que se abren desde otras partes (índices de `WIZARD_STEPS`). */
+export const WIZARD_PAIR = 1;
+export const WIZARD_PERMISSIONS = 2;
+
+/** Lo que el shell muestra siempre (barra lateral: máquinas y contador de túneles). */
+export const SHELL_TOPICS: Topic[] = ["machines", "tunnels"];
+
+/** La bandeja: todo lo que lista, sin pantallas. */
+export const TRAY_TOPICS: Topic[] = ["machines", "link", "scenes", "tunnels", "resources"];
+
+/** Temas del shell más los de la pantalla, sin repetir. */
+export function topicsFor(route: Route): Topic[] {
+  return [...new Set([...SHELL_TOPICS, ...SCREEN_TOPICS[route.screen]])];
+}
 
 export interface Toast {
   id: number;
@@ -26,18 +43,39 @@ export class Store implements CommandContext {
 
   private nextToast = 1;
 
+  /**
+   * `fixedTopics`: temas fijos (la bandeja); sin esto, los del shell y la pantalla visible.
+   */
   constructor(
     private readonly source: Source,
     private readonly location: { hash: string } | null = null,
+    private readonly fixedTopics: Topic[] | null = null,
   ) {
     if (location) this.route = parseHash(location.hash);
   }
 
+  /** La bandeja no tiene asistente: solo la ventana principal se abre al emparejar. */
+  private get opensOnPairing(): boolean {
+    return this.fixedTopics === null;
+  }
+
+  private topics(): Topic[] {
+    return this.fixedTopics ?? topicsFor(this.route);
+  }
+
+  /** Arranca la fuente. Si falla (agente ausente, respuesta rara) queda el estado «sin agente». */
   async start(): Promise<void> {
-    await this.source.start((d) => {
-      this.desk = d;
-    });
-    this.source.watch(SCREEN_TOPICS[this.route.screen]);
+    try {
+      await this.source.start((d) => {
+        const before = this.desk.ready ? this.desk.pair.pairing : null;
+        this.desk = d;
+        // Si la otra máquina empezó a emparejar (o apareció el código), el asistente se abre en ese paso.
+        if (this.opensOnPairing && pairingShouldOpen(before, d.pair.pairing)) this.openWizard(WIZARD_PAIR);
+      });
+    } catch (e) {
+      this.desk = deskFromError(e);
+    }
+    this.source.watch(this.topics());
   }
 
   stop(): void {
@@ -51,7 +89,7 @@ export class Store implements CommandContext {
     const before = this.route.screen;
     this.route = route;
     if (this.location && this.location.hash !== formatHash(route)) this.location.hash = formatHash(route);
-    if (before !== route.screen) this.source.watch(SCREEN_TOPICS[route.screen]);
+    if (before !== route.screen && !this.fixedTopics) this.source.watch(this.topics());
   }
 
   /** La dirección cambió desde fuera (atrás/adelante del historial). */
@@ -91,8 +129,58 @@ export class Store implements CommandContext {
     return this.report(this.source.setModule(machine, module, on));
   }
 
-  openWizard(): void {
+  pairAction(kind: PairActionKind): Promise<ActResult> {
+    return this.report(this.source.pairAction(kind));
+  }
+
+  requestPermissions(): Promise<ActResult> {
+    return this.report(this.source.requestPermissions());
+  }
+
+  openPermission(p: Permission): Promise<ActResult> {
+    return this.report(this.source.openPermission(p));
+  }
+
+  restartAgent(): Promise<ActResult> {
+    return this.report(this.source.restartAgent());
+  }
+
+  /** En macOS, la primera vez el asistente se abre solo en el paso de permisos (T-090). */
+  async maybeFirstRun(): Promise<void> {
+    try {
+      const v = await this.source.setup();
+      if (v.show) this.openWizard(WIZARD_PERMISSIONS);
+    } catch {
+      // Sin guía (otro sistema o sin la app): nada que abrir.
+    }
+  }
+
+  async finishSetup(): Promise<void> {
+    try {
+      await this.source.finishSetup();
+    } catch {
+      // Si no se pudo guardar, la guía vuelve a abrirse la próxima vez: no es un error visible.
+    }
+  }
+
+  shortcuts(): Promise<ShortcutsView> {
+    return this.source.shortcuts();
+  }
+
+  setShortcuts(b: Bindings): Promise<ShortcutsView> {
+    return this.source.setShortcuts(b);
+  }
+
+  hideMain(): Promise<void> {
+    return this.source.hideMain();
+  }
+
+  /** Paso del asistente con el que se abre (0 = el primero). */
+  wizardStep = $state(0);
+
+  openWizard(step = 0): void {
     this.paletteOpen = false;
+    this.wizardStep = step;
     this.wizardOpen = true;
   }
 

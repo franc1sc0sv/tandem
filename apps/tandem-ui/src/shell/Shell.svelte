@@ -2,7 +2,9 @@
   import { useStore } from "../lib/context";
   import { enter } from "../lib/motion";
   import { formatHash } from "../lib/routes";
-  import { isMacPlatform } from "../lib/shortcuts";
+  import { onMount } from "svelte";
+  import type { ShortcutsView } from "../lib/model";
+  import { isMacPlatform, localAction, windowCommand } from "../lib/shortcuts";
   import Acomodo from "../screens/Acomodo.svelte";
   import Ajustes from "../screens/Ajustes.svelte";
   import Maquina from "../screens/Maquina.svelte";
@@ -18,10 +20,26 @@
 
   const store = useStore();
   const mac = isMacPlatform();
+  /** Atajos que el sistema no dejó registrar: los atiende la ventana cuando está al frente. */
+  let keys: ShortcutsView | null = null;
+  onMount(() => {
+    store.shortcuts().then(
+      (v) => (keys = v),
+      () => {},
+    );
+  });
   const key = $derived(formatHash(store.route));
 
   // ⌘K / Ctrl+K abre y cierra la paleta desde cualquier pantalla; ⌘, / Ctrl+, va a Ajustes.
   function onkeydown(e: KeyboardEvent) {
+    if (keys && !e.defaultPrevented) {
+      const action = localAction(e, keys);
+      if (action && windowCommand(action).kind === "hide_main") {
+        e.preventDefault();
+        void store.hideMain();
+        return;
+      }
+    }
     const mod = mac ? e.metaKey : e.ctrlKey;
     if (!mod || e.altKey || e.shiftKey) return;
     const k = e.key.toLowerCase();

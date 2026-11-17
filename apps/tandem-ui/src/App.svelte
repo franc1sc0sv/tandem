@@ -12,7 +12,7 @@
   provideStore(store);
 
   onMount(() => {
-    void store.start();
+    void store.start().then(() => store.maybeFirstRun());
   });
   onDestroy(() => store.stop());
 </script>

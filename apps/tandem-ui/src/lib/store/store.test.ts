@@ -5,7 +5,7 @@ import type { Snapshot } from "../model";
 import { formatHash, parseHash, SCREEN_TOPICS } from "../routes";
 import { DemoSource, demoDesk, demoOptions, isDemo } from "./demo";
 import { deskFromSnapshot, LiveSource } from "./live";
-import { Store } from "./store.svelte";
+import { SHELL_TOPICS, Store, TRAY_TOPICS, topicsFor } from "./store.svelte";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -23,13 +23,21 @@ describe("rutas", () => {
 });
 
 describe("store", () => {
-  it("se suscribe solo a lo que muestra la pantalla visible", async () => {
+  it("se suscribe a lo que el shell muestra siempre más lo de la pantalla visible", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     const store = new Store(src);
     await store.start();
-    expect(src.watched.at(-1)).toEqual(SCREEN_TOPICS.puesto);
+    const set = (t: string[] | undefined) => new Set(t);
+    expect(set(src.watched.at(-1))).toEqual(new Set([...SHELL_TOPICS, ...SCREEN_TOPICS.puesto]));
+    // El contador de túneles de la barra lateral sigue vivo en cualquier pantalla.
+    store.go({ screen: "red" });
+    expect(set(src.watched.at(-1))).toEqual(new Set(["machines", "tunnels", "link"]));
     store.go({ screen: "tuneles" });
-    expect(src.watched.at(-1)).toEqual(["machines", "tunnels"]);
+    expect(set(src.watched.at(-1))).toEqual(new Set(["machines", "tunnels"]));
+    for (const screen of ["puesto", "tuneles", "monitores", "acomodo", "red", "ajustes"] as const) {
+      expect(topicsFor({ screen })).toEqual(expect.arrayContaining(SHELL_TOPICS));
+      expect(new Set(topicsFor({ screen })).size).toBe(topicsFor({ screen }).length);
+    }
     // Otra máquina en la misma pantalla no vuelve a suscribir.
     store.go({ screen: "maquina", machine: "a" });
     const n = src.watched.length;
@@ -115,6 +123,132 @@ describe("store", () => {
     const store = new Store(src);
     const r = await store.applyScene("x");
     expect(r).toEqual({ ok: false, reason: "se cayó" });
+  });
+});
+
+describe("bandeja", () => {
+  it("pide su propio conjunto de temas y no cambia con la ruta", async () => {
+    const src = new DemoSource(demoOptions("demo&still"));
+    const store = new Store(src, null, TRAY_TOPICS);
+    await store.start();
+    expect(src.watched).toEqual([TRAY_TOPICS]);
+    store.go({ screen: "red" });
+    expect(src.watched).toEqual([TRAY_TOPICS]);
+    expect(TRAY_TOPICS).toEqual(expect.arrayContaining(["machines", "link", "scenes", "tunnels", "resources"]));
+  });
+});
+
+describe("errores del agente", () => {
+  it("una foto a la que le faltan campos da «sin agente» con la razón, no «conectando»", async () => {
+    const broken = { kind: "connected", agent: "a", desk: { screens: [], arrangement: { a_side: "left", offset: 0 } } };
+    const bridge = { snapshot: async () => broken, onSnapshot: async () => {} } as unknown as Bridge;
+    const store = new Store(new LiveSource(bridge));
+    await store.start();
+    expect(store.desk.ready).toBe(true);
+    expect(store.desk.trouble).toBe("no-agent");
+    expect(store.desk.troubleText).toContain("no entiende");
+  });
+
+  it("un agente de la versión anterior (lados mac/pc) también", () => {
+    const old = { kind: "connected", agent: "mac", desk: { screens: [], arrangement: { mac_side: "left", offset: 0 } } };
+    expect(() => deskFromSnapshot(old as unknown as Snapshot)).toThrow(/lado «mac»/);
+  });
+
+  it("si la fuente no arranca, se muestra el error", async () => {
+    const bridge = { snapshot: async () => Promise.reject(new Error("sin núcleo")), onSnapshot: async () => {} } as unknown as Bridge;
+    const store = new Store(new LiveSource(bridge));
+    await store.start();
+    expect(store.desk).toMatchObject({ ready: true, trouble: "no-agent", troubleText: "sin núcleo" });
+  });
+
+  it("una foto rota después de arrancar no tumba la ventana", async () => {
+    let push: ((s: unknown) => void) | undefined;
+    const ok = { kind: "unavailable", endpoint: null, reason: "x" };
+    const bridge = { snapshot: async () => ok, onSnapshot: async (cb: (s: unknown) => void) => (push = cb) } as unknown as Bridge;
+    const store = new Store(new LiveSource(bridge));
+    await store.start();
+    push?.({ kind: "connected" });
+    expect(store.desk.trouble).toBe("no-agent");
+    expect(store.desk.troubleText).toContain("no entiende");
+  });
+});
+
+describe("emparejar y permisos", () => {
+  it("el asistente se abre solo en el paso de emparejar cuando aparece el código", async () => {
+    vi.useFakeTimers();
+    const store = new Store(new DemoSource(demoOptions("demo&still&peer=none")));
+    await store.start();
+    expect(store.wizardOpen).toBe(false);
+    await store.pairAction("start_pairing");
+    expect(store.wizardOpen).toBe(true);
+    expect(store.wizardStep).toBe(1);
+    vi.advanceTimersByTime(1500);
+    expect(store.desk.pair.pairing).toMatchObject({ kind: "comparing", code: "418027" });
+    await store.pairAction("confirm_pairing");
+    vi.advanceTimersByTime(1300);
+    expect(store.desk.pair.peer).toMatchObject({ kind: "paired", name: "PC-Escritorio" });
+    store.stop();
+  });
+
+  it("la bandeja no abre el asistente", async () => {
+    const store = new Store(new DemoSource(demoOptions("demo&still&peer=none")), null, TRAY_TOPICS);
+    await store.start();
+    await store.pairAction("start_pairing");
+    expect(store.wizardOpen).toBe(false);
+    store.stop();
+  });
+
+  it("primer arranque en macOS: se abre en permisos; en Windows no", async () => {
+    const mac = new Store(new DemoSource(demoOptions("demo&still&setup")));
+    await mac.start();
+    await mac.maybeFirstRun();
+    expect([mac.wizardOpen, mac.wizardStep]).toEqual([true, 2]);
+    const win = new Store(new DemoSource(demoOptions("demo&still&setup&here=b")));
+    await win.start();
+    await win.maybeFirstRun();
+    expect(win.wizardOpen).toBe(false);
+  });
+
+  it("la fuente real pasa los pedidos al agente y lee los permisos de macOS", async () => {
+    const act = vi.fn(async () => ({ kind: "done" as const }));
+    const openSettings = vi.fn(async () => {});
+    const snap = {
+      kind: "connected",
+      agent: "a",
+      desk: { machines: { a: null, b: null }, screens: [], arrangement: { a_side: "left", offset: 0 } },
+      state: { on: { a: true, b: false } },
+      peer: { kind: "unpaired" },
+      pairing: { kind: "idle" },
+      input: { server: "a", hub_here: null, session: false, locked: false, missing: ["accessibility"], problem: null, defined: false },
+      caps: {
+        here: {
+          machine: "a",
+          name: "Estudio",
+          os: "macos",
+          color: "#7aa7e6",
+          hub: null,
+          input: { capture: false, inject: false, missing: ["accessibility"], process: { exe: "/x/tandemd", pid: 7, started: 1 } },
+          power: { wake_peer: true, wakeable: true, power_off: false },
+          services: [],
+        },
+        peer: null,
+      },
+    };
+    const bridge = { snapshot: async () => snap, onSnapshot: async () => {}, act, openSettings } as unknown as Bridge;
+    const src = new LiveSource(bridge);
+    const store = new Store(src);
+    await store.start();
+    expect(store.desk.permissions.needed).toBe(true);
+    expect(store.desk.permissions.rows.map((r) => `${r.id}:${r.state}`)).toEqual(["accessibility:missing", "input_monitoring:granted", "local_network:unknown"]);
+    expect(store.desk.permissions.binary).toContain("/x/tandemd (pid 7)");
+    await store.pairAction("start_pairing");
+    expect(act).toHaveBeenLastCalledWith({ kind: "start_pairing" });
+    await store.requestPermissions();
+    expect(act).toHaveBeenLastCalledWith({ kind: "request_permissions" });
+    await store.openPermission("accessibility");
+    expect(openSettings).toHaveBeenCalledWith("accessibility");
+    act.mockResolvedValueOnce({ kind: "rejected", reason: "ya hay uno en curso" } as never);
+    expect(await store.pairAction("start_pairing")).toEqual({ ok: false, reason: "ya hay uno en curso" });
   });
 });
 

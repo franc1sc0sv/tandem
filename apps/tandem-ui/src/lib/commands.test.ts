@@ -11,7 +11,7 @@ function ctx(can = true): CommandContext & { calls: string[] } {
     applyScene: async (id) => (calls.push(`scene:${id}`), { ok: true }),
     setPower: async (m, on) => (calls.push(`power:${m}:${on}`), { ok: true }),
     measureLink: async () => (calls.push("measure"), { ok: true }),
-    openWizard: () => calls.push("wizard"),
+    openWizard: (step?: number) => calls.push(step ? `wizard:${step}` : "wizard"),
     can: () => can,
   };
 }
@@ -107,7 +107,7 @@ describe("ejecutar", () => {
     run("go:maquina:a");
     run("pair:change");
     run("tunnel:t97");
-    expect(c.calls).toEqual(["scene:juego", "power:b:false", "measure", "wizard", "go:maquina/a", "go:ajustes", "go:tuneles"]);
+    expect(c.calls).toEqual(["scene:juego", "power:b:false", "measure", "wizard", "go:maquina/a", "wizard:1", "go:tuneles"]);
   });
 
   it("con la otra apagada ofrece encenderla", () => {
