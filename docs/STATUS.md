@@ -1,5 +1,8 @@
 # Tandem — Estado del proyecto
 
+> **2026-11-16: comienza v0.3.** Plan en `docs/DESIGN.md` (v0.3) y `docs/DECISIONS.md`; backlog T-097…T-125; definición de terminado en `docs/ACCEPTANCE.md`; trabajo autónomo en `docs/dev/night-run.md`. Lo de abajo es el corte de v0.2.
+
+
 > Corte: 2026-10-16 · rama `develop` · CI en verde en Linux, Windows y macOS
 
 ## En una línea

@@ -1,0 +1,480 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "F-AgregarHost.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Agregar máquina · lado del puesto",
+      "w": 1280,
+      "x": 0,
+      "y": 1280
+    },
+    "F-Ajustes.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Ajustes",
+      "w": 1280,
+      "x": 0,
+      "y": 3840
+    },
+    "F-Asis1.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Asistente 1 · Esta máquina",
+      "w": 1280,
+      "x": 0,
+      "y": 0
+    },
+    "F-Asis3.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Asistente 3 · Permisos",
+      "w": 1280,
+      "x": 2720,
+      "y": 0
+    },
+    "F-Asis4.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Asistente 4 · Teclado y mouse",
+      "w": 1280,
+      "x": 4080,
+      "y": 0
+    },
+    "F-Asis5.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Asistente 5 · Acomodo y prueba de cruce",
+      "w": 1280,
+      "x": 5440,
+      "y": 0
+    },
+    "F-Asis6.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Asistente 6 · Listo",
+      "w": 1280,
+      "x": 6800,
+      "y": 0
+    },
+    "F-Avisos.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Avisos y notificaciones",
+      "w": 1280,
+      "x": 4080,
+      "y": 2560
+    },
+    "F-ClaudeMCP.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Túneles · Lo que ve Claude (MCP)",
+      "w": 1280,
+      "x": 1360,
+      "y": 1280
+    },
+    "F-MaquinaMac.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Máquina · MacBook Pro",
+      "w": 1280,
+      "x": 1360,
+      "y": 3840
+    },
+    "F-NuevaEscena.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Escenas · Nueva escena",
+      "w": 1280,
+      "x": 0,
+      "y": 2560
+    },
+    "F-Paleta.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Paleta ⌘K",
+      "w": 1280,
+      "x": 2720,
+      "y": 3840
+    },
+    "F-PruebaCruce.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Acomodo · Prueba de cruce",
+      "w": 1280,
+      "x": 1360,
+      "y": 2560
+    },
+    "F-Transacciones.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "flujos",
+      "title": "v0.3 · Escena y energía en progreso",
+      "w": 1280,
+      "x": 2720,
+      "y": 2560
+    },
+    "Hoy-Asistente.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "hoy",
+      "title": "Hoy · Asistente (paso 3)",
+      "w": 1280,
+      "x": 1360,
+      "y": 0
+    },
+    "Hoy-Atajos.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "page": "hoy",
+      "title": "Hoy · Atajos globales",
+      "w": 1280,
+      "x": 1360,
+      "y": 1280
+    },
+    "Hoy-Bandeja.dc.html": {
+      "h": 520,
+      "page": "hoy",
+      "title": "Hoy · Bandeja / barra de menú",
+      "w": 380,
+      "x": 4080,
+      "y": 0
+    },
+    "Hoy-Emparejar.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "hoy",
+      "title": "Hoy · Emparejar",
+      "w": 1280,
+      "x": 2720,
+      "y": 0
+    },
+    "Hoy-Estados.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "page": "hoy",
+      "title": "Hoy · Sin agente y progreso",
+      "w": 1280,
+      "x": 2720,
+      "y": 1280
+    },
+    "Hoy-Permisos.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "page": "hoy",
+      "title": "Hoy · Permisos",
+      "w": 1280,
+      "x": 0,
+      "y": 1280
+    },
+    "Main.dc.html": {
+      "expand": "fill",
+      "h": 800,
+      "page": "hoy",
+      "title": "Hoy · Escena principal",
+      "w": 1280,
+      "x": 0,
+      "y": 0
+    },
+    "V3-Acomodo.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Acomodo de escritorios",
+      "w": 1280,
+      "x": 0,
+      "y": 1280
+    },
+    "V3-Asistente.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "page": "flujos",
+      "title": "v0.3 · Asistente 2 · Tu puesto",
+      "w": 1280,
+      "x": 1360,
+      "y": 0
+    },
+    "V3-Bandeja.dc.html": {
+      "h": 600,
+      "page": "v03",
+      "title": "v0.3 · Barra de menú",
+      "w": 380,
+      "x": 4080,
+      "y": 1280
+    },
+    "V3-Computo.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Túneles",
+      "w": 1280,
+      "x": 1360,
+      "y": 0
+    },
+    "V3-Estados.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "page": "v03",
+      "title": "v0.3 · Estados difíciles",
+      "w": 1280,
+      "x": 0,
+      "y": 2560
+    },
+    "V3-Maquina.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Máquina: módulos, entornos, recursos",
+      "w": 1280,
+      "x": 2720,
+      "y": 0
+    },
+    "V3-Monitores.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Monitores y escenas",
+      "w": 1280,
+      "x": 4080,
+      "y": 0
+    },
+    "V3-Puesto.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Puesto (inicio)",
+      "w": 1280,
+      "x": 0,
+      "y": 0
+    },
+    "V3-Red.dc.html": {
+      "expand": "fill",
+      "h": 860,
+      "is_interactive": true,
+      "page": "v03",
+      "title": "v0.3 · Red y enlaces",
+      "w": 1280,
+      "x": 1360,
+      "y": 1280
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-11-16T20:00:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "page": "v03",
+    "view": "canvas"
+  },
+  "noteOrder": [
+    "tHoy",
+    "sHoy",
+    "t1",
+    "t2",
+    "t3",
+    "sDec",
+    "sQ",
+    "tHoy2",
+    "f1",
+    "f2",
+    "f3",
+    "f4",
+    "fN"
+  ],
+  "notes": {
+    "f1": {
+      "kind": "title1",
+      "maxW": 8080,
+      "page": "flujos",
+      "text": "Asistente paso a paso (1 → 6)",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "f2": {
+      "kind": "title1",
+      "maxW": 2640,
+      "page": "flujos",
+      "text": "Agregar máquina y lo que ve Claude",
+      "w": 240,
+      "x": 0,
+      "y": 980
+    },
+    "f3": {
+      "kind": "title1",
+      "maxW": 5360,
+      "page": "flujos",
+      "text": "Escenas, prueba de cruce, progreso y avisos",
+      "w": 240,
+      "x": 0,
+      "y": 2260
+    },
+    "f4": {
+      "kind": "title1",
+      "maxW": 4000,
+      "page": "flujos",
+      "text": "Ajustes, MacBook y paleta de comandos",
+      "w": 240,
+      "x": 0,
+      "y": 3540
+    },
+    "fN": {
+      "fill": "blue",
+      "page": "flujos",
+      "text": "Cómo verlo\n\n• Botón Play en cada pantalla: los botones y pestañas funcionan.\n• Las animaciones respetan «reducir movimiento» del sistema.\n• Solo escritorio: no hay versión de teléfono (decidido).",
+      "w": 420,
+      "x": 8160,
+      "y": 0
+    },
+    "sDec": {
+      "fill": "green",
+      "page": "v03",
+      "text": "Decisiones que reflejan estas pantallas\n\n• Puesto de N máquinas (hoy 2), cada una por su id y su nombre. Nada de «Mac/PC» fijo en el código: el ícono sale del SO detectado.\n• Navegación lateral: Puesto · Túneles · Monitores · Red · Acomodo, más una página por máquina.\n• Cada máquina anuncia módulos con estado y razón (nada se oculta sin explicar).\n• Túneles: Claude abre un túnel de una máquina a otra y adentro hace lo que sea (comandos, procesos, archivos, puertos). Sobrevive al enlace.\n• Monitores con un solo estándar: un dueño por monitor, entrada confirmada por el firmware y «no compatible» visible.\n• Escenas en lugar de modos fijos.\n• Toda la configuración desde la UI.\n• Teclado y mouse sin dueño: funcionan desde cualquier máquina y Tandem sigue al que usas.\n• Los túneles son de solo lectura en la UI: los maneja Claude por MCP; la app los muestra.\n• Botones: un solo sistema (alto fijo, ícono siempre, brillo, elevación y foco). Pantallas a escala real.",
+      "w": 440,
+      "x": 5440,
+      "y": 0
+    },
+    "sHoy": {
+      "fill": "gray",
+      "page": "hoy",
+      "text": "Lo que se ve hoy\n\n• Dos tarjetas fijas: «Mac» a la izquierda, «PC» a la derecha.\n• Monitores y modos en gris («próximamente»), desde T-092.\n• Servicios (SSH, carpetas, RTX 5080, archivos) bloqueados: «requiere cable».\n• Asistente de 4 pasos pensado para exactamente dos máquinas.\n\nProblema de fondo: la estructura asume dos máquinas y un SO por lado. No hay lugar para cómputo, recursos ni una tercera máquina.",
+      "w": 420,
+      "x": 4540,
+      "y": 0
+    },
+    "sQ": {
+      "fill": "orange",
+      "page": "v03",
+      "text": "Preguntas para después\n\n1. Confianza con N máquinas: ¿una máquina nueva entra con un solo código y las demás la aceptan, o se empareja cada par?\n3. Conflictos de configuración: ¿gana la versión más reciente por sección, o se pregunta?\n4. Módulos que faltan: ¿se muestran apagados con su razón (así está dibujado) o se ocultan?\n5. ¿Navegación lateral (propuesta) o una sola escena viva como hoy, con paneles?\n6. Acento por máquina: ¿lo eliges tú o se asigna solo?\n8. Paleta ⌘K: ¿también lanza trabajos escritos en lenguaje natural para Claude, o solo comandos de Tandem?",
+      "w": 440,
+      "x": 5440,
+      "y": 700
+    },
+    "t1": {
+      "kind": "title1",
+      "maxW": 5360,
+      "page": "v03",
+      "text": "Rediseño v0.3: pantallas principales",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "t2": {
+      "kind": "title1",
+      "maxW": 4460,
+      "page": "v03",
+      "text": "Configuración, red, asistente y bandeja",
+      "w": 240,
+      "x": 0,
+      "y": 980
+    },
+    "t3": {
+      "kind": "title1",
+      "maxW": 1280,
+      "page": "v03",
+      "text": "Estados difíciles",
+      "w": 240,
+      "x": 0,
+      "y": 2260
+    },
+    "tHoy": {
+      "kind": "title1",
+      "maxW": 4460,
+      "page": "hoy",
+      "text": "Así está hoy la app (develop, v0.2)",
+      "w": 240,
+      "x": 0,
+      "y": -300
+    },
+    "tHoy2": {
+      "kind": "title1",
+      "maxW": 4000,
+      "page": "hoy",
+      "text": "Hoy: el resto de pantallas",
+      "w": 240,
+      "x": 0,
+      "y": 980
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "Hoy-Asistente.dc.html",
+    "Hoy-Emparejar.dc.html",
+    "Hoy-Bandeja.dc.html",
+    "V3-Puesto.dc.html",
+    "V3-Computo.dc.html",
+    "V3-Maquina.dc.html",
+    "V3-Monitores.dc.html",
+    "V3-Acomodo.dc.html",
+    "V3-Red.dc.html",
+    "V3-Asistente.dc.html",
+    "V3-Bandeja.dc.html",
+    "V3-Estados.dc.html",
+    "F-Asis1.dc.html",
+    "F-Asis3.dc.html",
+    "F-Asis4.dc.html",
+    "F-Asis5.dc.html",
+    "F-Asis6.dc.html",
+    "F-AgregarHost.dc.html",
+    "F-ClaudeMCP.dc.html",
+    "F-NuevaEscena.dc.html",
+    "F-PruebaCruce.dc.html",
+    "F-Transacciones.dc.html",
+    "F-Avisos.dc.html",
+    "F-Ajustes.dc.html",
+    "F-MaquinaMac.dc.html",
+    "F-Paleta.dc.html",
+    "Hoy-Permisos.dc.html",
+    "Hoy-Atajos.dc.html",
+    "Hoy-Estados.dc.html"
+  ],
+  "pages": [
+    {
+      "id": "hoy",
+      "name": "Hoy (develop)"
+    },
+    {
+      "id": "v03",
+      "name": "Rediseño v0.3"
+    },
+    {
+      "id": "flujos",
+      "name": "Flujos v0.3"
+    }
+  ],
+  "title": "Tandem — UI actual y rediseño v0.3"
+}

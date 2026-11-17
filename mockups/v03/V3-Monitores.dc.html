@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Tandem v0.3: monitores y escenas</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;color:#a3a6af;text-decoration:none;font-size:13.5px;min-height:20px;transition:background .2s,color .2s}
+.nav:hover{background:#17181c;color:#e8e8eb}
+.nav.on{background:#1c1d22;color:#e8e8eb}
+.navh{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#80838d;padding:14px 10px 6px}
+.card{background:#15161a;border:1px solid #25272d;border-radius:14px;padding:18px;animation:up .45s cubic-bezier(.2,.8,.2,1) both}
+.h3{margin:0;font-size:13px;font-weight:600;color:#e8e8eb}
+.mut{color:#9a9da6}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 8px;border-radius:999px;border:1px solid #31343b;font-size:12px;color:#c4c6cc;white-space:nowrap}
+.chip svg{width:13px;height:13px;flex:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:36px;padding:0 14px;box-sizing:border-box;flex:none;align-self:center;white-space:nowrap;font:inherit;font-size:13px;font-weight:500;border-radius:10px;border:1px solid #2e3138;background:linear-gradient(180deg,#1f2025,#18191d);color:#e8e8eb;cursor:pointer;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.3);transition:transform .18s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .18s;position:relative;overflow:hidden}
+.btn svg{width:16px;height:16px;flex:none;transition:transform .25s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{border-color:#41454e;transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 6px 16px rgba(0,0,0,.35)}
+.btn:hover svg{transform:scale(1.14)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid #7aa7e6;outline-offset:2px}
+.btn.pri{background:linear-gradient(180deg,#3a6aa8,#2c5288);border-color:#5b8fd4;color:#fff}
+.btn.pri:hover{box-shadow:0 0 0 4px rgba(122,167,230,.16),0 8px 20px rgba(44,82,136,.45)}
+.btn.pri::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.2) 50%,transparent 70%);transform:translateX(-120%);transition:transform .6s}
+.btn.pri:hover::after{transform:translateX(120%)}
+.btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:#9a9da6}
+.btn.ghost:hover{background:#1f2026;color:#e8e8eb}
+.btn.ic{width:36px;padding:0}
+.btn.sm{height:32px;padding:0 11px;font-size:12.5px;border-radius:9px}
+.btn.sm.ic{width:32px;padding:0}
+.seg{position:relative;display:grid;grid-template-columns:1fr 1fr;padding:4px;border-radius:12px;background:#0f1013;border:1px solid #25272d}
+.ind{position:absolute;top:4px;bottom:4px;left:4px;width:calc(50% - 4px);border-radius:9px;background:linear-gradient(180deg,#25262c,#1e1f24);border:1px solid #3a3d45;box-shadow:0 4px 14px rgba(0,0,0,.35);transition:transform .38s cubic-bezier(.3,1.3,.5,1),border-color .3s}
+.segb{position:relative;z-index:1;font:inherit;font-size:13px;height:42px;border:0;background:transparent;color:#9a9da6;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:9px;transition:color .25s}
+.segb svg{width:17px;height:17px}
+.segb[aria-checked="true"]{color:#e8e8eb}
+.thumb{border-radius:9px;padding:5px;background:#0b0c0e;border:1px solid #31343b;box-sizing:border-box;flex:none;position:relative}
+.wall{width:100%;height:100%;border-radius:4px;transition:background .7s cubic-bezier(.2,.8,.2,1)}
+.flash{position:absolute;inset:5px;border-radius:4px;background:#fff;opacity:0;animation:fls .6s ease-out}
+.verdict{display:flex;align-items:center;gap:10px;font-size:13px;padding:10px 12px;border-radius:10px;background:#121a16;border:1px solid #2c4a3c;animation:in .45s cubic-bezier(.2,.8,.2,1)}
+.vcheck path{stroke-dasharray:30;stroke-dashoffset:30;animation:dr .5s .15s ease-out forwards}
+.ev{display:grid;grid-template-columns:22px 48px minmax(0,1fr);gap:8px;align-items:center;font-size:12.5px;padding:6px 0;animation:up .4s ease-out both}
+.evi{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:#1b1c21;border:1px solid #2a2c33}
+.evi svg{width:12px;height:12px}
+.sc{position:relative;display:flex;flex-direction:column;gap:12px;padding:14px;border-radius:14px;background:#111215;border:1px solid #25272d;transition:border-color .25s,transform .25s,box-shadow .25s;animation:up .45s cubic-bezier(.2,.8,.2,1) both}
+.sc:hover{transform:translateY(-3px);border-color:#3a3d45;box-shadow:0 12px 26px rgba(0,0,0,.35)}
+.sc.act{border-color:#4f7cbc;background:linear-gradient(180deg,#141c28,#111215);box-shadow:0 0 0 1px rgba(122,167,230,.2),0 0 26px rgba(122,167,230,.12)}
+.kbd{font-family:'JetBrains Mono',monospace;font-size:11px;color:#9a9da6;border:1px solid #31343b;border-bottom-width:2px;border-radius:6px;padding:2px 6px}
+.badge{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:999px;font-size:12px;color:#c3d8f6;background:rgba(122,167,230,.1);border:1px solid rgba(122,167,230,.35)}
+.badge .d{width:7px;height:7px;border-radius:50%;background:#7aa7e6;animation:pl 1.8s ease-in-out infinite}
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes in{from{opacity:0;transform:translateY(6px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes dr{to{stroke-dashoffset:0}}
+@keyframes fls{0%{opacity:.25}100%{opacity:0}}
+@keyframes pl{0%,100%{box-shadow:0 0 0 0 rgba(122,167,230,.55)}50%{box-shadow:0 0 0 5px rgba(122,167,230,0)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.vcheck path{stroke-dashoffset:0}}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;display:flex;flex-wrap:wrap;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12">
+  <nav aria-label="Principal" style="flex:1 1 220px;max-width:240px;box-sizing:border-box;padding:16px 12px;border-right:1px solid #1f2126;display:flex;flex-direction:column;gap:2px;background:#0b0c0e">
+    <div style="display:flex;align-items:center;gap:9px;padding:4px 10px 14px;font-weight:650;font-size:15px"><svg width="20" height="20" viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="11.5" cy="16" r="8" stroke="#7aa7e6" stroke-width="2.4"></circle><circle cx="20.5" cy="16" r="8" stroke="#a99be8" stroke-width="2.4"></circle></svg>Tandem</div>
+    <a class="nav" href="V3-Puesto.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>Puesto</a>
+    <a class="nav" href="V3-Computo.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4M17 12h4"></path><rect x="7" y="8" width="10" height="8" rx="4"></rect></svg>Túneles</a>
+    <a class="nav on" href="V3-Monitores.dc.html" aria-current="page"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M9 20h6M12 16v4"></path></svg>Monitores</a>
+    <a class="nav" href="V3-Acomodo.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="2" y="7" width="9" height="10" rx="1.5"></rect><rect x="13" y="5" width="9" height="14" rx="1.5"></rect></svg>Acomodo</a>
+    <a class="nav" href="V3-Red.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="12" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle><path d="M7.5 12h9"></path></svg>Red</a>
+    <div class="navh">Máquinas</div>
+    <a class="nav" href="F-MaquinaMac.dc.html"><span style="width:8px;height:8px;border-radius:50%;background:#7aa7e6"></span>MacBook Pro</a>
+    <a class="nav" href="V3-Maquina.dc.html"><span style="width:8px;height:8px;border-radius:50%;background:#a99be8"></span>PC-Escritorio</a>
+    <a class="nav" href="F-AgregarHost.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Agregar máquina</a>
+    <span style="flex:1"></span>
+    <a class="nav" href="F-Ajustes.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"></path></svg>Ajustes</a>
+  </nav>
+
+  <main style="flex:999 1 640px;min-width:0;box-sizing:border-box;padding:20px 28px 28px;display:flex;flex-direction:column;gap:16px">
+    <h1 style="margin:0;font-size:20px;font-weight:650">Monitores</h1>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:14px">
+      <article class="card" style="display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;align-items:center;gap:14px">
+          <div class="thumb" style="width:132px;height:58px"><div class="wall" style="{{wall}}"></div><sc-if value="{{pc}}" hint-placeholder-val="{{ true }}"><span class="flash"></span></sc-if><sc-if value="{{mac}}" hint-placeholder-val="{{ false }}"><span class="flash"></span></sc-if></div>
+          <div style="display:flex;flex-direction:column;gap:7px;min-width:0">
+            <b style="font-weight:600;font-size:15px">Odyssey G5 34"</b>
+            <span style="display:flex;gap:6px;flex-wrap:wrap">
+              <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="2" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"></path><path d="m9 12 2 2 4-4"></path></svg>Estándar Tandem</span>
+              <span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="#a99be8" stroke-width="2" aria-hidden="true"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"></path></svg>PC-Escritorio · DP</span>
+            </span>
+          </div>
+        </div>
+        <div class="seg" role="radiogroup" aria-label="Qué máquina muestra el 34 pulgadas">
+          <span class="ind" style="{{ind}}"></span>
+          <button type="button" role="radio" class="segb" aria-checked="{{macOn}}" onClick="{{toMac}}"><svg viewBox="0 0 24 24" fill="none" stroke="#7aa7e6" stroke-width="1.8" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="1.5"></rect><path d="M2 19h20"></path></svg>MacBook Pro<span class="mono" style="font-size:10.5px;color:#80838d">HDMI</span></button>
+          <button type="button" role="radio" class="segb" aria-checked="{{pcOn}}" onClick="{{toPc}}"><svg viewBox="0 0 24 24" fill="none" stroke="#a99be8" stroke-width="1.8" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2"></rect><circle cx="12" cy="15" r="2.5"></circle></svg>PC-Escritorio<span class="mono" style="font-size:10.5px;color:#80838d">DP</span></button>
+        </div>
+        <div style="display:flex;flex-direction:column;border-top:1px solid #1f2126;padding-top:10px">
+          <div class="ev" style="animation-delay:.1s"><span class="evi"><svg viewBox="0 0 24 24" fill="none" stroke="#7aa7e6" stroke-width="2.2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></span><span class="mono mut">14:02</span><span>Entrada → DP, pedida por Tandem</span></div>
+          <div class="ev" style="animation-delay:.18s"><span class="evi"><svg viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2" aria-hidden="true"><path d="M9 11V5a2 2 0 0 1 4 0v6M13 11V4a2 2 0 0 1 4 0v8M9 11a2 2 0 0 0-4 0v2a7 7 0 0 0 14 0v-1"></path></svg></span><span class="mono mut">13:47</span><span>Entrada → HDMI, con los botones</span></div>
+          <div class="ev" style="animation-delay:.26s"><span class="evi"><svg viewBox="0 0 24 24" fill="none" stroke="#9a9da6" stroke-width="2" aria-hidden="true"><path d="M2 12h4l3-8 4 16 3-8h6"></path></svg></span><span class="mono mut">13:47</span><span>Señal HDMI detectada</span></div>
+        </div>
+      </article>
+
+      <article class="card" style="display:flex;flex-direction:column;gap:14px;border-style:dashed;animation-delay:.08s">
+        <div style="display:flex;align-items:center;gap:14px">
+          <div class="thumb" style="width:110px;height:58px;opacity:.5;border-style:dashed"><div class="wall" style="background:repeating-linear-gradient(45deg,#17181c 0 8px,#121316 8px 16px)"></div></div>
+          <div style="display:flex;flex-direction:column;gap:7px;min-width:0;flex:1">
+            <b style="font-weight:600;font-size:15px">Odyssey G5 32"</b>
+            <span style="display:flex;gap:6px;flex-wrap:wrap">
+              <span class="chip" style="border-color:#5a4a2c;color:#e6c48f"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17h.01"></path></svg>No compatible</span>
+              <span class="chip mut"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M7 7l10 10M9 3v4M15 3v4M6 9h3M15 9h3"></path></svg>Desconectado</span>
+            </span>
+          </div>
+          <button type="button" class="btn ghost ic sm" aria-label="Olvidar este monitor" title="Olvidar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></button>
+        </div>
+        <p style="margin:0;font-size:13px;line-height:1.55;color:#c4c6cc">Entra solo cuando su firmware cumpla el estándar.</p>
+        <a href="V3-Estados.dc.html" class="btn sm" style="align-self:flex-start"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></svg>Qué es el estándar</a>
+      </article>
+    </div>
+
+    <section class="card" aria-label="Escenas" style="display:flex;flex-direction:column;gap:14px;animation-delay:.12s">
+      <div style="display:flex;align-items:center;gap:8px"><h2 class="h3">Escenas</h2><span style="flex:1"></span><a href="F-NuevaEscena.dc.html" class="btn pri sm"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Nueva escena</a></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+        <sc-for list="{{scenes}}" as="s" hint-placeholder-count="3">
+          <div class="{{s.cls}}" style="{{s.delay}}">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="thumb" style="width:72px;height:36px;padding:3px"><div class="wall" style="{{s.wall}}"></div></div>
+              <div style="display:flex;flex-direction:column;gap:4px;min-width:0;flex:1"><b style="font-weight:600;font-size:14px">{{s.name}}</b><span class="mut" style="font-size:12px">{{s.desc}}</span></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="kbd">{{s.key}}</span><span style="flex:1"></span>
+              <sc-if value="{{s.isAct}}" hint-placeholder-val="{{ false }}"><span class="badge"><span class="d"></span>Activa</span></sc-if>
+              <sc-if value="{{s.notAct}}" hint-placeholder-val="{{ true }}">
+                <a href="V3-Monitores.dc.html" class="btn ghost ic sm" aria-label="Editar escena" title="Editar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></a>
+                <a href="F-Transacciones.dc.html" class="btn sm"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>Aplicar</a>
+              </sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { on: 'pc' }; }
+  renderVals() {
+    const pc = this.state.on === 'pc';
+    const macW = 'linear-gradient(160deg,#34496a,#1d2738)';
+    const pcW = 'linear-gradient(160deg,#463d63,#241f33)';
+    const sc = [['Trabajo', '34" → PC-Escritorio', '⌃⌥1', pcW, true], ['Solo MacBook', '34" → MacBook Pro', '⌃⌥2', macW, false], ['Juego', '34" → PC-Escritorio', '⌃⌥3', pcW, false]];
+    return {
+      pc, mac: !pc,
+      pcOn: pc ? 'true' : 'false', macOn: pc ? 'false' : 'true',
+      ind: 'transform:translateX(' + (pc ? '100%' : '0') + ');border-color:' + (pc ? '#6a5fa6' : '#4f7cbc'),
+      wall: 'background:' + (pc ? pcW : macW),
+      toPc: () => this.setState({ on: 'pc' }),
+      toMac: () => this.setState({ on: 'mac' }),
+      scenes: sc.map(([name, desc, key, w, act], i) => ({ name, desc, key, isAct: act, notAct: !act,
+        cls: 'sc' + (act ? ' act' : ''), wall: 'background:' + w, delay: 'animation-delay:' + (0.15 + i * 0.06) + 's' }))
+    };
+  }
+}
+</script>
+</body>
+</html>
