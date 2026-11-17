@@ -5,7 +5,8 @@ import { defineConfig } from "vitest/config";
 // carpeta): la ventana principal y la de la barra de menú / bandeja.
 //
 // `--mode demo` (`pnpm build:demo`) deja el modo demo dentro del build: lo usa el arnés de
-// capturas (`pnpm shots`). El build normal (el de Tauri) no lo incluye.
+// capturas (`pnpm shots`), y también la galería de componentes (`gallery.html`), con la que el
+// arnés compara estilos con los mockups. El build normal (el de Tauri) no incluye ninguno.
 export default defineConfig(({ mode }) => ({
   plugins: [svelte()],
   clearScreen: false,
@@ -15,7 +16,9 @@ export default defineConfig(({ mode }) => ({
   },
   build: {
     target: "es2022",
-    rollupOptions: { input: { main: "index.html", tray: "tray.html" } },
+    rollupOptions: {
+      input: { main: "index.html", tray: "tray.html", ...(mode === "production" ? {} : { gallery: "gallery.html" }) },
+    },
   },
   resolve: process.env.VITEST ? { conditions: ["browser"] } : undefined,
   test: {

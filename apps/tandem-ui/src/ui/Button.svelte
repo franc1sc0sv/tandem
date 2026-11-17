@@ -112,8 +112,7 @@
     transition:
       transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
       border-color 0.18s,
-      box-shadow 0.18s,
-      opacity 0.3s;
+      box-shadow 0.18s;
     position: relative;
     overflow: hidden;
   }

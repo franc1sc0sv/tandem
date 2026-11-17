@@ -24,17 +24,23 @@
 <div class="gal">
   <div data-part="btn-md"><Button icon="check">Botón</Button></div>
   <div data-part="btn-pri"><Button icon="check" variant="pri">Primario</Button></div>
+  <!-- Los 38 px de los encabezados (V3-Acomodo, V3-Red, V3-Maquina…). -->
+  <div data-part="btn-38"><Button icon="cursor" style="--btn-h:38px;--btn-px:15px">Probar cruce</Button></div>
+  <div data-part="btn-pri-38"><Button icon="check" variant="pri" style="--btn-h:38px;--btn-px:15px">Guardar</Button></div>
   <div data-part="btn-ghost"><Button icon="x" variant="ghost">Fantasma</Button></div>
   <div data-part="btn-sm"><Button icon="check" size="sm">Chico</Button></div>
+  <div data-part="btn-pri-sm"><Button icon="plus" variant="pri" size="sm">Nueva escena</Button></div>
+  <div data-part="btn-ghost-ic-sm"><Button icon="trash" variant="ghost" size="sm" iconOnly label="Olvidar" /></div>
   <div data-part="btn-danger"><Button icon="trash" variant="danger" size="sm" style="--btn-h:34px;--btn-px:13px">Peligro</Button></div>
   <div data-part="btn-xl"><Button icon="arrow-right" variant="pri" size="xl">Grande</Button></div>
   <div data-part="seg-md"><Segmented options={three} value="c" label="Alineación" /></div>
-  <div data-part="seg-lg"><Segmented options={two} value="a" label="Máquina" size="lg" /></div>
+  <div data-part="seg-lg"><Segmented options={two} value="b" label="Máquina" size="lg" /></div>
   <div data-part="sw-on"><Switch checked={true} label="Encendido" /></div>
   <div data-part="sw-off"><Switch checked={false} label="Apagado" /></div>
   <div data-part="chip"><Chip dot={false}>Trabajo</Chip></div>
   <div data-part="chip-count"><Chip count dot={false}>3</Chip></div>
   <div data-part="card"><Card>Tarjeta</Card></div>
+  <div data-part="card-link"><Card href="#tarjeta">Tarjeta enlace</Card></div>
   <div data-part="kbd"><Kbd>⌃⌥1</Kbd></div>
   <div data-part="kbd-raised"><Kbd raised>⌃⌥1</Kbd></div>
   <div data-part="bar"><Bar percent={50} color="#7aa7e6" /></div>
