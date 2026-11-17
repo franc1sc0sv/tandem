@@ -1,5 +1,11 @@
 # DDC/CI — Samsung Odyssey G5 34" (LC34G55T)
 
+> **Actualización 2026-11-16 (v0.3):** el 34" ya corre el **firmware propio v3.1 (protocolo 2)** del repo `monitor-firmware`: `Get 0x60` **devuelve la entrada real** (parche v1, ADR-0009 de ese repo) y el monitor da eventos y veredictos de cambio (VCP `0xEA`–`0xEF`). Lo de abajo describe el firmware **de fábrica** y queda como historia. Valores de `Set 0x60` confirmados: HDMI `0x06` (también `0x03`), DP `0x09` (`0x0F` también funcionó). DP = puerto 0, HDMI = puerto 1. Desde la Mac por HDMI el canal DDC solo responde mientras HDMI es la entrada activa (RC=01 si no).
+>
+> El 32" no es un MStar como el 34": es el **Odyssey G5 «FALCON» (Novatek NT68500)**, EDID `0x7489` (DP) / `0x748A` (HDMI); **dañado el 2026-11-16** y en recuperación por SPI. Con firmware de fábrica será «no compatible» (DECISIONS D11).
+>
+> Contrato con Tandem: `monitor-firmware/docs/integration/tandem.md`. En v0.3 el control vive en el crate Rust `monitor-ddc` (DECISIONS A5), no en el servicio HTTP de Python.
+
 Pruebas hechas el 2026-10-15 desde Windows (PC → monitor por DisplayPort, API `dxva2`).
 Scripts en [`tools/windows/ddc/`](../../tools/windows/ddc/).
 
@@ -27,7 +33,7 @@ El monitor **declara** `60 = {12, 0F, 10}`, pero **no obedece** esos valores.
 
 ## Observaciones clave
 
-- **Lectura de entrada inútil:** `0x60` siempre devuelve `0x09`, esté en DP o HDMI. El agente debe llevar el estado él mismo.
+- **(Firmware de fábrica)** **Lectura de entrada inútil:** `0x60` siempre devuelve `0x09`, esté en DP o HDMI. El agente debe llevar el estado él mismo.
 - **Timing report inútil para verificar:** sigue reportando 165 Hz de DP aunque el monitor esté mostrando HDMI.
 - **El canal DDC por DP sigue vivo mientras el monitor muestra HDMI.** Windows sigue enumerando el monitor (por eso es "fantasma") y puede devolverlo a DP.
 - **Auto Source Switch** (ahora activado) **no** cambia de entrada al perder la señal (se va a reposo) **ni** al reconectar el HDMI (solo muestra "HDMI connected").

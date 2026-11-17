@@ -1,0 +1,32 @@
+# Mockups
+
+- `main.html`, `next.html`: UI de v0.1 y v0.2 (historia).
+- **`v03/`: referencia visual e interactiva de v0.3** (fuente de verdad para la UI). Copia de los archivos del diseño publicado (`https://claude.ai/artifact/9iR76c5fczvnpXCbp9BnJt`, privado). Cada `*.dc.html` es una pantalla de 1280×860; `canvas.json` dice el título y la página de cada una.
+
+## Cómo verlos
+
+Los `.dc.html` usan un formato de plantillas (`<x-dc>`, `{{…}}`, `<sc-for>`, `<sc-if>`, clase `Component extends DCLogic`). `tools/mockup-render` (T-125) los renderiza localmente y saca capturas a `docs/mockups-png/`.
+
+## Qué pantalla es cuál
+
+| Mockup | Pantalla |
+|---|---|
+| `V3-Puesto` | Puesto (inicio) |
+| `V3-Computo` | Túneles |
+| `V3-Maquina`, `F-MaquinaMac` | Máquina |
+| `V3-Monitores`, `F-NuevaEscena` | Monitores y escenas |
+| `V3-Acomodo`, `F-PruebaCruce` | Acomodo y prueba de cruce |
+| `V3-Red` | Red |
+| `F-Asis1`, `V3-Asistente`, `F-Asis3`…`F-Asis6` | Asistente (pasos 1–6) |
+| `F-Transacciones`, `F-Avisos` | Progreso de escena/energía, avisos |
+| `F-Ajustes`, `F-Paleta` | Ajustes, paleta ⌘K |
+| `V3-Estados` | Estados difíciles |
+| `V3-Bandeja` | Barra de menú / bandeja |
+| `F-ClaudeMCP` | Lo que ve Claude (herramientas MCP) |
+
+## Lo que los mockups dicen y DECISIONS corrige
+
+- **Tercera máquina** (`F-AgregarHost`, la «MacBook Air», «Agregar máquina» en la barra lateral, «Puesto de N máquinas» en las notas): fuera por D1. En su lugar, Ajustes → «Cambiar la otra máquina» (emparejar de nuevo).
+- **Botón «Instalar» del servicio de administrador** (`F-Asis1`): solo si el módulo de pantallas protegidas (T-027) está disponible; si no, la fila muestra su estado sin botón.
+- **«macOS 26 · Apple M5 · 24 GB»** y demás datos de ejemplo: en la app salen del escaneo real (D10).
+- **Botones «Simular…»** (borde punteado): son solo del mockup; en la app esos pasos ocurren de verdad.

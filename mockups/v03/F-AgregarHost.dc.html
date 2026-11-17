@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Agregar máquina: lado del puesto</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+.mut{color:#9a9da6}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.btn{font:inherit;font-size:13.5px;padding:10px 18px;border-radius:10px;border:1px solid #31343b;background:#1b1c21;color:#e8e8eb;cursor:pointer;min-height:44px}
+.btn:hover{border-color:#4a4e58}
+.pri{background:#22324a;border-color:#7aa7e6}
+.dg{width:52px;height:66px;border-radius:12px;background:#111215;border:1px solid #31343b;display:grid;place-items:center;font-family:'JetBrains Mono',monospace;font-size:30px;opacity:0;animation:up .35s cubic-bezier(.2,.8,.2,1) forwards}
+.cd{stroke-dasharray:113;animation:cnt 120s linear forwards}
+.spin{width:18px;height:18px;border-radius:50%;border:2px solid #31343b;border-top-color:#7aa7e6;animation:sp .8s linear infinite;flex:none}
+.m{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;border:1px solid #25272d;background:#111215;font-size:13.5px}
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes cnt{to{stroke-dashoffset:113}}
+@keyframes sp{to{transform:rotate(360deg)}}
+@keyframes in{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:none}}
+@keyframes slide{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;opacity:1!important}}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;min-height:0;padding:0 16px;box-sizing:border-box;flex:none;align-self:center;white-space:nowrap;font:inherit;font-size:13.5px;font-weight:500;line-height:1;border-radius:10px;border:1px solid #2e3138;background:linear-gradient(180deg,#1f2025,#18191d);color:#e8e8eb;cursor:pointer;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.3);transition:transform .18s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .18s;position:relative;overflow:hidden}
+.btn svg{width:16px;height:16px;flex:none;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{border-color:#41454e;transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 6px 16px rgba(0,0,0,.35)}
+.btn:hover svg{transform:scale(1.14)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid #7aa7e6;outline-offset:2px}
+.btn.pri{background:linear-gradient(180deg,#3a6aa8,#2c5288)!important;border-color:#5b8fd4!important;color:#fff}
+.btn.pri:hover{box-shadow:0 0 0 4px rgba(122,167,230,.16),0 8px 20px rgba(44,82,136,.45)}
+.btn.pri::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.2) 50%,transparent 70%);transform:translateX(-120%);transition:transform .6s}
+.btn.pri:hover::after{transform:translateX(120%)}
+.btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:#9a9da6}
+.btn.ghost:hover{background:#1f2026;color:#e8e8eb}
+.btn.sm{height:32px;padding:0 11px;font-size:12.5px;border-radius:9px}
+.btn.sm svg{width:15px;height:15px}
+.btn.sim{border-style:dashed}
+.dg{transition:transform .2s,border-color .2s}
+.dg:hover{transform:translateY(-2px);border-color:#4f7cbc}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;position:relative;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12;display:grid;place-items:center;padding:40px;box-sizing:border-box">
+  <div aria-hidden="true" style="position:absolute;inset:0;display:flex;opacity:.25;filter:blur(1px)">
+    <div style="width:230px;background:#0b0c0e;border-right:1px solid #1f2126"></div>
+    <div style="flex:1;padding:28px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-content:start"><div style="height:200px;border-radius:14px;background:#15161a"></div><div style="height:200px;border-radius:14px;background:#15161a"></div><div style="height:200px;border-radius:14px;border:1px dashed #31343b"></div></div>
+  </div>
+  <div aria-hidden="true" style="position:absolute;inset:0;background:rgba(8,9,11,.6)"></div>
+  <section role="dialog" aria-labelledby="t" style="position:relative;width:min(560px,100%);border-radius:18px;background:#15161a;border:1px solid #31343b;padding:28px;display:flex;flex-direction:column;gap:18px;box-shadow:0 24px 60px rgba(0,0,0,.5);animation:in .3s ease-out">
+    <div style="display:flex;align-items:center;gap:10px"><h2 id="t" style="margin:0;font-size:19px;font-weight:650">Agregar una máquina a «Mi puesto»</h2><span style="flex:1"></span><span class="mut" style="font-size:12px">desde PC-Escritorio</span></div>
+
+    <sc-if value="{{showCode}}" hint-placeholder-val="{{ true }}">
+      <p class="mut" style="margin:0;line-height:1.5">En la máquina nueva abre Tandem, elige «Unirme a un puesto» y escribe este código.</p>
+      <div style="display:flex;gap:8px;justify-content:center;align-items:center">
+        <span class="dg" style="animation-delay:.05s">4</span><span class="dg" style="animation-delay:.1s">8</span><span class="dg" style="animation-delay:.15s">2</span><span style="width:10px"></span><span class="dg" style="animation-delay:.2s">9</span><span class="dg" style="animation-delay:.25s">1</span><span class="dg" style="animation-delay:.3s">3</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;justify-content:center" class="mut">
+        <svg width="20" height="20" viewBox="0 0 40 40" aria-hidden="true" style="transform:rotate(-90deg)"><circle cx="20" cy="20" r="18" fill="none" stroke="#25272d" stroke-width="3"></circle><circle class="cd" cx="20" cy="20" r="18" fill="none" stroke="#7aa7e6" stroke-width="3"></circle></svg>
+        <span style="font-size:12.5px">Vale 2 minutos y una sola vez</span>
+      </div>
+      <div class="m"><span class="spin"></span><span>Esperando a la máquina nueva…</span><span style="flex:1"></span><button type="button" class="btn sm sim" onClick="{{arrive}}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>Simular que llega</button></div>
+    </sc-if>
+
+    <sc-if value="{{joining}}" hint-placeholder-val="{{ false }}">
+      <div class="m" style="animation:slide .35s ease-out;border-color:#5fbfb0"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#5fbfb0" stroke-width="1.8" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="1.5"></rect><path d="M2 19h20"></path></svg><div style="display:flex;flex-direction:column;gap:2px"><b style="font-weight:600">MacBook Air</b><span class="mut" style="font-size:12px">macOS · escribió el código correcto · por Wi-Fi</span></div><span style="flex:1"></span><span class="spin" style="border-top-color:#5fbfb0"></span></div>
+      <ul style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:8px;font-size:13px">
+        <li style="display:flex;gap:10px;animation:slide .3s .2s both"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="2.4" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg>Llaves intercambiadas y guardadas en el llavero</li>
+        <li style="display:flex;gap:10px;animation:slide .3s .5s both"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="2.4" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg>MacBook Pro avisada: también confía en ella</li>
+        <li style="display:flex;gap:10px;animation:slide .3s .8s both" class="mut"><span class="spin" style="width:13px;height:13px"></span>Sincronizando la configuración del puesto…</li>
+      </ul>
+      <div style="display:flex;justify-content:flex-end"><button type="button" class="btn sm sim" onClick="{{finish}}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>Simular que termina</button></div>
+    </sc-if>
+
+    <sc-if value="{{done}}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 0;animation:in .35s ease-out">
+        <svg width="54" height="54" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m7.5 12.5 3 3 6-6.5"></path></svg>
+        <b style="font-size:16px;font-weight:600">MacBook Air entró al puesto</b>
+        <span class="mut" style="font-size:13px;text-align:center;max-width:380px">Ya aparece en las tres máquinas. Ahí sigue su propio asistente (permisos, teclado y acomodo).</span>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end"><button type="button" class="btn" onClick="{{reset}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Agregar otra</button><a class="btn pri" href="V3-Puesto.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>Listo</a></div>
+    </sc-if>
+
+    <sc-if value="{{showCode}}" hint-placeholder-val="{{ true }}"><div style="display:flex;justify-content:flex-end"><a class="btn ghost" href="V3-Puesto.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>Cancelar</a></div></sc-if>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { s: 'code' }; }
+  renderVals() {
+    const s = this.state.s;
+    return {
+      showCode: s === 'code', joining: s === 'join', done: s === 'done',
+      arrive: () => this.setState({ s: 'join' }),
+      finish: () => this.setState({ s: 'done' }),
+      reset: () => this.setState({ s: 'code' })
+    };
+  }
+}
+</script>
+</body>
+</html>

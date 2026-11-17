@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Tandem v0.3: estados difíciles</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+.mut{color:#9a9da6}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.btn{font:inherit;font-size:13px;padding:7px 13px;border-radius:9px;border:1px solid #31343b;background:#1b1c21;color:#e8e8eb;cursor:pointer;min-height:36px}
+.st{background:#15161a;border:1px solid #25272d;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.tag{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#80838d}
+.hd{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14.5px}
+.ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:none}
+p{margin:0;font-size:13px;line-height:1.5;color:#c4c6cc}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;min-height:0;padding:0 15px;box-sizing:border-box;flex:none;align-self:center;white-space:nowrap;font:inherit;font-size:13px;font-weight:500;line-height:1;border-radius:10px;border:1px solid #2e3138;background:linear-gradient(180deg,#1f2025,#18191d);color:#e8e8eb;cursor:pointer;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.3);transition:transform .18s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .18s;position:relative;overflow:hidden}
+.btn svg{width:16px;height:16px;flex:none;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{border-color:#41454e;transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 6px 16px rgba(0,0,0,.35)}
+.btn:hover svg{transform:scale(1.14)}
+.btn:hover svg.rf{transform:rotate(-180deg)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid #7aa7e6;outline-offset:2px}
+.btn.pri{background:linear-gradient(180deg,#3a6aa8,#2c5288)!important;border-color:#5b8fd4!important;color:#fff}
+.btn.pri:hover{box-shadow:0 0 0 4px rgba(122,167,230,.16),0 8px 20px rgba(44,82,136,.45)}
+.btn.pri::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.2) 50%,transparent 70%);transform:translateX(-120%);transition:transform .6s}
+.btn.pri:hover::after{transform:translateX(120%)}
+.btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:#9a9da6;padding:0 10px}
+.btn.ghost:hover{background:#1f2026;color:#e8e8eb}
+.st{animation:up .45s cubic-bezier(.2,.8,.2,1) both;transition:transform .25s,border-color .25s,box-shadow .25s}
+.st:hover{transform:translateY(-3px);border-color:#3a3d45;box-shadow:0 12px 26px rgba(0,0,0,.3)}
+.st:nth-child(2){animation-delay:.04s}.st:nth-child(3){animation-delay:.08s}.st:nth-child(4){animation-delay:.12s}.st:nth-child(5){animation-delay:.16s}.st:nth-child(6){animation-delay:.2s}.st:nth-child(7){animation-delay:.24s}.st:nth-child(8){animation-delay:.28s}.st:nth-child(9){animation-delay:.32s}
+.ic{transition:transform .3s cubic-bezier(.3,1.5,.5,1)}
+.st:hover .ic{transform:scale(1.12) rotate(-6deg)}
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;box-sizing:border-box;padding:28px;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:4px"><h1 style="margin:0;font-size:20px;font-weight:650">Estados difíciles</h1><span class="mut" style="font-size:12.5px">Cómo se ve cada cosa cuando no sale bien. Regla: siempre se dice qué pasó, qué hizo Tandem solo y qué puedes hacer tú.</span></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px">
+
+    <article class="st"><span class="tag">Primera vez</span>
+      <div class="hd"><span class="ic" style="background:#16202e"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7aa7e6" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>Puesto de una sola máquina</div>
+      <p>Todo funciona en esta máquina. Lo que necesita otra (teclado compartido, cómputo, escenas) aparece apagado con «Agrega otra máquina para usar esto».</p>
+      <div><a class="btn pri" href="F-AgregarHost.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Agregar máquina</a></div>
+    </article>
+
+    <article class="st"><span class="tag">Máquina apagada</span>
+      <div class="hd"><span class="ic" style="background:#1b1c21"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9a9da6" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 6.8a8 8 0 1 0 11.4 0"></path></svg></span>PC-Escritorio está apagada</div>
+      <p>Su tarjeta queda atenuada y el mouse ya no cruza hacia ella. MacBook Pro puede despertarla por la red.</p>
+      <div style="display:flex;gap:8px"><a class="btn pri" href="F-Transacciones.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 6.8a8 8 0 1 0 11.4 0"></path></svg>Encender</a><span class="mut" style="font-size:12px;align-self:center">≈ 40 s</span></div>
+    </article>
+
+    <article class="st"><span class="tag">Enlace</span>
+      <div class="hd"><span class="ic" style="background:#1e1a12"><svg width="16" height="16" viewBox="0 0 24 24" fill="#d9a75a" aria-hidden="true"><path d="M12 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM6.3 13.3l1.4 1.4a6 6 0 0 1 8.6 0l1.4-1.4a8 8 0 0 0-11.4 0z"></path></svg></span>Se desconectó el cable USB-C</div>
+      <p>El teclado y el mouse siguieron por Wi-Fi sin cortarse (0.6 s). El envío de 2 workspaces quedó en pausa hasta que vuelva un cable, o puedes mandarlos por Wi-Fi ahora.</p>
+      <div><button type="button" class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9 9 0 0 1 13 0M9 16a4 4 0 0 1 6 0"></path><path d="M12 19.5h.01"></path></svg>Enviar por Wi-Fi igual</button></div>
+    </article>
+
+    <article class="st"><span class="tag">Cómputo</span>
+      <div class="hd"><span class="ic" style="background:#16202e"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7aa7e6" stroke-width="2" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"></path><path d="M18 3v4h-4M6 21v-4h4"></path></svg></span>Reconectado: el túnel siguió</div>
+      <p>«Entrenar LoRA» siguió corriendo en PC-Escritorio mientras no había enlace. Se recuperaron 3 min de salida.</p>
+      <span class="mono mut" style="font-size:11.5px">epoch 9/20 · loss 0.0371</span>
+    </article>
+
+    <article class="st"><span class="tag">Cómputo</span>
+      <div class="hd"><span class="ic" style="background:#25171a"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e07a6f" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></span>«Render ComfyUI» falló</div>
+      <p>Sin memoria de GPU: «Entrenar LoRA» usa 14.1 de 16 GB en PC-Escritorio. Claude ve este motivo por MCP y puede esperar o elegir otra máquina.</p>
+      <div><a class="btn ghost" href="V3-Computo.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>Ver en Túneles</a></div>
+    </article>
+
+    <article class="st"><span class="tag">Monitores</span>
+      <div class="hd"><span class="ic" style="background:#25171a"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e07a6f" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M9 20h6"></path></svg></span>La escena «Solo MacBook» no se aplicó</div>
+      <p>El 34" respondió «cambio fallido» (no hay señal HDMI de la MacBook). Tandem deshizo la escena: todo quedó como estaba.</p>
+      <div><button type="button" class="btn"><svg class="rf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 4v4h-4M4 20v-4h4"></path></svg>Reintentar</button></div>
+    </article>
+
+    <article class="st"><span class="tag">Monitores</span>
+      <div class="hd"><span class="ic" style="background:#1e1a12"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2" aria-hidden="true"><path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17h.01"></path></svg></span>Monitor no compatible</div>
+      <p>Tandem solo controla monitores que cumplen el estándar: dicen qué entrada muestran, confirman cada cambio y avisan los cambios hechos con sus botones. Los demás se ven, pero no se tocan.</p>
+    </article>
+
+    <article class="st"><span class="tag">Monitores</span>
+      <div class="hd"><span class="ic" style="background:#1b1c21"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9a9da6" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M9 20h6"></path></svg></span>Nadie puede hablar con el 34"</div>
+      <p>Su dueño (PC-Escritorio) está apagado y MacBook Pro solo llega a él por HDMI mientras lo está mostrando. Cuando una de las dos pueda, toma el control sola.</p>
+    </article>
+
+    <article class="st"><span class="tag">Permisos</span>
+      <div class="hd"><span class="ic" style="background:#1e1a12"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"></path></svg></span>Falta «Monitoreo de entrada» en macOS</div>
+      <p>Sin este permiso, MacBook Pro no puede mandar su teclado. Concédelo a <span class="mono" style="font-size:12px">/Applications/Tandem.app/…/tandemd</span>; Tandem lo detecta solo.</p>
+      <div><button type="button" class="btn pri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg>Abrir Ajustes del Sistema</button></div>
+    </article>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

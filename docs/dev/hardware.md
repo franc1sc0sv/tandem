@@ -6,14 +6,8 @@
 - Binarios de Windows: `cargo build --target x86_64-pc-windows-gnu` (requiere `sudo apt install -y mingw-w64`), copiarlos a `C:\Users\PC\AppData\Local\Temp\tandem\` y ejecutarlos por interop.
 - **Monitores:** Tandem ya no los controla (DESIGN §8, T-092); ninguna prueba cambia entradas. El 34" es la única pantalla de la PC.
 
-## Mac (pendiente, tarea T-051)
+## Mac
 
-1. En la Mac: Ajustes del Sistema → General → Compartir → **Sesión remota** activada.
-2. Desde WSL: `ssh-copy-id <usuario>@<ip-de-la-mac>`.
-3. En `~/.ssh/config`:
-   ```
-   Host mac-runner
-     HostName <ip-de-la-mac>
-     User <usuario>
-   ```
-4. Comprobar: `ssh mac-runner uname -a`.
+- `ssh mac-runner` (en `~/.ssh/config`: `HostName 192.168.1.191`, `User franciscohernandez`), con la llave de WSL autorizada (T-051, 2026-11-16). Por Wi-Fi.
+- MacBook Pro Apple Silicon, macOS 27.0.1. Herramientas: Xcode CLT; instalar rustup en el usuario si falta (`curl https://sh.rustup.rs -sSf | sh -s -- -y`).
+- Si deja de responder: revisar que **Sesión remota** siga activa (`sudo systemsetup -getremotelogin`) y la IP (`ipconfig getifaddr en0`).
