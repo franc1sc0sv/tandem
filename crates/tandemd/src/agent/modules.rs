@@ -37,14 +37,16 @@ impl Agent {
             power: &capabilities::power(&self.cfg, info.os),
             switches: &switches,
         });
-        capabilities::local(
+        let mut caps = capabilities::local(
             &self.cfg,
             self.machine(),
             info,
             &input,
             &self.process,
             modules,
-        )
+        );
+        caps.monitors = self.monitors.local_channels();
+        caps
     }
 
     /// Si el usuario no apagó `id` aquí.

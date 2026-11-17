@@ -3,6 +3,7 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use crate::model::Machine;
+use crate::monitor::MonitorInput;
 use crate::state::State;
 
 /// Lo que cada máquina sabe hacer, según lo que anunció (DESIGN §3.7): a quién se puede
@@ -34,6 +35,13 @@ pub enum Step {
     PowerOn { machine: Machine },
     /// Apagado limpio de `machine`.
     PowerOff { machine: Machine },
+    /// Cambiar la entrada del monitor `monitor` (su id, `<modelo>-<hash>`) y esperar el
+    /// veredicto del firmware. Lo hace la máquina dueña del monitor (DECISIONS D13), sea cual
+    /// sea la que orquesta.
+    SwitchMonitor {
+        monitor: String,
+        input: MonitorInput,
+    },
 }
 
 impl Step {
@@ -42,6 +50,8 @@ impl Step {
         match self {
             Step::PowerOn { machine } => state.on.set(*machine, true),
             Step::PowerOff { machine } => state.on.set(*machine, false),
+            // La entrada real la cuenta el firmware (eventos del dueño), no el estado.
+            Step::SwitchMonitor { .. } => {}
         }
     }
 }
@@ -73,6 +83,16 @@ impl Plan {
         Ok(Plan {
             steps: vec![Step::PowerOn { machine }],
         })
+    }
+
+    /// Cambiar la entrada de un monitor: un solo paso, con veredicto y vuelta atrás.
+    pub fn switch_monitor(monitor: impl Into<String>, input: MonitorInput) -> Plan {
+        Plan {
+            steps: vec![Step::SwitchMonitor {
+                monitor: monitor.into(),
+                input,
+            }],
+        }
     }
 
     /// Apagado limpio de `machine`. El teclado y el mouse vuelven solos a la que queda: el
@@ -132,6 +152,22 @@ mod tests {
                 machine: Machine::B
             }]
         );
+    }
+
+    #[test]
+    fn switching_a_monitor_is_one_step_and_leaves_power_alone() {
+        let plan = Plan::switch_monitor("lc34g55t-0a1b2c3d", MonitorInput::Hdmi);
+        assert_eq!(
+            plan.steps,
+            [Step::SwitchMonitor {
+                monitor: "lc34g55t-0a1b2c3d".into(),
+                input: MonitorInput::Hdmi
+            }]
+        );
+        let mut s = State::initial(Machine::A);
+        let before = s.clone();
+        plan.steps[0].apply_to(&mut s);
+        assert_eq!(s, before);
     }
 
     #[test]

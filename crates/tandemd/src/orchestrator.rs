@@ -6,10 +6,15 @@
 //! la hace [`tandem_core::run`]; aquí solo se despacha y se publica el avance como
 //! [`TxnEvent`] para la UI.
 //!
-//! Los dos pasos tienen reglas propias: [`Step::PowerOn`] es mandar el Wake-on-LAN desde
-//! la otra máquina (repetido cada [`WOL_RESEND`]) y esperar a que el agente de la
+//! Los pasos de energía tienen reglas propias: [`Step::PowerOn`] es mandar el Wake-on-LAN
+//! desde la otra máquina (repetido cada [`WOL_RESEND`]) y esperar a que el agente de la
 //! encendida se conecte, y un [`Step::PowerOff`] cuya respuesta se pierde se da por hecho
 //! (lo más probable es que la máquina se esté apagando).
+//!
+//! [`Step::SwitchMonitor`] lo hace el dueño del monitor (DECISIONS D13), que sale de
+//! [`MonitorControl`]: si es esta máquina, aquí; si no, se le pide a la otra por el plano de
+//! control. Si falla un paso posterior, o el cambio se queda sin veredicto, se vuelve a la
+//! entrada de antes (vuelta atrás).
 //!
 //! No hay una máquina central (DESIGN §3.7): cualquiera de las dos orquesta, pero de a
 //! una: la que hace pasos para la otra queda prestada hasta recibir su estado final, y la
@@ -21,7 +26,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, RwLock};
 use std::time::Duration;
 
-use tandem_core::{Executor, Machine, Plan, State, Step, TxnError, TxnReport};
+use tandem_core::{Executor, Machine, MonitorInput, Plan, State, Step, TxnError, TxnReport};
 use tandem_proto::{ControlMsg, TxnEvent};
 
 use tokio::sync::{broadcast, watch};
@@ -34,6 +39,19 @@ pub const PEER_NOT_CONNECTED: &str = "el otro agente no está conectado";
 pub const PEER_LOST: &str = "se perdió la conexión con el otro agente";
 /// El otro agente pidió un paso mientras esta máquina orquesta su propio cambio.
 pub const BUSY_HERE: &str = "esta máquina está en medio de otro cambio";
+/// Un monitor que ninguna máquina puede controlar ahora.
+pub const NO_OWNER: &str = "ninguna máquina tiene canal con el monitor";
+
+/// Los monitores del puesto, vistos desde el orquestador ([`crate::monitors::MonitorHub`]).
+pub trait MonitorControl: Send + Sync {
+    /// La máquina dueña de `monitor`, que es la que lo cambia.
+    fn owner(&self, monitor: &str) -> Option<Machine>;
+    /// La entrada en pantalla según el dueño: a ella se vuelve si hay que deshacer.
+    fn input(&self, monitor: &str) -> Option<MonitorInput>;
+    /// Cambia la entrada aquí (esta máquina es la dueña) y espera el veredicto. Un error que
+    /// empieza con [`tandem_monitor::NO_VERDICT`] deja la duda de si cambió.
+    fn switch<'a>(&'a self, monitor: &'a str, input: MonitorInput) -> StepFuture<'a>;
+}
 
 /// Cada cuánto se repite el Wake-on-LAN mientras se espera a la otra máquina: un paquete
 /// UDP se puede perder, y la tarjeta tarda en quedar lista tras cortarse la luz.
@@ -99,12 +117,14 @@ impl PeerLink for NoPeer {
     fn publish_state(&self, _state: &State) {}
 }
 
-/// La máquina que sabe hacer cada paso.
-pub fn target(step: &Step) -> Machine {
+/// La máquina que sabe hacer cada paso de energía; un cambio de monitor depende de su
+/// dueño ([`Orchestrator::target_of`]) y da `None`.
+pub fn target(step: &Step) -> Option<Machine> {
     match step {
         // Una máquina apagada no puede encenderse sola: el Wake-on-LAN sale de la otra.
-        Step::PowerOn { machine } => machine.other(),
-        Step::PowerOff { machine } => *machine,
+        Step::PowerOn { machine } => Some(machine.other()),
+        Step::PowerOff { machine } => Some(*machine),
+        Step::SwitchMonitor { .. } => None,
     }
 }
 
@@ -113,7 +133,15 @@ pub fn describe(step: &Step) -> String {
     match step {
         Step::PowerOn { machine } => format!("encender la máquina {machine}"),
         Step::PowerOff { machine } => format!("apagar la máquina {machine}"),
+        Step::SwitchMonitor { monitor, input } => {
+            format!("poner {input} en el monitor {monitor}")
+        }
     }
+}
+
+/// El error de un cambio de monitor deja la duda de si cambió (sin veredicto del firmware).
+fn no_verdict(error: &str) -> bool {
+    error.contains(tandem_monitor::NO_VERDICT)
 }
 
 /// Tiempo máximo por paso.
@@ -123,13 +151,20 @@ pub struct StepTimeouts {
     pub power_on: Duration,
     /// Todos los demás pasos.
     pub step: Duration,
+    /// Cambiar la entrada de un monitor: el firmware tarda unos segundos en dar su veredicto
+    /// (la espera del veredicto, 12 s, queda dentro).
+    pub monitor: Duration,
 }
+
+/// Lo que puede tardar un cambio de entrada con su veredicto.
+pub const MONITOR_STEP: Duration = Duration::from_secs(20);
 
 impl Default for StepTimeouts {
     fn default() -> Self {
         StepTimeouts {
             power_on: Duration::from_secs(120),
             step: Duration::from_secs(10),
+            monitor: MONITOR_STEP,
         }
     }
 }
@@ -139,6 +174,7 @@ impl StepTimeouts {
         match step {
             Step::PowerOn { .. } => self.power_on,
             Step::PowerOff { .. } => self.step,
+            Step::SwitchMonitor { .. } => self.monitor,
         }
     }
 }
@@ -168,6 +204,8 @@ pub struct Orchestrator {
     peer_turn: tokio::sync::Mutex<()>,
     /// El enlace retenido durante la transacción propia en curso.
     link_hold: Mutex<Option<LinkHold>>,
+    /// Los monitores; sin ellos, todo cambio de monitor falla con [`NO_OWNER`].
+    monitors: RwLock<Option<Arc<dyn MonitorControl>>>,
 }
 
 impl std::fmt::Debug for Orchestrator {
@@ -194,6 +232,33 @@ impl Orchestrator {
             peer_lease: Mutex::new(None),
             peer_turn: tokio::sync::Mutex::new(()),
             link_hold: Mutex::new(None),
+            monitors: RwLock::new(None),
+        }
+    }
+
+    /// Quién sabe de los monitores del puesto.
+    pub fn set_monitors(&self, monitors: Arc<dyn MonitorControl>) {
+        *self
+            .monitors
+            .write()
+            .unwrap_or_else(PoisonError::into_inner) = Some(monitors);
+    }
+
+    fn monitors(&self) -> Option<Arc<dyn MonitorControl>> {
+        self.monitors
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// La máquina que hace `step`: la de [`target`], o el dueño del monitor.
+    pub fn target_of(&self, step: &Step) -> Result<Machine, String> {
+        match step {
+            Step::SwitchMonitor { monitor, .. } => self
+                .monitors()
+                .and_then(|m| m.owner(monitor))
+                .ok_or_else(|| format!("{}: {NO_OWNER}", describe(step))),
+            _ => target(step).ok_or_else(|| describe(step)),
         }
     }
 
@@ -312,6 +377,7 @@ impl Orchestrator {
             orch: self,
             txn,
             next: 0,
+            inverses: Vec::new(),
         };
         tandem_core::run(state, plan, &mut d).await
     }
@@ -340,8 +406,12 @@ impl Orchestrator {
     async fn attempt(&self, step: &Step) -> Result<(), StepFailure> {
         let limit = self.timeouts.for_step(step);
         let work = async {
-            if target(step) == self.me() {
-                self.run_local(step).await.map_err(StepFailure::certain)
+            let target = self.target_of(step).map_err(StepFailure::certain)?;
+            if target == self.me() {
+                self.run_local(step).await.map_err(|error| StepFailure {
+                    uncertain: no_verdict(&error),
+                    error,
+                })
             } else {
                 self.remote(step).await
             }
@@ -358,6 +428,10 @@ impl Orchestrator {
     async fn run_local(&self, step: &Step) -> Result<(), String> {
         match step {
             Step::PowerOn { machine } if *machine != self.me() => self.power_on_peer(step).await,
+            Step::SwitchMonitor { monitor, input } => match self.monitors() {
+                Some(m) => m.switch(monitor, *input).await,
+                None => Err(format!("{}: {NO_OWNER}", describe(step))),
+            },
             _ => self.local.execute(step).await,
         }
     }
@@ -386,7 +460,7 @@ impl Orchestrator {
     async fn remote(&self, step: &Step) -> Result<(), StepFailure> {
         let peer = self.peer();
         peer.execute(step).await.map_err(|e| StepFailure {
-            uncertain: e == PEER_LOST,
+            uncertain: e == PEER_LOST || no_verdict(&e),
             error: format!("máquina {}: {e}", self.me().other()),
         })
     }
@@ -394,7 +468,7 @@ impl Orchestrator {
     /// Un paso pedido por el otro agente: solo se aceptan los que le tocan a esta máquina.
     pub async fn execute_for_peer(&self, step: &Step) -> Result<(), String> {
         let me = self.me();
-        if target(step) != me {
+        if self.target_of(step)? != me {
             return Err(format!(
                 "{}: no le corresponde a la máquina {me}",
                 describe(step)
@@ -442,14 +516,39 @@ struct Dispatcher<'a> {
     orch: &'a Orchestrator,
     txn: u64,
     next: u32,
+    /// Cada cambio de monitor hecho y el que lo deshace (volver a la entrada de antes).
+    inverses: Vec<(Step, Step)>,
+}
+
+impl Dispatcher<'_> {
+    /// El paso que deja el monitor como estaba antes de `step`, si se sabe cómo estaba.
+    fn inverse(&self, step: &Step) -> Option<Step> {
+        let Step::SwitchMonitor { monitor, input } = step else {
+            return None;
+        };
+        let before = self.orch.monitors()?.input(monitor)?;
+        (before != *input).then(|| Step::SwitchMonitor {
+            monitor: monitor.clone(),
+            input: before,
+        })
+    }
+
+    async fn roll_back(&self, inverse: &Step) -> Result<(), String> {
+        tracing::warn!(txn = self.txn, "vuelta atrás: {}", describe(inverse));
+        self.orch.dispatch(inverse).await
+    }
 }
 
 impl Executor for Dispatcher<'_> {
     async fn execute(&mut self, step: &Step) -> Result<(), String> {
         let (txn, index) = (self.txn, self.next);
         self.orch.emit(TxnEvent::StepStarted { txn, index });
+        let inverse = self.inverse(step);
         match self.orch.attempt(step).await {
             Ok(()) => {
+                if let Some(inverse) = inverse {
+                    self.inverses.push((step.clone(), inverse));
+                }
                 self.orch.emit(TxnEvent::StepDone { txn, index });
                 self.next += 1;
                 Ok(())
@@ -470,8 +569,19 @@ impl Executor for Dispatcher<'_> {
                 self.next += 1;
                 Ok(())
             }
-            Err(StepFailure { error, .. }) => {
+            Err(StepFailure {
+                mut error,
+                uncertain,
+            }) => {
                 tracing::warn!(txn, index, "falló un paso: {error}");
+                // Un cambio de entrada que pudo haberse hecho (sin veredicto, sin respuesta) se
+                // deshace aquí: para la transacción no quedó aplicado.
+                if uncertain
+                    && let Some(inverse) = &inverse
+                    && let Err(e) = self.roll_back(inverse).await
+                {
+                    error.push_str(&format!("; no se pudo volver atrás: {e}"));
+                }
                 self.orch.emit(TxnEvent::StepFailed {
                     txn,
                     index,
@@ -480,6 +590,14 @@ impl Executor for Dispatcher<'_> {
                 Err(error)
             }
         }
+    }
+
+    async fn undo(&mut self, step: &Step) -> Result<(), String> {
+        let Some(at) = self.inverses.iter().rposition(|(done, _)| done == step) else {
+            return Ok(());
+        };
+        let (_, inverse) = self.inverses.remove(at);
+        self.roll_back(&inverse).await
     }
 }
 
@@ -569,8 +687,8 @@ pub(crate) mod tests {
 
     #[test]
     fn routes_each_step_to_its_machine() {
-        assert_eq!(target(&PC_ON), Machine::A);
-        assert_eq!(target(&PC_OFF), Machine::B);
+        assert_eq!(target(&PC_ON), Some(Machine::A));
+        assert_eq!(target(&PC_OFF), Some(Machine::B));
         assert_eq!(describe(&PC_ON), "encender la máquina B");
         assert_eq!(
             describe(&Step::PowerOff {
@@ -888,6 +1006,138 @@ pub(crate) mod tests {
         assert_eq!(o.try_begin(), None);
         tokio::time::advance(Duration::from_millis(1)).await;
         assert!(o.try_begin().is_some_and(|next| next > txn));
+    }
+
+    /// Monitores de prueba: un dueño fijo, una entrada y lo que contesta cada cambio.
+    struct FakeMonitors {
+        owner: Option<Machine>,
+        input: MonitorInput,
+        answer: Mutex<Vec<Result<(), String>>>,
+        switched: Mutex<Vec<MonitorInput>>,
+    }
+
+    impl FakeMonitors {
+        fn new(owner: Option<Machine>, answers: Vec<Result<(), String>>) -> Arc<Self> {
+            Arc::new(FakeMonitors {
+                owner,
+                input: MonitorInput::DisplayPort,
+                answer: Mutex::new(answers),
+                switched: Mutex::new(Vec::new()),
+            })
+        }
+
+        fn switched(&self) -> Vec<MonitorInput> {
+            self.switched.lock().unwrap().clone()
+        }
+    }
+
+    impl MonitorControl for FakeMonitors {
+        fn owner(&self, _monitor: &str) -> Option<Machine> {
+            self.owner
+        }
+        fn input(&self, _monitor: &str) -> Option<MonitorInput> {
+            Some(self.input)
+        }
+        fn switch<'a>(&'a self, _monitor: &'a str, input: MonitorInput) -> StepFuture<'a> {
+            self.switched.lock().unwrap().push(input);
+            let mut answers = self.answer.lock().unwrap();
+            let r = if answers.is_empty() {
+                Ok(())
+            } else {
+                answers.remove(0)
+            };
+            Box::pin(async move { r })
+        }
+    }
+
+    fn to_hdmi() -> Step {
+        Step::SwitchMonitor {
+            monitor: "m".into(),
+            input: MonitorInput::Hdmi,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_monitor_switch_goes_to_its_owner() {
+        // Dueña esta máquina: lo hace aquí, sin pasar por los pasos de energía.
+        let (o, local, peer) = mac(FakeSteps::default(), FakeSteps::default());
+        let m = FakeMonitors::new(Some(Machine::A), vec![]);
+        o.set_monitors(m.clone());
+        o.dispatch(&to_hdmi()).await.unwrap();
+        assert_eq!(m.switched(), [MonitorInput::Hdmi]);
+        assert!(local.steps().is_empty() && peer.steps().is_empty());
+        assert_eq!(o.timeouts.for_step(&to_hdmi()), MONITOR_STEP);
+
+        // Dueña la otra: se le pide a ella.
+        let (o, _, peer) = mac(FakeSteps::default(), FakeSteps::default());
+        let m = FakeMonitors::new(Some(Machine::B), vec![]);
+        o.set_monitors(m.clone());
+        o.dispatch(&to_hdmi()).await.unwrap();
+        assert_eq!(peer.steps(), [to_hdmi()]);
+        assert!(m.switched().is_empty());
+        // Y la otra no lo hace por esta si el dueño es esta.
+        let e = o.execute_for_peer(&to_hdmi()).await.unwrap_err();
+        assert!(e.contains("no le corresponde"), "{e}");
+
+        // Sin dueño (o sin monitores) se dice por qué.
+        let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
+        let e = o.dispatch(&to_hdmi()).await.unwrap_err();
+        assert!(e.contains(NO_OWNER), "{e}");
+        o.set_monitors(FakeMonitors::new(None, vec![]));
+        let e = o.dispatch(&to_hdmi()).await.unwrap_err();
+        assert!(e.contains(NO_OWNER), "{e}");
+    }
+
+    #[tokio::test]
+    async fn a_switch_without_verdict_goes_back_to_the_input_before() {
+        let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
+        let m = FakeMonitors::new(
+            Some(Machine::A),
+            vec![Err(format!("{} en 12 s", tandem_monitor::NO_VERDICT))],
+        );
+        o.set_monitors(m.clone());
+        let mut state = both_on();
+        let plan = Plan::switch_monitor("m", MonitorInput::Hdmi);
+        let err = o.run(1, &mut state, &plan).await.unwrap_err();
+        assert!(matches!(err, TxnError::Failed { .. }));
+        assert_eq!(
+            m.switched(),
+            [MonitorInput::Hdmi, MonitorInput::DisplayPort]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_verdict_is_not_undone() {
+        let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
+        let m = FakeMonitors::new(Some(Machine::A), vec![Err("sigue en DP".into())]);
+        o.set_monitors(m.clone());
+        let mut state = both_on();
+        let plan = Plan::switch_monitor("m", MonitorInput::Hdmi);
+        o.run(1, &mut state, &plan).await.unwrap_err();
+        assert_eq!(m.switched(), [MonitorInput::Hdmi]);
+    }
+
+    #[tokio::test]
+    async fn a_later_failure_undoes_the_switch() {
+        let (o, _, _) = mac(
+            FakeSteps::default(),
+            FakeSteps {
+                fail_on: vec![PC_OFF],
+                ..Default::default()
+            },
+        );
+        let m = FakeMonitors::new(Some(Machine::A), vec![]);
+        o.set_monitors(m.clone());
+        let mut state = both_on();
+        let plan = Plan {
+            steps: vec![to_hdmi(), PC_OFF],
+        };
+        o.run(1, &mut state, &plan).await.unwrap_err();
+        assert_eq!(
+            m.switched(),
+            [MonitorInput::Hdmi, MonitorInput::DisplayPort]
+        );
+        assert!(state.on.b, "la energía no se deshace ni cambia");
     }
 
     // QA ronda 2: si la respuesta del apagado se perdía, la Mac lo daba por fallido aunque

@@ -19,15 +19,15 @@ pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encod
 pub use msg::{
     AgentToUi, Capabilities, Channel, ControlMsg, DeskCapabilities, Environment, Hello, HubReport,
     InputCaps, InputPermission, InputStatus, KeyProbeMsg, KeyProbeStatus, Link, ModuleId,
-    ModuleInfo, ModuleState, MonitorChannel, PairingMsg, PairingStatus, Peer, PeerStatus,
-    PowerCaps, PowerEvent, ProcessInfo, Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent,
-    UiCommand, UiRequest,
+    ModuleInfo, ModuleState, MonitorChannel, MonitorCompat, MonitorEvent, MonitorEventKind,
+    MonitorReport, MonitorView, PairingMsg, PairingStatus, Peer, PeerStatus, PowerCaps, PowerEvent,
+    ProcessInfo, Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest,
 };
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 18;
+pub const PROTOCOL_VERSION: u16 = 19;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -82,9 +82,11 @@ mod tests {
     /// `SetModule` en la UI y entre agentes) sube a la v17. T-099 (el puesto con escenas,
     /// atajos, preferencias y módulos, su sello con fecha, parches, historial y el aviso de
     /// cambio; `SetModule` ya no viaja entre agentes: va en el puesto) sube a la v18.
+    /// T-110 (monitores: canal con compatibilidad y latencia, informes del dueño,
+    /// `SwitchMonitor`) sube a la v19.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 18);
+        assert_eq!(PROTOCOL_VERSION, 19);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

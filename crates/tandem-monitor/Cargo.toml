@@ -1,0 +1,25 @@
+[package]
+name = "tandem-monitor"
+description = "Monitores en Tandem: monitor-ddc, dueño elegido, eventos, cambios con veredicto y vuelta automática"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+# El vigilante de la vuelta automática: un proceso aparte que restaura la entrada si el
+# que la cambió muere sin hacerlo.
+name = "tandem-monitor-guard"
+path = "src/bin/tandem-monitor-guard.rs"
+
+[dependencies]
+monitor-ddc.workspace = true
+tandem-core = { path = "../tandem-core" }
+tandem-proto = { path = "../tandem-proto" }
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

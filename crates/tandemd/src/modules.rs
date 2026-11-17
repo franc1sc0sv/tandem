@@ -301,7 +301,8 @@ impl Module for Tunnels {
     }
 }
 
-/// Monitores por DDC (D11). Hasta T-110 no hay canal: el anuncio de monitores va vacío.
+/// Monitores por DDC (D11, T-110). Activo con un bus; sin él, el agente reporta el problema
+/// ([`crate::monitors::NO_DDC`]).
 pub struct Monitors;
 
 impl Module for Monitors {
@@ -315,9 +316,7 @@ impl Module for Monitors {
         "Entrada de los monitores por DDC".into()
     }
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
-        ModuleState::Unavailable {
-            reason: NOT_YET.into(),
-        }
+        ModuleState::Active
     }
 }
 

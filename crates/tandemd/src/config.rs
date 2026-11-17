@@ -243,6 +243,7 @@ impl OrchestratorConfig {
         crate::orchestrator::StepTimeouts {
             power_on: Duration::from_secs(self.power_on_timeout_secs),
             step: Duration::from_secs(self.step_timeout_secs),
+            monitor: crate::orchestrator::MONITOR_STEP,
         }
     }
 }

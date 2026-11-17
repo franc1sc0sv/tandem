@@ -91,6 +91,8 @@ impl SimSteps {
                 });
                 Ok(())
             }
+            // Los monitores van por el bus DDC simulado (`crate::monitors`), no por aquí.
+            Step::SwitchMonitor { .. } => Err(format!("{}: no es de energía", describe(step))),
         }
     }
 

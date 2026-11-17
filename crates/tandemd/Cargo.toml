@@ -15,12 +15,14 @@ sim-backends = []
 [dependencies]
 anyhow.workspace = true
 dirs.workspace = true
+monitor-ddc.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tandem-clipboard = { path = "../tandem-clipboard" }
 tandem-core = { path = "../tandem-core" }
 tandem-input = { path = "../tandem-input" }
 tandem-link = { path = "../tandem-link" }
+tandem-monitor = { path = "../tandem-monitor" }
 tandem-peripherals = { path = "../tandem-peripherals" }
 tandem-power = { path = "../tandem-power" }
 tandem-proto = { path = "../tandem-proto" }
