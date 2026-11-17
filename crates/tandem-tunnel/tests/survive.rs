@@ -286,3 +286,60 @@ async fn la_destino_reiniciada_ya_no_tiene_el_tunel_y_el_origen_lo_da_por_cerrad
     assert_eq!(origin.remote_list().await.unwrap(), []);
     let _ = t;
 }
+
+#[tokio::test(start_paused = true)]
+async fn el_origen_olvida_los_tuneles_cerrados_despues_de_un_rato() {
+    let host = Host::new(HostOptions::default(), Changes::default());
+    let origin = Origin::new(
+        OriginOptions {
+            retry: Duration::from_millis(5),
+            linger: Duration::from_secs(60),
+            ..OriginOptions::default()
+        },
+        Changes::default(),
+    );
+    origin.set_link(Some(MemPath::new(&host).dialer()));
+    let t = origin.open(spec("olvidar")).await.unwrap();
+    let w = host.get(t.id).unwrap().add_flow("stdout").unwrap();
+    w.write(b"hola");
+    origin.close(t.id).await.unwrap();
+    let mut changes = origin.subscribe_output();
+    while origin.tunnels()[0].state != TunnelState::Closed {
+        changes.changed().await.unwrap();
+    }
+    // Mientras dura `linger` se puede leer lo que quedó.
+    tokio::time::advance(Duration::from_secs(30)).await;
+    assert_eq!(origin.tunnels().len(), 1);
+    assert_eq!(origin.flows(t.id).len(), 1);
+    tokio::time::advance(Duration::from_secs(31)).await;
+    assert!(origin.tunnels().is_empty());
+    assert!(origin.flows(t.id).is_empty());
+    assert_eq!(origin.read(t.id, w.id(), 0, 10), None);
+}
+
+#[tokio::test]
+async fn un_open_sin_respuesta_no_deja_un_tunel_huerfano_en_la_destino() {
+    let host = Host::new(HostOptions::default(), Changes::default());
+    let origin = origin();
+    let (first, second) = (MemPath::new(&host), MemPath::new(&host));
+    // La destino abre el túnel, pero el camino se corta antes de que llegue la respuesta.
+    first.cut_before_reply();
+    origin.set_link(Some(first.dialer()));
+    assert!(matches!(
+        origin.open(spec("huérfano")).await,
+        Err(TunnelError::Wire(_))
+    ));
+    let orphan = host.list();
+    assert_eq!(orphan.len(), 1);
+    assert_eq!(orphan[0].state, TunnelState::Open);
+    // Al volver el enlace, el origen lo cierra solo.
+    origin.set_link(Some(second.dialer()));
+    tokio::time::timeout(TIMEOUT, async {
+        while host.list()[0].state != TunnelState::Closed {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("el túnel huérfano sigue abierto en la destino");
+    assert!(origin.tunnels().is_empty());
+}

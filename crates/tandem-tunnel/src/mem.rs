@@ -5,6 +5,7 @@
 //! de dejar pasar cierta cantidad de bytes de salida: un corte deja muertos todos sus
 //! streams y lo que estaba en vuelo se pierde, como un cable desenchufado.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tandem_proto::{TunnelDown, TunnelUp};
@@ -24,6 +25,9 @@ struct PathInner {
     cut: watch::Sender<bool>,
     /// Bytes de salida que todavía pueden pasar antes de cortarse solo.
     budget: Mutex<Option<u64>>,
+    /// Cortarse cuando la destino conteste un pedido: el pedido se atendió, la respuesta
+    /// se pierde.
+    cut_reply: AtomicBool,
 }
 
 impl MemPath {
@@ -33,6 +37,7 @@ impl MemPath {
                 host: host.clone(),
                 cut: watch::Sender::new(false),
                 budget: Mutex::new(None),
+                cut_reply: AtomicBool::new(false),
             }),
         }
     }
@@ -53,6 +58,12 @@ impl MemPath {
             .budget
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = Some(bytes);
+    }
+
+    /// Se corta cuando la destino va a contestar un pedido (abrir, cerrar, listar): lo
+    /// hizo, pero el origen no se entera.
+    pub fn cut_before_reply(&self) {
+        self.inner.cut_reply.store(true, Ordering::SeqCst);
     }
 
     pub fn is_cut(&self) -> bool {
@@ -173,8 +184,18 @@ impl TargetWire for MemTarget {
 
     async fn send(&mut self, msg: &TunnelDown) -> Result<(), WireError> {
         self.path.check()?;
-        if let TunnelDown::Data { bytes, .. } = msg {
-            self.path.spend(bytes.len() as u64)?;
+        match msg {
+            TunnelDown::Data { bytes, .. } => self.path.spend(bytes.len() as u64)?,
+            TunnelDown::Opened(_)
+            | TunnelDown::Closed(_)
+            | TunnelDown::List(_)
+            | TunnelDown::Refused(_)
+                if self.path.inner.cut_reply.load(Ordering::SeqCst) =>
+            {
+                self.path.cut();
+                return Err(WireError::new("camino cortado"));
+            }
+            _ => {}
         }
         self.tx
             .send(msg.clone())

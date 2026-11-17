@@ -183,6 +183,16 @@ async fn la_salida_sobrevive_al_corte_del_camino_y_cerrar_suelta_los_recursos() 
         })
     );
 
+    // La UI tampoco puede cerrarlo (D9): el túnel y su recurso siguen abiertos.
+    assert_eq!(
+        within(ui.request(UiCommand::CloseTunnel { id: t.id }))
+            .await
+            .unwrap(),
+        Reply::Rejected(CLIENTS_ONLY.into())
+    );
+    assert!(!closed.load(Ordering::SeqCst));
+    assert!(ht.is_open());
+
     // Cerrar desde el origen suelta los recursos en la destino.
     assert_eq!(
         within(claude.request(UiCommand::CloseTunnel { id: t.id }))

@@ -16,6 +16,7 @@ use tandem_proto::{
 };
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use crate::Changes;
 use crate::buffer::{DEFAULT_CAPACITY, OutputBuffer, Read};
@@ -32,6 +33,9 @@ pub struct OriginOptions {
     pub request_timeout: Duration,
     /// Espera antes de reintentar el canal de datos por el mismo enlace.
     pub retry: Duration,
+    /// Cuánto se recuerda un túnel cerrado (y su salida, para leerla). También es lo que se
+    /// insiste en cerrar uno cuyo `Open` quedó sin respuesta.
+    pub linger: Duration,
 }
 
 impl Default for OriginOptions {
@@ -40,6 +44,7 @@ impl Default for OriginOptions {
             capacity: DEFAULT_CAPACITY,
             request_timeout: Duration::from_secs(10),
             retry: Duration::from_millis(500),
+            linger: Duration::from_secs(10 * 60),
         }
     }
 }
@@ -108,6 +113,8 @@ struct Entry {
     info: Tunnel,
     flows: BTreeMap<FlowId, Mirror>,
     follower: Option<JoinHandle<()>>,
+    /// Desde cuándo está cerrado; pasado `linger` se olvida.
+    closed_at: Option<Instant>,
 }
 
 struct Mirror {
@@ -183,16 +190,27 @@ impl Origin {
             state: TunnelState::Open,
             created: now_millis(),
         };
-        let TunnelDown::Opened(opened) = self.request(TunnelUp::Open(tunnel)).await? else {
-            return Err(TunnelError::Unexpected);
+        let id = tunnel.id;
+        let opened = match self.inner.request(TunnelUp::Open(tunnel)).await {
+            Ok(TunnelDown::Opened(t)) => t,
+            Ok(_) => return Err(TunnelError::Unexpected),
+            // El pedido pudo llegar y la respuesta perderse: la destino tendría un túnel que
+            // nadie sigue ni cierra. Se cierra en segundo plano cuando haya enlace (cerrar
+            // uno que no existe no hace nada).
+            Err(e @ (TunnelError::Timeout | TunnelError::Wire(_))) => {
+                tokio::spawn(discard(Arc::downgrade(&self.inner), id));
+                return Err(e);
+            }
+            Err(e) => return Err(e),
         };
         // Primero el registro: el seguidor empieza leyendo lo que ya se tiene.
-        lock(&self.inner.tunnels).insert(
+        self.inner.tunnels().insert(
             opened.id,
             Entry {
                 info: opened.clone(),
                 flows: BTreeMap::new(),
                 follower: None,
+                closed_at: None,
             },
         );
         let follower = tokio::spawn(follow(Arc::downgrade(&self.inner), opened.id));
@@ -206,10 +224,10 @@ impl Origin {
     /// Cierra el túnel en la destino (con sus recursos). La salida que faltaba sigue
     /// llegando hasta el cierre.
     pub async fn close(&self, id: TunnelId) -> Result<(), TunnelError> {
-        if !lock(&self.inner.tunnels).contains_key(&id) {
+        if !self.inner.tunnels().contains_key(&id) {
             return Err(TunnelError::Unknown(id));
         }
-        match self.request(TunnelUp::Close(id)).await? {
+        match self.inner.request(TunnelUp::Close(id)).await? {
             TunnelDown::Closed(_) => Ok(()),
             _ => Err(TunnelError::Unexpected),
         }
@@ -217,7 +235,7 @@ impl Origin {
 
     /// Los túneles de la destino, según ella.
     pub async fn remote_list(&self) -> Result<Vec<Tunnel>, TunnelError> {
-        match self.request(TunnelUp::List).await? {
+        match self.inner.request(TunnelUp::List).await? {
             TunnelDown::List(list) => Ok(list),
             _ => Err(TunnelError::Unexpected),
         }
@@ -225,14 +243,16 @@ impl Origin {
 
     /// Los abiertos desde aquí (también los ya cerrados).
     pub fn tunnels(&self) -> Vec<Tunnel> {
-        lock(&self.inner.tunnels)
+        self.inner
+            .tunnels()
             .values()
             .map(|e| e.info.clone())
             .collect()
     }
 
     pub fn flows(&self, id: TunnelId) -> Vec<FlowStatus> {
-        lock(&self.inner.tunnels)
+        self.inner
+            .tunnels()
             .get(&id)
             .map(|e| {
                 e.flows
@@ -250,7 +270,8 @@ impl Origin {
 
     /// La salida recibida de un flujo desde `from` (lo que T-104 expone como `output`).
     pub fn read(&self, id: TunnelId, flow: FlowId, from: u64, max: usize) -> Option<Read> {
-        lock(&self.inner.tunnels)
+        self.inner
+            .tunnels()
             .get(&id)?
             .flows
             .get(&flow)
@@ -261,14 +282,19 @@ impl Origin {
     pub fn subscribe_output(&self) -> watch::Receiver<u64> {
         self.inner.output.subscribe()
     }
+}
+
+impl OriginInner {
+    /// Los túneles, ya sin los cerrados hace más de `linger`.
+    fn tunnels(&self) -> MutexGuard<'_, BTreeMap<TunnelId, Entry>> {
+        let mut tunnels = lock(&self.tunnels);
+        let linger = self.opts.linger;
+        tunnels.retain(|_, e| e.closed_at.is_none_or(|at| at.elapsed() < linger));
+        tunnels
+    }
 
     async fn request(&self, up: TunnelUp) -> Result<TunnelDown, TunnelError> {
-        let dialer = self
-            .inner
-            .link
-            .borrow()
-            .clone()
-            .ok_or(TunnelError::NoLink)?;
+        let dialer = self.link.borrow().clone().ok_or(TunnelError::NoLink)?;
         let ask = async {
             let mut wire = dialer.dial().await?;
             wire.send(up).await?;
@@ -276,16 +302,14 @@ impl Origin {
                 .await?
                 .ok_or_else(|| WireError::new("la otra máquina cerró el stream sin contestar"))
         };
-        match tokio::time::timeout(self.inner.opts.request_timeout, ask).await {
+        match tokio::time::timeout(self.opts.request_timeout, ask).await {
             Err(_) => Err(TunnelError::Timeout),
             Ok(Err(e)) => Err(TunnelError::Wire(e)),
             Ok(Ok(TunnelDown::Refused(why))) => Err(TunnelError::Refused(why)),
             Ok(Ok(reply)) => Ok(reply),
         }
     }
-}
 
-impl OriginInner {
     /// Lo que ya se tiene de cada flujo; `None` si el túnel ya no se sigue.
     fn cursors(&self, id: TunnelId) -> Option<Vec<(FlowId, u64)>> {
         let tunnels = lock(&self.tunnels);
@@ -343,6 +367,7 @@ impl OriginInner {
                 }
                 e.info.state = TunnelState::Closed;
                 e.follower = None;
+                e.closed_at = Some(Instant::now());
                 drop(tunnels);
                 self.changes.bump();
                 self.output.send_modify(|n| *n = n.wrapping_add(1));
@@ -438,4 +463,38 @@ async fn attach(
             Err(_) => Attach::Done,
         },
     }
+}
+
+/// Cierra en la destino un túnel cuyo `Open` quedó sin respuesta: lo intenta por cada
+/// enlace que aparezca hasta que la destino conteste, o hasta `linger`.
+async fn discard(origin: Weak<OriginInner>, id: TunnelId) {
+    let Some((mut links, retry, linger)) = origin
+        .upgrade()
+        .map(|o| (o.link.subscribe(), o.opts.retry, o.opts.linger))
+    else {
+        return;
+    };
+    let give_up = Instant::now() + linger;
+    while Instant::now() < give_up {
+        links.borrow_and_update();
+        let Some(o) = origin.upgrade() else {
+            return;
+        };
+        match o.request(TunnelUp::Close(id)).await {
+            // Cerrado, o nunca llegó a abrirse.
+            Ok(_) | Err(TunnelError::Refused(_)) => {
+                tracing::debug!(tunnel = %id, "túnel sin respuesta al abrir: cerrado en la otra máquina");
+                return;
+            }
+            Err(e) => {
+                tracing::debug!(tunnel = %id, "no se pudo cerrar el túnel sin respuesta: {e}")
+            }
+        }
+        drop(o);
+        tokio::select! {
+            () = tokio::time::sleep(retry) => {}
+            r = links.changed() => if r.is_err() { return },
+        }
+    }
+    tracing::warn!(tunnel = %id, "no se pudo cerrar en la otra máquina un túnel que quedó sin respuesta al abrir");
 }
