@@ -1,11 +1,11 @@
 // Pruebas del support.js propio en Chromium, con páginas mínimas del mismo formato.
-import { type Browser, type Page, chromium } from 'playwright';
+import type { Browser, Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { ORIGIN, checkPage, installRoutes, waitForMockup } from '../src/browser.ts';
+import { ORIGIN, checkPage, installRoutes, launchBrowser, waitForMockup } from '../src/browser.ts';
 
 let browser: Browser;
 beforeAll(async () => {
-  browser = await chromium.launch();
+  browser = await launchBrowser();
 });
 afterAll(async () => {
   await browser?.close();

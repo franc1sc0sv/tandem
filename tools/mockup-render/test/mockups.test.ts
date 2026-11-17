@@ -1,6 +1,8 @@
 // Todos los mockups de mockups/v03 (y sus estados con nombre) renderizan sin errores de
 // consola, sin `{{` visibles, sin valores ausentes y con las fuentes cargadas.
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { SHOTS_DIR, listMockups, shotName } from '../src/paths.ts';
 import { jobsFor, problems, renderMockups } from '../src/render.ts';
@@ -35,6 +37,25 @@ describe('mockups v03', () => {
       .map((r) => ({ shot: shotName(r.mockup, r.state), issues: problems(r) }))
       .filter((f) => f.issues.length > 0);
     expect(failures).toEqual([]);
+  });
+
+  it('la misma captura sale idéntica bit a bit en corridas distintas', async () => {
+    // Los estados de V3-Acomodo con más diferencias antes de --disable-partial-raster (hasta
+    // ~10 600 píxeles en lado-arriba-centro, ±1 de color en la pantalla con opacity .4).
+    const names = ['lado-arriba-centro', 'lado-izquierda-centro', 'pantalla-mac'];
+    const dirs = [0, 1, 2].map(() => mkdtempSync(join(tmpdir(), 'mockup-det-')));
+    try {
+      for (const outDir of dirs) {
+        const results = await renderMockups({ names: ['V3-Acomodo'], outDir, concurrency: 4 });
+        expect(results.flatMap(problems)).toEqual([]);
+      }
+      for (const state of names) {
+        const [first, ...rest] = dirs.map((d) => readFileSync(join(d, shotName('V3-Acomodo', state))));
+        for (const other of rest) expect(other.equals(first ?? Buffer.alloc(0)), state).toBe(true);
+      }
+    } finally {
+      for (const d of dirs) rmSync(d, { recursive: true, force: true });
+    }
   });
 
   it('docs/mockups-png tiene exactamente una captura por mockup y estado', () => {

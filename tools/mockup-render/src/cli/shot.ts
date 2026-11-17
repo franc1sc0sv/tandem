@@ -1,10 +1,10 @@
 // `pnpm mockups:shot [--out <carpeta>] [--only <mockup>]… [--no-states] [--concurrency N]`
 // Renderiza los mockups de mockups/v03 y guarda las capturas (por omisión en docs/mockups-png).
 import { readdirSync, rmSync } from 'node:fs';
-import { basename, join, relative, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { SHOTS_DIR, shotName } from '../paths.ts';
-import { problems, renderMockups } from '../render.ts';
+import { listMockups, SHOTS_DIR, shotName } from '../paths.ts';
+import { jobsFor, parseConcurrency, problems, renderMockups, staleShots } from '../render.ts';
 
 const { values } = parseArgs({
   options: {
@@ -15,14 +15,18 @@ const { values } = parseArgs({
   },
 });
 
+let concurrency: number;
+try {
+  concurrency = parseConcurrency(values.concurrency);
+} catch (e) {
+  console.error(`mockups:shot: ${(e as Error).message}`);
+  process.exit(2);
+}
+
 const outDir = resolve(values.out ?? SHOTS_DIR);
+const withStates = !values['no-states'];
 const started = Date.now();
-const results = await renderMockups({
-  outDir,
-  names: values.only,
-  states: !values['no-states'],
-  concurrency: Number(values.concurrency),
-});
+const results = await renderMockups({ outDir, names: values.only, states: withStates, concurrency });
 
 let failed = 0;
 for (const r of results) {
@@ -37,11 +41,14 @@ for (const r of results) {
   }
 }
 
-// Con la corrida completa, se borran las capturas que ya no corresponden a ningún estado.
+// Sin `--only` y sin fallos, se borran las capturas que no corresponden a ningún mockup o estado
+// (contra la lista completa, así `--no-states` no borra las de los estados). Si algo falló, no
+// se toca nada: mejor una captura de más que perder una referencia.
 if (!values.only) {
-  const keep = new Set(results.map((r) => basename(r.file ?? '')));
-  for (const f of readdirSync(outDir)) {
-    if (f.endsWith('.png') && !keep.has(f)) {
+  if (failed > 0) {
+    console.log('\nhubo fallos: no se borra ninguna captura vieja');
+  } else {
+    for (const f of staleShots(readdirSync(outDir), jobsFor(listMockups()))) {
       rmSync(join(outDir, f));
       console.log(`borrada ${f} (ya no hay ese estado)`);
     }

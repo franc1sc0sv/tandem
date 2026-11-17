@@ -15,7 +15,36 @@ function parseRanges(list: string): Array<[number, number]> {
   });
 }
 
+// Lo que puede acabar en pantalla: el texto del HTML (sin etiquetas), los `content:` del CSS y
+// el código del componente (`<script type="text/x-dc">`), de donde salen los textos de
+// `renderVals()`. Los demás `<script>` (`support.js`) no tienen texto propio.
+function visibleSource(html: string): string {
+  const extra: string[] = [];
+  const rest = html
+    .replace(/<style\b[^>]*>([\s\S]*?)<\/style>/g, (_all, css: string) => {
+      for (const m of css.matchAll(/content:\s*(["'])(.*?)\1/g)) extra.push(m[2] ?? '');
+      return '';
+    })
+    .replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/g, (_all, attrs: string, body: string) => {
+      if (/type=["']text\/x-dc["']/.test(attrs)) extra.push(body);
+      return '';
+    });
+  return [rest.replace(/<[^>]*>/g, ''), ...extra].join('\n');
+}
+
 describe('assets', () => {
+  it('visibleSource incluye el componente y los content: del CSS, no las etiquetas', () => {
+    const html =
+      '<style>.a{color:#fff}.a::after{content:"≠"}</style><p title="✗">hola ✓</p><script src="./support.js"></script>' +
+      '<script type="text/x-dc" data-dc-script>class Component { renderVals() { return { k: "⌘" }; } }</script>';
+    const text = visibleSource(html);
+    expect(text).toContain('hola ✓');
+    expect(text).toContain('⌘');
+    expect(text).toContain('≠');
+    expect(text).not.toContain('color:#fff');
+    expect(text).not.toContain('✗');
+  });
+
   it('sirve el support.js propio para cualquier ruta que lo pida', () => {
     const a = mockupAsset('/support.js');
     const b = mockupAsset('/sub/support.js');
@@ -53,9 +82,15 @@ describe('assets', () => {
     const { css } = googleFontsCss(GOOGLE_CSS);
     const ranges = [...css.matchAll(/unicode-range:\s*([^;]+);/g)].flatMap((m) => parseRanges(m[1] ?? ''));
     const uncovered = new Set<string>();
+    const texts = new Map<string, string>();
     for (const name of listMockups()) {
-      const html = readFileSync(join(MOCKUPS_DIR, name + '.dc.html'), 'utf8').replace(/<(style|script)[\s\S]*?<\/\1>/g, '');
-      const text = html.replace(/<[^>]*>/g, '');
+      texts.set(name, visibleSource(readFileSync(join(MOCKUPS_DIR, name + '.dc.html'), 'utf8')));
+    }
+    // Los textos de `renderVals()` también se ven (⌃⌥ de F-Paleta, → de V3-Computo): la prueba
+    // tiene que leer el componente, no solo el HTML.
+    expect(texts.get('F-Paleta')).toContain('⌃');
+    expect(texts.get('V3-Computo')).toContain('→');
+    for (const [name, text] of texts) {
       for (const ch of text) {
         const cp = ch.codePointAt(0) ?? 0;
         if (cp >= 128 && !ranges.some(([a, b]) => cp >= a && cp <= b)) uncovered.add(`${ch} U+${cp.toString(16)} (${name})`);
