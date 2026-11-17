@@ -85,9 +85,10 @@ pub fn local(
         power: power(cfg, os),
         services: Vec::new(),
         modules,
-        // Hasta T-105 no hay entornos. Los monitores los agrega el agente con lo que ve su bus
-        // ([`crate::monitors::MonitorHub::local_channels`]).
+        // Los entornos y el equipo los agrega el agente con su último escaneo (T-105), y los
+        // monitores con lo que ve su bus ([`crate::monitors::MonitorHub::local_channels`]).
         environments: Vec::new(),
+        hardware: tandem_proto::Hardware::default(),
         monitors: Vec::new(),
     }
 }

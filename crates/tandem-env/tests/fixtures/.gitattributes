@@ -1,0 +1,2 @@
+# Salidas reales byte a byte: CRLF de Windows y UTF-16 de wsl.exe incluidos.
+* -text

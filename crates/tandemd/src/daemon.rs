@@ -97,6 +97,8 @@ pub fn start(
     if platform {
         start_monitors(&agent);
     }
+    // Los entornos se escanean en segundo plano: pueden tardar (WSL arranca su distro).
+    agent.rescan();
     let network = Network::start(agent.clone(), &identity, trust, net)?;
     let input =
         input.map(|setup| crate::input::start(agent.clone(), network.active_link(), *setup));

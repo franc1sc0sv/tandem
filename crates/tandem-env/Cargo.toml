@@ -1,0 +1,21 @@
+[package]
+name = "tandem-env"
+description = "Entornos de ejecución detectados y recursos en vivo (T-105)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+sysinfo.workspace = true
+tandem-proto = { path = "../tandem-proto" }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "sync", "time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "test-util", "time"] }
+
+[lints]
+workspace = true

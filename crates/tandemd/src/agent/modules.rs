@@ -46,6 +46,7 @@ impl Agent {
             modules,
         );
         caps.monitors = self.monitors.local_channels();
+        self.add_environments(&mut caps);
         caps
     }
 

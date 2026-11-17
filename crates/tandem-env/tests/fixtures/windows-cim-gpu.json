@@ -1,0 +1,12 @@
+[
+    {
+        "Name":  "AMD Radeon(TM) Graphics",
+        "AdapterRAM":  536870912,
+        "DriverVersion":  "32.0.21045.16010"
+    },
+    {
+        "Name":  "NVIDIA GeForce RTX 5080",
+        "AdapterRAM":  4293918720,
+        "DriverVersion":  "32.0.16.2101"
+    }
+]

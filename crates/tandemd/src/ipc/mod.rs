@@ -11,7 +11,9 @@
 //! permisos que faltan), [`AgentToUi::Desk`] cuando cambia el puesto compartido,
 //! [`AgentToUi::DeskChanged`] cuando ese cambio vino de la otra máquina (el aviso con
 //! «Deshacer») y [`AgentToUi::Machines`] cuando cambia lo que anuncia alguna de las dos
-//! (módulos incluidos).
+//! (módulos y entornos incluidos). Una conexión que pidió
+//! [`UiCommand::WatchResources`] recibe además [`AgentToUi::Resources`] de las dos
+//! máquinas mientras siga abierta.
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -33,7 +35,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 
-use crate::agent::Agent;
+use crate::agent::{Agent, ResourceWatch};
 
 pub mod mem;
 #[cfg(unix)]
@@ -162,14 +164,28 @@ where
     let mut desk_changes = agent.subscribe_desk_changes();
     let mut monitors = agent.subscribe_monitors();
     monitors.mark_unchanged();
+    // Los recursos en vivo, si esta conexión los pidió: se dejan de muestrear al cerrarla.
+    let mut resources: Option<ResourceWatch> = None;
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
                 let Some(req) = req? else { return Ok(()) };
                 tracing::debug!(id = req.id, command = ?req.command, "pedido de la UI");
-                let reply = agent.handle(req.command);
+                let reply = match req.command {
+                    UiCommand::WatchResources { on } => {
+                        resources = on.then(|| agent.watch_resources());
+                        Reply::Done
+                    }
+                    command => agent.handle(command),
+                };
                 conn.send(&AgentToUi::Reply { id: req.id, reply }).await?;
             }
+            sample = next_resources(&mut resources) => match sample {
+                Some((machine, r)) => {
+                    conn.send(&AgentToUi::Resources { machine, resources: Box::new(r) }).await?;
+                }
+                None => resources = None,
+            },
             changed = states.changed() => {
                 if changed.is_err() {
                     return Ok(());
@@ -253,6 +269,16 @@ where
             }
             () = stopped(&mut shutdown) => return Ok(()),
         }
+    }
+}
+
+/// La siguiente muestra de recursos; nunca termina si la conexión no los pidió.
+async fn next_resources(
+    watch: &mut Option<ResourceWatch>,
+) -> Option<(Machine, tandem_proto::Resources)> {
+    match watch {
+        Some(w) => w.next().await,
+        None => std::future::pending().await,
     }
 }
 
@@ -364,6 +390,56 @@ mod tests {
         let mut c = IpcClient::handshake(io).await.unwrap();
         assert_eq!(c.agent(), Machine::A);
         assert_eq!(c.get_state().await.unwrap(), agent.state());
+    }
+
+    /// T-105: los recursos llegan solo a la conexión que los pidió, de las dos máquinas, y
+    /// dejan de llegar al pedir que no.
+    #[tokio::test(start_paused = true)]
+    async fn resources_flow_only_while_the_connection_watches() {
+        let dir = tempfile::tempdir().unwrap();
+        let (agent, io, _stop) = start(dir.path());
+        let mut c = IpcClient::handshake(io).await.unwrap();
+        assert_eq!(
+            c.request(UiCommand::WatchResources { on: true })
+                .await
+                .unwrap(),
+            Reply::Done
+        );
+        let Some(AgentToUi::Resources { machine, .. }) = c.next_event().await.unwrap() else {
+            panic!("se esperaban recursos");
+        };
+        assert_eq!(machine, Machine::A);
+        let mut theirs = tandem_proto::Resources::default();
+        theirs.cpu.load = 420;
+        agent.receive_peer_resources(theirs.clone());
+        loop {
+            match c.next_event().await.unwrap() {
+                Some(AgentToUi::Resources {
+                    machine: Machine::A,
+                    ..
+                }) => continue,
+                Some(AgentToUi::Resources { machine, resources }) => {
+                    assert_eq!((machine, *resources), (Machine::B, theirs));
+                    break;
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+        assert_eq!(
+            c.request(UiCommand::WatchResources { on: false })
+                .await
+                .unwrap(),
+            Reply::Done
+        );
+        // Lo que llegó antes de la respuesta se acaba; después, nada.
+        let mut after = 0;
+        while let Ok(ev) =
+            tokio::time::timeout(std::time::Duration::from_secs(5), c.next_event()).await
+        {
+            assert!(matches!(ev.unwrap(), Some(AgentToUi::Resources { .. })));
+            after += 1;
+            assert!(after < 5, "siguen llegando recursos");
+        }
     }
 
     #[tokio::test]
