@@ -142,12 +142,18 @@ where
     let mut conn = Framed::new(io);
     conn.send(&Hello::new(Peer::Agent(agent.machine()))).await?;
     let hello = conn.recv_hello().await?;
-    if hello.peer != Peer::Ui {
-        return Err(IpcError::UnexpectedPeer {
-            expected: "la UI",
-            got: hello.peer,
-        });
-    }
+    // La UI o un cliente (`tandem mcp`, `tandem`): los dos corren como el usuario, el único
+    // que la IPC deja entrar. Solo un cliente abre y cierra túneles.
+    let client = match hello.peer {
+        Peer::Ui => None,
+        Peer::Client(kind) => Some(kind),
+        Peer::Agent(_) => {
+            return Err(IpcError::UnexpectedPeer {
+                expected: "la UI o un cliente",
+                got: hello.peer,
+            });
+        }
+    };
     let mut states = agent.subscribe();
     states.mark_unchanged();
     let mut txns = agent.subscribe_txns();
@@ -165,6 +171,8 @@ where
     let mut desk_changes = agent.subscribe_desk_changes();
     let mut monitors = agent.subscribe_monitors();
     monitors.mark_unchanged();
+    let mut tunnels = agent.tunnels().subscribe();
+    tunnels.mark_unchanged();
     // Los recursos en vivo, si esta conexión los pidió: se dejan de muestrear al cerrarla.
     let mut resources: Option<ResourceWatch> = None;
     let mut update = agent.subscribe_update();
@@ -179,7 +187,7 @@ where
                         resources = on.then(|| agent.watch_resources());
                         Reply::Done
                     }
-                    command => agent.handle(command),
+                    command => crate::tunnels::handle(&agent, client, command).await,
                 };
                 conn.send(&AgentToUi::Reply { id: req.id, reply }).await?;
             }
@@ -277,6 +285,13 @@ where
                 let u = update.borrow_and_update().clone();
                 conn.send(&AgentToUi::Update(u)).await?;
             }
+            changed = tunnels.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+                tunnels.borrow_and_update();
+                conn.send(&AgentToUi::Tunnels(agent.tunnels().view())).await?;
+            }
             () = stopped(&mut shutdown) => return Ok(()),
         }
     }
@@ -318,8 +333,14 @@ pub struct IpcClient<S> {
 
 impl<S: AsyncRead + AsyncWrite + Unpin> IpcClient<S> {
     pub async fn handshake(io: S) -> Result<Self, IpcError> {
+        Self::handshake_as(io, Peer::Ui).await
+    }
+
+    /// Como [`Self::handshake`], presentándose como `peer`: `tandem mcp` y la CLI lo hacen
+    /// como [`Peer::Client`] para poder abrir y cerrar túneles.
+    pub async fn handshake_as(io: S, peer: Peer) -> Result<Self, IpcError> {
         let mut conn = Framed::new(io);
-        conn.send(&Hello::new(Peer::Ui)).await?;
+        conn.send(&Hello::new(peer)).await?;
         let hello = conn.recv_hello().await?;
         let Peer::Agent(agent) = hello.peer else {
             return Err(IpcError::UnexpectedPeer {

@@ -54,6 +54,8 @@ pub trait PairingControl: Send + Sync {
 #[derive(Debug)]
 pub struct Agent {
     cfg: AgentConfig,
+    /// Los túneles que esta máquina hospeda y los que abrió (T-103, [`crate::tunnels`]).
+    tunnels: tandem_tunnel::Tunnels,
     /// Prioridad, tope y pausa de los datos, uno por camino (T-101).
     link_qos: LinkQos,
     /// El lado de esta máquina. Sale de la identidad: cambia una sola vez, si al emparejar
@@ -295,6 +297,7 @@ impl Agent {
         let link_qos = LinkQos::default();
         link_qos.set_prefs(cfg.desk.data);
         Agent {
+            tunnels: tandem_tunnel::Tunnels::default(),
             link_qos,
             me: watch::Sender::new(me),
             editing: Mutex::new(()),
@@ -1042,7 +1045,18 @@ impl Agent {
             }
             UiCommand::GetUpdate => Reply::Update(self.update_status()),
             UiCommand::UpdatePeer { version } => self.update_peer(version),
+            UiCommand::GetTunnels => Reply::Tunnels(self.tunnels.view()),
+            // Esperan a la otra máquina y solo los puede pedir un cliente: los atiende la IPC
+            // ([`crate::tunnels::handle`]).
+            UiCommand::OpenTunnel { .. } | UiCommand::CloseTunnel { .. } => {
+                Reply::Rejected(crate::tunnels::CLIENTS_ONLY.into())
+            }
         }
+    }
+
+    /// Los túneles de esta máquina (los que hospeda y los que abrió).
+    pub fn tunnels(&self) -> &tandem_tunnel::Tunnels {
+        &self.tunnels
     }
 
     /// Encender es solo despertar `machine`; apagar es su apagado limpio. Pedir lo que ya

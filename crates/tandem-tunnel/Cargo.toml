@@ -1,0 +1,21 @@
+[package]
+name = "tandem-tunnel"
+description = "Túneles entre las dos máquinas: sesiones que sobreviven al enlace, flujos con posición por byte"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+getrandom.workspace = true
+tandem-core = { path = "../tandem-core" }
+tandem-proto = { path = "../tandem-proto" }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "test-util", "time"] }
+
+[lints]
+workspace = true

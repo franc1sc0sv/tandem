@@ -4396,6 +4396,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem-tunnel"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "proptest",
+ "tandem-core",
+ "tandem-proto",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "tandem-ui"
 version = "0.1.0"
 dependencies = [
@@ -4434,6 +4447,7 @@ dependencies = [
  "tandem-peripherals",
  "tandem-power",
  "tandem-proto",
+ "tandem-tunnel",
  "tandemd",
  "tempfile",
  "thiserror 2.0.21",
