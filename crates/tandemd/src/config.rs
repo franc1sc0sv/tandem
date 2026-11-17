@@ -1,8 +1,9 @@
-//! `tandem.toml`: el puesto compartido ([`tandem_core::Config`]), la red y qué máquina es
-//! esta.
+//! `tandem.toml`: el puesto compartido ([`tandem_core::Config`]), la red y qué lado es
+//! esta máquina.
 //!
 //! ```toml
-//! machine = "mac"
+//! # El lado de esta máquina: lo decide la clave pública al emparejar (la menor es `a`).
+//! machine = "a"
 //!
 //! [network]
 //! port = 52000
@@ -29,7 +30,7 @@
 //!
 //! [input]
 //! # Dónde está el teclado y mouse al arrancar, hasta que el hub decida.
-//! keyboard = "mac"
+//! keyboard = "a"
 //! # Bloquea el cursor en la máquina donde está (nombres de `KeyboardEvent.code`).
 //! lock_shortcut = ["ScrollLock"]
 //! clipboard = true
@@ -39,10 +40,16 @@
 //! keyboard = "046d:c33f"
 //! mouse = "046d:c539"
 //!
+//! # Qué máquina es cada lado: lo llena el agente con lo que anuncia cada una.
+//! [machines.a]
+//! os = "macos"
+//! name = "MacBook Pro"
+//! color = "#7aa7e6"
+//!
 //! # El acomodo de pantallas (DESIGN §7). Sin `[[screens]]` de una máquina valen las que
-//! # ella misma lee; sin `[arrangement]`, la Mac a la izquierda de la PC.
+//! # ella misma lee; sin `[arrangement]`, A a la izquierda de B.
 //! [[screens]]
-//! machine = "pc"
+//! machine = "b"
 //! id = "34"
 //! x = 0
 //! y = 0
@@ -51,17 +58,18 @@
 //! scale = 1.0
 //!
 //! [arrangement]
-//! mac_side = "left"
+//! a_side = "left"
 //! ```
 //!
 //! Una configuración de v0.1 con `[[monitors]]` sigue cargando: la sección se ignora con
-//! un aviso en el log ([`AgentConfig::warnings`]).
+//! un aviso en el log ([`AgentConfig::warnings`]). Una de v0.2, con los lados `mac`/`pc`,
+//! se traduce sola ([`crate::migrate`]).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tandem_core::{Config, Machine};
+use tandem_core::{Config, Machine, Os};
 use tandem_input::HidUsage;
 use tandem_input::event::RemapPolicy;
 use tandem_input::event::keymap::from_code_name;
@@ -82,8 +90,19 @@ pub const FALLBACK_PORTS: [u16; 8] = [52000, 52100, 53100, 54200, 55300, 56400, 
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentConfig {
-    /// Máquina donde corre este agente.
+    /// El lado de esta máquina. Lo decide la identidad ([`AgentConfig::with_side`]); lo
+    /// guardado es lo último que se resolvió, y sin par todavía es `A`.
+    #[serde(default = "default_side")]
     pub machine: Machine,
+    /// El sistema de esta máquina. No se guarda: sale del binario ([`Os::local`]); las
+    /// pruebas y la simulación lo cambian para armar puestos de cualquier combinación.
+    #[serde(skip, default = "Os::local")]
+    pub os: Os,
+    /// Los lados del archivo no son los que valen: tenía los de v0.2 (`mac`/`pc`,
+    /// [`crate::migrate`]) o la identidad dijo que esta máquina es el otro lado. El agente lo
+    /// reescribe al conocer el archivo.
+    #[serde(skip)]
+    pub rewrite_sides: bool,
     #[serde(default)]
     pub network: NetworkConfig,
     #[serde(default)]
@@ -116,6 +135,10 @@ pub struct AgentConfig {
     /// El puesto: es el mismo en las dos máquinas, salvo `machine`.
     #[serde(flatten)]
     pub desk: Config,
+}
+
+fn default_side() -> Machine {
+    Machine::A
 }
 
 fn is_zero(n: &u64) -> bool {
@@ -242,8 +265,8 @@ pub struct InputConfig {
     /// Dónde está el teclado y mouse al arrancar, hasta que el hub (o el otro agente) diga
     /// otra cosa. `server` es el nombre de antes.
     /// Sin él (la configuración que genera T-087 no lo escribe) no se sabe: el motor arranca
-    /// como si fuera la Mac, pero la UI dice «sin definir» hasta que el hub o el asistente
-    /// lo digan ([`InputConfig::keyboard`], [`InputConfig::keyboard_defined`]).
+    /// con el lado A, pero la UI dice «sin definir» hasta que el hub o el asistente lo
+    /// digan ([`InputConfig::keyboard`], [`InputConfig::keyboard_defined`]).
     #[serde(default, alias = "server", skip_serializing_if = "Option::is_none")]
     pub keyboard: Option<Machine>,
     /// El teclado y el mouse del hub. Sin esto los roles no cambian solos.
@@ -261,13 +284,15 @@ pub struct InputConfig {
     pub clipboard: bool,
 }
 
+/// Las dos máquinas tienen que arrancar con el mismo servidor aunque ninguna sepa nada: el
+/// lado A, que las dos conocen sin hablarse.
 fn default_keyboard() -> Machine {
-    Machine::Mac
+    Machine::A
 }
 
 impl InputConfig {
-    /// Dónde arranca el motor de entrada: lo configurado o, sin definir, la Mac (que
-    /// siempre tiene teclado integrado). Para la UI, mira [`InputConfig::keyboard_defined`].
+    /// Dónde arranca el motor de entrada: lo configurado o, sin definir, el lado A. Para la
+    /// UI, mira [`InputConfig::keyboard_defined`].
     pub fn keyboard(&self) -> Machine {
         self.keyboard.unwrap_or_else(default_keyboard)
     }
@@ -349,10 +374,30 @@ pub enum ConfigError {
 }
 
 impl AgentConfig {
+    /// Lee y valida. Un archivo de v0.2 (lados `mac`/`pc`) se traduce primero, con esta
+    /// máquina como `A` hasta que la identidad diga otra cosa ([`crate::migrate`]).
     pub fn from_toml(s: &str) -> Result<Self, ConfigError> {
-        let cfg: AgentConfig = toml::from_str(s)?;
+        let mut table: toml::Table = s.parse()?;
+        let legacy = crate::migrate::sides_v02(&mut table);
+        let mut cfg: AgentConfig = table.try_into()?;
+        cfg.rewrite_sides = legacy;
         cfg.validate()?;
         Ok(cfg)
+    }
+
+    /// La misma configuración vista desde el lado `side`: si no es el guardado, se cambian
+    /// los lados de todo lo que los nombra (el puesto, el teclado, el autor del último
+    /// cambio). Nada físico cambia: cada pantalla sigue siendo de su máquina.
+    pub fn with_side(mut self, side: Machine) -> Self {
+        if side == self.machine {
+            return self;
+        }
+        self.machine = side;
+        self.desk = self.desk.swap_sides();
+        self.input.keyboard = self.input.keyboard.map(Machine::other);
+        self.desk_origin = self.desk_origin.map(Machine::other);
+        self.rewrite_sides = true;
+        self
     }
 
     /// Lee `path` y deja en el log lo que se ignora ([`AgentConfig::warnings`]).
@@ -435,7 +480,7 @@ pub(crate) mod fixtures {
     use super::*;
 
     pub const DESK: &str = r#"
-        machine = "mac"
+        machine = "a"
 
         [network]
         port = 47771
@@ -472,7 +517,7 @@ mod tests {
     #[test]
     fn parses_full_config() {
         let cfg = fixtures::desk();
-        assert_eq!(cfg.machine, Machine::Mac);
+        assert_eq!(cfg.machine, Machine::A);
         assert_eq!(cfg.network.port, 47771);
         assert_eq!(cfg.network.peers.len(), 2);
         assert!(cfg.desk.screens.is_empty());
@@ -483,10 +528,10 @@ mod tests {
     fn parses_the_declared_screens() {
         let cfg = AgentConfig::from_toml(
             r#"
-            machine = "pc"
+            machine = "b"
 
             [[screens]]
-            machine = "pc"
+            machine = "b"
             id = "34"
             x = 0
             y = 0
@@ -494,7 +539,7 @@ mod tests {
             height = 1440
 
             [[screens]]
-            machine = "mac"
+            machine = "a"
             id = "laptop"
             x = 0
             y = 0
@@ -503,15 +548,15 @@ mod tests {
             scale = 2.0
 
             [arrangement]
-            mac_side = "right"
+            a_side = "right"
             "#,
         )
         .unwrap();
         assert_eq!(cfg.desk.screens.len(), 2);
-        assert_eq!(cfg.desk.screens_of(Machine::Mac).count(), 1);
-        assert_eq!(cfg.desk.arrangement.mac_side, Side::Right);
+        assert_eq!(cfg.desk.screens_of(Machine::A).count(), 1);
+        assert_eq!(cfg.desk.arrangement.a_side, Side::Right);
         let err = AgentConfig::from_toml(
-            "machine = \"pc\"\n[[screens]]\nmachine = \"pc\"\nid = \"a\"\nx = 0\ny = 0\nwidth = 0\nheight = 1\n",
+            "machine = \"b\"\n[[screens]]\nmachine = \"b\"\nid = \"a\"\nx = 0\ny = 0\nwidth = 0\nheight = 1\n",
         )
         .unwrap_err();
         assert!(matches!(err, ConfigError::Desk(_)), "{err}");
@@ -521,9 +566,9 @@ mod tests {
     #[test]
     fn an_old_config_with_monitors_still_loads_with_a_warning() {
         let old = r#"
-            machine = "mac"
+            machine = "a"
             desk_rev = 3
-            desk_origin = "pc"
+            desk_origin = "b"
 
             [[monitors]]
             id = "m34"
@@ -538,7 +583,7 @@ mod tests {
         assert_eq!(w.len(), 1);
         assert!(w[0].contains("[[monitors]]"), "{w:?}");
         // Lo que generaba v0.1 (`monitors = []`) no avisa.
-        let generated = AgentConfig::from_toml("machine = \"pc\"").unwrap();
+        let generated = AgentConfig::from_toml("machine = \"b\"").unwrap();
         assert!(generated.warnings().is_empty());
         // Y desde el archivo también carga.
         let dir = tempfile::tempdir().unwrap();
@@ -549,7 +594,7 @@ mod tests {
 
     #[test]
     fn network_is_optional() {
-        let cfg = AgentConfig::from_toml("machine = \"pc\"").unwrap();
+        let cfg = AgentConfig::from_toml("machine = \"b\"").unwrap();
         assert_eq!(cfg.network, NetworkConfig::default());
         assert_eq!(cfg.network.port, DEFAULT_PORT);
         assert_eq!(cfg.orchestrator, OrchestratorConfig::default());
@@ -561,7 +606,7 @@ mod tests {
     #[test]
     fn timeouts_are_configurable() {
         let cfg = AgentConfig::from_toml(
-            "machine = \"mac\"\n[orchestrator]\npower_on_timeout_secs = 90\nstep_timeout_secs = 5",
+            "machine = \"a\"\n[orchestrator]\npower_on_timeout_secs = 90\nstep_timeout_secs = 5",
         )
         .unwrap();
         let t = cfg.orchestrator.timeouts();
@@ -573,7 +618,7 @@ mod tests {
     fn rejects_zero_timeout() {
         for field in ["power_on_timeout_secs", "step_timeout_secs"] {
             let err =
-                AgentConfig::from_toml(&format!("machine = \"mac\"\n[orchestrator]\n{field} = 0"))
+                AgentConfig::from_toml(&format!("machine = \"a\"\n[orchestrator]\n{field} = 0"))
                     .unwrap_err();
             assert!(matches!(err, ConfigError::ZeroTimeout), "{err}");
         }
@@ -582,14 +627,49 @@ mod tests {
     #[test]
     fn rejects_unknown_orchestrator_field() {
         let err =
-            AgentConfig::from_toml("machine = \"mac\"\n[orchestrator]\ntimeout = 1").unwrap_err();
+            AgentConfig::from_toml("machine = \"a\"\n[orchestrator]\ntimeout = 1").unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
 
+    /// Sin `machine`, el lado A hasta que la identidad diga otra cosa.
     #[test]
-    fn rejects_missing_machine() {
-        let err = AgentConfig::from_toml("monitors = []").unwrap_err();
-        assert!(matches!(err, ConfigError::Parse(_)), "{err}");
+    fn without_machine_it_is_side_a() {
+        let cfg = AgentConfig::from_toml("monitors = []").unwrap();
+        assert_eq!(cfg.machine, Machine::A);
+        assert!(!cfg.rewrite_sides);
+    }
+
+    /// Un archivo de v0.2 carga con los lados traducidos: esta máquina es A (hasta saber las
+    /// claves) y el puesto dice lo mismo que antes.
+    #[test]
+    fn an_old_config_with_mac_and_pc_is_translated() {
+        let cfg = AgentConfig::from_toml(
+            "machine = \"pc\"\ndesk_origin = \"mac\"\n[input]\nserver = \"mac\"\n\
+             [[screens]]\nmachine = \"pc\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 10\nheight = 10\n\
+             [arrangement]\nmac_side = \"left\"\n",
+        )
+        .unwrap();
+        assert!(cfg.rewrite_sides);
+        assert_eq!(cfg.machine, Machine::A);
+        assert_eq!(cfg.desk_origin, Some(Machine::B));
+        assert_eq!(cfg.input.keyboard, Some(Machine::B));
+        assert_eq!(cfg.desk.screens[0].machine, Machine::A);
+        assert_eq!(cfg.desk.arrangement.a_side, Side::Right);
+        // Si por las claves esta máquina (la PC) es B, todo se da vuelta y sigue diciendo
+        // lo mismo: la Mac (ahora A) a la izquierda.
+        let b = cfg.with_side(Machine::B);
+        assert_eq!(b.machine, Machine::B);
+        assert_eq!(b.desk.screens[0].machine, Machine::B);
+        assert_eq!(b.input.keyboard, Some(Machine::A));
+        assert_eq!(b.desk_origin, Some(Machine::A));
+        assert_eq!(b.desk.arrangement.a_side, Side::Left);
+        assert!(b.rewrite_sides);
+    }
+
+    #[test]
+    fn the_same_side_changes_nothing() {
+        let cfg = fixtures::desk();
+        assert_eq!(cfg.clone().with_side(Machine::A), cfg);
     }
 
     #[test]
@@ -600,14 +680,13 @@ mod tests {
 
     #[test]
     fn rejects_port_zero() {
-        let err = AgentConfig::from_toml("machine = \"mac\"\n[network]\nport = 0").unwrap_err();
+        let err = AgentConfig::from_toml("machine = \"a\"\n[network]\nport = 0").unwrap_err();
         assert!(matches!(err, ConfigError::ZeroPort));
     }
 
     #[test]
     fn pairing_port_defaults_to_the_next_one() {
-        let cfg =
-            |net: &str| AgentConfig::from_toml(&format!("machine = \"pc\"\n[network]\n{net}"));
+        let cfg = |net: &str| AgentConfig::from_toml(&format!("machine = \"b\"\n[network]\n{net}"));
         assert_eq!(cfg("port = 47770").unwrap().network.pairing_port(), 47771);
         assert_eq!(cfg("port = 65535").unwrap().network.pairing_port(), 65534);
         let fixed = cfg("port = 47770\npairing_port = 50000").unwrap();
@@ -623,7 +702,7 @@ mod tests {
     #[test]
     fn rejects_peer_without_port() {
         let err = AgentConfig::from_toml(
-            "machine = \"mac\"\n[network]\npeers = [{ kind = \"usb4\", addr = \"10.0.0.1:0\" }]",
+            "machine = \"a\"\n[network]\npeers = [{ kind = \"usb4\", addr = \"10.0.0.1:0\" }]",
         )
         .unwrap_err();
         assert!(
@@ -638,7 +717,7 @@ mod tests {
     #[test]
     fn rejects_peer_without_kind() {
         let err =
-            AgentConfig::from_toml("machine = \"mac\"\n[network]\npeers = [\"10.0.0.1:47770\"]")
+            AgentConfig::from_toml("machine = \"a\"\n[network]\npeers = [\"10.0.0.1:47770\"]")
                 .unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
@@ -647,7 +726,7 @@ mod tests {
     fn rejects_duplicate_peer_link() {
         let err = AgentConfig::from_toml(
             r#"
-            machine = "mac"
+            machine = "a"
             [network]
             peers = [
                 { kind = "usb4", addr = "10.77.1.2:47770" },
@@ -679,7 +758,7 @@ mod tests {
 
     #[test]
     fn rejects_unknown_network_field() {
-        let err = AgentConfig::from_toml("machine = \"mac\"\n[network]\nprot = 1").unwrap_err();
+        let err = AgentConfig::from_toml("machine = \"a\"\n[network]\nprot = 1").unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
 
@@ -695,7 +774,7 @@ mod tests {
             fixtures::desk().power.peer_lost_after(),
             Duration::from_secs(15)
         );
-        let base = "machine = \"mac\"\n[power]\n";
+        let base = "machine = \"a\"\n[power]\n";
         let cfg = AgentConfig::from_toml(&format!("{base}peer_lost_after_secs = 40")).unwrap();
         assert_eq!(cfg.power.peer_lost_after(), Duration::from_secs(40));
         let err = AgentConfig::from_toml(&format!("{base}peer_lost_after_secs = 0")).unwrap_err();
@@ -705,7 +784,7 @@ mod tests {
     #[test]
     fn parses_wake_on_lan() {
         let cfg = AgentConfig::from_toml(
-            "machine = \"mac\"\n[power.wol]\nmac = \"9c-6b-00-1a-2b-ff\"\nsource = \"10.77.2.1\"\nbroadcast = \"10.77.2.3\"",
+            "machine = \"a\"\n[power.wol]\nmac = \"9c-6b-00-1a-2b-ff\"\nsource = \"10.77.2.1\"\nbroadcast = \"10.77.2.3\"",
         )
         .unwrap();
         let wol = cfg.power.wol.unwrap();
@@ -715,7 +794,7 @@ mod tests {
 
     #[test]
     fn rejects_bad_wake_on_lan() {
-        let base = "machine = \"mac\"\n[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n";
+        let base = "machine = \"a\"\n[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n";
         let err = AgentConfig::from_toml(&format!("{base}port = 0")).unwrap_err();
         assert!(matches!(err, ConfigError::ZeroWolPort), "{err}");
         let err = AgentConfig::from_toml(&format!("{base}source = \"fe80::1\"")).unwrap_err();
@@ -723,10 +802,10 @@ mod tests {
             matches!(err, ConfigError::WolFamilyMismatch { .. }),
             "{err}"
         );
-        let err = AgentConfig::from_toml("machine = \"mac\"\n[power.wol]\nmac = \"no-es-una-mac\"")
+        let err = AgentConfig::from_toml("machine = \"a\"\n[power.wol]\nmac = \"no-es-una-mac\"")
             .unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
-        let err = AgentConfig::from_toml("machine = \"mac\"\n[power]\nwake = 1").unwrap_err();
+        let err = AgentConfig::from_toml("machine = \"a\"\n[power]\nwake = 1").unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
 
@@ -734,7 +813,7 @@ mod tests {
     fn input_defaults() {
         let cfg = fixtures::desk();
         assert_eq!(cfg.input, InputConfig::default());
-        assert_eq!(cfg.input.keyboard(), Machine::Mac);
+        assert_eq!(cfg.input.keyboard(), Machine::A);
         assert!(
             !cfg.input.keyboard_defined(),
             "sin definir: no se supone la Mac"
@@ -748,9 +827,9 @@ mod tests {
     fn parses_input() {
         let cfg = AgentConfig::from_toml(
             r#"
-            machine = "pc"
+            machine = "b"
             [input]
-            keyboard = "pc"
+            keyboard = "b"
             lock_shortcut = ["ControlLeft", "KeyL"]
             clipboard = false
             [input.hub]
@@ -759,14 +838,14 @@ mod tests {
             "#,
         )
         .unwrap();
-        assert_eq!(cfg.input.keyboard(), Machine::Pc);
+        assert_eq!(cfg.input.keyboard(), Machine::B);
         assert!(cfg.input.keyboard_defined());
         // El nombre de antes sigue valiendo.
         let old = AgentConfig::from_toml(
-            "machine = \"mac\"\n[input]\nserver = \"pc\"\n[power]\npc_lost_after_secs = 9",
+            "machine = \"a\"\n[input]\nserver = \"b\"\n[power]\npc_lost_after_secs = 9",
         )
         .unwrap();
-        assert_eq!(old.input.keyboard(), Machine::Pc);
+        assert_eq!(old.input.keyboard(), Machine::B);
         assert_eq!(old.power.peer_lost_after_secs, 9);
         assert!(!cfg.input.clipboard);
         assert_eq!(
@@ -775,20 +854,19 @@ mod tests {
         );
         let hub = cfg.input.hub.unwrap();
         assert_eq!(hub.keyboard.to_string(), "046d:c33f");
-        let none =
-            AgentConfig::from_toml("machine = \"mac\"\n[input]\nlock_shortcut = []").unwrap();
+        let none = AgentConfig::from_toml("machine = \"a\"\n[input]\nlock_shortcut = []").unwrap();
         assert!(none.input.lock_keys().unwrap().is_empty());
     }
 
     #[test]
     fn rejects_bad_input() {
-        let base = "machine = \"mac\"\n[input]\n";
+        let base = "machine = \"a\"\n[input]\n";
         let err = AgentConfig::from_toml(&format!("{base}lock_shortcut = [\"Bloq\"]")).unwrap_err();
         assert!(
             matches!(err, ConfigError::UnknownKey(ref k) if k == "Bloq"),
             "{err}"
         );
-        let err = AgentConfig::from_toml(&format!("{base}sever = \"pc\"")).unwrap_err();
+        let err = AgentConfig::from_toml(&format!("{base}sever = \"b\"")).unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
         let err =
             AgentConfig::from_toml(&format!("{base}[input.hub]\nkeyboard = \"1:2\"")).unwrap_err();

@@ -56,7 +56,7 @@ pub struct World(Arc<Mutex<Inner>>);
 impl World {
     /// La Mac prendida, la PC apagada y el hub en la Mac.
     pub fn new() -> Self {
-        Self::with_principal(Machine::Mac)
+        Self::with_principal(Machine::A)
     }
 
     /// `principal` prendida, la otra apagada y el hub en `principal`.
@@ -127,11 +127,11 @@ impl World {
     pub fn check(&self, state: &State) -> Result<(), Vec<String>> {
         let w = self.lock();
         let mut errors = w.violations.clone();
-        for machine in [Machine::Mac, Machine::Pc] {
+        for machine in [Machine::A, Machine::B] {
             let on = w.power_of(machine) == Power::On;
             if on != state.is_on(machine) {
                 errors.push(format!(
-                    "la {machine} está {:?} pero el agente la cree {}",
+                    "la máquina {machine} está {:?} pero el agente la cree {}",
                     w.power_of(machine),
                     if state.is_on(machine) {
                         "prendida"
@@ -182,12 +182,12 @@ mod tests {
     #[test]
     fn the_check_compares_who_is_on() {
         let w = World::new();
-        let mut state = State::initial(Machine::Mac);
+        let mut state = State::initial(Machine::A);
         w.check(&state).unwrap();
-        w.lock().boot_done(Machine::Pc);
+        w.lock().boot_done(Machine::B);
         let errors = w.check(&state).unwrap_err();
-        assert!(errors[0].contains("la pc está On"), "{errors:?}");
-        state.on.pc = true;
+        assert!(errors[0].contains("la máquina B está On"), "{errors:?}");
+        state.on.b = true;
         w.check(&state).unwrap();
         // Lo imposible también se informa.
         w.lock().violations.push("algo imposible".into());
@@ -197,24 +197,24 @@ mod tests {
     #[test]
     fn the_hub_devices_follow_the_hub() {
         let w = World::new();
-        assert!(!w.usb_devices(Machine::Mac).is_empty());
-        w.plug_hub(Machine::Pc);
-        assert!(w.usb_devices(Machine::Mac).is_empty());
+        assert!(!w.usb_devices(Machine::A).is_empty());
+        w.plug_hub(Machine::B);
+        assert!(w.usb_devices(Machine::A).is_empty());
         // Con la PC apagada nadie ve el teclado.
-        assert!(w.usb_devices(Machine::Pc).is_empty());
-        w.lock().boot_done(Machine::Pc);
-        assert!(!w.usb_devices(Machine::Pc).is_empty());
+        assert!(w.usb_devices(Machine::B).is_empty());
+        w.lock().boot_done(Machine::B);
+        assert!(!w.usb_devices(Machine::B).is_empty());
     }
 
     #[test]
     fn power_changes_are_announced() {
-        let w = World::with_principal(Machine::Pc);
+        let w = World::with_principal(Machine::B);
         let mut rx = w.subscribe_power();
-        assert_eq!(w.power_of(Machine::Mac), Power::Off);
-        w.lock().boot_done(Machine::Mac);
+        assert_eq!(w.power_of(Machine::A), Power::Off);
+        w.lock().boot_done(Machine::A);
         assert!(rx.has_changed().unwrap());
-        assert_eq!(rx.borrow_and_update()[&Machine::Mac], Power::On);
-        w.lock().power_off(Machine::Pc);
-        assert_eq!(w.physical().power[&Machine::Pc], Power::Off);
+        assert_eq!(rx.borrow_and_update()[&Machine::A], Power::On);
+        w.lock().power_off(Machine::B);
+        assert_eq!(w.physical().power[&Machine::B], Power::Off);
     }
 }

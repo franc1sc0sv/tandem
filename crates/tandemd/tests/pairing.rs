@@ -1,6 +1,9 @@
 //! Emparejamiento desde la UI entre dos `tandemd` armados con [`daemon::start`], sin
-//! confianza previa: QUIC real en loopback, la Mac busca a la PC por el enlace fijo de
-//! la config y cada UI habla por la IPC en memoria.
+//! confianza previa: QUIC real en loopback, cada una busca a la otra por el enlace fijo de
+//! la config (y espera en el suyo) y cada UI habla por la IPC en memoria.
+//!
+//! Las máquinas se llaman «Mac» y «PC» (su `[machines]`, como lo pondría la UI); el código
+//! no lo supone: los lados salen de las claves.
 
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::Arc;
@@ -49,6 +52,34 @@ fn free_port() -> u16 {
         .local_addr()
         .unwrap()
         .port()
+}
+
+/// Un puerto libre con el siguiente también libre: el agente escucha en el primero y
+/// empareja en el segundo (lo que la otra máquina prueba por el enlace fijo).
+fn free_pair() -> u16 {
+    loop {
+        let p = free_port();
+        if p < u16::MAX && UdpSocket::bind((Ipv4Addr::LOCALHOST, p + 1)).is_ok() {
+            return p;
+        }
+    }
+}
+
+/// Las dos identidades ordenadas por clave: la primera es la del lado A (DECISIONS A1).
+fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
+    if x.public_key().as_bytes() < y.public_key().as_bytes() {
+        (x, y)
+    } else {
+        (y, x)
+    }
+}
+
+/// El nombre de cada lado en estas pruebas.
+fn name_of(machine: Machine) -> &'static str {
+    match machine {
+        Machine::A => "Mac",
+        Machine::B => "PC",
+    }
 }
 
 fn loopback(port: u16) -> SocketAddr {
@@ -103,24 +134,25 @@ async fn start(
     identity: &Identity,
     port: u16,
     peer_port: u16,
-    pairing_port: u16,
     timeouts: PairingTimeouts,
 ) -> Running {
     start_with_input(
-        machine,
+        (machine, name_of(machine)),
         identity,
-        (port, peer_port, pairing_port),
+        (port, peer_port),
         timeouts,
         None,
     )
     .await
 }
 
-/// Como [`start`], con el motor de entrada en marcha si se le dan backends.
+/// Como [`start`], con el motor de entrada en marcha si se le dan backends. `machine` es el
+/// lado que dice su `tandem.toml` (el de verdad lo deciden las claves al emparejar) y el
+/// nombre con que se presenta.
 async fn start_with_input(
-    machine: Machine,
+    (machine, name): (Machine, &str),
     identity: &Identity,
-    (port, peer_port, pairing_port): (u16, u16, u16),
+    (port, peer_port): (u16, u16),
     timeouts: PairingTimeouts,
     input: Option<InputSetup>,
 ) -> Running {
@@ -130,12 +162,16 @@ async fn start_with_input(
         data_dir: dir.path().to_owned(),
     };
     identity.save(&paths.identity_file()).unwrap();
-    let cfg = AgentConfig::from_toml(&format!(
-        "machine = \"{machine}\"\n[network]\nport = {port}\npairing_port = {pairing_port}\n\
-         peers = [{{ kind = \"usb4\", addr = \"{}\" }}]\n",
+    let side = machine.as_str();
+    let text = format!(
+        "machine = \"{side}\"\n[network]\nport = {port}\n\
+         peers = [{{ kind = \"usb4\", addr = \"{}\" }}]\n\
+         [machines.{side}]\nos = \"windows\"\nname = \"{name}\"\ncolor = \"#7aa7e6\"\n",
         loopback(peer_port)
-    ))
-    .unwrap();
+    );
+    // En el disco, como en el binario: el lado que resulte al emparejar se guarda ahí.
+    std::fs::write(&paths.config, &text).unwrap();
+    let cfg = AgentConfig::from_toml(&text).unwrap();
     let Daemon {
         agent,
         network,
@@ -188,29 +224,13 @@ struct Desk {
 }
 
 async fn desk(seed: u8, timeouts: PairingTimeouts) -> Desk {
-    let (mac_id, pc_id) = (
+    let (mac_id, pc_id) = sides(
         Identity::from_seed([seed; 32]),
         Identity::from_seed([seed + 1; 32]),
     );
-    let (mac_port, pc_port, pairing_port) = (free_port(), free_port(), free_port());
-    let mac = start(
-        Machine::Mac,
-        &mac_id,
-        mac_port,
-        pc_port,
-        pairing_port,
-        timeouts,
-    )
-    .await;
-    let pc = start(
-        Machine::Pc,
-        &pc_id,
-        pc_port,
-        mac_port,
-        pairing_port,
-        timeouts,
-    )
-    .await;
+    let (mac_port, pc_port) = (free_pair(), free_pair());
+    let mac = start(Machine::A, &mac_id, mac_port, pc_port, timeouts).await;
+    let pc = start(Machine::B, &pc_id, pc_port, mac_port, timeouts).await;
     Desk {
         mac,
         pc,
@@ -257,7 +277,7 @@ async fn start_compare_confirm_and_both_are_paired() {
         Reply::Rejected(NOTHING_TO_CONFIRM.into())
     );
 
-    // La PC primero: el orden da igual, la Mac la busca hasta encontrarla.
+    // La PC primero: el orden da igual, las dos se buscan hasta encontrarse.
     assert_eq!(pc.ask(UiCommand::StartPairing).await, Reply::Done);
     assert_eq!(
         pc.ask(UiCommand::GetPairing).await,
@@ -327,13 +347,13 @@ async fn start_compare_confirm_and_both_are_paired() {
     )
     .await;
     let mut st = mac.agent.subscribe();
-    within(st.wait_for(|s| s.on.pc)).await.unwrap();
+    within(st.wait_for(|s| s.on.b)).await.unwrap();
     let txn = within(async {
         loop {
             match mac
                 .ui
                 .request(UiCommand::SetPower {
-                    machine: Machine::Pc,
+                    machine: Machine::B,
                     on: false,
                 })
                 .await
@@ -394,7 +414,7 @@ async fn rejecting_on_one_side_leaves_both_unpaired() {
         .until_pairing(|s| matches!(s, PairingStatus::Failed { .. }))
         .await;
     assert!(
-        matches!(&failed, PairingStatus::Failed { reason } if reason.contains("rechazó en la Mac")),
+        matches!(&failed, PairingStatus::Failed { reason } if reason.contains("rechazó en Mac")),
         "{failed:?}"
     );
     assert!(!mac.trusted(&pc_id));
@@ -425,7 +445,7 @@ async fn searching_alone_gives_up() {
         .until_pairing(|s| matches!(s, PairingStatus::Failed { .. }))
         .await;
     assert!(
-        matches!(&failed, PairingStatus::Failed { reason } if reason.contains("no apareció la PC")),
+        matches!(&failed, PairingStatus::Failed { reason } if reason.contains("no apareció la otra máquina")),
         "{failed:?}"
     );
     // La PC nunca se enteró.
@@ -500,7 +520,7 @@ async fn unpairing_from_the_ui() {
 #[tokio::test]
 async fn without_network_pairing_is_rejected() {
     let dir = tempfile::tempdir().unwrap();
-    let cfg = AgentConfig::from_toml("machine = \"mac\"").unwrap();
+    let cfg = AgentConfig::from_toml("machine = \"a\"").unwrap();
     let agent = Arc::new(Agent::new(
         cfg,
         tandemd::StateStore::new(dir.path().join("state.json")),
@@ -530,26 +550,33 @@ fn input_setup(id: &str) -> InputSetup {
     }
 }
 
-/// Los agentes arrancan sin par y con el motor de entrada en marcha. Al emparejar
-/// desde la UI, el motor ve el enlace nuevo y abre la sesión sin reiniciar; al
-/// desemparejar, la cierra.
+/// Los agentes arrancan sin par, recién instalados (los dos se creen `A`) y con el motor de
+/// entrada en marcha. Al emparejar desde la UI, cada uno queda con el lado que dicen las
+/// claves (el que era `B` cambia en caliente: puesto, archivo y motor), el motor ve el
+/// enlace nuevo y abre la sesión sin reiniciar; al desemparejar, la cierra.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn pairing_hot_opens_the_input_session() {
-    let (mac_id, pc_id) = (Identity::from_seed([90; 32]), Identity::from_seed([91; 32]));
-    let (mac_port, pc_port, pairing_port) = (free_port(), free_port(), free_port());
+    for (x, y) in [(90, 91), (91, 90)] {
+        pair_two_fresh_agents(x, y).await;
+    }
+}
+
+async fn pair_two_fresh_agents(x: u8, y: u8) {
+    let (mac_id, pc_id) = (Identity::from_seed([x; 32]), Identity::from_seed([y; 32]));
+    let (mac_port, pc_port) = (free_pair(), free_pair());
     let timeouts = PairingTimeouts::default();
     let mut mac = start_with_input(
-        Machine::Mac,
+        (Machine::A, "Mac"),
         &mac_id,
-        (mac_port, pc_port, pairing_port),
+        (mac_port, pc_port),
         timeouts,
         Some(input_setup("m34")),
     )
     .await;
     let mut pc = start_with_input(
-        Machine::Pc,
+        (Machine::A, "PC"),
         &pc_id,
-        (pc_port, mac_port, pairing_port),
+        (pc_port, mac_port),
         timeouts,
         Some(input_setup("m34")),
     )
@@ -565,6 +592,28 @@ async fn pairing_hot_opens_the_input_session() {
 
     until_input(&mac.agent, |s| s.session).await;
     until_input(&pc.agent, |s| s.session).await;
+    // Cada una con el lado de las claves, y los dos distintos.
+    let mac_side = Machine::of_keys(
+        mac_id.public_key().as_bytes(),
+        pc_id.public_key().as_bytes(),
+    )
+    .unwrap();
+    assert_eq!(mac.agent.machine(), mac_side);
+    assert_eq!(pc.agent.machine(), mac_side.other());
+    // El nombre sigue con su máquina, en las dos (cuando terminan de intercambiar el
+    // puesto y los anuncios), y el archivo de la que cambió ya lo dice.
+    for r in [&mac, &pc] {
+        let mut desk = r.agent.subscribe_desk();
+        within(desk.wait_for(|d| {
+            d.machines.name(mac_side) == "Mac" && d.machines.name(mac_side.other()) == "PC"
+        }))
+        .await
+        .unwrap();
+    }
+    for r in [&mac, &pc] {
+        let saved = AgentConfig::load(&r.paths.config).unwrap();
+        assert_eq!(saved.machine, r.agent.machine());
+    }
 
     assert_eq!(pc.ask(UiCommand::Unpair).await, Reply::Done);
     until_input(&pc.agent, |s| !s.session).await;

@@ -24,10 +24,15 @@ fn main() -> ExitCode {
         Command::CheckConfig(path) => match AgentConfig::load(&path) {
             Ok(cfg) => {
                 println!(
-                    "{}: configuración válida (máquina {}, {} pantallas declaradas)",
+                    "{}: configuración válida (lado {}, {} pantallas declaradas{})",
                     path.display(),
                     cfg.machine,
-                    cfg.desk.screens.len()
+                    cfg.desk.screens.len(),
+                    if cfg.rewrite_sides {
+                        "; con los lados mac/pc de v0.2, que el agente traduce solo al arrancar"
+                    } else {
+                        ""
+                    }
                 );
                 for w in cfg.warnings() {
                     eprintln!("tandemd: {}: aviso: {w}", path.display());
@@ -69,11 +74,10 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
     tracing::info!(version = env!("CARGO_PKG_VERSION"), log = %log.display(), "tandemd arranca");
 
     // Sin `tandem.toml`, se genera con el puesto vacío (T-087).
-    let machine = autoconfig::machine_of_os();
-    let loaded = autoconfig::load_or_generate(&paths.config, machine)?;
+    let loaded = autoconfig::load_or_generate(&paths.config, autoconfig::initial_side())?;
     let (cfg, generated) = (loaded.config, loaded.generated);
     tracing::info!(
-        "configuración {}: máquina {}, {} pantallas declaradas{}",
+        "configuración {}: lado {}, {} pantallas declaradas{}",
         paths.config.display(),
         cfg.machine,
         cfg.desk.screens.len(),

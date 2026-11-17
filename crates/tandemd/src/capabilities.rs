@@ -5,31 +5,19 @@
 //! cambia. Los planes salen de los dos anuncios ([`abilities`]), no del nombre de la
 //! máquina.
 //!
-//! Lo único que todavía depende del sistema es qué backends existen: hoy solo Windows sabe
-//! apagarse solo. Eso vive aquí, en una función por capacidad, y el resto del agente
-//! pregunta por la capacidad.
+//! Lo único que depende del sistema es qué backends existen: hoy solo Windows sabe
+//! apagarse solo. Eso vive aquí, en una función por capacidad que pregunta por el [`Os`]
+//! (nunca por el lado, DECISIONS D2), y el resto del agente pregunta por la capacidad.
 
-use tandem_core::{Abilities, Machine};
+use tandem_core::{Abilities, Machine, MachineInfo, Os};
 use tandem_proto::{Capabilities, InputCaps, InputStatus, PowerCaps, ProcessInfo};
 
 use crate::config::AgentConfig;
 
-/// El nombre corto de la máquina, para los textos de la UI.
-pub fn label(machine: Machine) -> &'static str {
-    match machine {
-        Machine::Mac => "Mac",
-        Machine::Pc => "PC",
-    }
-}
-
-/// Si la máquina sabe apagarse limpio a pedido de la otra. Hoy, la PC (`shutdown /s`).
-pub fn powers_off(machine: Machine) -> bool {
-    machine == Machine::Pc
-}
-
-/// `macos`, `windows` o `linux`.
-pub fn os_name() -> &'static str {
-    std::env::consts::OS
+/// Si una máquina con `os` sabe apagarse limpio a pedido de la otra. Hoy, Windows
+/// (`shutdown /s`).
+pub fn powers_off(os: Os) -> bool {
+    os == Os::Windows
 }
 
 /// El nombre de la máquina en el sistema, si se puede saber sin llamar a nada.
@@ -55,14 +43,19 @@ pub fn current_process() -> ProcessInfo {
     }
 }
 
-/// Lo que esta máquina anuncia.
-pub fn local(cfg: &AgentConfig, input: &InputStatus, process: &ProcessInfo) -> Capabilities {
-    let me = cfg.machine;
+/// Lo que esta máquina (el lado `me`, que es `info`) anuncia.
+pub fn local(
+    cfg: &AgentConfig,
+    me: Machine,
+    info: MachineInfo,
+    input: &InputStatus,
+    process: &ProcessInfo,
+) -> Capabilities {
     let works = input.problem.is_none() && input.missing.is_empty();
+    let os = info.os;
     Capabilities {
         machine: me,
-        name: host_name().unwrap_or_else(|| label(me).to_owned()),
-        os: os_name().to_owned(),
+        info,
         hub: input.hub_here,
         input: InputCaps {
             capture: works,
@@ -73,7 +66,7 @@ pub fn local(cfg: &AgentConfig, input: &InputStatus, process: &ProcessInfo) -> C
         power: PowerCaps {
             wake_peer: cfg.power.wol.is_some(),
             wakeable: cfg.power.wakeable,
-            power_off: powers_off(me),
+            power_off: powers_off(os),
         },
         services: Vec::new(),
     }
@@ -104,14 +97,24 @@ mod tests {
     use crate::config::fixtures;
 
     /// Las dos con `[power.wol]`, como en `docs/examples`.
-    fn caps(machine: Machine) -> Capabilities {
-        let mut cfg = fixtures::desk_with_wol();
-        cfg.machine = machine;
+    fn caps_of(machine: Machine, os: Os) -> Capabilities {
+        let cfg = fixtures::desk_with_wol();
         local(
             &cfg,
-            &InputStatus::new(Machine::Mac),
+            machine,
+            MachineInfo::new(machine, os, None),
+            &InputStatus::new(Machine::A),
             &ProcessInfo::default(),
         )
+    }
+
+    /// A con macOS y B con Windows, como el puesto de `docs/examples`.
+    fn caps(machine: Machine) -> Capabilities {
+        let os = match machine {
+            Machine::A => Os::MacOs,
+            Machine::B => Os::Windows,
+        };
+        caps_of(machine, os)
     }
 
     fn without_wol(machine: Machine) -> Capabilities {
@@ -122,32 +125,50 @@ mod tests {
 
     #[test]
     fn each_machine_announces_what_it_has() {
-        let pc = caps(Machine::Pc);
+        let pc = caps(Machine::B);
         assert!(pc.power.power_off);
         assert!(pc.power.wake_peer);
-        let mac = caps(Machine::Mac);
+        assert_eq!(pc.info.os, Os::Windows);
+        let mac = caps(Machine::A);
         assert!(!mac.power.power_off);
-        assert_eq!(mac.os, std::env::consts::OS);
-        let mut cfg = fixtures::desk();
-        cfg.machine = Machine::Pc;
+        assert_eq!(mac.info.name, "Mac");
+        let cfg = fixtures::desk();
         let c = local(
             &cfg,
-            &InputStatus::new(Machine::Pc),
+            Machine::B,
+            MachineInfo::new(Machine::B, Os::Windows, None),
+            &InputStatus::new(Machine::B),
             &ProcessInfo::default(),
         );
         assert!(!c.power.wake_peer, "sin [power.wol] no despierta a nadie");
     }
 
+    /// Lo que sabe hacer cada máquina sale de su sistema, no de su lado (DECISIONS D2).
+    #[test]
+    fn powering_off_depends_on_the_system_not_the_side() {
+        for side in Machine::ALL {
+            assert!(caps_of(side, Os::Windows).power.power_off, "{side}");
+            assert!(!caps_of(side, Os::MacOs).power.power_off, "{side}");
+        }
+    }
+
     #[test]
     fn the_input_engine_state_is_announced() {
         let cfg = fixtures::desk();
-        let mut input = InputStatus::new(Machine::Mac);
+        let info = MachineInfo::new(Machine::A, Os::MacOs, None);
+        let mut input = InputStatus::new(Machine::A);
         input.hub_here = Some(true);
-        let c = local(&cfg, &input, &ProcessInfo::default());
+        let c = local(
+            &cfg,
+            Machine::A,
+            info.clone(),
+            &input,
+            &ProcessInfo::default(),
+        );
         assert_eq!(c.hub, Some(true));
         assert!(c.input.capture && c.input.inject);
         input.missing = vec![tandem_proto::InputPermission::Accessibility];
-        let c = local(&cfg, &input, &ProcessInfo::default());
+        let c = local(&cfg, Machine::A, info, &input, &ProcessInfo::default());
         assert!(!c.input.capture && !c.input.inject);
         assert_eq!(c.input.missing, input.missing);
     }
@@ -160,7 +181,13 @@ mod tests {
             pid: 77,
             started: 5,
         };
-        let c = local(&cfg, &InputStatus::new(Machine::Mac), &process);
+        let c = local(
+            &cfg,
+            Machine::A,
+            MachineInfo::new(Machine::A, Os::MacOs, None),
+            &InputStatus::new(Machine::A),
+            &process,
+        );
         assert_eq!(c.input.process, process);
         // El de verdad: esta misma prueba, con su pid y un ejecutable no vacío.
         let now = current_process();
@@ -170,42 +197,42 @@ mod tests {
 
     #[test]
     fn both_can_be_woken_when_both_have_wake_on_lan() {
-        let (mac, pc) = (caps(Machine::Mac), caps(Machine::Pc));
-        for (here, peer) in [(&mac, &pc), (&pc, &mac)] {
-            let a = abilities(here, Some(peer));
-            assert!(a.can_wake(Machine::Pc) && a.can_wake(Machine::Mac));
+        let (a, b) = (caps(Machine::A), caps(Machine::B));
+        for (here, peer) in [(&a, &b), (&b, &a)] {
+            let ab = abilities(here, Some(peer));
+            assert!(ab.can_wake(Machine::B) && ab.can_wake(Machine::A));
         }
         // Sin saber nada de la otra, se supone que se deja despertar.
-        assert!(abilities(&caps(Machine::Pc), None).can_wake(Machine::Mac));
+        assert!(abilities(&caps(Machine::B), None).can_wake(Machine::A));
     }
 
     #[test]
     fn a_peer_that_says_it_cannot_be_woken_is_not() {
-        let mut mac = caps(Machine::Mac);
-        mac.power.wakeable = false;
-        let a = abilities(&caps(Machine::Pc), Some(&mac));
-        assert!(!a.can_wake(Machine::Mac));
+        let mut a = caps(Machine::A);
+        a.power.wakeable = false;
+        let ab = abilities(&caps(Machine::B), Some(&a));
+        assert!(!ab.can_wake(Machine::A));
     }
 
-    /// Hallazgo del PR #56: la PC sin `[power.wol]` armaba `PowerOn { Mac }`, que fallaba
-    /// siempre al ejecutarse en vez de rechazarse.
+    /// Hallazgo del PR #56: una máquina sin `[power.wol]` armaba `PowerOn` de la otra, que
+    /// fallaba siempre al ejecutarse en vez de rechazarse.
     #[test]
     fn without_wake_on_lan_here_the_other_cannot_be_woken() {
-        let pc = without_wol(Machine::Pc);
-        let mac = caps(Machine::Mac);
-        for peer in [Some(&mac), None] {
-            let a = abilities(&pc, peer);
-            assert!(!a.can_wake(Machine::Mac), "{peer:?}");
+        let b = without_wol(Machine::B);
+        let a = caps(Machine::A);
+        for peer in [Some(&a), None] {
+            let ab = abilities(&b, peer);
+            assert!(!ab.can_wake(Machine::A), "{peer:?}");
         }
-        // Y desde la Mac: la PC sin WoL no la puede despertar a ella.
-        let a = abilities(&mac, Some(&pc));
-        assert!(!a.can_wake(Machine::Mac));
-        assert!(a.can_wake(Machine::Pc));
+        // Y desde A: B sin WoL no la puede despertar a ella.
+        let ab = abilities(&a, Some(&b));
+        assert!(!ab.can_wake(Machine::A));
+        assert!(ab.can_wake(Machine::B));
 
         // El plan lo rechaza con su motivo (antes de tocar nada).
-        let state = tandem_core::State::initial(Machine::Pc);
-        let a = abilities(&pc, Some(&mac));
-        let e = tandem_core::Plan::power_on(&state, Machine::Mac, &a).unwrap_err();
-        assert_eq!(e, tandem_core::plan::PlanError::CannotWake(Machine::Mac));
+        let state = tandem_core::State::initial(Machine::B);
+        let ab = abilities(&b, Some(&a));
+        let e = tandem_core::Plan::power_on(&state, Machine::A, &ab).unwrap_err();
+        assert_eq!(e, tandem_core::plan::PlanError::CannotWake(Machine::A));
     }
 }

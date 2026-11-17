@@ -20,6 +20,16 @@ use tandemd::{Agent, AgentConfig, StoreError, autoconfig};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+/// Las dos identidades ordenadas por clave: la primera es la del lado A (DECISIONS A1), así
+/// cada prueba sabe qué lado le toca a cada agente.
+fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
+    if x.public_key().as_bytes() < y.public_key().as_bytes() {
+        (x, y)
+    } else {
+        (y, x)
+    }
+}
+
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 async fn within<F: Future>(f: F) -> F::Output {
@@ -146,29 +156,17 @@ async fn start(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn el_asistente_reducido_de_punta_a_punta() {
-    let (mac_id, pc_id) = (Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
     let (mac_port, pc_port) = (free_port(), free_port());
-    let mut mac = start(
-        Machine::Mac,
-        &mac_id,
-        mac_port,
-        (pc_id.public_key(), pc_port),
-    )
-    .await;
-    let mut pc = start(
-        Machine::Pc,
-        &pc_id,
-        pc_port,
-        (mac_id.public_key(), mac_port),
-    )
-    .await;
+    let mut mac = start(Machine::A, &mac_id, mac_port, (pc_id.public_key(), pc_port)).await;
+    let mut pc = start(Machine::B, &pc_id, pc_port, (mac_id.public_key(), mac_port)).await;
 
     // (1) Esta máquina y sus permisos: lo que puede y el proceso al que darle permisos.
     let Reply::Capabilities(caps) = mac.ui.request(UiCommand::GetCapabilities).await.unwrap()
     else {
         panic!("se esperaban capacidades");
     };
-    assert_eq!(caps.here.machine, Machine::Mac);
+    assert_eq!(caps.here.machine, Machine::A);
     assert_eq!(caps.here.input.process.pid, std::process::id());
     assert_eq!(
         mac.ui.request(UiCommand::RequestPermissions).await.unwrap(),
@@ -220,41 +218,43 @@ async fn el_asistente_reducido_de_punta_a_punta() {
         .await
         .unwrap()
         .heard;
-    assert_eq!(heard, Some(Machine::Pc));
+    assert_eq!(heard, Some(Machine::B));
     // Una segunda tecla en la otra no cambia lo que se oyó primero.
     mac.ui.request(UiCommand::HeardKey).await.unwrap();
-    assert_eq!(mac.agent.key_probe_status().heard, Some(Machine::Pc));
+    assert_eq!(mac.agent.key_probe_status().heard, Some(Machine::B));
 
     // «¿Es correcto?»: sí. Se guarda en las dos y deja de ser «sin definir».
     assert_eq!(
         mac.ui
-            .request(UiCommand::SetKeyboard(Machine::Pc))
+            .request(UiCommand::SetKeyboard(Machine::B))
             .await
             .unwrap(),
         Reply::Done
     );
     let mut kb = pc.agent.subscribe_keyboard();
-    within(kb.wait_for(|k| *k == Some(Machine::Pc)))
+    within(kb.wait_for(|k| *k == Some(Machine::B)))
         .await
         .unwrap();
     for r in [&mac, &pc] {
         let mut st = r.agent.subscribe_input();
-        within(st.wait_for(|i| i.defined && i.server == Machine::Pc))
+        within(st.wait_for(|i| i.defined && i.server == Machine::B))
             .await
             .unwrap();
         let saved = AgentConfig::load(&r.config).unwrap();
-        assert_eq!(saved.input.keyboard, Some(Machine::Pc));
+        assert_eq!(saved.input.keyboard, Some(Machine::B));
     }
 
-    // (4) Resumen: de dónde salió la configuración y el puesto (vacío, sin monitores).
+    // (4) Resumen: de dónde salió la configuración y el puesto (sin pantallas declaradas;
+    // solo qué máquina es cada lado, que se anota al conocerse).
     let Reply::Setup(setup) = mac.ui.request(UiCommand::GetSetup).await.unwrap() else {
         panic!("se esperaba la configuración");
     };
     assert!(setup.config_file.is_some());
-    assert_eq!(
-        mac.ui.request(UiCommand::GetDesk).await.unwrap(),
-        Reply::Desk(tandem_core::Config::default())
-    );
+    let Reply::Desk(desk) = mac.ui.request(UiCommand::GetDesk).await.unwrap() else {
+        panic!("se esperaba el puesto");
+    };
+    assert!(desk.screens.is_empty());
+    assert_eq!(desk.arrangement, tandem_core::Arrangement::default());
     // Desactivar la escucha al terminar.
     mac.ui
         .request(UiCommand::KeyProbe { on: false })

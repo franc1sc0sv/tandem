@@ -6,7 +6,7 @@
 //! error como texto ([`Stringly`]) y en caja, así el resto del agente es uno solo.
 
 use tandem_clipboard::{ClipContent, Clipboard};
-use tandem_core::Machine;
+use tandem_core::Os;
 use tandem_input::event::{Direction, ModifierRemap, RemapPolicy};
 use tandem_input::session::{Capture, Injector};
 use tandem_input::{HidUsage, InputEvent, Point, Screen};
@@ -160,17 +160,29 @@ pub struct CaptureSink {
     remap: ModifierRemap,
 }
 
+/// La reasignación de modificadores entre dos sistemas: Cmd↔Ctrl entre macOS y Windows;
+/// entre dos iguales (o sin saber todavía el de la otra máquina), ninguna.
+pub fn direction(from: Os, to: Option<Os>) -> Option<Direction> {
+    match (from, to?) {
+        (Os::MacOs, Os::Windows) => Some(Direction::MacToWin),
+        (Os::Windows, Os::MacOs) => Some(Direction::WinToMac),
+        (Os::MacOs, Os::MacOs) | (Os::Windows, Os::Windows) => None,
+    }
+}
+
 impl CaptureSink {
-    /// La dirección es la de la máquina que captura hacia la otra.
-    pub fn new(tx: mpsc::UnboundedSender<InputEvent>, policy: &RemapPolicy, me: Machine) -> Self {
-        let direction = match me {
-            Machine::Mac => Direction::MacToWin,
-            Machine::Pc => Direction::WinToMac,
-        };
-        CaptureSink {
-            tx,
-            remap: *policy.for_direction(direction),
-        }
+    /// La dirección es la del sistema que captura (`from`) hacia el de la otra máquina
+    /// (`to`, si ya se sabe).
+    pub fn new(
+        tx: mpsc::UnboundedSender<InputEvent>,
+        policy: &RemapPolicy,
+        from: Os,
+        to: Option<Os>,
+    ) -> Self {
+        let remap = direction(from, to)
+            .map(|d| *policy.for_direction(d))
+            .unwrap_or_default();
+        CaptureSink { tx, remap }
     }
 
     /// `false` si ya nadie recibe lo capturado: la captura tiene que soltar la entrada.
@@ -222,13 +234,12 @@ pub trait InputBackends: Send + Sync + 'static {
 /// Las pantallas son los límites que ya lee la inyección (`CGDisplayBounds` en macOS, los
 /// monitores del escritorio virtual en Windows). En otros sistemas no hay captura ni
 /// inyección, y el agente lo informa.
-pub struct PlatformInput {
-    me: Machine,
-}
+#[derive(Debug, Default)]
+pub struct PlatformInput;
 
 impl PlatformInput {
-    pub fn new(me: Machine) -> Self {
-        PlatformInput { me }
+    pub fn new() -> Self {
+        PlatformInput
     }
 }
 
@@ -252,7 +263,7 @@ impl InputBackends for PlatformInput {
     }
 
     fn screens(&self) -> Result<Vec<Screen>, String> {
-        Ok(detected(self.me, &platform::screens()?))
+        Ok(detected(&platform::screens()?))
     }
 
     fn missing_permissions(&self) -> Vec<InputPermission> {
@@ -420,14 +431,14 @@ mod tests {
     fn the_sink_remaps_in_the_direction_of_the_capture() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let policy = RemapPolicy::default();
-        let mac = CaptureSink::new(tx.clone(), &policy, Machine::Mac);
+        let mac = CaptureSink::new(tx.clone(), &policy, Os::MacOs, Some(Os::Windows));
         assert!(mac.send(key(ModifierKey::MetaLeft)));
         assert_eq!(
             rx.try_recv().unwrap(),
             key(ModifierKey::ControlLeft),
             "Cmd→Ctrl"
         );
-        let pc = CaptureSink::new(tx, &policy, Machine::Pc);
+        let pc = CaptureSink::new(tx, &policy, Os::Windows, Some(Os::MacOs));
         assert!(pc.send(key(ModifierKey::ControlLeft)));
         assert_eq!(
             rx.try_recv().unwrap(),
@@ -444,16 +455,34 @@ mod tests {
         assert!(!pc.send(a), "sin receptor la captura tiene que soltar");
     }
 
+    /// Entre dos máquinas con el mismo sistema no se reasigna nada (DECISIONS D2): el lado
+    /// no importa, solo los sistemas.
+    #[test]
+    fn the_same_system_on_both_sides_keeps_the_modifiers() {
+        let policy = RemapPolicy::default();
+        for os in Os::ALL {
+            assert_eq!(direction(os, Some(os)), None);
+            assert_eq!(direction(os, None), None, "sin saber la otra, nada");
+            let (tx, mut rx) = mpsc::unbounded_channel();
+            let sink = CaptureSink::new(tx, &policy, os, Some(os));
+            for m in [ModifierKey::MetaLeft, ModifierKey::ControlLeft] {
+                assert!(sink.send(key(m)));
+                assert_eq!(rx.try_recv().unwrap(), key(m), "{os}: {m:?}");
+                assert_eq!(sink.remap_key(m.usage()), m.usage());
+            }
+        }
+    }
+
     #[test]
     fn keys_are_remapped_like_the_captured_events() {
         let (tx, _rx) = mpsc::unbounded_channel();
         let policy = RemapPolicy::default();
-        let pc = CaptureSink::new(tx.clone(), &policy, Machine::Pc);
+        let pc = CaptureSink::new(tx.clone(), &policy, Os::Windows, Some(Os::MacOs));
         assert_eq!(
             pc.remap_key(ModifierKey::ControlLeft.usage()),
             ModifierKey::MetaLeft.usage()
         );
-        let mac = CaptureSink::new(tx, &policy, Machine::Mac);
+        let mac = CaptureSink::new(tx, &policy, Os::MacOs, Some(Os::Windows));
         assert_eq!(
             mac.remap_key(ModifierKey::MetaLeft.usage()),
             ModifierKey::ControlLeft.usage()
@@ -464,13 +493,18 @@ mod tests {
 
     #[test]
     fn this_system_says_what_it_lacks() {
-        let p = PlatformInput::new(Machine::Pc);
+        let p = PlatformInput::new();
         if cfg!(not(any(windows, target_os = "macos"))) {
             assert!(p.injector().is_err());
             let (tx, _rx) = mpsc::unbounded_channel();
             assert!(
-                p.capture(CaptureSink::new(tx, &RemapPolicy::default(), Machine::Pc))
-                    .is_err()
+                p.capture(CaptureSink::new(
+                    tx,
+                    &RemapPolicy::default(),
+                    Os::local(),
+                    None
+                ))
+                .is_err()
             );
             assert!(p.scanner().is_none());
             assert!(p.screens().is_err());

@@ -4,10 +4,10 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 const VALID: &str = r#"
-machine = "pc"
+machine = "b"
 
 [[screens]]
-machine = "pc"
+machine = "b"
 id = "34"
 x = 0
 y = 0
@@ -50,7 +50,7 @@ fn invalid_toml_exits_nonzero() {
 fn invalid_desk_exits_nonzero() {
     // Una pantalla sin área.
     let out = check_text(
-        "machine = \"mac\"\n[[screens]]\nmachine = \"mac\"\nid = \"a\"\nx = 0\ny = 0\nwidth = 0\nheight = 10\n",
+        "machine = \"a\"\n[[screens]]\nmachine = \"a\"\nid = \"a\"\nx = 0\ny = 0\nwidth = 0\nheight = 10\n",
     );
     assert!(!out.status.success());
     let stderr = String::from_utf8(out.stderr).unwrap();
@@ -61,7 +61,7 @@ fn invalid_desk_exits_nonzero() {
 #[test]
 fn an_old_config_with_monitors_is_valid_with_a_warning() {
     let out = check_text(
-        "machine = \"pc\"\n[[monitors]]\nid = \"m34\"\nlabel = '34\"'\nwiring = { pc = \"displayport\" }\n",
+        "machine = \"b\"\n[[monitors]]\nid = \"m34\"\nlabel = '34\"'\nwiring = { pc = \"displayport\" }\n",
     );
     assert!(out.status.success(), "{out:?}");
     let stderr = String::from_utf8(out.stderr).unwrap();
@@ -84,18 +84,34 @@ fn bad_arguments_exit_nonzero() {
     assert_eq!(out.status.code(), Some(2));
 }
 
-/// Las configs de ejemplo de docs/examples son válidas.
+/// Las configs de ejemplo de docs/examples son válidas, y las de v0.2 (lados `mac`/`pc`)
+/// también: el agente las traduce solo.
 #[test]
 fn example_configs_are_valid() {
     let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/examples");
-    for (file, machine) in [("tandem.mac.toml", "mac"), ("tandem.pc.toml", "pc")] {
+    for (file, side) in [("tandem.mac.toml", "a"), ("tandem.pc.toml", "b")] {
         let out = check(&examples.join(file));
         assert!(out.status.success(), "{file}: {out:?}");
         let stdout = String::from_utf8(out.stdout).unwrap();
         assert!(
-            stdout.contains(&format!("máquina {machine}, 3 pantallas declaradas")),
+            stdout.contains(&format!(
+                "lado {}, 3 pantallas declaradas)",
+                side.to_uppercase()
+            )),
             "{stdout}"
         );
+        assert!(out.stderr.is_empty(), "{file}: sin avisos");
+    }
+    for file in ["v0.2/tandem.mac.toml", "v0.2/tandem.pc.toml"] {
+        let out = check(&examples.join(file));
+        assert!(out.status.success(), "{file}: {out:?}");
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        // Hasta conocer las claves, esta máquina es A.
+        assert!(
+            stdout.contains("lado A, 3 pantallas declaradas;"),
+            "{stdout}"
+        );
+        assert!(stdout.contains("v0.2"), "{stdout}");
         assert!(out.stderr.is_empty(), "{file}: sin avisos");
     }
 }

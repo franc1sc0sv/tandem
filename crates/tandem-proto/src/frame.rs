@@ -269,7 +269,7 @@ mod tests {
     fn an_agent_without_capabilities_is_rejected_with_a_clear_version_error() {
         let old = Hello {
             version: crate::CAPABILITIES_SINCE - 1,
-            peer: Peer::Agent(tandem_core::Machine::Pc),
+            peer: Peer::Agent(tandem_core::Machine::B),
         };
         let e = decode_hello(&encode(&old).unwrap()).unwrap_err();
         assert_eq!(

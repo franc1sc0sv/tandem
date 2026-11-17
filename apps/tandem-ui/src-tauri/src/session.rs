@@ -164,8 +164,11 @@ pub struct CapsView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MachineView {
     pub machine: Machine,
+    /// Nombre, sistema (`macos`/`windows`) y color de acento: la UI no tiene textos fijos
+    /// «Mac»/«PC» (T-097).
     pub name: String,
-    pub os: String,
+    pub os: tandem_core::Os,
+    pub color: String,
     pub hub: Option<bool>,
     pub input: InputCapsView,
     pub power: PowerCapsView,
@@ -206,8 +209,9 @@ impl From<Capabilities> for MachineView {
     fn from(c: Capabilities) -> Self {
         MachineView {
             machine: c.machine,
-            name: c.name,
-            os: c.os,
+            name: c.info.name,
+            os: c.info.os,
+            color: c.info.color,
             hub: c.hub,
             input: InputCapsView {
                 capture: c.input.capture,
@@ -242,9 +246,19 @@ impl From<DeskCapabilities> for CapsView {
 #[cfg(test)]
 pub fn test_caps(machine: Machine) -> Box<CapsView> {
     let mut cfg =
-        tandemd::AgentConfig::from_toml("machine = \"mac\"").unwrap_or_else(|e| panic!("{e}"));
+        tandemd::AgentConfig::from_toml("machine = \"a\"").unwrap_or_else(|e| panic!("{e}"));
     cfg.machine = machine;
-    let here = tandemd::capabilities::local(&cfg, &InputStatus::new(machine), &Default::default());
+    let os = match machine {
+        Machine::A => tandem_core::Os::MacOs,
+        Machine::B => tandem_core::Os::Windows,
+    };
+    let here = tandemd::capabilities::local(
+        &cfg,
+        machine,
+        tandem_core::MachineInfo::new(machine, os, None),
+        &InputStatus::new(machine),
+        &Default::default(),
+    );
     Box::new(CapsView {
         here: here.into(),
         peer: None,
@@ -637,24 +651,24 @@ impl Runner {
             let mut client = connect.await?;
             let desk = match client.request(UiCommand::GetDesk).await? {
                 Reply::Desk(d) => d,
-                other => return Err(IpcError::UnexpectedReply(other)),
+                other => return Err(IpcError::UnexpectedReply(Box::new(other))),
             };
             let state = client.get_state().await?;
             let peer = match client.request(UiCommand::GetPeer).await? {
                 Reply::Peer(p) => p.into(),
-                other => return Err(IpcError::UnexpectedReply(other)),
+                other => return Err(IpcError::UnexpectedReply(Box::new(other))),
             };
             let pairing = match client.request(UiCommand::GetPairing).await? {
                 Reply::Pairing(p) => p.into(),
-                other => return Err(IpcError::UnexpectedReply(other)),
+                other => return Err(IpcError::UnexpectedReply(Box::new(other))),
             };
             let input = match client.request(UiCommand::GetInput).await? {
                 Reply::Input(i) => i.into(),
-                other => return Err(IpcError::UnexpectedReply(other)),
+                other => return Err(IpcError::UnexpectedReply(Box::new(other))),
             };
             let caps = match client.request(UiCommand::GetCapabilities).await? {
                 Reply::Capabilities(c) => Box::new((*c).into()),
-                other => return Err(IpcError::UnexpectedReply(other)),
+                other => return Err(IpcError::UnexpectedReply(Box::new(other))),
             };
             Ok(Opened {
                 client,
@@ -834,7 +848,7 @@ mod tests {
     use super::*;
 
     const CONFIG: &str = r#"
-machine = "mac"
+machine = "a"
 
 # Con qué despertar a la PC: sin esto, el plan ni siquiera intenta encenderla.
 [power.wol]
@@ -952,12 +966,12 @@ mac = "9c:6b:00:1a:2b:ff"
         assert_eq!(
             handle.snapshot(),
             Snapshot::Connected {
-                agent: Machine::Mac,
+                agent: Machine::A,
                 desk: a.agent.config().desk.clone(),
                 state: a.agent.state(),
                 peer: PeerView::Unpaired,
                 pairing: PairingView::Idle,
-                input: InputStatus::new(Machine::Mac).into(),
+                input: InputStatus::new(Machine::A).into(),
                 caps: Box::new(a.agent.capabilities().into()),
             }
         );
@@ -978,7 +992,7 @@ mac = "9c:6b:00:1a:2b:ff"
         rec.until(|s, _| connected(s)).await;
 
         let mut desk = a.agent.desk();
-        desk.arrangement.mac_side = tandem_core::Side::Right;
+        desk.arrangement.a_side = tandem_core::Side::Right;
         a.agent.set_desk(desk.clone()).unwrap();
         let moved = |s: &Snapshot| matches!(s, Snapshot::Connected { desk: d, .. } if *d == desk);
         rec.until(|snaps, _| snaps.last().is_some_and(moved)).await;
@@ -1044,7 +1058,7 @@ mac = "9c:6b:00:1a:2b:ff"
 
         let status = InputStatus {
             missing: vec![InputPermission::Accessibility],
-            ..InputStatus::new(Machine::Pc)
+            ..InputStatus::new(Machine::B)
         };
         a.agent.set_input_status(status.clone());
         let want = InputView::from(status);
@@ -1087,7 +1101,7 @@ mac = "9c:6b:00:1a:2b:ff"
         rec.until(|s, _| connected(s)).await;
 
         let mut s = a.agent.state();
-        s.on.pc = true;
+        s.on.b = true;
         a.agent.set_state(s.clone()).unwrap();
         let want = s.clone();
         rec.until(|snaps, _| {
@@ -1107,7 +1121,7 @@ mac = "9c:6b:00:1a:2b:ff"
 
         let r = handle
             .act(Action::SetPower {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 on: true,
             })
             .await;
@@ -1131,7 +1145,7 @@ mac = "9c:6b:00:1a:2b:ff"
         assert_eq!(
             steps.first(),
             Some(&Step::PowerOn {
-                machine: Machine::Pc
+                machine: Machine::B
             })
         );
         assert!(notices.iter().any(|n| matches!(
@@ -1174,7 +1188,7 @@ mac = "9c:6b:00:1a:2b:ff"
         // Los pedidos se contestan sin quedarse colgados.
         let r = handle
             .act(Action::SetPower {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 on: true,
             })
             .await;
@@ -1270,7 +1284,7 @@ mac = "9c:6b:00:1a:2b:ff"
         assert_eq!(
             handle
                 .act(Action::SetPower {
-                    machine: Machine::Pc,
+                    machine: Machine::B,
                     on: true
                 })
                 .await,
@@ -1284,17 +1298,17 @@ mac = "9c:6b:00:1a:2b:ff"
     #[test]
     fn json_is_what_the_frontend_reads() {
         let cfg = AgentConfig::from_toml(
-            "machine = \"mac\"\n[[screens]]\nmachine = \"pc\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 3440\nheight = 1440\nscale = 1.5\n",
+            "machine = \"a\"\n[[screens]]\nmachine = \"b\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 3440\nheight = 1440\nscale = 1.5\n",
         )
         .unwrap();
         let snap = Snapshot::Connected {
-            agent: Machine::Mac,
+            agent: Machine::A,
             desk: cfg.desk,
-            state: State::initial(Machine::Mac),
+            state: State::initial(Machine::A),
             peer: PeerView::Unpaired,
             pairing: PairingView::Idle,
             input: InputStatus {
-                server: Machine::Pc,
+                server: Machine::B,
                 hub_here: Some(false),
                 session: true,
                 locked: false,
@@ -1303,11 +1317,11 @@ mac = "9c:6b:00:1a:2b:ff"
                 defined: true,
             }
             .into(),
-            caps: test_caps(Machine::Mac),
+            caps: test_caps(Machine::A),
         };
         let v = serde_json::to_value(&snap).unwrap();
         assert_eq!(v["kind"], "connected");
-        assert_eq!(v["caps"]["here"]["machine"], "mac");
+        assert_eq!(v["caps"]["here"]["machine"], "a");
         assert_eq!(
             v["caps"]["here"]["power"],
             serde_json::json!({ "wake_peer": false, "wakeable": true, "power_off": false })
@@ -1315,22 +1329,23 @@ mac = "9c:6b:00:1a:2b:ff"
         assert_eq!(v["caps"]["peer"], serde_json::Value::Null);
         assert_eq!(
             v["state"],
-            serde_json::json!({ "on": { "mac": true, "pc": false } })
+            serde_json::json!({ "on": { "a": true, "b": false } })
         );
         assert_eq!(
             v["desk"],
             serde_json::json!({
+                "machines": { "a": null, "b": null },
                 "screens": [{
-                    "machine": "pc", "id": "34", "x": 0, "y": 0,
+                    "machine": "b", "id": "34", "x": 0, "y": 0,
                     "width": 3440, "height": 1440, "scale": 1.5
                 }],
-                "arrangement": { "mac_side": "left", "offset": 0 }
+                "arrangement": { "a_side": "left", "offset": 0 }
             })
         );
         assert_eq!(
             v["input"],
             serde_json::json!({
-                "server": "pc",
+                "server": "b",
                 "hub_here": false,
                 "session": true,
                 "locked": false,
@@ -1362,7 +1377,7 @@ mac = "9c:6b:00:1a:2b:ff"
             event: TxnView::Started {
                 txn: 3,
                 steps: vec![Step::PowerOn {
-                    machine: Machine::Pc,
+                    machine: Machine::B,
                 }],
             },
         };
@@ -1371,19 +1386,19 @@ mac = "9c:6b:00:1a:2b:ff"
             serde_json::json!({
                 "kind": "txn",
                 "event": { "type": "started", "txn": 3, "steps": [
-                    { "step": "power_on", "machine": "pc" }
+                    { "step": "power_on", "machine": "b" }
                 ]}
             })
         );
         let p = Notice::from(PowerEvent::PeerLost {
-            machine: Machine::Pc,
+            machine: Machine::B,
             reason: "la PC dejó de responder".into(),
         });
         assert_eq!(
             serde_json::to_value(&p).unwrap(),
             serde_json::json!({
                 "kind": "power",
-                "machine": "pc",
+                "machine": "b",
                 "reason": "la PC dejó de responder",
             })
         );
@@ -1398,9 +1413,9 @@ mac = "9c:6b:00:1a:2b:ff"
         let read =
             |v: serde_json::Value| UiCommand::from(serde_json::from_value::<Action>(v).unwrap());
         assert_eq!(
-            read(serde_json::json!({ "kind": "set_power", "machine": "pc", "on": false })),
+            read(serde_json::json!({ "kind": "set_power", "machine": "b", "on": false })),
             UiCommand::SetPower {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 on: false
             }
         );
@@ -1409,8 +1424,8 @@ mac = "9c:6b:00:1a:2b:ff"
             UiCommand::KeyProbe { on: true }
         );
         assert_eq!(
-            read(serde_json::json!({ "kind": "set_keyboard", "machine": "mac" })),
-            UiCommand::SetKeyboard(Machine::Mac)
+            read(serde_json::json!({ "kind": "set_keyboard", "machine": "a" })),
+            UiCommand::SetKeyboard(Machine::A)
         );
         for (kind, cmd) in [
             ("start_pairing", UiCommand::StartPairing),
@@ -1521,13 +1536,13 @@ mac = "9c:6b:00:1a:2b:ff"
             retry: Arc::new(Notify::new()),
         };
         runner.on_event(AgentToUi::Power(PowerEvent::PeerLost {
-            machine: Machine::Pc,
+            machine: Machine::B,
             reason: "la PC dejó de responder (¿corte de corriente?)".into(),
         }));
         assert_eq!(
             *rec.notices.lock().unwrap(),
             vec![Notice::Power {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 reason: "la PC dejó de responder (¿corte de corriente?)".into(),
             }]
         );

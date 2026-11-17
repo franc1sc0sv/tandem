@@ -7,7 +7,7 @@
 //! - UI → agente: [`UiRequest`]; agente → UI: [`AgentToUi`].
 
 use serde::{Deserialize, Serialize};
-use tandem_core::{Config, Machine, State, Step};
+use tandem_core::{Config, Machine, MachineInfo, State, Step};
 
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
 
@@ -112,10 +112,9 @@ pub enum KeyProbeMsg {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Capabilities {
     pub machine: Machine,
-    /// El nombre de la máquina en el sistema, para la UI.
-    pub name: String,
-    /// `macos`, `windows` o `linux`.
-    pub os: String,
+    /// Su sistema, su nombre y su color (DECISIONS A1): la UI y las decisiones que dependen
+    /// del sistema salen de aquí, no del lado.
+    pub info: MachineInfo,
     /// El hub del teclado y mouse está conectado aquí; `None` sin detección.
     pub hub: Option<bool>,
     pub input: InputCaps,
@@ -189,7 +188,7 @@ pub struct DeskCapabilities {
 pub enum Channel {
     /// La sesión de teclado y mouse: la abre el servidor.
     Input,
-    /// El portapapeles: lo abre la Mac.
+    /// El portapapeles: lo abre el lado A.
     Clipboard,
 }
 
@@ -544,9 +543,17 @@ pub(crate) mod samples {
     /// Un puesto con pantallas declaradas de las dos máquinas.
     pub fn desk() -> Config {
         Config {
+            machines: tandem_core::Machines {
+                a: Some(MachineInfo::new(Machine::A, tandem_core::Os::MacOs, None)),
+                b: Some(MachineInfo::new(
+                    Machine::B,
+                    tandem_core::Os::Windows,
+                    Some("ESCRITORIO".into()),
+                )),
+            },
             screens: vec![
                 ScreenSpec {
-                    machine: Machine::Pc,
+                    machine: Machine::B,
                     id: "34".into(),
                     x: 0,
                     y: 0,
@@ -555,7 +562,7 @@ pub(crate) mod samples {
                     scale: Scale::ONE,
                 },
                 ScreenSpec {
-                    machine: Machine::Mac,
+                    machine: Machine::A,
                     id: "laptop".into(),
                     x: 0,
                     y: 0,
@@ -565,7 +572,7 @@ pub(crate) mod samples {
                 },
             ],
             arrangement: Arrangement {
-                mac_side: Side::Right,
+                a_side: Side::Right,
                 offset: -40,
             },
         }
@@ -574,10 +581,10 @@ pub(crate) mod samples {
     pub fn steps() -> Vec<Step> {
         vec![
             Step::PowerOn {
-                machine: Machine::Pc,
+                machine: Machine::B,
             },
             Step::PowerOff {
-                machine: Machine::Mac,
+                machine: Machine::A,
             },
         ]
     }
@@ -591,8 +598,8 @@ pub(crate) mod samples {
 
     pub fn hellos() -> Vec<Hello> {
         vec![
-            Hello::new(Peer::Agent(Machine::Mac)),
-            Hello::new(Peer::Agent(Machine::Pc)),
+            Hello::new(Peer::Agent(Machine::A)),
+            Hello::new(Peer::Agent(Machine::B)),
             Hello::new(Peer::Ui),
         ]
     }
@@ -615,23 +622,23 @@ pub(crate) mod samples {
             ControlMsg::Open(Channel::Clipboard),
             ControlMsg::Hub(HubReport {
                 hub: true,
-                server: Machine::Pc,
+                server: Machine::B,
             }),
             ControlMsg::Screens(vec![]),
             ControlMsg::Screens(screens()),
             ControlMsg::KeyProbe(KeyProbeMsg::Arm),
             ControlMsg::KeyProbe(KeyProbeMsg::Disarm),
             ControlMsg::KeyProbe(KeyProbeMsg::Heard),
-            ControlMsg::Keyboard(Machine::Pc),
+            ControlMsg::Keyboard(Machine::B),
             ControlMsg::Desk(DeskSync {
                 rev: 4,
-                origin: Machine::Pc,
+                origin: Machine::B,
                 desk: desk(),
                 lock_shortcut: vec!["ScrollLock".into()],
             }),
             ControlMsg::Desk(DeskSync {
                 rev: 0,
-                origin: Machine::Mac,
+                origin: Machine::A,
                 desk: Config::default(),
                 lock_shortcut: vec![],
             }),
@@ -668,9 +675,12 @@ pub(crate) mod samples {
     pub fn capabilities() -> Vec<Capabilities> {
         vec![
             Capabilities {
-                machine: Machine::Pc,
-                name: "ESCRITORIO".into(),
-                os: "windows".into(),
+                machine: Machine::B,
+                info: MachineInfo {
+                    os: tandem_core::Os::Windows,
+                    name: "ESCRITORIO".into(),
+                    color: "#a99be8".into(),
+                },
                 hub: Some(true),
                 input: InputCaps {
                     capture: true,
@@ -686,9 +696,12 @@ pub(crate) mod samples {
                 services: vec!["ssh".into()],
             },
             Capabilities {
-                machine: Machine::Mac,
-                name: "MacBook Pro".into(),
-                os: "macos".into(),
+                machine: Machine::A,
+                info: MachineInfo {
+                    os: tandem_core::Os::MacOs,
+                    name: "MacBook Pro".into(),
+                    color: "#7aa7e6".into(),
+                },
                 hub: None,
                 input: InputCaps {
                     capture: false,
@@ -790,9 +803,9 @@ pub(crate) mod samples {
 
     pub fn input_status() -> Vec<InputStatus> {
         vec![
-            InputStatus::new(Machine::Mac),
+            InputStatus::new(Machine::A),
             InputStatus {
-                server: Machine::Pc,
+                server: Machine::B,
                 hub_here: Some(true),
                 session: true,
                 locked: true,
@@ -811,11 +824,11 @@ pub(crate) mod samples {
             UiCommand::GetState,
             UiCommand::GetDesk,
             UiCommand::SetPower {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 on: true,
             },
             UiCommand::SetPower {
-                machine: Machine::Mac,
+                machine: Machine::A,
                 on: false,
             },
             UiCommand::GetPeer,
@@ -831,7 +844,7 @@ pub(crate) mod samples {
             UiCommand::KeyProbe { on: true },
             UiCommand::KeyProbe { on: false },
             UiCommand::HeardKey,
-            UiCommand::SetKeyboard(Machine::Pc),
+            UiCommand::SetKeyboard(Machine::B),
             UiCommand::PingPeer,
         ];
         cmds.into_iter()
@@ -936,16 +949,16 @@ pub(crate) mod samples {
             }),
             AgentToUi::State(state()),
             AgentToUi::Power(PowerEvent::PeerLost {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 reason: "la PC no responde".into(),
             }),
             AgentToUi::Power(PowerEvent::PeerLost {
-                machine: Machine::Mac,
+                machine: Machine::A,
                 reason: String::new(),
             }),
             AgentToUi::Reply {
                 id: 7,
-                reply: Reply::Input(InputStatus::new(Machine::Pc)),
+                reply: Reply::Input(InputStatus::new(Machine::B)),
             },
         ];
         v.push(AgentToUi::Reply {
@@ -975,7 +988,7 @@ pub(crate) mod samples {
         v.push(AgentToUi::KeyProbe(KeyProbeStatus::default()));
         v.push(AgentToUi::KeyProbe(KeyProbeStatus {
             armed: true,
-            heard: Some(Machine::Pc),
+            heard: Some(Machine::B),
         }));
         v.push(AgentToUi::Reply {
             id: 13,
@@ -1050,8 +1063,8 @@ pub(crate) mod samples {
 
     pub fn peer_arm(p: &Peer) -> usize {
         match p {
-            Peer::Agent(Machine::Mac) => 0,
-            Peer::Agent(Machine::Pc) => 1,
+            Peer::Agent(Machine::A) => 0,
+            Peer::Agent(Machine::B) => 1,
             Peer::Ui => 2,
         }
     }
@@ -1139,6 +1152,24 @@ mod tests {
     #[test]
     fn current_hello_passes_check() {
         assert_eq!(Hello::new(Peer::Ui).check_version(), Ok(()));
+    }
+
+    /// Un agente de antes de los lados A/B (v15, con `Peer::Agent(Mac)`) se corta en el
+    /// saludo, con un mensaje que dice qué hacer.
+    #[test]
+    fn an_agent_from_before_the_sides_is_rejected_in_the_hello() {
+        let old = crate::encode(&(15u16, 0u8, 0u8)).unwrap();
+        let e = crate::decode_hello(&old).unwrap_err();
+        assert_eq!(
+            e,
+            ProtoError::IncompatibleVersion {
+                ours: PROTOCOL_VERSION,
+                theirs: 15,
+            }
+        );
+        let text = e.to_string();
+        assert!(text.contains("lados A/B"), "{text}");
+        assert!(text.contains("misma versión"), "{text}");
     }
 
     #[test]

@@ -120,7 +120,7 @@ impl SimNet {
     /// Si una conexión nueva por `kind` llegaría al otro agente, y con qué generación.
     fn reachable(&self, kind: LinkKind) -> Option<u64> {
         let link = *self.lock().links.get(&kind)?;
-        let both = [Machine::Mac, Machine::Pc]
+        let both = [Machine::A, Machine::B]
             .iter()
             .all(|m| self.world.power_of(*m) == Power::On);
         (link.up && both).then_some(link.generation)

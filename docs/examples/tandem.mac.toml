@@ -1,56 +1,62 @@
-# tandem.toml de la Mac. Va en ~/Library/Application Support/Tandem/tandem.toml
+# tandem.toml de una Mac. Va en ~/Library/Application Support/Tandem/tandem.toml
 # (o donde diga `tandemd --config`). Se valida con `tandemd --check-config <archivo>`.
 #
 # No hace falta escribirlo: si no existe, tandemd lo genera al arrancar con el puesto
-# vacío (T-082). Este ejemplo muestra todas las opciones, para editarlo.
+# vacío (T-082), y todo se configura desde la UI (DECISIONS D4). Este ejemplo muestra
+# todas las opciones.
 #
-# El puesto ([[screens]] y [arrangement]) es el mismo en las dos máquinas; cambian
-# `machine`, las direcciones del otro agente y cómo despertarlo (Wake-on-LAN). Las dos máquinas son
-# pares: cualquiera puede ser la principal (DESIGN §3.7).
+# Las dos máquinas son iguales (DECISIONS D1, D2, A1): ninguna es «la Mac» ni «la PC»
+# para el código. Cada una es un lado, `a` o `b`, y el lado lo deciden las claves
+# públicas al emparejar (la menor es `a`). En este ejemplo la Mac quedó como `a`; si
+# hubiera quedado como `b`, el agente cambia los lados solo y reescribe este archivo.
+# Lo que se sabe de cada máquina (sistema, nombre, color) va en [machines].
+#
+# El formato de v0.2, con lados `mac`/`pc`, sigue cargando: se traduce solo
+# (ejemplos en docs/examples/v0.2/).
 #
 # En el directorio de datos el agente guarda:
 # - identity.key: su llave Ed25519. Se crea sola la primera vez; no se comparte.
 # - trust.toml: las llaves de los pares emparejados. Sin par, el agente trabaja solo
-#   y la UI lo indica. Se llena al emparejar desde la UI (píldora del enlace →
-#   «Emparejar», en las dos máquinas, y comparar el código).
+#   y la UI lo indica. Se llena al emparejar desde la UI (en las dos máquinas, y
+#   comparar el código).
 
-machine = "mac"
+machine = "a"
 
 [network]
 # Puerto UDP (QUIC) de los dos agentes.
 port = 52000
-# Donde la PC espera mientras se empareja (por omisión, port + 1).
+# Donde espera mientras se empareja (por omisión, port + 1).
 # pairing_port = 52001
-# La PC en cada enlace directo (DESIGN §6), de mayor a menor prioridad. La LAN de casa
-# (Wi-Fi) no hace falta fijarla: se descubre por mDNS.
+# La otra máquina en cada enlace directo (DESIGN §6), de mayor a menor prioridad. La LAN
+# de casa (Wi-Fi) no hace falta fijarla: se descubre por mDNS.
 peers = [
     { kind = "usb4", addr = "10.77.1.2:52000" },
     { kind = "ethernet", addr = "10.77.2.2:52000" },
 ]
 
 [orchestrator]
-# Encender la PC y esperar a que su agente responda.
+# Encender la otra máquina y esperar a que su agente responda.
 power_on_timeout_secs = 120
 step_timeout_secs = 10
 
 [power]
-# Sin ningún enlace con la PC durante esto, se la da por apagada (corte de corriente).
+# Sin ningún enlace con la otra máquina durante esto, se la da por apagada.
 peer_lost_after_secs = 15
-# La Mac se despierta por Wake-on-LAN desde el reposo («Activar para acceso a la red»).
+# Esta máquina se despierta por Wake-on-LAN desde el reposo («Activar para acceso a la red»).
 wakeable = true
 
-# Wake-on-LAN por el Ethernet directo: la MAC de la tarjeta de la PC, la IP de la Mac
-# en ese enlace y el broadcast de su subred.
+# Wake-on-LAN por el Ethernet directo: la MAC de la tarjeta de la otra máquina, la IP de
+# esta en ese enlace y el broadcast de su subred.
 [power.wol]
 mac = "9c:6b:00:1a:2b:ff"
 source = "10.77.2.1"
 broadcast = "10.77.2.3"
 
 [input]
-# Dónde está el teclado y el mouse al arrancar, hasta que el hub decida (DESIGN §7).
-keyboard = "mac"
+# Dónde está el teclado y el mouse al arrancar (`a` o `b`), hasta que el hub decida.
+keyboard = "a"
 # Bloquea el cursor en la máquina donde está (nombres de KeyboardEvent.code, todas a
-# la vez). ScrollLock de un teclado de PC llega a la Mac como F14 y vale igual.
+# la vez). ScrollLock de un teclado de PC llega a macOS como F14 y vale igual.
 lock_shortcut = ["ScrollLock"]
 clipboard = true
 
@@ -61,15 +67,28 @@ clipboard = true
 keyboard = "046d:c33f"
 mouse = "046d:c539"
 
-# Cmd↔Ctrl ya es lo predeterminado; para cambiarlo, una tabla por dirección con los ocho
-# modificadores, por ejemplo [input.remap.mac_to_win] meta_left = "control_left", ...
+# Cmd↔Ctrl entre macOS y Windows ya es lo predeterminado (entre dos sistemas iguales no se
+# reasigna nada); para cambiarlo, una tabla por dirección con los ocho modificadores, por
+# ejemplo [input.remap.mac_to_win] meta_left = "control_left", ...
+
+# Qué máquina es cada lado: lo llena el agente con lo que anuncia cada una, y el nombre y
+# el color se cambian desde la UI. Es del puesto: igual en las dos máquinas.
+[machines.a]
+os = "macos"
+name = "MacBook Pro"
+color = "#7aa7e6"
+
+[machines.b]
+os = "windows"
+name = "Torre"
+color = "#a99be8"
 
 # El acomodo de pantallas para el teclado y el mouse (DESIGN §7). Es del puesto: el mismo
 # en las dos máquinas, y se sincroniza solo. Cada pantalla va en las coordenadas nativas
 # del cursor de su máquina: puntos en macOS, píxeles físicos del escritorio virtual en
 # Windows. Sin [[screens]] de una máquina valen las que ella misma lee.
 [[screens]]
-machine = "pc"
+machine = "b"
 id = "34"
 x = 0
 y = 0
@@ -78,7 +97,7 @@ height = 1440
 scale = 1.0
 
 [[screens]]
-machine = "pc"
+machine = "b"
 id = "32"
 x = 3440
 y = 0
@@ -88,15 +107,14 @@ height = 2160
 scale = 1.5
 
 [[screens]]
-machine = "mac"
+machine = "a"
 id = "34"
 x = 0
 y = 0
 width = 3440
 height = 1440
 
-# De qué lado de la PC está la Mac (sin esta sección, a la izquierda). `offset` lo usará
-# el editor del acomodo (T-096); hoy el cruce es proporcional a lo largo del borde.
+# De qué lado de B está A (sin esta sección, a la izquierda).
 [arrangement]
-mac_side = "left"
+a_side = "left"
 offset = 0

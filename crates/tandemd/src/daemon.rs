@@ -5,7 +5,8 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tandem_link::identity::{Identity, IdentityError, TrustStore};
+use tandem_core::Machine;
+use tandem_link::identity::{Identity, IdentityError, PublicKey, TrustStore};
 use tokio::sync::watch;
 use tokio::task::JoinSet;
 
@@ -49,26 +50,23 @@ pub struct Daemon {
     pub input: Option<Input>,
 }
 
-/// Arma el agente completo sobre el directorio de datos de `paths`: el estado
-/// guardado, la identidad Ed25519 (se crea la primera vez), la confianza en el par y
-/// la red. Tiene que llamarse dentro de un runtime de tokio.
+/// El lado de esta máquina según la identidad (DECISIONS A1): frente al par de la
+/// confianza, la clave menor es `A`. `None` sin par (o con la misma clave, que no es un
+/// par): entonces vale lo guardado.
+pub fn resolve_side(own: &PublicKey, trust: &TrustStore) -> Option<Machine> {
+    let peer = trust.peers().next()?;
+    Machine::of_keys(own.as_bytes(), peer.public_key.as_bytes())
+}
+
+/// Arma el agente completo sobre el directorio de datos de `paths`: la identidad Ed25519
+/// (se crea la primera vez), la confianza en el par, el lado que sale de las dos, el estado
+/// guardado y la red. Tiene que llamarse dentro de un runtime de tokio.
 pub fn start(
     cfg: AgentConfig,
     paths: &Paths,
     backends: Backends,
     net: NetOptions,
 ) -> Result<Daemon, StartError> {
-    let store = StateStore::new(paths.state_file());
-    let me = cfg.machine;
-    let (agent, input) = match backends {
-        Backends::Platform => (
-            Agent::with_platform(cfg, store),
-            Some(Box::new(InputSetup::platform(me))),
-        ),
-        Backends::Custom { local, input } => (Agent::with_local_steps(cfg, store, local), input),
-    };
-    let agent = Arc::new(agent);
-    agent.set_config_file(paths.config.clone());
     let identity =
         Identity::load_or_create(&paths.identity_file()).map_err(StartError::Identity)?;
     tracing::info!(
@@ -76,6 +74,25 @@ pub fn start(
         "identidad de esta máquina"
     );
     let trust = TrustStore::open(paths.trust_file()).map_err(StartError::Trust)?;
+    let cfg = match resolve_side(&identity.public_key(), &trust) {
+        Some(side) => {
+            if side != cfg.machine {
+                tracing::info!(lado = %side, "por las claves, esta máquina es el otro lado");
+            }
+            cfg.with_side(side)
+        }
+        None => cfg,
+    };
+    let store = StateStore::new(paths.state_file());
+    let (agent, input) = match backends {
+        Backends::Platform => (
+            Agent::with_platform(cfg, store),
+            Some(Box::new(InputSetup::platform())),
+        ),
+        Backends::Custom { local, input } => (Agent::with_local_steps(cfg, store, local), input),
+    };
+    let agent = Arc::new(agent);
+    agent.set_config_file(paths.config.clone());
     let network = Network::start(agent.clone(), &identity, trust, net)?;
     let input =
         input.map(|setup| crate::input::start(agent.clone(), network.active_link(), *setup));
@@ -254,7 +271,84 @@ mod tests {
         let store = StateStore::new(dir.path().join("state.json"));
         assert_eq!(
             store.load().unwrap(),
-            Some(State::initial(tandem_core::Machine::Mac))
+            Some(State::initial(tandem_core::Machine::A))
         );
+    }
+
+    #[test]
+    fn the_side_comes_from_the_keys_of_the_trusted_peer() {
+        let dir = tempfile::tempdir().unwrap();
+        let (low, high) = {
+            let (x, y) = (Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
+            if x.public_key().as_bytes() < y.public_key().as_bytes() {
+                (x, y)
+            } else {
+                (y, x)
+            }
+        };
+        let mut trust = TrustStore::open(dir.path().join("trust.toml")).unwrap();
+        assert_eq!(resolve_side(&low.public_key(), &trust), None, "sin par");
+        trust.add(tandem_link::identity::TrustedPeer {
+            public_key: high.public_key(),
+            name: "otra".into(),
+        });
+        assert_eq!(resolve_side(&low.public_key(), &trust), Some(Machine::A));
+        let mut theirs = TrustStore::open(dir.path().join("trust-2.toml")).unwrap();
+        theirs.add(tandem_link::identity::TrustedPeer {
+            public_key: low.public_key(),
+            name: "otra".into(),
+        });
+        assert_eq!(resolve_side(&high.public_key(), &theirs), Some(Machine::B));
+    }
+
+    /// Un agente que arranca con un par cuya clave es menor que la suya se queda con el
+    /// lado B aunque el archivo dijera A, y lo reescribe.
+    #[tokio::test]
+    async fn starting_with_a_lower_peer_makes_this_machine_b() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths {
+            config: dir.path().join("tandem.toml"),
+            data_dir: dir.path().to_owned(),
+        };
+        let (low, high) = {
+            let (x, y) = (Identity::from_seed([3; 32]), Identity::from_seed([4; 32]));
+            if x.public_key().as_bytes() < y.public_key().as_bytes() {
+                (x, y)
+            } else {
+                (y, x)
+            }
+        };
+        high.save(&paths.identity_file()).unwrap();
+        let mut trust = TrustStore::open(paths.trust_file()).unwrap();
+        trust
+            .add_and_save(tandem_link::identity::TrustedPeer {
+                public_key: low.public_key(),
+                name: "otra".into(),
+            })
+            .unwrap();
+        let text = "machine = \"a\"\n[input]\nkeyboard = \"a\"\n";
+        std::fs::write(&paths.config, text).unwrap();
+        let cfg = AgentConfig::from_toml(text).unwrap();
+        let net = NetOptions {
+            bind: Some("127.0.0.1:0".parse().unwrap()),
+            mdns: false,
+            fallback_ports: Vec::new(),
+            ..NetOptions::default()
+        };
+        let backends = Backends::Custom {
+            local: Arc::new(crate::orchestrator::Unimplemented),
+            input: None,
+        };
+        let d = start(cfg, &paths, backends, net).unwrap();
+        assert_eq!(d.agent.machine(), Machine::B);
+        assert_eq!(
+            d.agent.keyboard_declared(),
+            Some(Machine::B),
+            "el teclado era de esta"
+        );
+        let saved = AgentConfig::load(&paths.config).unwrap();
+        assert_eq!(saved.machine, Machine::B);
+        assert_eq!(saved.input.keyboard, Some(Machine::B));
+        d.network.shutdown().await;
     }
 }

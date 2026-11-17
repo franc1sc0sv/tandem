@@ -54,7 +54,7 @@ pub enum IpcError {
     #[error("se esperaba {expected}, se conectó {got:?}")]
     UnexpectedPeer { expected: &'static str, got: Peer },
     #[error("respuesta inesperada: {0:?}")]
-    UnexpectedReply(Reply),
+    UnexpectedReply(Box<Reply>),
     #[error("ya hay un tandemd escuchando en {0}")]
     AlreadyRunning(PathBuf),
     #[error("{0} existe y no es un socket; no se borra")]
@@ -288,7 +288,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> IpcClient<S> {
     pub async fn get_state(&mut self) -> Result<State, IpcError> {
         match self.request(UiCommand::GetState).await? {
             Reply::State(s) => Ok(s),
-            other => Err(IpcError::UnexpectedReply(other)),
+            other => Err(IpcError::UnexpectedReply(Box::new(other))),
         }
     }
 
@@ -326,7 +326,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (agent, io, _stop) = start(dir.path());
         let mut c = IpcClient::handshake(io).await.unwrap();
-        assert_eq!(c.agent(), Machine::Mac);
+        assert_eq!(c.agent(), Machine::A);
         assert_eq!(c.get_state().await.unwrap(), agent.state());
     }
 
@@ -373,7 +373,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (agent, io, _stop) = start(dir.path());
         let mut c = IpcClient::handshake(io).await.unwrap();
-        let initial = tandem_proto::InputStatus::new(Machine::Mac);
+        let initial = tandem_proto::InputStatus::new(Machine::A);
         assert_eq!(
             c.request(UiCommand::GetInput).await.unwrap(),
             Reply::Input(initial.clone())
@@ -405,7 +405,7 @@ mod tests {
         let mut c = IpcClient::handshake(io).await.unwrap();
         let r = c
             .request(UiCommand::SetPower {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 on: true,
             })
             .await
@@ -451,7 +451,7 @@ mod tests {
         // Tras el saludo, la suscripción del servidor ya existe si respondió un pedido.
         c.get_state().await.unwrap();
         let mut s = agent.state();
-        s.on.pc = true;
+        s.on.b = true;
         agent.set_state(s.clone()).unwrap();
         assert_eq!(c.next_event().await.unwrap(), Some(AgentToUi::State(s)));
     }
@@ -463,7 +463,7 @@ mod tests {
         let mut c = IpcClient::handshake(io).await.unwrap();
         c.get_state().await.unwrap();
         let ev = tandem_proto::PowerEvent::PeerLost {
-            machine: Machine::Pc,
+            machine: Machine::B,
             reason: "sin enlaces".into(),
         };
         agent.emit_power(ev.clone());
@@ -477,7 +477,7 @@ mod tests {
         let mut c = IpcClient::handshake(io).await.unwrap();
         c.get_state().await.unwrap();
         let mut s = agent.state();
-        s.on.pc = true;
+        s.on.b = true;
         agent.set_state(s.clone()).unwrap();
         // El aviso llega antes que la respuesta; no se pierde.
         assert_eq!(c.get_state().await.unwrap(), s);
@@ -513,7 +513,7 @@ mod tests {
         let (_stop, stop_rx) = watch::channel(false);
         let task = tokio::spawn(serve_connection(server, agent, stop_rx));
         let mut c = Framed::new(client);
-        c.send(&Hello::new(Peer::Agent(Machine::Pc))).await.unwrap();
+        c.send(&Hello::new(Peer::Agent(Machine::B))).await.unwrap();
         let err = task.await.unwrap().unwrap_err();
         assert!(matches!(err, IpcError::UnexpectedPeer { .. }), "{err}");
     }
@@ -552,10 +552,7 @@ mod tests {
         let (agent, io, _stop) = start(dir.path());
         let mut c = Framed::new(io);
         c.send(&Hello::new(Peer::Ui)).await.unwrap();
-        assert_eq!(
-            c.recv_hello().await.unwrap().peer,
-            Peer::Agent(Machine::Mac)
-        );
+        assert_eq!(c.recv_hello().await.unwrap().peer, Peer::Agent(Machine::A));
         let ids = [7u64, 3, u64::MAX, 3];
         for id in ids {
             c.send(&UiRequest {
@@ -673,7 +670,7 @@ mod tests {
         let (client, server) = duplex(64);
         tokio::spawn(async move {
             let mut s = Framed::new(server);
-            s.send(&Hello::new(Peer::Agent(Machine::Pc))).await.unwrap();
+            s.send(&Hello::new(Peer::Agent(Machine::B))).await.unwrap();
             let _ = s.recv_hello().await;
             let _ = s.recv::<UiRequest>().await;
         });

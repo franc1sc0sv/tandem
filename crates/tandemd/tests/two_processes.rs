@@ -71,11 +71,19 @@ fn free_port() -> u16 {
         .port()
 }
 
+/// La identidad de cada lado: de dos semillas fijas, la de clave menor es la de A
+/// (DECISIONS A1).
 fn identity(machine: Machine) -> Identity {
-    Identity::from_seed(match machine {
-        Machine::Mac => [1; 32],
-        Machine::Pc => [2; 32],
-    })
+    let (x, y) = (Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
+    let (low, high) = if x.public_key().as_bytes() < y.public_key().as_bytes() {
+        (x, y)
+    } else {
+        (y, x)
+    };
+    match machine {
+        Machine::A => low,
+        Machine::B => high,
+    }
 }
 
 /// Lo que necesita un agente para arrancar: config, identidad y confianza en el otro.
@@ -242,7 +250,7 @@ impl Pair {
     fn new() -> Self {
         Pair {
             root: tempfile::tempdir().unwrap(),
-            ports: BTreeMap::from([(Machine::Mac, free_port()), (Machine::Pc, free_port())]),
+            ports: BTreeMap::from([(Machine::A, free_port()), (Machine::B, free_port())]),
         }
     }
 
@@ -401,7 +409,7 @@ fn as_seen_by(state: &State, machine: Machine) -> State {
 
 /// La PC tiene `expected` (visto por ella): ya lo tenía o le llega empujado por la IPC.
 async fn pc_agrees(pc: &mut Ui, expected: &State) {
-    let expected = &as_seen_by(expected, Machine::Pc);
+    let expected = &as_seen_by(expected, Machine::B);
     if pc.get_state().await.unwrap() == *expected {
         return;
     }
@@ -435,12 +443,12 @@ fn new_steps(spec: &Spec, before: usize) -> Vec<Step> {
 
 /// Levanta los dos agentes y espera a que se vean y la Mac dé la PC por prendida.
 async fn running_pair(pair: &Pair) -> (Proc, Ui, Proc, Ui) {
-    let (mac, mut ui_mac) = pair.start(Machine::Mac).await;
-    let (pc, mut ui_pc) = pair.start(Machine::Pc).await;
+    let (mac, mut ui_mac) = pair.start(Machine::A).await;
+    let (pc, mut ui_pc) = pair.start(Machine::B).await;
     linked(&mut ui_mac).await;
     linked(&mut ui_pc).await;
     // `pc_watch`: la PC aparece por un enlace, así que está prendida.
-    state_until(&mut ui_mac, "la Mac da la PC por prendida", |s| s.on.pc).await;
+    state_until(&mut ui_mac, "la Mac da la PC por prendida", |s| s.on.b).await;
     (mac, ui_mac, pc, ui_pc)
 }
 
@@ -461,27 +469,27 @@ async fn power_across_two_real_processes() {
         &mut ui_mac,
         &mut ui_pc,
         UiCommand::SetPower {
-            machine: Machine::Pc,
+            machine: Machine::B,
             on: true,
         },
     )
     .await;
     assert!(steps.is_empty(), "{steps:?}");
-    assert!(s.on.pc);
+    assert!(s.on.b);
 
     // Apagado: el paso corre en la PC.
     let (mac_before, pc_before) = (mac.spec.steps().len(), pc.spec.steps().len());
-    let (steps, s) = commit(&mut ui_mac, &mut ui_pc, off(Machine::Pc)).await;
+    let (steps, s) = commit(&mut ui_mac, &mut ui_pc, off(Machine::B)).await;
     let want = [Step::PowerOff {
-        machine: Machine::Pc,
+        machine: Machine::B,
     }];
     assert_eq!(steps, want);
-    assert!(!s.on.pc);
+    assert!(!s.on.b);
     assert_eq!(new_steps(&pc.spec, pc_before), want);
     assert!(new_steps(&mac.spec, mac_before).is_empty());
 
     // El apagado ordenado de los dos guarda el estado, y cada uno se ve prendido a sí
-    // mismo (la PC guarda `on.pc = true` aunque la Mac la dé por apagada).
+    // mismo (la PC guarda `on.b = true` aunque la Mac la dé por apagada).
     drop((ui_mac, ui_pc));
     for p in [mac, pc] {
         let (spec, status) = p.stop().await;
@@ -501,7 +509,7 @@ async fn killing_the_pc_mid_shutdown_leaves_the_mac_coherent() {
     let pair = Pair::new();
     let (mut mac, mut ui_mac, pc, _ui_pc) = running_pair(&pair).await;
     pc.spec.hold(true);
-    let txn = begin(&mut ui_mac, off(Machine::Pc)).await;
+    let txn = begin(&mut ui_mac, off(Machine::B)).await;
     within("la PC empieza a apagarse", async {
         while pc.spec.steps().is_empty() {
             tokio::time::sleep(POLL).await;
@@ -512,10 +520,10 @@ async fn killing_the_pc_mid_shutdown_leaves_the_mac_coherent() {
 
     let events = outcome(&mut ui_mac, txn).await;
     assert!(
-        matches!(events.last(), Some(TxnEvent::Committed { state, .. }) if !state.on.pc),
+        matches!(events.last(), Some(TxnEvent::Committed { state, .. }) if !state.on.b),
         "{events:?}"
     );
-    let s = state_until(&mut ui_mac, "la PC dada por apagada", |s| !s.on.pc).await;
+    let s = state_until(&mut ui_mac, "la PC dada por apagada", |s| !s.on.b).await;
     assert!(matches!(
         ui_mac.request(UiCommand::GetPeer).await.unwrap(),
         Reply::Peer(PeerStatus::Paired { link: None, .. })
@@ -525,12 +533,12 @@ async fn killing_the_pc_mid_shutdown_leaves_the_mac_coherent() {
         rejected(
             &mut ui_mac,
             UiCommand::SetPower {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 on: true
             }
         )
         .await,
-        "pc está apagada y la otra máquina no puede encenderla"
+        "la máquina B está apagada y la otra no puede encenderla"
     );
     assert!(mac.running());
     let (spec, status) = mac.stop().await;
@@ -549,7 +557,7 @@ async fn killing_the_mac_mid_change_leaves_the_pc_coherent() {
     let (mac, mut ui_mac, mut pc, mut ui_pc) = running_pair(&pair).await;
     pc.spec.hold(true);
     let pc_before = pc.spec.steps().len();
-    begin(&mut ui_mac, off(Machine::Pc)).await;
+    begin(&mut ui_mac, off(Machine::B)).await;
     within("la PC empieza el paso de la Mac", async {
         while pc.spec.steps().len() == pc_before {
             tokio::time::sleep(POLL).await;
@@ -564,12 +572,12 @@ async fn killing_the_mac_mid_change_leaves_the_pc_coherent() {
         matches!(e, AgentToUi::Peer(PeerStatus::Paired { link: None, .. }))
     })
     .await;
-    assert!(ui_pc.get_state().await.unwrap().on.pc);
+    assert!(ui_pc.get_state().await.unwrap().on.b);
     assert!(pc.running());
 
     // La Mac vuelve y se vuelven a ver.
     let (_mac, mut ui_mac) = restart(mac_spec).await;
     linked(&mut ui_mac).await;
     linked(&mut ui_pc).await;
-    state_until(&mut ui_mac, "la Mac da la PC por prendida", |s| s.on.pc).await;
+    state_until(&mut ui_mac, "la Mac da la PC por prendida", |s| s.on.b).await;
 }

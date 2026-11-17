@@ -17,7 +17,7 @@ impl Abilities {
     /// Las dos se pueden despertar. Sirve de base para las pruebas.
     pub fn both_wake() -> Self {
         Abilities {
-            wakeable: BTreeSet::from([Machine::Mac, Machine::Pc]),
+            wakeable: BTreeSet::from([Machine::A, Machine::B]),
         }
     }
 
@@ -53,7 +53,7 @@ pub struct Plan {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlanError {
-    #[error("{0} está apagada y la otra máquina no puede encenderla")]
+    #[error("la máquina {0} está apagada y la otra no puede encenderla")]
     CannotWake(Machine),
 }
 
@@ -94,17 +94,17 @@ mod tests {
 
     #[test]
     fn power_on_only_wakes_what_is_off() {
-        let s = State::initial(Machine::Mac);
+        let s = State::initial(Machine::A);
         assert_eq!(
-            Plan::power_on(&s, Machine::Pc, &Abilities::both_wake())
+            Plan::power_on(&s, Machine::B, &Abilities::both_wake())
                 .unwrap()
                 .steps,
             [Step::PowerOn {
-                machine: Machine::Pc
+                machine: Machine::B
             }]
         );
         assert!(
-            Plan::power_on(&s, Machine::Mac, &Abilities::both_wake())
+            Plan::power_on(&s, Machine::A, &Abilities::both_wake())
                 .unwrap()
                 .steps
                 .is_empty()
@@ -114,38 +114,38 @@ mod tests {
     #[test]
     fn a_machine_that_cannot_be_woken_is_a_plan_error() {
         let mut a = Abilities::both_wake();
-        a.wakeable.remove(&Machine::Mac);
+        a.wakeable.remove(&Machine::A);
         assert_eq!(
-            Plan::power_on(&State::initial(Machine::Pc), Machine::Mac, &a).unwrap_err(),
-            PlanError::CannotWake(Machine::Mac)
+            Plan::power_on(&State::initial(Machine::B), Machine::A, &a).unwrap_err(),
+            PlanError::CannotWake(Machine::A)
         );
     }
 
     #[test]
     fn power_off_only_shuts_down_what_is_on() {
-        let mut s = State::initial(Machine::Mac);
-        assert!(Plan::power_off(&s, Machine::Pc).steps.is_empty());
-        s.on.pc = true;
+        let mut s = State::initial(Machine::A);
+        assert!(Plan::power_off(&s, Machine::B).steps.is_empty());
+        s.on.b = true;
         assert_eq!(
-            Plan::power_off(&s, Machine::Pc).steps,
+            Plan::power_off(&s, Machine::B).steps,
             [Step::PowerOff {
-                machine: Machine::Pc
+                machine: Machine::B
             }]
         );
     }
 
     #[test]
     fn steps_update_who_is_on() {
-        let mut s = State::initial(Machine::Mac);
+        let mut s = State::initial(Machine::A);
         Step::PowerOn {
-            machine: Machine::Pc,
+            machine: Machine::B,
         }
         .apply_to(&mut s);
-        assert!(s.is_on(Machine::Pc));
+        assert!(s.is_on(Machine::B));
         Step::PowerOff {
-            machine: Machine::Pc,
+            machine: Machine::B,
         }
         .apply_to(&mut s);
-        assert!(!s.is_on(Machine::Pc));
+        assert!(!s.is_on(Machine::B));
     }
 }

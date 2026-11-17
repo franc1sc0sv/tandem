@@ -128,14 +128,14 @@ mod tests {
         let faults = Faults::default();
         let plan = FaultPlan::new()
             .on(
-                Machine::Pc,
+                Machine::B,
                 Step::PowerOff {
-                    machine: Machine::Pc,
+                    machine: Machine::B,
                 },
                 FaultAction::Hang,
             )
             .on_matching(
-                Machine::Mac,
+                Machine::A,
                 |s| matches!(s, Step::PowerOn { .. }),
                 FaultAction::Fail("x".into()),
             )
@@ -144,18 +144,18 @@ mod tests {
         assert!(
             faults
                 .take(
-                    Machine::Mac,
+                    Machine::A,
                     &Step::PowerOff {
-                        machine: Machine::Pc
+                        machine: Machine::B
                     }
                 )
                 .is_empty()
         );
         assert_eq!(
             faults.take(
-                Machine::Pc,
+                Machine::B,
                 &Step::PowerOff {
-                    machine: Machine::Pc
+                    machine: Machine::B
                 }
             ),
             [FaultAction::Hang]
@@ -163,9 +163,9 @@ mod tests {
         assert!(
             faults
                 .take(
-                    Machine::Pc,
+                    Machine::B,
                     &Step::PowerOff {
-                        machine: Machine::Pc
+                        machine: Machine::B
                     }
                 )
                 .is_empty()
@@ -173,9 +173,9 @@ mod tests {
         for _ in 0..2 {
             assert_eq!(
                 faults.take(
-                    Machine::Mac,
+                    Machine::A,
                     &Step::PowerOn {
-                        machine: Machine::Pc
+                        machine: Machine::B
                     }
                 ),
                 [FaultAction::Fail("x".into())]
@@ -184,9 +184,9 @@ mod tests {
         assert!(
             faults
                 .take(
-                    Machine::Mac,
+                    Machine::A,
                     &Step::PowerOn {
-                        machine: Machine::Pc
+                        machine: Machine::B
                     }
                 )
                 .is_empty()

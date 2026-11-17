@@ -113,7 +113,7 @@ impl Desk {
             while let Some(conn) = server.accept().await {
                 if let Ok(conn) = conn {
                     tokio::spawn(async move {
-                        let hello = Hello::new(Peer::Agent(Machine::Pc));
+                        let hello = Hello::new(Peer::Agent(Machine::B));
                         let _ = answer_pings(conn, &hello).await;
                     });
                 }
@@ -132,7 +132,7 @@ impl Desk {
                 addr: r.addr,
             })
             .collect();
-        let prober = QuicProber::new(mac.clone(), Hello::new(Peer::Agent(Machine::Mac)));
+        let prober = QuicProber::new(mac.clone(), Hello::new(Peer::Agent(Machine::A)));
         let (manager, events) =
             LinkManager::spawn(&candidates, prober, HealthConfig::default()).unwrap();
         Self {

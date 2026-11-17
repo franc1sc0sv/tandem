@@ -4,16 +4,19 @@
 //! lado, mover el hub invierte los roles, el portapapeles se sincroniza y los permisos
 //! que faltan en la Mac llegan a la UI.
 //!
-//! La geometría es la del acomodo (DESIGN §7): el de omisión (la Mac a la izquierda, con
+//! La geometría es la del acomodo (DESIGN §7): el de omisión (A a la izquierda, con
 //! las pantallas que lee cada una), uno editado que llega por `ControlMsg::Desk` y uno
 //! escrito a mano en `tandem.toml`.
+//!
+//! Salvo que la prueba diga otra cosa, el lado A es una Mac y el B una PC (los nombres de
+//! las variables lo reflejan); el código no lo supone: lo dice el `Os` de cada agente.
 
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use tandem_clipboard::ClipContent;
-use tandem_core::{Machine, Side, Step};
+use tandem_core::{Machine, Os, Side, Step};
 use tandem_input::geometry::{LayoutOptions, Rect, Screen};
 use tandem_input::session::SessionConfig;
 use tandem_input::{HidUsage, InputEvent, KeyState, ModifierKey};
@@ -31,13 +34,23 @@ use tandemd::{Agent, AgentConfig, StoreError};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+/// Las dos identidades ordenadas por clave: la primera es la del lado A (DECISIONS A1), así
+/// cada prueba sabe qué lado le toca a cada agente.
+fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
+    if x.public_key().as_bytes() < y.public_key().as_bytes() {
+        (x, y)
+    } else {
+        (y, x)
+    }
+}
+
 const KEYBOARD: UsbId = UsbId::new(0x046D, 0xC33F);
 const MOUSE: UsbId = UsbId::new(0x046D, 0xC539);
 
 /// El hub del teclado y el mouse, y el acomodo por omisión: la Mac a la izquierda de la PC.
 const DESK: &str = r#"
 [input]
-server = "pc"
+server = "b"
 
 [input.hub]
 keyboard = "046d:c33f"
@@ -160,10 +173,43 @@ async fn start_with(
     start_full(machine, identity, port, peer, fake, input_extra, "").await
 }
 
+/// El sistema de cada lado en estas pruebas, salvo que digan otro.
+fn os_of(machine: Machine) -> Os {
+    match machine {
+        Machine::A => Os::MacOs,
+        Machine::B => Os::Windows,
+    }
+}
+
 /// Como [`start_with`], con secciones de más al final de `tandem.toml` (un acomodo
 /// escrito a mano).
 async fn start_full(
     machine: Machine,
+    identity: &Identity,
+    port: u16,
+    peer: (PublicKey, u16),
+    fake: FakeInputBackends,
+    input_extra: &str,
+    tail: &str,
+) -> Running {
+    start_os(
+        machine,
+        os_of(machine),
+        identity,
+        port,
+        peer,
+        fake,
+        input_extra,
+        tail,
+    )
+    .await
+}
+
+/// Como [`start_full`], con el sistema que se le diga.
+#[allow(clippy::too_many_arguments)]
+async fn start_os(
+    machine: Machine,
+    os: Os,
     identity: &Identity,
     port: u16,
     peer: (PublicKey, u16),
@@ -193,7 +239,8 @@ async fn start_full(
     let desk = base.replacen("[input]\n", &format!("[input]\n{extra}"), 1);
     let text = format!("machine = \"{machine}\"\n{network}{desk}\n{tail}");
     std::fs::write(&paths.config, &text).unwrap();
-    let cfg = AgentConfig::load(&paths.config).unwrap();
+    let mut cfg = AgentConfig::load(&paths.config).unwrap();
+    cfg.os = os;
     let Daemon {
         agent,
         network,
@@ -291,14 +338,14 @@ async fn both_on(a: &Running, b: &Running) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
-    let (mac_id, pc_id) = (Identity::from_seed([11; 32]), Identity::from_seed([12; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([11; 32]), Identity::from_seed([12; 32]));
     let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
     // El hub empieza en la PC.
     pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
     let mut mac = start(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         mac_port,
         (pc_id.public_key(), pc_port),
@@ -306,7 +353,7 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     )
     .await;
     let pc = start(
-        Machine::Pc,
+        Machine::B,
         &pc_id,
         pc_port,
         (mac_id.public_key(), mac_port),
@@ -315,7 +362,7 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     .await;
 
     // Roles por el hub y sesión de entrada sobre el enlace.
-    let pc_serving = |s: &InputStatus| s.server == Machine::Pc && s.session;
+    let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
     mac.until_input(pc_serving).await;
     pc.until_input(pc_serving).await;
     assert_eq!(pc.agent.input_status().hub_here, Some(true));
@@ -371,7 +418,7 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     // El usuario mueve el hub a la Mac: los roles se invierten en los dos agentes.
     pc_fake.devices().set(vec![]);
     mac_fake.devices().set(vec![KEYBOARD, MOUSE]);
-    let mac_serving = |s: &InputStatus| s.server == Machine::Mac && s.session;
+    let mac_serving = |s: &InputStatus| s.server == Machine::A && s.session;
     mac.until_input(mac_serving).await;
     pc.until_input(mac_serving).await;
     assert!(mac_fake.capturing());
@@ -412,7 +459,7 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
 
     pc.stop().await;
     // Sin el otro agente no hay sesión, y la Mac, con el hub, sigue de servidor.
-    mac.until_input(|s| !s.session && s.server == Machine::Mac)
+    mac.until_input(|s| !s.session && s.server == Machine::A)
         .await;
     mac.stop().await;
 }
@@ -421,14 +468,14 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
 /// cruza el cursor que ella tiene (DESIGN §7).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
-    let (mac_id, pc_id) = (Identity::from_seed([31; 32]), Identity::from_seed([32; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([31; 32]), Identity::from_seed([32; 32]));
     let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
     // El hub en la Mac: ella captura y decide por dónde cruza.
     mac_fake.devices().set(vec![KEYBOARD, MOUSE]);
     let mac = start(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         mac_port,
         (pc_id.public_key(), pc_port),
@@ -436,14 +483,14 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
     )
     .await;
     let pc = start(
-        Machine::Pc,
+        Machine::B,
         &pc_id,
         pc_port,
         (mac_id.public_key(), mac_port),
         pc_fake.clone(),
     )
     .await;
-    let mac_serving = |s: &InputStatus| s.server == Machine::Mac && s.session;
+    let mac_serving = |s: &InputStatus| s.server == Machine::A && s.session;
     mac.until_input(mac_serving).await;
     both_on(&mac, &pc).await;
 
@@ -470,7 +517,7 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
 
     // En la PC el acomodo pasa a «la Mac a la derecha».
     let mut desk = pc.agent.desk();
-    desk.arrangement.mac_side = Side::Right;
+    desk.arrangement.a_side = Side::Right;
     pc.agent.set_desk(desk.clone()).unwrap();
     let mut mac_desk = mac.agent.subscribe_desk();
     within(mac_desk.wait_for(|d| *d == desk)).await.unwrap();
@@ -488,22 +535,22 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
 /// acomodo declarado, y el puesto editado llega también a la Mac.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
-    let (mac_id, pc_id) = (Identity::from_seed([33; 32]), Identity::from_seed([34; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([33; 32]), Identity::from_seed([34; 32]));
     let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
     pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
     let mac = start(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         mac_port,
         (pc_id.public_key(), pc_port),
         mac_fake.clone(),
     )
     .await;
-    let declared = "[[screens]]\nmachine = \"pc\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 2000\nheight = 720\n\n[arrangement]\nmac_side = \"right\"\n";
+    let declared = "[[screens]]\nmachine = \"b\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 2000\nheight = 720\n\n[arrangement]\na_side = \"right\"\n";
     let pc = start_full(
-        Machine::Pc,
+        Machine::B,
         &pc_id,
         pc_port,
         (mac_id.public_key(), mac_port),
@@ -512,7 +559,7 @@ async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
         declared,
     )
     .await;
-    let pc_serving = |s: &InputStatus| s.server == Machine::Pc && s.session;
+    let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
     pc.until_input(pc_serving).await;
     both_on(&mac, &pc).await;
 
@@ -534,12 +581,12 @@ async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
 /// agente reintenta solo.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_capture_that_fails_is_reported_and_retried() {
-    let (mac_id, pc_id) = (Identity::from_seed([13; 32]), Identity::from_seed([14; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([13; 32]), Identity::from_seed([14; 32]));
     let fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     fake.devices().set(vec![KEYBOARD]);
     fake.fail_capture(Some("falta el permiso de Accesibilidad".into()));
     let mac = start(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         free_port(),
         (pc_id.public_key(), free_port()),
@@ -548,7 +595,7 @@ async fn a_capture_that_fails_is_reported_and_retried() {
     .await;
     // Sin el otro agente y con la PC dada por apagada, la Mac con el hub es el servidor.
     let problem = Some("falta el permiso de Accesibilidad".to_owned());
-    mac.until_input(|s| s.server == Machine::Mac && s.problem == problem)
+    mac.until_input(|s| s.server == Machine::A && s.problem == problem)
         .await;
     assert!(!mac.agent.input_status().session);
     assert!(!fake.capturing());
@@ -569,14 +616,14 @@ async fn a_capture_that_fails_is_reported_and_retried() {
 /// tiene que bloquear el cursor.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
-    let (mac_id, pc_id) = (Identity::from_seed([15; 32]), Identity::from_seed([16; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([15; 32]), Identity::from_seed([16; 32]));
     let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
     pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
     let shortcut = "lock_shortcut = [\"ControlLeft\", \"KeyL\"]\n";
     let mac = start_with(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         mac_port,
         (pc_id.public_key(), pc_port),
@@ -585,7 +632,7 @@ async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
     )
     .await;
     let pc = start_with(
-        Machine::Pc,
+        Machine::B,
         &pc_id,
         pc_port,
         (mac_id.public_key(), mac_port),
@@ -593,7 +640,7 @@ async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
         shortcut,
     )
     .await;
-    pc.until_input(|s| s.session && s.server == Machine::Pc)
+    pc.until_input(|s| s.session && s.server == Machine::B)
         .await;
     assert!(!pc.agent.input_status().locked);
 
@@ -618,11 +665,11 @@ async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
 /// que solo la declaración puede despertar la tarea de estado).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn declaring_the_keyboard_on_the_server_machine_refreshes_defined() {
-    let (mac_id, pc_id) = (Identity::from_seed([21; 32]), Identity::from_seed([22; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([21; 32]), Identity::from_seed([22; 32]));
     let (mac_port, pc_port) = (free_port(), free_port());
     let fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
     let mac = start_with(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         mac_port,
         (pc_id.public_key(), pc_port),
@@ -631,14 +678,14 @@ async fn declaring_the_keyboard_on_the_server_machine_refreshes_defined() {
     )
     .await;
     // Sin hub ni declaración: sin definir, y el motor arranca como si fuera la Mac.
-    mac.until_input(|s| s.server == Machine::Mac && !s.defined)
+    mac.until_input(|s| s.server == Machine::A && !s.defined)
         .await;
     // Se declara la Mac: ya era el servidor, así que nada más cambia.
     let reply = mac
         .agent
-        .handle(tandem_proto::UiCommand::SetKeyboard(Machine::Mac));
+        .handle(tandem_proto::UiCommand::SetKeyboard(Machine::A));
     assert_eq!(reply, tandem_proto::Reply::Done);
-    mac.until_input(|s| s.defined && s.server == Machine::Mac)
+    mac.until_input(|s| s.defined && s.server == Machine::A)
         .await;
     // Y se mantiene: la tarea de estado también ve la declaración.
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -651,14 +698,14 @@ async fn declaring_the_keyboard_on_the_server_machine_refreshes_defined() {
 /// faltando, y los vuelve a pedir cuando la UI lo ordena. Las capacidades llevan el proceso.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn missing_permissions_are_requested_once_and_on_the_users_order() {
-    let (mac_id, pc_id) = (Identity::from_seed([15; 32]), Identity::from_seed([16; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([15; 32]), Identity::from_seed([16; 32]));
     let fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     fake.set_missing(vec![
         InputPermission::Accessibility,
         InputPermission::InputMonitoring,
     ]);
     let mut mac = start(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         free_port(),
         (pc_id.public_key(), free_port()),
@@ -691,10 +738,10 @@ async fn missing_permissions_are_requested_once_and_on_the_users_order() {
 /// Sin permisos que pedir, el arranque no abre ningún diálogo.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nothing_is_requested_when_nothing_is_missing() {
-    let (mac_id, pc_id) = (Identity::from_seed([17; 32]), Identity::from_seed([18; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([17; 32]), Identity::from_seed([18; 32]));
     let fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let mac = start(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         free_port(),
         (pc_id.public_key(), free_port()),
@@ -704,4 +751,74 @@ async fn nothing_is_requested_when_nothing_is_missing() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(fake.permission_requests(), 0);
     mac.stop().await;
+}
+
+/// Dos máquinas con Windows (DECISIONS D2): el teclado y el mouse cruzan igual y Ctrl sigue
+/// siendo Ctrl, porque entre dos sistemas iguales no se reasigna nada.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_windows_machines_share_the_keyboard_without_remapping() {
+    let (a_id, b_id) = sides(Identity::from_seed([41; 32]), Identity::from_seed([42; 32]));
+    let (a_port, b_port) = (free_port(), free_port());
+    let a_fake = FakeInputBackends::new(vec![screen("izq", 1920, 1080)]);
+    let b_fake = FakeInputBackends::new(vec![screen("der", 2560, 1440)]);
+    b_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let a = start_os(
+        Machine::A,
+        Os::Windows,
+        &a_id,
+        a_port,
+        (b_id.public_key(), b_port),
+        a_fake.clone(),
+        "",
+        "",
+    )
+    .await;
+    let b = start_os(
+        Machine::B,
+        Os::Windows,
+        &b_id,
+        b_port,
+        (a_id.public_key(), a_port),
+        b_fake.clone(),
+        "",
+        "",
+    )
+    .await;
+    let b_serving = |s: &InputStatus| s.server == Machine::B && s.session;
+    a.until_input(b_serving).await;
+    b.until_input(b_serving).await;
+    both_on(&a, &b).await;
+    // Cada una sabe que la otra es Windows.
+    let mut caps = b.agent.subscribe_capabilities();
+    within(caps.wait_for(|c| c.peer.as_ref().is_some_and(|p| p.info.os == Os::Windows)))
+        .await
+        .unwrap();
+
+    let (x, _) = cross(&b_fake, &a_fake, 0.0, -5.0).await;
+    assert_eq!(x, 1919.0, "entra por el borde derecho de A");
+    let c = HidUsage::key(0x06);
+    b_fake.capture(key(ModifierKey::ControlLeft.usage(), KeyState::Pressed));
+    b_fake.capture(key(c, KeyState::Pressed));
+    b_fake.capture(key(c, KeyState::Released));
+    b_fake.capture(key(ModifierKey::ControlLeft.usage(), KeyState::Released));
+    until_injected(&a_fake, |e| {
+        e.ends_with(&[
+            key(ModifierKey::ControlLeft.usage(), KeyState::Pressed),
+            key(c, KeyState::Pressed),
+            key(c, KeyState::Released),
+            key(ModifierKey::ControlLeft.usage(), KeyState::Released),
+        ])
+    })
+    .await;
+    // Y las dos quedaron anotadas en el puesto, con su sistema.
+    let mut desk = a.agent.subscribe_desk();
+    within(desk.wait_for(|d| {
+        Machine::ALL
+            .iter()
+            .all(|m| d.machines.get(*m).is_some_and(|i| i.os == Os::Windows))
+    }))
+    .await
+    .unwrap();
+    b.stop().await;
+    a.stop().await;
 }

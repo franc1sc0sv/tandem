@@ -391,15 +391,15 @@ mod tests {
     /// Un paso que le toca a la PC.
     fn pc_off() -> Step {
         Step::PowerOff {
-            machine: Machine::Pc,
+            machine: Machine::B,
         }
     }
 
     #[tokio::test]
     async fn remote_step_runs_on_the_peer() {
         let dir = tempfile::tempdir().unwrap();
-        let (mac, mac_steps) = agent(dir.path(), Machine::Mac, FakeSteps::default());
-        let (pc, pc_steps) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (mac, mac_steps) = agent(dir.path(), Machine::A, FakeSteps::default());
+        let (pc, pc_steps) = agent(dir.path(), Machine::B, FakeSteps::default());
         let _serve = link(&mac, &pc);
         mac.orchestrator().dispatch(&pc_off()).await.unwrap();
         assert_eq!(pc_steps.steps(), [pc_off()]);
@@ -409,12 +409,12 @@ mod tests {
     #[tokio::test]
     async fn published_state_reaches_the_peer() {
         let dir = tempfile::tempdir().unwrap();
-        let (mac, _) = agent(dir.path(), Machine::Mac, FakeSteps::default());
-        let (pc, _) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (mac, _) = agent(dir.path(), Machine::A, FakeSteps::default());
+        let (pc, _) = agent(dir.path(), Machine::B, FakeSteps::default());
         let _serve = link(&mac, &pc);
         // El de la Mac: ella prendida (la PC ya lo estaba para sí misma).
         let mut s = pc.state();
-        s.on.mac = true;
+        s.on.a = true;
         let mut rx = pc.subscribe();
         mac.orchestrator().peer().publish_state(&s);
         rx.wait_for(|got| *got == s).await.unwrap();
@@ -423,7 +423,7 @@ mod tests {
     #[tokio::test]
     async fn closed_stream_fails_pending_and_new_steps() {
         let dir = tempfile::tempdir().unwrap();
-        let (mac, _) = agent(dir.path(), Machine::Mac, FakeSteps::default());
+        let (mac, _) = agent(dir.path(), Machine::A, FakeSteps::default());
         let (a, b) = duplex(1024);
         mac.set_peer(Arc::new(PeerClient::spawn(Framed::new(a))));
         // El otro lado lee el pedido y cierra sin contestar.
@@ -439,7 +439,7 @@ mod tests {
     #[tokio::test]
     async fn serve_answers_ping_and_state() {
         let dir = tempfile::tempdir().unwrap();
-        let (pc, _) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (pc, _) = agent(dir.path(), Machine::B, FakeSteps::default());
         let (a, b) = duplex(64 * 1024);
         let task = tokio::spawn(serve(Framed::new(b), pc.clone()));
         let mut f = Framed::new(a);
@@ -451,7 +451,7 @@ mod tests {
         f.send(&ControlMsg::ExecuteStep {
             id: 1,
             step: Step::PowerOn {
-                machine: Machine::Pc,
+                machine: Machine::B,
             },
         })
         .await
@@ -470,13 +470,13 @@ mod tests {
     #[tokio::test]
     async fn serve_keeps_the_peers_input_reports() {
         let dir = tempfile::tempdir().unwrap();
-        let (pc, _) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (pc, _) = agent(dir.path(), Machine::B, FakeSteps::default());
         let (a, b) = duplex(64 * 1024);
         let task = tokio::spawn(serve(Framed::new(b), pc.clone()));
         let client = PeerClient::spawn(Framed::new(a));
         let report = tandem_proto::HubReport {
             hub: true,
-            server: Machine::Mac,
+            server: Machine::A,
         };
         let screens = vec![tandem_proto::ScreenRect {
             id: "mac-1".into(),
@@ -500,9 +500,9 @@ mod tests {
 
     #[test]
     fn peer_must_be_the_other_machine() {
-        assert!(check_peer(Machine::Mac, Peer::Agent(Machine::Pc)).is_ok());
-        assert!(check_peer(Machine::Mac, Peer::Agent(Machine::Mac)).is_err());
-        assert!(check_peer(Machine::Pc, Peer::Ui).is_err());
+        assert!(check_peer(Machine::A, Peer::Agent(Machine::B)).is_ok());
+        assert!(check_peer(Machine::A, Peer::Agent(Machine::A)).is_err());
+        assert!(check_peer(Machine::B, Peer::Ui).is_err());
     }
 
     /// El apagado remoto se cuelga en la PC: la Mac lo da por hecho a los 10 s (lo más
@@ -510,10 +510,10 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_remote_power_off_that_hangs_is_taken_as_done() {
         let dir = tempfile::tempdir().unwrap();
-        let (mac, _) = agent(dir.path(), Machine::Mac, FakeSteps::default());
+        let (mac, _) = agent(dir.path(), Machine::A, FakeSteps::default());
         let (pc, pc_steps) = agent(
             dir.path(),
-            Machine::Pc,
+            Machine::B,
             FakeSteps {
                 delays: vec![(pc_off(), Duration::from_secs(3600))],
                 ..Default::default()
@@ -521,12 +521,12 @@ mod tests {
         );
         let _serve = link(&mac, &pc);
         let mut state = mac.state();
-        state.on.pc = true;
-        let plan = Plan::power_off(&state, Machine::Pc);
+        state.on.b = true;
+        let plan = Plan::power_off(&state, Machine::B);
         let start = tokio::time::Instant::now();
         mac.orchestrator().run(1, &mut state, &plan).await.unwrap();
         assert_eq!(start.elapsed(), Duration::from_secs(10));
-        assert!(!state.on.pc);
+        assert!(!state.on.b);
         assert_eq!(pc_steps.steps(), [pc_off()]);
     }
 
@@ -535,7 +535,7 @@ mod tests {
     #[tokio::test]
     async fn the_peers_final_state_ends_the_loan() {
         let dir = tempfile::tempdir().unwrap();
-        let (pc, pc_steps) = agent(dir.path(), Machine::Pc, FakeSteps::default());
+        let (pc, pc_steps) = agent(dir.path(), Machine::B, FakeSteps::default());
         let (a, b) = duplex(64 * 1024);
         let _task = tokio::spawn(serve(Framed::new(b), pc.clone()));
         let mut f = Framed::new(a);
@@ -557,8 +557,8 @@ mod tests {
 
         // El estado final de la Mac: ella prendida (la PC ya lo estaba para sí misma).
         let mut s = pc.state();
-        assert!(s.is_on(Machine::Pc) && !s.is_on(Machine::Mac));
-        s.on.mac = true;
+        assert!(s.is_on(Machine::B) && !s.is_on(Machine::A));
+        s.on.a = true;
         let mut rx = pc.subscribe();
         f.send(&ControlMsg::State(s.clone())).await.unwrap();
         rx.wait_for(|got| *got == s).await.unwrap();

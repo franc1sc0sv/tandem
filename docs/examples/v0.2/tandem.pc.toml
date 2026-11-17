@@ -1,0 +1,85 @@
+# FORMATO v0.2 (lados `mac`/`pc`), solo como referencia y para las pruebas de la
+# migración (T-097): tandemd lo sigue leyendo y lo traduce solo a los lados A/B, que
+# resuelve con las claves al arrancar. El formato actual está en docs/examples/.
+#
+# tandem.toml de la PC. Va en %APPDATA%\Tandem\tandem.toml (o donde diga
+# `tandemd --config`). Se valida con `tandemd --check-config <archivo>`.
+#
+# No hace falta escribirlo: si no existe, tandemd lo genera al arrancar con el puesto
+# vacío (T-082). Este ejemplo muestra todas las opciones, para editarlo.
+#
+# El puesto ([[screens]] y [arrangement]) es el mismo que en la Mac; cambian `machine`
+# y las direcciones del otro agente.
+#
+# En el directorio de datos el agente guarda:
+# - identity.key: su llave Ed25519. Se crea sola la primera vez; no se comparte.
+# - trust.toml: las llaves de los pares emparejados. Sin par, el agente trabaja solo
+#   y la UI lo indica. Se llena al emparejar desde la UI (píldora del enlace →
+#   «Emparejar», en las dos máquinas, y comparar el código).
+
+machine = "pc"
+
+[network]
+port = 52000
+# Donde esta PC espera a la Mac mientras se empareja (por omisión, port + 1).
+# pairing_port = 52001
+# La Mac en cada enlace directo (DESIGN §6). La LAN de casa se descubre por mDNS.
+peers = [
+    { kind = "usb4", addr = "10.77.1.1:52000" },
+    { kind = "ethernet", addr = "10.77.2.1:52000" },
+]
+
+[input]
+# Dónde está el teclado y el mouse al arrancar, hasta que el hub decida (DESIGN §7).
+keyboard = "mac"
+# Bloquea el cursor en la máquina donde está (nombres de KeyboardEvent.code, todas a
+# la vez). ScrollLock de un teclado de PC llega a la Mac como F14 y vale igual.
+lock_shortcut = ["ScrollLock"]
+clipboard = true
+
+# El teclado y el mouse que viajan en el hub USB-C, por VID:PID (en Windows, el
+# Administrador de dispositivos; en macOS, Información del sistema → USB). El teclado está
+# en la máquina donde aparecen. Sin esta sección los roles no cambian solos.
+[input.hub]
+keyboard = "046d:c33f"
+mouse = "046d:c539"
+
+# Cmd↔Ctrl ya es lo predeterminado; para cambiarlo, una tabla por dirección con los ocho
+# modificadores, por ejemplo [input.remap.mac_to_win] meta_left = "control_left", ...
+
+# El acomodo de pantallas para el teclado y el mouse (DESIGN §7). Es del puesto: el mismo
+# en las dos máquinas, y se sincroniza solo. Cada pantalla va en las coordenadas nativas
+# del cursor de su máquina: puntos en macOS, píxeles físicos del escritorio virtual en
+# Windows. Sin [[screens]] de una máquina valen las que ella misma lee.
+[[screens]]
+machine = "pc"
+id = "34"
+x = 0
+y = 0
+width = 3440
+height = 1440
+scale = 1.0
+
+[[screens]]
+machine = "pc"
+id = "32"
+x = 3440
+y = 0
+width = 3840
+height = 2160
+# Windows al 150 %: el acomodo lleva la escala de cada pantalla.
+scale = 1.5
+
+[[screens]]
+machine = "mac"
+id = "34"
+x = 0
+y = 0
+width = 3440
+height = 1440
+
+# De qué lado de la PC está la Mac (sin esta sección, a la izquierda). `offset` lo usará
+# el editor del acomodo (T-096); hoy el cruce es proporcional a lo largo del borde.
+[arrangement]
+mac_side = "left"
+offset = 0

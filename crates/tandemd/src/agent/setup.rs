@@ -38,7 +38,7 @@ impl Agent {
 
     /// La ventana de aquí oyó una tecla: el teclado está en esta máquina.
     pub(super) fn heard_key(&self) {
-        if self.hear(self.cfg.machine) {
+        if self.hear(self.machine()) {
             self.orch
                 .peer()
                 .send(ControlMsg::KeyProbe(KeyProbeMsg::Heard));
@@ -70,7 +70,7 @@ impl Agent {
                 self.key_probe.send_replace(KeyProbeStatus::default());
             }
             KeyProbeMsg::Heard => {
-                self.hear(self.cfg.machine.other());
+                self.hear(self.machine().other());
             }
         }
     }
@@ -146,7 +146,7 @@ mod tests {
 
     /// Un agente de la PC recién instalado, con su `tandem.toml` generado.
     fn fresh(dir: &std::path::Path) -> Arc<Agent> {
-        let text = crate::autoconfig::generate(Machine::Pc);
+        let text = crate::autoconfig::generate(Machine::B);
         let file = dir.join("tandem.toml");
         std::fs::write(&file, &text).unwrap();
         let cfg = AgentConfig::from_toml(&text).unwrap();
@@ -189,10 +189,10 @@ mod tests {
         assert_eq!(a.key_probe_status(), KeyProbeStatus::default());
         a.handle(tandem_proto::UiCommand::KeyProbe { on: true });
         a.handle(tandem_proto::UiCommand::HeardKey);
-        assert_eq!(a.key_probe_status().heard, Some(Machine::Pc));
-        a.handle(tandem_proto::UiCommand::SetKeyboard(Machine::Pc));
+        assert_eq!(a.key_probe_status().heard, Some(Machine::B));
+        a.handle(tandem_proto::UiCommand::SetKeyboard(Machine::B));
         assert!(a.input_status().defined);
         let saved = AgentConfig::load(&dir.path().join("tandem.toml")).unwrap();
-        assert_eq!(saved.input.keyboard, Some(Machine::Pc));
+        assert_eq!(saved.input.keyboard, Some(Machine::B));
     }
 }

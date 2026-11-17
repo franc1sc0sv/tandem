@@ -4,7 +4,7 @@
 //! macOS, píxeles físicos en Windows Per-Monitor-V2). [`Layout`] las toma del acomodo
 //! ([`Arrangement`], DESIGN §7): las declaradas en el puesto compartido o, sin declarar,
 //! las que lee cada máquina; y pone las dos máquinas una al lado de la otra según de qué
-//! lado de la PC está la Mac. Se recalcula entero con cada cambio: es un valor, no hay
+//! lado de B está A. Se recalcula entero con cada cambio: es un valor, no hay
 //! nada que invalidar.
 //!
 //! El cruce se prueba contra el borde de la pantalla donde está el cursor, nunca
@@ -86,7 +86,7 @@ impl Rect {
     }
 }
 
-/// El id de una pantalla en el acomodo (`mac-1`, o el de un `[[screens]]`).
+/// El id de una pantalla en el acomodo (`a-1`, o el de un `[[screens]]`).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ScreenId(pub String);
@@ -156,14 +156,14 @@ pub enum GeometryError {
     InvalidMargin(f64),
 }
 
-/// El acomodo de las dos máquinas: las pantallas de cada una y de qué lado de la PC está
-/// la Mac. Una máquina sin pantallas (apagada, o que todavía no las mandó) no tiene a
+/// El acomodo de las dos máquinas: las pantallas de cada una y de qué lado de B está
+/// A. Una máquina sin pantallas (apagada, o que todavía no las mandó) no tiene a
 /// dónde cruzar.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Arrangement {
-    pub mac: Vec<Screen>,
-    pub pc: Vec<Screen>,
-    pub mac_side: Side,
+    pub a: Vec<Screen>,
+    pub b: Vec<Screen>,
+    pub a_side: Side,
 }
 
 /// Tramo del borde que mira a la otra máquina y por el que se puede cruzar.
@@ -207,8 +207,8 @@ pub enum Motion {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layout {
     opts: LayoutOptions,
-    mac: MachineLayout,
-    pc: MachineLayout,
+    a: MachineLayout,
+    b: MachineLayout,
 }
 
 impl Layout {
@@ -218,7 +218,7 @@ impl Layout {
         if !opts.corner_margin.is_finite() || opts.corner_margin < 0.0 {
             return Err(GeometryError::InvalidMargin(opts.corner_margin));
         }
-        for s in arr.mac.iter().chain(&arr.pc) {
+        for s in arr.a.iter().chain(&arr.b) {
             if s.rect.width == 0 || s.rect.height == 0 {
                 return Err(GeometryError::EmptyScreen(s.id.clone()));
             }
@@ -230,9 +230,8 @@ impl Layout {
             }
         }
 
-        // La Mac, de un lado de la PC, mira hacia el otro.
-        let mac_facing =
-            (!arr.mac.is_empty() && !arr.pc.is_empty()).then(|| arr.mac_side.opposite());
+        // A, de un lado de B, mira hacia el otro.
+        let a_facing = (!arr.a.is_empty() && !arr.b.is_empty()).then(|| arr.a_side.opposite());
 
         let build = |screens: Vec<Screen>, facing: Option<Side>| {
             let side = facing.map(|facing| Facing {
@@ -244,8 +243,8 @@ impl Layout {
 
         Ok(Self {
             opts,
-            mac: build(arr.mac.clone(), mac_facing),
-            pc: build(arr.pc.clone(), mac_facing.map(Side::opposite)),
+            a: build(arr.a.clone(), a_facing),
+            b: build(arr.b.clone(), a_facing.map(Side::opposite)),
         })
     }
 
@@ -376,8 +375,8 @@ impl Layout {
 
     fn machine(&self, machine: Machine) -> &MachineLayout {
         match machine {
-            Machine::Mac => &self.mac,
-            Machine::Pc => &self.pc,
+            Machine::A => &self.a,
+            Machine::B => &self.b,
         }
     }
 
@@ -457,8 +456,12 @@ mod tests {
         Screen::new("laptop".into(), Rect::new(x, y, 1512, 982), 1.0)
     }
 
-    fn arr(mac: Vec<Screen>, pc: Vec<Screen>, mac_side: Side) -> Arrangement {
-        Arrangement { mac, pc, mac_side }
+    fn arr(mac: Vec<Screen>, pc: Vec<Screen>, a_side: Side) -> Arrangement {
+        Arrangement {
+            a: mac,
+            b: pc,
+            a_side,
+        }
     }
 
     fn no_margin() -> LayoutOptions {
@@ -475,52 +478,52 @@ mod tests {
     #[test]
     fn cada_maquina_mira_hacia_la_otra_segun_el_acomodo() {
         let l = shared(no_margin());
-        assert_eq!(l.screens(Machine::Pc)[0].id, "m34".into());
-        assert_eq!(l.screens(Machine::Mac)[0].id, "m32".into());
-        assert_eq!(l.facing(Machine::Pc), Some(Side::Right));
-        assert_eq!(l.facing(Machine::Mac), Some(Side::Left));
+        assert_eq!(l.screens(Machine::B)[0].id, "m34".into());
+        assert_eq!(l.screens(Machine::A)[0].id, "m32".into());
+        assert_eq!(l.facing(Machine::B), Some(Side::Right));
+        assert_eq!(l.facing(Machine::A), Some(Side::Left));
 
         // Sin acomodo declarado la Mac va a la izquierda.
         let l = Layout::compute(
             &Arrangement {
-                mac: vec![laptop(0, 0)],
-                pc: vec![mon("m34", 0, 0, 3440, 1440, 1.0)],
+                a: vec![laptop(0, 0)],
+                b: vec![mon("m34", 0, 0, 3440, 1440, 1.0)],
                 ..Arrangement::default()
             },
             no_margin(),
         )
         .unwrap();
-        assert_eq!(l.facing(Machine::Mac), Some(Side::Right));
-        assert_eq!(l.facing(Machine::Pc), Some(Side::Left));
+        assert_eq!(l.facing(Machine::A), Some(Side::Right));
+        assert_eq!(l.facing(Machine::B), Some(Side::Left));
     }
 
     #[test]
     fn cruce_entre_monitores_de_distinto_tamano_es_proporcional() {
         let l = shared(no_margin());
         // Mitad del 34" (1440 de alto) → mitad del 32" de la Mac (1080 de alto).
-        let m = l.step(Machine::Pc, Point::new(3439.0, 720.0), 5.0, 0.0);
+        let m = l.step(Machine::B, Point::new(3439.0, 720.0), 5.0, 0.0);
         assert_eq!(
             m,
             Motion::Cross {
-                to: Machine::Mac,
+                to: Machine::A,
                 pos: Point::new(3440.0, 540.0)
             }
         );
         // Un cuarto desde arriba.
-        let m = l.step(Machine::Pc, Point::new(3439.0, 360.0), 1.0, 0.0);
+        let m = l.step(Machine::B, Point::new(3439.0, 360.0), 1.0, 0.0);
         assert_eq!(
             m,
             Motion::Cross {
-                to: Machine::Mac,
+                to: Machine::A,
                 pos: Point::new(3440.0, 270.0)
             }
         );
         // Y de vuelta: el borde izquierdo de la Mac lleva al derecho de la PC.
-        let m = l.step(Machine::Mac, Point::new(3440.0, 270.0), -1.0, 0.0);
+        let m = l.step(Machine::A, Point::new(3440.0, 270.0), -1.0, 0.0);
         assert_eq!(
             m,
             Motion::Cross {
-                to: Machine::Pc,
+                to: Machine::B,
                 pos: Point::new(3439.0, 360.0)
             }
         );
@@ -531,17 +534,17 @@ mod tests {
         let l = shared(no_margin());
         // Izquierda del 34" de la PC: no hay nada ahí.
         assert_eq!(
-            l.step(Machine::Pc, Point::new(0.0, 500.0), -10.0, 0.0),
+            l.step(Machine::B, Point::new(0.0, 500.0), -10.0, 0.0),
             Motion::Local(Point::new(0.0, 500.0))
         );
         // Derecha del 32" de la Mac.
         assert_eq!(
-            l.step(Machine::Mac, Point::new(5359.0, 500.0), 10.0, 3.0),
+            l.step(Machine::A, Point::new(5359.0, 500.0), 10.0, 3.0),
             Motion::Local(Point::new(5359.0, 503.0))
         );
         // Un movimiento normal dentro de la pantalla.
         assert_eq!(
-            l.step(Machine::Pc, Point::new(100.0, 100.0), 10.0, -5.0),
+            l.step(Machine::B, Point::new(100.0, 100.0), 10.0, -5.0),
             Motion::Local(Point::new(110.0, 95.0))
         );
     }
@@ -551,27 +554,15 @@ mod tests {
         let l = shared(LayoutOptions {
             corner_margin: 20.0,
         });
-        let at = |y| l.step(Machine::Pc, Point::new(3439.0, y), 4.0, 0.0);
+        let at = |y| l.step(Machine::B, Point::new(3439.0, y), 4.0, 0.0);
         // Dentro del margen de arriba y de abajo el cursor se queda contra el borde.
         assert_eq!(at(0.0), Motion::Local(Point::new(3439.0, 0.0)));
         assert_eq!(at(19.0), Motion::Local(Point::new(3439.0, 19.0)));
         assert_eq!(at(1420.5), Motion::Local(Point::new(3439.0, 1420.5)));
         assert_eq!(at(1439.0), Motion::Local(Point::new(3439.0, 1439.0)));
         // Justo fuera del margen cruza.
-        assert!(matches!(
-            at(20.0),
-            Motion::Cross {
-                to: Machine::Mac,
-                ..
-            }
-        ));
-        assert!(matches!(
-            at(1419.0),
-            Motion::Cross {
-                to: Machine::Mac,
-                ..
-            }
-        ));
+        assert!(matches!(at(20.0), Motion::Cross { to: Machine::A, .. }));
+        assert!(matches!(at(1419.0), Motion::Cross { to: Machine::A, .. }));
     }
 
     #[test]
@@ -588,24 +579,12 @@ mod tests {
             },
         )
         .unwrap();
-        let at = |y| l.step(Machine::Pc, Point::new(7279.0, y), 4.0, 0.0);
+        let at = |y| l.step(Machine::B, Point::new(7279.0, y), 4.0, 0.0);
         // 20 puntos a 150 % son 30 píxeles.
         assert!(matches!(at(29.0), Motion::Local(_)));
-        assert!(matches!(
-            at(30.0),
-            Motion::Cross {
-                to: Machine::Mac,
-                ..
-            }
-        ));
+        assert!(matches!(at(30.0), Motion::Cross { to: Machine::A, .. }));
         assert!(matches!(at(2130.0), Motion::Local(_)));
-        assert!(matches!(
-            at(2129.0),
-            Motion::Cross {
-                to: Machine::Mac,
-                ..
-            }
-        ));
+        assert!(matches!(at(2129.0), Motion::Cross { to: Machine::A, .. }));
         // Mitad del 32" de la PC (2160 de alto) → mitad de la pantalla de la Mac (982).
         let l = Layout::compute(
             &arr(
@@ -620,9 +599,9 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            l.step(Machine::Pc, Point::new(7279.0, 1080.0), 2.0, 0.0),
+            l.step(Machine::B, Point::new(7279.0, 1080.0), 2.0, 0.0),
             Motion::Cross {
-                to: Machine::Mac,
+                to: Machine::A,
                 pos: Point::new(0.0, 491.0)
             }
         );
@@ -643,11 +622,11 @@ mod tests {
     fn cruce_en_diagonal_usa_la_altura_donde_toca_el_borde() {
         let l = shared(no_margin());
         // Desde x=3430 con dx=20 toca el borde a mitad del camino: y = 700 + 10.
-        let m = l.step(Machine::Pc, Point::new(3430.0, 700.0), 20.0, 20.0);
+        let m = l.step(Machine::B, Point::new(3430.0, 700.0), 20.0, 20.0);
         let Motion::Cross { to, pos } = m else {
             panic!("no cruzó: {m:?}");
         };
-        assert_eq!(to, Machine::Mac);
+        assert_eq!(to, Machine::A);
         assert!((pos.y - 710.0 * 1080.0 / 1440.0).abs() < 1e-9);
     }
 
@@ -660,30 +639,24 @@ mod tests {
         let pc = vec![mon("pc", 0, 0, 2560, 1440, 1.0)];
         // La PC apagada (o sin pantallas todavía): no hay a dónde cruzar.
         let l = Layout::compute(&arr(mac.clone(), vec![], Side::Left), no_margin()).unwrap();
-        assert_eq!(l.facing(Machine::Mac), None);
+        assert_eq!(l.facing(Machine::A), None);
         assert_eq!(
-            l.step(Machine::Mac, Point::new(5359.0, 10.0), 50.0, 0.0),
+            l.step(Machine::A, Point::new(5359.0, 10.0), 50.0, 0.0),
             Motion::Local(Point::new(5359.0, 10.0))
         );
         // La Mac a la izquierda: su borde derecho lleva a la PC.
         let l = Layout::compute(&arr(mac.clone(), pc.clone(), Side::Left), no_margin()).unwrap();
-        assert_eq!(l.facing(Machine::Mac), Some(Side::Right));
+        assert_eq!(l.facing(Machine::A), Some(Side::Right));
         assert!(matches!(
-            l.step(Machine::Mac, Point::new(5359.0, 500.0), 3.0, 0.0),
-            Motion::Cross {
-                to: Machine::Pc,
-                ..
-            }
+            l.step(Machine::A, Point::new(5359.0, 500.0), 3.0, 0.0),
+            Motion::Cross { to: Machine::B, .. }
         ));
         // A la derecha: el izquierdo.
         let l = Layout::compute(&arr(mac, pc, Side::Right), no_margin()).unwrap();
-        assert_eq!(l.facing(Machine::Mac), Some(Side::Left));
+        assert_eq!(l.facing(Machine::A), Some(Side::Left));
         assert!(matches!(
-            l.step(Machine::Mac, Point::new(0.0, 500.0), -3.0, 0.0),
-            Motion::Cross {
-                to: Machine::Pc,
-                ..
-            }
+            l.step(Machine::A, Point::new(0.0, 500.0), -3.0, 0.0),
+            Motion::Cross { to: Machine::B, .. }
         ));
     }
 
@@ -697,7 +670,7 @@ mod tests {
         let pc = vec![mon("m32", 0, 0, 2560, 1440, 1.0)];
         let l = Layout::compute(&arr(mac, pc, Side::Left), no_margin()).unwrap();
         // El borde derecho de la Mac mide 1440 + 982; la de abajo ocupa la parte de abajo.
-        let m = l.step(Machine::Mac, Point::new(3439.0, 1440.0 + 491.0), 1.0, 0.0);
+        let m = l.step(Machine::A, Point::new(3439.0, 1440.0 + 491.0), 1.0, 0.0);
         let Motion::Cross { pos, .. } = m else {
             panic!("no cruzó: {m:?}");
         };
@@ -739,7 +712,7 @@ mod tests {
         ];
         let l = Layout::compute(&arr(vec![laptop(0, 0)], pc, Side::Right), no_margin()).unwrap();
         assert_eq!(
-            l.step(Machine::Pc, Point::new(3439.0, 500.0), 2.0, 0.0),
+            l.step(Machine::B, Point::new(3439.0, 500.0), 2.0, 0.0),
             Motion::Local(Point::new(3441.0, 500.0))
         );
     }
@@ -769,8 +742,8 @@ mod tests {
     fn sin_pantallas_el_cursor_no_se_mueve() {
         let l = Layout::compute(&Arrangement::default(), LayoutOptions::default()).unwrap();
         let p = Point::new(10.0, 10.0);
-        assert_eq!(l.step(Machine::Pc, p, 5.0, 5.0), Motion::Local(p));
-        assert!(l.screen_at(Machine::Pc, p).is_none());
+        assert_eq!(l.step(Machine::B, p, 5.0, 5.0), Motion::Local(p));
+        assert!(l.screen_at(Machine::B, p).is_none());
     }
 
     fn arb_screen(id: &'static str) -> impl Strategy<Value = Screen> {
@@ -791,11 +764,11 @@ mod tests {
     /// Una pantalla por máquina, en cualquier lugar, la Mac de cualquier lado.
     fn arb_layout() -> impl Strategy<Value = Layout> {
         (arb_screen("a"), arb_screen("b"), side(), 0.0f64..40.0).prop_map(
-            |(a, b, mac_side, margin)| {
+            |(a, b, a_side, margin)| {
                 let opts = LayoutOptions {
                     corner_margin: margin,
                 };
-                Layout::compute(&arr(vec![a], vec![b], mac_side), opts).unwrap()
+                Layout::compute(&arr(vec![a], vec![b], a_side), opts).unwrap()
             },
         )
     }
@@ -813,11 +786,11 @@ mod tests {
             side(),
             0.0f64..40.0,
         )
-            .prop_map(|(mac, pc, mac_side, margin)| {
+            .prop_map(|(mac, pc, a_side, margin)| {
                 let opts = LayoutOptions {
                     corner_margin: margin,
                 };
-                Layout::compute(&arr(mac, pc, mac_side), opts).unwrap()
+                Layout::compute(&arr(mac, pc, a_side), opts).unwrap()
             })
     }
 
@@ -836,10 +809,10 @@ mod tests {
             dy in -3000.0f64..3000.0,
         ) {
             // La Mac siempre tiene algo; la PC no siempre.
-            let m = if mac || l.screens(Machine::Pc).is_empty() {
-                Machine::Mac
+            let m = if mac || l.screens(Machine::B).is_empty() {
+                Machine::A
             } else {
-                Machine::Pc
+                Machine::B
             };
             let screens = l.screens(m);
             let r = pick.get(screens).rect;
@@ -872,7 +845,7 @@ mod tests {
         /// también, por el lado opuesto.
         #[test]
         fn los_lados_siempre_son_opuestos(l in arb_multi_layout()) {
-            match (l.facing(Machine::Mac), l.facing(Machine::Pc)) {
+            match (l.facing(Machine::A), l.facing(Machine::B)) {
                 (Some(a), Some(b)) => prop_assert_eq!(a, b.opposite()),
                 (None, None) => {}
                 other => prop_assert!(false, "lados inconsistentes: {other:?}"),
@@ -887,10 +860,10 @@ mod tests {
             pick in any::<prop::sample::Index>(),
             fy in 0.0f64..1.0,
         ) {
-            let m = if mac || l.screens(Machine::Pc).is_empty() {
-                Machine::Mac
+            let m = if mac || l.screens(Machine::B).is_empty() {
+                Machine::A
             } else {
-                Machine::Pc
+                Machine::B
             };
             let screens = l.screens(m);
             let r = pick.get(screens).rect;
@@ -911,7 +884,7 @@ mod tests {
             dx in -500.0f64..500.0,
             dy in -500.0f64..500.0,
         ) {
-            let m = if mac { Machine::Mac } else { Machine::Pc };
+            let m = if mac { Machine::A } else { Machine::B };
             let r = l.screens(m)[0].rect;
             let p = r.clamp(Point::new(
                 r.left() + fx * f64::from(r.width),
@@ -929,21 +902,21 @@ mod tests {
         /// Cruzar y volver enseguida deja el cursor a menos de un píxel de la altura original.
         #[test]
         fn ida_y_vuelta_conserva_la_altura(l in arb_layout(), fy in 0.0f64..1.0) {
-            let side = l.facing(Machine::Pc).unwrap();
-            let r = l.screens(Machine::Pc)[0].rect;
+            let side = l.facing(Machine::B).unwrap();
+            let r = l.screens(Machine::B)[0].rect;
             let (x, dx) = match side {
                 Side::Right => (r.right() - 1.0, 1.0),
                 Side::Left => (r.left(), -1.0),
             };
             let p = Point::new(x, (r.top() + fy * f64::from(r.height)).min(r.bottom() - 1.0));
-            if let Motion::Cross { pos, .. } = l.step(Machine::Pc, p, dx, 0.0) {
-                match l.step(Machine::Mac, pos, -dx, 0.0) {
+            if let Motion::Cross { pos, .. } = l.step(Machine::B, p, dx, 0.0) {
+                match l.step(Machine::A, pos, -dx, 0.0) {
                     Motion::Cross { to, pos: back } => {
-                        prop_assert_eq!(to, Machine::Pc);
+                        prop_assert_eq!(to, Machine::B);
                         prop_assert_eq!(back.x, p.x);
                         // La vuelta puede caer en la esquina muerta de la Mac; solo
                         // se mide cuando vuelve.
-                        let tol = 1.0 + f64::from(r.height) / f64::from(l.screens(Machine::Mac)[0].rect.height);
+                        let tol = 1.0 + f64::from(r.height) / f64::from(l.screens(Machine::A)[0].rect.height);
                         prop_assert!((back.y - p.y).abs() <= tol, "{} vs {}", back.y, p.y);
                     }
                     Motion::Local(_) => {}

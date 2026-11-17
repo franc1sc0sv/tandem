@@ -86,8 +86,8 @@ impl Desk {
 
     fn move_hub_to(&self, m: Machine) {
         let (to, from) = match m {
-            Machine::Mac => (&self.mac, &self.pc),
-            Machine::Pc => (&self.pc, &self.mac),
+            Machine::A => (&self.mac, &self.pc),
+            Machine::B => (&self.pc, &self.mac),
         };
         from.devices.set(vec![]);
         to.devices.set(vec![KB, MOUSE]);
@@ -97,8 +97,8 @@ impl Desk {
 fn desk(hub_on: Machine) -> Desk {
     let on = |m: Machine| if m == hub_on { vec![KB, MOUSE] } else { vec![] };
     let mut d = Desk {
-        mac: Agent::start(Machine::Mac, hub_on, &on(Machine::Mac)),
-        pc: Agent::start(Machine::Pc, hub_on, &on(Machine::Pc)),
+        mac: Agent::start(Machine::A, hub_on, &on(Machine::A)),
+        pc: Agent::start(Machine::B, hub_on, &on(Machine::B)),
     };
     d.sync();
     d
@@ -106,51 +106,51 @@ fn desk(hub_on: Machine) -> Desk {
 
 #[tokio::test(start_paused = true)]
 async fn moving_the_hub_inverts_roles_after_debounce() {
-    let mut d = desk(Machine::Mac);
-    assert_eq!(d.server(), Machine::Mac);
+    let mut d = desk(Machine::A);
+    assert_eq!(d.server(), Machine::A);
     assert_eq!(d.mac.arbiter.role(), Role::Server);
 
-    d.move_hub_to(Machine::Pc);
+    d.move_hub_to(Machine::B);
     d.run_for(Duration::from_millis(2_500)).await;
-    assert_eq!(d.server(), Machine::Mac, "invirtió antes de 3 s");
+    assert_eq!(d.server(), Machine::A, "invirtió antes de 3 s");
     d.run_for(Duration::from_secs(1)).await;
-    assert_eq!(d.server(), Machine::Pc);
+    assert_eq!(d.server(), Machine::B);
     assert_eq!(d.pc.arbiter.role(), Role::Server);
     assert_eq!(d.mac.arbiter.role(), Role::Client);
 }
 
 #[tokio::test(start_paused = true)]
 async fn brief_disconnection_does_not_invert_roles() {
-    let mut d = desk(Machine::Pc);
+    let mut d = desk(Machine::B);
     // El cable del hub falla 2 s y vuelve.
     d.pc.devices.set(vec![]);
     d.run_for(Duration::from_secs(2)).await;
     d.pc.devices.set(vec![KB, MOUSE]);
     d.run_for(Duration::from_secs(10)).await;
-    assert_eq!(d.server(), Machine::Pc);
+    assert_eq!(d.server(), Machine::B);
 
     // Un ir y venir rápido a la Mac (menos de 3 s) tampoco.
-    d.move_hub_to(Machine::Mac);
+    d.move_hub_to(Machine::A);
     d.run_for(Duration::from_secs(2)).await;
-    d.move_hub_to(Machine::Pc);
+    d.move_hub_to(Machine::B);
     d.run_for(Duration::from_secs(10)).await;
-    assert_eq!(d.server(), Machine::Pc);
+    assert_eq!(d.server(), Machine::B);
 }
 
 #[tokio::test(start_paused = true)]
 async fn manual_selector_wins_over_detection() {
-    let mut d = desk(Machine::Mac);
-    d.select(Selector::Manual(Machine::Pc));
-    assert_eq!(d.server(), Machine::Pc);
+    let mut d = desk(Machine::A);
+    d.select(Selector::Manual(Machine::B));
+    assert_eq!(d.server(), Machine::B);
 
     // El hub va y viene; manda el selector.
-    d.move_hub_to(Machine::Pc);
+    d.move_hub_to(Machine::B);
     d.run_for(Duration::from_secs(5)).await;
-    d.move_hub_to(Machine::Mac);
+    d.move_hub_to(Machine::A);
     d.run_for(Duration::from_secs(5)).await;
-    assert_eq!(d.server(), Machine::Pc);
+    assert_eq!(d.server(), Machine::B);
 
     // En automático vuelve a mandar el hub, que está en la Mac.
     d.select(Selector::Auto);
-    assert_eq!(d.server(), Machine::Mac);
+    assert_eq!(d.server(), Machine::A);
 }

@@ -2,8 +2,8 @@
 //! `tandem-input`, `tandem-clipboard` y `tandem-peripherals` con la red.
 //!
 //! - **Roles**: el [`RoleArbiter`] decide quién es el servidor con el hub de aquí
-//!   ([`HubWatcher`]) y el [`ControlMsg::Hub`] del otro agente. Sin enlace, la Mac con
-//!   la PC dada por apagada decide sola (T-066).
+//!   ([`HubWatcher`]) y el [`ControlMsg::Hub`] del otro agente. Sin enlace, la máquina que
+//!   da a la otra por apagada decide sola (T-066).
 //! - **Geometría**: el acomodo del puesto compartido (DESIGN §7): las `[[screens]]`
 //!   declaradas o, sin declarar, las que lee esta máquina (de los backends, cada tanto) y
 //!   las que manda el otro agente ([`ControlMsg::Screens`]); una máquina apagada según el
@@ -12,8 +12,12 @@
 //!   ([`Channel::Input`]) y corre su [`ServerDriver`]; el cliente recibe ese stream del
 //!   otro agente y corre su [`ClientDriver`]. Cuando el enlace cambia la sesión termina
 //!   y vuelve a empezar sobre el nuevo.
-//! - **Portapapeles**: la Mac abre su stream ([`Channel::Clipboard`]) y la PC lo
-//!   recibe; los dos corren un [`ClipDriver`] con el foco del teclado y mouse.
+//! - **Portapapeles**: el lado A abre su stream ([`Channel::Clipboard`]) y B lo recibe;
+//!   los dos corren un [`ClipDriver`] con el foco del teclado y mouse.
+//! - **Modificadores**: Cmd↔Ctrl solo entre macOS y Windows, según el sistema de cada
+//!   máquina ([`backends::direction`]); si el de la otra cambia, la captura se rearma.
+//! - **Lado**: si al emparejar esta máquina resulta ser el otro lado
+//!   ([`Agent::adopt_side`]), el motor entero vuelve a arrancar con el lado nuevo.
 //! - **Estado para la UI**: [`InputStatus`] (servidor, hub, sesión, cursor bloqueado
 //!   y permisos de macOS que faltan).
 //!
@@ -28,7 +32,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tandem_clipboard::{ClipConfig, ClipDriver};
-use tandem_core::Machine;
+use tandem_core::{Machine, Os};
 use tandem_input::geometry::{Arrangement, Layout, LayoutOptions};
 use tandem_input::session::{
     ClientDriver, ClientSession, ServerDriver, ServerSession, SessionConfig, SessionEnd,
@@ -89,9 +93,9 @@ pub struct InputSetup {
 
 impl InputSetup {
     /// Los de este sistema, con los tiempos normales.
-    pub fn platform(me: Machine) -> Self {
+    pub fn platform() -> Self {
         InputSetup {
-            backends: Arc::new(PlatformInput::new(me)),
+            backends: Arc::new(PlatformInput::new()),
             opts: InputOptions::default(),
         }
     }
@@ -147,9 +151,38 @@ pub fn start(
     link: watch::Receiver<Option<ActiveLink>>,
     setup: InputSetup,
 ) -> Input {
-    let cfg = &agent.config().input;
     agent.set_input_engine();
+    Input {
+        tasks: vec![tokio::spawn(supervise(agent, link, setup))],
+    }
+}
+
+/// El motor con el lado de ahora; si esta máquina cambia de lado, se suelta entero (la
+/// captura devuelve la entrada) y se arma de nuevo.
+async fn supervise(
+    agent: Arc<Agent>,
+    link: watch::Receiver<Option<ActiveLink>>,
+    setup: InputSetup,
+) {
+    let mut side = agent.subscribe_machine();
+    loop {
+        side.borrow_and_update();
+        let engine = spawn_engine(agent.clone(), link.clone(), setup.clone());
+        changed(&mut side).await;
+        drop(engine);
+        tracing::info!(lado = %agent.machine(), "el motor de entrada vuelve a arrancar");
+    }
+}
+
+fn spawn_engine(
+    agent: Arc<Agent>,
+    link: watch::Receiver<Option<ActiveLink>>,
+    setup: InputSetup,
+) -> Input {
+    let cfg = &agent.config().input;
     let me = agent.machine();
+    // Lo declarado (configuración o asistente) ya viene con el lado de ahora.
+    let keyboard = agent.keyboard_declared().unwrap_or(cfg.keyboard());
     // La config ya se validó al cargarla.
     let lock_keys = cfg.lock_keys().unwrap_or_default();
     // Sin pantallas solo falla un margen de esquinas inválido.
@@ -167,7 +200,7 @@ pub fn start(
         opts: setup.opts,
         lock_keys,
         link,
-        server: watch::Sender::new(cfg.keyboard()),
+        server: watch::Sender::new(keyboard),
         hub_here: watch::Sender::new(None),
         report: watch::Sender::new(None),
         screens: watch::Sender::new(Vec::new()),
@@ -312,7 +345,8 @@ async fn geometry(sh: Arc<Shared>) {
 
 /// Quién es el servidor.
 async fn roles(sh: Arc<Shared>, mut presence: Option<watch::Receiver<Presence>>) {
-    let mut arbiter = RoleArbiter::new(sh.me, sh.agent.config().input.keyboard());
+    let start = *sh.server.borrow();
+    let mut arbiter = RoleArbiter::new(sh.me, start);
     let mut peer = sh.agent.inbox().hub.subscribe();
     let mut link = sh.link.clone();
     let mut state = sh.agent.subscribe();
@@ -524,9 +558,24 @@ fn first_cursor(screens: &[Screen]) -> Point {
 
 type Server = ServerDriver<backends::DynCapture>;
 
-async fn new_server(sh: &Arc<Shared>) -> Result<Server, String> {
+/// El sistema de la otra máquina: lo que anunció o, sin anuncio todavía, lo que guarda el
+/// puesto de ella.
+fn peer_os(sh: &Shared) -> Option<Os> {
+    sh.agent
+        .capabilities()
+        .peer
+        .map(|p| p.info.os)
+        .or_else(|| sh.agent.machine_info(sh.me.other()).map(|i| i.os))
+}
+
+async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String> {
     let (tx, rx) = mpsc::unbounded_channel();
-    let sink = CaptureSink::new(tx, &sh.agent.config().input.remap, sh.me);
+    let sink = CaptureSink::new(
+        tx,
+        &sh.agent.config().input.remap,
+        sh.agent.config().os,
+        peer,
+    );
     // La sesión ve las teclas ya reasignadas: el atajo, escrito con las físicas, también.
     let lock_keys = sh.lock_keys.iter().map(|&k| sink.remap_key(k)).collect();
     let backends = sh.backends.clone();
@@ -553,8 +602,17 @@ async fn new_server(sh: &Arc<Shared>) -> Result<Server, String> {
 async fn server(sh: Arc<Shared>) {
     let mut role = sh.server.subscribe();
     let mut link = sh.link.clone();
+    let mut caps = sh.agent.subscribe_capabilities();
     let mut driver: Option<Server> = None;
+    // El sistema de la otra con que se armó la captura (los modificadores dependen de él).
+    let mut built_for: Option<Os> = None;
     loop {
+        caps.borrow_and_update();
+        let peer = peer_os(&sh);
+        if driver.is_some() && built_for != peer {
+            tracing::info!(otra = ?peer, "la otra máquina cambió de sistema: se rearma la captura");
+            driver = None;
+        }
         let is_server = *role.borrow_and_update() == sh.me;
         if !is_server {
             match driver.as_mut() {
@@ -570,9 +628,10 @@ async fn server(sh: Arc<Shared>) {
         }
         let d = match driver.as_mut() {
             Some(d) => d,
-            None => match new_server(&sh).await {
+            None => match new_server(&sh, peer).await {
                 Ok(d) => {
                     set(&sh.capture_problem, None);
+                    built_for = peer;
                     driver.insert(d)
                 }
                 Err(e) => {
@@ -605,7 +664,12 @@ async fn server(sh: Arc<Shared>) {
                 .await
                 .map_err(|e| SessionEnd::Open(e.to_string()))
         };
-        let stop = until_link_or_role_changes(&mut link, &active, &mut role, me);
+        let stop = async {
+            tokio::select! {
+                () = until_link_or_role_changes(&mut link, &active, &mut role, me) => {}
+                () = until_peer_os_changes(&sh, &mut caps, peer) => {}
+            }
+        };
         let end = d.run_with(&active.handle.conn, open, stop).await;
         match end {
             SessionEnd::Stopped => {}
@@ -617,6 +681,20 @@ async fn server(sh: Arc<Shared>) {
                     driver = None;
                 }
             }
+        }
+    }
+}
+
+/// Termina cuando el sistema que anuncia la otra máquina deja de ser `current`.
+async fn until_peer_os_changes(
+    sh: &Shared,
+    caps: &mut watch::Receiver<tandem_proto::DeskCapabilities>,
+    current: Option<Os>,
+) {
+    loop {
+        changed(caps).await;
+        if peer_os(sh) != current {
+            return;
         }
     }
 }
@@ -736,7 +814,8 @@ async fn track_focus(sh: Arc<Shared>, tx: watch::Sender<bool>) {
     }
 }
 
-/// El portapapeles: la Mac abre el stream en el enlace activo y la PC lo recibe.
+/// El portapapeles: el lado A abre el stream en el enlace activo y B lo recibe (da igual
+/// cuál; solo tiene que ser uno, y los dos saben cuál sin hablarse).
 async fn clipboard(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<IncomingChannel>) {
     let backends = sh.backends.clone();
     let cb = match tokio::task::spawn_blocking(move || backends.clipboard()).await {
@@ -756,7 +835,7 @@ async fn clipboard(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<Incomin
     let tracker = tokio::spawn(track_focus(sh.clone(), focus_tx));
     let focused = *focus_rx.borrow();
     let mut driver = ClipDriver::new(cb, sh.opts.clipboard, focused).with_focus(focus_rx);
-    if sh.me == Machine::Mac {
+    if sh.me == Machine::A {
         let mut link = sh.link.clone();
         loop {
             let Some(active) = link.borrow_and_update().clone() else {
@@ -808,7 +887,7 @@ mod tests {
         use super::keyboard_defined as f;
         use tandem_core::Machine;
         assert!(!f(None, None, false), "sin nada, sin definir");
-        assert!(f(Some(Machine::Pc), None, false));
+        assert!(f(Some(Machine::B), None, false));
         assert!(f(None, Some(false), false), "el hub de aquí se detecta");
         assert!(
             f(None, None, true),

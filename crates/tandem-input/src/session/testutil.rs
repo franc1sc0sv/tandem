@@ -10,8 +10,16 @@ fn no_margin() -> LayoutOptions {
     LayoutOptions { corner_margin: 0.0 }
 }
 
-fn layout(mac: Vec<Screen>, pc: Vec<Screen>, mac_side: Side) -> Layout {
-    Layout::compute(&Arrangement { mac, pc, mac_side }, no_margin()).unwrap()
+fn layout(mac: Vec<Screen>, pc: Vec<Screen>, a_side: Side) -> Layout {
+    Layout::compute(
+        &Arrangement {
+            a: mac,
+            b: pc,
+            a_side,
+        },
+        no_margin(),
+    )
+    .unwrap()
 }
 
 /// 34" (3440×1440) en la PC a la izquierda; 32" (1920×1080) en la Mac a la derecha.

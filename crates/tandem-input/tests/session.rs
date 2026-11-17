@@ -56,9 +56,9 @@ fn mac_screens() -> Vec<Screen> {
 fn layout() -> Layout {
     let pc = vec![Screen::new("m34".into(), Rect::new(0, 0, 3440, 1440), 1.0)];
     let arr = Arrangement {
-        mac: mac_screens(),
-        pc,
-        mac_side: Side::Right,
+        a: mac_screens(),
+        b: pc,
+        a_side: Side::Right,
     };
     Layout::compute(&arr, LayoutOptions { corner_margin: 0.0 }).unwrap()
 }
@@ -68,7 +68,7 @@ fn start() -> Point {
 }
 
 fn server_session() -> ServerSession {
-    ServerSession::new(Machine::Pc, layout(), start(), cfg().resync_every)
+    ServerSession::new(Machine::B, layout(), start(), cfg().resync_every)
 }
 
 async fn within<F: Future>(f: F) -> F::Output {
@@ -187,7 +187,7 @@ fn spawn_server(
     let active = driver.active();
     let (stop, rx) = oneshot::channel::<()>();
     let task = tokio::spawn(async move {
-        let hello = Hello::new(Peer::Agent(Machine::Pc));
+        let hello = Hello::new(Peer::Agent(Machine::B));
         let end = driver
             .run(&conn, &hello, async {
                 let _ = rx.await;
@@ -215,7 +215,7 @@ fn spawn_client(
     let mut driver = ClientDriver::new(ClientSession::new(mac_screens()), injector, cfg());
     let (stop, rx) = oneshot::channel::<()>();
     let task = tokio::spawn(async move {
-        let hello = Hello::new(Peer::Agent(Machine::Mac));
+        let hello = Hello::new(Peer::Agent(Machine::A));
         let end = driver
             .run(&conn, &hello, async {
                 let _ = rx.await;

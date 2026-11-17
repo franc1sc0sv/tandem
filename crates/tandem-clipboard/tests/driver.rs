@@ -70,8 +70,8 @@ async fn link() -> Link {
 
 /// El stream del portapapeles: lo abre la Mac (quien conectó) y lo acepta la PC.
 async fn streams(l: &Link) -> (ControlStream, ControlStream) {
-    let mac_hello = Hello::new(Peer::Agent(Machine::Mac));
-    let pc_hello = Hello::new(Peer::Agent(Machine::Pc));
+    let mac_hello = Hello::new(Peer::Agent(Machine::A));
+    let pc_hello = Hello::new(Peer::Agent(Machine::B));
     let (m, p) = within(async {
         tokio::join!(
             l.mac.open_control(&mac_hello),
