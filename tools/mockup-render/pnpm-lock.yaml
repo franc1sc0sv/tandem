@@ -15,6 +15,9 @@ importers:
         specifier: 7.0.0
         version: 7.0.0
     devDependencies:
+      '@fontsource/dejavu-sans':
+        specifier: 5.3.0
+        version: 5.3.0
       '@fontsource/inter':
         specifier: 5.3.0
         version: 5.3.0
@@ -47,6 +50,9 @@ packages:
 
   '@emnapi/wasi-threads@2.2.0':
     resolution: {integrity: sha512-JP7OYH38Q7+pyTAe14raZHLQIK7BDKbdwji+Xi3pcd/6QkJYQH3SX4wu6EplGrGJWRepoNzedfm0G3B9Z4e9Rw==}
+
+  '@fontsource/dejavu-sans@5.3.0':
+    resolution: {integrity: sha512-F/tV+7S31Mo8jtGUhj857XfUzcDCl9JJC8bzMtZ0wcTuOm89dG4FPjAOHOesMfmoChYVQ3eg5fHafdhxFrQIxQ==}
 
   '@fontsource/inter@5.3.0':
     resolution: {integrity: sha512-RofMylZmjlJEfELXeNHFWBRcSs75rGU/6bV2S2jfnvv/3rPXPGe0LgUJTklcHZ9lM4OZmAVFhcJPnACfb91A3g==}
@@ -528,6 +534,8 @@ snapshots:
     dependencies:
       tslib: 2.9.1
     optional: true
+
+  '@fontsource/dejavu-sans@5.3.0': {}
 
   '@fontsource/inter@5.3.0': {}
 

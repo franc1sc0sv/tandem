@@ -1,6 +1,19 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FONT_ORIGIN, fontAsset, googleFontsCss, mockupAsset } from '../src/assets.ts';
-import { listMockups, previewOf, shotName } from '../src/paths.ts';
+import { FALLBACK_RANGES, FONT_ORIGIN, fontAsset, googleFontsCss, mockupAsset } from '../src/assets.ts';
+import { MOCKUPS_DIR, listMockups, previewOf, shotName } from '../src/paths.ts';
+
+const GOOGLE_CSS = new URL(
+  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
+);
+
+function parseRanges(list: string): Array<[number, number]> {
+  return list.split(',').map((part) => {
+    const [a = '0', b] = part.trim().replace(/^U\+/i, '').split('-');
+    return [parseInt(a, 16), parseInt(b ?? a, 16)];
+  });
+}
 
 describe('assets', () => {
   it('sirve el support.js propio para cualquier ruta que lo pida', () => {
@@ -25,10 +38,7 @@ describe('assets', () => {
   });
 
   it('cambia la hoja de Google Fonts por las fuentes empaquetadas', () => {
-    const url = new URL(
-      'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap',
-    );
-    const { css, missing } = googleFontsCss(url);
+    const { css, missing } = googleFontsCss(GOOGLE_CSS);
     expect(missing).toEqual([]);
     expect(css).toContain("font-family: 'Inter'");
     expect(css).toContain("font-family: 'JetBrains Mono'");
@@ -36,6 +46,31 @@ describe('assets', () => {
     const first = /url\((http:\/\/fonts\.local\/[^)]+\.woff2)\)/.exec(css)?.[1] ?? '';
     expect(first.startsWith(FONT_ORIGIN)).toBe(true);
     expect(fontAsset(new URL(first).pathname)?.contentType).toBe('font/woff2');
+  });
+
+  it('cubre con fuentes empaquetadas cada carácter no ASCII de los mockups', () => {
+    // Si no, ese carácter sale con la fuente del sistema y la captura cambia según la máquina.
+    const { css } = googleFontsCss(GOOGLE_CSS);
+    const ranges = [...css.matchAll(/unicode-range:\s*([^;]+);/g)].flatMap((m) => parseRanges(m[1] ?? ''));
+    const uncovered = new Set<string>();
+    for (const name of listMockups()) {
+      const html = readFileSync(join(MOCKUPS_DIR, name + '.dc.html'), 'utf8').replace(/<(style|script)[\s\S]*?<\/\1>/g, '');
+      const text = html.replace(/<[^>]*>/g, '');
+      for (const ch of text) {
+        const cp = ch.codePointAt(0) ?? 0;
+        if (cp >= 128 && !ranges.some(([a, b]) => cp >= a && cp <= b)) uncovered.add(`${ch} U+${cp.toString(16)} (${name})`);
+      }
+    }
+    expect([...uncovered]).toEqual([]);
+  });
+
+  it('las caras de respaldo van antes que las propias (gana la última en los rangos superpuestos)', () => {
+    const { css } = googleFontsCss(GOOGLE_CSS);
+    expect(css.indexOf(FALLBACK_RANGES)).toBeGreaterThanOrEqual(0);
+    expect(css.lastIndexOf(FALLBACK_RANGES)).toBeLessThan(css.indexOf('inter-latin-400-normal'));
+    expect(css).toContain("font-family: 'JetBrains Mono';\n  font-style: normal;\n  font-display: swap;\n  font-weight: 400;");
+    const dejavu = /url\((http:\/\/fonts\.local\/@fontsource\/dejavu-sans\/[^)]+)\)/.exec(css)?.[1] ?? '';
+    expect(fontAsset(new URL(dejavu).pathname)?.contentType).toBe('font/woff2');
   });
 
   it('informa las variantes que no están empaquetadas', () => {

@@ -39,7 +39,10 @@ pnpm test                                # runtime, comparación y los 23 mockup
 
 - Sin red: los mockups, `support.js` y las fuentes se sirven desde Node dentro del navegador.
   Inter y JetBrains Mono salen de `@fontsource/*` (las mismas que pide la hoja de Google Fonts
-  de los mockups); cualquier otra petición externa se bloquea y cuenta como error.
+  de los mockups). Lo que esos subconjuntos no traen (⌃ ⌥ ⌘ → ↵ ≈ ✓ ➜) sale de DejaVu Sans,
+  declarada como cara extra de las mismas familias solo para esos bloques; si no, cada máquina
+  lo dibuja con su fuente del sistema. Una prueba exige que todo carácter no ASCII de los mockups
+  esté cubierto. Cualquier otra petición externa se bloquea y cuenta como error.
 - Dos corridas dan PNG idénticos. Las de referencia son las de Chromium en Linux (WSL o el job
   `ui (mockups)` de CI, que además las sube como artefacto `mockups-png` y las compara con las
   commiteadas).

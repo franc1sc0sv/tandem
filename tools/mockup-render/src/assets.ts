@@ -63,8 +63,37 @@ function fontPackageDir(family: string): string {
   return join(TOOL_DIR, 'node_modules', '@fontsource', family.trim().toLowerCase().replace(/\s+/g, '-'));
 }
 
+/**
+ * Bloques que los subconjuntos de Inter y JetBrains Mono no traen y los mockups usan (⌃ ⌥ ⌘
+ * en los atajos, → ↵ ≈ ✓ ➜). Sin esto, cada máquina los dibuja con su fuente del sistema y
+ * las capturas de WSL y de CI difieren. Se cubren con DejaVu Sans (completa) como caras extra
+ * de la misma familia.
+ */
+export const FALLBACK_RANGES = 'U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2700-27BF';
+
+// Una cara por peso, con el mismo peso exacto que las caras propias: con un rango de pesos
+// (`550 900`) la de respaldo calza mejor con `font-weight:650` que la de 700 de Inter, y como
+// no tiene latín, ese texto termina en la fuente del sistema.
+function fallbackFaces(family: string, weights: string[]): string {
+  return weights
+    .map(
+      (w) => `@font-face {
+  font-family: '${family}';
+  font-style: normal;
+  font-display: swap;
+  font-weight: ${w};
+  src: url(${FONT_ORIGIN}/@fontsource/dejavu-sans/files/dejavu-sans-latin-${Number(w) >= 550 ? 700 : 400}-normal.woff2) format('woff2');
+  unicode-range: ${FALLBACK_RANGES};
+}`,
+    )
+    .join('\n');
+}
+
 /** CSS equivalente a `https://fonts.googleapis.com/css2?family=…` con las fuentes locales. */
 export function googleFontsCss(url: URL): { css: string; missing: string[] } {
+  // Las caras de respaldo van primero: con rangos superpuestos gana la última definida, así
+  // que donde la fuente propia tiene el carácter se usa el suyo.
+  const fallback: string[] = [];
   const css: string[] = [];
   const missing: string[] = [];
   for (const spec of url.searchParams.getAll('family')) {
@@ -72,6 +101,7 @@ export function googleFontsCss(url: URL): { css: string; missing: string[] } {
     const weights = /wght@([\d;]+)/.exec(axes)?.[1]?.split(';') ?? ['400'];
     const dir = fontPackageDir(family);
     const pkg = dir.slice(dir.lastIndexOf('@fontsource'));
+    fallback.push(fallbackFaces(family.replaceAll('+', ' ').trim(), weights));
     for (const w of weights) {
       const file = join(dir, `${w}.css`);
       if (!existsSync(file)) {
@@ -82,7 +112,7 @@ export function googleFontsCss(url: URL): { css: string; missing: string[] } {
       css.push(text);
     }
   }
-  return { css: css.join('\n'), missing };
+  return { css: [...fallback, ...css].join('\n'), missing };
 }
 
 /** Archivo de fuente pedido a `FONT_ORIGIN` (`/@fontsource/<familia>/files/<archivo>`). */
