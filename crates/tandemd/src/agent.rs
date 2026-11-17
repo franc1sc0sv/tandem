@@ -1598,6 +1598,34 @@ pub(crate) mod tests {
         assert_eq!(fresh.desk_sync().stamp.rev, 0);
     }
 
+    /// Revisión de #74: el portapapeles apagado de antes de T-099 era de esta máquina y ahora
+    /// está en el puesto. Es un cambio suyo: sube la versión (con su lado y fecha) para que la
+    /// otra lo adopte, y queda guardado así.
+    #[test]
+    fn a_local_setting_moved_to_the_desk_bumps_the_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tandem.toml");
+        std::fs::write(
+            &file,
+            "machine = \"b\"\ndesk_rev = 3\ndesk_origin = \"a\"\n\n[input]\nclipboard = false\n",
+        )
+        .unwrap();
+        let cfg = AgentConfig::load(&file).unwrap();
+        assert!(cfg.local_to_desk);
+        let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
+        let stamp = a.desk_sync().stamp;
+        assert_eq!((stamp.rev, stamp.by), (4, Machine::B));
+        assert!(stamp.at > 0);
+        assert_eq!(a.desk().modules.get(Machine::B, "clipboard"), Some(false));
+        a.set_config_file(file.clone());
+        let saved = AgentConfig::load(&file).unwrap();
+        assert_eq!((saved.desk_rev, saved.desk_origin), (4, Some(Machine::B)));
+        assert!(!saved.local_to_desk && !saved.legacy_desk);
+        // Al volver a arrancar ya no es un cambio.
+        let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
+        assert_eq!(again.desk_sync().stamp.rev, 4);
+    }
+
     /// Un `tandem.toml` de antes de T-099 (atajo en `[input]`, desplazamiento en el acomodo)
     /// se reescribe en el formato nuevo sin contar como un cambio de nadie.
     #[test]
