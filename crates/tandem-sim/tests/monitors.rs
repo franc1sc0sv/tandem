@@ -9,8 +9,8 @@
 
 use std::time::Duration;
 
-use monitor_ddc::fake::{BusOp, FakeMonitorConfig, Personality, SwitchBehavior, test_edid};
-use monitor_ddc::{Input, VCP_CURSOR, VCP_INPUT};
+use monitor_ddc::fake::{FakeMonitorConfig, Personality, SwitchBehavior, test_edid};
+use monitor_ddc::{Input, VCP_INPUT};
 use tandem_core::{Machine, MonitorInput};
 use tandem_proto::{MonitorEventKind, MonitorView};
 use tandem_sim::{Desk, MonitorSpec, Outcome, SimError};
@@ -165,40 +165,34 @@ async fn when_the_owner_powers_off_the_other_takes_over_with_a_fresh_cursor() {
         .await
         .unwrap();
 
+    // Mientras lee la PC, el usuario cambia dos veces con el menú del monitor. La Mac fue la
+    // dueña antes de que arrancara la PC: si al volver a serlo usara aquel cursor, informaría
+    // también estos dos.
+    sim.fake().osd_switch(sim.handle(STD), Input::Hdmi);
+    sim.fake().osd_switch(sim.handle(STD), Input::DisplayPort);
+    d.wait_monitors(Machine::A, "los cambios leídos por la PC", |v| {
+        view(v, &std)
+            .and_then(|m| m.report.as_ref())
+            .is_some_and(|r| {
+                r.events
+                    .iter()
+                    .filter(|e| e.kind == MonitorEventKind::Input)
+                    .count()
+                    == 2
+            })
+    })
+    .await
+    .unwrap();
+
     // La PC se queda sin corriente: la Mac la da por apagada y el monitor pasa a ella.
-    sim.clear_ops();
     d.pull_plug(Machine::B);
     let views = d
         .wait_monitors(Machine::A, "la Mac dueña", owner_is(&std, Machine::A))
         .await
         .unwrap();
     assert_eq!(view(&views, &std).unwrap().seen_by, [Machine::A]);
-    // Al tomarlo pide un cursor nuevo (lee el anillo y el reloj) antes de leer eventos: nunca
-    // escribe en el cursor del firmware (0xEB) sin haberlo tomado.
-    let ops: Vec<_> = sim
-        .ops_for(sim.handle(STD))
-        .into_iter()
-        .filter(|(m, _)| *m == Machine::A)
-        .map(|(_, op)| op)
-        .collect();
-    let first_cursor_set = ops.iter().position(|op| {
-        matches!(
-            op,
-            BusOp::Set {
-                code: VCP_CURSOR,
-                ..
-            }
-        )
-    });
-    let ring_read = ops
-        .iter()
-        .position(|op| matches!(op, BusOp::Get { code: 0xEA, .. }));
-    assert!(ring_read.is_some(), "{ops:?}");
-    if let Some(set) = first_cursor_set {
-        assert!(ring_read < Some(set), "{ops:?}");
-    }
 
-    // El usuario cambia la entrada con el menú del monitor: la Mac, ahora dueña, lo ve.
+    // Un cambio nuevo con el menú: la Mac, ahora dueña, informa ese y nada de lo anterior.
     sim.fake().osd_switch(sim.handle(STD), Input::Hdmi);
     let views = d
         .wait_monitors(
@@ -208,14 +202,18 @@ async fn when_the_owner_powers_off_the_other_takes_over_with_a_fresh_cursor() {
         )
         .await
         .unwrap();
-    let events = &view(&views, &std).unwrap().report.as_ref().unwrap().events;
+    let report = view(&views, &std).unwrap().report.as_ref().unwrap();
+    let inputs: Vec<_> = report
+        .events
+        .iter()
+        .filter(|e| e.kind == MonitorEventKind::Input)
+        .map(|e| e.input)
+        .collect();
     assert_eq!(
-        events
-            .iter()
-            .filter(|e| e.kind == MonitorEventKind::Input)
-            .count(),
-        1,
-        "solo lo nuevo, nada de lo que leyó la PC: {events:?}"
+        inputs,
+        [Some(MonitorInput::Hdmi)],
+        "cursor nuevo: solo lo de después de tomar el monitor: {:?}",
+        report.events
     );
 
     // Y el cambio desde la Mac lo hace la Mac.

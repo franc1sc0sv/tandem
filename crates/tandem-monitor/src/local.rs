@@ -153,10 +153,16 @@ impl LocalMonitors {
                 }
             };
             // La latencia se mide al abrir el canal y se conserva mientras siga vivo: la
-            // elección del dueño no tiene que oscilar con cada sondeo.
+            // elección del dueño no tiene que oscilar con cada sondeo. El monitor se reconoce
+            // por su id, no por su número: en Windows y macOS cada enumeración da números
+            // nuevos. Con otro número solo se rehace la conexión; el cursor y los eventos siguen.
             let (latency_ms, reader) = match self.entries.remove(&id) {
-                Some(prev) if prev.handle == info.handle && prev.channel.compat == compat => {
-                    (prev.channel.latency_ms, prev.reader)
+                Some(prev) if prev.channel.compat == compat => {
+                    let reader = match prev.reader {
+                        Some(r) if prev.handle != info.handle => self.reconnect(r, &link),
+                        same => same,
+                    };
+                    (prev.channel.latency_ms, reader)
                 }
                 _ => (u32::try_from(took.as_millis()).unwrap_or(u32::MAX), None),
             };
@@ -180,6 +186,19 @@ impl LocalMonitors {
         }
         self.entries = next;
         Ok(self.channels())
+    }
+
+    /// El mismo monitor con otro número: se abre de nuevo (otro sondeo, solo lecturas) y se
+    /// conserva lo leído. Si ya no se puede abrir, se suelta: el próximo `set_owned` lo reintenta
+    /// con un cursor nuevo.
+    fn reconnect(&self, reader: Reader, link: &Link) -> Option<Reader> {
+        match link.clone().open_standard() {
+            Ok(monitor) => Some(Reader { monitor, ..reader }),
+            Err(e) => {
+                tracing::debug!("no se pudo volver a abrir el monitor: {e}");
+                None
+            }
+        }
     }
 
     /// Lee los monitores de `owned` (los compatibles que ve) y suelta los demás.
@@ -652,6 +671,98 @@ mod tests {
             .filter(|e| e.kind == MonitorEventKind::Input)
             .count();
         assert_eq!(inputs, 4, "sin eventos repetidos: {:?}", report.events);
+    }
+
+    /// Como `WindowsBus` y `MacBus`: cada enumeración da números nuevos a los mismos monitores.
+    struct Renumbering {
+        inner: FakeBus,
+        map: std::sync::Mutex<BTreeMap<MonitorHandle, MonitorHandle>>,
+        next: std::sync::atomic::AtomicU64,
+    }
+
+    impl Renumbering {
+        fn new(inner: FakeBus) -> Self {
+            Renumbering {
+                inner,
+                map: std::sync::Mutex::new(BTreeMap::new()),
+                next: std::sync::atomic::AtomicU64::new(1000),
+            }
+        }
+
+        fn real(&self, h: MonitorHandle) -> Result<MonitorHandle, DdcError> {
+            self.map
+                .lock()
+                .unwrap()
+                .get(&h)
+                .copied()
+                .ok_or(DdcError::UnknownMonitor(h))
+        }
+    }
+
+    impl DdcBus for Renumbering {
+        fn monitors(&self) -> Result<Vec<monitor_ddc::MonitorInfo>, DdcError> {
+            let mut map = self.map.lock().unwrap();
+            map.clear();
+            Ok(self
+                .inner
+                .monitors()?
+                .into_iter()
+                .map(|mut m| {
+                    let outer =
+                        MonitorHandle(self.next.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+                    map.insert(outer, m.handle);
+                    m.handle = outer;
+                    m
+                })
+                .collect())
+        }
+        fn get_vcp(&self, h: MonitorHandle, code: u8) -> Result<monitor_ddc::VcpReply, DdcError> {
+            self.inner.get_vcp(self.real(h)?, code)
+        }
+        fn set_vcp(&self, h: MonitorHandle, code: u8, value: u16) -> Result<(), DdcError> {
+            self.inner.set_vcp(self.real(h)?, code, value)
+        }
+        fn capabilities(&self, h: MonitorHandle) -> Result<String, DdcError> {
+            self.inner.capabilities(self.real(h)?)
+        }
+    }
+
+    /// Revisión de #80: en Windows y macOS el número de cada monitor cambia en cada
+    /// enumeración. El sondeo no puede tirar la latencia, el cursor ni los eventos.
+    #[test]
+    fn a_rescan_with_new_handles_keeps_latency_cursor_and_events() {
+        let clock = FakeClock::new();
+        let fake = FakeBus::new(clock.clone());
+        let h = fake.add(FakeMonitorConfig::new(Personality::Standard));
+        let mut local = LocalMonitors::new(
+            Arc::new(Renumbering::new(fake.clone())),
+            Arc::new(clock.clone()),
+            system_wall(),
+            LocalConfig::default(),
+        );
+        local.scan().unwrap();
+        let before = local.channels();
+        let id = before[0].id.clone();
+        local.set_owned(&BTreeSet::from([id.clone()]));
+        local.poll();
+        fake.osd_switch(h, Input::Hdmi);
+        assert_eq!(local.poll()[0].events.len(), 1);
+        fake.osd_switch(h, Input::DisplayPort);
+        // Un reintento en el sondeo: si se volviera a medir, la latencia cambiaría.
+        fake.drop_next(h, 1);
+        assert_eq!(local.scan().unwrap(), before, "misma latencia");
+        local.set_owned(&BTreeSet::from([id.clone()]));
+        let report = local.poll().remove(0);
+        let inputs: Vec<_> = report.events.iter().map(|e| e.input).collect();
+        assert_eq!(
+            inputs,
+            [Some(MonitorInput::Hdmi), Some(MonitorInput::DisplayPort)],
+            "{:?}",
+            report.events
+        );
+        // Y sigue siendo controlable con el número nuevo.
+        local.switch(&id, MonitorInput::Hdmi).unwrap();
+        assert_eq!(fake.screen_input(h), Some(Input::Hdmi));
     }
 
     #[test]

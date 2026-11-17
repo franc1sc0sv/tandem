@@ -29,7 +29,7 @@ fn switch_to_the_other_input_and_come_back() {
         })
         .expect("ningún monitor compatible");
     let id = info.id().expect("sin EDID").to_string();
-    let guard = InputGuard::arm(monitor).expect("no se leyó la entrada real");
+    let guard = InputGuard::arm(monitor, clock.clone()).expect("no se leyó la entrada real");
     let original = guard.original();
     let watchdog = Watchdog::spawn(
         Path::new(env!("CARGO_BIN_EXE_tandem-monitor-guard")),
@@ -48,8 +48,20 @@ fn switch_to_the_other_input_and_come_back() {
         .switch_input(other, Duration::from_secs(12))
         .expect("no se pudo pedir el cambio");
     // Se vuelve pase lo que pase con el veredicto; después se mira.
-    let back = guard.restore().expect("no se pudo volver");
-    watchdog.disarm().expect("el vigilante no terminó");
+    let back = guard.restore();
+    let returned = matches!(
+        back,
+        Ok(Verdict::Confirmed { input: Some(i) }) if i == original
+    );
+    // El vigilante se desarma solo si la vuelta quedó confirmada. Si no, se lo suelta sin
+    // desarmar: vuelve a intentarlo él, y recién después se comprueba.
+    if returned {
+        watchdog.disarm().expect("el vigilante no terminó");
+    } else {
+        let status = watchdog.abandon().expect("el vigilante no terminó");
+        eprintln!("vuelta dentro de la prueba sin confirmar ({back:?}); vigilante: {status:?}");
+    }
+    let back = back.expect("no se pudo volver");
     assert!(
         matches!(verdict, Verdict::Confirmed { .. } | Verdict::Failed { .. }),
         "sin veredicto: {verdict:?}"

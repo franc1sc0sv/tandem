@@ -41,6 +41,9 @@ pub const PEER_LOST: &str = "se perdió la conexión con el otro agente";
 pub const BUSY_HERE: &str = "esta máquina está en medio de otro cambio";
 /// Un monitor que ninguna máquina puede controlar ahora.
 pub const NO_OWNER: &str = "ninguna máquina tiene canal con el monitor";
+/// Todavía no se sabe qué entrada muestra el monitor (falta la primera lectura del dueño).
+pub const UNKNOWN_INPUT: &str =
+    "todavía no se sabe qué entrada muestra; sin eso no se podría volver atrás";
 
 /// Los monitores del puesto, vistos desde el orquestador ([`crate::monitors::MonitorHub`]).
 pub trait MonitorControl: Send + Sync {
@@ -521,16 +524,24 @@ struct Dispatcher<'a> {
 }
 
 impl Dispatcher<'_> {
-    /// El paso que deja el monitor como estaba antes de `step`, si se sabe cómo estaba.
-    fn inverse(&self, step: &Step) -> Option<Step> {
+    /// El paso que deja el monitor como estaba antes de `step` (`None` si no hay nada que
+    /// deshacer). Un cambio de entrada sin saber la de antes no tendría a dónde volver si se
+    /// queda sin veredicto: se rechaza sin tocar el monitor.
+    fn inverse(&self, step: &Step) -> Result<Option<Step>, String> {
         let Step::SwitchMonitor { monitor, input } = step else {
-            return None;
+            return Ok(None);
         };
-        let before = self.orch.monitors()?.input(monitor)?;
-        (before != *input).then(|| Step::SwitchMonitor {
+        // Sin monitores, el paso falla solo por no tener dueño ([`NO_OWNER`]).
+        let Some(monitors) = self.orch.monitors() else {
+            return Ok(None);
+        };
+        let before = monitors
+            .input(monitor)
+            .ok_or_else(|| format!("{}: {UNKNOWN_INPUT}", describe(step)))?;
+        Ok((before != *input).then(|| Step::SwitchMonitor {
             monitor: monitor.clone(),
             input: before,
-        })
+        }))
     }
 
     async fn roll_back(&self, inverse: &Step) -> Result<(), String> {
@@ -543,7 +554,18 @@ impl Executor for Dispatcher<'_> {
     async fn execute(&mut self, step: &Step) -> Result<(), String> {
         let (txn, index) = (self.txn, self.next);
         self.orch.emit(TxnEvent::StepStarted { txn, index });
-        let inverse = self.inverse(step);
+        let inverse = match self.inverse(step) {
+            Ok(inverse) => inverse,
+            Err(error) => {
+                tracing::warn!(txn, index, "{error}");
+                self.orch.emit(TxnEvent::StepFailed {
+                    txn,
+                    index,
+                    error: error.clone(),
+                });
+                return Err(error);
+            }
+        };
         match self.orch.attempt(step).await {
             Ok(()) => {
                 if let Some(inverse) = inverse {
@@ -1011,7 +1033,7 @@ pub(crate) mod tests {
     /// Monitores de prueba: un dueño fijo, una entrada y lo que contesta cada cambio.
     struct FakeMonitors {
         owner: Option<Machine>,
-        input: MonitorInput,
+        input: Option<MonitorInput>,
         answer: Mutex<Vec<Result<(), String>>>,
         switched: Mutex<Vec<MonitorInput>>,
     }
@@ -1020,7 +1042,7 @@ pub(crate) mod tests {
         fn new(owner: Option<Machine>, answers: Vec<Result<(), String>>) -> Arc<Self> {
             Arc::new(FakeMonitors {
                 owner,
-                input: MonitorInput::DisplayPort,
+                input: Some(MonitorInput::DisplayPort),
                 answer: Mutex::new(answers),
                 switched: Mutex::new(Vec::new()),
             })
@@ -1036,7 +1058,7 @@ pub(crate) mod tests {
             self.owner
         }
         fn input(&self, _monitor: &str) -> Option<MonitorInput> {
-            Some(self.input)
+            self.input
         }
         fn switch<'a>(&'a self, _monitor: &'a str, input: MonitorInput) -> StepFuture<'a> {
             self.switched.lock().unwrap().push(input);
@@ -1104,6 +1126,25 @@ pub(crate) mod tests {
             m.switched(),
             [MonitorInput::Hdmi, MonitorInput::DisplayPort]
         );
+    }
+
+    /// Revisión de #80: sin saber la entrada de antes, un cambio sin veredicto no tendría a
+    /// dónde volver. Se rechaza antes de tocar el monitor.
+    #[tokio::test]
+    async fn a_switch_with_an_unknown_input_is_refused() {
+        let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
+        let m = Arc::new(FakeMonitors {
+            owner: Some(Machine::A),
+            input: None,
+            answer: Mutex::new(Vec::new()),
+            switched: Mutex::new(Vec::new()),
+        });
+        o.set_monitors(m.clone());
+        let mut state = both_on();
+        let plan = Plan::switch_monitor("m", MonitorInput::Hdmi);
+        let TxnError::Failed { error, .. } = o.run(1, &mut state, &plan).await.unwrap_err();
+        assert!(error.contains(UNKNOWN_INPUT), "{error}");
+        assert!(m.switched().is_empty());
     }
 
     #[tokio::test]
