@@ -342,4 +342,23 @@ mod tests {
         assert_eq!(state(c, ModuleId::Clipboard), ModuleState::Off);
         assert_eq!(state(c, ModuleId::Input), ModuleState::Active);
     }
+
+    /// Hallazgo de la revisión del PR #72: un cambio dentro de la ventana, con un enlace que
+    /// apareció mientras tanto, se mandaba al par de cuando se abrió la ventana (ninguno).
+    #[tokio::test(start_paused = true)]
+    async fn a_change_in_the_window_reaches_a_peer_that_connected_meanwhile() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent_on(dir.path(), Os::Windows));
+        a.set_module(ModuleId::Clipboard, false).unwrap(); // abre la ventana sin par
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let peer = Arc::new(Recorder::default());
+        a.set_peer(peer.clone());
+        peer.taken();
+        a.set_module(ModuleId::Input, false).unwrap(); // dentro de la ventana
+        tokio::time::sleep(capabilities::ANNOUNCE_DEBOUNCE * 2).await;
+        assert_eq!(
+            peer.taken(),
+            [ControlMsg::Capabilities(Box::new(a.capabilities().here))]
+        );
+    }
 }

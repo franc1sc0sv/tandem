@@ -552,8 +552,8 @@ impl Agent {
         if changed {
             let peer = self.orch.peer();
             let caps = self.caps.subscribe();
-            // Si el enlace cambia mientras tanto, el nuevo ya recibe el anuncio al
-            // conectarse ([`Agent::set_peer`]).
+            // Cada pedido lleva el enlace de ahora y vale el último de la ventana; si el enlace
+            // cambia sin otro cambio, el nuevo ya recibió el anuncio ([`Agent::set_peer`]).
             self.announce.schedule(move || {
                 let here = caps.borrow().here.clone();
                 peer.send(ControlMsg::Capabilities(Box::new(here)));

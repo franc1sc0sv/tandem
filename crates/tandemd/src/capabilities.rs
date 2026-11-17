@@ -9,8 +9,8 @@
 //! apagarse solo. Eso vive aquí, en una función por capacidad que pregunta por el [`Os`]
 //! (nunca por el lado, DECISIONS D2), y el resto del agente pregunta por la capacidad.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use tandem_core::{Abilities, Machine, MachineInfo, Os};
@@ -92,12 +92,25 @@ pub fn local(
 }
 
 /// Junta en un solo envío lo que pasa dentro de una ventana: el primer cambio la abre y al
-/// cerrarse se manda lo último. Así hay como mucho un anuncio por ventana y ninguno se
+/// cerrarse corre el último pedido. Así hay como mucho un anuncio por ventana y ninguno se
 /// retrasa más que la ventana.
-#[derive(Debug)]
 pub struct Debounce {
     window: Duration,
     pending: Arc<AtomicBool>,
+    /// El último pedido de la ventana abierta: lleva lo que valía al pedirlo (por ejemplo,
+    /// el enlace con la otra máquina), que puede no ser lo de cuando se abrió.
+    last: Arc<Mutex<Option<Fire>>>,
+}
+
+type Fire = Box<dyn FnOnce() + Send>;
+
+impl std::fmt::Debug for Debounce {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Debounce")
+            .field("window", &self.window)
+            .field("pending", &self.pending)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Debounce {
@@ -105,25 +118,31 @@ impl Debounce {
         Debounce {
             window,
             pending: Arc::new(AtomicBool::new(false)),
+            last: Arc::new(Mutex::new(None)),
         }
     }
 
-    /// Corre `fire` al cerrar la ventana, salvo que ya haya una abierta: esa leerá lo
-    /// último. Fuera de un runtime de tokio (nada que espere) corre enseguida.
+    /// Corre `fire` al cerrar la ventana, en lugar de lo pedido antes en la misma. Fuera de
+    /// un runtime de tokio (nada que espere) corre enseguida.
     pub fn schedule(&self, fire: impl FnOnce() + Send + 'static) {
         let Ok(rt) = tokio::runtime::Handle::try_current() else {
             fire();
             return;
         };
+        *self.last.lock().unwrap_or_else(PoisonError::into_inner) = Some(Box::new(fire));
         if self.pending.swap(true, Ordering::SeqCst) {
             return;
         }
-        let (pending, window) = (self.pending.clone(), self.window);
+        let (pending, last, window) = (self.pending.clone(), self.last.clone(), self.window);
         rt.spawn(async move {
             tokio::time::sleep(window).await;
-            // Antes de leer: un cambio que llegue después abre otra ventana.
+            // Primero se cierra la ventana y después se toma el pedido: uno que llegue entre
+            // medio abre otra ventana, y si este ya lo corrió, esa no encuentra nada.
             pending.store(false, Ordering::SeqCst);
-            fire();
+            let fire = last.lock().unwrap_or_else(PoisonError::into_inner).take();
+            if let Some(fire) = fire {
+                fire();
+            }
         });
     }
 }
@@ -292,6 +311,20 @@ mod tests {
         schedule(&d);
         tokio::time::sleep(ANNOUNCE_DEBOUNCE + Duration::from_millis(1)).await;
         assert_eq!(count.load(Ordering::SeqCst), 2);
+    }
+
+    /// Al cerrarse la ventana corre el último pedido, no el que la abrió.
+    #[tokio::test(start_paused = true)]
+    async fn the_window_runs_the_last_request() {
+        let d = Debounce::new(ANNOUNCE_DEBOUNCE);
+        let ran = Arc::new(Mutex::new(Vec::new()));
+        for i in 0..3 {
+            let ran = ran.clone();
+            d.schedule(move || ran.lock().unwrap().push(i));
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        tokio::time::sleep(ANNOUNCE_DEBOUNCE).await;
+        assert_eq!(*ran.lock().unwrap(), [2]);
     }
 
     #[test]
