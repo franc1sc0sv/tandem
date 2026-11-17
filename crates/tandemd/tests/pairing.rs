@@ -613,6 +613,10 @@ async fn pair_two_fresh_agents(x: u8, y: u8) {
     for r in [&mac, &pc] {
         let saved = AgentConfig::load(&r.paths.config).unwrap();
         assert_eq!(saved.machine, r.agent.machine());
+        // Revisión del PR #68: dos instalaciones nuevas siguen con A a la izquierda de B
+        // aunque una cambió de lado.
+        assert_eq!(r.agent.desk().arrangement.a_side, tandem_core::Side::Left);
+        assert_eq!(saved.desk.arrangement.a_side, tandem_core::Side::Left);
     }
 
     assert_eq!(pc.ask(UiCommand::Unpair).await, Reply::Done);

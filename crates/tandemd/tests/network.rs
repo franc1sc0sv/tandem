@@ -128,7 +128,13 @@ async fn start(
     let text = format!("machine = \"{machine}\"\n{network}\n{WOL}");
     // En el disco, como en el binario: lo que se cambia desde la UI se guarda ahí.
     std::fs::write(&paths.config, &text).unwrap();
-    let cfg = AgentConfig::from_toml(&text).unwrap();
+    let mut cfg = AgentConfig::from_toml(&text).unwrap();
+    // A es una Mac y B una PC en estas pruebas: lo que puede cada una sale de su sistema, no
+    // del de la máquina que corre la prueba (en macOS ninguna se apagaría sola).
+    cfg.os = match machine {
+        Machine::A => tandem_core::Os::MacOs,
+        Machine::B => tandem_core::Os::Windows,
+    };
     let steps = Arc::new(Fake::default());
     let Daemon {
         agent,

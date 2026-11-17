@@ -108,7 +108,7 @@ pub fn with_sides(
             input.remove("keyboard");
         }
     }
-    with_desk(&doc.to_string(), sync)
+    with_desk(&doc.to_string(), machine, sync)
 }
 
 /// Lo mismo sobre el archivo.
@@ -131,8 +131,10 @@ pub fn set_keyboard(path: &Path, machine: Machine) -> Result<(), ConfigEditError
 /// final y se quitan los que ya no están), `[machines]`, `[arrangement]`,
 /// `[input] lock_shortcut`, `desk_rev`, `desk_origin` y `desk_sum`. Lo solo-local (máquina, red, energía, el resto
 /// de `[input]`) no se toca. Los `[[monitors]]` de v0.1 se borran.
-pub fn with_desk(text: &str, sync: &DeskSync) -> Result<String, ConfigEditError> {
+pub fn with_desk(text: &str, machine: Machine, sync: &DeskSync) -> Result<String, ConfigEditError> {
     let mut doc = parse(text)?;
+    // El lado va siempre con el puesto: sus pantallas están etiquetadas desde él.
+    doc["machine"] = toml_edit::value(machine.as_str());
     doc.remove("monitors");
     let mut old: Vec<Table> = match doc.remove("screens") {
         Some(Item::ArrayOfTables(screens)) => screens.into_iter().collect(),
@@ -145,6 +147,7 @@ pub fn with_desk(text: &str, sync: &DeskSync) -> Result<String, ConfigEditError>
             .collect(),
         _ => Vec::new(),
     };
+    let first = old.iter().filter_map(Table::position).min();
     let mut screens = ArrayOfTables::new();
     for s in &sync.desk.screens {
         let at = old.iter().position(|t| {
@@ -152,6 +155,11 @@ pub fn with_desk(text: &str, sync: &DeskSync) -> Result<String, ConfigEditError>
                 && t.get("machine").and_then(Item::as_str) == Some(s.machine.as_str())
         });
         let mut table = at.map(|i| old.remove(i)).unwrap_or_default();
+        // Todas en el lugar de la primera de antes: toml_edit ordena las tablas por su
+        // posición (de forma estable), y con la de cada una, una reutilizada quedaría antes
+        // que las nuevas aunque el puesto diga otro orden (y la huella del archivo ya no
+        // sería la del puesto).
+        table.set_position(first);
         fill_screen(&mut table, s);
         screens.push(table);
     }
@@ -189,8 +197,8 @@ pub fn with_desk(text: &str, sync: &DeskSync) -> Result<String, ConfigEditError>
 }
 
 /// Lo mismo sobre el archivo.
-pub fn set_desk(path: &Path, sync: &DeskSync) -> Result<(), ConfigEditError> {
-    rewrite(path, |text| with_desk(text, sync))
+pub fn set_desk(path: &Path, machine: Machine, sync: &DeskSync) -> Result<(), ConfigEditError> {
+    rewrite(path, |text| with_desk(text, machine, sync))
 }
 
 /// `[machines.a]` y `[machines.b]`; sin datos de ningún lado, sin la tabla.
@@ -251,18 +259,29 @@ fn fill_screen(t: &mut Table, s: &ScreenSpec) {
     t.insert("scale", toml_edit::value(s.scale.as_f64()));
 }
 
+/// Una escritura de `tandem.toml` a la vez: cada cambio lee, cambia y escribe, y dos a la
+/// vez (cambiar de lado mientras llega el puesto o el teclado) se pisarían.
+static REWRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Lee, cambia y escribe aparte + renombra: un error deja el archivo como estaba.
 fn rewrite(
     path: &Path,
     change: impl FnOnce(&str) -> Result<String, ConfigEditError>,
 ) -> Result<(), ConfigEditError> {
+    let _one_at_a_time = REWRITING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let shown = path.display().to_string();
     let text = std::fs::read_to_string(path).map_err(|source| ConfigEditError::Read {
         path: shown.clone(),
         source,
     })?;
     let out = change(&text)?;
-    let tmp = path.with_extension("toml.tmp");
+    // Un temporal por escritura: dos procesos (o dos agentes de una prueba) no comparten
+    // nombre aunque escriban archivos vecinos.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = path.with_extension(format!("toml.{}.{n}.tmp", std::process::id()));
     std::fs::write(&tmp, out)
         .and_then(|()| std::fs::rename(&tmp, path))
         .map_err(|source| ConfigEditError::Write {
@@ -329,7 +348,7 @@ scale = 2.0
             offset: 120,
         };
         sync.lock_shortcut = vec!["ControlLeft".into(), "KeyL".into()];
-        let out = with_desk(PC, &sync).unwrap();
+        let out = with_desk(PC, Machine::B, &sync).unwrap();
         assert!(out.starts_with("# La PC.\n"), "{out}");
         // El comentario del 34" sigue: se actualizó en su lugar.
         assert!(out.contains("# El 34\", medido a mano."), "{out}");
@@ -348,7 +367,7 @@ scale = 2.0
             ))
         );
         // Y otra vez no cambia nada.
-        assert_eq!(with_desk(&out, &sync).unwrap(), out);
+        assert_eq!(with_desk(&out, Machine::B, &sync).unwrap(), out);
     }
 
     #[test]
@@ -360,7 +379,7 @@ scale = 2.0
             desk: Config::default(),
             lock_shortcut: vec![],
         };
-        let out = with_desk(old, &sync).unwrap();
+        let out = with_desk(old, Machine::B, &sync).unwrap();
         assert!(!out.contains("monitors"), "{out}");
         let cfg = AgentConfig::from_toml(&out).unwrap();
         assert!(cfg.warnings().is_empty());
@@ -388,7 +407,7 @@ scale = 2.0
     fn a_desk_without_screens_is_still_valid() {
         let mut sync = sync_of(PC, 1);
         sync.desk.screens.clear();
-        let out = with_desk(PC, &sync).unwrap();
+        let out = with_desk(PC, Machine::B, &sync).unwrap();
         assert!(
             AgentConfig::from_toml(&out)
                 .unwrap()
@@ -396,7 +415,7 @@ scale = 2.0
                 .screens
                 .is_empty()
         );
-        let back = with_desk(&out, &sync_of(PC, 2)).unwrap();
+        let back = with_desk(&out, Machine::B, &sync_of(PC, 2)).unwrap();
         assert_eq!(AgentConfig::from_toml(&back).unwrap().desk.screens.len(), 2);
     }
 
@@ -415,12 +434,16 @@ scale = 2.0
         let mut sync = sync_of(PC, 2);
         sync.desk.screens.push(sync.desk.screens[0].clone());
         assert!(matches!(
-            set_desk(&path, &sync),
+            set_desk(&path, Machine::B, &sync),
             Err(ConfigEditError::Invalid(_))
         ));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), PC);
         assert!(matches!(
-            set_desk(&dir.path().join("no-existe.toml"), &sync_of(PC, 2)),
+            set_desk(
+                &dir.path().join("no-existe.toml"),
+                Machine::B,
+                &sync_of(PC, 2)
+            ),
             Err(ConfigEditError::Read { .. })
         ));
     }
@@ -433,13 +456,13 @@ scale = 2.0
             tandem_core::Os::MacOs,
             Some("MacBook".into()),
         ));
-        let out = with_desk(PC, &sync).unwrap();
+        let out = with_desk(PC, Machine::B, &sync).unwrap();
         assert!(out.contains("[machines.a]"), "{out}");
         assert!(!out.contains("[machines]\n"), "sin cabecera vacía: {out}");
         let cfg = AgentConfig::from_toml(&out).unwrap();
         assert_eq!(cfg.desk.machines, sync.desk.machines);
         sync.desk.machines.a = None;
-        let out = with_desk(&out, &sync).unwrap();
+        let out = with_desk(&out, Machine::B, &sync).unwrap();
         assert!(!out.contains("machines"), "{out}");
     }
 
@@ -487,6 +510,37 @@ scale = 2.0
                 !line.contains("\"mac\"") && !line.contains("\"pc\"") && !line.contains("mac_side"),
                 "{line}"
             );
+        }
+    }
+
+    /// Hallazgo del CI de Windows (PR #68): dos cambios del archivo a la vez (cambiar de lado
+    /// y guardar el teclado) leían el mismo texto y el segundo pisaba al primero.
+    #[test]
+    fn concurrent_changes_do_not_lose_each_other() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tandem.toml");
+        for i in 0..40 {
+            std::fs::write(&path, "machine = \"a\"\n").unwrap();
+            let cfg = AgentConfig::load(&path).unwrap().with_side(Machine::B);
+            let sync = DeskSync {
+                rev: 1,
+                origin: Machine::B,
+                desk: cfg.desk.clone(),
+                lock_shortcut: cfg.input.lock_shortcut.clone(),
+            };
+            let barrier = std::sync::Barrier::new(2);
+            std::thread::scope(|s| {
+                s.spawn(|| {
+                    barrier.wait();
+                    set_sides(&path, Machine::B, None, &sync).unwrap();
+                });
+                s.spawn(|| {
+                    barrier.wait();
+                    set_keyboard(&path, Machine::A).unwrap();
+                });
+            });
+            let saved = AgentConfig::load(&path).unwrap();
+            assert_eq!(saved.machine, Machine::B, "vuelta {i}");
         }
     }
 }

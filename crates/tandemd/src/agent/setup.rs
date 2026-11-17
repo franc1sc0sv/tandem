@@ -99,6 +99,7 @@ impl Agent {
     }
 
     fn declare_keyboard(&self, machine: Machine) {
+        let editing = self.edit();
         if let Some(path) = self.config_path()
             && let Err(e) = crate::config_edit::set_keyboard(&path, machine)
         {
@@ -108,6 +109,7 @@ impl Agent {
             );
         }
         self.keyboard.send_replace(Some(machine));
+        drop(editing);
         // Con motor de entrada, su tarea de estado escucha la declaración y publica el
         // estado; sin él (pruebas, backends simulados) se actualiza aquí.
         if !self.input_engine.load(std::sync::atomic::Ordering::Acquire) {

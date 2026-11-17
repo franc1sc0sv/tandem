@@ -215,7 +215,7 @@ async fn search(ctx: &Ctx) -> Result<Found, String> {
     let lan = discovery.as_ref().map(MdnsDiscovery::peer_addrs);
     tokio::select! {
         found = wait(ctx, &endpoint) => found,
-        found = look(ctx, &endpoint, lan) => found,
+        found = look(ctx, &endpoint, lan, port) => found,
     }
 }
 
@@ -255,10 +255,11 @@ async fn look(
     ctx: &Ctx,
     endpoint: &Endpoint,
     lan: Option<tokio::sync::watch::Receiver<Vec<SocketAddr>>>,
+    own: u16,
 ) -> Result<Found, String> {
     loop {
         let discovered = lan.as_ref().map(|l| l.borrow().clone()).unwrap_or_default();
-        for addr in candidates(ctx, &discovered) {
+        for addr in candidates(ctx, &discovered, own) {
             let conn = match tokio::time::timeout(CONNECT_ATTEMPT, endpoint.connect(addr)).await {
                 Ok(Ok(conn)) => conn,
                 Ok(Err(e)) => {
@@ -293,10 +294,13 @@ async fn look(
 /// Dónde buscar a la otra: la IP de cada enlace fijo con su puerto de emparejamiento (el
 /// siguiente al de su agente, y el que dice la config de esta) y lo que anuncie por mDNS,
 /// sin repetir.
-fn candidates(ctx: &Ctx, discovered: &[SocketAddr]) -> Vec<SocketAddr> {
+fn candidates(ctx: &Ctx, discovered: &[SocketAddr], own: u16) -> Vec<SocketAddr> {
     let net = &ctx.agent.config().network;
     let mine = net.pairing_port();
     let mut seen = BTreeSet::new();
+    // El propio puerto de emparejamiento en loopback sería esta misma máquina: llamarse a sí
+    // misma no sirve y en Windows enreda el endpoint.
+    let itself = |a: &SocketAddr| a.ip().is_loopback() && a.port() == own;
     net.peers
         .iter()
         .flat_map(|l| {
@@ -307,7 +311,7 @@ fn candidates(ctx: &Ctx, discovered: &[SocketAddr]) -> Vec<SocketAddr> {
             ]
         })
         .chain(discovered.iter().copied())
-        .filter(|a| seen.insert(*a))
+        .filter(|a| !itself(a) && seen.insert(*a))
         .collect()
 }
 
@@ -495,6 +499,15 @@ pub async fn compare(
             }
         }
     }
+    // El lado, antes de confiar en la otra: hasta que se guarda la confianza el endpoint
+    // normal no la acepta, así que nada suyo (su puesto, con los lados ya buenos) llega
+    // antes del cambio de lados y se da vuelta dos veces.
+    if let Some(side) = Machine::of_keys(
+        ctx.identity.public_key().as_bytes(),
+        pairing.remote().public_key.as_bytes(),
+    ) {
+        ctx.agent.adopt_side(side);
+    }
     let saved = {
         let mut trust = ctx.trust.write().unwrap_or_else(|e| e.into_inner());
         pairing.complete(&mut trust)
@@ -602,7 +615,7 @@ mod tests {
         .unwrap();
         c.agent = Arc::new(Agent::new(cfg, StateStore::new(dir.path().join("s.json"))));
         let lan: SocketAddr = "192.168.1.20:47771".parse().unwrap();
-        let got = candidates(&c, &[lan, "10.77.1.2:47771".parse().unwrap()]);
+        let got = candidates(&c, &[lan, "10.77.1.2:47771".parse().unwrap()], 47771);
         assert_eq!(
             got,
             [
@@ -831,5 +844,21 @@ mod tests {
                 .unwrap()
                 .is_trusted(&mac.identity.public_key())
         );
+    }
+
+    /// En loopback (las pruebas, dos agentes en la misma máquina) el propio puerto de
+    /// emparejamiento no es un candidato: sería llamarse a sí misma.
+    #[test]
+    fn this_machine_never_dials_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut c = ctx(Machine::A, 1, dir.path());
+        let cfg = AgentConfig::from_toml(
+            "machine = \"a\"\n[network]\nport = 40000\npairing_port = 40001\n\
+             peers = [{ kind = \"usb4\", addr = \"127.0.0.1:41000\" }]\n",
+        )
+        .unwrap();
+        c.agent = Arc::new(Agent::new(cfg, StateStore::new(dir.path().join("s.json"))));
+        let got = candidates(&c, &["127.0.0.1:40001".parse().unwrap()], 40001);
+        assert_eq!(got, ["127.0.0.1:41001".parse::<SocketAddr>().unwrap()]);
     }
 }

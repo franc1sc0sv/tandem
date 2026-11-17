@@ -793,9 +793,15 @@ impl Runner {
         }
     }
 
+    /// Lo que puede cada máquina. El lado de esta sale de aquí también: el agente cambia de
+    /// lado al emparejar ([`tandemd::Agent::adopt_side`]) y lo anuncia en sus capacidades;
+    /// el `Hello` de la conexión solo dice el de cuando se conectó.
     fn update_caps(&self, new: CapsView) {
         self.update(|c| match c {
-            Snapshot::Connected { caps, .. } if **caps != new => {
+            Snapshot::Connected { caps, agent, .. }
+                if **caps != new || *agent != new.here.machine =>
+            {
+                *agent = new.here.machine;
                 **caps = new;
                 true
             }
@@ -1012,6 +1018,48 @@ mac = "9c:6b:00:1a:2b:ff"
         let v = serde_json::to_value(&got).unwrap();
         assert_eq!(v["kind"], "setup");
         assert_eq!(v["setup"]["generated"], true);
+    }
+
+    /// Revisión del PR #68: si el agente cambia de lado (al emparejar), la UI conectada lo
+    /// sigue; si no, la bandeja diría el estado de esta misma máquina como si fuera la otra.
+    #[tokio::test]
+    async fn the_snapshot_follows_a_change_of_side() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+        assert!(matches!(
+            handle.snapshot(),
+            Snapshot::Connected {
+                agent: Machine::A,
+                ..
+            }
+        ));
+
+        a.agent.adopt_side(Machine::B);
+        rec.until(|snaps, _| {
+            matches!(
+                snaps.last(),
+                Some(Snapshot::Connected {
+                    agent: Machine::B,
+                    ..
+                })
+            )
+        })
+        .await;
+        let Snapshot::Connected {
+            agent, caps, state, ..
+        } = handle.snapshot()
+        else {
+            panic!("se esperaba conectado");
+        };
+        assert_eq!(agent, Machine::B);
+        assert_eq!(caps.here.machine, Machine::B);
+        assert!(
+            state.is_on(Machine::B),
+            "esta máquina, con su lado nuevo, prendida"
+        );
     }
 
     #[tokio::test]
