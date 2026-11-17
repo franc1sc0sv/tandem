@@ -14,21 +14,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::DataPrefs;
 use crate::model::{Arrangement, ConfigError, Desk, Machine, ScreenSpec};
+use crate::scene::{Scene, rename_machine, scene_id};
 
 /// Cuántas versiones guarda el historial (DESIGN §4.4).
 pub const HISTORY_LEN: usize = 20;
 
 /// Largo máximo del nombre de una máquina, en caracteres.
 pub const MAX_NAME: usize = 40;
-
-/// Una escena (D6). Por ahora solo su nombre; lo que muestra cada monitor y el acomodo
-/// llegan con T-100.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
-#[serde(deny_unknown_fields)]
-pub struct Scene {
-    pub id: String,
-    pub name: String,
-}
 
 /// Los atajos del puesto. Las teclas van con los nombres de `KeyboardEvent.code`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
@@ -139,7 +131,15 @@ pub enum DeskPatch {
         machine: Machine,
         screens: Vec<ScreenSpec>,
     },
+    /// Todas las escenas (para reordenarlas).
     Scenes(Vec<Scene>),
+    /// Una escena nueva, al final. Sin id, se le da uno a partir del nombre.
+    AddScene(Scene),
+    /// Reemplaza la escena con el mismo id.
+    EditScene(Scene),
+    DeleteScene {
+        id: String,
+    },
     Shortcuts(Shortcuts),
     Prefs(InputPrefs),
     /// El tope de los datos por Wi-Fi (`[data]`, T-101).
@@ -162,6 +162,8 @@ pub enum PatchError {
     BadColor(String),
     #[error("ese color ya es el de {0}")]
     ColorTaken(String),
+    #[error("la escena `{0}` no existe")]
+    UnknownScene(String),
     #[error("{0}")]
     Invalid(String),
 }
@@ -196,7 +198,8 @@ impl Desk {
                     if name.is_empty() || name.chars().count() > MAX_NAME {
                         return Err(PatchError::BadName);
                     }
-                    info.name = name.to_owned();
+                    let old = std::mem::replace(&mut info.name, name.to_owned());
+                    rename_machine(&mut self.scenes, side, &old, name);
                 }
                 if let Some(color) = color {
                     let color = color.trim().to_ascii_lowercase();
@@ -233,6 +236,28 @@ impl Desk {
                 self.screens.splice(before..before, mine);
             }
             DeskPatch::Scenes(scenes) => self.scenes = scenes,
+            DeskPatch::AddScene(mut scene) => {
+                if scene.id.trim().is_empty() {
+                    let taken: Vec<&str> = self.scenes.iter().map(|s| s.id.as_str()).collect();
+                    scene.id = scene_id(&scene.name, &taken);
+                }
+                self.scenes.push(scene);
+            }
+            DeskPatch::EditScene(scene) => {
+                let at = self
+                    .scenes
+                    .iter()
+                    .position(|s| s.id == scene.id)
+                    .ok_or_else(|| PatchError::UnknownScene(scene.id.clone()))?;
+                self.scenes[at] = scene;
+            }
+            DeskPatch::DeleteScene { id } => {
+                let before = self.scenes.len();
+                self.scenes.retain(|s| s.id != id);
+                if self.scenes.len() == before {
+                    return Err(PatchError::UnknownScene(id));
+                }
+            }
             DeskPatch::Shortcuts(shortcuts) => self.shortcuts = shortcuts,
             DeskPatch::Prefs(prefs) => self.prefs = prefs,
             DeskPatch::Data(data) => self.data = data,
@@ -247,8 +272,10 @@ impl Desk {
 
     /// Qué secciones cambian de `self` a `new`, para el aviso «Cambiado desde X» de la UI.
     /// `None` si no cambia nada que haya hecho una persona: anotar una máquina recién
-    /// conocida (o su sistema) lo hace el agente solo.
+    /// conocida (o su sistema) lo hace el agente solo, y también poner las escenas por
+    /// omisión al emparejar.
     pub fn summary_of_changes(&self, new: &Desk) -> Option<String> {
+        let defaults = self.scenes.is_empty() && crate::scene::are_defaults(&new.scenes, new);
         let machines =
             Machine::ALL
                 .iter()
@@ -261,7 +288,7 @@ impl Desk {
             (machines, "máquinas"),
             (self.arrangement != new.arrangement, "acomodo"),
             (self.screens != new.screens, "pantallas"),
-            (self.scenes != new.scenes, "escenas"),
+            (self.scenes != new.scenes && !defaults, "escenas"),
             (self.shortcuts != new.shortcuts, "atajos"),
             (self.prefs != new.prefs, "teclado y mouse"),
             (self.modules != new.modules, "módulos"),
@@ -685,11 +712,8 @@ mod tests {
             align: Align::Start,
         };
         d.apply(DeskPatch::Arrangement(Some(arr))).unwrap();
-        d.apply(DeskPatch::Scenes(vec![Scene {
-            id: "t".into(),
-            name: "Trabajo".into(),
-        }]))
-        .unwrap();
+        d.apply(DeskPatch::Scenes(vec![Scene::new("t", "Trabajo")]))
+            .unwrap();
         d.apply(DeskPatch::Shortcuts(Shortcuts { lock: vec![] }))
             .unwrap();
         d.apply(DeskPatch::Module {
@@ -703,11 +727,8 @@ mod tests {
         assert!(d.shortcuts.lock.is_empty());
         assert_eq!(d.modules.get(Machine::B, "clipboard"), Some(false));
         assert!(
-            d.apply(DeskPatch::Scenes(vec![Scene {
-                id: "".into(),
-                name: "x".into()
-            }]))
-            .is_err()
+            d.apply(DeskPatch::Scenes(vec![Scene::new("", "x")]))
+                .is_err()
         );
     }
 
@@ -716,6 +737,12 @@ mod tests {
         let old = known();
         let mut new = old.clone();
         assert_eq!(old.summary_of_changes(&new), None);
+        // Las escenas por omisión las pone el agente al emparejar; otras, una persona.
+        new.scenes = crate::default_scenes(&new.machines, None);
+        assert_eq!(old.summary_of_changes(&new), None);
+        new.scenes.pop();
+        assert_eq!(old.summary_of_changes(&new).as_deref(), Some("Escenas"));
+        new.scenes.clear();
         new.arrangement = Some(Arrangement::default());
         assert_eq!(old.summary_of_changes(&new).as_deref(), Some("Acomodo"));
         new.prefs.drag_files = false;
@@ -751,10 +778,7 @@ mod tests {
         let mut h = DeskHistory::new(v(0, 0, Machine::A, Desk::default()));
         for rev in 1..=25u64 {
             let mut d = Desk::default();
-            d.scenes.push(Scene {
-                id: format!("s{rev}"),
-                name: "x".into(),
-            });
+            d.scenes.push(Scene::new(format!("s{rev}"), "x"));
             h.record(v(rev, rev, Machine::A, d));
         }
         assert_eq!(h.len(), HISTORY_LEN);
@@ -803,5 +827,90 @@ mod tests {
         let only = h.versions().next().unwrap();
         assert_eq!(only.stamp.by, Machine::B);
         assert_eq!(only.desk, d.swap_sides());
+    }
+
+    #[test]
+    fn scenes_are_created_edited_and_deleted_by_patches() {
+        let mut d = known();
+        d.scenes = crate::default_scenes(&d.machines, None);
+        // Sin id, sale del nombre y no choca con los que hay.
+        let mut juego = Scene::new("", "Juego");
+        juego.shortcut = vec!["ControlLeft".into(), "AltLeft".into(), "Digit4".into()];
+        d.apply(DeskPatch::AddScene(juego.clone())).unwrap();
+        d.apply(DeskPatch::AddScene(Scene::new("", "Juego")))
+            .unwrap();
+        let ids: Vec<&str> = d.scenes.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["trabajo", "solo-a", "solo-b", "juego", "juego-2"]);
+        // Un id que ya existe no se agrega dos veces.
+        assert!(
+            d.apply(DeskPatch::AddScene(Scene::new("juego", "Otro")))
+                .is_err()
+        );
+
+        let mut edited = d.scenes[3].clone();
+        edited.monitors = vec![("m34".into(), Machine::B)];
+        edited.icon = "play".into();
+        d.apply(DeskPatch::EditScene(edited.clone())).unwrap();
+        assert_eq!(d.scenes[3], edited);
+        assert_eq!(
+            d.apply(DeskPatch::EditScene(Scene::new("nada", "Nada"))),
+            Err(PatchError::UnknownScene("nada".into()))
+        );
+
+        d.apply(DeskPatch::DeleteScene {
+            id: "juego-2".into(),
+        })
+        .unwrap();
+        assert_eq!(d.scenes.len(), 4);
+        assert!(
+            d.apply(DeskPatch::DeleteScene {
+                id: "juego-2".into()
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn a_shortcut_does_one_thing_only() {
+        let mut d = known();
+        d.scenes = crate::default_scenes(&d.machines, None);
+        let mut copy = Scene::new("", "Copia");
+        // El mismo atajo que «Trabajo», en otro orden.
+        copy.shortcut = vec!["Digit1".into(), "AltLeft".into(), "ControlLeft".into()];
+        let e = d.apply(DeskPatch::AddScene(copy.clone())).unwrap_err();
+        assert!(e.to_string().contains("ya es de otra escena"), "{e}");
+        copy.shortcut = d.shortcuts.lock.clone();
+        assert!(d.apply(DeskPatch::AddScene(copy.clone())).is_err());
+        copy.shortcut.clear();
+        d.apply(DeskPatch::AddScene(copy)).unwrap();
+    }
+
+    #[test]
+    fn renaming_a_machine_renames_its_solo_scene_too() {
+        let mut d = known();
+        d.scenes = crate::default_scenes(&d.machines, None);
+        let before = d.clone();
+        d.apply(DeskPatch::Machine {
+            side: Machine::B,
+            name: Some(" Torre ".into()),
+            color: None,
+        })
+        .unwrap();
+        assert_eq!(d.scenes[2].name, "Solo Torre");
+        assert_eq!(d.scenes[1].name, "Solo Mac");
+        assert_eq!(
+            before.summary_of_changes(&d).as_deref(),
+            Some("Máquinas y escenas")
+        );
+    }
+
+    #[test]
+    fn swapping_sides_swaps_the_scenes() {
+        let mut d = known();
+        d.scenes = crate::default_scenes(&d.machines, None);
+        let swapped = d.clone().swap_sides();
+        assert_eq!(swapped.scenes[1].require_on, Some(Machine::B));
+        assert_eq!(swapped.scenes[1].name, "Solo Mac");
+        assert_eq!(swapped.swap_sides(), d);
     }
 }

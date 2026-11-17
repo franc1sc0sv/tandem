@@ -343,6 +343,11 @@ pub enum TxnView {
         index: u32,
         error: String,
     },
+    /// Vuelta atrás: el paso `index`, ya hecho, se deshizo.
+    StepUndone {
+        txn: u64,
+        index: u32,
+    },
     Committed {
         txn: u64,
         state: State,
@@ -361,6 +366,7 @@ impl From<TxnEvent> for TxnView {
             TxnEvent::StepStarted { txn, index } => TxnView::StepStarted { txn, index },
             TxnEvent::StepDone { txn, index } => TxnView::StepDone { txn, index },
             TxnEvent::StepFailed { txn, index, error } => TxnView::StepFailed { txn, index, error },
+            TxnEvent::StepUndone { txn, index } => TxnView::StepUndone { txn, index },
             TxnEvent::Committed { txn, state } => TxnView::Committed { txn, state },
             TxnEvent::Failed { txn, state } => TxnView::Failed { txn, state },
         }
@@ -1418,7 +1424,7 @@ mac = "9c:6b:00:1a:2b:ff"
         assert_eq!(v["caps"]["peer"], serde_json::Value::Null);
         assert_eq!(
             v["state"],
-            serde_json::json!({ "on": { "a": true, "b": false } })
+            serde_json::json!({ "on": { "a": true, "b": false }, "scene": null })
         );
         assert_eq!(
             v["desk"],
@@ -1572,6 +1578,7 @@ mac = "9c:6b:00:1a:2b:ff"
     fn txn_events_keep_their_data() {
         let s = State {
             on: tandem_core::Powered::both(),
+            scene: None,
         };
         let cases = [
             (

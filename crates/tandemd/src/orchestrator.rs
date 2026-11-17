@@ -16,6 +16,11 @@
 //! control. Si falla un paso posterior, o el cambio se queda sin veredicto, se vuelve a la
 //! entrada de antes (vuelta atrás).
 //!
+//! Los pasos de escena ([`Step::is_scene`]: el monitor abstracto, el acomodo y la geometría)
+//! los hace la máquina que aplica la escena, con lo que le pasa [`Orchestrator::run_scene`]
+//! ([`SceneSteps`]); nunca se le piden a la otra. Si falla un paso posterior, cada uno ya
+//! hecho vuelve a como estaba y la UI lo ve como [`TxnEvent::StepUndone`].
+//!
 //! No hay una máquina central (DESIGN §3.7): cualquiera de las dos orquesta, pero de a
 //! una: la que hace pasos para la otra queda prestada hasta recibir su estado final, y la
 //! que orquesta rechaza los pasos ajenos.
@@ -44,6 +49,18 @@ pub const NO_OWNER: &str = "ninguna máquina tiene canal con el monitor";
 /// Todavía no se sabe qué entrada muestra el monitor (falta la primera lectura del dueño).
 pub const UNKNOWN_INPUT: &str =
     "todavía no se sabe qué entrada muestra; sin eso no se podría volver atrás";
+/// Un paso de escena fuera de una escena, o pedido por la otra máquina.
+pub const SCENE_ONLY: &str = "solo lo hace la máquina que aplica la escena";
+
+/// Los pasos de escena de esta máquina (DESIGN §5): el agente los arma para cada escena que
+/// aplica ([`crate::scenes`]).
+pub trait SceneSteps: Send + Sync {
+    fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a>;
+    /// El paso que deja todo como estaba antes de `step`, leído justo antes de hacerlo
+    /// (`None`: no hay nada que deshacer). Un error rechaza el paso sin hacerlo: sin saber
+    /// cómo estaba, no se podría volver atrás.
+    fn inverse(&self, step: &Step) -> Result<Option<Step>, String>;
+}
 
 /// Los monitores del puesto, vistos desde el orquestador ([`crate::monitors::MonitorHub`]).
 pub trait MonitorControl: Send + Sync {
@@ -128,6 +145,8 @@ pub fn target(step: &Step) -> Option<Machine> {
         Step::PowerOn { machine } => Some(machine.other()),
         Step::PowerOff { machine } => Some(*machine),
         Step::SwitchMonitor { .. } => None,
+        // Los de escena los hace quien la aplica ([`Orchestrator::run_scene`]).
+        Step::ShowMachine { .. } | Step::Arrange { .. } | Step::Geometry => None,
     }
 }
 
@@ -139,6 +158,11 @@ pub fn describe(step: &Step) -> String {
         Step::SwitchMonitor { monitor, input } => {
             format!("poner {input} en el monitor {monitor}")
         }
+        Step::ShowMachine { monitor, machine } => {
+            format!("mostrar la máquina {machine} en el monitor {monitor}")
+        }
+        Step::Arrange { .. } => "acomodar los escritorios".to_owned(),
+        Step::Geometry => "llevar el teclado y el mouse a la geometría nueva".to_owned(),
     }
 }
 
@@ -178,6 +202,9 @@ impl StepTimeouts {
             Step::PowerOn { .. } => self.power_on,
             Step::PowerOff { .. } => self.step,
             Step::SwitchMonitor { .. } => self.monitor,
+            // El monitor abstracto de una escena será un `SwitchMonitor` (T-111).
+            Step::ShowMachine { .. } => self.monitor,
+            Step::Arrange { .. } | Step::Geometry => self.step,
         }
     }
 }
@@ -261,6 +288,7 @@ impl Orchestrator {
                 .monitors()
                 .and_then(|m| m.owner(monitor))
                 .ok_or_else(|| format!("{}: {NO_OWNER}", describe(step))),
+            s if s.is_scene() => Err(format!("{}: {SCENE_ONLY}", describe(step))),
             _ => target(step).ok_or_else(|| describe(step)),
         }
     }
@@ -372,6 +400,27 @@ impl Orchestrator {
         state: &mut State,
         plan: &Plan,
     ) -> Result<TxnReport, TxnError> {
+        self.run_with(txn, state, plan, None).await
+    }
+
+    /// [`Orchestrator::run`] de una escena: sus pasos de escena los hace `scene`.
+    pub async fn run_scene(
+        &self,
+        txn: u64,
+        state: &mut State,
+        plan: &Plan,
+        scene: Arc<dyn SceneSteps>,
+    ) -> Result<TxnReport, TxnError> {
+        self.run_with(txn, state, plan, Some(scene)).await
+    }
+
+    async fn run_with(
+        &self,
+        txn: u64,
+        state: &mut State,
+        plan: &Plan,
+        scene: Option<Arc<dyn SceneSteps>>,
+    ) -> Result<TxnReport, TxnError> {
         self.emit(TxnEvent::Started {
             txn,
             steps: plan.steps.clone(),
@@ -381,6 +430,7 @@ impl Orchestrator {
             txn,
             next: 0,
             inverses: Vec::new(),
+            scene,
         };
         tandem_core::run(state, plan, &mut d).await
     }
@@ -519,8 +569,11 @@ struct Dispatcher<'a> {
     orch: &'a Orchestrator,
     txn: u64,
     next: u32,
-    /// Cada cambio de monitor hecho y el que lo deshace (volver a la entrada de antes).
-    inverses: Vec<(Step, Step)>,
+    /// Cada paso hecho que se sabe deshacer (cambio de monitor, pasos de escena), con su
+    /// posición en el plan y el paso que lo deshace.
+    inverses: Vec<(u32, Step, Step)>,
+    /// Quien hace los pasos de escena; `None` fuera de una escena.
+    scene: Option<Arc<dyn SceneSteps>>,
 }
 
 impl Dispatcher<'_> {
@@ -528,6 +581,13 @@ impl Dispatcher<'_> {
     /// deshacer). Un cambio de entrada sin saber la de antes no tendría a dónde volver si se
     /// queda sin veredicto: se rechaza sin tocar el monitor.
     fn inverse(&self, step: &Step) -> Result<Option<Step>, String> {
+        if step.is_scene() {
+            // Sin escena el paso falla solo, con [`SCENE_ONLY`].
+            return match &self.scene {
+                Some(scene) => scene.inverse(step),
+                None => Ok(None),
+            };
+        }
         let Step::SwitchMonitor { monitor, input } = step else {
             return Ok(None);
         };
@@ -546,7 +606,24 @@ impl Dispatcher<'_> {
 
     async fn roll_back(&self, inverse: &Step) -> Result<(), String> {
         tracing::warn!(txn = self.txn, "vuelta atrás: {}", describe(inverse));
-        self.orch.dispatch(inverse).await
+        self.perform(inverse).await.map_err(|f| f.error)
+    }
+
+    /// Un paso con su tiempo máximo: los de escena, aquí con [`SceneSteps`]; el resto, en
+    /// la máquina que le toca.
+    async fn perform(&self, step: &Step) -> Result<(), StepFailure> {
+        let scene = match &self.scene {
+            Some(scene) if step.is_scene() => scene,
+            _ => return self.orch.attempt(step).await,
+        };
+        let limit = self.orch.timeouts.for_step(step);
+        match tokio::time::timeout(limit, scene.execute(step)).await {
+            Ok(r) => r.map_err(StepFailure::certain),
+            Err(_) => Err(StepFailure {
+                error: format!("{}: sin respuesta en {} s", describe(step), limit.as_secs()),
+                uncertain: true,
+            }),
+        }
     }
 }
 
@@ -566,10 +643,10 @@ impl Executor for Dispatcher<'_> {
                 return Err(error);
             }
         };
-        match self.orch.attempt(step).await {
+        match self.perform(step).await {
             Ok(()) => {
                 if let Some(inverse) = inverse {
-                    self.inverses.push((step.clone(), inverse));
+                    self.inverses.push((index, step.clone(), inverse));
                 }
                 self.orch.emit(TxnEvent::StepDone { txn, index });
                 self.next += 1;
@@ -615,11 +692,16 @@ impl Executor for Dispatcher<'_> {
     }
 
     async fn undo(&mut self, step: &Step) -> Result<(), String> {
-        let Some(at) = self.inverses.iter().rposition(|(done, _)| done == step) else {
+        let Some(at) = self.inverses.iter().rposition(|(_, done, _)| done == step) else {
             return Ok(());
         };
-        let (_, inverse) = self.inverses.remove(at);
-        self.roll_back(&inverse).await
+        let (index, _, inverse) = self.inverses.remove(at);
+        self.roll_back(&inverse).await?;
+        self.orch.emit(TxnEvent::StepUndone {
+            txn: self.txn,
+            index,
+        });
+        Ok(())
     }
 }
 
@@ -1077,6 +1159,27 @@ pub(crate) mod tests {
             monitor: "m".into(),
             input: MonitorInput::Hdmi,
         }
+    }
+
+    /// Los pasos de escena los hace quien aplica la escena: nunca la otra a pedido, ni fuera
+    /// de una escena.
+    #[tokio::test]
+    async fn scene_steps_are_never_done_for_the_other() {
+        let (o, local, peer) = mac(FakeSteps::default(), FakeSteps::default());
+        for step in [
+            Step::Geometry,
+            Step::Arrange { layout: None },
+            Step::ShowMachine {
+                monitor: "m".into(),
+                machine: Machine::B,
+            },
+        ] {
+            let e = o.execute_for_peer(&step).await.unwrap_err();
+            assert!(e.contains(SCENE_ONLY), "{e}");
+            let e = o.dispatch(&step).await.unwrap_err();
+            assert!(e.contains(SCENE_ONLY), "{e}");
+        }
+        assert!(local.steps().is_empty() && peer.steps().is_empty());
     }
 
     #[tokio::test]

@@ -362,6 +362,7 @@ fn txn_of(ev: &TxnEvent) -> u64 {
         | TxnEvent::StepStarted { txn, .. }
         | TxnEvent::StepDone { txn, .. }
         | TxnEvent::StepFailed { txn, .. }
+        | TxnEvent::StepUndone { txn, .. }
         | TxnEvent::Committed { txn, .. }
         | TxnEvent::Failed { txn, .. } => *txn,
     }

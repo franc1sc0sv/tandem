@@ -104,6 +104,7 @@ mod tests {
     fn both_on() -> State {
         State {
             on: Powered::both(),
+            scene: None,
         }
     }
 

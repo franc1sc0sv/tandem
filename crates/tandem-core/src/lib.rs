@@ -9,25 +9,28 @@
 //! - [`plan`]: encender y apagar como una lista ordenada de pasos.
 //! - [`txn`]: ejecución transaccional de un plan, con vuelta atrás.
 //! - [`monitor`]: las entradas de un monitor compatible.
+//! - [`scene`]: las escenas (D6) y cómo se aplican.
 
 pub mod data;
 pub mod desk;
 pub mod model;
 pub mod monitor;
 pub mod plan;
+pub mod scene;
 pub mod state;
 pub mod txn;
 
 pub use data::{DEFAULT_WIFI_CAP_PERCENT, DataPrefs, DataPrefsError};
 pub use desk::{
     DeskHistory, DeskPatch, DeskStamp, DeskVersion, HISTORY_LEN, HistoryEntry, InputPrefs, Modules,
-    PatchError, Scene, Shortcuts, UndoError, valid_color,
+    PatchError, Shortcuts, UndoError, valid_color,
 };
 pub use model::{
     Align, Arrangement, Config, DEFAULT_COLORS, Desk, Machine, MachineInfo, Machines, Os, PALETTE,
     Scale, ScreenSpec, Side, default_color,
 };
 pub use monitor::MonitorInput;
-pub use plan::{Abilities, Plan, Step};
+pub use plan::{Abilities, Plan, PlanError, Step};
+pub use scene::{MonitorId, Scene, default_scenes};
 pub use state::{Powered, State};
 pub use txn::{Executor, TxnError, TxnReport, run};

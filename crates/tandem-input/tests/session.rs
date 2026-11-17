@@ -484,7 +484,7 @@ async fn cambio_de_enlace_suelta_las_teclas_del_cliente() {
 async fn lo_capturado_sin_enlace_no_cruza_al_empezar_la_sesion() {
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
-    // Sin enlace (modo Solo Mac, PC apagada) el usuario aprieta Shift y empuja
+    // Sin enlace (la PC apagada) el usuario aprieta Shift y empuja
     // el mouse contra el borde: eso no puede cruzar cuando el enlace vuelva.
     for e in [
         key(0xE1, KeyState::Pressed),

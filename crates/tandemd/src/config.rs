@@ -124,8 +124,9 @@ pub struct AgentConfig {
     /// como un cambio.
     #[serde(skip)]
     pub legacy_desk: bool,
-    /// La migración pasó al puesto algo que era de esta máquina (el portapapeles apagado):
-    /// cuenta como un cambio suyo, con versión nueva, para que la otra lo adopte.
+    /// La migración pasó al puesto algo que era de esta máquina (el portapapeles apagado) o
+    /// le puso las escenas por omisión (T-100): cuenta como un cambio suyo, con versión
+    /// nueva, para que la otra lo adopte.
     #[serde(skip)]
     pub local_to_desk: bool,
     #[serde(default)]
@@ -209,7 +210,7 @@ impl Default for NetworkConfig {
     }
 }
 
-/// Tiempos máximos de los pasos de un cambio de modo.
+/// Tiempos máximos de los pasos de una transacción (energía, monitores, escenas).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OrchestratorConfig {
@@ -338,6 +339,15 @@ pub fn shortcut_keys(names: &[String]) -> Result<Vec<HidUsage>, ConfigError> {
         .collect()
 }
 
+/// Todas las teclas de los atajos del puesto (el de bloqueo y los de las escenas) existen.
+pub fn desk_keys(desk: &tandem_core::Desk) -> Result<(), ConfigError> {
+    shortcut_keys(&desk.shortcuts.lock)?;
+    for scene in &desk.scenes {
+        shortcut_keys(&scene.shortcut)?;
+    }
+    Ok(())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("no se pudo leer {path}: {source}")]
@@ -386,10 +396,18 @@ impl AgentConfig {
         // trae el archivo, antes de traducirlos.
         let migrated = crate::migrate::desk_v03(&mut table);
         let legacy = crate::migrate::sides_v02(&mut table);
+        // Un puesto de antes de T-100 no tiene la clave `scenes` (uno sin escenas a propósito
+        // tiene `scenes = []`).
+        let before_scenes = !table.contains_key("scenes");
         let mut cfg: AgentConfig = table.try_into()?;
         cfg.rewrite_sides = legacy;
         cfg.legacy_desk = migrated.changed;
         cfg.local_to_desk = migrated.local;
+        // Ya emparejado: las escenas por omisión reemplazan a los modos (D6). Es un cambio de
+        // esta máquina, con versión nueva: se guarda y llega a la otra.
+        if before_scenes && tandem_core::scene::add_defaults(&mut cfg.desk) {
+            cfg.local_to_desk = true;
+        }
         cfg.validate()?;
         Ok(cfg)
     }
@@ -452,7 +470,7 @@ impl AgentConfig {
         if self.power.peer_lost_after_secs == 0 {
             return Err(ConfigError::ZeroPeerLostAfter);
         }
-        shortcut_keys(&self.desk.shortcuts.lock)?;
+        desk_keys(&self.desk)?;
         if let Some(wol) = &self.power.wol {
             if wol.port == 0 {
                 return Err(ConfigError::ZeroWolPort);

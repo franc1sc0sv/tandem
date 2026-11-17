@@ -184,6 +184,7 @@ machine = "b"
     async fn json_is_what_the_frontend_reads() {
         let state = State {
             on: tandem_core::Powered::both(),
+            scene: None,
         };
         let ok = AgentStatus::Connected {
             agent: Machine::A,
@@ -194,7 +195,7 @@ machine = "b"
             serde_json::json!({
                 "kind": "connected",
                 "agent": "a",
-                "state": { "on": { "a": true, "b": true } }
+                "state": { "on": { "a": true, "b": true }, "scene": null }
             })
         );
         let down = AgentStatus::Unavailable {

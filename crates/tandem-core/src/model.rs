@@ -4,7 +4,8 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::data::{DataPrefs, DataPrefsError};
-use crate::desk::{InputPrefs, Modules, Scene, Shortcuts, valid_color};
+use crate::desk::{InputPrefs, Modules, Shortcuts, valid_color};
+use crate::scene::Scene;
 
 /// Los dos lados del puesto. Tandem está pensado para exactamente dos máquinas, de igual a
 /// igual (DECISIONS D1, A1): ningún lado supone qué sistema tiene; eso lo dice su
@@ -420,6 +421,10 @@ pub enum ConfigError {
     UnnamedScene,
     #[error("la escena `{0}` está repetida")]
     DuplicateScene(String),
+    #[error("{0}")]
+    BadScene(String),
+    #[error("el atajo {} ya es de otra escena o del bloqueo", .0.join("+"))]
+    DuplicateShortcut(Vec<String>),
     #[error("un módulo de la máquina {0} no tiene id")]
     UnnamedModule(Machine),
 }
@@ -468,12 +473,26 @@ impl Desk {
             }
         }
         let mut scenes = BTreeSet::new();
+        // El mismo atajo para dos cosas haría las dos a la vez: no se acepta. El orden de
+        // las teclas no importa.
+        let mut shortcuts = BTreeSet::new();
+        let mut keys = |k: &[String]| {
+            let set: BTreeSet<String> = k.iter().cloned().collect();
+            set.is_empty() || shortcuts.insert(set)
+        };
+        keys(&self.shortcuts.lock);
         for s in &self.scenes {
             if s.id.trim().is_empty() || s.name.trim().is_empty() {
                 return Err(ConfigError::UnnamedScene);
             }
             if !scenes.insert(s.id.as_str()) {
                 return Err(ConfigError::DuplicateScene(s.id.clone()));
+            }
+            if let Some(problem) = s.problem() {
+                return Err(ConfigError::BadScene(problem));
+            }
+            if !keys(&s.shortcut) {
+                return Err(ConfigError::DuplicateShortcut(s.shortcut.clone()));
             }
         }
         Ok(())
@@ -499,6 +518,7 @@ impl Desk {
                 })
                 .collect(),
             arrangement: self.arrangement.map(Arrangement::swapped),
+            scenes: self.scenes.into_iter().map(Scene::swapped).collect(),
             modules: self.modules.swapped(),
             ..self
         }
@@ -713,10 +733,7 @@ mod tests {
                 a_side: Side::Down,
                 align: Align::Start,
             }),
-            scenes: vec![Scene {
-                id: "solo".into(),
-                name: "Solo A".into(),
-            }],
+            scenes: vec![Scene::new("solo", "Solo A")],
             ..Config::default()
         };
         let text = toml::to_string(&cfg).unwrap();

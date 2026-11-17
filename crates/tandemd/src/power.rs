@@ -83,8 +83,12 @@ impl LocalSteps for PowerSteps {
                 };
                 Box::pin(async move { r })
             }
-            // Los monitores los cambia el orquestador con su dueño, no la energía.
-            Step::SwitchMonitor { .. } => {
+            // Los monitores los cambia el orquestador con su dueño, y los pasos de escena los
+            // hace quien la aplica: nada de esto es energía.
+            Step::SwitchMonitor { .. }
+            | Step::ShowMachine { .. }
+            | Step::Arrange { .. }
+            | Step::Geometry => {
                 Box::pin(async move { Err(format!("{}: {STEP_NOT_IMPLEMENTED}", describe(step))) })
             }
         }

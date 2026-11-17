@@ -104,7 +104,8 @@ impl Keys {
     }
 }
 
-/// El menú del ícono: estado, abrir y salir. Los modos están en pausa (DESIGN §8).
+/// El menú del ícono: estado, abrir y salir. Los modos de antes ya no existen: los
+/// reemplazan las escenas (D6), que el menú todavía no ofrece.
 struct TrayMenu {
     status: MenuItem<Wry>,
     tray: TrayIcon<Wry>,

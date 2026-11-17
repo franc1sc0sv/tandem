@@ -64,7 +64,11 @@ pub async fn watch(agent: Arc<Agent>, mut reachable: watch::Receiver<bool>) {
                 wake = Some(due);
             }
         }
+        // El enlace primero: si vuelve a la vez que llega un estado que la da por prendida (el
+        // fin de un encendido), el estado no puede verse con el enlace viejo, caído desde
+        // antes del umbral (revisión de #82).
         tokio::select! {
+            biased;
             changed = reachable.changed() => {
                 if changed.is_err() {
                     return;
@@ -292,6 +296,29 @@ mod tests {
             sleep(BUSY_RETRY.as_secs_f64() + 0.1).await;
             assert!(!peer_on(&r), "{me}");
             assert!(r.events.try_recv().is_ok());
+        }
+    }
+
+    /// Revisión de #82: una transacción que la enciende termina justo cuando su enlace
+    /// vuelve. Los dos avisos llegan a la vez; con el estado nuevo visto antes que el enlace,
+    /// la vigilancia la daba por perdida (con el enlace caído desde antes del umbral).
+    #[tokio::test(start_paused = true)]
+    async fn the_link_coming_back_wins_over_the_state_that_powers_it_on() {
+        // `select!` elige al azar entre dos avisos listos: varias vueltas lo hacen seguro.
+        for _ in 0..16 {
+            let dir = tempfile::tempdir().unwrap();
+            let mut r = rig(dir.path(), Machine::A, false, false);
+            r.agent.orchestrator().try_begin().unwrap();
+            sleep(LOST_AFTER.as_secs_f64() + 30.0).await;
+            // La transacción la encendió: primero aparece el enlace, después el estado.
+            r.up.send_replace(true);
+            let mut s = r.agent.state();
+            s.on.b = true;
+            r.agent.set_state(s).unwrap();
+            r.agent.orchestrator().end();
+            sleep(BUSY_RETRY.as_secs_f64() * 3.0).await;
+            assert!(peer_on(&r));
+            assert!(r.events.try_recv().is_err());
         }
     }
 

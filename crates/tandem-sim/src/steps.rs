@@ -91,8 +91,12 @@ impl SimSteps {
                 });
                 Ok(())
             }
-            // Los monitores van por el bus DDC simulado (`crate::monitors`), no por aquí.
-            Step::SwitchMonitor { .. } => Err(format!("{}: no es de energía", describe(step))),
+            // Los monitores van por el bus DDC simulado (`crate::monitors`) y los pasos de
+            // escena por su doble (`crate::scenes`), no por aquí.
+            Step::SwitchMonitor { .. }
+            | Step::ShowMachine { .. }
+            | Step::Arrange { .. }
+            | Step::Geometry => Err(format!("{}: no es de energía", describe(step))),
         }
     }
 

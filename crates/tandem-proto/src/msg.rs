@@ -571,6 +571,12 @@ pub enum UiCommand {
     UpdatePeer {
         version: String,
     },
+    /// Aplicar la escena `id` del puesto (D6): una transacción (se contesta
+    /// [`Reply::Accepted`]). Crear, editar y borrar escenas son parches del puesto
+    /// ([`UiCommand::EditDesk`]).
+    ApplyScene {
+        id: String,
+    },
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -795,6 +801,11 @@ pub enum TxnEvent {
         index: u32,
         error: String,
     },
+    /// Vuelta atrás: el paso `index`, ya hecho, se deshizo porque falló uno posterior.
+    StepUndone {
+        txn: u64,
+        index: u32,
+    },
     Committed {
         txn: u64,
         state: State,
@@ -820,6 +831,7 @@ pub(crate) mod samples {
     pub fn state() -> State {
         State {
             on: tandem_core::Powered::both(),
+            scene: Some("trabajo".into()),
         }
     }
 
@@ -858,10 +870,17 @@ pub(crate) mod samples {
                 a_side: Side::Up,
                 align: Align::End,
             }),
-            scenes: vec![tandem_core::Scene {
-                id: "trabajo".into(),
-                name: "Trabajo".into(),
-            }],
+            scenes: tandem_core::default_scenes(
+                &tandem_core::Machines {
+                    a: Some(MachineInfo::new(Machine::A, tandem_core::Os::MacOs, None)),
+                    b: Some(MachineInfo::new(
+                        Machine::B,
+                        tandem_core::Os::Windows,
+                        Some("ESCRITORIO".into()),
+                    )),
+                },
+                None,
+            ),
             ..Config::default()
         }
     }
@@ -878,6 +897,14 @@ pub(crate) mod samples {
                 monitor: "lc34g55t-0a1b2c3d".into(),
                 input: MonitorInput::Hdmi,
             },
+            Step::ShowMachine {
+                monitor: "lc34g55t-0a1b2c3d".into(),
+                machine: Machine::B,
+            },
+            Step::Arrange {
+                layout: Some(Arrangement::default()),
+            },
+            Step::Geometry,
         ]
     }
 
@@ -886,6 +913,9 @@ pub(crate) mod samples {
             Step::PowerOn { .. } => 0,
             Step::PowerOff { .. } => 1,
             Step::SwitchMonitor { .. } => 2,
+            Step::ShowMachine { .. } => 3,
+            Step::Arrange { .. } => 4,
+            Step::Geometry => 5,
         }
     }
 
@@ -1318,6 +1348,9 @@ pub(crate) mod samples {
             UiCommand::UpdatePeer {
                 version: "0.3.1".into(),
             },
+            UiCommand::ApplyScene {
+                id: "trabajo".into(),
+            },
         ];
         let mut cmds = cmds;
         cmds.extend(
@@ -1363,6 +1396,7 @@ pub(crate) mod samples {
             UiCommand::WatchResources { .. } => 24,
             UiCommand::UpdatePeer { .. } => 25,
             UiCommand::GetUpdate => 26,
+            UiCommand::ApplyScene { .. } => 27,
         }
     }
 
@@ -1389,6 +1423,13 @@ pub(crate) mod samples {
                 screens: desk().screens,
             },
             DeskPatch::Scenes(desk().scenes),
+            DeskPatch::AddScene(tandem_core::default_scenes(&desk().machines, None).remove(2)),
+            DeskPatch::EditScene(tandem_core::Scene {
+                monitors: vec![("lc34g55t-0a1b2c3d".into(), Machine::A)],
+                require_on: Some(Machine::A),
+                ..tandem_core::Scene::new("trabajo", "Trabajo")
+            }),
+            DeskPatch::DeleteScene { id: "x".into() },
             DeskPatch::Shortcuts(tandem_core::Shortcuts { lock: vec![] }),
             DeskPatch::Prefs(tandem_core::InputPrefs {
                 cmd_ctrl: false,
@@ -1419,6 +1460,7 @@ pub(crate) mod samples {
                 index: 1,
                 error: "timeout".into(),
             },
+            TxnEvent::StepUndone { txn: 1, index: 0 },
             TxnEvent::Committed {
                 txn: 1,
                 state: state(),
@@ -1438,6 +1480,7 @@ pub(crate) mod samples {
             TxnEvent::StepFailed { .. } => 3,
             TxnEvent::Committed { .. } => 4,
             TxnEvent::Failed { .. } => 5,
+            TxnEvent::StepUndone { .. } => 6,
         }
     }
 
@@ -1685,11 +1728,11 @@ mod tests {
 
     #[test]
     fn samples_cover_every_variant() {
-        covers(&steps(), step_arm, 3);
+        covers(&steps(), step_arm, 6);
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
         covers(&control(), control_arm, 18);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 27);
+        covers(&cmds, ui_command_arm, 28);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
         covers(&to_ui(), to_ui_arm, 14);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
@@ -1709,7 +1752,7 @@ mod tests {
             })
             .collect();
         covers(&replies, reply_arm, 14);
-        covers(&txn_events(), txn_arm, 6);
+        covers(&txn_events(), txn_arm, 7);
     }
 
     #[test]

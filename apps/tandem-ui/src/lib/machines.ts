@@ -35,7 +35,7 @@ export function machineColor(who: Machine, caps?: Caps | null, desk?: Desk | nul
 // ---------------------------------------------------------------------------------------
 // Avance de una transacción (escena, encender o apagar).
 
-export type StepStatus = "pending" | "run" | "done" | "failed";
+export type StepStatus = "pending" | "run" | "done" | "failed" | "undone";
 
 export type Outcome = { kind: "running" } | { kind: "committed" } | { kind: "failed"; error: string };
 
@@ -50,7 +50,20 @@ export interface Progress {
 
 /** Texto corto de un paso, con el nombre de la máquina. */
 export function stepLabel(s: Step, name: (m: Machine) => string): string {
-  return `${s.step === "power_on" ? "Encender" : "Apagar"} ${name(s.machine)}`;
+  switch (s.step) {
+    case "power_on":
+      return `Encender ${name(s.machine)}`;
+    case "power_off":
+      return `Apagar ${name(s.machine)}`;
+    case "switch_monitor":
+      return `Monitor ${s.monitor} → ${s.input === "hdmi" ? "HDMI" : "DP"}`;
+    case "show_machine":
+      return `Monitor ${s.monitor} → ${name(s.machine)}`;
+    case "arrange":
+      return "Acomodar los escritorios";
+    case "geometry":
+      return "Teclado y mouse: geometría nueva";
+  }
 }
 
 /** Avanza el progreso con un aviso. Los avisos de otra transacción se ignoran. */
@@ -70,6 +83,9 @@ export function advance(p: Progress | null, e: TxnView): Progress | null {
     case "step_failed":
       status[e.index] = "failed";
       return { ...p, status, error: e.error };
+    case "step_undone":
+      status[e.index] = "undone";
+      return { ...p, status };
     case "committed":
       return { ...p, outcome: { kind: "committed" } };
     case "failed":
