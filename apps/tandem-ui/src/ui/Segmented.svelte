@@ -91,18 +91,21 @@
     top: var(--pad);
     bottom: var(--pad);
     left: var(--pad);
+    /* Caja de contenido, como en los mockups: con el borde, el indicador mide 2 px más que
+       una opción. */
     width: calc((100% - 2 * var(--pad)) / var(--n));
-    box-sizing: border-box;
     border-radius: 8px;
     background: linear-gradient(180deg, #25262c, #1e1f24);
     border: 1px solid #3a3d45;
-    transition:
-      transform 0.38s cubic-bezier(0.3, 1.3, 0.5, 1),
-      border-color 0.3s;
+    transition: transform 0.38s cubic-bezier(0.3, 1.3, 0.5, 1);
   }
   .lg .ind {
     border-radius: 9px;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+    /* El borde toma el color de la máquina elegida (V3-Monitores). */
+    transition:
+      transform 0.38s cubic-bezier(0.3, 1.3, 0.5, 1),
+      border-color 0.3s;
   }
   .sb {
     position: relative;
@@ -119,7 +122,6 @@
     justify-content: center;
     gap: 7px;
     transition: color 0.25s;
-    border-radius: 8px;
   }
   .lg .sb {
     font-size: 13px;

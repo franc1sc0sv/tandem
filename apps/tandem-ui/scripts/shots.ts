@@ -8,6 +8,11 @@
 //   pnpm shots --check            # falla si una zona con umbral no lo cumple
 //   pnpm shots --no-build         # reutiliza dist-demo/
 //   pnpm shots --diff-dir d/      # guarda las diferencias de cada comparación
+//   pnpm shots --only estilos     # solo la paridad de estilos de los componentes (T-127)
+//
+// Además de las pantallas, compara los estilos calculados de cada componente de la galería
+// (`gallery.html`) con el mismo elemento del mockup (`style-parity-spec.ts`); con `--check`,
+// una propiedad distinta también hace fallar.
 //
 // Necesita `pnpm install` en tools/mockup-render (fuentes de los mockups) y Chromium de
 // Playwright (`pnpm exec playwright install chromium`).
@@ -20,6 +25,8 @@ import { ORIGIN, installRoutes, waitForMockup } from "@tandem/mockup-render";
 import { capture, compare, compareWithMockup, launchBrowser, mockupShotPath, settle, type CompareResult } from "@tandem/mockup-render/harness";
 import type { Browser, Page } from "playwright";
 import { SHOTS, appUrl, mask, type Rect, type ShotSpec } from "./shots-spec.ts";
+import { runStyleParity } from "./style-parity.ts";
+import { formatReport } from "./style-parity-spec.ts";
 
 const APP_DIR = fileURLToPath(new URL("..", import.meta.url));
 const REPO_DIR = join(APP_DIR, "..", "..");
@@ -190,11 +197,25 @@ async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   if (args.diffDir) mkdirSync(args.diffDir, { recursive: true });
   const specs = args.only.length ? SHOTS.filter((s) => args.only.includes(s.name)) : SHOTS;
+  const styles = args.only.length === 0 || args.only.includes("estilos");
   // Mismas opciones de Chromium que las capturas de los mockups (`--disable-partial-raster`).
   const browser = await launchBrowser();
   const results: ShotResult[] = [];
+  let styleFailed = false;
   try {
     for (const s of specs) results.push(await shoot(browser, s, args));
+    if (styles) {
+      const errors: string[] = [];
+      const parity = await runStyleParity(browser, async (page) => {
+        page.on("pageerror", (e) => errors.push(`excepción: ${e.message}`));
+        await serveApp(page, errors);
+        await page.goto(`${APP_ORIGIN}/gallery.html`);
+      });
+      writeFileSync(join(OUT, "galeria.png"), parity.galleryPng);
+      console.log(`\nEstilos de los componentes (galería ↔ mockups):\n${formatReport(parity.pairs, parity.diffs, parity.missing)}`);
+      for (const e of errors) console.log(`! galería: ${e}`);
+      styleFailed = parity.diffs.length > 0 || parity.missing.length > 0 || errors.length > 0;
+    }
   } finally {
     await browser.close();
   }
@@ -214,8 +235,8 @@ async function main(): Promise<void> {
   writeFileSync(summaryFile, JSON.stringify(sorted, null, 2) + "\n");
 
   const failed = results.filter((r) => r.errors.length > 0 || r.regions.some((g) => !g.ok));
-  if (args.check && failed.length > 0) {
-    console.error(`\nNo cumplen: ${failed.map((r) => r.name).join(", ")}`);
+  if (args.check && (failed.length > 0 || styleFailed)) {
+    console.error(`\nNo cumplen: ${[...failed.map((r) => r.name), ...(styleFailed ? ["estilos"] : [])].join(", ")}`);
     process.exit(1);
   }
 }

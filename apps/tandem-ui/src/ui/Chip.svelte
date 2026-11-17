@@ -41,9 +41,6 @@
     font-size: 12px;
     color: #c4c6cc;
     white-space: nowrap;
-    transition:
-      border-color 0.25s,
-      color 0.25s;
   }
   .chip.count {
     padding: 1px 7px;

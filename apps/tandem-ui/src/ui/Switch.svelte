@@ -28,7 +28,6 @@
     border: 0;
     cursor: pointer;
     flex: none;
-    padding: 0;
     background: #2f6a52;
     transition: background 0.25s;
   }
