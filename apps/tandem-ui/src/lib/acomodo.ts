@@ -32,6 +32,9 @@ export interface LayoutScreen {
   /** Tamaño físico, en pulgadas. */
   w: number;
   h: number;
+  /** Dónde está en el escritorio de su máquina (`ScreenSpec.x/y`), en pulgadas; el origen no importa. */
+  x: number;
+  y: number;
   size: string;
   res: string;
   ratio: string;
@@ -101,38 +104,68 @@ interface Rect {
   h: number;
 }
 
+/** Las pantallas conectadas de una máquina como un solo escritorio: su caja, y cada una dentro. */
+interface Desktop {
+  w: number;
+  h: number;
+  /** Cada pantalla con su posición dentro de la caja (el origen en su esquina). */
+  parts: { id: string; x: number; y: number; w: number; h: number }[];
+}
+
+function desktopOf(screens: LayoutScreen[], m: Machine): Desktop | null {
+  const own = screens.filter((s) => s.machine === m && s.usable);
+  if (own.length === 0) return null;
+  const x0 = Math.min(...own.map((s) => s.x));
+  const y0 = Math.min(...own.map((s) => s.y));
+  return {
+    w: Math.max(...own.map((s) => s.x + s.w)) - x0,
+    h: Math.max(...own.map((s) => s.y + s.h)) - y0,
+    parts: own.map((s) => ({ id: s.id, x: s.x - x0, y: s.y - y0, w: s.w, h: s.h })),
+  };
+}
+
 /**
- * Las pantallas a escala física, centradas en el lienzo: la principal de B en el origen, la
- * de A a su lado según el acomodo y el resto (las que no entran) a la derecha, alineadas
- * abajo con la de B.
+ * Las pantallas a escala física, centradas en el lienzo. Las de cada máquina van juntas, con
+ * su x/y, como el escritorio único que ve el motor: el de B en el origen, el de A a su lado
+ * según el acomodo y el resto (las que no entran) a la derecha, alineadas abajo con el de B.
+ * El borde de cruce es el tramo que comparten los dos escritorios (`shared_span` de
+ * tandem-input), no el largo de uno de ellos; se mide sobre la caja de cada escritorio, que
+ * con pantallas contiguas es lo que mide el motor.
  */
 export function draw(layout: LayoutView): Drawing {
   const { screens, arrangement } = layout;
-  const b = mainOf(screens, "b");
-  const a = mainOf(screens, "a");
+  const b = desktopOf(screens, "b");
+  const a = desktopOf(screens, "a");
   const anchor = b ?? a;
   const rects = new Map<string, Rect>();
   let edge: { vertical: boolean; x: number; y: number; len: number } | null = null;
+  const put = (d: Desktop, ox: number, oy: number) => {
+    for (const p of d.parts) rects.set(p.id, { x: ox + p.x, y: oy + p.y, w: p.w, h: p.h });
+  };
   if (anchor) {
-    const S = { x: 0, y: 0, w: anchor.w, h: anchor.h };
-    rects.set(anchor.id, S);
+    const S = { w: anchor.w, h: anchor.h };
+    put(anchor, 0, 0);
     if (a && b) {
       const k = FACTOR[arrangement.align];
       const side = arrangement.aSide;
-      const M = { x: 0, y: 0, w: a.w, h: a.h };
+      let mx: number;
+      let my: number;
       if (isVertical(side)) {
-        M.x = side === "left" ? -M.w - GAP : S.w + GAP;
-        M.y = (S.h - M.h) * k;
+        mx = side === "left" ? -a.w - GAP : S.w + GAP;
+        my = (S.h - a.h) * k;
       } else {
-        M.y = side === "up" ? -M.h - GAP : S.h + GAP;
-        M.x = (S.w - M.w) * k;
+        my = side === "up" ? -a.h - GAP : S.h + GAP;
+        mx = (S.w - a.w) * k;
       }
-      rects.set(a.id, M);
-      // El tramo que comparten: el de la más corta a lo largo del borde (como el mockup).
-      if (side === "left") edge = { vertical: true, x: M.x + M.w + GAP / 2, y: M.y, len: M.h };
-      else if (side === "right") edge = { vertical: true, x: S.w + GAP / 2, y: M.y, len: M.h };
-      else if (side === "up") edge = { vertical: false, x: M.x, y: M.y + M.h + GAP / 2, len: M.w };
-      else edge = { vertical: false, x: M.x, y: S.h + GAP / 2, len: M.w };
+      put(a, mx, my);
+      // El tramo compartido: de max(inicio de A, 0) a min(fin de A, largo de B), sobre el eje del borde.
+      const vertical = isVertical(side);
+      const from = Math.max(vertical ? my : mx, 0);
+      const to = Math.min(vertical ? my + a.h : mx + a.w, vertical ? S.h : S.w);
+      if (to > from) {
+        const across = side === "left" ? mx + a.w + GAP / 2 : side === "up" ? my + a.h + GAP / 2 : vertical ? S.w + GAP / 2 : S.h + GAP / 2;
+        edge = vertical ? { vertical, x: across, y: from, len: to - from } : { vertical, x: from, y: across, len: to - from };
+      }
     }
     let x = Math.max(...[...rects.values()].map((r) => r.x + r.w)) + APART;
     for (const s of screens) {
@@ -180,7 +213,7 @@ export function alignLabels(side: Side): Record<Align, string> {
 
 export interface Panel {
   screen: LayoutScreen;
-  /** La otra pantalla principal (la que se mueve en el mini plano), si se puede editar. */
+  /** La pantalla principal de la otra máquina (la que se mueve en el mini plano), si se puede editar. */
   other: LayoutScreen | null;
   /** Dónde está `other` respecto de la elegida. */
   shown: Side;
@@ -188,14 +221,14 @@ export interface Panel {
   question: string;
 }
 
-/** Lo que muestra el panel para la pantalla elegida. Solo las principales se acomodan. */
+/** Lo que muestra el panel para la pantalla elegida. */
 export function panelFor(layout: LayoutView, selected: string): Panel | null {
   const screen = layout.screens.find((s) => s.id === selected);
   if (!screen) return null;
   const m = screen.machine;
-  const own = m ? mainOf(layout.screens, m) : null;
   const other = m ? mainOf(layout.screens, m === "a" ? "b" : "a") : null;
-  const editable = own?.id === screen.id && other !== null;
+  // Todas las pantallas conectadas de una máquina editan el mismo acomodo.
+  const editable = screen.usable && m !== null && other !== null;
   const aSide = layout.arrangement.aSide;
   // `aSide` es dónde está A visto desde B: desde A, B queda del lado opuesto.
   const shown = m === "a" ? OPPOSITE[aSide] : aSide;

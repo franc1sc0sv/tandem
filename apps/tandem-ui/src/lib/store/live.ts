@@ -142,9 +142,12 @@ export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): 
     const mac = known.os === "macos";
     const own = snap.desk.screens.filter((s) => s.machine === m);
     if (own.length === 0) {
-      screens.push({ id: `escritorio-${m}`, machine: m, name, short: name.split(" ")[0] ?? name, ask: name, w: 16, h: 10, size: "—", res: "—", ratio: "—", scale: "—", usable: true, line: name });
+      screens.push({ id: `escritorio-${m}`, machine: m, name, short: name.split(" ")[0] ?? name, ask: name, x: 0, y: 0, w: 16, h: 10, size: "—", res: "—", ratio: "—", scale: "—", usable: true, line: name });
       continue;
     }
+    // Las posiciones (`x`, `y`) van en las coordenadas de la máquina: se pasan a puntos con la
+    // escala de su primera pantalla. Es aproximado si las escalas de sus monitores difieren.
+    const base = mac ? 1 : own[0]?.scale || 1;
     for (const s of own) {
       // macOS da puntos; Windows, píxeles físicos que la escala convierte en lógicos.
       const logical = mac ? 1 : s.scale || 1;
@@ -154,6 +157,8 @@ export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): 
         name: s.id,
         short: s.id,
         ask: s.id,
+        x: s.x / base / ASSUMED_PPI,
+        y: s.y / base / ASSUMED_PPI,
         w: s.width / logical / ASSUMED_PPI,
         h: s.height / logical / ASSUMED_PPI,
         size: "—",

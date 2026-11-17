@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import { ALIGNS, DEFAULT_ARRANGEMENT, OPPOSITE, SIDES, alignLabels, draw, exitSide, fillOf, initialSelection, panelFor, placeOther, ratioLabel, wallOf, type Box, type LayoutScreen, type LayoutView } from "./acomodo";
 import { demoDesk, demoOptions } from "./store/demo";
 
-const screen = (id: string, machine: "a" | "b" | null, w: number, h: number, usable = true): LayoutScreen => ({
+const screen = (id: string, machine: "a" | "b" | null, w: number, h: number, usable = true, x = 0, y = 0): LayoutScreen => ({
   id,
   machine,
+  x,
+  y,
   name: id,
   short: id,
   ask: id,
@@ -125,6 +127,61 @@ describe("dibujo a escala física", () => {
     }
   });
 
+  it("el borde de cruce es el tramo compartido (`shared_span` de tandem-input), no el largo de A", () => {
+    // Copia de `tandem_input::geometry::shared_span`: desde dónde hasta dónde del borde de B toca A.
+    const sharedSpan = (mine: number, theirs: number, align: "start" | "center" | "end") => {
+      const off = (mine - theirs) * { start: 0, center: 0.5, end: 1 }[align];
+      return [Math.max(off, 0), Math.min(off + theirs, mine)] as const;
+    };
+    const r = rng(128);
+    for (let i = 0; i < 300; i++) {
+      const aw = 4 + r() * 60;
+      const ah = 3 + r() * 30;
+      const bw = 4 + r() * 60;
+      const bh = 3 + r() * 30;
+      const side = SIDES[Math.floor(r() * 4)] ?? "left";
+      const align = ALIGNS[Math.floor(r() * 3)] ?? "center";
+      const d = draw({ screens: [screen("a1", "a", aw, ah), screen("b1", "b", bw, bh)], arrangement: { aSide: side, align } });
+      const [a, b] = d.boxes as [Box, Box];
+      const e = d.edge;
+      expect(e).not.toBeNull();
+      if (!e) continue;
+      const vertical = side === "left" || side === "right";
+      // Todo en porcentaje del lienzo: se pasa a pulgadas con la escala de B.
+      const [bStart, bLen, bTrue, aStart, aLen] = vertical ? [b.top, b.height, bh, a.top, a.height] : [b.left, b.width, bw, a.left, a.width];
+      const inch = bTrue / bLen;
+      const [from, to] = vertical ? sharedSpan(bh, ah, align) : sharedSpan(bw, aw, align);
+      const eStart = vertical ? e.top : e.left;
+      expect((eStart - bStart) * inch, `${side}/${align} inicio`).toBeCloseTo(from, 6);
+      expect(e.length * inch, `${side}/${align} largo`).toBeCloseTo(to - from, 6);
+      // Y queda dentro de las dos pantallas a lo largo del borde.
+      expect(eStart).toBeGreaterThanOrEqual(Math.max(bStart, aStart) - 1e-9);
+      expect(eStart + e.length).toBeLessThanOrEqual(Math.min(bStart + bLen, aStart + aLen) + 1e-9);
+    }
+  });
+
+  it("las pantallas de una misma máquina se dibujan juntas con su x/y", () => {
+    // A tiene dos pantallas pegadas, la segunda 2" más abajo; B una sola, a la derecha de A.
+    const layout: LayoutView = {
+      screens: [screen("a1", "a", 10, 8), screen("a2", "a", 10, 8, true, 10, 2), screen("b1", "b", 20, 10), screen("x", null, 6, 5, false)],
+      arrangement: { aSide: "left", align: "start" },
+    };
+    const d = draw(layout);
+    const box = (id: string) => d.boxes.find((b) => b.id === id) as Box;
+    const [a1, a2, b1, x] = [box("a1"), box("a2"), box("b1"), box("x")];
+    // Las de A se tocan en el borde y a2 baja 2" (mismo factor de escala que su ancho: 10" = a1.width).
+    expect(a2.left).toBeCloseTo(a1.left + a1.width, 6);
+    const inH = a1.height / 8; // alto en % por pulgada
+    expect(a2.top - a1.top).toBeCloseTo(2 * inH, 6);
+    // A, como un solo escritorio, queda a la izquierda de B; la desconectada, aparte.
+    expect(Math.max(a1.left + a1.width, a2.left + a2.width)).toBeLessThan(b1.left);
+    for (const [i, p] of d.boxes.entries()) for (const q of d.boxes.slice(i + 1)) expect(overlap(p, q), `${p.id}/${q.id}`).toBe(false);
+    expect(x.left).toBeGreaterThan(b1.left + b1.width);
+    // El borde es el de todo el escritorio de A (a1 y a2: de 0 a 10" de alto), no el de una pantalla.
+    expect(d.edge).not.toBeNull();
+    expect((d.edge?.length ?? 0) / b1.height).toBeCloseTo(10 / 10, 6);
+  });
+
   it("un puesto que no entra agranda el lienzo con la misma proporción", () => {
     const big: LayoutView = { screens: [screen("a1", "a", 70, 40), screen("b1", "b", 70, 40)], arrangement: DEFAULT_ARRANGEMENT };
     const d = draw(big);
@@ -152,6 +209,20 @@ describe("panel", () => {
     const p = panelFor(MOCK, "mbp");
     expect(p?.question).toBe('¿Dónde está el 34"?');
     expect(p?.shown).toBe("right");
+  });
+
+  it("una segunda pantalla conectada de la misma máquina se acomoda igual que la principal", () => {
+    const two: LayoutView = {
+      screens: [screen("a1", "a", 10, 8), screen("a2", "a", 10, 8, true, 10, 0), screen("b1", "b", 20, 10)],
+      arrangement: { aSide: "left", align: "center" },
+    };
+    const p = panelFor(two, "a2");
+    expect(p?.screen.usable).toBe(true);
+    expect(p?.other?.id).toBe("b1");
+    expect(p?.question).toBe("¿Dónde está b1?");
+    expect(p?.shown).toBe("right");
+    // Lo que se elige desde la segunda es lo mismo que desde la primera.
+    expect(placeOther(two.arrangement, "a", "down")).toEqual({ aSide: "up", align: "center" });
   });
 
   it("una pantalla desconectada no entra en el acomodo", () => {

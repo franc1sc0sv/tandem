@@ -20,6 +20,8 @@
   let draft: Arrangement | null = $state(null);
   let picked: string | null = $state(null);
   let saving = $state(false);
+  /** El acomodo del puesto cuando se guardó, mientras no llegue el nuevo: el borrador se queda. */
+  let awaiting: Arrangement | null = $state(null);
 
   const arrangement = $derived(draft ?? desk.layout.arrangement);
   const layout = $derived({ screens: desk.layout.screens, arrangement });
@@ -62,23 +64,43 @@
     return e.vertical ? `left:calc(${e.left}% - 1.5px);top:${e.top}%;width:3px;height:${e.length}%` : `left:${e.left}%;top:calc(${e.top}% - 1.5px);height:3px;width:${e.length}%`;
   });
 
+  const same = (x: Arrangement, y: Arrangement) => x.aSide === y.aSide && x.align === y.align;
+
   function place(slot: Side) {
     const m = panel?.screen.machine;
     if (!m) return;
+    awaiting = null;
     draft = placeOther(arrangement, m, slot);
   }
 
   function setAlign(v: string) {
     const align = ALIGNS.find((a) => a === v);
-    if (align) draft = { ...arrangement, align };
+    if (!align) return;
+    awaiting = null;
+    draft = { ...arrangement, align };
   }
 
   async function save() {
     saving = true;
-    const r = await store.setArrangement(arrangement);
+    const before = desk.layout.arrangement;
+    const mine = arrangement;
+    const r = await store.setArrangement(mine);
     saving = false;
-    if (r.ok) draft = null;
+    if (!r.ok) return;
+    // El agente responde antes de que llegue el `Desk` nuevo: hasta entonces se sigue viendo lo guardado.
+    const now = desk.layout.arrangement;
+    if (!same(now, before) || same(now, mine)) draft = null;
+    else awaiting = before;
   }
+
+  // Llegó otro acomodo del puesto (el guardado, o uno de la otra máquina): el borrador ya no hace falta.
+  $effect(() => {
+    const now = desk.layout.arrangement;
+    if (awaiting && !same(now, awaiting)) {
+      draft = null;
+      awaiting = null;
+    }
+  });
 
   const crossHref = formatHash({ screen: "cruce" });
 </script>
@@ -180,8 +202,10 @@
               <span class="lbl">Alineación</span>
               <Segmented options={alignOptions} value={arrangement.align} label="Alineación" onchange={setAlign} />
             </div>
-          {:else}
+          {:else if !s.usable}
             <div class="locked"><Icon name="warn" size={16} stroke={2} />No compatible: no entra en el acomodo.</div>
+          {:else}
+            <div class="locked"><Icon name="warn" size={16} stroke={2} />La otra máquina no tiene pantallas conectadas: no hay acomodo que editar.</div>
           {/if}
         </Card>
       {/key}

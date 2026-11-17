@@ -282,11 +282,11 @@ function demoLayout(sa: Spec, sb: Spec, scenes: SceneView[], active: string | nu
       const { external, off: gone, ...rest } = d;
       const id = sa.screens.includes(d) && sb.screens.includes(d) ? `${m}-${d.id}` : d.id;
       if (gone) {
-        off.push({ ...rest, id, machine: null, usable: false, line: "Desconectado" });
+        off.push({ ...rest, id, machine: null, x: 0, y: 0, usable: false, line: "Desconectado" });
         continue;
       }
       const shows = external && scene?.shows === m ? ` · escena ${scene.name}` : "";
-      screens.push({ ...rest, id, machine: m, usable: true, line: `${spec.name}${shows}` });
+      screens.push({ ...rest, id, machine: m, x: 0, y: 0, usable: true, line: `${spec.name}${shows}` });
     }
   }
   return { screens: [...screens, ...off], arrangement: { ...DEMO_ARRANGEMENT } };

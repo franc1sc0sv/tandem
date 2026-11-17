@@ -190,6 +190,81 @@ describe("con el agente real", () => {
     expect(none.arrangement).toEqual({ aSide: "left", align: "center" });
   });
 
+  /** El puesto con la PC (b) con dos monitores conectados, uno al lado del otro. */
+  const twoScreens = (): Snapshot => {
+    const snap = connected();
+    if (snap.kind !== "connected") throw new Error("foto");
+    return {
+      ...snap,
+      desk: {
+        ...snap.desk,
+        screens: [
+          { machine: "a", id: "Integrada", x: 0, y: 0, width: 1512, height: 945, scale: 2 },
+          { machine: "b", id: "Odyssey", x: 0, y: 0, width: 3440, height: 1440, scale: 1 },
+          { machine: "b", id: "Lateral", x: 3440, y: -200, width: 2560, height: 1440, scale: 1 },
+        ],
+      },
+    };
+  };
+
+  it("las pantallas de una máquina llevan su posición en el escritorio", () => {
+    const snap = twoScreens();
+    if (snap.kind !== "connected") throw new Error("foto");
+    const l = layoutFromDesk(snap);
+    const lateral = l.screens.find((s) => s.id === "b:Lateral");
+    const main = l.screens.find((s) => s.id === "b:Odyssey");
+    expect(lateral?.usable).toBe(true);
+    expect(lateral && main && lateral.x - main.x).toBeCloseTo(3440 / 110, 9);
+    expect(lateral?.y).toBeCloseTo(-200 / 110, 9);
+  });
+
+  it("una segunda pantalla conectada no es «No compatible» y edita el mismo acomodo", async () => {
+    const act = vi.fn(async (_a: Action) => ({ kind: "done" as const }));
+    const bridgeTwo: Bridge = new Proxy({} as Bridge, {
+      get: (_t, k) => ({ snapshot: async () => twoScreens(), onSnapshot: async () => {}, act })[k as string] ?? (() => new Promise(() => {})),
+    });
+    await open(new LiveSource(bridgeTwo));
+    await userEvent.click(screen.getByRole("button", { name: /Lateral/ }));
+    expect(screen.queryByText(/No compatible/)).toBeNull();
+    expect(pad()).toHaveAccessibleName("¿Dónde está Integrada?");
+    await userEvent.click(slot("Arriba"));
+    await userEvent.click(screen.getByRole("button", { name: /Guardar/ }));
+    // Desde b la MacBook está arriba: se guarda como el lado de A.
+    expect(act).toHaveBeenCalledWith({ kind: "set_arrangement", a_side: "up", align: "start" });
+  });
+
+  it("al guardar el lienzo no vuelve al acomodo viejo mientras llega el nuevo", async () => {
+    let push: (s: Snapshot) => void = () => {};
+    const act = vi.fn(async (_a: Action) => ({ kind: "done" as const }));
+    const known: Partial<Record<keyof Bridge, unknown>> = {
+      snapshot: async () => connected(),
+      onSnapshot: async (cb: (s: Snapshot) => void) => {
+        push = cb;
+      },
+      act,
+    };
+    const b = new Proxy({} as Bridge, { get: (_t, k) => known[k as keyof Bridge] ?? (() => new Promise(() => {})) });
+    await open(new LiveSource(b));
+    await userEvent.click(slot("Abajo"));
+    await userEvent.click(screen.getByRole("button", { name: /Guardar/ }));
+    expect(await screen.findByText("Acomodo guardado")).toBeInTheDocument();
+    // El agente respondió, pero el `Desk` nuevo no llegó: sigue viéndose lo guardado.
+    expect(slot("Abajo")).toHaveAttribute("aria-checked", "true");
+    const snap = connected();
+    if (snap.kind !== "connected") throw new Error("foto");
+    // Una foto que repite el acomodo viejo no suelta el borrador.
+    push(snap);
+    await tick();
+    expect(slot("Abajo")).toHaveAttribute("aria-checked", "true");
+    push({ ...snap, desk: { ...snap.desk, arrangement: { a_side: "down", align: "start" } } });
+    await tick();
+    expect(slot("Abajo")).toHaveAttribute("aria-checked", "true");
+    // Con el acomodo nuevo ya en el puesto el borrador se soltó: lo que llegue después se ve.
+    push({ ...snap, desk: { ...snap.desk, arrangement: { a_side: "left", align: "end" } } });
+    await tick();
+    expect(slot("Izquierda")).toHaveAttribute("aria-checked", "true");
+  });
+
   it("guardar es un cambio del puesto por la IPC (`set_arrangement`)", async () => {
     const act = vi.fn(async (_a: Action) => ({ kind: "done" as const }));
     await open(new LiveSource(bridge(act)));
