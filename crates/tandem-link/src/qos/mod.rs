@@ -340,6 +340,11 @@ impl Qos {
         self.evaluate(&mut s, now);
     }
 
+    /// El p99 de la latencia de la entrada en la ventana del guardián; `None` sin muestras.
+    pub fn input_p99(&self) -> Option<Duration> {
+        self.lock().guard.p99(Instant::now())
+    }
+
     /// Revisa la pausa sin una muestra nueva (sin entrada también hay que reanudar).
     pub fn tick(&self) {
         let mut s = self.lock();

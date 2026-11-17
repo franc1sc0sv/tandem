@@ -814,9 +814,10 @@ async fn the_wifi_data_cap_reaches_the_connections_already_open() {
     use tandem_link::manager::LinkKind;
 
     let (a_id, b_id) = sides(Identity::from_seed([7; 32]), Identity::from_seed([8; 32]));
-    let (a_port, b_port) = (free_port(), free_port());
-    let a = start(Machine::A, &a_id, a_port, Some((b_id.public_key(), b_port))).await;
-    let b = start(Machine::B, &b_id, b_port, Some((a_id.public_key(), a_port))).await;
+    let (a, b) = tandemd::start_pair!(
+        |a_port, b_port| start(Machine::A, &a_id, a_port, Some((b_id.public_key(), b_port))),
+        start(Machine::B, &b_id, b_port, Some((a_id.public_key(), a_port)))
+    );
     until_peer(&a.agent, paired("B", Some(Link::Usb4))).await;
     until_peer(&b.agent, paired("A", Some(Link::Usb4))).await;
     until_both_known(&a, &b).await;

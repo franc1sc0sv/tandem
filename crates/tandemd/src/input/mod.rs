@@ -705,11 +705,12 @@ async fn status(sh: Arc<Shared>) {
 /// pausarlos si la entrada pasa su objetivo (DESIGN §6). Se alimenta en las dos máquinas,
 /// porque los datos de las dos compiten por el mismo camino: en la que inyecta, con cada
 /// muestra; en la que captura, con el p99 de cada ventana que le informa la otra.
-///
-/// Gancho para T-101 (#73): ahí va el `Qos` del camino activo; hasta que esté en
-/// `develop`, solo se registra en el nivel `trace`.
-fn feed_qos(_sh: &Shared, latency: Duration) {
-    tracing::trace!(?latency, "latencia de la entrada para el Qos del camino");
+/// Va al `Qos` del camino activo (T-101), el mismo para todas las conexiones por él.
+fn feed_qos(sh: &Shared, latency: Duration) {
+    let kind = sh.link.borrow().as_ref().map(|l| l.kind);
+    if let Some(kind) = kind {
+        sh.agent.link_qos().get(kind).record_input_latency(latency);
+    }
 }
 
 /// Copia la latencia que publica un driver en la del motor, con el enlace activo.
@@ -802,13 +803,17 @@ async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String
     let capture = tokio::task::spawn_blocking(move || backends.capture(sink))
         .await
         .map_err(|e| e.to_string())??;
-    let layout = sh.layout.borrow().clone();
+    // Suscribirse antes de leer: si la geometría cambia entre medio (las pantallas de la
+    // otra llegan junto con sus capacidades, justo cuando se rearma la captura), la sesión
+    // la recibe; leer primero y suscribirse después dejaba el cambio marcado como visto y
+    // la sesión sin la otra máquina hasta el próximo cambio.
+    let mut layouts = sh.layout.subscribe();
+    let layout = layouts.borrow_and_update().clone();
     let cursor = first_cursor(layout.screens(sh.me));
     let session = ServerSession::new(sh.me, layout, cursor, sh.opts.session.resync_every)
         .with_lock_shortcut(lock_keys)
         .with_drag_across(sh.agent.config().input.drag_between_machines);
-    let driver = ServerDriver::new(session, capture, rx, sh.opts.session)
-        .with_layouts(sh.layout.subscribe());
+    let driver = ServerDriver::new(session, capture, rx, sh.opts.session).with_layouts(layouts);
     forward_activity(sh.clone(), driver.activity());
     forward_latency(sh.clone(), driver.latency(), true);
     let s = sh.clone();
@@ -881,6 +886,23 @@ async fn server(sh: Arc<Shared>) {
             }
             continue;
         };
+        if peer.is_none() {
+            // Sin saber el sistema de la otra no se abre la sesión: al llegar sus
+            // capacidades se rearmaría la captura (los modificadores dependen de él) y la
+            // sesión nueva empezaría con el cursor en casa, perdiendo un cruce ya hecho.
+            // Lo de aquí se sigue poniendo al día.
+            let until = async {
+                tokio::select! {
+                    () = changed(&mut role) => {}
+                    () = changed(&mut link) => {}
+                    () = until_peer_os_changes(&sh, &mut caps, peer) => {}
+                }
+            };
+            if d.idle(until).await.is_err() {
+                driver = None;
+            }
+            continue;
+        }
         let me = sh.me;
         let conn = active.handle.conn.clone();
         let open = async move {

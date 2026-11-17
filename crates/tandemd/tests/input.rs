@@ -1214,3 +1214,88 @@ async fn a_port_taken_before_starting_fails_fast_and_the_pair_picks_new_ones() {
     b.stop().await;
     a.stop().await;
 }
+
+/// La sesión de entrada no se abre antes de saber el sistema de la otra máquina. Si se
+/// abría, al llegar sus capacidades se rearmaba la captura y la sesión nueva empezaba con
+/// el cursor en casa: un cruce ya hecho se perdía (otra causa de las esperas que vencían
+/// en estas pruebas, encontrada en la revisión de T-101).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_input_session_waits_for_the_other_machines_os() {
+    for seed in 0..2u8 {
+        let (mac_id, pc_id) = sides(
+            Identity::from_seed([60 + seed; 32]),
+            Identity::from_seed([70 + seed; 32]),
+        );
+        let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+        let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+        let (mac, pc) = tandemd::start_pair!(
+            |mac_port, pc_port| start(
+                Machine::A,
+                &mac_id,
+                mac_port,
+                (pc_id.public_key(), pc_port),
+                mac_fake.clone(),
+            ),
+            start(
+                Machine::B,
+                &pc_id,
+                pc_port,
+                (mac_id.public_key(), mac_port),
+                pc_fake.clone(),
+            )
+        );
+        // El servidor (la PC, por la config) abre la sesión: en ese instante ya sabe qué
+        // sistema tiene la Mac.
+        let mut rx = pc.agent.subscribe_input();
+        within(rx.wait_for(|s| s.session)).await.unwrap();
+        let known = pc.agent.capabilities().peer.map(|p| p.info.os);
+        assert_eq!(
+            known,
+            Some(Os::MacOs),
+            "sesión abierta sin saber el sistema de la otra"
+        );
+        pc.stop().await;
+        mac.stop().await;
+    }
+}
+
+/// La latencia de la entrada alimenta el `Qos` del camino en las dos máquinas (T-101): la
+/// que inyecta con cada muestra y la que captura con el p99 que le informa la otra. Así
+/// el guardián de los datos de cualquiera de las dos puede pausarlos.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_input_latency_feeds_the_link_qos_on_both_machines() {
+    use tandem_link::manager::LinkKind;
+    let (mac_id, pc_id) = sides(Identity::from_seed([81; 32]), Identity::from_seed([82; 32]));
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    let (mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
+    pc.until_input(|s| s.server == Machine::B && s.session)
+        .await;
+    both_on(&mac, &pc).await;
+    cross(&pc_fake, &mac_fake, 0.0, -5.0).await;
+    let p99 = |r: &Running| r.agent.link_qos().get(LinkKind::Usb4).input_p99();
+    within(async {
+        while p99(&mac).is_none() || p99(&pc).is_none() {
+            pc_fake.capture(InputEvent::MotionRelative { dx: 0.0, dy: 1.0 });
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    pc.stop().await;
+    mac.stop().await;
+}
