@@ -22,12 +22,12 @@ pub use env::{
 };
 pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encode_frame};
 pub use msg::{
-    AgentToUi, Capabilities, Channel, ControlMsg, DeskCapabilities, Hello, HubReport, InputCaps,
-    InputPermission, InputStatus, KeyProbeMsg, KeyProbeStatus, Link, ModuleId, ModuleInfo,
-    ModuleState, MonitorChannel, MonitorCompat, MonitorEvent, MonitorEventKind, MonitorReport,
-    MonitorView, PairingMsg, PairingStatus, Peer, PeerStatus, PowerCaps, PowerEvent, ProcessInfo,
-    Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest, UpdateMsg,
-    UpdateStatus,
+    AgentToUi, Capabilities, Channel, ControlMsg, DeskCapabilities, FocusMsg, Hello, HubReport,
+    InputCaps, InputLatency, InputPermission, InputStatus, KeyProbeMsg, KeyProbeStatus, Link,
+    ModuleId, ModuleInfo, ModuleState, MonitorChannel, MonitorCompat, MonitorEvent,
+    MonitorEventKind, MonitorReport, MonitorView, PairingMsg, PairingStatus, Peer, PeerStatus,
+    PowerCaps, PowerEvent, ProcessInfo, Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent,
+    UiCommand, UiRequest, UpdateMsg, UpdateStatus,
 };
 pub use tunnel::{
     Client, ClientKind, FlowId, FlowInfo, Project, ProjectTunnels, Tunnel, TunnelDown, TunnelId,
@@ -37,7 +37,7 @@ pub use tunnel::{
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 25;
+pub const PROTOCOL_VERSION: u16 = 26;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -99,10 +99,12 @@ mod tests {
     /// de actualizar a la otra) sube a la v22. T-100 (escenas completas en el puesto, la escena
     /// activa en el estado, pasos de escena, `StepUndone` y `ApplyScene`) sube a la v23.
     /// T-103 (túneles: el canal `Tunnel`, el saludo de los clientes, sus pedidos y el aviso a
-    /// la UI) sube a la v25 (la v24 es de T-093).
+    /// la UI) sube a la v25. T-093 (marcas de tiempo y latidos con eco en la entrada,
+    /// arbitraje del teclado sin dueño y latencia en el estado de la entrada) sube a la v26:
+    /// iba a ser la v24, pero entró después de T-103.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 25);
+        assert_eq!(PROTOCOL_VERSION, 26);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

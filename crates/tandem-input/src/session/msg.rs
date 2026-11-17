@@ -9,10 +9,16 @@
 //! los mensajes del stream que dependen de la posición (entrar, botones, la
 //! posición exacta al detenerse) llevan el último enviado. El cliente descarta cualquier datagrama que no sea más nuevo
 //! que lo último que aplicó, así uno atrasado nunca mueve el cursor hacia atrás.
+//!
+//! Las marcas `t_us` son del reloj monotónico del servidor ([`super::latency::now_us`])
+//! al capturar: el cliente mide con ellas la latencia (T-093).
 
 use serde::{Deserialize, Serialize};
 use tandem_proto::ProtoError;
 
+use tandem_proto::InputLatency;
+
+use super::latency::Beat;
 use crate::event::{Button, HidUsage, KeyState, Modifiers, Scroll};
 use crate::geometry::Point;
 
@@ -33,6 +39,7 @@ pub enum StreamMsg {
     Key {
         usage: HidUsage,
         state: KeyState,
+        t_us: u64,
     },
     /// Un clic en `pos`: si el datagrama con el último movimiento se perdió o llega
     /// después, el clic igual cae donde el usuario lo vio.
@@ -41,15 +48,16 @@ pub enum StreamMsg {
         state: KeyState,
         seq: u64,
         pos: Point,
+        t_us: u64,
     },
     /// Posición exacta cuando el mouse se detiene, para que el cursor del cliente
     /// termine donde debe aunque se hayan perdido datagramas.
-    Sync {
-        seq: u64,
-        pos: Point,
-    },
-    /// Latido, en los dos sentidos: el silencio prolongado cuenta como enlace caído.
-    Heartbeat,
+    Sync { seq: u64, pos: Point },
+    /// Latido, en los dos sentidos: el silencio prolongado cuenta como enlace caído. Con
+    /// su marca y el eco del último del otro lado estiman el desfase de los relojes.
+    Heartbeat(Beat),
+    /// Del cliente al servidor: la latencia que midió en la última ventana.
+    Latency(InputLatency),
 }
 
 /// Datagramas de la conexión entre agentes. Es un enum para que otros usos
@@ -63,14 +71,18 @@ pub enum Datagram {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MotionDatagram {
     pub seq: u64,
-    /// Delta en puntos lógicos; el cliente lo pasa a sus unidades nativas con la
-    /// escala de su pantalla.
+    /// Delta en las unidades nativas del cliente, ya convertido por el servidor con la
+    /// escala de cada pantalla que cruzó: el cliente solo lo suma, así su cursor queda
+    /// exactamente donde el servidor cree aunque el tramo pase por pantallas de escalas
+    /// distintas.
     pub dx: f64,
     pub dy: f64,
     pub scroll: Option<Scroll>,
     /// Resincronización absoluta: dónde tiene que quedar el cursor después de este
     /// datagrama (coordenadas nativas del cliente). Corrige lo que se haya perdido.
     pub resync: Option<Point>,
+    /// Marca del primer evento que acumula (el más viejo).
+    pub t_us: u64,
 }
 
 impl Datagram {
@@ -100,18 +112,37 @@ mod tests {
             StreamMsg::Key {
                 usage: HidUsage::key(0x04),
                 state: KeyState::Pressed,
+                t_us: 17,
             },
             StreamMsg::Button {
                 button: Button::Back,
                 state: KeyState::Released,
                 seq: u64::MAX,
                 pos: Point::new(-10.0, 0.25),
+                t_us: u64::MAX,
             },
             StreamMsg::Sync {
                 seq: 3,
                 pos: Point::new(1.0, 2.0),
             },
-            StreamMsg::Heartbeat,
+            StreamMsg::Heartbeat(Beat {
+                sent_us: 1,
+                echo: None,
+            }),
+            StreamMsg::Heartbeat(Beat {
+                sent_us: 9_000_000,
+                echo: Some(super::super::latency::Echo {
+                    sent_us: 8_000_000,
+                    held_us: 999_000,
+                }),
+            }),
+            StreamMsg::Latency(InputLatency {
+                link: None,
+                count: 1000,
+                p50_us: 400,
+                p99_us: 900,
+                max_us: 3000,
+            }),
         ];
         for m in msgs {
             let bytes = tandem_proto::encode(&m).unwrap();
@@ -130,6 +161,7 @@ mod tests {
                 dy_v120: -240,
             }),
             resync: Some(Point::new(100.0, 200.0)),
+            t_us: 3_600_000_000,
         });
         let bytes = d.encode().unwrap();
         // Tiene que caber de sobra en cualquier MTU.

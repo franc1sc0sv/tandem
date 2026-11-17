@@ -120,6 +120,9 @@ pub enum ControlMsg {
     Rescan,
     /// Actualizar las dos máquinas, una a la vez (T-122).
     Update(UpdateMsg),
+    /// Quién manda el teclado y el mouse: los dos capturan y manda la máquina que
+    /// recibe entrada física (DECISIONS D7, DESIGN §7).
+    Focus(FocusMsg),
 }
 
 /// Lo que se dicen los dos agentes para actualizarse (T-122). Las versiones son las de la
@@ -146,6 +149,18 @@ pub struct UpdateStatus {
     /// La otra se conectó hablando otra versión del protocolo (la suya): corre otra
     /// versión de Tandem, aunque no se pueda saber cuál.
     pub peer_protocol: Option<u16>,
+}
+
+/// El arbitraje del teclado y el mouse sin dueño (D7). Cada cambio sube `epoch`; con dos
+/// vistas distintas gana la de `epoch` mayor y, empatadas, la del lado `A`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FocusMsg {
+    /// Quien lo manda recibe entrada física y no es quien manda: la pide.
+    Claim { epoch: u64 },
+    /// Quien lo manda deja de mandar: desde `epoch` manda el que lo recibe.
+    Grant { epoch: u64 },
+    /// Quién manda según quien lo manda (al conectar, cada tanto y ante un pedido viejo).
+    State { epoch: u64, server: Machine },
 }
 
 /// Los mensajes de la prueba «presiona una tecla» entre los dos agentes.
@@ -709,6 +724,23 @@ pub struct InputStatus {
     /// Si no, `server` es solo el valor con el que arranca el motor y la UI dice «sin
     /// definir»: nunca se supone la Mac (T-087).
     pub defined: bool,
+    /// Latencia de la entrada (captura → inyección) de la última ventana de 5 s, medida
+    /// por quien recibe la entrada (T-093). `None` hasta la primera medición.
+    #[serde(default)]
+    pub latency: Option<InputLatency>,
+}
+
+/// Latencia de la entrada en una ventana: de la marca de tiempo del servidor (pasada al
+/// reloj del cliente con el desfase estimado por los latidos) a la inyección.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputLatency {
+    /// El enlace por el que se midió; `None` si quien la mide no lo sabe.
+    pub link: Option<Link>,
+    /// Eventos medidos en la ventana.
+    pub count: u32,
+    pub p50_us: u32,
+    pub p99_us: u32,
+    pub max_us: u32,
 }
 
 impl InputStatus {
@@ -722,6 +754,7 @@ impl InputStatus {
             missing: Vec::new(),
             problem: None,
             defined: false,
+            latency: None,
         }
     }
 }
@@ -1069,6 +1102,12 @@ pub(crate) mod samples {
             ControlMsg::Update(UpdateMsg::Install {
                 version: "0.3.1-rc.2".into(),
             }),
+            ControlMsg::Focus(FocusMsg::Claim { epoch: 0 }),
+            ControlMsg::Focus(FocusMsg::Grant { epoch: u64::MAX }),
+            ControlMsg::Focus(FocusMsg::State {
+                epoch: 3,
+                server: Machine::A,
+            }),
             ControlMsg::Desk(Box::new(DeskVersion {
                 stamp: DeskStamp {
                     rev: 4,
@@ -1121,6 +1160,7 @@ pub(crate) mod samples {
             ControlMsg::Resources(_) => 15,
             ControlMsg::Rescan => 16,
             ControlMsg::Update(_) => 17,
+            ControlMsg::Focus(_) => 18,
         }
     }
 
@@ -1328,6 +1368,13 @@ pub(crate) mod samples {
                 ],
                 problem: Some("falta el permiso de Accesibilidad".into()),
                 defined: true,
+                latency: Some(InputLatency {
+                    link: Some(Link::Wifi),
+                    count: 5000,
+                    p50_us: 900,
+                    p99_us: 3_200,
+                    max_us: 12_000,
+                }),
             },
         ]
     }
@@ -1816,7 +1863,7 @@ mod tests {
     fn samples_cover_every_variant() {
         covers(&steps(), step_arm, 6);
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
-        covers(&control(), control_arm, 18);
+        covers(&control(), control_arm, 19);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
         covers(&cmds, ui_command_arm, 31);
         covers(&modules(), |m| module_state_arm(&m.state), 3);

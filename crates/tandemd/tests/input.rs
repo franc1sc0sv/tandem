@@ -1,8 +1,8 @@
 //! Teclado, mouse y portapapeles entre dos `tandemd` armados con [`daemon::start`]:
 //! identidades emparejadas, QUIC real en loopback y backends de entrada simulados
 //! ([`FakeInputBackends`]). El cursor cruza el borde y los eventos llegan al otro
-//! lado, mover el hub invierte los roles, el portapapeles se sincroniza y los permisos
-//! que faltan en la Mac llegan a la UI.
+//! lado, usar el mouse de la otra máquina la pone a mandar (D7: sin dueño), el
+//! portapapeles se sincroniza y los permisos que faltan en la Mac llegan a la UI.
 //!
 //! La geometría es la del acomodo (DESIGN §7): el de omisión (A a la izquierda, con
 //! las pantallas que lee cada una), uno editado que llega por `ControlMsg::Desk` y uno
@@ -18,7 +18,7 @@ use std::time::Duration;
 use tandem_clipboard::ClipContent;
 use tandem_core::{DeskPatch, InputPrefs, Machine, Os, Shortcuts, Side, Step};
 use tandem_input::geometry::{LayoutOptions, Rect, Screen};
-use tandem_input::session::SessionConfig;
+use tandem_input::session::{FollowConfig, SessionConfig};
 use tandem_input::{HidUsage, InputEvent, KeyState, ModifierKey};
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_peripherals::{UsbId, WatchConfig};
@@ -108,6 +108,7 @@ fn fast() -> InputOptions {
             heartbeat_timeout: Duration::from_millis(1500),
             resync_idle: Duration::from_millis(20),
             resync_every: 8,
+            latency_every: Duration::from_millis(500),
         },
         clipboard: tandem_clipboard::ClipConfig {
             poll: Duration::from_millis(10),
@@ -118,6 +119,7 @@ fn fast() -> InputOptions {
             debounce: Duration::from_millis(150),
         },
         layout: LayoutOptions { corner_margin: 0.0 },
+        follow: FollowConfig::default(),
         report_every: Duration::from_millis(200),
         screens_every: Duration::from_millis(200),
         permissions_every: Duration::from_millis(50),
@@ -327,6 +329,27 @@ async fn cross(
     .await
 }
 
+/// El usuario usa el mouse de `who` hasta que las dos máquinas dicen que manda ella y la
+/// sesión está arriba (D7: manda la que recibe entrada física, en cuanto la otra lleve
+/// 300 ms quieta).
+async fn take_over(who: &Running, fake: &FakeInputBackends, other: &Running) {
+    let me = who.agent.machine();
+    within(async {
+        loop {
+            fake.capture(InputEvent::MotionRelative { dx: 0.0, dy: 1.0 });
+            let serving = |r: &Running| {
+                let s = r.agent.input_status();
+                s.server == me && s.session
+            };
+            if serving(who) && serving(other) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+}
+
 /// Espera a que cada agente vea a la otra máquina prendida: sin eso sus pantallas no
 /// cuentan en la geometría.
 async fn both_on(a: &Running, b: &Running) {
@@ -416,13 +439,12 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
         .await
         .unwrap();
 
-    // El usuario mueve el hub a la Mac: los roles se invierten en los dos agentes.
-    pc_fake.devices().set(vec![]);
-    mac_fake.devices().set(vec![KEYBOARD, MOUSE]);
-    let mac_serving = |s: &InputStatus| s.server == Machine::A && s.session;
-    mac.until_input(mac_serving).await;
-    pc.until_input(mac_serving).await;
+    // Las dos capturan siempre (D7).
     assert!(mac_fake.capturing());
+    // El usuario toma el mouse de la Mac: en cuanto la PC lleva 300 ms quieta, manda la
+    // Mac en los dos agentes. El hub no decide nada.
+    take_over(&mac, &mac_fake, &pc).await;
+    assert_eq!(pc.agent.input_status().hub_here, Some(true));
     // Al dejar de ser servidor la PC devolvió el cursor a su pantalla.
     let calls = pc_fake.capture_calls().borrow().clone();
     assert_eq!(
@@ -458,10 +480,38 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
         Reply::Input(mac.agent.input_status())
     );
 
+    // La PC vuelve a usarse mientras la Mac escribe: no se la quita hasta que la Mac
+    // lleva 300 ms quieta.
+    let started = std::time::Instant::now();
+    for _ in 0..10 {
+        mac_fake.capture(key(b, KeyState::Released));
+        pc_fake.capture(InputEvent::MotionRelative { dx: 0.0, dy: 1.0 });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    if started.elapsed() < Duration::from_millis(250) {
+        assert_eq!(
+            pc.agent.input_status().server,
+            Machine::A,
+            "la Mac seguía en uso"
+        );
+    }
+    take_over(&pc, &pc_fake, &mac).await;
+
     pc.stop().await;
-    // Sin el otro agente no hay sesión, y la Mac, con el hub, sigue de servidor.
-    mac.until_input(|s| !s.session && s.server == Machine::A)
+    // Sin el otro agente no hay sesión; la Mac sigue con lo último que se decidió hasta
+    // que se use.
+    mac.until_input(|s| !s.session && s.server == Machine::B)
         .await;
+    // Sin enlace, manda la que se usa. La sesión cae antes que el enlace (que espera su
+    // propio plazo de salud): mientras el enlace siga arriba la Mac pide y nadie contesta,
+    // así que el usuario sigue moviendo el mouse hasta que el enlace cae.
+    within(async {
+        while mac.agent.input_status().server != Machine::A {
+            mac_fake.capture(InputEvent::MotionRelative { dx: 0.0, dy: 1.0 });
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
     mac.stop().await;
 }
 
@@ -473,8 +523,6 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
     let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
-    // El hub en la Mac: ella captura y decide por dónde cruza.
-    mac_fake.devices().set(vec![KEYBOARD, MOUSE]);
     let mac = start(
         Machine::A,
         &mac_id,
@@ -491,8 +539,8 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
         pc_fake.clone(),
     )
     .await;
-    let mac_serving = |s: &InputStatus| s.server == Machine::A && s.session;
-    mac.until_input(mac_serving).await;
+    // La Mac se usa: ella captura y decide por dónde cruza.
+    take_over(&mac, &mac_fake, &pc).await;
     both_on(&mac, &pc).await;
 
     // Por omisión la Mac está a la izquierda: cruza por su borde derecho.
@@ -620,10 +668,9 @@ async fn a_capture_that_fails_is_reported_and_retried() {
         fake.clone(),
     )
     .await;
-    // Sin el otro agente y con la PC dada por apagada, la Mac con el hub es el servidor.
+    // Las dos máquinas capturan (D7): la falla se ve aunque esta no mande.
     let problem = Some("falta el permiso de Accesibilidad".to_owned());
-    mac.until_input(|s| s.server == Machine::A && s.problem == problem)
-        .await;
+    mac.until_input(|s| s.problem == problem).await;
     assert!(!mac.agent.input_status().session);
     assert!(!fake.capturing());
     // El usuario concede el permiso: el siguiente intento arranca la captura.

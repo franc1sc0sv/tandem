@@ -22,7 +22,7 @@ use objc2_core_graphics::{
 };
 
 use super::grab::{CursorBackend, Grab};
-use super::translate::{INJECTED_MARKER, RawEvent, TapAction, Translator};
+use super::translate::{INJECTED_MARKER, RawEvent, TapAction, TapDisabledBy, Translator};
 use super::{CaptureError, Permissions};
 use crate::event::InputEvent;
 use crate::geometry::Point;
@@ -202,7 +202,7 @@ struct TapContext {
 impl TapContext {
     fn handle(&mut self, ty: CGEventType, event: &CGEvent) -> TapAction {
         let raw = read_event(ty, event);
-        if !matches!(raw, RawEvent::TapDisabled | RawEvent::Other)
+        if !matches!(raw, RawEvent::TapDisabled(_) | RawEvent::Other)
             && CGEvent::integer_value_field(Some(event), CGEventField::EventSourceUserData)
                 == INJECTED_MARKER
         {
@@ -239,9 +239,8 @@ fn read_event(ty: CGEventType, event: &CGEvent) -> RawEvent {
     };
     let keycode = || u16::try_from(int(CGEventField::KeyboardEventKeycode)).unwrap_or(u16::MAX);
     match ty {
-        CGEventType::TapDisabledByTimeout | CGEventType::TapDisabledByUserInput => {
-            RawEvent::TapDisabled
-        }
+        CGEventType::TapDisabledByTimeout => RawEvent::TapDisabled(TapDisabledBy::Timeout),
+        CGEventType::TapDisabledByUserInput => RawEvent::TapDisabled(TapDisabledBy::UserInput),
         CGEventType::KeyDown => RawEvent::KeyDown { keycode: keycode() },
         CGEventType::KeyUp => RawEvent::KeyUp { keycode: keycode() },
         CGEventType::FlagsChanged => RawEvent::FlagsChanged {

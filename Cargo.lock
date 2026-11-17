@@ -4384,6 +4384,7 @@ dependencies = [
  "monitor-ddc",
  "proptest",
  "tandem-core",
+ "tandem-input",
  "tandem-link",
  "tandem-monitor",
  "tandem-peripherals",

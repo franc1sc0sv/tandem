@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 monitor-ddc.workspace = true
 tandem-core = { path = "../tandem-core" }
+tandem-input = { path = "../tandem-input" }
 tandem-link = { path = "../tandem-link" }
 tandem-monitor = { path = "../tandem-monitor" }
 tandem-proto = { path = "../tandem-proto" }

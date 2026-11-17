@@ -4,6 +4,7 @@
 //! desconecta el hub.
 
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::Instant;
 
 use tandem_clipboard::fake::FakeClipboard;
 use tandem_input::session::{Capture, Injector};
@@ -41,6 +42,8 @@ pub struct FakeInputBackends {
     inner: Arc<Mutex<Inner>>,
     calls: Arc<watch::Sender<Vec<CaptureCall>>>,
     injected: Arc<watch::Sender<Vec<InputEvent>>>,
+    /// Lo inyectado con el momento en que llegó al inyector (el banco de latencia).
+    timeline: Arc<Mutex<Vec<(Instant, InputEvent)>>>,
     clipboard: FakeClipboard,
     scanner: FakeScanner,
 }
@@ -55,6 +58,7 @@ impl FakeInputBackends {
             })),
             calls: Arc::new(watch::Sender::new(Vec::new())),
             injected: Arc::new(watch::Sender::new(Vec::new())),
+            timeline: Arc::new(Mutex::new(Vec::new())),
             clipboard: FakeClipboard::new(),
             scanner: FakeScanner::new(Vec::new()),
         }
@@ -82,6 +86,14 @@ impl FakeInputBackends {
     /// Todo lo inyectado en esta máquina, en orden.
     pub fn injected(&self) -> watch::Receiver<Vec<InputEvent>> {
         self.injected.subscribe()
+    }
+
+    /// Todo lo inyectado con el instante en que el inyector lo recibió.
+    pub fn timeline(&self) -> Vec<(Instant, InputEvent)> {
+        self.timeline
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     pub fn clipboard(&self) -> &FakeClipboard {
@@ -133,13 +145,21 @@ impl Capture for RecordingCapture {
     }
 }
 
-struct RecordingInjector(Arc<watch::Sender<Vec<InputEvent>>>);
+struct RecordingInjector {
+    injected: Arc<watch::Sender<Vec<InputEvent>>>,
+    timeline: Arc<Mutex<Vec<(Instant, InputEvent)>>>,
+}
 
 impl Injector for RecordingInjector {
     type Error = std::convert::Infallible;
 
     fn inject(&mut self, event: &InputEvent) -> Result<(), Self::Error> {
-        self.0.send_modify(|e| e.push(*event));
+        let at = Instant::now();
+        self.timeline
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((at, *event));
+        self.injected.send_modify(|e| e.push(*event));
         Ok(())
     }
 }
@@ -155,7 +175,10 @@ impl InputBackends for FakeInputBackends {
     }
 
     fn injector(&self) -> Result<DynInjector, String> {
-        Ok(DynInjector::new(RecordingInjector(self.injected.clone())))
+        Ok(DynInjector::new(RecordingInjector {
+            injected: self.injected.clone(),
+            timeline: self.timeline.clone(),
+        }))
     }
 
     fn clipboard(&self) -> Result<DynClipboard, String> {

@@ -32,7 +32,7 @@ use ::windows::core::{PCWSTR, w};
 use super::consts;
 use super::{
     CaptureConfig, CaptureError, HookControl, HookEvent, HookFilter, KeyboardHook, MouseHook,
-    RawMouse, Verdict, run_pipeline,
+    RawMouse, Verdict, hook_step, run_pipeline,
 };
 use crate::event::InputEvent;
 use crate::geometry::Point;
@@ -119,11 +119,7 @@ impl HookCtx {
         let Ok(mut filter) = self.filter.try_borrow_mut() else {
             return false;
         };
-        let (verdict, event) = decide(&mut filter, grab);
-        // `send` en un canal sin límite no bloquea. Si el hilo de proceso ya
-        // terminó, no hay a quién avisar.
-        let _ = self.tx.send(event);
-        verdict != Verdict::Pass
+        hook_step(&mut filter, grab, &self.tx, decide)
     }
 }
 

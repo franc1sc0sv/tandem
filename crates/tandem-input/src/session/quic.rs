@@ -6,15 +6,22 @@
 //! cae, cuando el otro lado calla más de `heartbeat_timeout` o cuando `stop` se
 //! cumple (el gestor de enlaces avisó de un cambio); en todos los casos el
 //! servidor devuelve el foco a su máquina y el cliente suelta todo.
+//!
+//! Medición (T-093): el servidor marca cada evento al sacarlo de la captura; los latidos
+//! llevan marca y eco para estimar el desfase de relojes; el cliente mide al inyectar y
+//! cada [`SessionConfig::latency_every`] publica p50/p99/máx, lo registra y se lo manda
+//! al servidor, que también lo publica.
 
 use std::future::Future;
+use std::time::Duration;
 
 use bytes::Bytes;
 use tandem_link::transport::{Connection, ControlStream, TransportError};
-use tandem_proto::Hello;
+use tandem_proto::{Hello, InputLatency};
 use tokio::sync::{mpsc, watch};
 use tokio::time::{self, Instant, MissedTickBehavior};
 
+use super::latency::{Beats, Histogram, now_us};
 use super::msg::{Datagram, StreamMsg};
 use super::{Capture, ClientSession, Injector, ServerOutput, ServerSession, SessionConfig};
 use crate::event::InputEvent;
@@ -44,7 +51,24 @@ pub struct ServerDriver<C> {
     active: watch::Sender<bool>,
     remote: watch::Sender<bool>,
     locked: watch::Sender<bool>,
+    activity: watch::Sender<Option<Instant>>,
+    latency: watch::Sender<Option<InputLatency>>,
     cfg: SessionConfig,
+}
+
+/// Cada cuánto como máximo se avisa la entrada física: el arbitraje (D7) trabaja en
+/// decenas de milisegundos y así el camino caliente no despierta a nadie por evento.
+const ACTIVITY_EVERY: Duration = Duration::from_millis(5);
+
+fn touch(activity: &watch::Sender<Option<Instant>>) {
+    let now = Instant::now();
+    activity.send_if_modified(|last| {
+        let due = last.is_none_or(|t| now.saturating_duration_since(t) >= ACTIVITY_EVERY);
+        if due {
+            *last = Some(now);
+        }
+        due
+    });
 }
 
 impl<C: Capture> ServerDriver<C> {
@@ -67,8 +91,21 @@ impl<C: Capture> ServerDriver<C> {
             active: watch::Sender::new(false),
             remote: watch::Sender::new(false),
             locked: watch::Sender::new(false),
+            activity: watch::Sender::new(None),
+            latency: watch::Sender::new(None),
             cfg,
         }
+    }
+
+    /// Cuándo llegó la última entrada física de esta máquina (con o sin sesión): la
+    /// captura solo ve lo físico, lo inyectado no le llega.
+    pub fn activity(&self) -> watch::Receiver<Option<Instant>> {
+        self.activity.subscribe()
+    }
+
+    /// La latencia que informa el cliente cada [`SessionConfig::latency_every`].
+    pub fn latency(&self) -> watch::Receiver<Option<InputLatency>> {
+        self.latency.subscribe()
     }
 
     /// `true` mientras el foco está en la otra máquina.
@@ -117,6 +154,7 @@ impl<C: Capture> ServerDriver<C> {
                 () = &mut until => return Ok(()),
                 ev = self.events.recv() => match ev {
                     Some(ev) => {
+                        touch(&self.activity);
                         self.session.catch_up(ev);
                         self.publish();
                     }
@@ -176,11 +214,13 @@ impl<C: Capture> ServerDriver<C> {
             active,
             remote,
             locked,
+            activity,
+            latency,
             cfg,
         } = self;
         tokio::pin!(stop);
         // Lo capturado sin sesión no se reproduce: haría cruzar solo.
-        catch_up(session, events);
+        catch_up(session, events, activity);
         let mut stream = tokio::select! {
             () = &mut stop => return SessionEnd::Stopped,
             r = time::timeout(cfg.heartbeat_timeout, open) => match r {
@@ -189,7 +229,7 @@ impl<C: Capture> ServerDriver<C> {
                 Err(_) => return SessionEnd::Silent,
             },
         };
-        catch_up(session, events);
+        catch_up(session, events, activity);
         active.send_replace(true);
         let sync = |session: &ServerSession| {
             publish(remote, session.is_remote());
@@ -197,6 +237,7 @@ impl<C: Capture> ServerDriver<C> {
         };
         sync(session);
 
+        let mut beats = Beats::new();
         let mut heartbeat = time::interval(cfg.heartbeat_interval);
         heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let silence = time::sleep(cfg.heartbeat_timeout);
@@ -209,10 +250,13 @@ impl<C: Capture> ServerDriver<C> {
                 () = &mut stop => return SessionEnd::Stopped,
                 ev = events.recv() => {
                     let Some(ev) = ev else { return SessionEnd::CaptureClosed };
-                    // Lo que llegó junto sale junto: así se coalesce el movimiento.
-                    let mut outs = session.handle(ev);
+                    touch(activity);
+                    // Se manda enseguida; solo se junta lo que llegó mientras se
+                    // mandaba lo anterior (está en el canal): así se coalesce el
+                    // movimiento sin esperar a nadie.
+                    let mut outs = session.handle_at(ev, now_us());
                     while let Ok(ev) = events.try_recv() {
-                        outs.extend(session.handle(ev));
+                        outs.extend(session.handle_at(ev, now_us()));
                     }
                     outs.extend(session.flush().map(ServerOutput::Datagram));
                     let sent = apply(capture, &mut stream, conn, outs).await;
@@ -223,13 +267,30 @@ impl<C: Capture> ServerDriver<C> {
                     resync.as_mut().reset(Instant::now() + cfg.resync_idle);
                 }
                 msg = stream.recv::<StreamMsg>() => match msg {
-                    // Del cliente solo llegan latidos.
-                    Ok(Some(_)) => silence.as_mut().reset(Instant::now() + cfg.heartbeat_timeout),
+                    // Del cliente llegan latidos y la latencia que mide.
+                    Ok(Some(msg)) => {
+                        silence.as_mut().reset(Instant::now() + cfg.heartbeat_timeout);
+                        match msg {
+                            StreamMsg::Heartbeat(b) => beats.incoming(b, now_us()),
+                            StreamMsg::Latency(l) => {
+                                tracing::info!(
+                                    n = l.count,
+                                    p50_us = l.p50_us,
+                                    p99_us = l.p99_us,
+                                    max_us = l.max_us,
+                                    "latencia de la entrada informada por la otra máquina"
+                                );
+                                latency.send_replace(Some(l));
+                            }
+                            _ => {}
+                        }
+                    }
                     Ok(None) => return TransportError::ControlClosed.into(),
                     Err(e) => return e.into(),
                 },
                 _ = heartbeat.tick() => {
-                    if let Err(e) = stream.send(&StreamMsg::Heartbeat).await {
+                    let beat = StreamMsg::Heartbeat(beats.outgoing(now_us()));
+                    if let Err(e) = stream.send(&beat).await {
                         return e.into();
                     }
                 }
@@ -266,8 +327,13 @@ fn publish(tx: &watch::Sender<bool>, value: bool) {
 }
 
 /// Vacía lo que ya está en el canal sin esperar.
-fn catch_up(session: &mut ServerSession, events: &mut mpsc::UnboundedReceiver<InputEvent>) {
+fn catch_up(
+    session: &mut ServerSession,
+    events: &mut mpsc::UnboundedReceiver<InputEvent>,
+    activity: &watch::Sender<Option<Instant>>,
+) {
     while let Ok(ev) = events.try_recv() {
+        touch(activity);
         session.catch_up(ev);
     }
 }
@@ -325,6 +391,9 @@ pub struct ClientDriver<I> {
     injector: I,
     here: watch::Sender<bool>,
     screens: Option<watch::Receiver<Vec<Screen>>>,
+    latency: watch::Sender<Option<InputLatency>>,
+    /// Cada latencia medida, además de la ventana (el guardián de los datos, T-101).
+    on_sample: Option<Box<dyn FnMut(Duration) + Send>>,
     cfg: SessionConfig,
 }
 
@@ -335,8 +404,21 @@ impl<I: Injector> ClientDriver<I> {
             injector,
             here: watch::Sender::new(false),
             screens: None,
+            latency: watch::Sender::new(None),
+            on_sample: None,
             cfg,
         }
+    }
+
+    /// La latencia medida aquí en la última ventana ([`SessionConfig::latency_every`]).
+    pub fn latency(&self) -> watch::Receiver<Option<InputLatency>> {
+        self.latency.subscribe()
+    }
+
+    /// Llama a `f` con cada latencia medida (captura → inyección).
+    pub fn on_latency_sample(mut self, f: impl FnMut(Duration) + Send + 'static) -> Self {
+        self.on_sample = Some(Box::new(f));
+        self
     }
 
     /// Las pantallas de esta máquina en caliente: cada valor nuevo pasa a la sesión y
@@ -410,6 +492,8 @@ impl<I: Injector> ClientDriver<I> {
             injector,
             here,
             screens,
+            latency,
+            on_sample,
             cfg,
         } = self;
         tokio::pin!(stop);
@@ -428,8 +512,20 @@ impl<I: Injector> ClientDriver<I> {
             },
         };
 
+        let mut beats = Beats::new();
+        let mut hist = Histogram::new();
+        let mut measure = |t_us: u64, beats: &Beats, hist: &mut Histogram| {
+            if let Some(us) = beats.sync().elapsed_since(t_us, now_us()) {
+                hist.record(us);
+                if let Some(f) = on_sample.as_mut() {
+                    f(Duration::from_micros(us));
+                }
+            }
+        };
         let mut heartbeat = time::interval(cfg.heartbeat_interval);
         heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut report = time::interval_at(Instant::now() + cfg.latency_every, cfg.latency_every);
+        report.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let silence = time::sleep(cfg.heartbeat_timeout);
         tokio::pin!(silence);
 
@@ -440,7 +536,15 @@ impl<I: Injector> ClientDriver<I> {
                 msg = stream.recv::<StreamMsg>() => match msg {
                     Ok(Some(msg)) => {
                         silence.as_mut().reset(Instant::now() + cfg.heartbeat_timeout);
-                        inject(injector, session.on_stream(msg));
+                        if let StreamMsg::Heartbeat(b) = msg {
+                            beats.incoming(b, now_us());
+                        }
+                        let events = session.on_stream(msg);
+                        let injected = !events.is_empty();
+                        inject(injector, events);
+                        if let (true, StreamMsg::Key { t_us, .. } | StreamMsg::Button { t_us, .. }) = (injected, msg) {
+                            measure(t_us, &beats, &mut hist);
+                        }
                         publish(here, session.is_active());
                     }
                     Ok(None) => return TransportError::ControlClosed.into(),
@@ -450,7 +554,13 @@ impl<I: Injector> ClientDriver<I> {
                     Ok(bytes) => {
                         silence.as_mut().reset(Instant::now() + cfg.heartbeat_timeout);
                         match Datagram::decode(&bytes) {
-                            Ok(Datagram::Motion(d)) => inject(injector, session.on_datagram(d)),
+                            Ok(Datagram::Motion(d)) => {
+                                let events = session.on_datagram(d);
+                                if !events.is_empty() {
+                                    inject(injector, events);
+                                    measure(d.t_us, &beats, &mut hist);
+                                }
+                            }
                             // Uno roto se pierde como cualquier datagrama.
                             Err(e) => tracing::warn!("datagrama descartado: {e}"),
                         }
@@ -458,8 +568,24 @@ impl<I: Injector> ClientDriver<I> {
                     Err(e) => return e.into(),
                 },
                 _ = heartbeat.tick() => {
-                    if let Err(e) = stream.send(&StreamMsg::Heartbeat).await {
+                    let beat = StreamMsg::Heartbeat(beats.outgoing(now_us()));
+                    if let Err(e) = stream.send(&beat).await {
                         return e.into();
+                    }
+                }
+                _ = report.tick() => {
+                    if let Some(l) = hist.take() {
+                        tracing::info!(
+                            n = l.count,
+                            p50_us = l.p50_us,
+                            p99_us = l.p99_us,
+                            max_us = l.max_us,
+                            "latencia de la entrada (captura → inyección)"
+                        );
+                        latency.send_replace(Some(l));
+                        if let Err(e) = stream.send(&StreamMsg::Latency(l)).await {
+                            return e.into();
+                        }
                     }
                 }
                 () = &mut silence => return SessionEnd::Silent,

@@ -84,11 +84,26 @@ pub enum RawEvent {
         subtype: i16,
         data1: i64,
     },
-    /// El sistema apagó el tap por tardar (`kCGEventTapDisabledByTimeout`) o por
-    /// entrada del usuario (`kCGEventTapDisabledByUserInput`).
-    TapDisabled,
+    /// El sistema apagó el tap.
+    TapDisabled(TapDisabledBy),
     /// Cualquier otro tipo: no es entrada que nos importe.
     Other,
+}
+
+/// Por qué macOS apagó el tap.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TapDisabledBy {
+    /// El callback tardó (`kCGEventTapDisabledByTimeout`).
+    Timeout,
+    /// Entrada del usuario (`kCGEventTapDisabledByUserInput`), p. ej. Secure Input.
+    UserInput,
+}
+
+/// Cuántas veces se apagó el tap por cada motivo, desde que arrancó la captura.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TapDisabledCount {
+    pub timeout: u32,
+    pub user_input: u32,
 }
 
 /// Qué hacer con el evento original.
@@ -104,9 +119,40 @@ pub enum TapAction {
 
 /// Traduce eventos del tap. Lleva los modificadores que vio abajo, porque
 /// `FlagsChanged` no dice si la tecla bajó o subió.
+///
+/// También recuerda lo que la Mac vio presionarse (con la entrada local): si se
+/// suelta ya con la entrada tragada, la suelta pasa igual, o quedaría pegado aquí
+/// (T-093; la captura de Windows hace lo mismo con su `HookFilter`).
 #[derive(Debug, Clone, Default)]
 pub struct Translator {
     modifiers_down: crate::event::Modifiers,
+    /// Bit por keycode de Mac (0–127) presionado con la entrada local.
+    local_keys: u128,
+    /// Bit por número de botón (0–31) presionado con la entrada local.
+    local_buttons: u32,
+    /// Modificadores presionados con la entrada local.
+    local_modifiers: crate::event::Modifiers,
+    disabled: TapDisabledCount,
+}
+
+/// Marca (`down`) o desmarca un bit; devuelve si estaba marcado.
+fn flip<T>(set: &mut T, bit: T, down: bool) -> bool
+where
+    T: Copy
+        + PartialEq
+        + Default
+        + std::ops::BitAnd<Output = T>
+        + std::ops::BitOrAssign
+        + std::ops::BitAndAssign
+        + std::ops::Not<Output = T>,
+{
+    let was = *set & bit != T::default();
+    if down {
+        *set |= bit;
+    } else {
+        *set &= !bit;
+    }
+    was
 }
 
 impl Translator {
@@ -126,22 +172,56 @@ impl Translator {
         natural_scroll: bool,
         emit: &mut impl FnMut(InputEvent),
     ) -> TapAction {
+        // Una suelta de algo que la Mac vio presionarse: pasa aunque se trague todo.
+        let mut local_release = false;
+        let key_bit = |keycode: u16| 1u128.checked_shl(u32::from(keycode)).unwrap_or(0);
+        let button_bit = |button: i64| {
+            u32::try_from(button)
+                .ok()
+                .and_then(|b| 1u32.checked_shl(b))
+                .unwrap_or(0)
+        };
         let input = match *raw {
-            RawEvent::TapDisabled => return TapAction::Reenable,
+            RawEvent::TapDisabled(by) => {
+                let n = match by {
+                    TapDisabledBy::Timeout => &mut self.disabled.timeout,
+                    TapDisabledBy::UserInput => &mut self.disabled.user_input,
+                };
+                *n = n.saturating_add(1);
+                // Si se apaga es que algo tardó en el callback o el sistema lo pidió:
+                // se ve en el registro, y se vuelve a encender enseguida.
+                tracing::warn!(motivo = ?by, veces = *n, "macOS apagó el tap de entrada: se reactiva");
+                return TapAction::Reenable;
+            }
             RawEvent::Other => return TapAction::Pass,
             RawEvent::KeyDown { keycode } => {
+                if !grabbed {
+                    flip(&mut self.local_keys, key_bit(keycode), true);
+                }
                 key(keycode, KeyState::Pressed, emit);
                 true
             }
             RawEvent::KeyUp { keycode } => {
+                let bit = key_bit(keycode);
+                local_release = bit != 0 && flip(&mut self.local_keys, bit, false);
                 key(keycode, KeyState::Released, emit);
                 true
             }
             RawEvent::FlagsChanged { keycode, flags } => {
-                self.flags_changed(keycode, flags, emit);
+                if let Some((m, down)) = self.flags_changed(keycode, flags, emit) {
+                    if down && !grabbed {
+                        self.local_modifiers.insert(m);
+                    } else if !down && self.local_modifiers.contains(m) {
+                        self.local_modifiers.remove(m);
+                        local_release = true;
+                    }
+                }
                 true
             }
             RawEvent::MouseDown { button, location } => {
+                if !grabbed {
+                    flip(&mut self.local_buttons, button_bit(button), true);
+                }
                 if !grabbed {
                     emit(InputEvent::MotionAbsolute {
                         x: location.x,
@@ -155,6 +235,8 @@ impl Translator {
                 true
             }
             RawEvent::MouseUp { button, location } => {
+                let bit = button_bit(button);
+                local_release = bit != 0 && flip(&mut self.local_buttons, bit, false);
                 if !grabbed {
                     emit(InputEvent::MotionAbsolute {
                         x: location.x,
@@ -212,11 +294,16 @@ impl Translator {
                 true
             }
         };
-        if input && grabbed {
+        if input && grabbed && !local_release {
             TapAction::Swallow
         } else {
             TapAction::Pass
         }
+    }
+
+    /// Cuántas veces macOS apagó el tap.
+    pub fn tap_disabled(&self) -> TapDisabledCount {
+        self.disabled
     }
 
     /// Modificadores que el traductor cree que están abajo.
@@ -224,7 +311,13 @@ impl Translator {
         self.modifiers_down
     }
 
-    fn flags_changed(&mut self, keycode: u16, flags: u64, emit: &mut impl FnMut(InputEvent)) {
+    /// Devuelve el modificador que cambió y si quedó abajo.
+    fn flags_changed(
+        &mut self,
+        keycode: u16,
+        flags: u64,
+        emit: &mut impl FnMut(InputEvent),
+    ) -> Option<(ModifierKey, bool)> {
         if keycode == MAC_CAPS_LOCK {
             // Cada FlagsChanged de Bloq Mayús es una pulsación completa: el otro
             // lado alterna su propio bloqueo.
@@ -237,15 +330,11 @@ impl Translator {
                 usage,
                 state: KeyState::Released,
             });
-            return;
+            return None;
         }
         // Fn (0x3F) y cualquier otro sin uso HID estándar no viajan.
-        let Some(usage) = keymap::from_mac(MacKeycode(keycode)) else {
-            return;
-        };
-        let Some(modifier) = usage.modifier() else {
-            return;
-        };
+        let usage = keymap::from_mac(MacKeycode(keycode))?;
+        let modifier = usage.modifier()?;
         let was_down = self.modifiers_down.contains(modifier);
         // Los eventos sintéticos a veces no traen los bits por lado: entonces cada
         // FlagsChanged de esa tecla alterna su estado.
@@ -255,7 +344,7 @@ impl Translator {
             !was_down
         };
         if down == was_down {
-            return;
+            return None;
         }
         if down {
             self.modifiers_down.insert(modifier);
@@ -270,6 +359,7 @@ impl Translator {
                 KeyState::Released
             },
         });
+        Some((modifier, down))
     }
 }
 
@@ -490,12 +580,84 @@ mod tests {
         }
     }
 
+    /// T-093: una tecla, un botón o un modificador presionado con la entrada local y
+    /// soltado ya con la entrada tragada (se cruzó a la otra máquina con algo apretado)
+    /// tiene que llegar a la Mac; si no, queda pegado aquí.
     #[test]
-    fn tap_apagado_se_reactiva() {
+    fn soltar_lo_presionado_en_local_pasa_aunque_haya_grab() {
         let mut t = Translator::new();
+        // `a` (0x00), clic izquierdo y Shift izquierdo con la entrada local.
+        let at = Point::new(10.0, 10.0);
+        run(&mut t, RawEvent::KeyDown { keycode: 0x00 }, false);
+        run(
+            &mut t,
+            RawEvent::MouseDown {
+                button: 0,
+                location: at,
+            },
+            false,
+        );
+        let shift = RawEvent::FlagsChanged {
+            keycode: 0x38,
+            flags: 0x0002_0002,
+        };
+        assert_eq!(run(&mut t, shift, false).0, TapAction::Pass);
+        // Ya con la entrada tragada: lo nuevo se traga, las sueltas de lo de antes pasan
+        // (y también viajan a la otra máquina, que decide si cambian algo).
+        let (action, ev) = run(&mut t, RawEvent::KeyUp { keycode: 0x00 }, true);
+        assert_eq!(action, TapAction::Pass);
+        assert_eq!(ev, vec![key_ev(0x04, KeyState::Released)]);
+        let up = RawEvent::MouseUp {
+            button: 0,
+            location: at,
+        };
+        assert_eq!(run(&mut t, up, true).0, TapAction::Pass);
+        let shift_up = RawEvent::FlagsChanged {
+            keycode: 0x38,
+            flags: 0,
+        };
+        assert_eq!(run(&mut t, shift_up, true).0, TapAction::Pass);
+        // Lo que se presiona con la entrada tragada se traga al bajar y al subir.
         assert_eq!(
-            run(&mut t, RawEvent::TapDisabled, true),
-            (TapAction::Reenable, vec![])
+            run(&mut t, RawEvent::KeyDown { keycode: 0x00 }, true).0,
+            TapAction::Swallow
+        );
+        assert_eq!(
+            run(&mut t, RawEvent::KeyUp { keycode: 0x00 }, true).0,
+            TapAction::Swallow
+        );
+        assert_eq!(run(&mut t, up, true).0, TapAction::Swallow);
+        let shift_down = RawEvent::FlagsChanged {
+            keycode: 0x38,
+            flags: 0x0002_0002,
+        };
+        assert_eq!(run(&mut t, shift_down, true).0, TapAction::Swallow);
+    }
+
+    /// T-093: los dos motivos con que macOS apaga el tap lo reactivan y quedan
+    /// contados (el agente los registra).
+    #[test]
+    fn tap_apagado_se_reactiva_y_se_registra() {
+        let mut t = Translator::new();
+        assert_eq!(t.tap_disabled(), TapDisabledCount::default());
+        for by in [
+            TapDisabledBy::Timeout,
+            TapDisabledBy::UserInput,
+            TapDisabledBy::Timeout,
+        ] {
+            for grabbed in [true, false] {
+                assert_eq!(
+                    run(&mut t, RawEvent::TapDisabled(by), grabbed),
+                    (TapAction::Reenable, vec![])
+                );
+            }
+        }
+        assert_eq!(
+            t.tap_disabled(),
+            TapDisabledCount {
+                timeout: 4,
+                user_input: 2
+            }
         );
     }
 
@@ -885,7 +1047,8 @@ mod tests {
                 }),
             (any::<i16>(), any::<i64>())
                 .prop_map(|(subtype, data1)| RawEvent::SystemDefined { subtype, data1 }),
-            Just(RawEvent::TapDisabled),
+            Just(RawEvent::TapDisabled(TapDisabledBy::Timeout)),
+            Just(RawEvent::TapDisabled(TapDisabledBy::UserInput)),
             Just(RawEvent::Other),
         ]
     }

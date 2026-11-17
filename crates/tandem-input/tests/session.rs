@@ -41,6 +41,7 @@ fn cfg() -> SessionConfig {
         heartbeat_timeout: Duration::from_millis(400),
         resync_idle: Duration::from_millis(20),
         resync_every: 8,
+        latency_every: Duration::from_millis(250),
     }
 }
 
@@ -569,4 +570,95 @@ async fn sin_enlace_lo_capturado_se_consume_sin_cruzar() {
     drop(tx);
     let r = within(driver.idle(std::future::pending())).await;
     assert!(matches!(r, Err(SessionEnd::CaptureClosed)));
+}
+
+/// T-093: el cliente mide la latencia con las marcas del servidor y el desfase de los
+/// latidos, la publica cada ventana y se la manda al servidor, que también la publica.
+/// Cada movimiento sale en cuanto llega (sin esperar a un tick): con eventos espaciados,
+/// casi cada uno es su propio datagrama.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn la_latencia_se_mide_en_el_cliente_y_llega_al_servidor() {
+    let l = link().await;
+    let (tx, rx) = mpsc::unbounded_channel();
+    let capture = FakeCapture::new();
+    let mut server = ServerDriver::new(server_session(), capture, rx, cfg());
+    let mut active = server.active();
+    let mut server_latency = server.latency();
+    let injector = FakeInjector::new();
+    let mut injected = injector.events();
+    let samples = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen = samples.clone();
+    let mut client = ClientDriver::new(ClientSession::new(mac_screens()), injector, cfg())
+        .on_latency_sample(move |d| seen.lock().unwrap().push(d));
+    let mut client_latency = client.latency();
+    let (stop_s, stop_rx_s) = oneshot::channel::<()>();
+    let (stop_c, stop_rx_c) = oneshot::channel::<()>();
+    let conn = l.server.clone();
+    let s = tokio::spawn(async move {
+        let hello = Hello::new(Peer::Agent(Machine::B));
+        server
+            .run(&conn, &hello, async {
+                let _ = stop_rx_s.await;
+            })
+            .await
+    });
+    let conn = l.client.clone();
+    let c = tokio::spawn(async move {
+        let hello = Hello::new(Peer::Agent(Machine::A));
+        client
+            .run(&conn, &hello, async {
+                let _ = stop_rx_c.await;
+            })
+            .await
+    });
+    up(&mut active).await;
+    // Dos latidos con eco antes de medir: sin desfase estimado no se mide nada.
+    tokio::time::sleep(cfg().heartbeat_interval * 3).await;
+
+    tx.send(rel(60.0, 0.0)).unwrap();
+    let moves = 100usize;
+    for _ in 0..moves {
+        tx.send(rel(1.0, 0.0)).unwrap();
+        tokio::time::sleep(Duration::from_millis(3)).await;
+    }
+    tx.send(key(0x04, KeyState::Pressed)).unwrap();
+    tx.send(key(0x04, KeyState::Released)).unwrap();
+    within(injected.wait_for(|e| e.iter().filter(|e| is_discrete(e)).count() == 2))
+        .await
+        .unwrap();
+    // Cada movimiento, su datagrama: los inyectados son casi tantos como los movimientos
+    // (solo se junta lo que llega mientras se manda lo anterior).
+    let positions = injected
+        .borrow()
+        .iter()
+        .filter(|e| matches!(e, InputEvent::MotionAbsolute { .. }))
+        .count();
+    assert!(
+        positions >= moves / 2,
+        "solo {positions} posiciones para {moves} movimientos"
+    );
+
+    // La ventana con lo último se publica aquí y llega igual al servidor (puede haber
+    // otra antes con la primera parte).
+    let mine = within(client_latency.wait_for(Option::is_some))
+        .await
+        .unwrap()
+        .unwrap();
+    within(server_latency.wait_for(|v| v.is_some_and(|v| v == mine)))
+        .await
+        .unwrap();
+    assert!(mine.count >= 1 && mine.p50_us <= mine.p99_us && mine.p99_us <= mine.max_us);
+    let mut all = samples.lock().unwrap().clone();
+    assert!(all.len() > moves / 2, "solo {} muestras", all.len());
+    all.sort_unstable();
+    // Loopback: holgado para un runner cargado.
+    let p99 = all[all.len() * 99 / 100];
+    assert!(p99 < Duration::from_millis(50), "p99 {p99:?}");
+
+    let _ = stop_s.send(());
+    let _ = stop_c.send(());
+    within(s).await.unwrap();
+    within(c).await.unwrap();
+    l.server_ep.close();
+    l.client_ep.close();
 }

@@ -26,7 +26,7 @@ mod watchdog;
 #[cfg(windows)]
 mod sys;
 
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
 use crate::event::InputEvent;
@@ -259,6 +259,21 @@ impl HookFilter {
     }
 }
 
+/// Lo único que hace cada callback de hook: decidir con el [`HookFilter`] y encolar
+/// para el hilo de proceso. Nada de candados, E/S ni esperas (`send` en un canal sin
+/// límite no bloquea): Windows quita el hook si tarda. Si el hilo de proceso ya
+/// terminó, no hay a quién avisar. Devuelve `true` si hay que tragar el evento.
+pub fn hook_step(
+    filter: &mut HookFilter,
+    grab: bool,
+    tx: &Sender<HookEvent>,
+    decide: impl FnOnce(&mut HookFilter, bool) -> (Verdict, HookEvent),
+) -> bool {
+    let (verdict, event) = decide(filter, grab);
+    let _ = tx.send(event);
+    verdict != Verdict::Pass
+}
+
 /// Traduce lo que encola el hilo de hooks a eventos de Tandem.
 #[derive(Debug)]
 pub struct Translator {
@@ -457,12 +472,92 @@ mod tests {
     #[derive(Default)]
     struct FakeControl {
         reinstalls: u32,
+        at: Vec<Instant>,
     }
 
     impl HookControl for FakeControl {
         fn reinstall(&mut self) {
             self.reinstalls += 1;
+            self.at.push(Instant::now());
         }
+    }
+
+    /// T-093: el callback del hook nunca espera, ni con el hilo de proceso detenido
+    /// (el canal crece y nadie lo lee). Se mide con reloj real: cada paso tarda
+    /// microsegundos, lejos del `LowLevelHooksTimeout` con que Windows quita el hook.
+    #[test]
+    fn el_paso_del_hook_no_bloquea_aunque_nadie_lea() {
+        let (tx, _rx) = mpsc::channel();
+        let mut filter = HookFilter::new();
+        let mut times = Vec::with_capacity(20_000);
+        for i in 0..20_000u32 {
+            let hook = key(0x1E, if i % 2 == 0 { 0 } else { LLKHF_UP }, i);
+            let t = Instant::now();
+            hook_step(&mut filter, i % 3 == 0, &tx, |f, grab| {
+                let verdict = f.keyboard(grab, &hook);
+                (
+                    verdict,
+                    HookEvent::Keyboard {
+                        hook,
+                        swallowed: verdict == Verdict::Swallow,
+                    },
+                )
+            });
+            times.push(t.elapsed());
+        }
+        times.sort_unstable();
+        let p99 = times[times.len() * 99 / 100];
+        let max = times[times.len() - 1];
+        assert!(p99 < Duration::from_micros(200), "p99 {p99:?}");
+        // Holgado para runners compartidos; Windows da al menos 200 ms.
+        assert!(max < Duration::from_millis(50), "máx {max:?}");
+    }
+
+    /// T-093: un hook que Windows quita en silencio (Raw Input sigue viendo entrada
+    /// real y el hook ya no) se reinstala a tiempo, con reloj real; mientras el hook
+    /// vivía, nunca. El plazo es de uno a dos `hook_timeout`: durante el primero, una
+    /// entrada real todavía puede ser la del último evento que vio el hook (los dos no
+    /// llegan en orden fijo); el segundo es el plazo mismo.
+    #[test]
+    fn el_watchdog_reinstala_a_tiempo_un_hook_perdido() {
+        let (tx, rx) = mpsc::channel();
+        let timeout = Duration::from_millis(100);
+        let tick = Duration::from_millis(5);
+        let feeder = std::thread::spawn(move || {
+            let start = Instant::now();
+            // 150 ms con el hook vivo: cada tecla real llega a los dos.
+            while start.elapsed() < Duration::from_millis(150) {
+                tx.send(kb(key(0x1E, 0, 0))).unwrap();
+                tx.send(HookEvent::RawKeyboard { device: 3 }).unwrap();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            // El hook se pierde: solo Raw Input.
+            let lost = Instant::now();
+            while lost.elapsed() < Duration::from_millis(400) {
+                tx.send(HookEvent::RawKeyboard { device: 3 }).unwrap();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            lost
+        });
+        let config = CaptureConfig {
+            tick,
+            watchdog: WatchdogConfig {
+                hook_timeout: timeout,
+            },
+            ..CaptureConfig::default()
+        };
+        let mut control = FakeControl::default();
+        run_pipeline(&rx, &mut control, &mut |_| {}, &config);
+        let lost = feeder.join().unwrap();
+        let first = *control.at.first().expect("no se reinstaló");
+        assert!(first >= lost, "reinstaló con el hook vivo");
+        let took = first - lost;
+        // Con margen para el planificador de un runner compartido.
+        assert!(took >= timeout - tick, "demasiado pronto: {took:?}");
+        assert!(
+            took <= 2 * timeout + 4 * tick + Duration::from_millis(80),
+            "tarde: {took:?}"
+        );
     }
 
     fn run(events: Vec<HookEvent>) -> Vec<InputEvent> {

@@ -6,8 +6,8 @@
 //! sesión); mientras el foco está en la otra máquina el tap lo traga (devuelve
 //! NULL) y el cursor local queda congelado y oculto ([`grab`]).
 //!
-//! - Si el sistema apaga el tap por tardar (`kCGEventTapDisabledByTimeout`), se
-//!   vuelve a encender en el mismo callback.
+//! - Si el sistema apaga el tap (`kCGEventTapDisabledByTimeout` o
+//!   `…ByUserInput`), se vuelve a encender en el mismo callback y queda registrado.
 //! - Con Secure Event Input (un campo de contraseña) no se toma la entrada: el
 //!   tap no ve el teclado y el usuario quedaría escribiendo a ciegas.
 //! - Hace falta el permiso de Accesibilidad (TCC) para un tap activo; sin él,
@@ -26,7 +26,9 @@ use thiserror::Error;
 pub use grab::{CursorBackend, Grab};
 #[cfg(target_os = "macos")]
 pub use sys::{MacCapture, SysCursor, permissions, request_permissions, secure_input_active};
-pub use translate::{INJECTED_MARKER, RawEvent, TapAction, Translator};
+pub use translate::{
+    INJECTED_MARKER, RawEvent, TapAction, TapDisabledBy, TapDisabledCount, Translator,
+};
 
 #[derive(Debug, Error)]
 pub enum CaptureError {

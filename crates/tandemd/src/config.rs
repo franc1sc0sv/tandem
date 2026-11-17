@@ -306,6 +306,10 @@ pub struct InputConfig {
     /// (`[prefs] cmd_ctrl`).
     #[serde(default)]
     pub remap: RemapPolicy,
+    /// Si un arrastre (un botón del mouse presionado) cruza a la otra máquina. Por
+    /// omisión no, como Deskflow (T-093).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub drag_between_machines: bool,
 }
 
 /// Las dos máquinas tienen que arrancar con el mismo servidor aunque ninguna sepa nada: el
