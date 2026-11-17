@@ -59,8 +59,8 @@ async fn pares_emparejados_intercambian_mensajes_y_datagramas() {
     assert_eq!(to_pc.peer(), pc.public_key());
     assert_eq!(to_mac.peer(), mac.public_key());
 
-    let mac_hello = Hello::new(Peer::Agent(Machine::Mac));
-    let pc_hello = Hello::new(Peer::Agent(Machine::Pc));
+    let mac_hello = Hello::new(Peer::Agent(Machine::A));
+    let pc_hello = Hello::new(Peer::Agent(Machine::B));
     let (opened, accepted) = within(async {
         tokio::join!(
             to_pc.open_control(&mac_hello),
@@ -125,7 +125,7 @@ async fn latencia_de_ida_y_vuelta_en_loopback() {
     let pc_ep = endpoint(&pc, trusting(&[&mac]));
     let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
 
-    let hello = Hello::new(Peer::Agent(Machine::Mac));
+    let hello = Hello::new(Peer::Agent(Machine::A));
     let (opened, accepted) =
         within(async { tokio::join!(to_pc.open_control(&hello), to_mac.accept_control(&hello)) })
             .await;
@@ -189,7 +189,7 @@ async fn el_servidor_rechaza_a_un_cliente_no_emparejado() {
     // El cliente puede haber dado el handshake por bueno (TLS 1.3); en ese
     // caso nada pasa por la conexión.
     if let Ok(conn) = client {
-        let hello = Hello::new(Peer::Agent(Machine::Pc));
+        let hello = Hello::new(Peer::Agent(Machine::B));
         assert!(within(conn.open_control(&hello)).await.is_err());
     }
 }
@@ -247,9 +247,9 @@ async fn un_hello_de_otra_version_se_rechaza_en_los_dos_lados() {
     let pc_ep = endpoint(&pc, trusting(&[&mac]));
     let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
 
-    let mut old = Hello::new(Peer::Agent(Machine::Mac));
+    let mut old = Hello::new(Peer::Agent(Machine::A));
     old.version = old.version.wrapping_add(1);
-    let current = Hello::new(Peer::Agent(Machine::Pc));
+    let current = Hello::new(Peer::Agent(Machine::B));
     let (opened, accepted) =
         within(async { tokio::join!(to_pc.open_control(&old), to_mac.accept_control(&current)) })
             .await;
@@ -276,9 +276,9 @@ async fn un_agente_sin_anuncio_de_capacidades_se_rechaza_con_un_error_claro() {
     let pc_ep = endpoint(&pc, trusting(&[&mac]));
     let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
 
-    let mut old = Hello::new(Peer::Agent(Machine::Mac));
+    let mut old = Hello::new(Peer::Agent(Machine::A));
     old.version = tandem_proto::CAPABILITIES_SINCE - 1;
-    let current = Hello::new(Peer::Agent(Machine::Pc));
+    let current = Hello::new(Peer::Agent(Machine::B));
     let (_, accepted) =
         within(async { tokio::join!(to_pc.open_control(&old), to_mac.accept_control(&current)) })
             .await;
@@ -306,7 +306,7 @@ async fn stream_partido_escribe_y_lee_a_la_vez_en_los_dos_sentidos() {
     let mac_ep = endpoint(&mac, trusting(&[&pc]));
     let pc_ep = endpoint(&pc, trusting(&[&mac]));
     let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
-    let hello = Hello::new(Peer::Agent(Machine::Mac));
+    let hello = Hello::new(Peer::Agent(Machine::A));
     let (opened, accepted) =
         within(async { tokio::join!(to_pc.open_control(&hello), to_mac.accept_control(&hello)) })
             .await;
@@ -361,8 +361,8 @@ async fn el_endpoint_de_emparejamiento_acepta_llaves_desconocidas() {
     assert_eq!(to_mac.peer(), mac.public_key());
 
     let (mac_hello, pc_hello) = (
-        Hello::new(Peer::Agent(Machine::Mac)),
-        Hello::new(Peer::Agent(Machine::Pc)),
+        Hello::new(Peer::Agent(Machine::A)),
+        Hello::new(Peer::Agent(Machine::B)),
     );
     let (opened, accepted) = within(async {
         tokio::join!(

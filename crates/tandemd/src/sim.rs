@@ -102,10 +102,10 @@ mod tests {
         assert!(recorded(dir.path()).unwrap().is_empty());
         let steps = [
             Step::PowerOn {
-                machine: Machine::Pc,
+                machine: Machine::B,
             },
             Step::PowerOff {
-                machine: Machine::Mac,
+                machine: Machine::A,
             },
         ];
         for s in &steps {
@@ -124,7 +124,7 @@ mod tests {
             let sim = sim.clone();
             async move {
                 sim.execute(&Step::PowerOff {
-                    machine: Machine::Pc,
+                    machine: Machine::B,
                 })
                 .await
             }
@@ -135,7 +135,7 @@ mod tests {
         assert_eq!(
             recorded(dir.path()).unwrap(),
             [Step::PowerOff {
-                machine: Machine::Pc
+                machine: Machine::B
             }]
         );
         std::fs::remove_file(&hold).unwrap();
@@ -148,10 +148,10 @@ mod tests {
         let sim = SimSteps::new(&dir.path().join("no-existe"));
         let err = sim
             .execute(&Step::PowerOn {
-                machine: Machine::Pc,
+                machine: Machine::B,
             })
             .await
             .unwrap_err();
-        assert!(err.contains("encender la PC"), "{err}");
+        assert!(err.contains("encender la máquina B"), "{err}");
     }
 }

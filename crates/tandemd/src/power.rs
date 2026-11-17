@@ -34,14 +34,14 @@ impl PowerSteps {
     }
 
     /// Lo que corresponde a la máquina de `cfg`: despierta a la otra con `[power.wol]` y
-    /// se apaga a sí misma si sabe (hoy, Windows).
+    /// se apaga a sí misma si su sistema sabe (hoy, Windows).
     pub fn for_machine(cfg: &AgentConfig) -> Self {
         let wake = cfg
             .power
             .wol
             .clone()
             .map(|t| Arc::new(UdpWake::new(t)) as Arc<dyn Wake>);
-        let shutdown = if crate::capabilities::powers_off(cfg.machine) {
+        let shutdown = if crate::capabilities::powers_off(cfg.os) {
             system_shutdown()
         } else {
             None
@@ -129,12 +129,12 @@ mod tests {
         let off = Arc::new(Count::default());
         let p = PowerSteps::new(Some(wake.clone()), Some(off.clone()));
         p.execute(&Step::PowerOn {
-            machine: Machine::Pc,
+            machine: Machine::B,
         })
         .await
         .unwrap();
         p.execute(&Step::PowerOff {
-            machine: Machine::Pc,
+            machine: Machine::B,
         })
         .await
         .unwrap();
@@ -147,19 +147,19 @@ mod tests {
         let p = PowerSteps::new(None, None);
         assert_eq!(
             p.execute(&Step::PowerOn {
-                machine: Machine::Pc
+                machine: Machine::B
             })
             .await
             .unwrap_err(),
-            format!("encender la PC: {WOL_NOT_CONFIGURED}")
+            format!("encender la máquina B: {WOL_NOT_CONFIGURED}")
         );
         assert_eq!(
             p.execute(&Step::PowerOff {
-                machine: Machine::Pc
+                machine: Machine::B
             })
             .await
             .unwrap_err(),
-            format!("apagar la PC: {STEP_NOT_IMPLEMENTED}")
+            format!("apagar la máquina B: {STEP_NOT_IMPLEMENTED}")
         );
     }
 
@@ -168,7 +168,7 @@ mod tests {
         let p = PowerSteps::new(None, Some(Arc::new(Refuse)));
         let e = p
             .execute(&Step::PowerOff {
-                machine: Machine::Pc,
+                machine: Machine::B,
             })
             .await
             .unwrap_err();
@@ -178,9 +178,10 @@ mod tests {
     #[test]
     fn each_machine_gets_its_own_backends() {
         let mut cfg = fixtures::desk();
+        cfg.os = tandem_core::Os::MacOs;
         let p = PowerSteps::for_machine(&cfg);
         assert!(p.wake.is_none(), "sin [power.wol] no hay con qué despertar");
-        assert!(p.shutdown.is_none(), "la Mac no se apaga desde Tandem");
+        assert!(p.shutdown.is_none(), "macOS no se apaga desde Tandem");
 
         cfg.power.wol = Some(tandem_power::WolTarget::new(
             "9c:6b:00:1a:2b:ff".parse().unwrap(),
@@ -188,10 +189,12 @@ mod tests {
         let p = PowerSteps::for_machine(&cfg);
         assert!(p.wake.is_some());
 
-        // La PC también puede despertar a la Mac si tiene su [power.wol] (DESIGN §3.7).
-        cfg.machine = Machine::Pc;
+        // Una con Windows también despierta a la otra si tiene su [power.wol], sea el lado
+        // que sea (DESIGN §3.7), y se apaga sola solo donde el backend existe.
+        cfg.machine = Machine::B;
+        cfg.os = tandem_core::Os::Windows;
         let p = PowerSteps::for_machine(&cfg);
-        assert!(p.wake.is_some(), "la PC despierta a la Mac");
+        assert!(p.wake.is_some(), "B despierta a A");
         assert_eq!(p.shutdown.is_some(), cfg!(windows));
         cfg.power.wol = None;
         let p = PowerSteps::for_machine(&cfg);

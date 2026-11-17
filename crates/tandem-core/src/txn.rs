@@ -79,19 +79,19 @@ mod tests {
 
     #[test]
     fn success_updates_state() {
-        let mut s = State::initial(Machine::Mac);
-        let plan = Plan::power_on(&s, Machine::Pc, &Abilities::both_wake()).unwrap();
+        let mut s = State::initial(Machine::A);
+        let plan = Plan::power_on(&s, Machine::B, &Abilities::both_wake()).unwrap();
         let mut exec = Fake::default();
         let report = pollster::block_on(run(&mut s, &plan, &mut exec)).unwrap();
         assert_eq!(report.applied, plan.steps);
-        assert!(s.on.pc);
+        assert!(s.on.b);
     }
 
     #[test]
     fn a_failed_step_leaves_the_state_as_it_was() {
-        let mut s = State::initial(Machine::Mac);
-        s.on.pc = true;
-        let plan = Plan::power_off(&s, Machine::Pc);
+        let mut s = State::initial(Machine::A);
+        s.on.b = true;
+        let plan = Plan::power_off(&s, Machine::B);
         let mut exec = Fake {
             fail_on: plan.steps.clone(),
             ..Default::default()
@@ -102,7 +102,7 @@ mod tests {
             err,
             TxnError::Failed {
                 step: Step::PowerOff {
-                    machine: Machine::Pc
+                    machine: Machine::B
                 },
                 error: "boom".into()
             }
@@ -113,12 +113,12 @@ mod tests {
 
     #[test]
     fn steps_after_a_failure_are_not_tried() {
-        let mut s = State::initial(Machine::Mac);
+        let mut s = State::initial(Machine::A);
         let on = Step::PowerOn {
-            machine: Machine::Pc,
+            machine: Machine::B,
         };
         let off = Step::PowerOff {
-            machine: Machine::Pc,
+            machine: Machine::B,
         };
         let plan = Plan {
             steps: vec![on.clone(), off.clone()],
@@ -128,12 +128,12 @@ mod tests {
             ..Default::default()
         };
         pollster::block_on(run(&mut s, &plan, &mut exec)).unwrap_err();
-        assert!(s.on.pc, "lo hecho antes del fallo se queda");
+        assert!(s.on.b, "lo hecho antes del fallo se queda");
         let mut exec = Fake {
             fail_on: vec![on],
             ..Default::default()
         };
-        let mut s = State::initial(Machine::Mac);
+        let mut s = State::initial(Machine::A);
         pollster::block_on(run(&mut s, &plan, &mut exec)).unwrap_err();
         assert_eq!(exec.log.len(), 1);
     }

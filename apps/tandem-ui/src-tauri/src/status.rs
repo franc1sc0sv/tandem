@@ -122,7 +122,7 @@ mod tests {
     use super::*;
 
     const CONFIG: &str = r#"
-machine = "pc"
+machine = "b"
 "#;
 
     fn here() -> &'static Path {
@@ -168,13 +168,13 @@ machine = "pc"
         let dir = tempfile::tempdir().unwrap();
         let (agent, c, _stop) = agent(dir.path());
         let mut s = agent.state();
-        s.on.pc = true;
+        s.on.b = true;
         agent.set_state(s.clone()).unwrap();
         let status = status_with(here(), connect(&c), QUERY_TIMEOUT).await;
         assert_eq!(
             status,
             AgentStatus::Connected {
-                agent: Machine::Pc,
+                agent: Machine::B,
                 state: s
             }
         );
@@ -186,15 +186,15 @@ machine = "pc"
             on: tandem_core::Powered::both(),
         };
         let ok = AgentStatus::Connected {
-            agent: Machine::Mac,
+            agent: Machine::A,
             state,
         };
         assert_eq!(
             serde_json::to_value(&ok).unwrap(),
             serde_json::json!({
                 "kind": "connected",
-                "agent": "mac",
-                "state": { "on": { "mac": true, "pc": true } }
+                "agent": "a",
+                "state": { "on": { "a": true, "b": true } }
             })
         );
         let down = AgentStatus::Unavailable {
@@ -267,7 +267,7 @@ machine = "pc"
             let mut s = Framed::new(server);
             s.send(&Hello {
                 version: PROTOCOL_VERSION + 1,
-                peer: Peer::Agent(Machine::Mac),
+                peer: Peer::Agent(Machine::A),
             })
             .await
             .unwrap();

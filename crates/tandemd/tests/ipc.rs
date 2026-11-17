@@ -10,7 +10,7 @@ use tandemd::{Agent, AgentConfig, StateStore, daemon, ipc};
 use tokio::sync::oneshot;
 
 const CONFIG: &str = r#"
-machine = "mac"
+machine = "a"
 
 # Con qué despertar a la PC: sin esto el plan rechaza encenderla.
 [power.wol]
@@ -31,8 +31,8 @@ async fn client_requests_state_and_receives_it() {
     let store = StateStore::new(dir.path().join("state.json"));
     // Un estado guardado por una corrida anterior.
     let cfg = AgentConfig::from_toml(CONFIG).unwrap();
-    let mut saved = State::initial(Machine::Mac);
-    saved.on.pc = true;
+    let mut saved = State::initial(Machine::A);
+    saved.on.b = true;
     store.save(&saved).unwrap();
 
     let agent = Arc::new(Agent::new(cfg, store.clone()));
@@ -55,14 +55,14 @@ async fn client_requests_state_and_receives_it() {
     }));
 
     let mut client = ipc::connect(&path).await.unwrap();
-    assert_eq!(client.agent(), Machine::Mac);
+    assert_eq!(client.agent(), Machine::A);
     assert_eq!(client.get_state().await.unwrap(), saved);
 
     // Un segundo cliente a la vez, y un cambio que llega empujado a los dos.
     let mut other = ipc::connect(&path).await.unwrap();
     assert_eq!(other.get_state().await.unwrap(), saved);
     let mut changed = saved.clone();
-    changed.on.pc = false;
+    changed.on.b = false;
     agent.set_state(changed.clone()).unwrap();
     assert_eq!(
         client.next_event().await.unwrap(),
@@ -72,10 +72,10 @@ async fn client_requests_state_and_receives_it() {
         other.next_event().await.unwrap(),
         Some(AgentToUi::State(changed.clone()))
     );
-    // Sin backends ni otro agente, encender la PC arranca y falla solo.
+    // Sin backends ni otro agente, encender la máquina B arranca y falla solo.
     let reply = client
         .request(UiCommand::SetPower {
-            machine: Machine::Pc,
+            machine: Machine::B,
             on: true,
         })
         .await

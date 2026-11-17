@@ -43,12 +43,12 @@ impl DeviceScanner for WorldScanner {
 #[derive(Clone)]
 struct Roles(Arc<Mutex<[RoleArbiter; 2]>>);
 
-const BOTH: [Machine; 2] = [Machine::Mac, Machine::Pc];
+const BOTH: [Machine; 2] = [Machine::A, Machine::B];
 
 fn index(m: Machine) -> usize {
     match m {
-        Machine::Mac => 0,
-        Machine::Pc => 1,
+        Machine::A => 0,
+        Machine::B => 1,
     }
 }
 
@@ -71,12 +71,12 @@ impl Roles {
             tokio::spawn(w.run());
             rx
         };
-        let presence: [watch::Receiver<Presence>; 2] = [watch(Machine::Mac), watch(Machine::Pc)];
+        let presence: [watch::Receiver<Presence>; 2] = [watch(Machine::A), watch(Machine::B)];
         // Al arrancar, el teclado está en la principal (es donde está el hub).
         let first = d.principal();
         let roles = Roles(Arc::new(Mutex::new([
-            RoleArbiter::new(Machine::Mac, first),
-            RoleArbiter::new(Machine::Pc, first),
+            RoleArbiter::new(Machine::A, first),
+            RoleArbiter::new(Machine::B, first),
         ])));
         let (world, net, agents, r) = (
             d.world.clone(),
@@ -143,7 +143,7 @@ impl Roles {
 
     /// Visto desde la Mac (los escenarios de siempre).
     fn server(&self, pc_on: bool) -> Machine {
-        self.keyboard_from(Machine::Mac, pc_on)
+        self.keyboard_from(Machine::A, pc_on)
     }
 
     /// El chip de teclado y mouse que muestra la UI de cada máquina: el papel que
@@ -159,56 +159,56 @@ async fn mover_el_hub_con_el_puesto_completo() {
     let d = Desk::new().await.unwrap();
     let roles = Roles::start(&d);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.server(false), Machine::Mac);
+    assert_eq!(roles.server(false), Machine::A);
 
     // Arranca la PC: no ve el hub y la Mac sigue de servidor.
-    let run = d.power_on(Machine::Pc).await.unwrap();
+    let run = d.power_on(Machine::B).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed));
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.server(true), Machine::Mac);
+    assert_eq!(roles.server(true), Machine::A);
 
     // El hub pasa a la PC: a los 2,5 s nada, pasados los 3 s se invierten.
-    d.world.plug_hub(Machine::Pc);
+    d.world.plug_hub(Machine::B);
     tokio::time::sleep(Duration::from_millis(2_500)).await;
-    assert_eq!(roles.server(true), Machine::Mac);
+    assert_eq!(roles.server(true), Machine::A);
     tokio::time::sleep(Duration::from_secs(2)).await;
-    assert_eq!(roles.server(true), Machine::Pc);
+    assert_eq!(roles.server(true), Machine::B);
 
     // Un tirón de 1 s hacia la Mac no cambia nada.
-    d.world.plug_hub(Machine::Mac);
+    d.world.plug_hub(Machine::A);
     tokio::time::sleep(Duration::from_secs(1)).await;
-    d.world.plug_hub(Machine::Pc);
+    d.world.plug_hub(Machine::B);
     tokio::time::sleep(Duration::from_secs(6)).await;
-    assert_eq!(roles.server(true), Machine::Pc);
+    assert_eq!(roles.server(true), Machine::B);
 
     // Con el USB4 y Ethernet caídos sigue el reporte por Wi-Fi.
     d.net.cut(LinkKind::Usb4);
     d.net.cut(LinkKind::Ethernet);
-    d.world.plug_hub(Machine::Mac);
+    d.world.plug_hub(Machine::A);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.server(true), Machine::Mac);
+    assert_eq!(roles.server(true), Machine::A);
     d.net.restore(LinkKind::Usb4);
     d.net.restore(LinkKind::Ethernet);
 
     // Hub en la PC y la PC se apaga: la Mac la da por apagada y, con el hub
     // ahora en ella, es el servidor sin esperar a la PC (T-066).
-    d.world.plug_hub(Machine::Pc);
+    d.world.plug_hub(Machine::B);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.server(true), Machine::Pc);
+    assert_eq!(roles.server(true), Machine::B);
     let run = d.shutdown_pc().await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed));
-    d.world.plug_hub(Machine::Mac);
+    d.world.plug_hub(Machine::A);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(d.world.power_of(Machine::Pc), Power::Off);
-    assert_eq!(roles.server(false), Machine::Mac);
-    assert_eq!(roles.chip(Machine::Mac), Role::Server);
+    assert_eq!(d.world.power_of(Machine::B), Power::Off);
+    assert_eq!(roles.server(false), Machine::A);
+    assert_eq!(roles.chip(Machine::A), Role::Server);
 
     // La PC vuelve, no tiene el hub y se pone de cliente.
-    let run = d.power_on(Machine::Pc).await.unwrap();
+    let run = d.power_on(Machine::B).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed));
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.server(true), Machine::Mac);
-    assert_eq!(roles.chip(Machine::Pc), Role::Client);
+    assert_eq!(roles.server(true), Machine::A);
+    assert_eq!(roles.chip(Machine::B), Role::Client);
 }
 
 /// QA ronda 2: la PC pierde la corriente con el hub conectado y el hub pasa a la
@@ -219,45 +219,45 @@ async fn mover_el_hub_con_el_puesto_completo() {
 async fn la_pc_se_apaga_con_el_hub() {
     let d = Desk::new().await.unwrap();
     let roles = Roles::start(&d);
-    let run = d.power_on(Machine::Pc).await.unwrap();
+    let run = d.power_on(Machine::B).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed));
-    d.world.plug_hub(Machine::Pc);
+    d.world.plug_hub(Machine::B);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.server(true), Machine::Pc);
-    assert_eq!(roles.chip(Machine::Mac), Role::Client);
+    assert_eq!(roles.server(true), Machine::B);
+    assert_eq!(roles.chip(Machine::A), Role::Client);
 
     let lost_after = d.mac.config().power.peer_lost_after();
     d.pull_pc_plug();
-    d.world.plug_hub(Machine::Mac);
+    d.world.plug_hub(Machine::A);
     // Dentro del umbral la Mac todavía no sabe si la PC sigue ahí.
     tokio::time::sleep(lost_after - Duration::from_secs(1)).await;
-    assert!(d.mac.state().is_on(Machine::Pc));
-    assert_eq!(roles.server(false), Machine::Pc);
+    assert!(d.mac.state().is_on(Machine::B));
+    assert_eq!(roles.server(false), Machine::B);
 
     tokio::time::sleep(Duration::from_secs(3)).await;
-    assert!(!d.mac.state().is_on(Machine::Pc));
-    assert_eq!(roles.server(false), Machine::Mac);
-    assert_eq!(roles.chip(Machine::Mac), Role::Server);
+    assert!(!d.mac.state().is_on(Machine::B));
+    assert_eq!(roles.server(false), Machine::A);
+    assert_eq!(roles.chip(Machine::A), Role::Server);
 
     // La PC vuelve con su botón: el hub sigue en la Mac y la PC se pone de cliente.
     d.press_pc_power_button();
     let mut states = d.mac.subscribe();
     tokio::time::timeout(
         Duration::from_secs(3600),
-        states.wait_for(|s| s.is_on(Machine::Pc)),
+        states.wait_for(|s| s.is_on(Machine::B)),
     )
     .await
     .unwrap()
     .unwrap();
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.server(true), Machine::Mac);
-    assert_eq!(roles.chip(Machine::Pc), Role::Client);
+    assert_eq!(roles.server(true), Machine::A);
+    assert_eq!(roles.chip(Machine::B), Role::Client);
 
     // Y mover el hub a la PC invierte los roles igual que antes.
-    d.world.plug_hub(Machine::Pc);
+    d.world.plug_hub(Machine::B);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.server(true), Machine::Pc);
-    assert_eq!(roles.chip(Machine::Mac), Role::Client);
+    assert_eq!(roles.server(true), Machine::B);
+    assert_eq!(roles.chip(Machine::A), Role::Client);
 }
 
 // Los mismos escenarios con la PC de principal: el usuario trabaja en la PC y la Mac
@@ -266,85 +266,77 @@ async fn la_pc_se_apaga_con_el_hub() {
 /// Espejo de [`mover_el_hub_con_el_puesto_completo`].
 #[tokio::test(start_paused = true)]
 async fn espejo_mover_el_hub_con_la_pc_de_principal() {
-    let d = Desk::builder()
-        .principal(Machine::Pc)
-        .build()
-        .await
-        .unwrap();
+    let d = Desk::builder().principal(Machine::B).build().await.unwrap();
     let roles = Roles::start(&d);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.keyboard_from(Machine::Pc, false), Machine::Pc);
-    assert_eq!(roles.chip(Machine::Pc), Role::Server);
+    assert_eq!(roles.keyboard_from(Machine::B, false), Machine::B);
+    assert_eq!(roles.chip(Machine::B), Role::Server);
 
     // Se despierta la Mac: no ve el hub y el teclado sigue en la PC.
-    let run = d.power_on(Machine::Mac).await.unwrap();
+    let run = d.power_on(Machine::A).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.keyboard_from(Machine::Pc, true), Machine::Pc);
-    assert_eq!(roles.chip(Machine::Mac), Role::Client);
+    assert_eq!(roles.keyboard_from(Machine::B, true), Machine::B);
+    assert_eq!(roles.chip(Machine::A), Role::Client);
 
     // El hub pasa a la Mac: pasados los 3 s se invierten, en las dos.
-    d.world.plug_hub(Machine::Mac);
+    d.world.plug_hub(Machine::A);
     tokio::time::sleep(Duration::from_millis(2_500)).await;
-    assert_eq!(roles.keyboard_from(Machine::Pc, true), Machine::Pc);
+    assert_eq!(roles.keyboard_from(Machine::B, true), Machine::B);
     tokio::time::sleep(Duration::from_secs(2)).await;
-    assert_eq!(roles.keyboard_from(Machine::Pc, true), Machine::Mac);
+    assert_eq!(roles.keyboard_from(Machine::B, true), Machine::A);
 
     // Hub en la Mac y la PC la apaga: la PC se queda con todo y, con el hub ahora en
     // ella, tiene el teclado sin esperar a la Mac.
-    let run = d.shutdown(Machine::Pc, Machine::Mac).await.unwrap();
+    let run = d.shutdown(Machine::B, Machine::A).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
-    d.world.plug_hub(Machine::Pc);
+    d.world.plug_hub(Machine::B);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(d.world.power_of(Machine::Mac), Power::Off);
-    assert_eq!(roles.keyboard_from(Machine::Pc, false), Machine::Pc);
-    assert_eq!(roles.chip(Machine::Pc), Role::Server);
+    assert_eq!(d.world.power_of(Machine::A), Power::Off);
+    assert_eq!(roles.keyboard_from(Machine::B, false), Machine::B);
+    assert_eq!(roles.chip(Machine::B), Role::Server);
 }
 
 /// Espejo de [`la_pc_se_apaga_con_el_hub`]: la Mac se suspende con el hub conectado y
 /// el hub pasa a la PC.
 #[tokio::test(start_paused = true)]
 async fn espejo_la_mac_se_suspende_con_el_hub() {
-    let d = Desk::builder()
-        .principal(Machine::Pc)
-        .build()
-        .await
-        .unwrap();
+    let d = Desk::builder().principal(Machine::B).build().await.unwrap();
     let roles = Roles::start(&d);
-    let run = d.power_on(Machine::Mac).await.unwrap();
+    let run = d.power_on(Machine::A).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
-    d.world.plug_hub(Machine::Mac);
+    d.world.plug_hub(Machine::A);
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.keyboard_from(Machine::Pc, true), Machine::Mac);
-    assert_eq!(roles.chip(Machine::Pc), Role::Client);
+    assert_eq!(roles.keyboard_from(Machine::B, true), Machine::A);
+    assert_eq!(roles.chip(Machine::B), Role::Client);
 
     let lost_after = d.pc.config().power.peer_lost_after();
-    d.pull_plug(Machine::Mac);
-    d.world.plug_hub(Machine::Pc);
+    d.pull_plug(Machine::A);
+    d.world.plug_hub(Machine::B);
     tokio::time::sleep(lost_after - Duration::from_secs(1)).await;
-    assert!(d.pc.state().is_on(Machine::Mac));
-    assert_eq!(roles.keyboard_from(Machine::Pc, false), Machine::Mac);
+    assert!(d.pc.state().is_on(Machine::A));
+    assert_eq!(roles.keyboard_from(Machine::B, false), Machine::A);
 
     tokio::time::sleep(Duration::from_secs(3)).await;
-    assert!(!d.pc.state().is_on(Machine::Mac));
+    assert!(!d.pc.state().is_on(Machine::A));
     assert!(
-        d.pc.state().is_on(Machine::Pc),
+        d.pc.state().is_on(Machine::B),
         "la PC nunca se da por apagada a sí misma"
     );
-    assert_eq!(roles.keyboard_from(Machine::Pc, false), Machine::Pc);
-    assert_eq!(roles.chip(Machine::Pc), Role::Server);
+    assert_eq!(roles.keyboard_from(Machine::B, false), Machine::B);
+    assert_eq!(roles.chip(Machine::B), Role::Server);
 
     // La Mac vuelve con su botón: el hub sigue en la PC y la Mac recibe el teclado.
-    d.press_power_button(Machine::Mac);
+    d.press_power_button(Machine::A);
     let mut states = d.pc.subscribe();
     tokio::time::timeout(
         Duration::from_secs(3600),
-        states.wait_for(|s| s.is_on(Machine::Mac)),
+        states.wait_for(|s| s.is_on(Machine::A)),
     )
     .await
     .unwrap()
     .unwrap();
     tokio::time::sleep(Duration::from_secs(5)).await;
-    assert_eq!(roles.keyboard_from(Machine::Pc, true), Machine::Pc);
-    assert_eq!(roles.chip(Machine::Mac), Role::Client);
+    assert_eq!(roles.keyboard_from(Machine::B, true), Machine::B);
+    assert_eq!(roles.chip(Machine::A), Role::Client);
 }

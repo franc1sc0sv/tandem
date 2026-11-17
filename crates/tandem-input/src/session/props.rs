@@ -51,12 +51,12 @@ proptest! {
         steps in prop::collection::vec((any_event(), any::<bool>(), any::<bool>()), 0..120),
     ) {
         let mut server = ServerSession::new(
-            Machine::Pc,
+            Machine::B,
             layout_pc_mac(),
             Point::new(3400.0, 720.0),
             8,
         );
-        let mut client = ClientSession::new(layout_pc_mac().screens(Machine::Mac).to_vec());
+        let mut client = ClientSession::new(layout_pc_mac().screens(Machine::A).to_vec());
         let mut physical = Pressed::new();
         let mut system = Pressed::new();
 

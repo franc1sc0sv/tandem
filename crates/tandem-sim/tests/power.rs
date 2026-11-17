@@ -8,16 +8,16 @@
 use std::time::Duration;
 
 use proptest::prelude::*;
-use tandem_core::{Machine, Step};
+use tandem_core::{Machine, Os, Step};
 use tandem_link::manager::LinkKind;
 use tandem_proto::PowerEvent;
 use tandem_sim::{Desk, FaultAction, FaultPlan, Outcome, Power, TxnRun};
 
 const PC_ON: Step = Step::PowerOn {
-    machine: Machine::Pc,
+    machine: Machine::B,
 };
 const PC_OFF: Step = Step::PowerOff {
-    machine: Machine::Pc,
+    machine: Machine::B,
 };
 
 async fn committed(d: &Desk, run: &TxnRun) {
@@ -28,7 +28,7 @@ async fn committed(d: &Desk, run: &TxnRun) {
 /// La Mac con la PC prendida y los dos agentes viéndose.
 async fn both_on() -> Desk {
     let d = Desk::new().await.unwrap();
-    committed(&d, &d.power_on(Machine::Pc).await.unwrap()).await;
+    committed(&d, &d.power_on(Machine::B).await.unwrap()).await;
     d.pc_agrees().await.unwrap();
     d
 }
@@ -37,68 +37,64 @@ async fn both_on() -> Desk {
 async fn encender_y_apagar_la_pc() {
     let d = Desk::new().await.unwrap();
     d.check().await.unwrap();
-    assert_eq!(d.world.power_of(Machine::Pc), Power::Off);
+    assert_eq!(d.world.power_of(Machine::B), Power::Off);
 
     // Wake-on-LAN y esperar al agente de la PC.
     let start = tokio::time::Instant::now();
-    let run = d.power_on(Machine::Pc).await.unwrap();
+    let run = d.power_on(Machine::B).await.unwrap();
     committed(&d, &run).await;
     assert!(
         start.elapsed() >= Duration::from_secs(45),
         "esperó el arranque"
     );
-    assert_eq!(d.active_link(Machine::Mac), Some(LinkKind::Usb4));
+    assert_eq!(d.active_link(Machine::A), Some(LinkKind::Usb4));
     d.pc_agrees().await.unwrap();
 
     // Apagado: el paso corre en la PC, que contesta y se apaga.
     let run = d.shutdown_pc().await.unwrap();
     committed(&d, &run).await;
-    assert_eq!(d.world.power_of(Machine::Pc), Power::Off);
+    assert_eq!(d.world.power_of(Machine::B), Power::Off);
     assert_eq!(
         d.world.calls().last(),
-        Some(&(Machine::Pc, PC_OFF)),
+        Some(&(Machine::B, PC_OFF)),
         "{:?}",
         d.world.calls()
     );
     // Sin la PC no queda ningún enlace con su agente.
-    assert_eq!(d.active_link(Machine::Mac), None);
+    assert_eq!(d.active_link(Machine::A), None);
     assert!(d.world.violations().is_empty());
 }
 
 /// El espejo (DESIGN §3.7): con la PC de principal, ella despierta a la Mac.
 #[tokio::test(start_paused = true)]
 async fn la_pc_tambien_orquesta() {
-    let d = Desk::builder()
-        .principal(Machine::Pc)
-        .build()
-        .await
-        .unwrap();
-    let run = d.power_on(Machine::Mac).await.unwrap();
+    let d = Desk::builder().principal(Machine::B).build().await.unwrap();
+    let run = d.power_on(Machine::A).await.unwrap();
     committed(&d, &run).await;
-    assert_eq!(d.world.power_of(Machine::Mac), Power::On);
-    d.agrees(Machine::Mac).await.unwrap();
+    assert_eq!(d.world.power_of(Machine::A), Power::On);
+    d.agrees(Machine::A).await.unwrap();
 }
 
 #[tokio::test(start_paused = true)]
 async fn un_encendido_que_falla_deja_todo_como_estaba() {
     let d = Desk::new().await.unwrap();
-    d.arm(FaultPlan::new().on(Machine::Mac, PC_ON, FaultAction::Fail("sin red".into())));
-    let run = d.power_on(Machine::Pc).await.unwrap();
+    d.arm(FaultPlan::new().on(Machine::A, PC_ON, FaultAction::Fail("sin red".into())));
+    let run = d.power_on(Machine::B).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
     assert_eq!(run.failure().map(|f| f.0), Some(0));
-    assert!(!d.mac.state().on.pc);
+    assert!(!d.mac.state().on.b);
     d.check().await.unwrap();
 }
 
 #[tokio::test(start_paused = true)]
 async fn un_encendido_colgado_vence_y_no_cambia_el_estado() {
     let d = Desk::new().await.unwrap();
-    d.arm(FaultPlan::new().on(Machine::Mac, PC_ON, FaultAction::Hang));
+    d.arm(FaultPlan::new().on(Machine::A, PC_ON, FaultAction::Hang));
     let start = tokio::time::Instant::now();
-    let run = d.power_on(Machine::Pc).await.unwrap();
+    let run = d.power_on(Machine::B).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
     assert!(start.elapsed() >= Duration::from_secs(120));
-    assert!(!d.mac.state().on.pc);
+    assert!(!d.mac.state().on.b);
     d.check().await.unwrap();
 }
 
@@ -110,9 +106,9 @@ async fn sin_ethernet_la_pc_no_despierta() {
         .build()
         .await
         .unwrap();
-    let run = d.power_on(Machine::Pc).await.unwrap();
+    let run = d.power_on(Machine::B).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
-    assert_eq!(d.world.power_of(Machine::Pc), Power::Off);
+    assert_eq!(d.world.power_of(Machine::B), Power::Off);
     d.check().await.unwrap();
 }
 
@@ -120,13 +116,13 @@ async fn sin_ethernet_la_pc_no_despierta() {
 async fn un_apagado_que_falla_deja_la_pc_prendida() {
     let d = both_on().await;
     d.arm(FaultPlan::new().on(
-        Machine::Pc,
+        Machine::B,
         PC_OFF,
         FaultAction::Fail("acceso denegado".into()),
     ));
     let run = d.shutdown_pc().await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
-    assert!(d.mac.state().on.pc);
+    assert!(d.mac.state().on.b);
     d.check().await.unwrap();
 }
 
@@ -136,13 +132,13 @@ async fn un_apagado_que_falla_deja_la_pc_prendida() {
 async fn un_apagado_con_la_respuesta_perdida_se_da_por_hecho() {
     let d = both_on().await;
     d.arm(FaultPlan::new().on(
-        Machine::Pc,
+        Machine::B,
         PC_OFF,
         FaultAction::ApplyThenCut(LinkKind::Usb4),
     ));
     let run = d.shutdown_pc().await.unwrap();
     committed(&d, &run).await;
-    assert_eq!(d.world.power_of(Machine::Pc), Power::Off);
+    assert_eq!(d.world.power_of(Machine::B), Power::Off);
 }
 
 /// Un apagado que no contesta se da por hecho (lo más probable es que la PC se esté
@@ -151,12 +147,12 @@ async fn un_apagado_con_la_respuesta_perdida_se_da_por_hecho() {
 #[tokio::test(start_paused = true)]
 async fn un_apagado_colgado_se_da_por_hecho_y_el_siguiente_encendido_lo_repara() {
     let d = both_on().await;
-    d.arm(FaultPlan::new().on(Machine::Pc, PC_OFF, FaultAction::Hang));
+    d.arm(FaultPlan::new().on(Machine::B, PC_OFF, FaultAction::Hang));
     let run = d.shutdown_pc().await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
-    assert!(!d.mac.state().on.pc);
-    assert_eq!(d.world.power_of(Machine::Pc), Power::On);
-    let run = d.power_on(Machine::Pc).await.unwrap();
+    assert!(!d.mac.state().on.b);
+    assert_eq!(d.world.power_of(Machine::B), Power::On);
+    let run = d.power_on(Machine::B).await.unwrap();
     committed(&d, &run).await;
 }
 
@@ -169,20 +165,20 @@ async fn corte_de_corriente_y_vuelta_a_mano() {
     let lost_after = d.mac.config().power.peer_lost_after();
     d.pull_pc_plug();
     tokio::time::sleep(lost_after - Duration::from_secs(1)).await;
-    assert!(d.mac.state().on.pc, "dentro del umbral no cambia nada");
+    assert!(d.mac.state().on.b, "dentro del umbral no cambia nada");
     let PowerEvent::PeerLost { machine, reason } =
         tokio::time::timeout(Duration::from_secs(10), power.recv())
             .await
             .unwrap()
             .unwrap();
-    assert_eq!(machine, Machine::Pc);
+    assert_eq!(machine, Machine::B);
     assert!(reason.contains("corte de corriente"), "{reason}");
-    assert!(!d.mac.state().on.pc);
+    assert!(!d.mac.state().on.b);
     d.check().await.unwrap();
 
     d.press_pc_power_button();
     let mut rx = d.mac.subscribe();
-    tokio::time::timeout(Duration::from_secs(120), rx.wait_for(|s| s.on.pc))
+    tokio::time::timeout(Duration::from_secs(120), rx.wait_for(|s| s.on.b))
         .await
         .unwrap()
         .unwrap();
@@ -216,7 +212,7 @@ struct Op {
 
 fn op() -> impl Strategy<Value = Op> {
     (
-        prop_oneof![Just(Machine::Mac), Just(Machine::Pc)],
+        prop_oneof![Just(Machine::A), Just(Machine::B)],
         any::<bool>(),
         any::<bool>(),
     )
@@ -272,5 +268,38 @@ proptest! {
             .build()
             .unwrap();
         rt.block_on(run_ops(ops))?;
+    }
+}
+
+/// DECISIONS D2: el puesto funciona igual con cualquier sistema en cada lado. Con macOS +
+/// Windows, Windows + Windows y macOS + macOS: encender B desde A y apagarla, cada una
+/// anuncia su sistema y queda anotada en el puesto de las dos.
+#[tokio::test(start_paused = true)]
+async fn cualquier_sistema_en_cada_lado() {
+    for (a, b) in [
+        (Os::MacOs, Os::Windows),
+        (Os::Windows, Os::Windows),
+        (Os::MacOs, Os::MacOs),
+    ] {
+        let d = Desk::builder().os(a, b).build().await.unwrap();
+        let run = d.power_on(Machine::B).await.unwrap();
+        committed(&d, &run).await;
+        d.pc_agrees().await.unwrap();
+        // Cada una ve el sistema de la otra, y el puesto de las dos lo guarda.
+        let caps = d.agent(Machine::A).capabilities();
+        assert_eq!(caps.here.info.os, a, "{a:?}+{b:?}");
+        assert_eq!(caps.peer.map(|p| p.info.os), Some(b), "{a:?}+{b:?}");
+        for m in Machine::ALL {
+            let desk = d.agent(m).desk();
+            assert_eq!(desk.machines.get(Machine::A).map(|i| i.os), Some(a));
+            assert_eq!(desk.machines.get(Machine::B).map(|i| i.os), Some(b));
+        }
+        // Solo Windows sabe apagarse sola: lo anuncia según su sistema, no su lado.
+        let b_caps = d.agent(Machine::B).capabilities().here;
+        assert_eq!(b_caps.power.power_off, b == Os::Windows, "{a:?}+{b:?}");
+        let run = d.shutdown_pc().await.unwrap();
+        committed(&d, &run).await;
+        assert_eq!(d.world.power_of(Machine::B), Power::Off, "{a:?}+{b:?}");
+        assert!(d.world.violations().is_empty());
     }
 }

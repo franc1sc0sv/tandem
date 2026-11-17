@@ -24,7 +24,6 @@ use std::time::Duration;
 use tandem_core::{Executor, Machine, Plan, State, Step, TxnError, TxnReport};
 use tandem_proto::{ControlMsg, TxnEvent};
 
-use crate::capabilities::label;
 use tokio::sync::{broadcast, watch};
 
 /// Lo que responde un paso que esta máquina todavía no sabe hacer.
@@ -112,8 +111,8 @@ pub fn target(step: &Step) -> Machine {
 /// Texto corto de un paso, para errores y logs.
 pub fn describe(step: &Step) -> String {
     match step {
-        Step::PowerOn { machine } => format!("encender la {}", label(*machine)),
-        Step::PowerOff { machine } => format!("apagar la {}", label(*machine)),
+        Step::PowerOn { machine } => format!("encender la máquina {machine}"),
+        Step::PowerOff { machine } => format!("apagar la máquina {machine}"),
     }
 }
 
@@ -149,7 +148,8 @@ const EVENT_BUFFER: usize = 256;
 
 /// Despacha pasos y publica el avance de las transacciones de un agente.
 pub struct Orchestrator {
-    me: Machine,
+    /// El lado de esta máquina; cambia solo si al emparejar resulta ser el otro.
+    me: Mutex<Machine>,
     local: Arc<dyn LocalSteps>,
     peer: RwLock<Arc<dyn PeerLink>>,
     /// Si hay conexión con el otro agente: encender la otra termina cuando pasa a `true`.
@@ -173,7 +173,7 @@ pub struct Orchestrator {
 impl std::fmt::Debug for Orchestrator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Orchestrator")
-            .field("me", &self.me)
+            .field("me", &self.me())
             .field("timeouts", &self.timeouts)
             .field("busy", &self.busy)
             .finish_non_exhaustive()
@@ -183,7 +183,7 @@ impl std::fmt::Debug for Orchestrator {
 impl Orchestrator {
     pub fn new(me: Machine, local: Arc<dyn LocalSteps>, timeouts: StepTimeouts) -> Self {
         Orchestrator {
-            me,
+            me: Mutex::new(me),
             local,
             peer: RwLock::new(Arc::new(NoPeer)),
             connected: watch::Sender::new(false),
@@ -195,6 +195,15 @@ impl Orchestrator {
             peer_turn: tokio::sync::Mutex::new(()),
             link_hold: Mutex::new(None),
         }
+    }
+
+    fn me(&self) -> Machine {
+        *self.me.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Esta máquina resultó ser el otro lado ([`crate::Agent::adopt_side`]).
+    pub fn set_machine(&self, side: Machine) {
+        *self.me.lock().unwrap_or_else(PoisonError::into_inner) = side;
     }
 
     /// Cambia la conexión con el otro agente. Los pasos ya en curso siguen con la anterior.
@@ -331,7 +340,7 @@ impl Orchestrator {
     async fn attempt(&self, step: &Step) -> Result<(), StepFailure> {
         let limit = self.timeouts.for_step(step);
         let work = async {
-            if target(step) == self.me {
+            if target(step) == self.me() {
                 self.run_local(step).await.map_err(StepFailure::certain)
             } else {
                 self.remote(step).await
@@ -348,7 +357,7 @@ impl Orchestrator {
 
     async fn run_local(&self, step: &Step) -> Result<(), String> {
         match step {
-            Step::PowerOn { machine } if *machine != self.me => self.power_on_peer(step).await,
+            Step::PowerOn { machine } if *machine != self.me() => self.power_on_peer(step).await,
             _ => self.local.execute(step).await,
         }
     }
@@ -366,8 +375,8 @@ impl Orchestrator {
                 }
                 () = tokio::time::sleep(WOL_RESEND) => {
                     tracing::debug!(
-                        "la {} todavía no responde: se repite el Wake-on-LAN",
-                        label(self.me.other())
+                        "la máquina {} todavía no responde: se repite el Wake-on-LAN",
+                        self.me().other()
                     );
                 }
             }
@@ -378,17 +387,17 @@ impl Orchestrator {
         let peer = self.peer();
         peer.execute(step).await.map_err(|e| StepFailure {
             uncertain: e == PEER_LOST,
-            error: format!("{}: {e}", self.me.other()),
+            error: format!("máquina {}: {e}", self.me().other()),
         })
     }
 
     /// Un paso pedido por el otro agente: solo se aceptan los que le tocan a esta máquina.
     pub async fn execute_for_peer(&self, step: &Step) -> Result<(), String> {
-        if target(step) != self.me {
+        let me = self.me();
+        if target(step) != me {
             return Err(format!(
-                "{}: no le corresponde a {}",
-                describe(step),
-                self.me
+                "{}: no le corresponde a la máquina {me}",
+                describe(step)
             ));
         }
         // La espera está acotada: quien tiene el turno corre con su tiempo máximo.
@@ -533,16 +542,16 @@ pub(crate) mod tests {
     }
 
     const PC_ON: Step = Step::PowerOn {
-        machine: Machine::Pc,
+        machine: Machine::B,
     };
     const PC_OFF: Step = Step::PowerOff {
-        machine: Machine::Pc,
+        machine: Machine::B,
     };
 
     fn mac(local: FakeSteps, peer: FakeSteps) -> (Orchestrator, Arc<FakeSteps>, Arc<FakeSteps>) {
         let local = Arc::new(local);
         let peer = Arc::new(peer);
-        let o = Orchestrator::new(Machine::Mac, local.clone(), StepTimeouts::default());
+        let o = Orchestrator::new(Machine::A, local.clone(), StepTimeouts::default());
         o.set_peer(Arc::new(FakePeer(peer.clone())));
         (o, local, peer)
     }
@@ -553,21 +562,21 @@ pub(crate) mod tests {
 
     /// Visto desde la Mac, con la PC prendida.
     fn both_on() -> State {
-        let mut s = State::initial(Machine::Mac);
-        s.on.pc = true;
+        let mut s = State::initial(Machine::A);
+        s.on.b = true;
         s
     }
 
     #[test]
     fn routes_each_step_to_its_machine() {
-        assert_eq!(target(&PC_ON), Machine::Mac);
-        assert_eq!(target(&PC_OFF), Machine::Pc);
-        assert_eq!(describe(&PC_ON), "encender la PC");
+        assert_eq!(target(&PC_ON), Machine::A);
+        assert_eq!(target(&PC_OFF), Machine::B);
+        assert_eq!(describe(&PC_ON), "encender la máquina B");
         assert_eq!(
             describe(&Step::PowerOff {
-                machine: Machine::Mac
+                machine: Machine::A
             }),
-            "apagar la Mac"
+            "apagar la máquina A"
         );
     }
 
@@ -597,20 +606,16 @@ pub(crate) mod tests {
             },
         );
         let e = o.dispatch(&PC_OFF).await.unwrap_err();
-        assert_eq!(e, "pc: falla simulada");
+        assert_eq!(e, "máquina B: falla simulada");
     }
 
     #[tokio::test]
     async fn without_peer_remote_steps_fail_clearly() {
-        let o = Orchestrator::new(
-            Machine::Mac,
-            Arc::new(Unimplemented),
-            StepTimeouts::default(),
-        );
+        let o = Orchestrator::new(Machine::A, Arc::new(Unimplemented), StepTimeouts::default());
         let e = o.dispatch(&PC_OFF).await.unwrap_err();
         assert!(e.contains(PEER_NOT_CONNECTED), "{e}");
         let e = o.dispatch(&PC_ON).await.unwrap_err();
-        assert_eq!(e, format!("encender la PC: {STEP_NOT_IMPLEMENTED}"));
+        assert_eq!(e, format!("encender la máquina B: {STEP_NOT_IMPLEMENTED}"));
     }
 
     #[tokio::test]
@@ -623,11 +628,7 @@ pub(crate) mod tests {
 
     #[test]
     fn only_one_transaction_at_a_time() {
-        let o = Orchestrator::new(
-            Machine::Mac,
-            Arc::new(Unimplemented),
-            StepTimeouts::default(),
-        );
+        let o = Orchestrator::new(Machine::A, Arc::new(Unimplemented), StepTimeouts::default());
         let a = o.try_begin().unwrap();
         assert_eq!(o.try_begin(), None);
         o.end();
@@ -640,11 +641,11 @@ pub(crate) mod tests {
         let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
         let mut rx = o.subscribe();
         let mut state = both_on();
-        let plan = Plan::power_off(&state, Machine::Pc);
+        let plan = Plan::power_off(&state, Machine::B);
         let outcome = o.run(7, &mut state, &plan).await;
         o.finish(7, &state, &outcome);
         assert!(outcome.is_ok());
-        assert!(!state.on.pc);
+        assert!(!state.on.b);
         assert_eq!(
             drain(&mut rx),
             [
@@ -671,7 +672,7 @@ pub(crate) mod tests {
         let mut rx = o.subscribe();
         let mut state = both_on();
         let initial = state.clone();
-        let plan = Plan::power_off(&state, Machine::Pc);
+        let plan = Plan::power_off(&state, Machine::B);
         let outcome = o.run(1, &mut state, &plan).await;
         o.finish(1, &state, &outcome);
         assert!(matches!(outcome, Err(TxnError::Failed { .. })));
@@ -683,7 +684,7 @@ pub(crate) mod tests {
                 TxnEvent::StepFailed {
                     txn: 1,
                     index: 0,
-                    error: "pc: falla simulada".into()
+                    error: "máquina B: falla simulada".into()
                 },
                 TxnEvent::Failed {
                     txn: 1,
@@ -697,7 +698,7 @@ pub(crate) mod tests {
     async fn power_on_resends_wake_until_the_pc_agent_connects() {
         let local = Arc::new(FakeSteps::default());
         let o = Arc::new(Orchestrator::new(
-            Machine::Mac,
+            Machine::A,
             local.clone(),
             StepTimeouts::default(),
         ));
@@ -717,9 +718,9 @@ pub(crate) mod tests {
     #[tokio::test(start_paused = true)]
     async fn power_on_without_the_pc_agent_times_out() {
         let local = Arc::new(FakeSteps::default());
-        let o = Orchestrator::new(Machine::Mac, local.clone(), StepTimeouts::default());
+        let o = Orchestrator::new(Machine::A, local.clone(), StepTimeouts::default());
         let e = o.dispatch(&PC_ON).await.unwrap_err();
-        assert_eq!(e, "encender la PC: sin respuesta en 120 s");
+        assert_eq!(e, "encender la máquina B: sin respuesta en 120 s");
         // Un envío cada 5 s desde 0; el de 120 s coincide con el tope y puede salir o no.
         let sent = local.steps().len();
         assert!((24..=25).contains(&sent), "{sent} envíos");
@@ -728,7 +729,7 @@ pub(crate) mod tests {
     #[tokio::test(start_paused = true)]
     async fn power_on_stops_at_a_send_error() {
         let o = Orchestrator::new(
-            Machine::Mac,
+            Machine::A,
             Arc::new(FakeSteps {
                 fail_on: vec![PC_ON],
                 ..Default::default()
@@ -752,7 +753,7 @@ pub(crate) mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn power_on_may_take_longer_than_other_steps() {
-        // 60 s para encender la PC está dentro de los 120 s.
+        // 60 s para encender la máquina B está dentro de los 120 s.
         let (o, _, _) = mac(
             FakeSteps {
                 delays: vec![(PC_ON, Duration::from_secs(60))],
@@ -760,10 +761,10 @@ pub(crate) mod tests {
             },
             FakeSteps::default(),
         );
-        let mut state = State::initial(Machine::Mac);
-        let plan = Plan::power_on(&state, Machine::Pc, &Abilities::both_wake()).unwrap();
+        let mut state = State::initial(Machine::A);
+        let plan = Plan::power_on(&state, Machine::B, &Abilities::both_wake()).unwrap();
         o.run(4, &mut state, &plan).await.unwrap();
-        assert!(state.on.pc);
+        assert!(state.on.b);
 
         // 121 s, no.
         let (o, _, _) = mac(
@@ -773,10 +774,10 @@ pub(crate) mod tests {
             },
             FakeSteps::default(),
         );
-        let mut state = State::initial(Machine::Mac);
+        let mut state = State::initial(Machine::A);
         let err = o.run(5, &mut state, &plan).await.unwrap_err();
         assert!(matches!(err, TxnError::Failed { step: PC_ON, .. }));
-        assert_eq!(state, State::initial(Machine::Mac));
+        assert_eq!(state, State::initial(Machine::A));
     }
 
     // QA ronda 2: cada agente solo se cuidaba de sus propias transacciones, así que
@@ -797,7 +798,7 @@ pub(crate) mod tests {
     #[tokio::test(start_paused = true)]
     async fn peer_steps_from_different_streams_run_one_at_a_time() {
         let mac_off = Step::PowerOff {
-            machine: Machine::Mac,
+            machine: Machine::A,
         };
         let (o, local, _) = mac(
             FakeSteps {
@@ -850,7 +851,7 @@ pub(crate) mod tests {
     fn a_transaction_holds_the_link_until_it_ends() {
         let holds = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let o = Orchestrator::new(
-            Machine::Mac,
+            Machine::A,
             Arc::new(FakeSteps::default()),
             StepTimeouts::default(),
         );
@@ -901,10 +902,10 @@ pub(crate) mod tests {
             },
         );
         let mut state = both_on();
-        let plan = Plan::power_off(&state, Machine::Pc);
+        let plan = Plan::power_off(&state, Machine::B);
         let report = o.run(1, &mut state, &plan).await.unwrap();
         assert_eq!(report.applied, plan.steps);
-        assert!(!state.on.pc);
+        assert!(!state.on.b);
         assert_eq!(peer.steps(), [PC_OFF]);
 
         // Un apagado que falla con certeza queda como estaba.
@@ -931,10 +932,10 @@ pub(crate) mod tests {
             },
         );
         let mut state = both_on();
-        let plan = Plan::power_off(&state, Machine::Pc);
+        let plan = Plan::power_off(&state, Machine::B);
         let start = tokio::time::Instant::now();
         o.run(3, &mut state, &plan).await.unwrap();
         assert_eq!(start.elapsed(), Duration::from_secs(10));
-        assert!(!state.on.pc);
+        assert!(!state.on.b);
     }
 }

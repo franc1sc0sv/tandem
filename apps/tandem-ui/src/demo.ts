@@ -42,11 +42,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Lo que anuncia cada máquina del puesto real: la PC se apaga sola, la Mac no. */
 function demoCaps(machine: Machine, missing: MachineCaps["input"]["missing"]): MachineCaps {
-  const pc = machine === "pc";
+  const pc = machine === "b";
   return {
     machine,
     name: pc ? "ESCRITORIO" : "MacBook-Pro",
     os: pc ? "windows" : "macos",
+    color: pc ? "#a99be8" : "#7aa7e6",
     hub: null,
     input: {
       capture: missing.length === 0,
@@ -64,14 +65,14 @@ function demoCaps(machine: Machine, missing: MachineCaps["input"]["missing"]): M
 export function demoBridge(query: string): Bridge {
   const params = new URLSearchParams(query);
   // La ventana de qué máquina es: la Mac por omisión, la PC con `&as=pc`.
-  const agent: Machine = params.get("as") === "pc" ? "pc" : "mac";
-  const peerMachine: Machine = agent === "mac" ? "pc" : "mac";
+  const agent: Machine = params.get("as") === "b" ? "b" : "a";
+  const peerMachine: Machine = agent === "a" ? "b" : "a";
   const clean = params.has("clean");
   const peerOn = params.get(peerMachine) === "on";
-  const desk: Desk = { screens: [], arrangement: { mac_side: params.get("side") === "right" ? "right" : "left", offset: 0 } };
+  const desk: Desk = { screens: [], arrangement: { a_side: params.get("side") === "right" ? "right" : "left", offset: 0 } };
   let state: DeskState = { on: { [agent]: true, [peerMachine]: peerOn } as Record<Machine, boolean> };
   const missing: MachineCaps["input"]["missing"] = params.get("perms") === "missing" ? ["accessibility", "input_monitoring"] : [];
-  const PEER_NAME = peerMachine === "pc" ? "PC" : "Mac";
+  const PEER_NAME = peerMachine === "b" ? "PC" : "Mac";
   const PAIRED: PeerView = { kind: "paired", name: PEER_NAME, link: peerOn ? "usb4" : null };
   let peer: PeerView = params.get("peer") === "none" || clean ? { kind: "unpaired" } : PAIRED;
   let pairing: PairingView =
@@ -81,7 +82,7 @@ export function demoBridge(query: string): Bridge {
   let keyboard: Machine | null = clean ? null : ((params.get("hub") as Machine | null) ?? agent);
   let keyProbe: { armed: boolean; heard: Machine | null } = { armed: false, heard: null };
   const caps = (): Caps => ({
-    here: demoCaps(agent, agent === "mac" ? missing : []),
+    here: demoCaps(agent, agent === "a" ? missing : []),
     peer: peer.kind === "paired" ? demoCaps(peerMachine, []) : null,
   });
   const snapshot = (): Snapshot => {
@@ -100,7 +101,7 @@ export function demoBridge(query: string): Bridge {
         hub_here: clean ? null : (params.get("hub") ?? agent) === agent,
         session: state.on[peerMachine] && peer.kind === "paired",
         locked: false,
-        missing: agent === "mac" ? missing : [],
+        missing: agent === "a" ? missing : [],
         problem: null,
         defined: keyboard !== null,
       },

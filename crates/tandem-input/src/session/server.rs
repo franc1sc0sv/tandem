@@ -439,7 +439,7 @@ mod tests {
     };
 
     fn session() -> ServerSession {
-        ServerSession::new(Machine::Pc, layout_pc_mac(), Point::new(100.0, 100.0), 4)
+        ServerSession::new(Machine::B, layout_pc_mac(), Point::new(100.0, 100.0), 4)
     }
 
     fn rel(dx: f64, dy: f64) -> InputEvent {
@@ -521,7 +521,7 @@ mod tests {
     fn el_delta_viaja_en_puntos_logicos() {
         // Cliente PC con 150 %, servidor Mac a 1.0.
         let mut s = ServerSession::new(
-            Machine::Mac,
+            Machine::A,
             layout_mac_pc_hidpi(),
             Point::new(3439.0, 720.0),
             0,
@@ -786,7 +786,7 @@ mod tests {
 
     #[test]
     fn scroll_lock_de_un_teclado_de_pc_en_la_mac_es_f14() {
-        let mut s = ServerSession::new(Machine::Mac, layout_pc_mac(), Point::new(3500.0, 10.0), 4)
+        let mut s = ServerSession::new(Machine::A, layout_pc_mac(), Point::new(3500.0, 10.0), 4)
             .with_lock_shortcut(vec![HidUsage::key(0x47)]);
         s.handle(key(0x69, KeyState::Pressed));
         assert!(s.is_locked());

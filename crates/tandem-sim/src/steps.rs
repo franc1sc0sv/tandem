@@ -37,8 +37,8 @@ impl HardwareTimes {
     /// Lo que tarda `machine` en estar lista tras el Wake-on-LAN (o el botón).
     pub fn boot_of(&self, machine: Machine) -> Duration {
         match machine {
-            Machine::Pc => self.boot,
-            Machine::Mac => self.wake_mac,
+            Machine::B => self.boot,
+            Machine::A => self.wake_mac,
         }
     }
 }

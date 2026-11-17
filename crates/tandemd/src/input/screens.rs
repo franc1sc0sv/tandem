@@ -38,13 +38,14 @@ pub fn from_spec(s: &ScreenSpec) -> Screen {
     )
 }
 
-/// Las que lee una máquina, con un id por pantalla (`mac-1`, `pc-2`...).
-pub fn detected(machine: Machine, bounds: &[Rect]) -> Vec<Screen> {
+/// Las que lee una máquina, con un id por pantalla (`pantalla-1`, `pantalla-2`...). El id
+/// solo tiene que ser único en su máquina, así que no depende del lado.
+pub fn detected(bounds: &[Rect]) -> Vec<Screen> {
     bounds
         .iter()
         .filter(|r| r.width > 0 && r.height > 0)
         .enumerate()
-        .map(|(i, r)| Screen::new(format!("{machine}-{}", i + 1).as_str().into(), *r, 1.0))
+        .map(|(i, r)| Screen::new(format!("pantalla-{}", i + 1).as_str().into(), *r, 1.0))
         .collect()
 }
 
@@ -72,9 +73,9 @@ pub fn arrangement(
         }
     };
     Arrangement {
-        mac: of(Machine::Mac),
-        pc: of(Machine::Pc),
-        mac_side: desk.arrangement.mac_side,
+        a: of(Machine::A),
+        b: of(Machine::B),
+        a_side: desk.arrangement.a_side,
     }
 }
 
@@ -109,16 +110,13 @@ mod tests {
 
     #[test]
     fn detected_screens_get_one_id_each() {
-        let got = detected(
-            Machine::Mac,
-            &[
-                Rect::new(-3440, 0, 3440, 1440),
-                Rect::new(0, 0, 0, 10),
-                Rect::new(0, 0, 1512, 982),
-            ],
-        );
+        let got = detected(&[
+            Rect::new(-3440, 0, 3440, 1440),
+            Rect::new(0, 0, 0, 10),
+            Rect::new(0, 0, 1512, 982),
+        ]);
         let ids: Vec<_> = got.iter().map(|s| s.id.0.as_str()).collect();
-        assert_eq!(ids, ["mac-1", "mac-2"]);
+        assert_eq!(ids, ["pantalla-1", "pantalla-2"]);
         assert_eq!(got[0].rect, Rect::new(-3440, 0, 3440, 1440));
         assert_eq!(got[1].scale, 1.0);
     }
@@ -127,29 +125,29 @@ mod tests {
     fn each_machine_puts_its_screens_on_its_side() {
         let desk = Config::default();
         let m34 = mon("pc-1", 0, 3440);
-        let mut state = State::initial(Machine::Mac);
-        state.on.pc = true;
+        let mut state = State::initial(Machine::A);
+        state.on.b = true;
         let opts = LayoutOptions::default();
         let pc = layout(
             &desk,
             &state,
-            Machine::Pc,
+            Machine::B,
             std::slice::from_ref(&m34),
             &[],
             opts,
         )
         .unwrap();
-        let mac = layout(&desk, &state, Machine::Mac, &[], &[m34], opts).unwrap();
+        let mac = layout(&desk, &state, Machine::A, &[], &[m34], opts).unwrap();
         assert_eq!(pc, mac);
-        assert_eq!(pc.screens(Machine::Pc).len(), 1);
-        assert!(pc.screens(Machine::Mac).is_empty());
+        assert_eq!(pc.screens(Machine::B).len(), 1);
+        assert!(pc.screens(Machine::A).is_empty());
     }
 
     #[test]
     fn declared_screens_replace_the_detected_ones_and_set_the_side() {
         let mut desk = Config {
             screens: vec![ScreenSpec {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 id: "34".into(),
                 x: 0,
                 y: 0,
@@ -159,19 +157,19 @@ mod tests {
             }],
             ..Config::default()
         };
-        desk.arrangement.mac_side = Side::Right;
+        desk.arrangement.a_side = Side::Right;
         let mine = [mon("mac-1", 0, 1512)];
         let theirs = [mon("pc-1", 0, 1920)];
-        let arr = arrangement(&desk, &both_on(), Machine::Mac, &mine, &theirs);
-        assert_eq!(arr.mac, mine);
-        assert_eq!(arr.pc.len(), 1);
-        assert_eq!(arr.pc[0].id, "34".into());
-        assert_eq!(arr.pc[0].scale, 1.25);
-        assert_eq!(arr.mac_side, Side::Right);
+        let arr = arrangement(&desk, &both_on(), Machine::A, &mine, &theirs);
+        assert_eq!(arr.a, mine);
+        assert_eq!(arr.b.len(), 1);
+        assert_eq!(arr.b[0].id, "34".into());
+        assert_eq!(arr.b[0].scale, 1.25);
+        assert_eq!(arr.a_side, Side::Right);
         // Sin declarar, la Mac va a la izquierda y valen las leídas.
-        let arr = arrangement(&Config::default(), &both_on(), Machine::Mac, &mine, &theirs);
-        assert_eq!((arr.mac, arr.pc), (mine.to_vec(), theirs.to_vec()));
-        assert_eq!(arr.mac_side, Side::Left);
+        let arr = arrangement(&Config::default(), &both_on(), Machine::A, &mine, &theirs);
+        assert_eq!((arr.a, arr.b), (mine.to_vec(), theirs.to_vec()));
+        assert_eq!(arr.a_side, Side::Left);
     }
 
     #[test]
@@ -180,13 +178,13 @@ mod tests {
         let theirs = [mon("pc-1", 0, 1920)];
         let arr = arrangement(
             &Config::default(),
-            &State::initial(Machine::Mac),
-            Machine::Mac,
+            &State::initial(Machine::A),
+            Machine::A,
             &mine,
             &theirs,
         );
-        assert!(arr.pc.is_empty());
-        assert_eq!(arr.mac, mine);
+        assert!(arr.b.is_empty());
+        assert_eq!(arr.a, mine);
     }
 
     proptest! {

@@ -18,6 +18,16 @@ use tandemd::{Agent, AgentConfig, StoreError};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
+/// Las dos identidades ordenadas por clave: la primera es la del lado A (DECISIONS A1), así
+/// cada prueba sabe qué lado le toca a cada agente.
+fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
+    if x.public_key().as_bytes() < y.public_key().as_bytes() {
+        (x, y)
+    } else {
+        (y, x)
+    }
+}
+
 /// Tope para que una prueba rota falle en vez de colgarse.
 const TIMEOUT: Duration = Duration::from_secs(20);
 
@@ -118,7 +128,13 @@ async fn start(
     let text = format!("machine = \"{machine}\"\n{network}\n{WOL}");
     // En el disco, como en el binario: lo que se cambia desde la UI se guarda ahí.
     std::fs::write(&paths.config, &text).unwrap();
-    let cfg = AgentConfig::from_toml(&text).unwrap();
+    let mut cfg = AgentConfig::from_toml(&text).unwrap();
+    // A es una Mac y B una PC en estas pruebas: lo que puede cada una sale de su sistema, no
+    // del de la máquina que corre la prueba (en macOS ninguna se apagaría sola).
+    cfg.os = match machine {
+        Machine::A => tandem_core::Os::MacOs,
+        Machine::B => tandem_core::Os::Windows,
+    };
     let steps = Arc::new(Fake::default());
     let Daemon {
         agent,
@@ -178,17 +194,17 @@ async fn until_peer(agent: &Agent, want: PeerStatus) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn paired_agents_find_each_other_and_shut_down_the_pc() {
-    let (mac_id, pc_id) = (Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
     let (mac_port, pc_port) = (free_port(), free_port());
     let mut mac = start(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         mac_port,
         Some((pc_id.public_key(), pc_port)),
     )
     .await;
     let pc = start(
-        Machine::Pc,
+        Machine::B,
         &pc_id,
         pc_port,
         Some((mac_id.public_key(), mac_port)),
@@ -196,20 +212,20 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
     .await;
 
     // Cada uno ve al otro por el único enlace fijo, y la UI lo recibe.
-    until_peer(&mac.agent, paired("pc", Some(Link::Usb4))).await;
-    until_peer(&pc.agent, paired("mac", Some(Link::Usb4))).await;
+    until_peer(&mac.agent, paired("B", Some(Link::Usb4))).await;
+    until_peer(&pc.agent, paired("A", Some(Link::Usb4))).await;
     assert_eq!(
         mac.ui.request(UiCommand::GetPeer).await.unwrap(),
-        Reply::Peer(paired("pc", Some(Link::Usb4)))
+        Reply::Peer(paired("B", Some(Link::Usb4)))
     );
 
     // La Mac ve aparecer a la PC y la da por prendida (peer_watch), y viceversa.
     let mut mac_state = mac.agent.subscribe();
-    within(mac_state.wait_for(|s| s.is_on(Machine::Pc)))
+    within(mac_state.wait_for(|s| s.is_on(Machine::B)))
         .await
         .unwrap();
     let mut pc_state = pc.agent.subscribe();
-    within(pc_state.wait_for(|s| s.is_on(Machine::Mac)))
+    within(pc_state.wait_for(|s| s.is_on(Machine::A)))
         .await
         .unwrap();
 
@@ -220,7 +236,7 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
             match mac
                 .ui
                 .request(UiCommand::SetPower {
-                    machine: Machine::Pc,
+                    machine: Machine::B,
                     on: false,
                 })
                 .await
@@ -245,19 +261,19 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
         }
     })
     .await;
-    assert!(!committed.on.pc);
+    assert!(!committed.on.b);
     assert!(mac.steps.steps().is_empty());
     assert_eq!(
         pc.steps.steps(),
         [Step::PowerOff {
-            machine: Machine::Pc
+            machine: Machine::B
         }]
     );
 
     // Al apagarse la PC, la Mac deja de verla enseguida y ya no tiene a quién pedirle pasos.
     let mac_agent = mac.agent.clone();
     pc.stop().await;
-    until_peer(&mac_agent, paired("pc", None)).await;
+    until_peer(&mac_agent, paired("B", None)).await;
     assert!(!*mac_agent.orchestrator().peer_connected().borrow());
     mac.stop().await;
 }
@@ -265,7 +281,7 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
 #[tokio::test]
 async fn unpaired_agent_works_alone_and_says_so() {
     let identity = Identity::from_seed([3; 32]);
-    let mut a = start(Machine::Mac, &identity, free_port(), None).await;
+    let mut a = start(Machine::A, &identity, free_port(), None).await;
     assert_eq!(a.agent.peer_status(), PeerStatus::Unpaired);
     assert_eq!(
         a.ui.request(UiCommand::GetPeer).await.unwrap(),
@@ -276,7 +292,7 @@ async fn unpaired_agent_works_alone_and_says_so() {
     // Lo que solo toca a esta máquina se hace igual: aquí, nada que cambiar.
     let reply =
         a.ui.request(UiCommand::SetPower {
-            machine: Machine::Mac,
+            machine: Machine::A,
             on: true,
         })
         .await
@@ -293,7 +309,7 @@ async fn identity_is_created_once_and_kept() {
         config: dir.path().join("tandem.toml"),
         data_dir: dir.path().to_owned(),
     };
-    let cfg = AgentConfig::from_toml("machine = \"pc\"").unwrap();
+    let cfg = AgentConfig::from_toml("machine = \"b\"").unwrap();
     let opts = NetOptions {
         bind: Some(loopback(0)),
         mdns: false,
@@ -320,20 +336,20 @@ const WOL: &str = "[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n";
 /// Encender la PC termina cuando su agente aparece por un enlace, no antes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn power_on_waits_for_the_pc_agent() {
-    let (mac_id, pc_id) = (Identity::from_seed([4; 32]), Identity::from_seed([5; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([4; 32]), Identity::from_seed([5; 32]));
     let (mac_port, pc_port) = (free_port(), free_port());
     let mut mac = start(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         mac_port,
         Some((pc_id.public_key(), pc_port)),
     )
     .await;
-    assert_eq!(mac.agent.peer_status(), paired("pc", None));
+    assert_eq!(mac.agent.peer_status(), paired("B", None));
     let reply = mac
         .ui
         .request(UiCommand::SetPower {
-            machine: Machine::Pc,
+            machine: Machine::B,
             on: true,
         })
         .await
@@ -346,10 +362,10 @@ async fn power_on_waits_for_the_pc_agent() {
         }
     })
     .await;
-    assert!(!mac.agent.state().on.pc);
+    assert!(!mac.agent.state().on.b);
 
     let pc = start(
-        Machine::Pc,
+        Machine::B,
         &pc_id,
         pc_port,
         Some((mac_id.public_key(), mac_port)),
@@ -365,11 +381,11 @@ async fn power_on_waits_for_the_pc_agent() {
         }
     })
     .await;
-    assert!(state.on.pc);
+    assert!(state.on.b);
     assert_eq!(
         mac.steps.steps()[0],
         Step::PowerOn {
-            machine: Machine::Pc
+            machine: Machine::B
         }
     );
     pc.stop().await;
@@ -386,7 +402,7 @@ fn start_on(
         config: dir.join("tandem.toml"),
         data_dir: dir.to_owned(),
     };
-    let cfg = AgentConfig::from_toml("machine = \"pc\"").unwrap();
+    let cfg = AgentConfig::from_toml("machine = \"b\"").unwrap();
     daemon::start(
         cfg,
         &paths,
@@ -452,59 +468,95 @@ async fn until_desk(r: &Running, want: &tandem_core::Config) {
     within(rx.wait_for(|d| d == want)).await.unwrap();
 }
 
+/// Lo mismo, mirando solo el acomodo (las pantallas y los lados): qué máquina es cada lado
+/// se anota aparte, cuando las dos se anuncian.
+async fn until_layout(r: &Running, want: &tandem_core::Config) {
+    let mut rx = r.agent.subscribe_desk();
+    within(rx.wait_for(|d| d.screens == want.screens && d.arrangement == want.arrangement))
+        .await
+        .unwrap();
+}
+
+/// Espera a que las dos tengan anotadas a las dos máquinas en el puesto, con la misma
+/// versión: a partir de ahí lo que cambie es del usuario.
+async fn until_both_known(a: &Running, b: &Running) {
+    within(async {
+        loop {
+            let (da, db) = (a.agent.desk_sync(), b.agent.desk_sync());
+            let known =
+                |d: &tandem_core::Config| Machine::ALL.iter().all(|m| d.machines.get(*m).is_some());
+            if known(&da.desk) && da.rev == db.rev && da.desk == db.desk {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+}
+
 /// T-084: el puesto es de las dos. Cambiar el acomodo en la Mac llega a la PC (en caliente
 /// y en su `tandem.toml`), y al revés; lo solo-local no viaja.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_desk_changed_on_either_machine_reaches_the_other() {
-    let (mac_id, pc_id) = (Identity::from_seed([5; 32]), Identity::from_seed([6; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([5; 32]), Identity::from_seed([6; 32]));
     let (mac_port, pc_port) = (free_port(), free_port());
     let mut mac = start(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         mac_port,
         Some((pc_id.public_key(), pc_port)),
     )
     .await;
     let pc = start(
-        Machine::Pc,
+        Machine::B,
         &pc_id,
         pc_port,
         Some((mac_id.public_key(), mac_port)),
     )
     .await;
-    until_peer(&mac.agent, paired("pc", Some(Link::Usb4))).await;
-    until_peer(&pc.agent, paired("mac", Some(Link::Usb4))).await;
+    until_peer(&mac.agent, paired("B", Some(Link::Usb4))).await;
+    until_peer(&pc.agent, paired("A", Some(Link::Usb4))).await;
 
     // Cada una ve lo que la otra puede: la PC se apaga sola.
     let mut caps = mac.agent.subscribe_capabilities();
-    within(caps.wait_for(|c| c.peer.as_ref().is_some_and(|p| p.machine == Machine::Pc)))
+    within(caps.wait_for(|c| c.peer.as_ref().is_some_and(|p| p.machine == Machine::B)))
         .await
         .unwrap();
     assert!(mac.agent.capabilities().peer.unwrap().power.power_off);
+    // Al conocerse, las dos quedan anotadas en el puesto (en las dos máquinas).
+    until_both_known(&mac, &pc).await;
+    let base = mac.agent.desk_sync().rev;
+    assert_eq!(
+        mac.agent.machine_info(Machine::B),
+        Some(mac.agent.capabilities().peer.unwrap().info)
+    );
 
     // En la Mac: la Mac pasa a la derecha de la PC.
     let mut desk = mac.agent.desk();
-    desk.arrangement.mac_side = Side::Right;
+    desk.arrangement.a_side = Side::Right;
     mac.agent.set_desk(desk.clone()).unwrap();
     until_desk(&pc, &desk).await;
     for r in [&mac, &pc] {
         let cfg = saved(r);
         assert_eq!(cfg.desk, desk, "{}", cfg.machine);
-        assert_eq!(cfg.desk_rev, 1);
-        assert_eq!(cfg.desk_origin, Some(Machine::Mac));
+        assert_eq!(cfg.desk_rev, base + 1);
+        assert_eq!(cfg.desk_origin, Some(Machine::A));
     }
     // Lo solo-local sigue siendo de cada una.
-    assert_eq!(saved(&pc).machine, Machine::Pc);
+    assert_eq!(saved(&pc).machine, Machine::B);
     assert_eq!(saved(&pc).network.port, pc_port);
 
     // Al revés, desde la PC: vuelve el acomodo de siempre.
     let mut back = desk.clone();
-    back.arrangement.mac_side = Side::Left;
+    back.arrangement.a_side = Side::Left;
     pc.agent.set_desk(back.clone()).unwrap();
     until_desk(&mac, &back).await;
     let cfg = saved(&mac);
     assert_eq!(cfg.desk, back);
-    assert_eq!((cfg.desk_rev, cfg.desk_origin), (2, Some(Machine::Pc)));
+    assert_eq!(
+        (cfg.desk_rev, cfg.desk_origin),
+        (base + 2, Some(Machine::B))
+    );
     // La UI de la Mac recibe el puesto nuevo empujado.
     within(async {
         loop {
@@ -525,10 +577,10 @@ async fn the_desk_changed_on_either_machine_reaches_the_other() {
 /// pone al día con la versión más nueva de la PC.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_change_made_while_the_other_was_away_arrives_on_reconnect() {
-    let (mac_id, pc_id) = (Identity::from_seed([7; 32]), Identity::from_seed([8; 32]));
+    let (mac_id, pc_id) = sides(Identity::from_seed([7; 32]), Identity::from_seed([8; 32]));
     let (mac_port, pc_port) = (free_port(), free_port());
     let pc = start(
-        Machine::Pc,
+        Machine::B,
         &pc_id,
         pc_port,
         Some((mac_id.public_key(), mac_port)),
@@ -536,19 +588,23 @@ async fn a_change_made_while_the_other_was_away_arrives_on_reconnect() {
     .await;
     // La Mac todavía no está: el cambio queda solo en la PC.
     let mut desk = pc.agent.desk();
-    desk.arrangement.mac_side = Side::Right;
+    desk.arrangement.a_side = Side::Right;
     pc.agent.set_desk(desk.clone()).unwrap();
 
     let mac = start(
-        Machine::Mac,
+        Machine::A,
         &mac_id,
         mac_port,
         Some((pc_id.public_key(), pc_port)),
     )
     .await;
-    until_desk(&mac, &desk).await;
-    assert_eq!(saved(&mac).desk, desk);
-    assert_eq!(saved(&mac).desk_rev, 1);
+    until_layout(&mac, &desk).await;
+    // Además del cambio, al conocerse se anotan las dos máquinas: una versión más.
+    until_both_known(&mac, &pc).await;
+    let got = saved(&mac);
+    assert_eq!(got.desk.arrangement, desk.arrangement);
+    assert!(got.desk_rev >= 1);
+    assert_eq!(got.desk, pc.agent.desk());
 
     mac.stop().await;
     pc.stop().await;

@@ -5,10 +5,12 @@
 //! - Va por un endpoint aparte ([`Endpoint::bind_pairing`]), que acepta llaves
 //!   desconocidas y solo existe mientras se empareja. El endpoint normal sigue sin
 //!   aceptar a nadie que no esté en la confianza.
-//! - Los papeles son fijos para que las dos máquinas no se busquen a la vez: la PC
-//!   espera en el puerto de emparejamiento (y lo anuncia por mDNS) y la Mac la busca
-//!   por los enlaces fijos de la config y por mDNS. El usuario abre el emparejamiento
-//!   en las dos, en cualquier orden.
+//! - Las dos máquinas hacen lo mismo (DECISIONS D1/D2: ninguna es especial): esperan en
+//!   su puerto de emparejamiento (y lo anuncian por mDNS) y buscan a la otra por los
+//!   enlaces fijos de la config y por mDNS. Cuando se encuentran, las dos conocen las dos
+//!   claves y con ellas los lados (A1): vale solo la conexión que abre `A`, y en ella `A`
+//!   inicia el protocolo. `B` corta las que abre ella y deja de buscar. El usuario abre el
+//!   emparejamiento en las dos, en cualquier orden.
 //! - El protocolo es el de compromiso de [`tandem_link::identity`]; las llaves que se
 //!   intercambian tienen que ser las mismas que autenticó la conexión.
 //! - Cada lado manda su [`PairingMsg::Confirm`] cuando su usuario confirma y guarda la
@@ -55,8 +57,9 @@ impl Default for PairingTimeouts {
 
 /// Los tres mensajes del protocolo, sin contar la espera del usuario.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-/// Cada intento de conexión de la Mac; si la PC todavía no espera, se reintenta.
-const CONNECT_ATTEMPT: Duration = Duration::from_secs(2);
+/// Lo que se espera a un intento de conexión antes de darlo por perdido; mientras, se
+/// siguen lanzando otros (ver [`look`]).
+const CONNECT_ATTEMPT: Duration = Duration::from_secs(10);
 const RETRY_EVERY: Duration = Duration::from_millis(300);
 /// Lo que se espera a que el otro lado reciba el último mensaje antes de cortar.
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
@@ -87,8 +90,10 @@ pub enum PairError {
     Transport(#[from] TransportError),
     #[error("{0}")]
     Identity(#[from] IdentityError),
-    #[error("se esperaba el agente de la {expected}, contestó {got:?}")]
+    #[error("se esperaba el agente de la máquina {expected}, contestó {got:?}")]
     UnexpectedPeer { expected: Machine, got: Peer },
+    #[error("la otra punta tiene la misma clave que esta máquina")]
+    SameKey,
     #[error("la llave del emparejamiento no es la de la conexión")]
     KeyMismatch,
     #[error("mensaje de emparejamiento inesperado")]
@@ -114,9 +119,9 @@ pub struct Ctx {
     pub timeouts: PairingTimeouts,
 }
 
-/// Dónde puede esperar la PC al emparejar, en orden: el `pairing_port` de la config si se
+/// Dónde espera esta máquina al emparejar, en orden: el `pairing_port` de la config si se
 /// fijó, si no el siguiente al puerto real del agente; después el siguiente a cada puerto
-/// de reserva. La Mac lo encuentra por el anuncio de mDNS, que lleva el puerto real.
+/// de reserva. La otra lo encuentra por el anuncio de mDNS, que lleva el puerto real.
 pub fn pairing_ports(net: &crate::NetworkConfig, port: u16, fallbacks: &[u16]) -> Vec<u16> {
     let next = |p: u16| p.checked_add(1).unwrap_or(p - 1);
     let first = net.pairing_port.unwrap_or_else(|| next(port));
@@ -130,24 +135,23 @@ pub fn pairing_ports(net: &crate::NetworkConfig, port: u16, fallbacks: &[u16]) -
 }
 
 impl Ctx {
-    fn me(&self) -> Machine {
-        self.agent.machine()
-    }
-
-    fn hello(&self) -> Hello {
-        Hello::new(Peer::Agent(self.me()))
+    /// El lado de esta máquina frente a quien está al otro lado de `conn`: mientras se
+    /// empareja todavía no hay par, así que sale de las dos claves de la conexión.
+    fn side_on(&self, conn: &Connection) -> Result<Machine, PairError> {
+        Machine::of_keys(
+            self.identity.public_key().as_bytes(),
+            conn.peer().as_bytes(),
+        )
+        .ok_or(PairError::SameKey)
     }
 
     fn publish(&self, status: PairingStatus) {
         self.agent.set_pairing_status(status);
     }
-}
 
-/// El nombre con que esta máquina se presenta al otro (y con el que él la guarda).
-pub fn display_name(m: Machine) -> &'static str {
-    match m {
-        Machine::Mac => "Mac",
-        Machine::Pc => "PC",
+    /// El nombre con que esta máquina se presenta a la otra (y con el que la otra la guarda).
+    fn name(&self) -> String {
+        self.agent.local_info().name
     }
 }
 
@@ -167,10 +171,9 @@ pub async fn run(ctx: &Ctx, answers: &mut mpsc::UnboundedReceiver<Answer>) -> Ou
         Ok(Ok(found)) => found,
         Ok(Err(e)) => return Outcome::Failed(e),
         Err(_) => {
-            return Outcome::Failed(format!(
-                "no apareció la {} (¿está abierto el emparejamiento allá?)",
-                display_name(ctx.me().other())
-            ));
+            return Outcome::Failed(
+                "no apareció la otra máquina (¿está abierto el emparejamiento allá?)".into(),
+            );
         }
     };
     let outcome = compare(ctx, stream, pairing, answers).await;
@@ -190,30 +193,37 @@ async fn cancelled(answers: &mut mpsc::UnboundedReceiver<Answer>) {
 
 type Found = (Connection, ControlStream, Pairing);
 
+/// Espera a la otra y la busca a la vez, con un solo endpoint (el mismo puerto atiende y
+/// llama). Termina con la primera conexión abierta por `A` en la que el protocolo sale bien.
 async fn search(ctx: &Ctx) -> Result<Found, String> {
-    match ctx.me() {
-        Machine::Pc => wait_for_mac(ctx).await,
-        Machine::Mac => look_for_pc(ctx).await,
-    }
-}
-
-/// La PC: espera en el puerto de emparejamiento a que la Mac conecte.
-async fn wait_for_mac(ctx: &Ctx) -> Result<Found, String> {
     let ports = pairing_ports(&ctx.agent.config().network, ctx.port, &ctx.fallback_ports);
     let (endpoint, addr) = crate::network::bind_first(ctx.bind_ip, &ports, |addr| {
         Endpoint::bind_pairing(addr, &ctx.identity)
     })
-    .map_err(|e| format!("no se pudo esperar a la Mac: {e}"))?;
+    .map_err(|e| format!("no se pudo abrir el emparejamiento: {e}"))?;
     let port = endpoint
         .local_addr()
         .map(|a| a.port())
         .unwrap_or(addr.port());
-    tracing::info!(%addr, "esperando a la Mac para emparejar");
-    let _announce = ctx.mdns.then(|| {
+    tracing::info!(%addr, "emparejando: se espera y se busca a la otra máquina");
+    let discovery = if ctx.mdns {
         MdnsDiscovery::pairing(&ctx.identity.public_key(), Some(port))
-            .map_err(|e| tracing::warn!("no se pudo anunciar el emparejamiento por mDNS: {e}"))
+            .map_err(|e| tracing::warn!("sin mDNS, solo se busca por los enlaces fijos: {e}"))
             .ok()
-    });
+    } else {
+        None
+    };
+    let lan = discovery.as_ref().map(MdnsDiscovery::peer_addrs);
+    let endpoint = Arc::new(endpoint);
+    tokio::select! {
+        found = wait(ctx, &endpoint) => found,
+        found = look(ctx, &endpoint, lan, port) => found,
+    }
+}
+
+/// Atiende las conexiones que llegan: solo vale la que abre `A`, así que esta máquina
+/// responde si es `B` frente a quien llama.
+async fn wait(ctx: &Ctx, endpoint: &Endpoint) -> Result<Found, String> {
     loop {
         let conn = match endpoint.accept().await {
             Some(Ok(conn)) => conn,
@@ -223,6 +233,14 @@ async fn wait_for_mac(ctx: &Ctx) -> Result<Found, String> {
             }
             None => return Err("se cerró el puerto de emparejamiento".into()),
         };
+        match ctx.side_on(&conn) {
+            Ok(Machine::B) => {}
+            // Esta máquina es A: la conexión que vale es la que abre ella.
+            Ok(Machine::A) | Err(_) => {
+                conn.close("emparejamiento: llama la otra");
+                continue;
+            }
+        }
         match tokio::time::timeout(HANDSHAKE_TIMEOUT, respond(ctx, &conn)).await {
             Ok(Ok((stream, pairing))) => return Ok((conn, stream, pairing)),
             Ok(Err(e)) => {
@@ -233,50 +251,87 @@ async fn wait_for_mac(ctx: &Ctx) -> Result<Found, String> {
     }
 }
 
-/// La Mac: prueba las direcciones de la PC hasta que una conteste.
-async fn look_for_pc(ctx: &Ctx) -> Result<Found, String> {
-    let endpoint = Endpoint::bind_pairing(SocketAddr::new(ctx.bind_ip, 0), &ctx.identity)
-        .map_err(|e| format!("no se pudo abrir el emparejamiento: {e}"))?;
-    let discovery = if ctx.mdns {
-        MdnsDiscovery::pairing(&ctx.identity.public_key(), None)
-            .map_err(|e| tracing::warn!("sin mDNS, solo se busca por los enlaces fijos: {e}"))
-            .ok()
-    } else {
-        None
-    };
-    let lan = discovery.as_ref().map(MdnsDiscovery::peer_addrs);
+/// Prueba las direcciones de la otra hasta que una conteste. Si esta máquina resulta ser
+/// `B`, deja de buscar: la otra (A) la llama a ella y [`wait`] la atiende.
+///
+/// Cada intento corre aparte y no se corta por empezar otro: con la máquina cargada (o en
+/// Windows, donde un puerto sin nadie no falla enseguida) un handshake puede tardar más que
+/// el intervalo entre intentos, y cortarlo cada vez dejaba a las dos buscándose para siempre.
+async fn look(
+    ctx: &Ctx,
+    endpoint: &Arc<Endpoint>,
+    lan: Option<tokio::sync::watch::Receiver<Vec<SocketAddr>>>,
+    own: u16,
+) -> Result<Found, String> {
+    let mut attempts = tokio::task::JoinSet::new();
+    let mut trying = BTreeSet::new();
     loop {
         let discovered = lan.as_ref().map(|l| l.borrow().clone()).unwrap_or_default();
-        for addr in candidates(ctx, &discovered) {
-            let conn = match tokio::time::timeout(CONNECT_ATTEMPT, endpoint.connect(addr)).await {
-                Ok(Ok(conn)) => conn,
-                Ok(Err(e)) => {
-                    tracing::debug!(%addr, "la PC no contesta al emparejamiento: {e}");
-                    continue;
-                }
-                Err(_) => continue,
-            };
-            match tokio::time::timeout(HANDSHAKE_TIMEOUT, initiate(ctx, &conn)).await {
-                Ok(Ok((stream, pairing))) => return Ok((conn, stream, pairing)),
-                Ok(Err(e)) => tracing::warn!(%addr, "emparejamiento rechazado: {e}"),
-                Err(_) => tracing::warn!(%addr, "emparejamiento sin respuesta"),
+        for addr in candidates(ctx, &discovered, own) {
+            if trying.insert(addr) {
+                let endpoint = endpoint.clone();
+                attempts.spawn(async move {
+                    let r = tokio::time::timeout(CONNECT_ATTEMPT, endpoint.connect(addr)).await;
+                    (addr, r)
+                });
             }
         }
-        tokio::time::sleep(RETRY_EVERY).await;
+        let done = tokio::select! {
+            Some(done) = attempts.join_next() => done,
+            () = tokio::time::sleep(RETRY_EVERY) => continue,
+        };
+        let Ok((addr, result)) = done else { continue };
+        trying.remove(&addr);
+        let conn = match result {
+            Ok(Ok(conn)) => conn,
+            Ok(Err(e)) => {
+                tracing::debug!(%addr, "la otra máquina no contesta al emparejamiento: {e}");
+                continue;
+            }
+            Err(_) => continue,
+        };
+        match ctx.side_on(&conn) {
+            Ok(Machine::A) => {}
+            Ok(Machine::B) => {
+                conn.close("emparejamiento: llama la otra");
+                tracing::debug!(%addr, "esta máquina es B: espera a que la otra llame");
+                return std::future::pending().await;
+            }
+            // Esta misma máquina.
+            Err(_) => {
+                conn.close("emparejamiento: es esta misma máquina");
+                continue;
+            }
+        }
+        match tokio::time::timeout(HANDSHAKE_TIMEOUT, initiate(ctx, &conn)).await {
+            Ok(Ok((stream, pairing))) => return Ok((conn, stream, pairing)),
+            Ok(Err(e)) => tracing::warn!(%addr, "emparejamiento rechazado: {e}"),
+            Err(_) => tracing::warn!(%addr, "emparejamiento sin respuesta"),
+        }
     }
 }
 
-/// Dónde buscar a la PC: la IP de cada enlace fijo con el puerto de emparejamiento, y
-/// lo que anuncie por mDNS, sin repetir.
-fn candidates(ctx: &Ctx, discovered: &[SocketAddr]) -> Vec<SocketAddr> {
+/// Dónde buscar a la otra: la IP de cada enlace fijo con su puerto de emparejamiento (el
+/// siguiente al de su agente, y el que dice la config de esta) y lo que anuncie por mDNS,
+/// sin repetir.
+fn candidates(ctx: &Ctx, discovered: &[SocketAddr], own: u16) -> Vec<SocketAddr> {
     let net = &ctx.agent.config().network;
-    let port = net.pairing_port();
+    let mine = net.pairing_port();
     let mut seen = BTreeSet::new();
+    // El propio puerto de emparejamiento en loopback sería esta misma máquina: llamarse a sí
+    // misma no sirve y en Windows enreda el endpoint.
+    let itself = |a: &SocketAddr| a.ip().is_loopback() && a.port() == own;
     net.peers
         .iter()
-        .map(|l| SocketAddr::new(l.addr.ip(), port))
+        .flat_map(|l| {
+            let next = l.addr.port().checked_add(1).unwrap_or(l.addr.port() - 1);
+            [
+                SocketAddr::new(l.addr.ip(), next),
+                SocketAddr::new(l.addr.ip(), mine),
+            ]
+        })
         .chain(discovered.iter().copied())
-        .filter(|a| seen.insert(*a))
+        .filter(|a| !itself(a) && seen.insert(*a))
         .collect()
 }
 
@@ -320,13 +375,14 @@ async fn next(stream: &mut ControlStream) -> Result<PairingMsg, PairError> {
     stream.recv().await?.ok_or(PairError::Closed)
 }
 
-/// Quien inicia (la Mac): oferta con compromiso, respuesta, revelación.
+/// Quien inicia (el lado A): oferta con compromiso, respuesta, revelación.
 pub async fn initiate(ctx: &Ctx, conn: &Connection) -> Result<(ControlStream, Pairing), PairError> {
-    let (mut stream, theirs) = conn.open_control(&ctx.hello()).await?;
-    check_peer(ctx.me(), theirs.peer)?;
+    let me = ctx.side_on(conn)?;
+    let (mut stream, theirs) = conn.open_control(&Hello::new(Peer::Agent(me))).await?;
+    check_peer(me, theirs.peer)?;
     let (initiator, offer) = PairingInitiator::start(
         ctx.identity.public_key(),
-        display_name(ctx.me()),
+        ctx.name(),
         PairingNonce::generate()?,
     );
     stream
@@ -358,10 +414,11 @@ pub async fn initiate(ctx: &Ctx, conn: &Connection) -> Result<(ControlStream, Pa
     Ok((stream, pairing))
 }
 
-/// Quien responde (la PC).
+/// Quien responde (el lado B).
 pub async fn respond(ctx: &Ctx, conn: &Connection) -> Result<(ControlStream, Pairing), PairError> {
-    let (mut stream, theirs) = conn.accept_control(&ctx.hello()).await?;
-    check_peer(ctx.me(), theirs.peer)?;
+    let me = ctx.side_on(conn)?;
+    let (mut stream, theirs) = conn.accept_control(&Hello::new(Peer::Agent(me))).await?;
+    check_peer(me, theirs.peer)?;
     let PairingMsg::Offer {
         public_key,
         name,
@@ -377,7 +434,7 @@ pub async fn respond(ctx: &Ctx, conn: &Connection) -> Result<(ControlStream, Pai
     };
     let (responder, answer) = PairingResponder::receive_offer(
         ctx.identity.public_key(),
-        display_name(ctx.me()),
+        ctx.name(),
         offer,
         PairingNonce::generate()?,
     )?;
@@ -447,10 +504,7 @@ pub async fn compare(
                     }
                 }
                 Ok(Some(PairingMsg::Reject)) => {
-                    return Outcome::Failed(format!(
-                        "se rechazó en la {}: no se emparejó",
-                        display_name(ctx.me().other())
-                    ));
+                    return Outcome::Failed(format!("se rechazó en {peer}: no se emparejó"));
                 }
                 Ok(Some(_)) => {
                     reject(&mut tx, &mut rx).await;
@@ -464,6 +518,15 @@ pub async fn compare(
                 return Outcome::Failed("se acabó el tiempo para confirmar el código".into());
             }
         }
+    }
+    // El lado, antes de confiar en la otra: hasta que se guarda la confianza el endpoint
+    // normal no la acepta, así que nada suyo (su puesto, con los lados ya buenos) llega
+    // antes del cambio de lados y se da vuelta dos veces.
+    if let Some(side) = Machine::of_keys(
+        ctx.identity.public_key().as_bytes(),
+        pairing.remote().public_key.as_bytes(),
+    ) {
+        ctx.agent.adopt_side(side);
     }
     let saved = {
         let mut trust = ctx.trust.write().unwrap_or_else(|e| e.into_inner());
@@ -541,17 +604,25 @@ mod tests {
         assert_eq!(clean_name("  PC\n".into()), "PC");
         assert_eq!(clean_name("\u{7}\t".into()), "otra máquina");
         assert_eq!(clean_name("x".repeat(500)).chars().count(), MAX_NAME_CHARS);
-        assert_eq!(display_name(Machine::Mac), "Mac");
-        assert_eq!(display_name(Machine::Pc), "PC");
+    }
+
+    /// Cada máquina se presenta con el nombre de su `MachineInfo`, nunca con «Mac» o «PC»
+    /// fijos por lado.
+    #[test]
+    fn each_machine_introduces_itself_by_its_own_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let c = ctx(Machine::A, 1, dir.path());
+        assert_eq!(c.name(), c.agent.local_info().name);
+        assert!(!c.name().is_empty());
     }
 
     #[test]
-    fn the_mac_looks_for_the_pc_on_every_static_link_once() {
+    fn each_machine_looks_for_the_other_on_every_static_link_once() {
         let dir = tempfile::tempdir().unwrap();
-        let mut c = ctx(Machine::Mac, 1, dir.path());
+        let mut c = ctx(Machine::A, 1, dir.path());
         let cfg = AgentConfig::from_toml(
             r#"
-            machine = "mac"
+            machine = "a"
             monitors = []
             [network]
             port = 47770
@@ -564,7 +635,7 @@ mod tests {
         .unwrap();
         c.agent = Arc::new(Agent::new(cfg, StateStore::new(dir.path().join("s.json"))));
         let lan: SocketAddr = "192.168.1.20:47771".parse().unwrap();
-        let got = candidates(&c, &[lan, "10.77.1.2:47771".parse().unwrap()]);
+        let got = candidates(&c, &[lan, "10.77.1.2:47771".parse().unwrap()], 47771);
         assert_eq!(
             got,
             [
@@ -576,10 +647,10 @@ mod tests {
     }
 
     #[test]
-    fn the_pc_waits_next_to_its_real_port() {
+    fn each_machine_waits_next_to_its_real_port() {
         let net = |toml: &str| {
             AgentConfig::from_toml(&format!(
-                "machine = \"pc\"\nmonitors = []\n[network]\n{toml}"
+                "machine = \"b\"\nmonitors = []\n[network]\n{toml}"
             ))
             .unwrap()
             .network
@@ -602,17 +673,17 @@ mod tests {
     async fn both_sides_get_the_same_code() {
         let dir = tempfile::tempdir().unwrap();
         let (mac, pc) = (
-            ctx(Machine::Mac, 1, dir.path()),
-            ctx(Machine::Pc, 2, dir.path()),
+            ctx(Machine::A, 1, dir.path()),
+            ctx(Machine::B, 2, dir.path()),
         );
         let (to_pc, to_mac, _a, _b) = connect(&mac, &pc).await;
         let (m, p) = tokio::join!(initiate(&mac, &to_pc), respond(&pc, &to_mac));
         let ((_, m), (_, p)) = (m.unwrap(), p.unwrap());
         assert_eq!(m.code(), p.code());
         assert_eq!(m.remote().public_key, pc.identity.public_key());
-        assert_eq!(m.remote().name, "PC");
+        assert_eq!(m.remote().name, pc.name());
         assert_eq!(p.remote().public_key, mac.identity.public_key());
-        assert_eq!(p.remote().name, "Mac");
+        assert_eq!(p.remote().name, mac.name());
     }
 
     /// Un intermediario que conecta con su propia llave pero ofrece la de la Mac: la
@@ -621,15 +692,19 @@ mod tests {
     async fn an_offer_with_someone_elses_key_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let (intruder, pc) = (
-            ctx(Machine::Mac, 3, dir.path()),
-            ctx(Machine::Pc, 2, dir.path()),
+            ctx(Machine::A, 3, dir.path()),
+            ctx(Machine::B, 2, dir.path()),
         );
         let mac_key = Identity::from_seed([1; 32]).public_key();
         let (to_pc, to_intruder, _a, _b) = connect(&intruder, &pc).await;
         let attack = async {
-            let (mut s, _) = to_pc.open_control(&intruder.hello()).await.unwrap();
+            let me = intruder.side_on(&to_pc).unwrap();
+            let (mut s, _) = to_pc
+                .open_control(&Hello::new(Peer::Agent(me)))
+                .await
+                .unwrap();
             let (_, offer) =
-                PairingInitiator::start(mac_key, "Mac", PairingNonce::generate().unwrap());
+                PairingInitiator::start(mac_key, "otra", PairingNonce::generate().unwrap());
             s.send(&PairingMsg::Offer {
                 public_key: *offer.public_key.as_bytes(),
                 name: offer.name,
@@ -648,25 +723,33 @@ mod tests {
         assert_eq!(pc.agent.pairing_status(), PairingStatus::Idle);
     }
 
+    /// Con la misma clave en las dos puntas no hay dos lados: se corta antes de nada.
     #[tokio::test]
-    async fn the_same_machine_on_both_ends_is_refused() {
+    async fn the_same_key_on_both_ends_is_refused() {
         let dir = tempfile::tempdir().unwrap();
         let (a, b) = (
-            ctx(Machine::Pc, 1, dir.path()),
-            ctx(Machine::Pc, 2, dir.path()),
+            ctx(Machine::A, 1, dir.path()),
+            ctx(Machine::A, 1, dir.path()),
         );
         let (to_b, to_a, _x, _y) = connect(&a, &b).await;
         let (i, r) = tokio::join!(initiate(&a, &to_b), respond(&b, &to_a));
-        assert!(
-            matches!(i, Err(PairError::UnexpectedPeer { .. })),
-            "{:?}",
-            i.err()
+        assert!(matches!(i, Err(PairError::SameKey)), "{:?}", i.err());
+        assert!(matches!(r, Err(PairError::SameKey)), "{:?}", r.err());
+    }
+
+    /// Lo que guardaba cada lado en su config no importa al emparejar: los lados salen de
+    /// las claves de la conexión, así que dos agentes que se creían `A` se emparejan igual.
+    #[tokio::test]
+    async fn two_agents_that_think_they_are_a_still_pair() {
+        let dir = tempfile::tempdir().unwrap();
+        let (x, y) = (
+            ctx(Machine::A, 5, dir.path()),
+            ctx(Machine::A, 6, dir.path()),
         );
-        assert!(
-            matches!(r, Err(PairError::UnexpectedPeer { .. })),
-            "{:?}",
-            r.err()
-        );
+        let (to_y, to_x, _a, _b) = connect(&x, &y).await;
+        let (i, r) = tokio::join!(initiate(&x, &to_y), respond(&y, &to_x));
+        let ((_, i), (_, r)) = (i.unwrap(), r.unwrap());
+        assert_eq!(i.code(), r.code());
     }
 
     /// Las dos confirmaciones guardan la confianza en los dos.
@@ -674,8 +757,8 @@ mod tests {
     async fn confirming_on_both_sides_saves_both() {
         let dir = tempfile::tempdir().unwrap();
         let (mac, pc) = (
-            ctx(Machine::Mac, 1, dir.path()),
-            ctx(Machine::Pc, 2, dir.path()),
+            ctx(Machine::A, 1, dir.path()),
+            ctx(Machine::B, 2, dir.path()),
         );
         let (to_pc, to_mac, _a, _b) = connect(&mac, &pc).await;
         let (m, p) = tokio::join!(initiate(&mac, &to_pc), respond(&pc, &to_mac));
@@ -689,11 +772,11 @@ mod tests {
             compare(&pc, ps, pp, &mut pc_rx)
         );
         assert!(
-            matches!(&mo, Outcome::Paired(p) if p.name == "PC"),
+            matches!(&mo, Outcome::Paired(p) if p.name == pc.name()),
             "{mo:?}"
         );
         assert!(
-            matches!(&po, Outcome::Paired(p) if p.name == "Mac"),
+            matches!(&po, Outcome::Paired(p) if p.name == mac.name()),
             "{po:?}"
         );
         assert!(
@@ -716,8 +799,8 @@ mod tests {
     async fn rejecting_on_one_side_saves_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let (mac, pc) = (
-            ctx(Machine::Mac, 1, dir.path()),
-            ctx(Machine::Pc, 2, dir.path()),
+            ctx(Machine::A, 1, dir.path()),
+            ctx(Machine::B, 2, dir.path()),
         );
         let (to_pc, to_mac, _a, _b) = connect(&mac, &pc).await;
         let (m, p) = tokio::join!(initiate(&mac, &to_pc), respond(&pc, &to_mac));
@@ -756,8 +839,8 @@ mod tests {
     async fn nobody_confirming_times_out_without_saving() {
         let dir = tempfile::tempdir().unwrap();
         let (mut mac, mut pc) = (
-            ctx(Machine::Mac, 1, dir.path()),
-            ctx(Machine::Pc, 2, dir.path()),
+            ctx(Machine::A, 1, dir.path()),
+            ctx(Machine::B, 2, dir.path()),
         );
         mac.timeouts.confirm = Duration::from_millis(300);
         pc.timeouts.confirm = Duration::from_secs(60);
@@ -781,5 +864,21 @@ mod tests {
                 .unwrap()
                 .is_trusted(&mac.identity.public_key())
         );
+    }
+
+    /// En loopback (las pruebas, dos agentes en la misma máquina) el propio puerto de
+    /// emparejamiento no es un candidato: sería llamarse a sí misma.
+    #[test]
+    fn this_machine_never_dials_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut c = ctx(Machine::A, 1, dir.path());
+        let cfg = AgentConfig::from_toml(
+            "machine = \"a\"\n[network]\nport = 40000\npairing_port = 40001\n\
+             peers = [{ kind = \"usb4\", addr = \"127.0.0.1:41000\" }]\n",
+        )
+        .unwrap();
+        c.agent = Arc::new(Agent::new(cfg, StateStore::new(dir.path().join("s.json"))));
+        let got = candidates(&c, &["127.0.0.1:40001".parse().unwrap()], 40001);
+        assert_eq!(got, ["127.0.0.1:41001".parse::<SocketAddr>().unwrap()]);
     }
 }

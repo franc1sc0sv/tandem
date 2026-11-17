@@ -1,9 +1,10 @@
 //! Configuración automática en el primer arranque (T-082, T-087): si no hay `tandem.toml`,
 //! el agente lo escribe solo.
 //!
-//! - `machine` sale del sistema operativo (macOS = `mac`, Windows = `pc`).
+//! - `machine` empieza en `a`: el lado de verdad lo deciden las claves al emparejar
+//!   (DECISIONS A1), no el sistema operativo.
 //! - **El puesto empieza vacío**: sin `[[screens]]`, cada máquina usa las pantallas que lee
-//!   el motor de entrada y la Mac va a la izquierda de la PC (DESIGN §7).
+//!   el motor de entrada y A va a la izquierda de B (DESIGN §7).
 //! - Red, entrada y energía con sus valores por omisión y nada inventado: sin enlaces
 //!   fijos, sin Wake-on-LAN, sin hub y sin decir dónde está el teclado (no hay forma de
 //!   adivinar una MAC, un VID:PID ni el teclado que usa la persona).
@@ -18,29 +19,26 @@ use tandem_core::Machine;
 use crate::config::{AgentConfig, ConfigError, DEFAULT_PORT};
 use crate::paths;
 
-/// La máquina que es este sistema; `None` donde Tandem no corre de verdad (Linux).
-pub fn machine_of_os() -> Option<Machine> {
-    if cfg!(target_os = "macos") {
-        Some(Machine::Mac)
-    } else if cfg!(windows) {
-        Some(Machine::Pc)
-    } else {
-        None
-    }
+/// El lado con que se genera la configuración: `A` hasta que el emparejamiento diga otra
+/// cosa. `None` donde Tandem no corre de verdad (Linux): ahí no se genera sola.
+pub fn initial_side() -> Option<Machine> {
+    cfg!(any(target_os = "macos", windows)).then_some(Machine::A)
 }
 
-/// `tandem.toml` para `machine`, comentado y con el puesto vacío. Tampoco dice dónde está el
-/// teclado: sin hub ni respuesta del usuario es «sin definir». Siempre es válido.
+/// `tandem.toml` con el lado `machine`, comentado y con el puesto vacío. Tampoco dice dónde
+/// está el teclado: sin hub ni respuesta del usuario es «sin definir». Siempre es válido.
 pub fn generate(machine: Machine) -> String {
     format!(
         "# Configuración generada por tandemd al arrancar por primera vez (T-082, T-087).
 # Se puede editar: el agente no vuelve a generarla mientras el archivo exista.
-machine = \"{machine}\"
+# El lado de esta máquina (`a` o `b`). Lo decide la clave pública al emparejar: la menor
+# es `a`. El agente lo corrige solo.
+machine = \"{side}\"
 # El acomodo de pantallas para el teclado y el mouse (DESIGN §7). Sin `[[screens]]`, cada
-# máquina usa las pantallas que lee ella misma, y la Mac va a la izquierda de la PC. Para
+# máquina usa las pantallas que lee ella misma, y A va a la izquierda de B. Para
 # declararlo a mano (vale para las dos máquinas, se sincroniza solo):
 # [[screens]]
-# machine = \"pc\"
+# machine = \"b\"
 # id = \"34\"
 # x = 0
 # y = 0
@@ -49,7 +47,7 @@ machine = \"{machine}\"
 # scale = 1.0
 #
 # [arrangement]
-# mac_side = \"left\"
+# a_side = \"left\"
 
 [network]
 # Puerto UDP del agente. Si no se puede abrir, el agente prueba otros y anuncia el real
@@ -60,7 +58,7 @@ port = {DEFAULT_PORT}
 
 [input]
 # Dónde está el teclado y el mouse lo dice el hub USB o el asistente (se guarda aquí como
-# `keyboard = \"pc\"` o `\"mac\"`). Sin eso, la app dice «sin definir».
+# `keyboard = \"a\"` o `\"b\"`). Sin eso, la app dice «sin definir».
 lock_shortcut = [\"ScrollLock\"]
 clipboard = true
 # Para que los roles cambien solos al mover el hub, agrega [input.hub] con el VID:PID
@@ -73,7 +71,8 @@ peer_lost_after_secs = 15
 wakeable = true
 # Para encender la otra máquina desde esta, agrega [power.wol] con la MAC de su tarjeta
 # de red (`mac`).
-"
+",
+        side = machine.as_str()
     )
 }
 
@@ -131,7 +130,7 @@ pub fn load_or_generate(path: &Path, machine: Option<Machine>) -> Result<Loaded,
             generated: false,
         });
     }
-    tracing::info!("configuración generada en {shown}: máquina {machine}");
+    tracing::info!("configuración generada en {shown}: lado {machine} hasta emparejar");
     Ok(Loaded {
         config,
         generated: true,
@@ -164,7 +163,7 @@ pub(crate) mod tests {
 
     #[test]
     fn a_generated_config_has_an_empty_desk_and_no_keyboard() {
-        for machine in [Machine::Pc, Machine::Mac] {
+        for machine in [Machine::B, Machine::A] {
             let text = generate(machine);
             let cfg = AgentConfig::from_toml(&text).unwrap();
             assert_eq!(cfg.machine, machine);
@@ -180,7 +179,7 @@ pub(crate) mod tests {
             assert_eq!(cfg.input.hub, None, "sin VID:PID inventado");
             assert!(!cfg.input.keyboard_defined(), "nunca se supone el teclado");
             // Ni un dato de ejemplo que parezca real.
-            for fake in ["9c:6b", "046d", "10.77.", "monitors"] {
+            for fake in ["9c:6b", "046d", "10.77.", "monitors", "\"mac\"", "\"pc\""] {
                 assert!(!text.contains(fake), "{fake} en\n{text}");
             }
         }
@@ -190,17 +189,17 @@ pub(crate) mod tests {
     fn writes_once_and_never_replaces() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("Tandem").join("tandem.toml");
-        let first = load_or_generate(&path, Some(Machine::Pc)).unwrap();
+        let first = load_or_generate(&path, Some(Machine::B)).unwrap();
         assert!(first.generated);
         assert!(first.config.desk.screens.is_empty());
         assert_eq!(AgentConfig::load(&path).unwrap(), first.config);
         // La segunda vez se lee el archivo tal cual: aunque alguien le agregue pantallas.
         let mut text = std::fs::read_to_string(&path).unwrap();
         text.push_str(
-            "\n[[screens]]\nmachine = \"pc\"\nid = \"a\"\nx = 0\ny = 0\nwidth = 10\nheight = 10\n",
+            "\n[[screens]]\nmachine = \"b\"\nid = \"a\"\nx = 0\ny = 0\nwidth = 10\nheight = 10\n",
         );
         std::fs::write(&path, &text).unwrap();
-        let again = load_or_generate(&path, Some(Machine::Pc)).unwrap();
+        let again = load_or_generate(&path, Some(Machine::B)).unwrap();
         assert!(!again.generated);
         assert_eq!(again.config.desk.screens.len(), 1);
         assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
@@ -211,7 +210,7 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tandem.toml");
         std::fs::write(&path, "machine = \"linux\"").unwrap();
-        let err = load_or_generate(&path, Some(Machine::Pc)).unwrap_err();
+        let err = load_or_generate(&path, Some(Machine::B)).unwrap_err();
         assert!(
             matches!(err, AutoConfigError::Config(ConfigError::Parse(_))),
             "{err}"

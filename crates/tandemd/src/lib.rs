@@ -6,6 +6,7 @@
 //! - [`config`]: `tandem.toml` (el puesto compartido, la red y qué máquina es esta).
 //! - [`autoconfig`]: el `tandem.toml` que el agente genera solo si no hay ninguno (T-082).
 //! - [`config_edit`]: lo que el agente escribe en `tandem.toml` sin perder los comentarios.
+//! - [`migrate`]: `tandem.toml` de v0.2 (lados `mac`/`pc`) al formato de lados A/B.
 //! - [`paths`]: dónde viven la configuración, el estado y los logs.
 //! - [`store`]: el [`tandem_core::State`] persistido en JSON.
 //! - [`agent`]: el estado vivo del agente y las respuestas a la UI.
@@ -38,6 +39,7 @@ pub mod input;
 pub mod install;
 pub mod ipc;
 pub mod logging;
+pub mod migrate;
 pub mod network;
 pub mod orchestrator;
 pub mod pairing;

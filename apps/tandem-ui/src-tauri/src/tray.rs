@@ -19,12 +19,22 @@ impl MenuView {
     pub fn of(snapshot: &Snapshot) -> Self {
         match snapshot {
             Snapshot::Connected {
-                agent, state, peer, ..
+                agent,
+                state,
+                peer,
+                caps,
+                desk,
+                ..
             } => {
                 // Esta máquina está prendida (es la que muestra el menú): se dice cómo
-                // está la otra, sea cual sea (DESIGN §3.7).
+                // está la otra, sea cual sea (DESIGN §3.7), con su nombre: el que anunció
+                // o el del puesto (T-097).
                 let other = agent.other();
-                let name = tandemd::capabilities::label(other);
+                let name = caps
+                    .peer
+                    .as_ref()
+                    .map(|p| p.name.clone())
+                    .unwrap_or_else(|| desk.machines.name(other));
                 let power = if state.is_on(other) {
                     format!("{name} encendida")
                 } else {
@@ -94,7 +104,7 @@ mod tests {
     use super::*;
     use crate::session::PairingView;
 
-    use Machine::{Mac, Pc};
+    use Machine::{A, B};
 
     fn paired() -> PeerView {
         PeerView::Paired {
@@ -103,10 +113,26 @@ mod tests {
         }
     }
 
+    /// El puesto de las pruebas: A se llama «Mac» y B «PC».
+    fn desk() -> Config {
+        let mut d = Config::default();
+        d.machines.a = Some(tandem_core::MachineInfo::new(
+            A,
+            tandem_core::Os::MacOs,
+            None,
+        ));
+        d.machines.b = Some(tandem_core::MachineInfo::new(
+            B,
+            tandem_core::Os::Windows,
+            None,
+        ));
+        d
+    }
+
     fn connected(agent: Machine, state: State, peer: PeerView) -> Snapshot {
         Snapshot::Connected {
             agent,
-            desk: Config::default(),
+            desk: desk(),
             state,
             peer,
             pairing: PairingView::Idle,
@@ -117,22 +143,28 @@ mod tests {
 
     #[test]
     fn the_menu_says_how_the_other_machine_is() {
-        let mut on = State::initial(Mac);
-        on.on.pc = true;
-        let v = MenuView::of(&connected(Mac, on, paired()));
+        let mut on = State::initial(A);
+        on.on.b = true;
+        let v = MenuView::of(&connected(A, on, paired()));
         assert_eq!(v.tooltip, "Tandem · PC encendida");
         assert_eq!(v.status, "PC encendida");
 
-        let off = MenuView::of(&connected(Mac, State::initial(Mac), paired()));
+        let off = MenuView::of(&connected(A, State::initial(A), paired()));
         assert_eq!(off.status, "PC apagada");
 
         // Sin par, el menú lo dice: la PC no va a responder.
-        let alone = MenuView::of(&connected(Mac, State::initial(Mac), PeerView::Unpaired));
+        let alone = MenuView::of(&connected(A, State::initial(A), PeerView::Unpaired));
         assert_eq!(alone.status, "PC apagada · sin par emparejado");
 
         // En la PC: la que se dice apagada es la Mac, nunca la PC misma.
-        let on_pc = MenuView::of(&connected(Pc, State::initial(Pc), paired()));
+        let on_pc = MenuView::of(&connected(B, State::initial(B), paired()));
         assert_eq!(on_pc.status, "Mac apagada");
+        // Sin nada guardado de la otra, «máquina A», nunca un «Mac» inventado.
+        let mut bare = connected(B, State::initial(B), paired());
+        if let Snapshot::Connected { desk, .. } = &mut bare {
+            *desk = Config::default();
+        }
+        assert_eq!(MenuView::of(&bare).status, "máquina A apagada");
     }
 
     #[test]

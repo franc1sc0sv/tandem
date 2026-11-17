@@ -11,7 +11,7 @@
 //!   ([`AgentProber`]).
 //! - Mientras algún enlace ve al otro agente, el orquestador tiene un [`ManagedPeer`]
 //!   que manda cada pedido por el enlace activo; si ninguno lo ve, vuelve a no tener
-//!   par, y encender la PC espera a que aparezca. Lo mismo alimenta a
+//!   par, y encender la máquina B espera a que aparezca. Lo mismo alimenta a
 //!   [`peer_watch`](crate::peer_watch) en las dos máquinas y lo que la UI ve como [`PeerStatus`].
 //! - Sin par emparejado no hay gestor ni descubrimiento: el agente trabaja solo y la
 //!   UI recibe [`PeerStatus::Unpaired`].
@@ -431,10 +431,16 @@ impl Shared {
     }
 
     /// Empieza a seguir a `peer`: mDNS, gestor de enlaces y la vigilancia del par (`peer_watch`).
+    /// Antes, el lado de esta máquina queda el que dicen las dos claves (DECISIONS A1).
     fn follow(self: &Arc<Self>, peer: TrustedPeer) {
         let TrustedPeer { public_key, name } = peer;
         tracing::info!(par = %name, llave = %public_key.to_hex(), "par emparejado");
         let agent = &self.agent;
+        if let Some(side) =
+            Machine::of_keys(self.identity.public_key().as_bytes(), public_key.as_bytes())
+        {
+            agent.adopt_side(side);
+        }
         agent.set_peer_status(PeerStatus::Paired {
             name: name.clone(),
             link: None,

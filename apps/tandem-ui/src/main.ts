@@ -5,6 +5,8 @@ import type { Action, Bindings, Notice, PairingView, Permission, SetupView, Shor
 import { isActive, needsDismiss, pairLine, pairScreen, shouldOpen } from "./pairing";
 import {
   MACHINE_NAME,
+  learnNames,
+  machineInfo,
   MODES_SOON,
   MONITORS_SOON,
   SOON,
@@ -200,13 +202,17 @@ function renderSides() {
     const side = sideEl(which);
     side.className = `side ${who}`;
     side.dataset.owner = who;
+    const info = machineInfo(snap, who);
+    if (info) side.style.setProperty("--accent", info.color);
+    else side.style.removeProperty("--accent");
     const name = $("[data-part=name]", side);
     name.textContent = MACHINE_NAME[who];
     const announced = capsOf(caps, who);
     name.title = announced ? `${announced.name} · ${announced.os}` : who !== agent ? "todavía no se la vio" : "";
     side.setAttribute("aria-label", who === agent ? `${MACHINE_NAME[who]} (esta máquina)` : MACHINE_NAME[who]);
     const slot = $(".hw-slot", side);
-    const hw = $(who === "mac" ? "#laptop" : "#tower", $("#parts")).cloneNode(true) as Element;
+    // El equipo se dibuja por su sistema, no por su lado (sin saberlo, una torre).
+    const hw = $(info?.os === "macos" ? "#laptop" : "#tower", $("#parts")).cloneNode(true) as Element;
     hw.removeAttribute("id");
     slot.replaceChildren(hw);
     const declared = declaredScreens(desk, who);
@@ -320,6 +326,7 @@ function renderModes() {
 }
 
 function render() {
+  learnNames(snap);
   renderAgentPill();
   const connected = snap.kind === "connected";
   $("#scene").hidden = !connected;

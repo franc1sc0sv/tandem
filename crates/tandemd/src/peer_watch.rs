@@ -116,7 +116,7 @@ fn mark_lost(agent: &Agent, since: Instant) -> bool {
     }
     state.on.set(peer, false);
     let secs = since.elapsed().as_secs();
-    let name = crate::capabilities::label(peer);
+    let name = agent.machine_name(peer);
     let reason = format!(
         "La {name} no responde por ningún enlace desde hace {secs} s sin que nadie la apagara \
          (¿corte de corriente o suspendida?): se da por apagada"
@@ -167,7 +167,7 @@ mod tests {
     use crate::store::StateStore;
 
     const LOST_AFTER: Duration = Duration::from_secs(15);
-    const BOTH: [Machine; 2] = [Machine::Mac, Machine::Pc];
+    const BOTH: [Machine; 2] = [Machine::A, Machine::B];
 
     struct Rig {
         agent: Arc<Agent>,
@@ -256,7 +256,7 @@ mod tests {
             assert!(
                 reason.starts_with(&format!(
                     "La {} no responde",
-                    crate::capabilities::label(me.other())
+                    r.agent.machine_name(me.other())
                 )),
                 "{reason}"
             );

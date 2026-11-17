@@ -5,9 +5,10 @@ import { MISSING_HELP, PERMISSION_NAMES, agentBinary, grantTo, permissionLabel, 
 
 function mac(exe: string): MachineCaps {
   return {
-    machine: "mac",
+    machine: "a",
     name: "MacBook-Pro",
     os: "macos",
+    color: "#7aa7e6",
     hub: null,
     input: { capture: false, inject: false, missing: ["accessibility"], process: { exe, pid: 4242, started: 1 } },
     power: { wake_peer: true, wakeable: true, power_off: false },

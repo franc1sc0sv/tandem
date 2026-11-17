@@ -1,7 +1,17 @@
 // Espejo en TypeScript del JSON de `tandem_ui::session` (serde). Si cambia allá, cambia aquí;
 // las pruebas de los dos lados fijan la forma.
 
-export type Machine = "mac" | "pc";
+/** Los dos lados (DECISIONS A1): los ordena la clave pública; el sistema de cada uno va aparte. */
+export type Machine = "a" | "b";
+export type Os = "macos" | "windows";
+
+/** Qué máquina es cada lado (`tandem_core::MachineInfo`). */
+export interface MachineInfo {
+  os: Os;
+  name: string;
+  /** Color de acento (`#rrggbb`). */
+  color: string;
+}
 export type Side = "left" | "right";
 
 /** Una pantalla del acomodo declarado (DESIGN §7), en coordenadas nativas de su máquina. */
@@ -17,9 +27,11 @@ export interface ScreenSpec {
 
 /** El puesto compartido: el acomodo de pantallas para el teclado y el mouse. */
 export interface Desk {
+  /** Qué máquina es cada lado; `null` hasta que se anuncia. */
+  machines?: Record<Machine, MachineInfo | null>;
   screens: ScreenSpec[];
-  /** De qué lado de la PC está la Mac; `offset` lo usa el editor del acomodo (T-096). */
-  arrangement: { mac_side: Side; offset: number };
+  /** De qué lado de B está A; `offset` lo usa el editor del acomodo (T-096). */
+  arrangement: { a_side: Side; offset: number };
 }
 
 export interface DeskState {
@@ -30,9 +42,11 @@ export interface DeskState {
 /** Lo que tiene y sabe hacer una máquina, según su anuncio (`tandem_ui::session::MachineView`). */
 export interface MachineCaps {
   machine: Machine;
-  /** El nombre de la máquina en el sistema. */
+  /** El nombre de la máquina (del puesto o del sistema). */
   name: string;
-  os: string;
+  os: Os;
+  /** Su color de acento. */
+  color: string;
   hub: boolean | null;
   input: {
     capture: boolean;

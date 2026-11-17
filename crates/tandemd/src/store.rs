@@ -131,7 +131,7 @@ mod tests {
         assert_eq!(store.load().unwrap(), Some(sample()));
         // Un agente nuevo sobre el mismo archivo arranca donde quedó el anterior.
         let again = StateStore::new(store.path());
-        assert_eq!(again.load_or_initial(Machine::Mac), sample());
+        assert_eq!(again.load_or_initial(Machine::A), sample());
     }
 
     #[test]
@@ -140,7 +140,7 @@ mod tests {
         let store = StateStore::new(dir.path().join("state.json"));
         store.save(&sample()).unwrap();
         let mut other = sample();
-        other.on.pc = false;
+        other.on.b = false;
         store.save(&other).unwrap();
         assert_eq!(store.load().unwrap(), Some(other));
         let names: Vec<_> = std::fs::read_dir(dir.path())
@@ -164,8 +164,8 @@ mod tests {
         let store = StateStore::new(dir.path().join("state.json"));
         assert_eq!(store.load().unwrap(), None);
         assert_eq!(
-            store.load_or_initial(Machine::Mac),
-            State::initial(Machine::Mac)
+            store.load_or_initial(Machine::A),
+            State::initial(Machine::A)
         );
     }
 
@@ -177,8 +177,8 @@ mod tests {
         let store = StateStore::new(&path);
         assert!(matches!(store.load(), Err(StoreError::Corrupt { .. })));
         assert_eq!(
-            store.load_or_initial(Machine::Pc),
-            State::initial(Machine::Pc)
+            store.load_or_initial(Machine::B),
+            State::initial(Machine::B)
         );
         assert!(!path.exists());
         assert!(dir.path().join("state.json.corrupt").exists());
@@ -191,11 +191,25 @@ mod tests {
         let path = dir.path().join("state.json");
         std::fs::write(
             &path,
-            r#"{"owner":{"m34":"pc"},"on":{"mac":true,"pc":true},"builtin_pref":"off","doubt":{}}"#,
+            r#"{"owner":{"m34":"b"},"on":{"a":true,"b":true},"builtin_pref":"off","doubt":{}}"#,
         )
         .unwrap();
         let store = StateStore::new(&path);
-        assert_eq!(store.load_or_initial(Machine::Mac), sample());
+        assert_eq!(store.load_or_initial(Machine::A), sample());
+    }
+
+    /// Uno de antes de los lados A/B (`mac`/`pc`) carga sin adivinar cuál era cuál: nada
+    /// prendido, y el agente pone la suya y la otra según los enlaces.
+    #[test]
+    fn a_state_saved_with_mac_and_pc_loads_with_nothing_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        std::fs::write(&path, r#"{"on":{"mac":true,"pc":true}}"#).unwrap();
+        let store = StateStore::new(&path);
+        assert_eq!(
+            store.load_or_initial(Machine::A).on,
+            tandem_core::Powered::default()
+        );
     }
 
     // QA ronda 1: todas las escrituras usaban el mismo `state.json.tmp`. Dos guardados
@@ -208,8 +222,8 @@ mod tests {
         let states: Vec<State> = (0..8)
             .map(|i| {
                 let mut s = sample();
-                s.on.pc = i % 2 == 0;
-                s.on.mac = i % 3 == 0;
+                s.on.b = i % 2 == 0;
+                s.on.a = i % 3 == 0;
                 s
             })
             .collect();
@@ -234,7 +248,7 @@ mod tests {
 
     fn state() -> impl Strategy<Value = State> {
         (any::<bool>(), any::<bool>()).prop_map(|(mac, pc)| State {
-            on: tandem_core::Powered { mac, pc },
+            on: tandem_core::Powered { a: mac, b: pc },
         })
     }
 

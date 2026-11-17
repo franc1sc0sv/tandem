@@ -68,7 +68,7 @@ mod tests {
     use crate::{decode, encode};
 
     fn machine() -> impl Strategy<Value = Machine> {
-        prop_oneof![Just(Machine::Mac), Just(Machine::Pc)]
+        prop_oneof![Just(Machine::A), Just(Machine::B)]
     }
 
     fn step() -> impl Strategy<Value = Step> {
@@ -80,7 +80,7 @@ mod tests {
 
     fn state() -> impl Strategy<Value = State> {
         (any::<bool>(), any::<bool>()).prop_map(|(mac, pc)| State {
-            on: tandem_core::Powered { mac, pc },
+            on: tandem_core::Powered { a: mac, b: pc },
         })
     }
 
@@ -119,9 +119,17 @@ mod tests {
                     rev,
                     origin,
                     desk: tandem_core::Config {
+                        machines: tandem_core::Machines {
+                            a: Some(tandem_core::MachineInfo::new(
+                                Machine::A,
+                                tandem_core::Os::Windows,
+                                None,
+                            )),
+                            b: None,
+                        },
                         screens,
                         arrangement: Arrangement {
-                            mac_side: if right { Side::Right } else { Side::Left },
+                            a_side: if right { Side::Right } else { Side::Left },
                             offset,
                         },
                     },

@@ -75,7 +75,7 @@ mod tests {
 
     fn screen(id: &str) -> ScreenSpec {
         ScreenSpec {
-            machine: Machine::Pc,
+            machine: Machine::B,
             id: id.to_owned(),
             x: 0,
             y: 0,
@@ -99,59 +99,59 @@ mod tests {
 
     #[test]
     fn the_newer_version_wins() {
-        let mine = sync(2, Machine::Mac, &["a"]);
-        let theirs = sync(3, Machine::Pc, &["a", "b"]);
+        let mine = sync(2, Machine::A, &["a"]);
+        let theirs = sync(3, Machine::B, &["a", "b"]);
         assert_eq!(receive(&mine, &theirs), Some(theirs.clone()));
         assert_eq!(receive(&theirs, &mine), None);
     }
 
     #[test]
     fn a_tie_is_broken_by_origin_the_same_way_on_both_sides() {
-        let mac = sync(4, Machine::Mac, &["a"]);
-        let pc = sync(4, Machine::Pc, &["b"]);
+        let mac = sync(4, Machine::A, &["a"]);
+        let pc = sync(4, Machine::B, &["b"]);
         assert_eq!(receive(&mac, &pc), Some(pc.clone()));
         assert_eq!(receive(&pc, &mac), None);
     }
 
     #[test]
     fn two_fresh_desks_are_never_joined() {
-        let mac = sync(0, Machine::Mac, &["a"]);
-        let pc = sync(0, Machine::Pc, &["a", "b"]);
+        let mac = sync(0, Machine::A, &["a"]);
+        let pc = sync(0, Machine::B, &["a", "b"]);
         assert_eq!(receive(&mac, &pc), None);
         assert_eq!(receive(&pc, &mac), None);
     }
 
     #[test]
     fn a_changed_desk_wins_over_a_fresh_one() {
-        let fresh = sync(0, Machine::Mac, &[]);
-        let built = sync(1, Machine::Pc, &["a", "b"]);
+        let fresh = sync(0, Machine::A, &[]);
+        let built = sync(1, Machine::B, &["a", "b"]);
         assert_eq!(receive(&fresh, &built), Some(built.clone()));
         assert_eq!(receive(&built, &fresh), None);
     }
 
     #[test]
     fn a_broken_desk_is_ignored() {
-        let mine = sync(1, Machine::Mac, &["a"]);
-        let theirs = sync(2, Machine::Pc, &["a", "a"]);
+        let mine = sync(1, Machine::A, &["a"]);
+        let theirs = sync(2, Machine::B, &["a", "a"]);
         assert_eq!(receive(&mine, &theirs), None);
     }
 
     #[test]
     fn a_local_change_is_newer_than_anything_known() {
-        let mine = sync(7, Machine::Pc, &["a"]);
-        let next = bump(mine.rev, Machine::Mac, mine.desk.clone(), vec![]);
-        assert_eq!((next.rev, next.origin), (8, Machine::Mac));
+        let mine = sync(7, Machine::B, &["a"]);
+        let next = bump(mine.rev, Machine::A, mine.desk.clone(), vec![]);
+        assert_eq!((next.rev, next.origin), (8, Machine::A));
         assert_eq!(receive(&mine, &next), Some(next.clone()));
     }
 
     #[test]
     fn a_hand_edit_is_noticed_by_the_fingerprint() {
         let lock = vec!["ScrollLock".to_owned()];
-        let desk = sync(1, Machine::Pc, &["a"]).desk;
+        let desk = sync(1, Machine::B, &["a"]).desk;
         let sum = fingerprint(&desk, &lock);
         assert_eq!(sum.len(), 16);
         assert!(!edited_by_hand(&desk, &lock, Some(&sum), &lock));
-        let other = sync(1, Machine::Pc, &["b"]).desk;
+        let other = sync(1, Machine::B, &["b"]).desk;
         assert!(edited_by_hand(&other, &lock, Some(&sum), &lock));
         assert!(edited_by_hand(&desk, &[], Some(&sum), &lock));
         // Sin huella: lo de fábrica no es una edición; cualquier otra cosa, sí.
@@ -166,7 +166,7 @@ mod tests {
         let ids = proptest::sample::subsequence(vec!["a", "b", "c", "d"], 0..=4);
         (
             0u64..4,
-            prop_oneof![Just(Machine::Mac), Just(Machine::Pc)],
+            prop_oneof![Just(Machine::A), Just(Machine::B)],
             ids,
         )
             .prop_map(|(rev, origin, ids)| sync(rev, origin, &ids))

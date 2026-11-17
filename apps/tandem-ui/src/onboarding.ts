@@ -36,7 +36,7 @@ export interface KeyFacts {
   heard: Machine | null;
   /** Lo que el usuario confirmó (o eligió a mano). */
   confirmed: Machine | null;
-  /** «Dejar sin definir»: nunca se supone la Mac. */
+  /** «Dejar sin definir»: nunca se supone una máquina. */
   undefinedOk: boolean;
 }
 
@@ -236,12 +236,12 @@ function keyboardStep(o: Onboarding, snap: Snapshot): StepView {
     detail: peerKnown ? undefined : "la otra máquina no está enlazada: solo se escucha aquí; si el teclado está en ella, elígelo abajo",
   });
   if (!listening) v.buttons.push({ id: "key:start", label: "Empezar", kind: "primary", enabled: true });
-  v.buttons.push({ id: "key:pick:pc", label: "Está en la PC", enabled: true });
-  v.buttons.push({ id: "key:pick:mac", label: "Está en la Mac", enabled: true });
+  // Un botón por lado, con el nombre de cada máquina (nunca «Mac»/«PC» fijos, T-097).
+  for (const m of ["b", "a"] as const) v.buttons.push({ id: `key:pick:${m}`, label: `Está en la ${MACHINE_NAME[m]}`, enabled: true });
   v.checks.push({
     state: k.undefinedOk ? "ok" : "idle",
     label: k.undefinedOk ? "Sin definir" : "Si no responde, queda «sin definir»",
-    detail: "nunca se supone que está en la Mac",
+    detail: "nunca se supone en qué máquina está",
   });
   if (!k.undefinedOk) v.buttons.push({ id: "key:skip", label: "Dejar sin definir", enabled: true });
   v.verified = k.undefinedOk;

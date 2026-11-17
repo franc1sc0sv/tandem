@@ -1,9 +1,28 @@
 // Lo que la escena muestra a partir del estado del agente. Puro, para probarlo sin DOM.
 
-import type { Caps, Desk, DeskState, InputView, Link, Machine, PeerView, Step, TxnView } from "./model";
+import type { Caps, Desk, DeskState, InputView, Link, Machine, Os, PeerView, Snapshot, Step, TxnView } from "./model";
 
-export const MACHINES: Machine[] = ["mac", "pc"];
-export const MACHINE_NAME: Record<Machine, string> = { mac: "Mac", pc: "PC" };
+export const MACHINES: Machine[] = ["a", "b"];
+
+/** Sin nada anunciado ni guardado: el lado, nunca un «Mac» o «PC» inventado (T-097). */
+const UNKNOWN_NAME: Record<Machine, string> = { a: "máquina A", b: "máquina B" };
+
+/**
+ * El nombre de cada lado para los textos. Lo pone {@link learnNames} con cada estado del
+ * agente: lo que anunció cada máquina o lo que guarda el puesto.
+ */
+export const MACHINE_NAME: Record<Machine, string> = { ...UNKNOWN_NAME };
+
+/** Lo que se sabe de `who`: su anuncio o, sin él, lo que guarda el puesto. */
+export function machineInfo(snap: Snapshot, who: Machine): { name: string; os: Os; color: string } | null {
+  if (snap.kind !== "connected") return null;
+  return capsOf(snap.caps, who) ?? snap.desk.machines?.[who] ?? null;
+}
+
+/** Pone en {@link MACHINE_NAME} el nombre de cada lado según `snap`. */
+export function learnNames(snap: Snapshot): void {
+  for (const m of MACHINES) MACHINE_NAME[m] = machineInfo(snap, m)?.name ?? UNKNOWN_NAME[m];
+}
 
 export const LINK_NAME: Record<Link, string> = { usb4: "USB4", ethernet: "Ethernet", wifi: "Wi-Fi" };
 
@@ -23,7 +42,7 @@ export const MONITORS_SOON: { label: string; wide: boolean }[] = [
 export const MODES_SOON = ["Solo Mac", "Compartido", "Solo Windows"] as const;
 
 export function other(m: Machine): Machine {
-  return m === "mac" ? "pc" : "mac";
+  return m === "a" ? "b" : "a";
 }
 
 /** La píldora del enlace: con qué se ve al otro agente, o por qué no. */
@@ -103,12 +122,12 @@ export function roleChip(input: InputView, agent: Machine, who: Machine, peerOn:
 // Sin centro fijo (T-084): «esta máquina» y «la otra», con lo que cada una anuncia.
 
 /**
- * Las dos tarjetas de la escena, en el orden del acomodo (DESIGN §7): la Mac a la izquierda
+ * Las dos tarjetas de la escena, en el orden del acomodo (DESIGN §7): A a la izquierda
  * salvo que el puesto diga otra cosa.
  */
 export function sides(agent: Machine, desk?: Desk): { left: Machine; right: Machine; here: Machine; peer: Machine } {
-  const macLeft = (desk?.arrangement.mac_side ?? "left") === "left";
-  return { left: macLeft ? "mac" : "pc", right: macLeft ? "pc" : "mac", here: agent, peer: other(agent) };
+  const aLeft = (desk?.arrangement.a_side ?? "left") === "left";
+  return { left: aLeft ? "a" : "b", right: aLeft ? "b" : "a", here: agent, peer: other(agent) };
 }
 
 /** Las pantallas declaradas de `who` en el puesto (vacío: valen las que lee ella misma). */

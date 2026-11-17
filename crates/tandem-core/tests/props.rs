@@ -9,8 +9,8 @@ use std::future::Future;
 
 use proptest::prelude::*;
 use tandem_core::{
-    Abilities, Arrangement, Config, Executor, Machine, Plan, Powered, Scale, ScreenSpec, Side,
-    State, Step, TxnError, run,
+    Abilities, Arrangement, Config, Executor, Machine, MachineInfo, Machines, Os, Plan, Powered,
+    Scale, ScreenSpec, Side, State, Step, TxnError, run,
 };
 
 /// Ejecutor que falla exactamente en la llamada número `fail_at` (si la hay).
@@ -47,7 +47,7 @@ impl Executor for Sim {
 }
 
 fn machine() -> impl Strategy<Value = Machine> {
-    prop_oneof![Just(Machine::Mac), Just(Machine::Pc)]
+    prop_oneof![Just(Machine::A), Just(Machine::B)]
 }
 
 /// Quien orquesta está prendida; la otra, como sea.
@@ -57,6 +57,21 @@ fn state() -> impl Strategy<Value = (Machine, State)> {
         s.on.set(me.other(), other_on);
         (me, s)
     })
+}
+
+fn info() -> impl Strategy<Value = Option<MachineInfo>> {
+    proptest::option::of(
+        (
+            prop_oneof![Just(Os::MacOs), Just(Os::Windows)],
+            "[A-Za-z ]{1,12}",
+            "#[0-9a-f]{6}",
+        )
+            .prop_map(|(os, name, color)| MachineInfo { os, name, color }),
+    )
+}
+
+fn machines() -> impl Strategy<Value = Machines> {
+    (info(), info()).prop_map(|(a, b)| Machines { a, b })
 }
 
 fn screen() -> impl Strategy<Value = ScreenSpec> {
@@ -112,16 +127,59 @@ proptest! {
         screens in proptest::collection::vec(screen(), 0..5),
         right in any::<bool>(),
         offset in any::<i32>(),
+        machines in machines(),
     ) {
         let cfg = Config {
+            machines,
             screens,
             arrangement: Arrangement {
-                mac_side: if right { Side::Right } else { Side::Left },
+                a_side: if right { Side::Right } else { Side::Left },
                 offset,
             },
         };
         let text = toml::to_string(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         prop_assert_eq!(back, cfg);
+    }
+
+    /// DECISIONS A1: para cualquier par de claves distintas, cada máquina calcula su lado
+    /// por su cuenta y las dos coinciden: una es `A`, la otra `B`, y `A` es la menor.
+    #[test]
+    fn both_machines_agree_on_the_sides(
+        own in proptest::array::uniform32(any::<u8>()),
+        peer in proptest::array::uniform32(any::<u8>()),
+    ) {
+        prop_assume!(own != peer);
+        let mine = Machine::of_keys(&own, &peer).unwrap();
+        let theirs = Machine::of_keys(&peer, &own).unwrap();
+        prop_assert_eq!(theirs, mine.other());
+        let a = if mine == Machine::A { own } else { peer };
+        prop_assert_eq!(a, own.min(peer));
+    }
+
+    /// Cambiar los lados dos veces deja el puesto como estaba, y una vez no pierde nada:
+    /// cada pantalla sigue siendo de su máquina.
+    #[test]
+    fn swapping_sides_is_an_involution(
+        screens in proptest::collection::vec(screen(), 0..5),
+        right in any::<bool>(),
+        offset in any::<i32>(),
+        machines in machines(),
+    ) {
+        let cfg = Config {
+            machines,
+            screens,
+            arrangement: Arrangement {
+                a_side: if right { Side::Right } else { Side::Left },
+                offset: offset.max(-i32::MAX),
+            },
+        };
+        let swapped = cfg.clone().swap_sides();
+        prop_assert_eq!(swapped.screens.len(), cfg.screens.len());
+        for (before, after) in cfg.screens.iter().zip(&swapped.screens) {
+            prop_assert_eq!(after.machine, before.machine.other());
+        }
+        prop_assert_eq!(swapped.machines.get(Machine::A), cfg.machines.get(Machine::B));
+        prop_assert_eq!(swapped.swap_sides(), cfg);
     }
 }

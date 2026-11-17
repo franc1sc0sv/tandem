@@ -76,7 +76,8 @@ function Assert-Installed {
     Wait-Until { Test-Path $config } 30 "tandemd no genero $config"
     & $daemon --check-config $config
     if ($LASTEXITCODE -ne 0) { Fail 'la config generada no es valida' }
-    if (-not (Select-String -Path $config -Pattern '^machine = "pc"' -Quiet)) { Fail 'la config generada no es de la PC' }
+    # T-097: la config generada empieza en el lado A; el lado de verdad lo deciden las claves al emparejar.
+    if (-not (Select-String -Path $config -Pattern '^machine = "a"' -Quiet)) { Fail 'la config generada no empieza en el lado A' }
     Ok 'config generada por el agente y valida'
 }
 

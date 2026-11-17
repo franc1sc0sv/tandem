@@ -26,11 +26,25 @@ pub use msg::{
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 15;
+pub const PROTOCOL_VERSION: u16 = 16;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
 pub const CAPABILITIES_SINCE: u16 = 10;
+
+/// Desde esta versión los dos lados son `A`/`B`, ordenados por clave pública (T-097): uno
+/// anterior todavía se presenta como «Mac» o «PC» y no se puede saber qué lado es.
+pub const SIDES_SINCE: u16 = 16;
+
+fn version_hint(theirs: u16) -> &'static str {
+    if theirs < CAPABILITIES_SINCE {
+        " (una versión anterior, sin anuncio de capacidades): instala la misma versión de Tandem en las dos máquinas"
+    } else if theirs < SIDES_SINCE {
+        " (una versión anterior a los lados A/B, con «Mac» y «PC» fijos): instala la misma versión de Tandem en las dos máquinas"
+    } else {
+        ": instala la misma versión de Tandem en las dos máquinas"
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ProtoError {
@@ -45,11 +59,7 @@ pub enum ProtoError {
     FrameTooLarge { len: usize, max: usize },
     #[error(
         "versión de protocolo incompatible: la nuestra es {ours}, la del otro lado es {theirs}{}",
-        if *theirs < CAPABILITIES_SINCE {
-            " (una versión anterior, sin anuncio de capacidades): instala la misma versión de Tandem en las dos máquinas"
-        } else {
-            ": instala la misma versión de Tandem en las dos máquinas"
-        }
+        version_hint(*theirs)
     )]
     IncompatibleVersion { ours: u16, theirs: u16 },
 }
@@ -66,9 +76,12 @@ mod tests {
     /// la forma de los pedidos de la UI) sube a la v13. T-090 (proceso del agente en las
     /// capacidades y pedido de permisos) sube a la v14. T-092 (fuera los monitores, las
     /// sondas y los modos; pantallas con id propio y acomodo declarado) sube a la v15.
+    /// T-097 (lados A/B por clave pública, `MachineInfo` en las capacidades y en el puesto)
+    /// sube a la v16.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 15);
+        assert_eq!(PROTOCOL_VERSION, 16);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
+        assert_eq!(super::SIDES_SINCE, PROTOCOL_VERSION);
     }
 }

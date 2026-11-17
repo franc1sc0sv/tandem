@@ -37,7 +37,7 @@ pub struct PeerReport {
 enum Peer {
     /// Sin conexión, o todavía sin reporte.
     Unknown,
-    /// Se lo da por apagado (`pc_on = false` en la Mac): una máquina apagada no
+    /// Se lo da por apagado (el estado de esta máquina lo dice): una máquina apagada no
     /// ve ningún dispositivo USB, así que no tiene el hub.
     Off,
     /// Su último reporte. `server` falta si solo reportó el hub.
@@ -56,10 +56,11 @@ enum Peer {
 /// máquinas no pueden separarse por verlo distinto mientras no se hablan.
 ///
 /// La excepción es un otro agente apagado ([`RoleArbiter::set_peer_off`], T-066):
-/// la Mac decide sola, porque la PC apagada no tiene el hub. Mientras tanto la PC
-/// no se entera, así que al volver puede traer otro servidor; si el hub tampoco
-/// decide entonces (en ninguna o en las dos), manda el de la Mac, que es la que
-/// siguió prendida. La PC lo adopta del [`PeerReport`] de la Mac.
+/// la que sigue prendida decide sola, porque la apagada no tiene el hub. La apagada no
+/// se entera, así que al volver puede traer otro servidor; si el hub tampoco decide
+/// entonces (en ninguna o en las dos), manda el del lado `A` y `B` lo adopta de su
+/// [`PeerReport`]: así las dos vuelven a coincidir sin depender de qué sistema tiene
+/// cada una.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoleArbiter {
     me: Machine,
@@ -169,7 +170,7 @@ impl RoleArbiter {
         self.resolve()
     }
 
-    /// El otro agente se da por apagado (en la Mac, `pc_on = false`): cuenta como
+    /// El otro agente se da por apagado (según el estado de esta máquina): cuenta como
     /// que no tiene el hub. Lo quita el siguiente reporte suyo o perder la conexión.
     pub fn set_peer_off(&mut self) -> Option<Machine> {
         self.peer = Peer::Off;
@@ -182,12 +183,12 @@ impl RoleArbiter {
             Selector::Auto => match (self.local_hub, self.peer_hub()) {
                 (Some(true), Some(false)) => self.me,
                 (Some(false), Some(true)) => self.me.other(),
-                // Empate: en la PC manda el servidor de la Mac (ver arriba).
+                // Empate: en B manda el servidor de A (ver arriba).
                 _ => match self.peer {
                     Peer::Seen {
                         server: Some(theirs),
                         ..
-                    } if self.me == Machine::Pc => theirs,
+                    } if self.me == Machine::B => theirs,
                     _ => self.server,
                 },
             },
@@ -207,70 +208,70 @@ mod tests {
 
     #[test]
     fn hub_here_makes_this_machine_the_server() {
-        let mut a = RoleArbiter::new(Machine::Pc, Machine::Mac);
+        let mut a = RoleArbiter::new(Machine::B, Machine::A);
         assert_eq!(a.role(), Role::Client);
         assert_eq!(a.set_peer_hub(Some(false)), None);
-        assert_eq!(a.set_local_hub(true), Some(Machine::Pc));
+        assert_eq!(a.set_local_hub(true), Some(Machine::B));
         assert_eq!(a.role(), Role::Server);
         assert_eq!(a.set_local_hub(true), None);
     }
 
     #[test]
     fn hub_moving_to_the_peer_inverts_the_roles() {
-        let mut a = RoleArbiter::new(Machine::Pc, Machine::Pc);
+        let mut a = RoleArbiter::new(Machine::B, Machine::B);
         a.set_local_hub(true);
         a.set_peer_hub(Some(false));
         // El usuario mueve el hub: aquí desaparece y allá aparece, en cualquier orden.
         assert_eq!(a.set_local_hub(false), None);
-        assert_eq!(a.server(), Machine::Pc);
-        assert_eq!(a.set_peer_hub(Some(true)), Some(Machine::Mac));
+        assert_eq!(a.server(), Machine::B);
+        assert_eq!(a.set_peer_hub(Some(true)), Some(Machine::A));
         assert_eq!(a.role(), Role::Client);
 
         // Y de vuelta, con el orden contrario: los dos un momento lo ven.
         assert_eq!(a.set_local_hub(true), None);
-        assert_eq!(a.server(), Machine::Mac);
-        assert_eq!(a.set_peer_hub(Some(false)), Some(Machine::Pc));
+        assert_eq!(a.server(), Machine::A);
+        assert_eq!(a.set_peer_hub(Some(false)), Some(Machine::B));
     }
 
     #[test]
     fn hub_nowhere_keeps_the_last_server() {
-        let mut a = RoleArbiter::new(Machine::Mac, Machine::Mac);
+        let mut a = RoleArbiter::new(Machine::A, Machine::A);
         a.set_local_hub(true);
         a.set_peer_hub(Some(false));
         assert_eq!(a.set_local_hub(false), None);
-        assert_eq!(a.server(), Machine::Mac);
+        assert_eq!(a.server(), Machine::A);
         assert_eq!(a.set_peer_hub(None), None);
-        assert_eq!(a.server(), Machine::Mac);
+        assert_eq!(a.server(), Machine::A);
     }
 
     #[test]
     fn nothing_changes_without_the_peer_report() {
-        let mut a = RoleArbiter::new(Machine::Mac, Machine::Pc);
+        let mut a = RoleArbiter::new(Machine::A, Machine::B);
         assert_eq!(a.set_local_hub(true), None);
-        assert_eq!(a.server(), Machine::Pc);
+        assert_eq!(a.server(), Machine::B);
         // Llega el reporte del otro agente: ahora sí.
-        assert_eq!(a.set_peer_hub(Some(false)), Some(Machine::Mac));
+        assert_eq!(a.set_peer_hub(Some(false)), Some(Machine::A));
         // Perder la conexión no cambia nada, aunque el hub se vaya de aquí.
         assert_eq!(a.set_peer_hub(None), None);
         assert_eq!(a.set_local_hub(false), None);
-        assert_eq!(a.server(), Machine::Mac);
+        assert_eq!(a.server(), Machine::A);
     }
 
     #[test]
     fn hub_seen_on_both_keeps_the_server() {
-        let mut a = RoleArbiter::new(Machine::Mac, Machine::Pc);
+        let mut a = RoleArbiter::new(Machine::A, Machine::B);
         a.set_peer_hub(Some(true));
         assert_eq!(a.set_local_hub(true), None);
-        assert_eq!(a.server(), Machine::Pc);
+        assert_eq!(a.server(), Machine::B);
     }
 
     #[test]
     fn manual_selector_wins_over_detection() {
-        let mut a = RoleArbiter::new(Machine::Mac, Machine::Mac);
+        let mut a = RoleArbiter::new(Machine::A, Machine::A);
         a.set_local_hub(true);
         assert_eq!(
-            a.set_selector(Selector::Manual(Machine::Pc)),
-            Some(Machine::Pc)
+            a.set_selector(Selector::Manual(Machine::B)),
+            Some(Machine::B)
         );
         assert_eq!(a.role(), Role::Client);
         // La detección sigue llegando y no cambia nada.
@@ -278,17 +279,17 @@ mod tests {
         assert_eq!(a.set_peer_hub(Some(true)), None);
         assert_eq!(a.set_local_hub(true), None);
         assert_eq!(a.set_peer_hub(Some(false)), None);
-        assert_eq!(a.server(), Machine::Pc);
+        assert_eq!(a.server(), Machine::B);
         // Volver a automático aplica lo detectado.
-        assert_eq!(a.set_selector(Selector::Auto), Some(Machine::Mac));
+        assert_eq!(a.set_selector(Selector::Auto), Some(Machine::A));
     }
 
     #[test]
     fn selector_serializes_for_the_ui() {
         let auto = serde_json_like(&Selector::Auto);
-        let manual = serde_json_like(&Selector::Manual(Machine::Pc));
+        let manual = serde_json_like(&Selector::Manual(Machine::B));
         assert_eq!(auto, r#"mode = "auto""#);
-        assert_eq!(manual, "mode = \"manual\"\nserver = \"pc\"");
+        assert_eq!(manual, "mode = \"manual\"\nserver = \"b\"");
     }
 
     fn serde_json_like(s: &Selector) -> String {
@@ -308,7 +309,7 @@ mod tests {
     }
 
     fn machine() -> impl Strategy<Value = Machine> {
-        prop_oneof![Just(Machine::Mac), Just(Machine::Pc)]
+        prop_oneof![Just(Machine::A), Just(Machine::B)]
     }
 
     fn op() -> impl Strategy<Value = Op> {
@@ -334,8 +335,8 @@ mod tests {
     impl Desk {
         fn new(start: Machine) -> Self {
             let mut d = Desk {
-                mac: RoleArbiter::new(Machine::Mac, start),
-                pc: RoleArbiter::new(Machine::Pc, start),
+                mac: RoleArbiter::new(Machine::A, start),
+                pc: RoleArbiter::new(Machine::B, start),
                 hub_on_mac: false,
                 hub_on_pc: false,
                 connected: true,
@@ -356,7 +357,7 @@ mod tests {
         fn apply(&mut self, op: Op) -> [Option<Machine>; 2] {
             match op {
                 Op::Selector(s) => [self.mac.set_selector(s), self.pc.set_selector(s)],
-                Op::Hub(Machine::Mac, present) => {
+                Op::Hub(Machine::A, present) => {
                     self.hub_on_mac = present;
                     let a = self.mac.set_local_hub(present);
                     let b = self
@@ -365,7 +366,7 @@ mod tests {
                         .flatten();
                     [a, b]
                 }
-                Op::Hub(Machine::Pc, present) => {
+                Op::Hub(Machine::B, present) => {
                     self.hub_on_pc = present;
                     let b = self.pc.set_local_hub(present);
                     let a = self
@@ -426,7 +427,7 @@ mod tests {
                 prop_assert_eq!(desk.mac.server(), desk.pc.server());
                 prop_assert_ne!(desk.mac.role(), desk.pc.role());
                 if desk.connected && desk.mac.selector() == Selector::Auto && desk.hub_on_mac != desk.hub_on_pc {
-                    let at = if desk.hub_on_mac { Machine::Mac } else { Machine::Pc };
+                    let at = if desk.hub_on_mac { Machine::A } else { Machine::B };
                     prop_assert_eq!(desk.mac.server(), at);
                 }
             }
@@ -438,26 +439,26 @@ mod tests {
     #[test]
     fn with_the_pc_off_the_mac_decides_alone() {
         // La PC tenía el hub; se apaga y el hub pasa a la Mac.
-        let mut mac = RoleArbiter::new(Machine::Mac, Machine::Pc);
+        let mut mac = RoleArbiter::new(Machine::A, Machine::B);
         mac.set_local_hub(false);
         mac.set_peer_hub(Some(true));
-        assert_eq!(mac.server(), Machine::Pc);
+        assert_eq!(mac.server(), Machine::B);
         assert_eq!(mac.set_peer_off(), None, "sin el hub aquí no cambia nada");
         assert!(mac.peer_off());
         assert_eq!(mac.peer_hub(), Some(false));
-        assert_eq!(mac.set_local_hub(true), Some(Machine::Mac));
+        assert_eq!(mac.set_local_hub(true), Some(Machine::A));
         // Perder el hub aquí tampoco devuelve el servidor a la PC apagada.
         assert_eq!(mac.set_local_hub(false), None);
-        assert_eq!(mac.server(), Machine::Mac);
+        assert_eq!(mac.server(), Machine::A);
     }
 
     #[test]
     fn peer_off_ends_with_its_next_report_or_without_connection() {
-        let mut mac = RoleArbiter::new(Machine::Mac, Machine::Mac);
+        let mut mac = RoleArbiter::new(Machine::A, Machine::A);
         mac.set_peer_off();
         mac.set_peer(Some(PeerReport {
             hub: true,
-            server: Machine::Mac,
+            server: Machine::A,
         }));
         assert!(!mac.peer_off());
         assert_eq!(mac.peer_hub(), Some(true));
@@ -471,48 +472,48 @@ mod tests {
     fn the_pc_coming_back_follows_the_mac_on_a_tie() {
         // La Mac quedó de servidor mientras la PC estaba apagada; al volver la
         // PC trae lo último que guardó, y el hub no está en ninguna.
-        let mut pc = RoleArbiter::new(Machine::Pc, Machine::Pc);
-        let mut mac = RoleArbiter::new(Machine::Mac, Machine::Mac);
+        let mut pc = RoleArbiter::new(Machine::B, Machine::B);
+        let mut mac = RoleArbiter::new(Machine::A, Machine::A);
         mac.set_local_hub(false);
         assert_eq!(pc.set_local_hub(false), None);
-        assert_eq!(pc.set_peer(mac.report()), Some(Machine::Mac));
+        assert_eq!(pc.set_peer(mac.report()), Some(Machine::A));
         assert_eq!(mac.set_peer(pc.report()), None);
-        assert_eq!(mac.server(), Machine::Mac);
+        assert_eq!(mac.server(), Machine::A);
     }
 
     #[test]
     fn the_mac_keeps_its_server_on_a_tie() {
-        let mut mac = RoleArbiter::new(Machine::Mac, Machine::Mac);
+        let mut mac = RoleArbiter::new(Machine::A, Machine::A);
         mac.set_local_hub(true);
         let theirs = PeerReport {
             hub: true,
-            server: Machine::Pc,
+            server: Machine::B,
         };
         assert_eq!(mac.set_peer(Some(theirs)), None);
-        assert_eq!(mac.server(), Machine::Mac);
+        assert_eq!(mac.server(), Machine::A);
     }
 
     #[test]
     fn the_hub_still_wins_over_the_reported_server() {
-        let mut pc = RoleArbiter::new(Machine::Pc, Machine::Mac);
+        let mut pc = RoleArbiter::new(Machine::B, Machine::A);
         pc.set_local_hub(true);
         let mac = PeerReport {
             hub: false,
-            server: Machine::Mac,
+            server: Machine::A,
         };
-        assert_eq!(pc.set_peer(Some(mac)), Some(Machine::Pc));
+        assert_eq!(pc.set_peer(Some(mac)), Some(Machine::B));
     }
 
     #[test]
     fn the_report_needs_a_local_reading() {
-        let mut a = RoleArbiter::new(Machine::Pc, Machine::Mac);
+        let mut a = RoleArbiter::new(Machine::B, Machine::A);
         assert_eq!(a.report(), None);
         a.set_local_hub(true);
         assert_eq!(
             a.report(),
             Some(PeerReport {
                 hub: true,
-                server: Machine::Mac
+                server: Machine::A
             })
         );
     }
@@ -561,8 +562,8 @@ mod tests {
     impl PoweredDesk {
         fn new(start: Machine) -> Self {
             let mut d = PoweredDesk {
-                mac: RoleArbiter::new(Machine::Mac, start),
-                pc: RoleArbiter::new(Machine::Pc, start),
+                mac: RoleArbiter::new(Machine::A, start),
+                pc: RoleArbiter::new(Machine::B, start),
                 hub_on_mac: false,
                 hub_on_pc: false,
                 pc_running: true,
@@ -585,8 +586,8 @@ mod tests {
                         self.pc.set_selector(s);
                     }
                 }
-                PowerOp::Hub(Machine::Mac, p) => self.hub_on_mac = p,
-                PowerOp::Hub(Machine::Pc, p) => self.hub_on_pc = p,
+                PowerOp::Hub(Machine::A, p) => self.hub_on_mac = p,
+                PowerOp::Hub(Machine::B, p) => self.hub_on_pc = p,
                 PowerOp::LinkDown => self.link = false,
                 PowerOp::LinkUp => self.link = true,
                 PowerOp::PcOff => {
@@ -600,7 +601,7 @@ mod tests {
                 PowerOp::PcOn(saved) => {
                     if !self.pc_running {
                         // El selector se aplica en los dos agentes.
-                        self.pc = RoleArbiter::new(Machine::Pc, saved);
+                        self.pc = RoleArbiter::new(Machine::B, saved);
                         self.pc.set_selector(self.mac.selector());
                         self.pc_running = true;
                         self.link = true;
@@ -654,12 +655,12 @@ mod tests {
                     prop_assert_eq!(desk.mac.server(), desk.pc.server(), "{:?}", op);
                     let pc_hub = desk.hub_on_pc;
                     if auto && desk.hub_on_mac != pc_hub {
-                        let at = if desk.hub_on_mac { Machine::Mac } else { Machine::Pc };
+                        let at = if desk.hub_on_mac { Machine::A } else { Machine::B };
                         prop_assert_eq!(desk.mac.server(), at);
                     }
                 }
                 if auto && desk.mac_thinks_off && desk.hub_on_mac {
-                    prop_assert_eq!(desk.mac.server(), Machine::Mac);
+                    prop_assert_eq!(desk.mac.server(), Machine::A);
                 }
                 if let Selector::Manual(m) = desk.mac.selector() {
                     prop_assert_eq!(desk.mac.server(), m);

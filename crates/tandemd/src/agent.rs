@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tandem_core::plan::PlanError;
-use tandem_core::{Abilities, Config, Machine, Plan, State};
+use tandem_core::{Abilities, Config, Machine, MachineInfo, Plan, State};
 use tandem_link::transport::{Connection, ControlStream};
 use tandem_proto::{
     Capabilities, Channel, ControlMsg, DeskCapabilities, DeskSync, HubReport, InputStatus,
@@ -38,6 +38,9 @@ pub trait PairingControl: Send + Sync {
 #[derive(Debug)]
 pub struct Agent {
     cfg: AgentConfig,
+    /// El lado de esta máquina. Sale de la identidad: cambia una sola vez, si al emparejar
+    /// resulta que esta máquina es el otro lado ([`Agent::adopt_side`]).
+    me: watch::Sender<Machine>,
     store: StateStore,
     state: watch::Sender<State>,
     /// Leer el estado y guardarlo tiene que ser una sola operación: si no, un
@@ -69,6 +72,13 @@ pub struct Agent {
     /// El puesto de `tandem.toml` se editó a mano: al conocer el archivo se le escribe la
     /// versión nueva.
     hand_edited: bool,
+    /// Los lados del archivo no son los que valen (v0.2, o la identidad dijo otra cosa): al
+    /// conocer el archivo se reescriben enteros.
+    rewrite_sides: bool,
+    /// Un cambio del puesto (y de `tandem.toml`) a la vez: cambiar de lado mientras llega el
+    /// puesto de la otra no puede mezclar etiquetas viejas y nuevas ni en memoria ni en el
+    /// archivo.
+    editing: Mutex<()>,
     /// La prueba «presiona una tecla» del asistente.
     key_probe: watch::Sender<KeyProbeStatus>,
     /// Hay un motor de entrada que arma el [`InputStatus`] (su tarea de estado escucha lo que
@@ -175,15 +185,15 @@ impl Agent {
         store: StateStore,
         local: Arc<dyn LocalSteps>,
     ) -> Self {
-        let mut state = store.load_or_initial(cfg.machine);
+        let me = cfg.machine;
+        let mut state = store.load_or_initial(me);
         // Esta máquina siempre está prendida para sí misma (DESIGN §3.7); la otra, hasta
         // que los enlaces digan otra cosa, como quedó.
-        state.on.set(cfg.machine, true);
-        let orch = Orchestrator::new(cfg.machine, local, cfg.orchestrator.timeouts());
+        state.on.set(me, true);
+        let orch = Orchestrator::new(me, local, cfg.orchestrator.timeouts());
         let mut input = InputStatus::new(cfg.input.keyboard());
         input.defined = cfg.input.keyboard_defined();
         let process = capabilities::current_process();
-        let here = capabilities::local(&cfg, &input, &process);
         // Un puesto editado a mano en `tandem.toml` es un cambio de esta máquina: versión
         // nueva, para que la otra lo adopte y no lo pise con el suyo.
         let hand_edited = crate::desk_sync::edited_by_hand(
@@ -192,21 +202,26 @@ impl Agent {
             cfg.desk_sum.as_deref(),
             &InputConfig::default().lock_shortcut,
         );
+        let info = local_info(&cfg, me, &cfg.desk);
+        let here = capabilities::local(&cfg, me, info, &input, &process);
         let sync = if hand_edited {
             tracing::info!("el puesto de tandem.toml cambió a mano: se le manda a la otra máquina");
             SyncClock {
                 rev: cfg.desk_rev + 1,
-                origin: cfg.machine,
+                origin: me,
                 lock_shortcut: cfg.input.lock_shortcut.clone(),
             }
         } else {
             SyncClock {
                 rev: cfg.desk_rev,
-                origin: cfg.desk_origin.unwrap_or(cfg.machine),
+                origin: cfg.desk_origin.unwrap_or(me),
                 lock_shortcut: cfg.input.lock_shortcut.clone(),
             }
         };
         Agent {
+            me: watch::Sender::new(me),
+            editing: Mutex::new(()),
+            rewrite_sides: cfg.rewrite_sides,
             store,
             state: watch::Sender::new(state),
             persisting: Mutex::new(()),
@@ -248,8 +263,105 @@ impl Agent {
             .config_file
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = Some(path);
-        if self.hand_edited {
+        let _editing = self.edit();
+        if self.rewrite_sides {
+            self.save_sides();
+        } else if self.hand_edited {
             self.save_desk(&self.desk_sync());
+        }
+    }
+
+    fn edit(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.editing.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Todo lo que nombra un lado, al archivo (ver [`crate::config_edit::with_sides`]).
+    fn save_sides(&self) {
+        if let Some(path) = self.config_path()
+            && let Err(e) = crate::config_edit::set_sides(
+                &path,
+                self.machine(),
+                self.keyboard_declared(),
+                &self.desk_sync(),
+            )
+        {
+            tracing::warn!("no se guardaron los lados en {}: {e}", path.display());
+        }
+    }
+
+    /// Esta máquina resultó ser el lado `side` (la identidad del par recién emparejado lo
+    /// dice, DECISIONS A1). Si ya lo era, nada; si no, se cambian los lados de todo lo que
+    /// los nombra (estado, puesto, teclado, capacidades), se guarda y se avisa: el motor de
+    /// entrada vuelve a arrancar con el lado nuevo.
+    pub fn adopt_side(&self, side: Machine) {
+        let _editing = self.edit();
+        if self.machine() == side {
+            return;
+        }
+        tracing::info!(lado = %side, "por las claves, esta máquina es el otro lado");
+        let synced = {
+            let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
+            clock.origin = clock.origin.other();
+            clock.rev > 0
+        };
+        self.desk.send_modify(|d| {
+            let arrangement = d.arrangement;
+            *d = std::mem::take(d).swap_sides();
+            // Un acomodo que nunca se sincronizó o el de omisión no es un lugar físico que
+            // conservar: es «A a la izquierda de B» con los lados nuevos. Darlo vuelta dejaría
+            // a las dos instalaciones nuevas con A a la derecha.
+            if !synced || arrangement == tandem_core::Arrangement::default() {
+                d.arrangement = arrangement;
+            }
+        });
+        self.keyboard.send_modify(|k| *k = k.map(Machine::other));
+        self.key_probe
+            .send_modify(|p| p.heard = p.heard.map(Machine::other));
+        self.input_status
+            .send_modify(|s| s.server = s.server.other());
+        self.orch.set_machine(side);
+        self.me.send_replace(side);
+        let state = self.state().swapped();
+        if let Err(e) = self.set_state(state) {
+            tracing::warn!("{e}");
+        }
+        self.caps.send_modify(|c| c.peer = None);
+        self.refresh_capabilities();
+        self.save_sides();
+    }
+
+    /// Avisa si esta máquina cambia de lado ([`Agent::adopt_side`]).
+    pub fn subscribe_machine(&self) -> watch::Receiver<Machine> {
+        self.me.subscribe()
+    }
+
+    /// Qué máquina es `side` según el puesto, si ya se sabe.
+    pub fn machine_info(&self, side: Machine) -> Option<MachineInfo> {
+        self.desk.borrow().machines.get(side).cloned()
+    }
+
+    /// El nombre de `side` para los textos: el del puesto o «máquina A».
+    pub fn machine_name(&self, side: Machine) -> String {
+        self.desk.borrow().machines.name(side)
+    }
+
+    /// Anota en el puesto lo que se sabe de las dos máquinas: lo que anunció la otra
+    /// (`peer`) y lo de esta, si faltaba o les cambió el sistema. El nombre y el color que ya
+    /// estén no se pisan: son del usuario. Es un solo cambio del puesto (una versión).
+    ///
+    /// Pasa al recibir el anuncio de la otra, que llega después de su puesto
+    /// ([`Agent::set_peer`]): así la versión nueva sale de la más alta de las dos y no pisa
+    /// un cambio de verdad con uno de estos.
+    fn learn_machines(&self, peer: Machine, info: &MachineInfo) {
+        let _editing = self.edit();
+        let mut desk = self.desk();
+        let me = self.machine();
+        let local = local_info(&self.cfg, me, &desk);
+        let mine = learn(&mut desk, me, &local);
+        let theirs = learn(&mut desk, peer, info);
+        if mine || theirs {
+            self.desk.send_replace(desk);
+            self.bump_desk();
         }
     }
 
@@ -290,11 +402,12 @@ impl Agent {
     /// la versión, va a `tandem.toml`, a la UI y a la otra máquina.
     pub fn set_desk(&self, desk: Config) -> Result<(), String> {
         desk.validate().map_err(|e| e.to_string())?;
+        let _editing = self.edit();
         if self.desk() == desk {
             return Ok(());
         }
         self.desk.send_replace(desk);
-        self.desk_changed();
+        self.bump_desk();
         Ok(())
     }
 
@@ -325,11 +438,17 @@ impl Agent {
 
     /// El puesto cambió aquí: versión nueva, a `tandem.toml`, a la UI y a la otra máquina.
     pub fn desk_changed(&self) {
+        let _editing = self.edit();
+        self.bump_desk();
+    }
+
+    /// [`Agent::desk_changed`] con el cambio ya tomado ([`Agent::edit`]).
+    fn bump_desk(&self) {
         let next = {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
             let next = crate::desk_sync::bump(
                 clock.rev,
-                self.cfg.machine,
+                self.machine(),
                 self.desk(),
                 clock.lock_shortcut.clone(),
             );
@@ -344,6 +463,7 @@ impl Agent {
     /// El puesto que mandó la otra máquina: si es más nuevo, queda aquí, en caliente y en
     /// `tandem.toml`. El motor de entrada recalcula la geometría con él.
     pub fn receive_desk(&self, theirs: DeskSync) {
+        let editing = self.edit();
         let mine = self.desk_sync();
         let Some(next) = crate::desk_sync::receive(&mine, &theirs) else {
             return;
@@ -366,11 +486,21 @@ impl Agent {
             *d = next.desk;
             changed
         });
+        drop(editing);
+        // El nombre y el color de esta máquina pueden venir de la otra.
+        self.refresh_capabilities();
     }
 
+    /// Lo que esta máquina dice de sí misma: su sistema y, del puesto, su nombre y color.
+    pub fn local_info(&self) -> MachineInfo {
+        local_info(&self.cfg, self.machine(), &self.desk.borrow())
+    }
+
+    /// El puesto al archivo, junto con el lado de ahora: los dos van siempre en la misma
+    /// escritura. Se llama con el cambio tomado ([`Agent::edit`]).
     fn save_desk(&self, sync: &DeskSync) {
         if let Some(path) = self.config_path()
-            && let Err(e) = crate::config_edit::set_desk(&path, sync)
+            && let Err(e) = crate::config_edit::set_desk(&path, self.machine(), sync)
         {
             tracing::warn!("no se guardó el puesto en {}: {e}", path.display());
         }
@@ -393,7 +523,13 @@ impl Agent {
 
     /// Vuelve a armar lo que puede esta máquina; si cambió, se lo dice a la UI y a la otra.
     pub fn refresh_capabilities(&self) {
-        let here = capabilities::local(&self.cfg, &self.input_status(), &self.process);
+        let here = capabilities::local(
+            &self.cfg,
+            self.machine(),
+            self.local_info(),
+            &self.input_status(),
+            &self.process,
+        );
         let changed = self.caps.send_if_modified(|c| {
             let changed = c.here != here;
             c.here = here.clone();
@@ -406,13 +542,14 @@ impl Agent {
 
     /// Lo que anunció la otra máquina.
     pub fn set_peer_capabilities(&self, peer: Capabilities) {
-        if peer.machine != self.cfg.machine.other() {
+        if peer.machine != self.machine().other() {
             tracing::warn!(
-                "anuncio de capacidades de {} por el enlace de la otra máquina: se ignora",
+                "anuncio de capacidades de la máquina {} por el enlace de la otra: se ignora",
                 peer.machine
             );
             return;
         }
+        self.learn_machines(peer.machine, &peer.info);
         self.caps.send_if_modified(|c| {
             let changed = c.peer.as_ref() != Some(&peer);
             c.peer = Some(peer);
@@ -458,11 +595,13 @@ impl Agent {
     }
 
     /// Conexión con el otro agente para los pasos que le tocan. Lo primero que va por
-    /// ella es lo que puede esta máquina y su copia del puesto (T-084).
+    /// ella es su copia del puesto y después lo que puede esta máquina (T-084): el anuncio
+    /// puede cambiar el puesto ([`Agent::learn_machines`]), y para entonces la otra ya
+    /// adoptó la versión más nueva.
     pub fn set_peer(&self, peer: Arc<dyn PeerLink>) {
         self.orch.set_peer(peer.clone());
-        peer.send(ControlMsg::Capabilities(self.capabilities().here));
         peer.send(ControlMsg::Desk(self.desk_sync()));
+        peer.send(ControlMsg::Capabilities(self.capabilities().here));
     }
 
     /// Avance de las transacciones, para la UI.
@@ -536,7 +675,7 @@ impl Agent {
     }
 
     pub fn machine(&self) -> Machine {
-        self.cfg.machine
+        *self.me.borrow()
     }
 
     pub fn config(&self) -> &AgentConfig {
@@ -562,7 +701,7 @@ impl Agent {
     /// el error se devuelve para registrarlo.
     pub fn set_state(&self, mut new: State) -> Result<(), StoreError> {
         // Venga de donde venga (la otra máquina, una transacción), esta está prendida.
-        new.on.set(self.cfg.machine, true);
+        new.on.set(self.machine(), true);
         let changed = self.state.send_if_modified(|s| {
             if *s == new {
                 false
@@ -623,7 +762,7 @@ impl Agent {
     /// Encender es solo despertar `machine`; apagar es su apagado limpio. Pedir lo que ya
     /// está es una transacción vacía.
     fn start_power(self: &Arc<Self>, machine: Machine, on: bool) -> Reply {
-        let name = capabilities::label(machine);
+        let name = self.machine_name(machine);
         let what = if on {
             format!("encender la {name}")
         } else {
@@ -674,6 +813,56 @@ impl Agent {
     }
 }
 
+/// Lo que esta máquina dice de sí misma: el sistema siempre es el real; el nombre y el color,
+/// los del puesto si ya los tiene (los puede cambiar el usuario) o, si no, el nombre del
+/// sistema y el color de su lado.
+///
+/// Si el puesto que ganó no la trae (la otra lo escribió antes de conocerla), vale la de
+/// `tandem.toml` al arrancar: el nombre que eligió el usuario no se pierde.
+fn local_info(cfg: &AgentConfig, me: Machine, desk: &Config) -> MachineInfo {
+    if let Some(saved) = desk.machines.get(me) {
+        return MachineInfo {
+            os: cfg.os,
+            name: saved.name.clone(),
+            color: saved.color.clone(),
+        };
+    }
+    let fresh = MachineInfo::new(me, cfg.os, capabilities::host_name());
+    match cfg.desk.machines.get(cfg.machine) {
+        Some(first) => MachineInfo {
+            name: first.name.clone(),
+            // Un color por omisión es el del lado: con el lado nuevo, el nuevo.
+            color: if tandem_core::DEFAULT_COLORS.contains(&first.color.as_str()) {
+                fresh.color
+            } else {
+                first.color.clone()
+            },
+            os: cfg.os,
+        },
+        None => fresh,
+    }
+}
+
+/// Pone `info` como lo que se sabe de `side` si no se sabía nada o el sistema cambió. El
+/// nombre y el color que ya estaban se respetan. `true` si cambió el puesto.
+fn learn(desk: &mut Config, side: Machine, info: &MachineInfo) -> bool {
+    match desk.machines.get(side) {
+        Some(saved) if saved.os == info.os => false,
+        Some(saved) => {
+            let updated = MachineInfo {
+                os: info.os,
+                ..saved.clone()
+            };
+            desk.machines.set(side, Some(updated));
+            true
+        }
+        None => {
+            desk.machines.set(side, Some(info.clone()));
+            true
+        }
+    }
+}
+
 /// Libera el orquestador al terminar la transacción, aunque la tarea entre en pánico.
 struct Busy(Arc<Agent>);
 
@@ -706,8 +895,8 @@ pub(crate) mod tests {
     fn starts_from_initial_state() {
         let dir = tempfile::tempdir().unwrap();
         let a = agent(dir.path());
-        assert_eq!(a.machine(), Machine::Mac);
-        assert_eq!(a.state(), State::initial(Machine::Mac));
+        assert_eq!(a.machine(), Machine::A);
+        assert_eq!(a.state(), State::initial(Machine::A));
     }
 
     #[test]
@@ -857,7 +1046,7 @@ pub(crate) mod tests {
         let mut rx = a.subscribe_txns();
         assert!(matches!(
             a.handle(UiCommand::SetPower {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 on: true
             }),
             Reply::Accepted { .. }
@@ -866,16 +1055,16 @@ pub(crate) mod tests {
         assert_eq!(
             steps_of(&events),
             [Step::PowerOn {
-                machine: Machine::Pc
+                machine: Machine::B
             }]
         );
-        let mut expected = State::initial(Machine::Mac);
-        expected.on.pc = true;
+        let mut expected = State::initial(Machine::A);
+        expected.on.b = true;
         assert_eq!(a.state(), expected);
 
         // Ya encendida, pedirlo otra vez no hace nada.
         a.handle(UiCommand::SetPower {
-            machine: Machine::Pc,
+            machine: Machine::B,
             on: true,
         });
         assert!(steps_of(&until_outcome(&mut rx).await).is_empty());
@@ -886,12 +1075,12 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let a = with_fakes(dir.path(), FakeSteps::default(), FakeSteps::default());
         let mut s = a.state();
-        s.on.pc = true;
+        s.on.b = true;
         a.set_state(s).unwrap();
         let mut rx = a.subscribe_txns();
         assert!(matches!(
             a.handle(UiCommand::SetPower {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 on: false
             }),
             Reply::Accepted { .. }
@@ -899,10 +1088,10 @@ pub(crate) mod tests {
         assert_eq!(
             steps_of(&until_outcome(&mut rx).await),
             [Step::PowerOff {
-                machine: Machine::Pc
+                machine: Machine::B
             }]
         );
-        assert_eq!(a.state(), State::initial(Machine::Mac));
+        assert_eq!(a.state(), State::initial(Machine::A));
     }
 
     #[tokio::test]
@@ -911,13 +1100,13 @@ pub(crate) mod tests {
         let a = Arc::new(agent(dir.path()));
         let mut rx = a.subscribe_txns();
         let Reply::Accepted { txn } = a.handle(UiCommand::SetPower {
-            machine: Machine::Pc,
+            machine: Machine::B,
             on: true,
         }) else {
             panic!("se esperaba Accepted");
         };
         let events = until_outcome(&mut rx).await;
-        let initial = State::initial(Machine::Mac);
+        let initial = State::initial(Machine::A);
         assert!(events.iter().any(|e| matches!(
             e,
             TxnEvent::StepFailed { error, .. } if error.contains(STEP_NOT_IMPLEMENTED)
@@ -943,12 +1132,12 @@ pub(crate) mod tests {
         let mut rx = a.subscribe_txns();
         assert!(matches!(
             a.handle(UiCommand::SetPower {
-                machine: Machine::Pc,
+                machine: Machine::B,
                 on: true
             }),
             Reply::Rejected(_)
         ));
-        assert_eq!(a.state(), State::initial(Machine::Mac));
+        assert_eq!(a.state(), State::initial(Machine::A));
         assert!(rx.try_recv().is_err());
         // Un rechazo no deja el orquestador ocupado.
         assert!(a.orchestrator().try_begin().is_some());
@@ -962,7 +1151,7 @@ pub(crate) mod tests {
             FakeSteps {
                 delays: vec![(
                     Step::PowerOn {
-                        machine: Machine::Pc,
+                        machine: Machine::B,
                     },
                     Duration::from_secs(30),
                 )],
@@ -972,7 +1161,7 @@ pub(crate) mod tests {
         );
         let mut rx = a.subscribe_txns();
         let on = UiCommand::SetPower {
-            machine: Machine::Pc,
+            machine: Machine::B,
             on: true,
         };
         assert!(matches!(a.handle(on.clone()), Reply::Accepted { .. }));
@@ -988,7 +1177,7 @@ pub(crate) mod tests {
         let a = agent(dir.path());
         let mut rx = a.subscribe();
         let mut s = a.state();
-        s.on.pc = true;
+        s.on.b = true;
         a.set_state(s.clone()).unwrap();
         assert!(rx.has_changed().unwrap());
         assert_eq!(*rx.borrow_and_update(), s);
@@ -1008,7 +1197,7 @@ pub(crate) mod tests {
             std::thread::scope(|scope| {
                 for i in 0..8u32 {
                     let mut s = base.clone();
-                    s.on.pc = (i + round) % 2 == 0;
+                    s.on.b = (i + round) % 2 == 0;
                     let a = &a;
                     scope.spawn(move || a.set_state(s).unwrap());
                 }
@@ -1045,15 +1234,15 @@ pub(crate) mod tests {
     fn a_desk_from_the_other_machine_is_adopted_saved_and_announced() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("tandem.toml");
-        std::fs::write(&file, crate::autoconfig::generate(Machine::Mac)).unwrap();
+        std::fs::write(&file, crate::autoconfig::generate(Machine::A)).unwrap();
         let a = agent(dir.path());
         a.set_config_file(file.clone());
         let rx = a.subscribe_desk();
         let mut theirs = a.desk_sync();
         theirs.rev = 5;
-        theirs.origin = Machine::Pc;
-        theirs.desk.screens = vec![screen(Machine::Pc, "34", 3440)];
-        theirs.desk.arrangement.mac_side = Side::Right;
+        theirs.origin = Machine::B;
+        theirs.desk.screens = vec![screen(Machine::B, "34", 3440)];
+        theirs.desk.arrangement.a_side = Side::Right;
         a.receive_desk(theirs.clone());
         assert!(rx.has_changed().unwrap());
         assert_eq!(a.desk(), theirs.desk);
@@ -1075,15 +1264,15 @@ pub(crate) mod tests {
         let a = agent(dir.path());
         let rev = a.desk_sync().rev;
         let mut desk = a.desk();
-        desk.screens.push(screen(Machine::Mac, "laptop", 1512));
+        desk.screens.push(screen(Machine::A, "laptop", 1512));
         a.set_desk(desk.clone()).unwrap();
         assert_eq!(a.desk(), desk);
         assert_eq!(a.desk_sync().rev, rev + 1);
-        assert_eq!(a.desk_sync().origin, Machine::Mac);
+        assert_eq!(a.desk_sync().origin, Machine::A);
         // Lo mismo otra vez no sube la versión; uno inválido se rechaza.
         a.set_desk(desk.clone()).unwrap();
         assert_eq!(a.desk_sync().rev, rev + 1);
-        desk.screens.push(screen(Machine::Mac, "laptop", 1512));
+        desk.screens.push(screen(Machine::A, "laptop", 1512));
         assert!(a.set_desk(desk).is_err());
         assert_eq!(a.desk_sync().rev, rev + 1);
     }
@@ -1094,19 +1283,19 @@ pub(crate) mod tests {
     fn a_hand_edited_desk_is_a_change_of_this_machine() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("tandem.toml");
-        let mut text = crate::autoconfig::generate(Machine::Pc).replacen(
-            "\nmachine = \"pc\"\n",
-            "\nmachine = \"pc\"\ndesk_rev = 4\ndesk_origin = \"mac\"\n",
+        let mut text = crate::autoconfig::generate(Machine::B).replacen(
+            "\nmachine = \"b\"\n",
+            "\nmachine = \"b\"\ndesk_rev = 4\ndesk_origin = \"a\"\n",
             1,
         );
         text.push_str(
-            "\n[[screens]]\nmachine = \"pc\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 3440\nheight = 1440\n",
+            "\n[[screens]]\nmachine = \"b\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 3440\nheight = 1440\n",
         );
         std::fs::write(&file, &text).unwrap();
         let cfg = AgentConfig::load(&file).unwrap();
         let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
         assert_eq!(a.desk_sync().rev, 5);
-        assert_eq!(a.desk_sync().origin, Machine::Pc);
+        assert_eq!(a.desk_sync().origin, Machine::B);
         a.set_config_file(file.clone());
         let saved = AgentConfig::load(&file).unwrap();
         assert_eq!(saved.desk_rev, 5);
@@ -1115,8 +1304,195 @@ pub(crate) mod tests {
         let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
         assert_eq!(again.desk_sync().rev, 5);
         // Un archivo recién generado tampoco.
-        let fresh = AgentConfig::from_toml(&crate::autoconfig::generate(Machine::Pc)).unwrap();
+        let fresh = AgentConfig::from_toml(&crate::autoconfig::generate(Machine::B)).unwrap();
         let fresh = Agent::new(fresh, StateStore::new(dir.path().join("other.json")));
         assert_eq!(fresh.desk_sync().rev, 0);
+    }
+
+    fn caps_of(side: Machine, os: tandem_core::Os, name: &str) -> Capabilities {
+        let cfg = fixtures::desk();
+        capabilities::local(
+            &cfg,
+            side,
+            MachineInfo::new(side, os, Some(name.into())),
+            &InputStatus::new(Machine::A),
+            &tandem_proto::ProcessInfo::default(),
+        )
+    }
+
+    /// Lo que anuncia la otra (y lo de esta) queda en el puesto, en una sola versión, y el
+    /// nombre que ya estaba no se pisa (DECISIONS A1, D17).
+    #[test]
+    fn the_announced_machines_are_kept_in_the_desk() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent(dir.path());
+        assert!(
+            a.desk().machines.is_empty(),
+            "sin otra máquina, nada que guardar"
+        );
+        let rev = a.desk_sync().rev;
+        a.set_peer_capabilities(caps_of(Machine::B, tandem_core::Os::MacOs, "Air"));
+        let desk = a.desk();
+        let theirs = desk.machines.get(Machine::B).unwrap();
+        assert_eq!(
+            (theirs.os, theirs.name.as_str()),
+            (tandem_core::Os::MacOs, "Air")
+        );
+        assert_eq!(desk.machines.get(Machine::A), Some(&a.local_info()));
+        assert_eq!(a.desk_sync().rev, rev + 1, "un solo cambio");
+        assert_eq!(a.machine_name(Machine::B), "Air");
+        // Otro anuncio con otro nombre no lo pisa (el nombre es del usuario); otro sistema
+        // sí se anota.
+        a.set_peer_capabilities(caps_of(Machine::B, tandem_core::Os::MacOs, "Otro"));
+        assert_eq!(a.machine_name(Machine::B), "Air");
+        assert_eq!(a.desk_sync().rev, rev + 1);
+        a.set_peer_capabilities(caps_of(Machine::B, tandem_core::Os::Windows, "Otro"));
+        let theirs = a.machine_info(Machine::B).unwrap();
+        assert_eq!(
+            (theirs.os, theirs.name.as_str()),
+            (tandem_core::Os::Windows, "Air")
+        );
+        // Un anuncio con el lado de esta máquina no es de la otra: se ignora.
+        a.set_peer_capabilities(caps_of(Machine::A, tandem_core::Os::MacOs, "Yo"));
+        assert_ne!(a.machine_name(Machine::A), "Yo");
+    }
+
+    /// El sistema que anuncia esta máquina es el suyo, sea el lado que sea; el nombre y el
+    /// color, los del puesto si ya los tiene.
+    #[test]
+    fn this_machine_announces_its_own_system_and_the_desk_name() {
+        for os in tandem_core::Os::ALL {
+            let dir = tempfile::tempdir().unwrap();
+            let mut cfg = fixtures::desk();
+            cfg.machine = Machine::B;
+            cfg.os = os;
+            cfg.desk.machines.b = Some(MachineInfo {
+                os: tandem_core::Os::MacOs,
+                name: "Escritorio".into(),
+                color: "#5fbfb0".into(),
+            });
+            let a = Agent::new(cfg, StateStore::new(dir.path().join("s.json")));
+            let here = a.capabilities().here;
+            assert_eq!(here.machine, Machine::B);
+            assert_eq!(here.info.os, os);
+            assert_eq!(here.info.name, "Escritorio");
+            assert_eq!(here.info.color, "#5fbfb0");
+        }
+    }
+
+    /// Al emparejar, esta máquina resulta ser el otro lado: todo lo que nombra un lado se da
+    /// vuelta, se guarda y sigue diciendo lo mismo.
+    #[tokio::test]
+    async fn adopting_the_other_side_swaps_everything_that_names_a_side() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tandem.toml");
+        std::fs::write(
+            &file,
+            "machine = \"a\"\n[input]\nkeyboard = \"a\"\n\n[[screens]]\nmachine = \"a\"\nid = \"laptop\"\nx = 0\ny = 0\nwidth = 1512\nheight = 982\n",
+        )
+        .unwrap();
+        let cfg = AgentConfig::load(&file).unwrap();
+        let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
+        a.set_config_file(file.clone());
+        let side = a.subscribe_machine();
+        let before = a.desk();
+        a.adopt_side(Machine::A);
+        assert!(!side.has_changed().unwrap(), "el mismo lado no cambia nada");
+
+        a.adopt_side(Machine::B);
+        assert!(side.has_changed().unwrap());
+        assert_eq!(a.machine(), Machine::B);
+        // El acomodo de omisión no se da vuelta (A sigue a la izquierda de B).
+        let mut want = before.clone().swap_sides();
+        want.arrangement = before.arrangement;
+        assert_eq!(a.desk(), want);
+        assert_eq!(a.keyboard_declared(), Some(Machine::B));
+        assert!(a.state().is_on(Machine::B));
+        assert_eq!(a.capabilities().here.machine, Machine::B);
+        assert_eq!(a.input_status().server, Machine::B);
+        let saved = AgentConfig::load(&file).unwrap();
+        assert_eq!(saved.machine, Machine::B);
+        assert_eq!(saved.input.keyboard, Some(Machine::B));
+        assert_eq!(
+            saved.desk.screens_of(Machine::B).next().unwrap().id,
+            "laptop"
+        );
+        // Los pasos se reparten con el lado nuevo.
+        let e = a
+            .orchestrator()
+            .execute_for_peer(&Step::PowerOff {
+                machine: Machine::A,
+            })
+            .await
+            .unwrap_err();
+        assert!(e.contains("no le corresponde"), "{e}");
+    }
+
+    /// Revisión del PR #68: cambiar de lado mientras llegan el puesto y el anuncio de la otra
+    /// escribía `tandem.toml` a la vez, y el archivo podía quedar con un lado y las pantallas
+    /// etiquetadas desde el otro (al rearrancar, los lados se daban vuelta dos veces).
+    #[test]
+    fn changing_side_while_the_peer_talks_keeps_the_file_coherent() {
+        for round in 0..30 {
+            let dir = tempfile::tempdir().unwrap();
+            let file = dir.path().join("tandem.toml");
+            std::fs::write(
+                &file,
+                "machine = \"a\"\n\n[[screens]]\nmachine = \"a\"\nid = \"laptop\"\nx = 0\ny = 0\nwidth = 1512\nheight = 982\n",
+            )
+            .unwrap();
+            let a = Agent::new(
+                AgentConfig::load(&file).unwrap(),
+                StateStore::new(dir.path().join("state.json")),
+            );
+            a.set_config_file(file.clone());
+            // Lo que manda la otra (que es A): su puesto, con las pantallas de las dos.
+            let mut theirs = a.desk_sync();
+            theirs.rev = 9;
+            theirs.origin = Machine::A;
+            theirs.desk.screens = vec![
+                screen(Machine::A, "torre", 2560),
+                screen(Machine::B, "laptop", 1512),
+            ];
+            let barrier = std::sync::Barrier::new(3);
+            std::thread::scope(|s| {
+                s.spawn(|| {
+                    barrier.wait();
+                    a.adopt_side(Machine::B);
+                });
+                s.spawn(|| {
+                    barrier.wait();
+                    a.receive_desk(theirs.clone());
+                });
+                s.spawn(|| {
+                    barrier.wait();
+                    a.set_peer_capabilities(caps_of(Machine::A, tandem_core::Os::Windows, "Torre"));
+                });
+            });
+            let saved = AgentConfig::load(&file).unwrap();
+            assert_eq!(saved.machine, a.machine(), "vuelta {round}");
+            assert_eq!(saved.desk, a.desk(), "vuelta {round}");
+            // Al rearrancar con el lado de las claves no hay un segundo cambio de lados.
+            assert_eq!(saved.clone().with_side(Machine::B).desk, saved.desk);
+        }
+    }
+
+    /// Revisión del PR #68: dos instalaciones nuevas (acomodo por omisión) no quedan con A a
+    /// la derecha porque una de las dos cambió de lado.
+    #[test]
+    fn the_default_arrangement_is_not_flipped_when_changing_side() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent(dir.path());
+        assert_eq!(a.desk().arrangement, tandem_core::Arrangement::default());
+        a.adopt_side(Machine::B);
+        assert_eq!(a.desk().arrangement.a_side, Side::Left);
+        // Uno declarado y ya sincronizado sí se conserva físicamente.
+        let dir = tempfile::tempdir().unwrap();
+        let b = agent(dir.path());
+        let mut desk = b.desk();
+        desk.arrangement.a_side = Side::Right;
+        b.set_desk(desk).unwrap();
+        b.adopt_side(Machine::B);
+        assert_eq!(b.desk().arrangement.a_side, Side::Left);
     }
 }
