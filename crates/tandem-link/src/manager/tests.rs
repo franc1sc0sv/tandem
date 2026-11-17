@@ -145,7 +145,6 @@ async fn caída_del_preferido_conmuta_en_menos_de_1_5_s_y_vuelve() {
     rig.net.set(addr(Usb4), Wire::Cut);
     let took = rig.until_active(Some(Ethernet)).await;
     assert!(took < MAX_SWITCH, "conmutó en {took:?}");
-    assert!(rig.manager.data_plane_available());
     assert_eq!(rig.manager.active().unwrap().kind, Ethernet);
 
     rig.net.set(addr(Usb4), Wire::Up);
@@ -267,37 +266,26 @@ async fn un_rechazo_inmediato_cuenta_como_caída() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn con_solo_wifi_el_plano_de_datos_se_rechaza() {
+async fn con_solo_wifi_todo_va_por_wifi() {
     let mut rig = Rig::new(&ALL_KINDS, &[LinkKind::Wifi]);
     rig.until_active(Some(LinkKind::Wifi)).await;
+    // Sin la regla «el Wi-Fi no lleva datos» (DECISIONS A2): el activo es para todo.
+    let active = rig.manager.active().unwrap();
+    assert_eq!(active.kind, LinkKind::Wifi);
+    assert_eq!(active.addr, addr(LinkKind::Wifi));
 
-    assert!(!rig.manager.data_plane_available());
-    assert_eq!(
-        rig.manager.data_plane(),
-        Err(PlaneError::RequiresCable {
-            active: LinkKind::Wifi
-        })
-    );
-    let control = rig.manager.control_plane().unwrap();
-    assert_eq!(control.kind, LinkKind::Wifi);
-    assert_eq!(control.addr, addr(LinkKind::Wifi));
-    assert!(!rig.seen.last().unwrap().data_plane);
-
-    // Al conectar un cable, el plano de datos aparece solo.
+    // Al conectar un cable, todo pasa a él.
     rig.net.set(addr(LinkKind::Ethernet), Wire::Up);
     let e = rig.next().await;
     assert_eq!(e.to, Some(LinkKind::Ethernet));
-    assert!(e.data_plane);
-    assert_eq!(rig.manager.data_plane().unwrap().kind, LinkKind::Ethernet);
+    assert_eq!(rig.manager.active().unwrap().kind, LinkKind::Ethernet);
 }
 
 #[tokio::test(start_paused = true)]
-async fn sin_enlaces_no_hay_ningún_plano() {
+async fn sin_enlaces_no_hay_activo() {
     let rig = Rig::new(&ALL_KINDS, &[]);
     time::sleep(Duration::from_secs(5)).await;
     assert_eq!(rig.manager.active(), None);
-    assert_eq!(rig.manager.data_plane(), Err(PlaneError::NoLink));
-    assert_eq!(rig.manager.control_plane(), Err(PlaneError::NoLink));
     assert!(rig.manager.links().iter().all(|l| l.rtt.is_none()));
 }
 
@@ -334,7 +322,7 @@ async fn la_foto_muestra_la_salud_de_cada_enlace() {
     let mut rig = Rig::new(&[LinkKind::Wifi, LinkKind::Ethernet], &[LinkKind::Ethernet]);
     rig.until_active(Some(LinkKind::Ethernet)).await;
     let snap = rig.manager.snapshot();
-    assert!(snap.data_plane_available());
+    assert!(snap.active.is_some());
     assert_eq!(
         snap.links.iter().map(|l| l.kind).collect::<Vec<_>>(),
         [LinkKind::Ethernet, LinkKind::Wifi]
@@ -352,7 +340,7 @@ async fn la_foto_muestra_la_salud_de_cada_enlace() {
     .unwrap()
     .unwrap()
     .clone();
-    assert!(!snap.data_plane_available());
+    assert!(snap.active.is_none());
 }
 
 #[tokio::test(start_paused = true)]

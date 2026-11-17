@@ -12,6 +12,7 @@ use std::collections::{BTreeMap, VecDeque};
 
 use serde::{Deserialize, Serialize};
 
+use crate::data::DataPrefs;
 use crate::model::{Arrangement, ConfigError, Desk, Machine, ScreenSpec};
 
 /// Cuántas versiones guarda el historial (DESIGN §4.4).
@@ -141,6 +142,8 @@ pub enum DeskPatch {
     Scenes(Vec<Scene>),
     Shortcuts(Shortcuts),
     Prefs(InputPrefs),
+    /// El tope de los datos por Wi-Fi (`[data]`, T-101).
+    Data(DataPrefs),
     /// Encender o apagar un módulo de una máquina.
     Module {
         machine: Machine,
@@ -232,6 +235,7 @@ impl Desk {
             DeskPatch::Scenes(scenes) => self.scenes = scenes,
             DeskPatch::Shortcuts(shortcuts) => self.shortcuts = shortcuts,
             DeskPatch::Prefs(prefs) => self.prefs = prefs,
+            DeskPatch::Data(data) => self.data = data,
             DeskPatch::Module {
                 machine,
                 module,
@@ -261,6 +265,7 @@ impl Desk {
             (self.shortcuts != new.shortcuts, "atajos"),
             (self.prefs != new.prefs, "teclado y mouse"),
             (self.modules != new.modules, "módulos"),
+            (self.data != new.data, "datos por Wi-Fi"),
         ];
         let changed: Vec<&str> = sections
             .iter()

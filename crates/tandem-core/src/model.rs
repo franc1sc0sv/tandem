@@ -3,6 +3,7 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::data::{DataPrefs, DataPrefsError};
 use crate::desk::{InputPrefs, Modules, Scene, Shortcuts, valid_color};
 
 /// Los dos lados del puesto. Tandem está pensado para exactamente dos máquinas, de igual a
@@ -391,6 +392,9 @@ pub struct Desk {
     pub prefs: InputPrefs,
     #[serde(default)]
     pub modules: Modules,
+    /// El tope de los datos por Wi-Fi (`[data]`, T-101).
+    #[serde(default)]
+    pub data: DataPrefs,
 }
 
 /// El nombre de antes de [`Desk`].
@@ -406,6 +410,8 @@ pub enum ConfigError {
     EmptyScreen { machine: Machine, id: String },
     #[error("una pantalla de la máquina {0} no tiene id")]
     UnnamedScreen(Machine),
+    #[error(transparent)]
+    Data(#[from] DataPrefsError),
     #[error("el color `{color}` de la máquina {machine} no es #rrggbb")]
     BadColor { machine: Machine, color: String },
     #[error("la máquina {0} no tiene nombre")]
@@ -426,6 +432,7 @@ impl Desk {
     }
 
     pub fn validate(&self) -> Result<(), ConfigError> {
+        self.data.validate()?;
         let mut seen = BTreeSet::new();
         for s in &self.screens {
             if s.id.trim().is_empty() {
@@ -501,6 +508,31 @@ impl Desk {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_wifi_data_cap_belongs_to_the_desk_and_has_its_patch() {
+        let desk = Desk::from_toml("[data]\nwifi_cap_percent = 30\nwifi_cap_mbps = 80").unwrap();
+        assert_eq!(desk.data.wifi_cap_percent, 30);
+        assert_eq!(desk.data.fixed_cap_bytes(), Some(10_000_000));
+        assert_eq!(desk.clone().swap_sides().data, desk.data);
+        assert!(matches!(
+            Desk::from_toml("[data]\nwifi_cap_percent = 0"),
+            Err(ConfigError::Data(_))
+        ));
+
+        let mut edited = Desk::default();
+        edited.apply(crate::DeskPatch::Data(desk.data)).unwrap();
+        assert_eq!(edited.data, desk.data);
+        assert_eq!(
+            Desk::default().summary_of_changes(&edited).as_deref(),
+            Some("Datos por Wi-Fi")
+        );
+        let bad = DataPrefs {
+            wifi_cap_percent: 0,
+            wifi_cap_mbps: None,
+        };
+        assert!(edited.apply(crate::DeskPatch::Data(bad)).is_err());
+    }
 
     #[test]
     fn an_empty_desk_is_valid_and_puts_a_on_the_left() {

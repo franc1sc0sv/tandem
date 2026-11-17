@@ -33,15 +33,6 @@ impl LinkKind {
     pub fn is_wired(self) -> bool {
         !matches!(self, LinkKind::Wifi)
     }
-
-    /// Si el enlace puede llevar el plano pedido. Es una regla fija, sin
-    /// configuración: el plano de datos nunca va por Wi-Fi.
-    pub fn allows(self, plane: Plane) -> bool {
-        match plane {
-            Plane::Control => true,
-            Plane::Data => self.is_wired(),
-        }
-    }
 }
 
 impl fmt::Display for LinkKind {
@@ -51,34 +42,6 @@ impl fmt::Display for LinkKind {
             LinkKind::Ethernet => "Ethernet",
             LinkKind::Wifi => "Wi-Fi",
         })
-    }
-}
-
-/// Planos de tráfico (DESIGN §6).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Plane {
-    /// Teclado, mouse, portapapeles, mensajes entre agentes, monitores, modos.
-    Control,
-    /// SSH, carpetas compartidas, servicios GPU, archivos.
-    Data,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum PlaneError {
-    #[error("no hay ningún enlace sano con el otro agente")]
-    NoLink,
-    /// Lo que la UI muestra como "requiere cable".
-    #[error("el plano de datos requiere cable; el enlace activo es {active}")]
-    RequiresCable { active: LinkKind },
-}
-
-/// Comprueba si `plane` puede ir por el enlace activo `active`.
-pub fn check_plane(plane: Plane, active: Option<LinkKind>) -> Result<LinkKind, PlaneError> {
-    let active = active.ok_or(PlaneError::NoLink)?;
-    if active.allows(plane) {
-        Ok(active)
-    } else {
-        Err(PlaneError::RequiresCable { active })
     }
 }
 
@@ -100,34 +63,6 @@ mod tests {
         kinds.sort();
         assert_eq!(kinds, [LinkKind::Usb4, LinkKind::Ethernet, LinkKind::Wifi]);
         assert!(kinds.windows(2).all(|w| w[0].priority() < w[1].priority()));
-    }
-
-    #[test]
-    fn el_plano_de_datos_solo_va_por_cable() {
-        assert!(LinkKind::Usb4.allows(Plane::Data));
-        assert!(LinkKind::Ethernet.allows(Plane::Data));
-        assert!(!LinkKind::Wifi.allows(Plane::Data));
-        assert!(LinkKind::ALL.iter().all(|k| k.allows(Plane::Control)));
-    }
-
-    #[test]
-    fn check_plane_rechaza_datos_por_wifi() {
-        assert_eq!(
-            check_plane(Plane::Data, Some(LinkKind::Wifi)),
-            Err(PlaneError::RequiresCable {
-                active: LinkKind::Wifi
-            })
-        );
-        assert_eq!(
-            check_plane(Plane::Control, Some(LinkKind::Wifi)),
-            Ok(LinkKind::Wifi)
-        );
-        assert_eq!(
-            check_plane(Plane::Data, Some(LinkKind::Ethernet)),
-            Ok(LinkKind::Ethernet)
-        );
-        assert_eq!(check_plane(Plane::Data, None), Err(PlaneError::NoLink));
-        assert_eq!(check_plane(Plane::Control, None), Err(PlaneError::NoLink));
     }
 
     #[test]

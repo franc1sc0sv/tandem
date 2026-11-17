@@ -4,11 +4,13 @@
 //!   puesto compartido ([`Desk`]).
 //! - [`desk`]: cómo se edita (parches), se sincroniza (gana el último) y se deshace el
 //!   puesto.
+//! - [`data`]: el tope de los datos por Wi-Fi (`[data]` del puesto).
 //! - [`state`]: el estado observado (qué máquinas están encendidas).
 //! - [`plan`]: encender y apagar como una lista ordenada de pasos.
 //! - [`txn`]: ejecución transaccional de un plan, con vuelta atrás.
 //! - [`monitor`]: las entradas de un monitor compatible.
 
+pub mod data;
 pub mod desk;
 pub mod model;
 pub mod monitor;
@@ -16,6 +18,7 @@ pub mod plan;
 pub mod state;
 pub mod txn;
 
+pub use data::{DEFAULT_WIFI_CAP_PERCENT, DataPrefs, DataPrefsError};
 pub use desk::{
     DeskHistory, DeskPatch, DeskStamp, DeskVersion, HISTORY_LEN, HistoryEntry, InputPrefs, Modules,
     PatchError, Scene, Shortcuts, UndoError, valid_color,

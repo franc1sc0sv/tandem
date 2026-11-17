@@ -13,6 +13,7 @@ use super::verify::{
 };
 use super::{ALPN, PAIRING_ALPN, TransportError};
 use crate::identity::{Identity, PublicKey, TLS_SERVER_NAME};
+use crate::qos::Qos;
 
 /// Endpoint QUIC de un agente: escucha y también abre conexiones, con el
 /// mismo certificado y la misma confianza en los dos papeles.
@@ -120,11 +121,13 @@ fn configs(
     Ok((server, client))
 }
 
-/// Conexión autenticada con un par de confianza.
+/// Conexión autenticada con un par de confianza. Las copias comparten la conexión y su
+/// [`Qos`].
 #[derive(Clone)]
 pub struct Connection {
     inner: quinn::Connection,
     peer: PublicKey,
+    qos: Qos,
 }
 
 impl Connection {
@@ -134,7 +137,26 @@ impl Connection {
             .and_then(|id| id.downcast::<Vec<CertificateDer<'static>>>().ok())
             .and_then(|certs| certs.first().and_then(peer_public_key))
             .ok_or(TransportError::NoPeerIdentity)?;
-        Ok(Self { inner, peer })
+        Ok(Self {
+            inner,
+            peer,
+            qos: Qos::default(),
+        })
+    }
+
+    /// Prioridad, tope y pausa de los datos por esta conexión. Sin [`Self::with_qos`] es
+    /// uno propio, sin camino conocido (y sin tope).
+    pub fn qos(&self) -> &Qos {
+        &self.qos
+    }
+
+    /// La misma conexión con el [`Qos`] de su camino, compartido con las demás conexiones
+    /// por ese camino ([`LinkQos`](crate::qos::LinkQos)): así el tope vale para todas
+    /// juntas. Se pone al abrirla o aceptarla, antes de clonarla.
+    #[must_use]
+    pub fn with_qos(mut self, qos: Qos) -> Self {
+        self.qos = qos;
+        self
     }
 
     /// Llave del par, ya verificada contra la confianza local.

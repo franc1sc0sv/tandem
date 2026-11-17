@@ -37,4 +37,6 @@ pub enum TransportError {
     MissingHello,
     #[error("el par no presentó un certificado Ed25519 válido")]
     NoPeerIdentity,
+    #[error("escritura en un stream de datos: {0}")]
+    Data(#[source] io::Error),
 }
