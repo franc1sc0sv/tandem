@@ -36,6 +36,7 @@ El usuario no revisa durante la corrida. El **capitán** (la sesión principal d
 El disco de Linux (WSL) es un `.vhdx` dentro de `C:`: cada build ocupa espacio de `C:`. En la primera corrida, un target por agente y por revisión (con compilación incremental y depuración completa) llenó `C:`.
 
 - **Un `CARGO_TARGET_DIR` por agente**, nunca compartido entre worktrees en paralelo: cargo da los mismos nombres de artefacto en cada worktree y los agentes se pisan (errores falsos de `unresolved import`). Ruta: `~/.cache/tandem-target-<tarea>` (`-t099`) o `-review<PR>`.
+- **El hook de calidad** (`scripts/claude/gate-commit.sh`) corre en su propio proceso, sin el entorno del agente: deduce el target de la rama (`task/T-099` → `~/.cache/tandem-target-t099`) y usa la misma configuración liviana. Antes compilaba en `target/` de cada worktree (~7-8 GB cada uno).
 - **Builds livianos** en local: `CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only` y `CARGO_PROFILE_TEST_DEBUG=line-tables-only`. Nada de builds de release ni bundles en local (los hace el CI).
 - **Límites:** máximo 5 agentes que compilan Rust a la vez; un target que pasa de 8 GB se limpia con `cargo clean`.
 - **Limpieza en cada latido:** al integrar una tarea se borran su target, el de su revisión y su worktree. Si `C:` baja de 80 GB libres no se lanzan agentes nuevos y se limpian los targets más grandes.
