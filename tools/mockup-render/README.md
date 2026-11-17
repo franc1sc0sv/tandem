@@ -54,10 +54,11 @@ pnpm test                                # runtime, comparación y los 23 mockup
   con `opacity: .4` salía con ±1 de color según la corrida (hasta ~10 600 píxeles distintos en
   `lado-arriba-centro`, 12–13 capturas distintas entre dos corridas).
 - En una misma máquina, dos corridas dan PNG idénticos bit a bit (la prueba `la misma captura
-  sale idéntica bit a bit` lo exige para los estados de `V3-Acomodo` que variaban). Entre
-  máquinas no se exige: el job `ui (mockups)` de CI sube sus capturas como artefacto
-  `mockups-png` y las compara con las commiteadas con la tolerancia de `compare()` (≥ 0.999).
-  Las de referencia son las de Chromium en Linux (WSL).
+  sale idéntica bit a bit` lo exige para los estados de `V3-Acomodo` que variaban). Entre WSL
+  y el job `ui (mockups)` de CI también salieron idénticas (sha1 de las 72 del artefacto
+  `mockups-png` del PR #70 = las commiteadas), pero eso no se exige: CI las compara con la
+  tolerancia de `compare()` (≥ 0.999), por si otra imagen del runner rasteriza distinto. Las de
+  referencia son las de Chromium en Linux (WSL).
 - Si cambia un mockup o un estado: `pnpm mockups:shot` y commitear `docs/mockups-png/`. La
   prueba `docs/mockups-png tiene exactamente una captura por mockup y estado` avisa si sobran
   o faltan. `mockups:shot` sin `--only` borra las capturas que ya no corresponden a ningún
