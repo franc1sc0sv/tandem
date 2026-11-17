@@ -49,7 +49,7 @@ export function checkSnapshot(snap: unknown): asserts snap is Snapshot {
   if (snap.kind !== "connected") return;
   if (!isSide(snap.agent)) throw new ShapeError(`lado «${String(snap.agent)}»`);
   const desk = snap.desk;
-  if (!isObj(desk) || !isObj(desk.machines) || !Array.isArray(desk.screens) || !isObj(desk.arrangement)) throw new ShapeError("puesto");
+  if (!isObj(desk) || !isObj(desk.machines) || !Array.isArray(desk.screens) || (desk.arrangement !== null && !isObj(desk.arrangement))) throw new ShapeError("puesto");
   if (!isObj(snap.state) || !isObj(snap.state.on) || typeof snap.state.on.a !== "boolean" || typeof snap.state.on.b !== "boolean") throw new ShapeError("encendido");
   if (!isObj(snap.peer) || !isObj(snap.pairing)) throw new ShapeError("emparejamiento");
   if (!isObj(snap.input) || !Array.isArray(snap.input.missing)) throw new ShapeError("entrada");

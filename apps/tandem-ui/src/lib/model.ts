@@ -15,7 +15,8 @@ export interface MachineInfo {
   /** Color de acento en CSS (`#rrggbb`), elegido al emparejar (D17). */
   color: string;
 }
-export type Side = "left" | "right";
+export type Side = "left" | "right" | "up" | "down";
+export type Align = "start" | "center" | "end";
 
 /** Una pantalla del acomodo declarado (DESIGN §7), en coordenadas nativas de su máquina. */
 export interface ScreenSpec {
@@ -33,8 +34,9 @@ export interface Desk {
   /** Lo que se sabe de cada lado (`null` si todavía no se anunció). */
   machines: Record<Machine, MachineInfo | null>;
   screens: ScreenSpec[];
-  /** De qué lado de `b` está `a`; `offset` lo usa el editor del acomodo. */
-  arrangement: { a_side: Side; offset: number };
+  /** De qué lado de `b` está `a` y con qué alineación (D18); `null` sin declarar: `a` a la
+   * izquierda de `b` y todo el borde cruza (T-099). */
+  arrangement: { a_side: Side; align: Align } | null;
 }
 
 export interface DeskState {

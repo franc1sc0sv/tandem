@@ -20,7 +20,7 @@ function machineCaps(machine: "a" | "b", extra: Partial<MachineCaps> = {}): Mach
 const desk: Desk = {
   machines: { a: { os: "macos", name: "Guardada A", color: "#111111" }, b: null },
   screens: [],
-  arrangement: { a_side: "left", offset: 0 },
+  arrangement: null,
 };
 
 describe("lados", () => {
