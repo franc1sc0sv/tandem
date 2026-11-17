@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 monitor-ddc.workspace = true
 tandem-core = { path = "../tandem-core" }
+tandem-input = { path = "../tandem-input" }
 tandem-link = { path = "../tandem-link" }
 tandem-monitor = { path = "../tandem-monitor" }
 tandem-proto = { path = "../tandem-proto" }
@@ -21,6 +22,7 @@ tracing.workspace = true
 [dev-dependencies]
 proptest.workspace = true
 tandem-peripherals = { path = "../tandem-peripherals" }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 
 [lints]
 workspace = true

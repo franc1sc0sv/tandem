@@ -261,6 +261,7 @@ async fn respond<C: ControlChannel>(
             ControlMsg::Resources(r) => agent.receive_peer_resources(*r),
             ControlMsg::Rescan => agent.receive_rescan(),
             ControlMsg::Update(msg) => agent.receive_update(msg),
+            ControlMsg::Focus(msg) => agent.inbox().deliver_focus(msg),
             // Solo vale como primer mensaje ([`accept_streams`]).
             ControlMsg::Open(channel) => {
                 return Err(format!("canal {channel:?} abierto a mitad de un stream"));

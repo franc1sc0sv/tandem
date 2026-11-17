@@ -38,6 +38,8 @@ struct Pending {
     dx: f64,
     dy: f64,
     scroll: Option<Scroll>,
+    /// Marca del primer evento acumulado.
+    t_us: Option<u64>,
 }
 
 impl Pending {
@@ -66,6 +68,11 @@ pub struct ServerSession {
     /// Atajo que bloquea el cursor en la máquina donde está; vacío = sin atajo.
     lock_shortcut: Vec<HidUsage>,
     locked: bool,
+    /// Si el cursor cruza a la otra máquina con un botón presionado (arrastrar). Por
+    /// omisión no, como Deskflow: un arrastre que llega al borde se queda en su máquina.
+    drag_across: bool,
+    /// Marca del evento que se está procesando.
+    now_us: u64,
 }
 
 impl ServerSession {
@@ -85,7 +92,20 @@ impl ServerSession {
             synced: true,
             lock_shortcut: Vec::new(),
             locked: false,
+            drag_across: false,
+            now_us: 0,
         }
+    }
+
+    /// Permite cruzar a la otra máquina con un botón presionado.
+    pub fn with_drag_across(mut self, allow: bool) -> Self {
+        self.drag_across = allow;
+        self
+    }
+
+    /// El cursor no puede cruzar ahora: bloqueado por el atajo o arrastrando.
+    fn held_in_place(&self) -> bool {
+        self.locked || (!self.drag_across && self.pressed.any_button())
     }
 
     /// Atajo de teclado (todas las teclas a la vez) que bloquea y desbloquea el
@@ -160,6 +180,13 @@ impl ServerSession {
     /// locales; un `MotionAbsolute` es la posición real del cursor local, que la
     /// captura informa para corregir el seguimiento.
     pub fn handle(&mut self, event: InputEvent) -> Vec<ServerOutput> {
+        self.handle_at(event, 0)
+    }
+
+    /// Como [`Self::handle`], con la marca de tiempo de la captura ([`super::latency::now_us`])
+    /// que viaja en los mensajes para medir la latencia.
+    pub fn handle_at(&mut self, event: InputEvent, t_us: u64) -> Vec<ServerOutput> {
+        self.now_us = t_us;
         let mut out = Vec::new();
         match self.focus {
             Focus::Local => self.handle_local(event, &mut out),
@@ -189,7 +216,7 @@ impl ServerSession {
         match event {
             InputEvent::Key { .. } | InputEvent::Button { .. } => self.record(&event),
             InputEvent::MotionAbsolute { x, y } => self.local = Point::new(x, y),
-            InputEvent::MotionRelative { dx, dy } if self.locked => {
+            InputEvent::MotionRelative { dx, dy } if self.held_in_place() => {
                 self.local = self.layout.step_within(self.machine, self.local, dx, dy);
             }
             InputEvent::MotionRelative { dx, dy } => {
@@ -210,7 +237,11 @@ impl ServerSession {
                 self.record(&event);
                 // Se reenvía siempre: el cliente decide si cambia algo (una tecla
                 // que se apretó antes de entrar no está presionada allá).
-                out.push(ServerOutput::Stream(StreamMsg::Key { usage, state }));
+                out.push(ServerOutput::Stream(StreamMsg::Key {
+                    usage,
+                    state,
+                    t_us: self.now_us,
+                }));
             }
             InputEvent::Button { button, state } => {
                 self.record(&event);
@@ -220,6 +251,7 @@ impl ServerSession {
                     state,
                     seq: self.seq,
                     pos,
+                    t_us: self.now_us,
                 }));
             }
             InputEvent::MotionRelative { dx, dy } => self.move_remote(pos, dx, dy, out),
@@ -231,6 +263,7 @@ impl ServerSession {
                     out.extend(self.flush().map(ServerOutput::Datagram));
                     self.pending.scroll = Some(s);
                 }
+                self.pending.t_us.get_or_insert(self.now_us);
             }
             // La posición real del cursor local no cambia mientras está congelado.
             InputEvent::MotionAbsolute { .. } | InputEvent::Modifiers(_) => {}
@@ -249,18 +282,21 @@ impl ServerSession {
             Some(s) => s.to_native(lx, ly),
             None => (lx, ly),
         };
-        let motion = if self.locked {
+        let motion = if self.held_in_place() {
             Motion::Local(self.layout.step_within(remote, pos, rx, ry))
         } else {
             self.layout.step(remote, pos, rx, ry)
         };
         match motion {
             Motion::Local(p) => {
-                // El delta que viaja es lógico; se mide sobre lo que de verdad se
-                // movió (contra un borde sin cruce, nada).
-                let scale = self.layout.screen_at(remote, pos).map_or(1.0, |s| s.scale);
-                self.pending.dx += (p.x - pos.x) / scale;
-                self.pending.dy += (p.y - pos.y) / scale;
+                // El delta que viaja es nativo del cliente y se mide sobre lo que de
+                // verdad se movió (contra un borde sin cruce, nada): sumados, los deltas
+                // llevan al cliente exactamente a `p`.
+                if p != pos {
+                    self.pending.dx += p.x - pos.x;
+                    self.pending.dy += p.y - pos.y;
+                    self.pending.t_us.get_or_insert(self.now_us);
+                }
                 self.focus = Focus::Remote { pos: p };
             }
             Motion::Cross { to, pos: back } if to == self.machine => self.leave(back, out),
@@ -314,6 +350,7 @@ impl ServerSession {
             dy: p.dy,
             scroll: p.scroll,
             resync,
+            t_us: p.t_us.unwrap_or(self.now_us),
         })
     }
 
@@ -518,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn el_delta_viaja_en_puntos_logicos() {
+    fn el_delta_viaja_en_unidades_nativas_del_cliente() {
         // Cliente PC con 150 %, servidor Mac a 1.0.
         let mut s = ServerSession::new(
             Machine::A,
@@ -534,8 +571,9 @@ mod tests {
         let start = s.remote_cursor().unwrap();
         s.handle(rel(10.0, 0.0));
         let d = s.flush().unwrap();
-        assert_eq!((d.dx, d.dy), (10.0, 0.0));
-        // Pero el cursor del cliente se mueve en sus unidades nativas.
+        // 10 puntos de la Mac son 15 píxeles en la pantalla al 150 % de la PC: la misma
+        // distancia física.
+        assert_eq!((d.dx, d.dy), (15.0, 0.0));
         assert_eq!(d.resync, Some(Point::new(start.x + 15.0, start.y)));
     }
 
@@ -589,8 +627,84 @@ mod tests {
                 state: KeyState::Pressed,
                 seq: 1,
                 pos,
+                t_us: 0,
             })
         );
+    }
+
+    #[test]
+    fn el_datagrama_lleva_la_marca_del_evento_mas_viejo() {
+        let mut s = session();
+        cross(&mut s);
+        s.handle_at(rel(1.0, 0.0), 1_000);
+        s.handle_at(rel(1.0, 0.0), 1_700);
+        s.handle_at(
+            InputEvent::Scroll(Scroll::Wheel {
+                dx_v120: 0,
+                dy_v120: 120,
+            }),
+            2_000,
+        );
+        assert_eq!(s.flush().unwrap().t_us, 1_000);
+        s.handle_at(
+            InputEvent::Scroll(Scroll::Wheel {
+                dx_v120: 0,
+                dy_v120: 120,
+            }),
+            5_000,
+        );
+        s.handle_at(rel(1.0, 0.0), 6_000);
+        assert_eq!(s.flush().unwrap().t_us, 5_000);
+        // Un movimiento contra un borde sin cruce no acumula nada.
+        assert_eq!(s.flush(), None);
+    }
+
+    #[test]
+    fn un_arrastre_no_cruza_el_borde_salvo_que_se_permita() {
+        let press = InputEvent::Button {
+            button: Button::Left,
+            state: KeyState::Pressed,
+        };
+        let release = InputEvent::Button {
+            button: Button::Left,
+            state: KeyState::Released,
+        };
+        // Por omisión (como Deskflow) el arrastre se queda en su máquina.
+        let mut s = session();
+        s.handle(InputEvent::MotionAbsolute {
+            x: edge_pc(),
+            y: 720.0,
+        });
+        s.handle(press);
+        assert!(s.handle(rel(50.0, 0.0)).is_empty());
+        assert!(!s.is_remote());
+        assert_eq!(s.local_cursor(), Point::new(edge_pc(), 720.0));
+        // Al soltar, cruza.
+        s.handle(release);
+        assert!(matches!(
+            s.handle(rel(5.0, 0.0))[0],
+            ServerOutput::Grab(true)
+        ));
+        // Del otro lado tampoco vuelve arrastrando.
+        s.handle(press);
+        assert!(s.handle(rel(-500.0, 0.0)).is_empty());
+        assert!(s.is_remote());
+        s.handle(release);
+        assert!(matches!(
+            s.handle(rel(-5.0, 0.0))[0],
+            ServerOutput::Stream(StreamMsg::Leave)
+        ));
+        // Configurado, cruza con el botón presionado.
+        let mut s = session().with_drag_across(true);
+        s.handle(InputEvent::MotionAbsolute {
+            x: edge_pc(),
+            y: 720.0,
+        });
+        s.handle(press);
+        assert!(matches!(
+            s.handle(rel(5.0, 0.0))[0],
+            ServerOutput::Grab(true)
+        ));
     }
 
     #[test]
@@ -647,11 +761,13 @@ mod tests {
     fn las_teclas_se_reenvian_mientras_el_foco_es_remoto() {
         let mut s = session();
         cross(&mut s);
+        // Con la marca de la captura, para medir la latencia.
         assert_eq!(
-            s.handle(key(0x05, KeyState::Pressed)),
+            s.handle_at(key(0x05, KeyState::Pressed), 42),
             vec![ServerOutput::Stream(StreamMsg::Key {
                 usage: HidUsage::key(0x05),
-                state: KeyState::Pressed
+                state: KeyState::Pressed,
+                t_us: 42,
             })]
         );
         assert!(

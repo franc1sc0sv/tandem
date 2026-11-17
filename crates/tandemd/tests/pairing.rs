@@ -25,6 +25,7 @@ use tandemd::network::{NOT_PAIRED, NOTHING_TO_CONFIRM, NetOptions, PAIRING_IN_PR
 use tandemd::orchestrator::{LocalSteps, StepFuture};
 use tandemd::pairing::PairingTimeouts;
 use tandemd::paths::Paths;
+use tandemd::test_ports::{PortTaken, port_taken};
 use tandemd::{Agent, AgentConfig, StoreError};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -138,7 +139,7 @@ async fn start(
     port: u16,
     peer_port: u16,
     timeouts: PairingTimeouts,
-) -> Running {
+) -> Result<Running, PortTaken> {
     start_with_input(
         (machine, name_of(machine)),
         identity,
@@ -158,7 +159,7 @@ async fn start_with_input(
     (port, peer_port): (u16, u16),
     timeouts: PairingTimeouts,
     input: Option<InputSetup>,
-) -> Running {
+) -> Result<Running, PortTaken> {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -175,11 +176,7 @@ async fn start_with_input(
     // En el disco, como en el binario: el lado que resulte al emparejar se guarda ahí.
     std::fs::write(&paths.config, &text).unwrap();
     let cfg = AgentConfig::from_toml(&text).unwrap();
-    let Daemon {
-        agent,
-        network,
-        input,
-    } = daemon::start(
+    let started = daemon::start(
         cfg,
         &paths,
         Backends::Custom {
@@ -193,8 +190,12 @@ async fn start_with_input(
             pairing: timeouts,
             ..NetOptions::default()
         },
-    )
-    .unwrap();
+    );
+    let Daemon {
+        agent,
+        network,
+        input,
+    } = port_taken(started).unwrap()?;
     let (listener, connector) = mem::pair();
     let (stop, stopped) = oneshot::channel::<()>();
     let task = tokio::spawn(
@@ -210,14 +211,14 @@ async fn start_with_input(
     let ui = IpcClient::handshake(connector.connect().unwrap())
         .await
         .unwrap();
-    Running {
+    Ok(Running {
         agent,
         ui,
         paths,
         stop: Some(stop),
         task,
         _dir: dir,
-    }
+    })
 }
 
 struct Desk {
@@ -232,9 +233,10 @@ async fn desk(seed: u8, timeouts: PairingTimeouts) -> Desk {
         Identity::from_seed([seed; 32]),
         Identity::from_seed([seed + 1; 32]),
     );
-    let (mac_port, pc_port) = (free_pair(), free_pair());
-    let mac = start(Machine::A, &mac_id, mac_port, pc_port, timeouts).await;
-    let pc = start(Machine::B, &pc_id, pc_port, mac_port, timeouts).await;
+    let (mac, pc) = tandemd::start_pair!(
+        ports: free_pair; |mac_port, pc_port| start(Machine::A, &mac_id, mac_port, pc_port, timeouts),
+        start(Machine::B, &pc_id, pc_port, mac_port, timeouts)
+    );
     Desk {
         mac,
         pc,
@@ -567,24 +569,23 @@ async fn pairing_hot_opens_the_input_session() {
 
 async fn pair_two_fresh_agents(x: u8, y: u8) {
     let (mac_id, pc_id) = (Identity::from_seed([x; 32]), Identity::from_seed([y; 32]));
-    let (mac_port, pc_port) = (free_pair(), free_pair());
     let timeouts = PairingTimeouts::default();
-    let mut mac = start_with_input(
+    let (mut mac, mut pc) = tandemd::start_pair!(
+        ports: free_pair; |mac_port, pc_port| start_with_input(
         (Machine::A, "Mac"),
         &mac_id,
         (mac_port, pc_port),
         timeouts,
         Some(input_setup("m34")),
-    )
-    .await;
-    let mut pc = start_with_input(
+    ),
+        start_with_input(
         (Machine::A, "PC"),
         &pc_id,
         (pc_port, mac_port),
         timeouts,
         Some(input_setup("m34")),
     )
-    .await;
+    );
     assert!(!mac.agent.input_status().session);
 
     assert_eq!(mac.ask(UiCommand::StartPairing).await, Reply::Done);

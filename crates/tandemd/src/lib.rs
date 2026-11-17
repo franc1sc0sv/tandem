@@ -30,6 +30,7 @@
 //! - [`daemon`]: el agente armado, el bucle principal y el apagado ordenado.
 //! - [`logging`]: `tracing` a stdout y a archivo.
 //! - `sim` (feature `sim-backends`): pasos simulados para probar el binario sin hardware.
+//! - [`test_ports`]: puertos de loopback para las pruebas con agentes reales.
 
 pub mod agent;
 pub mod autoconfig;
@@ -56,6 +57,7 @@ pub mod power;
 #[cfg(feature = "sim-backends")]
 pub mod sim;
 pub mod store;
+pub mod test_ports;
 pub mod tunnels;
 
 pub use agent::{Agent, PairingControl};

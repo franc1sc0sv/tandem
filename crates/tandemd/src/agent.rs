@@ -11,9 +11,9 @@ use tandem_core::{
 use tandem_link::qos::LinkQos;
 use tandem_link::transport::{Connection, ControlStream};
 use tandem_proto::{
-    Capabilities, Channel, ControlMsg, DeskCapabilities, HubReport, InputStatus, KeyProbeStatus,
-    ModuleId, PairingStatus, PeerStatus, PowerEvent, Reply, ScreenRect, SetupInfo, TxnEvent,
-    UiCommand, UpdateMsg, UpdateStatus,
+    Capabilities, Channel, ControlMsg, DeskCapabilities, FocusMsg, HubReport, InputStatus,
+    KeyProbeStatus, ModuleId, PairingStatus, PeerStatus, PowerEvent, Reply, ScreenRect, SetupInfo,
+    TxnEvent, UiCommand, UpdateMsg, UpdateStatus,
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
@@ -167,6 +167,8 @@ pub struct PeerInbox {
     pub hub: watch::Sender<Option<HubReport>>,
     pub screens: watch::Sender<Option<Vec<ScreenRect>>>,
     channels: Mutex<Option<mpsc::UnboundedSender<IncomingChannel>>>,
+    /// Quien arbitra el teclado y el mouse (D7): recibe los [`FocusMsg`] del otro.
+    focus: Mutex<Option<mpsc::UnboundedSender<FocusMsg>>>,
 }
 
 /// Un stream de entrada o de portapapeles que abrió el otro agente, sobre su conexión
@@ -192,6 +194,22 @@ impl PeerInbox {
             hub: watch::Sender::new(None),
             screens: watch::Sender::new(None),
             channels: Mutex::new(None),
+            focus: Mutex::new(None),
+        }
+    }
+
+    /// Quien atiende el arbitraje del teclado y mouse; reemplaza al anterior.
+    pub fn set_focus(&self, tx: mpsc::UnboundedSender<FocusMsg>) {
+        *self.focus.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
+    }
+
+    /// Entrega un mensaje del arbitraje; sin motor de entrada se descarta.
+    pub fn deliver_focus(&self, msg: FocusMsg) {
+        let tx = self.focus.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(tx) = tx.as_ref()
+            && tx.send(msg).is_err()
+        {
+            tracing::debug!("arbitraje del teclado sin quien lo atienda");
         }
     }
 
@@ -460,8 +478,7 @@ impl Agent {
         // Al emparejar, las escenas de siempre con los nombres reales (D6).
         let scenes = (mine || theirs) && scenes::add_defaults(&mut desk);
         if mine || theirs || colors || scenes {
-            self.desk.send_replace(desk);
-            self.bump_desk();
+            self.commit_desk(desk);
         }
     }
 
@@ -515,8 +532,7 @@ impl Agent {
         if self.desk() == desk {
             return Ok(());
         }
-        self.desk.send_replace(desk);
-        self.bump_desk();
+        self.commit_desk(desk);
         Ok(())
     }
 
@@ -648,6 +664,15 @@ impl Agent {
         let next = self
             .desk_sync()
             .change(self.desk(), self.machine(), now_millis());
+        self.commit_local(next);
+    }
+
+    /// `desk` como versión nueva de esta máquina. No se publica en memoria antes de
+    /// [`Agent::commit_local`]: así lo que ven la UI, la otra máquina y las pruebas ya está
+    /// en `tandem.toml` (antes se veía un instante antes de guardarse). Se llama con el cambio
+    /// tomado ([`Agent::edit`]).
+    fn commit_desk(&self, desk: Config) {
+        let next = self.desk_sync().change(desk, self.machine(), now_millis());
         self.commit_local(next);
     }
 

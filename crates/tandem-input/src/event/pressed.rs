@@ -46,6 +46,11 @@ impl Pressed {
         self.buttons.contains(&button)
     }
 
+    /// Algún botón del mouse está presionado (se está arrastrando).
+    pub fn any_button(&self) -> bool {
+        !self.buttons.is_empty()
+    }
+
     pub fn is_empty(&self) -> bool {
         self.keys.is_empty() && self.buttons.is_empty()
     }

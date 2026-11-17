@@ -1,8 +1,8 @@
 //! Teclado, mouse y portapapeles entre dos `tandemd` armados con [`daemon::start`]:
 //! identidades emparejadas, QUIC real en loopback y backends de entrada simulados
 //! ([`FakeInputBackends`]). El cursor cruza el borde y los eventos llegan al otro
-//! lado, mover el hub invierte los roles, el portapapeles se sincroniza y los permisos
-//! que faltan en la Mac llegan a la UI.
+//! lado, usar el mouse de la otra máquina la pone a mandar (D7: sin dueño), el
+//! portapapeles se sincroniza y los permisos que faltan en la Mac llegan a la UI.
 //!
 //! La geometría es la del acomodo (DESIGN §7): el de omisión (A a la izquierda, con
 //! las pantallas que lee cada una), uno editado que llega por `ControlMsg::Desk` y uno
@@ -11,14 +11,14 @@
 //! Salvo que la prueba diga otra cosa, el lado A es una Mac y el B una PC (los nombres de
 //! las variables lo reflejan); el código no lo supone: lo dice el `Os` de cada agente.
 
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use tandem_clipboard::ClipContent;
 use tandem_core::{DeskPatch, InputPrefs, Machine, Os, Shortcuts, Side, Step};
 use tandem_input::geometry::{LayoutOptions, Rect, Screen};
-use tandem_input::session::SessionConfig;
+use tandem_input::session::{FollowConfig, SessionConfig};
 use tandem_input::{HidUsage, InputEvent, KeyState, ModifierKey};
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_peripherals::{UsbId, WatchConfig};
@@ -30,6 +30,7 @@ use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::NetOptions;
 use tandemd::orchestrator::{LocalSteps, StepFuture};
 use tandemd::paths::Paths;
+use tandemd::test_ports::{PortTaken, free_port, port_taken};
 use tandemd::{Agent, AgentConfig, StoreError};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -68,10 +69,16 @@ const BARE: &str = "<bare>";
 /// Tope para que una prueba rota falle en vez de colgarse.
 const TIMEOUT: Duration = Duration::from_secs(20);
 
-async fn within<F: Future>(f: F) -> F::Output {
-    tokio::time::timeout(TIMEOUT, f)
-        .await
-        .expect("la prueba superó el tiempo máximo")
+/// Dice dónde se esperó, para saber qué paso se colgó.
+#[track_caller]
+fn within<F: Future>(f: F) -> impl Future<Output = F::Output> {
+    let at = std::panic::Location::caller();
+    async move {
+        match tokio::time::timeout(TIMEOUT, f).await {
+            Ok(v) => v,
+            Err(_) => panic!("la prueba superó el tiempo máximo esperando en {at}"),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -89,14 +96,6 @@ impl LocalSteps for Steps {
     }
 }
 
-fn free_port() -> u16 {
-    UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
-
 fn loopback(port: u16) -> SocketAddr {
     SocketAddr::from((Ipv4Addr::LOCALHOST, port))
 }
@@ -108,6 +107,7 @@ fn fast() -> InputOptions {
             heartbeat_timeout: Duration::from_millis(1500),
             resync_idle: Duration::from_millis(20),
             resync_every: 8,
+            latency_every: Duration::from_millis(500),
         },
         clipboard: tandem_clipboard::ClipConfig {
             poll: Duration::from_millis(10),
@@ -118,6 +118,7 @@ fn fast() -> InputOptions {
             debounce: Duration::from_millis(150),
         },
         layout: LayoutOptions { corner_margin: 0.0 },
+        follow: FollowConfig::default(),
         report_every: Duration::from_millis(200),
         screens_every: Duration::from_millis(200),
         permissions_every: Duration::from_millis(50),
@@ -145,9 +146,12 @@ impl Running {
         within(self.task).await.unwrap().unwrap();
     }
 
-    async fn until_input(&self, f: impl Fn(&InputStatus) -> bool) {
+    #[track_caller]
+    fn until_input(&self, f: impl Fn(&InputStatus) -> bool) -> impl Future<Output = ()> {
         let mut rx = self.agent.subscribe_input();
-        within(rx.wait_for(|s| f(s))).await.unwrap();
+        within(async move {
+            rx.wait_for(|s| f(s)).await.map(|_| ()).unwrap();
+        })
     }
 }
 
@@ -157,7 +161,7 @@ async fn start(
     port: u16,
     peer: (PublicKey, u16),
     fake: FakeInputBackends,
-) -> Running {
+) -> Result<Running, PortTaken> {
     start_with(machine, identity, port, peer, fake, "").await
 }
 
@@ -169,7 +173,7 @@ async fn start_with(
     peer: (PublicKey, u16),
     fake: FakeInputBackends,
     input_extra: &str,
-) -> Running {
+) -> Result<Running, PortTaken> {
     start_full(machine, identity, port, peer, fake, input_extra, "").await
 }
 
@@ -191,7 +195,7 @@ async fn start_full(
     fake: FakeInputBackends,
     input_extra: &str,
     tail: &str,
-) -> Running {
+) -> Result<Running, PortTaken> {
     start_os(
         machine,
         os_of(machine),
@@ -216,7 +220,14 @@ async fn start_os(
     fake: FakeInputBackends,
     input_extra: &str,
     tail: &str,
-) -> Running {
+) -> Result<Running, PortTaken> {
+    // `TANDEM_TEST_LOG=tandemd::input=debug` muestra el registro de los agentes: para
+    // entender una espera que vence.
+    if let Ok(filter) = std::env::var("TANDEM_TEST_LOG") {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+            .try_init();
+    }
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -241,11 +252,7 @@ async fn start_os(
     std::fs::write(&paths.config, &text).unwrap();
     let mut cfg = AgentConfig::load(&paths.config).unwrap();
     cfg.os = os;
-    let Daemon {
-        agent,
-        network,
-        input,
-    } = daemon::start(
+    let started = daemon::start(
         cfg,
         &paths,
         Backends::Custom {
@@ -259,10 +266,16 @@ async fn start_os(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
+            // Sin reserva: un puerto tomado falla enseguida y `start_pair!` elige otro.
+            fallback_ports: Vec::new(),
             ..NetOptions::default()
         },
-    )
-    .unwrap();
+    );
+    let Daemon {
+        agent,
+        network,
+        input,
+    } = port_taken(started).unwrap()?;
     assert!(input.is_some());
     let (listener, connector) = mem::pair();
     let (stop, stopped) = oneshot::channel::<()>();
@@ -279,13 +292,13 @@ async fn start_os(
     let ui = IpcClient::handshake(connector.connect().unwrap())
         .await
         .unwrap();
-    Running {
+    Ok(Running {
         agent,
         ui,
         stop: Some(stop),
         task,
         _dir: dir,
-    }
+    })
 }
 
 fn key(usage: HidUsage, state: KeyState) -> InputEvent {
@@ -293,9 +306,15 @@ fn key(usage: HidUsage, state: KeyState) -> InputEvent {
 }
 
 /// Espera a que lo inyectado cumpla `f`.
-async fn until_injected(fake: &FakeInputBackends, f: impl Fn(&[InputEvent]) -> bool) {
+#[track_caller]
+fn until_injected(
+    fake: &FakeInputBackends,
+    f: impl Fn(&[InputEvent]) -> bool,
+) -> impl Future<Output = ()> {
     let mut rx = fake.injected();
-    within(rx.wait_for(|e| f(e))).await.unwrap();
+    within(async move {
+        rx.wait_for(|e| f(e)).await.map(|_| ()).unwrap();
+    })
 }
 
 /// Lleva el cursor del servidor a `x` y lo empuja `dx` hacia el borde, hasta que la otra
@@ -327,6 +346,27 @@ async fn cross(
     .await
 }
 
+/// El usuario usa el mouse de `who` hasta que las dos máquinas dicen que manda ella y la
+/// sesión está arriba (D7: manda la que recibe entrada física, en cuanto la otra lleve
+/// 300 ms quieta).
+async fn take_over(who: &Running, fake: &FakeInputBackends, other: &Running) {
+    let me = who.agent.machine();
+    within(async {
+        loop {
+            fake.capture(InputEvent::MotionRelative { dx: 0.0, dy: 1.0 });
+            let serving = |r: &Running| {
+                let s = r.agent.input_status();
+                s.server == me && s.session
+            };
+            if serving(who) && serving(other) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+}
+
 /// Espera a que cada agente vea a la otra máquina prendida: sin eso sus pantallas no
 /// cuentan en la geometría.
 async fn both_on(a: &Running, b: &Running) {
@@ -340,27 +380,26 @@ async fn both_on(a: &Running, b: &Running) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     let (mac_id, pc_id) = sides(Identity::from_seed([11; 32]), Identity::from_seed([12; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
     // El hub empieza en la PC.
     pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
-    let mut mac = start(
-        Machine::A,
-        &mac_id,
-        mac_port,
-        (pc_id.public_key(), pc_port),
-        mac_fake.clone(),
-    )
-    .await;
-    let pc = start(
-        Machine::B,
-        &pc_id,
-        pc_port,
-        (mac_id.public_key(), mac_port),
-        pc_fake.clone(),
-    )
-    .await;
+    let (mut mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
 
     // Roles por el hub y sesión de entrada sobre el enlace.
     let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
@@ -416,13 +455,12 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
         .await
         .unwrap();
 
-    // El usuario mueve el hub a la Mac: los roles se invierten en los dos agentes.
-    pc_fake.devices().set(vec![]);
-    mac_fake.devices().set(vec![KEYBOARD, MOUSE]);
-    let mac_serving = |s: &InputStatus| s.server == Machine::A && s.session;
-    mac.until_input(mac_serving).await;
-    pc.until_input(mac_serving).await;
+    // Las dos capturan siempre (D7).
     assert!(mac_fake.capturing());
+    // El usuario toma el mouse de la Mac: en cuanto la PC lleva 300 ms quieta, manda la
+    // Mac en los dos agentes. El hub no decide nada.
+    take_over(&mac, &mac_fake, &pc).await;
+    assert_eq!(pc.agent.input_status().hub_here, Some(true));
     // Al dejar de ser servidor la PC devolvió el cursor a su pantalla.
     let calls = pc_fake.capture_calls().borrow().clone();
     assert_eq!(
@@ -458,10 +496,38 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
         Reply::Input(mac.agent.input_status())
     );
 
+    // La PC vuelve a usarse mientras la Mac escribe: no se la quita hasta que la Mac
+    // lleva 300 ms quieta.
+    let started = std::time::Instant::now();
+    for _ in 0..10 {
+        mac_fake.capture(key(b, KeyState::Released));
+        pc_fake.capture(InputEvent::MotionRelative { dx: 0.0, dy: 1.0 });
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    if started.elapsed() < Duration::from_millis(250) {
+        assert_eq!(
+            pc.agent.input_status().server,
+            Machine::A,
+            "la Mac seguía en uso"
+        );
+    }
+    take_over(&pc, &pc_fake, &mac).await;
+
     pc.stop().await;
-    // Sin el otro agente no hay sesión, y la Mac, con el hub, sigue de servidor.
-    mac.until_input(|s| !s.session && s.server == Machine::A)
+    // Sin el otro agente no hay sesión; la Mac sigue con lo último que se decidió hasta
+    // que se use.
+    mac.until_input(|s| !s.session && s.server == Machine::B)
         .await;
+    // Sin enlace, manda la que se usa. La sesión cae antes que el enlace (que espera su
+    // propio plazo de salud): mientras el enlace siga arriba la Mac pide y nadie contesta,
+    // así que el usuario sigue moviendo el mouse hasta que el enlace cae.
+    within(async {
+        while mac.agent.input_status().server != Machine::A {
+            mac_fake.capture(InputEvent::MotionRelative { dx: 0.0, dy: 1.0 });
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
     mac.stop().await;
 }
 
@@ -470,29 +536,26 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
     let (mac_id, pc_id) = sides(Identity::from_seed([31; 32]), Identity::from_seed([32; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
-    // El hub en la Mac: ella captura y decide por dónde cruza.
-    mac_fake.devices().set(vec![KEYBOARD, MOUSE]);
-    let mac = start(
-        Machine::A,
-        &mac_id,
-        mac_port,
-        (pc_id.public_key(), pc_port),
-        mac_fake.clone(),
-    )
-    .await;
-    let pc = start(
-        Machine::B,
-        &pc_id,
-        pc_port,
-        (mac_id.public_key(), mac_port),
-        pc_fake.clone(),
-    )
-    .await;
-    let mac_serving = |s: &InputStatus| s.server == Machine::A && s.session;
-    mac.until_input(mac_serving).await;
+    let (mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
+    // La Mac se usa: ella captura y decide por dónde cruza.
+    take_over(&mac, &mac_fake, &pc).await;
     both_on(&mac, &pc).await;
 
     // Por omisión la Mac está a la izquierda: cruza por su borde derecho.
@@ -560,29 +623,28 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
     let (mac_id, pc_id) = sides(Identity::from_seed([33; 32]), Identity::from_seed([34; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
     pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
-    let mac = start(
-        Machine::A,
-        &mac_id,
-        mac_port,
-        (pc_id.public_key(), pc_port),
-        mac_fake.clone(),
-    )
-    .await;
     let declared = "[[screens]]\nmachine = \"b\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 2000\nheight = 720\n\n[arrangement]\na_side = \"right\"\nalign = \"center\"\n";
-    let pc = start_full(
-        Machine::B,
-        &pc_id,
-        pc_port,
-        (mac_id.public_key(), mac_port),
-        pc_fake.clone(),
-        "",
-        declared,
-    )
-    .await;
+    let (mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start_full(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+            "",
+            declared,
+        )
+    );
     let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
     pc.until_input(pc_serving).await;
     both_on(&mac, &pc).await;
@@ -612,18 +674,16 @@ async fn a_capture_that_fails_is_reported_and_retried() {
     let fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     fake.devices().set(vec![KEYBOARD]);
     fake.fail_capture(Some("falta el permiso de Accesibilidad".into()));
-    let mac = start(
+    let mac = tandemd::start_solo!(|port, peer_port| start(
         Machine::A,
         &mac_id,
-        free_port(),
-        (pc_id.public_key(), free_port()),
+        port,
+        (pc_id.public_key(), peer_port),
         fake.clone(),
-    )
-    .await;
-    // Sin el otro agente y con la PC dada por apagada, la Mac con el hub es el servidor.
+    ));
+    // Las dos máquinas capturan (D7): la falla se ve aunque esta no mande.
     let problem = Some("falta el permiso de Accesibilidad".to_owned());
-    mac.until_input(|s| s.server == Machine::A && s.problem == problem)
-        .await;
+    mac.until_input(|s| s.problem == problem).await;
     assert!(!mac.agent.input_status().session);
     assert!(!fake.capturing());
     // El usuario concede el permiso: el siguiente intento arranca la captura.
@@ -644,29 +704,28 @@ async fn a_capture_that_fails_is_reported_and_retried() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
     let (mac_id, pc_id) = sides(Identity::from_seed([15; 32]), Identity::from_seed([16; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
     pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
     let shortcut = "lock_shortcut = [\"ControlLeft\", \"KeyL\"]\n";
-    let mac = start_with(
-        Machine::A,
-        &mac_id,
-        mac_port,
-        (pc_id.public_key(), pc_port),
-        mac_fake.clone(),
-        shortcut,
-    )
-    .await;
-    let pc = start_with(
-        Machine::B,
-        &pc_id,
-        pc_port,
-        (mac_id.public_key(), mac_port),
-        pc_fake.clone(),
-        shortcut,
-    )
-    .await;
+    let (mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start_with(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+            shortcut,
+        ),
+        start_with(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+            shortcut,
+        )
+    );
     pc.until_input(|s| s.session && s.server == Machine::B)
         .await;
     assert!(!pc.agent.input_status().locked);
@@ -693,17 +752,15 @@ async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn declaring_the_keyboard_on_the_server_machine_refreshes_defined() {
     let (mac_id, pc_id) = sides(Identity::from_seed([21; 32]), Identity::from_seed([22; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
     let fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
-    let mac = start_with(
+    let mac = tandemd::start_solo!(|mac_port, pc_port| start_with(
         Machine::A,
         &mac_id,
         mac_port,
         (pc_id.public_key(), pc_port),
-        fake,
+        fake.clone(),
         BARE,
-    )
-    .await;
+    ));
     // Sin hub ni declaración: sin definir, y el motor arranca como si fuera la Mac.
     mac.until_input(|s| s.server == Machine::A && !s.defined)
         .await;
@@ -731,14 +788,13 @@ async fn missing_permissions_are_requested_once_and_on_the_users_order() {
         InputPermission::Accessibility,
         InputPermission::InputMonitoring,
     ]);
-    let mut mac = start(
+    let mut mac = tandemd::start_solo!(|port, peer_port| start(
         Machine::A,
         &mac_id,
-        free_port(),
-        (pc_id.public_key(), free_port()),
+        port,
+        (pc_id.public_key(), peer_port),
         fake.clone(),
-    )
-    .await;
+    ));
     mac.until_input(|s| s.missing.len() == 2).await;
     // Varias lecturas de permisos después (cada 50 ms), sigue siendo un solo pedido.
     tokio::time::sleep(Duration::from_millis(400)).await;
@@ -767,14 +823,13 @@ async fn missing_permissions_are_requested_once_and_on_the_users_order() {
 async fn nothing_is_requested_when_nothing_is_missing() {
     let (mac_id, pc_id) = sides(Identity::from_seed([17; 32]), Identity::from_seed([18; 32]));
     let fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
-    let mac = start(
+    let mac = tandemd::start_solo!(|port, peer_port| start(
         Machine::A,
         &mac_id,
-        free_port(),
-        (pc_id.public_key(), free_port()),
+        port,
+        (pc_id.public_key(), peer_port),
         fake.clone(),
-    )
-    .await;
+    ));
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(fake.permission_requests(), 0);
     mac.stop().await;
@@ -785,32 +840,31 @@ async fn nothing_is_requested_when_nothing_is_missing() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_windows_machines_share_the_keyboard_without_remapping() {
     let (a_id, b_id) = sides(Identity::from_seed([41; 32]), Identity::from_seed([42; 32]));
-    let (a_port, b_port) = (free_port(), free_port());
     let a_fake = FakeInputBackends::new(vec![screen("izq", 1920, 1080)]);
     let b_fake = FakeInputBackends::new(vec![screen("der", 2560, 1440)]);
     b_fake.devices().set(vec![KEYBOARD, MOUSE]);
-    let a = start_os(
-        Machine::A,
-        Os::Windows,
-        &a_id,
-        a_port,
-        (b_id.public_key(), b_port),
-        a_fake.clone(),
-        "",
-        "",
-    )
-    .await;
-    let b = start_os(
-        Machine::B,
-        Os::Windows,
-        &b_id,
-        b_port,
-        (a_id.public_key(), a_port),
-        b_fake.clone(),
-        "",
-        "",
-    )
-    .await;
+    let (a, b) = tandemd::start_pair!(
+        |a_port, b_port| start_os(
+            Machine::A,
+            Os::Windows,
+            &a_id,
+            a_port,
+            (b_id.public_key(), b_port),
+            a_fake.clone(),
+            "",
+            "",
+        ),
+        start_os(
+            Machine::B,
+            Os::Windows,
+            &b_id,
+            b_port,
+            (a_id.public_key(), a_port),
+            b_fake.clone(),
+            "",
+            "",
+        )
+    );
     let b_serving = |s: &InputStatus| s.server == Machine::B && s.session;
     a.until_input(b_serving).await;
     b.until_input(b_serving).await;
@@ -858,26 +912,25 @@ async fn switching_off_the_clipboard_and_the_input_stops_them() {
     use tandem_proto::ModuleId;
 
     let (mac_id, pc_id) = sides(Identity::from_seed([51; 32]), Identity::from_seed([52; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
     pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
-    let mac = start(
-        Machine::A,
-        &mac_id,
-        mac_port,
-        (pc_id.public_key(), pc_port),
-        mac_fake.clone(),
-    )
-    .await;
-    let pc = start(
-        Machine::B,
-        &pc_id,
-        pc_port,
-        (mac_id.public_key(), mac_port),
-        pc_fake.clone(),
-    )
-    .await;
+    let (mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
     let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
     mac.until_input(pc_serving).await;
     pc.until_input(pc_serving).await;
@@ -958,26 +1011,25 @@ async fn until_desk(r: &Running, f: impl Fn(&tandem_core::Desk) -> bool) {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn turning_off_cmd_ctrl_and_the_clipboard_in_the_desk_changes_both_engines() {
     let (mac_id, pc_id) = sides(Identity::from_seed([45; 32]), Identity::from_seed([46; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
     pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
-    let mac = start(
-        Machine::A,
-        &mac_id,
-        mac_port,
-        (pc_id.public_key(), pc_port),
-        mac_fake.clone(),
-    )
-    .await;
-    let pc = start(
-        Machine::B,
-        &pc_id,
-        pc_port,
-        (mac_id.public_key(), mac_port),
-        pc_fake.clone(),
-    )
-    .await;
+    let (mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
     let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
     mac.until_input(pc_serving).await;
     pc.until_input(pc_serving).await;
@@ -1063,26 +1115,25 @@ async fn turning_off_cmd_ctrl_and_the_clipboard_in_the_desk_changes_both_engines
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_lock_shortcut_changed_in_the_desk_applies_without_restarting() {
     let (mac_id, pc_id) = sides(Identity::from_seed([47; 32]), Identity::from_seed([48; 32]));
-    let (mac_port, pc_port) = (free_port(), free_port());
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
     pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
-    let mac = start(
-        Machine::A,
-        &mac_id,
-        mac_port,
-        (pc_id.public_key(), pc_port),
-        mac_fake.clone(),
-    )
-    .await;
-    let pc = start(
-        Machine::B,
-        &pc_id,
-        pc_port,
-        (mac_id.public_key(), mac_port),
-        pc_fake.clone(),
-    )
-    .await;
+    let (mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
     pc.until_input(|s| s.session && s.server == Machine::B)
         .await;
     assert!(!pc.agent.input_status().locked);
@@ -1111,6 +1162,140 @@ async fn the_lock_shortcut_changed_in_the_desk_applies_without_restarting() {
     assert!(pc.agent.input_status().locked);
     pc_fake.capture(key(k, KeyState::Pressed));
     pc.until_input(|s| !s.locked).await;
+    pc.stop().await;
+    mac.stop().await;
+}
+
+/// Un puerto que otra suite tomó entre que se eligió y se abrió (la carrera de las pruebas
+/// que se colgaban con la máquina cargada): el agente no se pasa a un puerto de reserva que
+/// el otro no conoce, falla enseguida, y `start_pair!` elige otros con los que el par se conecta.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn a_port_taken_before_starting_fails_fast_and_the_pair_picks_new_ones() {
+    let held = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let taken = held.local_addr().unwrap().port();
+    let (a_id, b_id) = sides(Identity::from_seed([51; 32]), Identity::from_seed([52; 32]));
+    let a_fake = FakeInputBackends::new(vec![screen("izq", 1920, 1080)]);
+    let b_fake = FakeInputBackends::new(vec![screen("der", 2560, 1440)]);
+
+    let alone = within(start(
+        Machine::A,
+        &a_id,
+        taken,
+        (b_id.public_key(), free_port().unwrap()),
+        a_fake.clone(),
+    ))
+    .await;
+    assert!(
+        matches!(alone, Err(PortTaken)),
+        "tenía que fallar por el puerto"
+    );
+
+    let mut first = Some(taken);
+    let (a, b) = tandemd::start_pair!(
+        |a_port, b_port| start(
+            Machine::A,
+            &a_id,
+            first.take().unwrap_or(a_port),
+            (b_id.public_key(), b_port),
+            a_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &b_id,
+            b_port,
+            (a_id.public_key(), a_port),
+            b_fake.clone(),
+        )
+    );
+    assert!(first.is_none(), "el primer intento usó el puerto tomado");
+    a.until_input(|s| s.session).await;
+    b.until_input(|s| s.session).await;
+    drop(held);
+    b.stop().await;
+    a.stop().await;
+}
+
+/// La sesión de entrada no se abre antes de saber el sistema de la otra máquina. Si se
+/// abría, al llegar sus capacidades se rearmaba la captura y la sesión nueva empezaba con
+/// el cursor en casa: un cruce ya hecho se perdía (otra causa de las esperas que vencían
+/// en estas pruebas, encontrada en la revisión de T-101).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_input_session_waits_for_the_other_machines_os() {
+    for seed in 0..2u8 {
+        let (mac_id, pc_id) = sides(
+            Identity::from_seed([60 + seed; 32]),
+            Identity::from_seed([70 + seed; 32]),
+        );
+        let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+        let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+        let (mac, pc) = tandemd::start_pair!(
+            |mac_port, pc_port| start(
+                Machine::A,
+                &mac_id,
+                mac_port,
+                (pc_id.public_key(), pc_port),
+                mac_fake.clone(),
+            ),
+            start(
+                Machine::B,
+                &pc_id,
+                pc_port,
+                (mac_id.public_key(), mac_port),
+                pc_fake.clone(),
+            )
+        );
+        // El servidor (la PC, por la config) abre la sesión: en ese instante ya sabe qué
+        // sistema tiene la Mac.
+        let mut rx = pc.agent.subscribe_input();
+        within(rx.wait_for(|s| s.session)).await.unwrap();
+        let known = pc.agent.capabilities().peer.map(|p| p.info.os);
+        assert_eq!(
+            known,
+            Some(Os::MacOs),
+            "sesión abierta sin saber el sistema de la otra"
+        );
+        pc.stop().await;
+        mac.stop().await;
+    }
+}
+
+/// La latencia de la entrada alimenta el `Qos` del camino en las dos máquinas (T-101): la
+/// que inyecta con cada muestra y la que captura con el p99 que le informa la otra. Así
+/// el guardián de los datos de cualquiera de las dos puede pausarlos.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_input_latency_feeds_the_link_qos_on_both_machines() {
+    use tandem_link::manager::LinkKind;
+    let (mac_id, pc_id) = sides(Identity::from_seed([81; 32]), Identity::from_seed([82; 32]));
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    let (mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
+    pc.until_input(|s| s.server == Machine::B && s.session)
+        .await;
+    both_on(&mac, &pc).await;
+    cross(&pc_fake, &mac_fake, 0.0, -5.0).await;
+    let p99 = |r: &Running| r.agent.link_qos().get(LinkKind::Usb4).input_p99();
+    within(async {
+        while p99(&mac).is_none() || p99(&pc).is_none() {
+            pc_fake.capture(InputEvent::MotionRelative { dx: 0.0, dy: 1.0 });
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
     pc.stop().await;
     mac.stop().await;
 }

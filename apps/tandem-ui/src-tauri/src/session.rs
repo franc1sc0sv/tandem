@@ -1414,6 +1414,7 @@ mac = "9c:6b:00:1a:2b:ff"
                 missing: vec![InputPermission::InputMonitoring],
                 problem: None,
                 defined: true,
+                latency: None,
             }
             .into(),
             caps: test_caps(Machine::A),

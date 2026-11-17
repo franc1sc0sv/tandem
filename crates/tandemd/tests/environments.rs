@@ -3,7 +3,7 @@
 //! que la otra vuelva a escanear, y los recursos en vivo de la otra llegan mientras la UI
 //! mira y dejan de muestrearse cuando deja de mirar.
 
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,6 +18,7 @@ use tandemd::ipc::{IpcClient, mem};
 use tandemd::network::NetOptions;
 use tandemd::orchestrator::{LocalSteps, StepFuture};
 use tandemd::paths::Paths;
+use tandemd::test_ports::{PortTaken, port_taken};
 use tandemd::{AgentConfig, StoreError, autoconfig};
 use tokio::io::DuplexStream;
 use tokio::sync::oneshot;
@@ -47,14 +48,6 @@ impl LocalSteps for Ok_ {
     fn execute<'a>(&'a self, _step: &'a Step) -> StepFuture<'a> {
         Box::pin(async { Ok(()) })
     }
-}
-
-fn free_port() -> u16 {
-    UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
 }
 
 fn loopback(port: u16) -> SocketAddr {
@@ -150,7 +143,7 @@ async fn start(
     port: u16,
     peer: (PublicKey, u16),
     host: Arc<Host>,
-) -> Running {
+) -> Result<Running, PortTaken> {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -173,11 +166,7 @@ async fn start(
     );
     std::fs::write(&paths.config, &text).unwrap();
     let cfg = AgentConfig::load(&paths.config).unwrap();
-    let Daemon {
-        agent,
-        network,
-        input,
-    } = daemon::start(
+    let started = daemon::start(
         cfg,
         &paths,
         Backends::Custom {
@@ -188,10 +177,16 @@ async fn start(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
+            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            fallback_ports: Vec::new(),
             ..NetOptions::default()
         },
-    )
-    .unwrap();
+    );
+    let Daemon {
+        agent,
+        network,
+        input,
+    } = port_taken(started).unwrap()?;
     let (listener, connector) = mem::pair();
     let (stop, stopped) = oneshot::channel::<()>();
     let task = tokio::spawn(
@@ -207,12 +202,12 @@ async fn start(
     let ui = IpcClient::handshake(connector.connect().unwrap())
         .await
         .unwrap();
-    Running {
+    Ok(Running {
         ui,
         stop: Some(stop),
         task,
         _dir: dir,
-    }
+    })
 }
 
 fn has_env(caps: &Capabilities, id: &str) -> bool {
@@ -222,25 +217,24 @@ fn has_env(caps: &Capabilities, id: &str) -> bool {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_other_machine_environments_and_resources_reach_this_ui() {
     let (a_id, b_id) = sides(Identity::from_seed([41; 32]), Identity::from_seed([42; 32]));
-    let (a_port, b_port) = (free_port(), free_port());
     let (a_runner, a_meter, a_host) = machine("bash", 4, 42.0);
     let (_b_runner, _b_meter, b_host) = machine("zsh", 12, 7.0);
-    let mut a = start(
-        Machine::A,
-        &a_id,
-        a_port,
-        (b_id.public_key(), b_port),
-        a_host,
-    )
-    .await;
-    let mut b = start(
-        Machine::B,
-        &b_id,
-        b_port,
-        (a_id.public_key(), a_port),
-        b_host,
-    )
-    .await;
+    let (mut a, mut b) = tandemd::start_pair!(
+        |a_port, b_port| start(
+            Machine::A,
+            &a_id,
+            a_port,
+            (b_id.public_key(), b_port),
+            a_host.clone(),
+        ),
+        start(
+            Machine::B,
+            &b_id,
+            b_port,
+            (a_id.public_key(), a_port),
+            b_host.clone(),
+        )
+    );
 
     // (a) La UI de B ve los entornos y el equipo que escaneó A al arrancar.
     let seen = b.until_peer(|p| has_env(p, "bash")).await;

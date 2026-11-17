@@ -8,7 +8,7 @@
 use tandem_clipboard::{ClipContent, Clipboard};
 use tandem_core::Os;
 use tandem_input::event::{Direction, ModifierRemap, RemapPolicy};
-use tandem_input::session::{Capture, Injector};
+use tandem_input::session::{Capture, Captured, Injector};
 use tandem_input::{HidUsage, InputEvent, Point, Screen};
 use tandem_peripherals::{DeviceScanner, UsbId};
 use tandem_proto::InputPermission;
@@ -156,7 +156,7 @@ impl DeviceScanner for DynScanner {
 /// que el servidor recuerda presionado ya está en la forma del otro sistema.
 #[derive(Clone)]
 pub struct CaptureSink {
-    tx: mpsc::UnboundedSender<InputEvent>,
+    tx: mpsc::UnboundedSender<Captured>,
     remap: ModifierRemap,
     /// Los atajos de escena miran las teclas físicas, antes de reasignarlas.
     scenes: Option<crate::agent::SceneShortcuts>,
@@ -176,7 +176,7 @@ impl CaptureSink {
     /// La dirección es la del sistema que captura (`from`) hacia el de la otra máquina
     /// (`to`, si ya se sabe).
     pub fn new(
-        tx: mpsc::UnboundedSender<InputEvent>,
+        tx: mpsc::UnboundedSender<Captured>,
         policy: &RemapPolicy,
         from: Os,
         to: Option<Os>,
@@ -196,7 +196,8 @@ impl CaptureSink {
         if let Some(scenes) = &self.scenes {
             scenes.observe(&event);
         }
-        self.tx.send(self.remap.apply(event)).is_ok()
+        // La marca se pone aquí, en el hilo de la captura (el del hook o el tap).
+        self.tx.send(Captured::now(self.remap.apply(event))).is_ok()
     }
 
     /// Con los atajos de las escenas (funcionan en cualquier máquina del puesto: el teclado
@@ -450,14 +451,14 @@ mod tests {
         let mac = CaptureSink::new(tx.clone(), &policy, Os::MacOs, Some(Os::Windows));
         assert!(mac.send(key(ModifierKey::MetaLeft)));
         assert_eq!(
-            rx.try_recv().unwrap(),
+            rx.try_recv().unwrap().event,
             key(ModifierKey::ControlLeft),
             "Cmd→Ctrl"
         );
         let pc = CaptureSink::new(tx, &policy, Os::Windows, Some(Os::MacOs));
         assert!(pc.send(key(ModifierKey::ControlLeft)));
         assert_eq!(
-            rx.try_recv().unwrap(),
+            rx.try_recv().unwrap().event,
             key(ModifierKey::MetaLeft),
             "Ctrl→Cmd"
         );
@@ -466,7 +467,7 @@ mod tests {
             state: KeyState::Pressed,
         };
         assert!(pc.send(a));
-        assert_eq!(rx.try_recv().unwrap(), a);
+        assert_eq!(rx.try_recv().unwrap().event, a);
         drop(rx);
         assert!(!pc.send(a), "sin receptor la captura tiene que soltar");
     }
@@ -483,7 +484,7 @@ mod tests {
             let sink = CaptureSink::new(tx, &policy, os, Some(os));
             for m in [ModifierKey::MetaLeft, ModifierKey::ControlLeft] {
                 assert!(sink.send(key(m)));
-                assert_eq!(rx.try_recv().unwrap(), key(m), "{os}: {m:?}");
+                assert_eq!(rx.try_recv().unwrap().event, key(m), "{os}: {m:?}");
                 assert_eq!(sink.remap_key(m.usage()), m.usage());
             }
         }

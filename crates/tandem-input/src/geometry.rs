@@ -1204,4 +1204,124 @@ mod tests {
             }
         }
     }
+
+    /// Pantallas de una máquina en fila, de alturas distintas y alineadas arriba, abajo o
+    /// al centro (bordes parciales del lado que mira a la otra).
+    fn arb_row(id: &'static str) -> impl Strategy<Value = Vec<Screen>> {
+        proptest::collection::vec(
+            (
+                400u32..3000,
+                300u32..2200,
+                0u8..3,
+                prop::sample::select(vec![1.0, 1.25, 1.5, 2.0]),
+            ),
+            1..4,
+        )
+        .prop_map(move |specs| {
+            let tallest = specs.iter().map(|s| s.1).max().unwrap_or(0);
+            let mut x = 0i32;
+            specs
+                .into_iter()
+                .map(|(w, h, align, scale)| {
+                    let y = match align {
+                        0 => 0,
+                        1 => (tallest - h) as i32,
+                        _ => ((tallest - h) / 2) as i32,
+                    };
+                    let s = mon(id, x, y, w, h, scale);
+                    x += w as i32;
+                    s
+                })
+                .collect()
+        })
+    }
+
+    /// Si `p` está en el borde que mira a la otra máquina de alguna pantalla, en un tramo
+    /// que no tapa otra pantalla local.
+    fn on_exposed_edge(screens: &[Screen], facing: Side, p: Point) -> bool {
+        exposed_edge(screens, facing).iter().any(|seg| {
+            let r = screens[seg.screen].rect;
+            let (on_line, along) = match facing {
+                Side::Left => (p.x == r.left(), p.y),
+                Side::Right => (p.x == r.right() - 1.0, p.y),
+                Side::Up => (p.y == r.top(), p.x),
+                Side::Down => (p.y == r.bottom() - 1.0, p.x),
+            };
+            on_line && along >= seg.t0 && along < seg.t1
+        })
+    }
+
+    proptest! {
+        /// T-093, respetar pantallas: en un paseo largo de movimientos al azar, yendo y
+        /// viniendo entre las dos máquinas por cualquiera de los 4 lados, con o sin
+        /// alineación, y con pantallas de alturas distintas (bordes parciales y huecos en
+        /// las esquinas), el cursor nunca queda fuera de una pantalla de la máquina donde
+        /// está; cada cruce sale de un tramo expuesto del borde, fuera del margen de las
+        /// esquinas de su pantalla, y entra por un tramo expuesto de la otra.
+        #[test]
+        fn un_paseo_nunca_sale_de_las_pantallas_y_cruza_solo_por_bordes_expuestos(
+            a in arb_row("a"),
+            b in arb_row("b"),
+            a_side in side(),
+            align in align(),
+            margin in 0.0f64..40.0,
+            moves in proptest::collection::vec((-900.0f64..900.0, -700.0f64..700.0), 1..80),
+        ) {
+            let opts = LayoutOptions { corner_margin: margin };
+            let l = Layout::compute(&Arrangement { align, ..arr(a, b, a_side) }, opts).unwrap();
+            let mut m = Machine::A;
+            let r = l.screens(m)[0].rect;
+            let mut p = Point::new(
+                r.left() + f64::from(r.width) / 2.0,
+                r.top() + f64::from(r.height) / 2.0,
+            );
+            for (dx, dy) in moves {
+                match l.step(m, p, dx, dy) {
+                    Motion::Local(q) => {
+                        prop_assert!(inside(&l, m, q), "{q:?} fuera de {m}");
+                        p = q;
+                    }
+                    Motion::Cross { to, pos } => {
+                        let facing = l.facing(m).unwrap();
+                        let s = l.screen_at(m, p).unwrap();
+                        let rect = s.rect;
+                        // Dónde la trayectoria toca el borde de la pantalla de origen, como
+                        // lo mide `crossing`.
+                        let t = match facing {
+                            Side::Right => (rect.right() - p.x) / dx,
+                            Side::Left => (rect.left() - p.x) / dx,
+                            Side::Down => (rect.bottom() - p.y) / dy,
+                            Side::Up => (rect.top() - p.y) / dy,
+                        }
+                        .clamp(0.0, 1.0);
+                        let (lo, hi) = span(&rect, facing);
+                        let along = if facing.is_vertical_edge() { p.y + dy * t } else { p.x + dx * t };
+                        let margin = margin * s.scale;
+                        prop_assert!(
+                            along >= lo + margin - 1e-6 && along < hi - margin + 1e-6,
+                            "cruzó en la esquina: {along} en {rect:?}"
+                        );
+                        let along = along.clamp(lo, hi - 1.0);
+                        let exit = match facing {
+                            Side::Left => Point::new(rect.left(), along),
+                            Side::Right => Point::new(rect.right() - 1.0, along),
+                            Side::Up => Point::new(along, rect.top()),
+                            Side::Down => Point::new(along, rect.bottom() - 1.0),
+                        };
+                        prop_assert!(
+                            on_exposed_edge(l.screens(m), facing, exit),
+                            "salió por un tramo tapado o sin borde: {exit:?}"
+                        );
+                        prop_assert!(inside(&l, to, pos), "{pos:?} fuera de {to}");
+                        prop_assert!(
+                            on_exposed_edge(l.screens(to), l.facing(to).unwrap(), pos),
+                            "entró fuera de un tramo expuesto: {pos:?}"
+                        );
+                        m = to;
+                        p = pos;
+                    }
+                }
+            }
+        }
+    }
 }

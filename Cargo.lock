@@ -4384,6 +4384,7 @@ dependencies = [
  "monitor-ddc",
  "proptest",
  "tandem-core",
+ "tandem-input",
  "tandem-link",
  "tandem-monitor",
  "tandem-peripherals",
@@ -4393,6 +4394,7 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

@@ -20,6 +20,8 @@
 
 mod client;
 pub mod fake;
+pub mod follow;
+pub mod latency;
 pub mod msg;
 mod platform;
 #[cfg(test)]
@@ -33,6 +35,8 @@ use std::fmt::Display;
 use std::time::Duration;
 
 pub use client::ClientSession;
+pub use follow::{Follow, FollowConfig};
+pub use latency::Captured;
 pub use msg::{Datagram, MotionDatagram, StreamMsg};
 pub use quic::{ClientDriver, ServerDriver, SessionEnd};
 pub use server::{ServerOutput, ServerSession};
@@ -84,6 +88,9 @@ pub struct SessionConfig {
     /// Cada cuántos datagramas va uno con la posición absoluta aunque el mouse
     /// no pare.
     pub resync_every: u32,
+    /// Ventana de la medición de latencia: cada cuánto el cliente publica p50/p99/máx,
+    /// lo registra y se lo manda al servidor (T-093: 5 s).
+    pub latency_every: Duration,
 }
 
 impl Default for SessionConfig {
@@ -93,6 +100,7 @@ impl Default for SessionConfig {
             heartbeat_timeout: Duration::from_secs(3),
             resync_idle: Duration::from_millis(50),
             resync_every: 16,
+            latency_every: Duration::from_secs(5),
         }
     }
 }

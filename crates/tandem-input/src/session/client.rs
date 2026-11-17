@@ -72,7 +72,7 @@ impl ClientSession {
                 }
             }
             StreamMsg::Leave => out.extend(self.release()),
-            StreamMsg::Key { usage, state } if self.is_active() => {
+            StreamMsg::Key { usage, state, .. } if self.is_active() => {
                 self.apply(InputEvent::Key { usage, state }, &mut out);
             }
             StreamMsg::Button {
@@ -80,6 +80,7 @@ impl ClientSession {
                 state,
                 seq,
                 pos,
+                ..
             } if self.is_active() => {
                 self.sync(seq, pos, &mut out);
                 self.apply(InputEvent::Button { button, state }, &mut out);
@@ -88,7 +89,8 @@ impl ClientSession {
             StreamMsg::Key { .. }
             | StreamMsg::Button { .. }
             | StreamMsg::Sync { .. }
-            | StreamMsg::Heartbeat => {}
+            | StreamMsg::Heartbeat(_)
+            | StreamMsg::Latency(_) => {}
         }
         out
     }
@@ -107,10 +109,8 @@ impl ClientSession {
             self.last_seq = d.seq;
             let target = match d.resync {
                 Some(p) => p,
-                None => {
-                    let scale = self.scale_at(pos);
-                    Point::new(pos.x + d.dx * scale, pos.y + d.dy * scale)
-                }
+                // El delta ya viene en unidades nativas de aquí.
+                None => self.on_screen(Point::new(pos.x + d.dx, pos.y + d.dy)),
             };
             self.move_to(target, &mut out);
         }
@@ -164,16 +164,17 @@ impl ClientSession {
         }
     }
 
-    fn scale_at(&self, pos: Point) -> f64 {
+    /// El punto dentro de alguna pantalla: si cae en un hueco (pantallas que cambiaron
+    /// y el servidor todavía no sabe), en el borde de la más cercana. Sin pantallas
+    /// conocidas, tal cual.
+    fn on_screen(&self, pos: Point) -> Point {
+        if self.screens.is_empty() || self.screens.iter().any(|s| s.rect.contains(pos)) {
+            return pos;
+        }
         self.screens
             .iter()
-            .find(|s| s.rect.contains(pos))
-            .or_else(|| {
-                self.screens
-                    .iter()
-                    .min_by(|a, b| a.rect.distance(pos).total_cmp(&b.rect.distance(pos)))
-            })
-            .map_or(1.0, |s| s.scale)
+            .min_by(|a, b| a.rect.distance(pos).total_cmp(&b.rect.distance(pos)))
+            .map_or(pos, |s| s.rect.clamp(pos))
     }
 }
 
@@ -208,6 +209,7 @@ mod tests {
         StreamMsg::Key {
             usage: HidUsage::key(id),
             state,
+            t_us: 0,
         }
     }
 
@@ -225,6 +227,7 @@ mod tests {
             dy,
             scroll: None,
             resync: None,
+            t_us: 0,
         }
     }
 
@@ -233,7 +236,7 @@ mod tests {
         let mut c = client();
         assert!(c.on_datagram(motion(1, 1.0, 1.0)).is_empty());
         assert!(c.on_stream(key(0x04, KeyState::Pressed)).is_empty());
-        assert!(c.on_stream(StreamMsg::Heartbeat).is_empty());
+        assert!(c.on_stream(StreamMsg::Heartbeat(beat())).is_empty());
         assert!(!c.is_active());
     }
 
@@ -261,13 +264,35 @@ mod tests {
         );
     }
 
+    fn beat() -> crate::session::latency::Beat {
+        crate::session::latency::Beat {
+            sent_us: 0,
+            echo: None,
+        }
+    }
+
     #[test]
-    fn el_delta_logico_se_escala_por_la_pantalla() {
+    fn el_delta_ya_viene_en_unidades_nativas() {
         let mut c = client();
         c.on_stream(enter(0, 4000.0));
+        // En el 32" al 150 %: el servidor ya lo convirtió.
         assert_eq!(
-            c.on_datagram(motion(1, 10.0, -2.0)),
+            c.on_datagram(motion(1, 15.0, -3.0)),
             vec![InputEvent::MotionAbsolute { x: 4015.0, y: 97.0 }]
+        );
+    }
+
+    #[test]
+    fn un_delta_que_cae_fuera_de_las_pantallas_queda_en_el_borde() {
+        let mut c = client();
+        c.on_stream(enter(0, 100.0));
+        // Debajo del 34" (1440 de alto) no hay pantalla.
+        assert_eq!(
+            c.on_datagram(motion(1, 0.0, 5000.0)),
+            vec![InputEvent::MotionAbsolute {
+                x: 100.0,
+                y: 1439.0
+            }]
         );
     }
 
@@ -287,6 +312,7 @@ mod tests {
                 dy_v120: 120,
             }),
             resync: Some(Point::new(300.0, 300.0)),
+            t_us: 0,
         });
         assert_eq!(
             out,
@@ -310,6 +336,7 @@ mod tests {
             state: KeyState::Pressed,
             seq,
             pos: Point::new(x, 100.0),
+            t_us: 0,
         };
         // El datagrama 1 se perdió: el botón trae la posición.
         assert_eq!(
@@ -329,6 +356,7 @@ mod tests {
             state: KeyState::Released,
             seq: 2,
             pos: Point::new(155.0, 100.0),
+            t_us: 0,
         });
         assert_eq!(
             out,
@@ -452,13 +480,18 @@ mod tests {
                 modifiers: Modifiers::from_bits(bits),
             }),
             Just(StreamMsg::Leave),
-            Just(StreamMsg::Heartbeat),
-            (usage, state.clone()).prop_map(|(usage, state)| StreamMsg::Key { usage, state }),
+            Just(StreamMsg::Heartbeat(beat())),
+            (usage, state.clone()).prop_map(|(usage, state)| StreamMsg::Key {
+                usage,
+                state,
+                t_us: 0
+            }),
             (button, state, 0u64..4).prop_map(|(button, state, seq)| StreamMsg::Button {
                 button,
                 state,
                 seq,
                 pos: Point::new(1.0, 1.0),
+                t_us: 0,
             }),
         ]
     }
