@@ -2,7 +2,7 @@
 
 La app está **terminada** solo cuando el agente `acceptance` (`.claude/agents/acceptance.md`) responde `ACCEPTANCE: FINAL_OK` con **todos** los ítems de este archivo en PASA, en una sola corrida sobre `origin/develop`. Nadie más (ni el capitán ni un implementador) puede declarar la app terminada.
 
-Notación: `[hw]` = necesita el hardware real (lo cubre la suite T-123 o queda en la lista de hardware pendiente de su tarea con la razón). Cada pantalla se compara con su mockup en `mockups/v03/` (umbral de similitud **≥ 0.99**).
+Notación: `[hw]` = necesita el hardware real (lo cubre la suite T-123 o queda en la lista de hardware pendiente de su tarea con la razón). Cada pantalla se compara con su mockup en `mockups/v03/` (umbral: similitud global **≥ 0.99** y peor cuadro de 64×64 px, `worstTile`, **≥ 0.97**; la similitud global sola deja pasar un estado equivocado).
 
 ## 0. Reglas globales (se revisan en todas las pantallas)
 
@@ -37,6 +37,8 @@ Notación: `[hw]` = necesita el hardware real (lo cubre la suite T-123 o queda e
 | P13 | Estados difíciles | `V3-Estados`: sin agente, otra máquina apagada, enlace caído, permisos revocados |
 | P14 | Barra de menú / bandeja | `V3-Bandeja` |
 | P15 | Lo que ve Claude | `F-ClaudeMCP` (las herramientas listadas existen en `tandem mcp`) |
+
+Estados que el mockup no dibuja (Túneles vacío y con 12 procesos, prueba de cruce con tiempo agotado): se aceptan si usan los mismos componentes, tokens y animaciones de la pantalla, sin comparación de píxeles.
 
 Diferencias permitidas con el mockup: las de `mockups/README.md` («Lo que los mockups dicen y DECISIONS corrige») y los datos reales en lugar de los de ejemplo. Nada más.
 
