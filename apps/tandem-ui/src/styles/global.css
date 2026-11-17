@@ -1,0 +1,148 @@
+/*
+ * Sistema visual de v0.3 (DECISIONS A4): tokens, base y animaciones copiados de los
+ * mockups (`mockups/v03/*.dc.html`). Los componentes (`src/ui`) traen su propio CSS; aquí
+ * solo lo que comparte toda la app.
+ */
+:root {
+  /* Fondos */
+  --bg: #0e0f12;
+  --bg-side: #0b0c0e;
+  --bg-sunk: #111215;
+  --bg-well: #0f1013;
+  --card: #15161a;
+  --raise: #1b1c21;
+  --hover: #17181c;
+  --hover-2: #1f2026;
+  --sel: #1c1d22;
+  /* Bordes */
+  --line: #25272d;
+  --line-soft: #1f2126;
+  --line-strong: #31343b;
+  --line-hover: #3a3d45;
+  /* Texto */
+  --text: #e8e8eb;
+  --text-2: #c4c6cc;
+  --muted: #9a9da6;
+  --nav: #a3a6af;
+  --faint: #80838d;
+  --dim: #6a6d76;
+  /* Acentos */
+  --blue: #7aa7e6;
+  --violet: #a99be8;
+  --green: #6cc59a;
+  --amber: #d9a75a;
+  --red: #e07a6f;
+  --teal: #5fbfb0;
+  /* Radios */
+  --r-card: 14px;
+  --r-ctl: 10px;
+  --r-nav: 9px;
+  --r-pill: 999px;
+  /* Curvas */
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.3, 1.3, 0.5, 1);
+  --font: "Inter", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+}
+
+body {
+  font-family: var(--font);
+  color: var(--text);
+  font-size: 14px;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.mut {
+  color: var(--muted);
+}
+
+.mono {
+  font-family: var(--mono);
+}
+
+.h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Animaciones compartidas (mismos nombres y curvas que los mockups). */
+@keyframes up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes grow {
+  from {
+    width: 0;
+  }
+}
+@keyframes dr {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes fl {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+@keyframes pl {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(108, 197, 154, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(108, 197, 154, 0);
+  }
+}
+@keyframes fd {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes sp {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Con «reducir movimiento» no hay animaciones ni transiciones (G8). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}

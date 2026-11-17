@@ -1,0 +1,205 @@
+{
+  "acomodo": {
+    "mockup": "V3-Acomodo",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.975,
+      "worstTile": 0.5242,
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "ajustes": {
+    "mockup": "F-Ajustes",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9786,
+      "worstTile": 0.4688,
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "bandeja": {
+    "mockup": "V3-Bandeja",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9731,
+      "worstTile": 0.832,
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "estados": {
+    "mockup": "V3-Estados",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9295,
+      "worstTile": 0.4924,
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "maquina-a": {
+    "mockup": "F-MaquinaMac",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9598,
+      "worstTile": 0.4688,
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "maquina-b": {
+    "mockup": "V3-Maquina",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9574,
+      "worstTile": 0.7068,
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 0.9989,
+        "worstTile": 0.9519,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "monitores": {
+    "mockup": "V3-Monitores",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9621,
+      "worstTile": 0.4287,
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 0.9998,
+        "worstTile": 0.9893,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "paleta": {
+    "mockup": "F-Paleta",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9956,
+      "worstTile": 0.9031,
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "puesto": {
+    "mockup": "V3-Puesto",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.98,
+      "worstTile": 0.7576,
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 1,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "puesto-mac-mac": {
+    "mockup": "V3-Puesto",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9739,
+      "worstTile": 0.6033,
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 0.9978,
+        "worstTile": 0.9326,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "puesto-win-win": {
+    "mockup": "V3-Puesto",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9578,
+      "worstTile": 0.3748,
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 0.9962,
+        "worstTile": 0.8625,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "red": {
+    "mockup": "V3-Red",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9771,
+      "worstTile": 0.7886,
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "tuneles": {
+    "mockup": "V3-Computo",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9672,
+      "worstTile": 0.7693,
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 0.9998,
+        "worstTile": 0.989,
+        "ok": true
+      }
+    ],
+    "errores": []
+  }
+}

@@ -1,0 +1,365 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { Bridge } from "../bridge";
+import type { Snapshot } from "../model";
+import { formatHash, parseHash, SCREEN_TOPICS } from "../routes";
+import { DemoSource, demoDesk, demoOptions, isDemo } from "./demo";
+import { deskFromSnapshot, LiveSource } from "./live";
+import { SHELL_TOPICS, Store, TRAY_TOPICS, topicsFor } from "./store.svelte";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("rutas", () => {
+  it("cada pantalla tiene su dirección y vuelve igual", () => {
+    for (const hash of ["#/puesto", "#/tuneles", "#/monitores", "#/acomodo", "#/red", "#/ajustes", "#/maquina/a", "#/maquina/b"]) {
+      expect(formatHash(parseHash(hash))).toBe(hash);
+    }
+    expect(parseHash("")).toEqual({ screen: "puesto" });
+    expect(parseHash("#/maquina/c")).toEqual({ screen: "puesto" });
+    expect(parseHash("#/nada")).toEqual({ screen: "puesto" });
+  });
+});
+
+describe("store", () => {
+  it("se suscribe a lo que el shell muestra siempre más lo de la pantalla visible", async () => {
+    const src = new DemoSource(demoOptions("demo&still"));
+    const store = new Store(src);
+    await store.start();
+    const set = (t: string[] | undefined) => new Set(t);
+    expect(set(src.watched.at(-1))).toEqual(new Set([...SHELL_TOPICS, ...SCREEN_TOPICS.puesto]));
+    // El contador de túneles de la barra lateral sigue vivo en cualquier pantalla.
+    store.go({ screen: "red" });
+    expect(set(src.watched.at(-1))).toEqual(new Set(["machines", "tunnels", "link"]));
+    store.go({ screen: "tuneles" });
+    expect(set(src.watched.at(-1))).toEqual(new Set(["machines", "tunnels"]));
+    for (const screen of ["puesto", "tuneles", "monitores", "acomodo", "red", "ajustes"] as const) {
+      expect(topicsFor({ screen })).toEqual(expect.arrayContaining(SHELL_TOPICS));
+      expect(new Set(topicsFor({ screen })).size).toBe(topicsFor({ screen }).length);
+    }
+    // Otra máquina en la misma pantalla no vuelve a suscribir.
+    store.go({ screen: "maquina", machine: "a" });
+    const n = src.watched.length;
+    store.go({ screen: "maquina", machine: "b" });
+    expect(src.watched.length).toBe(n);
+    expect(store.route).toEqual({ screen: "maquina", machine: "b" });
+  });
+
+  it("los recursos solo se mueven si la pantalla los muestra", async () => {
+    vi.useFakeTimers();
+    const src = new DemoSource(demoOptions("demo"));
+    const store = new Store(src);
+    await store.start();
+    const before = store.desk.machines.a?.resources?.history.join(",");
+    vi.advanceTimersByTime(1600);
+    expect(store.desk.machines.a?.resources?.history.join(",")).not.toBe(before);
+    store.go({ screen: "red" });
+    const frozen = store.desk.machines.a?.resources?.history.join(",");
+    vi.advanceTimersByTime(5000);
+    expect(store.desk.machines.a?.resources?.history.join(",")).toBe(frozen);
+    store.stop();
+  });
+
+  it("cambia la dirección y la sigue", async () => {
+    const loc = { hash: "#/red" };
+    const store = new Store(new DemoSource(demoOptions("demo&still")), loc);
+    expect(store.route).toEqual({ screen: "red" });
+    store.go({ screen: "maquina", machine: "b" });
+    expect(loc.hash).toBe("#/maquina/b");
+    loc.hash = "#/acomodo";
+    store.syncFromLocation();
+    expect(store.route).toEqual({ screen: "acomodo" });
+  });
+
+  it("las acciones avisan lo que pasó", async () => {
+    vi.useFakeTimers();
+    const store = new Store(new DemoSource(demoOptions("demo&still")));
+    await store.start();
+    await store.applyScene("juego");
+    expect(store.desk.activeScene).toBe("juego");
+    expect(store.toasts.at(-1)).toMatchObject({ text: "Escena «Juego» aplicada", tone: "ok" });
+    await store.applyScene("nada");
+    expect(store.toasts.at(-1)).toMatchObject({ tone: "bad" });
+    vi.advanceTimersByTime(5000);
+    expect(store.toasts).toEqual([]);
+  });
+
+  it("encender, apagar, medir y módulos en el demo", async () => {
+    const store = new Store(new DemoSource(demoOptions("demo&still")));
+    await store.start();
+    await store.setPower("b", false);
+    expect(store.desk.machines.b?.power).toBe("off");
+    expect(store.desk.machines.b?.resources).toBeNull();
+    await store.setPower("b", true);
+    expect(store.desk.machines.b?.power).toBe("on");
+    expect((await store.setPower("a", false)).ok).toBe(false);
+    expect((await store.measureLink()).ok).toBe(true);
+    await store.setModule("b", "clipboard", false);
+    expect(store.desk.machines.b?.modules.find((m) => m.id === "clipboard")?.state).toBe("off");
+  });
+
+  it("el contador de túneles cuenta los activos", async () => {
+    const store = new Store(new DemoSource(demoOptions("demo&still")));
+    await store.start();
+    expect(store.activeTunnels).toBe(3);
+  });
+
+  it("la paleta y el asistente se abren y se cierran", () => {
+    const store = new Store(new DemoSource(demoOptions("demo&still")));
+    store.togglePalette();
+    expect(store.paletteOpen).toBe(true);
+    store.openWizard();
+    expect(store.paletteOpen).toBe(false);
+    expect(store.wizardOpen).toBe(true);
+    store.togglePalette(true);
+    store.go({ screen: "red" });
+    expect(store.paletteOpen).toBe(false);
+  });
+
+  it("si la fuente falla, el error se muestra", async () => {
+    const src = new DemoSource(demoOptions("demo&still"));
+    src.applyScene = () => Promise.reject(new Error("se cayó"));
+    const store = new Store(src);
+    const r = await store.applyScene("x");
+    expect(r).toEqual({ ok: false, reason: "se cayó" });
+  });
+});
+
+describe("bandeja", () => {
+  it("pide su propio conjunto de temas y no cambia con la ruta", async () => {
+    const src = new DemoSource(demoOptions("demo&still"));
+    const store = new Store(src, null, TRAY_TOPICS);
+    await store.start();
+    expect(src.watched).toEqual([TRAY_TOPICS]);
+    store.go({ screen: "red" });
+    expect(src.watched).toEqual([TRAY_TOPICS]);
+    expect(TRAY_TOPICS).toEqual(expect.arrayContaining(["machines", "link", "scenes", "tunnels", "resources"]));
+  });
+});
+
+describe("errores del agente", () => {
+  it("una foto a la que le faltan campos da «sin agente» con la razón, no «conectando»", async () => {
+    const broken = { kind: "connected", agent: "a", desk: { screens: [], arrangement: { a_side: "left", offset: 0 } } };
+    const bridge = { snapshot: async () => broken, onSnapshot: async () => {} } as unknown as Bridge;
+    const store = new Store(new LiveSource(bridge));
+    await store.start();
+    expect(store.desk.ready).toBe(true);
+    expect(store.desk.trouble).toBe("no-agent");
+    expect(store.desk.troubleText).toContain("no entiende");
+  });
+
+  it("un agente de la versión anterior (lados mac/pc) también", () => {
+    const old = { kind: "connected", agent: "mac", desk: { screens: [], arrangement: { mac_side: "left", offset: 0 } } };
+    expect(() => deskFromSnapshot(old as unknown as Snapshot)).toThrow(/lado «mac»/);
+  });
+
+  it("si la fuente no arranca, se muestra el error", async () => {
+    const bridge = { snapshot: async () => Promise.reject(new Error("sin núcleo")), onSnapshot: async () => {} } as unknown as Bridge;
+    const store = new Store(new LiveSource(bridge));
+    await store.start();
+    expect(store.desk).toMatchObject({ ready: true, trouble: "no-agent", troubleText: "sin núcleo" });
+  });
+
+  it("una foto rota después de arrancar no tumba la ventana", async () => {
+    let push: ((s: unknown) => void) | undefined;
+    const ok = { kind: "unavailable", endpoint: null, reason: "x" };
+    const bridge = { snapshot: async () => ok, onSnapshot: async (cb: (s: unknown) => void) => (push = cb) } as unknown as Bridge;
+    const store = new Store(new LiveSource(bridge));
+    await store.start();
+    push?.({ kind: "connected" });
+    expect(store.desk.trouble).toBe("no-agent");
+    expect(store.desk.troubleText).toContain("no entiende");
+  });
+});
+
+describe("emparejar y permisos", () => {
+  it("el asistente se abre solo en el paso de emparejar cuando aparece el código", async () => {
+    vi.useFakeTimers();
+    const store = new Store(new DemoSource(demoOptions("demo&still&peer=none")));
+    await store.start();
+    expect(store.wizardOpen).toBe(false);
+    await store.pairAction("start_pairing");
+    expect(store.wizardOpen).toBe(true);
+    expect(store.wizardStep).toBe(1);
+    vi.advanceTimersByTime(1500);
+    expect(store.desk.pair.pairing).toMatchObject({ kind: "comparing", code: "418027" });
+    await store.pairAction("confirm_pairing");
+    vi.advanceTimersByTime(1300);
+    expect(store.desk.pair.peer).toMatchObject({ kind: "paired", name: "PC-Escritorio" });
+    store.stop();
+  });
+
+  it("la bandeja no abre el asistente", async () => {
+    const store = new Store(new DemoSource(demoOptions("demo&still&peer=none")), null, TRAY_TOPICS);
+    await store.start();
+    await store.pairAction("start_pairing");
+    expect(store.wizardOpen).toBe(false);
+    store.stop();
+  });
+
+  it("primer arranque en macOS: se abre en permisos; en Windows no", async () => {
+    const mac = new Store(new DemoSource(demoOptions("demo&still&setup")));
+    await mac.start();
+    await mac.maybeFirstRun();
+    expect([mac.wizardOpen, mac.wizardStep]).toEqual([true, 2]);
+    const win = new Store(new DemoSource(demoOptions("demo&still&setup&here=b")));
+    await win.start();
+    await win.maybeFirstRun();
+    expect(win.wizardOpen).toBe(false);
+  });
+
+  it("la fuente real pasa los pedidos al agente y lee los permisos de macOS", async () => {
+    const act = vi.fn(async () => ({ kind: "done" as const }));
+    const openSettings = vi.fn(async () => {});
+    const snap = {
+      kind: "connected",
+      agent: "a",
+      desk: { machines: { a: null, b: null }, screens: [], arrangement: { a_side: "left", offset: 0 } },
+      state: { on: { a: true, b: false } },
+      peer: { kind: "unpaired" },
+      pairing: { kind: "idle" },
+      input: { server: "a", hub_here: null, session: false, locked: false, missing: ["accessibility"], problem: null, defined: false },
+      caps: {
+        here: {
+          machine: "a",
+          name: "Estudio",
+          os: "macos",
+          color: "#7aa7e6",
+          hub: null,
+          input: { capture: false, inject: false, missing: ["accessibility"], process: { exe: "/x/tandemd", pid: 7, started: 1 } },
+          power: { wake_peer: true, wakeable: true, power_off: false },
+          services: [],
+        },
+        peer: null,
+      },
+    };
+    const bridge = { snapshot: async () => snap, onSnapshot: async () => {}, act, openSettings } as unknown as Bridge;
+    const src = new LiveSource(bridge);
+    const store = new Store(src);
+    await store.start();
+    expect(store.desk.permissions.needed).toBe(true);
+    expect(store.desk.permissions.rows.map((r) => `${r.id}:${r.state}`)).toEqual(["accessibility:missing", "input_monitoring:granted", "local_network:unknown"]);
+    expect(store.desk.permissions.binary).toContain("/x/tandemd (pid 7)");
+    await store.pairAction("start_pairing");
+    expect(act).toHaveBeenLastCalledWith({ kind: "start_pairing" });
+    await store.requestPermissions();
+    expect(act).toHaveBeenLastCalledWith({ kind: "request_permissions" });
+    await store.openPermission("accessibility");
+    expect(openSettings).toHaveBeenCalledWith("accessibility");
+    act.mockResolvedValueOnce({ kind: "rejected", reason: "ya hay uno en curso" } as never);
+    expect(await store.pairAction("start_pairing")).toEqual({ ok: false, reason: "ya hay uno en curso" });
+  });
+});
+
+describe("modo demo", () => {
+  it("se pide con ?demo", () => {
+    expect(isDemo("?demo")).toBe(true);
+    expect(isDemo("?demo=win-win&still")).toBe(true);
+    expect(isDemo("?x=1")).toBe(false);
+  });
+
+  it("es determinista y coherente en cada combinación de sistemas (D2)", () => {
+    for (const pair of ["mac-win", "win-win", "mac-mac"] as const) {
+      const d = demoDesk({ pair, here: "a", trouble: "none", still: true });
+      expect(d).toEqual(demoDesk({ pair, here: "a", trouble: "none", still: true }));
+      expect(d.machines.a?.here).toBe(true);
+      expect(d.machines.b?.here).toBe(false);
+      expect(d.machines.a?.name).not.toBe(d.machines.b?.name);
+      expect(d.machines.a?.color).not.toBe(d.machines.b?.color);
+    }
+    const ww = demoDesk(demoOptions("demo=win-win"));
+    expect([ww.machines.a?.os, ww.machines.b?.os]).toEqual(["windows", "windows"]);
+    const mm = demoDesk(demoOptions("demo=mac-mac&here=b"));
+    expect([mm.machines.a?.os, mm.machines.b?.os]).toEqual(["macos", "macos"]);
+    expect(mm.here).toBe("b");
+  });
+
+  it("cada estado difícil", () => {
+    const off = demoDesk(demoOptions("demo&trouble=peer-off"));
+    expect(off.trouble).toBe("peer-off");
+    expect(off.troubleText).toBe("PC-Escritorio está apagada");
+    expect(off.machines.b?.power).toBe("off");
+    expect(off.link.kind).toBeNull();
+    const down = demoDesk(demoOptions("demo&trouble=link-down"));
+    expect(down.machines.b?.power).toBe("lost");
+    const perms = demoDesk(demoOptions("demo&trouble=permissions"));
+    expect(perms.machines.a?.modules.find((m) => m.id === "input")?.state).toBe("unavailable");
+    expect(demoDesk(demoOptions("demo&trouble=no-agent")).troubleText).toContain("agente");
+    expect(demoOptions("demo&trouble=otra").trouble).toBe("none");
+  });
+});
+
+describe("fuente real", () => {
+  const connected = (over: Partial<Extract<Snapshot, { kind: "connected" }>> = {}): Snapshot => ({
+    kind: "connected",
+    agent: "b",
+    desk: { machines: { a: { os: "windows", name: "Taller", color: "#6cc59a" }, b: null }, screens: [], arrangement: { a_side: "left", offset: 0 } },
+    state: { on: { a: true, b: true } },
+    peer: { kind: "paired", name: "Taller", link: "wifi" },
+    pairing: { kind: "idle" },
+    input: { server: "b", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true },
+    caps: {
+      here: {
+        machine: "b",
+        name: "Estudio",
+        os: "windows",
+        color: "#d9a75a",
+        hub: null,
+        input: { capture: true, inject: true, missing: [], process: { exe: "", pid: 1, started: 1 } },
+        power: { wake_peer: true, wakeable: true, power_off: true },
+        services: [],
+      },
+      peer: null,
+    },
+    ...over,
+  });
+
+  it("traduce la foto del agente: nombres, colores y enlace de cada lado", () => {
+    const d = deskFromSnapshot(connected());
+    expect(d.ready).toBe(true);
+    expect(d.here).toBe("b");
+    expect(d.machines.b).toMatchObject({ name: "Estudio", color: "#d9a75a", here: true, power: "on", detail: "Windows" });
+    expect(d.machines.a).toMatchObject({ name: "Taller", color: "#6cc59a", here: false });
+    expect(d.link.kind).toBe("wifi");
+    expect(d.trouble).toBe("none");
+  });
+
+  it("los estados difíciles salen de la foto", () => {
+    expect(deskFromSnapshot({ kind: "connecting" }).ready).toBe(false);
+    expect(deskFromSnapshot({ kind: "unavailable", endpoint: null, reason: "no corre" })).toMatchObject({ trouble: "no-agent", troubleText: "no corre" });
+    expect(deskFromSnapshot(connected({ state: { on: { a: false, b: true } } }))).toMatchObject({ trouble: "peer-off", troubleText: "Taller está apagada" });
+    expect(deskFromSnapshot(connected({ peer: { kind: "paired", name: "Taller", link: null } })).trouble).toBe("link-down");
+    const missing = connected();
+    if (missing.kind === "connected") missing.input = { ...missing.input, missing: ["accessibility"] };
+    expect(deskFromSnapshot(missing).trouble).toBe("permissions");
+  });
+
+  it("pide al agente lo que sabe hacer y dice lo que todavía no", async () => {
+    const act = vi.fn(async () => ({ kind: "pong" as const, link: "wifi" as const, millis: 4 }));
+    let push: ((s: Snapshot) => void) | undefined;
+    const bridge = {
+      snapshot: async () => connected(),
+      onSnapshot: async (cb: (s: Snapshot) => void) => {
+        push = cb;
+      },
+      act,
+    } as unknown as Bridge;
+    const src = new LiveSource(bridge);
+    const store = new Store(src);
+    await store.start();
+    expect(store.desk.machines.b?.name).toBe("Estudio");
+    push?.(connected({ caps: { ...((connected() as Extract<Snapshot, { kind: "connected" }>).caps), here: { ...(connected() as Extract<Snapshot, { kind: "connected" }>).caps.here, name: "Nuevo" } } }));
+    expect(store.desk.machines.b?.name).toBe("Nuevo");
+    expect(src.can("measure")).toBe(true);
+    expect(src.can("scenes")).toBe(false);
+    expect(await src.measureLink()).toEqual({ ok: true, text: "4 ms" });
+    expect((await src.applyScene()).ok).toBe(false);
+    expect((await src.setModule()).ok).toBe(false);
+    act.mockResolvedValueOnce({ kind: "accepted", txn: 1 } as never);
+    expect(await src.setPower("a", false)).toEqual({ ok: true });
+    expect(act).toHaveBeenLastCalledWith({ kind: "set_power", machine: "a", on: false });
+    src.watch(["link"]);
+    expect(src.currentTopics).toEqual(["link"]);
+  });
+});

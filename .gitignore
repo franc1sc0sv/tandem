@@ -13,6 +13,8 @@ node_modules/
 /.claude/routines
 /.claude/scheduled_tasks.json
 apps/tandem-ui/dist/
+apps/tandem-ui/dist-demo/
+apps/tandem-ui/shots-out/
 apps/tandem-ui/src-tauri/gen/
 # Sidecars: los copian scripts/macos/bundle.sh (tandemd-<target>) y
 # tools/windows/installer/build-installer.ps1 (instalador de Windows).

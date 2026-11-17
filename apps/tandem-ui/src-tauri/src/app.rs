@@ -297,6 +297,12 @@ fn ui_hide_tray(app: AppHandle) {
     hide_tray(&app);
 }
 
+/// «Salir» desde la bandeja / barra de menú (V3-Bandeja), igual que el menú del ícono.
+#[tauri::command]
+fn ui_quit(app: AppHandle) {
+    app.exit(0);
+}
+
 // ---------------------------------------------------------------------------------------
 // Ventanas
 
@@ -563,7 +569,8 @@ pub fn run() -> Result<(), tauri::Error> {
             setup_finish,
             ui_show_main,
             ui_hide_main,
-            ui_hide_tray
+            ui_hide_tray,
+            ui_quit
         ])
         .build(tauri::generate_context!())?;
     app.run(|app, event| {
