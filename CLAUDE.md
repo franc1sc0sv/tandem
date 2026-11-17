@@ -5,7 +5,7 @@ Mac + PC Windows como un solo puesto: monitores (DDC/CI), teclado y mouse con mo
 - **Diseño (fuente de verdad):** `docs/DESIGN.md`. Léelo antes de cualquier cambio no trivial.
 - **Investigación:** `docs/research/` (DDC del 34", Deskflow como referencia, motor de entrada).
 - **Backlog:** `docs/tasks/T-*.md` (protocolo abajo).
-- **Mockup de la UI:** `mockups/main.html`.
+- **Mockups de la UI (v0.3):** `mockups/v03/*.dc.html` (mapa en `mockups/README.md`); se comparan con `pnpm shots` y `pnpm mockups:compare`.
 
 Si el código, la tarea y el diseño no coinciden, **detente y repórtalo**; no improvises arquitectura.
 El usuario escribe en español: documentación, mensajes de commit y PRs en español.
