@@ -1,0 +1,67 @@
+// Set propio de íconos de línea, copiados de los mockups v0.3 (viewBox 24, trazo 1.8 en la
+// navegación y 2 en los botones). Cada uno es el interior del <svg> y sus extremos.
+
+export interface IconDef {
+  body: string;
+  linecap?: "round";
+  linejoin?: "round";
+  /** Relleno con el color en lugar de trazo. */
+  fill?: boolean;
+}
+
+export const ICONS = {
+  puesto: {
+    body: '<rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect>',
+  },
+  tuneles: { body: '<path d="M3 12h4M17 12h4"></path><rect x="7" y="8" width="10" height="8" rx="4"></rect>', linecap: "round" },
+  monitores: { body: '<rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M9 20h6M12 16v4"></path>' },
+  acomodo: { body: '<rect x="2" y="7" width="9" height="10" rx="1.5"></rect><rect x="13" y="5" width="9" height="14" rx="1.5"></rect>' },
+  red: { body: '<circle cx="5" cy="12" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle><path d="M7.5 12h9"></path>' },
+  ajustes: {
+    body: '<circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"></path>',
+  },
+  plus: { body: '<path d="M12 5v14M5 12h14"></path>' },
+  search: { body: '<circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path>' },
+  edit: { body: '<path d="M4 20h4L19 9l-4-4L4 16z"></path><path d="m13.5 6.5 4 4"></path>', linejoin: "round" },
+  laptop: { body: '<rect x="4" y="5" width="16" height="11" rx="1.5"></rect><path d="M2 19h20"></path>' },
+  tower: { body: '<rect x="6" y="3" width="12" height="18" rx="2"></rect><circle cx="12" cy="15" r="2.5"></circle><path d="M9 7h6"></path>' },
+  bolt: { body: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"></path>', fill: true },
+  check: { body: '<path d="m5 12 5 5L20 7"></path>', linecap: "round" },
+  x: { body: '<path d="M6 6l12 12M18 6 6 18"></path>', linecap: "round" },
+  warn: { body: '<path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17h.01"></path>' },
+  info: { body: '<circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path>' },
+  lock: { body: '<rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path>' },
+  power: { body: '<path d="M12 3v8"></path><path d="M6.3 6.8a8 8 0 1 0 11.4 0"></path>', linecap: "round" },
+  window: { body: '<rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 9h18"></path>' },
+  "arrow-right": { body: '<path d="M5 12h14M13 6l6 6-6 6"></path>', linecap: "round", linejoin: "round" },
+  "arrow-left": { body: '<path d="M19 12H5M11 6l-6 6 6 6"></path>', linecap: "round", linejoin: "round" },
+  "chevron-down": { body: '<path d="m6 9 6 6 6-6"></path>', linecap: "round", linejoin: "round" },
+  "chevron-right": { body: '<path d="m9 6 6 6-6 6"></path>' },
+  refresh: { body: '<path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 4v4h-4M4 20v-4h4"></path>', linecap: "round" },
+  download: { body: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path>', linecap: "round" },
+  external: { body: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path>', linecap: "round" },
+  copy: { body: '<rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path>' },
+  folder: { body: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>' },
+  file: { body: '<path d="M6 3h8l4 4v14H6zM14 3v4h4"></path>' },
+  terminal: { body: '<path d="m5 8 4 4-4 4M12 16h7"></path>', linecap: "round" },
+  play: { body: '<path d="M8 5v14l11-7z"></path>', fill: true },
+  shield: { body: '<path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"></path><path d="m9 12 2 2 4-4"></path>' },
+  cursor: { body: '<path d="M5 3l14 8-6 2-2 6z"></path>', linejoin: "round" },
+  wifi: { body: '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9 9 0 0 1 13 0M9 16a4 4 0 0 1 6 0"></path><path d="M12 19.5h.01"></path>', linecap: "round" },
+  git: {
+    body: '<circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><path d="M6 8.5v7M18 10.5c0 4-6 3-11 5.5"></path>',
+  },
+  trash: { body: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path>', linecap: "round" },
+  plug: { body: '<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"></path>' },
+  pulse: { body: '<path d="M2 12h4l3-8 4 16 3-8h6"></path>' },
+  cpu: { body: '<rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"></path>' },
+  keyboard: { body: '<rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"></path>' },
+  sparkle: { body: '<path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"></path>', fill: true },
+} satisfies Record<string, IconDef>;
+
+export type IconName = keyof typeof ICONS;
+
+/** El ícono de una máquina por su sistema (D2: por `os`, no por lado). */
+export function machineIcon(os: "macos" | "windows"): IconName {
+  return os === "macos" ? "laptop" : "tower";
+}
