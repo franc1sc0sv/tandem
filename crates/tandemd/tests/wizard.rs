@@ -254,7 +254,7 @@ async fn el_asistente_reducido_de_punta_a_punta() {
         panic!("se esperaba el puesto");
     };
     assert!(desk.screens.is_empty());
-    assert_eq!(desk.arrangement, tandem_core::Arrangement::default());
+    assert_eq!(desk.arrangement, None);
     // Desactivar la escucha al terminar.
     mac.ui
         .request(UiCommand::KeyProbe { on: false })

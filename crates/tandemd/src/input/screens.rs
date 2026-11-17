@@ -50,7 +50,9 @@ pub fn detected(bounds: &[Rect]) -> Vec<Screen> {
 }
 
 /// El acomodo: las pantallas de esta máquina (`me`) y las de la otra, declaradas en
-/// `desk` o, si no, las leídas (`mine` aquí, `theirs` las que mandó el otro agente).
+/// `desk` o, si no, las leídas (`mine` aquí, `theirs` las que mandó el otro agente), y el
+/// lado y la alineación del puesto (D18). Sin acomodo declarado, A a la izquierda de B con
+/// todo el borde (el valor por omisión de siempre).
 pub fn arrangement(
     desk: &Config,
     state: &State,
@@ -75,7 +77,8 @@ pub fn arrangement(
     Arrangement {
         a: of(Machine::A),
         b: of(Machine::B),
-        a_side: desk.arrangement.a_side,
+        a_side: desk.arrangement.map(|a| a.a_side).unwrap_or_default(),
+        align: desk.arrangement.map(|a| a.align),
     }
 }
 
@@ -94,7 +97,7 @@ pub fn layout(
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
-    use tandem_core::{Powered, Scale, Side};
+    use tandem_core::{Align, Powered, Scale, Side};
 
     use super::*;
 
@@ -157,7 +160,10 @@ mod tests {
             }],
             ..Config::default()
         };
-        desk.arrangement.a_side = Side::Right;
+        desk.arrangement = Some(tandem_core::Arrangement {
+            a_side: Side::Right,
+            align: Align::End,
+        });
         let mine = [mon("mac-1", 0, 1512)];
         let theirs = [mon("pc-1", 0, 1920)];
         let arr = arrangement(&desk, &both_on(), Machine::A, &mine, &theirs);
@@ -165,11 +171,11 @@ mod tests {
         assert_eq!(arr.b.len(), 1);
         assert_eq!(arr.b[0].id, "34".into());
         assert_eq!(arr.b[0].scale, 1.25);
-        assert_eq!(arr.a_side, Side::Right);
-        // Sin declarar, la Mac va a la izquierda y valen las leídas.
+        assert_eq!((arr.a_side, arr.align), (Side::Right, Some(Align::End)));
+        // Sin declarar, la Mac va a la izquierda, sin alineación, y valen las leídas.
         let arr = arrangement(&Config::default(), &both_on(), Machine::A, &mine, &theirs);
         assert_eq!((arr.a, arr.b), (mine.to_vec(), theirs.to_vec()));
-        assert_eq!(arr.a_side, Side::Left);
+        assert_eq!((arr.a_side, arr.align), (Side::Left, None));
     }
 
     #[test]

@@ -215,7 +215,7 @@ describe("emparejar y permisos", () => {
     const snap = {
       kind: "connected",
       agent: "a",
-      desk: { machines: { a: null, b: null }, screens: [], arrangement: { a_side: "left", offset: 0 } },
+      desk: { machines: { a: null, b: null }, screens: [], arrangement: null },
       state: { on: { a: true, b: false } },
       peer: { kind: "unpaired" },
       pairing: { kind: "idle" },
@@ -294,7 +294,7 @@ describe("fuente real", () => {
   const connected = (over: Partial<Extract<Snapshot, { kind: "connected" }>> = {}): Snapshot => ({
     kind: "connected",
     agent: "b",
-    desk: { machines: { a: { os: "windows", name: "Taller", color: "#6cc59a" }, b: null }, screens: [], arrangement: { a_side: "left", offset: 0 } },
+    desk: { machines: { a: { os: "windows", name: "Taller", color: "#6cc59a" }, b: null }, screens: [], arrangement: { a_side: "up", align: "end" } },
     state: { on: { a: true, b: true } },
     peer: { kind: "paired", name: "Taller", link: "wifi" },
     pairing: { kind: "idle" },

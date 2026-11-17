@@ -59,6 +59,7 @@ fn layout() -> Layout {
         a: mac_screens(),
         b: pc,
         a_side: Side::Right,
+        align: None,
     };
     Layout::compute(&arr, LayoutOptions { corner_margin: 0.0 }).unwrap()
 }

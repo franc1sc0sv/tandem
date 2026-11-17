@@ -7,7 +7,9 @@
 //! - UI → agente: [`UiRequest`]; agente → UI: [`AgentToUi`].
 
 use serde::{Deserialize, Serialize};
-use tandem_core::{Config, Machine, MachineInfo, State, Step};
+use tandem_core::{
+    Config, DeskPatch, DeskVersion, HistoryEntry, Machine, MachineInfo, State, Step,
+};
 
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
 
@@ -88,21 +90,14 @@ pub enum ControlMsg {
     /// enlace nuevo y cada vez que cambia; las decisiones salen de aquí, no del nombre
     /// de la máquina (DESIGN §3.7).
     Capabilities(Box<Capabilities>),
-    /// El puesto compartido de quien lo manda (el acomodo de pantallas y el atajo de
-    /// bloqueo), con su versión. Va al conectarse y con cada cambio; gana la versión más
-    /// nueva (T-084).
-    Desk(DeskSync),
+    /// El puesto compartido de quien lo manda, con su sello. Va al conectarse y con cada
+    /// cambio; gana el último (T-099, [`DeskVersion::receive`]).
+    Desk(Box<DeskVersion>),
     /// «Presiona una tecla» del asistente (T-087): armar o desarmar la escucha, o avisar
     /// que aquí se oyó la tecla.
     KeyProbe(KeyProbeMsg),
     /// El usuario dijo en el asistente dónde está el teclado y el mouse.
     Keyboard(Machine),
-    /// Encender o apagar un módulo de quien lo recibe (T-098): lo pidió la UI de quien lo
-    /// manda. El estado nuevo vuelve con su próximo [`ControlMsg::Capabilities`].
-    SetModule {
-        module: ModuleId,
-        on: bool,
-    },
 }
 
 /// Los mensajes de la prueba «presiona una tecla» entre los dos agentes.
@@ -155,6 +150,25 @@ pub enum ModuleId {
 }
 
 impl ModuleId {
+    /// Como se guarda en el puesto (`[modules.a] clipboard = false`): estable, no cambia
+    /// aunque cambie el nombre que muestra la UI.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ModuleId::Input => "input",
+            ModuleId::Clipboard => "clipboard",
+            ModuleId::Files => "files",
+            ModuleId::Tunnels => "tunnels",
+            ModuleId::Monitors => "monitors",
+            ModuleId::Power => "power",
+            ModuleId::SecureDesktop => "secure_desktop",
+        }
+    }
+
+    /// Lo inverso de [`ModuleId::as_str`].
+    pub fn parse(s: &str) -> Option<ModuleId> {
+        ModuleId::ALL.into_iter().find(|m| m.as_str() == s)
+    }
+
     pub const ALL: [ModuleId; 7] = [
         ModuleId::Input,
         ModuleId::Clipboard,
@@ -240,19 +254,6 @@ pub struct PowerCaps {
     pub wakeable: bool,
     /// Sabe apagarse limpio a pedido de la otra.
     pub power_off: bool,
-}
-
-/// El puesto compartido (el acomodo de pantallas y el atajo de bloqueo) con su reloj
-/// lógico. Lo solo-local (identidad, puerto, rutas, máquina) no viaja.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DeskSync {
-    /// Versión: cada cambio sube la más alta conocida en uno.
-    pub rev: u64,
-    /// Quién hizo el último cambio: desempata dos versiones iguales.
-    pub origin: Machine,
-    pub desk: Config,
-    /// El atajo que bloquea el cursor (`[input] lock_shortcut`).
-    pub lock_shortcut: Vec<String>,
 }
 
 /// Lo que sabe cada máquina del puesto, para la UI.
@@ -401,13 +402,26 @@ pub enum UiCommand {
     SetKeyboard(Machine),
     /// Latencia visible del enlace con la otra máquina.
     PingPeer,
-    /// Encender o apagar un módulo de `machine` (de esta o de la otra, por el plano de
-    /// control). El estado nuevo llega en [`AgentToUi::Machines`].
+    /// Encender o apagar un módulo de `machine` (de esta o de la otra). Es un cambio del
+    /// puesto compartido (`Desk.modules`, D4), así que llega a la otra con el puesto; el
+    /// estado nuevo llega en [`AgentToUi::Machines`].
     SetModule {
         machine: Machine,
         module: ModuleId,
         on: bool,
     },
+    /// Cambiar el puesto compartido (DESIGN §4.4): se aplica aquí, se guarda y va a la otra
+    /// máquina. Contesta [`Reply::Desk`] con el puesto que queda, o el motivo del rechazo.
+    EditDesk {
+        patch: DeskPatch,
+    },
+    /// Volver a la versión `to_rev` del historial (D5, «Deshacer»): es un cambio nuevo con
+    /// exactamente el puesto de aquella.
+    UndoDesk {
+        to_rev: u64,
+    },
+    /// Las últimas versiones del puesto que tuvo esta máquina.
+    GetDeskHistory,
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -448,6 +462,16 @@ pub enum AgentToUi {
     },
     /// Avance de la prueba «presiona una tecla» del asistente (T-087).
     KeyProbe(KeyProbeStatus),
+    /// La otra máquina cambió el puesto y ganó (D5): el aviso «Cambiado desde X ·
+    /// Deshacer». Deshacer es [`UiCommand::UndoDesk`] con `undo_to`.
+    DeskChanged {
+        by: Machine,
+        rev: u64,
+        /// Qué secciones cambiaron («Acomodo y atajos»).
+        summary: String,
+        /// La versión que había aquí antes del cambio.
+        undo_to: u64,
+    },
 }
 
 /// El emparejamiento visto desde la UI.
@@ -582,6 +606,8 @@ pub enum Reply {
         link: Link,
         millis: u32,
     },
+    /// El historial del puesto, de la versión más nueva a la más vieja.
+    DeskHistory(Vec<HistoryEntry>),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso.
@@ -624,7 +650,7 @@ pub(crate) mod samples {
     //! variante nueva no compila hasta tener número, y la prueba de cobertura falla
     //! hasta que tenga ejemplo.
 
-    use tandem_core::{Arrangement, Scale, ScreenSpec, Side};
+    use tandem_core::{Align, Arrangement, DeskStamp, Scale, ScreenSpec, Side};
 
     use super::*;
 
@@ -665,10 +691,15 @@ pub(crate) mod samples {
                     scale: Scale::from_milli(2000),
                 },
             ],
-            arrangement: Arrangement {
-                a_side: Side::Right,
-                offset: -40,
-            },
+            arrangement: Some(Arrangement {
+                a_side: Side::Up,
+                align: Align::End,
+            }),
+            scenes: vec![tandem_core::Scene {
+                id: "trabajo".into(),
+                name: "Trabajo".into(),
+            }],
+            ..Config::default()
         }
     }
 
@@ -724,22 +755,18 @@ pub(crate) mod samples {
             ControlMsg::KeyProbe(KeyProbeMsg::Disarm),
             ControlMsg::KeyProbe(KeyProbeMsg::Heard),
             ControlMsg::Keyboard(Machine::B),
-            ControlMsg::SetModule {
-                module: ModuleId::Clipboard,
-                on: false,
-            },
-            ControlMsg::Desk(DeskSync {
-                rev: 4,
-                origin: Machine::B,
+            ControlMsg::Desk(Box::new(DeskVersion {
+                stamp: DeskStamp {
+                    rev: 4,
+                    at: 1_763_400_000_000,
+                    by: Machine::B,
+                },
                 desk: desk(),
-                lock_shortcut: vec!["ScrollLock".into()],
-            }),
-            ControlMsg::Desk(DeskSync {
-                rev: 0,
-                origin: Machine::A,
+            })),
+            ControlMsg::Desk(Box::new(DeskVersion {
+                stamp: DeskStamp::fresh(Machine::A),
                 desk: Config::default(),
-                lock_shortcut: vec![],
-            }),
+            })),
         ];
         v.extend(
             capabilities()
@@ -770,7 +797,6 @@ pub(crate) mod samples {
             ControlMsg::Desk(_) => 10,
             ControlMsg::KeyProbe(_) => 11,
             ControlMsg::Keyboard(_) => 12,
-            ControlMsg::SetModule { .. } => 13,
         }
     }
 
@@ -1003,7 +1029,15 @@ pub(crate) mod samples {
                 module: ModuleId::SecureDesktop,
                 on: true,
             },
+            UiCommand::UndoDesk { to_rev: 3 },
+            UiCommand::GetDeskHistory,
         ];
+        let mut cmds = cmds;
+        cmds.extend(
+            desk_patches()
+                .into_iter()
+                .map(|patch| UiCommand::EditDesk { patch }),
+        );
         cmds.into_iter()
             .enumerate()
             .map(|(i, command)| UiRequest {
@@ -1033,7 +1067,46 @@ pub(crate) mod samples {
             UiCommand::SetKeyboard(_) => 15,
             UiCommand::PingPeer => 16,
             UiCommand::SetModule { .. } => 17,
+            UiCommand::EditDesk { .. } => 18,
+            UiCommand::UndoDesk { .. } => 19,
+            UiCommand::GetDeskHistory => 20,
         }
+    }
+
+    /// Un parche de cada sección del puesto.
+    pub fn desk_patches() -> Vec<DeskPatch> {
+        vec![
+            DeskPatch::Machine {
+                side: Machine::B,
+                name: Some("Torre".into()),
+                color: Some("#5fbfb0".into()),
+            },
+            DeskPatch::Machine {
+                side: Machine::A,
+                name: None,
+                color: None,
+            },
+            DeskPatch::Arrangement(None),
+            DeskPatch::Arrangement(Some(Arrangement {
+                a_side: Side::Down,
+                align: Align::Start,
+            })),
+            DeskPatch::Screens {
+                machine: Machine::A,
+                screens: desk().screens,
+            },
+            DeskPatch::Scenes(desk().scenes),
+            DeskPatch::Shortcuts(tandem_core::Shortcuts { lock: vec![] }),
+            DeskPatch::Prefs(tandem_core::InputPrefs {
+                cmd_ctrl: false,
+                drag_files: true,
+            }),
+            DeskPatch::Module {
+                machine: Machine::B,
+                module: "clipboard".into(),
+                on: false,
+            },
+        ]
     }
 
     pub fn txn_events() -> Vec<TxnEvent> {
@@ -1143,6 +1216,29 @@ pub(crate) mod samples {
             }),
         });
         v.push(AgentToUi::Desk(desk()));
+        v.push(AgentToUi::DeskChanged {
+            by: Machine::B,
+            rev: 7,
+            summary: "Acomodo y atajos".into(),
+            undo_to: 6,
+        });
+        v.push(AgentToUi::Reply {
+            id: 14,
+            reply: Reply::DeskHistory(vec![
+                HistoryEntry {
+                    stamp: DeskStamp {
+                        rev: 7,
+                        at: 9,
+                        by: Machine::B,
+                    },
+                    summary: "Acomodo".into(),
+                },
+                HistoryEntry {
+                    stamp: DeskStamp::fresh(Machine::A),
+                    summary: String::new(),
+                },
+            ]),
+        });
         v.push(AgentToUi::KeyProbe(KeyProbeStatus::default()));
         v.push(AgentToUi::KeyProbe(KeyProbeStatus {
             armed: true,
@@ -1204,6 +1300,7 @@ pub(crate) mod samples {
             AgentToUi::Desk(_) => 7,
             AgentToUi::Machines { .. } => 8,
             AgentToUi::KeyProbe(_) => 9,
+            AgentToUi::DeskChanged { .. } => 10,
         }
     }
 
@@ -1220,6 +1317,7 @@ pub(crate) mod samples {
             Reply::Setup(_) => 8,
             Reply::Capabilities(_) => 9,
             Reply::Pong { .. } => 10,
+            Reply::DeskHistory(_) => 11,
         }
     }
 
@@ -1261,11 +1359,11 @@ mod tests {
     fn samples_cover_every_variant() {
         covers(&steps(), step_arm, 2);
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
-        covers(&control(), control_arm, 14);
+        covers(&control(), control_arm, 13);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 18);
+        covers(&cmds, ui_command_arm, 21);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 10);
+        covers(&to_ui(), to_ui_arm, 11);
         covers(&pairing(), pairing_arm, 5);
         covers(&pairing_statuses(), pairing_status_arm, 5);
         covers(&links(), link_arm, 3);
@@ -1276,8 +1374,17 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 11);
+        covers(&replies, reply_arm, 12);
         covers(&txn_events(), txn_arm, 6);
+    }
+
+    #[test]
+    fn module_ids_have_a_stable_text() {
+        for m in ModuleId::ALL {
+            assert_eq!(ModuleId::parse(m.as_str()), Some(m));
+        }
+        assert_eq!(ModuleId::Clipboard.as_str(), "clipboard");
+        assert_eq!(ModuleId::parse("Clipboard"), None);
     }
 
     #[test]

@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use tandem_clipboard::ClipContent;
-use tandem_core::{Machine, Os, Side, Step};
+use tandem_core::{DeskPatch, InputPrefs, Machine, Os, Shortcuts, Side, Step};
 use tandem_input::geometry::{LayoutOptions, Rect, Screen};
 use tandem_input::session::SessionConfig;
 use tandem_input::{HidUsage, InputEvent, KeyState, ModifierKey};
@@ -524,7 +524,7 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
             .unwrap();
     }
     within(async {
-        while mac.agent.desk_sync().rev != pc.agent.desk_sync().rev
+        while mac.agent.desk_sync().stamp.rev != pc.agent.desk_sync().stamp.rev
             || mac.agent.desk() != pc.agent.desk()
         {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -533,11 +533,17 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
     .await;
     // En la PC el acomodo pasa a «la Mac a la derecha».
     let mut desk = pc.agent.desk();
-    desk.arrangement.a_side = Side::Right;
+    desk.arrangement = Some(tandem_core::Arrangement {
+        a_side: Side::Right,
+        align: tandem_core::Align::Center,
+    });
     pc.agent.set_desk(desk.clone()).unwrap();
     let mut mac_desk = mac.agent.subscribe_desk();
     within(mac_desk.wait_for(|d| *d == desk)).await.unwrap();
-    assert_eq!(mac.agent.desk_sync().rev, pc.agent.desk_sync().rev);
+    assert_eq!(
+        mac.agent.desk_sync().stamp.rev,
+        pc.agent.desk_sync().stamp.rev
+    );
 
     // Ahora la Mac cruza por su borde izquierdo y entra a la PC por el derecho.
     let (x, _) = cross(&mac_fake, &pc_fake, 0.0, -5.0).await;
@@ -547,8 +553,9 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
 }
 
 /// Un `[[screens]]` escrito a mano en `tandem.toml` cambia la geometría: la PC declara su
-/// pantalla de 2000×720 aunque lea 3440×1440, y la Mac a su derecha. El cruce sale del
-/// acomodo declarado, y el puesto editado llega también a la Mac.
+/// pantalla de 2000×720 aunque lea 3440×1440, y la Mac a su derecha, centradas (D18). El
+/// cruce sale del acomodo declarado (el tramo compartido), y el puesto editado llega también
+/// a la Mac.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
     let (mac_id, pc_id) = sides(Identity::from_seed([33; 32]), Identity::from_seed([34; 32]));
@@ -564,7 +571,7 @@ async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
         mac_fake.clone(),
     )
     .await;
-    let declared = "[[screens]]\nmachine = \"b\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 2000\nheight = 720\n\n[arrangement]\na_side = \"right\"\n";
+    let declared = "[[screens]]\nmachine = \"b\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 2000\nheight = 720\n\n[arrangement]\na_side = \"right\"\nalign = \"center\"\n";
     let pc = start_full(
         Machine::B,
         &pc_id,
@@ -579,10 +586,11 @@ async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
     pc.until_input(pc_serving).await;
     both_on(&mac, &pc).await;
 
-    // A 500 de 720 por el borde derecho declarado (x = 1999) entra a la Mac a 750 de 1080.
+    // Centradas, los 720 de la PC quedan frente a 180..900 de los 1080 de la Mac: a 500 por
+    // el borde derecho declarado (x = 1999) entra a la Mac a 180 + 500 = 680.
     let (x, y) = cross(&pc_fake, &mac_fake, 1999.0, 5.0).await;
     assert_eq!(x, 0.0, "entra por el borde izquierdo de la Mac");
-    assert!((y - 750.0).abs() < 1e-6, "{y}");
+    assert!((y - 680.0).abs() < 1e-6, "{y}");
 
     // Lo escrito a mano es un cambio de la PC: la Mac lo adopta.
     let want = pc.agent.desk();
@@ -933,6 +941,175 @@ async fn switching_off_the_clipboard_and_the_input_stops_them() {
     pc.until_input(pc_serving).await;
     assert!(pc_fake.capture(still), "la captura volvió");
 
+    pc.stop().await;
+    mac.stop().await;
+}
+
+/// Espera a que el puesto de `r` cumpla `f`.
+async fn until_desk(r: &Running, f: impl Fn(&tandem_core::Desk) -> bool) {
+    let mut rx = r.agent.subscribe_desk();
+    within(rx.wait_for(|d| f(d))).await.unwrap();
+}
+
+/// T-099 (revisión de #74): Cmd↔Ctrl y el módulo de portapapeles están en el puesto.
+/// Apagarlos desde la UI de una máquina cambia el motor de las dos, sin reiniciar los
+/// agentes: Ctrl de la PC llega como Ctrl a la Mac y copiar ya no cruza.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn turning_off_cmd_ctrl_and_the_clipboard_in_the_desk_changes_both_engines() {
+    let (mac_id, pc_id) = sides(Identity::from_seed([45; 32]), Identity::from_seed([46; 32]));
+    let (mac_port, pc_port) = (free_port(), free_port());
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let mac = start(
+        Machine::A,
+        &mac_id,
+        mac_port,
+        (pc_id.public_key(), pc_port),
+        mac_fake.clone(),
+    )
+    .await;
+    let pc = start(
+        Machine::B,
+        &pc_id,
+        pc_port,
+        (mac_id.public_key(), mac_port),
+        pc_fake.clone(),
+    )
+    .await;
+    let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
+    mac.until_input(pc_serving).await;
+    pc.until_input(pc_serving).await;
+    both_on(&mac, &pc).await;
+
+    let ctrl = ModifierKey::ControlLeft.usage();
+    let meta = ModifierKey::MetaLeft.usage();
+    let a = HidUsage::key(0x04);
+    // Cruza a la Mac y teclea Ctrl+A en la PC; devuelve lo que llegó a la Mac.
+    let type_ctrl_a = || async {
+        let (x, _) = cross(&pc_fake, &mac_fake, 0.0, -5.0).await;
+        assert_eq!(x, 1919.0);
+        let before = mac_fake.injected().borrow().len();
+        pc_fake.capture(key(ctrl, KeyState::Pressed));
+        pc_fake.capture(key(a, KeyState::Pressed));
+        pc_fake.capture(key(a, KeyState::Released));
+        pc_fake.capture(key(ctrl, KeyState::Released));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        mac_fake.injected().borrow()[before..]
+            .iter()
+            .filter(|e| matches!(e, InputEvent::Key { .. }))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    // Con lo de omisión, Ctrl de la PC llega como Cmd.
+    within(async { while !type_ctrl_a().await.contains(&key(meta, KeyState::Pressed)) {} }).await;
+
+    // En la Mac se apagan Cmd↔Ctrl y el portapapeles; el puesto llega a la PC.
+    let off = InputPrefs {
+        cmd_ctrl: false,
+        drag_files: true,
+    };
+    mac.agent.edit_desk(DeskPatch::Prefs(off)).unwrap();
+    // El portapapeles de la Mac, apagado desde la UI de la Mac (va en el puesto, D4).
+    assert_eq!(
+        mac.agent.handle(UiCommand::SetModule {
+            machine: Machine::A,
+            module: tandem_proto::ModuleId::Clipboard,
+            on: false,
+        }),
+        Reply::Done
+    );
+    until_desk(&pc, |d| {
+        d.prefs == off && d.modules.get(Machine::A, "clipboard") == Some(false)
+    })
+    .await;
+    // El motor de la PC (el que captura) se rearma: Ctrl llega como Ctrl.
+    within(async {
+        loop {
+            let got = type_ctrl_a().await;
+            if got.contains(&key(ctrl, KeyState::Pressed)) {
+                assert!(!got.contains(&key(meta, KeyState::Pressed)), "{got:?}");
+                break;
+            }
+        }
+    })
+    .await;
+
+    // Y lo copiado ya no cruza, en ningún sentido.
+    let text = |s: &str| ClipContent {
+        text: Some(s.into()),
+        html: None,
+        image: None,
+    };
+    mac_fake.clipboard().copy(Some(text("solo en la Mac")));
+    pc_fake.clipboard().copy(Some(text("solo en la PC")));
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_ne!(
+        pc_fake.clipboard().subscribe().borrow().content,
+        Some(text("solo en la Mac"))
+    );
+    assert_ne!(
+        mac_fake.clipboard().subscribe().borrow().content,
+        Some(text("solo en la PC"))
+    );
+
+    pc.stop().await;
+    mac.stop().await;
+}
+
+/// T-099 (revisión de #74): el atajo de bloqueo es del puesto. Cambiarlo desde la UI de la
+/// Mac lo cambia en el motor de la PC (el que captura) sin reiniciar ningún agente.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_lock_shortcut_changed_in_the_desk_applies_without_restarting() {
+    let (mac_id, pc_id) = sides(Identity::from_seed([47; 32]), Identity::from_seed([48; 32]));
+    let (mac_port, pc_port) = (free_port(), free_port());
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let mac = start(
+        Machine::A,
+        &mac_id,
+        mac_port,
+        (pc_id.public_key(), pc_port),
+        mac_fake.clone(),
+    )
+    .await;
+    let pc = start(
+        Machine::B,
+        &pc_id,
+        pc_port,
+        (mac_id.public_key(), mac_port),
+        pc_fake.clone(),
+    )
+    .await;
+    pc.until_input(|s| s.session && s.server == Machine::B)
+        .await;
+    assert!(!pc.agent.input_status().locked);
+
+    mac.agent
+        .edit_desk(DeskPatch::Shortcuts(Shortcuts {
+            lock: vec!["KeyK".into()],
+        }))
+        .unwrap();
+    until_desk(&pc, |d| d.shortcuts.lock == ["KeyK"]).await;
+    // Hasta que el motor se rearme, K es una tecla más; después, bloquea.
+    let k = HidUsage::key(0x0E);
+    within(async {
+        while !pc.agent.input_status().locked {
+            pc_fake.capture(key(k, KeyState::Pressed));
+            pc_fake.capture(key(k, KeyState::Released));
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await;
+    // El atajo de antes ya no hace nada: K otra vez lo desbloquea.
+    let scroll = HidUsage::key(0x47);
+    pc_fake.capture(key(scroll, KeyState::Pressed));
+    pc_fake.capture(key(scroll, KeyState::Released));
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(pc.agent.input_status().locked);
+    pc_fake.capture(key(k, KeyState::Pressed));
+    pc.until_input(|s| !s.locked).await;
     pc.stop().await;
     mac.stop().await;
 }

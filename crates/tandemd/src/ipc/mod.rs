@@ -8,9 +8,10 @@
 //! cuando la otra máquina se da por apagada sin que nadie la apagara, [`AgentToUi::Peer`]
 //! cuando cambia el par o el enlace con él, [`AgentToUi::Pairing`] con cada paso del
 //! emparejamiento, [`AgentToUi::Input`] cuando cambia el teclado y mouse (roles, sesión,
-//! permisos que faltan), [`AgentToUi::Desk`] cuando cambia el puesto compartido y
-//! [`AgentToUi::Machines`] cuando cambia lo que anuncia alguna de las dos (módulos
-//! incluidos).
+//! permisos que faltan), [`AgentToUi::Desk`] cuando cambia el puesto compartido,
+//! [`AgentToUi::DeskChanged`] cuando ese cambio vino de la otra máquina (el aviso con
+//! «Deshacer») y [`AgentToUi::Machines`] cuando cambia lo que anuncia alguna de las dos
+//! (módulos incluidos).
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -158,6 +159,7 @@ where
     desk.mark_unchanged();
     let mut caps = agent.subscribe_capabilities();
     caps.mark_unchanged();
+    let mut desk_changes = agent.subscribe_desk_changes();
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
@@ -217,6 +219,22 @@ where
                 let d = desk.borrow_and_update().clone();
                 conn.send(&AgentToUi::Desk(d)).await?;
             }
+            event = desk_changes.recv() => match event {
+                Ok(c) => {
+                    conn.send(&AgentToUi::DeskChanged {
+                        by: c.by,
+                        rev: c.rev,
+                        summary: c.summary,
+                        undo_to: c.undo_to,
+                    })
+                    .await?;
+                }
+                // El puesto nuevo ya llegó empujado; solo se pierde el aviso.
+                Err(RecvError::Lagged(n)) => {
+                    tracing::warn!("la UI se atrasó y perdió {n} avisos de cambios del puesto");
+                }
+                Err(RecvError::Closed) => return Ok(()),
+            },
             changed = caps.changed() => {
                 if changed.is_err() {
                     return Ok(());

@@ -31,9 +31,6 @@
 //! [input]
 //! # Dónde está el teclado y mouse al arrancar, hasta que el hub decida.
 //! keyboard = "a"
-//! # Bloquea el cursor en la máquina donde está (nombres de `KeyboardEvent.code`).
-//! lock_shortcut = ["ScrollLock"]
-//! clipboard = true
 //!
 //! # El teclado y el mouse del hub, por VID:PID. Sin esta sección no hay roles automáticos.
 //! [input.hub]
@@ -57,13 +54,32 @@
 //! height = 1440
 //! scale = 1.0
 //!
+//! # De qué lado de B está A (left, right, up, down) y la alineación (start, center, end).
 //! [arrangement]
 //! a_side = "left"
+//! align = "center"
+//!
+//! # Bloquea el cursor en la máquina donde está (nombres de `KeyboardEvent.code`).
+//! [shortcuts]
+//! lock = ["ScrollLock"]
+//!
+//! [prefs]
+//! cmd_ctrl = true
+//! drag_files = true
+//!
+//! # Módulos que el usuario apagó en cada máquina (los demás, encendidos).
+//! [modules.b]
+//! clipboard = false
 //! ```
+//!
+//! Todo lo que no es de esta máquina (`[machines]`, `[[screens]]`, `[arrangement]`,
+//! `[[scenes]]`, `[shortcuts]`, `[prefs]`, `[modules]`) es el puesto compartido: se edita
+//! desde la UI (D4) y lo escribe el agente.
 //!
 //! Una configuración de v0.1 con `[[monitors]]` sigue cargando: la sección se ignora con
 //! un aviso en el log ([`AgentConfig::warnings`]). Una de v0.2, con los lados `mac`/`pc`,
-//! se traduce sola ([`crate::migrate`]).
+//! se traduce sola ([`crate::migrate`]), y una de antes de T-099 (atajo y portapapeles en
+//! `[input]`, desplazamiento en `[arrangement]`) también.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -103,6 +119,15 @@ pub struct AgentConfig {
     /// reescribe al conocer el archivo.
     #[serde(skip)]
     pub rewrite_sides: bool,
+    /// El puesto venía con el formato de antes de T-099 ([`crate::migrate::desk_v03`]): su
+    /// huella ya no dice nada y el agente lo reescribe al conocer el archivo, sin contarlo
+    /// como un cambio.
+    #[serde(skip)]
+    pub legacy_desk: bool,
+    /// La migración pasó al puesto algo que era de esta máquina (el portapapeles apagado):
+    /// cuenta como un cambio suyo, con versión nueva, para que la otra lo adopte.
+    #[serde(skip)]
+    pub local_to_desk: bool,
     #[serde(default)]
     pub network: NetworkConfig,
     #[serde(default)]
@@ -111,11 +136,14 @@ pub struct AgentConfig {
     pub power: PowerConfig,
     #[serde(default)]
     pub input: InputConfig,
-    /// Versión de la configuración compartida del puesto (`[[screens]]`, `[arrangement]` y
-    /// el atajo de bloqueo), que se sincroniza con la otra máquina ([`crate::desk_sync`]).
-    /// La escribe el agente; 0 = nunca se cambió desde que se generó.
+    /// Versión del puesto compartido, que se sincroniza con la otra máquina
+    /// ([`tandem_core::DeskVersion`]). La escribe el agente; 0 = nunca se cambió desde que se
+    /// generó.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub desk_rev: u64,
+    /// Cuándo se hizo (milisegundos desde la época Unix, reloj de quien lo hizo).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub desk_at: u64,
     /// Qué máquina hizo el último cambio de `desk_rev`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desk_origin: Option<Machine>,
@@ -258,8 +286,8 @@ impl PowerConfig {
     }
 }
 
-/// Teclado, mouse y portapapeles compartidos (DESIGN §7).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Teclado y mouse de esta máquina (DESIGN §7). Lo compartido está en el puesto.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InputConfig {
     /// Dónde está el teclado y mouse al arrancar, hasta que el hub (o el otro agente) diga
@@ -272,16 +300,10 @@ pub struct InputConfig {
     /// El teclado y el mouse del hub. Sin esto los roles no cambian solos.
     #[serde(default)]
     pub hub: Option<HubConfig>,
-    /// Reasignación de modificadores por dirección; por omisión Cmd↔Ctrl.
+    /// La tabla de cada dirección de Cmd↔Ctrl; si se reasigna o no lo dice el puesto
+    /// (`[prefs] cmd_ctrl`).
     #[serde(default)]
     pub remap: RemapPolicy,
-    /// Teclas (nombres de `KeyboardEvent.code`, todas a la vez) que bloquean el cursor
-    /// en la máquina donde está. Vacío = sin atajo.
-    #[serde(default = "default_lock_shortcut")]
-    pub lock_shortcut: Vec<String>,
-    /// Sincronizar el portapapeles.
-    #[serde(default = "default_true")]
-    pub clipboard: bool,
 }
 
 /// Las dos máquinas tienen que arrancar con el mismo servidor aunque ninguna sepa nada: el
@@ -303,35 +325,16 @@ impl InputConfig {
     }
 }
 
-/// ScrollLock, como en Synergy/Deskflow. En la Mac llega como F14 y vale igual.
-fn default_lock_shortcut() -> Vec<String> {
-    vec!["ScrollLock".to_owned()]
-}
-
 fn default_true() -> bool {
     true
 }
 
-impl Default for InputConfig {
-    fn default() -> Self {
-        InputConfig {
-            keyboard: None,
-            hub: None,
-            remap: RemapPolicy::default(),
-            lock_shortcut: default_lock_shortcut(),
-            clipboard: true,
-        }
-    }
-}
-
-impl InputConfig {
-    /// Las teclas del atajo de bloqueo. La config ya validada no falla.
-    pub fn lock_keys(&self) -> Result<Vec<HidUsage>, ConfigError> {
-        self.lock_shortcut
-            .iter()
-            .map(|name| from_code_name(name).ok_or_else(|| ConfigError::UnknownKey(name.clone())))
-            .collect()
-    }
+/// Las teclas de un atajo del puesto (`[shortcuts]`), por su nombre de `KeyboardEvent.code`.
+pub fn shortcut_keys(names: &[String]) -> Result<Vec<HidUsage>, ConfigError> {
+    names
+        .iter()
+        .map(|name| from_code_name(name).ok_or_else(|| ConfigError::UnknownKey(name.clone())))
+        .collect()
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -368,7 +371,7 @@ pub enum ConfigError {
     #[error(transparent)]
     Peers(#[from] DiscoveryError),
     #[error(
-        "input.lock_shortcut: «{0}» no es una tecla (se usan los nombres de KeyboardEvent.code, como ScrollLock o KeyL)"
+        "shortcuts.lock: «{0}» no es una tecla (se usan los nombres de KeyboardEvent.code, como ScrollLock o KeyL)"
     )]
     UnknownKey(String),
 }
@@ -378,9 +381,14 @@ impl AgentConfig {
     /// máquina como `A` hasta que la identidad diga otra cosa ([`crate::migrate`]).
     pub fn from_toml(s: &str) -> Result<Self, ConfigError> {
         let mut table: toml::Table = s.parse()?;
+        // Primero el puesto: decide si el acomodo era el de omisión con los nombres que
+        // trae el archivo, antes de traducirlos.
+        let migrated = crate::migrate::desk_v03(&mut table);
         let legacy = crate::migrate::sides_v02(&mut table);
         let mut cfg: AgentConfig = table.try_into()?;
         cfg.rewrite_sides = legacy;
+        cfg.legacy_desk = migrated.changed;
+        cfg.local_to_desk = migrated.local;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -443,7 +451,7 @@ impl AgentConfig {
         if self.power.peer_lost_after_secs == 0 {
             return Err(ConfigError::ZeroPeerLostAfter);
         }
-        self.input.lock_keys()?;
+        shortcut_keys(&self.desk.shortcuts.lock)?;
         if let Some(wol) = &self.power.wol {
             if wol.port == 0 {
                 return Err(ConfigError::ZeroWolPort);
@@ -554,7 +562,11 @@ mod tests {
         .unwrap();
         assert_eq!(cfg.desk.screens.len(), 2);
         assert_eq!(cfg.desk.screens_of(Machine::A).count(), 1);
-        assert_eq!(cfg.desk.arrangement.a_side, Side::Right);
+        let arr = cfg.desk.arrangement.unwrap();
+        assert_eq!(
+            (arr.a_side, arr.align),
+            (Side::Right, tandem_core::Align::Center)
+        );
         let err = AgentConfig::from_toml(
             "machine = \"b\"\n[[screens]]\nmachine = \"b\"\nid = \"a\"\nx = 0\ny = 0\nwidth = 0\nheight = 1\n",
         )
@@ -654,7 +666,7 @@ mod tests {
         assert_eq!(cfg.desk_origin, Some(Machine::B));
         assert_eq!(cfg.input.keyboard, Some(Machine::B));
         assert_eq!(cfg.desk.screens[0].machine, Machine::A);
-        assert_eq!(cfg.desk.arrangement.a_side, Side::Right);
+        assert_eq!(cfg.desk.arrangement.unwrap().a_side, Side::Right);
         // Si por las claves esta máquina (la PC) es B, todo se da vuelta y sigue diciendo
         // lo mismo: la Mac (ahora A) a la izquierda.
         let b = cfg.with_side(Machine::B);
@@ -662,7 +674,7 @@ mod tests {
         assert_eq!(b.desk.screens[0].machine, Machine::B);
         assert_eq!(b.input.keyboard, Some(Machine::A));
         assert_eq!(b.desk_origin, Some(Machine::A));
-        assert_eq!(b.desk.arrangement.a_side, Side::Left);
+        assert_eq!(b.desk.arrangement.unwrap().a_side, Side::Left);
         assert!(b.rewrite_sides);
     }
 
@@ -818,9 +830,13 @@ mod tests {
             !cfg.input.keyboard_defined(),
             "sin definir: no se supone la Mac"
         );
-        assert!(cfg.input.clipboard && cfg.input.hub.is_none());
-        assert_eq!(cfg.input.lock_keys().unwrap(), [HidUsage::key(0x47)]);
+        assert!(cfg.desk.modules.b.is_empty() && cfg.input.hub.is_none());
+        assert_eq!(
+            shortcut_keys(&cfg.desk.shortcuts.lock).unwrap(),
+            [HidUsage::key(0x47)]
+        );
         assert_eq!(cfg.input.remap, RemapPolicy::default());
+        assert!(!cfg.legacy_desk);
     }
 
     #[test]
@@ -847,15 +863,24 @@ mod tests {
         .unwrap();
         assert_eq!(old.input.keyboard(), Machine::B);
         assert_eq!(old.power.peer_lost_after_secs, 9);
-        assert!(!cfg.input.clipboard);
+        // El atajo y el portapapeles de antes pasan al puesto.
+        assert!(cfg.legacy_desk);
+        assert_eq!(cfg.desk.modules.get(Machine::B, "clipboard"), Some(false));
         assert_eq!(
-            cfg.input.lock_keys().unwrap(),
+            shortcut_keys(&cfg.desk.shortcuts.lock).unwrap(),
             [HidUsage::key(0xE0), HidUsage::key(0x0F)]
         );
         let hub = cfg.input.hub.unwrap();
         assert_eq!(hub.keyboard.to_string(), "046d:c33f");
         let none = AgentConfig::from_toml("machine = \"a\"\n[input]\nlock_shortcut = []").unwrap();
-        assert!(none.input.lock_keys().unwrap().is_empty());
+        assert!(none.desk.shortcuts.lock.is_empty());
+        let new = AgentConfig::from_toml(
+            "machine = \"a\"\n[shortcuts]\nlock = [\"KeyL\"]\n[prefs]\ncmd_ctrl = false\n",
+        )
+        .unwrap();
+        assert_eq!(new.desk.shortcuts.lock, ["KeyL"]);
+        assert!(!new.desk.prefs.cmd_ctrl && new.desk.prefs.drag_files);
+        assert!(!new.legacy_desk);
     }
 
     #[test]
@@ -866,6 +891,8 @@ mod tests {
             matches!(err, ConfigError::UnknownKey(ref k) if k == "Bloq"),
             "{err}"
         );
+        let err = AgentConfig::from_toml("[shortcuts]\nlock = [\"Bloq\"]").unwrap_err();
+        assert!(matches!(err, ConfigError::UnknownKey(_)), "{err}");
         let err = AgentConfig::from_toml(&format!("{base}sever = \"b\"")).unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
         let err =

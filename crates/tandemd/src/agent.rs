@@ -4,11 +4,14 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use tandem_core::plan::PlanError;
-use tandem_core::{Abilities, Config, Machine, MachineInfo, Plan, State};
+use tandem_core::{
+    Abilities, Config, DeskHistory, DeskPatch, DeskStamp, DeskVersion, HistoryEntry, Machine,
+    MachineInfo, Plan, State,
+};
 use tandem_link::transport::{Connection, ControlStream};
 use tandem_proto::{
-    Capabilities, Channel, ControlMsg, DeskCapabilities, DeskSync, HubReport, InputStatus,
-    KeyProbeStatus, PairingStatus, PeerStatus, PowerEvent, Reply, ScreenRect, SetupInfo, TxnEvent,
+    Capabilities, Channel, ControlMsg, DeskCapabilities, HubReport, InputStatus, KeyProbeStatus,
+    ModuleId, PairingStatus, PeerStatus, PowerEvent, Reply, ScreenRect, SetupInfo, TxnEvent,
     UiCommand,
 };
 use tokio::sync::{broadcast, mpsc, watch};
@@ -17,7 +20,7 @@ mod modules;
 mod setup;
 
 use crate::capabilities;
-use crate::config::{AgentConfig, InputConfig};
+use crate::config::AgentConfig;
 use crate::modules::{ModuleContext, ModuleSwitches, Registry};
 use crate::orchestrator::{LocalSteps, Orchestrator, PeerLink, Unimplemented};
 use crate::store::{StateStore, StoreError};
@@ -70,13 +73,15 @@ pub struct Agent {
     caps: watch::Sender<DeskCapabilities>,
     /// Los módulos que existen en esta máquina (T-098).
     registry: Registry,
-    /// Los módulos que el usuario apagó y los problemas que reportó cada uno en marcha.
+    /// Los módulos apagados aquí (copia de `Desk.modules` de este lado, que es la fuente) y
+    /// los problemas que reportó cada uno en marcha.
     modules: watch::Sender<ModuleSwitches>,
     /// Los cambios de lo que anuncia esta máquina van a la otra juntos (T-098).
     announce: capabilities::Debounce,
-    /// El reloj del puesto compartido ([`crate::desk_sync`]) y el atajo de bloqueo, que
-    /// también es del puesto.
+    /// El sello del puesto que vale ahora y las últimas versiones ([`crate::desk_sync`]).
     sync: Mutex<SyncClock>,
+    /// Avisos de que la otra máquina cambió el puesto (D5), para la UI.
+    desk_changes: broadcast::Sender<DeskChanged>,
     /// El puesto de `tandem.toml` se editó a mano: al conocer el archivo se le escribe la
     /// versión nueva.
     hand_edited: bool,
@@ -103,9 +108,27 @@ pub struct Agent {
 
 #[derive(Debug, Clone)]
 struct SyncClock {
-    rev: u64,
-    origin: Machine,
-    lock_shortcut: Vec<String>,
+    stamp: DeskStamp,
+    history: DeskHistory,
+}
+
+/// La otra máquina cambió el puesto y su versión ganó: lo que dice el aviso «Cambiado desde
+/// X · Deshacer» (`AgentToUi::DeskChanged`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeskChanged {
+    pub by: Machine,
+    pub rev: u64,
+    pub summary: String,
+    /// La versión que había aquí antes.
+    pub undo_to: u64,
+}
+
+/// Milisegundos desde la época Unix: la fecha de un cambio del puesto.
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
 }
 
 impl std::fmt::Debug for dyn PairingControl {
@@ -173,6 +196,8 @@ impl PeerInbox {
 
 /// Avisos de energía que se guardan para un suscriptor lento.
 const POWER_EVENT_BUFFER: usize = 16;
+/// Avisos de cambios del puesto que se guardan para un suscriptor lento.
+const DESK_EVENT_BUFFER: usize = 16;
 
 impl Agent {
     /// Arranca desde el estado guardado (o el inicial, si no hay), sin backends de
@@ -203,13 +228,12 @@ impl Agent {
         input.defined = cfg.input.keyboard_defined();
         let process = capabilities::current_process();
         // Un puesto editado a mano en `tandem.toml` es un cambio de esta máquina: versión
-        // nueva, para que la otra lo adopte y no lo pise con el suyo.
-        let hand_edited = crate::desk_sync::edited_by_hand(
-            &cfg.desk,
-            &cfg.input.lock_shortcut,
-            cfg.desk_sum.as_deref(),
-            &InputConfig::default().lock_shortcut,
-        );
+        // nueva, para que la otra lo adopte y no lo pise con el suyo. Uno del formato de antes
+        // de T-099 tiene una huella vieja: se reescribe sin contarlo como cambio, salvo que
+        // haya pasado al puesto algo que era de esta máquina (revisión de #74).
+        let hand_edited = cfg.local_to_desk
+            || (!cfg.legacy_desk
+                && crate::desk_sync::edited_by_hand(&cfg.desk, cfg.desk_sum.as_deref()));
         let info = local_info(&cfg, me, &cfg.desk);
         let registry = Registry::for_os(cfg.os);
         let switches = modules::initial_switches(&cfg);
@@ -220,19 +244,23 @@ impl Agent {
             switches: &switches,
         });
         let here = capabilities::local(&cfg, me, info, &input, &process, modules);
-        let sync = if hand_edited {
+        let saved = DeskStamp {
+            rev: cfg.desk_rev,
+            at: cfg.desk_at,
+            by: cfg.desk_origin.unwrap_or(me),
+        };
+        let stamp = if hand_edited {
             tracing::info!("el puesto de tandem.toml cambió a mano: se le manda a la otra máquina");
-            SyncClock {
-                rev: cfg.desk_rev + 1,
-                origin: me,
-                lock_shortcut: cfg.input.lock_shortcut.clone(),
-            }
+            saved.next(me, now_millis())
         } else {
-            SyncClock {
-                rev: cfg.desk_rev,
-                origin: cfg.desk_origin.unwrap_or(me),
-                lock_shortcut: cfg.input.lock_shortcut.clone(),
-            }
+            saved
+        };
+        let sync = SyncClock {
+            stamp,
+            history: DeskHistory::new(DeskVersion {
+                stamp,
+                desk: cfg.desk.clone(),
+            }),
         };
         Agent {
             me: watch::Sender::new(me),
@@ -261,6 +289,7 @@ impl Agent {
             modules: watch::Sender::new(switches),
             announce: capabilities::Debounce::new(capabilities::ANNOUNCE_DEBOUNCE),
             sync: Mutex::new(sync),
+            desk_changes: broadcast::channel(DESK_EVENT_BUFFER).0,
             hand_edited,
             key_probe: watch::Sender::new(KeyProbeStatus::default()),
             keyboard: watch::Sender::new(cfg.input.keyboard),
@@ -283,7 +312,7 @@ impl Agent {
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = Some(path);
         let _editing = self.edit();
-        if self.rewrite_sides {
+        if self.rewrite_sides || self.cfg.legacy_desk {
             self.save_sides();
         } else if self.hand_edited {
             self.save_desk(&self.desk_sync());
@@ -320,19 +349,21 @@ impl Agent {
         tracing::info!(lado = %side, "por las claves, esta máquina es el otro lado");
         let synced = {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
-            clock.origin = clock.origin.other();
-            clock.rev > 0
+            clock.stamp = clock.stamp.swapped();
+            clock.history = std::mem::take(&mut clock.history).swapped();
+            clock.stamp.rev > 0
         };
         self.desk.send_modify(|d| {
             let arrangement = d.arrangement;
             *d = std::mem::take(d).swap_sides();
-            // Un acomodo que nunca se sincronizó o el de omisión no es un lugar físico que
-            // conservar: es «A a la izquierda de B» con los lados nuevos. Darlo vuelta dejaría
-            // a las dos instalaciones nuevas con A a la derecha.
-            if !synced || arrangement == tandem_core::Arrangement::default() {
+            // Un acomodo que nunca se sincronizó no es un lugar físico que conservar: es el
+            // que había con los lados nuevos. Darlo vuelta dejaría a las dos instalaciones
+            // nuevas con A a la derecha. Sin acomodo declarado no hay nada que dar vuelta.
+            if !synced {
                 d.arrangement = arrangement;
             }
         });
+        self.record_current();
         self.keyboard.send_modify(|k| *k = k.map(Machine::other));
         self.key_probe
             .send_modify(|p| p.heard = p.heard.map(Machine::other));
@@ -378,7 +409,9 @@ impl Agent {
         let local = local_info(&self.cfg, me, &desk);
         let mine = learn(&mut desk, me, &local);
         let theirs = learn(&mut desk, peer, info);
-        if mine || theirs {
+        // Los colores se asignan al conocerse y no se repiten (D17).
+        let colors = desk.machines.distinct_colors();
+        if mine || theirs || colors {
             self.desk.send_replace(desk);
             self.bump_desk();
         }
@@ -430,22 +463,102 @@ impl Agent {
         Ok(())
     }
 
-    /// El puesto compartido como se le manda a la otra máquina.
-    pub fn desk_sync(&self) -> DeskSync {
-        let clock = self.clock();
-        DeskSync {
-            rev: clock.rev,
-            origin: clock.origin,
-            desk: self.desk(),
-            lock_shortcut: clock.lock_shortcut,
+    /// Un cambio del puesto pedido por la UI (`UiCommand::EditDesk`): se aplica, sube la
+    /// versión y va a `tandem.toml`, a la UI y a la otra máquina. Devuelve el puesto que
+    /// queda, o por qué no se aplicó.
+    pub fn edit_desk(&self, patch: DeskPatch) -> Result<Config, String> {
+        if let DeskPatch::Shortcuts(s) = &patch {
+            crate::config::shortcut_keys(&s.lock).map_err(|e| e.to_string())?;
         }
+        let _editing = self.edit();
+        let current = self.desk_sync();
+        let next = current
+            .edit(patch, self.machine(), now_millis())
+            .map_err(|e| e.to_string())?;
+        if let Some(next) = next {
+            self.commit_local(next);
+        }
+        Ok(self.desk())
     }
 
-    fn clock(&self) -> SyncClock {
+    /// Los interruptores de los módulos de esta máquina salen del puesto (`Desk.modules` de
+    /// su lado, D4): se copian cada vez que el puesto cambia, venga de donde venga. Lo que
+    /// aquí no se puede encender ni apagar se ignora.
+    fn sync_switches(&self) {
+        let me = self.machine();
+        let desk = self.desk();
+        self.modules.send_if_modified(|s| {
+            let mut changed = false;
+            for id in tandem_proto::ModuleId::ALL {
+                if self.registry.check_switch(id).is_err() {
+                    continue;
+                }
+                let on = desk.modules.get(me, id.as_str()) != Some(false);
+                if s.set(id, on) {
+                    tracing::info!(modulo = ?id, encendido = on, "módulo cambiado");
+                    changed = true;
+                }
+            }
+            changed
+        });
+    }
+
+    /// «Deshacer» (`UiCommand::UndoDesk`): vuelve a la versión `to_rev` del historial con un
+    /// cambio nuevo, que gana como cualquier otro.
+    pub fn undo_desk(&self, to_rev: u64) -> Result<Config, String> {
+        let _editing = self.edit();
+        let current = self.desk_sync();
+        let next = {
+            let clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
+            clock
+                .history
+                .undo(&current, to_rev, self.machine(), now_millis())
+                .map_err(|e| e.to_string())?
+        };
+        if let Some(next) = next {
+            tracing::info!(a = to_rev, rev = next.stamp.rev, "puesto deshecho");
+            self.commit_local(next);
+        }
+        Ok(self.desk())
+    }
+
+    /// Las últimas versiones del puesto, de la más nueva a la más vieja.
+    pub fn desk_history(&self) -> Vec<HistoryEntry> {
         self.sync
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+            .history
+            .entries()
+    }
+
+    /// Avisa cada vez que la otra máquina cambia el puesto.
+    pub fn subscribe_desk_changes(&self) -> broadcast::Receiver<DeskChanged> {
+        self.desk_changes.subscribe()
+    }
+
+    /// El puesto compartido con su sello, como se le manda a la otra máquina.
+    pub fn desk_sync(&self) -> DeskVersion {
+        DeskVersion {
+            stamp: self.stamp(),
+            desk: self.desk(),
+        }
+    }
+
+    fn stamp(&self) -> DeskStamp {
+        self.sync
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .stamp
+    }
+
+    /// Anota en el historial la versión que vale ahora.
+    fn record_current(&self) {
+        let current = self.desk_sync();
+        self.sync
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .history
+            .record(current);
     }
 
     fn config_path(&self) -> Option<PathBuf> {
@@ -461,51 +574,82 @@ impl Agent {
         self.bump_desk();
     }
 
-    /// [`Agent::desk_changed`] con el cambio ya tomado ([`Agent::edit`]).
+    /// [`Agent::desk_changed`] con el cambio ya tomado ([`Agent::edit`]): el puesto que
+    /// vale en memoria pasa a ser una versión nueva de esta máquina.
     fn bump_desk(&self) {
-        let next = {
-            let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
-            let next = crate::desk_sync::bump(
-                clock.rev,
-                self.machine(),
-                self.desk(),
-                clock.lock_shortcut.clone(),
-            );
-            clock.rev = next.rev;
-            clock.origin = next.origin;
-            next
-        };
-        self.save_desk(&next);
-        self.orch.peer().send(ControlMsg::Desk(next));
+        let next = self
+            .desk_sync()
+            .change(self.desk(), self.machine(), now_millis());
+        self.commit_local(next);
     }
 
-    /// El puesto que mandó la otra máquina: si es más nuevo, queda aquí, en caliente y en
-    /// `tandem.toml`. El motor de entrada recalcula la geometría con él.
-    pub fn receive_desk(&self, theirs: DeskSync) {
+    /// Una versión nueva hecha aquí: queda en memoria, en el historial, en `tandem.toml`, en
+    /// la UI y en la otra máquina. Se llama con el cambio tomado ([`Agent::edit`]).
+    fn commit_local(&self, next: DeskVersion) {
+        {
+            let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
+            clock.stamp = next.stamp;
+            clock.history.record(next.clone());
+        }
+        self.save_desk(&next);
+        self.desk.send_if_modified(|d| {
+            let changed = *d != next.desk;
+            d.clone_from(&next.desk);
+            changed
+        });
+        self.orch.peer().send(ControlMsg::Desk(Box::new(next)));
+        self.sync_switches();
+        // El nombre y el color de esta máquina (o sus módulos) pueden haber cambiado.
+        self.refresh_capabilities();
+    }
+
+    /// El puesto que mandó la otra máquina: si gana (D5), queda aquí, en caliente y en
+    /// `tandem.toml`, y la UI recibe el aviso con lo que cambió. El motor de entrada
+    /// recalcula la geometría con él.
+    pub fn receive_desk(&self, theirs: DeskVersion) {
+        // Un atajo con teclas que esta versión no conoce no se podría guardar.
+        if let Err(e) = crate::config::shortcut_keys(&theirs.desk.shortcuts.lock) {
+            tracing::warn!("puesto de la otra máquina ignorado: {e}");
+            return;
+        }
         let editing = self.edit();
         let mine = self.desk_sync();
-        let Some(next) = crate::desk_sync::receive(&mine, &theirs) else {
+        let Some(next) = mine.receive(&theirs) else {
             return;
         };
         tracing::info!(
-            rev = next.rev,
-            origen = %next.origin,
+            rev = next.stamp.rev,
+            origen = %next.stamp.by,
             pantallas = next.desk.screens.len(),
             "puesto actualizado desde la otra máquina"
         );
         {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
-            clock.rev = next.rev;
-            clock.origin = next.origin;
-            clock.lock_shortcut = next.lock_shortcut.clone();
+            clock.stamp = next.stamp;
+            clock.history.record(next.clone());
         }
         self.save_desk(&next);
+        let summary = mine.desk.summary_of_changes(&next.desk);
+        let by = next.stamp.by;
+        let rev = next.stamp.rev;
         self.desk.send_if_modified(|d| {
             let changed = *d != next.desk;
             *d = next.desk;
             changed
         });
         drop(editing);
+        self.sync_switches();
+        if let Some(summary) = summary
+            && by != self.machine()
+        {
+            // Sin UI conectada no hay a quién avisar, y eso no es un error.
+            let _ = self.desk_changes.send(DeskChanged {
+                by,
+                rev,
+                summary,
+                undo_to: mine.stamp.rev,
+            });
+        }
         // El nombre y el color de esta máquina pueden venir de la otra.
         self.refresh_capabilities();
     }
@@ -517,7 +661,7 @@ impl Agent {
 
     /// El puesto al archivo, junto con el lado de ahora: los dos van siempre en la misma
     /// escritura. Se llama con el cambio tomado ([`Agent::edit`]).
-    fn save_desk(&self, sync: &DeskSync) {
+    fn save_desk(&self, sync: &DeskVersion) {
         if let Some(path) = self.config_path()
             && let Err(e) = crate::config_edit::set_desk(&path, self.machine(), sync)
         {
@@ -621,7 +765,7 @@ impl Agent {
     /// adoptó la versión más nueva.
     pub fn set_peer(&self, peer: Arc<dyn PeerLink>) {
         self.orch.set_peer(peer.clone());
-        peer.send(ControlMsg::Desk(self.desk_sync()));
+        peer.send(ControlMsg::Desk(Box::new(self.desk_sync())));
         peer.send(ControlMsg::Capabilities(Box::new(self.capabilities().here)));
     }
 
@@ -765,6 +909,29 @@ impl Agent {
                 Reply::Done
             }
             UiCommand::PingPeer => self.ping_peer(),
+            UiCommand::EditDesk {
+                patch:
+                    DeskPatch::Module {
+                        machine,
+                        module,
+                        on,
+                    },
+            } => match ModuleId::parse(module.trim()) {
+                Some(id) => match self.switch_module(machine, id, on) {
+                    Reply::Done => Reply::Desk(self.desk()),
+                    other => other,
+                },
+                None => Reply::Rejected(format!("«{module}» no es un módulo de Tandem")),
+            },
+            UiCommand::EditDesk { patch } => match self.edit_desk(patch) {
+                Ok(desk) => Reply::Desk(desk),
+                Err(why) => Reply::Rejected(why),
+            },
+            UiCommand::UndoDesk { to_rev } => match self.undo_desk(to_rev) {
+                Ok(desk) => Reply::Desk(desk),
+                Err(why) => Reply::Rejected(why),
+            },
+            UiCommand::GetDeskHistory => Reply::DeskHistory(self.desk_history()),
             UiCommand::GetPeer => Reply::Peer(self.peer_status()),
             UiCommand::GetPairing => Reply::Pairing(self.pairing_status()),
             UiCommand::StartPairing => self.pair(|p| p.start()),
@@ -1264,43 +1431,139 @@ pub(crate) mod tests {
         let a = agent(dir.path());
         a.set_config_file(file.clone());
         let rx = a.subscribe_desk();
+        let mut changes = a.subscribe_desk_changes();
+        let before = a.desk_sync().stamp.rev;
         let mut theirs = a.desk_sync();
-        theirs.rev = 5;
-        theirs.origin = Machine::B;
+        theirs.stamp = DeskStamp {
+            rev: 5,
+            at: 77,
+            by: Machine::B,
+        };
         theirs.desk.screens = vec![screen(Machine::B, "34", 3440)];
-        theirs.desk.arrangement.a_side = Side::Right;
+        theirs.desk.arrangement = Some(tandem_core::Arrangement {
+            a_side: Side::Right,
+            align: tandem_core::Align::Start,
+        });
         a.receive_desk(theirs.clone());
         assert!(rx.has_changed().unwrap());
         assert_eq!(a.desk(), theirs.desk);
         assert_eq!(a.desk_sync(), theirs);
         let saved = AgentConfig::load(&file).unwrap();
         assert_eq!(saved.desk, theirs.desk);
-        assert_eq!(saved.desk_rev, 5);
+        assert_eq!((saved.desk_rev, saved.desk_at), (5, 77));
+        // La UI recibe el aviso con lo que cambió y a qué versión volver.
+        assert_eq!(
+            changes.try_recv().unwrap(),
+            DeskChanged {
+                by: Machine::B,
+                rev: 5,
+                summary: "Acomodo y pantallas".into(),
+                undo_to: before,
+            }
+        );
         // Uno más viejo no cambia nada.
         let mut old = theirs.clone();
-        old.rev = 2;
+        old.stamp.rev = 2;
         old.desk.screens.clear();
         a.receive_desk(old);
         assert_eq!(a.desk(), theirs.desk);
+        assert!(changes.try_recv().is_err());
     }
 
     #[test]
     fn a_local_desk_change_bumps_the_version_and_validates() {
         let dir = tempfile::tempdir().unwrap();
         let a = agent(dir.path());
-        let rev = a.desk_sync().rev;
+        let rev = a.desk_sync().stamp.rev;
         let mut desk = a.desk();
         desk.screens.push(screen(Machine::A, "laptop", 1512));
         a.set_desk(desk.clone()).unwrap();
         assert_eq!(a.desk(), desk);
-        assert_eq!(a.desk_sync().rev, rev + 1);
-        assert_eq!(a.desk_sync().origin, Machine::A);
+        assert_eq!(a.desk_sync().stamp.rev, rev + 1);
+        assert_eq!(a.desk_sync().stamp.by, Machine::A);
+        assert!(a.desk_sync().stamp.at > 0, "con fecha");
         // Lo mismo otra vez no sube la versión; uno inválido se rechaza.
         a.set_desk(desk.clone()).unwrap();
-        assert_eq!(a.desk_sync().rev, rev + 1);
+        assert_eq!(a.desk_sync().stamp.rev, rev + 1);
         desk.screens.push(screen(Machine::A, "laptop", 1512));
         assert!(a.set_desk(desk).is_err());
-        assert_eq!(a.desk_sync().rev, rev + 1);
+        assert_eq!(a.desk_sync().stamp.rev, rev + 1);
+    }
+
+    /// DESIGN §4.4: la UI edita con parches, puede deshacer a cualquier versión del
+    /// historial y ver el historial; lo inválido se rechaza con el motivo.
+    #[tokio::test]
+    async fn the_ui_edits_undoes_and_lists_the_desk() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tandem.toml");
+        std::fs::write(&file, crate::autoconfig::generate(Machine::A)).unwrap();
+        let a = Arc::new(agent(dir.path()));
+        a.set_config_file(file.clone());
+        let start = a.desk_sync();
+        let arr = tandem_core::Arrangement {
+            a_side: Side::Up,
+            align: tandem_core::Align::End,
+        };
+        let Reply::Desk(d) = a.handle(UiCommand::EditDesk {
+            patch: DeskPatch::Arrangement(Some(arr)),
+        }) else {
+            panic!("sin puesto");
+        };
+        assert_eq!(d.arrangement, Some(arr));
+        let lock = tandem_core::Shortcuts {
+            lock: vec!["Bloq".into()],
+        };
+        assert!(matches!(
+            a.handle(UiCommand::EditDesk {
+                patch: DeskPatch::Shortcuts(lock)
+            }),
+            Reply::Rejected(why) if why.contains("Bloq")
+        ));
+        assert!(matches!(
+            a.handle(UiCommand::EditDesk {
+                patch: DeskPatch::Machine {
+                    side: Machine::B,
+                    name: Some("PC".into()),
+                    color: None,
+                }
+            }),
+            Reply::Rejected(_)
+        ));
+        let prefs = tandem_core::InputPrefs {
+            drag_files: false,
+            ..tandem_core::InputPrefs::default()
+        };
+        a.handle(UiCommand::EditDesk {
+            patch: DeskPatch::Prefs(prefs),
+        });
+        assert_eq!(a.desk_sync().stamp.rev, start.stamp.rev + 2);
+        let saved = AgentConfig::load(&file).unwrap();
+        assert!(!saved.desk.prefs.drag_files);
+        assert_eq!(saved.desk.arrangement, Some(arr));
+
+        let Reply::DeskHistory(h) = a.handle(UiCommand::GetDeskHistory) else {
+            panic!("sin historial");
+        };
+        let revs: Vec<u64> = h.iter().map(|e| e.stamp.rev).collect();
+        assert_eq!(
+            revs,
+            [start.stamp.rev + 2, start.stamp.rev + 1, start.stamp.rev]
+        );
+        assert_eq!(h[0].summary, "Teclado y mouse");
+
+        // Deshacer hasta el principio: exactamente aquel puesto, como versión nueva.
+        let Reply::Desk(back) = a.handle(UiCommand::UndoDesk {
+            to_rev: start.stamp.rev,
+        }) else {
+            panic!("no deshizo");
+        };
+        assert_eq!(back, start.desk);
+        assert_eq!(a.desk_sync().stamp.rev, start.stamp.rev + 3);
+        assert_eq!(AgentConfig::load(&file).unwrap().desk, start.desk);
+        assert!(matches!(
+            a.handle(UiCommand::UndoDesk { to_rev: 999 }),
+            Reply::Rejected(_)
+        ));
     }
 
     /// Un `[[screens]]` escrito a mano es un cambio de esta máquina: sube la versión y se
@@ -1320,19 +1583,76 @@ pub(crate) mod tests {
         std::fs::write(&file, &text).unwrap();
         let cfg = AgentConfig::load(&file).unwrap();
         let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
-        assert_eq!(a.desk_sync().rev, 5);
-        assert_eq!(a.desk_sync().origin, Machine::B);
+        assert_eq!(a.desk_sync().stamp.rev, 5);
+        assert_eq!(a.desk_sync().stamp.by, Machine::B);
         a.set_config_file(file.clone());
         let saved = AgentConfig::load(&file).unwrap();
         assert_eq!(saved.desk_rev, 5);
         assert!(saved.desk_sum.is_some());
         // Al volver a arrancar sin tocar nada, ya no es una edición.
         let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
-        assert_eq!(again.desk_sync().rev, 5);
+        assert_eq!(again.desk_sync().stamp.rev, 5);
         // Un archivo recién generado tampoco.
         let fresh = AgentConfig::from_toml(&crate::autoconfig::generate(Machine::B)).unwrap();
         let fresh = Agent::new(fresh, StateStore::new(dir.path().join("other.json")));
-        assert_eq!(fresh.desk_sync().rev, 0);
+        assert_eq!(fresh.desk_sync().stamp.rev, 0);
+    }
+
+    /// Revisión de #74: el portapapeles apagado de antes de T-099 era de esta máquina y ahora
+    /// está en el puesto. Es un cambio suyo: sube la versión (con su lado y fecha) para que la
+    /// otra lo adopte, y queda guardado así.
+    #[test]
+    fn a_local_setting_moved_to_the_desk_bumps_the_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tandem.toml");
+        std::fs::write(
+            &file,
+            "machine = \"b\"\ndesk_rev = 3\ndesk_origin = \"a\"\n\n[input]\nclipboard = false\n",
+        )
+        .unwrap();
+        let cfg = AgentConfig::load(&file).unwrap();
+        assert!(cfg.local_to_desk);
+        let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
+        let stamp = a.desk_sync().stamp;
+        assert_eq!((stamp.rev, stamp.by), (4, Machine::B));
+        assert!(stamp.at > 0);
+        assert_eq!(a.desk().modules.get(Machine::B, "clipboard"), Some(false));
+        a.set_config_file(file.clone());
+        let saved = AgentConfig::load(&file).unwrap();
+        assert_eq!((saved.desk_rev, saved.desk_origin), (4, Some(Machine::B)));
+        assert!(!saved.local_to_desk && !saved.legacy_desk);
+        // Al volver a arrancar ya no es un cambio.
+        let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
+        assert_eq!(again.desk_sync().stamp.rev, 4);
+    }
+
+    /// Un `tandem.toml` de antes de T-099 (atajo en `[input]`, desplazamiento en el acomodo)
+    /// se reescribe en el formato nuevo sin contar como un cambio de nadie.
+    #[test]
+    fn a_desk_from_before_t099_is_rewritten_without_a_new_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tandem.toml");
+        std::fs::write(
+            &file,
+            "machine = \"a\"\ndesk_rev = 3\ndesk_origin = \"b\"\ndesk_sum = \"0123456789abcdef\"\n\n[input]\nlock_shortcut = [\"KeyL\"]\n\n[arrangement]\na_side = \"left\"\noffset = 0\n",
+        )
+        .unwrap();
+        let cfg = AgentConfig::load(&file).unwrap();
+        let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
+        assert_eq!(a.desk_sync().stamp.rev, 3);
+        a.set_config_file(file.clone());
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(
+            !text.contains("lock_shortcut") && !text.contains("offset"),
+            "{text}"
+        );
+        let saved = AgentConfig::load(&file).unwrap();
+        assert!(!saved.legacy_desk);
+        assert_eq!((saved.desk_rev, saved.desk_origin), (3, Some(Machine::B)));
+        assert_eq!(saved.desk.shortcuts.lock, ["KeyL"]);
+        assert_eq!(saved.desk.arrangement, None);
+        let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
+        assert_eq!(again.desk_sync().stamp.rev, 3);
     }
 
     fn caps_of(side: Machine, os: tandem_core::Os, name: &str) -> Capabilities {
@@ -1357,7 +1677,7 @@ pub(crate) mod tests {
             a.desk().machines.is_empty(),
             "sin otra máquina, nada que guardar"
         );
-        let rev = a.desk_sync().rev;
+        let rev = a.desk_sync().stamp.rev;
         a.set_peer_capabilities(caps_of(Machine::B, tandem_core::Os::MacOs, "Air"));
         let desk = a.desk();
         let theirs = desk.machines.get(Machine::B).unwrap();
@@ -1366,13 +1686,13 @@ pub(crate) mod tests {
             (tandem_core::Os::MacOs, "Air")
         );
         assert_eq!(desk.machines.get(Machine::A), Some(&a.local_info()));
-        assert_eq!(a.desk_sync().rev, rev + 1, "un solo cambio");
+        assert_eq!(a.desk_sync().stamp.rev, rev + 1, "un solo cambio");
         assert_eq!(a.machine_name(Machine::B), "Air");
         // Otro anuncio con otro nombre no lo pisa (el nombre es del usuario); otro sistema
         // sí se anota.
         a.set_peer_capabilities(caps_of(Machine::B, tandem_core::Os::MacOs, "Otro"));
         assert_eq!(a.machine_name(Machine::B), "Air");
-        assert_eq!(a.desk_sync().rev, rev + 1);
+        assert_eq!(a.desk_sync().stamp.rev, rev + 1);
         a.set_peer_capabilities(caps_of(Machine::B, tandem_core::Os::Windows, "Otro"));
         let theirs = a.machine_info(Machine::B).unwrap();
         assert_eq!(
@@ -1475,8 +1795,8 @@ pub(crate) mod tests {
             a.set_config_file(file.clone());
             // Lo que manda la otra (que es A): su puesto, con las pantallas de las dos.
             let mut theirs = a.desk_sync();
-            theirs.rev = 9;
-            theirs.origin = Machine::A;
+            theirs.stamp.rev = 9;
+            theirs.stamp.by = Machine::A;
             theirs.desk.screens = vec![
                 screen(Machine::A, "torre", 2560),
                 screen(Machine::B, "laptop", 1512),
@@ -1510,16 +1830,23 @@ pub(crate) mod tests {
     fn the_default_arrangement_is_not_flipped_when_changing_side() {
         let dir = tempfile::tempdir().unwrap();
         let a = agent(dir.path());
-        assert_eq!(a.desk().arrangement, tandem_core::Arrangement::default());
+        assert_eq!(a.desk().arrangement, None);
         a.adopt_side(Machine::B);
-        assert_eq!(a.desk().arrangement.a_side, Side::Left);
+        assert_eq!(a.desk().arrangement, None);
         // Uno declarado y ya sincronizado sí se conserva físicamente.
         let dir = tempfile::tempdir().unwrap();
         let b = agent(dir.path());
         let mut desk = b.desk();
-        desk.arrangement.a_side = Side::Right;
+        desk.arrangement = Some(tandem_core::Arrangement {
+            a_side: Side::Right,
+            align: tandem_core::Align::Start,
+        });
         b.set_desk(desk).unwrap();
         b.adopt_side(Machine::B);
-        assert_eq!(b.desk().arrangement.a_side, Side::Left);
+        let arr = b.desk().arrangement.unwrap();
+        assert_eq!(
+            (arr.a_side, arr.align),
+            (Side::Left, tandem_core::Align::Start)
+        );
     }
 }

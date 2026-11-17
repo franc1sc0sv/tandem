@@ -61,10 +61,13 @@ pub(crate) mod steps {
 mod tests {
     use proptest::prelude::*;
     use proptest::test_runner::{Config, RngSeed};
-    use tandem_core::{Arrangement, Scale, ScreenSpec, Side, State};
+    use tandem_core::{
+        Align, Arrangement, DeskStamp, DeskVersion, InputPrefs, Scale, Scene, ScreenSpec,
+        Shortcuts, Side, State,
+    };
 
     use super::*;
-    use crate::msg::{ControlMsg, DeskSync};
+    use crate::msg::ControlMsg;
     use crate::{decode, encode};
 
     fn machine() -> impl Strategy<Value = Machine> {
@@ -105,19 +108,29 @@ mod tests {
             })
     }
 
-    fn desk() -> impl Strategy<Value = DeskSync> {
+    fn arrangement() -> impl Strategy<Value = Option<Arrangement>> {
+        proptest::option::of(
+            (
+                proptest::sample::select(Side::ALL.to_vec()),
+                proptest::sample::select(Align::ALL.to_vec()),
+            )
+                .prop_map(|(a_side, align)| Arrangement { a_side, align }),
+        )
+    }
+
+    fn desk() -> impl Strategy<Value = DeskVersion> {
         (
-            any::<u64>(),
-            machine(),
+            (any::<u64>(), any::<u64>(), machine()),
             proptest::collection::vec(screen(), 0..5),
-            any::<bool>(),
-            any::<i32>(),
+            arrangement(),
             proptest::collection::vec("[A-Za-z]{1,10}", 0..3),
+            proptest::collection::vec("[a-z]{1,6}", 0..3),
+            (any::<bool>(), any::<bool>(), any::<bool>()),
+            proptest::collection::btree_map("[a-z]{1,6}", any::<bool>(), 0..3),
         )
             .prop_map(
-                |(rev, origin, screens, right, offset, lock_shortcut)| DeskSync {
-                    rev,
-                    origin,
+                |((rev, at, by), screens, arrangement, lock, scenes, prefs, modules)| DeskVersion {
+                    stamp: DeskStamp { rev, at, by },
                     desk: tandem_core::Config {
                         machines: tandem_core::Machines {
                             a: Some(tandem_core::MachineInfo::new(
@@ -128,12 +141,24 @@ mod tests {
                             b: None,
                         },
                         screens,
-                        arrangement: Arrangement {
-                            a_side: if right { Side::Right } else { Side::Left },
-                            offset,
+                        arrangement,
+                        scenes: scenes
+                            .into_iter()
+                            .map(|id| Scene {
+                                name: id.clone(),
+                                id,
+                            })
+                            .collect(),
+                        shortcuts: Shortcuts { lock },
+                        prefs: InputPrefs {
+                            cmd_ctrl: prefs.0,
+                            drag_files: prefs.1,
+                        },
+                        modules: tandem_core::Modules {
+                            a: modules,
+                            b: Default::default(),
                         },
                     },
-                    lock_shortcut,
                 },
             )
     }
@@ -160,7 +185,7 @@ mod tests {
         /// El acomodo viaja exacto, escala incluida.
         #[test]
         fn any_desk_round_trips(sync in desk()) {
-            let msg = ControlMsg::Desk(sync);
+            let msg = ControlMsg::Desk(Box::new(sync));
             prop_assert_eq!(decode::<ControlMsg>(&encode(&msg).unwrap()).unwrap(), msg);
         }
     }

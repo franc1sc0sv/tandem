@@ -63,7 +63,8 @@ fn both_old_examples_end_up_with_the_same_desk_whatever_side_each_gets() {
         } else {
             Side::Right
         };
-        assert_eq!(mac.desk.arrangement.a_side, a_side, "mac_low = {mac_low}");
+        let arr = mac.desk.arrangement.expect("v0.2 decía dónde está la Mac");
+        assert_eq!(arr.a_side, a_side, "mac_low = {mac_low}");
         // El teclado arrancaba en la Mac, en las dos.
         assert_eq!(mac.input.keyboard, Some(mac_side));
         assert_eq!(pc.input.keyboard, Some(mac_side));

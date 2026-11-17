@@ -27,10 +27,6 @@ peers = [
 [input]
 # Dónde está el teclado y el mouse al arrancar (`a` o `b`), hasta que el hub decida.
 keyboard = "a"
-# Bloquea el cursor en la máquina donde está (nombres de KeyboardEvent.code, todas a
-# la vez). ScrollLock de un teclado de PC llega a macOS como F14 y vale igual.
-lock_shortcut = ["ScrollLock"]
-clipboard = true
 
 # El teclado y el mouse que viajan en el hub USB-C, por VID:PID. El teclado está en la
 # máquina donde aparecen. Sin esta sección los roles no cambian solos.
@@ -80,7 +76,19 @@ y = 0
 width = 3440
 height = 1440
 
-# De qué lado de B está A (sin esta sección, a la izquierda).
+# De qué lado de B está A (left, right, up, down) y cómo se alinean (start, center, end).
+# Sin esta sección, A a la izquierda de B y todo el borde cruza.
 [arrangement]
 a_side = "left"
-offset = 0
+align = "center"
+
+# Bloquea el cursor en la máquina donde está (nombres de KeyboardEvent.code, todas a
+# la vez). ScrollLock de un teclado de PC llega a macOS como F14 y vale igual.
+[shortcuts]
+lock = ["ScrollLock"]
+
+# Teclado y mouse: Cmd↔Ctrl entre macOS y Windows y arrastrar archivos. Compartir el
+# portapapeles es un módulo de cada máquina: se apaga con `[modules.<lado>] clipboard = false`.
+[prefs]
+cmd_ctrl = true
+drag_files = true

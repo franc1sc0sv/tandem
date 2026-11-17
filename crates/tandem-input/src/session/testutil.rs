@@ -16,6 +16,7 @@ fn layout(mac: Vec<Screen>, pc: Vec<Screen>, a_side: Side) -> Layout {
             a: mac,
             b: pc,
             a_side,
+            align: None,
         },
         no_margin(),
     )

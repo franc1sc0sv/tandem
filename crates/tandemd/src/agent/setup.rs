@@ -163,7 +163,7 @@ mod tests {
         let a = fresh(dir.path());
         assert_eq!(a.desk(), tandem_core::Config::default());
         assert!(!a.input_status().defined);
-        assert_eq!(a.desk_sync().rev, 0);
+        assert_eq!(a.desk_sync().stamp.rev, 0);
     }
 
     #[tokio::test]

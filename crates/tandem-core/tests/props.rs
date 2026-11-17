@@ -9,8 +9,9 @@ use std::future::Future;
 
 use proptest::prelude::*;
 use tandem_core::{
-    Abilities, Arrangement, Config, Executor, Machine, MachineInfo, Machines, Os, Plan, Powered,
-    Scale, ScreenSpec, Side, State, Step, TxnError, run,
+    Abilities, Align, Arrangement, Config, Desk, DeskHistory, DeskPatch, DeskStamp, DeskVersion,
+    Executor, HISTORY_LEN, InputPrefs, Machine, MachineInfo, Machines, Os, PALETTE, Plan, Powered,
+    Scale, Scene, ScreenSpec, Shortcuts, Side, State, Step, TxnError, run,
 };
 
 /// Ejecutor que falla exactamente en la llamada número `fail_at` (si la hay).
@@ -74,6 +75,16 @@ fn machines() -> impl Strategy<Value = Machines> {
     (info(), info()).prop_map(|(a, b)| Machines { a, b })
 }
 
+fn arrangement() -> impl Strategy<Value = Option<Arrangement>> {
+    proptest::option::of(
+        (
+            proptest::sample::select(Side::ALL.to_vec()),
+            proptest::sample::select(Align::ALL.to_vec()),
+        )
+            .prop_map(|(a_side, align)| Arrangement { a_side, align }),
+    )
+}
+
 fn screen() -> impl Strategy<Value = ScreenSpec> {
     (
         machine(),
@@ -125,17 +136,14 @@ proptest! {
     #[test]
     fn the_declared_desk_round_trips(
         screens in proptest::collection::vec(screen(), 0..5),
-        right in any::<bool>(),
-        offset in any::<i32>(),
+        arrangement in arrangement(),
         machines in machines(),
     ) {
         let cfg = Config {
             machines,
             screens,
-            arrangement: Arrangement {
-                a_side: if right { Side::Right } else { Side::Left },
-                offset,
-            },
+            arrangement,
+            ..Config::default()
         };
         let text = toml::to_string(&cfg).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
@@ -162,17 +170,14 @@ proptest! {
     #[test]
     fn swapping_sides_is_an_involution(
         screens in proptest::collection::vec(screen(), 0..5),
-        right in any::<bool>(),
-        offset in any::<i32>(),
+        arrangement in arrangement(),
         machines in machines(),
     ) {
         let cfg = Config {
             machines,
             screens,
-            arrangement: Arrangement {
-                a_side: if right { Side::Right } else { Side::Left },
-                offset: offset.max(-i32::MAX),
-            },
+            arrangement,
+            ..Config::default()
         };
         let swapped = cfg.clone().swap_sides();
         prop_assert_eq!(swapped.screens.len(), cfg.screens.len());
@@ -181,5 +186,202 @@ proptest! {
         }
         prop_assert_eq!(swapped.machines.get(Machine::A), cfg.machines.get(Machine::B));
         prop_assert_eq!(swapped.swap_sides(), cfg);
+    }
+}
+
+/// Las dos máquinas ya conocidas, con sus colores de omisión: el punto de partida de un
+/// puesto emparejado.
+fn paired_desk() -> DeskVersion {
+    DeskVersion {
+        stamp: DeskStamp {
+            rev: 1,
+            at: 0,
+            by: Machine::A,
+        },
+        desk: Desk {
+            machines: Machines {
+                a: Some(MachineInfo::new(Machine::A, Os::MacOs, None)),
+                b: Some(MachineInfo::new(Machine::B, Os::Windows, None)),
+            },
+            ..Desk::default()
+        },
+    }
+}
+
+fn patch() -> impl Strategy<Value = DeskPatch> {
+    prop_oneof![
+        arrangement().prop_map(DeskPatch::Arrangement),
+        (any::<bool>(), any::<bool>()).prop_map(|(cmd_ctrl, drag_files)| {
+            DeskPatch::Prefs(InputPrefs {
+                cmd_ctrl,
+                drag_files,
+            })
+        }),
+        proptest::collection::vec("[A-Z][a-z]{0,5}", 0..3)
+            .prop_map(|lock| DeskPatch::Shortcuts(Shortcuts { lock })),
+        proptest::collection::btree_set("[a-z]{1,4}", 0..3).prop_map(|ids| {
+            DeskPatch::Scenes(
+                ids.into_iter()
+                    .map(|id| Scene {
+                        name: id.to_uppercase(),
+                        id,
+                    })
+                    .collect(),
+            )
+        }),
+        (machine(), "[a-z]{1,3}", any::<bool>()).prop_map(|(machine, module, on)| {
+            DeskPatch::Module {
+                machine,
+                module,
+                on,
+            }
+        }),
+        (
+            machine(),
+            proptest::option::of("[A-Z][a-z]{0,6}"),
+            proptest::option::of(proptest::sample::select(PALETTE.to_vec()))
+        )
+            .prop_map(|(side, name, color)| DeskPatch::Machine {
+                side,
+                name,
+                color: color.map(str::to_owned),
+            }),
+    ]
+}
+
+/// Lo que puede pasar en el puesto: un cambio en una máquina, o que le llegue a una
+/// máquina uno de los mensajes que tiene en camino (cualquiera, no el más viejo).
+#[derive(Debug, Clone)]
+enum Op {
+    Edit {
+        at: Machine,
+        patch: DeskPatch,
+        now: u64,
+    },
+    Deliver {
+        to: Machine,
+        pick: usize,
+    },
+}
+
+fn op() -> impl Strategy<Value = Op> {
+    prop_oneof![
+        (machine(), patch(), 0u64..6).prop_map(|(at, patch, now)| Op::Edit { at, patch, now }),
+        (machine(), any::<usize>()).prop_map(|(to, pick)| Op::Deliver { to, pick }),
+    ]
+}
+
+/// Una máquina del puesto: su versión y los mensajes que le llegarán.
+struct Replica {
+    me: Machine,
+    current: DeskVersion,
+    inbox: Vec<DeskVersion>,
+    history: DeskHistory,
+}
+
+impl Replica {
+    fn new(me: Machine) -> Self {
+        Replica {
+            me,
+            current: paired_desk(),
+            inbox: Vec::new(),
+            history: DeskHistory::new(paired_desk()),
+        }
+    }
+
+    fn adopt(&mut self, v: DeskVersion) {
+        self.history.record(v.clone());
+        self.current = v;
+    }
+
+    fn deliver(&mut self, pick: usize) {
+        if self.inbox.is_empty() {
+            return;
+        }
+        let msg = self.inbox.remove(pick % self.inbox.len());
+        if let Some(next) = self.current.receive(&msg) {
+            self.adopt(next);
+        }
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 512,
+        ..ProptestConfig::default()
+    })]
+
+    /// DESIGN §4.4 / D5: con cambios en las dos máquinas a la vez y los mensajes llegando en
+    /// cualquier orden, «gana el último» deja a las dos con el mismo puesto, y es el del
+    /// cambio con el sello más alto.
+    #[test]
+    fn last_writer_wins_converges_on_both_machines(ops in proptest::collection::vec(op(), 0..40)) {
+        let mut a = Replica::new(Machine::A);
+        let mut b = Replica::new(Machine::B);
+        let mut made = vec![paired_desk()];
+        for op in ops {
+            match op {
+                Op::Edit { at, patch, now } => {
+                    let (here, there) = if at == Machine::A { (&mut a, &mut b) } else { (&mut b, &mut a) };
+                    if let Ok(Some(next)) = here.current.edit(patch, here.me, now) {
+                        there.inbox.push(next.clone());
+                        made.push(next.clone());
+                        here.adopt(next);
+                    }
+                }
+                Op::Deliver { to: Machine::A, pick } => a.deliver(pick),
+                Op::Deliver { to: Machine::B, pick } => b.deliver(pick),
+            }
+        }
+        while !a.inbox.is_empty() || !b.inbox.is_empty() {
+            a.deliver(0);
+            b.deliver(0);
+        }
+        prop_assert_eq!(&a.current, &b.current);
+        let last = made
+            .iter()
+            .reduce(|x, y| if y.stamp.wins_over(&x.stamp) { y } else { x })
+            .unwrap();
+        prop_assert_eq!(&a.current, last);
+        prop_assert!(a.history.len() <= HISTORY_LEN);
+        // Los sellos nunca se repiten: el orden es total.
+        for (i, x) in made.iter().enumerate() {
+            for y in &made[i + 1..] {
+                prop_assert_ne!(x.stamp, y.stamp);
+            }
+        }
+    }
+
+    /// Deshacer vuelve exactamente al puesto de la versión pedida, como una versión nueva
+    /// que la otra máquina adopta igual.
+    #[test]
+    fn undo_restores_exactly_the_requested_version(
+        patches in proptest::collection::vec(patch(), 1..30),
+        pick in any::<usize>(),
+        now in 0u64..1000,
+    ) {
+        let mut a = Replica::new(Machine::A);
+        let mut b = Replica::new(Machine::B);
+        for (i, p) in patches.into_iter().enumerate() {
+            if let Ok(Some(next)) = a.current.edit(p, Machine::A, i as u64) {
+                b.inbox.push(next.clone());
+                a.adopt(next);
+            }
+        }
+        while !b.inbox.is_empty() {
+            b.deliver(0);
+        }
+        let versions: Vec<DeskVersion> = a.history.versions().cloned().collect();
+        let target = &versions[pick % versions.len()];
+        let undone = a.history.undo(&a.current, target.stamp.rev, Machine::B, now).unwrap();
+        match undone {
+            None => prop_assert_eq!(&target.desk, &a.current.desk),
+            Some(v) => {
+                prop_assert_eq!(&v.desk, &target.desk);
+                prop_assert_eq!(v.stamp.rev, a.current.stamp.rev + 1);
+                // La otra la adopta tal cual.
+                prop_assert_eq!(b.current.receive(&v), Some(v.clone()));
+            }
+        }
     }
 }

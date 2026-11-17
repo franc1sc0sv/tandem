@@ -51,7 +51,7 @@ function snap(over: Partial<Parts> = {}): Snapshot {
   return {
     kind: "connected",
     agent,
-    desk: { machines: { a: null, b: null }, screens: [], arrangement: { a_side: "left", offset: 0 } },
+    desk: { machines: { a: null, b: null }, screens: [], arrangement: null },
     state: { on: { a: true, b: true } },
     peer: over.peer ?? PAIRED,
     pairing: over.pairing ?? IDLE,
