@@ -46,20 +46,23 @@ impl LocalSteps for Ok_ {
     }
 }
 
-fn free_port() -> u16 {
-    UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port()
-}
-
 /// Un puerto libre con el siguiente también libre: el agente escucha en el primero y
 /// empareja en el segundo (lo que la otra máquina prueba por el enlace fijo).
+///
+/// No salen del rango efímero: Windows lo reparte en orden, así que el `p + 1` de una
+/// prueba era casi siempre el siguiente puerto libre que pedía otra que corría a la vez, y cada
+/// agente terminaba emparejando en otro puerto (las dos máquinas no se encontraban nunca).
+/// Un contador del proceso, por debajo del rango efímero (49152–65535) y del que reserva
+/// Windows con Hyper-V (47000–48999), no repite ninguno entre pruebas.
 fn free_pair() -> u16 {
+    use std::sync::atomic::{AtomicU16, Ordering};
+    static NEXT: AtomicU16 = AtomicU16::new(0);
+    // Cada proceso de pruebas en su tramo, por si dos corren a la vez.
+    let base = 20_000 + (std::process::id() % 2_000) as u16 * 10;
     loop {
-        let p = free_port();
-        if p < u16::MAX && UdpSocket::bind((Ipv4Addr::LOCALHOST, p + 1)).is_ok() {
+        let p = base + NEXT.fetch_add(2, Ordering::Relaxed) % 6_000;
+        let free = |port: u16| UdpSocket::bind((Ipv4Addr::LOCALHOST, port)).is_ok();
+        if free(p) && free(p + 1) {
             return p;
         }
     }
