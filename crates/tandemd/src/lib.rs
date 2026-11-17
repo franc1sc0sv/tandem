@@ -56,6 +56,7 @@ pub mod power;
 #[cfg(feature = "sim-backends")]
 pub mod sim;
 pub mod store;
+pub mod tunnels;
 
 pub use agent::{Agent, PairingControl};
 pub use config::{AgentConfig, ConfigError, NetworkConfig, OrchestratorConfig, PowerConfig};

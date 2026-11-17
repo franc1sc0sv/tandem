@@ -14,6 +14,7 @@
 pub mod env;
 pub mod frame;
 pub mod msg;
+pub mod tunnel;
 mod wire;
 
 pub use env::{
@@ -28,11 +29,15 @@ pub use msg::{
     Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest, UpdateMsg,
     UpdateStatus,
 };
+pub use tunnel::{
+    Client, ClientKind, FlowId, FlowInfo, Project, ProjectTunnels, Tunnel, TunnelDown, TunnelId,
+    TunnelState, TunnelUp, group_by_project,
+};
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 23;
+pub const PROTOCOL_VERSION: u16 = 25;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -93,9 +98,11 @@ mod tests {
     /// por Wi-Fi, en el puesto y en sus parches) sube a la v21. T-122 (versiones de la app y pedido
     /// de actualizar a la otra) sube a la v22. T-100 (escenas completas en el puesto, la escena
     /// activa en el estado, pasos de escena, `StepUndone` y `ApplyScene`) sube a la v23.
+    /// T-103 (túneles: el canal `Tunnel`, el saludo de los clientes, sus pedidos y el aviso a
+    /// la UI) sube a la v25 (la v24 es de T-093).
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 23);
+        assert_eq!(PROTOCOL_VERSION, 25);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

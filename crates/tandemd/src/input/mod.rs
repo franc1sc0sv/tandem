@@ -328,6 +328,8 @@ async fn route(
         let to = match inc.channel {
             Channel::Input => &input,
             Channel::Clipboard => &clipboard,
+            // Nunca llega aquí: lo atiende `peer::serve_stream` (los túneles).
+            Channel::Tunnel => continue,
         };
         if to.send(inc).is_err() {
             tracing::debug!("stream del otro agente sin quien lo atienda");

@@ -110,6 +110,11 @@ pub fn start(
     let network = Network::start(agent.clone(), &identity, trust, net)?;
     let input =
         input.map(|setup| crate::input::start(agent.clone(), network.active_link(), *setup));
+    // Los túneles siguen al enlace activo; la tarea termina con la red.
+    drop(crate::tunnels::follow_link(
+        agent.clone(),
+        network.active_link(),
+    ));
     Ok(Daemon {
         agent,
         network,

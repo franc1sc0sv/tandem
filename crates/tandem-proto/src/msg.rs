@@ -12,6 +12,7 @@ use tandem_core::{
 };
 
 use crate::env::{Environment, Hardware, Resources};
+use crate::tunnel::{ClientKind, Project, ProjectTunnels, Tunnel, TunnelId};
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
 
 /// Quién abre la conexión.
@@ -19,6 +20,9 @@ use crate::{PROTOCOL_VERSION, ProtoError, wire};
 pub enum Peer {
     Agent(Machine),
     Ui,
+    /// Un cliente de Claude o de terminal por la IPC local (`tandem mcp`, `tandem`): el
+    /// único que puede abrir y cerrar túneles (DESIGN §11; la UI solo los mira, D9).
+    Client(ClientKind),
 }
 
 /// Primer mensaje de toda conexión, en cada sentido.
@@ -397,6 +401,9 @@ pub enum Channel {
     Input,
     /// El portapapeles: lo abre el lado A.
     Clipboard,
+    /// Un pedido de túnel ([`crate::TunnelUp`]): lo abre el origen. Si es
+    /// [`crate::TunnelUp::Attach`], el stream pasa a ser el canal de datos del túnel.
+    Tunnel,
 }
 
 /// Lo que un agente le reporta al otro para decidir los roles (DESIGN §7).
@@ -577,6 +584,22 @@ pub enum UiCommand {
     ApplyScene {
         id: String,
     },
+    /// Abrir un túnel hacia `target` (la otra máquina). Solo desde un
+    /// [`Peer::Client`]; contesta [`Reply::Tunnel`] (T-103).
+    OpenTunnel {
+        title: String,
+        project: Option<Project>,
+        target: Machine,
+        /// La sesión del cliente (la de Claude).
+        session: String,
+    },
+    /// Cerrar un túnel abierto desde esta máquina: se cierran sus recursos en la destino.
+    /// Solo desde un [`Peer::Client`].
+    CloseTunnel {
+        id: TunnelId,
+    },
+    /// Los túneles de las dos máquinas, agrupados por proyecto ([`Reply::Tunnels`]).
+    GetTunnels,
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -638,6 +661,9 @@ pub enum AgentToUi {
     /// Las versiones de las dos máquinas y si la otra pidió actualizar esta (T-122), con
     /// cada cambio.
     Update(UpdateStatus),
+    /// Aviso espontáneo cuando cambia algún túnel abierto (T-103): agrupados por proyecto,
+    /// solo para mirar (D9).
+    Tunnels(Vec<ProjectTunnels>),
 }
 
 /// El emparejamiento visto desde la UI.
@@ -777,6 +803,9 @@ pub enum Reply {
     Monitors(Vec<MonitorView>),
     /// Las versiones de las dos máquinas (T-122).
     Update(UpdateStatus),
+    /// El túnel que se abrió.
+    Tunnel(Box<Tunnel>),
+    Tunnels(Vec<ProjectTunnels>),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso.
@@ -999,6 +1028,8 @@ pub(crate) mod samples {
             Hello::new(Peer::Agent(Machine::A)),
             Hello::new(Peer::Agent(Machine::B)),
             Hello::new(Peer::Ui),
+            Hello::new(Peer::Client(crate::ClientKind::Mcp)),
+            Hello::new(Peer::Client(crate::ClientKind::Cli)),
         ]
     }
 
@@ -1018,6 +1049,7 @@ pub(crate) mod samples {
             ControlMsg::State(state()),
             ControlMsg::Open(Channel::Input),
             ControlMsg::Open(Channel::Clipboard),
+            ControlMsg::Open(Channel::Tunnel),
             ControlMsg::Hub(HubReport {
                 hub: true,
                 server: Machine::B,
@@ -1351,6 +1383,22 @@ pub(crate) mod samples {
             UiCommand::ApplyScene {
                 id: "trabajo".into(),
             },
+            UiCommand::OpenTunnel {
+                title: "Corre los tests".into(),
+                project: tunnel_sample().project,
+                target: Machine::B,
+                session: "claude-1234".into(),
+            },
+            UiCommand::OpenTunnel {
+                title: String::new(),
+                project: None,
+                target: Machine::A,
+                session: String::new(),
+            },
+            UiCommand::CloseTunnel {
+                id: crate::TunnelId(u64::MAX),
+            },
+            UiCommand::GetTunnels,
         ];
         let mut cmds = cmds;
         cmds.extend(
@@ -1397,6 +1445,9 @@ pub(crate) mod samples {
             UiCommand::UpdatePeer { .. } => 25,
             UiCommand::GetUpdate => 26,
             UiCommand::ApplyScene { .. } => 27,
+            UiCommand::OpenTunnel { .. } => 28,
+            UiCommand::CloseTunnel { .. } => 29,
+            UiCommand::GetTunnels => 30,
         }
     }
 
@@ -1604,6 +1655,18 @@ pub(crate) mod samples {
             })),
         });
         v.push(AgentToUi::Monitors(vec![]));
+        v.push(AgentToUi::Tunnels(vec![]));
+        v.push(AgentToUi::Tunnels(crate::group_by_project([
+            tunnel_sample(),
+        ])));
+        v.push(AgentToUi::Reply {
+            id: 13,
+            reply: Reply::Tunnel(Box::new(tunnel_sample())),
+        });
+        v.push(AgentToUi::Reply {
+            id: 14,
+            reply: Reply::Tunnels(crate::group_by_project([tunnel_sample()])),
+        });
         v.push(AgentToUi::Monitors(monitor_views()));
         v.push(AgentToUi::Reply {
             id: 12,
@@ -1670,6 +1733,7 @@ pub(crate) mod samples {
             AgentToUi::Monitors(_) => 11,
             AgentToUi::Resources { .. } => 12,
             AgentToUi::Update(_) => 13,
+            AgentToUi::Tunnels(_) => 14,
         }
     }
 
@@ -1689,6 +1753,8 @@ pub(crate) mod samples {
             Reply::DeskHistory(_) => 11,
             Reply::Monitors(_) => 12,
             Reply::Update(_) => 13,
+            Reply::Tunnel(_) => 14,
+            Reply::Tunnels(_) => 15,
         }
     }
 
@@ -1697,6 +1763,26 @@ pub(crate) mod samples {
             Peer::Agent(Machine::A) => 0,
             Peer::Agent(Machine::B) => 1,
             Peer::Ui => 2,
+            Peer::Client(_) => 3,
+        }
+    }
+
+    pub fn tunnel_sample() -> crate::Tunnel {
+        crate::Tunnel {
+            id: crate::TunnelId(0x1234_5678_9abc_def0),
+            title: "Corre los tests en la Mac".into(),
+            project: Some(crate::Project {
+                name: "tandem".into(),
+                root: "/home/u/projects/tandem".into(),
+            }),
+            origin: Machine::B,
+            target: Machine::A,
+            opened_by: crate::Client {
+                kind: crate::ClientKind::Mcp,
+                session: "claude-1234".into(),
+            },
+            state: crate::TunnelState::Open,
+            created: 1_763_400_000_000,
         }
     }
 }
@@ -1729,12 +1815,12 @@ mod tests {
     #[test]
     fn samples_cover_every_variant() {
         covers(&steps(), step_arm, 6);
-        covers(&hellos(), |h| peer_arm(&h.peer), 3);
+        covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 18);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 28);
+        covers(&cmds, ui_command_arm, 31);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 14);
+        covers(&to_ui(), to_ui_arm, 15);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
         let kinds: Vec<_> = capabilities()
             .iter()
@@ -1751,7 +1837,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 14);
+        covers(&replies, reply_arm, 16);
         covers(&txn_events(), txn_arm, 7);
     }
 

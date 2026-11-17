@@ -76,6 +76,8 @@ impl StreamClass {
         match channel {
             Channel::Input => StreamClass::Input,
             Channel::Clipboard => StreamClass::Clipboard,
+            // Los pedidos son de control; el canal de datos pasa a `Data` al pedir `Attach`.
+            Channel::Tunnel => StreamClass::Control,
         }
     }
 }

@@ -475,7 +475,9 @@ impl From<Reply> for ActionResult {
             | Reply::Capabilities(_)
             | Reply::DeskHistory(_)
             | Reply::Monitors(_)
-            | Reply::Update(_) => ActionResult::Done,
+            | Reply::Update(_)
+            | Reply::Tunnel(_)
+            | Reply::Tunnels(_) => ActionResult::Done,
         }
     }
 }
@@ -786,6 +788,8 @@ impl Runner {
             // Llegan solo si se pidió `WatchResources`, y esta sesión aún no lo pide (la
             // pantalla Máquina, T-115).
             AgentToUi::Resources { .. } => {}
+            // La pantalla Túneles (solo lectura, D9) llega con su tarea de UI.
+            AgentToUi::Tunnels(_) => {}
         }
     }
 

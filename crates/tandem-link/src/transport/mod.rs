@@ -21,6 +21,10 @@ mod error;
 mod verify;
 
 pub use control::{ControlReceiver, ControlSender, ControlStream};
+
+/// El lado de escritura de un stream de datos ([`ControlStream::into_data`]), para
+/// nombrarlo sin depender de quinn.
+pub type DataSender = crate::qos::DataStream<quinn::SendStream>;
 pub use endpoint::{Connection, Endpoint};
 pub use error::TransportError;
 pub use verify::{PeerTrust, peer_public_key};

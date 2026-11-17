@@ -332,6 +332,10 @@ async fn serve_stream(
         Ok(None) => return Ok(()),
         Err(e) => return Err(e.to_string()),
     };
+    if let ControlMsg::Open(Channel::Tunnel) = first {
+        // Los túneles no van al motor de entrada: los atiende su módulo.
+        return crate::tunnels::serve(stream, &conn, &agent).await;
+    }
     if let ControlMsg::Open(channel) = first {
         // La prioridad es de quien escribe: lo que este lado mande por el canal también.
         if let Err(e) = stream.set_class(StreamClass::of(channel)) {
