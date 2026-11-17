@@ -1,6 +1,7 @@
 // Cómo habla la ventana con el núcleo de la app (y él con tandemd).
 
 import type { Action, ActionResult, Bindings, Notice, Permission, SetupView, ShortcutsView, Snapshot } from "./model";
+import type { UpdateView } from "./updates";
 
 export interface Bridge {
   snapshot(): Promise<Snapshot>;
@@ -30,6 +31,13 @@ export interface Bridge {
   restartAgent(): Promise<void>;
   /** Marca la guía como vista: no vuelve a abrirse sola. */
   finishSetup(): Promise<SetupView>;
+  /** Ajustes → Actualizaciones (T-122): versiones, búsqueda y «Actualizar solo». */
+  updates(): Promise<UpdateView>;
+  onUpdates(cb: (view: UpdateView) => void): Promise<void>;
+  checkUpdates(): Promise<UpdateView>;
+  /** «Actualizar todas»: rechaza con la razón si no se puede empezar. */
+  updateAll(): Promise<UpdateView>;
+  setAutoUpdate(on: boolean): Promise<UpdateView>;
 }
 
 // Nombres de `tandem_ui::app`.
@@ -37,6 +45,7 @@ const SNAPSHOT_EVENT = "agent-snapshot";
 const NOTICE_EVENT = "agent-notice";
 const MESSAGE_EVENT = "ui-message";
 const SHORTCUTS_EVENT = "ui-shortcuts";
+const UPDATE_EVENT = "ui-update";
 
 export async function tauriBridge(): Promise<Bridge> {
   const { invoke } = await import("@tauri-apps/api/core");
@@ -67,6 +76,13 @@ export async function tauriBridge(): Promise<Bridge> {
     openSettings: (permission) => invoke<void>("setup_open", { permission }),
     restartAgent: () => invoke<void>("agent_restart"),
     finishSetup: () => invoke<SetupView>("setup_finish"),
+    updates: () => invoke<UpdateView>("update_get"),
+    onUpdates: async (cb) => {
+      await listen<UpdateView>(UPDATE_EVENT, (e) => cb(e.payload));
+    },
+    checkUpdates: () => invoke<UpdateView>("update_check"),
+    updateAll: () => invoke<UpdateView>("update_all"),
+    setAutoUpdate: (on) => invoke<UpdateView>("update_auto", { on }),
   };
 }
 

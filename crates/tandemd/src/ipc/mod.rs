@@ -13,7 +13,8 @@
 //! «Deshacer») y [`AgentToUi::Machines`] cuando cambia lo que anuncia alguna de las dos
 //! (módulos y entornos incluidos). Una conexión que pidió
 //! [`UiCommand::WatchResources`] recibe además [`AgentToUi::Resources`] de las dos
-//! máquinas mientras siga abierta.
+//! máquinas mientras siga abierta. [`AgentToUi::Update`] va cuando cambia la versión de
+//! alguna de las dos.
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -166,6 +167,8 @@ where
     monitors.mark_unchanged();
     // Los recursos en vivo, si esta conexión los pidió: se dejan de muestrear al cerrarla.
     let mut resources: Option<ResourceWatch> = None;
+    let mut update = agent.subscribe_update();
+    update.mark_unchanged();
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
@@ -266,6 +269,13 @@ where
                 }
                 let views = monitors.borrow_and_update().clone();
                 conn.send(&AgentToUi::Monitors(views)).await?;
+            }
+            changed = update.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+                let u = update.borrow_and_update().clone();
+                conn.send(&AgentToUi::Update(u)).await?;
             }
             () = stopped(&mut shutdown) => return Ok(()),
         }

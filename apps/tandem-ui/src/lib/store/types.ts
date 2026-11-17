@@ -7,6 +7,7 @@
 
 import type { Bindings, Machine, Os, PairingView, PeerView, Permission, SetupView, ShortcutsView } from "../model";
 import type { PermissionState } from "../permissions";
+import type { UpdateView } from "../updates";
 
 export type { Machine, Os };
 
@@ -169,6 +170,12 @@ export interface Source {
   setShortcuts(b: Bindings): Promise<ShortcutsView>;
   /** El atajo de la ventana atendido por ella misma (si el sistema no lo dejó registrar). */
   hideMain(): Promise<void>;
+  /** Ajustes → Actualizaciones (T-122). `onChange` recibe cada cambio (búsqueda, avance). */
+  updates(onChange: (v: UpdateView) => void): Promise<UpdateView>;
+  checkUpdates(): Promise<UpdateView>;
+  /** Rechaza con la razón si no se puede empezar. */
+  updateAll(): Promise<UpdateView>;
+  setAutoUpdate(on: boolean): Promise<UpdateView>;
   /** Qué sabe hacer esta fuente hoy (el agente real aún no tiene escenas ni módulos). */
   can(what: "scenes" | "modules" | "power" | "measure"): boolean;
   stop(): void;

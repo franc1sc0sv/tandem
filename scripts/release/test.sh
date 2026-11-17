@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pruebas de version.sh y notes.sh sobre repos de git desechables. Las corre el job `preparar`
+# Pruebas de version.sh, notes.sh y latest-json.sh sobre repos de git desechables. Las corre el job `preparar`
 # del workflow de release y el CI de Ubuntu. Uso: scripts/release/test.sh
 # shellcheck disable=SC2015,SC2016  # `ok`/`mal` nunca fallan; los backticks son Markdown literal.
 set -euo pipefail
@@ -101,6 +101,35 @@ f9=$(grep -n '^## F9' <<<"$dos" | cut -d: -f1); sf=$(grep -n '^## Sin fase' <<<"
 rango=$("$aqui/notes.sh" --desde v0.1.0 --hasta HEAD~1)
 no_contiene "notas: --desde y --hasta explícitos" "$rango" "Backlog: más tareas"
 if "$aqui/notes.sh" --hasta no-existe >/dev/null 2>&1; then mal "notas: ref inexistente"; else ok "notas: ref inexistente"; fi
+
+# --- latest-json.sh ---------------------------------------------------------------------
+cd "$tmp"
+mkdir paquetes
+printf 'app' >paquetes/Tandem_0.3.1_aarch64.app.tar.gz
+printf 'firma-mac\n' >paquetes/Tandem_0.3.1_aarch64.app.tar.gz.sig
+printf 'exe' >paquetes/Tandem_0.3.1_x64-setup.exe
+printf 'firma-win' >paquetes/Tandem_0.3.1_x64-setup.exe.sig
+printf '# Tandem 0.3.1\n\n- algo\n' >notas-latest.md
+latest=$("$aqui/latest-json.sh" --version 0.3.1 --repo dueno/tandem --tag v0.3.1 \
+  --notas notas-latest.md --fecha 2026-11-17T12:00:00Z \
+  darwin-aarch64=paquetes/Tandem_0.3.1_aarch64.app.tar.gz \
+  windows-x86_64=paquetes/Tandem_0.3.1_x64-setup.exe)
+esperado='{"version":"0.3.1","notes":"# Tandem 0.3.1\n\n- algo","pub_date":"2026-11-17T12:00:00Z","platforms":{"darwin-aarch64":{"signature":"firma-mac","url":"https://github.com/dueno/tandem/releases/download/v0.3.1/Tandem_0.3.1_aarch64.app.tar.gz"},"windows-x86_64":{"signature":"firma-win","url":"https://github.com/dueno/tandem/releases/download/v0.3.1/Tandem_0.3.1_x64-setup.exe"}}}'
+[ "$(jq -cS . <<<"$latest")" = "$(jq -cS . <<<"$esperado")" ] && ok "latest: forma del updater" || { mal "latest: forma del updater"; echo "$latest" >&2; }
+rechaza() { # nombre, argumentos...
+  local nombre=$1; shift
+  if "$aqui/latest-json.sh" "$@" >/dev/null 2>&1; then mal "latest: $nombre"; else ok "latest: $nombre"; fi
+}
+base=(--version 0.3.1 --repo dueno/tandem --tag v0.3.1)
+rm paquetes/Tandem_0.3.1_x64-setup.exe.sig
+rechaza "exige la firma" "${base[@]}" windows-x86_64=paquetes/Tandem_0.3.1_x64-setup.exe
+: >paquetes/Tandem_0.3.1_x64-setup.exe.sig
+rechaza "firma vacía" "${base[@]}" windows-x86_64=paquetes/Tandem_0.3.1_x64-setup.exe
+rechaza "plataforma desconocida" "${base[@]}" windows-arm=paquetes/Tandem_0.3.1_aarch64.app.tar.gz
+rechaza "plataforma repetida" "${base[@]}" darwin-aarch64=paquetes/Tandem_0.3.1_aarch64.app.tar.gz darwin-aarch64=paquetes/Tandem_0.3.1_aarch64.app.tar.gz
+rechaza "paquete inexistente" "${base[@]}" darwin-aarch64=paquetes/no-existe
+rechaza "sin paquetes" "${base[@]}"
+rechaza "sin versión" --repo dueno/tandem --tag v0.3.1 darwin-aarch64=paquetes/Tandem_0.3.1_aarch64.app.tar.gz
 
 if [ "$fallos" -gt 0 ]; then echo "$fallos pruebas fallaron" >&2; exit 1; fi
 echo "todas las pruebas pasaron"

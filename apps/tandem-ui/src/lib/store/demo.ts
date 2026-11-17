@@ -13,6 +13,7 @@
 
 import type { Bindings, PairingView, Permission, SetupView, ShortcutsView } from "../model";
 import { DEFAULT_BINDINGS } from "../shortcuts";
+import type { UpdateView } from "../updates";
 import type { ActResult, DeskView, Machine, MachineView, ModuleView, Os, PairActionKind, PermissionsView, Resources, SceneView, Source, Topic, Trouble, TunnelView } from "./types";
 
 export type DemoPair = "mac-win" | "win-win" | "mac-mac";
@@ -361,6 +362,35 @@ export class DemoSource implements Source {
   }
 
   async hideMain(): Promise<void> {}
+
+  // Actualizaciones simuladas (`F-Ajustes`): las dos en 0.3.0 y, al buscar, aparece 0.3.1.
+  private upd: UpdateView = { here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true };
+  private onUpd: ((v: UpdateView) => void) | null = null;
+
+  private setUpd(v: UpdateView): UpdateView {
+    this.upd = v;
+    this.onUpd?.(v);
+    return v;
+  }
+
+  async updates(onChange: (v: UpdateView) => void): Promise<UpdateView> {
+    this.onUpd = onChange;
+    return this.upd;
+  }
+
+  async checkUpdates(): Promise<UpdateView> {
+    return this.setUpd({ ...this.upd, checking: false, available: "0.3.1", error: null });
+  }
+
+  /** En el demo no se instala nada: se muestra el primer paso y queda ahí. */
+  async updateAll(): Promise<UpdateView> {
+    if (!this.upd.available) throw new Error("no hay una versión nueva: busca primero");
+    return this.setUpd({ ...this.upd, step: "ask_peer" });
+  }
+
+  async setAutoUpdate(on: boolean): Promise<UpdateView> {
+    return this.setUpd({ ...this.upd, auto: on });
+  }
 
   can(): boolean {
     return true;

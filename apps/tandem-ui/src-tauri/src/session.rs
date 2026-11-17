@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use tandem_core::{Config, Machine, State, Step};
 use tandem_proto::{
     AgentToUi, Capabilities, DeskCapabilities, InputPermission, InputStatus, KeyProbeStatus, Link,
-    PairingStatus, PeerStatus, PowerEvent, Reply, SetupInfo, TxnEvent, UiCommand,
+    PairingStatus, PeerStatus, PowerEvent, Reply, SetupInfo, TxnEvent, UiCommand, UpdateStatus,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -393,6 +393,11 @@ pub enum Action {
     RequestPermissions,
     /// De dónde salió la configuración; contesta [`ActionResult::Setup`].
     GetSetup,
+    /// Pedirle a la otra máquina que instale `version` (T-122). Lo usa «Actualizar todas»
+    /// desde el núcleo de la app, no la ventana.
+    UpdatePeer {
+        version: String,
+    },
 }
 
 impl From<Action> for UiCommand {
@@ -409,6 +414,7 @@ impl From<Action> for UiCommand {
             Action::PingPeer => UiCommand::PingPeer,
             Action::RequestPermissions => UiCommand::RequestPermissions,
             Action::GetSetup => UiCommand::GetSetup,
+            Action::UpdatePeer { version } => UiCommand::UpdatePeer { version },
         }
     }
 }
@@ -462,7 +468,8 @@ impl From<Reply> for ActionResult {
             | Reply::Input(_)
             | Reply::Capabilities(_)
             | Reply::DeskHistory(_)
-            | Reply::Monitors(_) => ActionResult::Done,
+            | Reply::Monitors(_)
+            | Reply::Update(_) => ActionResult::Done,
         }
     }
 }
@@ -471,6 +478,10 @@ impl From<Reply> for ActionResult {
 pub trait Sink: Send + Sync + 'static {
     fn snapshot(&self, snapshot: &Snapshot);
     fn notice(&self, notice: &Notice);
+    /// Las versiones de las dos máquinas (T-122); las usa el updater, no la escena.
+    fn update(&self, status: &UpdateStatus) {
+        let _ = status;
+    }
 }
 
 struct Pending {
@@ -585,6 +596,7 @@ struct Opened<S> {
     pairing: PairingView,
     input: InputView,
     caps: Box<CapsView>,
+    update: UpdateStatus,
 }
 
 /// Por qué terminó una conexión.
@@ -611,8 +623,10 @@ impl Runner {
                     pairing,
                     input,
                     caps,
+                    update,
                 }) => {
                     let agent = client.agent();
+                    self.sink.update(&update);
                     self.publish(Snapshot::Connected {
                         agent,
                         desk,
@@ -673,6 +687,10 @@ impl Runner {
                 Reply::Capabilities(c) => Box::new((*c).into()),
                 other => return Err(IpcError::UnexpectedReply(Box::new(other))),
             };
+            let update = match client.request(UiCommand::GetUpdate).await? {
+                Reply::Update(u) => u,
+                other => return Err(IpcError::UnexpectedReply(Box::new(other))),
+            };
             Ok(Opened {
                 client,
                 desk,
@@ -681,6 +699,7 @@ impl Runner {
                 input,
                 pairing,
                 caps,
+                update,
             })
         };
         match tokio::time::timeout(QUERY_TIMEOUT, opening).await {
@@ -752,6 +771,7 @@ impl Runner {
             // La pantalla Monitores llega con su tarea de UI; hasta entonces no hay dónde
             // mostrarlos.
             AgentToUi::Monitors(_) => {}
+            AgentToUi::Update(status) => self.sink.update(&status),
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}
             // El puesto nuevo ya llega con `Desk`; el aviso con «Deshacer» lo muestra la UI

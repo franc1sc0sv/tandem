@@ -5,7 +5,8 @@
 //! para dibujar la escena y [`NOTICE_EVENT`] con el avance de las transacciones y los
 //! avisos de energía. [`MESSAGE_EVENT`] lleva lo que pasó con un pedido hecho desde fuera
 //! de la ventana. [`SHORTCUTS_EVENT`] lleva los atajos nuevos cuando se cambian, para que
-//! cada ventana muestre los vigentes.
+//! cada ventana muestre los vigentes. [`crate::updater::UPDATE_EVENT`] lleva la pestaña
+//! Actualizaciones de Ajustes (T-122).
 //!
 //! En macOS, al arrancar instala o pone al día el LaunchAgent de `tandemd`
 //! ([`crate::launch_agent`]) y ofrece la guía de permisos del primer arranque
@@ -30,6 +31,8 @@ use crate::setup::{self, Permission, SetupView};
 use crate::shortcuts::{self, Bindings, ShortcutAction, Shortcuts, ShortcutsView};
 use crate::status;
 use crate::tray::{self, Area, MenuView};
+use crate::update::UpdateView;
+use crate::updater::Updater;
 
 pub const SNAPSHOT_EVENT: &str = "agent-snapshot";
 pub const NOTICE_EVENT: &str = "agent-notice";
@@ -131,6 +134,12 @@ impl Sink for Windows {
     fn notice(&self, notice: &Notice) {
         let _ = self.0.emit(NOTICE_EVENT, notice);
     }
+
+    fn update(&self, status: &tandem_proto::UpdateStatus) {
+        if let Some(u) = self.0.try_state::<Arc<Updater>>() {
+            u.on_agent(&self.0, status);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -181,6 +190,38 @@ fn shortcuts_set(
     // La mini escena no se destruye al cerrarla: sin el aviso seguiría con los de antes.
     let _ = app.emit(SHORTCUTS_EVENT, &view);
     Ok(view)
+}
+
+// Actualizaciones (T-122).
+
+#[tauri::command]
+fn update_get(updater: tauri::State<'_, Arc<Updater>>) -> UpdateView {
+    updater.view()
+}
+
+#[tauri::command]
+async fn update_check(
+    app: AppHandle,
+    updater: tauri::State<'_, Arc<Updater>>,
+) -> Result<UpdateView, String> {
+    Ok(updater.check(&app).await)
+}
+
+#[tauri::command]
+fn update_all(
+    app: AppHandle,
+    updater: tauri::State<'_, Arc<Updater>>,
+) -> Result<UpdateView, String> {
+    updater.update_all(&app)
+}
+
+#[tauri::command]
+fn update_auto(
+    app: AppHandle,
+    updater: tauri::State<'_, Arc<Updater>>,
+    on: bool,
+) -> Result<UpdateView, String> {
+    updater.set_auto(&app, on)
 }
 
 #[tauri::command]
@@ -520,6 +561,13 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     if let Err(e) = handle.plugin(tauri_plugin_global_shortcut::Builder::new().build()) {
         eprintln!("tandem-ui: sin atajos globales: {e}");
     }
+    // Sin updater la app sigue; la pestaña Actualizaciones muestra el error al buscar.
+    if let Err(e) = handle.plugin(tauri_plugin_updater::Builder::new().build()) {
+        eprintln!("tandem-ui: sin actualizaciones automáticas: {e}");
+    }
+    // Antes que la sesión: sus primeros avisos ya traen las versiones.
+    let updater = Arc::new(Updater::new());
+    app.manage(updater.clone());
     let menu = match build_tray(&handle) {
         Ok(menu) => Some(menu),
         Err(e) => {
@@ -550,6 +598,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         menu.show(&MenuView::of(&session.snapshot()));
     }
     app.manage(session);
+    updater.spawn_auto(&handle);
     Ok(())
 }
 
@@ -567,6 +616,10 @@ pub fn run() -> Result<(), tauri::Error> {
             setup_open,
             agent_restart,
             setup_finish,
+            update_get,
+            update_check,
+            update_all,
+            update_auto,
             ui_show_main,
             ui_hide_main,
             ui_hide_tray,
