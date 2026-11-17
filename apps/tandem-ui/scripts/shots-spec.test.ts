@@ -15,9 +15,15 @@ describe("arnés de capturas", () => {
     expect(new Set(names).size).toBe(names.length);
     for (const s of SHOTS) {
       expect(s.query).toContain("demo");
+      expect(s.name).toMatch(/^[a-z-]+$/);
       expect(s.query).toContain("still");
       expect(s.page === "tray.html" ? [s.width, s.height] : [s.width, s.height]).toEqual(s.page === "tray.html" ? [380, 600] : [1280, 860]);
     }
+  });
+
+  it("hay captura del demo con dos Windows y con dos Mac (D2)", () => {
+    expect(SHOTS.find((s) => s.name === "puesto-win-win")?.query).toContain("demo=win-win");
+    expect(SHOTS.find((s) => s.name === "puesto-mac-mac")?.query).toContain("demo=mac-mac");
   });
 
   it("la barra lateral de V3-Puesto tiene el umbral del criterio (≥ 0.99, peor cuadro ≥ 0.97)", () => {

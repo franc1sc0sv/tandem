@@ -130,6 +130,42 @@
     ],
     "errores": []
   },
+  "puesto-mac-mac": {
+    "mockup": "V3-Puesto",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9739,
+      "worstTile": 0.6033,
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 0.9978,
+        "worstTile": 0.9326,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "puesto-win-win": {
+    "mockup": "V3-Puesto",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9578,
+      "worstTile": 0.3748,
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 0.9962,
+        "worstTile": 0.8625,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
   "red": {
     "mockup": "V3-Red",
     "pantalla": {

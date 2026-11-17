@@ -74,6 +74,10 @@ export const SHOTS: ShotSpec[] = [
     ignore: [NO_ADD_MACHINE, { mockupSelector: 'a[href="F-AgregarHost.dc.html"].card', reason: "D1: sin tarjeta «Agregar máquina»" }],
     regions: [{ ...SIDEBAR, min: SIDEBAR_GATE }],
   },
+  // D2 (alcance de T-126): el mismo puesto con dos Windows y con dos Mac. Los nombres y
+  // colores cambian, así que no tienen umbral: sirven para ver cada combinación.
+  { name: "puesto-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
+  { name: "puesto-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   { name: "tuneles", page: "index.html", query: DEMO, hash: "#/tuneles", mockup: "V3-Computo", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   { name: "monitores", page: "index.html", query: DEMO, hash: "#/monitores", mockup: "V3-Monitores", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   { name: "acomodo", page: "index.html", query: DEMO, hash: "#/acomodo", mockup: "V3-Acomodo", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
