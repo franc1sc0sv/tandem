@@ -171,6 +171,15 @@ fn no_verdict(error: &str) -> bool {
     error.contains(tandem_monitor::NO_VERDICT)
 }
 
+/// Lo que dice un paso que se quedó sin respuesta: pudo haberse hecho igual.
+const NO_ANSWER: &str = "sin respuesta en";
+
+/// Un error de un paso de escena que deja la duda de si se hizo: el monitor de la escena es un
+/// cambio de entrada que hace el dueño (T-111), con los mismos errores.
+fn scene_uncertain(error: &str) -> bool {
+    no_verdict(error) || error.contains(PEER_LOST) || error.contains(NO_ANSWER)
+}
+
 /// Tiempo máximo por paso.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StepTimeouts {
@@ -202,7 +211,7 @@ impl StepTimeouts {
             Step::PowerOn { .. } => self.power_on,
             Step::PowerOff { .. } => self.step,
             Step::SwitchMonitor { .. } => self.monitor,
-            // El monitor abstracto de una escena será un `SwitchMonitor` (T-111).
+            // El monitor de una escena es un `SwitchMonitor` del dueño (T-111).
             Step::ShowMachine { .. } => self.monitor,
             Step::Arrange { .. } | Step::Geometry => self.step,
         }
@@ -472,7 +481,7 @@ impl Orchestrator {
         match tokio::time::timeout(limit, work).await {
             Ok(r) => r,
             Err(_) => Err(StepFailure {
-                error: format!("{}: sin respuesta en {} s", describe(step), limit.as_secs()),
+                error: format!("{}: {NO_ANSWER} {} s", describe(step), limit.as_secs()),
                 uncertain: true,
             }),
         }
@@ -618,9 +627,12 @@ impl Dispatcher<'_> {
         };
         let limit = self.orch.timeouts.for_step(step);
         match tokio::time::timeout(limit, scene.execute(step)).await {
-            Ok(r) => r.map_err(StepFailure::certain),
+            Ok(r) => r.map_err(|error| StepFailure {
+                uncertain: scene_uncertain(&error),
+                error,
+            }),
             Err(_) => Err(StepFailure {
-                error: format!("{}: sin respuesta en {} s", describe(step), limit.as_secs()),
+                error: format!("{}: {NO_ANSWER} {} s", describe(step), limit.as_secs()),
                 uncertain: true,
             }),
         }

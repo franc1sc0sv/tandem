@@ -31,6 +31,40 @@ pub const NOT_OWNER: &str = "esta máquina no es la dueña del monitor";
 /// La hora de la máquina, en milisegundos Unix.
 pub type WallClock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
+/// La entrada del monitor por la que llega este EDID, según el tipo de interfaz de E-EDID
+/// 1.4 (byte 20: digital, bits 0–3: `2`/`3` HDMI, `5` DisplayPort). Cada entrada tiene su
+/// EDID, así que dice a qué entrada va el cable de esta máquina. Antes de la 1.4 esos bits no
+/// dicen nada, y muchos monitores no los llenan: entonces `None` (T-111).
+pub fn edid_input(raw: &[u8]) -> Option<MonitorInput> {
+    let (version, revision, video) = (*raw.get(18)?, *raw.get(19)?, *raw.get(20)?);
+    if version != 1 || revision < 4 || video & 0x80 == 0 {
+        return None;
+    }
+    match video & 0x0F {
+        0x2 | 0x3 => Some(MonitorInput::Hdmi),
+        0x5 => Some(MonitorInput::DisplayPort),
+        _ => None,
+    }
+}
+
+/// Escribe en un EDID (bloque base de 128 bytes) el tipo de interfaz de `input` como E-EDID
+/// 1.4, con su suma de control: para los dobles de prueba y la simulación. `None` lo deja sin
+/// definir.
+pub fn set_edid_input(edid: &mut [u8], input: Option<MonitorInput>) {
+    if edid.len() < 128 {
+        return;
+    }
+    edid[18] = 1;
+    edid[19] = 4;
+    edid[20] = match input {
+        Some(MonitorInput::Hdmi) => 0xA2,
+        Some(MonitorInput::DisplayPort) => 0xA5,
+        None => 0x80,
+    };
+    let sum = edid[..127].iter().fold(0u8, |a, b| a.wrapping_add(*b));
+    edid[127] = 0u8.wrapping_sub(sum);
+}
+
 /// El reloj de pared del sistema.
 pub fn system_wall() -> WallClock {
     Arc::new(|| {
@@ -179,6 +213,7 @@ impl LocalMonitors {
                         name,
                         compat,
                         latency_ms,
+                        via: edid_input(edid.raw()),
                     },
                     reader,
                 },
@@ -794,6 +829,43 @@ mod tests {
         );
         assert!(local.scan().is_err());
         assert!(local.channels().is_empty());
+    }
+
+    #[test]
+    fn the_edid_says_which_input_the_cable_goes_to() {
+        let mut e = test_edid("SAM", 0x7155, "LC34G55T", "X1");
+        assert_eq!(edid_input(&e), None, "sin tipo de interfaz");
+        for input in [
+            Some(MonitorInput::Hdmi),
+            Some(MonitorInput::DisplayPort),
+            None,
+        ] {
+            set_edid_input(&mut e, input);
+            assert_eq!(edid_input(&e), input);
+            assert!(monitor_ddc::Edid::parse(&e).is_ok(), "la suma sigue bien");
+        }
+        // Antes de E-EDID 1.4 los bits no dicen nada; uno analógico, tampoco.
+        set_edid_input(&mut e, Some(MonitorInput::Hdmi));
+        e[19] = 3;
+        assert_eq!(edid_input(&e), None);
+        e[19] = 4;
+        e[20] &= 0x7F;
+        assert_eq!(edid_input(&e), None);
+        assert_eq!(edid_input(&e[..10]), None);
+        // El sondeo lo anuncia en el canal.
+        let clock = FakeClock::new();
+        let bus = FakeBus::new(clock.clone());
+        let mut config = FakeMonitorConfig::new(Personality::Standard);
+        set_edid_input(&mut config.edid, Some(MonitorInput::DisplayPort));
+        bus.add(config);
+        let mut local = LocalMonitors::new(
+            Arc::new(bus),
+            Arc::new(clock),
+            system_wall(),
+            LocalConfig::default(),
+        );
+        let channels = local.scan().unwrap();
+        assert_eq!(channels[0].via, Some(MonitorInput::DisplayPort));
     }
 
     /// `test_edid` no reproduce el serial real: la identidad es la misma en DP y HDMI porque

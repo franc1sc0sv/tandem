@@ -26,7 +26,7 @@ mod setup;
 mod update;
 
 pub use env::ResourceWatch;
-pub use scenes::{NO_SCENE_MONITORS, NoSceneMonitors, SceneBackend, SceneShortcuts};
+pub use scenes::{SceneBackend, SceneShortcuts, UNKNOWN_SHOWS};
 
 use crate::capabilities;
 use crate::config::AgentConfig;
@@ -126,8 +126,9 @@ pub struct Agent {
     env: env::EnvState,
     /// Las versiones de las dos máquinas y el pedido de actualizar esta (T-122).
     update: watch::Sender<UpdateStatus>,
-    /// Lo que hace los pasos de escena de monitor y geometría (T-100; T-111 lo conecta).
-    scene_backend: std::sync::RwLock<Arc<dyn SceneBackend>>,
+    /// Un doble de los pasos de escena de monitor y geometría (la simulación de T-100);
+    /// `None`: los monitores reales ([`scenes`], T-111).
+    scene_backend: std::sync::RwLock<Option<Arc<dyn SceneBackend>>>,
     /// Métricas de red y la conexión de cada camino sano (T-102).
     net: net::NetState,
 }
@@ -360,7 +361,7 @@ impl Agent {
                 here: VERSION.to_owned(),
                 ..UpdateStatus::default()
             }),
-            scene_backend: std::sync::RwLock::new(Arc::new(NoSceneMonitors)),
+            scene_backend: std::sync::RwLock::new(None),
             net: net::NetState::default(),
             cfg,
         }
@@ -550,10 +551,12 @@ impl Agent {
             }
             DeskPatch::AddScene(s) | DeskPatch::EditScene(s) => {
                 crate::config::shortcut_keys(&s.shortcut).map_err(|e| e.to_string())?;
+                self.check_scene_monitors(s)?;
             }
             DeskPatch::Scenes(scenes) => {
                 for s in scenes {
                     crate::config::shortcut_keys(&s.shortcut).map_err(|e| e.to_string())?;
+                    self.check_scene_monitors(s)?;
                 }
             }
             _ => {}

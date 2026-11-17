@@ -448,15 +448,18 @@ async fn read_screens(sh: Arc<Shared>) {
     }
 }
 
-/// Recalcula la geometría con cada cambio de estado, del puesto o de pantallas.
+/// Recalcula la geometría con cada cambio de estado, del puesto, de pantallas o de lo que
+/// muestra cada monitor.
 async fn geometry(sh: Arc<Shared>) {
     let mut state = sh.agent.subscribe();
     let mut desk = sh.agent.subscribe_desk();
     let mut mine = sh.screens.subscribe();
     let mut theirs = sh.agent.inbox().screens.subscribe();
+    let mut monitors = sh.agent.subscribe_monitors();
     loop {
         let st = state.borrow_and_update().clone();
         let d = desk.borrow_and_update().clone();
+        let shows = crate::monitors::shows(&monitors.borrow_and_update(), &d);
         let local = mine.borrow_and_update().clone();
         let remote: Vec<Screen> = theirs
             .borrow_and_update()
@@ -465,7 +468,7 @@ async fn geometry(sh: Arc<Shared>) {
             .iter()
             .map(screens::from_wire)
             .collect();
-        match screens::layout(&d, &st, sh.me, &local, &remote, sh.opts.layout) {
+        match screens::layout(&d, &st, sh.me, (&local, &remote), &shows, sh.opts.layout) {
             Ok(l) => {
                 set(&sh.visible, l.screens(sh.me).to_vec());
                 set(&sh.layout, l);
@@ -477,6 +480,7 @@ async fn geometry(sh: Arc<Shared>) {
             () = changed(&mut desk) => {}
             () = changed(&mut mine) => {}
             () = changed(&mut theirs) => {}
+            () = changed(&mut monitors) => {}
         }
     }
 }

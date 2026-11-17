@@ -6,11 +6,13 @@
 //! del motor de entrada. Los pasos de monitor y de acomodo se deshacen si falla uno
 //! posterior; los de energía no (ver [`crate::txn`]).
 
-use std::collections::BTreeSet;
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Arrangement, Desk, Machine, Machines, Os};
+use crate::monitor::MonitorCable;
 use crate::plan::{Abilities, Plan, PlanError, Step};
 use crate::state::State;
 
@@ -277,6 +279,102 @@ pub fn scene_id(name: &str, taken: &[&str]) -> String {
     id
 }
 
+/// Presenta un monitor compatible nuevo al puesto (T-111): anota su cableado y lo agrega a
+/// las escenas por omisión que siguen siéndolo por id: «Solo A» lo muestra en A, «Solo B» en
+/// B y «Trabajo» con lo que muestra ahora (`shows`; sin saberlo, no entra). Una escena que ya
+/// lo nombra no se toca. `false` si ya tenía cableado (ya se presentó: lo que el usuario haya
+/// hecho después se respeta) o si el puesto no quedaría válido.
+pub fn introduce_monitor(desk: &mut Desk, cable: MonitorCable, shows: Option<Machine>) -> bool {
+    if desk.cable(&cable.monitor).is_some() {
+        return false;
+    }
+    let mut next = desk.clone();
+    for s in &mut next.scenes {
+        let machine = match s.id.as_str() {
+            "trabajo" => shows,
+            "solo-a" if s.require_on == Some(Machine::A) => Some(Machine::A),
+            "solo-b" if s.require_on == Some(Machine::B) => Some(Machine::B),
+            _ => None,
+        };
+        if let Some(machine) = machine
+            && s.monitors.iter().all(|(m, _)| *m != cable.monitor)
+        {
+            s.monitors.push((cable.monitor.clone(), machine));
+        }
+    }
+    next.cables.push(cable);
+    if next.validate().is_err() {
+        return false;
+    }
+    *desk = next;
+    true
+}
+
+/// Si de `old` a `new` solo cambió lo que hace [`introduce_monitor`]: cables nuevos (los de
+/// antes iguales) y esos monitores agregados a escenas. Lo hizo el agente, no una persona.
+pub fn introduced_by_agent(old: &Desk, new: &Desk) -> bool {
+    let added: BTreeSet<&str> = new
+        .cables
+        .iter()
+        .filter(|c| old.cable(&c.monitor).is_none())
+        .map(|c| c.monitor.as_str())
+        .collect();
+    let kept = old.cables.iter().all(|c| new.cable(&c.monitor) == Some(c));
+    if added.is_empty() || !kept || new.cables.len() != old.cables.len() + added.len() {
+        return false;
+    }
+    let stripped: Vec<Scene> = new
+        .scenes
+        .iter()
+        .map(|s| Scene {
+            monitors: s
+                .monitors
+                .iter()
+                .filter(|(m, _)| !added.contains(m.as_str()))
+                .cloned()
+                .collect(),
+            ..s.clone()
+        })
+        .collect();
+    new.scenes != old.scenes && stripped == old.scenes
+}
+
+/// La escena que está puesta según lo que muestra de verdad cada monitor (`shows`, de la
+/// entrada real que lee el dueño): de las que valen con `state`, tienen monitores, todos
+/// muestran su máquina y su acomodo (si tiene) es el del puesto (sin declarar, el de
+/// omisión), la que más pide (más
+/// monitores, más máquinas); con empate, la primera. Una escena sin monitores no se puede
+/// reconocer.
+pub fn detect<'a>(
+    desk: &'a Desk,
+    state: &State,
+    shows: &BTreeMap<MonitorId, Machine>,
+) -> Option<&'a Scene> {
+    desk.scenes
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| {
+            !s.monitors.is_empty()
+                && s.holds(state)
+                && s.layout
+                    .is_none_or(|l| desk.arrangement.unwrap_or_default() == l)
+                && s.monitors
+                    .iter()
+                    .all(|(m, machine)| shows.get(m) == Some(machine))
+        })
+        .max_by_key(|(i, s)| (s.monitors.len(), s.needs().len(), Reverse(*i)))
+        .map(|(_, s)| s)
+}
+
+/// Si lo que muestran los monitores contradice a `scene`: alguno muestra otra máquina que la
+/// de la escena. Un monitor del que no se sabe nada no contradice.
+pub fn contradicted(scene: &Scene, shows: &BTreeMap<MonitorId, Machine>) -> bool {
+    scene
+        .monitors
+        .iter()
+        .any(|(m, machine)| shows.get(m).is_some_and(|s| s != machine))
+}
+
 /// Al renombrar `side` de `old` a `new`, su escena «Solo <old>» pasa a «Solo <new>». Una
 /// que el usuario ya renombró a otra cosa se respeta.
 pub fn rename_machine(scenes: &mut [Scene], side: Machine, old: &str, new: &str) {
@@ -478,6 +576,85 @@ mod tests {
         assert_eq!(scene_id("  Música y Diseño!  ", &[]), "musica-y-diseno");
         assert_eq!(scene_id("!!!", &[]), "escena");
         assert_eq!(scene_id("Juego", &["juego", "juego-2"]), "juego-3");
+    }
+
+    fn cable(monitor: &str) -> MonitorCable {
+        let mut c = MonitorCable::new(monitor);
+        c.a.input = Some(crate::MonitorInput::Hdmi);
+        c.b.input = Some(crate::MonitorInput::DisplayPort);
+        c
+    }
+
+    fn with_defaults() -> Desk {
+        let mut d = paired();
+        assert!(add_defaults(&mut d));
+        d
+    }
+
+    #[test]
+    fn a_new_monitor_joins_the_default_scenes_once() {
+        let mut d = with_defaults();
+        let old = d.clone();
+        assert!(introduce_monitor(&mut d, cable("m34"), Some(Machine::B)));
+        assert_eq!(d.scenes[0].monitors, [("m34".to_owned(), Machine::B)]);
+        assert_eq!(d.scenes[1].monitors, [("m34".to_owned(), Machine::A)]);
+        assert_eq!(d.scenes[2].monitors, [("m34".to_owned(), Machine::B)]);
+        assert_eq!(d.cable("m34"), Some(&cable("m34")));
+        assert!(introduced_by_agent(&old, &d));
+        assert_eq!(old.summary_of_changes(&d), None, "lo hizo el agente");
+        // Ya presentado: lo que haga el usuario después se respeta.
+        d.scenes[1].monitors.clear();
+        assert!(!introduce_monitor(&mut d, cable("m34"), Some(Machine::A)));
+        assert!(d.scenes[1].monitors.is_empty());
+        // Sin saber qué muestra, «Trabajo» no lo lleva; una escena del usuario, tampoco.
+        d.scenes.push(Scene::new("juego", "Juego"));
+        assert!(introduce_monitor(&mut d, cable("m27"), None));
+        assert_eq!(d.scenes[0].monitors.len(), 1);
+        assert!(d.scenes[3].monitors.is_empty());
+        // Un cable que declara una persona sí avisa.
+        let mut by_hand = old.clone();
+        by_hand
+            .apply(crate::DeskPatch::Cable(cable("m34")))
+            .unwrap();
+        assert!(!introduced_by_agent(&old, &by_hand));
+        assert_eq!(
+            old.summary_of_changes(&by_hand).as_deref(),
+            Some("Monitores")
+        );
+    }
+
+    #[test]
+    fn the_scene_on_screen_is_recognized_from_the_real_inputs() {
+        let mut d = with_defaults();
+        introduce_monitor(&mut d, cable("m34"), Some(Machine::B));
+        let both = State {
+            on: crate::Powered::both(),
+            scene: None,
+        };
+        let shows = |m: Machine| BTreeMap::from([("m34".to_owned(), m)]);
+        // Con las dos y el 34" en B: «Trabajo» (pide más que «Solo B»).
+        d.arrangement = Some(Arrangement::default());
+        assert_eq!(
+            detect(&d, &both, &shows(Machine::B)).map(|s| s.id.as_str()),
+            Some("trabajo")
+        );
+        // Con otro acomodo, «Trabajo» no está puesta: queda «Solo B».
+        d.arrangement = Some(left().swapped());
+        assert_eq!(
+            detect(&d, &both, &shows(Machine::B)).map(|s| s.id.as_str()),
+            Some("solo-b")
+        );
+        assert_eq!(
+            detect(&d, &both, &shows(Machine::A)).map(|s| s.id.as_str()),
+            Some("solo-a")
+        );
+        // Sin B prendida, solo «Solo A» puede valer; sin saber nada, ninguna.
+        let only_a = State::initial(Machine::A);
+        assert_eq!(detect(&d, &only_a, &shows(Machine::B)), None);
+        assert_eq!(detect(&d, &both, &BTreeMap::new()), None);
+        assert!(contradicted(&d.scenes[1], &shows(Machine::B)));
+        assert!(!contradicted(&d.scenes[1], &shows(Machine::A)));
+        assert!(!contradicted(&d.scenes[1], &BTreeMap::new()));
     }
 
     #[test]

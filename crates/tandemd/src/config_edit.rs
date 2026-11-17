@@ -204,6 +204,7 @@ pub fn with_desk(
     prefs.remove("clipboard");
     fill_modules(&mut doc, &desk.modules)?;
     fill_data(&mut doc, &desk.data)?;
+    write_cables(&mut doc, &desk.cables);
     // Lo que antes guardaba el puesto en `[input]`.
     if let Some(input) = doc.get_mut("input").and_then(Item::as_table_like_mut) {
         input.remove("lock_shortcut");
@@ -268,6 +269,42 @@ fn write_scenes(doc: &mut DocumentMut, scenes_of: &[tandem_core::Scene]) {
     } else {
         doc.insert("scenes", Item::ArrayOfTables(scenes));
     }
+}
+
+/// Los `[[cables]]` del puesto (T-111), en el lugar de los de antes; sin ninguno, sin la clave.
+fn write_cables(doc: &mut DocumentMut, cables: &[tandem_core::MonitorCable]) {
+    let at = match doc.remove("cables") {
+        Some(Item::ArrayOfTables(old)) => old.iter().filter_map(Table::position).min(),
+        _ => None,
+    };
+    if cables.is_empty() {
+        return;
+    }
+    let input_str = |i: tandem_core::MonitorInput| match i {
+        tandem_core::MonitorInput::DisplayPort => "display_port",
+        tandem_core::MonitorInput::Hdmi => "hdmi",
+    };
+    let mut out = ArrayOfTables::new();
+    for c in cables {
+        let mut t = Table::new();
+        t.set_position(at);
+        t.insert("monitor", toml_edit::value(c.monitor.as_str()));
+        for side in Machine::ALL {
+            let end = c.end(side);
+            let mut e = toml_edit::InlineTable::new();
+            if let Some(input) = end.input {
+                e.insert("input", input_str(input).into());
+            }
+            if let Some(screen) = &end.screen {
+                e.insert("screen", screen.as_str().into());
+            }
+            if !e.is_empty() {
+                t.insert(side.as_str(), Item::Value(Value::InlineTable(e)));
+            }
+        }
+        out.push(t);
+    }
+    doc.insert("cables", Item::ArrayOfTables(out));
 }
 
 /// Lo mismo sobre el archivo.
@@ -767,9 +804,10 @@ scale = 2.0
             (any::<bool>(), any::<bool>(), any::<bool>()),
             proptest::collection::btree_map("[a-z]{1,6}", any::<bool>(), 0..3),
             (1u8..=100, proptest::option::of(1u32..10_000)),
+            proptest::collection::btree_map("[a-z0-9-]{1,8}", (0u8..3, any::<bool>()), 0..3),
         )
             .prop_map(
-                |((a, b), screens, arrangement, scenes, lock, prefs, modules, data)| {
+                |((a, b), screens, arrangement, scenes, lock, prefs, modules, data, cables)| {
                     let mut seen = std::collections::BTreeSet::new();
                     Config {
                         machines: Machines { a, b },
@@ -805,6 +843,18 @@ scale = 2.0
                             wifi_cap_percent: data.0,
                             wifi_cap_mbps: data.1,
                         },
+                        cables: cables
+                            .into_iter()
+                            .map(|(monitor, (input, screen))| {
+                                let mut c = tandem_core::MonitorCable::new(monitor);
+                                c.a.input = tandem_core::MonitorInput::ALL
+                                    .get(usize::from(input))
+                                    .copied();
+                                c.b.input = c.a.input.map(tandem_core::MonitorInput::other);
+                                c.b.screen = screen.then(|| "pantalla-1".to_owned());
+                                c
+                            })
+                            .collect(),
                     }
                 },
             )

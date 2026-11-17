@@ -30,10 +30,12 @@ fn monitors(standard: FakeMonitorConfig) -> Vec<MonitorSpec> {
         MonitorSpec {
             config: standard,
             cables: vec![(Machine::A, ms(30)), (Machine::B, ms(5))],
+            via: vec![],
         },
         MonitorSpec {
             config: factory,
             cables: vec![(Machine::B, ms(5))],
+            via: vec![],
         },
     ]
 }

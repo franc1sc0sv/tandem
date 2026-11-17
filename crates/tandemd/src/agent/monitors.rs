@@ -45,6 +45,7 @@ impl Agent {
     /// Lo que leyó la otra de sus monitores.
     pub fn receive_monitor_reports(&self, reports: Vec<MonitorReport>) {
         self.monitors.receive(self.machine().other(), reports);
+        self.reconcile_monitors();
     }
 
     /// Los canales de la otra cuentan mientras está prendida: si se apaga o se pierde, sus
@@ -103,6 +104,7 @@ async fn monitor_loop(agent: Weak<Agent>, times: MonitorTimes) {
         if let Some(reports) = tick.reports {
             a.orch.peer().send(ControlMsg::Monitors(reports));
         }
+        a.reconcile_monitors();
         let hub = a.monitors.clone();
         drop(a);
         tokio::select! {
