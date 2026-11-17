@@ -252,7 +252,7 @@ async fn respond<C: ControlChannel>(
                 agent.inbox().screens.send_replace(Some(screens));
             }
             ControlMsg::Capabilities(caps) => agent.set_peer_capabilities(*caps),
-            ControlMsg::Desk(sync) => agent.receive_desk(sync),
+            ControlMsg::Desk(sync) => agent.receive_desk(*sync),
             ControlMsg::KeyProbe(msg) => agent.receive_key_probe(msg),
             ControlMsg::Keyboard(machine) => agent.receive_keyboard(machine),
             ControlMsg::SetModule { module, on } => agent.receive_set_module(module, on),

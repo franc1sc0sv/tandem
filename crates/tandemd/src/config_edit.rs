@@ -7,8 +7,7 @@
 
 use std::path::Path;
 
-use tandem_core::{Machine, MachineInfo, Machines, ScreenSpec};
-use tandem_proto::DeskSync;
+use tandem_core::{Align, DeskVersion, Machine, MachineInfo, Machines, ScreenSpec, Side};
 use toml_edit::{ArrayOfTables, DocumentMut, Item, Table, Value};
 
 use crate::config::AgentConfig;
@@ -69,7 +68,7 @@ pub fn with_sides(
     text: &str,
     machine: Machine,
     keyboard: Option<Machine>,
-    sync: &DeskSync,
+    sync: &DeskVersion,
 ) -> Result<String, ConfigEditError> {
     let mut doc = parse(text)?;
     // Las pantallas que ya estaban cambian de nombre en su lugar: así `with_desk` las
@@ -116,7 +115,7 @@ pub fn set_sides(
     path: &Path,
     machine: Machine,
     keyboard: Option<Machine>,
-    sync: &DeskSync,
+    sync: &DeskVersion,
 ) -> Result<(), ConfigEditError> {
     rewrite(path, |text| with_sides(text, machine, keyboard, sync))
 }
@@ -126,12 +125,19 @@ pub fn set_keyboard(path: &Path, machine: Machine) -> Result<(), ConfigEditError
     rewrite(path, |text| with_keyboard(text, machine))
 }
 
-/// El puesto compartido de `sync` sobre el texto de `tandem.toml` (T-084): los
+/// El puesto compartido de `sync` sobre el texto de `tandem.toml` (T-084, T-099): los
 /// `[[screens]]` (se actualizan en su lugar los que ya estaban, se agregan los nuevos al
-/// final y se quitan los que ya no están), `[machines]`, `[arrangement]`,
-/// `[input] lock_shortcut`, `desk_rev`, `desk_origin` y `desk_sum`. Lo solo-local (máquina, red, energía, el resto
-/// de `[input]`) no se toca. Los `[[monitors]]` de v0.1 se borran.
-pub fn with_desk(text: &str, machine: Machine, sync: &DeskSync) -> Result<String, ConfigEditError> {
+/// final y se quitan los que ya no están), `[machines]`, `[arrangement]`, `[[scenes]]`,
+/// `[shortcuts]`, `[prefs]`, `[modules]` y el sello (`desk_rev`, `desk_at`, `desk_origin`,
+/// `desk_sum`). Lo solo-local (máquina, red, energía, `[input]`) no se toca. Los
+/// `[[monitors]]` de v0.1 y lo del puesto que antes vivía en `[input]` se borran.
+///
+/// Se escribe aparte y se renombra ([`rewrite`]): un corte a medias deja el anterior.
+pub fn with_desk(
+    text: &str,
+    machine: Machine,
+    sync: &DeskVersion,
+) -> Result<String, ConfigEditError> {
     let mut doc = parse(text)?;
     // El lado va siempre con el puesto: sus pantallas están etiquetadas desde él.
     doc["machine"] = toml_edit::value(machine.as_str());
@@ -166,39 +172,126 @@ pub fn with_desk(text: &str, machine: Machine, sync: &DeskSync) -> Result<String
     if !screens.is_empty() {
         doc.insert("screens", Item::ArrayOfTables(screens));
     }
-    fill_machines(&mut doc, &sync.desk.machines)?;
-    let arrangement = doc
-        .entry("arrangement")
-        .or_insert_with(|| Item::Table(Table::new()))
-        .as_table_like_mut()
-        .ok_or_else(|| ConfigEditError::Invalid("[arrangement] no es una tabla".into()))?;
-    let a = sync.desk.arrangement;
-    let side = match a.a_side {
-        tandem_core::Side::Left => "left",
-        tandem_core::Side::Right => "right",
+    let desk = &sync.desk;
+    fill_machines(&mut doc, &desk.machines)?;
+    match desk.arrangement {
+        Some(a) => {
+            let arrangement = section(&mut doc, "arrangement")?;
+            arrangement.remove("offset");
+            arrangement.insert("a_side", toml_edit::value(side_str(a.a_side)));
+            arrangement.insert("align", toml_edit::value(align_str(a.align)));
+        }
+        None => {
+            doc.remove("arrangement");
+        }
+    }
+    // En el lugar de las de antes: reescribir lo mismo no mueve nada.
+    let at = match doc.remove("scenes") {
+        Some(Item::ArrayOfTables(old)) => old.iter().filter_map(Table::position).min(),
+        _ => None,
     };
-    arrangement.insert("a_side", toml_edit::value(side));
-    arrangement.insert("offset", toml_edit::value(i64::from(a.offset)));
-    let keys: toml_edit::Array = sync.lock_shortcut.iter().map(String::as_str).collect();
-    input_table(&mut doc)?.insert("lock_shortcut", Item::Value(Value::Array(keys)));
-    doc.insert(
-        "desk_rev",
-        toml_edit::value(i64::try_from(sync.rev).unwrap_or(i64::MAX)),
-    );
-    doc.insert("desk_origin", toml_edit::value(sync.origin.as_str()));
+    let mut scenes = ArrayOfTables::new();
+    for s in &desk.scenes {
+        let mut t = Table::new();
+        t.set_position(at);
+        t.insert("id", toml_edit::value(s.id.as_str()));
+        t.insert("name", toml_edit::value(s.name.as_str()));
+        scenes.push(t);
+    }
+    if !scenes.is_empty() {
+        doc.insert("scenes", Item::ArrayOfTables(scenes));
+    }
+    let keys: toml_edit::Array = desk.shortcuts.lock.iter().map(String::as_str).collect();
+    section(&mut doc, "shortcuts")?.insert("lock", Item::Value(Value::Array(keys)));
+    let prefs = section(&mut doc, "prefs")?;
+    prefs.insert("cmd_ctrl", toml_edit::value(desk.prefs.cmd_ctrl));
+    prefs.insert("drag_files", toml_edit::value(desk.prefs.drag_files));
+    prefs.insert("clipboard", toml_edit::value(desk.prefs.clipboard));
+    fill_modules(&mut doc, &desk.modules)?;
+    // Lo que antes guardaba el puesto en `[input]`.
+    if let Some(input) = doc.get_mut("input").and_then(Item::as_table_like_mut) {
+        input.remove("lock_shortcut");
+        input.remove("clipboard");
+    }
+    let int = |n: u64| toml_edit::value(i64::try_from(n).unwrap_or(i64::MAX));
+    doc.insert("desk_rev", int(sync.stamp.rev));
+    if sync.stamp.at > 0 {
+        doc.insert("desk_at", int(sync.stamp.at));
+    } else {
+        doc.remove("desk_at");
+    }
+    doc.insert("desk_origin", toml_edit::value(sync.stamp.by.as_str()));
     doc.insert(
         "desk_sum",
-        toml_edit::value(crate::desk_sync::fingerprint(
-            &sync.desk,
-            &sync.lock_shortcut,
-        )),
+        toml_edit::value(crate::desk_sync::fingerprint(desk)),
     );
     validated(&doc)
 }
 
 /// Lo mismo sobre el archivo.
-pub fn set_desk(path: &Path, machine: Machine, sync: &DeskSync) -> Result<(), ConfigEditError> {
+pub fn set_desk(path: &Path, machine: Machine, sync: &DeskVersion) -> Result<(), ConfigEditError> {
     rewrite(path, |text| with_desk(text, machine, sync))
+}
+
+fn section<'a>(
+    doc: &'a mut DocumentMut,
+    name: &str,
+) -> Result<&'a mut dyn toml_edit::TableLike, ConfigEditError> {
+    doc.entry(name)
+        .or_insert_with(|| Item::Table(Table::new()))
+        .as_table_like_mut()
+        .ok_or_else(|| ConfigEditError::Invalid(format!("[{name}] no es una tabla")))
+}
+
+fn side_str(side: Side) -> &'static str {
+    match side {
+        Side::Left => "left",
+        Side::Right => "right",
+        Side::Up => "up",
+        Side::Down => "down",
+    }
+}
+
+fn align_str(align: Align) -> &'static str {
+    match align {
+        Align::Start => "start",
+        Align::Center => "center",
+        Align::End => "end",
+    }
+}
+
+/// `[modules.a]` y `[modules.b]`, de a uno por módulo; sin nada, sin la tabla.
+fn fill_modules(
+    doc: &mut DocumentMut,
+    modules: &tandem_core::Modules,
+) -> Result<(), ConfigEditError> {
+    // Cada `[modules.x]` en el lugar del de antes: reescribir lo mismo no mueve nada.
+    let old = doc.remove("modules");
+    let at = |side: Machine| {
+        old.as_ref()
+            .and_then(|o| o.get(side.as_str()))
+            .and_then(Item::as_table)
+            .and_then(Table::position)
+    };
+    if modules.a.is_empty() && modules.b.is_empty() {
+        return Ok(());
+    }
+    let mut table = Table::new();
+    table.set_implicit(true);
+    for side in Machine::ALL {
+        let of = modules.of(side);
+        if of.is_empty() {
+            continue;
+        }
+        let mut t = Table::new();
+        t.set_position(at(side));
+        for (name, on) in of {
+            t.insert(name, toml_edit::value(*on));
+        }
+        table.insert(side.as_str(), Item::Table(t));
+    }
+    doc.insert("modules", Item::Table(table));
+    Ok(())
 }
 
 /// `[machines.a]` y `[machines.b]`; sin datos de ningún lado, sin la tabla.
@@ -292,7 +385,7 @@ fn rewrite(
 
 #[cfg(test)]
 mod tests {
-    use tandem_core::{Arrangement, Config, Scale, Side};
+    use tandem_core::{Arrangement, Config, DeskStamp, Scale, Scene};
 
     use super::*;
 
@@ -318,14 +411,19 @@ height = 982
 scale = 2.0
 "#;
 
-    fn sync_of(text: &str, rev: u64) -> DeskSync {
-        let cfg = AgentConfig::from_toml(text).unwrap();
-        DeskSync {
-            rev,
-            origin: Machine::A,
-            desk: cfg.desk,
-            lock_shortcut: cfg.input.lock_shortcut,
+    fn stamp(rev: u64, by: Machine) -> DeskStamp {
+        DeskStamp { rev, at: 0, by }
+    }
+
+    fn version(desk: Config, rev: u64, by: Machine) -> DeskVersion {
+        DeskVersion {
+            stamp: stamp(rev, by),
+            desk,
         }
+    }
+
+    fn sync_of(text: &str, rev: u64) -> DeskVersion {
+        version(AgentConfig::from_toml(text).unwrap().desk, rev, Machine::A)
     }
 
     #[test]
@@ -343,11 +441,18 @@ scale = 2.0
             height: 2160,
             scale: Scale::from_milli(1500),
         });
-        sync.desk.arrangement = Arrangement {
-            a_side: Side::Right,
-            offset: 120,
-        };
-        sync.lock_shortcut = vec!["ControlLeft".into(), "KeyL".into()];
+        sync.desk.arrangement = Some(Arrangement {
+            a_side: Side::Up,
+            align: Align::End,
+        });
+        sync.desk.shortcuts.lock = vec!["ControlLeft".into(), "KeyL".into()];
+        sync.desk.prefs.drag_files = false;
+        sync.desk.scenes = vec![Scene {
+            id: "t".into(),
+            name: "Trabajo".into(),
+        }];
+        sync.desk.modules.set(Machine::B, "clipboard", false);
+        sync.stamp.at = 1_763_400_000_000;
         let out = with_desk(PC, Machine::B, &sync).unwrap();
         assert!(out.starts_with("# La PC.\n"), "{out}");
         // El comentario del 34" sigue: se actualizó en su lugar.
@@ -356,29 +461,34 @@ scale = 2.0
         let cfg = AgentConfig::from_toml(&out).unwrap();
         assert_eq!(cfg.machine, Machine::B);
         assert_eq!(cfg.desk, sync.desk);
-        assert_eq!(cfg.input.lock_shortcut, sync.lock_shortcut);
+        assert!(!cfg.legacy_desk, "{out}");
         assert_eq!(cfg.desk_rev, 3);
+        assert_eq!(cfg.desk_at, 1_763_400_000_000);
         assert_eq!(cfg.desk_origin, Some(Machine::A));
         assert_eq!(
             cfg.desk_sum,
-            Some(crate::desk_sync::fingerprint(
-                &sync.desk,
-                &sync.lock_shortcut
-            ))
+            Some(crate::desk_sync::fingerprint(&sync.desk))
         );
+        assert!(out.contains("[modules.b]"), "{out}");
+        assert!(!out.contains("[modules]\n"), "sin cabecera vacía: {out}");
         // Y otra vez no cambia nada.
         assert_eq!(with_desk(&out, Machine::B, &sync).unwrap(), out);
+        // Sin acomodo, sin escenas ni módulos, sus secciones se van.
+        let mut bare = sync.clone();
+        bare.desk.arrangement = None;
+        bare.desk.scenes.clear();
+        bare.desk.modules = Default::default();
+        let out = with_desk(&out, Machine::B, &bare).unwrap();
+        for gone in ["[arrangement]", "[[scenes]]", "modules"] {
+            assert!(!out.contains(gone), "{gone}: {out}");
+        }
+        assert_eq!(AgentConfig::from_toml(&out).unwrap().desk, bare.desk);
     }
 
     #[test]
     fn writing_the_desk_drops_the_old_monitors() {
         let old = "machine = \"b\"\ndesk_rev = 2\n\n[[monitors]]\nid = \"m34\"\nlabel = \"34\"\nwiring = { pc = \"displayport\" }\n";
-        let sync = DeskSync {
-            rev: 3,
-            origin: Machine::B,
-            desk: Config::default(),
-            lock_shortcut: vec![],
-        };
+        let sync = version(Config::default(), 3, Machine::B);
         let out = with_desk(old, Machine::B, &sync).unwrap();
         assert!(!out.contains("monitors"), "{out}");
         let cfg = AgentConfig::from_toml(&out).unwrap();
@@ -386,13 +496,34 @@ scale = 2.0
         assert_eq!(cfg.desk, Config::default());
     }
 
+    /// Lo que antes era del puesto en `[input]` (atajo, portapapeles) y el desplazamiento a
+    /// mano del acomodo pasan a sus secciones al escribir el puesto.
+    #[test]
+    fn the_desk_from_before_t099_is_rewritten_in_its_sections() {
+        let text = format!(
+            "{PC}\n[input]\nkeyboard = \"a\"\nlock_shortcut = [\"KeyL\"]\nclipboard = false\n\n[arrangement]\na_side = \"right\"\noffset = 30\n"
+        );
+        let cfg = AgentConfig::from_toml(&text).unwrap();
+        assert!(cfg.legacy_desk);
+        let out = with_desk(&text, Machine::B, &version(cfg.desk.clone(), 1, Machine::B)).unwrap();
+        for gone in ["lock_shortcut", "offset"] {
+            assert!(!out.contains(gone), "{gone}: {out}");
+        }
+        let back = AgentConfig::from_toml(&out).unwrap();
+        assert!(!back.legacy_desk, "{out}");
+        assert_eq!(back.desk, cfg.desk);
+        assert_eq!(back.desk.shortcuts.lock, ["KeyL"]);
+        assert!(!back.desk.prefs.clipboard);
+        assert_eq!(back.input.keyboard, Some(Machine::A));
+    }
+
     #[test]
     fn the_keyboard_is_saved_without_touching_the_rest() {
-        let text = format!("{PC}\n[input]\nserver = \"a\"\nclipboard = false\n");
+        let text = format!("{PC}\n[input]\nserver = \"a\"\n\n[prefs]\nclipboard = false\n");
         let out = with_keyboard(&text, Machine::B).unwrap();
         let cfg = AgentConfig::from_toml(&out).unwrap();
         assert_eq!(cfg.input.keyboard, Some(Machine::B));
-        assert!(!cfg.input.clipboard);
+        assert!(!cfg.desk.prefs.clipboard);
         assert!(!out.contains("server"), "{out}");
         assert!(out.starts_with("# La PC.\n"));
         // Sin sección [input], la crea.
@@ -469,21 +600,16 @@ scale = 2.0
     /// Cambiar de lado reescribe todo lo que nombra un lado y deja lo demás.
     #[test]
     fn the_sides_are_rewritten_in_place() {
-        let text = format!("{PC}\n[input]\nserver = \"a\"\nclipboard = false\n");
+        let text = format!("{PC}\n[input]\nserver = \"a\"\n\n[prefs]\nclipboard = false\n");
         let cfg = AgentConfig::from_toml(&text).unwrap().with_side(Machine::A);
-        let sync = DeskSync {
-            rev: 1,
-            origin: Machine::A,
-            desk: cfg.desk.clone(),
-            lock_shortcut: cfg.input.lock_shortcut.clone(),
-        };
+        let sync = version(cfg.desk.clone(), 1, Machine::A);
         let out = with_sides(&text, cfg.machine, cfg.input.keyboard, &sync).unwrap();
         assert!(out.starts_with("# La PC.\n"), "{out}");
         let back = AgentConfig::from_toml(&out).unwrap();
         assert!(!back.rewrite_sides);
         assert_eq!(back.machine, Machine::A);
         assert_eq!(back.input.keyboard, Some(Machine::B));
-        assert!(!back.input.clipboard);
+        assert!(!back.desk.prefs.clipboard);
         assert_eq!(back.desk, cfg.desk);
         assert_eq!(back.desk.screens_of(Machine::A).next().unwrap().id, "34");
     }
@@ -494,12 +620,11 @@ scale = 2.0
         let old = include_str!("../../../docs/examples/v0.2/tandem.pc.toml");
         let cfg = AgentConfig::from_toml(old).unwrap();
         assert!(cfg.rewrite_sides);
-        let sync = DeskSync {
-            rev: cfg.desk_rev,
-            origin: cfg.desk_origin.unwrap_or(cfg.machine),
-            desk: cfg.desk.clone(),
-            lock_shortcut: cfg.input.lock_shortcut.clone(),
-        };
+        let sync = version(
+            cfg.desk.clone(),
+            cfg.desk_rev,
+            cfg.desk_origin.unwrap_or(cfg.machine),
+        );
         let out = with_sides(old, cfg.machine, cfg.input.keyboard, &sync).unwrap();
         let back = AgentConfig::from_toml(&out).unwrap();
         assert!(!back.rewrite_sides, "{out}");
@@ -522,12 +647,7 @@ scale = 2.0
         for i in 0..40 {
             std::fs::write(&path, "machine = \"a\"\n").unwrap();
             let cfg = AgentConfig::load(&path).unwrap().with_side(Machine::B);
-            let sync = DeskSync {
-                rev: 1,
-                origin: Machine::B,
-                desk: cfg.desk.clone(),
-                lock_shortcut: cfg.input.lock_shortcut.clone(),
-            };
+            let sync = version(cfg.desk.clone(), 1, Machine::B);
             let barrier = std::sync::Barrier::new(2);
             std::thread::scope(|s| {
                 s.spawn(|| {

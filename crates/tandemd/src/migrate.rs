@@ -106,9 +106,90 @@ pub fn sides_v02(table: &mut Table) -> bool {
     true
 }
 
+/// `tandem.toml` de antes del puesto editable desde la UI (T-099): el atajo de bloqueo y el
+/// portapapeles estaban en `[input]` (ahora `[shortcuts] lock` y `[prefs] clipboard`, del
+/// puesto) y `[arrangement]` llevaba un desplazamiento a mano (`offset`), que ya no existe
+/// (D18). El acomodo que escribía el agente de T-097 sin que nadie lo declarara (A a la
+/// izquierda) se toma por no declarado; uno a la derecha queda con alineación al centro.
+/// Uno de v0.2 (`mac_side`) dice dónde está la Mac y se conserva tal cual: lo traduce
+/// [`sides_v02`] después. Devuelve si había algo que traducir.
+pub fn desk_v03(table: &mut Table) -> bool {
+    let mut changed = false;
+    if let Some(Value::Table(arr)) = table.get_mut("arrangement")
+        && arr.remove("offset").is_some()
+    {
+        changed = true;
+        let left = !arr.contains_key("mac_side")
+            && arr
+                .get("a_side")
+                .and_then(Value::as_str)
+                .is_none_or(|s| s == "left");
+        if left {
+            table.remove("arrangement");
+        }
+    }
+    let (lock, clipboard) = match table.get_mut("input") {
+        Some(Value::Table(input)) => (input.remove("lock_shortcut"), input.remove("clipboard")),
+        _ => (None, None),
+    };
+    let mut move_to = |section: &str, key: &str, value: Option<Value>| {
+        let Some(value) = value else { return };
+        changed = true;
+        if table.contains_key(section) {
+            // Lo nuevo manda: lo de antes sobra.
+            return;
+        }
+        let mut t = Table::new();
+        t.insert(key.into(), value);
+        table.insert(section.into(), Value::Table(t));
+    };
+    move_to("shortcuts", "lock", lock);
+    move_to("prefs", "clipboard", clipboard);
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_desk_from_before_t099_moves_to_its_sections() {
+        let mut t: Table = r#"
+            machine = "a"
+            [input]
+            keyboard = "a"
+            lock_shortcut = ["KeyL"]
+            clipboard = false
+            [arrangement]
+            a_side = "left"
+            offset = 0
+            "#
+        .parse()
+        .unwrap();
+        assert!(desk_v03(&mut t));
+        assert!(
+            t.get("arrangement").is_none(),
+            "el de omisión no se declara"
+        );
+        assert_eq!(t["shortcuts"]["lock"].as_array().unwrap().len(), 1);
+        assert_eq!(t["prefs"]["clipboard"].as_bool(), Some(false));
+        assert_eq!(t["input"].as_table().unwrap().len(), 1);
+        // Una segunda vez no hay nada que hacer.
+        assert!(!desk_v03(&mut t));
+
+        let mut right: Table = "[arrangement]\na_side = \"right\"\noffset = 40\n[shortcuts]\nlock = []\n[input]\nlock_shortcut = [\"KeyL\"]\n"
+            .parse()
+            .unwrap();
+        assert!(desk_v03(&mut right));
+        assert_eq!(right["arrangement"]["a_side"].as_str(), Some("right"));
+        assert!(right["arrangement"].get("offset").is_none());
+        assert!(right["shortcuts"]["lock"].as_array().unwrap().is_empty());
+        // Un archivo nuevo queda igual.
+        let text = "[arrangement]\na_side = \"up\"\nalign = \"end\"\n";
+        let mut new: Table = text.parse().unwrap();
+        assert!(!desk_v03(&mut new));
+        assert_eq!(new, text.parse::<Table>().unwrap());
+    }
 
     fn migrated(text: &str) -> (bool, Table) {
         let mut t: Table = text.parse().unwrap();

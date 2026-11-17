@@ -524,7 +524,7 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
             .unwrap();
     }
     within(async {
-        while mac.agent.desk_sync().rev != pc.agent.desk_sync().rev
+        while mac.agent.desk_sync().stamp.rev != pc.agent.desk_sync().stamp.rev
             || mac.agent.desk() != pc.agent.desk()
         {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -533,11 +533,17 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
     .await;
     // En la PC el acomodo pasa a «la Mac a la derecha».
     let mut desk = pc.agent.desk();
-    desk.arrangement.a_side = Side::Right;
+    desk.arrangement = Some(tandem_core::Arrangement {
+        a_side: Side::Right,
+        align: tandem_core::Align::Center,
+    });
     pc.agent.set_desk(desk.clone()).unwrap();
     let mut mac_desk = mac.agent.subscribe_desk();
     within(mac_desk.wait_for(|d| *d == desk)).await.unwrap();
-    assert_eq!(mac.agent.desk_sync().rev, pc.agent.desk_sync().rev);
+    assert_eq!(
+        mac.agent.desk_sync().stamp.rev,
+        pc.agent.desk_sync().stamp.rev
+    );
 
     // Ahora la Mac cruza por su borde izquierdo y entra a la PC por el derecho.
     let (x, _) = cross(&mac_fake, &pc_fake, 0.0, -5.0).await;
@@ -547,8 +553,9 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
 }
 
 /// Un `[[screens]]` escrito a mano en `tandem.toml` cambia la geometría: la PC declara su
-/// pantalla de 2000×720 aunque lea 3440×1440, y la Mac a su derecha. El cruce sale del
-/// acomodo declarado, y el puesto editado llega también a la Mac.
+/// pantalla de 2000×720 aunque lea 3440×1440, y la Mac a su derecha, centradas (D18). El
+/// cruce sale del acomodo declarado (el tramo compartido), y el puesto editado llega también
+/// a la Mac.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
     let (mac_id, pc_id) = sides(Identity::from_seed([33; 32]), Identity::from_seed([34; 32]));
@@ -564,7 +571,7 @@ async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
         mac_fake.clone(),
     )
     .await;
-    let declared = "[[screens]]\nmachine = \"b\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 2000\nheight = 720\n\n[arrangement]\na_side = \"right\"\n";
+    let declared = "[[screens]]\nmachine = \"b\"\nid = \"34\"\nx = 0\ny = 0\nwidth = 2000\nheight = 720\n\n[arrangement]\na_side = \"right\"\nalign = \"center\"\n";
     let pc = start_full(
         Machine::B,
         &pc_id,
@@ -579,10 +586,11 @@ async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
     pc.until_input(pc_serving).await;
     both_on(&mac, &pc).await;
 
-    // A 500 de 720 por el borde derecho declarado (x = 1999) entra a la Mac a 750 de 1080.
+    // Centradas, los 720 de la PC quedan frente a 180..900 de los 1080 de la Mac: a 500 por
+    // el borde derecho declarado (x = 1999) entra a la Mac a 180 + 500 = 680.
     let (x, y) = cross(&pc_fake, &mac_fake, 1999.0, 5.0).await;
     assert_eq!(x, 0.0, "entra por el borde izquierdo de la Mac");
-    assert!((y - 750.0).abs() < 1e-6, "{y}");
+    assert!((y - 680.0).abs() < 1e-6, "{y}");
 
     // Lo escrito a mano es un cambio de la PC: la Mac lo adopta.
     let want = pc.agent.desk();

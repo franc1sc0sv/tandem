@@ -3,6 +3,8 @@ use std::fmt;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::desk::{InputPrefs, Modules, Scene, Shortcuts, valid_color};
+
 /// Los dos lados del puesto. Tandem está pensado para exactamente dos máquinas, de igual a
 /// igual (DECISIONS D1, A1): ningún lado supone qué sistema tiene; eso lo dice su
 /// [`MachineInfo`].
@@ -113,9 +115,12 @@ impl fmt::Display for Os {
     }
 }
 
-/// Los colores que se asignan solos a cada lado (paleta de los mockups v0.3, DECISIONS
-/// D17). El usuario puede cambiarlos.
-pub const DEFAULT_COLORS: [&str; 2] = ["#7aa7e6", "#a99be8"];
+/// La paleta de los mockups v0.3 (DECISIONS D17): azul, violeta, verde azulado y ámbar.
+pub const PALETTE: [&str; 4] = ["#7aa7e6", "#a99be8", "#5fbfb0", "#d9a75a"];
+
+/// Los colores que se asignan solos a cada lado al conocerlo. El usuario puede cambiarlos
+/// por cualquiera distinto del de la otra.
+pub const DEFAULT_COLORS: [&str; 2] = [PALETTE[0], PALETTE[1]];
 
 /// El color por omisión de `side`.
 pub fn default_color(side: Machine) -> &'static str {
@@ -195,9 +200,27 @@ impl Machines {
             b: self.a,
         }
     }
+
+    /// Deja a las dos máquinas con colores distintos (D17): si coinciden, B toma el primero
+    /// de la paleta que no tenga A. Es la misma regla en las dos máquinas, así que no
+    /// discuten. `true` si cambió algo.
+    pub fn distinct_colors(&mut self) -> bool {
+        let (Some(a), Some(b)) = (&self.a, &mut self.b) else {
+            return false;
+        };
+        if !a.color.eq_ignore_ascii_case(&b.color) {
+            return false;
+        }
+        let free = PALETTE
+            .iter()
+            .find(|c| !c.eq_ignore_ascii_case(&a.color))
+            .unwrap_or(&PALETTE[1]);
+        b.color = (*free).to_owned();
+        true
+    }
 }
 
-/// Lado de un escritorio.
+/// Lado de un escritorio (DECISIONS D18: cualquiera de los cuatro).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Side {
@@ -205,13 +228,49 @@ pub enum Side {
     #[default]
     Left,
     Right,
+    Up,
+    Down,
 }
 
 impl Side {
+    pub const ALL: [Side; 4] = [Side::Left, Side::Right, Side::Up, Side::Down];
+
     pub fn opposite(self) -> Self {
         match self {
             Side::Left => Side::Right,
             Side::Right => Side::Left,
+            Side::Up => Side::Down,
+            Side::Down => Side::Up,
+        }
+    }
+
+    /// El borde de este lado es vertical (izquierda o derecha): corre a lo largo de `y`.
+    pub fn is_vertical_edge(self) -> bool {
+        matches!(self, Side::Left | Side::Right)
+    }
+}
+
+/// Cómo se alinean los dos escritorios a lo largo del borde que comparten: inicio (arriba o
+/// izquierda), centro o fin (abajo o derecha). Es simétrica: vale lo mismo vista desde
+/// cualquiera de las dos máquinas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Align {
+    Start,
+    #[default]
+    Center,
+    End,
+}
+
+impl Align {
+    pub const ALL: [Align; 3] = [Align::Start, Align::Center, Align::End];
+
+    /// Qué parte de la diferencia de largos queda antes del escritorio más corto.
+    pub fn factor(self) -> f64 {
+        match self {
+            Align::Start => 0.0,
+            Align::Center => 0.5,
+            Align::End => 1.0,
         }
     }
 }
@@ -280,46 +339,58 @@ pub struct ScreenSpec {
     pub scale: Scale,
 }
 
-/// Dónde queda un escritorio respecto del otro.
+/// Dónde queda un escritorio respecto del otro (DECISIONS D18): de qué lado y con qué
+/// alineación, sin coordenadas a mano. El borde de cruce es el tramo que comparten.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Arrangement {
     /// El lado de B en que está A.
     #[serde(default)]
     pub a_side: Side,
-    /// Desplazamiento vertical de A respecto de B, en puntos lógicos (positivo: más abajo).
-    /// Lo dibuja el editor del acomodo; el cruce sigue siendo proporcional a lo largo del
-    /// borde compartido, así que hoy no lo cambia.
     #[serde(default)]
-    pub offset: i32,
+    pub align: Align,
 }
 
 impl Arrangement {
     /// El mismo acomodo dicho con los lados cambiados: si A estaba a la izquierda de B, la
     /// que ahora se llama B (la de antes) sigue a la izquierda, es decir, la nueva A queda a
-    /// la derecha.
+    /// la derecha. La alineación es simétrica y no cambia.
     pub fn swapped(self) -> Self {
         Arrangement {
             a_side: self.a_side.opposite(),
-            offset: self.offset.saturating_neg(),
+            align: self.align,
         }
     }
 }
 
-/// El puesto compartido entre las dos máquinas (DESIGN §4): qué máquina es cada lado y el
-/// acomodo de pantallas para el motor de entrada. Sin `[[screens]]` de una máquina valen
-/// las que ella misma lee.
+/// El puesto compartido entre las dos máquinas (DESIGN §4.4): qué máquina es cada lado, el
+/// acomodo, las escenas, los atajos, las preferencias de teclado y mouse y los módulos
+/// encendidos. Lo edita la UI con parches ([`crate::DeskPatch`]) y lo sincronizan los dos
+/// agentes ([`crate::DeskVersion`]). Sin `[[screens]]` de una máquina valen las que ella
+/// misma lee; sin acomodo, A a la izquierda de B con el cruce proporcional de siempre.
 ///
 /// Viaja con postcard (`ControlMsg::Desk`): ningún campo puede saltarse al serializar.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct Config {
+pub struct Desk {
     #[serde(default)]
     pub machines: Machines,
     #[serde(default)]
     pub screens: Vec<ScreenSpec>,
+    /// `None`: nunca se declaró.
     #[serde(default)]
-    pub arrangement: Arrangement,
+    pub arrangement: Option<Arrangement>,
+    #[serde(default)]
+    pub scenes: Vec<Scene>,
+    #[serde(default)]
+    pub shortcuts: Shortcuts,
+    #[serde(default)]
+    pub prefs: InputPrefs,
+    #[serde(default)]
+    pub modules: Modules,
 }
+
+/// El nombre de antes de [`Desk`].
+pub type Config = Desk;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
@@ -331,11 +402,21 @@ pub enum ConfigError {
     EmptyScreen { machine: Machine, id: String },
     #[error("una pantalla de la máquina {0} no tiene id")]
     UnnamedScreen(Machine),
+    #[error("el color `{color}` de la máquina {machine} no es #rrggbb")]
+    BadColor { machine: Machine, color: String },
+    #[error("la máquina {0} no tiene nombre")]
+    UnnamedMachine(Machine),
+    #[error("una escena no tiene id o nombre")]
+    UnnamedScene,
+    #[error("la escena `{0}` está repetida")]
+    DuplicateScene(String),
+    #[error("un módulo de la máquina {0} no tiene id")]
+    UnnamedModule(Machine),
 }
 
-impl Config {
+impl Desk {
     pub fn from_toml(s: &str) -> Result<Self, ConfigError> {
-        let cfg: Config = toml::from_str(s)?;
+        let cfg: Desk = toml::from_str(s)?;
         cfg.validate()?;
         Ok(cfg)
     }
@@ -359,6 +440,31 @@ impl Config {
                 });
             }
         }
+        for side in Machine::ALL {
+            if let Some(info) = self.machines.get(side) {
+                if info.name.trim().is_empty() {
+                    return Err(ConfigError::UnnamedMachine(side));
+                }
+                if !valid_color(&info.color) {
+                    return Err(ConfigError::BadColor {
+                        machine: side,
+                        color: info.color.clone(),
+                    });
+                }
+            }
+            if self.modules.of(side).keys().any(|m| m.trim().is_empty()) {
+                return Err(ConfigError::UnnamedModule(side));
+            }
+        }
+        let mut scenes = BTreeSet::new();
+        for s in &self.scenes {
+            if s.id.trim().is_empty() || s.name.trim().is_empty() {
+                return Err(ConfigError::UnnamedScene);
+            }
+            if !scenes.insert(s.id.as_str()) {
+                return Err(ConfigError::DuplicateScene(s.id.clone()));
+            }
+        }
         Ok(())
     }
 
@@ -371,7 +477,7 @@ impl Config {
     /// descubre, al emparejarse, que es el otro lado. Nada físico cambia: cada pantalla
     /// sigue siendo de su máquina y el acomodo sigue siendo el mismo.
     pub fn swap_sides(self) -> Self {
-        Config {
+        Desk {
             machines: self.machines.swapped(),
             screens: self
                 .screens
@@ -381,7 +487,9 @@ impl Config {
                     ..s
                 })
                 .collect(),
-            arrangement: self.arrangement.swapped(),
+            arrangement: self.arrangement.map(Arrangement::swapped),
+            modules: self.modules.swapped(),
+            ..self
         }
     }
 }
@@ -395,8 +503,10 @@ mod tests {
         let cfg = Config::from_toml("").unwrap();
         assert!(cfg.screens.is_empty());
         assert!(cfg.machines.is_empty());
-        assert_eq!(cfg.arrangement.a_side, Side::Left);
-        assert_eq!(cfg.arrangement.offset, 0);
+        assert_eq!(cfg.arrangement, None);
+        assert_eq!(cfg.shortcuts.lock, ["ScrollLock"]);
+        assert!(cfg.prefs.cmd_ctrl && cfg.prefs.clipboard && cfg.prefs.drag_files);
+        assert!(cfg.scenes.is_empty());
     }
 
     #[test]
@@ -435,8 +545,21 @@ mod tests {
             scale = 2
 
             [arrangement]
-            a_side = "right"
-            offset = -120
+            a_side = "up"
+            align = "end"
+
+            [[scenes]]
+            id = "trabajo"
+            name = "Trabajo"
+
+            [shortcuts]
+            lock = ["ControlLeft", "KeyL"]
+
+            [prefs]
+            clipboard = false
+
+            [modules.b]
+            clipboard = false
             "##,
         )
         .unwrap();
@@ -445,8 +568,18 @@ mod tests {
         assert_eq!(cfg.screens[0].scale, Scale::ONE);
         assert_eq!(cfg.screens[1].scale.milli(), 1500);
         assert_eq!(cfg.screens[2].scale.as_f64(), 2.0);
-        assert_eq!(cfg.arrangement.a_side, Side::Right);
-        assert_eq!(cfg.arrangement.offset, -120);
+        assert_eq!(
+            cfg.arrangement,
+            Some(Arrangement {
+                a_side: Side::Up,
+                align: Align::End,
+            })
+        );
+        assert_eq!(cfg.scenes[0].name, "Trabajo");
+        assert_eq!(cfg.shortcuts.lock, ["ControlLeft", "KeyL"]);
+        assert!(!cfg.prefs.clipboard && cfg.prefs.cmd_ctrl);
+        assert_eq!(cfg.modules.get(Machine::B, "clipboard"), Some(false));
+        assert_eq!(cfg.modules.get(Machine::A, "clipboard"), None);
         let a = cfg.machines.get(Machine::A).unwrap();
         assert_eq!((a.os, a.name.as_str()), (Os::Windows, "Torre"));
         assert_eq!(cfg.machines.get(Machine::B), None);
@@ -489,6 +622,34 @@ mod tests {
             Config::from_toml("[arrangement]\nside = \"left\""),
             Err(ConfigError::Parse(_))
         ));
+        // El desplazamiento a mano de antes ya no existe (D18): lo quita la migración.
+        assert!(matches!(
+            Config::from_toml("[arrangement]\na_side = \"left\"\noffset = 0"),
+            Err(ConfigError::Parse(_))
+        ));
+        let color = "[machines.a]\nos = \"macos\"\nname = \"Mac\"\ncolor = \"azul\"";
+        assert!(matches!(
+            Config::from_toml(color),
+            Err(ConfigError::BadColor { .. })
+        ));
+        let unnamed = "[machines.a]\nos = \"macos\"\nname = \" \"\ncolor = \"#7aa7e6\"";
+        assert!(matches!(
+            Config::from_toml(unnamed),
+            Err(ConfigError::UnnamedMachine(Machine::A))
+        ));
+        let scenes = "[[scenes]]\nid = \"x\"\nname = \"X\"\n[[scenes]]\nid = \"x\"\nname = \"Y\"";
+        assert!(matches!(
+            Config::from_toml(scenes),
+            Err(ConfigError::DuplicateScene(_))
+        ));
+        assert!(matches!(
+            Config::from_toml("[[scenes]]\nid = \"x\"\nname = \"\""),
+            Err(ConfigError::UnnamedScene)
+        ));
+        assert!(matches!(
+            Config::from_toml("[modules.a]\n\"\" = true"),
+            Err(ConfigError::UnnamedModule(Machine::A))
+        ));
         // Los nombres de antes ya no son lados: los migra el agente, no el núcleo.
         assert!(matches!(
             Config::from_toml(&screen("mac", "a", 10, "1")),
@@ -512,10 +673,15 @@ mod tests {
                 height: 982,
                 scale: Scale::from_milli(1250),
             }],
-            arrangement: Arrangement {
-                a_side: Side::Right,
-                offset: 40,
-            },
+            arrangement: Some(Arrangement {
+                a_side: Side::Down,
+                align: Align::Start,
+            }),
+            scenes: vec![Scene {
+                id: "solo".into(),
+                name: "Solo A".into(),
+            }],
+            ..Config::default()
         };
         let text = toml::to_string(&cfg).unwrap();
         assert_eq!(Config::from_toml(&text).unwrap(), cfg);
@@ -527,7 +693,13 @@ mod tests {
         assert_eq!(Scale::from_f64(0.0), None);
         assert_eq!(Scale::from_f64(f64::INFINITY), None);
         assert_eq!(Scale::default(), Scale::ONE);
-        assert_eq!(Side::Left.opposite(), Side::Right);
+        for side in Side::ALL {
+            assert_ne!(side.opposite(), side);
+            assert_eq!(side.opposite().opposite(), side);
+            assert_eq!(side.opposite().is_vertical_edge(), side.is_vertical_edge());
+        }
+        assert_eq!(Align::Start.factor(), 0.0);
+        assert_eq!(Align::default(), Align::Center);
     }
 
     #[test]
@@ -589,17 +761,22 @@ mod tests {
                 height: 10,
                 scale: Scale::ONE,
             }],
-            arrangement: Arrangement {
+            arrangement: Some(Arrangement {
                 a_side: Side::Left,
-                offset: 7,
-            },
+                align: Align::End,
+            }),
+            ..Config::default()
         };
+        let mut cfg = cfg;
+        cfg.modules.set(Machine::A, "clipboard", false);
         let swapped = cfg.clone().swap_sides();
         assert_eq!(swapped.machines.b.as_ref().unwrap().os, Os::MacOs);
         assert_eq!(swapped.screens[0].machine, Machine::B);
         // La Mac sigue a la izquierda: ahora es B, así que A (la PC) queda a la derecha.
-        assert_eq!(swapped.arrangement.a_side, Side::Right);
-        assert_eq!(swapped.arrangement.offset, -7);
+        let arr = swapped.arrangement.unwrap();
+        assert_eq!(arr.a_side, Side::Right);
+        assert_eq!(arr.align, Align::End);
+        assert_eq!(swapped.modules.get(Machine::B, "clipboard"), Some(false));
         assert_eq!(swapped.swap_sides(), cfg);
     }
 }

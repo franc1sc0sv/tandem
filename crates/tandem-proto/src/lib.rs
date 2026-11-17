@@ -17,7 +17,7 @@ mod wire;
 
 pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encode_frame};
 pub use msg::{
-    AgentToUi, Capabilities, Channel, ControlMsg, DeskCapabilities, DeskSync, Environment, Hello,
+    AgentToUi, Capabilities, Channel, ControlMsg, DeskCapabilities, Environment, Hello,
     HubReport, InputCaps, InputPermission, InputStatus, KeyProbeMsg, KeyProbeStatus, Link,
     ModuleId, ModuleInfo, ModuleState, MonitorChannel, PairingMsg, PairingStatus, Peer, PeerStatus,
     PowerCaps, PowerEvent, ProcessInfo, Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent,
@@ -27,7 +27,7 @@ pub use msg::{
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 17;
+pub const PROTOCOL_VERSION: u16 = 18;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -79,10 +79,12 @@ mod tests {
     /// sondas y los modos; pantallas con id propio y acomodo declarado) sube a la v15.
     /// T-097 (lados A/B por clave pública, `MachineInfo` en las capacidades y en el puesto)
     /// sube a la v16. T-098 (módulos con estado, entornos y monitores en las capacidades;
-    /// `SetModule` en la UI y entre agentes) sube a la v17.
+    /// `SetModule` en la UI y entre agentes) sube a la v17. T-099 (el puesto con escenas,
+    /// atajos, preferencias y módulos, su sello con fecha, parches, historial y el aviso de
+    /// cambio; `SetModule` ya no viaja entre agentes: va en el puesto) sube a la v18.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 17);
+        assert_eq!(PROTOCOL_VERSION, 18);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

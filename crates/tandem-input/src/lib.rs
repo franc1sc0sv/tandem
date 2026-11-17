@@ -14,5 +14,6 @@ pub mod windows;
 
 pub use event::{Button, HidUsage, InputEvent, KeyState, ModifierKey, Modifiers, Scroll};
 pub use geometry::{
-    Arrangement, GeometryError, Layout, LayoutOptions, Motion, Point, Rect, Screen, ScreenId, Side,
+    Align, Arrangement, GeometryError, Layout, LayoutOptions, Motion, Point, Rect, Screen,
+    ScreenId, Side, shared_span,
 };

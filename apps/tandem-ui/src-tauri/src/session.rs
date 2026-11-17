@@ -460,7 +460,8 @@ impl From<Reply> for ActionResult {
             | Reply::Peer(_)
             | Reply::Pairing(_)
             | Reply::Input(_)
-            | Reply::Capabilities(_) => ActionResult::Done,
+            | Reply::Capabilities(_)
+            | Reply::DeskHistory(_) => ActionResult::Done,
         }
     }
 }
@@ -749,6 +750,9 @@ impl Runner {
             }
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}
+            // El puesto nuevo ya llega con `Desk`; el aviso con «Deshacer» lo muestra la UI
+            // nueva (T-112), no esta.
+            AgentToUi::DeskChanged { .. } => {}
         }
     }
 
@@ -1005,7 +1009,10 @@ mac = "9c:6b:00:1a:2b:ff"
         rec.until(|s, _| connected(s)).await;
 
         let mut desk = a.agent.desk();
-        desk.arrangement.a_side = tandem_core::Side::Right;
+        desk.arrangement = Some(tandem_core::Arrangement {
+            a_side: tandem_core::Side::Right,
+            align: tandem_core::Align::Center,
+        });
         a.agent.set_desk(desk.clone()).unwrap();
         let moved = |s: &Snapshot| matches!(s, Snapshot::Connected { desk: d, .. } if *d == desk);
         rec.until(|snaps, _| snaps.last().is_some_and(moved)).await;
@@ -1394,7 +1401,11 @@ mac = "9c:6b:00:1a:2b:ff"
                     "machine": "b", "id": "34", "x": 0, "y": 0,
                     "width": 3440, "height": 1440, "scale": 1.5
                 }],
-                "arrangement": { "a_side": "left", "offset": 0 }
+                "arrangement": null,
+                "scenes": [],
+                "shortcuts": { "lock": ["ScrollLock"] },
+                "prefs": { "cmd_ctrl": true, "drag_files": true, "clipboard": true },
+                "modules": { "a": {}, "b": {} }
             })
         );
         assert_eq!(

@@ -159,8 +159,16 @@ pub fn start(
     }
 }
 
-/// El motor con el lado de ahora; si esta máquina cambia de lado, se suelta entero (la
-/// captura devuelve la entrada) y se arma de nuevo. Con el módulo «Teclado y mouse»
+/// Lo del puesto que el motor toma al arrancar: el atajo de bloqueo y Cmd↔Ctrl (DESIGN
+/// §4.4). La geometría no: esa se recalcula en caliente; el portapapeles tampoco: es un
+/// módulo que se enciende y apaga solo ([`clipboard_module`]).
+fn engine_prefs(desk: &tandem_core::Desk) -> (Vec<String>, bool) {
+    (desk.shortcuts.lock.clone(), desk.prefs.cmd_ctrl)
+}
+
+/// El motor con el lado y las preferencias de ahora; si esta máquina cambia de lado o
+/// cambian las preferencias del puesto (desde cualquiera de las dos UIs), se suelta entero
+/// (la captura devuelve la entrada) y se arma de nuevo. Con el módulo «Teclado y mouse»
 /// apagado no corre.
 async fn supervise(
     agent: Arc<Agent>,
@@ -169,9 +177,11 @@ async fn supervise(
 ) {
     let mut side = agent.subscribe_machine();
     let mut modules = agent.subscribe_modules();
+    let mut desk = agent.subscribe_desk();
     loop {
         side.borrow_and_update();
         let on = modules.borrow_and_update().is_on(ModuleId::Input);
+        let prefs = engine_prefs(&desk.borrow_and_update());
         let engine = on.then(|| spawn_engine(agent.clone(), link.clone(), setup.clone()));
         if !on {
             // Sin motor nadie publica el estado: la sesión y el bloqueo ya no existen.
@@ -186,6 +196,11 @@ async fn supervise(
                 () = changed(&mut modules) => {
                     if modules.borrow_and_update().is_on(ModuleId::Input) != on {
                         break false;
+                    }
+                }
+                () = changed(&mut desk) => {
+                    if engine_prefs(&desk.borrow_and_update()) != prefs {
+                        break true;
                     }
                 }
             }
@@ -211,8 +226,9 @@ fn spawn_engine(
     let me = agent.machine();
     // Lo declarado (configuración o asistente) ya viene con el lado de ahora.
     let keyboard = agent.keyboard_declared().unwrap_or(cfg.keyboard());
-    // La config ya se validó al cargarla.
-    let lock_keys = cfg.lock_keys().unwrap_or_default();
+    let desk = agent.desk();
+    // Un atajo con una tecla que no existe (de una versión más nueva) queda sin atajo.
+    let lock_keys = crate::config::shortcut_keys(&desk.shortcuts.lock).unwrap_or_default();
     // Sin pantallas solo falla un margen de esquinas inválido.
     let initial = Layout::compute(&Arrangement::default(), setup.opts.layout);
     let initial = match initial {
@@ -596,6 +612,8 @@ fn peer_os(sh: &Shared) -> Option<Os> {
 
 async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String> {
     let (tx, rx) = mpsc::unbounded_channel();
+    // Sin Cmd↔Ctrl en el puesto, ninguna reasignación (como entre dos sistemas iguales).
+    let peer = peer.filter(|_| sh.agent.desk().prefs.cmd_ctrl);
     let sink = CaptureSink::new(
         tx,
         &sh.agent.config().input.remap,

@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use tandem_core::Machine;
-pub use tandem_core::Side;
+pub use tandem_core::{Align, Side};
 
 /// Posición del cursor en las coordenadas nativas de una máquina.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -156,34 +156,48 @@ pub enum GeometryError {
     InvalidMargin(f64),
 }
 
-/// El acomodo de las dos máquinas: las pantallas de cada una y de qué lado de B está
-/// A. Una máquina sin pantallas (apagada, o que todavía no las mandó) no tiene a
-/// dónde cruzar.
+/// El acomodo de las dos máquinas: las pantallas de cada una, de qué lado de B está A y,
+/// si se declaró, cómo se alinean (D18). Una máquina sin pantallas (apagada, o que todavía
+/// no las mandó) no tiene a dónde cruzar.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Arrangement {
     pub a: Vec<Screen>,
     pub b: Vec<Screen>,
     pub a_side: Side,
+    /// `Some`: los dos escritorios se tocan solo en el tramo que comparten con esa
+    /// alineación, medido en puntos lógicos, y el cursor sale a la misma altura. `None` (sin
+    /// acomodo declarado): todo el borde de cada uno cruza y la posición va como fracción
+    /// del largo.
+    pub align: Option<Align>,
 }
 
-/// Tramo del borde que mira a la otra máquina y por el que se puede cruzar.
+/// El tramo compartido sobre un borde de largo `mine` frente a uno de largo `theirs` (los
+/// dos en puntos lógicos), con `align`: desde dónde hasta dónde, en el borde propio, está
+/// el otro escritorio. Es el borde de cruce. Vacío (`start >= end`) si no se tocan.
+pub fn shared_span(mine: f64, theirs: f64, align: Align) -> (f64, f64) {
+    let off = (mine - theirs) * align.factor();
+    (off.max(0.0), (off + theirs).min(mine))
+}
+
+/// Tramo del borde que mira a la otra máquina y por el que se puede cruzar, sobre el eje
+/// del borde: `y` en un borde izquierdo o derecho, `x` en uno de arriba o abajo.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Segment {
     screen: usize,
-    y0: f64,
-    y1: f64,
+    t0: f64,
+    t1: f64,
 }
 
 impl Segment {
     fn len(&self) -> f64 {
-        self.y1 - self.y0
+        self.t1 - self.t0
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 struct Facing {
     facing: Side,
-    /// Ordenados de arriba abajo; la fracción del cruce se mide sobre su concatenación.
+    /// Ordenados a lo largo del eje; la posición del cruce se mide sobre su concatenación.
     edge: Vec<Segment>,
 }
 
@@ -192,6 +206,24 @@ struct MachineLayout {
     screens: Vec<Screen>,
     /// `None` si alguna de las dos no tiene pantallas: no hay a dónde cruzar.
     side: Option<Facing>,
+}
+
+impl MachineLayout {
+    /// El largo de un tramo medido en unidades nativas (`logical = false`) o en puntos
+    /// lógicos, con la escala de su pantalla.
+    fn measure(&self, seg: &Segment, logical: bool) -> f64 {
+        if logical {
+            seg.len() / self.screens[seg.screen].scale
+        } else {
+            seg.len()
+        }
+    }
+
+    /// El largo de todo el borde.
+    fn edge_len(&self, logical: bool) -> Option<f64> {
+        let side = self.side.as_ref()?;
+        Some(side.edge.iter().map(|s| self.measure(s, logical)).sum())
+    }
 }
 
 /// Resultado de mover el cursor.
@@ -207,8 +239,18 @@ pub enum Motion {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Layout {
     opts: LayoutOptions,
+    align: Option<Align>,
     a: MachineLayout,
     b: MachineLayout,
+}
+
+/// Las coordenadas de un rectángulo sobre el eje del borde de `side`.
+fn span(r: &Rect, side: Side) -> (f64, f64) {
+    if side.is_vertical_edge() {
+        (r.top(), r.bottom())
+    } else {
+        (r.left(), r.right())
+    }
 }
 
 impl Layout {
@@ -243,6 +285,7 @@ impl Layout {
 
         Ok(Self {
             opts,
+            align: arr.align,
             a: build(arr.a.clone(), a_facing),
             b: build(arr.b.clone(), a_facing.map(Side::opposite)),
         })
@@ -262,6 +305,21 @@ impl Layout {
         self.machine(machine).side.as_ref().map(|s| s.facing)
     }
 
+    /// El borde de cruce de `machine`: desde dónde hasta dónde de su borde (en puntos
+    /// lógicos desde el inicio, arriba o a la izquierda) se puede pasar a la otra. Sin
+    /// alineación, todo el borde. `None` si no se puede cruzar.
+    pub fn crossing_span(&self, machine: Machine) -> Option<(f64, f64)> {
+        let mine = self.machine(machine).edge_len(true)?;
+        match self.align {
+            None => Some((0.0, mine)),
+            Some(align) => {
+                let theirs = self.machine(machine.other()).edge_len(true)?;
+                let (start, end) = shared_span(mine, theirs, align);
+                (start < end).then_some((start, end))
+            }
+        }
+    }
+
     /// Pantalla que contiene el punto o, si cae fuera de todas, la más cercana.
     pub fn screen_at(&self, machine: Machine, pos: Point) -> Option<&Screen> {
         self.screen_index(machine, pos)
@@ -270,10 +328,10 @@ impl Layout {
 
     /// Mueve el cursor de `machine` desde `pos` con un delta nativo.
     ///
-    /// Si el movimiento sale por el borde que mira a la otra máquina, fuera del
-    /// margen de las esquinas, devuelve dónde aparece en la otra. Si no, el cursor
-    /// pasa a otra pantalla local o se queda contra el borde de la actual, como hace
-    /// el sistema. Sin pantallas devuelve `pos` tal cual.
+    /// Si el movimiento sale por el borde que mira a la otra máquina, dentro del borde de
+    /// cruce y fuera del margen de las esquinas, devuelve dónde aparece en la otra. Si no,
+    /// el cursor pasa a otra pantalla local o se queda contra el borde de la actual, como
+    /// hace el sistema. Sin pantallas devuelve `pos` tal cual.
     pub fn step(&self, machine: Machine, pos: Point, dx: f64, dy: f64) -> Motion {
         self.step_inner(machine, pos, dx, dy, true)
     }
@@ -318,59 +376,88 @@ impl Layout {
         let ml = self.machine(machine);
         let side = ml.side.as_ref()?;
         let rect = ml.screens[cur].rect;
-        let edge_x = match side.facing {
-            Side::Right if dx > 0.0 && pos.x + dx >= rect.right() => rect.right(),
-            Side::Left if dx < 0.0 && pos.x + dx < rect.left() => rect.left(),
+        // Si el movimiento pasa el borde que mira a la otra: qué parte del movimiento hace
+        // falta para tocarlo.
+        let t = match side.facing {
+            Side::Right if dx > 0.0 && pos.x + dx >= rect.right() => (rect.right() - pos.x) / dx,
+            Side::Left if dx < 0.0 && pos.x + dx < rect.left() => (rect.left() - pos.x) / dx,
+            Side::Down if dy > 0.0 && pos.y + dy >= rect.bottom() => (rect.bottom() - pos.y) / dy,
+            Side::Up if dy < 0.0 && pos.y + dy < rect.top() => (rect.top() - pos.y) / dy,
             _ => return None,
         };
-        // Altura en la que la trayectoria toca el borde.
-        let t = ((edge_x - pos.x) / dx).clamp(0.0, 1.0);
-        let y = pos.y + dy * t;
+        let t = t.clamp(0.0, 1.0);
+        // Dónde, a lo largo del borde, lo toca la trayectoria.
+        let hit = if side.facing.is_vertical_edge() {
+            pos.y + dy * t
+        } else {
+            pos.x + dx * t
+        };
 
         let margin = self.opts.corner_margin * ml.screens[cur].scale;
-        if y < rect.top() + margin || y >= rect.bottom() - margin {
+        let (lo, hi) = span(&rect, side.facing);
+        if hit < lo + margin || hit >= hi - margin {
             return None;
         }
-        let total: f64 = side.edge.iter().map(Segment::len).sum();
+        // Sin alineación se mide en unidades nativas (fracción del largo); con alineación,
+        // en puntos lógicos (la misma distancia en las dos).
+        let logical = self.align.is_some();
         let mut before = 0.0;
         let mut offset = None;
         for seg in &side.edge {
-            if seg.screen == cur && y >= seg.y0 && y < seg.y1 {
-                offset = Some(before + (y - seg.y0));
+            if seg.screen == cur && hit >= seg.t0 && hit < seg.t1 {
+                let inside = Segment { t1: hit, ..*seg };
+                offset = Some(before + ml.measure(&inside, logical));
                 break;
             }
-            before += seg.len();
+            before += ml.measure(seg, logical);
         }
-        let fraction = offset? / total;
+        let offset = offset?;
+        let mine = ml.edge_len(logical)?;
 
         let to = machine.other();
-        let pos = self.land(to, fraction)?;
+        let theirs = self.machine(to).edge_len(logical)?;
+        let at = match self.align {
+            None => offset / mine * theirs,
+            Some(align) => {
+                // Dónde empieza el otro escritorio sobre este borde.
+                let at = offset - (mine - theirs) * align.factor();
+                if at < 0.0 || at >= theirs {
+                    return None;
+                }
+                at
+            }
+        };
+        let pos = self.land(to, at, logical)?;
         Some(Motion::Cross { to, pos })
     }
 
-    /// Punto del borde de `machine` que está a `fraction` de su largo.
-    fn land(&self, machine: Machine, fraction: f64) -> Option<Point> {
+    /// Punto del borde de `machine` que está a `at` de su inicio, medido como en
+    /// [`MachineLayout::measure`] (el último del borde si `at` lo pasa).
+    fn land(&self, machine: Machine, at: f64, logical: bool) -> Option<Point> {
         let ml = self.machine(machine);
         let side = ml.side.as_ref()?;
-        let total: f64 = side.edge.iter().map(Segment::len).sum();
-        let mut left = fraction * total;
         let last = side.edge.last()?;
+        let mut left = at;
         let mut hit = (last, last.len());
         for seg in &side.edge {
-            if left < seg.len() {
-                hit = (seg, left);
+            let len = ml.measure(seg, logical);
+            if left < len {
+                // De la medida del tramo a unidades nativas.
+                hit = (seg, left / len * seg.len());
                 break;
             }
-            left -= seg.len();
+            left -= len;
         }
         let (seg, offset) = hit;
         let rect = ml.screens[seg.screen].rect;
-        let x = match side.facing {
-            Side::Left => rect.left(),
-            Side::Right => rect.right() - 1.0,
+        let t = (seg.t0 + offset).min(seg.t1 - 1.0);
+        let p = match side.facing {
+            Side::Left => Point::new(rect.left(), t),
+            Side::Right => Point::new(rect.right() - 1.0, t),
+            Side::Up => Point::new(t, rect.top()),
+            Side::Down => Point::new(t, rect.bottom() - 1.0),
         };
-        let y = (seg.y0 + offset).min(seg.y1 - 1.0);
-        Some(rect.clamp(Point::new(x, y)))
+        Some(rect.clamp(p))
     }
 
     fn machine(&self, machine: Machine) -> &MachineLayout {
@@ -399,30 +486,38 @@ impl Layout {
 fn exposed_edge(screens: &[Screen], facing: Side) -> Vec<Segment> {
     let mut edge = Vec::new();
     for (i, s) in screens.iter().enumerate() {
-        let mut free = vec![(s.rect.top(), s.rect.bottom())];
+        let mut free = vec![span(&s.rect, facing)];
         for (j, o) in screens.iter().enumerate() {
             if i == j {
                 continue;
             }
+            let (s, o) = (&s.rect, &o.rect);
             // `o` tapa el borde si contiene los puntos justo del otro lado.
             let covers = match facing {
-                Side::Right => o.rect.left() <= s.rect.right() && s.rect.right() < o.rect.right(),
-                Side::Left => o.rect.left() < s.rect.left() && s.rect.left() <= o.rect.right(),
+                Side::Right => o.left() <= s.right() && s.right() < o.right(),
+                Side::Left => o.left() < s.left() && s.left() <= o.right(),
+                Side::Down => o.top() <= s.bottom() && s.bottom() < o.bottom(),
+                Side::Up => o.top() < s.top() && s.top() <= o.bottom(),
             };
             if covers {
-                free = subtract(&free, (o.rect.top(), o.rect.bottom()));
+                free = subtract(&free, span(o, facing));
             }
         }
         edge.extend(
             free.into_iter()
-                .map(|(y0, y1)| Segment { screen: i, y0, y1 }),
+                .map(|(t0, t1)| Segment { screen: i, t0, t1 }),
         );
     }
-    let outer = |seg: &Segment| match facing {
-        Side::Right => -screens[seg.screen].rect.right(),
-        Side::Left => screens[seg.screen].rect.left(),
+    let outer = |seg: &Segment| {
+        let r = &screens[seg.screen].rect;
+        match facing {
+            Side::Right => -r.right(),
+            Side::Left => r.left(),
+            Side::Down => -r.bottom(),
+            Side::Up => r.top(),
+        }
     };
-    edge.sort_by(|a, b| a.y0.total_cmp(&b.y0).then(outer(a).total_cmp(&outer(b))));
+    edge.sort_by(|a, b| a.t0.total_cmp(&b.t0).then(outer(a).total_cmp(&outer(b))));
     edge
 }
 
@@ -461,6 +556,7 @@ mod tests {
             a: mac,
             b: pc,
             a_side,
+            align: None,
         }
     }
 
@@ -692,13 +788,13 @@ mod tests {
             vec![
                 Segment {
                     screen: 1,
-                    y0: 0.0,
-                    y1: 1080.0
+                    t0: 0.0,
+                    t1: 1080.0
                 },
                 Segment {
                     screen: 0,
-                    y0: 1080.0,
-                    y1: 1440.0
+                    t0: 1080.0,
+                    t1: 1440.0
                 },
             ]
         );
@@ -738,6 +834,139 @@ mod tests {
         ));
     }
 
+    /// Un punto del borde `side` de `r` a `f` de su largo, y el paso que lo saca por ahí.
+    fn on_edge(r: Rect, side: Side, f: f64) -> (Point, f64, f64) {
+        let along = |lo: f64, len: u32| {
+            (lo + f * f64::from(len))
+                .floor()
+                .min(lo + f64::from(len) - 1.0)
+        };
+        match side {
+            Side::Left => (Point::new(r.left(), along(r.top(), r.height)), -1.0, 0.0),
+            Side::Right => (
+                Point::new(r.right() - 1.0, along(r.top(), r.height)),
+                1.0,
+                0.0,
+            ),
+            Side::Up => (Point::new(along(r.left(), r.width), r.top()), 0.0, -1.0),
+            Side::Down => (
+                Point::new(along(r.left(), r.width), r.bottom() - 1.0),
+                0.0,
+                1.0,
+            ),
+        }
+    }
+
+    /// DESIGN §7 / D18: la otra máquina en cada uno de los 4 lados con cada una de las 3
+    /// alineaciones. B tiene el 34" (3440×1440) y A una pantalla más chica (1920×1080):
+    /// el borde de cruce es el tramo que comparten, y sale a la misma distancia.
+    #[test]
+    fn cuatro_lados_por_tres_alineaciones_dan_el_borde_compartido() {
+        let a_rect = Rect::new(0, 0, 1920, 1080);
+        let b_rect = Rect::new(0, 0, 3440, 1440);
+        for a_side in Side::ALL {
+            for align in Align::ALL {
+                let l = Layout::compute(
+                    &Arrangement {
+                        a: vec![Screen::new("a".into(), a_rect, 1.0)],
+                        b: vec![Screen::new("b".into(), b_rect, 1.0)],
+                        a_side,
+                        align: Some(align),
+                    },
+                    no_margin(),
+                )
+                .unwrap();
+                let case = format!("{a_side:?} {align:?}");
+                assert_eq!(l.facing(Machine::B), Some(a_side), "{case}");
+                assert_eq!(l.facing(Machine::A), Some(a_side.opposite()), "{case}");
+                // Largo de cada borde y dónde empieza A sobre el de B.
+                let (len_a, len_b) = if a_side.is_vertical_edge() {
+                    (1080.0, 1440.0)
+                } else {
+                    (1920.0, 3440.0)
+                };
+                let start = (len_b - len_a) * align.factor();
+                assert_eq!(
+                    l.crossing_span(Machine::B),
+                    Some((start, start + len_a)),
+                    "{case}"
+                );
+                assert_eq!(l.crossing_span(Machine::A), Some((0.0, len_a)), "{case}");
+
+                let at = |u: f64| {
+                    let f = u / len_b;
+                    let (p, dx, dy) = on_edge(b_rect, a_side, f);
+                    l.step(Machine::B, p, dx, dy)
+                };
+                let land = |along: f64| {
+                    let (p, _, _) = on_edge(a_rect, a_side.opposite(), along / len_a);
+                    p
+                };
+                // Dentro del tramo cruza a la misma distancia de su inicio.
+                for d in [0.0, 1.0, len_a / 2.0, len_a - 1.0] {
+                    assert_eq!(
+                        at(start + d),
+                        Motion::Cross {
+                            to: Machine::A,
+                            pos: land(d)
+                        },
+                        "{case} a {d}"
+                    );
+                }
+                // Fuera del tramo, el cursor se queda contra el borde.
+                if start >= 1.0 {
+                    assert!(matches!(at(start - 1.0), Motion::Local(_)), "{case}");
+                }
+                if start + len_a < len_b {
+                    assert!(matches!(at(start + len_a), Motion::Local(_)), "{case}");
+                }
+                // Y de vuelta: de cualquier punto de A se llega al tramo de B.
+                let (p, dx, dy) = on_edge(a_rect, a_side.opposite(), 0.5);
+                let Motion::Cross { to, pos } = l.step(Machine::A, p, dx, dy) else {
+                    panic!("{case}: A no cruzó");
+                };
+                assert_eq!(to, Machine::B);
+                let u = if a_side.is_vertical_edge() {
+                    pos.y
+                } else {
+                    pos.x
+                };
+                assert_eq!(u, start + len_a / 2.0, "{case}");
+            }
+        }
+    }
+
+    #[test]
+    fn con_alineacion_el_tramo_se_mide_en_puntos_logicos() {
+        // B con un 4K a 150 % (2560×1440 puntos) a la derecha de A (1512×982 a 100 %),
+        // alineados al centro: A empieza a (1440 − 982) / 2 = 229 puntos del borde de B.
+        let l = Layout::compute(
+            &Arrangement {
+                a: vec![laptop(0, 0)],
+                b: vec![mon("4k", 0, 0, 3840, 2160, 1.5)],
+                a_side: Side::Right,
+                align: Some(Align::Center),
+            },
+            no_margin(),
+        )
+        .unwrap();
+        assert_eq!(l.crossing_span(Machine::B), Some((229.0, 1211.0)));
+        // 229 puntos son 343.5 píxeles: justo antes no cruza; justo después sí, arriba.
+        assert!(matches!(
+            l.step(Machine::B, Point::new(3839.0, 343.0), 1.0, 0.0),
+            Motion::Local(_)
+        ));
+        let Motion::Cross { to, pos } = l.step(Machine::B, Point::new(3839.0, 345.0), 1.0, 0.0)
+        else {
+            panic!("no cruzó dentro del tramo");
+        };
+        assert_eq!((to, pos.x), (Machine::A, 0.0));
+        assert!((pos.y - 1.0).abs() < 1e-9, "{pos:?}");
+        assert_eq!(shared_span(100.0, 300.0, Align::End), (0.0, 100.0));
+        assert_eq!(shared_span(300.0, 100.0, Align::End), (200.0, 300.0));
+        assert_eq!(shared_span(300.0, 100.0, Align::Start), (0.0, 100.0));
+    }
+
     #[test]
     fn sin_pantallas_el_cursor_no_se_mueve() {
         let l = Layout::compute(&Arrangement::default(), LayoutOptions::default()).unwrap();
@@ -758,19 +987,33 @@ mod tests {
     }
 
     fn side() -> impl Strategy<Value = Side> {
-        prop_oneof![Just(Side::Left), Just(Side::Right)]
+        prop::sample::select(Side::ALL.to_vec())
     }
 
-    /// Una pantalla por máquina, en cualquier lugar, la Mac de cualquier lado.
+    fn align() -> impl Strategy<Value = Option<Align>> {
+        prop::option::of(prop::sample::select(Align::ALL.to_vec()))
+    }
+
+    /// Una pantalla por máquina, en cualquier lugar, la Mac de cualquier lado, con o sin
+    /// alineación.
     fn arb_layout() -> impl Strategy<Value = Layout> {
-        (arb_screen("a"), arb_screen("b"), side(), 0.0f64..40.0).prop_map(
-            |(a, b, a_side, margin)| {
+        (
+            arb_screen("a"),
+            arb_screen("b"),
+            side(),
+            align(),
+            0.0f64..40.0,
+        )
+            .prop_map(|(a, b, a_side, align, margin)| {
                 let opts = LayoutOptions {
                     corner_margin: margin,
                 };
-                Layout::compute(&arr(vec![a], vec![b], a_side), opts).unwrap()
-            },
-        )
+                let arr = Arrangement {
+                    align,
+                    ..arr(vec![a], vec![b], a_side)
+                };
+                Layout::compute(&arr, opts).unwrap()
+            })
     }
 
     fn inside(l: &Layout, m: Machine, p: Point) -> bool {
@@ -784,13 +1027,18 @@ mod tests {
             proptest::collection::vec(arb_screen("mac"), 1..4),
             proptest::collection::vec(arb_screen("pc"), 0..4),
             side(),
+            align(),
             0.0f64..40.0,
         )
-            .prop_map(|(mac, pc, a_side, margin)| {
+            .prop_map(|(mac, pc, a_side, align, margin)| {
                 let opts = LayoutOptions {
                     corner_margin: margin,
                 };
-                Layout::compute(&arr(mac, pc, a_side), opts).unwrap()
+                let arr = Arrangement {
+                    align,
+                    ..arr(mac, pc, a_side)
+                };
+                Layout::compute(&arr, opts).unwrap()
             })
     }
 
@@ -834,6 +1082,8 @@ mod tests {
                             && match facing {
                                 Side::Left => pos.x == s.rect.left(),
                                 Side::Right => pos.x == s.rect.right() - 1.0,
+                                Side::Up => pos.y == s.rect.top(),
+                                Side::Down => pos.y == s.rect.bottom() - 1.0,
                             }
                     });
                     prop_assert!(on_edge, "{pos:?} no está en el borde {facing:?}");
@@ -899,28 +1149,58 @@ mod tests {
             }
         }
 
-        /// Cruzar y volver enseguida deja el cursor a menos de un píxel de la altura original.
+        /// Cruzar y volver enseguida deja el cursor a menos de un píxel de la posición
+        /// original a lo largo del borde, por cualquiera de los cuatro lados.
         #[test]
-        fn ida_y_vuelta_conserva_la_altura(l in arb_layout(), fy in 0.0f64..1.0) {
+        fn ida_y_vuelta_conserva_la_posicion(l in arb_layout(), f in 0.0f64..1.0) {
             let side = l.facing(Machine::B).unwrap();
-            let r = l.screens(Machine::B)[0].rect;
-            let (x, dx) = match side {
-                Side::Right => (r.right() - 1.0, 1.0),
-                Side::Left => (r.left(), -1.0),
-            };
-            let p = Point::new(x, (r.top() + fy * f64::from(r.height)).min(r.bottom() - 1.0));
-            if let Motion::Cross { pos, .. } = l.step(Machine::B, p, dx, 0.0) {
-                match l.step(Machine::A, pos, -dx, 0.0) {
+            let b = &l.screens(Machine::B)[0];
+            let a = &l.screens(Machine::A)[0];
+            let (p, dx, dy) = on_edge(b.rect, side, f);
+            if let Motion::Cross { pos, .. } = l.step(Machine::B, p, dx, dy) {
+                match l.step(Machine::A, pos, -dx, -dy) {
                     Motion::Cross { to, pos: back } => {
                         prop_assert_eq!(to, Machine::B);
-                        prop_assert_eq!(back.x, p.x);
+                        let (len_b, len_a) = if side.is_vertical_edge() {
+                            (f64::from(b.rect.height), f64::from(a.rect.height))
+                        } else {
+                            (f64::from(b.rect.width), f64::from(a.rect.width))
+                        };
                         // La vuelta puede caer en la esquina muerta de la Mac; solo
                         // se mide cuando vuelve.
-                        let tol = 1.0 + f64::from(r.height) / f64::from(l.screens(Machine::A)[0].rect.height);
-                        prop_assert!((back.y - p.y).abs() <= tol, "{} vs {}", back.y, p.y);
+                        let tol = 1.0 + (len_b / len_a).max(b.scale / a.scale);
+                        if side.is_vertical_edge() {
+                            prop_assert_eq!(back.x, p.x);
+                            prop_assert!((back.y - p.y).abs() <= tol, "{} vs {}", back.y, p.y);
+                        } else {
+                            prop_assert_eq!(back.y, p.y);
+                            prop_assert!((back.x - p.x).abs() <= tol, "{} vs {}", back.x, p.x);
+                        }
                     }
                     Motion::Local(_) => {}
                 }
+            }
+        }
+
+        /// Con alineación, solo se cruza dentro del borde compartido, y se sale a la misma
+        /// distancia (en puntos lógicos) de donde empieza el otro escritorio.
+        #[test]
+        fn con_alineacion_solo_cruza_el_tramo_compartido(
+            l in arb_layout(),
+            f in 0.0f64..1.0,
+        ) {
+            let side = l.facing(Machine::B).unwrap();
+            let b = &l.screens(Machine::B)[0];
+            let (p, dx, dy) = on_edge(b.rect, side, f);
+            let u = if side.is_vertical_edge() { p.y - b.rect.top() } else { p.x - b.rect.left() };
+            let u = u / b.scale;
+            let span = l.crossing_span(Machine::B);
+            match l.step(Machine::B, p, dx, dy) {
+                Motion::Cross { .. } => {
+                    let (s, e) = span.unwrap();
+                    prop_assert!(u >= s - 1e-9 && u < e + 1e-9, "{u} fuera de {s}..{e}");
+                }
+                Motion::Local(_) => {}
             }
         }
     }

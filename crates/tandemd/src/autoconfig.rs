@@ -48,6 +48,10 @@ machine = \"{side}\"
 #
 # [arrangement]
 # a_side = \"left\"
+# align = \"center\"
+#
+# Lo compartido (acomodo, atajos, preferencias, módulos) se cambia desde la app de
+# cualquiera de las dos máquinas; el agente lo escribe aquí.
 
 [network]
 # Puerto UDP del agente. Si no se puede abrir, el agente prueba otros y anuncia el real
@@ -59,8 +63,6 @@ port = {DEFAULT_PORT}
 [input]
 # Dónde está el teclado y el mouse lo dice el hub USB o el asistente (se guarda aquí como
 # `keyboard = \"a\"` o `\"b\"`). Sin eso, la app dice «sin definir».
-lock_shortcut = [\"ScrollLock\"]
-clipboard = true
 # Para que los roles cambien solos al mover el hub, agrega [input.hub] con el VID:PID
 # del teclado y el mouse (`keyboard` y `mouse`).
 
