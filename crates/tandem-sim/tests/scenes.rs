@@ -269,3 +269,71 @@ async fn una_escena_imposible_no_toca_nada() {
     assert_eq!(run.outcome(), Some(Outcome::Failed));
     assert!(d.scene_screens().log().is_empty());
 }
+
+/// Espera a que el puesto de `m` cumpla `pred`.
+async fn desk_until(d: &Desk, m: Machine, what: &str, pred: impl Fn(&tandem_core::Desk) -> bool) {
+    let mut desk = d.agent(m).subscribe_desk();
+    tokio::time::timeout(LIMIT, desk.wait_for(|d| pred(d)))
+        .await
+        .unwrap_or_else(|_| panic!("{m}: {what}"))
+        .unwrap();
+}
+
+/// Revisión de #82 (D4/D5): una escena creada en A llega a B; editada en B llega a A; B borra
+/// la escena activa y las dos se quedan sin ella, también como escena activa.
+#[tokio::test(start_paused = true)]
+async fn las_escenas_se_crean_editan_y_borran_en_las_dos() {
+    let d = Desk::new().await.unwrap();
+    paired(&d).await;
+    add(
+        &d,
+        Machine::A,
+        Scene {
+            require_on: Some(Machine::B),
+            shortcut: vec!["ControlLeft".into(), "AltLeft".into(), "Digit4".into()],
+            ..Scene::new("", "Juego")
+        },
+    );
+    let juego = d.mac.desk().scenes[3].clone();
+    assert_eq!(juego.id, "juego");
+    desk_until(&d, Machine::B, "la escena nueva", |p| {
+        p.scenes.contains(&juego)
+    })
+    .await;
+
+    let edited = Scene {
+        icon: "play".into(),
+        name: "Juego en la PC".into(),
+        ..juego.clone()
+    };
+    let reply = d.pc.handle(UiCommand::EditDesk {
+        patch: DeskPatch::EditScene(edited.clone()),
+    });
+    assert!(matches!(reply, Reply::Desk(_)), "{reply:?}");
+    desk_until(&d, Machine::A, "la escena editada", |p| {
+        p.scenes.contains(&edited)
+    })
+    .await;
+
+    // Activa en las dos.
+    let run = d.apply_scene(Machine::A, "juego").await.unwrap();
+    assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
+    assert_eq!(d.pc_agrees().await.unwrap().scene.as_deref(), Some("juego"));
+
+    // B la borra: desaparece de las dos y ninguna la tiene como activa.
+    let reply = d.pc.handle(UiCommand::EditDesk {
+        patch: DeskPatch::DeleteScene { id: "juego".into() },
+    });
+    assert!(matches!(reply, Reply::Desk(_)), "{reply:?}");
+    desk_until(&d, Machine::A, "la escena borrada", |p| {
+        p.scenes.iter().all(|s| s.id != "juego")
+    })
+    .await;
+    assert_eq!(d.pc.state().scene, None);
+    let mut mac = d.mac.subscribe();
+    tokio::time::timeout(LIMIT, mac.wait_for(|s| s.scene.is_none()))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(d.mac.desk(), d.pc.desk());
+}

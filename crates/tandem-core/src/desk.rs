@@ -275,8 +275,7 @@ impl Desk {
     /// conocida (o su sistema) lo hace el agente solo, y también poner las escenas por
     /// omisión al emparejar.
     pub fn summary_of_changes(&self, new: &Desk) -> Option<String> {
-        let defaults = self.scenes.is_empty()
-            && new.scenes == crate::scene::default_scenes(&new.machines, new.arrangement);
+        let defaults = self.scenes.is_empty() && crate::scene::are_defaults(&new.scenes, new);
         let machines =
             Machine::ALL
                 .iter()

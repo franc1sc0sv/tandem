@@ -187,13 +187,51 @@ pub fn with_desk(
             doc.remove("arrangement");
         }
     }
-    // En el lugar de las de antes: reescribir lo mismo no mueve nada.
+    // `scenes = []` ya escrito se deja donde está: reescribir lo mismo no mueve nada.
+    let already_empty = desk.scenes.is_empty()
+        && doc
+            .get("scenes")
+            .and_then(Item::as_array)
+            .is_some_and(toml_edit::Array::is_empty);
+    if !already_empty {
+        write_scenes(&mut doc, &desk.scenes);
+    }
+    let keys: toml_edit::Array = desk.shortcuts.lock.iter().map(String::as_str).collect();
+    section(&mut doc, "shortcuts")?.insert("lock", Item::Value(Value::Array(keys)));
+    let prefs = section(&mut doc, "prefs")?;
+    prefs.insert("cmd_ctrl", toml_edit::value(desk.prefs.cmd_ctrl));
+    prefs.insert("drag_files", toml_edit::value(desk.prefs.drag_files));
+    prefs.remove("clipboard");
+    fill_modules(&mut doc, &desk.modules)?;
+    fill_data(&mut doc, &desk.data)?;
+    // Lo que antes guardaba el puesto en `[input]`.
+    if let Some(input) = doc.get_mut("input").and_then(Item::as_table_like_mut) {
+        input.remove("lock_shortcut");
+        input.remove("clipboard");
+    }
+    let int = |n: u64| toml_edit::value(i64::try_from(n).unwrap_or(i64::MAX));
+    doc.insert("desk_rev", int(sync.stamp.rev));
+    if sync.stamp.at > 0 {
+        doc.insert("desk_at", int(sync.stamp.at));
+    } else {
+        doc.remove("desk_at");
+    }
+    doc.insert("desk_origin", toml_edit::value(sync.stamp.by.as_str()));
+    doc.insert(
+        "desk_sum",
+        toml_edit::value(crate::desk_sync::fingerprint(desk)),
+    );
+    validated(&doc)
+}
+
+/// Las `[[scenes]]` del puesto, en el lugar de las de antes: reescribir lo mismo no mueve nada.
+fn write_scenes(doc: &mut DocumentMut, scenes_of: &[tandem_core::Scene]) {
     let at = match doc.remove("scenes") {
         Some(Item::ArrayOfTables(old)) => old.iter().filter_map(Table::position).min(),
         _ => None,
     };
     let mut scenes = ArrayOfTables::new();
-    for s in &desk.scenes {
+    for s in scenes_of {
         let mut t = Table::new();
         t.set_position(at);
         t.insert("id", toml_edit::value(s.id.as_str()));
@@ -224,35 +262,12 @@ pub fn with_desk(
         }
         scenes.push(t);
     }
-    if !scenes.is_empty() {
+    if scenes.is_empty() {
+        // Explícito: sin la clave, al arrancar volverían las escenas por omisión.
+        doc.insert("scenes", Item::Value(Value::Array(toml_edit::Array::new())));
+    } else {
         doc.insert("scenes", Item::ArrayOfTables(scenes));
     }
-    let keys: toml_edit::Array = desk.shortcuts.lock.iter().map(String::as_str).collect();
-    section(&mut doc, "shortcuts")?.insert("lock", Item::Value(Value::Array(keys)));
-    let prefs = section(&mut doc, "prefs")?;
-    prefs.insert("cmd_ctrl", toml_edit::value(desk.prefs.cmd_ctrl));
-    prefs.insert("drag_files", toml_edit::value(desk.prefs.drag_files));
-    prefs.remove("clipboard");
-    fill_modules(&mut doc, &desk.modules)?;
-    fill_data(&mut doc, &desk.data)?;
-    // Lo que antes guardaba el puesto en `[input]`.
-    if let Some(input) = doc.get_mut("input").and_then(Item::as_table_like_mut) {
-        input.remove("lock_shortcut");
-        input.remove("clipboard");
-    }
-    let int = |n: u64| toml_edit::value(i64::try_from(n).unwrap_or(i64::MAX));
-    doc.insert("desk_rev", int(sync.stamp.rev));
-    if sync.stamp.at > 0 {
-        doc.insert("desk_at", int(sync.stamp.at));
-    } else {
-        doc.remove("desk_at");
-    }
-    doc.insert("desk_origin", toml_edit::value(sync.stamp.by.as_str()));
-    doc.insert(
-        "desk_sum",
-        toml_edit::value(crate::desk_sync::fingerprint(desk)),
-    );
-    validated(&doc)
 }
 
 /// Lo mismo sobre el archivo.

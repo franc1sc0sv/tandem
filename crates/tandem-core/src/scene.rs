@@ -10,7 +10,7 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Arrangement, Machine, Machines, Os};
+use crate::model::{Arrangement, Desk, Machine, Machines, Os};
 use crate::plan::{Abilities, Plan, PlanError, Step};
 use crate::state::State;
 
@@ -198,6 +198,49 @@ pub fn default_scenes(machines: &Machines, arrangement: Option<Arrangement>) -> 
         solo(Machine::A, 2),
         solo(Machine::B, 3),
     ]
+}
+
+/// Pone las escenas por omisión en `desk` si conoce a las dos máquinas y no tiene ninguna.
+/// Una cuyo atajo ya usa el bloqueo (u otra escena) queda sin atajo; si aun así el puesto no
+/// fuera válido, no se agrega nada. `true` si las agregó.
+pub fn add_defaults(desk: &mut Desk) -> bool {
+    let both = Machine::ALL.iter().all(|&m| desk.machines.get(m).is_some());
+    if !both || !desk.scenes.is_empty() {
+        return false;
+    }
+    let keys = |k: &[String]| k.iter().cloned().collect::<BTreeSet<String>>();
+    let mut taken = vec![keys(&desk.shortcuts.lock)];
+    let mut scenes = default_scenes(&desk.machines, desk.arrangement);
+    for s in &mut scenes {
+        let k = keys(&s.shortcut);
+        if taken.contains(&k) {
+            s.shortcut.clear();
+        } else {
+            taken.push(k);
+        }
+    }
+    let mut next = desk.clone();
+    next.scenes = scenes;
+    if next.validate().is_err() {
+        return false;
+    }
+    *desk = next;
+    true
+}
+
+/// Si `scenes` son las de omisión para `desk` (con o sin sus atajos): las puso el agente al
+/// emparejar, no una persona.
+pub fn are_defaults(scenes: &[Scene], desk: &Desk) -> bool {
+    let bare = |s: &Scene| Scene {
+        shortcut: Vec::new(),
+        ..s.clone()
+    };
+    let defaults = default_scenes(&desk.machines, desk.arrangement);
+    scenes.len() == defaults.len()
+        && scenes
+            .iter()
+            .zip(&defaults)
+            .all(|(a, b)| bare(a) == bare(b))
 }
 
 /// Un id nuevo para una escena llamada `name` que no choque con `taken`: el nombre en
@@ -403,6 +446,30 @@ mod tests {
         assert!(s.problem().unwrap().contains("dos veces"));
         s.monitors = vec![(" ".into(), Machine::A)];
         assert!(s.problem().is_some());
+    }
+
+    fn paired() -> Desk {
+        Desk {
+            machines: machines(),
+            ..Desk::default()
+        }
+    }
+
+    #[test]
+    fn the_defaults_never_take_the_lock_shortcut() {
+        let mut d = paired();
+        d.shortcuts.lock = vec!["ControlLeft".into(), "AltLeft".into(), "Digit1".into()];
+        assert!(add_defaults(&mut d));
+        assert!(d.validate().is_ok());
+        assert!(d.scenes[0].shortcut.is_empty(), "«Trabajo» queda sin atajo");
+        assert_eq!(d.scenes[1].shortcut, ["ControlLeft", "AltLeft", "Digit2"]);
+        assert!(are_defaults(&d.scenes, &d));
+        // Solo una vez, y solo con las dos máquinas.
+        assert!(!add_defaults(&mut d));
+        let mut half = Desk::default();
+        half.machines.a = machines().a;
+        assert!(!add_defaults(&mut half));
+        assert!(half.scenes.is_empty());
     }
 
     #[test]

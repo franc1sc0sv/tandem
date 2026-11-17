@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use tandem_core::{Config, DeskPatch, Machine, State, Step, default_scenes};
+use tandem_core::{Config, DeskPatch, Machine, State, Step};
 use tandem_input::{HidUsage, InputEvent, KeyState};
 use tandem_proto::{Reply, UiCommand};
 use tokio::sync::{mpsc, watch};
@@ -172,14 +172,9 @@ impl Agent {
 }
 
 /// Las escenas por omisión, si el puesto conoce a las dos máquinas y todavía no tiene
-/// ninguna. `true` si las agregó.
+/// ninguna ([`tandem_core::scene::add_defaults`]). `true` si las agregó.
 pub(super) fn add_defaults(desk: &mut Config) -> bool {
-    let both = Machine::ALL.iter().all(|&m| desk.machines.get(m).is_some());
-    if !both || !desk.scenes.is_empty() {
-        return false;
-    }
-    desk.scenes = default_scenes(&desk.machines, desk.arrangement);
-    true
+    tandem_core::scene::add_defaults(desk)
 }
 
 /// La escena activa deja de valer si ya no está en el puesto o si se apagó una máquina que
@@ -325,17 +320,6 @@ mod tests {
     const SHIFT: HidUsage = HidUsage::key(0xE1);
     const ONE: HidUsage = HidUsage::key(0x1E);
     const TWO: HidUsage = HidUsage::key(0x1F);
-
-    #[test]
-    fn defaults_only_once_and_only_with_both_machines() {
-        let mut d = desk();
-        assert_eq!(d.scenes.len(), 3);
-        assert!(!add_defaults(&mut d), "ya tiene escenas");
-        let mut half = Config::default();
-        half.machines.a = d.machines.a.clone();
-        assert!(!add_defaults(&mut half));
-        assert!(half.scenes.is_empty());
-    }
 
     #[test]
     fn the_active_scene_stops_holding() {

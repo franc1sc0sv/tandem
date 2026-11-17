@@ -285,6 +285,9 @@ fn patch() -> impl Strategy<Value = DeskPatch> {
                     .collect(),
             )
         }),
+        full_scene().prop_map(DeskPatch::AddScene),
+        full_scene().prop_map(DeskPatch::EditScene),
+        "[a-c]".prop_map(|id| DeskPatch::DeleteScene { id }),
         (machine(), "[a-z]{1,3}", any::<bool>()).prop_map(|(machine, module, on)| {
             DeskPatch::Module {
                 machine,
@@ -400,6 +403,8 @@ proptest! {
             .unwrap();
         prop_assert_eq!(&a.current, last);
         prop_assert!(a.history.len() <= HISTORY_LEN);
+        // Ningún parche deja un puesto inválido (atajos repetidos, escenas sin nombre…).
+        prop_assert!(made.iter().all(|v| v.desk.validate().is_ok()));
         // Los sellos nunca se repiten: el orden es total.
         for (i, x) in made.iter().enumerate() {
             for y in &made[i + 1..] {
@@ -453,6 +458,27 @@ fn scene() -> impl Strategy<Value = Scene> {
             layout,
             require_on,
             ..Scene::new("s", "S")
+        })
+}
+
+/// Una escena entera con id de un conjunto chico (para que editar y borrar acierten) y, a
+/// veces, un atajo que puede chocar con el de otra escena.
+fn full_scene() -> impl Strategy<Value = Scene> {
+    (
+        scene(),
+        "[a-c]",
+        "[A-Z][a-z]{0,5}",
+        proptest::option::of(proptest::sample::select(vec!["Digit1", "Digit2", "Digit3"])),
+        proptest::sample::select(vec!["puesto", "laptop", "play"]),
+    )
+        .prop_map(|(scene, id, name, key, icon)| Scene {
+            id,
+            name,
+            icon: icon.to_owned(),
+            shortcut: key
+                .map(|k| vec!["ControlLeft".to_owned(), "AltLeft".to_owned(), k.to_owned()])
+                .unwrap_or_default(),
+            ..scene
         })
 }
 

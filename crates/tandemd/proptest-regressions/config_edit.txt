@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc d9c441f1066b1a567f296d6550510f891f5bd19a432dccdeb52afc1ccadcd011 # shrinks to desk = Desk { machines: Machines { a: None, b: None }, screens: [], arrangement: None, scenes: [], shortcuts: Shortcuts { lock: [] }, prefs: InputPrefs { cmd_ctrl: false, drag_files: false }, modules: Modules { a: {}, b: {} } }, rev = 0

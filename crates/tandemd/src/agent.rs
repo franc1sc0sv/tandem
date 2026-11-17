@@ -1711,6 +1711,49 @@ pub(crate) mod tests {
         assert_eq!(fresh.desk_sync().stamp.rev, 0);
     }
 
+    /// Revisión de #82: un puesto de T-099 ya emparejado (sin la clave `scenes`) recibe las
+    /// escenas por omisión una sola vez al cargarlo, como cambio de esta máquina; la que choca
+    /// con el atajo de bloqueo queda sin atajo. Si después el usuario las borra todas, no
+    /// vuelven.
+    #[test]
+    fn a_paired_t099_desk_gets_the_default_scenes_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tandem.toml");
+        let t099 = "machine = \"a\"\ndesk_rev = 7\ndesk_origin = \"b\"\n\
+                    [machines.a]\nos = \"macos\"\nname = \"MacBook Pro\"\ncolor = \"#7aa7e6\"\n\
+                    [machines.b]\nos = \"windows\"\nname = \"PC-Escritorio\"\ncolor = \"#a99be8\"\n\
+                    [shortcuts]\nlock = [\"ControlLeft\", \"AltLeft\", \"Digit1\"]\n";
+        std::fs::write(&file, t099).unwrap();
+        let cfg = AgentConfig::load(&file).unwrap();
+        let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
+        let names: Vec<String> = a.desk().scenes.iter().map(|s| s.name.clone()).collect();
+        assert_eq!(names, ["Trabajo", "Solo MacBook Pro", "Solo PC-Escritorio"]);
+        assert!(a.desk().scenes[0].shortcut.is_empty(), "⌃⌥1 es el bloqueo");
+        assert_eq!(a.desk_sync().stamp.rev, 8, "un cambio de esta máquina");
+        assert_eq!(a.desk_sync().stamp.by, Machine::A);
+        a.set_config_file(file.clone());
+
+        // Ya guardadas: al volver a arrancar no es otro cambio.
+        let saved = AgentConfig::load(&file).unwrap();
+        assert_eq!(saved.desk.scenes, a.desk().scenes);
+        assert_eq!(saved.desk_rev, 8);
+        let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
+        assert_eq!(again.desk_sync().stamp.rev, 8);
+
+        // Borradas todas a propósito: el archivo lo dice y no vuelven.
+        again.set_config_file(file.clone());
+        for id in ["trabajo", "solo-a", "solo-b"] {
+            again
+                .edit_desk(DeskPatch::DeleteScene { id: id.into() })
+                .unwrap();
+        }
+        let text = std::fs::read_to_string(&file).unwrap();
+        assert!(text.contains("scenes = []"), "{text}");
+        let empty = AgentConfig::load(&file).unwrap();
+        assert!(empty.desk.scenes.is_empty());
+        assert!(!empty.local_to_desk);
+    }
+
     /// Revisión de #74: el portapapeles apagado de antes de T-099 era de esta máquina y ahora
     /// está en el puesto. Es un cambio suyo: sube la versión (con su lado y fecha) para que la
     /// otra lo adopte, y queda guardado así.
