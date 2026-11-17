@@ -66,6 +66,7 @@ jobs:
         with:
           key: ui
       - run: pnpm install --frozen-lockfile
+      - run: pnpm check
       - run: pnpm test
       - run: pnpm build
       - run: cargo clippy -p tandem-ui --features app --all-targets
@@ -116,6 +117,47 @@ jobs:
         with:
           name: mockups-diff
           path: ${{ runner.temp }}/mockups-diff
+
+  # Capturas de la app (T-112): construye el modo demo, toma cada pantalla en Chromium
+  # headless igual que los mockups (sin red, fuentes empaquetadas) y la compara con
+  # docs/mockups-png. Falla si la barra lateral no llega a la similitud pedida (≥ 0.99, peor
+  # cuadro ≥ 0.97) o si una pantalla muestra errores; las capturas y las diferencias quedan
+  # como artefactos.
+  capturas:
+    name: ui (capturas)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/tandem-ui/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: |
+            apps/tandem-ui/pnpm-lock.yaml
+            tools/mockup-render/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: tools/mockup-render
+      - run: pnpm install --frozen-lockfile
+        working-directory: apps/tandem-ui
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: apps/tandem-ui
+      - run: pnpm check:scripts
+        working-directory: apps/tandem-ui
+      - name: Capturas y comparación
+        working-directory: apps/tandem-ui
+        run: |
+          set -o pipefail
+          pnpm shots --check --diff-dir "$RUNNER_TEMP/app-diff" | tee -a "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-screenshots
+          path: |
+            docs/screenshots/v03
+            ${{ runner.temp }}/app-diff
 
   # El instalador de macOS (T-070): Tandem.app con tandemd dentro y el .dmg, firmados ad-hoc
   # (sin secretos en CI). El script además comprueba el sidecar, el Info.plist y la firma.

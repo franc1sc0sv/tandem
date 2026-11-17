@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "build:demo": "vite build --mode demo --outDir dist-demo",
-    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && tsc --noEmit -p scripts/tsconfig.json",
+    "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "check:scripts": "tsc --noEmit -p scripts/tsconfig.json",
     "test": "vitest run",
     "shots": "node scripts/shots.ts",
     "tauri": "tauri"
