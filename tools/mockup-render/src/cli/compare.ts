@@ -1,0 +1,65 @@
+// `pnpm mockups:compare <app.png> <mockup.png> [--diff diff.png] [--min 0.99]`
+//   Similitud entre dos capturas; sale con 1 si queda por debajo de --min.
+// `pnpm mockups:compare --dirs <esperadas> <obtenidas> [--min 0.99] [--diff-dir <carpeta>]`
+//   Compara las capturas con el mismo nombre de dos carpetas y escribe una tabla en Markdown.
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { parseArgs } from 'node:util';
+import { compare } from '../compare.ts';
+
+const { values, positionals } = parseArgs({
+  allowPositionals: true,
+  options: {
+    diff: { type: 'string' },
+    'diff-dir': { type: 'string' },
+    dirs: { type: 'boolean', default: false },
+    min: { type: 'string', default: '0.99' },
+  },
+});
+
+const min = Number(values.min);
+const [first, second] = positionals;
+if (!first || !second) {
+  console.error('uso: mockups:compare <app.png> <mockup.png> [--diff diff.png] [--min 0.99]');
+  console.error('     mockups:compare --dirs <esperadas> <obtenidas> [--min 0.99] [--diff-dir <carpeta>]');
+  process.exit(2);
+}
+
+const pct = (x: number) => (x * 100).toFixed(2) + ' %';
+
+if (!values.dirs) {
+  const r = compare(first, second);
+  if (values.diff) writeFileSync(values.diff, r.diffPng);
+  const t = r.worstTile;
+  console.log(`similitud ${pct(r.similarity)} (${r.mismatched} de ${r.total} píxeles distintos)`);
+  console.log(`peor cuadro ${pct(t.similarity)} en x=${t.x} y=${t.y} (${t.width}×${t.height})`);
+  process.exit(r.similarity >= min ? 0 : 1);
+}
+
+const expected = new Set(readdirSync(first).filter((f) => f.endsWith('.png')));
+const actual = new Set(readdirSync(second).filter((f) => f.endsWith('.png')));
+const rows: string[] = [];
+let below = 0;
+if (values['diff-dir']) mkdirSync(values['diff-dir'], { recursive: true });
+for (const name of [...new Set([...expected, ...actual])].sort()) {
+  if (!expected.has(name) || !actual.has(name)) {
+    below += 1;
+    rows.push(`| ${name} | ${expected.has(name) ? 'falta la obtenida' : 'falta la esperada'} | |`);
+    continue;
+  }
+  try {
+    const r = compare(join(second, name), join(first, name));
+    if (r.similarity < min) {
+      below += 1;
+      if (values['diff-dir']) writeFileSync(join(values['diff-dir'], name), r.diffPng);
+    }
+    const sim = r.similarity < min ? '**' + pct(r.similarity) + '**' : pct(r.similarity);
+    rows.push(`| ${name} | ${sim} | ${pct(r.worstTile.similarity)} |`);
+  } catch (e) {
+    below += 1;
+    rows.push(`| ${name} | ${(e as Error).message} | |`);
+  }
+}
+console.log(`| Captura | Similitud | Peor cuadro |\n|---|---|---|\n${rows.join('\n')}\n`);
+console.log(below === 0 ? `Todas ≥ ${pct(min)}.` : `${below} por debajo de ${pct(min)} o sin pareja.`);
+process.exit(below === 0 ? 0 : 1);

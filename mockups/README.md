@@ -5,7 +5,20 @@
 
 ## Cómo verlos
 
-Los `.dc.html` usan un formato de plantillas (`<x-dc>`, `{{…}}`, `<sc-for>`, `<sc-if>`, clase `Component extends DCLogic`). `tools/mockup-render` (T-125) los renderiza localmente y saca capturas a `docs/mockups-png/`.
+Los `.dc.html` usan un formato de plantillas (`<x-dc>`, `{{…}}`, `<sc-for>`, `<sc-if>`, clase `Component extends DCLogic`) cuyo runtime original (`support.js`) no está en el repo. `tools/mockup-render` (T-125) trae uno propio:
+
+```sh
+cd tools/mockup-render
+pnpm install && pnpm exec playwright install chromium
+pnpm mockups:serve     # http://127.0.0.1:4173/: índice; los enlaces llevan de una pantalla a otra
+pnpm mockups:shot      # capturas → docs/mockups-png/
+```
+
+- Las capturas ya generadas están en **`docs/mockups-png/`**: `<mockup>.png` es el estado inicial y `<mockup>--<estado>.png` cada estado interactivo con nombre (por ejemplo `V3-Acomodo--lado-arriba-centro.png`); la lista de estados y sus clics está en `tools/mockup-render/src/states.ts`.
+- Comparar una captura de la app con su mockup: `pnpm mockups:compare app.png ../../docs/mockups-png/V3-Puesto.png --diff diff.png` (o `compare()` desde código).
+- Si cambias un mockup, vuelve a correr `pnpm mockups:shot` y commitea `docs/mockups-png/`. El job `ui (mockups)` de CI las genera como artefacto y avisa si no coinciden con las commiteadas.
+
+Más detalle en `tools/mockup-render/README.md`.
 
 ## Qué pantalla es cuál
 

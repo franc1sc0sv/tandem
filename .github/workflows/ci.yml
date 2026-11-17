@@ -71,6 +71,50 @@ jobs:
       - run: cargo clippy -p tandem-ui --features app --all-targets
       - run: cargo build -p tandem-ui --features app
 
+  # Mockups de v0.3 (T-125): renderiza mockups/v03 con el support.js propio en Chromium
+  # headless, prueba el renderizador y la comparación de capturas, y sube las capturas (cada
+  # mockup y cada estado con nombre) como artefacto. Al final las compara con las de
+  # docs/mockups-png: si un mockup cambió y no se regeneraron, el resumen lo dice.
+  mockups:
+    name: ui (mockups)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/mockup-render
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: tools/mockup-render/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: tools/mockup-render/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm check
+      - run: pnpm test
+      - name: Capturas
+        run: pnpm mockups:shot --out "$RUNNER_TEMP/mockups-png"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mockups-png
+          path: ${{ runner.temp }}/mockups-png
+          if-no-files-found: error
+      - name: Comparar con docs/mockups-png
+        id: comparar
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          node src/cli/compare.ts --dirs ../../docs/mockups-png "$RUNNER_TEMP/mockups-png" \
+            --diff-dir "$RUNNER_TEMP/mockups-diff" | tee -a "$GITHUB_STEP_SUMMARY"
+      - if: steps.comparar.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mockups-diff
+          path: ${{ runner.temp }}/mockups-diff
+
   # El instalador de macOS (T-070): Tandem.app con tandemd dentro y el .dmg, firmados ad-hoc
   # (sin secretos en CI). El script además comprueba el sidecar, el Info.plist y la firma.
   bundle-macos:
