@@ -305,14 +305,19 @@ fn scan_windows(runner: &dyn Runner) -> Found {
         ("bash", &["--version"]),
     ];
     for (id, args) in shells {
-        let Some(program) = runner.find(id, None) else {
+        let found = if id == "bash" {
+            // El bash de System32 (o de WindowsApps) es el lanzador de WSL, no un shell de
+            // Windows: vale el primero que no sea ese, aunque esté después en el PATH.
+            runner.find_all(id).into_iter().find(|p| {
+                let lower = p.to_string_lossy().to_ascii_lowercase();
+                !lower.contains("system32") && !lower.contains("windowsapps")
+            })
+        } else {
+            runner.find(id, None)
+        };
+        let Some(program) = found else {
             continue;
         };
-        // El bash de System32 es el lanzador de WSL, no un shell de Windows.
-        let lower = program.to_string_lossy().to_ascii_lowercase();
-        if id == "bash" && (lower.contains("system32") || lower.contains("windowsapps")) {
-            continue;
-        }
         let version =
             run_text(runner, &program, args, QUICK).and_then(|t| parse::version_token(&t));
         let mut env = shell(id, version, &tools);

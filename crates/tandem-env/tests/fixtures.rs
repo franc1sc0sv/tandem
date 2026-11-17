@@ -216,7 +216,8 @@ fn powershell_7_is_the_default_when_installed() {
 #[test]
 fn git_bash_counts_as_a_shell_but_the_wsl_launcher_does_not() {
     let r = windows();
-    r.install("bash", r"C:\Program Files\Git\bin\bash.exe");
+    // El lanzador de WSL va antes en el PATH; Git Bash se encuentra igual.
+    r.install_also("bash", r"C:\Program Files\Git\bin\bash.exe");
     r.on(
         "bash",
         &["--version"],

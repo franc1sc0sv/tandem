@@ -58,6 +58,12 @@ pub trait Runner: Send + Sync {
     /// `PATH`, por ejemplo el del shell de inicio de sesión del usuario).
     fn find(&self, program: &str, extra: Option<&str>) -> Option<PathBuf>;
 
+    /// Todas las copias de `program` en el `PATH`, en orden (por ejemplo, el `bash.exe` de
+    /// System32 y el de Git).
+    fn find_all(&self, program: &str) -> Vec<PathBuf> {
+        self.find(program, None).into_iter().collect()
+    }
+
     /// Corre `program` (una ruta de [`Runner::find`]) y espera hasta `timeout`. Un código de
     /// salida distinto de 0 no es error: lo dice [`Output::success`].
     fn run(&self, program: &Path, args: &[&str], timeout: Duration) -> Result<Output, RunError>;
@@ -79,6 +85,14 @@ impl Runner for SystemRunner {
             dirs.extend(std::env::split_paths(extra));
         }
         find_in(program, &dirs, &exts, |p| p.is_file())
+    }
+
+    fn find_all(&self, program: &str) -> Vec<PathBuf> {
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let exts = executable_exts(std::env::var_os("PATHEXT"));
+        std::env::split_paths(&path)
+            .filter_map(|d| find_in(program, &[d], &exts, |p| p.is_file()))
+            .collect()
     }
 
     fn run(&self, program: &Path, args: &[&str], timeout: Duration) -> Result<Output, RunError> {

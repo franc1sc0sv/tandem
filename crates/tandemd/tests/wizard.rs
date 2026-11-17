@@ -121,6 +121,7 @@ async fn start(
         Backends::Custom {
             local: Arc::new(Ok_),
             input: None,
+            env: None,
         },
         NetOptions {
             bind: Some(loopback(port)),

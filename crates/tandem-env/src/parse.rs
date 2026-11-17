@@ -185,7 +185,8 @@ pub fn nvidia_smi(text: &str) -> Vec<NvidiaGpu> {
                 return None;
             }
             let number = |s: &str| s.parse::<f64>().ok().filter(|v| v.is_finite() && *v >= 0.0);
-            let total = number(total).map(|m| (m as u64) * MIB);
+            // `as` satura en los valores absurdos; el producto también tiene que saturar.
+            let total = number(total).map(|m| (m as u64).saturating_mul(MIB));
             Some(NvidiaGpu {
                 gpu: Gpu {
                     name: (*name).to_owned(),
@@ -196,7 +197,7 @@ pub fn nvidia_smi(text: &str) -> Vec<NvidiaGpu> {
                 load: GpuLoad {
                     name: (*name).to_owned(),
                     load: number(util).map(|p| tenths(p as f32)),
-                    vram_used: number(used).map(|m| (m as u64) * MIB),
+                    vram_used: number(used).map(|m| (m as u64).saturating_mul(MIB)),
                     vram_total: total,
                     temperature: number(temp).map(|t| t.round() as i16),
                 },
@@ -454,6 +455,16 @@ mod tests {
         assert_eq!(g.load.load, None);
         assert_eq!(g.load.temperature, Some(41));
         assert!(nvidia_smi("No devices were found").is_empty());
+    }
+
+    proptest! {
+        /// Números absurdos en las columnas no desbordan.
+        #[test]
+        fn nvidia_smi_never_overflows(total in any::<u64>(), used in any::<f64>(), temp in any::<f64>()) {
+            let text = format!("GPU, {total}, 1.0, {used}, 50, {temp}");
+            let [g] = nvidia_smi(&text).try_into().unwrap();
+            prop_assert!(g.gpu.vram.is_some());
+        }
     }
 
     #[test]

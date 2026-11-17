@@ -3,6 +3,7 @@
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
@@ -19,7 +20,7 @@ pub enum Answer {
 #[derive(Debug, Default)]
 struct Inner {
     /// Dónde está instalado cada programa.
-    installed: BTreeMap<String, PathBuf>,
+    installed: BTreeMap<String, Vec<PathBuf>>,
     /// Por programa: prefijo de argumentos → respuesta. Gana el prefijo más largo; a igual largo, el último cargado.
     answers: BTreeMap<String, Vec<(Vec<String>, Answer)>>,
     vars: BTreeMap<String, String>,
@@ -50,9 +51,21 @@ impl FakeRunner {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// `program` está en `path`.
+    /// `program` está en `path` (y solo ahí).
     pub fn install(&self, program: &str, path: impl Into<PathBuf>) -> &Self {
-        self.lock().installed.insert(program.into(), path.into());
+        self.lock()
+            .installed
+            .insert(program.into(), vec![path.into()]);
+        self
+    }
+
+    /// Otra copia de `program`, más adelante en el `PATH`.
+    pub fn install_also(&self, program: &str, path: impl Into<PathBuf>) -> &Self {
+        self.lock()
+            .installed
+            .entry(program.into())
+            .or_default()
+            .push(path.into());
         self
     }
 
@@ -63,7 +76,7 @@ impl FakeRunner {
         inner
             .installed
             .entry(program.into())
-            .or_insert_with(|| PathBuf::from(format!("/fake/bin/{program}")));
+            .or_insert_with(|| vec![PathBuf::from(format!("/fake/bin/{program}"))]);
         inner
             .answers
             .entry(program.into())
@@ -91,7 +104,18 @@ impl FakeRunner {
 
 impl Runner for FakeRunner {
     fn find(&self, program: &str, _extra: Option<&str>) -> Option<PathBuf> {
-        self.lock().installed.get(program).cloned()
+        self.lock()
+            .installed
+            .get(program)
+            .and_then(|p| p.first().cloned())
+    }
+
+    fn find_all(&self, program: &str) -> Vec<PathBuf> {
+        self.lock()
+            .installed
+            .get(program)
+            .cloned()
+            .unwrap_or_default()
     }
 
     fn run(&self, program: &Path, args: &[&str], timeout: Duration) -> Result<Output, RunError> {
@@ -136,6 +160,8 @@ pub struct FakeMeter {
     pub info: MeterInfo,
     readings: Arc<Mutex<VecDeque<Reading>>>,
     last: Arc<Mutex<Reading>>,
+    /// Cuántas lecturas se hicieron (en todos los clones): dice si alguien sigue muestreando.
+    reads: Arc<AtomicUsize>,
 }
 
 impl FakeMeter {
@@ -153,6 +179,11 @@ impl FakeMeter {
             .push_back(reading);
         self
     }
+
+    /// Las lecturas hechas hasta ahora.
+    pub fn reads(&self) -> usize {
+        self.reads.load(Ordering::SeqCst)
+    }
 }
 
 impl Meter for FakeMeter {
@@ -161,6 +192,7 @@ impl Meter for FakeMeter {
     }
 
     fn read(&mut self) -> Reading {
+        self.reads.fetch_add(1, Ordering::SeqCst);
         let next = self
             .readings
             .lock()
@@ -199,6 +231,7 @@ mod tests {
             ..Reading::default()
         });
         assert_eq!(m.read().cpu, 10.0);
-        assert_eq!(m.read().cpu, 10.0);
+        assert_eq!(m.clone().read().cpu, 10.0);
+        assert_eq!(m.reads(), 2);
     }
 }

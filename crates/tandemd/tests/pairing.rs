@@ -185,6 +185,7 @@ async fn start_with_input(
         Backends::Custom {
             local: Arc::new(Ok_),
             input: input.map(Box::new),
+            env: None,
         },
         NetOptions {
             bind: Some(loopback(port)),
