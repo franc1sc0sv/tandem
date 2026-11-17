@@ -41,3 +41,13 @@ El disco de Linux (WSL) es un `.vhdx` dentro de `C:`: cada build ocupa espacio d
 - **Límites:** máximo 5 agentes que compilan Rust a la vez; un target que pasa de 8 GB se limpia con `cargo clean`.
 - **Limpieza en cada latido:** al integrar una tarea se borran su target, el de su revisión y su worktree. Si `C:` baja de 80 GB libres no se lanzan agentes nuevos y se limpian los targets más grandes.
 - Archivos temporales en el scratchpad con nombre propio por tarea (`pr-T-099.md`): el scratchpad es compartido y un agente puede pisar la descripción de otro.
+
+## Cuota de uso (lección de la primera corrida)
+
+La cuota de 5 h se agotó dos veces. Medido en los transcripts: 1.100 M de tokens leídos de caché y 4,7 M de salida, el 96 % en Opus. Causas: los agentes no tenían `model:` y heredaban Opus con `effort: high`; cada vuelta reenvía el contexto entero (hasta ~430 k por llamada en T-093) porque se volcaban salidas de cargo y logs completos; retomar agentes viejos para correcciones chicas arrastra todo su historial.
+
+- `implementer` y `reviewer` corren en **Sonnet** (`model: sonnet`, `effort: medium`); el capitán en Opus solo coordina. Tareas mecánicas sin conflictos (rebase, versión, esperar CI): Haiku.
+- Correcciones y rebases: **agente nuevo con instrucciones cortas**, nunca retomar uno grande.
+- Revisiones de pocas líneas: las hace el capitán leyendo el diff.
+- Latido del capitán cada ~40 min y breve; el capitán no lee logs enteros.
+- Reglas de contexto corto en `.claude/agents/implementer.md` y `reviewer.md`.
