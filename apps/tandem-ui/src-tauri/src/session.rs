@@ -16,8 +16,9 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tandem_core::{Align, Arrangement, Config, DeskPatch, Machine, Side, State, Step};
 use tandem_proto::{
-    AgentToUi, Capabilities, DeskCapabilities, InputPermission, InputStatus, KeyProbeStatus, Link,
-    PairingStatus, PeerStatus, PowerEvent, Reply, SetupInfo, TxnEvent, UiCommand, UpdateStatus,
+    AgentToUi, Capabilities, DeskCapabilities, EnvKind, Environment, Hardware, InputPermission,
+    InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo, ModuleState, PairingStatus,
+    PeerStatus, PowerEvent, Reply, Resources, SetupInfo, TxnEvent, UiCommand, UpdateStatus,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -173,6 +174,122 @@ pub struct MachineView {
     pub input: InputCapsView,
     pub power: PowerCapsView,
     pub services: Vec<String>,
+    /// Los módulos de su sistema con su estado (T-098): la página Máquina (T-115).
+    pub modules: Vec<ModuleView>,
+    /// Entornos de ejecución detectados (T-105).
+    pub environments: Vec<EnvView>,
+    /// El equipo según el escaneo (T-105).
+    pub hardware: HardwareView,
+}
+
+/// [`ModuleInfo`] en JSON para el frontend: el id es el del puesto (`clipboard`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ModuleView {
+    pub id: &'static str,
+    pub name: String,
+    pub detail: String,
+    pub state: ModuleStateView,
+    /// Por qué no está disponible, si no lo está.
+    pub reason: Option<String>,
+    pub switchable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModuleStateView {
+    Active,
+    Off,
+    Unavailable,
+}
+
+impl From<ModuleInfo> for ModuleView {
+    fn from(m: ModuleInfo) -> Self {
+        let (state, reason) = match m.state {
+            ModuleState::Active => (ModuleStateView::Active, None),
+            ModuleState::Off => (ModuleStateView::Off, None),
+            ModuleState::Unavailable { reason } => (ModuleStateView::Unavailable, Some(reason)),
+        };
+        ModuleView {
+            id: m.id.as_str(),
+            name: m.name,
+            detail: m.detail,
+            state,
+            reason,
+            switchable: m.switchable,
+        }
+    }
+}
+
+/// [`Environment`] en JSON para el frontend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EnvView {
+    pub id: String,
+    pub kind: EnvKindView,
+    pub name: String,
+    pub default: bool,
+    pub ready: bool,
+    pub detail: String,
+    pub gpu: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EnvKindView {
+    Shell,
+    Wsl,
+    Docker,
+}
+
+impl From<Environment> for EnvView {
+    fn from(e: Environment) -> Self {
+        EnvView {
+            id: e.id,
+            kind: match e.kind {
+                EnvKind::Shell => EnvKindView::Shell,
+                EnvKind::Wsl => EnvKindView::Wsl,
+                EnvKind::Docker => EnvKindView::Docker,
+            },
+            name: e.name,
+            default: e.default,
+            ready: e.ready,
+            detail: e.detail,
+            gpu: e.gpu,
+        }
+    }
+}
+
+/// [`Hardware`] en JSON para el frontend (bytes como número: caben en un `f64` sin perder).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct HardwareView {
+    pub cpu: Option<String>,
+    pub cores: u32,
+    pub memory: u64,
+    pub gpus: Vec<GpuView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct GpuView {
+    pub name: String,
+    /// `None` si comparte la RAM.
+    pub vram: Option<u64>,
+}
+
+impl From<Hardware> for HardwareView {
+    fn from(h: Hardware) -> Self {
+        HardwareView {
+            cpu: h.cpu,
+            cores: h.cores,
+            memory: h.memory,
+            gpus: h
+                .gpus
+                .into_iter()
+                .map(|g| GpuView {
+                    name: g.name,
+                    vram: g.vram,
+                })
+                .collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -229,6 +346,9 @@ impl From<Capabilities> for MachineView {
                 power_off: c.power.power_off,
             },
             services: c.services,
+            modules: c.modules.into_iter().map(Into::into).collect(),
+            environments: c.environments.into_iter().map(Into::into).collect(),
+            hardware: c.hardware.into(),
         }
     }
 }
@@ -410,6 +530,36 @@ pub enum Action {
         a_side: Side,
         align: Align,
     },
+    /// Encender o apagar un módulo de `machine` (T-098); `module` es el id del puesto.
+    SetModule {
+        machine: Machine,
+        #[serde(deserialize_with = "module_id")]
+        module: ModuleId,
+        on: bool,
+    },
+    /// Volver a escanear los entornos de `machine` (T-105).
+    Rescan {
+        machine: Machine,
+    },
+    /// Recibir los recursos en vivo de las dos máquinas ([`Sink::resources`]) mientras la
+    /// pantalla visible los muestra. La sesión lo recuerda y lo vuelve a pedir al reconectar.
+    WatchResources {
+        on: bool,
+    },
+    /// Nombre o color de una máquina (el puesto compartido, D4/D17); `None` no cambia.
+    SetMachine {
+        machine: Machine,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        color: Option<String>,
+    },
+}
+
+/// El id del módulo como lo guarda el puesto (`clipboard`, `secure_desktop`).
+fn module_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<ModuleId, D::Error> {
+    let s = String::deserialize(d)?;
+    ModuleId::parse(&s).ok_or_else(|| serde::de::Error::custom(format!("no hay módulo «{s}»")))
 }
 
 impl From<Action> for UiCommand {
@@ -429,6 +579,28 @@ impl From<Action> for UiCommand {
             Action::UpdatePeer { version } => UiCommand::UpdatePeer { version },
             Action::SetArrangement { a_side, align } => UiCommand::EditDesk {
                 patch: DeskPatch::Arrangement(Some(Arrangement { a_side, align })),
+            },
+            Action::SetModule {
+                machine,
+                module,
+                on,
+            } => UiCommand::SetModule {
+                machine,
+                module,
+                on,
+            },
+            Action::Rescan { machine } => UiCommand::Rescan { machine },
+            Action::WatchResources { on } => UiCommand::WatchResources { on },
+            Action::SetMachine {
+                machine,
+                name,
+                color,
+            } => UiCommand::EditDesk {
+                patch: DeskPatch::Machine {
+                    side: machine,
+                    name,
+                    color,
+                },
             },
         }
     }
@@ -500,6 +672,12 @@ pub trait Sink: Send + Sync + 'static {
     /// Las versiones de las dos máquinas (T-122); las usa el updater, no la escena.
     fn update(&self, status: &UpdateStatus) {
         let _ = status;
+    }
+
+    /// Una muestra de los recursos de `machine` (solo mientras se pidió `WatchResources`).
+    /// No va en la [`Snapshot`]: llega cada segundo y la ventana arma su propia historia.
+    fn resources(&self, machine: Machine, resources: &Resources) {
+        let _ = (machine, resources);
     }
 }
 
@@ -594,6 +772,7 @@ where
         snapshot: snapshot_tx,
         actions,
         retry,
+        watchers: 0,
     };
     (handle, runner.run(connect))
 }
@@ -604,6 +783,9 @@ struct Runner {
     snapshot: watch::Sender<Snapshot>,
     actions: mpsc::Receiver<Pending>,
     retry: Arc<Notify>,
+    /// Cuántas ventanas piden los recursos en vivo (la principal y la bandeja comparten esta
+    /// sesión): mientras haya alguna, cada conexión nueva los vuelve a pedir.
+    watchers: u32,
 }
 
 /// Una conexión recién abierta, con lo necesario para dibujar la escena.
@@ -672,6 +854,17 @@ impl Runner {
         }
     }
 
+    /// Suma o resta una ventana que mira los recursos; devuelve si había y si hay alguna.
+    fn count_watcher(&mut self, on: bool) -> (bool, bool) {
+        let before = self.watchers > 0;
+        self.watchers = if on {
+            self.watchers.saturating_add(1)
+        } else {
+            self.watchers.saturating_sub(1)
+        };
+        (before, self.watchers > 0)
+    }
+
     fn publish(&self, snapshot: Snapshot) {
         self.sink.snapshot(&snapshot);
         self.snapshot.send_replace(snapshot);
@@ -683,8 +876,14 @@ impl Runner {
         F: Future<Output = Result<IpcClient<S>, IpcError>>,
         S: AsyncRead + AsyncWrite + Unpin,
     {
+        let watching = self.watchers > 0;
         let opening = async {
             let mut client = connect.await?;
+            if watching {
+                client
+                    .request(UiCommand::WatchResources { on: true })
+                    .await?;
+            }
             let desk = match client.request(UiCommand::GetDesk).await? {
                 Reply::Desk(d) => d,
                 other => return Err(IpcError::UnexpectedReply(Box::new(other))),
@@ -735,7 +934,16 @@ impl Runner {
         loop {
             tokio::select! {
                 pending = self.actions.recv() => {
-                    let Some(p) = pending else { return Ended::Released };
+                    let Some(mut p) = pending else { return Ended::Released };
+                    if let UiCommand::WatchResources { on } = p.command {
+                        // Solo el primero que pide y el último que suelta llegan al agente.
+                        let (before, now) = self.count_watcher(on);
+                        if before == now {
+                            p.answer(ActionResult::Done);
+                            continue;
+                        }
+                        p.command = UiCommand::WatchResources { on: now };
+                    }
                     let reply = tokio::time::timeout(QUERY_TIMEOUT, client.request(p.command.clone())).await;
                     let lost = match reply {
                         Ok(Ok(reply)) => {
@@ -796,9 +1004,9 @@ impl Runner {
             // El puesto nuevo ya llega con `Desk`; el aviso con «Deshacer» lo muestra la UI
             // nueva (T-112), no esta.
             AgentToUi::DeskChanged { .. } => {}
-            // Llegan solo si se pidió `WatchResources`, y esta sesión aún no lo pide (la
-            // pantalla Máquina, T-115).
-            AgentToUi::Resources { .. } => {}
+            AgentToUi::Resources { machine, resources } => {
+                self.sink.resources(machine, &resources);
+            }
             // La pantalla Túneles (solo lectura, D9) llega con su tarea de UI.
             AgentToUi::Tunnels(_) => {}
             // Llega solo si se pidió `WatchNetwork`, y esta sesión aún no lo pide (la
@@ -891,7 +1099,13 @@ impl Runner {
                 () = &mut wait => return true,
                 () = self.retry.notified() => return true,
                 pending = self.actions.recv() => match pending {
-                    Some(p) => p.answer(ActionResult::Unavailable { reason: reason.into() }),
+                    Some(p) => {
+                        // Sin agente no hay recursos, pero el pedido vale para la próxima conexión.
+                        if let UiCommand::WatchResources { on } = p.command {
+                            self.count_watcher(on);
+                        }
+                        p.answer(ActionResult::Unavailable { reason: reason.into() });
+                    }
                     None => return false,
                 },
             }
@@ -927,6 +1141,7 @@ mac = "9c:6b:00:1a:2b:ff"
     struct Recorder {
         snapshots: Mutex<Vec<Snapshot>>,
         notices: Mutex<Vec<Notice>>,
+        resources: Mutex<Vec<(Machine, Resources)>>,
         changed: Notify,
     }
 
@@ -937,6 +1152,10 @@ mac = "9c:6b:00:1a:2b:ff"
         }
         fn notice(&self, n: &Notice) {
             self.notices.lock().unwrap().push(n.clone());
+            self.changed.notify_waiters();
+        }
+        fn resources(&self, machine: Machine, r: &Resources) {
+            self.resources.lock().unwrap().push((machine, r.clone()));
             self.changed.notify_waiters();
         }
     }
@@ -952,6 +1171,31 @@ mac = "9c:6b:00:1a:2b:ff"
                     &self.snapshots.lock().unwrap(),
                     &self.notices.lock().unwrap(),
                 ) {
+                    return;
+                }
+                changed.await;
+            }
+        }
+
+        /// Espera una muestra de recursos igual a `want` de `machine` (falla a los 10 s).
+        async fn until_resources(&self, machine: Machine, want: &Resources) {
+            tokio::time::timeout(Duration::from_secs(10), self.wait_resources(machine, want))
+                .await
+                .expect("no llegaron los recursos");
+        }
+
+        async fn wait_resources(&self, machine: Machine, want: &Resources) {
+            loop {
+                let changed = self.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if self
+                    .resources
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|(m, r)| *m == machine && r == want)
+                {
                     return;
                 }
                 changed.await;
@@ -1528,6 +1772,155 @@ mac = "9c:6b:00:1a:2b:ff"
         );
     }
 
+    /// T-115: la página Máquina pide los recursos; llegan a la ventana y, si el agente se
+    /// reinicia, la sesión los vuelve a pedir sola.
+    #[tokio::test]
+    async fn watched_resources_reach_the_window_and_survive_a_reconnection() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+        assert_eq!(
+            handle.act(Action::WatchResources { on: true }).await,
+            ActionResult::Done
+        );
+        let mut theirs = Resources::default();
+        theirs.cpu.load = 420;
+        a.agent.receive_peer_resources(theirs.clone());
+        rec.until_resources(Machine::B, &theirs).await;
+
+        *slot.lock().unwrap() = None;
+        a.stop.send(()).unwrap();
+        a.task.await.unwrap().unwrap();
+        rec.until(|s, _| is_unavailable(s)).await;
+        let b = agent_in(dir.path());
+        *slot.lock().unwrap() = Some(b.connector.clone());
+        handle.retry_now();
+        rec.until(|s, _| connected(s)).await;
+        theirs.cpu.load = 610;
+        b.agent.receive_peer_resources(theirs.clone());
+        rec.until_resources(Machine::B, &theirs).await;
+    }
+
+    /// La ventana principal y la bandeja comparten la sesión: si una deja de mirar los
+    /// recursos, la otra los sigue recibiendo.
+    #[tokio::test]
+    async fn resources_keep_flowing_while_any_window_watches() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+        for on in [true, true, false] {
+            assert_eq!(
+                handle.act(Action::WatchResources { on }).await,
+                ActionResult::Done
+            );
+        }
+        let mut theirs = Resources::default();
+        theirs.cpu.load = 333;
+        a.agent.receive_peer_resources(theirs.clone());
+        rec.until_resources(Machine::B, &theirs).await;
+    }
+
+    /// T-115: apagar un módulo desde la página Máquina llega al agente y vuelve en las
+    /// capacidades con su estado nuevo.
+    #[tokio::test]
+    async fn a_module_switched_off_comes_back_in_the_capabilities() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+        let clipboard = |s: &Snapshot| match s {
+            Snapshot::Connected { caps, .. } => caps
+                .here
+                .modules
+                .iter()
+                .find(|m| m.id == "clipboard")
+                .map(|m| m.state),
+            _ => None,
+        };
+        assert_eq!(clipboard(&handle.snapshot()), Some(ModuleStateView::Active));
+        assert_eq!(
+            handle
+                .act(Action::SetModule {
+                    machine: Machine::A,
+                    module: ModuleId::Clipboard,
+                    on: false,
+                })
+                .await,
+            ActionResult::Done
+        );
+        rec.until(|s, _| s.last().and_then(clipboard) == Some(ModuleStateView::Off))
+            .await;
+        // Rescan de esta máquina: se acepta y lo encontrado llega con las capacidades.
+        assert_eq!(
+            handle
+                .act(Action::Rescan {
+                    machine: Machine::A
+                })
+                .await,
+            ActionResult::Done
+        );
+    }
+
+    #[test]
+    fn machine_page_views_keep_what_the_window_draws() {
+        let m = ModuleView::from(ModuleInfo {
+            id: ModuleId::SecureDesktop,
+            name: "Pantallas protegidas".into(),
+            detail: "UAC".into(),
+            state: ModuleState::Unavailable {
+                reason: "Falta el servicio".into(),
+            },
+            switchable: false,
+        });
+        assert_eq!(
+            serde_json::to_value(&m).unwrap(),
+            serde_json::json!({
+                "id": "secure_desktop", "name": "Pantallas protegidas", "detail": "UAC",
+                "state": "unavailable", "reason": "Falta el servicio", "switchable": false
+            })
+        );
+        let e = EnvView::from(Environment {
+            id: "wsl:Ubuntu-24.04".into(),
+            kind: EnvKind::Wsl,
+            name: "Ubuntu 24.04".into(),
+            version: None,
+            default: true,
+            ready: true,
+            detail: "uv · cargo".into(),
+            tools: Vec::new(),
+            gpu: true,
+        });
+        assert_eq!(
+            serde_json::to_value(&e).unwrap(),
+            serde_json::json!({
+                "id": "wsl:Ubuntu-24.04", "kind": "wsl", "name": "Ubuntu 24.04",
+                "default": true, "ready": true, "detail": "uv · cargo", "gpu": true
+            })
+        );
+        let h = HardwareView::from(Hardware {
+            cpu: Some("Apple M5".into()),
+            cores: 12,
+            memory: 24 << 30,
+            gpus: vec![tandem_proto::Gpu {
+                name: "Apple M5".into(),
+                vram: None,
+                driver: None,
+            }],
+        });
+        assert_eq!(
+            serde_json::to_value(&h).unwrap(),
+            serde_json::json!({
+                "cpu": "Apple M5", "cores": 12, "memory": 24u64 << 30,
+                "gpus": [{ "name": "Apple M5", "vram": null }]
+            })
+        );
+    }
+
     #[test]
     fn actions_are_read_from_the_frontend_json() {
         let read =
@@ -1566,6 +1959,40 @@ mac = "9c:6b:00:1a:2b:ff"
                     a_side: Side::Up,
                     align: Align::End
                 }))
+            }
+        );
+        assert_eq!(
+            read(
+                serde_json::json!({ "kind": "set_module", "machine": "b", "module": "secure_desktop", "on": false })
+            ),
+            UiCommand::SetModule {
+                machine: Machine::B,
+                module: ModuleId::SecureDesktop,
+                on: false
+            }
+        );
+        assert!(
+            serde_json::from_value::<Action>(serde_json::json!({ "kind": "set_module", "machine": "b", "module": "nada", "on": false }))
+                .is_err()
+        );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "rescan", "machine": "a" })),
+            UiCommand::Rescan {
+                machine: Machine::A
+            }
+        );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "watch_resources", "on": true })),
+            UiCommand::WatchResources { on: true }
+        );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "set_machine", "machine": "b", "color": "#5fbfb0" })),
+            UiCommand::EditDesk {
+                patch: DeskPatch::Machine {
+                    side: Machine::B,
+                    name: None,
+                    color: Some("#5fbfb0".into())
+                }
             }
         );
         // Lo de los monitores ya no existe: la ventana no puede pedirlo.
@@ -1664,6 +2091,7 @@ mac = "9c:6b:00:1a:2b:ff"
             snapshot,
             actions,
             retry: Arc::new(Notify::new()),
+            watchers: 0,
         };
         runner.on_event(AgentToUi::Power(PowerEvent::PeerLost {
             machine: Machine::B,

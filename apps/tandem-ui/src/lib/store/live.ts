@@ -7,12 +7,16 @@
 
 import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, ratioLabel, type Arrangement, type LayoutScreen, type LayoutView } from "../acomodo";
 import type { Bridge } from "../bridge";
+import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
-import type { ActionResult, Bindings, Caps, Link, Machine, MachineCaps, Permission, SetupView, ShortcutsView, Snapshot } from "../model";
+import type { Action, ActionResult, Bindings, Caps, Link, Machine, MachineCaps, Permission, ResourceSample, SetupView, ShortcutsView, Snapshot } from "../model";
 import { grantTo, permissionState } from "../permissions";
+import type { ActResult, Capability, DeskView, EnvView, HardwareView, LiveView, MachineView, ModuleView, PairActionKind, PermissionsView, Source, Topic } from "./types";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK } from "./types";
-import type { ActResult, Capability, DeskView, MachineView, PairActionKind, PermissionsView, Source, Topic } from "./types";
+
+/** Los recursos en vivo de cada lado, armados con las muestras del agente. */
+export type LiveByMachine = Partial<Record<Machine, LiveView | null>>;
 
 const MAC_PERMISSIONS: Permission[] = ["accessibility", "input_monitoring", "local_network"];
 
@@ -68,12 +72,30 @@ function permissionsOf(here: MachineCaps): PermissionsView {
   return { needed: true, rows: MAC_PERMISSIONS.map((id) => ({ id, state: permissionState(here, id) })), binary: grantTo(here) };
 }
 
-function machineView(who: Machine, here: Machine, caps: Caps, snap: Extract<Snapshot, { kind: "connected" }>): MachineView | null {
+function modulesOf(c: MachineCaps | null): ModuleView[] {
+  // Si no está disponible, la línea dice por qué (T-098: razones accionables).
+  return (c?.modules ?? []).map((m) => ({ id: m.id, name: m.name, state: m.state, detail: m.state === "unavailable" && m.reason ? m.reason : m.detail, switchable: m.switchable }));
+}
+
+function hardwareOf(c: MachineCaps | null): HardwareView | null {
+  const h = c?.hardware;
+  if (!h) return null;
+  const g = h.gpus[0];
+  return { cpu: h.cpu, cores: h.cores, memory: h.memory, gpu: g ? { name: g.name, vram: g.vram } : null };
+}
+
+function environmentsOf(c: MachineCaps | null): EnvView[] {
+  return (c?.environments ?? []).map((e) => ({ id: e.id, kind: e.kind, name: e.name, default: e.default, ready: e.ready, detail: e.detail }));
+}
+
+function machineView(who: Machine, here: Machine, caps: Caps, snap: Extract<Snapshot, { kind: "connected" }>, live: LiveView | null): MachineView | null {
   const c: MachineCaps | null = caps.here.machine === who ? caps.here : caps.peer?.machine === who ? caps.peer : null;
   const info = snap.desk.machines?.[who] ?? null;
   if (!c && !info) return null;
   const os = c?.os ?? info?.os ?? "windows";
   const on = snap.state.on[who];
+  const power = who === here || on ? "on" : "off";
+  const shown = power === "on" ? live : null;
   return {
     id: who,
     name: machineName(who, caps, snap.desk),
@@ -81,16 +103,20 @@ function machineView(who: Machine, here: Machine, caps: Caps, snap: Extract<Snap
     color: machineColor(who, caps, snap.desk),
     detail: OS_NAME[os] ?? os,
     here: who === here,
-    power: who === here || on ? "on" : "off",
-    resources: null,
-    modules: [],
+    power,
+    resources: shown ? summaryOf(shown) : null,
+    modules: modulesOf(c),
+    system: OS_NAME[os] ?? os,
+    hardware: hardwareOf(c),
+    environments: environmentsOf(c),
+    live: shown,
   };
 }
 
 const LINK_KIND: Record<Link, DeskView["link"]["kind"]> = { usb4: "usb4", ethernet: "ethernet", wifi: "wifi" };
 
 /** El puesto que dibuja la UI a partir de la foto del agente. Puro; lanza `ShapeError`. */
-export function deskFromSnapshot(raw: Snapshot): DeskView {
+export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}): DeskView {
   const snap: unknown = raw;
   checkSnapshot(snap);
   if (snap.kind === "connecting") return EMPTY_DESK;
@@ -99,7 +125,7 @@ export function deskFromSnapshot(raw: Snapshot): DeskView {
   }
   const here = snap.agent;
   const peer = other(here);
-  const machines = { a: machineView("a", here, snap.caps, snap), b: machineView("b", here, snap.caps, snap) };
+  const machines = { a: machineView("a", here, snap.caps, snap, live.a ?? null), b: machineView("b", here, snap.caps, snap, live.b ?? null) };
   const peerName = machineName(peer, snap.caps, snap.desk);
   const linked = snap.peer.kind === "paired" && snap.peer.link !== null;
   let trouble: DeskView["trouble"] = "none";
@@ -188,6 +214,9 @@ function result(r: ActionResult): ActResult {
 export class LiveSource implements Source {
   private topics: Topic[] = [];
   private last: Snapshot = { kind: "connecting" };
+  private live: LiveByMachine = {};
+  /** Se le pidieron al agente los recursos en vivo. */
+  private watching = false;
 
   constructor(private readonly bridge: Bridge) {}
 
@@ -195,7 +224,7 @@ export class LiveSource implements Source {
     // Un error al leer una foto no cuelga la ventana: se muestra como «sin agente» con la razón.
     const push = (s: Snapshot) => {
       try {
-        const d = deskFromSnapshot(s);
+        const d = deskFromSnapshot(s, this.live);
         this.last = s;
         onDesk(d);
       } catch (e) {
@@ -204,11 +233,26 @@ export class LiveSource implements Source {
       }
     };
     await this.bridge.onSnapshot(push);
+    // Las muestras llegan aparte (una por segundo): cada una avanza la línea de su máquina.
+    await this.bridge.onResources?.((machine: Machine, r: ResourceSample) => {
+      this.live = { ...this.live, [machine]: nextLive(this.live[machine] ?? null, r) };
+      if (this.last.kind === "connected") push(this.last);
+    });
     push(await this.bridge.snapshot());
   }
 
+  /** Los recursos solo se muestrean mientras una pantalla visible los muestra. */
   watch(topics: Topic[]): void {
     this.topics = [...topics];
+    const want = topics.includes("resources");
+    if (want === this.watching || typeof this.bridge.act !== "function") return;
+    this.watching = want;
+    // La sesión recuerda el pedido y lo repite al reconectar; si falla ahora, no hay agente.
+    this.bridge.act({ kind: "watch_resources", on: want }).catch(() => {});
+  }
+
+  private async ask(action: Action): Promise<ActResult> {
+    return result(await this.bridge.act(action));
   }
 
   get currentTopics(): Topic[] {
@@ -231,8 +275,16 @@ export class LiveSource implements Source {
     return { ok: false, reason: "reason" in r ? r.reason : "Sin respuesta de la otra máquina" };
   }
 
-  async setModule(): Promise<ActResult> {
-    return { ok: false, reason: "Los módulos todavía no están en el agente" };
+  setModule(machine: Machine, module: string, on: boolean): Promise<ActResult> {
+    return this.ask({ kind: "set_module", machine, module, on });
+  }
+
+  rescan(machine: Machine): Promise<ActResult> {
+    return this.ask({ kind: "rescan", machine });
+  }
+
+  editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult> {
+    return this.ask({ kind: "set_machine", machine, ...edit });
   }
 
   async setArrangement(a: Arrangement): Promise<ActResult> {
@@ -306,6 +358,7 @@ export class LiveSource implements Source {
 
   can(what: Capability): boolean {
     if (what === "power" || what === "measure") return this.last.kind === "connected" && this.last.peer.kind === "paired";
+    if (what === "modules" || what === "machine") return this.last.kind === "connected";
     return false;
   }
 

@@ -62,6 +62,50 @@ export interface MachineCaps {
   };
   power: { wake_peer: boolean; wakeable: boolean; power_off: boolean };
   services: string[];
+  /** Módulos de su sistema (T-098); opcionales para leer un agente de antes. */
+  modules?: ModuleCaps[];
+  /** Entornos de ejecución detectados (T-105). */
+  environments?: EnvCaps[];
+  /** El equipo según el escaneo (T-105). */
+  hardware?: HardwareCaps;
+}
+
+/** Un módulo tal como lo anuncia su máquina (`tandem_ui::session::ModuleView`). */
+export interface ModuleCaps {
+  /** El id del puesto: `input`, `clipboard`, `secure_desktop`… */
+  id: string;
+  name: string;
+  detail: string;
+  state: "active" | "off" | "unavailable";
+  reason: string | null;
+  switchable: boolean;
+}
+
+/** Un entorno de ejecución (`tandem_ui::session::EnvView`). */
+export interface EnvCaps {
+  id: string;
+  kind: "shell" | "wsl" | "docker";
+  name: string;
+  default: boolean;
+  ready: boolean;
+  detail: string;
+  gpu: boolean;
+}
+
+export interface HardwareCaps {
+  cpu: string | null;
+  cores: number;
+  /** RAM total, en bytes. */
+  memory: number;
+  gpus: { name: string; vram: number | null }[];
+}
+
+/** Una muestra de recursos (`tandem_proto::Resources`): porcentajes en décimas, bytes. */
+export interface ResourceSample {
+  cpu: { load: number; cores: number[]; temperature: number | null };
+  memory: { used: number; total: number };
+  gpus: { name: string; load: number | null; vram_used: number | null; vram_total: number | null; temperature: number | null }[];
+  disk: { free: number; total: number } | null;
 }
 
 /** Esta máquina y la otra (`null` si nunca se la vio). */
@@ -145,7 +189,13 @@ export type Action =
   /** «Pedir permisos» (T-090): macOS muestra su diálogo a nombre de `tandemd`. */
   | { kind: "request_permissions" }
   /** Guardar el acomodo en el puesto compartido (`EditDesk { Arrangement }`, T-099). */
-  | { kind: "set_arrangement"; a_side: Side; align: Align };
+  | { kind: "set_arrangement"; a_side: Side; align: Align }
+  | { kind: "set_module"; machine: Machine; module: string; on: boolean }
+  | { kind: "rescan"; machine: Machine }
+  /** Recibir los recursos en vivo mientras la pantalla visible los muestra. */
+  | { kind: "watch_resources"; on: boolean }
+  /** Nombre o color de una máquina (el puesto compartido). */
+  | { kind: "set_machine"; machine: Machine; name?: string; color?: string };
 
 /** De dónde salió la configuración del agente (`tandem_proto::SetupInfo`). */
 export interface AgentSetup {

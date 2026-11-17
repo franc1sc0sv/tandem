@@ -22,6 +22,47 @@ export interface ModuleView {
   state: ModuleState;
   /** Qué hace en esta máquina, o por qué no está disponible. */
   detail: string;
+  /** El usuario lo puede encender y apagar. */
+  switchable: boolean;
+}
+
+/** Un entorno de ejecución detectado (T-105). */
+export interface EnvView {
+  id: string;
+  kind: "shell" | "wsl" | "docker";
+  name: string;
+  /** El predeterminado de su clase. */
+  default: boolean;
+  ready: boolean;
+  /** Herramientas, o por qué no está listo. */
+  detail: string;
+}
+
+/** El equipo según el escaneo (D10). */
+export interface HardwareView {
+  cpu: string | null;
+  /** Núcleos lógicos. */
+  cores: number;
+  /** RAM total, en bytes. */
+  memory: number;
+  /** `vram` en bytes; `null` si comparte la RAM. */
+  gpu: { name: string; vram: number | null } | null;
+}
+
+/** Recursos en vivo para la página Máquina (bytes y porcentajes 0–100). */
+export interface LiveView {
+  cpu: { percent: number; temp: number | null; history: number[] };
+  ram: { used: number; total: number; history: number[] };
+  gpu: {
+    percent: number | null;
+    vramUsed: number | null;
+    vramTotal: number | null;
+    temp: number | null;
+    /** Ventiladores, 0–100, si el sistema lo dice. */
+    fans: number | null;
+    history: number[];
+  } | null;
+  disk: { free: number; total: number } | null;
 }
 
 export interface Usage {
@@ -55,6 +96,12 @@ export interface MachineView {
   power: Power;
   resources: Resources | null;
   modules: ModuleView[];
+  /** Sistema para mostrar («Windows 11», «macOS»). */
+  system: string;
+  hardware: HardwareView | null;
+  environments: EnvView[];
+  /** Recursos en vivo (página Máquina); `null` sin muestras. */
+  live: LiveView | null;
 }
 
 export type LinkKind = "usb4" | "ethernet" | "wifi";
@@ -212,6 +259,9 @@ export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing"
 
 export type PairActionKind = "start_pairing" | "confirm_pairing" | "cancel_pairing" | "unpair";
 
+/** Lo que una fuente puede o no hacer hoy. */
+export type Capability = "scenes" | "modules" | "power" | "measure" | "machine";
+
 /** Resultado de una acción pedida desde la UI. */
 export type ActResult = { ok: true; text?: string } | { ok: false; reason: string };
 
@@ -228,6 +278,10 @@ export interface Source {
   /** Medir el ancho de banda de un camino (por omisión, el que lleva el tráfico). */
   measureLink(path?: LinkKind): Promise<ActResult>;
   setModule(machine: Machine, module: string, on: boolean): Promise<ActResult>;
+  /** Volver a escanear los entornos de `machine` (lo nuevo llega con el puesto). */
+  rescan(machine: Machine): Promise<ActResult>;
+  /** Nombre o color de una máquina (el puesto compartido, D4/D17). */
+  editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult>;
   /** Emparejar (`start_pairing`, `confirm_pairing`, `cancel_pairing`) o desemparejar. */
   pairAction(kind: PairActionKind): Promise<ActResult>;
   /** macOS muestra su diálogo de permisos a nombre de tandemd. */

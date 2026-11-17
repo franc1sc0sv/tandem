@@ -36,6 +36,8 @@ use crate::updater::Updater;
 
 pub const SNAPSHOT_EVENT: &str = "agent-snapshot";
 pub const NOTICE_EVENT: &str = "agent-notice";
+/// Una muestra de recursos en vivo (`{ machine, resources }`), solo con `watch_resources`.
+pub const RESOURCES_EVENT: &str = "agent-resources";
 pub const MESSAGE_EVENT: &str = "ui-message";
 pub const SHORTCUTS_EVENT: &str = "ui-shortcuts";
 
@@ -140,6 +142,13 @@ impl Sink for Windows {
         if let Some(u) = self.0.try_state::<Arc<Updater>>() {
             u.on_agent(&self.0, status);
         }
+    }
+
+    fn resources(&self, machine: tandem_core::Machine, resources: &tandem_proto::Resources) {
+        let _ = self.0.emit(
+            RESOURCES_EVENT,
+            serde_json::json!({ "machine": machine, "resources": resources }),
+        );
     }
 }
 

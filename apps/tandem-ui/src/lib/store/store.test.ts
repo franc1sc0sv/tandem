@@ -407,7 +407,9 @@ describe("fuente real", () => {
     expect(src.can("scenes")).toBe(false);
     expect(await src.measureLink()).toEqual({ ok: true, text: "4 ms" });
     expect((await src.applyScene()).ok).toBe(false);
-    expect((await src.setModule()).ok).toBe(false);
+    act.mockResolvedValueOnce({ kind: "done" } as never);
+    expect(await src.setModule("b", "clipboard", false)).toEqual({ ok: true });
+    expect(act).toHaveBeenLastCalledWith({ kind: "set_module", machine: "b", module: "clipboard", on: false });
     act.mockResolvedValueOnce({ kind: "accepted", txn: 1 } as never);
     expect(await src.setPower("a", false)).toEqual({ ok: true });
     expect(act).toHaveBeenLastCalledWith({ kind: "set_power", machine: "a", on: false });

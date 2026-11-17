@@ -61,6 +61,15 @@ export const NO_ADD_MACHINE: Ignore = {
   reason: "D1: sin «Agregar máquina» (exactamente dos máquinas)",
 };
 
+/**
+ * Solo `V3-Maquina` dice «Mi puesto» junto al logo; la barra lateral es una sola para todas las
+ * pantallas y su referencia es la de `V3-Puesto` (T-112).
+ */
+export const DESK_LABEL: Ignore = {
+  mockupSelector: 'nav[aria-label="Principal"] > div:first-child > span.mut',
+  reason: "la barra lateral es la de V3-Puesto (sin «Mi puesto»)",
+};
+
 /** Criterio de T-112: la barra lateral igual a la de `V3-Puesto`. */
 export const SIDEBAR_GATE = { similarity: 0.99, worstTile: 0.97 };
 
@@ -146,7 +155,23 @@ export const SHOTS: ShotSpec[] = [
   { name: "monitores", page: "index.html", query: DEMO, hash: "#/monitores", mockup: "V3-Monitores", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   ...ACOMODO,
   { name: "red", page: "index.html", query: DEMO, hash: "#/red", mockup: "V3-Red", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
-  { name: "maquina-b", page: "index.html", query: DEMO, hash: "#/maquina/b", mockup: "V3-Maquina", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
+  // T-115: la página de la otra máquina, con umbral en la barra lateral y en el contenido.
+  // `F-MaquinaMac` (esta máquina) no tiene barra lateral (G3 la pide) ni el selector de color
+  // (alcance 4 de T-115): se captura para verla, sin umbral.
+  {
+    name: "maquina-b",
+    page: "index.html",
+    query: DEMO,
+    hash: "#/maquina/b",
+    mockup: "V3-Maquina",
+    width: W,
+    height: H,
+    ignore: [NO_ADD_MACHINE, DESK_LABEL],
+    regions: [
+      { ...SIDEBAR, min: SIDEBAR_GATE },
+      { name: "contenido", mockupSelector: "main", min: SIDEBAR_GATE },
+    ],
+  },
   { name: "maquina-a", page: "index.html", query: DEMO, hash: "#/maquina/a", mockup: "F-MaquinaMac", width: W, height: H },
   { name: "ajustes", page: "index.html", query: DEMO, hash: "#/ajustes", mockup: "F-Ajustes", width: W, height: H },
   { name: "paleta", page: "index.html", query: DEMO, hash: "#/puesto", mockup: "F-Paleta", width: W, height: H, keys: ["Control+k"] },

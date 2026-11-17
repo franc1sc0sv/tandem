@@ -35,6 +35,16 @@ describe("arnés de capturas", () => {
     expect(puesto?.ignore?.every((i) => i.reason.startsWith("D1"))).toBe(true);
   });
 
+  it("la página Máquina (T-115) tiene umbral en la barra lateral y en el contenido", () => {
+    const b = SHOTS.find((s) => s.name === "maquina-b");
+    expect(b?.mockup).toBe("V3-Maquina");
+    expect(b?.regions?.map((r) => [r.name, r.min])).toEqual([
+      ["barra lateral", SIDEBAR_GATE],
+      ["contenido", SIDEBAR_GATE],
+    ]);
+    expect(SHOTS.find((s) => s.name === "maquina-a")?.mockup).toBe("F-MaquinaMac");
+  });
+
   it("tapa las zonas pedidas y nada más", () => {
     const out = PNG.sync.read(mask(solid(4, 4, [0, 0, 0]), [{ x: 1, y: 1, width: 2, height: 1 }]));
     const px = (x: number, y: number) => [...out.data.slice((y * 4 + x) * 4, (y * 4 + x) * 4 + 3)];

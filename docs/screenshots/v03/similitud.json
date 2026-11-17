@@ -422,8 +422,8 @@
     "mockup": "F-MaquinaMac",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9598,
-      "worstTile": 0.4688,
+      "similarity": 0.9542,
+      "worstTile": 0.4519,
       "ok": true
     },
     "zonas": [],
@@ -433,15 +433,29 @@
     "mockup": "V3-Maquina",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9574,
-      "worstTile": 0.7068,
+      "similarity": 1,
+      "worstTile": 0.9949,
       "ok": true
     },
     "zonas": [
       {
         "name": "barra lateral",
-        "similarity": 0.9989,
-        "worstTile": 0.9519,
+        "similarity": 1,
+        "worstTile": 0.999,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      },
+      {
+        "name": "contenido",
+        "similarity": 1,
+        "worstTile": 0.9949,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
         "ok": true
       }
     ],
