@@ -422,6 +422,13 @@ pub struct UpdateView {
     pub auto: bool,
 }
 
+/// El comparador del updater al **buscar**: el release sirve si alguna de las dos máquinas
+/// va atrás, no solo esta (el comparador por omisión solo mira «más nueva que esta app», y
+/// con esta al día y la otra atrás nunca ofrecería nada). Al instalar aquí vale el de siempre.
+pub fn fetch_release(current: &Version, release: &Version, peer: &Peer) -> bool {
+    worth_offering(release, current, peer)
+}
+
 /// La versión encontrada sirve si es más nueva que alguna de las dos máquinas.
 pub fn worth_offering(found: &Version, here: &Version, peer: &Peer) -> bool {
     found > here || matches!(peer, Peer::At(v) if found > v)
@@ -634,6 +641,25 @@ mod tests {
             peer_from(true, false, Some(&status(Some("0.3.0"), Some(99)))),
             Peer::OtherProtocol
         );
+    }
+
+    /// Revisión de #77: con esta al día y la otra atrás, el release igual tiene que bajarse
+    /// para ofrecer «Actualizar todas» (solo la otra).
+    #[test]
+    fn this_up_to_date_and_the_other_behind_still_offers() {
+        let (here, release) = (v("0.3.1"), v("0.3.1"));
+        let peer = Peer::At(v("0.3.0"));
+        assert!(fetch_release(&here, &release, &peer));
+        assert_eq!(
+            plan(&here, &peer, &release),
+            Ok(vec![Step::AskPeer, Step::WaitPeer])
+        );
+        // Las dos al día, o un release más viejo que las dos: nada que ofrecer.
+        let same = Peer::At(v("0.3.1"));
+        assert!(!fetch_release(&here, &release, &same));
+        assert!(!fetch_release(&here, &v("0.3.0"), &same));
+        // Esta atrás, como el comparador de siempre.
+        assert!(fetch_release(&v("0.3.0"), &release, &Peer::Alone));
     }
 
     #[test]

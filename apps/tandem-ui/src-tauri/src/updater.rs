@@ -135,17 +135,13 @@ impl Updater {
             s.view.checking = true;
             s.view.error = None;
         });
-        let found = find(app).await;
-        let peer = self.peer(app);
+        let found = find(app, self.peer(app)).await;
         self.change(app, |s| {
             s.view.checking = false;
             match found {
                 Ok(v) => {
-                    let worth = v
-                        .as_ref()
-                        .is_some_and(|v| update::worth_offering(v, &parse(HERE), &peer));
-                    s.view.available = v.as_ref().filter(|_| worth).map(ToString::to_string);
-                    s.found = v.filter(|_| worth);
+                    s.view.available = v.as_ref().map(ToString::to_string);
+                    s.found = v;
                 }
                 Err(e) => s.view.error = Some(e),
             }
@@ -273,9 +269,23 @@ fn this_machine(app: &AppHandle) -> Option<Machine> {
     }
 }
 
-/// La versión del último release, si es otra que la de esta app.
-async fn find(app: &AppHandle) -> Result<Option<Version>, String> {
-    let updater = app.updater().map_err(|e| e.to_string())?;
+/// La versión del último release, si alguna de las dos máquinas va atrás (aunque esta ya esté
+/// al día, ver [`update::fetch_release`]).
+async fn find(app: &AppHandle, peer: Peer) -> Result<Option<Version>, String> {
+    let updater = app
+        .updater_builder()
+        .version_comparator(move |current, release| {
+            match (
+                current.to_string().parse::<Version>(),
+                release.version.to_string().parse::<Version>(),
+            ) {
+                (Ok(c), Ok(r)) => update::fetch_release(&c, &r, &peer),
+                // Lo que no se entiende como versión no se ofrece.
+                _ => false,
+            }
+        })
+        .build()
+        .map_err(|e| e.to_string())?;
     let update = updater
         .check()
         .await
