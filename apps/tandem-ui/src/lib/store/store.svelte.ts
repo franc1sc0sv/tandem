@@ -8,7 +8,9 @@ import type { Bindings, Permission, ShortcutsView } from "../model";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
 import type { UpdateView } from "../updates";
-import type { ActResult, DeskView, LinkKind, PairActionKind, Source, Topic } from "./types";
+import type { Arrangement } from "../acomodo";
+import type { CrossSample } from "../crossing";
+import type { ActResult, Capability, DeskView, LinkKind, PairActionKind, Source, Topic } from "./types";
 
 /** Pasos del asistente que se abren desde otras partes (índices de `WIZARD_STEPS`). */
 export const WIZARD_PAIR = 1;
@@ -98,7 +100,7 @@ export class Store implements CommandContext {
     if (this.location) this.go(parseHash(this.location.hash));
   }
 
-  can(what: "scenes" | "modules" | "power" | "measure"): boolean {
+  can(what: Capability): boolean {
     return this.source.can(what);
   }
 
@@ -128,6 +130,19 @@ export class Store implements CommandContext {
 
   setModule(machine: Machine, module: string, on: boolean): Promise<ActResult> {
     return this.report(this.source.setModule(machine, module, on));
+  }
+
+  setArrangement(a: Arrangement): Promise<ActResult> {
+    return this.report(this.source.setArrangement(a));
+  }
+
+  watchCrossing(onCross: (s: CrossSample) => void): Promise<() => void> {
+    return this.source.watchCrossing(onCross);
+  }
+
+  /** El tiempo para cruzar en la prueba (`undefined`: el de siempre). */
+  get crossTimeoutMs(): number | undefined {
+    return this.source.crossTimeoutMs;
   }
 
   pairAction(kind: PairActionKind): Promise<ActResult> {

@@ -143,7 +143,9 @@ export type Action =
   | { kind: "set_keyboard"; machine: Machine }
   | { kind: "ping_peer" }
   /** «Pedir permisos» (T-090): macOS muestra su diálogo a nombre de `tandemd`. */
-  | { kind: "request_permissions" };
+  | { kind: "request_permissions" }
+  /** Guardar el acomodo en el puesto compartido (`EditDesk { Arrangement }`, T-099). */
+  | { kind: "set_arrangement"; a_side: Side; align: Align };
 
 /** De dónde salió la configuración del agente (`tandem_proto::SetupInfo`). */
 export interface AgentSetup {

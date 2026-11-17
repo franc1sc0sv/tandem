@@ -139,6 +139,11 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
       await page.keyboard.press(k);
       await settle(page);
     }
+    // Los mismos clics que llevan al estado del mockup (`tools/mockup-render/src/states.ts`).
+    for (const sel of spec.clicks ?? []) {
+      await page.locator(sel).click({ timeout: 5_000 });
+      await settle(page);
+    }
     const text = await page.evaluate(() => document.body.innerText);
     for (const bad of ["{{", "undefined", "NaN"]) if (text.includes(bad)) errors.push(`texto visible con «${bad}»`);
     png = await capture(page);
@@ -159,7 +164,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
   let app = png;
   if (masked.length > 0) {
     app = mask(app, masked);
-    ref = mask(readFileSync(mockupShotPath(spec.mockup)), masked);
+    ref = mask(readFileSync(mockupShotPath(spec.mockup, spec.state)), masked);
   }
 
   const measure = (name: string, region: Rect | undefined, min?: Measure["min"]): Measure => {
@@ -170,13 +175,13 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
       r = compare(app, ref, { region: box });
       if (diffPath) writeFileSync(diffPath, r.diffPng);
     } else {
-      r = compareWithMockup(app, { mockup: spec.mockup, region: box, diffPath });
+      r = compareWithMockup(app, { mockup: spec.mockup, state: spec.state, region: box, diffPath });
     }
     const ok = !min || (r.similarity >= min.similarity && r.worstTile.similarity >= min.worstTile);
     return { name, similarity: round(r.similarity), worstTile: round(r.worstTile.similarity), min, ok };
   };
 
-  const full = measure("pantalla", undefined);
+  const full = measure("pantalla", undefined, spec.min);
   const regions: Measure[] = [];
   for (const r of spec.regions ?? []) {
     const rect = r.rect ?? (r.mockupSelector ? rects[r.mockupSelector] : null);
@@ -186,7 +191,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     }
     regions.push(measure(r.name, rect, r.min));
   }
-  return { name: spec.name, mockup: spec.mockup, file, errors, full, regions };
+  return { name: spec.name, mockup: spec.state ? `${spec.mockup}--${spec.state}` : spec.mockup, file, errors, full, regions };
 }
 
 const round = (n: number) => Math.round(n * 10000) / 10000;
@@ -234,7 +239,7 @@ async function main(): Promise<void> {
   const sorted = Object.fromEntries(Object.entries(prev).sort(([a], [b]) => a.localeCompare(b)));
   writeFileSync(summaryFile, JSON.stringify(sorted, null, 2) + "\n");
 
-  const failed = results.filter((r) => r.errors.length > 0 || r.regions.some((g) => !g.ok));
+  const failed = results.filter((r) => r.errors.length > 0 || !r.full.ok || r.regions.some((g) => !g.ok));
   if (args.check && (failed.length > 0 || styleFailed)) {
     console.error(`\nNo cumplen: ${[...failed.map((r) => r.name), ...(styleFailed ? ["estilos"] : [])].join(", ")}`);
     process.exit(1);

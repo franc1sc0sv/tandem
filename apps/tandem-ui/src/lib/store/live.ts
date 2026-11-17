@@ -5,13 +5,14 @@
 // la pantalla visible. Los eventos por tema (recursos, túneles, módulos) llegan con
 // T-098/T-102/T-104 y se suscriben aquí.
 
+import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, ratioLabel, type Arrangement, type LayoutScreen, type LayoutView } from "../acomodo";
 import type { Bridge } from "../bridge";
 import { machineColor, machineName, other } from "../machines";
 import type { ActionResult, Bindings, Caps, Link, Machine, MachineCaps, Permission, SetupView, ShortcutsView, Snapshot } from "../model";
 import { grantTo, permissionState } from "../permissions";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK } from "./types";
-import type { ActResult, DeskView, MachineView, PairActionKind, PermissionsView, Source, Topic } from "./types";
+import type { ActResult, Capability, DeskView, MachineView, PairActionKind, PermissionsView, Source, Topic } from "./types";
 
 const MAC_PERMISSIONS: Permission[] = ["accessibility", "input_monitoring", "local_network"];
 
@@ -30,6 +31,7 @@ export const EMPTY_DESK: DeskView = {
   activeScene: null,
   pair: { peer: { kind: "unpaired" }, pairing: { kind: "idle" } },
   permissions: { needed: false, rows: [], binary: null },
+  layout: EMPTY_LAYOUT,
 };
 
 /** La foto del agente no tiene la forma que espera esta versión de la UI. */
@@ -122,7 +124,50 @@ export function deskFromSnapshot(raw: Snapshot): DeskView {
     link: { kind: snap.peer.kind === "paired" && snap.peer.link ? LINK_KIND[snap.peer.link] : null, gbps: null, ms: null, inputP99: null },
     pair: { peer: snap.peer, pairing: snap.pairing },
     permissions: permissionsOf(snap.caps.here),
+    layout: layoutFromDesk(snap),
   };
+}
+
+/**
+ * Las pantallas del acomodo según el puesto: las declaradas de cada máquina, o una por
+ * máquina si no declaró ninguna. El agente todavía no informa el tamaño físico: se estima
+ * con [`ASSUMED_PPI`] a partir de los puntos lógicos.
+ */
+export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): LayoutView {
+  const screens: LayoutScreen[] = [];
+  for (const m of ["a", "b"] as Machine[]) {
+    const name = machineName(m, snap.caps, snap.desk);
+    const known = snap.desk.machines?.[m] ?? (snap.caps.here.machine === m ? snap.caps.here : snap.caps.peer?.machine === m ? snap.caps.peer : null);
+    if (!known) continue;
+    const mac = known.os === "macos";
+    const own = snap.desk.screens.filter((s) => s.machine === m);
+    if (own.length === 0) {
+      screens.push({ id: `escritorio-${m}`, machine: m, name, short: name.split(" ")[0] ?? name, ask: name, w: 16, h: 10, size: "—", res: "—", ratio: "—", scale: "—", usable: true, line: name });
+      continue;
+    }
+    for (const s of own) {
+      // macOS da puntos; Windows, píxeles físicos que la escala convierte en lógicos.
+      const logical = mac ? 1 : s.scale || 1;
+      screens.push({
+        id: `${m}:${s.id}`,
+        machine: m,
+        name: s.id,
+        short: s.id,
+        ask: s.id,
+        w: s.width / logical / ASSUMED_PPI,
+        h: s.height / logical / ASSUMED_PPI,
+        size: "—",
+        res: `${s.width} × ${s.height}`,
+        ratio: ratioLabel(s.width, s.height),
+        scale: `${Math.round(s.scale * 100)} %`,
+        usable: true,
+        line: name,
+      });
+    }
+  }
+  const arr = snap.desk.arrangement;
+  const arrangement: Arrangement = arr ? { aSide: arr.a_side, align: arr.align } : DEFAULT_ARRANGEMENT;
+  return { screens, arrangement };
 }
 
 /** El estado difícil de un error al hablar con el agente. */
@@ -185,6 +230,16 @@ export class LiveSource implements Source {
     return { ok: false, reason: "Los módulos todavía no están en el agente" };
   }
 
+  async setArrangement(a: Arrangement): Promise<ActResult> {
+    const r = result(await this.bridge.act({ kind: "set_arrangement", a_side: a.aSide, align: a.align }));
+    return r.ok ? { ok: true, text: "Acomodo guardado" } : r;
+  }
+
+  async watchCrossing(): Promise<() => void> {
+    // El motor de entrada todavía no informa los cruces por la IPC (`CursorSample`).
+    throw new Error("El agente todavía no informa el cruce del cursor");
+  }
+
   async pairAction(kind: PairActionKind): Promise<ActResult> {
     return result(await this.bridge.act({ kind }));
   }
@@ -244,7 +299,7 @@ export class LiveSource implements Source {
     return this.bridge.setAutoUpdate(on);
   }
 
-  can(what: "scenes" | "modules" | "power" | "measure"): boolean {
+  can(what: Capability): boolean {
     if (what === "power" || what === "measure") return this.last.kind === "connected" && this.last.peer.kind === "paired";
     return false;
   }
