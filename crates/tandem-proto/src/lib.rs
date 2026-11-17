@@ -17,16 +17,17 @@ mod wire;
 
 pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encode_frame};
 pub use msg::{
-    AgentToUi, Capabilities, Channel, ControlMsg, DeskCapabilities, DeskSync, Hello, HubReport,
-    InputCaps, InputPermission, InputStatus, KeyProbeMsg, KeyProbeStatus, Link, PairingMsg,
-    PairingStatus, Peer, PeerStatus, PowerCaps, PowerEvent, ProcessInfo, Reply, ScreenRect,
-    SetupInfo, StepOutcome, TxnEvent, UiCommand, UiRequest,
+    AgentToUi, Capabilities, Channel, ControlMsg, DeskCapabilities, DeskSync, Environment, Hello,
+    HubReport, InputCaps, InputPermission, InputStatus, KeyProbeMsg, KeyProbeStatus, Link,
+    ModuleId, ModuleInfo, ModuleState, MonitorChannel, PairingMsg, PairingStatus, Peer, PeerStatus,
+    PowerCaps, PowerEvent, ProcessInfo, Reply, ScreenRect, SetupInfo, StepOutcome, TxnEvent,
+    UiCommand, UiRequest,
 };
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 16;
+pub const PROTOCOL_VERSION: u16 = 17;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -77,11 +78,12 @@ mod tests {
     /// capacidades y pedido de permisos) sube a la v14. T-092 (fuera los monitores, las
     /// sondas y los modos; pantallas con id propio y acomodo declarado) sube a la v15.
     /// T-097 (lados A/B por clave pública, `MachineInfo` en las capacidades y en el puesto)
-    /// sube a la v16.
+    /// sube a la v16. T-098 (módulos con estado, entornos y monitores en las capacidades;
+    /// `SetModule` en la UI y entre agentes) sube a la v17.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 16);
+        assert_eq!(PROTOCOL_VERSION, 17);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
-        assert_eq!(super::SIDES_SINCE, PROTOCOL_VERSION);
+        assert_eq!(super::SIDES_SINCE, 16);
     }
 }

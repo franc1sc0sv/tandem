@@ -9,7 +9,8 @@
 //! cuando cambia el par o el enlace con él, [`AgentToUi::Pairing`] con cada paso del
 //! emparejamiento, [`AgentToUi::Input`] cuando cambia el teclado y mouse (roles, sesión,
 //! permisos que faltan), [`AgentToUi::Desk`] cuando cambia el puesto compartido y
-//! [`AgentToUi::Capabilities`] cuando cambia lo que puede alguna de las dos.
+//! [`AgentToUi::Machines`] cuando cambia lo que anuncia alguna de las dos (módulos
+//! incluidos).
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -221,10 +222,18 @@ where
                     return Ok(());
                 }
                 let c = caps.borrow_and_update().clone();
-                conn.send(&AgentToUi::Capabilities(Box::new(c))).await?;
+                conn.send(&machines(c)).await?;
             }
             () = stopped(&mut shutdown) => return Ok(()),
         }
+    }
+}
+
+/// Lo que anuncian las dos máquinas, como aviso para la UI.
+pub fn machines(c: tandem_proto::DeskCapabilities) -> AgentToUi {
+    AgentToUi::Machines {
+        local: Box::new(c.here),
+        remote: c.peer.map(Box::new),
     }
 }
 
@@ -392,7 +401,7 @@ mod tests {
         assert!(
             seen.iter().any(|e| matches!(
                 e,
-                Some(AgentToUi::Capabilities(c)) if c.here.input.missing == [tandem_proto::InputPermission::Accessibility]
+                Some(AgentToUi::Machines { local, .. }) if local.input.missing == [tandem_proto::InputPermission::Accessibility]
             )),
             "{seen:?}"
         );

@@ -14,6 +14,8 @@
 //! - [`capabilities`]: lo que cada máquina tiene y sabe hacer, y lo que el plan puede pedirle
 //!   a cada una (T-084).
 //! - [`desk_sync`]: la configuración compartida del puesto entre las dos máquinas (T-084).
+//! - [`modules`]: los módulos de cada sistema y su estado (activo, apagado, no disponible;
+//!   T-098).
 //! - [`power`]: Wake-on-LAN hacia la otra máquina y apagado limpio de esta.
 //! - [`peer_watch`]: da a la otra máquina por apagada si ningún enlace la ve (corte de
 //!   corriente o suspendida), en las dos.
@@ -40,6 +42,7 @@ pub mod install;
 pub mod ipc;
 pub mod logging;
 pub mod migrate;
+pub mod modules;
 pub mod network;
 pub mod orchestrator;
 pub mod pairing;

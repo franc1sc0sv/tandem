@@ -9,10 +9,18 @@
 //! apagarse solo. Eso vive aquí, en una función por capacidad que pregunta por el [`Os`]
 //! (nunca por el lado, DECISIONS D2), y el resto del agente pregunta por la capacidad.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
 use tandem_core::{Abilities, Machine, MachineInfo, Os};
-use tandem_proto::{Capabilities, InputCaps, InputStatus, PowerCaps, ProcessInfo};
+use tandem_proto::{Capabilities, InputCaps, InputStatus, ModuleInfo, PowerCaps, ProcessInfo};
 
 use crate::config::AgentConfig;
+
+/// Cuánto se juntan los cambios de capacidades antes de anunciarlos a la otra máquina
+/// (T-098): un permiso concedido o un módulo que arranca cambian varias cosas seguidas.
+pub const ANNOUNCE_DEBOUNCE: Duration = Duration::from_millis(250);
 
 /// Si una máquina con `os` sabe apagarse limpio a pedido de la otra. Hoy, Windows
 /// (`shutdown /s`).
@@ -43,13 +51,24 @@ pub fn current_process() -> ProcessInfo {
     }
 }
 
-/// Lo que esta máquina (el lado `me`, que es `info`) anuncia.
+/// La energía de una máquina con `os` y esta configuración.
+pub fn power(cfg: &AgentConfig, os: Os) -> PowerCaps {
+    PowerCaps {
+        wake_peer: cfg.power.wol.is_some(),
+        wakeable: cfg.power.wakeable,
+        power_off: powers_off(os),
+    }
+}
+
+/// Lo que esta máquina (el lado `me`, que es `info`) anuncia, con sus módulos ya armados
+/// ([`crate::modules::Registry::snapshot`]).
 pub fn local(
     cfg: &AgentConfig,
     me: Machine,
     info: MachineInfo,
     input: &InputStatus,
     process: &ProcessInfo,
+    modules: Vec<ModuleInfo>,
 ) -> Capabilities {
     let works = input.problem.is_none() && input.missing.is_empty();
     let os = info.os;
@@ -63,12 +82,49 @@ pub fn local(
             missing: input.missing.clone(),
             process: process.clone(),
         },
-        power: PowerCaps {
-            wake_peer: cfg.power.wol.is_some(),
-            wakeable: cfg.power.wakeable,
-            power_off: powers_off(os),
-        },
+        power: power(cfg, os),
         services: Vec::new(),
+        modules,
+        // Hasta T-105 (entornos) y T-110 (monitores) no hay nada que anunciar.
+        environments: Vec::new(),
+        monitors: Vec::new(),
+    }
+}
+
+/// Junta en un solo envío lo que pasa dentro de una ventana: el primer cambio la abre y al
+/// cerrarse se manda lo último. Así hay como mucho un anuncio por ventana y ninguno se
+/// retrasa más que la ventana.
+#[derive(Debug)]
+pub struct Debounce {
+    window: Duration,
+    pending: Arc<AtomicBool>,
+}
+
+impl Debounce {
+    pub fn new(window: Duration) -> Self {
+        Debounce {
+            window,
+            pending: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Corre `fire` al cerrar la ventana, salvo que ya haya una abierta: esa leerá lo
+    /// último. Fuera de un runtime de tokio (nada que espere) corre enseguida.
+    pub fn schedule(&self, fire: impl FnOnce() + Send + 'static) {
+        let Ok(rt) = tokio::runtime::Handle::try_current() else {
+            fire();
+            return;
+        };
+        if self.pending.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let (pending, window) = (self.pending.clone(), self.window);
+        rt.spawn(async move {
+            tokio::time::sleep(window).await;
+            // Antes de leer: un cambio que llegue después abre otra ventana.
+            pending.store(false, Ordering::SeqCst);
+            fire();
+        });
     }
 }
 
@@ -105,6 +161,7 @@ mod tests {
             MachineInfo::new(machine, os, None),
             &InputStatus::new(Machine::A),
             &ProcessInfo::default(),
+            Vec::new(),
         )
     }
 
@@ -139,6 +196,7 @@ mod tests {
             MachineInfo::new(Machine::B, Os::Windows, None),
             &InputStatus::new(Machine::B),
             &ProcessInfo::default(),
+            Vec::new(),
         );
         assert!(!c.power.wake_peer, "sin [power.wol] no despierta a nadie");
     }
@@ -164,11 +222,19 @@ mod tests {
             info.clone(),
             &input,
             &ProcessInfo::default(),
+            Vec::new(),
         );
         assert_eq!(c.hub, Some(true));
         assert!(c.input.capture && c.input.inject);
         input.missing = vec![tandem_proto::InputPermission::Accessibility];
-        let c = local(&cfg, Machine::A, info, &input, &ProcessInfo::default());
+        let c = local(
+            &cfg,
+            Machine::A,
+            info,
+            &input,
+            &ProcessInfo::default(),
+            Vec::new(),
+        );
         assert!(!c.input.capture && !c.input.inject);
         assert_eq!(c.input.missing, input.missing);
     }
@@ -187,12 +253,70 @@ mod tests {
             MachineInfo::new(Machine::A, Os::MacOs, None),
             &InputStatus::new(Machine::A),
             &process,
+            Vec::new(),
         );
         assert_eq!(c.input.process, process);
         // El de verdad: esta misma prueba, con su pid y un ejecutable no vacío.
         let now = current_process();
         assert_eq!(now.pid, std::process::id());
         assert!(!now.exe.is_empty() && now.started > 0);
+    }
+
+    #[test]
+    fn without_a_runtime_the_debounce_fires_at_once() {
+        let fired = Arc::new(AtomicBool::new(false));
+        let f = fired.clone();
+        Debounce::new(ANNOUNCE_DEBOUNCE).schedule(move || f.store(true, Ordering::SeqCst));
+        assert!(fired.load(Ordering::SeqCst));
+    }
+
+    /// Una ráfaga dentro de la ventana es un solo envío, al cerrarse; lo que llega después
+    /// abre otra.
+    #[tokio::test(start_paused = true)]
+    async fn a_burst_inside_the_window_fires_once() {
+        let d = Debounce::new(ANNOUNCE_DEBOUNCE);
+        let count = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let schedule = |d: &Debounce| {
+            let c = count.clone();
+            d.schedule(move || {
+                c.fetch_add(1, Ordering::SeqCst);
+            });
+        };
+        for _ in 0..5 {
+            schedule(&d);
+            tokio::time::sleep(Duration::from_millis(40)).await;
+        }
+        assert_eq!(count.load(Ordering::SeqCst), 0, "la ventana sigue abierta");
+        tokio::time::sleep(ANNOUNCE_DEBOUNCE).await;
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+        schedule(&d);
+        tokio::time::sleep(ANNOUNCE_DEBOUNCE + Duration::from_millis(1)).await;
+        assert_eq!(count.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn modules_environments_and_monitors_are_announced() {
+        let cfg = fixtures::desk();
+        let modules =
+            crate::modules::Registry::for_os(Os::MacOs).snapshot(&crate::modules::ModuleContext {
+                os: Os::MacOs,
+                input: &InputStatus::new(Machine::A),
+                power: &power(&cfg, Os::MacOs),
+                switches: &Default::default(),
+            });
+        let c = local(
+            &cfg,
+            Machine::A,
+            MachineInfo::new(Machine::A, Os::MacOs, None),
+            &InputStatus::new(Machine::A),
+            &ProcessInfo::default(),
+            modules.clone(),
+        );
+        assert_eq!(c.modules, modules);
+        assert!(c.environments.is_empty() && c.monitors.is_empty());
+        // El anuncio entero viaja tal cual.
+        let back: Capabilities = tandem_proto::decode(&tandem_proto::encode(&c).unwrap()).unwrap();
+        assert_eq!(back, c);
     }
 
     #[test]

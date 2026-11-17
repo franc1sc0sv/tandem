@@ -13,10 +13,12 @@ use tandem_proto::{
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
+mod modules;
 mod setup;
 
 use crate::capabilities;
 use crate::config::{AgentConfig, InputConfig};
+use crate::modules::{ModuleContext, ModuleSwitches, Registry};
 use crate::orchestrator::{LocalSteps, Orchestrator, PeerLink, Unimplemented};
 use crate::store::{StateStore, StoreError};
 
@@ -66,6 +68,12 @@ pub struct Agent {
     setup: Mutex<SetupInfo>,
     /// Lo que puede esta máquina y lo último que anunció la otra (T-084).
     caps: watch::Sender<DeskCapabilities>,
+    /// Los módulos que existen en esta máquina (T-098).
+    registry: Registry,
+    /// Los módulos que el usuario apagó y los problemas que reportó cada uno en marcha.
+    modules: watch::Sender<ModuleSwitches>,
+    /// Los cambios de lo que anuncia esta máquina van a la otra juntos (T-098).
+    announce: capabilities::Debounce,
     /// El reloj del puesto compartido ([`crate::desk_sync`]) y el atajo de bloqueo, que
     /// también es del puesto.
     sync: Mutex<SyncClock>,
@@ -203,7 +211,15 @@ impl Agent {
             &InputConfig::default().lock_shortcut,
         );
         let info = local_info(&cfg, me, &cfg.desk);
-        let here = capabilities::local(&cfg, me, info, &input, &process);
+        let registry = Registry::for_os(cfg.os);
+        let switches = modules::initial_switches(&cfg);
+        let modules = registry.snapshot(&ModuleContext {
+            os: info.os,
+            input: &input,
+            power: &capabilities::power(&cfg, info.os),
+            switches: &switches,
+        });
+        let here = capabilities::local(&cfg, me, info, &input, &process, modules);
         let sync = if hand_edited {
             tracing::info!("el puesto de tandem.toml cambió a mano: se le manda a la otra máquina");
             SyncClock {
@@ -241,6 +257,9 @@ impl Agent {
                 port: None,
             }),
             caps: watch::Sender::new(DeskCapabilities { here, peer: None }),
+            registry,
+            modules: watch::Sender::new(switches),
+            announce: capabilities::Debounce::new(capabilities::ANNOUNCE_DEBOUNCE),
             sync: Mutex::new(sync),
             hand_edited,
             key_probe: watch::Sender::new(KeyProbeStatus::default()),
@@ -521,22 +540,24 @@ impl Agent {
         self.caps.subscribe()
     }
 
-    /// Vuelve a armar lo que puede esta máquina; si cambió, se lo dice a la UI y a la otra.
+    /// Vuelve a armar lo que puede esta máquina; si cambió, se lo dice a la UI enseguida y a
+    /// la otra con los cambios de [`capabilities::ANNOUNCE_DEBOUNCE`] juntos.
     pub fn refresh_capabilities(&self) {
-        let here = capabilities::local(
-            &self.cfg,
-            self.machine(),
-            self.local_info(),
-            &self.input_status(),
-            &self.process,
-        );
+        let here = self.local_capabilities();
         let changed = self.caps.send_if_modified(|c| {
             let changed = c.here != here;
-            c.here = here.clone();
+            c.here = here;
             changed
         });
         if changed {
-            self.orch.peer().send(ControlMsg::Capabilities(here));
+            let peer = self.orch.peer();
+            let caps = self.caps.subscribe();
+            // Si el enlace cambia mientras tanto, el nuevo ya recibe el anuncio al
+            // conectarse ([`Agent::set_peer`]).
+            self.announce.schedule(move || {
+                let here = caps.borrow().here.clone();
+                peer.send(ControlMsg::Capabilities(Box::new(here)));
+            });
         }
     }
 
@@ -601,7 +622,7 @@ impl Agent {
     pub fn set_peer(&self, peer: Arc<dyn PeerLink>) {
         self.orch.set_peer(peer.clone());
         peer.send(ControlMsg::Desk(self.desk_sync()));
-        peer.send(ControlMsg::Capabilities(self.capabilities().here));
+        peer.send(ControlMsg::Capabilities(Box::new(self.capabilities().here)));
     }
 
     /// Avance de las transacciones, para la UI.
@@ -756,6 +777,11 @@ impl Agent {
                 Reply::Done
             }
             UiCommand::SetPower { machine, on } => self.start_power(machine, on),
+            UiCommand::SetModule {
+                machine,
+                module,
+                on,
+            } => self.switch_module(machine, module, on),
         }
     }
 
@@ -1317,6 +1343,7 @@ pub(crate) mod tests {
             MachineInfo::new(side, os, Some(name.into())),
             &InputStatus::new(Machine::A),
             &tandem_proto::ProcessInfo::default(),
+            Vec::new(),
         )
     }
 

@@ -258,6 +258,7 @@ pub fn test_caps(machine: Machine) -> Box<CapsView> {
         tandem_core::MachineInfo::new(machine, os, None),
         &InputStatus::new(machine),
         &Default::default(),
+        Vec::new(),
     );
     Box::new(CapsView {
         here: here.into(),
@@ -734,7 +735,13 @@ impl Runner {
             AgentToUi::Pairing(status) => self.update_pairing(status.into()),
             AgentToUi::Input(status) => self.update_input(status.into()),
             AgentToUi::Desk(new) => self.update_desk(new),
-            AgentToUi::Capabilities(new) => self.update_caps((*new).into()),
+            AgentToUi::Machines { local, remote } => self.update_caps(
+                DeskCapabilities {
+                    here: *local,
+                    peer: remote.map(|r| *r),
+                }
+                .into(),
+            ),
             AgentToUi::KeyProbe(KeyProbeStatus { armed, heard }) => {
                 self.sink.notice(&Notice::KeyProbe {
                     event: KeyProbeView { armed, heard },
