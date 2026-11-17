@@ -13,6 +13,10 @@
 //! - Los datos ([`SimWifi::data_writer`]) esperan a que haya lugar en la cola, como un
 //!   stream de QUIC frenado por la ventana de congestión.
 //!
+//! - [`SimWifi::data_pipe`] da además el otro extremo ([`WifiReader`]): lo escrito llega
+//!   cuando sale de la cola más la propagación (la prueba de ancho de banda de T-102).
+//!   Solo viajan los tamaños: se lee como ceros.
+//!
 //! Corre con el reloj de tokio (pausado en las pruebas): los tiempos son exactos.
 
 use std::future::Future;
@@ -22,7 +26,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use tokio::io::AsyncWrite;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::sync::mpsc;
 use tokio::time::{Instant, Sleep};
 
 /// Lo más chico que se espera tener lugar para escribir datos: un paquete.
@@ -112,7 +117,25 @@ impl SimWifi {
         WifiWriter {
             wifi: self.clone(),
             wait: None,
+            deliver: None,
         }
+    }
+
+    /// Los dos extremos de un flujo de datos por el Wi-Fi. El lector ve el fin cuando el
+    /// escritor se cierra (o se suelta) y llegó todo lo anterior.
+    pub fn data_pipe(&self) -> (WifiWriter, WifiReader) {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let writer = WifiWriter {
+            wifi: self.clone(),
+            wait: None,
+            deliver: Some(tx),
+        };
+        let reader = WifiReader {
+            arrivals: rx,
+            current: None,
+            wait: None,
+        };
+        (writer, reader)
     }
 
     /// Los datos que salieron (entraron a la cola): cuándo y cuántos bytes.
@@ -125,6 +148,56 @@ impl SimWifi {
 pub struct WifiWriter {
     wifi: SimWifi,
     wait: Option<Pin<Box<Sleep>>>,
+    /// Al otro extremo, si hay ([`SimWifi::data_pipe`]): cuándo llega cada tramo.
+    deliver: Option<mpsc::UnboundedSender<(Instant, usize)>>,
+}
+
+/// El extremo que recibe de [`SimWifi::data_pipe`].
+pub struct WifiReader {
+    arrivals: mpsc::UnboundedReceiver<(Instant, usize)>,
+    /// El tramo que se está leyendo: cuándo llega y cuánto falta.
+    current: Option<(Instant, usize)>,
+    wait: Option<Pin<Box<Sleep>>>,
+}
+
+impl AsyncRead for WifiReader {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        loop {
+            let (at, left) = match self.current {
+                Some(c) => c,
+                None => match self.arrivals.poll_recv(cx) {
+                    Poll::Ready(Some(c)) => {
+                        self.current = Some(c);
+                        c
+                    }
+                    // Sin escritor: el fin.
+                    Poll::Ready(None) => return Poll::Ready(Ok(())),
+                    Poll::Pending => return Poll::Pending,
+                },
+            };
+            if Instant::now() < at {
+                let wait = self
+                    .wait
+                    .get_or_insert_with(|| Box::pin(tokio::time::sleep_until(at)));
+                if wait.as_mut().poll(cx).is_pending() {
+                    return Poll::Pending;
+                }
+            }
+            self.wait = None;
+            let n = left.min(buf.remaining());
+            if n == 0 {
+                self.current = None;
+                continue;
+            }
+            buf.put_slice(&vec![0u8; n]);
+            self.current = (left > n).then_some((at, left - n));
+            return Poll::Ready(Ok(()));
+        }
+    }
 }
 
 impl AsyncWrite for WifiWriter {
@@ -148,9 +221,12 @@ impl AsyncWrite for WifiWriter {
             let need = want.min(PACKET);
             if room >= need {
                 let n = want.min(room);
-                air.enqueue(now, n);
+                let arrives = air.enqueue(now, n);
                 let n = usize::try_from(n).unwrap_or(buf.len());
                 air.data.push((now, n));
+                if let Some(d) = &self.deliver {
+                    let _ = d.send((arrives, n));
+                }
                 return Poll::Ready(Ok(n));
             }
             // Hasta que salga lo que falta para que entre un paquete.
@@ -164,7 +240,9 @@ impl AsyncWrite for WifiWriter {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        // El lector ve el fin después de lo que ya está en camino.
+        self.deliver = None;
         Poll::Ready(Ok(()))
     }
 }
@@ -201,6 +279,22 @@ mod tests {
         assert!(Instant::now() >= t0 + ms(49), "{:?}", Instant::now() - t0);
         let sent: usize = wifi.data_sent().iter().map(|(_, n)| n).sum();
         assert_eq!(sent, 150_000);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn lo_escrito_llega_al_otro_extremo_a_su_hora() {
+        use tokio::io::AsyncReadExt;
+
+        let wifi = SimWifi::new(1_000_000, ms(2), 100_000);
+        let (mut w, mut r) = wifi.data_pipe();
+        let t0 = Instant::now();
+        w.write_all(&[7; 10_000]).await.unwrap();
+        w.shutdown().await.unwrap();
+        let mut got = Vec::new();
+        r.read_to_end(&mut got).await.unwrap();
+        // 10 kB a 1 MB/s son 10 ms, más 2 ms de propagación.
+        assert_eq!(got.len(), 10_000);
+        assert_eq!(Instant::now() - t0, ms(12));
     }
 
     #[tokio::test(start_paused = true)]

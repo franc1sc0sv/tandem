@@ -528,3 +528,35 @@ async fn las_dos_conexiones_de_un_camino_comparten_el_tope() {
     let took = start.elapsed();
     assert!(took >= Duration::from_millis(1400), "tardó {took:?}");
 }
+
+/// T-102: la prueba de ancho de banda por un stream de datos de QUIC real. Mide quien
+/// recibe y quien la pidió recibe ese número.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn la_prueba_de_ancho_de_banda_devuelve_lo_que_midió_el_otro_lado() {
+    use tandem_proto::Channel;
+
+    let mac = identity(1);
+    let pc = identity(2);
+    let mac_ep = endpoint(&mac, trusting(&[&pc]));
+    let pc_ep = endpoint(&pc, trusting(&[&mac]));
+    let (to_pc, to_mac) = pair(&mac_ep, &pc_ep).await;
+    let mac_hello = Hello::new(Peer::Agent(Machine::A));
+    let pc_hello = Hello::new(Peer::Agent(Machine::B));
+    let answer = tokio::spawn(async move {
+        let (mut s, _) = to_mac.accept_control(&pc_hello).await.unwrap();
+        assert_eq!(
+            s.recv::<ControlMsg>().await.unwrap(),
+            Some(ControlMsg::Open(Channel::Measure))
+        );
+        // La conexión sigue viva hasta que el otro lea la respuesta.
+        (s.answer_measure().await.unwrap(), to_mac)
+    });
+    let (mut s, _) = within(to_pc.open_control(&mac_hello)).await.unwrap();
+    s.send(&ControlMsg::Open(Channel::Measure)).await.unwrap();
+    let got = within(s.measure(Duration::from_millis(500))).await.unwrap();
+    let (answered, _conn) = within(answer).await.unwrap();
+    assert_eq!(got, answered);
+    assert!(got.bytes > 0, "{got:?}");
+    // Por loopback, bastante más que 1 MB/s.
+    assert!(got.bytes_per_sec().unwrap() > 1_000_000, "{got:?}");
+}

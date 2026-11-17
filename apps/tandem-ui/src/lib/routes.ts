@@ -25,7 +25,7 @@ export const SCREEN_TOPICS: Record<Screen, Topic[]> = {
   tuneles: ["machines", "tunnels"],
   monitores: ["machines", "monitors", "scenes"],
   acomodo: ["machines", "monitors"],
-  red: ["machines", "link"],
+  red: ["machines", "link", "network"],
   maquina: ["machines", "resources", "tunnels"],
   ajustes: ["machines"],
 };

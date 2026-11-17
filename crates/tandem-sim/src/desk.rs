@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use tandem_core::{Machine, MonitorInput, Os, Plan, State};
 use tandem_link::manager::{HealthConfig, LinkKind, LinkManager};
+use tandem_link::metrics;
 use tandem_monitor::{LocalConfig, LocalMonitors};
 use tandem_proto::{MonitorView, Reply, TxnEvent, UiCommand};
 use tandemd::monitors::MonitorTimes;
@@ -193,12 +194,20 @@ impl DeskBuilder {
         // (su puesto y sus capacidades) por él.
         let links =
             |near: &Arc<Agent>, far: &Arc<Agent>, up: watch::Sender<bool>| -> Result<_, SimError> {
-                let (manager, _events) = LinkManager::spawn(
+                let (manager, events) = LinkManager::spawn(
                     &net.candidates(),
                     SimProber::new(net.clone(), far.clone()),
                     HealthConfig::default(),
                 )
                 .map_err(|e| SimError::Setup(e.to_string()))?;
+                // Las métricas de la pantalla Red, como en `tandemd::network` (T-102).
+                tokio::spawn(metrics::follow(
+                    near.net_metrics().clone(),
+                    manager.watch(),
+                    events,
+                    near.link_qos().clone(),
+                    metrics::SAMPLE_EVERY,
+                ));
                 let mut snapshots = manager.watch();
                 let peer = Arc::new(ManagedPeer::new(manager));
                 let (near, announce) = (near.clone(), peer.clone());

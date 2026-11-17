@@ -17,6 +17,10 @@ pub struct LinkEvent {
     pub seq: u64,
     pub from: Option<LinkKind>,
     pub to: Option<LinkKind>,
+    /// Si `from` se cayó: desde su última respuesta hasta el cambio (lo que la entrada
+    /// pudo quedar sin camino, como mucho). `None` si `from` seguía sano (una subida a un
+    /// enlace mejor, o el primero).
+    pub took: Option<Duration>,
 }
 
 /// Salud de un enlace según el último ping.
@@ -41,6 +45,8 @@ struct Slot<H> {
     up: Option<(H, Duration)>,
     /// Primer ping bueno de la racha actual.
     up_since: Option<Instant>,
+    /// Último ping bueno.
+    last_ok: Option<Instant>,
     /// Se cayó alguna vez después de haber estado sano: desde entonces, para
     /// volver a él hay que esperar `settle`.
     dropped: bool,
@@ -70,6 +76,7 @@ impl<H> LinkTable<H> {
                 addr: c.addr,
                 up: None,
                 up_since: None,
+                last_ok: None,
                 dropped: false,
             };
             if links.insert(c.kind, slot).is_some() {
@@ -109,6 +116,9 @@ impl<H> LinkTable<H> {
             }
             _ => {}
         }
+        if up.is_some() {
+            slot.last_ok = Some(now);
+        }
         slot.up = up;
         self.reevaluate(now, held)
     }
@@ -120,10 +130,17 @@ impl<H> LinkTable<H> {
         if best == self.active {
             return None;
         }
+        let took = self
+            .active
+            .and_then(|k| self.links.get(&k))
+            .filter(|s| s.up.is_none())
+            .and_then(|s| s.last_ok)
+            .map(|t| now.saturating_duration_since(t));
         let event = LinkEvent {
             seq: self.next_seq,
             from: self.active,
             to: best,
+            took,
         };
         self.next_seq += 1;
         self.active = best;
@@ -157,6 +174,18 @@ impl<H> LinkTable<H> {
         let kind = self.active?;
         let (handle, _) = self.links.get(&kind)?.up.as_ref()?;
         Some((kind, handle))
+    }
+
+    /// La conexión de cada enlace sano, para usar uno que no es el activo (medir su ancho
+    /// de banda).
+    pub(crate) fn handles(&self) -> BTreeMap<LinkKind, H>
+    where
+        H: Clone,
+    {
+        self.links
+            .iter()
+            .filter_map(|(kind, s)| Some((*kind, s.up.as_ref()?.0.clone())))
+            .collect()
     }
 
     pub(crate) fn statuses(&self) -> Vec<LinkStatus> {
@@ -281,6 +310,39 @@ mod tests {
         assert_eq!((e.seq, e.to), (3, Some(LinkKind::Usb4)));
         // El handle es el de la conexión nueva.
         assert_eq!(c.t.active(), Some((LinkKind::Usb4, &10)));
+    }
+
+    /// T-102: «pasó a Wi-Fi en 0.6 s». La duración va desde la última respuesta del que
+    /// cayó; una subida sin corte no tiene.
+    #[test]
+    fn el_cambio_por_caída_dice_cuánto_tardó() {
+        let mut c = Clock::new(all());
+        let first = c.at(0, LinkKind::Wifi, Some(3)).unwrap();
+        assert_eq!(first.took, None);
+        let up = c.at(10, LinkKind::Usb4, Some(1)).unwrap();
+        assert_eq!((up.to, up.took), (Some(LinkKind::Usb4), None));
+        c.at(1010, LinkKind::Usb4, Some(1));
+        let down = c.at(1610, LinkKind::Usb4, None).unwrap();
+        assert_eq!(
+            (down.from, down.to, down.took),
+            (
+                Some(LinkKind::Usb4),
+                Some(LinkKind::Wifi),
+                Some(Duration::from_millis(600))
+            )
+        );
+        // Sin ningún camino: también se mide.
+        let gone = c.at(2000, LinkKind::Wifi, None).unwrap();
+        assert_eq!(
+            (gone.to, gone.took),
+            (None, Some(Duration::from_millis(2000)))
+        );
+        assert_eq!(c.t.handles().len(), 0);
+        c.at(2100, LinkKind::Ethernet, Some(2));
+        assert_eq!(
+            c.t.handles().into_iter().collect::<Vec<_>>(),
+            [(LinkKind::Ethernet, 2)]
+        );
     }
 
     #[test]

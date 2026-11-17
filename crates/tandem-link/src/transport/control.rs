@@ -1,8 +1,11 @@
+use std::time::Duration;
+
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tandem_proto::{FrameDecoder, Hello, decode, decode_hello, encode_frame};
+use tandem_proto::{FrameDecoder, Hello, MeasureReport, decode, decode_hello, encode_frame};
 
 use super::TransportError;
+use crate::metrics::probe::{receive_probe, send_probe};
 use crate::qos::{DataStream, Qos, StreamClass};
 
 /// Stream bidireccional confiable con mensajes de `tandem-proto` en tramas.
@@ -75,6 +78,32 @@ impl ControlStream {
     ) -> Result<(DataStream<quinn::SendStream>, ControlReceiver), TransportError> {
         self.set_class(StreamClass::Data)?;
         Ok((qos.data_stream(self.tx.send), self.rx))
+    }
+
+    /// Manda la prueba de ancho de banda por este stream (ya abierto como
+    /// [`Channel::Measure`](tandem_proto::Channel::Measure)) y espera lo que midió el otro
+    /// lado. Va con la prioridad de los datos pero sin el tope: medir a través del tope
+    /// daría el tope.
+    pub async fn measure(self, duration: Duration) -> Result<MeasureReport, TransportError> {
+        self.set_class(StreamClass::Data)?;
+        let ControlStream { mut tx, mut rx } = self;
+        send_probe(&mut tx.send, duration)
+            .await
+            .map_err(TransportError::Data)?;
+        rx.recv().await?.ok_or(TransportError::ControlClosed)
+    }
+
+    /// El otro lado de [`Self::measure`]: lee la prueba hasta el fin y contesta lo medido.
+    pub async fn answer_measure(self) -> Result<MeasureReport, TransportError> {
+        let ControlStream { mut tx, mut rx } = self;
+        // Lo que llegó junto con la apertura del canal ya es de la prueba.
+        let already = rx.decoder.buffered();
+        let report = receive_probe(&mut rx.recv, already)
+            .await
+            .map_err(TransportError::Data)?;
+        tx.send(&report).await?;
+        tx.finish()?;
+        Ok(report)
     }
 
     /// Separa las dos mitades, para leer y escribir a la vez: quien manda

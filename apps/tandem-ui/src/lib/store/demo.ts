@@ -14,7 +14,27 @@
 import type { Bindings, PairingView, Permission, SetupView, ShortcutsView } from "../model";
 import { DEFAULT_BINDINGS } from "../shortcuts";
 import type { UpdateView } from "../updates";
-import type { ActResult, DeskView, Machine, MachineView, ModuleView, Os, PairActionKind, PermissionsView, Resources, SceneView, Source, Topic, Trouble, TunnelView } from "./types";
+import { EMPTY_NETWORK, INPUT_TARGET_MS } from "./types";
+import type {
+  ActResult,
+  DeskView,
+  LatencyPoint,
+  LinkKind,
+  Machine,
+  MachineView,
+  ModuleView,
+  NetworkView,
+  Os,
+  PairActionKind,
+  PathView,
+  PermissionsView,
+  Resources,
+  SceneView,
+  Source,
+  Topic,
+  Trouble,
+  TunnelView,
+} from "./types";
 
 export type DemoPair = "mac-win" | "win-win" | "mac-mac";
 
@@ -141,6 +161,54 @@ export const DEMO_TUNNELS: TunnelView[] = [
   { id: "comfy", project: "ia-local", title: "Probar flujo de ComfyUI", from: "a", to: "b", state: "closed", processes: 0 },
 ];
 
+/** La hora del demo (fija: capturas deterministas). Los cambios de camino se fechan desde aquí. */
+export const DEMO_NOW = 1_763_400_000_000;
+
+/** Lo que da cada camino en el demo, en Gbps (los números de `V3-Red`). */
+const DEMO_GBPS: Record<LinkKind, number> = { usb4: 9.4, ethernet: 2.3, wifi: 0.41 };
+
+const HISTORY = 60;
+/** Segundo del historial en que se desconectó el cable y en que volvió. */
+const CUT_AT = 34;
+const BACK_AT = 41;
+
+const round = (n: number, d = 10) => Math.round(n * d) / d;
+
+/**
+ * El segundo `i` del historial de un camino (determinista). El USB-C lleva la entrada salvo
+ * entre el corte y la vuelta, cuando la lleva el Wi-Fi: ahí está el pico de la gráfica.
+ */
+function demoPoint(kind: LinkKind, i: number): LatencyPoint {
+  const jitter = ((i * 7) % 5) / 5;
+  if (kind === "ethernet") return { rttMs: null, inputP99Ms: null };
+  if (kind === "usb4") {
+    if (i >= CUT_AT && i < BACK_AT) return { rttMs: null, inputP99Ms: null };
+    return { rttMs: round(0.3 + jitter * 0.1, 100), inputP99Ms: round(1.6 + (((i * 5) % 7) / 7) * 0.6, 100) };
+  }
+  const carrying = i >= CUT_AT && i < BACK_AT;
+  // El pico: la primera tecla después del corte esperó el cambio de camino.
+  const input = !carrying ? null : i === CUT_AT ? 14.2 : round(6.5 + jitter * 2);
+  return { rttMs: round(3.6 + jitter * 0.6, 100), inputP99Ms: input };
+}
+
+/** La red del demo: USB-C principal, Ethernet sin cable y Wi-Fi de respaldo (`V3-Red`). */
+export function demoNetwork(linkUp: boolean): NetworkView {
+  if (!linkUp) return { ...EMPTY_NETWORK, paths: EMPTY_NETWORK.paths.map((p) => ({ ...p })) };
+  const path = (kind: LinkKind, state: PathView["state"], rttMs: number | null, input: [number, number] | null, gbps: number | null): PathView => {
+    const history = Array.from({ length: HISTORY }, (_, i) => demoPoint(kind, i));
+    return { kind, state, rttMs, inputP50Ms: input?.[0] ?? null, inputP99Ms: input?.[1] ?? null, targetMs: INPUT_TARGET_MS[kind], gbps, history };
+  };
+  const at = (i: number) => DEMO_NOW - (HISTORY - 1 - i) * 1000;
+  return {
+    paths: [path("usb4", "primary", 0.3, [0.4, 1.9], DEMO_GBPS.usb4), path("ethernet", "unplugged", null, null, null), path("wifi", "backup", 3.8, null, DEMO_GBPS.wifi)],
+    switches: [
+      { at: at(BACK_AT), from: "wifi", to: "usb4", tookMs: null },
+      { at: at(CUT_AT), from: "usb4", to: "wifi", tookMs: 600 },
+    ],
+    measuring: null,
+  };
+}
+
 const TROUBLE_TEXT: Record<Trouble, (peer: string) => string> = {
   none: () => "",
   "no-agent": () => "El agente de Tandem no está corriendo en esta máquina",
@@ -192,6 +260,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     here: o.here,
     machines: { a: mk("a", sa, sb.name), b: mk("b", sb, sa.name) },
     link: linkUp ? { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 } : { kind: null, gbps: null, ms: null, inputP99: null },
+    network: demoNetwork(linkUp),
     tunnels: DEMO_TUNNELS.map((t) => ({ ...t })),
     scenes: DEMO_SCENES(sa.name, sb.name),
     activeScene: "trabajo",
@@ -231,12 +300,33 @@ export class DemoSource implements Source {
     this.watched.push(this.topics);
     clearInterval(this.timer);
     this.timer = undefined;
-    // Solo los recursos cambian solos, y solo si la pantalla visible los muestra.
-    if (!this.opts.still && topics.includes("resources")) this.timer = setInterval(() => this.tick(), TICK_MS);
+    // Los recursos y la red cambian solos, y solo si la pantalla visible los muestra.
+    const live = topics.includes("resources") || topics.includes("network");
+    if (!this.opts.still && live) this.timer = setInterval(() => this.tick(), TICK_MS);
   }
 
-  /** Mueve un poco los recursos: la sparkline avanza una muestra. */
+  /** Avanza una muestra lo que la pantalla visible muestra: recursos y red. */
   tick(): void {
+    if (this.topics.includes("resources")) this.tickResources();
+    if (this.topics.includes("network")) this.tickNetwork();
+  }
+
+  /** El historial de cada camino que responde avanza un segundo. */
+  private tickNetwork(): void {
+    const paths = this.desk.network.paths.map((p) => {
+      if (p.state !== "primary" && p.state !== "backup") return p;
+      // Tráfico normal (los segundos de antes del corte), en ciclo.
+      const point = demoPoint(p.kind, this.ticks % CUT_AT);
+      return { ...p, rttMs: point.rttMs ?? p.rttMs, history: [...p.history.slice(1), point] };
+    });
+    this.ticks += 1;
+    this.set({ ...this.desk, network: { ...this.desk.network, paths } });
+  }
+
+  private ticks = 0;
+
+  /** Mueve un poco los recursos: la sparkline avanza una muestra. */
+  private tickResources(): void {
     const next = { ...this.desk, machines: { ...this.desk.machines } };
     for (const id of ["a", "b"] as Machine[]) {
       const m = next.machines[id];
@@ -274,10 +364,16 @@ export class DemoSource implements Source {
     return { ok: true, text: on ? `${m.name} encendida` : `${m.name} apagada` };
   }
 
-  async measureLink(): Promise<ActResult> {
-    if (!this.desk.link.kind) return { ok: false, reason: "Sin enlace con la otra máquina" };
-    this.set({ ...this.desk, link: { ...this.desk.link, gbps: 9.4 } });
-    return { ok: true, text: "9.4 Gbps" };
+  /** Mide al instante lo que da cada camino en el demo. */
+  async measureLink(path?: LinkKind): Promise<ActResult> {
+    const kind = path ?? this.desk.link.kind;
+    const target = this.desk.network.paths.find((p) => p.kind === kind);
+    if (!kind || !target || (target.state !== "primary" && target.state !== "backup")) return { ok: false, reason: "Sin enlace con la otra máquina por ese camino" };
+    const gbps = DEMO_GBPS[kind];
+    const paths = this.desk.network.paths.map((p) => (p.kind === kind ? { ...p, gbps } : p));
+    const link = this.desk.link.kind === kind ? { ...this.desk.link, gbps } : this.desk.link;
+    this.set({ ...this.desk, link, network: { ...this.desk.network, paths, measuring: null } });
+    return { ok: true, text: gbps >= 1 ? `${gbps} Gbps` : `${Math.round(gbps * 1000)} Mbps` };
   }
 
   async setModule(machine: Machine, module: string, on: boolean): Promise<ActResult> {

@@ -78,6 +78,7 @@ impl StreamClass {
             Channel::Clipboard => StreamClass::Clipboard,
             // Los pedidos son de control; el canal de datos pasa a `Data` al pedir `Attach`.
             Channel::Tunnel => StreamClass::Control,
+            Channel::Measure => StreamClass::Data,
         }
     }
 }
@@ -250,6 +251,21 @@ impl Qos {
             s.scale = FULL;
             self.update_cap(&mut s);
         }
+    }
+
+    /// El último ancho de banda medido ([`Self::set_measured`]).
+    pub fn measured(&self) -> Option<u64> {
+        self.lock().measured
+    }
+
+    /// El p50 y el p99 de la entrada en la última ventana (1 s); `None` sin entrada.
+    pub fn input_latency(&self) -> Option<(Duration, Duration)> {
+        self.lock().guard.percentiles(Instant::now())
+    }
+
+    /// El p99 que se le tolera a la entrada por este camino.
+    pub fn input_target(&self) -> Duration {
+        self.lock().guard.target()
     }
 
     /// El tope actual en bytes por segundo; `None` es sin tope.

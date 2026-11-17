@@ -68,6 +68,71 @@ export interface LinkView {
   inputP99: number | null;
 }
 
+/** Papel de un camino (T-102): lleva el tráfico, espera de respaldo, nunca respondió, o se cayó. */
+export type PathState = "primary" | "backup" | "unplugged" | "down";
+
+/** Un segundo del historial de un camino; `null` sin respuesta o sin entrada. */
+export interface LatencyPoint {
+  rttMs: number | null;
+  inputP99Ms: number | null;
+}
+
+/** Un camino de la pantalla Red (`V3-Red`). */
+export interface PathView {
+  kind: LinkKind;
+  state: PathState;
+  rttMs: number | null;
+  inputP50Ms: number | null;
+  inputP99Ms: number | null;
+  /** El p99 que se le tolera a la entrada por este camino (la línea de objetivo). */
+  targetMs: number;
+  /** Último ancho de banda medido, en Gbps. */
+  gbps: number | null;
+  /** Hasta 60 muestras, una por segundo, de la más vieja a la más nueva. */
+  history: LatencyPoint[];
+}
+
+/** Un cambio de camino («pasó a Wi-Fi en 0.6 s»). */
+export interface PathSwitchView {
+  /** Milisegundos Unix. */
+  at: number;
+  from: LinkKind | null;
+  to: LinkKind | null;
+  /** Cuánto tardó si el anterior se cayó; `null` si fue una subida sin corte. */
+  tookMs: number | null;
+}
+
+/** La red con la otra máquina (lo que manda el agente con `WatchNetwork`). */
+export interface NetworkView {
+  /** USB-C, Ethernet y Wi-Fi, en ese orden. */
+  paths: PathView[];
+  /** Del más nuevo al más viejo (hasta 50). */
+  switches: PathSwitchView[];
+  /** El camino que se está midiendo. */
+  measuring: LinkKind | null;
+}
+
+/** p99 tolerado a la entrada por camino (DESIGN §7.1). */
+export const INPUT_TARGET_MS: Record<LinkKind, number> = { usb4: 4, ethernet: 4, wifi: 20 };
+
+const unplugged = (kind: LinkKind): PathView => ({
+  kind,
+  state: "unplugged",
+  rttMs: null,
+  inputP50Ms: null,
+  inputP99Ms: null,
+  targetMs: INPUT_TARGET_MS[kind],
+  gbps: null,
+  history: [],
+});
+
+/** Sin red: los tres caminos sin cable. */
+export const EMPTY_NETWORK: NetworkView = {
+  paths: (["usb4", "ethernet", "wifi"] as LinkKind[]).map(unplugged),
+  switches: [],
+  measuring: null,
+};
+
 export type TunnelState = "busy" | "idle" | "closed";
 
 /** Un túnel de Claude (D8, solo lectura en la UI, D9). */
@@ -124,6 +189,8 @@ export interface DeskView {
   here: Machine;
   machines: Record<Machine, MachineView | null>;
   link: LinkView;
+  /** Métricas por camino (pantalla Red); llegan solo con el tema `network`. */
+  network: NetworkView;
   tunnels: TunnelView[];
   scenes: SceneView[];
   activeScene: string | null;
@@ -132,9 +199,9 @@ export interface DeskView {
 }
 
 /** Temas de eventos: cada pantalla se suscribe solo a lo que muestra. */
-export type Topic = "machines" | "resources" | "link" | "tunnels" | "scenes" | "monitors";
+export type Topic = "machines" | "resources" | "link" | "network" | "tunnels" | "scenes" | "monitors";
 
-export const ALL_TOPICS: Topic[] = ["machines", "resources", "link", "tunnels", "scenes", "monitors"];
+export const ALL_TOPICS: Topic[] = ["machines", "resources", "link", "network", "tunnels", "scenes", "monitors"];
 
 export type PairActionKind = "start_pairing" | "confirm_pairing" | "cancel_pairing" | "unpair";
 
@@ -151,7 +218,8 @@ export interface Source {
   watch(topics: Topic[]): void;
   applyScene(id: string): Promise<ActResult>;
   setPower(machine: Machine, on: boolean): Promise<ActResult>;
-  measureLink(): Promise<ActResult>;
+  /** Medir el ancho de banda de un camino (por omisión, el que lleva el tráfico). */
+  measureLink(path?: LinkKind): Promise<ActResult>;
   setModule(machine: Machine, module: string, on: boolean): Promise<ActResult>;
   /** Emparejar (`start_pairing`, `confirm_pairing`, `cancel_pairing`) o desemparejar. */
   pairAction(kind: PairActionKind): Promise<ActResult>;

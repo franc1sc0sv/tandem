@@ -103,15 +103,18 @@ impl LatencyGuard {
 
     /// El p99 de la ventana que termina en `now`; `None` sin muestras.
     pub fn p99(&mut self, now: Instant) -> Option<Duration> {
+        self.percentiles(now).map(|(_, p99)| p99)
+    }
+
+    /// El p50 y el p99 de la ventana que termina en `now` (la pantalla Red, T-102).
+    pub fn percentiles(&mut self, now: Instant) -> Option<(Duration, Duration)> {
         self.forget_before(now);
         if self.samples.is_empty() {
             return None;
         }
         let mut lat: Vec<Duration> = self.samples.iter().map(|(_, l)| *l).collect();
-        // El menor valor que deja al 99 % de las muestras en o por debajo.
-        let rank = (lat.len() * 99).div_ceil(100).max(1) - 1;
-        let (_, p99, _) = lat.select_nth_unstable(rank);
-        Some(*p99)
+        lat.sort_unstable();
+        Some((percentile(&lat, 50), percentile(&lat, 99)))
     }
 
     fn forget_before(&mut self, now: Instant) {
@@ -157,6 +160,13 @@ impl LatencyGuard {
     }
 }
 
+/// El menor valor que deja al `p` % de las muestras (ordenadas, no vacías) en o por
+/// debajo.
+fn percentile(sorted: &[Duration], p: usize) -> Duration {
+    let rank = (sorted.len() * p).div_ceil(100).max(1) - 1;
+    sorted.get(rank).copied().unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use proptest::prelude::*;
@@ -199,6 +209,7 @@ mod tests {
             g.record(t0, ms(i + 1));
         }
         assert_eq!(g.p99(t0), Some(ms(99)));
+        assert_eq!(g.percentiles(t0), Some((ms(50), ms(99))));
         g.record(t0, ms(1000));
         assert_eq!(g.p99(t0), Some(ms(100)));
         // Fuera de la ventana no cuenta.

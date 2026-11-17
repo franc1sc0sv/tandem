@@ -13,8 +13,10 @@
 //! «Deshacer») y [`AgentToUi::Machines`] cuando cambia lo que anuncia alguna de las dos
 //! (módulos y entornos incluidos). Una conexión que pidió
 //! [`UiCommand::WatchResources`] recibe además [`AgentToUi::Resources`] de las dos
-//! máquinas mientras siga abierta. [`AgentToUi::Update`] va cuando cambia la versión de
-//! alguna de las dos.
+//! máquinas mientras siga abierta, y una que pidió [`UiCommand::WatchNetwork`] recibe
+//! [`AgentToUi::Network`] una vez por segundo (T-102). [`UiCommand::MeasureLink`] se
+//! contesta al terminar la prueba, sin frenar los avisos de esa conexión.
+//! [`AgentToUi::Update`] va cuando cambia la versión de alguna de las dos.
 //!
 //! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
 //! socket o pipe reales en las pruebas de integración.
@@ -23,7 +25,9 @@ use std::collections::VecDeque;
 use std::future::Future;
 use std::io;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -35,6 +39,7 @@ use tandem_proto::{
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
+use tokio::time::{self, Interval, MissedTickBehavior};
 
 use crate::agent::{Agent, ResourceWatch};
 
@@ -177,6 +182,11 @@ where
     let mut resources: Option<ResourceWatch> = None;
     let mut update = agent.subscribe_update();
     update.mark_unchanged();
+    // La red una vez por segundo, si esta conexión la pidió (la pantalla Red visible).
+    let mut network: Option<Interval> = None;
+    // La medición de ancho de banda que pidió esta conexión, con el id de su pedido: tarda
+    // unos segundos y mientras tanto la conexión sigue atendiendo lo demás.
+    let mut measuring: Option<(u64, Measurement)> = None;
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
@@ -187,9 +197,29 @@ where
                         resources = on.then(|| agent.watch_resources());
                         Reply::Done
                     }
+                    UiCommand::WatchNetwork { on } => {
+                        network = on.then(network_ticker);
+                        Reply::Done
+                    }
+                    UiCommand::MeasureLink { .. } if measuring.is_some() => {
+                        Reply::Rejected("Ya se está midiendo un camino".into())
+                    }
+                    UiCommand::MeasureLink { path } => {
+                        let agent = agent.clone();
+                        let run: Measurement = Box::pin(async move { agent.measure_link(path).await });
+                        measuring = Some((req.id, run));
+                        continue;
+                    }
                     command => crate::tunnels::handle(&agent, client, command).await,
                 };
                 conn.send(&AgentToUi::Reply { id: req.id, reply }).await?;
+            }
+            () = next_tick(&mut network) => {
+                conn.send(&AgentToUi::Network(Box::new(agent.network_status()))).await?;
+            }
+            (id, reply) = measured(&mut measuring) => {
+                measuring = None;
+                conn.send(&AgentToUi::Reply { id, reply }).await?;
             }
             sample = next_resources(&mut resources) => match sample {
                 Some((machine, r)) => {
@@ -294,6 +324,37 @@ where
             }
             () = stopped(&mut shutdown) => return Ok(()),
         }
+    }
+}
+
+/// Una medición de ancho de banda en curso ([`Agent::measure_link`]).
+type Measurement = Pin<Box<dyn Future<Output = Reply> + Send>>;
+
+/// Cada cuánto va [`AgentToUi::Network`] a quien la pidió.
+pub const NETWORK_EVERY: Duration = Duration::from_secs(1);
+
+/// La primera enseguida (la pantalla se dibuja ya), después una por segundo.
+fn network_ticker() -> Interval {
+    let mut tick = time::interval(NETWORK_EVERY);
+    tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    tick
+}
+
+/// El próximo envío de la red; nunca llega si la conexión no la pidió.
+async fn next_tick(tick: &mut Option<Interval>) {
+    match tick {
+        Some(t) => {
+            t.tick().await;
+        }
+        None => std::future::pending().await,
+    }
+}
+
+/// El final de la medición en curso, con el id de su pedido; nunca llega sin medición.
+async fn measured(m: &mut Option<(u64, Measurement)>) -> (u64, Reply) {
+    match m {
+        Some((id, run)) => (*id, run.await),
+        None => std::future::pending().await,
     }
 }
 
@@ -471,6 +532,63 @@ mod tests {
             after += 1;
             assert!(after < 5, "siguen llegando recursos");
         }
+    }
+
+    /// T-102: sin suscripción no llega la red; con ella, una vez por segundo; al quitarla,
+    /// deja de llegar.
+    #[tokio::test(start_paused = true)]
+    async fn network_flows_only_while_the_connection_watches() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_agent, io, _stop) = start(dir.path());
+        let mut c = IpcClient::handshake(io).await.unwrap();
+        assert!(
+            time::timeout(Duration::from_secs(5), c.next_event())
+                .await
+                .is_err(),
+            "llegó algo sin suscripción"
+        );
+        assert_eq!(
+            c.request(UiCommand::WatchNetwork { on: true })
+                .await
+                .unwrap(),
+            Reply::Done
+        );
+        let t0 = time::Instant::now();
+        for _ in 0..3 {
+            let Some(AgentToUi::Network(s)) = c.next_event().await.unwrap() else {
+                panic!("se esperaba la red");
+            };
+            assert_eq!(s.paths.len(), 3);
+        }
+        // La primera enseguida y después una por segundo.
+        assert_eq!(t0.elapsed(), 2 * NETWORK_EVERY);
+        assert_eq!(
+            c.request(UiCommand::WatchNetwork { on: false })
+                .await
+                .unwrap(),
+            Reply::Done
+        );
+        let mut after = 0;
+        while let Ok(ev) = time::timeout(Duration::from_secs(5), c.next_event()).await {
+            assert!(matches!(ev.unwrap(), Some(AgentToUi::Network(_))));
+            after += 1;
+            assert!(after < 3, "sigue llegando la red");
+        }
+    }
+
+    /// Medir sin conexión por ese camino se rechaza enseguida, por la misma conexión.
+    #[tokio::test]
+    async fn measuring_a_path_without_connection_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_agent, io, _stop) = start(dir.path());
+        let mut c = IpcClient::handshake(io).await.unwrap();
+        let reply = c
+            .request(UiCommand::MeasureLink {
+                path: tandem_proto::Link::Wifi,
+            })
+            .await
+            .unwrap();
+        assert!(matches!(reply, Reply::Rejected(_)), "{reply:?}");
     }
 
     #[tokio::test]

@@ -45,6 +45,26 @@ impl fmt::Display for LinkKind {
     }
 }
 
+impl From<LinkKind> for tandem_proto::Link {
+    fn from(k: LinkKind) -> Self {
+        match k {
+            LinkKind::Usb4 => tandem_proto::Link::Usb4,
+            LinkKind::Ethernet => tandem_proto::Link::Ethernet,
+            LinkKind::Wifi => tandem_proto::Link::Wifi,
+        }
+    }
+}
+
+impl From<tandem_proto::Link> for LinkKind {
+    fn from(l: tandem_proto::Link) -> Self {
+        match l {
+            tandem_proto::Link::Usb4 => LinkKind::Usb4,
+            tandem_proto::Link::Ethernet => LinkKind::Ethernet,
+            tandem_proto::Link::Wifi => LinkKind::Wifi,
+        }
+    }
+}
+
 /// Dirección del otro agente por un enlace concreto.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkCandidate {
@@ -63,6 +83,13 @@ mod tests {
         kinds.sort();
         assert_eq!(kinds, [LinkKind::Usb4, LinkKind::Ethernet, LinkKind::Wifi]);
         assert!(kinds.windows(2).all(|w| w[0].priority() < w[1].priority()));
+    }
+
+    #[test]
+    fn el_camino_de_la_ui_va_y_vuelve() {
+        for k in LinkKind::ALL {
+            assert_eq!(LinkKind::from(tandem_proto::Link::from(k)), k);
+        }
     }
 
     #[test]

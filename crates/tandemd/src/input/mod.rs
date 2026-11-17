@@ -415,6 +415,8 @@ async fn route(
             Channel::Clipboard => &clipboard,
             // Nunca llega aquí: lo atiende `peer::serve_stream` (los túneles).
             Channel::Tunnel => continue,
+            // La prueba de ancho de banda la contesta `peer::serve_stream`; no llega aquí.
+            Channel::Measure => continue,
         };
         if to.send(inc).is_err() {
             tracing::debug!("stream del otro agente sin quien lo atienda");
