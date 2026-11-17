@@ -64,4 +64,3 @@ Formato: `- AAAA-MM-DD · T-xxx · decisión · razón`.
 - 2026-11-17 · T-097 · Los ejemplos de `docs/examples/` pasan al formato de lados A/B; los de v0.2 quedan en `docs/examples/v0.2/` como referencia y para las pruebas de migración.
 - 2026-11-17 · T-097 · Al cambiar de lado, el acomodo se invierte solo si ya se sincronizó y no es el de omisión; si no, queda «A a la izquierda de B» con los lados nuevos · invertir el de omisión dejaba a dos instalaciones nuevas con A a la derecha (revisión del PR #68).
 - 2026-11-17 · T-097 · La UI vieja (TypeScript) se adapta a A/B en el PR de T-097 (alcance de T-126) en vez de esperar a T-112 · pedido de la revisión: `develop` no puede quedar con la UI rota.
-
