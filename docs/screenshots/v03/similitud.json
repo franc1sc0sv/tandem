@@ -4,7 +4,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 0.975,
-      "worstTile": 0.5349,
+      "worstTile": 0.5242,
       "ok": true
     },
     "zonas": [
@@ -22,7 +22,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 0.98,
-      "worstTile": 0.6687,
+      "worstTile": 0.4688,
       "ok": true
     },
     "zonas": [],
@@ -33,7 +33,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 0.9731,
-      "worstTile": 0.8669,
+      "worstTile": 0.832,
       "ok": true
     },
     "zonas": [],
@@ -44,7 +44,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 0.9295,
-      "worstTile": 0.5308,
+      "worstTile": 0.4924,
       "ok": true
     },
     "zonas": [],
@@ -55,7 +55,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 0.9598,
-      "worstTile": 0.4702,
+      "worstTile": 0.4688,
       "ok": true
     },
     "zonas": [],
@@ -66,7 +66,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 0.9574,
-      "worstTile": 0.7217,
+      "worstTile": 0.7068,
       "ok": true
     },
     "zonas": [
@@ -84,14 +84,14 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 0.9621,
-      "worstTile": 0.4509,
+      "worstTile": 0.4287,
       "ok": true
     },
     "zonas": [
       {
         "name": "barra lateral",
         "similarity": 0.9998,
-        "worstTile": 0.9912,
+        "worstTile": 0.9893,
         "ok": true
       }
     ],
@@ -102,7 +102,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 0.9956,
-      "worstTile": 0.9194,
+      "worstTile": 0.9031,
       "ok": true
     },
     "zonas": [],
@@ -113,7 +113,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 0.98,
-      "worstTile": 0.7627,
+      "worstTile": 0.7576,
       "ok": true
     },
     "zonas": [
@@ -135,7 +135,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 0.9771,
-      "worstTile": 0.8567,
+      "worstTile": 0.7886,
       "ok": true
     },
     "zonas": [
@@ -153,14 +153,14 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 0.9672,
-      "worstTile": 0.7886,
+      "worstTile": 0.7693,
       "ok": true
     },
     "zonas": [
       {
         "name": "barra lateral",
         "similarity": 0.9998,
-        "worstTile": 0.9914,
+        "worstTile": 0.989,
         "ok": true
       }
     ],

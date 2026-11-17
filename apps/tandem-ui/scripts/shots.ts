@@ -16,9 +16,10 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ORIGIN, SHOTS_DIR, compare, installRoutes, settle, shotName, waitForMockup } from "@tandem/mockup-render";
-import { chromium, type Browser, type Page } from "playwright";
-import { SHOTS, appUrl, crop, mask, type Rect, type ShotSpec } from "./shots-spec.ts";
+import { ORIGIN, installRoutes, waitForMockup } from "@tandem/mockup-render";
+import { capture, compare, compareWithMockup, launchBrowser, mockupShotPath, settle, type CompareResult } from "@tandem/mockup-render/harness";
+import type { Browser, Page } from "playwright";
+import { SHOTS, appUrl, mask, type Rect, type ShotSpec } from "./shots-spec.ts";
 
 const APP_DIR = fileURLToPath(new URL("..", import.meta.url));
 const REPO_DIR = join(APP_DIR, "..", "..");
@@ -133,15 +134,16 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     }
     const text = await page.evaluate(() => document.body.innerText);
     for (const bad of ["{{", "undefined", "NaN"]) if (text.includes(bad)) errors.push(`texto visible con «${bad}»`);
-    png = await page.screenshot({ animations: "disabled", caret: "hide" });
+    png = await capture(page);
   } finally {
     await context.close();
   }
 
   const file = join(OUT, `${spec.name}.png`);
   writeFileSync(file, png);
-  const refFile = join(SHOTS_DIR, shotName(spec.mockup));
-  let ref: Buffer = readFileSync(refFile);
+  // Con zonas tapadas se compara contra la referencia tapada igual; si no, directo contra la
+  // captura del mockup (`compareWithMockup`).
+  let ref: Buffer | null = null;
 
   const ignoreSel = (spec.ignore ?? []).map((i) => i.mockupSelector);
   const regionSel = (spec.regions ?? []).flatMap((r) => (r.mockupSelector ? [r.mockupSelector] : []));
@@ -150,17 +152,24 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
   let app = png;
   if (masked.length > 0) {
     app = mask(app, masked);
-    ref = mask(ref, masked);
+    ref = mask(readFileSync(mockupShotPath(spec.mockup)), masked);
   }
 
-  const measure = (name: string, a: Buffer, b: Buffer, min?: Measure["min"]): Measure => {
-    const r = compare(a, b);
-    if (args.diffDir) writeFileSync(join(args.diffDir, `${spec.name}${name === "pantalla" ? "" : `--${name.replace(/\s+/g, "-")}`}.diff.png`), r.diffPng);
+  const measure = (name: string, region: Rect | undefined, min?: Measure["min"]): Measure => {
+    const diffPath = args.diffDir ? join(args.diffDir, `${spec.name}${name === "pantalla" ? "" : `--${name.replace(/\s+/g, "-")}`}.diff.png`) : undefined;
+    const box = region ? { x: Math.floor(region.x), y: Math.floor(region.y), width: Math.floor(region.width), height: Math.floor(region.height) } : undefined;
+    let r: CompareResult;
+    if (ref) {
+      r = compare(app, ref, { region: box });
+      if (diffPath) writeFileSync(diffPath, r.diffPng);
+    } else {
+      r = compareWithMockup(app, { mockup: spec.mockup, region: box, diffPath });
+    }
     const ok = !min || (r.similarity >= min.similarity && r.worstTile.similarity >= min.worstTile);
     return { name, similarity: round(r.similarity), worstTile: round(r.worstTile.similarity), min, ok };
   };
 
-  const full = measure("pantalla", app, ref);
+  const full = measure("pantalla", undefined);
   const regions: Measure[] = [];
   for (const r of spec.regions ?? []) {
     const rect = r.rect ?? (r.mockupSelector ? rects[r.mockupSelector] : null);
@@ -168,7 +177,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
       errors.push(`zona «${r.name}»: no se encontró en el mockup`);
       continue;
     }
-    regions.push(measure(r.name, crop(app, rect), crop(ref, rect), r.min));
+    regions.push(measure(r.name, rect, r.min));
   }
   return { name: spec.name, mockup: spec.mockup, file, errors, full, regions };
 }
@@ -181,7 +190,8 @@ async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   if (args.diffDir) mkdirSync(args.diffDir, { recursive: true });
   const specs = args.only.length ? SHOTS.filter((s) => args.only.includes(s.name)) : SHOTS;
-  const browser = await chromium.launch();
+  // Mismas opciones de Chromium que las capturas de los mockups (`--disable-partial-raster`).
+  const browser = await launchBrowser();
   const results: ShotResult[] = [];
   try {
     for (const s of specs) results.push(await shoot(browser, s, args));

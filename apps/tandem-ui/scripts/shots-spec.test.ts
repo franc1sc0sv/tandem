@@ -1,7 +1,7 @@
 import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
 
-import { SHOTS, SIDEBAR_GATE, appUrl, crop, mask } from "./shots-spec.ts";
+import { SHOTS, SIDEBAR_GATE, appUrl, mask } from "./shots-spec.ts";
 
 function solid(w: number, h: number, rgb: [number, number, number]): Buffer {
   const p = new PNG({ width: w, height: h });
@@ -27,12 +27,6 @@ describe("arnés de capturas", () => {
     expect(SIDEBAR_GATE).toEqual({ similarity: 0.99, worstTile: 0.97 });
     // Lo único que se tapa es lo que D1 quita.
     expect(puesto?.ignore?.every((i) => i.reason.startsWith("D1"))).toBe(true);
-  });
-
-  it("recorta dentro de la imagen", () => {
-    const out = PNG.sync.read(crop(solid(10, 8, [1, 2, 3]), { x: 6, y: 5, width: 10, height: 10 }));
-    expect([out.width, out.height]).toEqual([4, 3]);
-    expect([...out.data.slice(0, 4)]).toEqual([1, 2, 3, 255]);
   });
 
   it("tapa las zonas pedidas y nada más", () => {

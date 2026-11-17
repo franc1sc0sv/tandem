@@ -88,18 +88,6 @@ export const SHOTS: ShotSpec[] = [
 
 // ---- Imágenes -----------------------------------------------------------------------------
 
-/** Recorta `rect` (ajustado a la imagen) y lo devuelve como PNG. */
-export function crop(png: Buffer, rect: Rect): Buffer {
-  const src = PNG.sync.read(png);
-  const x = Math.max(0, Math.floor(rect.x));
-  const y = Math.max(0, Math.floor(rect.y));
-  const w = Math.max(1, Math.min(src.width - x, Math.ceil(rect.width)));
-  const h = Math.max(1, Math.min(src.height - y, Math.ceil(rect.height)));
-  const out = new PNG({ width: w, height: h });
-  PNG.bitblt(src, out, x, y, w, h, 0, 0);
-  return PNG.sync.write(out);
-}
-
 /** Pinta `rects` de un color fijo (las zonas que no se comparan). */
 export function mask(png: Buffer, rects: Rect[], rgb: [number, number, number] = [255, 0, 255]): Buffer {
   const img = PNG.sync.read(png);
