@@ -68,10 +68,16 @@ const BARE: &str = "<bare>";
 /// Tope para que una prueba rota falle en vez de colgarse.
 const TIMEOUT: Duration = Duration::from_secs(20);
 
-async fn within<F: Future>(f: F) -> F::Output {
-    tokio::time::timeout(TIMEOUT, f)
-        .await
-        .expect("la prueba superó el tiempo máximo")
+/// Dice dónde se esperó, para saber qué paso se colgó.
+#[track_caller]
+fn within<F: Future>(f: F) -> impl Future<Output = F::Output> {
+    let at = std::panic::Location::caller();
+    async move {
+        match tokio::time::timeout(TIMEOUT, f).await {
+            Ok(v) => v,
+            Err(_) => panic!("la prueba superó el tiempo máximo esperando en {at}"),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -147,9 +153,12 @@ impl Running {
         within(self.task).await.unwrap().unwrap();
     }
 
-    async fn until_input(&self, f: impl Fn(&InputStatus) -> bool) {
+    #[track_caller]
+    fn until_input(&self, f: impl Fn(&InputStatus) -> bool) -> impl Future<Output = ()> {
         let mut rx = self.agent.subscribe_input();
-        within(rx.wait_for(|s| f(s))).await.unwrap();
+        within(async move {
+            rx.wait_for(|s| f(s)).await.map(|_| ()).unwrap();
+        })
     }
 }
 
@@ -219,6 +228,13 @@ async fn start_os(
     input_extra: &str,
     tail: &str,
 ) -> Running {
+    // `TANDEM_TEST_LOG=tandemd::input=debug` muestra el registro de los agentes: para
+    // entender una espera que vence.
+    if let Ok(filter) = std::env::var("TANDEM_TEST_LOG") {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+            .try_init();
+    }
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -295,9 +311,15 @@ fn key(usage: HidUsage, state: KeyState) -> InputEvent {
 }
 
 /// Espera a que lo inyectado cumpla `f`.
-async fn until_injected(fake: &FakeInputBackends, f: impl Fn(&[InputEvent]) -> bool) {
+#[track_caller]
+fn until_injected(
+    fake: &FakeInputBackends,
+    f: impl Fn(&[InputEvent]) -> bool,
+) -> impl Future<Output = ()> {
     let mut rx = fake.injected();
-    within(rx.wait_for(|e| f(e))).await.unwrap();
+    within(async move {
+        rx.wait_for(|e| f(e)).await.map(|_| ()).unwrap();
+    })
 }
 
 /// Lleva el cursor del servidor a `x` y lo empuja `dx` hacia el borde, hasta que la otra

@@ -101,7 +101,15 @@ async fn bench(pair: &InputPair, n: usize) -> Run {
         }
     })
     .await
-    .expect("el cursor no cruzó a B");
+    .unwrap_or_else(|_| {
+        panic!(
+            "el cursor no cruzó a B.\n A: {:?}\n B: {:?}\n estado de A: {:?}\n pantallas de B en A: {:?}",
+            a.input(),
+            b.input(),
+            a.agent.state(),
+            a.agent.inbox().screens.borrow().clone(),
+        )
+    });
     assert_eq!(entered, 0.0, "entra por el borde izquierdo de B");
     // Dos latidos con eco: el motor ya estima el desfase.
     tokio::time::sleep(Duration::from_millis(300)).await;
