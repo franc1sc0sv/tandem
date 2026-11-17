@@ -84,6 +84,7 @@ pub fn start(
         None => cfg,
     };
     let store = StateStore::new(paths.state_file());
+    let platform = matches!(backends, Backends::Platform);
     let (agent, input) = match backends {
         Backends::Platform => (
             Agent::with_platform(cfg, store),
@@ -93,6 +94,9 @@ pub fn start(
     };
     let agent = Arc::new(agent);
     agent.set_config_file(paths.config.clone());
+    if platform {
+        start_monitors(&agent);
+    }
     let network = Network::start(agent.clone(), &identity, trust, net)?;
     let input =
         input.map(|setup| crate::input::start(agent.clone(), network.active_link(), *setup));
@@ -101,6 +105,24 @@ pub fn start(
         network,
         input,
     })
+}
+
+/// Los monitores con el bus DDC del sistema (`dxva2` en Windows, `IOAVService` en macOS). Sin
+/// backend el módulo queda «no disponible» con su razón.
+fn start_monitors(agent: &Arc<Agent>) {
+    match monitor_ddc::system_bus() {
+        Ok(bus) => {
+            let core = tandem_monitor::LocalMonitors::new(
+                bus,
+                Arc::new(monitor_ddc::SystemClock::new()),
+                tandem_monitor::local::system_wall(),
+                tandem_monitor::LocalConfig::default(),
+            );
+            // La tarea vive lo que el agente: termina sola al soltarlo.
+            drop(agent.start_monitors(core, crate::monitors::MonitorTimes::default(), false));
+        }
+        Err(e) => tracing::info!("monitores: {e}"),
+    }
 }
 
 impl Daemon {

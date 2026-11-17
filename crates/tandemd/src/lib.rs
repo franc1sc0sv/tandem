@@ -16,6 +16,8 @@
 //! - [`desk_sync`]: la configuración compartida del puesto entre las dos máquinas (T-084).
 //! - [`modules`]: los módulos de cada sistema y su estado (activo, apagado, no disponible;
 //!   T-098).
+//! - [`monitors`]: los monitores del puesto (dueño elegido, eventos, cambios con veredicto;
+//!   T-110).
 //! - [`power`]: Wake-on-LAN hacia la otra máquina y apagado limpio de esta.
 //! - [`peer_watch`]: da a la otra máquina por apagada si ningún enlace la ve (corte de
 //!   corriente o suspendida), en las dos.
@@ -43,6 +45,7 @@ pub mod ipc;
 pub mod logging;
 pub mod migrate;
 pub mod modules;
+pub mod monitors;
 pub mod network;
 pub mod orchestrator;
 pub mod pairing;

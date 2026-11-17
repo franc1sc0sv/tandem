@@ -85,7 +85,8 @@ pub fn local(
         power: power(cfg, os),
         services: Vec::new(),
         modules,
-        // Hasta T-105 (entornos) y T-110 (monitores) no hay nada que anunciar.
+        // Hasta T-105 no hay entornos. Los monitores los agrega el agente con lo que ve su bus
+        // ([`crate::monitors::MonitorHub::local_channels`]).
         environments: Vec::new(),
         monitors: Vec::new(),
     }

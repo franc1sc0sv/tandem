@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{
-    Config, DeskPatch, DeskVersion, HistoryEntry, Machine, MachineInfo, State, Step,
+    Config, DeskPatch, DeskVersion, HistoryEntry, Machine, MachineInfo, MonitorInput, State, Step,
 };
 
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
@@ -98,6 +98,10 @@ pub enum ControlMsg {
     KeyProbe(KeyProbeMsg),
     /// El usuario dijo en el asistente dónde está el teclado y el mouse.
     Keyboard(Machine),
+    /// Lo que leyó el dueño de cada monitor que tiene (DECISIONS D13): su entrada real, si
+    /// está encendido y los últimos eventos. Solo el dueño lee eventos; la otra máquina los
+    /// conoce por aquí. Va cada vez que cambia algo y al aparecer un enlace.
+    Monitors(Vec<MonitorReport>),
 }
 
 /// Los mensajes de la prueba «presiona una tecla» entre los dos agentes.
@@ -212,11 +216,96 @@ pub struct Environment {
     pub detail: String,
 }
 
-/// Un monitor con canal DDC vivo desde la máquina que lo anuncia. Lo llena T-110.
+/// Un monitor con canal DDC vivo desde la máquina que lo anuncia (T-110): contestó al
+/// sondeo de solo lectura, sea compatible o no.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorChannel {
+    /// `<modelo>-<hash corto del serial del EDID>`: el mismo por DP y por HDMI.
+    pub id: String,
+    /// El modelo, para la UI.
+    pub name: String,
+    pub compat: MonitorCompat,
+    /// Lo que tardó en contestar el sondeo, medido al abrir el canal (no cambia mientras
+    /// el canal siga vivo, para que la elección del dueño no oscile).
+    pub latency_ms: u32,
+}
+
+/// Si un monitor habla el estándar del firmware propio (DECISIONS D11).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MonitorCompat {
+    Compatible {
+        protocol: u8,
+    },
+    /// Se muestra, pero nunca se le escribe nada.
+    NotCompatible {
+        reason: String,
+    },
+}
+
+impl MonitorCompat {
+    pub fn is_compatible(&self) -> bool {
+        matches!(self, MonitorCompat::Compatible { .. })
+    }
+}
+
+/// Lo que leyó el dueño de un monitor.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonitorReport {
+    pub id: String,
+    /// La entrada que está en pantalla (la real, de `0xEE`); `None` si no se pudo leer.
+    pub input: Option<MonitorInput>,
+    pub power_on: Option<bool>,
+    pub signal: Option<bool>,
+    /// Los últimos eventos, del más viejo al más nuevo.
+    pub events: Vec<MonitorEvent>,
+}
+
+/// Un evento del firmware, con la hora ya pasada al reloj del dueño.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonitorEvent {
+    /// Milisegundos desde la época Unix, según el reloj de la máquina dueña.
+    pub at_ms: u64,
+    pub kind: MonitorEventKind,
+    /// La entrada de la que habla, si habla de una.
+    pub input: Option<MonitorInput>,
+}
+
+/// Qué pasó, para el ícono y el texto de la UI.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MonitorEventKind {
+    /// El monitor arrancó (o se reinició).
+    Boot,
+    /// Cambió la entrada en pantalla (por DDC o desde el menú del monitor).
+    Input,
+    /// Alguien pidió un cambio de entrada por DDC.
+    SwitchRequested,
+    /// El firmware confirmó el cambio: imagen estable en la entrada nueva.
+    SwitchDone,
+    /// El cambio no dio imagen; el monitor sigue en la de antes.
+    SwitchFailed,
+    /// Se encendió o se apagó.
+    Power,
+    /// Ganó o perdió la señal.
+    Signal,
+    /// Cambió un ajuste del menú.
+    Setting,
+    /// Se perdieron eventos (el anillo dio la vuelta entre dos lecturas).
+    Lost,
+    Other,
+}
+
+/// Un monitor como lo ve la UI (pantalla Monitores, mockup `V3-Monitores`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonitorView {
     pub id: String,
     pub name: String,
+    pub compat: MonitorCompat,
+    /// Las máquinas con canal DDC vivo hacia él.
+    pub seen_by: Vec<Machine>,
+    /// Quién lo lee y lo controla; `None` si no es compatible o nadie tiene canal.
+    pub owner: Option<Machine>,
+    /// Lo último que leyó el dueño; `None` mientras no haya lectura.
+    pub report: Option<MonitorReport>,
 }
 
 /// El motor de teclado y mouse de una máquina.
@@ -422,6 +511,14 @@ pub enum UiCommand {
     },
     /// Las últimas versiones del puesto que tuvo esta máquina.
     GetDeskHistory,
+    /// Los monitores de las dos máquinas ([`MonitorView`]).
+    GetMonitors,
+    /// Cambiar la entrada de un monitor compatible: una transacción con el veredicto del
+    /// firmware, que hace su dueño (se contesta [`Reply::Accepted`]).
+    SwitchMonitor {
+        monitor: String,
+        input: MonitorInput,
+    },
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -472,6 +569,8 @@ pub enum AgentToUi {
         /// La versión que había aquí antes del cambio.
         undo_to: u64,
     },
+    /// Aviso espontáneo cuando cambia algún monitor (canal, dueño, entrada, eventos).
+    Monitors(Vec<MonitorView>),
 }
 
 /// El emparejamiento visto desde la UI.
@@ -608,6 +707,7 @@ pub enum Reply {
     },
     /// El historial del puesto, de la versión más nueva a la más vieja.
     DeskHistory(Vec<HistoryEntry>),
+    Monitors(Vec<MonitorView>),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso.
@@ -711,6 +811,10 @@ pub(crate) mod samples {
             Step::PowerOff {
                 machine: Machine::A,
             },
+            Step::SwitchMonitor {
+                monitor: "lc34g55t-0a1b2c3d".into(),
+                input: MonitorInput::Hdmi,
+            },
         ]
     }
 
@@ -718,7 +822,83 @@ pub(crate) mod samples {
         match s {
             Step::PowerOn { .. } => 0,
             Step::PowerOff { .. } => 1,
+            Step::SwitchMonitor { .. } => 2,
         }
+    }
+
+    pub fn monitor_report() -> MonitorReport {
+        MonitorReport {
+            id: "lc34g55t-0a1b2c3d".into(),
+            input: Some(MonitorInput::DisplayPort),
+            power_on: Some(true),
+            signal: None,
+            events: vec![
+                MonitorEvent {
+                    at_ms: 1_763_000_000_000,
+                    kind: MonitorEventKind::SwitchDone,
+                    input: Some(MonitorInput::Hdmi),
+                },
+                MonitorEvent {
+                    at_ms: 0,
+                    kind: MonitorEventKind::Lost,
+                    input: None,
+                },
+            ],
+        }
+    }
+
+    pub fn monitor_views() -> Vec<MonitorView> {
+        vec![
+            MonitorView {
+                id: "lc34g55t-0a1b2c3d".into(),
+                name: "LC34G55T".into(),
+                compat: MonitorCompat::Compatible { protocol: 2 },
+                seen_by: vec![Machine::A, Machine::B],
+                owner: Some(Machine::B),
+                report: Some(monitor_report()),
+            },
+            MonitorView {
+                id: "odyssey-0f0f0f0f".into(),
+                name: "Odyssey G5".into(),
+                compat: MonitorCompat::NotCompatible {
+                    reason: "firmware de fábrica".into(),
+                },
+                seen_by: vec![Machine::B],
+                owner: None,
+                report: None,
+            },
+        ]
+    }
+
+    pub fn monitor_event_kind_arm(k: &MonitorEventKind) -> usize {
+        match k {
+            MonitorEventKind::Boot => 0,
+            MonitorEventKind::Input => 1,
+            MonitorEventKind::SwitchRequested => 2,
+            MonitorEventKind::SwitchDone => 3,
+            MonitorEventKind::SwitchFailed => 4,
+            MonitorEventKind::Power => 5,
+            MonitorEventKind::Signal => 6,
+            MonitorEventKind::Setting => 7,
+            MonitorEventKind::Lost => 8,
+            MonitorEventKind::Other => 9,
+        }
+    }
+
+    pub fn monitor_event_kinds() -> Vec<MonitorEventKind> {
+        use MonitorEventKind::*;
+        vec![
+            Boot,
+            Input,
+            SwitchRequested,
+            SwitchDone,
+            SwitchFailed,
+            Power,
+            Signal,
+            Setting,
+            Lost,
+            Other,
+        ]
     }
 
     pub fn hellos() -> Vec<Hello> {
@@ -755,6 +935,8 @@ pub(crate) mod samples {
             ControlMsg::KeyProbe(KeyProbeMsg::Disarm),
             ControlMsg::KeyProbe(KeyProbeMsg::Heard),
             ControlMsg::Keyboard(Machine::B),
+            ControlMsg::Monitors(vec![]),
+            ControlMsg::Monitors(vec![monitor_report()]),
             ControlMsg::Desk(Box::new(DeskVersion {
                 stamp: DeskStamp {
                     rev: 4,
@@ -797,6 +979,7 @@ pub(crate) mod samples {
             ControlMsg::Desk(_) => 10,
             ControlMsg::KeyProbe(_) => 11,
             ControlMsg::Keyboard(_) => 12,
+            ControlMsg::Monitors(_) => 13,
         }
     }
 
@@ -828,10 +1011,22 @@ pub(crate) mod samples {
                     name: "PowerShell 7".into(),
                     detail: "winget · python · git".into(),
                 }],
-                monitors: vec![MonitorChannel {
-                    id: "dell-34".into(),
-                    name: "Dell 34\"".into(),
-                }],
+                monitors: vec![
+                    MonitorChannel {
+                        id: "lc34g55t-0a1b2c3d".into(),
+                        name: "LC34G55T".into(),
+                        compat: MonitorCompat::Compatible { protocol: 2 },
+                        latency_ms: 42,
+                    },
+                    MonitorChannel {
+                        id: "odyssey-0f0f0f0f".into(),
+                        name: "Odyssey G5".into(),
+                        compat: MonitorCompat::NotCompatible {
+                            reason: "firmware de fábrica".into(),
+                        },
+                        latency_ms: 0,
+                    },
+                ],
             },
             Capabilities {
                 machine: Machine::A,
@@ -1031,6 +1226,11 @@ pub(crate) mod samples {
             },
             UiCommand::UndoDesk { to_rev: 3 },
             UiCommand::GetDeskHistory,
+            UiCommand::GetMonitors,
+            UiCommand::SwitchMonitor {
+                monitor: "lc34g55t-0a1b2c3d".into(),
+                input: MonitorInput::DisplayPort,
+            },
         ];
         let mut cmds = cmds;
         cmds.extend(
@@ -1070,6 +1270,8 @@ pub(crate) mod samples {
             UiCommand::EditDesk { .. } => 18,
             UiCommand::UndoDesk { .. } => 19,
             UiCommand::GetDeskHistory => 20,
+            UiCommand::GetMonitors => 21,
+            UiCommand::SwitchMonitor { .. } => 22,
         }
     }
 
@@ -1267,6 +1469,12 @@ pub(crate) mod samples {
                 peer: None,
             })),
         });
+        v.push(AgentToUi::Monitors(vec![]));
+        v.push(AgentToUi::Monitors(monitor_views()));
+        v.push(AgentToUi::Reply {
+            id: 12,
+            reply: Reply::Monitors(monitor_views()),
+        });
         v.extend(links().into_iter().map(|link| {
             AgentToUi::Peer(PeerStatus::Paired {
                 name: "Mac".into(),
@@ -1301,6 +1509,7 @@ pub(crate) mod samples {
             AgentToUi::Machines { .. } => 8,
             AgentToUi::KeyProbe(_) => 9,
             AgentToUi::DeskChanged { .. } => 10,
+            AgentToUi::Monitors(_) => 11,
         }
     }
 
@@ -1318,6 +1527,7 @@ pub(crate) mod samples {
             Reply::Capabilities(_) => 9,
             Reply::Pong { .. } => 10,
             Reply::DeskHistory(_) => 11,
+            Reply::Monitors(_) => 12,
         }
     }
 
@@ -1357,13 +1567,14 @@ mod tests {
 
     #[test]
     fn samples_cover_every_variant() {
-        covers(&steps(), step_arm, 2);
+        covers(&steps(), step_arm, 3);
         covers(&hellos(), |h| peer_arm(&h.peer), 3);
-        covers(&control(), control_arm, 13);
+        covers(&control(), control_arm, 14);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 21);
+        covers(&cmds, ui_command_arm, 23);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 11);
+        covers(&to_ui(), to_ui_arm, 12);
+        covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
         covers(&pairing(), pairing_arm, 5);
         covers(&pairing_statuses(), pairing_status_arm, 5);
         covers(&links(), link_arm, 3);
@@ -1374,7 +1585,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 12);
+        covers(&replies, reply_arm, 13);
         covers(&txn_events(), txn_arm, 6);
     }
 
@@ -1410,6 +1621,11 @@ mod tests {
     #[test]
     fn agent_to_ui_round_trip() {
         round_trip(&to_ui());
+    }
+
+    #[test]
+    fn every_monitor_event_kind_round_trips() {
+        round_trip(&monitor_event_kinds());
     }
 
     #[test]

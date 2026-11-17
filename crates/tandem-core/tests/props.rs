@@ -41,6 +41,8 @@ impl Executor for Sim {
                     self.on.set(*machine, false);
                     Ok(())
                 }
+                // Los planes de energía no tienen monitores.
+                Step::SwitchMonitor { .. } => Err("sin monitores".to_owned()),
             }
         };
         async move { r }

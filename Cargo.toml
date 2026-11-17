@@ -22,6 +22,9 @@ ed25519-dalek = { version = "3.0.0", features = ["pkcs8", "alloc"] }
 getrandom = "0.4.3"
 keycode = "1.0.0"
 mdns-sd = "0.21.5"
+# Control de monitores por el estándar del firmware propio (DECISIONS A5, D12): repo
+# `monitor-firmware`, rama develop, fijado por commit (T-109, monitor-firmware#1).
+monitor-ddc = { git = "https://github.com/franc1sc0sv/monitor-firmware", rev = "e850a2d4a63c26c100aa846970f8673afed39229" }
 postcard = { version = "1.1.3", features = ["use-std"] }
 # Solo pruebas: invariantes de planes, transacciones y protocolo.
 proptest = "1.12.0"

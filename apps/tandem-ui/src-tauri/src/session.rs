@@ -461,7 +461,8 @@ impl From<Reply> for ActionResult {
             | Reply::Pairing(_)
             | Reply::Input(_)
             | Reply::Capabilities(_)
-            | Reply::DeskHistory(_) => ActionResult::Done,
+            | Reply::DeskHistory(_)
+            | Reply::Monitors(_) => ActionResult::Done,
         }
     }
 }
@@ -748,6 +749,9 @@ impl Runner {
                     event: KeyProbeView { armed, heard },
                 });
             }
+            // La pantalla Monitores llega con su tarea de UI; hasta entonces no hay dónde
+            // mostrarlos.
+            AgentToUi::Monitors(_) => {}
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}
             // El puesto nuevo ya llega con `Desk`; el aviso con «Deshacer» lo muestra la UI

@@ -10,6 +10,7 @@
 //! - [`net`]: los enlaces y el `PeerLink` que sigue al enlace activo.
 //! - [`fault`]: [`FaultPlan`] para fallar, colgar o tardar un paso y cortar enlaces.
 //! - [`desk`]: [`Desk`], que arma todo y comprueba el puesto contra el estado.
+//! - [`monitors`]: los dobles de `monitor-ddc` conectados a las dos máquinas (T-110).
 //!
 //! El motor de entrada no corre aquí: su geometría y sus sesiones se prueban en
 //! `tandemd/tests/input.rs`, con dos agentes por loopback.
@@ -19,11 +20,13 @@
 
 pub mod desk;
 pub mod fault;
+pub mod monitors;
 pub mod net;
 pub mod steps;
 pub mod world;
 
 pub use desk::{Desk, DeskBuilder, Outcome, SimError, TxnRun};
 pub use fault::{FaultAction, FaultPlan};
+pub use monitors::{MachineBus, MonitorSpec, SimMonitors};
 pub use steps::HardwareTimes;
 pub use world::{Physical, Power, World};

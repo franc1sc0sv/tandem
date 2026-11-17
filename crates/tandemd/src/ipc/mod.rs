@@ -160,6 +160,8 @@ where
     let mut caps = agent.subscribe_capabilities();
     caps.mark_unchanged();
     let mut desk_changes = agent.subscribe_desk_changes();
+    let mut monitors = agent.subscribe_monitors();
+    monitors.mark_unchanged();
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
@@ -241,6 +243,13 @@ where
                 }
                 let c = caps.borrow_and_update().clone();
                 conn.send(&machines(c)).await?;
+            }
+            changed = monitors.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+                let views = monitors.borrow_and_update().clone();
+                conn.send(&AgentToUi::Monitors(views)).await?;
             }
             () = stopped(&mut shutdown) => return Ok(()),
         }

@@ -6,10 +6,12 @@
 //!   puesto.
 //! - [`state`]: el estado observado (qué máquinas están encendidas).
 //! - [`plan`]: encender y apagar como una lista ordenada de pasos.
-//! - [`txn`]: ejecución transaccional de un plan.
+//! - [`txn`]: ejecución transaccional de un plan, con vuelta atrás.
+//! - [`monitor`]: las entradas de un monitor compatible.
 
 pub mod desk;
 pub mod model;
+pub mod monitor;
 pub mod plan;
 pub mod state;
 pub mod txn;
@@ -22,6 +24,7 @@ pub use model::{
     Align, Arrangement, Config, DEFAULT_COLORS, Desk, Machine, MachineInfo, Machines, Os, PALETTE,
     Scale, ScreenSpec, Side, default_color,
 };
+pub use monitor::MonitorInput;
 pub use plan::{Abilities, Plan, Step};
 pub use state::{Powered, State};
 pub use txn::{Executor, TxnError, TxnReport, run};

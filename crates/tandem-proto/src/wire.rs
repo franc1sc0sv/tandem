@@ -7,19 +7,31 @@
 //! de desincronizarse.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use tandem_core::{Machine, Step};
+use tandem_core::{Machine, MonitorInput, Step};
 
 #[derive(Serialize, Deserialize)]
 enum StepWire {
-    PowerOn { machine: Machine },
-    PowerOff { machine: Machine },
+    PowerOn {
+        machine: Machine,
+    },
+    PowerOff {
+        machine: Machine,
+    },
+    SwitchMonitor {
+        monitor: String,
+        input: MonitorInput,
+    },
 }
 
 impl From<&Step> for StepWire {
     fn from(s: &Step) -> Self {
-        match *s {
-            Step::PowerOn { machine } => StepWire::PowerOn { machine },
-            Step::PowerOff { machine } => StepWire::PowerOff { machine },
+        match s {
+            Step::PowerOn { machine } => StepWire::PowerOn { machine: *machine },
+            Step::PowerOff { machine } => StepWire::PowerOff { machine: *machine },
+            Step::SwitchMonitor { monitor, input } => StepWire::SwitchMonitor {
+                monitor: monitor.clone(),
+                input: *input,
+            },
         }
     }
 }
@@ -29,6 +41,7 @@ impl From<StepWire> for Step {
         match s {
             StepWire::PowerOn { machine } => Step::PowerOn { machine },
             StepWire::PowerOff { machine } => Step::PowerOff { machine },
+            StepWire::SwitchMonitor { monitor, input } => Step::SwitchMonitor { monitor, input },
         }
     }
 }
@@ -78,6 +91,11 @@ mod tests {
         prop_oneof![
             machine().prop_map(|machine| Step::PowerOn { machine }),
             machine().prop_map(|machine| Step::PowerOff { machine }),
+            (
+                ".{0,24}",
+                prop_oneof![Just(MonitorInput::DisplayPort), Just(MonitorInput::Hdmi)]
+            )
+                .prop_map(|(monitor, input)| Step::SwitchMonitor { monitor, input }),
         ]
     }
 

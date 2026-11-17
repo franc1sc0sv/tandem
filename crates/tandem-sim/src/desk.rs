@@ -4,13 +4,16 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tandem_core::{Machine, Os, Plan, State};
+use tandem_core::{Machine, MonitorInput, Os, Plan, State};
 use tandem_link::manager::{HealthConfig, LinkKind, LinkManager};
-use tandem_proto::{Reply, TxnEvent, UiCommand};
+use tandem_monitor::{LocalConfig, LocalMonitors};
+use tandem_proto::{MonitorView, Reply, TxnEvent, UiCommand};
+use tandemd::monitors::MonitorTimes;
 use tandemd::{Agent, AgentConfig, NoPeer, StateStore};
 use tokio::sync::{broadcast, watch};
 
 use crate::fault::{FaultPlan, Faults};
+use crate::monitors::{MonitorSpec, SimMonitors};
 use crate::net::{ManagedPeer, SimNet, SimProber};
 use crate::steps::{HardwareTimes, SimSteps};
 use crate::world::{Power, World};
@@ -82,6 +85,8 @@ pub struct DeskBuilder {
     principal: Machine,
     /// El sistema de A y el de B. Cualquier combinación vale (DECISIONS D2).
     os: [Os; 2],
+    /// Los monitores del puesto y quién tiene cable a cada uno (T-110).
+    monitors: Vec<MonitorSpec>,
 }
 
 impl Default for DeskBuilder {
@@ -91,9 +96,16 @@ impl Default for DeskBuilder {
             times: HardwareTimes::default(),
             principal: Machine::A,
             os: [Os::MacOs, Os::Windows],
+            monitors: Vec::new(),
         }
     }
 }
+
+/// Cada cuánto miran el bus los agentes de la simulación.
+pub const SIM_MONITOR_TIMES: MonitorTimes = MonitorTimes {
+    scan_every: Duration::from_secs(2),
+    poll_every: Duration::from_millis(500),
+};
 
 impl DeskBuilder {
     /// Los enlaces cableados (por omisión los tres).
@@ -117,6 +129,12 @@ impl DeskBuilder {
     /// El sistema de cada lado (por omisión A con macOS y B con Windows).
     pub fn os(mut self, a: Os, b: Os) -> Self {
         self.os = [a, b];
+        self
+    }
+
+    /// Monitores conectados a las máquinas (por omisión, ninguno: el módulo queda sin canal).
+    pub fn monitors(mut self, specs: Vec<MonitorSpec>) -> Self {
+        self.monitors = specs;
         self
     }
 
@@ -196,10 +214,29 @@ impl DeskBuilder {
         let pc_links = links(&pc, &mac, pc_up_tx)?;
         mac.set_peer(mac_links.clone());
         pc.set_peer(pc_links.clone());
-        let watches = [
+        let mut watches = vec![
             tokio::spawn(watch_while_on(world.clone(), mac.clone(), mac_reach)),
             tokio::spawn(watch_while_on(world.clone(), pc.clone(), pc_reach)),
         ];
+        let monitors = (!self.monitors.is_empty()).then(|| SimMonitors::new(&self.monitors));
+        if let Some(sim) = &monitors {
+            for agent in [&mac, &pc] {
+                let clock = sim.clock();
+                let wall = clock.clone();
+                let core = LocalMonitors::new(
+                    Arc::new(sim.bus_of(agent.machine(), world.clone())),
+                    Arc::new(clock),
+                    // Una hora fija más el reloj del doble: las horas de los eventos son exactas.
+                    Arc::new(move || {
+                        use monitor_ddc::Clock;
+                        1_763_000_000_000 + u64::try_from(wall.now().as_millis()).unwrap_or(0)
+                    }),
+                    LocalConfig::default(),
+                );
+                // El bus falso no bloquea: se llama en el lugar, con el reloj pausado quieto.
+                watches.push(agent.start_monitors(core, SIM_MONITOR_TIMES, true));
+            }
+        }
 
         Ok(Desk {
             mac,
@@ -212,6 +249,7 @@ impl DeskBuilder {
             times: self.times,
             principal: self.principal,
             watches,
+            monitors,
             _dir: dir,
         })
     }
@@ -228,7 +266,8 @@ pub struct Desk {
     faults: Faults,
     times: HardwareTimes,
     principal: Machine,
-    watches: [tokio::task::JoinHandle<()>; 2],
+    watches: Vec<tokio::task::JoinHandle<()>>,
+    monitors: Option<SimMonitors>,
     _dir: tempfile::TempDir,
 }
 
@@ -356,6 +395,40 @@ impl Desk {
     /// La máquina que el usuario usaba al empezar.
     pub fn principal(&self) -> Machine {
         self.principal
+    }
+
+    /// Los monitores físicos, si el puesto tiene ([`DeskBuilder::monitors`]).
+    pub fn monitors(&self) -> Option<&SimMonitors> {
+        self.monitors.as_ref()
+    }
+
+    /// Cambiar la entrada de un monitor desde la UI de `on` y esperar el desenlace.
+    pub async fn switch_monitor(
+        &self,
+        on: Machine,
+        monitor: &str,
+        input: MonitorInput,
+    ) -> Result<TxnRun, SimError> {
+        let cmd = UiCommand::SwitchMonitor {
+            monitor: monitor.to_owned(),
+            input,
+        };
+        self.request(on, cmd).await
+    }
+
+    /// Espera a que los monitores que ve `machine` cumplan `ok`; devuelve esa vista.
+    pub async fn wait_monitors(
+        &self,
+        machine: Machine,
+        what: &'static str,
+        ok: impl Fn(&[MonitorView]) -> bool,
+    ) -> Result<Vec<MonitorView>, SimError> {
+        let mut rx = self.agent(machine).subscribe_monitors();
+        let views = within(what, rx.wait_for(|v| ok(v)))
+            .await?
+            .map_err(|_| SimError::Setup("el agente se cerró".into()))?
+            .clone();
+        Ok(views)
     }
 
     /// Apagado de la PC orquestado por la Mac (DESIGN §5).

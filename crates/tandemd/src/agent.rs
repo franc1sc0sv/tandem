@@ -17,11 +17,13 @@ use tandem_proto::{
 use tokio::sync::{broadcast, mpsc, watch};
 
 mod modules;
+mod monitors;
 mod setup;
 
 use crate::capabilities;
 use crate::config::AgentConfig;
 use crate::modules::{ModuleContext, ModuleSwitches, Registry};
+use crate::monitors::MonitorHub;
 use crate::orchestrator::{LocalSteps, Orchestrator, PeerLink, Unimplemented};
 use crate::store::{StateStore, StoreError};
 
@@ -104,6 +106,8 @@ pub struct Agent {
     permission_requests: watch::Sender<u64>,
     /// Este proceso, para anunciarlo en las capacidades.
     process: tandem_proto::ProcessInfo,
+    /// Los monitores del puesto: canales, dueños y lo que leyó cada dueño (T-110).
+    monitors: Arc<MonitorHub>,
 }
 
 #[derive(Debug, Clone)]
@@ -224,6 +228,8 @@ impl Agent {
         // que los enlaces digan otra cosa, como quedó.
         state.on.set(me, true);
         let orch = Orchestrator::new(me, local, cfg.orchestrator.timeouts());
+        let monitors = Arc::new(MonitorHub::new(me));
+        orch.set_monitors(monitors.clone());
         let mut input = InputStatus::new(cfg.input.keyboard());
         input.defined = cfg.input.keyboard_defined();
         let process = capabilities::current_process();
@@ -236,7 +242,12 @@ impl Agent {
                 && crate::desk_sync::edited_by_hand(&cfg.desk, cfg.desk_sum.as_deref()));
         let info = local_info(&cfg, me, &cfg.desk);
         let registry = Registry::for_os(cfg.os);
-        let switches = modules::initial_switches(&cfg);
+        let mut switches = modules::initial_switches(&cfg);
+        // Hasta que arranque con un bus ([`Agent::start_monitors`]).
+        switches.set_problem(
+            tandem_proto::ModuleId::Monitors,
+            Some(crate::monitors::NO_DDC.into()),
+        );
         let modules = registry.snapshot(&ModuleContext {
             os: info.os,
             input: &input,
@@ -296,6 +307,7 @@ impl Agent {
             input_engine: std::sync::atomic::AtomicBool::new(false),
             permission_requests: watch::Sender::new(0),
             process,
+            monitors,
             cfg,
         }
     }
@@ -370,12 +382,14 @@ impl Agent {
         self.input_status
             .send_modify(|s| s.server = s.server.other());
         self.orch.set_machine(side);
+        self.monitors.set_me(side);
         self.me.send_replace(side);
         let state = self.state().swapped();
         if let Err(e) = self.set_state(state) {
             tracing::warn!("{e}");
         }
         self.caps.send_modify(|c| c.peer = None);
+        self.sync_monitor_peer();
         self.refresh_capabilities();
         self.save_sides();
     }
@@ -720,6 +734,7 @@ impl Agent {
             c.peer = Some(peer);
             changed
         });
+        self.sync_monitor_peer();
     }
 
     /// Lo que el plan puede pedirle a cada máquina ([`capabilities::abilities`]).
@@ -767,6 +782,12 @@ impl Agent {
         self.orch.set_peer(peer.clone());
         peer.send(ControlMsg::Desk(Box::new(self.desk_sync())));
         peer.send(ControlMsg::Capabilities(Box::new(self.capabilities().here)));
+        // Lo que leyó de sus monitores, si es dueña de alguno: el enlace anterior pudo
+        // perder el último informe.
+        let reports = self.monitors.reports_here();
+        if !reports.is_empty() {
+            peer.send(ControlMsg::Monitors(reports));
+        }
     }
 
     /// Avance de las transacciones, para la UI.
@@ -875,7 +896,12 @@ impl Agent {
                 true
             }
         });
-        if changed { self.persist() } else { Ok(()) }
+        if !changed {
+            return Ok(());
+        }
+        // Si la otra se apagó (o volvió), sus monitores cambian de dueño.
+        self.sync_monitor_peer();
+        self.persist()
     }
 
     pub fn persist(&self) -> Result<(), StoreError> {
@@ -949,6 +975,10 @@ impl Agent {
                 module,
                 on,
             } => self.switch_module(machine, module, on),
+            UiCommand::GetMonitors => Reply::Monitors(self.monitors()),
+            UiCommand::SwitchMonitor { monitor, input } => {
+                self.start_switch_monitor(monitor, input)
+            }
         }
     }
 
