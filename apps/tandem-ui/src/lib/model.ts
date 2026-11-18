@@ -173,7 +173,7 @@ export type TxnView =
   | { type: "failed"; txn: number; state: DeskState };
 
 /** Borde del escritorio de una máquina (`tandem_core::Side`). */
-export type Edge = "left" | "right" | "up" | "down";
+export type CrossEdge = "left" | "right" | "up" | "down";
 
 /** Dónde está el cursor, en las coordenadas nativas de su máquina (`tandem_proto::CursorSample`). */
 export interface CursorSample {
@@ -189,7 +189,7 @@ export type Notice =
   /** El cursor en vivo (T-128), a 30 Hz como mucho; solo llega con `watch_cursor`. */
   | { kind: "cursor"; sample: CursorSample }
   /** El cursor cruzó el borde `edge` de `from` hacia `to` (T-128). */
-  | { kind: "crossed"; from: Machine; to: Machine; edge: Edge }
+  | { kind: "crossed"; from: Machine; to: Machine; edge: CrossEdge }
   | { kind: "key_probe"; event: { armed: boolean; heard: Machine | null } }
   | { kind: "power"; machine: Machine; reason: string };
 

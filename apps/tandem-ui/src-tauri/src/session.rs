@@ -16,9 +16,10 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tandem_core::{Align, Arrangement, Config, DeskPatch, Machine, Side, State, Step};
 use tandem_proto::{
-    AgentToUi, Capabilities, CursorSample, DeskCapabilities, EnvKind, Environment, Hardware, InputPermission,
-    InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo, ModuleState, PairingStatus,
-    PeerStatus, PowerEvent, Reply, Resources, SetupInfo, TxnEvent, UiCommand, UpdateStatus,
+    AgentToUi, Capabilities, CursorSample, DeskCapabilities, EnvKind, Environment, Hardware,
+    InputPermission, InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo, ModuleState,
+    PairingStatus, PeerStatus, PowerEvent, Reply, Resources, SetupInfo, TxnEvent, UiCommand,
+    UpdateStatus,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
