@@ -192,10 +192,10 @@
       {/if}
     </header>
 
-    {#if m.wake}
+    {#if m.wake && !wolMac}
       <section class="wol" aria-label="Wake-on-LAN">
         <label for="wol-mac"><b>Wake-on-LAN</b></label>
-        <span class="mut s12">{wolMac ? "La MAC de su tarjeta de red, para encenderla desde aquí." : WOL_MISSING}</span>
+        <span class="mut s12">{WOL_MISSING}</span>
         <input id="wol-mac" class="mono" placeholder="aa:bb:cc:dd:ee:ff" bind:value={macDraft} aria-label="MAC de {m.name}" />
         <Button icon="check" size="sm" disabled={macDraft.trim() === (wolMac ?? "")} onclick={() => void store.setWol(macDraft.trim() || null)}>Guardar</Button>
       </section>
