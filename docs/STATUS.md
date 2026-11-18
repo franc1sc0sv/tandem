@@ -9,7 +9,7 @@
 
 | | |
 |---|---|
-| Tasks | **119 done of 125** (`T-001`…`T-193`; open ones below) |
+| Tasks | **127 done of 141** (`T-001`…`T-208`; open ones below) |
 | Tests | **1442 Rust + 619 UI (vitest)**, 0 failures, 11 ignored (`#[ignore = "hardware"]` and latency benches) |
 | Quality | `fmt`, `clippy -D warnings`, `svelte-check` and `pnpm build` with no warnings |
 | CI per PR | Linux · Windows · macOS · UI x3 · coverage · `.dmg` · Windows installer |
@@ -37,7 +37,9 @@
 | T-027 | todo (`windows-hw`, `user`) | Windows SYSTEM service for UAC; needs a decision on the Authenticode certificate |
 | T-088, T-095, T-096 | blocked | Ignored monitors, own firmware for the 34" and live UI |
 | T-124 | todo | End-to-end acceptance |
-| T-190 | todo | Persistent failure of `pairing_hot_opens_the_input_session` on macOS |
+| T-190 | blocked | Persistent failure of `pairing_hot_opens_the_input_session` on macOS (not reproducible; waits now name what hung) |
+| T-195 | todo | Two-agent tests time out on slow CI runners |
+| T-201, T-202, T-203, T-204, T-205, T-206, T-208 | todo / in progress | English migration of the repository (T-200) |
 | T-140…T-165, T-191…T-193 | done | Failures from parts A, B and C of the acceptance run, personal data out of the repo, CI time limits, up-to-date documentation and CI checks |
 
 ## Pending hardware verification
