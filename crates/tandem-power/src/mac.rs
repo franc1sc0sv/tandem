@@ -3,21 +3,19 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// Dirección MAC de la tarjeta Ethernet de la PC.
+/// Ethernet card MAC address of the PC.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MacAddr(pub [u8; 6]);
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error(
-    "dirección MAC inválida `{0}`: se esperan 6 bytes en hexadecimal, como `aa:bb:cc:dd:ee:ff`"
-)]
+#[error("invalid MAC address `{0}`: expected 6 hexadecimal bytes, like `aa:bb:cc:dd:ee:ff`")]
 pub struct ParseMacError(pub String);
 
 impl FromStr for MacAddr {
     type Err = ParseMacError;
 
-    /// Acepta `aa:bb:cc:dd:ee:ff` y `aa-bb-cc-dd-ee-ff` (la forma de `ipconfig /all`),
-    /// en mayúsculas o minúsculas.
+    /// Accepts `aa:bb:cc:dd:ee:ff` and `aa-bb-cc-dd-ee-ff` (the `ipconfig /all` form),
+    /// in upper or lower case.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let err = || ParseMacError(s.to_owned());
         let sep = if s.contains('-') { '-' } else { ':' };
@@ -25,7 +23,7 @@ impl FromStr for MacAddr {
         let mut parts = s.split(sep);
         for byte in &mut out {
             let part = parts.next().ok_or_else(err)?;
-            // `from_str_radix` aceptaría un `+` delante.
+            // `from_str_radix` would accept a leading `+`.
             if part.len() != 2 || !part.bytes().all(|b| b.is_ascii_hexdigit()) {
                 return Err(err());
             }
@@ -88,7 +86,7 @@ mod tests {
         ] {
             assert!(
                 bad.parse::<MacAddr>().is_err(),
-                "`{bad}` no debería ser válida"
+                "`{bad}` should not be valid"
             );
         }
     }

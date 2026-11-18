@@ -1,4 +1,4 @@
-//! Reenvío de puertos entre dos agentes con un servidor TCP de eco.
+//! Port forwarding between two agents with a TCP echo server.
 
 mod common;
 
@@ -14,7 +14,7 @@ async fn within<T>(f: impl Future<Output = T>) -> T {
     tokio::time::timeout(TIMEOUT, f).await.unwrap()
 }
 
-/// Un servidor de eco en un puerto libre.
+/// An echo server on a free port.
 async fn echo_server() -> u16 {
     let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = l.local_addr().unwrap().port();
@@ -33,7 +33,7 @@ async fn echo_server() -> u16 {
     port
 }
 
-/// Manda `payload` por una conexión y comprueba que vuelve igual.
+/// Sends `payload` over a connection and checks it comes back the same.
 async fn round_trip(port: u16, payload: Vec<u8>) {
     let mut s = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
     let (mut rd, mut wr) = s.split();
@@ -55,7 +55,7 @@ fn payload(i: usize) -> Vec<u8> {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn hacia_la_destino_con_20_conexiones_a_la_vez() {
+async fn toward_the_destination_with_20_connections_at_once() {
     let echo = echo_server().await;
     let p = pair(1024).await;
     let info = p
@@ -83,8 +83,8 @@ async fn hacia_la_destino_con_20_conexiones_a_la_vez() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn hacia_el_origen_con_20_conexiones_a_la_vez() {
-    // El eco vive en la máquina origen (A); la destino (B) escucha y todo vuelve a A.
+async fn toward_the_origin_with_20_connections_at_once() {
+    // The echo lives on the origin machine (A); the destination (B) listens and everything returns to A.
     let echo = echo_server().await;
     let p = pair(1024).await;
     let info = p
@@ -112,7 +112,7 @@ async fn hacia_el_origen_con_20_conexiones_a_la_vez() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn cerrar_el_tunel_suelta_los_puertos_de_los_dos_lados() {
+async fn closing_the_tunnel_releases_the_ports_on_both_sides() {
     let echo = echo_server().await;
     let p = pair(1024).await;
     let spec = |direction, local_port, remote_port| ForwardSpec {
@@ -157,9 +157,9 @@ async fn cerrar_el_tunel_suelta_los_puertos_de_los_dos_lados() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn un_puerto_que_nadie_escucha_cierra_la_conexion() {
+async fn a_port_nobody_listens_on_closes_the_connection() {
     let p = pair(1024).await;
-    // Un puerto libre que se suelta enseguida.
+    // A free port that is released right away.
     let free = {
         let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
         l.local_addr().unwrap().port()

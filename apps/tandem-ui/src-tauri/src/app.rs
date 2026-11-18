@@ -1,15 +1,15 @@
-//! La app de Tauri: ventana principal, ícono en la barra de menú / bandeja con su mini
-//! escena, atajos globales, la sesión con `tandemd` y los comandos que llama el frontend.
+//! The Tauri app: main window, menu bar / tray icon with its mini
+//! scene, global shortcuts, the session with `tandemd` and the commands the frontend calls.
 //!
-//! La sesión empuja a las ventanas dos eventos: [`SNAPSHOT_EVENT`] con todo lo necesario
-//! para dibujar la escena y [`NOTICE_EVENT`] con el avance de las transacciones y los
-//! avisos de energía. [`MESSAGE_EVENT`] lleva lo que pasó con un pedido hecho desde fuera
-//! de la ventana. [`SHORTCUTS_EVENT`] lleva los atajos nuevos cuando se cambian, para que
-//! cada ventana muestre los vigentes. [`crate::updater::UPDATE_EVENT`] lleva la pestaña
-//! Actualizaciones de Ajustes (T-122).
+//! The session pushes two events to the windows: [`SNAPSHOT_EVENT`] with everything needed
+//! to draw the scene and [`NOTICE_EVENT`] with the progress of transactions and
+//! power notices. [`MESSAGE_EVENT`] carries what happened with a request made from outside
+//! the window. [`SHORTCUTS_EVENT`] carries the new shortcuts when they change, so that
+//! each window shows the current ones. [`crate::updater::UPDATE_EVENT`] carries the Updates
+//! tab of Settings (T-122).
 //!
-//! En macOS, al arrancar instala o pone al día el LaunchAgent de `tandemd`
-//! ([`crate::launch_agent`]) y ofrece la guía de permisos del primer arranque
+//! On macOS, at launch it installs or updates `tandemd`'s LaunchAgent
+//! ([`crate::launch_agent`]) and offers the first-launch permissions guide
 //! ([`crate::setup`]).
 
 use std::collections::BTreeMap;
@@ -36,42 +36,42 @@ use crate::updater::Updater;
 
 pub const SNAPSHOT_EVENT: &str = "agent-snapshot";
 pub const NOTICE_EVENT: &str = "agent-notice";
-/// Una muestra de recursos en vivo (`{ machine, resources }`), solo con `watch_resources`.
+/// A live resources sample (`{ machine, resources }`), only with `watch_resources`.
 pub const RESOURCES_EVENT: &str = "agent-resources";
-/// El estado de la red (`NetworkView`), una vez por segundo y solo con `watch_network`.
+/// The network state (`NetworkView`), once per second and only with `watch_network`.
 pub const NETWORK_EVENT: &str = "agent-network";
-/// Los túneles por proyecto (`ProjectItem[]`), al conectar y con cada cambio.
+/// The tunnels by project (`ProjectItem[]`), on connecting and on each change.
 pub const TUNNELS_EVENT: &str = "agent-tunnels";
-/// El avance de una copia de archivos de un túnel (`TransferItem`).
+/// The progress of a tunnel's file copy (`TransferItem`).
 pub const TRANSFER_EVENT: &str = "agent-transfer";
 pub const MESSAGE_EVENT: &str = "ui-message";
 pub const SHORTCUTS_EVENT: &str = "ui-shortcuts";
 
 const MAIN_WINDOW: &str = "main";
-/// La mini escena que abre el ícono (`tray.html`).
+/// The mini scene the icon opens (`tray.html`).
 const TRAY_WINDOW: &str = "tray";
 
 const MENU_OPEN: &str = "open";
 const MENU_QUIT: &str = "quit";
 const MENU_STATUS: &str = "status";
 
-/// Un clic en el ícono con la mini escena abierta primero le quita el foco (y la cierra) y
-/// después llega como clic: sin esto, se volvería a abrir al instante.
+/// A click on the icon with the mini scene open first takes focus away from it (and closes it) and
+/// then arrives as a click: without this, it would reopen instantly.
 const REOPEN_GUARD: Duration = Duration::from_millis(300);
 
-// En la barra de menú de macOS el ícono es una plantilla (negro con alfa) que el sistema
-// pinta según el tema; en la bandeja de Windows va el logo a color.
+// In the macOS menu bar the icon is a template (black with alpha) that the system
+// paints according to the theme; in the Windows tray the color logo goes.
 #[cfg(target_os = "macos")]
 const TRAY_ICON: &[u8] = include_bytes!("../icons/tray-template.png");
 #[cfg(not(target_os = "macos"))]
 const TRAY_ICON: &[u8] = include_bytes!("../icons/tray.png");
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
-    // Lo que protegen estos mutex queda coherente aunque un hilo haya caído a medias.
+    // What these mutexes protect stays coherent even if a thread fell midway.
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Lo que la app guarda además de la sesión.
+/// What the app keeps besides the session.
 struct Ui {
     menu: Option<TrayMenu>,
     keys: Mutex<Keys>,
@@ -79,16 +79,16 @@ struct Ui {
     first_run: FirstRun,
 }
 
-/// La guía del primer arranque y cómo quedó el agente de inicio de sesión.
+/// The first-launch guide and how the login agent ended up.
 struct FirstRun {
-    /// `setup.done`; sin directorio de configuración no se puede recordar.
+    /// `setup.done`; without a configuration directory it cannot be remembered.
     file: Option<PathBuf>,
     agent: Option<Report>,
 }
 
 impl FirstRun {
     fn view(&self) -> SetupView {
-        // Sin archivo donde recordarlo, el asistente saldría en cada arranque: mejor no ofrecerlo solo.
+        // Without a file to remember it in, the setup would appear on every launch: better not to offer it on its own.
         let done = self.file.as_deref().is_none_or(setup::is_done);
         SetupView::new(cfg!(target_os = "macos"), done, self.agent.clone())
     }
@@ -112,8 +112,8 @@ impl Keys {
     }
 }
 
-/// El menú del ícono: estado, abrir y salir. Los modos de antes ya no existen: los
-/// reemplazan las escenas (D6), que el menú todavía no ofrece.
+/// The icon menu: status, open and quit. The former modes no longer exist: scenes
+/// (D6) replace them, which the menu does not offer yet.
 struct TrayMenu {
     status: MenuItem<Wry>,
     tray: TrayIcon<Wry>,
@@ -121,7 +121,7 @@ struct TrayMenu {
 
 impl TrayMenu {
     fn show(&self, v: &MenuView) {
-        // Si el sistema rechaza un cambio del menú, el menú queda como estaba: nada que hacer.
+        // If the system rejects a menu change, the menu stays as it was: nothing to do.
         let _ = self.status.set_text(&v.status);
         let _ = self.tray.set_tooltip(Some(&v.tooltip));
     }
@@ -131,7 +131,7 @@ struct Windows(AppHandle);
 
 impl Sink for Windows {
     fn snapshot(&self, snapshot: &Snapshot) {
-        // Sin ventanas todavía no hay a quién avisar; al abrirse piden `agent_snapshot`.
+        // Without windows yet there is no one to notify; on opening they ask for `agent_snapshot`.
         let _ = self.0.emit(SNAPSHOT_EVENT, snapshot);
         if let Some(ui) = self.0.try_state::<Ui>()
             && let Some(menu) = &ui.menu
@@ -171,9 +171,9 @@ impl Sink for Windows {
 }
 
 // ---------------------------------------------------------------------------------------
-// Comandos
+// Commands
 
-/// Lo último que se sabe del agente, para la ventana que recién se abre.
+/// The latest known about the agent, for the window that just opened.
 #[tauri::command]
 fn agent_snapshot(session: tauri::State<'_, Handle>) -> Snapshot {
     session.snapshot()
@@ -187,7 +187,7 @@ async fn agent_act(
     Ok(session.act(action).await)
 }
 
-/// El botón «Reintentar»: no esperar al próximo intento automático.
+/// The "Retry" button: do not wait for the next automatic attempt.
 #[tauri::command]
 fn agent_retry(session: tauri::State<'_, Handle>) {
     session.retry_now();
@@ -198,7 +198,7 @@ fn shortcuts_get(ui: tauri::State<'_, Ui>) -> ShortcutsView {
     lock(&ui.keys).view()
 }
 
-/// Cambia los atajos: los valida, los guarda en `ui.toml` y los vuelve a registrar.
+/// Changes the shortcuts: validates them, saves them in `ui.toml` and registers them again.
 #[tauri::command]
 fn shortcuts_set(
     app: AppHandle,
@@ -209,18 +209,18 @@ fn shortcuts_set(
     let mut keys = lock(&ui.keys);
     if let Some(file) = &keys.file {
         shortcuts::save(file, &next)
-            .map_err(|e| format!("no se pudo guardar {}: {e}", file.display()))?;
+            .map_err(|e| format!("could not save {}: {e}", file.display()))?;
     }
     keys.failed = register(&app, &next);
     keys.current = next;
     keys.warning = None;
     let view = keys.view();
-    // La mini escena no se destruye al cerrarla: sin el aviso seguiría con los de antes.
+    // The mini scene is not destroyed on closing: without the notice it would keep the old ones.
     let _ = app.emit(SHORTCUTS_EVENT, &view);
     Ok(view)
 }
 
-// Actualizaciones (T-122).
+// Updates (T-122).
 
 #[tauri::command]
 fn update_get(updater: tauri::State<'_, Arc<Updater>>) -> UpdateView {
@@ -257,14 +257,14 @@ fn setup_get(ui: tauri::State<'_, Ui>) -> SetupView {
     ui.first_run.view()
 }
 
-/// Abre el panel de Ajustes del Sistema que concede `permission`.
+/// Opens the System Settings panel that grants `permission`.
 #[tauri::command]
 fn setup_open(permission: Permission) -> Result<(), String> {
     open_settings(permission)
 }
 
-/// «Reiniciar agente»: `launchctl kickstart -k` de `tandemd`, para que los permisos recién
-/// concedidos en Ajustes valgan sin pedirle comandos al usuario.
+/// "Restart agent": `launchctl kickstart -k` of `tandemd`, so the permissions just
+/// granted in Settings take effect without asking the user for commands.
 #[tauri::command]
 fn agent_restart() -> Result<(), String> {
     restart_agent()
@@ -278,17 +278,17 @@ fn restart_agent() -> Result<(), String> {
 
 #[cfg(not(target_os = "macos"))]
 fn restart_agent() -> Result<(), String> {
-    Err("el agente de inicio de sesión solo existe en macOS".to_owned())
+    Err("the login agent only exists on macOS".to_owned())
 }
 
-/// Estado de la fila «Servicio de administrador» del asistente (T-131).
+/// State of the "Administrator service" row of the setup (T-131).
 #[tauri::command]
 fn admin_status() -> crate::admin_service::AdminView {
     use crate::admin_service as a;
     a::view(&admin_platform(), &a::System, &admin_acl())
 }
 
-/// «Instalar»: pide credenciales (macOS) o UAC (Windows) y devuelve el estado resultante.
+/// "Install": asks for credentials (macOS) or UAC (Windows) and returns the resulting state.
 #[tauri::command]
 fn admin_install() -> Result<crate::admin_service::AdminView, String> {
     use crate::admin_service as a;
@@ -301,7 +301,7 @@ fn admin_platform() -> crate::admin_service::Platform {
     match std::env::current_exe() {
         Ok(exe) => crate::admin_service::platform_for(&exe),
         Err(e) => crate::admin_service::Platform::Unsupported(format!(
-            "no se encontró el ejecutable de la app: {e}"
+            "could not find the app's executable: {e}"
         )),
     }
 }
@@ -320,7 +320,7 @@ fn admin_acl() -> crate::admin_service::UnixAcl {
 fn setup_finish(ui: tauri::State<'_, Ui>) -> Result<SetupView, String> {
     if let Some(file) = &ui.first_run.file {
         setup::mark_done(file, env!("CARGO_PKG_VERSION"))
-            .map_err(|e| format!("no se pudo guardar {}: {e}", file.display()))?;
+            .map_err(|e| format!("could not save {}: {e}", file.display()))?;
     }
     Ok(ui.first_run.view())
 }
@@ -330,12 +330,12 @@ fn open_settings(permission: Permission) -> Result<(), String> {
     let status = std::process::Command::new("/usr/bin/open")
         .arg(permission.settings_url())
         .status()
-        .map_err(|e| format!("no se pudo abrir Ajustes del Sistema: {e}"))?;
+        .map_err(|e| format!("could not open System Settings: {e}"))?;
     if status.success() {
         Ok(())
     } else {
         Err(format!(
-            "open {} terminó con {status}",
+            "open {} ended with {status}",
             permission.settings_url()
         ))
     }
@@ -343,21 +343,21 @@ fn open_settings(permission: Permission) -> Result<(), String> {
 
 #[cfg(not(target_os = "macos"))]
 fn open_settings(_: Permission) -> Result<(), String> {
-    Err("estos permisos solo existen en macOS".to_owned())
+    Err("these permissions only exist on macOS".to_owned())
 }
 
-/// macOS: instala o pone al día el LaunchAgent de `tandemd`. Son un par de llamadas a
-/// `launchctl` (milisegundos); si algo falla, la guía del primer arranque lo dice.
+/// macOS: installs or updates `tandemd`'s LaunchAgent. It is a couple of calls to
+/// `launchctl` (milliseconds); if something fails, the first-launch guide says so.
 #[cfg(target_os = "macos")]
 fn install_agent() -> Option<Report> {
     use crate::launch_agent::{self, system::SystemLaunchd};
     let failed = |text: String| Report { ok: false, text };
     let exe = match std::env::current_exe() {
         Ok(exe) => exe,
-        Err(e) => return Some(failed(format!("no se pudo saber dónde está la app: {e}"))),
+        Err(e) => return Some(failed(format!("could not find where the app is: {e}"))),
     };
     let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else {
-        return Some(failed("no está definido HOME".to_owned()));
+        return Some(failed("HOME is not defined".to_owned()));
     };
     let launchd = match SystemLaunchd::current_user() {
         Ok(l) => l,
@@ -380,15 +380,15 @@ fn install_agent() -> Option<Report> {
     None
 }
 
-/// «Abrir Tandem» desde la mini escena.
+/// "Open Tandem" from the mini scene.
 #[tauri::command]
 fn ui_show_main(app: AppHandle) {
     hide_tray(&app);
     show_main(&app);
 }
 
-/// El atajo de mostrar u ocultar, atendido por la ventana misma cuando el sistema no dejó
-/// registrarlo: si la ventana recibe la tecla es porque está al frente, así que se esconde.
+/// The show or hide shortcut, handled by the window itself when the system did not let
+/// it be registered: if the window receives the key it is because it is in front, so it hides.
 #[tauri::command]
 fn ui_hide_main(app: AppHandle) {
     if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
@@ -401,7 +401,7 @@ fn ui_hide_tray(app: AppHandle) {
     hide_tray(&app);
 }
 
-/// Las rutas del archivo de configuración y de los logs (Ajustes → Avanzado).
+/// The paths of the configuration file and the logs (Settings → Advanced).
 #[tauri::command]
 fn files_info() -> Result<crate::files::FilesInfo, String> {
     let (config, logs) = crate::files::locate()?;
@@ -411,7 +411,7 @@ fn files_info() -> Result<crate::files::FilesInfo, String> {
     })
 }
 
-/// Muestra el archivo de configuración o la carpeta de logs en el explorador del sistema.
+/// Shows the configuration file or the logs folder in the system's explorer.
 #[tauri::command]
 fn files_open(target: crate::files::Target) -> Result<(), String> {
     let (config, logs) = crate::files::locate()?;
@@ -430,14 +430,14 @@ fn files_open(target: crate::files::Target) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// «Salir» desde la bandeja / barra de menú (V3-Bandeja), igual que el menú del ícono.
+/// "Quit" from the tray / menu bar (V3-Tray), the same as the icon menu.
 #[tauri::command]
 fn ui_quit(app: AppHandle) {
     app.exit(0);
 }
 
 // ---------------------------------------------------------------------------------------
-// Ventanas
+// Windows
 
 fn show_main(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(MAIN_WINDOW) {
@@ -472,7 +472,7 @@ fn hide_tray(app: &AppHandle) {
     }
 }
 
-/// Abre o cierra la mini escena junto al ícono en el que se hizo clic.
+/// Opens or closes the mini scene next to the icon that was clicked.
 fn toggle_tray(app: &AppHandle, click: PhysicalPosition<f64>) {
     let Some(w) = app.get_webview_window(TRAY_WINDOW) else {
         return;
@@ -517,19 +517,19 @@ fn place_tray(app: &AppHandle, w: &WebviewWindow, click: PhysicalPosition<f64>) 
 
 fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
     match (window.label(), event) {
-        // Es una app de barra de menú: cerrar la ventana la esconde; se sale desde el menú.
+        // It is a menu bar app: closing the window hides it; quitting is done from the menu.
         (MAIN_WINDOW, WindowEvent::CloseRequested { api, .. }) => {
             api.prevent_close();
             let _ = window.hide();
         }
-        // La mini escena se comporta como un menú: se cierra al hacer clic fuera.
+        // The mini scene behaves like a menu: it closes on clicking outside.
         (TRAY_WINDOW, WindowEvent::Focused(false)) => hide_tray(window.app_handle()),
         _ => {}
     }
 }
 
 // ---------------------------------------------------------------------------------------
-// Ícono y menú
+// Icon and menu
 
 fn build_tray(app: &AppHandle) -> tauri::Result<TrayMenu> {
     let status = MenuItem::with_id(app, MENU_STATUS, "Conectando…", false, None::<&str>)?;
@@ -542,7 +542,7 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayMenu> {
         .icon_as_template(cfg!(target_os = "macos"))
         .tooltip("Tandem")
         .menu(&menu)
-        // Clic izquierdo: la mini escena. Clic derecho: el menú.
+        // Left click: the mini scene. Right click: the menu.
         .show_menu_on_left_click(false)
         .on_menu_event(on_menu_event)
         .on_tray_icon_event(|tray, event| {
@@ -569,7 +569,7 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Atajos globales
+// Global shortcuts
 
 fn fire(app: &AppHandle, action: ShortcutAction) {
     match action {
@@ -577,13 +577,13 @@ fn fire(app: &AppHandle, action: ShortcutAction) {
     }
 }
 
-/// Registra los atajos (quitando los anteriores). Devuelve los que el sistema no aceptó.
+/// Registers the shortcuts (removing the previous ones). Returns those the system did not accept.
 fn register(app: &AppHandle, keys: &Shortcuts) -> BTreeMap<ShortcutAction, String> {
     let Some(global) = app.try_state::<GlobalShortcut<Wry>>() else {
-        // Sin registro de atajos (por ejemplo, Wayland): la ventana los atiende ella.
+        // Without a shortcut registry (for example, Wayland): the window handles them itself.
         return keys
             .active()
-            .map(|(a, _)| (a, "este sistema no permite atajos globales".to_owned()))
+            .map(|(a, _)| (a, "this system does not allow global shortcuts".to_owned()))
             .collect();
     };
     let _ = global.unregister_all();
@@ -598,7 +598,7 @@ fn register(app: &AppHandle, keys: &Shortcuts) -> BTreeMap<ShortcutAction, Strin
         if let Err(e) = done {
             failed.insert(
                 action,
-                format!("el sistema no dejó registrar {text} (¿lo usa otra app?): {e}"),
+                format!("the system did not let {text} be registered (is another app using it?): {e}"),
             );
         }
     }
@@ -620,14 +620,14 @@ fn load_keys() -> Keys {
         Err(e) => Keys {
             current: Shortcuts::default(),
             failed: BTreeMap::new(),
-            warning: Some(format!("{e}; los atajos no se guardarán")),
+            warning: Some(format!("{e}; the shortcuts will not be saved")),
             file: None,
         },
     }
 }
 
 // ---------------------------------------------------------------------------------------
-// Arranque
+// Launch
 
 fn start_session(app: &AppHandle) -> Handle {
     let sink = Arc::new(Windows(app.clone()));
@@ -649,21 +649,21 @@ fn start_session(app: &AppHandle) -> Handle {
 fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
 
-    // Sin registro de atajos o sin bandeja la app sigue: la ventana hace de respaldo.
+    // Without a shortcut registry or tray the app continues: the window acts as a fallback.
     if let Err(e) = handle.plugin(tauri_plugin_global_shortcut::Builder::new().build()) {
-        eprintln!("tandem-ui: sin atajos globales: {e}");
+        eprintln!("tandem-ui: no global shortcuts: {e}");
     }
-    // Sin updater la app sigue; la pestaña Actualizaciones muestra el error al buscar.
+    // Without the updater the app continues; the Updates tab shows the error when checking.
     if let Err(e) = handle.plugin(tauri_plugin_updater::Builder::new().build()) {
-        eprintln!("tandem-ui: sin actualizaciones automáticas: {e}");
+        eprintln!("tandem-ui: no automatic updates: {e}");
     }
-    // Antes que la sesión: sus primeros avisos ya traen las versiones.
+    // Before the session: its first notices already carry the versions.
     let updater = Arc::new(Updater::new());
     app.manage(updater.clone());
     let menu = match build_tray(&handle) {
         Ok(menu) => Some(menu),
         Err(e) => {
-            eprintln!("tandem-ui: sin ícono en la barra de menú / bandeja: {e}");
+            eprintln!("tandem-ui: no menu bar / tray icon: {e}");
             None
         }
     };
@@ -723,7 +723,7 @@ pub fn run() -> Result<(), tauri::Error> {
         ])
         .build(tauri::generate_context!())?;
     app.run(|app, event| {
-        // macOS: clic en el ícono del Dock con la ventana escondida.
+        // macOS: click on the Dock icon with the window hidden.
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = event {
             show_main(app);

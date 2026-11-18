@@ -1,6 +1,6 @@
-//! Dos agentes en el mismo proceso (origen A, destino B) unidos por caminos en memoria que
-//! se cortan a mitad de la salida: lo que llega al origen es exactamente lo que escribió la
-//! destino, en orden, sin huecos ni repetidos.
+//! Two agents in the same process (origin A, destination B) joined by in-memory paths that
+//! are cut midway through the output: what reaches the origin is exactly what the
+//! destination wrote, in order, with no gaps or repeats.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -28,7 +28,7 @@ fn spec(title: &str) -> OpenSpec {
         target: Machine::B,
         opened_by: Client {
             kind: ClientKind::Mcp,
-            session: "sesión".into(),
+            session: "session".into(),
         },
     }
 }
@@ -43,7 +43,7 @@ fn origin() -> Origin {
     )
 }
 
-/// Bytes deterministas que no se repiten en ciclos cortos.
+/// Deterministic bytes that do not repeat in short cycles.
 fn bytes(len: usize, seed: u8) -> Vec<u8> {
     let mut x = u32::from(seed) | 1;
     (0..len)
@@ -56,7 +56,7 @@ fn bytes(len: usize, seed: u8) -> Vec<u8> {
         .collect()
 }
 
-/// Espera a que el origen tenga `want` (por flujo) completo y terminado.
+/// Waits for the origin to have `want` (per flow) complete and ended.
 async fn until_complete(origin: &Origin, id: TunnelId, want: &[(FlowId, usize)]) {
     let mut output = origin.subscribe_output();
     let done = |flows: Vec<FlowStatus>| {
@@ -72,7 +72,7 @@ async fn until_complete(origin: &Origin, id: TunnelId, want: &[(FlowId, usize)])
         }
     })
     .await
-    .expect("la salida no llegó completa a tiempo");
+    .expect("the output did not arrive complete in time");
 }
 
 fn received(origin: &Origin, id: TunnelId, flow: FlowId) -> Vec<u8> {
@@ -83,8 +83,8 @@ fn received(origin: &Origin, id: TunnelId, flow: FlowId) -> Vec<u8> {
     }
 }
 
-/// Abre un túnel por el primer camino, escribe dos flujos de a pedazos y corta cada camino
-/// después de `cuts[i]` bytes, pasando el enlace al siguiente.
+/// Opens a tunnel over the first path, writes two flows in pieces and cuts each path
+/// after `cuts[i]` bytes, moving the link to the next.
 async fn scenario(sizes: (usize, usize), chunk: usize, cuts: Vec<u64>) {
     let host = Host::new(HostOptions::default(), Changes::default());
     let origin = origin();
@@ -93,7 +93,7 @@ async fn scenario(sizes: (usize, usize), chunk: usize, cuts: Vec<u64>) {
         p.cut_after(*c);
     }
     origin.set_link(Some(paths[0].dialer()));
-    let t = origin.open(spec("cortes")).await.unwrap();
+    let t = origin.open(spec("cuts")).await.unwrap();
     let ht = host.get(t.id).unwrap();
     let out = bytes(sizes.0, 7);
     let err = bytes(sizes.1, 9);
@@ -117,7 +117,7 @@ async fn scenario(sizes: (usize, usize), chunk: usize, cuts: Vec<u64>) {
             }
         })
     };
-    // El enlace activo pasa al camino siguiente cuando se corta el actual.
+    // The active link moves to the next path when the current one is cut.
     let switcher = {
         let (paths, origin) = (paths.clone(), origin.clone());
         tokio::spawn(async move {
@@ -133,7 +133,7 @@ async fn scenario(sizes: (usize, usize), chunk: usize, cuts: Vec<u64>) {
     assert_eq!(received(&origin, t.id, ids[0].0), out);
     assert_eq!(received(&origin, t.id, ids[1].0), err);
     assert!(origin.flows(t.id).iter().all(|f| f.lost == 0));
-    // El primer camino no alcanzaba para todo: se cortó a mitad de la salida.
+    // The first path was not enough for everything: it was cut midway through the output.
     if let Some(first) = cuts.first() {
         assert_eq!(paths[0].is_cut(), *first < (sizes.0 + sizes.1) as u64);
     }
@@ -142,10 +142,10 @@ async fn scenario(sizes: (usize, usize), chunk: usize, cuts: Vec<u64>) {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(24))]
 
-    /// Cortes en cualquier punto (también antes del primer byte o después del último) y
-    /// reconexión por otro camino: la salida llega completa y en orden.
+    /// Cuts at any point (also before the first byte or after the last) and
+    /// reconnection over another path: the output arrives complete and in order.
     #[test]
-    fn la_salida_llega_completa_con_cortes_en_cualquier_punto(
+    fn the_output_arrives_complete_with_cuts_at_any_point(
         sizes in (0usize..200_000, 0usize..50_000),
         chunk in 1usize..20_000,
         cuts in prop::collection::vec(0u64..250_000, 0..4),
@@ -156,7 +156,7 @@ proptest! {
 }
 
 #[tokio::test]
-async fn con_el_enlace_caido_se_guarda_lo_ultimo_y_se_avisa_lo_perdido() {
+async fn with_the_link_down_the_latest_is_kept_and_what_was_lost_is_reported() {
     let opts = HostOptions {
         capacity: 1000,
         ..HostOptions::default()
@@ -165,7 +165,7 @@ async fn con_el_enlace_caido_se_guarda_lo_ultimo_y_se_avisa_lo_perdido() {
     let origin = origin();
     let (first, second) = (MemPath::new(&host), MemPath::new(&host));
     origin.set_link(Some(first.dialer()));
-    let t = origin.open(spec("búfer")).await.unwrap();
+    let t = origin.open(spec("buffer")).await.unwrap();
     first.cut();
     let w = host.get(t.id).unwrap().add_flow("stdout").unwrap();
     let data = bytes(5000, 3);
@@ -197,7 +197,7 @@ impl Resource for Flag {
 }
 
 #[tokio::test]
-async fn cerrar_desde_el_origen_suelta_los_recursos_en_la_destino() {
+async fn closing_from_the_origin_releases_the_resources_on_the_destination() {
     let tunnels_b = Tunnels::default();
     let tunnels_a = Tunnels::new(
         HostOptions::default(),
@@ -209,9 +209,9 @@ async fn cerrar_desde_el_origen_suelta_los_recursos_en_la_destino() {
     let path = MemPath::new(&tunnels_b.host);
     tunnels_a.origin.set_link(Some(path.dialer()));
     let mut changes_a = tunnels_a.subscribe();
-    let t = tunnels_a.origin.open(spec("cerrar")).await.unwrap();
+    let t = tunnels_a.origin.open(spec("close")).await.unwrap();
 
-    // Las dos máquinas lo muestran en su proyecto.
+    // Both machines show it in their project.
     for view in [tunnels_a.view(), tunnels_b.view()] {
         assert_eq!(view.len(), 1);
         assert_eq!(view[0].project.as_ref().unwrap().name, "tandem");
@@ -222,13 +222,13 @@ async fn cerrar_desde_el_origen_suelta_los_recursos_en_la_destino() {
     let closed = Arc::new(AtomicBool::new(false));
     ht.add_resource(Box::new(Flag(closed.clone()))).unwrap();
     let w = ht.add_flow("stdout").unwrap();
-    w.write(b"antes de cerrar");
+    w.write(b"before closing.");
 
     tunnels_a.origin.close(t.id).await.unwrap();
-    assert!(closed.load(Ordering::SeqCst), "el recurso sigue abierto");
+    assert!(closed.load(Ordering::SeqCst), "the resource is still open");
     assert!(!ht.is_open());
 
-    // La salida que faltaba llega antes del cierre, y el origen lo da por cerrado.
+    // The output that was missing arrives before the close, and the origin considers it closed.
     until_complete(&tunnels_a.origin, t.id, &[(w.id(), 15)]).await;
     tokio::time::timeout(TIMEOUT, async {
         while tunnels_a.origin.tunnels()[0].state != TunnelState::Closed {
@@ -239,14 +239,14 @@ async fn cerrar_desde_el_origen_suelta_los_recursos_en_la_destino() {
     .unwrap();
     assert_eq!(
         received(&tunnels_a.origin, t.id, w.id()),
-        b"antes de cerrar"
+        b"before closing."
     );
     assert!(tunnels_a.view().is_empty());
     assert!(tunnels_b.view().is_empty());
 }
 
 #[tokio::test]
-async fn sin_enlace_o_hacia_la_misma_maquina_no_se_abre() {
+async fn without_a_link_or_toward_the_same_machine_it_does_not_open() {
     let origin = origin();
     assert_eq!(
         origin.open(spec("x")).await.unwrap_err(),
@@ -265,14 +265,14 @@ async fn sin_enlace_o_hacia_la_misma_maquina_no_se_abre() {
 }
 
 #[tokio::test]
-async fn la_destino_reiniciada_ya_no_tiene_el_tunel_y_el_origen_lo_da_por_cerrado() {
+async fn the_restarted_destination_no_longer_has_the_tunnel_and_the_origin_considers_it_closed() {
     let host = Host::new(HostOptions::default(), Changes::default());
     let origin = origin();
     let path = MemPath::new(&host);
     origin.set_link(Some(path.dialer()));
-    let t = origin.open(spec("reinicio")).await.unwrap();
+    let t = origin.open(spec("restart")).await.unwrap();
     path.cut();
-    // Otro agente en la destino (se reinició): no conoce el túnel.
+    // Another agent on the destination (restarted): does not know the tunnel.
     let fresh = Host::new(HostOptions::default(), Changes::default());
     origin.set_link(Some(MemPath::new(&fresh).dialer()));
     let mut changes = origin.subscribe_output();
@@ -288,7 +288,7 @@ async fn la_destino_reiniciada_ya_no_tiene_el_tunel_y_el_origen_lo_da_por_cerrad
 }
 
 #[tokio::test(start_paused = true)]
-async fn el_origen_olvida_los_tuneles_cerrados_despues_de_un_rato() {
+async fn the_origin_forgets_closed_tunnels_after_a_while() {
     let host = Host::new(HostOptions::default(), Changes::default());
     let origin = Origin::new(
         OriginOptions {
@@ -299,15 +299,15 @@ async fn el_origen_olvida_los_tuneles_cerrados_despues_de_un_rato() {
         Changes::default(),
     );
     origin.set_link(Some(MemPath::new(&host).dialer()));
-    let t = origin.open(spec("olvidar")).await.unwrap();
+    let t = origin.open(spec("forget")).await.unwrap();
     let w = host.get(t.id).unwrap().add_flow("stdout").unwrap();
-    w.write(b"hola");
+    w.write(b"hello");
     origin.close(t.id).await.unwrap();
     let mut changes = origin.subscribe_output();
     while origin.tunnels()[0].state != TunnelState::Closed {
         changes.changed().await.unwrap();
     }
-    // Mientras dura `linger` se puede leer lo que quedó.
+    // While `linger` lasts what remained can be read.
     tokio::time::advance(Duration::from_secs(30)).await;
     assert_eq!(origin.tunnels().len(), 1);
     assert_eq!(origin.flows(t.id).len(), 1);
@@ -318,21 +318,21 @@ async fn el_origen_olvida_los_tuneles_cerrados_despues_de_un_rato() {
 }
 
 #[tokio::test]
-async fn un_open_sin_respuesta_no_deja_un_tunel_huerfano_en_la_destino() {
+async fn an_unanswered_open_does_not_leave_an_orphan_tunnel_on_the_destination() {
     let host = Host::new(HostOptions::default(), Changes::default());
     let origin = origin();
     let (first, second) = (MemPath::new(&host), MemPath::new(&host));
-    // La destino abre el túnel, pero el camino se corta antes de que llegue la respuesta.
+    // The destination opens the tunnel, but the path is cut before the response arrives.
     first.cut_before_reply();
     origin.set_link(Some(first.dialer()));
     assert!(matches!(
-        origin.open(spec("huérfano")).await,
+        origin.open(spec("orphan")).await,
         Err(TunnelError::Wire(_))
     ));
     let orphan = host.list();
     assert_eq!(orphan.len(), 1);
     assert_eq!(orphan[0].state, TunnelState::Open);
-    // Al volver el enlace, el origen lo cierra solo.
+    // When the link returns, the origin closes it on its own.
     origin.set_link(Some(second.dialer()));
     tokio::time::timeout(TIMEOUT, async {
         while host.list()[0].state != TunnelState::Closed {
@@ -340,6 +340,6 @@ async fn un_open_sin_respuesta_no_deja_un_tunel_huerfano_en_la_destino() {
         }
     })
     .await
-    .expect("el túnel huérfano sigue abierto en la destino");
+    .expect("the orphan tunnel is still open on the destination");
     assert!(origin.tunnels().is_empty());
 }

@@ -1,8 +1,8 @@
-//! El lanzador real (`SystemSpawner`) en los tres sistemas: procesos simples, salida grande
-//! de 10 MB y árboles de procesos que mueren completos (T-104).
+//! The real launcher (`SystemSpawner`) on the three systems: simple processes, a large 10 MB output
+//! and process trees that die completely (T-104).
 //!
-//! El proceso de prueba es `src/bin/tandem-tunnel-probe.rs`: hace lo mismo en Linux, macOS y
-//! Windows sin depender del `echo` o el `sleep` de cada shell.
+//! The test process is `src/bin/tandem-tunnel-probe.rs`: it does the same on Linux, macOS and
+//! Windows without depending on each shell's `echo` or `sleep`.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -16,13 +16,13 @@ use tandem_tunnel::{Changes, Host, HostOptions, OpenSpec, Origin, OriginOptions}
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 
-/// Lo mismo que `pattern` del proceso de prueba.
+/// The same as the test process's `pattern`.
 fn pattern(i: u64) -> u8 {
     u8::try_from((i.wrapping_mul(2_654_435_761) >> 13) & 0xff).unwrap_or(0)
 }
 
 fn probe() -> String {
-    // Cargo construye el binario antes de las pruebas de integración y da su ruta.
+    // Cargo builds the binary before the integration tests and gives its path.
     env!("CARGO_BIN_EXE_tandem-tunnel-probe").to_owned()
 }
 
@@ -53,7 +53,7 @@ async fn rig(capacity: usize) -> Rig {
     origin.set_link(Some(path.dialer()));
     let t = origin
         .open(OpenSpec {
-            title: "sistema".into(),
+            title: "system".into(),
             project: None,
             origin: Machine::A,
             target: Machine::B,
@@ -63,7 +63,7 @@ async fn rig(capacity: usize) -> Rig {
             },
         })
         .await
-        .expect("abrir el túnel");
+        .expect("open the tunnel");
     Rig {
         origin,
         host,
@@ -86,30 +86,30 @@ impl Rig {
         self.origin
             .exec(self.tunnel, spec)
             .await
-            .expect("lanzar el proceso")
+            .expect("launch the process")
     }
 
     fn process(&self, id: ProcessId) -> TunnelProcess {
         self.origin
             .processes(self.tunnel)
             .and_then(|l| l.into_iter().find(|p| p.id == id))
-            .expect("el proceso se conoce")
+            .expect("the process is known")
     }
 
     async fn until(&self, what: &str, mut done: impl FnMut(&Rig) -> bool) {
         let mut output = self.origin.subscribe_output();
         let wait = async {
             while !done(self) {
-                // Despierta con la salida o, en su defecto, cada tanto.
+                // Wakes with the output or, failing that, every so often.
                 let _ = tokio::time::timeout(Duration::from_millis(20), output.changed()).await;
             }
         };
         tokio::time::timeout(TIMEOUT, wait)
             .await
-            .unwrap_or_else(|_| panic!("no ocurrió a tiempo: {what}"));
+            .unwrap_or_else(|_| panic!("did not happen in time: {what}"));
     }
 
-    /// Espera a que el proceso termine y toda su salida llegue; la devuelve (stdout, stderr).
+    /// Waits for the process to end and all its output to arrive; returns it (stdout, stderr).
     async fn finished(&self, id: ProcessId) -> (Vec<u8>, Vec<u8>, TunnelProcess) {
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let mut cursor = OutputCursor::default();
@@ -119,8 +119,8 @@ impl Rig {
                 let o = self
                     .origin
                     .output(self.tunnel, id, cursor, usize::MAX)
-                    .expect("leer la salida");
-                assert_eq!(o.from, cursor, "no se perdió nada");
+                    .expect("read the output");
+                assert_eq!(o.from, cursor, "nothing was lost");
                 out.extend_from_slice(&o.stdout);
                 err.extend_from_slice(&o.stderr);
                 cursor = o.next;
@@ -132,7 +132,7 @@ impl Rig {
         };
         let p = tokio::time::timeout(TIMEOUT, wait)
             .await
-            .expect("el proceso no terminó a tiempo");
+            .expect("the process did not end in time");
         (out, err, p)
     }
 
@@ -146,33 +146,33 @@ impl Rig {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn un_proceso_simple_da_su_salida_su_codigo_y_su_duracion() {
+async fn a_simple_process_gives_its_output_its_code_and_its_duration() {
     let rig = rig(1 << 20).await;
-    let p = rig.run(&["echo", "hola", "mundo"]).await;
+    let p = rig.run(&["echo", "hello", "world"]).await;
     assert_eq!(p.state, ProcessState::Running);
     assert!(p.pid.is_some_and(|pid| pid > 0));
     let (out, err, p) = rig.finished(p.id).await;
-    assert_eq!(String::from_utf8_lossy(&out).trim_end(), "hola mundo");
+    assert_eq!(String::from_utf8_lossy(&out).trim_end(), "hello world");
     assert!(err.is_empty());
     assert_eq!(p.state, ProcessState::Exited { code: Some(0) });
     assert!(p.duration.is_some());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn stdout_y_stderr_van_por_separado_y_el_codigo_de_salida_llega() {
+async fn stdout_and_stderr_go_separately_and_the_exit_code_arrives() {
     let rig = rig(1 << 20).await;
-    let a = rig.run(&["err", "mal"]).await;
+    let a = rig.run(&["err", "bad"]).await;
     let b = rig.run(&["exit", "7"]).await;
     let (out, err, p) = rig.finished(a.id).await;
     assert!(out.is_empty());
-    assert_eq!(String::from_utf8_lossy(&err).trim_end(), "mal");
+    assert_eq!(String::from_utf8_lossy(&err).trim_end(), "bad");
     assert_eq!(p.state, ProcessState::Exited { code: Some(0) });
     let (_, _, p) = rig.finished(b.id).await;
     assert_eq!(p.state, ProcessState::Exited { code: Some(7) });
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn diez_megabytes_de_salida_llegan_completos_y_en_orden() {
+async fn ten_megabytes_of_output_arrive_complete_and_in_order() {
     const TOTAL: u64 = 10 * 1024 * 1024;
     let rig = rig(16 << 20).await;
     let p = rig.run(&["flood", &TOTAL.to_string()]).await;
@@ -183,13 +183,13 @@ async fn diez_megabytes_de_salida_llegan_completos_y_en_orden() {
         .iter()
         .enumerate()
         .position(|(i, b)| *b != pattern(i as u64));
-    assert_eq!(wrong, None, "primer byte distinto");
+    assert_eq!(wrong, None, "different first byte");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn la_carpeta_y_las_variables_llegan_al_proceso() {
+async fn the_folder_and_the_variables_reach_the_process() {
     let rig = rig(1 << 20).await;
-    let dir = tempfile::tempdir().expect("carpeta temporal");
+    let dir = tempfile::tempdir().expect("temporary folder");
     let p = rig
         .exec(ExecSpec {
             cmd: probe(),
@@ -201,24 +201,24 @@ async fn la_carpeta_y_las_variables_llegan_al_proceso() {
     let (out, _, _) = rig.finished(p.id).await;
     let got = PathBuf::from(String::from_utf8_lossy(&out).trim_end());
     assert_eq!(
-        got.canonicalize().expect("carpeta del proceso"),
-        dir.path().canonicalize().expect("carpeta pedida")
+        got.canonicalize().expect("process folder"),
+        dir.path().canonicalize().expect("requested folder")
     );
     let p = rig
         .exec(ExecSpec {
             cmd: probe(),
-            args: vec!["env".into(), "TANDEM_PRUEBA".into()],
-            env: vec![("TANDEM_PRUEBA".into(), "valor ñ".into())],
+            args: vec!["env".into(), "TANDEM_TEST".into()],
+            env: vec![("TANDEM_TEST".into(), "value \u{fc}".into())],
             ..ExecSpec::default()
         })
         .await;
     let (out, _, _) = rig.finished(p.id).await;
-    assert_eq!(String::from_utf8_lossy(&out).trim_end(), "valor ñ");
+    assert_eq!(String::from_utf8_lossy(&out).trim_end(), "value \u{fc}");
 }
 
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn con_un_shell_la_linea_se_interpreta_y_los_argumentos_van_citados() {
+async fn with_a_shell_the_line_is_interpreted_and_the_arguments_are_quoted() {
     let rig = rig(1 << 20).await;
     let p = rig
         .exec(ExecSpec {
@@ -235,7 +235,7 @@ async fn con_un_shell_la_linea_se_interpreta_y_los_argumentos_van_citados() {
 
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn con_cmd_y_con_powershell_la_linea_se_interpreta() {
+async fn with_cmd_and_with_powershell_the_line_is_interpreted() {
     let rig = rig(1 << 20).await;
     let p = rig
         .exec(ExecSpec {
@@ -258,21 +258,22 @@ async fn con_cmd_y_con_powershell_la_linea_se_interpreta() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn lo_que_no_se_puede_lanzar_se_rechaza_con_la_razon() {
+async fn what_cannot_be_launched_is_rejected_with_the_reason() {
     let rig = rig(1 << 20).await;
     let err = rig
         .origin
         .exec(
             rig.tunnel,
             ExecSpec {
-                cmd: "tandem-no-existe-este-programa".into(),
+                cmd: "tandem-this-program-does-not-exist".into(),
                 ..ExecSpec::default()
             },
         )
         .await
-        .expect_err("no existe");
+        .expect_err("does not exist");
     assert!(
-        err.to_string().contains("tandem-no-existe-este-programa"),
+        err.to_string()
+            .contains("tandem-this-program-does-not-exist"),
         "{err}"
     );
     assert!(
@@ -283,61 +284,58 @@ async fn lo_que_no_se_puede_lanzar_se_rechaza_con_la_razon() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn matar_un_proceso_mata_a_todo_su_arbol_y_no_toca_a_los_demas() {
+async fn killing_a_process_kills_its_whole_tree_and_does_not_touch_the_others() {
     let rig = rig(1 << 20).await;
-    // El árbol: el proceso y un nieto con la misma salida abierta. Mientras el nieto viva,
-    // la salida no termina; que termine prueba que el árbol entero murió.
+    // The tree: the process and a grandchild with the same output open. While the grandchild lives,
+    // the output does not end; that it ends proves the whole tree died.
     let tree = rig.run(&["tree"]).await;
     let sleeper = rig.run(&["sleep", "600000"]).await;
-    rig.until("el árbol arrancó", |r| {
+    rig.until("the tree started", |r| {
         r.origin
             .output(r.tunnel, tree.id, OutputCursor::default(), 100)
-            .is_ok_and(|o| o.stdout.starts_with(b"listo"))
+            .is_ok_and(|o| o.stdout.starts_with(b"ready"))
     })
     .await;
     assert!(!rig.flows_ended(&tree));
 
-    rig.origin.kill(rig.tunnel, tree.id).await.expect("matar");
-    rig.until("el árbol murió", |r| r.flows_ended(&r.process(tree.id)))
+    rig.origin.kill(rig.tunnel, tree.id).await.expect("kill");
+    rig.until("the tree died", |r| r.flows_ended(&r.process(tree.id)))
         .await;
     let (_, _, p) = rig.finished(tree.id).await;
     assert_eq!(p.state, ProcessState::Killed);
     assert!(p.duration.is_some());
 
-    // El otro sigue corriendo y se lista como tal.
+    // The other keeps running and is listed as such.
     assert_eq!(rig.process(sleeper.id).state, ProcessState::Running);
     let running: Vec<ProcessId> = rig.origin.views()[0].running.iter().map(|p| p.id).collect();
     assert_eq!(running, [sleeper.id]);
 
-    rig.origin
-        .kill(rig.tunnel, sleeper.id)
-        .await
-        .expect("matar");
+    rig.origin.kill(rig.tunnel, sleeper.id).await.expect("kill");
     let (_, _, p) = rig.finished(sleeper.id).await;
     assert_eq!(p.state, ProcessState::Killed);
-    // Matar uno que ya terminó no es un error; uno que no existe, sí.
+    // Killing one that already ended is not an error; one that does not exist, is.
     rig.origin
         .kill(rig.tunnel, sleeper.id)
         .await
-        .expect("idempotente");
+        .expect("idempotent");
     assert!(rig.origin.kill(rig.tunnel, ProcessId(99)).await.is_err());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cerrar_el_tunel_mata_los_arboles_que_quedaban() {
+async fn closing_the_tunnel_kills_the_remaining_trees() {
     let rig = rig(1 << 20).await;
     let tree = rig.run(&["tree"]).await;
-    // Terminó solo pero dejó un nieto con la salida abierta: el proceso figura terminado y
-    // su salida sigue abierta.
+    // It ended on its own but left a grandchild with the output open: the process shows as ended and
+    // its output stays open.
     let orphan = rig.run(&["orphan"]).await;
-    rig.until("el huérfano terminó", |r| {
+    rig.until("the orphan ended", |r| {
         r.process(orphan.id).state == ProcessState::Exited { code: Some(0) }
     })
     .await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(
         !rig.flows_ended(&orphan),
-        "el nieto sigue con la salida abierta"
+        "the grandchild keeps the output open"
     );
     assert!(
         rig.origin
@@ -345,13 +343,13 @@ async fn cerrar_el_tunel_mata_los_arboles_que_quedaban() {
             .is_ok_and(|o| !o.done)
     );
 
-    rig.origin.close(rig.tunnel).await.expect("cerrar");
-    rig.until("todo terminó", |r| {
+    rig.origin.close(rig.tunnel).await.expect("close");
+    rig.until("everything ended", |r| {
         r.flows_ended(&r.process(tree.id)) && r.flows_ended(&r.process(orphan.id))
     })
     .await;
     assert_eq!(rig.process(tree.id).state, ProcessState::Killed);
-    // Ya cerrado, no se lanza nada más.
+    // Already closed, nothing more is launched.
     assert!(
         rig.host
             .exec(

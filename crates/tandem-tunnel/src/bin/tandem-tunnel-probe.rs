@@ -1,29 +1,29 @@
-//! Proceso de prueba para el lanzador real (`tests/system.rs`): hace lo mismo en los tres
-//! sistemas, sin depender de `echo` o `sleep` de cada shell. No es parte del producto.
+//! Test process for the real launcher (`tests/system.rs`): does the same on the three
+//! systems, without depending on each shell's `echo` or `sleep`. Not part of the product.
 //!
-//! - `tandem-tunnel-probe echo <texto…>`: imprime los argumentos y un salto de línea.
-//! - `tandem-tunnel-probe err <texto…>`: igual, por stderr.
-//! - `tandem-tunnel-probe exit <código>`.
+//! - `tandem-tunnel-probe echo <text…>`: prints the arguments and a newline.
+//! - `tandem-tunnel-probe err <text…>`: same, over stderr.
+//! - `tandem-tunnel-probe exit <code>`.
 //! - `tandem-tunnel-probe sleep <ms>`.
-//! - `tandem-tunnel-probe flood <bytes>`: bytes deterministas por stdout (ver `pattern`).
-//! - `tandem-tunnel-probe env <nombre>` y `tandem-tunnel-probe cwd`: imprimen la variable o la carpeta de trabajo.
-//! - `tandem-tunnel-probe tree`: lanza un nieto que duerme y duerme él también; ambos tienen la misma
-//!   salida abierta.
-//! - `tandem-tunnel-probe orphan`: lanza ese nieto y termina enseguida.
+//! - `tandem-tunnel-probe flood <bytes>`: deterministic bytes over stdout (see `pattern`).
+//! - `tandem-tunnel-probe env <name>` and `tandem-tunnel-probe cwd`: print the variable or the working folder.
+//! - `tandem-tunnel-probe tree`: launches a grandchild that sleeps and sleeps itself too; both have the same
+//!   output open.
+//! - `tandem-tunnel-probe orphan`: launches that grandchild and ends right away.
 
 use std::io::Write;
 use std::process::{Command, ExitCode, Stdio};
 use std::time::Duration;
 
-/// El byte `i` de `flood`: no se repite en ciclos cortos.
+/// Byte `i` of `flood`: does not repeat in short cycles.
 fn pattern(i: u64) -> u8 {
     u8::try_from((i.wrapping_mul(2_654_435_761) >> 13) & 0xff).unwrap_or(0)
 }
 
-/// Uso incorrecto o fallo de E/S: el código 2, sin pánico.
+/// Incorrect use or I/O failure: code 2, without panic.
 const BAD: u8 = 2;
 
-// A propósito no se espera al nieto: tiene que sobrevivir al proceso que lo lanzó.
+// The grandchild is deliberately not waited for: it has to outlive the process that launched it.
 #[allow(clippy::zombie_processes)]
 fn grandchild() -> Option<()> {
     let exe = std::env::current_exe().ok()?;
@@ -61,13 +61,13 @@ fn run(args: &[String]) -> Option<ExitCode> {
         Some("cwd") => writeln!(out, "{}", std::env::current_dir().ok()?.display()).ok()?,
         Some("tree") => {
             grandchild()?;
-            writeln!(out, "listo").ok()?;
+            writeln!(out, "ready").ok()?;
             out.flush().ok()?;
             std::thread::sleep(Duration::from_secs(600));
         }
         Some("orphan") => {
             grandchild()?;
-            writeln!(out, "listo").ok()?;
+            writeln!(out, "ready").ok()?;
         }
         other => {
             eprintln!("orden desconocida: {other:?}");

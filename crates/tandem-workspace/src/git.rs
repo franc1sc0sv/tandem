@@ -1,7 +1,7 @@
-//! Lo único del sistema que usa este crate: el programa `git`, detrás de [`Git`].
+//! The only system thing this crate uses: the `git` program, behind [`Git`].
 //!
-//! [`SystemGit`] lo invoca de verdad; [`FakeGit`] anota las llamadas y contesta lo que la
-//! prueba le diga, para probar la orquestación sin repos.
+//! [`SystemGit`] really invokes it; [`FakeGit`] records the calls and answers whatever the
+//! test tells it to, to test the orchestration without repos.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -10,14 +10,14 @@ use std::sync::{Mutex, PoisonError};
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum GitError {
-    #[error("no se pudo ejecutar git: {0}")]
+    #[error("could not run git: {0}")]
     Spawn(String),
-    /// git terminó con error; `stderr` es lo que dijo.
+    /// git ended with an error; `stderr` is what it said.
     #[error("git {args}: {stderr}")]
     Failed { args: String, stderr: String },
 }
 
-/// Una invocación de git.
+/// One git invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitCmd {
     pub dir: PathBuf,
@@ -41,11 +41,11 @@ impl GitCmd {
 }
 
 pub trait Git: Send + Sync {
-    /// Ejecuta y devuelve stdout; un código de salida distinto de 0 es [`GitError::Failed`].
+    /// Runs and returns stdout; an exit code other than 0 is [`GitError::Failed`].
     fn run(&self, cmd: &GitCmd) -> Result<Vec<u8>, GitError>;
 }
 
-/// Atajos sobre [`Git`].
+/// Shortcuts over [`Git`].
 pub trait GitExt: Git {
     fn out(&self, dir: &Path, args: &[&str]) -> Result<String, GitError> {
         let bytes = self.run(&GitCmd::new(dir, args))?;
@@ -59,28 +59,28 @@ pub trait GitExt: Git {
 
 impl<G: Git + ?Sized> GitExt for G {}
 
-/// Donde apuntar `core.hooksPath` para que no exista ningún hook.
+/// Where to point `core.hooksPath` so that no hook exists.
 #[cfg(windows)]
 const NULL_DEVICE: &str = "NUL";
 #[cfg(not(windows))]
 const NULL_DEVICE: &str = "/dev/null";
 
-/// El `git` del PATH.
+/// The `git` on the PATH.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemGit;
 
 impl Git for SystemGit {
     fn run(&self, cmd: &GitCmd) -> Result<Vec<u8>, GitError> {
         let mut c = Command::new("git");
-        // Sin conversión de fin de línea (el parche y los archivos tienen que viajar tal
-        // cual), sin pedir nada por la terminal y sin heredar el repo de quien nos lanzó
-        // (por ejemplo un hook).
-        // Además, nada de código ajeno: los hooks y el fsmonitor vienen de la configuración
-        // heredada (o de un `.git` dentro del workspace) y esto puede correr elevado. Con
-        // `protocol.file.allow=user` un submódulo `file://` del bundle no se clona solo.
+        // No line-ending conversion (the patch and the files have to travel as
+        // they are), no prompting on the terminal and no inheriting the repo of whoever launched us
+        // (for example a hook).
+        // Also, no foreign code: hooks and fsmonitor come from the inherited configuration
+        // (or from a `.git` inside the workspace) and this may run elevated. With
+        // `protocol.file.allow=user` a `file://` submodule of the bundle is not cloned on its own.
         c.args(["-c", "core.autocrlf=false", "-c", "core.safecrlf=false"])
             .args(["-c", &format!("core.hooksPath={NULL_DEVICE}")])
-            // Ningún ayudante de credenciales, tampoco el global del usuario (T-130).
+            // No credential helper, not even the user's global one (T-130).
             .args(["-c", "credential.helper="])
             .args([
                 "-c",
@@ -113,8 +113,8 @@ impl Git for SystemGit {
     }
 }
 
-/// Un git de mentira: contesta en orden lo que se le encoló (vacío si no hay nada) y
-/// anota cada llamada.
+/// A fake git: answers in order what was queued for it (empty if nothing) and
+/// records each call.
 #[derive(Debug, Default)]
 pub struct FakeGit {
     replies: Mutex<VecDeque<Result<Vec<u8>, GitError>>>,

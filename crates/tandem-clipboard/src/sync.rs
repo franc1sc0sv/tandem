@@ -1,12 +1,12 @@
-//! Máquina de estados de la sincronización, sin E/S: recibe lo que pasa (el
-//! portapapeles local cambió, llegó un mensaje, cambió el foco) y devuelve qué
-//! hacer ([`Action`]). Es la misma en los dos agentes.
+//! Synchronization state machine, without I/O: receives what happens (the
+//! local clipboard changed, a message arrived, focus changed) and returns what to
+//! do ([`Action`]). It is the same on both agents.
 //!
-//! **Supresión de eco.** Se recuerda el hash de lo que tiene el portapapeles
-//! local (`current`), sea porque se vio cambiar o porque se escribió lo que llegó
-//! del otro lado. Un cambio local con ese mismo hash no se anuncia: es nuestra
-//! propia escritura que vuelve. Y una oferta del otro lado con el hash que ya
-//! tenemos no se escribe.
+//! **Echo suppression.** The hash of what the local clipboard holds is remembered
+//! (`current`), whether because it was seen changing or because what arrived
+//! from the other side was written. A local change with that same hash is not announced: it is our
+//! own write coming back. And an offer from the other side with the hash we
+//! already have is not written.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -15,16 +15,16 @@ use tandem_proto::MAX_FRAME_LEN;
 use crate::content::{ClipContent, ContentHash};
 use crate::msg::ClipMsg;
 
-/// Límites de la transferencia.
+/// Transfer limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SyncConfig {
-    /// Hasta este tamaño (codificado) el contenido va dentro del anuncio.
+    /// Up to this (encoded) size the content goes inside the announcement.
     pub inline_max: usize,
-    /// Tamaño de cada `Chunk`. Trozos chicos dejan pasar otros mensajes entre
-    /// medio.
+    /// Size of each `Chunk`. Small chunks let other messages through in
+    /// between.
     pub chunk_len: usize,
-    /// Lo más grande que se manda o se acepta: un tope a la memoria que puede
-    /// pedir el otro lado.
+    /// The largest that is sent or accepted: a cap on the memory the other side
+    /// can ask for.
     pub max_len: usize,
 }
 
@@ -33,15 +33,15 @@ impl Default for SyncConfig {
         Self {
             inline_max: 64 * 1024,
             chunk_len: 256 * 1024,
-            // Una captura 5K en RGBA son ~60 MB.
+            // A 5K RGBA capture is ~60 MB.
             max_len: 128 * 1024 * 1024,
         }
     }
 }
 
 impl SyncConfig {
-    /// Lo que va en una trama tiene que caber en ella, con margen para la
-    /// cabecera del mensaje.
+    /// What goes in a frame has to fit in it, with room for the
+    /// message header.
     fn clamped(self) -> Self {
         let frame_room = MAX_FRAME_LEN - 1024;
         Self {
@@ -52,29 +52,29 @@ impl SyncConfig {
     }
 }
 
-/// Lo que la máquina de estados pide hacer.
+/// What the state machine asks to do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Action {
-    /// Mandar al otro agente.
+    /// Send to the other agent.
     Send(ClipMsg),
-    /// Escribir en el portapapeles local lo que llegó del otro lado.
+    /// Write to the local clipboard what arrived from the other side.
     Write(ClipContent),
 }
 
-/// Contadores, para diagnóstico y pruebas.
+/// Counters, for diagnostics and tests.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SyncStats {
-    /// Anuncios de copias locales mandados.
+    /// Local copy announcements sent.
     pub offers_sent: u64,
-    /// Anuncios recibidos del otro lado.
+    /// Announcements received from the other side.
     pub offers_received: u64,
-    /// Contenidos del otro lado escritos en el portapapeles local.
+    /// Contents from the other side written to the local clipboard.
     pub written: u64,
-    /// Ofertas o transferencias descartadas por inválidas (hash, tamaño).
+    /// Offers or transfers discarded as invalid (hash, size).
     pub rejected: u64,
 }
 
-/// La copia local que el otro lado puede pedir, ya codificada.
+/// The local copy the other side can request, already encoded.
 #[derive(Debug, Clone)]
 struct Local {
     id: u64,
@@ -82,7 +82,7 @@ struct Local {
     bytes: Vec<u8>,
 }
 
-/// Una copia del otro lado anunciada y todavía no escrita.
+/// A copy from the other side that was announced and not yet written.
 #[derive(Debug, Clone)]
 struct Remote {
     id: u64,
@@ -92,7 +92,7 @@ struct Remote {
     buf: Vec<u8>,
 }
 
-/// Transferencia de la copia local en curso.
+/// Transfer of the local copy in progress.
 #[derive(Debug, Clone)]
 struct Outgoing {
     id: u64,
@@ -103,12 +103,12 @@ struct Outgoing {
 pub struct ClipSync {
     cfg: SyncConfig,
     focused: bool,
-    /// Hash de lo que tiene el portapapeles local, visto o escrito por nosotros.
+    /// Hash of what the local clipboard holds, seen or written by us.
     current: Option<ContentHash>,
-    /// La copia vigente entre los dos lados, propia o ajena: `(id, hash)` de la
-    /// última que ganó. Solo se acepta una oferta mayor.
+    /// The current copy between the two sides, own or foreign: `(id, hash)` of the
+    /// last one that won. Only a greater offer is accepted.
     winner: Option<(u64, ContentHash)>,
-    /// Reloj de pared en microsegundos; piso de los ids de las copias nuevas.
+    /// Wall clock in microseconds; floor of the ids of new copies.
     clock: fn() -> u64,
     local: Option<Local>,
     remote: Option<Remote>,
@@ -117,7 +117,7 @@ pub struct ClipSync {
 }
 
 impl ClipSync {
-    /// `focused`: si esta máquina tiene ahora el teclado y el mouse.
+    /// `focused`: whether this machine now has the keyboard and mouse.
     pub fn new(cfg: SyncConfig, focused: bool) -> Self {
         Self::with_clock(cfg, focused, wall_micros)
     }
@@ -144,28 +144,28 @@ impl ClipSync {
         self.focused
     }
 
-    /// Hay una copia del otro lado anunciada que todavía no se escribió.
+    /// There is a copy from the other side announced that has not been written yet.
     pub fn has_pending(&self) -> bool {
         self.remote.is_some()
     }
 
-    /// Hay trozos de la copia local por mandar ([`Self::next_chunk`]).
+    /// There are chunks of the local copy left to send ([`Self::next_chunk`]).
     pub fn is_sending(&self) -> bool {
         self.outgoing.is_some()
     }
 
-    /// Empieza una sesión (enlace nuevo) con lo que tiene ahora el portapapeles
-    /// local. Si cambió mientras no había enlace, se anuncia; si no, se vuelve a
-    /// anunciar la copia local vigente, por si su anuncio se perdió con el enlace
-    /// anterior (el otro lado ignora lo que ya tiene). Lo pendiente del otro lado
-    /// se conserva (su dueño lo sigue teniendo), pero la transferencia a medias
-    /// se descarta y se vuelve a pedir.
+    /// Starts a session (new link) with what the local clipboard holds
+    /// now. If it changed while there was no link, it is announced; if not, the
+    /// current local copy is announced again, in case its announcement was lost with the previous
+    /// link (the other side ignores what it already has). What was pending from the other side
+    /// is kept (its owner still has it), but the half-done transfer
+    /// is discarded and requested again.
     pub fn start(&mut self, local: Option<ClipContent>) -> Vec<Action> {
         self.begin(Some(local))
     }
 
-    /// Como [`Self::start`], cuando no se pudo leer el portapapeles local: se
-    /// sigue con lo último que se sabía de él.
+    /// Like [`Self::start`], when the local clipboard could not be read: it
+    /// continues with the last thing known about it.
     pub fn resume(&mut self) -> Vec<Action> {
         self.begin(None)
     }
@@ -205,17 +205,17 @@ impl ClipSync {
         })
     }
 
-    /// El portapapeles local cambió; `content` es lo que tiene ahora (`None` si
-    /// está vacío o solo tiene formatos que no se sincronizan, como archivos).
+    /// The local clipboard changed; `content` is what it holds now (`None` if
+    /// it is empty or only has formats that are not synchronized, like files).
     pub fn local_changed(&mut self, content: Option<ClipContent>) -> Vec<Action> {
         let content = content.and_then(ClipContent::normalized);
         let hash = content.as_ref().map(ClipContent::hash);
         if hash == self.current {
-            // Nuestra propia escritura, o un cambio que no cambió nada.
+            // Our own write, or a change that changed nothing.
             return Vec::new();
         }
         self.current = hash;
-        // Lo copiado ahora es más nuevo que lo que hubiera del otro lado.
+        // What was just copied is newer than whatever there was from the other side.
         self.remote = None;
         self.outgoing = None;
         self.local = None;
@@ -225,20 +225,20 @@ impl ClipSync {
         let bytes = match tandem_proto::encode(&content) {
             Ok(b) => b,
             Err(e) => {
-                tracing::error!("portapapeles: no se pudo codificar: {e}");
+                tracing::error!("clipboard: could not encode: {e}");
                 return Vec::new();
             }
         };
         if bytes.len() > self.cfg.max_len {
             tracing::warn!(
                 len = bytes.len(),
-                "portapapeles: la copia supera el máximo, no se sincroniza"
+                "clipboard: the copy exceeds the maximum, it is not synchronized"
             );
             return Vec::new();
         }
-        // Reloj de Lamport con piso en el reloj de pared: una copia hecha después
-        // de ver la del otro lado siempre es mayor, y un agente reiniciado (que
-        // olvidó todo) no queda por debajo de lo que el otro recuerda.
+        // Lamport clock with a floor at the wall clock: a copy made after
+        // seeing the other side's is always greater, and a restarted agent (which
+        // forgot everything) does not end up below what the other remembers.
         let id = self
             .winner
             .map_or(0, |(id, _)| id.saturating_add(1))
@@ -256,8 +256,8 @@ impl ClipSync {
         vec![Action::Send(offer)]
     }
 
-    /// Cambió el foco del teclado y el mouse. Al llegar a esta máquina se pide
-    /// lo pendiente: es cuando el usuario puede pegar.
+    /// Keyboard and mouse focus changed. On arriving at this machine what is pending
+    /// is requested: it is when the user can paste.
     pub fn set_focus(&mut self, focused: bool) -> Vec<Action> {
         self.focused = focused;
         self.request_if_needed()
@@ -282,7 +282,7 @@ impl ClipSync {
         }
     }
 
-    /// El siguiente trozo de la transferencia en curso.
+    /// The next chunk of the transfer in progress.
     pub fn next_chunk(&mut self) -> Option<ClipMsg> {
         let out = self.outgoing.as_mut()?;
         let Some(local) = self.local.as_ref().filter(|l| l.id == out.id) else {
@@ -309,31 +309,31 @@ impl ClipSync {
     ) -> Vec<Action> {
         self.stats.offers_received += 1;
         if Some((id, hash)) <= self.winner {
-            // Más vieja que la vigente: una copia que ya vimos (reanunciada tras
-            // un cambio de enlace) o que se cruzó con la nuestra y perdió. El
-            // otro lado compara igual y se queda con la misma.
+            // Older than the current one: a copy we already saw (re-announced after
+            // a link change) or that crossed with ours and lost. The
+            // other side compares the same way and keeps the same one.
             return Vec::new();
         }
         self.winner = Some((id, hash));
-        // Lo que se ofrecía de aquí ya no se va a pedir.
+        // What was offered from here will no longer be requested.
         self.local = None;
         self.outgoing = None;
         self.remote = None;
         if Some(hash) == self.current {
-            // Ya lo tenemos: la misma copia de los dos lados.
+            // We already have it: the same copy on both sides.
             return Vec::new();
         }
         if let Some(content) = content {
             return match content.normalized() {
                 Some(c) if c.hash() == hash => self.write(c),
-                _ => self.reject("oferta con contenido que no coincide con su hash"),
+                _ => self.reject("offer with content that does not match its hash"),
             };
         }
         let Ok(len) = usize::try_from(len) else {
-            return self.reject("oferta demasiado grande");
+            return self.reject("offer too large");
         };
         if len > self.cfg.max_len {
-            return self.reject("oferta demasiado grande");
+            return self.reject("offer too large");
         }
         self.remote = Some(Remote {
             id,
@@ -356,12 +356,12 @@ impl ClipSync {
 
     fn on_chunk(&mut self, id: u64, data: Vec<u8>, last: bool) -> Vec<Action> {
         let Some(remote) = self.remote.as_mut().filter(|r| r.id == id && r.requested) else {
-            // De una transferencia que ya no interesa.
+            // From a transfer that is no longer of interest.
             return Vec::new();
         };
         if remote.buf.len() + data.len() > remote.len {
             self.remote = None;
-            return self.reject("la transferencia supera el tamaño anunciado");
+            return self.reject("the transfer exceeds the announced size");
         }
         if remote.buf.is_empty() {
             remote.buf.reserve_exact(remote.len);
@@ -374,14 +374,14 @@ impl ClipSync {
             return Vec::new();
         };
         if remote.buf.len() != remote.len {
-            return self.reject("la transferencia terminó antes del tamaño anunciado");
+            return self.reject("the transfer ended before the announced size");
         }
         match tandem_proto::decode::<ClipContent>(&remote.buf)
             .ok()
             .and_then(ClipContent::normalized)
         {
             Some(c) if c.hash() == remote.hash => self.write(c),
-            _ => self.reject("la transferencia no coincide con su hash"),
+            _ => self.reject("the transfer does not match its hash"),
         }
     }
 

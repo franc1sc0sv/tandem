@@ -1,13 +1,13 @@
-//! Conexión viva con `tandemd` para la escena principal.
+//! Live connection to `tandemd` for the main scene.
 //!
-//! La ventana no pregunta: la sesión mantiene una conexión abierta, pide el puesto y el
-//! estado al conectar y después reenvía lo que el agente empuja (estado, avance de las
-//! transacciones, emparejamiento, teclado y mouse). Si el agente no está o se cae, la ventana
-//! lo ve como [`Snapshot::Unavailable`] y la sesión reintenta sola.
+//! The window does not ask: the session keeps an open connection, requests the desk and the
+//! state on connecting and then forwards what the agent pushes (state, transaction
+//! progress, pairing, keyboard and mouse). If the agent is not there or drops, the window
+//! sees it as [`Snapshot::Unavailable`] and the session retries on its own.
 //!
-//! Es genérica sobre el transporte y sobre a quién se le avisa ([`Sink`]): las pruebas
-//! usan la IPC en memoria con un agente real; la app, el socket o pipe y los eventos de
-//! Tauri.
+//! It is generic over the transport and over whom to notify ([`Sink`]): the tests
+//! use the in-memory IPC with a real agent; the app, the socket or pipe and Tauri
+//! events.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -31,33 +31,33 @@ use tokio::sync::{Notify, mpsc, oneshot, watch};
 use crate::status::{CLOSED, QUERY_TIMEOUT, explain};
 use crate::tunnels::{self, OUTPUT_CHUNK, OutputItem, ProcessItem, ProjectItem, TransferItem};
 
-/// Cada cuánto se vuelve a intentar si no hay agente. Corto: la ventana tiene que
-/// recuperarse sola en cuanto `tandemd` arranca.
+/// How often to retry if there is no agent. Short: the window has to
+/// recover on its own as soon as `tandemd` starts.
 pub const RETRY_EVERY: Duration = Duration::from_secs(2);
 
-/// Todo lo que la escena necesita para dibujarse.
-// Una sola escena conectada viva a la vez: no vale la pena una caja más.
+/// Everything the scene needs to draw itself.
+// A single connected scene alive at a time: one more box is not worth it.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Snapshot {
     Connecting,
     Connected {
-        /// Máquina en la que corre el agente (y esta ventana).
+        /// Machine the agent (and this window) runs on.
         agent: Machine,
-        /// El puesto compartido: el acomodo de pantallas declarado (DESIGN §7).
+        /// The shared desk: the declared screen arrangement (DESIGN §7).
         desk: Config,
         state: State,
-        /// El otro agente: sin par, la ventana avisa que esta máquina trabaja sola.
+        /// The other agent: without a peer, the window warns that this machine works alone.
         peer: PeerView,
-        /// En qué va el emparejamiento.
+        /// Where the pairing stands.
         pairing: PairingView,
-        /// El teclado y mouse compartidos: el chip de cada máquina.
+        /// The shared keyboard and mouse: each machine's chip.
         input: InputView,
-        /// Lo que puede cada máquina (T-084): la escena se dibuja con esto, no con el
-        /// nombre de la máquina.
+        /// What each machine can do (T-084): the scene is drawn with this, not with the
+        /// machine's name.
         caps: Box<CapsView>,
-        /// Los monitores de las dos máquinas con lo último que leyó su dueño (T-110).
+        /// The monitors of both machines with the last thing their owner read (T-110).
         monitors: Vec<MonitorView>,
     },
     Unavailable {
@@ -66,14 +66,14 @@ pub enum Snapshot {
     },
 }
 
-/// [`PeerStatus`] en JSON para el frontend.
+/// [`PeerStatus`] as JSON for the frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PeerView {
     Unpaired,
     Paired {
         name: String,
-        /// `None` si ningún enlace ve al otro agente.
+        /// `None` if no link sees the other agent.
         link: Option<LinkView>,
     },
 }
@@ -106,7 +106,7 @@ impl From<LinkView> for Link {
     }
 }
 
-/// El papel de un camino en la pantalla Red (T-118).
+/// The role of a path on the Network screen (T-118).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PathStateView {
@@ -116,15 +116,15 @@ pub enum PathStateView {
     Down,
 }
 
-/// Un segundo del historial de un camino, en microsegundos.
+/// One second of a path's history, in microseconds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct SampleView {
     pub rtt_us: Option<u32>,
     pub input_p99_us: Option<u32>,
 }
 
-/// Un camino de la pantalla Red: lo que `tandem_proto::PathMetrics` dice, con los nombres
-/// que lee la ventana.
+/// A path of the Network screen: what `tandem_proto::PathMetrics` says, with the names
+/// the window reads.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PathView {
     pub link: LinkView,
@@ -137,7 +137,7 @@ pub struct PathView {
     pub history: Vec<SampleView>,
 }
 
-/// Un cambio de camino («pasó a Wi-Fi en 0.6 s»).
+/// A path change ("switched to Wi-Fi in 0.6 s").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct SwitchView {
     pub at_ms: u64,
@@ -146,13 +146,13 @@ pub struct SwitchView {
     pub took_ms: Option<u32>,
 }
 
-/// [`NetworkStatus`] en JSON para el frontend (evento `agent-network`, una vez por segundo).
+/// [`NetworkStatus`] as JSON for the frontend (`agent-network` event, once per second).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct NetworkView {
     pub paths: Vec<PathView>,
     pub switches: Vec<SwitchView>,
     pub measuring: Option<LinkView>,
-    /// Lo que el usuario tiene que hacer a mano (por ejemplo, asignar la IP de un cable).
+    /// What the user has to do by hand (for example, assign a cable's IP).
     pub notices: Vec<NoticeView>,
 }
 
@@ -228,7 +228,7 @@ impl From<PeerStatus> for PeerView {
     }
 }
 
-/// [`PairingStatus`] en JSON para el frontend.
+/// [`PairingStatus`] as JSON for the frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PairingView {
@@ -267,43 +267,43 @@ impl From<PairingStatus> for PairingView {
     }
 }
 
-/// [`InputStatus`] en JSON para el frontend.
+/// [`InputStatus`] as JSON for the frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct InputView {
-    /// La máquina que tiene el teclado y el mouse.
+    /// The machine that has the keyboard and mouse.
     pub server: Machine,
-    /// Si el hub está en esta máquina; `None` sin detección.
+    /// Whether the hub is on this machine; `None` without detection.
     pub hub_here: Option<bool>,
-    /// La sesión con el otro agente está establecida.
+    /// The session with the other agent is established.
     pub session: bool,
-    /// El cursor está bloqueado en su máquina.
+    /// The cursor is locked on its machine.
     pub locked: bool,
-    /// Permisos de macOS que faltan: la ventana lo avisa.
+    /// Missing macOS permissions: the window warns about it.
     pub missing: Vec<PermissionView>,
     pub problem: Option<String>,
-    /// Se sabe dónde está el teclado (hub, configuración o asistente). Si no, la ventana
-    /// dice «sin definir» y nunca supone la Mac (T-087).
+    /// Where the keyboard is is known (hub, configuration or setup). If not, the window
+    /// says "undefined" and never assumes the Mac (T-087).
     pub defined: bool,
-    /// Las pantallas que lee el motor aquí y las que anunció la otra máquina (T-150): la
-    /// ventana las dibuja si el puesto no declara `[[screens]]`.
+    /// The screens the engine reads here and those the other machine announced (T-150): the
+    /// window draws them if the desk declares no `[[screens]]`.
     pub screens: Vec<ScreenRect>,
     pub peer_screens: Vec<ScreenRect>,
 }
 
-/// [`DeskCapabilities`] en JSON para el frontend.
+/// [`DeskCapabilities`] as JSON for the frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CapsView {
-    /// Esta máquina (siempre encendida para sí misma).
+    /// This machine (always on for itself).
     pub here: MachineView,
-    /// La otra, según su último anuncio; `None` si nunca se la vio.
+    /// The other one, according to its last announcement; `None` if it was never seen.
     pub peer: Option<MachineView>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MachineView {
     pub machine: Machine,
-    /// Nombre, sistema (`macos`/`windows`) y color de acento: la UI no tiene textos fijos
-    /// «Mac»/«PC» (T-097).
+    /// Name, system (`macos`/`windows`) and accent color: the UI has no fixed
+    /// "Mac"/"PC" texts (T-097).
     pub name: String,
     pub os: tandem_core::Os,
     pub color: String,
@@ -311,22 +311,22 @@ pub struct MachineView {
     pub input: InputCapsView,
     pub power: PowerCapsView,
     pub services: Vec<String>,
-    /// Los módulos de su sistema con su estado (T-098): la página Máquina (T-115).
+    /// The modules of its system with their state (T-098): the Machine page (T-115).
     pub modules: Vec<ModuleView>,
-    /// Entornos de ejecución detectados (T-105).
+    /// Detected execution environments (T-105).
     pub environments: Vec<EnvView>,
-    /// El equipo según el escaneo (T-105).
+    /// The machine per the scan (T-105).
     pub hardware: HardwareView,
 }
 
-/// [`ModuleInfo`] en JSON para el frontend: el id es el del puesto (`clipboard`).
+/// [`ModuleInfo`] as JSON for the frontend: the id is the desk's (`clipboard`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ModuleView {
     pub id: &'static str,
     pub name: String,
     pub detail: String,
     pub state: ModuleStateView,
-    /// Por qué no está disponible, si no lo está.
+    /// Why it is not available, if it is not.
     pub reason: Option<String>,
     pub switchable: bool,
 }
@@ -357,7 +357,7 @@ impl From<ModuleInfo> for ModuleView {
     }
 }
 
-/// [`Environment`] en JSON para el frontend.
+/// [`Environment`] as JSON for the frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct EnvView {
     pub id: String,
@@ -395,7 +395,7 @@ impl From<Environment> for EnvView {
     }
 }
 
-/// [`Hardware`] en JSON para el frontend (bytes como número: caben en un `f64` sin perder).
+/// [`Hardware`] as JSON for the frontend (bytes as a number: they fit in an `f64` without loss).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct HardwareView {
     pub cpu: Option<String>,
@@ -407,7 +407,7 @@ pub struct HardwareView {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GpuView {
     pub name: String,
-    /// `None` si comparte la RAM.
+    /// `None` if it shares RAM.
     pub vram: Option<u64>,
 }
 
@@ -434,7 +434,7 @@ pub struct InputCapsView {
     pub capture: bool,
     pub inject: bool,
     pub missing: Vec<PermissionView>,
-    /// El binario al que macOS concede los permisos (T-090).
+    /// The binary macOS grants the permissions to (T-090).
     pub process: ProcessView,
 }
 
@@ -503,7 +503,7 @@ impl From<DeskCapabilities> for CapsView {
     }
 }
 
-/// Lo que anunciaría un agente de `machine` con el puesto de las pruebas, sin par visto.
+/// What an agent of `machine` would announce with the test desk, with no peer seen.
 #[cfg(test)]
 pub fn test_caps(machine: Machine) -> Box<CapsView> {
     let mut cfg =
@@ -527,7 +527,7 @@ pub fn test_caps(machine: Machine) -> Box<CapsView> {
     })
 }
 
-/// Los mismos nombres que la guía de permisos ([`crate::setup`]).
+/// The same names as the permissions guide ([`crate::setup`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PermissionView {
@@ -551,44 +551,44 @@ impl From<InputStatus> for InputView {
     }
 }
 
-/// Avisos que no son estado: se muestran una vez y pasan.
+/// Notices that are not state: shown once and gone.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Notice {
     Txn {
         event: TxnView,
     },
-    /// La prueba «presiona una tecla» del asistente (T-087).
+    /// The setup's "press a key" test (T-087).
     KeyProbe {
         event: KeyProbeView,
     },
-    /// La otra máquina se dio por apagada sin que nadie la apagara (corte de corriente o
-    /// suspendida): `reason` se muestra tal cual.
+    /// The other machine was considered off without anyone turning it off (power cut or
+    /// suspended): `reason` is shown as is.
     Power {
         machine: Machine,
         reason: String,
     },
-    /// Dónde está el cursor, a 30 Hz como mucho (T-128); solo llega con [`Action::WatchCursor`].
+    /// Where the cursor is, at 30 Hz at most (T-128); only arrives with [`Action::WatchCursor`].
     Cursor {
         sample: CursorView,
     },
-    /// El cursor cruzó el borde entre las dos máquinas: `edge` es el borde de `from` por el
-    /// que salió.
+    /// The cursor crossed the edge between the two machines: `edge` is the edge of `from` it
+    /// left through.
     Crossed {
         from: Machine,
         to: Machine,
         edge: Side,
     },
-    /// La otra máquina cambió el puesto y ganó (D5): «Cambiado desde X · Deshacer». Deshacer
-    /// es [`Action::UndoDesk`] con `undo_to`.
+    /// The other machine changed the desk and won (D5): "Changed from X · Undo". Undo
+    /// is [`Action::UndoDesk`] with `undo_to`.
     DeskChanged {
         by: Machine,
         rev: u64,
         summary: String,
         undo_to: u64,
     },
-    /// Avance de una copia de archivos entre las máquinas (`AgentToUi::Transfer`): un aviso con
-    /// barra. `finished` cierra la copia.
+    /// Progress of a file copy between the machines (`AgentToUi::Transfer`): a notice with a
+    /// bar. `finished` closes the copy.
     Transfer {
         upload: bool,
         path: String,
@@ -596,23 +596,23 @@ pub enum Notice {
         total: u64,
         finished: bool,
     },
-    /// El avance de un arrastre de archivos entre las máquinas (T-121).
+    /// Progress of a file drag between the machines (T-121).
     Drag {
         status: DragView,
     },
 }
 
-/// [`DragStatus`] en JSON para el frontend.
+/// [`DragStatus`] as JSON for the frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DragView {
-    /// Copiando `name`, el archivo `index` (desde 0) de `total`.
+    /// Copying `name`, file `index` (from 0) of `total`.
     Copying {
         name: String,
         index: u32,
         total: u32,
     },
-    /// Todo copiado: queda soltar en la otra máquina.
+    /// Everything copied: only the drop on the other machine remains.
     Copied {
         total: u32,
     },
@@ -635,7 +635,7 @@ impl From<DragStatus> for DragView {
     }
 }
 
-/// [`CursorSample`] en JSON para el frontend.
+/// [`CursorSample`] as JSON for the frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct CursorView {
     pub machine: Machine,
@@ -655,7 +655,7 @@ impl From<CursorSample> for CursorView {
     }
 }
 
-/// [`KeyProbeStatus`] en JSON para el frontend.
+/// [`KeyProbeStatus`] as JSON for the frontend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct KeyProbeView {
     pub armed: bool,
@@ -670,7 +670,7 @@ impl From<PowerEvent> for Notice {
     }
 }
 
-/// [`TxnEvent`] en JSON legible para el frontend (los pasos con su etiqueta `step`).
+/// [`TxnEvent`] as readable JSON for the frontend (the steps with their `step` tag).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TxnView {
@@ -691,7 +691,7 @@ pub enum TxnView {
         index: u32,
         error: String,
     },
-    /// Vuelta atrás: el paso `index`, ya hecho, se deshizo.
+    /// Rollback: step `index`, already done, was undone.
     StepUndone {
         txn: u64,
         index: u32,
@@ -700,7 +700,7 @@ pub enum TxnView {
         txn: u64,
         state: State,
     },
-    /// Falló un paso: `state` es lo que quedó hecho.
+    /// A step failed: `state` is what was left done.
     Failed {
         txn: u64,
         state: State,
@@ -721,11 +721,11 @@ impl From<TxnEvent> for TxnView {
     }
 }
 
-/// Lo que la ventana puede pedir.
+/// What the window can ask for.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Action {
-    /// Encender o apagar `machine` (la otra, en la escena).
+    /// Power on or off `machine` (the other one, in the scene).
     SetPower {
         machine: Machine,
         on: bool,
@@ -737,56 +737,56 @@ pub enum Action {
     KeyProbe {
         on: bool,
     },
-    /// La ventana oyó una tecla durante la prueba.
+    /// The window heard a key during the test.
     HeardKey,
     SetKeyboard {
         machine: Machine,
     },
     PingPeer,
-    /// «Pedir permisos» (T-090): macOS muestra su diálogo a nombre de `tandemd`.
+    /// "Ask for permissions" (T-090): macOS shows its dialog on behalf of `tandemd`.
     RequestPermissions,
-    /// «Bloquear aquí» (T-129): bloquea o suelta el cursor en esta máquina.
+    /// "Lock here" (T-129): locks or releases the cursor on this machine.
     LockHere {
         on: bool,
     },
-    /// El nombre del puesto (`EditDesk { Name }`, T-159); vacío vuelve al de omisión.
+    /// The desk name (`EditDesk { Name }`, T-159); empty goes back to the default.
     SetDeskName {
         name: String,
     },
-    /// La MAC con que esta máquina despierta a la otra (T-159); `null` la borra.
+    /// The MAC this machine uses to wake the other one (T-159); `null` clears it.
     SetWol {
         mac: Option<String>,
     },
-    /// De dónde salió la configuración; contesta [`ActionResult::Setup`].
+    /// Where the configuration came from; answers [`ActionResult::Setup`].
     GetSetup,
-    /// Pedirle a la otra máquina que instale `version` (T-122). Lo usa «Actualizar todas»
-    /// desde el núcleo de la app, no la ventana.
+    /// Ask the other machine to install `version` (T-122). Used by "Update all"
+    /// from the app core, not the window.
     UpdatePeer {
         version: String,
     },
-    /// «Guardar» del acomodo (T-117, D18): de qué lado de B está A y con qué alineación. Es
-    /// un cambio del puesto compartido, así que llega a la otra máquina (T-099).
+    /// "Save" of the arrangement (T-117, D18): which side of B A is on and with what alignment. It is
+    /// a change to the shared desk, so it reaches the other machine (T-099).
     SetArrangement {
         a_side: Side,
         align: Align,
     },
-    /// Encender o apagar un módulo de `machine` (T-098); `module` es el id del puesto.
+    /// Turn a module of `machine` on or off (T-098); `module` is the desk's id.
     SetModule {
         machine: Machine,
         #[serde(deserialize_with = "module_id")]
         module: ModuleId,
         on: bool,
     },
-    /// Volver a escanear los entornos de `machine` (T-105).
+    /// Rescan the environments of `machine` (T-105).
     Rescan {
         machine: Machine,
     },
-    /// Recibir los recursos en vivo de las dos máquinas ([`Sink::resources`]) mientras la
-    /// pantalla visible los muestra. La sesión lo recuerda y lo vuelve a pedir al reconectar.
+    /// Receive the live resources of both machines ([`Sink::resources`]) while the
+    /// visible screen shows them. The session remembers it and requests it again on reconnecting.
     WatchResources {
         on: bool,
     },
-    /// Nombre o color de una máquina (el puesto compartido, D4/D17); `None` no cambia.
+    /// Name or color of a machine (the shared desk, D4/D17); `None` does not change.
     SetMachine {
         machine: Machine,
         #[serde(default)]
@@ -794,51 +794,51 @@ pub enum Action {
         #[serde(default)]
         color: Option<String>,
     },
-    /// Recibir (o dejar de recibir) el cursor en vivo como [`Notice::Cursor`] y
-    /// [`Notice::Crossed`] (T-128). La sesión lo vuelve a pedir si se reconecta.
+    /// Receive (or stop receiving) the live cursor as [`Notice::Cursor`] and
+    /// [`Notice::Crossed`] (T-128). The session requests it again if it reconnects.
     WatchCursor {
         on: bool,
     },
-    /// Recibir el estado de la red ([`Sink::network`]) una vez por segundo mientras la pantalla
-    /// Red está visible. La sesión lo recuerda y lo vuelve a pedir al reconectar.
+    /// Receive the network state ([`Sink::network`]) once per second while the
+    /// Network screen is visible. The session remembers it and requests it again on reconnecting.
     WatchNetwork {
         on: bool,
     },
-    /// Medir el ancho de banda de un camino; contesta [`ActionResult::Bandwidth`].
+    /// Measure a path's bandwidth; answers [`ActionResult::Bandwidth`].
     MeasureLink {
         path: LinkView,
     },
-    /// Aplicar la escena `id` (D6): una transacción con progreso (T-116).
+    /// Apply scene `id` (D6): a transaction with progress (T-116).
     ApplyScene {
         id: String,
     },
-    /// Cambiar la entrada de un monitor compatible, con el veredicto del firmware (T-110).
+    /// Switch a compatible monitor's input, with the firmware's verdict (T-110).
     SwitchMonitor {
         monitor: String,
         input: MonitorInput,
     },
-    /// Crear una escena (T-116); sin `id` se le da uno a partir del nombre.
+    /// Create a scene (T-116); without `id` one is derived from the name.
     AddScene {
         scene: Scene,
     },
-    /// Guardar los cambios de una escena existente.
+    /// Save the changes of an existing scene.
     EditScene {
         scene: Scene,
     },
     DeleteScene {
         id: String,
     },
-    /// Los procesos de un túnel, también los que terminaron hace poco (T-114); contesta
-    /// [`ActionResult::Processes`]. Los túneles llegan solos por [`Sink::tunnels`].
+    /// The processes of a tunnel, also those that ended recently (T-114); answers
+    /// [`ActionResult::Processes`]. Tunnels arrive on their own through [`Sink::tunnels`].
     Processes {
         #[serde(deserialize_with = "tunnels::tunnel_id")]
         tunnel: TunnelId,
     },
-    /// Los túneles abiertos ahora (T-154): una ventana que se abre o recarga los pide porque
-    /// [`Sink::tunnels`] solo avisa al conectar y con cada cambio; contesta
+    /// The tunnels open now (T-154): a window that opens or reloads asks for them because
+    /// [`Sink::tunnels`] only notifies on connecting and on each change; answers
     /// [`ActionResult::Tunnels`].
     Tunnels,
-    /// La salida de un proceso desde los cursores `stdout` y `stderr` (T-114); contesta
+    /// The output of a process from the `stdout` and `stderr` cursors (T-114); answers
     /// [`ActionResult::Output`].
     Output {
         #[serde(deserialize_with = "tunnels::tunnel_id")]
@@ -849,22 +849,22 @@ pub enum Action {
         #[serde(default)]
         stderr: u64,
     },
-    /// Teclado y mouse compartidos (`EditDesk { Prefs }`): se manda el par entero.
+    /// Shared keyboard and mouse (`EditDesk { Prefs }`): the whole pair is sent.
     SetPrefs {
         cmd_ctrl: bool,
         drag_files: bool,
     },
-    /// El atajo de bloqueo del puesto (`EditDesk { Shortcuts }`); vacío = sin atajo.
+    /// The desk's lock shortcut (`EditDesk { Shortcuts }`); empty = no shortcut.
     SetLockShortcut {
         lock: Vec<String>,
     },
-    /// «Deshacer» del aviso de cambio (D5): vuelve el puesto a la versión `to_rev`.
+    /// "Undo" of the change notice (D5): returns the desk to version `to_rev`.
     UndoDesk {
         to_rev: u64,
     },
 }
 
-/// Suma o resta una ventana a `n`; devuelve si había alguna y si hay alguna.
+/// Adds or subtracts a window to `n`; returns whether there was any and whether there is any.
 fn count(n: &mut u32, on: bool) -> (bool, bool) {
     let before = *n > 0;
     *n = if on {
@@ -875,10 +875,10 @@ fn count(n: &mut u32, on: bool) -> (bool, bool) {
     (before, *n > 0)
 }
 
-/// El id del módulo como lo guarda el puesto (`clipboard`, `secure_desktop`).
+/// The module id as the desk stores it (`clipboard`, `secure_desktop`).
 fn module_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<ModuleId, D::Error> {
     let s = String::deserialize(d)?;
-    ModuleId::parse(&s).ok_or_else(|| serde::de::Error::custom(format!("no hay módulo «{s}»")))
+    ModuleId::parse(&s).ok_or_else(|| serde::de::Error::custom(format!("no module \"{s}\"")))
 }
 
 impl From<Action> for UiCommand {
@@ -970,11 +970,11 @@ impl From<Action> for UiCommand {
     }
 }
 
-/// La respuesta del agente a una [`Action`].
+/// The agent's response to an [`Action`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ActionResult {
-    /// Arrancó la transacción `txn`; su avance llega como [`Notice::Txn`].
+    /// The transaction `txn` started; its progress arrives as [`Notice::Txn`].
     Accepted {
         txn: u64,
     },
@@ -982,33 +982,33 @@ pub enum ActionResult {
     Rejected {
         reason: String,
     },
-    /// No hay agente con quien hablar.
+    /// There is no agent to talk to.
     Unavailable {
         reason: String,
     },
-    /// La configuración del agente: archivo, si la generó él y su puerto.
+    /// The agent's configuration: file, whether it generated it and its port.
     Setup {
         setup: SetupInfo,
     },
-    /// Lo que tardó el ping por el enlace.
+    /// How long the ping over the link took.
     Pong {
         link: LinkView,
         millis: u32,
     },
-    /// Lo que midió la prueba de ancho de banda de un camino.
+    /// What a path's bandwidth test measured.
     Bandwidth {
         link: LinkView,
         bytes_per_sec: u64,
     },
-    /// Los procesos de un túnel.
+    /// The processes of a tunnel.
     Processes {
         processes: Vec<ProcessItem>,
     },
-    /// La salida de un proceso desde donde se pidió.
+    /// The output of a process from where it was requested.
     Output {
         output: Box<OutputItem>,
     },
-    /// Los túneles abiertos, agrupados por proyecto (T-154).
+    /// The open tunnels, grouped by project (T-154).
     Tunnels {
         tunnels: Vec<ProjectItem>,
     },
@@ -1059,34 +1059,34 @@ impl From<Reply> for ActionResult {
     }
 }
 
-/// A quién se le cuenta lo que pasa (en la app, la ventana por eventos de Tauri).
+/// Whom to tell what happens (in the app, the window through Tauri events).
 pub trait Sink: Send + Sync + 'static {
     fn snapshot(&self, snapshot: &Snapshot);
     fn notice(&self, notice: &Notice);
-    /// Las versiones de las dos máquinas (T-122); las usa el updater, no la escena.
+    /// The versions of both machines (T-122); used by the updater, not the scene.
     fn update(&self, status: &UpdateStatus) {
         let _ = status;
     }
 
-    /// Una muestra de los recursos de `machine` (solo mientras se pidió `WatchResources`).
-    /// No va en la [`Snapshot`]: llega cada segundo y la ventana arma su propia historia.
+    /// A sample of `machine`'s resources (only while `WatchResources` was requested).
+    /// It is not in the [`Snapshot`]: it arrives every second and the window builds its own history.
     fn resources(&self, machine: Machine, resources: &Resources) {
         let _ = (machine, resources);
     }
 
-    /// El estado de la red (solo mientras se pidió `WatchNetwork`). No va en la
-    /// [`Snapshot`]: llega cada segundo y solo la pantalla Red lo usa.
+    /// The network state (only while `WatchNetwork` was requested). It is not in the
+    /// [`Snapshot`]: it arrives every second and only the Network screen uses it.
     fn network(&self, network: &NetworkView) {
         let _ = network;
     }
 
-    /// Los túneles abiertos de las dos máquinas (pantalla Túneles, T-114): llegan al conectar
-    /// y con cada cambio, sin pedirlos.
+    /// The open tunnels of both machines (Tunnels screen, T-114): they arrive on connecting
+    /// and on each change, without being asked for.
     fn tunnels(&self, tunnels: &[ProjectItem]) {
         let _ = tunnels;
     }
 
-    /// El avance de una copia de archivos de un túnel (T-106), para el tráfico del túnel.
+    /// The progress of a tunnel's file copy (T-106), for the tunnel's traffic.
     fn transfer(&self, transfer: &TransferItem) {
         let _ = transfer;
     }
@@ -1099,12 +1099,12 @@ struct Pending {
 
 impl Pending {
     fn answer(self, r: ActionResult) {
-        // Si la ventana ya no espera la respuesta, no hay a quién dársela.
+        // If the window no longer waits for the response, there is no one to give it to.
         let _ = self.reply.send(r);
     }
 }
 
-/// Lo que la app guarda para hablar con la sesión.
+/// What the app keeps to talk to the session.
 #[derive(Debug, Clone)]
 pub struct Handle {
     actions: mpsc::Sender<Pending>,
@@ -1113,7 +1113,7 @@ pub struct Handle {
 }
 
 impl Handle {
-    /// El último estado conocido, para una ventana que recién se abre.
+    /// The last known state, for a window that just opened.
     pub fn snapshot(&self) -> Snapshot {
         self.snapshot.borrow().clone()
     }
@@ -1127,7 +1127,7 @@ impl Handle {
         if self.actions.send(pending).await.is_err() {
             let reason = match self.snapshot() {
                 Snapshot::Unavailable { reason, .. } => reason,
-                _ => "la sesión con tandemd terminó".into(),
+                _ => "the session with tandemd ended".into(),
             };
             return ActionResult::Unavailable { reason };
         }
@@ -1136,14 +1136,14 @@ impl Handle {
         })
     }
 
-    /// Reintenta ya, sin esperar a [`RETRY_EVERY`].
+    /// Retries now, without waiting for [`RETRY_EVERY`].
     pub fn retry_now(&self) {
         self.retry.notify_one();
     }
 }
 
-/// Una sesión que no puede empezar (por ejemplo, sin saber dónde escucha el agente):
-/// la ventana muestra la razón y todo pedido se contesta con ella.
+/// A session that cannot start (for example, not knowing where the agent listens):
+/// the window shows the reason and every request is answered with it.
 pub fn unavailable(endpoint: Option<String>, reason: String) -> Handle {
     let (actions, _) = mpsc::channel(1);
     let (_, snapshot) = watch::channel(Snapshot::Unavailable { endpoint, reason });
@@ -1154,11 +1154,11 @@ pub fn unavailable(endpoint: Option<String>, reason: String) -> Handle {
     }
 }
 
-/// Crea la sesión. El futuro devuelto es la sesión misma: corre hasta que se suelta
-/// el último [`Handle`].
+/// Creates the session. The returned future is the session itself: it runs until the
+/// last [`Handle`] is dropped.
 ///
-/// `connect` abre una conexión nueva cada vez que se llama; `endpoint` es solo para
-/// decirle al usuario dónde se buscó al agente.
+/// `connect` opens a new connection each time it is called; `endpoint` is only for
+/// telling the user where the agent was looked for.
 pub fn start<C, F, S>(
     connect: C,
     endpoint: Option<String>,
@@ -1196,23 +1196,23 @@ struct Runner {
     snapshot: watch::Sender<Snapshot>,
     actions: mpsc::Receiver<Pending>,
     retry: Arc<Notify>,
-    /// Cuántas ventanas piden los recursos en vivo (la principal y la bandeja comparten esta
-    /// sesión): mientras haya alguna, cada conexión nueva los vuelve a pedir.
+    /// How many windows ask for live resources (the main one and the tray share this
+    /// session): while there is any, each new connection requests them again.
     watchers: u32,
-    /// Cuántas ventanas piden el cursor en vivo (T-128), contadas igual: mientras haya alguna,
-    /// cada conexión nueva lo vuelve a pedir.
+    /// How many windows ask for the live cursor (T-128), counted the same: while there is any,
+    /// each new connection requests it again.
     cursor_watchers: u32,
-    /// La pantalla Red pidió la red en vivo: cada conexión nueva la vuelve a pedir. Es un
-    /// booleano y no una cuenta: solo la ventana principal muestra Red, y recargarla no debe
-    /// dejar el pedido encendido para siempre.
+    /// The Network screen asked for the live network: each new connection requests it again. It is a
+    /// boolean and not a count: only the main window shows Network, and reloading it must not
+    /// leave the request on forever.
     watch_network: bool,
 }
 
-/// Cuánto se espera la respuesta de `MeasureLink`: la prueba misma más lo normal.
+/// How long the response to `MeasureLink` is waited for: the test itself plus the usual.
 const MEASURE_TIMEOUT: Duration =
     Duration::from_secs(tandem_proto::net::MEASURE_SECS).saturating_add(QUERY_TIMEOUT);
 
-/// Una conexión recién abierta, con lo necesario para dibujar la escena.
+/// A just-opened connection, with what is needed to draw the scene.
 struct Opened<S> {
     client: IpcClient<S>,
     desk: Config,
@@ -1226,9 +1226,9 @@ struct Opened<S> {
     tunnels: Vec<tandem_proto::ProjectTunnels>,
 }
 
-/// Por qué terminó una conexión.
+/// Why a connection ended.
 enum Ended {
-    /// Se soltó el último [`Handle`]: la sesión termina.
+    /// The last [`Handle`] was dropped: the session ends.
     Released,
     Lost(String),
 }
@@ -1284,12 +1284,12 @@ impl Runner {
         }
     }
 
-    /// Suma o resta una ventana que mira los recursos; devuelve si había y si hay alguna.
+    /// Adds or subtracts a window watching the resources; returns whether there was and whether there is any.
     fn count_watcher(&mut self, on: bool) -> (bool, bool) {
         count(&mut self.watchers, on)
     }
 
-    /// Lo mismo para las ventanas que miran el cursor en vivo.
+    /// The same for the windows watching the live cursor.
     fn count_cursor_watcher(&mut self, on: bool) -> (bool, bool) {
         count(&mut self.cursor_watchers, on)
     }
@@ -1299,7 +1299,7 @@ impl Runner {
         self.snapshot.send_replace(snapshot);
     }
 
-    /// Conecta y pide lo necesario para dibujar la escena, todo con el mismo límite.
+    /// Connects and requests what is needed to draw the scene, all with the same limit.
     async fn open<F, S>(&self, connect: F) -> Result<Opened<S>, String>
     where
         F: Future<Output = Result<IpcClient<S>, IpcError>>,
@@ -1383,7 +1383,7 @@ impl Runner {
                 pending = self.actions.recv() => {
                     let Some(mut p) = pending else { return Ended::Released };
                     if let UiCommand::WatchResources { on } = p.command {
-                        // Solo el primero que pide y el último que suelta llegan al agente.
+                        // Only the first to ask and the last to release reach the agent.
                         let (before, now) = self.count_watcher(on);
                         if before == now {
                             p.answer(ActionResult::Done);
@@ -1392,7 +1392,7 @@ impl Runner {
                         p.command = UiCommand::WatchResources { on: now };
                     }
                     if let UiCommand::WatchCursor { on } = p.command {
-                        // Igual: la conexión con el agente cuenta una vez por todas las ventanas.
+                        // Same: the connection with the agent counts once for all the windows.
                         let (before, now) = self.count_cursor_watcher(on);
                         if before == now {
                             p.answer(ActionResult::Done);
@@ -1403,8 +1403,8 @@ impl Runner {
                     if let UiCommand::WatchNetwork { on } = p.command {
                         self.watch_network = on;
                     }
-                    // La medición dura `MEASURE_SECS`: con el límite de siempre se daría por
-                    // perdida la conexión a medio medir.
+                    // The measurement lasts `MEASURE_SECS`: with the usual limit the connection would be considered
+                    // lost midway through measuring.
                     let limit = if matches!(p.command, UiCommand::MeasureLink { .. }) { MEASURE_TIMEOUT } else { QUERY_TIMEOUT };
                     let reply = tokio::time::timeout(limit, client.request(p.command.clone())).await;
                     let lost = match reply {
@@ -1431,8 +1431,8 @@ impl Runner {
         match event {
             AgentToUi::State(state) => self.update_state(state),
             AgentToUi::Txn(event) => {
-                // El estado final también llega empujado; tomarlo aquí evita que la
-                // escena se quede un instante con el de antes al cerrar el progreso.
+                // The final state also arrives pushed; taking it here avoids the
+                // scene staying for an instant with the previous one when the progress closes.
                 if let TxnEvent::Committed { state, .. } | TxnEvent::Failed { state, .. } = &event {
                     self.update_state(state.clone());
                 }
@@ -1459,9 +1459,9 @@ impl Runner {
             }
             AgentToUi::Monitors(new) => self.update_monitors(new),
             AgentToUi::Update(status) => self.sink.update(&status),
-            // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
+            // Only responses inside `request` arrive; a stray one is of no use to anyone.
             AgentToUi::Reply { .. } => {}
-            // El puesto nuevo ya llega con `Desk`; esto es solo el aviso con «Deshacer».
+            // The new desk already arrives with `Desk`; this is only the notice with "Undo".
             AgentToUi::DeskChanged {
                 by,
                 rev,
@@ -1476,9 +1476,9 @@ impl Runner {
             AgentToUi::Resources { machine, resources } => {
                 self.sink.resources(machine, &resources);
             }
-            // La pantalla Túneles (solo lectura, D9) y el tráfico de cada túnel (T-114).
+            // The Tunnels screen (read-only, D9) and each tunnel's traffic (T-114).
             AgentToUi::Tunnels(groups) => self.sink.tunnels(&tunnels::projects_of(groups)),
-            // Las copias las pide un cliente (T-106): el avance va a Túneles y, como aviso, a la ventana.
+            // Copies are requested by a client (T-106): the progress goes to Tunnels and, as a notice, to the window.
             AgentToUi::Transfer(t) => {
                 self.sink.notice(&Notice::Transfer {
                     upload: t.upload,
@@ -1489,7 +1489,7 @@ impl Runner {
                 });
                 self.sink.transfer(&t.into());
             }
-            // Solo con `Action::WatchCursor`: las pantallas Puesto y Acomodo los pintan.
+            // Only with `Action::WatchCursor`: the Desk and Arrangement screens paint them.
             AgentToUi::Cursor(sample) => self.sink.notice(&Notice::Cursor {
                 sample: sample.into(),
             }),
@@ -1499,7 +1499,7 @@ impl Runner {
             AgentToUi::Drag(status) => self.sink.notice(&Notice::Drag {
                 status: status.into(),
             }),
-            // Llega solo si se pidió `WatchNetwork` (la pantalla Red, T-118).
+            // Arrives only if `WatchNetwork` was requested (the Network screen, T-118).
             AgentToUi::Network(status) => self.sink.network(&(*status).into()),
         }
     }
@@ -1544,7 +1544,7 @@ impl Runner {
         });
     }
 
-    /// Cambia la escena conectada y la publica si `change` dice que cambió.
+    /// Changes the connected scene and publishes it if `change` says it changed.
     fn update(&self, change: impl FnOnce(&mut Snapshot) -> bool) {
         let mut next = self.snapshot.borrow().clone();
         if change(&mut next) {
@@ -1552,9 +1552,9 @@ impl Runner {
         }
     }
 
-    /// Lo que puede cada máquina. El lado de esta sale de aquí también: el agente cambia de
-    /// lado al emparejar ([`tandemd::Agent::adopt_side`]) y lo anuncia en sus capacidades;
-    /// el `Hello` de la conexión solo dice el de cuando se conectó.
+    /// What each machine can do. This one's side comes from here too: the agent changes
+    /// side when pairing ([`tandemd::Agent::adopt_side`]) and announces it in its capabilities;
+    /// the connection's `Hello` only says the one from when it connected.
     fn update_caps(&self, new: CapsView) {
         self.update(|c| match c {
             Snapshot::Connected { caps, agent, .. }
@@ -1588,8 +1588,8 @@ impl Runner {
         });
     }
 
-    /// Espera hasta el próximo intento; mientras, los pedidos se contestan sin agente.
-    /// `false` si ya no hay a quién servir.
+    /// Waits until the next attempt; meanwhile, requests are answered without an agent.
+    /// `false` if there is no one left to serve.
     async fn wait_retry(&mut self, reason: &str) -> bool {
         let wait = tokio::time::sleep(RETRY_EVERY);
         tokio::pin!(wait);
@@ -1599,7 +1599,7 @@ impl Runner {
                 () = self.retry.notified() => return true,
                 pending = self.actions.recv() => match pending {
                     Some(p) => {
-                        // Sin agente no hay recursos ni red, pero el pedido vale para la próxima conexión.
+                        // Without an agent there are no resources or network, but the request holds for the next connection.
                         if let UiCommand::WatchResources { on } = p.command {
                             self.count_watcher(on);
                         }
@@ -1616,7 +1616,7 @@ impl Runner {
 }
 
 fn timed_out() -> String {
-    format!("tandemd no respondió en {} s", QUERY_TIMEOUT.as_secs_f64())
+    format!("tandemd did not respond in {} s", QUERY_TIMEOUT.as_secs_f64())
 }
 
 #[cfg(test)]
@@ -1634,7 +1634,7 @@ mod tests {
     const CONFIG: &str = r#"
 machine = "a"
 
-# Con qué despertar a la PC: sin esto, el plan ni siquiera intenta encenderla.
+# What to wake the PC with: without this, the plan does not even try to power it on.
 [power.wol]
 mac = "aa:bb:cc:dd:ee:ff"
 "#;
@@ -1673,7 +1673,7 @@ mac = "aa:bb:cc:dd:ee:ff"
     }
 
     impl Recorder {
-        /// Espera hasta que lo recibido cumpla `done`.
+        /// Waits until what was received satisfies `done`.
         async fn until(&self, done: impl Fn(&[Snapshot], &[Notice]) -> bool) {
             loop {
                 let changed = self.changed.notified();
@@ -1689,11 +1689,11 @@ mac = "aa:bb:cc:dd:ee:ff"
             }
         }
 
-        /// Espera una muestra de recursos igual a `want` de `machine` (falla a los 10 s).
+        /// Waits for a resource sample equal to `want` from `machine` (fails after 10 s).
         async fn until_resources(&self, machine: Machine, want: &Resources) {
             tokio::time::timeout(Duration::from_secs(10), self.wait_resources(machine, want))
                 .await
-                .expect("no llegaron los recursos");
+                .expect("the resources did not arrive");
         }
 
         async fn wait_resources(&self, machine: Machine, want: &Resources) {
@@ -1718,7 +1718,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             self.snapshots.lock().unwrap().last().cloned().unwrap()
         }
 
-        /// Espera a que lleguen al menos `n` estados de la red (falla a los 10 s).
+        /// Waits for at least `n` network states to arrive (fails after 10 s).
         async fn until_networks(&self, n: usize) {
             let wait = async {
                 loop {
@@ -1733,7 +1733,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             };
             tokio::time::timeout(Duration::from_secs(10), wait)
                 .await
-                .expect("no llegó el estado de la red");
+                .expect("the network state did not arrive");
         }
     }
 
@@ -1766,7 +1766,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             > + Send,
     >;
 
-    /// Conecta siempre al agente que esté en `slot` en ese momento (o falla si no hay).
+    /// Always connects to the agent that is in `slot` at that moment (or fails if there is none).
     fn via(slot: Arc<Mutex<Option<MemConnector>>>) -> Connect {
         Box::new(move || {
             let c = slot.lock().unwrap().clone();
@@ -1820,8 +1820,8 @@ mac = "aa:bb:cc:dd:ee:ff"
         );
     }
 
-    /// El acomodo cambiado en el agente llega a la escena, y `GetSetup` dice de dónde
-    /// salió la configuración.
+    /// The arrangement changed on the agent reaches the scene, and `GetSetup` says where
+    /// the configuration came from.
     #[tokio::test]
     async fn a_desk_change_updates_the_scene() {
         let dir = tempfile::tempdir().unwrap();
@@ -1860,8 +1860,8 @@ mac = "aa:bb:cc:dd:ee:ff"
         assert_eq!(v["setup"]["generated"], true);
     }
 
-    /// Revisión del PR #68: si el agente cambia de lado (al emparejar), la UI conectada lo
-    /// sigue; si no, la bandeja diría el estado de esta misma máquina como si fuera la otra.
+    /// Review of PR #68: if the agent changes side (when pairing), the connected UI
+    /// follows; if not, the tray would report this machine's own state as if it were the other's.
     #[tokio::test]
     async fn the_snapshot_follows_a_change_of_side() {
         let dir = tempfile::tempdir().unwrap();
@@ -1892,13 +1892,13 @@ mac = "aa:bb:cc:dd:ee:ff"
             agent, caps, state, ..
         } = handle.snapshot()
         else {
-            panic!("se esperaba conectado");
+            panic!("connected was expected");
         };
         assert_eq!(agent, Machine::B);
         assert_eq!(caps.here.machine, Machine::B);
         assert!(
             state.is_on(Machine::B),
-            "esta máquina, con su lado nuevo, prendida"
+            "this machine, with its new side, on"
         );
     }
 
@@ -1927,7 +1927,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         assert!(
             matches!(handle.snapshot(), Snapshot::Connected { pairing, .. } if pairing == want)
         );
-        // Sin la red armada, el agente explica por qué no puede emparejar.
+        // Without the network set up, the agent explains why it cannot pair.
         assert_eq!(
             handle.act(Action::StartPairing).await,
             ActionResult::Rejected {
@@ -2014,9 +2014,9 @@ mac = "aa:bb:cc:dd:ee:ff"
             })
             .await;
         let ActionResult::Accepted { txn } = r else {
-            panic!("se esperaba Accepted: {r:?}");
+            panic!("Accepted was expected: {r:?}");
         };
-        // Sin backends, el agente intenta y falla: la ventana ve cada paso.
+        // Without backends, the agent tries and fails: the window sees each step.
         rec.until(|_, n| {
             n.iter().any(
                 |n| matches!(n, Notice::Txn { event: TxnView::Failed { txn: t, .. } } if *t == txn),
@@ -2028,7 +2028,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             event: TxnView::Started { steps, .. },
         } = &notices[0]
         else {
-            panic!("se esperaba Started: {notices:?}");
+            panic!("Started was expected: {notices:?}");
         };
         assert_eq!(
             steps.first(),
@@ -2051,7 +2051,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
         let (handle, rec) = session(&slot);
         rec.until(|s, _| connected(s)).await;
-        // Sin red no se puede emparejar: el motivo del agente llega tal cual.
+        // Without a network pairing is not possible: the agent's reason arrives as is.
         let r = handle.act(Action::ConfirmPairing).await;
         assert_eq!(
             r,
@@ -2071,9 +2071,9 @@ mac = "aa:bb:cc:dd:ee:ff"
             unreachable!()
         };
         assert_eq!(endpoint.as_deref(), Some("/tmp/tandemd.sock"));
-        assert!(reason.contains("no está corriendo"), "{reason}");
+        assert!(reason.contains("is not running"), "{reason}");
 
-        // Los pedidos se contestan sin quedarse colgados.
+        // Requests are answered without hanging.
         let r = handle
             .act(Action::SetPower {
                 machine: Machine::B,
@@ -2082,7 +2082,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             .await;
         assert!(matches!(r, ActionResult::Unavailable { .. }), "{r:?}");
 
-        // Arranca el agente: el siguiente intento lo encuentra.
+        // The agent starts: the next attempt finds it.
         let a = agent_in(dir.path());
         *slot.lock().unwrap() = Some(a.connector.clone());
         rec.until(|s, _| connected(s)).await;
@@ -2096,7 +2096,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         rec.until(|s, _| is_unavailable(s)).await;
         let a = agent_in(dir.path());
         *slot.lock().unwrap() = Some(a.connector.clone());
-        // Sin el tiempo pausado: si esperara RETRY_EVERY, la prueba tardaría 2 s.
+        // Without paused time: if it waited RETRY_EVERY, the test would take 2 s.
         let started = std::time::Instant::now();
         handle.retry_now();
         rec.until(|s, _| connected(s)).await;
@@ -2123,7 +2123,7 @@ mac = "aa:bb:cc:dd:ee:ff"
 
     #[tokio::test(start_paused = true)]
     async fn hung_agent_times_out() {
-        // Acepta la conexión y nunca saluda.
+        // Accepts the connection and never greets.
         let held = Arc::new(Mutex::new(Vec::new()));
         let tries = Arc::new(AtomicUsize::new(0));
         let (h, t) = (held.clone(), tries.clone());
@@ -2140,14 +2140,14 @@ mac = "aa:bb:cc:dd:ee:ff"
         let Snapshot::Unavailable { reason, .. } = rec.last() else {
             unreachable!()
         };
-        assert_eq!(reason, "tandemd no respondió en 2 s");
-        // Y vuelve a intentar.
+        assert_eq!(reason, "tandemd did not respond in 2 s");
+        // And it retries.
         rec.until(|s, _| s.len() >= 2).await;
         assert!(tries.load(Ordering::SeqCst) >= 2);
     }
 
-    /// El cursor en vivo llega como avisos solo si la ventana lo pidió, y se vuelve a pedir
-    /// al reconectar.
+    /// The live cursor arrives as notices only if the window asked for it, and is requested again
+    /// on reconnecting.
     #[tokio::test]
     async fn the_live_cursor_is_forwarded_only_when_asked_and_asked_again_on_reconnect() {
         let sample = |x| CursorSample {
@@ -2162,7 +2162,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         let (handle, rec) = session(&slot);
         rec.until(|s, _| connected(s)).await;
 
-        // Sin pedirlo, la conexión no recibe nada y el motor ni se entera.
+        // Without asking for it, the connection receives nothing and the engine does not even find out.
         assert!(!a.agent.cursor_gate().is_on());
         a.agent
             .publish_cursor(tandemd::CursorEvent::Sample(sample(1)));
@@ -2199,7 +2199,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             serde_json::json!({ "kind": "crossed", "from": "a", "to": "b", "edge": "right" })
         );
 
-        // Otro agente en el mismo lugar: la sesión se reconecta y lo vuelve a pedir.
+        // Another agent in the same place: the session reconnects and requests it again.
         *slot.lock().unwrap() = None;
         a.stop.send(()).unwrap();
         a.task.await.unwrap().unwrap();
@@ -2215,7 +2215,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         .await;
     }
 
-    /// El avance de un arrastre de archivos del agente llega a la ventana como aviso (T-121).
+    /// The progress of an agent's file drag reaches the window as a notice (T-121).
     #[tokio::test]
     async fn the_file_drag_progress_is_forwarded_as_notices() {
         let dir = tempfile::tempdir().unwrap();
@@ -2231,7 +2231,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         });
         a.agent
             .drag()
-            .publish(DragStatus::Failed("sin espacio".into()));
+            .publish(DragStatus::Failed("no space".into()));
         rec.until(|_, n| n.iter().any(|n| matches!(n, Notice::Drag { .. })))
             .await;
         rec.until(|_, n| n.len() >= 2).await;
@@ -2247,7 +2247,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             serde_json::to_value(&notices[1]).unwrap(),
             serde_json::json!({
                 "kind": "drag",
-                "status": { "kind": "failed", "reason": "sin espacio" }
+                "status": { "kind": "failed", "reason": "no space" }
             })
         );
     }
@@ -2255,7 +2255,7 @@ mac = "aa:bb:cc:dd:ee:ff"
     async fn within_secs<F: Future>(f: F) -> F::Output {
         tokio::time::timeout(Duration::from_secs(10), f)
             .await
-            .expect("la prueba superó el tiempo máximo")
+            .expect("the test exceeded the maximum time")
     }
 
     #[tokio::test]
@@ -2273,12 +2273,12 @@ mac = "aa:bb:cc:dd:ee:ff"
 
     #[tokio::test]
     async fn a_session_that_cannot_start_explains_why() {
-        let handle = unavailable(None, "sin HOME".into());
+        let handle = unavailable(None, "no HOME".into());
         assert_eq!(
             handle.snapshot(),
             Snapshot::Unavailable {
                 endpoint: None,
-                reason: "sin HOME".into()
+                reason: "no HOME".into()
             }
         );
         assert_eq!(
@@ -2289,7 +2289,7 @@ mac = "aa:bb:cc:dd:ee:ff"
                 })
                 .await,
             ActionResult::Unavailable {
-                reason: "sin HOME".into()
+                reason: "no HOME".into()
             }
         );
         handle.retry_now();
@@ -2406,14 +2406,14 @@ mac = "aa:bb:cc:dd:ee:ff"
         );
         let p = Notice::from(PowerEvent::PeerLost {
             machine: Machine::B,
-            reason: "la PC dejó de responder".into(),
+            reason: "the PC stopped responding".into(),
         });
         assert_eq!(
             serde_json::to_value(&p).unwrap(),
             serde_json::json!({
                 "kind": "power",
                 "machine": "b",
-                "reason": "la PC dejó de responder",
+                "reason": "the PC stopped responding",
             })
         );
         assert_eq!(
@@ -2422,8 +2422,8 @@ mac = "aa:bb:cc:dd:ee:ff"
         );
     }
 
-    /// T-115: la página Máquina pide los recursos; llegan a la ventana y, si el agente se
-    /// reinicia, la sesión los vuelve a pedir sola.
+    /// T-115: the Machine page requests the resources; they reach the window and, if the agent
+    /// restarts, the session requests them again on its own.
     #[tokio::test]
     async fn watched_resources_reach_the_window_and_survive_a_reconnection() {
         let dir = tempfile::tempdir().unwrap();
@@ -2453,8 +2453,8 @@ mac = "aa:bb:cc:dd:ee:ff"
         rec.until_resources(Machine::B, &theirs).await;
     }
 
-    /// La ventana principal y la bandeja comparten la sesión: si una deja de mirar los
-    /// recursos, la otra los sigue recibiendo.
+    /// The main window and the tray share the session: if one stops watching the
+    /// resources, the other keeps receiving them.
     #[tokio::test]
     async fn resources_keep_flowing_while_any_window_watches() {
         let dir = tempfile::tempdir().unwrap();
@@ -2474,8 +2474,8 @@ mac = "aa:bb:cc:dd:ee:ff"
         rec.until_resources(Machine::B, &theirs).await;
     }
 
-    /// T-115: apagar un módulo desde la página Máquina llega al agente y vuelve en las
-    /// capacidades con su estado nuevo.
+    /// T-115: turning off a module from the Machine page reaches the agent and comes back in the
+    /// capabilities with its new state.
     #[tokio::test]
     async fn a_module_switched_off_comes_back_in_the_capabilities() {
         let dir = tempfile::tempdir().unwrap();
@@ -2505,7 +2505,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         );
         rec.until(|s, _| s.last().and_then(clipboard) == Some(ModuleStateView::Off))
             .await;
-        // Rescan de esta máquina: se acepta y lo encontrado llega con las capacidades.
+        // Rescan of this machine: accepted and what was found arrives with the capabilities.
         assert_eq!(
             handle
                 .act(Action::Rescan {
@@ -2523,7 +2523,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             name: "Pantallas protegidas".into(),
             detail: "UAC".into(),
             state: ModuleState::Unavailable {
-                reason: "Falta el servicio".into(),
+                reason: "Service missing".into(),
             },
             switchable: false,
         });
@@ -2531,7 +2531,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             serde_json::to_value(&m).unwrap(),
             serde_json::json!({
                 "id": "secure_desktop", "name": "Pantallas protegidas", "detail": "UAC",
-                "state": "unavailable", "reason": "Falta el servicio", "switchable": false
+                "state": "unavailable", "reason": "Service missing", "switchable": false
             })
         );
         let e = EnvView::from(Environment {
@@ -2734,7 +2734,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             .unwrap(),
             serde_json::json!({ "kind": "transfer", "upload": true, "path": "/a/b", "done": 5, "total": 10, "finished": false })
         );
-        // Lo de los monitores ya no existe: la ventana no puede pedirlo.
+        // What concerns monitors no longer exists: the window cannot ask for it.
         for gone in ["set_mode", "list_displays", "scan_monitors", "answer_probe"] {
             assert!(serde_json::from_value::<Action>(serde_json::json!({ "kind": gone })).is_err());
         }
@@ -2836,20 +2836,20 @@ mac = "aa:bb:cc:dd:ee:ff"
         };
         runner.on_event(AgentToUi::Power(PowerEvent::PeerLost {
             machine: Machine::B,
-            reason: "la PC dejó de responder (¿corte de corriente?)".into(),
+            reason: "the PC stopped responding (power cut?)".into(),
         }));
         assert_eq!(
             *rec.notices.lock().unwrap(),
             vec![Notice::Power {
                 machine: Machine::B,
-                reason: "la PC dejó de responder (¿corte de corriente?)".into(),
+                reason: "the PC stopped responding (power cut?)".into(),
             }]
         );
-        // Un aviso de energía no toca el estado: ese llega empujado aparte.
+        // A power notice does not touch the state: that one arrives pushed separately.
         assert!(rec.snapshots.lock().unwrap().is_empty());
     }
-    /// T-118: la pantalla Red pide la red en vivo y llega a la ventana con sus tres caminos;
-    /// si el agente se reinicia, la sesión la vuelve a pedir sola.
+    /// T-118: the Network screen asks for the live network and it reaches the window with its three paths;
+    /// if the agent restarts, the session requests it again on its own.
     #[tokio::test]
     async fn the_network_reaches_the_window_and_survives_a_reconnection() {
         let dir = tempfile::tempdir().unwrap();
@@ -2859,7 +2859,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         rec.until(|s, _| connected(s)).await;
         assert!(
             rec.networks.lock().unwrap().is_empty(),
-            "sin pedirla no llega"
+            "it does not arrive without asking"
         );
         assert_eq!(
             handle.act(Action::WatchNetwork { on: true }).await,
@@ -2888,8 +2888,8 @@ mac = "aa:bb:cc:dd:ee:ff"
         rec.until_networks(seen + 1).await;
     }
 
-    /// T-114: al conectar la ventana recibe los túneles sin pedirlos, y los procesos de un
-    /// túnel que no existe se rechazan sin tirar la sesión.
+    /// T-114: on connecting the window receives the tunnels without asking for them, and the processes of a
+    /// tunnel that does not exist are rejected without bringing the session down.
     #[tokio::test]
     async fn the_tunnels_reach_the_window_on_connect() {
         let dir = tempfile::tempdir().unwrap();
@@ -2905,12 +2905,12 @@ mac = "aa:bb:cc:dd:ee:ff"
             .await;
         assert!(
             !matches!(got, ActionResult::Unavailable { .. }),
-            "la sesión sigue viva: {got:?}"
+            "the session is still alive: {got:?}"
         );
         rec.until(|s, _| connected(s)).await;
     }
 
-    /// T-154: una ventana nueva pide los túneles existentes en vez de esperar un cambio.
+    /// T-154: a new window asks for the existing tunnels instead of waiting for a change.
     #[tokio::test]
     async fn a_new_window_can_ask_for_the_tunnels() {
         let dir = tempfile::tempdir().unwrap();
@@ -2920,12 +2920,12 @@ mac = "aa:bb:cc:dd:ee:ff"
         rec.until(|s, _| connected(s)).await;
         match handle.act(Action::Tunnels).await {
             ActionResult::Tunnels { tunnels } => assert!(tunnels.is_empty()),
-            other => panic!("se esperaban los túneles: {other:?}"),
+            other => panic!("the tunnels were expected: {other:?}"),
         }
     }
 
-    /// Dejar de mirar la red corta el flujo; y un pedido hecho sin agente vale para la
-    /// próxima conexión.
+    /// Stopping watching the network cuts the flow; and a request made without an agent holds for the
+    /// next connection.
     #[tokio::test]
     async fn the_network_stops_when_the_window_stops_watching() {
         let dir = tempfile::tempdir().unwrap();
@@ -2950,8 +2950,8 @@ mac = "aa:bb:cc:dd:ee:ff"
         assert_eq!(rec.networks.lock().unwrap().len(), n);
     }
 
-    /// Medir un camino sin conexión por él se rechaza con la razón del agente, sin tirar la
-    /// sesión.
+    /// Measuring a path with no connection over it is rejected with the agent's reason, without bringing the
+    /// session down.
     #[tokio::test]
     async fn measuring_a_path_without_connection_is_rejected_and_the_session_survives() {
         let dir = tempfile::tempdir().unwrap();

@@ -1,5 +1,5 @@
-//! Las dos máquinas con detectores simulados: mover el hub invierte los roles
-//! después del antirrebote, y el selector manual gana sobre la detección.
+//! Both machines with simulated detectors: moving the hub inverts the roles
+//! after the debounce, and the manual selector wins over detection.
 
 use std::time::Duration;
 
@@ -20,8 +20,8 @@ fn cfg() -> HubConfig {
     }
 }
 
-/// Un agente: su escáner simulado, su sondeo y su árbitro. El reporte al otro
-/// agente es instantáneo (en la realidad tarda milisegundos frente a 3 s).
+/// One agent: its simulated scanner, its polling and its arbiter. The report to the other
+/// agent is instantaneous (in reality it takes milliseconds versus 3 s).
 struct Agent {
     devices: FakeDevices,
     presence: watch::Receiver<Presence>,
@@ -49,7 +49,7 @@ struct Desk {
 }
 
 impl Desk {
-    /// Lleva lo que publicó cada sondeo a los dos árbitros.
+    /// Carries what each poll published to both arbiters.
     fn sync(&mut self) {
         let mac = self.mac.presence.borrow_and_update().hub();
         let pc = self.pc.presence.borrow_and_update().hub();
@@ -74,7 +74,7 @@ impl Desk {
         assert_eq!(
             self.mac.arbiter.server(),
             self.pc.arbiter.server(),
-            "las dos máquinas no coinciden"
+            "the two machines do not agree"
         );
         self.mac.arbiter.server()
     }
@@ -112,7 +112,7 @@ async fn moving_the_hub_inverts_roles_after_debounce() {
 
     d.move_hub_to(Machine::B);
     d.run_for(Duration::from_millis(2_500)).await;
-    assert_eq!(d.server(), Machine::A, "invirtió antes de 3 s");
+    assert_eq!(d.server(), Machine::A, "inverted before 3 s");
     d.run_for(Duration::from_secs(1)).await;
     assert_eq!(d.server(), Machine::B);
     assert_eq!(d.pc.arbiter.role(), Role::Server);
@@ -122,14 +122,14 @@ async fn moving_the_hub_inverts_roles_after_debounce() {
 #[tokio::test(start_paused = true)]
 async fn brief_disconnection_does_not_invert_roles() {
     let mut d = desk(Machine::B);
-    // El cable del hub falla 2 s y vuelve.
+    // The hub cable fails for 2 s and comes back.
     d.pc.devices.set(vec![]);
     d.run_for(Duration::from_secs(2)).await;
     d.pc.devices.set(vec![KB, MOUSE]);
     d.run_for(Duration::from_secs(10)).await;
     assert_eq!(d.server(), Machine::B);
 
-    // Un ir y venir rápido a la Mac (menos de 3 s) tampoco.
+    // A quick back and forth to the Mac (under 3 s) does not either.
     d.move_hub_to(Machine::A);
     d.run_for(Duration::from_secs(2)).await;
     d.move_hub_to(Machine::B);
@@ -143,14 +143,14 @@ async fn manual_selector_wins_over_detection() {
     d.select(Selector::Manual(Machine::B));
     assert_eq!(d.server(), Machine::B);
 
-    // El hub va y viene; manda el selector.
+    // The hub comes and goes; the selector rules.
     d.move_hub_to(Machine::B);
     d.run_for(Duration::from_secs(5)).await;
     d.move_hub_to(Machine::A);
     d.run_for(Duration::from_secs(5)).await;
     assert_eq!(d.server(), Machine::B);
 
-    // En automático vuelve a mandar el hub, que está en la Mac.
+    // In automatic mode the hub rules again, and it is on the Mac.
     d.select(Selector::Auto);
     assert_eq!(d.server(), Machine::A);
 }

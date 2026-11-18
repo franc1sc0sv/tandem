@@ -1,12 +1,12 @@
-//! El documento del puesto ([`Desk`]) como se edita y se sincroniza (DESIGN §4.4).
+//! The desk document ([`Desk`]) as it is edited and synchronized (DESIGN §4.4).
 //!
-//! - Las secciones que no son del acomodo: escenas, atajos, preferencias de teclado y mouse
-//!   y módulos encendidos.
-//! - [`DeskPatch`]: los cambios tipados que pide la UI; el agente los aplica.
-//! - [`DeskVersion`]: el puesto con su sello (versión, fecha y autor). Entre las dos
-//!   máquinas **gana el último** (D5): la versión más alta; con la misma versión, la fecha
-//!   más nueva; con la misma fecha, el lado `A`. Así las dos eligen lo mismo sin hablar.
-//! - [`DeskHistory`]: las últimas [`HISTORY_LEN`] versiones, para «Deshacer».
+//! - The sections that are not the arrangement: scenes, shortcuts, keyboard and mouse preferences
+//!   and enabled modules.
+//! - [`DeskPatch`]: the typed changes the UI requests; the agent applies them.
+//! - [`DeskVersion`]: the desk with its stamp (version, date and author). Between the two
+//!   machines **the last one wins** (D5): the highest version; with the same version, the newest
+//!   date; with the same date, side `A`. This way both choose the same without talking.
+//! - [`DeskHistory`]: the last [`HISTORY_LEN`] versions, for "Undo".
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -17,22 +17,22 @@ use crate::model::{Arrangement, ConfigError, Desk, Machine, ScreenSpec};
 use crate::monitor::MonitorCable;
 use crate::scene::{Scene, rename_machine, scene_id};
 
-/// Cuántas versiones guarda el historial (DESIGN §4.4).
+/// How many versions the history keeps (DESIGN §4.4).
 pub const HISTORY_LEN: usize = 20;
 
-/// Largo máximo del nombre de una máquina, en caracteres.
+/// Maximum length of a machine name, in characters.
 pub const MAX_NAME: usize = 40;
 
-/// Los atajos del puesto. Las teclas van con los nombres de `KeyboardEvent.code`.
+/// The desk's shortcuts. Keys use the `KeyboardEvent.code` names.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct Shortcuts {
-    /// Bloquea el cursor en la máquina donde está (todas a la vez). Vacío = sin atajo.
+    /// Locks the cursor on the machine where it is (all at once). Empty = no shortcut.
     #[serde(default = "default_lock")]
     pub lock: Vec<String>,
 }
 
-/// ScrollLock, como en Synergy/Deskflow. En la Mac llega como F14 y vale igual.
+/// ScrollLock, as in Synergy/Deskflow. On the Mac it arrives as F14 and counts the same.
 fn default_lock() -> Vec<String> {
     vec!["ScrollLock".to_owned()]
 }
@@ -45,15 +45,15 @@ impl Default for Shortcuts {
     }
 }
 
-/// Preferencias de teclado y mouse. Compartir el portapapeles no está aquí: es un módulo de
-/// cada máquina (`modules`, «clipboard»), una sola fuente (D3, D4).
+/// Keyboard and mouse preferences. Sharing the clipboard is not here: it is a module of
+/// each machine (`modules`, "clipboard"), a single source (D3, D4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct InputPrefs {
-    /// Cmd↔Ctrl entre macOS y Windows (la tabla de cada dirección es local, `[input.remap]`).
+    /// Cmd↔Ctrl between macOS and Windows (the table for each direction is local, `[input.remap]`).
     #[serde(default = "yes")]
     pub cmd_ctrl: bool,
-    /// Arrastrar archivos al cruzar el borde (D14).
+    /// Drag files when crossing the edge (D14).
     #[serde(default = "yes")]
     pub drag_files: bool,
 }
@@ -71,8 +71,8 @@ impl Default for InputPrefs {
     }
 }
 
-/// Qué módulos encendió o apagó el usuario en cada máquina (D3). Un módulo que no aparece
-/// queda como lo deja su máquina.
+/// Which modules the user turned on or off on each machine (D3). A module that does not appear
+/// stays as its machine leaves it.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct Modules {
@@ -115,59 +115,59 @@ pub fn valid_color(color: &str) -> bool {
     color.len() == 7 && color.starts_with('#') && color[1..].chars().all(|c| c.is_ascii_hexdigit())
 }
 
-/// Un cambio del puesto pedido desde la UI (`UiCommand::EditDesk`).
+/// A desk change requested from the UI (`UiCommand::EditDesk`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeskPatch {
-    /// El nombre del puesto (T-159); vacío vuelve al de omisión.
+    /// The desk name (T-159); empty goes back to the default.
     Name(String),
-    /// Nombre y color de una máquina ya conocida; lo que venga en `None` no cambia.
+    /// Name and color of an already known machine; whatever comes as `None` does not change.
     Machine {
         side: Machine,
         name: Option<String>,
         color: Option<String>,
     },
-    /// El acomodo (D18); `None` vuelve al de omisión.
+    /// The arrangement (D18); `None` goes back to the default.
     Arrangement(Option<Arrangement>),
-    /// Las pantallas declaradas de `machine` (reemplazan todas las suyas; vacío = las que
-    /// lee ella misma). El `machine` de cada una se ignora.
+    /// The declared screens of `machine` (replace all of its own; empty = the ones
+    /// it reads itself). The `machine` of each one is ignored.
     Screens {
         machine: Machine,
         screens: Vec<ScreenSpec>,
     },
-    /// Todas las escenas (para reordenarlas).
+    /// All the scenes (to reorder them).
     Scenes(Vec<Scene>),
-    /// Una escena nueva, al final. Sin id, se le da uno a partir del nombre.
+    /// A new scene, at the end. Without an id, one is derived from the name.
     AddScene(Scene),
-    /// Reemplaza la escena con el mismo id.
+    /// Replaces the scene with the same id.
     EditScene(Scene),
     DeleteScene {
         id: String,
     },
     Shortcuts(Shortcuts),
     Prefs(InputPrefs),
-    /// El tope de los datos por Wi-Fi (`[data]`, T-101).
+    /// The cap on data over Wi-Fi (`[data]`, T-101).
     Data(DataPrefs),
-    /// Encender o apagar un módulo de una máquina.
+    /// Turn a machine's module on or off.
     Module {
         machine: Machine,
         module: String,
         on: bool,
     },
-    /// El cableado de un monitor (reemplaza el que tuviera; T-111).
+    /// A monitor's cabling (replaces any it had; T-111).
     Cable(MonitorCable),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PatchError {
-    #[error("la máquina {0} todavía no se conoce")]
+    #[error("machine {0} is not known yet")]
     UnknownMachine(Machine),
-    #[error("el nombre no puede quedar vacío ni pasar de {MAX_NAME} caracteres")]
+    #[error("the name cannot be empty or exceed {MAX_NAME} characters")]
     BadName,
-    #[error("«{0}» no es un color #rrggbb")]
+    #[error("\"{0}\" is not a #rrggbb color")]
     BadColor(String),
-    #[error("ese color ya es el de {0}")]
+    #[error("that color already belongs to {0}")]
     ColorTaken(String),
-    #[error("la escena `{0}` no existe")]
+    #[error("the scene `{0}` does not exist")]
     UnknownScene(String),
     #[error("{0}")]
     Invalid(String),
@@ -180,7 +180,7 @@ impl From<ConfigError> for PatchError {
 }
 
 impl Desk {
-    /// Aplica `patch`. Si el resultado no es un puesto válido, no cambia nada.
+    /// Applies `patch`. If the result is not a valid desk, nothing changes.
     pub fn apply(&mut self, patch: DeskPatch) -> Result<(), PatchError> {
         let mut next = self.clone();
         next.apply_unchecked(patch)?;
@@ -229,8 +229,8 @@ impl Desk {
             }
             DeskPatch::Arrangement(arrangement) => self.arrangement = arrangement,
             DeskPatch::Screens { machine, screens } => {
-                // Las de la otra máquina quedan donde estaban; las de esta, donde estaba la
-                // primera (o al final).
+                // The other machine's stay where they were; this one's, where the
+                // first one was (or at the end).
                 let at = self
                     .screens
                     .iter()
@@ -288,13 +288,13 @@ impl Desk {
         Ok(())
     }
 
-    /// Qué secciones cambian de `self` a `new`, para el aviso «Cambiado desde X» de la UI.
-    /// `None` si no cambia nada que haya hecho una persona: anotar una máquina recién
-    /// conocida (o su sistema) lo hace el agente solo, y también poner las escenas por
-    /// omisión al emparejar.
+    /// Which sections change from `self` to `new`, for the UI's "Changed from X" notice.
+    /// `None` if nothing a person did changes: recording a newly
+    /// known machine (or its system) is done by the agent alone, and so is setting the default
+    /// scenes when pairing.
     pub fn summary_of_changes(&self, new: &Desk) -> Option<String> {
         let defaults = self.scenes.is_empty() && crate::scene::are_defaults(&new.scenes, new);
-        // Un monitor que el agente presentó solo (su cable y las escenas por omisión).
+        // A monitor the agent introduced on its own (its cable and the default scenes).
         let introduced = crate::scene::introduced_by_agent(self, new);
         let machines =
             Machine::ALL
@@ -305,19 +305,19 @@ impl Desk {
                     _ => false,
                 });
         let sections = [
-            (self.name != new.name, "nombre del puesto"),
-            (machines, "máquinas"),
-            (self.arrangement != new.arrangement, "acomodo"),
-            (self.screens != new.screens, "pantallas"),
+            (self.name != new.name, "desk name"),
+            (machines, "machines"),
+            (self.arrangement != new.arrangement, "arrangement"),
+            (self.screens != new.screens, "screens"),
             (
                 self.scenes != new.scenes && !defaults && !introduced,
-                "escenas",
+                "scenes",
             ),
-            (self.cables != new.cables && !introduced, "monitores"),
-            (self.shortcuts != new.shortcuts, "atajos"),
-            (self.prefs != new.prefs, "teclado y mouse"),
-            (self.modules != new.modules, "módulos"),
-            (self.data != new.data, "datos por Wi-Fi"),
+            (self.cables != new.cables && !introduced, "monitors"),
+            (self.shortcuts != new.shortcuts, "shortcuts"),
+            (self.prefs != new.prefs, "keyboard and mouse"),
+            (self.modules != new.modules, "modules"),
+            (self.data != new.data, "data over Wi-Fi"),
         ];
         let changed: Vec<&str> = sections
             .iter()
@@ -328,9 +328,9 @@ impl Desk {
         let text = if rest.is_empty() {
             (*last).to_owned()
         } else {
-            format!("{} y {last}", rest.join(", "))
+            format!("{} and {last}", rest.join(", "))
         };
-        // Con mayúscula inicial, como título del aviso.
+        // With an initial capital, as the notice title.
         let mut chars = text.chars();
         Some(
             chars
@@ -341,19 +341,19 @@ impl Desk {
     }
 }
 
-/// El sello de una versión del puesto: cuál es, cuándo y quién la hizo.
+/// The stamp of a desk version: which one it is, when and who made it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DeskStamp {
-    /// Cada cambio sube la más alta conocida en uno. 0 = recién generado, nunca cambiado.
+    /// Each change raises the highest known by one. 0 = just generated, never changed.
     pub rev: u64,
-    /// Milisegundos desde la época Unix, según el reloj de quien lo hizo.
+    /// Milliseconds since the Unix epoch, according to the clock of whoever made it.
     pub at: u64,
-    /// Quién lo hizo.
+    /// Who made it.
     pub by: Machine,
 }
 
 impl DeskStamp {
-    /// El de un puesto recién generado en `me`.
+    /// That of a desk just generated on `me`.
     pub fn fresh(me: Machine) -> Self {
         DeskStamp {
             rev: 0,
@@ -362,7 +362,7 @@ impl DeskStamp {
         }
     }
 
-    /// Gana el último (D5): más versión; con la misma, más fecha; con la misma, `A`.
+    /// The last one wins (D5): higher version; with the same one, later date; with the same, `A`.
     pub fn wins_over(&self, other: &DeskStamp) -> bool {
         self.key() > other.key()
     }
@@ -371,7 +371,7 @@ impl DeskStamp {
         (self.rev, self.at, self.by == Machine::A)
     }
 
-    /// El sello de un cambio hecho en `me` a las `now` sobre esta versión.
+    /// The stamp of a change made on `me` at `now` on this version.
     pub fn next(&self, me: Machine, now: u64) -> Self {
         DeskStamp {
             rev: self.rev.saturating_add(1),
@@ -380,7 +380,7 @@ impl DeskStamp {
         }
     }
 
-    /// El mismo sello con los lados cambiados.
+    /// The same stamp with the sides swapped.
     pub fn swapped(self) -> Self {
         DeskStamp {
             by: self.by.other(),
@@ -389,7 +389,7 @@ impl DeskStamp {
     }
 }
 
-/// El puesto con su sello: lo que guarda cada máquina y lo que se mandan
+/// The desk with its stamp: what each machine stores and what they send each
 /// (`ControlMsg::Desk`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeskVersion {
@@ -398,13 +398,13 @@ pub struct DeskVersion {
 }
 
 impl DeskVersion {
-    /// Qué hacer con la versión que mandó la otra máquina: `Some` es la que queda aquí.
-    /// Dos puestos recién generados (versión 0) no se mezclan: cada máquina se queda con lo
-    /// suyo hasta que alguien cambie algo. Un puesto inválido se ignora.
+    /// What to do with the version the other machine sent: `Some` is the one that stays here.
+    /// Two just-generated desks (version 0) are not merged: each machine keeps its
+    /// own until someone changes something. An invalid desk is ignored.
     ///
-    /// Con el mismo sello y otro puesto (no debería pasar: una máquina nunca repite versión,
-    /// pero un archivo copiado o una migración pueden dejarlo así) gana el puesto mayor, en el
-    /// mismo orden en las dos: nunca quedan distintas para siempre.
+    /// With the same stamp and another desk (it should not happen: a machine never repeats a version,
+    /// but a copied file or a migration can leave it so) the greater desk wins, in the
+    /// same order on both: they never stay different forever.
     pub fn receive(&self, theirs: &DeskVersion) -> Option<DeskVersion> {
         if self.stamp.rev == 0 && theirs.stamp.rev == 0 {
             return None;
@@ -414,7 +414,7 @@ impl DeskVersion {
         (wins && theirs.desk.validate().is_ok()).then(|| theirs.clone())
     }
 
-    /// `desk` como cambio hecho en `me` a las `now` sobre esta versión.
+    /// `desk` as a change made on `me` at `now` on this version.
     pub fn change(&self, desk: Desk, me: Machine, now: u64) -> DeskVersion {
         DeskVersion {
             stamp: self.stamp.next(me, now),
@@ -422,7 +422,7 @@ impl DeskVersion {
         }
     }
 
-    /// `patch` aplicado aquí: la versión siguiente, o `None` si no cambia nada.
+    /// `patch` applied here: the next version, or `None` if nothing changes.
     pub fn edit(
         &self,
         patch: DeskPatch,
@@ -437,22 +437,22 @@ impl DeskVersion {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum UndoError {
-    #[error("la versión {0} ya no está en el historial")]
+    #[error("version {0} is no longer in the history")]
     Unknown(u64),
 }
 
-/// Lo que se muestra de una versión del historial.
+/// What is shown of a history version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub stamp: DeskStamp,
-    /// Qué cambió respecto de la anterior del historial; vacío si no se sabe.
+    /// What changed with respect to the previous one in the history; empty if unknown.
     pub summary: String,
 }
 
-/// Las últimas [`HISTORY_LEN`] versiones que tuvo esta máquina, de la más vieja a la más
-/// nueva, para volver a cualquiera (`UiCommand::UndoDesk`). Es de cada máquina: guarda
-/// también una versión propia que perdió contra un cambio simultáneo de la otra, que es
-/// justo la que se quiere recuperar con «Deshacer».
+/// The last [`HISTORY_LEN`] versions this machine had, from the oldest to the
+/// newest, to go back to any of them (`UiCommand::UndoDesk`). It is per machine: it also keeps
+/// an own version that lost against a simultaneous change by the other, which is
+/// precisely the one to recover with "Undo".
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeskHistory {
     versions: VecDeque<DeskVersion>,
@@ -465,7 +465,7 @@ impl DeskHistory {
         h
     }
 
-    /// Anota la versión que vale ahora. La misma dos veces seguidas cuenta una.
+    /// Records the version that holds now. The same one twice in a row counts once.
     pub fn record(&mut self, version: DeskVersion) {
         if self.versions.back() == Some(&version) {
             return;
@@ -488,7 +488,7 @@ impl DeskHistory {
         self.versions.iter()
     }
 
-    /// Las versiones para la UI, de la más nueva a la más vieja.
+    /// The versions for the UI, from newest to oldest.
     pub fn entries(&self) -> Vec<HistoryEntry> {
         let mut out = Vec::with_capacity(self.versions.len());
         let mut prev: Option<&DeskVersion> = None;
@@ -506,9 +506,9 @@ impl DeskHistory {
         out
     }
 
-    /// La versión `rev` a la que se vuelve estando en `current`: la más nueva con ese número
-    /// que no sea la actual (con dos cambios simultáneos hay dos con el mismo número, y la
-    /// que interesa es la que perdió). Si la única es la actual, la actual.
+    /// The version `rev` to go back to while at `current`: the newest with that number
+    /// that is not the current one (with two simultaneous changes there are two with the same number, and the
+    /// one that matters is the one that lost). If the only one is the current, the current.
     pub fn find(&self, rev: u64, current: &DeskStamp) -> Option<&DeskVersion> {
         let mut same = self.versions.iter().rev().filter(|v| v.stamp.rev == rev);
         let mut fallback = None;
@@ -521,8 +521,8 @@ impl DeskHistory {
         fallback
     }
 
-    /// Volver a la versión `to_rev` estando en `current`: una versión nueva (hecha en `me` a
-    /// las `now`) con exactamente el puesto de aquella. `None` si ya es ese puesto.
+    /// Go back to version `to_rev` while at `current`: a new version (made on `me` at
+    /// `now`) with exactly the desk of that one. `None` if it is already that desk.
     pub fn undo(
         &self,
         current: &DeskVersion,
@@ -536,7 +536,7 @@ impl DeskHistory {
         Ok((target.desk != current.desk).then(|| current.change(target.desk.clone(), me, now)))
     }
 
-    /// Los lados cambiados en todo el historial ([`Desk::swap_sides`]).
+    /// The sides swapped across the whole history ([`Desk::swap_sides`]).
     pub fn swapped(self) -> Self {
         DeskHistory {
             versions: self
@@ -569,17 +569,14 @@ mod tests {
     #[test]
     fn the_desk_name_is_edited_trimmed_and_cleared() {
         let mut d = known();
-        d.apply(DeskPatch::Name("  Oficina ".into())).unwrap();
-        assert_eq!(d.name.as_deref(), Some("Oficina"));
-        assert_eq!(
-            known().summary_of_changes(&d).as_deref(),
-            Some("Nombre del puesto")
-        );
+        d.apply(DeskPatch::Name("  Office ".into())).unwrap();
+        assert_eq!(d.name.as_deref(), Some("Office"));
+        assert_eq!(known().summary_of_changes(&d).as_deref(), Some("Desk name"));
         d.apply(DeskPatch::Name("  ".into())).unwrap();
         assert_eq!(d.name, None);
         let long = "x".repeat(MAX_NAME + 1);
         assert_eq!(d.apply(DeskPatch::Name(long)), Err(PatchError::BadName));
-        assert_eq!(d.name, None, "un rechazo no cambia nada");
+        assert_eq!(d.name, None, "a rejection changes nothing");
     }
 
     fn v(rev: u64, at: u64, by: Machine, desk: Desk) -> DeskVersion {
@@ -619,7 +616,7 @@ mod tests {
         assert_eq!(theirs.receive(&mine), None);
         let changed = v(1, 0, Machine::B, known());
         assert_eq!(mine.receive(&changed), Some(changed.clone()));
-        // El mismo sello con otro puesto: las dos eligen el mismo.
+        // The same stamp with another desk: both choose the same one.
         let mut other = known();
         other.prefs.drag_files = false;
         let x = v(4, 9, Machine::A, known());
@@ -685,9 +682,9 @@ mod tests {
             d.apply(DeskPatch::Machine {
                 side: Machine::B,
                 name: None,
-                color: Some("violeta".into()),
+                color: Some("purple".into()),
             }),
-            Err(PatchError::BadColor("violeta".into()))
+            Err(PatchError::BadColor("purple".into()))
         );
         assert_eq!(
             d.apply(DeskPatch::Machine {
@@ -697,7 +694,7 @@ mod tests {
             }),
             Err(PatchError::BadName)
         );
-        assert_eq!(d, before, "un parche rechazado no cambia nada");
+        assert_eq!(d, before, "a rejected patch changes nothing");
         let mut empty = Desk::default();
         assert_eq!(
             empty.apply(DeskPatch::Machine {
@@ -753,7 +750,7 @@ mod tests {
             align: Align::Start,
         };
         d.apply(DeskPatch::Arrangement(Some(arr))).unwrap();
-        d.apply(DeskPatch::Scenes(vec![Scene::new("t", "Trabajo")]))
+        d.apply(DeskPatch::Scenes(vec![Scene::new("t", "Work")]))
             .unwrap();
         d.apply(DeskPatch::Shortcuts(Shortcuts { lock: vec![] }))
             .unwrap();
@@ -778,27 +775,27 @@ mod tests {
         let old = known();
         let mut new = old.clone();
         assert_eq!(old.summary_of_changes(&new), None);
-        // Las escenas por omisión las pone el agente al emparejar; otras, una persona.
+        // The default scenes are set by the agent when pairing; others, by a person.
         new.scenes = crate::default_scenes(&new.machines, None);
         assert_eq!(old.summary_of_changes(&new), None);
         new.scenes.pop();
-        assert_eq!(old.summary_of_changes(&new).as_deref(), Some("Escenas"));
+        assert_eq!(old.summary_of_changes(&new).as_deref(), Some("Scenes"));
         new.scenes.clear();
         new.arrangement = Some(Arrangement::default());
-        assert_eq!(old.summary_of_changes(&new).as_deref(), Some("Acomodo"));
+        assert_eq!(old.summary_of_changes(&new).as_deref(), Some("Arrangement"));
         new.prefs.drag_files = false;
         new.shortcuts.lock.clear();
         assert_eq!(
             old.summary_of_changes(&new).as_deref(),
-            Some("Acomodo, atajos y teclado y mouse")
+            Some("Arrangement, shortcuts and keyboard and mouse")
         );
-        // Anotar una máquina que no se conocía no es un cambio de nadie.
+        // Recording a machine that was not known is not anyone's change.
         assert_eq!(Desk::default().summary_of_changes(&known()), None);
         let mut renamed = known();
-        renamed.machines.b.as_mut().unwrap().name = "Torre".into();
+        renamed.machines.b.as_mut().unwrap().name = "Tower".into();
         assert_eq!(
             known().summary_of_changes(&renamed).as_deref(),
-            Some("Máquinas")
+            Some("Machines")
         );
     }
 
@@ -828,7 +825,7 @@ mod tests {
         assert_eq!(
             h.len(),
             HISTORY_LEN,
-            "la misma versión seguida no se repite"
+            "the same version in a row is not repeated"
         );
         assert_eq!(
             h.undo(&current, 3, Machine::B, 99),
@@ -847,9 +844,9 @@ mod tests {
         assert_eq!(h.undo(&current, 25, Machine::B, 99), Ok(None));
         let entries = h.entries();
         assert_eq!(entries[0].stamp.rev, 25);
-        assert_eq!(entries[0].summary, "Escenas");
+        assert_eq!(entries[0].summary, "Scenes");
 
-        // Dos cambios simultáneos con el mismo número: se vuelve al que perdió.
+        // Two simultaneous changes with the same number: it goes back to the one that lost.
         let mine = v(26, 1, Machine::B, known());
         let theirs = v(26, 2, Machine::A, Desk::default());
         h.record(mine.clone());
@@ -874,17 +871,17 @@ mod tests {
     fn scenes_are_created_edited_and_deleted_by_patches() {
         let mut d = known();
         d.scenes = crate::default_scenes(&d.machines, None);
-        // Sin id, sale del nombre y no choca con los que hay.
-        let mut juego = Scene::new("", "Juego");
-        juego.shortcut = vec!["ControlLeft".into(), "AltLeft".into(), "Digit4".into()];
-        d.apply(DeskPatch::AddScene(juego.clone())).unwrap();
-        d.apply(DeskPatch::AddScene(Scene::new("", "Juego")))
+        // Without an id, it comes from the name and does not clash with existing ones.
+        let mut game = Scene::new("", "Game");
+        game.shortcut = vec!["ControlLeft".into(), "AltLeft".into(), "Digit4".into()];
+        d.apply(DeskPatch::AddScene(game.clone())).unwrap();
+        d.apply(DeskPatch::AddScene(Scene::new("", "Game")))
             .unwrap();
         let ids: Vec<&str> = d.scenes.iter().map(|s| s.id.as_str()).collect();
-        assert_eq!(ids, ["trabajo", "solo-a", "solo-b", "juego", "juego-2"]);
-        // Un id que ya existe no se agrega dos veces.
+        assert_eq!(ids, ["trabajo", "solo-a", "solo-b", "game", "game-2"]);
+        // An id that already exists is not added twice.
         assert!(
-            d.apply(DeskPatch::AddScene(Scene::new("juego", "Otro")))
+            d.apply(DeskPatch::AddScene(Scene::new("game", "Other")))
                 .is_err()
         );
 
@@ -894,18 +891,18 @@ mod tests {
         d.apply(DeskPatch::EditScene(edited.clone())).unwrap();
         assert_eq!(d.scenes[3], edited);
         assert_eq!(
-            d.apply(DeskPatch::EditScene(Scene::new("nada", "Nada"))),
-            Err(PatchError::UnknownScene("nada".into()))
+            d.apply(DeskPatch::EditScene(Scene::new("nothing", "Nothing"))),
+            Err(PatchError::UnknownScene("nothing".into()))
         );
 
         d.apply(DeskPatch::DeleteScene {
-            id: "juego-2".into(),
+            id: "game-2".into(),
         })
         .unwrap();
         assert_eq!(d.scenes.len(), 4);
         assert!(
             d.apply(DeskPatch::DeleteScene {
-                id: "juego-2".into()
+                id: "game-2".into()
             })
             .is_err()
         );
@@ -915,11 +912,14 @@ mod tests {
     fn a_shortcut_does_one_thing_only() {
         let mut d = known();
         d.scenes = crate::default_scenes(&d.machines, None);
-        let mut copy = Scene::new("", "Copia");
-        // El mismo atajo que «Trabajo», en otro orden.
+        let mut copy = Scene::new("", "Copy");
+        // The same shortcut as "Work", in another order.
         copy.shortcut = vec!["Digit1".into(), "AltLeft".into(), "ControlLeft".into()];
         let e = d.apply(DeskPatch::AddScene(copy.clone())).unwrap_err();
-        assert!(e.to_string().contains("ya es de otra escena"), "{e}");
+        assert!(
+            e.to_string().contains("already belongs to another scene"),
+            "{e}"
+        );
         copy.shortcut = d.shortcuts.lock.clone();
         assert!(d.apply(DeskPatch::AddScene(copy.clone())).is_err());
         copy.shortcut.clear();
@@ -927,21 +927,21 @@ mod tests {
     }
 
     #[test]
-    fn renaming_a_machine_renames_its_solo_scene_too() {
+    fn renaming_a_machine_renames_its_only_scene_too() {
         let mut d = known();
         d.scenes = crate::default_scenes(&d.machines, None);
         let before = d.clone();
         d.apply(DeskPatch::Machine {
             side: Machine::B,
-            name: Some(" Torre ".into()),
+            name: Some(" Tower ".into()),
             color: None,
         })
         .unwrap();
-        assert_eq!(d.scenes[2].name, "Solo Torre");
-        assert_eq!(d.scenes[1].name, "Solo Mac");
+        assert_eq!(d.scenes[2].name, "Only Tower");
+        assert_eq!(d.scenes[1].name, "Only Mac");
         assert_eq!(
             before.summary_of_changes(&d).as_deref(),
-            Some("Máquinas y escenas")
+            Some("Machines and scenes")
         );
     }
 
@@ -951,7 +951,7 @@ mod tests {
         d.scenes = crate::default_scenes(&d.machines, None);
         let swapped = d.clone().swap_sides();
         assert_eq!(swapped.scenes[1].require_on, Some(Machine::B));
-        assert_eq!(swapped.scenes[1].name, "Solo Mac");
+        assert_eq!(swapped.scenes[1].name, "Only Mac");
         assert_eq!(swapped.swap_sides(), d);
     }
 }

@@ -1,16 +1,16 @@
-//! Arrastrar archivos entre máquinas (D14, T-121).
+//! Dragging files between machines (D14, T-121).
 //!
-//! El sistema operativo pone lo suyo detrás de traits, para probar el flujo en Linux:
-//! - [`DragDetector`] (origen): ¿hay un arrastre de archivos en curso? macOS lo lee de
-//!   `NSPasteboard(name: .drag)`; Windows, del `DoDragDrop` activo por hook.
-//! - [`DragStarter`] (destino): arranca un arrastre sintético con los archivos ya copiados
-//!   (macOS: `NSDraggingSession` desde una ventana invisible; Windows: `DoDragDrop` con un
-//!   `IDataObject`). Termina cuando el usuario suelta o cancela, y el sistema hace la copia.
+//! The operating system puts its part behind traits, to test the flow on Linux:
+//! - [`DragDetector`] (origin): is a file drag in progress? macOS reads it from
+//!   `NSPasteboard(name: .drag)`; Windows, from the active `DoDragDrop` via hook.
+//! - [`DragStarter`] (destination): starts a synthetic drag with the already copied files
+//!   (macOS: `NSDraggingSession` from an invisible window; Windows: `DoDragDrop` with an
+//!   `IDataObject`). It ends when the user drops or cancels, and the system does the copy.
 //!
-//! Flujo: el origen detecta el arrastre al llegar al borde ([`DragOut::detect`]) y deja
-//! cruzar; mientras el cursor viaja, [`DragOut::run`] pide una carpeta temporal al destino
-//! ([`DragPeer::begin`]), copia ahí con `tandem-files` y avisa ([`DragPeer::ready`]); el
-//! destino ([`DragIn`]) inicia el arrastre sintético. Cancelar o soltar borra lo copiado.
+//! Flow: the origin detects the drag on reaching the edge ([`DragOut::detect`]) and lets
+//! it cross; while the cursor travels, [`DragOut::run`] asks the destination for a temporary folder
+//! ([`DragPeer::begin`]), copies there with `tandem-files` and notifies ([`DragPeer::ready`]); the
+//! destination ([`DragIn`]) starts the synthetic drag. Canceling or dropping deletes what was copied.
 
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -23,44 +23,44 @@ use crate::Files;
 use crate::error::{FilesError, Result};
 use crate::path::check_segment;
 
-/// Cómo terminó el arrastre en el destino.
+/// How the drag ended on the destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DragEnd {
-    /// El usuario soltó sobre una app o carpeta: el sistema copió los archivos.
+    /// The user dropped on an app or folder: the system copied the files.
     Dropped,
-    /// Esc, o soltó fuera de un destino válido.
+    /// Esc, or dropped outside a valid target.
     Cancelled,
 }
 
-/// Origen: detecta el arrastre de archivos del sistema.
+/// Origin: detects the system's file drag.
 pub trait DragDetector {
-    /// Las rutas que se están arrastrando, o `None` si no hay un arrastre de archivos.
+    /// The paths being dragged, or `None` if there is no file drag.
     fn file_drag(&self) -> Option<Vec<PathBuf>>;
 }
 
-/// Destino: arranca el arrastre sintético con archivos que ya están en disco.
+/// Destination: starts the synthetic drag with files already on disk.
 pub trait DragStarter {
-    /// Resuelve cuando el usuario suelta o cancela; al soltar, el sistema ya terminó de
-    /// leer los archivos (así se pueden borrar de la carpeta temporal).
+    /// Resolves when the user drops or cancels; on drop, the system has already finished
+    /// reading the files (so they can be deleted from the temporary folder).
     fn start(&self, staged: Vec<PathBuf>) -> impl Future<Output = Result<DragEnd>>;
 }
 
-/// Lo que el origen pide al destino por el canal de control.
+/// What the origin asks of the destination over the control channel.
 pub trait DragPeer {
-    /// Prepara una carpeta temporal para `names`; devuelve su ruta en el destino.
+    /// Prepares a temporary folder for `names`; returns its path on the destination.
     fn begin(&self, names: Vec<String>) -> impl Future<Output = Result<String>>;
-    /// Todo está copiado: inicia el arrastre sintético y espera su final.
+    /// Everything is copied: starts the synthetic drag and waits for its end.
     fn ready(&self) -> impl Future<Output = Result<DragEnd>>;
-    /// Aborta y borra lo copiado.
+    /// Aborts and deletes what was copied.
     fn cancel(&self) -> impl Future<Output = Result<()>>;
 }
 
-/// Copia `local` a `remote` en el destino (la implementación real usa `Files::put`).
+/// Copies `local` to `remote` on the destination (the real implementation uses `Files::put`).
 pub trait Upload {
     fn upload(&self, local: &Path, remote: &str) -> impl Future<Output = Result<()>>;
 }
 
-/// [`Upload`] por un túnel abierto, con `Files::put` (reanudable y con progreso).
+/// [`Upload`] over an open tunnel, with `Files::put` (resumable and with progress).
 pub struct TunnelUpload<'a> {
     pub files: &'a Files,
     pub origin: &'a Origin,
@@ -76,7 +76,7 @@ impl Upload for TunnelUpload<'_> {
     }
 }
 
-/// Avance del aviso en la UI.
+/// Progress of the UI notice.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DragProgress {
     pub name: String,
@@ -84,7 +84,7 @@ pub struct DragProgress {
     pub total: usize,
 }
 
-/// Lado origen del arrastre.
+/// Origin side of the drag.
 pub struct DragOut<D, U, P> {
     pub detector: D,
     pub uploader: U,
@@ -92,14 +92,14 @@ pub struct DragOut<D, U, P> {
 }
 
 impl<D: DragDetector, U: Upload, P: DragPeer> DragOut<D, U, P> {
-    /// Al llegar al borde: los archivos arrastrados, si los hay. Con `Some` el cruce se
-    /// permite con el botón presionado aunque «Arrastrar entre máquinas» esté apagado.
+    /// On reaching the edge: the dragged files, if any. With `Some` the crossing is
+    /// allowed with the button pressed even if "Drag between machines" is off.
     pub fn detect(&self) -> Option<Vec<PathBuf>> {
         self.detector.file_drag().filter(|f| !f.is_empty())
     }
 
-    /// Copia `files` al destino y espera el final del arrastre allí. Si `cancelled`
-    /// resuelve antes de terminar la copia, o algo falla, el destino borra lo copiado.
+    /// Copies `files` to the destination and waits for the drag to end there. If `cancelled`
+    /// resolves before the copy finishes, or something fails, the destination deletes what was copied.
     pub async fn run(
         &self,
         files: &[PathBuf],
@@ -137,7 +137,7 @@ impl<D: DragDetector, U: Upload, P: DragPeer> DragOut<D, U, P> {
                 Ok(DragEnd::Cancelled)
             }
             Err(e) => {
-                // El error original importa más que uno al limpiar.
+                // The original error matters more than one while cleaning up.
                 let _ = self.peer.cancel().await;
                 Err(e)
             }
@@ -145,18 +145,18 @@ impl<D: DragDetector, U: Upload, P: DragPeer> DragOut<D, U, P> {
     }
 }
 
-/// Los nombres de nivel superior; el destino no los puede interpretar como rutas.
+/// The top-level names; the destination cannot interpret them as paths.
 fn names_of(files: &[PathBuf]) -> Result<Vec<String>> {
     let mut names: Vec<String> = Vec::with_capacity(files.len());
     for f in files {
         let name = f
             .file_name()
             .and_then(|n| n.to_str())
-            .ok_or_else(|| FilesError::path(&f.to_string_lossy(), "sin nombre"))?
+            .ok_or_else(|| FilesError::path(&f.to_string_lossy(), "no name"))?
             .to_owned();
         check_name(&name)?;
         if names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
-            return Err(FilesError::path(&name, "nombre repetido"));
+            return Err(FilesError::path(&name, "repeated name"));
         }
         names.push(name);
     }
@@ -171,11 +171,11 @@ fn check_name(name: &str) -> Result<()> {
 enum State {
     Idle,
     Staging(PathBuf, Vec<String>),
-    /// Se canceló antes de que llegara `ready`.
+    /// Canceled before `ready` arrived.
     Cancelled,
 }
 
-/// Lado destino: carpeta temporal y arrastre sintético.
+/// Destination side: temporary folder and synthetic drag.
 pub struct DragIn<S> {
     starter: S,
     base: PathBuf,
@@ -183,7 +183,7 @@ pub struct DragIn<S> {
 }
 
 impl<S: DragStarter> DragIn<S> {
-    /// `base`: carpeta temporal del agente donde se dejan las copias.
+    /// `base`: the agent's temporary folder where the copies are left.
     pub fn new(starter: S, base: PathBuf) -> Self {
         DragIn {
             starter,
@@ -196,7 +196,7 @@ impl<S: DragStarter> DragIn<S> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Crea la carpeta de un arrastre nuevo (borra la de uno anterior sin terminar).
+    /// Creates the folder of a new drag (deletes that of an unfinished previous one).
     pub fn begin(&self, names: &[String]) -> Result<PathBuf> {
         for n in names {
             check_name(n)?;
@@ -213,7 +213,7 @@ impl<S: DragStarter> DragIn<S> {
         Ok(dir)
     }
 
-    /// Inicia el arrastre sintético con lo copiado y limpia al terminar.
+    /// Starts the synthetic drag with what was copied and cleans up at the end.
     pub async fn ready(&self) -> Result<DragEnd> {
         let taken = std::mem::replace(&mut *self.state(), State::Idle);
         let (dir, names) = match taken {
@@ -223,14 +223,17 @@ impl<S: DragStarter> DragIn<S> {
         };
         let staged: Vec<PathBuf> = names.iter().map(|n| dir.join(n)).collect();
         let end = match staged.iter().find(|p| !p.exists()) {
-            Some(missing) => Err(FilesError::path(&missing.to_string_lossy(), "no llegó")),
+            Some(missing) => Err(FilesError::path(
+                &missing.to_string_lossy(),
+                "did not arrive",
+            )),
             None => self.starter.start(staged).await,
         };
         let _ = std::fs::remove_dir_all(&dir);
         end
     }
 
-    /// Cancelación desde el origen: borra lo copiado.
+    /// Cancellation from the origin: deletes what was copied.
     pub fn cancel(&self) {
         let taken = std::mem::replace(&mut *self.state(), State::Cancelled);
         if let State::Staging(dir, _) = taken {
@@ -257,7 +260,7 @@ mod tests {
 
     type Seen = Rc<RefCell<Vec<(PathBuf, bool)>>>;
 
-    /// Doble del sistema destino: registra qué recibió y termina como se le diga.
+    /// Double of the destination system: records what it received and ends as told.
     struct Starter {
         end: Option<DragEnd>,
         seen: Seen,
@@ -295,7 +298,7 @@ mod tests {
         }
     }
 
-    /// El canal de control en el mismo proceso.
+    /// The control channel in the same process.
     struct Direct<'a, S>(&'a DragIn<S>);
     impl<S: DragStarter> DragPeer for Direct<'_, S> {
         async fn begin(&self, names: Vec<String>) -> Result<String> {
@@ -314,7 +317,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let a = tmp.path().join("a.txt");
         let b = tmp.path().join("b.bin");
-        fs::write(&a, b"hola").unwrap();
+        fs::write(&a, b"hello").unwrap();
         fs::write(&b, [1, 2, 3]).unwrap();
         let seen: Seen = Rc::default();
         let base = tmp.path().join("staging");
@@ -343,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn sin_arrastre_de_archivos_no_se_cruza() {
+    fn without_a_file_drag_there_is_no_crossing() {
         let (_t, _f, din, _s) = fixture(Some(DragEnd::Dropped));
         assert_eq!(out(&din, CopyUpload, None).detect(), None);
         assert_eq!(out(&din, CopyUpload, Some(vec![])).detect(), None);
@@ -352,7 +355,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn soltar_arranca_el_arrastre_con_lo_copiado_y_limpia() {
+    async fn drop_starts_the_drag_with_what_was_copied_and_cleans_up() {
         let (tmp, files, din, seen) = fixture(Some(DragEnd::Dropped));
         let steps = AtomicUsize::new(0);
         let end = out(&din, CopyUpload, None)
@@ -372,7 +375,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancelar_en_el_destino_borra_lo_copiado() {
+    async fn cancel_on_the_destination_deletes_what_was_copied() {
         let (tmp, files, din, _s) = fixture(Some(DragEnd::Cancelled));
         let end = out(&din, CopyUpload, None)
             .run(&files, std::future::pending(), &|_| {})
@@ -383,7 +386,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancelar_durante_la_copia_borra_y_no_arranca_el_arrastre() {
+    async fn cancel_during_the_copy_deletes_and_does_not_start_the_drag() {
         let (tmp, files, din, seen) = fixture(Some(DragEnd::Dropped));
         let end = out(&din, Hanging, None)
             .run(&files, std::future::ready(()), &|_| {})
@@ -392,12 +395,12 @@ mod tests {
         assert_eq!(end, DragEnd::Cancelled);
         assert!(seen.borrow().is_empty());
         assert!(staging_empty(&tmp));
-        // Un `ready` tardío tampoco arranca nada.
+        // A late `ready` does not start anything either.
         assert_eq!(din.ready().await.unwrap(), DragEnd::Cancelled);
     }
 
     #[tokio::test]
-    async fn si_la_copia_falla_se_borra_y_se_devuelve_el_error() {
+    async fn if_the_copy_fails_it_is_deleted_and_the_error_is_returned() {
         let (tmp, files, din, seen) = fixture(Some(DragEnd::Dropped));
         let r = out(&din, Failing, None)
             .run(&files, std::future::pending(), &|_| {})
@@ -408,7 +411,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn si_el_sistema_falla_igual_se_limpia() {
+    async fn if_the_system_fails_it_is_still_cleaned_up() {
         let (tmp, files, din, _s) = fixture(None);
         let r = out(&din, CopyUpload, None)
             .run(&files, std::future::pending(), &|_| {})
@@ -418,7 +421,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rechaza_nombres_peligrosos_o_repetidos() {
+    async fn rejects_dangerous_or_repeated_names() {
         let (tmp, _f, din, _s) = fixture(Some(DragEnd::Dropped));
         assert!(din.begin(&["..".into()]).is_err());
         assert!(din.begin(&["a/b".into()]).is_err());
@@ -432,13 +435,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ready_sin_begin_es_un_error() {
+    async fn ready_without_begin_is_an_error() {
         let (_t, _f, din, _s) = fixture(Some(DragEnd::Dropped));
         assert!(din.ready().await.is_err());
     }
 
     #[test]
-    fn un_begin_nuevo_borra_el_anterior() {
+    fn a_new_begin_deletes_the_previous_one() {
         let (tmp, _f, din, _s) = fixture(Some(DragEnd::Dropped));
         din.begin(&["a".into()]).unwrap();
         din.begin(&["b".into()]).unwrap();

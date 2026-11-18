@@ -1,12 +1,12 @@
-//! Identificador USB: fabricante (VID) y producto (PID).
+//! USB identifier: vendor (VID) and product (PID).
 
 use std::fmt;
 use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-/// VID/PID de un dispositivo USB. En la config se escribe como `"046d:c52b"`, el
-/// mismo formato que `lsusb` y el Informe del sistema de macOS (en hexadecimal).
+/// VID/PID of a USB device. In the config it is written as `"046d:c52b"`, the
+/// same format as `lsusb` and the macOS System Report (in hexadecimal).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct UsbId {
     pub vendor: u16,
@@ -18,10 +18,10 @@ impl UsbId {
         UsbId { vendor, product }
     }
 
-    /// Saca el VID/PID de un identificador de instancia de Windows, como
-    /// `USB\VID_046D&PID_C52B&MI_00\7&1A2B3C&0&0000` o el nombre de un dispositivo
-    /// de Raw Input (`\\?\HID#VID_046D&PID_C52B#...`). Los que no lo traen
-    /// (concentradores raíz, por ejemplo) dan `None`.
+    /// Extracts the VID/PID from a Windows instance ID, such as
+    /// `USB\VID_046D&PID_C52B&MI_00\7&1A2B3C&0&0000` or the name of a Raw Input
+    /// device (`\\?\HID#VID_046D&PID_C52B#...`). Those that do not carry it
+    /// (root hubs, for example) give `None`.
     pub fn from_windows_instance_id(id: &str) -> Option<Self> {
         let upper = id.to_ascii_uppercase();
         let vendor = hex_after(&upper, "VID_")?;
@@ -30,7 +30,7 @@ impl UsbId {
     }
 }
 
-/// Los cuatro dígitos hexadecimales que siguen a `tag`.
+/// The four hexadecimal digits that follow `tag`.
 fn hex_after(s: &str, tag: &str) -> Option<u16> {
     let start = s.find(tag)? + tag.len();
     let digits = s.get(start..start + 4)?;
@@ -47,7 +47,7 @@ impl fmt::Display for UsbId {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("identificador USB inválido «{0}»: se espera VID:PID en hexadecimal, como 046d:c52b")]
+#[error("invalid USB identifier \"{0}\": expected VID:PID in hexadecimal, like 046d:c52b")]
 pub struct ParseUsbIdError(String);
 
 impl FromStr for UsbId {
@@ -146,7 +146,7 @@ mod tests {
         }
         let t: T = toml::from_str(r#"id = "046d:c52b""#).unwrap();
         assert_eq!(t.id, UsbId::new(0x046d, 0xc52b));
-        assert!(toml::from_str::<T>(r#"id = "teclado""#).is_err());
+        assert!(toml::from_str::<T>(r#"id = "keyboard""#).is_err());
     }
 
     proptest! {

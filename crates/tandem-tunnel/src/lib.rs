@@ -1,26 +1,26 @@
-//! Túneles: Claude (o una persona) usa la otra máquina (DESIGN §8, DECISIONS D8, D9, A7).
+//! Tunnels: Claude (or a person) uses the other machine (DESIGN §8, DECISIONS D8, D9, A7).
 //!
-//! Un túnel lo abre un cliente local por la IPC en la máquina **origen** y vive en la
-//! **destino**, con sus flujos de salida y sus recursos. Portable: aquí no hay código de
-//! plataforma salvo el lanzador real de procesos (T-104, [`process::system`], detrás del
-//! trait [`process::Spawner`]); los archivos y puertos (T-106) y workspaces de git (T-107)
-//! se cuelgan de un [`HostTunnel`] como [`FlowWriter`] y [`Resource`].
+//! A tunnel is opened by a local client over the IPC on the **origin** machine and lives on the
+//! **destination**, with its output flows and its resources. Portable: there is no platform
+//! code here except the real process launcher (T-104, [`process::system`], behind the
+//! trait [`process::Spawner`]); files and ports (T-106) and git workspaces (T-107)
+//! hang off a [`HostTunnel`] as [`FlowWriter`] and [`Resource`].
 //!
-//! - [`host`]: la destino. [`Host`] registra los túneles; [`serve`] atiende cada stream que
-//!   abre el origen (un pedido, o el canal de datos de un túnel).
-//! - [`origin`]: el origen. [`Origin`] abre, cierra y lista, y sigue la salida de cada
-//!   túnel por el enlace activo, reanudando «desde el byte N» tras un corte.
-//! - [`process`]: procesos dentro de un túnel (`exec`, `output`, `kill`).
-//! - [`buffer`]: el búfer circular con posición absoluta por byte que usan los dos.
-//! - [`wire`]: los traits del transporte (QUIC en `tandemd`, memoria en [`mem`]).
+//! - [`host`]: the destination. [`Host`] registers the tunnels; [`serve`] serves each stream that
+//!   the origin opens (a request, or a tunnel's data channel).
+//! - [`origin`]: the origin. [`Origin`] opens, closes and lists, and follows each
+//!   tunnel's output over the active link, resuming "from byte N" after a cut.
+//! - [`process`]: processes inside a tunnel (`exec`, `output`, `kill`).
+//! - [`buffer`]: the circular buffer with absolute per-byte position that both use.
+//! - [`wire`]: the transport traits (QUIC in `tandemd`, memory in [`mem`]).
 //!
-//! **Sobrevivir al enlace:** los túneles no dependen de ningún stream. Si el enlace se cae,
-//! lo de la destino sigue corriendo y su salida se guarda (hasta [`DEFAULT_CAPACITY`] por
-//! flujo; si se llena, se descarta lo más viejo y el origen recibe el aviso
-//! [`tandem_proto::TunnelDown::Lost`]). Al volver, por el mismo camino o por otro, el
-//! origen retoma desde el último byte que tiene.
+//! **Surviving the link:** tunnels do not depend on any stream. If the link drops,
+//! what is on the destination keeps running and its output is stored (up to [`DEFAULT_CAPACITY`] per
+//! flow; if it fills up, the oldest is discarded and the origin receives the notice
+//! [`tandem_proto::TunnelDown::Lost`]). On return, by the same path or another, the
+//! origin resumes from the last byte it has.
 //!
-//! **Privilegios (A7):** lo que corre en un túnel tiene los del agente destino.
+//! **Privileges (A7):** what runs in a tunnel has those of the destination agent.
 
 pub mod buffer;
 pub mod host;
@@ -45,8 +45,8 @@ pub use origin::{FlowStatus, Link, OpenSpec, Origin, OriginOptions, TunnelError}
 pub use process::{ExecError, Spawner};
 pub use wire::{BoxFuture, Dialer, OriginWire, TargetWire, WireError};
 
-/// Avisa que cambió algún túnel (abrir, cerrar). Se clona barato; todos los clones son el
-/// mismo aviso.
+/// Notifies that some tunnel changed (open, close). Cheap to clone; all clones are the
+/// same notice.
 #[derive(Clone)]
 pub struct Changes(Arc<watch::Sender<u64>>);
 
@@ -66,7 +66,7 @@ impl Changes {
     }
 }
 
-/// Los túneles de un agente: los que hospeda (destino) y los que abrió (origen).
+/// An agent's tunnels: those it hosts (destination) and those it opened (origin).
 #[derive(Clone)]
 pub struct Tunnels {
     pub host: Host,
@@ -96,8 +96,8 @@ impl Tunnels {
         }
     }
 
-    /// Los túneles abiertos de las dos máquinas tal como los ve este agente (los que abrió
-    /// y los que hospeda), agrupados por proyecto: lo que muestra la UI.
+    /// The open tunnels of both machines as this agent sees them (those it opened
+    /// and those it hosts), grouped by project: what the UI shows.
     pub fn view(&self) -> Vec<ProjectTunnels> {
         let mut all: Vec<TunnelView> = self.origin.views();
         for t in self.host.views() {
@@ -109,16 +109,16 @@ impl Tunnels {
         group_by_project(all)
     }
 
-    /// Los procesos de un túnel de cualquiera de las dos máquinas, también los que
-    /// terminaron hace poco. `None` si no se conoce el túnel.
+    /// The processes of a tunnel of either machine, also those that
+    /// ended recently. `None` if the tunnel is not known.
     pub fn processes(&self, tunnel: TunnelId) -> Option<Vec<TunnelProcess>> {
         self.origin
             .processes(tunnel)
             .or_else(|| self.host.get(tunnel).map(|t| t.processes()))
     }
 
-    /// La salida de un proceso desde `from`: del espejo si el túnel lo abrió esta máquina, y
-    /// si no, de sus propios flujos.
+    /// The output of a process from `from`: from the mirror if this machine opened the tunnel, and
+    /// otherwise from its own flows.
     pub fn output(
         &self,
         tunnel: TunnelId,
@@ -135,7 +135,7 @@ impl Tunnels {
             .map_err(|_| TunnelError::UnknownProcess(tunnel, process))
     }
 
-    /// Sube con cada túnel que se abre o se cierra, aquí o en la otra máquina.
+    /// Rises with each tunnel that opens or closes, here or on the other machine.
     pub fn subscribe(&self) -> watch::Receiver<u64> {
         self.changes.subscribe()
     }

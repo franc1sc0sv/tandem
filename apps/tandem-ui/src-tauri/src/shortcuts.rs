@@ -1,11 +1,11 @@
-//! Atajos de teclado globales: cuáles hay, cómo se escriben y dónde se guardan.
+//! Global keyboard shortcuts: which exist, how they are written and where they are stored.
 //!
-//! Se escriben como el acelerador de Tauri con los nombres físicos de las teclas
-//! (`KeyboardEvent.code`): `Ctrl+Alt+Digit1`. Por código físico porque en macOS ⌥ cambia el
-//! carácter de la tecla y en la distribución ES/LatAm varios símbolos se mueven.
+//! They are written as the Tauri accelerator with the physical key names
+//! (`KeyboardEvent.code`): `Ctrl+Alt+Digit1`. By physical code because on macOS ⌥ changes the
+//! key's character and on the ES/LatAm layout several symbols move.
 //!
-//! Se guardan en `ui.toml`, junto a la configuración del agente. Un archivo dañado no deja
-//! a la app sin atajos: se usan los de siempre y la ventana dice por qué.
+//! They are stored in `ui.toml`, next to the agent's configuration. A damaged file does not leave
+//! the app without shortcuts: the usual ones are used and the window says why.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -15,19 +15,19 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-/// Nombre del archivo de preferencias de la UI, en el directorio de configuración.
+/// Name of the UI preferences file, in the configuration directory.
 pub const UI_FILE: &str = "ui.toml";
 
-/// Lo que puede disparar un atajo.
+/// What a shortcut can trigger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ShortcutAction {
-    /// Mostrar u ocultar la ventana principal. Los atajos de los modos de monitores se
-    /// fueron con ellos (DESIGN §8); un `ui.toml` que todavía los tiene se lee igual.
+    /// Show or hide the main window. The shortcuts of the monitor modes
+    /// went away with them (DESIGN §8); a `ui.toml` that still has them is read all the same.
     ToggleWindow,
 }
 
-/// Los atajos de los modos de v0.1: se ignoran al leer `ui.toml`.
+/// The shortcuts of the v0.1 modes: ignored when reading `ui.toml`.
 const RETIRED: [&str; 3] = ["solo_mac", "shared", "solo_pc"];
 
 impl ShortcutAction {
@@ -40,8 +40,8 @@ impl ShortcutAction {
     }
 }
 
-/// Teclas que se aceptan como tecla principal. Todas las entiende el registro de atajos de
-/// Tauri (`global-hotkey`) en los tres sistemas.
+/// Keys accepted as the main key. All of them are understood by Tauri's shortcut
+/// registry (`global-hotkey`) on the three systems.
 const KEYS: &[&str] = &[
     "Backquote",
     "Minus",
@@ -75,7 +75,7 @@ fn is_key(code: &str) -> bool {
     let numbered = |prefix: &str, max: u32| {
         code.strip_prefix(prefix)
             .and_then(|n| {
-                // Sin ceros a la izquierda ni signos: una sola forma por tecla.
+                // No leading zeros or signs: a single form per key.
                 (!n.starts_with('0') || n == "0")
                     .then(|| n.parse::<u32>().ok())
                     .flatten()
@@ -92,28 +92,28 @@ fn is_key(code: &str) -> bool {
         || (numbered("F", 24) && code != "F0")
 }
 
-/// Una combinación de teclas en forma canónica: `Ctrl+Alt+Shift+Super+<tecla>`.
+/// A key combination in canonical form: `Ctrl+Alt+Shift+Super+<key>`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Accel {
     pub ctrl: bool,
     pub alt: bool,
     pub shift: bool,
-    /// ⌘ en macOS, la tecla Windows en Windows.
+    /// ⌘ on macOS, the Windows key on Windows.
     pub sup: bool,
     pub key: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum AccelError {
-    #[error("atajo vacío")]
+    #[error("empty shortcut")]
     Empty,
-    #[error("«{0}» no es una tecla que Tandem sepa registrar")]
+    #[error("\"{0}\" is not a key Tandem knows how to register")]
     UnknownKey(String),
-    #[error("«{0}» repite un modificador")]
+    #[error("\"{0}\" repeats a modifier")]
     RepeatedModifier(String),
-    #[error("«{0}» lleva más de una tecla principal o la pone antes de los modificadores")]
+    #[error("\"{0}\" has more than one main key or puts it before the modifiers")]
     Shape(String),
-    #[error("«{0}» necesita Ctrl, Alt o {sup}: solo con Mayúsculas se comería lo que escribes", sup = SUPER_NAME)]
+    #[error("\"{0}\" needs Ctrl, Alt or {sup}: with Shift alone it would swallow what you type", sup = SUPER_NAME)]
     NeedsModifier(String),
 }
 
@@ -185,24 +185,24 @@ impl fmt::Display for Accel {
     }
 }
 
-/// Qué atajo tiene cada acción (`None`: sin atajo).
+/// Which shortcut each action has (`None`: no shortcut).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Shortcuts(BTreeMap<ShortcutAction, Option<Accel>>);
 
-/// Cómo viajan los atajos entre la ventana y el núcleo, y cómo se guardan: acción →
-/// combinación canónica, o `null` / cadena vacía si no tiene.
+/// How shortcuts travel between the window and the core, and how they are stored: action →
+/// canonical combination, or `null` / empty string if it has none.
 pub type Bindings = BTreeMap<ShortcutAction, Option<String>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BindingsError {
     #[error("{}: {}", .0.label(), .1)]
     Invalid(ShortcutAction, AccelError),
-    #[error("{} y {} usan el mismo atajo ({})", .0.label(), .1.label(), .2)]
+    #[error("{} and {} use the same shortcut ({})", .0.label(), .1.label(), .2)]
     Duplicate(ShortcutAction, ShortcutAction, String),
 }
 
 impl Default for Shortcuts {
-    /// ⌃⌥0 para la ventana.
+    /// ⌃⌥0 for the window.
     fn default() -> Self {
         let accel = |key: &str| {
             Some(Accel {
@@ -221,8 +221,8 @@ impl Default for Shortcuts {
 }
 
 impl Shortcuts {
-    /// Lee lo que manda la ventana o el archivo. Las acciones que no aparecen conservan su
-    /// atajo de siempre; para quitar uno hay que mandarlo vacío.
+    /// Reads what the window or the file sends. Actions that do not appear keep their
+    /// usual shortcut; to remove one it has to be sent empty.
     pub fn from_bindings(b: &Bindings) -> Result<Self, BindingsError> {
         let mut out = Shortcuts::default();
         for (&action, accel) in b {
@@ -255,7 +255,7 @@ impl Shortcuts {
         self.0.get(&action).and_then(Option::as_ref)
     }
 
-    /// Las acciones con atajo, en orden.
+    /// The actions with a shortcut, in order.
     pub fn active(&self) -> impl Iterator<Item = (ShortcutAction, &Accel)> {
         self.0
             .iter()
@@ -263,7 +263,7 @@ impl Shortcuts {
     }
 }
 
-// `BTreeMap<&Accel, _>` para detectar duplicados con orden estable en el mensaje.
+// `BTreeMap<&Accel, _>` to detect duplicates with a stable order in the message.
 impl PartialOrd for Accel {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
@@ -282,21 +282,21 @@ impl Ord for Accel {
     }
 }
 
-/// Forma de `ui.toml`. Solo la sección de atajos por ahora; las demás claves se ignoran.
+/// Shape of `ui.toml`. Only the shortcuts section for now; the other keys are ignored.
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct UiFile {
     #[serde(default)]
     shortcuts: BTreeMap<ShortcutAction, String>,
 }
 
-/// Lo que se leyó del archivo, y por qué no se pudo usar si no se pudo.
+/// What was read from the file, and why it could not be used if it could not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Loaded {
     pub shortcuts: Shortcuts,
     pub warning: Option<String>,
 }
 
-/// `ui.toml` en el mismo directorio que la configuración del agente.
+/// `ui.toml` in the same directory as the agent's configuration.
 pub fn ui_file_for(agent_config: &Path) -> PathBuf {
     agent_config
         .parent()
@@ -343,13 +343,13 @@ fn fallback(path: &Path, why: &str) -> Loaded {
     Loaded {
         shortcuts: Shortcuts::default(),
         warning: Some(format!(
-            "no se pudo leer {}: {why}; se usan los atajos de siempre",
+            "could not read {}: {why}; the usual shortcuts are used",
             path.display()
         )),
     }
 }
 
-/// Guarda los atajos. Un atajo quitado se guarda vacío para que no vuelva el de siempre.
+/// Saves the shortcuts. A removed shortcut is saved empty so the usual one does not come back.
 pub fn save(path: &Path, shortcuts: &Shortcuts) -> io::Result<()> {
     let file = UiFile {
         shortcuts: shortcuts
@@ -362,20 +362,20 @@ pub fn save(path: &Path, shortcuts: &Shortcuts) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    // Escribir aparte y renombrar: un corte a medias no deja el archivo vacío.
+    // Write separately and rename: a half-done cut does not leave the file empty.
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, path)
 }
 
-/// Lo que la ventana muestra de los atajos.
+/// What the window shows of the shortcuts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ShortcutsView {
     pub bindings: Bindings,
-    /// Los que el sistema no dejó registrar (otra app los usa, Wayland...), con la razón.
-    /// La ventana los atiende ella misma mientras tenga el foco.
+    /// Those the system did not let register (another app uses them, Wayland...), with the reason.
+    /// The window handles them itself while it has focus.
     pub failed: BTreeMap<ShortcutAction, String>,
-    /// Aviso al leer el archivo, si lo hubo.
+    /// Notice when reading the file, if there was one.
     pub warning: Option<String>,
     pub file: Option<String>,
 }
@@ -393,7 +393,7 @@ mod tests {
     #[test]
     fn canonical_form() {
         assert_eq!(accel("Ctrl+Alt+Digit1").to_string(), "Ctrl+Alt+Digit1");
-        // Los modificadores en cualquier orden y con otros nombres.
+        // Modifiers in any order and with other names.
         assert_eq!(accel("alt + control+Digit1").to_string(), "Ctrl+Alt+Digit1");
         assert_eq!(accel("Cmd+Shift+KeyK").to_string(), "Shift+Super+KeyK");
         assert_eq!(accel("Option+F12").to_string(), "Alt+F12");
@@ -486,7 +486,7 @@ mod tests {
         assert_eq!(from[&ShortcutAction::ToggleWindow], None);
     }
 
-    /// Un `ui.toml` de v0.1, con los atajos de los modos, se lee sin avisos.
+    /// A v0.1 `ui.toml`, with the modes' shortcuts, is read without notices.
     #[test]
     fn the_old_mode_shortcuts_are_ignored() {
         let dir = tempfile::tempdir().unwrap();
@@ -524,7 +524,7 @@ mod tests {
         let l = load(&path);
         assert_eq!(l.warning, None);
         assert_eq!(l.shortcuts, s);
-        // Quitado sigue quitado: no vuelve el de siempre.
+        // Removed stays removed: the usual one does not come back.
         assert_eq!(l.shortcuts.get(ShortcutAction::ToggleWindow), None);
         assert!(!path.with_extension("toml.tmp").exists());
     }
@@ -535,7 +535,7 @@ mod tests {
         let path = dir.path().join("ui.toml");
         std::fs::write(
             &path,
-            "otra = 1\n[shortcuts]\ntoggle_window = \"Alt+Ctrl+KeyW\"\n",
+            "other = 1\n[shortcuts]\ntoggle_window = \"Alt+Ctrl+KeyW\"\n",
         )
         .unwrap();
         let l = load(&path);
@@ -561,7 +561,7 @@ mod tests {
             let l = load(&path);
             assert_eq!(l.shortcuts, Shortcuts::default(), "{bad}");
             let w = l.warning.unwrap();
-            assert!(w.contains("ui.toml") && w.contains("de siempre"), "{w}");
+            assert!(w.contains("ui.toml") && w.contains("the usual"), "{w}");
         }
     }
 
@@ -581,7 +581,7 @@ mod tests {
             proptest::sample::select(KEYS).prop_map(str::to_owned),
         ];
         (any::<[bool; 4]>(), keys)
-            .prop_filter("hace falta Ctrl, Alt o Super", |(m, _)| {
+            .prop_filter("Ctrl, Alt or Super is needed", |(m, _)| {
                 m[0] || m[1] || m[3]
             })
             .prop_map(|(m, key)| Accel {
@@ -594,7 +594,7 @@ mod tests {
     }
 
     proptest! {
-        /// La forma canónica se vuelve a leer igual, y en cualquier orden de modificadores.
+        /// The canonical form is read back the same, and in any modifier order.
         #[test]
         fn canonical_round_trip(a in any_accel(), rev in any::<bool>()) {
             let text = a.to_string();
@@ -608,7 +608,7 @@ mod tests {
             }
         }
 
-        /// Lo que entra por la ventana nunca hace caer al lector: o se acepta o se explica.
+        /// What comes in through the window never makes the reader fall over: it is accepted or explained.
         #[test]
         fn parsing_never_panics(s in "\\PC{0,24}") {
             let _ = s.parse::<Accel>();

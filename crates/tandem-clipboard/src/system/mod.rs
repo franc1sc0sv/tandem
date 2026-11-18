@@ -1,5 +1,5 @@
-//! Portapapeles real: lectura y escritura con `arboard`, y el contador de cambios
-//! de cada sistema.
+//! Real clipboard: reading and writing with `arboard`, and each system's
+//! change counter.
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -24,7 +24,7 @@ use windows::Counter;
 pub enum ClipboardError {
     #[error("portapapeles: {0}")]
     Arboard(#[from] arboard::Error),
-    #[error("imagen de {width}x{height} con {len} bytes")]
+    #[error("image of {width}x{height} with {len} bytes")]
     BadImage {
         width: usize,
         height: usize,
@@ -32,10 +32,10 @@ pub enum ClipboardError {
     },
 }
 
-/// El portapapeles de esta máquina.
+/// This machine's clipboard.
 ///
-/// En Windows el portapapeles es del escritorio de la sesión del usuario: el
-/// servicio SYSTEM no lo ve, así que esto corre en el helper del escritorio
+/// On Windows the clipboard belongs to the user's session desktop: the
+/// SYSTEM service does not see it, so this runs in the desktop helper
 /// (DESIGN §7).
 pub struct SystemClipboard {
     inner: arboard::Clipboard,
@@ -51,8 +51,8 @@ impl SystemClipboard {
     }
 }
 
-/// Un formato que falta no es un error: el portapapeles puede tener solo
-/// algunos. Que esté ocupado por otra app sí (se reintenta en el próximo cambio).
+/// A missing format is not an error: the clipboard may have only
+/// some. Being busy with another app is (it is retried on the next change).
 fn optional<T>(r: Result<T, arboard::Error>) -> Result<Option<T>, ClipboardError> {
     match r {
         Ok(v) => Ok(Some(v)),
@@ -96,9 +96,9 @@ fn to_image(img: ImageData<'_>) -> Result<Image, ClipboardError> {
     }
 }
 
-/// `arboard` reemplaza todo el portapapeles en cada escritura, así que no se
-/// pueden poner texto e imagen juntos: el texto (con su HTML) tiene prioridad,
-/// porque una copia con los dos suele ser de un documento.
+/// `arboard` replaces the whole clipboard on each write, so text and
+/// image cannot be set together: text (with its HTML) takes priority,
+/// because a copy with both is usually from a document.
 pub(crate) fn write_arboard(
     cb: &mut arboard::Clipboard,
     content: &ClipContent,
@@ -147,15 +147,15 @@ impl Clipboard for SystemClipboard {
 mod tests {
     use super::*;
 
-    /// Toca el portapapeles real de la máquina: solo a mano.
+    /// Touches the machine's real clipboard: by hand only.
     #[test]
     #[ignore = "hardware"]
-    fn ida_y_vuelta_con_el_portapapeles_real() {
+    fn round_trip_with_the_real_clipboard() {
         let mut cb = SystemClipboard::new().unwrap();
         let before = cb.change_count().unwrap();
         let text = ClipContent {
-            text: Some("tandem ñ".into()),
-            html: Some("<b>tandem ñ</b>".into()),
+            text: Some("tandem \u{fc}".into()),
+            html: Some("<b>tandem \u{fc}</b>".into()),
             image: None,
         };
         cb.write(&text).unwrap();
@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn imagen_de_arboard_con_bytes_que_no_cuadran_es_error() {
+    fn arboard_image_with_mismatched_bytes_is_an_error() {
         let img = ImageData {
             width: 2,
             height: 2,

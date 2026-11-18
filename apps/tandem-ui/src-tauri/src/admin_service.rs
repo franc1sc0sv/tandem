@@ -1,31 +1,31 @@
-//! El servicio de administrador que el asistente instala (T-131, `F-Asis1`).
+//! The administrator service that the setup installs (T-131, `F-Setup1`).
 //!
-//! - macOS: un LaunchDaemon (`/Library/LaunchDaemons`) con el `tandemd` del `.app`. Escribir
-//!   ahí pide credenciales: se piden con el diálogo del sistema (`osascript ... with
-//!   administrator privileges`). El daemon usa su propio directorio de estado, para no
-//!   pelear con el agente de la sesión.
-//! - Windows: la tarea elevada de T-104 (`tandemd --install` con UAC). Antes de pedir UAC se
-//!   hacen las mismas comprobaciones de ACL que T-104: elevar un ejecutable que escribe un
-//!   usuario normal sería regalar un salto de UAC. El `--install` elevado las repite.
+//! - macOS: a LaunchDaemon (`/Library/LaunchDaemons`) with the `.app`'s `tandemd`. Writing
+//!   there asks for credentials: they are requested with the system dialog (`osascript ... with
+//!   administrator privileges`). The daemon uses its own state directory, so as not to
+//!   fight with the session agent.
+//! - Windows: the elevated task of T-104 (`tandemd --install` with UAC). Before asking for UAC the
+//!   same ACL checks as T-104 are made: elevating an executable that a
+//!   normal user writes would be handing out a UAC jump. The elevated `--install` repeats them.
 //!
-//! Todo lo que decide es portable. Lo que eleva privilegios va detrás de [`Elevator`] y el
-//! estado detrás de [`Probe`]; las pruebas usan dobles y nunca elevan.
+//! Everything it decides is portable. What elevates privileges goes behind [`Elevator`] and the
+//! state behind [`Probe`]; the tests use doubles and never elevate.
 
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tandemd::install::PathAcl;
 
-/// Etiqueta del LaunchDaemon (distinta de la del LaunchAgent de la sesión).
+/// Label of the LaunchDaemon (different from the session LaunchAgent's).
 pub const DAEMON_LABEL: &str = "com.franc1sc0sv.tandem.admin";
 pub const DAEMON_PLIST: &str = "/Library/LaunchDaemons/com.franc1sc0sv.tandem.admin.plist";
-/// Carpeta de root donde vive la copia que corre como root: el `tandemd` del `.app` lo puede
-/// reemplazar quien escriba en la app, y eso sería root para ese usuario.
+/// Root folder where the copy that runs as root lives: the `.app`'s `tandemd` can be
+/// replaced by whoever writes to the app, and that would be root for that user.
 pub const DAEMON_BIN_DIR: &str = "/Library/PrivilegedHelperTools";
 pub const DAEMON_BIN: &str = "/Library/PrivilegedHelperTools/com.franc1sc0sv.tandem.admin";
 pub const DAEMON_DATA: &str = "/Library/Application Support/Tandem";
 
-/// Lo que reporta la fila del asistente. `pending`: hay que instalarlo (o quedó a medias).
+/// What the setup row reports. `pending`: it has to be installed (or was left half-done).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AdminState {
@@ -34,7 +34,7 @@ pub enum AdminState {
     Ok,
 }
 
-/// Lo que la UI dibuja: estado, si hay botón «Instalar» y, si no lo hay, por qué.
+/// What the UI draws: state, whether there is an "Install" button and, if not, why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminView {
@@ -43,20 +43,20 @@ pub struct AdminView {
     pub note: String,
 }
 
-/// Dónde corre la app y con qué `tandemd` se instalaría.
+/// Where the app runs and with which `tandemd` it would be installed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Platform {
     Mac {
         daemon: PathBuf,
     },
     Windows {
-        /// `tandemd.exe`: lo que se lanza elevado con `--install`.
+        /// `tandemd.exe`: what is launched elevated with `--install`.
         daemon: PathBuf,
-        /// Lo que la tarea registra para arrancar: `tandemw.exe` si existe, si no `tandemd.exe`.
-        /// Es el mismo que elige el `--install` elevado (`launcher_for`).
+        /// What the task registers to start: `tandemw.exe` if it exists, otherwise `tandemd.exe`.
+        /// It is the same one the elevated `--install` chooses (`launcher_for`).
         launcher: PathBuf,
     },
-    /// Otro sistema, o una compilación sin `.app` (desarrollo): no hay nada que instalar.
+    /// Another system, or a build without `.app` (development): there is nothing to install.
     Unsupported(String),
 }
 
@@ -64,18 +64,18 @@ pub enum Platform {
 pub enum AdminError {
     #[error("{0}")]
     NotApplicable(String),
-    #[error("se canceló la petición de administrador")]
+    #[error("the administrator request was canceled")]
     Cancelled,
-    #[error("no se pudo elevar: {0}")]
+    #[error("could not elevate: {0}")]
     Failed(String),
 }
 
-/// Una orden con privilegios.
+/// A command with privileges.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Elevation {
-    /// Un script de shell como administrador (macOS: diálogo del sistema).
+    /// A shell script as administrator (macOS: system dialog).
     MacShell { script: String, prompt: String },
-    /// `<program> <arg>` con UAC (Windows).
+    /// `<program> <arg>` with UAC (Windows).
     WinUac { program: PathBuf, arg: String },
 }
 
@@ -84,7 +84,7 @@ pub trait Elevator {
 }
 
 pub trait Probe {
-    /// macOS: si el plist existe y si launchd lo tiene cargado. Windows: si la tarea existe.
+    /// macOS: whether the plist exists and whether launchd has it loaded. Windows: whether the task exists.
     fn state(&self, platform: &Platform) -> AdminState;
 }
 
@@ -96,7 +96,7 @@ fn escape_xml(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-/// El plist del LaunchDaemon: arranca con el sistema y lo levanta si cae con error.
+/// The LaunchDaemon plist: starts with the system and brings it back up if it fails with an error.
 pub fn daemon_plist(program: &Path) -> String {
     let program = escape_xml(&program.to_string_lossy());
     let data = escape_xml(DAEMON_DATA);
@@ -128,15 +128,15 @@ pub fn daemon_plist(program: &Path) -> String {
     )
 }
 
-/// El script que corre como administrador: copia `source` (el `tandemd` del `.app`) a
-/// [`DAEMON_BIN`] con dueño root y el plist apunta a esa copia. El plist ya viene escapado como
-/// XML (sin `'`), así que cabe entre comillas simples de shell sin más. La ruta de `source` va
-/// escapada para shell: una `'` la cerraría.
+/// The script that runs as administrator: copies `source` (the `.app`'s `tandemd`) to
+/// [`DAEMON_BIN`] with root as owner and the plist points to that copy. The plist already comes escaped as
+/// XML (without `'`), so it fits between shell single quotes with no more. The path of `source` goes
+/// shell-escaped: a `'` would close it.
 pub fn mac_install_script(source: &Path) -> String {
     let plist = daemon_plist(Path::new(DAEMON_BIN));
     let source = source.to_string_lossy().replace('\'', r"'\''");
-    // `-L` rechaza un enlace en la última pieza justo antes de copiar; los de tramos anteriores
-    // los descarta `mac_platform` al resolver la ruta.
+    // `-L` rejects a link in the last piece right before copying; those of earlier stretches
+    // are discarded by `mac_platform` when resolving the path.
     format!(
         "[ ! -L '{source}' ] && /usr/bin/install -d -o root -g wheel -m 755 '{DAEMON_BIN_DIR}' \
          && /usr/bin/install -o root -g wheel -m 755 '{source}' '{DAEMON_BIN}' \
@@ -154,7 +154,7 @@ pub fn mac_uninstall_script() -> String {
     )
 }
 
-/// Los argumentos de `osascript` que muestran el diálogo de administrador del sistema.
+/// The `osascript` arguments that show the system's administrator dialog.
 pub fn osascript_args(script: &str, prompt: &str) -> Vec<String> {
     let q = |s: &str| format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""));
     vec![
@@ -167,7 +167,7 @@ pub fn osascript_args(script: &str, prompt: &str) -> Vec<String> {
     ]
 }
 
-/// Los argumentos de PowerShell que lanzan `<program> <arg>` con UAC y esperan a que acabe.
+/// The PowerShell arguments that launch `<program> <arg>` with UAC and wait for it to finish.
 pub fn powershell_args(program: &Path, arg: &str) -> Vec<String> {
     let lit = |s: &str| format!("'{}'", s.replace('\'', "''"));
     vec![
@@ -182,7 +182,7 @@ pub fn powershell_args(program: &Path, arg: &str) -> Vec<String> {
     ]
 }
 
-/// El estado de macOS a partir de lo que se ve: plist puesto y cargado en launchd.
+/// The macOS state from what is seen: plist in place and loaded in launchd.
 pub fn mac_state(plist_exists: bool, loaded: bool) -> AdminState {
     match (plist_exists, loaded) {
         (_, true) => AdminState::Ok,
@@ -191,7 +191,7 @@ pub fn mac_state(plist_exists: bool, loaded: bool) -> AdminState {
     }
 }
 
-/// Qué muestra la fila ahora mismo, con la posibilidad de instalar.
+/// What the row shows right now, with the possibility of installing.
 pub fn view(platform: &Platform, probe: &dyn Probe, acl: &dyn PathAcl) -> AdminView {
     let state = probe.state(platform);
     let blocked = check(platform, acl).err().map(|e| e.to_string());
@@ -214,34 +214,34 @@ pub fn view(platform: &Platform, probe: &dyn Probe, acl: &dyn PathAcl) -> AdminV
     }
 }
 
-/// Las comprobaciones previas: si no pasan, no se pide elevación.
+/// The prior checks: if they do not pass, no elevation is asked for.
 pub fn check(platform: &Platform, acl: &dyn PathAcl) -> Result<(), AdminError> {
     match platform {
         Platform::Unsupported(why) => Err(AdminError::NotApplicable(why.clone())),
-        // Root copia `source` y la ejecuta: ni ella ni sus ancestros los puede escribir un
-        // usuario (si no, quien escriba en el `.app` obtiene root). Igual que en Windows. Tampoco
-        // el destino de la copia. El release va sin firmar (D19): no hay `codesign` que valga.
+        // Root copies `source` and runs it: neither it nor its ancestors can be written by a
+        // user (otherwise, whoever writes to the `.app` gets root). Same as on Windows. Neither
+        // the copy's destination. The release is unsigned (D19): there is no `codesign` that applies.
         Platform::Mac { daemon } => {
             if let Some(why) = tandemd::install::not_admin_only(acl, daemon) {
                 return Err(AdminError::NotApplicable(format!(
-                    "la instalación por usuario no admite el servicio de administrador: {why}. \
-                     Mueve Tandem a Aplicaciones (propiedad de root) para instalarlo"
+                    "user-level installation does not support the administrator service: {why}. \
+                     Move Tandem to Applications (owned by root) to install it"
                 )));
             }
             match tandemd::install::not_admin_only(acl, Path::new(DAEMON_BIN)) {
                 None => Ok(()),
                 Some(why) => Err(AdminError::NotApplicable(format!(
-                    "no se instala el servicio: {why}"
+                    "the service is not installed: {why}"
                 ))),
             }
         }
-        // Se comprueba lo que se eleva (`tandemd.exe --install`) y lo que la tarea registra.
+        // What is elevated (`tandemd.exe --install`) and what the task registers are checked.
         Platform::Windows { daemon, launcher } => [daemon, launcher]
             .into_iter()
             .find_map(|p| tandemd::install::not_admin_only(acl, p))
             .map_or(Ok(()), |why| {
                 Err(AdminError::NotApplicable(format!(
-                    "instalación por usuario: {why}. Instala Tandem en Archivos de programa para el servicio"
+                    "user-level installation: {why}. Install Tandem in Program Files for the service"
                 )))
             }),
     }
@@ -257,7 +257,7 @@ pub fn install(
     let what = match platform {
         Platform::Mac { daemon } => Elevation::MacShell {
             script: mac_install_script(daemon),
-            prompt: "Tandem instala el servicio de administrador.".to_owned(),
+            prompt: "Tandem is installing the administrator service.".to_owned(),
         },
         Platform::Windows { daemon, .. } => Elevation::WinUac {
             program: daemon.clone(),
@@ -266,10 +266,10 @@ pub fn install(
         Platform::Unsupported(why) => return Err(AdminError::NotApplicable(why.clone())),
     };
     elevator.run(&what)?;
-    // El `--install` elevado cae a la clave `Run` si sus comprobaciones fallan: eso no es éxito.
+    // The elevated `--install` falls back to the `Run` key if its checks fail: that is not success.
     match probe.state(platform) {
         AdminState::Ok => Ok(()),
-        _ => Err(AdminError::Failed("el servicio no quedó activo".to_owned())),
+        _ => Err(AdminError::Failed("the service did not become active".to_owned())),
     }
 }
 
@@ -277,7 +277,7 @@ pub fn uninstall(platform: &Platform, elevator: &dyn Elevator) -> Result<(), Adm
     let what = match platform {
         Platform::Mac { .. } => Elevation::MacShell {
             script: mac_uninstall_script(),
-            prompt: "Tandem quita el servicio de administrador.".to_owned(),
+            prompt: "Tandem is removing the administrator service.".to_owned(),
         },
         Platform::Windows { daemon, .. } => Elevation::WinUac {
             program: daemon.clone(),
@@ -288,7 +288,7 @@ pub fn uninstall(platform: &Platform, elevator: &dyn Elevator) -> Result<(), Adm
     elevator.run(&what)
 }
 
-/// La plataforma según el ejecutable de la app.
+/// The platform according to the app's executable.
 pub fn platform_for(exe: &Path) -> Platform {
     if cfg!(target_os = "macos") {
         mac_platform(exe, |p| std::fs::canonicalize(p))
@@ -298,13 +298,13 @@ pub fn platform_for(exe: &Path) -> Platform {
         Platform::Windows { daemon, launcher }
     } else {
         Platform::Unsupported(
-            "el servicio de administrador solo existe en macOS y Windows".to_owned(),
+            "the administrator service only exists on macOS and Windows".to_owned(),
         )
     }
 }
 
-/// El `tandemd` del `.app` como lo verá root: la ruta ya resuelta (`resolve` = `realpath`) y
-/// sin enlaces. Si resolverla cambia algo es que hay un enlace en el camino: se descarta.
+/// The `.app`'s `tandemd` as root will see it: the path already resolved (`resolve` = `realpath`) and
+/// without links. If resolving it changes anything there is a link on the way: it is discarded.
 pub fn mac_platform(exe: &Path, resolve: impl Fn(&Path) -> std::io::Result<PathBuf>) -> Platform {
     let daemon = match crate::launch_agent::sidecar_for(exe) {
         Ok(d) => d,
@@ -313,19 +313,19 @@ pub fn mac_platform(exe: &Path, resolve: impl Fn(&Path) -> std::io::Result<PathB
     match resolve(&daemon) {
         Ok(real) if real == daemon => Platform::Mac { daemon: real },
         Ok(_) => Platform::Unsupported(
-            "la ruta de tandemd pasa por un enlace simbólico: el servicio de administrador no la admite"
+            "the tandemd path goes through a symbolic link: the administrator service does not support it"
                 .to_owned(),
         ),
-        Err(e) => Platform::Unsupported(format!("no se pudo resolver {}: {e}", daemon.display())),
+        Err(e) => Platform::Unsupported(format!("could not resolve {}: {e}", daemon.display())),
     }
 }
 
-/// Permisos de Unix: de administradores es lo que tiene dueño root y nadie más escribe, y no
-/// es un enlace. Lo que no existe aún (la carpeta la crea el script como root) no cuenta.
+/// Unix permissions: administrator-only is what has root as owner and nobody else writes, and is not
+/// a link. What does not exist yet (the script creates the folder as root) does not count.
 #[cfg(unix)]
 pub struct UnixAcl;
 
-/// El grupo `admin` de macOS.
+/// The macOS `admin` group.
 #[cfg(unix)]
 const ADMIN_GID: u32 = 80;
 
@@ -334,7 +334,7 @@ impl PathAcl for UnixAcl {
     fn admin_only(&self, path: &Path, _: tandemd::install::acl::Rigor) -> std::io::Result<bool> {
         use std::os::unix::fs::MetadataExt;
         match std::fs::symlink_metadata(path) {
-            // Dueño root, sin escritura de «otros» y la del grupo solo si es `admin` (80, como
+            // Root owner, no write by "others" and by the group only if it is `admin` (80, like
             // `/Applications`: `root:admin 775`).
             Ok(m) => {
                 let group_ok = m.mode() & 0o020 == 0 || m.gid() == ADMIN_GID;
@@ -351,7 +351,7 @@ impl PathAcl for UnixAcl {
     }
 }
 
-/// El sistema de verdad: `osascript` / PowerShell y `launchctl` / el Programador de tareas.
+/// The real system: `osascript` / PowerShell and `launchctl` / the Task Scheduler.
 pub struct System;
 
 impl Elevator for System {
@@ -368,7 +368,7 @@ impl Elevator for System {
             return Ok(());
         }
         let err = String::from_utf8_lossy(&out.stderr);
-        // osascript: -128 es «Cancelar»; PowerShell: UAC rechazado.
+        // osascript: -128 is "Cancel"; PowerShell: UAC rejected.
         if err.contains("-128") || err.contains("canceled by the user") {
             return Err(AdminError::Cancelled);
         }
@@ -419,7 +419,7 @@ mod tests {
         }
     }
 
-    /// Registra lo que se le pide elevar; nunca eleva. Antes de elevar el servicio está `off`.
+    /// Records what it is asked to elevate; never elevates. Before elevating the service is `off`.
     struct Fake {
         asked: RefCell<Vec<Elevation>>,
         result: Result<(), AdminError>,
@@ -468,7 +468,7 @@ mod tests {
         }
     }
 
-    /// Solo dice «escribible por el usuario» para las rutas que se le indican.
+    /// It only says "writable by the user" for the paths it is told.
     struct AclExcept(&'static str);
     impl PathAcl for AclExcept {
         fn admin_only(&self, p: &Path, _: Rigor) -> io::Result<bool> {
@@ -480,7 +480,7 @@ mod tests {
     fn mac_copies_the_binary_as_root_and_the_plist_points_at_the_copy() {
         let src = "/Users/ana/Applications/Tandem.app/Contents/MacOS/tandemd";
         let script = mac_install_script(Path::new(src));
-        // El binario que corre como root es una copia de root, no el del `.app`.
+        // The binary that runs as root is a root copy, not the `.app`'s.
         assert!(script.contains(&format!(
             "/usr/bin/install -o root -g wheel -m 755 '{src}' '{DAEMON_BIN}'"
         )));
@@ -491,13 +491,13 @@ mod tests {
         assert!(plist.contains(&format!("<string>{DAEMON_BIN}</string>")));
         assert!(!plist.contains("Tandem.app"));
         assert!(!script.contains(&format!("<string>{src}</string>")));
-        // La copia va antes de cargar el daemon.
+        // The copy goes before loading the daemon.
         assert!(
             script.find("install -o root").unwrap() < script.find("launchctl bootstrap").unwrap()
         );
     }
 
-    /// Como un Mac: `/Applications` es de root; `/Users/<u>/...` lo escribe el usuario.
+    /// Like a Mac: `/Applications` is root's; `/Users/<u>/...` is written by the user.
     #[test]
     fn mac_source_in_a_user_writable_app_is_rejected_and_one_owned_by_root_is_accepted() {
         let acl = AclExcept("/Users/");
@@ -507,15 +507,15 @@ mod tests {
         let f = Fake::new(Ok(()), AdminState::Ok);
         let err = install(&user_app, &f, &f, &acl).unwrap_err();
         let AdminError::NotApplicable(why) = err else {
-            panic!("debía ser NotApplicable")
+            panic!("NotApplicable was expected")
         };
-        assert!(why.contains("instalación por usuario no admite el servicio de administrador"));
-        // No se pidió la contraseña y la fila no ofrece «Instalar».
+        assert!(why.contains("user-level installation does not support the administrator service"));
+        // The password was not asked for and the row does not offer "Install".
         assert!(f.asked.borrow().is_empty());
         let v = view(&user_app, &f, &acl);
         assert!(!v.can_install);
-        assert!(v.note.contains("instalación por usuario"));
-        // `/Applications/Tandem.app` con dueño root sí.
+        assert!(v.note.contains("user-level installation"));
+        // `/Applications/Tandem.app` with root as owner does.
         install(&mac(), &f, &f, &acl).unwrap();
         assert_eq!(f.asked.borrow().len(), 1);
     }
@@ -535,10 +535,10 @@ mod tests {
         let exe = Path::new("/Applications/Tandem.app/Contents/MacOS/tandem-ui");
         let same = |p: &Path| Ok(p.to_path_buf());
         assert!(matches!(mac_platform(exe, same), Platform::Mac { .. }));
-        // La ruta real es otra (un enlace en algún tramo): no vale.
+        // The real path is another (a link somewhere along the way): not valid.
         let linked = |_: &Path| Ok(PathBuf::from("/Users/ana/evil/tandemd"));
         let Platform::Unsupported(why) = mac_platform(exe, linked) else {
-            panic!("debía rechazarse")
+            panic!("it should have been rejected")
         };
         assert!(why.contains("enlace"));
         let missing = |_: &Path| Err(io::Error::from(io::ErrorKind::NotFound));
@@ -556,13 +556,13 @@ mod tests {
         assert!(matches!(err, AdminError::NotApplicable(_)));
         assert!(f.asked.borrow().is_empty());
         assert!(!view(&mac(), &f, &acl).can_install);
-        // Un ancestro escribible (por ejemplo /Library cambiado) también la descarta.
+        // A writable ancestor (for example /Library changed) also discards it.
         assert!(check(&mac(), &AclExcept("/Library")).is_err());
     }
 
     #[test]
     fn windows_validates_the_executables_it_elevates_and_registers() {
-        // Se eleva `tandemd.exe --install` y la tarea apunta al lanzador: los dos se comprueban.
+        // `tandemd.exe --install` is elevated and the task points to the launcher: both are checked.
         assert!(check(&win(), &AclExcept("tandemw.exe")).is_err());
         assert!(check(&win(), &AclExcept("tandemd.exe")).is_err());
         assert!(check(&win(), &Acl(true)).is_ok());
@@ -573,16 +573,16 @@ mod tests {
     fn unix_acl_accepts_only_root_owned_paths_without_user_write() {
         use std::os::unix::fs::MetadataExt;
         let dir = tempfile::tempdir().unwrap();
-        // Si las pruebas corren como root, su carpeta sí es de root.
+        // If the tests run as root, their folder is root's.
         if std::fs::metadata(dir.path()).unwrap().uid() == 0 {
             return;
         }
-        // Una carpeta de pruebas es del usuario (no de root): no es solo de administradores.
+        // A test folder belongs to the user (not root): it is not administrator-only.
         assert!(!UnixAcl.admin_only(dir.path(), Rigor::Full).unwrap());
-        // Lo que no existe aún lo crea root con dueño root: no cuenta contra la ruta.
+        // What does not exist yet is created by root with root as owner: it does not count against the path.
         assert!(
             UnixAcl
-                .admin_only(&dir.path().join("nuevo"), Rigor::Full)
+                .admin_only(&dir.path().join("new"), Rigor::Full)
                 .unwrap()
         );
     }
@@ -593,7 +593,7 @@ mod tests {
         install(&mac(), &f, &f, &Acl(true)).unwrap();
         let asked = f.asked.borrow();
         let Elevation::MacShell { script, .. } = &asked[0] else {
-            panic!("no es shell")
+            panic!("not a shell")
         };
         assert!(script.contains("/Applications/Tandem.app/Contents/MacOS/tandemd"));
         assert!(script.contains("launchctl bootstrap system"));
@@ -621,17 +621,17 @@ mod tests {
         assert!(f.asked.borrow().is_empty());
         let v = view(&win(), &f, &Acl(false));
         assert!(!v.can_install);
-        assert!(v.note.contains("instalación por usuario"));
+        assert!(v.note.contains("user-level installation"));
     }
 
     #[test]
     fn unsupported_platform_explains_and_offers_no_button() {
-        let p = Platform::Unsupported("la app no corre desde un Tandem.app".into());
+        let p = Platform::Unsupported("the app does not run from a Tandem.app".into());
         let f = Fake::new(Ok(()), AdminState::Ok);
         assert!(install(&p, &f, &f, &Acl(true)).is_err());
         let v = view(&p, &f, &Acl(true));
         assert!(!v.can_install);
-        assert_eq!(v.note, "la app no corre desde un Tandem.app");
+        assert_eq!(v.note, "the app does not run from a Tandem.app");
     }
 
     #[test]
@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn a_fallback_to_the_run_key_is_not_success() {
-        // El `--install` elevado salió bien pero no dejó la tarea: la fila no puede quedar en «ok».
+        // The elevated `--install` went fine but left no task: the row cannot end up "ok".
         let f = Fake::new(Ok(()), AdminState::Off);
         assert!(matches!(
             install(&win(), &f, &f, &Acl(true)),
@@ -701,7 +701,7 @@ mod tests {
     }
 
     proptest! {
-        /// Sea cual sea la ruta, el plist no deja comillas simples (cabe en el script de shell).
+        /// Whatever the path, the plist leaves no single quotes (it fits in the shell script).
         #[test]
         fn plist_is_safe_for_the_shell_script(path in "/[ -~]{0,40}") {
             let plist = daemon_plist(Path::new(&path));

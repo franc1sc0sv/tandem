@@ -1,6 +1,6 @@
-//! El lado que lee: recorre un árbol, calcula el manifiesto y entrega fragmentos.
+//! The reading side: walks a tree, computes the manifest and hands out chunks.
 //!
-//! Todo es bloqueante (disco): los llamadores lo corren en `spawn_blocking`.
+//! Everything is blocking (disk): callers run it in `spawn_blocking`.
 
 use std::fs::{self, File};
 use std::io::{self, Read, Seek, SeekFrom};
@@ -13,12 +13,12 @@ use crate::error::{FilesError, Result};
 use crate::path::to_wire;
 use crate::secrets::SecretFilter;
 
-/// Cuántos fragmentos de `chunk_size` tiene un archivo de `size` bytes.
+/// How many chunks of `chunk_size` a file of `size` bytes has.
 pub fn chunk_count(size: u64, chunk_size: u32) -> u64 {
     size.div_ceil(u64::from(chunk_size))
 }
 
-/// Largo del fragmento `index` de un archivo de `size` bytes; `None` si no existe.
+/// Length of chunk `index` of a file of `size` bytes; `None` if it does not exist.
 pub fn chunk_len(size: u64, chunk_size: u32, index: u32) -> Option<usize> {
     let start = u64::from(index) * u64::from(chunk_size);
     if start >= size {
@@ -27,7 +27,7 @@ pub fn chunk_len(size: u64, chunk_size: u32, index: u32) -> Option<usize> {
     usize::try_from((size - start).min(u64::from(chunk_size))).ok()
 }
 
-/// Lee hasta llenar `buf` o llegar al final; devuelve cuánto leyó.
+/// Reads until `buf` is full or the end is reached; returns how much it read.
 pub(crate) fn read_full(r: &mut impl Read, buf: &mut [u8]) -> io::Result<usize> {
     let mut n = 0;
     while n < buf.len() {
@@ -41,27 +41,27 @@ pub(crate) fn read_full(r: &mut impl Read, buf: &mut [u8]) -> io::Result<usize> 
     Ok(n)
 }
 
-/// Un árbol listo para mandar.
+/// A tree ready to send.
 #[derive(Debug)]
 pub struct Source {
     manifest: Manifest,
-    /// La ruta local de cada entrada del manifiesto.
+    /// The local path of each manifest entry.
     paths: Vec<PathBuf>,
-    /// Lo que se dejó fuera por parecer una credencial (T-130), con rutas del cable; las
-    /// carpetas terminan en `/`.
+    /// What was left out for looking like a credential (T-130), with wire paths;
+    /// folders end in `/`.
     skipped: Vec<String>,
     filter: SecretFilter,
 }
 
 impl Source {
-    /// Recorre `local` (un archivo o una carpeta). Los enlaces simbólicos y lo que no es
-    /// archivo ni carpeta se omiten.
+    /// Walks `local` (a file or a folder). Symbolic links and anything that is neither
+    /// file nor folder are skipped.
     pub fn scan(local: &Path, chunk_size: u32) -> Result<Source> {
         Self::scan_with(local, chunk_size, &SecretFilter::default())
     }
 
-    /// Como [`Source::scan`], con las excepciones explícitas de `filter`: las credenciales
-    /// no entran al manifiesto salvo que se nombren (T-130).
+    /// Like [`Source::scan`], with the explicit exceptions of `filter`: credentials
+    /// do not enter the manifest unless named (T-130).
     pub fn scan_with(local: &Path, chunk_size: u32, filter: &SecretFilter) -> Result<Source> {
         let meta = fs::metadata(local).map_err(|e| FilesError::io(local, e))?;
         let mut src = Source {
@@ -86,7 +86,7 @@ impl Source {
             let name = local
                 .file_name()
                 .map(Path::new)
-                .ok_or_else(|| FilesError::path(&local.display().to_string(), "sin nombre"))?;
+                .ok_or_else(|| FilesError::path(&local.display().to_string(), "no name"))?;
             let wire = to_wire(name)?;
             if src.filter.blocks(&wire, local) {
                 src.skipped.push(wire);
@@ -98,7 +98,7 @@ impl Source {
         } else {
             return Err(FilesError::path(
                 &local.display().to_string(),
-                "no es archivo ni carpeta",
+                "neither a file nor a folder",
             ));
         }
         Ok(src)
@@ -108,7 +108,7 @@ impl Source {
         &self.manifest
     }
 
-    /// Lo que no entró al manifiesto por parecer una credencial.
+    /// What did not enter the manifest for looking like a credential.
     pub fn skipped(&self) -> &[String] {
         &self.skipped
     }
@@ -145,7 +145,7 @@ impl Source {
             } else if meta.is_file() {
                 self.add_file(&path, wire, &meta)?;
             } else {
-                tracing::warn!("se omite {} (enlace o archivo especial)", path.display());
+                tracing::warn!("skipping {} (link or special file)", path.display());
             }
         }
         Ok(())
@@ -164,9 +164,9 @@ impl Source {
         Ok(())
     }
 
-    /// Lee el fragmento `index` del archivo `entry`.
+    /// Reads chunk `index` of file `entry`.
     pub fn read_chunk(&self, entry: u32, index: u32) -> Result<Vec<u8>> {
-        let bad = || FilesError::Manifest(format!("no existe el fragmento {index} de {entry}"));
+        let bad = || FilesError::Manifest(format!("chunk {index} of {entry} does not exist"));
         let e = self.manifest.entries.get(entry as usize).ok_or_else(bad)?;
         let EntryKind::File { size, .. } = &e.kind else {
             return Err(bad());
@@ -185,7 +185,7 @@ impl Source {
                 path,
                 io::Error::new(
                     io::ErrorKind::UnexpectedEof,
-                    "el archivo cambió mientras se copiaba",
+                    "the file changed while it was being copied",
                 ),
             ));
         }
@@ -193,7 +193,7 @@ impl Source {
     }
 }
 
-/// Tamaño, hash de cada fragmento y hash del total, en una sola pasada.
+/// Size, hash of each chunk and hash of the total, in a single pass.
 pub(crate) fn hash_file(path: &Path, chunk_size: u32) -> io::Result<(u64, Vec<Hash>, Hash)> {
     let mut f = File::open(path)?;
     let mut total = blake3::Hasher::new();
@@ -221,7 +221,7 @@ fn mode_of(meta: &fs::Metadata) -> Option<u32> {
     Some(meta.permissions().mode() & 0o7777)
 }
 
-/// Windows solo conoce «solo lectura»: se manda como los permisos de Unix equivalentes.
+/// Windows only knows "read-only": it is sent as the equivalent Unix permissions.
 #[cfg(not(unix))]
 fn mode_of(meta: &fs::Metadata) -> Option<u32> {
     if meta.is_dir() {
@@ -243,7 +243,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn el_ultimo_fragmento_es_el_resto() {
+    fn the_last_chunk_is_the_remainder() {
         assert_eq!(chunk_count(0, 4), 0);
         assert_eq!(chunk_count(8, 4), 2);
         assert_eq!(chunk_count(9, 4), 3);
@@ -253,38 +253,35 @@ mod tests {
     }
 
     #[test]
-    fn el_manifiesto_trae_hashes_y_deja_los_vacios() {
+    fn the_manifest_carries_hashes_and_keeps_the_empty_ones() {
         let d = tempfile::tempdir().unwrap();
         fs::create_dir(d.path().join("sub dir")).unwrap();
-        fs::write(d.path().join("sub dir/ñ.bin"), [1u8, 2, 3, 4, 5]).unwrap();
-        fs::write(d.path().join("vacio"), b"").unwrap();
-        fs::create_dir(d.path().join("hueca")).unwrap();
+        fs::write(d.path().join("sub dir/\u{fc}.bin"), [1u8, 2, 3, 4, 5]).unwrap();
+        fs::write(d.path().join("vacant"), b"").unwrap();
+        fs::create_dir(d.path().join("hollow")).unwrap();
         let s = Source::scan(d.path(), 4).unwrap();
         let m = s.manifest();
         let paths: Vec<_> = m.entries.iter().map(|e| e.path.as_str()).collect();
-        assert_eq!(paths, ["hueca", "sub dir", "sub dir/ñ.bin", "vacio"]);
+        assert_eq!(paths, ["hollow", "sub dir", "sub dir/\u{fc}.bin", "vacant"]);
         assert!(s.skipped().is_empty());
         let EntryKind::File { size, chunks, hash } = &m.entries[2].kind else {
-            panic!("no es archivo");
+            panic!("not a file");
         };
         assert_eq!((*size, chunks.len()), (5, 2));
         assert_eq!(*hash, *blake3::hash(&[1, 2, 3, 4, 5]).as_bytes());
         assert_eq!(chunks[1], *blake3::hash(&[5]).as_bytes());
         assert_eq!(s.read_chunk(2, 1).unwrap(), [5]);
         assert!(s.read_chunk(2, 2).is_err());
-        assert!(
-            s.read_chunk(0, 0).is_err(),
-            "una carpeta no tiene fragmentos"
-        );
+        assert!(s.read_chunk(0, 0).is_err(), "a folder has no chunks");
         let EntryKind::File { chunks, .. } = &m.entries[3].kind else {
-            panic!("no es archivo");
+            panic!("not a file");
         };
         assert!(chunks.is_empty());
     }
 
     #[cfg(unix)]
     #[test]
-    fn los_enlaces_simbolicos_se_omiten() {
+    fn symbolic_links_are_skipped() {
         let d = tempfile::tempdir().unwrap();
         fs::write(d.path().join("a"), b"x").unwrap();
         std::os::unix::fs::symlink("a", d.path().join("enlace")).unwrap();
@@ -293,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn las_credenciales_no_entran_al_manifiesto() {
+    fn credentials_do_not_enter_the_manifest() {
         let d = tempfile::tempdir().unwrap();
         fs::write(d.path().join("ok.txt"), b"x").unwrap();
         fs::write(d.path().join(".env"), b"K=v").unwrap();
@@ -309,7 +306,7 @@ mod tests {
             .collect();
         assert_eq!(paths, ["ok.txt"]);
         assert_eq!(s.skipped(), [".env", ".npmrc", ".ssh/"]);
-        // Nombrándolo, entra; lo demás sigue fuera.
+        // Naming it, it enters; the rest stays out.
         let f = SecretFilter::new(&[".env".into()]);
         let s = Source::scan_with(d.path(), 4, &f).unwrap();
         let paths: Vec<_> = s
@@ -323,22 +320,22 @@ mod tests {
     }
 
     #[test]
-    fn una_carpeta_secreta_o_un_archivo_suelto_secreto_no_se_copia() {
+    fn a_secret_folder_or_a_loose_secret_file_is_not_copied() {
         let d = tempfile::tempdir().unwrap();
         fs::create_dir(d.path().join(".ssh")).unwrap();
         fs::write(d.path().join(".ssh/config"), b"Host x").unwrap();
-        // Copiar `~/.ssh` entero, o un archivo suelto de adentro.
+        // Copying `~/.ssh` whole, or a loose file from inside.
         let s = Source::scan(&d.path().join(".ssh"), 4).unwrap();
         assert!(s.manifest().entries.is_empty());
         assert_eq!(s.skipped().len(), 1);
         let s = Source::scan(&d.path().join(".ssh/config"), 4).unwrap();
         assert!(s.manifest().entries.is_empty());
-        // Un archivo suelto con nombre secreto, también; con `include` por su nombre, sí.
-        fs::write(d.path().join("llave.pem"), b"p").unwrap();
-        let s = Source::scan(&d.path().join("llave.pem"), 4).unwrap();
-        assert_eq!(s.skipped(), ["llave.pem"]);
-        let f = SecretFilter::new(&["llave.pem".into()]);
-        let s = Source::scan_with(&d.path().join("llave.pem"), 4, &f).unwrap();
+        // A loose file with a secret name, too; with `include` by its name, yes.
+        fs::write(d.path().join("key.pem"), b"p").unwrap();
+        let s = Source::scan(&d.path().join("key.pem"), 4).unwrap();
+        assert_eq!(s.skipped(), ["key.pem"]);
+        let f = SecretFilter::new(&["key.pem".into()]);
+        let s = Source::scan_with(&d.path().join("key.pem"), 4, &f).unwrap();
         assert_eq!(s.manifest().entries.len(), 1);
     }
 }

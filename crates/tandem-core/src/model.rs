@@ -8,16 +8,16 @@ use crate::desk::{InputPrefs, Modules, Shortcuts, valid_color};
 use crate::monitor::MonitorCable;
 use crate::scene::Scene;
 
-/// Los dos lados del puesto. Tandem está pensado para exactamente dos máquinas, de igual a
-/// igual (DECISIONS D1, A1): ningún lado supone qué sistema tiene; eso lo dice su
+/// The two sides of the desk. Tandem is designed for exactly two machines, peer to
+/// peer (DECISIONS D1, A1): neither side assumes which system it has; that is
 /// [`MachineInfo`].
 ///
-/// El lado sale de las claves públicas Ed25519 ([`Machine::of_keys`]): la menor es `A`. Las
-/// dos máquinas llegan al mismo resultado sin coordinarse.
+/// The side comes from the Ed25519 public keys ([`Machine::of_keys`]): the lesser is `A`. The
+/// two machines reach the same result without coordinating.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Machine {
-    /// Se escribe `a`; al leer también vale `A` (como se muestra).
+    /// Written `a`; when reading, `A` is also accepted (as displayed).
     #[serde(alias = "A")]
     A,
     #[serde(alias = "B")]
@@ -34,7 +34,7 @@ impl Machine {
         }
     }
 
-    /// Como se escribe en `tandem.toml` y en JSON: `a` o `b`.
+    /// As written in `tandem.toml` and in JSON: `a` or `b`.
     pub fn as_str(self) -> &'static str {
         match self {
             Machine::A => "a",
@@ -42,7 +42,7 @@ impl Machine {
         }
     }
 
-    /// Lo inverso de [`Machine::as_str`].
+    /// The inverse of [`Machine::as_str`].
     pub fn parse(s: &str) -> Option<Machine> {
         match s {
             "a" => Some(Machine::A),
@@ -51,10 +51,10 @@ impl Machine {
         }
     }
 
-    /// El lado de quien tiene la clave `own` frente a quien tiene `peer`: la menor, en orden
-    /// de bytes, es `A`. Es simétrica (`of_keys(p, o) == of_keys(o, p).other()`), así que
-    /// cada máquina calcula la suya y coinciden. `None` si las dos claves son la misma (no
-    /// hay dos máquinas).
+    /// The side of whoever holds the key `own` versus whoever holds `peer`: the lesser, in byte
+    /// order, is `A`. It is symmetric (`of_keys(p, o) == of_keys(o, p).other()`), so
+    /// each machine computes its own and they agree. `None` if both keys are the same (there
+    /// are not two machines).
     pub fn of_keys(own: &[u8; 32], peer: &[u8; 32]) -> Option<Machine> {
         match own.cmp(peer) {
             std::cmp::Ordering::Less => Some(Machine::A),
@@ -73,8 +73,8 @@ impl fmt::Display for Machine {
     }
 }
 
-/// El sistema de una máquina. Lo que cambia según el sistema (los backends) se compila con
-/// `#[cfg]`; el resto del código pregunta por esto o por las capacidades, nunca por el lado.
+/// The system of a machine. What changes by system (the backends) is compiled with
+/// `#[cfg]`; the rest of the code asks about this or about capabilities, never about the side.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 pub enum Os {
     #[serde(rename = "macos")]
@@ -86,8 +86,8 @@ pub enum Os {
 impl Os {
     pub const ALL: [Os; 2] = [Os::MacOs, Os::Windows];
 
-    /// El de este binario. Linux solo corre pruebas y simulaciones (sin backends de
-    /// plataforma): se presenta como Windows, y cada prueba elige el que necesite.
+    /// The one of this binary. Linux only runs tests and simulations (no platform
+    /// backends): it presents itself as Windows, and each test picks the one it needs.
     pub fn local() -> Os {
         if cfg!(target_os = "macos") {
             Os::MacOs
@@ -96,7 +96,7 @@ impl Os {
         }
     }
 
-    /// El nombre de la máquina cuando no hay otro (ni el del sistema ni uno elegido).
+    /// The machine name when there is no other (neither the system's nor a chosen one).
     pub fn default_name(self) -> &'static str {
         match self {
             Os::MacOs => "Mac",
@@ -118,14 +118,14 @@ impl fmt::Display for Os {
     }
 }
 
-/// La paleta de los mockups v0.3 (DECISIONS D17): azul, violeta, verde azulado y ámbar.
+/// The palette of the v0.3 mockups (DECISIONS D17): blue, violet, teal and amber.
 pub const PALETTE: [&str; 4] = ["#7aa7e6", "#a99be8", "#5fbfb0", "#d9a75a"];
 
-/// Los colores que se asignan solos a cada lado al conocerlo. El usuario puede cambiarlos
-/// por cualquiera distinto del de la otra.
+/// The colors assigned automatically to each side when it becomes known. The user can change them
+/// to any one different from the other machine's.
 pub const DEFAULT_COLORS: [&str; 2] = [PALETTE[0], PALETTE[1]];
 
-/// El color por omisión de `side`.
+/// The default color of `side`.
 pub fn default_color(side: Machine) -> &'static str {
     match side {
         Machine::A => DEFAULT_COLORS[0],
@@ -133,20 +133,20 @@ pub fn default_color(side: Machine) -> &'static str {
     }
 }
 
-/// Lo que identifica a una máquina en la UI: su sistema, su nombre y su color. Viaja en el
-/// anuncio de capacidades y se guarda en el puesto compartido ([`Config::machines`]).
+/// What identifies a machine in the UI: its system, its name and its color. Travels in the
+/// capabilities announcement and is stored in the shared desk ([`Config::machines`]).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct MachineInfo {
     pub os: Os,
     pub name: String,
-    /// Color de acento en CSS (`#rrggbb`).
+    /// Accent color in CSS (`#rrggbb`).
     pub color: String,
 }
 
 impl MachineInfo {
-    /// Lo de una máquina recién vista: el nombre que da el sistema (o, sin él, uno derivado
-    /// del sistema operativo) y el color por omisión de su lado.
+    /// That of a machine just seen: the name the system gives (or, without it, one derived
+    /// from the operating system) and the default color of its side.
     pub fn new(side: Machine, os: Os, name: Option<String>) -> Self {
         let name = name
             .map(|n| n.trim().to_owned())
@@ -160,7 +160,7 @@ impl MachineInfo {
     }
 }
 
-/// Lo que se sabe de cada lado. Vacío hasta que cada máquina se anuncia.
+/// What is known about each side. Empty until each machine announces itself.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct Machines {
@@ -189,14 +189,14 @@ impl Machines {
         self.a.is_none() && self.b.is_none()
     }
 
-    /// El nombre de `side` para los textos: el guardado o, sin él, «máquina A».
+    /// The name of `side` for texts: the stored one or, without it, "machine A".
     pub fn name(&self, side: Machine) -> String {
         self.get(side)
             .map(|i| i.name.clone())
-            .unwrap_or_else(|| format!("máquina {side}"))
+            .unwrap_or_else(|| format!("machine {side}"))
     }
 
-    /// Los lados cambiados (ver [`Config::swap_sides`]).
+    /// The sides swapped (see [`Config::swap_sides`]).
     pub fn swapped(self) -> Self {
         Machines {
             a: self.b,
@@ -204,9 +204,9 @@ impl Machines {
         }
     }
 
-    /// Deja a las dos máquinas con colores distintos (D17): si coinciden, B toma el primero
-    /// de la paleta que no tenga A. Es la misma regla en las dos máquinas, así que no
-    /// discuten. `true` si cambió algo.
+    /// Leaves the two machines with different colors (D17): if they match, B takes the first
+    /// of the palette that A does not have. It is the same rule on both machines, so they do not
+    /// argue. `true` if anything changed.
     pub fn distinct_colors(&mut self) -> bool {
         let (Some(a), Some(b)) = (&self.a, &mut self.b) else {
             return false;
@@ -223,13 +223,13 @@ impl Machines {
     }
 }
 
-/// Lado de un escritorio (DECISIONS D18: cualquiera de los cuatro).
+/// Side of a desktop (DECISIONS D18: any of the four).
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, PartialOrd, Ord,
 )]
 #[serde(rename_all = "lowercase")]
 pub enum Side {
-    /// Sin acomodo declarado, A va a la izquierda de B.
+    /// Without a declared arrangement, A goes to the left of B.
     #[default]
     Left,
     Right,
@@ -249,15 +249,15 @@ impl Side {
         }
     }
 
-    /// El borde de este lado es vertical (izquierda o derecha): corre a lo largo de `y`.
+    /// The edge of this side is vertical (left or right): it runs along `y`.
     pub fn is_vertical_edge(self) -> bool {
         matches!(self, Side::Left | Side::Right)
     }
 }
 
-/// Cómo se alinean los dos escritorios a lo largo del borde que comparten: inicio (arriba o
-/// izquierda), centro o fin (abajo o derecha). Es simétrica: vale lo mismo vista desde
-/// cualquiera de las dos máquinas.
+/// How the two desktops align along the edge they share: start (top or
+/// left), center or end (bottom or right). It is symmetric: it holds the same seen from
+/// either machine.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize, PartialOrd, Ord,
 )]
@@ -272,7 +272,7 @@ pub enum Align {
 impl Align {
     pub const ALL: [Align; 3] = [Align::Start, Align::Center, Align::End];
 
-    /// Qué parte de la diferencia de largos queda antes del escritorio más corto.
+    /// What part of the length difference remains before the shorter desktop.
     pub fn factor(self) -> f64 {
         match self {
             Align::Start => 0.0,
@@ -282,8 +282,8 @@ impl Align {
     }
 }
 
-/// Unidades nativas del cursor por punto lógico, guardada en milésimas para que el puesto
-/// se pueda comparar (y viajar) exacto. En `tandem.toml` se escribe como número: `1.5`.
+/// Native cursor units per logical point, stored in thousandths so the desk
+/// can be compared (and travel) exactly. In `tandem.toml` it is written as a number: `1.5`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Scale(u32);
 
@@ -302,11 +302,11 @@ impl Scale {
         f64::from(self.0) / 1000.0
     }
 
-    /// `None` si no es un número positivo representable.
+    /// `None` if it is not a representable positive number.
     pub fn from_f64(v: f64) -> Option<Self> {
         let milli = (v * 1000.0).round();
         let valid = v.is_finite() && milli >= 1.0 && milli <= f64::from(u32::MAX);
-        // `as` satura; solo se usa con el valor ya comprobado.
+        // `as` saturates; only used with the value already checked.
         valid.then_some(Scale(milli as u32))
     }
 }
@@ -326,17 +326,17 @@ impl Serialize for Scale {
 impl<'de> Deserialize<'de> for Scale {
     fn deserialize<D: Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
         let v = f64::deserialize(d)?;
-        Scale::from_f64(v).ok_or_else(|| serde::de::Error::custom(format!("escala inválida: {v}")))
+        Scale::from_f64(v).ok_or_else(|| serde::de::Error::custom(format!("invalid scale: {v}")))
     }
 }
 
-/// Una pantalla del acomodo declarado, en las coordenadas nativas del cursor de su
-/// máquina: puntos en macOS, píxeles físicos del escritorio virtual en Windows (DESIGN §7).
+/// A screen of the declared arrangement, in the native cursor coordinates of its
+/// machine: points on macOS, physical pixels of the virtual desktop on Windows (DESIGN §7).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct ScreenSpec {
     pub machine: Machine,
-    /// Para reconocerla en la UI y en los logs; único por máquina.
+    /// To recognize it in the UI and in the logs; unique per machine.
     pub id: String,
     pub x: i32,
     pub y: i32,
@@ -346,12 +346,12 @@ pub struct ScreenSpec {
     pub scale: Scale,
 }
 
-/// Dónde queda un escritorio respecto del otro (DECISIONS D18): de qué lado y con qué
-/// alineación, sin coordenadas a mano. El borde de cruce es el tramo que comparten.
+/// Where one desktop sits relative to the other (DECISIONS D18): on which side and with what
+/// alignment, without manual coordinates. The crossing edge is the stretch they share.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct Arrangement {
-    /// El lado de B en que está A.
+    /// The side of B on which A is.
     #[serde(default)]
     pub a_side: Side,
     #[serde(default)]
@@ -359,9 +359,9 @@ pub struct Arrangement {
 }
 
 impl Arrangement {
-    /// El mismo acomodo dicho con los lados cambiados: si A estaba a la izquierda de B, la
-    /// que ahora se llama B (la de antes) sigue a la izquierda, es decir, la nueva A queda a
-    /// la derecha. La alineación es simétrica y no cambia.
+    /// The same arrangement said with the sides swapped: if A was to the left of B, the one
+    /// now called B (the former one) is still on the left, that is, the new A ends up on
+    /// the right. The alignment is symmetric and does not change.
     pub fn swapped(self) -> Self {
         Arrangement {
             a_side: self.a_side.opposite(),
@@ -370,24 +370,24 @@ impl Arrangement {
     }
 }
 
-/// El puesto compartido entre las dos máquinas (DESIGN §4.4): qué máquina es cada lado, el
-/// acomodo, las escenas, los atajos, las preferencias de teclado y mouse y los módulos
-/// encendidos. Lo edita la UI con parches ([`crate::DeskPatch`]) y lo sincronizan los dos
-/// agentes ([`crate::DeskVersion`]). Sin `[[screens]]` de una máquina valen las que ella
-/// misma lee; sin acomodo, A a la izquierda de B con el cruce proporcional de siempre.
+/// The desk shared between the two machines (DESIGN §4.4): which machine is each side, the
+/// arrangement, the scenes, the shortcuts, the keyboard and mouse preferences and the enabled
+/// modules. Edited by the UI with patches ([`crate::DeskPatch`]) and synchronized by the two
+/// agents ([`crate::DeskVersion`]). Without a machine's `[[screens]]`, the ones it
+/// reads itself apply; without an arrangement, A to the left of B with the usual proportional crossing.
 ///
-/// Viaja con postcard (`ControlMsg::Desk`): ningún campo puede saltarse al serializar.
+/// Travels with postcard (`ControlMsg::Desk`): no field can be skipped when serializing.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct Desk {
-    /// El nombre del puesto (T-159); `None`: el de omisión de la UI. Viaja con el puesto a
-    /// la otra máquina. En `tandem.toml` es `desk_name`.
+    /// The desk name (T-159); `None`: the UI default. Travels with the desk to
+    /// the other machine. In `tandem.toml` it is `desk_name`.
     #[serde(default, rename = "desk_name")]
     pub name: Option<String>,
     #[serde(default)]
     pub machines: Machines,
     #[serde(default)]
     pub screens: Vec<ScreenSpec>,
-    /// `None`: nunca se declaró.
+    /// `None`: never declared.
     #[serde(default)]
     pub arrangement: Option<Arrangement>,
     #[serde(default)]
@@ -398,43 +398,43 @@ pub struct Desk {
     pub prefs: InputPrefs,
     #[serde(default)]
     pub modules: Modules,
-    /// El tope de los datos por Wi-Fi (`[data]`, T-101).
+    /// The cap on data over Wi-Fi (`[data]`, T-101).
     #[serde(default)]
     pub data: DataPrefs,
-    /// A qué entrada de cada monitor compatible va cada máquina y qué pantalla suya es
-    /// (`[[cables]]`, T-111). Un monitor sin cable declarado se resuelve con el EDID.
+    /// Which input of each compatible monitor each machine goes to and which of its screens it is
+    /// (`[[cables]]`, T-111). A monitor without a declared cable is resolved with the EDID.
     #[serde(default)]
     pub cables: Vec<MonitorCable>,
 }
 
-/// El nombre de antes de [`Desk`].
+/// The previous name of [`Desk`].
 pub type Config = Desk;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("configuración inválida: {0}")]
+    #[error("invalid configuration: {0}")]
     Parse(#[from] toml::de::Error),
-    #[error("la pantalla `{id}` de la máquina {machine} está repetida")]
+    #[error("the screen `{id}` of machine {machine} is repeated")]
     DuplicateScreen { machine: Machine, id: String },
-    #[error("la pantalla `{id}` de la máquina {machine} no tiene área")]
+    #[error("the screen `{id}` of machine {machine} has no area")]
     EmptyScreen { machine: Machine, id: String },
-    #[error("una pantalla de la máquina {0} no tiene id")]
+    #[error("a screen of machine {0} has no id")]
     UnnamedScreen(Machine),
     #[error(transparent)]
     Data(#[from] DataPrefsError),
-    #[error("el color `{color}` de la máquina {machine} no es #rrggbb")]
+    #[error("the color `{color}` of machine {machine} is not #rrggbb")]
     BadColor { machine: Machine, color: String },
-    #[error("la máquina {0} no tiene nombre")]
+    #[error("machine {0} has no name")]
     UnnamedMachine(Machine),
-    #[error("una escena no tiene id o nombre")]
+    #[error("a scene has no id or name")]
     UnnamedScene,
-    #[error("la escena `{0}` está repetida")]
+    #[error("the scene `{0}` is repeated")]
     DuplicateScene(String),
     #[error("{0}")]
     BadScene(String),
-    #[error("el atajo {} ya es de otra escena o del bloqueo", .0.join("+"))]
+    #[error("the shortcut {} already belongs to another scene or to the lock", .0.join("+"))]
     DuplicateShortcut(Vec<String>),
-    #[error("un módulo de la máquina {0} no tiene id")]
+    #[error("a module of machine {0} has no id")]
     UnnamedModule(Machine),
     #[error("{0}")]
     BadCable(String),
@@ -484,8 +484,8 @@ impl Desk {
             }
         }
         let mut scenes = BTreeSet::new();
-        // El mismo atajo para dos cosas haría las dos a la vez: no se acepta. El orden de
-        // las teclas no importa.
+        // The same shortcut for two things would do both at once: not accepted. The order of
+        // the keys does not matter.
         let mut shortcuts = BTreeSet::new();
         let mut keys = |k: &[String]| {
             let set: BTreeSet<String> = k.iter().cloned().collect();
@@ -513,7 +513,7 @@ impl Desk {
             }
             if !cabled.insert(c.monitor.as_str()) {
                 return Err(ConfigError::BadCable(format!(
-                    "el monitor `{}` tiene dos cableados",
+                    "the monitor `{}` has two cablings",
                     c.monitor
                 )));
             }
@@ -521,19 +521,19 @@ impl Desk {
         Ok(())
     }
 
-    /// El cableado declarado de `monitor`.
+    /// The declared cabling of `monitor`.
     pub fn cable(&self, monitor: &str) -> Option<&MonitorCable> {
         self.cables.iter().find(|c| c.monitor == monitor)
     }
 
-    /// Las pantallas declaradas de `machine`, en el orden del archivo.
+    /// The declared screens of `machine`, in file order.
     pub fn screens_of(&self, machine: Machine) -> impl Iterator<Item = &ScreenSpec> {
         self.screens.iter().filter(move |s| s.machine == machine)
     }
 
-    /// El mismo puesto con los lados cambiados (A↔B): lo que se hace cuando una máquina
-    /// descubre, al emparejarse, que es el otro lado. Nada físico cambia: cada pantalla
-    /// sigue siendo de su máquina y el acomodo sigue siendo el mismo.
+    /// The same desk with the sides swapped (A↔B): what is done when a machine
+    /// discovers, when pairing, that it is the other side. Nothing physical changes: each screen
+    /// is still its machine's and the arrangement is still the same.
     pub fn swap_sides(self) -> Self {
         Desk {
             machines: self.machines.swapped(),
@@ -574,7 +574,7 @@ mod tests {
         assert_eq!(edited.data, desk.data);
         assert_eq!(
             Desk::default().summary_of_changes(&edited).as_deref(),
-            Some("Datos por Wi-Fi")
+            Some("Data over Wi-Fi")
         );
         let bad = DataPrefs {
             wifi_cap_percent: 0,
@@ -600,7 +600,7 @@ mod tests {
             r##"
             [machines.a]
             os = "windows"
-            name = "Torre"
+            name = "Tower"
             color = "#7aa7e6"
 
             [[screens]]
@@ -635,7 +635,7 @@ mod tests {
 
             [[scenes]]
             id = "trabajo"
-            name = "Trabajo"
+            name = "Work"
 
             [shortcuts]
             lock = ["ControlLeft", "KeyL"]
@@ -660,15 +660,15 @@ mod tests {
                 align: Align::End,
             })
         );
-        assert_eq!(cfg.scenes[0].name, "Trabajo");
+        assert_eq!(cfg.scenes[0].name, "Work");
         assert_eq!(cfg.shortcuts.lock, ["ControlLeft", "KeyL"]);
         assert!(!cfg.prefs.drag_files && cfg.prefs.cmd_ctrl);
         assert_eq!(cfg.modules.get(Machine::B, "clipboard"), Some(false));
         assert_eq!(cfg.modules.get(Machine::A, "clipboard"), None);
         let a = cfg.machines.get(Machine::A).unwrap();
-        assert_eq!((a.os, a.name.as_str()), (Os::Windows, "Torre"));
+        assert_eq!((a.os, a.name.as_str()), (Os::Windows, "Tower"));
         assert_eq!(cfg.machines.get(Machine::B), None);
-        assert_eq!(cfg.machines.name(Machine::B), "máquina B");
+        assert_eq!(cfg.machines.name(Machine::B), "machine B");
     }
 
     #[test]
@@ -683,7 +683,7 @@ mod tests {
             Config::from_toml(&twice),
             Err(ConfigError::DuplicateScreen { .. })
         ));
-        // El mismo id en cada máquina vale.
+        // The same id on each machine is fine.
         let both = format!("{}{}", screen("b", "a", 10, "1"), screen("a", "a", 10, "1"));
         assert!(Config::from_toml(&both).is_ok());
         assert!(matches!(
@@ -707,7 +707,7 @@ mod tests {
             Config::from_toml("[arrangement]\nside = \"left\""),
             Err(ConfigError::Parse(_))
         ));
-        // El desplazamiento a mano de antes ya no existe (D18): lo quita la migración.
+        // The manual offset from before no longer exists (D18): the migration removes it.
         assert!(matches!(
             Config::from_toml("[arrangement]\na_side = \"left\"\noffset = 0"),
             Err(ConfigError::Parse(_))
@@ -735,7 +735,7 @@ mod tests {
             Config::from_toml("[modules.a]\n\"\" = true"),
             Err(ConfigError::UnnamedModule(Machine::A))
         ));
-        // Los nombres de antes ya no son lados: los migra el agente, no el núcleo.
+        // The former names are no longer sides: the agent migrates them, not the core.
         assert!(matches!(
             Config::from_toml(&screen("mac", "a", 10, "1")),
             Err(ConfigError::Parse(_))
@@ -762,7 +762,7 @@ mod tests {
                 a_side: Side::Down,
                 align: Align::Start,
             }),
-            scenes: vec![Scene::new("solo", "Solo A")],
+            scenes: vec![Scene::new("only", "Only A")],
             ..Config::default()
         };
         let text = toml::to_string(&cfg).unwrap();
@@ -790,7 +790,7 @@ mod tests {
         assert_eq!(Machine::of_keys(&low, &high), Some(Machine::A));
         assert_eq!(Machine::of_keys(&high, &low), Some(Machine::B));
         assert_eq!(Machine::of_keys(&low, &low), None);
-        // Orden de bytes, no de números: el primer byte manda.
+        // Byte order, not numeric: the first byte rules.
         let mut a = [0xffu8; 32];
         a[0] = 0;
         let mut b = [0u8; 32];
@@ -809,7 +809,7 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&Machine::B).unwrap(),
             "\"b\"",
-            "en archivos y JSON van en minúscula"
+            "in files and JSON they are lowercase"
         );
     }
 
@@ -854,7 +854,7 @@ mod tests {
         let swapped = cfg.clone().swap_sides();
         assert_eq!(swapped.machines.b.as_ref().unwrap().os, Os::MacOs);
         assert_eq!(swapped.screens[0].machine, Machine::B);
-        // La Mac sigue a la izquierda: ahora es B, así que A (la PC) queda a la derecha.
+        // The Mac stays on the left: it is now B, so A (the PC) ends up on the right.
         let arr = swapped.arrangement.unwrap();
         assert_eq!(arr.a_side, Side::Right);
         assert_eq!(arr.align, Align::End);

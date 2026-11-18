@@ -1,5 +1,5 @@
-//! Portapapeles entre dos agentes del mismo proceso, por loopback con QUIC real
-//! y portapapeles simulados.
+//! Clipboard between two agents of the same process, over loopback with real QUIC
+//! and simulated clipboards.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -17,7 +17,7 @@ use tokio::sync::{oneshot, watch};
 use tokio::task::JoinHandle;
 
 const LOOPBACK: SocketAddr = SocketAddr::new(std::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
-/// Tope para que una prueba rota falle en vez de colgarse.
+/// Cap so a broken test fails instead of hanging.
 const TIMEOUT: Duration = Duration::from_secs(10);
 
 struct Only(PublicKey);
@@ -33,7 +33,7 @@ fn cfg() -> ClipConfig {
         poll: Duration::from_millis(5),
         sync: SyncConfig {
             inline_max: 1024,
-            // Trozos chicos: una imagen de prueba ya son muchos.
+            // Small chunks: a test image is already many.
             chunk_len: 4096,
             ..SyncConfig::default()
         },
@@ -43,7 +43,7 @@ fn cfg() -> ClipConfig {
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
 struct Link {
@@ -68,7 +68,7 @@ async fn link() -> Link {
     }
 }
 
-/// El stream del portapapeles: lo abre la Mac (quien conectó) y lo acepta la PC.
+/// The clipboard stream: opened by the Mac (the one that connected) and accepted by the PC.
 async fn streams(l: &Link) -> (ControlStream, ControlStream) {
     let mac_hello = Hello::new(Peer::Agent(Machine::A));
     let pc_hello = Hello::new(Peer::Agent(Machine::B));
@@ -92,8 +92,8 @@ struct Running {
 impl Running {
     async fn stop(self) -> Driver {
         let _ = self.stop.send(());
-        // Si el otro lado se detuvo antes, esta sesión ya pudo terminar por el
-        // stream cerrado.
+        // If the other side stopped earlier, this session may already have ended due to the
+        // closed stream.
         let (driver, end) = within(self.task).await.unwrap();
         assert!(matches!(end, SyncEnd::Stopped | SyncEnd::Link(_)), "{end}");
         driver
@@ -145,7 +145,7 @@ fn rich(text: &str) -> ClipContent {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn texto_copiado_en_la_mac_llega_a_la_pc_sin_eco() {
+async fn text_copied_on_the_mac_reaches_the_pc_without_echo() {
     let l = link().await;
     let (ms, ps) = streams(&l).await;
     let mac_cb = FakeClipboard::new();
@@ -155,15 +155,15 @@ async fn texto_copiado_en_la_mac_llega_a_la_pc_sin_eco() {
     let mut pc_stats = pc.stats();
     let (mac, pc) = (spawn(mac, ms), spawn(pc, ps));
 
-    mac_cb.copy(Some(rich("hola ñandú")));
+    mac_cb.copy(Some(rich("hello \u{fc}ber")));
     wait_state(&pc_cb, |s| !s.writes.is_empty()).await;
-    assert_eq!(pc_cb.state().content, Some(rich("hola ñandú")));
+    assert_eq!(pc_cb.state().content, Some(rich("hello \u{fc}ber")));
 
-    // Otra copia después: también llega, y lo escrito en la PC no vuelve.
-    mac_cb.copy(Some(ClipContent::text("segunda")));
-    // Hasta que el driver terminó de escribir y anotó el contador.
+    // Another copy afterwards: it also arrives, and what was written on the PC does not come back.
+    mac_cb.copy(Some(ClipContent::text("second")));
+    // Until the driver finished writing and noted the counter.
     wait_stats(&mut pc_stats, |s| s.written == 2).await;
-    // Algo toca el portapapeles de la PC sin cambiarlo: el hash lo frena.
+    // Something touches the PC's clipboard without changing it: the hash stops it.
     let reads = pc_cb.state().reads;
     pc_cb.touch();
     wait_state(&pc_cb, |s| s.reads > reads).await;
@@ -177,11 +177,11 @@ async fn texto_copiado_en_la_mac_llega_a_la_pc_sin_eco() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn la_escritura_convertida_por_el_sistema_no_vuelve_como_eco() {
+async fn a_write_converted_by_the_system_does_not_come_back_as_an_echo() {
     let l = link().await;
     let (ms, ps) = streams(&l).await;
     let mac_cb = FakeClipboard::new();
-    // Windows guarda el HTML con su cabecera CF_HTML: al leerlo no es igual.
+    // Windows stores the HTML with its CF_HTML header: reading it back is not equal.
     let pc_cb = FakeClipboard::new().with_rewrite(|mut c| {
         c.html = c.html.map(|h| format!("Version:0.9\r\n{h}"));
         c
@@ -189,10 +189,10 @@ async fn la_escritura_convertida_por_el_sistema_no_vuelve_como_eco() {
     let mac = spawn(ClipDriver::new(mac_cb.clone(), cfg(), true), ms);
     let pc = spawn(ClipDriver::new(pc_cb.clone(), cfg(), false), ps);
 
-    mac_cb.copy(Some(rich("con formato")));
+    mac_cb.copy(Some(rich("formatted")));
     wait_state(&pc_cb, |s| !s.writes.is_empty()).await;
-    // Una copia más de la Mac, en orden detrás de cualquier eco que hubiera.
-    mac_cb.copy(Some(ClipContent::text("marca")));
+    // One more copy from the Mac, in order behind any echo there might be.
+    mac_cb.copy(Some(ClipContent::text("mark")));
     wait_state(&pc_cb, |s| s.writes.len() == 2).await;
 
     let (mac, pc) = (mac.stop().await, pc.stop().await);
@@ -202,7 +202,7 @@ async fn la_escritura_convertida_por_el_sistema_no_vuelve_como_eco() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn imagen_grande_se_transfiere_cuando_la_pc_toma_el_foco() {
+async fn a_large_image_is_transferred_when_the_pc_takes_focus() {
     let l = link().await;
     let (ms, ps) = streams(&l).await;
     let mac_cb = FakeClipboard::new();
@@ -215,7 +215,7 @@ async fn imagen_grande_se_transfiere_cuando_la_pc_toma_el_foco() {
 
     let img = big_image(3);
     mac_cb.copy(Some(img.clone()));
-    // El anuncio llega, pero sin el foco no se transfiere.
+    // The announcement arrives, but without focus it is not transferred.
     wait_stats(&mut pc_stats, |s| s.offers_received == 1).await;
     assert!(pc_cb.state().writes.is_empty());
 
@@ -231,7 +231,7 @@ async fn imagen_grande_se_transfiere_cuando_la_pc_toma_el_foco() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn copias_en_los_dos_sentidos() {
+async fn copies_in_both_directions() {
     let l = link().await;
     let (ms, ps) = streams(&l).await;
     let mac_cb = FakeClipboard::new();
@@ -241,16 +241,16 @@ async fn copias_en_los_dos_sentidos() {
     let (mut mac_stats, mut pc_stats) = (mac.stats(), pc.stats());
     let (mac, pc) = (spawn(mac, ms), spawn(pc, ps));
 
-    mac_cb.copy(Some(ClipContent::text("de la mac")));
-    // Copiar recién cuando el driver terminó de escribir: una copia en medio de
-    // la escritura se confundiría con ella.
+    mac_cb.copy(Some(ClipContent::text("from the mac")));
+    // Copy only once the driver finished writing: a copy in the middle of
+    // the write would be confused with it.
     wait_stats(&mut pc_stats, |s| s.written == 1).await;
     pc_cb.copy(Some(big_image(1)));
     wait_stats(&mut mac_stats, |s| s.written == 1).await;
     assert_eq!(mac_cb.state().content, Some(big_image(1)));
-    mac_cb.copy(Some(rich("otra vez")));
+    mac_cb.copy(Some(rich("again")));
     wait_state(&pc_cb, |s| s.writes.len() == 2).await;
-    assert_eq!(pc_cb.state().content, Some(rich("otra vez")));
+    assert_eq!(pc_cb.state().content, Some(rich("again")));
 
     let (mac, pc) = (mac.stop().await, pc.stop().await);
     assert_eq!(mac.sync().stats().offers_sent, 2);
@@ -258,19 +258,19 @@ async fn copias_en_los_dos_sentidos() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn lo_copiado_sin_enlace_se_anuncia_en_la_sesion_siguiente() {
+async fn what_was_copied_without_a_link_is_announced_in_the_next_session() {
     let l = link().await;
     let mac_cb = FakeClipboard::new();
     let pc_cb = FakeClipboard::new();
-    // Lo que había antes de arrancar también es una copia sin anunciar.
-    mac_cb.copy(Some(ClipContent::text("de antes")));
+    // What was there before starting is also an unannounced copy.
+    mac_cb.copy(Some(ClipContent::text("from before")));
     let (ms, ps) = streams(&l).await;
     let mac = spawn(ClipDriver::new(mac_cb.clone(), cfg(), false), ms);
     let pc = spawn(ClipDriver::new(pc_cb.clone(), cfg(), true), ps);
     wait_state(&pc_cb, |s| s.writes.len() == 1).await;
     let (mac, pc) = (mac.stop().await, pc.stop().await);
 
-    // Sin enlace, la Mac copia una imagen grande.
+    // Without a link, the Mac copies a large image.
     mac_cb.copy(Some(big_image(9)));
     let (ms, ps) = streams(&l).await;
     let mac = spawn(mac, ms);
@@ -283,7 +283,7 @@ async fn lo_copiado_sin_enlace_se_anuncia_en_la_sesion_siguiente() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn el_par_que_cierra_el_stream_termina_la_sesion() {
+async fn the_peer_that_closes_the_stream_ends_the_session() {
     let l = link().await;
     let (ms, ps) = streams(&l).await;
     let pc = spawn(ClipDriver::new(FakeClipboard::new(), cfg(), true), ps);
@@ -292,9 +292,9 @@ async fn el_par_que_cierra_el_stream_termina_la_sesion() {
     assert!(matches!(end, SyncEnd::Link(_)), "{end}");
 }
 
-/// El portapapeles de Windows ocupado por otra app («being held by another party»): la
-/// lectura falla un rato. Cada falla seguida espera el doble (T-087), no se reintenta en
-/// cada vuelta del sondeo, y apenas se libera la copia llega al otro lado.
+/// Windows' clipboard busy with another app ("being held by another party"): the
+/// read fails for a while. Each consecutive failure waits twice as long (T-087), it is not retried on
+/// every polling turn, and as soon as it is released the copy reaches the other side.
 mod ocupado {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -303,7 +303,7 @@ mod ocupado {
 
     use super::*;
 
-    /// Un portapapeles que no deja leer las primeras `busy` veces.
+    /// A clipboard that does not allow reading the first `busy` times.
     struct Busy {
         inner: FakeClipboard,
         busy: u32,
@@ -333,14 +333,14 @@ mod ocupado {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn la_lectura_ocupada_reintenta_con_espera_progresiva() {
+    async fn a_busy_read_retries_with_progressive_backoff() {
         let l = link().await;
         let (ms, ps) = streams(&l).await;
         let mac_cb = FakeClipboard::new();
         let pc_cb = FakeClipboard::new();
         let attempts = Arc::new(AtomicU32::new(0));
         let at = Arc::new(Mutex::new(Vec::new()));
-        // Ocupado en las 4 primeras lecturas (la de arranque y tres más).
+        // Busy on the first 4 reads (the startup one and three more).
         let busy = Busy {
             inner: mac_cb.clone(),
             busy: 4,
@@ -361,18 +361,18 @@ mod ocupado {
         });
         let pc = spawn(pc, ps);
 
-        mac_cb.copy(Some(rich("tras la espera")));
+        mac_cb.copy(Some(rich("after the wait")));
         wait_state(&pc_cb, |s| !s.writes.is_empty()).await;
-        assert_eq!(pc_cb.state().content, Some(rich("tras la espera")));
+        assert_eq!(pc_cb.state().content, Some(rich("after the wait")));
 
-        // 4 fallos y un acierto, no un reintento por cada vuelta de 5 ms; y cada espera
-        // es mayor que la anterior (5, 10, 20, 40 ms de base).
+        // 4 failures and a success, not a retry on every 5 ms turn; and each wait
+        // is greater than the previous (5, 10, 20, 40 ms of base).
         let times = at.lock().unwrap().clone();
         assert!(times.len() <= 8, "{} lecturas", times.len());
         let gaps: Vec<Duration> = times.windows(2).map(|w| w[1] - w[0]).collect();
         assert!(
             gaps[3] >= Duration::from_millis(35),
-            "la cuarta espera debía ser de unos 40 ms: {gaps:?}"
+            "the fourth wait should be about 40 ms: {gaps:?}"
         );
 
         let _ = stop.send(());

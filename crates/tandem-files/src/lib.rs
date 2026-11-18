@@ -1,16 +1,16 @@
-//! Archivos y puertos por túnel (DESIGN §8, T-106), y base de los arrastres (§9, T-121).
+//! Files and ports per tunnel (DESIGN §8, T-106), and base of the drags (§9, T-121).
 //!
-//! - [`path`]: rutas normalizadas entre Windows y Unix.
-//! - [`source`] / [`sink`]: leer un árbol con hashes BLAKE3 por fragmento (1 MiB) y del total;
-//!   escribirlo verificando, con reanudación desde disco, permisos y fechas conservados.
-//! - [`transfer`]: `put` y `get` sobre un stream de túnel, con progreso y reintento.
-//! - [`ports`]: reenvío de puertos TCP en las dos direcciones.
-//! - [`Files`]: lo que cuelga un agente (el lado destino y los reenvíos del origen).
-//! - [`drag`]: arrastrar archivos al cruzar el borde (D14), con el sistema detrás de traits.
-//! - [`mem`]: caminos en memoria con cortes, para probar con dos agentes en un proceso.
+//! - [`path`]: normalized paths between Windows and Unix.
+//! - [`source`] / [`sink`]: read a tree with BLAKE3 hashes per chunk (1 MiB) and of the total;
+//!   write it verifying, with resumption from disk, permissions and dates preserved.
+//! - [`transfer`]: `put` and `get` over a tunnel stream, with progress and retry.
+//! - [`ports`]: TCP port forwarding in both directions.
+//! - [`Files`]: what an agent hangs on (the destination side and the origin's forwards).
+//! - [`drag`]: drag files when crossing the edge (D14), with the system behind traits.
+//! - [`mem`]: in-memory paths with cuts, to test with two agents in one process.
 //!
-//! Los fragmentos y los pedidos van por `Channel::Tunnel` (T-103), así que heredan la
-//! prioridad baja y el tope de ancho de banda de los datos (T-101).
+//! Chunks and requests go over `Channel::Tunnel` (T-103), so they inherit the
+//! low priority and the bandwidth cap of data (T-101).
 
 pub mod drag;
 #[cfg(target_os = "macos")]
@@ -43,8 +43,8 @@ pub use sink::Sink;
 pub use source::Source;
 pub use transfer::Options;
 
-/// Archivos y puertos de un agente: atiende los pedidos de la otra máquina (destino) y
-/// lleva las transferencias y reenvíos que abrieron los clientes locales (origen).
+/// Files and ports of an agent: serves the other machine's requests (destination) and
+/// carries the transfers and forwards that local clients opened (origin).
 #[derive(Clone)]
 pub struct Files {
     ports: PortHost,
@@ -75,7 +75,7 @@ impl Files {
         }
     }
 
-    /// El avance de las transferencias que arrancó esta máquina.
+    /// The progress of the transfers this machine started.
     pub fn subscribe_progress(&self) -> broadcast::Receiver<TransferProgress> {
         self.progress.subscribe()
     }
@@ -84,8 +84,8 @@ impl Files {
         &self.forwards
     }
 
-    /// Atiende un stream de túnel que abrió la otra máquina: archivos y puertos aquí, lo
-    /// demás (abrir, cerrar, canal de datos) lo resuelve `tandem-tunnel`.
+    /// Serves a tunnel stream opened by the other machine: files and ports here, the
+    /// rest (open, close, data channel) is resolved by `tandem-tunnel`.
     pub async fn serve<W: TargetWire>(&self, host: &Host, mut wire: W) -> Result<(), WireError> {
         let Some(req) = wire.recv().await? else {
             return Ok(());
@@ -93,8 +93,8 @@ impl Files {
         self.serve_request(host, wire, req).await
     }
 
-    /// Como [`Files::serve`] con el primer pedido ya leído: para quien reparte pedidos de
-    /// otros módulos (workspaces) y deja los de archivos y puertos aquí.
+    /// Like [`Files::serve`] with the first request already read: for whoever dispatches requests of
+    /// other modules (workspaces) and leaves those of files and ports here.
     pub async fn serve_request<W: TargetWire>(
         &self,
         host: &Host,
@@ -108,8 +108,8 @@ impl Files {
         }
     }
 
-    /// Copia `local` a `remote` en la destino del túnel. Lo que parece una credencial no
-    /// viaja (T-130); lo omitido sale en el informe.
+    /// Copies `local` to `remote` on the tunnel's destination. What looks like a credential does not
+    /// travel (T-130); what was skipped goes in the report.
     pub async fn put(
         &self,
         origin: &Origin,
@@ -120,8 +120,8 @@ impl Files {
         self.put_with(origin, tunnel, local, remote, &[]).await
     }
 
-    /// Como [`Files::put`], mandando también las credenciales que `include` nombre (rutas
-    /// relativas a `local`).
+    /// Like [`Files::put`], also sending the credentials that `include` names (paths
+    /// relative to `local`).
     pub async fn put_with(
         &self,
         origin: &Origin,
@@ -136,7 +136,7 @@ impl Files {
         transfer::put(origin, tunnel, local, remote, include, &self.opts, &sink).await
     }
 
-    /// Trae `remote` de la destino del túnel a `local`.
+    /// Fetches `remote` from the tunnel's destination to `local`.
     pub async fn get(
         &self,
         origin: &Origin,
@@ -150,7 +150,7 @@ impl Files {
         transfer::get(origin, tunnel, remote, local, &self.opts, &sink).await
     }
 
-    /// Reenvía un puerto por el túnel.
+    /// Forwards a port through the tunnel.
     pub async fn forward(
         &self,
         origin: &Origin,

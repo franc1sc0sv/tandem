@@ -1,5 +1,5 @@
-//! El doble de prueba de [`Spawner`]: los «procesos» los maneja la prueba (escribe su
-//! salida, los hace terminar) y ve qué se le pidió lanzar y si lo mataron.
+//! The [`Spawner`] test double: the "processes" are driven by the test (writes their
+//! output, makes them end) and sees what it was asked to launch and whether they were killed.
 
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,7 +16,7 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Lanza procesos simulados; cada uno queda en [`FakeSpawner::processes`].
+/// Launches simulated processes; each one ends up in [`FakeSpawner::processes`].
 #[derive(Clone, Default)]
 pub struct FakeSpawner {
     state: Arc<Mutex<State>>,
@@ -33,12 +33,12 @@ impl FakeSpawner {
         Self::default()
     }
 
-    /// Desde ahora, lanzar falla con este mensaje (`None`: vuelve a funcionar).
+    /// From now on, launching fails with this message (`None`: works again).
     pub fn fail_with(&self, why: Option<&str>) {
         lock(&self.state).fail = why.map(str::to_owned);
     }
 
-    /// Los procesos lanzados, en orden.
+    /// The launched processes, in order.
     pub fn processes(&self) -> Vec<Arc<FakeProcess>> {
         lock(&self.state).spawned.clone()
     }
@@ -72,9 +72,9 @@ impl Spawner for FakeSpawner {
     }
 }
 
-/// Un proceso simulado.
+/// A simulated process.
 pub struct FakeProcess {
-    /// Lo que se pidió lanzar.
+    /// What was asked to launch.
     pub launch: Launch,
     pub pid: u32,
     stdout: Mutex<Option<mpsc::UnboundedSender<Vec<u8>>>>,
@@ -97,19 +97,19 @@ impl FakeProcess {
         }
     }
 
-    /// Cierra las salidas sin terminar el proceso.
+    /// Closes the outputs without ending the process.
     pub fn close_output(&self) {
         lock(&self.stdout).take();
         lock(&self.stderr).take();
     }
 
-    /// Termina con ese código y cierra sus salidas.
+    /// Ends with that code and closes its outputs.
     pub fn exit(&self, code: i32) {
         self.exit_keeping_output(code);
         self.close_output();
     }
 
-    /// Termina pero deja las salidas abiertas, como un proceso que dejó un hijo vivo.
+    /// Ends but leaves the outputs open, like a process that left a live child.
     pub fn exit_keeping_output(&self, code: i32) {
         self.exit.send_if_modified(|e| {
             let first = e.is_none();
@@ -120,12 +120,12 @@ impl FakeProcess {
         });
     }
 
-    /// Lo mataron con `kill_tree` (por `kill` o por el cierre del túnel).
+    /// It was killed with `kill_tree` (by `kill` or by the tunnel closing).
     pub fn is_killed(&self) -> bool {
         self.killed.load(Ordering::SeqCst)
     }
 
-    /// El túnel ya lo dio por terminado del todo (`release`).
+    /// The tunnel already considers it fully ended (`release`).
     pub fn is_released(&self) -> bool {
         self.released.load(Ordering::SeqCst)
     }
@@ -165,7 +165,7 @@ impl Child for FakeChild {
     }
 }
 
-/// Una salida que se lee como un archivo: termina cuando se cierra el extremo que escribe.
+/// An output read like a file: it ends when the writing end is closed.
 struct Pipe {
     rx: mpsc::UnboundedReceiver<Vec<u8>>,
     pending: Vec<u8>,
@@ -201,7 +201,7 @@ impl AsyncRead for Pipe {
                     self.pending = chunk;
                     self.at = 0;
                 }
-                // Cerrado: fin del archivo.
+                // Closed: end of file.
                 Poll::Ready(None) => return Poll::Ready(Ok(())),
                 Poll::Pending => return Poll::Pending,
             }

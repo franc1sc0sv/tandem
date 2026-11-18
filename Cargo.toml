@@ -8,55 +8,55 @@ edition = "2024"
 license = "MIT"
 repository = "https://github.com/franc1sc0sv/tandem"
 
-# Versiones fijadas para todo el workspace. Cada crate activa las features que necesite.
-# Las de plataforma (windows, objc2*) se usan desde `[target.'cfg(windows)'.dependencies]`
-# o `[target.'cfg(target_os = "macos")'.dependencies]` del crate, nunca en `[dependencies]`.
+# Pinned versions for the whole workspace. Each crate enables the features it needs.
+# Platform ones (windows, objc2*) are used from `[target.'cfg(windows)'.dependencies]`
+# or `[target.'cfg(target_os = "macos")'.dependencies]` of the crate, never in `[dependencies]`.
 [workspace.dependencies]
-# Portables
+# Portable
 anyhow = "1.0.104"
 arboard = "3.7.0"
-# Hash de fragmentos y de archivos completos (T-106). `pure`: sin C ni SIMD a mano, para que
-# compile igual en las tres plataformas.
+# Hash of chunks and of whole files (T-106). `pure`: no C or hand-written SIMD, so it
+# compiles the same on the three platforms.
 blake3 = { version = "1.8", default-features = false, features = ["std", "pure"] }
 bytes = "1"
-# Directorios estándar de la app (datos, configuración) en cada sistema.
+# Standard app directories (data, configuration) on each system.
 dirs = "7.0.0"
 ed25519-dalek = { version = "3.0.0", features = ["pkcs8", "alloc"] }
 getrandom = "0.4.3"
 keycode = "1.0.0"
-# Matar el grupo de procesos de un túnel en Unix (T-104).
+# Kill a tunnel's process group on Unix (T-104).
 libc = "0.2"
 mdns-sd = "0.21.5"
-# Control de monitores por el estándar del firmware propio (DECISIONS A5, D12): repo
-# `monitor-firmware`, rama develop, fijado por commit (T-109, monitor-firmware#1).
+# Monitor control through the in-house firmware standard (DECISIONS A5, D12): repo
+# `monitor-firmware`, develop branch, pinned by commit (T-109, monitor-firmware#1).
 monitor-ddc = { git = "https://github.com/franc1sc0sv/monitor-firmware", rev = "e850a2d4a63c26c100aa846970f8673afed39229" }
 postcard = { version = "1.1.3", features = ["use-std"] }
-# Solo pruebas: invariantes de planes, transacciones y protocolo.
+# Tests only: invariants of plans, transactions and protocol.
 if-addrs = { version = "0.15.0", features = ["link-local"] }
 proptest = "1.12.0"
-# Sin `platform-verifier` (la confianza la da el pinning) y con ring como en rcgen,
-# para no arrastrar aws-lc-rs (cmake/nasm en Windows).
+# Without `platform-verifier` (trust comes from pinning) and with ring as in rcgen,
+# so as not to drag in aws-lc-rs (cmake/nasm on Windows).
 quinn = { version = "0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }
 rcgen = "0.14.10"
-# 0.23 es la línea estable y la que usa quinn 0.11.
+# 0.23 is the stable line and the one quinn 0.11 uses.
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "logging"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0.151"
 sha2 = "0.11"
-# CPU, RAM, disco y temperaturas en los tres sistemas (T-105). Sin rayon ni red/usuarios.
+# CPU, RAM, disk and temperatures on the three systems (T-105). Without rayon or network/users.
 sysinfo = { version = "0.40.4", default-features = false, features = ["component", "disk", "system"] }
-# UI (apps/tandem-ui): solo con la feature `app`, que necesita WebKitGTK en Linux.
+# UI (apps/tandem-ui): only with the `app` feature, which needs WebKitGTK on Linux.
 tauri = "2.12.4"
 tauri-build = "2.7.3"
-# Atajos globales de la UI (T-042).
+# Global UI shortcuts (T-042).
 tauri-plugin-global-shortcut = "2.4.1"
-# Actualización automática desde GitHub Releases, con firma minisign propia (T-122).
+# Automatic update from GitHub Releases, with its own minisign signature (T-122).
 tauri-plugin-updater = "2.14.1"
 tempfile = "3"
 thiserror = "2"
 tokio = "1.53.3"
 toml = "0.9"
-# Editar tandem.toml sin perder los comentarios del usuario (T-080).
+# Edit tandem.toml without losing the user's comments (T-080).
 toml_edit = "0.25"
 tracing = "0.1.44"
 tracing-subscriber = "0.3.23"
@@ -66,8 +66,8 @@ zeroize = "1.8"
 windows = "0.62.2"
 windows-core = "0.62.2"
 
-# macOS. Sin features por defecto (arrastran todos los frameworks): cada crate
-# activa `std` y lo que use.
+# macOS. No default features (they pull in all the frameworks): each crate
+# enables `std` and whatever it uses.
 dispatch2 = { version = "0.3.1", default-features = false }
 objc2 = "0.6.5"
 objc2-app-kit = { version = "0.3.2", default-features = false }

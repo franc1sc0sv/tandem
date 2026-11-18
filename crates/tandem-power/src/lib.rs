@@ -1,12 +1,12 @@
-//! Wake-on-LAN, apagado remoto (DESIGN §5 y §6).
+//! Wake-on-LAN and remote shutdown (DESIGN §5 and §6).
 //!
-//! - [`MacAddr`] y [`magic_packet`]: el paquete mágico, sin E/S, para probarlo en cualquier sistema.
-//! - [`Wake`] / [`UdpWake`]: mandar el paquete por UDP desde la interfaz Ethernet configurada.
-//! - [`Shutdown`]: apagado limpio de esta máquina; la implementación real solo existe en
+//! - [`MacAddr`] and [`magic_packet`]: the magic packet, with no I/O, so it can be tested on any system.
+//! - [`Wake`] / [`UdpWake`]: send the packet over UDP from the configured Ethernet interface.
+//! - [`Shutdown`]: clean shutdown of this machine; the real implementation only exists on
 //!   Windows ([`WindowsShutdown`]).
 //!
-//! Esperar a que el agente de la PC responda tras el Wake-on-LAN no es de este crate:
-//! lo hace el orquestador de `tandemd`, que sabe si el otro agente está conectado.
+//! Waiting for the PC agent to answer after Wake-on-LAN is not this crate's job:
+//! the `tandemd` orchestrator does it, since it knows whether the other agent is connected.
 
 mod mac;
 pub mod nic;
@@ -23,25 +23,25 @@ pub use windows::WindowsShutdown;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PowerError {
-    #[error("no se pudo mandar el Wake-on-LAN a {target}: {source}")]
+    #[error("could not send Wake-on-LAN to {target}: {source}")]
     Send {
         target: std::net::SocketAddr,
         #[source]
         source: std::io::Error,
     },
-    #[error("no se pudo usar la dirección de origen {source_ip} para el Wake-on-LAN: {error}")]
+    #[error("could not use source address {source_ip} for Wake-on-LAN: {error}")]
     Bind {
         source_ip: std::net::IpAddr,
         #[source]
         error: std::io::Error,
     },
-    #[error("el sistema rechazó el apagado: {0}")]
+    #[error("the system rejected the shutdown: {0}")]
     Shutdown(String),
 }
 
-/// Apagar esta máquina de forma limpia (como `shutdown /s /t 0`).
+/// Shut this machine down cleanly (like `shutdown /s /t 0`).
 pub trait Shutdown: Send + Sync {
-    /// Inicia el apagado y vuelve enseguida: el sistema cierra los programas después,
-    /// y eso le da tiempo al agente de contestar que el paso salió bien.
+    /// Starts the shutdown and returns right away: the system closes programs afterwards,
+    /// which gives the agent time to answer that the step went fine.
     fn power_off(&self) -> Result<(), PowerError>;
 }

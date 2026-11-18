@@ -1,10 +1,10 @@
-//! Las operaciones sobre repos, bloqueantes y detrás de [`Git`].
+//! Repo operations, blocking and behind [`Git`].
 //!
-//! Ida (origen): un bundle del `HEAD` y un parche con todo lo pendiente (también lo nuevo
-//! sin seguimiento, nunca lo ignorado), calculado con un índice temporal para no tocar el
-//! del usuario. Destino: init + fetch del bundle + parche. Vuelta: commit opcional de lo
-//! pendiente, bundle de los commits nuevos y, en el origen, una rama nueva con `fetch`
-//! (no toca la rama actual ni el árbol de trabajo).
+//! Outbound (origin): a bundle of `HEAD` and a patch with everything pending (also new
+//! untracked files, never ignored ones), computed with a temporary index so as not to touch the
+//! user's. Destination: init + bundle fetch + patch. Return: optional commit of the
+//! pending work, bundle of the new commits and, at the origin, a new branch with `fetch`
+//! (it touches neither the current branch nor the working tree).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,32 +18,32 @@ use crate::git::{Git, GitCmd, GitExt};
 pub const BUNDLE: &str = "repo.bundle";
 pub const PATCH: &str = "changes.patch";
 pub const SUBMODULES: &str = "submodules";
-/// Quién es el usuario en el origen (nombre y correo, uno por línea): los commits de la
-/// destino salen a su nombre.
+/// Who the user is at the origin (name and email, one per line): commits on the
+/// destination are made in their name.
 pub const IDENTITY: &str = "identity.txt";
 pub const BACK_BUNDLE: &str = "back.bundle";
-/// El commit del que parte el trabajo en la destino.
+/// The commit the work starts from on the destination.
 pub const BASE_REF: &str = "refs/tandem/base";
-/// La rama de la destino.
+/// The destination branch.
 pub const WORK_BRANCH: &str = "tandem/work";
 
-/// Lo que el origen dejó en la carpeta de envío.
+/// What the origin left in the send folder.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Packed {
     pub root: PathBuf,
-    /// El `HEAD` del origen: de él parte el trabajo y a él se vuelve.
+    /// The origin's `HEAD`: the work starts from it and returns to it.
     pub head: String,
     pub branch: Option<String>,
     pub has_patch: bool,
     pub submodules: Vec<String>,
-    /// Lo que parecía una credencial y no viaja (T-130); rutas del repo.
+    /// What looked like a credential and does not travel (T-130); repo paths.
     pub skipped: Vec<String>,
-    /// Credenciales que alguna vez entraron a la historia que viaja en el bundle (T-130):
-    /// no se pueden quitar, solo avisar.
+    /// Credentials that at some point entered the history that travels in the bundle (T-130):
+    /// they cannot be removed, only reported.
     pub history_secrets: Vec<String>,
 }
 
-/// Borra el archivo al salir, por el camino que sea (un `?` incluido).
+/// Deletes the file on exit, whichever way (a `?` included).
 struct RemoveOnDrop<'a>(&'a Path);
 
 impl Drop for RemoveOnDrop<'_> {
@@ -60,14 +60,14 @@ fn s(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
 
-/// Prepara en `stage` lo que viaja a la destino.
+/// Prepares in `stage` what travels to the destination.
 pub fn pack_origin(
     git: &dyn Git,
     repo: &Path,
     stage: &Path,
     filter: &SecretFilter,
 ) -> Result<Packed, WorkspaceError> {
-    fs::create_dir_all(stage).map_err(|e| io("crear la carpeta de envío", e))?;
+    fs::create_dir_all(stage).map_err(|e| io("create the send folder", e))?;
     let top = git
         .out(repo, &["rev-parse", "--show-toplevel"])
         .map_err(|_| WorkspaceError::NotARepo(s(repo)))?;
@@ -86,16 +86,16 @@ pub fn pack_origin(
         &["bundle", "create", "-q", &s(&bundle), "HEAD"],
     ))?;
 
-    // Índice aparte: `add -A` en el del usuario le cambiaría lo que tiene preparado.
+    // Separate index: `add -A` on the user's would change what they have staged.
     let index = stage.join("index.tmp");
     let _cleanup = RemoveOnDrop(&index);
     let with_index = |args: &[&str]| GitCmd::new(&root, args).env("GIT_INDEX_FILE", s(&index));
     git.run(&with_index(&["read-tree", "HEAD"]))?;
     git.run(&with_index(&["add", "-A"]))?;
-    // Las credenciales no viajan, estén o no en `.gitignore` (T-130): se devuelven en el
-    // índice temporal a lo que dice `HEAD` (lo nuevo desaparece, lo modificado vuelve a
-    // su versión confirmada) y se anotan. Lo ya confirmado sí está en el bundle: la
-    // historia no se reescribe.
+    // Credentials do not travel, whether or not they are in `.gitignore` (T-130): in the
+    // temporary index they are reset to what `HEAD` says (new ones disappear, modified ones go back to
+    // their committed version) and are noted. What is already committed is in the bundle: the
+    // history is not rewritten.
     let mut skipped = Vec::new();
     let changed = git.run(&with_index(&[
         "diff",
@@ -117,7 +117,7 @@ pub fn pack_origin(
         args.extend(chunk.iter().map(String::as_str));
         git.run(&with_index(&args))?;
     }
-    // Los submódulos viajan copiados (abajo), no como parche.
+    // Submodules travel copied (below), not as a patch.
     let patch = git.run(&with_index(&[
         "diff",
         "--cached",
@@ -132,7 +132,7 @@ pub fn pack_origin(
     let patch = patch?;
     let has_patch = !patch.is_empty();
     if has_patch {
-        fs::write(stage.join(PATCH), &patch).map_err(|e| io("escribir el parche", e))?;
+        fs::write(stage.join(PATCH), &patch).map_err(|e| io("write the patch", e))?;
     }
 
     let name = git.out(&root, &["config", "user.name"]).unwrap_or_default();
@@ -141,7 +141,7 @@ pub fn pack_origin(
         .unwrap_or_default();
     if !name.is_empty() && !email.is_empty() {
         fs::write(stage.join(IDENTITY), format!("{name}\n{email}\n"))
-            .map_err(|e| io("escribir la identidad", e))?;
+            .map_err(|e| io("write the identity", e))?;
     }
     let submodules = submodule_paths(git, &root)?;
     for sub in &submodules {
@@ -160,8 +160,8 @@ pub fn pack_origin(
     })
 }
 
-/// Rutas que parecen credenciales y alguna vez se agregaron en la historia de `HEAD`
-/// (la que viaja en el bundle). Si `git log` falla no se avisa: es un aviso, no un filtro.
+/// Paths that look like credentials and were at some point added to the history of `HEAD`
+/// (the one that travels in the bundle). If `git log` fails nothing is reported: it is a notice, not a filter.
 fn history_secrets(git: &dyn Git, root: &Path) -> Vec<String> {
     let Ok(out) = git.run(&GitCmd::new(
         root,
@@ -188,7 +188,7 @@ fn history_secrets(git: &dyn Git, root: &Path) -> Vec<String> {
     found
 }
 
-/// Las rutas de los submódulos del `HEAD` (entradas `160000` del índice).
+/// The submodule paths of `HEAD` (`160000` index entries).
 fn submodule_paths(git: &dyn Git, root: &Path) -> Result<Vec<String>, WorkspaceError> {
     let out = git.run(&GitCmd::new(root, &["ls-files", "-z", "--stage"]))?;
     Ok(out
@@ -201,12 +201,12 @@ fn submodule_paths(git: &dyn Git, root: &Path) -> Result<Vec<String>, WorkspaceE
         .collect())
 }
 
-/// Copia un árbol sin su `.git` ni enlaces simbólicos.
+/// Copies a tree without its `.git` or symbolic links.
 pub fn copy_tree(from: &Path, to: &Path) -> Result<(), WorkspaceError> {
     copy_tree_with(from, to, "", &SecretFilter::default(), &mut Vec::new())
 }
 
-/// Como [`copy_tree`], sin las credenciales (T-130); `rel` es la ruta de `from` en el repo.
+/// Like [`copy_tree`], without the credentials (T-130); `rel` is the path of `from` in the repo.
 fn copy_tree_with(
     from: &Path,
     to: &Path,
@@ -214,17 +214,17 @@ fn copy_tree_with(
     filter: &SecretFilter,
     skipped: &mut Vec<String>,
 ) -> Result<(), WorkspaceError> {
-    fs::create_dir_all(to).map_err(|e| io("crear una carpeta", e))?;
+    fs::create_dir_all(to).map_err(|e| io("create a folder", e))?;
     let Ok(entries) = fs::read_dir(from) else {
         return Ok(());
     };
     for entry in entries {
-        let entry = entry.map_err(|e| io("leer una carpeta", e))?;
+        let entry = entry.map_err(|e| io("read a folder", e))?;
         let name = entry.file_name();
         if name == ".git" {
             continue;
         }
-        let kind = entry.file_type().map_err(|e| io("leer una entrada", e))?;
+        let kind = entry.file_type().map_err(|e| io("read an entry", e))?;
         let dest = to.join(&name);
         let sub = if rel.is_empty() {
             name.to_string_lossy().into_owned()
@@ -236,22 +236,22 @@ fn copy_tree_with(
         } else if kind.is_dir() {
             copy_tree_with(&entry.path(), &dest, &sub, filter, skipped)?;
         } else if kind.is_file() {
-            fs::copy(entry.path(), &dest).map_err(|e| io("copiar un archivo", e))?;
+            fs::copy(entry.path(), &dest).map_err(|e| io("copy a file", e))?;
         }
     }
     Ok(())
 }
 
-/// En la destino: arma `work` con el bundle y el parche que dejó el origen en `stage`.
+/// On the destination: builds `work` with the bundle and the patch the origin left in `stage`.
 pub fn checkout(git: &dyn Git, stage: &Path, work: &Path) -> Result<(), WorkspaceError> {
     let bundle = stage.join(BUNDLE);
     if !bundle.is_file() {
         return Err(WorkspaceError::Missing(s(&bundle)));
     }
     if work.exists() {
-        fs::remove_dir_all(work).map_err(|e| io("limpiar el workspace", e))?;
+        fs::remove_dir_all(work).map_err(|e| io("clean the workspace", e))?;
     }
-    fs::create_dir_all(work).map_err(|e| io("crear el workspace", e))?;
+    fs::create_dir_all(work).map_err(|e| io("create the workspace", e))?;
     git.run(&GitCmd::new(work, &["init", "-q", "--template="]))?;
     strip_credentials(git, work)?;
     let fetch = format!("+HEAD:{BASE_REF}");
@@ -263,8 +263,8 @@ pub fn checkout(git: &dyn Git, stage: &Path, work: &Path) -> Result<(), Workspac
         work,
         &["checkout", "-q", "-b", WORK_BRANCH, BASE_REF],
     ))?;
-    // Los commits salen a nombre del usuario del origen; si no se sabe, una identidad local
-    // solo si hace falta (sin ella git no puede hacer commit).
+    // Commits are made in the origin user's name; if unknown, a local identity
+    // only if needed (without one git cannot commit).
     let identity = fs::read_to_string(stage.join(IDENTITY)).unwrap_or_default();
     let mut lines = identity.lines();
     if let (Some(name), Some(email)) = (lines.next(), lines.next()) {
@@ -295,16 +295,16 @@ pub fn checkout(git: &dyn Git, stage: &Path, work: &Path) -> Result<(), Workspac
     Ok(())
 }
 
-/// El repo de la destino no guarda ningún remoto ni ayudante de credenciales (T-130): ni
-/// el `fetch` del bundle los crea, pero se borran por si la plantilla o el sistema los
-/// pusieron, y se deja un `credential.helper` vacío para que tampoco valga el global.
+/// The destination repo keeps no remote or credential helper (T-130): not even
+/// the bundle `fetch` creates them, but they are deleted in case the template or the system
+/// put them there, and an empty `credential.helper` is left so the global one does not apply either.
 pub fn strip_credentials(git: &dyn Git, work: &Path) -> Result<(), WorkspaceError> {
     for remote in git.out(work, &["remote"])?.lines().map(str::trim) {
         if !remote.is_empty() {
             git.run(&GitCmd::new(work, &["remote", "remove", remote]))?;
         }
     }
-    // `--local`: si no hay helper propio, `--unset-all` sale con 5 y no es un error.
+    // `--local`: if there is no helper of its own, `--unset-all` exits with 5 and it is not an error.
     let _ = git.run(&GitCmd::new(
         work,
         &["config", "--local", "--unset-all", "credential.helper"],
@@ -312,7 +312,7 @@ pub fn strip_credentials(git: &dyn Git, work: &Path) -> Result<(), WorkspaceErro
     Ok(())
 }
 
-/// Lo que `bring_back` saca de la destino.
+/// What `bring_back` takes out of the destination.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Back {
     pub bundle: Option<PathBuf>,
@@ -321,8 +321,8 @@ pub struct Back {
     pub committed_pending: bool,
 }
 
-/// En la destino: con `message`, hace commit de lo pendiente; después empaqueta los
-/// commits que no estaban en el origen en `out`.
+/// On the destination: with `message`, commits the pending work; then packs the
+/// commits that were not at the origin into `out`.
 pub fn pack_back(
     git: &dyn Git,
     work: &Path,
@@ -344,7 +344,7 @@ pub fn pack_back(
         .out(work, &["rev-parse", "--verify", BASE_REF])
         .map_err(|_| WorkspaceError::Missing(BASE_REF.into()))?;
     let range = format!("{base}..HEAD");
-    // 0x1f separa campos y 0x1e registros: el resumen puede llevar cualquier otro carácter.
+    // 0x1f separates fields and 0x1e records: the summary may carry any other character.
     let log = git.out(
         work,
         &["log", "--reverse", "--format=%H%x1f%an%x1f%s%x1e", &range],
@@ -385,18 +385,18 @@ pub fn pack_back(
     })
 }
 
-/// En el origen: crea la rama `tandem/<name>` con los commits del bundle. `fetch` solo
-/// agrega objetos y una referencia nueva: ni la rama actual ni el árbol de trabajo
-/// cambian. Si el nombre existe se le agrega `-2`, `-3`…
+/// At the origin: creates the branch `tandem/<name>` with the bundle's commits. `fetch` only
+/// adds objects and a new reference: neither the current branch nor the working tree
+/// change. If the name exists, `-2`, `-3`... is appended.
 pub fn fetch_back(
     git: &dyn Git,
     root: &Path,
     bundle: &Path,
     name: &str,
 ) -> Result<String, WorkspaceError> {
-    // Primero a una referencia propia y después `update-ref` con "no existe" como valor
-    // viejo: la comprobación y la creación son una sola operación atómica, así que otra
-    // llamada concurrente con el mismo nombre no puede pisar la rama.
+    // First to a reference of our own and then `update-ref` with "does not exist" as the old
+    // value: the check and the creation are a single atomic operation, so another
+    // concurrent call with the same name cannot overwrite the branch.
     let incoming = format!("refs/tandem/incoming/{name}");
     git.run(&GitCmd::new(
         root,
@@ -431,7 +431,7 @@ fn create_branch(
         let full = format!("refs/heads/{branch}");
         match git.run(&GitCmd::new(root, &["update-ref", &full, &sha, ""])) {
             Ok(_) => return Ok(branch),
-            // Ya existía (o la ganaron): siguiente sufijo. Otro fallo es real.
+            // It already existed (or they won the race): next suffix. Any other failure is real.
             Err(e) => {
                 if !git.ok(root, &["show-ref", "--verify", "--quiet", &full]) {
                     return Err(e.into());
@@ -442,7 +442,7 @@ fn create_branch(
     }
 }
 
-/// Un nombre de rama seguro a partir de un título: minúsculas ASCII, dígitos y `-`.
+/// A safe branch name from a title: ASCII lowercase, digits and `-`.
 pub fn slug(title: &str, fallback: &str) -> String {
     let mut out = String::new();
     for c in title.chars() {
@@ -468,15 +468,15 @@ mod tests {
     use proptest::prelude::*;
 
     #[test]
-    fn el_nombre_de_rama_sale_del_titulo() {
-        assert_eq!(slug("Arregla el bug #42!", "x"), "arregla-el-bug-42");
-        assert_eq!(slug("¡¡¡", "tunel-1"), "tunel-1");
+    fn branch_name_comes_from_the_title() {
+        assert_eq!(slug("Fix the bug #42!", "x"), "fix-the-bug-42");
+        assert_eq!(slug("!!!", "tunnel-1"), "tunnel-1");
         assert_eq!(slug("  --a--  ", "x"), "a");
     }
 
     proptest! {
         #[test]
-        fn el_nombre_siempre_es_un_nombre_de_rama_valido(title in ".{0,80}") {
+        fn the_name_is_always_a_valid_branch_name(title in ".{0,80}") {
             let n = slug(&title, "t");
             prop_assert!(!n.is_empty() && n.len() <= 40);
             prop_assert!(n.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-'));
@@ -485,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn sin_repo_el_error_lo_dice() {
+    fn without_a_repo_the_error_says_so() {
         let git = FakeGit::default();
         git.push(Err("fatal: not a git repository"));
         let dir = tempfile::tempdir().unwrap();
@@ -500,14 +500,14 @@ mod tests {
     }
 
     #[test]
-    fn el_indice_temporal_se_borra_aunque_falle_read_tree_o_add() {
-        for fallo in ["read-tree", "add"] {
+    fn the_temporary_index_is_deleted_even_if_read_tree_or_add_fails() {
+        for failure in ["read-tree", "add"] {
             let git = FakeGit::default();
             git.push(Ok("/r")); // show-toplevel
             git.push(Ok("abc")); // HEAD
-            git.push(Ok("main")); // rama
+            git.push(Ok("main")); // branch
             git.push(Ok("")); // bundle
-            if fallo == "add" {
+            if failure == "add" {
                 git.push(Ok("")); // read-tree
             }
             git.push(Err("boom"));
@@ -516,12 +516,12 @@ mod tests {
             fs::create_dir_all(&stage).unwrap();
             fs::write(stage.join("index.tmp"), b"x").unwrap();
             assert!(pack_origin(&git, dir.path(), &stage, &SecretFilter::default()).is_err());
-            assert!(!stage.join("index.tmp").exists(), "tras fallar {fallo}");
+            assert!(!stage.join("index.tmp").exists(), "after {failure} failed");
         }
     }
 
     #[test]
-    fn sin_commits_el_error_lo_dice() {
+    fn without_commits_the_error_says_so() {
         let git = FakeGit::default();
         git.push(Ok("/r"));
         git.push(Err("fatal: Needed a single revision"));
@@ -537,10 +537,10 @@ mod tests {
     }
 
     #[test]
-    fn la_vuelta_sin_commits_nuevos_no_arma_bundle() {
+    fn return_without_new_commits_builds_no_bundle() {
         let git = FakeGit::default();
         git.push(Ok("abc")); // rev-parse base
-        git.push(Ok("")); // log vacío
+        git.push(Ok("")); // empty log
         let dir = tempfile::tempdir().unwrap();
         let back = pack_back(&git, dir.path(), None, &dir.path().join("b")).unwrap();
         assert_eq!(back.bundle, None);
@@ -549,18 +549,18 @@ mod tests {
     }
 
     #[test]
-    fn el_log_se_lee_aunque_el_resumen_lleve_caracteres_raros() {
+    fn the_log_is_read_even_if_the_summary_has_odd_characters() {
         let git = FakeGit::default();
         git.push(Ok("abc"));
-        git.push(Ok("h1\x1fAna\x1funo | dos\x1eh2\x1fLuis\x1fñ\x1e"));
+        git.push(Ok("h1\x1fAna\x1fone | two\x1eh2\x1fLuis\x1fü\x1e"));
         let dir = tempfile::tempdir().unwrap();
         let back = pack_back(&git, dir.path(), None, &dir.path().join("b")).unwrap();
         let got: Vec<_> = back.commits.iter().map(|c| (&*c.id, &*c.summary)).collect();
-        assert_eq!(got, [("h1", "uno | dos"), ("h2", "ñ")]);
+        assert_eq!(got, [("h1", "one | two"), ("h2", "ü")]);
     }
 
     #[test]
-    fn lo_pendiente_solo_se_commitea_si_se_pide() {
+    fn pending_work_is_committed_only_if_asked() {
         let git = FakeGit::default();
         git.push(Ok(" M a.txt")); // status
         let dir = tempfile::tempdir().unwrap();

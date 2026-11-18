@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::{MacAddr, PowerError};
 
-/// 6 bytes `0xFF` y la MAC repetida 16 veces.
+/// 6 `0xFF` bytes and the MAC repeated 16 times.
 pub const MAGIC_PACKET_LEN: usize = 6 + 16 * 6;
 
-/// Puerto habitual del Wake-on-LAN (discard). La tarjeta no mira el puerto, solo el contenido.
+/// Usual Wake-on-LAN port (discard). The card does not look at the port, only the content.
 pub const DEFAULT_WOL_PORT: u16 = 9;
 
-/// El paquete mágico que despierta la tarjeta con la MAC `mac`.
+/// The magic packet that wakes the card with MAC `mac`.
 pub fn magic_packet(mac: &MacAddr) -> [u8; MAGIC_PACKET_LEN] {
     let mut p = [0xFF; MAGIC_PACKET_LEN];
     let (copies, rest) = p[6..].as_chunks_mut::<6>();
@@ -19,19 +19,19 @@ pub fn magic_packet(mac: &MacAddr) -> [u8; MAGIC_PACKET_LEN] {
     p
 }
 
-/// A quién y por dónde se manda el Wake-on-LAN.
+/// To whom and through where the Wake-on-LAN is sent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WolTarget {
-    /// MAC de la tarjeta Ethernet de la PC.
+    /// MAC of the PC's Ethernet card.
     pub mac: MacAddr,
-    /// IP de la Mac en el enlace Ethernet directo: el paquete sale por esa interfaz
-    /// (DESIGN §6: Wake-on-LAN solo por Ethernet). Sin ella, el sistema elige.
+    /// IP of the Mac on the direct Ethernet link: the packet leaves through that interface
+    /// (DESIGN §6: Wake-on-LAN only over Ethernet). Without it, the system chooses.
     #[serde(default)]
     pub source: Option<IpAddr>,
-    /// Destino. En macOS conviene el broadcast de la subred del enlace (p. ej.
-    /// `10.77.2.3` para `10.77.2.0/30`): el broadcast global sale por la interfaz
-    /// principal, que suele ser el Wi-Fi.
+    /// Destination. On macOS the broadcast of the link subnet is preferable (e.g.
+    /// `10.77.2.3` for `10.77.2.0/30`): the global broadcast leaves through the
+    /// main interface, which is usually Wi-Fi.
     #[serde(default = "default_broadcast")]
     pub broadcast: IpAddr,
     #[serde(default = "default_port")]
@@ -61,12 +61,12 @@ impl WolTarget {
     }
 }
 
-/// Manda un Wake-on-LAN. Cada llamada es un envío; reintentar es cosa de quien llama.
+/// Sends a Wake-on-LAN. Each call is one send; retrying is up to the caller.
 pub trait Wake: Send + Sync {
     fn wake(&self) -> Result<(), PowerError>;
 }
 
-/// Wake-on-LAN por UDP.
+/// Wake-on-LAN over UDP.
 #[derive(Debug, Clone)]
 pub struct UdpWake {
     target: WolTarget,
@@ -101,7 +101,7 @@ impl Wake for UdpWake {
         let sent = sock.send_to(&packet, to).map_err(send)?;
         if sent != packet.len() {
             return Err(send(std::io::Error::other(format!(
-                "se mandaron {sent} de {} bytes",
+                "sent {sent} of {} bytes",
                 packet.len()
             ))));
         }
@@ -126,13 +126,13 @@ mod tests {
         assert_eq!(p[..6], [0xFF; 6]);
         for i in 0..16 {
             let at = 6 + i * 6;
-            assert_eq!(p[at..at + 6], PC.0, "repetición {i}");
+            assert_eq!(p[at..at + 6], PC.0, "repetition {i}");
         }
     }
 
     #[test]
     fn known_packet_bytes() {
-        // Referencia escrita a mano: cabecera y las dos primeras repeticiones.
+        // Hand-written reference: header and the first two repetitions.
         let p = magic_packet(&"01:23:45:67:89:ab".parse().unwrap());
         assert_eq!(
             p[..18],
@@ -189,7 +189,7 @@ mod tests {
 
     #[test]
     fn bad_source_is_a_clear_error() {
-        // 192.0.2.0/24 es de documentación: ninguna interfaz la tiene.
+        // 192.0.2.0/24 is for documentation: no interface has it.
         let mut t = WolTarget::new(PC);
         t.source = Some("192.0.2.77".parse().unwrap());
         let err = UdpWake::new(t).wake().unwrap_err();
