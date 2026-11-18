@@ -77,6 +77,9 @@
     };
   });
 
+  // `V3-Puesto` escribe «34" muestra PC-Escritorio»; `V3-Monitores` (y `scenes.ts`) usan «→».
+  const sceneLine = (desc: string) => desc.replaceAll(" → ", " muestra ");
+
   // Energía de la otra máquina (transacción: el agente informa cada paso).
   const peer = $derived(list.find((m) => !m.here) ?? null);
   const showPower = $derived(peer !== null && store.can("power") && peer.power !== "lost");
@@ -120,9 +123,9 @@
         <!-- Fuera del enlace de la tarjeta (un botón dentro de un <a> no es válido), encima de su cabecera. -->
         <div class="pwr" role="group" aria-label="Energía de {peer.name}">
           {#if peer.power === "on"}
-            <Button icon="power" variant="danger" size="sm" disabled={pending !== null} onclick={() => power(false)}>{pending === "off" ? "Apagando…" : "Apagar"}</Button>
+            <Button icon="power" variant="ghost" size="sm" iconOnly label={pending === "off" ? "Apagando…" : "Apagar"} disabled={pending !== null} onclick={() => power(false)} />
           {:else}
-            <Button icon="power" size="sm" disabled={pending !== null || peer.power === "booting"} onclick={() => power(true)}>{pending === "on" || peer.power === "booting" ? "Encendiendo…" : "Encender"}</Button>
+            <Button icon="power" variant="ghost" size="sm" iconOnly label={pending === "on" || peer.power === "booting" ? "Encendiendo…" : "Encender"} disabled={pending !== null || peer.power === "booting"} onclick={() => power(true)} />
           {/if}
         </div>
       {/if}
@@ -194,7 +197,7 @@
           <button type="button" class="scene" class:act={on} aria-pressed={on} onclick={() => store.applyScene(s.id)}>
             <span class="srow">
               <span class="thumb"><div style="background:{wallOf(shows?.color ?? "#7aa7e6")}"></div></span>
-              <span class="stext"><b>{s.name}</b><span class="mut sd">{s.desc}</span></span>
+              <span class="stext"><b>{s.name}</b><span class="mut sd">{sceneLine(s.desc)}</span></span>
               <Kbd>{s.key}</Kbd>
             </span>
           </button>
@@ -217,9 +220,10 @@
   .sm {
     font-size: 12px;
   }
+  /* La tercera columna es el hueco de «Agregar máquina» (D1): el mockup reparte así el ancho. */
   .machines {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 200px;
     gap: 14px;
   }
   .mslot > :global(.card.mcard) {
@@ -545,7 +549,7 @@
   }
   .pwr {
     position: absolute;
-    top: 8px;
-    right: 44px;
+    top: 6px;
+    right: 38px;
   }
 </style>

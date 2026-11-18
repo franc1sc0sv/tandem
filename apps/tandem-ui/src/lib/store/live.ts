@@ -279,13 +279,7 @@ export class LiveSource implements Source {
         if (this.last.kind === "connected") push(this.last);
       }),
     ).catch(() => {});
-    // Los avisos del cursor se reparten a quien los pidió; los demás avisos no son de esta fuente.
-    void Promise.resolve(
-      this.bridge.onNotice?.((n) => {
-        if (n.kind !== "cursor" && n.kind !== "crossed") return;
-        for (const f of [...this.cursorListeners]) f(n);
-      }),
-    ).catch(() => {});
+    this.bindNotices().catch(() => {});
     push(await this.bridge.snapshot());
   }
 
@@ -333,14 +327,21 @@ export class LiveSource implements Source {
   }
 
   private txnListeners = new Set<(e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void>();
-  private txnBound: Promise<void> | null = null;
+  /** El evento de Tauri no se puede dejar de oír: se oye una vez y se reparte (transacciones y cursor). */
+  private noticesBound: Promise<void> | null = null;
+
+  private bindNotices(): Promise<void> {
+    this.noticesBound ??= Promise.resolve(
+      this.bridge.onNotice?.((n) => {
+        if (n.kind === "txn") for (const l of this.txnListeners) l(n.event);
+        else if (n.kind === "cursor" || n.kind === "crossed") for (const f of [...this.cursorListeners]) f(n);
+      }),
+    );
+    return this.noticesBound;
+  }
 
   async watchTxn(onEvent: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void): Promise<() => void> {
-    // El evento de Tauri no se puede dejar de oír: se oye una vez y se reparte.
-    this.txnBound ??= this.bridge.onNotice((n) => {
-      if (n.kind === "txn") for (const l of this.txnListeners) l(n.event);
-    });
-    await this.txnBound;
+    await this.bindNotices();
     this.txnListeners.add(onEvent);
     return () => {
       this.txnListeners.delete(onEvent);

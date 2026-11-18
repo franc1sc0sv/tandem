@@ -222,6 +222,12 @@ export const MONITORES: ShotSpec[] = [
   progresoShot("progreso-vuelta-atras", "fail", "vuelta-atras"),
 ];
 
+/** El hueco vacío que deja D1 en la fila de las tarjetas de máquina de `V3-Puesto`. */
+const NO_ADD_CARD: Ignore = { mockupSelector: 'a[href="F-AgregarHost.dc.html"].card', reason: "D1: sin tarjeta «Agregar máquina»" };
+
+/** D2: los escritorios a escala toman el color de cada máquina; con dos del mismo sistema el fondo no puede coincidir con el mockup. */
+const D2_DESKS: Ignore = { mockupSelector: 'div:has(> div[role="img"][aria-label^="A escala"])', reason: "D2: el color de las máquinas cambia el fondo de los escritorios" };
+
 export const SHOTS: ShotSpec[] = [
   {
     name: "puesto",
@@ -231,7 +237,7 @@ export const SHOTS: ShotSpec[] = [
     mockup: "V3-Puesto",
     width: W,
     height: H,
-    ignore: [NO_ADD_MACHINE, { mockupSelector: 'a[href="F-AgregarHost.dc.html"].card', reason: "D1: sin tarjeta «Agregar máquina»" }],
+    ignore: [NO_ADD_MACHINE, NO_ADD_CARD],
     regions: [{ ...SIDEBAR, min: SIDEBAR_GATE }],
     // T-113: toda la pantalla. Solo se tapa el hueco vacío que D1 quita («Agregar máquina»); la
     // app no tiene ninguna tarjeta oculta (Encender/Apagar van dentro de la tarjeta de la otra máquina).
@@ -239,8 +245,8 @@ export const SHOTS: ShotSpec[] = [
   },
   // D2 (alcance de T-126): el mismo puesto con dos Windows y con dos Mac. Los nombres y
   // colores cambian, así que no tienen umbral: sirven para ver cada combinación.
-  { name: "puesto-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
-  { name: "puesto-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
+  { name: "puesto-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
+  { name: "puesto-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
   { name: "tuneles", page: "index.html", query: DEMO, hash: "#/tuneles", mockup: "V3-Computo", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   ...MONITORES,
   ...ACOMODO,
