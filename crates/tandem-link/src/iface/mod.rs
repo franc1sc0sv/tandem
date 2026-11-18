@@ -6,6 +6,8 @@
 //! direcciones del enlace ([`plan`]), etiquetar con la peor de las dos puntas
 //! ([`worst`]) y mantener el gestor de enlaces al día ([`follow_wired`]).
 
+#[cfg(windows)]
+mod adapters_windows;
 mod addr;
 mod assign;
 mod classify;
@@ -14,6 +16,7 @@ mod fake;
 mod follow;
 mod resolve;
 mod system;
+mod table;
 
 use std::net::IpAddr;
 
@@ -33,6 +36,7 @@ pub use fake::FakeInterfaces;
 pub use follow::{WiredChange, follow_wired, wired_changes};
 pub use resolve::{AssignNotice, AssignNotices, WiredResolver};
 pub use system::SystemInterfaces;
+pub use table::{AddrRow, classify_adapter, interfaces_from_rows};
 
 use crate::manager::LinkKind;
 
@@ -113,5 +117,7 @@ pub fn diff(old: &[NetInterface], new: &[NetInterface]) -> Vec<InterfaceEvent> {
     events
 }
 
+#[cfg(test)]
+mod cable_tests;
 #[cfg(test)]
 mod tests;

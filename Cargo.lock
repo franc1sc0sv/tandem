@@ -4398,6 +4398,7 @@ dependencies = [
  "rustls",
  "serde",
  "sha2 0.11.1",
+ "socket2",
  "tandem-core",
  "tandem-proto",
  "tempfile",
@@ -4405,6 +4406,7 @@ dependencies = [
  "tokio",
  "toml 0.9.12+spec-1.1.0",
  "tracing",
+ "windows",
  "zeroize",
 ]
 

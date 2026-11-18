@@ -1,10 +1,11 @@
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV6};
 use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::Bytes;
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use socket2::{Domain, Protocol, Socket, Type};
 use tandem_proto::Hello;
 
 use super::control::ControlStream;
@@ -49,7 +50,16 @@ impl Endpoint {
         alpn: &[u8],
     ) -> Result<Self, TransportError> {
         let (server, client) = configs(identity, trust, alpn)?;
-        let mut inner = quinn::Endpoint::server(server, addr).map_err(TransportError::Bind)?;
+        let socket = udp_socket(addr).map_err(TransportError::Bind)?;
+        let runtime = quinn::default_runtime()
+            .ok_or_else(|| TransportError::Bind(std::io::Error::other("no async runtime")))?;
+        let mut inner = quinn::Endpoint::new(
+            quinn::EndpointConfig::default(),
+            Some(server),
+            socket,
+            runtime,
+        )
+        .map_err(TransportError::Bind)?;
         inner.set_default_client_config(client);
         Ok(Self { inner })
     }
@@ -87,6 +97,33 @@ impl Endpoint {
     pub async fn wait_idle(&self) {
         self.inner.wait_idle().await;
     }
+}
+
+/// The UDP socket for `addr`. On `[::]` it is dual-stack: the configured peer is usually an
+/// IPv4 address while the cable's link-local the agent learns by mDNS is IPv6, and both go
+/// through the same endpoint (an IPv4-only one refuses IPv6 with `InvalidRemoteAddress`).
+/// Windows makes IPv6 sockets IPv6-only by default, hence `set_only_v6(false)`. A host
+/// without IPv6 falls back to `0.0.0.0` on the same port.
+fn udp_socket(addr: SocketAddr) -> std::io::Result<std::net::UdpSocket> {
+    let dual = match addr {
+        SocketAddr::V6(v6) if v6.ip().is_unspecified() => v6,
+        _ => return std::net::UdpSocket::bind(addr),
+    };
+    match dual_stack(dual) {
+        Ok(socket) => Ok(socket),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => Err(e),
+        Err(e) => {
+            tracing::warn!(%addr, "no dual-stack socket ({e}): IPv4 only");
+            std::net::UdpSocket::bind(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), dual.port()))
+        }
+    }
+}
+
+fn dual_stack(addr: SocketAddrV6) -> std::io::Result<std::net::UdpSocket> {
+    let socket = Socket::new(Domain::IPV6, Type::DGRAM, Some(Protocol::UDP))?;
+    socket.set_only_v6(false)?;
+    socket.bind(&SocketAddr::V6(addr).into())?;
+    Ok(socket.into())
 }
 
 fn configs(
