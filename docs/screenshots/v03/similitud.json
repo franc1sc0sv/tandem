@@ -680,6 +680,21 @@
     "zonas": [],
     "errores": []
   },
+  "asistente-puesto-nuevo": {
+    "mockup": "V3-Asistente--nuevo",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
   "asistente-teclado": {
     "mockup": "F-Asis4",
     "pantalla": {
@@ -853,7 +868,7 @@
     "pantalla": {
       "name": "contenido",
       "similarity": 1,
-      "worstTile": 0.9961,
+      "worstTile": 0.999,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
@@ -864,7 +879,7 @@
       {
         "name": "contenido",
         "similarity": 1,
-        "worstTile": 0.9961,
+        "worstTile": 0.999,
         "min": {
           "similarity": 0.99,
           "worstTile": 0.97

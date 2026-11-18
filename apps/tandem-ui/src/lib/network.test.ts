@@ -18,8 +18,11 @@ import {
   measuredText,
   networkFromWire,
   pathNote,
+  stateLabel,
+  unpluggedText,
   type NetworkWire,
 } from "./network";
+import { LINK_NAME } from "./machines";
 import { DEMO_NOW, demoNetwork } from "./store/demo";
 import { EMPTY_NETWORK, type NetworkView, type PathView } from "./store/types";
 
@@ -205,5 +208,27 @@ describe("la nota del último cambio", () => {
     expect(pathNote({ ...base, now: DEMO_NOW + 25_000 }, true)).toEqual({ tone: "info", text: "Pasó de Wi-Fi a USB-C" });
     expect(pathNote({ ...base, now: DEMO_NOW + 40_000 }, true)).toBeNull();
     expect(pathNote(EMPTY_NETWORK, false)).toBeNull();
+  });
+});
+
+describe("camino sin respuesta (T-147)", () => {
+  const kinds = ["usb4", "ethernet", "wifi"] as const;
+  const mk = (kind: PathView["kind"], state: PathView["state"]): PathView => ({ ...path(demo(), "usb4"), kind, state });
+
+  it("el Wi-Fi no tiene cable: dice «sin señal»; USB-C y Ethernet, «sin cable»", () => {
+    expect(unpluggedText("wifi")).toBe("sin señal");
+    expect(unpluggedText("usb4")).toBe("sin cable");
+    expect(unpluggedText("ethernet")).toBe("sin cable");
+  });
+
+  it("los tres caminos × unplugged y down", () => {
+    for (const k of kinds) {
+      const unplugged = k === "wifi" ? "Sin señal" : "Sin cable";
+      expect(stateLabel(mk(k, "unplugged"))).toBe(unplugged);
+      expect(stateLabel(mk(k, "down"))).toBe("Caído");
+      expect(describePath(mk(k, "unplugged"))).toBe(`${LINK_NAME[k]} ${unpluggedText(k)}`);
+      expect(describePath(mk(k, "down"))).toBe(`${LINK_NAME[k]} caído`);
+      expect(describePath(mk(k, "unplugged"))).not.toMatch(/Wi-Fi.*cable/);
+    }
   });
 });

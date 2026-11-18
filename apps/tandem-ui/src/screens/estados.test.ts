@@ -79,15 +79,20 @@ describe("pantalla Estados", () => {
     await mount();
     expect(screen.getByRole("heading", { level: 1, name: "Estados difíciles" })).toBeInTheDocument();
     expect(screen.getAllByRole("article")).toHaveLength(9);
-    for (const name of ["Agregar máquina", "Encender", "Ver en Túneles", "Reintentar", "Abrir Ajustes del Sistema"]) {
+    for (const name of ["Emparejar la otra máquina", "Encender", "Ver en Túneles", "Reintentar", "Abrir Ajustes del Sistema"]) {
       expect(screen.getByRole("button", { name: new RegExp(name) })).toBeInTheDocument();
     }
   });
 
-  it("«Agregar máquina» abre el asistente de emparejar", async () => {
+  it("ninguna tarjeta habla de «agregar» una máquina (D1)", async () => {
+    await mount();
+    expect(document.body.textContent).not.toMatch(/agrega(r)? (otra )?máquina/i);
+  });
+
+  it("«Emparejar la otra máquina» abre el asistente de emparejar", async () => {
     const store = await mount();
     const open = vi.spyOn(store, "openWizard");
-    await userEvent.click(screen.getByRole("button", { name: /Agregar máquina/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Emparejar la otra máquina/ }));
     expect(open).toHaveBeenCalledTimes(1);
   });
 

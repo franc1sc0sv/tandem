@@ -117,7 +117,10 @@ describe("Red (V3-Red) en modo demo", () => {
 
   it("sin enlace con la otra máquina: los tres caminos sin cable y el botón apagado", async () => {
     await demo("demo&still&trouble=link-down");
-    expect(screen.getAllByText("Sin cable")).toHaveLength(3);
+    expect(screen.getAllByText("Sin cable")).toHaveLength(2);
+    expect(screen.getAllByText("Sin señal")).toHaveLength(1);
+    expect(screen.getByText("Wi-Fi · sin señal")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/Wi-Fi[^.]{0,6}sin cable/i);
     expect(screen.getByRole("button", { name: "Medir ancho de banda" })).toBeDisabled();
     expect(screen.getByText("sin entrada")).toBeInTheDocument();
     expect(screen.getByText("sin medir")).toBeInTheDocument();
@@ -215,7 +218,8 @@ describe("Red con el agente real (IPC)", () => {
     const { b, handlers } = bridge();
     await open(new LiveSource(b));
     // Antes de la primera muestra: los tres sin cable.
-    expect(screen.getAllByText("Sin cable")).toHaveLength(3);
+    expect(screen.getAllByText("Sin cable")).toHaveLength(2);
+    expect(screen.getAllByText("Sin señal")).toHaveLength(1);
     await flush(() => handlers.network?.(wire({ switches: [] })));
     expect(screen.getByText("Principal")).toBeInTheDocument();
     expect(screen.getByText("0.4 ms")).toBeInTheDocument();

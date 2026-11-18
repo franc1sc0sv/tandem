@@ -312,7 +312,11 @@ export const ESTADOS: ShotSpec = {
     appStyle: 'nav[aria-label="Principal"] { flex: 0 0 220px !important; }',
     app: "main .head",
     mockup: "h1",
-    masks: [{ app: NONE, mockup: 'button.btn:has-text("Enviar por Wi-Fi igual")', reason: "El agente no tiene «enviar por Wi-Fi igual»: sin función, sin botón" }],
+    masks: [
+      { app: NONE, mockup: 'button.btn:has-text("Enviar por Wi-Fi igual")', reason: "El agente no tiene «enviar por Wi-Fi igual»: sin función, sin botón" },
+      { app: "article.st:nth-child(1) p", mockup: "article.st:nth-child(1) p", reason: "D1: la frase no dice «Agrega otra máquina» (T-142)" },
+      { app: "article.st:nth-child(1) .act button", mockup: "article.st:nth-child(1) a.btn", reason: "D1: «Emparejar la otra máquina» en lugar de «Agregar máquina» (T-142)" },
+    ],
     min: SIDEBAR_GATE,
   },
 };
@@ -444,6 +448,12 @@ export const ASISTENTE: ShotSpec[] = [
     fills: ["4", "8", "2", "9"].map((text, i) => ({ selector: `input[aria-label="Dígito ${i + 1}"]`, text })),
     // El foco salta solo al dígito siguiente; el mockup no tiene foco en ninguno.
     clicks: [".wiz h1"],
+  }),
+  // T-145: «Crear un puesto nuevo». El panel (nombre del puesto en el mockup, código en la app) se tapa entero.
+  asisShot("asistente-puesto-nuevo", "V3-Asistente", "wizard=1&peer=none&pair=code", {
+    state: "nuevo",
+    clicks: ['[role="radio"]:has-text("Crear un puesto nuevo")'],
+    ignore: [{ rect: { x: 350, y: 315, width: 760, height: 205 }, reason: "T-145: el nombre del puesto no existe en el agente (§3.8); la app muestra el código de emparejamiento (T-097)" }],
   }),
   asisShot("asistente-permisos", "F-Asis3", "wizard=2&perms=missing"),
   asisShot("asistente-permisos-uno", "F-Asis3", "wizard=2&perms=missing", { state: "uno-concedido", clicks: ['button:has-text("Abrir ajustes") >> nth=0'], ignore: [PERMS_FOOT] }),

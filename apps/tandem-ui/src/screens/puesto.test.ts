@@ -239,3 +239,33 @@ describe("animaciones (G7, G8)", () => {
     expect(crossed[0]).toMatchObject({ from: "a", to: "b", edge: "right" });
   });
 });
+
+describe("cursor en vivo (T-140)", () => {
+  it("watchCursor se llama una sola vez aunque el demo publique una foto nueva en cada tick", async () => {
+    vi.useFakeTimers();
+    const src = new DemoSource(demoOptions("demo"));
+    const spy = vi.spyOn(src, "watchCursor");
+    const store = new Store(src);
+    await store.start();
+    render(Puesto, { context: new Map([[STORE_KEY, store]]) });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("en 7 s el punto llega al 34\" y el borde destella al cruzar, sin reinicios", async () => {
+    vi.useFakeTimers();
+    const src = new DemoSource(demoOptions("demo"));
+    const store = new Store(src);
+    await store.start();
+    const { container } = render(Puesto, { context: new Map([[STORE_KEY, store]]) });
+    let max = 0;
+    let flashed = false;
+    for (let i = 0; i < 70; i++) {
+      await vi.advanceTimersByTimeAsync(100);
+      max = Math.max(max, parseFloat(dot(container)?.style.left ?? "0"));
+      flashed ||= container.querySelector(".edge.on") !== null;
+    }
+    expect(max).toBeGreaterThanOrEqual(60);
+    expect(flashed).toBe(true);
+  });
+});

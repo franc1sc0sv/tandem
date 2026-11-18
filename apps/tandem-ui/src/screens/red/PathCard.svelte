@@ -1,7 +1,7 @@
 <script lang="ts">
   // La tarjeta de un camino (`V3-Red`): su ícono, su estado y las barras de latencia y banda.
   import { LINK_NAME } from "../../lib/machines";
-  import { STATE_LABEL, bandwidthBar, barColors, formatMs, formatRate, isUp, latencyBar } from "../../lib/network";
+  import { stateLabel, bandwidthBar, barColors, formatMs, formatRate, isUp, latencyBar } from "../../lib/network";
   import type { LinkKind, PathView } from "../../lib/store/types";
   import Bar from "../../ui/Bar.svelte";
   import Card from "../../ui/Card.svelte";
@@ -35,7 +35,7 @@
       {#if path.detail}<span class="mono mut det">{path.detail}</span>{/if}
     </div>
     <span class="fill"></span>
-    <span class="st {path.state}"><span class="d"></span>{STATE_LABEL[path.state]}</span>
+    <span class="st {path.state}"><span class="d"></span>{stateLabel(path)}</span>
   </div>
   <div class="met" class:off={!up}>
     <span class="mut">Latencia</span>

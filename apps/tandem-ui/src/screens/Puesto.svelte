@@ -1,7 +1,7 @@
 <script lang="ts">
   // Puesto (inicio, `V3-Puesto`): las dos máquinas, el enlace vivo, los escritorios a escala
   // real con el cursor en vivo (solo con la ventana visible) y las escenas.
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { useStore } from "../lib/context";
   import { wallOf } from "../lib/acomodo";
   import { cursorPoint, flowSeconds, RateMeter, sceneOf, type Point } from "../lib/puesto";
@@ -47,9 +47,14 @@
     return () => document.removeEventListener("visibilitychange", onVis);
   });
 
+  // Una huella por valor: el efecto solo se rehace si cambia la geometría, no en cada foto del puesto
+  // (el demo publica un `desk` nuevo en cada tick y `watchCursor` reiniciaría el recorrido).
+  const geometry = $derived(scene ? JSON.stringify([scene.desks, scene.feet, scene.edge, scene.aspect, desk.layout]) : "");
+
   $effect(() => {
-    if (!visible || !scene || !canCursor) return;
-    const layout = desk.layout;
+    if (!visible || !geometry || !canCursor) return;
+    const layout = untrack(() => desk.layout);
+    const scn = untrack(() => scene);
     let stop: (() => void) | undefined;
     let gone = false;
     const tick = setInterval(() => (rate = meter.rate(Date.now())), 500);
@@ -60,7 +65,7 @@
           return;
         }
         meter.push(Date.now());
-        const p = scene ? cursorPoint(scene, layout, e.sample) : null;
+        const p = scn ? cursorPoint(scn, layout, e.sample) : null;
         if (p) point = p;
       })
       .then((f) => {
