@@ -48,6 +48,8 @@ export interface ShotSpec {
   keys?: string[];
   /** Selectores a los que se hace clic antes de capturar (los pasos del estado del mockup). */
   clicks?: string[];
+  /** Sacar el mouse de la ventana tras los clics: el mockup redibuja el botón y pierde el hover. */
+  unhover?: boolean;
   /** Estado con nombre del mockup (`docs/mockups-png/<mockup>--<state>.png`). */
   state?: string;
   /** Umbral de la pantalla entera (si se da, `--check` lo exige). */
@@ -272,7 +274,7 @@ const ajustesShot = (name: string, state: string | undefined, clicks: string[], 
   content: {
     appWidth: MAC_PAGE_WIDTH,
     appStyle: 'nav[aria-label="Principal"] { flex: 0 0 220px !important; }',
-    app: "main h1",
+    app: "main .head",
     mockup: "h1",
     masks,
     min: SIDEBAR_GATE,
@@ -282,13 +284,19 @@ const tab = (label: string) => `[role="tab"]:has-text("${label}")`;
 export const AJUSTES: ShotSpec[] = [
   ajustesShot("ajustes", undefined, [], [
     { app: NONE, mockup: 'button.danger:has-text("Sacar del puesto")', reason: "D1: sin «Sacar del puesto» (exactamente dos máquinas)" },
+    { app: ".pane > .row:nth-child(3) > button", mockup: ".pane > .row:nth-child(3) > button", reason: "D1: la fila de la otra máquina no trae «Sacar del puesto»; sus botones se corren" },
     { app: ".pane > .row:nth-child(4)", mockup: ".pane > .row:nth-child(4)", reason: "D1: «Cambiar la otra máquina» en lugar de «Agregar una máquina»" },
   ]),
-  ajustesShot("ajustes-atajos", "atajos", [tab("Atajos")]),
+  ajustesShot("ajustes-atajos", "atajos", [tab("Atajos")], [
+    { app: ".combo", mockup: ".combo", reason: "El texto de la combinación sigue al sistema de la ventana (Ctrl+Alt+0 en Windows y Linux, ⌃⌥0 en macOS)" },
+    { app: ".pane > .row:nth-child(n+3)", mockup: ".pane > .row:nth-child(n+3)", reason: "Solo hay un atajo editable en la app (mostrar u ocultar); bloqueo, paleta y escenas llegan después" },
+  ]),
   ajustesShot("ajustes-teclado", "teclado", [tab("Teclado y mouse")]),
   ajustesShot("ajustes-actualizaciones", "actualizaciones", [tab("Actualizaciones")]),
-  ajustesShot("ajustes-actualizaciones-buscado", "actualizaciones-buscado", [tab("Actualizaciones"), 'button:has-text("Buscar ahora")']),
-  ajustesShot("ajustes-avanzado", "avanzado", [tab("Avanzado")]),
+  { ...ajustesShot("ajustes-actualizaciones-buscado", "actualizaciones-buscado", [tab("Actualizaciones"), 'button:has-text("Buscar ahora")']), unhover: true },
+  ajustesShot("ajustes-avanzado", "avanzado", [tab("Avanzado")], [
+    { app: ".pane > .row:nth-child(3) .path", mockup: ".pane > .row:nth-child(3) .mono", reason: "El agente todavía no cuenta las sesiones del servidor MCP" },
+  ]),
 ];
 
 export const ESTADOS: ShotSpec = {
@@ -302,7 +310,7 @@ export const ESTADOS: ShotSpec = {
   content: {
     appWidth: 220 + 2 * 28 + (1280 - 2 * 28),
     appStyle: 'nav[aria-label="Principal"] { flex: 0 0 220px !important; }',
-    app: "main h1",
+    app: "main .head",
     mockup: "h1",
     masks: [{ app: NONE, mockup: 'button.btn:has-text("Enviar por Wi-Fi igual")', reason: "El agente no tiene «enviar por Wi-Fi igual»: sin función, sin botón" }],
     min: SIDEBAR_GATE,

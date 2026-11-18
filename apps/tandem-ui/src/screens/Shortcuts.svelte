@@ -72,6 +72,7 @@
 </script>
 
 {#if view?.warning}<p class="warn">{view.warning}</p>{/if}
+<p class="mut intro">Funcionan en cualquier máquina del puesto, aunque Tandem esté en segundo plano. Haz clic y pulsa la combinación nueva.</p>
 {#each ACTIONS as a (a)}
   <div class="row">
     <span class="fill col">
@@ -106,8 +107,9 @@
     font-size: 13.5px;
     flex-wrap: wrap;
   }
-  .row:first-of-type {
-    border-top: 0;
+  .intro {
+    margin: 0 0 8px;
+    font-size: 12.5px;
   }
   .row.end {
     border-top: 0;

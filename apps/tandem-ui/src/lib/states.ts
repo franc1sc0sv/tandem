@@ -45,13 +45,24 @@ export interface StateCardSpec {
 /** Cuánto tarda en despertar la otra máquina (DESIGN §8). */
 export const WAKE_HINT = "≈ 40 s";
 
+/**
+ * La ruta del binario sin el texto que la rodea («Concede el permiso a este binario: <ruta> (pid
+ * 12)») y abreviada: `/Applications/Tandem.app/Contents/MacOS/tandemd` → `/Applications/Tandem.app/…/tandemd`.
+ */
+export function shortPath(text: string | null): string {
+  const raw = (text ?? "/Applications/Tandem.app/Contents/MacOS/tandemd").replace(/^.*?:\s*/, "").replace(/\s*\(pid \d+\)$/, "");
+  const parts = raw.split("/");
+  return parts.length > 4 ? [...parts.slice(0, 3), "…", parts[parts.length - 1]].join("/") : raw;
+}
+
 /** Las nueve tarjetas, en el orden del mockup. */
 export function stateCards(d: DeskView): StateCardSpec[] {
   const here = d.machines[d.here]?.name ?? "Esta máquina";
   const peerId = d.here === "a" ? "b" : "a";
   const peer = d.machines[peerId]?.name ?? "La otra máquina";
   const mac = d.machines[d.here]?.os === "macos";
-  const owner = d.tunnels[0]?.title ?? "Entrenar LoRA";
+  // Ejemplos de la vista de referencia: el trabajo no sale de un túnel real.
+  const owner = "Entrenar LoRA";
   return [
     {
       id: "first",
@@ -132,7 +143,7 @@ export function stateCards(d: DeskView): StateCardSpec[] {
       body: mac
         ? `Sin este permiso, ${here} no puede mandar su teclado. Concédelo a {code}; Tandem lo detecta solo.`
         : `Sin este permiso, ${here} no puede mandar su teclado. Concédelo a Tandem; Tandem lo detecta solo.`,
-      code: mac ? (d.permissions.binary ?? "/Applications/Tandem.app/…/tandemd") : undefined,
+      code: mac ? shortPath(d.permissions.binary) : undefined,
       action: { label: "Abrir Ajustes del Sistema", icon: "external", variant: "pri", does: "permission" },
     },
   ];

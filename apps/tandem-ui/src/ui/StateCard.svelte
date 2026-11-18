@@ -28,7 +28,7 @@
   {#if spec.mono}<span class="mono mut line">{spec.mono}</span>{/if}
   {#if spec.action}
     <div class="act">
-      <Button icon={spec.action.icon} variant={spec.action.variant} motion={spec.action.icon === "refresh" ? "spin" : "scale"} style="--btn-h:38px;--btn-px:15px" onclick={onaction}>{spec.action.label}</Button>
+      <Button icon={spec.action.icon} variant={spec.action.variant} motion={spec.action.icon === "refresh" ? "spin" : "scale"} style="--btn-h:38px;--btn-px:{spec.action.variant === 'ghost' ? 10 : 15}px" onclick={onaction}>{spec.action.label}</Button>
       {#if spec.action.hint}<span class="mut hint">{spec.action.hint}</span>{/if}
     </div>
   {/if}

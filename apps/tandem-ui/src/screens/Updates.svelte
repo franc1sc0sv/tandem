@@ -8,6 +8,8 @@
   import Switch from "../ui/Switch.svelte";
 
   const store = useStore();
+  // Los botones de Ajustes miden 34 px (`F-Ajustes`).
+  const B34 = "--btn-h:34px;--btn-px:13px;--btn-gap:7px";
 
   let view = $state<UpdateView | null>(null);
   let checkedOnce = $state(false);
@@ -62,12 +64,12 @@
 {#if view && version}
   <div class="row first">
     <span class="fill col">{version.title}<span class="mut sub">{version.detail}</span></span>
-    <Button icon="refresh" motion="spin" disabled={view.checking || view.step !== null} onclick={check}>{checkLabel(view, checkedOnce)}</Button>
+    <Button icon="refresh" size="sm" style={B34} motion="spin" disabled={view.checking || view.step !== null} onclick={check}>{checkLabel(view, checkedOnce)}</Button>
   </div>
   {#if found}
     <div class="row appear">
       <span class="fill col">{found.title}<span class="mut sub">{found.detail}</span></span>
-      <Button icon="download" variant="pri" disabled={view.step !== null} onclick={updateAll}>Actualizar todas</Button>
+      <Button icon="download" variant="pri" size="sm" style={B34} disabled={view.step !== null} onclick={updateAll}>Actualizar todas</Button>
     </div>
   {:else if upToDate(view, checkedOnce)}
     <div class="row appear"><span class="fill mut">No hay versiones nuevas.</span></div>

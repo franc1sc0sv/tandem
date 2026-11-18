@@ -333,7 +333,7 @@
     "mockup": "F-Ajustes",
     "pantalla": {
       "name": "contenido",
-      "similarity": 0.9997,
+      "similarity": 1,
       "worstTile": 0.9966,
       "min": {
         "similarity": 0.99,
@@ -344,7 +344,7 @@
     "zonas": [
       {
         "name": "contenido",
-        "similarity": 0.9997,
+        "similarity": 1,
         "worstTile": 0.9966,
         "min": {
           "similarity": 0.99,
@@ -359,24 +359,24 @@
     "mockup": "F-Ajustes",
     "pantalla": {
       "name": "contenido",
-      "similarity": 0.9937,
-      "worstTile": 0.9456,
+      "similarity": 1,
+      "worstTile": 0.9983,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
       },
-      "ok": false
+      "ok": true
     },
     "zonas": [
       {
         "name": "contenido",
-        "similarity": 0.9937,
-        "worstTile": 0.9456,
+        "similarity": 1,
+        "worstTile": 0.9983,
         "min": {
           "similarity": 0.99,
           "worstTile": 0.97
         },
-        "ok": false
+        "ok": true
       }
     ],
     "errores": []
@@ -385,24 +385,24 @@
     "mockup": "F-Ajustes",
     "pantalla": {
       "name": "contenido",
-      "similarity": 0.9937,
-      "worstTile": 0.9456,
+      "similarity": 1,
+      "worstTile": 0.9983,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
       },
-      "ok": false
+      "ok": true
     },
     "zonas": [
       {
         "name": "contenido",
-        "similarity": 0.9937,
-        "worstTile": 0.9456,
+        "similarity": 1,
+        "worstTile": 0.9983,
         "min": {
           "similarity": 0.99,
           "worstTile": 0.97
         },
-        "ok": false
+        "ok": true
       }
     ],
     "errores": []
@@ -411,24 +411,24 @@
     "mockup": "F-Ajustes",
     "pantalla": {
       "name": "contenido",
-      "similarity": 0.9923,
-      "worstTile": 0.9341,
+      "similarity": 0.9999,
+      "worstTile": 0.9871,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
       },
-      "ok": false
+      "ok": true
     },
     "zonas": [
       {
         "name": "contenido",
-        "similarity": 0.9923,
-        "worstTile": 0.9341,
+        "similarity": 0.9999,
+        "worstTile": 0.9871,
         "min": {
           "similarity": 0.99,
           "worstTile": 0.97
         },
-        "ok": false
+        "ok": true
       }
     ],
     "errores": []
@@ -437,24 +437,24 @@
     "mockup": "F-Ajustes",
     "pantalla": {
       "name": "contenido",
-      "similarity": 0.9933,
-      "worstTile": 0.9456,
+      "similarity": 0.9999,
+      "worstTile": 0.9922,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
       },
-      "ok": false
+      "ok": true
     },
     "zonas": [
       {
         "name": "contenido",
-        "similarity": 0.9933,
-        "worstTile": 0.9456,
+        "similarity": 0.9999,
+        "worstTile": 0.9922,
         "min": {
           "similarity": 0.99,
           "worstTile": 0.97
         },
-        "ok": false
+        "ok": true
       }
     ],
     "errores": []
@@ -463,24 +463,24 @@
     "mockup": "F-Ajustes",
     "pantalla": {
       "name": "contenido",
-      "similarity": 0.994,
-      "worstTile": 0.9456,
+      "similarity": 1,
+      "worstTile": 0.9983,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
       },
-      "ok": false
+      "ok": true
     },
     "zonas": [
       {
         "name": "contenido",
-        "similarity": 0.994,
-        "worstTile": 0.9456,
+        "similarity": 1,
+        "worstTile": 0.9983,
         "min": {
           "similarity": 0.99,
           "worstTile": 0.97
         },
-        "ok": false
+        "ok": true
       }
     ],
     "errores": []
@@ -556,24 +556,24 @@
     "mockup": "V3-Estados",
     "pantalla": {
       "name": "contenido",
-      "similarity": 0.9796,
-      "worstTile": 0.5125,
+      "similarity": 1,
+      "worstTile": 0.9961,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
       },
-      "ok": false
+      "ok": true
     },
     "zonas": [
       {
         "name": "contenido",
-        "similarity": 0.9796,
-        "worstTile": 0.5125,
+        "similarity": 1,
+        "worstTile": 0.9961,
         "min": {
           "similarity": 0.99,
           "worstTile": 0.97
         },
-        "ok": false
+        "ok": true
       }
     ],
     "errores": []

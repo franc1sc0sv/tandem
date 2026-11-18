@@ -154,7 +154,7 @@ function compareContent(spec: ShotSpec, png: Buffer, appBoxes: Record<string, Re
     if (k.mockup) for (const r of mockBoxes[k.mockup] ?? []) holes.push(rel(r, m));
   }
   const app = mask(crop(png, { x: a.x, y: a.y, width, height }), holes);
-  const ref = mask(crop(readFileSync(mockupShotPath(spec.mockup)), { x: m.x, y: m.y, width, height }), holes);
+  const ref = mask(crop(readFileSync(mockupShotPath(spec.mockup, spec.state)), { x: m.x, y: m.y, width, height }), holes);
   const r = compare(app, ref);
   if (diffPath) writeFileSync(diffPath, r.diffPng);
   const ok = r.similarity >= c.min.similarity && r.worstTile.similarity >= c.min.worstTile;
@@ -220,6 +220,10 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     }
     for (const k of spec.keys ?? []) {
       await page.keyboard.press(k);
+      await settle(page);
+    }
+    if (spec.unhover) {
+      await page.mouse.move(0, 0);
       await settle(page);
     }
     const text = await page.evaluate(() => document.body.innerText);
