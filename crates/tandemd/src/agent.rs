@@ -859,6 +859,20 @@ impl Agent {
         capabilities::abilities(&caps.here, caps.peer.as_ref())
     }
 
+    /// «Bloquear aquí»: solo tiene efecto si esta máquina es el servidor y su motor de
+    /// entrada corre; si no, se rechaza para que la UI no crea que se bloqueó.
+    fn lock_here(&self, on: bool) -> Reply {
+        if self.input_status().server != self.machine() {
+            return Reply::Rejected("esta máquina no es la que tiene el teclado".into());
+        }
+        // El motor se suscribe solo mientras hay una sesión de servidor armada.
+        if self.lock_requests.receiver_count() == 0 {
+            return Reply::Rejected("el motor de entrada no está activo en esta máquina".into());
+        }
+        self.lock_requests.send_modify(|r| *r = (r.0 + 1, on));
+        Reply::Done
+    }
+
     /// El teclado y mouse, para la UI.
     pub fn input_status(&self) -> InputStatus {
         self.input_status.borrow().clone()
@@ -1092,10 +1106,7 @@ impl Agent {
                 self.permission_requests.send_modify(|n| *n += 1);
                 Reply::Done
             }
-            UiCommand::LockHere { on } => {
-                self.lock_requests.send_modify(|r| *r = (r.0 + 1, on));
-                Reply::Done
-            }
+            UiCommand::LockHere { on } => self.lock_here(on),
             UiCommand::SetPower { machine, on } => self.start_power(machine, on),
             UiCommand::ApplyScene { id } => self.apply_scene(&id),
             UiCommand::SetModule {
@@ -1320,6 +1331,44 @@ pub(crate) mod tests {
             fixtures::desk_with_wol(),
             StateStore::new(dir.join("state.json")),
         )
+    }
+
+    #[test]
+    fn lock_here_is_rejected_without_input_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        // Sin motor de entrada no hay quien escuche la petición.
+        assert!(matches!(
+            a.handle(UiCommand::LockHere { on: true }),
+            Reply::Rejected(_)
+        ));
+        assert_eq!(*a.lock_requests.borrow(), (0, false));
+    }
+
+    #[test]
+    fn lock_here_is_rejected_when_not_the_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        let _engine = a.subscribe_lock_requests();
+        let mut st = a.input_status();
+        st.server = a.machine().other();
+        a.set_input_status(st);
+        assert!(matches!(
+            a.handle(UiCommand::LockHere { on: true }),
+            Reply::Rejected(_)
+        ));
+    }
+
+    #[test]
+    fn lock_here_is_accepted_on_the_server_with_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        let engine = a.subscribe_lock_requests();
+        let mut st = a.input_status();
+        st.server = a.machine();
+        a.set_input_status(st);
+        assert_eq!(a.handle(UiCommand::LockHere { on: true }), Reply::Done);
+        assert_eq!(*engine.borrow(), (1, true));
     }
 
     #[test]
