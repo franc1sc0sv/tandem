@@ -16,7 +16,9 @@ export interface Rect {
 
 export interface Ignore {
   /** Selector del elemento en el mockup cuya caja se tapa en las dos capturas. */
-  mockupSelector: string;
+  mockupSelector?: string;
+  /** O una caja fija (solo si no hay un elemento que la delimite). */
+  rect?: Rect;
   reason: string;
 }
 
@@ -40,7 +42,9 @@ export interface ShotSpec {
   mockup: string;
   width: number;
   height: number;
-  /** Teclas a pulsar antes de capturar (por ejemplo, abrir la paleta). */
+  /** Campos a llenar antes de los clics (el nombre de la escena). */
+  fills?: { selector: string; text: string }[];
+  /** Teclas a pulsar al final, después de los clics (abrir la paleta, grabar un atajo). */
   keys?: string[];
   /** Selectores a los que se hace clic antes de capturar (los pasos del estado del mockup). */
   clicks?: string[];
@@ -160,6 +164,64 @@ export const ACOMODO: ShotSpec[] = [
   { ...cruceShot("cruce-otro-borde", "wrong", "no-cruza"), min: undefined },
 ];
 
+// T-116: Monitores (con cada entrada elegida), el editor de escenas y el progreso de una escena.
+const monitoresShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
+  name,
+  page: "index.html",
+  query: DEMO,
+  hash: "#/monitores",
+  mockup: "V3-Monitores",
+  width: W,
+  height: H,
+  ignore: [NO_ADD_MACHINE],
+  regions: [SIDEBAR],
+  min: SCREEN_GATE,
+  ...extra,
+});
+/** El editor llena lo mismo que el mockup: «Juego», el atajo ⌃⌥4 y lo que muestra el 34". */
+const escenaShot = (name: string, pick: string, state?: string): ShotSpec => ({
+  name,
+  page: "index.html",
+  query: DEMO,
+  hash: "#/monitores/escena",
+  mockup: "F-NuevaEscena",
+  state,
+  width: W,
+  height: H,
+  fills: [{ selector: 'input:not([type="hidden"])', text: "Juego" }],
+  clicks: [`[role="radio"]:has-text("${pick}")`, "button.kbd"],
+  keys: ["Control+Alt+Digit4"],
+  min: SCREEN_GATE,
+});
+/** Los botones «Simular…» del mockup (solo del mockup); en «vuelta atrás» bajan con el texto del error. */
+const SIMULAR: Ignore = { mockupSelector: "section.card:nth-of-type(1) > div:last-of-type", reason: "Simular…: botones solo del mockup" };
+/** «Dejar de esperar»: el agente no tiene cómo cancelar un encendido (UiCommand), así que la app no ofrece la acción. */
+const NO_CANCEL: Ignore = { mockupSelector: "section.card:nth-of-type(2) > div:last-of-type", reason: "Dejar de esperar: sin comando de cancelar en la IPC, no se muestra" };
+/** El mockup escribe «de la MacBook»; la app dice el nombre real de la máquina (D10). */
+const MACHINE_NAME: Ignore = { rect: { x: 236, y: 228, width: 90, height: 22 }, reason: "«de la MacBook»: en la app va el nombre real de la máquina" };
+const progresoShot = (name: string, txn: "run" | "ok" | "fail", state?: string): ShotSpec => ({
+  name,
+  page: "index.html",
+  query: `${DEMO}&txn=${txn}`,
+  hash: "#/progreso",
+  mockup: "F-Transacciones",
+  state,
+  width: W,
+  height: H,
+  ignore: [SIMULAR, NO_CANCEL, ...(txn === "fail" ? [] : [MACHINE_NAME])],
+  min: SCREEN_GATE,
+});
+export const MONITORES: ShotSpec[] = [
+  monitoresShot("monitores"),
+  monitoresShot("monitores-entrada-mac", { state: "entrada-mac", clicks: ['[role="radio"]:has-text("MacBook Pro")'] }),
+  escenaShot("escena-nueva", "PC-Escritorio"),
+  escenaShot("escena-muestra-mac", "MacBook Pro", "muestra-mac"),
+  escenaShot("escena-sin-cambiar", "Sin cambiar", "sin-cambiar"),
+  progresoShot("progreso-en-curso", "run"),
+  progresoShot("progreso-exito", "ok", "exito"),
+  progresoShot("progreso-vuelta-atras", "fail", "vuelta-atras"),
+];
+
 export const SHOTS: ShotSpec[] = [
   {
     name: "puesto",
@@ -177,7 +239,7 @@ export const SHOTS: ShotSpec[] = [
   { name: "puesto-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   { name: "puesto-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   { name: "tuneles", page: "index.html", query: DEMO, hash: "#/tuneles", mockup: "V3-Computo", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
-  { name: "monitores", page: "index.html", query: DEMO, hash: "#/monitores", mockup: "V3-Monitores", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
+  ...MONITORES,
   ...ACOMODO,
   // T-118: la pantalla Red entera contra `V3-Red`. Se tapa lo que D1 quita («Agregar máquina») y
   // el rótulo de la ventana de la gráfica: el agente guarda 60 s, el mockup dice «10 min».

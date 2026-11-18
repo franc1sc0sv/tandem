@@ -51,12 +51,13 @@ function snap(over: Partial<Parts> = {}): Snapshot {
   return {
     kind: "connected",
     agent,
-    desk: { machines: { a: null, b: null }, screens: [], arrangement: null },
+    desk: { machines: { a: null, b: null }, screens: [], arrangement: null, scenes: [] },
     state: { on: { a: true, b: true } },
     peer: over.peer ?? PAIRED,
     pairing: over.pairing ?? IDLE,
     input: over.input ?? INPUT,
     caps: { here: over.here ?? caps(agent), peer: caps(agent === "a" ? "b" : "a") },
+    monitors: [],
   };
 }
 

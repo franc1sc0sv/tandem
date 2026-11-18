@@ -3,9 +3,9 @@
 import type { Machine } from "./model";
 import type { Topic } from "./store/types";
 
-export type Screen = "puesto" | "tuneles" | "monitores" | "acomodo" | "cruce" | "red" | "maquina" | "ajustes";
+export type Screen = "puesto" | "tuneles" | "monitores" | "escena" | "progreso" | "acomodo" | "cruce" | "red" | "maquina" | "ajustes";
 
-export type Route = { screen: Exclude<Screen, "maquina"> } | { screen: "maquina"; machine: Machine };
+export type Route = { screen: Exclude<Screen, "maquina" | "escena"> } | { screen: "maquina"; machine: Machine } | { screen: "escena"; id: string | null };
 
 export const HOME: Route = { screen: "puesto" };
 
@@ -13,6 +13,8 @@ export const SCREEN_TITLE: Record<Screen, string> = {
   puesto: "Puesto",
   tuneles: "Túneles",
   monitores: "Monitores",
+  escena: "Escena",
+  progreso: "Cambios en progreso",
   acomodo: "Acomodo",
   cruce: "Prueba de cruce",
   red: "Red",
@@ -25,6 +27,8 @@ export const SCREEN_TOPICS: Record<Screen, Topic[]> = {
   puesto: ["machines", "resources", "link", "scenes"],
   tuneles: ["machines", "tunnels"],
   monitores: ["machines", "monitors", "scenes"],
+  escena: ["machines", "monitors", "scenes"],
+  progreso: ["machines", "monitors", "network"],
   acomodo: ["machines", "monitors"],
   cruce: ["machines"],
   red: ["machines", "link", "network"],
@@ -32,12 +36,14 @@ export const SCREEN_TOPICS: Record<Screen, Topic[]> = {
   ajustes: ["machines"],
 };
 
-const SIMPLE: Exclude<Screen, "maquina">[] = ["puesto", "tuneles", "monitores", "acomodo", "red", "ajustes"];
+const SIMPLE: Exclude<Screen, "maquina" | "escena">[] = ["puesto", "tuneles", "monitores", "progreso", "acomodo", "red", "ajustes"];
 
 export function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   const [head, arg] = parts;
   if (head === "maquina" && (arg === "a" || arg === "b")) return { screen: "maquina", machine: arg };
+  // El editor de escenas cuelga de Monitores (`#/monitores/escena`, o `…/escena/<id>` para editar).
+  if (head === "monitores" && arg === "escena") return { screen: "escena", id: parts[2] ? decodeURIComponent(parts[2]) : null };
   // La prueba de cruce cuelga del acomodo (`#/acomodo/cruce`).
   if (head === "acomodo" && arg === "cruce") return { screen: "cruce" };
   const simple = SIMPLE.find((s) => s === head);
@@ -46,6 +52,7 @@ export function parseHash(hash: string): Route {
 
 export function formatHash(r: Route): string {
   if (r.screen === "maquina") return `#/maquina/${r.machine}`;
+  if (r.screen === "escena") return r.id === null ? "#/monitores/escena" : `#/monitores/escena/${encodeURIComponent(r.id)}`;
   return r.screen === "cruce" ? "#/acomodo/cruce" : `#/${r.screen}`;
 }
 

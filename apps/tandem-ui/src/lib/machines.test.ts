@@ -21,6 +21,7 @@ const desk: Desk = {
   machines: { a: { os: "macos", name: "Guardada A", color: "#111111" }, b: null },
   screens: [],
   arrangement: null,
+  scenes: [],
 };
 
 describe("lados", () => {

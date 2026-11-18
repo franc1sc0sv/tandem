@@ -7,11 +7,11 @@
 
 import type { Arrangement, LayoutView } from "../acomodo";
 import type { CrossSample } from "../crossing";
-import type { Bindings, Machine, Os, PairingView, PeerView, Permission, SetupView, ShortcutsView } from "../model";
+import type { Bindings, Machine, MonitorInput, Os, PairingView, PeerView, Permission, SceneJson, SetupView, ShortcutsView, TxnView } from "../model";
 import type { PermissionState } from "../permissions";
 import type { UpdateView } from "../updates";
 
-export type { Machine, Os };
+export type { Machine, MonitorInput, Os };
 
 export type ModuleState = "active" | "off" | "unavailable";
 
@@ -212,8 +212,41 @@ export interface SceneView {
   key: string;
   /** Qué hace, en una línea. */
   desc: string;
-  /** Qué máquina muestra (para la miniatura). */
-  shows: Machine;
+  /** Qué máquina muestra (para la miniatura); `null` si la escena no cambia ningún monitor. */
+  shows: Machine | null;
+  /** Qué máquina muestra cada monitor compatible (los que la escena no toca no están). */
+  monitors: { monitor: string; machine: Machine }[];
+  /** Atajo global crudo (`KeyboardEvent.code`), para editarlo. */
+  shortcut: string[];
+  /** La escena tal como la guarda el puesto, para editarla sin perder lo que la pantalla no muestra. */
+  raw: SceneJson | null;
+}
+
+/** Un evento del monitor, ya con su ícono y su texto (`V3-Monitores`). */
+export interface MonitorEventView {
+  /** Milisegundos Unix. */
+  at: number;
+  kind: "switch" | "button" | "signal" | "boot" | "power" | "failed" | "other";
+  text: string;
+}
+
+/** Un monitor de la pantalla Monitores. D11: uno no compatible solo se muestra, con su razón. */
+export interface MonitorUi {
+  id: string;
+  name: string;
+  compat: { ok: true } | { ok: false; reason: string };
+  /** Alguna máquina lo ve ahora. */
+  connected: boolean;
+  /** Quién lo lee y lo controla (D13). */
+  owner: Machine | null;
+  /** La entrada que está en pantalla (la real); `null` si no se sabe. */
+  input: MonitorInput | null;
+  /** A qué entrada va el cable de cada máquina, si se sabe. */
+  ports: Partial<Record<Machine, MonitorInput>>;
+  /** La máquina cuya señal se ve ahora, si se deduce de `input` y los cables. */
+  shows: Machine | null;
+  /** Del más nuevo al más viejo (hasta 3). */
+  events: MonitorEventView[];
 }
 
 /** Emparejar con la otra máquina (lo que manda el agente). */
@@ -255,6 +288,8 @@ export interface DeskView {
   tunnels: TunnelView[];
   scenes: SceneView[];
   activeScene: string | null;
+  /** Los monitores de las dos máquinas (D11: los no compatibles, marcados). */
+  monitors: MonitorUi[];
   pair: PairState;
   permissions: PermissionsView;
   /** Las pantallas y el acomodo (D18). */
@@ -267,7 +302,7 @@ export type Topic = "machines" | "resources" | "link" | "network" | "tunnels" | 
 export const ALL_TOPICS: Topic[] = ["machines", "resources", "link", "network", "tunnels", "scenes", "monitors"];
 
 /** Lo que una fuente puede o no hacer todavía. */
-export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing" | "machine";
+export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing" | "machine" | "monitors" | "forget";
 
 export type PairActionKind = "start_pairing" | "confirm_pairing" | "cancel_pairing" | "unpair";
 
@@ -283,6 +318,20 @@ export interface Source {
   /** Temas que la pantalla visible necesita en vivo; el resto se deja de mandar. */
   watch(topics: Topic[]): void;
   applyScene(id: string): Promise<ActResult>;
+  /** Cambiar la entrada de un monitor compatible: una transacción con el veredicto del firmware. */
+  switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult>;
+  /** Crear (`isNew`) o guardar una escena en el puesto compartido: llega a la otra máquina. */
+  saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult>;
+  /** Olvidar un monitor no compatible que ya no está. */
+  forgetMonitor(id: string): Promise<ActResult>;
+  /**
+   * El avance de cada transacción (escena, monitor, energía) hasta que se llama a la función
+   * que devuelve. `at` es la hora del evento y `origin` el título del `started`, si la fuente los
+   * fija (el demo, para capturar).
+   */
+  watchTxn(onEvent: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void): Promise<() => void>;
+  /** La hora de la fuente si no es la del reloj (el demo quieto, para capturas deterministas). */
+  now?(): number;
   setPower(machine: Machine, on: boolean): Promise<ActResult>;
   /** Medir el ancho de banda de un camino (por omisión, el que lleva el tráfico). */
   measureLink(path?: LinkKind): Promise<ActResult>;

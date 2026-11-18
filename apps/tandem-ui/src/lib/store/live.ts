@@ -9,8 +9,10 @@ import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, ratioLabel, type Arrang
 import type { Bridge } from "../bridge";
 import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
-import type { Action, ActionResult, Bindings, Caps, Link, Machine, MachineCaps, Permission, ResourceSample, SetupView, ShortcutsView, Snapshot } from "../model";
+import type { Action, ActionResult, Bindings, Caps, Link, Machine, MachineCaps, MonitorInput, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
 import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
+import { monitorsUi } from "../monitors";
+import { sceneView } from "../scenes";
 import { grantTo, permissionState } from "../permissions";
 import type { ActResult, Capability, DeskView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, PairActionKind, PermissionsView, Source, Topic } from "./types";
 import type { UpdateView } from "../updates";
@@ -38,6 +40,7 @@ export const EMPTY_DESK: DeskView = {
   tunnels: [],
   scenes: [],
   activeScene: null,
+  monitors: [],
   pair: { peer: { kind: "unpaired" }, pairing: { kind: "idle" } },
   permissions: { needed: false, rows: [], binary: null },
   layout: EMPTY_LAYOUT,
@@ -66,6 +69,8 @@ export function checkSnapshot(snap: unknown): asserts snap is Snapshot {
   if (!isObj(desk) || !isObj(desk.machines) || !Array.isArray(desk.screens) || (desk.arrangement !== null && !isObj(desk.arrangement))) throw new ShapeError("puesto");
   if (!isObj(snap.state) || !isObj(snap.state.on) || typeof snap.state.on.a !== "boolean" || typeof snap.state.on.b !== "boolean") throw new ShapeError("encendido");
   if (!isObj(snap.peer) || !isObj(snap.pairing)) throw new ShapeError("emparejamiento");
+  if (!Array.isArray(desk.scenes)) throw new ShapeError("escenas");
+  if (!Array.isArray(snap.monitors)) throw new ShapeError("monitores");
   if (!isObj(snap.input) || !Array.isArray(snap.input.missing)) throw new ShapeError("entrada");
   const caps = snap.caps;
   if (!isObj(caps) || !isObj(caps.here) || !isSide(caps.here.machine) || !isObj(caps.here.input)) throw new ShapeError("capacidades");
@@ -151,10 +156,17 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
     trouble = "link-down";
     troubleText = `Sin enlace con ${peerName}`;
   }
+  const monitors = monitorsUi(snap.monitors);
+  // Los atajos se escriben según el sistema de esta máquina, no el del navegador.
+  const mac = snap.caps.here.os === "macos";
+  const name = (m: Machine) => machineName(m, snap.caps, snap.desk);
   return {
     ...EMPTY_DESK,
     ready: true,
     deskName: snap.desk.name?.trim() || DEFAULT_DESK_NAME,
+    monitors,
+    scenes: snap.desk.scenes.map((sc) => sceneView(sc, { monitors, name, mac })),
+    activeScene: snap.state.scene ?? null,
     trouble,
     troubleText,
     here,
@@ -292,8 +304,37 @@ export class LiveSource implements Source {
     return this.topics;
   }
 
-  async applyScene(): Promise<ActResult> {
-    return { ok: false, reason: "Las escenas todavía no están en el agente" };
+  async applyScene(id: string): Promise<ActResult> {
+    return result(await this.bridge.act({ kind: "apply_scene", id }));
+  }
+
+  async switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult> {
+    return result(await this.bridge.act({ kind: "switch_monitor", monitor, input }));
+  }
+
+  async saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult> {
+    const r = result(await this.bridge.act(isNew ? { kind: "add_scene", scene } : { kind: "edit_scene", scene }));
+    return r.ok ? { ok: true, text: `Escena «${scene.name}» guardada` } : r;
+  }
+
+  /** Sin comando en la IPC del agente: `can("forget")` es falso y la pantalla no ofrece la acción. */
+  async forgetMonitor(): Promise<ActResult> {
+    return { ok: false, reason: "El agente todavía no sabe olvidar un monitor" };
+  }
+
+  private txnListeners = new Set<(e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void>();
+  private txnBound: Promise<void> | null = null;
+
+  async watchTxn(onEvent: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void): Promise<() => void> {
+    // El evento de Tauri no se puede dejar de oír: se oye una vez y se reparte.
+    this.txnBound ??= this.bridge.onNotice((n) => {
+      if (n.kind === "txn") for (const l of this.txnListeners) l(n.event);
+    });
+    await this.txnBound;
+    this.txnListeners.add(onEvent);
+    return () => {
+      this.txnListeners.delete(onEvent);
+    };
   }
 
   async setPower(machine: Machine, on: boolean): Promise<ActResult> {
@@ -394,6 +435,7 @@ export class LiveSource implements Source {
   }
 
   can(what: Capability): boolean {
+    if (what === "scenes" || what === "monitors") return this.last.kind === "connected";
     if (what === "power" || what === "measure") return this.last.kind === "connected" && this.last.peer.kind === "paired";
     if (what === "modules" || what === "machine") return this.last.kind === "connected";
     return false;

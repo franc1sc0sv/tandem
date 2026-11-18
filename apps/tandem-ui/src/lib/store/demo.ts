@@ -13,11 +13,16 @@
 // - `cross=ok|wrong|timeout`: la prueba de cruce cruza por el borde del acomodo, por otro,
 //   o se queda sin tiempo apenas empieza (para las capturas). Sin esto (y sin `still`), cruza
 //   bien a los pocos segundos.
+// - `txn=run|ok|fail`: la pantalla de progreso de una escena ya en curso, terminada o
+//   deshaciéndose (para capturas). `fail=<escena>`: aplicar esa escena falla y se deshace.
+//   Con `still`, un cambio de entrada o de escena se aplica al instante y no agrega eventos ni
+//   cambia la escena activa: así las capturas no dependen del reloj.
 
 import { exitSide, isVertical, type Arrangement, type LayoutScreen, type LayoutView } from "../acomodo";
 import type { CrossSample } from "../crossing";
-import type { Bindings, PairingView, Permission, SetupView, ShortcutsView } from "../model";
+import type { Bindings, MonitorInput, PairingView, Permission, SceneJson, SetupView, ShortcutsView, Step, TxnView } from "../model";
 import { measuredText } from "../network";
+import { sceneView } from "../scenes";
 import { DEFAULT_BINDINGS } from "../shortcuts";
 import { checkName } from "../machine";
 import type { UpdateView } from "../updates";
@@ -34,6 +39,7 @@ import type {
   Machine,
   MachineView,
   ModuleView,
+  MonitorUi,
   NetworkView,
   Os,
   PairActionKind,
@@ -62,6 +68,10 @@ export interface DemoOptions {
   firstRun?: boolean;
   /** Cómo termina la prueba de cruce. */
   cross?: "ok" | "wrong" | "timeout";
+  /** La pantalla de progreso de una escena en este punto. */
+  txn?: "run" | "ok" | "fail";
+  /** Aplicar esta escena falla en su monitor y se deshace. */
+  failScene?: string;
 }
 
 export function demoOptions(query: string): DemoOptions {
@@ -76,6 +86,8 @@ export function demoOptions(query: string): DemoOptions {
     unpaired: p.get("peer") === "none",
     pairing: p.get("pair") === "code" ? "code" : p.get("pair") === "reject" ? "reject" : undefined,
     firstRun: p.has("setup"),
+    txn: p.get("txn") === "run" || p.get("txn") === "ok" || p.get("txn") === "fail" ? (p.get("txn") as "run" | "ok" | "fail") : undefined,
+    failScene: p.get("fail") ?? undefined,
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
 }
@@ -240,11 +252,50 @@ function modulesOf(os: Os, name: string, otherName: string, envs: number): Modul
   return list;
 }
 
-export const DEMO_SCENES = (a: string, b: string): SceneView[] => [
-  { id: "trabajo", name: "Trabajo", key: "⌃⌥1", desc: `34" muestra ${b}`, shows: "b" },
-  { id: "solo-a", name: `Solo ${a.split(" ")[0]}`, key: "⌃⌥2", desc: `34" muestra ${a}`, shows: "a" },
-  { id: "juego", name: "Juego", key: "⌃⌥3", desc: `34" muestra ${b}`, shows: "b" },
-];
+const ctrlAlt = (n: number): string[] => ["ControlLeft", "AltLeft", `Digit${n}`];
+
+/** Los monitores del demo: los externos de cada máquina. Los desconectados no son compatibles (D11). */
+function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
+  const out: MonitorUi[] = [];
+  for (const [owner, spec] of [["b", sb] as const, ["a", sa] as const]) {
+    for (const d of spec.screens.filter((x) => x.external)) {
+      if (d.off) {
+        out.push({ id: d.id, name: d.name, compat: { ok: false, reason: "Entra solo cuando su firmware cumpla el estándar." }, connected: false, owner: null, input: null, ports: {}, shows: null, events: [] });
+        continue;
+      }
+      const input: MonitorInput = owner === "a" ? "hdmi" : "display_port";
+      // La hora del demo es fija (hora local): las capturas no dependen de la zona horaria.
+      const at = (h: number, m: number) => new Date(2026, 10, 17, h, m).getTime();
+      out.push({
+        id: d.id,
+        name: d.name,
+        compat: { ok: true },
+        connected: true,
+        owner,
+        input,
+        ports: { a: "hdmi", b: "display_port" },
+        shows: owner,
+        events: [
+          { at: at(14, 2), kind: "switch", text: "Entrada → DP, pedida por Tandem" },
+          { at: at(13, 47), kind: "button", text: "Entrada → HDMI, con los botones" },
+          { at: at(13, 47), kind: "signal", text: "Señal HDMI detectada" },
+        ],
+      });
+    }
+  }
+  return out.sort((x, y) => Number(y.compat.ok) - Number(x.compat.ok));
+}
+
+/** Las escenas del demo sobre el primer monitor compatible (como el mockup). */
+export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean): SceneView[] {
+  const m = monitors.find((x) => x.compat.ok)?.id;
+  const raw: SceneJson[] = [
+    { id: "trabajo", name: "Trabajo", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(1) },
+    { id: "solo-a", name: `Solo ${a.split(" ")[0]}`, monitors: m ? [[m, "a"]] : [], shortcut: ctrlAlt(2) },
+    { id: "juego", name: "Juego", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
+  ];
+  return raw.map((r) => sceneView(r, { monitors, name: (x) => (x === "a" ? a : b), mac }));
+}
 
 export const DEMO_TUNNELS: TunnelView[] = [
   { id: "t97", project: "tandem", title: "Crate de monitores (T-097)", from: "a", to: "b", state: "busy", processes: 6 },
@@ -384,7 +435,8 @@ export function demoDesk(o: DemoOptions): DeskView {
       live: power === "on" ? s.live : null,
     };
   };
-  const scenes = DEMO_SCENES(sa.name, sb.name);
+  const monitors = demoMonitors(sa, sb).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
+  const scenes = demoScenes(sa.name, sb.name, monitors, (o.here === "a" ? sa : sb).os === "macos");
   const linkUp = o.trouble !== "peer-off" && o.trouble !== "link-down" && o.trouble !== "no-agent";
   return {
     ready: true,
@@ -394,10 +446,11 @@ export function demoDesk(o: DemoOptions): DeskView {
     here: o.here,
     machines: { a: mk("a", sa, sb.name), b: mk("b", sb, sa.name) },
     link: linkUp ? { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 } : { kind: null, gbps: null, ms: null, inputP99: null },
-    network: demoNetwork(linkUp),
+    network: o.txn && linkUp ? { ...demoNetwork(linkUp), measuring: "usb4" } : demoNetwork(linkUp),
     tunnels: DEMO_TUNNELS.map((t) => ({ ...t })),
     scenes,
     activeScene: "trabajo",
+    monitors,
     pair: {
       peer: o.unpaired ? { kind: "unpaired" } : { kind: "paired", name: peerSpec.name, link: linkUp ? "usb4" : null },
       pairing: o.pairing === "code" ? { kind: "comparing", code: DEMO_CODE, peer: peerSpec.name, confirmed: false } : { kind: "idle" },
@@ -417,6 +470,9 @@ const TICK_MS = 1500;
 const RESCAN_MS = 900;
 /** Lo que tarda la medición de ancho de banda en el demo. */
 const DEMO_MEASURE_MS = 1500;
+
+/** Lo que tarda cada paso de una transacción simulada. */
+const STEP_MS = 700;
 
 /** Una fuente simulada: responde a las acciones como lo haría el agente. */
 export class DemoSource implements Source {
@@ -487,11 +543,164 @@ export class DemoSource implements Source {
     this.emit(d);
   }
 
+  // ---- Monitores, escenas y su progreso --------------------------------------------------
+
+  private txnListeners = new Set<(e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void>();
+  private nextTxn = 1;
+  private txnTimers: ReturnType<typeof setTimeout>[] = [];
+
+  /** La hora de la fuente cuando se enseña un progreso fijo (capturas). */
+  now(): number {
+    const t = this.opts.txn;
+    return t ? DEMO_NOW + (t === "run" ? 1200 : t === "ok" ? 2300 : 3000) : Date.now();
+  }
+
+  async watchTxn(onEvent: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void): Promise<() => void> {
+    this.txnListeners.add(onEvent);
+    if (this.opts.txn) this.replay(onEvent, this.opts.txn);
+    return () => {
+      this.txnListeners.delete(onEvent);
+    };
+  }
+
+  /** El progreso de «Juego» en un punto fijo, con las horas de `F-Transacciones`. */
+  private replay(emit: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void, at: "run" | "ok" | "fail"): void {
+    const g34 = this.desk.monitors.find((m) => m.compat.ok);
+    const steps: Step[] = [
+      { step: "show_machine", monitor: g34?.id ?? "g34", machine: "b" },
+      { step: "geometry" },
+    ];
+    const t0 = DEMO_NOW;
+    const txn = 1;
+    // Las otras dos tarjetas de `F-Transacciones`: la PC encendiéndose lleva 18 s esperando
+    // (el reloj de la fuente corre a la par) y el enlace USB-C se está midiendo (en `demoDesk`).
+    const boot = this.now() - 18_000;
+    emit({ type: "started", txn: 2, steps: [{ step: "power_on", machine: "b" }] }, boot);
+    emit({ type: "step_started", txn: 2, index: 0 }, boot + 100);
+    emit({ type: "started", txn, steps }, t0, { title: "Aplicando la escena «Juego»", doneText: "Escena «Juego» activa." });
+    emit({ type: "step_started", txn, index: 0 }, t0 + 100);
+    if (at === "run") return;
+    if (at === "fail") {
+      emit({ type: "step_failed", txn, index: 0, error: "el monitor no mostró imagen en DisplayPort; sigue en HDMI" }, t0 + 3000);
+      return;
+    }
+    emit({ type: "step_done", txn, index: 0 }, t0 + 1900);
+    emit({ type: "step_started", txn, index: 1 }, t0 + 1900);
+    emit({ type: "step_done", txn, index: 1 }, t0 + 2300);
+    emit({ type: "committed", txn, state: { on: { a: true, b: true }, scene: "juego" } }, t0 + 2300);
+  }
+
+  private emitTxn(e: TxnView): void {
+    for (const l of this.txnListeners) l(e);
+  }
+
+  /**
+   * Corre una transacción simulada: cada paso tarda un poco y avisa. Con `still` todo ocurre
+   * al instante. `failAt` hace fallar ese paso y deshace los anteriores.
+   */
+  private runTxn(steps: Step[], effect: (step: Step) => void, done: () => void, failAt: number | null = null): void {
+    const txn = this.nextTxn++;
+    const gap = this.opts.still ? 0 : STEP_MS;
+    const after = (ms: number, f: () => void) => (ms === 0 ? f() : void this.txnTimers.push(setTimeout(f, ms)));
+    this.emitTxn({ type: "started", txn, steps });
+    const state = () => ({ on: { a: true, b: true }, scene: this.desk.activeScene });
+    const undo = (from: number) => {
+      for (let i = from; i >= 0; i--) after(gap * (from - i + 1), () => this.emitTxn({ type: "step_undone", txn, index: i }));
+      after(gap * (from + 2), () => this.emitTxn({ type: "failed", txn, state: state() }));
+    };
+    const run = (i: number) => {
+      if (i >= steps.length) {
+        done();
+        this.emitTxn({ type: "committed", txn, state: state() });
+        return;
+      }
+      this.emitTxn({ type: "step_started", txn, index: i });
+      after(gap, () => {
+        if (i === failAt) {
+          this.emitTxn({ type: "step_failed", txn, index: i, error: "el monitor no mostró imagen en DisplayPort; sigue en HDMI" });
+          undo(i - 1);
+          return;
+        }
+        effect(steps[i] as Step);
+        this.emitTxn({ type: "step_done", txn, index: i });
+        run(i + 1);
+      });
+    };
+    run(0);
+  }
+
+  async switchMonitor(id: string, input: MonitorInput): Promise<ActResult> {
+    const m = this.desk.monitors.find((x) => x.id === id);
+    if (!m) return { ok: false, reason: "No se conoce ese monitor" };
+    if (!m.compat.ok) return { ok: false, reason: `${m.name} no es compatible: no se le escribe nada` };
+    if (!m.connected) return { ok: false, reason: `${m.name} está desconectado` };
+    const to = (["a", "b"] as Machine[]).find((x) => m.ports[x] === input) ?? null;
+    this.runTxn(
+      [{ step: "switch_monitor", monitor: id, input }],
+      () => this.setMonitor(id, input, to),
+      () => {},
+    );
+    return { ok: true };
+  }
+
+  /** La entrada real de un monitor cambió (por el cambio pedido o por la escena). */
+  private setMonitor(id: string, input: MonitorInput, shows: Machine | null): void {
+    const monitors = this.desk.monitors.map((m) => {
+      if (m.id !== id) return m;
+      // Con `still` no se agrega el evento: llevaría la hora del reloj (capturas deterministas).
+      const events = this.opts.still ? m.events : [{ at: Date.now(), kind: "switch" as const, text: `Entrada → ${input === "hdmi" ? "HDMI" : "DP"}, pedida por Tandem` }, ...m.events].slice(0, 3);
+      return { ...m, input, shows, events };
+    });
+    this.set({ ...this.desk, monitors });
+  }
+
   async applyScene(id: string): Promise<ActResult> {
     const scene = this.desk.scenes.find((s) => s.id === id);
     if (!scene) return { ok: false, reason: "No existe esa escena" };
-    this.set({ ...this.desk, activeScene: id });
-    return { ok: true, text: `Escena «${scene.name}» aplicada` };
+    const steps: Step[] = [
+      ...scene.monitors.map((x): Step => ({ step: "show_machine", monitor: x.monitor, machine: x.machine })),
+      ...(scene.monitors.length > 0 ? [{ step: "geometry" } as Step] : []),
+    ];
+    const bad = this.opts.failScene === id && steps.length > 0 ? 0 : null;
+    this.runTxn(
+      steps,
+      (st) => {
+        if (st.step !== "show_machine") return;
+        const m = this.desk.monitors.find((x) => x.id === st.monitor);
+        const port = m?.ports[st.machine];
+        if (port) this.setMonitor(st.monitor, port, st.machine);
+      },
+      () => this.set({ ...this.desk, activeScene: id }),
+      bad,
+    );
+    return { ok: true };
+  }
+
+  async saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult> {
+    const ctx = { monitors: this.desk.monitors, name: (m: Machine) => this.desk.machines[m]?.name ?? m, mac: this.desk.machines[this.desk.here]?.os === "macos" };
+    const id = scene.id || this.freeId(scene.name);
+    const view = sceneView({ ...scene, id }, ctx);
+    const exists = this.desk.scenes.some((s) => s.id === id);
+    if (isNew && exists) return { ok: false, reason: `Ya hay una escena con el id «${id}»` };
+    if (!isNew && !exists) return { ok: false, reason: "Esa escena ya no existe" };
+    const scenes = isNew ? [...this.desk.scenes, view] : this.desk.scenes.map((s) => (s.id === id ? view : s));
+    this.set({ ...this.desk, scenes });
+    return { ok: true, text: `Escena «${scene.name}» guardada` };
+  }
+
+  private freeId(name: string): string {
+    const base = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "escena";
+    let id = base;
+    for (let n = 2; this.desk.scenes.some((s) => s.id === id); n++) id = `${base}-${n}`;
+    return id;
+  }
+
+  async forgetMonitor(id: string): Promise<ActResult> {
+    const m = this.desk.monitors.find((x) => x.id === id);
+    if (!m) return { ok: false, reason: "No se conoce ese monitor" };
+    if (m.compat.ok || m.connected) return { ok: false, reason: `${m.name} está en uso: solo se olvidan los que no son compatibles y no están` };
+    this.set({ ...this.desk, monitors: this.desk.monitors.filter((x) => x.id !== id) });
+    return { ok: true, text: `${m.name} olvidado` };
   }
 
   async setPower(machine: Machine, on: boolean): Promise<ActResult> {
@@ -712,6 +921,8 @@ export class DemoSource implements Source {
   stop(): void {
     clearInterval(this.timer);
     clearTimeout(this.pairTimer);
+    for (const t of this.txnTimers) clearTimeout(t);
+    this.txnTimers = [];
     this.timer = undefined;
   }
 

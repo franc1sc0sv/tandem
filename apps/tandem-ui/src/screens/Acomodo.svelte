@@ -110,7 +110,7 @@
     {#snippet actions()}
       {#if scene}
         <Chip dot={false} style="height:30px;box-sizing:border-box"
-          ><Icon name="play" size={13} color={desk.machines[scene.shows]?.color ?? "#9a9da6"} />{scene.name}</Chip
+          ><Icon name="play" size={13} color={(scene.shows ? desk.machines[scene.shows]?.color : null) ?? "#9a9da6"} />{scene.name}</Chip
         >
       {/if}
       <Button icon="cursor" href={crossHref} disabled={!store.can("crossing")} style="--btn-h:38px;--btn-px:15px">Probar cruce</Button>

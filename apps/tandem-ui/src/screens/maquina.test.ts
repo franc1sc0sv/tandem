@@ -243,12 +243,13 @@ describe("contra el agente (IPC)", () => {
   const snap = {
     kind: "connected",
     agent: "a",
-    desk: { machines: { a: null, b: null }, screens: [], arrangement: null },
+    desk: { machines: { a: null, b: null }, screens: [], arrangement: null, scenes: [] },
     state: { on: { a: true, b: true } },
     peer: { kind: "paired", name: "Taller", link: "usb4" },
     pairing: { kind: "idle" },
     input: { server: "a", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true },
     caps: { here: { ...caps, machine: "a", name: "Estudio", os: "macos", color: "#7aa7e6", modules: [], environments: [], hardware: undefined }, peer: caps },
+    monitors: [],
   } as unknown as Snapshot;
 
   async function mountLive() {

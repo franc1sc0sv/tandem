@@ -14,12 +14,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tandem_core::{Align, Arrangement, Config, DeskPatch, Machine, Side, State, Step};
+use tandem_core::{
+    Align, Arrangement, Config, DeskPatch, Machine, MonitorInput, Scene, Side, State, Step,
+};
 use tandem_proto::{
     AgentToUi, Capabilities, CursorSample, DeskCapabilities, EnvKind, Environment, Hardware,
     InputPermission, InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo, ModuleState,
-    NetworkStatus, PairingStatus, PathState, PeerStatus, PowerEvent, Reply, Resources, SetupInfo,
-    TxnEvent, UiCommand, UpdateStatus,
+    MonitorView, NetworkStatus, PairingStatus, PathState, PeerStatus, PowerEvent, Reply, Resources,
+    SetupInfo, TxnEvent, UiCommand, UpdateStatus,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -53,6 +55,8 @@ pub enum Snapshot {
         /// Lo que puede cada máquina (T-084): la escena se dibuja con esto, no con el
         /// nombre de la máquina.
         caps: Box<CapsView>,
+        /// Los monitores de las dos máquinas con lo último que leyó su dueño (T-110).
+        monitors: Vec<MonitorView>,
     },
     Unavailable {
         endpoint: Option<String>,
@@ -708,6 +712,26 @@ pub enum Action {
     MeasureLink {
         path: LinkView,
     },
+    /// Aplicar la escena `id` (D6): una transacción con progreso (T-116).
+    ApplyScene {
+        id: String,
+    },
+    /// Cambiar la entrada de un monitor compatible, con el veredicto del firmware (T-110).
+    SwitchMonitor {
+        monitor: String,
+        input: MonitorInput,
+    },
+    /// Crear una escena (T-116); sin `id` se le da uno a partir del nombre.
+    AddScene {
+        scene: Scene,
+    },
+    /// Guardar los cambios de una escena existente.
+    EditScene {
+        scene: Scene,
+    },
+    DeleteScene {
+        id: String,
+    },
 }
 
 /// Suma o resta una ventana a `n`; devuelve si había alguna y si hay alguna.
@@ -770,6 +794,17 @@ impl From<Action> for UiCommand {
             Action::WatchCursor { on } => UiCommand::WatchCursor { on },
             Action::WatchNetwork { on } => UiCommand::WatchNetwork { on },
             Action::MeasureLink { path } => UiCommand::MeasureLink { path: path.into() },
+            Action::ApplyScene { id } => UiCommand::ApplyScene { id },
+            Action::SwitchMonitor { monitor, input } => UiCommand::SwitchMonitor { monitor, input },
+            Action::AddScene { scene } => UiCommand::EditDesk {
+                patch: DeskPatch::AddScene(scene),
+            },
+            Action::EditScene { scene } => UiCommand::EditDesk {
+                patch: DeskPatch::EditScene(scene),
+            },
+            Action::DeleteScene { id } => UiCommand::EditDesk {
+                patch: DeskPatch::DeleteScene { id },
+            },
         }
     }
 }
@@ -992,6 +1027,7 @@ struct Opened<S> {
     pairing: PairingView,
     input: InputView,
     caps: Box<CapsView>,
+    monitors: Vec<MonitorView>,
     update: UpdateStatus,
 }
 
@@ -1019,6 +1055,7 @@ impl Runner {
                     pairing,
                     input,
                     caps,
+                    monitors,
                     update,
                 }) => {
                     let agent = client.agent();
@@ -1031,6 +1068,7 @@ impl Runner {
                         pairing,
                         input,
                         caps,
+                        monitors,
                     });
                     match self.serve(client).await {
                         Ended::Released => return,
@@ -1104,6 +1142,10 @@ impl Runner {
                 Reply::Capabilities(c) => Box::new((*c).into()),
                 other => return Err(IpcError::UnexpectedReply(Box::new(other))),
             };
+            let monitors = match client.request(UiCommand::GetMonitors).await? {
+                Reply::Monitors(m) => m,
+                other => return Err(IpcError::UnexpectedReply(Box::new(other))),
+            };
             let update = match client.request(UiCommand::GetUpdate).await? {
                 Reply::Update(u) => u,
                 other => return Err(IpcError::UnexpectedReply(Box::new(other))),
@@ -1119,6 +1161,7 @@ impl Runner {
                 input,
                 pairing,
                 caps,
+                monitors,
                 update,
             })
         };
@@ -1212,9 +1255,7 @@ impl Runner {
                     event: KeyProbeView { armed, heard },
                 });
             }
-            // La pantalla Monitores llega con su tarea de UI; hasta entonces no hay dónde
-            // mostrarlos.
-            AgentToUi::Monitors(_) => {}
+            AgentToUi::Monitors(new) => self.update_monitors(new),
             AgentToUi::Update(status) => self.sink.update(&status),
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}
@@ -1297,6 +1338,16 @@ impl Runner {
             {
                 *agent = new.here.machine;
                 **caps = new;
+                true
+            }
+            _ => false,
+        });
+    }
+
+    fn update_monitors(&self, new: Vec<MonitorView>) {
+        self.update(|c| match c {
+            Snapshot::Connected { monitors, .. } if *monitors != new => {
+                *monitors = new;
                 true
             }
             _ => false,
@@ -1535,6 +1586,7 @@ mac = "9c:6b:00:1a:2b:ff"
                 pairing: PairingView::Idle,
                 input: InputStatus::new(Machine::A).into(),
                 caps: Box::new(a.agent.capabilities().into()),
+                monitors: vec![],
             }
         );
     }
@@ -2001,8 +2053,10 @@ mac = "9c:6b:00:1a:2b:ff"
             }
             .into(),
             caps: test_caps(Machine::A),
+            monitors: vec![],
         };
         let v = serde_json::to_value(&snap).unwrap();
+        assert_eq!(v["monitors"], serde_json::json!([]));
         assert_eq!(v["kind"], "connected");
         assert_eq!(v["caps"]["here"]["machine"], "a");
         assert_eq!(
@@ -2324,7 +2378,32 @@ mac = "9c:6b:00:1a:2b:ff"
                 }
             }
         );
-        // Lo de los monitores ya no existe: la ventana no puede pedirlo.
+        assert_eq!(
+            read(serde_json::json!({ "kind": "apply_scene", "id": "juego" })),
+            UiCommand::ApplyScene { id: "juego".into() }
+        );
+        assert_eq!(
+            read(
+                serde_json::json!({ "kind": "switch_monitor", "monitor": "m-1", "input": "hdmi" })
+            ),
+            UiCommand::SwitchMonitor {
+                monitor: "m-1".into(),
+                input: MonitorInput::Hdmi
+            }
+        );
+        let scene =
+            serde_json::json!({ "id": "juego", "name": "Juego", "monitors": [["m-1", "b"]] });
+        assert!(matches!(
+            read(serde_json::json!({ "kind": "add_scene", "scene": scene })),
+            UiCommand::EditDesk { patch: DeskPatch::AddScene(s) } if s.name == "Juego"
+        ));
+        assert_eq!(
+            read(serde_json::json!({ "kind": "delete_scene", "id": "juego" })),
+            UiCommand::EditDesk {
+                patch: DeskPatch::DeleteScene { id: "juego".into() }
+            }
+        );
+        // Lo viejo de los monitores ya no existe: la ventana no puede pedirlo.
         for gone in ["set_mode", "list_displays", "scan_monitors", "answer_probe"] {
             assert!(serde_json::from_value::<Action>(serde_json::json!({ "kind": gone })).is_err());
         }

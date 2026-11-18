@@ -29,6 +29,21 @@ export interface ScreenSpec {
   scale: number;
 }
 
+/** Una entrada de video de un monitor compatible (`tandem_core::MonitorInput`). */
+export type MonitorInput = "display_port" | "hdmi";
+
+/** Una escena del puesto (`tandem_core::Scene`): qué máquina muestra cada monitor compatible. */
+export interface SceneJson {
+  id: string;
+  name: string;
+  icon?: string;
+  monitors: [string, Machine][];
+  layout?: { a_side: Side; align: Align } | null;
+  require_on?: Machine | null;
+  /** Atajo global, con los nombres de `KeyboardEvent.code`, todas las teclas a la vez. */
+  shortcut: string[];
+}
+
 /** El puesto compartido: el acomodo de pantallas para el teclado y el mouse. */
 export interface Desk {
   /** Lo que se sabe de cada lado (`null` si todavía no se anunció). */
@@ -39,6 +54,30 @@ export interface Desk {
   arrangement: { a_side: Side; align: Align } | null;
   /** Nombre del puesto, si el agente lo manda (todavía no viaja: la UI usa «Mi puesto»). */
   name?: string | null;
+  scenes: SceneJson[];
+}
+
+/** `tandem_proto::MonitorCompat`: serde por omisión (etiqueta externa). */
+export type MonitorCompatJson = { Compatible: { protocol: number } } | { NotCompatible: { reason: string } };
+
+export type MonitorEventKindJson = "Boot" | "Input" | "SwitchRequested" | "SwitchDone" | "SwitchFailed" | "Power" | "Signal" | "Setting" | "Lost" | "Other";
+
+export interface MonitorEventJson {
+  /** Milisegundos Unix, según el reloj del dueño. */
+  at_ms: number;
+  kind: MonitorEventKindJson;
+  input: MonitorInput | null;
+}
+
+/** Un monitor como lo manda el agente (`tandem_proto::MonitorView`). */
+export interface MonitorJson {
+  id: string;
+  name: string;
+  compat: MonitorCompatJson;
+  seen_by: Machine[];
+  via: [Machine, MonitorInput][];
+  owner: Machine | null;
+  report: { id: string; input: MonitorInput | null; power_on: boolean | null; signal: boolean | null; events: MonitorEventJson[] } | null;
 }
 
 export interface DeskState {
@@ -149,7 +188,7 @@ export interface InputView {
 
 export type Snapshot =
   | { kind: "connecting" }
-  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView; pairing: PairingView; input: InputView; caps: Caps }
+  | { kind: "connected"; agent: Machine; desk: Desk; state: DeskState; peer: PeerView; pairing: PairingView; input: InputView; caps: Caps; monitors: MonitorJson[] }
   | { kind: "unavailable"; endpoint: string | null; reason: string };
 
 export type Step =
@@ -219,7 +258,13 @@ export type Action =
   /** La pantalla Red pide (o deja de pedir) el estado de la red, una vez por segundo (T-118). */
   | { kind: "watch_network"; on: boolean }
   /** Prueba de ancho de banda de un camino (3 s); contesta `bandwidth`. */
-  | { kind: "measure_link"; path: Link };
+  | { kind: "measure_link"; path: Link }
+  /** Aplicar una escena: una transacción con progreso (T-116). */
+  | { kind: "apply_scene"; id: string }
+  /** Cambiar la entrada de un monitor compatible, con el veredicto del firmware (T-110). */
+  | { kind: "switch_monitor"; monitor: string; input: MonitorInput }
+  | { kind: "add_scene"; scene: SceneJson }
+  | { kind: "edit_scene"; scene: SceneJson };
 
 /** De dónde salió la configuración del agente (`tandem_proto::SetupInfo`). */
 export interface AgentSetup {

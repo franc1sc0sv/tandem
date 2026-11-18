@@ -138,6 +138,7 @@ mod tests {
             pairing: PairingView::Idle,
             input: InputStatus::new(agent).into(),
             caps: crate::session::test_caps(agent),
+            monitors: vec![],
         }
     }
 

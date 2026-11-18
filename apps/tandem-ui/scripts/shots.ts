@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ORIGIN, installRoutes, waitForMockup } from "@tandem/mockup-render";
+import { ORIGIN, installRoutes, statesOf, waitForMockup } from "@tandem/mockup-render";
 import { capture, compare, compareWithMockup, launchBrowser, mockupShotPath, settle, type CompareResult } from "@tandem/mockup-render/harness";
 import type { Browser, Page } from "playwright";
 import { SHOTS, appUrl, crop, mask, type Rect, type ShotSpec } from "./shots-spec.ts";
@@ -89,6 +89,13 @@ async function mockupRects(browser: Browser, spec: ShotSpec, selectors: string[]
     await page.goto(`${ORIGIN}/${spec.mockup}.dc.html`);
     await waitForMockup(page);
     await settle(page);
+    // Las cajas se miden en el estado de la captura (en «vuelta atrás» el texto cambia el alto de la tarjeta).
+    const state = spec.state ? statesOf(spec.mockup).find((x) => x.name === spec.state) : undefined;
+    for (const step of state?.steps ?? []) {
+      if ("click" in step) await page.locator(step.click).click({ timeout: 5_000 });
+      else await page.locator(step.fill).fill(step.text, { timeout: 5_000 });
+      await settle(page);
+    }
     const out: Record<string, Rect | null> = {};
     for (const sel of selectors) {
       const box = await page.locator(sel).first().boundingBox({ timeout: 2_000 }).catch(() => null);
@@ -195,13 +202,17 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     await page.waitForSelector("#app > *", { timeout: 10_000 });
     if (spec.content?.appStyle) await page.addStyleTag({ content: spec.content.appStyle });
     await settle(page);
-    for (const k of spec.keys ?? []) {
-      await page.keyboard.press(k);
+    for (const f of spec.fills ?? []) {
+      await page.locator(f.selector).first().fill(f.text, { timeout: 5_000 });
       await settle(page);
     }
     // Los mismos clics que llevan al estado del mockup (`tools/mockup-render/src/states.ts`).
     for (const sel of spec.clicks ?? []) {
       await page.locator(sel).click({ timeout: 5_000 });
+      await settle(page);
+    }
+    for (const k of spec.keys ?? []) {
+      await page.keyboard.press(k);
       await settle(page);
     }
     const text = await page.evaluate(() => document.body.innerText);
@@ -225,10 +236,10 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
   // captura del mockup (`compareWithMockup`).
   let ref: Buffer | null = null;
 
-  const ignoreSel = (spec.ignore ?? []).map((i) => i.mockupSelector);
+  const ignoreSel = (spec.ignore ?? []).flatMap((i) => (i.mockupSelector ? [i.mockupSelector] : []));
   const regionSel = (spec.regions ?? []).flatMap((r) => (r.mockupSelector ? [r.mockupSelector] : []));
   const rects = ignoreSel.length + regionSel.length > 0 ? await mockupRects(browser, spec, [...ignoreSel, ...regionSel]) : {};
-  const masked = ignoreSel.map((s) => rects[s]).filter((r): r is Rect => r !== null && r !== undefined);
+  const masked = [...ignoreSel.map((s) => rects[s]), ...(spec.ignore ?? []).map((i) => i.rect)].filter((r): r is Rect => r !== null && r !== undefined);
   let app = png;
   if (masked.length > 0) {
     app = mask(app, masked);
