@@ -83,7 +83,7 @@ Cuentan como pendientes, no como falla: cada uno tiene su comprobación concreta
 | Comprobación | Resultado |
 |---|---|
 | Secretos, tokens y llaves | PASA: ninguno versionado; los `ghp_x` y `BEGIN OPENSSH PRIVATE KEY` son fixtures del filtro de credenciales (T-130); no hay `.env`, `.pem` ni identidades en `git ls-files` |
-| Datos del usuario | FALLA (T-162): el repo es público y trae la IP de la Mac (`192.168.1.191`) y su usuario de macOS (`franciscohernandez`) en `docs/dev/hardware.md`, `docs/tasks/T-051.md` y `docs/dev/HANDOFF.md`; MAC y ruta `/Users/fran` en fixtures |
+| Datos del usuario | FALLA (T-162): el repo es público y trae la IP de la Mac (`<ip-de-la-mac>`) y su usuario de macOS (`<usuario>`) en `docs/dev/hardware.md`, `docs/tasks/T-051.md` y `docs/dev/HANDOFF.md`; MAC y ruta `<ruta personal>` en fixtures |
 | `unsafe` con `// SAFETY:` | FALLA (T-165): de 162 usos, 155 lo llevan; faltan 7 (`extern` de IOKit, ApplicationServices y Carbon, `tap_callback`, `unsafe impl` de `drag_macos.rs`) |
 | Código GPL copiado | PASA, con el límite de una revisión por búsqueda: no hay encabezados GPL ni «copiado de»; las únicas menciones a Deskflow son comentarios de comportamiento («como Deskflow») |
 
