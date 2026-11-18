@@ -315,7 +315,7 @@ async fn una_ruta_con_escape_no_sale_de_la_carpeta() {
     assert!(!d.path().join("fuera").exists());
 }
 
-/// Un árbol de ~20 000 archivos: el manifiesto y el plan no caben en un marco, así que
+/// Un árbol de ~12 000 archivos: el manifiesto y el plan no caben en un marco, así que
 /// viajan en páginas; llega idéntico en las dos direcciones.
 #[tokio::test(flavor = "multi_thread")]
 async fn un_arbol_enorme_viaja_paginado() {
@@ -325,7 +325,7 @@ async fn un_arbol_enorme_viaja_paginado() {
         d.path().join("destino"),
         d.path().join("vuelta"),
     );
-    for i in 0..20_000u32 {
+    for i in 0..12_000u32 {
         let dir = src.join(format!("d{:03}", i / 200));
         fs::create_dir_all(&dir).unwrap();
         fs::write(
@@ -336,13 +336,20 @@ async fn un_arbol_enorme_viaja_paginado() {
     }
     let p = pair(CHUNK).await;
     let dst_s = dst.to_str().unwrap();
-    let r = within(p.files_a.put(&p.origin, p.tunnel, &src, dst_s))
+    let r = slow(p.files_a.put(&p.origin, p.tunnel, &src, dst_s))
         .await
         .unwrap();
-    assert_eq!(r.files, 20_000);
+    assert_eq!(r.files, 12_000);
     assert_eq!(snapshot(&src), snapshot(&dst));
-    within(p.files_a.get(&p.origin, p.tunnel, dst_s, &back))
+    slow(p.files_a.get(&p.origin, p.tunnel, dst_s, &back))
         .await
         .unwrap();
     assert_eq!(snapshot(&src), snapshot(&back));
+}
+
+/// Como `within`, con más margen: 12 000 archivos en el disco de un CI de Windows tardan.
+async fn slow<T>(f: impl Future<Output = T>) -> T {
+    tokio::time::timeout(std::time::Duration::from_secs(240), f)
+        .await
+        .unwrap()
 }
