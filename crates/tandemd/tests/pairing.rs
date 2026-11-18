@@ -5,7 +5,7 @@
 //! Las máquinas se llaman «Mac» y «PC» (su `[machines]`, como lo pondría la UI); el código
 //! no lo supone: los lados salen de las claves.
 
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,7 +25,7 @@ use tandemd::network::{NOT_PAIRED, NOTHING_TO_CONFIRM, NetOptions, PAIRING_IN_PR
 use tandemd::orchestrator::{LocalSteps, StepFuture};
 use tandemd::pairing::PairingTimeouts;
 use tandemd::paths::Paths;
-use tandemd::test_ports::{PortTaken, port_taken};
+use tandemd::test_ports::{PortTaken, free_pair, port_taken};
 use tandemd::{Agent, AgentConfig, StoreError};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -44,28 +44,6 @@ struct Ok_;
 impl LocalSteps for Ok_ {
     fn execute<'a>(&'a self, _step: &'a tandem_core::Step) -> StepFuture<'a> {
         Box::pin(async { Ok(()) })
-    }
-}
-
-/// Un puerto libre con el siguiente también libre: el agente escucha en el primero y
-/// empareja en el segundo (lo que la otra máquina prueba por el enlace fijo).
-///
-/// No salen del rango efímero: Windows lo reparte en orden, así que el `p + 1` de una
-/// prueba era casi siempre el siguiente puerto libre que pedía otra que corría a la vez, y cada
-/// agente terminaba emparejando en otro puerto (las dos máquinas no se encontraban nunca).
-/// Un contador del proceso, por debajo del rango efímero (49152–65535) y del que reserva
-/// Windows con Hyper-V (47000–48999), no repite ninguno entre pruebas.
-fn free_pair() -> u16 {
-    use std::sync::atomic::{AtomicU16, Ordering};
-    static NEXT: AtomicU16 = AtomicU16::new(0);
-    // Cada proceso de pruebas en su tramo, por si dos corren a la vez.
-    let base = 20_000 + (std::process::id() % 2_000) as u16 * 10;
-    loop {
-        let p = base + NEXT.fetch_add(2, Ordering::Relaxed) % 6_000;
-        let free = |port: u16| UdpSocket::bind((Ipv4Addr::LOCALHOST, port)).is_ok();
-        if free(p) && free(p + 1) {
-            return p;
-        }
     }
 }
 
@@ -115,10 +93,17 @@ impl Running {
     async fn until_pairing(&mut self, done: impl Fn(&PairingStatus) -> bool) -> PairingStatus {
         within(async {
             loop {
-                if let AgentToUi::Pairing(s) = self.ui.next_event().await.unwrap().unwrap()
-                    && done(&s)
-                {
-                    break s;
+                if let AgentToUi::Pairing(s) = self.ui.next_event().await.unwrap().unwrap() {
+                    // Un fallo no se corrige esperando: se informa con su razón en vez de
+                    // dejar que la prueba venza por tiempo sin decir qué pasó.
+                    if let PairingStatus::Failed { reason } = &s
+                        && !done(&s)
+                    {
+                        panic!("el emparejamiento falló: {reason}");
+                    }
+                    if done(&s) {
+                        break s;
+                    }
                 }
             }
         })
