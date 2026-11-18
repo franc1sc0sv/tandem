@@ -5,6 +5,8 @@
 // Los módulos y entornos llegan por la IPC con T-098/T-105; mientras tanto el agente real
 // deja esas listas vacías y el modo demo las simula.
 
+import type { Arrangement, LayoutView } from "../acomodo";
+import type { CrossSample } from "../crossing";
 import type { Bindings, Machine, Os, PairingView, PeerView, Permission, SetupView, ShortcutsView } from "../model";
 import type { PermissionState } from "../permissions";
 import type { UpdateView } from "../updates";
@@ -196,12 +198,17 @@ export interface DeskView {
   activeScene: string | null;
   pair: PairState;
   permissions: PermissionsView;
+  /** Las pantallas y el acomodo (D18). */
+  layout: LayoutView;
 }
 
 /** Temas de eventos: cada pantalla se suscribe solo a lo que muestra. */
 export type Topic = "machines" | "resources" | "link" | "network" | "tunnels" | "scenes" | "monitors";
 
 export const ALL_TOPICS: Topic[] = ["machines", "resources", "link", "network", "tunnels", "scenes", "monitors"];
+
+/** Lo que una fuente puede o no hacer todavía. */
+export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing";
 
 export type PairActionKind = "start_pairing" | "confirm_pairing" | "cancel_pairing" | "unpair";
 
@@ -244,7 +251,16 @@ export interface Source {
   /** Rechaza con la razón si no se puede empezar. */
   updateAll(): Promise<UpdateView>;
   setAutoUpdate(on: boolean): Promise<UpdateView>;
+  /** Guarda el acomodo en el puesto compartido (T-099): llega a la otra máquina. */
+  setArrangement(a: Arrangement): Promise<ActResult>;
+  /**
+   * La prueba de cruce: `onCross` recibe cada cruce del cursor entre las dos máquinas hasta
+   * que se llama a la función que devuelve. Rechaza si la fuente no informa cruces.
+   */
+  watchCrossing(onCross: (s: CrossSample) => void): Promise<() => void>;
+  /** Tiempo para cruzar, si la fuente lo cambia (el demo, para capturar el tiempo agotado). */
+  readonly crossTimeoutMs?: number;
   /** Qué sabe hacer esta fuente hoy (el agente real aún no tiene escenas ni módulos). */
-  can(what: "scenes" | "modules" | "power" | "measure"): boolean;
+  can(what: Capability): boolean;
   stop(): void;
 }

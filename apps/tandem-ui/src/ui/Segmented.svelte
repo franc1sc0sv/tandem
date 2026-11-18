@@ -11,6 +11,8 @@
     note?: string;
     /** Borde del indicador cuando esta opción está elegida. */
     accent?: string;
+    /** Grosor del trazo del ícono (1.8 por omisión; 2 en las alineaciones del acomodo). */
+    iconStroke?: number;
   }
 </script>
 
@@ -66,7 +68,7 @@
       tabindex={i === index ? 0 : -1}
       onclick={() => pick(i)}
     >
-      {#if o.icon}<Icon name={o.icon} size={size === "lg" ? 17 : 16} color={o.iconColor} />{/if}{o.label}{#if o.note}<span class="note">{o.note}</span>{/if}
+      {#if o.icon}<Icon name={o.icon} size={size === "lg" ? 17 : 16} color={o.iconColor} stroke={o.iconStroke} />{/if}{o.label}{#if o.note}<span class="note">{o.note}</span>{/if}
     </button>
   {/each}
 </div>

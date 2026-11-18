@@ -6,6 +6,7 @@
   import type { ShortcutsView } from "../lib/model";
   import { isMacPlatform, localAction, windowCommand } from "../lib/shortcuts";
   import Acomodo from "../screens/Acomodo.svelte";
+  import CrossTest from "../screens/CrossTest.svelte";
   import Ajustes from "../screens/Ajustes.svelte";
   import Maquina from "../screens/Maquina.svelte";
   import Monitores from "../screens/Monitores.svelte";
@@ -56,6 +57,10 @@
 <svelte:window {onkeydown} onhashchange={() => store.syncFromLocation()} />
 
 <div class="shell" class:dim={store.paletteOpen} inert={store.paletteOpen || store.wizardOpen}>
+  {#if store.route.screen === "cruce"}
+    <!-- La prueba de cruce ocupa toda la ventana, con su ruta de vuelta (F-PruebaCruce). -->
+    {#key key}<CrossTest />{/key}
+  {:else}
   <Sidebar />
   {#key key}
     <main class="main" in:enter={{ y: 8, duration: 280 }}>
@@ -78,6 +83,7 @@
       {/if}
     </main>
   {/key}
+  {/if}
 </div>
 <Palette />
 <Wizard />

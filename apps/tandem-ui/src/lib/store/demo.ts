@@ -10,7 +10,12 @@
 // - `still`: sin recursos que cambien solos (para capturas deterministas).
 // - `peer=none`: sin emparejar; emparejar simula a la otra máquina (código y confirmación).
 //   `pair=code` arranca mostrando el código; `pair=reject`: la otra máquina rechaza.
+// - `cross=ok|wrong|timeout`: la prueba de cruce cruza por el borde del acomodo, por otro,
+//   o se queda sin tiempo apenas empieza (para las capturas). Sin esto (y sin `still`), cruza
+//   bien a los pocos segundos.
 
+import { exitSide, isVertical, type Arrangement, type LayoutScreen, type LayoutView } from "../acomodo";
+import type { CrossSample } from "../crossing";
 import type { Bindings, PairingView, Permission, SetupView, ShortcutsView } from "../model";
 import { DEFAULT_BINDINGS } from "../shortcuts";
 import type { UpdateView } from "../updates";
@@ -49,6 +54,8 @@ export interface DemoOptions {
   pairing?: "code" | "reject";
   /** La guía de permisos del primer arranque se abre sola. */
   firstRun?: boolean;
+  /** Cómo termina la prueba de cruce. */
+  cross?: "ok" | "wrong" | "timeout";
 }
 
 export function demoOptions(query: string): DemoOptions {
@@ -63,6 +70,7 @@ export function demoOptions(query: string): DemoOptions {
     unpaired: p.get("peer") === "none",
     pairing: p.get("pair") === "code" ? "code" : p.get("pair") === "reject" ? "reject" : undefined,
     firstRun: p.has("setup"),
+    cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
 }
 
@@ -73,13 +81,38 @@ export function isDemo(query: string): boolean {
 const BLUE = "#7aa7e6";
 const VIOLET = "#a99be8";
 
+/** Una pantalla de ejemplo (datos del mockup `V3-Acomodo`). */
+interface DemoScreen {
+  id: string;
+  name: string;
+  short: string;
+  ask: string;
+  w: number;
+  h: number;
+  size: string;
+  res: string;
+  ratio: string;
+  scale: string;
+  /** Monitor externo: lo que muestra depende de la escena. */
+  external?: boolean;
+  /** Desconectado: no entra en el acomodo. */
+  off?: boolean;
+}
+
 interface Spec {
   name: string;
   os: Os;
   color: string;
   detail: string;
   resources: Resources;
+  screens: DemoScreen[];
 }
+
+const BUILTIN_14: DemoScreen = { id: "mbp", name: "MacBook Pro", short: "Mac", ask: "MacBook Pro", w: 12, h: 7.8, size: '14"', res: "1512 × 982", ratio: "16:10", scale: "200 % (Retina)" };
+const G34: DemoScreen = { id: "g34", name: 'Odyssey G5 34"', short: '34"', ask: 'el 34"', w: 31.4, h: 13.1, size: '34"', res: "3440 × 1440", ratio: "21:9", scale: "100 %", external: true };
+const G32: DemoScreen = { id: "g32", name: 'Odyssey G5 32"', short: '32"', ask: 'el 32"', w: 27.9, h: 15.7, size: '32"', res: "2560 × 1440", ratio: "16:9", scale: "—", external: true, off: true };
+const U27: DemoScreen = { id: "u27", name: 'UltraFine 27"', short: '27"', ask: 'el 27"', w: 23.5, h: 13.2, size: '27"', res: "2560 × 1440", ratio: "16:9", scale: "100 %", external: true };
+const STUDIO: DemoScreen = { id: "sd27", name: "Studio Display", short: "Studio", ask: "el Studio Display", w: 23.5, h: 13.2, size: '27"', res: "2560 × 1440", ratio: "16:9", scale: "200 %", external: true };
 
 const MACBOOK: Spec = {
   name: "MacBook Pro",
@@ -93,6 +126,7 @@ const MACBOOK: Spec = {
     gpuLabel: "GPU",
     history: [26, 30, 22, 37, 32, 44, 33, 39, 28, 43, 35, 41, 33],
   },
+  screens: [BUILTIN_14],
 };
 
 const DESKTOP: Spec = {
@@ -107,6 +141,7 @@ const DESKTOP: Spec = {
     gpuLabel: "VRAM",
     history: [44, 52, 59, 67, 63, 74, 70, 78, 72, 81, 76, 80, 78],
   },
+  screens: [G34, G32],
 };
 
 const WORKSHOP: Spec = {
@@ -115,6 +150,7 @@ const WORKSHOP: Spec = {
   color: "#6cc59a",
   detail: "Windows · Ryzen 7",
   resources: { ...DESKTOP.resources, gpu: null, gpuLabel: "GPU", cpu: { percent: 31, label: "31 %" } },
+  screens: [U27],
 };
 
 const MINI: Spec = {
@@ -123,6 +159,7 @@ const MINI: Spec = {
   color: "#d9a75a",
   detail: "macOS · M4",
   resources: { ...MACBOOK.resources, cpu: { percent: 9, label: "9 %" } },
+  screens: [STUDIO],
 };
 
 const PAIRS: Record<DemoPair, [Spec, Spec]> = {
@@ -232,6 +269,29 @@ function permissionsFor(os: Os, missing: boolean): PermissionsView {
   };
 }
 
+/** Como en el mockup: la otra máquina a la izquierda del 34", alineada abajo. */
+export const DEMO_ARRANGEMENT: Arrangement = { aSide: "left", align: "end" };
+
+/** Las pantallas de ejemplo: las de A primero (como el mockup), las desconectadas al final. */
+function demoLayout(sa: Spec, sb: Spec, scenes: SceneView[], active: string | null): LayoutView {
+  const scene = scenes.find((x) => x.id === active) ?? null;
+  const screens: LayoutScreen[] = [];
+  const off: LayoutScreen[] = [];
+  for (const [m, spec] of [["a", sa] as const, ["b", sb] as const]) {
+    for (const d of spec.screens) {
+      const { external, off: gone, ...rest } = d;
+      const id = sa.screens.includes(d) && sb.screens.includes(d) ? `${m}-${d.id}` : d.id;
+      if (gone) {
+        off.push({ ...rest, id, machine: null, x: 0, y: 0, usable: false, line: "Desconectado" });
+        continue;
+      }
+      const shows = external && scene?.shows === m ? ` · escena ${scene.name}` : "";
+      screens.push({ ...rest, id, machine: m, x: 0, y: 0, usable: true, line: `${spec.name}${shows}` });
+    }
+  }
+  return { screens: [...screens, ...off], arrangement: { ...DEMO_ARRANGEMENT } };
+}
+
 /** El puesto simulado para unas opciones (puro: mismas opciones, mismo puesto). */
 export function demoDesk(o: DemoOptions): DeskView {
   const [sa, sb] = PAIRS[o.pair];
@@ -252,6 +312,7 @@ export function demoDesk(o: DemoOptions): DeskView {
       modules: modulesOf(s.os, otherName, here && o.trouble === "permissions"),
     };
   };
+  const scenes = DEMO_SCENES(sa.name, sb.name);
   const linkUp = o.trouble !== "peer-off" && o.trouble !== "link-down" && o.trouble !== "no-agent";
   return {
     ready: true,
@@ -262,15 +323,19 @@ export function demoDesk(o: DemoOptions): DeskView {
     link: linkUp ? { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 } : { kind: null, gbps: null, ms: null, inputP99: null },
     network: demoNetwork(linkUp),
     tunnels: DEMO_TUNNELS.map((t) => ({ ...t })),
-    scenes: DEMO_SCENES(sa.name, sb.name),
+    scenes,
     activeScene: "trabajo",
     pair: {
       peer: o.unpaired ? { kind: "unpaired" } : { kind: "paired", name: peerSpec.name, link: linkUp ? "usb4" : null },
       pairing: o.pairing === "code" ? { kind: "comparing", code: DEMO_CODE, peer: peerSpec.name, confirmed: false } : { kind: "idle" },
     },
     permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions"),
+    layout: demoLayout(sa, sb, scenes, "trabajo"),
   };
 }
+
+/** Cuánto tarda el cruce simulado cuando nadie dijo cómo termina. */
+const CROSS_MS = 2500;
 
 const PAIR_FOUND_MS = 1400;
 const PAIR_OTHER_MS = 1200;
@@ -394,6 +459,44 @@ export class DemoSource implements Source {
   }
 
   /** Simula a la otra máquina: aparece el código y, al confirmar, confirma ella también. */
+  async setArrangement(a: Arrangement): Promise<ActResult> {
+    if (this.desk.trouble === "no-agent") return { ok: false, reason: "El agente de Tandem no está corriendo en esta máquina" };
+    this.set({ ...this.desk, layout: { ...this.desk.layout, arrangement: { ...a } } });
+    return { ok: true, text: "Acomodo guardado" };
+  }
+
+  private crossers = new Set<(s: CrossSample) => void>();
+
+  /** La prueba de cruce: con `cross=…` termina como se pidió; si no, cruza bien a los pocos segundos. */
+  async watchCrossing(onCross: (s: CrossSample) => void): Promise<() => void> {
+    this.crossers.add(onCross);
+    const { here, layout } = this.desk;
+    const edge = exitSide(layout.arrangement, here);
+    const how = this.opts.cross;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (how === "ok" || how === "wrong") {
+      // El borde equivocado: uno de los dos que no son el del acomodo ni el opuesto.
+      const wrong = isVertical(edge) ? "up" : "right";
+      this.cross({ from: here, to: here === "a" ? "b" : "a", edge: how === "ok" ? edge : wrong, at: 612, of: 1440, ms: 0.4 });
+    } else if (!how && !this.opts.still) {
+      timer = setTimeout(() => this.cross({ from: here, to: here === "a" ? "b" : "a", edge, at: 612, of: 1440, ms: 0.4 }), CROSS_MS);
+    }
+    return () => {
+      clearTimeout(timer);
+      this.crossers.delete(onCross);
+    };
+  }
+
+  /** Un cruce del cursor (lo que informaría el motor de entrada). */
+  cross(s: CrossSample): void {
+    for (const f of [...this.crossers]) queueMicrotask(() => f(s));
+  }
+
+  /** Con `cross=timeout` la prueba se queda sin tiempo apenas empieza. */
+  get crossTimeoutMs(): number | undefined {
+    return this.opts.cross === "timeout" ? 0 : undefined;
+  }
+
   async pairAction(kind: PairActionKind): Promise<ActResult> {
     clearTimeout(this.pairTimer);
     const peerName = this.desk.machines[this.desk.here === "a" ? "b" : "a"]?.name ?? "la otra máquina";

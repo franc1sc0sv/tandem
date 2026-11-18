@@ -42,6 +42,12 @@ export interface ShotSpec {
   height: number;
   /** Teclas a pulsar antes de capturar (por ejemplo, abrir la paleta). */
   keys?: string[];
+  /** Selectores a los que se hace clic antes de capturar (los pasos del estado del mockup). */
+  clicks?: string[];
+  /** Estado con nombre del mockup (`docs/mockups-png/<mockup>--<state>.png`). */
+  state?: string;
+  /** Umbral de la pantalla entera (si se da, `--check` lo exige). */
+  min?: { similarity: number; worstTile: number };
   ignore?: Ignore[];
   regions?: Region[];
 }
@@ -62,6 +68,64 @@ const W = 1280;
 const H = 860;
 const DEMO = "demo&still";
 
+/** Criterio de aceptación de cada pantalla (ACCEPTANCE: similitud y peor cuadro). */
+export const SCREEN_GATE = { similarity: 0.99, worstTile: 0.97 };
+
+// T-117: el acomodo inicial, la otra máquina en cada lado × cada alineación (con los mismos
+// clics que el mockup), cada pantalla elegida y la prueba de cruce.
+const ACOMODO_SIDES = [
+  ["arriba", "Arriba"],
+  ["abajo", "Abajo"],
+  ["izquierda", "Izquierda"],
+  ["derecha", "Derecha"],
+] as const;
+const ACOMODO_ALIGNS = ["inicio", "centro", "fin"] as const;
+const acomodoShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
+  name,
+  page: "index.html",
+  query: DEMO,
+  hash: "#/acomodo",
+  mockup: "V3-Acomodo",
+  width: W,
+  height: H,
+  ignore: [NO_ADD_MACHINE],
+  regions: [SIDEBAR],
+  min: SCREEN_GATE,
+  ...extra,
+});
+/** Los botones «Simular…» son solo del mockup (`mockups/README.md`): se tapan. */
+const SIMULATE: Ignore[] = [
+  { mockupSelector: 'button.sim:has-text("Simular cruce")', reason: "«Simular cruce» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("no cruza")', reason: "«Simular que no cruza» es solo del mockup" },
+];
+const cruceShot = (name: string, cross: string, state?: string): ShotSpec => ({
+  name,
+  page: "index.html",
+  query: `${DEMO}${cross ? `&cross=${cross}` : ""}`,
+  hash: "#/acomodo/cruce",
+  mockup: "F-PruebaCruce",
+  state,
+  width: W,
+  height: H,
+  ...(state ? {} : { ignore: SIMULATE }),
+  min: SCREEN_GATE,
+});
+export const ACOMODO: ShotSpec[] = [
+  acomodoShot("acomodo"),
+  ...ACOMODO_SIDES.flatMap(([side, label]) =>
+    ACOMODO_ALIGNS.map((al, i) =>
+      acomodoShot(`acomodo-${side}-${al}`, { state: `lado-${side}-${al}`, clicks: [`.slot[aria-label="${label}"]`, `.seg .sb >> nth=${i}`] }),
+    ),
+  ),
+  acomodoShot("acomodo-pantalla-mac", { state: "pantalla-mac", clicks: ['.scr:has-text("MacBook Pro")'] }),
+  acomodoShot("acomodo-no-compatible", { state: "pantalla-no-compatible", clicks: ['.scr:has-text("Odyssey G5 32")'] }),
+  cruceShot("cruce", ""),
+  cruceShot("cruce-cruzo", "ok", "cruzo"),
+  cruceShot("cruce-no-cruza", "timeout", "no-cruza"),
+  // Borde equivocado: el mockup no lo dibuja (ACCEPTANCE: mismos componentes, sin umbral).
+  { ...cruceShot("cruce-otro-borde", "wrong", "no-cruza"), min: undefined },
+];
+
 export const SHOTS: ShotSpec[] = [
   {
     name: "puesto",
@@ -80,7 +144,7 @@ export const SHOTS: ShotSpec[] = [
   { name: "puesto-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   { name: "tuneles", page: "index.html", query: DEMO, hash: "#/tuneles", mockup: "V3-Computo", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   { name: "monitores", page: "index.html", query: DEMO, hash: "#/monitores", mockup: "V3-Monitores", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
-  { name: "acomodo", page: "index.html", query: DEMO, hash: "#/acomodo", mockup: "V3-Acomodo", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
+  ...ACOMODO,
   { name: "red", page: "index.html", query: DEMO, hash: "#/red", mockup: "V3-Red", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   { name: "maquina-b", page: "index.html", query: DEMO, hash: "#/maquina/b", mockup: "V3-Maquina", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   { name: "maquina-a", page: "index.html", query: DEMO, hash: "#/maquina/a", mockup: "F-MaquinaMac", width: W, height: H },

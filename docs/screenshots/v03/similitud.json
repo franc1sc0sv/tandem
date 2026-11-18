@@ -3,8 +3,320 @@
     "mockup": "V3-Acomodo",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.975,
-      "worstTile": 0.5242,
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-abajo-centro": {
+    "mockup": "V3-Acomodo--lado-abajo-centro",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-abajo-fin": {
+    "mockup": "V3-Acomodo--lado-abajo-fin",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-abajo-inicio": {
+    "mockup": "V3-Acomodo--lado-abajo-inicio",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-arriba-centro": {
+    "mockup": "V3-Acomodo--lado-arriba-centro",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-arriba-fin": {
+    "mockup": "V3-Acomodo--lado-arriba-fin",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-arriba-inicio": {
+    "mockup": "V3-Acomodo--lado-arriba-inicio",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-derecha-centro": {
+    "mockup": "V3-Acomodo--lado-derecha-centro",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-derecha-fin": {
+    "mockup": "V3-Acomodo--lado-derecha-fin",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-derecha-inicio": {
+    "mockup": "V3-Acomodo--lado-derecha-inicio",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-izquierda-centro": {
+    "mockup": "V3-Acomodo--lado-izquierda-centro",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-izquierda-fin": {
+    "mockup": "V3-Acomodo--lado-izquierda-fin",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-izquierda-inicio": {
+    "mockup": "V3-Acomodo--lado-izquierda-inicio",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-no-compatible": {
+    "mockup": "V3-Acomodo--pantalla-no-compatible",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "acomodo-pantalla-mac": {
+    "mockup": "V3-Acomodo--pantalla-mac",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
       "ok": true
     },
     "zonas": [
@@ -21,7 +333,7 @@
     "mockup": "F-Ajustes",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9786,
+      "similarity": 0.9783,
       "worstTile": 0.4688,
       "ok": true
     },
@@ -34,6 +346,62 @@
       "name": "pantalla",
       "similarity": 0.9731,
       "worstTile": 0.832,
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "cruce": {
+    "mockup": "F-PruebaCruce",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "cruce-cruzo": {
+    "mockup": "F-PruebaCruce--cruzo",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "cruce-no-cruza": {
+    "mockup": "F-PruebaCruce--no-cruza",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9966,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "cruce-otro-borde": {
+    "mockup": "F-PruebaCruce--no-cruza",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9967,
+      "worstTile": 0.8459,
       "ok": true
     },
     "zonas": [],

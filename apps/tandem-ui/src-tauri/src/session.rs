@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tandem_core::{Config, Machine, State, Step};
+use tandem_core::{Align, Arrangement, Config, DeskPatch, Machine, Side, State, Step};
 use tandem_proto::{
     AgentToUi, Capabilities, DeskCapabilities, InputPermission, InputStatus, KeyProbeStatus, Link,
     PairingStatus, PeerStatus, PowerEvent, Reply, SetupInfo, TxnEvent, UiCommand, UpdateStatus,
@@ -404,6 +404,12 @@ pub enum Action {
     UpdatePeer {
         version: String,
     },
+    /// «Guardar» del acomodo (T-117, D18): de qué lado de B está A y con qué alineación. Es
+    /// un cambio del puesto compartido, así que llega a la otra máquina (T-099).
+    SetArrangement {
+        a_side: Side,
+        align: Align,
+    },
 }
 
 impl From<Action> for UiCommand {
@@ -421,6 +427,9 @@ impl From<Action> for UiCommand {
             Action::RequestPermissions => UiCommand::RequestPermissions,
             Action::GetSetup => UiCommand::GetSetup,
             Action::UpdatePeer { version } => UiCommand::UpdatePeer { version },
+            Action::SetArrangement { a_side, align } => UiCommand::EditDesk {
+                patch: DeskPatch::Arrangement(Some(Arrangement { a_side, align })),
+            },
         }
     }
 }
@@ -1550,6 +1559,15 @@ mac = "9c:6b:00:1a:2b:ff"
         ] {
             assert_eq!(read(serde_json::json!({ "kind": kind })), cmd);
         }
+        assert_eq!(
+            read(serde_json::json!({ "kind": "set_arrangement", "a_side": "up", "align": "end" })),
+            UiCommand::EditDesk {
+                patch: DeskPatch::Arrangement(Some(Arrangement {
+                    a_side: Side::Up,
+                    align: Align::End
+                }))
+            }
+        );
         // Lo de los monitores ya no existe: la ventana no puede pedirlo.
         for gone in ["set_mode", "list_displays", "scan_monitors", "answer_probe"] {
             assert!(serde_json::from_value::<Action>(serde_json::json!({ "kind": gone })).is_err());
