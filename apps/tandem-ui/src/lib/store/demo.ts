@@ -83,6 +83,8 @@ export interface DemoOptions {
   failScene?: string;
   /** Los túneles del demo: los de `V3-Computo`, ninguno o uno con 12 procesos. */
   tunnels?: "normal" | "none" | "many";
+  /** La otra máquina cambia el puesto poco después de abrir (aviso «Cambiado desde…», D5). */
+  peerEdit?: boolean;
 }
 
 export function demoOptions(query: string): DemoOptions {
@@ -100,6 +102,7 @@ export function demoOptions(query: string): DemoOptions {
     txn: p.get("txn") === "run" || p.get("txn") === "ok" || p.get("txn") === "fail" ? (p.get("txn") as "run" | "ok" | "fail") : undefined,
     failScene: p.get("fail") ?? undefined,
     tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : "normal",
+    peerEdit: p.has("peeredit"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
 }
@@ -573,6 +576,9 @@ const CROSS_MS = 2500;
 const PAIR_FOUND_MS = 1400;
 const PAIR_OTHER_MS = 1200;
 
+/** Cuánto tarda la otra máquina en «editar» el puesto cuando el demo lo pide. */
+const PEER_EDIT_MS = 1200;
+
 const CURSOR_MS = 33;
 const TICK_MS = 1500;
 const RESCAN_MS = 900;
@@ -599,6 +605,7 @@ export class DemoSource implements Source {
     this.emit = onDesk;
     this.onChange = onChange;
     onDesk(this.desk);
+    if (this.opts.peerEdit) setTimeout(() => this.peerEdit(), PEER_EDIT_MS);
   }
 
   private onChange: ((c: DeskChange) => void) | undefined;
@@ -608,17 +615,37 @@ export class DemoSource implements Source {
     this.onChange?.(c);
   }
 
-  /** Versión del puesto en el demo: cada cambio local la sube. */
+  /** Versión del puesto en el demo: cada cambio la sube. */
   rev = 1;
+  /** El puesto tal como estaba en cada versión, para que «Deshacer» lo restaure de verdad. */
+  private readonly history = new Map<number, DeskView>();
+
+  /** Guarda el puesto actual como la versión vigente y sube la versión; devuelve la anterior. */
+  private bump(): number {
+    const before = this.rev;
+    this.history.set(before, this.desk);
+    this.rev += 1;
+    return before;
+  }
+
+  /** Un cambio hecho desde la otra máquina (acomodo): se aplica y avisa con «Deshacer». */
+  peerEdit(summary = "Teclado y mouse: el portapapeles compartido está apagado"): void {
+    const undoTo = this.bump();
+    this.set({ ...this.desk, prefs: { ...this.desk.prefs, clipboard: !this.desk.prefs.clipboard } });
+    this.simulateChange({ by: this.desk.here === "a" ? "b" : "a", rev: this.rev, summary, undoTo });
+  }
 
   async setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
-    this.rev += 1;
+    this.bump();
     this.set({ ...this.desk, prefs: { ...this.desk.prefs, ...p } });
     return { ok: true };
   }
 
   async undoDesk(rev: number): Promise<ActResult> {
-    this.rev = rev;
+    const before = this.history.get(rev);
+    if (!before) return { ok: false, reason: "Esa versión del puesto ya no está" };
+    this.bump();
+    this.set(before);
     return { ok: true, text: "Cambio deshecho" };
   }
 
