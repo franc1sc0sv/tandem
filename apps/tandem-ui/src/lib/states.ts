@@ -73,8 +73,9 @@ export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, fa
   const mac = d.machines[d.here]?.os === "macos";
   const g = ctx.gallery;
   const alone = d.pair.peer.kind === "unpaired";
-  const peerOff = !alone && d.machines[peerId]?.power !== "on";
-  const wifiOnly = !alone && d.link.kind === "wifi";
+  const peerOff = !alone && d.machines[peerId]?.power === "off";
+  // Sin cable: por Wi-Fi o, peor, sin ningún enlace (con la otra máquina apagada es la tarjeta de arriba).
+  const noCable = !alone && !peerOff && d.link.kind !== "usb4" && d.link.kind !== "ethernet";
   // Los datos de la tarjeta salen del puesto; sin ellos (galería) se nombra lo genérico.
   const tunnel = d.tunnels.find((t) => t.state !== "closed") ?? d.tunnels[0];
   const job = tunnel ? `«${tunnel.title}»` : "El trabajo";
@@ -108,14 +109,17 @@ export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, fa
           action: { label: "Encender", icon: "power", variant: "pri", does: "power-on", hint: WAKE_HINT },
         }
       : null,
-    wifiOnly || g
+    noCable || g
       ? {
           id: "cable",
           tag: "Enlace",
           tone: "amber",
           icon: "wifi-fill",
           title: "Se desconectó el cable",
-          body: "El teclado y el mouse siguen por Wi-Fi. Los envíos de datos esperan a que vuelva un cable, o puedes mandarlos por Wi-Fi ahora.",
+          body:
+            d.link.kind === null && !g
+              ? `No hay enlace con ${peer}. El teclado y el mouse no cruzan hasta que vuelva un cable o el Wi-Fi.`
+              : "El teclado y el mouse siguen por Wi-Fi. Los envíos de datos esperan a que vuelva un cable, o puedes mandarlos por Wi-Fi ahora.",
         }
       : null,
     // Reconexión y fallo de un trabajo: el agente todavía no manda ese historial, así que solo la galería.

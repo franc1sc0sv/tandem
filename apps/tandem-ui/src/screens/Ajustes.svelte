@@ -96,7 +96,7 @@
           {#if tab === "puesto"}
             <div class="row first">
               <span class="fill">Nombre del puesto</span>
-              <input class="name" value={desk.deskName} readonly aria-label="Nombre del puesto" />
+              <span class="mut" data-testid="desk-name">{desk.deskName}</span>
             </div>
             {#each machines as m (m.id)}
               <div class="row">
