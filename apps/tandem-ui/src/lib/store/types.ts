@@ -489,6 +489,8 @@ export interface Source {
    * recibe la máquina que lo oyó, hasta que se llama a la función que devuelve.
    */
   watchKeyProbe(onHeard: (m: Machine) => void): Promise<() => void>;
+  /** Avisa al agente de que esta ventana oyó una tecla o un movimiento: él se lo cuenta a la otra máquina. */
+  reportHeardKey?(): Promise<void>;
   /** Tiempo para cruzar, si la fuente lo cambia (el demo, para capturar el tiempo agotado). */
   readonly crossTimeoutMs?: number;
   /** Los procesos de un túnel, también los que terminaron hace poco (T-104). */

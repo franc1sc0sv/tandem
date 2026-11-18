@@ -63,6 +63,8 @@ Regla: solo se tapa una caja que no puede coincidir (dato real, función que no 
 - Botón «Enviar por Wi-Fi igual» de la tarjeta «Enlace»: el agente no tiene esa función, y sin función no hay botón.
 - Tarjeta «Primera vez» (D1, T-142): se tapan solo su frase y el rótulo de su botón; la app dice «Emparejar la otra máquina» y «…aparece apagado hasta que emparejes la otra máquina» en lugar de «Agregar máquina» / «Agrega otra máquina para usar esto» (no hay tercera máquina). El título, la etiqueta y el ícono se comparan.
 
+**Asistente, botón «Cerrar» (T-156).** Los `F-Asis*` no dibujan ningún botón de cerrar; la app agrega uno solo con ícono «x» (`aria-label="Cerrar"`, 32 px, foco visible) al pie del panel lateral, porque sin él quien usa solo el mouse no puede salir a mitad del asistente (la usabilidad manda). Es una diferencia deliberada y mínima: la similitud de los `F-Asis*` sigue en ≥ 99 % sin máscaras nuevas.
+
 **Asistente, «Crear un puesto nuevo» (`V3-Asistente--nuevo`, T-145).** El mockup muestra el campo «Nombre del puesto»; la app no, porque el nombre no existe en el agente ni viaja en el protocolo y un campo que no guarda nada viola DESIGN §3.8. En su lugar la app muestra el código de emparejamiento (el emparejamiento es simétrico, T-097) y la nota «Después, en la otra máquina…». Se tapa solo el panel de debajo de las dos opciones (`asistente-puesto-nuevo`); las opciones, el título y los botones se comparan.
 
 **Ajustes (`F-Ajustes`).**

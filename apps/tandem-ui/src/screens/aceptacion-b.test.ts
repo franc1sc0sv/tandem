@@ -258,9 +258,11 @@ describe("T-158: los módulos muestran el estado que dice el agente", () => {
   });
 
   it("el resumen del asistente dice que los túneles funcionan, o por qué no", async () => {
+    // Con un entorno listo en cada lado, lo único que decide es el estado del módulo.
+    const environments = [{ id: "sh", kind: "shell", name: "Shell", default: true, ready: true, detail: "" }];
     const both = (state: string, reason?: string) => ({
       ...snapshot(false, [{ ...mods[0], state, reason }]),
-      caps: { ...snapshot().caps, here: { ...snapshot().caps.here, modules: [{ ...mods[0], state, reason }] }, peer: { ...snapshot().caps.here, machine: "b", name: "PC-Escritorio", os: "windows", modules: [{ ...mods[0], state, reason }] } },
+      caps: { ...snapshot().caps, here: { ...snapshot().caps.here, environments, modules: [{ ...mods[0], state, reason }] }, peer: { ...snapshot().caps.here, machine: "b", name: "PC-Escritorio", os: "windows", environments, modules: [{ ...mods[0], state, reason }] } },
     }) as unknown as Snapshot;
     const rows = async (snap: Snapshot) => {
       const store = await open(new LiveSource(bridge(snap).b), "#/puesto");

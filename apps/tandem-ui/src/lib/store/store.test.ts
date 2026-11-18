@@ -199,7 +199,7 @@ describe("emparejar y permisos", () => {
     store.stop();
   });
 
-  it("primer arranque en macOS: se abre en permisos; en Windows no", async () => {
+  it("primer arranque: en macOS abre en permisos; en Windows, sin par, abre en «Tu puesto»", async () => {
     const mac = new Store(new DemoSource(demoOptions("demo&still&setup")));
     await mac.start();
     await mac.maybeFirstRun();
@@ -207,7 +207,17 @@ describe("emparejar y permisos", () => {
     const win = new Store(new DemoSource(demoOptions("demo&still&setup&here=b")));
     await win.start();
     await win.maybeFirstRun();
+    // Con par ya hecho no hay nada que ofrecer.
     expect(win.wizardOpen).toBe(false);
+    const fresh = new Store(new DemoSource(demoOptions("demo&still&setup&here=b&peer=none&demo=win-win")));
+    await fresh.start();
+    await fresh.maybeFirstRun();
+    expect([fresh.wizardOpen, fresh.wizardStep]).toEqual([true, 1]);
+    // Una vez terminado, no vuelve a abrirse solo.
+    await fresh.finishSetup();
+    fresh.wizardOpen = false;
+    await fresh.maybeFirstRun();
+    expect(fresh.wizardOpen).toBe(false);
   });
 
   it("la fuente real pasa los pedidos al agente y lee los permisos de macOS", async () => {

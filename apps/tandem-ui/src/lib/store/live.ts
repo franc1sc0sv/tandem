@@ -11,6 +11,7 @@ import type { CrossSample } from "../crossing";
 import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
 import type { Action, ActionResult, AdminView, Bindings, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Side, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
+import { devicesOfHub } from "../wizard";
 import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
@@ -133,6 +134,7 @@ function machineView(who: Machine, here: Machine, caps: Caps, snap: Extract<Snap
     system: OS_NAME[os] ?? os,
     hardware: hardwareOf(c),
     environments: environmentsOf(c),
+    inputDevices: devicesOfHub(c?.hub),
     live: shown,
   };
 }
@@ -559,6 +561,10 @@ export class LiveSource implements Source {
       pending = null;
       stop();
     };
+  }
+
+  async reportHeardKey(): Promise<void> {
+    await this.bridge.act({ kind: "heard_key" });
   }
 
   async pairAction(kind: PairActionKind): Promise<ActResult> {

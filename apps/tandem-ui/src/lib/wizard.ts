@@ -145,12 +145,22 @@ export function heard(a: Activity, m: Machine): Activity {
   return a[m] ? a : { ...a, [m]: true };
 }
 
-/** Teclados y mouse de una máquina: los que anuncia, o el módulo de entrada si no los lista. */
+/** Teclados y mouse de una máquina: solo los que el agente anuncia; lo supuesto no cuenta. */
 export function deviceRows(m: MachineView | null): DeviceRow[] {
-  if (!m) return [];
-  if (m.inputDevices) return m.inputDevices;
-  const input = m.modules.find((x) => x.id === "input");
-  return input?.state === "active" ? [{ name: "Teclado y mouse" }] : [];
+  return m?.inputDevices ?? [];
+}
+
+/** Lo que el agente anuncia del hub: sin `true` no hay teclado ni mouse que mostrar. */
+export function devicesOfHub(hub: boolean | null | undefined): DeviceRow[] {
+  return hub === true ? [{ name: "Teclado y mouse", via: "por el hub" }] : [];
+}
+
+/** El cómputo funciona: el módulo de túneles no está apagado y hay un entorno listo. */
+export function computeWorks(m: MachineView | null | undefined): boolean {
+  if (!m) return false;
+  // Un módulo que el agente da por no disponible tampoco cuenta como cómputo remoto (T-158).
+  const state = m.modules.find((x) => x.id === "tunnels")?.state;
+  return state !== "off" && state !== "unavailable" && m.environments.some((e) => e.ready);
 }
 
 // ---- Paso 5: acomodo y prueba de cruce ------------------------------------------------------
@@ -273,7 +283,7 @@ export function summaryRows(d: DeskView, facts: Facts): SummaryRow[] {
   const link = linkNote(d);
   const input = here?.modules.find((x) => x.id === "input");
   const mon = d.monitors.find((x) => x.compat.ok && x.connected);
-  const tunnels = [here, peer].every((m) => m?.modules.find((x) => x.id === "tunnels")?.state === "active");
+  const tunnels = [here, peer].every(computeWorks);
   return [
     { id: "link", label: "Enlace", note: link ?? "sin enlace", mono: link !== null, ok: link !== null },
     {
@@ -293,7 +303,7 @@ export function summaryRows(d: DeskView, facts: Facts): SummaryRow[] {
     {
       id: "tunnels",
       label: "Cómputo remoto",
-      note: tunnels ? "MCP listo para Claude Code en las dos" : "falta el cómputo remoto en alguna",
+      note: tunnels ? "MCP listo para Claude Code en las dos" : "el cómputo remoto no responde en alguna",
       mono: false,
       ok: tunnels,
     },
