@@ -281,6 +281,41 @@ fn restart_agent() -> Result<(), String> {
     Err("el agente de inicio de sesión solo existe en macOS".to_owned())
 }
 
+/// Estado de la fila «Servicio de administrador» del asistente (T-131).
+#[tauri::command]
+fn admin_status() -> crate::admin_service::AdminView {
+    use crate::admin_service as a;
+    a::view(&admin_platform(), &a::System, &admin_acl())
+}
+
+/// «Instalar»: pide credenciales (macOS) o UAC (Windows) y devuelve el estado resultante.
+#[tauri::command]
+fn admin_install() -> Result<crate::admin_service::AdminView, String> {
+    use crate::admin_service as a;
+    let platform = admin_platform();
+    a::install(&platform, &a::System, &a::System, &admin_acl()).map_err(|e| e.to_string())?;
+    Ok(a::view(&platform, &a::System, &admin_acl()))
+}
+
+fn admin_platform() -> crate::admin_service::Platform {
+    match std::env::current_exe() {
+        Ok(exe) => crate::admin_service::platform_for(&exe),
+        Err(e) => crate::admin_service::Platform::Unsupported(format!(
+            "no se encontró el ejecutable de la app: {e}"
+        )),
+    }
+}
+
+#[cfg(windows)]
+fn admin_acl() -> tandemd::install::WinAcl {
+    tandemd::install::WinAcl
+}
+
+#[cfg(not(windows))]
+fn admin_acl() -> crate::admin_service::UnixAcl {
+    crate::admin_service::UnixAcl
+}
+
 #[tauri::command]
 fn setup_finish(ui: tauri::State<'_, Ui>) -> Result<SetupView, String> {
     if let Some(file) = &ui.first_run.file {
@@ -672,6 +707,8 @@ pub fn run() -> Result<(), tauri::Error> {
             setup_get,
             setup_open,
             agent_restart,
+            admin_status,
+            admin_install,
             setup_finish,
             update_get,
             update_check,

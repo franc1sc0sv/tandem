@@ -3,7 +3,7 @@
 
 import type { CommandContext } from "../commands";
 import { shouldOpen as pairingShouldOpen } from "../pairing";
-import type { Machine, MonitorInput, SceneJson } from "../model";
+import type { AdminView, Machine, MonitorInput, SceneJson } from "../model";
 import { feedRun, running, viewOf, type Names, type Run, type RunView } from "../txn";
 import { machineName } from "../machines";
 import type { Bindings, DragStatus, Permission, ShortcutsView } from "../model";
@@ -349,6 +349,32 @@ export class Store implements CommandContext {
 
   openPermission(p: Permission): Promise<ActResult> {
     return this.report(this.source.openPermission(p));
+  }
+
+  /** Lo que reporta el servicio de administrador; `null` hasta la primera lectura. */
+  admin = $state<AdminView | null>(null);
+  /** «Instalar» en curso (diálogo de administrador abierto). */
+  adminBusy = $state(false);
+
+  async refreshAdmin(): Promise<void> {
+    try {
+      this.admin = await this.source.adminStatus();
+    } catch {
+      this.admin = { state: "off", canInstall: false, note: "no se pudo leer el estado del servicio" };
+    }
+  }
+
+  /** Instala el servicio. Cancelar o fallar deja la fila en su estado real y avisa, sin giro eterno. */
+  async installAdmin(): Promise<ActResult> {
+    if (this.adminBusy) return { ok: false, reason: "ya se está instalando" };
+    this.adminBusy = true;
+    try {
+      const r = await this.report(this.source.installAdmin().then((v): ActResult => ((this.admin = v), { ok: true, text: "Servicio de administrador instalado" })));
+      if (!r.ok) await this.refreshAdmin();
+      return r;
+    } finally {
+      this.adminBusy = false;
+    }
   }
 
   restartAgent(): Promise<ActResult> {

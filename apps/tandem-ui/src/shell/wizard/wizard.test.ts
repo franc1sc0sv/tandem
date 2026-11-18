@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/svelte";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { tick } from "svelte";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -53,6 +53,24 @@ describe("paso 1: esta máquina", () => {
       expect(within(found).getByText(new RegExp(t))).toBeInTheDocument();
     }
     expect(within(found).queryByRole("button", { name: "Instalar" })).toBeNull();
+  });
+
+  it("con el servicio pendiente muestra «Instalar»; al instalar la fila queda lista y el botón desaparece", async () => {
+    const { dlg } = await mount("demo&still&admin=pending");
+    const found = within(dlg).getByRole("region", { name: "Lo que encontró" });
+    const btn = await within(found).findByRole("button", { name: "Instalar" });
+    expect(found.querySelectorAll(".wz-spin")).toHaveLength(1);
+    await userEvent.click(btn);
+    await waitFor(() => expect(within(found).queryByRole("button", { name: "Instalar" })).toBeNull());
+    expect(found.querySelectorAll(".wz-spin")).toHaveLength(0);
+  });
+
+  it("sin instalador (instalación por usuario) la fila lo explica y no ofrece el botón", async () => {
+    const { dlg } = await mount("demo&still&admin=off");
+    const found = within(dlg).getByRole("region", { name: "Lo que encontró" });
+    expect(await within(found).findByText(/instalación por usuario/)).toBeInTheDocument();
+    expect(within(found).queryByRole("button", { name: "Instalar" })).toBeNull();
+    expect(found.querySelectorAll(".wz-spin")).toHaveLength(0);
   });
 
   it("el nombre y el color se guardan en el puesto", async () => {

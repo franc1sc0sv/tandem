@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Bridge } from "../../lib/bridge";
 import { STORE_KEY } from "../../lib/context";
-import type { Action, ActionResult, Notice, Snapshot } from "../../lib/model";
+import type { Action, ActionResult, AdminView, Notice, Snapshot } from "../../lib/model";
 import { LiveSource } from "../../lib/store/live";
 import { Store } from "../../lib/store/store.svelte";
 import Shell from "../Shell.svelte";
@@ -51,6 +51,12 @@ async function mount(step: number, snap: Connected = snapshot()) {
   });
   const openSettings = vi.fn(async () => {});
   const restartAgent = vi.fn(async () => {});
+  let adminState: AdminView = { state: "pending", canInstall: true, note: "" };
+  const adminStatus = vi.fn(async () => adminState);
+  const installAdmin = vi.fn(async () => {
+    adminState = { state: "ok", canInstall: false, note: "" };
+    return adminState;
+  });
   let notice: ((n: Notice) => void) | undefined;
   let push: ((s: Snapshot) => void) | undefined;
   const bridge = {
@@ -71,6 +77,8 @@ async function mount(step: number, snap: Connected = snapshot()) {
     act,
     openSettings,
     restartAgent,
+    adminStatus,
+    installAdmin,
   } as unknown as Bridge;
   const store = new Store(new LiveSource(bridge), { hash: "#/puesto" });
   await store.start();
@@ -79,7 +87,7 @@ async function mount(step: number, snap: Connected = snapshot()) {
   await tick();
   const dlg = screen.getByRole("dialog", { name: "Asistente" });
   const kinds = () => calls.map((c) => c.kind);
-  return { ...r, store, dlg, act, calls, kinds, openSettings, restartAgent, notice: (n: Notice) => notice?.(n), push: (s: Snapshot) => push?.(s) };
+  return { ...r, store, dlg, act, calls, kinds, openSettings, restartAgent, adminStatus, installAdmin, notice: (n: Notice) => notice?.(n), push: (s: Snapshot) => push?.(s) };
 }
 
 describe("el asistente contra el agente (IPC real)", () => {
@@ -91,6 +99,24 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "a", name: "Portátil" }));
     await userEvent.click(within(dlg).getByRole("radio", { name: "Ámbar" }));
     await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "a", color: "#d9a75a" }));
+  });
+
+  it("paso 1: «Instalar» llama al puente y la fila toma el estado que devuelve", async () => {
+    const { dlg, installAdmin } = await mount(0);
+    const found = within(dlg).getByRole("region", { name: "Lo que encontró" });
+    await userEvent.click(await within(found).findByRole("button", { name: "Instalar" }));
+    expect(installAdmin).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(within(found).queryByRole("button", { name: "Instalar" })).toBeNull());
+  });
+
+  it("paso 1: si el usuario cancela, avisa y la fila vuelve a su estado real sin girar", async () => {
+    const { dlg, installAdmin, adminStatus } = await mount(0);
+    installAdmin.mockRejectedValueOnce(new Error("se canceló la petición de administrador"));
+    const found = within(dlg).getByRole("region", { name: "Lo que encontró" });
+    await userEvent.click(await within(found).findByRole("button", { name: "Instalar" }));
+    expect(await screen.findByText("se canceló la petición de administrador")).toBeInTheDocument();
+    await waitFor(() => expect(adminStatus.mock.calls.length).toBeGreaterThan(1));
+    expect(within(found).getByRole("button", { name: "Instalar" })).toBeEnabled();
   });
 
   it("paso 2: sin emparejar busca sola y confirma el código que escribe el usuario", async () => {

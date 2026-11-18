@@ -14,6 +14,7 @@ import {
   deviceRows,
   dropSide,
   foundRows,
+  serviceRow,
   heard,
   missingOf,
   permCards,
@@ -59,13 +60,18 @@ describe("paso 1", () => {
     expect(rows.find((r) => r.id === "tunnels")?.mono).toBe(true);
   });
 
-  it("con el servicio de administrador pendiente, el cómputo sigue listo y la fila del servicio gira", async () => {
+  it("la fila del servicio muestra los tres estados que reporta la app y nunca gira sin dato", async () => {
     const d = await desk("demo&still&admin=pending");
-    const rows = foundRows(d.machines.a!);
+    const rows = foundRows(d.machines.a!, { state: "pending", canInstall: true, note: "" });
     expect(rows.find((r) => r.id === "tunnels")).toMatchObject({ state: "ok", note: "zsh · Docker · uv · node" });
-    expect(rows.at(-1)).toMatchObject({ id: "service", state: "wait" });
-    const ok = foundRows((await desk("demo&still")).machines.a!);
-    expect(ok.at(-1)).toMatchObject({ id: "service", state: "ok" });
+    expect(rows.at(-1)).toMatchObject({ id: "service", state: "wait", install: true });
+    expect(serviceRow({ state: "off", canInstall: true, note: "" }, false)).toMatchObject({ state: "off", install: true });
+    expect(serviceRow({ state: "ok", canInstall: false, note: "" }, false)).toMatchObject({ state: "ok", install: false });
+    // Sin botón, la fila explica por qué (instalación por usuario).
+    expect(serviceRow({ state: "off", canInstall: false, note: "instalación por usuario" }, false)).toMatchObject({ state: "off", note: "instalación por usuario", install: false });
+    // Sin lectura de la app: el módulo decide y, si no está activo, `off`; jamás `wait`.
+    expect(serviceRow(null, true).state).toBe("ok");
+    expect(serviceRow(null, false).state).toBe("off");
   });
 
   it("sin la máquina no hay filas, y en Windows los monitores sí tienen canal", async () => {

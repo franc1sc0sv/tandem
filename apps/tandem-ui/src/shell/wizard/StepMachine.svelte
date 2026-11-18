@@ -3,10 +3,15 @@
   import { useStore } from "../../lib/context";
   import { PALETTE } from "../../lib/machine";
   import { foundRows } from "../../lib/wizard";
+  import Button from "../../ui/Button.svelte";
 
   const store = useStore();
   const here = $derived(store.desk.machines[store.desk.here]);
-  const rows = $derived(foundRows(here ?? null));
+  const rows = $derived(foundRows(here ?? null, store.admin));
+  // El estado real del servicio lo da la app, no el módulo: se lee al abrir el paso.
+  $effect(() => {
+    void store.refreshAdmin();
+  });
   let draft = $state<string | null>(null);
   const name = $derived(draft ?? here?.name ?? "");
 
@@ -67,7 +72,7 @@
       {:else}
         <span class="wz-spin"></span>
       {/if}
-      {r.label}<span class="wz-fill"></span>{#if r.note}<span class="wz-mut wz-xs" class:wz-mono={r.mono}>{r.note}</span>{/if}
+      {r.label}<span class="wz-fill"></span>{#if r.note}<span class="wz-mut wz-xs" class:wz-mono={r.mono}>{r.note}</span>{/if}{#if r.install}<Button icon="download" variant="pri" size="sm" class="wz-inst" disabled={store.adminBusy} onclick={() => store.installAdmin()}>Instalar</Button>{/if}
     </div>
   {/each}
 </section>

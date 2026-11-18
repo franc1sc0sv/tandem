@@ -5,7 +5,7 @@
 
 import { formatMs, type CrossPhase } from "./crossing";
 import { LINK_NAME } from "./machines";
-import type { Machine, Permission, Side } from "./model";
+import type { AdminView, Machine, Permission, Side } from "./model";
 import type { DeskView, MachineView, PermissionRow } from "./store/types";
 
 export const WIZARD_STEPS = ["Esta máquina", "Tu puesto", "Permisos", "Teclado y mouse", "Acomodo y prueba de cruce", "Listo"];
@@ -43,6 +43,8 @@ export interface FoundRow {
   note: string;
   /** La nota va en letra monoespaciada (una lista de herramientas). */
   mono: boolean;
+  /** Solo la fila del servicio: hay botón «Instalar». */
+  install?: boolean;
 }
 
 /** Lo que cada módulo activo dice de sí, en pocas palabras (como el mockup). */
@@ -68,7 +70,18 @@ export function systemNote(m: MachineView): string {
   return parts.length > 1 ? parts.join(" · ") : m.detail;
 }
 
-export function foundRows(m: MachineView | null): FoundRow[] {
+/**
+ * La fila del servicio de administrador según lo que reporta la app (`off` / `pending` / `ok`).
+ * Sin lectura todavía se usa el módulo del agente, pero nunca queda girando: sin dato, `off`.
+ */
+export function serviceRow(admin: AdminView | null, moduleActive: boolean): FoundRow {
+  const base = { id: "service", label: "Servicio de administrador", mono: false };
+  if (!admin) return { ...base, state: moduleActive ? "ok" : "off", note: "" };
+  const state = admin.state === "ok" ? "ok" : admin.state === "pending" ? "wait" : "off";
+  return { ...base, state, note: admin.canInstall ? "" : admin.note, install: admin.canInstall && admin.state !== "ok" };
+}
+
+export function foundRows(m: MachineView | null, admin: AdminView | null = null): FoundRow[] {
   if (!m) return [];
   const rows: FoundRow[] = [{ id: "system", state: "ok", label: systemNote(m), note: "sistema", mono: false }];
   for (const id of ORDER) {
@@ -81,8 +94,9 @@ export function foundRows(m: MachineView | null): FoundRow[] {
     else if (id === "monitors" && mod.state === "off") rows.push({ id, state: "off", label, note: "sin canal DDC ahora; otra máquina los controla", mono: false });
     else rows.push({ id, state: "off", label, note: mod.detail, mono: false });
   }
-  const admin = m.modules.find((x) => x.id === "tunnels");
-  if (admin) rows.push({ id: "service", state: admin.state === "active" ? "ok" : "wait", label: "Servicio de administrador", note: "", mono: false });
+  const tunnels = m.modules.find((x) => x.id === "tunnels");
+  // La app es quien sabe del servicio: la fila sale aunque el agente no anuncie el módulo.
+  if (tunnels || admin) rows.push(serviceRow(admin, tunnels?.state === "active"));
   return rows;
 }
 

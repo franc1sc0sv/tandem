@@ -418,8 +418,6 @@ const SIMULAR_ASIS: Ignore[] = [
   { mockupSelector: 'button.sim:has-text("Simular cruce")', reason: "«Simular cruce» es solo del mockup" },
   { mockupSelector: 'button.sim:has-text("Simular otro borde")', reason: "«Simular otro borde» es solo del mockup" },
 ];
-/** «Instalar» (F-Asis1): sin módulo de pantallas protegidas no hay instalador (README). */
-const NO_INSTALL: Ignore = { mockupSelector: 'section[aria-label="Lo que encontró"] button:has-text("Instalar")', reason: "Botón «Instalar» del servicio de administrador: la app no tiene instalador" };
 /**
  * `F-Asis5`: su CSS declara `.cur` para el cursor del dibujo y esa clase también la lleva el paso
  * actual de la lista (`.stl.cur`): el mockup lo saca del flujo (14 × 14, absoluto) y «Listo» sube
@@ -436,9 +434,9 @@ const ASIS5_VERDICT: Ignore = { rect: { x: 350, y: 482, width: 440, height: 40 }
 const ASIS5: Ignore[] = [...ASIS5_LIST, ASIS5_LEAD];
 /** `F-Asis3` escribe «Faltan 1» y no ofrece reiniciar el agente; la app concuerda («Falta 1») y lo ofrece (T-090). */
 const PERMS_FOOT: Ignore = { rect: { x: 775, y: 770, width: 200, height: 40 }, reason: "F-Asis3: «Faltan 1» y «Reiniciar agente» (solo en la app)" };
-const asisColor = (label: string, state: string) => asisShot(`asistente-maquina-${state}`, "F-Asis1", "wizard=0&admin=pending", { ignore: [NO_INSTALL], state, clicks: [`[role="radio"][aria-label="${label}"]`] });
+const asisColor = (label: string, state: string) => asisShot(`asistente-maquina-${state}`, "F-Asis1", "wizard=0&admin=pending", { state, clicks: [`[role="radio"][aria-label="${label}"]`] });
 export const ASISTENTE: ShotSpec[] = [
-  asisShot("asistente-maquina", "F-Asis1", "wizard=0&admin=pending", { ignore: [NO_INSTALL] }),
+  asisShot("asistente-maquina", "F-Asis1", "wizard=0&admin=pending"),
   asisColor("Violeta", "violeta"),
   asisColor("Verde azulado", "verde-azulado"),
   asisColor("Ámbar", "ambar"),

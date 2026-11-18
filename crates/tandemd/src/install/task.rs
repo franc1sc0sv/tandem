@@ -109,7 +109,7 @@ pub fn install_agent(
 /// El motivo por el que el ejecutable o alguna carpeta de su ruta no son solo de
 /// administradores, si lo hay. Se recorre hasta la raíz: quien puede borrar o renombrar una
 /// carpeta padre sustituye todo lo que cuelga de ella.
-fn not_admin_only(acl: &dyn PathAcl, launcher: &Path) -> Option<String> {
+pub fn not_admin_only(acl: &dyn PathAcl, launcher: &Path) -> Option<String> {
     use super::acl::Rigor;
     let paths = launcher.ancestors().filter(|p| !p.as_os_str().is_empty());
     // El ejecutable y su carpeta, con la máscara completa (plantado de DLL); el resto, con la

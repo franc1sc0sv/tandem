@@ -564,8 +564,8 @@
     "mockup": "F-Asis1",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 1,
+      "similarity": 0.9999,
+      "worstTile": 0.9822,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
@@ -579,8 +579,8 @@
     "mockup": "F-Asis1--ambar",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 1,
+      "similarity": 0.9999,
+      "worstTile": 0.9822,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
@@ -594,8 +594,8 @@
     "mockup": "F-Asis1--verde-azulado",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 1,
+      "similarity": 0.9999,
+      "worstTile": 0.9822,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
@@ -609,7 +609,7 @@
     "mockup": "F-Asis1--violeta",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9999,
+      "similarity": 0.9998,
       "worstTile": 0.9744,
       "min": {
         "similarity": 0.99,

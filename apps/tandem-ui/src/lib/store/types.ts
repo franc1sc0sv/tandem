@@ -7,7 +7,7 @@
 
 import type { Arrangement, LayoutView } from "../acomodo";
 import type { CrossSample } from "../crossing";
-import type { Bindings, Machine, MonitorInput, Notice, Os, PairingView, PeerView, Permission, SceneJson, SetupView, ShortcutsView, TxnView, DragStatus } from "../model";
+import type { AdminView, Bindings, Machine, MonitorInput, Notice, Os, PairingView, PeerView, Permission, SceneJson, SetupView, ShortcutsView, TxnView, DragStatus } from "../model";
 import type { PermissionState } from "../permissions";
 import type { UpdateView } from "../updates";
 
@@ -451,6 +451,10 @@ export interface Source {
   openPermission(p: Permission): Promise<ActResult>;
   /** Reinicia tandemd para que valgan los permisos recién dados. */
   restartAgent(): Promise<ActResult>;
+  /** El estado real del servicio de administrador. */
+  adminStatus(): Promise<AdminView>;
+  /** Lo instala con privilegios; rechaza con la razón (cancelado, no aplica, falló). */
+  installAdmin(): Promise<AdminView>;
   /** La guía de permisos del primer arranque (macOS): si hay que abrirla sola. */
   setup(): Promise<SetupView>;
   /** Marca la guía como vista. */

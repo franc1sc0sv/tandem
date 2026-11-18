@@ -20,7 +20,7 @@
 
 import { exitSide, isVertical, type Arrangement, type LayoutScreen, type LayoutView } from "../acomodo";
 import type { CrossSample } from "../crossing";
-import type { Bindings, MonitorInput, PairingView, Permission, SceneJson, SetupView, ShortcutsView, Step, TxnView } from "../model";
+import type { AdminView, Bindings, MonitorInput, PairingView, Permission, SceneJson, SetupView, ShortcutsView, Step, TxnView } from "../model";
 import { measuredText } from "../network";
 import { sceneView } from "../scenes";
 import { DEFAULT_BINDINGS } from "../shortcuts";
@@ -82,7 +82,7 @@ export interface DemoOptions {
   /** macOS con Accesibilidad y Monitorización sin conceder y Red local concedida (`F-Asis3`). */
   perms?: "missing";
   /** El servicio de administrador de macOS sin instalar: el asistente lo muestra pendiente (`F-Asis1`). */
-  admin?: "pending";
+  admin?: "pending" | "off";
   /** Cómo termina la prueba de cruce. */
   cross?: "ok" | "wrong" | "timeout";
   /** La tercera escena se llama «Solo PC», como en `F-Ajustes` (el resto del mockup la llama «Juego»). */
@@ -115,7 +115,7 @@ export function demoOptions(query: string): DemoOptions {
     failScene: p.get("fail") ?? undefined,
     tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notas" ? "notas" : "normal",
     peerEdit: p.has("peeredit"),
-    admin: p.get("admin") === "pending" ? "pending" : undefined,
+    admin: p.get("admin") === "pending" ? "pending" : p.get("admin") === "off" ? "off" : undefined,
     soloPc: p.has("solopc"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
@@ -1117,6 +1117,20 @@ export class DemoSource implements Source {
 
   async restartAgent(): Promise<ActResult> {
     return { ok: true, text: "tandemd se reinicia: en unos segundos se vuelven a comprobar los permisos" };
+  }
+
+  private adminDone = false;
+
+  async adminStatus(): Promise<AdminView> {
+    const off = this.opts.admin === "off";
+    const state: AdminView["state"] = this.adminDone ? "ok" : (this.opts.admin ?? "ok");
+    return { state, canInstall: state !== "ok" && !off, note: off ? "instalación por usuario: instala Tandem en Archivos de programa para el servicio" : "" };
+  }
+
+  async installAdmin(): Promise<AdminView> {
+    if (this.opts.admin === "off") throw new Error("instalación por usuario: no aplica");
+    this.adminDone = true;
+    return this.adminStatus();
   }
 
   private setupShown = false;
