@@ -386,7 +386,7 @@ export type Topic = "machines" | "resources" | "link" | "network" | "tunnels" | 
 export const ALL_TOPICS: Topic[] = ["machines", "resources", "link", "network", "tunnels", "scenes", "monitors"];
 
 /** Lo que una fuente puede o no hacer todavía. */
-export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing" | "machine" | "monitors" | "forget" | "cursor";
+export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing" | "machine" | "monitors" | "forget" | "cursor" | "lock";
 
 /** Lo que llega con el cursor en vivo (T-128): su posición o un cruce de borde. */
 export type CursorEvent = Extract<Notice, { kind: "cursor" | "crossed" }>;
@@ -443,6 +443,8 @@ export interface Source {
   editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult>;
   /** Emparejar (`start_pairing`, `confirm_pairing`, `cancel_pairing`) o desemparejar. */
   pairAction(kind: PairActionKind): Promise<ActResult>;
+  /** «Bloquear aquí» (T-129): el cursor no cruza a la otra máquina mientras esté bloqueado. */
+  lockHere(on: boolean): Promise<ActResult>;
   /** macOS muestra su diálogo de permisos a nombre de tandemd. */
   requestPermissions(): Promise<ActResult>;
   /** Abre el panel de Ajustes del Sistema que concede el permiso. */

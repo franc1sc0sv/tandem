@@ -53,7 +53,7 @@ pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, W
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 35;
+pub const PROTOCOL_VERSION: u16 = 36;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -130,9 +130,11 @@ mod tests {
     /// T-107 entró antes.
     /// T-121 (arrastrar archivos: `DragMsg` entre agentes y `DragStatus` a la UI) sube a la
     /// v35: iba a ser la v33, pero T-107 y T-094 entraron antes.
+    /// T-129 (`LockHere`, «Bloquear aquí» desde la UI) sube a la v36: iba a ser la v35, pero
+    /// T-121 entró antes.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 35);
+        assert_eq!(PROTOCOL_VERSION, 36);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

@@ -124,6 +124,9 @@ pub struct Agent {
     /// Cuántas veces el usuario pidió los permisos de macOS (T-090): el motor de entrada
     /// escucha el contador y los pide al sistema.
     permission_requests: watch::Sender<u64>,
+    /// Pedidos de «Bloquear aquí» (T-129): el contador sube con cada uno y el motor de
+    /// entrada aplica el último valor pedido.
+    lock_requests: watch::Sender<(u64, bool)>,
     /// Este proceso, para anunciarlo en las capacidades.
     process: tandem_proto::ProcessInfo,
     /// Los monitores del puesto: canales, dueños y lo que leyó cada dueño (T-110).
@@ -371,6 +374,7 @@ impl Agent {
             keyboard: watch::Sender::new(cfg.input.keyboard),
             input_engine: std::sync::atomic::AtomicBool::new(false),
             permission_requests: watch::Sender::new(0),
+            lock_requests: watch::Sender::new((0, false)),
             process,
             monitors,
             // Sin backends no se encuentra nada; [`Agent::with_env_host`] pone el real.
@@ -795,6 +799,11 @@ impl Agent {
         self.permission_requests.subscribe()
     }
 
+    /// Avisa cada vez que la UI pide bloquear o soltar el cursor (T-129).
+    pub fn subscribe_lock_requests(&self) -> watch::Receiver<(u64, bool)> {
+        self.lock_requests.subscribe()
+    }
+
     /// Lo que puede cada máquina, para la UI.
     pub fn capabilities(&self) -> DeskCapabilities {
         self.caps.borrow().clone()
@@ -1081,6 +1090,10 @@ impl Agent {
             UiCommand::GetInput => Reply::Input(self.input_status()),
             UiCommand::RequestPermissions => {
                 self.permission_requests.send_modify(|n| *n += 1);
+                Reply::Done
+            }
+            UiCommand::LockHere { on } => {
+                self.lock_requests.send_modify(|r| *r = (r.0 + 1, on));
                 Reply::Done
             }
             UiCommand::SetPower { machine, on } => self.start_power(machine, on),

@@ -6,6 +6,7 @@ import { tick } from "svelte";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Bridge } from "../lib/bridge";
+import { buildCommands } from "../lib/commands";
 import { canon, clashOf, codesOf, readLockCombo, rowsOf } from "../lib/atajos";
 import { STORE_KEY } from "../lib/context";
 import type { Snapshot } from "../lib/model";
@@ -192,6 +193,18 @@ describe("editar atajos contra el agente real (IPC simulada)", () => {
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "l", code: "KeyL", ctrlKey: true });
     await vi.waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "set_lock_shortcut", lock: ["ControlLeft", "KeyL"] }));
+  });
+
+  it("«Bloquear aquí» de la paleta manda lock_here (T-129)", async () => {
+    const act = vi.fn(async (_a: unknown): Promise<{ kind: "done" }> => ({ kind: "done" }));
+    const bridge = { snapshot: async () => connected(), onSnapshot: async () => {}, act } as unknown as Bridge;
+    const store = new Store(new LiveSource(bridge), { hash: "#/ajustes" });
+    await store.start();
+    const cmds = buildCommands(store.desk, store, false);
+    await cmds.find((c) => c.id === "lock:on")?.run();
+    await cmds.find((c) => c.id === "lock:off")?.run();
+    expect(act).toHaveBeenCalledWith({ kind: "lock_here", on: true });
+    expect(act).toHaveBeenCalledWith({ kind: "lock_here", on: false });
   });
 
   it("una escena manda edit_scene con su atajo y lo demás intacto", async () => {

@@ -54,6 +54,9 @@ pub struct ServerDriver<C> {
     locked: watch::Sender<bool>,
     /// Algún botón del mouse apretado (T-121: cancelar la copia de un arrastre si se suelta).
     held: watch::Sender<bool>,
+    /// Pedidos de bloqueo de fuera del teclado (la UI, T-129).
+    lock_tx: mpsc::UnboundedSender<bool>,
+    lock_rx: mpsc::UnboundedReceiver<bool>,
     activity: watch::Sender<Option<Instant>>,
     latency: watch::Sender<Option<InputLatency>>,
     /// El cursor en vivo, si alguien lo pide (T-128).
@@ -88,6 +91,7 @@ impl<C: Capture> ServerDriver<C> {
         events: mpsc::UnboundedReceiver<Captured>,
         cfg: SessionConfig,
     ) -> Self {
+        let (lock_tx, lock_rx) = mpsc::unbounded_channel();
         Self {
             session,
             capture,
@@ -97,6 +101,8 @@ impl<C: Capture> ServerDriver<C> {
             remote: watch::Sender::new(false),
             locked: watch::Sender::new(false),
             held: watch::Sender::new(false),
+            lock_tx,
+            lock_rx,
             activity: watch::Sender::new(None),
             latency: watch::Sender::new(None),
             cursor: None,
@@ -136,6 +142,11 @@ impl<C: Capture> ServerDriver<C> {
     /// `true` mientras hay un botón del mouse apretado.
     pub fn buttons(&self) -> watch::Receiver<bool> {
         self.held.subscribe()
+    /// Por dónde pedir bloquear (`true`) o soltar (`false`) el cursor sin el atajo: el mismo
+    /// efecto que [`ServerSession::set_locked`], dentro del bucle que es dueño de la sesión.
+    /// Deja de funcionar cuando el driver se suelta.
+    pub fn lock_control(&self) -> mpsc::UnboundedSender<bool> {
+        self.lock_tx.clone()
     }
 
     /// Pone al día [`Self::remote`] y [`Self::locked`] con la sesión.
@@ -173,6 +184,10 @@ impl<C: Capture> ServerDriver<C> {
             tokio::select! {
                 biased;
                 () = &mut until => return Ok(()),
+                Some(on) = self.lock_rx.recv() => {
+                    self.session.set_locked(on);
+                    self.publish();
+                }
                 ev = self.events.recv() => match ev {
                     Some(ev) => {
                         touch(&self.activity);
@@ -240,10 +255,12 @@ impl<C: Capture> ServerDriver<C> {
             remote,
             locked,
             held,
+            lock_rx,
             activity,
             latency,
             cursor,
             cfg,
+            ..
         } = self;
         tokio::pin!(stop);
         // Lo capturado sin sesión no se reproduce: haría cruzar solo.
@@ -276,6 +293,10 @@ impl<C: Capture> ServerDriver<C> {
             tokio::select! {
                 biased;
                 () = &mut stop => return SessionEnd::Stopped,
+                Some(on) = lock_rx.recv() => {
+                    session.set_locked(on);
+                    sync(session);
+                }
                 ev = events.recv() => {
                     let Some(ev) = ev else { return SessionEnd::CaptureClosed };
                     touch(activity);

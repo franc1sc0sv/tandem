@@ -689,6 +689,11 @@ pub enum UiCommand {
     ApplyScene {
         id: String,
     },
+    /// «Bloquear aquí» (T-129): `on` bloquea el cursor en esta máquina (no cruza a la otra)
+    /// y `!on` lo suelta; el mismo efecto que el atajo de bloqueo del motor de entrada.
+    LockHere {
+        on: bool,
+    },
     /// Abrir un túnel hacia `target` (la otra máquina). Solo desde un
     /// [`Peer::Client`]; contesta [`Reply::Tunnel`] (T-103).
     OpenTunnel {
@@ -1710,6 +1715,8 @@ pub(crate) mod samples {
             UiCommand::MeasureLink { path: Link::Wifi },
             UiCommand::WatchCursor { on: true },
             UiCommand::WatchCursor { on: false },
+            UiCommand::LockHere { on: true },
+            UiCommand::LockHere { on: false },
             UiCommand::FilesPut {
                 tunnel: crate::TunnelId(1),
                 local: "/home/u/build".into(),
@@ -1827,6 +1834,7 @@ pub(crate) mod samples {
             UiCommand::Output { .. } => 40,
             UiCommand::BringBack { .. } => 42,
             UiCommand::GetProcesses { .. } => 41,
+            UiCommand::LockHere { .. } => 43,
         }
     }
 
@@ -2323,7 +2331,7 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 24);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 43);
+        covers(&cmds, ui_command_arm, 44);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
         covers(&to_ui(), to_ui_arm, 20);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);

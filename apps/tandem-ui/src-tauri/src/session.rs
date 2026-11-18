@@ -735,6 +735,10 @@ pub enum Action {
     PingPeer,
     /// «Pedir permisos» (T-090): macOS muestra su diálogo a nombre de `tandemd`.
     RequestPermissions,
+    /// «Bloquear aquí» (T-129): bloquea o suelta el cursor en esta máquina.
+    LockHere {
+        on: bool,
+    },
     /// De dónde salió la configuración; contesta [`ActionResult::Setup`].
     GetSetup,
     /// Pedirle a la otra máquina que instale `version` (T-122). Lo usa «Actualizar todas»
@@ -868,6 +872,7 @@ impl From<Action> for UiCommand {
             Action::SetKeyboard { machine } => UiCommand::SetKeyboard(machine),
             Action::PingPeer => UiCommand::PingPeer,
             Action::RequestPermissions => UiCommand::RequestPermissions,
+            Action::LockHere { on } => UiCommand::LockHere { on },
             Action::GetSetup => UiCommand::GetSetup,
             Action::UpdatePeer { version } => UiCommand::UpdatePeer { version },
             Action::SetArrangement { a_side, align } => UiCommand::EditDesk {
@@ -2546,6 +2551,10 @@ mac = "9c:6b:00:1a:2b:ff"
         assert_eq!(
             read(serde_json::json!({ "kind": "set_keyboard", "machine": "a" })),
             UiCommand::SetKeyboard(Machine::A)
+        );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "lock_here", "on": true })),
+            UiCommand::LockHere { on: true }
         );
         assert_eq!(
             read(serde_json::json!({ "kind": "watch_cursor", "on": true })),

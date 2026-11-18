@@ -268,6 +268,8 @@ export type Action =
   | { kind: "watch_cursor"; on: boolean }
   /** «Pedir permisos» (T-090): macOS muestra su diálogo a nombre de `tandemd`. */
   | { kind: "request_permissions" }
+  /** «Bloquear aquí» (T-129): bloquea (`on`) o suelta el cursor en esta máquina. */
+  | { kind: "lock_here"; on: boolean }
   /** Guardar el acomodo en el puesto compartido (`EditDesk { Arrangement }`, T-099). */
   | { kind: "set_arrangement"; a_side: Side; align: Align }
   | { kind: "set_module"; machine: Machine; module: string; on: boolean }

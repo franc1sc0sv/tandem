@@ -793,6 +793,20 @@ fn forward_activity(sh: Arc<Shared>, mut from: watch::Receiver<Option<Instant>>)
     });
 }
 
+/// Pasa al driver lo que la UI pide con «Bloquear aquí»; termina al soltarse el driver.
+/// Lo pedido antes de armarse el driver no cuenta: el contador de entonces se da por visto.
+fn forward_lock_requests(mut from: watch::Receiver<(u64, bool)>, to: mpsc::UnboundedSender<bool>) {
+    from.borrow_and_update();
+    tokio::spawn(async move {
+        while from.changed().await.is_ok() {
+            let (_, on) = *from.borrow_and_update();
+            if to.send(on).is_err() {
+                return;
+            }
+        }
+    });
+}
+
 /// Copia un `watch` del driver en el del motor; al soltarse el driver queda en `false`.
 fn forward(mut from: watch::Receiver<bool>, to: impl Fn(bool) + Send + 'static) {
     tokio::spawn(async move {
@@ -858,6 +872,7 @@ async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String
     let driver = ServerDriver::new(session, capture, rx, sh.opts.session)
         .with_layouts(layouts)
         .with_cursor(sh.cursor.clone());
+    forward_lock_requests(sh.agent.subscribe_lock_requests(), driver.lock_control());
     forward_activity(sh.clone(), driver.activity());
     forward_latency(sh.clone(), driver.latency(), true);
     let s = sh.clone();

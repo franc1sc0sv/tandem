@@ -503,6 +503,10 @@ export class LiveSource implements Source {
     return result(await this.bridge.act({ kind }));
   }
 
+  async lockHere(on: boolean): Promise<ActResult> {
+    return result(await this.bridge.act({ kind: "lock_here", on }));
+  }
+
   async requestPermissions(): Promise<ActResult> {
     return result(await this.bridge.act({ kind: "request_permissions" }));
   }
@@ -574,7 +578,7 @@ export class LiveSource implements Source {
     if (what === "scenes" || what === "monitors") return this.last.kind === "connected";
     if (what === "power" || what === "measure") return this.last.kind === "connected" && this.last.peer.kind === "paired";
     if (what === "cursor") return this.last.kind === "connected" && this.last.peer.kind === "paired";
-    if (what === "modules" || what === "machine") return this.last.kind === "connected";
+    if (what === "modules" || what === "machine" || what === "lock") return this.last.kind === "connected";
     return false;
   }
 

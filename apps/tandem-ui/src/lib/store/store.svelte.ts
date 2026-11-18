@@ -339,6 +339,10 @@ export class Store implements CommandContext {
     return this.report(this.source.pairAction(kind));
   }
 
+  lockHere(on: boolean): Promise<ActResult> {
+    return this.report(this.source.lockHere(on));
+  }
+
   requestPermissions(): Promise<ActResult> {
     return this.report(this.source.requestPermissions());
   }

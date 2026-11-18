@@ -775,6 +775,55 @@ async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
     mac.stop().await;
 }
 
+/// T-129: «Bloquear aquí» desde la UI tiene el mismo efecto que el atajo: el cursor deja de
+/// cruzar, el estado de entrada lo dice, y `on: false` lo suelta.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn lock_here_from_the_ui_locks_the_input_like_the_shortcut() {
+    let (mac_id, pc_id) = sides(Identity::from_seed([17; 32]), Identity::from_seed([18; 32]));
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let (mac, mut pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start_with(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+            "",
+        ),
+        start_with(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+            "",
+        )
+    );
+    pc.until_input(|s| s.session && s.server == Machine::B)
+        .await;
+    assert!(!pc.agent.input_status().locked);
+
+    let reply = pc
+        .ui
+        .request(UiCommand::LockHere { on: true })
+        .await
+        .unwrap();
+    assert_eq!(reply, Reply::Done);
+    pc.until_input(|s| s.locked).await;
+    // La otra máquina no se entera: el bloqueo es de donde está el teclado.
+    assert!(!mac.agent.input_status().locked);
+
+    pc.ui
+        .request(UiCommand::LockHere { on: false })
+        .await
+        .unwrap();
+    pc.until_input(|s| !s.locked).await;
+    pc.stop().await;
+    mac.stop().await;
+}
+
 /// T-087: el estado de entrada se rehace cuando el usuario declara dónde está el teclado,
 /// también si declara la máquina que ya era el servidor (no cambian `server` ni el hub, así
 /// que solo la declaración puede despertar la tarea de estado).

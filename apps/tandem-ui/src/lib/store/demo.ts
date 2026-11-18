@@ -1097,6 +1097,11 @@ export class DemoSource implements Source {
     }
   }
 
+  /** El demo no tiene motor de entrada: el bloqueo se acepta sin más. */
+  async lockHere(_on: boolean): Promise<ActResult> {
+    return { ok: true };
+  }
+
   async requestPermissions(): Promise<ActResult> {
     return { ok: true };
   }
