@@ -223,13 +223,17 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
                 Err(e) => return Reply::Rejected(e.to_string()),
             };
             let mut skipped = Vec::new();
+            let mut history_secrets = Vec::new();
             if let Some(ws) = workspace {
                 let opened = agent
                     .workspaces()
                     .open(agent.files(), origin, &tunnel, &ws)
                     .await;
                 match opened {
-                    Ok(o) => skipped = o.skipped,
+                    Ok(o) => {
+                        skipped = o.skipped;
+                        history_secrets = o.history_secrets;
+                    }
                     Err(e) => {
                         // Un túnel a medias (sin su repo) no le sirve a nadie.
                         let _ = origin.close(tunnel.id).await;
@@ -240,6 +244,7 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
             Reply::Tunnel {
                 tunnel: Box::new(tunnel),
                 skipped,
+                history_secrets,
             }
         }
         UiCommand::CloseTunnel { id } => {

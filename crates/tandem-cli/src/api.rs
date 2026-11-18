@@ -208,6 +208,26 @@ fn with_skipped(mut v: Value, skipped: &[String]) -> Value {
     v
 }
 
+/// Agrega `history_secrets` y un aviso: lo ya confirmado viaja con su historia y el filtro
+/// no puede quitarlo (T-130). Se une al `warning` previo si lo hay.
+fn with_history(mut v: Value, history: &[String]) -> Value {
+    if history.is_empty() {
+        return v;
+    }
+    v["history_secrets"] = json!(history);
+    let msg = format!(
+        "la historia del repo que viajó contiene archivos que parecen credenciales: {}. Ya \
+         están en la otra máquina; si son reales, rótalas.",
+        history.join(", ")
+    );
+    v["warning"] = match v["warning"].as_str() {
+        Some(prev) => format!("{prev} {msg}"),
+        None => msg,
+    }
+    .into();
+    v
+}
+
 fn process_json(p: &TunnelProcess) -> Value {
     let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
     v["tunnel"] = p.tunnel.to_string().into();
@@ -487,7 +507,14 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
             workspace,
         };
         match self.ask(cmd).await? {
-            Reply::Tunnel { tunnel, skipped } => Ok(with_skipped(tunnel_json(&tunnel), &skipped)),
+            Reply::Tunnel {
+                tunnel,
+                skipped,
+                history_secrets,
+            } => Ok(with_history(
+                with_skipped(tunnel_json(&tunnel), &skipped),
+                &history_secrets,
+            )),
             r => Err(unexpected(&r)),
         }
     }

@@ -36,6 +36,8 @@ pub struct Opened {
     pub dir: String,
     /// Lo que no viajó por parecer una credencial (T-130).
     pub skipped: Vec<String>,
+    /// Credenciales que ya están en la historia que viaja y no se pueden quitar (T-130).
+    pub history_secrets: Vec<String>,
 }
 
 /// Los workspaces de un agente, en sus dos papeles.
@@ -263,7 +265,7 @@ impl Workspaces {
         .await;
         let result = self.send(files, origin, id, spec, &out, packed).await;
         let _ = std::fs::remove_dir_all(&out);
-        let (dir, root, skipped) = result?;
+        let (dir, root, skipped, history_secrets) = result?;
         lock(&self.inner.origin).insert(
             id,
             OriginEntry {
@@ -271,7 +273,11 @@ impl Workspaces {
                 title: tunnel.title.clone(),
             },
         );
-        Ok(Opened { dir, skipped })
+        Ok(Opened {
+            dir,
+            skipped,
+            history_secrets,
+        })
     }
 
     async fn send(
@@ -282,7 +288,7 @@ impl Workspaces {
         spec: &WorkspaceSpec,
         out: &Path,
         packed: Result<repo::Packed>,
-    ) -> Result<(String, PathBuf, Vec<String>)> {
+    ) -> Result<(String, PathBuf, Vec<String>, Vec<String>)> {
         let packed = packed?;
         let WorkspaceDown::Prepared { stage } = ask(
             origin,
@@ -308,7 +314,7 @@ impl Workspaces {
             return Err(WorkspaceError::Unexpected);
         };
         tracing::info!(tunnel = %id, head = %packed.head, branch = ?packed.branch, "workspace listo");
-        Ok((dir, packed.root, packed.skipped))
+        Ok((dir, packed.root, packed.skipped, packed.history_secrets))
     }
 
     /// Trae el trabajo del workspace de `tunnel` como la rama `tandem/<nombre>` del repo

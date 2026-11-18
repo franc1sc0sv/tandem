@@ -38,6 +38,9 @@ pub struct Packed {
     pub submodules: Vec<String>,
     /// Lo que parecía una credencial y no viaja (T-130); rutas del repo.
     pub skipped: Vec<String>,
+    /// Credenciales que alguna vez entraron a la historia que viaja en el bundle (T-130):
+    /// no se pueden quitar, solo avisar.
+    pub history_secrets: Vec<String>,
 }
 
 /// Borra el archivo al salir, por el camino que sea (un `?` incluido).
@@ -145,6 +148,7 @@ pub fn pack_origin(
         let to = stage.join(SUBMODULES).join(sub);
         copy_tree_with(&root.join(sub), &to, sub, filter, &mut skipped)?;
     }
+    let history_secrets = history_secrets(git, &root);
     Ok(Packed {
         root,
         head,
@@ -152,7 +156,36 @@ pub fn pack_origin(
         has_patch,
         submodules,
         skipped,
+        history_secrets,
     })
+}
+
+/// Rutas que parecen credenciales y alguna vez se agregaron en la historia de `HEAD`
+/// (la que viaja en el bundle). Si `git log` falla no se avisa: es un aviso, no un filtro.
+fn history_secrets(git: &dyn Git, root: &Path) -> Vec<String> {
+    let Ok(out) = git.run(&GitCmd::new(
+        root,
+        &[
+            "log",
+            "HEAD",
+            "--diff-filter=A",
+            "--name-only",
+            "--no-renames",
+            "-z",
+            "--format=",
+        ],
+    )) else {
+        return Vec::new();
+    };
+    let mut found: Vec<String> = out
+        .split(|b| *b == 0)
+        .filter(|r| !r.is_empty())
+        .map(|r| String::from_utf8_lossy(r).into_owned())
+        .filter(|rel| tandem_files::secrets::looks_secret(rel))
+        .collect();
+    found.sort();
+    found.dedup();
+    found
 }
 
 /// Las rutas de los submódulos del `HEAD` (entradas `160000` del índice).

@@ -27,6 +27,11 @@ const PREFIXES: &[&str] = &[
     "NPM_CONFIG_",
     "DOCKER_AUTH",
     "KUBECONFIG",
+    // Git lee configuración (helpers, `url.*.insteadOf`, cabeceras) de estas variables.
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_KEY_",
+    "GIT_CONFIG_VALUE_",
+    "GIT_CONFIG_PARAMETERS",
 ];
 
 /// Sufijos (o el nombre entero) que delatan un secreto.
@@ -106,6 +111,26 @@ mod tests {
         ] {
             assert_eq!(classify_env(n), Some(EnvSecret::Secret), "{n}");
         }
+    }
+
+    #[test]
+    fn la_configuracion_de_git_por_entorno_es_secreto() {
+        for n in [
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_VALUE_12",
+            "GIT_CONFIG_PARAMETERS",
+            "git_config_count",
+        ] {
+            assert_eq!(classify_env(n), Some(EnvSecret::Secret), "{n}");
+        }
+        let e = env(&["GIT_CONFIG_COUNT"]);
+        assert!(check_env(&e, true).is_ok());
+        assert_eq!(
+            check_env(&e, false),
+            Err(("GIT_CONFIG_COUNT".into(), EnvSecret::Secret))
+        );
+        assert_eq!(classify_env("GIT_DIR"), None);
     }
 
     #[test]

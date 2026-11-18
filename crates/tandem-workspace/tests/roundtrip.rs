@@ -649,3 +649,27 @@ async fn el_repo_de_la_destino_no_tiene_remotos_ni_ayudante_de_credenciales() {
     let refs = git(work, &["for-each-ref"]);
     assert!(!refs.contains("origin/"), "{refs}");
 }
+
+#[tokio::test]
+async fn la_historia_con_credenciales_se_avisa_aunque_ya_no_esten() {
+    let r = rig().await;
+    let repo = r.base.join("repo");
+    sample_repo(&repo);
+    write(&repo, "deploy/id_ed25519", b"llave\n");
+    commit_all(&repo, "con llave");
+    // Se borra del árbol, pero sigue en la historia que viaja en el bundle.
+    fs::remove_file(repo.join("deploy/id_ed25519")).unwrap();
+    commit_all(&repo, "sin llave");
+    let opened = r.open_with(&repo, false, &[]).await;
+    assert_eq!(opened.history_secrets, vec!["deploy/id_ed25519".to_owned()]);
+    assert!(opened.skipped.is_empty(), "{:?}", opened.skipped);
+}
+
+#[tokio::test]
+async fn una_historia_limpia_no_avisa() {
+    let r = rig().await;
+    let repo = r.base.join("repo");
+    sample_repo(&repo);
+    let opened = r.open_with(&repo, false, &[]).await;
+    assert!(opened.history_secrets.is_empty());
+}

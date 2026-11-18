@@ -1036,6 +1036,8 @@ pub enum Reply {
         tunnel: Box<Tunnel>,
         /// Lo que el workspace dejó fuera por parecer una credencial (T-130).
         skipped: Vec<String>,
+        /// Credenciales que ya estaban en la historia del repo y viajan en el bundle (T-130).
+        history_secrets: Vec<String>,
     },
     Tunnels(Vec<ProjectTunnels>),
     /// Lo que dio la medición de [`UiCommand::MeasureLink`].
@@ -2072,6 +2074,7 @@ pub(crate) mod samples {
             reply: Reply::Tunnel {
                 tunnel: Box::new(tunnel_sample()),
                 skipped: vec!["deploy/id_rsa".into()],
+                history_secrets: vec![".env".into()],
             },
         });
         v.push(AgentToUi::Reply {
