@@ -128,7 +128,7 @@ pub fn set_keyboard(path: &Path, machine: Machine) -> Result<(), ConfigEditError
 }
 
 /// `[power.wol] mac = "..."`: a quién despierta esta máquina (T-159), aprendido al emparejar
-/// o escrito en la UI. `None` borra la tabla. Lo demás de `[power.wol]` (`source`,
+/// o escrito en la UI. `None` quita la MAC y anota `cleared = true`. Lo demás de `[power.wol]` (`source`,
 /// `broadcast`, `port`) se conserva.
 pub fn with_wol_mac(
     text: &str,
@@ -144,10 +144,20 @@ pub fn with_wol_mac(
             let wol = wol
                 .as_table_like_mut()
                 .ok_or_else(|| ConfigEditError::Invalid("[power.wol] no es una tabla".into()))?;
+            wol.remove("cleared");
             wol.insert("mac", toml_edit::value(mac.to_string()));
         }
         None => {
-            power.remove("wol");
+            // No se borra la tabla: `cleared = true` recuerda que fue una decisión del
+            // usuario y que no hay que volver a aprender la MAC.
+            let wol = power
+                .entry("wol")
+                .or_insert_with(|| Item::Table(Table::new()));
+            let wol = wol
+                .as_table_like_mut()
+                .ok_or_else(|| ConfigEditError::Invalid("[power.wol] no es una tabla".into()))?;
+            wol.remove("mac");
+            wol.insert("cleared", toml_edit::value(true));
         }
     }
     validated(&doc)
@@ -544,6 +554,14 @@ mod tests {
         assert_eq!(wol.source, Some("10.77.2.1".parse().unwrap()));
         let without = AgentConfig::from_toml(&with_wol_mac(&with, None).unwrap()).unwrap();
         assert_eq!(without.power.wol, None);
+        // Borrarla queda anotado para que no se vuelva a aprender; escribir otra lo quita.
+        assert!(without.power.wol_cleared);
+        let back = AgentConfig::from_toml(
+            &with_wol_mac(&with_wol_mac(&with, None).unwrap(), Some(mac)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(back.power.wol.unwrap().mac, mac);
+        assert!(!back.power.wol_cleared);
     }
 
     #[test]

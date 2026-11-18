@@ -2,6 +2,8 @@
 //! MAC de la otra llega en sus capacidades al conectarse y se guarda sola; la UI también la
 //! puede escribir o borrar.
 
+use std::sync::atomic::Ordering;
+
 use tandem_core::Os;
 use tandem_power::{MacAddr, WolTarget};
 use tandem_proto::{PowerCaps, Reply};
@@ -29,7 +31,7 @@ impl Agent {
         let Some(mac) = mac.and_then(|m| m.parse::<MacAddr>().ok()) else {
             return;
         };
-        if self.wol().is_some() {
+        if self.wol().is_some() || self.wol_cleared.load(Ordering::Relaxed) {
             return;
         }
         match self.apply_wol(Some(mac)) {
@@ -48,7 +50,11 @@ impl Agent {
             None => None,
         };
         match self.apply_wol(mac) {
-            Ok(()) => Reply::Done,
+            Ok(()) => {
+                // Borrarla es una elección: la siguiente anuncia de la otra no la deshace.
+                self.wol_cleared.store(mac.is_none(), Ordering::Relaxed);
+                Reply::Done
+            }
             Err(e) => Reply::Rejected(e),
         }
     }
@@ -72,5 +78,40 @@ impl Agent {
         self.orch.set_wol(target);
         self.refresh_capabilities();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AgentConfig, StateStore};
+
+    fn agent(dir: &tempfile::TempDir, extra: &str) -> Agent {
+        let path = dir.path().join("tandem.toml");
+        if !extra.is_empty() || !path.exists() {
+            std::fs::write(&path, format!("machine = \"a\"\n{extra}")).unwrap();
+        }
+        let cfg = AgentConfig::load(&path).unwrap();
+        let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
+        a.set_config_file(path);
+        a
+    }
+
+    #[test]
+    fn a_cleared_mac_is_not_learned_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent(&dir, "");
+        a.learn_wol(Some("02:00:00:00:00:02"));
+        assert!(a.wol().is_some());
+        assert_eq!(a.set_wol_mac(None), Reply::Done);
+        a.learn_wol(Some("02:00:00:00:00:02"));
+        assert_eq!(a.wol(), None);
+        // Y sigue así tras reiniciar, por `[power.wol] cleared`.
+        let b = agent(&dir, "");
+        b.learn_wol(Some("02:00:00:00:00:02"));
+        assert_eq!(b.wol(), None);
+        // Escribir una a mano la devuelve.
+        assert_eq!(b.set_wol_mac(Some("aa:bb:cc:dd:ee:ff")), Reply::Done);
+        assert!(b.wol().is_some());
     }
 }

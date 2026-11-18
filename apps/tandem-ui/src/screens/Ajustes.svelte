@@ -150,7 +150,7 @@
               <Button icon="refresh" size="sm" motion="spin" style={B34} onclick={() => store.openWizard(0)}>Abrir</Button>
             </div>
             <div class="row">
-              <span class="fill col">Salir del puesto<span class="mut sub">Esta máquina olvida las llaves de las demás y ellas las suyas.</span></span>
+              <span class="fill col">Salir del puesto<span class="mut sub">Esta máquina olvida las llaves de las demás y, si están conectadas, ellas las suyas; si no, cuando salgan también.</span></span>
               <Button icon="logout" variant="danger" size="sm" style={B34} onclick={leave}>{leaving ? "Confirmar" : "Salir"}</Button>
             </div>
           {:else if tab === "atajos"}

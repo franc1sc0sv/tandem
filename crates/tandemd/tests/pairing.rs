@@ -144,15 +144,45 @@ async fn start(
     .await
 }
 
+/// Como [`start`], pero el agente arranca ya confiando en `trusts` (un emparejamiento que
+/// la otra máquina ya no recuerda).
+async fn start_trusting(
+    machine: Machine,
+    identity: &Identity,
+    trusts: &Identity,
+    (port, peer_port): (u16, u16),
+) -> Result<Running, PortTaken> {
+    start_inner(
+        (machine, name_of(machine)),
+        identity,
+        (port, peer_port),
+        PairingTimeouts::default(),
+        None,
+        Some(trusts),
+    )
+    .await
+}
+
 /// Como [`start`], con el motor de entrada en marcha si se le dan backends. `machine` es el
 /// lado que dice su `tandem.toml` (el de verdad lo deciden las claves al emparejar) y el
 /// nombre con que se presenta.
 async fn start_with_input(
+    who: (Machine, &str),
+    identity: &Identity,
+    ports: (u16, u16),
+    timeouts: PairingTimeouts,
+    input: Option<InputSetup>,
+) -> Result<Running, PortTaken> {
+    start_inner(who, identity, ports, timeouts, input, None).await
+}
+
+async fn start_inner(
     (machine, name): (Machine, &str),
     identity: &Identity,
     (port, peer_port): (u16, u16),
     timeouts: PairingTimeouts,
     input: Option<InputSetup>,
+    trusts: Option<&Identity>,
 ) -> Result<Running, PortTaken> {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
@@ -160,6 +190,14 @@ async fn start_with_input(
         data_dir: dir.path().to_owned(),
     };
     identity.save(&paths.identity_file()).unwrap();
+    if let Some(other) = trusts {
+        let mut store = TrustStore::open(paths.trust_file()).unwrap();
+        store.add(tandem_link::identity::TrustedPeer {
+            public_key: other.public_key(),
+            name: "otra".into(),
+        });
+        store.save().unwrap();
+    }
     let side = machine.as_str();
     let text = format!(
         "machine = \"{side}\"\n[network]\nport = {port}\n\
@@ -549,6 +587,27 @@ async fn unpairing_with_the_other_machine_offline() {
     let theirs = TrustStore::open(kept.path().join("trust.toml")).unwrap();
     assert!(theirs.is_trusted(&pc_id.public_key()));
     pc.stop().await;
+}
+
+/// T-152, al volver a conectar: la A ya no confía en la B (la B se había quedado sin enlace
+/// cuando la A salió del puesto). Al llamar, la A la rechaza por llave no confiable y la B
+/// pasa sola a `Unpaired`, sin estado nuevo.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_peer_that_still_trusts_us_unpairs_when_rejected_on_reconnect() {
+    let (a_id, b_id) = sides(
+        Identity::from_seed([110; 32]),
+        Identity::from_seed([111; 32]),
+    );
+    let (a, b) = tandemd::start_pair!(
+        ports: free_pair; |a_port, b_port| start(Machine::A, &a_id, a_port, b_port, PairingTimeouts::default()),
+        start_trusting(Machine::B, &b_id, &a_id, (b_port, a_port))
+    );
+    // La B arranca creyéndose emparejada con la A, que no la conoce.
+    until_peer(&b.agent, PeerStatus::Unpaired).await;
+    assert!(!b.trusted(&a_id));
+    assert_eq!(a.agent.peer_status(), PeerStatus::Unpaired);
+    b.stop().await;
+    a.stop().await;
 }
 
 /// T-159: al emparejar, cada máquina guarda sola la MAC de la otra (en `[power.wol]` de su

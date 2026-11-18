@@ -66,6 +66,8 @@ pub struct Agent {
     /// A quién despierta esta máquina ahora (T-159): el `[power.wol]` de `cfg`, el aprendido
     /// al emparejar o el que escribió la UI.
     wol: std::sync::RwLock<Option<tandem_power::WolTarget>>,
+    /// El usuario borró la MAC: `learn_wol` no la vuelve a aprender (`[power.wol] cleared`).
+    wol_cleared: std::sync::atomic::AtomicBool,
     /// Los túneles que esta máquina hospeda y los que abrió (T-103, [`crate::tunnels`]).
     tunnels: tandem_tunnel::Tunnels,
     /// Archivos y puertos por túnel (T-106): el lado destino y los clientes locales.
@@ -401,6 +403,7 @@ impl Agent {
             net: net::NetState::default(),
             cursor: cursor::CursorState::default(),
             wol: std::sync::RwLock::new(cfg.power.wol.clone()),
+            wol_cleared: std::sync::atomic::AtomicBool::new(cfg.power.wol_cleared),
             cfg,
         }
     }

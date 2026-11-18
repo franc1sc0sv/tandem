@@ -192,12 +192,13 @@
       {/if}
     </header>
 
-    {#if m.wake && !wolMac}
+    {#if m.wake}
       <section class="wol" aria-label="Wake-on-LAN">
         <label for="wol-mac"><b>Wake-on-LAN</b></label>
-        <span class="mut s12">{WOL_MISSING}</span>
+        {#if !wolMac}<span class="mut s12">{WOL_MISSING}</span>{/if}
         <input id="wol-mac" class="mono" placeholder="aa:bb:cc:dd:ee:ff" bind:value={macDraft} aria-label="MAC de {m.name}" />
         <Button icon="check" size="sm" disabled={macDraft.trim() === (wolMac ?? "")} onclick={() => void store.setWol(macDraft.trim() || null)}>Guardar</Button>
+        {#if wolMac}<Button icon="trash" variant="ghost" size="sm" iconOnly label="Borrar MAC" onclick={() => void store.setWol(null)} />{/if}
       </section>
     {/if}
 

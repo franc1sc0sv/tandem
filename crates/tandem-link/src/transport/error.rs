@@ -42,3 +42,24 @@ pub enum TransportError {
     #[error("la entrada pasó su objetivo: se cortó la prueba de ancho de banda")]
     InputLate,
 }
+
+impl TransportError {
+    /// El par cortó el handshake con una alerta TLS de certificado (malo, desconocido, CA
+    /// desconocida o acceso denegado, que es lo que rustls manda ante un verificador de
+    /// aplicación): no confía en nuestra llave. Los errores de TLS van en `0x100 + alerta`
+    /// (RFC 9001 §4.8). Con QUIC el rechazo del cliente llega ya con la conexión abierta,
+    /// así que también aparece al leer el primer stream.
+    pub fn is_peer_rejection(&self) -> bool {
+        let closed = match self {
+            TransportError::Connection(e)
+            | TransportError::Read(quinn::ReadError::ConnectionLost(e)) => e,
+            _ => return false,
+        };
+        match closed {
+            quinn::ConnectionError::ConnectionClosed(c) => {
+                matches!(u64::from(c.error_code), 0x12a | 0x12e | 0x130 | 0x131)
+            }
+            _ => false,
+        }
+    }
+}

@@ -47,6 +47,11 @@ a{color:#9cc0f0}a:hover{color:#c3d8f6}
 .btn.danger{color:#f0b1aa;border-color:#5a3532;background:linear-gradient(180deg,#24191a,#1c1516)}
 .btn.danger:hover{border-color:#8a4c46;box-shadow:0 0 0 4px rgba(224,122,111,.12)}
 .btn.sm{height:32px;padding:0 11px;font-size:12.5px;border-radius:9px}
+.btn:disabled{opacity:.45;cursor:default}
+.btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:#9a9da6}
+.btn.ghost:hover{background:#1f2026;color:#e8e8eb}
+.btn.ic{width:36px;padding:0}
+.btn.sm.ic{width:32px;padding:0}
 .grp{display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:14px;background:#15161a;border:1px solid #25272d;min-width:0;animation:up .45s cubic-bezier(.2,.8,.2,1) both;transition:border-color .2s,transform .2s}
 .grp:hover{transform:translateY(-2px);border-color:#3a3d45}
 .gh{display:flex;align-items:center;gap:9px;font-size:13px}
@@ -94,6 +99,8 @@ a{color:#9cc0f0}a:hover{color:#c3d8f6}
       </div>
       <button type="button" class="btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 6.8a8 8 0 1 0 11.4 0"></path></svg>Apagar</button>
     </header>
+
+    <section aria-label="Wake-on-LAN" style="display:flex;align-items:center;gap:12px;padding:10px 2px;flex-wrap:wrap"><label for="wol-mac"><b>Wake-on-LAN</b></label><input id="wol-mac" class="mono" value="aa:bb:cc:dd:ee:ff" aria-label="MAC de PC-Escritorio" style="min-width:190px;padding:5px 8px;border-radius:8px;border:1px solid #2a2d33;background:transparent;color:inherit;margin-right:-1px"><button type="button" class="btn sm" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Guardar</button><button type="button" class="btn ghost ic sm" aria-label="Borrar MAC" title="Borrar MAC"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg></button></section>
 
     <section aria-label="Recursos en vivo" style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.6fr);gap:12px">
       <div class="grp">

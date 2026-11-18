@@ -251,7 +251,7 @@ impl OrchestratorConfig {
 
 /// Encendido y apagado de las dos máquinas (DESIGN §3.7: cualquiera puede ser la principal).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(try_from = "PowerRaw")]
 pub struct PowerConfig {
     /// Cuánto tiempo sin ningún enlace con la otra máquina hace que esta la dé por
     /// apagada (un corte de corriente, o se suspendió). Más corto que un reinicio no
@@ -266,6 +266,10 @@ pub struct PowerConfig {
     /// claro.
     #[serde(default)]
     pub wol: Option<WolTarget>,
+    /// El usuario borró la MAC de la otra (`[power.wol] cleared = true`): no se vuelve a
+    /// aprender sola al emparejar; escribir una a mano la quita.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub wol_cleared: bool,
     /// La MAC de la tarjeta Ethernet de esta máquina, que se le anuncia a la otra para que
     /// la guarde al emparejar (T-159). Sin ella, el agente la detecta al arrancar
     /// ([`tandem_power::nic::detect`]); escribirla fija la que se anuncia.
@@ -283,8 +287,71 @@ impl Default for PowerConfig {
             peer_lost_after_secs: default_peer_lost_after(),
             wakeable: true,
             wol: None,
+            wol_cleared: false,
             mac: None,
         }
+    }
+}
+
+/// Lo que dice el archivo; `[power.wol]` puede ser solo `cleared = true`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PowerRaw {
+    #[serde(default = "default_peer_lost_after", alias = "pc_lost_after_secs")]
+    peer_lost_after_secs: u64,
+    #[serde(default = "default_true")]
+    wakeable: bool,
+    #[serde(default)]
+    wol: Option<WolRaw>,
+    #[serde(default)]
+    mac: Option<tandem_power::MacAddr>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WolRaw {
+    #[serde(default)]
+    mac: Option<tandem_power::MacAddr>,
+    #[serde(default)]
+    cleared: bool,
+    #[serde(default)]
+    source: Option<std::net::IpAddr>,
+    #[serde(default)]
+    broadcast: Option<std::net::IpAddr>,
+    #[serde(default)]
+    port: Option<u16>,
+}
+
+impl TryFrom<PowerRaw> for PowerConfig {
+    type Error = String;
+
+    fn try_from(raw: PowerRaw) -> Result<Self, String> {
+        let (wol, wol_cleared) = match raw.wol {
+            None => (None, false),
+            // Una MAC escrita gana sobre `cleared`.
+            Some(w) => match w.mac {
+                Some(mac) => {
+                    let mut t = WolTarget::new(mac);
+                    t.source = w.source;
+                    if let Some(b) = w.broadcast {
+                        t.broadcast = b;
+                    }
+                    if let Some(p) = w.port {
+                        t.port = p;
+                    }
+                    (Some(t), false)
+                }
+                None if w.cleared => (None, true),
+                None => return Err("[power.wol] necesita `mac` (o `cleared = true`)".into()),
+            },
+        };
+        Ok(PowerConfig {
+            peer_lost_after_secs: raw.peer_lost_after_secs,
+            wakeable: raw.wakeable,
+            wol,
+            wol_cleared,
+            mac: raw.mac,
+        })
     }
 }
 
@@ -831,6 +898,20 @@ mod tests {
         let wol = cfg.power.wol.unwrap();
         assert_eq!(wol.mac.to_string(), "aa:bb:cc:dd:ee:ff");
         assert_eq!(wol.destination(), "10.77.2.3:9".parse().unwrap());
+    }
+
+    #[test]
+    fn a_cleared_wake_on_lan_is_remembered() {
+        let cfg = AgentConfig::from_toml("machine = \"a\"\n[power.wol]\ncleared = true").unwrap();
+        assert_eq!(cfg.power.wol, None);
+        assert!(cfg.power.wol_cleared);
+        // Sin MAC y sin `cleared` no vale; con MAC, la MAC gana.
+        assert!(AgentConfig::from_toml("machine = \"a\"\n[power.wol]\nport = 9").is_err());
+        let cfg = AgentConfig::from_toml(
+            "machine = \"a\"\n[power.wol]\ncleared = true\nmac = \"aa:bb:cc:dd:ee:ff\"",
+        )
+        .unwrap();
+        assert!(cfg.power.wol.is_some() && !cfg.power.wol_cleared);
     }
 
     #[test]
