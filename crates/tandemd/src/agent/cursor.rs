@@ -196,22 +196,39 @@ impl Agent {
     }
 }
 
+/// Qué hacer con el alquiler de la otra máquina en este instante.
+enum Lease {
+    /// Sigue vigente hasta ese momento.
+    Until(Instant),
+    /// Venció y ya quedó limpio.
+    Expired,
+}
+
+/// Decide y limpia en una sola sección crítica: si decidiera y limpiara por separado, una
+/// renovación entre ambas pasos se borraría y el interruptor quedaría apagado hasta la
+/// siguiente (y `running` en falso la dejaría sin tarea que la vigile).
+fn settle(serving: &Mutex<Serving>, now: Instant) -> Lease {
+    let mut s = lock(serving);
+    match s.until {
+        Some(until) if now < until => Lease::Until(until),
+        _ => {
+            s.until = None;
+            s.running = false;
+            Lease::Expired
+        }
+    }
+}
+
 /// Vigila el alquiler de la otra máquina y apaga el interruptor cuando vence sin renovarse.
 async fn lease(weak: Weak<Agent>) {
     loop {
         let Some(agent) = weak.upgrade() else { return };
-        let until = lock(&agent.cursor.serving).until;
-        match until {
-            Some(until) if Instant::now() < until => {
+        match settle(&agent.cursor.serving, Instant::now()) {
+            Lease::Until(until) => {
                 drop(agent);
                 tokio::time::sleep_until(until).await;
             }
-            _ => {
-                {
-                    let mut s = lock(&agent.cursor.serving);
-                    s.until = None;
-                    s.running = false;
-                }
+            Lease::Expired => {
                 agent.refresh_cursor_gate();
                 return;
             }
@@ -318,6 +335,57 @@ mod tests {
             from: Machine::A,
             to: Machine::B,
             edge: Side::Right,
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn settle_keeps_a_renewed_lease_and_clears_an_expired_one_atomically() {
+        let serving = Mutex::new(Serving {
+            until: Some(Instant::now() + Duration::from_secs(5)),
+            running: true,
+        });
+        // Renovado: ni se limpia `until` ni se baja `running`.
+        let Lease::Until(until) = settle(&serving, Instant::now()) else {
+            panic!("el alquiler seguía vigente");
+        };
+        assert!(lock(&serving).running);
+        // Vencido: se limpia todo en la misma llamada, sin dejar `running` a medias.
+        tokio::time::advance(Duration::from_secs(6)).await;
+        assert!(matches!(settle(&serving, Instant::now()), Lease::Expired));
+        let s = lock(&serving);
+        assert!(s.until.is_none() && !s.running);
+        assert!(until > Instant::now() - Duration::from_secs(6));
+    }
+
+    /// La carrera real (renovar entre leer y limpiar) solo ocurre entre hilos; aquí se
+    /// castiga `settle` contra renovaciones concurrentes: nunca debe borrar una vigente.
+    #[test]
+    fn a_renewal_is_never_wiped_by_a_concurrent_settle() {
+        let base = Instant::now();
+        let far = std::time::Duration::from_secs(3600);
+        for _ in 0..200 {
+            let serving = Arc::new(Mutex::new(Serving {
+                until: Some(base),
+                running: true,
+            }));
+            let renewer = {
+                let serving = serving.clone();
+                std::thread::spawn(move || {
+                    let mut s = lock(&serving);
+                    s.until = Some(base + far);
+                    s.running = true;
+                })
+            };
+            let verdict = settle(&serving, base + Duration::from_secs(1));
+            renewer.join().unwrap();
+            let s = lock(&serving);
+            // O vio la renovación (sigue vigente) o venció antes y la renovación llegó
+            // después: en ambos casos la renovación sobrevive.
+            assert!(
+                s.until.is_some() && s.running,
+                "{}",
+                matches!(verdict, Lease::Expired)
+            );
         }
     }
 
