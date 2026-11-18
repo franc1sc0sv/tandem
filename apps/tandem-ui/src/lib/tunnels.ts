@@ -277,3 +277,13 @@ export function appendOutput(o: Output, chunk: OutputChunk): Output {
   const text = o.text + chunk.text;
   return { text: text.length > OUTPUT_KEEP ? text.slice(text.length - OUTPUT_KEEP) : text, cursor: chunk.next };
 }
+
+/** «1 túnel», «2 túneles»: el plural no se fija. */
+export const countTunnels = (n: number): string => `${n} ${n === 1 ? "túnel" : "túneles"}`;
+
+/** Renglón de una máquina en la bandeja: sale de sus datos, sin mirar qué sistema es. */
+export function machineLine(m: { id: Machine; power: string; detail: string }, tunnels: readonly { to: Machine; state: string }[]): string {
+  if (m.power !== "on") return "apagada";
+  const busy = tunnels.filter((t) => t.to === m.id && t.state === "busy").length;
+  return busy > 0 ? countTunnels(busy) : m.detail;
+}

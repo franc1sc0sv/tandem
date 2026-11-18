@@ -11,7 +11,7 @@
   // avisos, con «Abrir» y «Salir». «Bloquear aquí» no está hasta que la IPC tenga la acción.
   import { onDestroy, onMount } from "svelte";
   import { shortName } from "./lib/commands";
-  import { shortLabels } from "./lib/tunnels";
+  import { machineLine, shortLabels } from "./lib/tunnels";
   import { LINK_NAME } from "./lib/machines";
   import type { Machine } from "./lib/model";
   import type { Store } from "./lib/store/store.svelte";
@@ -69,7 +69,7 @@
       {@const load = m.resources?.gpu ?? m.resources?.cpu}
       <div class="row" class:sep={i > 0}>
         <span class="dot" style="background:{m.color}"></span><b>{m.name}</b>
-        <span class="mut sm">{m.power !== "on" ? "apagada" : m.os === "macos" ? "macOS" : `${desk.tunnels.filter((t) => t.to === m.id && t.state === "busy").length} túneles`}</span>
+        <span class="mut sm">{machineLine(m, desk.tunnels)}</span>
         <span class="fill"></span>
         {#if load}<div class="bar"><span style="width:{load.percent}%;background:{load.percent >= 85 ? AMBER : m.color}"></span></div>{/if}
       </div>

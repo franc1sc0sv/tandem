@@ -6,6 +6,8 @@ import type { OutputChunk } from "./store/types";
 import {
   CLOSED_KEPT,
   OUTPUT_KEEP,
+  countTunnels,
+  machineLine,
   addTransfer,
   appendOutput,
   bytesLabel,
@@ -242,5 +244,34 @@ describe("la salida en vivo", () => {
   it("la respuesta del agente trae stdout y stderr juntos y los cursores de cada flujo", () => {
     const c = outputChunk({ process: proc(1), stdout: "ok\n", stderr: "aviso\n", next_stdout: 3, next_stderr: 6, done: true });
     expect(c).toEqual({ text: "ok\naviso\n", next: { stdout: 3, stderr: 6 }, done: true });
+  });
+});
+
+describe("renglón de máquina en la bandeja (T-167)", () => {
+  const tun = (to: "a" | "b", state: "busy" | "idle" | "closed" = "busy") => ({ to, state }) as never;
+  const mk = (id: "a" | "b", os: string, power = "on") => ({ id, os, detail: os === "macos" ? "macOS" : "Windows", power }) as never;
+
+  it("singular y plural correctos", () => {
+    expect(countTunnels(1)).toBe("1 túnel");
+    expect(countTunnels(2)).toBe("2 túneles");
+    expect(countTunnels(0)).toBe("0 túneles");
+  });
+
+  it.each([
+    ["mac-pc", "macos", "windows", "1 túnel", "Windows"],
+    ["mac-mac", "macos", "macos", "1 túnel", "macOS"],
+    ["pc-pc", "windows", "windows", "1 túnel", "Windows"],
+  ])("%s: un túnel hacia a se cuenta igual en cualquier sistema", (_n, osA, osB, lineA, lineB) => {
+    const tunnels = [tun("a"), tun("b", "idle"), tun("b", "closed")];
+    expect(machineLine(mk("a", osA), tunnels)).toBe(lineA);
+    expect(machineLine(mk("b", osB), tunnels)).toBe(lineB);
+  });
+
+  it("un túnel hacia una Mac se cuenta", () => {
+    expect(machineLine(mk("b", "macos"), [tun("b")])).toBe("1 túnel");
+  });
+
+  it("apagada manda sobre el conteo", () => {
+    expect(machineLine(mk("a", "macos", "off"), [tun("a")])).toBe("apagada");
   });
 });

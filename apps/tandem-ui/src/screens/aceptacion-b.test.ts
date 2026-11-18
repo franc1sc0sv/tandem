@@ -143,7 +143,7 @@ describe("T-154: la ventana pide los túneles que ya existen", () => {
     const { b } = bridge(snapshot(), {}, reply);
     const store = new Store(new LiveSource(b), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
-    await vi.waitFor(() => expect(screen.getByText("1 túneles")).toBeInTheDocument());
+    await vi.waitFor(() => expect(screen.getByText("1 túnel")).toBeInTheDocument());
     const titles = buildCommands(store.desk, store, false).map((c) => c.title);
     expect(titles).toContain("Ir al túnel «Revisar el PR»");
   });
