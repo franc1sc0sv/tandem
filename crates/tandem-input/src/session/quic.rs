@@ -52,6 +52,8 @@ pub struct ServerDriver<C> {
     active: watch::Sender<bool>,
     remote: watch::Sender<bool>,
     locked: watch::Sender<bool>,
+    /// Algún botón del mouse apretado (T-121: cancelar la copia de un arrastre si se suelta).
+    held: watch::Sender<bool>,
     activity: watch::Sender<Option<Instant>>,
     latency: watch::Sender<Option<InputLatency>>,
     /// El cursor en vivo, si alguien lo pide (T-128).
@@ -94,6 +96,7 @@ impl<C: Capture> ServerDriver<C> {
             active: watch::Sender::new(false),
             remote: watch::Sender::new(false),
             locked: watch::Sender::new(false),
+            held: watch::Sender::new(false),
             activity: watch::Sender::new(None),
             latency: watch::Sender::new(None),
             cursor: None,
@@ -130,10 +133,16 @@ impl<C: Capture> ServerDriver<C> {
         self.locked.subscribe()
     }
 
+    /// `true` mientras hay un botón del mouse apretado.
+    pub fn buttons(&self) -> watch::Receiver<bool> {
+        self.held.subscribe()
+    }
+
     /// Pone al día [`Self::remote`] y [`Self::locked`] con la sesión.
     fn publish(&self) {
         publish(&self.remote, self.session.is_remote());
         publish(&self.locked, self.session.is_locked());
+        publish(&self.held, self.session.button_held());
     }
 
     /// `true` desde que la sesión está establecida (stream abierto y lo viejo
@@ -230,6 +239,7 @@ impl<C: Capture> ServerDriver<C> {
             active,
             remote,
             locked,
+            held,
             activity,
             latency,
             cursor,
@@ -251,6 +261,7 @@ impl<C: Capture> ServerDriver<C> {
         let sync = |session: &ServerSession| {
             publish(remote, session.is_remote());
             publish(locked, session.is_locked());
+            publish(held, session.button_held());
         };
         sync(session);
 

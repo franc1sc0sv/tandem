@@ -17,6 +17,8 @@ pub mod drag;
 pub mod drag_macos;
 pub mod drag_os;
 #[cfg(windows)]
+pub mod drag_target_windows;
+#[cfg(windows)]
 pub mod drag_windows;
 pub mod error;
 pub mod mem;
