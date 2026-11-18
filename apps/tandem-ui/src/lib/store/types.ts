@@ -7,7 +7,11 @@
 
 import type { Arrangement, LayoutView } from "../acomodo";
 import type { CrossSample } from "../crossing";
+<<<<<<< HEAD
 import type { Bindings, Machine, MonitorInput, Os, PairingView, PeerView, Permission, SceneJson, SetupView, ShortcutsView, TxnView } from "../model";
+=======
+import type { Bindings, Machine, Notice, Os, PairingView, PeerView, Permission, SetupView, ShortcutsView } from "../model";
+>>>>>>> 3dd3e3d (T-113: pantalla Puesto con escritorios a escala, cursor en vivo y energía en la tarjeta de la otra máquina)
 import type { PermissionState } from "../permissions";
 import type { UpdateView } from "../updates";
 
@@ -302,7 +306,14 @@ export type Topic = "machines" | "resources" | "link" | "network" | "tunnels" | 
 export const ALL_TOPICS: Topic[] = ["machines", "resources", "link", "network", "tunnels", "scenes", "monitors"];
 
 /** Lo que una fuente puede o no hacer todavía. */
+<<<<<<< HEAD
 export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing" | "machine" | "monitors" | "forget";
+=======
+export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing" | "machine" | "cursor";
+
+/** Lo que llega con el cursor en vivo (T-128): su posición o un cruce de borde. */
+export type CursorEvent = Extract<Notice, { kind: "cursor" | "crossed" }>;
+>>>>>>> 3dd3e3d (T-113: pantalla Puesto con escritorios a escala, cursor en vivo y energía en la tarjeta de la otra máquina)
 
 export type PairActionKind = "start_pairing" | "confirm_pairing" | "cancel_pairing" | "unpair";
 
@@ -370,6 +381,11 @@ export interface Source {
    * que se llama a la función que devuelve. Rechaza si la fuente no informa cruces.
    */
   watchCrossing(onCross: (s: CrossSample) => void): Promise<() => void>;
+  /**
+   * El cursor en vivo (a 30 Hz como mucho) mientras no se llame a la función que devuelve.
+   * Rechaza si el agente no lo ofrece.
+   */
+  watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void>;
   /** Tiempo para cruzar, si la fuente lo cambia (el demo, para capturar el tiempo agotado). */
   readonly crossTimeoutMs?: number;
   /** Qué sabe hacer esta fuente hoy (el agente real aún no tiene escenas ni módulos). */

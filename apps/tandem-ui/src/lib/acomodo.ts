@@ -43,6 +43,20 @@ export interface LayoutScreen {
   usable: boolean;
   /** La línea bajo el nombre en el panel («PC-Escritorio · escena Trabajo», «Desconectado»). */
   line: string;
+  /** Monitor externo (con pie); sin dato, los de más de 16" de ancho se tratan como externos. */
+  external?: boolean;
+  /** Su rectángulo en las coordenadas nativas del sistema (las del cursor de `CursorSample`). */
+  native?: NativeRect;
+}
+
+/** Posición y tamaño de una pantalla en las coordenadas de su máquina. */
+export interface NativeRect {
+  /** Id nativo de la pantalla (el que trae `CursorSample.screen`). */
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 export interface LayoutView {
@@ -68,8 +82,9 @@ export function mainOf(screens: LayoutScreen[], m: Machine): LayoutScreen | null
 
 /** El lienzo mide 76 × 26 pulgadas (como el mockup) y crece si el puesto no entra. */
 export const VIEW = { w: 76, h: 26 };
+const DEFAULT_VIEW = VIEW;
 /** Separación entre las dos pantallas que se tocan y hasta las que no entran, en pulgadas. */
-const GAP = 0.3;
+const DEFAULT_GAP = 0.3;
 const APART = 1.4;
 
 export interface Box {
@@ -88,6 +103,14 @@ export interface Edge {
   top: number;
   /** Largo, en porcentaje del ancho (horizontal) o del alto (vertical). */
   length: number;
+}
+
+/** Ajustes del dibujo: el lienzo, la separación entre pantallas y el espacio de abajo (pies). */
+export interface DrawOptions {
+  view?: { w: number; h: number };
+  gap?: number;
+  /** Pulgadas libres bajo las pantallas, que cuentan al centrar el dibujo. */
+  below?: number;
 }
 
 export interface Drawing {
@@ -132,8 +155,10 @@ function desktopOf(screens: LayoutScreen[], m: Machine): Desktop | null {
  * tandem-input), no el largo de uno de ellos; se mide sobre la caja de cada escritorio, que
  * con pantallas contiguas es lo que mide el motor.
  */
-export function draw(layout: LayoutView): Drawing {
+export function draw(layout: LayoutView, opts: DrawOptions = {}): Drawing {
   const { screens, arrangement } = layout;
+  const VIEW = opts.view ?? DEFAULT_VIEW;
+  const GAP = opts.gap ?? DEFAULT_GAP;
   const b = desktopOf(screens, "b");
   const a = desktopOf(screens, "a");
   const anchor = b ?? a;
@@ -179,7 +204,7 @@ export function draw(layout: LayoutView): Drawing {
   const minx = Math.min(0, ...all.map((r) => r.x));
   const maxx = Math.max(...all.map((r) => r.x + r.w));
   const miny = Math.min(0, ...all.map((r) => r.y));
-  const maxy = Math.max(...all.map((r) => r.y + r.h));
+  const maxy = Math.max(...all.map((r) => r.y + r.h)) + (opts.below ?? 0);
   // Si el puesto no entra en 76 × 26, el lienzo crece con la misma proporción.
   const grow = Math.max(1, (maxx - minx) / VIEW.w, (maxy - miny) / VIEW.h);
   const W = VIEW.w * grow;

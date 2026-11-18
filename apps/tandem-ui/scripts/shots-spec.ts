@@ -233,6 +233,9 @@ export const SHOTS: ShotSpec[] = [
     height: H,
     ignore: [NO_ADD_MACHINE, { mockupSelector: 'a[href="F-AgregarHost.dc.html"].card', reason: "D1: sin tarjeta «Agregar máquina»" }],
     regions: [{ ...SIDEBAR, min: SIDEBAR_GATE }],
+    // T-113: toda la pantalla. Solo se tapa el hueco vacío que D1 quita («Agregar máquina»); la
+    // app no tiene ninguna tarjeta oculta (Encender/Apagar van dentro de la tarjeta de la otra máquina).
+    min: SCREEN_GATE,
   },
   // D2 (alcance de T-126): el mismo puesto con dos Windows y con dos Mac. Los nombres y
   // colores cambian, así que no tienen umbral: sirven para ver cada combinación.
@@ -293,7 +296,7 @@ export const SHOTS: ShotSpec[] = [
     },
   },
   { name: "ajustes", page: "index.html", query: DEMO, hash: "#/ajustes", mockup: "F-Ajustes", width: W, height: H },
-  { name: "paleta", page: "index.html", query: DEMO, hash: "#/puesto", mockup: "F-Paleta", width: W, height: H, keys: ["Control+k"] },
+  { name: "paleta", page: "index.html", query: DEMO, hash: "#/puesto", mockup: "F-Paleta", width: W, height: H, keys: ["Meta+k"] },
   { name: "estados", page: "index.html", query: `${DEMO}&trouble=peer-off`, hash: "#/puesto", mockup: "V3-Estados", width: W, height: H },
   { name: "bandeja", page: "tray.html", query: DEMO, hash: "", mockup: "V3-Bandeja", width: 380, height: 600 },
 ];

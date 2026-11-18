@@ -9,7 +9,7 @@ import { machineName } from "../machines";
 import type { Bindings, Permission, ShortcutsView } from "../model";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
-import type { ActResult, Capability, DeskView, LinkKind, PairActionKind, Source, Topic } from "./types";
+import type { ActResult, Capability, CursorEvent, DeskView, LinkKind, PairActionKind, Source, Topic } from "./types";
 import type { UpdateView } from "../updates";
 import type { Arrangement } from "../acomodo";
 import type { CrossSample } from "../crossing";
@@ -248,6 +248,10 @@ export class Store implements CommandContext {
 
   watchCrossing(onCross: (s: CrossSample) => void): Promise<() => void> {
     return this.source.watchCrossing(onCross);
+  }
+
+  watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void> {
+    return this.source.watchCursor(onEvent);
   }
 
   /** El tiempo para cruzar en la prueba (`undefined`: el de siempre). */

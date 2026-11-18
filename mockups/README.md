@@ -40,6 +40,8 @@ Más detalle en `tools/mockup-render/README.md`.
 ## Lo que los mockups dicen y DECISIONS corrige
 
 - **Tercera máquina** (`F-AgregarHost`, la «MacBook Air», «Agregar máquina» en la barra lateral, «Puesto de N máquinas» en las notas): fuera por D1. En su lugar, Ajustes → «Cambiar la otra máquina» (emparejar de nuevo).
+- **Tarjeta «Agregar máquina» de `V3-Puesto`** (D1): se tapa en la comparación (200 × 210 px a la derecha de las tarjetas de máquina); en la app ese hueco queda vacío, no hay tarjeta que tapar. Encender / Apagar van dentro de la tarjeta de la otra máquina (que sí se compara), con el estilo de los botones del mockup.
+- **Atajo de la paleta** (`⌘K`): los mockups están dibujados en macOS; la app muestra `Ctrl+K` en Windows. El arnés de capturas usa un agente de usuario de macOS.
 - **Botón «Instalar» del servicio de administrador** (`F-Asis1`): solo si el módulo de pantallas protegidas (T-027) está disponible; si no, la fila muestra su estado sin botón.
 - **«macOS 26 · Apple M5 · 24 GB»** y demás datos de ejemplo: en la app salen del escaneo real (D10).
 - **Botones «Simular…»** (borde punteado): son solo del mockup; en la app esos pasos ocurren de verdad.

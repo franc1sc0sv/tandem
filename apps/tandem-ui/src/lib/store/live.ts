@@ -14,7 +14,7 @@ import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
 import { grantTo, permissionState } from "../permissions";
-import type { ActResult, Capability, DeskView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, PairActionKind, PermissionsView, Source, Topic } from "./types";
+import type { ActResult, Capability, CursorEvent, DeskView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, PairActionKind, PermissionsView, Source, Topic } from "./types";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK } from "./types";
 
@@ -218,6 +218,7 @@ export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): 
         scale: `${Math.round(s.scale * 100)} %`,
         usable: true,
         line: name,
+        native: { id: s.id, x: s.x, y: s.y, w: s.width, h: s.height },
       });
     }
   }
@@ -245,6 +246,8 @@ export class LiveSource implements Source {
   private network: NetworkView = EMPTY_NETWORK;
   /** Se le pidió al agente la red en vivo. */
   private watchingNetwork = false;
+  /** Quién recibe el cursor en vivo; el agente solo lo manda mientras haya alguien. */
+  private readonly cursorListeners = new Set<(e: CursorEvent) => void>();
 
   constructor(private readonly bridge: Bridge) {}
 
@@ -274,6 +277,13 @@ export class LiveSource implements Source {
       this.bridge.onNetwork?.((w) => {
         this.network = networkFromWire(w, Date.now());
         if (this.last.kind === "connected") push(this.last);
+      }),
+    ).catch(() => {});
+    // Los avisos del cursor se reparten a quien los pidió; los demás avisos no son de esta fuente.
+    void Promise.resolve(
+      this.bridge.onNotice?.((n) => {
+        if (n.kind !== "cursor" && n.kind !== "crossed") return;
+        for (const f of [...this.cursorListeners]) f(n);
       }),
     ).catch(() => {});
     push(await this.bridge.snapshot());
@@ -370,6 +380,22 @@ export class LiveSource implements Source {
     return r.ok ? { ok: true, text: "Acomodo guardado" } : r;
   }
 
+  async watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void> {
+    if (typeof this.bridge.onNotice !== "function") throw new Error("El agente todavía no informa el cursor");
+    this.cursorListeners.add(onEvent);
+    if (this.cursorListeners.size === 1) {
+      const r = await this.bridge.act({ kind: "watch_cursor", on: true });
+      if (r.kind === "rejected" || r.kind === "unavailable") {
+        this.cursorListeners.delete(onEvent);
+        throw new Error(r.reason);
+      }
+    }
+    return () => {
+      if (!this.cursorListeners.delete(onEvent) || this.cursorListeners.size > 0) return;
+      this.bridge.act({ kind: "watch_cursor", on: false }).catch(() => {});
+    };
+  }
+
   async watchCrossing(): Promise<() => void> {
     // El motor de entrada todavía no informa los cruces por la IPC (`CursorSample`).
     throw new Error("El agente todavía no informa el cruce del cursor");
@@ -437,6 +463,7 @@ export class LiveSource implements Source {
   can(what: Capability): boolean {
     if (what === "scenes" || what === "monitors") return this.last.kind === "connected";
     if (what === "power" || what === "measure") return this.last.kind === "connected" && this.last.peer.kind === "paired";
+    if (what === "cursor") return this.last.kind === "connected" && this.last.peer.kind === "paired";
     if (what === "modules" || what === "machine") return this.last.kind === "connected";
     return false;
   }
