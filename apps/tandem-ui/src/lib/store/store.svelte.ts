@@ -314,6 +314,11 @@ export class Store implements CommandContext {
     return this.source.watchCrossing(onCross);
   }
 
+  /** La ventana oyó actividad: el agente la anuncia a la otra máquina. Sin agente, no pasa nada. */
+  reportHeardKey(): Promise<void> {
+    return this.source.reportHeardKey?.().catch(() => {}) ?? Promise.resolve();
+  }
+
   watchKeyProbe(onHeard: (m: Machine) => void): Promise<() => void> {
     return this.source.watchKeyProbe(onHeard);
   }
@@ -381,11 +386,16 @@ export class Store implements CommandContext {
     return this.report(this.source.restartAgent());
   }
 
-  /** En macOS, la primera vez el asistente se abre solo en el paso de permisos (T-090). */
+  /**
+   * La primera vez el asistente se abre solo, en cualquier sistema: en el de permisos si hay
+   * permisos que conceder (T-090) y, si no, en «Tu puesto» mientras no haya par (T-156).
+   */
   async maybeFirstRun(): Promise<void> {
     try {
       const v = await this.source.setup();
-      if (v.show) this.openWizard(WIZARD_PERMISSIONS);
+      if (!v.show) return;
+      if (v.available) this.openWizard(WIZARD_PERMISSIONS);
+      else if (this.desk.pair.peer.kind !== "paired") this.openWizard(WIZARD_PAIR);
     } catch {
       // Sin guía (otro sistema o sin la app): nada que abrir.
     }

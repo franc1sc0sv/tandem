@@ -12,6 +12,7 @@ import {
   computeNote,
   crossVerdict,
   deviceRows,
+  devicesOfHub,
   dropSide,
   foundRows,
   serviceRow,
@@ -109,16 +110,21 @@ describe("paso 4", () => {
     expect(heard(a, "a")).toEqual({ a: true, b: true });
   });
 
-  it("lista lo que anuncia la máquina o, si no lista nada, el módulo de entrada", async () => {
+  it("lista solo lo que anuncia la máquina: lo supuesto no cuenta", async () => {
     const d = await desk();
     expect(deviceRows(d.machines.a!).map((x) => x.name)).toEqual(["Teclado integrado", "Trackpad", "Keychron K3 · MX Master 3S"]);
     expect(deviceRows(d.machines.b!)).toEqual([]);
     expect(deviceRows(null)).toEqual([]);
-    // Un agente que no lista los dispositivos: el módulo de entrada activo vale por «Teclado y mouse».
+    // Con el módulo de entrada activo pero sin dispositivos anunciados, no hay fila.
     const { inputDevices: _omit, ...bare } = d.machines.a!;
-    expect(deviceRows(bare)).toEqual([{ name: "Teclado y mouse" }]);
-    const off = { ...bare, modules: bare.modules.map((x) => (x.id === "input" ? { ...x, state: "off" as const } : x)) };
-    expect(deviceRows(off)).toEqual([]);
+    expect(deviceRows(bare)).toEqual([]);
+  });
+
+  it("el hub del agente es lo único que vale por teclado y mouse", () => {
+    expect(devicesOfHub(true)).toEqual([{ name: "Teclado y mouse", via: "por el hub" }]);
+    expect(devicesOfHub(false)).toEqual([]);
+    expect(devicesOfHub(null)).toEqual([]);
+    expect(devicesOfHub(undefined)).toEqual([]);
   });
 });
 
@@ -164,5 +170,16 @@ describe("paso 6", () => {
     expect(ok[2]?.note).toContain("dueño PC-Escritorio");
     const no = summaryRows(d, { crossed: false });
     expect(no[1]).toMatchObject({ ok: false, note: "cruce sin probar" });
+  });
+
+  it("el cómputo remoto vale si los túneles funcionan, aunque el módulo no esté activo", async () => {
+    const d = await desk();
+    const sinModulo = (m: NonNullable<typeof d.machines.a>) => ({ ...m, modules: m.modules.filter((x) => x.id !== "tunnels") });
+    const machines = { a: sinModulo(d.machines.a!), b: sinModulo(d.machines.b!) };
+    expect(machines.a.environments.length).toBeGreaterThan(0);
+    const works = summaryRows({ ...d, machines }, { crossed: true }).find((r) => r.id === "tunnels");
+    expect(works).toMatchObject({ ok: true, note: "MCP listo para Claude Code en las dos" });
+    const none = { ...machines, b: { ...machines.b, environments: [] } };
+    expect(summaryRows({ ...d, machines: none }, { crossed: true }).find((r) => r.id === "tunnels")).toMatchObject({ ok: false });
   });
 });

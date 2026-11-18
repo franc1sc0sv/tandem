@@ -88,7 +88,7 @@ struct FirstRun {
 
 impl FirstRun {
     fn view(&self) -> SetupView {
-        // Sin archivo donde recordarlo, la guía saldría en cada arranque: mejor no ofrecerla sola.
+        // Sin archivo donde recordarlo, el asistente saldría en cada arranque: mejor no ofrecerlo solo.
         let done = self.file.as_deref().is_none_or(setup::is_done);
         SetupView::new(cfg!(target_os = "macos"), done, self.agent.clone())
     }

@@ -169,11 +169,35 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(act).toHaveBeenLastCalledWith({ kind: "key_probe", on: false }));
   });
 
-  it("paso 4: la actividad de esta ventana se marca sin pedirle nada al agente", async () => {
-    const { dlg } = await mount(3);
+  it("paso 4: la actividad de esta ventana se marca y se le avisa al agente con `heard_key`", async () => {
+    const { dlg, act, calls } = await mount(3);
     const mac = within(dlg).getByRole("group", { name: "MacBook Pro" });
     await fireEvent.keyDown(window, { key: "a" });
     expect(await within(mac).findByText("Actividad detectada")).toBeInTheDocument();
+    await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "heard_key" }));
+    await fireEvent.keyDown(window, { key: "b" });
+    expect(calls.filter((c) => c.kind === "heard_key")).toHaveLength(1);
+  });
+
+  it("paso 4: solo lista el teclado y el mouse si el agente anuncia el hub aquí", async () => {
+    const sin = await mount(3);
+    const macSin = within(sin.dlg).getByRole("group", { name: "MacBook Pro" });
+    expect(within(macSin).getByText("Sin teclado ni mouse ahora")).toBeInTheDocument();
+    expect(within(macSin).queryByText("Teclado y mouse")).toBeNull();
+    sin.unmount();
+    const base = snapshot();
+    const con = await mount(3, snapshot({ caps: { ...base.caps, here: { ...base.caps.here, hub: true } } }));
+    const macCon = within(con.dlg).getByRole("group", { name: "MacBook Pro" });
+    expect(within(macCon).getByText("Teclado y mouse")).toBeInTheDocument();
+    expect(within(macCon).queryByText("Sin teclado ni mouse ahora")).toBeNull();
+  });
+
+  it("sin botón «Cerrar» colapsado: el asistente se cierra con Escape y no deja un botón sin caja", async () => {
+    const { dlg, store } = await mount(1);
+    expect(within(dlg).queryByRole("button", { name: "Cerrar" })).toBeNull();
+    expect(dlg.querySelector(".wz-close")).toBeNull();
+    await userEvent.keyboard("{Escape}");
+    expect(store.wizardOpen).toBe(false);
   });
 
   it("paso 5: mover la otra máquina guarda el acomodo con `set_arrangement`", async () => {

@@ -344,9 +344,9 @@ export interface ShortcutsView {
 export type Permission = "accessibility" | "input_monitoring" | "local_network";
 
 export interface SetupView {
-  /** Hay guía en este sistema (solo macOS). */
+  /** Hay permisos que conceder en este sistema (solo macOS). */
   available: boolean;
-  /** Mostrarla al abrir: todavía no se terminó. */
+  /** Abrir el asistente al arrancar: todavía no se terminó (en cualquier sistema). */
   show: boolean;
   permissions: Permission[];
   /** Cómo quedó el agente de inicio de sesión (`tandemd`), si la app intentó instalarlo. */

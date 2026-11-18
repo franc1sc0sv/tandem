@@ -27,7 +27,11 @@
     stop?.();
   });
 
-  const here = () => (activity = heard(activity, desk.here));
+  // La primera actividad de la ventana se le avisa al agente: así la otra máquina la ve.
+  const here = () => {
+    if (!activity[desk.here]) void store.reportHeardKey();
+    activity = heard(activity, desk.here);
+  };
   // El navegador también emite un `pointermove` sin desplazamiento cuando el diseño cambia bajo un
   // puntero quieto: eso no es actividad.
   const moved = (e: PointerEvent) => {

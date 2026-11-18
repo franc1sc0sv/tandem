@@ -76,7 +76,6 @@
         {/each}
       </ol>
       <span class="fill"></span>
-      <Button icon="x" variant="ghost" size="sm" class="wz-close" onclick={close}>Cerrar</Button>
     </aside>
 
     <main bind:this={main} tabindex="-1" class:wide={step === 3 || step === 4}>
@@ -257,15 +256,6 @@
   }
   .sm {
     font-size: 12.5px;
-  }
-  /* El mockup no dibuja un botón de cerrar: aparece al llegar con el teclado (y Escape siempre cierra). */
-  .side :global(.wz-close:not(:focus-visible)) {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    opacity: 0;
-    pointer-events: none;
   }
   .foot {
     display: flex;
