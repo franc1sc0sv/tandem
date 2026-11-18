@@ -135,11 +135,81 @@ pub fn render(date: &str, results: &[CheckResult], logs: &[Log]) -> String {
             out.push_str(&format!(
                 "\n### {}\n\n```\n{}\n```\n",
                 l.name,
-                tail(&l.text, 40, 4096)
+                tail(&redact(&l.text), 40, 4096)
             ));
         }
     }
     out
+}
+
+/// `true` si hay comprobaciones de monitor y todas salieron omitidas.
+pub fn monitors_all_skipped(results: &[CheckResult]) -> bool {
+    let mut it = results
+        .iter()
+        .filter(|r| r.check.starts_with("monitor-"))
+        .peekable();
+    it.peek().is_some() && it.all(|r| r.outcome == Outcome::Skip)
+}
+
+/// Quita de un registro las IPv4 y los ids de monitor (`id=...`, `monitor=...`) antes de que
+/// llegue al informe versionado.
+pub fn redact(text: &str) -> String {
+    text.lines().map(redact_line).collect::<Vec<_>>().join("\n")
+}
+
+fn redact_line(line: &str) -> String {
+    let mut out = String::new();
+    let mut rest = line;
+    while !rest.is_empty() {
+        if let Some(len) = ipv4_len(rest) {
+            out.push_str("<ip>");
+            rest = &rest[len..];
+            continue;
+        }
+        if let Some((key, len)) = id_key(rest) {
+            out.push_str(key);
+            out.push_str("<id>");
+            rest = &rest[len..];
+            let end = rest
+                .find(|c: char| c.is_whitespace() || matches!(c, ',' | '"' | '}' | ')' | ';'))
+                .unwrap_or(rest.len());
+            rest = &rest[end..];
+            continue;
+        }
+        let Some(c) = rest.chars().next() else { break };
+        out.push(c);
+        rest = &rest[c.len_utf8()..];
+    }
+    out
+}
+
+/// Largo de una IPv4 al inicio de `s`, si no va pegada a otro dígito por detrás.
+fn ipv4_len(s: &str) -> Option<usize> {
+    let b = s.as_bytes();
+    let mut i = 0;
+    for part in 0..4 {
+        let start = i;
+        while i < b.len() && b[i].is_ascii_digit() && i - start < 3 {
+            i += 1;
+        }
+        if i == start {
+            return None;
+        }
+        if part < 3 {
+            if b.get(i) != Some(&b'.') {
+                return None;
+            }
+            i += 1;
+        }
+    }
+    (!b.get(i).is_some_and(|c| c.is_ascii_digit())).then_some(i)
+}
+
+fn id_key(s: &str) -> Option<(&'static str, usize)> {
+    ["monitor_id=", "monitor=", "id="]
+        .into_iter()
+        .find(|k| s.starts_with(k))
+        .map(|k| (k, k.len()))
 }
 
 /// `true` si no hay ningún fallo (las omitidas no cuentan).
@@ -188,6 +258,24 @@ mod tests {
         assert!(md.contains("no cubre"));
         assert!(!all_green(&sample()));
         assert!(all_green(&sample()[..1]));
+    }
+
+    #[test]
+    fn all_skipped_monitors_are_detected() {
+        let base = || CheckResult::new("monitor-kill", "pc", &["H3"]);
+        assert!(monitors_all_skipped(&[base().skip("x")]));
+        assert!(!monitors_all_skipped(&[base().pass("x")]));
+        assert!(!monitors_all_skipped(&sample()[..1]));
+    }
+
+    #[test]
+    fn redact_removes_lan_ips_and_monitor_ids() {
+        let t = "conectado a 192.168.1.20:52000 monitor=DEL4321-XYZ ok id=abc123, fin 1.2.3";
+        assert_eq!(
+            redact(t),
+            "conectado a <ip>:52000 monitor=<id> ok id=<id>, fin 1.2.3"
+        );
+        assert!(!redact("10.0.0.5\n172.16.0.1").contains("0.5"));
     }
 
     #[test]

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Suite de hardware (T-123). Se corre a mano desde WSL; NUNCA en CI.
 #
-#   scripts/hw/run.sh [--sim] [--with-monitors] [--only a,b] [--skip-build] [--ref REF]
+#   scripts/hw/run.sh [--sim] [--with-monitors] [--only a,b] [--skip-build] [--keep-cache] [--ref REF]
 #                     [--mac HOST] [--pc-ip IP] [--mac-ip IP] [--plan]
 #
 # Compila los binarios de Windows (mingw, en WSL) y de macOS (por ssh, en la Mac), arranca
@@ -16,7 +16,10 @@
 #   --with-monitors  agrega las dos comprobaciones que cambian la entrada del monitor de la
 #                    PC. Llevan vuelta automática (guardia + vigilante `tandem-monitor-guard`)
 #                    y se omiten si el vigilante no está.
-#   --only LISTA     solo estos grupos: link,tunnels,input,monitors (coma).
+#   --only LISTA     solo estos grupos: link,tunnels,input,monitors (coma). `monitors` se
+#                    ignora sin --with-monitors.
+#   --keep-cache     conserva en la Mac ~/.cache/tandem-hw-src y ~/.cache/tandem-hw-target
+#                    (caché de compilación); por defecto se borran al terminar.
 #   --plan           imprime los pasos y sale.
 #
 # Salida: 0 sin fallos, 1 con fallos, 2 si no se pudo armar el entorno.
@@ -27,7 +30,7 @@ ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
 PS=/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe
 PORT_A=47871
 PORT_B=47872
-SIM=0 MONITORS=0 SKIP_BUILD=0 PLAN=0
+SIM=0 MONITORS=0 SKIP_BUILD=0 PLAN=0 KEEP_CACHE=0
 ONLY=link,tunnels,input
 REF=origin/develop
 MAC_HOST=${TANDEM_HW_MAC:-mac-runner}
@@ -38,6 +41,7 @@ while [ $# -gt 0 ]; do
     --sim) SIM=1 ;;
     --with-monitors) MONITORS=1 ;;
     --skip-build) SKIP_BUILD=1 ;;
+    --keep-cache) KEEP_CACHE=1 ;;
     --plan) PLAN=1 ;;
     --only) ONLY=$2; shift ;;
     --ref) REF=$2; shift ;;
@@ -49,7 +53,13 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ "$MONITORS" = 1 ] && ONLY="$ONLY,monitors"
+if [ "$MONITORS" = 1 ]; then
+  case ",$ONLY," in *,monitors,*) ;; *) ONLY="$ONLY,monitors" ;; esac
+else
+  # Opt-in real: sin --with-monitors, `--only monitors` no cambia ninguna entrada.
+  ONLY=$(printf '%s' ",$ONLY," | sed 's/,monitors,/,/g; s/^,//; s/,$//')
+  [ -n "$ONLY" ] || { echo "nada que correr: monitors exige --with-monitors" >&2; exit 2; }
+fi
 has() { case ",$ONLY," in *",$1,"*) return 0 ;; esac; return 1; }
 [ "$SIM" = 1 ] && ONLY=link,tunnels   # sin entrada ni monitores: no hay dispositivos
 
@@ -80,7 +90,7 @@ mac() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$MAC_HOST" "$@"; }
 macq() { local a out=""; for a in "$@"; do out+="$(printf '%q ' "$a")"; done; printf '%s' "$out"; }
 
 PC_DIR="" PC_BIN="" MAC_DIR="" SIM_BIN=""
-PC_PID="" MAC_PID="" SIM_PIDS=()
+PC_PID="" MAC_PID="" SIM_PIDS=() PC_ORIG_INPUT=""
 BG_PIDS=()
 
 # tandem-hw en cada "máquina" (en --sim, las dos son locales).
@@ -102,13 +112,31 @@ cleanup() {
   for p in "${BG_PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
   for p in "${SIM_PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
   if [ "$SIM" = 0 ]; then
+    # 1. Primero tandem-hw (dueño del guardia) y los agentes; el vigilante NO se toca: tiene
+    #    que ver cerrarse su entrada y volver solo.
     [ -n "$PC_PID" ] && pc "Stop-Process -Id $PC_PID -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1
-    # Hijos sueltos de las pruebas (solo los de la carpeta de esta corrida).
-    [ -n "$PC_DIR" ] && pc "Get-Process | Where-Object { \$_.Path -like '$PC_DIR\\*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1
+    [ -n "$PC_DIR" ] && pc "Get-Process | Where-Object { \$_.Path -like '$PC_DIR\\*' -and \$_.Path -notlike '*tandem-monitor-guard*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1
     [ -n "$MAC_PID" ] && mac "kill $MAC_PID 2>/dev/null; pkill -f '$MAC_DIR/bin/' 2>/dev/null; true" >/dev/null 2>&1
+    if [ -n "$PC_DIR" ] && [ "$MONITORS" = 1 ]; then
+      # 2. Esperar (tope 60 s) a que el vigilante termine solo.
+      local guard_q="Get-Process tandem-monitor-guard -ErrorAction SilentlyContinue | Where-Object { \$_.Path -like '$PC_DIR\\*' } | Select-Object -First 1 -ExpandProperty Id"
+      local n=0
+      while [ $n -lt 30 ] && [ -n "$(pc "$guard_q" 2>/dev/null)" ]; do sleep 2; n=$((n+1)); done
+      # 3. Si la entrada no es la original, restauración explícita con el guardia.
+      if [ -n "$PC_ORIG_INPUT" ]; then
+        cur=$(pc_hw monitor-input 2>/dev/null | tr -d '[:space:]')
+        if [ "$cur" != "$PC_ORIG_INPUT" ]; then
+          say "la entrada del monitor es '$cur', no '$PC_ORIG_INPUT': restaurando con el vigilante"
+          pc_hw monitor-restore "$PC_ORIG_INPUT" >/dev/null 2>&1 || say "AVISO: no se pudo restaurar la entrada; revisar el monitor a mano"
+        fi
+      fi
+      # Solo ahora, si el vigilante sigue vivo, se le mata.
+      pc "Get-Process tandem-monitor-guard -ErrorAction SilentlyContinue | Where-Object { \$_.Path -like '$PC_DIR\\*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1
+    fi
     sleep 1
     [ -n "$PC_DIR" ] && pc "Remove-Item -Recurse -Force -LiteralPath '$PC_DIR' -ErrorAction SilentlyContinue" >/dev/null 2>&1
     [ -n "$MAC_DIR" ] && mac "rm -rf '$MAC_DIR'" >/dev/null 2>&1
+    [ "$KEEP_CACHE" = 0 ] && mac 'rm -rf ~/.cache/tandem-hw-src ~/.cache/tandem-hw-target' >/dev/null 2>&1
   fi
   say "listo (código $rc); corrida en $RUN"
   exit "$rc"
@@ -244,6 +272,9 @@ fi
 if has monitors; then
   # Solo la PC: la Mac no tiene canal DDC con el 34" por HDMI (S12). La vuelta automática la
   # arma cada comprobación; aquí no se cambia nada por otro camino.
+  # La entrada original se anota antes de cambiar nada, para la restauración de la limpieza.
+  PC_ORIG_INPUT=$(pc_hw monitor-input 2>/dev/null | tr -d '[:space:]')
+  [ -n "$PC_ORIG_INPUT" ] || say "AVISO: no se leyó la entrada original; la limpieza no podrá verificarla"
   step pc monitor-roundtrip,monitor-kill
 fi
 
@@ -261,7 +292,7 @@ DATE=$(date +%F)
 REPORT=$ROOT/docs/reports/hw-$DATE.md
 [ "$SIM" = 1 ] && REPORT=$RUN/hw-sim-$DATE.md   # el simulado no pisa los informes reales
 [ -e "$REPORT" ] && REPORT=${REPORT%.md}-$SHORT.md   # una segunda corrida del día no pisa la primera
-"$REPORT_BIN" report --date "$DATE" --out "$REPORT" --log "agente PC=$OUT/agent-pc.log" --log "agente Mac=$OUT/agent-mac.log" "$RES_PC" "$RES_MAC"
+"$REPORT_BIN" report --require-monitors "$MONITORS" --date "$DATE" --out "$REPORT" --log "agente PC=$OUT/agent-pc.log" --log "agente Mac=$OUT/agent-mac.log" "$RES_PC" "$RES_MAC"
 code=$?
 say "informe: $REPORT"
 exit $code

@@ -9,6 +9,9 @@ Desde WSL, con la Mac por `ssh mac-runner` y la PC por `powershell.exe` (cada us
 ```
 scripts/hw/run.sh                    # enlace, túneles y entrada sintética
 scripts/hw/run.sh --with-monitors    # además cambia la entrada del 34" (con vuelta automática)
+scripts/hw/run.sh --keep-cache        # conserva la caché de compilación de la Mac
+# La limpieza no mata al vigilante: espera a que vuelva solo (60 s), verifica la entrada y, si
+# no es la original, la restaura con él. `--only monitors` exige `--with-monitors`.
 scripts/hw/run.sh --sim              # todo en Linux, backends simulados: valida el orquestador
 scripts/hw/run.sh --plan             # imprime los pasos
 ```
@@ -18,7 +21,7 @@ Opciones: `--only link,tunnels,input,monitors`, `--ref REF` (por omisión `origi
 ## Qué hace
 
 1. Aborta si hay un `tandemd` real corriendo en alguna máquina (la tubería con nombre de Windows es una por usuario y chocaría). Nunca lo detiene.
-2. Extrae `REF` con `git archive`, compila para Windows en WSL (`x86_64-pc-windows-gnu`, requiere `mingw-w64`) y en la Mac por ssh (`~/.cache/tandem-hw-src` y `~/.cache/tandem-hw-target`; la caché de compilación queda).
+2. Extrae `REF` con `git archive`, compila para Windows en WSL (`x86_64-pc-windows-gnu`, requiere `mingw-w64`) y en la Mac por ssh (`~/.cache/tandem-hw-src` y `~/.cache/tandem-hw-target`; se borran al terminar salvo con `--keep-cache`).
 3. Copia los binarios a una carpeta temporal por corrida (`%TEMP%\tandem-hw-<hora>` y `/tmp/tdhw-<hora>`), aprovisiona identidades de prueba (semillas constantes, sin relación con las reales) con la confianza mutua ya cargada y arranca un agente en el puerto UDP 47871 (distinto del 52000 real).
 4. Corre las comprobaciones de `tandem-hw run` en cada máquina y junta una línea JSON por resultado.
 5. `trap`: pase lo que pase mata los agentes y los procesos de la carpeta de la corrida, y borra las carpetas temporales de las dos máquinas.

@@ -177,8 +177,65 @@ pub fn hold() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Entrada actual del monitor (`dp`/`hdmi`), para que `run.sh` sepa a qué volver. Solo lee.
+pub fn current_input_name() -> Result<String, String> {
+    let found = find()?;
+    live_input(&found)
+        .map(|i| i.as_str().to_owned())
+        .ok_or_else(|| "no se leyó la entrada real".to_owned())
+}
+
+/// Vuelve a `target` con el vigilante: se lanza con la entrada cerrada, que para él es "el
+/// proceso murió" y restaura. Es la restauración explícita de la limpieza de `run.sh`.
+pub fn restore_with_guard(target: &str) -> Result<(), String> {
+    let want: Input = target
+        .parse()
+        .map_err(|e| format!("entrada inválida: {e}"))?;
+    let guard_path = guard_exe();
+    if !guard_path.exists() {
+        return Err("falta tandem-monitor-guard junto al ejecutable".into());
+    }
+    let found = find()?;
+    let plan = WatchPlan {
+        monitor: found.id.clone(),
+        restore_to: want,
+    };
+    let status = Command::new(&guard_path)
+        .args(plan.to_args())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("no arrancó el vigilante: {e}"))?;
+    if !status.success() {
+        return Err(format!("el vigilante terminó con {status}"));
+    }
+    if live_input(&found) == Some(want) {
+        Ok(())
+    } else {
+        Err("tras el vigilante la entrada no es la esperada".into())
+    }
+}
+
 fn live_input(found: &Found) -> Option<Input> {
     found.monitor.live().ok().and_then(|l| l.input())
+}
+
+/// Resultado de [`kill_midway`] según lo que se observó. Sin cambio no hay nada que probar:
+/// la entrada "vuelta" sería la que nunca se movió.
+#[derive(Debug, PartialEq, Eq)]
+pub enum KillVerdict {
+    Pass,
+    NeverSwitched,
+    NotRestored,
+}
+
+pub fn classify_kill(switched: bool, restored: bool) -> KillVerdict {
+    match (switched, restored) {
+        (false, _) => KillVerdict::NeverSwitched,
+        (true, true) => KillVerdict::Pass,
+        (true, false) => KillVerdict::NotRestored,
+    }
 }
 
 /// Mata el proceso que cambió la entrada a mitad de camino: el vigilante tiene que volver
@@ -209,7 +266,12 @@ pub fn kill_midway(label: &str) -> CheckResult {
         Ok(c) => c,
         Err(e) => return r.skip(format!("no arrancó el proceso de prueba: {e}")),
     };
-    let mut lines = BufReader::new(child.stdout.take().expect("stdout pedido")).lines();
+    let Some(stdout) = child.stdout.take() else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return r.skip("sin stdout del proceso de prueba");
+    };
+    let mut lines = BufReader::new(stdout).lines();
     let mut switched = false;
     while let Some(Ok(l)) = lines.next() {
         if l == "switched" {
@@ -231,14 +293,21 @@ pub fn kill_midway(label: &str) -> CheckResult {
         }
         std::thread::sleep(Duration::from_millis(500));
     };
-    let mut out = if restored {
-        r.pass(format!(
-            "el vigilante volvió a la entrada original tras matar al proceso (cambio hecho: {switched})"
-        ))
-    } else {
+    let verdict = classify_kill(switched, restored);
+    if !restored {
         // Tercera red: no se deja al usuario sin ver la PC.
         let _ = found.monitor.switch_input(original, SWITCH_TIMEOUT);
-        r.fail("el vigilante NO volvió a tiempo; la restauró esta prueba. Revisar el vigilante")
+    }
+    let mut out = match verdict {
+        KillVerdict::Pass => {
+            r.pass("el vigilante volvió a la entrada original tras matar al proceso")
+        }
+        KillVerdict::NeverSwitched => {
+            r.skip("el proceso de prueba no llegó a cambiar la entrada: no se probó el vigilante")
+        }
+        KillVerdict::NotRestored => {
+            r.fail("el vigilante NO volvió a tiempo; la restauró esta prueba. Revisar el vigilante")
+        }
     };
     out.millis = started.elapsed().as_millis() as u64;
     out
@@ -300,6 +369,18 @@ mod tests {
             &confirmed(Input::Hdmi),
         );
         assert!(r.is_err());
+    }
+
+    #[test]
+    fn kill_never_passes_if_the_child_never_switched() {
+        assert_eq!(classify_kill(false, true), KillVerdict::NeverSwitched);
+        assert_eq!(classify_kill(false, false), KillVerdict::NeverSwitched);
+    }
+
+    #[test]
+    fn kill_passes_only_with_switch_and_restore() {
+        assert_eq!(classify_kill(true, true), KillVerdict::Pass);
+        assert_eq!(classify_kill(true, false), KillVerdict::NotRestored);
     }
 
     #[test]

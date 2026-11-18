@@ -5,7 +5,7 @@
 //! tandem-hw run --label pc|mac --data-dir DIR --checks a,b,c [--peer-exe P --remote-dir D
 //!               --remote-sep S --keep-secs N --window-secs N --pair-wait-secs N]
 //! tandem-hw report --date AAAA-MM-DD --out ARCHIVO [--log nombre=ruta]... resultados.jsonl...
-//! tandem-hw emit TEXTO | sleep SEGUNDOS | echo-server PUERTO | monitor-hold
+//! tandem-hw emit TEXTO | sleep SEGUNDOS | echo-server PUERTO | monitor-hold | monitor-input | monitor-restore dp|hdmi
 //! ```
 
 use std::collections::BTreeMap;
@@ -103,6 +103,12 @@ fn dispatch(args: &[String]) -> anyhow::Result<ExitCode> {
         )),
         "echo-server" => echo_server(pos.first().context("falta PUERTO")?.parse()?)?,
         "monitor-hold" => monitor::hold()?,
+        "monitor-input" => println!(
+            "{}",
+            monitor::current_input_name().map_err(anyhow::Error::msg)?
+        ),
+        "monitor-restore" => monitor::restore_with_guard(pos.first().context("falta dp|hdmi")?)
+            .map_err(anyhow::Error::msg)?,
         other => bail!("subcomando desconocido: {other}"),
     }
     Ok(ExitCode::SUCCESS)
@@ -194,14 +200,23 @@ fn write_report(opts: &Opts, files: &[String]) -> anyhow::Result<ExitCode> {
             })
         })
         .collect();
-    let md = report::render(opts.need("date")?, &results, &logs);
+    let mut md = report::render(opts.need("date")?, &results, &logs);
+    let monitors_skipped =
+        opts.get("require-monitors") == Some("1") && report::monitors_all_skipped(&results);
+    if monitors_skipped {
+        md.push_str(
+            "\n## AVISO\n\nSe pidieron monitores (`--with-monitors`) pero todas las comprobaciones \
+             de monitor salieron omitidas: H3 no quedó probado.\n",
+        );
+        eprintln!("AVISO: se pidieron monitores y todas las comprobaciones salieron omitidas");
+    }
     let out = PathBuf::from(opts.need("out")?);
     if let Some(dir) = out.parent() {
         std::fs::create_dir_all(dir)?;
     }
     std::fs::write(&out, md)?;
     println!("{}", out.display());
-    Ok(if report::all_green(&results) {
+    Ok(if report::all_green(&results) && !monitors_skipped {
         ExitCode::SUCCESS
     } else {
         ExitCode::from(1)
