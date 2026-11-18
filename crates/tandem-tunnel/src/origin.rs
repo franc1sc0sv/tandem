@@ -241,7 +241,12 @@ impl Origin {
             return Err(TunnelError::Unknown(id));
         }
         match self.inner.request(TunnelUp::Close(id)).await? {
-            TunnelDown::Closed(_) => Ok(()),
+            TunnelDown::Closed(_) => {
+                // El aviso de cierre del seguidor llega por otro flujo y puede ir después de
+                // esta respuesta: se marca aquí para que `tunnels()` ya lo vea cerrado.
+                self.inner.mark_closed(id);
+                Ok(())
+            }
             _ => Err(TunnelError::Unexpected),
         }
     }
@@ -420,6 +425,22 @@ impl Origin {
 
 impl OriginInner {
     /// Los túneles, ya sin los cerrados hace más de `linger`.
+    /// Marca el túnel como cerrado localmente (idempotente).
+    fn mark_closed(&self, id: TunnelId) {
+        let mut tunnels = lock(&self.tunnels);
+        let Some(e) = tunnels.get_mut(&id) else {
+            return;
+        };
+        if e.info.state == TunnelState::Closed {
+            return;
+        }
+        e.info.state = TunnelState::Closed;
+        e.closed_at = Some(Instant::now());
+        drop(tunnels);
+        self.changes.bump();
+        self.output.send_modify(|n| *n = n.wrapping_add(1));
+    }
+
     fn tunnels(&self) -> MutexGuard<'_, BTreeMap<TunnelId, Entry>> {
         let mut tunnels = lock(&self.tunnels);
         let linger = self.opts.linger;
