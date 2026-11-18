@@ -44,6 +44,15 @@ const SCREENS = {
     keyframes: ["es-bd"],
     skip: [],
   },
+  tuneles: {
+    mock: mockup("V3-Computo"),
+    // El pulso del punto de la barra lateral (`pl`) vive en `Sidebar`; el de los contadores, en la pantalla.
+    files: [read("screens", "Tuneles.svelte"), read("shell", "Sidebar.svelte")],
+    keyframes: ["tu-up", "tu-dn", "tu-bar", "tu-sp", "tu-mv", "tu-fa", "tu-fb", "tu-halo", "tu-pl", "tu-bl"],
+    // `nw` (el destello de un evento nuevo) lo declara el mockup para una lista que no dibuja; `pl` se
+    // prueba aparte (la declaración en línea del mockup no se deja leer como CSS).
+    skip: ["nw", "pl"],
+  },
   progreso: {
     mock: mockup("F-Transacciones"),
     files: [read("screens", "Progreso.svelte")],
@@ -81,7 +90,19 @@ describe.each(Object.entries(SCREENS))("animaciones de %s", (_name, s) => {
   });
 });
 
-describe("movimiento reducido en Monitores, Escena y Progreso", () => {
+describe("animaciones de Túneles que el mockup declara en línea", () => {
+  it("el pulso de los puntos dura lo mismo que en el mockup", () => {
+    expect(SCREENS.tuneles.mock).toContain("animation:pl 1.8s infinite");
+    for (const f of SCREENS.tuneles.files) expect(f).toContain("1.8s infinite");
+  });
+
+  it("el tubo se detiene y se apaga sin movimiento cuando el túnel está cerrado", () => {
+    expect(SCREENS.tuneles.mock).toContain("animation:none;opacity:.2");
+    expect(SCREENS.tuneles.files[0]).toMatch(/\.flowA\.off,\s*\.flowB\.off \{\s*animation: none;\s*opacity: 0\.2;/);
+  });
+});
+
+describe("movimiento reducido en Monitores, Escena, Progreso y Túneles", () => {
   it("la regla global apaga animaciones y transiciones", () => {
     expect(RULE).toContain("animation: none !important");
     expect(RULE).toContain("transition: none !important");

@@ -229,14 +229,14 @@ const tunelesShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => (
 });
 export const TUNELES: ShotSpec[] = [
   tunelesShot("tuneles"),
-  tunelesShot("tuneles-proceso-2", { state: "proceso-2", clicks: ['[role="option"] >> nth=1'] }),
-  tunelesShot("tuneles-2-procesos", { state: "tunel-2-procesos", clicks: ['.tun:has-text("T-101")'] }),
+  tunelesShot("tuneles-proceso-dos", { state: "proceso-2", clicks: ['[role="option"] >> nth=1'] }),
+  tunelesShot("tuneles-dos-procesos", { state: "tunel-2-procesos", clicks: ['.tun:has-text("T-101")'] }),
   tunelesShot("tuneles-sin-procesos", { state: "tunel-sin-procesos", clicks: ['.tun:has-text("Revisar PR #66")'] }),
   tunelesShot("tuneles-lora", { state: "tunel-lora", clicks: ['.tun:has-text("Entrenar LoRA")'] }),
   tunelesShot("tuneles-cerrado", { state: "tunel-cerrado", clicks: ['.tun:has-text("ComfyUI")'] }),
   tunelesShot("tuneles-proyecto-plegado", { state: "proyecto-plegado", clicks: ['.proj:has-text("tandem")'] }),
   tunelesShot("tuneles-vacio", { query: `${DEMO}&tunnels=none`, min: undefined }),
-  tunelesShot("tuneles-12-procesos", { query: `${DEMO}&tunnels=many`, min: undefined }),
+  tunelesShot("tuneles-doce-procesos", { query: `${DEMO}&tunnels=many`, min: undefined }),
 ];
 
 export const MONITORES: ShotSpec[] = [

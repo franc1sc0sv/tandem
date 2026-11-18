@@ -1,7 +1,7 @@
 import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
 
-import { SCREEN_GATE, SHOTS, SIDEBAR_GATE, appUrl, crop, mask } from "./shots-spec.ts";
+import { SCREEN_GATE, SHOTS, TUNELES, SIDEBAR_GATE, appUrl, crop, mask } from "./shots-spec.ts";
 
 function solid(w: number, h: number, rgb: [number, number, number]): Buffer {
   const p = new PNG({ width: w, height: h });
@@ -82,5 +82,19 @@ describe("arnés de capturas", () => {
   it("arma la URL de la app", () => {
     expect(appUrl("http://app.local", { page: "index.html", query: "demo&still", hash: "#/red" })).toBe("http://app.local/index.html?demo&still#/red");
     expect(appUrl("http://app.local", { page: "tray.html", query: "", hash: "" })).toBe("http://app.local/tray.html");
+  });
+});
+
+describe("Túneles (T-114)", () => {
+  it("compara los seis estados del mockup y el plegado con el umbral de pantalla, con los clics del mockup", () => {
+    const gated = TUNELES.filter((s) => s.min);
+    expect(gated.map((s) => s.state ?? "inicial")).toEqual(["inicial", "proceso-2", "tunel-2-procesos", "tunel-sin-procesos", "tunel-lora", "tunel-cerrado", "proyecto-plegado"]);
+    for (const s of gated) expect(s.min).toEqual(SCREEN_GATE);
+    for (const s of TUNELES) expect(SHOTS).toContain(s);
+  });
+
+  it("los estados que el mockup no dibuja (vacío y 12 procesos) no llevan umbral de píxeles", () => {
+    const extra = TUNELES.filter((s) => !s.min);
+    expect(extra.map((s) => s.query)).toEqual(["demo&still&tunnels=none", "demo&still&tunnels=many"]);
   });
 });

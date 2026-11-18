@@ -550,7 +550,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     machines: { a: mk("a", sa, sb.name), b: mk("b", sb, sa.name) },
     link: linkUp ? { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 } : { kind: null, gbps: null, ms: null, inputP99: null },
     network: o.txn && linkUp ? { ...demoNetwork(linkUp), measuring: "usb4" } : demoNetwork(linkUp),
-    tunnels: demoTunnels(Date.now(), o.tunnels),
+    tunnels: demoTunnels(o.still ? DEMO_NOW : Date.now(), o.tunnels),
     scenes,
     activeScene: "trabajo",
     monitors,
@@ -653,10 +653,10 @@ export class DemoSource implements Source {
   private nextTxn = 1;
   private txnTimers: ReturnType<typeof setTimeout>[] = [];
 
-  /** La hora de la fuente cuando se enseña un progreso fijo (capturas). */
+  /** La hora de la fuente: fija en las capturas (progreso fijo o demo quieto), si no la del reloj. */
   now(): number {
     const t = this.opts.txn;
-    return t ? DEMO_NOW + (t === "run" ? 1200 : t === "ok" ? 2300 : 3000) : Date.now();
+    return t ? DEMO_NOW + (t === "run" ? 1200 : t === "ok" ? 2300 : 3000) : this.opts.still ? DEMO_NOW : Date.now();
   }
 
   async watchTxn(onEvent: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void): Promise<() => void> {
@@ -1017,7 +1017,7 @@ export class DemoSource implements Source {
   async hideMain(): Promise<void> {}
 
   async processes(tunnel: string): Promise<ProcessRow[]> {
-    return demoProcesses(tunnel, Date.now(), this.opts.tunnels);
+    return demoProcesses(tunnel, this.now(), this.opts.tunnels);
   }
 
   async output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {
