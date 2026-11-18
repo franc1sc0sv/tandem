@@ -165,6 +165,8 @@ export interface NetworkView {
   switches: PathSwitchView[];
   /** El camino que se está midiendo. */
   measuring: LinkKind | null;
+  /** Avisos con la orden exacta que el usuario ejecuta a mano (T-094). */
+  notices: { interface: string; message: string; command: string }[];
   /** Cuándo es el último segundo del historial (milisegundos Unix): fecha los cambios de camino. */
   now: number;
 }
@@ -189,6 +191,7 @@ export const EMPTY_NETWORK: NetworkView = {
   paths: (["usb4", "ethernet", "wifi"] as LinkKind[]).map(unplugged),
   switches: [],
   measuring: null,
+  notices: [],
   now: 0,
 };
 

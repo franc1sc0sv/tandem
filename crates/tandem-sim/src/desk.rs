@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tandem_core::{Machine, MonitorInput, Os, Plan, State};
+use tandem_link::iface::{FakeInterfaces, InterfaceKind, NetInterface, follow_wired};
 use tandem_link::manager::{HealthConfig, LinkKind, LinkManager};
 use tandem_link::metrics;
 use tandem_monitor::{LocalConfig, LocalMonitors};
@@ -233,7 +234,17 @@ impl DeskBuilder {
         let pc_links = links(&pc, &mac, pc_up_tx)?;
         mac.set_peer(mac_links.clone());
         pc.set_peer(pc_links.clone());
+        // Las interfaces de cada máquina: los cables que se enchufan después (T-094) las
+        // cambian y el gestor de enlaces las sigue, como en el agente de verdad.
+        let cables = [FakeInterfaces::new(vec![]), FakeInterfaces::new(vec![])];
+        let follow = |ifaces: &FakeInterfaces, links: &ManagedPeer| {
+            follow_wired(ifaces, links.manager().control(), |i: &NetInterface| {
+                Some(crate::net::link_addr(i.kind.link_kind()))
+            })
+        };
         let mut watches = vec![
+            follow(&cables[0], &mac_links),
+            follow(&cables[1], &pc_links),
             tokio::spawn(watch_while_on(world.clone(), mac.clone(), mac_reach)),
             tokio::spawn(watch_while_on(world.clone(), pc.clone(), pc_reach)),
         ];
@@ -269,6 +280,7 @@ impl DeskBuilder {
             pc,
             world,
             net,
+            cables,
             mac_links,
             pc_links,
             faults,
@@ -288,6 +300,7 @@ pub struct Desk {
     pub pc: Arc<Agent>,
     pub world: World,
     pub net: SimNet,
+    cables: [FakeInterfaces; 2],
     mac_links: Arc<ManagedPeer>,
     pc_links: Arc<ManagedPeer>,
     faults: Faults,
@@ -338,7 +351,48 @@ async fn within<F: Future>(what: &'static str, f: F) -> Result<F::Output, SimErr
         .map_err(|_| SimError::Timeout(what))
 }
 
+/// La interfaz que ve cada máquina cuando el cable de `kind` está puesto.
+fn cable_interface(kind: LinkKind) -> NetInterface {
+    let (name, iface_kind) = match kind {
+        LinkKind::Usb4 => ("USB4 P2P Network Adapter", InterfaceKind::Usb4),
+        LinkKind::Ethernet => ("Ethernet", InterfaceKind::Ethernet),
+        LinkKind::Wifi => ("Wi-Fi", InterfaceKind::Wifi),
+    };
+    NetInterface {
+        index: 100 + u32::from(kind.priority()),
+        name: name.into(),
+        kind: iface_kind,
+        addrs: vec![],
+        mac: None,
+        speed_mbps: None,
+        up: true,
+    }
+}
+
 impl Desk {
+    /// Las interfaces simuladas de una máquina, para enchufar y desenchufar a mano.
+    pub fn interfaces(&self, machine: Machine) -> &FakeInterfaces {
+        &self.cables[usize::from(machine == Machine::B)]
+    }
+
+    /// Enchufa el cable de `kind` entre las dos máquinas: el enlace existe y la interfaz
+    /// aparece en las dos, que se enteran solas.
+    pub fn plug_cable(&self, kind: LinkKind) {
+        self.net.plug(kind);
+        for ifaces in &self.cables {
+            ifaces.plug(cable_interface(kind));
+        }
+    }
+
+    /// Desconecta el cable de `kind`: la interfaz baja en las dos máquinas y nada pasa por él.
+    pub fn unplug_cable(&self, kind: LinkKind) {
+        let index = cable_interface(kind).index;
+        for ifaces in &self.cables {
+            ifaces.unplug(index);
+        }
+        self.net.cut(kind);
+    }
+
     pub fn builder() -> DeskBuilder {
         DeskBuilder::default()
     }

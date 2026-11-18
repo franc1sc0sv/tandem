@@ -156,7 +156,12 @@ struct Shared {
 }
 
 struct Inner {
+    /// La etiqueta efectiva: la peor de la clase propia y la que anuncia el otro extremo.
     link: Option<LinkKind>,
+    own: Option<LinkKind>,
+    peer: Option<LinkKind>,
+    /// La conexión que anunció `peer`: solo ella puede borrarla al cerrarse.
+    peer_from: Option<usize>,
     prefs: DataPrefs,
     measured: Option<u64>,
     limiter: Option<RateLimiter>,
@@ -186,6 +191,9 @@ impl Qos {
             shared: Arc::new(Shared {
                 inner: Mutex::new(Inner {
                     link: None,
+                    own: None,
+                    peer: None,
+                    peer_from: None,
                     prefs: DataPrefs::default(),
                     measured: None,
                     limiter: None,
@@ -209,10 +217,48 @@ impl Qos {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Por qué camino va la conexión. Cambiar de camino cambia el tope y el objetivo, y
-    /// levanta una pausa: lo medido por el otro camino ya no vale.
+    /// Por qué camino va la conexión según este extremo. Cambiar de camino cambia el tope y
+    /// el objetivo, y levanta una pausa: lo medido por el otro camino ya no vale.
     pub fn set_link(&self, link: Option<LinkKind>) {
         let mut s = self.lock();
+        s.own = link;
+        self.relabel(&mut s);
+    }
+
+    /// Cómo clasifica el otro extremo este camino. Se guarda aparte de la propia y la
+    /// etiqueta se recalcula cada vez, para que se recupere cuando el otro vuelve a anunciar
+    /// un cable. `None` al cerrarse su conexión.
+    pub fn set_peer_link(&self, link: Option<LinkKind>) {
+        let mut s = self.lock();
+        s.peer = link;
+        s.peer_from = None;
+        self.relabel(&mut s);
+    }
+
+    /// Como `set_peer_link(Some(..))`, anotando qué conexión la anunció.
+    pub fn set_peer_link_from(&self, conn: usize, link: LinkKind) {
+        let mut s = self.lock();
+        s.peer = Some(link);
+        s.peer_from = Some(conn);
+        self.relabel(&mut s);
+    }
+
+    /// Borra la clase del otro al cerrarse `conn`, pero solo si ella la anunció: una
+    /// conexión nueva del mismo camino que ya anunció la suya no pierde la vigente.
+    pub fn clear_peer_link_of(&self, conn: usize) {
+        let mut s = self.lock();
+        if s.peer_from == Some(conn) {
+            s.peer = None;
+            s.peer_from = None;
+            self.relabel(&mut s);
+        }
+    }
+
+    fn relabel(&self, s: &mut Inner) {
+        let link = match (s.own, s.peer) {
+            (Some(a), Some(b)) => Some(crate::iface::worst(a, b)),
+            (a, b) => a.or(b),
+        };
         if s.link == link {
             return;
         }
@@ -220,11 +266,17 @@ impl Qos {
         s.scale = FULL;
         let target = input_p99_target(link);
         if let Some(Transition::Resume { .. }) = s.guard.reset(target) {
-            self.resumed(&mut s, Instant::now());
+            self.resumed(s, Instant::now());
         }
-        self.update_cap(&mut s);
+        self.update_cap(s);
     }
 
+    /// La clase de este extremo, sin la del otro.
+    pub fn own_link(&self) -> Option<LinkKind> {
+        self.lock().own
+    }
+
+    /// La etiqueta efectiva: la peor de las dos clases.
     pub fn link(&self) -> Option<LinkKind> {
         self.lock().link
     }

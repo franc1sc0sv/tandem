@@ -42,6 +42,13 @@
       </Button>
     {/snippet}
   </PageHeader>
+  {#each network.notices as notice (notice.interface)}
+    <section class="notice" role="alert">
+      <b>{notice.interface}</b>
+      <span>{notice.message}</span>
+      <code class="mono">{notice.command}</code>
+    </section>
+  {/each}
   <LinkMap {network} a={nodes[0]!} b={nodes[1]!} />
   <Indicators {network} />
   <section class="paths">
@@ -52,6 +59,19 @@
 </div>
 
 <style>
+  .notice {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid #d9a75a;
+    background: rgba(217, 167, 90, 0.1);
+  }
+  .notice code {
+    user-select: all;
+    word-break: break-all;
+  }
   .page {
     display: flex;
     flex-direction: column;

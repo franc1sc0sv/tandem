@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 pub const USAGE: &str = "\
 Uso: tandemd [opciones]
+       tandemd links [--config <archivo>] [--data-dir <dir>]
 
 Opciones:
   --config <archivo>        tandem.toml a usar (por omisión, el del directorio de la app;
@@ -14,6 +15,8 @@ Opciones:
   --install                 registra el arranque con la sesión (Windows; lo usa el
                             instalador)
   --uninstall               quita el arranque con la sesión (deja la configuración)
+  links                     lista las interfaces de red, su tipo detectado, la dirección que
+                            usaría el enlace por cable y el estado de cada camino (spike S5)
   -h, --help                muestra esta ayuda
   -V, --version             muestra la versión";
 
@@ -24,6 +27,9 @@ pub enum Command {
     /// Las rutas de `RunArgs` son las que usará el agente al arrancar con la sesión.
     Install(RunArgs),
     Uninstall,
+    /// `tandemd links`: diagnóstico de los enlaces por cable (T-094). Usa las mismas rutas
+    /// que al correr el agente.
+    Links(RunArgs),
     Help,
     Version,
 }
@@ -72,7 +78,8 @@ impl Action {
 
 /// `args` sin el nombre del programa.
 pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliError> {
-    let mut args = args.into_iter();
+    let mut args = args.into_iter().peekable();
+    let links = args.next_if(|a| a.to_str() == Some("links")).is_some();
     let mut run = RunArgs::default();
     let mut check = None;
     let mut action: Option<Action> = None;
@@ -116,6 +123,13 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
     // Simular solo tiene sentido al correr el agente.
     if let (true, Some(action)) = (run.sim_backends, action) {
         return Err(CliError::Conflict(action.flag(), SIM_FLAG));
+    }
+    if links {
+        return match action {
+            Some(action) => Err(CliError::Conflict("links", action.flag())),
+            None if run.sim_backends => Err(CliError::Conflict("links", SIM_FLAG)),
+            None => Ok(Command::Links(run)),
+        };
     }
     Ok(match (action, check) {
         (Some(Action::Check), Some(path)) => Command::CheckConfig(path),
@@ -214,6 +228,22 @@ mod tests {
         assert_eq!(
             p(&["--sim-backends"]),
             Err(CliError::Unknown("--sim-backends".into()))
+        );
+    }
+
+    #[test]
+    fn links_lleva_las_rutas_pero_no_las_acciones() {
+        assert_eq!(p(&["links"]), Ok(Command::Links(RunArgs::default())));
+        assert_eq!(
+            p(&["links", "--config", "a.toml"]),
+            Ok(Command::Links(RunArgs {
+                config: Some("a.toml".into()),
+                ..RunArgs::default()
+            }))
+        );
+        assert_eq!(
+            p(&["links", "--install"]),
+            Err(CliError::Conflict("links", "--install"))
         );
     }
 

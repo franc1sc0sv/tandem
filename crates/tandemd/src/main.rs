@@ -55,6 +55,12 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         }
+        Command::Links(args) => {
+            if let Err(e) = links(args) {
+                eprintln!("tandemd: {e:#}");
+                return ExitCode::FAILURE;
+            }
+        }
         Command::Run(args) => {
             if let Err(e) = run(args) {
                 tracing::error!("{e:#}");
@@ -64,6 +70,58 @@ fn main() -> ExitCode {
         }
     }
     ExitCode::SUCCESS
+}
+
+/// `tandemd links`: interfaces, tipo detectado, dirección del enlace y estado de los caminos.
+fn links(args: RunArgs) -> anyhow::Result<()> {
+    use tandem_link::iface::{Interfaces, SystemInterfaces};
+
+    let paths = Paths::resolve(args.config, args.data_dir)?;
+    let (side, port) = AgentConfig::load(&paths.config)
+        .map(|c| (c.machine, c.network.port))
+        .unwrap_or((tandem_core::Machine::A, tandemd::config::DEFAULT_PORT));
+    let os = if cfg!(windows) {
+        tandem_core::Os::Windows
+    } else {
+        tandem_core::Os::MacOs
+    };
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("no se pudo crear el runtime")?;
+    rt.block_on(async {
+        let interfaces = SystemInterfaces::spawn().list();
+        // El estado de los caminos solo lo tiene el agente en marcha: sin él se omite.
+        let status = network_status(&paths.data_dir).await;
+        print!(
+            "{}",
+            tandemd::links_cmd::render(&interfaces, side, os, port, status.as_ref())
+        );
+        Ok(())
+    })
+}
+
+async fn network_status(data_dir: &std::path::Path) -> Option<tandem_proto::NetworkStatus> {
+    use tandem_proto::{AgentToUi, UiCommand};
+
+    let endpoint = ipc::default_endpoint(data_dir).ok()?;
+    let mut client = ipc::connect(&endpoint).await.ok()?;
+    client
+        .request(UiCommand::WatchNetwork { on: true })
+        .await
+        .ok()?;
+    let wait = async {
+        while let Ok(Some(event)) = client.next_event().await {
+            if let AgentToUi::Network(status) = event {
+                return Some(*status);
+            }
+        }
+        None
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(3), wait)
+        .await
+        .ok()
+        .flatten()
 }
 
 fn run(args: RunArgs) -> anyhow::Result<()> {

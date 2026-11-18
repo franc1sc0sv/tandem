@@ -27,9 +27,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 use std::time::Duration;
 
-use tandem_core::{Machine, State, Step};
+use tandem_core::{Machine, Os, State, Step};
 use tandem_link::discovery::MdnsDiscovery;
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
+use tandem_link::iface::{
+    AssignNotices, Interfaces, ScopedDiscovery, SystemAssigner, SystemInterfaces, WiredChange,
+    WiredResolver, follow_wired, kind_for_addr, relabel, wired_changes,
+};
 use tandem_link::manager::{
     HealthConfig, LinkCandidate, LinkKind, LinkManager, ManagerError, Prober, QuicProber,
     QuicSession,
@@ -37,7 +41,7 @@ use tandem_link::manager::{
 use tandem_link::metrics;
 use tandem_link::qos::LinkQos;
 use tandem_link::transport::{Connection, Endpoint, TransportError};
-use tandem_proto::{ControlMsg, Hello, Link, PairingStatus, Peer, PeerStatus};
+use tandem_proto::{ControlMsg, Hello, Link, NetworkNotice, PairingStatus, Peer, PeerStatus};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -201,6 +205,9 @@ struct Shared {
     opts: NetOptions,
     conns: Arc<Conns>,
     accept: JoinHandle<()>,
+    /// Las interfaces del sistema: de ahí salen los enlaces por cable y el tipo de cada
+    /// conexión (T-094).
+    interfaces: Arc<SystemInterfaces>,
     /// El par que se sigue (gestor de enlaces, mDNS y `peer_watch`), si hay.
     peer: Mutex<Option<Following>>,
     pairing: Mutex<Option<PairingRun>>,
@@ -366,7 +373,13 @@ impl Network {
         agent.set_port(local_addr.port());
 
         let conns = Arc::new(Conns::default());
-        let accept = tokio::spawn(accept_loop(endpoint.clone(), agent.clone(), conns.clone()));
+        let interfaces = Arc::new(SystemInterfaces::spawn());
+        let accept = tokio::spawn(accept_loop(
+            endpoint.clone(),
+            agent.clone(),
+            conns.clone(),
+            interfaces.clone(),
+        ));
         let shared = Arc::new(Shared {
             agent: agent.clone(),
             identity: identity.clone(),
@@ -376,6 +389,7 @@ impl Network {
             opts,
             conns,
             accept,
+            interfaces,
             peer: Mutex::new(None),
             pairing: Mutex::new(None),
             active: LinkFeed::new(),
@@ -488,6 +502,7 @@ impl Shared {
                 self.opts.health,
                 reachable_tx,
                 link,
+                self.interfaces.clone(),
             )),
             // Las dos vigilan a la otra: cualquiera puede quedarse sola (DESIGN §3.7).
             tokio::spawn(crate::peer_watch::watch(agent.clone(), reachable)),
@@ -641,7 +656,12 @@ impl PairingControl for Pairer {
 }
 
 /// Atiende cada conexión entrante. El pinning ya rechazó a quien no esté en la confianza.
-async fn accept_loop(endpoint: Arc<Endpoint>, agent: Arc<Agent>, conns: Arc<Conns>) {
+async fn accept_loop(
+    endpoint: Arc<Endpoint>,
+    agent: Arc<Agent>,
+    conns: Arc<Conns>,
+    interfaces: Arc<SystemInterfaces>,
+) {
     while let Some(conn) = endpoint.accept().await {
         match conn {
             Ok(conn) => {
@@ -650,7 +670,10 @@ async fn accept_loop(endpoint: Arc<Endpoint>, agent: Arc<Agent>, conns: Arc<Conn
                 // otra) comparte el tope y la pausa de su camino con la conexión que abre
                 // este agente (T-101).
                 let statics = agent.config().network.link_candidates(&[]);
-                let kind = kind_of_remote(&statics, conn.remote_address());
+                // El tipo sale de la interfaz por la que llegó, no de la configuración.
+                let remote = conn.remote_address();
+                let kind = kind_for_addr(&interfaces.list(), remote)
+                    .unwrap_or_else(|| kind_of_remote(&statics, remote));
                 let conn = conn.with_qos(agent.link_qos().get(kind));
                 let (agent, conns) = (agent.clone(), conns.clone());
                 let id = conns.add(conn.clone());
@@ -699,6 +722,7 @@ fn kind_of_remote(statics: &[LinkCandidate], remote: SocketAddr) -> LinkKind {
 /// activo. Si lo descubierto en la LAN cambia los candidatos, se arma de nuevo: el
 /// gestor no admite enlaces nuevos en marcha, y las conexiones de los enlaces fijos se
 /// vuelven a abrir en un ping.
+#[allow(clippy::too_many_arguments)]
 async fn supervise(
     agent: Arc<Agent>,
     endpoint: Arc<Endpoint>,
@@ -707,14 +731,66 @@ async fn supervise(
     health: HealthConfig,
     reachable: watch::Sender<bool>,
     active_link: LinkWriter,
+    interfaces: Arc<SystemInterfaces>,
 ) {
     let mut discovered = discovery.as_ref().map(MdnsDiscovery::peer_addrs);
-    let lan = |d: &Option<watch::Receiver<Vec<SocketAddr>>>| {
+    let raw = |d: &Option<watch::Receiver<Vec<SocketAddr>>>| {
         d.as_ref().map(|d| d.borrow().clone()).unwrap_or_default()
     };
+    // La LAN (Wi-Fi) no incluye las link-local con interfaz: son de los cables y las
+    // resuelve `WiredResolver`.
+    let lan = |d: &Option<watch::Receiver<Vec<SocketAddr>>>| {
+        let mut all = raw(d);
+        all.retain(|a| !matches!(a, SocketAddr::V6(v6) if v6.scope_id() != 0));
+        all
+    };
     let mut candidates = agent.config().network.link_candidates(&lan(&discovered));
+    // El otro agente por cada cable: su link-local sale del mDNS, atado al `scope_id` de la
+    // interfaz. Sin descubrimiento, un canal vacío.
+    let (_quiet, silent) = watch::channel(Vec::new());
+    let scoped = Arc::new(ScopedDiscovery::new(discovered.clone().unwrap_or(silent)));
+    let metrics = agent.net_metrics().clone();
+    let notices = AssignNotices::with_sink(move |list| {
+        metrics.set_notices(
+            list.into_iter()
+                .map(|n| NetworkNotice {
+                    interface: n.interface,
+                    message: n.message,
+                    command: n.command,
+                })
+                .collect(),
+        );
+    });
+    let mut scoped_seen = scoped_snapshot(&raw(&discovered));
     loop {
-        let managed = match spawn_manager(&agent, &endpoint, &candidates, health) {
+        // Los cables que ya están puestos entran con el gestor; los que aparezcan o se
+        // desconecten después los sigue `follow_wired`. Lo configurado a mano manda.
+        let side = agent.machine();
+        let port = agent.config().network.port;
+        let fixed = relabel(&candidates, &interfaces.list());
+        let fixed_kinds: Vec<LinkKind> = fixed.iter().map(|c| c.kind).collect();
+        let resolver = Arc::new(WiredResolver {
+            side,
+            os: local_os(),
+            port,
+            discovery: scoped.clone(),
+            assigner: Arc::new(SystemAssigner),
+            notices: notices.clone(),
+        });
+        let resolve = move |i: &tandem_link::iface::NetInterface| {
+            if fixed_kinds.contains(&i.kind.link_kind()) {
+                return None;
+            }
+            resolver.resolve(i)
+        };
+        let mut spawned = fixed;
+        let mut applied = BTreeMap::new();
+        for change in wired_changes(&mut applied, &interfaces.list(), &resolve) {
+            if let WiredChange::Add(c) = change {
+                spawned.push(c);
+            }
+        }
+        let managed = match spawn_manager(&agent, &endpoint, &spawned, health, &interfaces) {
             Ok(m) => Some(m),
             Err(ManagerError::NoCandidates) => {
                 tracing::info!("sin enlaces con el par: se espera a descubrirlo en la LAN");
@@ -726,6 +802,9 @@ async fn supervise(
             }
         };
         let mut links = managed.as_ref().map(|m| m.links.watch());
+        let _follow = managed
+            .as_ref()
+            .map(|m| AbortOnDrop(follow_wired(&*interfaces, m.links.control(), resolve)));
         let mut installed = false;
         loop {
             let current = links.as_ref().and_then(|l| {
@@ -782,8 +861,13 @@ async fn supervise(
                         discovered = None;
                         continue;
                     }
-                    let next = agent.config().network.link_candidates(&lan(&discovered));
-                    if next != candidates {
+                    let now = lan(&discovered);
+                    let next = agent.config().network.link_candidates(&now);
+                    // Un cable que contesta por mDNS cambia a quién se le puede hablar
+                    // por él: se arma de nuevo para que `resolve` lo vea.
+                    let seen = scoped_snapshot(&raw(&discovered));
+                    if next != candidates || seen != scoped_seen {
+                        scoped_seen = seen;
                         tracing::info!(?next, "cambiaron los enlaces con el par");
                         candidates = next;
                         break;
@@ -799,6 +883,17 @@ async fn supervise(
     }
 }
 
+/// Las link-local descubiertas (una por cable): cuando cambian, hay que resolver de nuevo.
+fn scoped_snapshot(lan: &[SocketAddr]) -> Vec<SocketAddr> {
+    let mut v: Vec<SocketAddr> = lan
+        .iter()
+        .copied()
+        .filter(|a| matches!(a, SocketAddr::V6(v6) if v6.scope_id() != 0))
+        .collect();
+    v.sort();
+    v
+}
+
 /// Espera el próximo cambio; sin receptor, nunca termina.
 async fn changed<T>(rx: &mut Option<watch::Receiver<T>>) -> Result<(), watch::error::RecvError> {
     match rx {
@@ -812,13 +907,15 @@ fn spawn_manager(
     endpoint: &Arc<Endpoint>,
     candidates: &[LinkCandidate],
     health: HealthConfig,
+    interfaces: &Arc<SystemInterfaces>,
 ) -> Result<Arc<ManagedPeer>, ManagerError> {
     let prober = AgentProber::new(
         endpoint.clone(),
         agent.machine(),
         candidates,
         agent.link_qos().clone(),
-    );
+    )
+    .with_interfaces(interfaces.clone());
     let (links, events) = LinkManager::spawn(candidates, prober, health)?;
     // Las métricas de la pantalla Red siguen a este gestor mientras viva (T-102).
     tokio::spawn(metrics::follow(
@@ -854,6 +951,26 @@ pub struct AgentProber {
     /// Por qué camino va cada dirección, para darle a su conexión el `Qos` del camino.
     kinds: Vec<LinkCandidate>,
     qos: LinkQos,
+    /// Para clasificar los enlaces por cable que aparecen después de armar el prober.
+    interfaces: Option<Arc<dyn Interfaces>>,
+}
+
+/// Aborta la tarea al soltarla (un `JoinHandle` suelto la deja corriendo).
+struct AbortOnDrop(JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// El sistema de esta máquina, para mostrar la orden exacta de la IP de respaldo.
+fn local_os() -> Os {
+    if cfg!(windows) {
+        Os::Windows
+    } else {
+        Os::MacOs
+    }
 }
 
 impl AgentProber {
@@ -868,7 +985,28 @@ impl AgentProber {
             me,
             kinds: candidates.to_vec(),
             qos,
+            interfaces: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_interfaces(mut self, interfaces: Arc<dyn Interfaces>) -> Self {
+        self.interfaces = Some(interfaces);
+        self
+    }
+
+    /// El tipo de la conexión a `addr`: el del candidato conocido o, si apareció después,
+    /// el de su interfaz. Ante la duda, Wi-Fi.
+    fn kind_of(&self, addr: SocketAddr) -> LinkKind {
+        self.kinds
+            .iter()
+            .find(|c| c.addr == addr)
+            .map(|c| c.kind)
+            .or_else(|| {
+                let list = self.interfaces.as_ref()?.list();
+                kind_for_addr(&list, addr)
+            })
+            .unwrap_or(LinkKind::Wifi)
     }
 }
 
@@ -879,13 +1017,11 @@ impl Prober for AgentProber {
 
     async fn connect(&self, addr: SocketAddr) -> Result<AgentSession, PeerError> {
         let quic = self.quic.connect(addr).await?;
-        let kind = self
-            .kinds
-            .iter()
-            .find(|c| c.addr == addr)
-            .map_or(LinkKind::Wifi, |c| c.kind);
+        let kind = self.kind_of(addr);
         let conn = QuicProber::handle(&quic).with_qos(self.qos.get(kind));
         let client = Arc::new(PeerClient::open(&conn, self.me).await?);
+        // Lo primero que sabe el otro lado: cómo clasifica este lado la conexión.
+        client.send(ControlMsg::LinkClass { kind: kind.into() });
         Ok(AgentSession {
             quic,
             handle: PeerHandle { conn, client },

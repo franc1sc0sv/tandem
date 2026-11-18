@@ -147,6 +147,12 @@ pub enum ControlMsg {
         /// El borde de `from` por el que salió.
         edge: Side,
     },
+    /// Cómo clasifica quien lo manda la conexión por la que va, según su interfaz de
+    /// salida y no según la configuración (T-094). Va al abrir cada conexión; la etiqueta
+    /// del enlace es la peor de las dos clasificaciones.
+    LinkClass {
+        kind: Link,
+    },
 }
 
 /// Lo que se dicen los dos agentes para actualizarse (T-122). Las versiones son las de la
@@ -1244,6 +1250,8 @@ pub(crate) mod samples {
             ControlMsg::Keyboard(Machine::B),
             ControlMsg::WatchResources { on: true },
             ControlMsg::WatchResources { on: false },
+            ControlMsg::LinkClass { kind: Link::Usb4 },
+            ControlMsg::LinkClass { kind: Link::Wifi },
             ControlMsg::Rescan,
             ControlMsg::Monitors(vec![]),
             ControlMsg::Monitors(vec![monitor_report()]),
@@ -1325,6 +1333,7 @@ pub(crate) mod samples {
             ControlMsg::WatchCursor { .. } => 19,
             ControlMsg::Cursor(_) => 20,
             ControlMsg::Crossed { .. } => 21,
+            ControlMsg::LinkClass { .. } => 22,
         }
     }
 
@@ -2220,7 +2229,7 @@ mod tests {
     fn samples_cover_every_variant() {
         covers(&steps(), step_arm, 6);
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
-        covers(&control(), control_arm, 22);
+        covers(&control(), control_arm, 23);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
         covers(&cmds, ui_command_arm, 43);
         covers(&modules(), |m| module_state_arm(&m.state), 3);

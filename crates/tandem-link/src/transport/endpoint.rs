@@ -146,6 +146,11 @@ impl Connection {
 
     /// Prioridad, tope y pausa de los datos por esta conexión. Sin [`Self::with_qos`] es
     /// uno propio, sin camino conocido (y sin tope).
+    /// Identifica esta conexión mientras viva (el `stable_id` de quinn).
+    pub fn id(&self) -> usize {
+        self.inner.stable_id()
+    }
+
     pub fn qos(&self) -> &Qos {
         &self.qos
     }

@@ -74,6 +74,16 @@ pub struct PathSwitch {
     pub took_ms: Option<u32>,
 }
 
+/// Un aviso de la red para la pantalla Red: algo que el agente no pudo hacer solo y el
+/// usuario sí (por ejemplo, asignar la IP de respaldo de un cable sin permisos).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetworkNotice {
+    pub interface: String,
+    pub message: String,
+    /// La orden exacta que resuelve el aviso.
+    pub command: String,
+}
+
 /// La red con la otra máquina vista desde este agente.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkStatus {
@@ -83,6 +93,8 @@ pub struct NetworkStatus {
     pub switches: Vec<PathSwitch>,
     /// El camino que se está midiendo ahora, si alguno.
     pub measuring: Option<Link>,
+    /// Lo que el usuario tiene que hacer a mano (T-094).
+    pub notices: Vec<NetworkNotice>,
 }
 
 impl NetworkStatus {
@@ -165,6 +177,7 @@ pub(crate) mod samples {
                     }],
                 },
             ],
+            notices: vec![],
             switches: vec![
                 PathSwitch {
                     at_ms: 1_763_400_060_000,

@@ -99,6 +99,17 @@ impl SimNet {
         tracing::info!(link = %kind, "enlace cortado (simulado)");
     }
 
+    /// Enchufa un cable que no estaba (o el que se cortó): el enlace existe y responde.
+    pub fn plug(&self, kind: LinkKind) {
+        let mut inner = self.lock();
+        let wire = inner.links.entry(kind).or_insert(LinkWire {
+            addr: link_addr(kind),
+            up: true,
+            generation: 0,
+        });
+        wire.up = true;
+    }
+
     /// Vuelve a enchufar un enlace: sirve para conexiones nuevas.
     pub fn restore(&self, kind: LinkKind) {
         if let Some(l) = self.lock().links.get_mut(&kind) {

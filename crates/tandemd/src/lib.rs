@@ -43,6 +43,7 @@ pub mod desk_sync;
 pub mod input;
 pub mod install;
 pub mod ipc;
+pub mod links_cmd;
 pub mod logging;
 pub mod migrate;
 pub mod modules;

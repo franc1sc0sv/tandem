@@ -312,6 +312,8 @@ async fn respond<C: ControlChannel>(
                 return Err(format!("canal {channel:?} abierto a mitad de un stream"));
             }
             // Las respuestas son del que pide.
+            // Se atiende en `serve_stream`, que tiene la conexión.
+            ControlMsg::LinkClass { .. } => {}
             ControlMsg::Pong { .. } | ControlMsg::StepResult { .. } => {}
         }
     }
@@ -350,6 +352,8 @@ pub async fn accept_streams(conn: Connection, agent: Arc<Agent>) {
             }
             Err(e) => {
                 tracing::debug!("conexión con el otro agente terminada: {e}");
+                // Su clasificación vale por conexión: la siguiente trae la suya.
+                conn.qos().clear_peer_link_of(conn.id());
                 return;
             }
         };
@@ -373,11 +377,20 @@ async fn serve_stream(
     conn: Connection,
     agent: Arc<Agent>,
 ) -> Result<(), String> {
-    let first = match stream.recv::<ControlMsg>().await {
+    let mut first = match stream.recv::<ControlMsg>().await {
         Ok(Some(first)) => first,
         Ok(None) => return Ok(()),
         Err(e) => return Err(e.to_string()),
     };
+    // El otro lado dice cómo clasifica esta conexión antes que nada (T-094).
+    if let ControlMsg::LinkClass { kind } = first {
+        apply_link_class(&conn, kind.into());
+        first = match stream.recv::<ControlMsg>().await {
+            Ok(Some(next)) => next,
+            Ok(None) => return Ok(()),
+            Err(e) => return Err(e.to_string()),
+        };
+    }
     if let ControlMsg::Open(Channel::Tunnel) = first {
         // Los túneles no van al motor de entrada: los atiende su módulo.
         return crate::tunnels::serve(stream, &conn, &agent).await;
@@ -398,6 +411,19 @@ async fn serve_stream(
         return Ok(());
     }
     serve_from(stream, agent, Some(first)).await
+}
+
+/// Guarda la clasificación del otro extremo en el `Qos` del camino, que calcula la etiqueta
+/// efectiva (la peor de las dos). Se guarda aparte de la propia, así que se recupera cuando
+/// el otro vuelve a anunciar un cable, y no se pierde si la propia aún no se conoce.
+fn apply_link_class(conn: &Connection, theirs: LinkKind) {
+    let qos = conn.qos();
+    let before = qos.link();
+    qos.set_peer_link_from(conn.id(), theirs);
+    let label = qos.link();
+    if label != before {
+        tracing::info!(suya = %theirs, ?label, "el otro extremo ve el enlace peor: etiqueta nueva");
+    }
 }
 
 /// Lo más que puede tardar una prueba de ancho de banda, de punta a punta: la prueba y
