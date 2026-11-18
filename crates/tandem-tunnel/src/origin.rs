@@ -1,10 +1,10 @@
-//! La máquina origen: abre y cierra túneles en la otra y sigue su salida.
+//! The origin machine: opens and closes tunnels on the other and follows their output.
 //!
-//! Por cada túnel abierto corre un seguidor que mantiene el canal de datos
-//! ([`TunnelUp::Attach`]) por el enlace activo. Si el stream se corta, o el enlace activo
-//! pasa a otro camino, vuelve a pedir la salida «desde el byte N» de cada flujo, con N lo
-//! que ya tiene en su espejo: no se pierde ni se repite nada (lo que llega repetido se
-//! descarta en [`OutputBuffer::accept`]).
+//! For each open tunnel a follower runs that keeps the data channel
+//! ([`TunnelUp::Attach`]) over the active link. If the stream is cut, or the active link
+//! moves to another path, it asks again for the output "from byte N" of each flow, with N what
+//! it already has in its mirror: nothing is lost or repeated (what arrives repeated is
+//! discarded in [`OutputBuffer::accept`]).
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
@@ -24,19 +24,19 @@ use crate::buffer::{DEFAULT_CAPACITY, OutputBuffer, Read};
 use crate::process::output::{self, FlowRead};
 use crate::wire::{Dialer, WireError};
 
-/// El enlace por el que se habla con la otra máquina; `None` si ninguno la ve.
+/// The link used to talk to the other machine; `None` if none sees it.
 pub type Link = Option<Arc<dyn Dialer>>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct OriginOptions {
-    /// Lo que guarda el espejo de cada flujo.
+    /// What each flow's mirror keeps.
     pub capacity: usize,
-    /// Tope para abrir, cerrar o listar.
+    /// Cap for open, close or list.
     pub request_timeout: Duration,
-    /// Espera antes de reintentar el canal de datos por el mismo enlace.
+    /// Wait before retrying the data channel over the same link.
     pub retry: Duration,
-    /// Cuánto se recuerda un túnel cerrado (y su salida, para leerla). También es lo que se
-    /// insiste en cerrar uno cuyo `Open` quedó sin respuesta.
+    /// How long a closed tunnel is remembered (and its output, to read it). It is also how long
+    /// closing one whose `Open` went unanswered is insisted on.
     pub linger: Duration,
 }
 
@@ -53,51 +53,51 @@ impl Default for OriginOptions {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TunnelError {
-    #[error("la otra máquina no está conectada")]
+    #[error("the other machine is not connected")]
     NoLink,
-    #[error("la otra máquina no contestó a tiempo")]
+    #[error("the other machine did not answer in time")]
     Timeout,
-    #[error("se cortó el enlace con la otra máquina: {0}")]
+    #[error("the link to the other machine was cut: {0}")]
     Wire(#[from] WireError),
-    #[error("la otra máquina no lo aceptó: {0}")]
+    #[error("the other machine did not accept it: {0}")]
     Refused(String),
-    #[error("respuesta inesperada de la otra máquina")]
+    #[error("unexpected response from the other machine")]
     Unexpected,
-    #[error("el destino de un túnel tiene que ser la otra máquina ({0})")]
+    #[error("a tunnel's destination has to be the other machine ({0})")]
     SameMachine(Machine),
-    #[error("no hay ningún túnel {0} abierto desde esta máquina")]
+    #[error("no tunnel {0} is open from this machine")]
     Unknown(TunnelId),
-    #[error("el túnel {0} no tiene el proceso {1}")]
+    #[error("tunnel {0} does not have process {1}")]
     UnknownProcess(TunnelId, ProcessId),
-    #[error("no se pudo elegir un id al azar: {0}")]
+    #[error("could not pick a random id: {0}")]
     Entropy(String),
 }
 
-/// Lo que pide el cliente al abrir.
+/// What the client asks for when opening.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenSpec {
     pub title: String,
     pub project: Option<Project>,
-    /// Esta máquina.
+    /// This machine.
     pub origin: Machine,
     pub target: Machine,
     pub opened_by: Client,
 }
 
-/// Lo que se sabe de un flujo en el origen.
+/// What is known about a flow at the origin.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlowStatus {
     pub info: FlowInfo,
-    /// Bytes recibidos (la posición del próximo).
+    /// Bytes received (the position of the next one).
     pub received: u64,
-    /// Bytes que se perdieron porque el búfer de la destino se llenó sin leerse.
+    /// Bytes that were lost because the destination's buffer filled up without being read.
     pub lost: u64,
-    /// El total, si el flujo ya terminó y llegó todo.
+    /// The total, if the flow already ended and everything arrived.
     pub ended: Option<u64>,
 }
 
-/// Los túneles abiertos desde esta máquina. Se clona barato; al soltar el último, sus
-/// seguidores se detienen (los túneles siguen vivos en la destino).
+/// The tunnels opened from this machine. Cheap to clone; when the last is dropped, its
+/// followers stop (the tunnels stay alive on the destination).
 #[derive(Clone)]
 pub struct Origin {
     inner: Arc<OriginInner>,
@@ -107,32 +107,32 @@ struct OriginInner {
     opts: OriginOptions,
     link: watch::Sender<Link>,
     tunnels: Mutex<BTreeMap<TunnelId, Entry>>,
-    /// Cambios de los túneles (abrir, cerrar), para la UI.
+    /// Tunnel changes (open, close), for the UI.
     changes: Changes,
-    /// Sube con cada byte recibido, para quien lee la salida en vivo.
+    /// Rises with each byte received, for whoever reads the live output.
     output: watch::Sender<u64>,
 }
 
 struct Entry {
     info: Tunnel,
     flows: BTreeMap<FlowId, Mirror>,
-    /// Los procesos que avisó la destino, también los terminados hace menos de `linger`.
+    /// The processes the destination reported, also those ended less than `linger` ago.
     processes: BTreeMap<ProcessId, Proc>,
     follower: Option<JoinHandle<()>>,
-    /// Desde cuándo está cerrado; pasado `linger` se olvida.
+    /// Since when it has been closed; after `linger` it is forgotten.
     closed_at: Option<Instant>,
 }
 
 struct Proc {
     info: TunnelProcess,
-    /// Desde cuándo se sabe que terminó; pasado `linger` se olvida con sus flujos.
+    /// Since when it is known to have ended; after `linger` it is forgotten with its flows.
     ended_at: Option<Instant>,
 }
 
 struct Mirror {
     info: FlowInfo,
     buf: OutputBuffer,
-    /// Lo que la destino avisó como perdido (no incluye lo que el espejo soltó por lugar).
+    /// What the destination reported as lost (does not include what the mirror dropped for lack of room).
     lost: u64,
     ended: Option<u64>,
 }
@@ -171,7 +171,7 @@ impl Origin {
         }
     }
 
-    /// El enlace activo cambió. El mismo `Arc` no cuenta como cambio.
+    /// The active link changed. The same `Arc` does not count as a change.
     pub fn set_link(&self, link: Link) {
         self.inner.link.send_if_modified(|old| {
             let same = match (&*old, &link) {
@@ -186,7 +186,7 @@ impl Origin {
         });
     }
 
-    /// Abre un túnel en `spec.target` y empieza a seguir su salida.
+    /// Opens a tunnel at `spec.target` and starts following its output.
     pub async fn open(&self, spec: OpenSpec) -> Result<Tunnel, TunnelError> {
         if spec.target != spec.origin.other() {
             return Err(TunnelError::SameMachine(spec.target));
@@ -206,16 +206,16 @@ impl Origin {
         let opened = match self.inner.request(TunnelUp::Open(tunnel)).await {
             Ok(TunnelDown::Opened(t)) => t,
             Ok(_) => return Err(TunnelError::Unexpected),
-            // El pedido pudo llegar y la respuesta perderse: la destino tendría un túnel que
-            // nadie sigue ni cierra. Se cierra en segundo plano cuando haya enlace (cerrar
-            // uno que no existe no hace nada).
+            // The request may have arrived and the response been lost: the destination would have a tunnel that
+            // nobody follows or closes. It is closed in the background when there is a link (closing
+            // one that does not exist does nothing).
             Err(e @ (TunnelError::Timeout | TunnelError::Wire(_))) => {
                 tokio::spawn(discard(Arc::downgrade(&self.inner), id));
                 return Err(e);
             }
             Err(e) => return Err(e),
         };
-        // Primero el registro: el seguidor empieza leyendo lo que ya se tiene.
+        // Registry first: the follower starts by reading what is already held.
         self.inner.tunnels().insert(
             opened.id,
             Entry {
@@ -234,16 +234,16 @@ impl Origin {
         Ok(opened)
     }
 
-    /// Cierra el túnel en la destino (con sus recursos). La salida que faltaba sigue
-    /// llegando hasta el cierre.
+    /// Closes the tunnel on the destination (with its resources). The output that was missing keeps
+    /// arriving until the close.
     pub async fn close(&self, id: TunnelId) -> Result<(), TunnelError> {
         if !self.inner.tunnels().contains_key(&id) {
             return Err(TunnelError::Unknown(id));
         }
         match self.inner.request(TunnelUp::Close(id)).await? {
             TunnelDown::Closed(_) => {
-                // El aviso de cierre del seguidor llega por otro flujo y puede ir después de
-                // esta respuesta: se marca aquí para que `tunnels()` ya lo vea cerrado.
+                // The follower's close notice arrives over another flow and may come after
+                // this response: it is marked here so `tunnels()` already sees it closed.
                 self.inner.mark_closed(id);
                 Ok(())
             }
@@ -251,8 +251,8 @@ impl Origin {
         }
     }
 
-    /// Abre un stream de túnel por el enlace activo, para operaciones que llevan su propio
-    /// diálogo (archivos y puertos, T-106).
+    /// Opens a tunnel stream over the active link, for operations that carry their own
+    /// dialog (files and ports, T-106).
     pub async fn dial(&self) -> Result<Box<dyn crate::OriginWire>, TunnelError> {
         let dialer = self
             .inner
@@ -266,7 +266,7 @@ impl Origin {
         Ok(wire)
     }
 
-    /// `true` si el túnel está abierto y lo abrió esta máquina.
+    /// `true` if the tunnel is open and this machine opened it.
     pub fn is_open(&self, id: TunnelId) -> bool {
         self.inner
             .tunnels()
@@ -274,7 +274,7 @@ impl Origin {
             .is_some_and(|e| e.info.state == TunnelState::Open)
     }
 
-    /// Los túneles de la destino, según ella.
+    /// The destination's tunnels, according to it.
     pub async fn remote_list(&self) -> Result<Vec<Tunnel>, TunnelError> {
         match self.inner.request(TunnelUp::List).await? {
             TunnelDown::List(list) => Ok(list),
@@ -282,7 +282,7 @@ impl Origin {
         }
     }
 
-    /// Los abiertos desde aquí (también los ya cerrados).
+    /// Those opened from here (also those already closed).
     pub fn tunnels(&self) -> Vec<Tunnel> {
         self.inner
             .tunnels()
@@ -291,8 +291,8 @@ impl Origin {
             .collect()
     }
 
-    /// Lanza un proceso en el túnel `id` de la otra máquina (T-104). Los procesos son de
-    /// ese túnel: cerrarlo los mata.
+    /// Launches a process in tunnel `id` of the other machine (T-104). Processes belong to
+    /// that tunnel: closing it kills them.
     pub async fn exec(&self, id: TunnelId, spec: ExecSpec) -> Result<TunnelProcess, TunnelError> {
         if !self.inner.tunnels().contains_key(&id) {
             return Err(TunnelError::Unknown(id));
@@ -310,8 +310,8 @@ impl Origin {
         }
     }
 
-    /// Mata un proceso del túnel con todo su árbol. Su estado nuevo llega por el canal de
-    /// datos.
+    /// Kills a process of the tunnel with its whole tree. Its new state arrives over the data
+    /// channel.
     pub async fn kill(&self, id: TunnelId, process: ProcessId) -> Result<(), TunnelError> {
         if !self.inner.tunnels().contains_key(&id) {
             return Err(TunnelError::Unknown(id));
@@ -329,8 +329,8 @@ impl Origin {
         }
     }
 
-    /// Los procesos del túnel que se conocen aquí (corriendo y terminados hace poco), por
-    /// id. `None` si el túnel no se abrió desde esta máquina.
+    /// The tunnel's processes known here (running and ended recently), by
+    /// id. `None` if the tunnel was not opened from this machine.
     pub fn processes(&self, id: TunnelId) -> Option<Vec<TunnelProcess>> {
         self.inner
             .tunnels()
@@ -338,8 +338,8 @@ impl Origin {
             .map(|e| e.processes.values().map(|p| p.info.clone()).collect())
     }
 
-    /// La salida de un proceso desde `from`, con hasta `max` bytes de cada flujo (lo que
-    /// T-104 expone como `output`). Sin esperar: lo que ya llegó.
+    /// The output of a process from `from`, with up to `max` bytes of each flow (what
+    /// T-104 exposes as `output`). Without waiting: what already arrived.
     pub fn output(
         &self,
         id: TunnelId,
@@ -368,7 +368,7 @@ impl Origin {
         ))
     }
 
-    /// Los túneles abiertos desde aquí, con sus procesos corriendo, para la UI.
+    /// The tunnels opened from here, with their processes running, for the UI.
     pub fn views(&self) -> Vec<TunnelView> {
         self.inner
             .tunnels()
@@ -407,7 +407,7 @@ impl Origin {
             .unwrap_or_default()
     }
 
-    /// La salida recibida de un flujo desde `from` (lo que T-104 expone como `output`).
+    /// The output received from a flow from `from` (what T-104 exposes as `output`).
     pub fn read(&self, id: TunnelId, flow: FlowId, from: u64, max: usize) -> Option<Read> {
         self.inner
             .tunnels()
@@ -417,15 +417,15 @@ impl Origin {
             .map(|m| m.buf.read(from, max))
     }
 
-    /// Sube con cada byte recibido de cualquier túnel.
+    /// Rises with each byte received from any tunnel.
     pub fn subscribe_output(&self) -> watch::Receiver<u64> {
         self.inner.output.subscribe()
     }
 }
 
 impl OriginInner {
-    /// Los túneles, ya sin los cerrados hace más de `linger`.
-    /// Marca el túnel como cerrado localmente (idempotente).
+    /// The tunnels, without those closed more than `linger` ago.
+    /// Marks the tunnel as closed locally (idempotent).
     fn mark_closed(&self, id: TunnelId) {
         let mut tunnels = lock(&self.tunnels);
         let Some(e) = tunnels.get_mut(&id) else {
@@ -451,7 +451,7 @@ impl OriginInner {
         tunnels
     }
 
-    /// Anota un proceso que avisó la destino (la respuesta de `exec` o el canal de datos).
+    /// Records a process the destination reported (the `exec` response or the data channel).
     fn note_process(&self, id: TunnelId, p: &TunnelProcess) {
         let changed = lock(&self.tunnels)
             .get_mut(&id)
@@ -466,9 +466,9 @@ impl OriginInner {
         let ask = async {
             let mut wire = dialer.dial().await?;
             wire.send(up).await?;
-            wire.recv()
-                .await?
-                .ok_or_else(|| WireError::new("la otra máquina cerró el stream sin contestar"))
+            wire.recv().await?.ok_or_else(|| {
+                WireError::new("the other machine closed the stream without answering")
+            })
         };
         match tokio::time::timeout(self.opts.request_timeout, ask).await {
             Err(_) => Err(TunnelError::Timeout),
@@ -478,7 +478,7 @@ impl OriginInner {
         }
     }
 
-    /// Lo que ya se tiene de cada flujo; `None` si el túnel ya no se sigue.
+    /// What is already held of each flow; `None` if the tunnel is no longer followed.
     fn cursors(&self, id: TunnelId) -> Option<Vec<(FlowId, u64)>> {
         let tunnels = lock(&self.tunnels);
         let e = tunnels.get(&id)?;
@@ -486,7 +486,7 @@ impl OriginInner {
             .then(|| e.flows.iter().map(|(f, m)| (*f, m.buf.end())).collect())
     }
 
-    /// Aplica un mensaje del canal de datos. `true` si el túnel terminó.
+    /// Applies a data channel message. `true` if the tunnel ended.
     fn apply(&self, id: TunnelId, msg: TunnelDown) -> bool {
         let mut tunnels = lock(&self.tunnels);
         let Some(e) = tunnels.get_mut(&id) else {
@@ -505,7 +505,7 @@ impl OriginInner {
             } => {
                 let m = mirror(e, flow, capacity);
                 if let Err(gap) = m.buf.accept(offset, &bytes) {
-                    // No debería pasar: se pide siempre desde lo que se tiene.
+                    // Should not happen: it is always requested from what is held.
                     tracing::warn!(tunnel = %id, "{gap}");
                     m.lost += gap.offset - gap.at;
                     m.buf.skip_to(gap.offset);
@@ -522,7 +522,7 @@ impl OriginInner {
                     tracing::warn!(
                         tunnel = %id,
                         flow = %m.info.label,
-                        "se perdieron {missing} bytes de salida: el búfer de la otra máquina se llenó"
+                        "{missing} output bytes were lost: the other machine's buffer filled up"
                     );
                     m.lost += missing;
                     m.buf.skip_to(to);
@@ -540,7 +540,7 @@ impl OriginInner {
             }
             TunnelDown::TunnelClosed | TunnelDown::Refused(_) => {
                 if let TunnelDown::Refused(why) = &msg {
-                    tracing::warn!(tunnel = %id, "la otra máquina ya no tiene el túnel: {why}");
+                    tracing::warn!(tunnel = %id, "the other machine no longer has the tunnel: {why}");
                 }
                 e.info.state = TunnelState::Closed;
                 e.follower = None;
@@ -565,9 +565,9 @@ impl OriginInner {
     }
 }
 
-/// Guarda lo que avisó la destino de un proceso. Un aviso viejo (corriendo) no pisa uno
-/// nuevo (terminado): la respuesta de `exec` y el canal de datos pueden llegar en cualquier
-/// orden. `true` si algo cambió.
+/// Stores what the destination reported about a process. An old notice (running) does not override a
+/// new one (ended): the `exec` response and the data channel can arrive in any
+/// order. `true` if something changed.
 fn upsert_process(e: &mut Entry, p: &TunnelProcess) -> bool {
     if let Some(old) = e.processes.get_mut(&p.id) {
         if old.info == *p || (!old.info.is_running() && p.is_running()) {
@@ -589,7 +589,7 @@ fn upsert_process(e: &mut Entry, p: &TunnelProcess) -> bool {
     true
 }
 
-/// Olvida los procesos terminados hace más de `linger`, con sus flujos.
+/// Forgets processes ended more than `linger` ago, with their flows.
 fn forget_old_processes(e: &mut Entry, linger: Duration) {
     let gone: Vec<TunnelProcess> = e
         .processes
@@ -617,14 +617,14 @@ fn mirror(e: &mut Entry, flow: FlowId, capacity: usize) -> &mut Mirror {
 }
 
 enum Attach {
-    /// El túnel terminó (o ya no hay a quién avisarle).
+    /// The tunnel ended (or there is no one left to notify).
     Done,
-    /// El enlace activo cambió: se vuelve a pedir por el nuevo, sin esperar.
+    /// The active link changed: it is requested again over the new one, without waiting.
     LinkChanged,
     Failed(WireError),
 }
 
-/// Mantiene el canal de datos de `id` por el enlace activo hasta que el túnel se cierre.
+/// Keeps `id`'s data channel over the active link until the tunnel closes.
 async fn follow(origin: Weak<OriginInner>, id: TunnelId) {
     let (mut links, retry) = match origin.upgrade() {
         Some(o) => (o.link.subscribe(), o.opts.retry),
@@ -642,7 +642,7 @@ async fn follow(origin: Weak<OriginInner>, id: TunnelId) {
             Attach::Done => return,
             Attach::LinkChanged => continue,
             Attach::Failed(e) => {
-                tracing::debug!(tunnel = %id, "canal de datos del túnel cortado: {e}");
+                tracing::debug!(tunnel = %id, "tunnel data channel cut: {e}");
                 tokio::select! {
                     () = tokio::time::sleep(retry) => {}
                     r = links.changed() => if r.is_err() { return },
@@ -666,7 +666,7 @@ async fn attach(
         wire.send(TunnelUp::Attach { tunnel: id, from }).await?;
         loop {
             let Some(msg) = wire.recv().await? else {
-                return Err(WireError::new("la otra máquina cerró el canal de datos"));
+                return Err(WireError::new("the other machine closed the data channel"));
             };
             let Some(o) = origin.upgrade() else {
                 return Ok(());
@@ -688,8 +688,8 @@ async fn attach(
     }
 }
 
-/// Cierra en la destino un túnel cuyo `Open` quedó sin respuesta: lo intenta por cada
-/// enlace que aparezca hasta que la destino conteste, o hasta `linger`.
+/// Closes on the destination a tunnel whose `Open` went unanswered: tries on each
+/// link that appears until the destination answers, or until `linger`.
 async fn discard(origin: Weak<OriginInner>, id: TunnelId) {
     let Some((mut links, retry, linger)) = origin
         .upgrade()
@@ -704,13 +704,13 @@ async fn discard(origin: Weak<OriginInner>, id: TunnelId) {
             return;
         };
         match o.request(TunnelUp::Close(id)).await {
-            // Cerrado, o nunca llegó a abrirse.
+            // Closed, or it never got opened.
             Ok(_) | Err(TunnelError::Refused(_)) => {
-                tracing::debug!(tunnel = %id, "túnel sin respuesta al abrir: cerrado en la otra máquina");
+                tracing::debug!(tunnel = %id, "tunnel without a response on open: closed on the other machine");
                 return;
             }
             Err(e) => {
-                tracing::debug!(tunnel = %id, "no se pudo cerrar el túnel sin respuesta: {e}")
+                tracing::debug!(tunnel = %id, "could not close the unanswered tunnel: {e}")
             }
         }
         drop(o);
@@ -719,5 +719,5 @@ async fn discard(origin: Weak<OriginInner>, id: TunnelId) {
             r = links.changed() => if r.is_err() { return },
         }
     }
-    tracing::warn!(tunnel = %id, "no se pudo cerrar en la otra máquina un túnel que quedó sin respuesta al abrir");
+    tracing::warn!(tunnel = %id, "could not close on the other machine a tunnel left unanswered on open");
 }

@@ -1,4 +1,4 @@
-//! Los procesos de un túnel en la destino: su estado, su hijo y cuándo se olvidan.
+//! The processes of a tunnel on the destination: their state, their child and when they are forgotten.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -17,7 +17,7 @@ pub(crate) struct Table {
 
 #[derive(Default)]
 struct Inner {
-    /// Sube con cada cambio; cada entrada guarda el de su último cambio.
+    /// Rises with each change; each entry keeps that of its last change.
     rev: u64,
     entries: BTreeMap<ProcessId, Entry>,
 }
@@ -35,7 +35,7 @@ fn lock(m: &Mutex<Inner>) -> MutexGuard<'_, Inner> {
 }
 
 impl Inner {
-    /// Pasa a `state` si seguía corriendo. `true` si cambió.
+    /// Moves to `state` if it was still running. `true` if it changed.
     fn end(&mut self, id: ProcessId, state: ProcessState) -> bool {
         let Some(e) = self.entries.get_mut(&id) else {
             return false;
@@ -64,9 +64,9 @@ impl Table {
         ProcessId(self.next.fetch_add(1, Ordering::Relaxed))
     }
 
-    /// Registra el proceso si `open()` (consultado con el candado de la tabla) sigue
-    /// diciendo que el túnel está abierto: quien cierra el túnel marca primero que está
-    /// cerrado y después mata lo registrado, así que ningún proceso se escapa en medio.
+    /// Registers the process if `open()` (queried with the table's lock) still
+    /// says the tunnel is open: whoever closes the tunnel first marks it as
+    /// closed and then kills what is registered, so no process escapes in between.
     pub fn insert(
         &self,
         info: TunnelProcess,
@@ -92,24 +92,24 @@ impl Table {
         true
     }
 
-    /// El proceso terminó solo. `false` si ya estaba terminado (lo mató `kill`).
+    /// The process ended on its own. `false` if it was already ended (killed by `kill`).
     pub fn exited(&self, id: ProcessId, code: Option<i32>) -> bool {
         lock(&self.inner).end(id, ProcessState::Exited { code })
     }
 
-    /// Mata el árbol de un proceso. `None` si no existe; `Some(false)` si ya había terminado.
+    /// Kills a process's tree. `None` if it does not exist; `Some(false)` if it had already ended.
     pub fn kill(&self, id: ProcessId) -> Option<bool> {
         let (child, was_running) = {
             let mut t = lock(&self.inner);
             let child = t.entries.get(&id)?.child.clone();
             (child, t.end(id, ProcessState::Killed))
         };
-        // Aun si ya terminó, el árbol puede tener descendientes vivos.
+        // Even if it already ended, the tree may have live descendants.
         child.kill_tree();
         Some(was_running)
     }
 
-    /// Mata todos los árboles (cierre del túnel).
+    /// Kills all the trees (tunnel close).
     pub fn kill_all(&self) {
         let children: Vec<Arc<dyn Child>> = {
             let mut t = lock(&self.inner);
@@ -147,7 +147,7 @@ impl Table {
         v
     }
 
-    /// Los procesos que cambiaron desde lo que ya mandó `sent` (y lo anota).
+    /// The processes that changed since what `sent` already sent (and notes it).
     pub fn updates(&self, sent: &mut BTreeMap<ProcessId, u64>) -> Vec<TunnelProcess> {
         let t = lock(&self.inner);
         let mut out = Vec::new();
@@ -160,7 +160,7 @@ impl Table {
         out
     }
 
-    /// Olvida los terminados hace más de `linger` y devuelve cuáles (para soltar sus flujos).
+    /// Forgets those ended more than `linger` ago and returns which (to release their flows).
     pub fn purge(&self, linger: Duration) -> Vec<TunnelProcess> {
         let mut t = lock(&self.inner);
         let gone: Vec<ProcessId> = t

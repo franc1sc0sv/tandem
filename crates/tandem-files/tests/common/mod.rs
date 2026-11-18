@@ -1,4 +1,4 @@
-//! Dos agentes en el mismo proceso (origen A, destino B) unidos por caminos en memoria.
+//! Two agents in the same process (origin A, destination B) joined by in-memory paths.
 #![allow(dead_code)]
 
 use std::collections::BTreeMap;
@@ -17,7 +17,7 @@ pub const TIMEOUT: Duration = Duration::from_secs(30);
 pub struct Pair {
     pub origin: Origin,
     pub host: Host,
-    /// Lo del agente origen (las transferencias y reenvíos) y lo del destino (el servidor).
+    /// That of the origin agent (the transfers and forwards) and that of the destination (the server).
     pub files_a: Files,
     pub files_b: Files,
     pub path: MemPath,
@@ -32,7 +32,7 @@ pub fn options(chunk_size: u32) -> Options {
     }
 }
 
-/// Un túnel abierto de A hacia B con fragmentos de `chunk_size` bytes.
+/// An open tunnel from A to B with chunks of `chunk_size` bytes.
 pub async fn pair(chunk_size: u32) -> Pair {
     let origin = Origin::new(OriginOptions::default(), Changes::default());
     let host = Host::new(HostOptions::default(), Changes::default());
@@ -42,7 +42,7 @@ pub async fn pair(chunk_size: u32) -> Pair {
     origin.set_link(Some(path.dialer()));
     let tunnel = origin
         .open(OpenSpec {
-            title: "pruebas".into(),
+            title: "tests".into(),
             project: None,
             origin: Machine::A,
             target: Machine::B,
@@ -64,7 +64,7 @@ pub async fn pair(chunk_size: u32) -> Pair {
     }
 }
 
-/// Todo lo que hay bajo `root`: ruta relativa -> contenido (`None` para una carpeta).
+/// Everything under `root`: relative path -> content (`None` for a folder).
 pub fn snapshot(root: &Path) -> BTreeMap<String, Option<Vec<u8>>> {
     fn walk(dir: &Path, rel: &str, out: &mut BTreeMap<String, Option<Vec<u8>>>) {
         for e in fs::read_dir(dir).unwrap() {

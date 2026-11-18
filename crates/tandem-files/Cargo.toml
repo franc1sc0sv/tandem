@@ -1,6 +1,6 @@
 [package]
 name = "tandem-files"
-description = "Archivos y puertos por túnel: fragmentos con BLAKE3, reanudables, y reenvío de puertos TCP"
+description = "Files and ports per tunnel: BLAKE3 chunks, resumable, and TCP port forwarding"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,18 +1,18 @@
-//! Reenvío de puertos TCP por un túnel.
+//! TCP port forwarding over a tunnel.
 //!
-//! Cada conexión reenviada usa **un stream por sentido** en vez de multiplexar: el stream
-//! `Send` solo lleva bytes del origen a la destino y el `Recv` solo de la destino al origen.
-//! Así cada tarea usa su stream en una sola dirección y no hace falta esperar dos cosas a la
-//! vez sobre el mismo (que con el transporte actual no se puede cancelar sin riesgo).
+//! Each forwarded connection uses **one stream per direction** instead of multiplexing: the `Send`
+//! stream only carries bytes from the origin to the destination and `Recv` only from the destination to the origin.
+//! This way each task uses its stream in a single direction and there is no need to wait on two things at
+//! once on the same one (which with the current transport cannot be canceled safely).
 //!
-//! - `LocalToRemote` (como `ssh -L`): el origen escucha; por cada conexión pide `Connect`
-//!   a la destino y abre `Send` y `Recv` con el mismo `conn`.
-//! - `RemoteToLocal` (como `ssh -R`): el origen abre un stream `Listen`; la destino escucha y
-//!   avisa cada conexión aceptada con `Incoming { conn }`; el origen conecta a su puerto local
-//!   y abre `Send` y `Recv` con ese `conn`.
+//! - `LocalToRemote` (like `ssh -L`): the origin listens; for each connection it asks `Connect`
+//!   of the destination and opens `Send` and `Recv` with the same `conn`.
+//! - `RemoteToLocal` (like `ssh -R`): the origin opens a `Listen` stream; the destination listens and
+//!   announces each accepted connection with `Incoming { conn }`; the origin connects to its local port
+//!   and opens `Send` and `Recv` with that `conn`.
 //!
-//! Los puertos se sueltan con el túnel: la destino registra un [`Resource`] que corta lo que
-//! escucha y lo que está en curso, y el origen deja de escuchar cuando el túnel se cierra.
+//! Ports are released with the tunnel: the destination registers a [`Resource`] that cuts what
+//! it listens on and what is in progress, and the origin stops listening when the tunnel closes.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -29,14 +29,14 @@ use tokio::task::JoinSet;
 
 use crate::error::{FilesError, Result};
 
-/// Conexiones simultáneas por reenvío: cada una usa dos streams y QUIC admite 100.
+/// Simultaneous connections per forward: each uses two streams and QUIC allows 100.
 const MAX_CONNS: usize = 32;
-/// Lo que se lee de un socket por vuelta.
+/// What is read from a socket per turn.
 const BUF: usize = 64 * 1024;
-/// Cuánto espera una conexión ya abierta a que el otro lado abra sus streams.
+/// How long an already open connection waits for the other side to open its streams.
 const PENDING_TTL: Duration = Duration::from_secs(30);
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-/// Cada cuánto manda la destino un latido por un `Listen`.
+/// How often the destination sends a heartbeat over a `Listen`.
 const BEAT: Duration = Duration::from_secs(2);
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -44,11 +44,11 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 fn io_err(e: std::io::Error) -> FilesError {
-    FilesError::io(std::path::Path::new("conexión TCP"), e)
+    FilesError::io(std::path::Path::new("TCP connection"), e)
 }
 
 // ---------------------------------------------------------------------------------------
-// La destino
+// The destination
 // ---------------------------------------------------------------------------------------
 
 struct Pending {
@@ -62,8 +62,8 @@ struct TunnelPorts {
 }
 
 impl TunnelPorts {
-    /// `false` (y se descarta) si ya hay [`MAX_CONNS`] esperando: sin tope, cualquiera que
-    /// alcance un `Listen` abierto llenaría la memoria de sockets.
+    /// `false` (and it is discarded) if there are already [`MAX_CONNS`] waiting: without a cap, anyone who
+    /// reaches an open `Listen` would fill the memory with sockets.
     fn insert(self: &Arc<Self>, conn: u64, tcp: TcpStream) -> bool {
         let (read, write) = tcp.into_split();
         let mut pending = lock(&self.pending);
@@ -77,7 +77,7 @@ impl TunnelPorts {
                 write: Some(write),
             },
         );
-        // Si el otro lado nunca abre sus streams, no se queda para siempre.
+        // If the other side never opens its streams, it does not stay forever.
         let me = Arc::downgrade(self);
         tokio::spawn(async move {
             tokio::time::sleep(PENDING_TTL).await;
@@ -109,7 +109,7 @@ impl TunnelPorts {
     }
 }
 
-/// Lo que cada túnel de la destino tiene abierto en puertos.
+/// What each destination tunnel has open in ports.
 #[derive(Clone, Default)]
 pub struct PortHost {
     tunnels: Arc<Mutex<HashMap<TunnelId, Arc<TunnelPorts>>>>,
@@ -130,8 +130,8 @@ impl Resource for Closer {
 }
 
 impl PortHost {
-    /// Los puertos del túnel; `None` si no está abierto en esta máquina. La primera vez
-    /// registra el [`Resource`] que los suelta al cerrar.
+    /// The tunnel's ports; `None` if it is not open on this machine. The first time it
+    /// registers the [`Resource`] that releases them on close.
     fn ports_for(&self, host: &Host, tunnel: TunnelId) -> Option<Arc<TunnelPorts>> {
         let t = host.get(tunnel).filter(|t| t.is_open())?;
         let ports = {
@@ -146,7 +146,7 @@ impl PortHost {
             map.insert(tunnel, p.clone());
             p
         };
-        // Fuera del candado: si el túnel ya se cerró, `add_resource` llama a `close` ahí mismo.
+        // Outside the lock: if the tunnel already closed, `add_resource` calls `close` right there.
         let closer = Closer {
             id: tunnel,
             owner: self.clone(),
@@ -162,7 +162,7 @@ async fn refuse<W: TargetWire>(
     tunnel: TunnelId,
 ) -> std::result::Result<(), WireError> {
     wire.send(&TunnelDown::Refused(format!(
-        "no hay ningún túnel {tunnel} abierto en esta máquina"
+        "no tunnel {tunnel} is open on this machine"
     )))
     .await
 }
@@ -179,7 +179,7 @@ async fn reply<W: TargetWire>(wire: &mut W, msg: PortDown) -> std::result::Resul
     wire.send(&TunnelDown::Port(msg)).await
 }
 
-/// El lado de la destino de un pedido de puertos; `first` es el primer mensaje del stream.
+/// The destination side of a port request; `first` is the first message of the stream.
 pub async fn serve<W: TargetWire>(
     host: &Host,
     ports: &PortHost,
@@ -192,7 +192,7 @@ pub async fn serve<W: TargetWire>(
         | PortUp::Send { tunnel, .. }
         | PortUp::Recv { tunnel, .. } => *tunnel,
         PortUp::Bytes(_) | PortUp::Eof => {
-            return failed(wire, "el stream tiene que empezar con un pedido").await;
+            return failed(wire, "the stream has to start with a request").await;
         }
     };
     let Some(tp) = ports.ports_for(host, tunnel) else {
@@ -208,15 +208,14 @@ pub async fn serve<W: TargetWire>(
             match tcp.await {
                 Ok(Ok(tcp)) => {
                     if !tp.insert(conn, tcp) {
-                        return failed(wire, "demasiadas conexiones pendientes en este túnel")
-                            .await;
+                        return failed(wire, "too many pending connections on this tunnel").await;
                     }
                     reply(wire, PortDown::Ready).await
                 }
                 Ok(Err(e)) => {
-                    failed(wire, format!("no se pudo conectar a {host}:{port}: {e}")).await
+                    failed(wire, format!("could not connect to {host}:{port}: {e}")).await
                 }
-                Err(_) => failed(wire, format!("{host}:{port} no contestó a tiempo")).await,
+                Err(_) => failed(wire, format!("{host}:{port} did not answer in time")).await,
             }
         }
         PortUp::Listen { bind, port, .. } => {
@@ -224,8 +223,7 @@ pub async fn serve<W: TargetWire>(
             let listener = match TcpListener::bind((bind, port)).await {
                 Ok(l) => l,
                 Err(e) => {
-                    return failed(wire, format!("no se pudo escuchar en {bind}:{port}: {e}"))
-                        .await;
+                    return failed(wire, format!("could not listen on {bind}:{port}: {e}")).await;
                 }
             };
             let actual = listener.local_addr().map_or(port, |a| a.port());
@@ -247,7 +245,11 @@ pub async fn serve<W: TargetWire>(
         }
         PortUp::Send { conn, .. } => {
             let Some(mut write) = tp.take_write(conn) else {
-                return failed(wire, "esa conexión no existe (o ya venció)").await;
+                return failed(
+                    wire,
+                    "that connection does not exist (or has already expired)",
+                )
+                .await;
             };
             reply(wire, PortDown::Ready).await?;
             let run = async {
@@ -266,7 +268,11 @@ pub async fn serve<W: TargetWire>(
         }
         PortUp::Recv { conn, .. } => {
             let Some(mut read) = tp.take_read(conn) else {
-                return failed(wire, "esa conexión no existe (o ya venció)").await;
+                return failed(
+                    wire,
+                    "that connection does not exist (or has already expired)",
+                )
+                .await;
             };
             reply(wire, PortDown::Ready).await?;
             wire.start_data()?;
@@ -289,10 +295,10 @@ pub async fn serve<W: TargetWire>(
 }
 
 // ---------------------------------------------------------------------------------------
-// El origen
+// The origin
 // ---------------------------------------------------------------------------------------
 
-/// Lo que se pide al reenviar un puerto.
+/// What is requested when forwarding a port.
 #[derive(Debug, Clone)]
 pub struct ForwardSpec {
     pub tunnel: TunnelId,
@@ -307,7 +313,7 @@ struct Active {
     stop: watch::Sender<bool>,
 }
 
-/// Los reenvíos que esta máquina tiene en marcha. Se clona barato.
+/// The forwards this machine has running. Cheap to clone.
 #[derive(Clone, Default)]
 pub struct Forwards {
     inner: Arc<ForwardsInner>,
@@ -329,7 +335,7 @@ impl Forwards {
         v
     }
 
-    /// Deja de reenviar `id`. `false` si no existe.
+    /// Stops forwarding `id`. `false` if it does not exist.
     pub fn stop(&self, id: u64) -> bool {
         match lock(&self.inner.active).get(&id) {
             Some(a) => {
@@ -340,7 +346,7 @@ impl Forwards {
         }
     }
 
-    /// Empieza a reenviar. Si `local_port` es 0 (hacia la destino) el sistema elige uno.
+    /// Starts forwarding. If `local_port` is 0 (toward the destination) the system picks one.
     pub async fn start(&self, origin: &Origin, spec: ForwardSpec) -> Result<ForwardInfo> {
         if !origin.is_open(spec.tunnel) {
             return Err(FilesError::NoTunnel(spec.tunnel));
@@ -404,7 +410,7 @@ impl Forwards {
 
 async fn recv_port(wire: &mut Box<dyn OriginWire>) -> Result<PortDown> {
     match wire.recv().await? {
-        None => Err(WireError::new("la otra máquina cerró el stream").into()),
+        None => Err(WireError::new("the other machine closed the stream").into()),
         Some(TunnelDown::Refused(why)) | Some(TunnelDown::Port(PortDown::Failed(why))) => {
             Err(FilesError::Remote(why))
         }
@@ -420,7 +426,7 @@ async fn expect_ready(wire: &mut Box<dyn OriginWire>) -> Result<()> {
     }
 }
 
-/// Escucha aquí y por cada conexión pide otra a la destino.
+/// Listens here and for each connection asks for another from the destination.
 async fn listen_local(
     origin: &Origin,
     spec: ForwardSpec,
@@ -441,14 +447,14 @@ async fn listen_local(
             accepted = listener.accept() => {
                 let Ok((tcp, _)) = accepted else { continue };
                 let Ok(permit) = slots.clone().try_acquire_owned() else {
-                    tracing::warn!("reenvío de puerto: demasiadas conexiones a la vez, se rechaza una");
+                    tracing::warn!("port forward: too many connections at once, one is rejected");
                     continue;
                 };
                 let (o, tunnel) = (origin.clone(), spec.tunnel);
                 let (host, port) = (spec.remote_host.clone(), spec.remote_port);
                 tasks.spawn(async move {
                     if let Err(e) = relay_out(&o, tunnel, host, port, tcp).await {
-                        tracing::debug!("conexión reenviada terminada: {e}");
+                        tracing::debug!("forwarded connection ended: {e}");
                     }
                     drop(permit);
                 });
@@ -456,10 +462,10 @@ async fn listen_local(
             Some(_) = tasks.join_next(), if !tasks.is_empty() => {}
         }
     }
-    // Al soltar `tasks` se cortan las conexiones en curso.
+    // Dropping `tasks` cuts the connections in progress.
 }
 
-/// El origen escucha el `Listen` de la destino y conecta a su puerto local por cada aviso.
+/// The origin listens to the destination's `Listen` and connects to its local port for each notice.
 async fn listen_remote(
     origin: &Origin,
     spec: ForwardSpec,
@@ -474,19 +480,19 @@ async fn listen_remote(
             msg = wire.recv() => match msg {
                 Ok(Some(TunnelDown::Port(PortDown::Incoming { conn }))) => {
                     let Ok(permit) = slots.clone().try_acquire_owned() else {
-                        tracing::warn!("reenvío de puerto: demasiadas conexiones a la vez, se rechaza una");
+                        tracing::warn!("port forward: too many connections at once, one is rejected");
                         continue;
                     };
                     let (o, tunnel, local) = (origin.clone(), spec.tunnel, spec.local_port);
                     tasks.spawn(async move {
                         if let Err(e) = relay_in(&o, tunnel, conn, local).await {
-                            tracing::debug!("conexión reenviada terminada: {e}");
+                            tracing::debug!("forwarded connection ended: {e}");
                         }
                         drop(permit);
                     });
                 }
                 Ok(Some(TunnelDown::Port(PortDown::Beat))) => {}
-                // El túnel se cerró, el enlace se cortó o la destino ya no escucha.
+                // The tunnel closed, the link was cut or the destination no longer listens.
                 _ => break,
             },
             Some(_) = tasks.join_next(), if !tasks.is_empty() => {}
@@ -522,7 +528,7 @@ async fn relay_in(origin: &Origin, tunnel: TunnelId, conn: u64, local_port: u16)
     pump(origin, tunnel, conn, tcp).await
 }
 
-/// Une el socket local con la conexión `conn` de la destino por dos streams.
+/// Joins the local socket with the destination's connection `conn` through two streams.
 async fn pump(origin: &Origin, tunnel: TunnelId, conn: u64, tcp: TcpStream) -> Result<()> {
     let (mut rd, mut wr) = tcp.into_split();
     let mut up = origin.dial().await?;
@@ -563,7 +569,7 @@ async fn pump(origin: &Origin, tunnel: TunnelId, conn: u64, tcp: TcpStream) -> R
     tokio::try_join!(uplink, downlink).map(|_| ())
 }
 
-/// Termina cuando la señal de parada se activa (o se cierra el emisor).
+/// Ends when the stop signal is activated (or the sender is closed).
 async fn stopped(rx: &mut watch::Receiver<bool>) {
     let _ = rx.wait_for(|s| *s).await;
 }
@@ -578,7 +584,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn pending_tiene_tope_por_tunel() {
+    async fn pending_has_a_cap_per_tunnel() {
         let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let tp = Arc::new(TunnelPorts {
             stop: watch::channel(false).0,
@@ -589,7 +595,7 @@ mod tests {
         }
         assert!(!tp.insert(999, socket(&l).await));
         assert_eq!(lock(&tp.pending).len(), MAX_CONNS);
-        // Al tomar una mitad y la otra se libera el lugar.
+        // On taking one half and the other, the slot is freed.
         assert!(tp.take_read(0).is_some() && tp.take_write(0).is_some());
         assert!(tp.insert(1000, socket(&l).await));
     }

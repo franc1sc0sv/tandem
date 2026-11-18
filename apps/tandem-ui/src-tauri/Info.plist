@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Tandem busca la PC en la red local y habla con ella cifrado.</string>
+	<string>Tandem looks for the PC on the local network and talks to it over an encrypted link.</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_tandem._udp</string>

@@ -1,9 +1,9 @@
-//! Los túneles de Claude para la pantalla Túneles (solo lectura, D9): lo que dicen
-//! `tandem_proto::ProjectTunnels`, `TunnelProcess` y `ProcessOutput` con la forma que lee la
-//! ventana.
+//! Claude's tunnels for the Tunnels screen (read-only, D9): what
+//! `tandem_proto::ProjectTunnels`, `TunnelProcess` and `ProcessOutput` say, in the shape the
+//! window reads.
 //!
-//! Los ids de túnel son de 64 bits al azar: JSON los pasaría como número y JavaScript pierde
-//! los bits de arriba, así que viajan como texto (el `Display` de `TunnelId`, 16 hex).
+//! Tunnel ids are random 64-bit: JSON would pass them as a number and JavaScript loses
+//! the upper bits, so they travel as text (the `Display` of `TunnelId`, 16 hex).
 
 use serde::{Deserialize, Serialize};
 use tandem_core::Machine;
@@ -12,7 +12,7 @@ use tandem_proto::{
     TunnelId, TunnelProcess, TunnelState,
 };
 
-/// Cuántos bytes de cada flujo pide la ventana por consulta.
+/// How many bytes of each flow the window asks for per query.
 pub const OUTPUT_CHUNK: u32 = 64 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -28,7 +28,7 @@ pub struct ProcessItem {
     pub id: u32,
     pub command: String,
     pub pid: Option<u32>,
-    /// Milisegundos Unix, según el reloj de la máquina destino.
+    /// Unix milliseconds, according to the destination machine's clock.
     pub started: u64,
     pub duration: Option<u64>,
     pub state: ProcessStateView,
@@ -58,21 +58,21 @@ pub struct TunnelItem {
     pub origin: Machine,
     pub target: Machine,
     pub open: bool,
-    /// Milisegundos Unix, según el reloj del origen.
+    /// Unix milliseconds, according to the origin's clock.
     pub created: u64,
-    /// Solo los procesos que están corriendo.
+    /// Only the processes that are running.
     pub running: Vec<ProcessItem>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ProjectItem {
-    /// `None`: túneles abiertos sin proyecto.
+    /// `None`: tunnels open without a project.
     pub name: Option<String>,
     pub root: Option<String>,
     pub tunnels: Vec<TunnelItem>,
 }
 
-/// Los túneles de las dos máquinas, agrupados por proyecto (evento `agent-tunnels`).
+/// The tunnels of both machines, grouped by project (`agent-tunnels` event).
 pub fn projects_of(groups: Vec<ProjectTunnels>) -> Vec<ProjectItem> {
     groups
         .into_iter()
@@ -96,7 +96,7 @@ pub fn projects_of(groups: Vec<ProjectTunnels>) -> Vec<ProjectItem> {
         .collect()
 }
 
-/// La salida de un proceso desde un cursor, ya como texto (respuesta de `Output`).
+/// The output of a process from a cursor, already as text (`Output` response).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct OutputItem {
     pub process: ProcessItem,
@@ -104,7 +104,7 @@ pub struct OutputItem {
     pub stderr: String,
     pub next_stdout: u64,
     pub next_stderr: u64,
-    /// El proceso terminó y ya se entregó todo.
+    /// The process ended and everything was already delivered.
     pub done: bool,
 }
 
@@ -112,7 +112,7 @@ impl From<ProcessOutput> for OutputItem {
     fn from(o: ProcessOutput) -> Self {
         OutputItem {
             process: o.process.into(),
-            // Un carácter partido entre dos consultas se ve como «�»: la salida es para leerla.
+            // A character split between two queries shows as "�": the output is for reading.
             stdout: String::from_utf8_lossy(&o.stdout).into_owned(),
             stderr: String::from_utf8_lossy(&o.stderr).into_owned(),
             next_stdout: o.next.stdout,
@@ -122,7 +122,7 @@ impl From<ProcessOutput> for OutputItem {
     }
 }
 
-/// El avance de una copia de archivos de un túnel (evento `agent-transfer`).
+/// The progress of a tunnel's file copy (`agent-transfer` event).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TransferItem {
     pub tunnel: String,
@@ -146,20 +146,20 @@ impl From<TransferProgress> for TransferItem {
     }
 }
 
-/// `TunnelId` desde el texto con que viaja a la ventana.
+/// `TunnelId` from the text it travels to the window with.
 pub fn parse_tunnel(s: &str) -> Result<TunnelId, String> {
     u64::from_str_radix(s, 16)
         .map(TunnelId)
-        .map_err(|_| format!("«{s}» no es un id de túnel"))
+        .map_err(|_| format!("\"{s}\" is not a tunnel id"))
 }
 
-/// Deserializa el id de túnel de una acción.
+/// Deserializes the tunnel id of an action.
 pub fn tunnel_id<'de, D: serde::Deserializer<'de>>(d: D) -> Result<TunnelId, D::Error> {
     let s = String::deserialize(d)?;
     parse_tunnel(&s).map_err(serde::de::Error::custom)
 }
 
-/// Desde dónde seguir leyendo la salida de un proceso.
+/// From where to keep reading a process's output.
 pub fn cursor(stdout: u64, stderr: u64) -> OutputCursor {
     OutputCursor { stdout, stderr }
 }
@@ -177,7 +177,7 @@ mod tests {
     fn tunnel(id: u64, project: Option<&str>, state: TunnelState) -> Tunnel {
         Tunnel {
             id: TunnelId(id),
-            title: format!("sesión {id}"),
+            title: format!("session {id}"),
             project: project.map(|p| Project {
                 name: p.into(),
                 root: format!("/src/{p}"),
@@ -210,16 +210,16 @@ mod tests {
     }
 
     #[test]
-    fn el_id_viaja_como_texto_y_vuelve_sin_perder_bits() {
+    fn the_id_travels_as_text_and_comes_back_without_losing_bits() {
         let id = TunnelId(u64::MAX - 3);
         let text = id.to_string();
         assert_eq!(text.len(), 16);
         assert_eq!(parse_tunnel(&text), Ok(id));
-        assert!(parse_tunnel("no es hex").is_err());
+        assert!(parse_tunnel("not hex").is_err());
     }
 
     #[test]
-    fn los_proyectos_conservan_orden_procesos_y_estado() {
+    fn projects_keep_order_processes_and_state() {
         let mut running = TunnelView::from(tunnel(1, Some("tandem"), TunnelState::Open));
         running.running = vec![process(3, ProcessState::Running)];
         let groups = group_by_project([
@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn la_salida_llega_como_texto_con_su_cursor() {
+    fn output_arrives_as_text_with_its_cursor() {
         let out = ProcessOutput {
             process: process(3, ProcessState::Exited { code: Some(0) }),
             stdout: b"ok\n".to_vec(),
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn la_transferencia_nombra_el_tunel_con_su_id_de_texto() {
+    fn the_transfer_names_the_tunnel_with_its_text_id() {
         let t = TransferItem::from(TransferProgress {
             tunnel: TunnelId(255),
             upload: true,

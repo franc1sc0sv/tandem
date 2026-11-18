@@ -1,11 +1,11 @@
-//! La MAC de la tarjeta Ethernet de esta máquina, para anunciarla a la otra y que pueda
-//! despertarla por Wake-on-LAN (T-159). Los analizadores son puros y se prueban en Linux; la
-//! lectura real del sistema es lo único que depende de la plataforma.
+//! The MAC of this machine's Ethernet card, to announce it to the other machine so it can
+//! wake it up with Wake-on-LAN (T-159). The parsers are pure and tested on Linux; the
+//! real system read is the only platform-dependent part.
 
 use crate::MacAddr;
 
-/// Linux: de `/sys/class/net`, cada interfaz con su `address`, si tiene dispositivo físico y
-/// si es inalámbrica.
+/// Linux: from `/sys/class/net`, each interface with its `address`, whether it has a physical device and
+/// whether it is wireless.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SysNic {
     pub name: String,
@@ -15,7 +15,7 @@ pub struct SysNic {
     pub up: bool,
 }
 
-/// Primero la que tiene cable (`operstate` `up`), luego por nombre.
+/// First the one with a cable (`operstate` `up`), then by name.
 pub fn pick_linux(nics: &[SysNic]) -> Option<MacAddr> {
     let mut found: Vec<(&SysNic, MacAddr)> = nics
         .iter()
@@ -26,8 +26,8 @@ pub fn pick_linux(nics: &[SysNic]) -> Option<MacAddr> {
     found.first().map(|(_, m)| *m)
 }
 
-/// macOS: la salida de `networksetup -listallhardwareports`. Se toma el primer puerto cuyo
-/// nombre no es Wi-Fi/AirPort, puente ni de otro tipo que no sea Ethernet.
+/// macOS: the output of `networksetup -listallhardwareports`. Takes the first port whose
+/// name is not Wi-Fi/AirPort, bridge or any other non-Ethernet type.
 pub fn pick_macos(listing: &str) -> Option<MacAddr> {
     let mut port = String::new();
     for line in listing.lines() {
@@ -46,8 +46,8 @@ pub fn pick_macos(listing: &str) -> Option<MacAddr> {
     None
 }
 
-/// Windows: `Get-NetAdapter -Physical` como `Nombre,Mac,Estado,Medio` por línea. Primero los
-/// 802.3 con cable (`Up`).
+/// Windows: `Get-NetAdapter -Physical` as `Name,Mac,Status,Medium` per line. First the
+/// wired 802.3 ones (`Up`).
 pub fn pick_windows(csv: &str) -> Option<MacAddr> {
     let mut rows: Vec<(bool, MacAddr)> = csv
         .lines()
@@ -66,13 +66,13 @@ pub fn pick_windows(csv: &str) -> Option<MacAddr> {
     rows.first().map(|(_, m)| *m)
 }
 
-/// Una MAC que sirve para despertar: bien formada y no toda ceros.
+/// A MAC that is good for waking: well formed and not all zeros.
 fn usable(text: &str) -> Option<MacAddr> {
     let mac: MacAddr = text.parse().ok()?;
     (mac.0 != [0; 6]).then_some(mac)
 }
 
-/// La MAC Ethernet de esta máquina según su sistema; `None` si no se pudo saber.
+/// The Ethernet MAC of this machine according to its system; `None` if it could not be determined.
 pub fn detect() -> Option<MacAddr> {
     system()
 }
@@ -173,6 +173,6 @@ mod tests {
                    Ethernet 2,AA-BB-CC-00-00-02,Disconnected,802.3\n\
                    Ethernet,AA-BB-CC-00-00-03,Up,802.3\n";
         assert_eq!(pick_windows(csv).unwrap().to_string(), "aa:bb:cc:00:00:03");
-        assert_eq!(pick_windows("basura\n"), None);
+        assert_eq!(pick_windows("garbage\n"), None);
     }
 }

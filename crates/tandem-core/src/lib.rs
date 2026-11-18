@@ -1,15 +1,15 @@
-//! Núcleo de Tandem, independiente de la plataforma.
+//! Tandem core, platform independent.
 //!
-//! - [`model`]: los dos lados (`A`/`B`, por clave pública), qué máquina es cada uno y el
-//!   puesto compartido ([`Desk`]).
-//! - [`desk`]: cómo se edita (parches), se sincroniza (gana el último) y se deshace el
-//!   puesto.
-//! - [`data`]: el tope de los datos por Wi-Fi (`[data]` del puesto).
-//! - [`state`]: el estado observado (qué máquinas están encendidas).
-//! - [`plan`]: encender y apagar como una lista ordenada de pasos.
-//! - [`txn`]: ejecución transaccional de un plan, con vuelta atrás.
-//! - [`monitor`]: las entradas de un monitor compatible.
-//! - [`scene`]: las escenas (D6) y cómo se aplican.
+//! - [`model`]: the two sides (`A`/`B`, by public key), which machine is each and the
+//!   shared desk ([`Desk`]).
+//! - [`desk`]: how it is edited (patches), synchronized (last one wins) and undone the
+//!   desk.
+//! - [`data`]: the cap on data over Wi-Fi (`[data]` of the desk).
+//! - [`state`]: the observed state (which machines are on).
+//! - [`plan`]: powering on and off as an ordered list of steps.
+//! - [`txn`]: transactional execution of a plan, with rollback.
+//! - [`monitor`]: the inputs of a compatible monitor.
+//! - [`scene`]: scenes (D6) and how they are applied.
 
 pub mod data;
 pub mod desk;

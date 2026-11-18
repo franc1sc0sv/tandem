@@ -1,14 +1,14 @@
-//! Lo que viaja por el stream del portapapeles. El protocolo es simétrico: los
-//! dos agentes anuncian sus copias y piden las del otro.
+//! What travels over the clipboard stream. The protocol is symmetric: the
+//! two agents announce their copies and request the other's.
 //!
-//! 1. Quien copia manda [`ClipMsg::Offer`] con el hash y el tamaño. Si el
-//!    contenido es chico va ahí mismo y el otro lo escribe al llegar.
-//! 2. Si no, la transferencia es perezosa: el otro lado lo pide con
-//!    [`ClipMsg::Request`] solo cuando hace falta (tiene el foco del teclado y
-//!    el mouse, así que el usuario puede pegar), y llega en [`ClipMsg::Chunk`]s.
-//! 3. Si para entonces el dueño ya copió otra cosa, responde
-//!    [`ClipMsg::Unavailable`]. Si copia otra cosa a mitad de una
-//!    transferencia, la corta y manda el `Offer` nuevo, que la reemplaza.
+//! 1. Whoever copies sends [`ClipMsg::Offer`] with the hash and the size. If the
+//!    content is small it goes right there and the other writes it on arrival.
+//! 2. If not, the transfer is lazy: the other side requests it with
+//!    [`ClipMsg::Request`] only when needed (it has the keyboard and
+//!    mouse focus, so the user can paste), and it arrives in [`ClipMsg::Chunk`]s.
+//! 3. If by then the owner has copied something else, it answers
+//!    [`ClipMsg::Unavailable`]. If it copies something else midway through a
+//!    transfer, it cuts it and sends the new `Offer`, which replaces it.
 
 use serde::{Deserialize, Serialize};
 
@@ -16,25 +16,25 @@ use crate::content::{ClipContent, ContentHash};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClipMsg {
-    /// El portapapeles de quien lo manda cambió.
+    /// The clipboard of whoever sends it changed.
     Offer {
-        /// Identifica esta copia en los pedidos y la ordena: es un reloj de
-        /// Lamport (mayor que todo lo visto del otro lado), con el hash como
-        /// desempate. Gana la oferta mayor, así dos copias cruzadas terminan
-        /// igual en los dos lados sin reloj común.
+        /// Identifies this copy in the requests and orders it: it is a Lamport
+        /// clock (greater than everything seen from the other side), with the hash as
+        /// tie-breaker. The greater offer wins, so two crossed copies end up
+        /// the same on both sides without a common clock.
         id: u64,
         hash: ContentHash,
-        /// Largo de la codificación del contenido, la que viaja en los `Chunk`.
+        /// Length of the content encoding, the one that travels in the `Chunk`s.
         len: u64,
-        /// El contenido mismo, si es chico.
+        /// The content itself, if it is small.
         content: Option<ClipContent>,
     },
-    /// Pedido del contenido anunciado con `id`.
+    /// Request for the content announced with `id`.
     Request { id: u64 },
-    /// Un trozo de la codificación `postcard` del contenido, en orden. `last`
-    /// marca el final.
+    /// A chunk of the content's `postcard` encoding, in order. `last`
+    /// marks the end.
     Chunk { id: u64, data: Vec<u8>, last: bool },
-    /// La copia `id` ya no existe (el dueño copió otra cosa).
+    /// The copy `id` no longer exists (the owner copied something else).
     Unavailable { id: u64 },
 }
 
@@ -44,10 +44,10 @@ mod tests {
     use crate::content::Image;
 
     #[test]
-    fn mensajes_ida_y_vuelta() {
+    fn messages_round_trip() {
         let content = ClipContent {
-            text: Some("ñandú".into()),
-            html: Some("<b>ñandú</b>".into()),
+            text: Some("\u{fc}ber".into()),
+            html: Some("<b>\u{fc}ber</b>".into()),
             image: Some(Image {
                 width: 1,
                 height: 1,

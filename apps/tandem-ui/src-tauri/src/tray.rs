@@ -1,17 +1,17 @@
-//! La barra de menú (macOS) y la bandeja (Windows): qué muestra el menú del ícono y dónde
-//! se abre la mini escena. Los modos de antes ya no existen: los reemplazan las escenas
-//! (D6), que el menú todavía no ofrece.
+//! The menu bar (macOS) and the tray (Windows): what the icon menu shows and where
+//! the mini scene opens. The former modes no longer exist: scenes replace them
+//! (D6), which the menu does not offer yet.
 //!
-//! Todo es puro sobre el [`Snapshot`] para probarlo sin Tauri; `app` solo lo dibuja.
+//! Everything is pure over the [`Snapshot`] to test it without Tauri; `app` only draws it.
 
 use crate::session::{PeerView, Snapshot};
 
-/// Lo que muestra el menú del ícono.
+/// What the icon menu shows.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuView {
-    /// Texto al pasar el mouse por el ícono.
+    /// Text when hovering the mouse over the icon.
     pub tooltip: String,
-    /// Línea de estado, deshabilitada, arriba del menú.
+    /// Status line, disabled, at the top of the menu.
     pub status: String,
 }
 
@@ -26,9 +26,9 @@ impl MenuView {
                 desk,
                 ..
             } => {
-                // Esta máquina está prendida (es la que muestra el menú): se dice cómo
-                // está la otra, sea cual sea (DESIGN §3.7), con su nombre: el que anunció
-                // o el del puesto (T-097).
+                // This machine is on (it is the one showing the menu): how the other one
+                // is is told, whichever it is (DESIGN §3.7), with its name: the one it announced
+                // or the desk's (T-097).
                 let other = agent.other();
                 let name = caps
                     .peer
@@ -36,13 +36,13 @@ impl MenuView {
                     .map(|p| p.name.clone())
                     .unwrap_or_else(|| desk.machines.name(other));
                 let power = if state.is_on(other) {
-                    format!("{name} encendida")
+                    format!("{name} on")
                 } else {
-                    format!("{name} apagada")
+                    format!("{name} off")
                 };
                 let mut status = power.clone();
                 if *peer == PeerView::Unpaired {
-                    status.push_str(" · sin par emparejado");
+                    status.push_str(" · no paired peer");
                 }
                 MenuView {
                     tooltip: format!("Tandem · {power}"),
@@ -50,18 +50,18 @@ impl MenuView {
                 }
             }
             Snapshot::Connecting => MenuView {
-                tooltip: "Tandem · conectando…".into(),
-                status: "Conectando con tandemd…".into(),
+                tooltip: "Tandem · connecting…".into(),
+                status: "Connecting to tandemd…".into(),
             },
             Snapshot::Unavailable { .. } => MenuView {
-                tooltip: "Tandem · sin agente".into(),
-                status: "Sin agente".into(),
+                tooltip: "Tandem · no agent".into(),
+                status: "No agent".into(),
             },
         }
     }
 }
 
-/// Un rectángulo en píxeles físicos del escritorio.
+/// A rectangle in physical desktop pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Area {
     pub x: f64,
@@ -70,14 +70,14 @@ pub struct Area {
     pub h: f64,
 }
 
-/// Separación entre la mini escena y la barra (o el borde de la pantalla).
+/// Gap between the mini scene and the bar (or the screen edge).
 pub const POPOVER_GAP: f64 = 8.0;
 
-/// Dónde abrir la mini escena (`w`×`h`) tras un clic en `click`, dentro del área útil de
-/// la pantalla (sin la barra de menú ni la barra de tareas).
+/// Where to open the mini scene (`w`×`h`) after a click at `click`, within the usable area of
+/// the screen (without the menu bar or the taskbar).
 ///
-/// Centrada bajo el ícono si la barra está arriba (macOS) y encima si está abajo (la
-/// bandeja de Windows); nunca fuera del área útil.
+/// Centered under the icon if the bar is at the top (macOS) and above if it is at the bottom (the
+/// Windows tray); never outside the usable area.
 pub fn popover_origin(click: (f64, f64), w: f64, h: f64, work: Area) -> (f64, f64) {
     let (cx, cy) = click;
     let clamp = |v: f64, lo: f64, hi: f64| v.max(lo).min(hi.max(lo));
@@ -113,7 +113,7 @@ mod tests {
         }
     }
 
-    /// El puesto de las pruebas: A se llama «Mac» y B «PC».
+    /// The test desk: A is called "Mac" and B "PC".
     fn desk() -> Config {
         let mut d = Config::default();
         d.machines.a = Some(tandem_core::MachineInfo::new(
@@ -147,38 +147,38 @@ mod tests {
         let mut on = State::initial(A);
         on.on.b = true;
         let v = MenuView::of(&connected(A, on, paired()));
-        assert_eq!(v.tooltip, "Tandem · PC encendida");
-        assert_eq!(v.status, "PC encendida");
+        assert_eq!(v.tooltip, "Tandem · PC on");
+        assert_eq!(v.status, "PC on");
 
         let off = MenuView::of(&connected(A, State::initial(A), paired()));
-        assert_eq!(off.status, "PC apagada");
+        assert_eq!(off.status, "PC off");
 
-        // Sin par, el menú lo dice: la PC no va a responder.
+        // Without a peer, the menu says so: the PC is not going to respond.
         let alone = MenuView::of(&connected(A, State::initial(A), PeerView::Unpaired));
-        assert_eq!(alone.status, "PC apagada · sin par emparejado");
+        assert_eq!(alone.status, "PC off · no paired peer");
 
-        // En la PC: la que se dice apagada es la Mac, nunca la PC misma.
+        // On the PC: the one that is said to be off is the Mac, never the PC itself.
         let on_pc = MenuView::of(&connected(B, State::initial(B), paired()));
-        assert_eq!(on_pc.status, "Mac apagada");
-        // Sin nada guardado de la otra, «máquina A», nunca un «Mac» inventado.
+        assert_eq!(on_pc.status, "Mac off");
+        // With nothing saved about the other, "machine A", never an invented "Mac".
         let mut bare = connected(B, State::initial(B), paired());
         if let Snapshot::Connected { desk, .. } = &mut bare {
             *desk = Config::default();
         }
-        assert_eq!(MenuView::of(&bare).status, "máquina A apagada");
+        assert_eq!(MenuView::of(&bare).status, "machine A off");
     }
 
     #[test]
     fn the_menu_without_agent_says_so() {
         assert_eq!(
             MenuView::of(&Snapshot::Connecting).status,
-            "Conectando con tandemd…"
+            "Connecting to tandemd…"
         );
         let v = MenuView::of(&Snapshot::Unavailable {
             endpoint: None,
             reason: "x".into(),
         });
-        assert_eq!(v.status, "Sin agente");
+        assert_eq!(v.status, "No agent");
     }
 
     const SCREEN: Area = Area {
@@ -190,21 +190,21 @@ mod tests {
 
     #[test]
     fn opens_under_a_menu_bar_icon() {
-        // macOS: ícono arriba a la derecha; el área útil empieza bajo la barra.
+        // macOS: icon at the top right; the usable area starts under the bar.
         let (x, y) = popover_origin((1500.0, 20.0), 400.0, 300.0, SCREEN);
         assert_eq!((x, y), (1300.0, 50.0 + POPOVER_GAP));
     }
 
     #[test]
     fn opens_above_a_tray_icon() {
-        // Windows: bandeja abajo a la derecha, pegada al borde.
+        // Windows: tray at the bottom right, flush with the edge.
         let (x, y) = popover_origin((1990.0, 1070.0), 400.0, 300.0, SCREEN);
         assert_eq!(x, 2000.0 - 400.0 - POPOVER_GAP);
         assert_eq!(y, 50.0 + 1000.0 - 300.0 - POPOVER_GAP);
     }
 
     proptest! {
-        /// Donde sea el clic, la mini escena queda entera dentro del área útil.
+        /// Wherever the click is, the mini scene stays entirely inside the usable area.
         #[test]
         fn always_inside_the_work_area(
             cx in -500.0f64..3000.0,
