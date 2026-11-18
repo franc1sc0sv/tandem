@@ -4322,6 +4322,10 @@ version = "0.1.0"
 dependencies = [
  "blake3",
  "getrandom 0.4.3",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-graphics",
+ "objc2-foundation",
  "proptest",
  "serde",
  "tandem-core",
@@ -4331,6 +4335,8 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "windows",
+ "windows-core",
 ]
 
 [[package]]

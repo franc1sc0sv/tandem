@@ -13,6 +13,11 @@
 //! prioridad baja y el tope de ancho de banda de los datos (T-101).
 
 pub mod drag;
+#[cfg(target_os = "macos")]
+pub mod drag_macos;
+pub mod drag_os;
+#[cfg(windows)]
+pub mod drag_windows;
 pub mod error;
 pub mod mem;
 pub mod path;

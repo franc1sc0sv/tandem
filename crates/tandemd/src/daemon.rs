@@ -110,6 +110,16 @@ pub fn start(
     let network = Network::start(agent.clone(), &identity, trust, net)?;
     let input =
         input.map(|setup| crate::input::start(agent.clone(), network.active_link(), *setup));
+    // Destino de los arrastres de archivos (T-121): en Windows, `DoDragDrop`. En macOS lo
+    // aloja la UI (AppKit pide el hilo principal) con `MacDragStarter`.
+    #[cfg(windows)]
+    if platform {
+        let (agent, base) = (agent.clone(), paths.data_dir.join("drag"));
+        drop(tokio::spawn(async move {
+            let starter = tandem_files::drag_windows::WindowsDragStarter;
+            crate::drag::serve(&agent, tandem_files::drag::DragIn::new(starter, base)).await;
+        }));
+    }
     // Los túneles siguen al enlace activo; la tarea termina con la red.
     drop(crate::tunnels::follow_link(
         agent.clone(),

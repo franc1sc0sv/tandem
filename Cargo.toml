@@ -64,6 +64,7 @@ zeroize = "1.8"
 
 # Windows
 windows = "0.62.2"
+windows-core = "0.62.2"
 
 # macOS. Sin features por defecto (arrastran todos los frameworks): cada crate
 # activa `std` y lo que use.
