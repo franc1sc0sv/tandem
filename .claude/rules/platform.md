@@ -5,9 +5,9 @@ paths:
   - "crates/**/windows.rs"
   - "crates/**/macos.rs"
 ---
-Código de plataforma:
-- Todo bajo `#[cfg(...)]`; la lógica que se pueda, en código portable con pruebas en Linux.
-- FFI en funciones pequeñas con `// SAFETY:`.
-- Windows: verifica con `cargo check --workspace --target x86_64-pc-windows-gnu`. macOS: lo verifica el CI (`macos-latest`).
-- Pruebas con dispositivos: `#[ignore = "hardware"]`.
-- Referencias permitidas para leer: `docs/research/input-engine.md`, `docs/research/ddc-34-LC34G55T.md`. No copiar código GPL.
+Platform code:
+- Everything under `#[cfg(...)]`; as much logic as possible in portable code with tests on Linux.
+- FFI in small functions with `// SAFETY:`.
+- Windows: check with `cargo check --workspace --target x86_64-pc-windows-gnu`. macOS: CI checks it (`macos-latest`).
+- Tests with devices: `#[ignore = "hardware"]`.
+- References allowed for reading: `docs/research/input-engine.md`, `docs/research/ddc-34-LC34G55T.md`. Do not copy GPL code.
