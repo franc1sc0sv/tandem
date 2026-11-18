@@ -4317,6 +4317,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem-hw"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "monitor-ddc",
+ "serde",
+ "serde_json",
+ "tandem-core",
+ "tandem-input",
+ "tandem-link",
+ "tandem-monitor",
+ "tandem-proto",
+ "tandemd",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "tandem-input"
 version = "0.1.0"
 dependencies = [
