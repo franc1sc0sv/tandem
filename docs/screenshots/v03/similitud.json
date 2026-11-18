@@ -490,7 +490,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 1,
-      "worstTile": 1,
+      "worstTile": 0.9961,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
@@ -550,7 +550,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 1,
-      "worstTile": 0.9976,
+      "worstTile": 0.9961,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
@@ -700,7 +700,7 @@
     "pantalla": {
       "name": "pantalla",
       "similarity": 1,
-      "worstTile": 1,
+      "worstTile": 0.9961,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97

@@ -155,9 +155,10 @@ export function devicesOfHub(hub: boolean | null | undefined): DeviceRow[] {
   return hub === true ? [{ name: "Teclado y mouse", via: "por el hub" }] : [];
 }
 
-/** El cómputo de una máquina funciona: el módulo activo o, al menos, entornos que responden. */
+/** El cómputo funciona: el módulo de túneles no está apagado y hay un entorno listo. */
 export function computeWorks(m: MachineView | null | undefined): boolean {
-  return !!m && (m.modules.find((x) => x.id === "tunnels")?.state === "active" || m.environments.length > 0);
+  if (!m) return false;
+  return m.modules.find((x) => x.id === "tunnels")?.state !== "off" && m.environments.some((e) => e.ready);
 }
 
 // ---- Paso 5: acomodo y prueba de cruce ------------------------------------------------------

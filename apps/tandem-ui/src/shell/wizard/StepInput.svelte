@@ -13,10 +13,18 @@
   let activity: Activity = $state({ ...NO_ACTIVITY });
   let stop: (() => void) | null = null;
   let gone = false;
+  // Una tecla que llega antes de armar la sonda se avisa al armarla: el agente la ignoraría antes.
+  let armed = false;
+  let pending = false;
 
   onMount(() => {
     store.watchKeyProbe((m) => (activity = heard(activity, m))).then(
-      (off) => (gone ? off() : (stop = off)),
+      (off) => {
+        if (gone) return off();
+        stop = off;
+        armed = true;
+        if (pending) void store.reportHeardKey();
+      },
       () => {
         // Sin sonda del agente: queda la actividad que ve esta ventana.
       },
@@ -29,7 +37,10 @@
 
   // La primera actividad de la ventana se le avisa al agente: así la otra máquina la ve.
   const here = () => {
-    if (!activity[desk.here]) void store.reportHeardKey();
+    if (!activity[desk.here]) {
+      if (armed) void store.reportHeardKey();
+      else pending = true;
+    }
     activity = heard(activity, desk.here);
   };
   // El navegador también emite un `pointermove` sin desplazamiento cuando el diseño cambia bajo un

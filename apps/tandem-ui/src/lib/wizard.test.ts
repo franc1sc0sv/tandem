@@ -11,6 +11,7 @@ import {
   clampStep,
   computeNote,
   crossVerdict,
+  computeWorks,
   deviceRows,
   devicesOfHub,
   dropSide,
@@ -172,14 +173,20 @@ describe("paso 6", () => {
     expect(no[1]).toMatchObject({ ok: false, note: "cruce sin probar" });
   });
 
-  it("el cómputo remoto vale si los túneles funcionan, aunque el módulo no esté activo", async () => {
+  it("el cómputo remoto exige el módulo encendido y un entorno listo", async () => {
     const d = await desk();
-    const sinModulo = (m: NonNullable<typeof d.machines.a>) => ({ ...m, modules: m.modules.filter((x) => x.id !== "tunnels") });
-    const machines = { a: sinModulo(d.machines.a!), b: sinModulo(d.machines.b!) };
-    expect(machines.a.environments.length).toBeGreaterThan(0);
-    const works = summaryRows({ ...d, machines }, { crossed: true }).find((r) => r.id === "tunnels");
-    expect(works).toMatchObject({ ok: true, note: "MCP listo para Claude Code en las dos" });
-    const none = { ...machines, b: { ...machines.b, environments: [] } };
-    expect(summaryRows({ ...d, machines: none }, { crossed: true }).find((r) => r.id === "tunnels")).toMatchObject({ ok: false });
+    type M = NonNullable<typeof d.machines.a>;
+    const setTunnels = (m: M, state: "off" | "active") => ({ ...m, modules: m.modules.map((x) => (x.id === "tunnels" ? { ...x, state } : x)) });
+    const tunnels = (machines: typeof d.machines) => summaryRows({ ...d, machines }, { crossed: true }).find((r) => r.id === "tunnels");
+    const a = d.machines.a!;
+    const b = d.machines.b!;
+    expect(a.environments.some((e) => e.ready)).toBe(true);
+    expect(tunnels({ a, b })).toMatchObject({ ok: true, note: "MCP listo para Claude Code en las dos" });
+    // Túneles apagados en una máquina, aunque haya entornos detectados.
+    expect(tunnels({ a, b: setTunnels(b, "off") })?.ok).toBe(false);
+    // Entornos sin ninguno listo.
+    const noReady = { ...b, environments: b.environments.map((e) => ({ ...e, ready: false })) };
+    expect(tunnels({ a, b: noReady })?.ok).toBe(false);
+    expect(computeWorks(null)).toBe(false);
   });
 });

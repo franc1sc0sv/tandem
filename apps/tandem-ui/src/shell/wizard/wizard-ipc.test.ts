@@ -1,5 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { tick } from "svelte";
 import { describe, expect, it, vi } from "vitest";
 
@@ -43,10 +45,11 @@ function snapshot(over: Partial<Connected> = {}): Connected {
   };
 }
 
-async function mount(step: number, snap: Connected = snapshot()) {
+async function mount(step: number, snap: Connected = snapshot(), onAct?: (a: Action) => Promise<void>) {
   const calls: Action[] = [];
   const act = vi.fn(async (a: Action): Promise<ActionResult> => {
-    calls.push(a);
+    if (onAct) await onAct(a);
+    else calls.push(a);
     return { kind: "done" };
   });
   const openSettings = vi.fn(async () => {});
@@ -192,12 +195,41 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(within(macCon).queryByText("Sin teclado ni mouse ahora")).toBeNull();
   });
 
-  it("sin botón «Cerrar» colapsado: el asistente se cierra con Escape y no deja un botón sin caja", async () => {
+  it("«Cerrar» existe con nombre, cierra con un clic y su CSS le da caja de 28 px o más", async () => {
     const { dlg, store } = await mount(1);
-    expect(within(dlg).queryByRole("button", { name: "Cerrar" })).toBeNull();
-    expect(dlg.querySelector(".wz-close")).toBeNull();
-    await userEvent.keyboard("{Escape}");
+    const close = within(dlg).getByRole("button", { name: "Cerrar" });
+    expect(close.textContent?.trim()).toBe("");
+    const css = readFileSync(join(process.cwd(), "src", "shell", "Wizard.svelte"), "utf8");
+    const rule = /\.wz-close \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(Number(/width:\s*(\d+)px/.exec(rule)?.[1])).toBeGreaterThanOrEqual(28);
+    expect(Number(/height:\s*(\d+)px/.exec(rule)?.[1])).toBeGreaterThanOrEqual(28);
+    expect(rule).not.toContain("absolute");
+    expect(css).toContain(".wz-close:focus-visible");
+    await userEvent.click(close);
     expect(store.wizardOpen).toBe(false);
+  });
+
+  it("paso 4: la tecla que llega antes de armar la sonda se avisa al armarla", async () => {
+    const calls: Action[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const { dlg, act } = await mount(3, snapshot(), async (a) => {
+      if (a.kind === "key_probe") await gate;
+      calls.push(a);
+    });
+    await fireEvent.keyDown(window, { key: "a" });
+    expect(calls.some((c) => c.kind === "heard_key")).toBe(false);
+    release();
+    await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "heard_key" }));
+    expect(within(dlg).getAllByText("Actividad detectada").length).toBeGreaterThan(0);
+  });
+
+  it("paso 4: la fila de la otra máquina también sale de su hub", async () => {
+    const base = snapshot();
+    const peer = { ...base.caps.here, machine: "b" as const, name: "PC-Escritorio", os: "windows" as const, hub: true };
+    const { dlg } = await mount(3, snapshot({ caps: { ...base.caps, peer } }));
+    expect(within(within(dlg).getByRole("group", { name: "PC-Escritorio" })).getByText("Teclado y mouse")).toBeInTheDocument();
+    expect(within(within(dlg).getByRole("group", { name: "MacBook Pro" })).getByText("Sin teclado ni mouse ahora")).toBeInTheDocument();
   });
 
   it("paso 5: mover la otra máquina guarda el acomodo con `set_arrangement`", async () => {

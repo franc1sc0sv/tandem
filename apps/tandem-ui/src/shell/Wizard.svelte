@@ -8,6 +8,7 @@
   import { isActive, needsDismiss } from "../lib/pairing";
   import { STEP_PAIR, STEP_PERMISSIONS, WIZARD_STEPS, clampStep, missingOf, permCards, permFooter, stepMark } from "../lib/wizard";
   import Button from "../ui/Button.svelte";
+  import Icon from "../ui/Icon.svelte";
   import Logo from "./Logo.svelte";
   import StepArrange from "./wizard/StepArrange.svelte";
   import StepDone from "./wizard/StepDone.svelte";
@@ -76,6 +77,7 @@
         {/each}
       </ol>
       <span class="fill"></span>
+      <button type="button" class="wz-close" aria-label="Cerrar" onclick={close}><Icon name="x" size={16} stroke={2.2} /></button>
     </aside>
 
     <main bind:this={main} tabindex="-1" class:wide={step === 3 || step === 4}>
@@ -250,6 +252,29 @@
   }
   .fill {
     flex: 1;
+  }
+  /* El mockup no lo dibuja; es la salida con el mouse a mitad del asistente (mockups/README.md). */
+  .wz-close {
+    align-self: flex-start;
+    width: 32px;
+    height: 32px;
+    flex: none;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: #9a9da6;
+    cursor: pointer;
+  }
+  .wz-close:hover {
+    background: #16181c;
+    color: #e8e9ec;
+  }
+  .wz-close:focus-visible {
+    outline: 2px solid #7aa7e6;
+    outline-offset: 2px;
   }
   .mut {
     color: #9a9da6;
