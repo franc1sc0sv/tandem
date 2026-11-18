@@ -117,6 +117,7 @@ async fn copia_carpetas_y_reenvia_puertos_por_quic() {
         project: None,
         target: Machine::B,
         session: "s".into(),
+        workspace: None,
     }))
     .await
     .unwrap() else {

@@ -178,6 +178,8 @@ struct TunnelInner {
     closed_at: Mutex<Option<Instant>>,
     flows: Mutex<Vec<Arc<Flow>>>,
     resources: Mutex<Vec<Box<dyn Resource>>>,
+    /// Carpeta de trabajo de los procesos que no piden otra (el workspace de git, T-107).
+    default_cwd: Mutex<Option<String>>,
     next_flow: AtomicU32,
     opts: HostOptions,
     processes: Table,
@@ -215,6 +217,7 @@ impl HostTunnel {
                 closed_at: Mutex::new(None),
                 flows: Mutex::new(Vec::new()),
                 resources: Mutex::new(Vec::new()),
+                default_cwd: Mutex::new(None),
                 next_flow: AtomicU32::new(1),
                 opts,
                 processes: Table::new(),
@@ -223,6 +226,15 @@ impl HostTunnel {
                 agent_changes,
             }),
         }
+    }
+
+    /// Fija la carpeta de trabajo por omisión de los procesos del túnel.
+    pub fn set_default_cwd(&self, cwd: impl Into<String>) {
+        *lock(&self.inner.default_cwd) = Some(cwd.into());
+    }
+
+    pub fn default_cwd(&self) -> Option<String> {
+        lock(&self.inner.default_cwd).clone()
     }
 
     pub fn info(&self) -> Tunnel {
@@ -320,8 +332,20 @@ impl HostTunnel {
 
     /// Lanza un proceso con `spawner` (T-104). Su stdout y su stderr son dos flujos nuevos
     /// del túnel; el proceso queda en la tabla hasta que pase `linger` de su fin.
-    pub fn exec(&self, spawner: &dyn Spawner, spec: ExecSpec) -> Result<TunnelProcess, ExecError> {
+    pub fn exec(
+        &self,
+        spawner: &dyn Spawner,
+        mut spec: ExecSpec,
+    ) -> Result<TunnelProcess, ExecError> {
         let tunnel = self.id();
+        // Una carpeta de esta máquina no vale dentro de WSL ni de un contenedor.
+        let local_shell = !spec
+            .shell
+            .as_deref()
+            .is_some_and(|s| s.starts_with("wsl:") || s.starts_with("docker:"));
+        if spec.cwd.is_none() && local_shell {
+            spec.cwd = self.default_cwd();
+        }
         if !self.is_open() {
             return Err(ExecError::Closed(tunnel));
         }
@@ -521,10 +545,10 @@ pub async fn serve_request<W: TargetWire>(
     req: TunnelUp,
 ) -> Result<(), WireError> {
     let reply = match req {
-        TunnelUp::Files(_) | TunnelUp::Port(_) => {
+        TunnelUp::Files(_) | TunnelUp::Port(_) | TunnelUp::Workspace(_) => {
             return wire
                 .send(&TunnelDown::Refused(
-                    "esta máquina no atiende archivos ni puertos".into(),
+                    "esta máquina no atiende archivos, puertos ni workspaces".into(),
                 ))
                 .await;
         }

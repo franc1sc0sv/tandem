@@ -20,9 +20,13 @@ pub struct MemPath {
     inner: Arc<PathInner>,
 }
 
+/// Quien atiende los streams en la destino: por omisión, [`Files::serve`].
+type Server =
+    Arc<dyn Fn(Host, MemTarget) -> BoxFuture<'static, Result<(), WireError>> + Send + Sync>;
+
 struct PathInner {
     host: Host,
-    files: Files,
+    server: Server,
     cut: watch::Sender<bool>,
     /// Pedazos de archivo que todavía pueden pasar antes de cortarse solo.
     budget: Mutex<Option<u64>>,
@@ -32,10 +36,26 @@ struct PathInner {
 
 impl MemPath {
     pub fn new(host: &Host, files: &Files) -> Self {
+        let files = files.clone();
+        Self::with_server(host, move |host, wire| {
+            let files = files.clone();
+            Box::pin(async move { files.serve(&host, wire).await })
+        })
+    }
+
+    /// Como [`MemPath::new`], con otro atendedor de streams (otros módulos que cuelgan de
+    /// `Files`, como los workspaces de git).
+    pub fn with_server(
+        host: &Host,
+        server: impl Fn(Host, MemTarget) -> BoxFuture<'static, Result<(), WireError>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
         MemPath {
             inner: Arc::new(PathInner {
                 host: host.clone(),
-                files: files.clone(),
+                server: Arc::new(server),
                 cut: watch::Sender::new(false),
                 budget: Mutex::new(None),
                 passed: AtomicU64::new(0),
@@ -108,9 +128,9 @@ impl Dialer for MemPath {
                 rx: up_rx,
                 tx: down_tx,
             };
-            let (host, files) = (self.inner.host.clone(), self.inner.files.clone());
+            let (host, server) = (self.inner.host.clone(), self.inner.server.clone());
             tokio::spawn(async move {
-                if let Err(e) = files.serve(&host, target).await {
+                if let Err(e) = server(host, target).await {
                     tracing::debug!("stream en memoria terminado: {e}");
                 }
             });
@@ -177,7 +197,8 @@ impl OriginWire for MemOrigin {
     }
 }
 
-struct MemTarget {
+/// El lado destino de un stream en memoria.
+pub struct MemTarget {
     path: MemPath,
     rx: mpsc::UnboundedReceiver<TunnelUp>,
     tx: mpsc::UnboundedSender<TunnelDown>,

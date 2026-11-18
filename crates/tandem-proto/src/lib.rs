@@ -19,6 +19,7 @@ pub mod msg;
 pub mod net;
 pub mod tunnel;
 mod wire;
+pub mod workspace;
 
 pub use cursor::CursorSample;
 pub use env::{
@@ -46,11 +47,12 @@ pub use tunnel::{
     ProcessState, Project, ProjectTunnels, Tunnel, TunnelDown, TunnelId, TunnelProcess,
     TunnelState, TunnelUp, TunnelView, group_by_project,
 };
+pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, WorkspaceUp};
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 32;
+pub const PROTOCOL_VERSION: u16 = 33;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -125,7 +127,7 @@ mod tests {
     /// T-106 entraron antes.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 32);
+        assert_eq!(PROTOCOL_VERSION, 33);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

@@ -235,6 +235,7 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
         }),
         target: Machine::B,
         session: "claude-1".into(),
+        workspace: None,
     };
     let tunnel = within(async {
         loop {

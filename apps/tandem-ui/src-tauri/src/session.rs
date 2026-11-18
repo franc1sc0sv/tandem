@@ -874,7 +874,8 @@ impl From<Reply> for ActionResult {
             | Reply::Forward(_)
             | Reply::Process(_)
             | Reply::Processes(_)
-            | Reply::Output(_) => ActionResult::Done,
+            | Reply::Output(_)
+            | Reply::BroughtBack(_) => ActionResult::Done,
         }
     }
 }

@@ -196,6 +196,8 @@ pub enum TunnelUp {
         tunnel: TunnelId,
         process: ProcessId,
     },
+    /// Workspace de git del túnel (T-107).
+    Workspace(crate::WorkspaceUp),
 }
 
 /// De la destino al origen.
@@ -237,6 +239,8 @@ pub enum TunnelDown {
     Killed(ProcessId),
     /// Por el canal de datos: un proceso del túnel, cada vez que cambia (termina).
     Process(TunnelProcess),
+    /// Workspace de git del túnel (T-107).
+    Workspace(crate::WorkspaceDown),
 }
 
 /// Un túnel en la UI, con los procesos que están corriendo en él (los terminados salen de
@@ -370,6 +374,22 @@ mod tests {
             },
         };
         assert_eq!(decode::<TunnelUp>(&encode(&exec).unwrap()).unwrap(), exec);
+        let ws = TunnelUp::Workspace(crate::WorkspaceUp::Pack {
+            tunnel: TunnelId(1),
+            commit: Some("wip".into()),
+        });
+        assert_eq!(decode::<TunnelUp>(&encode(&ws).unwrap()).unwrap(), ws);
+        let ws = TunnelDown::Workspace(crate::WorkspaceDown::Packed {
+            bundle: Some("/x/back.bundle".into()),
+            base: "abc".into(),
+            commits: vec![crate::CommitInfo {
+                id: "def".into(),
+                summary: "ñ".into(),
+                author: "yo".into(),
+            }],
+            committed_pending: false,
+        });
+        assert_eq!(decode::<TunnelDown>(&encode(&ws).unwrap()).unwrap(), ws);
         let process = TunnelDown::Process(process_sample());
         assert_eq!(
             decode::<TunnelDown>(&encode(&process).unwrap()).unwrap(),

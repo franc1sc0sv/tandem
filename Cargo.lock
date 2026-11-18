@@ -4470,6 +4470,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem-workspace"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.4.3",
+ "proptest",
+ "tandem-core",
+ "tandem-files",
+ "tandem-proto",
+ "tandem-tunnel",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "tandemd"
 version = "0.1.0"
 dependencies = [
@@ -4490,6 +4506,7 @@ dependencies = [
  "tandem-power",
  "tandem-proto",
  "tandem-tunnel",
+ "tandem-workspace",
  "tandemd",
  "tempfile",
  "thiserror 2.0.21",
