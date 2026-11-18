@@ -508,7 +508,7 @@ export class LiveSource implements Source {
    */
   async watchCrossing(onCross: (s: CrossSample) => void): Promise<() => void> {
     let pending: { from: Machine; to: Machine; edge: Side; t0: number; timer: ReturnType<typeof setTimeout> } | null = null;
-    const emit = (p: NonNullable<typeof pending>, at: number, of: number, ms: number) => {
+    const emit = (p: NonNullable<typeof pending>, at: number, of: number, ms: number | null) => {
       clearTimeout(p.timer);
       if (pending === p) pending = null;
       onCross({ from: p.from, to: p.to, edge: p.edge, at, of, ms });
@@ -516,7 +516,7 @@ export class LiveSource implements Source {
     const stop = await this.watchCursor((e) => {
       if (e.kind === "crossed") {
         const t0 = performance.now();
-        const p = { from: e.from, to: e.to, edge: e.edge, t0, timer: setTimeout(() => emit(p, 0, 0, performance.now() - t0), CROSS_SETTLE_MS) };
+        const p = { from: e.from, to: e.to, edge: e.edge, t0, timer: setTimeout(() => emit(p, 0, 0, null), CROSS_SETTLE_MS) };
         if (pending) clearTimeout(pending.timer);
         pending = p;
       } else if (pending && e.sample.machine === pending.to) {

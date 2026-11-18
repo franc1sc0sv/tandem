@@ -101,6 +101,15 @@ describe("Prueba de cruce (F-PruebaCruce)", () => {
   });
 
 
+  it("un cruce sin posición ni latencia medidas no las inventa", async () => {
+    const src = new DemoSource(demoOptions("demo&still"));
+    await open(src, "#/acomodo/cruce");
+    src.cross({ from: "a", to: "b", edge: "right", at: 0, of: 0, ms: null });
+    expect(await screen.findByText("Cruzó bien")).toBeInTheDocument();
+    expect(screen.getByText(/Entró a PC-Escritorio\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Latencia/)).toBeNull();
+  });
+
   it("pide cruzar por el borde del acomodo y pasa con el cruce", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     await open(src, "#/acomodo/cruce");

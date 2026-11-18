@@ -202,4 +202,28 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(await within(dlg).findByText(/Cruzó por la derecha, no por la izquierda/, {}, { timeout: 2000 })).toBeInTheDocument();
     expect(store.wizardCrossed).toBe(false);
   });
+
+  it("paso 5: un Crossed sin muestra del cursor pasa sin posición ni latencia inventada", async () => {
+    const { dlg, store, notice } = await mount(4);
+    await userEvent.click(within(dlg).getByRole("button", { name: "Probar cruce" }));
+    await waitFor(() => expect(store.wizardCrossed).toBe(false));
+    notice({ kind: "crossed", from: "a", to: "b", edge: "left" });
+    const text = await within(dlg).findByText(/Cruzó a PC-Escritorio por el borde izquierdo, como dice el acomodo/, {}, { timeout: 2000 });
+    expect(text.textContent).not.toMatch(/Vuelta medida/);
+    expect(store.wizardCrossed).toBe(true);
+  });
+
+  it("paso 5: sin ningún cruce en 20 s la prueba dice «No cruzó» y no habilita seguir", async () => {
+    const { dlg, store, act } = await mount(4);
+    vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
+    try {
+      await userEvent.click(within(dlg).getByRole("button", { name: "Probar cruce" }), { advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
+      await vi.advanceTimersByTimeAsync(20_500);
+      expect(await within(dlg).findByText(/No cruzó en 20 s/)).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(act).toHaveBeenCalledWith({ kind: "watch_cursor", on: true });
+    expect(store.wizardCrossed).toBe(false);
+  });
 });

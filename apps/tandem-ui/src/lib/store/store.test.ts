@@ -451,6 +451,56 @@ describe("fuente real", () => {
     expect(act).toHaveBeenLastCalledWith({ kind: "watch_cursor", on: false });
   });
 
+  describe("watchCrossing sin muestra de llegada (reloj falso)", () => {
+    async function started() {
+      vi.useFakeTimers();
+      let notice: ((n: Notice) => void) | undefined;
+      const bridge = {
+        snapshot: async () => connected({ agent: "a" }),
+        onSnapshot: async () => {},
+        act: async () => ({ kind: "done" as const }),
+        onNotice: async (cb: (n: Notice) => void) => {
+          notice = cb;
+        },
+      } as unknown as Bridge;
+      const src = new LiveSource(bridge);
+      await src.start(() => {});
+      const got: { from: string; edge: string; at: number; of: number; ms: number | null }[] = [];
+      await src.watchCrossing((s) => got.push(s));
+      return { got, notice: (n: Notice) => notice?.(n) };
+    }
+    afterEach(() => vi.useRealTimers());
+
+    it("un crossed sin cursor se informa a los 250 ms con of 0 y sin latencia inventada", async () => {
+      const { got, notice } = await started();
+      notice({ kind: "crossed", from: "a", to: "b", edge: "left" });
+      vi.advanceTimersByTime(249);
+      expect(got).toEqual([]);
+      vi.advanceTimersByTime(2);
+      expect(got).toEqual([expect.objectContaining({ from: "a", edge: "left", at: 0, of: 0, ms: null })]);
+    });
+
+    it("un crossed nuevo reemplaza al pendiente: solo se informa el último", async () => {
+      const { got, notice } = await started();
+      notice({ kind: "crossed", from: "a", to: "b", edge: "up" });
+      vi.advanceTimersByTime(200);
+      notice({ kind: "crossed", from: "a", to: "b", edge: "left" });
+      vi.advanceTimersByTime(200);
+      expect(got).toEqual([]);
+      vi.advanceTimersByTime(100);
+      expect(got).toEqual([expect.objectContaining({ edge: "left", ms: null })]);
+    });
+
+    it("una muestra de otra máquina no cierra el cruce pendiente", async () => {
+      const { got, notice } = await started();
+      notice({ kind: "crossed", from: "a", to: "b", edge: "left" });
+      notice({ kind: "cursor", sample: { machine: "a", screen: "m32", x: 5, y: 5 } });
+      expect(got).toEqual([]);
+      vi.advanceTimersByTime(300);
+      expect(got).toHaveLength(1);
+    });
+  });
+
   it("los estados difíciles salen de la foto", () => {
     expect(deskFromSnapshot({ kind: "connecting" }).ready).toBe(false);
     expect(deskFromSnapshot({ kind: "unavailable", endpoint: null, reason: "no corre" })).toMatchObject({ trouble: "no-agent", troubleText: "no corre" });

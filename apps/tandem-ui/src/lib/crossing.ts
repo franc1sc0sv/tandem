@@ -14,8 +14,8 @@ export interface CrossSample {
   at: number;
   /** Largo de ese borde (alto si el borde es vertical, ancho si es horizontal); 0 si el motor no dijo dónde entró. */
   of: number;
-  /** Lo que tardó el cruce, en ms. */
-  ms: number;
+  /** Lo que tardó el cruce, en ms; `null` si el motor no lo midió (no llegó muestra). */
+  ms: number | null;
 }
 
 /** El cursor tiene 20 s para cruzar. */

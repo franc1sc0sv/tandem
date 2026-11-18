@@ -221,7 +221,7 @@ export function crossVerdict(phase: CrossPhase, expected: Side, here: string, pe
     case "waiting":
       return { tone: "wait", text: `Esperando el cruce por el borde ${EDGE_WORD[expected]} de ${here}…` };
     case "passed":
-      return { tone: "ok", text: `Cruzó a ${peer} por el borde ${EDGE_WORD[expected]}, como dice el acomodo. Vuelta medida: ${formatMs(phase.sample.ms)}.` };
+      return { tone: "ok", text: `Cruzó a ${peer} por el borde ${EDGE_WORD[expected]}, como dice el acomodo.${phase.sample.ms === null ? "" : ` Vuelta medida: ${formatMs(phase.sample.ms)}.`}` };
     case "wrong-edge":
       return {
         tone: "warn",
