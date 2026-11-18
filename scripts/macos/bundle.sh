@@ -1,50 +1,50 @@
 #!/usr/bin/env bash
-# Construye Tandem.app y Tandem_<versión>_<arch>.dmg con tandemd dentro (sidecar de Tauri) y
-# comprueba el resultado. Solo en macOS. Ver docs/dev/install-macos.md.
+# Builds Tandem.app and Tandem_<version>_<arch>.dmg with tandemd inside (Tauri sidecar) and
+# checks the result. macOS only. See docs/dev/install-macos.md.
 #
-# Firma: ad-hoc por omisión (`signingIdentity: "-"` en tauri.macos.conf.json). Para firmar con
-# Developer ID y notarizar, las variables de entorno del bundler de Tauri (APPLE_SIGNING_IDENTITY,
-# APPLE_CERTIFICATE, APPLE_ID / APPLE_API_KEY...), descritas en la guía.
+# Signing: ad-hoc by default (`signingIdentity: "-"` in tauri.macos.conf.json). To sign with
+# Developer ID and notarize, use the Tauri bundler environment variables (APPLE_SIGNING_IDENTITY,
+# APPLE_CERTIFICATE, APPLE_ID / APPLE_API_KEY...), described in the guide.
 #
-# Uso: scripts/macos/bundle.sh [argumentos extra para `tauri build`]
-#      TANDEM_TARGET=x86_64-apple-darwin scripts/macos/bundle.sh   # otra arquitectura
+# Usage: scripts/macos/bundle.sh [extra arguments for `tauri build`]
+#      TANDEM_TARGET=x86_64-apple-darwin scripts/macos/bundle.sh   # another architecture
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/../.." && pwd)
 target=${TANDEM_TARGET:-$(rustc -vV | sed -n 's/^host: //p')}
 case "$target" in
   *-apple-darwin) ;;
-  *) echo "bundle.sh: solo para macOS (target $target)" >&2; exit 2 ;;
+  *) echo "bundle.sh: macOS only (target $target)" >&2; exit 2 ;;
 esac
 
 ui="$root/apps/tandem-ui"
 bin="$ui/src-tauri/binaries"
 
-# 1. tandemd para el mismo target que la app. Tauri busca el sidecar con el sufijo del target
-#    y lo copia a Contents/MacOS/tandemd (sin sufijo).
+# 1. tandemd for the same target as the app. Tauri looks for the sidecar with the target suffix
+#    and copies it to Contents/MacOS/tandemd (no suffix).
 cargo build --release --locked -p tandemd --target "$target" --manifest-path "$root/Cargo.toml"
 mkdir -p "$bin"
 cp "$root/target/$target/release/tandemd" "$bin/tandemd-$target"
 
-# 2. La app y la imagen de disco. `tauri.sidecar.json` agrega el sidecar solo aquí, para que
-#    `cargo build` de la app no lo necesite.
+# 2. The app and the disk image. `tauri.sidecar.json` adds the sidecar only here, so that
+#    the app's `cargo build` does not need it.
 cd "$ui"
 pnpm tauri build --target "$target" --bundles app,dmg --features app \
   --config src-tauri/tauri.sidecar.json "$@"
 
-# 3. Lo que tiene que haber quedado.
+# 3. What must be left behind.
 bundle="$root/target/$target/release/bundle"
 app="$bundle/macos/Tandem.app"
 shopt -s nullglob
 dmgs=("$bundle"/dmg/Tandem_*.dmg)
 fail() { echo "bundle.sh: $*" >&2; exit 1; }
-[ -d "$app" ] || fail "no se generó $app"
-[ ${#dmgs[@]} -eq 1 ] || fail "se esperaba un Tandem_*.dmg en $bundle/dmg"
-[ -x "$app/Contents/MacOS/tandemd" ] || fail "falta tandemd dentro de la app"
+[ -d "$app" ] || fail "not generated: $app"
+[ ${#dmgs[@]} -eq 1 ] || fail "expected one Tandem_*.dmg in $bundle/dmg"
+[ -x "$app/Contents/MacOS/tandemd" ] || fail "tandemd missing inside the app"
 "$app/Contents/MacOS/tandemd" --version
 /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$app/Contents/Info.plist" >/dev/null \
-  || fail "Info.plist sin NSLocalNetworkUsageDescription"
+  || fail "Info.plist without NSLocalNetworkUsageDescription"
 codesign --verify --deep --strict --verbose=2 "$app"
 codesign --display --verbose=2 "$app" 2>&1 | grep -E '^(Identifier|Authority|Signature)=' || true
 hdiutil verify "${dmgs[0]}" >/dev/null
-echo "listo: ${dmgs[0]}"
+echo "done: ${dmgs[0]}"
