@@ -1,0 +1,412 @@
+//! Punta a punta de T-108: un cliente MCP (JSON-RPC por stdio) y la CLI contra dos
+//! `tandemd` reales por loopback (`start_pair!`), con el doble de `Spawner` en la destino.
+
+use serde_json::{Value, json};
+use std::net::{Ipv4Addr, SocketAddr};
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+use tandem_cli::api::{Api, Context};
+use tandem_cli::{cli, mcp, render};
+use tandem_core::{Machine, Step};
+use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
+use tandem_proto::{ClientKind, Peer};
+use tandem_tunnel::process::fake::FakeSpawner;
+use tandemd::daemon::{self, Backends, Daemon};
+use tandemd::ipc::{IpcClient, mem};
+use tandemd::network::NetOptions;
+use tandemd::orchestrator::{LocalSteps, StepFuture};
+use tandemd::paths::Paths;
+use tandemd::test_ports::{PortTaken, port_taken};
+use tandemd::{Agent, AgentConfig, StoreError, autoconfig};
+use tokio::io::DuplexStream;
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
+
+const TIMEOUT: Duration = Duration::from_secs(30);
+
+async fn within<F: Future>(f: F) -> F::Output {
+    tokio::time::timeout(TIMEOUT, f)
+        .await
+        .expect("la prueba superó el tiempo máximo")
+}
+
+/// La primera es la del lado A (DECISIONS A1).
+fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
+    if x.public_key().as_bytes() < y.public_key().as_bytes() {
+        (x, y)
+    } else {
+        (y, x)
+    }
+}
+
+struct Ok_;
+
+impl LocalSteps for Ok_ {
+    fn execute<'a>(&'a self, _step: &'a Step) -> StepFuture<'a> {
+        Box::pin(async { Ok(()) })
+    }
+}
+
+fn loopback(port: u16) -> SocketAddr {
+    SocketAddr::from((Ipv4Addr::LOCALHOST, port))
+}
+
+struct Running {
+    agent: Arc<Agent>,
+    /// Un cliente (`tandem mcp`) conectado a la IPC de esta máquina.
+    client: Option<IpcClient<DuplexStream>>,
+    stops: Vec<oneshot::Sender<()>>,
+    task: JoinHandle<Result<(), StoreError>>,
+    _dir: tempfile::TempDir,
+}
+
+impl Running {
+    async fn stop(mut self) {
+        for stop in self.stops.drain(..) {
+            let _ = stop.send(());
+        }
+        within(self.task).await.unwrap().unwrap();
+    }
+}
+
+async fn start(
+    machine: Machine,
+    identity: &Identity,
+    port: u16,
+    peer: (PublicKey, u16),
+) -> Result<Running, PortTaken> {
+    let dir = tempfile::tempdir().unwrap();
+    let paths = Paths {
+        config: dir.path().join("tandem.toml"),
+        data_dir: dir.path().to_owned(),
+    };
+    identity.save(&paths.identity_file()).unwrap();
+    let mut trust = TrustStore::open(paths.trust_file()).unwrap();
+    trust
+        .add_and_save(TrustedPeer {
+            public_key: peer.0,
+            name: machine.other().to_string(),
+        })
+        .unwrap();
+    let text = autoconfig::generate(machine).replace(
+        &format!("port = {}", tandemd::config::DEFAULT_PORT),
+        &format!(
+            "port = {port}\npeers = [{{ kind = \"ethernet\", addr = \"{}\" }}]",
+            loopback(peer.1)
+        ),
+    );
+    std::fs::write(&paths.config, &text).unwrap();
+    let cfg = AgentConfig::load(&paths.config).unwrap();
+    let started = daemon::start(
+        cfg,
+        &paths,
+        Backends::Custom {
+            local: Arc::new(Ok_),
+            input: None,
+            env: None,
+        },
+        NetOptions {
+            bind: Some(loopback(port)),
+            mdns: false,
+            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            fallback_ports: Vec::new(),
+            ..NetOptions::default()
+        },
+    );
+    let Daemon {
+        agent,
+        network,
+        input,
+    } = port_taken(started).unwrap()?;
+    let mut stops = Vec::new();
+    let (listener, _connector) = mem::pair();
+    let (stop, stopped) = oneshot::channel::<()>();
+    stops.push(stop);
+    let task = tokio::spawn(
+        Daemon {
+            agent: agent.clone(),
+            network,
+            input,
+        }
+        .serve(listener, async {
+            let _ = stopped.await;
+        }),
+    );
+    // Otra IPC, esta para el cliente.
+    let (listener, connector) = mem::pair();
+    let (stop, stopped) = oneshot::channel::<()>();
+    stops.push(stop);
+    tokio::spawn(daemon::run(agent.clone(), listener, async {
+        let _ = stopped.await;
+    }));
+    let client =
+        IpcClient::handshake_as(connector.connect().unwrap(), Peer::Client(ClientKind::Mcp))
+            .await
+            .unwrap();
+    Ok(Running {
+        agent,
+        client: Some(client),
+        stops,
+        task,
+        _dir: dir,
+    })
+}
+
+/// Un cliente MCP de prueba: habla JSON-RPC por líneas con `mcp::serve`.
+struct McpClient {
+    to: tokio::io::DuplexStream,
+    from: tokio::io::Lines<tokio::io::BufReader<tokio::io::DuplexStream>>,
+    next: u64,
+}
+
+impl McpClient {
+    fn start(client: IpcClient<DuplexStream>, cwd: &std::path::Path) -> Self {
+        let (to, server_in) = tokio::io::duplex(1 << 20);
+        let (server_out, from) = tokio::io::duplex(1 << 20);
+        let ctx = Context {
+            cwd: Some(cwd.to_owned()),
+            session: "claude-e2e".into(),
+        };
+        tokio::spawn(async move {
+            let mut api = Api::new(client, ctx);
+            let _ = mcp::serve(&mut api, tokio::io::BufReader::new(server_in), server_out).await;
+        });
+        McpClient {
+            to,
+            from: tokio::io::BufReader::new(from).lines(),
+            next: 0,
+        }
+    }
+
+    async fn rpc(&mut self, method: &str, params: Value) -> Value {
+        self.next += 1;
+        let msg = json!({"jsonrpc": "2.0", "id": self.next, "method": method, "params": params});
+        self.to
+            .write_all(format!("{msg}\n").as_bytes())
+            .await
+            .unwrap();
+        let line = within(self.from.next_line())
+            .await
+            .unwrap()
+            .expect("respuesta");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(v["id"], self.next);
+        v
+    }
+
+    /// Llama a una herramienta; el resultado estructurado, o el texto del error.
+    async fn tool(&mut self, name: &str, args: Value) -> Result<Value, String> {
+        let v = self
+            .rpc("tools/call", json!({"name": name, "arguments": args}))
+            .await;
+        let r = &v["result"];
+        if r["isError"] == true {
+            return Err(r["content"][0]["text"].as_str().unwrap().to_owned());
+        }
+        Ok(r["structuredContent"].clone())
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
+    let (a_id, b_id) = sides(Identity::from_seed([31; 32]), Identity::from_seed([32; 32]));
+    let (mut a, b) = tandemd::start_pair!(
+        |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
+        start(Machine::B, &b_id, b_port, (a_id.public_key(), a_port))
+    );
+    let fake = FakeSpawner::new();
+    b.agent.tunnels().host.set_spawner(Arc::new(fake.clone()));
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("mi-proyecto");
+    std::fs::create_dir(&project).unwrap();
+    let mut mcp = McpClient::start(a.client.take().unwrap(), &project);
+
+    // Handshake y lista de herramientas.
+    let init = mcp
+        .rpc(
+            "initialize",
+            json!({"protocolVersion": "2025-06-18", "capabilities": {}}),
+        )
+        .await;
+    assert_eq!(init["result"]["serverInfo"]["name"], "tandem");
+    let list = mcp.rpc("tools/list", json!({})).await;
+    let names: Vec<_> = list["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap().to_owned())
+        .collect();
+    for want in [
+        "machines",
+        "resources",
+        "tunnel_open",
+        "exec",
+        "output",
+        "kill",
+        "bring_back",
+    ] {
+        assert!(names.iter().any(|n| n == want), "falta {want}");
+    }
+
+    // Máquinas y recursos de la otra (cuando ya hay enlace).
+    let machines = mcp.tool("machines", json!({})).await.unwrap();
+    assert_eq!(machines["this"], "a");
+    within(async {
+        while mcp.tool("resources", json!({})).await.is_err() {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+
+    // Abrir el túnel en cuanto hay enlace; sin título sale el nombre del proyecto.
+    let tunnel = within(async {
+        loop {
+            match mcp.tool("tunnel_open", json!({})).await {
+                Ok(t) => return t,
+                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+    })
+    .await;
+    assert_eq!(tunnel["title"], "mi-proyecto");
+    assert_eq!(tunnel["target"], "b");
+    assert_eq!(tunnel["opened_by"]["session"], "claude-e2e");
+    let id = tunnel["id"].as_str().unwrap().to_owned();
+
+    // Ejecutar y leer la salida en vivo.
+    let p = mcp
+        .tool(
+            "exec",
+            json!({"tunnel": id, "cmd": "cargo", "args": ["test"], "env": ["A=1"]}),
+        )
+        .await
+        .unwrap();
+    let pid = p["id"].as_u64().unwrap();
+    let proc = fake.processes().remove(0);
+    assert_eq!(proc.launch.program, "cargo");
+    proc.stdout(b"running 3 tests\n");
+    proc.stderr(b"aviso\n");
+    let out = mcp
+        .tool(
+            "output",
+            json!({"tunnel": id, "process": pid, "wait_ms": 10000}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(out["stdout"], "running 3 tests\n");
+    assert_eq!(out["stderr"], "aviso\n");
+    assert_eq!(out["done"], false);
+    proc.stdout(b"ok\n");
+    proc.exit(0);
+    let from = &out["next"];
+    let out = mcp
+        .tool(
+            "output",
+            json!({"tunnel": id, "process": pid, "wait_ms": 10000,
+                   "from_stdout": from["stdout"], "from_stderr": from["stderr"]}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(out["stdout"], "ok\n");
+    within(async {
+        loop {
+            let o = mcp
+                .tool(
+                    "output",
+                    json!({"tunnel": id, "process": pid, "from_stdout": 99}),
+                )
+                .await
+                .unwrap();
+            if o["done"] == true {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+
+    // Un segundo proceso, y matarlo.
+    let p2 = mcp
+        .tool(
+            "exec",
+            json!({"tunnel": id, "cmd": "sleep", "args": ["100"]}),
+        )
+        .await
+        .unwrap();
+    mcp.tool("kill", json!({"tunnel": id, "process": p2["id"]}))
+        .await
+        .unwrap();
+    assert!(fake.processes()[1].is_killed());
+
+    // Archivos: copiar a la otra máquina y volver.
+    let src = dir.path().join("hola.txt");
+    std::fs::write(&src, b"hola tandem").unwrap();
+    let dst = dir.path().join("copiado.txt");
+    let r = mcp
+        .tool(
+            "files_put",
+            json!({"tunnel": id, "local": src.display().to_string(), "remote": dst.display().to_string()}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["files"], 1);
+    assert_eq!(std::fs::read(&dst).unwrap(), b"hola tandem");
+    let back = dir.path().join("de-vuelta.txt");
+    mcp.tool(
+        "files_get",
+        json!({"tunnel": id, "remote": dst.display().to_string(), "local": back.display().to_string()}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(std::fs::read(&back).unwrap(), b"hola tandem");
+
+    // Puerto: se abre y se cierra.
+    let free = tandemd::test_ports::free_port().expect("puerto libre");
+    let fwd = mcp
+        .tool(
+            "port_forward",
+            json!({"tunnel": id, "local_port": free, "remote_port": 9}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(fwd["tunnel"], id.as_str());
+    mcp.tool("port_stop", json!({"id": fwd["id"]}))
+        .await
+        .unwrap();
+
+    // Errores: lo ve el modelo como resultado, no como fallo del protocolo.
+    let err = mcp
+        .tool("kill", json!({"tunnel": "zz", "process": 1}))
+        .await;
+    assert!(err.unwrap_err().contains("id de túnel"));
+    let bad = mcp
+        .rpc("tools/call", json!({"name": "nada", "arguments": {}}))
+        .await;
+    assert_eq!(bad["error"]["code"], -32602);
+
+    // La CLI usa la misma API: `tandem --json tunnels` y la salida legible.
+    let parsed = cli::parse(["--json", "tunnels"].map(String::from)).unwrap();
+    assert!(parsed.json);
+    let listed = mcp.tool("tunnels", json!({})).await.unwrap();
+    let group = &listed["projects"][0];
+    assert_eq!(group["project"]["name"], "mi-proyecto");
+    assert_eq!(group["tunnels"][0]["tunnel"]["id"], id.as_str());
+    assert!(
+        render::render("tunnels", &listed)
+            .out
+            .contains("mi-proyecto")
+    );
+
+    // Cerrar: ya no aparece.
+    mcp.tool("tunnel_close", json!({"tunnel": id}))
+        .await
+        .unwrap();
+    let listed = mcp.tool("tunnels", json!({})).await.unwrap();
+    assert!(listed["projects"].as_array().unwrap().is_empty());
+    assert!(proc.is_killed() || proc.has_exited());
+
+    a.stop().await;
+    b.stop().await;
+}

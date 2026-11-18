@@ -6,6 +6,7 @@
 use std::io;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
+use tandem_proto::Peer;
 
 use tokio::net::{UnixListener, UnixStream};
 
@@ -53,7 +54,12 @@ pub async fn bind(path: &Path) -> Result<UnixIpcListener, IpcError> {
 }
 
 pub async fn connect(path: &Path) -> Result<IpcClient<UnixStream>, IpcError> {
-    IpcClient::handshake(UnixStream::connect(path).await?).await
+    connect_as(path, Peer::Ui).await
+}
+
+/// Como [`connect`], presentándose como `peer` (`tandem mcp` y la CLI, como cliente).
+pub async fn connect_as(path: &Path, peer: Peer) -> Result<IpcClient<UnixStream>, IpcError> {
+    IpcClient::handshake_as(UnixStream::connect(path).await?, peer).await
 }
 
 impl UnixIpcListener {
