@@ -1,0 +1,16 @@
+import * as L from "./lib.mjs";
+const { m1, m2 } = L.attach("fin");
+const wiz = (p) => p.locator('[role=dialog][aria-label=Asistente]');
+const step = (p, s) => p.locator("aside[aria-label=Pasos] button", { hasText: s }).click();
+const p1 = await L.openUi(m1, { hash: "#/ajustes" }); await L.sleep(800);
+await p1.getByRole("button", { name: /Abrir/ }).first().click();
+await L.until("w1", async () => (await wiz(p1).count()) === 1);
+await step(p1, "Teclado y mouse"); await L.sleep(1500);
+console.log("peer m1:", JSON.stringify((await m1.snapshot()).peer), JSON.stringify((await m2.snapshot()).peer));
+console.log(await m2.act({ kind: "key_probe", on: true }));
+await L.sleep(500);
+console.log(await m2.act({ kind: "heard_key" }));
+await L.sleep(1500);
+console.log("m1 main:", (await wiz(p1).locator("main").innerText()).replace(/\n+/g, " | "));
+console.log(p1.errors);
+await L.closeBrowser();
