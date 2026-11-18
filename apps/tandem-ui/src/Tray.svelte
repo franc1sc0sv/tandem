@@ -93,7 +93,7 @@
       {#each open as t, i (t.id)}
         <div class="row" class:sep={i > 0}>
           <span class="dot" style="background:{t.state === 'busy' ? (desk.machines[t.from]?.color ?? '#7aa7e6') : '#4a4d55'}"></span>{t.project}
-          <span class="fill"></span><span class="mono mut ss">{path(t.from, t.to)} · {t.state === "busy" ? "activo" : "inactivo"}</span>
+          <span class="fill"></span><span class="mono mut ss">{path(t.from, t.to)} · {t.state === "busy" ? "active" : "inactive"}</span>
         </div>
       {/each}
     </div>

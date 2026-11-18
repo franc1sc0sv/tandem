@@ -86,7 +86,7 @@
   };
 
   /** «34 pulgadas» en la etiqueta accesible, como el mockup. */
-  const spoken = (name: string) => shortMonitor(name).replace('"', " pulgadas");
+  const spoken = (name: string) => shortMonitor(name).replace('"', " inches");
 
   /** «Aplicar» lleva al progreso paso a paso (F-Transactions). */
   async function apply(id: string) {
@@ -172,7 +172,7 @@
     <div class="sgrid">
       {#each desk.scenes as s, i (s.id)}
         {@const on = desk.activeScene === s.id}
-        <article class="sc" class:act={on} style="animation-delay:{0.15 + i * 0.06}s" aria-label="Escena {s.name}">
+        <article class="sc" class:act={on} style="animation-delay:{0.15 + i * 0.06}s" aria-label="Scene {s.name}">
           <div class="st">
             <Thumb width={72} height={36} pad={3} wall={wall(s.shows)} />
             <div class="sn"><b>{s.name}</b><span class="mut">{s.desc}</span></div>

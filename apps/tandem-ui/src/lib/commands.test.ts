@@ -24,8 +24,8 @@ describe("comandos", () => {
     const groups = filterCommands(buildCommands(desk, ctx(), true), "");
     expect(groups.map((g) => g.name)).toEqual(["Scenes", "Machines", "Tunnels", "Go to", "Actions"]);
     const titles = flatten(groups).map((c) => c.title);
-    expect(titles.slice(0, 4)).toEqual(["Aplicar «Trabajo»", "Aplicar «Solo MacBook»", "Aplicar «Juego»", "New scene…"]);
-    expect(titles).toContain("Apagar PC-Escritorio");
+    expect(titles.slice(0, 4)).toEqual(["Apply “Work”", "Apply “MacBook only”", "Apply “Game”", "New scene…"]);
+    expect(titles).toContain("Power off PC-Desktop");
     expect(titles).toContain("Change the other machine…");
     expect(titles).toContain("Measure the link");
     expect(titles).toContain("Open setup");
@@ -34,9 +34,9 @@ describe("comandos", () => {
   });
 
   it("ofrece «Lock here» o «Remove the lock» según el estado, y nada sin motor de entrada", () => {
-    const titles = flatten(filterCommands(buildCommands(desk, ctx(), true), "bloque")).map((c) => c.title);
+    const titles = flatten(filterCommands(buildCommands(desk, ctx(), true), "lock")).map((c) => c.title);
     expect(titles).toEqual(["Lock here"]);
-    const locked = flatten(filterCommands(buildCommands({ ...desk, locked: true }, ctx(), true), "bloque")).map((c) => c.title);
+    const locked = flatten(filterCommands(buildCommands({ ...desk, locked: true }, ctx(), true), "lock")).map((c) => c.title);
     expect(locked).toEqual(["Remove the lock"]);
     expect(buildCommands(desk, ctx(false), true).some((c) => c.id.startsWith("lock:"))).toBe(false);
   });
@@ -48,7 +48,7 @@ describe("comandos", () => {
 
   it("la escena activa lo dice y lleva su atajo", () => {
     const trabajo = buildCommands(desk, ctx(), true).find((c) => c.id === "scene:trabajo");
-    expect(trabajo).toMatchObject({ detail: "activa", key: "⌃⌥1" });
+    expect(trabajo).toMatchObject({ detail: "active", key: "⌃⌥1" });
   });
 
   it("lo que la fuente no sabe hacer no aparece", () => {
@@ -67,7 +67,7 @@ describe("comandos", () => {
   it("nombres y colores de cada máquina con dos Windows (D2)", () => {
     const ww = demoDesk({ pair: "win-win", here: "b", trouble: "none", still: true });
     const cmds = buildCommands(ww, ctx(), false);
-    expect(cmds.find((c) => c.id === "power:a")?.title).toBe("Apagar PC-Escritorio");
+    expect(cmds.find((c) => c.id === "power:a")?.title).toBe("Power off PC-Desktop");
     expect(cmds.find((c) => c.id === "go:maquina:b")).toMatchObject({ title: "PC-Workshop", color: "#6cc59a" });
   });
 });
@@ -77,8 +77,8 @@ describe("túneles en la paleta", () => {
     const d = demoDesk({ pair: "mac-win", here: "a", trouble: "none", still: true, tunnels: "paleta", paleta: true });
     const t = buildCommands(d, ctx(), true).filter((c) => c.group === "Tunnels");
     expect(t.map((c) => [c.title, c.detail])).toEqual([
-      ["Ir al túnel «ia-local»", "Mac → PC · activo"],
-      ["Ir al túnel «tandem»", "Mac → PC · activo"],
+      ["Go to tunnel “ia-local”", "Mac → PC · active"],
+      ["Go to tunnel “tandem”", "Mac → PC · active"],
     ]);
   });
 });
@@ -87,15 +87,15 @@ describe("búsqueda", () => {
   const cmds = buildCommands(desk, ctx(), true);
 
   it("sin acentos ni mayúsculas, por palabras", () => {
-    expect(normalize("  Túneles ")).toBe("tuneles");
-    const hits = flatten(filterCommands(cmds, "tuneles")).map((c) => c.id);
+    expect(normalize("  Tunnels ")).toBe("tunnels");
+    const hits = flatten(filterCommands(cmds, "tunnels")).map((c) => c.id);
     expect(hits).toContain("go:tuneles");
-    const both = flatten(filterCommands(cmds, "aplicar juego")).map((c) => c.id);
+    const both = flatten(filterCommands(cmds, "apply game")).map((c) => c.id);
     expect(both).toEqual(["scene:juego"]);
   });
 
   it("el nombre del grupo también cuenta", () => {
-    const hits = flatten(filterCommands(cmds, "escenas")).map((c) => c.group);
+    const hits = flatten(filterCommands(cmds, "scenes")).map((c) => c.group);
     expect(new Set(hits)).toEqual(new Set(["Scenes"]));
   });
 
@@ -138,7 +138,7 @@ describe("ejecutar", () => {
     const spy = vi.fn(async () => ({ ok: true as const }));
     const cmds = buildCommands(off, { ...ctx(), setPower: spy }, true);
     const power = cmds.find((x) => x.id === "power:b");
-    expect(power).toMatchObject({ title: "Encender PC-Escritorio", detail: "apagada" });
+    expect(power).toMatchObject({ title: "Power on PC-Desktop", detail: "off" });
     void power?.run();
     expect(spy).toHaveBeenCalledWith("b", true);
   });

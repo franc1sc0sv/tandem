@@ -37,20 +37,20 @@ describe("V3-Desk en modo demo", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Desk");
     const machines = within(screen.getByRole("region", { name: "Machines" }));
     expect(machines.getByRole("link", { name: /MacBook Pro/ })).toHaveAttribute("href", "#/maquina/a");
-    expect(machines.getByRole("link", { name: /PC-Escritorio/ })).toHaveAttribute("href", "#/maquina/b");
-    expect(screen.getByRole("link", { name: /Enlace entre MacBook Pro y PC-Escritorio: USB-C/ })).toHaveAttribute("href", "#/red");
+    expect(machines.getByRole("link", { name: /PC-Desktop/ })).toHaveAttribute("href", "#/maquina/b");
+    expect(screen.getByRole("link", { name: /Link between MacBook Pro and PC-Desktop: USB-C/ })).toHaveAttribute("href", "#/red");
     expect(screen.getByText("9.4 Gbps · 0.3 ms")).toBeInTheDocument();
     expect(screen.getByText("p99 1.9 ms")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: /A escala: MacBook Pro y 34" · PC-Escritorio/ })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /To scale: MacBook Pro and 34" · PC-Desktop/ })).toBeInTheDocument();
     expect(screen.getAllByRole("button", { pressed: true })).toHaveLength(1);
-    expect(screen.getByRole("button", { name: /Trabajo/, pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Work/, pressed: true })).toBeInTheDocument();
   });
 
   it("aplicar una escena la marca como activa", async () => {
     await mount();
-    await userEvent.click(screen.getByRole("button", { name: /Solo MacBook/ }));
-    expect(screen.getByRole("button", { name: /Solo MacBook/, pressed: true })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Trabajo/, pressed: false })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /MacBook only/ }));
+    expect(screen.getByRole("button", { name: /MacBook only/, pressed: true })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Work/, pressed: false })).toBeInTheDocument();
   });
 
   it("los botones de ícono llevan a acomodo y a monitores", async () => {
@@ -62,7 +62,7 @@ describe("V3-Desk en modo demo", () => {
 
   it("apagar y encender the other machine desde su tarjeta de energía", async () => {
     await mount();
-    const card = within(screen.getByRole("group", { name: "Energía de PC-Escritorio" }));
+    const card = within(screen.getByRole("group", { name: "Power of PC-Desktop" }));
     await userEvent.click(card.getByRole("button", { name: "Power off" }));
     expect(await card.findByRole("button", { name: "Power on" })).toBeEnabled();
     await userEvent.click(card.getByRole("button", { name: "Power on" }));
@@ -71,7 +71,7 @@ describe("V3-Desk en modo demo", () => {
 
   it("no ofrece energía si the other machine no está emparejada o ya está perdida", async () => {
     await mount("demo&still&trouble=link-down");
-    expect(screen.queryByRole("group", { name: "Energía de PC-Escritorio" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Power of PC-Desktop" })).toBeNull();
   });
 
   it("el punto del cursor aparece con la primera muestra y el borde no destella solo", async () => {
@@ -83,7 +83,7 @@ describe("V3-Desk en modo demo", () => {
 
   it("con otras máquinas (D2) los nombres salen de cada una", async () => {
     await mount("demo=win-win&still");
-    expect(screen.getByRole("img", { name: /A escala:/ }).getAttribute("aria-label")).not.toContain("MacBook");
+    expect(screen.getByRole("img", { name: /To scale:/ }).getAttribute("aria-label")).not.toContain("MacBook");
   });
 });
 

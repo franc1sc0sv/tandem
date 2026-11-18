@@ -116,7 +116,7 @@
   async function copyCommand() {
     try {
       await navigator.clipboard.writeText(MCP_COMMAND);
-      store.toast(`Copiado: ${MCP_COMMAND}`, "ok");
+      store.toast(`Copied: ${MCP_COMMAND}`, "ok");
     } catch {
       store.toast("Could not copy the command", "bad");
     }

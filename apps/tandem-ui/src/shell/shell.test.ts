@@ -23,7 +23,7 @@ describe("barra lateral (D16)", () => {
     await mountShell();
     const nav = screen.getByRole("navigation", { name: "Main" });
     const links = within(nav).getAllByRole("link").map((a) => a.textContent?.replace(/\s+/g, " ").trim());
-    expect(links).toEqual(["Desk", "Túneles 3", "Monitors", "Arrangement", "Network", "MacBook Pro", "PC-Desktop", "Settings"]);
+    expect(links).toEqual(["Desk", "Tunnels 3", "Monitors", "Arrangement", "Network", "MacBook Pro", "PC-Desktop", "Settings"]);
     expect(within(nav).getByText("Machines")).toBeInTheDocument();
     const dot = within(nav).getByRole("link", { name: "PC-Desktop" }).querySelector(".mdot") as HTMLElement;
     expect(dot.style.background).toBe("rgb(169, 155, 232)");
@@ -69,7 +69,7 @@ describe("paleta ⌘K / Ctrl+K (D15)", () => {
 
   it("el botón «Search or run…» también la abre", async () => {
     const { store } = await mountShell();
-    await userEvent.click(screen.getByRole("button", { name: /Buscar o ejecutar/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Search or run/ }));
     expect(store.paletteOpen).toBe(true);
   });
 
@@ -79,9 +79,9 @@ describe("paleta ⌘K / Ctrl+K (D15)", () => {
     store.togglePalette(true);
     await tick();
     const input = screen.getByRole("combobox", { name: "Search" });
-    await user.type(input, "aplicar");
+    await user.type(input, "apply");
     const options = screen.getAllByRole("option");
-    expect(options.map((o) => o.textContent)).toEqual(["Aplicar «Trabajo»activa⌃⌥1", "Aplicar «Solo MacBook»⌃⌥2", "Aplicar «Juego»⌃⌥3"]);
+    expect(options.map((o) => o.textContent)).toEqual(["Apply “Work”active⌃⌥1", "Apply “MacBook only”⌃⌥2", "Apply “Game”⌃⌥3"]);
     expect(options[0]).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{ArrowDown}{ArrowDown}");
     expect(screen.getAllByRole("option")[2]).toHaveAttribute("aria-selected", "true");
@@ -99,7 +99,7 @@ describe("paleta ⌘K / Ctrl+K (D15)", () => {
     await tick();
     await user.type(screen.getByRole("combobox", { name: "Search" }), "zzz");
     expect(screen.queryAllByRole("option")).toEqual([]);
-    expect(screen.getByText("Nada coincide con «zzz».")).toBeInTheDocument();
+    expect(screen.getByText("Nothing matches “zzz”.")).toBeInTheDocument();
   });
 
   it("ir a una pantalla desde la paleta, con clic", async () => {
@@ -107,8 +107,8 @@ describe("paleta ⌘K / Ctrl+K (D15)", () => {
     const { store } = await mountShell();
     store.togglePalette(true);
     await tick();
-    await user.type(screen.getByRole("combobox", { name: "Search" }), "acomodo");
-    await user.click(screen.getByRole("option", { name: /Acomodo/ }));
+    await user.type(screen.getByRole("combobox", { name: "Search" }), "arrangement");
+    await user.click(screen.getByRole("option", { name: /Arrangement/ }));
     expect(store.route).toEqual({ screen: "acomodo" });
     expect(store.paletteOpen).toBe(false);
   });
@@ -118,7 +118,7 @@ describe("paleta ⌘K / Ctrl+K (D15)", () => {
     const { store } = await mountShell();
     store.togglePalette(true);
     await tick();
-    await user.type(screen.getByRole("combobox", { name: "Search" }), "asistente{Enter}");
+    await user.type(screen.getByRole("combobox", { name: "Search" }), "setup{Enter}");
     await tick();
     expect(store.wizardOpen).toBe(true);
     expect(screen.getByRole("dialog", { name: "Setup" })).toBeInTheDocument();
@@ -129,15 +129,15 @@ describe("pantallas", () => {
   it("Puesto muestra las dos máquinas y aplica escenas", async () => {
     const { store } = await mountShell();
     expect(screen.getByRole("link", { name: /MacBook Pro.*macOS · M5/ })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Juego/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Game/ }));
     await vi.waitFor(() => expect(store.desk.activeScene).toBe("juego"));
-    expect(screen.getByRole("button", { name: /Juego/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: /Game/ })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("un estado difícil reemplaza al Puesto y ofrece la acción", async () => {
     const { store } = await mountShell("demo&still&trouble=peer-off");
     expect(screen.getByText("PC-Desktop is off")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Encender PC-Escritorio" }));
+    await userEvent.click(screen.getByRole("button", { name: "Power on PC-Desktop" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("on"));
   });
 
@@ -159,14 +159,14 @@ describe("Ajustes → Atajos", () => {
     const user = userEvent.setup();
     const { store } = await mountShell("demo&still", "#/ajustes");
     await user.click(screen.getByRole("tab", { name: "Shortcuts" }));
-    const combo = await screen.findByRole("button", { name: /Atajo de «Show or hide Tandem»/ });
+    const combo = await screen.findByRole("button", { name: /Shortcut for “Show or hide Tandem”/ });
     expect(combo).toHaveTextContent("Ctrl+Alt+0");
     await user.click(combo);
     expect(combo).toHaveTextContent("Press…");
     await fireEvent.keyDown(combo, { key: "j", code: "KeyJ" });
-    expect(screen.getByRole("alert")).toHaveTextContent("hace falta Ctrl");
+    expect(screen.getByRole("alert")).toHaveTextContent("Ctrl, Alt or");
     await fireEvent.keyDown(combo, { key: "j", code: "KeyJ", ctrlKey: true, shiftKey: true });
-    expect(combo).toHaveTextContent("Ctrl+Mayús+J");
+    expect(combo).toHaveTextContent("Ctrl+Shift+J");
     await vi.waitFor(async () => expect((await store.shortcuts()).bindings.toggle_window).toBe("Ctrl+Shift+KeyJ"));
     expect(store.toasts[0]?.text).toBe("Shortcut saved");
   });
@@ -178,7 +178,7 @@ describe("bandeja (V3-Tray)", () => {
     const actions = { showMain: vi.fn(), quit: vi.fn() };
     render(Tray, { store, actions });
     await vi.waitFor(() => expect(screen.getByText("MacBook Pro")).toBeInTheDocument());
-    expect(screen.getByText("PC-Escritorio con la VRAM al 88 %")).toBeInTheDocument();
+    expect(screen.getByText("PC-Desktop with VRAM at 88 %")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Game" }));
     await vi.waitFor(() => expect(store.desk.activeScene).toBe("juego"));
     await userEvent.click(screen.getByRole("button", { name: "Open" }));

@@ -61,7 +61,7 @@ export function rowsOf(i: Inputs): AtajoRow[] {
     { id: "toggle_window", label: "Show or hide Tandem", accel: i.toggle ?? "", editable: true },
     { id: "lock", label: "Lock the keyboard on this machine", accel: canon(i.lock), editable: true },
     { id: "palette", label: "Command palette", accel: i.palette, editable: false },
-    ...i.scenes.map((s): AtajoRow => ({ id: `scene:${s.id}`, label: `Escena «${s.name}»`, accel: canon(s.shortcut), editable: true })),
+    ...i.scenes.map((s): AtajoRow => ({ id: `scene:${s.id}`, label: `Scene “${s.name}”`, accel: canon(s.shortcut), editable: true })),
   ];
 }
 

@@ -50,9 +50,9 @@ describe("unidades (V3-Machine)", () => {
   });
 
   it("el disco dice libres y el total en TB cuando pasa de 1000 GB", () => {
-    expect(diskText(412 * GIB, 1.8 * 1024 * GIB)).toBe("412 GB libres de 1.8 TB");
-    expect(diskText(231 * GIB, 1024 * GIB)).toBe("231 GB libres de 1 TB");
-    expect(diskText(40 * GIB, 256 * GIB)).toBe("40 GB libres de 256 GB");
+    expect(diskText(412 * GIB, 1.8 * 1024 * GIB)).toBe("412 GB free of 1.8 TB");
+    expect(diskText(231 * GIB, 1024 * GIB)).toBe("231 GB free of 1 TB");
+    expect(diskText(40 * GIB, 256 * GIB)).toBe("40 GB free of 256 GB");
   });
 
   it("los porcentajes quedan entre 0 y 100, también con totales raros", () => {
@@ -79,19 +79,19 @@ describe("nombres del equipo (salen del escaneo, D10)", () => {
   });
 
   it("subtítulos de cada grupo", () => {
-    expect(cpuSub(PC, "windows")).toBe("Ryzen 7 7800X3D · 16 hilos");
-    expect(cpuSub(MAC, "macos")).toBe("M5 · 12 núcleos");
+    expect(cpuSub(PC, "windows")).toBe("Ryzen 7 7800X3D · 16 threads");
+    expect(cpuSub(MAC, "macos")).toBe("M5 · 12 cores");
     expect(cpuSub(null, "macos")).toBe("");
     expect(ramSub(PC, null)).toBe("24 GB");
-    expect(ramSub(MAC, null)).toBe("unificada");
+    expect(ramSub(MAC, null)).toBe("unified");
     expect(gpuSub(PC)).toBe("RTX 5080");
-    expect(gpuSub(MAC)).toBe("M5 integrada");
+    expect(gpuSub(MAC)).toBe("M5 integrated");
     expect(gpuSub({ ...PC, gpu: null })).toBe("");
   });
 
   it("bajo el nombre: la otra dice si está online; esta, su procesador", () => {
     expect(headerSub({ here: false, system: "Windows 11", power: "on", hardware: PC })).toBe("Windows 11 · online");
-    expect(headerSub({ here: false, system: "Windows 11", power: "off", hardware: PC })).toBe("Windows 11 · apagada");
+    expect(headerSub({ here: false, system: "Windows 11", power: "off", hardware: PC })).toBe("Windows 11 · off");
     expect(headerSub({ here: false, system: "Windows", power: "lost", hardware: null })).toBe("Windows · offline");
     expect(headerSub({ here: true, system: "macOS 26", power: "on", hardware: MAC })).toBe("macOS 26 · Apple M5");
     expect(headerSub({ here: true, system: "macOS", power: "on", hardware: null })).toBe("macOS");
@@ -187,7 +187,7 @@ describe("muestras del agente → vista en vivo", () => {
 describe("fila «Permisos»", () => {
   it("muestra primero el que deja sin teclado", () => {
     expect(missingPermission(["accessibility", "input_monitoring"])?.id).toBe("input_monitoring");
-    expect(missingPermission(["local_network", "accessibility"])?.text).toContain("«Accesibilidad»");
+    expect(missingPermission(["local_network", "accessibility"])?.text).toContain("“Accessibility”");
     expect(missingPermission([])).toBeNull();
   });
 });

@@ -55,7 +55,7 @@ export function mockupAsset(pathname: string, dir: string = MOCKUPS_DIR): Asset 
 // ---- Fuentes -----------------------------------------------------------------------------
 // The mockups request Inter and JetBrains Mono from Google Fonts. So screenshots do not depend
 // on the network (or on what Google returns that day), the capturer answers that stylesheet with the
-// mismas fuentes empaquetadas en `@fontsource/*`.
+// same fonts bundled in `@fontsource/*`.
 
 export const FONT_ORIGIN = 'http://fonts.local';
 

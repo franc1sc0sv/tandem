@@ -11,7 +11,7 @@ const server = createServer((req, res) => {
   const asset = mockupAsset(url.pathname);
   if (!asset) {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('no existe: ' + url.pathname);
+    res.end('not found: ' + url.pathname);
     return;
   }
   res.writeHead(200, { 'content-type': asset.contentType, 'cache-control': 'no-store' });

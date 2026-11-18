@@ -64,7 +64,7 @@ const SCREENS = {
 describe.each(Object.entries(SCREENS))("animaciones de %s", (_name, s) => {
   // La pantalla y los componentes compartidos que dibujan parte del mockup (tarjeta, miniatura, selector, botón).
   const css = [...s.files, read("ui", "Card.svelte"), read("ui", "Thumb.svelte"), read("ui", "Segmented.svelte"), read("ui", "Button.svelte")].join("\n");
-  const has = (text: string, what: string) => expect(canon(css).includes(text), `falta «${what}»`).toBe(true);
+  const has = (text: string, what: string) => expect(canon(css).includes(text), `falta “${what}”`).toBe(true);
 
   it("cada @keyframes del mockup tiene su equivalente", () => {
     const names = keyframesOf(s.mock).filter((k) => !(s.skip as readonly string[]).includes(k));

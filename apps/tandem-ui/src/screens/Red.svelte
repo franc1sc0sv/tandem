@@ -38,7 +38,7 @@
   <PageHeader title="Network" search={false}>
     {#snippet actions()}
       <Button icon="gauge" motion="tilt" style="--btn-h:38px;--btn-px:15px" disabled={measuring || !store.can("measure")} onclick={measure}>
-        {measuring ? `Measuring${measuringName ? ` ${measuringName}` : ""}…` : "Medir ancho de banda"}
+        {measuring ? `Measuring${measuringName ? ` ${measuringName}` : ""}…` : "Measure bandwidth"}
       </Button>
     {/snippet}
   </PageHeader>

@@ -28,7 +28,7 @@ describe("escritorios a escala (V3-Desk)", () => {
 
   it("los nombres y colores salen de cada máquina", () => {
     const s = scene();
-    expect(s.desks.map((d) => d.label)).toEqual(["MacBook Pro", '34" · PC-Escritorio']);
+    expect(s.desks.map((d) => d.label)).toEqual(["MacBook Pro", '34" · PC-Desktop']);
     const other = sceneOf(desk().layout, { a: "Estudio", b: "Taller" }, { a: "#5fbfb0", b: "#e6a07a" });
     expect(other.desks.map((d) => d.label)).toEqual(["Estudio", '34" · Taller']);
     expect(other.desks[0]?.wall).not.toBe(s.desks[0]?.wall);

@@ -67,7 +67,7 @@ describe("mostrar un atajo", () => {
 
   it("con nombres en Windows", () => {
     expect(formatAccel("Ctrl+Alt+Digit1", false)).toBe("Ctrl+Alt+1");
-    expect(formatAccel("Shift+Super+Numpad3", false)).toBe("Mayús+Win+Num 3");
+    expect(formatAccel("Shift+Super+Numpad3", false)).toBe("Shift+Win+Num 3");
     expect(formatAccel("Ctrl+F5", false)).toBe("Ctrl+F5");
   });
 

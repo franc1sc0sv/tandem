@@ -70,7 +70,7 @@ const FILES = [
   read("ui", "Button.svelte"),
 ];
 const CSS = canon(FILES.join("\n"));
-const has = (text: string, what: string) => expect(CSS.includes(text), `falta «${what}»`).toBe(true);
+const has = (text: string, what: string) => expect(CSS.includes(text), `falta “${what}”`).toBe(true);
 
 interface Step {
   mock: string;

@@ -16,7 +16,7 @@ function doc(body: string, component = '', props = '{"$preview":{"width":800,"he
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>prueba</title>
+<title>test</title>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -36,7 +36,7 @@ interface Opened {
 async function open(pages: Record<string, string>, path = Object.keys(pages)[0] ?? '/'): Promise<Opened> {
   const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
   const consoleErrors: string[] = [];
-  await installRoutes(context, { pages, onBlocked: (u) => consoleErrors.push('bloqueada: ' + u) });
+  await installRoutes(context, { pages, onBlocked: (u) => consoleErrors.push('blocked: ' + u) });
   const page = await context.newPage();
   page.on('console', (m) => {
     if (m.type() === 'error') consoleErrors.push(m.text());
@@ -51,10 +51,10 @@ const text = (page: Page, sel: string) => page.locator(sel).first().innerText();
 const attr = (page: Page, sel: string, name: string) => page.locator(sel).first().getAttribute(name);
 
 describe('support.js', () => {
-  it('sustituye {{expr}} en texto y atributos, incluidos style, SVG y expresiones', async () => {
+  it('substitutes {{expr}} in text and attributes, including style, SVG and expressions', async () => {
     const { page, consoleErrors } = await open({
       '/a.dc.html': doc(
-        `<p id="t">Hola {{name}}, tienes {{ n + 1 }} avisos{{ none }}</p>
+        `<p id="t">Hello {{name}}, you have {{ n + 1 }} notices{{ none }}</p>
          <p id="s" style="margin:0;{{st}}" title="{{ n > 1 ? 'muchos' : 'uno' }}" data-x="{{ true }}">x</p>
          <svg width="10" height="10"><path id="p" d="{{ic}}" stroke="{{c}}"></path><stop id="g" stop-color="{{c}}"></stop></svg>
          <button id="b" aria-pressed="{{on}}" class="{{cls}}" disabled="{{ false }}">b</button>`,
@@ -63,7 +63,7 @@ describe('support.js', () => {
         }`,
       ),
     });
-    expect(await text(page, '#t')).toBe('Hola Ana, tienes 3 avisos');
+    expect(await text(page, '#t')).toBe('Hello Ana, you have 3 notices');
     expect(await attr(page, '#s', 'style')).toBe('margin:0;color:rgb(255, 0, 0)');
     expect(await page.locator('#s').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(255, 0, 0)');
     expect(await attr(page, '#s', 'title')).toBe('muchos');

@@ -203,23 +203,23 @@ class Component extends DCLogic {
     const I = { cmd: 'M5 8l4 4-4 4M12 16h7', file: 'M6 3h8l4 4v14H6zM14 3v4h4', proc: 'M8 5v14l11-7z', port: 'M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4', git: 'M6 3v12M18 9a3 3 0 1 0 0-.01M6 21a3 3 0 1 0 0-.01M18 12c0 4-6 3-12 6', ok: 'm5 12 5 5L20 7', bad: 'M6 6l12 12M18 6 6 18', open: 'M3 12h4M17 12h4M7 8h10v8H7z' };
     const mk = (o) => ({ a: o.from === 'MacBook Pro' ? MAC : PC, b: o.to === 'MacBook Pro' ? MAC : PC, icA: o.from === 'MacBook Pro' ? LAPTOP : TOWER, icB: o.to === 'MacBook Pro' ? LAPTOP : TOWER, ...o });
     const T = {
-      t97: mk({ proj: 'tandem', title: 'Monitors crate (T-097)', branch: 'task/T-097', from: 'MacBook Pro', to: 'PC-Escritorio', envB: 'WSL · Ubuntu', st: 'active', s: 'busy',
+      t97: mk({ proj: 'tandem', title: 'Monitors crate (T-097)', branch: 'task/T-097', from: 'MacBook Pro', to: 'PC-Desktop', envB: 'WSL · Ubuntu', st: 'active', s: 'busy',
         open: '34 m', cmds: '22', procs: '1', ports: '0', lat: '0.3 ms', up: '120 MB', down: '4 MB', spA: '.7s', spB: '1.2s',
         nowL: 'Now: cargo test -p tandem-monitor', log: '   Compiling tandem-monitor v0.3.0\ntest probe_never_sends_vendor_codes ... ok\ntest hotplug_adds_monitor ... ok\n', live: true,
         evs: [[I.proc, MAC, 'cargo test -p tandem-monitor', 'now', true], [I.ok, '#6cc59a', 'cargo clippy · no warnings', '4 min'], [I.cmd, '#c4c6cc', 'monitor-events list', '12 min'], [I.git, '#9a9da6', 'worktree task/T-097 from develop', '34 min'], [I.open, '#9a9da6', 'Tunnel opened', '34 min']] }),
-      t101: mk({ proj: 'tandem', title: 'Tunnels in tandemd (T-101)', branch: 'task/T-101', from: 'MacBook Pro', to: 'PC-Escritorio', envB: 'WSL · Ubuntu', st: 'active', s: 'busy',
+      t101: mk({ proj: 'tandem', title: 'Tunnels in tandemd (T-101)', branch: 'task/T-101', from: 'MacBook Pro', to: 'PC-Desktop', envB: 'WSL · Ubuntu', st: 'active', s: 'busy',
         open: '18 m', cmds: '12', procs: '1', ports: '0', lat: '0.3 ms', up: '64 MB', down: '3 MB', spA: '1s', spB: '1.5s',
         nowL: 'Now: cargo test --workspace', log: '     Running tests/two_processes.rs\ntest tunnel_survives_link_drop ... ok\ntest pairing_with_real_quic ... ok\n', live: true,
         evs: [[I.proc, MAC, 'cargo test --workspace', '3 min', true], [I.cmd, '#c4c6cc', 'git status', '7 min'], [I.git, '#9a9da6', 'worktree task/T-101 from develop', '18 min'], [I.open, '#9a9da6', 'Tunnel opened', '18 min']] }),
-      pr: mk({ proj: 'tandem', title: 'Review PR #66 on Windows', branch: 'develop', from: 'PC-Escritorio', to: 'MacBook Pro', envB: 'zsh', st: 'inactive 9 m', s: 'idle',
+      pr: mk({ proj: 'tandem', title: 'Review PR #66 on Windows', branch: 'develop', from: 'PC-Desktop', to: 'MacBook Pro', envB: 'zsh', st: 'inactive 9 m', s: 'idle',
         open: '41 m', cmds: '9', procs: '0', ports: '1', lat: '0.3 ms', up: '2 MB', down: '18 MB', spA: '3s', spB: '4s',
         nowL: 'Nothing running', log: '$ pnpm --filter tandem-ui test\n✓ 64 tests\n', live: false,
         evs: [[I.ok, '#6cc59a', 'pnpm test · 64 tests', '9 min'], [I.port, '#6cc59a', 'localhost:1420 → Mac (vite)', '20 min'], [I.open, '#9a9da6', 'Tunnel opened', '41 min']] }),
-      lora: mk({ proj: 'ia-local', title: 'Train style LoRA', branch: 'main', from: 'MacBook Pro', to: 'PC-Escritorio', envB: 'WSL · Ubuntu', st: 'active', s: 'busy',
+      lora: mk({ proj: 'ia-local', title: 'Train style LoRA', branch: 'main', from: 'MacBook Pro', to: 'PC-Desktop', envB: 'WSL · Ubuntu', st: 'active', s: 'busy',
         open: '2 h 14 m', cmds: '37', procs: '1', ports: '1', lat: '0.3 ms', up: '2.1 GB', down: '38 MB', spA: '.6s', spB: '1.1s',
         nowL: 'Now: uv run train.py --config style.toml', log: 'epoch 7/20  step 1860/5200  loss 0.0398\nsaved out/style-e7.safetensors\nepoch 8/20  step 1880/5200  loss 0.0405\n', live: true,
         evs: [[I.cmd, '#c4c6cc', 'nvidia-smi', 'now', true], [I.proc, MAC, 'uv run train.py · still running', '41 min'], [I.file, PC, 'models/style/ → PC · 2.1 GB', '41 min'], [I.port, '#6cc59a', 'localhost:8188 → PC (ComfyUI)', '1 h'], [I.open, '#9a9da6', 'Tunnel opened', '2 h']] }),
-      comfy: mk({ proj: 'ia-local', title: 'Try ComfyUI workflow', branch: 'main', from: 'MacBook Pro', to: 'PC-Escritorio', envB: 'Windows', st: 'closed', s: 'closed',
+      comfy: mk({ proj: 'ia-local', title: 'Try ComfyUI workflow', branch: 'main', from: 'MacBook Pro', to: 'PC-Desktop', envB: 'Windows', st: 'closed', s: 'closed',
         open: '—', cmds: '4', procs: '0', ports: '0', lat: '—', up: '12 MB', down: '1 MB', spA: '0s', spB: '0s',
         nowL: 'Closed 1 h ago', log: 'torch.OutOfMemoryError: CUDA out of memory.\n', live: false,
         evs: [[I.bad, '#e07a6f', 'Claude closed the tunnel', '1 h'], [I.bad, '#e07a6f', 'python main.py · out of VRAM', '1 h'], [I.open, '#9a9da6', 'Tunnel opened', '1 h']] })

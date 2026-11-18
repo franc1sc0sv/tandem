@@ -40,12 +40,12 @@ describe("pestañas", () => {
     await mount();
     tab(/Desk and machines/).focus();
     await userEvent.keyboard("{ArrowDown}");
-    expect(tab(/Atajos/)).toHaveAttribute("aria-selected", "true");
-    expect(tab(/Atajos/)).toHaveFocus();
+    expect(tab(/Shortcuts/)).toHaveAttribute("aria-selected", "true");
+    expect(tab(/Shortcuts/)).toHaveFocus();
     await userEvent.keyboard("{End}");
-    expect(tab(/Avanzado/)).toHaveAttribute("aria-selected", "true");
+    expect(tab(/Advanced/)).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{ArrowUp}");
-    expect(tab(/Actualizaciones/)).toHaveAttribute("aria-selected", "true");
+    expect(tab(/Updates/)).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{Home}");
     expect(tab(/Desk and machines/)).toHaveAttribute("aria-selected", "true");
   });
@@ -71,7 +71,7 @@ describe("Desk and machines", () => {
     const edit = vi.spyOn(store, "editMachine");
     const name = store.desk.machines.b?.name ?? "";
     await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[1]);
-    const input = screen.getByRole("textbox", { name: `Nombre de ${name}` });
+    const input = screen.getByRole("textbox", { name: `Name of ${name}` });
     await userEvent.clear(input);
     await userEvent.type(input, "Taller{Enter}");
     expect(edit).toHaveBeenCalledWith("b", { name: "Taller" });
@@ -82,14 +82,14 @@ describe("Desk and machines", () => {
     const edit = vi.spyOn(store, "editMachine");
     const first = store.desk.machines.a?.name ?? "";
     await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
-    await userEvent.type(screen.getByRole("textbox", { name: `Nombre de ${first}` }), "Otro{Escape}");
-    expect(screen.queryByRole("textbox", { name: /Nombre de/ })).toBeNull();
+    await userEvent.type(screen.getByRole("textbox", { name: `Name of ${first}` }), "Otro{Escape}");
+    expect(screen.queryByRole("textbox", { name: /Name de/ })).toBeNull();
     await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
-    const input = screen.getByRole("textbox", { name: `Nombre de ${first}` });
+    const input = screen.getByRole("textbox", { name: `Name of ${first}` });
     await userEvent.clear(input);
     await userEvent.type(input, "   {Enter}");
     await userEvent.click(screen.getAllByRole("button", { name: "Rename" })[0]);
-    await userEvent.type(screen.getByRole("textbox", { name: `Nombre de ${first}` }), "{Enter}");
+    await userEvent.type(screen.getByRole("textbox", { name: `Name of ${first}` }), "{Enter}");
     expect(edit).not.toHaveBeenCalled();
   });
 
@@ -104,7 +104,7 @@ describe("Desk and machines", () => {
 
   it("«Salir» dice con exactitud cuándo the other machine olvida la llave (T-152)", async () => {
     await mount();
-    expect(screen.getByText(/si están conectadas, ellas las suyas; si no, cuando salgan también/)).toBeInTheDocument();
+    expect(screen.getByText(/if they are connected, they forget its key; if not, they do once they leave too/)).toBeInTheDocument();
   });
 
   it("«Salir» pide confirmación y solo entonces desempareja", async () => {
@@ -149,7 +149,7 @@ describe("Advanced", () => {
   it("muestra la ruta del archivo de configuración y abre archivo y logs", async () => {
     const store = await mount();
     const open = vi.spyOn(store, "openFiles");
-    await userEvent.click(tab(/Avanzado/));
+    await userEvent.click(tab(/Advanced/));
     await vi.waitFor(() => expect(screen.getByText(/tandem\.toml/)).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: "Show file" }));
     expect(open).toHaveBeenLastCalledWith("config");
@@ -161,7 +161,7 @@ describe("Advanced", () => {
     const store = await mount();
     const write = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", { value: { writeText: write }, configurable: true });
-    await userEvent.click(tab(/Avanzado/));
+    await userEvent.click(tab(/Advanced/));
     await userEvent.click(screen.getByRole("button", { name: "Copy command" }));
     expect(write).toHaveBeenCalledWith("tandem mcp");
     await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "Command copied", tone: "ok" }));
@@ -177,14 +177,14 @@ describe("Advanced", () => {
       },
       configurable: true,
     });
-    await userEvent.click(tab(/Avanzado/));
+    await userEvent.click(tab(/Advanced/));
     await userEvent.click(screen.getByRole("button", { name: "Copy command" }));
     await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "Could not copy the command", tone: "bad" }));
   });
 
   it("«Ver» lleva a los estados difíciles", async () => {
     const store = await mount();
-    await userEvent.click(tab(/Avanzado/));
+    await userEvent.click(tab(/Advanced/));
     const row = screen.getByText(/Trouble states/).closest(".row") as HTMLElement;
     await userEvent.click(within(row).getByRole("button", { name: "View" }));
     expect(store.route).toEqual({ screen: "estados" });

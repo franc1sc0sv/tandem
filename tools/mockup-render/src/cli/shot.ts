@@ -1,4 +1,4 @@
-// `pnpm mockups:shot [--out <carpeta>] [--only <mockup>]… [--no-states] [--concurrency N]`
+// `pnpm mockups:shot [--out <folder>] [--only <mockup>]… [--no-states] [--concurrency N]`
 // Renders the mockups in mockups/v03 and saves the screenshots (by default in docs/mockups-png).
 import { readdirSync, rmSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';

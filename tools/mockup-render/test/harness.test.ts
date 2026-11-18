@@ -41,7 +41,7 @@ describe('export of @tandem/mockup-render/harness', () => {
 });
 
 describe('compareWithMockup', () => {
-  it('busca <mockup>.png o <mockup>--<estado>.png', () => {
+  it('looks for <mockup>.png or <mockup>--<state>.png', () => {
     expect(mockupShotPath('V3-Desk', undefined, shots)).toBe(join(shots, 'V3-Desk.png'));
     expect(mockupShotPath('V3-Desk', 'scene-game', shots)).toBe(join(shots, 'V3-Desk--scene-game.png'));
   });

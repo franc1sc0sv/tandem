@@ -32,8 +32,8 @@ describe("progreso de una transacción (F-Transactions)", () => {
     expect(v.title).toBe("Applying the scene “Game”");
     expect(v.rows.map((r) => [r.icon, r.text])).toEqual([
       ["done", "Save how everything is"],
-      ["todo", '34" → PC-Escritorio (DP)'],
-      ["todo", 'Mouse: sacar el 34" de MacBook Pro'],
+      ["todo", '34" → PC-Desktop (DP)'],
+      ["todo", 'Mouse: take the 34" off MacBook Pro'],
     ]);
     expect(v.message).toEqual({ text: "The monitor confirms each change; nothing is guessed.", tone: "mut" });
   });
@@ -42,7 +42,7 @@ describe("progreso de una transacción (F-Transactions)", () => {
     const run = play([started, { type: "step_started", txn: 7, index: 0 }]);
     expect(viewOf(run, names, 2000).rows[1]).toMatchObject({ icon: "run", detail: "waiting for the monitor" });
     const done = play([started, { type: "step_started", txn: 7, index: 0 }, { type: "step_done", txn: 7, index: 0 }]);
-    expect(viewOf(done, names, 3000).rows[1]).toMatchObject({ icon: "done", detail: "confirmado · 0.6 s" });
+    expect(viewOf(done, names, 3000).rows[1]).toMatchObject({ icon: "done", detail: "confirmed · 0.6 s" });
   });
 
   it("al confirmarse todo dice lo que pidió quien lo inició y deja de correr", () => {
@@ -64,7 +64,7 @@ describe("progreso de una transacción (F-Transactions)", () => {
     expect(v.rows.map((r) => r.icon)).toEqual(["done", "bad", "back"]);
     expect(v.rows[1]).toMatchObject({ tone: "bad", detail: "the monitor said: change failed" });
     expect(v.rows[2]).toMatchObject({ text: "Rolling back to how it was", detail: '34" → MacBook Pro' });
-    expect(v.message).toEqual({ text: "No había señal por DisplayPort. Everything goes back to how it was; nothing was left half done.", tone: "warn" });
+    expect(v.message).toEqual({ text: "There was no DisplayPort signal. Everything goes back to how it was; nothing was left half done.", tone: "warn" });
     const over = play([started, { type: "step_started", txn: 7, index: 0 }, { type: "step_failed", txn: 7, index: 0, error: "the monitor no mostró imagen en DisplayPort" }, { type: "failed", txn: 7, state: { on: { a: true, b: true } } }]);
     expect(viewOf(over, names, 5000)).toMatchObject({ outcome: "failed" });
     expect(viewOf(over, names, 5000).rows[2]?.icon).toBe("done");
@@ -77,9 +77,9 @@ describe("progreso de una transacción (F-Transactions)", () => {
   });
 
   it("sin título propio se dice por los pasos", () => {
-    expect(titleOf([{ step: "power_on", machine: "b" }], names)).toBe("Encendiendo PC-Escritorio");
-    expect(titleOf([{ step: "power_off", machine: "b" }], names)).toBe("Apagando PC-Escritorio");
-    expect(titleOf([{ step: "switch_monitor", monitor: "g5-34", input: "hdmi" }], names)).toBe('Cambiando la entrada del 34"');
+    expect(titleOf([{ step: "power_on", machine: "b" }], names)).toBe("Powering on PC-Desktop");
+    expect(titleOf([{ step: "power_off", machine: "b" }], names)).toBe("Powering off PC-Desktop");
+    expect(titleOf([{ step: "switch_monitor", monitor: "g5-34", input: "hdmi" }], names)).toBe("Changing the input of 34\"");
     expect(titleOf(steps, names)).toBe("Applying a scene");
   });
 });

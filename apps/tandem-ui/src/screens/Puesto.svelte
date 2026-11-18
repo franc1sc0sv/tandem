@@ -84,7 +84,7 @@
   });
 
   // `V3-Desk` escribe «34" muestra PC-Escritorio»; `V3-Monitors` (y `scenes.ts`) usan «→».
-  const sceneLine = (desc: string) => desc.replaceAll(" → ", " muestra ");
+  const sceneLine = (desc: string) => desc.replaceAll(" → ", " shows ");
 
   // Energía de the other machine (transacción: el agente informa cada paso).
   const peer = $derived(list.find((m) => !m.here) ?? null);

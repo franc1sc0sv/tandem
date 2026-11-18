@@ -1,86 +1,86 @@
 # Mockups
 
-- `main.html`, `next.html`: UI de v0.1 y v0.2 (historia).
-- **`v03/`: referencia visual e interactiva de v0.3** (fuente de verdad para la UI). Copia de los archivos del diseño publicado (`https://claude.ai/artifact/9iR76c5fczvnpXCbp9BnJt`, privado). Cada `*.dc.html` es una pantalla de 1280×860; `canvas.json` dice el título y la página de cada una.
+- `main.html`, `next.html`: v0.1 and v0.2 UI (history).
+- **`v03/`: interactive visual reference for v0.3** (source of truth for the UI). A copy of the files of the published design (`https://claude.ai/artifact/9iR76c5fczvnpXCbp9BnJt`, private). Each `*.dc.html` is a 1280×860 screen; `canvas.json` gives the title and page of each one.
 
-## Cómo verlos
+## How to view them
 
-Los `.dc.html` usan un formato de plantillas (`<x-dc>`, `{{…}}`, `<sc-for>`, `<sc-if>`, clase `Component extends DCLogic`) cuyo runtime original (`support.js`) no está en el repo. `tools/mockup-render` (T-125) trae uno propio:
+The `.dc.html` files use a template format (`<x-dc>`, `{{…}}`, `<sc-for>`, `<sc-if>`, class `Component extends DCLogic`) whose original runtime (`support.js`) is not in the repo. `tools/mockup-render` (T-125) ships its own:
 
 ```sh
 cd tools/mockup-render
 pnpm install && pnpm exec playwright install chromium
-pnpm mockups:serve     # http://127.0.0.1:4173/: índice; los enlaces llevan de una pantalla a otra
-pnpm mockups:shot      # capturas → docs/mockups-png/
+pnpm mockups:serve     # http://127.0.0.1:4173/: index; the links go from one screen to another
+pnpm mockups:shot      # screenshots → docs/mockups-png/
 ```
 
-- Las capturas ya generadas están en **`docs/mockups-png/`**: `<mockup>.png` es el estado inicial y `<mockup>--<estado>.png` cada estado interactivo con nombre (por ejemplo `V3-Acomodo--lado-arriba-centro.png`); la lista de estados y sus clics está en `tools/mockup-render/src/states.ts`.
-- Comparar una captura de la app con su mockup: `pnpm mockups:compare app.png ../../docs/mockups-png/V3-Puesto.png --diff diff.png` (desde código: `compareWithMockup(captura, { mockup, state, diffPath })` de `@tandem/mockup-render/harness`).
-- Si cambias un mockup, vuelve a correr `pnpm mockups:shot` y commitea `docs/mockups-png/`. El job `ui (mockups)` de CI las genera como artefacto y avisa si no coinciden con las commiteadas.
+- The generated screenshots are in **`docs/mockups-png/`**: `<mockup>.png` is the initial state and `<mockup>--<state>.png` each named interactive state (for example `V3-Arrangement--side-top-center.png`); the list of states and their clicks is in `tools/mockup-render/src/states.ts`.
+- Compare an app screenshot with its mockup: `pnpm mockups:compare app.png ../../docs/mockups-png/V3-Desk.png --diff diff.png` (from code: `compareWithMockup(screenshot, { mockup, state, diffPath })` from `@tandem/mockup-render/harness`).
+- If you change a mockup, run `pnpm mockups:shot` again and commit `docs/mockups-png/`. The `ui (mockups)` CI job generates them as an artifact and warns if they do not match the committed ones.
 
-Más detalle en `tools/mockup-render/README.md`.
+More detail in `tools/mockup-render/README.md`.
 
-## Qué pantalla es cuál
+## Which screen is which
 
-| Mockup | Pantalla |
+| Mockup | Screen |
 |---|---|
-| `V3-Puesto` | Puesto (inicio) |
-| `V3-Computo` | Túneles |
-| `V3-Maquina`, `F-MaquinaMac` | Máquina |
-| `V3-Monitores`, `F-NuevaEscena` | Monitores y escenas |
-| `V3-Acomodo`, `F-PruebaCruce` | Acomodo y prueba de cruce |
-| `V3-Red` | Red |
-| `F-Asis1`, `V3-Asistente`, `F-Asis3`…`F-Asis6` | Asistente (pasos 1–6) |
-| `F-Transacciones`, `F-Avisos` | Progreso de escena/energía, avisos |
-| `F-Ajustes`, `F-Paleta` | Ajustes, paleta ⌘K |
-| `V3-Estados` | Estados difíciles |
-| `V3-Bandeja` | Barra de menú / bandeja |
-| `F-ClaudeMCP` | Lo que ve Claude (herramientas MCP) |
+| `V3-Desk` | Desk (home) |
+| `V3-Compute` | Tunnels |
+| `V3-Machine`, `F-MachineMac` | Machine |
+| `V3-Monitors`, `F-NewScene` | Monitors and scenes |
+| `V3-Arrangement`, `F-CrossingTest` | Arrangement and crossing test |
+| `V3-Network` | Network |
+| `F-Setup1`, `V3-Setup`, `F-Setup3`…`F-Setup6` | Setup (steps 1–6) |
+| `F-Transactions`, `F-Notices` | Scene/power progress, notices |
+| `F-Settings`, `F-Palette` | Settings, ⌘K palette |
+| `V3-States` | Trouble states |
+| `V3-Tray` | Menu bar / tray |
+| `F-ClaudeMCP` | What Claude sees (MCP tools) |
 
-## Lo que los mockups dicen y DECISIONS corrige
+## What the mockups say and DECISIONS corrects
 
-- **Tercera máquina** (`F-AgregarHost`, la «MacBook Air», «Agregar máquina» en la barra lateral, «Puesto de N máquinas» en las notas): fuera por D1. En su lugar, Ajustes → «Cambiar la otra máquina» (emparejar de nuevo).
-- **Tarjeta «Agregar máquina» de `V3-Puesto`** (D1): se tapa en la comparación (200 × 210 px a la derecha de las tarjetas de máquina); en la app ese hueco queda vacío, no hay tarjeta que tapar. Encender / Apagar van dentro de la tarjeta de la otra máquina (que sí se compara), con el estilo de los botones del mockup.
-- **Atajo de la paleta** (`⌘K`): los mockups están dibujados en macOS; la app muestra `Ctrl+K` en Windows. El arnés de capturas usa un agente de usuario de macOS.
-- **Botón «Instalar» del servicio de administrador** (`F-Asis1`) (T-131): ya no se tapa; la app lo dibuja como el mockup. Funciona en macOS (LaunchDaemon, diálogo de administrador) y en Windows (tarea elevada con UAC y comprobación de ACL); si no aplica (instalación por usuario, sin `.app`), la fila explica por qué y no ofrece el botón (`?admin=off`). El demo pone el servicio pendiente (`?admin=pending`) para que la fila muestre el mismo spinner que el mockup.
-- **«macOS 26 · Apple M5 · 24 GB»** y demás datos de ejemplo: en la app salen del escaneo real (D10).
-- **Botones «Simular…»** (borde punteado): son solo del mockup; en la app esos pasos ocurren de verdad. Regiones tapadas (`F-Asis5`, «esperando»): las cajas de «Simular cruce» y «Simular otro borde».
-- **`F-MaquinaMac` sin barra lateral** (G3/D16): es una pantalla de flujo con la ruta «Puesto › MacBook Pro» arriba; la app tiene la barra lateral. Se compara solo el contenido: desde la esquina de su `header` hasta el borde de abajo (en el mockup, `x 32, y 55`, 1216 × 805 px; la app se captura a 1492 px de ancho para que su contenido mida lo mismo). La ruta y la barra quedan fuera de la comparación.
-- **Selector de color en la página de esta máquina** (D17): `F-MaquinaMac` no lo dibuja; la app lo tiene en las dos páginas. Región tapada: el `radiogroup` «Color de la máquina» de la cabecera (cuatro círculos de 22 px, 106 × 22 px).
-- **Estado de los módulos en `F-MaquinaMac`** (G4): el mockup lo escribe como texto suelto («activo», «en espera», «parcial»); la app usa el chip uniforme (interruptor si se puede apagar). Región tapada: el estado de cada fila de módulo (`.mod > .chip` en la app, `.mod > span:last-child` en el mockup); el botón «Abrir ajustes» de la fila «Permisos» sí se compara.
-- **«Latencia · 10 min»** (`V3-Red`, gráfica de latencia): el agente guarda 60 s por camino (DESIGN §6, T-102); la app dice «Latencia · 60 s» y el arnés tapa ese rótulo en las dos capturas.
-- **`F-Transacciones`: «Dejar de esperar»**: el agente no tiene un comando para cancelar un encendido, así que la app no muestra el botón (misma regla que «olvidar monitor»). Región tapada: el último bloque de la tarjeta de energía en el mockup.
-- **`F-Transacciones`: «de la MacBook»**: el mockup nombra la máquina a mano; la app dice el nombre real (D10).
-- **`F-Asis5`: la clase `.cur` repetida**: el CSS del mockup declara `.cur` para el cursor del dibujo (14 × 14, absoluto) y el paso actual de la lista lleva la misma clase (`.stl.cur`): sale del flujo, su texto se parte en tres líneas y «Listo» sube 44 px. Es un defecto del mockup; la app dibuja la lista como en las demás pantallas. Regiones tapadas en las cuatro capturas de `F-Asis5`: 140 × 60 px en (10, 138) y 300 × 94 px en (0, 258), la parte de la lista de pasos afectada.
-- **`F-Asis5`: «de la MacBook a la PC»**: el mockup nombra las máquinas a mano; la app dice los nombres del puesto (D10). Regiones tapadas: en el párrafo de introducción, solo los nombres del segundo renglón (552 × 20 px en (438, 134); lo demás se compara) y, mientras espera el cruce, el veredicto («Esperando el cruce por el borde derecho de…», 440 × 40 px en (350, 482)).
-- **`F-Asis3`: «Faltan 1» y «Reiniciar agente»**: el mockup no concuerda en singular y no ofrece reiniciar el agente tras abrir un panel de macOS (T-090: el permiso se concede al proceso, que debe reiniciarse). La app dice «Falta 1» y ofrece el reinicio. Región tapada en el estado «uno concedido»: el pie de 200 × 40 px en (775, 770).
+- **Third machine** (`F-AddHost`, the "MacBook Air", "Add machine" in the sidebar, "Desk of N machines" in the notes): out because of D1. In its place, Settings → "Change the other machine" (pair again).
+- **"Add machine" card of `V3-Desk`** (D1): masked in the comparison (200 × 210 px to the right of the machine cards); in the app that gap stays empty, there is no card to mask. Power on / Power off live inside the other machine's card (which is compared), styled like the mockup's buttons.
+- **Palette shortcut** (`⌘K`): the mockups are drawn on macOS; the app shows `Ctrl+K` on Windows. The screenshot harness uses a macOS user agent.
+- **"Install" button of the admin service** (`F-Setup1`) (T-131): no longer masked; the app draws it like the mockup. It works on macOS (LaunchDaemon, admin dialog) and on Windows (elevated task with UAC and an ACL check); if it does not apply (per-user install, no `.app`), the row explains why and does not offer the button (`?admin=off`). The demo leaves the service pending (`?admin=pending`) so the row shows the same spinner as the mockup.
+- **"macOS 26 · Apple M5 · 24 GB"** and other sample data: in the app they come from the real scan (D10).
+- **"Simulate…" buttons** (dotted border): mockup only; in the app those steps really happen. Masked regions (`F-Setup5`, "waiting"): the "Simulate crossing" and "Simulate other edge" boxes.
+- **`F-MachineMac` without sidebar** (G3/D16): it is a flow screen with the "Desk › MacBook Pro" path on top; the app has the sidebar. Only the content is compared: from the corner of its `header` to the bottom edge (in the mockup, `x 32, y 55`, 1216 × 805 px; the app is captured at 1492 px wide so its content measures the same). The path and the sidebar stay out of the comparison.
+- **Color picker on this machine's page** (D17): `F-MachineMac` does not draw it; the app has it on both pages. Masked region: the "Machine color" `radiogroup` in the header (four 22 px circles, 106 × 22 px).
+- **Module state in `F-MachineMac`** (G4): the mockup writes it as loose text ("active", "on hold", "partial"); the app uses the uniform chip (a switch if it can be turned off; its "off" text is "idle"). Masked region: the state of each module row (`.mod > .chip` in the app, `.mod > span:last-child` in the mockup); the "Open settings" button of the "Permissions" row is compared.
+- **"Latency · 10 min"** (`V3-Network`, latency chart): the agent keeps 60 s per path (DESIGN §6, T-102); the app says "Latency · 60 s" and the harness masks that label in both screenshots.
+- **`F-Transactions`: "Stop waiting"**: the agent has no command to cancel a power-on, so the app does not show the button (same rule as "forget monitor"). Masked region: the last block of the power card in the mockup.
+- **`F-Transactions`: "from the MacBook"**: the mockup names the machine by hand; the app says the real name (D10).
+- **`F-Setup5`: the repeated `.cur` class**: the mockup CSS declares `.cur` for the drawing's cursor (14 × 14, absolute) and the current step of the list carries the same class (`.stl.cur`): it leaves the flow, its text splits into three lines and "Done" moves up 44 px. It is a mockup defect; the app draws the list like the other screens. Masked regions in the four `F-Setup5` screenshots: 140 × 60 px at (10, 138) and 300 × 94 px at (0, 258), the affected part of the step list.
+- **`F-Setup5`: "from the MacBook to the PC"**: the mockup names the machines by hand; the app says the desk's names (D10). Masked regions: in the intro paragraph, only the names on the second line (552 × 20 px at (438, 134); the rest is compared) and, while waiting for the crossing, the verdict ("Waiting for the crossing over the right edge of…", 440 × 40 px at (350, 482)).
+- **`F-Setup3`: "Restart agent"**: the mockup does not offer to restart the agent after opening a macOS panel (T-090: the permission is granted to the process, which must restart). The app offers the restart. Masked region in the "one granted" state: the 200 × 40 px footer at (775, 770).
 
-## Regiones que el arnés tapa en T-120 (Ajustes, Estados, Paleta, Bandeja, Avisos)
+## Regions the harness masks in T-120 (Settings, States, Palette, Tray, Notices)
 
-Regla: solo se tapa una caja que no puede coincidir (dato real, función que no existe) y nunca un título, texto o botón que la app sí tiene. Cada región va con su razón; la fuente es `apps/tandem-ui/scripts/shots-spec.ts`.
+Rule: only a box that cannot match (real data, a function that does not exist) is masked, and never a title, text or button the app does have. Each region comes with its reason; the source is `apps/tandem-ui/scripts/shots-spec.ts`.
 
-**Estados (`V3-Estados`).** `?demo&estados` siembra los textos de ejemplo del mockup (nombres, cifras, la línea `epoch 9/20 · loss 0.0371`), así que títulos, textos y botones de las nueve tarjetas se comparan sin tapar; la altura de las tarjetas sale del CSS real de la app, sin ajustes en la medición. Región tapada:
-- Botón «Enviar por Wi-Fi igual» de la tarjeta «Enlace»: el agente no tiene esa función, y sin función no hay botón.
-- Tarjeta «Primera vez» (D1, T-142): se tapan solo su frase y el rótulo de su botón; la app dice «Emparejar la otra máquina» y «…aparece apagado hasta que emparejes la otra máquina» en lugar de «Agregar máquina» / «Agrega otra máquina para usar esto» (no hay tercera máquina). El título, la etiqueta y el ícono se comparan.
+**States (`V3-States`).** `?demo&estados` seeds the mockup's sample texts (names, figures, the `epoch 9/20 · loss 0.0371` line), so titles, texts and buttons of the nine cards are compared without masking; card heights come from the app's real CSS, with no measurement adjustments. Masked region:
+- "Send over Wi-Fi anyway" button of the "Link" card: the agent has no such function, and without a function there is no button.
+- "First time" card (D1, T-142): only its sentence and its button label are masked; the app says "Pair the other machine" and "…shows as off until you pair the other machine" instead of "Add machine" / "Add another machine to use this" (there is no third machine). The title, label and icon are compared.
 
-**Asistente, botón «Cerrar» (T-156).** Los `F-Asis*` no dibujan ningún botón de cerrar; la app agrega uno solo con ícono «x» (`aria-label="Cerrar"`, 32 px, foco visible) al pie del panel lateral, porque sin él quien usa solo el mouse no puede salir a mitad del asistente (la usabilidad manda). Es una diferencia deliberada y mínima: la similitud de los `F-Asis*` sigue en ≥ 99 % sin máscaras nuevas.
+**Setup, "Close" button (T-156).** The `F-Setup*` screens draw no close button; the app adds a single one with an "x" icon (`aria-label="Close"`, 32 px, visible focus) at the foot of the side panel, because without it someone using only the mouse cannot leave in the middle of setup (usability wins). It is a deliberate, minimal difference: the similarity of the `F-Setup*` screens stays at ≥ 99 % with no new masks.
 
-**Asistente, «Crear un puesto nuevo» (`V3-Asistente--nuevo`, T-145).** El mockup muestra el campo «Nombre del puesto»; la app no, porque el nombre no existe en el agente ni viaja en el protocolo y un campo que no guarda nada viola DESIGN §3.8. En su lugar la app muestra el código de emparejamiento (el emparejamiento es simétrico, T-097) y la nota «Después, en la otra máquina…». Se tapa solo el panel de debajo de las dos opciones (`asistente-puesto-nuevo`); las opciones, el título y los botones se comparan.
+**Setup, "Create a new desk" (`V3-Setup--new`, T-145).** The mockup shows the "Desk name" field; the app does not, because the name does not exist in the agent nor travel in the protocol and a field that saves nothing violates DESIGN §3.8. Instead the app shows the pairing code (pairing is symmetric, T-097) and the note "Then, on the other machine…". Only the panel below the two options (`setup-desk-new`) is masked; the options, title and buttons are compared.
 
-**Ajustes (`F-Ajustes`).**
-- Nombre del puesto: el mockup trae un campo editable y la app muestra el texto, porque el nombre no viaja en el puesto y un campo que no guarda nada viola DESIGN §3.8. Se tapa solo esa caja.
-- Botón «Sacar del puesto» (mockup): D1, exactamente dos máquinas. Por lo mismo, el lápiz de la otra máquina cae en el borde derecho de la fila en la app; se tapa solo ese lápiz.
-- Fila «Agregar una máquina · Mostrar código» (D1): la app dice «Cambiar la otra máquina · Emparejar de nuevo». Se tapan el rótulo y el botón, no la fila.
-- Atajos: sin regiones tapadas. La app tiene los seis atajos y `ajustes-atajos` mide 100 %.
-- Avanzado: la cuenta de sesiones del servidor MCP; el agente todavía no las cuenta.
+**Settings (`F-Settings`).**
+- Desk name: the mockup has an editable field and the app shows the text, because the name does not travel with the desk and a field that saves nothing violates DESIGN §3.8. Only that box is masked.
+- "Leave desk" button (mockup): D1, exactly two machines. For the same reason, the other machine's pencil falls on the right edge of the row in the app; only that pencil is masked.
+- "Add a machine · Show code" row (D1): the app says "Change the other machine · Pair again". The label and the button are masked, not the row.
+- Shortcuts: no masked regions. The app has all six shortcuts and `settings-shortcuts` measures 100 %.
+- Advanced: the MCP server's session count; the agent does not count them yet.
 
-**Paleta (`F-Paleta`).** `?demo&paleta` siembra los datos del mockup (la escena «Trabajo» sobre la Mac, la tercera escena «Solo PC» y un túnel por proyecto, «ia-local» y «tandem»), y el camino de los túneles usa los mismos rótulos que la lista («Mac → PC»), así que escenas, túneles, puntos de color y los renglones «Monitores» y «Red» se comparan sin tapar. Única región tapada: «Agregar máquina…» (D1; la app dice «Cambiar la otra máquina…»). Estados `filtro` («solo») y `sin-resultados` («zzz»): se teclea en el campo y se compara igual. La app, además de los títulos, busca en el nombre del grupo («esc» deja todas las escenas; el mockup solo mira el título) y agrega las páginas de máquina en «Ir a»; por eso el estado `filtro` usa un texto que da el mismo resultado en las dos.
+**Palette (`F-Palette`).** `?demo&paleta` seeds the mockup's data (the "Work" scene on the Mac, the third scene "PC only" and one tunnel per project, "ia-local" and "tandem"), and the tunnel path uses the same labels as the list ("Mac → PC"), so scenes, tunnels, color dots and the "Monitors" and "Network" lines are compared without masking. The only masked region: "Add machine…" (D1; the app says "Change the other machine…"). States `filter` ("only") and `no-results` ("zzz"): the text is typed in the field and compared as usual. Besides titles, the app searches the group name ("sce" leaves all the scenes; the mockup only looks at the title) and adds the machine pages under "Go to"; that is why the `filter` state uses a text that gives the same result in both.
 
-**Bandeja (`V3-Bandeja`).** `?demo&bandeja` siembra los datos del mockup: enlace de 0.4 ms (el Puesto dice 0.3), carga de la Mac al 18 %, «Solo PC» como tercera escena y los túneles en tres proyectos (dos activos, «notas» en reposo). Los rótulos «Mac → PC» salen de `shortLabels`, como en Túneles. Única región tapada: «Bloquear aquí» (sin la acción en la IPC no hay botón; T-112, G6).
+**Tray (`V3-Tray`).** `?demo&bandeja` seeds the mockup's data: a 0.4 ms link (the Desk says 0.3), Mac load at 18 %, "PC only" as the third scene and tunnels in three projects (two active, "notes" idle). The "Mac → PC" labels come from `shortLabels`, as in Tunnels. The only masked region: "Lock here" (without the action in the IPC there is no button; T-112, G6).
 
-**Avisos (`F-Avisos`).** Se compara la pila completa (los tres avisos con sus tonos: advertencia, correcto y Claude), sin regiones tapadas: `?demo&avisos` siembra los textos del mockup, incluido el botón «Enviar por Wi-Fi igual», que en el demo no hace nada (la app real no lo muestra) para que la pila mida lo mismo. Técnica de medición: la app dibuja la pila como una capa fija en la esquina de la ventana y el mockup la apila en el flujo dentro de un cuadro; para que el texto caiga en el mismo píxel, durante la captura se oculta la página real (`.shell`; en el mockup es un esqueleto), se pinta el fondo del cuadro y la pila pasa a posición absoluta. Se recorta desde la esquina del primer aviso en cada imagen. El aviso «Cambiado desde… · Deshacer» (D5) no está en `F-Avisos`: lo cubren las pruebas de la app.
+**Notices (`F-Notices`).** The full stack is compared (the three notices with their tones: warning, success and Claude), with no masked regions: `?demo&avisos` seeds the mockup's texts, including the "Send over Wi-Fi anyway" button, which in the demo does nothing (the real app does not show it) so the stack measures the same. Measuring technique: the app draws the stack as a fixed layer in the window corner and the mockup stacks it in the flow inside a frame; so the text lands on the same pixel, during capture the real page is hidden (`.shell`; in the mockup it is a skeleton), the frame's background is painted and the stack goes to absolute position. It is cropped from the corner of the first notice in each image. The "Changed from… · Undo" notice (D5) is not in `F-Notices`: the app's tests cover it.
 
-**Regiones del mockup que no se comparan.**
-- `F-Avisos` se mide recortando la pila de avisos (390 × 681 px desde el primer aviso). Queda fuera la cabecera «Avisos» con el botón «Agregar aviso» (controles de demostración del mockup) y la columna derecha «Notificaciones del sistema» («Solo para lo que pasa mientras no miras Tandem…», con tres notificaciones, una de ellas «MacBook Air entró a «Mi puesto»», tercera máquina, D1). No se implementa: DECISIONS D14 deja fuera el audio y las notificaciones por ahora, y la app no tiene código de notificaciones del sistema. Si el usuario las decide, será una decisión nueva en DECISIONS y entonces se mide.
-- `F-ClaudeMCP` es la vista de Claude, no una pantalla de la app: se prueba con las herramientas de `tandem mcp` (parte B de la aceptación).
-- Revisadas las demás capturas (`shots-spec.ts`): el resto de cada mockup entra en alguna captura o región con su razón en las secciones anteriores.
+**Mockup regions that are not compared.**
+- `F-Notices` is measured by cropping the notice stack (390 × 681 px from the first notice). Out of it: the "Notices" header with the "Add notice" button (mockup demo controls) and the right column "System notifications" ("Only for what happens while you are not looking at Tandem…", with three notifications, one of them "MacBook Air joined "My desk"", third machine, D1). It is not implemented: DECISIONS D14 leaves audio and notifications out for now, and the app has no system-notification code. If the user decides on them, it will be a new decision in DECISIONS and then it will be measured.
+- `F-ClaudeMCP` is Claude's view, not an app screen: it is tested with the `tandem mcp` tools (part B of the acceptance).
+- The other screenshots (`shots-spec.ts`) were reviewed: the rest of each mockup is covered by some screenshot or region, with its reason in the sections above.

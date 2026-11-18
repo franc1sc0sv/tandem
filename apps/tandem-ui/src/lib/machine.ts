@@ -98,7 +98,7 @@ export function sharedMemory(hw: HardwareView | null): boolean {
 
 /** Bajo «RAM»: el total, o «unificada» si la GPU la comparte. */
 export function ramSub(hw: HardwareView | null, live: LiveView | null): string {
-  if (sharedMemory(hw)) return "unificada";
+  if (sharedMemory(hw)) return "unified";
   const total = hw?.memory || live?.ram.total || 0;
   return total > 0 ? `${gb(total)} GB` : "";
 }
@@ -107,7 +107,7 @@ export function ramSub(hw: HardwareView | null, live: LiveView | null): string {
 export function gpuSub(hw: HardwareView | null): string {
   if (!hw?.gpu) return "";
   const n = shortGpu(hw.gpu.name);
-  return sharedMemory(hw) ? `${n} integrada` : n;
+  return sharedMemory(hw) ? `${n} integrated` : n;
 }
 
 /** La VRAM pasa del umbral del aviso. */
@@ -117,7 +117,7 @@ export function vramWarn(live: LiveView | null): boolean {
   return g.vramUsed / g.vramTotal >= VRAM_WARN;
 }
 
-const POWER_TEXT: Record<Power, string> = { on: "online", off: "apagada", booting: "encendiendo", lost: "offline" };
+const POWER_TEXT: Record<Power, string> = { on: "online", off: "off", booting: "powering on", lost: "offline" };
 
 /** La línea bajo el nombre: la otra dice si está online; esta, su procesador. */
 export function headerSub(m: Pick<MachineView, "here" | "system" | "power" | "hardware">): string {
@@ -155,7 +155,7 @@ export function missingPermission(missing: Permission[]): { id: Permission; text
   return id ? { id, text: PERMISSION_TEXT[id] } : null;
 }
 
-export const MODULE_TEXT: Record<ModuleState, string> = { active: "activo", off: "apagado", unavailable: "unavailable" };
+export const MODULE_TEXT: Record<ModuleState, string> = { active: "active", off: "idle", unavailable: "unavailable" };
 
 // ---- Líneas de tendencia ------------------------------------------------------------------
 

@@ -287,7 +287,7 @@ function modulesOf(os: Os, name: string, otherName: string, envs: number, adminP
     mac
       ? adminPending
         ? { id: "tunnels", name: "Remote compute", state: "off", detail: `${envs} environments · the administrator service still needs installing`, switchable: true }
-        : { id: "tunnels", name: "Remote compute", state: "active", detail: `${envs} entornos · admin (LaunchDaemon instalado)`, switchable: true }
+        : { id: "tunnels", name: "Remote compute", state: "active", detail: `${envs} environments · admin (LaunchDaemon installed)`, switchable: true }
       : { id: "tunnels", name: "Tunnels", state: "active", detail: `Receives Claude tunnels in ${envs} environments, as administrator.`, switchable: true },
   ];
   if (!mac) list.push({ id: "secure_desktop", name: "Protected screens", state: "active", detail: "The mouse and keyboard also work on UAC prompts and at the sign-in screen.", switchable: true });
@@ -361,7 +361,7 @@ const DEMO_PROCS: Record<string, DemoProc[]> = {
     p("cargo watch -x check -p tandem-monitor", 25, 3902, "[Running cargo check]\n    Finished dev in 0.9s\n[Finished running. Exit status: 0]\n"),
     p("tandemd --sim --monitors 2", 22, 3955, "monitors: 2 detected (1 compatible)\nowner of lc34g55t-9c1e: pc-sim\n"),
     p("pnpm --filter tandem-ui dev", 20, 3988, "VITE v6 ready in 412 ms\n➜ Local: http://localhost:1420/\n"),
-    p("tail -f ~/.tandem/logs/tandemd.log", 19, 4001, "14:06:12 monitor lc34g55t-9c1e input=dp (firmware)\n14:06:14 escena «Trabajo» aplicada\n"),
+    p("tail -f ~/.tandem/logs/tandemd.log", 19, 4001, "14:06:12 monitor lc34g55t-9c1e input=dp (firmware)\n14:06:14 scene “Work” applied\n"),
   ],
   t101: [
     p("cargo test --workspace", 3, 5210, "     Running tests/two_processes.rs\ntest tunnel_survives_link_drop ... ok\ntest tunnel_many_processes ... ok\ntest pairing_with_real_quic ... "),
@@ -369,7 +369,7 @@ const DEMO_PROCS: Record<string, DemoProc[]> = {
   ],
   pr: [],
   lora: [
-    p("uv run train.py --config style.toml", 41, 2290, "epoch 7/20  step 1860/5200  loss 0.0398\nguardado out/estilo-e7.safetensors\nepoch 8/20  step 1880/5200  loss 0.0405\n"),
+    p("uv run train.py --config style.toml", 41, 2290, "epoch 7/20  step 1860/5200  loss 0.0398\nsaved out/style-e7.safetensors\nepoch 8/20  step 1880/5200  loss 0.0405\n"),
     p("python main.py --listen 127.0.0.1", 60, 2104, "Starting server on 127.0.0.1:8188\nGPU: RTX 5080 · 16 GB\nprompt executed in 4.2 s\n"),
     p("tensorboard --logdir out", 40, 2301, "TensorBoard 2.18 at http://localhost:6006/\n"),
   ],
@@ -429,8 +429,8 @@ export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal
   // `F-Palette` lista un túnel por proyecto, con el proyecto como título.
   if (which === "paleta") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }];
   // `V3-Tray`: dos proyectos activos con un túnel cada uno y las «notas» en reposo.
-  if (which === "bandeja") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }, { ...list[2], project: "notas", projectPath: "~/…/notas" }];
-  if (which === "notas") return list.map((x) => (x.id === "pr" ? { ...x, project: "notas", projectPath: "~/…/notas" } : x));
+  if (which === "bandeja") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }, { ...list[2], project: "notes", projectPath: "~/…/notes" }];
+  if (which === "notas") return list.map((x) => (x.id === "pr" ? { ...x, project: "notes", projectPath: "~/…/notes" } : x));
   return list;
 }
 
@@ -548,7 +548,7 @@ function demoLayout(sa: Spec, sb: Spec, scenes: SceneView[], active: string | nu
         off.push({ ...rest, id, machine: null, x: 0, y: 0, usable: false, line: "Disconnected" });
         continue;
       }
-      const shows = external && scene?.shows === m ? ` · escena ${scene.name}` : "";
+      const shows = external && scene?.shows === m ? ` · scene ${scene.name}` : "";
       screens.push({ ...rest, id, machine: m, x: 0, y: 0, usable: true, line: `${spec.name}${shows}`, external: external === true, native });
     }
   }
@@ -912,11 +912,11 @@ export class DemoSource implements Source {
     if (!isNew && !exists) return { ok: false, reason: "That scene no longer exists" };
     const scenes = isNew ? [...this.desk.scenes, view] : this.desk.scenes.map((s) => (s.id === id ? view : s));
     this.set({ ...this.desk, scenes });
-    return { ok: true, text: `Escena «${scene.name}» guardada` };
+    return { ok: true, text: `Scene “${scene.name}” saved` };
   }
 
   private freeId(name: string): string {
-    const base = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "escena";
+    const base = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "scene";
     let id = base;
     for (let n = 2; this.desk.scenes.some((s) => s.id === id); n++) id = `${base}-${n}`;
     return id;
@@ -927,7 +927,7 @@ export class DemoSource implements Source {
     if (!m) return { ok: false, reason: "That monitor is not known" };
     if (m.compat.ok || m.connected) return { ok: false, reason: `${m.name} is in use: only unsupported ones that are not present can be forgotten` };
     this.set({ ...this.desk, monitors: this.desk.monitors.filter((x) => x.id !== id) });
-    return { ok: true, text: `${m.name} olvidado` };
+    return { ok: true, text: `${m.name} forgotten` };
   }
 
   async setPower(machine: Machine, on: boolean): Promise<ActResult> {
@@ -939,7 +939,7 @@ export class DemoSource implements Source {
       ...this.desk,
       machines: { ...this.desk.machines, [machine]: { ...m, power: on ? "on" : "off", resources: on ? (spec?.resources ?? null) : null, live: on ? (spec?.live ?? null) : null } },
     });
-    return { ok: true, text: on ? `${m.name} encendida` : `${m.name} apagada` };
+    return { ok: true, text: on ? `${m.name} powered on` : `${m.name} powered off` };
   }
 
   /** Mide al instante lo que da cada camino en el demo. */

@@ -127,7 +127,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(kinds()).toContain("start_pairing"));
     push(snapshot({ peer: { kind: "unpaired" }, pairing: { kind: "comparing", code: "418027", peer: "PC-Desktop", confirmed: false } }));
     await tick();
-    for (const [i, d] of [..."418027"].entries()) await userEvent.type(within(dlg).getByRole("textbox", { name: `Dígito ${i + 1}` }), d);
+    for (const [i, d] of [..."418027"].entries()) await userEvent.type(within(dlg).getByRole("textbox", { name: `Digit ${i + 1}` }), d);
     await waitFor(() => expect(act).toHaveBeenLastCalledWith({ kind: "confirm_pairing" }));
   });
 
@@ -234,7 +234,7 @@ describe("el asistente contra el agente (IPC real)", () => {
 
   it("paso 5: mover the other machine guarda el acomodo con `set_arrangement`", async () => {
     const { dlg, act } = await mount(4);
-    const other = within(dlg).getByRole("button", { name: /Mover PC-Escritorio/ });
+    const other = within(dlg).getByRole("button", { name: /Move PC-Desktop/ });
     other.focus();
     await userEvent.keyboard("{ArrowDown}");
     await waitFor(() => expect(act).toHaveBeenCalledWith(expect.objectContaining({ kind: "set_arrangement", a_side: "up" })));
@@ -246,7 +246,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "watch_cursor", on: true }));
     notice({ kind: "crossed", from: "a", to: "b", edge: "left" });
     notice({ kind: "cursor", sample: { machine: "b", screen: "m34", x: 3, y: 720 } });
-    expect(await within(dlg).findByText(/Cruzó a PC-Escritorio por el borde izquierdo, como dice el acomodo/)).toBeInTheDocument();
+    expect(await within(dlg).findByText(/Crossed to PC-Desktop through the left edge, as the arrangement says/)).toBeInTheDocument();
     expect(store.wizardCrossed).toBe(true);
   });
 
@@ -255,7 +255,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
     await waitFor(() => expect(store.wizardCrossed).toBe(false));
     notice({ kind: "crossed", from: "a", to: "b", edge: "right" });
-    expect(await within(dlg).findByText(/Cruzó the right, no the left/, {}, { timeout: 2000 })).toBeInTheDocument();
+    expect(await within(dlg).findByText(/Crossed at the right, not the left/, {}, { timeout: 2000 })).toBeInTheDocument();
     expect(store.wizardCrossed).toBe(false);
   });
 
@@ -264,8 +264,8 @@ describe("el asistente contra el agente (IPC real)", () => {
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
     await waitFor(() => expect(store.wizardCrossed).toBe(false));
     notice({ kind: "crossed", from: "a", to: "b", edge: "left" });
-    const text = await within(dlg).findByText(/Cruzó a PC-Escritorio por el borde izquierdo, como dice el acomodo/, {}, { timeout: 2000 });
-    expect(text.textContent).not.toMatch(/Vuelta medida/);
+    const text = await within(dlg).findByText(/Crossed to PC-Desktop through the left edge, as the arrangement says/, {}, { timeout: 2000 });
+    expect(text.textContent).not.toMatch(/Round trip measured/);
     expect(store.wizardCrossed).toBe(true);
   });
 
@@ -275,7 +275,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     try {
       await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }), { advanceTimers: (ms) => vi.advanceTimersByTime(ms) });
       await vi.advanceTimersByTimeAsync(20_500);
-      expect(await within(dlg).findByText(/No cruzó en 20 s/)).toBeInTheDocument();
+      expect(await within(dlg).findByText(/Did not cross in 20 s/)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }

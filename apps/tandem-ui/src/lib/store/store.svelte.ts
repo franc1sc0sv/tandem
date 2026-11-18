@@ -260,7 +260,7 @@ export class Store implements CommandContext {
   async applyScene(id: string): Promise<ActResult> {
     const scene = this.desk.scenes.find((s) => s.id === id);
     this.sceneAsked = { id, name: scene?.name ?? id };
-    this.origin = { title: `Applying the scene “${scene?.name ?? id}”`, doneText: `Escena «${scene?.name ?? id}» activa.` };
+    this.origin = { title: `Applying the scene “${scene?.name ?? id}”`, doneText: `Scene “${scene?.name ?? id}” active.` };
     const r = await this.report(this.source.applyScene(id));
     if (!r.ok) this.origin = null;
     return r;

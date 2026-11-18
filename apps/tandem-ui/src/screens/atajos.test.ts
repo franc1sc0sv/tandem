@@ -46,7 +46,7 @@ describe("lib/atajos", () => {
     });
     expect(rows.map((r) => r.id)).toEqual(["toggle_window", "lock", "palette", "scene:t"]);
     expect(rows.find((r) => r.id === "palette")?.editable).toBe(false);
-    expect(rows[3].label).toBe("Escena «Trabajo»");
+    expect(rows[3].label).toBe("Scene “Work”");
   });
 
   it("choques: con el bloqueo, con la ventana, con la paleta y entre escenas", () => {
@@ -78,7 +78,7 @@ async function open(store: Store) {
   return r;
 }
 
-const comboOf = (label: RegExp | string) => screen.findByRole("button", { name: new RegExp(`Atajo de «${label instanceof RegExp ? label.source : label}»`) });
+const comboOf = (label: RegExp | string) => screen.findByRole("button", { name: new RegExp(`Shortcut for “${label instanceof RegExp ? label.source : label}”`) });
 
 describe("editar atajos en modo demo", () => {
   async function demo() {
@@ -93,7 +93,7 @@ describe("editar atajos en modo demo", () => {
     await comboOf("Show or hide Tandem");
     expect(await comboOf("Lock the keyboard on this machine")).toHaveTextContent("Scroll Lock");
     expect(await comboOf("Command palette")).toBeDisabled();
-    expect(await comboOf("Escena «Trabajo»")).toBeInTheDocument();
+    expect(await comboOf("Scene “Work”")).toBeInTheDocument();
   });
 
   it("el bloqueo se guarda al grabarlo y admite F13 solo", async () => {
@@ -106,7 +106,7 @@ describe("editar atajos en modo demo", () => {
 
   it("una escena guarda su atajo nuevo", async () => {
     const store = await demo();
-    const combo = await comboOf("Escena «Trabajo»");
+    const combo = await comboOf("Scene “Work”");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "7", code: "Digit7", ...chord });
     await vi.waitFor(() => expect(store.desk.scenes.find((s) => s.id === "trabajo")?.shortcut).toEqual(["ControlLeft", "AltLeft", "Digit7"]));
@@ -115,15 +115,15 @@ describe("editar atajos en modo demo", () => {
   it("rechaza el atajo de otra fila y no guarda nada", async () => {
     const store = await demo();
     const antes = store.desk.scenes.map((s) => s.shortcut);
-    const combo = await comboOf("Escena «Trabajo»");
+    const combo = await comboOf("Scene “Work”");
     await userEvent.click(combo);
     // ⌃⌥2 es el de la segunda escena.
     await fireEvent.keyDown(combo, { key: "2", code: "Digit2", ...chord });
-    expect(screen.getByRole("alert")).toHaveTextContent(/Ya lo usa «Escena «/);
+    expect(screen.getByRole("alert")).toHaveTextContent(/Already used by “Scene “/);
     expect(store.desk.scenes.map((s) => s.shortcut)).toEqual(antes);
     // ⌃⌥0 es el de la ventana.
     await fireEvent.keyDown(combo, { key: "0", code: "Digit0", ...chord });
-    expect(screen.getByRole("alert")).toHaveTextContent("Ya lo usa «Show or hide Tandem»");
+    expect(screen.getByRole("alert")).toHaveTextContent("Already used by “Show or hide Tandem”");
   });
 
   it("el bloqueo no puede ser el de una escena", async () => {
@@ -131,7 +131,7 @@ describe("editar atajos en modo demo", () => {
     const combo = await comboOf("Lock the keyboard on this machine");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "1", code: "Digit1", ...chord });
-    expect(screen.getByRole("alert")).toHaveTextContent("Ya lo usa «Escena «Trabajo»»");
+    expect(screen.getByRole("alert")).toHaveTextContent("Already used by “Scene “Work””");
     expect(store.desk.lockShortcut).toEqual(["ScrollLock"]);
   });
 });
@@ -209,7 +209,7 @@ describe("editar atajos contra el agente real (IPC simulada)", () => {
 
   it("una escena manda edit_scene con su atajo y lo demás intacto", async () => {
     const { act } = await live();
-    const combo = await comboOf("Escena «Juego»");
+    const combo = await comboOf("Scene “Game”");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "3", code: "Digit3", ...chord });
     await vi.waitFor(() =>
@@ -230,12 +230,12 @@ describe("editar atajos contra el agente real (IPC simulada)", () => {
 
   it("un choque se rechaza sin pedirle nada al agente", async () => {
     const { act } = await live();
-    const combo = await comboOf("Escena «Juego»");
+    const combo = await comboOf("Scene “Game”");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "1", code: "Digit1", ...chord });
-    expect(screen.getByRole("alert")).toHaveTextContent("Ya lo usa «Escena «Trabajo»»");
+    expect(screen.getByRole("alert")).toHaveTextContent("Already used by “Scene “Work””");
     await fireEvent.keyDown(combo, { key: "k", code: "KeyK", ctrlKey: true });
-    expect(screen.getByRole("alert")).toHaveTextContent("Ya lo usa «Command palette»");
+    expect(screen.getByRole("alert")).toHaveTextContent("Already used by “Command palette”");
     expect(act).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "edit_scene" }));
   });
 

@@ -44,7 +44,7 @@ describe("escenas (D6)", () => {
 
   it("la tarjeta dice qué muestra cada monitor y qué máquina pone la miniatura", () => {
     const v = sceneView(scene(), ctx);
-    expect(v).toMatchObject({ id: "juego", key: "⌃⌥4", desc: '34" → PC-Escritorio', shows: "b" });
+    expect(v).toMatchObject({ id: "juego", key: "⌃⌥4", desc: '34" → PC-Desktop', shows: "b" });
     expect(sceneView(scene({ monitors: [] }), ctx)).toMatchObject({ desc: "No monitors changed", shows: null });
   });
 
@@ -72,7 +72,7 @@ describe("escenas (D6)", () => {
     expect(problemOf(d, [])).toEqual({ field: "name", text: "Give the scene a name" });
     expect(problemOf({ ...d, name: "x".repeat(MAX_NAME + 1) }, [])?.field).toBe("name");
     const other = sceneView(scene({ name: "Otra" }), ctx);
-    expect(problemOf({ ...d, name: "Nueva", shortcut: ["ControlRight", "AltRight", "Digit4"] }, [other])).toEqual({ field: "shortcut", text: "Ese atajo ya es el de «Otra»" });
+    expect(problemOf({ ...d, name: "Nueva", shortcut: ["ControlRight", "AltRight", "Digit4"] }, [other])).toEqual({ field: "shortcut", text: "That shortcut already belongs to “Otra”" });
     expect(problemOf({ ...d, name: "Nueva", shortcut: ["ControlLeft", "Digit9"] }, [other])).toBeNull();
   });
 });

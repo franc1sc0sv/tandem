@@ -37,7 +37,7 @@ describe("Red (V3-Network) en modo demo", () => {
     const map = screen.getByRole("region", { name: "Link map" });
     expect(within(map).getByText("MacBook Pro")).toBeInTheDocument();
     expect(within(map).getByText("PC-Desktop")).toBeInTheDocument();
-    const paths = within(map).getByRole("img", { name: "Tres caminos: USB-C activo a 0.3 ms, Ethernet no cable, Wi-Fi de respaldo a 3.8 ms" });
+    const paths = within(map).getByRole("img", { name: "Three paths: USB-C active at 0.3 ms, Ethernet no cable, Wi-Fi as backup at 3.8 ms" });
     expect(within(paths).getByText("USB-C")).toBeInTheDocument();
     expect(within(paths).getByText("0.3 ms")).toBeInTheDocument();
     expect(within(paths).getByText("Ethernet · no cable")).toBeInTheDocument();
@@ -57,12 +57,12 @@ describe("Red (V3-Network) en modo demo", () => {
     expect(screen.getByText("p99 1.9 ms")).toBeInTheDocument();
     const bw = screen.getByText("Bandwidth").closest<HTMLElement>(".card")!;
     expect(within(bw).getByText("9.4 Gbps")).toBeInTheDocument();
-    expect(within(bw).getByText("por USB-C")).toBeInTheDocument();
+    expect(within(bw).getByText("over USB-C")).toBeInTheDocument();
     expect(screen.getByText("Latency · 60 s")).toBeInTheDocument();
-    expect(screen.getByText("objetivo 4 ms")).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Latencia de los últimos 60 s: ahora 1.3 ms, pico de 5.6 ms" })).toBeInTheDocument();
+    expect(screen.getByText("target 4 ms")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Latency over the last 60 s: now 1.3 ms, peak of 5.6 ms" })).toBeInTheDocument();
     expect(document.querySelectorAll("circle.pk")).toHaveLength(1);
-    expect(screen.getByText("Spike when the cable was unplugged · pasó a Wi-Fi en 0.6 s")).toBeInTheDocument();
+    expect(screen.getByText("Spike when the cable was unplugged · switched to Wi-Fi in 0.6 s")).toBeInTheDocument();
   });
 
   it("una tarjeta por camino, con su chip de estado uniforme y sus barras", async () => {
@@ -74,7 +74,7 @@ describe("Red (V3-Network) en modo demo", () => {
     expect(within(usb!).getByText("Main")).toBeInTheDocument();
     expect(within(usb!).getByText("0.3 ms")).toBeInTheDocument();
     expect(within(usb!).getByText("9.4 Gbps")).toBeInTheDocument();
-    expect(within(usb!).getByRole("meter", { name: "Bandwidth de USB-C" })).toHaveAttribute("aria-valuenow", "94");
+    expect(within(usb!).getByRole("meter", { name: "USB-C bandwidth" })).toHaveAttribute("aria-valuenow", "94");
     expect(within(eth!).getByText("Ethernet")).toBeInTheDocument();
     expect(within(eth!).getByText("No cable")).toBeInTheDocument();
     expect(eth!.querySelector(".st")).toHaveClass("unplugged");
@@ -84,7 +84,7 @@ describe("Red (V3-Network) en modo demo", () => {
     expect(wifi!.querySelector(".st")).toHaveClass("backup");
     expect(within(wifi!).getByText("Backup")).toBeInTheDocument();
     expect(within(wifi!).getByText("410 Mbps")).toBeInTheDocument();
-    expect(within(wifi!).getByRole("meter", { name: "Latencia de Wi-Fi" })).toHaveAttribute("aria-valuenow", "38");
+    expect(within(wifi!).getByRole("meter", { name: "Wi-Fi latency" })).toHaveAttribute("aria-valuenow", "38");
   });
 
   it("no hay textos de relleno ni restos de plantilla", async () => {
@@ -100,29 +100,29 @@ describe("Red (V3-Network) en modo demo", () => {
     const src = new DemoSource(demoOptions("demo"));
     const spy = vi.spyOn(src, "measureLink");
     await open(src);
-    const btn = screen.getByRole("button", { name: "Medir ancho de banda" });
+    const btn = screen.getByRole("button", { name: "Measure bandwidth" });
     expect(btn).toBeEnabled();
     await fireEvent.click(btn);
     expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenCalledWith(undefined);
     // La prueba dura: el botón se apaga y dice qué camino se mide.
-    const busy = await screen.findByRole("button", { name: "Midiendo USB-C…" });
+    const busy = await screen.findByRole("button", { name: "Measuring USB-C…" });
     expect(busy).toBeDisabled();
     await flush(async () => {
       await vi.advanceTimersByTimeAsync(1600);
     });
     expect(await screen.findByText("USB-C: 9.4 Gbps")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Medir ancho de banda" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Measure bandwidth" })).toBeEnabled();
   });
 
   it("no link con the other machine: los tres caminos no cable y el botón apagado", async () => {
     await demo("demo&still&trouble=link-down");
     expect(screen.getAllByText("No cable")).toHaveLength(2);
-    expect(screen.getAllByText("Sin señal")).toHaveLength(1);
+    expect(screen.getAllByText("No signal")).toHaveLength(1);
     expect(screen.getByText("Wi-Fi · no signal")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/Wi-Fi[^.]{0,6}no cable/i);
-    expect(screen.getByRole("button", { name: "Medir ancho de banda" })).toBeDisabled();
-    expect(screen.getByText("sin entrada")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Measure bandwidth" })).toBeDisabled();
+    expect(screen.getByText("no input")).toBeInTheDocument();
     expect(screen.getByText("not measured")).toBeInTheDocument();
     expect(screen.getByText("No samples yet")).toBeInTheDocument();
     expect(document.querySelectorAll("circle.pk")).toHaveLength(0);
@@ -138,7 +138,7 @@ describe("Red (V3-Network) en modo demo", () => {
     });
     expect(store.desk.network.now).toBeGreaterThan(DEMO_NOW + 24_000);
     expect(screen.queryByText(/^Spike when the cable was unplugged/)).toBeNull();
-    expect(screen.getByText("Pasó de Wi-Fi a USB-C")).toBeInTheDocument();
+    expect(screen.getByText("Switched from Wi-Fi to USB-C")).toBeInTheDocument();
   });
 });
 
@@ -219,7 +219,7 @@ describe("Red con el agente real (IPC)", () => {
     await open(new LiveSource(b));
     // Antes de la primera muestra: los tres no cable.
     expect(screen.getAllByText("No cable")).toHaveLength(2);
-    expect(screen.getAllByText("Sin señal")).toHaveLength(1);
+    expect(screen.getAllByText("No signal")).toHaveLength(1);
     await flush(() => handlers.network?.(wire({ switches: [] })));
     expect(screen.getByText("Main")).toBeInTheDocument();
     expect(screen.getByText("0.4 ms")).toBeInTheDocument();
@@ -235,16 +235,16 @@ describe("Red con el agente real (IPC)", () => {
     cut.paths[2] = { ...cut.paths[2]!, state: "primary" };
     cut.switches = [{ at_ms: Date.now() - 1000, from: "usb4", to: "wifi", took_ms: 600 }];
     await flush(() => handlers.network?.(cut));
-    expect(screen.getByText("Caído")).toBeInTheDocument();
-    expect(screen.getByText("USB-C · caído")).toBeInTheDocument();
-    expect(screen.getByText("The cable was unplugged · pasó a Wi-Fi en 0.6 s")).toBeInTheDocument();
+    expect(screen.getByText("Down")).toBeInTheDocument();
+    expect(screen.getByText("USB-C · down")).toBeInTheDocument();
+    expect(screen.getByText("The cable was unplugged · switched to Wi-Fi in 0.6 s")).toBeInTheDocument();
   });
 
   it("«Medir ancho de banda» manda MeasureLink por el camino principal y avisa lo medido", async () => {
     const { b, act, handlers } = bridge();
     await open(new LiveSource(b));
     await flush(() => handlers.network?.(wire()));
-    await userEvent.click(screen.getByRole("button", { name: "Medir ancho de banda" }));
+    await userEvent.click(screen.getByRole("button", { name: "Measure bandwidth" }));
     expect(act).toHaveBeenCalledWith({ kind: "measure_link", path: "usb4" });
     expect(await screen.findByText("USB-C: 9.4 Gbps")).toBeInTheDocument();
   });
@@ -253,23 +253,23 @@ describe("Red con el agente real (IPC)", () => {
     const { b, handlers } = bridge({ kind: "rejected", reason: "la entrada pasó su objetivo" });
     await open(new LiveSource(b));
     await flush(() => handlers.network?.(wire()));
-    await userEvent.click(screen.getByRole("button", { name: "Medir ancho de banda" }));
+    await userEvent.click(screen.getByRole("button", { name: "Measure bandwidth" }));
     expect(await screen.findByText("la entrada pasó su objetivo")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Medir ancho de banda" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Measure bandwidth" })).toBeEnabled();
   });
 
   it("si el agente está midiendo (otra ventana), el botón lo dice y espera", async () => {
     const { b, handlers } = bridge();
     await open(new LiveSource(b));
     await flush(() => handlers.network?.(wire({ measuring: "wifi" })));
-    expect(screen.getByRole("button", { name: "Midiendo Wi-Fi…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Measuring Wi-Fi…" })).toBeDisabled();
   });
 
   it("sin the other machine emparejada no se puede medir", async () => {
     const { b } = bridge();
     (b.snapshot as unknown) = async () => ({ ...snapshot(), peer: { kind: "unpaired" } });
     await open(new LiveSource(b));
-    expect(screen.getByRole("button", { name: "Medir ancho de banda" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Measure bandwidth" })).toBeDisabled();
   });
 });
 

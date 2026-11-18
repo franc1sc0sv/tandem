@@ -16,7 +16,7 @@ const SIDECAR = "/Applications/Tandem.app/Contents/MacOS/tandemd";
 
 export const PERMISSION_INFO: Record<Permission, PermissionInfo> = {
   accessibility: {
-    title: "Accesibilidad (Accessibility)",
+    title: "Accessibility",
     why: "To type and move the mouse on this machine when you use them from the other one.",
     how: `In System Settings → Privacy & Security → Accessibility, turn on tandemd. First press “Request permissions”: that way it shows up on its own. If not, press + and choose ${SIDECAR}.`,
   },
@@ -26,7 +26,7 @@ export const PERMISSION_INFO: Record<Permission, PermissionInfo> = {
     how: `In System Settings → Privacy & Security → Input Monitoring, turn on tandemd. First press “Request permissions”: that way it shows up on its own. If not, press + and choose ${SIDECAR}.`,
   },
   local_network: {
-    title: "Red local (Local Network)",
+    title: "Local Network",
     why: "To find the other machine on the network and talk to it encrypted.",
     how: "In System Settings → Privacy & Security → Local Network, turn on Tandem and tandemd. If they do not show up yet, macOS will ask the first time they look for the other machine.",
   },

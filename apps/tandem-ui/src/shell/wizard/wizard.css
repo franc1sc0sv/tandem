@@ -37,6 +37,7 @@
   --btn-px: 14px;
   --btn-fs: 13px;
   --btn-r: 10px;
+  --btn-gap: 9px;
 }
 /* «Instalar» (`F-Setup1`): 34 de alto y la flecha un poco más abajo, como el mockup. */
 .wiz .wz-inst {

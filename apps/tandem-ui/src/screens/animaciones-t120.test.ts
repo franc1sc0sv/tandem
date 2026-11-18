@@ -61,7 +61,7 @@ describe.each(Object.entries(SCREENS))("animaciones de %s", (_name, s) => {
     expect(used.length).toBeGreaterThan(0);
     const mine = [...css.matchAll(/animation: ([^;]*);/g)].map((m) => m[1].replace(/^[\w-]+ /, ""));
     const theirs = used.map((a) => a.replace(/^\w+ /, "").replace(/ (forwards|both)$/, ""));
-    for (const m of mine) expect(theirs.some((t) => m.startsWith(t) || t.startsWith(m)), `«${m}» no está en el mockup`).toBe(true);
+    for (const m of mine) expect(theirs.some((t) => m.startsWith(t) || t.startsWith(m)), `“${m}” no está en el mockup`).toBe(true);
     expect(mine.length).toBeGreaterThan(0);
   });
 });

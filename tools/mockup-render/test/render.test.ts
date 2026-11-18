@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { jobsFor, parseConcurrency, renderMockups, staleShots } from '../src/render.ts';
 
 describe('parseConcurrency', () => {
-  it('acepta enteros ≥ 1', () => {
+  it('accepts integers ≥ 1', () => {
     expect(parseConcurrency('4')).toBe(4);
     expect(parseConcurrency(' 2 ')).toBe(2);
     expect(parseConcurrency(1)).toBe(1);

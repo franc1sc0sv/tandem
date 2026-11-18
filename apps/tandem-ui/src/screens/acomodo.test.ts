@@ -23,7 +23,7 @@ async function open(source: Source, hash = "#/acomodo") {
   return store;
 }
 
-const pad = () => screen.getByRole("radiogroup", { name: /¿Dónde está/ });
+const pad = () => screen.getByRole("radiogroup", { name: /Where is/ });
 const align = () => screen.getByRole("radiogroup", { name: "Alignment" });
 const slot = (name: string) => within(pad()).getByRole("radio", { name });
 const alignTo = (name: string) => within(align()).getByRole("radio", { name });
@@ -32,7 +32,7 @@ describe("Acomodo (V3-Arrangement) en modo demo", () => {
   it("abre con el 34\" elegido, the other machine to the left of y alineada abajo", async () => {
     await open(new DemoSource(demoOptions("demo&still")));
     expect(screen.getByRole("button", { name: /Odyssey G5 34"/ })).toHaveAttribute("aria-pressed", "true");
-    expect(pad()).toHaveAccessibleName("¿Dónde está MacBook Pro?");
+    expect(pad()).toHaveAccessibleName("Where is MacBook Pro?");
     expect(slot("Left")).toHaveAttribute("aria-checked", "true");
     const opts = [...align().querySelectorAll("[role=radio]")].map((b) => b.textContent);
     expect(opts).toEqual(["Top", "Center", "Bottom"]);
@@ -61,7 +61,7 @@ describe("Acomodo (V3-Arrangement) en modo demo", () => {
     const store = await open(src);
     await userEvent.click(slot("Bottom"));
     await userEvent.click(alignTo("Center"));
-    await userEvent.click(screen.getByRole("button", { name: /Guardar/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Save/ }));
     expect(store.desk.layout.arrangement).toEqual({ aSide: "down", align: "center" });
     expect(await screen.findByText("Arrangement saved")).toBeInTheDocument();
   });
@@ -69,11 +69,11 @@ describe("Acomodo (V3-Arrangement) en modo demo", () => {
   it("con the MacBook elegida el mini plano se ve desde ella", async () => {
     const store = await open(new DemoSource(demoOptions("demo&still")));
     await userEvent.click(screen.getByRole("button", { name: /MacBook Pro/ }));
-    expect(pad()).toHaveAccessibleName('¿Dónde está el 34"?');
+    expect(pad()).toHaveAccessibleName('Where is the 34"?');
     expect(slot("Right")).toHaveAttribute("aria-checked", "true");
     // Poner el 34" arriba de the MacBook es tener the MacBook abajo del 34".
     await userEvent.click(slot("Top"));
-    await userEvent.click(screen.getByRole("button", { name: /Guardar/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Save/ }));
     expect(store.desk.layout.arrangement.aSide).toBe("down");
   });
 
@@ -82,7 +82,7 @@ describe("Acomodo (V3-Arrangement) en modo demo", () => {
     await userEvent.click(screen.getByRole("button", { name: /Odyssey G5 32"/ }));
     expect(screen.getByText("Unsupported: it does not take part in the arrangement.")).toBeInTheDocument();
     expect(screen.queryByRole("radiogroup", { name: "Alignment" })).toBeNull();
-    expect(screen.getByText("Disconnected")).toBeInTheDocument();
+    expect(screen.getByText("disconnected")).toBeInTheDocument();
   });
 
   it("las animaciones del mockup están y son de CSS (las apaga prefers-reduced-motion)", () => {
@@ -106,21 +106,21 @@ describe("Crossing test (F-CrossingTest)", () => {
     await open(src, "#/acomodo/cruce");
     src.cross({ from: "a", to: "b", edge: "right", at: 0, of: 0, ms: null });
     expect(await screen.findByText("Crossed fine")).toBeInTheDocument();
-    expect(screen.getByText(/Entró a PC-Escritorio\./)).toBeInTheDocument();
+    expect(screen.getByText(/It entered PC-Desktop\./)).toBeInTheDocument();
     expect(screen.queryByText(/Latencia/)).toBeNull();
   });
 
   it("pide cruzar por el borde del acomodo y pasa con el cruce", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     await open(src, "#/acomodo/cruce");
-    expect(screen.getByText("Lleva el mouse to the right of de the MacBook")).toBeInTheDocument();
+    expect(screen.getByText("Move the mouse to the right of the MacBook")).toBeInTheDocument();
     expect(screen.getByText("waiting for the cursor")).toBeInTheDocument();
     src.cross({ from: "a", to: "b", edge: "right", at: 612, of: 1440, ms: 0.4 });
     expect(await screen.findByText("Crossed fine")).toBeInTheDocument();
-    expect(screen.getByText(/Entró a PC-Escritorio at the right height \(y = 612 de 1440\)\. Latencia del cruce: 0\.4 ms\./)).toBeInTheDocument();
+    expect(screen.getByText(/It entered PC-Desktop at the right height \(y = 612 of 1440\)\. Crossing latency: 0\.4 ms\./)).toBeInTheDocument();
     expect(screen.getByText("the cursor arrived here")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Test again/ }));
-    expect(await screen.findByText("Lleva el mouse to the right of de the MacBook")).toBeInTheDocument();
+    expect(await screen.findByText("Move the mouse to the right of the MacBook")).toBeInTheDocument();
   });
 
   it("un cruce por otro borde dice por cuál y ofrece editar el acomodo", async () => {
@@ -128,14 +128,14 @@ describe("Crossing test (F-CrossingTest)", () => {
     await open(src, "#/acomodo/cruce");
     src.cross({ from: "a", to: "b", edge: "up", at: 10, of: 3440, ms: 1 });
     expect(await screen.findByText("Crossed at another edge")).toBeInTheDocument();
-    expect(screen.getByText(/Cruzó the top, no the right/)).toBeInTheDocument();
+    expect(screen.getByText(/Crossed at the top, not the right/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Edit arrangement/ })).toHaveAttribute("href", "#/acomodo");
   });
 
   it("sin cruce a tiempo se agota", async () => {
     await open(new DemoSource(demoOptions("demo&still&cross=timeout")), "#/acomodo/cruce");
-    expect(await screen.findByText("No cruzó en 20 s")).toBeInTheDocument();
-    expect(screen.getByText(/Quizá el 34" está en otro lado de tu escritorio/)).toBeInTheDocument();
+    expect(await screen.findByText("Did not cross in 20 s")).toBeInTheDocument();
+    expect(screen.getByText(/Maybe the 34" is on another side of your desk/)).toBeInTheDocument();
   });
 
   it("el borde pedido sigue al acomodo guardado", async () => {
@@ -143,7 +143,7 @@ describe("Crossing test (F-CrossingTest)", () => {
     await src.setArrangement({ aSide: "down", align: "start" });
     await open(src, "#/acomodo/cruce");
     // A está abajo de B: desde A se sale the top.
-    expect(screen.getByText("Lleva el mouse arriba de the MacBook")).toBeInTheDocument();
+    expect(screen.getByText("Move the mouse above the MacBook")).toBeInTheDocument();
   });
 });
 
@@ -237,9 +237,9 @@ describe("con el agente real", () => {
     await open(new LiveSource(bridgeTwo));
     await userEvent.click(screen.getByRole("button", { name: /Lateral/ }));
     expect(screen.queryByText(/Unsupported/)).toBeNull();
-    expect(pad()).toHaveAccessibleName("¿Dónde está Integrada?");
+    expect(pad()).toHaveAccessibleName("Where is Integrada?");
     await userEvent.click(slot("Top"));
-    await userEvent.click(screen.getByRole("button", { name: /Guardar/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Save/ }));
     // Desde b the MacBook está arriba: se guarda como el lado de A.
     expect(act).toHaveBeenCalledWith({ kind: "set_arrangement", a_side: "up", align: "start" });
   });
@@ -257,7 +257,7 @@ describe("con el agente real", () => {
     const b = new Proxy({} as Bridge, { get: (_t, k) => known[k as keyof Bridge] ?? (() => new Promise(() => {})) });
     await open(new LiveSource(b));
     await userEvent.click(slot("Bottom"));
-    await userEvent.click(screen.getByRole("button", { name: /Guardar/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Save/ }));
     expect(await screen.findByText("Arrangement saved")).toBeInTheDocument();
     // El agente respondió, pero el `Desk` nuevo no llegó: sigue viéndose lo guardado.
     expect(slot("Bottom")).toHaveAttribute("aria-checked", "true");
@@ -280,7 +280,7 @@ describe("con el agente real", () => {
     const act = vi.fn(async (_a: Action) => ({ kind: "done" as const }));
     await open(new LiveSource(bridge(act)));
     await userEvent.click(slot("Bottom"));
-    await userEvent.click(screen.getByRole("button", { name: /Guardar/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Save/ }));
     expect(act).toHaveBeenCalledWith({ kind: "set_arrangement", a_side: "down", align: "start" });
     expect(await screen.findByText("Arrangement saved")).toBeInTheDocument();
   });
@@ -289,7 +289,7 @@ describe("con el agente real", () => {
     const act = vi.fn(async () => ({ kind: "rejected" as const, reason: "la máquina b todavía no se conoce" }));
     const store = await open(new LiveSource(bridge(act)));
     await userEvent.click(slot("Bottom"));
-    await userEvent.click(screen.getByRole("button", { name: /Guardar/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Save/ }));
     expect(await screen.findByText("la máquina b todavía no se conoce")).toBeInTheDocument();
     expect(slot("Bottom")).toHaveAttribute("aria-checked", "true");
     expect(store.desk.layout.arrangement.aSide).toBe("right");

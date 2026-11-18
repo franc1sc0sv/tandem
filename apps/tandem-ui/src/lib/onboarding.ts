@@ -136,7 +136,7 @@ function machineStep(snap: Snapshot): StepView {
       v.checks.push({ state: "ok", label: "macOS permissions", detail: "Accessibility and Input Monitoring granted" });
     }
     for (const p of missing) {
-      v.checks.push({ state: "fail", label: `Permiso: ${permissionLabel(p)}`, detail: "missing; it is checked automatically as soon as you grant it" });
+      v.checks.push({ state: "fail", label: `Permission: ${permissionLabel(p)}`, detail: "missing; it is checked automatically as soon as you grant it" });
     }
     if (missing.length > 0) {
       // macOS concede los permisos a un binario concreto: se le dice cuál es, sin terminal (T-090).
@@ -261,7 +261,7 @@ export function summaryChecks(o: Onboarding, snap: Snapshot): Check[] {
   out.push({ state: machine ? "ok" : "fail", label: c.caps.here.name, detail: machine ? "permissions verified" : "permissions missing" });
   if (c.peer.kind === "paired") {
     const ping = o.pair.ping;
-    out.push({ state: c.peer.link && ping ? "ok" : "fail", label: `${c.peer.name} emparejada`, detail: ping ? `${LINK_NAME[ping.link]} · ${ping.millis} ms` : "link not tested" });
+    out.push({ state: c.peer.link && ping ? "ok" : "fail", label: `${c.peer.name} paired`, detail: ping ? `${LINK_NAME[ping.link]} · ${ping.millis} ms` : "link not tested" });
   } else out.push({ state: "idle", label: "Without the other machine", detail: "continuing with this one alone" });
   out.push(
     o.keyboard.confirmed

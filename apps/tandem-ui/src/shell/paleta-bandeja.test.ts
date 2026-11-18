@@ -69,9 +69,9 @@ describe("paleta contra el agente real (IPC)", () => {
     const store = new Store(new LiveSource(bridge), { hash: "#/puesto" });
     await store.start();
     await openPalette(store);
-    expect(screen.getByRole("option", { name: /Apagar Taller/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Power off Taller/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /Measure the link/ })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /Aplicar/ })).toBeNull();
+    expect(screen.queryByRole("option", { name: /Apply/ })).toBeNull();
   });
 
   it("«Apagar Taller» pide set_power al agente y cierra la paleta", async () => {
@@ -79,7 +79,7 @@ describe("paleta contra el agente real (IPC)", () => {
     const store = new Store(new LiveSource(bridge), { hash: "#/puesto" });
     await store.start();
     await openPalette(store);
-    await userEvent.click(screen.getByRole("option", { name: /Apagar Taller/ }));
+    await userEvent.click(screen.getByRole("option", { name: /Power off Taller/ }));
     expect(act).toHaveBeenCalledWith({ kind: "set_power", machine: "a", on: false });
     expect(store.paletteOpen).toBe(false);
   });
@@ -98,7 +98,7 @@ describe("paleta contra el agente real (IPC)", () => {
     const store = new Store(new LiveSource(bridge), { hash: "#/puesto" });
     await store.start();
     await openPalette(store);
-    await userEvent.click(screen.getByRole("option", { name: /Encender Taller/ }));
+    await userEvent.click(screen.getByRole("option", { name: /Power on Taller/ }));
     expect(act).toHaveBeenCalledWith({ kind: "set_power", machine: "a", on: true });
   });
 });
@@ -109,7 +109,7 @@ describe("paleta en modo demo", () => {
     await store.start();
     await openPalette(store);
     const input = screen.getByRole("combobox", { name: "Search" });
-    await userEvent.type(input, "solo macbook");
+    await userEvent.type(input, "macbook only");
     await fireEvent.keyDown(input, { key: "Enter" });
     await vi.waitFor(() => expect(store.desk.activeScene).toBe("solo-a"));
     expect(store.paletteOpen).toBe(false);
@@ -119,7 +119,7 @@ describe("paleta en modo demo", () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/puesto" });
     await store.start();
     await openPalette(store);
-    await userEvent.click(screen.getByRole("option", { name: /Apagar PC-Escritorio/ }));
+    await userEvent.click(screen.getByRole("option", { name: /Power off PC-Desktop/ }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).not.toBe("on"));
   });
 
@@ -138,7 +138,7 @@ describe("bandeja contra el agente real (IPC)", () => {
     const { bridge, act } = fakeBridge(connected({ state: { on: { a: false, b: true } } }));
     const store = new Store(new LiveSource(bridge), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
-    await vi.waitFor(() => expect(screen.getByText("Taller está apagada")).toBeInTheDocument());
+    await vi.waitFor(() => expect(screen.getByText("Taller is off")).toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: "Power on" }));
     expect(act).toHaveBeenCalledWith({ kind: "set_power", machine: "a", on: true });
   });
@@ -166,8 +166,8 @@ describe("bandeja en modo demo", () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
     await vi.waitFor(() => expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute("aria-pressed", "true"));
-    await userEvent.click(screen.getByRole("button", { name: "Solo MacBook" }));
-    await vi.waitFor(() => expect(screen.getByRole("button", { name: "Solo MacBook" })).toHaveAttribute("aria-pressed", "true"));
+    await userEvent.click(screen.getByRole("button", { name: "MacBook only" }));
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: "MacBook only" })).toHaveAttribute("aria-pressed", "true"));
     expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute("aria-pressed", "false");
   });
 

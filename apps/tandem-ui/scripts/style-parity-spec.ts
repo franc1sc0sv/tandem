@@ -260,10 +260,10 @@ export const PAIRS: StylePair[] = [
   { name: "segmentado lg · opción elegida", app: part("seg-lg", '[aria-checked="true"]'), mockup: "V3-Monitors", ref: ref('.seg .segb[aria-checked="true"]'), groups: ALL },
   { name: "segmentado lg · opción", app: part("seg-lg", '[aria-checked="false"]'), mockup: "V3-Monitors", ref: ref('.seg .segb[aria-checked="false"]'), groups: ["fuente"] },
   // F-Settings, pestaña «Keyboard and mouse»: interruptor encendido y apagado, con su perilla.
-  { name: "interruptor encendido", app: part("sw-on", ".sw"), mockup: "F-Settings", state: "teclado", ref: ref("button.sw:not(.off)"), groups: SWITCH },
-  { name: "interruptor encendido · perilla", app: part("sw-on", ".sw", "::after"), mockup: "F-Settings", state: "teclado", ref: ref("button.sw:not(.off)", "::after"), groups: KNOB },
-  { name: "interruptor apagado", app: part("sw-off", ".sw"), mockup: "F-Settings", state: "teclado", ref: ref("button.sw.off"), groups: SWITCH },
-  { name: "interruptor apagado · perilla", app: part("sw-off", ".sw", "::after"), mockup: "F-Settings", state: "teclado", ref: ref("button.sw.off", "::after"), groups: KNOB },
+  { name: "interruptor encendido", app: part("sw-on", ".sw"), mockup: "F-Settings", state: "keyboard", ref: ref("button.sw:not(.off)"), groups: SWITCH },
+  { name: "interruptor encendido · perilla", app: part("sw-on", ".sw", "::after"), mockup: "F-Settings", state: "keyboard", ref: ref("button.sw:not(.off)", "::after"), groups: KNOB },
+  { name: "interruptor apagado", app: part("sw-off", ".sw"), mockup: "F-Settings", state: "keyboard", ref: ref("button.sw.off"), groups: SWITCH },
+  { name: "interruptor apagado · perilla", app: part("sw-off", ".sw", "::after"), mockup: "F-Settings", state: "keyboard", ref: ref("button.sw.off", "::after"), groups: KNOB },
   // V3-Desk: el chip contador de Túneles y las tarjetas (la de escritorios y la de máquina).
   { name: "chip contador", app: part("chip-count", ".chip"), mockup: "V3-Desk", ref: ref(".nav .chip"), groups: ALL },
   { name: "tarjeta", app: part("card", ".card"), mockup: "V3-Desk", ref: ref("div.card"), groups: ["relleno", "radio", "borde", "fondo", "sombra", "transition", "animation"] },

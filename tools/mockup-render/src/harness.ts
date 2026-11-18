@@ -23,7 +23,7 @@ export class MissingMockupShotError extends Error {
 
 /**
  * Path of the reference screenshot: `<shotsDir>/<mockup>.png` or `<mockup>--<state>.png`.
- * Lanza `MissingMockupShotError` si no existe.
+ * Throws `MissingMockupShotError` if it does not exist.
  */
 export function mockupShotPath(mockup: string, state?: string, shotsDir: string = SHOTS_DIR): string {
   const path = join(shotsDir, shotName(mockup, state));
@@ -51,12 +51,12 @@ export interface MockupCompareResult extends CompareResult {
 
 /**
  * Compares an app screenshot (in-memory PNG or path) with the mockup one in
- * `docs/mockups-png/<mockup>[--<estado>].png`.
+ * `docs/mockups-png/<mockup>[--<state>].png`.
  *
  * ```ts
  * const r = compareWithMockup(await capture(page), { mockup: 'V3-Desk', diffPath: 'out/desk-diff.png' });
  * expect(r.similarity).toBeGreaterThanOrEqual(0.99);           // DESIGN §12
- * expect(r.worstTile.similarity).toBeGreaterThanOrEqual(0.9);  // un cambio local no pasa desapercibido
+ * expect(r.worstTile.similarity).toBeGreaterThanOrEqual(0.9);  // a local change does not go unnoticed
  * ```
  *
  * Throws `MissingMockupShotError` if there is no reference and `SizeMismatchError` if the sizes do not

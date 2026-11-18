@@ -52,9 +52,9 @@ export interface Progress {
 export function stepLabel(s: Step, name: (m: Machine) => string): string {
   switch (s.step) {
     case "power_on":
-      return `Encender ${name(s.machine)}`;
+      return `Power on ${name(s.machine)}`;
     case "power_off":
-      return `Apagar ${name(s.machine)}`;
+      return `Power off ${name(s.machine)}`;
     case "switch_monitor":
       return `Monitor ${s.monitor} → ${s.input === "hdmi" ? "HDMI" : "DP"}`;
     case "show_machine":

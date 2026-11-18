@@ -147,12 +147,12 @@ describe("errores del agente", () => {
     await store.start();
     expect(store.desk.ready).toBe(true);
     expect(store.desk.trouble).toBe("no-agent");
-    expect(store.desk.troubleText).toContain("no entiende");
+    expect(store.desk.troubleText).toContain("does not understand");
   });
 
   it("un agente de la versión anterior (lados mac/pc) también", () => {
     const old = { kind: "connected", agent: "mac", desk: { screens: [], arrangement: { mac_side: "left", offset: 0 } } };
-    expect(() => deskFromSnapshot(old as unknown as Snapshot)).toThrow(/lado «mac»/);
+    expect(() => deskFromSnapshot(old as unknown as Snapshot)).toThrow(/side “mac”/);
   });
 
   it("si la fuente no arranca, se muestra el error", async () => {
@@ -170,7 +170,7 @@ describe("errores del agente", () => {
     await store.start();
     push?.({ kind: "connected" });
     expect(store.desk.trouble).toBe("no-agent");
-    expect(store.desk.troubleText).toContain("no entiende");
+    expect(store.desk.troubleText).toContain("does not understand");
   });
 });
 
@@ -297,7 +297,7 @@ describe("modo demo", () => {
     expect(down.machines.b?.power).toBe("lost");
     const perms = demoDesk(demoOptions("demo&trouble=permissions"));
     expect(perms.permissions.rows.filter((r) => r.state === "missing").map((r) => r.id)).toEqual(["accessibility", "input_monitoring"]);
-    expect(demoDesk(demoOptions("demo&trouble=no-agent")).troubleText).toContain("agente");
+    expect(demoDesk(demoOptions("demo&trouble=no-agent")).troubleText).toContain("agent");
     expect(demoOptions("demo&trouble=otra").trouble).toBe("none");
   });
 });
@@ -514,7 +514,7 @@ describe("fuente real", () => {
   it("los estados difíciles salen de la foto", () => {
     expect(deskFromSnapshot({ kind: "connecting" }).ready).toBe(false);
     expect(deskFromSnapshot({ kind: "unavailable", endpoint: null, reason: "no corre" })).toMatchObject({ trouble: "no-agent", troubleText: "no corre" });
-    expect(deskFromSnapshot(connected({ state: { on: { a: false, b: true } } }))).toMatchObject({ trouble: "peer-off", troubleText: "Taller está apagada" });
+    expect(deskFromSnapshot(connected({ state: { on: { a: false, b: true } } }))).toMatchObject({ trouble: "peer-off", troubleText: "Taller is off" });
     expect(deskFromSnapshot(connected({ peer: { kind: "paired", name: "Taller", link: null } })).trouble).toBe("link-down");
     const missing = connected();
     if (missing.kind === "connected") missing.input = { ...missing.input, missing: ["accessibility"] };
@@ -593,16 +593,16 @@ describe("escenas y transacciones contra el puente simulado", () => {
 
   it("saveScene crea con add_scene y edita con edit_scene, y dice el texto de guardado", async () => {
     const { src, act } = fake();
-    expect(await src.saveScene(scene, true)).toEqual({ ok: true, text: "Escena «Juego» guardada" });
+    expect(await src.saveScene(scene, true)).toEqual({ ok: true, text: "Scene “Game” saved" });
     expect(act).toHaveBeenLastCalledWith({ kind: "add_scene", scene });
-    expect(await src.saveScene(scene, false)).toEqual({ ok: true, text: "Escena «Juego» guardada" });
+    expect(await src.saveScene(scene, false)).toEqual({ ok: true, text: "Scene “Game” saved" });
     expect(act).toHaveBeenLastCalledWith({ kind: "edit_scene", scene });
   });
 
   it("saveScene devuelve la razón si el agente rechaza la escena", async () => {
     const { src, act } = fake();
-    act.mockResolvedValueOnce({ kind: "rejected", reason: "el atajo ya lo usa «Trabajo»" } as never);
-    expect(await src.saveScene(scene, true)).toEqual({ ok: false, reason: "el atajo ya lo usa «Trabajo»" });
+    act.mockResolvedValueOnce({ kind: "rejected", reason: "el atajo ya lo usa “Work”" } as never);
+    expect(await src.saveScene(scene, true)).toEqual({ ok: false, reason: "el atajo ya lo usa “Work”" });
   });
 
   it("watchTxn oye una sola vez, reparte cada aviso a todos y deja de repartir al cancelar", async () => {

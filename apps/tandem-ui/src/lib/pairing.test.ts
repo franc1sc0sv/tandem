@@ -25,7 +25,7 @@ describe("pantalla", () => {
   it("buscando dice qué hacer en the other machine", () => {
     const s = pairScreen("Taller", UNPAIRED, SEARCHING);
     expect(s).toMatchObject({ kind: "searching", other: "Taller" });
-    expect(s.kind === "searching" && s.hint).toContain("En Taller");
+    expect(s.kind === "searching" && s.hint).toContain("On Taller");
     expect(pairScreen("Estudio", UNPAIRED, SEARCHING)).toMatchObject({ other: "Estudio" });
   });
 

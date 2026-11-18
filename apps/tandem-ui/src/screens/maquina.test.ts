@@ -35,7 +35,7 @@ describe("Wake-on-LAN (T-159)", () => {
   it("el campo está siempre, con la MAC actual y un botón para borrarla", async () => {
     const { store } = await mount();
     const set = vi.spyOn(store, "setWol");
-    const field = screen.getByRole("textbox", { name: /MAC de/ });
+    const field = screen.getByRole("textbox", { name: /MAC of/ });
     expect(field).toHaveValue("aa:bb:cc:dd:ee:ff");
     await userEvent.click(screen.getByRole("button", { name: "Clear MAC" }));
     expect(set).toHaveBeenCalledWith(null);
@@ -44,7 +44,7 @@ describe("Wake-on-LAN (T-159)", () => {
   it("editar la MAC la guarda", async () => {
     const { store } = await mount();
     const set = vi.spyOn(store, "setWol");
-    const field = screen.getByRole("textbox", { name: /MAC de/ });
+    const field = screen.getByRole("textbox", { name: /MAC of/ });
     await userEvent.clear(field);
     await userEvent.type(field, "11:22:33:44:55:66");
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -53,7 +53,7 @@ describe("Wake-on-LAN (T-159)", () => {
 });
 
 describe("Wake-on-LAN en el demo (T-171)", () => {
-  const mac = () => screen.getByRole("textbox", { name: /MAC de/ });
+  const mac = () => screen.getByRole("textbox", { name: /MAC of/ });
   const guardar = () => screen.getByRole("button", { name: "Save" });
 
   it("guardar una MAC válida la muestra y deja Guardar deshabilitado", async () => {
@@ -77,7 +77,7 @@ describe("Wake-on-LAN en el demo (T-171)", () => {
     await tick();
     expect(mac()).toHaveValue("");
     expect(screen.getByRole("button", { name: "Power on" })).toBeDisabled();
-    expect(screen.getByText(/Falta la MAC/)).toBeInTheDocument();
+    expect(screen.getByText(/MAC is missing/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Clear MAC" })).toBeNull();
   });
 
@@ -87,7 +87,7 @@ describe("Wake-on-LAN en el demo (T-171)", () => {
     await userEvent.type(mac(), "zz");
     await userEvent.click(guardar());
     await tick();
-    expect(store.toasts.at(-1)?.text ?? "").toMatch(/MAC inválida/);
+    expect(store.toasts.at(-1)?.text ?? "").toMatch(/invalid MAC address/);
     expect(store.desk.machines.b?.wake?.mac).toBe("aa:bb:cc:dd:ee:ff");
   });
 });
@@ -98,7 +98,7 @@ describe("V3-Machine (the other machine)", () => {
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("PC-Desktop");
     expect(screen.getByText("Windows 11 · online")).toBeInTheDocument();
     const r = within(res());
-    expect(r.getByText("Ryzen 7 · 16 hilos")).toBeInTheDocument();
+    expect(r.getByText("Ryzen 7 · 16 threads")).toBeInTheDocument();
     expect(r.getByText("64 %")).toBeInTheDocument();
     expect(r.getByText("62 °C")).toBeInTheDocument();
     expect(r.getByText("17.1")).toBeInTheDocument();
@@ -107,15 +107,15 @@ describe("V3-Machine (the other machine)", () => {
     expect(r.getByText("VRAM almost full")).toBeInTheDocument();
     expect(r.getByText("97 %")).toBeInTheDocument();
     expect(r.getByText("71 °C")).toBeInTheDocument();
-    expect(r.getByText("ventiladores 58 %")).toBeInTheDocument();
-    expect(screen.getByText("412 GB libres de 1.8 TB")).toBeInTheDocument();
+    expect(r.getByText("fans 58 %")).toBeInTheDocument();
+    expect(screen.getByText("412 GB free of 1.8 TB")).toBeInTheDocument();
     const mods = within(screen.getByRole("region", { name: "Modules" }));
-    expect(mods.getAllByText("activo")).toHaveLength(6);
+    expect(mods.getAllByText("active")).toHaveLength(6);
     const envs = within(screen.getByRole("region", { name: "Environments" }));
     // El predeterminado (WSL) va primero aunque el agente lo diga segundo.
     const names = envs.getAllByText(/WSL · Ubuntu|PowerShell 7|Docker Desktop/).map((e) => e.textContent);
     expect(names).toEqual(["WSL · Ubuntu 24.04", "PowerShell 7", "Docker Desktop"]);
-    expect(envs.getByText("predeterminado")).toBeInTheDocument();
+    expect(envs.getByText("default")).toBeInTheDocument();
     expect(envs.getByRole("switch", { name: "Allow remote execution" })).toHaveAttribute("aria-checked", "true");
     // G9: sin textos rotos.
     expect(document.body.textContent).not.toMatch(/undefined|NaN|\{\{/);
@@ -138,7 +138,7 @@ describe("V3-Machine (the other machine)", () => {
 
   it("el nombre se edita en el lugar: Enter guarda, Escape no", async () => {
     const { store } = await mount();
-    await userEvent.click(screen.getByRole("button", { name: /PC-Escritorio/ }));
+    await userEvent.click(screen.getByRole("button", { name: /PC-Desktop/ }));
     const input = screen.getByRole("textbox", { name: "Machine name" });
     await userEvent.clear(input);
     await userEvent.type(input, "  Estudio {Enter}");
@@ -162,11 +162,11 @@ describe("V3-Machine (the other machine)", () => {
     expect(clip).toHaveAttribute("aria-checked", "true");
     await userEvent.click(clip);
     await vi.waitFor(() => expect(store.desk.machines.b?.modules.find((m) => m.id === "clipboard")?.state).toBe("off"));
-    expect(mods.getByRole("switch", { name: "Clipboard" })).toHaveTextContent("apagado");
+    expect(mods.getByRole("switch", { name: "Clipboard" })).toHaveTextContent("idle");
     await userEvent.click(mods.getByRole("switch", { name: "Clipboard" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.modules.find((m) => m.id === "clipboard")?.state).toBe("active"));
     expect(mods.queryByRole("switch", { name: "Power" })).toBeNull();
-    expect(mods.getByText("Power").parentElement).toHaveTextContent("activo");
+    expect(mods.getByText("Power").parentElement).toHaveTextContent("active");
   });
 
   it("«Allow remote execution» es el módulo de túneles", async () => {
@@ -192,7 +192,7 @@ describe("V3-Machine (the other machine)", () => {
     const { store } = await mount();
     await userEvent.click(screen.getByRole("button", { name: "Power off" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("off"));
-    expect(screen.getByText("Windows 11 · apagada")).toBeInTheDocument();
+    expect(screen.getByText("Windows 11 · off")).toBeInTheDocument();
     expect(screen.queryByText("64 %")).toBeNull();
     expect(screen.getByRole("button", { name: "Scan again" })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: "Power on" }));
@@ -206,18 +206,18 @@ describe("F-MachineMac (this machine)", () => {
     expect(screen.getByText("macOS 26 · Apple M5")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Power off" })).toBeNull();
     const r = within(res());
-    expect(r.getByText("M5 · 12 núcleos")).toBeInTheDocument();
-    expect(r.getByText("unificada")).toBeInTheDocument();
-    expect(r.getByText("M5 integrada")).toBeInTheDocument();
+    expect(r.getByText("M5 · 12 cores")).toBeInTheDocument();
+    expect(r.getByText("unified")).toBeInTheDocument();
+    expect(r.getByText("M5 integrated")).toBeInTheDocument();
     expect(r.getByText("Memory")).toBeInTheDocument();
     expect(r.getByText("of RAM")).toBeInTheDocument();
     expect(r.queryByText("VRAM almost full")).toBeNull();
     expect(r.getByText("fanless")).toBeInTheDocument();
-    expect(screen.getByText("231 GB libres de 1 TB")).toBeInTheDocument();
-    expect(screen.getByText("84 % · conectada")).toBeInTheDocument();
+    expect(screen.getByText("231 GB free of 1 TB")).toBeInTheDocument();
+    expect(screen.getByText("84 % · plugged in")).toBeInTheDocument();
     const envs = within(screen.getByRole("region", { name: "Environments" }));
     expect(envs.getByText("zsh")).toBeInTheDocument();
-    expect(envs.getByText("predeterminado")).not.toHaveClass("chip");
+    expect(envs.getByText("default")).not.toHaveClass("chip");
     // El módulo de túneles de this machine se apaga desde su fila: sin el interruptor de abajo.
     expect(envs.queryByRole("switch", { name: "Allow remote execution" })).toBeNull();
     expect(screen.getByRole("switch", { name: "Remote compute" })).toHaveAttribute("aria-checked", "true");
@@ -238,14 +238,14 @@ describe("F-MachineMac (this machine)", () => {
   it("si falta un permiso, la fila «Permisos» lo dice y «Open settings» lo pide", async () => {
     const { store } = await mount("demo&still&trouble=permissions", "a");
     const mods = within(screen.getByRole("region", { name: "Modules" }));
-    const names = mods.getAllByText(/^(Keyboard and mouse|Permisos|Portapapeles)$/).map((e) => e.textContent);
+    const names = mods.getAllByText(/^(Keyboard and mouse|Permissions|Clipboard)$/).map((e) => e.textContent);
     expect(names).toEqual(["Keyboard and mouse", "Permissions", "Clipboard"]);
     expect(mods.getByText("“Input Monitoring” is missing: it cannot send the keyboard. It is checked automatically.")).toBeInTheDocument();
     const spy = vi.spyOn(store, "openPermission");
     await userEvent.click(mods.getByRole("button", { name: "Open settings" }));
     expect(spy).toHaveBeenCalledWith("input_monitoring");
     // Concedido ese, la fila pasa al que sigue faltando; con todo concedido, desaparece.
-    await vi.waitFor(() => expect(mods.getByText(/Falta «Accesibilidad»/)).toBeInTheDocument());
+    await vi.waitFor(() => expect(mods.getByText(/“Accessibility” is missing/)).toBeInTheDocument());
     await userEvent.click(mods.getByRole("button", { name: "Open settings" }));
     await vi.waitFor(() => expect(mods.queryByText("Permissions")).toBeNull());
   });
@@ -335,13 +335,13 @@ describe("contra el agente (IPC)", () => {
   it("la página pide los recursos en vivo y los dibuja con cada muestra", async () => {
     const { act, push } = await mountLive();
     expect(act).toHaveBeenCalledWith({ kind: "watch_resources", on: true });
-    expect(screen.getByText("Ryzen 9 7950X · 32 hilos")).toBeInTheDocument();
+    expect(screen.getByText("Ryzen 9 7950X · 32 threads")).toBeInTheDocument();
     expect(screen.getByText("RTX 4090")).toBeInTheDocument();
     push({ cpu: { load: 425, cores: [], temperature: 55 }, memory: { used: 32 * GIB, total: 64 * GIB }, gpus: [], disk: { free: 100 * GIB, total: 500 * GIB } });
     await tick();
     expect(screen.getByText("43 %")).toBeInTheDocument();
     expect(screen.getByText("55 °C")).toBeInTheDocument();
-    expect(screen.getByText("100 GB libres de 500 GB")).toBeInTheDocument();
+    expect(screen.getByText("100 GB free of 500 GB")).toBeInTheDocument();
     // Protected screens no se puede apagar y dice por qué.
     expect(screen.getByText("Falta el servicio de administrador")).toBeInTheDocument();
     expect(screen.queryByRole("switch", { name: "Protected screens" })).toBeNull();

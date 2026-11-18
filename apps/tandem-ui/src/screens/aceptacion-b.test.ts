@@ -85,7 +85,7 @@ describe("T-153: los botones con can() se habilitan al conectar el agente", () =
   it("«Medir ancho de banda» se habilita cuando llega la primera foto", async () => {
     const { b, push } = bridge({ kind: "connecting" });
     await open(new LiveSource(b), "#/red");
-    const medir = () => screen.getByRole("button", { name: /Medir ancho de banda/ });
+    const medir = () => screen.getByRole("button", { name: /Measure bandwidth/ });
     expect(medir()).toBeDisabled();
     await flush(async () => push(snapshot()));
     expect(medir()).toBeEnabled();
@@ -114,14 +114,14 @@ describe("T-153: los botones con can() se habilitan al conectar el agente", () =
   it("vuelve a deshabilitarse si el agente se pierde", async () => {
     const { b, push } = bridge(snapshot());
     await open(new LiveSource(b), "#/red");
-    expect(screen.getByRole("button", { name: /Medir ancho de banda/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Measure bandwidth/ })).toBeEnabled();
     await flush(async () => push({ kind: "unavailable", endpoint: null, reason: "sin agente" }));
-    expect(screen.getByRole("button", { name: /Medir ancho de banda/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Measure bandwidth/ })).toBeDisabled();
   });
 
   it("en modo demo el botón está habilitado desde el principio", async () => {
     await open(new DemoSource(demoOptions("demo&still")), "#/red");
-    expect(screen.getByRole("button", { name: /Medir ancho de banda/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Measure bandwidth/ })).toBeEnabled();
   });
 });
 
@@ -132,7 +132,7 @@ describe("T-154: la ventana pide los túneles que ya existen", () => {
     await flush(async () => {});
     expect(act).toHaveBeenCalledWith({ kind: "tunnels" });
     expect(store.desk.tunnels.map((t) => t.title)).toEqual(["Revisar el PR"]);
-    expect(await screen.findByText("1 abierto · 1 proyecto")).toBeInTheDocument();
+    expect(await screen.findByText("1 open · 1 project")).toBeInTheDocument();
     expect(act.mock.calls.filter(([a]) => a.kind === "tunnels")).toHaveLength(1);
   });
 
@@ -143,9 +143,9 @@ describe("T-154: la ventana pide los túneles que ya existen", () => {
     const { b } = bridge(snapshot(), {}, reply);
     const store = new Store(new LiveSource(b), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
-    await vi.waitFor(() => expect(screen.getByText("1 túnel")).toBeInTheDocument());
+    await vi.waitFor(() => expect(screen.getByText("1 tunnel")).toBeInTheDocument());
     const titles = buildCommands(store.desk, store, false).map((c) => c.title);
-    expect(titles).toContain("Ir al túnel «Revisar el PR»");
+    expect(titles).toContain("Go to tunnel “Revisar el PR”");
   });
 
   it("espera a que haya agente y luego los pide", async () => {

@@ -35,7 +35,7 @@ describe("Túneles en modo demo", () => {
   it("dibuja los proyectos con su proporción, el resumen y el primer túnel", async () => {
     await demo();
     expect(screen.getByRole("heading", { name: "Tunnels", level: 1 })).toBeInTheDocument();
-    expect(screen.getByText("4 abiertos · 2 proyectos")).toBeInTheDocument();
+    expect(screen.getByText("4 open · 2 projects")).toBeInTheDocument();
     expect(list().getByRole("button", { name: /^tandem/ })).toHaveAttribute("aria-expanded", "true");
     expect(list().getByText("3/3")).toBeInTheDocument();
     expect(list().getByText("1/2")).toBeInTheDocument();
@@ -52,7 +52,7 @@ describe("Túneles en modo demo", () => {
     await demo();
     const procs = detail().getByRole("listbox", { name: "Running processes" });
     expect(within(procs).getAllByRole("option")).toHaveLength(6);
-    expect(within(procs).getByText("6 procesos corriendo")).toBeInTheDocument();
+    expect(within(procs).getByText("6 processes running")).toBeInTheDocument();
     expect(within(procs).getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
     expect(await screen.findByText(/test hotplug_adds_monitor \.\.\. ok/)).toBeInTheDocument();
     expect(detail().getByText("pid 4127 · 2 m")).toBeInTheDocument();
@@ -69,22 +69,22 @@ describe("Túneles en modo demo", () => {
 
   it("elegir otro túnel cambia el detalle y la lista de procesos", async () => {
     await demo();
-    await fireEvent.click(tunnelButton(/Túneles en tandemd/));
-    expect(tunnelButton(/Túneles en tandemd/)).toHaveAttribute("aria-pressed", "true");
+    await fireEvent.click(tunnelButton(/Tunnels in tandemd/));
+    expect(tunnelButton(/Tunnels in tandemd/)).toHaveAttribute("aria-pressed", "true");
     expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Tunnels in tandemd (T-101)");
-    expect(detail().getByText("2 procesos corriendo")).toBeInTheDocument();
+    expect(detail().getByText("2 processes running")).toBeInTheDocument();
     expect(detail().getAllByRole("option")).toHaveLength(2);
   });
 
   it("un túnel sin procesos dice «Nothing running right now» y uno cerrado, «Tunnel closed»", async () => {
     await demo();
-    await fireEvent.click(tunnelButton(/Revisar PR #66/));
+    await fireEvent.click(tunnelButton(/Review PR #66/));
     expect(detail().getByText("Nothing running right now")).toBeInTheDocument();
     expect(detail().queryByRole("listbox")).toBeNull();
-    expect(detail().getByText("inactivo 9 m")).toBeInTheDocument();
+    expect(detail().getByText("inactive 9 m")).toBeInTheDocument();
     await fireEvent.click(tunnelButton(/Try ComfyUI workflow/));
     expect(detail().getByText("Tunnel closed")).toBeInTheDocument();
-    expect(detail().getByText("cerrado")).toBeInTheDocument();
+    expect(detail().getByText("closed")).toBeInTheDocument();
     // Cerrado: sin tiempo abierto ni latencia.
     expect(detail().getAllByText("—")).toHaveLength(2);
   });
@@ -94,18 +94,18 @@ describe("Túneles en modo demo", () => {
     const header = list().getByRole("button", { name: /^tandem/ });
     await fireEvent.click(header);
     expect(list().getByRole("button", { name: /^tandem/ })).toHaveAttribute("aria-expanded", "false");
-    expect(list().queryByRole("button", { name: /Túneles en tandemd/ })).toBeNull();
+    expect(list().queryByRole("button", { name: /Tunnels en tandemd/ })).toBeNull();
     // El otro proyecto sigue desplegado.
-    expect(tunnelButton(/Entrenar LoRA/)).toBeInTheDocument();
+    expect(tunnelButton(/Train style LoRA/)).toBeInTheDocument();
     await fireEvent.click(list().getByRole("button", { name: /^tandem/ }));
-    expect(tunnelButton(/Túneles en tandemd/)).toBeInTheDocument();
+    expect(tunnelButton(/Tunnels in tandemd/)).toBeInTheDocument();
   });
 
   it("con 12 procesos la lista los trae todos con su encabezado, en una caja con scroll", async () => {
     await demo("demo&still&tunnels=many");
     const procs = detail().getByRole("listbox", { name: "Running processes" });
     expect(within(procs).getAllByRole("option")).toHaveLength(12);
-    expect(within(procs).getByText("12 procesos corriendo")).toBeInTheDocument();
+    expect(within(procs).getByText("12 processes running")).toBeInTheDocument();
     expect(detail().getByText("12", { selector: "b" })).toBeInTheDocument();
   });
 
@@ -127,18 +127,18 @@ describe("Túneles en modo demo", () => {
     await demo();
     await fireEvent.click(screen.getByRole("button", { name: "How Claude opens them" }));
     expect(writeText).toHaveBeenCalledWith("tandem mcp");
-    expect(await screen.findByText("Copiado: tandem mcp")).toBeInTheDocument();
+    expect(await screen.findByText("Copied: tandem mcp")).toBeInTheDocument();
   });
 
   it("la barra lateral cuenta los túneles activos y, dentro de la pantalla, los marca con un punto vivo", async () => {
     const store = await demo();
     const nav = within(screen.getByRole("navigation", { name: "Main" }));
-    const link = nav.getByRole("link", { name: /Túneles/ });
+    const link = nav.getByRole("link", { name: /Tunnels/ });
     expect(link.querySelector(".pdot")).not.toBeNull();
     expect(store.activeTunnels).toBe(3);
     store.go({ screen: "puesto" });
     await tick();
-    const away = within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: /Túneles/ });
+    const away = within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: /Tunnels/ });
     expect(away).toHaveTextContent("3");
     expect(away.querySelector(".pdot")).toBeNull();
   });
@@ -214,7 +214,7 @@ describe("Túneles con el agente real (IPC)", () => {
     await open(new LiveSource(b));
     expect(screen.getAllByText("No open tunnels").length).toBeGreaterThan(0);
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
-    expect(await screen.findByText("1 abierto · 1 proyecto")).toBeInTheDocument();
+    expect(await screen.findByText("1 open · 1 project")).toBeInTheDocument();
     expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Revisar el PR");
     expect(detail().getByText("MacBook Pro")).toBeInTheDocument();
     expect(detail().getByText("PC-Desktop")).toBeInTheDocument();
@@ -255,19 +255,19 @@ describe("Túneles con el agente real (IPC)", () => {
     const { b, handlers } = bridge([out("x", 1)]);
     await open(new LiveSource(b));
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
-    expect(await screen.findByText("1 abierto · 1 proyecto")).toBeInTheDocument();
+    expect(await screen.findByText("1 open · 1 project")).toBeInTheDocument();
     await flush(async () => handlers.tunnels?.(wire([], false)));
     expect((await screen.findAllByText("No open tunnels")).length).toBeGreaterThan(0);
     expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Revisar el PR");
     expect(detail().getByText("Tunnel closed")).toBeInTheDocument();
-    expect(detail().getAllByText("cerrado").length).toBeGreaterThan(0);
+    expect(detail().getAllByText("closed").length).toBeGreaterThan(0);
   });
 
   it("las copias de archivos suman al tráfico del túnel", async () => {
     const { b, handlers } = bridge([out("x", 1)]);
     await open(new LiveSource(b));
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
-    expect(await screen.findByText("1 abierto · 1 proyecto")).toBeInTheDocument();
+    expect(await screen.findByText("1 open · 1 project")).toBeInTheDocument();
     await flush(async () => handlers.transfer?.({ tunnel: ID, upload: true, path: "/a", done: 2_500_000, total: 5_000_000, finished: false }));
     expect(await screen.findByText("2.5 MB")).toBeInTheDocument();
   });
@@ -277,7 +277,7 @@ describe("Túneles con el agente real (IPC)", () => {
     act.mockImplementation(async () => ({ kind: "rejected", reason: "túnel desconocido" }));
     await open(new LiveSource(b));
     await flush(async () => handlers.tunnels?.(wire([])));
-    expect(await screen.findByText("1 abierto · 1 proyecto")).toBeInTheDocument();
+    expect(await screen.findByText("1 open · 1 project")).toBeInTheDocument();
     expect(detail().getByText("Nothing running right now")).toBeInTheDocument();
   });
 });

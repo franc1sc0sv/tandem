@@ -38,7 +38,7 @@
     {@const href = formatHash(item.route)}
     <a class="nav" class:on={current === href} {href} aria-current={current === href ? "page" : undefined} onclick={(e) => go(e, item.route)}>
       <Icon name={item.icon} />{item.label}
-      {#if item.route.screen === "tuneles" && store.activeTunnels > 0}<span class="fill"></span>{#if current === href}<span class="pdot" title="{store.activeTunnels} activos"></span>{:else}<Chip count dot={false}>{store.activeTunnels}</Chip>{/if}{/if}
+      {#if item.route.screen === "tuneles" && store.activeTunnels > 0}<span class="fill"></span>{#if current === href}<span class="pdot" title="{store.activeTunnels} active"></span>{:else}<Chip count dot={false}>{store.activeTunnels}</Chip>{/if}{/if}
     </a>
   {/each}
   {#if machines.length > 0}

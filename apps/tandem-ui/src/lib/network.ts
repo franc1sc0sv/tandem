@@ -114,9 +114,9 @@ export function describePath(p: PathView): string {
   const name = LINK_NAME[p.kind];
   switch (p.state) {
     case "primary":
-      return `${name} activo${p.rttMs !== null ? ` a ${formatMs(p.rttMs)}` : ""}`;
+      return `${name} active${p.rttMs !== null ? ` at ${formatMs(p.rttMs)}` : ""}`;
     case "backup":
-      return `${name} as backup${p.rttMs !== null ? ` a ${formatMs(p.rttMs)}` : ""}`;
+      return `${name} as backup${p.rttMs !== null ? ` at ${formatMs(p.rttMs)}` : ""}`;
     case "unplugged":
       return `${name} ${unpluggedText(p.kind)}`;
     case "down":

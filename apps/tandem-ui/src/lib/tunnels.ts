@@ -199,7 +199,7 @@ export function summary(groups: ProjectGroup[]): string {
   const live = groups.reduce((n, g) => n + g.live, 0);
   const projects = groups.filter((g) => g.live > 0).length;
   if (live === 0) return "No open tunnels";
-  return `${live} ${live === 1 ? "abierto" : "abiertos"} · ${projects} ${projects === 1 ? "proyecto" : "proyectos"}`;
+  return `${live} open · ${projects} ${projects === 1 ? "project" : "projects"}`;
 }
 
 /** 5400 s → «1 h 30 m»; 34 min → «34 m»; menos de un minuto → «45 s». */
@@ -227,12 +227,12 @@ export function bytesLabel(n: number): string {
 
 /** «activo», «inactivo 9 m», «cerrado». */
 export function statusText(t: TunnelView, now: number): string {
-  if (t.state === "busy") return "activo";
-  if (t.state === "closed") return "cerrado";
-  return t.idleSince === null ? "inactivo" : `inactivo ${elapsed(now - t.idleSince)}`;
+  if (t.state === "busy") return "active";
+  if (t.state === "closed") return "closed";
+  return t.idleSince === null ? "inactive" : `inactive ${elapsed(now - t.idleSince)}`;
 }
 
-export const processesLabel = (n: number): string => `${n} ${n === 1 ? "proceso corriendo" : "procesos corriendo"}`;
+export const processesLabel = (n: number): string => `${n} ${n === 1 ? "process running" : "processes running"}`;
 
 /** El texto del panel de procesos cuando no hay ninguno. */
 export const emptyLabel = (t: TunnelView): string => (t.state === "closed" ? "Tunnel closed" : "Nothing running right now");
@@ -283,7 +283,7 @@ export const countTunnels = (n: number): string => `${n} ${n === 1 ? "tunnel" : 
 
 /** Renglón de una máquina en la bandeja: sale de sus datos, sin mirar qué sistema es. */
 export function machineLine(m: { id: Machine; power: string; detail: string }, tunnels: readonly { to: Machine; state: string }[]): string {
-  if (m.power !== "on") return "apagada";
+  if (m.power !== "on") return "off";
   const busy = tunnels.filter((t) => t.to === m.id && t.state === "busy").length;
   return busy > 0 ? countTunnels(busy) : m.detail;
 }

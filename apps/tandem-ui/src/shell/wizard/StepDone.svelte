@@ -41,7 +41,7 @@
 </div>
 <section aria-label="Summary" class="wz-list">
   <div class="wz-sum first" style="animation-delay:.3s">
-    <span style="width:8px;height:8px;border-radius:50%;background:{hereColor}"></span>{title.here}{title.peer ? " y" : ""}
+    <span style="width:8px;height:8px;border-radius:50%;background:{hereColor}"></span>{title.here}{title.peer ? " and" : ""}
     {#if title.peer}<span style="width:8px;height:8px;border-radius:50%;background:{peerColor}"></span>{title.peer} in “{title.desk}”{:else}in “{title.desk}”{/if}<span class="wz-fill"></span><span class="wz-mut wz-sm">{title.peer ? "2 machines" : "1 machine"}</span>
   </div>
   {#each rows as r, i (r.id)}

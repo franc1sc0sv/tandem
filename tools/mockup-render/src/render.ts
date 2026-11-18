@@ -43,7 +43,7 @@ export interface RenderOptions {
 /** Problems of a result; empty = the mockup rendered fine. */
 export function problems(r: RenderResult): string[] {
   return [
-    ...r.consoleErrors.map((e) => `consola: ${e}`),
+    ...r.consoleErrors.map((e) => `console: ${e}`),
     ...r.pageErrors.map((e) => `exception: ${e}`),
     ...r.blocked.map((e) => `blocked request: ${e}`),
     ...r.stepErrors.map((e) => `paso: ${e}`),

@@ -111,7 +111,7 @@
           <div class="mut empty">Nothing matches “{query}”.</div>
         {/if}
       </div>
-      <div class="foot mut"><span><span class="kbd">↑↓</span> moverse</span><span><span class="kbd">↵</span> ejecutar</span><span class="fill"></span><span>Type to filter</span></div>
+      <div class="foot mut"><span><span class="kbd">↑↓</span> move</span><span><span class="kbd">↵</span> run</span><span class="fill"></span><span>Type to filter</span></div>
     </div>
   </div>
 {/if}

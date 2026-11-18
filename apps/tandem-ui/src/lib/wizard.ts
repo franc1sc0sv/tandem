@@ -83,7 +83,7 @@ export function serviceRow(admin: AdminView | null, moduleActive: boolean): Foun
 
 export function foundRows(m: MachineView | null, admin: AdminView | null = null): FoundRow[] {
   if (!m) return [];
-  const rows: FoundRow[] = [{ id: "system", state: "ok", label: systemNote(m), note: "sistema", mono: false }];
+  const rows: FoundRow[] = [{ id: "system", state: "ok", label: systemNote(m), note: "system", mono: false }];
   for (const id of ORDER) {
     const mod = m.modules.find((x) => x.id === id);
     if (!mod) continue;
@@ -114,9 +114,9 @@ export interface PermCard {
 
 // Los textos de `F-Setup3`: se dirigen a las otras máquinas del puesto sin nombrar ningún sistema.
 const PERM_TEXT: Record<Permission, { title: string; why: string }> = {
-  accessibility: { title: "Accesibilidad", why: "To type and move the mouse on this machine when you use them from another one." },
+  accessibility: { title: "Accessibility", why: "To type and move the mouse on this machine when you use them from another one." },
   input_monitoring: { title: "Input Monitoring", why: "To carry this machine’s keyboard and mouse to another one when the cursor crosses the edge." },
-  local_network: { title: "Red local", why: "To find the other machines of the desk and talk to them encrypted." },
+  local_network: { title: "Local Network", why: "To find the other machines of the desk and talk to them encrypted." },
 };
 
 export function permCards(rows: PermissionRow[]): PermCard[] {
@@ -125,9 +125,9 @@ export function permCards(rows: PermissionRow[]): PermCard[] {
 
 export const missingOf = (cards: PermCard[]): number => cards.filter((c) => c.missing).length;
 
-/** «Faltan 2», «1 missing» o «All granted». */
+/** «Missing 2» or «All granted». */
 export function permFooter(missing: number): string {
-  return missing === 0 ? "All granted" : missing === 1 ? "1 missing" : `${missing} missing`;
+  return missing === 0 ? "All granted" : `Missing ${missing}`;
 }
 
 // ---- Paso 4: teclado y mouse ----------------------------------------------------------------

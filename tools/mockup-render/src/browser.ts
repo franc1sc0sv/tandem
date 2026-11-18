@@ -59,7 +59,7 @@ export async function installRoutes(context: BrowserContext, opts: RouteOptions 
       if (page !== undefined) return route.fulfill({ body: page, contentType: 'text/html; charset=utf-8' });
       const asset = mockupAsset(url.pathname, dir);
       if (asset) return route.fulfill({ body: asset.body, contentType: asset.contentType });
-      return route.fulfill({ status: 404, body: 'no existe: ' + url.pathname });
+      return route.fulfill({ status: 404, body: 'not found: ' + url.pathname });
     }
     if (url.hostname === 'fonts.googleapis.com') {
       const { css, missing } = googleFontsCss(url);
@@ -126,7 +126,7 @@ export interface PageCheck {
 export async function checkPage(page: Page): Promise<PageCheck> {
   return page.evaluate(() => {
     const braces: string[] = [];
-    if (document.body.innerText.includes('{{')) braces.push('texto: ' + document.body.innerText.slice(0, 200));
+    if (document.body.innerText.includes('{{')) braces.push('text: ' + document.body.innerText.slice(0, 200));
     for (const el of Array.from(document.body.querySelectorAll('*'))) {
       for (const a of Array.from(el.attributes)) {
         if (a.value.includes('{{')) braces.push(`<${el.localName} ${a.name}="${a.value}">`);
@@ -136,7 +136,7 @@ export async function checkPage(page: Page): Promise<PageCheck> {
     const fontErrors = faces.filter((f) => f.status === 'error').map((f) => `${f.family} ${f.weight}: failed to load`);
     const wantsInter = !!document.querySelector('link[href*="fonts.googleapis.com/css2"][href*="Inter"]');
     if (wantsInter && !faces.some((f) => f.family.replace(/["']/g, '') === 'Inter' && f.status === 'loaded')) {
-      fontErrors.push('Inter: ninguna variante cargada');
+      fontErrors.push('Inter: no variant loaded');
     }
     const dc = (window as { __dc?: { errors: string[]; missing: string[] } }).__dc;
     return {

@@ -98,8 +98,8 @@ export function titleOf(steps: Step[], names: Names): string {
   const first = steps[0];
   if (!first) return "Change in progress";
   if (steps.some((s) => s.step === "show_machine" || s.step === "arrange" || s.step === "geometry")) return "Applying a scene";
-  if (first.step === "power_on") return `Encendiendo ${names.machine(first.machine)}`;
-  if (first.step === "power_off") return `Apagando ${names.machine(first.machine)}`;
+  if (first.step === "power_on") return `Powering on ${names.machine(first.machine)}`;
+  if (first.step === "power_off") return `Powering off ${names.machine(first.machine)}`;
   if (first.step === "switch_monitor") return `Changing the input of ${monitorName(first.monitor, names)}`;
   return "Change in progress";
 }
@@ -108,9 +108,9 @@ function label(s: Step, steps: Step[], names: Names): string {
   const m = names.machine;
   switch (s.step) {
     case "power_on":
-      return `Encender ${m(s.machine)}`;
+      return `Power on ${m(s.machine)}`;
     case "power_off":
-      return `Apagar ${m(s.machine)}`;
+      return `Power off ${m(s.machine)}`;
     case "switch_monitor":
       return `${monitorName(s.monitor, names)} → ${INPUT_LABEL[s.input]}`;
     case "show_machine": {
@@ -121,7 +121,7 @@ function label(s: Step, steps: Step[], names: Names): string {
       return "Arrange the desktops";
     case "geometry": {
       const show = steps.find((x): x is Extract<Step, { step: "show_machine" }> => x.step === "show_machine");
-      return show ? `Mouse: take ${monitorName(show.monitor, names)} off ${m(other(show.machine))}` : "Keyboard and mouse: new geometry";
+      return show ? `Mouse: take the ${monitorName(show.monitor, names)} off ${m(other(show.machine))}` : "Keyboard and mouse: new geometry";
     }
   }
 }
@@ -140,7 +140,7 @@ export function viewOf(run: Run, names: Names, now: number): RunView {
   const { progress: p } = run;
   const outcome = p.outcome.kind === "committed" ? "ok" : p.outcome.kind === "failed" ? "failed" : "running";
   const failedAt = p.status.findIndex((s) => s === "failed");
-  const rows: Row[] = [{ key: "save", icon: "done", text: "Save how everything is", detail: "listo", tone: "" }];
+  const rows: Row[] = [{ key: "save", icon: "done", text: "Save how everything is", detail: "done", tone: "" }];
   p.steps.forEach((s, i) => {
     // Lo que no llegó a empezar antes de un fallo no se muestra: lo reemplaza la vuelta atrás.
     if (failedAt >= 0 && i > failedAt) return;
@@ -148,8 +148,8 @@ export function viewOf(run: Run, names: Names, now: number): RunView {
     const took = run.stepStart[i] !== undefined && run.stepEnd[i] !== undefined ? seconds((run.stepEnd[i] ?? 0) - (run.stepStart[i] ?? 0)) : "";
     const text = label(s, p.steps, names);
     const key = `s${i}`;
-    if (st === "done") rows.push({ key, icon: "done", text, detail: isMonitorStep(s) ? (took ? `confirmado · ${took}` : "confirmado") : "listo", tone: "" });
-    else if (st === "undone") rows.push({ key, icon: "done", text, detail: "deshecho", tone: "" });
+    if (st === "done") rows.push({ key, icon: "done", text, detail: isMonitorStep(s) ? (took ? `confirmed · ${took}` : "confirmed") : "done", tone: "" });
+    else if (st === "undone") rows.push({ key, icon: "done", text, detail: "undone", tone: "" });
     else if (st === "run") rows.push({ key, icon: "run", text, detail: isMonitorStep(s) ? "waiting for the monitor" : "", tone: "" });
     else if (st === "failed") {
       const verdict = isMonitorStep(s) && noImage(p.error ?? "") !== null;
@@ -167,7 +167,7 @@ export function viewOf(run: Run, names: Names, now: number): RunView {
   if (outcome === "ok") message = { text: run.doneText ?? "Done.", tone: "ok" };
   else if (failedAt >= 0) {
     const sig = noImage(p.error ?? "");
-    const why = sig ? `There was no signal over ${sig}` : sentence((p.error ?? "").replace(/\.$/, ""));
+    const why = sig ? `There was no ${sig} signal` : sentence((p.error ?? "").replace(/\.$/, ""));
     message = { text: `${why ? `${why}. ` : ""}Everything goes back to how it was; nothing was left half done.`, tone: "warn" };
   } else message = { text: "The monitor confirms each change; nothing is guessed.", tone: "mut" };
 

@@ -11,7 +11,7 @@ export interface DragNotice {
 }
 
 function files(n: number): string {
-  return n === 1 ? "1 file" : `${n} archivos`;
+  return n === 1 ? "1 file" : `${n} files`;
 }
 
 export function dragNotice(s: DragStatus): DragNotice {

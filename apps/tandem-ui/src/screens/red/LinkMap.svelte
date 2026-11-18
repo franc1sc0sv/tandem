@@ -40,7 +40,7 @@
   /** Borde del rótulo del camino que lleva el tráfico. */
   const EDGE: Record<LinkKind, string> = { usb4: "#3a4a66", ethernet: "#2c4a47", wifi: "#4a3e26" };
 
-  const label = $derived(`Tres caminos: ${network.paths.map(describePath).join(", ")}`);
+  const label = $derived(`Three paths: ${network.paths.map(describePath).join(", ")}`);
 </script>
 
 <Card tag="section" label="Link map" class="map">

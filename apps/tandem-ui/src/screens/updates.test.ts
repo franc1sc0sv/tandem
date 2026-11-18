@@ -30,7 +30,7 @@ describe("Ajustes → Actualizaciones (F-Settings, T-122)", () => {
   it("buscar ahora encuentra la versión nueva y «Update all» empieza por the other machine", async () => {
     await openUpdates();
     await userEvent.click(screen.getByRole("button", { name: /Check now/ }));
-    expect(await screen.findByText("Hay una versión nueva: 0.3.1")).toBeInTheDocument();
+    expect(await screen.findByText("A new version is available: 0.3.1")).toBeInTheDocument();
     expect(screen.getByText("It installs on every machine, one at a time, without cutting the keyboard.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Check again/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Update all/ }));

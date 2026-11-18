@@ -51,7 +51,7 @@ export function energyView(run: Run | null, name: (m: Machine) => string, from: 
   const st = run.progress.status[0];
   const waited = clockText((run.endedAt ?? now) - run.startedAt);
   const rows: EnergyRow[] = [
-    { key: "wol", icon: "done", text: `Wake-on-LAN sent from ${from}`, detail: st === "done" ? "listo" : `every ${WOL_EVERY_S} s`, mono: false, dim: false },
+    { key: "wol", icon: "done", text: `Wake-on-LAN sent from ${from}`, detail: st === "done" ? "done" : `every ${WOL_EVERY_S} s`, mono: false, dim: false },
     {
       key: "wait",
       icon: st === "done" ? "done" : st === "failed" ? "bad" : "run",
@@ -62,7 +62,7 @@ export function energyView(run: Run | null, name: (m: Machine) => string, from: 
     },
     { key: "join", icon: st === "done" ? "done" : "todo", text: "Add it back to the desk", detail: "", mono: false, dim: st !== "done" },
   ];
-  return { title: `Encendiendo ${name(target)}`, rows, waiting: st === "run" || st === "pending" };
+  return { title: `Powering on ${name(target)}`, rows, waiting: st === "run" || st === "pending" };
 }
 
 export interface MeterRow {

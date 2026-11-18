@@ -62,7 +62,7 @@ describe('mockups v03', () => {
     if (!existsSync(SHOTS_DIR)) return; // not generated yet
     const expected = jobsFor(mockups).map((j) => shotName(j.mockup, j.state)).sort();
     const actual = readdirSync(SHOTS_DIR).filter((f) => f.endsWith('.png')).sort();
-    // Si falla: `pnpm mockups:shot` y commitear docs/mockups-png.
+    // If it fails: run `pnpm mockups:shot` and commit docs/mockups-png.
     expect(actual).toEqual(expected);
   });
 });

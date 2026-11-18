@@ -125,7 +125,7 @@
           {#each layout.screens as s (s.id)}
             <button type="button" class="scr" class:on={s.id === selected} style={boxStyle(s.id)} aria-pressed={s.id === selected} onclick={() => (picked = s.id)}>
               <b>{s.name}</b>
-              <span class="mono res">{s.usable ? s.res : "desconectado"}</span>
+              <span class="mono res">{s.usable ? s.res : "disconnected"}</span>
             </button>
           {/each}
           {#if drawing.edge}<div class="xedge" style={edgeStyle}></div>{/if}

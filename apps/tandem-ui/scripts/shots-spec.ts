@@ -88,7 +88,7 @@ export interface Content {
 }
 
 /** La barra lateral de las pantallas principales (V3-Desk, V3-Arrangement, V3-Network…). */
-export const SIDEBAR: Region = { name: "barra lateral", mockupSelector: 'nav[aria-label="Main"]' };
+export const SIDEBAR: Region = { name: "sidebar", mockupSelector: 'nav[aria-label="Main"]' };
 
 /** D1: no hay tercera máquina, así que la barra lateral no tiene «Agregar máquina». */
 export const NO_ADD_MACHINE: Ignore = {
@@ -114,12 +114,12 @@ export const SCREEN_GATE = { similarity: 0.99, worstTile: 0.97 };
 // T-117: el acomodo inicial, the other machine en cada lado × cada alineación (con los mismos
 // clics que el mockup), cada pantalla elegida y la prueba de cruce.
 const ACOMODO_SIDES = [
-  ["arriba", "Top"],
-  ["abajo", "Bottom"],
-  ["izquierda", "Left"],
-  ["derecha", "Right"],
+  ["top", "Top"],
+  ["bottom", "Bottom"],
+  ["left", "Left"],
+  ["right", "Right"],
 ] as const;
-const ACOMODO_ALIGNS = ["inicio", "centro", "fin"] as const;
+const ACOMODO_ALIGNS = ["start", "center", "end"] as const;
 const acomodoShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
   name,
   page: "index.html",
@@ -135,8 +135,8 @@ const acomodoShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => (
 });
 /** Los botones «Simular…» son solo del mockup (`mockups/README.md`): se tapan. */
 const SIMULATE: Ignore[] = [
-  { mockupSelector: 'button.sim:has-text("Simular cruce")', reason: "«Simular cruce» es solo del mockup" },
-  { mockupSelector: 'button.sim:has-text("no cruza")', reason: "«Simular que no cruza» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "«Simular cruce» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simulate no crossing")', reason: "«Simular que no cruza» es solo del mockup" },
 ];
 const cruceShot = (name: string, cross: string, state?: string): ShotSpec => ({
   name,
@@ -151,19 +151,19 @@ const cruceShot = (name: string, cross: string, state?: string): ShotSpec => ({
   min: SCREEN_GATE,
 });
 export const ACOMODO: ShotSpec[] = [
-  acomodoShot("acomodo"),
+  acomodoShot("arrangement"),
   ...ACOMODO_SIDES.flatMap(([side, label]) =>
     ACOMODO_ALIGNS.map((al, i) =>
-      acomodoShot(`acomodo-${side}-${al}`, { state: `lado-${side}-${al}`, clicks: [`.slot[aria-label="${label}"]`, `.seg .sb >> nth=${i}`] }),
+      acomodoShot(`arrangement-${side}-${al}`, { state: `side-${side}-${al}`, clicks: [`.slot[aria-label="${label}"]`, `.seg .sb >> nth=${i}`] }),
     ),
   ),
-  acomodoShot("acomodo-pantalla-mac", { state: "pantalla-mac", clicks: ['.scr:has-text("MacBook Pro")'] }),
-  acomodoShot("acomodo-no-compatible", { state: "pantalla-no-compatible", clicks: ['.scr:has-text("Odyssey G5 32")'] }),
-  cruceShot("cruce", ""),
-  cruceShot("cruce-cruzo", "ok", "cruzo"),
-  cruceShot("cruce-no-cruza", "timeout", "no-cruza"),
+  acomodoShot("arrangement-screen-mac", { state: "screen-mac", clicks: ['.scr:has-text("MacBook Pro")'] }),
+  acomodoShot("arrangement-unsupported", { state: "screen-unsupported", clicks: ['.scr:has-text("Odyssey G5 32")'] }),
+  cruceShot("crossing", ""),
+  cruceShot("crossing-crossed", "ok", "crossed"),
+  cruceShot("crossing-no-cross", "timeout", "no-cross"),
   // Borde equivocado: el mockup no lo dibuja (ACCEPTANCE: mismos componentes, sin umbral).
-  { ...cruceShot("cruce-otro-borde", "wrong", "no-cruza"), min: undefined },
+  { ...cruceShot("crossing-other-edge", "wrong", "no-cross"), min: undefined },
 ];
 
 // T-116: Monitores (con cada entrada elegida), el editor de escenas y el progreso de una escena.
@@ -230,33 +230,33 @@ const tunelesShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => (
   ...extra,
 });
 export const TUNELES: ShotSpec[] = [
-  tunelesShot("tuneles"),
-  tunelesShot("tuneles-proceso-dos", { state: "proceso-2", clicks: ['[role="option"] >> nth=1'] }),
-  tunelesShot("tuneles-dos-procesos", { state: "tunel-2-procesos", clicks: ['.tun:has-text("T-101")'] }),
-  tunelesShot("tuneles-sin-procesos", { state: "tunel-sin-procesos", clicks: ['.tun:has-text("Revisar PR #66")'] }),
-  tunelesShot("tuneles-lora", { state: "tunel-lora", clicks: ['.tun:has-text("Entrenar LoRA")'] }),
-  tunelesShot("tuneles-cerrado", { state: "tunel-cerrado", clicks: ['.tun:has-text("ComfyUI")'] }),
-  tunelesShot("tuneles-proyecto-plegado", { state: "proyecto-plegado", clicks: ['.proj:has-text("tandem")'] }),
-  tunelesShot("tuneles-vacio", { query: `${DEMO}&tunnels=none`, min: undefined }),
-  tunelesShot("tuneles-doce-procesos", { query: `${DEMO}&tunnels=many`, min: undefined }),
+  tunelesShot("tunnels"),
+  tunelesShot("tunnels-process-two", { state: "process-2", clicks: ['[role="option"] >> nth=1'] }),
+  tunelesShot("tunnels-two-processes", { state: "tunnel-2-processes", clicks: ['.tun:has-text("T-101")'] }),
+  tunelesShot("tunnels-no-processes", { state: "tunnel-no-processes", clicks: ['.tun:has-text("Review PR #66")'] }),
+  tunelesShot("tunnels-lora", { state: "tunnel-lora", clicks: ['.tun:has-text("Train style LoRA")'] }),
+  tunelesShot("tunnels-closed", { state: "tunnel-closed", clicks: ['.tun:has-text("ComfyUI")'] }),
+  tunelesShot("tunnels-project-collapsed", { state: "project-collapsed", clicks: ['.proj:has-text("tandem")'] }),
+  tunelesShot("tunnels-empty", { query: `${DEMO}&tunnels=none`, min: undefined }),
+  tunelesShot("tunnels-twelve-processes", { query: `${DEMO}&tunnels=many`, min: undefined }),
 ];
 
 export const MONITORES: ShotSpec[] = [
-  monitoresShot("monitores"),
-  monitoresShot("monitores-entrada-mac", { state: "entrada-mac", clicks: ['[role="radio"]:has-text("MacBook Pro")'] }),
-  escenaShot("escena-nueva", "PC-Desktop"),
-  escenaShot("escena-muestra-mac", "MacBook Pro", "muestra-mac"),
-  escenaShot("escena-sin-cambiar", "Keep as is", "sin-cambiar"),
-  progresoShot("progreso-en-curso", "run"),
-  progresoShot("progreso-exito", "ok", "exito"),
-  progresoShot("progreso-vuelta-atras", "fail", "vuelta-atras"),
+  monitoresShot("monitors"),
+  monitoresShot("monitors-input-mac", { state: "input-mac", clicks: ['[role="radio"]:has-text("MacBook Pro")'] }),
+  escenaShot("scene-new", "PC-Desktop"),
+  escenaShot("scene-shows-mac", "MacBook Pro", "shows-mac"),
+  escenaShot("scene-unchanged", "Keep as is", "unchanged"),
+  progresoShot("progress-in-progress", "run"),
+  progresoShot("progress-success", "ok", "success"),
+  progresoShot("progress-rollback", "fail", "rollback"),
 ];
 
 /** El hueco vacío que deja D1 en la fila de las tarjetas de máquina de `V3-Desk`. */
 const NO_ADD_CARD: Ignore = { mockupSelector: 'a[href="F-AddHost.dc.html"].card', reason: "D1: sin tarjeta «Agregar máquina»" };
 
 /** D2: los escritorios a escala toman el color de cada máquina; con dos del mismo sistema el fondo no puede coincidir con el mockup. */
-const D2_DESKS: Ignore = { mockupSelector: 'div:has(> div[role="img"][aria-label^="A escala"])', reason: "D2: el color de las máquinas cambia el fondo de los escritorios" };
+const D2_DESKS: Ignore = { mockupSelector: 'div:has(> div[role="img"][aria-label^="To scale"])', reason: "D2: el color de las máquinas cambia el fondo de los escritorios" };
 
 // T-120: Ajustes (una captura por pestaña) y los estados difíciles. Los dos mockups no tienen
 // barra lateral (G3/D16): se compara el contenido, desde la esquina de su título.
@@ -282,24 +282,24 @@ const ajustesShot = (name: string, state: string | undefined, clicks: string[], 
 });
 const tab = (label: string) => `[role="tab"]:has-text("${label}")`;
 export const AJUSTES: ShotSpec[] = [
-  ajustesShot("ajustes", undefined, [], [
+  ajustesShot("settings", undefined, [], [
     { app: ".pane > .row:nth-child(1) > .mut", mockup: ".pane > .row:nth-child(1) > input", reason: "El nombre del puesto es texto: el campo editable del mockup no tiene función aquí (§3.8)" },
-    { app: NONE, mockup: 'button.danger:has-text("Sacar del puesto")', reason: "D1: sin «Sacar del puesto» (exactamente dos máquinas)" },
+    { app: NONE, mockup: 'button.danger:has-text("Remove from desk")', reason: "D1: sin «Sacar del puesto» (exactamente dos máquinas)" },
     { app: ".pane > .row:nth-child(3) > button", mockup: ".pane > .row:nth-child(3) > button.ic", reason: "Sin «Sacar del puesto» a su lado, el lápiz de the other machine cae en el borde derecho de la fila" },
     { app: ".pane > .row:nth-child(4) > .fill", mockup: ".pane > .row:nth-child(4) > span", reason: "D1: «Change the other machine» en lugar de «Agregar una máquina»" },
     { app: ".pane > .row:nth-child(4) > button", mockup: ".pane > .row:nth-child(4) > a.btn", reason: "D1: «Pair again» en lugar de «Mostrar código»" },
   ]),
-  { ...ajustesShot("ajustes-atajos", "atajos", [tab("Shortcuts")]), query: `${DEMO}&solopc` },
-  ajustesShot("ajustes-teclado", "teclado", [tab("Keyboard and mouse")]),
-  ajustesShot("ajustes-actualizaciones", "actualizaciones", [tab("Updates")]),
-  { ...ajustesShot("ajustes-actualizaciones-buscado", "actualizaciones-buscado", [tab("Updates"), 'button:has-text("Check now")']), unhover: true },
-  ajustesShot("ajustes-avanzado", "avanzado", [tab("Advanced")], [
+  { ...ajustesShot("settings-shortcuts", "shortcuts", [tab("Shortcuts")]), query: `${DEMO}&solopc` },
+  ajustesShot("settings-keyboard", "keyboard", [tab("Keyboard and mouse")]),
+  ajustesShot("settings-updates", "updates", [tab("Updates")]),
+  { ...ajustesShot("settings-updates-checked", "updates-checked", [tab("Updates"), 'button:has-text("Check now")']), unhover: true },
+  ajustesShot("settings-advanced", "advanced", [tab("Advanced")], [
     { app: ".pane > .row:nth-child(3) .path", mockup: ".pane > .row:nth-child(3) .mono", reason: "El agente todavía no cuenta las sesiones del servidor MCP" },
   ]),
 ];
 
 export const ESTADOS: ShotSpec = {
-  name: "estados",
+  name: "states",
   page: "index.html",
   // `?estados` siembra los textos de ejemplo del mockup (nombres, cifras): se compara todo.
   query: `${DEMO}&estados`,
@@ -328,7 +328,7 @@ export const ESTADOS: ShotSpec = {
  */
 const ROW = (text: string) => `section[role="dialog"] .it:has(span:text-is("${text}"))`;
 export const PALETA: ShotSpec = {
-  name: "paleta",
+  name: "palette",
   page: "index.html",
   query: `${DEMO}&paleta`,
   hash: "#/puesto",
@@ -337,21 +337,21 @@ export const PALETA: ShotSpec = {
   height: H,
   keys: ["Meta+k"],
   ignore: [
-    { mockupSelector: ROW("Agregar máquina…"), reason: "D1: no hay tercera máquina; se cambia la otra" },
+    { mockupSelector: ROW("Add machine…"), reason: "D1: no hay tercera máquina; se cambia la otra" },
   ],
-  regions: [{ name: "diálogo", mockupSelector: 'section[role="dialog"]', min: SCREEN_GATE }],
+  regions: [{ name: "dialog", mockupSelector: 'section[role="dialog"]', min: SCREEN_GATE }],
   min: SCREEN_GATE,
 };
 
 /** T-144: los estados de `F-Palette` que escribe en el campo (tecla a tecla, como el mockup, que filtra al teclear). */
 const PALETA_ESCRIBE = (state: string, text: string): ShotSpec => ({
   ...PALETA,
-  name: `paleta-${state}`,
+  name: `palette-${state}`,
   state,
   keys: ["Meta+k", ...text.split("")],
-  regions: [{ name: "diálogo", mockupSelector: 'section[role="dialog"]', min: SCREEN_GATE }],
+  regions: [{ name: "dialog", mockupSelector: 'section[role="dialog"]', min: SCREEN_GATE }],
 });
-export const PALETA_ESTADOS: ShotSpec[] = [PALETA_ESCRIBE("filtro", "solo"), PALETA_ESCRIBE("sin-resultados", "zzz")];
+export const PALETA_ESTADOS: ShotSpec[] = [PALETA_ESCRIBE("filter", "only"), PALETA_ESCRIBE("no-results", "zzz")];
 
 /**
  * T-120: la bandeja contra `V3-Tray`. Los datos del puesto reemplazan a los de ejemplo
@@ -359,7 +359,7 @@ export const PALETA_ESTADOS: ShotSpec[] = [PALETA_ESCRIBE("filtro", "solo"), PAL
  * aviso también se tapa. «Lock here» no existe en la app (DECISIONS, T-112).
  */
 export const BANDEJA: ShotSpec = {
-  name: "bandeja",
+  name: "tray",
   page: "tray.html",
   // `bandeja` siembra los datos del mockup: 0.4 ms, la Mac al 18 %, «PC only» y tres proyectos.
   query: `${DEMO}&bandeja`,
@@ -385,7 +385,7 @@ export const BANDEJA: ShotSpec = {
  * cuadro, y como capa fija el texto cae en otro píxel (ver `mockups/README.md`).
  */
 export const AVISOS: ShotSpec = {
-  name: "avisos",
+  name: "notices",
   page: "index.html",
   query: `${DEMO}&avisos`,
   hash: "#/puesto",
@@ -417,8 +417,8 @@ const asisShot = (name: string, mockup: string, query: string, extra: Partial<Sh
 });
 /** Los botones «Simular…» son solo del mockup (README): en la app esos pasos ocurren de verdad. */
 const SIMULAR_ASIS: Ignore[] = [
-  { mockupSelector: 'button.sim:has-text("Simular cruce")', reason: "«Simular cruce» es solo del mockup" },
-  { mockupSelector: 'button.sim:has-text("Simular otro borde")', reason: "«Simular otro borde» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "«Simular cruce» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simulate another edge")', reason: "«Simular otro borde» es solo del mockup" },
 ];
 /**
  * `F-Setup5`: su CSS declara `.cur` para el cursor del dibujo y esa clase también la lleva el paso
@@ -439,40 +439,40 @@ const ASIS5_VERDICT: Ignore = { rect: { x: 350, y: 482, width: 440, height: 40 }
 const ASIS5: Ignore[] = [...ASIS5_LIST, ASIS5_LEAD];
 /** `F-Setup3` escribe «Faltan 1» y no ofrece reiniciar el agente; la app concuerda («1 missing») y lo ofrece (T-090). */
 const PERMS_FOOT: Ignore = { rect: { x: 775, y: 770, width: 200, height: 40 }, reason: "F-Setup3: «Faltan 1» y «Restart agent» (solo en la app)" };
-const asisColor = (label: string, state: string) => asisShot(`asistente-maquina-${state}`, "F-Setup1", "wizard=0&admin=pending", { state, clicks: [`[role="radio"][aria-label="${label}"]`] });
+const asisColor = (label: string, state: string) => asisShot(`setup-machine-${state}`, "F-Setup1", "wizard=0&admin=pending", { state, clicks: [`[role="radio"][aria-label="${label}"]`] });
 export const ASISTENTE: ShotSpec[] = [
-  asisShot("asistente-maquina", "F-Setup1", "wizard=0&admin=pending"),
-  asisColor("Violet", "violeta"),
-  asisColor("Teal", "verde-azulado"),
-  asisColor("Amber", "ambar"),
-  asisShot("asistente-puesto", "V3-Setup", "wizard=1&peer=none&pair=code", {
-    fills: ["4", "8", "2", "9"].map((text, i) => ({ selector: `input[aria-label="Dígito ${i + 1}"]`, text })),
+  asisShot("setup-machine", "F-Setup1", "wizard=0&admin=pending"),
+  asisColor("Violet", "violet"),
+  asisColor("Teal", "teal"),
+  asisColor("Amber", "amber"),
+  asisShot("setup-desk", "V3-Setup", "wizard=1&peer=none&pair=code", {
+    fills: ["4", "8", "2", "9"].map((text, i) => ({ selector: `input[aria-label="Digit ${i + 1}"]`, text })),
     // El foco salta solo al dígito siguiente; el mockup no tiene foco en ninguno.
     clicks: [".wiz h1"],
   }),
   // T-145: «Create a new desk». El panel (nombre del puesto en el mockup, código en la app) se tapa entero.
-  asisShot("asistente-puesto-nuevo", "V3-Setup", "wizard=1&peer=none&pair=code", {
-    state: "nuevo",
+  asisShot("setup-desk-new", "V3-Setup", "wizard=1&peer=none&pair=code", {
+    state: "new",
     clicks: ['[role="radio"]:has-text("Create a new desk")'],
     ignore: [{ rect: { x: 350, y: 315, width: 760, height: 205 }, reason: "T-145: el nombre del puesto no existe en el agente (§3.8); la app muestra el código de emparejamiento (T-097)" }],
   }),
-  asisShot("asistente-permisos", "F-Setup3", "wizard=2&perms=missing"),
-  asisShot("asistente-permisos-uno", "F-Setup3", "wizard=2&perms=missing", { state: "uno-concedido", clicks: ['button:has-text("Open settings") >> nth=0'], ignore: [PERMS_FOOT] }),
-  asisShot("asistente-permisos-todo", "F-Setup3", "wizard=2&perms=missing", {
-    state: "todo-concedido",
+  asisShot("setup-permissions", "F-Setup3", "wizard=2&perms=missing"),
+  asisShot("setup-permissions-one", "F-Setup3", "wizard=2&perms=missing", { state: "one-granted", clicks: ['button:has-text("Open settings") >> nth=0'], ignore: [PERMS_FOOT] }),
+  asisShot("setup-permissions-all", "F-Setup3", "wizard=2&perms=missing", {
+    state: "all-granted",
     clicks: ['button:has-text("Open settings") >> nth=0', 'button:has-text("Open settings") >> nth=0'],
   }),
-  asisShot("asistente-teclado", "F-Setup4", "wizard=3"),
-  asisShot("asistente-acomodo", "F-Setup5", "wizard=4", { ignore: ASIS5 }),
-  asisShot("asistente-acomodo-esperando", "F-Setup5", "wizard=4", { state: "esperando", clicks: ['button:has-text("Test crossing")'], ignore: [...ASIS5, ASIS5_VERDICT, ...SIMULAR_ASIS] }),
-  asisShot("asistente-acomodo-cruzo", "F-Setup5", "wizard=4&cross=ok", { state: "cruzo", clicks: ['button:has-text("Test crossing")'], ignore: ASIS5 }),
-  asisShot("asistente-acomodo-otro-borde", "F-Setup5", "wizard=4&cross=wrong", { state: "otro-borde", clicks: ['button:has-text("Test crossing")'], ignore: ASIS5 }),
-  asisShot("asistente-listo", "F-Setup6", "wizard=5&crossed"),
+  asisShot("setup-keyboard", "F-Setup4", "wizard=3"),
+  asisShot("setup-arrangement", "F-Setup5", "wizard=4", { ignore: ASIS5 }),
+  asisShot("setup-arrangement-waiting", "F-Setup5", "wizard=4", { state: "waiting", clicks: ['button:has-text("Test crossing")'], ignore: [...ASIS5, ASIS5_VERDICT, ...SIMULAR_ASIS] }),
+  asisShot("setup-arrangement-crossed", "F-Setup5", "wizard=4&cross=ok", { state: "crossed", clicks: ['button:has-text("Test crossing")'], ignore: ASIS5 }),
+  asisShot("setup-arrangement-other-edge", "F-Setup5", "wizard=4&cross=wrong", { state: "other-edge", clicks: ['button:has-text("Test crossing")'], ignore: ASIS5 }),
+  asisShot("setup-done", "F-Setup6", "wizard=5&crossed"),
 ];
 
 export const SHOTS: ShotSpec[] = [
   {
-    name: "puesto",
+    name: "desk",
     page: "index.html",
     query: DEMO,
     hash: "#/puesto",
@@ -489,11 +489,11 @@ export const SHOTS: ShotSpec[] = [
   // colores cambian, así que no tienen umbral: sirven para ver cada combinación.
   // T-144: aplicar una escena desde el Puesto (los mismos clics que `V3-Desk--escena-*`).
   ...[
-    ["escena-solo-macbook", "Solo MacBook"],
-    ["escena-juego", "Game"],
-  ].map(([state, label]): ShotSpec => ({ name: `puesto-${state}`, page: "index.html", query: DEMO, hash: "#/puesto", mockup: "V3-Desk", state, width: W, height: H, clicks: [`.scene:has-text("${label}")`], ignore: [NO_ADD_MACHINE, NO_ADD_CARD], min: SCREEN_GATE })),
-  { name: "puesto-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/puesto", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
-  { name: "puesto-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/puesto", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
+    ["scene-macbook-only", "MacBook only"],
+    ["scene-game", "Game"],
+  ].map(([state, label]): ShotSpec => ({ name: `desk-${state}`, page: "index.html", query: DEMO, hash: "#/puesto", mockup: "V3-Desk", state, width: W, height: H, clicks: [`.scene:has-text("${label}")`], ignore: [NO_ADD_MACHINE, NO_ADD_CARD], min: SCREEN_GATE })),
+  { name: "desk-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/puesto", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
+  { name: "desk-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/puesto", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
   ...TUNELES,
   ...MONITORES,
   ...ACOMODO,
@@ -501,20 +501,20 @@ export const SHOTS: ShotSpec[] = [
   // T-118: la pantalla Red entera contra `V3-Network`. Se tapa lo que D1 quita («Agregar máquina») y
   // el rótulo de la ventana de la gráfica: el agente guarda 60 s, el mockup dice «10 min».
   {
-    name: "red",
+    name: "network",
     page: "index.html",
     query: DEMO,
     hash: "#/red",
     mockup: "V3-Network",
     width: W,
     height: H,
-    ignore: [NO_ADD_MACHINE, { mockupSelector: 'span.mut:has-text("Latencia · 10 min")', reason: "T-102: la gráfica es de 60 s (DESIGN §6), no de 10 min" }],
+    ignore: [NO_ADD_MACHINE, { mockupSelector: 'span.mut:has-text("Latency · 10 min")', reason: "T-102: la gráfica es de 60 s (DESIGN §6), no de 10 min" }],
     regions: [SIDEBAR],
     min: SCREEN_GATE,
   },
   // T-115: la página de the other machine, con umbral en la barra lateral y en el contenido.
   {
-    name: "maquina-b",
+    name: "machine-b",
     page: "index.html",
     query: DEMO,
     hash: "#/maquina/b",
@@ -524,13 +524,13 @@ export const SHOTS: ShotSpec[] = [
     ignore: [NO_ADD_MACHINE],
     regions: [
       { ...SIDEBAR, min: SIDEBAR_GATE },
-      { name: "contenido", mockupSelector: "main", min: SIDEBAR_GATE },
+      { name: "content", mockupSelector: "main", min: SIDEBAR_GATE },
     ],
   },
   // T-115: this machine contra `F-MachineMac`, en el estado que dibuja (falta un permiso). Solo
   // el contenido, con las diferencias de `mockups/README.md` tapadas.
   {
-    name: "maquina-a",
+    name: "machine-a",
     page: "index.html",
     query: `${DEMO}&trouble=permissions`,
     hash: "#/maquina/a",
@@ -554,7 +554,7 @@ export const SHOTS: ShotSpec[] = [
   ...PALETA_ESTADOS,
   ESTADOS,
   AVISOS,
-  { ...AVISOS, name: "avisos-cerrado", state: "cerrado", clicks: ['button[aria-label="Close"] >> nth=0'] },
+  { ...AVISOS, name: "notices-closed", state: "closed", clicks: ['button[aria-label="Close"] >> nth=0'] },
   BANDEJA,
 ];
 

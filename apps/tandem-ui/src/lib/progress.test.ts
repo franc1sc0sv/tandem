@@ -21,10 +21,10 @@ const going: TxnView = { type: "step_started", txn: 2, index: 0 };
 describe("tarjeta de energía (F-Transactions)", () => {
   it("espera con Wake-on-LAN, el reloj contra el máximo y lo que falta", () => {
     const v = energyView(run([started, going]), name, "MacBook Pro", 18_000);
-    expect(v?.title).toBe("Encendiendo PC-Escritorio");
+    expect(v?.title).toBe("Powering on PC-Desktop");
     expect(v?.waiting).toBe(true);
     expect(v?.rows.map((r) => [r.icon, r.text, r.detail])).toEqual([
-      ["done", "Wake-on-LAN enviado desde MacBook Pro", "cada 5 s"],
+      ["done", "Wake-on-LAN sent from MacBook Pro", "every 5 s"],
       ["run", "Waiting for its agent to answer", "0:18 / 2:00"],
       ["todo", "Add it back to the desk", ""],
     ]);
@@ -79,7 +79,7 @@ const net = (measuring: NetworkView["measuring"] = "usb4"): NetworkView => ({
 describe("tarjeta de medición (F-Transactions)", () => {
   it("dibuja lo medido, la barra y los otros caminos", () => {
     const v = measureView(net(), "usb4");
-    expect(v).toMatchObject({ title: "Midiendo el enlace USB-C", value: "9.4", unit: "Gbps", latency: "0.3 ms", percent: 94, aria: "9.4 de 10 Gbps", caption: "USB4 20 Gbps link" });
+    expect(v).toMatchObject({ title: "Measuring the USB-C link", value: "9.4", unit: "Gbps", latency: "0.3 ms", percent: 94, aria: "9.4 of 10 Gbps", caption: "USB4 20 Gbps link" });
     expect(v?.others).toEqual([
       { name: "Ethernet", text: "no cable" },
       { name: "Wi-Fi", text: "410 Mbps · 3.8 ms" },

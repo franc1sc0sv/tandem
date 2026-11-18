@@ -200,14 +200,14 @@ describe("dibujo a escala física", () => {
 describe("panel", () => {
   it("con el 34\" elegido pregunta por the other machine y la muestra de su lado", () => {
     const p = panelFor(MOCK, "g34");
-    expect(p?.question).toBe("¿Dónde está MacBook Pro?");
+    expect(p?.question).toBe("Where is MacBook Pro?");
     expect(p?.other?.id).toBe("mbp");
     expect(p?.shown).toBe("left");
   });
 
   it("con la pantalla de A elegida el mini plano se ve desde A (lado opuesto)", () => {
     const p = panelFor(MOCK, "mbp");
-    expect(p?.question).toBe('¿Dónde está el 34"?');
+    expect(p?.question).toBe("Where is the 34\"?");
     expect(p?.shown).toBe("right");
   });
 
@@ -219,7 +219,7 @@ describe("panel", () => {
     const p = panelFor(two, "a2");
     expect(p?.screen.usable).toBe(true);
     expect(p?.other?.id).toBe("b1");
-    expect(p?.question).toBe("¿Dónde está b1?");
+    expect(p?.question).toBe("Where is b1?");
     expect(p?.shown).toBe("right");
     // Lo que se elige desde la segunda es lo mismo que desde la primera.
     expect(placeOther(two.arrangement, "a", "down")).toEqual({ aSide: "up", align: "center" });

@@ -25,7 +25,7 @@ describe("lista de pasos", () => {
   it("tiene los seis pasos, clicables, con hechos, actual y por hacer", async () => {
     const { dlg, store } = await mount("demo&still", 2);
     const steps = within(within(dlg).getByRole("complementary", { name: "Steps" })).getAllByRole("button").filter((b) => /^[\d✓]/.test(b.textContent ?? ""));
-    expect(steps.map((b) => b.textContent)).toEqual(["✓This machine", "✓Your desk", "3Permisos", "4Keyboard and mouse", "5Arrangement and crossing test", "6Listo"]);
+    expect(steps.map((b) => b.textContent)).toEqual(["✓This machine", "✓Your desk", "3Permissions", "4Keyboard and mouse", "5Arrangement and crossing test", "6Done"]);
     expect(steps[0]).toHaveClass("done");
     expect(steps[2]).toHaveAttribute("aria-current", "step");
     expect(steps[3]).not.toHaveClass("done");
@@ -68,7 +68,7 @@ describe("paso 1: this machine", () => {
   it("sin instalador (instalación por usuario) la fila lo explica y no ofrece el botón", async () => {
     const { dlg } = await mount("demo&still&admin=off");
     const found = within(dlg).getByRole("region", { name: "What it found" });
-    expect(await within(found).findByText(/instalación por usuario/)).toBeInTheDocument();
+    expect(await within(found).findByText(/per-user install/)).toBeInTheDocument();
     expect(within(found).queryByRole("button", { name: "Install" })).toBeNull();
     expect(found.querySelectorAll(".wz-spin")).toHaveLength(0);
   });
@@ -93,21 +93,21 @@ describe("paso 2: tu puesto", () => {
   it("unirse: busca sola, el usuario escribe el código y las dos quedan emparejadas", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { dlg, store } = await mount("demo&still&peer=none", 1);
-    expect(await within(dlg).findByText("Buscando a PC-Escritorio en tu red…")).toBeInTheDocument();
+    expect(await within(dlg).findByText("Looking for PC-Desktop on your network…")).toBeInTheDocument();
     await vi.advanceTimersByTimeAsync(1500);
     expect(within(dlg).getByText("Found on your network")).toBeInTheDocument();
-    expect(within(dlg).getByText("Escribe el código que muestra PC-Escritorio")).toBeInTheDocument();
+    expect(within(dlg).getByText("Enter the code PC-Desktop shows")).toBeInTheDocument();
     // Un código equivocado no confirma.
-    for (const [i, d] of [..."418028"].entries()) await userEvent.type(within(dlg).getByRole("textbox", { name: `Dígito ${i + 1}` }), d);
-    expect(within(dlg).getByRole("alert")).toHaveTextContent("No es el código que muestra PC-Escritorio");
+    for (const [i, d] of [..."418028"].entries()) await userEvent.type(within(dlg).getByRole("textbox", { name: `Digit ${i + 1}` }), d);
+    expect(within(dlg).getByRole("alert")).toHaveTextContent("That is not the code PC-Desktop shows");
     expect(store.desk.pair.pairing).toMatchObject({ kind: "comparing", confirmed: false });
     // El correcto sí.
-    await userEvent.clear(within(dlg).getByRole("textbox", { name: "Dígito 6" }));
-    await userEvent.type(within(dlg).getByRole("textbox", { name: "Dígito 6" }), "7");
+    await userEvent.clear(within(dlg).getByRole("textbox", { name: "Digit 6" }));
+    await userEvent.type(within(dlg).getByRole("textbox", { name: "Digit 6" }), "7");
     expect(store.desk.pair.pairing).toMatchObject({ kind: "comparing", confirmed: true });
     await vi.advanceTimersByTimeAsync(1300);
     expect(store.desk.pair.peer).toMatchObject({ kind: "paired", name: "PC-Desktop" });
-    expect(await within(dlg).findByText(/Emparejada/)).toBeInTheDocument();
+    expect(await within(dlg).findByText(/Paired/)).toBeInTheDocument();
   });
 
   it("crear: muestra el código y confirma sin pedir nada más", async () => {
@@ -115,15 +115,15 @@ describe("paso 2: tu puesto", () => {
     const { dlg, store } = await mount("demo&still&peer=none", 1);
     await userEvent.click(within(dlg).getByRole("radio", { name: /Create a new desk/ }));
     await vi.advanceTimersByTimeAsync(1500);
-    expect(within(dlg).getByRole("group", { name: /Código de MacBook Pro/ }).textContent).toBe("418027");
+    expect(within(dlg).getByRole("group", { name: /Code of MacBook Pro/ }).textContent).toBe("418027");
     expect(store.desk.pair.pairing).toMatchObject({ kind: "comparing", confirmed: true });
-    expect(within(dlg).getByText(/Después, en the other machine/)).toBeInTheDocument();
+    expect(within(dlg).getByText(/Then, on the other machine/)).toBeInTheDocument();
   });
 
   it("emparejadas: «Change the other machine» pide confirmar antes de desemparejar", async () => {
     const { dlg, store } = await mount("demo&still", 1);
     await userEvent.click(within(dlg).getByRole("button", { name: "Change the other machine" }));
-    expect(within(dlg).getByText("¿Desemparejar PC-Escritorio?")).toBeInTheDocument();
+    expect(within(dlg).getByText("Unpair PC-Desktop?")).toBeInTheDocument();
     await userEvent.click(within(dlg).getByRole("button", { name: "No" }));
     expect(store.desk.pair.peer.kind).toBe("paired");
     await userEvent.click(within(dlg).getByRole("button", { name: "Change the other machine" }));
@@ -135,7 +135,7 @@ describe("paso 2: tu puesto", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { dlg } = await mount("demo&still&peer=none&pair=reject", 1);
     await vi.advanceTimersByTimeAsync(1500);
-    for (const [i, d] of [..."418027"].entries()) await userEvent.type(within(dlg).getByRole("textbox", { name: `Dígito ${i + 1}` }), d);
+    for (const [i, d] of [..."418027"].entries()) await userEvent.type(within(dlg).getByRole("textbox", { name: `Digit ${i + 1}` }), d);
     await vi.advanceTimersByTimeAsync(1300);
     expect(await within(dlg).findByText("They did not pair")).toBeInTheDocument();
     expect(within(dlg).getByRole("button", { name: "Retry" })).toBeInTheDocument();
@@ -146,14 +146,14 @@ describe("paso 3: permisos", () => {
   it("los pide, muestra los que faltan y pasan a concedidos al abrirlos", async () => {
     const { dlg, store } = await mount("demo&still&perms=missing", 2);
     expect(within(dlg).getByRole("heading", { name: "macOS permissions" })).toBeInTheDocument();
-    expect(within(dlg).getByText("Faltan 2")).toBeInTheDocument();
+    expect(within(dlg).getByText("Missing 2")).toBeInTheDocument();
     const next = within(dlg).getByRole("button", { name: "Continue" });
     expect(next).toHaveClass("wait");
     expect(within(dlg).getAllByText("Granted · checked just now")).toHaveLength(1);
     const open = within(dlg).getAllByRole("button", { name: "Open settings" });
     expect(open).toHaveLength(2);
     await userEvent.click(open[0]!);
-    expect(within(dlg).getByText("1 missing")).toBeInTheDocument();
+    expect(within(dlg).getByText("Missing 1")).toBeInTheDocument();
     // Tras abrir un panel se ofrece reiniciar el agente.
     expect(within(dlg).getByRole("button", { name: "Restart agent" })).toBeInTheDocument();
     await userEvent.click(within(dlg).getByRole("button", { name: "Open settings" }));
@@ -217,7 +217,7 @@ describe("paso 5: acomodo y prueba de cruce", () => {
     const next = within(dlg).getByRole("button", { name: "Continue" });
     expect(next).toHaveClass("wait");
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
-    expect(await within(dlg).findByText(/Cruzó a PC-Escritorio por el borde derecho, como dice el acomodo. Vuelta medida: 0.4 ms./)).toBeInTheDocument();
+    expect(await within(dlg).findByText(/Crossed to PC-Desktop through the right edge, as the arrangement says. Round trip measured: 0.4 ms./)).toBeInTheDocument();
     expect(store.wizardCrossed).toBe(true);
     expect(next).not.toHaveClass("wait");
   });
@@ -225,7 +225,7 @@ describe("paso 5: acomodo y prueba de cruce", () => {
   it("por otro borde falla y se puede probar de nuevo", async () => {
     const { dlg, store } = await mount("demo&still&cross=wrong", 4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
-    expect(await within(dlg).findByText(/Cruzó the top, no the right/)).toBeInTheDocument();
+    expect(await within(dlg).findByText(/Crossed at the top, not the right/)).toBeInTheDocument();
     expect(store.wizardCrossed).toBe(false);
     expect(within(dlg).getByRole("button", { name: "Test again" })).toBeInTheDocument();
   });
@@ -233,14 +233,14 @@ describe("paso 5: acomodo y prueba de cruce", () => {
   it("sin cruzar a tiempo, falla con el borde que había que usar", async () => {
     const { dlg } = await mount("demo&still&cross=timeout", 4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
-    expect(await within(dlg).findByText(/No cruzó en 20 s/)).toBeInTheDocument();
+    expect(await within(dlg).findByText(/Did not cross in 20 s/)).toBeInTheDocument();
   });
 
   it("mover the other machine con las flechas guarda el acomodo y reinicia la prueba", async () => {
     const { dlg, store } = await mount("demo&still&cross=ok", 4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
-    await within(dlg).findByText(/Cruzó a/);
-    const other = within(dlg).getByRole("button", { name: /Mover PC-Escritorio/ });
+    await within(dlg).findByText(/Crossed to/);
+    const other = within(dlg).getByRole("button", { name: /Move PC-Desktop/ });
     other.focus();
     await userEvent.keyboard("{ArrowDown}");
     // A (aquí) sale the bottom: B queda debajo.
@@ -265,7 +265,7 @@ describe("paso 6: listo", () => {
     store.wizardCrossed = true;
     await tick();
     const sum = within(dlg).getByRole("region", { name: "Summary" });
-    expect(sum).toHaveTextContent("MacBook Pro y PC-Escritorio en «My desk»");
+    expect(sum).toHaveTextContent("MacBook Pro and PC-Desktop in “My desk”");
     expect(sum).toHaveTextContent("USB-C · 0.3 ms");
     expect(sum).toHaveTextContent("from any machine · crossing tested");
     expect(sum).toHaveTextContent("MCP ready for Claude Code on both");

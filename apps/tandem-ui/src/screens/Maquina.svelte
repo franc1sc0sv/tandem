@@ -303,7 +303,7 @@
               fill={live.battery.percent <= 20 ? "#d9a75a" : "#6cc59a"}
               stroke="none"
             ></rect></svg
-          >Battery<span class="mono">{Math.round(live.battery.percent)} % · {live.battery.plugged ? "conectada" : "on battery"}</span>
+          >Battery<span class="mono">{Math.round(live.battery.percent)} % · {live.battery.plugged ? "plugged in" : "on battery"}</span>
         {/if}
       </div>
     {/if}
@@ -326,7 +326,7 @@
                 aria-checked={mod.state === "active"}
                 aria-label={mod.name}
                 aria-busy={busy === mod.id}
-                title={mod.state === "active" ? `Apagar ${mod.name}` : `Encender ${mod.name}`}
+                title={mod.state === "active" ? `Turn off ${mod.name}` : `Turn on ${mod.name}`}
                 onclick={() => toggle(mod)}>{MODULE_TEXT[mod.state]}</button
               >
             {:else}
@@ -363,8 +363,8 @@
         {#if envs.main}
           <div class="env main" style="border-color:{m.color};background:{tint(m.color)}">
             <span class="en"
-              ><b>{envLabel(envs.main)}</b><span class="fill"></span>{#if m.here}<span class="mut s11">predeterminado</span>{:else}<span class="chip s11"
-                  >predeterminado</span
+              ><b>{envLabel(envs.main)}</b><span class="fill"></span>{#if m.here}<span class="mut s11">default</span>{:else}<span class="chip s11"
+                  >default</span
                 >{/if}</span
             >
             <span class="mono mut s115">{envs.main.detail}</span>

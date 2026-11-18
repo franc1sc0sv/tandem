@@ -101,8 +101,8 @@ describe("indicadores", () => {
   });
 
   it("describe cada camino para quien no lo ve", () => {
-    expect(demo().paths.map(describePath)).toEqual(["USB-C activo a 0.3 ms", "Ethernet no cable", "Wi-Fi de respaldo a 3.8 ms"]);
-    expect(describePath({ ...path(demo(), "usb4"), state: "down" })).toBe("USB-C caído");
+    expect(demo().paths.map(describePath)).toEqual(["USB-C active at 0.3 ms", "Ethernet no cable", "Wi-Fi as backup at 3.8 ms"]);
+    expect(describePath({ ...path(demo(), "usb4"), state: "down" })).toBe("USB-C down");
   });
 });
 
@@ -186,26 +186,26 @@ describe("la gráfica de 60 s", () => {
 
 describe("la nota del último cambio", () => {
   it("dice el corte con lo que tardó, como el mockup", () => {
-    expect(pathNote(demo(), true)).toEqual({ tone: "warn", text: "Spike when the cable was unplugged · pasó a Wi-Fi en 0.6 s" });
-    expect(pathNote(demo(), false)?.text).toBe("The cable was unplugged · pasó a Wi-Fi en 0.6 s");
+    expect(pathNote(demo(), true)).toEqual({ tone: "warn", text: "Spike when the cable was unplugged · switched to Wi-Fi in 0.6 s" });
+    expect(pathNote(demo(), false)?.text).toBe("The cable was unplugged · switched to Wi-Fi in 0.6 s");
   });
 
   it("si cayó el Wi-Fi, o no quedó camino", () => {
     const base = demo();
     const cut = (from: "usb4" | "wifi", to: "usb4" | "wifi" | null): NetworkView => ({ ...base, switches: [{ at: DEMO_NOW - 5000, from, to, tookMs: 1200 }] });
-    expect(pathNote(cut("wifi", "usb4"), true)?.text).toBe("Spike when Wi-Fi dropped · pasó a USB-C en 1.2 s");
-    expect(pathNote(cut("wifi", "usb4"), false)?.text).toBe("Wi-Fi dropped · pasó a USB-C en 1.2 s");
-    expect(pathNote(cut("usb4", null), false)?.text).toBe("The cable was unplugged · sin camino durante 1.2 s");
+    expect(pathNote(cut("wifi", "usb4"), true)?.text).toBe("Spike when Wi-Fi dropped · switched to USB-C in 1.2 s");
+    expect(pathNote(cut("wifi", "usb4"), false)?.text).toBe("Wi-Fi dropped · switched to USB-C in 1.2 s");
+    expect(pathNote(cut("usb4", null), false)?.text).toBe("The cable was unplugged · no path for 1.2 s");
   });
 
   it("sin corte, el último cambio; fuera de los 60 s o sin cambios, nada", () => {
     const base = demo();
     const up = (from: "wifi" | null): NetworkView => ({ ...base, switches: [{ at: DEMO_NOW - 1000, from, to: "usb4", tookMs: null }] });
-    expect(pathNote(up("wifi"), false)).toEqual({ tone: "info", text: "Pasó de Wi-Fi a USB-C" });
-    expect(pathNote(up(null), false)).toEqual({ tone: "info", text: "Conectó por USB-C" });
+    expect(pathNote(up("wifi"), false)).toEqual({ tone: "info", text: "Switched from Wi-Fi to USB-C" });
+    expect(pathNote(up(null), false)).toEqual({ tone: "info", text: "Connected over USB-C" });
     // El corte del demo fue hace 36 s: sale de la gráfica 24 s después, y la vuelta del cable 32 s después.
     expect(pathNote({ ...base, now: DEMO_NOW + 24_000 }, true)?.tone).toBe("warn");
-    expect(pathNote({ ...base, now: DEMO_NOW + 25_000 }, true)).toEqual({ tone: "info", text: "Pasó de Wi-Fi a USB-C" });
+    expect(pathNote({ ...base, now: DEMO_NOW + 25_000 }, true)).toEqual({ tone: "info", text: "Switched from Wi-Fi to USB-C" });
     expect(pathNote({ ...base, now: DEMO_NOW + 40_000 }, true)).toBeNull();
     expect(pathNote(EMPTY_NETWORK, false)).toBeNull();
   });
@@ -223,11 +223,11 @@ describe("camino sin respuesta (T-147)", () => {
 
   it("los tres caminos × unplugged y down", () => {
     for (const k of kinds) {
-      const unplugged = k === "wifi" ? "Sin señal" : "No cable";
+      const unplugged = k === "wifi" ? "No signal" : "No cable";
       expect(stateLabel(mk(k, "unplugged"))).toBe(unplugged);
-      expect(stateLabel(mk(k, "down"))).toBe("Caído");
+      expect(stateLabel(mk(k, "down"))).toBe("Down");
       expect(describePath(mk(k, "unplugged"))).toBe(`${LINK_NAME[k]} ${unpluggedText(k)}`);
-      expect(describePath(mk(k, "down"))).toBe(`${LINK_NAME[k]} caído`);
+      expect(describePath(mk(k, "down"))).toBe(`${LINK_NAME[k]} down`);
       expect(describePath(mk(k, "unplugged"))).not.toMatch(/Wi-Fi.*cable/);
     }
   });

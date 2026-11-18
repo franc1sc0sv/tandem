@@ -73,16 +73,16 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object
 export function checkSnapshot(snap: unknown): asserts snap is Snapshot {
   if (!isObj(snap) || typeof snap.kind !== "string") throw new ShapeError("no “kind”");
   if (snap.kind !== "connected") return;
-  if (!isSide(snap.agent)) throw new ShapeError(`lado «${String(snap.agent)}»`);
+  if (!isSide(snap.agent)) throw new ShapeError(`side “${String(snap.agent)}”`);
   const desk = snap.desk;
   if (!isObj(desk) || !isObj(desk.machines) || !Array.isArray(desk.screens) || (desk.arrangement !== null && !isObj(desk.arrangement))) throw new ShapeError("puesto");
-  if (!isObj(snap.state) || !isObj(snap.state.on) || typeof snap.state.on.a !== "boolean" || typeof snap.state.on.b !== "boolean") throw new ShapeError("encendido");
-  if (!isObj(snap.peer) || !isObj(snap.pairing)) throw new ShapeError("emparejamiento");
+  if (!isObj(snap.state) || !isObj(snap.state.on) || typeof snap.state.on.a !== "boolean" || typeof snap.state.on.b !== "boolean") throw new ShapeError("on");
+  if (!isObj(snap.peer) || !isObj(snap.pairing)) throw new ShapeError("pairing");
   if (!Array.isArray(desk.scenes)) throw new ShapeError("escenas");
   if (!Array.isArray(snap.monitors)) throw new ShapeError("monitores");
-  if (!isObj(snap.input) || !Array.isArray(snap.input.missing)) throw new ShapeError("entrada");
+  if (!isObj(snap.input) || !Array.isArray(snap.input.missing)) throw new ShapeError("input");
   const caps = snap.caps;
-  if (!isObj(caps) || !isObj(caps.here) || !isSide(caps.here.machine) || !isObj(caps.here.input)) throw new ShapeError("capacidades");
+  if (!isObj(caps) || !isObj(caps.here) || !isSide(caps.here.machine) || !isObj(caps.here.input)) throw new ShapeError("capabilities");
   if (caps.peer !== null && (!isObj(caps.peer) || !isSide(caps.peer.machine))) throw new ShapeError("the other one’s capabilities");
 }
 
@@ -392,7 +392,7 @@ export class LiveSource implements Source {
 
   async saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult> {
     const r = result(await this.bridge.act(isNew ? { kind: "add_scene", scene } : { kind: "edit_scene", scene }));
-    return r.ok ? { ok: true, text: `Escena «${scene.name}» guardada` } : r;
+    return r.ok ? { ok: true, text: `Scene “${scene.name}” saved` } : r;
   }
 
   /** Sin comando en la IPC del agente: `can("forget")` es falso y la pantalla no ofrece la acción. */

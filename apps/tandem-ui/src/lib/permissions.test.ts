@@ -17,9 +17,9 @@ function mac(exe: string): MachineCaps {
 }
 
 it("nombra cada permiso en español y como lo llama macOS en inglés", () => {
-  expect(permissionLabel("accessibility")).toBe("Accesibilidad (Accessibility)");
+  expect(permissionLabel("accessibility")).toBe("Accessibility");
   expect(permissionLabel("input_monitoring")).toBe("Input Monitoring");
-  expect(permissionLabel("local_network")).toBe("Red local (Local Network)");
+  expect(permissionLabel("local_network")).toBe("Local Network");
   expect(Object.keys(PERMISSION_NAMES)).toHaveLength(3);
 });
 
@@ -39,7 +39,7 @@ it("la ayuda cubre pedir, conceder, reiniciar y la entrada vieja", () => {
   expect(MISSING_HELP).toContain("Request permissions");
   expect(MISSING_HELP).toContain("Restart agent");
   expect(MISSING_HELP).toContain("Privacy & Security");
-  expect(MISSING_HELP).toContain("entrada vieja");
+  expect(MISSING_HELP).toContain("remove the old entry");
 });
 
 it("el estado de un permiso sale de lo que anuncia el agente", () => {
@@ -67,10 +67,10 @@ it("«Request permissions» devuelve la razón si el agente la rechaza", async (
 it("«Restart agent» avisa solo si de verdad reinició", async () => {
   const ok = await pressPermission("restart", deps());
   expect(ok.error).toBeNull();
-  expect(ok.message).toContain("se reinicia");
+  expect(ok.message).toContain("is restarting");
   const none = await pressPermission("restart", deps({ restartAgent: null }));
   expect(none.message).toBeUndefined();
-  expect(none.error).toContain("No se pudo reiniciar");
+  expect(none.error).toContain("Could not restart the agent");
   const bad = await pressPermission("restart", deps({ restartAgent: async () => { throw new Error("launchctl"); } }));
   expect(bad.message).toBeUndefined();
   expect(bad.error).toContain("launchctl");

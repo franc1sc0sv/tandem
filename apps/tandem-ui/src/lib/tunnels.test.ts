@@ -59,8 +59,8 @@ describe("formatos", () => {
   });
 
   it("las etiquetas del panel de procesos", () => {
-    expect(processesLabel(1)).toBe("1 proceso corriendo");
-    expect(processesLabel(12)).toBe("12 procesos corriendo");
+    expect(processesLabel(1)).toBe("1 process running");
+    expect(processesLabel(12)).toBe("12 processes running");
     expect(latencyLabel(0.3)).toBe("0.3 ms");
     expect(latencyLabel(null)).toBe("—");
   });
@@ -73,7 +73,7 @@ describe("formatos", () => {
   it("con el mismo sistema y la misma primera palabra, lo que distingue (T-141)", () => {
     const w = (name: string) => ({ name, os: "windows" as const });
     const m = (name: string) => ({ name, os: "macos" as const });
-    expect(shortLabels(w("PC-Desktop"), w("PC-Workshop"))).toEqual(["Escritorio", "Taller"]);
+    expect(shortLabels(w("PC-Desktop"), w("PC-Workshop"))).toEqual(["Desktop", "Workshop"]);
     expect(shortLabels(m("MacBook Pro"), m("Mac mini"))).toEqual(["Pro", "mini"]);
     expect(shortLabels(m("Mac Pro"), m("MacBook Pro"))).toEqual(["Mac Pro", "MacBook Pro"]);
   });
@@ -95,7 +95,7 @@ describe("estado y proyectos con el demo (V3-Compute)", () => {
   const tunnels = demoTunnels(now);
 
   it("`tunnels=notas` (V3-Tray) saca la revisión del PR a un tercer proyecto", () => {
-    expect(groupByProject(demoTunnels(now, "notas")).map((x) => x.name).sort()).toEqual(["ia-local", "notas", "tandem"]);
+    expect(groupByProject(demoTunnels(now, "notas")).map((x) => x.name).sort()).toEqual(["ia-local", "notes", "tandem"]);
   });
 
   it("agrupa en dos proyectos con su proporción de abiertos", () => {
@@ -104,20 +104,20 @@ describe("estado y proyectos con el demo (V3-Compute)", () => {
       ["tandem", "3/3"],
       ["ia-local", "1/2"],
     ]);
-    expect(summary(g)).toBe("4 abiertos · 2 proyectos");
+    expect(summary(g)).toBe("4 open · 2 projects");
   });
 
   it("sin túneles no hay nada abierto, y con uno se dice en singular", () => {
     expect(summary([])).toBe("No open tunnels");
-    expect(summary(groupByProject(tunnels.slice(0, 1)))).toBe("1 abierto · 1 proyecto");
+    expect(summary(groupByProject(tunnels.slice(0, 1)))).toBe("1 open · 1 project");
   });
 
   it("el texto de estado: activo, inactivo con su tiempo, cerrado", () => {
     const [busy, , idle, , closed] = tunnels;
-    expect(statusText(busy, now)).toBe("activo");
-    expect(statusText(idle, now)).toBe("inactivo 9 m");
-    expect(statusText({ ...idle, idleSince: null }, now)).toBe("inactivo");
-    expect(statusText(closed, now)).toBe("cerrado");
+    expect(statusText(busy, now)).toBe("active");
+    expect(statusText(idle, now)).toBe("inactive 9 m");
+    expect(statusText({ ...idle, idleSince: null }, now)).toBe("inactive");
+    expect(statusText(closed, now)).toBe("closed");
   });
 
   it("el panel vacío dice «Tunnel closed» o «Nothing running right now»", () => {
@@ -252,15 +252,15 @@ describe("renglón de máquina en la bandeja (T-167)", () => {
   const mk = (id: "a" | "b", os: string, power = "on") => ({ id, os, detail: os === "macos" ? "macOS" : "Windows", power }) as never;
 
   it("singular y plural correctos", () => {
-    expect(countTunnels(1)).toBe("1 túnel");
-    expect(countTunnels(2)).toBe("2 túneles");
-    expect(countTunnels(0)).toBe("0 túneles");
+    expect(countTunnels(1)).toBe("1 tunnel");
+    expect(countTunnels(2)).toBe("2 tunnels");
+    expect(countTunnels(0)).toBe("0 tunnels");
   });
 
   it.each([
-    ["mac-pc", "macos", "windows", "1 túnel", "Windows"],
-    ["mac-mac", "macos", "macos", "1 túnel", "macOS"],
-    ["pc-pc", "windows", "windows", "1 túnel", "Windows"],
+    ["mac-pc", "macos", "windows", "1 tunnel", "Windows"],
+    ["mac-mac", "macos", "macos", "1 tunnel", "macOS"],
+    ["pc-pc", "windows", "windows", "1 tunnel", "Windows"],
   ])("%s: un túnel hacia a se cuenta igual en cualquier sistema", (_n, osA, osB, lineA, lineB) => {
     const tunnels = [tun("a"), tun("b", "idle"), tun("b", "closed")];
     expect(machineLine(mk("a", osA), tunnels)).toBe(lineA);
@@ -268,10 +268,10 @@ describe("renglón de máquina en la bandeja (T-167)", () => {
   });
 
   it("un túnel hacia una Mac se cuenta", () => {
-    expect(machineLine(mk("b", "macos"), [tun("b")])).toBe("1 túnel");
+    expect(machineLine(mk("b", "macos"), [tun("b")])).toBe("1 tunnel");
   });
 
   it("apagada manda sobre el conteo", () => {
-    expect(machineLine(mk("a", "macos", "off"), [tun("a")])).toBe("apagada");
+    expect(machineLine(mk("a", "macos", "off"), [tun("a")])).toBe("off");
   });
 });

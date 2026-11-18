@@ -47,7 +47,7 @@ describe("monitores (V3-Monitors)", () => {
   it("cada evento del firmware tiene su ícono y su texto", () => {
     expect(eventView({ at_ms: 1, kind: "SwitchRequested", input: "display_port" })).toMatchObject({ kind: "switch", text: "Input → DP, requested by Tandem" });
     expect(eventView({ at_ms: 1, kind: "Input", input: "hdmi" })).toMatchObject({ kind: "button", text: "Input → HDMI, with the buttons" });
-    expect(eventView({ at_ms: 1, kind: "SwitchFailed", input: "hdmi" })).toMatchObject({ kind: "failed", text: "Cambio a HDMI sin imagen" });
+    expect(eventView({ at_ms: 1, kind: "SwitchFailed", input: "hdmi" })).toMatchObject({ kind: "failed", text: "Switch to HDMI with no picture" });
     expect(eventView({ at_ms: 1, kind: "Boot", input: null })).toMatchObject({ kind: "boot" });
     expect(eventView({ at_ms: 1, kind: "Other", input: null })).toMatchObject({ kind: "other" });
   });
@@ -73,8 +73,8 @@ describe("monitores (V3-Monitors)", () => {
   it("explica por qué no se puede pedir el cambio", () => {
     const ok = monitorUi(std());
     expect(whyNotSwitch(ok, "a", "PC")).toBeNull();
-    expect(whyNotSwitch(monitorUi(factory), "a", "PC")).toMatch(/no es compatible/);
-    expect(whyNotSwitch(monitorUi(std({ seen_by: [] })), "a", "PC")).toMatch(/desconectado/);
-    expect(whyNotSwitch(monitorUi(std({ via: [] })), "a", "PC")).toBe("Falta saber a qué entrada va PC");
+    expect(whyNotSwitch(monitorUi(factory), "a", "PC")).toMatch(/does not support/);
+    expect(whyNotSwitch(monitorUi(std({ seen_by: [] })), "a", "PC")).toMatch(/is disconnected/);
+    expect(whyNotSwitch(monitorUi(std({ via: [] })), "a", "PC")).toBe("It is not known which input PC uses");
   });
 });

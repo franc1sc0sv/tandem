@@ -37,7 +37,7 @@ describe("lib/states: qué tarjetas aplican", () => {
 
   it("con todo en orden la app real solo muestra lo que el puesto tiene (the monitor sin compatibilidad)", () => {
     expect(ids(base)).toEqual(["unsupported"]);
-    expect(stateCards(base)[0].title).toMatch(/^«.+» no es compatible$/);
+    expect(stateCards(base)[0].title).toMatch(/^“.+” is not supported$/);
   });
 
   it("con `example` (`?demo&estados`) las nueve tarjetas traen los textos del mockup, solo en la galería de ejemplo", () => {
@@ -58,13 +58,13 @@ describe("lib/states: qué tarjetas aplican", () => {
   it("la escena fallida sale con su nombre y su id, no con la primera ni la activa", () => {
     const cards = stateCards(base, { gallery: false, failedScene: { id: "juego", name: "Game" } });
     const scene = cards.find((c) => c.id === "scene");
-    expect(scene?.title).toBe("La escena «Juego» no se aplicó");
+    expect(scene?.title).toBe("The scene “Game” was not applied");
     expect(scene?.action).toMatchObject({ does: "retry-scene", sceneId: "juego" });
   });
 
   it("ningún texto inventa datos: sin épocas, pérdida, GPU ni nombres de ejemplo", () => {
     const all = JSON.stringify(stateCards(base, GALLERY));
-    for (const x of ["LoRA", "epoch", "loss", "ComfyUI", "Solo MacBook", "14.1", "0.6 s", "2 workspaces"]) expect(all).not.toContain(x);
+    for (const x of ["LoRA", "epoch", "loss", "ComfyUI", "MacBook only", "14.1", "0.6 s", "2 workspaces"]) expect(all).not.toContain(x);
   });
 
   it("shortPath deja la ruta del binario sin el texto que la rodea y la abrevia", () => {
@@ -99,7 +99,7 @@ describe("pantalla Estados", () => {
   it("«Encender» enciende the other machine", async () => {
     const store = await mount();
     const power = vi.spyOn(store, "setPower");
-    await userEvent.click(screen.getByRole("button", { name: /Encender/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Power on/ }));
     expect(power).toHaveBeenCalledWith("b", true);
   });
 
@@ -121,8 +121,8 @@ describe("pantalla Estados", () => {
     const apply = vi.spyOn(store, "applyScene").mockResolvedValue({ ok: true });
     store.failedScene = { id: "juego", name: "Game" };
     await tick();
-    expect(screen.getByText("La escena «Juego» no se aplicó")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Reintentar/ }));
+    expect(screen.getByText("The scene “Game” was not applied")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Retry/ }));
     expect(apply).toHaveBeenCalledWith("juego");
     expect(apply).not.toHaveBeenCalledWith(store.desk.scenes[0].id === "juego" ? "" : store.desk.scenes[0].id);
   });
