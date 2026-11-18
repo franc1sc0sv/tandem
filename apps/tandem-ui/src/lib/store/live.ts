@@ -9,6 +9,7 @@ import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, ratioLabel, type Arrang
 import type { Bridge } from "../bridge";
 import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
+import { devicesOfHub } from "../wizard";
 import type { Action, ActionResult, AdminView, Bindings, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
 import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { monitorsUi } from "../monitors";
@@ -129,6 +130,7 @@ function machineView(who: Machine, here: Machine, caps: Caps, snap: Extract<Snap
     system: OS_NAME[os] ?? os,
     hardware: hardwareOf(c),
     environments: environmentsOf(c),
+    inputDevices: devicesOfHub(c?.hub),
     live: shown,
   };
 }
@@ -515,6 +517,10 @@ export class LiveSource implements Source {
       if (!this.probeListeners.delete(onHeard) || this.probeListeners.size > 0) return;
       this.bridge.act({ kind: "key_probe", on: false }).catch(() => {});
     };
+  }
+
+  async reportHeardKey(): Promise<void> {
+    await this.bridge.act({ kind: "heard_key" });
   }
 
   async watchCrossing(): Promise<() => void> {

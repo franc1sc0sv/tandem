@@ -436,6 +436,19 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     pc.until_input(pc_serving).await;
     assert_eq!(pc.agent.input_status().hub_here, Some(true));
     assert_eq!(mac.agent.input_status().hub_here, Some(false));
+    // Lo que anuncia cada agente es lo que el asistente muestra en el paso 4 (T-151): el
+    // hub de la PC se ve desde las dos, y la Mac, sin hub, no lista teclado ni mouse.
+    for _ in 0..200 {
+        let (p, m) = (pc.agent.capabilities(), mac.agent.capabilities());
+        if p.here.hub == Some(true) && m.peer.as_ref().and_then(|c| c.hub) == Some(true) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let (p, m) = (pc.agent.capabilities(), mac.agent.capabilities());
+    assert_eq!(p.here.hub, Some(true));
+    assert_eq!(m.here.hub, Some(false));
+    assert_eq!(m.peer.as_ref().and_then(|c| c.hub), Some(true));
     assert!(pc_fake.capturing());
 
     // Acomodo por omisión: la Mac a la izquierda de la PC, con las pantallas que lee cada una.

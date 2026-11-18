@@ -1,5 +1,5 @@
-//! El primer arranque en macOS: la guía de permisos (Accesibilidad, Input Monitoring, red
-//! local) y cómo quedó el agente de inicio de sesión.
+//! El primer arranque: la guía del asistente en todos los sistemas y, en macOS, sus permisos
+//! (Accesibilidad, Input Monitoring, red local) y cómo quedó el agente de inicio de sesión.
 //!
 //! La guía se muestra hasta que el usuario la termina; eso queda marcado en `setup.done`,
 //! junto a `tandem.toml`. Se puede volver a abrir desde la ventana.
@@ -71,9 +71,9 @@ pub fn mark_done(file: &Path, version: &str) -> io::Result<()> {
 /// Lo que recibe la ventana.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SetupView {
-    /// Hay guía en este sistema (solo macOS).
+    /// Hay permisos que conceder en este sistema (solo macOS).
     pub available: bool,
-    /// Mostrarla al abrir: hay guía y todavía no se terminó.
+    /// Abrir el asistente al arrancar: todavía no se terminó (en cualquier sistema).
     pub show: bool,
     pub permissions: Vec<Permission>,
     /// Cómo quedó el agente de inicio de sesión, si la app intentó instalarlo.
@@ -84,7 +84,7 @@ impl SetupView {
     pub fn new(available: bool, done: bool, agent: Option<Report>) -> Self {
         SetupView {
             available,
-            show: available && !done,
+            show: !done,
             permissions: if available {
                 Permission::ALL.to_vec()
             } else {
@@ -145,10 +145,12 @@ mod tests {
     }
 
     #[test]
-    fn no_guide_outside_macos() {
+    fn first_run_opens_on_every_system() {
+        // Fuera de macOS no hay permisos que conceder, pero el asistente se abre igual.
         let v = SetupView::new(false, false, None);
-        assert!(!v.available && !v.show);
+        assert!(!v.available && v.show);
         assert!(v.permissions.is_empty());
+        assert!(!SetupView::new(false, true, None).show);
     }
 
     #[test]

@@ -1151,7 +1151,7 @@ export class DemoSource implements Source {
 
   async setup(): Promise<SetupView> {
     const needed = this.desk.permissions.needed;
-    return { available: needed, show: needed && !!this.opts.firstRun && !this.setupShown, permissions: needed ? ["accessibility", "input_monitoring", "local_network"] : [], agent: null };
+    return { available: needed, show: !!this.opts.firstRun && !this.setupShown, permissions: needed ? ["accessibility", "input_monitoring", "local_network"] : [], agent: null };
   }
 
   async finishSetup(): Promise<void> {
