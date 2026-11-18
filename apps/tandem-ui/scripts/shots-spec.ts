@@ -326,25 +326,28 @@ const ROW = (text: string) => `section[role="dialog"] .it:has(span:text-is("${te
 export const PALETA: ShotSpec = {
   name: "paleta",
   page: "index.html",
-  query: DEMO,
+  query: `${DEMO}&paleta`,
   hash: "#/puesto",
   mockup: "F-Paleta",
   width: W,
   height: H,
   keys: ["Meta+k"],
   ignore: [
-    { mockupSelector: 'section[role="dialog"] .it:has-text("Trabajo") > span:first-child', reason: "Datos reales: el color del punto es el de la máquina que muestra la escena" },
-    { mockupSelector: ROW("Aplicar «Solo PC»"), reason: "Datos reales: las escenas del puesto" },
     { mockupSelector: ROW("Agregar máquina…"), reason: "D1: no hay tercera máquina; se cambia la otra" },
-    { mockupSelector: ROW("Ir al túnel «ia-local»"), reason: "Datos reales: los túneles del puesto" },
-    { mockupSelector: ROW("Ir al túnel «tandem»"), reason: "Datos reales: los túneles del puesto" },
-    { mockupSelector: 'section[role="dialog"] .grp:text-is("Ir a")', reason: "Los túneles reales empujan los grupos siguientes" },
-    { mockupSelector: ROW("Monitores"), reason: "Los túneles reales empujan los renglones siguientes" },
-    { mockupSelector: ROW("Red"), reason: "Los túneles reales empujan los renglones siguientes" },
   ],
   regions: [{ name: "diálogo", mockupSelector: 'section[role="dialog"]', min: SCREEN_GATE }],
   min: SCREEN_GATE,
 };
+
+/** T-144: los estados de `F-Paleta` que escribe en el campo (tecla a tecla, como el mockup, que filtra al teclear). */
+const PALETA_ESCRIBE = (state: string, text: string): ShotSpec => ({
+  ...PALETA,
+  name: `paleta-${state}`,
+  state,
+  keys: ["Meta+k", ...text.split("")],
+  regions: [{ name: "diálogo", mockupSelector: 'section[role="dialog"]', min: SCREEN_GATE }],
+});
+export const PALETA_ESTADOS: ShotSpec[] = [PALETA_ESCRIBE("filtro", "solo"), PALETA_ESCRIBE("sin-resultados", "zzz")];
 
 /**
  * T-120: la bandeja contra `V3-Bandeja`. Los datos del puesto reemplazan a los de ejemplo
@@ -354,8 +357,8 @@ export const PALETA: ShotSpec = {
 export const BANDEJA: ShotSpec = {
   name: "bandeja",
   page: "tray.html",
-  // `V3-Bandeja` agrupa los túneles en tres proyectos; `tunnels=notas` los siembra así.
-  query: `${DEMO}&tunnels=notas`,
+  // `bandeja` siembra los datos del mockup: 0.4 ms, la Mac al 18 %, «Solo PC» y tres proyectos.
+  query: `${DEMO}&bandeja`,
   hash: "",
   mockup: "V3-Bandeja",
   width: 380,
@@ -365,11 +368,6 @@ export const BANDEJA: ShotSpec = {
     app: ".pop",
     mockup: "x-dc > div",
     masks: [
-      { app: ".ln", mockup: ".mono.mut:has-text(\"USB-C\")", reason: "Datos reales: el enlace y su latencia" },
-      { app: ".box:not(.tl) .sm", mockup: ".row > b + .mut", reason: "Datos reales: el estado de cada máquina" },
-      { app: ".box:not(.tl) .bar", mockup: ".row .bar", reason: "Datos reales: la carga de cada máquina" },
-      { app: ".sc:nth-child(3)", mockup: ".sc:nth-child(3)", reason: "Datos reales: las escenas del puesto" },
-      { app: ".box.tl", mockup: 'div[style*="gap:2px"]', reason: "Datos reales: los túneles abiertos (un renglón por proyecto, con los nombres reales de las máquinas)" },
       { app: NONE, mockup: '.lnk:has-text("Bloquear aquí")', reason: "Sin la acción en la IPC no hay botón (T-112, G6)" },
     ],
     min: SCREEN_GATE,
@@ -427,8 +425,11 @@ const ASIS5_LIST: Ignore[] = [
   { rect: { x: 10, y: 138, width: 140, height: 60 }, reason: "F-Asis5: el paso actual sale del flujo por la clase .cur duplicada" },
   { rect: { x: 0, y: 258, width: 300, height: 94 }, reason: "F-Asis5: «Listo» sube 44 px en el mockup por la clase .cur duplicada" },
 ];
-/** `F-Asis5` escribe «de la MacBook a la PC»; la app dice los nombres de las máquinas del puesto. */
-const ASIS5_LEAD: Ignore = { rect: { x: 350, y: 106, width: 640, height: 50 }, reason: "F-Asis5: el texto nombra a las máquinas del puesto, no «la MacBook» y «la PC»" };
+/**
+ * `F-Asis5` escribe «de la MacBook a la PC»; la app dice los nombres de las máquinas. Solo se tapa
+ * lo que sigue a «el mouse de» en el segundo renglón: el primero y el comienzo del segundo son iguales.
+ */
+const ASIS5_LEAD: Ignore = { rect: { x: 438, y: 134, width: 552, height: 20 }, reason: "F-Asis5: los nombres de las máquinas del puesto («la MacBook», «la PC» en el mockup)" };
 /** Los textos del veredicto nombran a las máquinas del puesto (el mockup dice «la MacBook»). */
 const ASIS5_VERDICT: Ignore = { rect: { x: 350, y: 482, width: 440, height: 40 }, reason: "F-Asis5: el veredicto nombra a las máquinas del puesto" };
 const ASIS5: Ignore[] = [...ASIS5_LIST, ASIS5_LEAD];
@@ -476,6 +477,11 @@ export const SHOTS: ShotSpec[] = [
   },
   // D2 (alcance de T-126): el mismo puesto con dos Windows y con dos Mac. Los nombres y
   // colores cambian, así que no tienen umbral: sirven para ver cada combinación.
+  // T-144: aplicar una escena desde el Puesto (los mismos clics que `V3-Puesto--escena-*`).
+  ...[
+    ["escena-solo-macbook", "Solo MacBook"],
+    ["escena-juego", "Juego"],
+  ].map(([state, label]): ShotSpec => ({ name: `puesto-${state}`, page: "index.html", query: DEMO, hash: "#/puesto", mockup: "V3-Puesto", state, width: W, height: H, clicks: [`.scene:has-text("${label}")`], ignore: [NO_ADD_MACHINE, NO_ADD_CARD], min: SCREEN_GATE })),
   { name: "puesto-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
   { name: "puesto-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
   ...TUNELES,
@@ -528,15 +534,17 @@ export const SHOTS: ShotSpec[] = [
       mockup: "header",
       masks: [
         { app: '[role="radiogroup"][aria-label="Color de la máquina"]', reason: "D17: el color de la máquina se edita en su página" },
-        { app: ".mod > :last-child", mockup: ".mod > :last-child", reason: "G4: el estado del módulo es el chip uniforme (interruptor)" },
+        { app: ".mod > .chip", mockup: ".mod > span:last-child", reason: "G4: el estado del módulo es el chip uniforme (interruptor); «Abrir ajustes» sí se compara" },
       ],
       min: SIDEBAR_GATE,
     },
   },
   ...AJUSTES,
   PALETA,
+  ...PALETA_ESTADOS,
   ESTADOS,
   AVISOS,
+  { ...AVISOS, name: "avisos-cerrado", state: "cerrado", clicks: ['button[aria-label="Cerrar"] >> nth=0'] },
   BANDEJA,
 ];
 

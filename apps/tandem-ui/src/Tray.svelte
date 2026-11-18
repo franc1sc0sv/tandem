@@ -11,6 +11,7 @@
   // avisos, con «Abrir» y «Salir». «Bloquear aquí» no está hasta que la IPC tenga la acción.
   import { onDestroy, onMount } from "svelte";
   import { shortName } from "./lib/commands";
+  import { shortLabels } from "./lib/tunnels";
   import { LINK_NAME } from "./lib/machines";
   import type { Machine } from "./lib/model";
   import type { Store } from "./lib/store/store.svelte";
@@ -42,6 +43,13 @@
     return [...byProject.values()].sort((x, y) => Number(y.state === "busy") - Number(x.state === "busy") || x.project.localeCompare(y.project));
   });
   const name = (id: Machine) => shortName(desk.machines[id]?.name ?? id.toUpperCase());
+  // Los mismos rótulos que la lista de Túneles: «Mac → PC» si son de sistemas distintos.
+  const path = (from: Machine, to: Machine): string => {
+    const a = desk.machines[from];
+    const b = desk.machines[to];
+    const [x, y] = a && b ? shortLabels(a, b) : [name(from), name(to)];
+    return `${x} → ${y}`;
+  };
   const link = $derived(desk.link.kind ? `${LINK_NAME[desk.link.kind]}${desk.link.ms !== null ? ` · ${desk.link.ms} ms` : ""}` : "sin enlace");
   const hot = $derived(machines.find((m) => (m.resources?.gpu?.percent ?? 0) >= 85));
   const AMBER = "#d9a75a";
@@ -82,7 +90,7 @@
       {#each open as t, i (t.id)}
         <div class="row" class:sep={i > 0}>
           <span class="dot" style="background:{t.state === 'busy' ? (desk.machines[t.from]?.color ?? '#7aa7e6') : '#4a4d55'}"></span>{t.project}
-          <span class="fill"></span><span class="mono mut ss">{name(t.from)} → {name(t.to)} · {t.state === "busy" ? "activo" : "inactivo"}</span>
+          <span class="fill"></span><span class="mono mut ss">{path(t.from, t.to)} · {t.state === "busy" ? "activo" : "inactivo"}</span>
         </div>
       {/each}
     </div>

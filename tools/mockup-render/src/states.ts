@@ -75,7 +75,7 @@ export const STATES: Record<string, MockupState[]> = {
     { name: 'sin-cambiar', steps: [click('[role="radio"]:has-text("Sin cambiar")')] },
   ],
   'F-Paleta': [
-    { name: 'filtro', steps: [{ fill: 'input[aria-label="Buscar"]', text: 'esc' }] },
+    { name: 'filtro', steps: [{ fill: 'input[aria-label="Buscar"]', text: 'solo' }] },
     { name: 'sin-resultados', steps: [{ fill: 'input[aria-label="Buscar"]', text: 'zzz' }] },
   ],
   'F-PruebaCruce': [

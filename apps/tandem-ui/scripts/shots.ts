@@ -241,7 +241,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     const mock = await mockupBoxes(browser, spec, sels);
     const diffPath = args.diffDir ? join(args.diffDir, `${spec.name}.diff.png`) : undefined;
     const content = compareContent(spec, png, appBoxes, mock, diffPath);
-    return { name: spec.name, mockup: spec.mockup, file, errors, full: content, regions: [content] };
+    return { name: spec.name, mockup: spec.state ? `${spec.mockup}--${spec.state}` : spec.mockup, file, errors, full: content, regions: [content] };
   }
   // Con zonas tapadas se compara contra la referencia tapada igual; si no, directo contra la
   // captura del mockup (`compareWithMockup`).
