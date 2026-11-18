@@ -22,6 +22,8 @@ const CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 const CF_NUMBER_SINT32_TYPE: CFIndex = 3;
 
 #[link(name = "IOKit", kind = "framework")]
+// SAFETY: firmas copiadas de los encabezados de IOKit del SDK; los punteros que se
+// pasan solo viven durante cada llamada y los objetos devueltos los libera el llamador.
 unsafe extern "C" {
     fn IOServiceMatching(name: *const c_char) -> *mut c_void;
     fn IOServiceGetMatchingServices(
@@ -40,6 +42,8 @@ unsafe extern "C" {
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
+// SAFETY: firmas copiadas de CoreFoundation; las cadenas C son NUL-terminadas y no
+// sobreviven la llamada, y los objetos creados con `Create` los libera el llamador.
 unsafe extern "C" {
     fn CFStringCreateWithCString(
         allocator: CFTypeRef,

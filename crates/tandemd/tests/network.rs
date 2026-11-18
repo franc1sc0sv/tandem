@@ -348,7 +348,7 @@ async fn identity_is_created_once_and_kept() {
 }
 
 /// Lo que hace falta para que una máquina despierte a la otra.
-const WOL: &str = "[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n";
+const WOL: &str = "[power.wol]\nmac = \"aa:bb:cc:dd:ee:ff\"\n";
 
 /// Encender la PC termina cuando su agente aparece por un enlace, no antes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

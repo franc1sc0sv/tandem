@@ -453,7 +453,7 @@ mod tests {
     fn plist_content() {
         let s = AgentSpec {
             program: "/Applications/Tandem.app/Contents/MacOS/tandemd".into(),
-            log: "/Users/fran/Library/Logs/Tandem/tandemd.log".into(),
+            log: "/Users/usuario/Library/Logs/Tandem/tandemd.log".into(),
             version: "0.1.0".into(),
         };
         let expected = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -485,9 +485,9 @@ mod tests {
 	<key>ProcessType</key>
 	<string>Interactive</string>
 	<key>StandardOutPath</key>
-	<string>/Users/fran/Library/Logs/Tandem/tandemd.log</string>
+	<string>/Users/usuario/Library/Logs/Tandem/tandemd.log</string>
 	<key>StandardErrorPath</key>
-	<string>/Users/fran/Library/Logs/Tandem/tandemd.log</string>
+	<string>/Users/usuario/Library/Logs/Tandem/tandemd.log</string>
 </dict>
 </plist>
 "#;
@@ -511,14 +511,14 @@ mod tests {
 
     #[test]
     fn standard_locations() {
-        let home = Path::new("/Users/fran");
+        let home = Path::new("/Users/usuario");
         assert_eq!(
             plist_path(home),
-            Path::new("/Users/fran/Library/LaunchAgents/com.franc1sc0sv.tandem.tandemd.plist")
+            Path::new("/Users/usuario/Library/LaunchAgents/com.franc1sc0sv.tandem.tandemd.plist")
         );
         assert_eq!(
             log_path(home),
-            Path::new("/Users/fran/Library/Logs/Tandem/tandemd.log")
+            Path::new("/Users/usuario/Library/Logs/Tandem/tandemd.log")
         );
     }
 

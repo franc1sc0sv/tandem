@@ -192,7 +192,7 @@ mod tests {
         assert!(p.shutdown.is_none(), "macOS no se apaga desde Tandem");
 
         cfg.power.wol = Some(tandem_power::WolTarget::new(
-            "9c:6b:00:1a:2b:ff".parse().unwrap(),
+            "aa:bb:cc:dd:ee:ff".parse().unwrap(),
         ));
         let p = PowerSteps::for_machine(&cfg);
         assert!(p.wake.is_some());

@@ -35,6 +35,8 @@ const SYSTEM_DEFINED: CGEventType = CGEventType(14);
 const RUN_SLICE_SECONDS: f64 = 0.5;
 
 #[link(name = "ApplicationServices", kind = "framework")]
+// SAFETY: firmas verificadas contra el SDK (ApplicationServices); las funciones solo
+// leen estado del sistema y los punteros pasados no sobreviven la llamada.
 unsafe extern "C" {
     fn AXIsProcessTrusted() -> u8;
     fn AXIsProcessTrustedWithOptions(options: Option<&CFDictionary>) -> u8;
@@ -52,6 +54,7 @@ unsafe extern "C" {
 }
 
 #[link(name = "Carbon", kind = "framework")]
+// SAFETY: firma verificada contra el SDK (Carbon); no recibe punteros ni modifica estado.
 unsafe extern "C" {
     fn IsSecureEventInputEnabled() -> u8;
 }
@@ -287,6 +290,8 @@ fn read_event(ty: CGEventType, event: &CGEvent) -> RawEvent {
 
 /// Callback del tap. Corre en el hilo del tap; tiene que ser rápido o macOS lo
 /// apaga (y entonces llega `TapDisabledByTimeout`).
+// SAFETY: la firma coincide con `CGEventTapCallBack`. Solo la invoca CoreGraphics en el
+// hilo del tap, con `user_info` nulo o el `TapContext` vigente (ver abajo) y un evento válido.
 unsafe extern "C-unwind" fn tap_callback(
     _proxy: CGEventTapProxy,
     ty: CGEventType,

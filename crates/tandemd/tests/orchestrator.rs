@@ -108,7 +108,7 @@ fn setup(
 ) -> (AgentConfig, StateStore) {
     // Con `[power.wol]`: cualquiera de las dos despierta a la otra (los pasos son simulados).
     let cfg = AgentConfig::from_toml(&format!(
-        "machine = \"{machine}\"\n[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n"
+        "machine = \"{machine}\"\n[power.wol]\nmac = \"aa:bb:cc:dd:ee:ff\"\n"
     ))
     .unwrap();
     let store = StateStore::new(dir.join(format!("{machine}.json")));

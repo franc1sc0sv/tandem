@@ -117,7 +117,7 @@ mod tests {
 
     use super::*;
 
-    const PC: MacAddr = MacAddr([0x9c, 0x6b, 0x00, 0x1a, 0x2b, 0xff]);
+    const PC: MacAddr = MacAddr([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
 
     #[test]
     fn magic_packet_format() {
@@ -158,16 +158,16 @@ mod tests {
 
     #[test]
     fn target_defaults() {
-        let t: WolTarget = toml::from_str("mac = \"9c:6b:00:1a:2b:ff\"").unwrap();
+        let t: WolTarget = toml::from_str("mac = \"aa:bb:cc:dd:ee:ff\"").unwrap();
         assert_eq!(t, WolTarget::new(PC));
         assert_eq!(t.destination(), "255.255.255.255:9".parse().unwrap());
         let t: WolTarget = toml::from_str(
-            "mac = \"9c:6b:00:1a:2b:ff\"\nsource = \"10.77.2.1\"\nbroadcast = \"10.77.2.3\"\nport = 7",
+            "mac = \"aa:bb:cc:dd:ee:ff\"\nsource = \"10.77.2.1\"\nbroadcast = \"10.77.2.3\"\nport = 7",
         )
         .unwrap();
         assert_eq!(t.source, Some("10.77.2.1".parse().unwrap()));
         assert_eq!(t.destination(), "10.77.2.3:7".parse().unwrap());
-        assert!(toml::from_str::<WolTarget>("mac = \"9c:6b:00:1a:2b:ff\"\nprot = 7").is_err());
+        assert!(toml::from_str::<WolTarget>("mac = \"aa:bb:cc:dd:ee:ff\"\nprot = 7").is_err());
     }
 
     #[test]

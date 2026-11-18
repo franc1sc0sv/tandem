@@ -108,8 +108,11 @@ define_class!(
     #[ivars = Ivars]
     struct DragSource;
 
+    // SAFETY: `NSObjectProtocol` no exige métodos propios y `DragSource` hereda de `NSObject`.
     unsafe impl NSObjectProtocol for DragSource {}
 
+    // SAFETY: `DragSource` solo implementa métodos con la firma de `NSDraggingSource` y vive
+    // en el hilo principal (`MainThreadOnly`), como pide el protocolo.
     unsafe impl NSDraggingSource for DragSource {
         #[unsafe(method(draggingSession:sourceOperationMaskForDraggingContext:))]
         fn source_mask(&self, _s: &NSDraggingSession, _c: NSDraggingContext) -> NSDragOperation {

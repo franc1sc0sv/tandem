@@ -24,7 +24,7 @@ Punto de partida para la próxima sesión. Léelo entero antes de tocar nada.
 - Los dos monitores declaran en sus capabilities códigos que **no obedecen**. La lectura de `0x60` no es confiable: el 34" siempre lee `0x09`, y el 32" no se actualiza tras un cambio desde el menú. El timing report del 34" no distingue la entrada. **Pendiente:** probar el timing report del 32" con el usuario presente.
 - Solo la PC tiene canal DDC con los monitores. La Mac no lo tiene: BetterDisplay da "DDC channel unavailable".
 - **Windows reserva los puertos UDP 47000–48999** en esa PC (WSL/Hyper-V). Tandem usa 52000 (default desde T-082, con puertos de reserva).
-- PC: Gigabyte X870, Realtek 2.5GbE, USB4. La Mac es una MacBook Pro M5 de trabajo (`192.168.1.191` por Wi-Fi).
+- PC: Gigabyte X870, Realtek 2.5GbE, USB4. La Mac es una MacBook Pro M5 de trabajo (por Wi-Fi; su IP vive en `~/.ssh/config`).
 
 ## Estado de las máquinas del usuario
 

@@ -148,6 +148,8 @@ impl InputSink for SendInputSink {
 }
 
 fn monitors() -> Result<Vec<Rect>, EmulateError> {
+    // SAFETY: la firma coincide con `MONITORENUMPROC`; solo la invoca `EnumDisplayMonitors`
+    // de forma síncrona dentro de `monitors`.
     unsafe extern "system" fn collect(hmon: HMONITOR, _: HDC, _: *mut RECT, data: LPARAM) -> BOOL {
         // SAFETY: `data` es el `&mut Vec<Rect>` que pasa `monitors`, vivo durante la enumeración.
         let out = unsafe { &mut *(data.0 as *mut Vec<Rect>) };

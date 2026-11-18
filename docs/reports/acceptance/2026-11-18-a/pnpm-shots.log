@@ -1,5 +1,5 @@
 
-> tandem-ui@0.1.0 shots /home/francisco/projects/personal-projects/apps/tandem/.claude/worktrees/acceptance-a/apps/tandem-ui
+> tandem-ui@0.1.0 shots <repo>/.claude/worktrees/acceptance-a/apps/tandem-ui
 > node scripts/shots.ts --check
 
 

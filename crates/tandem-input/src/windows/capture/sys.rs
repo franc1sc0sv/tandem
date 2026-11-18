@@ -131,6 +131,8 @@ fn with_ctx(f: impl FnOnce(&HookCtx) -> bool) -> bool {
     CTX.try_with(|c| c.get().is_some_and(f)).unwrap_or(false)
 }
 
+// SAFETY: la firma coincide con `HOOKPROC`; solo la invoca Windows en el hilo que instaló
+// el gancho, con `lparam` válido cuando `code` es HC_ACTION.
 unsafe extern "system" fn keyboard_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 {
         // SAFETY: con HC_ACTION, `lparam` apunta a un KBDLLHOOKSTRUCT válido

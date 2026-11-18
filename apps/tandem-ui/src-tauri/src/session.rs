@@ -1603,7 +1603,7 @@ machine = "a"
 
 # Con qué despertar a la PC: sin esto, el plan ni siquiera intenta encenderla.
 [power.wol]
-mac = "9c:6b:00:1a:2b:ff"
+mac = "aa:bb:cc:dd:ee:ff"
 "#;
 
     #[derive(Default)]
