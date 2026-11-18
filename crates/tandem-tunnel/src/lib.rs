@@ -2,13 +2,15 @@
 //!
 //! Un túnel lo abre un cliente local por la IPC en la máquina **origen** y vive en la
 //! **destino**, con sus flujos de salida y sus recursos. Portable: aquí no hay código de
-//! plataforma; los procesos (T-104), archivos y puertos (T-106) y workspaces de git
-//! (T-107) se cuelgan de un [`HostTunnel`] como [`FlowWriter`] y [`Resource`].
+//! plataforma salvo el lanzador real de procesos (T-104, [`process::system`], detrás del
+//! trait [`process::Spawner`]); los archivos y puertos (T-106) y workspaces de git (T-107)
+//! se cuelgan de un [`HostTunnel`] como [`FlowWriter`] y [`Resource`].
 //!
 //! - [`host`]: la destino. [`Host`] registra los túneles; [`serve`] atiende cada stream que
 //!   abre el origen (un pedido, o el canal de datos de un túnel).
 //! - [`origin`]: el origen. [`Origin`] abre, cierra y lista, y sigue la salida de cada
 //!   túnel por el enlace activo, reanudando «desde el byte N» tras un corte.
+//! - [`process`]: procesos dentro de un túnel (`exec`, `output`, `kill`).
 //! - [`buffer`]: el búfer circular con posición absoluta por byte que usan los dos.
 //! - [`wire`]: los traits del transporte (QUIC en `tandemd`, memoria en [`mem`]).
 //!
@@ -24,11 +26,15 @@ pub mod buffer;
 pub mod host;
 pub mod mem;
 pub mod origin;
+pub mod process;
 pub mod wire;
 
 use std::sync::Arc;
 
-use tandem_proto::{ProjectTunnels, Tunnel, TunnelState, group_by_project};
+use tandem_proto::{
+    OutputCursor, ProcessId, ProcessOutput, ProjectTunnels, TunnelId, TunnelProcess, TunnelState,
+    TunnelView, group_by_project,
+};
 use tokio::sync::watch;
 
 pub use buffer::{DEFAULT_CAPACITY, OutputBuffer, Read};
@@ -36,6 +42,7 @@ pub use host::{
     FlowWriter, Host, HostOptions, HostTunnel, Resource, TunnelClosed, serve, serve_request,
 };
 pub use origin::{FlowStatus, Link, OpenSpec, Origin, OriginOptions, TunnelError};
+pub use process::{ExecError, Spawner};
 pub use wire::{BoxFuture, Dialer, OriginWire, TargetWire, WireError};
 
 /// Avisa que cambió algún túnel (abrir, cerrar). Se clona barato; todos los clones son el
@@ -92,14 +99,40 @@ impl Tunnels {
     /// Los túneles abiertos de las dos máquinas tal como los ve este agente (los que abrió
     /// y los que hospeda), agrupados por proyecto: lo que muestra la UI.
     pub fn view(&self) -> Vec<ProjectTunnels> {
-        let mut all: Vec<Tunnel> = self.origin.tunnels();
-        for t in self.host.list() {
-            if !all.iter().any(|o| o.id == t.id) {
+        let mut all: Vec<TunnelView> = self.origin.views();
+        for t in self.host.views() {
+            if !all.iter().any(|o| o.tunnel.id == t.tunnel.id) {
                 all.push(t);
             }
         }
-        all.retain(|t| t.state == TunnelState::Open);
+        all.retain(|t| t.tunnel.state == TunnelState::Open);
         group_by_project(all)
+    }
+
+    /// Los procesos de un túnel de cualquiera de las dos máquinas, también los que
+    /// terminaron hace poco. `None` si no se conoce el túnel.
+    pub fn processes(&self, tunnel: TunnelId) -> Option<Vec<TunnelProcess>> {
+        self.origin
+            .processes(tunnel)
+            .or_else(|| self.host.get(tunnel).map(|t| t.processes()))
+    }
+
+    /// La salida de un proceso desde `from`: del espejo si el túnel lo abrió esta máquina, y
+    /// si no, de sus propios flujos.
+    pub fn output(
+        &self,
+        tunnel: TunnelId,
+        process: ProcessId,
+        from: OutputCursor,
+        max: usize,
+    ) -> Result<ProcessOutput, TunnelError> {
+        match self.origin.output(tunnel, process, from, max) {
+            Err(TunnelError::Unknown(_)) => {}
+            other => return other,
+        }
+        let t = self.host.get(tunnel).ok_or(TunnelError::Unknown(tunnel))?;
+        t.output(process, from, max)
+            .map_err(|_| TunnelError::UnknownProcess(tunnel, process))
     }
 
     /// Sube con cada túnel que se abre o se cierra, aquí o en la otra máquina.

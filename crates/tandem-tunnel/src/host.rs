@@ -3,19 +3,27 @@
 //!
 //! Lo que corre dentro de un túnel (procesos en T-104, puertos en T-106, workspaces en
 //! T-107) se registra en su [`HostTunnel`]: la salida como un flujo ([`FlowWriter`]) y lo
-//! que hay que soltar al cerrar como un [`Resource`].
+//! que hay que soltar al cerrar como un [`Resource`]. Los procesos ([`HostTunnel::exec`])
+//! llevan además su propia tabla, que cierra el túnel matando cada árbol.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use tandem_proto::{FlowId, FlowInfo, Tunnel, TunnelDown, TunnelId, TunnelState, TunnelUp};
+use tandem_proto::{
+    ExecSpec, FlowId, FlowInfo, OutputCursor, ProcessId, ProcessOutput, Tunnel, TunnelDown,
+    TunnelId, TunnelProcess, TunnelState, TunnelUp, TunnelView,
+};
 use tokio::sync::watch;
 use tokio::time::Instant;
 
 use crate::Changes;
 use crate::buffer::{DEFAULT_CAPACITY, OutputBuffer, Read};
+use crate::process::output::{self, FlowRead};
+use crate::process::system::SystemSpawner;
+use crate::process::table::Table;
+use crate::process::{ExecError, Launch, Os, Spawner, launch};
 use crate::wire::{TargetWire, WireError};
 
 /// Lo más que va en un mensaje de datos: muy por debajo del máximo de una trama, y
@@ -56,6 +64,8 @@ struct HostInner {
     opts: HostOptions,
     tunnels: Mutex<BTreeMap<TunnelId, HostTunnel>>,
     changes: Changes,
+    /// Con el que se lanzan los procesos: el real, salvo en las pruebas.
+    spawner: Mutex<Arc<dyn Spawner>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -69,8 +79,41 @@ impl Host {
                 opts,
                 tunnels: Mutex::new(BTreeMap::new()),
                 changes,
+                spawner: Mutex::new(Arc::new(SystemSpawner)),
             }),
         }
+    }
+
+    /// Cambia cómo se lanzan los procesos (las pruebas usan un doble).
+    pub fn set_spawner(&self, spawner: Arc<dyn Spawner>) {
+        *lock(&self.inner.spawner) = spawner;
+    }
+
+    fn tunnel(&self, id: TunnelId) -> Result<HostTunnel, ExecError> {
+        self.get(id).ok_or(ExecError::UnknownTunnel(id))
+    }
+
+    /// Lanza un proceso en el túnel `id` ([`HostTunnel::exec`]).
+    pub fn exec(&self, id: TunnelId, spec: ExecSpec) -> Result<TunnelProcess, ExecError> {
+        let spawner = lock(&self.inner.spawner).clone();
+        self.tunnel(id)?.exec(spawner.as_ref(), spec)
+    }
+
+    /// Mata un proceso del túnel con todo su árbol.
+    pub fn kill(&self, id: TunnelId, process: ProcessId) -> Result<(), ExecError> {
+        self.tunnel(id)?.kill(process)
+    }
+
+    /// Los túneles abiertos con sus procesos corriendo, para la UI.
+    pub fn views(&self) -> Vec<TunnelView> {
+        self.list()
+            .into_iter()
+            .filter(|t| t.state == TunnelState::Open)
+            .map(|tunnel| {
+                let running = self.get(tunnel.id).map(|t| t.running()).unwrap_or_default();
+                TunnelView { tunnel, running }
+            })
+            .collect()
     }
 
     /// Abre el túnel; si ya existe uno con ese id (un reintento) devuelve ese.
@@ -85,7 +128,7 @@ impl Host {
         tracing::info!(id = %info.id, title = %info.title, "túnel abierto desde {}", info.origin);
         tunnels.insert(
             info.id,
-            HostTunnel::new(info.clone(), self.inner.opts.capacity),
+            HostTunnel::new(info.clone(), self.inner.opts, self.inner.changes.clone()),
         );
         drop(tunnels);
         self.inner.changes.bump();
@@ -136,9 +179,15 @@ struct TunnelInner {
     flows: Mutex<Vec<Arc<Flow>>>,
     resources: Mutex<Vec<Box<dyn Resource>>>,
     next_flow: AtomicU32,
-    capacity: usize,
+    opts: HostOptions,
+    processes: Table,
+    /// El cierre ya terminó (flujos, recursos y procesos): lo que se manda después ya es lo
+    /// último.
+    settled: AtomicBool,
     /// Sube con cada byte escrito, flujo nuevo o cierre: quien manda la salida lo sigue.
     changes: watch::Sender<u64>,
+    /// Los cambios de todos los túneles (la UI), que también suben con cada proceso.
+    agent_changes: Changes,
 }
 
 struct Flow {
@@ -159,7 +208,7 @@ struct FlowState {
 pub struct TunnelClosed(pub TunnelId);
 
 impl HostTunnel {
-    fn new(info: Tunnel, capacity: usize) -> Self {
+    fn new(info: Tunnel, opts: HostOptions, agent_changes: Changes) -> Self {
         HostTunnel {
             inner: Arc::new(TunnelInner {
                 info: Mutex::new(info),
@@ -167,8 +216,11 @@ impl HostTunnel {
                 flows: Mutex::new(Vec::new()),
                 resources: Mutex::new(Vec::new()),
                 next_flow: AtomicU32::new(1),
-                capacity,
+                opts,
+                processes: Table::new(),
+                settled: AtomicBool::new(false),
                 changes: watch::Sender::new(0),
+                agent_changes,
             }),
         }
     }
@@ -207,7 +259,7 @@ impl HostTunnel {
                 label: label.into(),
             },
             state: Mutex::new(FlowState {
-                buf: OutputBuffer::new(self.inner.capacity),
+                buf: OutputBuffer::new(self.inner.opts.capacity),
                 ended: false,
                 warned: false,
             }),
@@ -255,13 +307,148 @@ impl HostTunnel {
         for r in &resources {
             r.close();
         }
+        // Con el túnel ya cerrado: ningún proceso nuevo entra (ver `Table::insert`).
+        self.inner.processes.kill_all();
+        self.inner.settled.store(true, Ordering::SeqCst);
         self.bump();
         true
+    }
+
+    fn is_settled(&self) -> bool {
+        self.inner.settled.load(Ordering::SeqCst)
+    }
+
+    /// Lanza un proceso con `spawner` (T-104). Su stdout y su stderr son dos flujos nuevos
+    /// del túnel; el proceso queda en la tabla hasta que pase `linger` de su fin.
+    pub fn exec(&self, spawner: &dyn Spawner, spec: ExecSpec) -> Result<TunnelProcess, ExecError> {
+        let tunnel = self.id();
+        if !self.is_open() {
+            return Err(ExecError::Closed(tunnel));
+        }
+        self.purge_processes();
+        let launch: Launch = launch::plan(&spec, Os::current())?;
+        let spawned = spawner.spawn(&launch)?;
+        let id = self.inner.processes.next_id();
+        let command = launch::display(&spec);
+        let flows = self
+            .add_flow(format!("{id} {command} · stdout"))
+            .and_then(|out| Ok((out, self.add_flow(format!("{id} {command} · stderr"))?)));
+        let Ok((out, err)) = flows else {
+            spawned.child.kill_tree();
+            return Err(ExecError::Closed(tunnel));
+        };
+        let info = TunnelProcess {
+            id,
+            tunnel,
+            command,
+            shell: spec.shell,
+            cwd: spec.cwd,
+            pid: spawned.pid,
+            stdout: out.id(),
+            stderr: err.id(),
+            started: now_millis(),
+            duration: None,
+            state: tandem_proto::ProcessState::Running,
+        };
+        if !self
+            .inner
+            .processes
+            .insert(info.clone(), spawned.child.clone(), || self.is_open())
+        {
+            spawned.child.kill_tree();
+            return Err(ExecError::Closed(tunnel));
+        }
+        tracing::info!(%tunnel, process = %id, command = %info.command, "proceso lanzado");
+        crate::process::supervise(self.clone(), id, spawned, out, err);
+        self.process_changed();
+        Ok(info)
+    }
+
+    /// Mata un proceso con todo su árbol. Matar uno que ya terminó no hace nada.
+    pub fn kill(&self, process: ProcessId) -> Result<(), ExecError> {
+        match self.inner.processes.kill(process) {
+            None => Err(ExecError::UnknownProcess(self.id(), process)),
+            Some(was_running) => {
+                if was_running {
+                    tracing::info!(tunnel = %self.id(), %process, "proceso matado");
+                    self.process_changed();
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// El proceso terminó solo (lo llama quien lo vigila).
+    pub(crate) fn process_exited(&self, process: ProcessId, code: Option<i32>) {
+        if self.inner.processes.exited(process, code) {
+            tracing::info!(tunnel = %self.id(), %process, ?code, "proceso terminado");
+            self.process_changed();
+        }
+    }
+
+    fn process_changed(&self) {
+        self.bump();
+        self.inner.agent_changes.bump();
+    }
+
+    /// Los procesos del túnel, también los que terminaron hace poco.
+    pub fn processes(&self) -> Vec<TunnelProcess> {
+        self.purge_processes();
+        self.inner.processes.list()
+    }
+
+    /// Los que están corriendo, del más viejo al más nuevo.
+    pub fn running(&self) -> Vec<TunnelProcess> {
+        self.inner.processes.running()
+    }
+
+    /// La salida de un proceso desde `from`, con hasta `max` bytes de cada flujo.
+    pub fn output(
+        &self,
+        process: ProcessId,
+        from: OutputCursor,
+        max: usize,
+    ) -> Result<ProcessOutput, ExecError> {
+        let p = self
+            .inner
+            .processes
+            .get(process)
+            .ok_or(ExecError::UnknownProcess(self.id(), process))?;
+        let flows = self.flows();
+        Ok(output::collect(p, from, max, |flow, at, max| {
+            let f = flows.iter().find(|f| f.info.id == flow)?;
+            let s = lock(&f.state);
+            Some(FlowRead {
+                read: s.buf.read(at, max),
+                end: s.buf.end(),
+                ended: s.ended,
+            })
+        }))
+    }
+
+    /// Olvida los procesos terminados hace más de `linger` con sus flujos.
+    fn purge_processes(&self) {
+        let gone = self.inner.processes.purge(self.inner.opts.linger);
+        if gone.is_empty() {
+            return;
+        }
+        lock(&self.inner.flows).retain(|f| {
+            !gone
+                .iter()
+                .any(|p| p.stdout == f.info.id || p.stderr == f.info.id)
+        });
     }
 
     fn flows(&self) -> Vec<Arc<Flow>> {
         lock(&self.inner.flows).clone()
     }
+}
+
+fn now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
 }
 
 /// Donde escribe quien produce la salida de un flujo. Al soltarlo, el flujo termina.
@@ -347,6 +534,14 @@ pub async fn serve_request<W: TargetWire>(
             Err(e) => TunnelDown::Refused(e),
         },
         TunnelUp::List => TunnelDown::List(host.list()),
+        TunnelUp::Exec { tunnel, spec } => match host.exec(tunnel, spec) {
+            Ok(p) => TunnelDown::Started(p),
+            Err(e) => TunnelDown::Refused(e.to_string()),
+        },
+        TunnelUp::Kill { tunnel, process } => match host.kill(tunnel, process) {
+            Ok(()) => TunnelDown::Killed(process),
+            Err(e) => TunnelDown::Refused(e.to_string()),
+        },
         TunnelUp::Attach { tunnel, from } => {
             let Some(t) = host.get(tunnel) else {
                 return wire.send(&TunnelDown::Refused(unknown(tunnel))).await;
@@ -367,12 +562,18 @@ async fn stream<W: TargetWire>(
 ) -> Result<(), WireError> {
     let mut known: BTreeSet<FlowId> = BTreeSet::new();
     let mut ended: BTreeSet<FlowId> = BTreeSet::new();
+    let mut procs: BTreeMap<ProcessId, u64> = BTreeMap::new();
     let mut changes = t.inner.changes.subscribe();
     loop {
         // Antes de mirar: lo que se escriba desde aquí despierta la espera de abajo.
         changes.borrow_and_update();
-        let closed = !t.is_open();
+        let closed = t.is_settled();
         let mut sent = false;
+        // Los procesos primero: así el origen sabe de qué son los flujos que siguen.
+        for p in t.inner.processes.updates(&mut procs) {
+            wire.send(&TunnelDown::Process(p)).await?;
+            sent = true;
+        }
         for flow in t.flows() {
             let id = flow.info.id;
             if known.insert(id) {

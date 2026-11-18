@@ -836,7 +836,10 @@ impl From<Reply> for ActionResult {
             | Reply::Tunnel(_)
             | Reply::Tunnels(_)
             | Reply::Files(_)
-            | Reply::Forward(_) => ActionResult::Done,
+            | Reply::Forward(_)
+            | Reply::Process(_)
+            | Reply::Processes(_)
+            | Reply::Output(_) => ActionResult::Done,
         }
     }
 }

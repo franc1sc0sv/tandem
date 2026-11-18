@@ -9,16 +9,26 @@
 //!
 //! El arranque va detrás de [`Autostart`]: en Windows es la clave `Run` de `HKCU`
 //! ([`RunKey`]) y la lógica se prueba con un doble en memoria.
+//!
+//! Con administrador, el agente se registra además como tarea programada con los privilegios
+//! más altos ([`task`], A7, T-104): lo que corre en los túneles hereda esos privilegios.
+//! Sin administrador queda la clave `Run`, con los del usuario.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::cli::RunArgs;
 
+pub mod acl;
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::RunKey;
+pub use windows::{HighestTask, RunKey, WinAcl};
+
+pub mod task;
+pub use task::{
+    AgentInstall, NotElevated, PathAcl, Scheduler, TASK_NAME, install_agent, uninstall_agent,
+};
 
 /// Nombre del valor en `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. No es
 /// `Tandem` para no chocar con un arranque propio de la app de Tauri.
@@ -43,6 +53,8 @@ pub trait Autostart {
 pub enum InstallError {
     #[error("no se pudo registrar el arranque automático: {0}")]
     Autostart(#[source] io::Error),
+    #[error("no se pudo registrar o quitar la tarea programada (pide administrador): {0}")]
+    Task(#[source] io::Error),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

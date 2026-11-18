@@ -4438,12 +4438,15 @@ name = "tandem-tunnel"
 version = "0.1.0"
 dependencies = [
  "getrandom 0.4.3",
+ "libc",
  "proptest",
  "tandem-core",
  "tandem-proto",
+ "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+ "windows",
 ]
 
 [[package]]

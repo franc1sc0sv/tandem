@@ -42,14 +42,15 @@ pub use net::{
     Bandwidth, LatencySample, MeasureReport, NetworkStatus, PathMetrics, PathState, PathSwitch,
 };
 pub use tunnel::{
-    Client, ClientKind, FlowId, FlowInfo, Project, ProjectTunnels, Tunnel, TunnelDown, TunnelId,
-    TunnelState, TunnelUp, group_by_project,
+    Client, ClientKind, ExecSpec, FlowId, FlowInfo, OutputCursor, ProcessId, ProcessOutput,
+    ProcessState, Project, ProjectTunnels, Tunnel, TunnelDown, TunnelId, TunnelProcess,
+    TunnelState, TunnelUp, TunnelView, group_by_project,
 };
 
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 31;
+pub const PROTOCOL_VERSION: u16 = 32;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -119,10 +120,12 @@ mod tests {
     /// en el canal y la vista de cada monitor) sube a la v29. T-128 (el cursor en vivo:
     /// `WatchCursor`, `Cursor` y `Crossed` en la UI y entre agentes) sube a la v30. T-106
     /// (archivos y puertos por túnel, sus pedidos y el avance de las transferencias) sube a
-    /// la v31.
+    /// la v31. T-104 (procesos por túnel: `Exec`, `Kill`, `Output`, `GetProcesses` y los
+    /// procesos en la vista de túneles) sube a la v32: iba a ser la v29, pero T-111, T-128 y
+    /// T-106 entraron antes.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 31);
+        assert_eq!(PROTOCOL_VERSION, 32);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

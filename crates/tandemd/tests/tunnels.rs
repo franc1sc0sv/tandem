@@ -99,7 +99,11 @@ async fn next_tunnels(ui: &mut IpcClient<DuplexStream>) -> Vec<Tunnel> {
     within(async {
         loop {
             if let Some(AgentToUi::Tunnels(groups)) = ui.next_event().await.unwrap() {
-                return groups.into_iter().flat_map(|g| g.tunnels).collect();
+                return groups
+                    .into_iter()
+                    .flat_map(|g| g.tunnels)
+                    .map(|v| v.tunnel)
+                    .collect();
             }
         }
     })

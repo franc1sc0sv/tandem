@@ -24,6 +24,8 @@ dirs = "7.0.0"
 ed25519-dalek = { version = "3.0.0", features = ["pkcs8", "alloc"] }
 getrandom = "0.4.3"
 keycode = "1.0.0"
+# Matar el grupo de procesos de un túnel en Unix (T-104).
+libc = "0.2"
 mdns-sd = "0.21.5"
 # Control de monitores por el estándar del firmware propio (DECISIONS A5, D12): repo
 # `monitor-firmware`, rama develop, fijado por commit (T-109, monitor-firmware#1).

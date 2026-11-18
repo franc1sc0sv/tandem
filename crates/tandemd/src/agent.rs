@@ -1093,7 +1093,9 @@ impl Agent {
             | UiCommand::FilesPut { .. }
             | UiCommand::FilesGet { .. }
             | UiCommand::PortForward { .. }
-            | UiCommand::StopForward { .. } => Reply::Rejected(crate::tunnels::CLIENTS_ONLY.into()),
+            | UiCommand::StopForward { .. }
+            | UiCommand::Exec { .. }
+            | UiCommand::Kill { .. } => Reply::Rejected(crate::tunnels::CLIENTS_ONLY.into()),
             // También de la conexión: la suscripción y la medición, que tarda unos segundos
             // ([`Agent::measure_link`]).
             UiCommand::WatchNetwork { .. } | UiCommand::MeasureLink { .. } => {
@@ -1103,6 +1105,25 @@ impl Agent {
             UiCommand::WatchCursor { .. } => {
                 Reply::Rejected("el cursor se pide por una conexión de la IPC".into())
             }
+            // Solo lectura: lo que ya llegó a esta máquina (D9).
+            UiCommand::GetProcesses { tunnel } => match self.tunnels.processes(tunnel) {
+                Some(list) => Reply::Processes(list),
+                None => Reply::Rejected(format!("no hay ningún túnel {tunnel}")),
+            },
+            UiCommand::Output {
+                tunnel,
+                process,
+                from,
+                max,
+            } => match self.tunnels.output(
+                tunnel,
+                process,
+                from,
+                usize::try_from(max).unwrap_or(usize::MAX),
+            ) {
+                Ok(out) => Reply::Output(Box::new(out)),
+                Err(e) => Reply::Rejected(e.to_string()),
+            },
         }
     }
 
