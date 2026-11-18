@@ -5,11 +5,12 @@
 // la pantalla visible. Los eventos por tema (recursos, túneles, módulos) llegan con
 // T-098/T-102/T-104 y se suscriben aquí.
 
-import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, ratioLabel, type Arrangement, type LayoutScreen, type LayoutView } from "../acomodo";
+import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, isVertical, ratioLabel, type Arrangement, type LayoutScreen, type LayoutView } from "../acomodo";
 import type { Bridge } from "../bridge";
+import type { CrossSample } from "../crossing";
 import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
-import type { Action, ActionResult, AdminView, Bindings, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
+import type { Action, ActionResult, AdminView, Bindings, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Side, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
 import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
@@ -21,6 +22,9 @@ import { EMPTY_NETWORK } from "./types";
 
 /** Los recursos en vivo de cada lado, armados con las muestras del agente. */
 export type LiveByMachine = Partial<Record<Machine, LiveView | null>>;
+
+/** Lo que se espera a la primera muestra del cursor tras un cruce antes de informarlo sin posición. */
+const CROSS_SETTLE_MS = 250;
 
 const MAC_PERMISSIONS: Permission[] = ["accessibility", "input_monitoring", "local_network"];
 
@@ -203,7 +207,10 @@ export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): 
     const known = snap.desk.machines?.[m] ?? (snap.caps.here.machine === m ? snap.caps.here : snap.caps.peer?.machine === m ? snap.caps.peer : null);
     if (!known) continue;
     const mac = known.os === "macos";
-    const own = snap.desk.screens.filter((s) => s.machine === m);
+    const declared = snap.desk.screens.filter((s) => s.machine === m);
+    // Sin `[[screens]]` (lo normal tras emparejar) se usan las que lee el motor de cada sistema.
+    const engine = (snap.agent === m ? snap.input.screens : snap.input.peer_screens) ?? [];
+    const own = declared.length > 0 ? declared : engine.map((s) => ({ id: s.id, x: s.x, y: s.y, width: s.width, height: s.height, scale: s.scale_milli / 1000 }));
     if (own.length === 0) {
       screens.push({ id: `escritorio-${m}`, machine: m, name, short: name.split(" ")[0] ?? name, ask: name, x: 0, y: 0, w: 16, h: 10, size: "—", res: "—", ratio: "—", scale: "—", usable: true, line: name });
       continue;
@@ -494,9 +501,41 @@ export class LiveSource implements Source {
     };
   }
 
-  async watchCrossing(): Promise<() => void> {
-    // El motor de entrada todavía no informa los cruces por la IPC (`CursorSample`).
-    throw new Error("El agente todavía no informa el cruce del cursor");
+  /**
+   * La prueba de cruce con lo que informa el motor (T-128): cada `Crossed` es un cruce real. El
+   * punto de entrada sale de la primera muestra del cursor ya en la otra máquina; si no llega
+   * en [`CROSS_SETTLE_MS`], se informa el cruce sin posición (`of: 0`) en vez de inventarla.
+   */
+  async watchCrossing(onCross: (s: CrossSample) => void): Promise<() => void> {
+    let pending: { from: Machine; to: Machine; edge: Side; t0: number; timer: ReturnType<typeof setTimeout> } | null = null;
+    const emit = (p: NonNullable<typeof pending>, at: number, of: number, ms: number) => {
+      clearTimeout(p.timer);
+      if (pending === p) pending = null;
+      onCross({ from: p.from, to: p.to, edge: p.edge, at, of, ms });
+    };
+    const stop = await this.watchCursor((e) => {
+      if (e.kind === "crossed") {
+        const t0 = performance.now();
+        const p = { from: e.from, to: e.to, edge: e.edge, t0, timer: setTimeout(() => emit(p, 0, 0, performance.now() - t0), CROSS_SETTLE_MS) };
+        if (pending) clearTimeout(pending.timer);
+        pending = p;
+      } else if (pending && e.sample.machine === pending.to) {
+        const p = pending;
+        const layout = this.last.kind === "connected" ? layoutFromDesk(this.last) : EMPTY_LAYOUT;
+        const mine = layout.screens.filter((s) => s.machine === p.to);
+        const on = mine.find((s) => s.native?.id === e.sample.screen) ?? mine[0];
+        const vertical = isVertical(p.edge);
+        const len = vertical ? on?.native?.h : on?.native?.w;
+        const start = vertical ? on?.native?.y : on?.native?.x;
+        const at = (vertical ? e.sample.y : e.sample.x) - (start ?? 0);
+        emit(p, len ? Math.round(at) : 0, len ?? 0, performance.now() - p.t0);
+      }
+    });
+    return () => {
+      if (pending) clearTimeout(pending.timer);
+      pending = null;
+      stop();
+    };
   }
 
   async pairAction(kind: PairActionKind): Promise<ActResult> {
@@ -585,7 +624,7 @@ export class LiveSource implements Source {
   can(what: Capability): boolean {
     if (what === "scenes" || what === "monitors") return this.last.kind === "connected";
     if (what === "power" || what === "measure") return this.last.kind === "connected" && this.last.peer.kind === "paired";
-    if (what === "cursor") return this.last.kind === "connected" && this.last.peer.kind === "paired";
+    if (what === "cursor" || what === "crossing") return this.last.kind === "connected" && this.last.peer.kind === "paired";
     if (what === "modules" || what === "machine" || what === "lock") return this.last.kind === "connected";
     return false;
   }

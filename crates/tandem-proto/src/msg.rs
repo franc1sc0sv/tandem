@@ -923,6 +923,13 @@ pub struct InputStatus {
     /// por quien recibe la entrada (T-093). `None` hasta la primera medición.
     #[serde(default)]
     pub latency: Option<InputLatency>,
+    /// Las pantallas que el motor de entrada lee en esta máquina, en sus coordenadas
+    /// nativas (T-150): la UI las dibuja cuando el puesto no declara `[[screens]]`.
+    #[serde(default)]
+    pub screens: Vec<ScreenRect>,
+    /// Las que la otra máquina anunció (`ControlMsg::Screens`); vacío si no ha dicho nada.
+    #[serde(default)]
+    pub peer_screens: Vec<ScreenRect>,
 }
 
 /// Latencia de la entrada en una ventana: de la marca de tiempo del servidor (pasada al
@@ -950,6 +957,8 @@ impl InputStatus {
             problem: None,
             defined: false,
             latency: None,
+            screens: Vec::new(),
+            peer_screens: Vec::new(),
         }
     }
 }
@@ -1644,6 +1653,8 @@ pub(crate) mod samples {
                     p99_us: 3_200,
                     max_us: 12_000,
                 }),
+                screens: screens(),
+                peer_screens: screens(),
             },
         ]
     }

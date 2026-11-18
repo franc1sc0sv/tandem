@@ -2,9 +2,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Bridge } from "../bridge";
 import type { Notice, SceneJson, Snapshot, TxnView } from "../model";
+import { exitSide } from "../acomodo";
 import { formatHash, parseHash, SCREEN_TOPICS } from "../routes";
 import { DEMO_NOW, DemoSource, demoDesk, demoOptions, isDemo } from "./demo";
-import { deskFromSnapshot, LiveSource } from "./live";
+import { deskFromSnapshot, layoutFromDesk, LiveSource } from "./live";
 import { SHELL_TOPICS, Store, TOAST_MS, TRAY_TOPICS, topicsFor } from "./store.svelte";
 
 afterEach(() => {
@@ -346,6 +347,23 @@ describe("red en el demo (T-102)", () => {
   });
 });
 
+describe("prueba de cruce en modo demo", () => {
+  it("«Probar cruce» está disponible y el cruce sale por el borde del acomodo (y el equivocado con cross=wrong)", async () => {
+    for (const [opts, same] of [["demo&cross=ok", true], ["demo&cross=wrong", false]] as const) {
+      const src = new DemoSource(demoOptions(opts));
+      const store = new Store(src);
+      await store.start();
+      expect(src.can("crossing")).toBe(true);
+      const got = await new Promise<{ edge: string }>((resolve) => {
+        void store.watchCrossing((s) => resolve(s));
+      });
+      const { arrangement } = store.desk.layout;
+      const expected = exitSide(arrangement, store.desk.here);
+      expect(got.edge === expected).toBe(same);
+    }
+  });
+});
+
 describe("fuente real", () => {
   const connected = (over: Partial<Extract<Snapshot, { kind: "connected" }>> = {}): Snapshot => ({
     kind: "connected",
@@ -380,6 +398,57 @@ describe("fuente real", () => {
     expect(d.machines.a).toMatchObject({ name: "Taller", color: "#6cc59a", here: false });
     expect(d.link.kind).toBe("wifi");
     expect(d.trouble).toBe("none");
+  });
+
+  it("sin [[screens]], el acomodo usa las pantallas que lee el motor de cada máquina, a escala entre sí", () => {
+    const snap = connected({
+      agent: "a",
+      input: {
+        server: "a", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true,
+        screens: [{ id: "m32", x: 0, y: 0, width: 1920, height: 1080, scale_milli: 1000 }],
+        peer_screens: [{ id: "m34", x: 0, y: 0, width: 3440, height: 1440, scale_milli: 1500 }],
+      },
+    });
+    if (snap.kind !== "connected") throw new Error("foto");
+    const { screens } = layoutFromDesk(snap);
+    const a = screens.find((s) => s.machine === "a");
+    const b = screens.find((s) => s.machine === "b");
+    expect(a).toMatchObject({ res: "1920 × 1080", ratio: "16:9", scale: "100 %" });
+    expect(b).toMatchObject({ res: "3440 × 1440", ratio: "21:9", scale: "150 %" });
+    // 3440 px a 150 % son 2293 puntos: el dibujo respeta esa proporción entre las dos máquinas.
+    expect(b!.w / a!.w).toBeCloseTo(3440 / 1.5 / 1920, 3);
+    expect(a!.native).toMatchObject({ id: "m32", w: 1920 });
+  });
+
+  it("watchCrossing entrega el Crossed real con la entrada medida en la pantalla de llegada", async () => {
+    const act = vi.fn(async (_a: unknown) => ({ kind: "done" as const }));
+    let notice: ((n: Notice) => void) | undefined;
+    const bridge = {
+      snapshot: async () => connected({
+        agent: "a",
+        input: {
+          server: "a", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true,
+          screens: [{ id: "m32", x: 0, y: 0, width: 1920, height: 1080, scale_milli: 1000 }],
+          peer_screens: [{ id: "m34", x: 0, y: 0, width: 3440, height: 1440, scale_milli: 1000 }],
+        },
+      }),
+      onSnapshot: async () => {},
+      act,
+      onNotice: async (cb: (n: Notice) => void) => {
+        notice = cb;
+      },
+    } as unknown as Bridge;
+    const src = new LiveSource(bridge);
+    await src.start(() => {});
+    expect(src.can("crossing")).toBe(true);
+    const got: unknown[] = [];
+    const stop = await src.watchCrossing((s) => got.push(s));
+    expect(act).toHaveBeenCalledWith({ kind: "watch_cursor", on: true });
+    notice?.({ kind: "crossed", from: "a", to: "b", edge: "right" });
+    notice?.({ kind: "cursor", sample: { machine: "b", screen: "m34", x: 2, y: 600 } });
+    expect(got).toEqual([expect.objectContaining({ from: "a", to: "b", edge: "right", at: 600, of: 1440 })]);
+    stop();
+    expect(act).toHaveBeenLastCalledWith({ kind: "watch_cursor", on: false });
   });
 
   it("los estados difíciles salen de la foto", () => {

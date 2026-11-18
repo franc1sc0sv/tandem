@@ -645,6 +645,50 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
     mac.stop().await;
 }
 
+/// T-150: sin `[[screens]]`, el estado de la entrada trae las pantallas que lee cada motor
+/// (las de aquí y las que anunció la otra máquina), para que la UI las dibuje.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_input_status_carries_the_real_screens_of_both_machines() {
+    let (mac_id, pc_id) = sides(Identity::from_seed([61; 32]), Identity::from_seed([62; 32]));
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let (mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
+    let both = |s: &InputStatus| !s.screens.is_empty() && !s.peer_screens.is_empty();
+    mac.until_input(both).await;
+    pc.until_input(both).await;
+    let seen = mac.agent.input_status();
+    assert_eq!(
+        (seen.screens[0].width, seen.screens[0].height),
+        (1920, 1080)
+    );
+    assert_eq!(
+        (seen.peer_screens[0].width, seen.peer_screens[0].height),
+        (3440, 1440)
+    );
+    let seen = pc.agent.input_status();
+    assert_eq!(
+        (seen.screens[0].width, seen.screens[0].height),
+        (3440, 1440)
+    );
+    assert_eq!(seen.peer_screens[0].width, 1920);
+}
+
 /// Un `[[screens]]` escrito a mano en `tandem.toml` cambia la geometría: la PC declara su
 /// pantalla de 2000×720 aunque lea 3440×1440, y la Mac a su derecha, centradas (D18). El
 /// cruce sale del acomodo declarado (el tramo compartido), y el puesto editado llega también
