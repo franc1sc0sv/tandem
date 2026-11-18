@@ -24,6 +24,7 @@ import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK, INPUT_TARGET_MS } from "./types";
 import type {
   ActResult,
+  Capability,
   DeskView,
   EnvView,
   HardwareView,
@@ -704,7 +705,7 @@ export class DemoSource implements Source {
   }
 
   /** Todo se puede simular; medir, solo con un camino que responda. */
-  can(what: "scenes" | "modules" | "power" | "measure"): boolean {
+  can(what: Capability): boolean {
     return what !== "measure" || this.desk.link.kind !== null;
   }
 
