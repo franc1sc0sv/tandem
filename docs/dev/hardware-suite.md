@@ -16,7 +16,7 @@ scripts/hw/run.sh --sim              # todo en Linux, backends simulados: valida
 scripts/hw/run.sh --plan             # imprime los pasos
 ```
 
-Opciones: `--only link,tunnels,input,monitors`, `--ref REF` (por omisión `origin/develop`; el código de la suite tiene que estar en ese ref), `--skip-build`, `--mac HOST`, `--pc-ip`, `--mac-ip`. Salida: 0 sin fallos, 1 con fallos, 2 si no se pudo armar el entorno. El informe queda en `docs/reports/hw-<fecha>.md`.
+Opciones: `--only link,tunnels,input,monitors`, `--mac-link DIR`, `--ref REF` (por omisión `origin/develop`; el código de la suite tiene que estar en ese ref), `--skip-build`, `--mac HOST`, `--pc-ip`, `--mac-ip`. Salida: 0 sin fallos, 1 con fallos, 2 si no se pudo armar el entorno. El informe queda en `docs/reports/hw-<fecha>.md`.
 
 ## Qué hace
 
@@ -51,3 +51,15 @@ Está listado al final de cada informe (una hora de uso, distribución ES/LatAm,
 ## Pruebas sueltas
 
 Las mismas comprobaciones existen como pruebas `#[ignore = "hardware"]` en `crates/tandem-hw/tests/hardware.rs`, contra un agente de prueba ya arrancado (`TANDEM_HW_DATA_DIR`). Los ayudantes de `tandem-hw` (`emit`, `sleep`, `echo-server`) sirven de programa de prueba dentro de los túneles, así no dependen de nada instalado en la otra máquina.
+
+## Robustez de la corrida
+
+Una corrida real se colgó más de una hora; estas son las causas y lo que hace ahora el script.
+
+- **Arranque del agente en la PC.** `Start-Process -FilePath tandemd.exe` desde `powershell.exe` por el puente de interop de WSL no regresaba: el hijo hereda los handles de stdout/stderr del puente y powershell no termina mientras sigan abiertos. Ahora se lanza `cmd.exe /d /s /c "set TANDEM_LOG=... && tandemd.exe ... > agent.out 2>&1"` con `Start-Process -WindowStyle Hidden -PassThru` y sin redirecciones: la salida va a archivo dentro de cmd y no queda ningún handle compartido. Se descartó `Invoke-CimMethod Win32_Process -MethodName Create` porque ese proceso corre en la sesión 0 y `SendInput` (entrada sintética) no funcionaría. El PID guardado es el de `cmd`; la limpieza usa `taskkill /F /T`.
+- **Nada sin tope ni stdin.** Toda llamada a `powershell.exe` y a `ssh` lleva `< /dev/null` y `timeout -k 5` (60 s por omisión, `TANDEM_HW_TIMEOUT`; 900 s por corrida de `tandem-hw`, `TANDEM_HW_STEP_TIMEOUT`; 3600 s por compilación, `TANDEM_HW_BUILD_TIMEOUT`). Solo el `tar | ssh` de copia lee stdin.
+- **Mac por cable.** Si `ssh mac-runner` no responde (Wi-Fi), con `--mac-link DIR` o `TANDEM_HW_MAC_LINK` se reintenta con `-o HostName=DIR` (mismo usuario y llave del alias). Por el cable, la IP del enlace entre agentes es esa dirección link-local y la de la PC se toma de su adaptador `169.254.*` (o `--pc-ip`). No hay IPs fijas en el repo (D10); sin `--mac-link`, el fallo sigue siendo un error de entorno (código 2).
+- **Dependencias git sin credenciales en la Mac.** La Mac no tiene acceso a GitHub (T-130) y así debe seguir. Si `Cargo.lock` trae fuentes `git+`, antes de copiar el código se corre `cargo vendor --locked` en WSL (donde sí hay acceso) dentro de la copia extraída; su salida es `.cargo/config.toml` y `vendor/` viaja en el tar. La compilación de la Mac no usa la red.
+- **Limpieza y señales.** Los pasos largos (compilaciones, `tandem-hw run`) corren en segundo plano y el script espera con `wait`; así Ctrl-C y SIGTERM ejecutan el trap de inmediato. La limpieza mata el árbol completo de cada proceso en segundo plano (`killtree`), no solo su subshell.
+
+`TANDEM_HW_TARGET` cambia el directorio de compilación (por omisión `~/.cache/tandem-target-hw`). Validación sin hardware: `bash -n`, `--plan` y `--sim --ref HEAD`.
