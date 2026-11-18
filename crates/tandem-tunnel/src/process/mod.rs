@@ -16,6 +16,7 @@
 pub mod fake;
 pub mod launch;
 pub mod output;
+pub mod secrets;
 pub mod system;
 pub(crate) mod table;
 

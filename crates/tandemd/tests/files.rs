@@ -112,7 +112,7 @@ async fn copia_carpetas_y_reenvia_puertos_por_quic() {
     let mut stops = Vec::new();
     let mut claude = ipc(&mac, Peer::Client(ClientKind::Mcp), &mut stops).await;
     let mut ui = ipc(&mac, Peer::Ui, &mut stops).await;
-    let Reply::Tunnel(t) = within(claude.request(UiCommand::OpenTunnel {
+    let Reply::Tunnel { tunnel: t, .. } = within(claude.request(UiCommand::OpenTunnel {
         title: "archivos".into(),
         project: None,
         target: Machine::B,
@@ -140,6 +140,7 @@ async fn copia_carpetas_y_reenvia_puertos_por_quic() {
         tunnel: t.id,
         local: src.display().to_string(),
         remote: dst.display().to_string(),
+        include: vec![],
     };
     // La UI solo mira.
     assert_eq!(

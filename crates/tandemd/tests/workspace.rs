@@ -124,6 +124,7 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
     let ws = WorkspaceSpec {
         repo_path: repo.display().to_string(),
         keep: false,
+        include: vec![],
     };
     // La UI solo mira (D9).
     assert_eq!(
@@ -134,6 +135,7 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
     let bad = WorkspaceSpec {
         repo_path: dir.path().join("no-existe").display().to_string(),
         keep: false,
+        include: vec![],
     };
     let Reply::Rejected(why) = within(claude.request(open(Some(bad)))).await.unwrap() else {
         panic!("se esperaba el rechazo");
@@ -153,7 +155,8 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
     })
     .await;
 
-    let Reply::Tunnel(t) = within(claude.request(open(Some(ws)))).await.unwrap() else {
+    let Reply::Tunnel { tunnel: t, .. } = within(claude.request(open(Some(ws)))).await.unwrap()
+    else {
         panic!("se esperaba el túnel");
     };
     let work = pc.workspaces().dir_of(t.id).expect("workspace en B");

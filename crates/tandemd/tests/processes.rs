@@ -240,7 +240,7 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
     let tunnel = within(async {
         loop {
             match a.client.request(open.clone()).await.unwrap() {
-                Reply::Tunnel(t) => return t.id,
+                Reply::Tunnel { tunnel: t, .. } => return t.id,
                 _ => tokio::time::sleep(Duration::from_millis(50)).await,
             }
         }
@@ -254,6 +254,7 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
         shell: None,
         cwd: Some("/src/tandem".into()),
         env: vec![("N".into(), n.to_string())],
+        allow_secret_env: false,
     };
     assert_eq!(
         request(

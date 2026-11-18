@@ -147,7 +147,7 @@ async fn la_salida_sobrevive_al_corte_del_camino_y_cerrar_suelta_los_recursos() 
         Reply::Rejected(CLIENTS_ONLY.into())
     );
 
-    let Reply::Tunnel(t) = within(claude.request(open)).await.unwrap() else {
+    let Reply::Tunnel { tunnel: t, .. } = within(claude.request(open)).await.unwrap() else {
         panic!("se esperaba el túnel abierto");
     };
     assert_eq!(t.title, "tandem", "sin título, el del proyecto");

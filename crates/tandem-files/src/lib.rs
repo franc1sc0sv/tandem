@@ -24,6 +24,7 @@ pub mod error;
 pub mod mem;
 pub mod path;
 pub mod ports;
+pub mod secrets;
 pub mod sink;
 pub mod source;
 pub mod transfer;
@@ -37,6 +38,7 @@ use tokio::sync::broadcast;
 
 pub use error::FilesError;
 pub use ports::{ForwardSpec, Forwards, PortHost};
+pub use secrets::SecretFilter;
 pub use sink::Sink;
 pub use source::Source;
 pub use transfer::Options;
@@ -106,7 +108,8 @@ impl Files {
         }
     }
 
-    /// Copia `local` a `remote` en la destino del túnel.
+    /// Copia `local` a `remote` en la destino del túnel. Lo que parece una credencial no
+    /// viaja (T-130); lo omitido sale en el informe.
     pub async fn put(
         &self,
         origin: &Origin,
@@ -114,10 +117,23 @@ impl Files {
         local: &Path,
         remote: &str,
     ) -> Result<FilesReport, FilesError> {
+        self.put_with(origin, tunnel, local, remote, &[]).await
+    }
+
+    /// Como [`Files::put`], mandando también las credenciales que `include` nombre (rutas
+    /// relativas a `local`).
+    pub async fn put_with(
+        &self,
+        origin: &Origin,
+        tunnel: TunnelId,
+        local: &Path,
+        remote: &str,
+        include: &[String],
+    ) -> Result<FilesReport, FilesError> {
         let sink = |p| {
             let _ = self.progress.send(p);
         };
-        transfer::put(origin, tunnel, local, remote, &self.opts, &sink).await
+        transfer::put(origin, tunnel, local, remote, include, &self.opts, &sink).await
     }
 
     /// Trae `remote` de la destino del túnel a `local`.

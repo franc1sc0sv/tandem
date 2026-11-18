@@ -20,6 +20,7 @@ use tandem_proto::{
 use tandem_tunnel::{Host, Origin, OriginWire, TargetWire, WireError};
 
 use crate::error::{FilesError, Result};
+use crate::secrets::SecretFilter;
 use crate::sink::Sink;
 use crate::source::Source;
 
@@ -176,6 +177,7 @@ pub async fn put(
     tunnel: TunnelId,
     local: &Path,
     remote: &str,
+    include: &[String],
     opts: &Options,
     progress: Progress<'_>,
 ) -> Result<FilesReport> {
@@ -183,14 +185,18 @@ pub async fn put(
         return Err(FilesError::NoTunnel(tunnel));
     }
     let (path, cs) = (local.to_path_buf(), opts.chunk_size);
-    let src = Arc::new(blocking(move || Source::scan(&path, cs)).await?);
+    let filter = SecretFilter::new(include);
+    let src = Arc::new(blocking(move || Source::scan_with(&path, cs, &filter)).await?);
     let mut last = FilesError::Unexpected;
     for attempt in 0..opts.attempts.max(1) {
         if attempt > 0 {
             tokio::time::sleep(opts.retry_delay).await;
         }
         match put_once(origin, tunnel, &src, local, remote, progress).await {
-            Ok(r) => return Ok(r),
+            Ok(mut r) => {
+                r.skipped = src.skipped().to_vec();
+                return Ok(r);
+            }
             Err(e) if e.retryable() => {
                 tracing::debug!(%tunnel, "subida cortada, se reanuda: {e}");
                 last = e;
@@ -327,7 +333,12 @@ async fn get_once(
         },
     )
     .await?;
-    let FilesDown::ManifestHead { chunk_size, single } = recv_files(&mut wire).await? else {
+    let FilesDown::ManifestHead {
+        chunk_size,
+        single,
+        skipped,
+    } = recv_files(&mut wire).await?
+    else {
         return Err(FilesError::Unexpected);
     };
     let manifest = Manifest {
@@ -395,6 +406,7 @@ async fn get_once(
     let s = sink.clone();
     let mut r = blocking(move || s.finish()).await?;
     r.sent = sent;
+    r.skipped = skipped;
     report(done, true);
     Ok(r)
 }
@@ -556,6 +568,7 @@ async fn serve_get<W: TargetWire>(
     wire.send(&TunnelDown::Files(FilesDown::ManifestHead {
         chunk_size: src.manifest().chunk_size,
         single: src.manifest().single,
+        skipped: src.skipped().to_vec(),
     }))
     .await?;
     let n = pages.len();

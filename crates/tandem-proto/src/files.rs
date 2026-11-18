@@ -134,7 +134,7 @@ pub struct Need {
     pub chunks: Vec<u32>,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FilesReport {
     pub files: u64,
     pub dirs: u64,
@@ -142,6 +142,10 @@ pub struct FilesReport {
     pub bytes: u64,
     /// Bytes que de verdad viajaron (menos que `bytes` si se reanudó o ya estaba).
     pub sent: u64,
+    /// Lo que no se copió por parecer una credencial (T-130); las carpetas terminan en
+    /// `/`. Nunca viaja a la otra máquina salvo que se nombre en `include`.
+    #[serde(default)]
+    pub skipped: Vec<String>,
 }
 
 /// Avance de una transferencia, para la UI y el cliente.
@@ -201,6 +205,8 @@ pub enum FilesDown {
     ManifestHead {
         chunk_size: u32,
         single: bool,
+        /// Lo que la destino no mandó por parecer una credencial (T-130).
+        skipped: Vec<String>,
     },
     Entries {
         entries: Vec<FileEntry>,

@@ -29,3 +29,12 @@ tandem tunnel-close --tunnel 3fa2...
 ```
 
 `--json` imprime el mismo JSON que devuelve el MCP (contrato estable); sin él, texto legible. En `output`, stdout y stderr del proceso van a los suyos y el estado (con el punto desde el que seguir) a stderr.
+
+## Credenciales (T-130)
+
+La otra máquina nunca recibe credenciales:
+
+- `files_put` y `tunnel_open { workspace }` no mandan lo que parece una credencial (`.env`, `*.pem`, `id_rsa*`, `.ssh/`, `.aws/`, `.npmrc` con token…), esté o no en `.gitignore`. La respuesta trae `skipped` y un `warning`; la CLI avisa por stderr. Para mandar uno, nómbralo en `include_secrets` (ruta exacta relativa a `local` o al repo).
+- `exec` rechaza las variables de `env` que parecen secretos (`GH_TOKEN`, `AWS_*`, `*_KEY`…) salvo `allow_secret_env: true` en esa llamada. `SSH_AUTH_SOCK` y los agentes nunca pasan.
+- El repo del workspace llega sin remotos ni `credential.helper`; lo ya confirmado viaja con su historia.
+

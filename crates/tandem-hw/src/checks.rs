@@ -331,7 +331,7 @@ async fn open_tunnel(
     )
     .await?
     {
-        Reply::Tunnel(t) => Ok(*t),
+        Reply::Tunnel { tunnel, .. } => Ok(*tunnel),
         other => Err(unexpected(other)),
     }
 }
@@ -348,6 +348,7 @@ async fn exec(
         shell: None,
         cwd: None,
         env: Vec::new(),
+        allow_secret_env: false,
     };
     match req(c, UiCommand::Exec { tunnel, spec }).await? {
         Reply::Process(p) => Ok(*p),
@@ -485,6 +486,7 @@ pub async fn tunnel_files(ctx: &Ctx) -> CheckResult {
                         tunnel: t,
                         local: s,
                         remote: remote.clone(),
+                        include: Vec::new(),
                     },
                 )
                 .await?;
@@ -593,6 +595,7 @@ pub async fn tunnel_workspace(ctx: &Ctx) -> CheckResult {
         let spec = WorkspaceSpec {
             repo_path: repo.to_string_lossy().into_owned(),
             keep: false,
+            include: Vec::new(),
         };
         with_tunnel(ctx, "hw-workspace", Some(spec), |c, t| {
             Box::pin(async move {

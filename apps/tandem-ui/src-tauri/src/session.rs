@@ -1016,7 +1016,7 @@ impl From<Reply> for ActionResult {
             | Reply::DeskHistory(_)
             | Reply::Monitors(_)
             | Reply::Update(_)
-            | Reply::Tunnel(_)
+            | Reply::Tunnel { .. }
             | Reply::Tunnels(_)
             | Reply::Files(_)
             | Reply::Forward(_)
