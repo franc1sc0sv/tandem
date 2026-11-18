@@ -190,6 +190,7 @@ mod tests {
                     DeskVersion {
                         stamp: DeskStamp { rev, at, by },
                         desk: tandem_core::Config {
+                            name: Some("Oficina".into()),
                             machines: tandem_core::Machines {
                                 a: Some(tandem_core::MachineInfo::new(
                                     Machine::A,

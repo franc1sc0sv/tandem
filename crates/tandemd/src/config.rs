@@ -266,6 +266,11 @@ pub struct PowerConfig {
     /// claro.
     #[serde(default)]
     pub wol: Option<WolTarget>,
+    /// La MAC de la tarjeta Ethernet de esta máquina, que se le anuncia a la otra para que
+    /// la guarde al emparejar (T-159). Sin ella, el agente la detecta al arrancar
+    /// ([`tandem_power::nic::detect`]); escribirla fija la que se anuncia.
+    #[serde(default)]
+    pub mac: Option<tandem_power::MacAddr>,
 }
 
 fn default_peer_lost_after() -> u64 {
@@ -278,6 +283,7 @@ impl Default for PowerConfig {
             peer_lost_after_secs: default_peer_lost_after(),
             wakeable: true,
             wol: None,
+            mac: None,
         }
     }
 }

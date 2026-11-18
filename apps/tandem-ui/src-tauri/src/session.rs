@@ -2313,7 +2313,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         assert_eq!(v["caps"]["here"]["machine"], "a");
         assert_eq!(
             v["caps"]["here"]["power"],
-            serde_json::json!({ "wake_peer": false, "wakeable": true, "power_off": false })
+            serde_json::json!({ "wake_peer": false, "wakeable": true, "power_off": false, "mac": null, "wol_mac": null })
         );
         assert_eq!(v["caps"]["peer"], serde_json::Value::Null);
         assert_eq!(
@@ -2323,6 +2323,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         assert_eq!(
             v["desk"],
             serde_json::json!({
+                "desk_name": null,
                 "machines": { "a": null, "b": null },
                 "screens": [{
                     "machine": "b", "id": "34", "x": 0, "y": 0,

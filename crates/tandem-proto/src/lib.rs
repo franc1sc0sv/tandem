@@ -53,7 +53,7 @@ pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, W
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 38;
+pub const PROTOCOL_VERSION: u16 = 39;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -136,9 +136,11 @@ mod tests {
     /// en `exec`) sube a la v37: iba a ser la v35, pero T-121 y T-129 entraron antes.
     /// T-150 (`InputStatus` lleva las pantallas de las dos máquinas, para el acomodo de la UI)
     /// sube a la v38.
+    /// T-152 (`ControlMsg::Unpaired`, salir del puesto avisa a la otra máquina) y T-159 (la MAC
+    /// anunciada para Wake-on-LAN y `UiCommand::SetWol`) suben a la v39: iban a ser la v38, pero T-150 entró antes.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 38);
+        assert_eq!(PROTOCOL_VERSION, 39);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

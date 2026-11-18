@@ -118,6 +118,8 @@ pub fn valid_color(color: &str) -> bool {
 /// Un cambio del puesto pedido desde la UI (`UiCommand::EditDesk`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DeskPatch {
+    /// El nombre del puesto (T-159); vacío vuelve al de omisión.
+    Name(String),
     /// Nombre y color de una máquina ya conocida; lo que venga en `None` no cambia.
     Machine {
         side: Machine,
@@ -218,6 +220,13 @@ impl Desk {
                 }
                 self.machines.set(side, Some(info));
             }
+            DeskPatch::Name(name) => {
+                let name = name.trim();
+                if name.chars().count() > MAX_NAME {
+                    return Err(PatchError::BadName);
+                }
+                self.name = (!name.is_empty()).then(|| name.to_owned());
+            }
             DeskPatch::Arrangement(arrangement) => self.arrangement = arrangement,
             DeskPatch::Screens { machine, screens } => {
                 // Las de la otra máquina quedan donde estaban; las de esta, donde estaba la
@@ -296,6 +305,7 @@ impl Desk {
                     _ => false,
                 });
         let sections = [
+            (self.name != new.name, "nombre del puesto"),
             (machines, "máquinas"),
             (self.arrangement != new.arrangement, "acomodo"),
             (self.screens != new.screens, "pantallas"),
@@ -554,6 +564,22 @@ mod tests {
             },
             ..Desk::default()
         }
+    }
+
+    #[test]
+    fn the_desk_name_is_edited_trimmed_and_cleared() {
+        let mut d = known();
+        d.apply(DeskPatch::Name("  Oficina ".into())).unwrap();
+        assert_eq!(d.name.as_deref(), Some("Oficina"));
+        assert_eq!(
+            known().summary_of_changes(&d).as_deref(),
+            Some("Nombre del puesto")
+        );
+        d.apply(DeskPatch::Name("  ".into())).unwrap();
+        assert_eq!(d.name, None);
+        let long = "x".repeat(MAX_NAME + 1);
+        assert_eq!(d.apply(DeskPatch::Name(long)), Err(PatchError::BadName));
+        assert_eq!(d.name, None, "un rechazo no cambia nada");
     }
 
     fn v(rev: u64, at: u64, by: Machine, desk: Desk) -> DeskVersion {

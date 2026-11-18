@@ -63,6 +63,8 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> ControlChannel for Fram
 enum Outgoing {
     Step(Step, oneshot::Sender<Result<(), String>>),
     Msg(ControlMsg),
+    /// Avisa cuando todo lo anterior ya salió por el stream ([`PeerClient::flush`]).
+    Flush(oneshot::Sender<()>),
     /// Como `Msg`, pero cuenta en [`PeerClient::lossy`]: se descarta si el stream se atrasa.
     Lossy(ControlMsg),
 }
@@ -130,6 +132,15 @@ impl PeerLink for PeerClient {
 }
 
 impl PeerClient {
+    /// Espera a que lo mandado hasta ahora haya salido por el stream (no a que el otro lo
+    /// lea): para avisar algo justo antes de cerrar la conexión.
+    pub async fn flush(&self) {
+        let (done, sent) = oneshot::channel();
+        if self.tx.send(Outgoing::Flush(done)).is_ok() {
+            let _ = sent.await;
+        }
+    }
+
     /// Manda un aviso sin respuesta (estado, hub, pantallas). Si el stream ya se cerró
     /// se pierde: quien avisa lo repite al aparecer el enlace siguiente.
     pub fn send(&self, msg: ControlMsg) {
@@ -198,6 +209,10 @@ async fn client_loop<C: ControlChannel>(
                 chan.send(&ControlMsg::ExecuteStep { id, step }).await
             }
             Outgoing::Msg(msg) => chan.send(&msg).await,
+            Outgoing::Flush(done) => {
+                let _ = done.send(());
+                Ok(())
+            }
             Outgoing::Lossy(msg) => {
                 // Sale de la cola: el que llegue ahora ya no espera detrás de este.
                 lossy.fetch_sub(1, Ordering::AcqRel);
@@ -300,6 +315,7 @@ async fn respond<C: ControlChannel>(
             ControlMsg::WatchResources { on } => agent.receive_watch_resources(on),
             ControlMsg::Resources(r) => agent.receive_peer_resources(*r),
             ControlMsg::Rescan => agent.receive_rescan(),
+            ControlMsg::Unpaired => agent.receive_unpaired(),
             ControlMsg::Update(msg) => agent.receive_update(msg),
             ControlMsg::Focus(msg) => agent.inbox().deliver_focus(msg),
             ControlMsg::Drag(msg) => agent.drag().deliver(msg),

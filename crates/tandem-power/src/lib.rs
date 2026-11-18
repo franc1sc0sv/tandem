@@ -9,6 +9,7 @@
 //! lo hace el orquestador de `tandemd`, que sabe si el otro agente está conectado.
 
 mod mac;
+pub mod nic;
 mod wol;
 
 #[cfg(windows)]

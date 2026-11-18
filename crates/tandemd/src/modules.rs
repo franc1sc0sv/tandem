@@ -405,6 +405,8 @@ mod tests {
             wake_peer,
             wakeable,
             power_off,
+            mac: None,
+            wol_mac: None,
         }
     }
 

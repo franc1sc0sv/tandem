@@ -155,6 +155,10 @@ pub enum ControlMsg {
     },
     /// Arrastre de archivos entre las dos máquinas (T-121).
     Drag(DragMsg),
+    /// Quien lo manda salió del puesto («Salir del puesto»): olvidó la llave de quien lo
+    /// recibe, que también la olvida y queda sin par (T-152). Sin enlace no llega: la otra
+    /// sigue confiando hasta que salga ella.
+    Unpaired,
 }
 
 /// Los mensajes del arrastre de archivos (D14), uno por paso de `DragPeer`. `id` lo pone
@@ -475,7 +479,7 @@ pub struct ProcessInfo {
 }
 
 /// Energía de una máquina.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PowerCaps {
     /// Puede despertar a la otra (tiene su `[power.wol]`).
     pub wake_peer: bool,
@@ -483,6 +487,12 @@ pub struct PowerCaps {
     pub wakeable: bool,
     /// Sabe apagarse limpio a pedido de la otra.
     pub power_off: bool,
+    /// La MAC de la tarjeta Ethernet de esta máquina (`aa:bb:cc:dd:ee:ff`), para que la otra
+    /// la guarde al emparejar y pueda despertarla (T-159). `None` si no se pudo saber.
+    pub mac: Option<String>,
+    /// La MAC con que esta máquina despierta a la otra (su `[power.wol]`): la aprendida al
+    /// emparejar o la escrita a mano. `None`: no puede encenderla.
+    pub wol_mac: Option<String>,
 }
 
 /// Lo que sabe cada máquina del puesto, para la UI.
@@ -693,6 +703,11 @@ pub enum UiCommand {
     /// y `!on` lo suelta; el mismo efecto que el atajo de bloqueo del motor de entrada.
     LockHere {
         on: bool,
+    },
+    /// La MAC con que esta máquina despierta a la otra (T-159): se guarda en `[power.wol]`.
+    /// `None` la borra. Contesta [`Reply::Done`] o el motivo del rechazo (MAC inválida).
+    SetWol {
+        mac: Option<String>,
     },
     /// Abrir un túnel hacia `target` (la otra máquina). Solo desde un
     /// [`Peer::Client`]; contesta [`Reply::Tunnel`] (T-103).
@@ -1014,6 +1029,9 @@ pub enum PowerEvent {
     },
 }
 
+// El puesto (`Config`) viaja por valor en las respuestas, como en el resto de la UI: la
+// diferencia de tamaño no pesa en un mensaje que se crea por pedido.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Reply {
     State(State),
@@ -1329,6 +1347,7 @@ pub(crate) mod samples {
             ControlMsg::LinkClass { kind: Link::Usb4 },
             ControlMsg::LinkClass { kind: Link::Wifi },
             ControlMsg::Rescan,
+            ControlMsg::Unpaired,
             ControlMsg::Monitors(vec![]),
             ControlMsg::Monitors(vec![monitor_report()]),
             ControlMsg::Update(UpdateMsg::Version("0.3.0".into())),
@@ -1437,6 +1456,7 @@ pub(crate) mod samples {
             ControlMsg::Crossed { .. } => 21,
             ControlMsg::LinkClass { .. } => 22,
             ControlMsg::Drag(_) => 23,
+            ControlMsg::Unpaired => 24,
         }
     }
 
@@ -1461,6 +1481,8 @@ pub(crate) mod samples {
                     wake_peer: false,
                     wakeable: true,
                     power_off: true,
+                    mac: Some("aa:bb:cc:dd:ee:01".into()),
+                    wol_mac: None,
                 },
                 services: vec!["ssh".into()],
                 modules: modules(),
@@ -1510,6 +1532,8 @@ pub(crate) mod samples {
                     wake_peer: true,
                     wakeable: false,
                     power_off: false,
+                    mac: None,
+                    wol_mac: Some("aa:bb:cc:dd:ee:02".into()),
                 },
                 services: vec![],
                 modules: vec![],
@@ -1738,6 +1762,10 @@ pub(crate) mod samples {
             UiCommand::WatchCursor { on: false },
             UiCommand::LockHere { on: true },
             UiCommand::LockHere { on: false },
+            UiCommand::SetWol {
+                mac: Some("aa:bb:cc:dd:ee:ff".into()),
+            },
+            UiCommand::SetWol { mac: None },
             UiCommand::FilesPut {
                 tunnel: crate::TunnelId(1),
                 local: "/home/u/build".into(),
@@ -1858,6 +1886,7 @@ pub(crate) mod samples {
             UiCommand::BringBack { .. } => 42,
             UiCommand::GetProcesses { .. } => 41,
             UiCommand::LockHere { .. } => 43,
+            UiCommand::SetWol { .. } => 44,
         }
     }
 
@@ -1874,6 +1903,7 @@ pub(crate) mod samples {
                 name: None,
                 color: None,
             },
+            DeskPatch::Name("Oficina".into()),
             DeskPatch::Arrangement(None),
             DeskPatch::Arrangement(Some(Arrangement {
                 a_side: Side::Down,
@@ -2357,9 +2387,9 @@ mod tests {
     fn samples_cover_every_variant() {
         covers(&steps(), step_arm, 6);
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
-        covers(&control(), control_arm, 24);
+        covers(&control(), control_arm, 25);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 44);
+        covers(&cmds, ui_command_arm, 45);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
         covers(&to_ui(), to_ui_arm, 20);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);

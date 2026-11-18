@@ -307,6 +307,9 @@ impl Conns {
     }
 }
 
+/// Cuánto se espera a que salga el aviso de «salí del puesto» antes de cerrar la conexión.
+const GOODBYE_WAIT: Duration = Duration::from_millis(500);
+
 /// Si otro hilo entró en pánico con el candado, lo de adentro sigue sirviendo.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -515,7 +518,7 @@ impl Shared {
 
     /// Olvida al par: lo borra de la confianza, deja de buscarlo y corta sus
     /// conexiones. Si no se puede guardar la confianza, no cambia nada.
-    fn forget(&self) -> Result<(), String> {
+    fn forget(&self, notify: bool) -> Result<(), String> {
         let mut following = lock(&self.peer);
         let Some(key) = following.as_ref().map(|f| f.key) else {
             return Err(NOT_PAIRED.into());
@@ -526,6 +529,12 @@ impl Shared {
                 .remove_and_save(&key)
                 .map_err(|e| format!("no se pudo guardar la confianza: {e}"))?;
         }
+        // Con enlace, se le avisa a la otra máquina para que también olvide la llave
+        // (T-152); la conexión se cierra cuando el aviso ya salió.
+        let goodbye = notify
+            .then(|| self.active.tx.borrow().clone())
+            .flatten()
+            .map(|a| a.handle.client);
         if let Some(f) = following.take() {
             for t in f.tasks {
                 t.abort();
@@ -536,7 +545,17 @@ impl Shared {
         drop(following);
         // `supervise` no llega a soltar el par al abortarse.
         self.agent.orchestrator().clear_peer();
-        self.conns.close_from(&key);
+        match goodbye {
+            Some(client) => {
+                client.send(ControlMsg::Unpaired);
+                let conns = self.conns.clone();
+                tokio::spawn(async move {
+                    let _ = tokio::time::timeout(GOODBYE_WAIT, client.flush()).await;
+                    conns.close_from(&key);
+                });
+            }
+            None => self.conns.close_from(&key),
+        }
         tracing::info!(llave = %key.to_hex(), "desemparejado");
         self.agent.set_peer_status(PeerStatus::Unpaired);
         self.agent.set_pairing_status(PairingStatus::Idle);
@@ -651,7 +670,11 @@ impl PairingControl for Pairer {
     }
 
     fn unpair(&self) -> Result<(), String> {
-        self.shared()?.forget()
+        self.shared()?.forget(true)
+    }
+
+    fn peer_left(&self) -> Result<(), String> {
+        self.shared()?.forget(false)
     }
 }
 
