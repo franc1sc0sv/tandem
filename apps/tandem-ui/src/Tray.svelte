@@ -14,6 +14,7 @@
   import { LINK_NAME } from "./lib/machines";
   import type { Machine } from "./lib/model";
   import type { Store } from "./lib/store/store.svelte";
+  import type { TunnelView } from "./lib/store/types";
   import Logo from "./shell/Logo.svelte";
   import Icon from "./ui/Icon.svelte";
 
@@ -30,7 +31,16 @@
 
   const desk = $derived(store.desk);
   const machines = $derived((["a", "b"] as Machine[]).map((id) => desk.machines[id]).filter((m) => m !== null));
-  const open = $derived(desk.tunnels.filter((t) => t.state !== "closed"));
+  /** Un renglón por proyecto (como la bandeja del mockup): activo si algún túnel trabaja; los activos primero. */
+  const open = $derived.by(() => {
+    const byProject = new Map<string, TunnelView>();
+    for (const t of desk.tunnels) {
+      if (t.state === "closed") continue;
+      const seen = byProject.get(t.project);
+      if (!seen || (seen.state !== "busy" && t.state === "busy")) byProject.set(t.project, { ...t, id: t.project });
+    }
+    return [...byProject.values()].sort((x, y) => Number(y.state === "busy") - Number(x.state === "busy") || x.project.localeCompare(y.project));
+  });
   const name = (id: Machine) => shortName(desk.machines[id]?.name ?? id.toUpperCase());
   const link = $derived(desk.link.kind ? `${LINK_NAME[desk.link.kind]}${desk.link.ms !== null ? ` · ${desk.link.ms} ms` : ""}` : "sin enlace");
   const hot = $derived(machines.find((m) => (m.resources?.gpu?.percent ?? 0) >= 85));

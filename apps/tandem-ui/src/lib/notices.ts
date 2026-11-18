@@ -24,11 +24,23 @@ export interface ToastSpec {
   body?: string;
   tone: ToastTone;
   action?: ToastAction;
+  /** No se va solo (el demo de `F-Avisos`, para capturar la pila entera). */
+  hold?: boolean;
 }
 
 export const KIND_NAME: Record<LinkKind, string> = { usb4: "USB-C", ethernet: "Ethernet", wifi: "Wi-Fi" };
 
 const nameOf = (d: DeskView, m: Machine) => d.machines[m]?.name ?? `la máquina ${m.toUpperCase()}`;
+
+/**
+ * Avisos de ejemplo del modo demo (`?demo&avisos`): los tres con que abre `F-Avisos`, del más nuevo
+ * al más viejo. Solo se siembran a pedido, para ver y capturar la pila.
+ */
+export const DEMO_AVISOS: ToastSpec[] = [
+  { text: "Se desconectó el cable USB-C", body: "El teclado y el mouse siguen por Wi-Fi. Los envíos de datos esperan al cable.", tone: "warn" },
+  { text: "Escena «Trabajo» aplicada", body: '34" confirmado en PC-Escritorio en 1.8 s.', tone: "ok" },
+  { text: "Claude abrió el túnel «tandem»", body: "MacBook Pro → PC-Escritorio · WSL.", tone: "claude" },
+];
 
 /** Bytes legibles: «1.4 GB», «320 MB», «12 KB». */
 export function bytesText(n: number): string {

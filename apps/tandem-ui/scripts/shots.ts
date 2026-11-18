@@ -143,7 +143,7 @@ function compareContent(spec: ShotSpec, png: Buffer, appBoxes: Record<string, Re
   const c = spec.content;
   const a = appBoxes[c?.app ?? ""]?.[0];
   const m = mockBoxes[c?.mockup ?? ""]?.[0];
-  if (!c || !a || !m) throw new Error(`${spec.name}: no se encontró el contenido en la app o en el mockup`);
+  if (!c || !a || !m) throw new Error(`${spec.name}: no se encontró el contenido en la app (${a ? "sí" : "no"}) o en el mockup (${m ? "sí" : "no"})`);
   const appImg = pngSize(png);
   const width = Math.floor(Math.min(a.width, m.width));
   const height = Math.floor(Math.min(appImg.height - a.y, spec.height - m.y));

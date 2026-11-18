@@ -255,6 +255,8 @@
   }
   .row.first {
     border-top: 0;
+    /* La altura de la fila del mockup, que trae un campo aquí; el nombre es texto porque no se edita en esta fila. */
+    min-height: 34px;
   }
   .fill {
     flex: 1;

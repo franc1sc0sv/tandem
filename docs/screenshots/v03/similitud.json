@@ -485,6 +485,32 @@
     ],
     "errores": []
   },
+  "avisos": {
+    "mockup": "F-Avisos",
+    "pantalla": {
+      "name": "contenido",
+      "similarity": 0.9998,
+      "worstTile": 0.9939,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 0.9998,
+        "worstTile": 0.9939,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
   "bandeja": {
     "mockup": "V3-Bandeja",
     "pantalla": {
@@ -562,6 +588,51 @@
       "name": "pantalla",
       "similarity": 0.9967,
       "worstTile": 0.8459,
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "escena-muestra-mac": {
+    "mockup": "F-NuevaEscena--muestra-mac",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "escena-nueva": {
+    "mockup": "F-NuevaEscena",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "escena-sin-cambiar": {
+    "mockup": "F-NuevaEscena--sin-cambiar",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
       "ok": true
     },
     "zonas": [],
@@ -655,8 +726,34 @@
     "mockup": "V3-Monitores",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9621,
-      "worstTile": 0.4287,
+      "similarity": 1,
+      "worstTile": 0.9893,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 0.9998,
+        "worstTile": 0.9893,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "monitores-entrada-mac": {
+    "mockup": "V3-Monitores--entrada-mac",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9893,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
       "ok": true
     },
     "zonas": [
@@ -695,12 +792,61 @@
     ],
     "errores": []
   },
+  "progreso-en-curso": {
+    "mockup": "F-Transacciones",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9988,
+      "worstTile": 0.9717,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "progreso-exito": {
+    "mockup": "F-Transacciones--exito",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9988,
+      "worstTile": 0.9717,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "progreso-vuelta-atras": {
+    "mockup": "F-Transacciones--vuelta-atras",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9988,
+      "worstTile": 0.9717,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
   "puesto": {
     "mockup": "V3-Puesto",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.98,
-      "worstTile": 0.7576,
+      "similarity": 0.9999,
+      "worstTile": 0.9839,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
       "ok": true
     },
     "zonas": [
@@ -721,8 +867,8 @@
     "mockup": "V3-Puesto",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9739,
-      "worstTile": 0.6033,
+      "similarity": 0.9826,
+      "worstTile": 0.6028,
       "ok": true
     },
     "zonas": [
@@ -739,8 +885,8 @@
     "mockup": "V3-Puesto",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9578,
-      "worstTile": 0.3748,
+      "similarity": 0.9683,
+      "worstTile": 0.3264,
       "ok": true
     },
     "zonas": [
@@ -779,187 +925,15 @@
     "mockup": "V3-Computo",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 1,
-      "min": {
-        "similarity": 0.99,
-        "worstTile": 0.97
-      },
+      "similarity": 0.9669,
+      "worstTile": 0.7695,
       "ok": true
     },
     "zonas": [
       {
         "name": "barra lateral",
-        "similarity": 1,
-        "worstTile": 1,
-        "ok": true
-      }
-    ],
-    "errores": []
-  },
-  "tuneles-cerrado": {
-    "mockup": "V3-Computo--tunel-cerrado",
-    "pantalla": {
-      "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 1,
-      "min": {
-        "similarity": 0.99,
-        "worstTile": 0.97
-      },
-      "ok": true
-    },
-    "zonas": [
-      {
-        "name": "barra lateral",
-        "similarity": 1,
-        "worstTile": 1,
-        "ok": true
-      }
-    ],
-    "errores": []
-  },
-  "tuneles-doce-procesos": {
-    "mockup": "V3-Computo",
-    "pantalla": {
-      "name": "pantalla",
-      "similarity": 0.9925,
-      "worstTile": 0.811,
-      "ok": true
-    },
-    "zonas": [
-      {
-        "name": "barra lateral",
-        "similarity": 1,
-        "worstTile": 1,
-        "ok": true
-      }
-    ],
-    "errores": []
-  },
-  "tuneles-dos-procesos": {
-    "mockup": "V3-Computo--tunel-2-procesos",
-    "pantalla": {
-      "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 1,
-      "min": {
-        "similarity": 0.99,
-        "worstTile": 0.97
-      },
-      "ok": true
-    },
-    "zonas": [
-      {
-        "name": "barra lateral",
-        "similarity": 1,
-        "worstTile": 1,
-        "ok": true
-      }
-    ],
-    "errores": []
-  },
-  "tuneles-lora": {
-    "mockup": "V3-Computo--tunel-lora",
-    "pantalla": {
-      "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 1,
-      "min": {
-        "similarity": 0.99,
-        "worstTile": 0.97
-      },
-      "ok": true
-    },
-    "zonas": [
-      {
-        "name": "barra lateral",
-        "similarity": 1,
-        "worstTile": 1,
-        "ok": true
-      }
-    ],
-    "errores": []
-  },
-  "tuneles-proceso-dos": {
-    "mockup": "V3-Computo--proceso-2",
-    "pantalla": {
-      "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 1,
-      "min": {
-        "similarity": 0.99,
-        "worstTile": 0.97
-      },
-      "ok": true
-    },
-    "zonas": [
-      {
-        "name": "barra lateral",
-        "similarity": 1,
-        "worstTile": 1,
-        "ok": true
-      }
-    ],
-    "errores": []
-  },
-  "tuneles-proyecto-plegado": {
-    "mockup": "V3-Computo--proyecto-plegado",
-    "pantalla": {
-      "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 1,
-      "min": {
-        "similarity": 0.99,
-        "worstTile": 0.97
-      },
-      "ok": true
-    },
-    "zonas": [
-      {
-        "name": "barra lateral",
-        "similarity": 1,
-        "worstTile": 1,
-        "ok": true
-      }
-    ],
-    "errores": []
-  },
-  "tuneles-sin-procesos": {
-    "mockup": "V3-Computo--tunel-sin-procesos",
-    "pantalla": {
-      "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 1,
-      "min": {
-        "similarity": 0.99,
-        "worstTile": 0.97
-      },
-      "ok": true
-    },
-    "zonas": [
-      {
-        "name": "barra lateral",
-        "similarity": 1,
-        "worstTile": 1,
-        "ok": true
-      }
-    ],
-    "errores": []
-  },
-  "tuneles-vacio": {
-    "mockup": "V3-Computo",
-    "pantalla": {
-      "name": "pantalla",
-      "similarity": 0.9818,
-      "worstTile": 0.824,
-      "ok": true
-    },
-    "zonas": [
-      {
-        "name": "barra lateral",
-        "similarity": 0.9999,
-        "worstTile": 0.9939,
+        "similarity": 0.9998,
+        "worstTile": 0.989,
         "ok": true
       }
     ],

@@ -55,7 +55,7 @@
   .toast {
     position: relative;
     overflow: hidden;
-    width: 360px;
+    width: 390px; /* 360 de contenido + relleno y borde, como el mockup */
     max-width: 100%;
     box-sizing: border-box;
     border-radius: 12px;

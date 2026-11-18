@@ -390,7 +390,7 @@ export class Store implements CommandContext {
 
   /** Un aviso nuevo arriba de la pila; el más viejo sale si pasan de `TOAST_MAX`. */
   notify(spec: ToastSpec): void {
-    const auto = !spec.action && !spec.progress;
+    const auto = !spec.action && !spec.progress && !spec.hold;
     const at = spec.key ? this.toasts.findIndex((x) => x.key === spec.key) : -1;
     // El avance de una copia actualiza su aviso en el sitio; no apila uno por cada muestra.
     const t: Toast = { ...spec, id: at >= 0 ? this.toasts[at].id : this.nextToast++, auto };

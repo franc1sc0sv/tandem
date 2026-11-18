@@ -78,6 +78,18 @@ describe("aviso de cambio del puesto (D5) por el agente", () => {
     expect(store.toasts).toEqual([]);
   });
 
+  it("un aviso retenido (`hold`, la pila de ejemplo de F-Avisos) no se va solo", async () => {
+    vi.useFakeTimers();
+    const { bridge } = fake();
+    const store = new Store(new LiveSource(bridge));
+    await store.start();
+    store.notify({ text: "Fijo", tone: "ok", hold: true });
+    store.notify({ text: "Normal", tone: "ok" });
+    expect(store.toasts.map((t) => t.auto)).toEqual([true, false]);
+    vi.advanceTimersByTime(TOAST_MS + 100);
+    expect(store.toasts.map((t) => t.text)).toEqual(["Fijo"]);
+  });
+
   it("si el agente rechaza deshacer, avisa la razón", async () => {
     const { bridge, act, emit } = fake();
     act.mockImplementation(async (a: unknown) =>

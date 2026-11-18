@@ -283,6 +283,7 @@ const ajustesShot = (name: string, state: string | undefined, clicks: string[], 
 const tab = (label: string) => `[role="tab"]:has-text("${label}")`;
 export const AJUSTES: ShotSpec[] = [
   ajustesShot("ajustes", undefined, [], [
+    { app: ".pane > .row:nth-child(1) > .mut", mockup: ".pane > .row:nth-child(1) > input", reason: "El nombre del puesto es texto: el campo editable del mockup no tiene función aquí (§3.8)" },
     { app: NONE, mockup: 'button.danger:has-text("Sacar del puesto")', reason: "D1: sin «Sacar del puesto» (exactamente dos máquinas)" },
     { app: ".pane > .row:nth-child(3) > button", mockup: ".pane > .row:nth-child(3) > button", reason: "D1: la fila de la otra máquina no trae «Sacar del puesto»; sus botones se corren" },
     { app: ".pane > .row:nth-child(4)", mockup: ".pane > .row:nth-child(4)", reason: "D1: «Cambiar la otra máquina» en lugar de «Agregar una máquina»" },
@@ -309,10 +310,20 @@ export const ESTADOS: ShotSpec = {
   height: H,
   content: {
     appWidth: 220 + 2 * 28 + (1280 - 2 * 28),
-    appStyle: 'nav[aria-label="Principal"] { flex: 0 0 220px !important; }',
+    // La segunda fila de tarjetas del mockup mide 204,5 px; la de la app, con los textos reales (sin
+    // el estado de entrenamiento ni «Render ComfyUI» inventados), mide menos. Se iguala para comparar el resto.
+    appStyle: 'nav[aria-label="Principal"] { flex: 0 0 220px !important; } .grid > article:nth-child(n+4):nth-child(-n+6) { box-sizing: border-box; min-height: 204.5px; }',
     app: "main .head",
     mockup: "h1",
-    masks: [{ app: NONE, mockup: 'button.btn:has-text("Enviar por Wi-Fi igual")', reason: "El agente no tiene «enviar por Wi-Fi igual»: sin función, sin botón" }],
+    masks: [
+      { app: NONE, mockup: 'button.btn:has-text("Enviar por Wi-Fi igual")', reason: "El agente no tiene «enviar por Wi-Fi igual»: sin función, sin botón" },
+      ...[3, 4, 5, 6, 7, 8, 9].flatMap((n) => [
+        { app: `.grid > article:nth-child(${n}) .hd`, mockup: `article.st:nth-child(${n}) .hd`, reason: "Datos reales: el título nombra el monitor, la escena o el trabajo del puesto" },
+        { app: `.grid > article:nth-child(${n}) p`, mockup: `article.st:nth-child(${n}) p`, reason: "Datos reales: el texto solo dice lo que el agente sabe (sin cifras ni nombres de ejemplo)" },
+      ]),
+      ...[4, 5, 6, 9].map((n) => ({ app: `.grid > article:nth-child(${n}) .act`, mockup: `article.st:nth-child(${n}) .btn`, reason: "Con el texto real, más corto, el botón queda más arriba" })),
+      { app: NONE, mockup: "article.st:nth-child(4) .mono.mut", reason: "Estado de entrenamiento inventado: el agente no lo cuenta" },
+    ],
     min: SIDEBAR_GATE,
   },
 };
@@ -331,7 +342,7 @@ export const PALETA: ShotSpec = {
   mockup: "F-Paleta",
   width: W,
   height: H,
-  keys: ["Control+k"],
+  keys: ["Meta+k"],
   ignore: [
     { mockupSelector: 'section[role="dialog"] .it:has-text("Trabajo") > span:first-child', reason: "Datos reales: el color del punto es el de la máquina que muestra la escena" },
     { mockupSelector: ROW("Aplicar «Solo PC»"), reason: "Datos reales: las escenas del puesto" },
@@ -368,10 +379,34 @@ export const BANDEJA: ShotSpec = {
       { app: ".box:not(.tl) .sm", mockup: ".row > b + .mut", reason: "Datos reales: el estado de cada máquina" },
       { app: ".box:not(.tl) .bar", mockup: ".row .bar", reason: "Datos reales: la carga de cada máquina" },
       { app: ".sc:nth-child(3)", mockup: ".sc:nth-child(3)", reason: "Datos reales: las escenas del puesto" },
-      { app: ".box.tl", mockup: 'div[style*="gap:2px"]', reason: "Datos reales: los túneles abiertos" },
-      { app: ".warn", mockup: 'div[style*="#1e1a12"]', reason: "Los túneles reales empujan el aviso hacia abajo" },
+      { app: ".box.tl", mockup: 'div[style*="gap:2px"]', reason: "Datos reales: los túneles abiertos (un renglón por proyecto, con los nombres reales de las máquinas)" },
       { app: NONE, mockup: '.lnk:has-text("Bloquear aquí")', reason: "Sin la acción en la IPC no hay botón (T-112, G6)" },
     ],
+    min: SCREEN_GATE,
+  },
+};
+
+/**
+ * `F-Avisos`: la pila de avisos de la app (`?avisos` los siembra). Se compara desde el segundo
+ * aviso hacia abajo: el primero del mockup trae «Enviar por Wi-Fi igual», que el agente no tiene
+ * (sin función no hay botón), y su altura movería a los demás. Los textos son los del mockup. Para
+ * medir, la página de fondo se oculta y la pila (fija en la ventana) pasa a absoluta: el mockup la
+ * apila en el flujo y, como capa fija, el texto cae en otro píxel.
+ */
+export const AVISOS: ShotSpec = {
+  name: "avisos",
+  page: "index.html",
+  query: `${DEMO}&avisos`,
+  hash: "#/puesto",
+  mockup: "F-Avisos",
+  width: W,
+  height: 860,
+  content: {
+    appWidth: W,
+    appStyle: "html, body { background: #0b0c0e !important; } .shell { visibility: hidden !important; } .toasts { position: absolute !important; }",
+    app: ".toast:nth-child(2)",
+    mockup: ".toast:nth-child(2)",
+    masks: [],
     min: SCREEN_GATE,
   },
 };
@@ -452,6 +487,7 @@ export const SHOTS: ShotSpec[] = [
   ...AJUSTES,
   PALETA,
   ESTADOS,
+  AVISOS,
   BANDEJA,
 ];
 
