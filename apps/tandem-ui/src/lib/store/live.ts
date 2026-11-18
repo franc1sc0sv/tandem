@@ -239,10 +239,13 @@ export class LiveSource implements Source {
     };
     await this.bridge.onSnapshot(push);
     // Las muestras llegan aparte (una por segundo): cada una avanza la línea de su máquina.
-    await this.bridge.onResources?.((machine: Machine, r: ResourceSample) => {
-      this.live = { ...this.live, [machine]: nextLive(this.live[machine] ?? null, r) };
-      if (this.last.kind === "connected") push(this.last);
-    });
+    // No se espera la suscripción: la foto no debe depender de que ese canal responda.
+    void Promise.resolve(
+      this.bridge.onResources?.((machine: Machine, r: ResourceSample) => {
+        this.live = { ...this.live, [machine]: nextLive(this.live[machine] ?? null, r) };
+        if (this.last.kind === "connected") push(this.last);
+      }),
+    ).catch(() => {});
     push(await this.bridge.snapshot());
   }
 

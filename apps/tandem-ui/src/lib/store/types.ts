@@ -261,12 +261,9 @@ export type Topic = "machines" | "resources" | "link" | "network" | "tunnels" | 
 export const ALL_TOPICS: Topic[] = ["machines", "resources", "link", "network", "tunnels", "scenes", "monitors"];
 
 /** Lo que una fuente puede o no hacer todavía. */
-export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing";
+export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing" | "machine";
 
 export type PairActionKind = "start_pairing" | "confirm_pairing" | "cancel_pairing" | "unpair";
-
-/** Lo que una fuente puede o no hacer hoy. */
-export type Capability = "scenes" | "modules" | "power" | "measure" | "machine";
 
 /** Resultado de una acción pedida desde la UI. */
 export type ActResult = { ok: true; text?: string } | { ok: false; reason: string };
