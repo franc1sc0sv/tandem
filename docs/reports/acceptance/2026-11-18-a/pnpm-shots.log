@@ -1,0 +1,137 @@
+
+> tandem-ui@0.1.0 shots /home/francisco/projects/personal-projects/apps/tandem/.claude/worktrees/acceptance-a/apps/tandem-ui
+> node scripts/shots.ts --check
+
+
+Estilos de los componentes (galería ↔ mockups):
+✓ botón 38 px
+✓ botón primario 38 px
+✓ brillo del primario
+✓ botón sm
+✓ botón primario sm
+✓ botón fantasma ícono sm
+✓ botón peligro
+✓ segmentado md
+✓ segmentado md · indicador
+✓ segmentado md · opción elegida
+✓ segmentado md · opción
+✓ segmentado lg
+✓ segmentado lg · indicador
+✓ segmentado lg · opción elegida
+✓ segmentado lg · opción
+✓ interruptor encendido
+✓ interruptor encendido · perilla
+✓ interruptor apagado
+✓ interruptor apagado · perilla
+✓ chip contador
+✓ tarjeta
+✓ tarjeta enlace
+puesto     V3-Puesto     99.99 % (peor cuadro 98.4 %) ✓
+           · barra lateral 100.00 % (peor cuadro 100.0 %) ✓
+puesto-win-win V3-Puesto     96.83 % (peor cuadro 32.6 %)
+           · barra lateral 99.62 % (peor cuadro 86.3 %)
+puesto-mac-mac V3-Puesto     98.26 % (peor cuadro 60.3 %)
+           · barra lateral 99.78 % (peor cuadro 93.3 %)
+tuneles    V3-Computo    100.00 % (peor cuadro 100.0 %) ✓
+           · barra lateral 100.00 % (peor cuadro 100.0 %)
+tuneles-proceso-dos V3-Computo--proceso-2 100.00 % (peor cuadro 100.0 %) ✓
+           · barra lateral 100.00 % (peor cuadro 100.0 %)
+tuneles-dos-procesos V3-Computo--tunel-2-procesos 100.00 % (peor cuadro 100.0 %) ✓
+           · barra lateral 100.00 % (peor cuadro 100.0 %)
+tuneles-sin-procesos V3-Computo--tunel-sin-procesos 100.00 % (peor cuadro 100.0 %) ✓
+           · barra lateral 100.00 % (peor cuadro 100.0 %)
+tuneles-lora V3-Computo--tunel-lora 100.00 % (peor cuadro 100.0 %) ✓
+           · barra lateral 100.00 % (peor cuadro 100.0 %)
+tuneles-cerrado V3-Computo--tunel-cerrado 100.00 % (peor cuadro 100.0 %) ✓
+           · barra lateral 100.00 % (peor cuadro 100.0 %)
+tuneles-proyecto-plegado V3-Computo--proyecto-plegado 100.00 % (peor cuadro 100.0 %) ✓
+           · barra lateral 100.00 % (peor cuadro 100.0 %)
+tuneles-vacio V3-Computo    98.18 % (peor cuadro 82.4 %)
+           · barra lateral 99.99 % (peor cuadro 99.4 %)
+tuneles-doce-procesos V3-Computo    99.25 % (peor cuadro 81.1 %)
+           · barra lateral 100.00 % (peor cuadro 100.0 %)
+monitores  V3-Monitores  100.00 % (peor cuadro 98.9 %) ✓
+           · barra lateral 99.98 % (peor cuadro 98.9 %)
+monitores-entrada-mac V3-Monitores--entrada-mac 100.00 % (peor cuadro 98.9 %) ✓
+           · barra lateral 99.98 % (peor cuadro 98.9 %)
+escena-nueva F-NuevaEscena 100.00 % (peor cuadro 99.8 %) ✓
+escena-muestra-mac F-NuevaEscena--muestra-mac 100.00 % (peor cuadro 99.8 %) ✓
+escena-sin-cambiar F-NuevaEscena--sin-cambiar 100.00 % (peor cuadro 99.8 %) ✓
+progreso-en-curso F-Transacciones 99.88 % (peor cuadro 97.2 %) ✓
+progreso-exito F-Transacciones--exito 99.88 % (peor cuadro 97.2 %) ✓
+progreso-vuelta-atras F-Transacciones--vuelta-atras 99.88 % (peor cuadro 97.2 %) ✓
+acomodo    V3-Acomodo    100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-arriba-inicio V3-Acomodo--lado-arriba-inicio 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-arriba-centro V3-Acomodo--lado-arriba-centro 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-arriba-fin V3-Acomodo--lado-arriba-fin 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-abajo-inicio V3-Acomodo--lado-abajo-inicio 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-abajo-centro V3-Acomodo--lado-abajo-centro 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-abajo-fin V3-Acomodo--lado-abajo-fin 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-izquierda-inicio V3-Acomodo--lado-izquierda-inicio 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-izquierda-centro V3-Acomodo--lado-izquierda-centro 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-izquierda-fin V3-Acomodo--lado-izquierda-fin 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-derecha-inicio V3-Acomodo--lado-derecha-inicio 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-derecha-centro V3-Acomodo--lado-derecha-centro 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-derecha-fin V3-Acomodo--lado-derecha-fin 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-pantalla-mac V3-Acomodo--pantalla-mac 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+acomodo-no-compatible V3-Acomodo--pantalla-no-compatible 100.00 % (peor cuadro 99.8 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+cruce      F-PruebaCruce 100.00 % (peor cuadro 100.0 %) ✓
+cruce-cruzo F-PruebaCruce--cruzo 100.00 % (peor cuadro 99.7 %) ✓
+cruce-no-cruza F-PruebaCruce--no-cruza 100.00 % (peor cuadro 99.7 %) ✓
+cruce-otro-borde F-PruebaCruce--no-cruza 99.67 % (peor cuadro 84.6 %)
+asistente-maquina F-Asis1       99.99 % (peor cuadro 98.2 %) ✓
+asistente-maquina-violeta F-Asis1--violeta 99.98 % (peor cuadro 97.4 %) ✓
+asistente-maquina-verde-azulado F-Asis1--verde-azulado 99.99 % (peor cuadro 98.2 %) ✓
+asistente-maquina-ambar F-Asis1--ambar 99.99 % (peor cuadro 98.2 %) ✓
+asistente-puesto V3-Asistente  100.00 % (peor cuadro 99.8 %) ✓
+asistente-permisos F-Asis3       99.98 % (peor cuadro 97.6 %) ✓
+asistente-permisos-uno F-Asis3--uno-concedido 99.99 % (peor cuadro 97.8 %) ✓
+asistente-permisos-todo F-Asis3--todo-concedido 100.00 % (peor cuadro 100.0 %) ✓
+asistente-teclado F-Asis4       100.00 % (peor cuadro 100.0 %) ✓
+asistente-acomodo F-Asis5       100.00 % (peor cuadro 100.0 %) ✓
+asistente-acomodo-esperando F-Asis5--esperando 100.00 % (peor cuadro 100.0 %) ✓
+asistente-acomodo-cruzo F-Asis5--cruzo 100.00 % (peor cuadro 99.9 %) ✓
+asistente-acomodo-otro-borde F-Asis5--otro-borde 99.99 % (peor cuadro 97.7 %) ✓
+asistente-listo F-Asis6       100.00 % (peor cuadro 99.8 %) ✓
+red        V3-Red        99.98 % (peor cuadro 97.9 %) ✓
+           · barra lateral 100.00 % (peor cuadro 99.9 %)
+maquina-b  V3-Maquina    100.00 % (peor cuadro 99.5 %)
+           · barra lateral 100.00 % (peor cuadro 99.9 %) ✓
+           · contenido   100.00 % (peor cuadro 99.5 %) ✓
+maquina-a  F-MaquinaMac  99.99 % (peor cuadro 98.4 %) ✓
+           · contenido   99.99 % (peor cuadro 98.4 %) ✓
+ajustes    F-Ajustes     100.00 % (peor cuadro 99.7 %) ✓
+           · contenido   100.00 % (peor cuadro 99.7 %) ✓
+ajustes-atajos F-Ajustes     100.00 % (peor cuadro 99.8 %) ✓
+           · contenido   100.00 % (peor cuadro 99.8 %) ✓
+ajustes-teclado F-Ajustes     100.00 % (peor cuadro 99.8 %) ✓
+           · contenido   100.00 % (peor cuadro 99.8 %) ✓
+ajustes-actualizaciones F-Ajustes     100.00 % (peor cuadro 99.8 %) ✓
+           · contenido   100.00 % (peor cuadro 99.8 %) ✓
+ajustes-actualizaciones-buscado F-Ajustes     100.00 % (peor cuadro 99.8 %) ✓
+           · contenido   100.00 % (peor cuadro 99.8 %) ✓
+ajustes-avanzado F-Ajustes     99.99 % (peor cuadro 99.2 %) ✓
+           · contenido   99.99 % (peor cuadro 99.2 %) ✓
+paleta     F-Paleta      99.95 % (peor cuadro 97.1 %) ✓
+           · diálogo     99.86 % (peor cuadro 97.2 %) ✓
+estados    V3-Estados    100.00 % (peor cuadro 99.6 %) ✓
+           · contenido   100.00 % (peor cuadro 99.6 %) ✓
+avisos     F-Avisos      99.97 % (peor cuadro 99.4 %) ✓
+           · contenido   99.97 % (peor cuadro 99.4 %) ✓
+bandeja    V3-Bandeja    100.00 % (peor cuadro 100.0 %) ✓
+           · contenido   100.00 % (peor cuadro 100.0 %) ✓
