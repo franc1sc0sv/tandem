@@ -106,6 +106,8 @@ export interface MachineView {
   environments: EnvView[];
   /** Recursos en vivo (página Máquina); `null` sin muestras. */
   live: LiveView | null;
+  /** Teclados y mouse que anuncia, si los lista (el asistente, paso 4). */
+  inputDevices?: { name: string; via?: string }[];
 }
 
 export type LinkKind = "usb4" | "ethernet" | "wifi";
@@ -468,6 +470,11 @@ export interface Source {
    * Rechaza si el agente no lo ofrece.
    */
   watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void>;
+  /**
+   * Escucha una tecla o un movimiento en cada máquina (paso «Teclado y mouse»): `onHeard`
+   * recibe la máquina que lo oyó, hasta que se llama a la función que devuelve.
+   */
+  watchKeyProbe(onHeard: (m: Machine) => void): Promise<() => void>;
   /** Tiempo para cruzar, si la fuente lo cambia (el demo, para capturar el tiempo agotado). */
   readonly crossTimeoutMs?: number;
   /** Los procesos de un túnel, también los que terminaron hace poco (T-104). */

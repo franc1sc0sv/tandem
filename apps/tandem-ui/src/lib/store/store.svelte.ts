@@ -14,10 +14,11 @@ import type { ActResult, Capability, CursorEvent, DeskView, FilesView, LinkKind,
 import type { UpdateView } from "../updates";
 import type { Arrangement } from "../acomodo";
 import type { CrossSample } from "../crossing";
+import { STEP_PAIR, STEP_PERMISSIONS } from "../wizard";
 
 /** Pasos del asistente que se abren desde otras partes (índices de `WIZARD_STEPS`). */
-export const WIZARD_PAIR = 1;
-export const WIZARD_PERMISSIONS = 2;
+export const WIZARD_PAIR = STEP_PAIR;
+export const WIZARD_PERMISSIONS = STEP_PERMISSIONS;
 
 /** Lo que el shell muestra siempre (barra lateral: máquinas y contador de túneles). */
 export const SHELL_TOPICS: Topic[] = ["machines", "tunnels"];
@@ -292,6 +293,10 @@ export class Store implements CommandContext {
     return this.source.watchCrossing(onCross);
   }
 
+  watchKeyProbe(onHeard: (m: Machine) => void): Promise<() => void> {
+    return this.source.watchKeyProbe(onHeard);
+  }
+
   watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void> {
     return this.source.watchCursor(onEvent);
   }
@@ -374,8 +379,12 @@ export class Store implements CommandContext {
   /** Paso del asistente con el que se abre (0 = el primero). */
   wizardStep = $state(0);
 
+  /** El cruce del paso 5 pasó con el acomodo guardado (lo usa el resumen). */
+  wizardCrossed = $state(false);
+
   openWizard(step = 0): void {
     this.paletteOpen = false;
+    this.wizardCrossed = false;
     this.wizardStep = step;
     this.wizardOpen = true;
   }

@@ -76,6 +76,10 @@ export interface DemoOptions {
   pairing?: "code" | "reject";
   /** La guía de permisos del primer arranque se abre sola. */
   firstRun?: boolean;
+  /** Abre el asistente en ese paso (0 a 5), para capturas y pruebas. */
+  wizard?: number;
+  /** macOS con Accesibilidad y Monitorización sin conceder y Red local concedida (`F-Asis3`). */
+  perms?: "missing";
   /** Cómo termina la prueba de cruce. */
   cross?: "ok" | "wrong" | "timeout";
   /** La pantalla de progreso de una escena en este punto. */
@@ -100,6 +104,8 @@ export function demoOptions(query: string): DemoOptions {
     unpaired: p.get("peer") === "none",
     pairing: p.get("pair") === "code" ? "code" : p.get("pair") === "reject" ? "reject" : undefined,
     firstRun: p.has("setup"),
+    wizard: p.has("wizard") && Number.isInteger(Number(p.get("wizard"))) ? Number(p.get("wizard")) : undefined,
+    perms: p.get("perms") === "missing" ? "missing" : undefined,
     txn: p.get("txn") === "run" || p.get("txn") === "ok" || p.get("txn") === "fail" ? (p.get("txn") as "run" | "ok" | "fail") : undefined,
     failScene: p.get("fail") ?? undefined,
     tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notas" ? "notas" : "normal",
@@ -143,6 +149,7 @@ interface Spec {
   system: string;
   hardware: HardwareView;
   environments: EnvView[];
+  inputDevices?: { name: string; via?: string }[];
   live: LiveView;
 }
 
@@ -176,6 +183,7 @@ const MACBOOK: Spec = {
     { id: "zsh", kind: "shell", name: "zsh", default: true, ready: true, detail: "uv · node · pnpm · cargo · git" },
     { id: "docker", kind: "docker", name: "Docker", default: false, ready: true, detail: "arm64 · sin GPU" },
   ],
+  inputDevices: [{ name: "Teclado integrado" }, { name: "Trackpad" }, { name: "Keychron K3 · MX Master 3S", via: "por el hub" }],
   live: {
     cpu: { percent: 18, temp: 48, history: fromY(34, [28, 26, 29, 24, 27, 25, 28, 26, 27]) },
     ram: { used: 12.4 * GIB, total: 24 * GIB, history: fromY(22, [14, 13, 13, 12, 12, 11, 12, 12, 11]) },
@@ -205,6 +213,7 @@ const DESKTOP: Spec = {
     { id: "wsl:Ubuntu-24.04", kind: "wsl", name: "Ubuntu 24.04", default: true, ready: true, detail: "uv · cargo · node · CUDA 12.8 · git" },
     { id: "docker", kind: "docker", name: "Docker Desktop", default: false, ready: true, detail: "GPU: --gpus all disponible" },
   ],
+  inputDevices: [],
   live: {
     cpu: { percent: 64, temp: 62, history: fromY(34, [26, 24, 28, 20, 18, 15, 17, 14, 16]) },
     ram: { used: 17.1 * GIB, total: 24 * GIB, history: fromY(22, [14, 13, 13, 11, 10, 9, 9, 8, 8]) },
@@ -485,14 +494,14 @@ const TROUBLE_TEXT: Record<Trouble, (peer: string) => string> = {
 
 export const DEMO_CODE = "418027";
 
-function permissionsFor(os: Os, missing: boolean): PermissionsView {
+function permissionsFor(os: Os, missing: boolean, netGranted = false): PermissionsView {
   if (os !== "macos") return { needed: false, rows: [], binary: null };
   return {
     needed: true,
     rows: [
       { id: "accessibility", state: missing ? "missing" : "granted" },
       { id: "input_monitoring", state: missing ? "missing" : "granted" },
-      { id: "local_network", state: "unknown" },
+      { id: "local_network", state: netGranted ? "granted" : "unknown" },
     ],
     binary: "Concede el permiso a este binario: /Applications/Tandem.app/Contents/MacOS/tandemd (pid 4242)",
   };
@@ -545,6 +554,7 @@ export function demoDesk(o: DemoOptions): DeskView {
       hardware: s.hardware,
       environments: s.environments.map((e) => ({ ...e })),
       live: power === "on" ? s.live : null,
+      ...(s.inputDevices ? { inputDevices: s.inputDevices } : {}),
     };
   };
   const monitors = demoMonitors(sa, sb).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
@@ -568,7 +578,7 @@ export function demoDesk(o: DemoOptions): DeskView {
       peer: o.unpaired ? { kind: "unpaired" } : { kind: "paired", name: peerSpec.name, link: linkUp ? "usb4" : null },
       pairing: o.pairing === "code" ? { kind: "comparing", code: DEMO_CODE, peer: peerSpec.name, confirmed: false } : { kind: "idle" },
     },
-    permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions"),
+    permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions" || o.perms === "missing", o.perms === "missing"),
     layout: demoLayout(sa, sb, scenes, "trabajo"),
   };
 }
@@ -965,6 +975,19 @@ export class DemoSource implements Source {
     if (this.desk.trouble === "no-agent") return { ok: false, reason: "El agente de Tandem no está corriendo en esta máquina" };
     this.set({ ...this.desk, layout: { ...this.desk.layout, arrangement: { ...a } } });
     return { ok: true, text: "Acomodo guardado" };
+  }
+
+  private listeners = new Set<(m: Machine) => void>();
+
+  /** Escuchar teclas en cada máquina; el demo las recibe de `heardKey` (las pruebas) o de la ventana. */
+  async watchKeyProbe(onHeard: (m: Machine) => void): Promise<() => void> {
+    this.listeners.add(onHeard);
+    return () => void this.listeners.delete(onHeard);
+  }
+
+  /** Una tecla oída en `m`. */
+  heardKey(m: Machine): void {
+    for (const f of [...this.listeners]) f(m);
   }
 
   private crossers = new Set<(s: CrossSample) => void>();

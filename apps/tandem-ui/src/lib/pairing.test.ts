@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { PairingView, PeerView } from "./model";
-import { isActive, needsDismiss, pairButton, pairLine, pairScreen, shouldOpen, splitCode } from "./pairing";
+import { codeMatches, isActive, isComplete, needsDismiss, pairButton, pairLine, pairScreen, setDigit, shouldOpen, splitCode } from "./pairing";
 
 const UNPAIRED: PeerView = { kind: "unpaired" };
 const PAIRED: PeerView = { kind: "paired", name: "Taller", link: "usb4" };
@@ -90,5 +90,23 @@ describe("abrir y cerrar", () => {
   it("la píldora ofrece emparejar si no hay par", () => {
     expect(pairButton(UNPAIRED)).toBe("Emparejar");
     expect(pairButton(PAIRED)).toBe("Par");
+  });
+});
+
+describe("escribir el código", () => {
+  it("cada casilla guarda un dígito y borra con vacío", () => {
+    expect(setDigit(["", "", "", "", "", ""], 1, "7")).toEqual(["", "7", "", "", "", ""]);
+    expect(setDigit(["1", "2", "", "", "", ""], 1, "")).toEqual(["1", "", "", "", "", ""]);
+    expect(setDigit(["", "", "", "", "", ""], 0, "x")).toEqual(["", "", "", "", "", ""]);
+  });
+
+  it("solo coincide con las seis casillas llenas y el mismo código", () => {
+    const full = ["4", "1", "8", "0", "2", "7"];
+    expect(isComplete(full)).toBe(true);
+    expect(isComplete(["4", "1", "8", "0", "2", ""])).toBe(false);
+    expect(codeMatches(full, "418027")).toBe(true);
+    expect(codeMatches(full, "418 027")).toBe(true);
+    expect(codeMatches(["4", "1", "8", "0", "2", "8"], "418027")).toBe(false);
+    expect(codeMatches(["4", "1", "8", "0", "2", ""], "418027")).toBe(false);
   });
 });
