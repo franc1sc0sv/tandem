@@ -82,13 +82,13 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
     round_trip(dir.path(), dir.path()).await;
 }
 
-/// T-197: con `--data-dir` relativo, git corre en otro cwd y no encontraba los bundles.
-/// El directorio temporal vive bajo el cwd de la prueba para poder nombrarlo en relativo.
+/// T-197: with a relative `--data-dir`, git runs in another cwd and could not find the bundles.
+/// The temporary directory lives under the test's cwd so it can be named relatively.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn el_workspace_funciona_con_directorio_de_datos_relativo() {
+async fn workspace_works_with_a_relative_data_directory() {
     let dir = tempfile::tempdir_in(".").unwrap();
     let name = dir.path().file_name().unwrap();
-    let relative = Path::new(".").join(name).join("datos");
+    let relative = Path::new(".").join(name).join("data");
     assert!(relative.is_relative());
     fs::create_dir_all(&relative).unwrap();
     round_trip(&dir.path().canonicalize().unwrap(), &relative).await;
