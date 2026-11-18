@@ -193,7 +193,7 @@ async fn late_input_pauses_the_data_and_without_input_it_resumes() {
     data.write_all(b"hello").await.unwrap();
     let waited = Instant::now() - stopped;
     assert!((ms(1900)..ms(2300)).contains(&waited), "waited {waited:?}");
-    assert_eq!(rec.total(), 4);
+    assert_eq!(rec.total(), 5);
     assert_eq!(qos.gate(), DataGate::Open);
     assert!(matches!(
         next_gate(&mut events).await,

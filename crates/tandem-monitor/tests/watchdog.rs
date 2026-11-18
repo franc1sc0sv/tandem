@@ -9,7 +9,7 @@ use tandem_monitor::guard::{WatchPlan, Watchdog};
 fn plan() -> WatchPlan {
     WatchPlan {
         // An id that no machine has: the test never touches a real monitor.
-        monitor: "prueba-00000000".into(),
+        monitor: "test-00000000".into(),
         restore_to: Input::DisplayPort,
     }
 }

@@ -133,11 +133,7 @@ impl World {
                 errors.push(format!(
                     "machine {machine} is {:?} but the agent believes it {}",
                     w.power_of(machine),
-                    if state.is_on(machine) {
-                        "on"
-                    } else {
-                        "off"
-                    }
+                    if state.is_on(machine) { "on" } else { "off" }
                 ));
             }
         }
