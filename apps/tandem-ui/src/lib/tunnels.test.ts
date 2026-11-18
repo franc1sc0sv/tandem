@@ -1,3 +1,4 @@
+import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import { demoProcesses, demoTunnels } from "./store/demo";
@@ -65,6 +66,25 @@ describe("formatos", () => {
   it("los nombres cortos del camino: por sistema si difieren, por nombre si no (D2)", () => {
     expect(shortLabels({ name: "MacBook Pro", os: "macos" }, { name: "PC-Escritorio", os: "windows" })).toEqual(["Mac", "PC"]);
     expect(shortLabels({ name: "Oficina", os: "windows" }, { name: "Casa-PC", os: "windows" })).toEqual(["Oficina", "Casa"]);
+  });
+
+  it("con el mismo sistema y la misma primera palabra, lo que distingue (T-141)", () => {
+    const w = (name: string) => ({ name, os: "windows" as const });
+    const m = (name: string) => ({ name, os: "macos" as const });
+    expect(shortLabels(w("PC-Escritorio"), w("PC-Taller"))).toEqual(["Escritorio", "Taller"]);
+    expect(shortLabels(m("MacBook Pro"), m("Mac mini"))).toEqual(["Pro", "mini"]);
+    expect(shortLabels(m("Mac Pro"), m("MacBook Pro"))).toEqual(["Mac Pro", "MacBook Pro"]);
+  });
+
+  it("dos nombres distintos del mismo sistema nunca dan el mismo rótulo", () => {
+    const name = fc.stringMatching(/^[A-Za-z]{1,5}([ -][A-Za-z]{1,5}){0,2}$/);
+    fc.assert(
+      fc.property(name, name, fc.constantFrom("macos", "windows"), (x, y, os) => {
+        fc.pre(x !== y);
+        const [la, lb] = shortLabels({ name: x, os }, { name: y, os });
+        expect(la).not.toBe(lb);
+      }),
+    );
   });
 });
 

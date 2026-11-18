@@ -86,6 +86,15 @@ describe("tarjeta de medición (F-Transacciones)", () => {
     ]);
   });
 
+  it("el Wi-Fi caído dice «sin señal», no «sin cable» (T-147)", () => {
+    const n = net("usb4");
+    n.paths = [path("usb4", "primary", 0.3, 9.4), path("ethernet", "unplugged", null, null), path("wifi", "unplugged", null, null)];
+    expect(measureView(n, "usb4")?.others).toEqual([
+      { name: "Ethernet", text: "sin cable" },
+      { name: "Wi-Fi", text: "sin señal" },
+    ]);
+  });
+
   it("sin medir todavía muestra guiones y la barra vacía; Mbps bajo 1 Gbps", () => {
     const n = net();
     n.paths[0] = path("usb4", "primary", null, null);

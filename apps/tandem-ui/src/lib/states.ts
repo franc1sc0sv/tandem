@@ -15,7 +15,7 @@ export const TONE_STYLE: Record<StateTone, { bg: string; fg: string }> = {
 };
 
 /** Qué hace el botón de una tarjeta; la pantalla lo conecta con el store. */
-export type StateDo = "add-machine" | "power-on" | "retry-scene" | "tunnels" | "permission";
+export type StateDo = "pair-peer" | "power-on" | "retry-scene" | "tunnels" | "permission";
 
 export interface StateAction {
   label: string;
@@ -110,8 +110,8 @@ export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, fa
           tone: "blue",
           icon: "plus",
           title: "Puesto de una sola máquina",
-          body: "Todo funciona en esta máquina. Lo que necesita otra (teclado compartido, cómputo, escenas) aparece apagado con «Agrega otra máquina para usar esto».",
-          action: { label: "Agregar máquina", icon: "plus", variant: "pri", does: "add-machine" },
+          body: "Todo funciona en esta máquina. Lo que necesita otra (teclado compartido, cómputo, escenas) aparece apagado hasta que emparejes la otra máquina.",
+          action: { label: "Emparejar la otra máquina", icon: "plus", variant: "pri", does: "pair-peer" },
         }
       : null,
     peerOff || g

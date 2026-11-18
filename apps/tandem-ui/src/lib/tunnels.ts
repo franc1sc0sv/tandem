@@ -86,11 +86,22 @@ export interface Memory {
 
 export const newMemory = (): Memory => ({ seen: new Map(), idle: new Map(), traffic: new Map(), copies: new Map() });
 
-/** El nombre corto de una máquina en el camino de la lista: «Mac», «PC» si son de sistemas distintos; si no, su primera palabra. */
+/**
+ * El nombre corto de una máquina en el camino de la lista: «Mac», «PC» si son de sistemas distintos.
+ * Con el mismo sistema, su primera palabra; si las primeras palabras no las distinguen («PC-Escritorio»
+ * y «PC-Taller», «MacBook Pro» y «Mac mini»), lo que sigue; y el nombre completo si tampoco alcanza.
+ * Dos nombres distintos nunca dan el mismo rótulo.
+ */
 export function shortLabels(a: { name: string; os: "macos" | "windows" }, b: { name: string; os: "macos" | "windows" }): [string, string] {
-  const first = (n: string) => n.split(/[\s-]/)[0] || n;
   if (a.os !== b.os) return [a.os === "macos" ? "Mac" : "PC", b.os === "macos" ? "Mac" : "PC"];
-  return [first(a.name), first(b.name)];
+  const first = (n: string) => n.split(/[\s-]/)[0] || n;
+  const rest = (n: string) => n.slice(first(n).length).replace(/^[\s-]+/, "");
+  const [fa, fb] = [first(a.name), first(b.name)];
+  const [la, lb] = [fa.toLowerCase(), fb.toLowerCase()];
+  if (!la.startsWith(lb) && !lb.startsWith(la)) return [fa, fb];
+  const [ra, rb] = [rest(a.name), rest(b.name)];
+  if (ra && rb && ra !== rb) return [ra, rb];
+  return [a.name, b.name];
 }
 
 /** Cuántos túneles cerrados se muestran como mucho: la lista no crece sin fin. */

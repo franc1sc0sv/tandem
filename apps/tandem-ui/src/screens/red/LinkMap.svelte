@@ -12,7 +12,7 @@
   // El mapa de enlaces de `V3-Red`: las dos máquinas con su halo y un camino por enlace. El
   // que responde fluye (rápido el cable, lento el Wi-Fi); el que no, va punteado.
   import { LINK_NAME } from "../../lib/machines";
-  import { describePath, formatMs, isUp } from "../../lib/network";
+  import { describePath, formatMs, isUp, unpluggedText } from "../../lib/network";
   import type { LinkKind, NetworkView } from "../../lib/store/types";
   import Card from "../../ui/Card.svelte";
   import Icon from "../../ui/Icon.svelte";
@@ -71,7 +71,7 @@
       <span class="ptag" class:dead={!up} style="top:{TOP[p.kind]}%;{p.state === 'primary' ? `border-color:${EDGE[p.kind]}` : ''}">
         <Icon name={ICON[p.kind]} size={13} stroke={2} color={up ? TINT[p.kind] : "#80838d"} />
         {#if !up}
-          <span class="mut">{LINK_NAME[p.kind]} · {p.state === "down" ? "caído" : "sin cable"}</span>
+          <span class="mut">{LINK_NAME[p.kind]} · {p.state === "down" ? "caído" : unpluggedText(p.kind)}</span>
         {:else}
           {#if p.state === "primary"}<b>{LINK_NAME[p.kind]}</b>{:else}<span>{LINK_NAME[p.kind]}</span>{/if}
           {#if p.rttMs !== null}<span class="mono mut">{formatMs(p.rttMs)}</span>{/if}

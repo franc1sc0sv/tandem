@@ -12,7 +12,7 @@
   const peer = $derived(desk.here === "a" ? "b" : "a");
 
   function run(does: StateDo, sceneId?: string) {
-    if (does === "add-machine") store.openWizard(WIZARD_PAIR);
+    if (does === "pair-peer") store.openWizard(WIZARD_PAIR);
     else if (does === "power-on") void store.setPower(peer, true);
     else if (does === "tunnels") store.go({ screen: "tuneles" });
     else if (does === "permission") void store.openPermission("input_monitoring");

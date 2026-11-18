@@ -66,6 +66,16 @@ export function networkFromWire(w: NetworkWire, now: number): NetworkView {
 
 export const STATE_LABEL: Record<PathState, string> = { primary: "Principal", backup: "Respaldo", unplugged: "Sin cable", down: "Caído" };
 
+/** Un camino sin respuesta: el Wi-Fi no tiene cable, así que no puede estar «sin cable». */
+export const unpluggedText = (kind: LinkKind): string => (kind === "wifi" ? "sin señal" : "sin cable");
+
+/** El rótulo del estado de un camino («Principal», «Sin cable», «Sin señal»…). */
+export function stateLabel(p: Pick<PathView, "kind" | "state">): string {
+  if (p.state === "unplugged") return capitalize(unpluggedText(p.kind));
+  return STATE_LABEL[p.state];
+}
+const capitalize = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
 /** «0.3 ms», «14 ms»; «—» sin dato. */
 export function formatMs(v: number | null): string {
   if (v === null) return "—";
@@ -108,7 +118,7 @@ export function describePath(p: PathView): string {
     case "backup":
       return `${name} de respaldo${p.rttMs !== null ? ` a ${formatMs(p.rttMs)}` : ""}`;
     case "unplugged":
-      return `${name} sin cable`;
+      return `${name} ${unpluggedText(p.kind)}`;
     case "down":
       return `${name} caído`;
   }

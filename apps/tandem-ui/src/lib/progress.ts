@@ -3,7 +3,7 @@
 
 import { LINK_NAME } from "./machines";
 import type { Machine } from "./model";
-import { formatMs, formatRate, RING_GBPS } from "./network";
+import { formatMs, formatRate, RING_GBPS, unpluggedText } from "./network";
 import type { LinkKind, NetworkView, PathView } from "./store/types";
 import type { Run } from "./txn";
 
@@ -92,7 +92,7 @@ const CAPTION: Record<LinkKind, string> = {
 };
 
 const otherText = (p: PathView): string => {
-  if (p.state === "unplugged") return "sin cable";
+  if (p.state === "unplugged") return unpluggedText(p.kind);
   if (p.state === "down") return "caído";
   return [p.gbps === null ? null : formatRate(p.gbps), p.rttMs === null ? null : formatMs(p.rttMs)].filter(Boolean).join(" · ") || "—";
 };
