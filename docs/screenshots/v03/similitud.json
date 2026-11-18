@@ -411,8 +411,8 @@
     "mockup": "F-Ajustes",
     "pantalla": {
       "name": "contenido",
-      "similarity": 0.9999,
-      "worstTile": 0.9871,
+      "similarity": 1,
+      "worstTile": 0.9983,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
@@ -422,8 +422,8 @@
     "zonas": [
       {
         "name": "contenido",
-        "similarity": 0.9999,
-        "worstTile": 0.9871,
+        "similarity": 1,
+        "worstTile": 0.9983,
         "min": {
           "similarity": 0.99,
           "worstTile": 0.97

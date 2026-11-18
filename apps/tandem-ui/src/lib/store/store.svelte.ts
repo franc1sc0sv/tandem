@@ -437,6 +437,10 @@ export class Store implements CommandContext {
     return this.report(this.source.setPrefs(p));
   }
 
+  setLockShortcut(lock: string[]): Promise<ActResult> {
+    return this.report(this.source.setLockShortcut(lock));
+  }
+
   files(): Promise<FilesView> {
     return this.source.files();
   }

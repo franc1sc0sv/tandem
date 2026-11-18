@@ -355,6 +355,8 @@ export interface FilesView {
 
 export interface DeskView {
   prefs: PrefsView;
+  /** El atajo de bloqueo del puesto (`KeyboardEvent.code`); vacío = sin atajo. */
+  lockShortcut: string[];
   /** `connecting` mientras no hay primer estado. */
   ready: boolean;
   /** El nombre del puesto (junto al logo en `V3-Maquina`); «Mi puesto» si no tiene. */
@@ -402,6 +404,8 @@ export interface Source {
   start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void>;
   /** Teclado y mouse compartidos: se manda el par entero. */
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult>;
+  /** El atajo de bloqueo del puesto (vacío = sin atajo). */
+  setLockShortcut(lock: string[]): Promise<ActResult>;
   /** «Deshacer» el cambio de la otra máquina: vuelve el puesto a la versión `rev`. */
   undoDesk(rev: number): Promise<ActResult>;
   /** Archivo de configuración y logs (Ajustes → Avanzado). */

@@ -289,10 +289,7 @@ export const AJUSTES: ShotSpec[] = [
     { app: ".pane > .row:nth-child(4) > .fill", mockup: ".pane > .row:nth-child(4) > span", reason: "D1: «Cambiar la otra máquina» en lugar de «Agregar una máquina»" },
     { app: ".pane > .row:nth-child(4) > button", mockup: ".pane > .row:nth-child(4) > a.btn", reason: "D1: «Emparejar de nuevo» en lugar de «Mostrar código»" },
   ]),
-  ajustesShot("ajustes-atajos", "atajos", [tab("Atajos")], [
-    { app: ".pane > .row:nth-child(3)", mockup: ".pane > .row:nth-child(n+3)", reason: "Solo hay un atajo en la app; las filas de bloqueo, paleta y escenas del mockup no existen, y la app pone ahí «Restablecer» y «Guardar»" },
-    { app: ".combo", mockup: ".combo", reason: "El texto de la combinación sigue al sistema de la ventana (Ctrl+Alt+0 en Windows y Linux, ⌃⌥0 en macOS)" },
-  ]),
+  { ...ajustesShot("ajustes-atajos", "atajos", [tab("Atajos")]), query: `${DEMO}&solopc` },
   ajustesShot("ajustes-teclado", "teclado", [tab("Teclado y mouse")]),
   ajustesShot("ajustes-actualizaciones", "actualizaciones", [tab("Actualizaciones")]),
   { ...ajustesShot("ajustes-actualizaciones-buscado", "actualizaciones-buscado", [tab("Actualizaciones"), 'button:has-text("Buscar ahora")']), unhover: true },

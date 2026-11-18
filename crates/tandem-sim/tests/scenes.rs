@@ -338,3 +338,61 @@ async fn las_escenas_se_crean_editan_y_borran_en_las_dos() {
         .unwrap();
     assert_eq!(d.mac.desk(), d.pc.desk());
 }
+
+/// T-129: el atajo de una escena y el de bloqueo se editan desde cualquiera de las dos y llegan
+/// a la otra por el puesto; un choque (con el bloqueo o con otra escena) se rechaza sin tocar
+/// a ninguna.
+#[tokio::test(start_paused = true)]
+async fn los_atajos_se_editan_en_una_y_llegan_a_la_otra() {
+    let d = Desk::new().await.unwrap();
+    paired(&d).await;
+    let trabajo = d.mac.desk().scenes[0].clone();
+    assert_eq!(trabajo.id, "trabajo");
+
+    // El atajo de una escena, editado en A, llega a B.
+    let nuevo = vec![
+        "ControlLeft".to_owned(),
+        "AltLeft".to_owned(),
+        "Digit7".to_owned(),
+    ];
+    let edited = Scene {
+        shortcut: nuevo.clone(),
+        ..trabajo.clone()
+    };
+    let reply = d.mac.handle(UiCommand::EditDesk {
+        patch: DeskPatch::EditScene(edited.clone()),
+    });
+    assert!(matches!(reply, Reply::Desk(_)), "{reply:?}");
+    desk_until(&d, Machine::B, "el atajo de la escena", |p| {
+        p.scenes.contains(&edited)
+    })
+    .await;
+
+    // El de bloqueo, editado en B, llega a A.
+    let lock = vec!["ControlLeft".to_owned(), "KeyL".to_owned()];
+    let reply = d.pc.handle(UiCommand::EditDesk {
+        patch: DeskPatch::Shortcuts(tandem_core::Shortcuts { lock: lock.clone() }),
+    });
+    assert!(matches!(reply, Reply::Desk(_)), "{reply:?}");
+    desk_until(&d, Machine::A, "el atajo de bloqueo", |p| {
+        p.shortcuts.lock == lock
+    })
+    .await;
+
+    // Choques: el bloqueo con el de una escena, y una escena con el bloqueo.
+    let before = d.mac.desk();
+    let reply = d.mac.handle(UiCommand::EditDesk {
+        patch: DeskPatch::Shortcuts(tandem_core::Shortcuts { lock: nuevo }),
+    });
+    assert!(!matches!(reply, Reply::Desk(_)), "{reply:?}");
+    let otra = d.mac.desk().scenes[1].clone();
+    let reply = d.mac.handle(UiCommand::EditDesk {
+        patch: DeskPatch::EditScene(Scene {
+            shortcut: lock,
+            ..otra
+        }),
+    });
+    assert!(!matches!(reply, Reply::Desk(_)), "{reply:?}");
+    assert_eq!(d.mac.desk(), before);
+    assert_eq!(d.pc.desk(), before);
+}

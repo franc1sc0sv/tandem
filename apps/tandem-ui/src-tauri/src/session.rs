@@ -15,8 +15,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{
-    Align, Arrangement, Config, DeskPatch, InputPrefs, Machine, MonitorInput, Scene, Side, State,
-    Step,
+    Align, Arrangement, Config, DeskPatch, InputPrefs, Machine, MonitorInput, Scene, Shortcuts,
+    Side, State, Step,
 };
 use tandem_proto::{
     AgentToUi, Capabilities, CursorSample, DeskCapabilities, DragStatus, EnvKind, Environment,
@@ -828,6 +828,10 @@ pub enum Action {
         cmd_ctrl: bool,
         drag_files: bool,
     },
+    /// El atajo de bloqueo del puesto (`EditDesk { Shortcuts }`); vacío = sin atajo.
+    SetLockShortcut {
+        lock: Vec<String>,
+    },
     /// «Deshacer» del aviso de cambio (D5): vuelve el puesto a la versión `to_rev`.
     UndoDesk {
         to_rev: u64,
@@ -925,6 +929,9 @@ impl From<Action> for UiCommand {
                     cmd_ctrl,
                     drag_files,
                 }),
+            },
+            Action::SetLockShortcut { lock } => UiCommand::EditDesk {
+                patch: DeskPatch::Shortcuts(Shortcuts { lock }),
             },
             Action::UndoDesk { to_rev } => UiCommand::UndoDesk { to_rev },
         }
@@ -2630,6 +2637,16 @@ mac = "9c:6b:00:1a:2b:ff"
                 patch: DeskPatch::Prefs(InputPrefs {
                     cmd_ctrl: false,
                     drag_files: true
+                })
+            }
+        );
+        assert_eq!(
+            read(
+                serde_json::json!({ "kind": "set_lock_shortcut", "lock": ["ControlLeft", "KeyL"] })
+            ),
+            UiCommand::EditDesk {
+                patch: DeskPatch::Shortcuts(Shortcuts {
+                    lock: vec!["ControlLeft".into(), "KeyL".into()]
                 })
             }
         );

@@ -61,6 +61,8 @@ export interface Desk {
   prefs?: { cmd_ctrl: boolean; drag_files: boolean };
   /** Módulos encendidos por máquina (`clipboard`…); lo que falte vale «encendido». */
   modules?: Record<Machine, Record<string, boolean>>;
+  /** Atajos del puesto (`[shortcuts]`): el de bloqueo, con nombres de `KeyboardEvent.code`. */
+  shortcuts?: { lock: string[] };
 }
 
 /** `tandem_proto::MonitorCompat`: serde por omisión (etiqueta externa). */
@@ -270,6 +272,8 @@ export type Action =
   | { kind: "set_arrangement"; a_side: Side; align: Align }
   | { kind: "set_module"; machine: Machine; module: string; on: boolean }
   | { kind: "set_prefs"; cmd_ctrl: boolean; drag_files: boolean }
+  /** El atajo de bloqueo del puesto (`EditDesk { Shortcuts }`); vacío = sin atajo. */
+  | { kind: "set_lock_shortcut"; lock: string[] }
   /** «Deshacer» del aviso de cambio: vuelve el puesto a la versión `to_rev` (D5). */
   | { kind: "undo_desk"; to_rev: number }
   | { kind: "rescan"; machine: Machine }

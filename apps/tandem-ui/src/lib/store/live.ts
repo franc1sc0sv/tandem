@@ -31,6 +31,7 @@ export const DEFAULT_DESK_NAME = "Mi puesto";
 
 export const EMPTY_DESK: DeskView = {
   ready: false,
+  lockShortcut: ["ScrollLock"],
   deskName: DEFAULT_DESK_NAME,
   trouble: "none",
   troubleText: "",
@@ -176,6 +177,7 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
     scenes: snap.desk.scenes.map((sc) => sceneView(sc, { monitors, name, mac })),
     activeScene: snap.state.scene ?? null,
     prefs: prefsOf(snap.desk),
+    lockShortcut: snap.desk.shortcuts?.lock ?? ["ScrollLock"],
     trouble,
     troubleText,
     here,
@@ -427,6 +429,10 @@ export class LiveSource implements Source {
 
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
     return this.ask({ kind: "set_prefs", cmd_ctrl: p.cmdCtrl, drag_files: p.dragFiles });
+  }
+
+  setLockShortcut(lock: string[]): Promise<ActResult> {
+    return this.ask({ kind: "set_lock_shortcut", lock });
   }
 
   async undoDesk(rev: number): Promise<ActResult> {
