@@ -237,9 +237,12 @@ impl DeskBuilder {
             tokio::spawn(watch_while_on(world.clone(), mac.clone(), mac_reach)),
             tokio::spawn(watch_while_on(world.clone(), pc.clone(), pc_reach)),
         ];
-        for agent in [&mac, &pc] {
-            let backend = self.scene_screens.backend(agent.machine(), faults.clone());
-            agent.set_scene_backend(Arc::new(backend));
+        // Con monitores de verdad (los dobles de `monitor-ddc`), las escenas van a ellos.
+        if self.monitors.is_empty() {
+            for agent in [&mac, &pc] {
+                let backend = self.scene_screens.backend(agent.machine(), faults.clone());
+                agent.set_scene_backend(Arc::new(backend));
+            }
         }
         let monitors = (!self.monitors.is_empty()).then(|| SimMonitors::new(&self.monitors));
         if let Some(sim) = &monitors {

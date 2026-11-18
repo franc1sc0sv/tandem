@@ -1449,7 +1449,8 @@ mac = "9c:6b:00:1a:2b:ff"
                 "shortcuts": { "lock": ["ScrollLock"] },
                 "prefs": { "cmd_ctrl": true, "drag_files": true },
                 "modules": { "a": {}, "b": {} },
-                "data": { "wifi_cap_percent": 50, "wifi_cap_mbps": null }
+                "data": { "wifi_cap_percent": 50, "wifi_cap_mbps": null },
+                "cables": []
             })
         );
         assert_eq!(

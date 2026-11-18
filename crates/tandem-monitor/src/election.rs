@@ -44,6 +44,7 @@ mod tests {
         MonitorChannel {
             id: "m".into(),
             name: "M".into(),
+            via: None,
             compat: if compatible {
                 MonitorCompat::Compatible { protocol: 2 }
             } else {

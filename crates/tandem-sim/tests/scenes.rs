@@ -256,17 +256,18 @@ async fn una_escena_imposible_no_toca_nada() {
         panic!("se aceptó una escena que no existe");
     };
     assert!(why.contains("no existe"), "{why}");
-    // Sin monitores de escena en el puesto: el monitor falla sin cambiarse.
-    add(
-        &d,
-        Machine::A,
-        Scene {
+    // Un monitor que no se ve no entra en una escena (T-111: el editor lo rechaza).
+    let reply = d.mac.handle(UiCommand::EditDesk {
+        patch: DeskPatch::AddScene(Scene {
             monitors: vec![("fantasma".into(), Machine::B)],
             ..Scene::new("f", "Fantasma")
-        },
-    );
-    let run = d.apply_scene(Machine::A, "f").await.unwrap();
-    assert_eq!(run.outcome(), Some(Outcome::Failed));
+        }),
+    });
+    let Reply::Rejected(why) = reply else {
+        panic!("se aceptó un monitor que no existe: {reply:?}");
+    };
+    assert!(why.contains("fantasma"), "{why}");
+    assert!(d.mac.desk().scenes.iter().all(|s| s.id != "f"));
     assert!(d.scene_screens().log().is_empty());
 }
 

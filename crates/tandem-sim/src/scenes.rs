@@ -1,7 +1,9 @@
 //! El doble de los pasos de escena (T-100): qué máquina muestra cada monitor de escena y
-//! cuántas veces se recalculó la geometría. T-111 conecta el paso abstracto a los monitores
-//! reales; aquí cada cambio se aplica al instante salvo que el [`crate::FaultPlan`] diga otra
-//! cosa (los fallos se buscan con el paso de escena y la máquina que la aplica).
+//! cuántas veces se recalculó la geometría. Con monitores de verdad en el puesto
+//! ([`crate::DeskBuilder::monitors`]) no se usa: los agentes van a los dobles de
+//! `monitor-ddc` (T-111). Aquí cada cambio se aplica al instante salvo que el
+//! [`crate::FaultPlan`] diga otra cosa (los fallos se buscan con el paso de escena y la
+//! máquina que la aplica).
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -89,6 +91,14 @@ impl SimSceneBackend {
 }
 
 impl SceneBackend for SimSceneBackend {
+    fn check(&self, monitor: &str, _machine: Machine) -> Result<(), String> {
+        if self.screens.lock().shows.contains_key(monitor) {
+            Ok(())
+        } else {
+            Err(format!("no se ve el monitor {monitor}"))
+        }
+    }
+
     fn shows(&self, monitor: &str) -> Result<Machine, String> {
         self.screens
             .lock()
@@ -115,7 +125,7 @@ impl SceneBackend for SimSceneBackend {
         })
     }
 
-    fn geometry(&self) -> StepFuture<'_> {
+    fn geometry<'a>(&'a self, _expected: &'a [(String, Machine)]) -> StepFuture<'a> {
         Box::pin(async move {
             self.faults(&Step::Geometry).await?;
             *self

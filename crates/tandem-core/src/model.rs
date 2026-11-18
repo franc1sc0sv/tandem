@@ -5,6 +5,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::data::{DataPrefs, DataPrefsError};
 use crate::desk::{InputPrefs, Modules, Shortcuts, valid_color};
+use crate::monitor::MonitorCable;
 use crate::scene::Scene;
 
 /// Los dos lados del puesto. Tandem está pensado para exactamente dos máquinas, de igual a
@@ -396,6 +397,10 @@ pub struct Desk {
     /// El tope de los datos por Wi-Fi (`[data]`, T-101).
     #[serde(default)]
     pub data: DataPrefs,
+    /// A qué entrada de cada monitor compatible va cada máquina y qué pantalla suya es
+    /// (`[[cables]]`, T-111). Un monitor sin cable declarado se resuelve con el EDID.
+    #[serde(default)]
+    pub cables: Vec<MonitorCable>,
 }
 
 /// El nombre de antes de [`Desk`].
@@ -427,6 +432,8 @@ pub enum ConfigError {
     DuplicateShortcut(Vec<String>),
     #[error("un módulo de la máquina {0} no tiene id")]
     UnnamedModule(Machine),
+    #[error("{0}")]
+    BadCable(String),
 }
 
 impl Desk {
@@ -495,7 +502,24 @@ impl Desk {
                 return Err(ConfigError::DuplicateShortcut(s.shortcut.clone()));
             }
         }
+        let mut cabled = BTreeSet::new();
+        for c in &self.cables {
+            if let Some(problem) = c.problem() {
+                return Err(ConfigError::BadCable(problem));
+            }
+            if !cabled.insert(c.monitor.as_str()) {
+                return Err(ConfigError::BadCable(format!(
+                    "el monitor `{}` tiene dos cableados",
+                    c.monitor
+                )));
+            }
+        }
         Ok(())
+    }
+
+    /// El cableado declarado de `monitor`.
+    pub fn cable(&self, monitor: &str) -> Option<&MonitorCable> {
+        self.cables.iter().find(|c| c.monitor == monitor)
     }
 
     /// Las pantallas declaradas de `machine`, en el orden del archivo.
@@ -520,6 +544,7 @@ impl Desk {
             arrangement: self.arrangement.map(Arrangement::swapped),
             scenes: self.scenes.into_iter().map(Scene::swapped).collect(),
             modules: self.modules.swapped(),
+            cables: self.cables.into_iter().map(MonitorCable::swapped).collect(),
             ..self
         }
     }

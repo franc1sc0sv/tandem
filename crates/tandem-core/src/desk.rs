@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::DataPrefs;
 use crate::model::{Arrangement, ConfigError, Desk, Machine, ScreenSpec};
+use crate::monitor::MonitorCable;
 use crate::scene::{Scene, rename_machine, scene_id};
 
 /// Cuántas versiones guarda el historial (DESIGN §4.4).
@@ -150,6 +151,8 @@ pub enum DeskPatch {
         module: String,
         on: bool,
     },
+    /// El cableado de un monitor (reemplaza el que tuviera; T-111).
+    Cable(MonitorCable),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -266,6 +269,12 @@ impl Desk {
                 module,
                 on,
             } => self.modules.set(machine, module.trim(), on),
+            DeskPatch::Cable(cable) => {
+                match self.cables.iter_mut().find(|c| c.monitor == cable.monitor) {
+                    Some(c) => *c = cable,
+                    None => self.cables.push(cable),
+                }
+            }
         }
         Ok(())
     }
@@ -276,6 +285,8 @@ impl Desk {
     /// omisión al emparejar.
     pub fn summary_of_changes(&self, new: &Desk) -> Option<String> {
         let defaults = self.scenes.is_empty() && crate::scene::are_defaults(&new.scenes, new);
+        // Un monitor que el agente presentó solo (su cable y las escenas por omisión).
+        let introduced = crate::scene::introduced_by_agent(self, new);
         let machines =
             Machine::ALL
                 .iter()
@@ -288,7 +299,11 @@ impl Desk {
             (machines, "máquinas"),
             (self.arrangement != new.arrangement, "acomodo"),
             (self.screens != new.screens, "pantallas"),
-            (self.scenes != new.scenes && !defaults, "escenas"),
+            (
+                self.scenes != new.scenes && !defaults && !introduced,
+                "escenas",
+            ),
+            (self.cables != new.cables && !introduced, "monitores"),
             (self.shortcuts != new.shortcuts, "atajos"),
             (self.prefs != new.prefs, "teclado y mouse"),
             (self.modules != new.modules, "módulos"),

@@ -283,6 +283,9 @@ pub struct MonitorChannel {
     /// Lo que tardó en contestar el sondeo, medido al abrir el canal (no cambia mientras
     /// el canal siga vivo, para que la elección del dueño no oscile).
     pub latency_ms: u32,
+    /// La entrada del monitor a la que va el cable de esta máquina, según el tipo de interfaz
+    /// de su EDID (E-EDID 1.4); `None` si el EDID no lo dice (T-111).
+    pub via: Option<MonitorInput>,
 }
 
 /// Si un monitor habla el estándar del firmware propio (DECISIONS D11).
@@ -357,6 +360,8 @@ pub struct MonitorView {
     pub compat: MonitorCompat,
     /// Las máquinas con canal DDC vivo hacia él.
     pub seen_by: Vec<Machine>,
+    /// La entrada a la que va el cable de cada máquina que lo ve, según su EDID (T-111).
+    pub via: Vec<(Machine, MonitorInput)>,
     /// Quién lo lee y lo controla; `None` si no es compatible o nadie tiene canal.
     pub owner: Option<Machine>,
     /// Lo último que leyó el dueño; `None` mientras no haya lectura.
@@ -1033,6 +1038,10 @@ pub(crate) mod samples {
                 name: "LC34G55T".into(),
                 compat: MonitorCompat::Compatible { protocol: 2 },
                 seen_by: vec![Machine::A, Machine::B],
+                via: vec![
+                    (Machine::A, MonitorInput::Hdmi),
+                    (Machine::B, MonitorInput::DisplayPort),
+                ],
                 owner: Some(Machine::B),
                 report: Some(monitor_report()),
             },
@@ -1043,6 +1052,7 @@ pub(crate) mod samples {
                     reason: "firmware de fábrica".into(),
                 },
                 seen_by: vec![Machine::B],
+                via: vec![],
                 owner: None,
                 report: None,
             },
@@ -1221,6 +1231,7 @@ pub(crate) mod samples {
                         name: "LC34G55T".into(),
                         compat: MonitorCompat::Compatible { protocol: 2 },
                         latency_ms: 42,
+                        via: Some(MonitorInput::DisplayPort),
                     },
                     MonitorChannel {
                         id: "odyssey-0f0f0f0f".into(),
@@ -1229,6 +1240,7 @@ pub(crate) mod samples {
                             reason: "firmware de fábrica".into(),
                         },
                         latency_ms: 0,
+                        via: None,
                     },
                 ],
             },

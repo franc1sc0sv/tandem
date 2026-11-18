@@ -173,9 +173,20 @@ mod tests {
             (any::<bool>(), any::<bool>(), any::<bool>()),
             proptest::collection::btree_map("[a-z]{1,6}", any::<bool>(), 0..3),
             (1u8..=100, proptest::option::of(1u32..10_000)),
+            proptest::collection::vec(("[a-z0-9-]{1,8}", any::<bool>()), 0..3),
         )
             .prop_map(
-                |((rev, at, by), screens, arrangement, lock, scenes, prefs, modules, data)| {
+                |(
+                    (rev, at, by),
+                    screens,
+                    arrangement,
+                    lock,
+                    scenes,
+                    prefs,
+                    modules,
+                    data,
+                    cables,
+                )| {
                     DeskVersion {
                         stamp: DeskStamp { rev, at, by },
                         desk: tandem_core::Config {
@@ -206,6 +217,19 @@ mod tests {
                                 wifi_cap_percent: data.0,
                                 wifi_cap_mbps: data.1,
                             },
+                            cables: cables
+                                .into_iter()
+                                .map(|(monitor, hdmi)| {
+                                    let mut c = tandem_core::MonitorCable::new(monitor);
+                                    c.a.input = Some(if hdmi {
+                                        MonitorInput::Hdmi
+                                    } else {
+                                        MonitorInput::DisplayPort
+                                    });
+                                    c.b.screen = Some("pantalla-1".into());
+                                    c
+                                })
+                                .collect(),
                         },
                     }
                 },

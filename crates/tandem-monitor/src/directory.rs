@@ -150,6 +150,10 @@ impl Directory {
                     name: shown.name.clone(),
                     compat: shown.compat.clone(),
                     seen_by: seen.iter().map(|(m, _)| *m).collect(),
+                    via: seen
+                        .iter()
+                        .filter_map(|(m, c)| c.via.map(|i| (*m, i)))
+                        .collect(),
                     owner: self.owner(id),
                     report: self.report(id).cloned(),
                 })
@@ -176,6 +180,7 @@ mod tests {
                 }
             },
             latency_ms,
+            via: None,
         }
     }
 

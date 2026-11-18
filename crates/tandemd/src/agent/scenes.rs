@@ -2,54 +2,124 @@
 //! las escenas por omisión al emparejar y sus atajos globales.
 //!
 //! Crear, editar y borrar escenas son parches del puesto (`DeskPatch::AddScene`, …): viajan
-//! a la otra máquina y se deshacen como cualquier otro cambio (D5).
+//! a la otra máquina y se deshacen como cualquier otro cambio (D5). Un monitor nuevo en una
+//! escena tiene que ser compatible y saberse a qué entrada va la máquina que muestra.
 //!
 //! Los pasos de escena los hace la máquina que la aplica: el acomodo es un cambio del puesto
-//! y lo hace el agente; el monitor abstracto y la geometría, el [`SceneBackend`]. Hasta T-111
-//! no hay monitores de escena de verdad ([`NoSceneMonitors`]); la simulación pone su doble.
+//! y lo hace el agente; el monitor abstracto y la geometría, los monitores reales (T-111):
+//! «que el 34" muestre B» es un [`Step::SwitchMonitor`] a la entrada de B, que hace el dueño
+//! del monitor con su veredicto, y la geometría espera a que los monitores muestren lo que
+//! dice la escena (el motor de entrada saca de la geometría lo que muestra a la otra). La
+//! simulación de T-100 puede poner su doble ([`SceneBackend`]).
+//!
+//! Con los monitores leídos, el agente también presenta cada monitor compatible nuevo a las
+//! escenas por omisión ([`tandem_core::scene::introduce_monitor`]) y reconoce la escena que
+//! está puesta por la entrada real de cada monitor (al arrancar y cada vez que cambian).
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex, PoisonError};
 
-use tandem_core::{Config, DeskPatch, Machine, State, Step};
+use tandem_core::scene::{contradicted, detect, introduce_monitor};
+use tandem_core::{
+    Config, DeskPatch, Machine, MonitorCable, MonitorId, MonitorInput, Plan, Scene, State, Step,
+};
 use tandem_input::{HidUsage, InputEvent, KeyState};
 use tandem_proto::{Reply, UiCommand};
 use tokio::sync::{mpsc, watch};
 
 use super::Agent;
+use crate::monitors::{inputs, shows};
 use crate::orchestrator::{SCENE_ONLY, SceneSteps, StepFuture, describe};
 
-/// Lo que contesta el paso de monitor de una escena mientras no hay monitores de escena.
-pub const NO_SCENE_MONITORS: &str = "los monitores todavía no se pueden asignar a una escena";
+/// No se sabe qué máquina muestra un monitor: sin eso no se podría volver atrás.
+pub const UNKNOWN_SHOWS: &str = "no se sabe qué máquina muestra (falta la entrada real o a qué entrada va cada máquina); sin eso no se podría volver atrás";
 
-/// El monitor abstracto y la geometría de las escenas, vistos por el agente.
+/// Un doble de los pasos de escena de monitor y geometría (la simulación de T-100). Sin él,
+/// el agente usa los monitores reales.
 pub trait SceneBackend: Send + Sync + std::fmt::Debug {
     /// Qué máquina muestra `monitor` ahora. Si no se sabe, el monitor no se cambia: no se
     /// podría volver atrás.
     fn shows(&self, monitor: &str) -> Result<Machine, String>;
     /// Que `monitor` muestre `machine`, con su confirmación.
     fn show<'a>(&'a self, monitor: &'a str, machine: Machine) -> StepFuture<'a>;
-    /// Que el motor de entrada tome la geometría que dejaron los pasos anteriores.
-    fn geometry(&self) -> StepFuture<'_>;
+    /// Que el motor de entrada tome la geometría que dejaron los pasos anteriores: los
+    /// monitores de la escena mostrando lo que dice `expected`.
+    fn geometry<'a>(&'a self, expected: &'a [(MonitorId, Machine)]) -> StepFuture<'a>;
+    /// Si `monitor` puede entrar en una escena mostrando `machine` (el editor).
+    fn check(&self, monitor: &str, machine: Machine) -> Result<(), String>;
 }
 
-/// Sin monitores de escena (hasta T-111): una escena con monitores falla en su primer
-/// monitor, sin tocar nada. La geometría se cumple sola: el motor de entrada recalcula la
-/// suya cada vez que cambian el puesto o el estado (`input::geometry`).
-#[derive(Debug, Default, Clone, Copy)]
-pub struct NoSceneMonitors;
+/// Los monitores reales: lo que muestra cada uno sale de la entrada que lee su dueño y del
+/// cableado; el cambio lo hace el dueño (el orquestador).
+#[derive(Debug)]
+struct RealMonitors {
+    agent: Arc<Agent>,
+}
 
-impl SceneBackend for NoSceneMonitors {
-    fn shows(&self, _monitor: &str) -> Result<Machine, String> {
-        Err(NO_SCENE_MONITORS.to_owned())
+impl RealMonitors {
+    fn input_for(&self, monitor: &str, machine: Machine) -> Result<MonitorInput, String> {
+        let views = self.agent.monitors();
+        let view = views.iter().find(|v| v.id == monitor);
+        inputs(&self.agent.desk(), monitor, view)
+            .of(machine)
+            .ok_or_else(|| {
+                format!(
+                    "no se sabe a qué entrada del monitor {monitor} va {}",
+                    self.agent.machine_name(machine)
+                )
+            })
     }
 
-    fn show<'a>(&'a self, _monitor: &'a str, _machine: Machine) -> StepFuture<'a> {
-        Box::pin(async { Err(NO_SCENE_MONITORS.to_owned()) })
+    fn now(&self) -> std::collections::BTreeMap<String, Machine> {
+        shows(&self.agent.monitors(), &self.agent.desk())
+    }
+}
+
+impl SceneBackend for RealMonitors {
+    fn shows(&self, monitor: &str) -> Result<Machine, String> {
+        self.now()
+            .get(monitor)
+            .copied()
+            .ok_or_else(|| UNKNOWN_SHOWS.to_owned())
     }
 
-    fn geometry(&self) -> StepFuture<'_> {
-        Box::pin(async { Ok(()) })
+    fn show<'a>(&'a self, monitor: &'a str, machine: Machine) -> StepFuture<'a> {
+        Box::pin(async move {
+            // Siempre se pide, aunque parezca que ya la muestra: en una vuelta atrás lo leído
+            // puede ser de antes del cambio que quedó sin veredicto. Los monitores que ya la
+            // muestran salen del plan antes de empezar ([`Agent::apply_scene`]).
+            let input = self.input_for(monitor, machine)?;
+            let step = Step::SwitchMonitor {
+                monitor: monitor.to_owned(),
+                input,
+            };
+            self.agent.orch.dispatch(&step).await
+        })
+    }
+
+    fn geometry<'a>(&'a self, expected: &'a [(MonitorId, Machine)]) -> StepFuture<'a> {
+        Box::pin(async move {
+            // El dueño ya dio su veredicto; aquí se espera a verlo en lo que lee (o en lo que
+            // manda la otra), que es de donde el motor de entrada saca la geometría. El tiempo
+            // máximo lo pone el orquestador.
+            let mut views = self.agent.subscribe_monitors();
+            loop {
+                let now = shows(&views.borrow_and_update(), &self.agent.desk());
+                if expected
+                    .iter()
+                    .all(|(m, machine)| now.get(m) == Some(machine))
+                {
+                    return Ok(());
+                }
+                if views.changed().await.is_err() {
+                    return Err("los monitores se cerraron".to_owned());
+                }
+            }
+        })
+    }
+
+    fn check(&self, monitor: &str, machine: Machine) -> Result<(), String> {
+        self.agent.check_real_monitor(monitor, machine)
     }
 }
 
@@ -63,6 +133,8 @@ pub(super) struct SceneRun {
 struct AgentScene {
     agent: Arc<Agent>,
     backend: Arc<dyn SceneBackend>,
+    /// Lo que la escena deja en cada monitor.
+    expected: Vec<(MonitorId, Machine)>,
 }
 
 impl SceneSteps for AgentScene {
@@ -76,7 +148,7 @@ impl SceneSteps for AgentScene {
                     .map(|_| ());
                 Box::pin(async move { r })
             }
-            Step::Geometry => self.backend.geometry(),
+            Step::Geometry => self.backend.geometry(&self.expected),
             other => {
                 let e = format!("{}: {SCENE_ONLY}", describe(other));
                 Box::pin(async move { Err(e) })
@@ -106,19 +178,74 @@ impl SceneSteps for AgentScene {
 }
 
 impl Agent {
-    /// Quién hace el monitor abstracto y la geometría de las escenas (la simulación, T-111).
+    /// Un doble de los monitores de escena (la simulación de T-100).
     pub fn set_scene_backend(&self, backend: Arc<dyn SceneBackend>) {
         *self
             .scene_backend
             .write()
-            .unwrap_or_else(PoisonError::into_inner) = backend;
+            .unwrap_or_else(PoisonError::into_inner) = Some(backend);
     }
 
-    fn scene_backend(&self) -> Arc<dyn SceneBackend> {
+    fn scene_backend(self: &Arc<Self>) -> Arc<dyn SceneBackend> {
         self.scene_backend
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+            .unwrap_or_else(|| {
+                Arc::new(RealMonitors {
+                    agent: self.clone(),
+                })
+            })
+    }
+
+    /// El editor (T-111): cada monitor que `scene` agrega (no estaba en la versión de antes de
+    /// esa escena) tiene que ser compatible y saberse a qué entrada va la máquina que muestra.
+    /// Los que ya estaban se dejan aunque ahora no se vean (un monitor apagado).
+    pub(super) fn check_scene_monitors(&self, scene: &Scene) -> Result<(), String> {
+        let desk = self.desk();
+        let before: BTreeSet<&(MonitorId, Machine)> = desk
+            .scenes
+            .iter()
+            .filter(|s| s.id == scene.id)
+            .flat_map(|s| s.monitors.iter())
+            .collect();
+        let double = self
+            .scene_backend
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        for entry in scene.monitors.iter().filter(|e| !before.contains(e)) {
+            let (monitor, machine) = entry;
+            let r = match &double {
+                Some(d) => d.check(monitor, *machine),
+                None => self.check_real_monitor(monitor, *machine),
+            };
+            r.map_err(|e| format!("«{}»: {e}", scene.name))?;
+        }
+        Ok(())
+    }
+
+    fn check_real_monitor(&self, monitor: &str, machine: Machine) -> Result<(), String> {
+        let views = self.monitors();
+        let Some(view) = views.iter().find(|v| v.id == monitor) else {
+            return Err(format!("no se ve el monitor {monitor}"));
+        };
+        if !view.compat.is_compatible() {
+            return Err(format!(
+                "el {} no es compatible: se muestra, pero no entra en escenas",
+                view.name
+            ));
+        }
+        inputs(&self.desk(), monitor, Some(view))
+            .of(machine)
+            .map(|_| ())
+            .ok_or_else(|| {
+                format!(
+                    "no se sabe a qué entrada del {} va {}",
+                    view.name,
+                    self.machine_name(machine)
+                )
+            })
     }
 
     /// Aplicar la escena `id` (`UiCommand::ApplyScene`): encender lo que necesite → cada
@@ -130,17 +257,22 @@ impl Agent {
             return Reply::Rejected(format!("la escena `{id}` no existe"));
         };
         let abilities = self.abilities();
+        let backend = self.scene_backend();
         let run = SceneRun {
             id: scene.id.clone(),
             steps: Arc::new(AgentScene {
                 agent: self.clone(),
-                backend: self.scene_backend(),
+                backend: backend.clone(),
+                expected: scene.monitors.clone(),
             }),
         };
         let what = format!("aplicar la escena «{}»", scene.name);
         self.start_txn(
             &what,
-            move |from| scene.plan(from, desk.arrangement, &abilities),
+            move |from| {
+                let plan = scene.plan(from, desk.arrangement, &abilities)?;
+                Ok(skip_shown(plan, |m| backend.shows(m).ok()))
+            },
             Some(run),
         )
     }
@@ -148,6 +280,88 @@ impl Agent {
     /// El puesto cambió: la escena activa puede haber dejado de existir.
     pub(super) fn settle_scene(&self) {
         if let Err(e) = self.set_state(self.state()) {
+            tracing::warn!("{e}");
+        }
+    }
+
+    /// Lo que leen los monitores cambió (T-111): se presentan los compatibles nuevos y la
+    /// escena activa sale de la entrada real de cada uno.
+    pub(super) fn reconcile_monitors(&self) {
+        self.introduce_monitors();
+        self.recognize_scene();
+    }
+
+    /// Cada monitor compatible del que esta máquina es dueña, sin cableado en el puesto y con
+    /// las dos entradas sabidas (por el EDID), se anota y entra en las escenas por omisión. Lo
+    /// hace solo el dueño, para que las dos máquinas no lo hagan a la vez.
+    fn introduce_monitors(&self) {
+        let me = self.machine();
+        let views = self.monitors();
+        let paired = |d: &Config| Machine::ALL.iter().all(|&m| d.machines.get(m).is_some());
+        let pending: Vec<_> = {
+            let desk = self.desk();
+            if !paired(&desk) {
+                return;
+            }
+            views
+                .iter()
+                .filter(|v| v.owner == Some(me) && v.compat.is_compatible())
+                .filter(|v| desk.cable(&v.id).is_none())
+                .filter(|v| inputs(&desk, &v.id, Some(v)).complete())
+                .collect()
+        };
+        if pending.is_empty() {
+            return;
+        }
+        let _editing = self.edit();
+        let mut desk = self.desk();
+        let now = shows(&views, &desk);
+        let mut changed = false;
+        for v in pending {
+            let found = inputs(&desk, &v.id, Some(v));
+            let mut cable = MonitorCable::new(v.id.clone());
+            cable.a.input = found.a;
+            cable.b.input = found.b;
+            if introduce_monitor(&mut desk, cable, now.get(&v.id).copied()) {
+                tracing::info!(monitor = %v.id, "monitor nuevo en las escenas por omisión");
+                changed = true;
+            }
+        }
+        if changed {
+            self.desk.send_replace(desk);
+            self.bump_desk();
+        }
+    }
+
+    /// La escena activa según los monitores: si alguno muestra otra cosa, deja de serlo; sin
+    /// escena activa, la que esté puesta ([`detect`]). Fuera de una transacción: a medias,
+    /// los monitores no dicen nada.
+    fn recognize_scene(&self) {
+        if !self.orch.is_idle() {
+            return;
+        }
+        let desk = self.desk();
+        let now = shows(&self.monitors(), &desk);
+        if now.is_empty() {
+            return;
+        }
+        let mut state = self.state();
+        let active = state
+            .scene
+            .as_ref()
+            .and_then(|id| desk.scenes.iter().find(|s| &s.id == id));
+        if let Some(scene) = active {
+            if !contradicted(scene, &now) {
+                return;
+            }
+            tracing::info!(escena = %scene.id, "los monitores ya no muestran la escena activa");
+            state.scene = None;
+        }
+        state.scene = detect(&desk, &state, &now).map(|s| s.id.clone());
+        if let Some(id) = &state.scene {
+            tracing::info!(escena = %id, "escena reconocida por los monitores");
+        }
+        if let Err(e) = self.set_state(state) {
             tracing::warn!("{e}");
         }
     }
@@ -169,6 +383,24 @@ impl Agent {
             }
         }
     }
+}
+
+/// Saca del plan los monitores que ya muestran su máquina (`shows`): volver a poner la misma
+/// entrada solo apagaría la imagen un momento. Si no queda ningún monitor ni acomodo, la
+/// geometría tampoco tiene nada que tomar.
+fn skip_shown(mut plan: Plan, shows: impl Fn(&str) -> Option<Machine>) -> Plan {
+    plan.steps.retain(|s| match s {
+        Step::ShowMachine { monitor, machine } => shows(monitor) != Some(*machine),
+        _ => true,
+    });
+    let changes = plan
+        .steps
+        .iter()
+        .any(|s| matches!(s, Step::ShowMachine { .. } | Step::Arrange { .. }));
+    if !changes {
+        plan.steps.retain(|s| *s != Step::Geometry);
+    }
+    plan
 }
 
 /// Las escenas por omisión, si el puesto conoce a las dos máquinas y todavía no tiene
@@ -320,6 +552,37 @@ mod tests {
     const SHIFT: HidUsage = HidUsage::key(0xE1);
     const ONE: HidUsage = HidUsage::key(0x1E);
     const TWO: HidUsage = HidUsage::key(0x1F);
+
+    #[test]
+    fn monitors_already_showing_their_machine_leave_the_plan() {
+        let show = |m: &str, machine| Step::ShowMachine {
+            monitor: m.into(),
+            machine,
+        };
+        let plan = Plan {
+            steps: vec![
+                Step::PowerOn {
+                    machine: Machine::B,
+                },
+                show("34", Machine::B),
+                show("27", Machine::B),
+                Step::Geometry,
+            ],
+        };
+        let shows = |m: &str| (m == "34").then_some(Machine::B);
+        assert_eq!(
+            skip_shown(plan.clone(), shows).steps,
+            [
+                plan.steps[0].clone(),
+                show("27", Machine::B),
+                Step::Geometry
+            ]
+        );
+        // Sin nada que cambiar, tampoco la geometría; sin saber qué muestra, se pide.
+        let all = |_: &str| Some(Machine::B);
+        assert_eq!(skip_shown(plan.clone(), all).steps, plan.steps[..1]);
+        assert_eq!(skip_shown(plan.clone(), |_| None), plan);
+    }
 
     #[test]
     fn the_active_scene_stops_holding() {

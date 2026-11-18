@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use monitor_ddc::fake::{BusOp, FakeBus, FakeClock, FakeMonitorConfig};
 use monitor_ddc::{Clock, DdcBus, DdcError, Edid, MonitorHandle, MonitorInfo, VcpReply};
-use tandem_core::Machine;
+use tandem_core::{Machine, MonitorInput};
 
 use crate::world::{Power, World};
 
@@ -20,12 +20,17 @@ use crate::world::{Power, World};
 pub struct MonitorSpec {
     pub config: FakeMonitorConfig,
     pub cables: Vec<(Machine, Duration)>,
+    /// La entrada que dice el EDID que lee cada máquina (cada entrada tiene el suyo, T-111).
+    /// Sin dato, el EDID no dice el tipo de interfaz.
+    pub via: Vec<(Machine, MonitorInput)>,
 }
 
 #[derive(Debug, Default)]
 struct Shared {
     /// Monitor → máquina → latencia. Sin entrada, esa máquina no tiene cable.
     cables: BTreeMap<MonitorHandle, BTreeMap<Machine, Duration>>,
+    /// Monitor → máquina → la entrada que dice su EDID.
+    via: BTreeMap<MonitorHandle, BTreeMap<Machine, MonitorInput>>,
     ops: Vec<(Machine, BusOp)>,
 }
 
@@ -50,6 +55,7 @@ impl SimMonitors {
             shared
                 .cables
                 .insert(h, spec.cables.iter().copied().collect());
+            shared.via.insert(h, spec.via.iter().copied().collect());
             handles.push(h);
             ids.push(
                 Edid::parse(&spec.config.edid)
@@ -183,7 +189,10 @@ impl DdcBus for MachineBus {
         if self.world.power_of(self.machine) != Power::On {
             return Err(DdcError::NoChannel("la máquina está apagada".into()));
         }
-        let cables = self.monitors.lock().cables.clone();
+        let (cables, via) = {
+            let s = self.monitors.lock();
+            (s.cables.clone(), s.via.clone())
+        };
         Ok(self
             .monitors
             .fake
@@ -193,6 +202,16 @@ impl DdcBus for MachineBus {
                 cables
                     .get(&m.handle)
                     .is_some_and(|c| c.contains_key(&self.machine))
+            })
+            .map(|mut m| {
+                // El EDID de la entrada a la que va el cable de esta máquina.
+                let input = via.get(&m.handle).and_then(|v| v.get(&self.machine));
+                if let (Some(&input), Some(edid)) = (input, &m.edid) {
+                    let mut raw = edid.raw().to_vec();
+                    tandem_monitor::set_edid_input(&mut raw, Some(input));
+                    m.edid = Edid::parse(&raw).ok();
+                }
+                m
             })
             .collect())
     }
@@ -231,10 +250,14 @@ mod tests {
         let sim = SimMonitors::new(&[MonitorSpec {
             config: FakeMonitorConfig::new(Personality::Standard),
             cables: vec![(Machine::A, Duration::from_millis(30))],
+            via: vec![(Machine::A, MonitorInput::Hdmi)],
         }]);
         let a = sim.bus_of(Machine::A, world.clone());
         let b = sim.bus_of(Machine::B, world.clone());
-        assert_eq!(a.monitors().unwrap().len(), 1);
+        let seen = a.monitors().unwrap();
+        assert_eq!(seen.len(), 1);
+        let edid = seen[0].edid.as_ref().unwrap().raw();
+        assert_eq!(tandem_monitor::edid_input(edid), Some(MonitorInput::Hdmi));
         assert!(b.monitors().is_err(), "B está apagada");
         let before = sim.clock().now();
         a.get_vcp(sim.handle(0), 0xEA).unwrap();

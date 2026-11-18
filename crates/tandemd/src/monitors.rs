@@ -10,10 +10,11 @@
 //! la simulación, con el bus falso que no espera, se llama en el lugar (`inline`), así el reloj
 //! pausado de tokio no avanza solo mientras tanto.
 
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
-use tandem_core::{Machine, MonitorInput};
+use tandem_core::{Desk, Inputs, Machine, MonitorInput};
 use tandem_monitor::{Directory, LocalMonitors};
 use tandem_proto::{MonitorChannel, MonitorReport, MonitorView};
 use tokio::sync::{Notify, watch};
@@ -22,6 +23,28 @@ use crate::orchestrator::{MonitorControl, StepFuture};
 
 /// Lo que dice el módulo de monitores en una máquina sin acceso a DDC.
 pub const NO_DDC: &str = "Sin canal DDC en esta máquina";
+
+/// A qué entrada de `monitor` va cada máquina: su `[[cables]]` del puesto o, si no, lo que
+/// dice el EDID que lee cada una (`view.via`).
+pub fn inputs(desk: &Desk, monitor: &str, view: Option<&MonitorView>) -> Inputs {
+    Inputs::resolve(desk.cable(monitor), |m| {
+        view.and_then(|v| v.via.iter().find(|(w, _)| *w == m).map(|(_, i)| *i))
+    })
+}
+
+/// Qué máquina muestra cada monitor compatible: la entrada real que leyó su dueño y a qué
+/// máquina va esa entrada. Uno del que falta algo no aparece.
+pub fn shows(views: &[MonitorView], desk: &Desk) -> BTreeMap<String, Machine> {
+    views
+        .iter()
+        .filter(|v| v.compat.is_compatible())
+        .filter_map(|v| {
+            let input = v.report.as_ref()?.input?;
+            let machine = inputs(desk, &v.id, Some(v)).machine_on(input)?;
+            Some((v.id.clone(), machine))
+        })
+        .collect()
+}
 
 /// Cada cuánto se mira el bus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -313,6 +336,30 @@ mod tests {
         let reports = hub.tick(false).await.reports.unwrap();
         assert_eq!(reports[0].input, Some(MonitorInput::Hdmi));
         assert_eq!(hub.input(&id), Some(MonitorInput::Hdmi));
+    }
+
+    #[tokio::test]
+    async fn what_each_monitor_shows_comes_from_the_real_input_and_the_cables() {
+        let (hub, _) = hub_with_bus(Machine::A);
+        hub.tick(true).await;
+        let views = hub.views();
+        let id = views[0].id.clone();
+        let mut desk = Desk::default();
+        // Sin cable ni EDID que lo diga, no se sabe.
+        assert!(shows(&views, &desk).is_empty());
+        // El cable de A va a DP (la entrada en pantalla): muestra A.
+        let mut cable = tandem_core::MonitorCable::new(id.clone());
+        cable.a.input = Some(MonitorInput::DisplayPort);
+        desk.cables.push(cable);
+        assert_eq!(shows(&views, &desk).get(&id), Some(&Machine::A));
+        // Con lo que dice el EDID de B (DP) y sin cable: muestra B.
+        let mut seen = views.clone();
+        seen[0].via = vec![(Machine::B, MonitorInput::DisplayPort)];
+        assert_eq!(shows(&seen, &Desk::default()).get(&id), Some(&Machine::B));
+        assert_eq!(
+            inputs(&Desk::default(), &id, Some(&seen[0])).of(Machine::A),
+            Some(MonitorInput::Hdmi)
+        );
     }
 
     #[tokio::test]
