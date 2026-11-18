@@ -1,30 +1,34 @@
 # Tandem
 
-Mac + PC Windows como un solo puesto: monitores (DDC/CI), teclado y mouse con motor propio, energía y enlace cifrado propio. Todo en Rust (+ Tauri para la UI).
+A Mac and a Windows PC working as one desk: monitors (DDC/CI), keyboard and mouse with our own engine, power, and our own encrypted link. All in Rust (+ Tauri for the UI).
 
-- **Diseño (fuente de verdad):** `docs/DESIGN.md`. Léelo antes de cualquier cambio no trivial.
-- **Investigación:** `docs/research/` (DDC del 34", Deskflow como referencia, motor de entrada).
-- **Backlog:** `docs/tasks/T-*.md` (protocolo abajo).
-- **Mockups de la UI (v0.3):** `mockups/v03/*.dc.html` (mapa en `mockups/README.md`); se comparan con `pnpm shots` y `pnpm mockups:compare`.
+- **Design (source of truth):** `docs/DESIGN.md`. Read it before any non-trivial change.
+- **Research:** `docs/research/` (DDC of the 34", Deskflow as a reference, input engine).
+- **Backlog:** `docs/tasks/T-*.md` (protocol below).
+- **Terminology:** `docs/GLOSSARY.md`. Use its terms in code, UI, docs and commits.
+- **UI mockups (v0.3):** `mockups/v03/*.dc.html` (map in `mockups/README.md`); compared with `pnpm shots` and `pnpm mockups:compare`.
 
-Si el código, la tarea y el diseño no coinciden, **detente y repórtalo**; no improvises arquitectura.
-El usuario escribe en español: documentación, mensajes de commit y PRs en español.
+If the code, the task and the design disagree, **stop and report it**; do not improvise architecture.
 
-## Protocolo del backlog
+## Language
 
-- Cada tarea: `docs/tasks/T-<id>.md` con frontmatter `status: todo | in-progress | blocked | done`, `depends_on`, `needs`.
+**Everything in the repository is in English**: UI text, code, identifiers, file names, comments, tests, docs, tasks, reports, commit messages, PR titles and descriptions, and CI job names. No Spanish anywhere in the repo. Only the conversation with the user is in Spanish.
+
+## Backlog protocol
+
+- Each task: `docs/tasks/T-<id>.md` with frontmatter `status: todo | in-progress | blocked | done`, `depends_on`, `needs`.
 - `needs`:
-  - `none`: se hace sin hardware.
-  - `windows-hw` / `mac-hw`: **también se implementa**, con código completo, pruebas con backends simulados y CI en las tres plataformas. Lo que solo se puede comprobar en el equipo real va en una sección `## Verificación en hardware pendiente` (lista con casillas) del archivo de la tarea; la tarea cuenta como `done` aunque esa lista quede pendiente.
-  - `user` (requiere una acción física del usuario): no se toma.
-- **Rama de integración: `develop`.** Las tareas salen de `origin/develop` y sus PRs apuntan a `develop`. `main` solo la toca el usuario: nunca commit, push, PR ni merge a `main`.
-- Una tarea = una rama `task/T-<id>` = un PR hacia `develop`.
-- **Merge autónomo a `develop`** (autorizado por el usuario): `gh pr merge <n> --squash --delete-branch`, solo si los tres jobs de CI están en verde y el agente reviewer aprobó. Si `develop` avanzó, rebase sobre `origin/develop` y `git push --force-with-lease origin task/T-<id>` (solo ramas `task/*`).
-- En tu PR, pon `status: done` en el archivo de la tarea y marca los criterios cumplidos.
-- Si no puedes cumplir un criterio que no sea de hardware, `status: blocked` con la razón en `## Notas`.
-- Solo edita el archivo de tu tarea, no los de otras.
+  - `none`: can be done without hardware.
+  - `windows-hw` / `mac-hw`: **still implemented**, with complete code, tests with simulated backends and CI on all three platforms. What can only be checked on the real machine goes in a `## Pending hardware verification` section (checkbox list) of the task file; the task counts as `done` even if that list stays pending.
+  - `user` (needs a physical action from the user): not taken.
+- **Integration branch: `develop`.** Tasks branch off `origin/develop` and their PRs target `develop`. Only the user touches `main`: never commit, push, PR or merge to `main`.
+- One task = one branch `task/T-<id>` = one PR to `develop`.
+- **Autonomous merge to `develop`** (authorized by the user): `gh pr merge <n> --squash --delete-branch`, only if all three CI jobs are green and the reviewer agent approved. If `develop` moved, rebase on `origin/develop` and `git push --force-with-lease origin task/T-<id>` (only `task/*` branches).
+- In your PR, set `status: done` in the task file and check the criteria you met.
+- If you cannot meet a non-hardware criterion, set `status: blocked` with the reason under `## Notes`.
+- Only edit your own task file, not others'.
 
-## Calidad (obligatorio antes de commit o PR; un hook lo exige)
+## Quality (required before a commit or PR; a hook enforces it)
 
 ```
 cargo fmt --all -- --check
@@ -32,31 +36,32 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Para código de Windows, el CI de `windows-latest` es la verificación. `cargo check --target x86_64-pc-windows-gnu` en WSL solo funciona si está instalado `mingw-w64` (crates con C como `ring`); si falta, no es un bloqueo.
+For Windows code, the `windows-latest` CI is the check. `cargo check --target x86_64-pc-windows-gnu` in WSL only works if `mingw-w64` is installed (crates with C such as `ring`); if it is missing, that is not a blocker.
 
-## Pruebas (maximizar; ver `docs/TESTING.md`)
+## Tests (maximize; see `docs/TESTING.md`)
 
-- Toda lógica nueva lleva pruebas unitarias. Los invariantes llevan pruebas de propiedades (`proptest`).
-- Todo código de plataforma va detrás de un trait con un doble de prueba, para que la lógica se pruebe en Linux.
-- Las rutas entre las dos máquinas se prueban con dos agentes dentro del mismo proceso, por loopback (`tandem-sim`).
-- Un bug encontrado = primero una prueba que falla, después el arreglo.
+- All new logic gets unit tests. Invariants get property tests (`proptest`).
+- All platform code goes behind a trait with a test double, so the logic is tested on Linux.
+- Paths between the two machines are tested with two agents in the same process, over loopback (`tandem-sim`).
+- A bug found = first a failing test, then the fix.
 
-## Convenciones de Rust
+## Rust conventions
 
-- Edición 2024. `thiserror` en librerías, `anyhow` solo en binarios. Sin `unwrap()`/`expect()` fuera de pruebas.
-- Código de plataforma bajo `#[cfg(windows)]` / `#[cfg(target_os = "macos")]`, detrás de traits definidos en código portable; la lógica se prueba en Linux con implementaciones simuladas.
-- Dependencias: declaradas en `[workspace.dependencies]` del `Cargo.toml` raíz.
-- `unsafe` solo para FFI, en funciones pequeñas con comentario `// SAFETY:`.
-- Comentarios y documentación en español, densidad baja: explica el porqué, no el qué.
-- **Prohibido copiar código de lan-mouse o Deskflow (GPL).** Se pueden leer como referencia.
+- Edition 2024. `thiserror` in libraries, `anyhow` only in binaries. No `unwrap()`/`expect()` outside tests.
+- Platform code under `#[cfg(windows)]` / `#[cfg(target_os = "macos")]`, behind traits defined in portable code; the logic is tested on Linux with simulated implementations.
+- Dependencies: declared in `[workspace.dependencies]` of the root `Cargo.toml`.
+- `unsafe` only for FFI, in small functions with a `// SAFETY:` comment.
+- Comments and docs in English, low density: explain the why, not the what.
+- **Copying code from lan-mouse or Deskflow (GPL) is forbidden.** They may be read as a reference.
 
 ## Hardware
 
-- Pruebas que tocan dispositivos: `#[ignore = "hardware"]`. Nunca en CI ni en tareas rutinarias.
-- PC Windows: se accede desde WSL con `powershell.exe` (interop). Mac: `ssh mac-runner` (ver `docs/dev/hardware.md`).
-- Cualquier prueba que cambie la entrada de un monitor **debe traer vuelta automática**: el usuario puede quedarse sin ver la PC.
+- Tests that touch devices: `#[ignore = "hardware"]`. Never in CI or routine tasks.
+- Windows PC: reached from WSL with `powershell.exe` (interop). Mac: `ssh mac-runner` (see `docs/dev/hardware.md`).
+- Any test that changes a monitor's input **must switch back automatically**: the user could lose sight of the PC.
 
 ## Git
 
-- Commits firmados automáticamente con SSH. No uses `--no-gpg-sign` ni toques `commit.gpgsign`.
-- Mensajes en español, en imperativo, una línea de resumen + cuerpo si hace falta.
+- Commits are signed automatically with SSH. Do not use `--no-gpg-sign` or touch `commit.gpgsign`.
+- Messages in English, imperative mood, one summary line + a body if needed.
+- No AI attribution: no `Co-Authored-By: Claude` trailer and no "Generated with Claude Code" line in commits, PRs or comments.

@@ -2,11 +2,13 @@
 paths:
   - "apps/tandem-ui/**"
 ---
-UI: la referencia visual son los mockups v0.3, `mockups/v03/*.dc.html` (qué pantalla es cuál y lo que DECISIONS corrige: `mockups/README.md`). `mockups/main.html` y `next.html` son historia (v0.1 y v0.2): no se usan como referencia. Si un componente o una pantalla difiere del mockup, se corrige la app: el mockup manda.
+UI: the visual reference is the v0.3 mockups, `mockups/v03/*.dc.html` (which screen is which, and what DECISIONS corrects: `mockups/README.md`). `mockups/main.html` and `next.html` are history (v0.1 and v0.2): not used as a reference. If a component or a screen differs from the mockup, fix the app: the mockup rules.
 
-Cómo se comprueba:
+All UI text is in English, with the terms of `docs/GLOSSARY.md`.
 
-- `cd apps/tandem-ui && pnpm shots`: captura cada pantalla del modo demo y la compara con la captura de su mockup en `docs/mockups-png/` (similitud y peor cuadro, en `docs/screenshots/v03/similitud.json`), y compara los estilos calculados de cada componente de la galería (`gallery.html`) con el mismo elemento del mockup (`scripts/style-parity-spec.ts`). `pnpm shots --check` falla si una zona con umbral no lo cumple o si una propiedad de estilo difiere; es lo que corre el job `ui (capturas)`.
-- Comparar una captura suelta: `cd tools/mockup-render && pnpm mockups:compare app.png ../../docs/mockups-png/V3-Puesto.png --diff diff.png`. Ver un mockup: `pnpm mockups:serve`.
+How it is checked:
 
-Estilo sobrio: colores apagados, un acento suave por máquina, sin brillos de neón, sin degradados llamativos ni fondos animados. Visual antes que texto. Incluye una captura de pantalla en el PR (las de `docs/screenshots/v03/`, o la galería `galeria.png` si cambian componentes).
+- `cd apps/tandem-ui && pnpm shots`: captures every demo-mode screen and compares it with its mockup capture in `docs/mockups-png/` (similarity and worst tile, in `docs/screenshots/v03/similarity.json`), and compares the computed styles of each gallery component (`gallery.html`) with the same element of the mockup (`scripts/style-parity-spec.ts`). `pnpm shots --check` fails if a zone with a threshold misses it or if a style property differs; it is what the `ui (screenshots)` job runs.
+- Compare a single capture: `cd tools/mockup-render && pnpm mockups:compare app.png ../../docs/mockups-png/V3-Desk.png --diff diff.png`. View a mockup: `pnpm mockups:serve`.
+
+Sober style: muted colors, one soft accent per machine, no neon glow, no flashy gradients or animated backgrounds. Visuals before text. Include a screenshot in the PR (from `docs/screenshots/v03/`, or the gallery `gallery.png` if components change).
