@@ -1,6 +1,6 @@
 // Cómo habla la ventana con el núcleo de la app (y él con tandemd).
 
-import type { Action, ActionResult, Bindings, Machine, Notice, Permission, ResourceSample, SetupView, ShortcutsView, Snapshot } from "./model";
+import type { Action, ActionResult, AdminView, Bindings, Machine, Notice, Permission, ResourceSample, SetupView, ShortcutsView, Snapshot } from "./model";
 import type { NetworkWire } from "./network";
 import type { ProjectWire, TransferWire } from "./tunnels";
 import type { UpdateView } from "./updates";
@@ -39,6 +39,10 @@ export interface Bridge {
   openSettings(permission: Permission): Promise<void>;
   /** Reinicia `tandemd` (launchd lo vuelve a levantar) para que valgan los permisos recién dados. */
   restartAgent(): Promise<void>;
+  /** El estado real del servicio de administrador (T-131). */
+  adminStatus(): Promise<AdminView>;
+  /** «Instalar»: diálogo de administrador (macOS) o UAC (Windows). Rechaza con la razón. */
+  installAdmin(): Promise<AdminView>;
   /** Marca la guía como vista: no vuelve a abrirse sola. */
   finishSetup(): Promise<SetupView>;
   /** Ajustes → Actualizaciones (T-122): versiones, búsqueda y «Actualizar solo». */
@@ -104,6 +108,8 @@ export async function tauriBridge(): Promise<Bridge> {
     setup: () => invoke<SetupView>("setup_get"),
     openSettings: (permission) => invoke<void>("setup_open", { permission }),
     restartAgent: () => invoke<void>("agent_restart"),
+    adminStatus: () => invoke<AdminView>("admin_status"),
+    installAdmin: () => invoke<AdminView>("admin_install"),
     finishSetup: () => invoke<SetupView>("setup_finish"),
     updates: () => invoke<UpdateView>("update_get"),
     onUpdates: async (cb) => {

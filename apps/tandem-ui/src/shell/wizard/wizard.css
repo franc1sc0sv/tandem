@@ -38,6 +38,15 @@
   --btn-fs: 13px;
   --btn-r: 10px;
 }
+/* «Instalar» (`F-Asis1`): 34 de alto y la flecha un poco más abajo, como el mockup. */
+.wiz .wz-inst {
+  --btn-h: 34px;
+  --btn-px: 13px;
+  --btn-gap: 9px;
+}
+.wiz .wz-inst svg {
+  transform: translateY(2px);
+}
 /* «Ir al puesto» (`F-Asis6`): un poco más grande, entra al final y respira. */
 .wiz .wz-fin {
   --btn-h: 46px;

@@ -9,7 +9,7 @@ import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, ratioLabel, type Arrang
 import type { Bridge } from "../bridge";
 import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
-import type { Action, ActionResult, Bindings, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
+import type { Action, ActionResult, AdminView, Bindings, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
 import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
@@ -519,6 +519,14 @@ export class LiveSource implements Source {
   async restartAgent(): Promise<ActResult> {
     await this.bridge.restartAgent();
     return { ok: true, text: "tandemd se reinicia: en unos segundos se vuelven a comprobar los permisos" };
+  }
+
+  adminStatus(): Promise<AdminView> {
+    return this.bridge.adminStatus();
+  }
+
+  installAdmin(): Promise<AdminView> {
+    return this.bridge.installAdmin();
   }
 
   setup(): Promise<SetupView> {

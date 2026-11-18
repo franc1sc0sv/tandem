@@ -27,7 +27,8 @@ pub use windows::{HighestTask, RunKey, WinAcl};
 
 pub mod task;
 pub use task::{
-    AgentInstall, NotElevated, PathAcl, Scheduler, TASK_NAME, install_agent, uninstall_agent,
+    AgentInstall, NotElevated, PathAcl, Scheduler, TASK_NAME, install_agent, not_admin_only,
+    uninstall_agent,
 };
 
 /// Nombre del valor en `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`. No es

@@ -294,15 +294,28 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
     assert_eq!(proc.launch.program, "cargo");
     proc.stdout(b"running 3 tests\n");
     proc.stderr(b"aviso\n");
-    let out = mcp
-        .tool(
-            "output",
-            json!({"tunnel": id, "process": pid, "wait_ms": 10000}),
-        )
-        .await
-        .unwrap();
-    assert_eq!(out["stdout"], "running 3 tests\n");
-    assert_eq!(out["stderr"], "aviso\n");
+    // stdout y stderr llegan por separado: `output` puede devolver apenas llegue lo primero.
+    // Se lee de a tandas con el cursor hasta tener las dos (antes fallaba en macOS por carrera).
+    let (mut so, mut se) = (String::new(), String::new());
+    let mut out = json!({"next": {"stdout": 0, "stderr": 0}});
+    for _ in 0..50 {
+        if so == "running 3 tests\n" && se == "aviso\n" {
+            break;
+        }
+        let from = out["next"].clone();
+        out = mcp
+            .tool(
+                "output",
+                json!({"tunnel": id, "process": pid, "wait_ms": 10000,
+                       "from_stdout": from["stdout"], "from_stderr": from["stderr"]}),
+            )
+            .await
+            .unwrap();
+        so.push_str(out["stdout"].as_str().unwrap_or_default());
+        se.push_str(out["stderr"].as_str().unwrap_or_default());
+    }
+    assert_eq!(so, "running 3 tests\n");
+    assert_eq!(se, "aviso\n");
     assert_eq!(out["done"], false);
     proc.stdout(b"ok\n");
     proc.exit(0);

@@ -119,6 +119,15 @@ export interface MachineCaps {
   hardware?: HardwareCaps;
 }
 
+/** El servicio de administrador (T-131): lo que reporta la app, no un spinner inventado. */
+export interface AdminView {
+  /** `off` sin instalar, `pending` por instalar o a medias, `ok` activo. */
+  state: "off" | "pending" | "ok";
+  /** Hay botón «Instalar»; si no, `note` dice por qué. */
+  canInstall: boolean;
+  note: string;
+}
+
 /** Un módulo tal como lo anuncia su máquina (`tandem_ui::session::ModuleView`). */
 export interface ModuleCaps {
   /** El id del puesto: `input`, `clipboard`, `secure_desktop`… */
