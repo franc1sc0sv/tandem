@@ -4,7 +4,7 @@ import { changeToast, deskEvents, KIND_NAME, TONE_COLOR } from "./notices";
 import { demoDesk, demoOptions } from "./store/demo";
 import type { DeskView } from "./store/types";
 
-const desk = (q = "demo&still"): Extract<DeskView, { ready: true }> => demoDesk(demoOptions(q)) as Extract<DeskView, { ready: true }>;
+const desk = (q = "demo&still"): DeskView => demoDesk(demoOptions(q));
 
 describe("changeToast (D5)", () => {
   it("dice quién cambió, qué cambió y ofrece «Deshacer» hacia la versión anterior", () => {
@@ -36,7 +36,7 @@ describe("deskEvents", () => {
   it("un túnel nuevo lo abrió Claude; uno cerrado o ya conocido no avisa", () => {
     const d = desk();
     const t0 = d.tunnels[0];
-    const nuevo = { ...t0, id: "nuevo", title: "Servidor de pruebas", state: "open" as const };
+    const nuevo = { ...t0, id: "nuevo", title: "Servidor de pruebas", state: "busy" as const };
     const cerrado = { ...t0, id: "otro", state: "closed" as const };
     const out = deskEvents(d, { ...d, tunnels: [...d.tunnels, nuevo, cerrado] });
     expect(out).toHaveLength(1);

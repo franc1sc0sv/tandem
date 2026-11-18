@@ -8,16 +8,15 @@
 
   const store = useStore();
   const desk = $derived(store.desk);
-  const cards = $derived(stateCards(desk));
+  const cards = $derived(stateCards(desk, { gallery: store.demo, failedScene: store.failedScene }));
   const peer = $derived(desk.here === "a" ? "b" : "a");
 
-  function run(does: StateDo) {
+  function run(does: StateDo, sceneId?: string) {
     if (does === "add-machine") store.openWizard(WIZARD_PAIR);
     else if (does === "power-on") void store.setPower(peer, true);
     else if (does === "tunnels") store.go({ screen: "tuneles" });
     else if (does === "permission") void store.openPermission("input_monitoring");
-    else if (desk.scenes[0]) void store.applyScene(desk.activeScene ?? desk.scenes[0].id);
-    else store.toast("Todavía no hay escenas que reintentar", "bad");
+    else if (sceneId) void store.applyScene(sceneId);
   }
 </script>
 
@@ -28,7 +27,7 @@
   </div>
   <div class="grid">
     {#each cards as c, i (c.id)}
-      <StateCard spec={c} index={i} onaction={() => c.action && run(c.action.does)} />
+      <StateCard spec={c} index={i} onaction={() => c.action && run(c.action.does, c.action.sceneId)} />
     {/each}
   </div>
 </div>

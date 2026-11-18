@@ -128,6 +128,8 @@ export class Store implements CommandContext {
         if ((running(this.run) || running(this.powerRun)) && this.clockTimer === undefined) this.clockTimer = setInterval(() => (this.clock = this.nowMs()), 100);
         if (!running(this.run) && !running(this.powerRun)) this.stopClock();
         // Un cambio que falló y se deshizo se avisa aunque no se esté mirando el progreso.
+        if (e.type === "failed" && running(before) && this.sceneAsked && before?.title?.includes(this.sceneAsked.name)) this.failedScene = this.sceneAsked;
+        if (e.type === "committed") this.failedScene = null;
         if (e.type === "failed" && running(before) && this.route.screen !== "progreso" && this.run) {
           this.toast(this.runView(this.run)?.message.text ?? "No se pudo aplicar el cambio", "bad");
         }
@@ -217,9 +219,19 @@ export class Store implements CommandContext {
     this.go({ screen: "progreso" });
   }
 
+  /** Es el modo demo (la pantalla de Estados muestra entonces su galería). */
+  get demo(): boolean {
+    return this.source.demo === true;
+  }
+
+  /** La escena que se pidió aplicar y la última que falló (D6): «Reintentar» reaplica esa. */
+  private sceneAsked: { id: string; name: string } | null = null;
+  failedScene: { id: string; name: string } | null = $state(null);
+
   /** Aplica una escena; si no se pudo empezar, avisa. Su avance llega como transacción. */
   async applyScene(id: string): Promise<ActResult> {
     const scene = this.desk.scenes.find((s) => s.id === id);
+    this.sceneAsked = { id, name: scene?.name ?? id };
     this.origin = { title: `Aplicando la escena «${scene?.name ?? id}»`, doneText: `Escena «${scene?.name ?? id}» activa.` };
     const r = await this.report(this.source.applyScene(id));
     if (!r.ok) this.origin = null;

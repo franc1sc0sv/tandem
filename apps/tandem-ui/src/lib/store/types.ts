@@ -412,6 +412,8 @@ export interface Source {
    * fija (el demo, para capturar).
    */
   watchTxn(onEvent: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void): Promise<() => void>;
+  /** Es el modo demo: las pantallas de referencia (Estados) muestran su galería completa. */
+  readonly demo?: boolean;
   /** La hora de la fuente si no es la del reloj (el demo quieto, para capturas deterministas). */
   now?(): number;
   setPower(machine: Machine, on: boolean): Promise<ActResult>;

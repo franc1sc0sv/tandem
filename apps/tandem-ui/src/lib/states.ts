@@ -22,6 +22,8 @@ export interface StateAction {
   icon: IconName;
   variant: "pri" | "default" | "ghost";
   does: StateDo;
+  /** La escena que «Reintentar» reaplica: la que falló. */
+  sceneId?: string;
   /** Cuánto tarda, junto al botón («≈ 40 s»). */
   hint?: string;
 }
@@ -55,96 +57,134 @@ export function shortPath(text: string | null): string {
   return parts.length > 4 ? [...parts.slice(0, 3), "…", parts[parts.length - 1]].join("/") : raw;
 }
 
-/** Las nueve tarjetas, en el orden del mockup. */
-export function stateCards(d: DeskView): StateCardSpec[] {
+/** De dónde salen las tarjetas: el estado real del puesto, o la galería completa del demo. */
+export interface StateContext {
+  /** Demo: se muestran las nueve, con datos genéricos. En la app real solo las que aplican. */
+  gallery: boolean;
+  /** La última escena que no se pudo aplicar (la guarda el store al ver el fallo). */
+  failedScene: { id: string; name: string } | null;
+}
+
+/** Las tarjetas que aplican (o las nueve en la galería), en el orden del mockup. */
+export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, failedScene: null }): StateCardSpec[] {
   const here = d.machines[d.here]?.name ?? "Esta máquina";
   const peerId = d.here === "a" ? "b" : "a";
   const peer = d.machines[peerId]?.name ?? "La otra máquina";
   const mac = d.machines[d.here]?.os === "macos";
-  // Ejemplos de la vista de referencia: el trabajo no sale de un túnel real.
-  const owner = "Entrenar LoRA";
-  return [
-    {
-      id: "first",
-      tag: "Primera vez",
-      tone: "blue",
-      icon: "plus",
-      title: "Puesto de una sola máquina",
-      body: "Todo funciona en esta máquina. Lo que necesita otra (teclado compartido, cómputo, escenas) aparece apagado con «Agrega otra máquina para usar esto».",
-      action: { label: "Agregar máquina", icon: "plus", variant: "pri", does: "add-machine" },
-    },
-    {
-      id: "off",
-      tag: "Máquina apagada",
-      tone: "grey",
-      icon: "power",
-      stroke: 2.2,
-      title: `${peer} está apagada`,
-      body: `Su tarjeta queda atenuada y el mouse ya no cruza hacia ella. ${here} puede despertarla por la red.`,
-      action: { label: "Encender", icon: "power", variant: "pri", does: "power-on", hint: WAKE_HINT },
-    },
-    {
-      id: "cable",
-      tag: "Enlace",
-      tone: "amber",
-      icon: "wifi-fill",
-      title: "Se desconectó el cable USB-C",
-      body: "El teclado y el mouse siguieron por Wi-Fi sin cortarse (0.6 s). El envío de 2 workspaces quedó en pausa hasta que vuelva un cable, o puedes mandarlos por Wi-Fi ahora.",
-    },
-    {
-      id: "resumed",
-      tag: "Cómputo",
-      tone: "blue",
-      icon: "sync",
-      title: "Reconectado: el túnel siguió",
-      body: `«${owner}» siguió corriendo en ${peer} mientras no había enlace. Se recuperaron 3 min de salida.`,
-      mono: "epoch 9/20 · loss 0.0371",
-    },
-    {
-      id: "failed",
-      tag: "Cómputo",
-      tone: "red",
-      icon: "x",
-      title: "«Render ComfyUI» falló",
-      body: `Sin memoria de GPU: «${owner}» usa 14.1 de 16 GB en ${peer}. Claude ve este motivo por MCP y puede esperar o elegir otra máquina.`,
-      action: { label: "Ver en Túneles", icon: "eye", variant: "ghost", does: "tunnels" },
-    },
-    {
-      id: "scene",
-      tag: "Monitores",
-      tone: "red",
-      icon: "screen",
-      title: "La escena «Solo MacBook» no se aplicó",
-      body: "El 34\" respondió «cambio fallido» (no hay señal HDMI de la MacBook). Tandem deshizo la escena: todo quedó como estaba.",
-      action: { label: "Reintentar", icon: "refresh", variant: "default", does: "retry-scene" },
-    },
-    {
-      id: "unsupported",
-      tag: "Monitores",
-      tone: "amber",
-      icon: "warn",
-      title: "Monitor no compatible",
-      body: "Tandem solo controla monitores que cumplen el estándar: dicen qué entrada muestran, confirman cada cambio y avisan los cambios hechos con sus botones. Los demás se ven, pero no se tocan.",
-    },
-    {
-      id: "nobody",
-      tag: "Monitores",
-      tone: "grey",
-      icon: "screen",
-      title: "Nadie puede hablar con el 34\"",
-      body: `Su dueño (${peer}) está apagado y ${here} solo llega a él por HDMI mientras lo está mostrando. Cuando una de las dos pueda, toma el control sola.`,
-    },
-    {
-      id: "permission",
-      tag: "Permisos",
-      tone: "amber",
-      icon: "shield-plain",
-      title: mac ? "Falta «Monitoreo de entrada» en macOS" : "Falta un permiso del sistema",
-      body: mac
-        ? `Sin este permiso, ${here} no puede mandar su teclado. Concédelo a {code}; Tandem lo detecta solo.`
-        : `Sin este permiso, ${here} no puede mandar su teclado. Concédelo a Tandem; Tandem lo detecta solo.`,
-      code: mac ? shortPath(d.permissions.binary) : undefined,
-      action: { label: "Abrir Ajustes del Sistema", icon: "external", variant: "pri", does: "permission" },
-    },
+  const g = ctx.gallery;
+  const alone = d.pair.peer.kind === "unpaired";
+  const peerOff = !alone && d.machines[peerId]?.power !== "on";
+  const wifiOnly = !alone && d.link.kind === "wifi";
+  // Los datos de la tarjeta salen del puesto; sin ellos (galería) se nombra lo genérico.
+  const tunnel = d.tunnels.find((t) => t.state !== "closed") ?? d.tunnels[0];
+  const job = tunnel ? `«${tunnel.title}»` : "El trabajo";
+  const scene = ctx.failedScene ?? (g ? { id: d.activeScene ?? d.scenes[0]?.id ?? "", name: d.scenes.find((x) => x.id === d.activeScene)?.name ?? d.scenes[0]?.name ?? "" } : null);
+  const bad = d.monitors.find((m) => !m.compat.ok);
+  const unreachable = d.monitors.find((m) => m.compat.ok && m.owner === null);
+  const monitor = unreachable ?? d.monitors.find((m) => m.compat.ok);
+  const missingPermission = d.permissions.rows.some((r) => r.state === "missing") || d.trouble === "permissions";
+
+  const cards: (StateCardSpec | null)[] = [
+    alone || g
+      ? {
+          id: "first",
+          tag: "Primera vez",
+          tone: "blue",
+          icon: "plus",
+          title: "Puesto de una sola máquina",
+          body: "Todo funciona en esta máquina. Lo que necesita otra (teclado compartido, cómputo, escenas) aparece apagado con «Agrega otra máquina para usar esto».",
+          action: { label: "Agregar máquina", icon: "plus", variant: "pri", does: "add-machine" },
+        }
+      : null,
+    peerOff || g
+      ? {
+          id: "off",
+          tag: "Máquina apagada",
+          tone: "grey",
+          icon: "power",
+          stroke: 2.2,
+          title: `${peer} está apagada`,
+          body: `Su tarjeta queda atenuada y el mouse ya no cruza hacia ella. ${here} puede despertarla por la red.`,
+          action: { label: "Encender", icon: "power", variant: "pri", does: "power-on", hint: WAKE_HINT },
+        }
+      : null,
+    wifiOnly || g
+      ? {
+          id: "cable",
+          tag: "Enlace",
+          tone: "amber",
+          icon: "wifi-fill",
+          title: "Se desconectó el cable",
+          body: "El teclado y el mouse siguen por Wi-Fi. Los envíos de datos esperan a que vuelva un cable, o puedes mandarlos por Wi-Fi ahora.",
+        }
+      : null,
+    // Reconexión y fallo de un trabajo: el agente todavía no manda ese historial, así que solo la galería.
+    g
+      ? {
+          id: "resumed",
+          tag: "Cómputo",
+          tone: "blue",
+          icon: "sync",
+          title: "Reconectado: el túnel siguió",
+          body: `${job} siguió corriendo en ${peer} mientras no había enlace. Se recuperó la salida que faltaba.`,
+        }
+      : null,
+    g
+      ? {
+          id: "failed",
+          tag: "Cómputo",
+          tone: "red",
+          icon: "x",
+          title: `${job} falló`,
+          body: `Se quedó sin recursos en ${peer}. Claude ve este motivo por MCP y puede esperar o elegir otra máquina.`,
+          action: { label: "Ver en Túneles", icon: "eye", variant: "ghost", does: "tunnels" },
+        }
+      : null,
+    scene && (ctx.failedScene || g)
+      ? {
+          id: "scene",
+          tag: "Monitores",
+          tone: "red",
+          icon: "screen",
+          title: `La escena «${scene.name}» no se aplicó`,
+          body: "Un monitor respondió «cambio fallido». Tandem deshizo la escena: todo quedó como estaba.",
+          action: { label: "Reintentar", icon: "refresh", variant: "default", does: "retry-scene", sceneId: scene.id },
+        }
+      : null,
+    bad || g
+      ? {
+          id: "unsupported",
+          tag: "Monitores",
+          tone: "amber",
+          icon: "warn",
+          title: bad ? `«${bad.name}» no es compatible` : "Monitor no compatible",
+          body: "Tandem solo controla monitores que cumplen el estándar: dicen qué entrada muestran, confirman cada cambio y avisan los cambios hechos con sus botones. Los demás se ven, pero no se tocan.",
+        }
+      : null,
+    unreachable || g
+      ? {
+          id: "nobody",
+          tag: "Monitores",
+          tone: "grey",
+          icon: "screen",
+          title: `Nadie puede hablar con ${monitor ? `«${monitor.name}»` : "el monitor"}`,
+          body: `Su dueño (${peer}) está apagado y ${here} solo llega a él por HDMI mientras lo está mostrando. Cuando una de las dos pueda, toma el control sola.`,
+        }
+      : null,
+    missingPermission || g
+      ? {
+          id: "permission",
+          tag: "Permisos",
+          tone: "amber",
+          icon: "shield-plain",
+          title: mac ? "Falta «Monitoreo de entrada» en macOS" : "Falta un permiso del sistema",
+          body: mac
+            ? `Sin este permiso, ${here} no puede mandar su teclado. Concédelo a {code}; Tandem lo detecta solo.`
+            : `Sin este permiso, ${here} no puede mandar su teclado. Concédelo a Tandem; Tandem lo detecta solo.`,
+          code: mac ? shortPath(d.permissions.binary) : undefined,
+          action: { label: "Abrir Ajustes del Sistema", icon: "external", variant: "pri", does: "permission" },
+        }
+      : null,
   ];
+  return cards.filter((c): c is StateCardSpec => c !== null);
 }

@@ -590,6 +590,7 @@ const STEP_MS = 700;
 
 /** Una fuente simulada: responde a las acciones como lo haría el agente. */
 export class DemoSource implements Source {
+  readonly demo = true;
   private desk: DeskView;
   private emit: (d: DeskView) => void = () => {};
   private timer: ReturnType<typeof setInterval> | undefined;
