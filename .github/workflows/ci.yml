@@ -162,6 +162,16 @@ jobs:
         run: |
           set -o pipefail
           pnpm shots --check --diff-dir "$RUNNER_TEMP/app-diff" | tee -a "$GITHUB_STEP_SUMMARY"
+      # Las capturas versionadas deben ser las de la app actual (T-172): si regenerar las cambia,
+      # hay que correr `pnpm shots` en apps/tandem-ui y commitear docs/screenshots/v03.
+      - name: Capturas versionadas al día
+        run: |
+          estado="$(git status --porcelain -- docs/screenshots/v03)"
+          if [ -n "$estado" ]; then
+            echo "docs/screenshots/v03 está desactualizado; corre 'pnpm shots' y commitea:"
+            echo "$estado"
+            exit 1
+          fi
       - if: always()
         uses: actions/upload-artifact@v4
         with:
