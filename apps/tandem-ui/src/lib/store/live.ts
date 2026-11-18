@@ -14,7 +14,8 @@ import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
 import { grantTo, permissionState } from "../permissions";
-import type { ActResult, Capability, CursorEvent, DeskView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, PairActionKind, PermissionsView, Source, Topic } from "./types";
+import type { ActResult, Capability, CursorEvent, DeskView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, ProcessRow, Source, Topic, TunnelView } from "./types";
+import { addTransfer, newMemory, outputChunk, processRow, tunnelsFromWire, type Memory, type ProjectWire } from "../tunnels";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK } from "./types";
 
@@ -132,7 +133,7 @@ function linkOf(kind: DeskView["link"]["kind"], network: NetworkView): DeskView[
 }
 
 /** El puesto que dibuja la UI a partir de la foto del agente. Puro; lanza `ShapeError`. */
-export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, network: NetworkView = EMPTY_NETWORK): DeskView {
+export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, network: NetworkView = EMPTY_NETWORK, tunnels: TunnelView[] = []): DeskView {
   const snap: unknown = raw;
   checkSnapshot(snap);
   if (snap.kind === "connecting") return EMPTY_DESK;
@@ -173,6 +174,7 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
     machines,
     link: linkOf(snap.peer.kind === "paired" && snap.peer.link ? LINK_KIND[snap.peer.link] : null, network),
     network,
+    tunnels,
     pair: { peer: snap.peer, pairing: snap.pairing },
     permissions: permissionsOf(snap.caps.here),
     layout: layoutFromDesk(snap),
@@ -246,6 +248,10 @@ export class LiveSource implements Source {
   private network: NetworkView = EMPTY_NETWORK;
   /** Se le pidió al agente la red en vivo. */
   private watchingNetwork = false;
+  /** Los túneles como los mandó el agente por última vez, y lo que la ventana recuerda de ellos. */
+  private groups: ProjectWire[] = [];
+  private readonly memory: Memory = newMemory();
+  private tunnels: TunnelView[] = [];
   /** Quién recibe el cursor en vivo; el agente solo lo manda mientras haya alguien. */
   private readonly cursorListeners = new Set<(e: CursorEvent) => void>();
 
@@ -255,7 +261,7 @@ export class LiveSource implements Source {
     // Un error al leer una foto no cuelga la ventana: se muestra como «sin agente» con la razón.
     const push = (s: Snapshot) => {
       try {
-        const d = deskFromSnapshot(s, this.live, s.kind === "connected" ? this.network : EMPTY_NETWORK);
+        const d = deskFromSnapshot(s, this.live, s.kind === "connected" ? this.network : EMPTY_NETWORK, s.kind === "connected" ? this.tunnels : []);
         this.last = s;
         onDesk(d);
       } catch (e) {
@@ -277,6 +283,24 @@ export class LiveSource implements Source {
       this.bridge.onNetwork?.((w) => {
         this.network = networkFromWire(w, Date.now());
         if (this.last.kind === "connected") push(this.last);
+      }),
+    ).catch(() => {});
+    // Los túneles llegan al conectar y con cada cambio, sin pedirlos; el avance de las copias
+    // alimenta el tráfico de cada uno.
+    const retunnel = () => {
+      this.tunnels = tunnelsFromWire(this.groups, Date.now(), this.memory);
+      if (this.last.kind === "connected") push(this.last);
+    };
+    void Promise.resolve(
+      this.bridge.onTunnels?.((g) => {
+        this.groups = g;
+        retunnel();
+      }),
+    ).catch(() => {});
+    void Promise.resolve(
+      this.bridge.onTransfer?.((t) => {
+        addTransfer(this.memory, t);
+        retunnel();
       }),
     ).catch(() => {});
     this.bindNotices().catch(() => {});
@@ -459,6 +483,18 @@ export class LiveSource implements Source {
 
   setAutoUpdate(on: boolean): Promise<UpdateView> {
     return this.bridge.setAutoUpdate(on);
+  }
+
+  async processes(tunnel: string): Promise<ProcessRow[]> {
+    const r = await this.bridge.act({ kind: "processes", tunnel });
+    if (r.kind === "processes") return r.processes.map(processRow);
+    throw new Error(r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "el agente no contestó con procesos");
+  }
+
+  async output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {
+    const r = await this.bridge.act({ kind: "output", tunnel, process, stdout: from.stdout, stderr: from.stderr });
+    if (r.kind === "output") return outputChunk(r.output);
+    throw new Error(r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "el agente no contestó con la salida");
   }
 
   can(what: Capability): boolean {

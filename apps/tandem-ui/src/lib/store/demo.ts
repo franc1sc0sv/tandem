@@ -53,6 +53,10 @@ import type {
   Source,
   Topic,
   Trouble,
+  OutputChunk,
+  OutputCursor,
+  ProcessRow,
+  TunnelState,
   TunnelView,
 } from "./types";
 
@@ -75,6 +79,8 @@ export interface DemoOptions {
   txn?: "run" | "ok" | "fail";
   /** Aplicar esta escena falla en su monitor y se deshace. */
   failScene?: string;
+  /** Los túneles del demo: los de `V3-Computo`, ninguno o uno con 12 procesos. */
+  tunnels?: "normal" | "none" | "many";
 }
 
 export function demoOptions(query: string): DemoOptions {
@@ -91,6 +97,7 @@ export function demoOptions(query: string): DemoOptions {
     firstRun: p.has("setup"),
     txn: p.get("txn") === "run" || p.get("txn") === "ok" || p.get("txn") === "fail" ? (p.get("txn") as "run" | "ok" | "fail") : undefined,
     failScene: p.get("fail") ?? undefined,
+    tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : "normal",
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
 }
@@ -300,13 +307,104 @@ export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boo
   return raw.map((r) => sceneView(r, { monitors, name: (x) => (x === "a" ? a : b), mac }));
 }
 
-export const DEMO_TUNNELS: TunnelView[] = [
-  { id: "t97", project: "tandem", title: "Crate de monitores (T-097)", from: "a", to: "b", state: "busy", processes: 6 },
-  { id: "t101", project: "tandem", title: "Túneles en tandemd (T-101)", from: "a", to: "b", state: "busy", processes: 2 },
-  { id: "pr", project: "tandem", title: "Revisar PR #66 en Windows", from: "b", to: "a", state: "idle", processes: 0 },
-  { id: "lora", project: "ia-local", title: "Entrenar LoRA de estilo", from: "a", to: "b", state: "busy", processes: 3 },
-  { id: "comfy", project: "ia-local", title: "Probar flujo de ComfyUI", from: "a", to: "b", state: "closed", processes: 0 },
+const MIN = 60_000;
+/** Medio minuto de más: las horas se leen «34 m» aunque pase un instante entre armar el demo y dibujarlo. */
+const PAD = 20_000;
+
+interface DemoProc {
+  cmd: string;
+  /** Hace cuánto empezó (ms). */
+  ago: number;
+  pid: number;
+  log: string;
+}
+
+const p = (cmd: string, min: number, pid: number, log: string): DemoProc => ({ cmd, ago: min * MIN + PAD, pid, log });
+
+/** Los procesos que corren en cada túnel del demo (los de `V3-Computo`) y su salida. */
+const DEMO_PROCS: Record<string, DemoProc[]> = {
+  t97: [
+    p("cargo test -p tandem-monitor", 2, 4127, "   Compiling tandem-monitor v0.3.0\n     Running unittests src/lib.rs\ntest probe_never_sends_vendor_codes ... ok\ntest hotplug_adds_monitor ... ok\ntest owner_failover_when_pc_sleeps ... ok\ntest verdict_failed_rolls_back_scene ... "),
+    p("monitor-events serve --sim 2", 30, 3810, "listening on 127.0.0.1:8765\nGET /api/monitors 200\nSSE monitor-added lc34g55t-9c1e\nSSE input-changed lc34g55t-9c1e dp\nSSE switch-done lc34g55t-9c1e 1.8s\n"),
+    p("cargo watch -x check -p tandem-monitor", 25, 3902, "[Running cargo check]\n    Finished dev in 0.9s\n[Finished running. Exit status: 0]\n"),
+    p("tandemd --sim --monitors 2", 22, 3955, "monitores: 2 detectados (1 compatible)\ndueño de lc34g55t-9c1e: pc-sim\n"),
+    p("pnpm --filter tandem-ui dev", 20, 3988, "VITE v6 listo en 412 ms\n➜ Local: http://localhost:1420/\n"),
+    p("tail -f ~/.tandem/logs/tandemd.log", 19, 4001, "14:06:12 monitor lc34g55t-9c1e input=dp (firmware)\n14:06:14 escena «Trabajo» aplicada\n"),
+  ],
+  t101: [
+    p("cargo test --workspace", 3, 5210, "     Running tests/two_processes.rs\ntest tunnel_survives_link_drop ... ok\ntest tunnel_many_processes ... ok\ntest pairing_with_real_quic ... "),
+    p("tandemd --sim --peers 2", 15, 5102, "peer mac-sim conectado por loopback\ntúnel t-01 abierto · 0.1 ms\n3 procesos vivos en t-01\n"),
+  ],
+  pr: [],
+  lora: [
+    p("uv run train.py --config estilo.toml", 41, 2290, "epoch 7/20  step 1860/5200  loss 0.0398\nguardado out/estilo-e7.safetensors\nepoch 8/20  step 1880/5200  loss 0.0405\n"),
+    p("python main.py --listen 127.0.0.1", 60, 2104, "Starting server on 127.0.0.1:8188\nGPU: RTX 5080 · 16 GB\nprompt executed in 4.2 s\n"),
+    p("tensorboard --logdir out", 40, 2301, "TensorBoard 2.18 at http://localhost:6006/\n"),
+  ],
+  comfy: [],
+};
+
+/** Un túnel con muchos procesos (`tunnels=many`): la lista tiene que aguantarlos con scroll. */
+const MANY_COMMANDS = [
+  "cargo build --workspace",
+  "cargo test -p tandem-link",
+  "cargo clippy --workspace",
+  "pnpm --filter tandem-ui dev",
+  "pnpm --filter tandem-ui test --watch",
+  "tandemd --sim --peers 2",
+  "tail -f ~/.tandem/logs/tandemd.log",
+  "monitor-events serve --sim 2",
+  "uv run train.py --config estilo.toml",
+  "python main.py --listen 127.0.0.1",
+  "tensorboard --logdir out",
+  "nvidia-smi -l 5",
 ];
+const MANY: DemoProc[] = MANY_COMMANDS.map((c, i) => p(c, 3 + i * 4, 6000 + i, `$ ${c}\nlisto\n`));
+
+/** El demo de los túneles: los cinco de `V3-Computo`, ninguno (`tunnels=none`) o uno con 12 procesos (`tunnels=many`). */
+export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal"): TunnelView[] {
+  if (which === "none") return [];
+  const t = (id: string, project: string, path: string, title: string, branch: string, from: Machine, to: Machine, state: TunnelState, openMin: number, env: string, o: Partial<TunnelView>): TunnelView => ({
+    id,
+    project,
+    projectPath: path,
+    title,
+    from,
+    to,
+    state,
+    processes: DEMO_PROCS[id]?.length ?? 0,
+    branch,
+    created: now - openMin * MIN - PAD,
+    idleSince: null,
+    closedAt: null,
+    env,
+    commands: 0,
+    ports: 0,
+    traffic: { up: 0, down: 0 },
+    ...o,
+  });
+  const list = [
+    t("t97", "tandem", "~/…/apps/tandem", "Crate de monitores (T-097)", "task/T-097", "a", "b", "busy", 34, "WSL · Ubuntu", { commands: 22, traffic: { up: 120e6, down: 4e6 } }),
+    t("t101", "tandem", "~/…/apps/tandem", "Túneles en tandemd (T-101)", "task/T-101", "a", "b", "busy", 18, "WSL · Ubuntu", { commands: 12, traffic: { up: 64e6, down: 3e6 } }),
+    t("pr", "tandem", "~/…/apps/tandem", "Revisar PR #66 en Windows", "develop", "b", "a", "idle", 41, "zsh", { commands: 9, ports: 1, idleSince: now - 9 * MIN - PAD, traffic: { up: 2e6, down: 18e6 } }),
+    t("lora", "ia-local", "~/…/ia-local", "Entrenar LoRA de estilo", "main", "a", "b", "busy", 134, "WSL · Ubuntu", { commands: 37, ports: 1, traffic: { up: 2.1e9, down: 38e6 } }),
+    t("comfy", "ia-local", "~/…/ia-local", "Probar flujo de ComfyUI", "main", "a", "b", "closed", 0, "Windows", { commands: 4, closedAt: now - 60 * MIN, traffic: { up: 12e6, down: 1e6 } }),
+  ];
+  if (which === "many") return [{ ...list[0], processes: MANY.length }, ...list.slice(1)];
+  return list;
+}
+
+/** Los procesos del demo de un túnel, como los daría el agente. */
+export function demoProcesses(id: string, now: number, which: DemoOptions["tunnels"] = "normal"): ProcessRow[] {
+  const procs = which === "many" && id === "t97" ? MANY : (DEMO_PROCS[id] ?? []);
+  return procs.map((q, i) => ({ id: i + 1, command: q.cmd, pid: q.pid, startedAt: now - q.ago, state: "running", code: null }));
+}
+
+/** La salida del demo de un proceso (entera: no tiene cursor que avanzar). */
+export function demoLog(id: string, process: number, which: DemoOptions["tunnels"] = "normal"): string {
+  const procs = which === "many" && id === "t97" ? MANY : (DEMO_PROCS[id] ?? []);
+  return procs[process - 1]?.log ?? "";
+}
 
 /** La hora del demo (fija: capturas deterministas). Los cambios de camino se fechan desde aquí. */
 export const DEMO_NOW = 1_763_400_000_000;
@@ -453,7 +551,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     machines: { a: mk("a", sa, sb.name), b: mk("b", sb, sa.name) },
     link: linkUp ? { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 } : { kind: null, gbps: null, ms: null, inputP99: null },
     network: o.txn && linkUp ? { ...demoNetwork(linkUp), measuring: "usb4" } : demoNetwork(linkUp),
-    tunnels: DEMO_TUNNELS.map((t) => ({ ...t })),
+    tunnels: demoTunnels(o.still ? DEMO_NOW : Date.now(), o.tunnels),
     scenes,
     activeScene: "trabajo",
     monitors,
@@ -556,10 +654,10 @@ export class DemoSource implements Source {
   private nextTxn = 1;
   private txnTimers: ReturnType<typeof setTimeout>[] = [];
 
-  /** La hora de la fuente cuando se enseña un progreso fijo (capturas). */
+  /** La hora de la fuente: fija en las capturas (progreso fijo o demo quieto), si no la del reloj. */
   now(): number {
     const t = this.opts.txn;
-    return t ? DEMO_NOW + (t === "run" ? 1200 : t === "ok" ? 2300 : 3000) : Date.now();
+    return t ? DEMO_NOW + (t === "run" ? 1200 : t === "ok" ? 2300 : 3000) : this.opts.still ? DEMO_NOW : Date.now();
   }
 
   async watchTxn(onEvent: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void): Promise<() => void> {
@@ -918,6 +1016,16 @@ export class DemoSource implements Source {
   }
 
   async hideMain(): Promise<void> {}
+
+  async processes(tunnel: string): Promise<ProcessRow[]> {
+    return demoProcesses(tunnel, this.now(), this.opts.tunnels);
+  }
+
+  async output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {
+    const text = demoLog(tunnel, process, this.opts.tunnels);
+    // El demo da toda la salida de una vez; con el cursor al final no hay nada nuevo.
+    return { text: from.stdout > 0 ? "" : text, next: { stdout: text.length, stderr: 0 }, done: false };
+  }
 
   // Actualizaciones simuladas (`F-Ajustes`): las dos en 0.3.0 y, al buscar, aparece 0.3.1.
   private upd: UpdateView = { here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true };

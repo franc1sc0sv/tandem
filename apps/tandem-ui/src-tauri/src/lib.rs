@@ -15,6 +15,7 @@ pub mod setup;
 pub mod shortcuts;
 pub mod status;
 pub mod tray;
+pub mod tunnels;
 pub mod update;
 
 #[cfg(feature = "app")]

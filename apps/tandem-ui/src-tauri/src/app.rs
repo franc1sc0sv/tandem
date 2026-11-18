@@ -40,6 +40,10 @@ pub const NOTICE_EVENT: &str = "agent-notice";
 pub const RESOURCES_EVENT: &str = "agent-resources";
 /// El estado de la red (`NetworkView`), una vez por segundo y solo con `watch_network`.
 pub const NETWORK_EVENT: &str = "agent-network";
+/// Los túneles por proyecto (`ProjectItem[]`), al conectar y con cada cambio.
+pub const TUNNELS_EVENT: &str = "agent-tunnels";
+/// El avance de una copia de archivos de un túnel (`TransferItem`).
+pub const TRANSFER_EVENT: &str = "agent-transfer";
 pub const MESSAGE_EVENT: &str = "ui-message";
 pub const SHORTCUTS_EVENT: &str = "ui-shortcuts";
 
@@ -155,6 +159,14 @@ impl Sink for Windows {
 
     fn network(&self, network: &crate::session::NetworkView) {
         let _ = self.0.emit(NETWORK_EVENT, network);
+    }
+
+    fn tunnels(&self, tunnels: &[crate::tunnels::ProjectItem]) {
+        let _ = self.0.emit(TUNNELS_EVENT, tunnels);
+    }
+
+    fn transfer(&self, transfer: &crate::tunnels::TransferItem) {
+        let _ = self.0.emit(TRANSFER_EVENT, transfer);
     }
 }
 

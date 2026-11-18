@@ -9,7 +9,7 @@ import { machineName } from "../machines";
 import type { Bindings, Permission, ShortcutsView } from "../model";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
-import type { ActResult, Capability, CursorEvent, DeskView, LinkKind, PairActionKind, Source, Topic } from "./types";
+import type { ActResult, Capability, CursorEvent, DeskView, LinkKind, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
 import type { UpdateView } from "../updates";
 import type { Arrangement } from "../acomodo";
 import type { CrossSample } from "../crossing";
@@ -126,6 +126,21 @@ export class Store implements CommandContext {
       // Sin avisos de transacciones (fuera de la app): no hay progreso que dibujar.
     }
     this.txnReady = true;
+  }
+
+  /** La hora de la fuente (la del reloj, salvo el demo quieto). */
+  now(): number {
+    return this.nowMs();
+  }
+
+  /** Los procesos de un túnel (pantalla Túneles, solo lectura). */
+  processes(tunnel: string): Promise<ProcessRow[]> {
+    return this.source.processes(tunnel);
+  }
+
+  /** La salida de un proceso desde un cursor. */
+  output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {
+    return this.source.output(tunnel, process, from);
   }
 
   private nowMs(): number {

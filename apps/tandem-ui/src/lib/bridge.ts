@@ -2,6 +2,7 @@
 
 import type { Action, ActionResult, Bindings, Machine, Notice, Permission, ResourceSample, SetupView, ShortcutsView, Snapshot } from "./model";
 import type { NetworkWire } from "./network";
+import type { ProjectWire, TransferWire } from "./tunnels";
 import type { UpdateView } from "./updates";
 
 export interface Bridge {
@@ -14,6 +15,10 @@ export interface Bridge {
   onResources(cb: (machine: Machine, r: ResourceSample) => void): Promise<void>;
   /** El estado de la red, una vez por segundo (solo tras `watch_network`). */
   onNetwork(cb: (n: NetworkWire) => void): Promise<void>;
+  /** Los túneles por proyecto: al conectar y con cada cambio (T-114). */
+  onTunnels(cb: (t: ProjectWire[]) => void): Promise<void>;
+  /** El avance de las copias de archivos de los túneles (T-106). */
+  onTransfer(cb: (t: TransferWire) => void): Promise<void>;
   /** Lo que pasó con un pedido hecho desde fuera de la ventana (atajo global, menú del ícono). */
   onMessage(cb: (text: string) => void): Promise<void>;
   shortcuts(): Promise<ShortcutsView>;
@@ -50,6 +55,8 @@ const SNAPSHOT_EVENT = "agent-snapshot";
 const NOTICE_EVENT = "agent-notice";
 const RESOURCES_EVENT = "agent-resources";
 const NETWORK_EVENT = "agent-network";
+const TUNNELS_EVENT = "agent-tunnels";
+const TRANSFER_EVENT = "agent-transfer";
 const MESSAGE_EVENT = "ui-message";
 const SHORTCUTS_EVENT = "ui-shortcuts";
 const UPDATE_EVENT = "ui-update";
@@ -72,6 +79,12 @@ export async function tauriBridge(): Promise<Bridge> {
     },
     onNetwork: async (cb) => {
       await listen<NetworkWire>(NETWORK_EVENT, (e) => cb(e.payload));
+    },
+    onTunnels: async (cb) => {
+      await listen<ProjectWire[]>(TUNNELS_EVENT, (e) => cb(e.payload));
+    },
+    onTransfer: async (cb) => {
+      await listen<TransferWire>(TRANSFER_EVENT, (e) => cb(e.payload));
     },
     onMessage: async (cb) => {
       await listen<string>(MESSAGE_EVENT, (e) => cb(e.payload));
