@@ -102,6 +102,11 @@ describe("Puesto y máquinas", () => {
     expect(open).toHaveBeenLastCalledWith(0);
   });
 
+  it("«Salir» dice con exactitud cuándo la otra máquina olvida la llave (T-152)", async () => {
+    await mount();
+    expect(screen.getByText(/si están conectadas, ellas las suyas; si no, cuando salgan también/)).toBeInTheDocument();
+  });
+
   it("«Salir» pide confirmación y solo entonces desempareja", async () => {
     const store = await mount();
     const pair = vi.spyOn(store, "pairAction");

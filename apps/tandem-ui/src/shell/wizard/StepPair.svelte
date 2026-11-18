@@ -167,7 +167,7 @@
         <div class="wz-row"><span class="wz-spin" aria-hidden="true"></span><span class="wz-mut">Esperando a que confirme {pair.peer}…</span></div>
       {/if}
       <p class="wz-mut wz-note">
-        Al entrar, esta máquina confía en todas las del puesto y ellas en ella, con acceso de administrador para el cómputo remoto. Puedes sacarla después desde cualquier máquina.
+        Al entrar, esta máquina confía en todas las del puesto y ellas en ella, con acceso de administrador para el cómputo remoto. Puedes sacarla después desde cualquier máquina; la otra olvida su llave solo si está conectada, si no, cuando también salga del puesto.
       </p>
     {:else}
       <div class="wz-row"><span class="wz-spin" aria-hidden="true"></span><span class="wz-pt">Buscando a {otherName} en tu red…</span></div>

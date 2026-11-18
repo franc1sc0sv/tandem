@@ -34,7 +34,7 @@ impl Agent {
         let modules = self.registry.snapshot(&ModuleContext {
             os: info.os,
             input: &input,
-            power: &capabilities::power(&self.cfg, info.os),
+            power: &self.power_caps(info.os),
             switches: &switches,
         });
         let mut caps = capabilities::local(
@@ -45,6 +45,7 @@ impl Agent {
             &self.process,
             modules,
         );
+        caps.power = self.power_caps(caps.info.os);
         caps.monitors = self.monitors.local_channels();
         self.add_environments(&mut caps);
         caps

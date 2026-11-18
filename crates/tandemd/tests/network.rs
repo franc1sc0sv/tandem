@@ -671,6 +671,34 @@ async fn until_same_desk(a: &Running, b: &Running) {
     .await;
 }
 
+/// T-159: el nombre del puesto se edita desde la UI y llega a la otra máquina y a su archivo.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn the_desk_name_edited_in_one_machine_reaches_the_other() {
+    let (a_id, b_id) = sides(Identity::from_seed([43; 32]), Identity::from_seed([44; 32]));
+    let (mut a, b) = tandemd::start_pair!(
+        |a_port, b_port| start(Machine::A, &a_id, a_port, Some((b_id.public_key(), b_port))),
+        start(Machine::B, &b_id, b_port, Some((a_id.public_key(), a_port)))
+    );
+    until_peer(&a.agent, paired("B", Some(Link::Usb4))).await;
+    until_peer(&b.agent, paired("A", Some(Link::Usb4))).await;
+    until_both_known(&a, &b).await;
+    let Reply::Desk(edited) =
+        a.ui.request(UiCommand::EditDesk {
+            patch: DeskPatch::Name("Oficina".into()),
+        })
+        .await
+        .unwrap()
+    else {
+        panic!("la edición no devolvió el puesto");
+    };
+    assert_eq!(edited.name.as_deref(), Some("Oficina"));
+    until_desk(&b, &edited).await;
+    assert_eq!(saved(&b).desk.name.as_deref(), Some("Oficina"));
+    assert_eq!(saved(&a).desk.name.as_deref(), Some("Oficina"));
+    a.stop().await;
+    b.stop().await;
+}
+
 /// T-099 (DESIGN §4.4, D5): el puesto se edita desde la UI de cualquiera de las dos. Lo que
 /// se edita en A se ve en B; si se edita en las dos a la vez, gana el último y las dos
 /// quedan iguales, B recibe el aviso con «Deshacer», y deshacer en B vuelve exactamente a

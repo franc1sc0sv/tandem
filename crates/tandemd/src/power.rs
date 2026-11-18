@@ -2,7 +2,7 @@
 //! `[power.wol]`) y apagado limpio de sí misma (si sabe, DESIGN §5). Cualquiera de las
 //! dos puede despertar a la otra (DESIGN §3.7).
 
-use std::sync::Arc;
+use std::sync::{Arc, PoisonError, RwLock};
 
 use tandem_core::Step;
 use tandem_power::{Shutdown, UdpWake, Wake};
@@ -10,19 +10,19 @@ use tandem_power::{Shutdown, UdpWake, Wake};
 use crate::config::AgentConfig;
 use crate::orchestrator::{LocalSteps, STEP_NOT_IMPLEMENTED, StepFuture, describe};
 
-/// Falta `[power.wol]` en `tandem.toml`.
-pub const WOL_NOT_CONFIGURED: &str = "falta [power.wol] en tandem.toml";
+/// Sin `[power.wol]` no hay con qué despertar a la otra.
+pub const WOL_NOT_CONFIGURED: &str = "falta la MAC de la otra máquina para encenderla (se aprende al emparejar o se escribe en su página)";
 
 /// Los pasos de energía de una máquina.
 pub struct PowerSteps {
-    wake: Option<Arc<dyn Wake>>,
+    wake: RwLock<Option<Arc<dyn Wake>>>,
     shutdown: Option<Arc<dyn Shutdown>>,
 }
 
 impl std::fmt::Debug for PowerSteps {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PowerSteps")
-            .field("wake", &self.wake.is_some())
+            .field("wake", &self.has_wake())
             .field("shutdown", &self.shutdown.is_some())
             .finish_non_exhaustive()
     }
@@ -30,7 +30,17 @@ impl std::fmt::Debug for PowerSteps {
 
 impl PowerSteps {
     pub fn new(wake: Option<Arc<dyn Wake>>, shutdown: Option<Arc<dyn Shutdown>>) -> Self {
-        PowerSteps { wake, shutdown }
+        PowerSteps {
+            wake: RwLock::new(wake),
+            shutdown,
+        }
+    }
+
+    fn has_wake(&self) -> bool {
+        self.wake
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .is_some()
     }
 
     /// Lo que corresponde a la máquina de `cfg`: despierta a la otra con `[power.wol]` y
@@ -61,12 +71,22 @@ fn system_shutdown() -> Option<Arc<dyn Shutdown>> {
 }
 
 impl LocalSteps for PowerSteps {
+    fn set_wol(&self, wol: Option<tandem_power::WolTarget>) {
+        *self.wake.write().unwrap_or_else(PoisonError::into_inner) =
+            wol.map(|t| Arc::new(UdpWake::new(t)) as Arc<dyn Wake>);
+    }
+
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a> {
         match step {
             // Encender a la otra (el orquestador solo lo manda a la que no se enciende).
             Step::PowerOn { .. } => {
                 // Un envío UDP no bloquea: no hace falta sacarlo del runtime.
-                let r = match &self.wake {
+                let wake = self
+                    .wake
+                    .read()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clone();
+                let r = match &wake {
                     Some(w) => w.wake().map_err(|e| e.to_string()),
                     None => Err(format!("{}: {WOL_NOT_CONFIGURED}", describe(step))),
                 };
@@ -188,24 +208,36 @@ mod tests {
         let mut cfg = fixtures::desk();
         cfg.os = tandem_core::Os::MacOs;
         let p = PowerSteps::for_machine(&cfg);
-        assert!(p.wake.is_none(), "sin [power.wol] no hay con qué despertar");
+        assert!(!p.has_wake(), "sin [power.wol] no hay con qué despertar");
         assert!(p.shutdown.is_none(), "macOS no se apaga desde Tandem");
 
         cfg.power.wol = Some(tandem_power::WolTarget::new(
             "aa:bb:cc:dd:ee:ff".parse().unwrap(),
         ));
         let p = PowerSteps::for_machine(&cfg);
-        assert!(p.wake.is_some());
+        assert!(p.has_wake());
 
         // Una con Windows también despierta a la otra si tiene su [power.wol], sea el lado
         // que sea (DESIGN §3.7), y se apaga sola solo donde el backend existe.
         cfg.machine = Machine::B;
         cfg.os = tandem_core::Os::Windows;
         let p = PowerSteps::for_machine(&cfg);
-        assert!(p.wake.is_some(), "B despierta a A");
+        assert!(p.has_wake(), "B despierta a A");
         assert_eq!(p.shutdown.is_some(), cfg!(windows));
         cfg.power.wol = None;
         let p = PowerSteps::for_machine(&cfg);
-        assert!(p.wake.is_none());
+        assert!(!p.has_wake());
+    }
+
+    #[test]
+    fn the_wake_target_can_be_learned_after_starting() {
+        let p = PowerSteps::new(None, None);
+        assert!(!p.has_wake());
+        p.set_wol(Some(tandem_power::WolTarget::new(
+            "aa:bb:cc:dd:ee:ff".parse().unwrap(),
+        )));
+        assert!(p.has_wake());
+        p.set_wol(None);
+        assert!(!p.has_wake());
     }
 }

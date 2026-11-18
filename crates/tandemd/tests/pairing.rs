@@ -56,6 +56,15 @@ fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     }
 }
 
+/// La MAC que anuncia cada máquina en estas pruebas (T-159).
+fn mac_of(name: &str) -> &'static str {
+    if name == "Mac" {
+        "02:00:00:00:00:01"
+    } else {
+        "02:00:00:00:00:02"
+    }
+}
+
 /// El nombre de cada lado en estas pruebas.
 fn name_of(machine: Machine) -> &'static str {
     match machine {
@@ -135,15 +144,45 @@ async fn start(
     .await
 }
 
+/// Como [`start`], pero el agente arranca ya confiando en `trusts` (un emparejamiento que
+/// la otra máquina ya no recuerda).
+async fn start_trusting(
+    machine: Machine,
+    identity: &Identity,
+    trusts: &Identity,
+    (port, peer_port): (u16, u16),
+) -> Result<Running, PortTaken> {
+    start_inner(
+        (machine, name_of(machine)),
+        identity,
+        (port, peer_port),
+        PairingTimeouts::default(),
+        None,
+        Some(trusts),
+    )
+    .await
+}
+
 /// Como [`start`], con el motor de entrada en marcha si se le dan backends. `machine` es el
 /// lado que dice su `tandem.toml` (el de verdad lo deciden las claves al emparejar) y el
 /// nombre con que se presenta.
 async fn start_with_input(
+    who: (Machine, &str),
+    identity: &Identity,
+    ports: (u16, u16),
+    timeouts: PairingTimeouts,
+    input: Option<InputSetup>,
+) -> Result<Running, PortTaken> {
+    start_inner(who, identity, ports, timeouts, input, None).await
+}
+
+async fn start_inner(
     (machine, name): (Machine, &str),
     identity: &Identity,
     (port, peer_port): (u16, u16),
     timeouts: PairingTimeouts,
     input: Option<InputSetup>,
+    trusts: Option<&Identity>,
 ) -> Result<Running, PortTaken> {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
@@ -151,12 +190,22 @@ async fn start_with_input(
         data_dir: dir.path().to_owned(),
     };
     identity.save(&paths.identity_file()).unwrap();
+    if let Some(other) = trusts {
+        let mut store = TrustStore::open(paths.trust_file()).unwrap();
+        store.add(tandem_link::identity::TrustedPeer {
+            public_key: other.public_key(),
+            name: "otra".into(),
+        });
+        store.save().unwrap();
+    }
     let side = machine.as_str();
     let text = format!(
         "machine = \"{side}\"\n[network]\nport = {port}\n\
          peers = [{{ kind = \"usb4\", addr = \"{}\" }}]\n\
-         [machines.{side}]\nos = \"windows\"\nname = \"{name}\"\ncolor = \"#7aa7e6\"\n",
-        loopback(peer_port)
+         [machines.{side}]\nos = \"windows\"\nname = \"{name}\"\ncolor = \"#7aa7e6\"\n\
+         [power]\nmac = \"{}\"\n",
+        loopback(peer_port),
+        mac_of(name)
     );
     // En el disco, como en el binario: el lado que resulte al emparejar se guarda ahí.
     std::fs::write(&paths.config, &text).unwrap();
@@ -462,8 +511,8 @@ async fn cancelling_the_search() {
     mac.stop().await;
 }
 
-/// Desemparejar desde la UI: se borra de la confianza, se corta el enlace y el otro
-/// deja de verlo (su endpoint ya no lo acepta).
+/// Desemparejar desde la UI: se borra de la confianza, se corta el enlace y la otra
+/// máquina, avisada por él, también olvida la llave (T-152).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unpairing_from_the_ui() {
     let Desk {
@@ -493,16 +542,135 @@ async fn unpairing_from_the_ui() {
     assert_eq!(pc.agent.peer_status(), PeerStatus::Unpaired);
     assert!(!pc.trusted(&mac_id));
     assert!(!*pc.agent.orchestrator().peer_connected().borrow());
-    // La Mac todavía confía en la PC, pero ya no la ve por ningún enlace.
-    until_peer(
-        &mac.agent,
-        PeerStatus::Paired {
-            name: "PC".into(),
-            link: None,
-        },
-    )
-    .await;
+    // La otra máquina se entera por el enlace (T-152): también olvida la llave y queda sin
+    // par, como dice la UI.
+    until_peer(&mac.agent, PeerStatus::Unpaired).await;
+    assert!(!mac.trusted(&pc_id));
+    assert!(!*mac.agent.orchestrator().peer_connected().borrow());
+    pc.stop().await;
+    mac.stop().await;
+}
+
+/// T-152, sin enlace: la que sale se desempareja igual y sin error; el aviso no se guarda
+/// para después (DECISIONS), así que la otra sigue confiando hasta que salga ella también.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unpairing_with_the_other_machine_offline() {
+    let Desk {
+        mut mac,
+        mut pc,
+        pc_id,
+        mac_id,
+    } = desk(100, PairingTimeouts::default()).await;
+    assert_eq!(mac.ask(UiCommand::StartPairing).await, Reply::Done);
+    assert_eq!(pc.ask(UiCommand::StartPairing).await, Reply::Done);
+    mac.until_pairing(comparing).await;
+    pc.until_pairing(comparing).await;
+    assert_eq!(mac.ask(UiCommand::ConfirmPairing).await, Reply::Done);
+    assert_eq!(pc.ask(UiCommand::ConfirmPairing).await, Reply::Done);
+    let usb4 = |name: &str| PeerStatus::Paired {
+        name: name.into(),
+        link: Some(Link::Usb4),
+    };
+    until_peer(&mac.agent, usb4("PC")).await;
+    until_peer(&pc.agent, usb4("Mac")).await;
     assert!(mac.trusted(&pc_id));
+    // La Mac se apaga: no hay enlace por donde avisar.
+    let mac_trust = mac.paths.trust_file();
+    let kept = tempfile::tempdir().unwrap();
+    std::fs::copy(&mac_trust, kept.path().join("trust.toml")).unwrap();
+    mac.stop().await;
+
+    assert_eq!(pc.ask(UiCommand::Unpair).await, Reply::Done);
+    assert_eq!(pc.agent.peer_status(), PeerStatus::Unpaired);
+    assert!(!pc.trusted(&mac_id));
+    // Lo que la Mac guardó no cambia: sigue confiando en la PC hasta que salga también.
+    let theirs = TrustStore::open(kept.path().join("trust.toml")).unwrap();
+    assert!(theirs.is_trusted(&pc_id.public_key()));
+    pc.stop().await;
+}
+
+/// T-152, al volver a conectar: la A ya no confía en la B (la B se había quedado sin enlace
+/// cuando la A salió del puesto). Al llamar, la A la rechaza por llave no confiable y la B
+/// pasa sola a `Unpaired`, sin estado nuevo.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_peer_that_still_trusts_us_unpairs_when_rejected_on_reconnect() {
+    let (a_id, b_id) = sides(
+        Identity::from_seed([110; 32]),
+        Identity::from_seed([111; 32]),
+    );
+    let (a, b) = tandemd::start_pair!(
+        ports: free_pair; |a_port, b_port| start(Machine::A, &a_id, a_port, b_port, PairingTimeouts::default()),
+        start_trusting(Machine::B, &b_id, &a_id, (b_port, a_port))
+    );
+    // La B arranca creyéndose emparejada con la A, que no la conoce.
+    until_peer(&b.agent, PeerStatus::Unpaired).await;
+    assert!(!b.trusted(&a_id));
+    assert_eq!(a.agent.peer_status(), PeerStatus::Unpaired);
+    b.stop().await;
+    a.stop().await;
+}
+
+/// T-159: al emparejar, cada máquina guarda sola la MAC de la otra (en `[power.wol]` de su
+/// `tandem.toml`) y queda con qué encenderla, sin editar archivos; una MAC puesta desde la
+/// UI se conserva en el archivo y una inválida se rechaza.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn pairing_teaches_each_machine_the_wake_on_lan_mac_of_the_other() {
+    let Desk {
+        mut mac, mut pc, ..
+    } = desk(90, PairingTimeouts::default()).await;
+    assert_eq!(mac.agent.wol(), None);
+    assert!(!mac.agent.capabilities().here.power.wake_peer);
+    assert_eq!(mac.ask(UiCommand::StartPairing).await, Reply::Done);
+    assert_eq!(pc.ask(UiCommand::StartPairing).await, Reply::Done);
+    mac.until_pairing(comparing).await;
+    pc.until_pairing(comparing).await;
+    assert_eq!(mac.ask(UiCommand::ConfirmPairing).await, Reply::Done);
+    assert_eq!(pc.ask(UiCommand::ConfirmPairing).await, Reply::Done);
+    let learned = |a: &Agent| {
+        let mut rx = a.subscribe_capabilities();
+        async move {
+            within(rx.wait_for(|c| c.here.power.wake_peer))
+                .await
+                .unwrap()
+                .clone()
+        }
+    };
+    let (m, p) = (learned(&mac.agent).await, learned(&pc.agent).await);
+    assert_eq!(m.here.power.wol_mac.as_deref(), Some("02:00:00:00:00:02"));
+    assert_eq!(p.here.power.wol_mac.as_deref(), Some("02:00:00:00:00:01"));
+    // Quedó en el archivo, para el próximo arranque.
+    let saved = AgentConfig::load(&mac.paths.config).unwrap();
+    assert_eq!(
+        saved.power.wol.unwrap().mac.to_string(),
+        "02:00:00:00:00:02"
+    );
+    // Editarla desde la UI la cambia; una inválida se rechaza sin tocar nada.
+    let bad = mac
+        .ask(UiCommand::SetWol {
+            mac: Some("no-es-una-mac".into()),
+        })
+        .await;
+    assert!(matches!(bad, Reply::Rejected(_)), "{bad:?}");
+    assert_eq!(
+        mac.ask(UiCommand::SetWol {
+            mac: Some("aa-bb-cc-dd-ee-ff".into())
+        })
+        .await,
+        Reply::Done
+    );
+    assert_eq!(
+        mac.agent.wol().unwrap().mac.to_string(),
+        "aa:bb:cc:dd:ee:ff"
+    );
+    let saved = AgentConfig::load(&mac.paths.config).unwrap();
+    assert_eq!(
+        saved.power.wol.unwrap().mac.to_string(),
+        "aa:bb:cc:dd:ee:ff"
+    );
+    // Borrarla deja a esta máquina sin con qué encender a la otra, y la otra no cambia.
+    assert_eq!(mac.ask(UiCommand::SetWol { mac: None }).await, Reply::Done);
+    assert!(!mac.agent.capabilities().here.power.wake_peer);
+    assert!(pc.agent.capabilities().here.power.wake_peer);
     pc.stop().await;
     mac.stop().await;
 }

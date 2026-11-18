@@ -339,6 +339,14 @@ export class Store implements CommandContext {
     return this.report(this.source.rescan(machine));
   }
 
+  setDeskName(name: string): Promise<ActResult> {
+    return this.report(this.source.setDeskName(name));
+  }
+
+  setWol(mac: string | null): Promise<ActResult> {
+    return this.report(this.source.setWol(mac));
+  }
+
   editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult> {
     return this.report(this.source.editMachine(machine, edit));
   }

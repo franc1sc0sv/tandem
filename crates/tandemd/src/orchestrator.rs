@@ -86,6 +86,10 @@ pub type StepFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send
 /// repetir el envío lo hace el [`Orchestrator`].
 pub trait LocalSteps: Send + Sync {
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a>;
+
+    /// A quién despierta esta máquina cambió (la aprendió al emparejar o la UI la escribió,
+    /// T-159). Solo la energía real lo usa.
+    fn set_wol(&self, _wol: Option<tandem_power::WolTarget>) {}
 }
 
 /// Ejecutor de una máquina sin backends: todo paso responde [`STEP_NOT_IMPLEMENTED`].
@@ -278,6 +282,11 @@ impl Orchestrator {
             link_hold: Mutex::new(None),
             monitors: RwLock::new(None),
         }
+    }
+
+    /// A quién despierta esta máquina, desde ahora.
+    pub fn set_wol(&self, wol: Option<tandem_power::WolTarget>) {
+        self.local.set_wol(wol);
     }
 
     /// Quién sabe de los monitores del puesto.

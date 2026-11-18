@@ -273,6 +273,48 @@ async fn un_tunel_cerrado_no_acepta_archivos() {
     assert!(!d.path().join("x").exists());
 }
 
+/// T-155: un solo archivo que parece credencial no abre la copia: informe con lo omitido y
+/// nada llega a la destino (antes la otra máquina rechazaba un manifiesto vacío).
+#[tokio::test]
+async fn un_archivo_secreto_suelto_se_omite_sin_error() {
+    let d = tempfile::tempdir().unwrap();
+    let src = d.path().join("id_rsa");
+    fs::write(&src, b"llave").unwrap();
+    let dst = d.path().join("destino");
+    let p: Pair = pair(CHUNK).await;
+    let r = within(
+        p.files_a
+            .put(&p.origin, p.tunnel, &src, dst.to_str().unwrap()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(r.skipped, ["id_rsa"]);
+    assert_eq!((r.files, r.dirs, r.bytes, r.sent), (0, 0, 0, 0));
+    assert!(!dst.exists());
+}
+
+/// Nombrándolo en `include`, el mismo archivo sí se copia.
+#[tokio::test]
+async fn un_archivo_secreto_suelto_se_copia_si_se_nombra() {
+    let d = tempfile::tempdir().unwrap();
+    let src = d.path().join("id_rsa");
+    fs::write(&src, b"llave").unwrap();
+    let dst = d.path().join("destino");
+    let p: Pair = pair(CHUNK).await;
+    let r = within(p.files_a.put_with(
+        &p.origin,
+        p.tunnel,
+        &src,
+        dst.to_str().unwrap(),
+        &["id_rsa".to_owned()],
+    ))
+    .await
+    .unwrap();
+    assert!(r.skipped.is_empty());
+    assert_eq!(r.files, 1);
+    assert_eq!(fs::read(&dst).unwrap(), b"llave");
+}
+
 #[tokio::test]
 async fn una_ruta_con_escape_no_sale_de_la_carpeta() {
     use tandem_proto::{EntryKind, FileEntry, FilesDown, FilesUp, Manifest, TunnelDown, TunnelUp};

@@ -54,6 +54,12 @@
     if (name && name !== desk.machines[id]?.name) await store.editMachine(id, { name });
   }
 
+  async function commitDeskName() {
+    const name = draft.trim();
+    renaming = null;
+    if (name !== desk.deskName) await store.setDeskName(name);
+  }
+
   async function copyMcp() {
     try {
       await navigator.clipboard.writeText("tandem mcp");
@@ -96,7 +102,22 @@
           {#if tab === "puesto"}
             <div class="row first">
               <span class="fill">Nombre del puesto</span>
-              <span class="mut" data-testid="desk-name">{desk.deskName}</span>
+              {#if renaming === "desk"}
+                <!-- svelte-ignore a11y_autofocus -->
+                <input
+                  class="name fill-in"
+                  bind:value={draft}
+                  aria-label="Nombre del puesto"
+                  autofocus
+                  onkeydown={(e) => {
+                    if (e.key === "Enter") void commitDeskName();
+                    if (e.key === "Escape") renaming = null;
+                  }}
+                  onblur={() => void commitDeskName()}
+                />
+              {:else}
+                <button type="button" class="mut deskname" data-testid="desk-name" title="Cambiar el nombre del puesto" onclick={() => rename("desk", desk.deskName)}>{desk.deskName}</button>
+              {/if}
             </div>
             {#each machines as m (m.id)}
               <div class="row">
@@ -129,7 +150,7 @@
               <Button icon="refresh" size="sm" motion="spin" style={B34} onclick={() => store.openWizard(0)}>Abrir</Button>
             </div>
             <div class="row">
-              <span class="fill col">Salir del puesto<span class="mut sub">Esta máquina olvida las llaves de las demás y ellas las suyas.</span></span>
+              <span class="fill col">Salir del puesto<span class="mut sub">Esta máquina olvida las llaves de las demás y, si están conectadas, ellas las suyas; si no, cuando salgan también.</span></span>
               <Button icon="logout" variant="danger" size="sm" style={B34} onclick={leave}>{leaving ? "Confirmar" : "Salir"}</Button>
             </div>
           {:else if tab === "atajos"}
@@ -180,6 +201,14 @@
 </div>
 
 <style>
+  .deskname {
+    all: unset;
+    cursor: text;
+  }
+  .deskname:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+  }
   .page {
     display: flex;
     flex-direction: column;

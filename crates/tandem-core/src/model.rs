@@ -379,6 +379,10 @@ impl Arrangement {
 /// Viaja con postcard (`ControlMsg::Desk`): ningún campo puede saltarse al serializar.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, PartialOrd, Ord)]
 pub struct Desk {
+    /// El nombre del puesto (T-159); `None`: el de omisión de la UI. Viaja con el puesto a
+    /// la otra máquina. En `tandem.toml` es `desk_name`.
+    #[serde(default, rename = "desk_name")]
+    pub name: Option<String>,
     #[serde(default)]
     pub machines: Machines,
     #[serde(default)]

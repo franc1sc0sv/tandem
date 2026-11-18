@@ -365,7 +365,7 @@ impl Module for Power {
             ModuleState::Active
         } else {
             ModuleState::Unavailable {
-                reason: "Falta configurar Wake-on-LAN ([power.wol] con la MAC de la otra máquina)"
+                reason: "Falta la MAC de la otra máquina para Wake-on-LAN: se aprende al emparejar, o escríbela en su página"
                     .into(),
             }
         }
@@ -405,6 +405,8 @@ mod tests {
             wake_peer,
             wakeable,
             power_off,
+            mac: None,
+            wol_mac: None,
         }
     }
 

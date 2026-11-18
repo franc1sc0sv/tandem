@@ -45,6 +45,13 @@
   // La fila «Permisos» (F-MaquinaMac): solo en la página de esta máquina, si falta alguno.
   const perm = $derived(m?.here ? missingPermission(store.desk.permissions.rows.filter((r) => r.state === "missing").map((r) => r.id)) : null);
 
+  const WOL_MISSING = "Falta la MAC de su tarjeta de red: se aprende al emparejar; si no llegó, escríbela aquí (aa:bb:cc:dd:ee:ff).";
+  const wolMac = $derived(m?.wake?.mac ?? null);
+  let macDraft = $state("");
+  $effect(() => {
+    macDraft = wolMac ?? "";
+  });
+
   const fmt = (n: number | null | undefined, unit: string) => (n === null || n === undefined ? "—" : `${Math.round(n)} ${unit}`);
 
   // ---- Nombre ----
@@ -180,10 +187,20 @@
         {#if m.power === "on"}
           <Button icon="power" variant="danger" style="--btn-h:38px;--btn-px:15px" onclick={() => store.setPower(machine, false)}>Apagar</Button>
         {:else if m.power === "off"}
-          <Button icon="power" style="--btn-h:38px;--btn-px:15px" onclick={() => store.setPower(machine, true)}>Encender</Button>
+          <span title={wolMac ? undefined : WOL_MISSING}><Button icon="power" style="--btn-h:38px;--btn-px:15px" disabled={!wolMac} onclick={() => store.setPower(machine, true)}>Encender</Button></span>
         {/if}
       {/if}
     </header>
+
+    {#if m.wake}
+      <section class="wol" aria-label="Wake-on-LAN">
+        <label for="wol-mac"><b>Wake-on-LAN</b></label>
+        {#if !wolMac}<span class="mut s12">{WOL_MISSING}</span>{/if}
+        <input id="wol-mac" class="mono" placeholder="aa:bb:cc:dd:ee:ff" bind:value={macDraft} aria-label="MAC de {m.name}" />
+        <Button icon="check" size="sm" disabled={macDraft.trim() === (wolMac ?? "")} onclick={() => void store.setWol(macDraft.trim() || null)}>Guardar</Button>
+        {#if wolMac}<Button icon="trash" variant="ghost" size="sm" iconOnly label="Borrar MAC" onclick={() => void store.setWol(null)} />{/if}
+      </section>
+    {/if}
 
     {#if live || hw}
       {@const gpu = live?.gpu ?? null}
@@ -525,6 +542,21 @@
   }
 
   /* Recursos agrupados (V3-Maquina). */
+  .wol {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 2px;
+    flex-wrap: wrap;
+  }
+  .wol input {
+    min-width: 190px;
+    padding: 5px 8px;
+    border-radius: 8px;
+    border: 1px solid var(--line, #2a2d33);
+    background: transparent;
+    color: inherit;
+  }
   .res {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.6fr);

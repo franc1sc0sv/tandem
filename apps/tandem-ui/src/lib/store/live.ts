@@ -136,6 +136,7 @@ function machineView(who: Machine, here: Machine, caps: Caps, snap: Extract<Snap
     environments: environmentsOf(c),
     inputDevices: devicesOfHub(c?.hub),
     live: shown,
+    wake: who === here ? null : { mac: caps.here.power.wol_mac ?? null },
   };
 }
 
@@ -179,7 +180,7 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
   return {
     ...EMPTY_DESK,
     ready: true,
-    deskName: snap.desk.name?.trim() || DEFAULT_DESK_NAME,
+    deskName: snap.desk.desk_name?.trim() || DEFAULT_DESK_NAME,
     monitors,
     scenes: snap.desk.scenes.map((sc) => sceneView(sc, { monitors, name, mac })),
     activeScene: snap.state.scene ?? null,
@@ -461,6 +462,14 @@ export class LiveSource implements Source {
 
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
     return this.ask({ kind: "set_prefs", cmd_ctrl: p.cmdCtrl, drag_files: p.dragFiles });
+  }
+
+  setDeskName(name: string): Promise<ActResult> {
+    return this.ask({ kind: "set_desk_name", name });
+  }
+
+  setWol(mac: string | null): Promise<ActResult> {
+    return this.ask({ kind: "set_wol", mac });
   }
 
   setLockShortcut(lock: string[]): Promise<ActResult> {

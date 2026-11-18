@@ -82,7 +82,9 @@ pub struct Plan {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlanError {
-    #[error("la máquina {0} está apagada y la otra no puede encenderla")]
+    #[error(
+        "la máquina {0} está apagada y no hay con qué encenderla: falta la MAC de su tarjeta de red (Wake-on-LAN); se aprende al emparejar o se escribe en la página de la máquina"
+    )]
     CannotWake(Machine),
 }
 

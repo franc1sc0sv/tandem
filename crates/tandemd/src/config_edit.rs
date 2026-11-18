@@ -127,6 +127,47 @@ pub fn set_keyboard(path: &Path, machine: Machine) -> Result<(), ConfigEditError
     rewrite(path, |text| with_keyboard(text, machine))
 }
 
+/// `[power.wol] mac = "..."`: a quién despierta esta máquina (T-159), aprendido al emparejar
+/// o escrito en la UI. `None` quita la MAC y anota `cleared = true`. Lo demás de `[power.wol]` (`source`,
+/// `broadcast`, `port`) se conserva.
+pub fn with_wol_mac(
+    text: &str,
+    mac: Option<tandem_power::MacAddr>,
+) -> Result<String, ConfigEditError> {
+    let mut doc = parse(text)?;
+    let power = section(&mut doc, "power")?;
+    match mac {
+        Some(mac) => {
+            let wol = power
+                .entry("wol")
+                .or_insert_with(|| Item::Table(Table::new()));
+            let wol = wol
+                .as_table_like_mut()
+                .ok_or_else(|| ConfigEditError::Invalid("[power.wol] no es una tabla".into()))?;
+            wol.remove("cleared");
+            wol.insert("mac", toml_edit::value(mac.to_string()));
+        }
+        None => {
+            // No se borra la tabla: `cleared = true` recuerda que fue una decisión del
+            // usuario y que no hay que volver a aprender la MAC.
+            let wol = power
+                .entry("wol")
+                .or_insert_with(|| Item::Table(Table::new()));
+            let wol = wol
+                .as_table_like_mut()
+                .ok_or_else(|| ConfigEditError::Invalid("[power.wol] no es una tabla".into()))?;
+            wol.remove("mac");
+            wol.insert("cleared", toml_edit::value(true));
+        }
+    }
+    validated(&doc)
+}
+
+/// Lo mismo sobre el archivo.
+pub fn set_wol_mac(path: &Path, mac: Option<tandem_power::MacAddr>) -> Result<(), ConfigEditError> {
+    rewrite(path, |text| with_wol_mac(text, mac))
+}
+
 /// El puesto compartido de `sync` sobre el texto de `tandem.toml` (T-084, T-099): los
 /// `[[screens]]` (se actualizan en su lugar los que ya estaban, se agregan los nuevos al
 /// final y se quitan los que ya no están), `[machines]`, `[arrangement]`, `[[scenes]]`,
@@ -175,6 +216,12 @@ pub fn with_desk(
         doc.insert("screens", Item::ArrayOfTables(screens));
     }
     let desk = &sync.desk;
+    match &desk.name {
+        Some(name) => doc["desk_name"] = toml_edit::value(name.as_str()),
+        None => {
+            doc.remove("desk_name");
+        }
+    }
     fill_machines(&mut doc, &desk.machines)?;
     match desk.arrangement {
         Some(a) => {
@@ -490,6 +537,59 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn the_wol_mac_is_written_and_removed_keeping_the_rest() {
+        let text = "machine = \"a\"\n# energía\n[power]\nwakeable = true\n";
+        let mac: tandem_power::MacAddr = "AA-BB-CC-DD-EE-FF".parse().unwrap();
+        let with = with_wol_mac(text, Some(mac)).unwrap();
+        assert!(with.contains("# energía"), "{with}");
+        let cfg = AgentConfig::from_toml(&with).unwrap();
+        assert_eq!(cfg.power.wol.unwrap().mac, mac);
+        // Cambiar la MAC deja lo que el usuario puso en la misma tabla.
+        let custom = format!("{with}source = \"10.77.2.1\"\n");
+        let other: tandem_power::MacAddr = "11:22:33:44:55:66".parse().unwrap();
+        let cfg = AgentConfig::from_toml(&with_wol_mac(&custom, Some(other)).unwrap()).unwrap();
+        let wol = cfg.power.wol.unwrap();
+        assert_eq!(wol.mac, other);
+        assert_eq!(wol.source, Some("10.77.2.1".parse().unwrap()));
+        let without = AgentConfig::from_toml(&with_wol_mac(&with, None).unwrap()).unwrap();
+        assert_eq!(without.power.wol, None);
+        // Borrarla queda anotado para que no se vuelva a aprender; escribir otra lo quita.
+        assert!(without.power.wol_cleared);
+        let back = AgentConfig::from_toml(
+            &with_wol_mac(&with_wol_mac(&with, None).unwrap(), Some(mac)).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(back.power.wol.unwrap().mac, mac);
+        assert!(!back.power.wol_cleared);
+    }
+
+    #[test]
+    fn the_desk_name_is_saved_and_read_back() {
+        let sync = DeskVersion {
+            stamp: DeskStamp {
+                rev: 1,
+                at: 0,
+                by: Machine::A,
+            },
+            desk: tandem_core::Desk {
+                name: Some("Oficina".into()),
+                ..Default::default()
+            },
+        };
+        let text = with_desk("machine = \"a\"\n", Machine::A, &sync).unwrap();
+        assert_eq!(
+            AgentConfig::from_toml(&text).unwrap().desk.name.as_deref(),
+            Some("Oficina")
+        );
+        let cleared = DeskVersion {
+            desk: tandem_core::Desk::default(),
+            ..sync
+        };
+        let text = with_desk(&text, Machine::A, &cleared).unwrap();
+        assert_eq!(AgentConfig::from_toml(&text).unwrap().desk.name, None);
+    }
+
     const PC: &str = r#"# La PC.
 machine = "b"
 
@@ -804,12 +904,26 @@ scale = 2.0
             (any::<bool>(), any::<bool>(), any::<bool>()),
             proptest::collection::btree_map("[a-z]{1,6}", any::<bool>(), 0..3),
             (1u8..=100, proptest::option::of(1u32..10_000)),
-            proptest::collection::btree_map("[a-z0-9-]{1,8}", (0u8..3, any::<bool>()), 0..3),
+            (
+                proptest::collection::btree_map("[a-z0-9-]{1,8}", (0u8..3, any::<bool>()), 0..3),
+                proptest::option::of("[A-Za-z0-9áñ]{1,20}"),
+            ),
         )
             .prop_map(
-                |((a, b), screens, arrangement, scenes, lock, prefs, modules, data, cables)| {
+                |(
+                    (a, b),
+                    screens,
+                    arrangement,
+                    scenes,
+                    lock,
+                    prefs,
+                    modules,
+                    data,
+                    (cables, name),
+                )| {
                     let mut seen = std::collections::BTreeSet::new();
                     Config {
+                        name,
                         machines: Machines { a, b },
                         screens: screens
                             .into_iter()

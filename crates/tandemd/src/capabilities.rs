@@ -57,7 +57,17 @@ pub fn power(cfg: &AgentConfig, os: Os) -> PowerCaps {
         wake_peer: cfg.power.wol.is_some(),
         wakeable: cfg.power.wakeable,
         power_off: powers_off(os),
+        mac: cfg.power.mac.map(|m| m.to_string()),
+        wol_mac: cfg.power.wol.as_ref().map(|w| w.mac.to_string()),
     }
+}
+
+/// `power` con el `[power.wol]` que vale ahora (el aprendido al emparejar o el que escribió
+/// la UI), que puede no ser el de la configuración con que arrancó el agente.
+pub fn with_wol(mut power: PowerCaps, wol: Option<&tandem_power::WolTarget>) -> PowerCaps {
+    power.wake_peer = wol.is_some();
+    power.wol_mac = wol.map(|w| w.mac.to_string());
+    power
 }
 
 /// Lo que esta máquina (el lado `me`, que es `info`) anuncia, con sus módulos ya armados

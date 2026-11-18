@@ -54,8 +54,8 @@ export interface Desk {
   /** De qué lado de `b` está `a` y con qué alineación (D18); `null` sin declarar: `a` a la
    * izquierda de `b` y todo el borde cruza (T-099). */
   arrangement: { a_side: Side; align: Align } | null;
-  /** Nombre del puesto, si el agente lo manda (todavía no viaja: la UI usa «Mi puesto»). */
-  name?: string | null;
+  /** Nombre del puesto (`desk_name`, T-159); sin él la UI usa «Mi puesto». */
+  desk_name?: string | null;
   scenes: SceneJson[];
   /** Teclado y mouse compartidos (`[prefs]` del puesto). */
   prefs?: { cmd_ctrl: boolean; drag_files: boolean };
@@ -109,7 +109,15 @@ export interface MachineCaps {
     /** El proceso del agente: macOS concede los permisos a ese binario exacto (T-090). */
     process: { exe: string; pid: number; started: number };
   };
-  power: { wake_peer: boolean; wakeable: boolean; power_off: boolean };
+  power: {
+    wake_peer: boolean;
+    wakeable: boolean;
+    power_off: boolean;
+    /** La MAC de su tarjeta Ethernet, para que la otra la guarde al emparejar (T-159). */
+    mac?: string | null;
+    /** La MAC con que esta máquina despierta a la otra (`[power.wol]`); `null`: no puede. */
+    wol_mac?: string | null;
+  };
   services: string[];
   /** Módulos de su sistema (T-098); opcionales para leer un agente de antes. */
   modules?: ModuleCaps[];
@@ -295,6 +303,10 @@ export type Action =
   | { kind: "lock_here"; on: boolean }
   /** Guardar el acomodo en el puesto compartido (`EditDesk { Arrangement }`, T-099). */
   | { kind: "set_arrangement"; a_side: Side; align: Align }
+  /** El nombre del puesto (`EditDesk { Name }`); vacío vuelve a «Mi puesto». */
+  | { kind: "set_desk_name"; name: string }
+  /** La MAC con que esta máquina despierta a la otra (T-159); `null` la borra. */
+  | { kind: "set_wol"; mac: string | null }
   | { kind: "set_module"; machine: Machine; module: string; on: boolean }
   | { kind: "set_prefs"; cmd_ctrl: boolean; drag_files: boolean }
   /** El atajo de bloqueo del puesto (`EditDesk { Shortcuts }`); vacío = sin atajo. */

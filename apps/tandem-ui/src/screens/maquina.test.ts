@@ -31,6 +31,27 @@ async function mount(query = "demo&still", machine: "a" | "b" = "b") {
 
 const res = () => screen.getByRole("region", { name: "Recursos en vivo" });
 
+describe("Wake-on-LAN (T-159)", () => {
+  it("el campo está siempre, con la MAC actual y un botón para borrarla", async () => {
+    const { store } = await mount();
+    const set = vi.spyOn(store, "setWol");
+    const field = screen.getByRole("textbox", { name: /MAC de/ });
+    expect(field).toHaveValue("aa:bb:cc:dd:ee:ff");
+    await userEvent.click(screen.getByRole("button", { name: "Borrar MAC" }));
+    expect(set).toHaveBeenCalledWith(null);
+  });
+
+  it("editar la MAC la guarda", async () => {
+    const { store } = await mount();
+    const set = vi.spyOn(store, "setWol");
+    const field = screen.getByRole("textbox", { name: /MAC de/ });
+    await userEvent.clear(field);
+    await userEvent.type(field, "11:22:33:44:55:66");
+    await userEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    expect(set).toHaveBeenCalledWith("11:22:33:44:55:66");
+  });
+});
+
 describe("V3-Maquina (la otra máquina)", () => {
   it("muestra cabecera, recursos agrupados, disco, módulos y entornos", async () => {
     await mount();

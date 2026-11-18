@@ -187,6 +187,14 @@ pub async fn put(
     let (path, cs) = (local.to_path_buf(), opts.chunk_size);
     let filter = SecretFilter::new(include);
     let src = Arc::new(blocking(move || Source::scan_with(&path, cs, &filter)).await?);
+    // Un solo archivo (o nada más) que el filtro omitió: no hay copia que abrir, y la
+    // destino rechazaría un manifiesto vacío (T-155). Se informa lo omitido (éxito parcial).
+    if src.manifest().entries.is_empty() && !src.skipped().is_empty() {
+        return Ok(FilesReport {
+            skipped: src.skipped().to_vec(),
+            ..FilesReport::default()
+        });
+    }
     let mut last = FilesError::Unexpected;
     for attempt in 0..opts.attempts.max(1) {
         if attempt > 0 {

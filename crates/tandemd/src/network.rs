@@ -307,6 +307,9 @@ impl Conns {
     }
 }
 
+/// Cuánto se espera a que salga el aviso de «salí del puesto» antes de cerrar la conexión.
+const GOODBYE_WAIT: Duration = Duration::from_millis(500);
+
 /// Si otro hilo entró en pánico con el candado, lo de adentro sigue sirviendo.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -515,7 +518,7 @@ impl Shared {
 
     /// Olvida al par: lo borra de la confianza, deja de buscarlo y corta sus
     /// conexiones. Si no se puede guardar la confianza, no cambia nada.
-    fn forget(&self) -> Result<(), String> {
+    fn forget(&self, notify: bool) -> Result<(), String> {
         let mut following = lock(&self.peer);
         let Some(key) = following.as_ref().map(|f| f.key) else {
             return Err(NOT_PAIRED.into());
@@ -526,6 +529,12 @@ impl Shared {
                 .remove_and_save(&key)
                 .map_err(|e| format!("no se pudo guardar la confianza: {e}"))?;
         }
+        // Con enlace, se le avisa a la otra máquina para que también olvide la llave
+        // (T-152); la conexión se cierra cuando el aviso ya salió.
+        let goodbye = notify
+            .then(|| self.active.tx.borrow().clone())
+            .flatten()
+            .map(|a| a.handle.client);
         if let Some(f) = following.take() {
             for t in f.tasks {
                 t.abort();
@@ -536,7 +545,17 @@ impl Shared {
         drop(following);
         // `supervise` no llega a soltar el par al abortarse.
         self.agent.orchestrator().clear_peer();
-        self.conns.close_from(&key);
+        match goodbye {
+            Some(client) => {
+                client.send(ControlMsg::Unpaired);
+                let conns = self.conns.clone();
+                tokio::spawn(async move {
+                    let _ = tokio::time::timeout(GOODBYE_WAIT, client.flush()).await;
+                    conns.close_from(&key);
+                });
+            }
+            None => self.conns.close_from(&key),
+        }
         tracing::info!(llave = %key.to_hex(), "desemparejado");
         self.agent.set_peer_status(PeerStatus::Unpaired);
         self.agent.set_pairing_status(PairingStatus::Idle);
@@ -651,7 +670,11 @@ impl PairingControl for Pairer {
     }
 
     fn unpair(&self) -> Result<(), String> {
-        self.shared()?.forget()
+        self.shared()?.forget(true)
+    }
+
+    fn peer_left(&self) -> Result<(), String> {
+        self.shared()?.forget(false)
     }
 }
 
@@ -790,7 +813,14 @@ async fn supervise(
                 spawned.push(c);
             }
         }
-        let managed = match spawn_manager(&agent, &endpoint, &spawned, health, &interfaces) {
+        let managed = match spawn_manager(
+            &agent,
+            &endpoint,
+            &spawned,
+            health,
+            &interfaces,
+            &active_link,
+        ) {
             Ok(m) => Some(m),
             Err(ManagerError::NoCandidates) => {
                 tracing::info!("sin enlaces con el par: se espera a descubrirlo en la LAN");
@@ -908,14 +938,28 @@ fn spawn_manager(
     candidates: &[LinkCandidate],
     health: HealthConfig,
     interfaces: &Arc<SystemInterfaces>,
+    link: &LinkWriter,
 ) -> Result<Arc<ManagedPeer>, ManagerError> {
+    // Si la otra ya no confía en nosotras, aquí también se olvida la llave: queda `Unpaired`.
+    let shared = link.shared.clone();
+    let rejected: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        if let Some(shared) = shared.upgrade() {
+            tokio::spawn(async move {
+                match shared.forget(false) {
+                    Ok(()) => tracing::info!("la otra máquina ya no confía en esta: desemparejada"),
+                    Err(e) => tracing::debug!("no había par que olvidar: {e}"),
+                }
+            });
+        }
+    });
     let prober = AgentProber::new(
         endpoint.clone(),
         agent.machine(),
         candidates,
         agent.link_qos().clone(),
     )
-    .with_interfaces(interfaces.clone());
+    .with_interfaces(interfaces.clone())
+    .with_rejected(rejected);
     let (links, events) = LinkManager::spawn(candidates, prober, health)?;
     // Las métricas de la pantalla Red siguen a este gestor mientras viva (T-102).
     tokio::spawn(metrics::follow(
@@ -953,6 +997,8 @@ pub struct AgentProber {
     qos: LinkQos,
     /// Para clasificar los enlaces por cable que aparecen después de armar el prober.
     interfaces: Option<Arc<dyn Interfaces>>,
+    /// Se llama cuando la otra máquina rechaza nuestra llave por no ser de confianza.
+    rejected: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 /// Aborta la tarea al soltarla (un `JoinHandle` suelto la deja corriendo).
@@ -974,6 +1020,26 @@ fn local_os() -> Os {
 }
 
 impl AgentProber {
+    async fn open(&self, addr: SocketAddr) -> Result<AgentSession, PeerError> {
+        let quic = self.quic.connect(addr).await?;
+        let kind = self.kind_of(addr);
+        let conn = QuicProber::handle(&quic).with_qos(self.qos.get(kind));
+        let client = Arc::new(PeerClient::open(&conn, self.me).await?);
+        // Lo primero que sabe el otro lado: cómo clasifica este lado la conexión.
+        client.send(ControlMsg::LinkClass { kind: kind.into() });
+        Ok(AgentSession {
+            quic,
+            handle: PeerHandle { conn, client },
+        })
+    }
+
+    /// Qué hacer si la otra máquina rechaza nuestra llave.
+    #[must_use]
+    pub fn with_rejected(mut self, f: Arc<dyn Fn() + Send + Sync>) -> Self {
+        self.rejected = Some(f);
+        self
+    }
+
     pub fn new(
         endpoint: Arc<Endpoint>,
         me: Machine,
@@ -986,6 +1052,7 @@ impl AgentProber {
             kinds: candidates.to_vec(),
             qos,
             interfaces: None,
+            rejected: None,
         }
     }
 
@@ -1016,16 +1083,16 @@ impl Prober for AgentProber {
     type Error = PeerError;
 
     async fn connect(&self, addr: SocketAddr) -> Result<AgentSession, PeerError> {
-        let quic = self.quic.connect(addr).await?;
-        let kind = self.kind_of(addr);
-        let conn = QuicProber::handle(&quic).with_qos(self.qos.get(kind));
-        let client = Arc::new(PeerClient::open(&conn, self.me).await?);
-        // Lo primero que sabe el otro lado: cómo clasifica este lado la conexión.
-        client.send(ControlMsg::LinkClass { kind: kind.into() });
-        Ok(AgentSession {
-            quic,
-            handle: PeerHandle { conn, client },
-        })
+        let opened = self.open(addr).await;
+        if let Err(PeerError::Transport(e)) = &opened {
+            tracing::debug!(%addr, error = ?e, "conexión al otro agente fallida");
+            if e.is_peer_rejection()
+                && let Some(rejected) = &self.rejected
+            {
+                rejected();
+            }
+        }
+        opened
     }
 
     async fn ping(&self, s: &mut AgentSession) -> Result<(), PeerError> {

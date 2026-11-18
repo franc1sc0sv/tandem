@@ -539,7 +539,7 @@ async fn killing_the_pc_mid_shutdown_leaves_the_mac_coherent() {
             }
         )
         .await,
-        "la máquina B está apagada y la otra no puede encenderla"
+        "la máquina B está apagada y no hay con qué encenderla: falta la MAC de su tarjeta de red (Wake-on-LAN); se aprende al emparejar o se escribe en la página de la máquina"
     );
     assert!(mac.running());
     let (spec, status) = mac.stop().await;

@@ -945,8 +945,8 @@
     "mockup": "V3-Maquina",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 0.9949,
+      "similarity": 0.9999,
+      "worstTile": 0.9858,
       "ok": true
     },
     "zonas": [
@@ -962,8 +962,8 @@
       },
       {
         "name": "contenido",
-        "similarity": 1,
-        "worstTile": 0.9949,
+        "similarity": 0.9999,
+        "worstTile": 0.9858,
         "min": {
           "similarity": 0.99,
           "worstTile": 0.97

@@ -25,6 +25,7 @@ mod net;
 mod scenes;
 mod setup;
 mod update;
+mod wol;
 
 pub use cursor::CursorWatch;
 pub use env::ResourceWatch;
@@ -52,11 +53,21 @@ pub trait PairingControl: Send + Sync {
     fn confirm(&self) -> Result<(), String>;
     fn cancel(&self) -> Result<(), String>;
     fn unpair(&self) -> Result<(), String>;
+    /// La otra máquina salió del puesto y avisó (T-152): se olvida igual, pero sin volver a
+    /// avisarle. Un aviso que llega sin par no es un error.
+    fn peer_left(&self) -> Result<(), String> {
+        self.unpair()
+    }
 }
 
 #[derive(Debug)]
 pub struct Agent {
     cfg: AgentConfig,
+    /// A quién despierta esta máquina ahora (T-159): el `[power.wol]` de `cfg`, el aprendido
+    /// al emparejar o el que escribió la UI.
+    wol: std::sync::RwLock<Option<tandem_power::WolTarget>>,
+    /// El usuario borró la MAC: `learn_wol` no la vuelve a aprender (`[power.wol] cleared`).
+    wol_cleared: std::sync::atomic::AtomicBool,
     /// Los túneles que esta máquina hospeda y los que abrió (T-103, [`crate::tunnels`]).
     tunnels: tandem_tunnel::Tunnels,
     /// Archivos y puertos por túnel (T-106): el lado destino y los clientes locales.
@@ -265,6 +276,11 @@ impl Agent {
     /// Con los backends reales de esta máquina ([`crate::PowerSteps::for_machine`] y el
     /// escaneo de entornos de [`tandem_env::Host::system`]).
     pub fn with_platform(cfg: AgentConfig, store: StateStore) -> Self {
+        let mut cfg = cfg;
+        // La MAC de esta máquina, para que la otra la guarde al emparejar (T-159).
+        if cfg.power.mac.is_none() {
+            cfg.power.mac = tandem_power::nic::detect();
+        }
         let local = Arc::new(crate::power::PowerSteps::for_machine(&cfg));
         Self::with_local_steps(cfg, store, local)
             .with_env_host(Arc::new(tandem_env::Host::system()))
@@ -386,6 +402,8 @@ impl Agent {
             scene_backend: std::sync::RwLock::new(None),
             net: net::NetState::default(),
             cursor: cursor::CursorState::default(),
+            wol: std::sync::RwLock::new(cfg.power.wol.clone()),
+            wol_cleared: std::sync::atomic::AtomicBool::new(cfg.power.wol_cleared),
             cfg,
         }
     }
@@ -845,12 +863,27 @@ impl Agent {
             return;
         }
         self.learn_machines(peer.machine, &peer.info);
+        self.learn_wol(peer.power.mac.as_deref());
         self.caps.send_if_modified(|c| {
             let changed = c.peer.as_ref() != Some(&peer);
             c.peer = Some(peer);
             changed
         });
         self.sync_monitor_peer();
+    }
+
+    /// La otra máquina salió del puesto: esta también olvida su llave (T-152).
+    pub fn receive_unpaired(self: &Arc<Self>) {
+        let control = self
+            .pairing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(c) = control
+            && c.peer_left().is_ok()
+        {
+            tracing::info!("la otra máquina salió del puesto: se olvida su llave");
+        }
     }
 
     /// Lo que el plan puede pedirle a cada máquina ([`capabilities::abilities`]).
@@ -1107,6 +1140,7 @@ impl Agent {
                 Reply::Done
             }
             UiCommand::LockHere { on } => self.lock_here(on),
+            UiCommand::SetWol { mac } => self.set_wol_mac(mac.as_deref()),
             UiCommand::SetPower { machine, on } => self.start_power(machine, on),
             UiCommand::ApplyScene { id } => self.apply_scene(&id),
             UiCommand::SetModule {
