@@ -364,6 +364,7 @@ export function demoNetwork(linkUp: boolean): NetworkView {
       { at: at(CUT_AT), from: "usb4", to: "wifi", tookMs: 600 },
     ],
     measuring: null,
+    notices: [],
     now: DEMO_NOW,
   };
 }

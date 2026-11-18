@@ -44,6 +44,7 @@ pub struct NetMetrics {
     /// Del más nuevo al más viejo.
     switches: VecDeque<PathSwitch>,
     measuring: Option<LinkKind>,
+    notices: Vec<tandem_proto::NetworkNotice>,
 }
 
 impl Default for NetMetrics {
@@ -56,6 +57,7 @@ impl Default for NetMetrics {
             active: None,
             switches: VecDeque::new(),
             measuring: None,
+            notices: Vec::new(),
         }
     }
 }
@@ -149,6 +151,7 @@ impl NetMetrics {
                 .collect(),
             switches: self.switches.iter().copied().collect(),
             measuring: self.measuring.map(Into::into),
+            notices: self.notices.clone(),
         }
     }
 }
@@ -183,6 +186,11 @@ pub fn now_ms() -> u64 {
 impl Metrics {
     fn lock(&self) -> MutexGuard<'_, NetMetrics> {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Los avisos para el usuario (los reemplaza enteros).
+    pub fn set_notices(&self, notices: Vec<tandem_proto::NetworkNotice>) {
+        self.lock().notices = notices;
     }
 
     pub fn status(&self) -> NetworkStatus {

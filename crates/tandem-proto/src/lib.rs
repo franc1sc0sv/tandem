@@ -40,7 +40,8 @@ pub use msg::{
     UiCommand, UiRequest, UpdateMsg, UpdateStatus,
 };
 pub use net::{
-    Bandwidth, LatencySample, MeasureReport, NetworkStatus, PathMetrics, PathState, PathSwitch,
+    Bandwidth, LatencySample, MeasureReport, NetworkNotice, NetworkStatus, PathMetrics, PathState,
+    PathSwitch,
 };
 pub use tunnel::{
     Client, ClientKind, ExecSpec, FlowId, FlowInfo, OutputCursor, ProcessId, ProcessOutput,

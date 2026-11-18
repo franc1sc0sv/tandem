@@ -294,3 +294,130 @@ async fn el_doble_publica_cada_cambio() {
     assert!(f.list().is_empty());
     let _: Arc<dyn Interfaces> = Arc::new(f);
 }
+
+// --- Descubrimiento por interfaz y asignación de la IP de respaldo ---
+
+fn resolver(
+    side: Machine,
+    discovery: &Arc<FakeDiscovery>,
+    assigner: &Arc<FakeAssigner>,
+) -> WiredResolver {
+    WiredResolver {
+        side,
+        os: Os::Windows,
+        port: PORT,
+        discovery: discovery.clone(),
+        assigner: assigner.clone(),
+        notices: AssignNotices::default(),
+    }
+}
+
+#[test]
+fn con_link_local_el_cable_entra_cuando_el_otro_contesta_por_esa_interfaz() {
+    let (discovery, assigner) = (Arc::new(FakeDiscovery::default()), Arc::default());
+    let r = resolver(Machine::A, &discovery, &assigner);
+    let usb = iface(7, "bridge0", &["fe80::1"]);
+    // Sin respuesta del otro, el cable no entra.
+    assert_eq!(r.resolve(&usb), None);
+    // Anuncia en otra interfaz: tampoco.
+    discovery.announce(9, "fe80::99".parse().unwrap());
+    assert_eq!(r.resolve(&usb), None);
+    // Contesta por esta: se aprende su link-local con el scope de la interfaz.
+    discovery.announce(7, "fe80::2".parse().unwrap());
+    let mut cur = Default::default();
+    let changes = wired_changes(&mut cur, std::slice::from_ref(&usb), &|i| r.resolve(i));
+    let want = scoped_addr("fe80::2".parse().unwrap(), 7, PORT);
+    assert_eq!(
+        changes,
+        [WiredChange::Add(LinkCandidate {
+            kind: LinkKind::Usb4,
+            addr: want
+        })]
+    );
+    assert!(assigner.calls().is_empty(), "con fe80 no se asigna nada");
+}
+
+#[test]
+fn el_descubrimiento_real_filtra_por_scope_id() {
+    let announced: Vec<SocketAddr> = vec![
+        "[fe80::5%3]:47770".parse().unwrap(),
+        "[fe80::6%7]:47770".parse().unwrap(),
+        "192.168.1.5:47770".parse().unwrap(),
+    ];
+    assert_eq!(scoped_peer(&announced, 7), Some("fe80::6".parse().unwrap()));
+    assert_eq!(scoped_peer(&announced, 8), None);
+    let (_tx, rx) = tokio::sync::watch::channel(announced);
+    let d = ScopedDiscovery::new(rx);
+    assert_eq!(
+        d.peer_ip(&iface(3, "en5", &["fe80::1"])),
+        Some("fe80::5".parse().unwrap())
+    );
+}
+
+#[test]
+fn sin_link_local_se_asigna_el_respaldo_y_no_hay_aviso() {
+    let (discovery, assigner) = (Arc::new(FakeDiscovery::default()), Arc::default());
+    let r = resolver(Machine::B, &discovery, &assigner);
+    let usb = iface(4, "USB4 P2P Network Adapter", &[]);
+    let peer = r.resolve(&usb).unwrap();
+    assert_eq!(peer, "10.77.1.1:47770".parse().unwrap());
+    assert_eq!(
+        assigner.calls(),
+        [(
+            "USB4 P2P Network Adapter".to_owned(),
+            Ipv4Addr::new(10, 77, 1, 2)
+        )]
+    );
+    assert!(r.notices.list().is_empty());
+}
+
+#[test]
+fn sin_permisos_queda_el_aviso_con_la_orden_exacta_y_se_borra_al_asignarse() {
+    let discovery = Arc::new(FakeDiscovery::default());
+    let assigner = Arc::new(FakeAssigner::failing(AssignError::PermissionDenied));
+    let r = resolver(Machine::A, &discovery, &assigner);
+    let usb = iface(4, "Ethernet 3", &[]);
+    // El enlace entra igual por el respaldo: la orden la ejecuta el usuario.
+    assert_eq!(r.resolve(&usb), Some("10.77.1.2:47770".parse().unwrap()));
+    let notices = r.notices.list();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(
+        notices[0].command,
+        "netsh interface ip set address name=\"Ethernet 3\" static 10.77.1.1 255.255.255.252"
+    );
+    assert!(notices[0].message.contains("permisos"));
+    // El usuario la ejecutó: la interfaz ya tiene la IP y el aviso se retira.
+    let done = iface(4, "Ethernet 3", &["10.77.1.1"]);
+    r.resolve(&done);
+    assert!(r.notices.list().is_empty());
+}
+
+#[test]
+fn otro_fallo_tambien_avisa() {
+    let discovery = Arc::new(FakeDiscovery::default());
+    let assigner = Arc::new(FakeAssigner::failing(AssignError::Failed("boom".into())));
+    let r = resolver(Machine::A, &discovery, &assigner);
+    r.resolve(&iface(4, "Ethernet 3", &[]));
+    assert!(r.notices.list()[0].message.contains("boom"));
+}
+
+#[test]
+fn las_ordenes_del_sistema_y_los_fallos_de_permisos() {
+    let ip = Ipv4Addr::new(10, 77, 1, 1);
+    let (prog, args) = assign_command(Os::MacOs, "bridge0", ip);
+    assert_eq!(prog, "ifconfig");
+    assert_eq!(
+        args.join(" "),
+        "bridge0 inet 10.77.1.1 netmask 255.255.255.252"
+    );
+    let (prog, args) = assign_command(Os::Windows, "Ethernet 3", ip);
+    assert_eq!(prog, "netsh");
+    assert!(args.contains(&"name=Ethernet 3".to_owned()));
+    assert!(is_permission_failure(
+        "The requested operation requires elevation."
+    ));
+    assert!(is_permission_failure(
+        "ifconfig: ioctl: Operation not permitted"
+    ));
+    assert!(!is_permission_failure("The interface is not found"));
+}

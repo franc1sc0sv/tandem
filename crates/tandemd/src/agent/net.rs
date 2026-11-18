@@ -212,6 +212,19 @@ mod tests {
             panic!("se esperaba un rechazo");
         };
         assert!(why.contains("Wi-Fi"), "{why}");
+        // Si la Mac vuelve a anunciar Ethernet, la etiqueta se recupera: la clase del otro
+        // se guarda aparte y no es pegajosa.
+        let again = crate::PeerClient::open(&conn_a, Machine::A).await.unwrap();
+        again.send(tandem_proto::ControlMsg::LinkClass {
+            kind: Link::Ethernet,
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while pc_qos.link() != Some(LinkKind::Ethernet) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("la etiqueta no se recuperó");
         // La Mac ya lo ve así por su propia clasificación.
         assert_eq!(
             mac.link_qos().get(LinkKind::Wifi).link(),

@@ -352,6 +352,8 @@ pub async fn accept_streams(conn: Connection, agent: Arc<Agent>) {
             }
             Err(e) => {
                 tracing::debug!("conexión con el otro agente terminada: {e}");
+                // Su clasificación vale por conexión: la siguiente trae la suya.
+                conn.qos().set_peer_link(None);
                 return;
             }
         };
@@ -411,16 +413,16 @@ async fn serve_stream(
     serve_from(stream, agent, Some(first)).await
 }
 
-/// La etiqueta de la conexión es la peor de las dos clasificaciones: si el otro extremo la
-/// ve por Wi-Fi, esta también, y sus datos llevan el tope del Wi-Fi aunque aquí el cable
-/// parezca Ethernet. El `Qos` es el del camino, así que vale para todas sus conexiones.
+/// Guarda la clasificación del otro extremo en el `Qos` del camino, que calcula la etiqueta
+/// efectiva (la peor de las dos). Se guarda aparte de la propia, así que se recupera cuando
+/// el otro vuelve a anunciar un cable, y no se pierde si la propia aún no se conoce.
 fn apply_link_class(conn: &Connection, theirs: LinkKind) {
     let qos = conn.qos();
-    let Some(ours) = qos.link() else { return };
-    let label = tandem_link::iface::worst(ours, theirs);
-    if label != ours {
-        tracing::info!(nuestra = %ours, suya = %theirs, "el otro extremo ve el enlace peor: se usa {label}");
-        qos.set_link(Some(label));
+    let before = qos.link();
+    qos.set_peer_link(Some(theirs));
+    let label = qos.link();
+    if label != before {
+        tracing::info!(suya = %theirs, ?label, "el otro extremo ve el enlace peor: etiqueta nueva");
     }
 }
 

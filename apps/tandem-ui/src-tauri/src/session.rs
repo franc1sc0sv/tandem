@@ -150,6 +150,15 @@ pub struct NetworkView {
     pub paths: Vec<PathView>,
     pub switches: Vec<SwitchView>,
     pub measuring: Option<LinkView>,
+    /// Lo que el usuario tiene que hacer a mano (por ejemplo, asignar la IP de un cable).
+    pub notices: Vec<NoticeView>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NoticeView {
+    pub interface: String,
+    pub message: String,
+    pub command: String,
 }
 
 impl From<NetworkStatus> for NetworkView {
@@ -192,6 +201,15 @@ impl From<NetworkStatus> for NetworkView {
                 })
                 .collect(),
             measuring: n.measuring.map(Into::into),
+            notices: n
+                .notices
+                .into_iter()
+                .map(|x| NoticeView {
+                    interface: x.interface,
+                    message: x.message,
+                    command: x.command,
+                })
+                .collect(),
         }
     }
 }
@@ -2608,6 +2626,7 @@ mac = "9c:6b:00:1a:2b:ff"
     #[test]
     fn network_views_use_the_names_the_window_reads() {
         let n = NetworkView::from(NetworkStatus {
+            notices: vec![],
             paths: vec![tandem_proto::PathMetrics {
                 link: Link::Usb4,
                 state: PathState::Primary,

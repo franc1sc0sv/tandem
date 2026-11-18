@@ -7,9 +7,12 @@
 //! ([`worst`]) y mantener el gestor de enlaces al día ([`follow_wired`]).
 
 mod addr;
+mod assign;
 mod classify;
+mod discover;
 mod fake;
 mod follow;
+mod resolve;
 mod system;
 
 use std::net::IpAddr;
@@ -21,9 +24,14 @@ pub use addr::{
     AddrPlan, AssignOrder, FALLBACK_PREFIX, assign_order, fallback_ip, link_local_of, plan,
     scoped_addr,
 };
+pub use assign::{
+    AddrAssigner, AssignError, FakeAssigner, SystemAssigner, assign_command, is_permission_failure,
+};
 pub use classify::{classify, kind_for_addr, relabel, worst};
+pub use discover::{FakeDiscovery, InterfaceDiscovery, ScopedDiscovery, scoped_peer};
 pub use fake::FakeInterfaces;
 pub use follow::{WiredChange, follow_wired, wired_changes};
+pub use resolve::{AssignNotice, AssignNotices, WiredResolver};
 pub use system::SystemInterfaces;
 
 use crate::manager::LinkKind;

@@ -299,3 +299,27 @@ async fn un_qos_por_camino_compartido_y_con_el_data_del_puesto() {
     usb4.set_link(Some(LinkKind::Wifi));
     assert_eq!(usb4.cap(), Some(UNMEASURED_WIFI / 5));
 }
+
+#[tokio::test(start_paused = true)]
+async fn la_etiqueta_se_recupera_cuando_el_otro_vuelve_a_anunciar_cable() {
+    let qos = Qos::default();
+    qos.set_link(Some(LinkKind::Ethernet));
+    qos.set_peer_link(Some(LinkKind::Wifi));
+    assert_eq!(qos.link(), Some(LinkKind::Wifi));
+    assert_eq!(qos.own_link(), Some(LinkKind::Ethernet));
+    qos.set_peer_link(Some(LinkKind::Ethernet));
+    assert_eq!(qos.link(), Some(LinkKind::Ethernet));
+    assert_eq!(qos.cap(), None);
+    qos.set_peer_link(Some(LinkKind::Wifi));
+    qos.set_peer_link(None);
+    assert_eq!(qos.link(), Some(LinkKind::Ethernet));
+}
+
+#[tokio::test(start_paused = true)]
+async fn la_clase_del_otro_no_se_pierde_si_la_propia_no_se_conoce() {
+    let qos = Qos::default();
+    qos.set_peer_link(Some(LinkKind::Wifi));
+    assert_eq!(qos.link(), Some(LinkKind::Wifi));
+    qos.set_link(Some(LinkKind::Usb4));
+    assert_eq!(qos.link(), Some(LinkKind::Wifi));
+}

@@ -31,8 +31,8 @@ use tandem_core::{Machine, Os, State, Step};
 use tandem_link::discovery::MdnsDiscovery;
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_link::iface::{
-    Interfaces, SystemInterfaces, WiredChange, follow_wired, kind_for_addr, plan, relabel,
-    wired_changes,
+    AssignNotices, Interfaces, ScopedDiscovery, SystemAssigner, SystemInterfaces, WiredChange,
+    WiredResolver, follow_wired, kind_for_addr, relabel, wired_changes,
 };
 use tandem_link::manager::{
     HealthConfig, LinkCandidate, LinkKind, LinkManager, ManagerError, Prober, QuicProber,
@@ -41,7 +41,7 @@ use tandem_link::manager::{
 use tandem_link::metrics;
 use tandem_link::qos::LinkQos;
 use tandem_link::transport::{Connection, Endpoint, TransportError};
-use tandem_proto::{ControlMsg, Hello, Link, PairingStatus, Peer, PeerStatus};
+use tandem_proto::{ControlMsg, Hello, Link, NetworkNotice, PairingStatus, Peer, PeerStatus};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -734,10 +734,34 @@ async fn supervise(
     interfaces: Arc<SystemInterfaces>,
 ) {
     let mut discovered = discovery.as_ref().map(MdnsDiscovery::peer_addrs);
-    let lan = |d: &Option<watch::Receiver<Vec<SocketAddr>>>| {
+    let raw = |d: &Option<watch::Receiver<Vec<SocketAddr>>>| {
         d.as_ref().map(|d| d.borrow().clone()).unwrap_or_default()
     };
+    // La LAN (Wi-Fi) no incluye las link-local con interfaz: son de los cables y las
+    // resuelve `WiredResolver`.
+    let lan = |d: &Option<watch::Receiver<Vec<SocketAddr>>>| {
+        let mut all = raw(d);
+        all.retain(|a| !matches!(a, SocketAddr::V6(v6) if v6.scope_id() != 0));
+        all
+    };
     let mut candidates = agent.config().network.link_candidates(&lan(&discovered));
+    // El otro agente por cada cable: su link-local sale del mDNS, atado al `scope_id` de la
+    // interfaz. Sin descubrimiento, un canal vacío.
+    let (_quiet, silent) = watch::channel(Vec::new());
+    let scoped = Arc::new(ScopedDiscovery::new(discovered.clone().unwrap_or(silent)));
+    let metrics = agent.net_metrics().clone();
+    let notices = AssignNotices::with_sink(move |list| {
+        metrics.set_notices(
+            list.into_iter()
+                .map(|n| NetworkNotice {
+                    interface: n.interface,
+                    message: n.message,
+                    command: n.command,
+                })
+                .collect(),
+        );
+    });
+    let mut scoped_seen = scoped_snapshot(&raw(&discovered));
     loop {
         // Los cables que ya están puestos entran con el gestor; los que aparezcan o se
         // desconecten después los sigue `follow_wired`. Lo configurado a mano manda.
@@ -745,19 +769,19 @@ async fn supervise(
         let port = agent.config().network.port;
         let fixed = relabel(&candidates, &interfaces.list());
         let fixed_kinds: Vec<LinkKind> = fixed.iter().map(|c| c.kind).collect();
+        let resolver = Arc::new(WiredResolver {
+            side,
+            os: local_os(),
+            port,
+            discovery: scoped.clone(),
+            assigner: Arc::new(SystemAssigner),
+            notices: notices.clone(),
+        });
         let resolve = move |i: &tandem_link::iface::NetInterface| {
             if fixed_kinds.contains(&i.kind.link_kind()) {
                 return None;
             }
-            let p = plan(i, side, local_os(), None, port);
-            if let Some(order) = p.assign {
-                tracing::warn!(
-                    interfaz = %i.name,
-                    "falta la IP de respaldo en el cable; asígnala con: {}",
-                    order.command
-                );
-            }
-            p.peer
+            resolver.resolve(i)
         };
         let mut spawned = fixed;
         let mut applied = BTreeMap::new();
@@ -837,8 +861,13 @@ async fn supervise(
                         discovered = None;
                         continue;
                     }
-                    let next = agent.config().network.link_candidates(&lan(&discovered));
-                    if next != candidates {
+                    let now = lan(&discovered);
+                    let next = agent.config().network.link_candidates(&now);
+                    // Un cable que contesta por mDNS cambia a quién se le puede hablar
+                    // por él: se arma de nuevo para que `resolve` lo vea.
+                    let seen = scoped_snapshot(&raw(&discovered));
+                    if next != candidates || seen != scoped_seen {
+                        scoped_seen = seen;
                         tracing::info!(?next, "cambiaron los enlaces con el par");
                         candidates = next;
                         break;
@@ -852,6 +881,17 @@ async fn supervise(
         active_link.publish(None);
         agent.set_path_conns(BTreeMap::new());
     }
+}
+
+/// Las link-local descubiertas (una por cable): cuando cambian, hay que resolver de nuevo.
+fn scoped_snapshot(lan: &[SocketAddr]) -> Vec<SocketAddr> {
+    let mut v: Vec<SocketAddr> = lan
+        .iter()
+        .copied()
+        .filter(|a| matches!(a, SocketAddr::V6(v6) if v6.scope_id() != 0))
+        .collect();
+    v.sort();
+    v
 }
 
 /// Espera el próximo cambio; sin receptor, nunca termina.

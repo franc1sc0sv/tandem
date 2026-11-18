@@ -25,6 +25,7 @@ export interface NetworkWire {
   }[];
   switches: { at_ms: number; from: LinkKind | null; to: LinkKind | null; took_ms: number | null }[];
   measuring: LinkKind | null;
+  notices?: { interface: string; message: string; command: string }[];
 }
 
 const ms = (us: number | null | undefined): number | null => (typeof us === "number" ? Math.round(us / 10) / 100 : null);
@@ -55,6 +56,7 @@ export function networkFromWire(w: NetworkWire, now: number): NetworkView {
     paths,
     switches: w.switches.map((s): PathSwitchView => ({ at: s.at_ms, from: s.from, to: s.to, tookMs: s.took_ms })),
     measuring: w.measuring,
+    notices: w.notices ?? [],
     now,
   };
 }
