@@ -84,6 +84,7 @@ pub struct Agent {
     input_status: watch::Sender<InputStatus>,
     /// Lo que el otro agente manda para el teclado y mouse.
     inbox: PeerInbox,
+    drag: crate::drag::DragHub,
     /// El puesto compartido que vale ahora (el de `tandem.toml` o el que llegó de la otra).
     desk: watch::Sender<Config>,
     /// `tandem.toml`, donde se guarda lo que cambia; sin él, solo en memoria.
@@ -351,6 +352,7 @@ impl Agent {
             pairing: Mutex::new(None),
             input_status: watch::Sender::new(input),
             inbox: PeerInbox::new(),
+            drag: crate::drag::DragHub::default(),
             desk: watch::Sender::new(cfg.desk.clone()),
             config_file: Mutex::new(None),
             setup: Mutex::new(SetupInfo {
@@ -871,6 +873,11 @@ impl Agent {
     }
 
     /// Lo que el otro agente manda para el teclado y mouse.
+    /// Arrastre de archivos entre las máquinas (T-121).
+    pub fn drag(&self) -> &crate::drag::DragHub {
+        &self.drag
+    }
+
     pub fn inbox(&self) -> &PeerInbox {
         &self.inbox
     }

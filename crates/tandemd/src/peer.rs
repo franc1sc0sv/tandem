@@ -302,6 +302,7 @@ async fn respond<C: ControlChannel>(
             ControlMsg::Rescan => agent.receive_rescan(),
             ControlMsg::Update(msg) => agent.receive_update(msg),
             ControlMsg::Focus(msg) => agent.inbox().deliver_focus(msg),
+            ControlMsg::Drag(msg) => agent.drag().deliver(msg),
             ControlMsg::WatchCursor { on } => agent.receive_watch_cursor(on),
             ControlMsg::Cursor(sample) => agent.receive_peer_cursor(CursorEvent::Sample(sample)),
             ControlMsg::Crossed { from, to, edge } => {

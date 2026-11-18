@@ -40,6 +40,7 @@ pub mod config;
 pub mod config_edit;
 pub mod daemon;
 pub mod desk_sync;
+pub mod drag;
 pub mod input;
 pub mod install;
 pub mod ipc;

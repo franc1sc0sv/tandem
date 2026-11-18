@@ -19,10 +19,10 @@ use tandem_core::{
     Step,
 };
 use tandem_proto::{
-    AgentToUi, Capabilities, CursorSample, DeskCapabilities, EnvKind, Environment, Hardware,
-    InputPermission, InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo, ModuleState,
-    MonitorView, NetworkStatus, PairingStatus, PathState, PeerStatus, PowerEvent, Reply, Resources,
-    SetupInfo, TunnelId, TxnEvent, UiCommand, UpdateStatus,
+    AgentToUi, Capabilities, CursorSample, DeskCapabilities, DragStatus, EnvKind, Environment,
+    Hardware, InputPermission, InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo,
+    ModuleState, MonitorView, NetworkStatus, PairingStatus, PathState, PeerStatus, PowerEvent,
+    Reply, Resources, SetupInfo, TunnelId, TxnEvent, UiCommand, UpdateStatus,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -586,6 +586,43 @@ pub enum Notice {
         total: u64,
         finished: bool,
     },
+    /// El avance de un arrastre de archivos entre las máquinas (T-121).
+    Drag {
+        status: DragView,
+    },
+}
+
+/// [`DragStatus`] en JSON para el frontend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DragView {
+    /// Copiando `name`, el archivo `index` (desde 0) de `total`.
+    Copying {
+        name: String,
+        index: u32,
+        total: u32,
+    },
+    /// Todo copiado: queda soltar en la otra máquina.
+    Copied {
+        total: u32,
+    },
+    Dropped,
+    Cancelled,
+    Failed {
+        reason: String,
+    },
+}
+
+impl From<DragStatus> for DragView {
+    fn from(s: DragStatus) -> Self {
+        match s {
+            DragStatus::Copying { name, index, total } => DragView::Copying { name, index, total },
+            DragStatus::Copied { total } => DragView::Copied { total },
+            DragStatus::Dropped => DragView::Dropped,
+            DragStatus::Cancelled => DragView::Cancelled,
+            DragStatus::Failed(reason) => DragView::Failed { reason },
+        }
+    }
 }
 
 /// [`CursorSample`] en JSON para el frontend.
@@ -1414,6 +1451,9 @@ impl Runner {
             AgentToUi::Crossed { from, to, edge } => {
                 self.sink.notice(&Notice::Crossed { from, to, edge });
             }
+            AgentToUi::Drag(status) => self.sink.notice(&Notice::Drag {
+                status: status.into(),
+            }),
             // Llega solo si se pidió `WatchNetwork` (la pantalla Red, T-118).
             AgentToUi::Network(status) => self.sink.network(&(*status).into()),
         }
@@ -2128,6 +2168,43 @@ mac = "9c:6b:00:1a:2b:ff"
             }
         })
         .await;
+    }
+
+    /// El avance de un arrastre de archivos del agente llega a la ventana como aviso (T-121).
+    #[tokio::test]
+    async fn the_file_drag_progress_is_forwarded_as_notices() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (_handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+
+        a.agent.drag().publish(DragStatus::Copying {
+            name: "a.txt".into(),
+            index: 1,
+            total: 3,
+        });
+        a.agent
+            .drag()
+            .publish(DragStatus::Failed("sin espacio".into()));
+        rec.until(|_, n| n.iter().any(|n| matches!(n, Notice::Drag { .. })))
+            .await;
+        rec.until(|_, n| n.len() >= 2).await;
+        let notices = rec.notices.lock().unwrap().clone();
+        assert_eq!(
+            serde_json::to_value(&notices[0]).unwrap(),
+            serde_json::json!({
+                "kind": "drag",
+                "status": { "kind": "copying", "name": "a.txt", "index": 1, "total": 3 }
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(&notices[1]).unwrap(),
+            serde_json::json!({
+                "kind": "drag",
+                "status": { "kind": "failed", "reason": "sin espacio" }
+            })
+        );
     }
 
     async fn within_secs<F: Future>(f: F) -> F::Output {

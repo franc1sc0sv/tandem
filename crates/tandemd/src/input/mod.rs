@@ -33,9 +33,11 @@
 
 pub mod backends;
 pub mod fake;
+pub mod file_drag;
 pub mod screens;
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use tokio::time::Instant;
@@ -56,6 +58,7 @@ use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
 use crate::agent::{Agent, IncomingChannel};
+use crate::drag::FileDragBackend;
 use crate::network::ActiveLink;
 use crate::peer::open_channel;
 
@@ -104,6 +107,9 @@ impl Default for InputOptions {
 pub struct InputSetup {
     pub backends: Arc<dyn InputBackends>,
     pub opts: InputOptions,
+    /// El detector y el envío de los arrastres de archivos al cruzar (T-121); sin él, el
+    /// cruce con botón apretado sigue solo la preferencia «Arrastrar entre máquinas».
+    pub file_drag: Option<Arc<dyn FileDragBackend>>,
 }
 
 impl InputSetup {
@@ -112,6 +118,7 @@ impl InputSetup {
         InputSetup {
             backends: Arc::new(PlatformInput::new()),
             opts: InputOptions::default(),
+            file_drag: backends::platform_file_drag(),
         }
     }
 }
@@ -209,6 +216,10 @@ struct Shared {
     remote: watch::Sender<bool>,
     here: watch::Sender<bool>,
     locked: watch::Sender<bool>,
+    /// Hay un botón del mouse apretado (para vigilar el arrastre de archivos).
+    held: watch::Sender<bool>,
+    /// Hay un arrastre de archivos en curso: la sesión deja cruzar con el botón apretado.
+    file_drag: Arc<AtomicBool>,
     missing: watch::Sender<Vec<InputPermission>>,
     capture_problem: watch::Sender<Option<String>>,
     inject_problem: watch::Sender<Option<String>>,
@@ -310,6 +321,7 @@ fn spawn_engine(
             };
         }
     };
+    let file_drag = setup.file_drag.clone();
     let (scene_keys, scene_fired) = mpsc::unbounded_channel();
     let (cursor, cursor_events) = CursorTap::new(agent.cursor_gate());
     let sh = Arc::new(Shared {
@@ -333,6 +345,8 @@ fn spawn_engine(
         remote: watch::Sender::new(false),
         here: watch::Sender::new(false),
         locked: watch::Sender::new(false),
+        held: watch::Sender::new(false),
+        file_drag: Arc::new(AtomicBool::new(false)),
         missing: watch::Sender::new(Vec::new()),
         capture_problem: watch::Sender::new(None),
         inject_problem: watch::Sender::new(None),
@@ -384,6 +398,13 @@ fn spawn_engine(
     tasks.push(spawn(Box::pin(server(sh.clone()))));
     tasks.push(spawn(Box::pin(client(sh.clone(), input_rx))));
     tasks.push(tokio::spawn(clipboard_module(sh.clone(), clip_rx)));
+    if let Some(hook) = file_drag {
+        tasks.push(tokio::spawn(file_drag::follow_edge(
+            sh.clone(),
+            hook.clone(),
+        )));
+        tasks.push(tokio::spawn(file_drag::follow(sh.clone(), hook)));
+    }
     tasks.push(tokio::spawn(
         sh.agent.clone().serve_scene_shortcuts(scene_fired),
     ));
@@ -832,7 +853,8 @@ async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String
     let cursor = first_cursor(layout.screens(sh.me));
     let session = ServerSession::new(sh.me, layout, cursor, sh.opts.session.resync_every)
         .with_lock_shortcut(lock_keys)
-        .with_drag_across(sh.agent.config().input.drag_between_machines);
+        .with_drag_across(sh.agent.config().input.drag_between_machines)
+        .with_file_drag_flag(sh.file_drag.clone());
     let driver = ServerDriver::new(session, capture, rx, sh.opts.session)
         .with_layouts(layouts)
         .with_cursor(sh.cursor.clone());
@@ -844,6 +866,8 @@ async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String
     forward(driver.remote(), move |v| set(&s.remote, v));
     let s = sh.clone();
     forward(driver.locked(), move |v| set(&s.locked, v));
+    let s = sh.clone();
+    forward(driver.buttons(), move |v| set(&s.held, v));
     Ok(driver)
 }
 

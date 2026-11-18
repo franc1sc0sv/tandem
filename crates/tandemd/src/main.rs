@@ -62,7 +62,7 @@ fn main() -> ExitCode {
             }
         }
         Command::Run(args) => {
-            if let Err(e) = run(args) {
+            if let Err(e) = run_hosted(args) {
                 tracing::error!("{e:#}");
                 eprintln!("tandemd: {e:#}");
                 return ExitCode::FAILURE;
@@ -122,6 +122,39 @@ async fn network_status(data_dir: &std::path::Path) -> Option<tandem_proto::Netw
         .await
         .ok()
         .flatten()
+}
+
+/// En macOS, AppKit pide el hilo principal para el arrastre sintético de archivos (T-121):
+/// el agente corre en otro hilo y este atiende el run loop. Al terminar el agente se sale
+/// del proceso, porque ese run loop no vuelve solo.
+#[cfg(target_os = "macos")]
+fn run_hosted(args: RunArgs) -> anyhow::Result<()> {
+    let agent = std::thread::Builder::new()
+        .name("tandemd".into())
+        .spawn(move || {
+            // Si `run` entra en pánico el hilo muere, pero el run loop del hilo principal
+            // no vuelve: sin esto el proceso quedaría vivo y sin agente.
+            let _guard = ExitOnPanic::new(|code| std::process::exit(code));
+            let code = match run(args) {
+                Ok(()) => 0,
+                Err(e) => {
+                    tracing::error!("{e:#}");
+                    eprintln!("tandemd: {e:#}");
+                    1
+                }
+            };
+            std::process::exit(code)
+        })
+        .context("no se pudo crear el hilo del agente")?;
+    tandem_files::drag_macos::run_app_loop();
+    // Solo se llega aquí si el run loop no arrancó: el agente sigue su curso.
+    let _ = agent.join();
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn run_hosted(args: RunArgs) -> anyhow::Result<()> {
+    run(args)
 }
 
 fn run(args: RunArgs) -> anyhow::Result<()> {
@@ -248,4 +281,54 @@ fn install(_args: RunArgs) -> anyhow::Result<()> {
 #[cfg(not(windows))]
 fn uninstall() -> anyhow::Result<()> {
     anyhow::bail!("--uninstall solo existe en Windows")
+}
+
+/// Al soltarse durante un pánico llama a `exit(1)`; en una salida normal no hace nada.
+/// `exit` se inyecta para poder probarlo sin matar el proceso de pruebas.
+#[cfg(any(test, target_os = "macos"))]
+struct ExitOnPanic<F: FnMut(i32)> {
+    exit: F,
+}
+
+#[cfg(any(test, target_os = "macos"))]
+impl<F: FnMut(i32)> ExitOnPanic<F> {
+    fn new(exit: F) -> Self {
+        Self { exit }
+    }
+}
+
+#[cfg(any(test, target_os = "macos"))]
+impl<F: FnMut(i32)> Drop for ExitOnPanic<F> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            (self.exit)(1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExitOnPanic;
+    use std::cell::Cell;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    #[test]
+    fn el_guard_sale_con_1_si_hay_panico() {
+        let code = Cell::new(None);
+        let r = catch_unwind(AssertUnwindSafe(|| {
+            let _g = ExitOnPanic::new(|c| code.set(Some(c)));
+            panic!("prueba");
+        }));
+        assert!(r.is_err());
+        assert_eq!(code.get(), Some(1));
+    }
+
+    #[test]
+    fn el_guard_no_sale_sin_panico() {
+        let code = Cell::new(None);
+        {
+            let _g = ExitOnPanic::new(|c| code.set(Some(c)));
+        }
+        assert_eq!(code.get(), None);
+    }
 }

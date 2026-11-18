@@ -9,7 +9,7 @@ import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, ratioLabel, type Arrang
 import type { Bridge } from "../bridge";
 import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
-import type { Action, ActionResult, Bindings, Caps, Desk, Link, Machine, MachineCaps, MonitorInput, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
+import type { Action, ActionResult, Bindings, Caps, Desk, DragStatus, Link, Machine, MachineCaps, MonitorInput, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
 import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
@@ -368,7 +368,8 @@ export class LiveSource implements Source {
   private probeListeners = new Set<(m: Machine) => void>();
 
   private txnListeners = new Set<(e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void>();
-  /** El evento de Tauri no se puede dejar de oír: se oye una vez y se reparte (transacciones y cursor). */
+  private dragListeners = new Set<(s: DragStatus) => void>();
+  /** El evento de Tauri no se puede dejar de oír: se oye una vez y se reparte (transacciones, cursor y arrastre). */
   private noticesBound: Promise<void> | null = null;
 
   private bindNotices(): Promise<void> {
@@ -378,6 +379,7 @@ export class LiveSource implements Source {
         else if (n.kind === "key_probe") {
           if (n.event.heard) for (const f of [...this.probeListeners]) f(n.event.heard);
         } else if (n.kind === "cursor" || n.kind === "crossed") for (const f of [...this.cursorListeners]) f(n);
+        else if (n.kind === "drag") for (const l of this.dragListeners) l(n.status);
       }),
     );
     return this.noticesBound;
@@ -388,6 +390,14 @@ export class LiveSource implements Source {
     this.txnListeners.add(onEvent);
     return () => {
       this.txnListeners.delete(onEvent);
+    };
+  }
+
+  async watchDrag(onStatus: (s: DragStatus) => void): Promise<() => void> {
+    await this.bindNotices();
+    this.dragListeners.add(onStatus);
+    return () => {
+      this.dragListeners.delete(onStatus);
     };
   }
 

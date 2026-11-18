@@ -24,6 +24,7 @@ use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_peripherals::{UsbId, WatchConfig};
 use tandem_proto::{AgentToUi, InputPermission, InputStatus, Reply, UiCommand};
 use tandemd::daemon::{self, Backends, Daemon};
+use tandemd::drag::FileDragBackend;
 use tandemd::input::fake::{CaptureCall, FakeInputBackends};
 use tandemd::input::{InputOptions, InputSetup};
 use tandemd::ipc::{IpcClient, mem};
@@ -221,6 +222,33 @@ async fn start_os(
     input_extra: &str,
     tail: &str,
 ) -> Result<Running, PortTaken> {
+    start_os_drag(
+        machine,
+        os,
+        identity,
+        port,
+        peer,
+        fake,
+        input_extra,
+        tail,
+        None,
+    )
+    .await
+}
+
+/// Como [`start_os`], con el detector de arrastre de archivos (T-121) que se le dé.
+#[allow(clippy::too_many_arguments)]
+async fn start_os_drag(
+    machine: Machine,
+    os: Os,
+    identity: &Identity,
+    port: u16,
+    peer: (PublicKey, u16),
+    fake: FakeInputBackends,
+    input_extra: &str,
+    tail: &str,
+    file_drag: Option<Arc<dyn FileDragBackend>>,
+) -> Result<Running, PortTaken> {
     // `TANDEM_TEST_LOG=tandemd::input=debug` muestra el registro de los agentes: para
     // entender una espera que vence.
     if let Ok(filter) = std::env::var("TANDEM_TEST_LOG") {
@@ -260,6 +288,7 @@ async fn start_os(
             input: Some(Box::new(InputSetup {
                 backends: Arc::new(fake.clone()),
                 opts: fast(),
+                file_drag,
             })),
             env: None,
         },
@@ -1462,4 +1491,310 @@ async fn the_input_latency_feeds_the_link_qos_on_both_machines() {
     .await;
     pc.stop().await;
     mac.stop().await;
+}
+
+// ---- Arrastre de archivos al cruzar (T-121) ----
+
+mod file_drag {
+    use std::path::{Path, PathBuf};
+
+    use tandem_files::FilesError;
+    use tandem_files::drag::{DragEnd, DragIn, DragStarter};
+    use tandem_files::drag_os::{DragProbe, PxRect, StripEdge};
+    use tandem_input::Button;
+    use tandem_proto::DragStatus;
+    use tandem_tunnel::BoxFuture;
+    use tokio::sync::{Notify, broadcast};
+
+    use super::*;
+
+    type Seen = Arc<Mutex<Vec<(PathBuf, Vec<u8>)>>>;
+
+    /// El detector es la sonda que la prueba enciende; subir es copiar por el disco local
+    /// (las dos «máquinas» comparten sistema de archivos).
+    #[derive(Clone, Default)]
+    struct Hook {
+        probe: DragProbe,
+        edge: Arc<Mutex<Option<(PxRect, StripEdge)>>>,
+        finished: Arc<Mutex<u32>>,
+        /// Retiene la copia del archivo con ese nombre hasta que se abra.
+        gate: Option<(String, Arc<Notify>)>,
+    }
+
+    impl FileDragBackend for Hook {
+        fn file_drag(&self) -> Option<Vec<PathBuf>> {
+            tandem_files::drag::DragDetector::file_drag(&self.probe)
+        }
+
+        fn set_edge(&self, edge: Option<(PxRect, StripEdge)>) {
+            *self.edge.lock().unwrap() = edge;
+        }
+
+        fn upload<'a>(
+            &'a self,
+            _agent: &'a Agent,
+            local: &'a Path,
+            remote: &'a str,
+        ) -> BoxFuture<'a, Result<(), FilesError>> {
+            Box::pin(async move {
+                if let Some((name, gate)) = &self.gate
+                    && local.file_name().is_some_and(|n| n.to_str() == Some(name))
+                {
+                    gate.notified().await;
+                }
+                std::fs::copy(local, remote)
+                    .map(|_| ())
+                    .map_err(|e| FilesError::io(local, e))
+            })
+        }
+
+        fn finish<'a>(&'a self, _agent: &'a Agent) -> BoxFuture<'a, ()> {
+            Box::pin(async move { *self.finished.lock().unwrap() += 1 })
+        }
+    }
+
+    /// Doble del arrastre sintético del destino: lee lo que quedó y «suelta».
+    #[derive(Clone, Default)]
+    struct DropStarter {
+        seen: Seen,
+    }
+
+    impl DragStarter for DropStarter {
+        async fn start(&self, staged: Vec<PathBuf>) -> Result<DragEnd, FilesError> {
+            for p in staged {
+                let bytes = std::fs::read(&p).map_err(|e| FilesError::io(&p, e))?;
+                self.seen.lock().unwrap().push((p, bytes));
+            }
+            Ok(DragEnd::Dropped)
+        }
+    }
+
+    struct Rig {
+        mac: Running,
+        pc: Running,
+        mac_fake: FakeInputBackends,
+        pc_fake: FakeInputBackends,
+        hook: Hook,
+        seen: Seen,
+        staging: tempfile::TempDir,
+        src: tempfile::TempDir,
+        status: broadcast::Receiver<DragStatus>,
+        serve: JoinHandle<()>,
+    }
+
+    impl Rig {
+        async fn stop(self) {
+            self.serve.abort();
+            self.pc.stop().await;
+            self.mac.stop().await;
+        }
+
+        /// Los archivos de origen, en la carpeta de la prueba.
+        fn files(&self) -> Vec<PathBuf> {
+            ["uno.txt", "dos.bin"]
+                .iter()
+                .map(|n| {
+                    let p = self.src.path().join(n);
+                    std::fs::write(&p, format!("contenido de {n}")).unwrap();
+                    p
+                })
+                .collect()
+        }
+
+        /// Empuja el cursor de la PC contra el borde izquierdo.
+        fn push(&self) {
+            self.pc_fake
+                .capture(InputEvent::MotionAbsolute { x: 0.0, y: 500.0 });
+            self.pc_fake
+                .capture(InputEvent::MotionRelative { dx: -5.0, dy: 0.0 });
+        }
+
+        fn button(&self, state: KeyState) {
+            self.pc_fake.capture(InputEvent::Button {
+                button: Button::Left,
+                state,
+            });
+        }
+
+        /// Empuja el cursor mientras recoge los avisos de la UI de la PC hasta que llegue
+        /// uno que cumpla `last`.
+        async fn pushing_until(&mut self, last: impl Fn(&DragStatus) -> bool) -> Vec<DragStatus> {
+            let pc_fake = self.pc_fake.clone();
+            let pusher = tokio::spawn(async move {
+                loop {
+                    pc_fake.capture(InputEvent::MotionAbsolute { x: 0.0, y: 500.0 });
+                    pc_fake.capture(InputEvent::MotionRelative { dx: -5.0, dy: 0.0 });
+                    tokio::time::sleep(Duration::from_millis(30)).await;
+                }
+            });
+            let out = self.statuses_until(last).await;
+            pusher.abort();
+            out
+        }
+
+        async fn statuses_until(&mut self, last: impl Fn(&DragStatus) -> bool) -> Vec<DragStatus> {
+            let mut out = Vec::new();
+            loop {
+                let s = within(self.status.recv()).await.unwrap();
+                let done = last(&s);
+                out.push(s);
+                if done {
+                    return out;
+                }
+            }
+        }
+    }
+
+    async fn rig(gate: Option<(String, Arc<Notify>)>) -> Rig {
+        let (mac_id, pc_id) = sides(Identity::from_seed([21; 32]), Identity::from_seed([22; 32]));
+        let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+        let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+        pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+        let hook = Hook {
+            gate,
+            ..Hook::default()
+        };
+        let pc_hook: Arc<dyn FileDragBackend> = Arc::new(hook.clone());
+        let (mac, pc) = tandemd::start_pair!(
+            |mac_port, pc_port| start(
+                Machine::A,
+                &mac_id,
+                mac_port,
+                (pc_id.public_key(), pc_port),
+                mac_fake.clone(),
+            ),
+            start_os_drag(
+                Machine::B,
+                os_of(Machine::B),
+                &pc_id,
+                pc_port,
+                (mac_id.public_key(), mac_port),
+                pc_fake.clone(),
+                "",
+                "",
+                Some(pc_hook.clone()),
+            )
+        );
+        let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
+        mac.until_input(pc_serving).await;
+        pc.until_input(pc_serving).await;
+        both_on(&mac, &pc).await;
+
+        let starter = DropStarter::default();
+        let seen = starter.seen.clone();
+        let staging = tempfile::tempdir().unwrap();
+        let (agent, base) = (mac.agent.clone(), staging.path().to_owned());
+        let serve = tokio::spawn(async move {
+            tandemd::drag::serve(&agent, DragIn::new(starter, base)).await;
+        });
+        let status = pc.agent.drag().subscribe();
+        Rig {
+            mac,
+            pc,
+            mac_fake,
+            pc_fake,
+            hook,
+            seen,
+            staging,
+            src: tempfile::tempdir().unwrap(),
+            status,
+            serve,
+        }
+    }
+
+    fn name(i: u32, n: &str) -> DragStatus {
+        DragStatus::Copying {
+            name: n.into(),
+            index: i,
+            total: 2,
+        }
+    }
+
+    fn ended(s: &DragStatus) -> bool {
+        matches!(
+            s,
+            DragStatus::Dropped | DragStatus::Cancelled | DragStatus::Failed(_)
+        )
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn un_arrastre_de_archivos_cruza_copia_y_se_suelta_en_el_destino() {
+        let mut r = rig(None).await;
+        // La franja del detector queda en el borde que mira a la Mac.
+        within(async {
+            while *r.hook.edge.lock().unwrap() != Some(((0, 0, 3440, 1440), StripEdge::Left)) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+
+        r.hook.probe.enter(r.files());
+        r.button(KeyState::Pressed);
+        // «Arrastrar entre máquinas» está apagado: solo cruza por los archivos detectados.
+        let before = r.mac_fake.injected().borrow().len();
+        let statuses = r.pushing_until(ended).await;
+        assert_eq!(
+            statuses,
+            vec![
+                name(0, "uno.txt"),
+                name(1, "dos.bin"),
+                DragStatus::Copied { total: 2 },
+                DragStatus::Dropped,
+            ]
+        );
+        assert!(
+            r.mac_fake.injected().borrow().len() > before,
+            "el cursor cruzó a la Mac"
+        );
+        let seen = r.seen.lock().unwrap().clone();
+        assert_eq!(seen.len(), 2);
+        assert_eq!(seen[0].1, b"contenido de uno.txt");
+        assert_eq!(seen[1].1, b"contenido de dos.bin");
+        // Soltado el arrastre se limpia: el destino sin restos y el hook avisado.
+        within(async {
+            while *r.hook.finished.lock().unwrap() == 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        assert_eq!(std::fs::read_dir(r.staging.path()).unwrap().count(), 0);
+        r.button(KeyState::Released);
+        r.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn soltar_el_boton_a_media_copia_cancela_y_borra_lo_copiado() {
+        let gate = Arc::new(Notify::new());
+        let mut r = rig(Some(("dos.bin".into(), gate.clone()))).await;
+        r.hook.probe.enter(r.files());
+        r.button(KeyState::Pressed);
+        // La copia queda detenida en el segundo archivo.
+        let first = r.pushing_until(|s| *s == name(1, "dos.bin")).await;
+        assert_eq!(first, vec![name(0, "uno.txt"), name(1, "dos.bin")]);
+        r.button(KeyState::Released);
+        let rest = r.statuses_until(ended).await;
+        assert_eq!(rest, vec![DragStatus::Cancelled]);
+        assert!(r.seen.lock().unwrap().is_empty(), "no se llegó a arrastrar");
+        within(async {
+            while std::fs::read_dir(r.staging.path()).unwrap().count() != 0 {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        r.stop().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn sin_archivos_arrastrados_el_cursor_no_cruza_con_el_boton_apretado() {
+        let mut r = rig(None).await;
+        r.button(KeyState::Pressed);
+        let before = r.mac_fake.injected().borrow().len();
+        for _ in 0..20 {
+            r.push();
+            tokio::time::sleep(Duration::from_millis(30)).await;
+        }
+        assert_eq!(r.mac_fake.injected().borrow().len(), before);
+        assert!(r.status.try_recv().is_err(), "ningún aviso de arrastre");
+        r.stop().await;
+    }
 }

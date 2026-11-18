@@ -5,6 +5,8 @@
 //! Los tipos de cada backend son distintos en cada sistema; aquí todos se ven con el
 //! error como texto ([`Stringly`]) y en caja, así el resto del agente es uno solo.
 
+use std::sync::Arc;
+
 use tandem_clipboard::{ClipContent, Clipboard};
 use tandem_core::Os;
 use tandem_input::event::{Direction, ModifierRemap, RemapPolicy};
@@ -429,6 +431,47 @@ mod platform {
     pub fn request_permissions() -> Vec<InputPermission> {
         missing_permissions()
     }
+}
+
+/// El detector y el envío de archivos de este sistema (T-121); `None` donde no hay.
+#[cfg(windows)]
+pub fn platform_file_drag() -> Option<Arc<dyn crate::drag::FileDragBackend>> {
+    use tandem_files::drag_target_windows::WindowsDropWatcher;
+
+    // Sin la ventana del borde no hay detector; el resto del motor sigue.
+    let watcher = match WindowsDropWatcher::new() {
+        Ok(w) => Arc::new(w),
+        Err(e) => {
+            tracing::warn!("sin detector de arrastre de archivos: {e}");
+            return None;
+        }
+    };
+    struct Shared(Arc<WindowsDropWatcher>);
+    impl tandem_files::drag::DragDetector for Shared {
+        fn file_drag(&self) -> Option<Vec<std::path::PathBuf>> {
+            self.0.file_drag()
+        }
+    }
+    let w = watcher.clone();
+    Some(Arc::new(
+        crate::drag::SystemFileDrag::new(Shared(watcher)).with_edge(move |edge| {
+            w.set_strip(edge.map(|(b, e)| {
+                tandem_files::drag_os::strip_rect(b, e, super::file_drag::STRIP_THICKNESS)
+            }));
+        }),
+    ))
+}
+
+#[cfg(target_os = "macos")]
+pub fn platform_file_drag() -> Option<Arc<dyn crate::drag::FileDragBackend>> {
+    Some(Arc::new(crate::drag::SystemFileDrag::new(
+        tandem_files::drag_macos::MacDragDetector,
+    )))
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+pub fn platform_file_drag() -> Option<Arc<dyn crate::drag::FileDragBackend>> {
+    None
 }
 
 #[cfg(test)]

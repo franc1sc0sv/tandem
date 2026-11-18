@@ -166,6 +166,7 @@ where
     states.mark_unchanged();
     let mut txns = agent.subscribe_txns();
     let mut power = agent.subscribe_power();
+    let mut drag = agent.drag().subscribe();
     let mut peer = agent.subscribe_peer();
     peer.mark_unchanged();
     let mut pairing = agent.subscribe_pairing();
@@ -287,6 +288,12 @@ where
                 Err(RecvError::Lagged(n)) => {
                     tracing::warn!("la UI se atrasó y perdió {n} avisos de transacción");
                 }
+                Err(RecvError::Closed) => return Ok(()),
+            },
+            event = drag.recv() => match event {
+                Ok(status) => conn.send(&AgentToUi::Drag(status)).await?,
+                // El siguiente aviso reemplaza al que se perdió.
+                Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => return Ok(()),
             },
             event = power.recv() => match event {

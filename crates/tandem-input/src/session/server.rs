@@ -6,6 +6,9 @@
 //! la entrada a mensajes. No hace E/S: devuelve [`ServerOutput`] y el driver
 //! ([`super::quic`]) los ejecuta en orden.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use tandem_core::Machine;
 
 use super::cursor::Crossing;
@@ -72,6 +75,11 @@ pub struct ServerSession {
     /// Si el cursor cruza a la otra máquina con un botón presionado (arrastrar). Por
     /// omisión no, como Deskflow: un arrastre que llega al borde se queda en su máquina.
     drag_across: bool,
+    /// Hay un arrastre de archivos del sistema en curso (T-121): cruza aunque `drag_across`
+    /// esté apagado, y solo mientras dure.
+    file_drag: bool,
+    /// Lo mismo, pero escrito por el agente desde otra tarea (el detector del sistema).
+    file_drag_flag: Option<Arc<AtomicBool>>,
     /// Marca del evento que se está procesando.
     now_us: u64,
     /// Los cruces de borde desde la última vez que el driver los recogió
@@ -97,6 +105,8 @@ impl ServerSession {
             lock_shortcut: Vec::new(),
             locked: false,
             drag_across: false,
+            file_drag: false,
+            file_drag_flag: None,
             now_us: 0,
             crossings: Vec::new(),
         }
@@ -108,9 +118,34 @@ impl ServerSession {
         self
     }
 
+    /// El agente detectó (o ya no) un arrastre de archivos en la máquina de origen.
+    pub fn set_file_drag(&mut self, active: bool) {
+        self.file_drag = active;
+    }
+
+    /// Como [`Self::set_file_drag`], pero lo gobierna `flag`: el agente lo enciende desde
+    /// otra tarea sin pasar por el camino caliente (aquí solo se lee, relajado).
+    pub fn with_file_drag_flag(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.file_drag_flag = Some(flag);
+        self
+    }
+
+    /// Hay algún botón del mouse apretado.
+    pub fn button_held(&self) -> bool {
+        self.pressed.any_button()
+    }
+
+    fn file_drag_active(&self) -> bool {
+        self.file_drag
+            || self
+                .file_drag_flag
+                .as_ref()
+                .is_some_and(|f| f.load(Ordering::Relaxed))
+    }
+
     /// El cursor no puede cruzar ahora: bloqueado por el atajo o arrastrando.
     fn held_in_place(&self) -> bool {
-        self.locked || (!self.drag_across && self.pressed.any_button())
+        self.locked || (!self.drag_across && !self.file_drag_active() && self.pressed.any_button())
     }
 
     /// Atajo de teclado (todas las teclas a la vez) que bloquea y desbloquea el
@@ -738,6 +773,48 @@ mod tests {
             y: 720.0,
         });
         s.handle(press);
+        assert!(matches!(
+            s.handle(rel(5.0, 0.0))[0],
+            ServerOutput::Grab(true)
+        ));
+    }
+
+    #[test]
+    fn un_arrastre_de_archivos_cruza_aunque_arrastrar_este_apagado() {
+        let press = InputEvent::Button {
+            button: Button::Left,
+            state: KeyState::Pressed,
+        };
+        let mut s = session();
+        s.handle(InputEvent::MotionAbsolute {
+            x: edge_pc(),
+            y: 720.0,
+        });
+        s.handle(press);
+        assert!(s.handle(rel(50.0, 0.0)).is_empty());
+        s.set_file_drag(true);
+        assert!(matches!(
+            s.handle(rel(5.0, 0.0))[0],
+            ServerOutput::Grab(true)
+        ));
+    }
+
+    #[test]
+    fn la_bandera_externa_de_arrastre_de_archivos_permite_cruzar_y_solo_mientras_dura() {
+        let flag = Arc::new(AtomicBool::new(false));
+        let press = InputEvent::Button {
+            button: Button::Left,
+            state: KeyState::Pressed,
+        };
+        let mut s = session().with_file_drag_flag(flag.clone());
+        s.handle(InputEvent::MotionAbsolute {
+            x: edge_pc(),
+            y: 720.0,
+        });
+        s.handle(press);
+        assert!(s.button_held());
+        assert!(s.handle(rel(50.0, 0.0)).is_empty(), "sin bandera se queda");
+        flag.store(true, Ordering::Relaxed);
         assert!(matches!(
             s.handle(rel(5.0, 0.0))[0],
             ServerOutput::Grab(true)
