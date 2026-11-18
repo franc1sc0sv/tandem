@@ -1,6 +1,6 @@
 import * as L from "./lib.mjs";
 const { m1, m2 } = L.attach("host");
-const p = await L.openUi(m1, { hash: "#/monitores" }); await L.sleep(1500);
+const p = await L.openUi(m1, { hash: "#/monitors" }); await L.sleep(1500);
 console.log("screen before:", await m2.ctl({ cmd: "monitor_screen", id: 0 }));
 const s = await m1.snapshot(); console.log(JSON.stringify(s.monitors).slice(0, 1500));
 console.log(await p.locator("[role=radio]").evaluateAll(els => els.map(e => e.innerText.replace(/\n/g," ")+"|"+e.getAttribute("aria-checked"))));

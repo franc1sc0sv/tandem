@@ -1,146 +1,146 @@
-# Aceptación de Tandem v0.3, parte A (2026-11-18)
+# Tandem v0.3 acceptance, part A (2026-11-18)
 
-Parte A de 3: paridad visual y animaciones de todas las pantallas. Base: `origin/develop` en `04f2967`, worktree detached. Quedan fuera la parte B (flujos con agentes reales, F1-F14, `F-ClaudeMCP`) y la C (calidad base, CI, G10, G11).
+Part A of 3: visual parity and animations of every screen. Base: `origin/develop` at `04f2967`, detached worktree. Out of scope: part B (flows with real agents, F1-F14, `F-ClaudeMCP`) and part C (baseline quality, CI, G10, G11).
 
-**Resultado: `ACCEPTANCE: FAIL 8`** (tareas T-140 a T-147). Esta parte no declara terminada la app.
+**Result: `ACCEPTANCE: FAIL 8`** (tasks T-140 to T-147). This part does not declare the app finished.
 
-## Cómo se midió
+## How it was measured
 
-- `pnpm shots --check` (66 capturas y la paridad de estilos de 22 componentes) sobre `dist-demo`, con los umbrales de ACCEPTANCE: similitud ≥ 0.99 y peor cuadro ≥ 0.97. Salida completa: [`pnpm-shots.log`](acceptance/2026-11-18-a/pnpm-shots.log). El comando termina en 0; yo volví a aplicar los umbrales a cada medida (pantalla y zonas) del `similitud.json` y solo quedan por debajo las cinco capturas que el arnés mide sin umbral (tabla de abajo).
-- `pnpm mockups:shot` de nuevo: las 72 capturas de `docs/mockups-png/` salen idénticas a las commiteadas (referencias vigentes).
-- Capturas temporales (no commiteadas) de los estados del mockup que `shots-spec.ts` no mide: ver T-144 y T-145.
-- Máscaras: para cada `ignore` y `content.masks` de `shots-spec.ts` se leyó qué hay debajo en el mockup, su área y su razón: [`mascaras.txt`](acceptance/2026-11-18-a/mascaras.txt).
-- Animaciones: en cada una de las 66 capturas (mockup y app, con los mismos clics) se recogieron las animaciones y transiciones calculadas (nombre, duración, iteraciones, curva, propiedades del `@keyframes`) más las que corren (`document.getAnimations()` en cada cuadro); la app sin `still`. Comparación por firma: [`animaciones-faltantes.txt`](acceptance/2026-11-18-a/animaciones-faltantes.txt). Con `prefers-reduced-motion: reduce` se repitió en las 66: cero animaciones, cero transiciones, cero animaciones en marcha, cero errores de consola.
-- Reglas visuales: 66 casos del demo (los tres pares mac-win, win-win y mac-mac en las once rutas, los cuatro `trouble`, las cuatro pestañas de Ajustes, los seis pasos del asistente, progreso en curso/éxito/fallo, paleta, avisos, bandeja, túneles vacío y con 12 procesos) con volcado de texto, botones, chips, líneas sobre tarjetas, campos, escalas y errores; tabulación por teclado (foco visible); y 187 clics en botones para detectar los que no cambian nada.
-- Evidencia de las fallas: `docs/reports/acceptance/2026-11-18-a/<caso>/` (captura de la app, y mockup y diff cuando hay mockup).
+- `pnpm shots --check` (66 screenshots and style parity of 22 components) on `dist-demo`, with the ACCEPTANCE thresholds: similarity ≥ 0.99 and worst tile ≥ 0.97. Full output: [`pnpm-shots.log`](acceptance/2026-11-18-a/pnpm-shots.log). The command exits 0; I re-applied the thresholds to each measurement (screen and zones) in `similarity.json` and only the five screenshots that the harness measures without a threshold stay below (table below).
+- `pnpm mockups:shot` again: the 72 screenshots in `docs/mockups-png/` come out identical to the committed ones (references are current).
+- Temporary (uncommitted) screenshots of the mockup states that `shots-spec.ts` does not measure: see T-144 and T-145.
+- Masks: for each `ignore` and `content.masks` in `shots-spec.ts` I read what lies underneath in the mockup, its area and its reason: [`masks.txt`](acceptance/2026-11-18-a/masks.txt).
+- Animations: in each of the 66 screenshots (mockup and app, with the same clicks) the computed animations and transitions were collected (name, duration, iterations, curve, `@keyframes` properties) plus the running ones (`document.getAnimations()` on every frame); the app without `still`. Comparison by signature: [`missing-animations.txt`](acceptance/2026-11-18-a/missing-animations.txt). With `prefers-reduced-motion: reduce` it was repeated on all 66: zero animations, zero transitions, zero running animations, zero console errors.
+- Visual rules: 66 demo cases (the three pairs mac-win, win-win and mac-mac on the eleven routes, the four `trouble` states, the four Settings tabs, the six setup steps, progress in flight/success/failure, palette, notices, tray, tunnels empty and with 12 processes) with a dump of text, buttons, chips, lines on cards, fields, scales and errors; keyboard tabbing (visible focus); and 187 button clicks to detect the ones that change nothing.
+- Evidence of the failures: `docs/reports/acceptance/2026-11-18-a/<case>/` (app screenshot, and mockup and diff when there is a mockup).
 
-## Reglas globales
+## Global rules
 
-| Ítem | Resultado | Detalle |
+| Item | Result | Detail |
 |---|---|---|
-| G1 Solo dos máquinas | FALLA | «Agregar máquina» / «Agrega otra máquina» en la tarjeta «Primera vez» de Estados (T-142). Sin tercera máquina en barra lateral, Puesto, Ajustes, Paleta ni Asistente. |
-| G2 Nada fijo a Mac/PC | FALLA | Con dos Windows los túneles dicen «PC → PC» (T-141). Nombres, íconos, colores y escritorios a escala salen de cada máquina en win-win y mac-mac (px por pulgada iguales en cada escena: 9.6 y 8.96). |
-| G3 Barra lateral | PASA | Puesto, Túneles con contador, Monitores, Acomodo, Red, una entrada por máquina y Ajustes en las 11 rutas y en los tres pares. |
-| G4 Botones, íconos, chips, tarjetas | PASA | Todos los `.btn` llevan ícono; foco visible en 113 elementos tabulados sin una excepción; ninguna tarjeta con línea de color arriba; chips de estado uniformes (25 px, 12 px, pastilla; las otras alturas son las de los mockups); paridad de estilos de 22 componentes ✓. Los renglones de lista, escenas y combos sin ícono son los de los mockups. |
-| G5 Sin relleno, sin «Teclado aquí» | FALLA | «Wi-Fi · sin cable» (T-147). No hay «Teclado aquí», «requiere cable», modos viejos ni X/Y en el acomodo. |
-| G6 Todo hace algo (parte A) | PASA | 187 clics: ningún botón sin efecto salvo los de acciones del sistema (abrir carpeta, Ajustes del Sistema, Salir) y los que ya estaban elegidos; el efecto real en el agente es de la parte B. |
-| G7 Animaciones | FALLA | En el demo el cursor del Puesto se reinicia cada 1,5 s y no cruza ni destella (T-140). El resto de los `@keyframes` y `transition` de los mockups tiene equivalente (diferencias de duración menores, anotadas en `animaciones-faltantes.txt`). |
-| G8 `prefers-reduced-motion` | PASA | Cero animaciones, transiciones ni animaciones en marcha en las 66 capturas. |
-| G9 Consola y textos | PASA | Cero errores o avisos de consola en 66 casos; ningún `{{`, `undefined`, `NaN`, `null` ni texto en inglés visible. |
-| G10 Configuración compartida | PARTE B | |
-| G11 Calidad base | PARTE C | |
+| G1 Only two machines | FAIL | "Add machine" / "Add another machine" on the "First time" card of States (T-142). No third machine in the sidebar, Desk, Settings, Palette or Setup. |
+| G2 Nothing fixed to Mac/PC | FAIL | With two Windows machines the tunnels say "PC → PC" (T-141). Names, icons, colors and scaled desktops come from each machine in win-win and mac-mac (px per inch equal in each scene: 9.6 and 8.96). |
+| G3 Sidebar | PASS | Desk, Tunnels with counter, Monitors, Arrangement, Network, one entry per machine and Settings on the 11 routes and in the three pairs. |
+| G4 Buttons, icons, chips, cards | PASS | Every `.btn` has an icon; visible focus on 113 tabbed elements without an exception; no card with a colored line on top; uniform status chips (25 px, 12 px, pill; the other heights are the mockups'); style parity of 22 components ✓. List rows, scenes and combos without an icon are the mockups'. |
+| G5 No filler, no "Keyboard here" | FAIL | "Wi-Fi · no cable" (T-147). There is no "Keyboard here", "requires cable", old modes or X/Y in the arrangement. |
+| G6 Everything does something (part A) | PASS | 187 clicks: no button without an effect except system actions (open folder, System Settings, Quit) and those already selected; the real effect on the agent belongs to part B. |
+| G7 Animations | FAIL | In the demo the Desk cursor restarts every 1.5 s and neither crosses nor flashes (T-140). The rest of the mockups' `@keyframes` and `transition` have an equivalent (minor duration differences, noted in `missing-animations.txt`). |
+| G8 `prefers-reduced-motion` | PASS | Zero animations, transitions or running animations in the 66 screenshots. |
+| G9 Console and text | PASS | Zero console errors or warnings in 66 cases; no `{{`, `undefined`, `NaN`, `null` or visible text in Spanish. |
+| G10 Shared configuration | PART B | |
+| G11 Baseline quality | PART C | |
 
-## Pantallas
+## Screens
 
-| # | Pantalla | Mockups y estados | Resultado | Tarea |
+| # | Screen | Mockups and states | Result | Task |
 |---|---|---|---|---|
-| P1 | Puesto | `V3-Puesto` 99.99 % / 98.4 %; con escena Solo MacBook y Juego 99.99 % / 98.4 % (medidas aparte) | PASA en píxeles; animación FALLA | T-140, T-144 |
-| P2 | Túneles | los 7 estados del mockup 100 % / 100 %; vacío y 12 procesos sin comparación (mismos componentes) | PASA (rótulos del par win-win FALLAN) | T-141 |
-| P3 | Máquina | `V3-Maquina` 100 % / 99.5 % (contenido), `F-MaquinaMac` 99.99 % / 98.4 % | PASA (máscara débil) | T-143 |
-| P4 | Monitores y escenas | `V3-Monitores` ×2, `F-NuevaEscena` ×3: 100 % / ≥ 98.9 % | PASA | |
-| P5 | Acomodo | 4 lados × 3 alineaciones, pantalla elegida, no compatible: 100 % / ≥ 99.8 % | PASA | |
-| P6 | Prueba de cruce | esperando, cruzó, tiempo agotado: 100 % / ≥ 99.7 %; borde equivocado sin mockup (mismos componentes, comprobado en el DOM) | PASA | T-144 (texto de ACCEPTANCE) |
-| P7 | Red | `V3-Red` 99.98 % / 97.9 % | PASA (texto Wi-Fi FALLA) | T-147 |
-| P8 | Asistente | pasos 1 a 6 y variantes ≥ 99.98 % / ≥ 97.4 %; estado «Crear un puesto nuevo» 99.27 % / 83.0 % | FALLA | T-145 |
-| P9 | Progreso / energía | 3 estados: 99.88 % / 97.2 % | PASA | |
-| P10 | Avisos | 99.97 % / 99.4 % (solo la pila; el resto no se compara ni se documenta) | FALLA | T-146 |
-| P11 | Ajustes | 5 pestañas: ≥ 99.99 % / ≥ 99.2 % | PASA (README desactualizado) | T-146 |
-| P12 | Paleta | 99.95 % / 97.1 % con ≈ 16 % tapado sin razón fuerte; «sin resultados» 99.96 % / 97.1 %; «filtro» no representa un filtro | PASA con reparo | T-143, T-144 |
-| P13 | Estados difíciles | `V3-Estados` 100 % / 99.6 %; los cuatro `trouble` se ven bien en Puesto, Máquina y Red | FALLA (texto «Agregar máquina») | T-142 |
-| P14 | Bandeja | 100 % / 100 % con 17,8 % tapado sin razón fuerte | PASA con reparo | T-143 |
-| P15 | Lo que ve Claude | no es pantalla de la app; herramientas de `tandem mcp` en la parte B | PARTE B | |
+| P1 | Desk | `V3-Desk` 99.99 % / 98.4 %; with scene Only MacBook and Gaming 99.99 % / 98.4 % (measured separately) | PASS in pixels; animation FAIL | T-140, T-144 |
+| P2 | Tunnels | the 7 mockup states 100 % / 100 %; empty and 12 processes without comparison (same components) | PASS (labels of the win-win pair FAIL) | T-141 |
+| P3 | Machine | `V3-Machine` 100 % / 99.5 % (content), `F-MachineMac` 99.99 % / 98.4 % | PASS (weak mask) | T-143 |
+| P4 | Monitors and scenes | `V3-Monitors` ×2, `F-NewScene` ×3: 100 % / ≥ 98.9 % | PASS | |
+| P5 | Arrangement | 4 sides × 3 alignments, chosen screen, unsupported: 100 % / ≥ 99.8 % | PASS | |
+| P6 | Crossing test | waiting, crossed, timed out: 100 % / ≥ 99.7 %; wrong edge without a mockup (same components, checked in the DOM) | PASS | T-144 (ACCEPTANCE text) |
+| P7 | Network | `V3-Network` 99.98 % / 97.9 % | PASS (Wi-Fi text FAIL) | T-147 |
+| P8 | Setup | steps 1 to 6 and variants ≥ 99.98 % / ≥ 97.4 %; state "Create a new desk" 99.27 % / 83.0 % | FAIL | T-145 |
+| P9 | Progress / power | 3 states: 99.88 % / 97.2 % | PASS | |
+| P10 | Notices | 99.97 % / 99.4 % (only the stack; the rest is neither compared nor documented) | FAIL | T-146 |
+| P11 | Settings | 5 tabs: ≥ 99.99 % / ≥ 99.2 % | PASS (README out of date) | T-146 |
+| P12 | Palette | 99.95 % / 97.1 % with ≈ 16 % covered without a strong reason; "no results" 99.96 % / 97.1 %; "filter" does not represent a filter | PASS with reservations | T-143, T-144 |
+| P13 | Trouble states | `V3-States` 100 % / 99.6 %; the four `trouble` states look right in Desk, Machine and Network | FAIL ("Add machine" text) | T-142 |
+| P14 | Tray | 100 % / 100 % with 17.8 % covered without a strong reason | PASS with reservations | T-143 |
+| P15 | What Claude sees | not an app screen; `tandem mcp` tools in part B | PART B | |
 
-## Revisión de máscaras
+## Mask review
 
-Tienen razón fuerte y están en el README: «Agregar máquina» (barra lateral, tarjeta del Puesto, fila de Ajustes, paleta), «Sacar del puesto», «Simular…», «Dejar de esperar», «Enviar por Wi-Fi igual», «Bloquear aquí», «Latencia · 10 min», sesiones MCP, el nombre del puesto como texto, el lápiz de la otra máquina, la frase de la escena con el nombre real, los rectángulos de `.cur` en `F-Asis5` y «Faltan 1». Sin razón fuerte: Paleta, Bandeja, el botón «Abrir ajustes» tapado en `F-MaquinaMac` y el párrafo de `F-Asis5` (T-143). Regiones del mockup que nadie compara ni documenta, y README desactualizado (Atajos): T-146.
+They have a strong reason and are in the README: "Add machine" (sidebar, Desk card, Settings row, palette), "Remove from desk", "Simulate…", "Stop waiting", "Send over Wi-Fi anyway", "Lock here", "Latency · 10 min", MCP sessions, the desk name as text, the other machine's pencil, the scene sentence with the real name, the `.cur` rectangles in `F-Setup5` and "1 missing". Without a strong reason: Palette, Tray, the "Open settings" button covered in `F-MachineMac` and the paragraph of `F-Setup5` (T-143). Mockup regions that nobody compares or documents, and an out-of-date README (Shortcuts): T-146.
 
-## Capturas (todas)
+## Screenshots (all)
 
-Las comparaciones de esta corrida; el resultado «INFORMATIVA» es una captura que el arnés mide sin umbral porque el mockup no dibuja ese estado.
+The comparisons of this run; the result "INFORMATIVE" is a screenshot that the harness measures without a threshold because the mockup does not draw that state.
 
-| Captura | Mockup / estado | Similitud | Peor cuadro | Resultado |
+| Screenshot | Mockup / state | Similarity | Worst tile | Result |
 |---|---|---|---|---|
-| acomodo | V3-Acomodo | 100.00 % | 99.8 % | PASA |
-| acomodo-abajo-centro | V3-Acomodo--lado-abajo-centro | 100.00 % | 99.8 % | PASA |
-| acomodo-abajo-fin | V3-Acomodo--lado-abajo-fin | 100.00 % | 99.8 % | PASA |
-| acomodo-abajo-inicio | V3-Acomodo--lado-abajo-inicio | 100.00 % | 99.8 % | PASA |
-| acomodo-arriba-centro | V3-Acomodo--lado-arriba-centro | 100.00 % | 99.8 % | PASA |
-| acomodo-arriba-fin | V3-Acomodo--lado-arriba-fin | 100.00 % | 99.8 % | PASA |
-| acomodo-arriba-inicio | V3-Acomodo--lado-arriba-inicio | 100.00 % | 99.8 % | PASA |
-| acomodo-derecha-centro | V3-Acomodo--lado-derecha-centro | 100.00 % | 99.8 % | PASA |
-| acomodo-derecha-fin | V3-Acomodo--lado-derecha-fin | 100.00 % | 99.8 % | PASA |
-| acomodo-derecha-inicio | V3-Acomodo--lado-derecha-inicio | 100.00 % | 99.8 % | PASA |
-| acomodo-izquierda-centro | V3-Acomodo--lado-izquierda-centro | 100.00 % | 99.8 % | PASA |
-| acomodo-izquierda-fin | V3-Acomodo--lado-izquierda-fin | 100.00 % | 99.8 % | PASA |
-| acomodo-izquierda-inicio | V3-Acomodo--lado-izquierda-inicio | 100.00 % | 99.8 % | PASA |
-| acomodo-no-compatible | V3-Acomodo--pantalla-no-compatible | 100.00 % | 99.8 % | PASA |
-| acomodo-pantalla-mac | V3-Acomodo--pantalla-mac | 100.00 % | 99.8 % | PASA |
-| ajustes | F-Ajustes | 100.00 % | 99.7 % | PASA |
-| ajustes-actualizaciones | F-Ajustes | 100.00 % | 99.8 % | PASA |
-| ajustes-actualizaciones-buscado | F-Ajustes | 100.00 % | 99.8 % | PASA |
-| ajustes-atajos | F-Ajustes | 100.00 % | 99.8 % | PASA |
-| ajustes-avanzado | F-Ajustes | 99.99 % | 99.2 % | PASA |
-| ajustes-teclado | F-Ajustes | 100.00 % | 99.8 % | PASA |
-| asistente-acomodo | F-Asis5 | 100.00 % | 100.0 % | PASA |
-| asistente-acomodo-cruzo | F-Asis5--cruzo | 100.00 % | 99.9 % | PASA |
-| asistente-acomodo-esperando | F-Asis5--esperando | 100.00 % | 100.0 % | PASA |
-| asistente-acomodo-otro-borde | F-Asis5--otro-borde | 99.99 % | 97.7 % | PASA |
-| asistente-listo | F-Asis6 | 100.00 % | 99.8 % | PASA |
-| asistente-maquina | F-Asis1 | 99.99 % | 98.2 % | PASA |
-| asistente-maquina-ambar | F-Asis1--ambar | 99.99 % | 98.2 % | PASA |
-| asistente-maquina-verde-azulado | F-Asis1--verde-azulado | 99.99 % | 98.2 % | PASA |
-| asistente-maquina-violeta | F-Asis1--violeta | 99.98 % | 97.4 % | PASA |
-| asistente-permisos | F-Asis3 | 99.98 % | 97.6 % | PASA |
-| asistente-permisos-todo | F-Asis3--todo-concedido | 100.00 % | 100.0 % | PASA |
-| asistente-permisos-uno | F-Asis3--uno-concedido | 99.99 % | 97.8 % | PASA |
-| asistente-puesto | V3-Asistente | 100.00 % | 99.8 % | PASA |
-| asistente-teclado | F-Asis4 | 100.00 % | 100.0 % | PASA |
-| avisos | F-Avisos | 99.97 % | 99.4 % | PASA |
-| bandeja | V3-Bandeja | 100.00 % | 100.0 % | PASA |
-| cruce | F-PruebaCruce | 100.00 % | 100.0 % | PASA |
-| cruce-cruzo | F-PruebaCruce--cruzo | 100.00 % | 99.7 % | PASA |
-| cruce-no-cruza | F-PruebaCruce--no-cruza | 100.00 % | 99.7 % | PASA |
-| cruce-otro-borde | F-PruebaCruce--no-cruza | 99.67 % | 84.6 % | INFORMATIVA: sin umbral (el mockup no lo dibuja) |
-| escena-muestra-mac | F-NuevaEscena--muestra-mac | 100.00 % | 99.8 % | PASA |
-| escena-nueva | F-NuevaEscena | 100.00 % | 99.8 % | PASA |
-| escena-sin-cambiar | F-NuevaEscena--sin-cambiar | 100.00 % | 99.8 % | PASA |
-| estados | V3-Estados | 100.00 % | 99.6 % | PASA |
-| maquina-a | F-MaquinaMac | 99.99 % | 98.4 % | PASA |
-| maquina-b | V3-Maquina | 100.00 % | 99.5 % | PASA |
-| monitores | V3-Monitores | 100.00 % | 98.9 % | PASA |
-| monitores-entrada-mac | V3-Monitores--entrada-mac | 100.00 % | 98.9 % | PASA |
-| paleta | F-Paleta | 99.95 % | 97.1 % | PASA |
-| progreso-en-curso | F-Transacciones | 99.88 % | 97.2 % | PASA |
-| progreso-exito | F-Transacciones--exito | 99.88 % | 97.2 % | PASA |
-| progreso-vuelta-atras | F-Transacciones--vuelta-atras | 99.88 % | 97.2 % | PASA |
-| puesto | V3-Puesto | 99.99 % | 98.4 % | PASA |
-| puesto-mac-mac | V3-Puesto | 98.26 % | 60.3 % | INFORMATIVA: sin umbral (D2) |
-| puesto-win-win | V3-Puesto | 96.83 % | 32.6 % | INFORMATIVA: sin umbral (D2) |
-| red | V3-Red | 99.98 % | 97.9 % | PASA |
-| tuneles | V3-Computo | 100.00 % | 100.0 % | PASA |
-| tuneles-cerrado | V3-Computo--tunel-cerrado | 100.00 % | 100.0 % | PASA |
-| tuneles-doce-procesos | V3-Computo | 99.25 % | 81.1 % | INFORMATIVA: sin umbral (el mockup no lo dibuja) |
-| tuneles-dos-procesos | V3-Computo--tunel-2-procesos | 100.00 % | 100.0 % | PASA |
-| tuneles-lora | V3-Computo--tunel-lora | 100.00 % | 100.0 % | PASA |
-| tuneles-proceso-dos | V3-Computo--proceso-2 | 100.00 % | 100.0 % | PASA |
-| tuneles-proyecto-plegado | V3-Computo--proyecto-plegado | 100.00 % | 100.0 % | PASA |
-| tuneles-sin-procesos | V3-Computo--tunel-sin-procesos | 100.00 % | 100.0 % | PASA |
-| tuneles-vacio | V3-Computo | 98.18 % | 82.4 % | INFORMATIVA: sin umbral (el mockup no lo dibuja) |
+| arrangement | V3-Arrangement | 100.00 % | 99.8 % | PASS |
+| arrangement-bottom-center | V3-Arrangement--side-bottom-center | 100.00 % | 99.8 % | PASS |
+| arrangement-bottom-end | V3-Arrangement--side-bottom-end | 100.00 % | 99.8 % | PASS |
+| arrangement-bottom-start | V3-Arrangement--side-bottom-start | 100.00 % | 99.8 % | PASS |
+| arrangement-top-center | V3-Arrangement--side-top-center | 100.00 % | 99.8 % | PASS |
+| arrangement-top-end | V3-Arrangement--side-top-end | 100.00 % | 99.8 % | PASS |
+| arrangement-top-start | V3-Arrangement--side-top-start | 100.00 % | 99.8 % | PASS |
+| arrangement-right-center | V3-Arrangement--side-right-center | 100.00 % | 99.8 % | PASS |
+| arrangement-right-end | V3-Arrangement--side-right-end | 100.00 % | 99.8 % | PASS |
+| arrangement-right-start | V3-Arrangement--side-right-start | 100.00 % | 99.8 % | PASS |
+| arrangement-left-center | V3-Arrangement--side-left-center | 100.00 % | 99.8 % | PASS |
+| arrangement-left-end | V3-Arrangement--side-left-end | 100.00 % | 99.8 % | PASS |
+| arrangement-left-start | V3-Arrangement--side-left-start | 100.00 % | 99.8 % | PASS |
+| arrangement-unsupported | V3-Arrangement--screen-unsupported | 100.00 % | 99.8 % | PASS |
+| arrangement-screen-mac | V3-Arrangement--screen-mac | 100.00 % | 99.8 % | PASS |
+| settings | F-Settings | 100.00 % | 99.7 % | PASS |
+| settings-updates | F-Settings | 100.00 % | 99.8 % | PASS |
+| settings-updates-checked | F-Settings | 100.00 % | 99.8 % | PASS |
+| settings-shortcuts | F-Settings | 100.00 % | 99.8 % | PASS |
+| settings-advanced | F-Settings | 99.99 % | 99.2 % | PASS |
+| settings-keyboard | F-Settings | 100.00 % | 99.8 % | PASS |
+| setup-arrangement | F-Setup5 | 100.00 % | 100.0 % | PASS |
+| setup-arrangement-crossed | F-Setup5--crossed | 100.00 % | 99.9 % | PASS |
+| setup-arrangement-waiting | F-Setup5--waiting | 100.00 % | 100.0 % | PASS |
+| setup-arrangement-other-edge | F-Setup5--other-edge | 99.99 % | 97.7 % | PASS |
+| setup-ready | F-Setup6 | 100.00 % | 99.8 % | PASS |
+| setup-machine | F-Setup1 | 99.99 % | 98.2 % | PASS |
+| setup-machine-amber | F-Setup1--amber | 99.99 % | 98.2 % | PASS |
+| setup-machine-teal | F-Setup1--teal | 99.99 % | 98.2 % | PASS |
+| setup-machine-violet | F-Setup1--violet | 99.98 % | 97.4 % | PASS |
+| setup-permissions | F-Setup3 | 99.98 % | 97.6 % | PASS |
+| setup-permissions-all | F-Setup3--all-granted | 100.00 % | 100.0 % | PASS |
+| setup-permissions-one | F-Setup3--one-granted | 99.99 % | 97.8 % | PASS |
+| setup-desk | V3-Setup | 100.00 % | 99.8 % | PASS |
+| setup-keyboard | F-Setup4 | 100.00 % | 100.0 % | PASS |
+| notices | F-Notices | 99.97 % | 99.4 % | PASS |
+| tray | V3-Tray | 100.00 % | 100.0 % | PASS |
+| crossing | F-CrossingTest | 100.00 % | 100.0 % | PASS |
+| crossing-crossed | F-CrossingTest--crossed | 100.00 % | 99.7 % | PASS |
+| crossing-no-crossing | F-CrossingTest--no-crossing | 100.00 % | 99.7 % | PASS |
+| crossing-other-edge | F-CrossingTest--no-crossing | 99.67 % | 84.6 % | INFORMATIVE: no threshold (the mockup does not draw it) |
+| scene-shows-mac | F-NewScene--shows-mac | 100.00 % | 99.8 % | PASS |
+| scene-new | F-NewScene | 100.00 % | 99.8 % | PASS |
+| scene-unchanged | F-NewScene--unchanged | 100.00 % | 99.8 % | PASS |
+| states | V3-States | 100.00 % | 99.6 % | PASS |
+| machine-a | F-MachineMac | 99.99 % | 98.4 % | PASS |
+| machine-b | V3-Machine | 100.00 % | 99.5 % | PASS |
+| monitors | V3-Monitors | 100.00 % | 98.9 % | PASS |
+| monitors-input-mac | V3-Monitors--input-mac | 100.00 % | 98.9 % | PASS |
+| palette | F-Palette | 99.95 % | 97.1 % | PASS |
+| progress-in-flight | F-Transactions | 99.88 % | 97.2 % | PASS |
+| progress-success | F-Transactions--success | 99.88 % | 97.2 % | PASS |
+| progress-rollback | F-Transactions--rollback | 99.88 % | 97.2 % | PASS |
+| desk | V3-Desk | 99.99 % | 98.4 % | PASS |
+| desk-mac-mac | V3-Desk | 98.26 % | 60.3 % | INFORMATIVE: no threshold (D2) |
+| desk-win-win | V3-Desk | 96.83 % | 32.6 % | INFORMATIVE: no threshold (D2) |
+| network | V3-Network | 99.98 % | 97.9 % | PASS |
+| tunnels | V3-Compute | 100.00 % | 100.0 % | PASS |
+| tunnels-closed | V3-Compute--tunnel-closed | 100.00 % | 100.0 % | PASS |
+| tunnels-twelve-processes | V3-Compute | 99.25 % | 81.1 % | INFORMATIVE: no threshold (the mockup does not draw it) |
+| tunnels-two-processes | V3-Compute--tunnel-2-processes | 100.00 % | 100.0 % | PASS |
+| tunnels-lora | V3-Compute--tunnel-lora | 100.00 % | 100.0 % | PASS |
+| tunnels-process-two | V3-Compute--process-2 | 100.00 % | 100.0 % | PASS |
+| tunnels-project-collapsed | V3-Compute--project-collapsed | 100.00 % | 100.0 % | PASS |
+| tunnels-no-processes | V3-Compute--tunnel-no-processes | 100.00 % | 100.0 % | PASS |
+| tunnels-empty | V3-Compute | 98.18 % | 82.4 % | INFORMATIVE: no threshold (the mockup does not draw it) |
 
-## Tareas creadas
+## Tasks created
 
-| Tarea | Falla |
+| Task | Failure |
 |---|---|
-| T-140 | Cursor del Puesto en demo se reinicia cada 1,5 s; sin cruce ni destello (G7, P1) |
-| T-141 | «PC → PC» con dos máquinas Windows en Túneles (G2) |
-| T-142 | «Agregar máquina» en Estados (G1, P13) |
-| T-143 | Máscaras sin razón fuerte: Paleta, Bandeja, Máquina, Asistente |
-| T-144 | Estados del mockup sin medir; ACCEPTANCE.md contradice los mockups en P6 |
-| T-145 | Asistente «Crear un puesto nuevo» vs `V3-Asistente--nuevo` (99.27 % / 83.0 %) |
-| T-146 | Avisos: región «Notificaciones del sistema» sin comparar ni documentar; README de máscaras desactualizado |
-| T-147 | «Wi-Fi · sin cable» (G5, P7) |
+| T-140 | Desk cursor in the demo restarts every 1.5 s; no crossing or flash (G7, P1) |
+| T-141 | "PC → PC" with two Windows machines in Tunnels (G2) |
+| T-142 | "Add machine" in States (G1, P13) |
+| T-143 | Masks without a strong reason: Palette, Tray, Machine, Setup |
+| T-144 | Mockup states not measured; ACCEPTANCE.md contradicts the mockups in P6 |
+| T-145 | Setup "Create a new desk" vs `V3-Setup--new` (99.27 % / 83.0 %) |
+| T-146 | Notices: "System notifications" region neither compared nor documented; masks README out of date |
+| T-147 | "Wi-Fi · no cable" (G5, P7) |
 
-## No se pudo comprobar aquí
+## Could not be checked here
 
-- Estado `F-Avisos--agregado` («Agregar aviso» es un control del mockup; la app no tiene ese botón).
-- Los flujos, el efecto en los agentes y `[hw]`: parte B. CI de `develop` y calidad base: parte C.
+- State `F-Notices--added` ("Add notice" is a mockup control; the app has no such button).
+- The flows, the effect on the agents and `[hw]`: part B. `develop` CI and baseline quality: part C.
