@@ -1,6 +1,6 @@
 # Tandem — Estado del proyecto
 
-> Corte de **v0.3**: 2026-11-18 · rama `develop` en `509727a` · el CI de `develop` pasa en Linux, Windows y macOS salvo pruebas inestables conocidas (T-160).
+> Corte de **v0.3**: 2026-11-18 · rama `develop` (corte posterior a `3df14cb`) · el CI de `develop` pasa en Linux, Windows y macOS salvo pruebas inestables conocidas (T-160, T-190).
 > Diseño en `DESIGN.md` (v0.3) y `DECISIONS.md`; definición de terminado en `ACCEPTANCE.md`; trabajo autónomo en `dev/night-run.md`; informes de aceptación en `reports/`.
 
 ## En una línea
@@ -9,7 +9,7 @@
 
 | | |
 |---|---|
-| Tareas | **92 hechas de 111** (`T-001`…`T-165`; ver abajo las abiertas) |
+| Tareas | **119 hechas de 125** (`T-001`…`T-193`; ver abajo las abiertas) |
 | Pruebas | **1442 de Rust + 619 de la UI (vitest)**, 0 fallos, 11 ignoradas (`#[ignore = "hardware"]` y bancos de latencia) |
 | Calidad | `fmt`, `clippy -D warnings`, `svelte-check` y `pnpm build` sin avisos |
 | CI por PR | Linux · Windows · macOS · UI x3 · cobertura · `.dmg` · instalador de Windows |
@@ -37,8 +37,8 @@
 | T-027 | todo (`windows-hw`, `user`) | Servicio SYSTEM de Windows para UAC; necesita decidir certificado Authenticode |
 | T-088, T-095, T-096 | blocked | Monitores ignorados, firmware propio del 34" y UI viva |
 | T-124 | todo | Aceptación de punta a punta |
-| T-140…T-147, T-160, T-161 | todo | Fallas de las partes A y B de la aceptación (demo, textos, capturas, D1) y pruebas inestables en CI |
-| T-162…T-165 | done en este corte | Datos personales fuera del repo, documentación al día, criterios de tareas y comentarios `SAFETY` |
+| T-190 | todo | Falla persistente de `pairing_hot_opens_the_input_session` en macOS |
+| T-140…T-165, T-191…T-193 | done | Fallas de las partes A, B y C de la aceptación, datos personales fuera del repo, límites de tiempo del CI, documentación al día y comprobaciones de CI |
 
 ## Verificación en hardware pendiente
 
@@ -53,7 +53,7 @@ Cada tarea con hardware lleva su lista en `docs/tasks/T-xxx.md`, sección `## Ve
 ## Riesgos y limitaciones conocidas
 
 - **Casi nada se probó aún en hardware real.** Todo pasa con dobles de prueba, el simulador del puesto y CI; lo físico (APIs de macOS, hooks de Windows, DDC/CI, distribución de teclado) solo se confirma en tus equipos.
-- **Pruebas inestables en CI** (macOS y Ubuntu, T-160): no son regresiones, pero hacen rojo el CI al azar.
+- **Pruebas inestables en CI** (macOS y Ubuntu; T-160 no las cerró del todo, ver T-190 y T-191): no son regresiones, pero hacen rojo el CI al azar o se cuelgan.
 - **APIs privadas de macOS** (`SetsCursorInBackground`, `CGSConfigureDisplayEnabled`): pueden cambiar entre versiones.
 - **Firma:** macOS con firma ad-hoc (los permisos TCC pueden volver a pedirse al reinstalar); Windows sin Authenticode (SmartScreen avisa).
 - **Windows sin el servicio SYSTEM (T-027):** el mouse remoto no funciona en UAC ni en el inicio de sesión.
