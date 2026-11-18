@@ -173,6 +173,10 @@ where
     pairing.mark_unchanged();
     let mut input = agent.subscribe_input();
     input.mark_unchanged();
+    // La sonda de teclado (T-166). Sin estado inicial: la ventana arma la sonda al entrar al
+    // paso, y armar ya emite el estado actual.
+    let mut key_probe = agent.subscribe_key_probe();
+    key_probe.mark_unchanged();
     let mut desk = agent.subscribe_desk();
     desk.mark_unchanged();
     let mut caps = agent.subscribe_capabilities();
@@ -324,6 +328,13 @@ where
                 }
                 let status = input.borrow_and_update().clone();
                 conn.send(&AgentToUi::Input(status)).await?;
+            }
+            changed = key_probe.changed() => {
+                if changed.is_err() {
+                    return Ok(());
+                }
+                let status = *key_probe.borrow_and_update();
+                conn.send(&AgentToUi::KeyProbe(status)).await?;
             }
             changed = desk.changed() => {
                 if changed.is_err() {
