@@ -1,31 +1,31 @@
-# Cómo trabajan los agentes en Tandem
+# How the agents work in Tandem
 
-## Piezas
+## Pieces
 
-| Pieza | Archivo | Qué hace |
+| Piece | File | What it does |
 |---|---|---|
-| Reglas del proyecto | `CLAUDE.md`, `.claude/rules/` | Se cargan en cada sesión y en cada agente |
-| Backlog | `docs/tasks/T-*.md` | Una tarea por archivo, con `status`, `depends_on`, `needs` |
-| implementer | `.claude/agents/implementer.md` | Implementa una tarea en su propio worktree y abre un PR en borrador |
-| reviewer | `.claude/agents/reviewer.md` | Revisa el PR (solo lectura) y comenta |
-| hardware-verifier | `.claude/agents/hardware-verifier.md` | Pruebas con la PC o la Mac; solo si el usuario lo pide |
-| Workflow | `.claude/workflows/next-tasks.js` | Elige las tareas listas → implementar → revisar → corregir |
-| Puerta de calidad | `scripts/claude/gate-commit.sh` + hook en `.claude/settings.json` | Bloquea `git commit` y `gh pr create` si fallan fmt, clippy o las pruebas |
-| CI | `.github/workflows/ci.yml` | Lo mismo en Linux, Windows y macOS para cada PR |
+| Project rules | `CLAUDE.md`, `.claude/rules/` | Loaded in every session and every agent |
+| Backlog | `docs/tasks/T-*.md` | One task per file, with `status`, `depends_on`, `needs` |
+| implementer | `.claude/agents/implementer.md` | Implements a task in its own worktree and opens a draft PR |
+| reviewer | `.claude/agents/reviewer.md` | Reviews the PR (read-only) and comments |
+| hardware-verifier | `.claude/agents/hardware-verifier.md` | Tests with the PC or the Mac; only if the user asks |
+| Workflow | `.claude/workflows/next-tasks.js` | Picks the ready tasks → implement → review → fix |
+| Quality gate | `scripts/claude/gate-commit.sh` + hook in `.claude/settings.json` | Blocks `git commit` and `gh pr create` if fmt, clippy or the tests fail |
+| CI | `.github/workflows/ci.yml` | The same on Linux, Windows and macOS for each PR |
 
-## Ciclo
+## Cycle
 
-1. Abre Claude Code **en esta carpeta** (`apps/tandem`) para que se carguen los agentes, el workflow y los permisos.
-2. Pide: `corre /next-tasks` (o `/next-tasks` con `{ "n": 3 }`).
-3. Cada tarea termina en un **PR en borrador** con la revisión como comentario.
-4. Tú revisas y haces merge. **El merge es lo que desbloquea** las tareas que dependen de esa.
-5. Repite. Para que siga solo mientras no estás: `claude --bg "corre /next-tasks"` desde una terminal en esta carpeta, o `/loop corre /next-tasks` en una sesión abierta.
+1. Open Claude Code **in this folder** (`apps/tandem`) so the agents, the workflow and the permissions load.
+2. Ask: `run /next-tasks` (or `/next-tasks` with `{ "n": 3 }`).
+3. Each task ends in a **draft PR** with the review as a comment.
+4. You review and merge. **The merge is what unblocks** the tasks that depend on that one.
+5. Repeat. To keep it going on its own while you are away: `claude --bg "run /next-tasks"` from a terminal in this folder, or `/loop run /next-tasks` in an open session.
 
-## Qué no hacen solos
+## What they do not do on their own
 
-- Tareas con `needs` distinto de `none` (hardware o usuario): se hacen en una sesión contigo.
-- Merge a `main`, force-push, desactivar la firma de commits: prohibido por permisos.
+- Tasks with `needs` other than `none` (hardware or user): done in a session with you.
+- Merge to `main`, force-push, disabling commit signing: forbidden by permissions.
 
-## Paralelismo
+## Parallelism
 
-Máximo 3 tareas a la vez (por defecto 2). Cada worktree compila su propio `target/` y WSL tiene 24 GB.
+At most 3 tasks at once (2 by default). Each worktree builds its own `target/` and WSL has 24 GB.

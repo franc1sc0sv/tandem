@@ -1,68 +1,68 @@
-# Aceptación de Tandem v0.3 (definición de «terminado»)
+# Tandem v0.3 acceptance (definition of "done")
 
-La app está **terminada** solo cuando el agente `acceptance` (`.claude/agents/acceptance.md`) responde `ACCEPTANCE: FINAL_OK` con **todos** los ítems de este archivo en PASA, en una sola corrida sobre `origin/develop`. Nadie más (ni el capitán ni un implementador) puede declarar la app terminada.
+The app is **done** only when the `acceptance` agent (`.claude/agents/acceptance.md`) answers `ACCEPTANCE: FINAL_OK` with **all** the items in this file at PASS, in a single run over `origin/develop`. Nobody else (neither the captain nor an implementer) may declare the app done.
 
-Notación: `[hw]` = necesita el hardware real (lo cubre la suite T-123 o queda en la lista de hardware pendiente de su tarea con la razón). Cada pantalla se compara con su mockup en `mockups/v03/` (umbral: similitud global **≥ 0.99** y peor cuadro de 64×64 px, `worstTile`, **≥ 0.97**; la similitud global sola deja pasar un estado equivocado).
+Notation: `[hw]` = needs the real hardware (covered by the T-123 suite or left in the pending hardware list of its task with the reason). Each screen is compared with its mockup in `mockups/v03/` (threshold: global similarity **≥ 0.99** and worst 64×64 px tile, `worstTile`, **≥ 0.97**; global similarity alone lets a wrong state pass).
 
-## 0. Reglas globales (se revisan en todas las pantallas)
+## 0. Global rules (checked on every screen)
 
-- [ ] G1. Solo dos máquinas; ningún texto, botón o flujo de una tercera (D1).
-- [ ] G2. Nada fijo a Mac/PC: nombres, íconos y colores salen de cada máquina; probado con un par Windows+Windows y macOS+macOS simulado (D2, A1).
-- [ ] G3. Barra lateral en todas las pantallas principales: Puesto, Túneles (contador), Monitores, Acomodo, Red, Máquinas (una por máquina, con su color), Ajustes (D16).
-- [ ] G4. Sistema único de botones (alto fijo, ícono siempre, elevación al pasar, brillo en el primario, foco visible); íconos en toda acción; chips de estado uniformes; tarjetas sin línea de color arriba.
-- [ ] G5. Sin textos de relleno ni explicaciones de más; sin «Teclado aquí»; sin «requiere cable»; sin modos viejos.
-- [ ] G6. Cada elemento interactivo hace algo real y verificable en el agente; nada decorativo que parezca botón.
-- [ ] G7. **Animaciones:** cada `@keyframes` y cada `transition` del mockup de la pantalla tiene su equivalente en la app (mismo efecto, duración y curva aproximadas); entradas de tarjetas, cambios de pantalla y cambios de estado animados.
-- [ ] G8. Con `prefers-reduced-motion: reduce` no hay animaciones.
-- [ ] G9. Ninguna consola con errores; ningún `{{`, `undefined`, `NaN` ni texto en inglés visible.
-- [ ] G10. Configuración: todo lo editable se edita desde la UI y llega a la otra máquina; el aviso «Cambiado desde X · Deshacer» funciona (D4, D5).
-- [ ] G11. Calidad: fmt, clippy, tests de Rust, `pnpm test/check/build` y CI de `develop` en verde en Linux, Windows y macOS.
+- [ ] G1. Only two machines; no text, button or flow for a third (D1).
+- [ ] G2. Nothing tied to Mac/PC: names, icons and colors come from each machine; tested with a simulated Windows+Windows and macOS+macOS pair (D2, A1).
+- [ ] G3. Sidebar on all main screens: Desk, Tunnels (counter), Monitors, Arrangement, Network, Machines (one per machine, with its color), Settings (D16).
+- [ ] G4. Single button system (fixed height, always an icon, elevation on hover, glow on the primary, visible focus); icons on every action; uniform status chips; cards without a colored line on top.
+- [ ] G5. No filler text or superfluous explanations; no "Keyboard here"; no "requires cable"; no old modes.
+- [ ] G6. Every interactive element does something real and verifiable in the agent; nothing decorative that looks like a button.
+- [ ] G7. **Animations:** every `@keyframes` and every `transition` of the screen's mockup has its equivalent in the app (same effect, approximate duration and curve); card entrances, screen changes and state changes animated.
+- [ ] G8. With `prefers-reduced-motion: reduce` there are no animations.
+- [ ] G9. No console with errors; no visible `{{`, `undefined` or `NaN`.
+- [ ] G10. Configuration: everything editable is edited from the UI and reaches the other machine; the "Changed from X · Undo" notice works (D4, D5).
+- [ ] G11. Quality: fmt, clippy, Rust tests, `pnpm test/check/build` and `develop` CI green on Linux, Windows and macOS.
 
-## 1. Pantallas (paridad visual ≥ 0.99 + todo lo interactivo funciona)
+## 1. Screens (visual parity ≥ 0.99 + everything interactive works)
 
-| # | Pantalla | Mockup(s) y estados a comparar |
+| # | Screen | Mockup(s) and states to compare |
 |---|---|---|
-| P1 | Puesto | `V3-Puesto` |
-| P2 | Túneles | `V3-Computo`: sin túneles, proyecto plegado/desplegado, túnel con 1 y con 12 procesos, túnel cerrado |
-| P3 | Máquina | `V3-Maquina`, `F-MaquinaMac` |
-| P4 | Monitores y escenas | `V3-Monitores` (cada entrada seleccionada), `F-NuevaEscena` |
-| P5 | Acomodo | `V3-Acomodo`: 4 lados × 3 alineaciones, cada pantalla seleccionada, pantalla no compatible |
-| P6 | Prueba de cruce | `F-PruebaCruce`: esperando, cruzó bien, «No cruzó en 20 s» (tiempo agotado: `F-PruebaCruce--no-cruza`) |
-| P7 | Red | `V3-Red` |
-| P8 | Asistente | `F-Asis1`, `V3-Asistente`, `F-Asis3`, `F-Asis4`, `F-Asis5`, `F-Asis6` |
-| P9 | Progreso de escena / energía | `F-Transacciones`: en curso, éxito, vuelta atrás |
-| P10 | Avisos | `F-Avisos` |
-| P11 | Ajustes | `F-Ajustes`: cada pestaña |
-| P12 | Paleta ⌘K | `F-Paleta` |
-| P13 | Estados difíciles | `V3-Estados`: sin agente, otra máquina apagada, enlace caído, permisos revocados |
-| P14 | Barra de menú / bandeja | `V3-Bandeja` |
-| P15 | Lo que ve Claude | `F-ClaudeMCP` (las herramientas listadas existen en `tandem mcp`) |
+| P1 | Desk | `V3-Desk` |
+| P2 | Tunnels | `V3-Compute`: no tunnels, project collapsed/expanded, tunnel with 1 and with 12 processes, closed tunnel |
+| P3 | Machine | `V3-Machine`, `F-MachineMac` |
+| P4 | Monitors and scenes | `V3-Monitors` (each input selected), `F-NewScene` |
+| P5 | Arrangement | `V3-Arrangement`: 4 sides × 3 alignments, each screen selected, unsupported screen |
+| P6 | Crossing test | `F-CrossingTest`: waiting, crossed fine, "Did not cross in 20 s" (timeout: `F-CrossingTest--no-cross`) |
+| P7 | Network | `V3-Network` |
+| P8 | Setup | `F-Setup1`, `V3-Setup`, `F-Setup3`, `F-Setup4`, `F-Setup5`, `F-Setup6` |
+| P9 | Scene / power progress | `F-Transactions`: in progress, success, rollback |
+| P10 | Notices | `F-Notices` |
+| P11 | Settings | `F-Settings`: each tab |
+| P12 | ⌘K palette | `F-Palette` |
+| P13 | Trouble states | `V3-States`: no agent, other machine off, link down, permissions revoked |
+| P14 | Menu bar / tray | `V3-Tray` |
+| P15 | What Claude sees | `F-ClaudeMCP` (the listed tools exist in `tandem mcp`) |
 
-Estados que el mockup no dibuja (Túneles vacío y con 12 procesos, prueba de cruce por otro borde, «Cruzó por otro borde»: el mockup no la dibuja): se aceptan si usan los mismos componentes, tokens y animaciones de la pantalla, sin comparación de píxeles.
+States the mockup does not draw (Tunnels empty and with 12 processes, crossing test through another edge, "Crossed through another edge": the mockup does not draw it): accepted if they use the same components, tokens and animations of the screen, without pixel comparison.
 
-Diferencias permitidas con el mockup: las de `mockups/README.md` («Lo que los mockups dicen y DECISIONS corrige») y los datos reales en lugar de los de ejemplo. Nada más.
+Differences allowed with the mockup: those in `mockups/README.md` ("What the mockups say and DECISIONS corrects") and real data instead of the sample data. Nothing else.
 
-## 2. Flujos de punta a punta (dos agentes reales por loopback + UI)
+## 2. End-to-end flows (two real agents over loopback + UI)
 
-- [ ] F1. **Primer uso:** asistente 1→6 completo en las dos máquinas: nombre y color, emparejar con código de 6 dígitos (las dos UIs muestran el mismo código), permisos verificados (doble en CI; `[hw]` reales), teclado y mouse detectados en cada máquina, acomodo + prueba de cruce que pasa con un `CursorSample` real del motor, resumen comprobado y comando MCP copiable.
-- [ ] F2. **Acomodo:** mover la otra máquina a cada lado y alineación, guardar, verificar en la otra máquina y en la geometría del motor de entrada (cruce simulado por el borde nuevo pasa; por el viejo no).
-- [ ] F3. **Escenas:** crear, editar, aplicar con éxito, aplicar con falla inyectada → vuelta atrás visible; atajo global de escena.
-- [ ] F4. **Monitores:** monitor estándar falso: cambiar entrada con veredicto; monitor de fábrica: «no compatible», sin ninguna escritura; re-elección de dueño al apagar el dueño. `[hw]` 34" real con vuelta automática.
-- [ ] F5. **Túneles por MCP:** un cliente MCP abre túnel con workspace de git, corre 3 procesos a la vez, lee salida, copia archivos, abre un puerto, corta el enlace y lo recupera sin perder salida, `bring_back` crea la rama; la UI muestra todo en vivo en solo lectura. `[hw]` PC↔Mac por Wi-Fi.
-- [ ] F6. **Red:** cortar el camino principal → la entrada pasa al siguiente en < 1 s, evento visible en Red; «Medir ancho de banda» da un valor; datos pausados si la entrada se degrada.
-- [ ] F7. **Teclado y mouse sin dueño:** entrada física simulada en A y luego en B: manda la que se usa; sin teclas pegadas al cambiar o al caer el enlace. `[hw]` latencia real por Wi-Fi.
-- [ ] F8. **Portapapeles y archivos:** copiar texto/imagen en A y pegar en B; arrastrar un archivo al cruzar el borde lo deja en B (dobles en CI; `[hw]` real).
-- [ ] F9. **Configuración compartida:** cambiar nombre, color, atajos y preferencias en A → llegan a B; cambio simultáneo converge; Deshacer restaura.
-- [ ] F10. **Energía:** apagar la otra máquina (transacción con progreso) y encenderla (Wake-on-LAN simulado); otra máquina perdida → estado difícil correcto.
-- [ ] F11. **Módulos:** apagar/encender un módulo de la otra máquina desde su página; razones de «no disponible» correctas.
-- [ ] F12. **Ajustes y paleta:** cada acción de Ajustes y cada comando de la paleta hace lo que dice.
-- [ ] F13. **Actualizaciones:** buscar versión contra un `latest.json` de prueba, plan de actualizar las dos máquinas (doble); release real queda documentado.
-- [ ] F14. **Bandeja:** abrir la app, aplicar escena y ver el estado desde la barra de menú/bandeja.
+- [ ] F1. **First use:** setup 1→6 complete on both machines: name and color, pair with a 6-digit code (both UIs show the same code), permissions verified (double in CI; real `[hw]`), keyboard and mouse detected on each machine, arrangement + crossing test that passes with a real `CursorSample` from the engine, verified summary and copyable MCP command.
+- [ ] F2. **Arrangement:** move the other machine to each side and alignment, save, verify on the other machine and in the input engine's geometry (simulated crossing through the new edge passes; through the old one it does not).
+- [ ] F3. **Scenes:** create, edit, apply successfully, apply with an injected failure → visible rollback; global scene shortcut.
+- [ ] F4. **Monitors:** fake standard monitor: change input with verdict; factory monitor: "not supported", with no writes at all; owner re-election when the owner powers off. `[hw]` real 34" with automatic revert.
+- [ ] F5. **Tunnels through MCP:** an MCP client opens a tunnel with a git workspace, runs 3 processes at once, reads output, copies files, opens a port, cuts the link and recovers it without losing output, `bring_back` creates the branch; the UI shows everything live in read-only. `[hw]` PC↔Mac over Wi-Fi.
+- [ ] F6. **Network:** cut the main path → input moves to the next in < 1 s, event visible in Network; "Measure bandwidth" gives a value; data paused if input degrades.
+- [ ] F7. **Keyboard and mouse with no owner:** simulated physical input on A and then on B: the one in use is in charge; no stuck keys when switching or when the link drops. `[hw]` real latency over Wi-Fi.
+- [ ] F8. **Clipboard and files:** copy text/image on A and paste on B; dragging a file across the edge leaves it on B (doubles in CI; real `[hw]`).
+- [ ] F9. **Shared configuration:** change name, color, shortcuts and preferences on A → they reach B; a simultaneous change converges; Undo restores.
+- [ ] F10. **Power:** power off the other machine (transaction with progress) and power it on (simulated Wake-on-LAN); lost other machine → correct trouble state.
+- [ ] F11. **Modules:** turn a module of the other machine off/on from its page; "unavailable" reasons correct.
+- [ ] F12. **Settings and palette:** every Settings action and every palette command does what it says.
+- [ ] F13. **Updates:** look up a version against a test `latest.json`, plan to update both machines (double); the real release stays documented.
+- [ ] F14. **Tray:** open the app, apply a scene and see the state from the menu bar/tray.
 
-## 3. Hardware (`[hw]`, suite T-123)
+## 3. Hardware (`[hw]`, T-123 suite)
 
-- [ ] H1. Agentes instalados en la PC y en la Mac se emparejan por Wi-Fi.
-- [ ] H2. Túnel PC→Mac y Mac→PC con procesos reales.
-- [ ] H3. 34" compatible: lectura de estado y cambio de entrada con vuelta automática.
-- [ ] H4. Cruce de cursor real con entrada sintética en las dos direcciones.
-- [ ] H5. USB-C: pendiente del cable TB4/USB4 (A6); no bloquea FINAL_OK si queda documentado.
+- [ ] H1. Agents installed on the PC and on the Mac pair over Wi-Fi.
+- [ ] H2. PC→Mac and Mac→PC tunnel with real processes.
+- [ ] H3. Supported 34": state reading and input change with automatic revert.
+- [ ] H4. Real cursor crossing with synthetic input in both directions.
+- [ ] H5. USB-C: pending the TB4/USB4 cable (A6); does not block FINAL_OK if documented.

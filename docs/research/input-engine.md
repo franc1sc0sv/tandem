@@ -1,76 +1,76 @@
-# Motor de teclado y mouse (`tandem-input`)
+# Keyboard and mouse engine (`tandem-input`)
 
-Investigación del 2026-10-15. Se leyó el código de lan-mouse (`f1b96bd`) y de Deskflow (`c46781f`), más la documentación de Microsoft y de Apple.
-**Decisión: escribirlo desde cero.** lan-mouse y Deskflow sirven solo como referencia; **no se copia código de ninguno de los dos**, porque los dos son GPL.
+Research of 2026-10-15. The code of lan-mouse (`f1b96bd`) and Deskflow (`c46781f`) was read, plus Microsoft's and Apple's documentation.
+**Decision: write it from scratch.** lan-mouse and Deskflow serve only as a reference; **no code is copied from either**, because both are GPL.
 
-## Por qué no usar lan-mouse
+## Why not use lan-mouse
 
-- Es GPL-3.0-or-later (crates `input-capture`, `input-emulation` e `input-event` 0.4.0). Usarlo obligaría a que Tandem también fuera GPL.
-- Tiene huecos justo en nuestras dos plataformas:
-  - En Windows el movimiento es relativo y con aceleración.
-  - No maneja UIPI, UAC ni el escritorio seguro.
-  - No tiene teclas multimedia ni portapapeles.
-  - En macOS detecta los bordes con la caja que encierra a todas las pantallas.
-  - Tiene bugs abiertos de modificadores, scroll y repetición de teclas.
-- Su modelo de eventos se basa en evdev (Linux) y necesita un `LocalSet` de tokio.
+- It is GPL-3.0-or-later (crates `input-capture`, `input-emulation` and `input-event` 0.4.0). Using it would force Tandem to be GPL too.
+- It has gaps right on our two platforms:
+  - On Windows movement is relative and with acceleration.
+  - It does not handle UIPI, UAC or the secure desktop.
+  - It has no media keys or clipboard.
+  - On macOS it detects edges with the box that encloses all screens.
+  - It has open bugs with modifiers, scroll and key repeat.
+- Its event model is based on evdev (Linux) and needs a tokio `LocalSet`.
 
-## Modelo de eventos
+## Event model
 
-- **Teclas:** código físico **USB HID** (página 0x07, y 0x0C para multimedia), equivalente a `KeyboardEvent.code`. Las tablas HID ↔ keycode de Mac ↔ scancode de Windows salen del crate `keycode` (MIT, tabla de Chromium).
-- **Paso físico:** el sistema destino aplica su propia distribución de teclado, así que ES/LatAm, teclas muertas y AltGr/Option funcionan solos. Convertir a caracteres queda solo como respaldo opcional.
-- **Modificadores:** reasignación configurable por dirección. Por defecto Mac→Win: Cmd→Ctrl, Ctrl→Win, Option→Alt, Option derecha→AltGr; al revés para Win→Mac. Se lleva el conjunto de teclas presionadas y **se sueltan todas** al salir, al desconectarse o por timeout.
-- **Scroll:** dos tipos, v120 para la rueda y píxeles para el trackpad. Respetar el signo del "scroll natural".
-- **Ojo con la Mac ISO:** las teclas `§`/`` ` `` están intercambiadas respecto a HID. Hay que comprobarlo con el teclado de la M5.
+- **Keys:** physical **USB HID** code (page 0x07, and 0x0C for media), equivalent to `KeyboardEvent.code`. The HID ↔ Mac keycode ↔ Windows scancode tables come from the `keycode` crate (MIT, Chromium's table).
+- **Physical pass-through:** the destination system applies its own keyboard layout, so ES/LatAm, dead keys and AltGr/Option work on their own. Converting to characters stays only as an optional fallback.
+- **Modifiers:** configurable remapping per direction. By default Mac→Win: Cmd→Ctrl, Ctrl→Win, Option→Alt, right Option→AltGr; the reverse for Win→Mac. The set of pressed keys is tracked and **all are released** on leaving, on disconnecting or on timeout.
+- **Scroll:** two kinds, v120 for the wheel and pixels for the trackpad. Respect the sign of "natural scrolling".
+- **Careful with the ISO Mac:** the `§`/`` ` `` keys are swapped with respect to HID. It has to be checked with the M5's keyboard.
 
 ## macOS
 
-- **Captura:** `CGEventTapCreate` en `kCGHIDEventTap`, tap activo (devolver NULL traga el evento), en un hilo propio con su CFRunLoop. Reactivarlo cuando llegue `kCGEventTapDisabledByTimeout`.
-- **Permisos (TCC):** Accesibilidad para un tap activo y para inyectar; Input Monitoring si el tap es solo de escucha. El permiso queda atado a la firma del binario, así que hace falta una `.app` firmada de forma estable.
-- **Congelar el cursor:** `CGDisplayHideCursor` + `SetsCursorInBackground` (API privada) + `CGAssociateMouseAndMouseCursorPosition(false)`, como hace Deskflow. Es mejor que lan-mouse, que reposiciona el cursor en cada movimiento.
-- **Secure Event Input** (campos de contraseña): se detecta con `IsSecureEventInputEnabled()`. Se avisa en la UI y no se cruza de pantalla mientras esté activo.
-- **Inyección:**
-  - Teclado: `CGEventCreateKeyboardEvent` + `CGEventPost(kCGHIDEventTap)`, mandando también `kCGEventFlagsChanged` con los flags correctos. Las flechas llevan `NumericPad|SecondaryFn`. La repetición se marca con `kCGKeyboardEventAutorepeat`.
-  - Mouse: eventos `*Dragged` mientras hay un botón presionado; `kCGMouseEventClickState` para doble y triple clic.
-  - Scroll: `CGEventCreateScrollWheelEvent2` en píxeles.
-  - Multimedia: `NSEvent` del tipo `SystemDefined` con subtipo 8.
+- **Capture:** `CGEventTapCreate` on `kCGHIDEventTap`, active tap (returning NULL swallows the event), on its own thread with its CFRunLoop. Re-enable it when `kCGEventTapDisabledByTimeout` arrives.
+- **Permissions (TCC):** Accessibility for an active tap and for injecting; Input Monitoring if the tap is listen-only. The permission is tied to the binary's signature, so a stably signed `.app` is needed.
+- **Freezing the cursor:** `CGDisplayHideCursor` + `SetsCursorInBackground` (private API) + `CGAssociateMouseAndMouseCursorPosition(false)`, as Deskflow does. It is better than lan-mouse, which repositions the cursor on every movement.
+- **Secure Event Input** (password fields): detected with `IsSecureEventInputEnabled()`. A notice is shown in the UI and the screen is not crossed while it is active.
+- **Injection:**
+  - Keyboard: `CGEventCreateKeyboardEvent` + `CGEventPost(kCGHIDEventTap)`, also sending `kCGEventFlagsChanged` with the correct flags. Arrows carry `NumericPad|SecondaryFn`. Repeat is marked with `kCGKeyboardEventAutorepeat`.
+  - Mouse: `*Dragged` events while a button is pressed; `kCGMouseEventClickState` for double and triple click.
+  - Scroll: `CGEventCreateScrollWheelEvent2` in pixels.
+  - Media: `NSEvent` of type `SystemDefined` with subtype 8.
 
 ## Windows
 
-- **Captura:** hooks `WH_KEYBOARD_LL`/`WH_MOUSE_LL` para tragar la entrada, más Raw Input (`RIDEV_INPUTSINK`) para leer el movimiento sin aceleración.
-  - **El hook se elimina en silencio si tarda más de `LowLevelHooksTimeout`** (máximo 1 s): hilo dedicado, callback mínimo que solo encola, y un watchdog que se autoprueba.
-  - Ignorar los eventos con `LLMHF_INJECTED`/`LLKHF_INJECTED`, o marcar los nuestros con `dwExtraInfo`.
-  - Filtrar el Ctrl falso que Windows manda junto con AltGr.
-- **Inyección:**
-  - Teclado: `SendInput` con `KEYEVENTF_SCANCODE` (+ `EXTENDEDKEY` para las teclas E0).
-  - Mouse: **absoluto** (`MOVE|ABSOLUTE|VIRTUALDESK`, 0–65535), acumulando las fracciones. El proceso tiene que declararse **Per-Monitor-V2 DPI aware**.
-  - Rueda: `mouseData` admite fracciones de 120.
-- **UIPI y escritorio seguro:** un servicio SYSTEM duplica el token de `winlogon.exe`, pone `TokenUIAccess=1` y lanza el helper con `CreateProcessAsUser` en `winsta0`. El helper sigue los cambios de escritorio con `OpenInputDesktop`/`SetThreadDesktop`. Ctrl+Alt+Supr se manda con `SendSAS` desde el servicio. Todo esto exige un binario firmado (Authenticode) e instalado en Program Files.
+- **Capture:** `WH_KEYBOARD_LL`/`WH_MOUSE_LL` hooks to swallow input, plus Raw Input (`RIDEV_INPUTSINK`) to read movement without acceleration.
+  - **The hook is silently removed if it takes longer than `LowLevelHooksTimeout`** (maximum 1 s): dedicated thread, minimal callback that only enqueues, and a watchdog that tests itself.
+  - Ignore events with `LLMHF_INJECTED`/`LLKHF_INJECTED`, or mark our own with `dwExtraInfo`.
+  - Filter the fake Ctrl that Windows sends along with AltGr.
+- **Injection:**
+  - Keyboard: `SendInput` with `KEYEVENTF_SCANCODE` (+ `EXTENDEDKEY` for E0 keys).
+  - Mouse: **absolute** (`MOVE|ABSOLUTE|VIRTUALDESK`, 0–65535), accumulating the fractions. The process has to declare itself **Per-Monitor-V2 DPI aware**.
+  - Wheel: `mouseData` accepts fractions of 120.
+- **UIPI and secure desktop:** a SYSTEM service duplicates `winlogon.exe`'s token, sets `TokenUIAccess=1` and launches the helper with `CreateProcessAsUser` in `winsta0`. The helper follows desktop changes with `OpenInputDesktop`/`SetThreadDesktop`. Ctrl+Alt+Del is sent with `SendSAS` from the service. All of this requires a signed (Authenticode) binary installed in Program Files.
 
-## Geometría
+## Geometry
 
-- Se prueba el borde **de la pantalla donde está el cursor**, nunca la caja que encierra a todas.
-- La posición se mapea como fracción a lo largo del borde compartido.
-- Margen en las esquinas, atajo para bloquear el cursor en la pantalla actual, y velocidad escalada por DPI.
-- La geometría se vuelve a leer cuando cambian las pantallas: `CGDisplayRegisterReconfigurationCallback` en Mac, `WM_DISPLAYCHANGE` en Windows.
+- The edge **of the screen where the cursor is** is tested, never the box that encloses all of them.
+- The position is mapped as a fraction along the shared edge.
+- Margin at the corners, a shortcut to lock the cursor on the current screen, and speed scaled by DPI.
+- The geometry is re-read when screens change: `CGDisplayRegisterReconfigurationCallback` on Mac, `WM_DISPLAYCHANGE` on Windows.
 
-## Transporte
+## Transport
 
-- **QUIC (quinn):** el movimiento y el scroll van en **datagramas** (coalescidos, con número de secuencia y una resincronización absoluta periódica); teclas, botones, entrar/salir y portapapeles van en un **stream confiable y ordenado**.
-- Latido de ~1 s. Al cambiar de enlace se sueltan todas las teclas y botones del cliente.
-- Objetivos: menos de 5 ms de latencia agregada por cable y p99 menor a 10 ms por Wi-Fi.
+- **QUIC (quinn):** movement and scroll go in **datagrams** (coalesced, with a sequence number and a periodic absolute resync); keys, buttons, enter/leave and clipboard go in a **reliable, ordered stream**.
+- Heartbeat of ~1 s. When the link changes, all the client's keys and buttons are released.
+- Targets: under 5 ms of added latency over cable and p99 under 10 ms over Wi-Fi.
 
-## Portapapeles
+## Clipboard
 
-- `arboard` 3.7 para leer y escribir: texto, HTML e imagen.
-- Detección de cambios propia: `changeCount` de NSPasteboard en Mac, `AddClipboardFormatListener` en Windows.
-- Evitar el eco recordando el hash de lo que escribimos nosotros. Los contenidos grandes se mandan perezosos: primero se anuncia el cambio y se transfiere al pegar.
+- `arboard` 3.7 for reading and writing: text, HTML and image.
+- Own change detection: NSPasteboard's `changeCount` on Mac, `AddClipboardFormatListener` on Windows.
+- Avoid the echo by remembering the hash of what we wrote ourselves. Large contents are sent lazily: the change is announced first and transferred on paste.
 
-## Estimación (un desarrollador con experiencia)
+## Estimate (one experienced developer)
 
-Unas **15–18 semanas** en total. Las partes más grandes son el servicio de escritorio seguro de Windows (2–3 semanas) y la captura de cada sistema (1.5–2 semanas cada una).
+About **15–18 weeks** in total. The largest parts are Windows's secure desktop service (2–3 weeks) and each system's capture (1.5–2 weeks each).
 
-## Referencias (solo lectura, no copiar)
+## References (read-only, do not copy)
 
 - lan-mouse: `input-capture/src/{macos.rs,windows/event_thread.rs}`, `input-emulation/src/{macos.rs,windows.rs}`.
 - Deskflow: `src/lib/platform/{OSXComputer.mm,MSWindowsWatchdog.cpp,MSWindowsProcess.cpp,MSWindowsDesks.cpp,MSWindowsHook.cpp,MSWindowsKeyState.cpp}`.
-- Microsoft: LowLevelKeyboardProc, SendInput, la política de uiAccess.
+- Microsoft: LowLevelKeyboardProc, SendInput, the uiAccess policy.

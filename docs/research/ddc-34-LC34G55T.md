@@ -1,15 +1,15 @@
 # DDC/CI — Samsung Odyssey G5 34" (LC34G55T)
 
-> **Actualización 2026-11-16 (v0.3):** el 34" ya corre el **firmware propio v3.1 (protocolo 2)** del repo `monitor-firmware`: `Get 0x60` **devuelve la entrada real** (parche v1, ADR-0009 de ese repo) y el monitor da eventos y veredictos de cambio (VCP `0xEA`–`0xEF`). Lo de abajo describe el firmware **de fábrica** y queda como historia. Valores de `Set 0x60` confirmados: HDMI `0x06` (también `0x03`), DP `0x09` (`0x0F` también funcionó). DP = puerto 0, HDMI = puerto 1. Desde la Mac por HDMI el canal DDC solo responde mientras HDMI es la entrada activa (RC=01 si no).
+> **Update 2026-11-16 (v0.3):** the 34" now runs the **own firmware v3.1 (protocol 2)** from the `monitor-firmware` repo: `Get 0x60` **returns the real input** (patch v1, ADR-0009 of that repo) and the monitor gives change events and verdicts (VCP `0xEA`–`0xEF`). What follows describes the **factory** firmware and stays as history. Confirmed `Set 0x60` values: HDMI `0x06` (also `0x03`), DP `0x09` (`0x0F` also worked). DP = port 0, HDMI = port 1. From the Mac over HDMI the DDC channel only responds while HDMI is the active input (RC=01 otherwise).
 >
-> El 32" no es un MStar como el 34": es el **Odyssey G5 «FALCON» (Novatek NT68500)**, EDID `0x7489` (DP) / `0x748A` (HDMI); **dañado el 2026-11-16** y en recuperación por SPI. Con firmware de fábrica será «no compatible» (DECISIONS D11).
+> The 32" is not an MStar like the 34": it is the **Odyssey G5 "FALCON" (Novatek NT68500)**, EDID `0x7489` (DP) / `0x748A` (HDMI); **damaged on 2026-11-16** and being recovered over SPI. With factory firmware it will be "not supported" (DECISIONS D11).
 >
-> Contrato con Tandem: `monitor-firmware/docs/integration/tandem.md`. En v0.3 el control vive en el crate Rust `monitor-ddc` (DECISIONS A5), no en el servicio HTTP de Python.
+> Contract with Tandem: `monitor-firmware/docs/integration/tandem.md`. In v0.3 control lives in the Rust crate `monitor-ddc` (DECISIONS A5), not in the Python HTTP service.
 
-Pruebas hechas el 2026-10-15 desde Windows (PC → monitor por DisplayPort, API `dxva2`).
-Scripts en [`tools/windows/ddc/`](../../tools/windows/ddc/).
+Tests done on 2026-10-15 from Windows (PC → monitor over DisplayPort, `dxva2` API).
+Scripts in [`tools/windows/ddc/`](../../tools/windows/ddc/).
 
-## Capabilities string (reportado por el monitor)
+## Capabilities string (reported by the monitor)
 
 ```
 (prot(monitor)type(lcd)SAMSUNGcmds(01 02 03 07 0C E3 F3)
@@ -18,44 +18,44 @@ Scripts en [`tools/windows/ddc/`](../../tools/windows/ddc/).
  mccs_ver(2.1)mswhql(1))
 ```
 
-El monitor **declara** `60 = {12, 0F, 10}`, pero **no obedece** esos valores.
+The monitor **declares** `60 = {12, 0F, 10}`, but **does not obey** those values.
 
-## Resultados
+## Results
 
-| VCP 0x60 escrito | Efecto observado |
+| VCP 0x60 written | Observed effect |
 |---|---|
-| `0x03` | ✅ cambia a HDMI (imagen de la Mac) |
-| `0x06` | ✅ cambia a HDMI (imagen de la Mac) |
-| `0x09` | ✅ regresa a DisplayPort (aislado el 2026-10-16, T-050) |
-| `0x09` estando ya en DP | provoca re-sincronización (~1–2 s en negro) |
-| `0x01`, `0x02`, `0x04`, `0x05`, `0x07`, `0x08`, `0x0A`–`0x0E` | sin efecto |
-| `0x10`–`0x1F` (incluye los declarados `0x12`, `0x10`) | sin efecto, también repitiendo la orden |
+| `0x03` | ✅ switches to HDMI (the Mac's image) |
+| `0x06` | ✅ switches to HDMI (the Mac's image) |
+| `0x09` | ✅ returns to DisplayPort (isolated on 2026-10-16, T-050) |
+| `0x09` while already on DP | causes a re-sync (~1–2 s of black) |
+| `0x01`, `0x02`, `0x04`, `0x05`, `0x07`, `0x08`, `0x0A`–`0x0E` | no effect |
+| `0x10`–`0x1F` (includes the declared `0x12`, `0x10`) | no effect, also when repeating the command |
 
-## Observaciones clave
+## Key observations
 
-- **(Firmware de fábrica)** **Lectura de entrada inútil:** `0x60` siempre devuelve `0x09`, esté en DP o HDMI. El agente debe llevar el estado él mismo.
-- **Timing report inútil para verificar:** sigue reportando 165 Hz de DP aunque el monitor esté mostrando HDMI.
-- **El canal DDC por DP sigue vivo mientras el monitor muestra HDMI.** Windows sigue enumerando el monitor (por eso es "fantasma") y puede devolverlo a DP.
-- **Auto Source Switch** (ahora activado) **no** cambia de entrada al perder la señal (se va a reposo) **ni** al reconectar el HDMI (solo muestra "HDMI connected").
-- Errores sueltos de lectura `0xC0262589` aparecen al azar; no indican cambio.
+- **(Factory firmware)** **Useless input reading:** `0x60` always returns `0x09`, whether on DP or HDMI. The agent must keep the state itself.
+- **Timing report useless for verifying:** it keeps reporting DP's 165 Hz even though the monitor is showing HDMI.
+- **The DDC channel over DP stays alive while the monitor shows HDMI.** Windows keeps enumerating the monitor (that is why it is a "ghost") and can return it to DP.
+- **Auto Source Switch** (now enabled) does **not** change input when the signal is lost (it goes to standby) **nor** when HDMI is reconnected (it only shows "HDMI connected").
+- Stray read errors `0xC0262589` appear at random; they do not indicate a change.
 
-## Lado Mac
+## Mac side
 
-BetterDisplay reporta "DDC channel: Unavailable" (falta anotar qué monitor y qué puerto). Hay que repetirlo
-por el HDMI integrado y por el cable USB-C→HDMI.
+BetterDisplay reports "DDC channel: Unavailable" (which monitor and which port still need to be noted). It has to be repeated
+over the built-in HDMI and over the USB-C→HDMI cable.
 
-## Pendiente
+## Pending
 
-- [x] Aislar si la vuelta funciona con `0x09` o con `0x0F`: basta `0x09` (T-050).
-- [x] Repetir todo con el 32" conectado por DP a la PC: ver `ddc-32-odyssey-g5.md`.
-- [ ] Ver si Windows conserva el canal DDC con el monitor desactivado en la topología (`SetDisplayConfig`), o si hace falta I2C por NvAPI.
+- [x] Isolate whether the return works with `0x09` or with `0x0F`: `0x09` is enough (T-050).
+- [x] Repeat everything with the 32" connected over DP to the PC: see `ddc-32-odyssey-g5.md`.
+- [ ] See whether Windows keeps the DDC channel with the monitor disabled in the topology (`SetDisplayConfig`), or whether I2C through NvAPI is needed.
 
-## El EDID cambia según la entrada (T-087)
+## The EDID changes depending on the input (T-087)
 
-Hecho de la primera prueba con las dos máquinas: el mismo monitor tiene un id PnP distinto en cada entrada, así que la PC (DisplayPort) y la Mac (HDMI) lo ven con ids distintos. El número de serie del EDID suele coincidir y sirve para vincular las dos identidades; si no, se vincula por modelo o tamaño y el usuario lo confirma en el asistente.
+A fact from the first test with both machines: the same monitor has a different PnP id on each input, so the PC (DisplayPort) and the Mac (HDMI) see it with different ids. The EDID serial number usually matches and serves to link the two identities; if not, it is linked by model or size and the user confirms it in the setup.
 
 | | PC (DisplayPort) | Mac (HDMI) |
 |---|---|---|
 | 34" LC34G55T | `SAM711A` | `SAM7119` |
 
-Por eso el perfil lleva `pnp_aliases` (`profiles/ddc/`) y el puesto, `edid_aliases` en cada `[[monitors]]`: cualquiera de las dos identidades encuentra el monitor (DDC, topología de Windows y Quartz). Antes de T-087 la sincronización los trataba como dos monitores y el puesto quedaba duplicado.
+That is why the profile carries `pnp_aliases` (`profiles/ddc/`) and the desk, `edid_aliases` in each `[[monitors]]`: either identity finds the monitor (DDC, Windows topology and Quartz). Before T-087 the sync treated them as two monitors and the desk ended up duplicated.

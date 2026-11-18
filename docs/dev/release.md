@@ -1,146 +1,146 @@
 # Release
 
-El workflow `Release` (`.github/workflows/release.yml`) construye los dos instaladores, los
-paquetes firmados del updater, los checksums, las notas y el `latest.json`, y crea el release
-en GitHub (DECISIONS D19, DESIGN §13). Un release se crea siempre en borrador con todo subido;
-una versión final se publica al terminar y una prerelease (`-rc.N`) queda en borrador.
+The `Release` workflow (`.github/workflows/release.yml`) builds the two installers, the signed
+updater packages, the checksums, the notes and `latest.json`, and creates the release
+on GitHub (DECISIONS D19, DESIGN §13). A release is always created as a draft with everything uploaded;
+a final version is published at the end and a prerelease (`-rc.N`) stays as a draft.
 
-| Disparo | Qué hace |
+| Trigger | What it does |
 |---|---|
-| Empujar un tag `v<versión>` | Todo; crea el release de ese tag. `v0.3.0` se publica; `v0.3.0-rc.1` queda en borrador como prerelease |
-| A mano (*Actions → Release → Run workflow*), con «Modo prueba» marcado (por omisión) | Todo como artefactos del workflow, firmado con una llave desechable; **ni release ni tag** |
-| A mano con «Modo prueba» desmarcado | Como un tag, para `v<versión>` en el commit elegido; el tag lo crea GitHub al publicar |
-| PR que toca `release.yml`, `scripts/release/` o `tauri.updater.json` | Siempre en modo prueba |
+| Pushing a `v<version>` tag | Everything; creates that tag's release. `v0.3.0` is published; `v0.3.0-rc.1` stays as a draft prerelease |
+| By hand (*Actions → Release → Run workflow*), with "Test mode" ticked (default) | Everything as workflow artifacts, signed with a disposable key; **no release and no tag** |
+| By hand with "Test mode" unticked | Like a tag, for `v<version>` at the chosen commit; GitHub creates the tag on publishing |
+| PR that touches `release.yml`, `scripts/release/` or `tauri.updater.json` | Always in test mode |
 
-`workflow_dispatch` solo aparece en *Actions* cuando el workflow está en la rama por omisión
-(`main`); hasta entonces, el modo prueba se ve en los PRs que lo tocan.
+`workflow_dispatch` only appears in *Actions* when the workflow is on the default branch
+(`main`); until then, test mode is seen in the PRs that touch it.
 
 ## Jobs
 
-1. **preparar** (Ubuntu): corre `scripts/release/test.sh`, decide la versión, el modo y si es
-   prerelease, y genera `notas.md`. Si va a crear un release y falta el secreto
-   `TAURI_SIGNING_PRIVATE_KEY`, falla aquí con el motivo (antes de compilar nada).
+1. **prepare** (Ubuntu): runs `scripts/release/test.sh`, decides the version, the mode and whether it is a
+   prerelease, and generates `notes.md`. If it is going to create a release and the secret
+   `TAURI_SIGNING_PRIVATE_KEY` is missing, it fails here with the reason (before compiling anything).
 2. **dmg (macos-latest)**: `scripts/macos/bundle.sh --config src-tauri/tauri.updater.json`,
-   igual que el CI (ver [install-macos.md](install-macos.md)) más el paquete del updater:
-   `Tandem_<versión>_<arch>.app.tar.gz` y su firma `.sig`. Sube `instalador-macos`.
-3. **instalador (windows)**: `tools/windows/installer/build-installer.ps1` con
-   `TANDEM_UPDATER_ARTIFACTS=1` (deja `Tandem_<versión>_x64-setup.exe.sig`; el updater baja
-   el mismo instalador) y la prueba de instalar, reinstalar y desinstalar
-   (`test-installer.ps1`): no sale un instalador que no se probó (ver
-   [install-windows.md](install-windows.md)). Sube `instalador-windows`.
-4. **checksums y latest.json** (Ubuntu): exige exactamente un `.dmg`, un `-setup.exe` y un
-   `.app.tar.gz`, escribe `SHA256SUMS.txt` y arma `latest.json` con
-   `scripts/release/latest-json.sh`. Sube el artefacto **`tandem-<versión>`**: lo que se
-   publicaría.
-5. **release**: solo fuera del modo prueba; el único job con `contents: write`. Crea el
-   release en borrador con todo, y si no es prerelease lo publica (`--latest`). Si ya existe
-   un release con ese tag, falla: bórralo y vuelve a correrlo.
+   same as CI (see [install-macos.md](install-macos.md)) plus the updater package:
+   `Tandem_<version>_<arch>.app.tar.gz` and its `.sig` signature. Uploads `installer-macos`.
+3. **installer (windows)**: `tools/windows/installer/build-installer.ps1` with
+   `TANDEM_UPDATER_ARTIFACTS=1` (leaves `Tandem_<version>_x64-setup.exe.sig`; the updater downloads
+   the same installer) and the install, reinstall and uninstall test
+   (`test-installer.ps1`): an installer that was not tested does not come out (see
+   [install-windows.md](install-windows.md)). Uploads `installer-windows`.
+4. **checksums and latest.json** (Ubuntu): requires exactly one `.dmg`, one `-setup.exe` and one
+   `.app.tar.gz`, writes `SHA256SUMS.txt` and builds `latest.json` with
+   `scripts/release/latest-json.sh`. Uploads the artifact **`tandem-<version>`**: what would be
+   published.
+5. **release**: only outside test mode; the only job with `contents: write`. Creates the
+   draft release with everything, and if it is not a prerelease publishes it (`--latest`). If a
+   release with that tag already exists, it fails: delete it and run it again.
 
-## Actualización automática
+## Automatic update
 
-La app trae `tauri-plugin-updater` (código en `apps/tandem-ui/src-tauri/src/update.rs`, que es
-portable y tiene las pruebas, y `updater.rs`, que lo conecta con Tauri):
+The app carries `tauri-plugin-updater` (code in `apps/tandem-ui/src-tauri/src/update.rs`, which is
+portable and has the tests, and `updater.rs`, which connects it to Tauri):
 
-- Lee `https://github.com/franc1sc0sv/tandem/releases/latest/download/latest.json`, es decir
-  el último release **publicado** que no es prerelease. Los borradores y las `-rc` no llegan a
-  nadie solos.
-- Cada paquete va firmado con la llave minisign del updater; la app solo instala lo que valida
-  con la pública (`plugins.updater.pubkey` en `tauri.conf.json`). No es firma de código: los
-  instaladores siguen sin Developer ID ni Authenticode (ver [Firma](#firma)).
-- **Qué se actualiza:** el paquete de cada sistema trae la UI y `tandemd`. En macOS el updater
-  reemplaza `Tandem.app` y la app se reinicia; al arrancar ve el plist del LaunchAgent con otra
-  versión y relanza `tandemd` con el binario nuevo (`launch_agent.rs`). En Windows corre el
-  instalador NSIS en modo pasivo: sus ganchos (`windows/hooks.nsh`) detienen `tandemw` y
-  `tandemd` antes de copiar y los vuelven a arrancar al terminar. El arranque con la sesión de
-  Windows es la clave `Run` de `HKCU` (T-071), no una tarea programada.
-- **«Actualizar todas»** (Ajustes → Actualizaciones): primero la otra máquina, después esta.
-  Esta le pide a la otra, por `tandemd` (`UiCommand::UpdatePeer` → `ControlMsg::Update`), que
-  se instale; la UI de la otra baja su paquete y se reinicia. Esta espera hasta 10 min a que
-  la otra vuelva anunciando la versión nueva (o hablando otra versión del protocolo, que
-  también prueba que cambió) y recién entonces se instala ella. Nunca se reinician las dos a la
-  vez, así el teclado y el mouse siguen en la que funciona. Si la otra no vuelve, **vuelta
-  atrás**: esta no se toca y se avisa; al volver a intentarlo, el plan solo instala lo que
-  falte.
-- **«Actualizar solo»** (por omisión encendido, guardado en `update.toml` junto a
-  `tandem.toml`): busca cada 6 h. Con par, guía solo la máquina `A` (la otra espera su pedido);
-  sin par, cada una se actualiza sola.
+- It reads `https://github.com/franc1sc0sv/tandem/releases/latest/download/latest.json`, that is
+  the latest **published** release that is not a prerelease. Drafts and `-rc` ones reach
+  nobody on their own.
+- Each package is signed with the updater's minisign key; the app only installs what it validates
+  with the public one (`plugins.updater.pubkey` in `tauri.conf.json`). It is not code signing: the
+  installers still have no Developer ID or Authenticode (see [Signing](#signing)).
+- **What is updated:** each system's package carries the UI and `tandemd`. On macOS the updater
+  replaces `Tandem.app` and the app restarts; on startup it sees the LaunchAgent plist with another
+  version and relaunches `tandemd` with the new binary (`launch_agent.rs`). On Windows it runs the
+  NSIS installer in passive mode: its hooks (`windows/hooks.nsh`) stop `tandemw` and
+  `tandemd` before copying and start them again at the end. The start with the Windows
+  session is the `HKCU` `Run` key (T-071), not a scheduled task.
+- **"Update all"** (Settings → Updates): first the other machine, then this one.
+  This one asks the other, through `tandemd` (`UiCommand::UpdatePeer` → `ControlMsg::Update`), to
+  install itself; the other's UI downloads its package and restarts. This one waits up to 10 min for
+  the other to come back announcing the new version (or speaking another protocol version, which
+  also proves it changed) and only then installs itself. The two are never restarted at the
+  same time, so keyboard and mouse stay on the one that works. If the other does not come back, **rollback**:
+  this one is not touched and a notice is shown; on retrying, the plan only installs what
+  is missing.
+- **"Update automatically"** (on by default, stored in `update.toml` next to
+  `tandem.toml`): checks every 6 h. With a peer, only machine `A` leads (the other waits for its request);
+  with no peer, each one updates itself.
 
-### Llave del updater
+### Updater key
 
-Se genera una vez y se guarda como secreto del repo; la pública va en `tauri.conf.json`.
+It is generated once and stored as a repo secret; the public one goes in `tauri.conf.json`.
 
 ```sh
 cd apps/tandem-ui
-pnpm tauri signer generate -w ~/.config/tandem-release/updater.key   # pide una clave (opcional)
+pnpm tauri signer generate -w ~/.config/tandem-release/updater.key   # asks for a password (optional)
 gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.config/tandem-release/updater.key
-gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD   # solo si le pusiste clave
+gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD   # only if you set a password
 ```
 
-Después, el contenido de `~/.config/tandem-release/updater.key.pub` va en
-`plugins.updater.pubkey` de `apps/tandem-ui/src-tauri/tauri.conf.json`. **La privada nunca
-entra al repo.** Si se pierde, las apps instaladas ya no aceptan actualizaciones firmadas con
-otra: habría que instalar la versión nueva a mano en las dos máquinas.
+Afterwards, the contents of `~/.config/tandem-release/updater.key.pub` go in
+`plugins.updater.pubkey` of `apps/tandem-ui/src-tauri/tauri.conf.json`. **The private one never
+goes into the repo.** If it is lost, installed apps no longer accept updates signed with
+another one: the new version would have to be installed by hand on both machines.
 
-Sin el secreto, el modo prueba firma con una llave desechable (los paquetes no sirven para
-actualizar a nadie, pero el camino entero queda probado) y un release falla en `preparar`.
+Without the secret, test mode signs with a disposable key (the packages are useless for
+updating anyone, but the whole path is tested) and a release fails in `prepare`.
 
-## Versión
+## Version
 
-La versión vive en tres lugares que tienen que coincidir: `version` de `[workspace.package]`
-en `Cargo.toml`, `apps/tandem-ui/src-tauri/tauri.conf.json` y `apps/tandem-ui/package.json`.
-`scripts/release/version.sh [v<versión>]` lo comprueba y, con un tag, exige que sea
-exactamente `v` + esa versión. El workflow lo corre siempre, así que un tag que no coincide
-con la versión falla antes de compilar nada. El updater compara versiones con el orden de
-SemVer (`0.3.0-rc.2` < `0.3.0` < `0.3.1`).
+The version lives in three places that have to match: `version` of `[workspace.package]`
+in `Cargo.toml`, `apps/tandem-ui/src-tauri/tauri.conf.json` and `apps/tandem-ui/package.json`.
+`scripts/release/version.sh [v<version>]` checks it and, with a tag, requires it to be
+exactly `v` + that version. The workflow always runs it, so a tag that does not match
+the version fails before compiling anything. The updater compares versions with SemVer
+order (`0.3.0-rc.2` < `0.3.0` < `0.3.1`).
 
-## Notas
+## Notes
 
-`scripts/release/notes.sh [--version x.y.z] [--desde <ref>] [--hasta <ref>]` arma las notas
-con las tareas integradas: cada PR de tarea entra a `develop` como un squash
-`T-<id>: <título> (#<pr>)`. Por omisión toma desde el tag `v*` anterior (o desde el inicio).
+`scripts/release/notes.sh [--version x.y.z] [--from <ref>] [--to <ref>]` builds the notes
+from the integrated tasks: each task PR enters `develop` as a squash
+`T-<id>: <title> (#<pr>)`. By default it takes from the previous `v*` tag (or from the beginning).
 
-- Agrupa las tareas por la `phase` de su `docs/tasks/T-<id>.md`, en el orden de las fases del
-  diseño. Una tarea con varios commits sale una vez, con todos sus PRs.
-- Lo que no es de una tarea (backlog, QA, diseño) va en «Otros cambios».
-- Al final, las tareas con casillas sin marcar en `## Verificación en hardware pendiente`:
-  lo que nadie comprobó todavía en el equipo real.
+- It groups the tasks by the `phase` of their `docs/tasks/T-<id>.md`, in the order of the design's
+  phases. A task with several commits appears once, with all its PRs.
+- What does not belong to a task (backlog, QA, design) goes in "Other changes".
+- At the end, the tasks with unticked boxes in `## Pending hardware verification`:
+  what nobody has checked yet on the real machine.
 
-Para verlas en local: `scripts/release/notes.sh --version "$(scripts/release/version.sh)"`.
-Las mismas notas van en `latest.json` (las ve el updater).
+To see them locally: `scripts/release/notes.sh --version "$(scripts/release/version.sh)"`.
+The same notes go in `latest.json` (the updater sees them).
 
-## Sacar un release
+## Cutting a release
 
-1. En `develop`, subir la versión en los tres archivos (y `Cargo.lock` con `cargo check`) y
-   integrarla como cualquier cambio.
-2. Probar una prerelease: versión `x.y.z-rc.N`, tag `vx.y.z-rc.N` en ese commit. Queda en
-   borrador; instalar los dos paquetes en el equipo real. (O correr el workflow a mano en modo
-   prueba y revisar el artefacto `tandem-<versión>`.)
-3. Llevar el cambio a `main` (lo hace el usuario) y empujar el tag de la versión final:
+1. On `develop`, bump the version in the three files (and `Cargo.lock` with `cargo check`) and
+   integrate it like any change.
+2. Test a prerelease: version `x.y.z-rc.N`, tag `vx.y.z-rc.N` on that commit. It stays as a
+   draft; install the two packages on the real machine. (Or run the workflow by hand in test
+   mode and review the `tandem-<version>` artifact.)
+3. Bring the change to `main` (done by the user) and push the final version's tag:
    ```sh
    git switch main && git pull
    git tag -s v0.3.0 -m "Tandem 0.3.0"
    git push origin v0.3.0
    ```
-4. El workflow publica el release al terminar; desde ese momento las apps lo encuentran.
+4. The workflow publishes the release at the end; from that moment the apps find it.
 
-Para comprobar una descarga: `sha256sum -c SHA256SUMS.txt --ignore-missing` (en macOS,
-`shasum -a 256 -c SHA256SUMS.txt`; en Windows, `Get-FileHash` y comparar).
+To check a download: `sha256sum -c SHA256SUMS.txt --ignore-missing` (on macOS,
+`shasum -a 256 -c SHA256SUMS.txt`; on Windows, `Get-FileHash` and compare).
 
-## Firma
+## Signing
 
-Hoy los instaladores del release salen como los del CI: el `.dmg` con firma ad-hoc y el
-instalador de Windows sin Authenticode (D19: sin firmar). Las dos firmas reales se activan con
-variables de entorno (Apple: `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE`...; Windows:
-`TANDEM_WINDOWS_SIGN_COMMAND` o `TANDEM_WINDOWS_CERT_THUMBPRINT`), descritas en
-[install-macos.md](install-macos.md#firma) e [install-windows.md](install-windows.md). Para
-usarlas en el release: guardarlas como secretos del repo y pasarlas como `env:` al paso de
-construcción de cada job. No se pasan vacías a propósito: el bundler de Tauri podría tomar
-una `APPLE_SIGNING_IDENTITY` vacía como identidad en vez de usar la ad-hoc.
+Today the release installers come out like CI's: the `.dmg` with an ad-hoc signature and the
+Windows installer without Authenticode (D19: unsigned). The two real signatures are enabled with
+environment variables (Apple: `APPLE_SIGNING_IDENTITY`, `APPLE_CERTIFICATE`...; Windows:
+`TANDEM_WINDOWS_SIGN_COMMAND` or `TANDEM_WINDOWS_CERT_THUMBPRINT`), described in
+[install-macos.md](install-macos.md#signing) and [install-windows.md](install-windows.md). To
+use them in the release: store them as repo secrets and pass them as `env:` to each job's
+build step. They are deliberately not passed empty: Tauri's bundler could take
+an empty `APPLE_SIGNING_IDENTITY` as an identity instead of using the ad-hoc one.
 
-La firma minisign del updater es otra cosa y sí está: ver [Llave del updater](#llave-del-updater).
+The updater's minisign signature is something else and is in place: see [Updater key](#updater-key).
 
-## Pendiente
+## Pending
 
-- Binario universal de macOS (hoy `aarch64`, la arquitectura del runner `macos-latest`; el
-  `latest.json` solo trae `darwin-aarch64` y `windows-x86_64`).
-- Firma Developer ID / Authenticode en el release (decisión del usuario, ver arriba).
+- Universal macOS binary (today `aarch64`, the architecture of the `macos-latest` runner; the
+  `latest.json` only carries `darwin-aarch64` and `windows-x86_64`).
+- Developer ID / Authenticode signing in the release (user's decision, see above).

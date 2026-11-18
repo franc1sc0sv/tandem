@@ -1,47 +1,47 @@
-# Deskflow — cómo controlarlo desde fuera
+# Deskflow — how to control it from the outside
 
-Investigado sobre `deskflow/deskflow` master (`c46781f`, 2026-10-14, después de v1.27.0).
-Lo marcado **(sin verificar)** no se probó en un equipo real.
+Researched on `deskflow/deskflow` master (`c46781f`, 2026-10-14, after v1.27.0).
+What is marked **(unverified)** was not tested on a real machine.
 
-## Procesos
+## Processes
 
-- Binarios: `deskflow` (GUI), `deskflow-core` (servidor y cliente) y, solo en Windows, `deskflow-daemon` (servicio que corre como SYSTEM).
-- Arranque: `deskflow-core server|client --settings <archivo.conf> [--new-instance]`. Es el único CLI que existe; todo lo demás va en el INI.
-- En macOS el core está en `Deskflow.app/Contents/MacOS/deskflow-core`.
+- Binaries: `deskflow` (GUI), `deskflow-core` (server and client) and, on Windows only, `deskflow-daemon` (service that runs as SYSTEM).
+- Startup: `deskflow-core server|client --settings <file.conf> [--new-instance]`. It is the only CLI there is; everything else goes in the INI.
+- On macOS the core is at `Deskflow.app/Contents/MacOS/deskflow-core`.
 
-## Configuración (INI `Deskflow.conf`)
+## Configuration (INI `Deskflow.conf`)
 
-- `[core]`: `coreMode` (1 = cliente, 2 = servidor), `interface`, `port` (24800), `computerName`, `preventSleep`.
-- `[client]`: `remoteHost`, que acepta **una lista separada por comas** (round-robin, desde la 1.26). Ahí va nuestra lista de respaldo: USB4 → Ethernet → Wi-Fi.
+- `[core]`: `coreMode` (1 = client, 2 = server), `interface`, `port` (24800), `computerName`, `preventSleep`.
+- `[client]`: `remoteHost`, which accepts a **comma-separated list** (round-robin, since 1.26). Our fallback list goes there: USB4 → Ethernet → Wi-Fi.
 - `[security]`: `tlsEnabled`, `checkPeerFingerprints`, `certificate`.
-- Desde la 1.27, cada equipo se declara como grupo `[computer_<nombre>]`.
-- Layout del servidor: `<settingsPath>/deskflow-server.conf`, con secciones `links` y `options`. La sección `screens` ya se ignora.
+- Since 1.27, each computer is declared as a `[computer_<name>]` group.
+- Server layout: `<settingsPath>/deskflow-server.conf`, with `links` and `options` sections. The `screens` section is now ignored.
 
-## Cambios en vivo
+## Live changes
 
-- macOS: `SIGHUP` recarga el layout sin reiniciar.
-- Windows: hay que reiniciar el core.
-- Cambiar de rol = reescribir el INI y reiniciar (≈1–3 s).
-- Detección de caída: keep-alive cada 3 s, peer muerto tras 3 fallos (≈9 s). Nuestro agente puede detectarla antes y forzar el cambio.
+- macOS: `SIGHUP` reloads the layout without restarting.
+- Windows: the core has to be restarted.
+- Changing role = rewriting the INI and restarting (≈1–3 s).
+- Drop detection: keep-alive every 3 s, peer dead after 3 failures (≈9 s). Our agent can detect it sooner and force the switch.
 
-## IPC (protocolo interno, sin garantía de estabilidad)
+## IPC (internal protocol, no stability guarantee)
 
-- Socket local de Qt `deskflow-core`; en Windows también `deskflow-daemon`. Mensajes de texto `cmd=args\n`.
-- Eventos: `connectionState`, `connectedClients`, `peerFingerprint`, `connectionRefused`, `secureSocket`.
-- Comandos del core: solo `stop`. Comandos del daemon: `configFile=`, `start`, `stop`, `logLevel=`.
-- → Fijamos la versión y aislamos esto en un adaptador.
+- Qt local socket `deskflow-core`; on Windows also `deskflow-daemon`. Text messages `cmd=args\n`.
+- Events: `connectionState`, `connectedClients`, `peerFingerprint`, `connectionRefused`, `secureSocket`.
+- Core commands: only `stop`. Daemon commands: `configFile=`, `start`, `stop`, `logLevel=`.
+- → We pin the version and isolate this in an adapter.
 
 ## TLS
 
-- Carpeta `tls/` con `deskflow.pem`, `trusted-servers` y `trusted-clients`; formato de línea `v2:sha256:<hex>`. Se relee en cada handshake.
-- Rutas: macOS `~/Library/Deskflow/tls/`, Windows `C:\ProgramData\Deskflow\tls\`.
-- **Se puede preprovisionar** desde nuestro emparejamiento, así que el usuario nunca ve el diálogo de huellas.
+- `tls/` folder with `deskflow.pem`, `trusted-servers` and `trusted-clients`; line format `v2:sha256:<hex>`. It is re-read on every handshake.
+- Paths: macOS `~/Library/Deskflow/tls/`, Windows `C:\ProgramData\Deskflow\tls\`.
+- **It can be pre-provisioned** from our pairing, so the user never sees the fingerprint dialog.
 
-## Otros
+## Other
 
-- Arrastrar archivos: **eliminado** (#8459). Transferencia de archivos: no se va a hacer (#8104, #9648). → La hace Tandem por el plano de datos.
-- Portapapeles: texto, HTML e imagen BMP; no copia archivos.
-- Sin mDNS (#8965 cerrado). → El descubrimiento lo hace nuestro agente.
-- macOS: requiere permiso de Accesibilidad. Quizás nuestro agente también lo necesite, por ser el proceso que lo lanza **(sin verificar)**.
-- Windows: para que funcione en la pantalla de inicio de sesión y en UAC hay que pasar por el daemon.
-- Licencia GPL-2.0 con excepción OpenSSL. Lo instalamos aparte (`brew tap deskflow/tap`, `winget install Deskflow.Deskflow`), no lo empaquetamos.
+- File drag: **removed** (#8459). File transfer: it will not be done (#8104, #9648). → Tandem does it through the data plane.
+- Clipboard: text, HTML and BMP image; it does not copy files.
+- No mDNS (#8965 closed). → Discovery is done by our agent.
+- macOS: requires Accessibility permission. Perhaps our agent needs it too, as the process that launches it **(unverified)**.
+- Windows: to work on the sign-in screen and on UAC you have to go through the daemon.
+- GPL-2.0 license with OpenSSL exception. We install it separately (`brew tap deskflow/tap`, `winget install Deskflow.Deskflow`), we do not bundle it.
