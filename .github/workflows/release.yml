@@ -56,9 +56,6 @@ jobs:
         with:
           fetch-depth: 0 # the notes walk the history from the previous tag
       - run: scripts/release/test.sh
-      # STATUS.md up to date with docs/tasks/ before publishing (T-192). It is not in each PR's CI:
-      # it would force every task to touch STATUS.md and parallel PRs would collide.
-      - run: scripts/ci/status.sh
       - name: Version and mode
         id: mode
         env:
@@ -102,6 +99,10 @@ jobs:
           else
             echo "Test mode: $tag, artifacts only (no release)" >> "$GITHUB_STEP_SUMMARY"
           fi
+      # STATUS.md up to date with docs/tasks/ before publishing (T-192). Only for a real release:
+      # dry runs and PRs would fail on any task that is open mid-work.
+      - if: steps.mode.outputs.publish == 'true'
+        run: scripts/ci/status.sh
       - name: Notes
         env:
           VERSION: ${{ steps.mode.outputs.version }}
