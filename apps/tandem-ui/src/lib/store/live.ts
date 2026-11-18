@@ -9,12 +9,12 @@ import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, ratioLabel, type Arrang
 import type { Bridge } from "../bridge";
 import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
-import type { Action, ActionResult, Bindings, Caps, Link, Machine, MachineCaps, MonitorInput, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
+import type { Action, ActionResult, Bindings, Caps, Desk, Link, Machine, MachineCaps, MonitorInput, Permission, ResourceSample, SceneJson, SetupView, ShortcutsView, Snapshot, TxnView } from "../model";
 import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
 import { grantTo, permissionState } from "../permissions";
-import type { ActResult, Capability, CursorEvent, DeskView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, ProcessRow, Source, Topic, TunnelView } from "./types";
+import type { ActResult, Capability, CursorEvent, DeskChange, DeskView, FilesView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, PrefsView, ProcessRow, Source, Topic, TunnelView } from "./types";
 import { addTransfer, newMemory, outputChunk, processRow, tunnelsFromWire, type Memory, type ProjectWire } from "../tunnels";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK } from "./types";
@@ -45,6 +45,7 @@ export const EMPTY_DESK: DeskView = {
   pair: { peer: { kind: "unpaired" }, pairing: { kind: "idle" } },
   permissions: { needed: false, rows: [], binary: null },
   layout: EMPTY_LAYOUT,
+  prefs: { cmdCtrl: true, dragFiles: true, clipboard: true },
 };
 
 /** La foto del agente no tiene la forma que espera esta versión de la UI. */
@@ -76,6 +77,12 @@ export function checkSnapshot(snap: unknown): asserts snap is Snapshot {
   const caps = snap.caps;
   if (!isObj(caps) || !isObj(caps.here) || !isSide(caps.here.machine) || !isObj(caps.here.input)) throw new ShapeError("capacidades");
   if (caps.peer !== null && (!isObj(caps.peer) || !isSide(caps.peer.machine))) throw new ShapeError("capacidades de la otra");
+}
+
+/** Teclado y mouse según el puesto; lo que el agente no diga vale «encendido» (como en su `Default`). */
+export function prefsOf(desk: Desk): PrefsView {
+  const on = (m: Machine) => desk.modules?.[m]?.clipboard !== false;
+  return { cmdCtrl: desk.prefs?.cmd_ctrl ?? true, dragFiles: desk.prefs?.drag_files ?? true, clipboard: on("a") && on("b") };
 }
 
 function permissionsOf(here: MachineCaps): PermissionsView {
@@ -168,6 +175,7 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
     monitors,
     scenes: snap.desk.scenes.map((sc) => sceneView(sc, { monitors, name, mac })),
     activeScene: snap.state.scene ?? null,
+    prefs: prefsOf(snap.desk),
     trouble,
     troubleText,
     here,
@@ -257,7 +265,7 @@ export class LiveSource implements Source {
 
   constructor(private readonly bridge: Bridge) {}
 
-  async start(onDesk: (d: DeskView) => void): Promise<void> {
+  async start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void): Promise<void> {
     // Un error al leer una foto no cuelga la ventana: se muestra como «sin agente» con la razón.
     const push = (s: Snapshot) => {
       try {
@@ -270,6 +278,12 @@ export class LiveSource implements Source {
       }
     };
     await this.bridge.onSnapshot(push);
+    // El aviso «Cambiado desde X · Deshacer» (D5): solo viaja por los avisos, no por la foto.
+    void Promise.resolve(
+      this.bridge.onNotice?.((n) => {
+        if (n.kind === "desk_changed") onChange?.({ by: n.by, rev: n.rev, summary: n.summary, undoTo: n.undo_to });
+      }),
+    ).catch(() => {});
     // Las muestras llegan aparte (una por segundo): cada una avanza la línea de su máquina.
     // No se espera la suscripción: la foto no debe depender de que ese canal responda.
     void Promise.resolve(
@@ -394,6 +408,28 @@ export class LiveSource implements Source {
 
   rescan(machine: Machine): Promise<ActResult> {
     return this.ask({ kind: "rescan", machine });
+  }
+
+  setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
+    return this.ask({ kind: "set_prefs", cmd_ctrl: p.cmdCtrl, drag_files: p.dragFiles });
+  }
+
+  async undoDesk(rev: number): Promise<ActResult> {
+    const r = await this.ask({ kind: "undo_desk", to_rev: rev });
+    return r.ok ? { ok: true, text: "Cambio deshecho" } : r;
+  }
+
+  async files(): Promise<FilesView> {
+    return this.bridge.files();
+  }
+
+  async openFiles(target: "config" | "logs"): Promise<ActResult> {
+    try {
+      await this.bridge.openFiles(target);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    }
   }
 
   editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult> {

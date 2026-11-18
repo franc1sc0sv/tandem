@@ -9,7 +9,8 @@ import { machineName } from "../machines";
 import type { Bindings, Permission, ShortcutsView } from "../model";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
-import type { ActResult, Capability, CursorEvent, DeskView, LinkKind, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
+import { changeToast, deskEvents, type ToastSpec, type ToastTone } from "../notices";
+import type { ActResult, Capability, CursorEvent, DeskView, FilesView, LinkKind, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
 import type { UpdateView } from "../updates";
 import type { Arrangement } from "../acomodo";
 import type { CrossSample } from "../crossing";
@@ -29,13 +30,16 @@ export function topicsFor(route: Route): Topic[] {
   return [...new Set([...SHELL_TOPICS, ...SCREEN_TOPICS[route.screen]])];
 }
 
-export interface Toast {
+export interface Toast extends ToastSpec {
   id: number;
-  text: string;
-  tone: "ok" | "bad";
+  /** Se va solo a los 6 s; los que piden una decisión se quedan hasta cerrarlos. */
+  auto: boolean;
 }
 
-const TOAST_MS = 4000;
+/** Lo que dura un aviso en pantalla (`F-Avisos`: «se van solos en 6 s»). */
+export const TOAST_MS = 6000;
+/** Cuántos avisos se apilan a la vez. */
+export const TOAST_MAX = 5;
 
 export class Store implements CommandContext {
   desk: DeskView = $state(EMPTY_DESK);
@@ -85,12 +89,20 @@ export class Store implements CommandContext {
   /** Arranca la fuente. Si falla (agente ausente, respuesta rara) queda el estado «sin agente». */
   async start(): Promise<void> {
     try {
-      await this.source.start((d) => {
-        const before = this.desk.ready ? this.desk.pair.pairing : null;
+      await this.source.start(
+        (d) => {
+        const prev = this.desk;
+        const before = prev.ready ? prev.pair.pairing : null;
         this.desk = d;
+        // Los avisos de lo que cambió, solo en la ventana principal; la bandeja no los repite.
+        if (this.opensOnPairing) for (const spec of deskEvents(prev, d)) this.notify(spec);
         // Si la otra máquina empezó a emparejar (o apareció el código), el asistente se abre en ese paso.
         if (this.opensOnPairing && pairingShouldOpen(before, d.pair.pairing)) this.openWizard(WIZARD_PAIR);
-      });
+        },
+        (c) => {
+          if (this.opensOnPairing) this.notify(changeToast(c, this.desk, (rev) => void this.undoDesk(rev)));
+        },
+      );
     } catch (e) {
       this.desk = deskFromError(e);
     }
@@ -357,10 +369,32 @@ export class Store implements CommandContext {
     this.paletteOpen = open;
   }
 
-  toast(text: string, tone: Toast["tone"] = "ok"): void {
-    const t = { id: this.nextToast++, text, tone };
-    this.toasts = [...this.toasts, t];
-    setTimeout(() => this.dismiss(t.id), TOAST_MS);
+  toast(text: string, tone: ToastTone = "ok"): void {
+    this.notify({ text, tone });
+  }
+
+  /** Un aviso nuevo arriba de la pila; el más viejo sale si pasan de `TOAST_MAX`. */
+  notify(spec: ToastSpec): void {
+    const t: Toast = { ...spec, id: this.nextToast++, auto: !spec.action };
+    this.toasts = [t, ...this.toasts].slice(0, TOAST_MAX);
+    if (t.auto) setTimeout(() => this.dismiss(t.id), TOAST_MS);
+  }
+
+  /** «Deshacer» del aviso de cambio: vuelve el puesto a la versión que había. */
+  undoDesk(rev: number): Promise<ActResult> {
+    return this.report(this.source.undoDesk(rev));
+  }
+
+  setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
+    return this.report(this.source.setPrefs(p));
+  }
+
+  files(): Promise<FilesView> {
+    return this.source.files();
+  }
+
+  openFiles(target: "config" | "logs"): Promise<ActResult> {
+    return this.report(this.source.openFiles(target));
   }
 
   dismiss(id: number): void {

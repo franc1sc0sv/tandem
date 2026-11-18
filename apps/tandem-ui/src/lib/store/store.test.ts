@@ -78,9 +78,9 @@ describe("store", () => {
     await store.start();
     await store.applyScene("juego");
     expect(store.desk.activeScene).toBe("juego");
-    expect(store.toasts.at(-1)).toMatchObject({ text: "Escena «Juego» activa.", tone: "ok" });
+    expect(store.toasts[0]).toMatchObject({ text: "Escena «Juego» aplicada", tone: "ok" });
     await store.applyScene("nada");
-    expect(store.toasts.at(-1)).toMatchObject({ tone: "bad" });
+    expect(store.toasts[0]).toMatchObject({ tone: "bad" });
     vi.advanceTimersByTime(5000);
     expect(store.toasts).toEqual([]);
   });

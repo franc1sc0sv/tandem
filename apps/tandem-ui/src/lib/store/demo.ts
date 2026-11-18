@@ -33,7 +33,9 @@ import type {
   ActResult,
   Capability,
   CursorEvent,
+  DeskChange,
   DeskView,
+  FilesView,
   EnvView,
   HardwareView,
   LatencyPoint,
@@ -545,6 +547,7 @@ export function demoDesk(o: DemoOptions): DeskView {
   return {
     ready: true,
     deskName: "Mi puesto",
+    prefs: { cmdCtrl: true, dragFiles: false, clipboard: true },
     trouble: o.trouble,
     troubleText: TROUBLE_TEXT[o.trouble](peerSpec.name),
     here: o.here,
@@ -592,9 +595,42 @@ export class DemoSource implements Source {
     this.desk = demoDesk(opts);
   }
 
-  async start(onDesk: (d: DeskView) => void): Promise<void> {
+  async start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void): Promise<void> {
     this.emit = onDesk;
+    this.onChange = onChange;
     onDesk(this.desk);
+  }
+
+  private onChange: ((c: DeskChange) => void) | undefined;
+
+  /** La otra máquina cambió el puesto (D5): lo que haría `DeskChanged` del agente. */
+  simulateChange(c: DeskChange): void {
+    this.onChange?.(c);
+  }
+
+  /** Versión del puesto en el demo: cada cambio local la sube. */
+  rev = 1;
+
+  async setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
+    this.rev += 1;
+    this.set({ ...this.desk, prefs: { ...this.desk.prefs, ...p } });
+    return { ok: true };
+  }
+
+  async undoDesk(rev: number): Promise<ActResult> {
+    this.rev = rev;
+    return { ok: true, text: "Cambio deshecho" };
+  }
+
+  async files(): Promise<FilesView> {
+    const mac = this.desk.machines[this.desk.here]?.os !== "windows";
+    return mac
+      ? { config: "~/Library/Application Support/Tandem/tandem.toml", logs: "~/Library/Application Support/Tandem/logs" }
+      : { config: "%APPDATA%\\Tandem\\tandem.toml", logs: "%APPDATA%\\Tandem\\logs" };
+  }
+
+  async openFiles(): Promise<ActResult> {
+    return { ok: true };
   }
 
   watch(topics: Topic[]): void {
@@ -843,7 +879,8 @@ export class DemoSource implements Source {
     if (!m || !mod) return { ok: false, reason: "No existe ese módulo" };
     if (mod.state === "unavailable") return { ok: false, reason: mod.detail };
     const modules = m.modules.map((x) => (x.id === module ? { ...x, state: on ? ("active" as const) : ("off" as const) } : x));
-    this.set({ ...this.desk, machines: { ...this.desk.machines, [machine]: { ...m, modules } } });
+    const prefs = module === "clipboard" ? { ...this.desk.prefs, clipboard: on } : this.desk.prefs;
+    this.set({ ...this.desk, prefs, machines: { ...this.desk.machines, [machine]: { ...m, modules } } });
     return { ok: true };
   }
 

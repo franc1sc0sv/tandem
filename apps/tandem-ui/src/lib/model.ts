@@ -57,6 +57,10 @@ export interface Desk {
   /** Nombre del puesto, si el agente lo manda (todavía no viaja: la UI usa «Mi puesto»). */
   name?: string | null;
   scenes: SceneJson[];
+  /** Teclado y mouse compartidos (`[prefs]` del puesto). */
+  prefs?: { cmd_ctrl: boolean; drag_files: boolean };
+  /** Módulos encendidos por máquina (`clipboard`…); lo que falte vale «encendido». */
+  modules?: Record<Machine, Record<string, boolean>>;
 }
 
 /** `tandem_proto::MonitorCompat`: serde por omisión (etiqueta externa). */
@@ -232,7 +236,9 @@ export type Notice =
   /** El cursor cruzó el borde `edge` de `from` hacia `to` (T-128). */
   | { kind: "crossed"; from: Machine; to: Machine; edge: CrossEdge }
   | { kind: "key_probe"; event: { armed: boolean; heard: Machine | null } }
-  | { kind: "power"; machine: Machine; reason: string };
+  | { kind: "power"; machine: Machine; reason: string }
+  /** La otra máquina cambió el puesto y ganó (D5): «Cambiado desde X · Deshacer». */
+  | { kind: "desk_changed"; by: Machine; rev: number; summary: string; undo_to: number };
 
 export type Action =
   | { kind: "set_power"; machine: Machine; on: boolean }
@@ -252,6 +258,9 @@ export type Action =
   /** Guardar el acomodo en el puesto compartido (`EditDesk { Arrangement }`, T-099). */
   | { kind: "set_arrangement"; a_side: Side; align: Align }
   | { kind: "set_module"; machine: Machine; module: string; on: boolean }
+  | { kind: "set_prefs"; cmd_ctrl: boolean; drag_files: boolean }
+  /** «Deshacer» del aviso de cambio: vuelve el puesto a la versión `to_rev` (D5). */
+  | { kind: "undo_desk"; to_rev: number }
   | { kind: "rescan"; machine: Machine }
   /** Recibir los recursos en vivo mientras la pantalla visible los muestra. */
   | { kind: "watch_resources"; on: boolean }

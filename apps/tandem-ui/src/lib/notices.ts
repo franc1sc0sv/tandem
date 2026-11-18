@@ -1,0 +1,70 @@
+// Avisos de la app (F-Avisos): qué cambio del puesto merece un aviso y con qué texto. Puro:
+// el store lo llama con el estado de antes y el de ahora.
+
+import type { Machine } from "./model";
+import type { DeskChange, DeskView, LinkKind } from "./store/types";
+
+export type ToastTone = "ok" | "bad" | "warn" | "info" | "claude";
+
+/** Color del punto de cada tono (`F-Avisos`). */
+export const TONE_COLOR: Record<ToastTone, string> = { ok: "#6cc59a", bad: "#e07a6f", warn: "#d9a75a", info: "#7aa7e6", claude: "#a99be8" };
+
+export interface ToastAction {
+  label: string;
+  run: () => void;
+}
+
+/** Lo que pide un aviso; el store le pone el id y lo apaga a los 6 s si no pide una decisión. */
+export interface ToastSpec {
+  text: string;
+  body?: string;
+  tone: ToastTone;
+  action?: ToastAction;
+}
+
+export const KIND_NAME: Record<LinkKind, string> = { usb4: "USB-C", ethernet: "Ethernet", wifi: "Wi-Fi" };
+
+const nameOf = (d: DeskView, m: Machine) => d.machines[m]?.name ?? `la máquina ${m.toUpperCase()}`;
+
+/** «Cambiado desde X · Deshacer» (D5): el aviso espera la decisión, no se va solo. */
+export function changeToast(c: DeskChange, d: DeskView, undo: (rev: number) => void): ToastSpec {
+  return {
+    text: `Cambiado desde ${nameOf(d, c.by)}`,
+    body: c.summary,
+    tone: "info",
+    action: { label: "Deshacer", run: () => undo(c.undoTo) },
+  };
+}
+
+/** Los avisos que salen de pasar de `before` a `after` (cambio de camino, túnel, máquina). */
+export function deskEvents(before: DeskView, after: DeskView): ToastSpec[] {
+  if (!before.ready || !after.ready) return [];
+  const out: ToastSpec[] = [];
+
+  const was = before.link.kind;
+  const now = after.link.kind;
+  if (was && now && was !== now) {
+    if (now === "wifi") {
+      out.push({ text: `Se desconectó el cable ${KIND_NAME[was]}`, body: "El teclado y el mouse siguen por Wi-Fi. Los envíos de datos esperan al cable.", tone: "warn" });
+    } else {
+      out.push({ text: `Volvió el cable ${KIND_NAME[now]}`, body: "La entrada y los envíos vuelven a ir por el cable.", tone: "ok" });
+    }
+  }
+
+  const known = new Set(before.tunnels.map((t) => t.id));
+  for (const t of after.tunnels) {
+    if (known.has(t.id) || t.state === "closed") continue;
+    out.push({ text: `Claude abrió el túnel «${t.title}»`, body: `${nameOf(after, t.from)} → ${nameOf(after, t.to)}`, tone: "claude" });
+  }
+
+  const peer: Machine = after.here === "a" ? "b" : "a";
+  const p0 = before.machines[peer]?.power;
+  const p1 = after.machines[peer]?.power;
+  if (p0 && p1 && p0 !== p1) {
+    if (p1 === "on") out.push({ text: `${nameOf(after, peer)} volvió`, body: "Encendida y otra vez en el puesto.", tone: "claude" });
+    else if (p0 === "on" && (p1 === "off" || p1 === "lost")) {
+      out.push({ text: `${nameOf(after, peer)} ${p1 === "off" ? "se apagó" : "se perdió"}`, body: "El mouse ya no cruza hacia ella.", tone: "warn" });
+    }
+  }
+  return out;
+}

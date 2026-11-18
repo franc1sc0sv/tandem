@@ -243,7 +243,7 @@ describe("Ajustes → Atajos", () => {
     expect(combo).toHaveTextContent("Ctrl+Mayús+J");
     await user.click(screen.getByRole("button", { name: "Guardar" }));
     await vi.waitFor(async () => expect((await store.shortcuts()).bindings.toggle_window).toBe("Ctrl+Shift+KeyJ"));
-    expect(store.toasts.at(-1)?.text).toBe("Atajos guardados");
+    expect(store.toasts[0]?.text).toBe("Atajos guardados");
     await user.click(screen.getByRole("button", { name: "Restablecer" }));
     expect(combo).toHaveTextContent("Ctrl+Alt+0");
   });

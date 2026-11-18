@@ -320,7 +320,30 @@ export interface PermissionsView {
 /** Los estados difíciles (`V3-Estados`). */
 export type Trouble = "none" | "no-agent" | "peer-off" | "link-down" | "permissions";
 
+/** Teclado y mouse compartidos (Ajustes → Teclado y mouse). */
+export interface PrefsView {
+  cmdCtrl: boolean;
+  dragFiles: boolean;
+  /** El portapapeles compartido está encendido en las dos máquinas. */
+  clipboard: boolean;
+}
+
+/** Un cambio del puesto hecho desde la otra máquina (D5), para el aviso «Deshacer». */
+export interface DeskChange {
+  by: Machine;
+  rev: number;
+  summary: string;
+  undoTo: number;
+}
+
+/** Dónde están el archivo de configuración y los logs de esta máquina. */
+export interface FilesView {
+  config: string;
+  logs: string;
+}
+
 export interface DeskView {
+  prefs: PrefsView;
   /** `connecting` mientras no hay primer estado. */
   ready: boolean;
   /** El nombre del puesto (junto al logo en `V3-Maquina`); «Mi puesto» si no tiene. */
@@ -365,7 +388,15 @@ export type ActResult = { ok: true; text?: string } | { ok: false; reason: strin
  * y recibe el estado nuevo cada vez que cambia.
  */
 export interface Source {
-  start(onDesk: (d: DeskView) => void): Promise<void>;
+  start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void): Promise<void>;
+  /** Teclado y mouse compartidos: se manda el par entero. */
+  setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult>;
+  /** «Deshacer» el cambio de la otra máquina: vuelve el puesto a la versión `rev`. */
+  undoDesk(rev: number): Promise<ActResult>;
+  /** Archivo de configuración y logs (Ajustes → Avanzado). */
+  files(): Promise<FilesView>;
+  /** Muestra en el explorador el archivo de configuración o la carpeta de logs. */
+  openFiles(target: "config" | "logs"): Promise<ActResult>;
   /** Temas que la pantalla visible necesita en vivo; el resto se deja de mandar. */
   watch(topics: Topic[]): void;
   applyScene(id: string): Promise<ActResult>;
