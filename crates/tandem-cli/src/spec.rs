@@ -132,6 +132,12 @@ pub const TOOLS: &[Tool] = &[
                 false,
                 "Con `workspace`: conservar la carpeta del destino al cerrar / With `workspace`: keep the target folder on close",
             ),
+            p(
+                "include_secrets",
+                Ty::List,
+                false,
+                "Con `workspace`: credenciales sin seguimiento que sí viajan, rutas del repo (por omisión `.env`, llaves, `.ssh/`… no viajan) / With `workspace`: untracked credentials that do travel, repo paths (by default `.env`, keys, `.ssh/`… do not)",
+            ),
         ],
     },
     Tool {
@@ -170,7 +176,13 @@ pub const TOOLS: &[Tool] = &[
                 "env",
                 Ty::List,
                 false,
-                "Variables, `NOMBRE=valor` / Variables, `NAME=value`",
+                "Variables, `NOMBRE=valor`; las que parecen secretos (`GH_TOKEN`, `*_KEY`…) se rechazan salvo `allow_secret_env`; `SSH_AUTH_SOCK` nunca / Variables, `NAME=value`; secret-looking ones (`GH_TOKEN`, `*_KEY`…) are rejected unless `allow_secret_env`; `SSH_AUTH_SOCK` never",
+            ),
+            p(
+                "allow_secret_env",
+                Ty::Bool,
+                false,
+                "Deja pasar en esta llamada las variables de `env` que parecen secretos / Lets secret-looking `env` variables through for this call",
             ),
         ],
     },
@@ -223,7 +235,8 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "files_put",
-        desc: "Copia un archivo o carpeta de esta máquina a la otra. / Copies a file or folder from this machine to the other.",
+        desc: "Copia un archivo o carpeta de esta máquina a la otra. Lo que parece una credencial (`.env`, llaves, `.ssh/`…) no se copia y se lista en `skipped`. \
+               / Copies a file or folder from this machine to the other. Anything that looks like a credential (`.env`, keys, `.ssh/`…) is not copied and is listed in `skipped`.",
         params: &[
             TUNNEL,
             p("local", Ty::Str, true, "Ruta aquí / Path here"),
@@ -232,6 +245,12 @@ pub const TOOLS: &[Tool] = &[
                 Ty::Str,
                 true,
                 "Ruta en el destino / Path on the target",
+            ),
+            p(
+                "include_secrets",
+                Ty::List,
+                false,
+                "Credenciales que sí se copian, rutas relativas a `local` / Credentials that do get copied, paths relative to `local`",
             ),
         ],
     },

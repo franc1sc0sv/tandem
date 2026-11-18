@@ -11,6 +11,7 @@ use tandem_proto::{EntryKind, FileEntry, Hash, Manifest};
 
 use crate::error::{FilesError, Result};
 use crate::path::to_wire;
+use crate::secrets::SecretFilter;
 
 /// Cuántos fragmentos de `chunk_size` tiene un archivo de `size` bytes.
 pub fn chunk_count(size: u64, chunk_size: u32) -> u64 {
@@ -46,12 +47,22 @@ pub struct Source {
     manifest: Manifest,
     /// La ruta local de cada entrada del manifiesto.
     paths: Vec<PathBuf>,
+    /// Lo que se dejó fuera por parecer una credencial (T-130), con rutas del cable; las
+    /// carpetas terminan en `/`.
+    skipped: Vec<String>,
+    filter: SecretFilter,
 }
 
 impl Source {
     /// Recorre `local` (un archivo o una carpeta). Los enlaces simbólicos y lo que no es
     /// archivo ni carpeta se omiten.
     pub fn scan(local: &Path, chunk_size: u32) -> Result<Source> {
+        Self::scan_with(local, chunk_size, &SecretFilter::default())
+    }
+
+    /// Como [`Source::scan`], con las excepciones explícitas de `filter`: las credenciales
+    /// no entran al manifiesto salvo que se nombren (T-130).
+    pub fn scan_with(local: &Path, chunk_size: u32, filter: &SecretFilter) -> Result<Source> {
         let meta = fs::metadata(local).map_err(|e| FilesError::io(local, e))?;
         let mut src = Source {
             manifest: Manifest {
@@ -60,13 +71,28 @@ impl Source {
                 entries: Vec::new(),
             },
             paths: Vec::new(),
+            skipped: Vec::new(),
+            filter: filter.clone(),
         };
+        if filter.root_blocked(local, meta.is_dir()) {
+            let shown = match local.file_name() {
+                Some(n) if meta.is_file() => n.to_string_lossy().into_owned(),
+                _ => local.display().to_string(),
+            };
+            src.skipped.push(shown);
+            return Ok(src);
+        }
         if meta.is_file() {
             let name = local
                 .file_name()
                 .map(Path::new)
                 .ok_or_else(|| FilesError::path(&local.display().to_string(), "sin nombre"))?;
-            src.add_file(local, to_wire(name)?, &meta)?;
+            let wire = to_wire(name)?;
+            if src.filter.blocks(&wire, local) {
+                src.skipped.push(wire);
+            } else {
+                src.add_file(local, wire, &meta)?;
+            }
         } else if meta.is_dir() {
             src.walk(local, Path::new(""))?;
         } else {
@@ -82,6 +108,11 @@ impl Source {
         &self.manifest
     }
 
+    /// Lo que no entró al manifiesto por parecer una credencial.
+    pub fn skipped(&self) -> &[String] {
+        &self.skipped
+    }
+
     fn walk(&mut self, abs: &Path, rel: &Path) -> Result<()> {
         let mut names: Vec<_> = fs::read_dir(abs)
             .map_err(|e| FilesError::io(abs, e))?
@@ -93,9 +124,18 @@ impl Source {
             let path = abs.join(&name);
             let rel = rel.join(&name);
             let meta = fs::symlink_metadata(&path).map_err(|e| FilesError::io(&path, e))?;
+            let wire = to_wire(&rel)?;
+            if (meta.is_dir() || meta.is_file()) && self.filter.blocks(&wire, &path) {
+                self.skipped.push(if meta.is_dir() {
+                    format!("{wire}/")
+                } else {
+                    wire
+                });
+                continue;
+            }
             if meta.is_dir() {
                 self.manifest.entries.push(FileEntry {
-                    path: to_wire(&rel)?,
+                    path: wire,
                     kind: EntryKind::Dir,
                     mode: mode_of(&meta),
                     mtime_ms: mtime_of(&meta),
@@ -103,7 +143,7 @@ impl Source {
                 self.paths.push(path.clone());
                 self.walk(&path, &rel)?;
             } else if meta.is_file() {
-                self.add_file(&path, to_wire(&rel)?, &meta)?;
+                self.add_file(&path, wire, &meta)?;
             } else {
                 tracing::warn!("se omite {} (enlace o archivo especial)", path.display());
             }
@@ -223,6 +263,7 @@ mod tests {
         let m = s.manifest();
         let paths: Vec<_> = m.entries.iter().map(|e| e.path.as_str()).collect();
         assert_eq!(paths, ["hueca", "sub dir", "sub dir/ñ.bin", "vacio"]);
+        assert!(s.skipped().is_empty());
         let EntryKind::File { size, chunks, hash } = &m.entries[2].kind else {
             panic!("no es archivo");
         };
@@ -248,6 +289,56 @@ mod tests {
         fs::write(d.path().join("a"), b"x").unwrap();
         std::os::unix::fs::symlink("a", d.path().join("enlace")).unwrap();
         let s = Source::scan(d.path(), 4).unwrap();
+        assert_eq!(s.manifest().entries.len(), 1);
+    }
+
+    #[test]
+    fn las_credenciales_no_entran_al_manifiesto() {
+        let d = tempfile::tempdir().unwrap();
+        fs::write(d.path().join("ok.txt"), b"x").unwrap();
+        fs::write(d.path().join(".env"), b"K=v").unwrap();
+        fs::write(d.path().join(".npmrc"), b"//r/:_authToken=t").unwrap();
+        fs::create_dir(d.path().join(".ssh")).unwrap();
+        fs::write(d.path().join(".ssh/id_rsa"), b"k").unwrap();
+        let s = Source::scan(d.path(), 4).unwrap();
+        let paths: Vec<_> = s
+            .manifest()
+            .entries
+            .iter()
+            .map(|e| e.path.as_str())
+            .collect();
+        assert_eq!(paths, ["ok.txt"]);
+        assert_eq!(s.skipped(), [".env", ".npmrc", ".ssh/"]);
+        // Nombrándolo, entra; lo demás sigue fuera.
+        let f = SecretFilter::new(&[".env".into()]);
+        let s = Source::scan_with(d.path(), 4, &f).unwrap();
+        let paths: Vec<_> = s
+            .manifest()
+            .entries
+            .iter()
+            .map(|e| e.path.as_str())
+            .collect();
+        assert_eq!(paths, [".env", "ok.txt"]);
+        assert_eq!(s.skipped(), [".npmrc", ".ssh/"]);
+    }
+
+    #[test]
+    fn una_carpeta_secreta_o_un_archivo_suelto_secreto_no_se_copia() {
+        let d = tempfile::tempdir().unwrap();
+        fs::create_dir(d.path().join(".ssh")).unwrap();
+        fs::write(d.path().join(".ssh/config"), b"Host x").unwrap();
+        // Copiar `~/.ssh` entero, o un archivo suelto de adentro.
+        let s = Source::scan(&d.path().join(".ssh"), 4).unwrap();
+        assert!(s.manifest().entries.is_empty());
+        assert_eq!(s.skipped().len(), 1);
+        let s = Source::scan(&d.path().join(".ssh/config"), 4).unwrap();
+        assert!(s.manifest().entries.is_empty());
+        // Un archivo suelto con nombre secreto, también; con `include` por su nombre, sí.
+        fs::write(d.path().join("llave.pem"), b"p").unwrap();
+        let s = Source::scan(&d.path().join("llave.pem"), 4).unwrap();
+        assert_eq!(s.skipped(), ["llave.pem"]);
+        let f = SecretFilter::new(&["llave.pem".into()]);
+        let s = Source::scan_with(&d.path().join("llave.pem"), 4, &f).unwrap();
         assert_eq!(s.manifest().entries.len(), 1);
     }
 }

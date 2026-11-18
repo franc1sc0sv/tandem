@@ -222,18 +222,30 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
                 Ok(t) => t,
                 Err(e) => return Reply::Rejected(e.to_string()),
             };
+            let mut skipped = Vec::new();
+            let mut history_secrets = Vec::new();
             if let Some(ws) = workspace {
                 let opened = agent
                     .workspaces()
                     .open(agent.files(), origin, &tunnel, &ws)
                     .await;
-                if let Err(e) = opened {
-                    // Un túnel a medias (sin su repo) no le sirve a nadie.
-                    let _ = origin.close(tunnel.id).await;
-                    return Reply::Rejected(format!("no se pudo preparar el workspace: {e}"));
+                match opened {
+                    Ok(o) => {
+                        skipped = o.skipped;
+                        history_secrets = o.history_secrets;
+                    }
+                    Err(e) => {
+                        // Un túnel a medias (sin su repo) no le sirve a nadie.
+                        let _ = origin.close(tunnel.id).await;
+                        return Reply::Rejected(format!("no se pudo preparar el workspace: {e}"));
+                    }
                 }
             }
-            Reply::Tunnel(Box::new(tunnel))
+            Reply::Tunnel {
+                tunnel: Box::new(tunnel),
+                skipped,
+                history_secrets,
+            }
         }
         UiCommand::CloseTunnel { id } => {
             if client.is_none() {
@@ -303,7 +315,11 @@ async fn files_and_ports(agent: &Arc<Agent>, cmd: UiCommand) -> Reply {
             tunnel,
             local,
             remote,
-        } => match files.put(origin, tunnel, Path::new(&local), &remote).await {
+            include,
+        } => match files
+            .put_with(origin, tunnel, Path::new(&local), &remote, &include)
+            .await
+        {
             Ok(r) => Reply::Files(r),
             Err(e) => rejected(e),
         },

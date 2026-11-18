@@ -530,3 +530,155 @@ async fn una_salida_grande_se_lee_por_paginas_sin_perder_ni_repetir_bytes() {
     a.stop().await;
     b.stop().await;
 }
+
+/// Corre git de verdad en `dir`.
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_WORK_TREE")
+        .output()
+        .expect("git en el PATH");
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// T-130: la otra máquina nunca recibe credenciales. Workspace, archivos y entorno de
+/// `exec`, con dos agentes reales y avisos en cada herramienta.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn la_otra_maquina_nunca_recibe_credenciales() {
+    let (a_id, b_id) = sides(Identity::from_seed([35; 32]), Identity::from_seed([36; 32]));
+    let (mut a, b) = tandemd::start_pair!(
+        |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
+        start(Machine::B, &b_id, b_port, (a_id.public_key(), a_port))
+    );
+    let fake = FakeSpawner::new();
+    b.agent.tunnels().host.set_spawner(Arc::new(fake.clone()));
+    let dir = tempfile::tempdir().unwrap();
+    let project = dir.path().join("proyecto");
+    std::fs::create_dir(&project).unwrap();
+    git(&project, &["init", "-q", "-b", "main"]);
+    git(&project, &["config", "user.email", "yo@example.com"]);
+    git(&project, &["config", "user.name", "Yo"]);
+    git(&project, &["config", "commit.gpgsign", "false"]);
+    std::fs::write(project.join("lib.rs"), "fn a() {}\n").unwrap();
+    git(&project, &["add", "-A"]);
+    git(&project, &["commit", "-q", "-m", "inicial"]);
+    // Nada de esto está en .gitignore.
+    std::fs::write(project.join(".env"), "DB_PASSWORD=hunter2\n").unwrap();
+    std::fs::create_dir(project.join(".ssh")).unwrap();
+    std::fs::write(project.join(".ssh/id_ed25519"), "PRIVATE\n").unwrap();
+    std::fs::write(project.join(".npmrc"), "//r/:_authToken=npm_x\n").unwrap();
+    std::fs::write(project.join("nuevo.rs"), "fn n() {}\n").unwrap();
+    let mut mcp = McpClient::start(a.client.take().unwrap(), &project);
+
+    let tunnel = within(async {
+        loop {
+            match mcp.tool("tunnel_open", json!({"workspace": true})).await {
+                Ok(t) => return t,
+                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+    })
+    .await;
+    let id = tunnel["id"].as_str().unwrap().to_owned();
+    let skipped: Vec<&str> = tunnel["skipped"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    for s in [".env", ".ssh/id_ed25519", ".npmrc"] {
+        assert!(skipped.contains(&s), "el aviso no dice {s}: {skipped:?}");
+    }
+    assert!(
+        tunnel["warning"]
+            .as_str()
+            .unwrap()
+            .contains("include_secrets")
+    );
+    let tid = tandem_proto::TunnelId(u64::from_str_radix(&id, 16).unwrap());
+    let work = b.agent.workspaces().dir_of(tid).expect("workspace");
+    assert!(work.join("nuevo.rs").is_file());
+    for s in [".env", ".ssh", ".npmrc"] {
+        assert!(!work.join(s).exists(), "llegó {s}");
+    }
+
+    // Un exec con GH_TOKEN se rechaza sin permiso explícito; SSH_AUTH_SOCK nunca.
+    let e = mcp
+        .tool(
+            "exec",
+            json!({"tunnel": id, "cmd": "git", "env": ["GH_TOKEN=ghp_x"]}),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        e.contains("GH_TOKEN") && e.contains("allow_secret_env"),
+        "{e}"
+    );
+    assert!(fake.processes().is_empty());
+    let e = mcp
+        .tool(
+            "exec",
+            json!({"tunnel": id, "cmd": "git", "env": ["SSH_AUTH_SOCK=/tmp/agent"],
+                   "allow_secret_env": true}),
+        )
+        .await
+        .unwrap_err();
+    assert!(e.contains("SSH_AUTH_SOCK"), "{e}");
+    assert!(fake.processes().is_empty());
+    mcp.tool(
+        "exec",
+        json!({"tunnel": id, "cmd": "git", "env": ["GH_TOKEN=ghp_x"], "allow_secret_env": true}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(fake.processes().len(), 1);
+
+    // Archivos: la carpeta llega sin lo que parece credencial y el aviso lo dice.
+    let src = dir.path().join("para-copiar");
+    std::fs::create_dir_all(src.join("conf")).unwrap();
+    std::fs::write(src.join("ok.txt"), "hola").unwrap();
+    std::fs::write(src.join("conf/.env.local"), "X=1").unwrap();
+    std::fs::write(src.join("llave.pem"), "pem").unwrap();
+    let dst = dir.path().join("copiado");
+    let r = mcp
+        .tool(
+            "files_put",
+            json!({"tunnel": id, "local": src.display().to_string(),
+                   "remote": dst.display().to_string()}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(r["files"], 1);
+    assert!(dst.join("ok.txt").is_file());
+    assert!(!dst.join("llave.pem").exists());
+    assert!(!dst.join("conf/.env.local").exists());
+    assert_eq!(r["skipped"].as_array().unwrap().len(), 2, "{r}");
+    assert!(r["warning"].as_str().unwrap().contains("llave.pem"));
+    // Nombrándolo, sí viaja.
+    let dst2 = dir.path().join("copiado2");
+    let r = mcp
+        .tool(
+            "files_put",
+            json!({"tunnel": id, "local": src.display().to_string(),
+                   "remote": dst2.display().to_string(), "include_secrets": ["llave.pem"]}),
+        )
+        .await
+        .unwrap();
+    assert!(dst2.join("llave.pem").is_file());
+    assert!(!dst2.join("conf/.env.local").exists());
+    assert_eq!(r["skipped"].as_array().unwrap().len(), 1);
+
+    // La CLI también avisa, por stderr.
+    let rendered = render::render("files_put", &r);
+    assert!(rendered.err.starts_with("[aviso]"), "{rendered:?}");
+
+    a.stop().await;
+    b.stop().await;
+}

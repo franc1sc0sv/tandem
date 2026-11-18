@@ -9,6 +9,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use tandem_files::SecretFilter;
 use tandem_proto::CommitInfo;
 
 use crate::error::WorkspaceError;
@@ -35,6 +36,11 @@ pub struct Packed {
     pub branch: Option<String>,
     pub has_patch: bool,
     pub submodules: Vec<String>,
+    /// Lo que parecía una credencial y no viaja (T-130); rutas del repo.
+    pub skipped: Vec<String>,
+    /// Credenciales que alguna vez entraron a la historia que viaja en el bundle (T-130):
+    /// no se pueden quitar, solo avisar.
+    pub history_secrets: Vec<String>,
 }
 
 /// Borra el archivo al salir, por el camino que sea (un `?` incluido).
@@ -55,7 +61,12 @@ fn s(p: &Path) -> String {
 }
 
 /// Prepara en `stage` lo que viaja a la destino.
-pub fn pack_origin(git: &dyn Git, repo: &Path, stage: &Path) -> Result<Packed, WorkspaceError> {
+pub fn pack_origin(
+    git: &dyn Git,
+    repo: &Path,
+    stage: &Path,
+    filter: &SecretFilter,
+) -> Result<Packed, WorkspaceError> {
     fs::create_dir_all(stage).map_err(|e| io("crear la carpeta de envío", e))?;
     let top = git
         .out(repo, &["rev-parse", "--show-toplevel"])
@@ -81,6 +92,31 @@ pub fn pack_origin(git: &dyn Git, repo: &Path, stage: &Path) -> Result<Packed, W
     let with_index = |args: &[&str]| GitCmd::new(&root, args).env("GIT_INDEX_FILE", s(&index));
     git.run(&with_index(&["read-tree", "HEAD"]))?;
     git.run(&with_index(&["add", "-A"]))?;
+    // Las credenciales no viajan, estén o no en `.gitignore` (T-130): se devuelven en el
+    // índice temporal a lo que dice `HEAD` (lo nuevo desaparece, lo modificado vuelve a
+    // su versión confirmada) y se anotan. Lo ya confirmado sí está en el bundle: la
+    // historia no se reescribe.
+    let mut skipped = Vec::new();
+    let changed = git.run(&with_index(&[
+        "diff",
+        "--cached",
+        "--name-only",
+        "-z",
+        "--no-renames",
+        "--ignore-submodules=all",
+        "HEAD",
+    ]))?;
+    for rel in changed.split(|b| *b == 0).filter(|r| !r.is_empty()) {
+        let rel = String::from_utf8_lossy(rel).into_owned();
+        if filter.blocks(&rel, &root.join(&rel)) {
+            skipped.push(rel);
+        }
+    }
+    for chunk in skipped.chunks(64) {
+        let mut args = vec!["--literal-pathspecs", "reset", "-q", "HEAD", "--"];
+        args.extend(chunk.iter().map(String::as_str));
+        git.run(&with_index(&args))?;
+    }
     // Los submódulos viajan copiados (abajo), no como parche.
     let patch = git.run(&with_index(&[
         "diff",
@@ -109,15 +145,47 @@ pub fn pack_origin(git: &dyn Git, repo: &Path, stage: &Path) -> Result<Packed, W
     }
     let submodules = submodule_paths(git, &root)?;
     for sub in &submodules {
-        copy_tree(&root.join(sub), &stage.join(SUBMODULES).join(sub))?;
+        let to = stage.join(SUBMODULES).join(sub);
+        copy_tree_with(&root.join(sub), &to, sub, filter, &mut skipped)?;
     }
+    let history_secrets = history_secrets(git, &root);
     Ok(Packed {
         root,
         head,
         branch,
         has_patch,
         submodules,
+        skipped,
+        history_secrets,
     })
+}
+
+/// Rutas que parecen credenciales y alguna vez se agregaron en la historia de `HEAD`
+/// (la que viaja en el bundle). Si `git log` falla no se avisa: es un aviso, no un filtro.
+fn history_secrets(git: &dyn Git, root: &Path) -> Vec<String> {
+    let Ok(out) = git.run(&GitCmd::new(
+        root,
+        &[
+            "log",
+            "HEAD",
+            "--diff-filter=A",
+            "--name-only",
+            "--no-renames",
+            "-z",
+            "--format=",
+        ],
+    )) else {
+        return Vec::new();
+    };
+    let mut found: Vec<String> = out
+        .split(|b| *b == 0)
+        .filter(|r| !r.is_empty())
+        .map(|r| String::from_utf8_lossy(r).into_owned())
+        .filter(|rel| tandem_files::secrets::looks_secret(rel))
+        .collect();
+    found.sort();
+    found.dedup();
+    found
 }
 
 /// Las rutas de los submódulos del `HEAD` (entradas `160000` del índice).
@@ -135,6 +203,17 @@ fn submodule_paths(git: &dyn Git, root: &Path) -> Result<Vec<String>, WorkspaceE
 
 /// Copia un árbol sin su `.git` ni enlaces simbólicos.
 pub fn copy_tree(from: &Path, to: &Path) -> Result<(), WorkspaceError> {
+    copy_tree_with(from, to, "", &SecretFilter::default(), &mut Vec::new())
+}
+
+/// Como [`copy_tree`], sin las credenciales (T-130); `rel` es la ruta de `from` en el repo.
+fn copy_tree_with(
+    from: &Path,
+    to: &Path,
+    rel: &str,
+    filter: &SecretFilter,
+    skipped: &mut Vec<String>,
+) -> Result<(), WorkspaceError> {
     fs::create_dir_all(to).map_err(|e| io("crear una carpeta", e))?;
     let Ok(entries) = fs::read_dir(from) else {
         return Ok(());
@@ -147,8 +226,15 @@ pub fn copy_tree(from: &Path, to: &Path) -> Result<(), WorkspaceError> {
         }
         let kind = entry.file_type().map_err(|e| io("leer una entrada", e))?;
         let dest = to.join(&name);
-        if kind.is_dir() {
-            copy_tree(&entry.path(), &dest)?;
+        let sub = if rel.is_empty() {
+            name.to_string_lossy().into_owned()
+        } else {
+            format!("{rel}/{}", name.to_string_lossy())
+        };
+        if (kind.is_dir() || kind.is_file()) && filter.blocks(&sub, &entry.path()) {
+            skipped.push(sub);
+        } else if kind.is_dir() {
+            copy_tree_with(&entry.path(), &dest, &sub, filter, skipped)?;
         } else if kind.is_file() {
             fs::copy(entry.path(), &dest).map_err(|e| io("copiar un archivo", e))?;
         }
@@ -167,6 +253,7 @@ pub fn checkout(git: &dyn Git, stage: &Path, work: &Path) -> Result<(), Workspac
     }
     fs::create_dir_all(work).map_err(|e| io("crear el workspace", e))?;
     git.run(&GitCmd::new(work, &["init", "-q", "--template="]))?;
+    strip_credentials(git, work)?;
     let fetch = format!("+HEAD:{BASE_REF}");
     git.run(&GitCmd::new(
         work,
@@ -205,6 +292,23 @@ pub fn checkout(git: &dyn Git, stage: &Path, work: &Path) -> Result<(), Workspac
             &["apply", "--binary", "--whitespace=nowarn", &s(&patch)],
         ))?;
     }
+    Ok(())
+}
+
+/// El repo de la destino no guarda ningún remoto ni ayudante de credenciales (T-130): ni
+/// el `fetch` del bundle los crea, pero se borran por si la plantilla o el sistema los
+/// pusieron, y se deja un `credential.helper` vacío para que tampoco valga el global.
+pub fn strip_credentials(git: &dyn Git, work: &Path) -> Result<(), WorkspaceError> {
+    for remote in git.out(work, &["remote"])?.lines().map(str::trim) {
+        if !remote.is_empty() {
+            git.run(&GitCmd::new(work, &["remote", "remove", remote]))?;
+        }
+    }
+    // `--local`: si no hay helper propio, `--unset-all` sale con 5 y no es un error.
+    let _ = git.run(&GitCmd::new(
+        work,
+        &["config", "--local", "--unset-all", "credential.helper"],
+    ));
     Ok(())
 }
 
@@ -385,7 +489,13 @@ mod tests {
         let git = FakeGit::default();
         git.push(Err("fatal: not a git repository"));
         let dir = tempfile::tempdir().unwrap();
-        let e = pack_origin(&git, dir.path(), &dir.path().join("s")).unwrap_err();
+        let e = pack_origin(
+            &git,
+            dir.path(),
+            &dir.path().join("s"),
+            &SecretFilter::default(),
+        )
+        .unwrap_err();
         assert!(matches!(e, WorkspaceError::NotARepo(_)), "{e}");
     }
 
@@ -405,7 +515,7 @@ mod tests {
             let stage = dir.path().join("s");
             fs::create_dir_all(&stage).unwrap();
             fs::write(stage.join("index.tmp"), b"x").unwrap();
-            assert!(pack_origin(&git, dir.path(), &stage).is_err());
+            assert!(pack_origin(&git, dir.path(), &stage, &SecretFilter::default()).is_err());
             assert!(!stage.join("index.tmp").exists(), "tras fallar {fallo}");
         }
     }
@@ -416,7 +526,13 @@ mod tests {
         git.push(Ok("/r"));
         git.push(Err("fatal: Needed a single revision"));
         let dir = tempfile::tempdir().unwrap();
-        let e = pack_origin(&git, dir.path(), &dir.path().join("s")).unwrap_err();
+        let e = pack_origin(
+            &git,
+            dir.path(),
+            &dir.path().join("s"),
+            &SecretFilter::default(),
+        )
+        .unwrap_err();
         assert!(matches!(e, WorkspaceError::NoCommits(_)), "{e}");
     }
 

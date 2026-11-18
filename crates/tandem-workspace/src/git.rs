@@ -80,6 +80,8 @@ impl Git for SystemGit {
         // `protocol.file.allow=user` un submódulo `file://` del bundle no se clona solo.
         c.args(["-c", "core.autocrlf=false", "-c", "core.safecrlf=false"])
             .args(["-c", &format!("core.hooksPath={NULL_DEVICE}")])
+            // Ningún ayudante de credenciales, tampoco el global del usuario (T-130).
+            .args(["-c", "credential.helper="])
             .args([
                 "-c",
                 "core.fsmonitor=false",

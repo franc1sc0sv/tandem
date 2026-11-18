@@ -5,6 +5,8 @@
 
 use tandem_proto::ExecSpec;
 
+use super::secrets;
+
 /// El sistema de la destino: cambia qué shells hay y cómo se citan los argumentos.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Os {
@@ -44,6 +46,13 @@ pub enum LaunchError {
     NoContainer,
     #[error("nombre de variable inválido: «{0}»")]
     BadVariable(String),
+    #[error(
+        "la variable «{0}» parece un secreto: la otra máquina no recibe credenciales; \
+         hace falta permiso explícito en esta llamada (allow_secret_env)"
+    )]
+    SecretEnv(String),
+    #[error("la variable «{0}» es un agente de credenciales y nunca se reenvía")]
+    AgentEnv(String),
 }
 
 /// Lo que se muestra del proceso: el programa y sus argumentos (citados si hace falta).
@@ -66,6 +75,10 @@ pub fn plan(spec: &ExecSpec, os: Os) -> Result<Launch, LaunchError> {
             return Err(LaunchError::BadVariable(k.clone()));
         }
     }
+    secrets::check_env(&spec.env, spec.allow_secret_env).map_err(|(name, why)| match why {
+        secrets::EnvSecret::Agent => LaunchError::AgentEnv(name),
+        secrets::EnvSecret::Secret => LaunchError::SecretEnv(name),
+    })?;
     let base = Launch {
         cwd: spec.cwd.clone(),
         env: spec.env.clone(),
@@ -272,8 +285,28 @@ mod tests {
             args: args.iter().map(|a| (*a).to_owned()).collect(),
             shell: shell.map(Into::into),
             cwd: Some("/src/x".into()),
+            allow_secret_env: false,
             env: vec![("RUST_LOG".into(), "debug".into())],
         }
+    }
+
+    #[test]
+    fn un_secreto_en_el_entorno_se_rechaza_sin_permiso_explicito() {
+        let mut s = spec("git", &["push"], None);
+        s.env = vec![("GH_TOKEN".into(), "ghp_x".into())];
+        assert_eq!(
+            plan(&s, Os::Unix),
+            Err(LaunchError::SecretEnv("GH_TOKEN".into()))
+        );
+        s.allow_secret_env = true;
+        assert!(plan(&s, Os::Unix).is_ok());
+        // Un agente no tiene permiso que valga, ni con shell.
+        s.env = vec![("SSH_AUTH_SOCK".into(), "/tmp/a".into())];
+        s.shell = Some("zsh".into());
+        assert_eq!(
+            plan(&s, Os::Unix),
+            Err(LaunchError::AgentEnv("SSH_AUTH_SOCK".into()))
+        );
     }
 
     #[test]

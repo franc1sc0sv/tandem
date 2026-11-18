@@ -737,6 +737,9 @@ pub enum UiCommand {
         tunnel: TunnelId,
         local: String,
         remote: String,
+        /// Credenciales que sí se mandan, una por una (rutas relativas a `local`). Por
+        /// omisión nada que parezca una se copia (T-130).
+        include: Vec<String>,
     },
     /// Traer `remote` de la destino del túnel a `local` (T-106). Contesta como `FilesPut`.
     FilesGet {
@@ -1029,7 +1032,13 @@ pub enum Reply {
     /// Las versiones de las dos máquinas (T-122).
     Update(UpdateStatus),
     /// El túnel que se abrió.
-    Tunnel(Box<Tunnel>),
+    Tunnel {
+        tunnel: Box<Tunnel>,
+        /// Lo que el workspace dejó fuera por parecer una credencial (T-130).
+        skipped: Vec<String>,
+        /// Credenciales que ya estaban en la historia del repo y viajan en el bundle (T-130).
+        history_secrets: Vec<String>,
+    },
     Tunnels(Vec<ProjectTunnels>),
     /// Lo que dio la medición de [`UiCommand::MeasureLink`].
     Bandwidth {
@@ -1698,6 +1707,7 @@ pub(crate) mod samples {
                 workspace: Some(WorkspaceSpec {
                     repo_path: "/src/tandem".into(),
                     keep: true,
+                    include: vec![".env.deploy".into()],
                 }),
             },
             UiCommand::OpenTunnel {
@@ -1721,6 +1731,7 @@ pub(crate) mod samples {
                 tunnel: crate::TunnelId(1),
                 local: "/home/u/build".into(),
                 remote: "C:\\work\\build".into(),
+                include: vec!["config/.env.local".into()],
             },
             UiCommand::FilesGet {
                 tunnel: crate::TunnelId(1),
@@ -1750,6 +1761,7 @@ pub(crate) mod samples {
                     shell: Some("zsh".into()),
                     cwd: Some("/src/tandem".into()),
                     env: vec![("RUST_LOG".into(), "info".into())],
+                    allow_secret_env: true,
                 },
             },
             UiCommand::Kill {
@@ -2059,7 +2071,11 @@ pub(crate) mod samples {
         ])));
         v.push(AgentToUi::Reply {
             id: 13,
-            reply: Reply::Tunnel(Box::new(tunnel_sample())),
+            reply: Reply::Tunnel {
+                tunnel: Box::new(tunnel_sample()),
+                skipped: vec!["deploy/id_rsa".into()],
+                history_secrets: vec![".env".into()],
+            },
         });
         v.push(AgentToUi::Reply {
             id: 14,
@@ -2145,6 +2161,7 @@ pub(crate) mod samples {
                 dirs: 1,
                 bytes: 10,
                 sent: 4,
+                skipped: vec![".env".into(), ".ssh/".into()],
             }),
         });
         v.push(AgentToUi::Reply {
@@ -2243,7 +2260,7 @@ pub(crate) mod samples {
             Reply::DeskHistory(_) => 11,
             Reply::Monitors(_) => 12,
             Reply::Update(_) => 13,
-            Reply::Tunnel(_) => 14,
+            Reply::Tunnel { .. } => 14,
             Reply::Tunnels(_) => 15,
             Reply::Bandwidth { .. } => 16,
             Reply::Files(_) => 17,

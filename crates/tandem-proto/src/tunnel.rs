@@ -109,6 +109,10 @@ pub struct ExecSpec {
     pub cwd: Option<String>,
     /// Variables que se agregan a las del agente.
     pub env: Vec<(String, String)>,
+    /// Deja pasar las variables de `env` que parecen secretos (`GH_TOKEN`…). Por omisión se
+    /// rechazan (T-130); `SSH_AUTH_SOCK` y los agentes nunca pasan.
+    #[serde(default)]
+    pub allow_secret_env: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -371,6 +375,7 @@ mod tests {
                 shell: Some("wsl:Ubuntu-24.04".into()),
                 cwd: Some("/src".into()),
                 env: vec![("RUST_LOG".into(), "debug".into())],
+                allow_secret_env: false,
             },
         };
         assert_eq!(decode::<TunnelUp>(&encode(&exec).unwrap()).unwrap(), exec);

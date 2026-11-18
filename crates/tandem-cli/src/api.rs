@@ -191,6 +191,43 @@ fn tunnel_json(t: &Tunnel) -> Value {
     v
 }
 
+/// Agrega `skipped` y un aviso cuando el filtro de credenciales omitió algo (T-130): el
+/// agente que llama tiene que enterarse de que el destino no tiene esos archivos.
+fn with_skipped(mut v: Value, skipped: &[String]) -> Value {
+    if skipped.is_empty() {
+        return v;
+    }
+    v["skipped"] = json!(skipped);
+    v["warning"] = format!(
+        "{} archivo(s) omitido(s) por parecer credenciales y no llegaron a la otra máquina: {}. \
+         Si hacen falta de verdad, nómbralos en `include_secrets`.",
+        skipped.len(),
+        skipped.join(", ")
+    )
+    .into();
+    v
+}
+
+/// Agrega `history_secrets` y un aviso: lo ya confirmado viaja con su historia y el filtro
+/// no puede quitarlo (T-130). Se une al `warning` previo si lo hay.
+fn with_history(mut v: Value, history: &[String]) -> Value {
+    if history.is_empty() {
+        return v;
+    }
+    v["history_secrets"] = json!(history);
+    let msg = format!(
+        "la historia del repo que viajó contiene archivos que parecen credenciales: {}. Ya \
+         están en la otra máquina; si son reales, rótalas.",
+        history.join(", ")
+    );
+    v["warning"] = match v["warning"].as_str() {
+        Some(prev) => format!("{prev} {msg}"),
+        None => msg,
+    }
+    .into();
+    v
+}
+
 fn process_json(p: &TunnelProcess) -> Value {
     let mut v = serde_json::to_value(p).unwrap_or(Value::Null);
     v["tunnel"] = p.tunnel.to_string().into();
@@ -269,6 +306,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                             }
                         })
                         .collect::<Result<_, _>>()?,
+                    allow_secret_env: a.flag("allow_secret_env"),
                 };
                 match self
                     .ask(UiCommand::Exec {
@@ -311,6 +349,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                         tunnel,
                         local,
                         remote,
+                        include: a.list("include_secrets"),
                     }
                 } else {
                     UiCommand::FilesGet {
@@ -320,7 +359,13 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                     }
                 };
                 match self.ask(cmd).await? {
-                    Reply::Files(r) => Ok(serde_json::to_value(r).unwrap_or(Value::Null)),
+                    Reply::Files(r) => {
+                        let skipped = r.skipped.clone();
+                        Ok(with_skipped(
+                            serde_json::to_value(r).unwrap_or(Value::Null),
+                            &skipped,
+                        ))
+                    }
                     r => Err(unexpected(&r)),
                 }
             }
@@ -446,6 +491,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
             Some(WorkspaceSpec {
                 repo_path,
                 keep: a.flag("keep"),
+                include: a.list("include_secrets"),
             })
         } else {
             None
@@ -461,7 +507,14 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
             workspace,
         };
         match self.ask(cmd).await? {
-            Reply::Tunnel(t) => Ok(tunnel_json(&t)),
+            Reply::Tunnel {
+                tunnel,
+                skipped,
+                history_secrets,
+            } => Ok(with_history(
+                with_skipped(tunnel_json(&tunnel), &skipped),
+                &history_secrets,
+            )),
             r => Err(unexpected(&r)),
         }
     }

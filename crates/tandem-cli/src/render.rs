@@ -14,10 +14,12 @@ pub fn render(tool: &str, v: &Value) -> Rendered {
     }
     let mut out = String::new();
     tree(v, 0, &mut out);
-    Rendered {
-        out,
-        err: String::new(),
-    }
+    // El aviso de lo omitido va por stderr para que no ensucie lo que se canaliza.
+    let err = v["warning"]
+        .as_str()
+        .map(|w| format!("[aviso] {w}\n"))
+        .unwrap_or_default();
+    Rendered { out, err }
 }
 
 /// stdout y stderr del proceso en los suyos, y el estado al final por stderr.

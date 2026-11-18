@@ -15,6 +15,9 @@ pub struct WorkspaceSpec {
     pub repo_path: String,
     /// Conservar la carpeta de la destino al cerrar el túnel.
     pub keep: bool,
+    /// Credenciales sin seguimiento que sí viajan, una por una (rutas del repo). Por
+    /// omisión nada que parezca una se manda (T-130).
+    pub include: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

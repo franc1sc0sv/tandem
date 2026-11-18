@@ -11,7 +11,7 @@ use tandem_files::mem::MemPath;
 use tandem_files::{Files, Options};
 use tandem_proto::{Client, ClientKind, Tunnel, WorkspaceSpec};
 use tandem_tunnel::{Changes, Host, HostOptions, OpenSpec, Origin, OriginOptions};
-use tandem_workspace::Workspaces;
+use tandem_workspace::{Opened, Workspaces};
 
 /// Corre git de verdad en `dir`; falla la prueba si git falla.
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -115,9 +115,14 @@ async fn rig() -> Rig {
 
 impl Rig {
     async fn open(&self, repo: &Path, keep: bool) -> String {
+        self.open_with(repo, keep, &[]).await.dir
+    }
+
+    async fn open_with(&self, repo: &Path, keep: bool, include: &[&str]) -> Opened {
         let spec = WorkspaceSpec {
             repo_path: repo.to_string_lossy().into_owned(),
             keep,
+            include: include.iter().map(|s| (*s).to_owned()).collect(),
         };
         within(
             self.ws_a
@@ -396,6 +401,7 @@ async fn los_errores_son_claros() {
     let spec = WorkspaceSpec {
         repo_path: nada.to_string_lossy().into_owned(),
         keep: false,
+        include: vec![],
     };
     let e = r
         .ws_a
@@ -409,6 +415,7 @@ async fn los_errores_son_claros() {
     let spec = WorkspaceSpec {
         repo_path: vacio.to_string_lossy().into_owned(),
         keep: false,
+        include: vec![],
     };
     let e = r
         .ws_a
@@ -525,4 +532,144 @@ async fn hooks_heredados_interna() {
     let report = r.back(Some("Pendiente"), None).await.unwrap();
     assert!(report.branch.is_some());
     assert_eq!(sentinels_found(), Vec::<String>::new(), "en la vuelta");
+}
+
+/// Un repo con credenciales que git no sabe que lo son: nada de esto está en `.gitignore`.
+fn repo_con_credenciales(repo: &Path) {
+    sample_repo(repo);
+    write(repo, ".env", b"DB_PASSWORD=hunter2\n");
+    write(repo, "config/.env.local", b"X=1\n");
+    write(
+        repo,
+        "deploy/id_ed25519",
+        b"-----BEGIN OPENSSH PRIVATE KEY-----\n",
+    );
+    write(repo, ".ssh/config", b"Host x\n");
+    write(repo, "certs/server.pem", b"pem\n");
+    write(
+        repo,
+        ".npmrc",
+        b"//registry.npmjs.org/:_authToken=npm_abc\n",
+    );
+    write(
+        repo,
+        "sub/.npmrc",
+        b"registry=https://registry.npmjs.org/\n",
+    );
+    write(repo, "src/nuevo.rs", b"fn n() {}\n");
+}
+
+#[tokio::test]
+async fn las_credenciales_no_llegan_a_la_destino_y_el_informe_lo_dice() {
+    let r = rig().await;
+    let repo = r.base.join("repo");
+    repo_con_credenciales(&repo);
+    let before = (fingerprint(&repo), tree_files(&repo));
+
+    let opened = r.open_with(&repo, false, &[]).await;
+    let work = PathBuf::from(&opened.dir);
+    let got: Vec<String> = tree_files(&work).into_iter().map(|(p, _)| p).collect();
+    for secret in [
+        ".env",
+        "config/.env.local",
+        "deploy/id_ed25519",
+        ".ssh/config",
+        "certs/server.pem",
+        ".npmrc",
+    ] {
+        assert!(!got.contains(&secret.to_owned()), "llegó {secret}: {got:?}");
+        assert!(
+            opened.skipped.contains(&secret.to_owned()),
+            "el informe no dice {secret}: {:?}",
+            opened.skipped
+        );
+    }
+    // Lo corriente sí llega, también un .npmrc sin token y lo nuevo sin seguimiento.
+    for ok in ["src/nuevo.rs", "sub/.npmrc", "README.md"] {
+        assert!(got.contains(&ok.to_owned()), "falta {ok}: {got:?}");
+    }
+    // El repo de origen queda intacto.
+    assert_eq!(before, (fingerprint(&repo), tree_files(&repo)));
+}
+
+#[tokio::test]
+async fn include_manda_solo_el_archivo_nombrado() {
+    let r = rig().await;
+    let repo = r.base.join("repo");
+    repo_con_credenciales(&repo);
+    let opened = r.open_with(&repo, false, &["config/.env.local"]).await;
+    let got: Vec<String> = tree_files(Path::new(&opened.dir))
+        .into_iter()
+        .map(|(p, _)| p)
+        .collect();
+    assert!(got.contains(&"config/.env.local".to_owned()));
+    assert!(!got.contains(&".env".to_owned()));
+    assert!(!opened.skipped.contains(&"config/.env.local".to_owned()));
+    assert!(opened.skipped.contains(&".env".to_owned()));
+}
+
+#[tokio::test]
+async fn una_credencial_modificada_vuelve_a_su_version_confirmada() {
+    let r = rig().await;
+    let repo = r.base.join("repo");
+    sample_repo(&repo);
+    write(&repo, "app.pem", b"viejo\n");
+    commit_all(&repo, "con pem");
+    write(&repo, "app.pem", b"nuevo secreto\n");
+    let opened = r.open_with(&repo, false, &[]).await;
+    assert!(opened.skipped.contains(&"app.pem".to_owned()));
+    // No se manda el cambio (ni se borra el archivo): queda lo que ya estaba confirmado.
+    let pem = fs::read(Path::new(&opened.dir).join("app.pem")).unwrap();
+    assert_eq!(pem, b"viejo\n");
+}
+
+#[tokio::test]
+async fn el_repo_de_la_destino_no_tiene_remotos_ni_ayudante_de_credenciales() {
+    let r = rig().await;
+    let repo = r.base.join("repo");
+    sample_repo(&repo);
+    // El origen sí los tiene: no tienen que cruzar.
+    git(
+        &repo,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://ghp_abc123@github.com/u/r.git",
+        ],
+    );
+    git(&repo, &["config", "credential.helper", "store"]);
+    let dir = r.open(&repo, false).await;
+    let work = Path::new(&dir);
+    assert_eq!(git(work, &["remote"]), "");
+    let config = fs::read_to_string(work.join(".git/config")).unwrap();
+    assert!(!config.contains("credential"), "{config}");
+    assert!(!config.contains("ghp_"), "{config}");
+    // Ni el bundle dejó la URL en ninguna referencia.
+    let refs = git(work, &["for-each-ref"]);
+    assert!(!refs.contains("origin/"), "{refs}");
+}
+
+#[tokio::test]
+async fn la_historia_con_credenciales_se_avisa_aunque_ya_no_esten() {
+    let r = rig().await;
+    let repo = r.base.join("repo");
+    sample_repo(&repo);
+    write(&repo, "deploy/id_ed25519", b"llave\n");
+    commit_all(&repo, "con llave");
+    // Se borra del árbol, pero sigue en la historia que viaja en el bundle.
+    fs::remove_file(repo.join("deploy/id_ed25519")).unwrap();
+    commit_all(&repo, "sin llave");
+    let opened = r.open_with(&repo, false, &[]).await;
+    assert_eq!(opened.history_secrets, vec!["deploy/id_ed25519".to_owned()]);
+    assert!(opened.skipped.is_empty(), "{:?}", opened.skipped);
+}
+
+#[tokio::test]
+async fn una_historia_limpia_no_avisa() {
+    let r = rig().await;
+    let repo = r.base.join("repo");
+    sample_repo(&repo);
+    let opened = r.open_with(&repo, false, &[]).await;
+    assert!(opened.history_secrets.is_empty());
 }
