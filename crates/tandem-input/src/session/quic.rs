@@ -21,6 +21,7 @@ use tandem_proto::{Hello, InputLatency};
 use tokio::sync::{mpsc, watch};
 use tokio::time::{self, Instant, MissedTickBehavior};
 
+use super::cursor::{CursorFeed, CursorTap, sleep_until_opt};
 use super::latency::{Beats, Captured, Histogram, now_us};
 use super::msg::{Datagram, StreamMsg};
 use super::{Capture, ClientSession, Injector, ServerOutput, ServerSession, SessionConfig};
@@ -53,6 +54,8 @@ pub struct ServerDriver<C> {
     locked: watch::Sender<bool>,
     activity: watch::Sender<Option<Instant>>,
     latency: watch::Sender<Option<InputLatency>>,
+    /// El cursor en vivo, si alguien lo pide (T-128).
+    cursor: Option<CursorFeed>,
     cfg: SessionConfig,
 }
 
@@ -93,8 +96,17 @@ impl<C: Capture> ServerDriver<C> {
             locked: watch::Sender::new(false),
             activity: watch::Sender::new(None),
             latency: watch::Sender::new(None),
+            cursor: None,
             cfg,
         }
+    }
+
+    /// Publica el cursor y los cruces por `tap` mientras su interruptor esté encendido
+    /// (T-128). Apagado, lo único que cuesta es leerlo.
+    pub fn with_cursor(mut self, tap: CursorTap) -> Self {
+        let machine = self.session.machine();
+        self.cursor = Some(CursorFeed::new(tap, machine));
+        self
     }
 
     /// Cuándo llegó la última entrada física de esta máquina (con o sin sesión): la
@@ -157,9 +169,13 @@ impl<C: Capture> ServerDriver<C> {
                         touch(&self.activity);
                         self.session.catch_up(ev.event);
                         self.publish();
+                        publish_cursor(&mut self.cursor, &mut self.session);
                     }
                     None => return Err(SessionEnd::CaptureClosed),
                 },
+                () = sleep_until_opt(self.cursor.as_ref().and_then(CursorFeed::next_due)) => {
+                    flush_cursor(&mut self.cursor, &self.session);
+                }
             }
         }
     }
@@ -216,6 +232,7 @@ impl<C: Capture> ServerDriver<C> {
             locked,
             activity,
             latency,
+            cursor,
             cfg,
         } = self;
         tokio::pin!(stop);
@@ -262,6 +279,7 @@ impl<C: Capture> ServerDriver<C> {
                     outs.extend(session.flush().map(ServerOutput::Datagram));
                     let sent = apply(capture, &mut stream, conn, outs).await;
                     sync(session);
+                    publish_cursor(cursor, session);
                     if let Err(e) = sent {
                         return e.into();
                     }
@@ -302,11 +320,15 @@ impl<C: Capture> ServerDriver<C> {
                         return e.into();
                     }
                 }
+                () = sleep_until_opt(cursor.as_ref().and_then(CursorFeed::next_due)) => {
+                    flush_cursor(cursor, session);
+                }
                 layout = next_layout(layouts) => match layout {
                     Some(l) => {
                         let outs = session.set_layout(l);
                         let sent = apply(capture, &mut stream, conn, outs).await;
                         sync(session);
+                        publish_cursor(cursor, session);
                         if let Err(e) = sent {
                             return e.into();
                         }
@@ -325,6 +347,38 @@ fn publish(tx: &watch::Sender<bool>, value: bool) {
         *v = value;
         changed
     });
+}
+
+/// El cursor en vivo del servidor (T-128): sus cruces y, mientras el cursor está en su
+/// pantalla, su posición. Si está en la otra máquina, la muestra la publica el cliente, que
+/// es quien tiene el foco. Los cruces se recogen siempre para que no se acumulen.
+fn publish_cursor(cursor: &mut Option<CursorFeed>, session: &mut ServerSession) {
+    let crossings = session.take_crossings();
+    let Some(feed) = cursor.as_mut() else { return };
+    if !feed.active() {
+        return;
+    }
+    for c in crossings {
+        feed.crossed(c);
+    }
+    if session.is_remote() {
+        feed.discard();
+    } else {
+        feed.observe(session.local_cursor(), |p| session.screen_id(p));
+    }
+}
+
+fn flush_cursor(cursor: &mut Option<CursorFeed>, session: &ServerSession) {
+    let Some(feed) = cursor else { return };
+    if !feed.active() {
+        return;
+    }
+    // El foco pudo irse a la otra máquina mientras la muestra esperaba.
+    if session.is_remote() {
+        feed.discard();
+    } else {
+        feed.flush(|p| session.screen_id(p));
+    }
 }
 
 /// Vacía lo que ya está en el canal sin esperar.
@@ -395,6 +449,8 @@ pub struct ClientDriver<I> {
     latency: watch::Sender<Option<InputLatency>>,
     /// Cada latencia medida, además de la ventana (el guardián de los datos, T-101).
     on_sample: Option<Box<dyn FnMut(Duration) + Send>>,
+    /// El cursor en vivo, si alguien lo pide (T-128).
+    cursor: Option<CursorFeed>,
     cfg: SessionConfig,
 }
 
@@ -407,8 +463,16 @@ impl<I: Injector> ClientDriver<I> {
             screens: None,
             latency: watch::Sender::new(None),
             on_sample: None,
+            cursor: None,
             cfg,
         }
+    }
+
+    /// Publica por `tap` el cursor de `machine` (la de este driver) mientras el cursor
+    /// esté aquí y el interruptor del tap esté encendido (T-128).
+    pub fn with_cursor(mut self, tap: CursorTap, machine: tandem_core::Machine) -> Self {
+        self.cursor = Some(CursorFeed::new(tap, machine));
+        self
     }
 
     /// La latencia medida aquí en la última ventana ([`SessionConfig::latency_every`]).
@@ -495,6 +559,7 @@ impl<I: Injector> ClientDriver<I> {
             screens,
             latency,
             on_sample,
+            cursor,
             cfg,
         } = self;
         tokio::pin!(stop);
@@ -547,6 +612,7 @@ impl<I: Injector> ClientDriver<I> {
                             measure(t_us, &beats, &mut hist);
                         }
                         publish(here, session.is_active());
+                        client_cursor(cursor, session);
                     }
                     Ok(None) => return TransportError::ControlClosed.into(),
                     Err(e) => return e.into(),
@@ -560,6 +626,7 @@ impl<I: Injector> ClientDriver<I> {
                                 if !events.is_empty() {
                                     inject(injector, events);
                                     measure(d.t_us, &beats, &mut hist);
+                                    client_cursor(cursor, session);
                                 }
                             }
                             // Uno roto se pierde como cualquier datagrama.
@@ -590,12 +657,39 @@ impl<I: Injector> ClientDriver<I> {
                     }
                 }
                 () = &mut silence => return SessionEnd::Silent,
+                () = sleep_until_opt(cursor.as_ref().and_then(CursorFeed::next_due)) => {
+                    flush_client_cursor(cursor, session);
+                }
                 list = next_value(screens) => match list {
                     Some(list) => set_screens(session, injector, list),
                     None => *screens = None,
                 },
             }
         }
+    }
+}
+
+/// El cursor en vivo del cliente (T-128): su posición mientras el foco está aquí.
+fn client_cursor(cursor: &mut Option<CursorFeed>, session: &ClientSession) {
+    let Some(feed) = cursor.as_mut() else { return };
+    if !feed.active() {
+        return;
+    }
+    match session.cursor() {
+        Some(p) => feed.observe(p, |p| session.screen_id(p)),
+        None => feed.discard(),
+    }
+}
+
+fn flush_client_cursor(cursor: &mut Option<CursorFeed>, session: &ClientSession) {
+    let Some(feed) = cursor else { return };
+    if !feed.active() {
+        return;
+    }
+    if session.is_active() {
+        feed.flush(|p| session.screen_id(p));
+    } else {
+        feed.discard();
     }
 }
 

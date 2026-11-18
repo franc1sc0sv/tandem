@@ -8,6 +8,7 @@
 
 use tandem_core::Machine;
 
+use super::cursor::Crossing;
 use super::msg::{MotionDatagram, StreamMsg};
 use crate::event::{Change, HidUsage, InputEvent, KeyState, Pressed, Scroll};
 use crate::geometry::{Layout, Motion, Point};
@@ -73,6 +74,9 @@ pub struct ServerSession {
     drag_across: bool,
     /// Marca del evento que se está procesando.
     now_us: u64,
+    /// Los cruces de borde desde la última vez que el driver los recogió
+    /// ([`Self::take_crossings`]); para el cursor en vivo (T-128).
+    crossings: Vec<Crossing>,
 }
 
 impl ServerSession {
@@ -94,6 +98,7 @@ impl ServerSession {
             locked: false,
             drag_across: false,
             now_us: 0,
+            crossings: Vec::new(),
         }
     }
 
@@ -174,6 +179,36 @@ impl ServerSession {
 
     pub fn local_cursor(&self) -> Point {
         self.local
+    }
+
+    /// Los cruces que hubo desde la última llamada, en orden. Vacío casi siempre: no
+    /// cuesta nada en el camino caliente.
+    pub fn take_crossings(&mut self) -> Vec<Crossing> {
+        if self.crossings.is_empty() {
+            return Vec::new();
+        }
+        std::mem::take(&mut self.crossings)
+    }
+
+    /// El id de la pantalla de esta máquina que contiene `p` (la más cercana si cae en un
+    /// hueco); vacío si no se conocen sus pantallas.
+    pub fn screen_id(&self, p: Point) -> String {
+        self.layout
+            .screen_at(self.machine, p)
+            .map(|s| s.id.0.clone())
+            .unwrap_or_default()
+    }
+
+    /// Anota que el cursor cruzó de `from` a la otra máquina por el borde que mira a ella.
+    fn crossed(&mut self, from: Machine) {
+        // Sin borde (el acomodo cambió mientras tanto) no hay por dónde haber cruzado.
+        if let Some(edge) = self.layout.facing(from) {
+            self.crossings.push(Crossing {
+                from,
+                to: from.other(),
+                edge,
+            });
+        }
     }
 
     /// Procesa un evento capturado. Los movimientos van en unidades nativas
@@ -305,6 +340,7 @@ impl ServerSession {
     }
 
     fn enter(&mut self, pos: Point, out: &mut Vec<ServerOutput>) {
+        self.crossed(self.machine);
         self.focus = Focus::Remote { pos };
         self.pending = Pending::default();
         self.since_resync = 0;
@@ -318,6 +354,7 @@ impl ServerSession {
     }
 
     fn leave(&mut self, back: Point, out: &mut Vec<ServerOutput>) {
+        self.crossed(self.machine.other());
         self.focus = Focus::Local;
         // Lo pendiente era para el cliente, que ahora suelta todo.
         self.pending = Pending::default();
@@ -755,6 +792,52 @@ mod tests {
         assert!(!s.is_remote());
         assert_eq!(s.flush(), None, "lo pendiente se descarta al salir");
         assert!(back.x < 3440.0);
+    }
+
+    #[test]
+    fn cada_cruce_se_anota_con_su_borde_y_se_recoge_una_vez() {
+        let mut s = session();
+        assert!(s.take_crossings().is_empty());
+        cross(&mut s);
+        let edge = s.layout.facing(Machine::B).unwrap();
+        assert_eq!(
+            s.take_crossings(),
+            vec![Crossing {
+                from: Machine::B,
+                to: Machine::A,
+                edge
+            }]
+        );
+        assert!(s.take_crossings().is_empty(), "ya se recogió");
+        // Moverse dentro de la otra máquina no cruza; volver sí, por el borde de la otra.
+        s.handle(rel(2.0, 0.0));
+        assert!(s.take_crossings().is_empty());
+        s.handle(rel(-10.0, 0.0));
+        let back = s.layout.facing(Machine::A).unwrap();
+        assert_eq!(back, edge.opposite());
+        assert_eq!(
+            s.take_crossings(),
+            vec![Crossing {
+                from: Machine::A,
+                to: Machine::B,
+                edge: back
+            }]
+        );
+    }
+
+    #[test]
+    fn un_movimiento_local_no_anota_cruces() {
+        let mut s = session();
+        s.handle(rel(10.0, 5.0));
+        assert!(s.take_crossings().is_empty());
+    }
+
+    #[test]
+    fn la_pantalla_del_cursor_es_la_que_lo_contiene_o_la_mas_cercana() {
+        let s = session();
+        assert_eq!(s.screen_id(Point::new(100.0, 100.0)), "m34");
+        // Fuera de toda pantalla: la más cercana.
+        assert_eq!(s.screen_id(Point::new(-50.0, 100.0)), "m34");
     }
 
     #[test]

@@ -19,6 +19,7 @@
 //! [`Screen`](crate::geometry::Screen)); los deltas que viajan, puntos lógicos.
 
 mod client;
+pub mod cursor;
 pub mod fake;
 pub mod follow;
 pub mod latency;
@@ -35,6 +36,7 @@ use std::fmt::Display;
 use std::time::Duration;
 
 pub use client::ClientSession;
+pub use cursor::{Crossing, CursorEvent, CursorFeed, CursorGate, CursorTap};
 pub use follow::{Follow, FollowConfig};
 pub use latency::Captured;
 pub use msg::{Datagram, MotionDatagram, StreamMsg};

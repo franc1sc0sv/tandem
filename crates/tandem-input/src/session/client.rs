@@ -49,6 +49,21 @@ impl ClientSession {
         self.cursor
     }
 
+    /// El id de la pantalla visible que contiene `p` (la más cercana si cae en un hueco);
+    /// vacío si no se conocen.
+    pub fn screen_id(&self, p: Point) -> String {
+        self.screens
+            .iter()
+            .find(|s| s.rect.contains(p))
+            .or_else(|| {
+                self.screens
+                    .iter()
+                    .min_by(|a, b| a.rect.distance(p).total_cmp(&b.rect.distance(p)))
+            })
+            .map(|s| s.id.0.clone())
+            .unwrap_or_default()
+    }
+
     pub fn pressed(&self) -> &Pressed {
         &self.pressed
     }

@@ -835,6 +835,170 @@ async fn nothing_is_requested_when_nothing_is_missing() {
     mac.stop().await;
 }
 
+/// El cursor en vivo (T-128) entre dos agentes: sin suscripción no se emite nada; con la UI
+/// de la PC mirando, llegan las muestras de la Mac (que tiene el foco, por el canal de
+/// control) y el cruce, a como mucho 30 Hz; al dejar de mirar, la Mac deja de muestrear.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_live_cursor_flows_only_while_the_ui_watches_and_crosses_between_agents() {
+    let (mac_id, pc_id) = sides(Identity::from_seed([41; 32]), Identity::from_seed([42; 32]));
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let (mac, mut pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
+    let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
+    mac.until_input(pc_serving).await;
+    pc.until_input(pc_serving).await;
+    both_on(&mac, &pc).await;
+
+    // Sin suscripción: el cursor cruza a la Mac, se mueve y vuelve, y no se emite nada.
+    cross(&pc_fake, &mac_fake, 0.0, -5.0).await;
+    for _ in 0..20 {
+        pc_fake.capture(InputEvent::MotionRelative { dx: -1.0, dy: 1.0 });
+    }
+    pc_fake.capture(InputEvent::MotionRelative { dx: 50.0, dy: 0.0 });
+    pc_fake.capture(InputEvent::MotionAbsolute { x: 100.0, y: 100.0 });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!pc.agent.cursor_gate().is_on() && !mac.agent.cursor_gate().is_on());
+    assert_eq!(
+        pc.agent.cursor_published(),
+        0,
+        "la PC emitió sin suscripción"
+    );
+    assert_eq!(
+        mac.agent.cursor_published(),
+        0,
+        "la Mac emitió sin suscripción"
+    );
+
+    // La UI de la PC mira: la Mac se entera por el control y enciende su interruptor.
+    assert_eq!(
+        pc.ui
+            .request(UiCommand::WatchCursor { on: true })
+            .await
+            .unwrap(),
+        Reply::Done
+    );
+    let mac_gate = mac.agent.cursor_gate();
+    within(async {
+        while !mac_gate.is_on() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+
+    // El cursor cruza a la Mac: la UI de la PC ve el cruce (de su propio motor) y las
+    // muestras de la Mac, que tiene el foco.
+    let mut crossed = None;
+    let mut from_mac = Vec::new();
+    within(async {
+        let mut tries = 0;
+        while crossed.is_none() || from_mac.is_empty() {
+            // Cruce y movimiento dentro de la Mac, repetidos por si la geometría llega tarde.
+            if tries % 10 == 0 {
+                pc_fake.capture(InputEvent::MotionAbsolute { x: 0.0, y: 500.0 });
+                pc_fake.capture(InputEvent::MotionRelative { dx: -5.0, dy: 0.0 });
+            }
+            pc_fake.capture(InputEvent::MotionRelative { dx: -1.0, dy: 0.0 });
+            tries += 1;
+            while let Ok(Ok(Some(ev))) =
+                tokio::time::timeout(Duration::from_millis(20), pc.ui.next_event()).await
+            {
+                match ev {
+                    AgentToUi::Crossed { from, to, edge } => crossed = Some((from, to, edge)),
+                    AgentToUi::Cursor(s) if s.machine == Machine::A => from_mac.push(s),
+                    _ => {}
+                }
+            }
+        }
+    })
+    .await;
+    assert_eq!(crossed, Some((Machine::B, Machine::A, Side::Left)));
+    let sample = &from_mac[0];
+    assert_eq!(sample.screen, "m32");
+    assert!(
+        (0..1920).contains(&sample.x) && (0..1080).contains(&sample.y),
+        "{sample:?}"
+    );
+    assert!(pc.agent.cursor_published() > 0);
+
+    // Frecuencia: 400 movimientos a 1000 Hz producen muchas menos muestras que eventos,
+    // nunca más de una cada 33 ms.
+    let started = std::time::Instant::now();
+    let before = from_mac.len();
+    let mut seen = 0usize;
+    for i in 0..400 {
+        pc_fake.capture(InputEvent::MotionRelative {
+            dx: if i % 2 == 0 { 1.0 } else { -1.0 },
+            dy: 0.0,
+        });
+        tokio::time::sleep(Duration::from_millis(1)).await;
+        while let Ok(Ok(Some(ev))) =
+            tokio::time::timeout(Duration::from_millis(0), pc.ui.next_event()).await
+        {
+            if matches!(ev, AgentToUi::Cursor(_)) {
+                seen += 1;
+            }
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    while let Ok(Ok(Some(ev))) =
+        tokio::time::timeout(Duration::from_millis(0), pc.ui.next_event()).await
+    {
+        if matches!(ev, AgentToUi::Cursor(_)) {
+            seen += 1;
+        }
+    }
+    let secs = started.elapsed().as_secs_f64();
+    let max = (secs * 30.0).ceil() as usize + 2;
+    assert!(seen > 0, "ninguna muestra de 400 movimientos");
+    assert!(
+        seen <= max,
+        "{seen} muestras en {secs:.2} s (máximo {max}, antes {before})"
+    );
+
+    // Deja de mirar: el interruptor de la Mac se apaga y no emite más.
+    assert_eq!(
+        pc.ui
+            .request(UiCommand::WatchCursor { on: false })
+            .await
+            .unwrap(),
+        Reply::Done
+    );
+    within(async {
+        while mac_gate.is_on() || pc.agent.cursor_gate().is_on() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let (pc_n, mac_n) = (pc.agent.cursor_published(), mac.agent.cursor_published());
+    for _ in 0..50 {
+        pc_fake.capture(InputEvent::MotionRelative { dx: 1.0, dy: 1.0 });
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(pc.agent.cursor_published(), pc_n);
+    assert_eq!(mac.agent.cursor_published(), mac_n);
+
+    pc.stop().await;
+    mac.stop().await;
+}
+
 /// Dos máquinas con Windows (DECISIONS D2): el teclado y el mouse cruzan igual y Ctrl sigue
 /// siendo Ctrl, porque entre dos sistemas iguales no se reasigna nada.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

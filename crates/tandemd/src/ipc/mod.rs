@@ -14,7 +14,9 @@
 //! (módulos y entornos incluidos). Una conexión que pidió
 //! [`UiCommand::WatchResources`] recibe además [`AgentToUi::Resources`] de las dos
 //! máquinas mientras siga abierta, y una que pidió [`UiCommand::WatchNetwork`] recibe
-//! [`AgentToUi::Network`] una vez por segundo (T-102). [`UiCommand::MeasureLink`] se
+//! [`AgentToUi::Network`] una vez por segundo (T-102); una que pidió
+//! [`UiCommand::WatchCursor`] recibe [`AgentToUi::Cursor`] (a 30 Hz como mucho) y
+//! [`AgentToUi::Crossed`] (T-128). [`UiCommand::MeasureLink`] se
 //! contesta al terminar la prueba, sin frenar los avisos de esa conexión.
 //! [`AgentToUi::Update`] va cuando cambia la versión de alguna de las dos.
 //!
@@ -32,6 +34,7 @@ use std::time::Duration;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use tandem_core::{Machine, State};
+use tandem_input::session::CursorEvent;
 use tandem_proto::{
     AgentToUi, FrameDecoder, Hello, Peer, ProtoError, Reply, UiCommand, UiRequest, decode,
     decode_hello, encode_frame,
@@ -41,7 +44,7 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 use tokio::time::{self, Interval, MissedTickBehavior};
 
-use crate::agent::{Agent, ResourceWatch};
+use crate::agent::{Agent, CursorWatch, ResourceWatch};
 
 pub mod mem;
 #[cfg(unix)]
@@ -180,6 +183,8 @@ where
     tunnels.mark_unchanged();
     // Los recursos en vivo, si esta conexión los pidió: se dejan de muestrear al cerrarla.
     let mut resources: Option<ResourceWatch> = None;
+    // El cursor en vivo, si esta conexión lo pidió: sin conexiones, el motor no lo muestrea.
+    let mut cursor: Option<CursorWatch> = None;
     let mut update = agent.subscribe_update();
     update.mark_unchanged();
     // La red una vez por segundo, si esta conexión la pidió (la pantalla Red visible).
@@ -199,6 +204,15 @@ where
                     }
                     UiCommand::WatchNetwork { on } => {
                         network = on.then(network_ticker);
+                        Reply::Done
+                    }
+                    UiCommand::WatchCursor { on } => {
+                        // Pedirlo dos veces no suma: la conexión cuenta una sola vez.
+                        if on && cursor.is_none() {
+                            cursor = Some(agent.watch_cursor());
+                        } else if !on {
+                            cursor = None;
+                        }
                         Reply::Done
                     }
                     UiCommand::MeasureLink { .. } if measuring.is_some() => {
@@ -221,6 +235,13 @@ where
                 measuring = None;
                 conn.send(&AgentToUi::Reply { id, reply }).await?;
             }
+            event = next_cursor(&mut cursor) => match event {
+                Some(CursorEvent::Sample(sample)) => conn.send(&AgentToUi::Cursor(sample)).await?,
+                Some(CursorEvent::Crossed { from, to, edge }) => {
+                    conn.send(&AgentToUi::Crossed { from, to, edge }).await?;
+                }
+                None => cursor = None,
+            },
             sample = next_resources(&mut resources) => match sample {
                 Some((machine, r)) => {
                     conn.send(&AgentToUi::Resources { machine, resources: Box::new(r) }).await?;
@@ -362,6 +383,14 @@ async fn measured(m: &mut Option<(u64, Measurement)>) -> (u64, Reply) {
 async fn next_resources(
     watch: &mut Option<ResourceWatch>,
 ) -> Option<(Machine, tandem_proto::Resources)> {
+    match watch {
+        Some(w) => w.next().await,
+        None => std::future::pending().await,
+    }
+}
+
+/// El siguiente evento del cursor; nunca termina si la conexión no lo pidió.
+async fn next_cursor(watch: &mut Option<CursorWatch>) -> Option<CursorEvent> {
     match watch {
         Some(w) => w.next().await,
         None => std::future::pending().await,
@@ -574,6 +603,108 @@ mod tests {
             after += 1;
             assert!(after < 3, "sigue llegando la red");
         }
+    }
+
+    /// T-128: el cursor llega solo a la conexión que lo pidió, el motor solo lo muestrea
+    /// mientras alguna lo pide (contadas por ventana), y al cerrarse la conexión se deja.
+    #[tokio::test]
+    async fn the_cursor_flows_only_to_connections_that_watch_and_is_counted_per_window() {
+        use tandem_proto::CursorSample;
+
+        let dir = tempfile::tempdir().unwrap();
+        let (agent, io, stop) = start(dir.path());
+        let mut watching = IpcClient::handshake(io).await.unwrap();
+        let (client, server) = duplex(64);
+        let (a, stopped) = (agent.clone(), stop.subscribe());
+        tokio::spawn(async move { serve_connection(server, a, stopped).await });
+        let mut idle = IpcClient::handshake(client).await.unwrap();
+
+        let sample = |x| CursorSample {
+            machine: Machine::A,
+            screen: "mac-1".into(),
+            x,
+            y: 1,
+        };
+        let gate = agent.cursor_gate();
+        assert!(!gate.is_on());
+        agent.publish_cursor(CursorEvent::Sample(sample(0)));
+
+        // Dos pedidos de la misma conexión cuentan una vez; una conexión que no lo pide no
+        // lo recibe.
+        for _ in 0..2 {
+            assert_eq!(
+                watching
+                    .request(UiCommand::WatchCursor { on: true })
+                    .await
+                    .unwrap(),
+                Reply::Done
+            );
+        }
+        assert!(gate.is_on());
+        agent.publish_cursor(CursorEvent::Sample(sample(1)));
+        agent.publish_cursor(CursorEvent::Crossed {
+            from: Machine::A,
+            to: Machine::B,
+            edge: tandem_core::Side::Right,
+        });
+        assert_eq!(
+            watching.next_event().await.unwrap(),
+            Some(AgentToUi::Cursor(sample(1)))
+        );
+        assert_eq!(
+            watching.next_event().await.unwrap(),
+            Some(AgentToUi::Crossed {
+                from: Machine::A,
+                to: Machine::B,
+                edge: tandem_core::Side::Right
+            })
+        );
+        assert!(
+            time::timeout(Duration::from_millis(100), idle.next_event())
+                .await
+                .is_err(),
+            "llegó el cursor a una conexión que no lo pidió"
+        );
+
+        // Una segunda ventana que mira y se va no apaga la primera.
+        assert_eq!(
+            idle.request(UiCommand::WatchCursor { on: true })
+                .await
+                .unwrap(),
+            Reply::Done
+        );
+        assert_eq!(
+            idle.request(UiCommand::WatchCursor { on: false })
+                .await
+                .unwrap(),
+            Reply::Done
+        );
+        assert!(gate.is_on(), "la otra ventana sigue mirando");
+
+        // Con `on: false` la última se apaga y el motor deja de muestrear.
+        assert_eq!(
+            watching
+                .request(UiCommand::WatchCursor { on: false })
+                .await
+                .unwrap(),
+            Reply::Done
+        );
+        assert!(!gate.is_on());
+
+        // Cerrar la conexión sin avisar también deja de mirar.
+        watching
+            .request(UiCommand::WatchCursor { on: true })
+            .await
+            .unwrap();
+        assert!(gate.is_on());
+        drop(watching);
+        time::timeout(Duration::from_secs(5), async {
+            while gate.is_on() {
+                time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("la conexión cerrada siguió contando");
     }
 
     /// Medir sin conexión por ese camino se rechaza enseguida, por la misma conexión.
