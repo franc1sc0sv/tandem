@@ -3,6 +3,11 @@
 set -uo pipefail
 input=$(cat)
 cwd=$(jq -r '.cwd // empty' <<<"$input")
+# El campo `if` del hook no siempre filtra: el script decide solo, mirando el comando.
+cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
+if ! grep -Eq '(^|[;&|[:space:]])(git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[[:space:]]+commit|gh[[:space:]]+pr[[:space:]]+create)([[:space:]]|$)' <<<"$cmd"; then
+  exit 0
+fi
 [ -n "$cwd" ] && cd "$cwd"
 # Fuera de un workspace de Cargo (p. ej. commits solo de docs antes de T-001) no hay nada que revisar.
 [ -f Cargo.toml ] || exit 0
