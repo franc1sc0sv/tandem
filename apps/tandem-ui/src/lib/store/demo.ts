@@ -580,6 +580,7 @@ export function demoDesk(o: DemoOptions): DeskView {
       hardware: s.hardware,
       environments: s.environments.map((e) => ({ ...e })),
       live: power === "on" ? s.live : null,
+      wake: here ? null : { mac: "aa:bb:cc:dd:ee:ff" },
       ...(s.inputDevices ? { inputDevices: s.inputDevices } : {}),
     };
   };
@@ -973,6 +974,20 @@ export class DemoSource implements Source {
     await new Promise((r) => setTimeout(r, RESCAN_MS));
     const now = this.desk.machines[machine];
     if (now) this.set({ ...this.desk, machines: { ...this.desk.machines, [machine]: { ...now, environments: now.environments.map((e) => ({ ...e })) } } });
+    return { ok: true };
+  }
+
+  async setDeskName(name: string): Promise<ActResult> {
+    const n = name.trim();
+    if (n.length > 40) return { ok: false, reason: "el nombre no puede pasar de 40 caracteres" };
+    this.set({ ...this.desk, deskName: n || "Mi puesto" });
+    return { ok: true };
+  }
+
+  async setWol(mac: string | null): Promise<ActResult> {
+    if (mac !== null && !/^([0-9a-f]{2}[:-]){5}[0-9a-f]{2}$/i.test(mac.trim())) {
+      return { ok: false, reason: `dirección MAC inválida «${mac}»: se esperan 6 bytes, como aa:bb:cc:dd:ee:ff` };
+    }
     return { ok: true };
   }
 

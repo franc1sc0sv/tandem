@@ -445,11 +445,13 @@ pub struct ProcessView {
     pub started: u64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PowerCapsView {
     pub wake_peer: bool,
     pub wakeable: bool,
     pub power_off: bool,
+    pub mac: Option<String>,
+    pub wol_mac: Option<String>,
 }
 
 fn permission_view(p: InputPermission) -> PermissionView {
@@ -481,6 +483,8 @@ impl From<Capabilities> for MachineView {
                 wake_peer: c.power.wake_peer,
                 wakeable: c.power.wakeable,
                 power_off: c.power.power_off,
+                mac: c.power.mac.clone(),
+                wol_mac: c.power.wol_mac.clone(),
             },
             services: c.services,
             modules: c.modules.into_iter().map(Into::into).collect(),
@@ -745,6 +749,14 @@ pub enum Action {
     LockHere {
         on: bool,
     },
+    /// El nombre del puesto (`EditDesk { Name }`, T-159); vacío vuelve al de omisión.
+    SetDeskName {
+        name: String,
+    },
+    /// La MAC con que esta máquina despierta a la otra (T-159); `null` la borra.
+    SetWol {
+        mac: Option<String>,
+    },
     /// De dónde salió la configuración; contesta [`ActionResult::Setup`].
     GetSetup,
     /// Pedirle a la otra máquina que instale `version` (T-122). Lo usa «Actualizar todas»
@@ -883,6 +895,10 @@ impl From<Action> for UiCommand {
             Action::PingPeer => UiCommand::PingPeer,
             Action::RequestPermissions => UiCommand::RequestPermissions,
             Action::LockHere { on } => UiCommand::LockHere { on },
+            Action::SetDeskName { name } => UiCommand::EditDesk {
+                patch: DeskPatch::Name(name),
+            },
+            Action::SetWol { mac } => UiCommand::SetWol { mac },
             Action::GetSetup => UiCommand::GetSetup,
             Action::UpdatePeer { version } => UiCommand::UpdatePeer { version },
             Action::SetArrangement { a_side, align } => UiCommand::EditDesk {
@@ -2577,6 +2593,18 @@ mac = "aa:bb:cc:dd:ee:ff"
         assert_eq!(
             read(serde_json::json!({ "kind": "lock_here", "on": true })),
             UiCommand::LockHere { on: true }
+        );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "set_wol", "mac": "aa:bb:cc:dd:ee:ff" })),
+            UiCommand::SetWol {
+                mac: Some("aa:bb:cc:dd:ee:ff".into())
+            }
+        );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "set_desk_name", "name": "Oficina" })),
+            UiCommand::EditDesk {
+                patch: DeskPatch::Name("Oficina".into())
+            }
         );
         assert_eq!(
             read(serde_json::json!({ "kind": "watch_cursor", "on": true })),

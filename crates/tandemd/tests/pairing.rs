@@ -513,6 +513,44 @@ async fn unpairing_from_the_ui() {
     mac.stop().await;
 }
 
+/// T-152, sin enlace: la que sale se desempareja igual y sin error; el aviso no se guarda
+/// para después (DECISIONS), así que la otra sigue confiando hasta que salga ella también.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unpairing_with_the_other_machine_offline() {
+    let Desk {
+        mut mac,
+        mut pc,
+        pc_id,
+        mac_id,
+    } = desk(100, PairingTimeouts::default()).await;
+    assert_eq!(mac.ask(UiCommand::StartPairing).await, Reply::Done);
+    assert_eq!(pc.ask(UiCommand::StartPairing).await, Reply::Done);
+    mac.until_pairing(comparing).await;
+    pc.until_pairing(comparing).await;
+    assert_eq!(mac.ask(UiCommand::ConfirmPairing).await, Reply::Done);
+    assert_eq!(pc.ask(UiCommand::ConfirmPairing).await, Reply::Done);
+    let usb4 = |name: &str| PeerStatus::Paired {
+        name: name.into(),
+        link: Some(Link::Usb4),
+    };
+    until_peer(&mac.agent, usb4("PC")).await;
+    until_peer(&pc.agent, usb4("Mac")).await;
+    assert!(mac.trusted(&pc_id));
+    // La Mac se apaga: no hay enlace por donde avisar.
+    let mac_trust = mac.paths.trust_file();
+    let kept = tempfile::tempdir().unwrap();
+    std::fs::copy(&mac_trust, kept.path().join("trust.toml")).unwrap();
+    mac.stop().await;
+
+    assert_eq!(pc.ask(UiCommand::Unpair).await, Reply::Done);
+    assert_eq!(pc.agent.peer_status(), PeerStatus::Unpaired);
+    assert!(!pc.trusted(&mac_id));
+    // Lo que la Mac guardó no cambia: sigue confiando en la PC hasta que salga también.
+    let theirs = TrustStore::open(kept.path().join("trust.toml")).unwrap();
+    assert!(theirs.is_trusted(&pc_id.public_key()));
+    pc.stop().await;
+}
+
 /// T-159: al emparejar, cada máquina guarda sola la MAC de la otra (en `[power.wol]` de su
 /// `tandem.toml`) y queda con qué encenderla, sin editar archivos; una MAC puesta desde la
 /// UI se conserva en el archivo y una inválida se rechaza.

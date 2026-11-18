@@ -521,6 +521,20 @@ describe("fuente real", () => {
     expect(deskFromSnapshot(missing).trouble).toBe("permissions");
   });
 
+  it("T-159: el nombre del puesto y la MAC para encender salen de la foto", () => {
+    const snap = connected();
+    expect(deskFromSnapshot(snap).deskName).toBe("Mi puesto");
+    expect(deskFromSnapshot(snap).machines.a?.wake).toEqual({ mac: null });
+    if (snap.kind === "connected") {
+      snap.desk = { ...snap.desk, desk_name: " Oficina " };
+      snap.caps.here.power = { ...snap.caps.here.power, wol_mac: "aa:bb:cc:dd:ee:ff" };
+    }
+    const d = deskFromSnapshot(snap);
+    expect(d.deskName).toBe("Oficina");
+    expect(d.machines.a?.wake).toEqual({ mac: "aa:bb:cc:dd:ee:ff" });
+    expect(d.machines.b?.wake).toBeNull();
+  });
+
   it("pide al agente lo que sabe hacer y dice lo que todavía no", async () => {
     const act = vi.fn(async (_a: unknown) => ({ kind: "bandwidth" as const, link: "wifi" as const, bytes_per_sec: 51_250_000 }));
     let push: ((s: Snapshot) => void) | undefined;

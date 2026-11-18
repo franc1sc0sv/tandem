@@ -108,6 +108,8 @@ export interface MachineView {
   live: LiveView | null;
   /** Teclados y mouse que anuncia, si los lista (el asistente, paso 4). */
   inputDevices?: { name: string; via?: string }[];
+  /** Solo en la otra máquina: con qué MAC la despierta esta (T-159); `mac: null` = no puede. */
+  wake?: { mac: string | null } | null;
 }
 
 export type LinkKind = "usb4" | "ethernet" | "wifi";
@@ -443,6 +445,10 @@ export interface Source {
   rescan(machine: Machine): Promise<ActResult>;
   /** Nombre o color de una máquina (el puesto compartido, D4/D17). */
   editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult>;
+  /** El nombre del puesto; vacío vuelve al de omisión (T-159). */
+  setDeskName(name: string): Promise<ActResult>;
+  /** La MAC con que se despierta a la otra máquina; `null` la borra (T-159). */
+  setWol(mac: string | null): Promise<ActResult>;
   /** Emparejar (`start_pairing`, `confirm_pairing`, `cancel_pairing`) o desemparejar. */
   pairAction(kind: PairActionKind): Promise<ActResult>;
   /** «Bloquear aquí» (T-129): el cursor no cruza a la otra máquina mientras esté bloqueado. */
