@@ -88,7 +88,7 @@ impl WiredResolver {
             iface,
             self.side,
             self.os,
-            self.discovery.peer_ip(iface),
+            self.discovery.peer_addr(iface),
             self.port,
         );
         let Some(order) = p.assign else {

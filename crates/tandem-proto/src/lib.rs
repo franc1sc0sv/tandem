@@ -53,7 +53,7 @@ pub use workspace::{BringBackReport, CommitInfo, WorkspaceDown, WorkspaceSpec, W
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 33;
+pub const PROTOCOL_VERSION: u16 = 34;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -125,11 +125,12 @@ mod tests {
     /// (archivos y puertos por túnel, sus pedidos y el avance de las transferencias) sube a
     /// la v31. T-104 (procesos por túnel: `Exec`, `Kill`, `Output`, `GetProcesses` y los
     /// procesos en la vista de túneles) sube a la v32: iba a ser la v29, pero T-111, T-128 y
-    /// T-106 entraron antes. T-094 (`ControlMsg::LinkClass`, la clasificación de cada
-    /// conexión por su interfaz) sube a la v33.
+    /// T-106 entraron antes. T-107 sube a la v33. T-094 (`ControlMsg::LinkClass`, la
+    /// clasificación de cada conexión por su interfaz) sube a la v34: iba a ser la v33, pero
+    /// T-107 entró antes.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 33);
+        assert_eq!(PROTOCOL_VERSION, 34);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

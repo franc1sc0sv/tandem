@@ -353,7 +353,7 @@ pub async fn accept_streams(conn: Connection, agent: Arc<Agent>) {
             Err(e) => {
                 tracing::debug!("conexión con el otro agente terminada: {e}");
                 // Su clasificación vale por conexión: la siguiente trae la suya.
-                conn.qos().set_peer_link(None);
+                conn.qos().clear_peer_link_of(conn.id());
                 return;
             }
         };
@@ -419,7 +419,7 @@ async fn serve_stream(
 fn apply_link_class(conn: &Connection, theirs: LinkKind) {
     let qos = conn.qos();
     let before = qos.link();
-    qos.set_peer_link(Some(theirs));
+    qos.set_peer_link_from(conn.id(), theirs);
     let label = qos.link();
     if label != before {
         tracing::info!(suya = %theirs, ?label, "el otro extremo ve el enlace peor: etiqueta nueva");

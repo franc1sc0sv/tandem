@@ -160,6 +160,8 @@ struct Inner {
     link: Option<LinkKind>,
     own: Option<LinkKind>,
     peer: Option<LinkKind>,
+    /// La conexión que anunció `peer`: solo ella puede borrarla al cerrarse.
+    peer_from: Option<usize>,
     prefs: DataPrefs,
     measured: Option<u64>,
     limiter: Option<RateLimiter>,
@@ -191,6 +193,7 @@ impl Qos {
                     link: None,
                     own: None,
                     peer: None,
+                    peer_from: None,
                     prefs: DataPrefs::default(),
                     measured: None,
                     limiter: None,
@@ -228,7 +231,27 @@ impl Qos {
     pub fn set_peer_link(&self, link: Option<LinkKind>) {
         let mut s = self.lock();
         s.peer = link;
+        s.peer_from = None;
         self.relabel(&mut s);
+    }
+
+    /// Como `set_peer_link(Some(..))`, anotando qué conexión la anunció.
+    pub fn set_peer_link_from(&self, conn: usize, link: LinkKind) {
+        let mut s = self.lock();
+        s.peer = Some(link);
+        s.peer_from = Some(conn);
+        self.relabel(&mut s);
+    }
+
+    /// Borra la clase del otro al cerrarse `conn`, pero solo si ella la anunció: una
+    /// conexión nueva del mismo camino que ya anunció la suya no pierde la vigente.
+    pub fn clear_peer_link_of(&self, conn: usize) {
+        let mut s = self.lock();
+        if s.peer_from == Some(conn) {
+            s.peer = None;
+            s.peer_from = None;
+            self.relabel(&mut s);
+        }
     }
 
     fn relabel(&self, s: &mut Inner) {

@@ -323,3 +323,17 @@ async fn la_clase_del_otro_no_se_pierde_si_la_propia_no_se_conoce() {
     qos.set_link(Some(LinkKind::Usb4));
     assert_eq!(qos.link(), Some(LinkKind::Wifi));
 }
+
+#[tokio::test(start_paused = true)]
+async fn cerrarse_una_conexion_vieja_no_borra_la_clase_de_la_nueva() {
+    let qos = Qos::default();
+    qos.set_link(Some(LinkKind::Ethernet));
+    qos.set_peer_link_from(1, LinkKind::Wifi);
+    // La nueva conexión anuncia la suya y después se cierra la vieja.
+    qos.set_peer_link_from(2, LinkKind::Wifi);
+    qos.clear_peer_link_of(1);
+    assert_eq!(qos.link(), Some(LinkKind::Wifi));
+    // Al cerrarse la que la anunció, sí se borra.
+    qos.clear_peer_link_of(2);
+    assert_eq!(qos.link(), Some(LinkKind::Ethernet));
+}

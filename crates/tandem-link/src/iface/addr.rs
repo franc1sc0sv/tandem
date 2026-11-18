@@ -68,8 +68,8 @@ pub struct AddrPlan {
     pub assign: Option<AssignOrder>,
 }
 
-/// Direcciones del enlace por `iface`. `peer_ip` es la del otro agente si el
-/// descubrimiento ya la dio.
+/// Direcciones del enlace por `iface`. `peer` es la del otro agente (con el puerto que
+/// anuncia) si el descubrimiento ya la dio.
 ///
 /// 1. Si la interfaz tiene IPv6 link-local, se usa con su `scope_id`.
 /// 2. Si no, o si ya tiene la IP de `10.77.1.0/30`, se usa el respaldo: A es `.1` y B `.2`.
@@ -77,7 +77,7 @@ pub fn plan(
     iface: &NetInterface,
     side: Machine,
     os: Os,
-    peer_ip: Option<IpAddr>,
+    peer: Option<SocketAddr>,
     port: u16,
 ) -> AddrPlan {
     let mine = fallback_ip(side);
@@ -86,13 +86,13 @@ pub fn plan(
     if let (Some(ll), false) = (link_local_of(iface), has_fallback) {
         return AddrPlan {
             local: IpAddr::V6(ll),
-            peer: peer_ip.map(|ip| scoped_addr(ip, iface.index, port)),
+            peer: peer.map(|p| scoped_addr(p.ip(), iface.index, p.port())),
             assign: None,
         };
     }
     AddrPlan {
         local: IpAddr::V4(mine),
-        peer: Some(SocketAddr::new(peer_ip.unwrap_or(IpAddr::V4(theirs)), port)),
+        peer: Some(peer.unwrap_or_else(|| SocketAddr::new(IpAddr::V4(theirs), port))),
         assign: (!has_fallback).then(|| assign_order(os, &iface.name, mine)),
     }
 }

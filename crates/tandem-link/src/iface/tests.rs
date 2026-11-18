@@ -128,10 +128,11 @@ fn el_scope_id_va_en_la_direccion_link_local_y_solo_en_ella() {
 #[test]
 fn el_plan_usa_la_link_local_con_su_scope() {
     let i = iface(9, "bridge0", &["fe80::aa", "169.254.7.7"]);
-    let peer = Some("fe80::bb".parse().unwrap());
+    let peer = Some("[fe80::bb]:47999".parse().unwrap());
     let p = plan(&i, Machine::A, Os::MacOs, peer, PORT);
     assert_eq!(p.local, "fe80::aa".parse::<IpAddr>().unwrap());
-    assert_eq!(p.peer, Some("[fe80::bb%9]:47770".parse().unwrap()));
+    // El puerto es el que anuncia mDNS, no el configurado.
+    assert_eq!(p.peer, Some("[fe80::bb%9]:47999".parse().unwrap()));
     assert_eq!(p.assign, None);
     // Sin saber dónde está el otro todavía (su link-local sale de mDNS), no hay dirección.
     assert_eq!(plan(&i, Machine::A, Os::MacOs, None, PORT).peer, None);
@@ -320,10 +321,10 @@ fn con_link_local_el_cable_entra_cuando_el_otro_contesta_por_esa_interfaz() {
     // Sin respuesta del otro, el cable no entra.
     assert_eq!(r.resolve(&usb), None);
     // Anuncia en otra interfaz: tampoco.
-    discovery.announce(9, "fe80::99".parse().unwrap());
+    discovery.announce(9, "[fe80::99]:47770".parse().unwrap());
     assert_eq!(r.resolve(&usb), None);
     // Contesta por esta: se aprende su link-local con el scope de la interfaz.
-    discovery.announce(7, "fe80::2".parse().unwrap());
+    discovery.announce(7, "[fe80::2]:47770".parse().unwrap());
     let mut cur = Default::default();
     let changes = wired_changes(&mut cur, std::slice::from_ref(&usb), &|i| r.resolve(i));
     let want = scoped_addr("fe80::2".parse().unwrap(), 7, PORT);
@@ -344,13 +345,16 @@ fn el_descubrimiento_real_filtra_por_scope_id() {
         "[fe80::6%7]:47770".parse().unwrap(),
         "192.168.1.5:47770".parse().unwrap(),
     ];
-    assert_eq!(scoped_peer(&announced, 7), Some("fe80::6".parse().unwrap()));
+    assert_eq!(
+        scoped_peer(&announced, 7),
+        Some("[fe80::6]:47770".parse().unwrap())
+    );
     assert_eq!(scoped_peer(&announced, 8), None);
     let (_tx, rx) = tokio::sync::watch::channel(announced);
     let d = ScopedDiscovery::new(rx);
     assert_eq!(
-        d.peer_ip(&iface(3, "en5", &["fe80::1"])),
-        Some("fe80::5".parse().unwrap())
+        d.peer_addr(&iface(3, "en5", &["fe80::1"])),
+        Some("[fe80::5]:47770".parse().unwrap())
     );
 }
 
