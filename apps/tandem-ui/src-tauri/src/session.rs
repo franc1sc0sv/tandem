@@ -822,6 +822,10 @@ pub enum Action {
         #[serde(deserialize_with = "tunnels::tunnel_id")]
         tunnel: TunnelId,
     },
+    /// Los túneles abiertos ahora (T-154): una ventana que se abre o recarga los pide porque
+    /// [`Sink::tunnels`] solo avisa al conectar y con cada cambio; contesta
+    /// [`ActionResult::Tunnels`].
+    Tunnels,
     /// La salida de un proceso desde los cursores `stdout` y `stderr` (T-114); contesta
     /// [`ActionResult::Output`].
     Output {
@@ -921,6 +925,7 @@ impl From<Action> for UiCommand {
                 patch: DeskPatch::DeleteScene { id },
             },
             Action::Processes { tunnel } => UiCommand::GetProcesses { tunnel },
+            Action::Tunnels => UiCommand::GetTunnels,
             Action::Output {
                 tunnel,
                 process,
@@ -987,6 +992,10 @@ pub enum ActionResult {
     Output {
         output: Box<OutputItem>,
     },
+    /// Los túneles abiertos, agrupados por proyecto (T-154).
+    Tunnels {
+        tunnels: Vec<ProjectItem>,
+    },
 }
 
 impl From<Reply> for ActionResult {
@@ -1012,6 +1021,9 @@ impl From<Reply> for ActionResult {
             Reply::Output(o) => ActionResult::Output {
                 output: Box::new((*o).into()),
             },
+            Reply::Tunnels(groups) => ActionResult::Tunnels {
+                tunnels: tunnels::projects_of(groups),
+            },
             Reply::Done
             | Reply::State(_)
             | Reply::Desk(_)
@@ -1023,7 +1035,6 @@ impl From<Reply> for ActionResult {
             | Reply::Monitors(_)
             | Reply::Update(_)
             | Reply::Tunnel { .. }
-            | Reply::Tunnels(_)
             | Reply::Files(_)
             | Reply::Forward(_)
             | Reply::Process(_)
@@ -2868,6 +2879,20 @@ mac = "aa:bb:cc:dd:ee:ff"
             "la sesión sigue viva: {got:?}"
         );
         rec.until(|s, _| connected(s)).await;
+    }
+
+    /// T-154: una ventana nueva pide los túneles existentes en vez de esperar un cambio.
+    #[tokio::test]
+    async fn a_new_window_can_ask_for_the_tunnels() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+        match handle.act(Action::Tunnels).await {
+            ActionResult::Tunnels { tunnels } => assert!(tunnels.is_empty()),
+            other => panic!("se esperaban los túneles: {other:?}"),
+        }
     }
 
     /// Dejar de mirar la red corta el flujo; y un pedido hecho sin agente vale para la

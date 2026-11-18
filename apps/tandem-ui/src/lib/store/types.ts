@@ -355,6 +355,8 @@ export interface FilesView {
 
 export interface DeskView {
   prefs: PrefsView;
+  /** El cursor está bloqueado en esta máquina («Bloquear aquí», T-157). */
+  locked: boolean;
   /** El atajo de bloqueo del puesto (`KeyboardEvent.code`); vacío = sin atajo. */
   lockShortcut: string[];
   /** `connecting` mientras no hay primer estado. */

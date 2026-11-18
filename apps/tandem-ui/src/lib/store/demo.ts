@@ -591,6 +591,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     deskName: "Mi puesto",
     prefs: { cmdCtrl: true, dragFiles: false, clipboard: true },
     lockShortcut: ["ScrollLock"],
+    locked: false,
     trouble: o.trouble,
     troubleText: TROUBLE_TEXT[o.trouble](peerSpec.name),
     here: o.here,
@@ -1109,9 +1110,10 @@ export class DemoSource implements Source {
     }
   }
 
-  /** El demo no tiene motor de entrada: el bloqueo se acepta sin más. */
-  async lockHere(_on: boolean): Promise<ActResult> {
-    return { ok: true };
+  /** El demo no tiene motor de entrada: el bloqueo solo cambia el estado que se ve. */
+  async lockHere(on: boolean): Promise<ActResult> {
+    this.set({ ...this.desk, locked: on });
+    return { ok: true, text: on ? "Cursor bloqueado aquí" : "Bloqueo quitado" };
   }
 
   async requestPermissions(): Promise<ActResult> {

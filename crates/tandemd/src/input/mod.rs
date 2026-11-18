@@ -315,6 +315,7 @@ fn spawn_engine(
         Ok(l) => l,
         Err(e) => {
             tracing::error!("motor de entrada sin arrancar: {e}");
+            agent.set_module_problem(ModuleId::Files, Some(crate::modules::NO_ENGINE.into()));
             return Input {
                 tasks: Vec::new(),
                 hot: None,
@@ -398,6 +399,15 @@ fn spawn_engine(
     tasks.push(spawn(Box::pin(server(sh.clone()))));
     tasks.push(spawn(Box::pin(client(sh.clone(), input_rx))));
     tasks.push(tokio::spawn(clipboard_module(sh.clone(), clip_rx)));
+    // Sin detector, «Archivos» lo dice con la razón en vez de aparecer activo (T-158).
+    sh.agent.set_module_problem(
+        ModuleId::Files,
+        crate::modules::file_drag_problem(
+            cfg!(any(windows, target_os = "macos")),
+            file_drag.is_some(),
+        )
+        .map(str::to_owned),
+    );
     if let Some(hook) = file_drag {
         tasks.push(tokio::spawn(file_drag::follow_edge(
             sh.clone(),

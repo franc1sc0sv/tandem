@@ -1,7 +1,7 @@
 // Espejo en TypeScript del JSON de `tandem_ui::session` (serde). Si cambia allá, cambia aquí;
 // las pruebas de los dos lados fijan la forma.
 
-import type { OutputWire, ProcessWire } from "./tunnels";
+import type { OutputWire, ProcessWire, ProjectWire } from "./tunnels";
 
 /**
  * Los dos lados del puesto (T-097, DECISIONS A1): `a` es el de clave pública menor. Ningún
@@ -319,7 +319,9 @@ export type Action =
   /** Los procesos de un túnel, también los que terminaron hace poco (T-114); `tunnel` es el id de texto. */
   | { kind: "processes"; tunnel: string }
   /** La salida de un proceso desde los cursores dados (T-114). */
-  | { kind: "output"; tunnel: string; process: number; stdout: number; stderr: number };
+  | { kind: "output"; tunnel: string; process: number; stdout: number; stderr: number }
+  /** Los túneles abiertos ahora (T-154): la ventana que se abre o recarga no espera un cambio. */
+  | { kind: "tunnels" };
 
 /** De dónde salió la configuración del agente (`tandem_proto::SetupInfo`). */
 export interface AgentSetup {
@@ -338,7 +340,8 @@ export type ActionResult =
   | { kind: "pong"; link: Link; millis: number }
   | { kind: "bandwidth"; link: Link; bytes_per_sec: number }
   | { kind: "processes"; processes: ProcessWire[] }
-  | { kind: "output"; output: OutputWire };
+  | { kind: "output"; output: OutputWire }
+  | { kind: "tunnels"; tunnels: ProjectWire[] };
 
 // Atajos globales (`tandem_ui::shortcuts`).
 export type ShortcutAction = "toggle_window";
