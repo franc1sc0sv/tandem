@@ -446,7 +446,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     here: o.here,
     machines: { a: mk("a", sa, sb.name), b: mk("b", sb, sa.name) },
     link: linkUp ? { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 } : { kind: null, gbps: null, ms: null, inputP99: null },
-    network: demoNetwork(linkUp),
+    network: o.txn && linkUp ? { ...demoNetwork(linkUp), measuring: "usb4" } : demoNetwork(linkUp),
     tunnels: DEMO_TUNNELS.map((t) => ({ ...t })),
     scenes,
     activeScene: "trabajo",
@@ -572,6 +572,11 @@ export class DemoSource implements Source {
     ];
     const t0 = DEMO_NOW;
     const txn = 1;
+    // Las otras dos tarjetas de `F-Transacciones`: la PC encendiéndose lleva 18 s esperando
+    // (el reloj de la fuente corre a la par) y el enlace USB-C se está midiendo (en `demoDesk`).
+    const boot = this.now() - 18_000;
+    emit({ type: "started", txn: 2, steps: [{ step: "power_on", machine: "b" }] }, boot);
+    emit({ type: "step_started", txn: 2, index: 0 }, boot + 100);
     emit({ type: "started", txn, steps }, t0, { title: "Aplicando la escena «Juego»", doneText: "Escena «Juego» activa." });
     emit({ type: "step_started", txn, index: 0 }, t0 + 100);
     if (at === "run") return;

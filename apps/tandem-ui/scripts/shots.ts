@@ -21,7 +21,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { extname, join, normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ORIGIN, installRoutes, waitForMockup } from "@tandem/mockup-render";
+import { ORIGIN, installRoutes, statesOf, waitForMockup } from "@tandem/mockup-render";
 import { capture, compare, compareWithMockup, launchBrowser, mockupShotPath, settle, type CompareResult } from "@tandem/mockup-render/harness";
 import type { Browser, Page } from "playwright";
 import { SHOTS, appUrl, crop, mask, type Rect, type ShotSpec } from "./shots-spec.ts";
@@ -89,6 +89,13 @@ async function mockupRects(browser: Browser, spec: ShotSpec, selectors: string[]
     await page.goto(`${ORIGIN}/${spec.mockup}.dc.html`);
     await waitForMockup(page);
     await settle(page);
+    // Las cajas se miden en el estado de la captura (en «vuelta atrás» el texto cambia el alto de la tarjeta).
+    const state = spec.state ? statesOf(spec.mockup).find((x) => x.name === spec.state) : undefined;
+    for (const step of state?.steps ?? []) {
+      if ("click" in step) await page.locator(step.click).click({ timeout: 5_000 });
+      else await page.locator(step.fill).fill(step.text, { timeout: 5_000 });
+      await settle(page);
+    }
     const out: Record<string, Rect | null> = {};
     for (const sel of selectors) {
       const box = await page.locator(sel).first().boundingBox({ timeout: 2_000 }).catch(() => null);

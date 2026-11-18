@@ -28,7 +28,7 @@ export const SCREEN_TOPICS: Record<Screen, Topic[]> = {
   tuneles: ["machines", "tunnels"],
   monitores: ["machines", "monitors", "scenes"],
   escena: ["machines", "monitors", "scenes"],
-  progreso: ["machines", "monitors"],
+  progreso: ["machines", "monitors", "network"],
   acomodo: ["machines", "monitors"],
   cruce: ["machines"],
   red: ["machines", "link", "network"],

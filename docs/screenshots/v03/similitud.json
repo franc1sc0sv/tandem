@@ -580,8 +580,8 @@
     "mockup": "F-Transacciones",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 0.998,
+      "similarity": 0.9988,
+      "worstTile": 0.9717,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
@@ -595,8 +595,8 @@
     "mockup": "F-Transacciones--exito",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 0.998,
+      "similarity": 0.9988,
+      "worstTile": 0.9717,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97
@@ -610,8 +610,8 @@
     "mockup": "F-Transacciones--vuelta-atras",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 1,
-      "worstTile": 0.998,
+      "similarity": 0.9988,
+      "worstTile": 0.9717,
       "min": {
         "similarity": 0.99,
         "worstTile": 0.97

@@ -5,15 +5,27 @@
   import { formatHash } from "../lib/routes";
   import Button from "../ui/Button.svelte";
   import Card from "../ui/Card.svelte";
+  import Icon from "../ui/Icon.svelte";
+  import { energyView, measureKind, measureView } from "../lib/progress";
   import type { RowIcon } from "../lib/txn";
 
   const store = useStore();
   const view = $derived(store.runView());
+  const energy = $derived(
+    energyView(
+      store.powerRun,
+      (m) => store.desk.machines[m]?.name ?? m,
+      store.desk.machines[store.desk.here]?.name ?? "esta máquina",
+      store.clock,
+    ),
+  );
+  const kind = $derived(measureKind(store.desk.network, store.measured));
+  const meter = $derived(kind ? measureView(store.desk.network, kind) : null);
   const back = formatHash({ screen: "monitores" });
 
   // Sin ninguna transacción que mostrar (se abrió la dirección a pelo): de vuelta a Monitores.
   $effect(() => {
-    if (store.txnReady && store.run === null) store.go({ screen: "monitores" });
+    if (store.txnReady && store.run === null && store.powerRun === null && !meter) store.go({ screen: "monitores" });
   });
 
   const WORD: Record<RowIcon, string> = { done: "listo", run: "en curso", bad: "falló", todo: "pendiente", back: "deshaciendo" };
@@ -24,8 +36,9 @@
     <h1>Cambios en progreso</h1>
     <span class="mut sub">Todo lo que toca a otra máquina es una transacción: pasos visibles, un tiempo máximo y vuelta atrás si algo falla.</span>
   </div>
-  {#if view}
+  {#if view || energy || meter}
     <div class="grid">
+      {#if view}
       <Card tag="section" hover class="txn" label={view.title} style="--card-pad:18px">
         <div class="hd"><h2>{view.title}</h2><span class="fill"></span><span class="mono mut el">{view.elapsed}</span></div>
         <div aria-live="polite" class="rows">
@@ -38,6 +51,35 @@
         <p class="msg {view.message.tone}">{view.message.text}</p>
         <div class="acts"><Button icon="arrow-left" size="md" motion="back" href={back} style="--btn-fs:12.5px;--btn-px:13px">Volver a Monitores</Button></div>
       </Card>
+      {/if}
+      {#if energy}
+        <Card tag="section" class="txn" label={energy.title} style="--card-pad:18px">
+          <h2>{energy.title}</h2>
+          <div class="wv" aria-hidden="true">
+            <span class="wave"></span><span class="wave b"></span><span class="wave c"></span>
+            <span class="pw"><Icon name="power" size={22} stroke={2.2} linecap="round" /></span>
+          </div>
+          <div aria-live="polite" class="rows">
+            {#each energy.rows as r (r.key)}
+              <div class="s" class:dim={r.dim}>
+                <span class="i {r.icon}" role="img" aria-label={WORD[r.icon]}>{#if r.icon === "done"}<Icon name="check" size={10} stroke={3} />{/if}</span><span>{r.text}</span><span class="fill"></span><span class="mut d" class:mono={r.mono}>{r.detail}</span>
+              </div>
+            {/each}
+          </div>
+        </Card>
+      {/if}
+      {#if meter}
+        <Card tag="section" class="txn" label={meter.title} style="--card-pad:18px">
+          <h2>{meter.title}</h2>
+          <span class="mut sub">3 s de prueba por el camino de datos. No frena al teclado ni al mouse.</span>
+          <div class="big"><b class="mono">{meter.value}</b><span class="u">{meter.unit}</span><span class="fill"></span><span class="mono mut lat">{meter.latency}</span></div>
+          <div class="meter" role="img" aria-label={meter.aria}><span style="--w:{meter.percent}%"></span></div>
+          <div class="mono mut scale"><span>0</span><span>{meter.caption}</span></div>
+          <div class="oth">
+            {#each meter.others as o (o.name)}<span class="mut">{o.name}</span><span class="mono">{o.text}</span>{/each}
+          </div>
+        </Card>
+      {/if}
     </div>
   {/if}
 </div>
@@ -144,6 +186,88 @@
     border-top-color: #9cc0f0;
     animation: pr-sp 0.8s linear infinite reverse;
   }
+  .s.dim {
+    color: #9a9da6;
+  }
+  .wv {
+    position: relative;
+    height: 150px;
+    display: grid;
+    place-items: center;
+  }
+  .wave {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 40px;
+    height: 40px;
+    margin: -20px;
+    border-radius: 50%;
+    border: 2px solid #d9a75a;
+    animation: pr-wv 1.8s ease-out infinite;
+  }
+  .wave.b {
+    animation-delay: 0.6s;
+  }
+  .wave.c {
+    animation-delay: 1.2s;
+  }
+  .pw {
+    width: 54px;
+    height: 54px;
+    border-radius: 50%;
+    background: #1b1c21;
+    border: 1px solid #5a4a2c;
+    display: grid;
+    place-items: center;
+    position: relative;
+    color: #d9a75a;
+  }
+  .big {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 12px 0;
+  }
+  .big b {
+    font-size: 40px;
+    font-weight: 500;
+    animation: pr-up 0.5s ease-out;
+  }
+  .u {
+    font-size: 16px;
+  }
+  .lat {
+    font-size: 12.5px;
+  }
+  .meter {
+    height: 10px;
+    border-radius: 5px;
+    background: #24262c;
+    overflow: hidden;
+  }
+  .meter span {
+    display: block;
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, #7aa7e6, #a99be8);
+    animation: pr-fl 3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+  }
+  .scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+  }
+  .oth {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    font-size: 12.5px;
+    padding-top: 6px;
+  }
+  .done :global(svg) {
+    color: #6cc59a;
+  }
   .msg {
     margin: 0;
     font-size: 13px;
@@ -165,6 +289,21 @@
   @keyframes pr-sp {
     to {
       transform: rotate(360deg);
+    }
+  }
+  @keyframes pr-wv {
+    from {
+      transform: scale(0.5);
+      opacity: 0.9;
+    }
+    to {
+      transform: scale(3.4);
+      opacity: 0;
+    }
+  }
+  @keyframes pr-fl {
+    to {
+      width: var(--w);
     }
   }
   @keyframes pr-up {

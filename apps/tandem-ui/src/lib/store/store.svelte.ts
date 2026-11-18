@@ -45,6 +45,10 @@ export class Store implements CommandContext {
   toasts: Toast[] = $state([]);
   /** La transacción que se está viendo o acaba de terminar (escena, cambio de entrada). */
   run: Run | null = $state(null);
+  /** El encendido de una máquina (otra tarjeta de «Cambios en progreso»). */
+  powerRun: Run | null = $state(null);
+  /** El último enlace que se midió desde esta ventana (su tarjeta queda a la vista). */
+  measured: LinkKind | null = $state(null);
   /** Reloj de la pantalla de progreso (cuenta el tiempo mientras corre). */
   clock = $state(Date.now());
   /** Ya se sabe si hay avisos de transacciones: antes, «sin progreso» todavía no quiere decir nada. */
@@ -100,11 +104,17 @@ export class Store implements CommandContext {
     try {
       this.stopTxn = await this.source.watchTxn((e, at, given) => {
         const before = this.run;
-        this.run = feedRun(this.run, e, at ?? this.nowMs(), e.type === "started" ? (given ?? this.origin) : null);
+        const origin = e.type === "started" ? (given ?? this.origin) : null;
+        // Cada tipo de transacción tiene su tarjeta: el encendido va aparte de la escena.
+        if (e.type === "started" && e.steps[0]?.step === "power_on") this.powerRun = feedRun(this.powerRun, e, at ?? this.nowMs(), origin);
+        else {
+          if (e.type !== "started") this.powerRun = feedRun(this.powerRun, e, at ?? this.nowMs());
+          this.run = feedRun(this.run, e, at ?? this.nowMs(), origin);
+        }
         if (e.type === "started") this.origin = null;
         this.clock = this.nowMs();
-        if (running(this.run) && this.clockTimer === undefined) this.clockTimer = setInterval(() => (this.clock = this.nowMs()), 100);
-        if (!running(this.run)) this.stopClock();
+        if ((running(this.run) || running(this.powerRun)) && this.clockTimer === undefined) this.clockTimer = setInterval(() => (this.clock = this.nowMs()), 100);
+        if (!running(this.run) && !running(this.powerRun)) this.stopClock();
         // Un cambio que falló y se deshizo se avisa aunque no se esté mirando el progreso.
         if (e.type === "failed" && running(before) && this.route.screen !== "progreso" && this.run) {
           this.toast(this.runView(this.run)?.message.text ?? "No se pudo aplicar el cambio", "bad");
@@ -221,8 +231,11 @@ export class Store implements CommandContext {
     return this.report(this.source.setPower(machine, on));
   }
 
-  measureLink(path?: LinkKind): Promise<ActResult> {
-    return this.report(this.source.measureLink(path));
+  async measureLink(path?: LinkKind): Promise<ActResult> {
+    const kind = path ?? this.desk.link.kind;
+    const r = await this.report(this.source.measureLink(path));
+    if (r.ok && kind) this.measured = kind;
+    return r;
   }
 
   setModule(machine: Machine, module: string, on: boolean): Promise<ActResult> {

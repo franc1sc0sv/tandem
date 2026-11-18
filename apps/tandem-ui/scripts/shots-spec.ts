@@ -193,21 +193,10 @@ const escenaShot = (name: string, pick: string, state?: string): ShotSpec => ({
   keys: ["Control+Alt+Digit4"],
   min: SCREEN_GATE,
 });
-/** Las otras dos tarjetas de `F-Transacciones` (energía y medición) son de otras transacciones: no se comparan. */
-const OTHER_CARDS: Ignore[] = [
-  { mockupSelector: "section.card:nth-of-type(2)", reason: "«Encendiendo» es la transacción de energía, no la de una escena" },
-  { mockupSelector: "section.card:nth-of-type(3)", reason: "«Midiendo el enlace» es la medición de Red, no la de una escena" },
-];
 /** Los botones «Simular…» del mockup (solo del mockup); en «vuelta atrás» bajan con el texto del error. */
-const SIMULAR = (fail: boolean): Ignore =>
-  fail
-    ? { rect: { x: 50, y: 326, width: 340, height: 42 }, reason: "Simular…: botones solo del mockup" }
-    : { mockupSelector: "section.card:nth-of-type(1) > div:last-of-type", reason: "Simular…: botones solo del mockup" };
-/** La tarjeta del mockup se estira a la altura de las otras dos; la de la app termina en `bottom`. */
-const STRETCH = (bottom: number): Ignore => ({
-  rect: { x: 30, y: bottom, width: 400, height: 87 + 425 + 2 - bottom },
-  reason: "La tarjeta del mockup se estira a la altura de las otras dos tarjetas, que no se comparan",
-});
+const SIMULAR: Ignore = { mockupSelector: "section.card:nth-of-type(1) > div:last-of-type", reason: "Simular…: botones solo del mockup" };
+/** «Dejar de esperar»: el agente no tiene cómo cancelar un encendido (UiCommand), así que la app no ofrece la acción. */
+const NO_CANCEL: Ignore = { mockupSelector: "section.card:nth-of-type(2) > div:last-of-type", reason: "Dejar de esperar: sin comando de cancelar en la IPC, no se muestra" };
 /** El mockup escribe «de la MacBook»; la app dice el nombre real de la máquina (D10). */
 const MACHINE_NAME: Ignore = { rect: { x: 236, y: 228, width: 90, height: 22 }, reason: "«de la MacBook»: en la app va el nombre real de la máquina" };
 const progresoShot = (name: string, txn: "run" | "ok" | "fail", state?: string): ShotSpec => ({
@@ -219,7 +208,7 @@ const progresoShot = (name: string, txn: "run" | "ok" | "fail", state?: string):
   state,
   width: W,
   height: H,
-  ignore: [...OTHER_CARDS, SIMULAR(txn === "fail"), STRETCH(txn === "fail" ? 380 : 350), ...(txn === "fail" ? [] : [MACHINE_NAME])],
+  ignore: [SIMULAR, NO_CANCEL, ...(txn === "fail" ? [] : [MACHINE_NAME])],
   min: SCREEN_GATE,
 });
 export const MONITORES: ShotSpec[] = [
