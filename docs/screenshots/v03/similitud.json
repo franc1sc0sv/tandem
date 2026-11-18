@@ -407,6 +407,51 @@
     "zonas": [],
     "errores": []
   },
+  "escena-muestra-mac": {
+    "mockup": "F-NuevaEscena--muestra-mac",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "escena-nueva": {
+    "mockup": "F-NuevaEscena",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "escena-sin-cambiar": {
+    "mockup": "F-NuevaEscena--sin-cambiar",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
   "estados": {
     "mockup": "V3-Estados",
     "pantalla": {
@@ -480,8 +525,34 @@
     "mockup": "V3-Monitores",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9621,
-      "worstTile": 0.4287,
+      "similarity": 1,
+      "worstTile": 0.9893,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "barra lateral",
+        "similarity": 0.9998,
+        "worstTile": 0.9893,
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "monitores-entrada-mac": {
+    "mockup": "V3-Monitores--entrada-mac",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9893,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
       "ok": true
     },
     "zonas": [
@@ -505,11 +576,56 @@
     "zonas": [],
     "errores": []
   },
+  "progreso-en-curso": {
+    "mockup": "F-Transacciones",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.998,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "progreso-exito": {
+    "mockup": "F-Transacciones--exito",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.998,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "progreso-vuelta-atras": {
+    "mockup": "F-Transacciones--vuelta-atras",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.998,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
   "puesto": {
     "mockup": "V3-Puesto",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.98,
+      "similarity": 0.9802,
       "worstTile": 0.7576,
       "ok": true
     },
@@ -531,7 +647,7 @@
     "mockup": "V3-Puesto",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9739,
+      "similarity": 0.9738,
       "worstTile": 0.6033,
       "ok": true
     },
@@ -549,7 +665,7 @@
     "mockup": "V3-Puesto",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9578,
+      "similarity": 0.9574,
       "worstTile": 0.3748,
       "ok": true
     },

@@ -22,6 +22,10 @@
     /** El ícono va después del texto (por ejemplo «Siguiente →»). */
     iconAfter?: boolean;
     motion?: IconMotion;
+    /** Tamaño y grosor del ícono si el mockup de la pantalla no usa los del tamaño del botón. */
+    iconSize?: number;
+    iconStroke?: number;
+    iconLinecap?: "round" | "butt";
     href?: string;
     type?: "button" | "submit";
     disabled?: boolean;
@@ -40,6 +44,9 @@
     label,
     iconAfter = false,
     motion = "scale",
+    iconSize: iconPx,
+    iconStroke = 2,
+    iconLinecap,
     href,
     type = "button",
     disabled = false,
@@ -51,13 +58,14 @@
   }: Props = $props();
 
   const classes = $derived(["btn", variant !== "default" && variant, size, iconOnly && "ic", `m-${motion}`, cls].filter(Boolean).join(" "));
-  const iconSize = $derived(size === "sm" ? 15 : size === "xl" ? 17 : 16);
+  const iconSize = $derived(iconPx ?? (size === "sm" ? 15 : size === "xl" ? 17 : 16));
 </script>
 
-{#snippet body()}{#if !iconAfter}<Icon name={icon} size={iconSize} stroke={2} />{/if}{#if !iconOnly && children}{@render children()}{/if}{#if iconAfter}<Icon
+{#snippet body()}{#if !iconAfter}<Icon name={icon} size={iconSize} stroke={iconStroke} linecap={iconLinecap} />{/if}{#if !iconOnly && children}{@render children()}{/if}{#if iconAfter}<Icon
       name={icon}
       size={iconSize}
-      stroke={2}
+      stroke={iconStroke}
+      linecap={iconLinecap}
     />{/if}{/snippet}
 
 {#if href && !disabled}
@@ -99,7 +107,8 @@
     font: inherit;
     font-size: var(--btn-fs, var(--fs));
     font-weight: 500;
-    line-height: 1;
+    /* Los mockups de Monitores y escenas no fijan el interlineado del botón: `normal`. */
+    line-height: var(--btn-lh, 1);
     border-radius: var(--btn-r, var(--r));
     border: 1px solid #2e3138;
     background: linear-gradient(180deg, #1f2025, #18191d);

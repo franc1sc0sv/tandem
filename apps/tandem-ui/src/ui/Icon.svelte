@@ -7,11 +7,13 @@
     /** Grosor del trazo (1.8 en la navegación, 2 en botones y chips). */
     stroke?: number;
     color?: string;
+    /** Remate del trazo si el mockup lo pide distinto al del ícono (el «+» de «Nueva escena» lo trae redondo). */
+    linecap?: "round" | "butt";
     class?: string;
     style?: string;
   }
 
-  let { name, size = 16, stroke = 1.8, color = "currentColor", class: cls = "", style = "" }: Props = $props();
+  let { name, size = 16, stroke = 1.8, color = "currentColor", linecap, class: cls = "", style = "" }: Props = $props();
   const def: IconDef = $derived(ICONS[name]);
 </script>
 
@@ -28,7 +30,7 @@
     fill="none"
     stroke={color}
     stroke-width={stroke}
-    stroke-linecap={def.linecap}
+    stroke-linecap={linecap ?? def.linecap}
     stroke-linejoin={def.linejoin}
     aria-hidden="true">{@html def.body}</svg
   >

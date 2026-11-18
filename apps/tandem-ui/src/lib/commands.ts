@@ -56,11 +56,11 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
         title: `Aplicar «${s.name}»`,
         detail: desk.activeScene === s.id ? "activa" : "",
         key: s.key,
-        color: color(s.shows),
+        color: s.shows ? color(s.shows) : GREY,
         run: () => ctx.applyScene(s.id),
       });
     }
-    out.push({ id: "scene:new", group: "Escenas", title: "Nueva escena…", detail: "", key: "", color: GREY, run: () => ctx.go({ screen: "monitores" }) });
+    out.push({ id: "scene:new", group: "Escenas", title: "Nueva escena…", detail: "", key: "", color: GREY, run: () => ctx.go({ screen: "escena", id: null }) });
   }
 
   const peer: Machine = desk.here === "a" ? "b" : "a";

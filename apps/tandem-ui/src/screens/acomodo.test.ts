@@ -149,6 +149,7 @@ describe("con el agente real", () => {
         { machine: "b", id: "Odyssey", x: 0, y: 0, width: 3440, height: 1440, scale: 1 },
       ],
       arrangement: { a_side: "right", align: "start" },
+      scenes: [],
     },
     state: { on: { a: true, b: true } },
     peer: { kind: "paired", name: "PC-Escritorio", link: "usb4" },
@@ -167,6 +168,7 @@ describe("con el agente real", () => {
       },
       peer: null,
     },
+    monitors: [],
   });
 
   /** Lo que la prueba no usa se queda esperando. */

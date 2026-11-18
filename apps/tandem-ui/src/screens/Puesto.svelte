@@ -100,7 +100,7 @@
       <div class="slist">
         {#each desk.scenes as s (s.id)}
           {@const on = desk.activeScene === s.id}
-          {@const shows = desk.machines[s.shows]}
+          {@const shows = s.shows ? desk.machines[s.shows] : null}
           <button type="button" class="scene" class:act={on} aria-pressed={on} onclick={() => store.applyScene(s.id)}>
             <span class="srow">
               <span class="thumb"><div style="background:{WALL(shows?.color ?? '#7aa7e6')}"></div></span>

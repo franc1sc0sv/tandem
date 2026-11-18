@@ -78,7 +78,7 @@ describe("store", () => {
     await store.start();
     await store.applyScene("juego");
     expect(store.desk.activeScene).toBe("juego");
-    expect(store.toasts.at(-1)).toMatchObject({ text: "Escena «Juego» aplicada", tone: "ok" });
+    expect(store.toasts.at(-1)).toMatchObject({ text: "Escena «Juego» activa.", tone: "ok" });
     await store.applyScene("nada");
     expect(store.toasts.at(-1)).toMatchObject({ tone: "bad" });
     vi.advanceTimersByTime(5000);
@@ -215,10 +215,11 @@ describe("emparejar y permisos", () => {
     const snap = {
       kind: "connected",
       agent: "a",
-      desk: { machines: { a: null, b: null }, screens: [], arrangement: null },
+      desk: { machines: { a: null, b: null }, screens: [], arrangement: null, scenes: [] },
       state: { on: { a: true, b: false } },
       peer: { kind: "unpaired" },
       pairing: { kind: "idle" },
+      monitors: [],
       input: { server: "a", hub_here: null, session: false, locked: false, missing: ["accessibility"], problem: null, defined: false },
       caps: {
         here: {
@@ -349,7 +350,7 @@ describe("fuente real", () => {
   const connected = (over: Partial<Extract<Snapshot, { kind: "connected" }>> = {}): Snapshot => ({
     kind: "connected",
     agent: "b",
-    desk: { machines: { a: { os: "windows", name: "Taller", color: "#6cc59a" }, b: null }, screens: [], arrangement: { a_side: "up", align: "end" } },
+    desk: { machines: { a: { os: "windows", name: "Taller", color: "#6cc59a" }, b: null }, screens: [], arrangement: { a_side: "up", align: "end" }, scenes: [] },
     state: { on: { a: true, b: true } },
     peer: { kind: "paired", name: "Taller", link: "wifi" },
     pairing: { kind: "idle" },
@@ -367,6 +368,7 @@ describe("fuente real", () => {
       },
       peer: null,
     },
+    monitors: [],
     ...over,
   });
 
@@ -407,13 +409,21 @@ describe("fuente real", () => {
     push?.(connected({ caps: { ...((connected() as Extract<Snapshot, { kind: "connected" }>).caps), here: { ...(connected() as Extract<Snapshot, { kind: "connected" }>).caps.here, name: "Nuevo" } } }));
     expect(store.desk.machines.b?.name).toBe("Nuevo");
     expect(src.can("measure")).toBe(true);
-    expect(src.can("scenes")).toBe(false);
+    // Con el agente conectado se aplican escenas y se cambian monitores (T-116).
+    expect(src.can("scenes")).toBe(true);
+    expect(src.can("monitors")).toBe(true);
+    expect(src.can("forget")).toBe(false);
     // Sin red a la vista, mide el camino por el que se ve a la otra máquina (410 Mbps = 51.25 MB/s).
     expect(await src.measureLink()).toEqual({ ok: true, text: "Wi-Fi: 410 Mbps" });
     expect(act).toHaveBeenLastCalledWith({ kind: "measure_link", path: "wifi" });
     expect(await src.measureLink("usb4")).toEqual({ ok: true, text: "USB-C: 410 Mbps" });
     expect(act).toHaveBeenLastCalledWith({ kind: "measure_link", path: "usb4" });
-    expect((await src.applyScene()).ok).toBe(false);
+    act.mockResolvedValueOnce({ kind: "accepted", txn: 2 } as never);
+    expect(await src.applyScene("juego")).toEqual({ ok: true });
+    expect(act).toHaveBeenLastCalledWith({ kind: "apply_scene", id: "juego" });
+    act.mockResolvedValueOnce({ kind: "rejected", reason: "hdmi sin señal" } as never);
+    expect(await src.switchMonitor("g34", "hdmi")).toEqual({ ok: false, reason: "hdmi sin señal" });
+    expect(act).toHaveBeenLastCalledWith({ kind: "switch_monitor", monitor: "g34", input: "hdmi" });
     act.mockResolvedValueOnce({ kind: "done" } as never);
     expect(await src.setModule("b", "clipboard", false)).toEqual({ ok: true });
     expect(act).toHaveBeenLastCalledWith({ kind: "set_module", machine: "b", module: "clipboard", on: false });

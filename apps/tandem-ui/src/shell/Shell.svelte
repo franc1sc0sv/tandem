@@ -8,8 +8,10 @@
   import Acomodo from "../screens/Acomodo.svelte";
   import CrossTest from "../screens/CrossTest.svelte";
   import Ajustes from "../screens/Ajustes.svelte";
+  import Escena from "../screens/Escena.svelte";
   import Maquina from "../screens/Maquina.svelte";
   import Monitores from "../screens/Monitores.svelte";
+  import Progreso from "../screens/Progreso.svelte";
   import Puesto from "../screens/Puesto.svelte";
   import Red from "../screens/Red.svelte";
   import Trouble from "../screens/Trouble.svelte";
@@ -60,6 +62,11 @@
   {#if store.route.screen === "cruce"}
     <!-- La prueba de cruce ocupa toda la ventana, con su ruta de vuelta (F-PruebaCruce). -->
     {#key key}<CrossTest />{/key}
+  {:else if store.route.screen === "escena"}
+    <!-- El editor de escenas y el progreso también ocupan toda la ventana (F-NuevaEscena, F-Transacciones). -->
+    {#key key}<Escena id={store.route.id} />{/key}
+  {:else if store.route.screen === "progreso"}
+    {#key key}<Progreso />{/key}
   {:else}
   <Sidebar />
   {#key key}

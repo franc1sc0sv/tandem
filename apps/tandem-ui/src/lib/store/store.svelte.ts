@@ -3,7 +3,9 @@
 
 import type { CommandContext } from "../commands";
 import { shouldOpen as pairingShouldOpen } from "../pairing";
-import type { Machine } from "../model";
+import type { Machine, MonitorInput, SceneJson } from "../model";
+import { feedRun, running, viewOf, type Names, type Run, type RunView } from "../txn";
+import { machineName } from "../machines";
 import type { Bindings, Permission, ShortcutsView } from "../model";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
@@ -41,10 +43,20 @@ export class Store implements CommandContext {
   paletteOpen = $state(false);
   wizardOpen = $state(false);
   toasts: Toast[] = $state([]);
+  /** La transacción que se está viendo o acaba de terminar (escena, cambio de entrada). */
+  run: Run | null = $state(null);
+  /** Reloj de la pantalla de progreso (cuenta el tiempo mientras corre). */
+  clock = $state(Date.now());
+  /** Ya se sabe si hay avisos de transacciones: antes, «sin progreso» todavía no quiere decir nada. */
+  txnReady = $state(false);
   /** Número de túneles activos, para la barra lateral. */
   activeTunnels = $derived(this.desk.tunnels.filter((t) => t.state === "busy").length);
 
   private nextToast = 1;
+  /** Lo que se pidió desde esta ventana: da el título y el texto final de la transacción que arranque. */
+  private origin: { title: string; doneText: string } | null = null;
+  private stopTxn: (() => void) | null = null;
+  private clockTimer: ReturnType<typeof setInterval> | undefined;
 
   /**
    * `fixedTopics`: temas fijos (la bandeja); sin esto, los del shell y la pantalla visible.
@@ -79,9 +91,56 @@ export class Store implements CommandContext {
       this.desk = deskFromError(e);
     }
     this.source.watch(this.topics());
+    // No se espera: si la fuente tarda en dar los avisos (o no los tiene), la ventana ya se dibuja.
+    void this.listenTxn();
+  }
+
+  /** Se queda oyendo el avance de las transacciones; sin eso (fuente sin ellas) no hay progreso que mostrar. */
+  private async listenTxn(): Promise<void> {
+    try {
+      this.stopTxn = await this.source.watchTxn((e, at, given) => {
+        const before = this.run;
+        this.run = feedRun(this.run, e, at ?? this.nowMs(), e.type === "started" ? (given ?? this.origin) : null);
+        if (e.type === "started") this.origin = null;
+        this.clock = this.nowMs();
+        if (running(this.run) && this.clockTimer === undefined) this.clockTimer = setInterval(() => (this.clock = this.nowMs()), 100);
+        if (!running(this.run)) this.stopClock();
+        // Un cambio que falló y se deshizo se avisa aunque no se esté mirando el progreso.
+        if (e.type === "failed" && running(before) && this.route.screen !== "progreso" && this.run) {
+          this.toast(this.runView(this.run)?.message.text ?? "No se pudo aplicar el cambio", "bad");
+        }
+        // Lo que sale bien se ve en la pantalla de Monitores (el selector, la escena activa); en las demás se avisa.
+        if (e.type === "committed" && this.run?.doneText && !["monitores", "progreso", "escena"].includes(this.route.screen)) this.toast(this.run.doneText, "ok");
+      });
+    } catch {
+      // Sin avisos de transacciones (fuera de la app): no hay progreso que dibujar.
+    }
+    this.txnReady = true;
+  }
+
+  private nowMs(): number {
+    return this.source.now?.() ?? Date.now();
+  }
+
+  private stopClock(): void {
+    clearInterval(this.clockTimer);
+    this.clockTimer = undefined;
+    this.clock = this.nowMs();
+  }
+
+  /** Los nombres para dibujar el progreso. */
+  get names(): Names {
+    return { machine: (m) => this.desk.machines[m]?.name ?? machineName(m), monitors: this.desk.monitors };
+  }
+
+  /** Lo que dibuja la pantalla de progreso, o `null` si no hay transacción. */
+  runView(run: Run | null = this.run): RunView | null {
+    return run ? viewOf(run, this.names, this.clock) : null;
   }
 
   stop(): void {
+    this.stopClock();
+    this.stopTxn?.();
     this.source.stop();
   }
 
@@ -116,8 +175,46 @@ export class Store implements CommandContext {
     return r;
   }
 
-  applyScene(id: string): Promise<ActResult> {
-    return this.report(this.source.applyScene(id));
+  /** Lleva a la pantalla de progreso de la transacción en curso (la de Monitores y el editor lo piden al aplicar). */
+  showProgress(): void {
+    this.go({ screen: "progreso" });
+  }
+
+  /** Aplica una escena; si no se pudo empezar, avisa. Su avance llega como transacción. */
+  async applyScene(id: string): Promise<ActResult> {
+    const scene = this.desk.scenes.find((s) => s.id === id);
+    this.origin = { title: `Aplicando la escena «${scene?.name ?? id}»`, doneText: `Escena «${scene?.name ?? id}» activa.` };
+    const r = await this.report(this.source.applyScene(id));
+    if (!r.ok) this.origin = null;
+    return r;
+  }
+
+  /** Pide la entrada de un monitor compatible. El veredicto lo da el monitor: la pantalla no adivina. */
+  async switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult> {
+    const m = this.desk.monitors.find((x) => x.id === monitor);
+    this.origin = { title: `Cambiando la entrada del ${m?.name ?? monitor}`, doneText: "Entrada cambiada." };
+    const r = await this.report(this.source.switchMonitor(monitor, input));
+    if (!r.ok) this.origin = null;
+    return r;
+  }
+
+  saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult> {
+    return this.report(this.source.saveScene(scene, isNew));
+  }
+
+  /** El id que el agente le dio a una escena recién guardada (llega con el puesto nuevo); `null` si no aparece. */
+  async waitForScene(name: string, timeoutMs = 3000): Promise<string | null> {
+    const until = Date.now() + timeoutMs;
+    for (;;) {
+      const s = this.desk.scenes.find((x) => x.name === name);
+      if (s) return s.id;
+      if (Date.now() >= until) return null;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+
+  forgetMonitor(id: string): Promise<ActResult> {
+    return this.report(this.source.forgetMonitor(id));
   }
 
   setPower(machine: Machine, on: boolean): Promise<ActResult> {

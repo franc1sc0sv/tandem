@@ -195,13 +195,17 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     await page.waitForSelector("#app > *", { timeout: 10_000 });
     if (spec.content?.appStyle) await page.addStyleTag({ content: spec.content.appStyle });
     await settle(page);
-    for (const k of spec.keys ?? []) {
-      await page.keyboard.press(k);
+    for (const f of spec.fills ?? []) {
+      await page.locator(f.selector).first().fill(f.text, { timeout: 5_000 });
       await settle(page);
     }
     // Los mismos clics que llevan al estado del mockup (`tools/mockup-render/src/states.ts`).
     for (const sel of spec.clicks ?? []) {
       await page.locator(sel).click({ timeout: 5_000 });
+      await settle(page);
+    }
+    for (const k of spec.keys ?? []) {
+      await page.keyboard.press(k);
       await settle(page);
     }
     const text = await page.evaluate(() => document.body.innerText);
@@ -225,10 +229,10 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
   // captura del mockup (`compareWithMockup`).
   let ref: Buffer | null = null;
 
-  const ignoreSel = (spec.ignore ?? []).map((i) => i.mockupSelector);
+  const ignoreSel = (spec.ignore ?? []).flatMap((i) => (i.mockupSelector ? [i.mockupSelector] : []));
   const regionSel = (spec.regions ?? []).flatMap((r) => (r.mockupSelector ? [r.mockupSelector] : []));
   const rects = ignoreSel.length + regionSel.length > 0 ? await mockupRects(browser, spec, [...ignoreSel, ...regionSel]) : {};
-  const masked = ignoreSel.map((s) => rects[s]).filter((r): r is Rect => r !== null && r !== undefined);
+  const masked = [...ignoreSel.map((s) => rects[s]), ...(spec.ignore ?? []).map((i) => i.rect)].filter((r): r is Rect => r !== null && r !== undefined);
   let app = png;
   if (masked.length > 0) {
     app = mask(app, masked);

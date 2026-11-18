@@ -61,6 +61,10 @@ export const ICONS = {
     body: '<circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><path d="M6 8.5v7M18 10.5c0 4-6 3-11 5.5"></path>',
   },
   trash: { body: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path>', linecap: "round" },
+  /** El lápiz de «Editar» de V3-Monitores (sin la línea de `edit`). */
+  pencil: { body: '<path d="M4 20h4L19 9l-4-4L4 16z"></path>', linejoin: "round" },
+  hand: { body: '<path d="M9 11V5a2 2 0 0 1 4 0v6M13 11V4a2 2 0 0 1 4 0v8M9 11a2 2 0 0 0-4 0v2a7 7 0 0 0 14 0v-1"></path>' },
+  unplugged: { body: '<path d="M7 7l10 10M9 3v4M15 3v4M6 9h3M15 9h3"></path>' },
   plug: { body: '<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"></path>' },
   pulse: { body: '<path d="M2 12h4l3-8 4 16 3-8h6"></path>' },
   cpu: { body: '<rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"></path>' },
