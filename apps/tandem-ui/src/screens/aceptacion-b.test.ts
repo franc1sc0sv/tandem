@@ -7,13 +7,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Bridge } from "../lib/bridge";
 import { buildCommands } from "../lib/commands";
 import { STORE_KEY } from "../lib/context";
+import { summaryRows } from "../lib/wizard";
 import type { Action, ActionResult, Snapshot } from "../lib/model";
 import { DemoSource, demoOptions } from "../lib/store/demo";
 import { LiveSource } from "../lib/store/live";
-import { Store } from "../lib/store/store.svelte";
+import { Store, TRAY_TOPICS } from "../lib/store/store.svelte";
 import type { Source } from "../lib/store/types";
 import type { ProjectWire } from "../lib/tunnels";
 import Shell from "../shell/Shell.svelte";
+import Tray from "../Tray.svelte";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -89,6 +91,26 @@ describe("T-153: los botones con can() se habilitan al conectar el agente", () =
     expect(medir()).toBeEnabled();
   });
 
+  it("«Aplicar» de Monitores se habilita al llegar la primera foto", async () => {
+    const withScene = { ...snapshot(), desk: { ...snapshot().desk, scenes: [{ id: "t", name: "Trabajo", monitors: [], shortcut: [] }] } } as Snapshot;
+    const { b, push } = bridge({ kind: "connecting" });
+    await open(new LiveSource(b), "#/monitores");
+    expect(screen.queryByRole("button", { name: "Aplicar" })).toBeNull();
+    await flush(async () => push(withScene));
+    expect(await screen.findByRole("button", { name: "Aplicar" })).toBeEnabled();
+  });
+
+  it("Acomodo reevalúa can() con cada foto; «Probar cruce» sigue deshabilitado hasta T-150 (no hay `crossing` en la fuente real)", async () => {
+    const { b, push } = bridge({ kind: "connecting" });
+    const src = new LiveSource(b);
+    const store = await open(src, "#/acomodo");
+    expect(store.can("monitors")).toBe(false);
+    await flush(async () => push(snapshot()));
+    // `can()` sí cambia con la foto (lo de T-153); el cruce real depende de T-150.
+    expect(store.can("monitors")).toBe(true);
+    expect(store.can("crossing")).toBe(false);
+  });
+
   it("vuelve a deshabilitarse si el agente se pierde", async () => {
     const { b, push } = bridge(snapshot());
     await open(new LiveSource(b), "#/red");
@@ -112,6 +134,18 @@ describe("T-154: la ventana pide los túneles que ya existen", () => {
     expect(store.desk.tunnels.map((t) => t.title)).toEqual(["Revisar el PR"]);
     expect(await screen.findByText("1 abierto · 1 proyecto")).toBeInTheDocument();
     expect(act.mock.calls.filter(([a]) => a.kind === "tunnels")).toHaveLength(1);
+  });
+
+  it("la bandeja y la paleta también los muestran tras abrirse", async () => {
+    const running = [{ id: 1, command: "cargo test", pid: 9, started: Date.now(), duration: null, state: { kind: "running" as const } }];
+    const busy: ProjectWire[] = [{ ...wire[0], tunnels: [{ ...wire[0]!.tunnels[0]!, running }] } as ProjectWire];
+    const reply = (a: Action): ActionResult => (a.kind === "tunnels" ? { kind: "tunnels", tunnels: busy } : { kind: "done" });
+    const { b } = bridge(snapshot(), {}, reply);
+    const store = new Store(new LiveSource(b), null, TRAY_TOPICS);
+    render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
+    await vi.waitFor(() => expect(screen.getByText("1 túneles")).toBeInTheDocument());
+    const titles = buildCommands(store.desk, store, false).map((c) => c.title);
+    expect(titles).toContain("Ir al túnel «Revisar el PR»");
   });
 
   it("espera a que haya agente y luego los pide", async () => {
@@ -156,6 +190,18 @@ describe("T-157: «Bloquear aquí» se ve y la paleta ofrece solo lo que aplica"
   it("el Puesto muestra el chip mientras el cursor está bloqueado y lo quita al soltar", async () => {
     const { b, push } = bridge(snapshot(false));
     await open(new LiveSource(b), "#/puesto");
+    expect(chip()).toBeNull();
+    await flush(async () => push(snapshot(true)));
+    expect(chip()).not.toBeNull();
+    await flush(async () => push(snapshot(false)));
+    expect(chip()).toBeNull();
+  });
+
+  it("la bandeja muestra el chip mientras está bloqueado y lo quita al soltar", async () => {
+    const { b, push } = bridge(snapshot(false));
+    const store = new Store(new LiveSource(b), null, TRAY_TOPICS);
+    render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
+    await vi.waitFor(() => expect(store.desk.ready).toBe(true));
     expect(chip()).toBeNull();
     await flush(async () => push(snapshot(true)));
     expect(chip()).not.toBeNull();
@@ -209,6 +255,19 @@ describe("T-158: los módulos muestran el estado que dice el agente", () => {
     const views = store.desk.machines.a?.modules ?? [];
     expect(views.map((m) => [m.id, m.state])).toEqual([["tunnels", "active"], ["files", "active"]]);
     expect(document.body.textContent).not.toContain("Aún no está en esta versión");
+  });
+
+  it("el resumen del asistente dice que los túneles funcionan, o por qué no", async () => {
+    const both = (state: string, reason?: string) => ({
+      ...snapshot(false, [{ ...mods[0], state, reason }]),
+      caps: { ...snapshot().caps, here: { ...snapshot().caps.here, modules: [{ ...mods[0], state, reason }] }, peer: { ...snapshot().caps.here, machine: "b", name: "PC-Escritorio", os: "windows", modules: [{ ...mods[0], state, reason }] } },
+    }) as unknown as Snapshot;
+    const rows = async (snap: Snapshot) => {
+      const store = await open(new LiveSource(bridge(snap).b), "#/puesto");
+      return summaryRows(store.desk, { crossed: true }).find((r) => r.id === "tunnels");
+    };
+    expect(await rows(both("active"))).toMatchObject({ ok: true, note: "MCP listo para Claude Code en las dos" });
+    expect(await rows(both("unavailable", "El sistema no dejó abrir nada"))).toMatchObject({ ok: false });
   });
 
   it("una razón verdadera sí se muestra", async () => {

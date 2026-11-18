@@ -14,9 +14,21 @@ use std::collections::{BTreeMap, BTreeSet};
 use tandem_core::Os;
 use tandem_proto::{InputPermission, InputStatus, ModuleId, ModuleInfo, ModuleState, PowerCaps};
 
-/// La razón de «Archivos» cuando el sistema no dio un detector de arrastres (T-158): el
-/// módulo existe y funciona; esto solo se dice si el sistema no lo pudo abrir.
-pub const NO_FILE_DRAG: &str = "El sistema no dejó abrir el detector de arrastre de archivos";
+/// Razones de «Archivos» (T-158): el módulo existe y funciona; solo se dice que no está
+/// disponible por una de estas causas verdaderas.
+pub const NO_FILE_DRAG: &str = "No se pudo abrir el detector de arrastre de archivos del sistema";
+pub const NO_FILE_DRAG_OS: &str = "Este sistema no tiene arrastre de archivos entre máquinas";
+pub const NO_ENGINE: &str = "El motor de teclado y mouse no arrancó, y el arrastre va con él";
+
+/// El problema de «Archivos» según lo que dio el sistema: `supported` es si este sistema
+/// tiene detector (Windows y macOS), `present` si el motor recibió uno.
+pub fn file_drag_problem(supported: bool, present: bool) -> Option<&'static str> {
+    match (present, supported) {
+        (true, _) => None,
+        (false, true) => Some(NO_FILE_DRAG),
+        (false, false) => Some(NO_FILE_DRAG_OS),
+    }
+}
 
 /// Lo que el agente sabe y los módulos miran para decir su estado.
 #[derive(Debug, Clone, Copy)]
@@ -478,6 +490,17 @@ mod tests {
             on_pc(&reg, &input, &switches, ModuleId::Files),
             ModuleState::Active
         );
+    }
+
+    #[test]
+    fn the_file_drag_problem_tells_the_true_cause() {
+        assert_eq!(file_drag_problem(true, true), None);
+        assert_eq!(file_drag_problem(false, true), None);
+        assert_eq!(file_drag_problem(true, false), Some(NO_FILE_DRAG));
+        assert_eq!(file_drag_problem(false, false), Some(NO_FILE_DRAG_OS));
+        for r in [NO_FILE_DRAG, NO_FILE_DRAG_OS, NO_ENGINE] {
+            assert!(!r.to_lowercase().contains("aún no"), "{r}");
+        }
     }
 
     #[test]
