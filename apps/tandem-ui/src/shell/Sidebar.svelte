@@ -38,7 +38,7 @@
     {@const href = formatHash(item.route)}
     <a class="nav" class:on={current === href} {href} aria-current={current === href ? "page" : undefined} onclick={(e) => go(e, item.route)}>
       <Icon name={item.icon} />{item.label}
-      {#if item.route.screen === "tuneles" && store.activeTunnels > 0}<span class="fill"></span><Chip count dot={false}>{store.activeTunnels}</Chip>{/if}
+      {#if item.route.screen === "tuneles" && store.activeTunnels > 0}<span class="fill"></span>{#if current === href}<span class="pdot" title="{store.activeTunnels} activos"></span>{:else}<Chip count dot={false}>{store.activeTunnels}</Chip>{/if}{/if}
     </a>
   {/each}
   {#if machines.length > 0}
@@ -123,5 +123,22 @@
   }
   .fill {
     flex: 1;
+  }
+  /* En la pantalla Túneles el contador pasa a un punto vivo (`V3-Computo`). */
+  .pdot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #a99be8;
+    animation: sb-pl 1.8s infinite;
+  }
+  @keyframes sb-pl {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(169, 155, 232, 0.6);
+    }
+    50% {
+      box-shadow: 0 0 0 5px rgba(169, 155, 232, 0);
+    }
   }
 </style>

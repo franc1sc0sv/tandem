@@ -211,6 +211,34 @@ const progresoShot = (name: string, txn: "run" | "ok" | "fail", state?: string):
   ignore: [SIMULAR, NO_CANCEL, ...(txn === "fail" ? [] : [MACHINE_NAME])],
   min: SCREEN_GATE,
 });
+// T-114: Túneles contra `V3-Computo` en cada estado que dibuja (con los mismos clics que el
+// mockup). Sin túneles y con 12 procesos el mockup no los dibuja: se capturan con los mismos
+// componentes y tokens, sin umbral (ACCEPTANCE, P2).
+const tunelesShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
+  name,
+  page: "index.html",
+  query: DEMO,
+  hash: "#/tuneles",
+  mockup: "V3-Computo",
+  width: W,
+  height: H,
+  ignore: [NO_ADD_MACHINE],
+  regions: [SIDEBAR],
+  min: SCREEN_GATE,
+  ...extra,
+});
+export const TUNELES: ShotSpec[] = [
+  tunelesShot("tuneles"),
+  tunelesShot("tuneles-proceso-2", { state: "proceso-2", clicks: ['[role="option"] >> nth=1'] }),
+  tunelesShot("tuneles-2-procesos", { state: "tunel-2-procesos", clicks: ['.tun:has-text("T-101")'] }),
+  tunelesShot("tuneles-sin-procesos", { state: "tunel-sin-procesos", clicks: ['.tun:has-text("Revisar PR #66")'] }),
+  tunelesShot("tuneles-lora", { state: "tunel-lora", clicks: ['.tun:has-text("Entrenar LoRA")'] }),
+  tunelesShot("tuneles-cerrado", { state: "tunel-cerrado", clicks: ['.tun:has-text("ComfyUI")'] }),
+  tunelesShot("tuneles-proyecto-plegado", { state: "proyecto-plegado", clicks: ['.proj:has-text("tandem")'] }),
+  tunelesShot("tuneles-vacio", { query: `${DEMO}&tunnels=none`, min: undefined }),
+  tunelesShot("tuneles-12-procesos", { query: `${DEMO}&tunnels=many`, min: undefined }),
+];
+
 export const MONITORES: ShotSpec[] = [
   monitoresShot("monitores"),
   monitoresShot("monitores-entrada-mac", { state: "entrada-mac", clicks: ['[role="radio"]:has-text("MacBook Pro")'] }),
@@ -247,7 +275,7 @@ export const SHOTS: ShotSpec[] = [
   // colores cambian, así que no tienen umbral: sirven para ver cada combinación.
   { name: "puesto-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
   { name: "puesto-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/puesto", mockup: "V3-Puesto", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
-  { name: "tuneles", page: "index.html", query: DEMO, hash: "#/tuneles", mockup: "V3-Computo", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
+  ...TUNELES,
   ...MONITORES,
   ...ACOMODO,
   // T-118: la pantalla Red entera contra `V3-Red`. Se tapa lo que D1 quita («Agregar máquina») y

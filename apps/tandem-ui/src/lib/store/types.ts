@@ -196,13 +196,58 @@ export type TunnelState = "busy" | "idle" | "closed";
 
 /** Un túnel de Claude (D8, solo lectura en la UI, D9). */
 export interface TunnelView {
+  /** El id del agente (16 hex): viaja como texto porque no cabe en un número de JavaScript. */
   id: string;
   project: string;
+  /** La carpeta del proyecto en el origen, si el agente la dio. */
+  projectPath: string | null;
   title: string;
   from: Machine;
   to: Machine;
   state: TunnelState;
+  /** Procesos corriendo ahora. */
   processes: number;
+  /** La rama del workspace de git (T-107); `null` mientras el agente no la informe. */
+  branch: string | null;
+  /** Cuándo se abrió, en milisegundos Unix. */
+  created: number;
+  /** Desde cuándo está inactivo (ms Unix), si se sabe. */
+  idleSince: number | null;
+  /** Cuándo se cerró (ms Unix); solo en los cerrados. */
+  closedAt: number | null;
+  /** Dónde corren los procesos en la máquina destino («WSL · Ubuntu»); `null` si el agente no lo dice. */
+  env: string | null;
+  /** Comandos lanzados en el túnel; `null` si el agente no lo cuenta (la pantalla usa los que ve). */
+  commands: number | null;
+  /** Puertos reenviados; `null` si el agente no los lista. */
+  ports: number | null;
+  /** Bytes que fueron (`up`) y vinieron (`down`) por el túnel. */
+  traffic: { up: number; down: number };
+}
+
+/** Un proceso de un túnel (`GetProcesses`). */
+export interface ProcessRow {
+  id: number;
+  command: string;
+  pid: number | null;
+  /** Ms Unix. */
+  startedAt: number;
+  state: "running" | "exited" | "killed";
+  code: number | null;
+}
+
+/** Hasta dónde se leyó la salida de cada flujo. */
+export interface OutputCursor {
+  stdout: number;
+  stderr: number;
+}
+
+/** Lo que la salida de un proceso suma desde un cursor. */
+export interface OutputChunk {
+  text: string;
+  next: OutputCursor;
+  /** El proceso terminó y ya se entregó todo. */
+  done: boolean;
 }
 
 export interface SceneView {
@@ -380,6 +425,10 @@ export interface Source {
   watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void>;
   /** Tiempo para cruzar, si la fuente lo cambia (el demo, para capturar el tiempo agotado). */
   readonly crossTimeoutMs?: number;
+  /** Los procesos de un túnel, también los que terminaron hace poco (T-104). */
+  processes(tunnel: string): Promise<ProcessRow[]>;
+  /** La salida de un proceso desde `from` (T-104). */
+  output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk>;
   /** Qué sabe hacer esta fuente hoy (el agente real aún no tiene escenas ni módulos). */
   can(what: Capability): boolean;
   stop(): void;

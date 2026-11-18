@@ -213,6 +213,11 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
       await page.locator(sel).click({ timeout: 5_000 });
       await settle(page);
     }
+    if ((spec.clicks?.length ?? 0) > 0) {
+      // Igual que el renderizador de mockups: sin el puntero encima del último botón (su :hover cambiaría la captura).
+      await page.mouse.move(0, 0);
+      await settle(page);
+    }
     for (const k of spec.keys ?? []) {
       await page.keyboard.press(k);
       await settle(page);
