@@ -59,6 +59,8 @@ pub struct Agent {
     cfg: AgentConfig,
     /// Los túneles que esta máquina hospeda y los que abrió (T-103, [`crate::tunnels`]).
     tunnels: tandem_tunnel::Tunnels,
+    /// Archivos y puertos por túnel (T-106): el lado destino y los clientes locales.
+    files: tandem_files::Files,
     /// Prioridad, tope y pausa de los datos, uno por camino (T-101).
     link_qos: LinkQos,
     /// El lado de esta máquina. Sale de la identidad: cambia una sola vez, si al emparejar
@@ -324,6 +326,7 @@ impl Agent {
         link_qos.set_prefs(cfg.desk.data);
         Agent {
             tunnels: tandem_tunnel::Tunnels::default(),
+            files: tandem_files::Files::default(),
             link_qos,
             me: watch::Sender::new(me),
             editing: Mutex::new(()),
@@ -1085,9 +1088,12 @@ impl Agent {
             UiCommand::GetTunnels => Reply::Tunnels(self.tunnels.view()),
             // Esperan a la otra máquina y solo los puede pedir un cliente: los atiende la IPC
             // ([`crate::tunnels::handle`]).
-            UiCommand::OpenTunnel { .. } | UiCommand::CloseTunnel { .. } => {
-                Reply::Rejected(crate::tunnels::CLIENTS_ONLY.into())
-            }
+            UiCommand::OpenTunnel { .. }
+            | UiCommand::CloseTunnel { .. }
+            | UiCommand::FilesPut { .. }
+            | UiCommand::FilesGet { .. }
+            | UiCommand::PortForward { .. }
+            | UiCommand::StopForward { .. } => Reply::Rejected(crate::tunnels::CLIENTS_ONLY.into()),
             // También de la conexión: la suscripción y la medición, que tarda unos segundos
             // ([`Agent::measure_link`]).
             UiCommand::WatchNetwork { .. } | UiCommand::MeasureLink { .. } => {
@@ -1101,6 +1107,10 @@ impl Agent {
     }
 
     /// Los túneles de esta máquina (los que hospeda y los que abrió).
+    pub fn files(&self) -> &tandem_files::Files {
+        &self.files
+    }
+
     pub fn tunnels(&self) -> &tandem_tunnel::Tunnels {
         &self.tunnels
     }

@@ -32,7 +32,9 @@ use tandem_proto::{ProjectTunnels, Tunnel, TunnelState, group_by_project};
 use tokio::sync::watch;
 
 pub use buffer::{DEFAULT_CAPACITY, OutputBuffer, Read};
-pub use host::{FlowWriter, Host, HostOptions, HostTunnel, Resource, TunnelClosed, serve};
+pub use host::{
+    FlowWriter, Host, HostOptions, HostTunnel, Resource, TunnelClosed, serve, serve_request,
+};
 pub use origin::{FlowStatus, Link, OpenSpec, Origin, OriginOptions, TunnelError};
 pub use wire::{BoxFuture, Dialer, OriginWire, TargetWire, WireError};
 

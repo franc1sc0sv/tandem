@@ -14,6 +14,7 @@ use tandem_core::{
 
 use crate::cursor::CursorSample;
 use crate::env::{Environment, Hardware, Resources};
+use crate::files::{Direction, FilesReport, ForwardInfo, TransferProgress};
 use crate::net::NetworkStatus;
 use crate::tunnel::{ClientKind, Project, ProjectTunnels, Tunnel, TunnelId};
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
@@ -660,6 +661,33 @@ pub enum UiCommand {
     WatchCursor {
         on: bool,
     },
+    /// Copiar `local` (archivo o carpeta de esta máquina) a `remote` en la destino del
+    /// túnel (T-106). Solo desde un [`Peer::Client`]; tarda, así que contesta al terminar
+    /// con [`Reply::Files`] y mientras tanto manda [`AgentToUi::Transfer`].
+    FilesPut {
+        tunnel: TunnelId,
+        local: String,
+        remote: String,
+    },
+    /// Traer `remote` de la destino del túnel a `local` (T-106). Contesta como `FilesPut`.
+    FilesGet {
+        tunnel: TunnelId,
+        remote: String,
+        local: String,
+    },
+    /// Reenviar un puerto TCP por el túnel (T-106); contesta [`Reply::Forward`]. Se cierra
+    /// con el túnel o con [`UiCommand::StopForward`].
+    PortForward {
+        tunnel: TunnelId,
+        local_port: u16,
+        remote_host: String,
+        remote_port: u16,
+        direction: Direction,
+    },
+    /// Dejar de reenviar el puerto `id` (T-106).
+    StopForward {
+        id: u64,
+    },
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -737,6 +765,8 @@ pub enum AgentToUi {
         to: Machine,
         edge: Side,
     },
+    /// El avance de una transferencia de archivos de esta máquina (T-106).
+    Transfer(TransferProgress),
 }
 
 /// El emparejamiento visto desde la UI.
@@ -902,6 +932,10 @@ pub enum Reply {
         link: Link,
         bytes_per_sec: u64,
     },
+    /// Lo que copió [`UiCommand::FilesPut`] o [`UiCommand::FilesGet`].
+    Files(FilesReport),
+    /// El puerto que quedó reenviándose ([`UiCommand::PortForward`]).
+    Forward(ForwardInfo),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso.
@@ -1536,6 +1570,31 @@ pub(crate) mod samples {
             UiCommand::MeasureLink { path: Link::Wifi },
             UiCommand::WatchCursor { on: true },
             UiCommand::WatchCursor { on: false },
+            UiCommand::FilesPut {
+                tunnel: crate::TunnelId(1),
+                local: "/home/u/build".into(),
+                remote: "C:\\work\\build".into(),
+            },
+            UiCommand::FilesGet {
+                tunnel: crate::TunnelId(1),
+                remote: "C:\\work\\out.zip".into(),
+                local: "/tmp/out.zip".into(),
+            },
+            UiCommand::PortForward {
+                tunnel: crate::TunnelId(1),
+                local_port: 8080,
+                remote_host: "127.0.0.1".into(),
+                remote_port: 3000,
+                direction: Direction::LocalToRemote,
+            },
+            UiCommand::PortForward {
+                tunnel: crate::TunnelId(1),
+                local_port: 5432,
+                remote_host: "0.0.0.0".into(),
+                remote_port: 5432,
+                direction: Direction::RemoteToLocal,
+            },
+            UiCommand::StopForward { id: 7 },
         ];
         let mut cmds = cmds;
         cmds.extend(
@@ -1588,6 +1647,10 @@ pub(crate) mod samples {
             UiCommand::WatchNetwork { .. } => 31,
             UiCommand::MeasureLink { .. } => 32,
             UiCommand::WatchCursor { .. } => 33,
+            UiCommand::FilesPut { .. } => 34,
+            UiCommand::FilesGet { .. } => 35,
+            UiCommand::PortForward { .. } => 36,
+            UiCommand::StopForward { .. } => 37,
         }
     }
 
@@ -1832,6 +1895,34 @@ pub(crate) mod samples {
             to: Machine::A,
             edge: Side::Left,
         });
+        v.push(AgentToUi::Transfer(TransferProgress {
+            tunnel: crate::TunnelId(1),
+            upload: true,
+            path: "/home/u/build".into(),
+            done: 1 << 20,
+            total: 5 << 20,
+            finished: false,
+        }));
+        v.push(AgentToUi::Reply {
+            id: 15,
+            reply: Reply::Files(FilesReport {
+                files: 3,
+                dirs: 1,
+                bytes: 10,
+                sent: 4,
+            }),
+        });
+        v.push(AgentToUi::Reply {
+            id: 16,
+            reply: Reply::Forward(ForwardInfo {
+                id: 7,
+                tunnel: crate::TunnelId(1),
+                direction: Direction::LocalToRemote,
+                local_port: 8080,
+                remote_host: "127.0.0.1".into(),
+                remote_port: 3000,
+            }),
+        });
         v.push(AgentToUi::Reply {
             id: 14,
             reply: Reply::Bandwidth {
@@ -1896,6 +1987,7 @@ pub(crate) mod samples {
             AgentToUi::Network(_) => 15,
             AgentToUi::Cursor(_) => 16,
             AgentToUi::Crossed { .. } => 17,
+            AgentToUi::Transfer(_) => 18,
         }
     }
 
@@ -1918,6 +2010,8 @@ pub(crate) mod samples {
             Reply::Tunnel(_) => 14,
             Reply::Tunnels(_) => 15,
             Reply::Bandwidth { .. } => 16,
+            Reply::Files(_) => 17,
+            Reply::Forward(_) => 18,
         }
     }
 
@@ -1981,9 +2075,9 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 22);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 34);
+        covers(&cmds, ui_command_arm, 38);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 18);
+        covers(&to_ui(), to_ui_arm, 19);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
         let kinds: Vec<_> = capabilities()
             .iter()
@@ -2000,7 +2094,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 17);
+        covers(&replies, reply_arm, 19);
         covers(&txn_events(), txn_arm, 7);
     }
 

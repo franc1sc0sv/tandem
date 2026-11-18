@@ -192,6 +192,11 @@ where
     // La medición de ancho de banda que pidió esta conexión, con el id de su pedido: tarda
     // unos segundos y mientras tanto la conexión sigue atendiendo lo demás.
     let mut measuring: Option<(u64, Measurement)> = None;
+    // Las copias de archivos de esta conexión (T-106), con su canal de respuestas y el avance
+    // de las transferencias de este agente.
+    let mut jobs = tokio::task::JoinSet::new();
+    let (jobs_tx, mut jobs_rx) = tokio::sync::mpsc::unbounded_channel::<(u64, Reply)>();
+    let mut progress = agent.files().subscribe_progress();
     loop {
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
@@ -224,6 +229,17 @@ where
                         measuring = Some((req.id, run));
                         continue;
                     }
+                    command if crate::tunnels::is_slow(&command) => {
+                        // Una copia tarda: corre aparte y la conexión sigue atendiendo. Si la
+                        // conexión se cierra, `jobs` se suelta y la copia se interrumpe (lo
+                        // recibido queda en disco y se reanuda).
+                        let (agent, done, id) = (agent.clone(), jobs_tx.clone(), req.id);
+                        jobs.spawn(async move {
+                            let reply = crate::tunnels::handle(&agent, client, command).await;
+                            let _ = done.send((id, reply));
+                        });
+                        continue;
+                    }
                     command => crate::tunnels::handle(&agent, client, command).await,
                 };
                 conn.send(&AgentToUi::Reply { id: req.id, reply }).await?;
@@ -231,6 +247,16 @@ where
             () = next_tick(&mut network) => {
                 conn.send(&AgentToUi::Network(Box::new(agent.network_status()))).await?;
             }
+            Some((id, reply)) = jobs_rx.recv() => {
+                conn.send(&AgentToUi::Reply { id, reply }).await?;
+            }
+            Some(_) = jobs.join_next(), if !jobs.is_empty() => {}
+            p = progress.recv() => match p {
+                Ok(p) => conn.send(&AgentToUi::Transfer(p)).await?,
+                // Si esta conexión se atrasó, se pierden avances viejos y no pasa nada.
+                Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => return Ok(()),
+            },
             (id, reply) = measured(&mut measuring) => {
                 measuring = None;
                 conn.send(&AgentToUi::Reply { id, reply }).await?;

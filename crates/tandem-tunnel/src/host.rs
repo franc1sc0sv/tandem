@@ -323,7 +323,24 @@ pub async fn serve<W: TargetWire>(host: &Host, mut wire: W) -> Result<(), WireEr
     let Some(req) = wire.recv().await? else {
         return Ok(());
     };
+    serve_request(host, wire, req).await
+}
+
+/// Como [`serve`] con el primer pedido ya leído: para quien reparte los pedidos de otros
+/// módulos (archivos y puertos) y deja el resto a los túneles.
+pub async fn serve_request<W: TargetWire>(
+    host: &Host,
+    mut wire: W,
+    req: TunnelUp,
+) -> Result<(), WireError> {
     let reply = match req {
+        TunnelUp::Files(_) | TunnelUp::Port(_) => {
+            return wire
+                .send(&TunnelDown::Refused(
+                    "esta máquina no atiende archivos ni puertos".into(),
+                ))
+                .await;
+        }
         TunnelUp::Open(t) => TunnelDown::Opened(host.open(t)),
         TunnelUp::Close(id) => match host.close(id) {
             Ok(()) => TunnelDown::Closed(id),

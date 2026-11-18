@@ -233,6 +233,29 @@ impl Origin {
         }
     }
 
+    /// Abre un stream de túnel por el enlace activo, para operaciones que llevan su propio
+    /// diálogo (archivos y puertos, T-106).
+    pub async fn dial(&self) -> Result<Box<dyn crate::OriginWire>, TunnelError> {
+        let dialer = self
+            .inner
+            .link
+            .borrow()
+            .clone()
+            .ok_or(TunnelError::NoLink)?;
+        let wire = tokio::time::timeout(self.inner.opts.request_timeout, dialer.dial())
+            .await
+            .map_err(|_| TunnelError::Timeout)??;
+        Ok(wire)
+    }
+
+    /// `true` si el túnel está abierto y lo abrió esta máquina.
+    pub fn is_open(&self, id: TunnelId) -> bool {
+        self.inner
+            .tunnels()
+            .get(&id)
+            .is_some_and(|e| e.info.state == TunnelState::Open)
+    }
+
     /// Los túneles de la destino, según ella.
     pub async fn remote_list(&self) -> Result<Vec<Tunnel>, TunnelError> {
         match self.inner.request(TunnelUp::List).await? {
@@ -373,7 +396,11 @@ impl OriginInner {
                 self.output.send_modify(|n| *n = n.wrapping_add(1));
                 return true;
             }
-            TunnelDown::Opened(_) | TunnelDown::Closed(_) | TunnelDown::List(_) => {}
+            TunnelDown::Opened(_)
+            | TunnelDown::Closed(_)
+            | TunnelDown::List(_)
+            | TunnelDown::Files(_)
+            | TunnelDown::Port(_) => {}
         }
         drop(tunnels);
         self.output.send_modify(|n| *n = n.wrapping_add(1));
