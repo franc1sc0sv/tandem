@@ -1,10 +1,10 @@
-//! Arrastre de archivos al cruzar el borde (T-121), del lado del motor de entrada.
+//! File drag when crossing the edge (T-121), on the input engine's side.
 //!
-//! Con el botón apretado, un detector del sistema ([`FileDragBackend`]) dice si lo que se
-//! arrastra son archivos. Si es así se enciende la bandera que deja cruzar a la sesión
-//! aunque «Arrastrar entre máquinas» esté apagado; al cruzar, [`drag::run_origin`] copia los
-//! archivos al otro lado y espera cómo termina allí. Soltar el botón o volver al borde antes
-//! de terminar la copia cancela y el destino borra lo copiado.
+//! With the button pressed, a system detector ([`FileDragBackend`]) says whether what is being
+//! dragged is files. If so, the flag is turned on that lets the session cross
+//! even if "Drag between machines" is off; when crossing, [`drag::run_origin`] copies the
+//! files to the other side and waits for how it ends there. Releasing the button or returning to the edge before
+//! the copy finishes cancels and the destination deletes what was copied.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -21,14 +21,14 @@ use super::Shared;
 use crate::agent::Agent;
 use crate::drag::{self, FileDragBackend};
 
-/// Cada cuánto se pregunta al detector mientras hay un botón apretado.
+/// How often the detector is asked while a button is pressed.
 pub const POLL: Duration = Duration::from_millis(20);
 
-/// Grosor de la franja del detector, en píxeles de pantalla.
+/// Thickness of the detector's strip, in screen pixels.
 pub const STRIP_THICKNESS: i32 = 4;
 
-/// El borde de cruce de una máquina: la franja va por dentro del borde de la caja que
-/// envuelve sus pantallas, del lado que mira a la otra.
+/// A machine's crossing edge: the strip goes inside the edge of the box that
+/// wraps its screens, on the side facing the other.
 pub fn edge_target(screens: &[Rect], facing: Side) -> Option<(PxRect, StripEdge)> {
     let first = screens.first()?;
     let (mut l, mut t) = (first.x, first.y);
@@ -67,12 +67,12 @@ impl Upload for HookUpload<'_> {
     }
 }
 
-/// Espera a que `rx` valga `value`; `false` si el emisor se soltó.
+/// Waits for `rx` to be `value`; `false` if the sender was dropped.
 async fn until(rx: &mut watch::Receiver<bool>, value: bool) -> bool {
     rx.wait_for(|v| *v == value).await.is_ok()
 }
 
-/// Sigue la franja del borde con la geometría de ahora.
+/// Follows the edge strip with the current geometry.
 pub(super) async fn follow_edge(sh: Arc<Shared>, hook: Arc<dyn FileDragBackend>) {
     let mut layout = sh.layout.subscribe();
     loop {
@@ -91,8 +91,8 @@ pub(super) async fn follow_edge(sh: Arc<Shared>, hook: Arc<dyn FileDragBackend>)
     }
 }
 
-/// Mientras hay un botón apretado, mira si se arrastran archivos y, si el cursor cruza, los
-/// lleva al otro lado.
+/// While a button is pressed, it looks at whether files are dragged and, if the cursor crosses, carries them
+/// to the other side.
 pub(super) async fn follow(sh: Arc<Shared>, hook: Arc<dyn FileDragBackend>) {
     let (mut held, mut remote) = (sh.held.subscribe(), sh.remote.subscribe());
     loop {
@@ -104,7 +104,7 @@ pub(super) async fn follow(sh: Arc<Shared>, hook: Arc<dyn FileDragBackend>) {
             continue;
         };
         let cancelled = async {
-            // La copia se cancela al soltar el botón o si el cursor vuelve.
+            // The copy is canceled on releasing the button or if the cursor returns.
             tokio::select! {
                 _ = until(&mut held, false) => {}
                 _ = until(&mut remote, false) => {}
@@ -124,16 +124,16 @@ pub(super) async fn follow(sh: Arc<Shared>, hook: Arc<dyn FileDragBackend>) {
         .await;
         hook.finish(&sh.agent).await;
         sh.file_drag.store(false, Ordering::Relaxed);
-        tracing::debug!(?end, "arrastre de archivos terminado");
-        // Un solo arrastre por pulsación.
+        tracing::debug!(?end, "file drag finished");
+        // A single drag per press.
         if !until(&mut held, false).await {
             return;
         }
     }
 }
 
-/// Con el botón apretado: los archivos arrastrados cuando el cursor cruza, o `None` si se
-/// soltó el botón antes (o el cursor ya estaba afuera sin archivos).
+/// With the button pressed: the files dragged when the cursor crosses, or `None` if the
+/// button was released before (or the cursor was already outside without files).
 async fn detect(
     sh: &Shared,
     hook: &Arc<dyn FileDragBackend>,
@@ -143,7 +143,7 @@ async fn detect(
     let mut tick = tokio::time::interval(POLL);
     let mut files: Option<Vec<PathBuf>> = None;
     loop {
-        // Cruzó con archivos detectados.
+        // Crossed with files detected.
         if *remote.borrow() && files.is_some() {
             return files;
         }
@@ -156,8 +156,8 @@ async fn detect(
                     files = Some(f);
                     sh.file_drag.store(true, Ordering::Relaxed);
                 }
-                // Cruzado, el detector deja de verlos (el cursor salió de la franja); se
-                // conservan los de antes. Sin cruzar, ya no hay arrastre de archivos.
+                // Once crossed, the detector stops seeing them (the cursor left the strip); the
+                // earlier ones are kept. Without crossing, there is no file drag anymore.
                 None if !*remote.borrow() => {
                     files = None;
                     sh.file_drag.store(false, Ordering::Relaxed);
@@ -181,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn la_franja_sigue_el_borde_que_mira_a_la_otra_maquina() {
+    fn the_strip_follows_the_edge_facing_the_other_machine() {
         let screens = [rect(0, 0, 1920, 1080), rect(1920, 0, 1280, 1024)];
         assert_eq!(
             edge_target(&screens, Side::Right),
@@ -194,13 +194,13 @@ mod tests {
     }
 
     #[test]
-    fn sin_pantallas_no_hay_franja() {
+    fn without_screens_there_is_no_strip() {
         assert_eq!(edge_target(&[], Side::Right), None);
     }
 
     proptest! {
         #[test]
-        fn la_caja_envuelve_todas_las_pantallas(
+        fn the_box_wraps_all_the_screens(
             rects in proptest::collection::vec((-3000i32..3000, -3000i32..3000, 1u32..4000, 1u32..4000), 1..5)
         ) {
             let screens: Vec<Rect> = rects.iter().map(|&(x, y, w, h)| rect(x, y, w, h)).collect();

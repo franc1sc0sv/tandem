@@ -1,15 +1,15 @@
 [package]
 name = "tandemd"
-description = "Binario del agente (servicio launchd / Windows Service)"
+description = "Agent binary (launchd service / Windows Service)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-# `tandemw` es el lanzador sin consola para el arranque con la sesión de Windows.
+# `tandemw` is the console-less launcher for startup with the Windows session.
 default-run = "tandemd"
 
 [features]
-# Backends simulados y la opción `--sim-backends`, solo para las pruebas de punta a punta
-# con el binario (tests/two_processes.rs). El binario que se distribuye no la trae.
+# Simulated backends and the `--sim-backends` option, only for the end-to-end tests
+# with the binary (tests/two_processes.rs). The distributed binary does not include it.
 sim-backends = []
 
 [dependencies]

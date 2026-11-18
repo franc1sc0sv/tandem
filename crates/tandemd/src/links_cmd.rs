@@ -1,6 +1,6 @@
-//! `tandemd links`: qué ve el agente de la red, para el spike S5 y para depurar el enlace
-//! por cable (T-094). Lista las interfaces con el tipo detectado, la dirección que usaría el
-//! enlace y, si el agente está corriendo, el estado de cada camino.
+//! `tandemd links`: what the agent sees of the network, for spike S5 and to debug the wired
+//! link (T-094). Lists the interfaces with the detected type, the address the link would use and,
+//! if the agent is running, the state of each path.
 
 use std::fmt::Write;
 
@@ -13,7 +13,7 @@ fn kind_name(k: InterfaceKind) -> &'static str {
         InterfaceKind::Usb4 => "USB4",
         InterfaceKind::Ethernet => "Ethernet",
         InterfaceKind::Wifi => "Wi-Fi",
-        InterfaceKind::Other => "otro (cuenta como Wi-Fi)",
+        InterfaceKind::Other => "other (counts as Wi-Fi)",
     }
 }
 
@@ -27,14 +27,14 @@ fn link_name(l: Link) -> &'static str {
 
 fn state_name(s: PathState) -> &'static str {
     match s {
-        PathState::Primary => "principal",
-        PathState::Backup => "de respaldo",
-        PathState::Unplugged => "sin cable",
-        PathState::Down => "caído",
+        PathState::Primary => "primary",
+        PathState::Backup => "backup",
+        PathState::Unplugged => "no cable",
+        PathState::Down => "down",
     }
 }
 
-/// El informe en texto. `status` es `None` si el agente no está corriendo.
+/// The text report. `status` is `None` if the agent is not running.
 pub fn render(
     interfaces: &[NetInterface],
     side: Machine,
@@ -52,9 +52,9 @@ pub fn render(
             i.index,
             i.name,
             kind_name(i.kind),
-            if i.up { "arriba" } else { "abajo" },
+            if i.up { "up" } else { "down" },
             if addrs.is_empty() {
-                "sin direcciones".to_owned()
+                "no addresses".to_owned()
             } else {
                 addrs.join(", ")
             },
@@ -63,16 +63,16 @@ pub fn render(
             let p = plan(i, side, os, None, port);
             let _ = writeln!(out, "      local: {}", p.local);
             let _ = match p.peer {
-                Some(peer) => writeln!(out, "      otro agente: {peer}"),
+                Some(peer) => writeln!(out, "      other agent: {peer}"),
                 None => writeln!(
                     out,
-                    "      otro agente: por descubrir (su link-local sale de mDNS en la interfaz)"
+                    "      other agent: to be discovered (its link-local comes from mDNS on the interface)"
                 ),
             };
             if let Some(order) = p.assign {
                 let _ = writeln!(
                     out,
-                    "      falta la IP de respaldo; asígnala con: {}",
+                    "      missing backup IP; assign it with: {}",
                     order.command
                 );
             }
@@ -82,18 +82,18 @@ pub fn render(
         None => {
             let _ = writeln!(
                 out,
-                "Caminos: el agente no está corriendo (no hay estado que mostrar)."
+                "Paths: the agent is not running (no state to show)."
             );
         }
         Some(s) => {
-            let _ = writeln!(out, "Caminos:");
+            let _ = writeln!(out, "Paths:");
             for p in &s.paths {
                 let rtt = p.rtt_us.map_or_else(
-                    || "sin respuesta".to_owned(),
+                    || "no reply".to_owned(),
                     |us| format!("{:.1} ms", f64::from(us) / 1000.0),
                 );
                 let bw = p.bandwidth.map_or_else(String::new, |b| {
-                    format!(", {:.1} MB/s medidos", b.bytes_per_sec as f64 / 1e6)
+                    format!(", {:.1} MB/s measured", b.bytes_per_sec as f64 / 1e6)
                 });
                 let _ = writeln!(
                     out,
@@ -124,28 +124,28 @@ mod tests {
     }
 
     #[test]
-    fn lista_el_tipo_la_direccion_y_la_orden_que_falta() {
+    fn lists_the_type_the_address_and_the_missing_command() {
         let ifs = [
             iface(1, "Wi-Fi", InterfaceKind::Wifi, &["192.168.1.5"]),
             iface(7, "USB4 P2P Network Adapter", InterfaceKind::Usb4, &[]),
         ];
         let text = render(&ifs, Machine::B, Os::Windows, 52000, None);
         assert!(
-            text.contains("[1] Wi-Fi - Wi-Fi - arriba - 192.168.1.5"),
+            text.contains("[1] Wi-Fi - Wi-Fi - up - 192.168.1.5"),
             "{text}"
         );
         assert!(text.contains("USB4 P2P Network Adapter - USB4"), "{text}");
         assert!(text.contains("local: 10.77.1.2"), "{text}");
-        assert!(text.contains("otro agente: 10.77.1.1:52000"), "{text}");
+        assert!(text.contains("other agent: 10.77.1.1:52000"), "{text}");
         assert!(text.contains("netsh interface ip set address"), "{text}");
-        assert!(text.contains("el agente no está corriendo"), "{text}");
+        assert!(text.contains("the agent is not running"), "{text}");
     }
 
     #[test]
-    fn con_link_local_el_otro_se_descubre() {
+    fn with_link_local_the_other_is_discovered() {
         let ifs = [iface(9, "bridge0", InterfaceKind::Usb4, &["fe80::1"])];
         let text = render(&ifs, Machine::A, Os::MacOs, 52000, None);
         assert!(text.contains("local: fe80::1"), "{text}");
-        assert!(text.contains("por descubrir"), "{text}");
+        assert!(text.contains("to be discovered"), "{text}");
     }
 }

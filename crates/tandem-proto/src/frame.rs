@@ -1,7 +1,7 @@
-//! Codificación `postcard` y framing por longitud.
+//! `postcard` encoding and length framing.
 //!
-//! Cada trama es `[longitud: u32 LE][mensaje postcard]`. El enlace entrega bytes en
-//! trozos arbitrarios; [`FrameDecoder`] los junta y devuelve tramas completas.
+//! Each frame is `[length: u32 LE][postcard message]`. The link delivers bytes in
+//! arbitrary chunks; [`FrameDecoder`] gathers them and returns complete frames.
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -11,16 +11,16 @@ use crate::msg::{Hello, check_version};
 
 const HEADER_LEN: usize = 4;
 
-/// Tamaño máximo de un mensaje. Los mensajes de control son pequeños; el tope evita
-/// que una longitud corrupta o maliciosa haga reservar memoria sin límite.
+/// Maximum size of a message. Control messages are small; the cap prevents
+/// a corrupt or malicious length from making it reserve unbounded memory.
 pub const MAX_FRAME_LEN: usize = 1 << 20;
 
-/// Codifica un mensaje sin trama.
+/// Encodes a message without a frame.
 pub fn encode<T: Serialize>(msg: &T) -> Result<Vec<u8>, ProtoError> {
     postcard::to_stdvec(msg).map_err(ProtoError::Encode)
 }
 
-/// Decodifica un mensaje completo; sobrantes al final son un error, no se ignoran.
+/// Decodes a complete message; trailing bytes are an error, not ignored.
 pub fn decode<T: DeserializeOwned>(payload: &[u8]) -> Result<T, ProtoError> {
     let (msg, rest) = postcard::take_from_bytes(payload).map_err(ProtoError::Decode)?;
     if rest.is_empty() {
@@ -30,17 +30,17 @@ pub fn decode<T: DeserializeOwned>(payload: &[u8]) -> Result<T, ProtoError> {
     }
 }
 
-/// Decodifica el [`Hello`] de apertura y rechaza otra versión del protocolo.
+/// Decodes the opening [`Hello`] and rejects another protocol version.
 ///
-/// La versión se lee y se comprueba antes que el resto del mensaje: un Hello de
-/// otra versión da [`ProtoError::IncompatibleVersion`] aunque su forma sea distinta.
+/// The version is read and checked before the rest of the message: a Hello of
+/// another version gives [`ProtoError::IncompatibleVersion`] even if its shape differs.
 pub fn decode_hello(payload: &[u8]) -> Result<Hello, ProtoError> {
     let (theirs, _) = postcard::take_from_bytes::<u16>(payload).map_err(ProtoError::Decode)?;
     check_version(theirs)?;
     decode(payload)
 }
 
-/// Codifica un mensaje con su trama, listo para escribir en el enlace.
+/// Encodes a message with its frame, ready to write to the link.
 pub fn encode_frame<T: Serialize>(msg: &T) -> Result<Vec<u8>, ProtoError> {
     let payload = encode(msg)?;
     let too_large = ProtoError::FrameTooLarge {
@@ -57,7 +57,7 @@ pub fn encode_frame<T: Serialize>(msg: &T) -> Result<Vec<u8>, ProtoError> {
     Ok(out)
 }
 
-/// Junta bytes del enlace y los separa en tramas.
+/// Gathers bytes from the link and splits them into frames.
 #[derive(Debug)]
 pub struct FrameDecoder {
     buf: Vec<u8>,
@@ -86,15 +86,15 @@ impl FrameDecoder {
         self.buf.extend_from_slice(bytes);
     }
 
-    /// Bytes recibidos que todavía no forman una trama completa.
+    /// Received bytes that do not yet form a complete frame.
     pub fn buffered(&self) -> usize {
         self.buf.len()
     }
 
-    /// La siguiente trama completa, o `None` si faltan bytes.
+    /// The next complete frame, or `None` if bytes are missing.
     ///
-    /// Tras [`ProtoError::FrameTooLarge`] el flujo no se puede resincronizar: hay que
-    /// cerrar la conexión.
+    /// After [`ProtoError::FrameTooLarge`] the stream cannot be resynchronized: the
+    /// connection must be closed.
     pub fn next_frame(&mut self) -> Result<Option<Vec<u8>>, ProtoError> {
         let Some(header) = self.buf.first_chunk::<HEADER_LEN>() else {
             return Ok(None);
@@ -114,7 +114,7 @@ impl FrameDecoder {
         Ok(Some(payload))
     }
 
-    /// Como [`FrameDecoder::next_frame`], ya decodificado como `T`.
+    /// Like [`FrameDecoder::next_frame`], already decoded as `T`.
     pub fn next_message<T: DeserializeOwned>(&mut self) -> Result<Option<T>, ProtoError> {
         self.next_frame()?.map(|p| decode(&p)).transpose()
     }
@@ -134,7 +134,7 @@ mod tests {
         msgs.iter().flat_map(|m| encode_frame(m).unwrap()).collect()
     }
 
-    /// Alimenta `bytes` en trozos de los tamaños dados (cíclicamente) y junta lo decodificado.
+    /// Feeds `bytes` in chunks of the given sizes (cyclically) and gathers what is decoded.
     fn feed_in_chunks(bytes: &[u8], sizes: &[usize]) -> Vec<ControlMsg> {
         let mut dec = FrameDecoder::new();
         let mut out = Vec::new();
@@ -175,7 +175,7 @@ mod tests {
                     out.push(m);
                 }
             }
-            assert_eq!(out, msgs, "corte en {cut}");
+            assert_eq!(out, msgs, "cut at {cut}");
         }
     }
 
@@ -263,8 +263,8 @@ mod tests {
         }
     }
 
-    /// Un agente de antes de T-084 no anuncia capacidades: se lo rechaza en el saludo,
-    /// con un error que lo dice.
+    /// An agent from before T-084 does not announce capabilities: it is rejected at the greeting,
+    /// with an error that says so.
     #[test]
     fn an_agent_without_capabilities_is_rejected_with_a_clear_version_error() {
         let old = Hello {
@@ -280,15 +280,18 @@ mod tests {
             }
         );
         let text = e.to_string();
-        assert!(text.contains("versión de protocolo incompatible"), "{text}");
-        assert!(text.contains("sin anuncio de capacidades"), "{text}");
-        assert!(text.contains("la misma versión de Tandem"), "{text}");
+        assert!(text.contains("incompatible protocol version"), "{text}");
+        assert!(
+            text.contains("without a capabilities announcement"),
+            "{text}"
+        );
+        assert!(text.contains("the same Tandem version"), "{text}");
     }
 
     #[test]
     fn hello_of_other_version_with_another_shape_is_still_a_version_error() {
-        // Un Hello futuro que cambió todo menos el primer campo.
-        let future = encode(&(PROTOCOL_VERSION + 1, "otro formato", [9u8; 5])).unwrap();
+        // A future Hello that changed everything except the first field.
+        let future = encode(&(PROTOCOL_VERSION + 1, "other format", [9u8; 5])).unwrap();
         assert_eq!(
             decode_hello(&future),
             Err(ProtoError::IncompatibleVersion {
@@ -309,12 +312,12 @@ mod tests {
         dec.push(&[0, 0, 0, 0]);
         dec.push(&encode_frame(&ControlMsg::GetState).unwrap());
         assert_eq!(dec.next_frame(), Ok(Some(Vec::new())));
-        // La siguiente trama sigue alineada.
+        // The next frame stays aligned.
         assert_eq!(
             dec.next_message::<ControlMsg>(),
             Ok(Some(ControlMsg::GetState))
         );
-        // Y un mensaje vacío no es un mensaje válido.
+        // And an empty message is not a valid message.
         assert!(matches!(
             decode::<ControlMsg>(&[]),
             Err(ProtoError::Decode(_))
@@ -323,8 +326,8 @@ mod tests {
 
     #[test]
     fn oversized_frame_error_is_sticky() {
-        // Tras FrameTooLarge no hay resincronización: el error se repite, no se
-        // interpreta el cuerpo como tramas nuevas.
+        // After FrameTooLarge there is no resynchronization: the error repeats, the body is not
+        // interpreted as new frames.
         let mut dec = FrameDecoder::with_max_len(8);
         dec.push(&9u32.to_le_bytes());
         dec.push(&encode_frame(&ControlMsg::GetState).unwrap());
@@ -357,7 +360,7 @@ mod tests {
         ]
     }
 
-    // Semilla fija: las particiones son aleatorias pero la corrida es reproducible.
+    // Fixed seed: the partitions are random but the run is reproducible.
     proptest! {
         #![proptest_config(Config {
             cases: 512,
@@ -375,8 +378,8 @@ mod tests {
             prop_assert_eq!(feed_in_chunks(&bytes, &sizes), msgs);
         }
 
-        /// Bytes cualesquiera del otro lado nunca hacen entrar en pánico al
-        /// decodificador ni a ningún tipo de mensaje: siempre `Ok` o `Err`.
+        /// Any bytes from the other side never make the
+        /// decoder or any message type panic: always `Ok` or `Err`.
         #[test]
         fn garbage_never_panics(bytes in proptest::collection::vec(any::<u8>(), 0..256)) {
             let _ = decode::<ControlMsg>(&bytes);
@@ -385,7 +388,7 @@ mod tests {
             let _ = decode_hello(&bytes);
             let mut dec = FrameDecoder::with_max_len(64);
             dec.push(&bytes);
-            // Cada trama consume al menos la cabecera: el bucle termina.
+            // Each frame consumes at least the header: the loop terminates.
             for _ in 0..=bytes.len() / HEADER_LEN {
                 match dec.next_message::<ControlMsg>() {
                     Ok(None) | Err(ProtoError::FrameTooLarge { .. }) => break,
@@ -395,8 +398,8 @@ mod tests {
             prop_assert!(dec.buffered() <= bytes.len());
         }
 
-        /// Un mensaje válido seguido de basura: el válido sale entero y la basura
-        /// queda para la siguiente trama, sin contaminar al anterior.
+        /// A valid message followed by garbage: the valid one comes out whole and the garbage
+        /// is left for the next frame, without contaminating the previous one.
         #[test]
         fn valid_frame_survives_trailing_garbage(
             msg in control_msg(),

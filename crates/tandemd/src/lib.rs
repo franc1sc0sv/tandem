@@ -1,36 +1,36 @@
-//! Binario del agente (servicio launchd / Windows Service).
+//! Agent binary (launchd service / Windows Service).
 //!
-//! La biblioteca existe para que la lógica del agente se pruebe sin arrancar el servicio.
+//! The library exists so the agent's logic can be tested without starting the service.
 //!
-//! - [`cli`]: argumentos de la línea de órdenes.
-//! - [`config`]: `tandem.toml` (el puesto compartido, la red y qué máquina es esta).
-//! - [`autoconfig`]: el `tandem.toml` que el agente genera solo si no hay ninguno (T-082).
-//! - [`config_edit`]: lo que el agente escribe en `tandem.toml` sin perder los comentarios.
-//! - [`migrate`]: `tandem.toml` de v0.2 (lados `mac`/`pc`) al formato de lados A/B.
-//! - [`paths`]: dónde viven la configuración, el estado y los logs.
-//! - [`store`]: el [`tandem_core::State`] persistido en JSON.
-//! - [`agent`]: el estado vivo del agente y las respuestas a la UI.
-//! - [`orchestrator`]: encender y apagar como transacciones repartidas entre las dos máquinas.
-//! - [`capabilities`]: lo que cada máquina tiene y sabe hacer, y lo que el plan puede pedirle
-//!   a cada una (T-084).
-//! - [`desk_sync`]: la configuración compartida del puesto entre las dos máquinas (T-084).
-//! - [`modules`]: los módulos de cada sistema y su estado (activo, apagado, no disponible;
+//! - [`cli`]: command-line arguments.
+//! - [`config`]: `tandem.toml` (the shared desk, the network and which machine this is).
+//! - [`autoconfig`]: the `tandem.toml` the agent generates on its own if there is none (T-082).
+//! - [`config_edit`]: what the agent writes to `tandem.toml` without losing the comments.
+//! - [`migrate`]: v0.2 `tandem.toml` (`mac`/`pc` sides) to the A/B sides format.
+//! - [`paths`]: where the configuration, state and logs live.
+//! - [`store`]: the [`tandem_core::State`] persisted as JSON.
+//! - [`agent`]: the agent's live state and the replies to the UI.
+//! - [`orchestrator`]: power on and off as transactions split between the two machines.
+//! - [`capabilities`]: what each machine has and knows how to do, and what the plan can ask of
+//!   each one (T-084).
+//! - [`desk_sync`]: the desk's shared configuration between the two machines (T-084).
+//! - [`modules`]: each system's modules and their state (active, off, unavailable;
 //!   T-098).
-//! - [`monitors`]: los monitores del puesto (dueño elegido, eventos, cambios con veredicto;
+//! - [`monitors`]: the desk's monitors (chosen owner, events, changes with a verdict;
 //!   T-110).
-//! - [`power`]: Wake-on-LAN hacia la otra máquina y apagado limpio de esta.
-//! - [`peer_watch`]: da a la otra máquina por apagada si ningún enlace la ve (corte de
-//!   corriente o suspendida), en las dos.
-//! - [`peer`]: el otro agente por el plano de control (pedirle pasos y atender los suyos).
-//! - [`network`]: QUIC, descubrimiento del par y gestor de enlaces.
-//! - [`input`]: teclado, mouse y portapapeles compartidos, y dónde está el teclado.
-//! - [`install`]: `--install` / `--uninstall` (config inicial y arranque con la sesión).
-//! - [`pairing`]: el emparejamiento con el otro agente, pedido desde la UI.
-//! - [`ipc`]: la API local para la UI (Unix socket / named pipe).
-//! - [`daemon`]: el agente armado, el bucle principal y el apagado ordenado.
-//! - [`logging`]: `tracing` a stdout y a archivo.
-//! - `sim` (feature `sim-backends`): pasos simulados para probar el binario sin hardware.
-//! - [`test_ports`]: puertos de loopback para las pruebas con agentes reales.
+//! - [`power`]: Wake-on-LAN toward the other machine and clean shutdown of this one.
+//! - [`peer_watch`]: considers the other machine off if no link sees it (power
+//!   cut or suspended), on both.
+//! - [`peer`]: the other agent over the control plane (asking it for steps and serving its own).
+//! - [`network`]: QUIC, peer discovery and link manager.
+//! - [`input`]: shared keyboard, mouse and clipboard, and where the keyboard is.
+//! - [`install`]: `--install` / `--uninstall` (initial config and startup with the session).
+//! - [`pairing`]: pairing with the other agent, requested from the UI.
+//! - [`ipc`]: the local API for the UI (Unix socket / named pipe).
+//! - [`daemon`]: the assembled agent, the main loop and the orderly shutdown.
+//! - [`logging`]: `tracing` to stdout and to a file.
+//! - `sim` (feature `sim-backends`): simulated steps to test the binary without hardware.
+//! - [`test_ports`]: loopback ports for tests with real agents.
 
 pub mod agent;
 pub mod autoconfig;

@@ -1,6 +1,6 @@
-//! Arranque con la sesión en la clave `Run` de `HKCU`: no pide permisos de administrador y
-//! solo afecta al usuario que instala (el modo servicio SYSTEM es T-027). Y la tarea
-//! programada con los privilegios más altos ([`HighestTask`], A7), que sí los pide.
+//! Startup with the session in the `HKCU` `Run` key: it does not ask for administrator permissions and
+//! only affects the installing user (the SYSTEM service mode is T-027). And the task
+//! scheduled with the highest privileges ([`HighestTask`], A7), which does ask for them.
 
 use std::ffi::c_void;
 use std::io;
@@ -37,7 +37,7 @@ use super::{Autostart, RUN_VALUE};
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 
-/// El valor [`RUN_VALUE`] de `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
+/// The [`RUN_VALUE`] value of `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`.
 #[derive(Debug, Default)]
 pub struct RunKey;
 
@@ -46,7 +46,7 @@ impl Autostart for RunKey {
         let key = HSTRING::from(RUN_KEY);
         let name = HSTRING::from(RUN_VALUE);
         let mut len = 0u32;
-        // SAFETY: primero solo se pide el tamaño (sin búfer); las cadenas viven hasta el final.
+        // SAFETY: first only the size is requested (without a buffer); the strings live until the end.
         let err = unsafe {
             RegGetValueW(
                 HKEY_CURRENT_USER,
@@ -63,7 +63,7 @@ impl Autostart for RunKey {
         }
         check(err)?;
         let mut buf = vec![0u16; (len as usize).div_ceil(2)];
-        // SAFETY: `buf` tiene `len` bytes; la API escribe como mucho eso y actualiza `len`.
+        // SAFETY: `buf` has `len` bytes; the API writes at most that and updates `len`.
         let err = unsafe {
             RegGetValueW(
                 HKEY_CURRENT_USER,
@@ -80,7 +80,7 @@ impl Autostart for RunKey {
         }
         check(err)?;
         buf.truncate((len as usize) / 2);
-        // RRF_RT_REG_SZ garantiza el nulo final, que no es parte del valor.
+        // RRF_RT_REG_SZ guarantees the trailing null, which is not part of the value.
         while buf.last() == Some(&0) {
             buf.pop();
         }
@@ -95,7 +95,7 @@ impl Autostart for RunKey {
             .flat_map(u16::to_le_bytes)
             .collect();
         let name = HSTRING::from(RUN_VALUE);
-        // SAFETY: `key` es una clave abierta con KEY_SET_VALUE y `data` es REG_SZ terminado en nulo.
+        // SAFETY: `key` is a key opened with KEY_SET_VALUE and `data` is a null-terminated REG_SZ.
         let err = unsafe { RegSetValueExW(key.0, &name, None, REG_SZ, Some(&data)) };
         check(err)
     }
@@ -103,7 +103,7 @@ impl Autostart for RunKey {
     fn remove(&mut self) -> io::Result<bool> {
         let key = HSTRING::from(RUN_KEY);
         let name = HSTRING::from(RUN_VALUE);
-        // SAFETY: cadenas válidas terminadas en nulo durante la llamada.
+        // SAFETY: valid null-terminated strings during the call.
         let err = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, &key, &name) };
         if err == ERROR_FILE_NOT_FOUND {
             return Ok(false);
@@ -113,29 +113,29 @@ impl Autostart for RunKey {
     }
 }
 
-/// La tarea programada `Tandem\tandemd`, por la API COM del Programador de tareas: el XML
-/// va en memoria, sin un archivo que otro pueda cambiar antes de que lo lea un proceso elevado.
+/// The `Tandem\tandemd` scheduled task, through the Task Scheduler COM API: the XML
+/// goes in memory, without a file someone else could change before an elevated process reads it.
 #[derive(Debug, Default)]
 pub struct HighestTask;
 
 const TASK_FOLDER: &str = "Tandem";
 
-/// `HRESULT_FROM_WIN32` de «archivo» y «ruta» no encontrados.
+/// `HRESULT_FROM_WIN32` of "file" and "path" not found.
 const NOT_FOUND: [i32; 2] = [0x8007_0002_u32 as i32, 0x8007_0003_u32 as i32];
 
 fn com(e: windows::core::Error) -> io::Error {
-    io::Error::other(format!("Programador de tareas: {e}"))
+    io::Error::other(format!("Task Scheduler: {e}"))
 }
 
-/// COM inicializado en este hilo hasta soltarlo.
+/// COM initialized on this thread until it is dropped.
 struct ComScope(bool);
 
 impl ComScope {
     fn new() -> io::Result<ComScope> {
-        // SAFETY: se empareja con `CoUninitialize` en `Drop` solo si esta llamada tuvo éxito.
+        // SAFETY: paired with `CoUninitialize` in `Drop` only if this call succeeded.
         let hr = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
         if hr == RPC_E_CHANGED_MODE {
-            // El hilo ya tiene COM en otro modo: se usa tal cual y no se desinicializa.
+            // The thread already has COM in another mode: it is used as is and not uninitialized.
             return Ok(ComScope(false));
         }
         hr.ok().map_err(com)?;
@@ -146,18 +146,18 @@ impl ComScope {
 impl Drop for ComScope {
     fn drop(&mut self) {
         if self.0 {
-            // SAFETY: empareja el `CoInitializeEx` de `new`.
+            // SAFETY: pairs with the `CoInitializeEx` of `new`.
             unsafe { CoUninitialize() };
         }
     }
 }
 
 fn service() -> io::Result<ITaskService> {
-    // SAFETY: crea el objeto COM del Programador de tareas; COM está inicializado por el llamador.
+    // SAFETY: creates the Task Scheduler COM object; COM is initialized by the caller.
     let service: ITaskService =
         unsafe { CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER) }.map_err(com)?;
     let none = VARIANT::default();
-    // SAFETY: variantes vacías = el equipo local y la cuenta actual.
+    // SAFETY: empty variants = the local machine and the current account.
     unsafe { service.Connect(&none, &none, &none, &none) }.map_err(com)?;
     Ok(service)
 }
@@ -174,7 +174,7 @@ impl Scheduler for HighestTask {
     fn exists(&self) -> io::Result<bool> {
         let _com = ComScope::new()?;
         let service = service()?;
-        // SAFETY: llamadas COM sobre objetos vivos y cadenas válidas.
+        // SAFETY: COM calls on live objects and valid strings.
         let found = unsafe {
             let root = service.GetFolder(&name(r"\")).map_err(com)?;
             root.GetTask(&name(TASK_NAME))
@@ -190,13 +190,13 @@ impl Scheduler for HighestTask {
         let _com = ComScope::new()?;
         let service = service()?;
         let none = VARIANT::default();
-        // SAFETY: llamadas COM sobre objetos vivos y cadenas válidas.
+        // SAFETY: COM calls on live objects and valid strings.
         unsafe {
             let root = service.GetFolder(&name(r"\")).map_err(com)?;
             if root.GetFolder(&name(TASK_FOLDER)).is_err() {
                 root.CreateFolder(&name(TASK_FOLDER), &none).map_err(com)?;
             }
-            // Los datos de la cuenta van en el XML (`InteractiveToken` del usuario).
+            // The account data goes in the XML (the user's `InteractiveToken`).
             root.RegisterTask(
                 &name(TASK_NAME),
                 &name(xml),
@@ -214,7 +214,7 @@ impl Scheduler for HighestTask {
     fn remove(&mut self) -> io::Result<bool> {
         let _com = ComScope::new()?;
         let service = service()?;
-        // SAFETY: llamadas COM sobre objetos vivos y cadenas válidas.
+        // SAFETY: COM calls on live objects and valid strings.
         let gone = unsafe {
             let root = service.GetFolder(&name(r"\")).map_err(com)?;
             root.DeleteTask(&name(TASK_NAME), 0)
@@ -227,17 +227,17 @@ impl Scheduler for HighestTask {
     }
 }
 
-/// La ACL de una ruta: lee quién la puede escribir ([`PathAcl`]). La política (lista blanca de
-/// SID, dueño, ACE de solo herencia) está en [`super::acl`]; aquí solo se lee el sistema.
+/// A path's ACL: reads who can write it ([`PathAcl`]). The policy (SID allowlist,
+/// owner, inherit-only ACEs) is in [`super::acl`]; here the system is only read.
 #[derive(Debug, Default)]
 pub struct WinAcl;
 
-/// Libera con `LocalFree` lo que devolvió una API de seguridad.
+/// Frees with `LocalFree` what a security API returned.
 struct LocalMem(*mut c_void);
 
 impl Drop for LocalMem {
     fn drop(&mut self) {
-        // SAFETY: lo asignó una API que se libera con LocalFree y solo se libera aquí.
+        // SAFETY: it was allocated by an API that is freed with LocalFree and is only freed here.
         let _ = unsafe { LocalFree(Some(HLOCAL(self.0))) };
     }
 }
@@ -246,26 +246,26 @@ fn win32(err: WIN32_ERROR, what: &str) -> io::Result<()> {
     check(err).map_err(|e| io::Error::other(format!("{what}: {e}")))
 }
 
-/// El SID en texto (`S-1-5-…`).
+/// The SID as text (`S-1-5-...`).
 ///
 /// # Safety
-/// `sid` debe apuntar a un SID válido durante la llamada.
+/// `sid` must point to a valid SID during the call.
 unsafe fn sid_text(sid: PSID) -> io::Result<String> {
     let mut text = PWSTR::null();
-    // SAFETY: `sid` es válido (lo exige quien llama); `text` queda asignado con LocalAlloc.
+    // SAFETY: `sid` is valid (required of the caller); `text` stays allocated with LocalAlloc.
     unsafe { ConvertSidToStringSidW(sid, &mut text) }.map_err(com)?;
     let _free = LocalMem(text.0.cast());
-    // SAFETY: Windows devuelve una cadena UTF-16 terminada en cero.
+    // SAFETY: Windows returns a zero-terminated UTF-16 string.
     unsafe { text.to_string() }.map_err(|e| io::Error::other(e.to_string()))
 }
 
-/// Los ACE de permiso de la DACL, ya clasificados.
+/// The DACL's allow ACEs, already classified.
 ///
 /// # Safety
-/// `dacl` debe apuntar a una ACL válida durante la llamada.
+/// `dacl` must point to a valid ACL during the call.
 unsafe fn read_aces(dacl: *const ACL) -> io::Result<Vec<Ace>> {
     let mut size = ACL_SIZE_INFORMATION::default();
-    // SAFETY: el búfer es `size` y se pasa su tamaño exacto.
+    // SAFETY: the buffer is `size` and its exact size is passed.
     unsafe {
         GetAclInformation(
             dacl,
@@ -278,19 +278,19 @@ unsafe fn read_aces(dacl: *const ACL) -> io::Result<Vec<Ace>> {
     let mut aces = Vec::new();
     for i in 0..size.AceCount {
         let mut raw: *mut c_void = std::ptr::null_mut();
-        // SAFETY: `i` está en rango; `raw` apunta dentro de la ACL viva.
+        // SAFETY: `i` is in range; `raw` points inside the live ACL.
         unsafe { GetAce(dacl, i, &mut raw) }.map_err(com)?;
-        // SAFETY: todo ACE empieza con un ACE_HEADER.
+        // SAFETY: every ACE starts with an ACE_HEADER.
         let header = unsafe { *raw.cast::<ACE_HEADER>() };
-        // En los ACE de permiso (`ACCESS_ALLOWED_ACE` y el de callback) la máscara está tras la
-        // cabecera (4 bytes) y el SID tras la máscara (offset 8). Los demás tipos no se leen
-        // más allá de la cabecera.
+        // In allow ACEs (`ACCESS_ALLOWED_ACE` and the callback one) the mask is after the
+        // header (4 bytes) and the SID after the mask (offset 8). The other types are not read
+        // beyond the header.
         let (mask, sid) = if matches!(header.AceType, 0 | 9) {
-            // SAFETY: el ACE de permiso mide al menos cabecera + máscara + SID.
+            // SAFETY: the allow ACE measures at least header + mask + SID.
             let mask = unsafe { raw.cast::<u8>().add(4).cast::<u32>().read_unaligned() };
-            // SAFETY: el SID empieza en el byte 8 del ACE.
+            // SAFETY: the SID starts at byte 8 of the ACE.
             let sid = PSID(unsafe { raw.cast::<u8>().add(8) }.cast());
-            // SAFETY: el SID está dentro del ACE, vivo con la ACL.
+            // SAFETY: the SID is inside the ACE, alive with the ACL.
             (mask, unsafe { sid_text(sid) }?)
         } else {
             (0, String::new())
@@ -303,14 +303,14 @@ unsafe fn read_aces(dacl: *const ACL) -> io::Result<Vec<Ace>> {
     Ok(aces)
 }
 
-/// `FILE_ATTRIBUTE_REPARSE_POINT`: junction o enlace simbólico.
+/// `FILE_ATTRIBUTE_REPARSE_POINT`: junction or symbolic link.
 const REPARSE_POINT: u32 = 0x400;
 
 impl PathAcl for WinAcl {
     fn admin_only(&self, path: &Path, rigor: Rigor) -> io::Result<bool> {
         use std::os::windows::fs::MetadataExt;
 
-        // `GetNamedSecurityInfoW` sigue los enlaces y la ruta del XML no: se rechazan.
+        // `GetNamedSecurityInfoW` follows links and the XML's path does not: they are rejected.
         if std::fs::symlink_metadata(path)?.file_attributes() & REPARSE_POINT != 0 {
             return Ok(false);
         }
@@ -318,8 +318,8 @@ impl PathAcl for WinAcl {
         let mut owner = PSID::default();
         let mut dacl: *mut ACL = std::ptr::null_mut();
         let mut sd = PSECURITY_DESCRIPTOR::default();
-        // SAFETY: las salidas son punteros locales; `sd` se libera abajo y dueño y DACL viven
-        // dentro de él.
+        // SAFETY: the outputs are local pointers; `sd` is freed below and owner and DACL live
+        // inside it.
         let err = unsafe {
             GetNamedSecurityInfoW(
                 &wide,
@@ -334,34 +334,34 @@ impl PathAcl for WinAcl {
         };
         win32(err, "GetNamedSecurityInfo")?;
         let _sd = LocalMem(sd.0);
-        // Sin DACL todo el mundo tiene acceso total; sin dueño no se puede confiar.
+        // Without a DACL everyone has full access; without an owner it cannot be trusted.
         if dacl.is_null() || owner.0.is_null() {
             return Ok(false);
         }
-        // SAFETY: `owner` y `dacl` apuntan dentro del descriptor `_sd`, vivo hasta el final.
+        // SAFETY: `owner` and `dacl` point inside the descriptor `_sd`, alive until the end.
         let (owner, aces) = unsafe { (sid_text(owner)?, read_aces(dacl)?) };
         match verdict(&owner, &aces, rigor) {
             Ok(()) => Ok(true),
             Err(why) => {
-                tracing::debug!(path = %path.display(), %why, "ACL no es solo de administradores");
+                tracing::debug!(path = %path.display(), %why, "ACL is not administrators-only");
                 Ok(false)
             }
         }
     }
 }
 
-/// El token del proceso está elevado (se ejecuta como administrador).
+/// The process token is elevated (it runs as administrator).
 fn is_elevated() -> bool {
     use windows::Win32::Security::{TOKEN_ELEVATION, TokenElevation};
 
     let mut token = HANDLE::default();
-    // SAFETY: `token` recibe un identificador nuevo que se cierra abajo.
+    // SAFETY: `token` receives a new handle that is closed below.
     if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }.is_err() {
         return false;
     }
     let mut elevation = TOKEN_ELEVATION::default();
     let mut len = 0u32;
-    // SAFETY: el búfer es `elevation` y se pasa su tamaño exacto; `token` es válido.
+    // SAFETY: the buffer is `elevation` and its exact size is passed; `token` is valid.
     let got = unsafe {
         GetTokenInformation(
             token,
@@ -371,17 +371,17 @@ fn is_elevated() -> bool {
             &mut len,
         )
     };
-    // SAFETY: `token` se abrió arriba y no se usa después.
+    // SAFETY: `token` was opened above and is not used afterwards.
     let _ = unsafe { CloseHandle(token) };
     got.is_ok() && elevation.TokenIsElevated != 0
 }
 
-/// Se cierra al soltarla.
+/// Closed on drop.
 struct Key(HKEY);
 
 impl Drop for Key {
     fn drop(&mut self) {
-        // SAFETY: la abrió `open_run_key` y nadie más la cierra.
+        // SAFETY: it was opened by `open_run_key` and nobody else closes it.
         let _ = unsafe { RegCloseKey(self.0) };
     }
 }
@@ -389,7 +389,7 @@ impl Drop for Key {
 fn open_run_key() -> io::Result<Key> {
     let mut key = HKEY::default();
     let path = HSTRING::from(RUN_KEY);
-    // SAFETY: `key` recibe la clave abierta; la clave existe en todo Windows pero se crea si falta.
+    // SAFETY: `key` receives the opened key; the key exists on all Windows but is created if missing.
     let err = unsafe {
         RegCreateKeyExW(
             HKEY_CURRENT_USER,
@@ -420,8 +420,8 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    /// Solo lectura: las ACL reales de `C:\` y `C:\Program Files` de un Windows normal pasan
-    /// como ancestros (en `C:\` el `(AD)` de Authenticated Users no cuenta).
+    /// Read only: the real ACLs of `C:\` and `C:\Program Files` of a normal Windows pass
+    /// as ancestors (on `C:\` the Authenticated Users `(AD)` does not count).
     #[test]
     fn root_and_program_files_pass_as_ancestors() {
         for p in ["C:\\", "C:\\Program Files"] {
@@ -432,7 +432,7 @@ mod tests {
         }
     }
 
-    /// Toca el registro real del usuario, así que deja el valor como estaba.
+    /// Touches the user's real registry, so it leaves the value as it was.
     #[test]
     fn round_trip_in_hkcu() {
         let mut run = RunKey;

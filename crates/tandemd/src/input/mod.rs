@@ -1,35 +1,35 @@
-//! Teclado, mouse y portapapeles compartidos en el agente (DESIGN §7): junta
-//! `tandem-input`, `tandem-clipboard` y `tandem-peripherals` con la red.
+//! Shared keyboard, mouse and clipboard in the agent (DESIGN §7): brings together
+//! `tandem-input`, `tandem-clipboard` and `tandem-peripherals` with the network.
 //!
-//! - **Quién manda** (D7, teclado y mouse sin dueño): las dos máquinas capturan siempre y
-//!   manda la que recibe entrada física; el arbitraje es [`Follow`], con los
-//!   [`ControlMsg::Focus`] del otro agente. Lo declarado (configuración o asistente) solo
-//!   dice con quién se arranca. El hub ([`HubWatcher`]) ya no decide: se informa.
-//! - **Geometría**: el acomodo del puesto compartido (DESIGN §7): las `[[screens]]`
-//!   declaradas o, sin declarar, las que lee esta máquina (de los backends, cada tanto) y
-//!   las que manda el otro agente ([`ControlMsg::Screens`]); una máquina apagada según el
-//!   [`State`](tandem_core::State) no cuenta. Arman el [`Layout`]; se recalcula en caliente.
-//! - **Sesión**: el servidor abre un stream propio sobre el enlace activo
-//!   ([`Channel::Input`]) y corre su [`ServerDriver`]; el cliente recibe ese stream del
-//!   otro agente y corre su [`ClientDriver`]. Cuando el enlace cambia la sesión termina
-//!   y vuelve a empezar sobre el nuevo.
-//! - **Camino caliente** (T-093): los dos drivers corren en un runtime propio, en su
-//!   propio hilo, sin compartirlo con el portapapeles, la IPC ni la red de control.
-//! - **Latencia** (T-093): la mide quien recibe la entrada; las dos máquinas la publican
-//!   en [`InputStatus::latency`] con el enlace por el que se midió.
-//! - **Portapapeles**: el lado A abre su stream ([`Channel::Clipboard`]) y B lo recibe;
-//!   los dos corren un [`ClipDriver`] con el foco del teclado y mouse.
-//! - **Modificadores**: Cmd↔Ctrl solo entre macOS y Windows, según el sistema de cada
-//!   máquina ([`backends::direction`]); si el de la otra cambia, la captura se rearma.
-//! - **Lado**: si al emparejar esta máquina resulta ser el otro lado
-//!   ([`Agent::adopt_side`]), el motor entero vuelve a arrancar con el lado nuevo.
-//! - **Módulos** (T-098): con «Teclado y mouse» apagado el motor no corre; el portapapeles
-//!   se enciende y se apaga solo, sin cortar la sesión de entrada.
-//! - **Estado para la UI**: [`InputStatus`] (servidor, hub, sesión, cursor bloqueado
-//!   y permisos de macOS que faltan).
+//! - **Who sends** (D7, keyboard and mouse without an owner): both machines always capture and
+//!   the one that receives physical input sends; arbitration is [`Follow`], with the other agent's
+//!   [`ControlMsg::Focus`]. What is declared (configuration or setup) only
+//!   says whom to start with. The hub ([`HubWatcher`]) no longer decides: it informs.
+//! - **Geometry**: the shared desk's arrangement (DESIGN §7): the declared
+//!   `[[screens]]` or, if undeclared, the ones this machine reads (from the backends, every so often) and
+//!   the ones the other agent sends ([`ControlMsg::Screens`]); a machine that is off according to the
+//!   [`State`](tandem_core::State) does not count. They build the [`Layout`]; it is recomputed live.
+//! - **Session**: the server opens a stream of its own over the active link
+//!   ([`Channel::Input`]) and runs its [`ServerDriver`]; the client receives that stream from the
+//!   other agent and runs its [`ClientDriver`]. When the link changes the session ends
+//!   and starts again over the new one.
+//! - **Hot path** (T-093): both drivers run in a runtime of their own, on their
+//!   own thread, without sharing it with the clipboard, the IPC or the control network.
+//! - **Latency** (T-093): measured by whoever receives the input; both machines publish it
+//!   in [`InputStatus::latency`] with the link it was measured over.
+//! - **Clipboard**: side A opens its stream ([`Channel::Clipboard`]) and B receives it;
+//!   both run a [`ClipDriver`] with the keyboard and mouse focus.
+//! - **Modifiers**: Cmd<->Ctrl only between macOS and Windows, according to each machine's
+//!   system ([`backends::direction`]); if the other's changes, the capture is rearmed.
+//! - **Side**: if when pairing this machine turns out to be the other side
+//!   ([`Agent::adopt_side`]), the whole engine restarts with the new side.
+//! - **Modules** (T-098): with "Keyboard and mouse" off the engine does not run; the clipboard
+//!   turns on and off by itself, without cutting the input session.
+//! - **State for the UI**: [`InputStatus`] (server, hub, session, locked cursor
+//!   and missing macOS permissions).
 //!
-//! Los backends de plataforma van detrás de [`InputBackends`]; [`fake`] tiene los
-//! dobles para las pruebas con dos agentes.
+//! The platform backends go behind [`InputBackends`]; [`fake`] has the
+//! doubles for the tests with two agents.
 
 pub mod backends;
 pub mod fake;
@@ -64,25 +64,25 @@ use crate::peer::open_channel;
 
 pub use backends::{CaptureSink, InputBackends, PlatformInput};
 
-/// Tiempos del motor de entrada. Lo normal es [`InputOptions::default`]; las pruebas
-/// los aceleran.
+/// Input engine timings. The normal one is [`InputOptions::default`]; tests
+/// speed them up.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InputOptions {
     pub session: SessionConfig,
     pub clipboard: ClipConfig,
     pub hub: WatchConfig,
     pub layout: LayoutOptions,
-    /// El arbitraje del teclado y mouse sin dueño (D7).
+    /// Keyboard and mouse arbitration without an owner (D7).
     pub follow: FollowConfig,
-    /// Cada cuánto se repiten el hub y las pantallas al otro agente, por si un aviso
-    /// se perdió en un cambio de enlace.
+    /// How often the hub and the screens are repeated to the other agent, in case a notice
+    /// was lost in a link change.
     pub report_every: Duration,
-    /// Cada cuánto se vuelven a leer las pantallas de esta máquina (un monitor que se
-    /// enchufa, un cambio de resolución).
+    /// How often this machine's screens are read again (a monitor that is
+    /// plugged in, a resolution change).
     pub screens_every: Duration,
-    /// Cada cuánto se miran los permisos de macOS (el usuario los concede en Ajustes).
+    /// How often the macOS permissions are checked (the user grants them in Settings).
     pub permissions_every: Duration,
-    /// Espera antes de reintentar lo que falló (crear la captura, abrir un stream).
+    /// Wait before retrying what failed (creating the capture, opening a stream).
     pub retry: Duration,
 }
 
@@ -102,18 +102,18 @@ impl Default for InputOptions {
     }
 }
 
-/// Los backends y sus tiempos.
+/// The backends and their timings.
 #[derive(Clone)]
 pub struct InputSetup {
     pub backends: Arc<dyn InputBackends>,
     pub opts: InputOptions,
-    /// El detector y el envío de los arrastres de archivos al cruzar (T-121); sin él, el
-    /// cruce con botón apretado sigue solo la preferencia «Arrastrar entre máquinas».
+    /// The detector and sender of file drags when crossing (T-121); without it, crossing
+    /// with a button pressed follows only the "Drag between machines" preference.
     pub file_drag: Option<Arc<dyn FileDragBackend>>,
 }
 
 impl InputSetup {
-    /// Los de este sistema, con los tiempos normales.
+    /// The ones of this system, with the normal timings.
     pub fn platform() -> Self {
         InputSetup {
             backends: Arc::new(PlatformInput::new()),
@@ -123,8 +123,8 @@ impl InputSetup {
     }
 }
 
-/// El motor de entrada en marcha. Al soltarlo se detiene todo y la captura devuelve
-/// el teclado y el mouse a esta máquina.
+/// The running input engine. Dropping it stops everything and the capture gives
+/// the keyboard and mouse back to this machine.
 pub struct Input {
     tasks: Vec<JoinHandle<()>>,
     hot: Option<HotPath>,
@@ -135,15 +135,15 @@ impl Drop for Input {
         for t in &self.tasks {
             t.abort();
         }
-        // Al soltarse el runtime del camino caliente se sueltan sus drivers: la captura
-        // devuelve la entrada.
+        // When the hot path's runtime is dropped its drivers are dropped: the capture
+        // gives the input back.
         self.hot.take();
     }
 }
 
-/// Runtime propio de la captura, el envío y la inyección (T-093): un hilo que no comparte
-/// cola con el portapapeles, la IPC ni la red de control. Los datagramas y los streams de
-/// QUIC se pueden usar desde aquí aunque la conexión viva en el runtime principal.
+/// Own runtime for capture, sending and injection (T-093): a thread that does not share
+/// a queue with the clipboard, the IPC or the control network. QUIC datagrams and streams
+/// can be used from here even if the connection lives in the main runtime.
 struct HotPath {
     handle: tokio::runtime::Handle,
     stop: Option<tokio::sync::oneshot::Sender<()>>,
@@ -163,7 +163,7 @@ impl HotPath {
                 rt.block_on(async {
                     let _ = stopped.await;
                 });
-                // Lo que quede corriendo se cancela al soltar el runtime, en este hilo.
+                // What is left running is canceled when the runtime is dropped, on this thread.
                 rt.shutdown_background();
             })?;
         Ok(HotPath {
@@ -179,54 +179,54 @@ impl Drop for HotPath {
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());
         }
-        // No se espera al hilo: soltar el motor no puede bloquear un runtime de tokio.
+        // The thread is not waited for: dropping the engine cannot block a tokio runtime.
         self.thread.take();
     }
 }
 
-/// Lo que comparten las tareas del motor.
+/// What the engine's tasks share.
 struct Shared {
     agent: Arc<Agent>,
     me: Machine,
     backends: Arc<dyn InputBackends>,
     opts: InputOptions,
     lock_keys: Vec<HidUsage>,
-    /// Adonde van los atajos de escena que se apretaron.
+    /// Where the pressed scene shortcuts go.
     scene_keys: mpsc::UnboundedSender<String>,
-    /// Por dónde sale el cursor en vivo; los drivers solo publican con alguien mirando.
+    /// Where the live cursor goes out; the drivers only publish with someone watching.
     cursor: CursorTap,
     link: watch::Receiver<Option<ActiveLink>>,
-    /// Quién manda el teclado y el mouse según el arbitraje (D7).
+    /// Who sends the keyboard and mouse according to arbitration (D7).
     server: watch::Sender<Machine>,
-    /// Última entrada física de esta máquina (la captura corre siempre).
+    /// Last physical input of this machine (the capture always runs).
     activity: watch::Sender<Option<Instant>>,
-    /// Última latencia de la entrada, de la sesión de aquí que la tenga.
+    /// Last input latency, from the session here that has it.
     latency: watch::Sender<Option<InputLatency>>,
     hub_here: watch::Sender<Option<bool>>,
     report: watch::Sender<Option<HubReport>>,
-    /// Todas las pantallas de esta máquina (lo que se manda al otro agente).
+    /// All of this machine's screens (what is sent to the other agent).
     screens: watch::Sender<Vec<Screen>>,
-    /// Las de esta máquina que se están mirando (las del cliente).
+    /// This machine's screens that are being watched (the client's).
     visible: watch::Sender<Vec<Screen>>,
     layout: watch::Sender<Layout>,
-    /// Sesiones establecidas, de servidor y de cliente.
+    /// Established sessions, server and client.
     serving: watch::Sender<bool>,
     receiving: watch::Sender<bool>,
-    /// El foco está en la otra máquina (servidor) / el cursor está aquí (cliente).
+    /// Focus is on the other machine (server) / the cursor is here (client).
     remote: watch::Sender<bool>,
     here: watch::Sender<bool>,
     locked: watch::Sender<bool>,
-    /// Hay un botón del mouse apretado (para vigilar el arrastre de archivos).
+    /// A mouse button is pressed (to watch the file drag).
     held: watch::Sender<bool>,
-    /// Hay un arrastre de archivos en curso: la sesión deja cruzar con el botón apretado.
+    /// A file drag is in progress: the session lets crossing with the button pressed.
     file_drag: Arc<AtomicBool>,
     missing: watch::Sender<Vec<InputPermission>>,
     capture_problem: watch::Sender<Option<String>>,
     inject_problem: watch::Sender<Option<String>>,
 }
 
-/// Arranca el motor de entrada sobre `link`, el enlace activo de la red. Tiene que
-/// llamarse dentro de un runtime de tokio.
+/// Starts the input engine over `link`, the network's active link. It must be
+/// called inside a tokio runtime.
 pub fn start(
     agent: Arc<Agent>,
     link: watch::Receiver<Option<ActiveLink>>,
@@ -239,17 +239,17 @@ pub fn start(
     }
 }
 
-/// Lo del puesto que el motor toma al arrancar: el atajo de bloqueo y Cmd↔Ctrl (DESIGN
-/// §4.4). La geometría no: esa se recalcula en caliente; el portapapeles tampoco: es un
-/// módulo que se enciende y apaga solo ([`clipboard_module`]).
+/// What of the desk the engine takes on start: the lock shortcut and Cmd<->Ctrl (DESIGN
+/// §4.4). Not the geometry: that is recomputed live; nor the clipboard: it is a
+/// module that turns on and off by itself ([`clipboard_module`]).
 fn engine_prefs(desk: &tandem_core::Desk) -> (Vec<String>, bool) {
     (desk.shortcuts.lock.clone(), desk.prefs.cmd_ctrl)
 }
 
-/// El motor con el lado y las preferencias de ahora; si esta máquina cambia de lado o
-/// cambian las preferencias del puesto (desde cualquiera de las dos UIs), se suelta entero
-/// (la captura devuelve la entrada) y se arma de nuevo. Con el módulo «Teclado y mouse»
-/// apagado no corre.
+/// The engine with the current side and preferences; if this machine changes side or
+/// the desk's preferences change (from either UI), it is dropped whole
+/// (the capture gives the input back) and built again. With the "Keyboard and mouse" module
+/// off it does not run.
 async fn supervise(
     agent: Arc<Agent>,
     link: watch::Receiver<Option<ActiveLink>>,
@@ -264,7 +264,7 @@ async fn supervise(
         let prefs = engine_prefs(&desk.borrow_and_update());
         let engine = on.then(|| spawn_engine(agent.clone(), link.clone(), setup.clone()));
         if !on {
-            // Sin motor nadie publica el estado: la sesión y el bloqueo ya no existen.
+            // Without an engine nobody publishes the state: the session and the lock no longer exist.
             let mut status = agent.input_status();
             status.session = false;
             status.locked = false;
@@ -287,11 +287,11 @@ async fn supervise(
         };
         drop(engine);
         if restart {
-            tracing::info!(lado = %agent.machine(), "el motor de entrada vuelve a arrancar");
+            tracing::info!(side = %agent.machine(), "the input engine restarts");
         } else {
             tracing::info!(
                 encendido = !on,
-                "teclado y mouse encendido o apagado por el usuario"
+                "keyboard and mouse turned on or off by the user"
             );
         }
     }
@@ -304,17 +304,17 @@ fn spawn_engine(
 ) -> Input {
     let cfg = &agent.config().input;
     let me = agent.machine();
-    // Lo declarado (configuración o asistente) ya viene con el lado de ahora.
+    // What is declared (configuration or setup) already comes with the current side.
     let keyboard = agent.keyboard_declared().unwrap_or(cfg.keyboard());
     let desk = agent.desk();
-    // Un atajo con una tecla que no existe (de una versión más nueva) queda sin atajo.
+    // A shortcut with a key that does not exist (from a newer version) is left without a shortcut.
     let lock_keys = crate::config::shortcut_keys(&desk.shortcuts.lock).unwrap_or_default();
-    // Sin pantallas solo falla un margen de esquinas inválido.
+    // Without screens only an invalid corner margin fails.
     let initial = Layout::compute(&Arrangement::default(), setup.opts.layout);
     let initial = match initial {
         Ok(l) => l,
         Err(e) => {
-            tracing::error!("motor de entrada sin arrancar: {e}");
+            tracing::error!("input engine not started: {e}");
             agent.set_module_problem(ModuleId::Files, Some(crate::modules::NO_ENGINE.into()));
             return Input {
                 tasks: Vec::new(),
@@ -383,12 +383,12 @@ fn spawn_engine(
         tokio::spawn(status(sh.clone())),
         tokio::spawn(publish_cursor(sh.agent.clone(), cursor_events)),
     ]);
-    // Captura, envío e inyección en su propio hilo; si no se puede crear, en el runtime
-    // de siempre (funciona igual, solo comparte la cola).
+    // Capture, sending and injection on their own thread; if it cannot be created, on the
+    // usual runtime (works the same, it only shares the queue).
     let hot = match HotPath::start() {
         Ok(h) => Some(h),
         Err(e) => {
-            tracing::warn!("sin hilo propio para la entrada, se usa el runtime común: {e}");
+            tracing::warn!("no thread of its own for the input, using the common runtime: {e}");
             None
         }
     };
@@ -399,7 +399,7 @@ fn spawn_engine(
     tasks.push(spawn(Box::pin(server(sh.clone()))));
     tasks.push(spawn(Box::pin(client(sh.clone(), input_rx))));
     tasks.push(tokio::spawn(clipboard_module(sh.clone(), clip_rx)));
-    // Sin detector, «Archivos» lo dice con la razón en vez de aparecer activo (T-158).
+    // Without a detector, "Files" says so with the reason instead of appearing active (T-158).
     sh.agent.set_module_problem(
         ModuleId::Files,
         crate::modules::file_drag_problem(
@@ -431,24 +431,24 @@ fn set<T: PartialEq>(tx: &watch::Sender<T>, value: T) {
     });
 }
 
-/// Espera el próximo cambio. Si el emisor ya no existe, nunca termina: así un `select!`
-/// no gira en vacío por un canal cerrado.
+/// Waits for the next change. If the sender no longer exists, it never finishes: this way a `select!`
+/// does not spin idle on a closed channel.
 async fn changed<T>(rx: &mut watch::Receiver<T>) {
     if rx.changed().await.is_err() {
         std::future::pending::<()>().await;
     }
 }
 
-/// Lleva al agente lo que publican los drivers del cursor en vivo (T-128): el agente lo
-/// reparte a la UI y, si la otra máquina mira, a ella. Corre en el runtime común, no en el
-/// del camino caliente.
+/// Carries to the agent what the live cursor's drivers publish (T-128): the agent
+/// distributes it to the UI and, if the other machine watches, to it. Runs in the common runtime, not in the
+/// hot path's.
 async fn publish_cursor(agent: Arc<Agent>, mut events: mpsc::UnboundedReceiver<CursorEvent>) {
     while let Some(event) = events.recv().await {
         agent.publish_cursor(event);
     }
 }
 
-/// Reparte los streams que abre el otro agente.
+/// Distributes the streams the other agent opens.
 async fn route(
     mut incoming: mpsc::UnboundedReceiver<IncomingChannel>,
     input: mpsc::UnboundedSender<IncomingChannel>,
@@ -458,18 +458,18 @@ async fn route(
         let to = match inc.channel {
             Channel::Input => &input,
             Channel::Clipboard => &clipboard,
-            // Nunca llega aquí: lo atiende `peer::serve_stream` (los túneles).
+            // It never gets here: `peer::serve_stream` handles it (the tunnels).
             Channel::Tunnel => continue,
-            // La prueba de ancho de banda la contesta `peer::serve_stream`; no llega aquí.
+            // The bandwidth test is answered by `peer::serve_stream`; it does not get here.
             Channel::Measure => continue,
         };
         if to.send(inc).is_err() {
-            tracing::debug!("stream del otro agente sin quien lo atienda");
+            tracing::debug!("stream from the other agent with nobody to handle it");
         }
     }
 }
 
-/// Lee las pantallas de esta máquina al arrancar y cada tanto.
+/// Reads this machine's screens on start and every so often.
 async fn read_screens(sh: Arc<Shared>) {
     let mut tick = tokio::time::interval(sh.opts.screens_every);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -484,17 +484,17 @@ async fn read_screens(sh: Arc<Shared>) {
             }
             Ok(Err(e)) => {
                 if !warned {
-                    tracing::warn!("no se pudieron leer las pantallas de esta máquina: {e}");
+                    tracing::warn!("could not read this machine's screens: {e}");
                     warned = true;
                 }
             }
-            Err(e) => tracing::error!("lectura de pantallas: {e}"),
+            Err(e) => tracing::error!("screen reading: {e}"),
         }
     }
 }
 
-/// Recalcula la geometría con cada cambio de estado, del puesto, de pantallas o de lo que
-/// muestra cada monitor.
+/// Recomputes the geometry on every change of state, desk, screens or of what
+/// each monitor shows.
 async fn geometry(sh: Arc<Shared>) {
     let mut state = sh.agent.subscribe();
     let mut desk = sh.agent.subscribe_desk();
@@ -518,7 +518,7 @@ async fn geometry(sh: Arc<Shared>) {
                 set(&sh.visible, l.screens(sh.me).to_vec());
                 set(&sh.layout, l);
             }
-            Err(e) => tracing::warn!("geometría inválida, se sigue con la anterior: {e}"),
+            Err(e) => tracing::warn!("invalid geometry, continuing with the previous one: {e}"),
         }
         tokio::select! {
             () = changed(&mut state) => {}
@@ -530,10 +530,10 @@ async fn geometry(sh: Arc<Shared>) {
     }
 }
 
-/// Quién manda el teclado y el mouse (D7): la entrada física de aquí, los mensajes del
-/// otro agente y lo declarado alimentan el [`Follow`]; lo que devuelve se manda por el
-/// enlace activo. Al conectar y cada tanto se manda el estado, por si un mensaje se perdió
-/// con un enlace caído.
+/// Who sends the keyboard and mouse (D7): the physical input from here, the other
+/// agent's messages and what is declared feed the [`Follow`]; what it returns is sent over the
+/// active link. On connecting and every so often the state is sent, in case a message was lost
+/// with a dropped link.
 async fn follow(
     sh: Arc<Shared>,
     mut presence: Option<watch::Receiver<Presence>>,
@@ -544,7 +544,7 @@ async fn follow(
     let mut link = sh.link.clone();
     let mut activity = sh.activity.subscribe();
     activity.borrow_and_update();
-    // Lo que el usuario dijo en el asistente (T-087) manda sobre todo.
+    // What the user said in setup (T-087) overrides everything.
     let mut declared = sh.agent.subscribe_keyboard();
     let mut last_declared = *declared.borrow_and_update();
     let mut current: Option<ActiveLink> = None;
@@ -563,8 +563,8 @@ async fn follow(
             _ => false,
         };
         if now.is_none() && current.is_some() {
-            // Lo que mandó por el enlace caído ya no vale: el próximo reporte llega por
-            // el enlace siguiente.
+            // What it sent over the dropped link no longer holds: the next report arrives over
+            // the next link.
             sh.agent.inbox().hub.send_replace(None);
         }
         current = now;
@@ -572,7 +572,7 @@ async fn follow(
             send(&current, Some(f.state()));
         }
         if *sh.server.borrow() != f.server() {
-            tracing::info!(teclado = %f.server(), "el teclado y mouse pasó a otra máquina");
+            tracing::info!(keyboard = %f.server(), "the keyboard and mouse moved to another machine");
         }
         set(&sh.server, f.server());
         let hub = presence.as_mut().map(|p| p.borrow_and_update().hub());
@@ -598,7 +598,7 @@ async fn follow(
                     let out = f.receive(m, Instant::now());
                     send(&current, out);
                 }
-                // Otro motor tomó el buzón: este ya no recibe nada.
+                // Another engine took the mailbox: this one no longer receives anything.
                 None => std::future::pending::<()>().await,
             },
             () = changed(&mut declared) => {
@@ -622,8 +622,8 @@ async fn follow(
     }
 }
 
-/// Le cuenta al otro agente el hub y las pantallas que lee aquí, cuando cambian y cada
-/// tanto.
+/// Tells the other agent the hub and the screens it reads here, when they change and every
+/// so often.
 async fn report(sh: Arc<Shared>) {
     let mut link = sh.link.clone();
     let mut hub = sh.report.subscribe();
@@ -649,10 +649,10 @@ async fn report(sh: Arc<Shared>) {
     }
 }
 
-/// Mantiene al día los permisos que faltan y los pide al sistema dos veces como máximo sin
-/// que el usuario lo ordene: una al arrancar, si falta alguno (macOS así registra el binario
-/// que realmente corre y muestra su diálogo), y después solo por orden explícita de la UI
-/// ([`UiCommand::RequestPermissions`]). Nunca en bucle: cada pedido es un diálogo.
+/// Keeps the missing permissions up to date and asks the system for them at most twice without
+/// the user ordering it: once on start, if any is missing (macOS registers the binary
+/// that really runs this way and shows its dialog), and afterwards only on the UI's explicit order
+/// ([`UiCommand::RequestPermissions`]). Never in a loop: each request is a dialog.
 async fn permissions(sh: Arc<Shared>) {
     let mut asks = sh.agent.subscribe_permission_requests();
     asks.borrow_and_update();
@@ -675,8 +675,8 @@ async fn permissions(sh: Arc<Shared>) {
     }
 }
 
-/// Se sabe dónde está el teclado si lo dijo el usuario o la configuración, si el hub de
-/// esta máquina se detecta o si la otra máquina reporta el suyo (T-087).
+/// It is known where the keyboard is if the user or the configuration said so, if this machine's
+/// hub is detected or if the other machine reports its own (T-087).
 fn keyboard_defined(
     declared: Option<tandem_core::Machine>,
     hub_here: Option<bool>,
@@ -685,7 +685,7 @@ fn keyboard_defined(
     declared.is_some() || hub_here.is_some() || peer_reports_hub
 }
 
-/// Lo que ve la UI.
+/// What the UI sees.
 async fn status(sh: Arc<Shared>) {
     let mut rx = (
         sh.server.subscribe(),
@@ -697,7 +697,7 @@ async fn status(sh: Arc<Shared>) {
         sh.capture_problem.subscribe(),
         sh.inject_problem.subscribe(),
         sh.agent.inbox().hub.subscribe(),
-        // Lo que el usuario declara en el asistente (T-087).
+        // What the user declares in setup (T-087).
         sh.agent.subscribe_keyboard(),
         sh.latency.subscribe(),
         sh.screens.subscribe(),
@@ -706,9 +706,9 @@ async fn status(sh: Arc<Shared>) {
     loop {
         let server = *rx.0.borrow_and_update();
         let is_server = server == sh.me;
-        // Cada lectura de un `watch` se copia aquí, fuera del literal: dos lecturas del mismo
-        // candado dentro de una expresión pueden bloquearse si entre ellas llega una
-        // escritura (el candado da prioridad a quien escribe).
+        // Each read of a `watch` is copied here, outside the literal: two reads of the same
+        // lock inside an expression can deadlock if a write arrives between them
+        // (the lock gives priority to the writer).
         let hub_here = *rx.1.borrow_and_update();
         let peer_hub = rx.8.borrow_and_update().is_some();
         let declared = *rx.9.borrow_and_update();
@@ -722,8 +722,8 @@ async fn status(sh: Arc<Shared>) {
             },
             locked: is_server && *rx.4.borrow_and_update(),
             missing: rx.5.borrow_and_update().clone(),
-            // Las dos máquinas capturan e inyectan (D7): cuenta cualquiera de los dos,
-            // primero el del papel de ahora.
+            // Both machines capture and inject (D7): either of the two counts,
+            // first the one with the current role.
             problem: {
                 let capture = rx.6.borrow_and_update().clone();
                 let inject = rx.7.borrow_and_update().clone();
@@ -733,7 +733,7 @@ async fn status(sh: Arc<Shared>) {
                     inject.or(capture)
                 }
             },
-            // El hub, la configuración o el asistente lo dicen; si no, es «sin definir».
+            // The hub, the configuration or setup say so; if not, it is "not set".
             defined: keyboard_defined(declared, hub_here, peer_hub),
             latency: *rx.10.borrow_and_update(),
             screens: rx
@@ -763,11 +763,11 @@ async fn status(sh: Arc<Shared>) {
     }
 }
 
-/// Una latencia de la entrada medida en este camino: la usa el guardián de los datos para
-/// pausarlos si la entrada pasa su objetivo (DESIGN §6). Se alimenta en las dos máquinas,
-/// porque los datos de las dos compiten por el mismo camino: en la que inyecta, con cada
-/// muestra; en la que captura, con el p99 de cada ventana que le informa la otra.
-/// Va al `Qos` del camino activo (T-101), el mismo para todas las conexiones por él.
+/// An input latency measured on this path: the data guardian uses it to
+/// pause the data if the input exceeds its target (DESIGN §6). It is fed on both machines,
+/// because the data of both compete for the same path: on the one that injects, with each
+/// sample; on the one that captures, with the p99 of each window the other reports to it.
+/// It goes to the active path's `Qos` (T-101), the same for all the connections over it.
 fn feed_qos(sh: &Shared, latency: Duration) {
     let kind = sh.link.borrow().as_ref().map(|l| l.kind);
     if let Some(kind) = kind {
@@ -775,8 +775,8 @@ fn feed_qos(sh: &Shared, latency: Duration) {
     }
 }
 
-/// Copia la latencia que publica un driver en la del motor, con el enlace activo.
-/// `feed`: es lo que informa la otra máquina (el servidor no mide): su p99 alimenta el Qos.
+/// Copies the latency a driver publishes into the engine's, with the active link.
+/// `feed`: it is what the other machine reports (the server does not measure): its p99 feeds the Qos.
 fn forward_latency(sh: Arc<Shared>, mut from: watch::Receiver<Option<InputLatency>>, feed: bool) {
     tokio::spawn(async move {
         loop {
@@ -799,7 +799,7 @@ fn forward_latency(sh: Arc<Shared>, mut from: watch::Receiver<Option<InputLatenc
     });
 }
 
-/// Copia la entrada física que ve la captura en la del motor.
+/// Copies the physical input the capture sees into the engine's.
 fn forward_activity(sh: Arc<Shared>, mut from: watch::Receiver<Option<Instant>>) {
     tokio::spawn(async move {
         loop {
@@ -814,8 +814,8 @@ fn forward_activity(sh: Arc<Shared>, mut from: watch::Receiver<Option<Instant>>)
     });
 }
 
-/// Pasa al driver lo que la UI pide con «Bloquear aquí»; termina al soltarse el driver.
-/// Lo pedido antes de armarse el driver no cuenta: el contador de entonces se da por visto.
+/// Passes to the driver what the UI asks with "Lock here"; ends when the driver is dropped.
+/// What was requested before the driver was built does not count: the counter of that time is taken as seen.
 fn forward_lock_requests(mut from: watch::Receiver<(u64, bool)>, to: mpsc::UnboundedSender<bool>) {
     from.borrow_and_update();
     tokio::spawn(async move {
@@ -828,7 +828,7 @@ fn forward_lock_requests(mut from: watch::Receiver<(u64, bool)>, to: mpsc::Unbou
     });
 }
 
-/// Copia un `watch` del driver en el del motor; al soltarse el driver queda en `false`.
+/// Copies a driver's `watch` into the engine's; when the driver is dropped it is left at `false`.
 fn forward(mut from: watch::Receiver<bool>, to: impl Fn(bool) + Send + 'static) {
     tokio::spawn(async move {
         loop {
@@ -852,8 +852,8 @@ fn first_cursor(screens: &[Screen]) -> Point {
 
 type Server = ServerDriver<backends::DynCapture>;
 
-/// El sistema de la otra máquina: lo que anunció o, sin anuncio todavía, lo que guarda el
-/// puesto de ella.
+/// The other machine's system: what it announced or, without an announcement yet, what its
+/// desk keeps.
 fn peer_os(sh: &Shared) -> Option<Os> {
     sh.agent
         .capabilities()
@@ -864,7 +864,7 @@ fn peer_os(sh: &Shared) -> Option<Os> {
 
 async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String> {
     let (tx, rx) = mpsc::unbounded_channel();
-    // Sin Cmd↔Ctrl en el puesto, ninguna reasignación (como entre dos sistemas iguales).
+    // Without Cmd<->Ctrl in the desk, no remapping (as between two identical systems).
     let peer = peer.filter(|_| sh.agent.desk().prefs.cmd_ctrl);
     let sink = CaptureSink::new(
         tx,
@@ -873,16 +873,16 @@ async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String
         peer,
     )
     .with_scenes(sh.agent.scene_shortcuts(sh.scene_keys.clone()));
-    // La sesión ve las teclas ya reasignadas: el atajo, escrito con las físicas, también.
+    // The session sees the keys already remapped: the shortcut, written with the physical ones, too.
     let lock_keys = sh.lock_keys.iter().map(|&k| sink.remap_key(k)).collect();
     let backends = sh.backends.clone();
     let capture = tokio::task::spawn_blocking(move || backends.capture(sink))
         .await
         .map_err(|e| e.to_string())??;
-    // Suscribirse antes de leer: si la geometría cambia entre medio (las pantallas de la
-    // otra llegan junto con sus capacidades, justo cuando se rearma la captura), la sesión
-    // la recibe; leer primero y suscribirse después dejaba el cambio marcado como visto y
-    // la sesión sin la otra máquina hasta el próximo cambio.
+    // Subscribe before reading: if the geometry changes in between (the
+    // other's screens arrive together with its capabilities, just when the capture is rearmed), the session
+    // receives it; reading first and subscribing after left the change marked as seen and
+    // the session without the other machine until the next change.
     let mut layouts = sh.layout.subscribe();
     let layout = layouts.borrow_and_update().clone();
     let cursor = first_cursor(layout.screens(sh.me));
@@ -907,24 +907,24 @@ async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String
     Ok(driver)
 }
 
-/// La sesión de servidor, mientras esta máquina lo sea: sobre el enlace activo, o
-/// consumiendo lo capturado si no hay enlace.
+/// The server session, while this machine is one: over the active link, or
+/// consuming what is captured if there is no link.
 async fn server(sh: Arc<Shared>) {
     let mut role = sh.server.subscribe();
     let mut link = sh.link.clone();
     let mut caps = sh.agent.subscribe_capabilities();
     let mut driver: Option<Server> = None;
-    // El sistema de la otra con que se armó la captura (los modificadores dependen de él).
+    // The other's system the capture was built with (the modifiers depend on it).
     let mut built_for: Option<Os> = None;
     loop {
         caps.borrow_and_update();
         let peer = peer_os(&sh);
         if driver.is_some() && built_for != peer {
-            tracing::info!(otra = ?peer, "la otra máquina cambió de sistema: se rearma la captura");
+            tracing::info!(other = ?peer, "the other machine changed system: rearming the capture");
             driver = None;
         }
-        // Las dos máquinas capturan siempre (D7): la que no manda solo se pone al día y
-        // avisa la entrada física, que es lo que decide quién manda.
+        // Both machines always capture (D7): the one that does not send just catches up and
+        // reports the physical input, which is what decides who sends.
         let d = match driver.as_mut() {
             Some(d) => d,
             None => match new_server(&sh, peer).await {
@@ -934,7 +934,7 @@ async fn server(sh: Arc<Shared>) {
                     driver.insert(d)
                 }
                 Err(e) => {
-                    tracing::warn!("no se pudo arrancar la captura: {e}");
+                    tracing::warn!("could not start the capture: {e}");
                     set(&sh.capture_problem, Some(e));
                     tokio::select! {
                         () = changed(&mut role) => {}
@@ -969,10 +969,10 @@ async fn server(sh: Arc<Shared>) {
             continue;
         };
         if peer.is_none() {
-            // Sin saber el sistema de la otra no se abre la sesión: al llegar sus
-            // capacidades se rearmaría la captura (los modificadores dependen de él) y la
-            // sesión nueva empezaría con el cursor en casa, perdiendo un cruce ya hecho.
-            // Lo de aquí se sigue poniendo al día.
+            // Without knowing the other's system the session is not opened: when its
+            // capabilities arrived the capture would be rearmed (the modifiers depend on it) and the
+            // new session would start with the cursor at home, losing a crossing already made.
+            // What is here keeps being updated.
             let until = async {
                 tokio::select! {
                     () = changed(&mut role) => {}
@@ -1003,7 +1003,7 @@ async fn server(sh: Arc<Shared>) {
             SessionEnd::Stopped => {}
             SessionEnd::CaptureClosed => driver = None,
             _ => {
-                // Antes de reintentar, lo capturado se consume sin cruzar.
+                // Before retrying, what is captured is consumed without crossing.
                 let pause = tokio::time::sleep(sh.opts.retry);
                 if d.idle(pause).await.is_err() {
                     driver = None;
@@ -1013,7 +1013,7 @@ async fn server(sh: Arc<Shared>) {
     }
 }
 
-/// Termina cuando el sistema que anuncia la otra máquina deja de ser `current`.
+/// Ends when the system the other machine announces stops being `current`.
 async fn until_peer_os_changes(
     sh: &Shared,
     caps: &mut watch::Receiver<tandem_proto::DeskCapabilities>,
@@ -1027,8 +1027,8 @@ async fn until_peer_os_changes(
     }
 }
 
-/// Termina cuando el enlace activo ya no es `current` o esta máquina deja de ser `me`
-/// como servidor.
+/// Ends when the active link is no longer `current` or this machine stops being `me`
+/// as server.
 async fn until_link_or_role_changes(
     link: &mut watch::Receiver<Option<ActiveLink>>,
     current: &ActiveLink,
@@ -1076,8 +1076,8 @@ async fn new_client(sh: &Arc<Shared>) -> Result<Client, String> {
     Ok(driver)
 }
 
-/// La sesión de cliente: inyecta lo que llega por cada stream de entrada que abre el
-/// servidor. Un stream nuevo reemplaza al anterior (el servidor cambió de enlace).
+/// The client session: injects what arrives over each input stream the
+/// server opens. A new stream replaces the previous one (the server switched link).
 async fn client(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<IncomingChannel>) {
     let mut driver: Option<Client> = None;
     let mut next = streams.recv().await;
@@ -1090,10 +1090,10 @@ async fn client(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<IncomingCh
                     driver.insert(d)
                 }
                 Err(e) => {
-                    tracing::warn!("no se pudo arrancar la inyección: {e}");
+                    tracing::warn!("could not start the injection: {e}");
                     set(&sh.inject_problem, Some(e));
-                    // El stream se cierra: el servidor reintenta y para entonces quizá
-                    // ya se pueda.
+                    // The stream is closed: the server retries and by then perhaps
+                    // can already.
                     drop(inc);
                     next = streams.recv().await;
                     continue;
@@ -1110,7 +1110,7 @@ async fn client(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<IncomingCh
             .run_with(&conn, async { Ok::<_, SessionEnd>(stream) }, stop)
             .await;
         set(&sh.receiving, false);
-        tracing::debug!("sesión de entrada (recibe el teclado): {end}");
+        tracing::debug!("input session (receives the keyboard): {end}");
         next = match following {
             Some(f) => Some(f),
             None => streams.recv().await,
@@ -1118,7 +1118,7 @@ async fn client(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<IncomingCh
     }
 }
 
-/// El foco del teclado y mouse está en esta máquina.
+/// The keyboard and mouse focus is on this machine.
 fn focus(sh: &Shared, server: Machine) -> bool {
     if server == sh.me {
         !*sh.remote.borrow()
@@ -1146,8 +1146,8 @@ async fn track_focus(sh: Arc<Shared>, tx: watch::Sender<bool>) {
     }
 }
 
-/// El módulo «Portapapeles»: corre mientras el usuario lo tenga encendido. Apagado, lo que
-/// abra el otro agente se cierra enseguida.
+/// The "Clipboard" module: runs while the user has it on. Off, whatever the
+/// other agent opens is closed right away.
 async fn clipboard_module(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<IncomingChannel>) {
     let mut modules = sh.agent.subscribe_modules();
     let mut open = true;
@@ -1178,7 +1178,7 @@ async fn clipboard_module(sh: Arc<Shared>, mut streams: mpsc::UnboundedReceiver<
     }
 }
 
-/// Aborta la tarea al soltarse: el portapapeles se puede apagar a mitad de camino.
+/// Aborts the task when dropped: the clipboard can be turned off midway.
 struct AbortOnDrop(JoinHandle<()>);
 
 impl Drop for AbortOnDrop {
@@ -1187,8 +1187,8 @@ impl Drop for AbortOnDrop {
     }
 }
 
-/// El portapapeles: el lado A abre el stream en el enlace activo y B lo recibe (da igual
-/// cuál; solo tiene que ser uno, y los dos saben cuál sin hablarse).
+/// The clipboard: side A opens the stream on the active link and B receives it (it does not matter
+/// which; only one must, and both know which without talking).
 async fn clipboard(sh: Arc<Shared>, streams: &mut mpsc::UnboundedReceiver<IncomingChannel>) {
     let backends = sh.backends.clone();
     let cb = match tokio::task::spawn_blocking(move || backends.clipboard()).await {
@@ -1197,17 +1197,17 @@ async fn clipboard(sh: Arc<Shared>, streams: &mut mpsc::UnboundedReceiver<Incomi
             cb
         }
         Ok(Err(e)) => {
-            tracing::warn!("sin portapapeles compartido: {e}");
+            tracing::warn!("no shared clipboard: {e}");
             sh.agent.set_module_problem(
                 ModuleId::Clipboard,
-                Some(format!("No se pudo abrir el portapapeles del sistema: {e}")),
+                Some(format!("Could not open the system clipboard: {e}")),
             );
-            // Lo que abra el otro agente se cierra enseguida.
+            // Whatever the other agent opens is closed right away.
             while streams.recv().await.is_some() {}
             return;
         }
         Err(e) => {
-            tracing::error!("portapapeles: {e}");
+            tracing::error!("clipboard: {e}");
             return;
         }
     };
@@ -1238,7 +1238,7 @@ async fn clipboard(sh: Arc<Shared>, streams: &mut mpsc::UnboundedReceiver<Incomi
                     }
                 }
                 Err(e) => {
-                    tracing::debug!("no se pudo abrir el stream del portapapeles: {e}");
+                    tracing::debug!("could not open the clipboard stream: {e}");
                     tokio::time::sleep(sh.opts.retry).await;
                 }
             }
@@ -1265,12 +1265,12 @@ mod tests {
     fn the_keyboard_is_defined_by_the_user_or_any_hub_report() {
         use super::keyboard_defined as f;
         use tandem_core::Machine;
-        assert!(!f(None, None, false), "sin nada, sin definir");
+        assert!(!f(None, None, false), "nothing, not set");
         assert!(f(Some(Machine::B), None, false));
-        assert!(f(None, Some(false), false), "el hub de aquí se detecta");
+        assert!(f(None, Some(false), false), "the hub here is detected");
         assert!(
             f(None, None, true),
-            "el hub de la otra máquina también cuenta"
+            "the other machine's hub also counts"
         );
     }
 
@@ -1289,6 +1289,6 @@ mod tests {
         let (tx, mut rx) = watch::channel(0);
         drop(tx);
         let r = tokio::time::timeout(Duration::from_millis(20), changed(&mut rx)).await;
-        assert!(r.is_err(), "un canal cerrado no despierta a nadie");
+        assert!(r.is_err(), "a closed channel wakes nobody");
     }
 }

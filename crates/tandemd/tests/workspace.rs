@@ -1,6 +1,6 @@
-//! Workspaces de git entre dos agentes reales por QUIC en loopback (T-107): un cliente abre
-//! un túnel con el repo de A, trabaja en B (commits y cambios) y lo trae de vuelta como
-//! rama, todo por la IPC; los repos son de git de verdad en carpetas temporales.
+//! Git workspaces between two real agents over QUIC on loopback (T-107): a client opens
+//! a tunnel with A's repo, works on B (commits and changes) and brings it back as a
+//! branch, all through the IPC; the repos are real git ones in temporary folders.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -26,7 +26,7 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
 struct Keys(BTreeSet<PublicKey>);
@@ -67,7 +67,7 @@ fn git(dir: &Path, args: &[&str]) -> String {
         .env_remove("GIT_INDEX_FILE")
         .env_remove("GIT_WORK_TREE")
         .output()
-        .expect("git en el PATH");
+        .expect("git on the PATH");
     assert!(
         out.status.success(),
         "git {args:?}: {}",
@@ -77,7 +77,7 @@ fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
+async fn the_repo_goes_to_the_other_machine_and_comes_back_as_a_branch_over_quic() {
     let dir = tempfile::tempdir().unwrap();
     let mac = agent(dir.path(), Machine::A);
     let pc = agent(dir.path(), Machine::B);
@@ -100,22 +100,22 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
     let mut claude = ipc(&mac, Peer::Client(ClientKind::Mcp), &mut stops).await;
     let mut ui = ipc(&mac, Peer::Ui, &mut stops).await;
 
-    // El repo de A, con un cambio sin commit y un archivo nuevo.
-    let repo = dir.path().join("proyecto");
+    // A's repo, with an uncommitted change and a new file.
+    let repo = dir.path().join("project");
     fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "user.email", "yo@example.com"]);
     git(&repo, &["config", "user.name", "Yo"]);
     git(&repo, &["config", "commit.gpgsign", "false"]);
-    fs::write(repo.join("a.txt"), "uno\n").unwrap();
+    fs::write(repo.join("a.txt"), "one\n").unwrap();
     git(&repo, &["add", "-A"]);
-    git(&repo, &["commit", "-q", "-m", "inicial"]);
-    fs::write(repo.join("a.txt"), "uno\ndos\n").unwrap();
-    fs::write(repo.join("nuevo.txt"), "nuevo\n").unwrap();
+    git(&repo, &["commit", "-q", "-m", "initial"]);
+    fs::write(repo.join("a.txt"), "one\ntwo\n").unwrap();
+    fs::write(repo.join("new.txt"), "new\n").unwrap();
     let before = git(&repo, &["status", "--porcelain"]);
 
     let open = |workspace| UiCommand::OpenTunnel {
-        title: "Arreglo".into(),
+        title: "Fix".into(),
         project: None,
         target: Machine::B,
         session: "s".into(),
@@ -126,22 +126,22 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
         keep: false,
         include: vec![],
     };
-    // La UI solo mira (D9).
+    // The UI only watches (D9).
     assert_eq!(
         within(ui.request(open(Some(ws.clone())))).await.unwrap(),
         Reply::Rejected(CLIENTS_ONLY.into())
     );
-    // Un repo que no existe no deja un túnel abierto.
+    // A repo that does not exist does not leave a tunnel open.
     let bad = WorkspaceSpec {
-        repo_path: dir.path().join("no-existe").display().to_string(),
+        repo_path: dir.path().join("missing").display().to_string(),
         keep: false,
         include: vec![],
     };
     let Reply::Rejected(why) = within(claude.request(open(Some(bad)))).await.unwrap() else {
-        panic!("se esperaba el rechazo");
+        panic!("the rejection was expected");
     };
     assert!(why.contains("workspace"), "{why}");
-    // El cierre llega al origen por el canal de datos, un instante después.
+    // The close reaches the source over the data channel, an instant later.
     within(async {
         while mac
             .tunnels()
@@ -157,7 +157,7 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
 
     let Reply::Tunnel { tunnel: t, .. } = within(claude.request(open(Some(ws)))).await.unwrap()
     else {
-        panic!("se esperaba el túnel");
+        panic!("the tunnel was expected");
     };
     let work = pc.workspaces().dir_of(t.id).expect("workspace en B");
     assert_eq!(
@@ -168,11 +168,11 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
         fs::read_to_string(work.join("a.txt"))
             .unwrap()
             .replace("\r\n", "\n"),
-        "uno\ndos\n"
+        "one\ntwo\n"
     );
-    assert!(work.join("nuevo.txt").is_file());
+    assert!(work.join("new.txt").is_file());
 
-    // Los procesos del túnel arrancan en el workspace.
+    // The tunnel's processes start in the workspace.
     let Reply::Process(_) = within(claude.request(UiCommand::Exec {
         tunnel: t.id,
         spec: ExecSpec {
@@ -182,17 +182,17 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
     }))
     .await
     .unwrap() else {
-        panic!("se esperaba el proceso");
+        panic!("the process was expected");
     };
     assert_eq!(
         fake.processes()[0].launch.cwd.as_deref(),
         Some(work.to_str().unwrap())
     );
 
-    // Trabajo en B y vuelta como rama.
-    fs::write(work.join("b.txt"), "hecho en B\n").unwrap();
+    // Work on B and return as a branch.
+    fs::write(work.join("b.txt"), "done on B\n").unwrap();
     git(&work, &["add", "-A"]);
-    git(&work, &["commit", "-q", "-m", "Arregla en B"]);
+    git(&work, &["commit", "-q", "-m", "Fix on B"]);
     let back = UiCommand::BringBack {
         tunnel: t.id,
         commit: None,
@@ -203,17 +203,17 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
         Reply::Rejected(CLIENTS_ONLY.into())
     );
     let Reply::BroughtBack(r) = within(claude.request(back)).await.unwrap() else {
-        panic!("se esperaba el informe");
+        panic!("the report was expected");
     };
-    assert_eq!(r.branch.as_deref(), Some("tandem/arreglo"));
+    assert_eq!(r.branch.as_deref(), Some("tandem/fix"));
     assert_eq!(r.commits.len(), 1);
-    assert_eq!(r.commits[0].summary, "Arregla en B");
-    assert_eq!(git(&repo, &["show", "tandem/arreglo:b.txt"]), "hecho en B");
-    // El origen: misma rama y mismo estado de antes.
+    assert_eq!(r.commits[0].summary, "Fix on B");
+    assert_eq!(git(&repo, &["show", "tandem/fix:b.txt"]), "done on B");
+    // The source: same branch and same state as before.
     assert_eq!(git(&repo, &["symbolic-ref", "--short", "HEAD"]), "main");
     assert_eq!(git(&repo, &["status", "--porcelain"]), before);
 
-    // Cerrar el túnel limpia el workspace de B.
+    // Closing the tunnel cleans B's workspace.
     assert_eq!(
         within(claude.request(UiCommand::CloseTunnel { id: t.id }))
             .await

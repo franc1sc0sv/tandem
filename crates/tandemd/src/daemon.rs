@@ -1,5 +1,5 @@
-//! El agente armado ([`start`]) y su bucle principal ([`run`]): acepta conexiones de la
-//! UI hasta el apagado y lo hace en orden.
+//! The assembled agent ([`start`]) and its main loop ([`run`]): accepts connections from the
+//! UI until shutdown and does so in order.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -19,13 +19,13 @@ use crate::orchestrator::LocalSteps;
 use crate::paths::Paths;
 use crate::store::{StateStore, StoreError};
 
-/// Los pasos que esta máquina sabe hacer.
+/// The steps this machine knows how to do.
 pub enum Backends {
-    /// Los de la plataforma ([`crate::PowerSteps::for_machine`] y
+    /// The platform's ([`crate::PowerSteps::for_machine`] and
     /// [`InputSetup::platform`]).
     Platform,
-    /// Otros (en las pruebas, simulados). Sin `input` no hay teclado, mouse ni
-    /// portapapeles compartidos; sin `env` no se encuentran entornos ni se miden recursos.
+    /// Others (in tests, simulated). Without `input` there is no shared keyboard, mouse or
+    /// clipboard; without `env` no environments are found nor resources measured.
     Custom {
         local: Arc<dyn LocalSteps>,
         input: Option<Box<InputSetup>>,
@@ -35,33 +35,33 @@ pub enum Backends {
 
 #[derive(Debug, thiserror::Error)]
 pub enum StartError {
-    #[error("identidad de esta máquina: {0}")]
+    #[error("this machine's identity: {0}")]
     Identity(#[source] IdentityError),
-    #[error("confianza en el par: {0}")]
+    #[error("trust in the peer: {0}")]
     Trust(#[source] IdentityError),
     #[error(transparent)]
     Net(#[from] NetError),
 }
 
-/// Un agente con su red en marcha; falta atender la UI con [`Daemon::serve`].
+/// An agent with its network running; the UI remains to be served with [`Daemon::serve`].
 pub struct Daemon {
     pub agent: Arc<Agent>,
     pub network: Network,
-    /// El motor de entrada; `None` sin backends de entrada.
+    /// The input engine; `None` without input backends.
     pub input: Option<Input>,
 }
 
-/// El lado de esta máquina según la identidad (DECISIONS A1): frente al par de la
-/// confianza, la clave menor es `A`. `None` sin par (o con la misma clave, que no es un
-/// par): entonces vale lo guardado.
+/// This machine's side according to the identity (DECISIONS A1): relative to the
+/// trusted peer, the lower key is `A`. `None` without a peer (or with the same key, which is not a
+/// peer): then what was saved holds.
 pub fn resolve_side(own: &PublicKey, trust: &TrustStore) -> Option<Machine> {
     let peer = trust.peers().next()?;
     Machine::of_keys(own.as_bytes(), peer.public_key.as_bytes())
 }
 
-/// Arma el agente completo sobre el directorio de datos de `paths`: la identidad Ed25519
-/// (se crea la primera vez), la confianza en el par, el lado que sale de las dos, el estado
-/// guardado y la red. Tiene que llamarse dentro de un runtime de tokio.
+/// Builds the complete agent over the data directory of `paths`: the Ed25519 identity
+/// (created the first time), trust in the peer, the side that comes from the two, the saved
+/// state and the network. It must be called inside a tokio runtime.
 pub fn start(
     cfg: AgentConfig,
     paths: &Paths,
@@ -72,13 +72,13 @@ pub fn start(
         Identity::load_or_create(&paths.identity_file()).map_err(StartError::Identity)?;
     tracing::info!(
         llave = %identity.public_key().to_hex(),
-        "identidad de esta máquina"
+        "this machine's identity"
     );
     let trust = TrustStore::open(paths.trust_file()).map_err(StartError::Trust)?;
     let cfg = match resolve_side(&identity.public_key(), &trust) {
         Some(side) => {
             if side != cfg.machine {
-                tracing::info!(lado = %side, "por las claves, esta máquina es el otro lado");
+                tracing::info!(side = %side, "by the keys, this machine is the other side");
             }
             cfg.with_side(side)
         }
@@ -105,13 +105,13 @@ pub fn start(
     if platform {
         start_monitors(&agent);
     }
-    // Los entornos se escanean en segundo plano: pueden tardar (WSL arranca su distro).
+    // Environments are scanned in the background: they can take a while (WSL starts its distro).
     agent.rescan();
     let network = Network::start(agent.clone(), &identity, trust, net)?;
     let input =
         input.map(|setup| crate::input::start(agent.clone(), network.active_link(), *setup));
-    // Destino de los arrastres de archivos (T-121): en Windows, `DoDragDrop`; en macOS,
-    // `NSDraggingSession` en el hilo principal del proceso, que `main` deja atendiendo el
+    // Destination of file drags (T-121): on Windows, `DoDragDrop`; on macOS,
+    // `NSDraggingSession` on the process's main thread, which `main` leaves serving the
     // run loop de AppKit ([`tandem_files::drag_macos::run_app_loop`]).
     #[cfg(any(windows, target_os = "macos"))]
     if platform {
@@ -126,7 +126,7 @@ pub fn start(
             crate::drag::serve(&agent, tandem_files::drag::DragIn::new(starter, base)).await;
         }));
     }
-    // Los túneles siguen al enlace activo; la tarea termina con la red.
+    // The tunnels follow the active link; the task ends with the network.
     drop(crate::tunnels::follow_link(
         agent.clone(),
         network.active_link(),
@@ -138,8 +138,8 @@ pub fn start(
     })
 }
 
-/// Los monitores con el bus DDC del sistema (`dxva2` en Windows, `IOAVService` en macOS). Sin
-/// backend el módulo queda «no disponible» con su razón.
+/// The monitors with the system's DDC bus (`dxva2` on Windows, `IOAVService` on macOS). Without a
+/// backend the module is left "unavailable" with its reason.
 fn start_monitors(agent: &Arc<Agent>) {
     match monitor_ddc::system_bus() {
         Ok(bus) => {
@@ -149,35 +149,35 @@ fn start_monitors(agent: &Arc<Agent>) {
                 tandem_monitor::local::system_wall(),
                 tandem_monitor::LocalConfig::default(),
             );
-            // La tarea vive lo que el agente: termina sola al soltarlo.
+            // The task lives as long as the agent: it ends on its own when it is dropped.
             drop(agent.start_monitors(core, crate::monitors::MonitorTimes::default(), false));
         }
-        Err(e) => tracing::info!("monitores: {e}"),
+        Err(e) => tracing::info!("monitors: {e}"),
     }
 }
 
 impl Daemon {
-    /// Atiende la UI hasta que termina `shutdown`; después cierra la red.
+    /// Serves the UI until `shutdown` ends; then closes the network.
     pub async fn serve<L: Listener>(
         self,
         listener: L,
         shutdown: impl Future<Output = ()>,
     ) -> Result<(), StoreError> {
         let result = run(self.agent, listener, shutdown).await;
-        // Primero se suelta la captura: el teclado y el mouse vuelven a esta máquina.
+        // First the capture is released: the keyboard and mouse return to this machine.
         drop(self.input);
         self.network.shutdown().await;
         result
     }
 }
 
-/// Lo que se espera a que las conexiones abiertas terminen antes de cortarlas.
+/// How long to wait for open connections to finish before cutting them.
 pub const DRAIN_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Corre el agente hasta que `shutdown` termina.
+/// Runs the agent until `shutdown` ends.
 ///
-/// Apagado ordenado: se deja de aceptar (el listener se suelta y, en Unix, borra su
-/// socket), se avisa a las conexiones, se les da [`DRAIN_TIMEOUT`] y se guarda el estado.
+/// Orderly shutdown: it stops accepting (the listener is dropped and, on Unix, deletes its
+/// socket), connections are notified, they are given [`DRAIN_TIMEOUT`] and the state is saved.
 pub async fn run<L: Listener>(
     agent: Arc<Agent>,
     mut listener: L,
@@ -194,13 +194,13 @@ pub async fn run<L: Listener>(
                     let (agent, stop_rx) = (agent.clone(), stop_rx.clone());
                     conns.spawn(async move {
                         if let Err(e) = serve_connection(stream, agent, stop_rx).await {
-                            tracing::debug!("conexión IPC terminada: {e}");
+                            tracing::debug!("IPC connection ended: {e}");
                         }
                     });
                 }
                 Err(e) => {
-                    tracing::warn!("no se pudo aceptar una conexión IPC: {e}");
-                    // Evita girar en vacío si el error se repite.
+                    tracing::warn!("could not accept an IPC connection: {e}");
+                    // Avoids spinning idle if the error repeats.
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
             },
@@ -208,7 +208,7 @@ pub async fn run<L: Listener>(
         }
     }
 
-    tracing::info!("apagando");
+    tracing::info!("shutting down");
     drop(listener);
     stop.send_replace(true);
     let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {
@@ -216,15 +216,15 @@ pub async fn run<L: Listener>(
     })
     .await;
     if drained.is_err() {
-        tracing::warn!("conexiones IPC que no cerraron a tiempo: se cortan");
+        tracing::warn!("IPC connections that did not close in time: they are cut");
         conns.shutdown().await;
     }
     agent.persist()?;
-    tracing::info!("estado guardado en {}", agent.store_path().display());
+    tracing::info!("state saved at {}", agent.store_path().display());
     Ok(())
 }
 
-/// Termina con Ctrl+C, o con SIGTERM (launchd) / el apagado del sistema (Windows).
+/// Ends with Ctrl+C, or with SIGTERM (launchd) / system shutdown (Windows).
 pub async fn shutdown_signal() {
     #[cfg(unix)]
     {
@@ -237,7 +237,7 @@ pub async fn shutdown_signal() {
                 }
             }
             Err(e) => {
-                tracing::warn!("no se pudo escuchar SIGTERM: {e}");
+                tracing::warn!("could not listen for SIGTERM: {e}");
                 let _ = tokio::signal::ctrl_c().await;
             }
         }
@@ -254,7 +254,7 @@ pub async fn shutdown_signal() {
                 }
             }
             _ => {
-                tracing::warn!("no se pudo escuchar el cierre de Windows");
+                tracing::warn!("could not listen for the Windows shutdown");
                 let _ = tokio::signal::ctrl_c().await;
             }
         }
@@ -294,14 +294,14 @@ mod tests {
         assert_eq!(a.get_state().await.unwrap(), agent.state());
         assert_eq!(b.get_state().await.unwrap(), agent.state());
 
-        // El estado vive en memoria: se borra el archivo para ver que el apagado lo escribe.
+        // The state lives in memory: the file is deleted to see that shutdown writes it.
         let store = StateStore::new(dir.path().join("state.json"));
         let _ = std::fs::remove_file(store.path());
         stop.send(()).unwrap();
         task.await.unwrap().unwrap();
 
         assert_eq!(store.load().unwrap(), Some(agent.state()));
-        // Las conexiones se cerraron y no se aceptan nuevas.
+        // The connections closed and new ones are not accepted.
         assert!(matches!(a.next_event().await, Ok(None)));
         assert!(matches!(b.next_event().await, Ok(None)));
         assert!(connector.connect().is_err());
@@ -316,7 +316,7 @@ mod tests {
         let task = tokio::spawn(run(agent.clone(), listener, async {
             let _ = stopped.await;
         }));
-        // Un cliente que conecta y nunca saluda.
+        // A client that connects and never greets.
         let _silent = connector.connect().unwrap();
         tokio::task::yield_now().await;
         stop.send(()).unwrap();
@@ -340,22 +340,22 @@ mod tests {
             }
         };
         let mut trust = TrustStore::open(dir.path().join("trust.toml")).unwrap();
-        assert_eq!(resolve_side(&low.public_key(), &trust), None, "sin par");
+        assert_eq!(resolve_side(&low.public_key(), &trust), None, "without a peer");
         trust.add(tandem_link::identity::TrustedPeer {
             public_key: high.public_key(),
-            name: "otra".into(),
+            name: "other".into(),
         });
         assert_eq!(resolve_side(&low.public_key(), &trust), Some(Machine::A));
         let mut theirs = TrustStore::open(dir.path().join("trust-2.toml")).unwrap();
         theirs.add(tandem_link::identity::TrustedPeer {
             public_key: low.public_key(),
-            name: "otra".into(),
+            name: "other".into(),
         });
         assert_eq!(resolve_side(&high.public_key(), &theirs), Some(Machine::B));
     }
 
-    /// Un agente que arranca con un par cuya clave es menor que la suya se queda con el
-    /// lado B aunque el archivo dijera A, y lo reescribe.
+    /// An agent that starts with a peer whose key is lower than its own stays with
+    /// side B even if the file said A, and rewrites it.
     #[tokio::test]
     async fn starting_with_a_lower_peer_makes_this_machine_b() {
         let dir = tempfile::tempdir().unwrap();
@@ -376,7 +376,7 @@ mod tests {
         trust
             .add_and_save(tandem_link::identity::TrustedPeer {
                 public_key: low.public_key(),
-                name: "otra".into(),
+                name: "other".into(),
             })
             .unwrap();
         let text = "machine = \"a\"\n[input]\nkeyboard = \"a\"\n";
@@ -398,7 +398,7 @@ mod tests {
         assert_eq!(
             d.agent.keyboard_declared(),
             Some(Machine::B),
-            "el teclado era de esta"
+            "the keyboard was this one's"
         );
         let saved = AgentConfig::load(&paths.config).unwrap();
         assert_eq!(saved.machine, Machine::B);

@@ -1,19 +1,19 @@
-//! Arranque con los privilegios más altos (A7, T-104): una tarea programada de Windows que
-//! lanza el agente al iniciar sesión con «los privilegios más altos» (`HighestAvailable`),
-//! sin pedir confirmación en cada inicio. Los procesos de los túneles heredan esos
-//! privilegios (D8).
+//! Startup with the highest privileges (A7, T-104): a Windows scheduled task that
+//! launches the agent at sign-in with "the highest privileges" (`HighestAvailable`),
+//! without asking for confirmation at each start. The tunnels' processes inherit those
+//! privileges (D8).
 //!
-//! Registrar una tarea elevada pide administrador. Si el instalador no lo tiene, queda el
-//! arranque normal de la clave `Run` y el agente corre sin elevar ([`AgentInstall::RunKey`]).
+//! Registering an elevated task requires an administrator. If the installer does not have one, the
+//! normal startup via the `Run` key remains and the agent runs without elevation ([`AgentInstall::RunKey`]).
 //!
-//! Solo se registra si el ejecutable y su carpeta los escriben únicamente administradores
-//! ([`PathAcl`]); si no, cualquier proceso del usuario cambiaría el `.exe` y lo correría
-//! elevado sin UAC. Se registra por la API COM del Programador de tareas, con el XML en
-//! memoria y sin archivos intermedios.
+//! It is only registered if the executable and its folder are writable only by administrators
+//! ([`PathAcl`]); otherwise, any user process would change the `.exe` and run it
+//! elevated without UAC. It is registered through the Task Scheduler COM API, with the XML in
+//! memory and without intermediate files.
 //!
-//! La tarea se define con un XML y no con las opciones de `schtasks /Create`, porque esas
-//! dejan los valores por omisión del Programador de tareas: detener el agente a los tres días
-//! y no arrancarlo con batería, que no sirven para un agente que tiene que estar siempre.
+//! The task is defined with an XML and not with the options of `schtasks /Create`, because those
+//! leave the Task Scheduler defaults: stopping the agent after three days
+//! and not starting it on battery, which are no good for an agent that must always be up.
 
 use std::io;
 use std::path::Path;
@@ -21,54 +21,54 @@ use std::path::Path;
 use super::{Autostart, InstallError, InstallReport, command_line};
 use crate::cli::RunArgs;
 
-/// Nombre de la tarea, en su carpeta propia del Programador de tareas.
+/// Name of the task, in its own Task Scheduler folder.
 pub const TASK_NAME: &str = r"Tandem\tandemd";
 
-/// El Programador de tareas. En Windows lo hace su API COM ([`super::HighestTask`]).
+/// The Task Scheduler. On Windows it is done by its COM API ([`super::HighestTask`]).
 pub trait Scheduler {
-    /// El proceso actual tiene el token elevado (administrador con UAC aceptado).
+    /// The current process has the elevated token (administrator with UAC accepted).
     fn is_elevated(&self) -> bool;
     fn exists(&self) -> io::Result<bool>;
-    /// Crea la tarea o reemplaza la que hubiera.
+    /// Creates the task or replaces the one there was.
     fn register(&mut self, xml: &str) -> io::Result<()>;
-    /// Quita la tarea. `true` si existía.
+    /// Removes the task. `true` if it existed.
     fn remove(&mut self) -> io::Result<bool>;
 }
 
-/// Permisos de escritura de una ruta. En Windows lee la ACL ([`super::WinAcl`]).
+/// Write permissions of a path. On Windows it reads the ACL ([`super::WinAcl`]).
 pub trait PathAcl {
-    /// `true` si, además de los administradores y el sistema, nadie (`Users`,
-    /// `Authenticated Users`, `Everyone`) puede escribir, borrar o cambiar los permisos de
-    /// `path`. Un error cuenta como «no se sabe»: se trata como no seguro.
+    /// `true` if, besides administrators and the system, nobody (`Users`,
+    /// `Authenticated Users`, `Everyone`) can write, delete or change the permissions of
+    /// `path`. An error counts as "unknown": it is treated as not secure.
     fn admin_only(&self, path: &Path, rigor: super::acl::Rigor) -> io::Result<bool>;
 }
 
-/// Por qué no se registró la tarea elevada.
+/// Why the elevated task was not registered.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotElevated {
-    /// El proceso no tiene el token elevado.
+    /// The process does not have the elevated token.
     NoAdmin,
-    /// El ejecutable o su carpeta los puede escribir quien no es administrador: elevarlo
-    /// sería darle un salto de UAC a cualquier proceso del usuario.
+    /// The executable or its folder can be written by a non-administrator: elevating it
+    /// would hand a UAC jump to any user process.
     Writable(String),
-    /// Sin `DOMINIO\usuario` el disparador valdría para cualquier usuario.
+    /// Without `DOMAIN\user` the trigger would apply to any user.
     NoUser,
 }
 
-/// Qué quedó registrado para arrancar con la sesión.
+/// What was registered to start with the session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentInstall {
-    /// Tarea programada con los privilegios más altos.
+    /// Scheduled task with the highest privileges.
     Task { replaced: bool },
-    /// La clave `Run`, con los privilegios del usuario, por el motivo dado.
+    /// The `Run` key, with the user's privileges, for the given reason.
     RunKey(InstallReport, NotElevated),
 }
 
-/// Registra el agente para arrancar con la sesión con los privilegios más altos solo si se
-/// puede (`scheduler.is_elevated()`), se sabe el usuario y `launcher` y su carpeta solo los
-/// escriben administradores (`acl`); si no, en la clave `Run` sin elevar. Con la tarea
-/// registrada se quita el valor de `Run` (arrancaría una segunda copia); al caer a `Run` con
-/// administrador se quita una tarea vieja que apuntara a otra ruta.
+/// Registers the agent to start with the session with the highest privileges only if it
+/// can (`scheduler.is_elevated()`), the user is known and `launcher` and its folder are only
+/// writable by administrators (`acl`); otherwise, in the `Run` key without elevation. With the task
+/// registered the `Run` value is removed (a second copy would start); when falling back to `Run` with
+/// an administrator an old task pointing to another path is removed.
 pub fn install_agent(
     scheduler: &mut dyn Scheduler,
     acl: &dyn PathAcl,
@@ -98,7 +98,7 @@ pub fn install_agent(
     if elevated {
         tracing::warn!(
             ?reason,
-            "no se registra la tarea elevada: el agente arranca con la clave Run, sin elevar"
+            "the elevated task is not registered: the agent starts with the Run key, without elevation"
         );
         scheduler.remove().map_err(InstallError::Task)?;
     }
@@ -106,48 +106,48 @@ pub fn install_agent(
     Ok(AgentInstall::RunKey(report, reason))
 }
 
-/// El motivo por el que el ejecutable o alguna carpeta de su ruta no son solo de
-/// administradores, si lo hay. Se recorre hasta la raíz: quien puede borrar o renombrar una
-/// carpeta padre sustituye todo lo que cuelga de ella.
+/// The reason the executable or some folder of its path is not administrators-only,
+/// if there is one. It walks up to the root: whoever can delete or rename a
+/// parent folder replaces everything hanging from it.
 pub fn not_admin_only(acl: &dyn PathAcl, launcher: &Path) -> Option<String> {
     use super::acl::Rigor;
     let paths = launcher.ancestors().filter(|p| !p.as_os_str().is_empty());
-    // El ejecutable y su carpeta, con la máscara completa (plantado de DLL); el resto, con la
-    // de ancestros.
+    // The executable and its folder, with the full mask (DLL planting); the rest, with the
+    // ancestors' one.
     for (i, path) in paths.enumerate() {
         let rigor = if i < 2 { Rigor::Full } else { Rigor::Ancestor };
         match acl.admin_only(path, rigor) {
             Ok(true) => {}
             Ok(false) => {
                 return Some(format!(
-                    "{} no es solo de administradores (escribible, de otro dueño o enlace)",
+                    "{} is not administrators-only (writable, owned by someone else or a link)",
                     path.display()
                 ));
             }
-            Err(e) => return Some(format!("no se pudo leer la ACL de {}: {e}", path.display())),
+            Err(e) => return Some(format!("could not read the ACL of {}: {e}", path.display())),
         }
     }
     None
 }
 
-/// Quita los dos arranques. Devuelve `(tarea, clave Run)`: cuáles estaban registrados.
-/// Quitar la tarea pide administrador, igual que registrarla.
+/// Removes both startups. Returns `(task, Run key)`: which ones were registered.
+/// Removing the task requires an administrator, just like registering it.
 pub fn uninstall_agent(
     scheduler: &mut dyn Scheduler,
     autostart: &mut dyn Autostart,
 ) -> Result<(bool, bool), InstallError> {
-    // Se intentan las dos aunque una falle: la tarea elevada no puede quedar apuntando a una
-    // ruta que ya no se controla.
+    // Both are attempted even if one fails: the elevated task cannot be left pointing to a
+    // path that is no longer controlled.
     let task = scheduler.remove().map_err(InstallError::Task);
     let run = super::uninstall(autostart);
     Ok((task?, run?))
 }
 
-/// La definición de la tarea. `user` (`DOMINIO\usuario`) es quien inicia sesión y bajo cuya
-/// cuenta corre; es obligatorio: sin él el disparador valdría para cualquier usuario.
+/// The task definition. `user` (`DOMAIN\user`) is who signs in and under whose
+/// account it runs; it is required: without it the trigger would apply to any user.
 pub fn task_xml(launcher: &Path, args: &RunArgs, user: &str) -> String {
     let full = command_line(launcher, args);
-    // `Command` es solo el programa y `Arguments` lo demás: la línea sin el programa.
+    // `Command` is only the program and `Arguments` the rest: the line without the program.
     let program = launcher.display().to_string();
     let arguments = full
         .strip_prefix(&format!("\"{program}\""))
@@ -205,7 +205,7 @@ fn escape(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// Doble de prueba de [`PathAcl`]: `writable` son las rutas que cualquier usuario escribe.
+/// Test double of [`PathAcl`]: `writable` are the paths any user can write.
 #[cfg(test)]
 #[derive(Debug, Default)]
 pub(crate) struct MemAcl {
@@ -217,13 +217,13 @@ pub(crate) struct MemAcl {
 impl PathAcl for MemAcl {
     fn admin_only(&self, path: &Path, _rigor: super::acl::Rigor) -> io::Result<bool> {
         if self.fail {
-            return Err(io::Error::other("acceso denegado"));
+            return Err(io::Error::other("access denied"));
         }
         Ok(!self.writable.iter().any(|w| w == path))
     }
 }
 
-/// Doble de prueba de [`Scheduler`].
+/// Test double of [`Scheduler`].
 #[cfg(test)]
 #[derive(Debug, Default)]
 pub(crate) struct MemScheduler {
@@ -244,7 +244,7 @@ impl Scheduler for MemScheduler {
 
     fn register(&mut self, xml: &str) -> io::Result<()> {
         if self.fail {
-            return Err(io::Error::other("Programador de tareas no disponible"));
+            return Err(io::Error::other("Task Scheduler unavailable"));
         }
         self.task = Some(xml.to_owned());
         Ok(())
@@ -252,7 +252,7 @@ impl Scheduler for MemScheduler {
 
     fn remove(&mut self) -> io::Result<bool> {
         if self.fail {
-            return Err(io::Error::other("acceso denegado"));
+            return Err(io::Error::other("access denied"));
         }
         Ok(self.task.take().is_some())
     }
@@ -292,7 +292,7 @@ mod tests {
     }
 
     #[test]
-    fn ejecutable_o_carpeta_escribibles_no_registran_la_tarea_y_usan_run() {
+    fn writable_executable_or_folder_do_not_register_the_task_and_use_run() {
         for writable in [LAUNCHER, DIR] {
             let mut task = elevated();
             let acl = MemAcl {
@@ -309,17 +309,17 @@ mod tests {
             )
             .unwrap();
             let AgentInstall::RunKey(_, NotElevated::Writable(why)) = got else {
-                panic!("se esperaba la clave Run por ruta escribible: {got:?}");
+                panic!("the Run key was expected for a writable path: {got:?}");
             };
             assert!(why.contains(writable), "{why}");
-            assert_eq!(task.task, None, "no se registra con la ruta escribible");
+            assert_eq!(task.task, None, "it is not registered with the writable path");
             assert!(run.command.is_some());
         }
     }
 
     #[test]
-    fn un_ancestro_escribible_aunque_sea_el_abuelo_no_registra_la_tarea() {
-        // La raíz sale de `ancestors()` tal cual: `C:` en Linux, `C:/` en Windows.
+    fn a_writable_ancestor_even_the_grandparent_does_not_register_the_task() {
+        // The root comes out of `ancestors()` as is: `C:` on Linux, `C:/` on Windows.
         let root = Path::new(LAUNCHER)
             .ancestors()
             .filter(|p| !p.as_os_str().is_empty())
@@ -343,7 +343,7 @@ mod tests {
             )
             .unwrap();
             let AgentInstall::RunKey(_, NotElevated::Writable(why)) = got else {
-                panic!("se esperaba la clave Run por ancestro escribible: {got:?}");
+                panic!("the Run key was expected for a writable ancestor: {got:?}");
             };
             assert!(why.contains(&writable), "{why}");
             assert_eq!(task.task, None);
@@ -351,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    fn no_poder_leer_la_acl_cuenta_como_insegura() {
+    fn failing_to_read_the_acl_counts_as_insecure() {
         let mut task = elevated();
         let acl = MemAcl {
             fail: true,
@@ -374,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn sin_usuario_no_se_registra_la_tarea() {
+    fn without_a_user_the_task_is_not_registered() {
         for user in [None, Some("")] {
             let mut task = elevated();
             let mut run = MemAutostart::default();
@@ -392,9 +392,9 @@ mod tests {
     }
 
     #[test]
-    fn al_caer_a_run_con_administrador_se_quita_la_tarea_vieja() {
+    fn when_falling_back_to_run_with_admin_the_old_task_is_removed() {
         let mut task = MemScheduler {
-            task: Some("vieja".into()),
+            task: Some("old".into()),
             ..elevated()
         };
         let acl = MemAcl {
@@ -414,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn desinstalar_quita_la_clave_aunque_falle_la_tarea() {
+    fn uninstall_removes_the_key_even_if_the_task_fails() {
         let mut task = MemScheduler {
             fail: true,
             task: Some("x".into()),
@@ -429,31 +429,31 @@ mod tests {
     }
 
     #[test]
-    fn elevado_registra_la_tarea_y_quita_la_clave_run() {
+    fn elevated_registers_the_task_and_removes_the_run_key() {
         let mut task = MemScheduler {
             elevated: true,
             ..Default::default()
         };
         let mut run = MemAutostart {
-            command: Some("viejo".into()),
+            command: Some("old".into()),
             ..Default::default()
         };
         let got = install(&mut task, &mut run, &RunArgs::default()).unwrap();
         assert_eq!(got, AgentInstall::Task { replaced: false });
         assert!(task.task.is_some());
-        assert_eq!(run.command, None, "no puede arrancar dos veces");
-        // Reinstalar reemplaza la tarea.
+        assert_eq!(run.command, None, "it cannot start twice");
+        // Reinstalling replaces the task.
         let got = install(&mut task, &mut run, &RunArgs::default()).unwrap();
         assert_eq!(got, AgentInstall::Task { replaced: true });
     }
 
     #[test]
-    fn sin_administrador_queda_la_clave_run_y_la_tarea_no_se_toca() {
+    fn without_admin_the_run_key_remains_and_the_task_is_untouched() {
         let mut task = MemScheduler::default();
         let mut run = MemAutostart::default();
         let got = install(&mut task, &mut run, &RunArgs::default()).unwrap();
         let AgentInstall::RunKey(report, NotElevated::NoAdmin) = got else {
-            panic!("se esperaba la clave Run");
+            panic!("the Run key was expected");
         };
         assert!(report.autostart_changed);
         assert_eq!(
@@ -464,23 +464,23 @@ mod tests {
     }
 
     #[test]
-    fn un_error_de_la_tarea_se_informa_y_no_quita_el_arranque_que_habia() {
+    fn a_task_error_is_reported_and_does_not_remove_the_existing_startup() {
         let mut task = MemScheduler {
             elevated: true,
             fail: true,
             ..Default::default()
         };
         let mut run = MemAutostart {
-            command: Some("viejo".into()),
+            command: Some("old".into()),
             ..Default::default()
         };
         let err = install(&mut task, &mut run, &RunArgs::default()).unwrap_err();
         assert!(matches!(err, InstallError::Task(_)), "{err}");
-        assert_eq!(run.command.as_deref(), Some("viejo"));
+        assert_eq!(run.command.as_deref(), Some("old"));
     }
 
     #[test]
-    fn desinstalar_quita_los_dos() {
+    fn uninstall_removes_both() {
         let mut task = MemScheduler {
             elevated: true,
             task: Some("x".into()),
@@ -500,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn el_xml_pide_los_privilegios_mas_altos_y_no_limita_al_agente() {
+    fn the_xml_asks_for_the_highest_privileges_and_does_not_limit_the_agent() {
         let args = RunArgs {
             config: Some(r"D:\cfg\mi & tandem.toml".into()),
             ..RunArgs::default()
@@ -512,14 +512,14 @@ mod tests {
         assert!(xml.contains("<LogonTrigger>"));
         assert!(xml.contains(r"<UserId>PC\ana</UserId>"));
         assert!(xml.contains(&format!("<Command>{LAUNCHER}</Command>")));
-        // Los argumentos van aparte del programa y escapados.
+        // The arguments go apart from the program and escaped.
         assert!(
             xml.contains(
                 "<Arguments>--config &quot;D:\\cfg\\mi &amp; tandem.toml&quot;</Arguments>"
             ),
             "{xml}"
         );
-        // El usuario está en el disparador y en el principal.
+        // The user is in the trigger and in the principal.
         assert_eq!(xml.matches("<UserId>").count(), 2);
     }
 }

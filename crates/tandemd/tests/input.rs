@@ -1,15 +1,15 @@
-//! Teclado, mouse y portapapeles entre dos `tandemd` armados con [`daemon::start`]:
-//! identidades emparejadas, QUIC real en loopback y backends de entrada simulados
-//! ([`FakeInputBackends`]). El cursor cruza el borde y los eventos llegan al otro
-//! lado, usar el mouse de la otra máquina la pone a mandar (D7: sin dueño), el
-//! portapapeles se sincroniza y los permisos que faltan en la Mac llegan a la UI.
+//! Keyboard, mouse and clipboard between two `tandemd`s built with [`daemon::start`]:
+//! paired identities, real QUIC over loopback and simulated input backends
+//! ([`FakeInputBackends`]). The cursor crosses the edge and the events reach the other
+//! side, using the other machine's mouse makes it send (D7: no owner), the
+//! clipboard syncs and the permissions missing on the Mac reach the UI.
 //!
-//! La geometría es la del acomodo (DESIGN §7): el de omisión (A a la izquierda, con
-//! las pantallas que lee cada una), uno editado que llega por `ControlMsg::Desk` y uno
-//! escrito a mano en `tandem.toml`.
+//! The geometry is the arrangement's (DESIGN §7): the default one (A on the left, with
+//! the screens each one reads), an edited one that arrives through `ControlMsg::Desk` and one
+//! written by hand in `tandem.toml`.
 //!
-//! Salvo que la prueba diga otra cosa, el lado A es una Mac y el B una PC (los nombres de
-//! las variables lo reflejan); el código no lo supone: lo dice el `Os` de cada agente.
+//! Unless the test says otherwise, side A is a Mac and B a PC (the variable names
+//! reflect it); the code does not assume it: each agent's `Os` says so.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -36,8 +36,8 @@ use tandemd::{Agent, AgentConfig, StoreError};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
-/// Las dos identidades ordenadas por clave: la primera es la del lado A (DECISIONS A1), así
-/// cada prueba sabe qué lado le toca a cada agente.
+/// The two identities sorted by key: the first is side A's (DECISIONS A1), so
+/// each test knows which side each agent gets.
 fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     if x.public_key().as_bytes() < y.public_key().as_bytes() {
         (x, y)
@@ -49,7 +49,7 @@ fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
 const KEYBOARD: UsbId = UsbId::new(0x046D, 0xC33F);
 const MOUSE: UsbId = UsbId::new(0x046D, 0xC539);
 
-/// El hub del teclado y el mouse, y el acomodo por omisión: la Mac a la izquierda de la PC.
+/// The keyboard and mouse hub, and the default arrangement: the Mac to the left of the PC.
 const DESK: &str = r#"
 [input]
 server = "b"
@@ -59,25 +59,25 @@ keyboard = "046d:c33f"
 mouse = "046d:c539"
 "#;
 
-/// Sin hub ni teclado dicho: lo que genera el primer arranque (T-087).
+/// Without a hub or stated keyboard: what the first start generates (T-087).
 const DESK_BARE: &str = r#"
 [input]
 "#;
 
-/// Marca para `start_with`: usar [`DESK_BARE`].
+/// Marker for `start_with`: use [`DESK_BARE`].
 const BARE: &str = "<bare>";
 
-/// Tope para que una prueba rota falle en vez de colgarse.
+/// Cap so a broken test fails instead of hanging.
 const TIMEOUT: Duration = Duration::from_secs(20);
 
-/// Dice dónde se esperó, para saber qué paso se colgó.
+/// Says where it waited, to know which step hung.
 #[track_caller]
 fn within<F: Future>(f: F) -> impl Future<Output = F::Output> {
     let at = std::panic::Location::caller();
     async move {
         match tokio::time::timeout(TIMEOUT, f).await {
             Ok(v) => v,
-            Err(_) => panic!("la prueba superó el tiempo máximo esperando en {at}"),
+            Err(_) => panic!("the test exceeded the maximum time waiting at {at}"),
         }
     }
 }
@@ -166,7 +166,7 @@ async fn start(
     start_with(machine, identity, port, peer, fake, "").await
 }
 
-/// Como [`start`], con líneas de más en la sección `[input]`.
+/// Like [`start`], with extra lines in the `[input]` section.
 async fn start_with(
     machine: Machine,
     identity: &Identity,
@@ -178,7 +178,7 @@ async fn start_with(
     start_full(machine, identity, port, peer, fake, input_extra, "").await
 }
 
-/// El sistema de cada lado en estas pruebas, salvo que digan otro.
+/// Each side's system in these tests, unless they say otherwise.
 fn os_of(machine: Machine) -> Os {
     match machine {
         Machine::A => Os::MacOs,
@@ -186,8 +186,8 @@ fn os_of(machine: Machine) -> Os {
     }
 }
 
-/// Como [`start_with`], con secciones de más al final de `tandem.toml` (un acomodo
-/// escrito a mano).
+/// Like [`start_with`], with extra sections at the end of `tandem.toml` (an arrangement
+/// written by hand).
 async fn start_full(
     machine: Machine,
     identity: &Identity,
@@ -210,7 +210,7 @@ async fn start_full(
     .await
 }
 
-/// Como [`start_full`], con el sistema que se le diga.
+/// Like [`start_full`], with the system it is told.
 #[allow(clippy::too_many_arguments)]
 async fn start_os(
     machine: Machine,
@@ -236,7 +236,7 @@ async fn start_os(
     .await
 }
 
-/// Como [`start_os`], con el detector de arrastre de archivos (T-121) que se le dé.
+/// Like [`start_os`], with the file drag detector (T-121) it is given.
 #[allow(clippy::too_many_arguments)]
 async fn start_os_drag(
     machine: Machine,
@@ -249,8 +249,8 @@ async fn start_os_drag(
     tail: &str,
     file_drag: Option<Arc<dyn FileDragBackend>>,
 ) -> Result<Running, PortTaken> {
-    // `TANDEM_TEST_LOG=tandemd::input=debug` muestra el registro de los agentes: para
-    // entender una espera que vence.
+    // `TANDEM_TEST_LOG=tandemd::input=debug` shows the agents' log: to
+    // understand a wait that expires.
     if let Ok(filter) = std::env::var("TANDEM_TEST_LOG") {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
@@ -295,7 +295,7 @@ async fn start_os_drag(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
-            // Sin reserva: un puerto tomado falla enseguida y `start_pair!` elige otro.
+            // Without reservation: a taken port fails right away and `start_pair!` chooses another.
             fallback_ports: Vec::new(),
             ..NetOptions::default()
         },
@@ -334,7 +334,7 @@ fn key(usage: HidUsage, state: KeyState) -> InputEvent {
     InputEvent::Key { usage, state }
 }
 
-/// Espera a que lo inyectado cumpla `f`.
+/// Waits for what was injected to satisfy `f`.
 #[track_caller]
 fn until_injected(
     fake: &FakeInputBackends,
@@ -346,9 +346,9 @@ fn until_injected(
     })
 }
 
-/// Lleva el cursor del servidor a `x` y lo empuja `dx` hacia el borde, hasta que la otra
-/// máquina reciba la entrada (la geometría nueva puede tardar un instante en llegar).
-/// Devuelve dónde entró.
+/// Takes the server's cursor to `x` and pushes it `dx` toward the edge, until the other
+/// machine receives the input (the new geometry may take an instant to arrive).
+/// Returns where it entered.
 async fn cross(
     server: &FakeInputBackends,
     client: &FakeInputBackends,
@@ -375,9 +375,9 @@ async fn cross(
     .await
 }
 
-/// El usuario usa el mouse de `who` hasta que las dos máquinas dicen que manda ella y la
-/// sesión está arriba (D7: manda la que recibe entrada física, en cuanto la otra lleve
-/// 300 ms quieta).
+/// The user uses `who`'s mouse until both machines say it sends and the
+/// session is up (D7: the one that receives physical input sends, as soon as the other has
+/// 300 ms still).
 async fn take_over(who: &Running, fake: &FakeInputBackends, other: &Running) {
     let me = who.agent.machine();
     within(async {
@@ -396,8 +396,8 @@ async fn take_over(who: &Running, fake: &FakeInputBackends, other: &Running) {
     .await;
 }
 
-/// Espera a que cada agente vea a la otra máquina prendida: sin eso sus pantallas no
-/// cuentan en la geometría.
+/// Waits for each agent to see the other machine on: without that its screens do not
+/// count in the geometry.
 async fn both_on(a: &Running, b: &Running) {
     for r in [a, b] {
         let other = r.agent.machine().other();
@@ -411,7 +411,7 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     let (mac_id, pc_id) = sides(Identity::from_seed([11; 32]), Identity::from_seed([12; 32]));
     let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
-    // El hub empieza en la PC.
+    // The hub starts on the PC.
     pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
     let (mut mac, pc) = tandemd::start_pair!(
         |mac_port, pc_port| start(
@@ -430,14 +430,14 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
         )
     );
 
-    // Roles por el hub y sesión de entrada sobre el enlace.
+    // Roles by the hub and input session over the link.
     let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
     mac.until_input(pc_serving).await;
     pc.until_input(pc_serving).await;
     assert_eq!(pc.agent.input_status().hub_here, Some(true));
     assert_eq!(mac.agent.input_status().hub_here, Some(false));
-    // Lo que anuncia cada agente es lo que el asistente muestra en el paso 4 (T-151): el
-    // hub de la PC se ve desde las dos, y la Mac, sin hub, no lista teclado ni mouse.
+    // What each agent announces is what setup shows in step 4 (T-151): the PC's
+    // hub is seen from both, and the Mac, without a hub, lists no keyboard or mouse.
     for _ in 0..200 {
         let (p, m) = (pc.agent.capabilities(), mac.agent.capabilities());
         if p.here.hub == Some(true) && m.peer.as_ref().and_then(|c| c.hub) == Some(true) {
@@ -451,16 +451,16 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     assert_eq!(m.peer.as_ref().and_then(|c| c.hub), Some(true));
     assert!(pc_fake.capturing());
 
-    // Acomodo por omisión: la Mac a la izquierda de la PC, con las pantallas que lee cada una.
+    // Default arrangement: the Mac to the left of the PC, with the screens each one reads.
     both_on(&mac, &pc).await;
 
-    // El cursor sale por el borde izquierdo de la PC y entra a la Mac por su borde derecho.
+    // The cursor leaves through the PC's left edge and enters the Mac through its right edge.
     let (x, _) = cross(&pc_fake, &mac_fake, 0.0, -5.0).await;
     let calls = pc_fake.capture_calls().borrow().clone();
     assert!(calls.contains(&CaptureCall::Grab(true)), "{calls:?}");
-    assert_eq!(x, 1919.0, "entra por el borde derecho de la Mac");
+    assert_eq!(x, 1919.0, "enters through the Mac's right edge");
 
-    // Las teclas llegan, con Ctrl de la PC como Cmd en la Mac.
+    // The keys arrive, with the PC's Ctrl as Cmd on the Mac.
     let a = HidUsage::key(0x04);
     pc_fake.capture(key(ModifierKey::ControlLeft.usage(), KeyState::Pressed));
     pc_fake.capture(key(a, KeyState::Pressed));
@@ -476,34 +476,34 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     })
     .await;
 
-    // El portapapeles va en los dos sentidos.
+    // The clipboard goes both ways.
     let text = |s: &str| ClipContent {
         text: Some(s.into()),
         html: None,
         image: None,
     };
-    mac_fake.clipboard().copy(Some(text("desde la Mac")));
+    mac_fake.clipboard().copy(Some(text("from the Mac")));
     let mut pc_clip = pc_fake.clipboard().subscribe();
-    within(pc_clip.wait_for(|s| s.content == Some(text("desde la Mac"))))
+    within(pc_clip.wait_for(|s| s.content == Some(text("from the Mac"))))
         .await
         .unwrap();
-    // Una copia justo después de que el driver escribe se toma como su propia escritura
-    // (el hueco conocido de `tandem-clipboard`, de microsegundos): el usuario no copia
-    // tan rápido, la prueba sí.
+    // A copy right after the driver writes is taken as its own write
+    // (the known gap of `tandem-clipboard`, of microseconds): the user does not copy
+    // that fast, the test does.
     tokio::time::sleep(Duration::from_millis(100)).await;
-    pc_fake.clipboard().copy(Some(text("desde la PC")));
+    pc_fake.clipboard().copy(Some(text("from the PC")));
     let mut mac_clip = mac_fake.clipboard().subscribe();
-    within(mac_clip.wait_for(|s| s.content == Some(text("desde la PC"))))
+    within(mac_clip.wait_for(|s| s.content == Some(text("from the PC"))))
         .await
         .unwrap();
 
-    // Las dos capturan siempre (D7).
+    // Both always capture (D7).
     assert!(mac_fake.capturing());
-    // El usuario toma el mouse de la Mac: en cuanto la PC lleva 300 ms quieta, manda la
-    // Mac en los dos agentes. El hub no decide nada.
+    // The user takes the Mac's mouse: as soon as the PC has been still for 300 ms, the
+    // Mac sends in both agents. The hub decides nothing.
     take_over(&mac, &mac_fake, &pc).await;
     assert_eq!(pc.agent.input_status().hub_here, Some(true));
-    // Al dejar de ser servidor la PC devolvió el cursor a su pantalla.
+    // On ceasing to be the server the PC returned the cursor to its screen.
     let calls = pc_fake.capture_calls().borrow().clone();
     assert_eq!(
         calls
@@ -514,14 +514,14 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
         "{calls:?}"
     );
 
-    // Ahora la Mac captura y el cursor cruza por su borde derecho a la PC.
+    // Now the Mac captures and the cursor crosses through its right edge to the PC.
     let (x, _) = cross(&mac_fake, &pc_fake, 1919.0, 5.0).await;
-    assert_eq!(x, 0.0, "entra por el borde izquierdo de la PC");
+    assert_eq!(x, 0.0, "enters through the PC's left edge");
     let b = HidUsage::key(0x05);
     mac_fake.capture(key(b, KeyState::Pressed));
     until_injected(&pc_fake, |e| e.last() == Some(&key(b, KeyState::Pressed))).await;
 
-    // A la Mac le falta un permiso: la UI lo recibe como aviso.
+    // The Mac is missing a permission: the UI receives it as a notice.
     mac_fake.set_missing(vec![InputPermission::Accessibility]);
     within(async {
         loop {
@@ -538,8 +538,8 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
         Reply::Input(mac.agent.input_status())
     );
 
-    // La PC vuelve a usarse mientras la Mac escribe: no se la quita hasta que la Mac
-    // lleva 300 ms quieta.
+    // The PC is used again while the Mac types: it is not taken from it until the Mac
+    // has been still for 300 ms.
     let started = std::time::Instant::now();
     for _ in 0..10 {
         mac_fake.capture(key(b, KeyState::Released));
@@ -550,19 +550,19 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
         assert_eq!(
             pc.agent.input_status().server,
             Machine::A,
-            "la Mac seguía en uso"
+            "the Mac was still in use"
         );
     }
     take_over(&pc, &pc_fake, &mac).await;
 
     pc.stop().await;
-    // Sin el otro agente no hay sesión; la Mac sigue con lo último que se decidió hasta
-    // que se use.
+    // Without the other agent there is no session; the Mac keeps the last thing decided until
+    // it is used.
     mac.until_input(|s| !s.session && s.server == Machine::B)
         .await;
-    // Sin enlace, manda la que se usa. La sesión cae antes que el enlace (que espera su
-    // propio plazo de salud): mientras el enlace siga arriba la Mac pide y nadie contesta,
-    // así que el usuario sigue moviendo el mouse hasta que el enlace cae.
+    // Without a link, the one in use sends. The session drops before the link (which waits for its
+    // own health deadline): while the link stays up the Mac asks and nobody answers,
+    // so the user keeps moving the mouse until the link drops.
     within(async {
         while mac.agent.input_status().server != Machine::A {
             mac_fake.capture(InputEvent::MotionRelative { dx: 0.0, dy: 1.0 });
@@ -573,8 +573,8 @@ async fn keyboard_mouse_clipboard_and_roles_between_two_agents() {
     mac.stop().await;
 }
 
-/// Un acomodo editado en la PC llega a la Mac por `ControlMsg::Desk` y cambia por dónde
-/// cruza el cursor que ella tiene (DESIGN §7).
+/// An arrangement edited on the PC reaches the Mac through `ControlMsg::Desk` and changes where
+/// its cursor crosses (DESIGN §7).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
     let (mac_id, pc_id) = sides(Identity::from_seed([31; 32]), Identity::from_seed([32; 32]));
@@ -596,15 +596,15 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
             pc_fake.clone(),
         )
     );
-    // La Mac se usa: ella captura y decide por dónde cruza.
+    // The Mac is used: it captures and decides where it crosses.
     take_over(&mac, &mac_fake, &pc).await;
     both_on(&mac, &pc).await;
 
-    // Por omisión la Mac está a la izquierda: cruza por su borde derecho.
+    // By default the Mac is on the left: it crosses through its right edge.
     let (x, _) = cross(&mac_fake, &pc_fake, 1919.0, 5.0).await;
     assert_eq!(x, 0.0);
-    // El cursor vuelve a la Mac por donde entró (el borde izquierdo de la PC): la Mac
-    // suelta la captura.
+    // The cursor returns to the Mac where it entered (the PC's left edge): the Mac
+    // releases the capture.
     within(async {
         loop {
             mac_fake.capture(InputEvent::MotionRelative { dx: -5.0, dy: 0.0 });
@@ -621,8 +621,8 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
     })
     .await;
 
-    // Antes de editar, las dos ya anotaron a las dos máquinas en el puesto (una versión
-    // propia del conocerse); si no, esa versión podría llegar después y pisar la edición.
+    // Before editing, both already recorded both machines in the desk (a version
+    // of its own from getting to know each other); otherwise, that version could arrive later and trample the edit.
     for r in [&mac, &pc] {
         let mut d = r.agent.subscribe_desk();
         within(d.wait_for(|d| Machine::ALL.iter().all(|m| d.machines.get(*m).is_some())))
@@ -637,7 +637,7 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
         }
     })
     .await;
-    // En la PC el acomodo pasa a «la Mac a la derecha».
+    // On the PC the arrangement becomes "the Mac on the right".
     let mut desk = pc.agent.desk();
     desk.arrangement = Some(tandem_core::Arrangement {
         a_side: Side::Right,
@@ -651,15 +651,15 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
         pc.agent.desk_sync().stamp.rev
     );
 
-    // Ahora la Mac cruza por su borde izquierdo y entra a la PC por el derecho.
+    // Now the Mac crosses through its left edge and enters the PC through the right one.
     let (x, _) = cross(&mac_fake, &pc_fake, 0.0, -5.0).await;
-    assert_eq!(x, 3439.0, "entra por el borde derecho de la PC");
+    assert_eq!(x, 3439.0, "enters through the PC's right edge");
     pc.stop().await;
     mac.stop().await;
 }
 
-/// T-150: sin `[[screens]]`, el estado de la entrada trae las pantallas que lee cada motor
-/// (las de aquí y las que anunció la otra máquina), para que la UI las dibuje.
+/// T-150: without `[[screens]]`, the input state carries the screens each engine reads
+/// (the ones here and the ones the other machine announced), for the UI to draw them.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_input_status_carries_the_real_screens_of_both_machines() {
     let (mac_id, pc_id) = sides(Identity::from_seed([61; 32]), Identity::from_seed([62; 32]));
@@ -702,9 +702,9 @@ async fn the_input_status_carries_the_real_screens_of_both_machines() {
     assert_eq!(seen.peer_screens[0].width, 1920);
 }
 
-/// Un `[[screens]]` escrito a mano en `tandem.toml` cambia la geometría: la PC declara su
-/// pantalla de 2000×720 aunque lea 3440×1440, y la Mac a su derecha, centradas (D18). El
-/// cruce sale del acomodo declarado (el tramo compartido), y el puesto editado llega también
+/// A hand-written `[[screens]]` in `tandem.toml` changes the geometry: the PC declares its
+/// 2000x720 screen even though it reads 3440x1440, and the Mac to its right, centered (D18). The
+/// crossing comes from the declared arrangement (the shared stretch), and the edited desk also arrives
 /// a la Mac.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
@@ -735,13 +735,13 @@ async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
     pc.until_input(pc_serving).await;
     both_on(&mac, &pc).await;
 
-    // Centradas, los 720 de la PC quedan frente a 180..900 de los 1080 de la Mac: a 500 por
-    // el borde derecho declarado (x = 1999) entra a la Mac a 180 + 500 = 680.
+    // Centered, the PC's 720 face 180..900 of the Mac's 1080: at 500 through
+    // the declared right edge (x = 1999) it enters the Mac at 180 + 500 = 680.
     let (x, y) = cross(&pc_fake, &mac_fake, 1999.0, 5.0).await;
-    assert_eq!(x, 0.0, "entra por el borde izquierdo de la Mac");
+    assert_eq!(x, 0.0, "enters through the Mac's left edge");
     assert!((y - 680.0).abs() < 1e-6, "{y}");
 
-    // Lo escrito a mano es un cambio de la PC: la Mac lo adopta.
+    // What was written by hand is a change by the PC: the Mac adopts it.
     let want = pc.agent.desk();
     assert_eq!(want.screens.len(), 1);
     let mut mac_desk = mac.agent.subscribe_desk();
@@ -752,14 +752,14 @@ async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
     mac.stop().await;
 }
 
-/// Si la captura no puede arrancar (en macOS, sin Accesibilidad), la UI lo ve y el
-/// agente reintenta solo.
+/// If the capture cannot start (on macOS, without Accessibility), the UI sees it and the
+/// agent retries on its own.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_capture_that_fails_is_reported_and_retried() {
     let (mac_id, pc_id) = sides(Identity::from_seed([13; 32]), Identity::from_seed([14; 32]));
     let fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
     fake.devices().set(vec![KEYBOARD]);
-    fake.fail_capture(Some("falta el permiso de Accesibilidad".into()));
+    fake.fail_capture(Some("the Accessibility permission is missing".into()));
     let mac = tandemd::start_solo!(|port, peer_port| start(
         Machine::A,
         &mac_id,
@@ -767,12 +767,12 @@ async fn a_capture_that_fails_is_reported_and_retried() {
         (pc_id.public_key(), peer_port),
         fake.clone(),
     ));
-    // Las dos máquinas capturan (D7): la falla se ve aunque esta no mande.
-    let problem = Some("falta el permiso de Accesibilidad".to_owned());
+    // Both machines capture (D7): the failure is seen even if this one does not send.
+    let problem = Some("the Accessibility permission is missing".to_owned());
     mac.until_input(|s| s.problem == problem).await;
     assert!(!mac.agent.input_status().session);
     assert!(!fake.capturing());
-    // El usuario concede el permiso: el siguiente intento arranca la captura.
+    // The user grants the permission: the next attempt starts the capture.
     fake.fail_capture(None);
     within(async {
         while !fake.capturing() {
@@ -784,9 +784,9 @@ async fn a_capture_that_fails_is_reported_and_retried() {
     mac.stop().await;
 }
 
-/// El atajo de bloqueo se escribe con las teclas físicas de quien lo usa. La captura
-/// cambia Ctrl por Cmd antes de que la sesión vea las teclas: aun así, Ctrl+L en la PC
-/// tiene que bloquear el cursor.
+/// The lock shortcut is written with the physical keys of whoever uses it. The capture
+/// swaps Ctrl for Cmd before the session sees the keys: even so, Ctrl+L on the PC
+/// has to lock the cursor.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
     let (mac_id, pc_id) = sides(Identity::from_seed([15; 32]), Identity::from_seed([16; 32]));
@@ -824,7 +824,7 @@ async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
     assert!(pc_fake.capture(key(l, KeyState::Released)));
     assert!(pc_fake.capture(key(ctrl, KeyState::Released)));
 
-    // Lo mismo otra vez lo desbloquea.
+    // The same again unlocks it.
     assert!(pc_fake.capture(key(ctrl, KeyState::Pressed)));
     assert!(pc_fake.capture(key(l, KeyState::Pressed)));
     pc.until_input(|s| !s.locked).await;
@@ -832,8 +832,8 @@ async fn the_lock_shortcut_uses_the_physical_keys_of_the_server() {
     mac.stop().await;
 }
 
-/// T-129: «Bloquear aquí» desde la UI tiene el mismo efecto que el atajo: el cursor deja de
-/// cruzar, el estado de entrada lo dice, y `on: false` lo suelta.
+/// T-129: "Lock here" from the UI has the same effect as the shortcut: the cursor stops
+/// crossing, the input state says so, and `on: false` releases it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn lock_here_from_the_ui_locks_the_input_like_the_shortcut() {
     let (mac_id, pc_id) = sides(Identity::from_seed([17; 32]), Identity::from_seed([18; 32]));
@@ -869,7 +869,7 @@ async fn lock_here_from_the_ui_locks_the_input_like_the_shortcut() {
         .unwrap();
     assert_eq!(reply, Reply::Done);
     pc.until_input(|s| s.locked).await;
-    // La otra máquina no se entera: el bloqueo es de donde está el teclado.
+    // The other machine does not find out: the lock belongs to where the keyboard is.
     assert!(!mac.agent.input_status().locked);
 
     pc.ui
@@ -881,9 +881,9 @@ async fn lock_here_from_the_ui_locks_the_input_like_the_shortcut() {
     mac.stop().await;
 }
 
-/// T-087: el estado de entrada se rehace cuando el usuario declara dónde está el teclado,
-/// también si declara la máquina que ya era el servidor (no cambian `server` ni el hub, así
-/// que solo la declaración puede despertar la tarea de estado).
+/// T-087: the input state is rebuilt when the user declares where the keyboard is,
+/// also if they declare the machine that already was the server (neither `server` nor the hub change, so
+/// only the declaration can wake the state task).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn declaring_the_keyboard_on_the_server_machine_refreshes_defined() {
     let (mac_id, pc_id) = sides(Identity::from_seed([21; 32]), Identity::from_seed([22; 32]));
@@ -896,25 +896,25 @@ async fn declaring_the_keyboard_on_the_server_machine_refreshes_defined() {
         fake.clone(),
         BARE,
     ));
-    // Sin hub ni declaración: sin definir, y el motor arranca como si fuera la Mac.
+    // Without a hub or declaration: not set, and the engine starts as if it were the Mac.
     mac.until_input(|s| s.server == Machine::A && !s.defined)
         .await;
-    // Se declara la Mac: ya era el servidor, así que nada más cambia.
+    // The Mac is declared: it already was the server, so nothing else changes.
     let reply = mac
         .agent
         .handle(tandem_proto::UiCommand::SetKeyboard(Machine::A));
     assert_eq!(reply, tandem_proto::Reply::Done);
     mac.until_input(|s| s.defined && s.server == Machine::A)
         .await;
-    // Y se mantiene: la tarea de estado también ve la declaración.
+    // And it holds: the state task also sees the declaration.
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert!(mac.agent.input_status().defined);
     mac.stop().await;
 }
 
-/// T-090: con permisos que faltan, el agente los pide al sistema una vez al arrancar (para
-/// que macOS registre el binario real), no los vuelve a pedir solo por más que sigan
-/// faltando, y los vuelve a pedir cuando la UI lo ordena. Las capacidades llevan el proceso.
+/// T-090: with missing permissions, the agent asks the system for them once on start (so
+/// macOS registers the real binary), does not ask again on its own however much they stay
+/// missing, and asks again when the UI orders it. The capabilities carry the process.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn missing_permissions_are_requested_once_and_on_the_users_order() {
     let (mac_id, pc_id) = sides(Identity::from_seed([15; 32]), Identity::from_seed([16; 32]));
@@ -931,11 +931,11 @@ async fn missing_permissions_are_requested_once_and_on_the_users_order() {
         fake.clone(),
     ));
     mac.until_input(|s| s.missing.len() == 2).await;
-    // Varias lecturas de permisos después (cada 50 ms), sigue siendo un solo pedido.
+    // Several permission reads later (every 50 ms), it is still a single request.
     tokio::time::sleep(Duration::from_millis(400)).await;
     assert_eq!(fake.permission_requests(), 1);
 
-    // Orden explícita de la UI: se pide otra vez, y esta vez el usuario concede.
+    // Explicit order from the UI: it is requested again, and this time the user grants.
     fake.grant_on_request(true);
     assert_eq!(
         mac.ui.request(UiCommand::RequestPermissions).await.unwrap(),
@@ -944,7 +944,7 @@ async fn missing_permissions_are_requested_once_and_on_the_users_order() {
     mac.until_input(|s| s.missing.is_empty()).await;
     assert_eq!(fake.permission_requests(), 2);
 
-    // El proceso que corre llega a las capacidades para que la UI diga a quién conceder.
+    // The process that runs reaches the capabilities so the UI says whom to grant to.
     let process = mac.agent.capabilities().here.input.process;
     assert_eq!(process.pid, std::process::id());
     assert!(!process.exe.is_empty());
@@ -953,7 +953,7 @@ async fn missing_permissions_are_requested_once_and_on_the_users_order() {
     mac.stop().await;
 }
 
-/// Sin permisos que pedir, el arranque no abre ningún diálogo.
+/// With no permissions to request, startup opens no dialog.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nothing_is_requested_when_nothing_is_missing() {
     let (mac_id, pc_id) = sides(Identity::from_seed([17; 32]), Identity::from_seed([18; 32]));
@@ -970,10 +970,10 @@ async fn nothing_is_requested_when_nothing_is_missing() {
     mac.stop().await;
 }
 
-/// T-150, los tres desenlaces de la prueba de cruce con el motor doble y `WatchCursor`: sin
-/// mover nada no llega ningún `Crossed` (tiempo agotado), un movimiento hasta un borde que no
-/// es el del acomodo tampoco (borde equivocado: ahí el cursor no sale), y por el borde marcado
-/// llegan `Crossed` y la `Cursor` de la otra máquina.
+/// T-150, the three outcomes of the crossing test with the double engine and `WatchCursor`: without
+/// moving anything no `Crossed` arrives (timeout), a movement to an edge that
+/// is not the arrangement's neither (wrong edge: the cursor does not leave there), and through the marked edge
+/// `Crossed` and the other machine's `Cursor` arrive.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_cross_test_outcomes_come_from_the_engine_through_watch_cursor() {
     let (mac_id, pc_id) = sides(Identity::from_seed([63; 32]), Identity::from_seed([64; 32]));
@@ -1015,7 +1015,7 @@ async fn the_cross_test_outcomes_come_from_the_engine_through_watch_cursor() {
     })
     .await;
 
-    // Lo que llega a la UI de la PC durante `ms`: los cruces (y las muestras de la Mac).
+    // What reaches the PC's UI during `ms`: the crossings (and the Mac's samples).
     async fn crossings(
         ui: &mut IpcClient<tokio::io::DuplexStream>,
         ms: u64,
@@ -1032,20 +1032,20 @@ async fn the_cross_test_outcomes_come_from_the_engine_through_watch_cursor() {
         (crossed, from_mac)
     }
 
-    // Tiempo agotado: nadie mueve el mouse, no hay cruce.
+    // Timeout: nobody moves the mouse, there is no crossing.
     let (crossed, _) = crossings(&mut pc.ui, 700).await;
     assert!(crossed.is_empty(), "{crossed:?}");
 
-    // Borde equivocado: contra el borde derecho y el de arriba de la PC, el cursor no sale.
+    // Wrong edge: against the PC's right and top edge, the cursor does not leave.
     for (x, y, dx, dy) in [(3439.0, 700.0, 50.0, 0.0), (1000.0, 0.0, 0.0, -50.0)] {
         pc_fake.capture(InputEvent::MotionAbsolute { x, y });
         pc_fake.capture(InputEvent::MotionRelative { dx, dy });
     }
     let (crossed, from_mac) = crossings(&mut pc.ui, 700).await;
     assert!(crossed.is_empty(), "{crossed:?}");
-    assert_eq!(from_mac, 0, "el cursor no debió pasar a la Mac");
+    assert_eq!(from_mac, 0, "the cursor should not have passed to the Mac");
 
-    // Borde marcado (el izquierdo de la PC): Crossed y la muestra en la Mac.
+    // Marked edge (the PC's left): Crossed and the sample on the Mac.
     let mut crossed = Vec::new();
     let mut from_mac = 0;
     within(async {
@@ -1066,9 +1066,9 @@ async fn the_cross_test_outcomes_come_from_the_engine_through_watch_cursor() {
     assert_eq!(crossed[0], (Machine::B, Machine::A, Side::Left));
 }
 
-/// El cursor en vivo (T-128) entre dos agentes: sin suscripción no se emite nada; con la UI
-/// de la PC mirando, llegan las muestras de la Mac (que tiene el foco, por el canal de
-/// control) y el cruce, a como mucho 30 Hz; al dejar de mirar, la Mac deja de muestrear.
+/// The live cursor (T-128) between two agents: without a subscription nothing is emitted; with the PC's
+/// UI watching, the Mac's samples arrive (it has focus, over the control
+/// channel) and the crossing, at 30 Hz at most; when it stops watching, the Mac stops sampling.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_live_cursor_flows_only_while_the_ui_watches_and_crosses_between_agents() {
     let (mac_id, pc_id) = sides(Identity::from_seed([41; 32]), Identity::from_seed([42; 32]));
@@ -1096,7 +1096,7 @@ async fn the_live_cursor_flows_only_while_the_ui_watches_and_crosses_between_age
     pc.until_input(pc_serving).await;
     both_on(&mac, &pc).await;
 
-    // Sin suscripción: el cursor cruza a la Mac, se mueve y vuelve, y no se emite nada.
+    // Without a subscription: the cursor crosses to the Mac, moves and returns, and nothing is emitted.
     cross(&pc_fake, &mac_fake, 0.0, -5.0).await;
     for _ in 0..20 {
         pc_fake.capture(InputEvent::MotionRelative { dx: -1.0, dy: 1.0 });
@@ -1108,15 +1108,15 @@ async fn the_live_cursor_flows_only_while_the_ui_watches_and_crosses_between_age
     assert_eq!(
         pc.agent.cursor_published(),
         0,
-        "la PC emitió sin suscripción"
+        "the PC emitted without a subscription"
     );
     assert_eq!(
         mac.agent.cursor_published(),
         0,
-        "la Mac emitió sin suscripción"
+        "the Mac emitted without a subscription"
     );
 
-    // La UI de la PC mira: la Mac se entera por el control y enciende su interruptor.
+    // The PC's UI watches: the Mac finds out through control and turns on its switch.
     assert_eq!(
         pc.ui
             .request(UiCommand::WatchCursor { on: true })
@@ -1132,14 +1132,14 @@ async fn the_live_cursor_flows_only_while_the_ui_watches_and_crosses_between_age
     })
     .await;
 
-    // El cursor cruza a la Mac: la UI de la PC ve el cruce (de su propio motor) y las
-    // muestras de la Mac, que tiene el foco.
+    // The cursor crosses to the Mac: the PC's UI sees the crossing (from its own engine) and the
+    // Mac's samples, which has focus.
     let mut crossed = None;
     let mut from_mac = Vec::new();
     within(async {
         let mut tries = 0;
         while crossed.is_none() || from_mac.is_empty() {
-            // Cruce y movimiento dentro de la Mac, repetidos por si la geometría llega tarde.
+            // Crossing and movement within the Mac, repeated in case the geometry arrives late.
             if tries % 10 == 0 {
                 pc_fake.capture(InputEvent::MotionAbsolute { x: 0.0, y: 500.0 });
                 pc_fake.capture(InputEvent::MotionRelative { dx: -5.0, dy: 0.0 });
@@ -1167,8 +1167,8 @@ async fn the_live_cursor_flows_only_while_the_ui_watches_and_crosses_between_age
     );
     assert!(pc.agent.cursor_published() > 0);
 
-    // Frecuencia: 400 movimientos a 1000 Hz producen muchas menos muestras que eventos,
-    // nunca más de una cada 33 ms.
+    // Frequency: 400 moves at 1000 Hz produce many fewer samples than events,
+    // never more than one every 33 ms.
     let started = std::time::Instant::now();
     let before = from_mac.len();
     let mut seen = 0usize;
@@ -1196,13 +1196,13 @@ async fn the_live_cursor_flows_only_while_the_ui_watches_and_crosses_between_age
     }
     let secs = started.elapsed().as_secs_f64();
     let max = (secs * 30.0).ceil() as usize + 2;
-    assert!(seen > 0, "ninguna muestra de 400 movimientos");
+    assert!(seen > 0, "no sample from 400 moves");
     assert!(
         seen <= max,
-        "{seen} muestras en {secs:.2} s (máximo {max}, antes {before})"
+        "{seen} samples in {secs:.2} s (maximum {max}, before {before})"
     );
 
-    // Deja de mirar: el interruptor de la Mac se apaga y no emite más.
+    // It stops watching: the Mac's switch turns off and it emits no more.
     assert_eq!(
         pc.ui
             .request(UiCommand::WatchCursor { on: false })
@@ -1230,12 +1230,12 @@ async fn the_live_cursor_flows_only_while_the_ui_watches_and_crosses_between_age
     mac.stop().await;
 }
 
-/// Dos máquinas con Windows (DECISIONS D2): el teclado y el mouse cruzan igual y Ctrl sigue
-/// siendo Ctrl, porque entre dos sistemas iguales no se reasigna nada.
+/// Two Windows machines (DECISIONS D2): the keyboard and mouse cross the same and Ctrl is still
+/// Ctrl, because between two identical systems nothing is remapped.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn two_windows_machines_share_the_keyboard_without_remapping() {
     let (a_id, b_id) = sides(Identity::from_seed([41; 32]), Identity::from_seed([42; 32]));
-    let a_fake = FakeInputBackends::new(vec![screen("izq", 1920, 1080)]);
+    let a_fake = FakeInputBackends::new(vec![screen("left", 1920, 1080)]);
     let b_fake = FakeInputBackends::new(vec![screen("der", 2560, 1440)]);
     b_fake.devices().set(vec![KEYBOARD, MOUSE]);
     let (a, b) = tandemd::start_pair!(
@@ -1264,14 +1264,14 @@ async fn two_windows_machines_share_the_keyboard_without_remapping() {
     a.until_input(b_serving).await;
     b.until_input(b_serving).await;
     both_on(&a, &b).await;
-    // Cada una sabe que la otra es Windows.
+    // Each knows the other is Windows.
     let mut caps = b.agent.subscribe_capabilities();
     within(caps.wait_for(|c| c.peer.as_ref().is_some_and(|p| p.info.os == Os::Windows)))
         .await
         .unwrap();
 
     let (x, _) = cross(&b_fake, &a_fake, 0.0, -5.0).await;
-    assert_eq!(x, 1919.0, "entra por el borde derecho de A");
+    assert_eq!(x, 1919.0, "enters through A's right edge");
     let c = HidUsage::key(0x06);
     b_fake.capture(key(ModifierKey::ControlLeft.usage(), KeyState::Pressed));
     b_fake.capture(key(c, KeyState::Pressed));
@@ -1286,7 +1286,7 @@ async fn two_windows_machines_share_the_keyboard_without_remapping() {
         ])
     })
     .await;
-    // Y las dos quedaron anotadas en el puesto, con su sistema.
+    // And both were recorded in the desk, with their system.
     let mut desk = a.agent.subscribe_desk();
     within(desk.wait_for(|d| {
         Machine::ALL
@@ -1299,9 +1299,9 @@ async fn two_windows_machines_share_the_keyboard_without_remapping() {
     a.stop().await;
 }
 
-/// Los módulos de entrada se apagan de verdad (T-098): sin portapapeles no se comparte lo
-/// copiado y la sesión de teclado y mouse sigue; sin teclado y mouse no hay captura ni
-/// sesión. Al encenderlos vuelve todo.
+/// The input modules really turn off (T-098): without the clipboard what is copied is not shared
+/// and the keyboard and mouse session continues; without keyboard and mouse there is no capture or
+/// session. When turned on again everything returns.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn switching_off_the_clipboard_and_the_input_stops_them() {
     use tandem_proto::ModuleId;
@@ -1335,8 +1335,8 @@ async fn switching_off_the_clipboard_and_the_input_stops_them() {
         html: None,
         image: None,
     };
-    // Copia en la Mac hasta que la PC tenga lo copiado; con `arrives` falso, copia una vez y
-    // dice si llegó.
+    // Copy on the Mac until the PC has what was copied; with `arrives` false, copy once and
+    // say whether it arrived.
     let copied = |s: &str, arrives: bool| {
         let (mac_fake, pc_fake, want) = (mac_fake.clone(), pc_fake.clone(), text(s));
         async move {
@@ -1362,22 +1362,22 @@ async fn switching_off_the_clipboard_and_the_input_stops_them() {
             .await
         }
     };
-    assert!(copied("antes", true).await);
+    assert!(copied("before", true).await);
 
     pc.agent.set_module(ModuleId::Clipboard, false).unwrap();
-    assert!(!copied("apagado", false).await, "sin portapapeles no llega");
-    // La entrada no se cortó.
+    assert!(!copied("off", false).await, "without the clipboard it does not arrive");
+    // The input was not cut.
     assert!(pc.agent.input_status().session);
 
     pc.agent.set_module(ModuleId::Clipboard, true).unwrap();
-    assert!(copied("encendido", true).await);
+    assert!(copied("on", true).await);
 
-    // Sin teclado y mouse en la PC no hay captura ni sesión, en las dos.
+    // Without keyboard and mouse on the PC there is no capture or session, on both.
     let still = InputEvent::MotionRelative { dx: 0.0, dy: 0.0 };
     pc.agent.set_module(ModuleId::Input, false).unwrap();
     pc.until_input(|s| !s.session).await;
     mac.until_input(|s| !s.session).await;
-    // La captura se suelta al terminar sus tareas: nadie escucha lo que el usuario hace.
+    // The capture is released when its tasks end: nobody listens to what the user does.
     within(async {
         while pc_fake.capture(still) {
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -1388,21 +1388,21 @@ async fn switching_off_the_clipboard_and_the_input_stops_them() {
     pc.agent.set_module(ModuleId::Input, true).unwrap();
     mac.until_input(pc_serving).await;
     pc.until_input(pc_serving).await;
-    assert!(pc_fake.capture(still), "la captura volvió");
+    assert!(pc_fake.capture(still), "the capture came back");
 
     pc.stop().await;
     mac.stop().await;
 }
 
-/// Espera a que el puesto de `r` cumpla `f`.
+/// Waits for `r`'s desk to satisfy `f`.
 async fn until_desk(r: &Running, f: impl Fn(&tandem_core::Desk) -> bool) {
     let mut rx = r.agent.subscribe_desk();
     within(rx.wait_for(|d| f(d))).await.unwrap();
 }
 
-/// T-099 (revisión de #74): Cmd↔Ctrl y el módulo de portapapeles están en el puesto.
-/// Apagarlos desde la UI de una máquina cambia el motor de las dos, sin reiniciar los
-/// agentes: Ctrl de la PC llega como Ctrl a la Mac y copiar ya no cruza.
+/// T-099 (review of #74): Cmd<->Ctrl and the clipboard module are in the desk.
+/// Turning them off from one machine's UI changes both's engine, without restarting the
+/// agents: the PC's Ctrl arrives as Ctrl on the Mac and copying no longer crosses.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn turning_off_cmd_ctrl_and_the_clipboard_in_the_desk_changes_both_engines() {
     let (mac_id, pc_id) = sides(Identity::from_seed([45; 32]), Identity::from_seed([46; 32]));
@@ -1433,7 +1433,7 @@ async fn turning_off_cmd_ctrl_and_the_clipboard_in_the_desk_changes_both_engines
     let ctrl = ModifierKey::ControlLeft.usage();
     let meta = ModifierKey::MetaLeft.usage();
     let a = HidUsage::key(0x04);
-    // Cruza a la Mac y teclea Ctrl+A en la PC; devuelve lo que llegó a la Mac.
+    // Crosses to the Mac and types Ctrl+A on the PC; returns what reached the Mac.
     let type_ctrl_a = || async {
         let (x, _) = cross(&pc_fake, &mac_fake, 0.0, -5.0).await;
         assert_eq!(x, 1919.0);
@@ -1449,16 +1449,16 @@ async fn turning_off_cmd_ctrl_and_the_clipboard_in_the_desk_changes_both_engines
             .cloned()
             .collect::<Vec<_>>()
     };
-    // Con lo de omisión, Ctrl de la PC llega como Cmd.
+    // With the defaults, the PC's Ctrl arrives as Cmd.
     within(async { while !type_ctrl_a().await.contains(&key(meta, KeyState::Pressed)) {} }).await;
 
-    // En la Mac se apagan Cmd↔Ctrl y el portapapeles; el puesto llega a la PC.
+    // On the Mac Cmd<->Ctrl and the clipboard are turned off; the desk reaches the PC.
     let off = InputPrefs {
         cmd_ctrl: false,
         drag_files: true,
     };
     mac.agent.edit_desk(DeskPatch::Prefs(off)).unwrap();
-    // El portapapeles de la Mac, apagado desde la UI de la Mac (va en el puesto, D4).
+    // The Mac's clipboard, turned off from the Mac's UI (it goes in the desk, D4).
     assert_eq!(
         mac.agent.handle(UiCommand::SetModule {
             machine: Machine::A,
@@ -1471,7 +1471,7 @@ async fn turning_off_cmd_ctrl_and_the_clipboard_in_the_desk_changes_both_engines
         d.prefs == off && d.modules.get(Machine::A, "clipboard") == Some(false)
     })
     .await;
-    // El motor de la PC (el que captura) se rearma: Ctrl llega como Ctrl.
+    // The PC's engine (the one that captures) is rearmed: Ctrl arrives as Ctrl.
     within(async {
         loop {
             let got = type_ctrl_a().await;
@@ -1483,30 +1483,30 @@ async fn turning_off_cmd_ctrl_and_the_clipboard_in_the_desk_changes_both_engines
     })
     .await;
 
-    // Y lo copiado ya no cruza, en ningún sentido.
+    // And what is copied no longer crosses, in either direction.
     let text = |s: &str| ClipContent {
         text: Some(s.into()),
         html: None,
         image: None,
     };
-    mac_fake.clipboard().copy(Some(text("solo en la Mac")));
-    pc_fake.clipboard().copy(Some(text("solo en la PC")));
+    mac_fake.clipboard().copy(Some(text("only on the Mac")));
+    pc_fake.clipboard().copy(Some(text("only on the PC")));
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_ne!(
         pc_fake.clipboard().subscribe().borrow().content,
-        Some(text("solo en la Mac"))
+        Some(text("only on the Mac"))
     );
     assert_ne!(
         mac_fake.clipboard().subscribe().borrow().content,
-        Some(text("solo en la PC"))
+        Some(text("only on the PC"))
     );
 
     pc.stop().await;
     mac.stop().await;
 }
 
-/// T-099 (revisión de #74): el atajo de bloqueo es del puesto. Cambiarlo desde la UI de la
-/// Mac lo cambia en el motor de la PC (el que captura) sin reiniciar ningún agente.
+/// T-099 (review of #74): the lock shortcut belongs to the desk. Changing it from the
+/// Mac's UI changes it in the PC's engine (the one that captures) without restarting any agent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_lock_shortcut_changed_in_the_desk_applies_without_restarting() {
     let (mac_id, pc_id) = sides(Identity::from_seed([47; 32]), Identity::from_seed([48; 32]));
@@ -1539,7 +1539,7 @@ async fn the_lock_shortcut_changed_in_the_desk_applies_without_restarting() {
         }))
         .unwrap();
     until_desk(&pc, |d| d.shortcuts.lock == ["KeyK"]).await;
-    // Hasta que el motor se rearme, K es una tecla más; después, bloquea.
+    // Until the engine is rearmed, K is just another key; afterwards, it locks.
     let k = HidUsage::key(0x0E);
     within(async {
         while !pc.agent.input_status().locked {
@@ -1549,7 +1549,7 @@ async fn the_lock_shortcut_changed_in_the_desk_applies_without_restarting() {
         }
     })
     .await;
-    // El atajo de antes ya no hace nada: K otra vez lo desbloquea.
+    // The earlier shortcut does nothing now: K again unlocks it.
     let scroll = HidUsage::key(0x47);
     pc_fake.capture(key(scroll, KeyState::Pressed));
     pc_fake.capture(key(scroll, KeyState::Released));
@@ -1561,15 +1561,15 @@ async fn the_lock_shortcut_changed_in_the_desk_applies_without_restarting() {
     mac.stop().await;
 }
 
-/// Un puerto que otra suite tomó entre que se eligió y se abrió (la carrera de las pruebas
-/// que se colgaban con la máquina cargada): el agente no se pasa a un puerto de reserva que
-/// el otro no conoce, falla enseguida, y `start_pair!` elige otros con los que el par se conecta.
+/// A port another suite took between choosing and opening it (the race of the tests
+/// that hung with the machine loaded): the agent does not move to a reserve port that
+/// the other does not know, it fails right away, and `start_pair!` chooses others with which the pair connects.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_port_taken_before_starting_fails_fast_and_the_pair_picks_new_ones() {
     let held = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let taken = held.local_addr().unwrap().port();
     let (a_id, b_id) = sides(Identity::from_seed([51; 32]), Identity::from_seed([52; 32]));
-    let a_fake = FakeInputBackends::new(vec![screen("izq", 1920, 1080)]);
+    let a_fake = FakeInputBackends::new(vec![screen("left", 1920, 1080)]);
     let b_fake = FakeInputBackends::new(vec![screen("der", 2560, 1440)]);
 
     let alone = within(start(
@@ -1582,7 +1582,7 @@ async fn a_port_taken_before_starting_fails_fast_and_the_pair_picks_new_ones() {
     .await;
     assert!(
         matches!(alone, Err(PortTaken)),
-        "tenía que fallar por el puerto"
+        "it had to fail because of the port"
     );
 
     let mut first = Some(taken);
@@ -1602,7 +1602,7 @@ async fn a_port_taken_before_starting_fails_fast_and_the_pair_picks_new_ones() {
             b_fake.clone(),
         )
     );
-    assert!(first.is_none(), "el primer intento usó el puerto tomado");
+    assert!(first.is_none(), "the first attempt used the taken port");
     a.until_input(|s| s.session).await;
     b.until_input(|s| s.session).await;
     drop(held);
@@ -1610,10 +1610,10 @@ async fn a_port_taken_before_starting_fails_fast_and_the_pair_picks_new_ones() {
     a.stop().await;
 }
 
-/// La sesión de entrada no se abre antes de saber el sistema de la otra máquina. Si se
-/// abría, al llegar sus capacidades se rearmaba la captura y la sesión nueva empezaba con
-/// el cursor en casa: un cruce ya hecho se perdía (otra causa de las esperas que vencían
-/// en estas pruebas, encontrada en la revisión de T-101).
+/// The input session is not opened before knowing the other machine's system. If it
+/// opened, when its capabilities arrived the capture was rearmed and the new session started with
+/// the cursor at home: an already made crossing was lost (another cause of the waits that expired
+/// in these tests, found in the review of T-101).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_input_session_waits_for_the_other_machines_os() {
     for seed in 0..2u8 {
@@ -1639,24 +1639,24 @@ async fn the_input_session_waits_for_the_other_machines_os() {
                 pc_fake.clone(),
             )
         );
-        // El servidor (la PC, por la config) abre la sesión: en ese instante ya sabe qué
-        // sistema tiene la Mac.
+        // The server (the PC, by config) opens the session: at that instant it already knows which
+        // system the Mac has.
         let mut rx = pc.agent.subscribe_input();
         within(rx.wait_for(|s| s.session)).await.unwrap();
         let known = pc.agent.capabilities().peer.map(|p| p.info.os);
         assert_eq!(
             known,
             Some(Os::MacOs),
-            "sesión abierta sin saber el sistema de la otra"
+            "session opened without knowing the other's system"
         );
         pc.stop().await;
         mac.stop().await;
     }
 }
 
-/// La latencia de la entrada alimenta el `Qos` del camino en las dos máquinas (T-101): la
-/// que inyecta con cada muestra y la que captura con el p99 que le informa la otra. Así
-/// el guardián de los datos de cualquiera de las dos puede pausarlos.
+/// Input latency feeds the path's `Qos` on both machines (T-101): the one
+/// that injects with each sample and the one that captures with the p99 the other reports. This way
+/// the data guardian of either can pause them.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_input_latency_feeds_the_link_qos_on_both_machines() {
     use tandem_link::manager::LinkKind;
@@ -1695,7 +1695,7 @@ async fn the_input_latency_feeds_the_link_qos_on_both_machines() {
     mac.stop().await;
 }
 
-// ---- Arrastre de archivos al cruzar (T-121) ----
+// ---- File drag when crossing (T-121) ----
 
 mod file_drag {
     use std::path::{Path, PathBuf};
@@ -1712,14 +1712,14 @@ mod file_drag {
 
     type Seen = Arc<Mutex<Vec<(PathBuf, Vec<u8>)>>>;
 
-    /// El detector es la sonda que la prueba enciende; subir es copiar por el disco local
-    /// (las dos «máquinas» comparten sistema de archivos).
+    /// The detector is the probe the test turns on; uploading is copying through the local disk
+    /// (both "machines" share a file system).
     #[derive(Clone, Default)]
     struct Hook {
         probe: DragProbe,
         edge: Arc<Mutex<Option<(PxRect, StripEdge)>>>,
         finished: Arc<Mutex<u32>>,
-        /// Retiene la copia del archivo con ese nombre hasta que se abra.
+        /// Holds the copy of the file with that name until it is opened.
         gate: Option<(String, Arc<Notify>)>,
     }
 
@@ -1755,7 +1755,7 @@ mod file_drag {
         }
     }
 
-    /// Doble del arrastre sintético del destino: lee lo que quedó y «suelta».
+    /// Double of the destination's synthetic drag: reads what was left and "drops".
     #[derive(Clone, Default)]
     struct DropStarter {
         seen: Seen,
@@ -1791,19 +1791,19 @@ mod file_drag {
             self.mac.stop().await;
         }
 
-        /// Los archivos de origen, en la carpeta de la prueba.
+        /// The source files, in the test folder.
         fn files(&self) -> Vec<PathBuf> {
-            ["uno.txt", "dos.bin"]
+            ["one.txt", "two.bin"]
                 .iter()
                 .map(|n| {
                     let p = self.src.path().join(n);
-                    std::fs::write(&p, format!("contenido de {n}")).unwrap();
+                    std::fs::write(&p, format!("content of {n}")).unwrap();
                     p
                 })
                 .collect()
         }
 
-        /// Empuja el cursor de la PC contra el borde izquierdo.
+        /// Pushes the PC's cursor against the left edge.
         fn push(&self) {
             self.pc_fake
                 .capture(InputEvent::MotionAbsolute { x: 0.0, y: 500.0 });
@@ -1818,8 +1818,8 @@ mod file_drag {
             });
         }
 
-        /// Empuja el cursor mientras recoge los avisos de la UI de la PC hasta que llegue
-        /// uno que cumpla `last`.
+        /// Pushes the cursor while collecting the PC's UI notices until
+        /// one that satisfies `last`.
         async fn pushing_until(&mut self, last: impl Fn(&DragStatus) -> bool) -> Vec<DragStatus> {
             let pc_fake = self.pc_fake.clone();
             let pusher = tokio::spawn(async move {
@@ -1904,8 +1904,8 @@ mod file_drag {
         }
     }
 
-    /// T-158: «Archivos» sale activo con detector de arrastre y con la razón verdadera sin él,
-    /// por el camino real (`spawn_engine`), no llamando a `set_problem` a mano.
+    /// T-158: "Files" comes out active with a drag detector and with the true reason without one,
+    /// through the real path (`spawn_engine`), not calling `set_problem` by hand.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn files_module_follows_the_drag_backend() {
         use tandem_proto::{ModuleId, ModuleState};
@@ -1952,7 +1952,7 @@ mod file_drag {
         let want = ModuleState::Unavailable {
             reason: expected.into(),
         };
-        // El motor reporta su problema al arrancar: se espera a que el anuncio lo traiga.
+        // The engine reports its problem on start: wait for the announcement to bring it.
         let mut rx = without.agent.subscribe_capabilities();
         within(rx.wait_for(|_| state_of(&without) == Some(want.clone())))
             .await
@@ -1978,9 +1978,9 @@ mod file_drag {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn un_arrastre_de_archivos_cruza_copia_y_se_suelta_en_el_destino() {
+    async fn a_file_drag_crosses_copies_and_drops_at_the_destination() {
         let mut r = rig(None).await;
-        // La franja del detector queda en el borde que mira a la Mac.
+        // The detector's strip is left on the edge facing the Mac.
         within(async {
             while *r.hook.edge.lock().unwrap() != Some(((0, 0, 3440, 1440), StripEdge::Left)) {
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -1990,27 +1990,27 @@ mod file_drag {
 
         r.hook.probe.enter(r.files());
         r.button(KeyState::Pressed);
-        // «Arrastrar entre máquinas» está apagado: solo cruza por los archivos detectados.
+        // "Drag between machines" is off: it only crosses for detected files.
         let before = r.mac_fake.injected().borrow().len();
         let statuses = r.pushing_until(ended).await;
         assert_eq!(
             statuses,
             vec![
-                name(0, "uno.txt"),
-                name(1, "dos.bin"),
+                name(0, "one.txt"),
+                name(1, "two.bin"),
                 DragStatus::Copied { total: 2 },
                 DragStatus::Dropped,
             ]
         );
         assert!(
             r.mac_fake.injected().borrow().len() > before,
-            "el cursor cruzó a la Mac"
+            "the cursor crossed to the Mac"
         );
         let seen = r.seen.lock().unwrap().clone();
         assert_eq!(seen.len(), 2);
-        assert_eq!(seen[0].1, b"contenido de uno.txt");
-        assert_eq!(seen[1].1, b"contenido de dos.bin");
-        // Soltado el arrastre se limpia: el destino sin restos y el hook avisado.
+        assert_eq!(seen[0].1, b"content of one.txt");
+        assert_eq!(seen[1].1, b"content of two.bin");
+        // Once dropped the drag is cleaned up: the destination without leftovers and the hook notified.
         within(async {
             while *r.hook.finished.lock().unwrap() == 0 {
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -2023,18 +2023,18 @@ mod file_drag {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn soltar_el_boton_a_media_copia_cancela_y_borra_lo_copiado() {
+    async fn releasing_the_button_midway_through_the_copy_cancels_and_deletes_what_was_copied() {
         let gate = Arc::new(Notify::new());
-        let mut r = rig(Some(("dos.bin".into(), gate.clone()))).await;
+        let mut r = rig(Some(("two.bin".into(), gate.clone()))).await;
         r.hook.probe.enter(r.files());
         r.button(KeyState::Pressed);
-        // La copia queda detenida en el segundo archivo.
-        let first = r.pushing_until(|s| *s == name(1, "dos.bin")).await;
-        assert_eq!(first, vec![name(0, "uno.txt"), name(1, "dos.bin")]);
+        // The copy is left stopped on the second file.
+        let first = r.pushing_until(|s| *s == name(1, "two.bin")).await;
+        assert_eq!(first, vec![name(0, "one.txt"), name(1, "two.bin")]);
         r.button(KeyState::Released);
         let rest = r.statuses_until(ended).await;
         assert_eq!(rest, vec![DragStatus::Cancelled]);
-        assert!(r.seen.lock().unwrap().is_empty(), "no se llegó a arrastrar");
+        assert!(r.seen.lock().unwrap().is_empty(), "it never got to drag");
         within(async {
             while std::fs::read_dir(r.staging.path()).unwrap().count() != 0 {
                 tokio::time::sleep(Duration::from_millis(10)).await;
@@ -2045,7 +2045,7 @@ mod file_drag {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-    async fn sin_archivos_arrastrados_el_cursor_no_cruza_con_el_boton_apretado() {
+    async fn without_dragged_files_the_cursor_does_not_cross_with_the_button_pressed() {
         let mut r = rig(None).await;
         r.button(KeyState::Pressed);
         let before = r.mac_fake.injected().borrow().len();
@@ -2054,7 +2054,7 @@ mod file_drag {
             tokio::time::sleep(Duration::from_millis(30)).await;
         }
         assert_eq!(r.mac_fake.injected().borrow().len(), before);
-        assert!(r.status.try_recv().is_err(), "ningún aviso de arrastre");
+        assert!(r.status.try_recv().is_err(), "no drag notice");
         r.stop().await;
     }
 }

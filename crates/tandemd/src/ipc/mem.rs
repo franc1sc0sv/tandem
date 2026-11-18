@@ -1,4 +1,4 @@
-//! IPC en memoria, para probar el agente sin socket ni pipe.
+//! In-memory IPC, to test the agent without a socket or pipe.
 
 use std::io;
 
@@ -11,7 +11,7 @@ const BUF: usize = 64 * 1024;
 
 pub struct MemListener(mpsc::UnboundedReceiver<DuplexStream>);
 
-/// Con él se abren conexiones hacia el [`MemListener`] correspondiente.
+/// With it connections are opened toward the corresponding [`MemListener`].
 #[derive(Clone)]
 pub struct MemConnector(mpsc::UnboundedSender<DuplexStream>);
 
@@ -36,7 +36,7 @@ impl Listener for MemListener {
     async fn accept(&mut self) -> io::Result<DuplexStream> {
         match self.0.recv().await {
             Some(s) => Ok(s),
-            // Sin conectores no llegará nada más: como un socket sin clientes.
+            // Without connectors nothing more will arrive: like a socket with no clients.
             None => std::future::pending().await,
         }
     }

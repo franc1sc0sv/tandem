@@ -1,9 +1,9 @@
-//! Lo que el motor de entrada necesita de esta máquina, detrás de un trait
-//! ([`InputBackends`]): la plataforma real ([`PlatformInput`]) o los dobles de
+//! What the input engine needs from this machine, behind a trait
+//! ([`InputBackends`]): the real platform ([`PlatformInput`]) or the doubles of
 //! [`super::fake`].
 //!
-//! Los tipos de cada backend son distintos en cada sistema; aquí todos se ven con el
-//! error como texto ([`Stringly`]) y en caja, así el resto del agente es uno solo.
+//! Each backend's types differ on each system; here all are seen with the
+//! error as text ([`Stringly`]) and boxed, so the rest of the agent is just one.
 
 use std::sync::Arc;
 
@@ -18,7 +18,7 @@ use tokio::sync::mpsc;
 
 use super::screens::detected;
 
-/// Adapta el error de un backend a texto.
+/// Adapts a backend's error to text.
 pub struct Stringly<T>(pub T);
 
 impl<C: Capture> Capture for Stringly<C> {
@@ -69,7 +69,7 @@ impl<S: DeviceScanner> DeviceScanner for Stringly<S> {
     }
 }
 
-/// Captura de cualquier plataforma.
+/// Capture of any platform.
 pub struct DynCapture(pub Box<dyn Capture<Error = String>>);
 
 impl DynCapture {
@@ -90,7 +90,7 @@ impl Capture for DynCapture {
     }
 }
 
-/// Inyección de cualquier plataforma.
+/// Injection of any platform.
 pub struct DynInjector(pub Box<dyn Injector<Error = String>>);
 
 impl DynInjector {
@@ -111,7 +111,7 @@ impl Injector for DynInjector {
     }
 }
 
-/// Portapapeles de cualquier plataforma.
+/// Clipboard of any platform.
 pub struct DynClipboard(pub Box<dyn Clipboard<Error = String>>);
 
 impl DynClipboard {
@@ -136,7 +136,7 @@ impl Clipboard for DynClipboard {
     }
 }
 
-/// Escáner USB de cualquier plataforma.
+/// USB scanner of any platform.
 pub struct DynScanner(pub Box<dyn DeviceScanner<Error = String>>);
 
 impl DynScanner {
@@ -153,19 +153,19 @@ impl DeviceScanner for DynScanner {
     }
 }
 
-/// Por donde la captura entrega lo capturado. Reasigna los modificadores antes de
-/// mandarlos (DESIGN §7: el servidor reasigna, el cliente inyecta tal cual), así lo
-/// que el servidor recuerda presionado ya está en la forma del otro sistema.
+/// Where the capture delivers what it captured. It remaps the modifiers before
+/// sending them (DESIGN §7: the server remaps, the client injects as is), so what
+/// the server remembers as pressed is already in the other system's form.
 #[derive(Clone)]
 pub struct CaptureSink {
     tx: mpsc::UnboundedSender<Captured>,
     remap: ModifierRemap,
-    /// Los atajos de escena miran las teclas físicas, antes de reasignarlas.
+    /// The scene shortcuts look at the physical keys, before remapping them.
     scenes: Option<crate::agent::SceneShortcuts>,
 }
 
-/// La reasignación de modificadores entre dos sistemas: Cmd↔Ctrl entre macOS y Windows;
-/// entre dos iguales (o sin saber todavía el de la otra máquina), ninguna.
+/// The modifier remapping between two systems: Cmd<->Ctrl between macOS and Windows;
+/// between two identical ones (or without yet knowing the other machine's), none.
 pub fn direction(from: Os, to: Option<Os>) -> Option<Direction> {
     match (from, to?) {
         (Os::MacOs, Os::Windows) => Some(Direction::MacToWin),
@@ -175,8 +175,8 @@ pub fn direction(from: Os, to: Option<Os>) -> Option<Direction> {
 }
 
 impl CaptureSink {
-    /// La dirección es la del sistema que captura (`from`) hacia el de la otra máquina
-    /// (`to`, si ya se sabe).
+    /// The direction is that of the capturing system (`from`) toward that of the other machine
+    /// (`to`, if already known).
     pub fn new(
         tx: mpsc::UnboundedSender<Captured>,
         policy: &RemapPolicy,
@@ -193,25 +193,25 @@ impl CaptureSink {
         }
     }
 
-    /// `false` si ya nadie recibe lo capturado: la captura tiene que soltar la entrada.
+    /// `false` if nobody receives what is captured anymore: the capture has to release the input.
     pub fn send(&self, event: InputEvent) -> bool {
         if let Some(scenes) = &self.scenes {
             scenes.observe(&event);
         }
-        // La marca se pone aquí, en el hilo de la captura (el del hook o el tap).
+        // The mark is set here, on the capture thread (the hook's or the tap's).
         self.tx.send(Captured::now(self.remap.apply(event))).is_ok()
     }
 
-    /// Con los atajos de las escenas (funcionan en cualquier máquina del puesto: el teclado
-    /// se captura aquí aunque el cursor esté en la otra).
+    /// With the scenes' shortcuts (they work on any machine of the desk: the keyboard
+    /// is captured here even if the cursor is on the other).
     pub fn with_scenes(mut self, scenes: crate::agent::SceneShortcuts) -> Self {
         self.scenes = Some(scenes);
         self
     }
 
-    /// Una tecla física como la ve quien recibe lo capturado. El atajo de bloqueo se
-    /// escribe con las teclas de esta máquina, pero la sesión las compara con lo ya
-    /// reasignado.
+    /// A physical key as seen by whoever receives what is captured. The lock shortcut is
+    /// written with this machine's keys, but the session compares them with what is already
+    /// remapped.
     pub fn remap_key(&self, usage: HidUsage) -> HidUsage {
         usage
             .modifier()
@@ -219,40 +219,40 @@ impl CaptureSink {
     }
 }
 
-/// Lo que cada máquina aporta al teclado, el mouse y el portapapeles compartidos.
-/// Las llamadas pueden bloquear (crear un tap, leer las pantallas): el agente las hace
-/// fuera del runtime.
+/// What each machine contributes to the shared keyboard, mouse and clipboard.
+/// Calls can block (creating a tap, reading the screens): the agent makes them
+/// outside the runtime.
 pub trait InputBackends: Send + Sync + 'static {
-    /// Arranca la captura; lo capturado va a `sink`.
+    /// Starts the capture; what is captured goes to `sink`.
     fn capture(&self, sink: CaptureSink) -> Result<DynCapture, String>;
 
     fn injector(&self) -> Result<DynInjector, String>;
 
     fn clipboard(&self) -> Result<DynClipboard, String>;
 
-    /// `None` si este sistema no sabe listar sus dispositivos USB.
+    /// `None` if this system does not know how to list its USB devices.
     fn scanner(&self) -> Option<DynScanner>;
 
-    /// Las pantallas de esta máquina, en las coordenadas nativas del cursor: el acomodo por
-    /// omisión cuando el puesto no declara las suyas (DESIGN §7).
+    /// This machine's screens, in the cursor's native coordinates: the default arrangement
+    /// when the desk does not declare its own (DESIGN §7).
     fn screens(&self) -> Result<Vec<Screen>, String>;
 
-    /// Permisos del sistema que faltan para capturar o inyectar.
+    /// System permissions missing to capture or inject.
     fn missing_permissions(&self) -> Vec<InputPermission>;
 
-    /// Pide al sistema los permisos que faltan (en macOS, su diálogo) y devuelve los que
-    /// siguen faltando. Lo concedido suele valer recién al reiniciar el proceso. Sin
-    /// diálogo posible, es lo mismo que [`Self::missing_permissions`].
+    /// Asks the system for the missing permissions (on macOS, its dialog) and returns the ones
+    /// still missing. What was granted usually holds only after restarting the process. Without a
+    /// possible dialog, it is the same as [`Self::missing_permissions`].
     fn request_permissions(&self) -> Vec<InputPermission> {
         self.missing_permissions()
     }
 }
 
-/// Los backends reales de este sistema: CGEventTap/CGEventPost en macOS, hooks y
-/// `SendInput` en Windows, `arboard` para el portapapeles e IOKit/SetupAPI para el hub.
-/// Las pantallas son los límites que ya lee la inyección (`CGDisplayBounds` en macOS, los
-/// monitores del escritorio virtual en Windows). En otros sistemas no hay captura ni
-/// inyección, y el agente lo informa.
+/// This system's real backends: CGEventTap/CGEventPost on macOS, hooks and
+/// `SendInput` on Windows, `arboard` for the clipboard and IOKit/SetupAPI for the hub.
+/// The screens are the bounds injection already reads (`CGDisplayBounds` on macOS, the
+/// virtual desktop's monitors on Windows). On other systems there is no capture or
+/// injection, and the agent reports it.
 #[derive(Debug, Default)]
 pub struct PlatformInput;
 
@@ -305,7 +305,7 @@ mod platform {
 
     use super::{CaptureSink, DynCapture, DynInjector, DynScanner};
 
-    /// Los límites de cada pantalla activa (`CGDisplayBounds`), en puntos.
+    /// The bounds of each active screen (`CGDisplayBounds`), in points.
     pub fn screens() -> Result<Vec<Rect>, String> {
         let mut sink = CgSink::new().map_err(|e| e.to_string())?;
         sink.screens().map_err(|e| e.to_string())
@@ -342,7 +342,7 @@ mod platform {
         wire(permissions())
     }
 
-    /// Diálogo de macOS (Accesibilidad) y alta en Monitorización de entrada.
+    /// macOS dialog (Accessibility) and registration in Input Monitoring.
     pub fn request_permissions() -> Vec<InputPermission> {
         wire(ask())
     }
@@ -357,8 +357,8 @@ mod platform {
 
     use super::{CaptureSink, DynCapture, DynInjector, DynScanner};
 
-    /// Cada monitor del escritorio virtual, en píxeles físicos (el proceso es
-    /// Per-Monitor-V2); sin monitores, el escritorio virtual entero.
+    /// Each monitor of the virtual desktop, in physical pixels (the process is
+    /// Per-Monitor-V2); without monitors, the whole virtual desktop.
     pub fn screens() -> Result<Vec<Rect>, String> {
         let desktop = SendInputSink::new()
             .and_then(|sink| sink.desktop())
@@ -372,7 +372,7 @@ mod platform {
 
     pub fn capture(sink: CaptureSink) -> Result<DynCapture, String> {
         WindowsCapture::start(CaptureConfig::default(), move |ev| {
-            // Sin receptor el agente ya está cerrando y suelta la captura.
+            // Without a receiver the agent is already closing and releases the capture.
             let _ = sink.send(ev);
         })
         .map(DynCapture::new)
@@ -406,10 +406,10 @@ mod platform {
 
     use super::{CaptureSink, DynCapture, DynInjector, DynScanner};
 
-    const UNSUPPORTED: &str = "este sistema no tiene captura ni inyección de teclado y mouse";
+    const UNSUPPORTED: &str = "this system has no keyboard and mouse capture or injection";
 
     pub fn screens() -> Result<Vec<Rect>, String> {
-        Err("este sistema no informa sus pantallas".to_owned())
+        Err("this system does not report its screens".to_owned())
     }
 
     pub fn capture(_sink: CaptureSink) -> Result<DynCapture, String> {
@@ -433,16 +433,16 @@ mod platform {
     }
 }
 
-/// El detector y el envío de archivos de este sistema (T-121); `None` donde no hay.
+/// This system's file detector and sender (T-121); `None` where there is none.
 #[cfg(windows)]
 pub fn platform_file_drag() -> Option<Arc<dyn crate::drag::FileDragBackend>> {
     use tandem_files::drag_target_windows::WindowsDropWatcher;
 
-    // Sin la ventana del borde no hay detector; el resto del motor sigue.
+    // Without the edge window there is no detector; the rest of the engine continues.
     let watcher = match WindowsDropWatcher::new() {
         Ok(w) => Arc::new(w),
         Err(e) => {
-            tracing::warn!("sin detector de arrastre de archivos: {e}");
+            tracing::warn!("no file drag detector: {e}");
             return None;
         }
     };
@@ -512,17 +512,17 @@ mod tests {
         assert!(pc.send(a));
         assert_eq!(rx.try_recv().unwrap().event, a);
         drop(rx);
-        assert!(!pc.send(a), "sin receptor la captura tiene que soltar");
+        assert!(!pc.send(a), "without a receiver the capture has to release");
     }
 
-    /// Entre dos máquinas con el mismo sistema no se reasigna nada (DECISIONS D2): el lado
-    /// no importa, solo los sistemas.
+    /// Between two machines with the same system nothing is remapped (DECISIONS D2): the side
+    /// does not matter, only the systems.
     #[test]
     fn the_same_system_on_both_sides_keeps_the_modifiers() {
         let policy = RemapPolicy::default();
         for os in Os::ALL {
             assert_eq!(direction(os, Some(os)), None);
-            assert_eq!(direction(os, None), None, "sin saber la otra, nada");
+            assert_eq!(direction(os, None), None, "without knowing the other, nothing");
             let (tx, mut rx) = mpsc::unbounded_channel();
             let sink = CaptureSink::new(tx, &policy, os, Some(os));
             for m in [ModifierKey::MetaLeft, ModifierKey::ControlLeft] {

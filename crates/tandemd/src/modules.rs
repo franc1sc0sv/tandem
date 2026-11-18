@@ -1,27 +1,27 @@
-//! Los módulos de cada máquina y su estado (DECISIONS D3, DESIGN §4.3, T-098).
+//! Each machine's modules and their state (DECISIONS D3, DESIGN §4.3, T-098).
 //!
-//! Un módulo existe solo en los sistemas donde puede funcionar ([`Registry::for_os`]) y en
-//! ejecución dice si está activo, apagado por el usuario o no disponible, con una razón
-//! concreta. Su estado sale de lo que el agente ya sabe ([`ModuleContext`]): los módulos no
-//! guardan nada propio, así que se prueban con contextos armados a mano.
+//! A module exists only on the systems where it can work ([`Registry::for_os`]) and at
+//! runtime says whether it is active, turned off by the user or unavailable, with a
+//! concrete reason. Its state comes from what the agent already knows ([`ModuleContext`]): modules
+//! keep nothing of their own, so they are tested with hand-built contexts.
 //!
-//! Qué módulos existen se decide por el [`Os`] de la máquina y no por `#[cfg]` directo: en
-//! Linux (pruebas y simulación) hay que poder armar el registro de los dos sistemas. Lo que
-//! sí depende de la plataforma (las sondas reales) vive detrás de `#[cfg]` en cada módulo.
+//! Which modules exist is decided by the machine's [`Os`] and not by a direct `#[cfg]`: on
+//! Linux (tests and simulation) the registry of both systems must be buildable. What
+//! does depend on the platform (the real probes) lives behind `#[cfg]` in each module.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use tandem_core::Os;
 use tandem_proto::{InputPermission, InputStatus, ModuleId, ModuleInfo, ModuleState, PowerCaps};
 
-/// Razones de «Archivos» (T-158): el módulo existe y funciona; solo se dice que no está
-/// disponible por una de estas causas verdaderas.
-pub const NO_FILE_DRAG: &str = "No se pudo abrir el detector de arrastre de archivos del sistema";
-pub const NO_FILE_DRAG_OS: &str = "Este sistema no tiene arrastre de archivos entre máquinas";
-pub const NO_ENGINE: &str = "El motor de teclado y mouse no arrancó, y el arrastre va con él";
+/// Reasons for "Files" (T-158): the module exists and works; it only says it is
+/// unavailable for one of these true causes.
+pub const NO_FILE_DRAG: &str = "Could not open the system's file drag detector";
+pub const NO_FILE_DRAG_OS: &str = "This system has no file drag between machines";
+pub const NO_ENGINE: &str = "The keyboard and mouse engine did not start, and the drag goes with it";
 
-/// El problema de «Archivos» según lo que dio el sistema: `supported` es si este sistema
-/// tiene detector (Windows y macOS), `present` si el motor recibió uno.
+/// The "Files" problem according to what the system gave: `supported` is whether this system
+/// has a detector (Windows and macOS), `present` whether the engine received one.
 pub fn file_drag_problem(supported: bool, present: bool) -> Option<&'static str> {
     match (present, supported) {
         (true, _) => None,
@@ -30,7 +30,7 @@ pub fn file_drag_problem(supported: bool, present: bool) -> Option<&'static str>
     }
 }
 
-/// Lo que el agente sabe y los módulos miran para decir su estado.
+/// What the agent knows and the modules look at to state their status.
 #[derive(Debug, Clone, Copy)]
 pub struct ModuleContext<'a> {
     pub os: Os,
@@ -39,7 +39,7 @@ pub struct ModuleContext<'a> {
     pub switches: &'a ModuleSwitches,
 }
 
-/// Lo que el usuario apagó y los problemas que reportó cada módulo en marcha.
+/// What the user turned off and the problems each running module reported.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ModuleSwitches {
     off: BTreeSet<ModuleId>,
@@ -51,7 +51,7 @@ impl ModuleSwitches {
         !self.off.contains(&id)
     }
 
-    /// `true` si cambió.
+    /// `true` if it changed.
     pub fn set(&mut self, id: ModuleId, on: bool) -> bool {
         if on {
             self.off.remove(&id)
@@ -64,7 +64,7 @@ impl ModuleSwitches {
         self.problems.get(&id).map(String::as_str)
     }
 
-    /// `true` si cambió.
+    /// `true` if it changed.
     pub fn set_problem(&mut self, id: ModuleId, problem: Option<String>) -> bool {
         match problem {
             Some(p) => self.problems.insert(id, p.clone()).as_ref() != Some(&p),
@@ -73,22 +73,22 @@ impl ModuleSwitches {
     }
 }
 
-/// Un módulo de Tandem.
+/// A Tandem module.
 pub trait Module: Send + Sync {
     fn id(&self) -> ModuleId;
     fn name(&self) -> &'static str;
-    /// Qué hace en esta máquina (la línea de la UI).
+    /// What it does on this machine (the UI line).
     fn detail(&self, ctx: &ModuleContext<'_>) -> String;
-    /// Su estado sin contar el interruptor del usuario ni los problemas reportados en
-    /// marcha (eso lo suma el [`Registry`]).
+    /// Its state not counting the user's switch or the problems reported while
+    /// running (the [`Registry`] adds that).
     fn state(&self, ctx: &ModuleContext<'_>) -> ModuleState;
-    /// El usuario lo puede encender y apagar. Solo los que el agente sabe detener de verdad.
+    /// The user can turn it on and off. Only the ones the agent really knows how to stop.
     fn switchable(&self) -> bool {
         false
     }
 }
 
-/// Los módulos que existen en una máquina.
+/// The modules that exist on a machine.
 pub struct Registry {
     modules: Vec<Box<dyn Module>>,
 }
@@ -102,7 +102,7 @@ impl std::fmt::Debug for Registry {
 }
 
 impl Registry {
-    /// Los de una máquina con `os`, en el orden de la UI.
+    /// Those of a machine with `os`, in the UI order.
     pub fn for_os(os: Os) -> Self {
         let mut modules: Vec<Box<dyn Module>> = vec![
             Box::new(Input),
@@ -112,14 +112,14 @@ impl Registry {
             Box::new(Monitors),
             Box::new(Power),
         ];
-        // El escritorio seguro (UAC, inicio de sesión) es cosa de Windows.
+        // The secure desktop (UAC, sign-in) is a Windows thing.
         if os == Os::Windows {
             modules.push(Box::new(SecureDesktop));
         }
         Registry { modules }
     }
 
-    /// Con módulos a medida (las pruebas).
+    /// With tailor-made modules (tests).
     pub fn with(modules: Vec<Box<dyn Module>>) -> Self {
         Registry { modules }
     }
@@ -132,8 +132,8 @@ impl Registry {
         self.modules.iter().find(|m| m.id() == id).map(|m| &**m)
     }
 
-    /// El anuncio de cada módulo. Apagado por el usuario manda sobre todo lo demás: al
-    /// encenderlo se ve la razón si no puede funcionar.
+    /// Each module's announcement. Turned off by the user overrides everything else: when
+    /// turning it on the reason is seen if it cannot work.
     pub fn snapshot(&self, ctx: &ModuleContext<'_>) -> Vec<ModuleInfo> {
         self.modules
             .iter()
@@ -158,19 +158,19 @@ impl Registry {
             .collect()
     }
 
-    /// Si el usuario puede encender o apagar `id` aquí; si no, la razón para la UI.
+    /// Whether the user can turn `id` on or off here; if not, the reason for the UI.
     pub fn check_switch(&self, id: ModuleId) -> Result<(), String> {
         match self.get(id) {
-            None => Err(format!("«{}» no existe en esta máquina", default_name(id))),
+            None => Err(format!("\"{}\" does not exist on this machine", default_name(id))),
             Some(m) if !m.switchable() => {
-                Err(format!("«{}» no se puede encender ni apagar", m.name()))
+                Err(format!("\"{}\" cannot be turned on or off", m.name()))
             }
             Some(_) => Ok(()),
         }
     }
 }
 
-/// El nombre de un módulo aunque no exista en esta máquina (para los mensajes).
+/// A module's name even if it does not exist on this machine (for messages).
 pub fn default_name(id: ModuleId) -> &'static str {
     match id {
         ModuleId::Input => Input.name(),
@@ -183,7 +183,7 @@ pub fn default_name(id: ModuleId) -> &'static str {
     }
 }
 
-/// Teclado y mouse compartidos: no funciona sin los permisos de macOS o si su motor falló.
+/// Shared keyboard and mouse: it does not work without the macOS permissions or if its engine failed.
 pub struct Input;
 
 impl Module for Input {
@@ -191,12 +191,12 @@ impl Module for Input {
         ModuleId::Input
     }
     fn name(&self) -> &'static str {
-        "Teclado y mouse"
+        "Keyboard and mouse"
     }
     fn detail(&self, ctx: &ModuleContext<'_>) -> String {
         match ctx.os {
-            Os::MacOs => "Captura con CGEventTap e inyección con CGEventPost".into(),
-            Os::Windows => "Captura e inyección (hooks de bajo nivel, SendInput)".into(),
+            Os::MacOs => "Capture with CGEventTap and injection with CGEventPost".into(),
+            Os::Windows => "Capture and injection (low-level hooks, SendInput)".into(),
         }
     }
     fn state(&self, ctx: &ModuleContext<'_>) -> ModuleState {
@@ -217,21 +217,21 @@ impl Module for Input {
 
 fn permission_name(p: InputPermission) -> &'static str {
     match p {
-        InputPermission::Accessibility => "Accesibilidad",
-        InputPermission::InputMonitoring => "Monitorización de entrada",
+        InputPermission::Accessibility => "Accessibility",
+        InputPermission::InputMonitoring => "Input Monitoring",
     }
 }
 
-/// «Falta el permiso de Accesibilidad» / «Faltan los permisos de A y B».
+/// "The Accessibility permission is missing" / "The permissions A and B are missing".
 fn missing_permissions(missing: &[InputPermission]) -> Option<String> {
     match missing {
         [] => None,
-        [one] => Some(format!("Falta el permiso de {}", permission_name(*one))),
+        [one] => Some(format!("The {} permission is missing", permission_name(*one))),
         many => {
             let names: Vec<_> = many.iter().map(|p| permission_name(*p)).collect();
             let (last, rest) = names.split_last()?;
             Some(format!(
-                "Faltan los permisos de {} y {last}",
+                "The {} and {last} permissions are missing",
                 rest.join(", ")
             ))
         }
@@ -246,8 +246,8 @@ fn capitalized(s: &str) -> String {
     }
 }
 
-/// El portapapeles compartido: corre dentro del motor de teclado y mouse, que dice a qué
-/// máquina va el foco.
+/// The shared clipboard: it runs inside the keyboard and mouse engine, which says which
+/// machine the focus goes to.
 pub struct Clipboard;
 
 impl Module for Clipboard {
@@ -255,17 +255,17 @@ impl Module for Clipboard {
         ModuleId::Clipboard
     }
     fn name(&self) -> &'static str {
-        "Portapapeles"
+        "Clipboard"
     }
     fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
-        "Texto, HTML e imagen".into()
+        "Text, HTML and image".into()
     }
     fn state(&self, ctx: &ModuleContext<'_>) -> ModuleState {
         if ctx.switches.is_on(ModuleId::Input) {
             ModuleState::Active
         } else {
             ModuleState::Unavailable {
-                reason: format!("Necesita «{}» encendido", Input.name()),
+                reason: format!("Needs \"{}\" on", Input.name()),
             }
         }
     }
@@ -274,7 +274,7 @@ impl Module for Clipboard {
     }
 }
 
-/// Arrastrar archivos entre máquinas (D14).
+/// Drag files between machines (D14).
 pub struct Files;
 
 impl Module for Files {
@@ -282,19 +282,19 @@ impl Module for Files {
         ModuleId::Files
     }
     fn name(&self) -> &'static str {
-        "Archivos"
+        "Files"
     }
     fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
-        "Arrastrar archivos al cruzar el borde".into()
+        "Drag files when crossing the edge".into()
     }
-    /// Activo: el arrastre existe en los dos sistemas. Si el detector del sistema no abre,
-    /// el motor de entrada lo reporta como problema (`ModuleSwitches::set_problem`).
+    /// Active: the drag exists on both systems. If the system detector does not open,
+    /// the input engine reports it as a problem (`ModuleSwitches::set_problem`).
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
         ModuleState::Active
     }
 }
 
-/// Túneles de Claude (D8).
+/// Claude tunnels (D8).
 pub struct Tunnels;
 
 impl Module for Tunnels {
@@ -302,19 +302,19 @@ impl Module for Tunnels {
         ModuleId::Tunnels
     }
     fn name(&self) -> &'static str {
-        "Túneles"
+        "Tunnels"
     }
     fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
-        "Recibe túneles de Claude".into()
+        "Receives Claude tunnels".into()
     }
-    /// Los túneles (procesos, archivos, puertos) son un servicio del propio agente en los
-    /// dos sistemas: no dependen de un backend aparte.
+    /// Tunnels (processes, files, ports) are a service of the agent itself on both
+    /// systems: they do not depend on a separate backend.
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
         ModuleState::Active
     }
 }
 
-/// Monitores por DDC (D11, T-110). Activo con un bus; sin él, el agente reporta el problema
+/// Monitors over DDC (D11, T-110). Active with a bus; without it, the agent reports the problem
 /// ([`crate::monitors::NO_DDC`]).
 pub struct Monitors;
 
@@ -323,17 +323,17 @@ impl Module for Monitors {
         ModuleId::Monitors
     }
     fn name(&self) -> &'static str {
-        "Monitores"
+        "Monitors"
     }
     fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
-        "Entrada de los monitores por DDC".into()
+        "Monitor input over DDC".into()
     }
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
         ModuleState::Active
     }
 }
 
-/// Wake-on-LAN y apagado limpio: activo si sabe hacer al menos una de las tres cosas.
+/// Wake-on-LAN and clean shutdown: active if it can do at least one of the three things.
 pub struct Power;
 
 impl Module for Power {
@@ -341,21 +341,21 @@ impl Module for Power {
         ModuleId::Power
     }
     fn name(&self) -> &'static str {
-        "Energía"
+        "Power"
     }
     fn detail(&self, ctx: &ModuleContext<'_>) -> String {
         let p = ctx.power;
         let mut parts = Vec::new();
         parts.push(if p.power_off {
-            "Se apaga a pedido de la otra máquina."
+            "It shuts down on the other machine's request."
         } else {
-            "No se apaga a pedido de la otra máquina."
+            "It does not shut down on the other machine's request."
         });
         if p.wakeable {
-            parts.push("Se deja despertar por Wake-on-LAN.");
+            parts.push("It can be woken by Wake-on-LAN.");
         }
         if p.wake_peer {
-            parts.push("Puede despertar a la otra por Wake-on-LAN.");
+            parts.push("It can wake the other by Wake-on-LAN.");
         }
         parts.join(" ")
     }
@@ -365,15 +365,15 @@ impl Module for Power {
             ModuleState::Active
         } else {
             ModuleState::Unavailable {
-                reason: "Falta la MAC de la otra máquina para Wake-on-LAN: se aprende al emparejar, o escríbela en su página"
+                reason: "The other machine's MAC is missing for Wake-on-LAN: it is learned when pairing, or write it on its page"
                     .into(),
             }
         }
     }
 }
 
-/// Teclado y mouse en el escritorio seguro de Windows (UAC, inicio de sesión). Necesita el
-/// servicio de sistema de T-027, que todavía no existe.
+/// Keyboard and mouse on the Windows secure desktop (UAC, sign-in). It needs T-027's
+/// system service, which does not exist yet.
 pub struct SecureDesktop;
 
 impl Module for SecureDesktop {
@@ -381,14 +381,14 @@ impl Module for SecureDesktop {
         ModuleId::SecureDesktop
     }
     fn name(&self) -> &'static str {
-        "Pantallas protegidas"
+        "Protected screens"
     }
     fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
-        "El mouse y el teclado también en avisos de UAC y en el inicio de sesión".into()
+        "The mouse and keyboard also on UAC prompts and at sign-in".into()
     }
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
         ModuleState::Unavailable {
-            reason: "Necesita el servicio de sistema de Tandem, que aún no está en esta versión"
+            reason: "It needs Tandem's system service, which is not yet in this version"
                 .into(),
         }
     }
@@ -415,10 +415,10 @@ mod tests {
             .into_iter()
             .find(|m| m.id == id)
             .map(|m| m.state)
-            .unwrap_or_else(|| panic!("falta {id:?}"))
+            .unwrap_or_else(|| panic!("missing {id:?}"))
     }
 
-    /// El estado de `id` en Windows, sin nada de energía.
+    /// The state of `id` on Windows, without anything power-related.
     fn on_pc(reg: &Registry, input: &InputStatus, s: &ModuleSwitches, id: ModuleId) -> ModuleState {
         let p = power(false, false, false);
         let ctx = ModuleContext {
@@ -430,7 +430,7 @@ mod tests {
         state_of(reg, &ctx, id)
     }
 
-    /// Un doble: un módulo que dice lo que se le pida.
+    /// A double: a module that says whatever it is told.
     struct Fake {
         id: ModuleId,
         state: ModuleState,
@@ -442,10 +442,10 @@ mod tests {
             self.id
         }
         fn name(&self) -> &'static str {
-            "Falso"
+            "Fake"
         }
         fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
-            "doble".into()
+            "double".into()
         }
         fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
             self.state.clone()
@@ -455,7 +455,7 @@ mod tests {
         }
     }
 
-    /// T-158: Túneles y Archivos existen; ninguna razón dice que «aún no está».
+    /// T-158: Tunnels and Files exist; no reason says "not yet".
     #[test]
     fn tunnels_and_files_are_active_and_no_reason_says_not_yet() {
         for os in Os::ALL {
@@ -474,7 +474,7 @@ mod tests {
         }
     }
 
-    /// Sin detector de arrastre en el sistema, «Archivos» lo dice con una razón verdadera.
+    /// Without a drag detector on the system, "Files" says so with a true reason.
     #[test]
     fn files_report_a_missing_drag_backend() {
         let reg = Registry::for_os(Os::Windows);
@@ -501,7 +501,7 @@ mod tests {
         assert_eq!(file_drag_problem(true, false), Some(NO_FILE_DRAG));
         assert_eq!(file_drag_problem(false, false), Some(NO_FILE_DRAG_OS));
         for r in [NO_FILE_DRAG, NO_FILE_DRAG_OS, NO_ENGINE] {
-            assert!(!r.to_lowercase().contains("aún no"), "{r}");
+            assert!(!r.to_lowercase().contains("not yet"), "{r}");
         }
     }
 
@@ -520,7 +520,7 @@ mod tests {
                 SecureDesktop
             ]
         );
-        // Sin escritorio seguro en macOS: no existe, ni siquiera como «no disponible».
+        // Without a secure desktop on macOS: it does not exist, not even as "unavailable".
         assert_eq!(
             Registry::for_os(Os::MacOs).ids(),
             [Input, Clipboard, Files, Tunnels, Monitors, Power]
@@ -558,7 +558,7 @@ mod tests {
         assert_eq!(
             on_pc(&reg, &input, &switches, ModuleId::Input),
             ModuleState::Unavailable {
-                reason: "Falta el permiso de Accesibilidad".into()
+                reason: "The Accessibility permission is missing".into()
             }
         );
         input.missing = vec![
@@ -568,7 +568,7 @@ mod tests {
         assert_eq!(
             on_pc(&reg, &input, &switches, ModuleId::Input),
             ModuleState::Unavailable {
-                reason: "Faltan los permisos de Accesibilidad y Monitorización de entrada".into()
+                reason: "The Accessibility and Input Monitoring permissions are missing".into()
             }
         );
     }
@@ -577,7 +577,7 @@ mod tests {
     fn an_engine_problem_makes_input_unavailable() {
         let reg = Registry::for_os(Os::Windows);
         let mut input = InputStatus::new(Machine::B);
-        input.problem = Some("no se pudo instalar el hook del teclado".into());
+        input.problem = Some("could not install the keyboard hook".into());
         let switches = ModuleSwitches::default();
         let p = power(false, false, true);
         let ctx = ModuleContext {
@@ -589,7 +589,7 @@ mod tests {
         assert_eq!(
             state_of(&reg, &ctx, ModuleId::Input),
             ModuleState::Unavailable {
-                reason: "No se pudo instalar el hook del teclado".into()
+                reason: "Could not install the keyboard hook".into()
             }
         );
     }
@@ -607,7 +607,7 @@ mod tests {
             switches: &switches,
         };
         let ModuleState::Unavailable { reason } = state_of(&reg, &ctx, ModuleId::Power) else {
-            panic!("sin nada que hacer, energía no está disponible");
+            panic!("with nothing to do, power is not available");
         };
         assert!(reason.contains("Wake-on-LAN"), "{reason}");
         let wol = power(true, false, false);
@@ -619,7 +619,7 @@ mod tests {
             .find(|m| m.id == ModuleId::Power)
             .unwrap()
             .detail;
-        assert!(detail.contains("Puede despertar a la otra"), "{detail}");
+        assert!(detail.contains("It can wake the other"), "{detail}");
     }
 
     #[test]
@@ -639,11 +639,11 @@ mod tests {
         let input = InputStatus::new(Machine::A);
         let mut switches = ModuleSwitches::default();
         assert!(switches.set(ModuleId::Clipboard, false));
-        assert!(!switches.set(ModuleId::Clipboard, false), "ya estaba");
+        assert!(!switches.set(ModuleId::Clipboard, false), "already was");
         assert!(switches.set_problem(ModuleId::Clipboard, Some("x".into())));
-        assert!(switches.set_problem(ModuleId::Monitors, Some("sin bus".into())));
-        assert!(!switches.set_problem(ModuleId::Monitors, Some("sin bus".into())));
-        // Un módulo que no se puede apagar no queda apagado aunque se pida.
+        assert!(switches.set_problem(ModuleId::Monitors, Some("no bus".into())));
+        assert!(!switches.set_problem(ModuleId::Monitors, Some("no bus".into())));
+        // A module that cannot be turned off is not left off even if requested.
         switches.set(ModuleId::Monitors, false);
         assert_eq!(
             on_pc(&reg, &input, &switches, ModuleId::Clipboard),
@@ -652,7 +652,7 @@ mod tests {
         assert_eq!(
             on_pc(&reg, &input, &switches, ModuleId::Monitors),
             ModuleState::Unavailable {
-                reason: "sin bus".into()
+                reason: "no bus".into()
             }
         );
         switches.set(ModuleId::Clipboard, true);
@@ -684,7 +684,7 @@ mod tests {
         assert_eq!(
             state_of(&reg, &ctx, ModuleId::Clipboard),
             ModuleState::Unavailable {
-                reason: "Necesita «Teclado y mouse» encendido".into()
+                reason: "Needs \"Keyboard and mouse\" on".into()
             }
         );
     }
@@ -695,15 +695,15 @@ mod tests {
         assert_eq!(mac.check_switch(ModuleId::Input), Ok(()));
         assert_eq!(mac.check_switch(ModuleId::Clipboard), Ok(()));
         let e = mac.check_switch(ModuleId::SecureDesktop).unwrap_err();
-        assert!(e.contains("no existe"), "{e}");
+        assert!(e.contains("does not exist"), "{e}");
         let e = mac.check_switch(ModuleId::Power).unwrap_err();
-        assert!(e.contains("no se puede"), "{e}");
+        assert!(e.contains("cannot"), "{e}");
         let pc = Registry::for_os(Os::Windows);
         assert!(pc.check_switch(ModuleId::SecureDesktop).is_err());
     }
 
     proptest::proptest! {
-        /// Lo apagado es exactamente lo que quedó apagado, en cualquier orden de cambios.
+        /// What is off is exactly what was left off, in any order of changes.
         #[test]
         fn switches_keep_the_last_word(ops in proptest::collection::vec((0usize..7, proptest::bool::ANY), 0..40)) {
             let mut s = ModuleSwitches::default();

@@ -1,10 +1,10 @@
-//! Formas de cable de los tipos de `tandem-core` que `postcard` no sabe leer.
+//! Wire shapes of the `tandem-core` types that `postcard` cannot read.
 //!
-//! `Step` usa un enum etiquetado de serde (pensado para TOML/JSON), que necesita un
-//! formato autodescriptivo; `postcard` no lo es. Aquí se espeja como enum simple y se usa
-//! con `#[serde(with = ...)]`, así los mensajes guardan los tipos del núcleo. Las
-//! conversiones son `match` exhaustivos: si el núcleo cambia, esto deja de compilar en vez
-//! de desincronizarse.
+//! `Step` uses a serde tagged enum (meant for TOML/JSON), which needs a
+//! self-describing format; `postcard` is not one. Here it is mirrored as a simple enum and used
+//! with `#[serde(with = ...)]`, so the messages keep the core's types. The
+//! conversions are exhaustive `match`es: if the core changes, this stops compiling instead of
+//! going out of sync.
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tandem_core::{Arrangement, Machine, MonitorInput, Step};
@@ -190,7 +190,7 @@ mod tests {
                     DeskVersion {
                         stamp: DeskStamp { rev, at, by },
                         desk: tandem_core::Config {
-                            name: Some("Oficina".into()),
+                            name: Some("Office".into()),
                             machines: tandem_core::Machines {
                                 a: Some(tandem_core::MachineInfo::new(
                                     Machine::A,
@@ -227,7 +227,7 @@ mod tests {
                                     } else {
                                         MonitorInput::DisplayPort
                                     });
-                                    c.b.screen = Some("pantalla-1".into());
+                                    c.b.screen = Some("screen-1".into());
                                     c
                                 })
                                 .collect(),
@@ -256,7 +256,7 @@ mod tests {
             prop_assert_eq!(decode::<ControlMsg>(&encode(&msg).unwrap()).unwrap(), msg);
         }
 
-        /// El acomodo viaja exacto, escala incluida.
+        /// The arrangement travels exactly, scale included.
         #[test]
         fn any_desk_round_trips(sync in desk()) {
             let msg = ControlMsg::Desk(Box::new(sync));

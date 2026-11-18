@@ -1,10 +1,10 @@
-//! Dos procesos `tandemd` de verdad (el binario compilado, con `--sim-backends`), cada
-//! uno con su config y su directorio de datos temporales, emparejados por archivos de
-//! confianza preprovisionados y unidos por QUIC en loopback. La prueba es la UI: habla
-//! con cada agente por su socket de IPC, como la app.
+//! Two real `tandemd` processes (the compiled binary, with `--sim-backends`), each
+//! with its own config and temporary data directory, paired by preprovisioned
+//! trust files and joined by QUIC over loopback. The test is the UI: it speaks
+//! to each agent over its IPC socket, like the app.
 //!
-//! Solo en Linux (lo pide la tarea T-075): el socket Unix vive en el directorio de
-//! datos, y en macOS la ruta del directorio temporal puede pasar el límite de 104 bytes.
+//! Linux only (T-075 requires it): the Unix socket lives in the data directory,
+//! and on macOS the temporary directory's path can exceed the 104-byte limit.
 #![cfg(target_os = "linux")]
 
 use std::collections::BTreeMap;
@@ -23,7 +23,7 @@ use tandemd::sim::{self, HOLD_FILE};
 use tandemd::store::StateStore;
 use tokio::net::UnixStream;
 
-/// Tiempos cortos para que un paso colgado o una PC perdida se resuelvan pronto.
+/// Short times so a hung step or a lost PC resolve soon.
 const TIMING: &str = "
 [orchestrator]
 power_on_timeout_secs = 5
@@ -33,7 +33,7 @@ step_timeout_secs = 3
 pc_lost_after_secs = 1
 ";
 
-/// Tope para que una prueba rota falle en vez de colgarse.
+/// Cap so a broken test fails instead of hanging.
 const TIMEOUT: Duration = Duration::from_secs(30);
 const POLL: Duration = Duration::from_millis(50);
 
@@ -42,10 +42,10 @@ type Ui = IpcClient<UnixStream>;
 async fn within<F: Future>(what: &str, f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .unwrap_or_else(|_| panic!("superó el tiempo máximo: {what}"))
+        .unwrap_or_else(|_| panic!("exceeded the maximum time: {what}"))
 }
 
-/// El sandbox de desarrollo (WSL) no deja crear sockets Unix; en CI nunca se omite.
+/// The development sandbox (WSL) does not allow creating Unix sockets; in CI it is never skipped.
 fn unix_sockets_allowed() -> bool {
     let dir = tempfile::tempdir().unwrap();
     match std::os::unix::net::UnixListener::bind(dir.path().join("probe.sock")) {
@@ -54,15 +54,15 @@ fn unix_sockets_allowed() -> bool {
             if e.kind() == std::io::ErrorKind::PermissionDenied
                 && std::env::var_os("CI").is_none() =>
         {
-            eprintln!("omitida: este entorno no permite sockets Unix");
+            eprintln!("skipped: this environment does not allow Unix sockets");
             false
         }
         Err(e) => panic!("{e}"),
     }
 }
 
-/// Un puerto UDP libre de loopback. Se suelta enseguida para que lo tome el agente:
-/// cada uno necesita conocer el del otro antes de arrancar.
+/// A free loopback UDP port. It is released right away for the agent to take it:
+/// each one needs to know the other's before starting.
 fn free_port() -> u16 {
     UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
         .unwrap()
@@ -71,7 +71,7 @@ fn free_port() -> u16 {
         .port()
 }
 
-/// La identidad de cada lado: de dos semillas fijas, la de clave menor es la de A
+/// The identity of each side: from two fixed seeds, the one with the lower key is A's
 /// (DECISIONS A1).
 fn identity(machine: Machine) -> Identity {
     let (x, y) = (Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
@@ -86,7 +86,7 @@ fn identity(machine: Machine) -> Identity {
     }
 }
 
-/// Lo que necesita un agente para arrancar: config, identidad y confianza en el otro.
+/// What an agent needs to start: config, identity and trust in the other.
 #[derive(Clone)]
 struct Spec {
     machine: Machine,
@@ -148,7 +148,7 @@ impl Spec {
     }
 }
 
-/// Un `tandemd` corriendo. Si la prueba falla, muestra su salida.
+/// A running `tandemd`. If the test fails, it shows its output.
 struct Proc {
     spec: Spec,
     child: Child,
@@ -182,13 +182,13 @@ impl Proc {
         }
     }
 
-    /// Conecta una UI cuando el socket esté listo; si el proceso murió antes, falla.
+    /// Connects a UI when the socket is ready; if the process died before, it fails.
     async fn ui(&mut self) -> Ui {
         let socket = self.spec.socket();
-        let ui = within("conectar la UI", async {
+        let ui = within("connect the UI", async {
             loop {
                 if let Some(status) = self.child.try_wait().unwrap() {
-                    panic!("{} terminó al arrancar: {status}", self.spec.machine);
+                    panic!("{} ended at startup: {status}", self.spec.machine);
                 }
                 if let Ok(ui) = ipc::connect(&socket).await {
                     return ui;
@@ -205,18 +205,18 @@ impl Proc {
         self.child.try_wait().unwrap().is_none()
     }
 
-    /// SIGKILL: sin apagado ordenado, como un corte de corriente o un cuelgue.
+    /// SIGKILL: without orderly shutdown, like a power cut or a hang.
     fn kill(mut self) -> Spec {
         self.child.kill().unwrap();
         self.child.wait().unwrap();
         self.spec.clone()
     }
 
-    /// SIGTERM: el apagado ordenado del servicio.
+    /// SIGTERM: the service's orderly shutdown.
     async fn stop(mut self) -> (Spec, ExitStatus) {
         let pid = self.child.id().to_string();
         assert!(Command::new("kill").arg(&pid).status().unwrap().success());
-        let status = within("apagado ordenado", async {
+        let status = within("orderly shutdown", async {
             loop {
                 if let Some(status) = self.child.try_wait().unwrap() {
                     return status;
@@ -235,12 +235,12 @@ impl Drop for Proc {
         let _ = self.child.wait();
         if std::thread::panicking() {
             let out = std::fs::read_to_string(&self.output).unwrap_or_default();
-            eprintln!("--- salida de {} ---\n{out}", self.spec.machine);
+            eprintln!("--- output of {} ---\n{out}", self.spec.machine);
         }
     }
 }
 
-/// Los dos agentes, con una UI conectada a cada uno.
+/// The two agents, with a UI connected to each.
 struct Pair {
     root: tempfile::TempDir,
     ports: BTreeMap<Machine, u16>,
@@ -269,28 +269,28 @@ impl Pair {
     }
 }
 
-/// Arranca un agente (otra vez, si `spec` ya se usó) y le conecta una UI.
+/// Starts an agent (again, if `spec` was already used) and connects a UI to it.
 async fn restart(spec: Spec) -> (Proc, Ui) {
     let mut p = Proc::spawn(spec);
     let ui = p.ui().await;
     (p, ui)
 }
 
-/// Espera a que el agente vea al otro por algún enlace.
+/// Waits for the agent to see the other over some link.
 async fn linked(ui: &mut Ui) {
-    within("enlace con el otro agente", async {
+    within("link with the other agent", async {
         loop {
             match ui.request(UiCommand::GetPeer).await.unwrap() {
                 Reply::Peer(PeerStatus::Paired { link: Some(_), .. }) => return,
                 Reply::Peer(_) => tokio::time::sleep(POLL).await,
-                other => panic!("respuesta inesperada: {other:?}"),
+                other => panic!("unexpected reply: {other:?}"),
             }
         }
     })
     .await;
 }
 
-/// Espera a que el estado del agente cumpla `pred` y lo devuelve.
+/// Waits for the agent's state to satisfy `pred` and returns it.
 async fn state_until(ui: &mut Ui, what: &str, pred: impl Fn(&State) -> bool) -> State {
     within(what, async {
         loop {
@@ -304,7 +304,7 @@ async fn state_until(ui: &mut Ui, what: &str, pred: impl Fn(&State) -> bool) -> 
     .await
 }
 
-/// El siguiente aviso que cumpla `pred`; los demás se descartan.
+/// The next notice that satisfies `pred`; the others are discarded.
 async fn event_until(ui: &mut Ui, what: &str, pred: impl Fn(&AgentToUi) -> bool) -> AgentToUi {
     within(what, async {
         loop {
@@ -312,7 +312,7 @@ async fn event_until(ui: &mut Ui, what: &str, pred: impl Fn(&AgentToUi) -> bool)
                 .next_event()
                 .await
                 .unwrap()
-                .expect("el agente cerró la IPC");
+                .expect("the agent closed the IPC");
             if pred(&ev) {
                 return ev;
             }
@@ -321,27 +321,27 @@ async fn event_until(ui: &mut Ui, what: &str, pred: impl Fn(&AgentToUi) -> bool)
     .await
 }
 
-/// Pide `cmd` (reintenta si el orquestador está ocupado, por ejemplo con `pc_watch`).
+/// Requests `cmd` (retries if the orchestrator is busy, for example with `pc_watch`).
 async fn begin(ui: &mut Ui, cmd: UiCommand) -> u64 {
-    within("pedido aceptado", async {
+    within("request accepted", async {
         loop {
             match ui.request(cmd.clone()).await.unwrap() {
                 Reply::Accepted { txn } => return txn,
                 Reply::Rejected(why) if why == BUSY => tokio::time::sleep(POLL).await,
-                other => panic!("{cmd:?}: respuesta inesperada: {other:?}"),
+                other => panic!("{cmd:?}: unexpected reply: {other:?}"),
             }
         }
     })
     .await
 }
 
-/// Los avisos de la transacción `txn` hasta su desenlace.
+/// The notices of transaction `txn` up to its outcome.
 async fn outcome(ui: &mut Ui, txn: u64) -> Vec<TxnEvent> {
     let mut events = Vec::new();
     loop {
         let AgentToUi::Txn(ev) = event_until(
             ui,
-            "desenlace de la transacción",
+            "transaction outcome",
             |e| matches!(e, AgentToUi::Txn(ev) if txn_of(ev) == txn),
         )
         .await
@@ -368,20 +368,20 @@ fn txn_of(ev: &TxnEvent) -> u64 {
     }
 }
 
-/// Pide `cmd` en la Mac, comprueba que se aplicó paso por paso y que la PC terminó con
-/// el mismo estado (lo recibe empujado por su IPC). Devuelve los pasos y el estado.
+/// Requests `cmd` on the Mac, checks it was applied step by step and that the PC ended with
+/// the same state (it receives it pushed over its IPC). Returns the steps and the state.
 async fn commit(mac: &mut Ui, pc: &mut Ui, cmd: UiCommand) -> (Vec<Step>, State) {
     let txn = begin(mac, cmd.clone()).await;
     let events = outcome(mac, txn).await;
     let Some(TxnEvent::Started { steps, .. }) = events.first() else {
-        panic!("{cmd:?}: se esperaba Started: {events:?}");
+        panic!("{cmd:?}: Started was expected: {events:?}");
     };
     let steps = steps.clone();
     let Some(TxnEvent::Committed { state, .. }) = events.last() else {
-        panic!("{cmd:?}: no se aplicó: {events:?}");
+        panic!("{cmd:?}: was not applied: {events:?}");
     };
     let state = state.clone();
-    // Cada paso empezó y terminó, en orden.
+    // Each step started and ended, in order.
     let mut expected = vec![TxnEvent::Started {
         txn,
         steps: steps.clone(),
@@ -400,15 +400,15 @@ async fn commit(mac: &mut Ui, pc: &mut Ui, cmd: UiCommand) -> (Vec<Step>, State)
     (steps, state)
 }
 
-/// `state` tal como lo guarda `machine`: cada agente se ve prendido a sí mismo
-/// (`Agent::set_state`), aunque la otra máquina lo dé por apagado.
+/// `state` as `machine` saves it: each agent sees itself as on
+/// (`Agent::set_state`), even if the other machine considers it off.
 fn as_seen_by(state: &State, machine: Machine) -> State {
     let mut seen = state.clone();
     seen.on.set(machine, true);
     seen
 }
 
-/// La PC tiene `expected` (visto por ella): ya lo tenía o le llega empujado por la IPC.
+/// The PC has `expected` (seen by it): it already had it or it arrives pushed over the IPC.
 async fn pc_agrees(pc: &mut Ui, expected: &State) {
     let expected = &as_seen_by(expected, Machine::B);
     if pc.get_state().await.unwrap() == *expected {
@@ -416,40 +416,40 @@ async fn pc_agrees(pc: &mut Ui, expected: &State) {
     }
     event_until(
         pc,
-        "la PC recibe el estado final",
+        "the PC receives the final state",
         |e| matches!(e, AgentToUi::State(s) if s == expected),
     )
     .await;
     assert_eq!(pc.get_state().await.unwrap(), *expected);
 }
 
-/// El motivo por el que el agente rechaza `cmd` (reintenta si está ocupado).
+/// The reason the agent rejects `cmd` (retries if busy).
 async fn rejected(ui: &mut Ui, cmd: UiCommand) -> String {
-    within("pedido rechazado", async {
+    within("request rejected", async {
         loop {
             match ui.request(cmd.clone()).await.unwrap() {
                 Reply::Rejected(why) if why == BUSY => tokio::time::sleep(POLL).await,
                 Reply::Rejected(why) => return why,
-                other => panic!("{cmd:?}: se esperaba un rechazo: {other:?}"),
+                other => panic!("{cmd:?}: a rejection was expected: {other:?}"),
             }
         }
     })
     .await
 }
 
-/// Lo que se agregó al rastro de `spec` desde que tenía `before` pasos.
+/// What was added to `spec`'s trace since it had `before` steps.
 fn new_steps(spec: &Spec, before: usize) -> Vec<Step> {
     spec.steps().split_off(before)
 }
 
-/// Levanta los dos agentes y espera a que se vean y la Mac dé la PC por prendida.
+/// Brings up both agents and waits for them to see each other and the Mac to consider the PC on.
 async fn running_pair(pair: &Pair) -> (Proc, Ui, Proc, Ui) {
     let (mac, mut ui_mac) = pair.start(Machine::A).await;
     let (pc, mut ui_pc) = pair.start(Machine::B).await;
     linked(&mut ui_mac).await;
     linked(&mut ui_pc).await;
-    // `pc_watch`: la PC aparece por un enlace, así que está prendida.
-    state_until(&mut ui_mac, "la Mac da la PC por prendida", |s| s.on.b).await;
+    // `pc_watch`: the PC appears over a link, so it is on.
+    state_until(&mut ui_mac, "the Mac considers the PC on", |s| s.on.b).await;
     (mac, ui_mac, pc, ui_pc)
 }
 
@@ -465,7 +465,7 @@ async fn power_across_two_real_processes() {
     let pair = Pair::new();
     let (mac, mut ui_mac, pc, mut ui_pc) = running_pair(&pair).await;
 
-    // Encender lo que ya está prendido es una transacción vacía; la PC queda igual.
+    // Powering on what is already on is an empty transaction; the PC stays the same.
     let (steps, s) = commit(
         &mut ui_mac,
         &mut ui_pc,
@@ -478,7 +478,7 @@ async fn power_across_two_real_processes() {
     assert!(steps.is_empty(), "{steps:?}");
     assert!(s.on.b);
 
-    // Apagado: el paso corre en la PC.
+    // Powered off: the step runs on the PC.
     let (mac_before, pc_before) = (mac.spec.steps().len(), pc.spec.steps().len());
     let (steps, s) = commit(&mut ui_mac, &mut ui_pc, off(Machine::B)).await;
     let want = [Step::PowerOff {
@@ -489,8 +489,8 @@ async fn power_across_two_real_processes() {
     assert_eq!(new_steps(&pc.spec, pc_before), want);
     assert!(new_steps(&mac.spec, mac_before).is_empty());
 
-    // El apagado ordenado de los dos guarda el estado, y cada uno se ve prendido a sí
-    // mismo (la PC guarda `on.b = true` aunque la Mac la dé por apagada).
+    // The orderly shutdown of both saves the state, and each sees itself as on
+    // itself (the PC saves `on.b = true` even though the Mac considers it off).
     drop((ui_mac, ui_pc));
     for p in [mac, pc] {
         let (spec, status) = p.stop().await;
@@ -500,8 +500,8 @@ async fn power_across_two_real_processes() {
     }
 }
 
-/// La PC muere con el apagado a medias: la Mac no recibe la respuesta, lo da por hecho y
-/// sigue atendiendo; sin enlaces la sigue viendo apagada.
+/// The PC dies with the shutdown midway: the Mac does not receive the reply, takes it as done and
+/// keeps serving; without links it keeps seeing it off.
 #[tokio::test(flavor = "multi_thread")]
 async fn killing_the_pc_mid_shutdown_leaves_the_mac_coherent() {
     if !unix_sockets_allowed() {
@@ -511,7 +511,7 @@ async fn killing_the_pc_mid_shutdown_leaves_the_mac_coherent() {
     let (mut mac, mut ui_mac, pc, _ui_pc) = running_pair(&pair).await;
     pc.spec.hold(true);
     let txn = begin(&mut ui_mac, off(Machine::B)).await;
-    within("la PC empieza a apagarse", async {
+    within("the PC starts shutting down", async {
         while pc.spec.steps().is_empty() {
             tokio::time::sleep(POLL).await;
         }
@@ -524,12 +524,12 @@ async fn killing_the_pc_mid_shutdown_leaves_the_mac_coherent() {
         matches!(events.last(), Some(TxnEvent::Committed { state, .. }) if !state.on.b),
         "{events:?}"
     );
-    let s = state_until(&mut ui_mac, "la PC dada por apagada", |s| !s.on.b).await;
+    let s = state_until(&mut ui_mac, "the PC considered off", |s| !s.on.b).await;
     assert!(matches!(
         ui_mac.request(UiCommand::GetPeer).await.unwrap(),
         Reply::Peer(PeerStatus::Paired { link: None, .. })
     ));
-    // Sigue atendiendo: el orquestador no quedó tomado.
+    // It keeps serving: the orchestrator was not left taken.
     assert_eq!(
         rejected(
             &mut ui_mac,
@@ -547,8 +547,8 @@ async fn killing_the_pc_mid_shutdown_leaves_the_mac_coherent() {
     assert_eq!(spec.saved_state(), Some(s));
 }
 
-/// La Mac muere con la PC a mitad del paso que le pidió: la PC lo reporta, se queda con su
-/// estado y al volver la Mac se puede seguir.
+/// The Mac dies with the PC midway through the step it asked for: the PC reports it, keeps its
+/// state and when the Mac returns it can continue.
 #[tokio::test(flavor = "multi_thread")]
 async fn killing_the_mac_mid_change_leaves_the_pc_coherent() {
     if !unix_sockets_allowed() {
@@ -559,7 +559,7 @@ async fn killing_the_mac_mid_change_leaves_the_pc_coherent() {
     pc.spec.hold(true);
     let pc_before = pc.spec.steps().len();
     begin(&mut ui_mac, off(Machine::B)).await;
-    within("la PC empieza el paso de la Mac", async {
+    within("the PC starts the Mac's step", async {
         while pc.spec.steps().len() == pc_before {
             tokio::time::sleep(POLL).await;
         }
@@ -569,16 +569,16 @@ async fn killing_the_mac_mid_change_leaves_the_pc_coherent() {
     let mac_spec = mac.kill();
     pc.spec.hold(false);
 
-    event_until(&mut ui_pc, "la PC deja de ver a la Mac", |e| {
+    event_until(&mut ui_pc, "the PC stops seeing the Mac", |e| {
         matches!(e, AgentToUi::Peer(PeerStatus::Paired { link: None, .. }))
     })
     .await;
     assert!(ui_pc.get_state().await.unwrap().on.b);
     assert!(pc.running());
 
-    // La Mac vuelve y se vuelven a ver.
+    // The Mac returns and they see each other again.
     let (_mac, mut ui_mac) = restart(mac_spec).await;
     linked(&mut ui_mac).await;
     linked(&mut ui_pc).await;
-    state_until(&mut ui_mac, "la Mac da la PC por prendida", |s| s.on.b).await;
+    state_until(&mut ui_mac, "the Mac considers the PC on", |s| s.on.b).await;
 }

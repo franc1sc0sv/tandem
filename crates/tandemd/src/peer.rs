@@ -1,13 +1,13 @@
-//! El otro agente por el plano de control: pedirle pasos ([`PeerClient`]) y atender
-//! los que él pide ([`serve`]).
+//! The other agent over the control plane: asking it for steps ([`PeerClient`]) and serving
+//! the ones it asks for ([`serve`]).
 //!
-//! Cada agente abre su propio stream de pedidos hacia el otro y atiende todos los
-//! streams que el otro abre, así que cualquiera de los dos puede orquestar. Los
-//! streams atendidos también contestan pings: sirven igual para el que abre el
-//! gestor de enlaces.
+//! Each agent opens its own request stream toward the other and serves all the
+//! streams the other opens, so either of the two can orchestrate. The
+//! served streams also answer pings: they work just the same for the one that opens the
+//! link manager.
 //!
-//! La lógica va sobre [`ControlChannel`]: en el agente es el stream de control de
-//! QUIC y en las pruebas puede ser un flujo en memoria.
+//! The logic goes over [`ControlChannel`]: in the agent it is the QUIC control stream
+//! and in tests it can be an in-memory stream.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -30,11 +30,11 @@ use crate::agent::{Agent, IncomingChannel};
 use crate::ipc::Framed;
 use crate::orchestrator::{PEER_LOST, PeerLink, StepFuture};
 
-/// Mensajes de control en los dos sentidos.
+/// Control messages in both directions.
 pub trait ControlChannel: Send + 'static {
     fn send(&mut self, msg: &ControlMsg) -> impl Future<Output = Result<(), String>> + Send;
 
-    /// `None` si el otro lado cerró. Tiene que poder cancelarse sin perder mensajes.
+    /// `None` if the other side closed. It must be cancel-safe without losing messages.
     fn recv(&mut self) -> impl Future<Output = Result<Option<ControlMsg>, String>> + Send;
 }
 
@@ -63,26 +63,26 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> ControlChannel for Fram
 enum Outgoing {
     Step(Step, oneshot::Sender<Result<(), String>>),
     Msg(ControlMsg),
-    /// Avisa cuando todo lo anterior ya salió por el stream ([`PeerClient::flush`]).
+    /// Notifies when everything before it has already gone out over the stream ([`PeerClient::flush`]).
     Flush(oneshot::Sender<()>),
-    /// Como `Msg`, pero cuenta en [`PeerClient::lossy`]: se descarta si el stream se atrasa.
+    /// Like `Msg`, but counted in [`PeerClient::lossy`]: it is discarded if the stream lags.
     Lossy(ControlMsg),
 }
 
-/// Cuántos avisos descartables esperan a la vez en un [`PeerClient`] antes de empezar a
-/// tirar los nuevos. Con 30 muestras por segundo, dos pendientes son unos 70 ms de atraso.
+/// How many discardable notices wait at once in a [`PeerClient`] before it starts
+/// dropping the new ones. At 30 samples per second, two pending are about 70 ms of lag.
 pub const LOSSY_BACKLOG: usize = 2;
 
-/// Pide pasos al otro agente por un stream propio. Al soltarlo se cierra el stream.
+/// Asks the other agent for steps over a stream of its own. Dropping it closes the stream.
 pub struct PeerClient {
     tx: mpsc::UnboundedSender<Outgoing>,
-    /// Avisos descartables en la cola (el cursor en vivo, T-128).
+    /// Discardable notices in the queue (the live cursor, T-128).
     lossy: Arc<AtomicUsize>,
     task: JoinHandle<()>,
 }
 
 impl PeerClient {
-    /// Toma el canal y lo atiende en una tarea propia. Llamar dentro de un runtime de tokio.
+    /// Takes the channel and serves it in a task of its own. Call inside a tokio runtime.
     pub fn spawn<C: ControlChannel>(chan: C) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
         let lossy = Arc::new(AtomicUsize::new(0));
@@ -93,7 +93,7 @@ impl PeerClient {
         }
     }
 
-    /// Abre el stream de pedidos sobre una conexión QUIC ya autenticada.
+    /// Opens the request stream over an already authenticated QUIC connection.
     pub async fn open(conn: &Connection, me: Machine) -> Result<Self, PeerError> {
         let (stream, theirs) = conn.open_control(&Hello::new(Peer::Agent(me))).await?;
         check_peer(me, theirs.peer)?;
@@ -132,8 +132,8 @@ impl PeerLink for PeerClient {
 }
 
 impl PeerClient {
-    /// Espera a que lo mandado hasta ahora haya salido por el stream (no a que el otro lo
-    /// lea): para avisar algo justo antes de cerrar la conexión.
+    /// Waits for what was sent so far to have gone out over the stream (not for the other to
+    /// read it): to notify something right before closing the connection.
     pub async fn flush(&self) {
         let (done, sent) = oneshot::channel();
         if self.tx.send(Outgoing::Flush(done)).is_ok() {
@@ -141,15 +141,15 @@ impl PeerClient {
         }
     }
 
-    /// Manda un aviso sin respuesta (estado, hub, pantallas). Si el stream ya se cerró
-    /// se pierde: quien avisa lo repite al aparecer el enlace siguiente.
+    /// Sends a notice without a reply (state, hub, screens). If the stream already closed
+    /// it is lost: whoever notifies repeats it when the next link appears.
     pub fn send(&self, msg: ControlMsg) {
         let _ = self.tx.send(Outgoing::Msg(msg));
     }
 
-    /// Como [`PeerClient::send`] para lo que se reemplaza solo (las muestras del cursor): si
-    /// ya esperan [`LOSSY_BACKLOG`] avisos así porque el stream se atrasó, este se descarta
-    /// en lugar de acumularse.
+    /// Like [`PeerClient::send`] for what replaces itself (the cursor samples): if
+    /// [`LOSSY_BACKLOG`] such notices already wait because the stream lagged, this one is discarded
+    /// instead of accumulating.
     pub fn send_lossy(&self, msg: ControlMsg) {
         if self.lossy.fetch_add(1, Ordering::AcqRel) >= LOSSY_BACKLOG {
             self.lossy.fetch_sub(1, Ordering::AcqRel);
@@ -166,11 +166,11 @@ async fn client_loop<C: ControlChannel>(
     mut rx: mpsc::UnboundedReceiver<Outgoing>,
     lossy: Arc<AtomicUsize>,
 ) {
-    // Al salir se sueltan las respuestas pendientes: quien espera ve [`PEER_LOST`].
+    // On exit the pending replies are dropped: whoever waits sees [`PEER_LOST`].
     let mut pending: HashMap<u64, oneshot::Sender<Result<(), String>>> = HashMap::new();
     let mut next_id = 0u64;
     loop {
-        // El envío va fuera del `select!`: cortarlo a medias desalinearía el stream.
+        // Sending goes outside the `select!`: cutting it midway would misalign the stream.
         let out = tokio::select! {
             out = rx.recv() => match out {
                 Some(out) => out,
@@ -179,21 +179,21 @@ async fn client_loop<C: ControlChannel>(
             msg = chan.recv() => {
                 match msg {
                     Ok(Some(ControlMsg::StepResult { id, outcome })) => {
-                        // Si quien pidió ya se cansó de esperar, nadie escucha.
+                        // If whoever asked already got tired of waiting, nobody listens.
                         if let Some(reply) = pending.remove(&id) {
                             let _ = reply.send(outcome.into());
                         }
                     }
                     Ok(Some(ControlMsg::Ping { nonce })) => {
                         if let Err(e) = chan.send(&ControlMsg::Pong { nonce }).await {
-                            tracing::debug!("stream de pedidos al otro agente: {e}");
+                            tracing::debug!("request stream to the other agent: {e}");
                             return;
                         }
                     }
                     Ok(Some(_)) => {}
                     Ok(None) => return,
                     Err(e) => {
-                        tracing::debug!("stream de pedidos al otro agente: {e}");
+                        tracing::debug!("request stream to the other agent: {e}");
                         return;
                     }
                 }
@@ -214,23 +214,23 @@ async fn client_loop<C: ControlChannel>(
                 Ok(())
             }
             Outgoing::Lossy(msg) => {
-                // Sale de la cola: el que llegue ahora ya no espera detrás de este.
+                // It leaves the queue: the one arriving now no longer waits behind this one.
                 lossy.fetch_sub(1, Ordering::AcqRel);
                 chan.send(&msg).await
             }
         };
         if let Err(e) = sent {
-            tracing::debug!("stream de pedidos al otro agente: {e}");
+            tracing::debug!("request stream to the other agent: {e}");
             return;
         }
     }
 }
 
-/// Un pedido al otro agente que viaja por el enlace `kind`: falla con [`PEER_LOST`]
-/// en cuanto el gestor de enlaces da ese enlace por caído (DESIGN §6: sin esperar
-/// timeouts largos). La caída se nota en un ping, unos 1,25 s; el tiempo máximo del
-/// paso es de 10 s. Así la transacción deshace (o sigue) enseguida por el enlace
-/// siguiente.
+/// A request to the other agent that travels over link `kind`: fails with [`PEER_LOST`]
+/// as soon as the link manager considers that link down (DESIGN §6: without waiting
+/// for long timeouts). The drop is noticed in a ping, about 1.25 s; the step's
+/// maximum time is 10 s. This way the transaction undoes (or continues) right away over the next
+/// link.
 pub async fn over_link<H, F, T>(
     mut links: watch::Receiver<Snapshot<H>>,
     kind: LinkKind,
@@ -239,23 +239,23 @@ pub async fn over_link<H, F, T>(
 where
     F: Future<Output = Result<T, String>>,
 {
-    // El gestor tarda al menos un ping en volver a dar el enlace por sano, así que
-    // la foto con el enlace caído no se pierde entre dos lecturas.
+    // The manager takes at least a ping to consider the link healthy again, so
+    // the snapshot with the link down is not lost between two reads.
     let lost = links.wait_for(|s| !s.links.iter().any(|l| l.kind == kind && l.rtt.is_some()));
     tokio::select! {
-        // Si la respuesta ya llegó, vale aunque el enlace haya caído después.
+        // If the reply already arrived, it holds even if the link dropped afterwards.
         biased;
         r = request => r,
-        // Si el gestor se cerró tampoco queda enlace.
+        // If the manager closed there is no link either.
         _ = lost => Err(PEER_LOST.to_owned()),
     }
 }
 
-/// Atiende un stream abierto por el otro agente hasta que lo cierre.
+/// Serves a stream opened by the other agent until it closes it.
 ///
-/// Los pasos se ejecutan de a uno y en orden: así el inverso de un paso que venció
-/// en el otro lado nunca corre antes que el paso mismo. Si el inverso llega por otro
-/// stream (cayó el enlace), el turno del orquestador lo hace esperar igual.
+/// Steps run one at a time and in order: this way the inverse of a step that timed out
+/// on the other side never runs before the step itself. If the inverse arrives over another
+/// stream (the link dropped), the orchestrator's turn makes it wait all the same.
 pub async fn serve<C: ControlChannel>(chan: C, agent: Arc<Agent>) -> Result<(), String> {
     serve_from(chan, agent, None).await
 }
@@ -294,11 +294,11 @@ async fn respond<C: ControlChannel>(
             }
             ControlMsg::Ping { nonce } => chan.send(&ControlMsg::Pong { nonce }).await?,
             ControlMsg::GetState => chan.send(&ControlMsg::State(agent.state())).await?,
-            // El estado final de una transacción del otro agente.
+            // The final state of a transaction of the other agent.
             ControlMsg::State(state) => {
                 agent.orchestrator().release_peer_lease();
                 if let Err(e) = agent.set_state(state) {
-                    tracing::warn!("no se pudo guardar el estado que mandó el otro agente: {e}");
+                    tracing::warn!("could not save the state the other agent sent: {e}");
                 }
             }
             ControlMsg::Hub(report) => {
@@ -324,12 +324,12 @@ async fn respond<C: ControlChannel>(
             ControlMsg::Crossed { from, to, edge } => {
                 agent.receive_peer_cursor(CursorEvent::Crossed { from, to, edge });
             }
-            // Solo vale como primer mensaje ([`accept_streams`]).
+            // It only counts as a first message ([`accept_streams`]).
             ControlMsg::Open(channel) => {
-                return Err(format!("canal {channel:?} abierto a mitad de un stream"));
+                return Err(format!("channel {channel:?} opened midway through a stream"));
             }
-            // Las respuestas son del que pide.
-            // Se atiende en `serve_stream`, que tiene la conexión.
+            // Replies belong to the requester.
+            // Served in `serve_stream`, which has the connection.
             ControlMsg::LinkClass { .. } => {}
             ControlMsg::Pong { .. } | ControlMsg::StepResult { .. } => {}
         }
@@ -337,10 +337,10 @@ async fn respond<C: ControlChannel>(
     Ok(())
 }
 
-/// Abre un stream propio de `channel` sobre una conexión con el otro agente
-/// ([`ControlMsg::Open`]); el otro lado lo entrega con [`crate::agent::PeerInbox`].
-/// Cada canal tiene su prioridad ([`StreamClass::of`]): las teclas no esperan detrás de
-/// una imagen del portapapeles.
+/// Opens a stream of its own of `channel` over a connection with the other agent
+/// ([`ControlMsg::Open`]); the other side delivers it with [`crate::agent::PeerInbox`].
+/// Each channel has its priority ([`StreamClass::of`]): keys do not wait behind
+/// a clipboard image.
 pub async fn open_channel(
     conn: &Connection,
     me: Machine,
@@ -353,23 +353,23 @@ pub async fn open_channel(
     Ok(stream)
 }
 
-/// Atiende cada stream que el otro agente abra en `conn`, hasta que la conexión se cierre.
+/// Serves each stream the other agent opens on `conn`, until the connection closes.
 pub async fn accept_streams(conn: Connection, agent: Arc<Agent>) {
     let me = agent.machine();
     let hello = Hello::new(Peer::Agent(me));
     loop {
         let (stream, theirs) = match conn.accept_control(&hello).await {
             Ok(s) => s,
-            // Otra versión (por ejemplo, una anterior sin anuncio de capacidades): no se
-            // le habla, y el log dice por qué y qué hacer.
+            // Another version (for example, an older one without a capabilities announcement): it is not
+            // spoken to, and the log says why and what to do.
             Err(TransportError::Proto(e @ ProtoError::IncompatibleVersion { theirs, .. })) => {
-                tracing::warn!("se rechaza al otro agente: {e}");
+                tracing::warn!("rejecting the other agent: {e}");
                 agent.peer_protocol_mismatch(theirs);
                 return;
             }
             Err(e) => {
-                tracing::debug!("conexión con el otro agente terminada: {e}");
-                // Su clasificación vale por conexión: la siguiente trae la suya.
+                tracing::debug!("connection with the other agent ended: {e}");
+                // Its classification holds per connection: the next one brings its own.
                 conn.qos().clear_peer_link_of(conn.id());
                 return;
             }
@@ -381,14 +381,14 @@ pub async fn accept_streams(conn: Connection, agent: Arc<Agent>) {
         let (agent, conn) = (agent.clone(), conn.clone());
         tokio::spawn(async move {
             if let Err(e) = serve_stream(stream, conn, agent).await {
-                tracing::debug!("stream del otro agente terminado: {e}");
+                tracing::debug!("stream from the other agent ended: {e}");
             }
         });
     }
 }
 
-/// Un stream que abrió el otro agente: el de un canal propio se entrega entero al motor
-/// de entrada; cualquier otro es de pedidos (o de pings) y se atiende aquí.
+/// A stream the other agent opened: one of a channel of its own is delivered whole to the input
+/// engine; any other is for requests (or pings) and is served here.
 async fn serve_stream(
     mut stream: ControlStream,
     conn: Connection,
@@ -399,7 +399,7 @@ async fn serve_stream(
         Ok(None) => return Ok(()),
         Err(e) => return Err(e.to_string()),
     };
-    // El otro lado dice cómo clasifica esta conexión antes que nada (T-094).
+    // The other side says how it classifies this connection before anything else (T-094).
     if let ControlMsg::LinkClass { kind } = first {
         apply_link_class(&conn, kind.into());
         first = match stream.recv::<ControlMsg>().await {
@@ -409,14 +409,14 @@ async fn serve_stream(
         };
     }
     if let ControlMsg::Open(Channel::Tunnel) = first {
-        // Los túneles no van al motor de entrada: los atiende su módulo.
+        // Tunnels do not go to the input engine: their module serves them.
         return crate::tunnels::serve(stream, &conn, &agent).await;
     }
     if first == ControlMsg::Open(Channel::Measure) {
         return answer_measure(stream).await;
     }
     if let ControlMsg::Open(channel) = first {
-        // La prioridad es de quien escribe: lo que este lado mande por el canal también.
+        // The priority belongs to whoever writes: what this side sends over the channel too.
         if let Err(e) = stream.set_class(StreamClass::of(channel)) {
             return Err(e.to_string());
         }
@@ -430,26 +430,26 @@ async fn serve_stream(
     serve_from(stream, agent, Some(first)).await
 }
 
-/// Guarda la clasificación del otro extremo en el `Qos` del camino, que calcula la etiqueta
-/// efectiva (la peor de las dos). Se guarda aparte de la propia, así que se recupera cuando
-/// el otro vuelve a anunciar un cable, y no se pierde si la propia aún no se conoce.
+/// Stores the other end's classification in the path's `Qos`, which computes the effective
+/// label (the worse of the two). It is stored apart from its own, so it recovers when
+/// the other announces a cable again, and is not lost if its own is not yet known.
 fn apply_link_class(conn: &Connection, theirs: LinkKind) {
     let qos = conn.qos();
     let before = qos.link();
     qos.set_peer_link_from(conn.id(), theirs);
     let label = qos.link();
     if label != before {
-        tracing::info!(suya = %theirs, ?label, "el otro extremo ve el enlace peor: etiqueta nueva");
+        tracing::info!(theirs = %theirs, ?label, "the other end sees the link as worse: new label");
     }
 }
 
-/// Lo más que puede tardar una prueba de ancho de banda, de punta a punta: la prueba y
-/// lo que tarde en vaciarse lo que quedó en camino.
+/// The most a bandwidth test can take, end to end: the test and
+/// the time it takes for what was left in flight to drain.
 pub const MEASURE_TIMEOUT: Duration = Duration::from_secs(MEASURE_SECS + 10);
 
-/// Mide el ancho de banda de `conn` hacia el otro agente (T-102): datos sin tope durante
-/// [`MEASURE_SECS`] por un stream de datos; cuenta el otro lado. En bytes por segundo. Se
-/// corta si el `Qos` del camino pausa los datos.
+/// Measures the bandwidth of `conn` toward the other agent (T-102): uncapped data for
+/// [`MEASURE_SECS`] over a data stream; the other side counts. In bytes per second. It is
+/// cut if the path's `Qos` pauses the data.
 pub async fn measure(conn: &Connection, me: Machine) -> Result<u64, String> {
     let run = async {
         let stream = open_channel(conn, me, Channel::Measure)
@@ -461,22 +461,22 @@ pub async fn measure(conn: &Connection, me: Machine) -> Result<u64, String> {
             .map_err(|e| e.to_string())?;
         report
             .bytes_per_sec()
-            .ok_or_else(|| "no llegó nada que medir".to_owned())
+            .ok_or_else(|| "nothing arrived to measure".to_owned())
     };
     tokio::time::timeout(MEASURE_TIMEOUT, run)
         .await
-        .map_err(|_| "la prueba no terminó a tiempo".to_owned())?
+        .map_err(|_| "the test did not finish in time".to_owned())?
 }
 
-/// El otro lado de [`measure`].
+/// The other side of [`measure`].
 async fn answer_measure(stream: ControlStream) -> Result<(), String> {
     match tokio::time::timeout(MEASURE_TIMEOUT, stream.answer_measure()).await {
         Ok(Ok(report)) => {
-            tracing::debug!(?report, "prueba de ancho de banda contestada");
+            tracing::debug!(?report, "bandwidth test answered");
             Ok(())
         }
         Ok(Err(e)) => Err(e.to_string()),
-        Err(_) => Err("la prueba de ancho de banda no terminó a tiempo".to_owned()),
+        Err(_) => Err("the bandwidth test did not finish in time".to_owned()),
     }
 }
 
@@ -484,11 +484,11 @@ async fn answer_measure(stream: ControlStream) -> Result<(), String> {
 pub enum PeerError {
     #[error(transparent)]
     Transport(#[from] TransportError),
-    #[error("se esperaba el agente de {expected}, saludó {got:?}")]
+    #[error("expected the agent of {expected}, it greeted {got:?}")]
     UnexpectedPeer { expected: Machine, got: Peer },
 }
 
-/// El otro lado tiene que ser el agente de la otra máquina.
+/// The other side has to be the other machine's agent.
 fn check_peer(me: Machine, got: Peer) -> Result<(), PeerError> {
     if got == Peer::Agent(me.other()) {
         Ok(())
@@ -528,14 +528,14 @@ mod tests {
         (Arc::new(a), steps)
     }
 
-    /// La Mac pide pasos a la PC por un flujo en memoria.
+    /// The Mac asks the PC for steps over an in-memory stream.
     fn link(mac: &Arc<Agent>, pc: &Arc<Agent>) -> JoinHandle<Result<(), String>> {
         let (a, b) = duplex(64 * 1024);
         mac.set_peer(Arc::new(PeerClient::spawn(Framed::new(a))));
         tokio::spawn(serve(Framed::new(b), pc.clone()))
     }
 
-    /// Un paso que le toca a la PC.
+    /// A step that falls to the PC.
     fn pc_off() -> Step {
         Step::PowerOff {
             machine: Machine::B,
@@ -559,7 +559,7 @@ mod tests {
         let (mac, _) = agent(dir.path(), Machine::A, FakeSteps::default());
         let (pc, _) = agent(dir.path(), Machine::B, FakeSteps::default());
         let _serve = link(&mac, &pc);
-        // El de la Mac: ella prendida (la PC ya lo estaba para sí misma).
+        // The Mac's: it is on (the PC already was for itself).
         let mut s = pc.state();
         s.on.a = true;
         let mut rx = pc.subscribe();
@@ -573,7 +573,7 @@ mod tests {
         let (mac, _) = agent(dir.path(), Machine::A, FakeSteps::default());
         let (a, b) = duplex(1024);
         mac.set_peer(Arc::new(PeerClient::spawn(Framed::new(a))));
-        // El otro lado lee el pedido y cierra sin contestar.
+        // The other side reads the request and closes without answering.
         tokio::spawn(async move {
             let mut f = Framed::new(b);
             let _ = f.recv::<ControlMsg>().await;
@@ -594,7 +594,7 @@ mod tests {
         assert_eq!(f.recv().await.unwrap(), Some(ControlMsg::Pong { nonce: 5 }));
         f.send(&ControlMsg::GetState).await.unwrap();
         assert_eq!(f.recv().await.unwrap(), Some(ControlMsg::State(pc.state())));
-        // Un paso que no le toca a la PC se rechaza sin ejecutarse.
+        // A step that does not fall to the PC is rejected without being executed.
         f.send(&ControlMsg::ExecuteStep {
             id: 1,
             step: Step::PowerOn {
@@ -640,7 +640,7 @@ mod tests {
         scr.wait_for(|s| s.as_ref() == Some(&screens))
             .await
             .unwrap();
-        // Abrir un canal a mitad del stream de pedidos lo corta.
+        // Opening a channel midway through the request stream cuts it.
         client.send(ControlMsg::Open(Channel::Input));
         assert!(task.await.unwrap().is_err());
     }
@@ -652,8 +652,8 @@ mod tests {
         assert!(check_peer(Machine::B, Peer::Ui).is_err());
     }
 
-    /// El apagado remoto se cuelga en la PC: la Mac lo da por hecho a los 10 s (lo más
-    /// probable es que se esté apagando).
+    /// The remote shutdown hangs on the PC: the Mac takes it as done after 10 s (most
+    /// likely it is shutting down).
     #[tokio::test(start_paused = true)]
     async fn a_remote_power_off_that_hangs_is_taken_as_done() {
         let dir = tempfile::tempdir().unwrap();
@@ -677,8 +677,8 @@ mod tests {
         assert_eq!(pc_steps.steps(), [pc_off()]);
     }
 
-    /// QA ronda 2: mientras la PC hace pasos para la Mac no puede empezar un cambio
-    /// propio; el estado final de la Mac la libera.
+    /// QA round 2: while the PC does steps for the Mac it cannot start a change
+    /// of its own; the Mac's final state frees it.
     #[tokio::test]
     async fn the_peers_final_state_ends_the_loan() {
         let dir = tempfile::tempdir().unwrap();
@@ -702,7 +702,7 @@ mod tests {
         assert_eq!(pc_steps.steps(), [pc_off()]);
         assert_eq!(pc.orchestrator().try_begin(), None);
 
-        // El estado final de la Mac: ella prendida (la PC ya lo estaba para sí misma).
+        // The Mac's final state: it is on (the PC already was for itself).
         let mut s = pc.state();
         assert!(s.is_on(Machine::B) && !s.is_on(Machine::A));
         s.on.a = true;
@@ -727,7 +727,7 @@ mod tests {
         }
     }
 
-    /// T-064: el pedido no espera su tiempo máximo si el gestor da su enlace por caído.
+    /// T-064: the request does not wait for its maximum time if the manager considers its link down.
     #[tokio::test(start_paused = true)]
     async fn request_fails_when_its_link_goes_down() {
         let (tx, rx) = watch::channel(snapshot(&[LinkKind::Usb4, LinkKind::Ethernet]));
@@ -739,7 +739,7 @@ mod tests {
         );
         let cut = async {
             tokio::time::sleep(Duration::from_millis(1250)).await;
-            // Caer otro enlace no afecta al pedido.
+            // Another link dropping does not affect the request.
             tx.send_replace(snapshot(&[LinkKind::Usb4]));
             tokio::time::sleep(Duration::from_millis(100)).await;
             tx.send_replace(snapshot(&[LinkKind::Ethernet]));
@@ -762,12 +762,12 @@ mod tests {
         );
         assert_eq!(
             over_link(rx, LinkKind::Usb4, async {
-                Err::<(), _>("falla".to_owned())
+                Err::<(), _>("fails".to_owned())
             })
             .await,
-            Err("falla".to_owned())
+            Err("fails".to_owned())
         );
-        // Con el enlace ya caído no hay a quién pedirle nada.
+        // With the link already down there is nobody to ask anything of.
         tx.send_replace(snapshot(&[]));
         assert_eq!(
             over_link(
@@ -780,7 +780,7 @@ mod tests {
         );
     }
 
-    /// Si el gestor se cierra, el pedido tampoco queda esperando.
+    /// If the manager closes, the request is not left waiting either.
     #[tokio::test(start_paused = true)]
     async fn request_fails_when_the_manager_closes() {
         let (tx, rx) = watch::channel(snapshot(&[LinkKind::Usb4]));
@@ -796,7 +796,7 @@ mod tests {
         );
     }
 
-    /// Un canal que se traba hasta que se lo suelta y anota lo que logra mandar.
+    /// A channel that stalls until released and records what it manages to send.
     struct Stalled {
         open: Arc<tokio::sync::Semaphore>,
         sent: Arc<std::sync::Mutex<Vec<ControlMsg>>>,
@@ -814,8 +814,8 @@ mod tests {
         }
     }
 
-    /// El cursor en vivo (T-128) no se acumula si el stream se atrasa: se descartan los
-    /// nuevos y lo importante (un cruce) sigue por el camino de siempre.
+    /// The live cursor (T-128) does not accumulate if the stream lags: the new ones are discarded
+    /// and what matters (a crossing) continues over the usual path.
     #[tokio::test]
     async fn lossy_messages_are_dropped_while_the_stream_is_backed_up() {
         let open = Arc::new(tokio::sync::Semaphore::new(0));
@@ -832,7 +832,7 @@ mod tests {
                 y: 0,
             })
         };
-        // El primero se lo lleva la tarea (queda trabado enviando); los siguientes esperan.
+        // The first is taken by the task (it stays stuck sending); the next ones wait.
         client.send_lossy(sample(0));
         tokio::time::sleep(Duration::from_millis(50)).await;
         for x in 1..=20 {
@@ -849,13 +849,13 @@ mod tests {
         .unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
         let got = sent.lock().unwrap().clone();
-        // La que estaba en vuelo, las dos que cupieron en la cola y el aviso normal.
+        // The one in flight, the two that fit in the queue and the normal notice.
         assert_eq!(
             got,
             vec![sample(0), sample(1), sample(2), ControlMsg::Rescan],
             "{got:?}"
         );
-        // Ya vacía la cola, vuelve a aceptar.
+        // With the queue empty again, it accepts again.
         client.send_lossy(sample(99));
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(sent.lock().unwrap().last(), Some(&sample(99)));

@@ -1,5 +1,5 @@
-//! Línea de órdenes de `tandem`: `tandem [--json] [--data-dir D] <herramienta> [--param valor]…`.
-//! Los subcomandos y banderas salen de la tabla de [`crate::spec`], no se repiten aquí.
+//! Command line of `tandem`: `tandem [--json] [--data-dir D] <tool> [--param value]...`.
+//! The subcommands and flags come from the [`crate::spec`] table, they are not repeated here.
 
 use std::path::PathBuf;
 
@@ -11,7 +11,7 @@ use crate::spec::{self, Ty};
 pub enum Command {
     Help,
     Version,
-    /// `tandem mcp`: servidor MCP por stdio.
+    /// `tandem mcp`: MCP server over stdio.
     Mcp,
     Tool {
         name: &'static str,
@@ -22,36 +22,36 @@ pub enum Command {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Parsed {
     pub command: Command,
-    /// Salida JSON estable en vez de texto legible.
+    /// Stable JSON output instead of readable text.
     pub json: bool,
     pub data_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CliError {
-    #[error("falta la herramienta; mira `tandem --help`")]
+    #[error("missing tool; see `tandem --help`")]
     NoCommand,
-    #[error("herramienta desconocida: `{0}`; mira `tandem --help`")]
+    #[error("unknown tool: `{0}`; see `tandem --help`")]
     UnknownTool(String),
-    #[error("`{tool}` no tiene la opción `{flag}`")]
+    #[error("`{tool}` does not have the option `{flag}`")]
     UnknownFlag { tool: &'static str, flag: String },
-    #[error("falta el valor de `--{0}`")]
+    #[error("missing value for `--{0}`")]
     MissingValue(String),
-    #[error("`--{0}` espera un número")]
+    #[error("`--{0}` expects a number")]
     NotANumber(String),
-    #[error("`--{0}` espera true o false")]
+    #[error("`--{0}` expects true or false")]
     NotABool(String),
-    #[error("`--{0}` aparece dos veces")]
+    #[error("`--{0}` appears twice")]
     Repeated(String),
-    #[error("sobra el argumento `{0}`")]
+    #[error("unexpected argument `{0}`")]
     Extra(String),
 }
 
 pub fn usage() -> String {
     let mut s = String::from(
-        "Uso: tandem [--json] [--data-dir <dir>] <herramienta> [--parámetro valor]…\n\
+        "Usage: tandem [--json] [--data-dir <dir>] <tool> [--parameter value]...\n\
          \n\
-         Herramientas (las mismas que expone `tandem mcp`):\n",
+         Tools (the same ones `tandem mcp` exposes):\n",
     );
     for t in spec::TOOLS {
         let es = t.desc.split(" / ").next().unwrap_or(t.desc);
@@ -61,10 +61,10 @@ pub fn usage() -> String {
             let value = match p.ty {
                 Ty::Bool => String::new(),
                 Ty::Int => " <n>".into(),
-                Ty::Str => " <texto>".into(),
-                Ty::List => " <texto>…".into(),
+                Ty::Str => " <text>".into(),
+                Ty::List => " <text>...".into(),
             };
-            let req = if p.required { " (obligatorio)" } else { "" };
+            let req = if p.required { " (required)" } else { "" };
             s.push_str(&format!("      --{name}{value}{req}\n"));
         }
     }
@@ -161,7 +161,7 @@ pub fn parse(args: impl IntoIterator<Item = String>) -> Result<Parsed, CliError>
                 }
             }
         };
-        // Las listas ya traen todos sus elementos; lo demás no se puede repetir.
+        // The lists already bring all their elements; the rest cannot be repeated.
         if out.insert(key, v).is_some() && param.ty != Ty::List {
             return Err(CliError::Repeated(name.into()));
         }
@@ -183,11 +183,11 @@ mod tests {
     }
 
     #[test]
-    fn la_herramienta_y_sus_banderas_salen_de_la_tabla() {
+    fn tool_and_flags_come_from_the_table() {
         let r = p(&[
             "--json", "exec", "--tunnel", "ab", "--cmd", "cargo", "--arg", "x",
         ]);
-        // `--arg` no existe: es `--args`.
+        // `--arg` does not exist: it is `--args`.
         assert!(matches!(r, Err(CliError::UnknownFlag { .. })));
         let r = p(&[
             "exec",
@@ -214,7 +214,7 @@ mod tests {
     }
 
     #[test]
-    fn guiones_y_guiones_bajos_valen_igual() {
+    fn hyphens_and_underscores_are_equivalent() {
         let r = p(&["tunnel-open", "--project-root", "/x", "--workspace"]).unwrap();
         assert_eq!(
             r.command,
@@ -232,7 +232,10 @@ mod tests {
     #[test]
     fn errores_claros() {
         assert_eq!(p(&[]), Err(CliError::NoCommand));
-        assert_eq!(p(&["nada"]), Err(CliError::UnknownTool("nada".into())));
+        assert_eq!(
+            p(&["nothing"]),
+            Err(CliError::UnknownTool("nothing".into()))
+        );
         assert_eq!(
             p(&["kill", "--process", "x"]),
             Err(CliError::NotANumber("process".into()))
@@ -250,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn mcp_ayuda_y_data_dir() {
+    fn mcp_help_and_data_dir() {
         let r = p(&["--data-dir", "/d", "mcp"]).unwrap();
         assert_eq!(r.command, Command::Mcp);
         assert_eq!(r.data_dir, Some(PathBuf::from("/d")));
@@ -259,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    fn la_ayuda_lista_todas_las_herramientas() {
+    fn help_lists_all_tools() {
         let u = usage();
         for t in spec::TOOLS {
             assert!(u.contains(&t.name.replace('_', "-")), "{}", t.name);

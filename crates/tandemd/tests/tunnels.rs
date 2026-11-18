@@ -1,7 +1,7 @@
-//! Túneles entre dos agentes reales por QUIC en loopback (T-103): un cliente abre el túnel
-//! por la IPC de A, la salida que produce B llega a A, el camino se corta a mitad del flujo,
-//! la salida sigue por otro camino (otra conexión) completa y en orden, y cerrar desde A
-//! suelta los recursos en B.
+//! Tunnels between two real agents over QUIC on loopback (T-103): a client opens the tunnel
+//! through A's IPC, the output B produces reaches A, the path is cut midway through the stream,
+//! the output continues over another path (another connection) complete and in order, and closing from A
+//! releases the resources on B.
 
 use std::collections::BTreeSet;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -27,7 +27,7 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
 struct Keys(BTreeSet<PublicKey>);
@@ -44,7 +44,7 @@ fn agent(dir: &std::path::Path, machine: Machine) -> Arc<Agent> {
     Arc::new(Agent::new(cfg, store))
 }
 
-/// Una conexión más de A hacia B (un camino), atendida por B como las del agente real.
+/// One more connection from A to B (a path), served by B like the real agent's.
 async fn path(a: &Endpoint, b: &Endpoint, pc: &Arc<Agent>) -> Connection {
     let (to_b, to_a) =
         within(async { tokio::join!(a.connect(b.local_addr().unwrap()), b.accept()) }).await;
@@ -52,7 +52,7 @@ async fn path(a: &Endpoint, b: &Endpoint, pc: &Arc<Agent>) -> Connection {
     to_b.unwrap()
 }
 
-/// Un cliente (o la UI) conectado a la IPC en memoria de `agent`.
+/// A client (or the UI) connected to `agent`'s in-memory IPC.
 async fn ipc(
     agent: &Arc<Agent>,
     peer: Peer,
@@ -94,7 +94,7 @@ async fn until(mut done: impl FnMut() -> bool) {
     .await;
 }
 
-/// El siguiente aviso de túneles que le llega a la UI.
+/// The next tunnels notice that reaches the UI.
 async fn next_tunnels(ui: &mut IpcClient<DuplexStream>) -> Vec<Tunnel> {
     within(async {
         loop {
@@ -111,7 +111,7 @@ async fn next_tunnels(ui: &mut IpcClient<DuplexStream>) -> Vec<Tunnel> {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn la_salida_sobrevive_al_corte_del_camino_y_cerrar_suelta_los_recursos() {
+async fn the_output_survives_the_path_cut_and_closing_releases_the_resources() {
     let dir = tempfile::tempdir().unwrap();
     let mac = agent(dir.path(), Machine::A);
     let pc = agent(dir.path(), Machine::B);
@@ -121,7 +121,7 @@ async fn la_salida_sobrevive_al_corte_del_camino_y_cerrar_suelta_los_recursos() 
     let mac_ep = Endpoint::bind(loopback, &mac_id, trust(&pc_id)).unwrap();
     let pc_ep = Endpoint::bind(loopback, &pc_id, trust(&mac_id)).unwrap();
 
-    // Dos caminos: el primero se corta a mitad de la salida.
+    // Two paths: the first is cut midway through the output.
     let first = path(&mac_ep, &pc_ep, &pc).await;
     let second = path(&mac_ep, &pc_ep, &pc).await;
     let origin = &mac.tunnels().origin;
@@ -131,7 +131,7 @@ async fn la_salida_sobrevive_al_corte_del_camino_y_cerrar_suelta_los_recursos() 
     let mut claude = ipc(&mac, Peer::Client(ClientKind::Mcp), &mut stops).await;
     let mut ui = ipc(&mac, Peer::Ui, &mut stops).await;
 
-    // La UI solo mira.
+    // The UI only watches.
     let open = UiCommand::OpenTunnel {
         title: String::new(),
         project: Some(Project {
@@ -148,14 +148,14 @@ async fn la_salida_sobrevive_al_corte_del_camino_y_cerrar_suelta_los_recursos() 
     );
 
     let Reply::Tunnel { tunnel: t, .. } = within(claude.request(open)).await.unwrap() else {
-        panic!("se esperaba el túnel abierto");
+        panic!("the open tunnel was expected");
     };
-    assert_eq!(t.title, "tandem", "sin título, el del proyecto");
+    assert_eq!(t.title, "tandem", "without a title, the project's");
     assert_eq!((t.origin, t.target), (Machine::A, Machine::B));
     assert_eq!(next_tunnels(&mut ui).await, [(*t).clone()]);
 
-    // B produce la salida; A la recibe.
-    let ht = pc.tunnels().host.get(t.id).expect("B hospeda el túnel");
+    // B produces the output; A receives it.
+    let ht = pc.tunnels().host.get(t.id).expect("B hosts the tunnel");
     let closed = Arc::new(AtomicBool::new(false));
     ht.add_resource(Box::new(Flag(closed.clone()))).unwrap();
     let w = ht.add_flow("cargo test · stdout").unwrap();
@@ -164,8 +164,8 @@ async fn la_salida_sobrevive_al_corte_del_camino_y_cerrar_suelta_los_recursos() 
     w.write(&data[..half]);
     until(|| received(&mac, t.id) > 0).await;
 
-    // Se corta el camino a mitad del flujo, B sigue escribiendo y el enlace pasa al otro.
-    first.close("cable desenchufado");
+    // The path is cut midway through the stream, B keeps writing and the link moves to the other.
+    first.close("cable unplugged");
     w.write(&data[half..]);
     w.finish();
     origin.set_link(Some(Arc::new(QuicDialer::new(second.clone(), Machine::A))));
@@ -188,7 +188,7 @@ async fn la_salida_sobrevive_al_corte_del_camino_y_cerrar_suelta_los_recursos() 
         })
     );
 
-    // La UI tampoco puede cerrarlo (D9): el túnel y su recurso siguen abiertos.
+    // The UI cannot close it either (D9): the tunnel and its resource stay open.
     assert_eq!(
         within(ui.request(UiCommand::CloseTunnel { id: t.id }))
             .await
@@ -198,7 +198,7 @@ async fn la_salida_sobrevive_al_corte_del_camino_y_cerrar_suelta_los_recursos() 
     assert!(!closed.load(Ordering::SeqCst));
     assert!(ht.is_open());
 
-    // Cerrar desde el origen suelta los recursos en la destino.
+    // Closing from the source releases the resources on the destination.
     assert_eq!(
         within(claude.request(UiCommand::CloseTunnel { id: t.id }))
             .await
@@ -207,7 +207,7 @@ async fn la_salida_sobrevive_al_corte_del_camino_y_cerrar_suelta_los_recursos() 
     );
     assert!(
         closed.load(Ordering::SeqCst),
-        "el recurso de B sigue abierto"
+        "B's resource is still open"
     );
     until(|| origin.tunnels()[0].state == TunnelState::Closed).await;
     assert_eq!(

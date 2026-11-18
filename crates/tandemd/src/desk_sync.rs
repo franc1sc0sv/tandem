@@ -1,22 +1,22 @@
-//! El puesto compartido entre las dos máquinas (T-084, T-099).
+//! The desk shared between the two machines (T-084, T-099).
 //!
-//! El puesto ([`tandem_core::Desk`]: máquinas, acomodo, escenas, atajos, preferencias y
-//! módulos) es de las dos, no de una máquina: un cambio hecho en cualquiera vale para las
-//! dos. Cada agente guarda su copia en `tandem.toml` con su sello (`desk_rev`, `desk_at`,
-//! `desk_origin`) y se la manda al otro al conectarse y con cada cambio
-//! ([`tandem_proto::ControlMsg::Desk`]). Gana el último ([`tandem_core::DeskVersion`]).
+//! The desk ([`tandem_core::Desk`]: machines, arrangement, scenes, shortcuts, preferences and
+//! modules) belongs to both, not to one machine: a change made on either holds for
+//! both. Each agent keeps its copy in `tandem.toml` with its stamp (`desk_rev`, `desk_at`,
+//! `desk_origin`) and sends it to the other on connecting and with each change
+//! ([`tandem_proto::ControlMsg::Desk`]). The last one wins ([`tandem_core::DeskVersion`]).
 //!
-//! Un `tandem.toml` editado a mano no coincide con la huella que escribió el agente
-//! ([`fingerprint`]): al arrancar cuenta como un cambio de esta máquina.
+//! A hand-edited `tandem.toml` does not match the fingerprint the agent wrote
+//! ([`fingerprint`]): on start it counts as a change by this machine.
 //!
-//! Lo solo-local (máquina, identidad, red, puertos, rutas, energía) nunca viaja.
+//! What is local-only (machine, identity, network, ports, paths, power) never travels.
 
 use tandem_core::Desk;
 
-/// Huella estable del puesto (FNV-1a de 64 bits sobre su JSON), en hexadecimal: no depende
-/// de la versión de Rust ni de la del agente, así que no cambia sola entre arranques.
+/// Stable fingerprint of the desk (64-bit FNV-1a over its JSON), in hexadecimal: it does not depend
+/// on the Rust version or the agent's, so it does not change on its own between starts.
 pub fn fingerprint(desk: &Desk) -> String {
-    // Serializar estos tipos a JSON no falla: los mapas tienen claves de texto.
+    // Serializing these types to JSON does not fail: the maps have text keys.
     let json = serde_json::to_vec(desk).unwrap_or_default();
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for b in json {
@@ -26,9 +26,9 @@ pub fn fingerprint(desk: &Desk) -> String {
     format!("{h:016x}")
 }
 
-/// Si el puesto de `tandem.toml` lo cambió alguien a mano desde que el agente lo escribió.
-/// Sin huella (un archivo generado o de una versión anterior), solo si no es el de
-/// fábrica.
+/// Whether the `tandem.toml` desk was changed by hand since the agent wrote it.
+/// Without a fingerprint (a generated file or one from an earlier version), only if it is not the
+/// factory one.
 pub fn edited_by_hand(desk: &Desk, sum: Option<&str>) -> bool {
     match sum {
         Some(sum) => fingerprint(desk) != sum,
@@ -70,13 +70,13 @@ mod tests {
         let mut lock = d.clone();
         lock.shortcuts.lock.clear();
         assert!(edited_by_hand(&lock, Some(&sum)));
-        // Sin huella: lo de fábrica no es una edición; cualquier otra cosa, sí.
+        // Without a fingerprint: the factory one is not an edit; anything else is.
         assert!(!edited_by_hand(&Desk::default(), None));
         assert!(edited_by_hand(&d, None));
         let mut prefs = Desk::default();
         prefs.prefs.drag_files = false;
         assert!(edited_by_hand(&prefs, None));
-        // La huella es estable: la misma entrada da lo mismo.
+        // The fingerprint is stable: the same input gives the same.
         assert_eq!(fingerprint(&d), sum);
     }
 }

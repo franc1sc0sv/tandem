@@ -1,9 +1,9 @@
-//! Arrastrar archivos entre las máquinas por el canal de control (D14, T-121).
+//! File drag between the machines over the control channel (D14, T-121).
 //!
-//! La lógica del flujo vive en `tandem_files::drag`; aquí se la conecta al enlace:
-//! - origen: [`ControlDragPeer`] implementa `DragPeer` con los [`DragMsg`] de control y
-//!   [`run_origin`] corre `DragOut`, publicando el avance para la UI;
-//! - destino: [`serve`] atiende `Begin`/`Ready`/`Cancel` con un `DragIn`.
+//! The flow's logic lives in `tandem_files::drag`; here it is connected to the link:
+//! - source: [`ControlDragPeer`] implements `DragPeer` with the control [`DragMsg`]s and
+//!   [`run_origin`] runs `DragOut`, publishing progress for the UI;
+//! - destination: [`serve`] handles `Begin`/`Ready`/`Cancel` with a `DragIn`.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,16 +22,16 @@ use crate::agent::Agent;
 
 type Result<T> = std::result::Result<T, FilesError>;
 
-/// Avisos del arrastre que se guardan para una UI lenta.
+/// Drag notices kept for a slow UI.
 const STATUS_BUFFER: usize = 16;
 
-/// Reparte los mensajes de arrastre que llegan del otro agente y el avance para la UI.
+/// Distributes the drag messages that arrive from the other agent and the progress for the UI.
 #[derive(Debug)]
 pub struct DragHub {
     status: broadcast::Sender<DragStatus>,
-    /// Pedidos del origen, para quien atiende de destino ([`serve`]).
+    /// Requests from the source, for whoever serves as destination ([`serve`]).
     requests: Mutex<Option<mpsc::UnboundedSender<DragMsg>>>,
-    /// Respuestas del destino, para el arrastre de origen en curso.
+    /// Replies from the destination, for the source drag in progress.
     replies: Mutex<Option<mpsc::UnboundedSender<DragMsg>>>,
     next_id: AtomicU64,
 }
@@ -48,17 +48,17 @@ impl Default for DragHub {
 }
 
 impl DragHub {
-    /// Avance del arrastre, para la UI.
+    /// Drag progress, for the UI.
     pub fn subscribe(&self) -> broadcast::Receiver<DragStatus> {
         self.status.subscribe()
     }
 
     pub fn publish(&self, status: DragStatus) {
-        // Sin UI mirando no pasa nada.
+        // With no UI watching nothing happens.
         let _ = self.status.send(status);
     }
 
-    /// Entrega un mensaje del otro agente a quien lo espera; sin nadie, se descarta.
+    /// Delivers a message from the other agent to whoever waits for it; with nobody, it is discarded.
     pub fn deliver(&self, msg: DragMsg) {
         let slot = match msg {
             DragMsg::Begin { .. } | DragMsg::Ready { .. } | DragMsg::Cancel { .. } => {
@@ -70,12 +70,12 @@ impl DragHub {
         if let Some(tx) = tx.as_ref()
             && tx.send(msg).is_err()
         {
-            tracing::debug!("mensaje de arrastre sin quien lo atienda");
+            tracing::debug!("drag message with nobody to handle it");
         }
     }
 }
 
-/// `DragPeer` por el canal de control: cada paso es un mensaje y su respuesta.
+/// `DragPeer` over the control channel: each step is a message and its reply.
 pub struct ControlDragPeer<'a> {
     agent: &'a Agent,
     id: u64,
@@ -83,7 +83,7 @@ pub struct ControlDragPeer<'a> {
 }
 
 impl<'a> ControlDragPeer<'a> {
-    /// Un arrastre nuevo; reemplaza al anterior como destino de las respuestas.
+    /// A new drag; it replaces the previous one as the destination of replies.
     pub fn new(agent: &'a Agent) -> Self {
         let hub = agent.drag();
         let (tx, rx) = mpsc::unbounded_channel();
@@ -99,7 +99,7 @@ impl<'a> ControlDragPeer<'a> {
         self.agent.orchestrator().peer().send(ControlMsg::Drag(msg));
     }
 
-    /// La próxima respuesta de este arrastre (las de otros se ignoran).
+    /// The next reply of this drag (those of others are ignored).
     async fn reply(&self) -> Result<DragMsg> {
         let mut rx = self.replies.lock().await;
         loop {
@@ -153,8 +153,8 @@ fn to_outcome(e: DragEnd) -> DragOutcome {
     }
 }
 
-/// Corre el arrastre desde este lado (origen): copia `files` al destino y espera cómo
-/// termina allí. El avance y el final van a la UI con [`DragHub::publish`].
+/// Runs the drag from this side (source): copies `files` to the destination and waits for how
+/// it ends there. Progress and the end go to the UI with [`DragHub::publish`].
 pub async fn run_origin<D: DragDetector, U: Upload>(
     agent: &Agent,
     detector: D,
@@ -189,15 +189,15 @@ pub async fn run_origin<D: DragDetector, U: Upload>(
     end
 }
 
-/// Atiende los pedidos del origen (destino): prepara la carpeta, inicia el arrastre
-/// sintético y devuelve cómo terminó. Corre hasta que se descarta el agente; se lanza
-/// con `tokio::spawn` y el `DragStarter` de la plataforma.
+/// Handles the source's requests (destination): prepares the folder, starts the synthetic
+/// drag and returns how it ended. It runs until the agent is dropped; it is launched
+/// with `tokio::spawn` and the platform's `DragStarter`.
 pub async fn serve<S: DragStarter>(agent: &Agent, drag: DragIn<S>) {
     let hub = agent.drag();
     let (tx, mut rx) = mpsc::unbounded_channel();
     *hub.requests.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
     let send = |msg| agent.orchestrator().peer().send(ControlMsg::Drag(msg));
-    // El arrastre en curso: un `Ready` o `Cancel` de otro id es de uno viejo.
+    // The drag in progress: a `Ready` or `Cancel` of another id belongs to an old one.
     let mut current: Option<u64> = None;
     while let Some(msg) = rx.recv().await {
         match msg {
@@ -222,25 +222,25 @@ pub async fn serve<S: DragStarter>(agent: &Agent, drag: DragIn<S>) {
                 current = None;
                 drag.cancel();
             }
-            _ => tracing::debug!("mensaje de arrastre de uno que ya terminó"),
+            _ => tracing::debug!("drag message from one that already ended"),
         }
     }
 }
 
-/// Lo que el motor de entrada necesita del sistema para los arrastres de archivos de
-/// origen (T-121): detectar el arrastre, saber dónde está el borde y subir los archivos.
-/// Es un trait de objeto para que el motor lo reciba en [`crate::input::InputSetup`]; las
-/// pruebas lo dan con un doble.
+/// What the input engine needs from the system for source file drags
+/// (T-121): detecting the drag, knowing where the edge is and uploading the files.
+/// It is an object trait so the engine receives it in [`crate::input::InputSetup`]; tests
+/// give it with a double.
 pub trait FileDragBackend: Send + Sync {
-    /// Las rutas que se están arrastrando, o `None` si no hay un arrastre de archivos.
+    /// The paths being dragged, or `None` if there is no file drag.
     fn file_drag(&self) -> Option<Vec<PathBuf>>;
 
-    /// Dónde está el borde de cruce (la franja del detector); `None` si no se puede cruzar.
-    /// Los detectores que no necesitan ventana (macOS lee el portapapeles de arrastre) lo
-    /// ignoran.
+    /// Where the crossing edge is (the detector's strip); `None` if it cannot be crossed.
+    /// Detectors that do not need a window (macOS reads the drag pasteboard) leave it
+    /// ignore it.
     fn set_edge(&self, _edge: Option<(PxRect, StripEdge)>) {}
 
-    /// Copia `local` a `remote` en la otra máquina.
+    /// Copies `local` to `remote` on the other machine.
     fn upload<'a>(
         &'a self,
         agent: &'a Agent,
@@ -248,14 +248,14 @@ pub trait FileDragBackend: Send + Sync {
         remote: &'a str,
     ) -> BoxFuture<'a, Result<()>>;
 
-    /// El arrastre terminó (soltado, cancelado o con error): libera lo que abrió `upload`.
+    /// The drag ended (dropped, canceled or with an error): releases what `upload` opened.
     fn finish<'a>(&'a self, _agent: &'a Agent) -> BoxFuture<'a, ()> {
         Box::pin(async {})
     }
 }
 
-/// Sube archivos por un túnel que el propio agente abre al primer archivo y cierra al
-/// terminar el arrastre.
+/// Uploads files through a tunnel the agent itself opens at the first file and closes at
+/// the end of the drag.
 #[derive(Debug, Default)]
 pub struct TunnelUploader {
     tunnel: AsyncMutex<Option<TunnelId>>,
@@ -269,13 +269,13 @@ impl TunnelUploader {
                 Some(id) => id,
                 None => {
                     let spec = OpenSpec {
-                        title: "Arrastre de archivos".into(),
+                        title: "File drag".into(),
                         project: None,
                         origin: agent.machine(),
                         target: agent.machine().other(),
                         opened_by: Client {
                             kind: ClientKind::Cli,
-                            session: "arrastre".into(),
+                            session: "drag".into(),
                         },
                     };
                     let t = agent
@@ -301,15 +301,15 @@ impl TunnelUploader {
         if let Some(id) = self.tunnel.lock().await.take()
             && let Err(e) = agent.tunnels().origin.close(id).await
         {
-            tracing::debug!("no se pudo cerrar el túnel del arrastre: {e}");
+            tracing::debug!("could not close the drag tunnel: {e}");
         }
     }
 }
 
-/// Cómo mover la franja del detector.
+/// How to move the detector's strip.
 type EdgeFn = Box<dyn Fn(Option<(PxRect, StripEdge)>) + Send + Sync>;
 
-/// [`FileDragBackend`] con un [`DragDetector`] del sistema y el túnel del agente.
+/// [`FileDragBackend`] with a system [`DragDetector`] and the agent's tunnel.
 pub struct SystemFileDrag<D> {
     detector: D,
     uploads: TunnelUploader,
@@ -325,7 +325,7 @@ impl<D: DragDetector + Send + Sync> SystemFileDrag<D> {
         }
     }
 
-    /// Cómo mover la franja del detector cuando cambia el borde de cruce.
+    /// How to move the detector's strip when the crossing edge changes.
     pub fn with_edge(
         mut self,
         f: impl Fn(Option<(PxRect, StripEdge)>) + Send + Sync + 'static,

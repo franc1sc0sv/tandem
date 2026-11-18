@@ -1,15 +1,15 @@
-//! Backends simulados para correr el binario sin hardware (`--sim-backends`).
+//! Simulated backends to run the binary without hardware (`--sim-backends`).
 //!
-//! Solo existen con la feature `sim-backends`: las pruebas de punta a punta lanzan dos
-//! `tandemd` reales y necesitan que los pasos de cada máquina «funcionen» sin Wake-on-LAN
-//! y sin apagar nada. Cada proceso es opaco para la prueba, así que los
-//! pasos dejan rastro en el directorio de datos y se pueden frenar desde afuera:
+//! They only exist with the `sim-backends` feature: the end-to-end tests launch two real
+//! `tandemd`s and need each machine's steps to "work" without Wake-on-LAN
+//! and without turning anything off. Each process is opaque to the test, so the
+//! steps leave a trace in the data directory and can be held back from outside:
 //!
-//! - [`STEPS_FILE`]: cada paso que empieza, una línea JSON (el [`Step`] serializado).
-//! - [`HOLD_FILE`]: mientras exista, los pasos que empiezan quedan esperando (ya
-//!   anotados). Sirve para matar un proceso con un paso a medias.
+//! - [`STEPS_FILE`]: each step that starts, a JSON line (the serialized [`Step`]).
+//! - [`HOLD_FILE`]: while it exists, the steps that start are left waiting (already
+//!   recorded). Useful to kill a process with a step midway.
 //!
-//! Sin motor de entrada: el teclado y el mouse compartidos no se simulan aquí.
+//! Without an input engine: the shared keyboard and mouse are not simulated here.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -21,14 +21,14 @@ use tandem_core::Step;
 use crate::daemon::Backends;
 use crate::orchestrator::{LocalSteps, StepFuture, describe};
 
-/// Los pasos que empezaron, uno por línea en JSON, en el directorio de datos.
+/// The steps that started, one per line in JSON, in the data directory.
 pub const STEPS_FILE: &str = "sim-steps.jsonl";
-/// Si existe en el directorio de datos, los pasos no terminan hasta que se borre.
+/// If it exists in the data directory, steps do not finish until it is deleted.
 pub const HOLD_FILE: &str = "sim-hold";
-/// Cada cuánto se mira si se borró [`HOLD_FILE`].
+/// How often it checks whether [`HOLD_FILE`] was deleted.
 pub const HOLD_POLL: Duration = Duration::from_millis(20);
 
-/// Pasos que siempre salen bien, anotados en `dir`.
+/// Steps that always succeed, recorded in `dir`.
 #[derive(Debug, Clone)]
 pub struct SimSteps {
     dir: PathBuf,
@@ -47,10 +47,10 @@ impl SimSteps {
             .create(true)
             .append(true)
             .open(self.dir.join(STEPS_FILE))
-            .map_err(|e| format!("{}: no se pudo anotar el paso: {e}", describe(step)))?;
-        // Una sola escritura por línea: quien lee nunca ve media.
+            .map_err(|e| format!("{}: could not record the step: {e}", describe(step)))?;
+        // A single write per line: whoever reads never sees half.
         file.write_all(format!("{line}\n").as_bytes())
-            .map_err(|e| format!("{}: no se pudo anotar el paso: {e}", describe(step)))
+            .map_err(|e| format!("{}: could not record the step: {e}", describe(step)))
     }
 }
 
@@ -62,13 +62,13 @@ impl LocalSteps for SimSteps {
             while hold.exists() {
                 tokio::time::sleep(HOLD_POLL).await;
             }
-            tracing::info!("simulado: {}", describe(step));
+            tracing::info!("simulated: {}", describe(step));
             Ok(())
         })
     }
 }
 
-/// Los backends de `--sim-backends`, con el rastro en `data_dir`.
+/// The `--sim-backends` backends, with the trace in `data_dir`.
 pub fn backends(data_dir: &Path) -> Backends {
     Backends::Custom {
         local: Arc::new(SimSteps::new(data_dir)),
@@ -77,7 +77,7 @@ pub fn backends(data_dir: &Path) -> Backends {
     }
 }
 
-/// Los pasos anotados en `data_dir`, en orden. Sin archivo, ninguno.
+/// The steps recorded in `data_dir`, in order. Without a file, none.
 pub fn recorded(data_dir: &Path) -> std::io::Result<Vec<Step>> {
     let text = match std::fs::read_to_string(data_dir.join(STEPS_FILE)) {
         Ok(t) => t,
@@ -132,7 +132,7 @@ mod tests {
         });
         tokio::time::sleep(HOLD_POLL * 10).await;
         assert!(!task.is_finished());
-        // Ya está anotado: la prueba sabe que el paso empezó.
+        // Already recorded: the test knows the step started.
         assert_eq!(
             recorded(dir.path()).unwrap(),
             [Step::PowerOff {
@@ -146,13 +146,13 @@ mod tests {
     #[tokio::test]
     async fn unwritable_dir_fails_the_step() {
         let dir = tempfile::tempdir().unwrap();
-        let sim = SimSteps::new(&dir.path().join("no-existe"));
+        let sim = SimSteps::new(&dir.path().join("missing"));
         let err = sim
             .execute(&Step::PowerOn {
                 machine: Machine::B,
             })
             .await
             .unwrap_err();
-        assert!(err.contains("encender la máquina B"), "{err}");
+        assert!(err.contains("power on machine B"), "{err}");
     }
 }

@@ -1,18 +1,18 @@
-//! Concilia el encendido del par con los enlaces, en las dos máquinas (DESIGN §3.7).
+//! Reconciles the peer's power state with the links, on both machines (DESIGN §3.7).
 //!
-//! Si la otra máquina se queda sin corriente (o se suspende) nadie corre su `PowerOff`:
-//! sin esto este agente la seguiría creyendo prendida y ningún plan volvería a mandar el
-//! Wake-on-LAN. Cuando ningún enlace la ve durante [`crate::PowerConfig::peer_lost_after`],
-//! se la da por apagada: `on` la marca apagada y la UI recibe [`PowerEvent::PeerLost`] con
-//! la razón. El motor de entrada saca sus pantallas de la geometría en cuanto el estado
-//! cambia, así que el cursor no va a pantallas apagadas y, sin la otra, el teclado y el
-//! mouse se quedan aquí. Una caída más corta no cambia nada.
+//! If the other machine loses power (or suspends) nobody runs its `PowerOff`:
+//! without this, this agent would keep believing it on and no plan would send the
+//! Wake-on-LAN again. When no link sees it for [`crate::PowerConfig::peer_lost_after`],
+//! it is considered off: `on` marks it off and the UI receives [`PowerEvent::PeerLost`] with
+//! the reason. The input engine removes its screens from the geometry as soon as the state
+//! changes, so the cursor does not go to powered-off screens and, without the other, the keyboard and
+//! mouse stay here. A shorter drop changes nothing.
 //!
-//! Al revés, si la otra vuelve a verse estando apagada (la encendieron a mano, se
-//! despertó, o este agente arrancó sin saberlo), se la da por prendida.
+//! Conversely, if the other is seen again while marked off (it was turned on by hand, it
+//! woke up, or this agent started without knowing), it is considered on.
 //!
-//! Nada de esto pisa una transacción: se toma el orquestador como un cambio más, así
-//! que un apagado en curso termina antes (y la deja apagada él mismo).
+//! None of this tramples a transaction: the orchestrator is taken like any other change, so
+//! a shutdown in progress finishes first (and leaves it off itself).
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,20 +23,20 @@ use tokio::time::Instant;
 
 use crate::agent::Agent;
 
-/// Cada cuánto se vuelve a intentar si el orquestador está ocupado con un cambio.
+/// How often to retry if the orchestrator is busy with a change.
 pub const BUSY_RETRY: Duration = Duration::from_secs(1);
 
-/// Vigila los enlaces con la otra máquina hasta que se cierra `reachable` o el agente.
+/// Watches the links to the other machine until `reachable` or the agent closes.
 ///
-/// `reachable` es verdadero mientras algún enlace ve al agente de la otra (en el agente,
-/// el enlace activo del gestor de enlaces).
+/// `reachable` is true while some link sees the other's agent (in the agent,
+/// the link manager's active link).
 pub async fn watch(agent: Arc<Agent>, mut reachable: watch::Receiver<bool>) {
     let peer = agent.machine().other();
     let lost_after = agent.config().power.peer_lost_after();
     let mut states = agent.subscribe();
     let mut up = *reachable.borrow_and_update();
     let mut down_since = (!up).then(Instant::now);
-    // La otra se vio aparecer y todavía no se comprobó si estaba prendida.
+    // The other was seen appearing and it was not yet checked whether it was on.
     let mut appeared = up;
     loop {
         let peer_on = agent.state().is_on(peer);
@@ -64,9 +64,9 @@ pub async fn watch(agent: Arc<Agent>, mut reachable: watch::Receiver<bool>) {
                 wake = Some(due);
             }
         }
-        // El enlace primero: si vuelve a la vez que llega un estado que la da por prendida (el
-        // fin de un encendido), el estado no puede verse con el enlace viejo, caído desde
-        // antes del umbral (revisión de #82).
+        // The link first: if it returns at the same time as a state arrives that considers it on (the
+        // end of a power on), the state cannot be seen with the old link, down since
+        // before the threshold (review of #82).
         tokio::select! {
             biased;
             changed = reachable.changed() => {
@@ -97,7 +97,7 @@ async fn sleep_until(at: Option<Instant>) {
     }
 }
 
-/// Libera el orquestador al terminar, aunque algo entre en pánico.
+/// Releases the orchestrator when done, even if something panics.
 struct Held<'a>(&'a Agent);
 
 impl Drop for Held<'_> {
@@ -106,7 +106,7 @@ impl Drop for Held<'_> {
     }
 }
 
-/// Da la otra por apagada. `false` si el orquestador está ocupado con un cambio.
+/// Considers the other off. `false` if the orchestrator is busy with a change.
 fn mark_lost(agent: &Agent, since: Instant) -> bool {
     if agent.orchestrator().try_begin().is_none() {
         return false;
@@ -114,7 +114,7 @@ fn mark_lost(agent: &Agent, since: Instant) -> bool {
     let held = Held(agent);
     let peer = agent.machine().other();
     let mut state = agent.state();
-    // El cambio que terminaba mientras se esperaba pudo haberla apagado.
+    // The change that finished while waiting may have turned it off.
     if !state.is_on(peer) {
         return true;
     }
@@ -122,11 +122,11 @@ fn mark_lost(agent: &Agent, since: Instant) -> bool {
     let secs = since.elapsed().as_secs();
     let name = agent.machine_name(peer);
     let reason = format!(
-        "La {name} no responde por ningún enlace desde hace {secs} s sin que nadie la apagara \
-         (¿corte de corriente o suspendida?): se da por apagada"
+        "The {name} has not responded on any link for {secs} s without anyone turning it off \
+         (power cut or suspended?): it is considered off"
     );
     tracing::warn!("{reason}");
-    // Primero el estado, después el aviso: quien lo reciba ya la ve apagada.
+    // First the state, then the notice: whoever receives it already sees it off.
     if let Err(e) = agent.set_state(state) {
         tracing::warn!("{e}");
     }
@@ -138,10 +138,10 @@ fn mark_lost(agent: &Agent, since: Instant) -> bool {
     true
 }
 
-/// Da la otra por prendida. `false` si hay un cambio en curso: lo deja terminar.
+/// Considers the other on. `false` if a change is in progress: it lets it finish.
 ///
-/// No reserva el orquestador: la otra acaba de aparecer y puede estar pidiendo ya su
-/// primer paso, que con el orquestador reservado se rechazaría.
+/// It does not reserve the orchestrator: the other just appeared and may already be asking for its
+/// first step, which with the orchestrator reserved would be rejected.
 fn mark_on(agent: &Agent) -> bool {
     if !agent.orchestrator().is_idle() {
         return false;
@@ -149,7 +149,7 @@ fn mark_on(agent: &Agent) -> bool {
     let peer = agent.machine().other();
     let mut state = agent.state();
     if !state.is_on(peer) {
-        tracing::info!("{peer} volvió a responder: se da por prendida");
+        tracing::info!("{peer} responded again: considered on");
         state.on.set(peer, true);
         if let Err(e) = agent.set_state(state) {
             tracing::warn!("{e}");
@@ -182,8 +182,8 @@ mod tests {
         task: tokio::task::JoinHandle<()>,
     }
 
-    /// El agente de `me`, con la otra prendida o no y visible según `up`. Las mismas pruebas valen desde las dos
-    /// máquinas: no hay una que vigile y otra vigilada.
+    /// The agent of `me`, with the other on or not and visible according to `up`. The same tests hold from both
+    /// machines: there is no one that watches and one that is watched.
     fn rig(dir: &Path, me: Machine, peer_on: bool, up: bool) -> Rig {
         let mut cfg = fixtures::desk();
         cfg.machine = me;
@@ -244,7 +244,7 @@ mod tests {
             let before = r.agent.state();
             r.up.send_replace(false);
             sleep(LOST_AFTER.as_secs_f64() - 0.1).await;
-            assert!(peer_on(&r), "{me}: todavía dentro del umbral");
+            assert!(peer_on(&r), "{me}: still inside the threshold");
             sleep(0.2).await;
 
             let mut want = before.clone();
@@ -252,30 +252,30 @@ mod tests {
             assert_eq!(r.agent.state(), want, "{me}");
             assert!(
                 r.agent.state().is_on(me),
-                "{me}: nunca apagada para sí misma"
+                "{me}: never off for itself"
             );
             let PowerEvent::PeerLost { machine, reason } = r.events.try_recv().unwrap();
             assert_eq!(machine, me.other());
             assert!(reason.contains("15 s"), "{reason}");
             assert!(
                 reason.starts_with(&format!(
-                    "La {} no responde",
+                    "The {} is not responding",
                     r.agent.machine_name(me.other())
                 )),
                 "{reason}"
             );
-            // Ningún paso: ni aquí ni a la otra.
+            // No step: neither here nor to the other.
             assert!(r.local.steps().is_empty());
             assert!(r.peer.steps().is_empty());
-            // Y queda guardado.
+            // And it is saved.
             let saved = StateStore::new(dir.path().join("state.json"))
                 .load()
                 .unwrap();
             assert_eq!(saved, Some(want));
-            // El orquestador quedó libre.
+            // The orchestrator was left free.
             assert!(r.agent.orchestrator().try_begin().is_some());
 
-            // Sigue sin verse: no se repite el aviso.
+            // It is still not seen: the notice is not repeated.
             r.agent.orchestrator().end();
             sleep(120.0).await;
             assert!(r.events.try_recv().is_err());
@@ -299,18 +299,18 @@ mod tests {
         }
     }
 
-    /// Revisión de #82: una transacción que la enciende termina justo cuando su enlace
-    /// vuelve. Los dos avisos llegan a la vez; con el estado nuevo visto antes que el enlace,
-    /// la vigilancia la daba por perdida (con el enlace caído desde antes del umbral).
+    /// Review of #82: a transaction that powers it on ends just when its link
+    /// returns. Both notices arrive at once; with the new state seen before the link,
+    /// the watch considered it lost (with the link down since before the threshold).
     #[tokio::test(start_paused = true)]
     async fn the_link_coming_back_wins_over_the_state_that_powers_it_on() {
-        // `select!` elige al azar entre dos avisos listos: varias vueltas lo hacen seguro.
+        // `select!` picks at random between two ready notices: several rounds make it certain.
         for _ in 0..16 {
             let dir = tempfile::tempdir().unwrap();
             let mut r = rig(dir.path(), Machine::A, false, false);
             r.agent.orchestrator().try_begin().unwrap();
             sleep(LOST_AFTER.as_secs_f64() + 30.0).await;
-            // La transacción la encendió: primero aparece el enlace, después el estado.
+            // The transaction turned it on: first the link appears, then the state.
             r.up.send_replace(true);
             let mut s = r.agent.state();
             s.on.b = true;
@@ -322,7 +322,7 @@ mod tests {
         }
     }
 
-    /// Un apagado en curso la deja apagada él mismo: no hay corte que avisar.
+    /// A shutdown in progress leaves it off itself: there is no cut to notify.
     #[tokio::test(start_paused = true)]
     async fn a_shutdown_in_progress_is_not_a_power_cut() {
         for me in BOTH {
@@ -364,7 +364,7 @@ mod tests {
             assert!(!peer_on(&r));
             r.events.try_recv().unwrap();
 
-            // La encendieron a mano (o se despertó).
+            // It was turned on by hand (or woke up).
             r.up.send_replace(true);
             sleep(0.1).await;
             let s = r.agent.state();
@@ -373,7 +373,7 @@ mod tests {
         }
     }
 
-    /// El agente arranca con el estado inicial (la otra apagada) y la otra ya estaba prendida.
+    /// The agent starts with the initial state (the other off) and the other was already on.
     #[tokio::test(start_paused = true)]
     async fn a_peer_seen_at_startup_is_on() {
         for me in BOTH {
@@ -394,7 +394,7 @@ mod tests {
         }
     }
 
-    /// Si la otra aparece en medio de un cambio (encendiéndola), se espera a que termine.
+    /// If the other appears in the middle of a change (powering it on), it waits for it to finish.
     #[tokio::test(start_paused = true)]
     async fn the_peer_appearing_during_a_change_waits_for_it() {
         for me in BOTH {

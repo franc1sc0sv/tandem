@@ -1,34 +1,34 @@
-//! Argumentos de la línea de órdenes. Son pocos: no hace falta un crate para esto.
+//! Command-line arguments. There are few: a crate is not needed for this.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 
-pub const USAGE: &str = "\
-Uso: tandemd [opciones]
+Usage: tandemd [options]
+       tandemd links [--config <file>] [--data-dir <dir>]
        tandemd links [--config <archivo>] [--data-dir <dir>]
-
+Options:
 Opciones:
-  --config <archivo>        tandem.toml a usar (por omisión, el del directorio de la app;
-                            si no existe, el agente lo genera con el puesto vacío)
-  --data-dir <dir>          directorio de estado, logs y socket (por omisión, el de la app)
-  --check-config <archivo>  valida la configuración y sale (código ≠ 0 si es inválida)
-  --install                 registra el arranque con la sesión (Windows; lo usa el
-                            instalador)
-  --uninstall               quita el arranque con la sesión (deja la configuración)
-  links                     lista las interfaces de red, su tipo detectado, la dirección que
-                            usaría el enlace por cable y el estado de cada camino (spike S5)
-  -h, --help                muestra esta ayuda
-  -V, --version             muestra la versión";
+    --config <file>           tandem.toml to use (by default, the one in the app directory;
+                                                        if it does not exist, the agent generates it with an empty desk)
+    --data-dir <dir>          directory for state, logs and socket (by default, the app's)
+    --check-config <file>     validates the configuration and exits (code != 0 if invalid)
+    --install                 registers the startup with the session (Windows; used by the
+                                                        installer)
+    --uninstall               removes the startup with the session (leaves the configuration)
+    links                     lists the network interfaces, their detected type, the address the
+                                                        wired link would use and the state of each path (spike S5)
+    -h, --help                shows this help
+    -V, --version             shows the version
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Run(RunArgs),
     CheckConfig(PathBuf),
-    /// Las rutas de `RunArgs` son las que usará el agente al arrancar con la sesión.
+    /// The `RunArgs` paths are the ones the agent will use when starting with the session.
     Install(RunArgs),
     Uninstall,
-    /// `tandemd links`: diagnóstico de los enlaces por cable (T-094). Usa las mismas rutas
-    /// que al correr el agente.
+    /// `tandemd links`: diagnostics of the wired links (T-094). It uses the same paths
+    /// as when running the agent.
     Links(RunArgs),
     Help,
     Version,
@@ -38,27 +38,27 @@ pub enum Command {
 pub struct RunArgs {
     pub config: Option<PathBuf>,
     pub data_dir: Option<PathBuf>,
-    /// Backends simulados (`--sim-backends`). Solo existe con la feature
-    /// `sim-backends`, que usan las pruebas de punta a punta con el binario.
+    /// Simulated backends (`--sim-backends`). It only exists with the
+    /// `sim-backends` feature, which the end-to-end tests with the binary use.
     pub sim_backends: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum CliError {
-    #[error("falta el valor de `{0}`")]
+    #[error("missing value for `{0}`")]
     MissingValue(&'static str),
-    #[error("opción desconocida: `{0}`")]
+    #[error("unknown option: `{0}`")]
     Unknown(String),
-    #[error("`{0}` aparece dos veces")]
+    #[error("`{0}` appears twice")]
     Repeated(&'static str),
-    #[error("`{0}` y `{1}` no van juntas")]
+    #[error("`{0}` and `{1}` do not go together")]
     Conflict(&'static str, &'static str),
 }
 
-/// No aparece en [`USAGE`]: no es para usuarios.
+/// It does not appear in [`USAGE`]: it is not for users.
 const SIM_FLAG: &str = "--sim-backends";
 
-/// Qué hacer en vez de arrancar el agente; solo puede haber una.
+/// What to do instead of starting the agent; there can be only one.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Action {
     Check,
@@ -76,7 +76,7 @@ impl Action {
     }
 }
 
-/// `args` sin el nombre del programa.
+/// `args` without the program name.
 pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliError> {
     let mut args = args.into_iter().peekable();
     let links = args.next_if(|a| a.to_str() == Some("links")).is_some();
@@ -120,7 +120,7 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
             _ => return Err(CliError::Unknown(arg.to_string_lossy().into_owned())),
         }
     }
-    // Simular solo tiene sentido al correr el agente.
+    // Simulating only makes sense when running the agent.
     if let (true, Some(action)) = (run.sim_backends, action) {
         return Err(CliError::Conflict(action.flag(), SIM_FLAG));
     }
@@ -232,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn links_lleva_las_rutas_pero_no_las_acciones() {
+    fn links_carries_the_paths_but_not_the_actions() {
         assert_eq!(p(&["links"]), Ok(Command::Links(RunArgs::default())));
         assert_eq!(
             p(&["links", "--config", "a.toml"]),
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn help_and_version() {
         assert_eq!(p(&["--help"]), Ok(Command::Help));
-        assert_eq!(p(&["-h", "--nada"]), Ok(Command::Help));
+        assert_eq!(p(&["-h", "--nothing"]), Ok(Command::Help));
         assert_eq!(p(&["-V"]), Ok(Command::Version));
     }
 
@@ -260,8 +260,8 @@ mod tests {
             p(&["--check-config"]),
             Err(CliError::MissingValue("--check-config"))
         );
-        assert_eq!(p(&["--nada"]), Err(CliError::Unknown("--nada".into())));
-        assert_eq!(p(&["suelto"]), Err(CliError::Unknown("suelto".into())));
+        assert_eq!(p(&["--nothing"]), Err(CliError::Unknown("--nothing".into())));
+        assert_eq!(p(&["loose"]), Err(CliError::Unknown("loose".into())));
         assert_eq!(
             p(&["--config", "a", "--config", "b"]),
             Err(CliError::Repeated("--config"))

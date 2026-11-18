@@ -1,4 +1,4 @@
-//! `tandem`: CLI y `tandem mcp`. Conecta con la IPC del agente local como cliente.
+//! `tandem`: CLI and `tandem mcp`. Connects to the local agent's IPC as a client.
 
 use std::process::ExitCode;
 
@@ -36,14 +36,14 @@ fn main() -> ExitCode {
     {
         Ok(rt) => rt,
         Err(e) => {
-            eprintln!("tandem: no se pudo crear el runtime: {e}");
+            eprintln!("tandem: could not create the runtime: {e}");
             return ExitCode::FAILURE;
         }
     };
     match rt.block_on(run(parsed)) {
         Ok(code) => code,
         Err(e) => {
-            // En `tandem mcp` stdout es el protocolo: los errores van siempre por stderr.
+            // In `tandem mcp` stdout is the protocol: errors always go to stderr.
             eprintln!("tandem: {e:#}");
             ExitCode::FAILURE
         }
@@ -56,8 +56,8 @@ async fn run(parsed: Parsed) -> anyhow::Result<ExitCode> {
         _ => ClientKind::Cli,
     };
     let paths = Paths::resolve(None, parsed.data_dir.clone())?;
-    let endpoint = ipc::default_endpoint(&paths.data_dir)
-        .context("no se pudo calcular el socket del agente")?;
+    let endpoint =
+        ipc::default_endpoint(&paths.data_dir).context("could not compute the agent's socket")?;
     let client = ipc::connect_as(&endpoint, Peer::Client(kind))
         .await
         .with_context(|| agent_down(&endpoint))?;
@@ -111,7 +111,7 @@ async fn tool<S: AsyncRead + AsyncWrite + Unpin>(
 
 fn agent_down(endpoint: &std::path::Path) -> String {
     format!(
-        "no se pudo conectar con el agente en {}: ¿está corriendo `tandemd`?",
+        "could not connect to the agent at {}: is `tandemd` running?",
         endpoint.display()
     )
 }
