@@ -1,0 +1,13 @@
+import * as L from "./lib.mjs"; import { Mcp } from "./mcp.mjs"; import { execFileSync } from "node:child_process"; import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+const { m1, m2 } = L.attach(process.argv[2] ?? "host3");
+const proj = "/tmp/claude-1000/accB/proj-demo"; rmSync(proj, { recursive: true, force: true }); mkdirSync(proj + "/src", { recursive: true });
+const git = (...a) => execFileSync("git", a, { cwd: proj, env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" } }).toString();
+git("init", "-q", "-b", "main"); writeFileSync(proj + "/src/lib.rs", "fn a() {}\n"); writeFileSync(proj + "/.gitignore", "build.log\n.env\n"); writeFileSync(proj + "/.env", "TOKEN=supersecreto\n"); writeFileSync(proj + "/id_rsa", "-----BEGIN RSA PRIVATE KEY-----\nxx\n"); writeFileSync(proj + "/build.log", "x\n");
+git("add", "-A", "-f", "src", ".gitignore"); git("commit", "-q", "-m", "inicio"); writeFileSync(proj + "/src/nuevo.rs", "fn n() {}\n"); 
+const c = new Mcp(m1, proj); await c.init();
+const t = await c.call("tunnel_open", { workspace: true, title: "ws-prueba" }); console.log("tunnel_open:", JSON.stringify(t.value ?? t.error).slice(0, 900));
+const id = t.value.id;
+const e = await c.call("exec", { tunnel: id, cmd: "sh", args: ["-c", "pwd; ls -la; echo hola"] }); console.log("exec:", JSON.stringify(e.value ?? e.error).slice(0, 500));
+const o = await c.call("output", { tunnel: id, process: e.value.id ?? e.value.process ?? 1, wait_ms: 3000 }); console.log("output:", JSON.stringify(o.value ?? o.error).slice(0, 1200));
+console.log("tunnels:", JSON.stringify((await c.call("tunnels")).value).slice(0, 600));
+c.close();

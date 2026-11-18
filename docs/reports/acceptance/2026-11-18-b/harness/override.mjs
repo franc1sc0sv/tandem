@@ -1,0 +1,2 @@
+import * as L from "./lib.mjs";
+L.record("G6-botones-con-efecto", "cada botón visible de las pantallas en vivo produce un efecto observable", false, "81 de 92 botones tienen efecto; de los 11 sin efecto, 10 son opciones ya seleccionadas (pestañas, entrada del monitor, pantalla, color) o el atajo de la paleta, deshabilitado por diseño; el único botón que no hace nada real es «Probar cruce» de Acomodo (deshabilitado siempre, T-150)");
