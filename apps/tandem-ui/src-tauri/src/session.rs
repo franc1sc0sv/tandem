@@ -21,13 +21,14 @@ use tandem_proto::{
     AgentToUi, Capabilities, CursorSample, DeskCapabilities, EnvKind, Environment, Hardware,
     InputPermission, InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo, ModuleState,
     MonitorView, NetworkStatus, PairingStatus, PathState, PeerStatus, PowerEvent, Reply, Resources,
-    SetupInfo, TxnEvent, UiCommand, UpdateStatus,
+    SetupInfo, TunnelId, TxnEvent, UiCommand, UpdateStatus,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Notify, mpsc, oneshot, watch};
 
 use crate::status::{CLOSED, QUERY_TIMEOUT, explain};
+use crate::tunnels::{self, OUTPUT_CHUNK, OutputItem, ProcessItem, ProjectItem, TransferItem};
 
 /// Cada cuánto se vuelve a intentar si no hay agente. Corto: la ventana tiene que
 /// recuperarse sola en cuanto `tandemd` arranca.
@@ -732,6 +733,23 @@ pub enum Action {
     DeleteScene {
         id: String,
     },
+    /// Los procesos de un túnel, también los que terminaron hace poco (T-114); contesta
+    /// [`ActionResult::Processes`]. Los túneles llegan solos por [`Sink::tunnels`].
+    Processes {
+        #[serde(deserialize_with = "tunnels::tunnel_id")]
+        tunnel: TunnelId,
+    },
+    /// La salida de un proceso desde los cursores `stdout` y `stderr` (T-114); contesta
+    /// [`ActionResult::Output`].
+    Output {
+        #[serde(deserialize_with = "tunnels::tunnel_id")]
+        tunnel: TunnelId,
+        process: u32,
+        #[serde(default)]
+        stdout: u64,
+        #[serde(default)]
+        stderr: u64,
+    },
 }
 
 /// Suma o resta una ventana a `n`; devuelve si había alguna y si hay alguna.
@@ -805,6 +823,18 @@ impl From<Action> for UiCommand {
             Action::DeleteScene { id } => UiCommand::EditDesk {
                 patch: DeskPatch::DeleteScene { id },
             },
+            Action::Processes { tunnel } => UiCommand::GetProcesses { tunnel },
+            Action::Output {
+                tunnel,
+                process,
+                stdout,
+                stderr,
+            } => UiCommand::Output {
+                tunnel,
+                process: tunnels::process_id(process),
+                from: tunnels::cursor(stdout, stderr),
+                max: OUTPUT_CHUNK,
+            },
         }
     }
 }
@@ -839,6 +869,14 @@ pub enum ActionResult {
         link: LinkView,
         bytes_per_sec: u64,
     },
+    /// Los procesos de un túnel.
+    Processes {
+        processes: Vec<ProcessItem>,
+    },
+    /// La salida de un proceso desde donde se pidió.
+    Output {
+        output: Box<OutputItem>,
+    },
 }
 
 impl From<Reply> for ActionResult {
@@ -858,6 +896,12 @@ impl From<Reply> for ActionResult {
                 link: link.into(),
                 bytes_per_sec,
             },
+            Reply::Processes(p) => ActionResult::Processes {
+                processes: p.into_iter().map(Into::into).collect(),
+            },
+            Reply::Output(o) => ActionResult::Output {
+                output: Box::new((*o).into()),
+            },
             Reply::Done
             | Reply::State(_)
             | Reply::Desk(_)
@@ -873,8 +917,6 @@ impl From<Reply> for ActionResult {
             | Reply::Files(_)
             | Reply::Forward(_)
             | Reply::Process(_)
-            | Reply::Processes(_)
-            | Reply::Output(_)
             | Reply::BroughtBack(_) => ActionResult::Done,
         }
     }
@@ -899,6 +941,17 @@ pub trait Sink: Send + Sync + 'static {
     /// [`Snapshot`]: llega cada segundo y solo la pantalla Red lo usa.
     fn network(&self, network: &NetworkView) {
         let _ = network;
+    }
+
+    /// Los túneles abiertos de las dos máquinas (pantalla Túneles, T-114): llegan al conectar
+    /// y con cada cambio, sin pedirlos.
+    fn tunnels(&self, tunnels: &[ProjectItem]) {
+        let _ = tunnels;
+    }
+
+    /// El avance de una copia de archivos de un túnel (T-106), para el tráfico del túnel.
+    fn transfer(&self, transfer: &TransferItem) {
+        let _ = transfer;
     }
 }
 
@@ -1033,6 +1086,7 @@ struct Opened<S> {
     caps: Box<CapsView>,
     monitors: Vec<MonitorView>,
     update: UpdateStatus,
+    tunnels: Vec<tandem_proto::ProjectTunnels>,
 }
 
 /// Por qué terminó una conexión.
@@ -1061,9 +1115,11 @@ impl Runner {
                     caps,
                     monitors,
                     update,
+                    tunnels,
                 }) => {
                     let agent = client.agent();
                     self.sink.update(&update);
+                    self.sink.tunnels(&tunnels::projects_of(tunnels));
                     self.publish(Snapshot::Connected {
                         agent,
                         desk,
@@ -1154,6 +1210,10 @@ impl Runner {
                 Reply::Update(u) => u,
                 other => return Err(IpcError::UnexpectedReply(Box::new(other))),
             };
+            let tunnels = match client.request(UiCommand::GetTunnels).await? {
+                Reply::Tunnels(t) => t,
+                other => return Err(IpcError::UnexpectedReply(Box::new(other))),
+            };
             if watching_network {
                 client.request(UiCommand::WatchNetwork { on: true }).await?;
             }
@@ -1167,6 +1227,7 @@ impl Runner {
                 caps,
                 monitors,
                 update,
+                tunnels,
             })
         };
         match tokio::time::timeout(QUERY_TIMEOUT, opening).await {
@@ -1269,9 +1330,9 @@ impl Runner {
             AgentToUi::Resources { machine, resources } => {
                 self.sink.resources(machine, &resources);
             }
-            // La pantalla Túneles (solo lectura, D9) llega con su tarea de UI.
-            // Las transferencias las pide un cliente, no la UI (T-106).
-            AgentToUi::Tunnels(_) | AgentToUi::Transfer(_) => {}
+            // La pantalla Túneles (solo lectura, D9) y el tráfico de cada túnel (T-114).
+            AgentToUi::Tunnels(groups) => self.sink.tunnels(&tunnels::projects_of(groups)),
+            AgentToUi::Transfer(t) => self.sink.transfer(&t.into()),
             // Solo con `Action::WatchCursor`: las pantallas Puesto y Acomodo los pintan.
             AgentToUi::Cursor(sample) => self.sink.notice(&Notice::Cursor {
                 sample: sample.into(),
@@ -1425,6 +1486,7 @@ mac = "9c:6b:00:1a:2b:ff"
         notices: Mutex<Vec<Notice>>,
         resources: Mutex<Vec<(Machine, Resources)>>,
         networks: Mutex<Vec<NetworkView>>,
+        tunnels: Mutex<Vec<Vec<ProjectItem>>>,
         changed: Notify,
     }
 
@@ -1443,6 +1505,10 @@ mac = "9c:6b:00:1a:2b:ff"
         }
         fn network(&self, n: &NetworkView) {
             self.networks.lock().unwrap().push(n.clone());
+            self.changed.notify_waiters();
+        }
+        fn tunnels(&self, t: &[ProjectItem]) {
+            self.tunnels.lock().unwrap().push(t.to_vec());
             self.changed.notify_waiters();
         }
     }
@@ -2559,6 +2625,28 @@ mac = "9c:6b:00:1a:2b:ff"
         handle.retry_now();
         rec.until(|s, _| connected(s)).await;
         rec.until_networks(seen + 1).await;
+    }
+
+    /// T-114: al conectar la ventana recibe los túneles sin pedirlos, y los procesos de un
+    /// túnel que no existe se rechazan sin tirar la sesión.
+    #[tokio::test]
+    async fn the_tunnels_reach_the_window_on_connect() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+        assert_eq!(rec.tunnels.lock().unwrap().first(), Some(&vec![]));
+        let got = handle
+            .act(Action::Processes {
+                tunnel: TunnelId(7),
+            })
+            .await;
+        assert!(
+            !matches!(got, ActionResult::Unavailable { .. }),
+            "la sesión sigue viva: {got:?}"
+        );
+        rec.until(|s, _| connected(s)).await;
     }
 
     /// Dejar de mirar la red corta el flujo; y un pedido hecho sin agente vale para la
