@@ -3,6 +3,7 @@
 #
 #   scripts/hw/run.sh [--sim] [--with-monitors] [--only a,b] [--skip-build] [--keep-cache] [--ref REF]
 #                     [--mac HOST] [--mac-link DIR] [--pc-ip IP] [--mac-ip IP] [--plan]
+#                     [--mac-manual [--mac-results FILE] [--repo URL] [--mac-command-file FILE]]
 #
 # Builds the Windows binaries (mingw, in WSL) and the macOS ones (over ssh, on the Mac), starts
 # a test agent on each machine with preprovisioned identities and data in temporary
@@ -23,6 +24,12 @@
 #   --mac-link DIR   link-local address of the Mac's USB4 cable (or TANDEM_HW_MAC_LINK). If
 #                    `mac-runner` does not answer (Wi-Fi down), this address is used with the same
 #                    user and key as the ssh alias. No fixed IPs in the repo (D10).
+#   --mac-manual     no ssh to the Mac (SOC2, T-198): runs only the PC half with long windows,
+#                    prints the one-line command to paste on the Mac (it runs scripts/hw/mac-side.sh
+#                    with bash, so zsh is fine) and, when the Mac prints its results, takes
+#                    them from FILE (--mac-results; paste the block between the markers) and
+#                    merges them into the usual report. Needs --mac-ip; --pc-ip is detected.
+#                    The ref must be pushed: the Mac clones it. With --sim, both halves are local.
 #   --plan           prints the steps and exits.
 #
 # Every call to powershell.exe and ssh carries `< /dev/null` and `timeout`; long steps
@@ -42,6 +49,10 @@ REF=origin/develop
 MAC_HOST=${TANDEM_HW_MAC:-mac-runner}
 PC_IP="" MAC_IP=""
 MAC_LINK=${TANDEM_HW_MAC_LINK:-}
+MANUAL=0 MAC_RESULTS="" REPO="" MAC_CMD_FILE=""
+# Windows of the manual mode: they tolerate minutes of skew between the halves.
+M_PAIR_WAIT=${TANDEM_HW_PAIR_WAIT:-900} M_WINDOW=${TANDEM_HW_WINDOW:-420} M_KEEP=${TANDEM_HW_KEEP:-120}
+T_MAC_WAIT=${TANDEM_HW_MAC_WAIT:-1800}   # how long to wait for the Mac results (s)
 T_CALL=${TANDEM_HW_TIMEOUT:-60}      # short calls to powershell.exe / ssh (s)
 T_HW=${TANDEM_HW_STEP_TIMEOUT:-900}  # one tandem-hw run (s)
 T_BUILD=${TANDEM_HW_BUILD_TIMEOUT:-3600}
@@ -59,6 +70,10 @@ while [ $# -gt 0 ]; do
     --mac-link) MAC_LINK=$2; shift ;;
     --pc-ip) PC_IP=$2; shift ;;
     --mac-ip) MAC_IP=$2; shift ;;
+    --mac-manual) MANUAL=1 ;;
+    --mac-results) MAC_RESULTS=$2; shift ;;
+    --mac-command-file) MAC_CMD_FILE=$2; shift ;;
+    --repo) REPO=$2; shift ;;
     -h|--help) sed -n 2,30p "$0"; exit 0 ;;
     *) echo "unknown option:$1" >&2; exit 2 ;;
   esac
@@ -71,6 +86,7 @@ else
   ONLY=$(printf '%s' ",$ONLY," | sed 's/,monitors,/,/g; s/^,//; s/,$//')
   [ -n "$ONLY" ] || { echo "nothing to run: monitors requires --with-monitors" >&2; exit 2; }
 fi
+[ "$MANUAL" = 1 ] && T_HW=$((M_PAIR_WAIT + 2 * M_WINDOW + 600))
 has() { case ",$ONLY," in *",$1,"*) return 0 ;; esac; return 1; }
 [ "$SIM" = 1 ] && ONLY=link,tunnels   # no input or monitors: there are no devices
 
@@ -79,7 +95,12 @@ if [ "$PLAN" = 1 ]; then
   echo "1 check there is no real tandemd  2 build  3 provision and start"
   echo "4 pair,ping  5 tunnels PC->Mac and Mac->PC  6 synthetic input in both directions"
   echo "7 monitors with automatic rollback (--with-monitors only)  8 report  9 cleanup"
-  echo "Mac: ssh $MAC_HOST; cable fallback: ${MAC_LINK:-none (use --mac-link or TANDEM_HW_MAC_LINK)}"
+  if [ "$MANUAL" = 1 ]; then
+    echo "manual Mac (no ssh): only the PC half (pair wait ${M_PAIR_WAIT}s, windows ${M_WINDOW}s); prints the Mac command;"
+    echo "waits for the Mac results in ${MAC_RESULTS:-<run>/mac-results.txt} and merges them into the report"
+  else
+    echo "Mac: ssh $MAC_HOST; cable fallback: ${MAC_LINK:-none (use --mac-link or TANDEM_HW_MAC_LINK)}"
+  fi
   exit 0
 fi
 
@@ -157,7 +178,7 @@ cleanup() {
     #    to see its input close and roll back on its own.
     [ -n "$PC_PID" ] && pc "taskkill /F /T /PID $PC_PID" >/dev/null 2>&1
     [ -n "$PC_DIR" ] && pc "Get-Process | Where-Object { \$_.Path -like '$PC_DIR\\*' -and \$_.Path -notlike '*tandem-monitor-guard*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1
-    [ -n "$MAC_PID" ] && mac "kill $MAC_PID 2>/dev/null; pkill -f '$MAC_DIR/bin/' 2>/dev/null; true" >/dev/null 2>&1
+    [ "$MANUAL" = 0 ] && [ -n "$MAC_PID" ] && mac "kill $MAC_PID 2>/dev/null; pkill -f '$MAC_DIR/bin/' 2>/dev/null; true" >/dev/null 2>&1
     if [ -n "$PC_DIR" ] && [ "$MONITORS" = 1 ]; then
       # 2. Wait (up to 60 s) for the watcher to finish on its own.
       local guard_q="Get-Process tandem-monitor-guard -ErrorAction SilentlyContinue | Where-Object { \$_.Path -like '$PC_DIR\\*' } | Select-Object -First 1 -ExpandProperty Id"
@@ -176,8 +197,8 @@ cleanup() {
     fi
     sleep 1
     [ -n "$PC_DIR" ] && pc "Remove-Item -Recurse -Force -LiteralPath '$PC_DIR' -ErrorAction SilentlyContinue" >/dev/null 2>&1
-    [ -n "$MAC_DIR" ] && mac "rm -rf '$MAC_DIR'" >/dev/null 2>&1
-    [ "$KEEP_CACHE" = 0 ] && mac 'rm -rf ~/.cache/tandem-hw-src ~/.cache/tandem-hw-target' >/dev/null 2>&1
+    [ "$MANUAL" = 0 ] && [ -n "$MAC_DIR" ] && mac "rm -rf '$MAC_DIR'" >/dev/null 2>&1
+    [ "$MANUAL" = 0 ] && [ "$KEEP_CACHE" = 0 ] && mac 'rm -rf ~/.cache/tandem-hw-src ~/.cache/tandem-hw-target' >/dev/null 2>&1
   fi
   say "done (code $rc); run in $RUN"
   exit "$rc"
@@ -201,14 +222,19 @@ else
   if [ -n "$(pc 'Get-Process tandemd,tandemw -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id')" ]; then
     die "there is a real tandemd running on the PC; the suite does not touch it. Close it and run again"
   fi
-  pick_mac_route || die "no ssh to $MAC_HOST or over the cable (see docs/dev/hardware.md; --mac-link or TANDEM_HW_MAC_LINK)"
-  [ "$MAC_VIA_CABLE" = 1 ] && say "the Mac answers over the cable ($MAC_LINK)"
-  mac 'pgrep -x tandemd >/dev/null' && die "there is a real tandemd running on the Mac; close it and run again"
+  if [ "$MANUAL" = 0 ]; then
+    pick_mac_route || die "no ssh to $MAC_HOST or over the cable (see docs/dev/hardware.md; --mac-link or TANDEM_HW_MAC_LINK)"
+    [ "$MAC_VIA_CABLE" = 1 ] && say "the Mac answers over the cable ($MAC_LINK)"
+    mac 'pgrep -x tandemd >/dev/null' && die "there is a real tandemd running on the Mac; close it and run again"
+  else
+    [ -n "$MAC_IP" ] || die "--mac-manual needs --mac-ip (the cable or LAN address of the Mac)"
+  fi
 
   if [ "$SKIP_BUILD" = 0 ]; then
     say "building for Windows (mingw) and for Linux (the report)"
     bgwait timeout "$T_BUILD" bash -c 'cd "$1" && export CARGO_TARGET_DIR=$2 && cargo build --release --target x86_64-pc-windows-gnu -p tandemd -p tandem-hw -p tandem-monitor && cargo build --release -p tandem-hw' _ "$SRC" "$HW_TARGET" >"$OUT/build-pc.log" 2>&1 \
       || { tail -20 "$OUT/build-pc.log" >&2; die "Windows build failed"; }
+    if [ "$MANUAL" = 0 ]; then
     # The Mac has no GitHub credentials (T-130) and must stay that way: git dependencies
     # (private repos) are vendored here, where there is access, and travel with the code.
     if grep -q 'source = "git+' "$SRC/Cargo.lock"; then
@@ -221,6 +247,7 @@ else
     tar -C "$SRC" -c . | mac_in 'rm -rf ~/.cache/tandem-hw-src && mkdir -p ~/.cache/tandem-hw-src && tar -x -C ~/.cache/tandem-hw-src' || die "could not copy the code to the Mac"
     TMO=$T_BUILD bgwait mac 'source ~/.cargo/env 2>/dev/null; cd ~/.cache/tandem-hw-src && CARGO_TARGET_DIR=$HOME/.cache/tandem-hw-target cargo build --release -p tandemd -p tandem-hw -p tandem-monitor' >"$OUT/build-mac.log" 2>&1 \
       || { tail -20 "$OUT/build-mac.log" >&2; die "macOS build failed"; }
+    fi
   fi
   REPORT_BIN=$HW_TARGET/release/tandem-hw
 
@@ -233,15 +260,18 @@ else
   for f in tandemd tandem-hw tandem-monitor-guard; do
     cp "$HW_TARGET/x86_64-pc-windows-gnu/release/$f.exe" "$PC_WSL/bin/" || die "missing $f.exe"
   done
-  mac "mkdir -p '$MAC_DIR/bin' '$MAC_DIR/work' && cd ~/.cache/tandem-hw-target/release && cp tandemd tandem-hw tandem-monitor-guard '$MAC_DIR/bin/'" || die "could not install the binaries on the Mac"
+  [ "$MANUAL" = 0 ] && { mac "mkdir -p '$MAC_DIR/bin' '$MAC_DIR/work' && cd ~/.cache/tandem-hw-target/release && cp tandemd tandem-hw tandem-monitor-guard '$MAC_DIR/bin/'" || die "could not install the binaries on the Mac"; }
 
   # Over the cable, the link between agents also goes over the link-local addresses.
   if [ "$MAC_VIA_CABLE" = 1 ]; then
     [ -n "$MAC_IP" ] || MAC_IP=$MAC_LINK
     [ -n "$PC_IP" ] || PC_IP=$(pc '(Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin WellKnown,Manual,Dhcp -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -like "169.254.*" } | Select-Object -First 1).IPAddress')
   fi
+  if [ "$MANUAL" = 1 ] && [ -z "$PC_IP" ]; then
+    case $MAC_IP in 169.254.*) PC_IP=$(pc '(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -like "169.254.*" } | Select-Object -First 1).IPAddress') ;; esac
+  fi
   [ -n "$PC_IP" ] || PC_IP=$(pc '(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up" } | Select-Object -First 1).IPv4Address.IPAddress')
-  [ -n "$MAC_IP" ] || MAC_IP=$(mac 'ipconfig getifaddr en0 || ipconfig getifaddr en1')
+  [ -n "$MAC_IP" ] || [ "$MANUAL" = 1 ] || MAC_IP=$(mac 'ipconfig getifaddr en0 || ipconfig getifaddr en1')
   [ -n "$PC_IP" ] && [ -n "$MAC_IP" ] || die "could not determine the IP of both machines (use --pc-ip and --mac-ip)"
   say "PC $PC_IP, Mac $MAC_IP, test port $PORT_A"
 fi
@@ -250,8 +280,10 @@ fi
 if [ "$SIM" = 1 ]; then
   PC_DIR=$RUN/pc; MAC_DIR=$RUN/mac; mkdir -p "$PC_DIR/work" "$MAC_DIR/work"
   pc_hw provision --role pc --root "$PC_DIR/agent" --port $PORT_A --peer "127.0.0.1:$PORT_B" >/dev/null || die "provision pc"
-  mac_hw provision --role mac --root "$MAC_DIR/agent" --port $PORT_B --peer "127.0.0.1:$PORT_A" >/dev/null || die "provision mac"
-  for side in pc mac; do
+  SIDES="pc mac"
+  if [ "$MANUAL" = 1 ]; then SIDES=pc   # the Mac half is run by mac-side.sh (--sim)
+  else mac_hw provision --role mac --root "$MAC_DIR/agent" --port $PORT_B --peer "127.0.0.1:$PORT_A" >/dev/null || die "provision mac"; fi
+  for side in $SIDES; do
     d=$RUN/$side
     TANDEM_LOG=$LOG_LEVEL "$SIM_BIN/tandemd" --config "$d/agent/tandem.toml" --data-dir "$d/agent/data" --sim-backends >"$d/agent.out" 2>&1 &
     SIM_PIDS+=($!)
@@ -262,21 +294,57 @@ if [ "$SIM" = 1 ]; then
   PC_SEP=/; MAC_SEP=/
 else
   pc_hw provision --role pc --root "$PC_DIR\\agent" --port $PORT_A --peer "$MAC_IP:$PORT_A" >/dev/null || die "provision pc"
-  mac_hw provision --role mac --root "$MAC_DIR/agent" --port $PORT_A --peer "$PC_IP:$PORT_A" >/dev/null || die "provision mac"
+  [ "$MANUAL" = 1 ] || mac_hw provision --role mac --root "$MAC_DIR/agent" --port $PORT_A --peer "$PC_IP:$PORT_A" >/dev/null || die "provision mac"
   # Decoupled: a direct `Start-Process` on tandemd.exe through the WSL interop bridge made
   # powershell never return (the child inherits the handles). Here cmd redirects its own
   # output to a file and `Start-Process` carries no redirections; it stays in the user's interactive
   # session (SendInput needs it, unlike Win32_Process.Create, which goes to session 0).
   inner="set \"TANDEM_LOG=$LOG_LEVEL\" && \"$PC_DIR\\bin\\tandemd.exe\" --config \"$PC_DIR\\agent\\tandem.toml\" --data-dir \"$PC_DIR\\agent\\data\" >\"$PC_DIR\\agent.out\" 2>&1"
   PC_PID=$(pc "(Start-Process -FilePath cmd.exe -ArgumentList '/d /s /c \"$(printf '%s' "$inner" | sed "s/'/''/g")\"' -WindowStyle Hidden -PassThru).Id")
-  MAC_PID=$(mac "cd '$MAC_DIR' && TANDEM_LOG='$LOG_LEVEL' nohup bin/tandemd --config agent/tandem.toml --data-dir agent/data >agent.out 2>&1 </dev/null & echo \$!")
-  [ -n "$PC_PID" ] && [ -n "$MAC_PID" ] || die "the test agents did not start"
+  if [ "$MANUAL" = 0 ]; then
+    MAC_PID=$(mac "cd '$MAC_DIR' && TANDEM_LOG='$LOG_LEVEL' nohup bin/tandemd --config agent/tandem.toml --data-dir agent/data >agent.out 2>&1 </dev/null & echo \$!")
+    [ -n "$PC_PID" ] && [ -n "$MAC_PID" ] || die "the test agents did not start"
+  else
+    [ -n "$PC_PID" ] || die "the PC test agent did not start"
+  fi
   PC_DATA=$PC_DIR\\agent\\data; MAC_DATA=$MAC_DIR/agent/data
   PC_HW_PATH=$PC_DIR\\bin\\tandem-hw.exe; MAC_HW_PATH=$MAC_DIR/bin/tandem-hw
   PC_WORK=$PC_DIR\\work; MAC_WORK=$MAC_DIR/work
   PC_SEP='\'; MAC_SEP=/
 fi
 say "test agents running"
+
+# --- 4b. Manual mode: the command the user pastes on the Mac --------------------------------
+# Single-quoted words: they work the same in zsh and bash, with no splitting or expansion.
+sq() { local a q="'\\''" out=""; for a in "$@"; do out+="'${a//\'/$q}' "; done; printf '%s' "${out% }"; }
+MAC_GROUPS=$(printf '%s' "$ONLY" | sed 's/,monitors//; s/monitors,//; s/^monitors$//')
+if [ "$MANUAL" = 1 ]; then
+  [ -n "$MAC_RESULTS" ] || MAC_RESULTS=$RUN/mac-results.txt
+  COMMIT=$(git -C "$ROOT" rev-parse "$REF" 2>/dev/null) || die "unknown ref $REF"
+  if [ "$SIM" = 1 ]; then
+    MAC_CMD="bash $(sq "$ROOT/scripts/hw/mac-side.sh" --sim --bin-dir "$SIM_BIN" --port $PORT_B --peer-port $PORT_A \
+      --pc-ip 127.0.0.1 --pc-hw "$PC_HW_PATH" --pc-work "$PC_WORK" --pc-sep / --mac-dir "$MAC_DIR" \
+      --groups "$MAC_GROUPS" --hold 5)"
+  else
+    [ -n "$REPO" ] || REPO=$(git -C "$ROOT" remote get-url origin 2>/dev/null)
+    git -C "$ROOT" branch -r --contains "$COMMIT" 2>/dev/null | grep -q . \
+      || say "WARNING: $COMMIT is not on any remote branch: the Mac cannot fetch it. Push first."
+    MAC_CMD="bash -c $(sq 'd=$HOME/.cache/tandem-hw-src; r=$1; c=$2; shift 2; export CARGO_NET_GIT_FETCH_WITH_CLI=true; [ -d "$d/.git" ] || git clone -q "$r" "$d" || exit 1; git -C "$d" fetch -q origin; git -C "$d" fetch -q origin "$c" 2>/dev/null; git -C "$d" checkout -q -f "$c" || exit 1; exec bash "$d/scripts/hw/mac-side.sh" --commit "$c" --repo "$r" "$@"') _ $(sq "$REPO" "$COMMIT" \
+      --pc-ip "$PC_IP" --mac-ip "$MAC_IP" --pc-hw "$PC_HW_PATH" --pc-work "$PC_WORK" --pc-sep '\' \
+      --mac-dir "$MAC_DIR" --groups "$MAC_GROUPS" --pair-wait "$M_PAIR_WAIT" --window "$M_WINDOW" --keep "$M_KEEP")"
+  fi
+  [ -n "$MAC_CMD_FILE" ] && printf '%s\n' "$MAC_CMD" >"$MAC_CMD_FILE"
+  printf '%s\n' "$MAC_CMD" >"$OUT/mac-command.txt"
+  {
+    echo
+    echo "=== Paste this ONE command on the Mac (Claude session or terminal; works in zsh) ==="
+    echo "$MAC_CMD"
+    echo "=== Then save what it prints (the block between the TANDEM-HW MAC RESULTS markers) in:"
+    echo "    $MAC_RESULTS"
+    echo "    This run waits for it up to $((T_MAC_WAIT / 60)) min. Start the PC half now: the windows tolerate minutes of skew. ==="
+    echo
+  } >&2
+fi
 
 # --- 5. Checks --------------------------------------------------------------------
 RES_PC=$OUT/results-pc.jsonl; RES_MAC=$OUT/results-mac.jsonl
@@ -299,6 +367,27 @@ step() {
   fi
 }
 
+# Manual mode (no ssh): only the PC half, in the same order as the Mac's (mac-side.sh), with long
+# windows. The pair/tunnel steps wait for the other half; for input, the receiving window of each
+# side contains the other's injection with minutes to spare.
+manual_checks() {
+  if has link; then
+    step pc pair --pair-wait-secs "$M_PAIR_WAIT"
+    step pc ping
+  fi
+  if has tunnels; then
+    step pc tunnel-process,tunnel-files,tunnel-port,tunnel-workspace --peer-exe "$MAC_HW_PATH" --remote-dir "$MAC_WORK" --remote-sep "$MAC_SEP"
+  fi
+  if has input; then
+    step pc input-cross --keep-secs "$M_KEEP"
+    # The Mac injects after its own window: this one covers it plus the skew.
+    step pc input-latency --window-secs $((M_WINDOW + 300))
+  fi
+}
+
+if [ "$MANUAL" = 1 ]; then
+  manual_checks
+else
 if has link; then
   step pc pair --pair-wait-secs 90
   step mac pair --pair-wait-secs 90
@@ -328,6 +417,8 @@ if has input; then
   cross mac pc
 fi
 
+fi
+
 if has monitors; then
   # PC only: the Mac has no DDC channel to the 34" over HDMI (S12). The automatic rollback is
   # armed by each check; nothing is changed here by any other path.
@@ -338,8 +429,36 @@ if has monitors; then
 fi
 
 # --- 6. Report ---------------------------------------------------------------------------
+# Manual mode: wait for the Mac block in the file (the PC agent stays up meanwhile: the Mac half
+# may still need it), then pull the result lines and the agent log tail out of the pasted text.
+# Text around the markers (terminal noise, the prompt) is ignored.
+collect_mac_results() {
+  local waited=0
+  say "waiting for the Mac results in $MAC_RESULTS (up to $((T_MAC_WAIT / 60)) min)"
+  while ! grep -q 'TANDEM-HW MAC RESULTS END' "$MAC_RESULTS" 2>/dev/null; do
+    [ $waited -ge "$T_MAC_WAIT" ] && break
+    sleep 2; waited=$((waited + 2))
+  done
+  if grep -q 'TANDEM-HW MAC RESULTS END' "$MAC_RESULTS" 2>/dev/null; then
+    sed -n '/TANDEM-HW MAC RESULTS BEGIN/,/TANDEM-HW MAC RESULTS END/p' "$MAC_RESULTS" | grep '^{.*"outcome"' >"$RES_MAC"
+    sed -n '/TANDEM-HW MAC LOG BEGIN/,/TANDEM-HW MAC LOG END/p' "$MAC_RESULTS" | grep -v 'TANDEM-HW MAC LOG' >"$OUT/agent-mac.log"
+  else
+    say "WARNING: no Mac results after $((T_MAC_WAIT / 60)) min: the Mac checks go in the report as failures"
+  fi
+  if [ ! -s "$RES_MAC" ]; then
+    local c
+    for c in $(printf '%s' "$ONLY" | tr ',' ' '); do
+      printf '{"check":"mac-half-%s","machine":"mac","outcome":"fail","detail":"no Mac results received","millis":0,"covers":[]}\n' "$c" >>"$RES_MAC"
+    done
+  fi
+}
+[ "$MANUAL" = 1 ] && collect_mac_results
+
 fetch_logs() {
-  if [ "$SIM" = 1 ]; then
+  if [ "$MANUAL" = 1 ]; then
+    if [ "$SIM" = 1 ]; then cp "$PC_DIR/agent.out" "$OUT/agent-pc.log" 2>/dev/null
+    else cat "$PC_WSL/agent.out" "$PC_WSL/agent.err" >"$OUT/agent-pc.log" 2>/dev/null; fi
+  elif [ "$SIM" = 1 ]; then
     cp "$PC_DIR/agent.out" "$OUT/agent-pc.log" 2>/dev/null; cp "$MAC_DIR/agent.out" "$OUT/agent-mac.log" 2>/dev/null
   else
     cat "$PC_WSL/agent.out" "$PC_WSL/agent.err" >"$OUT/agent-pc.log" 2>/dev/null
@@ -351,7 +470,9 @@ DATE=$(date +%F)
 REPORT=$ROOT/docs/reports/hw-$DATE.md
 [ "$SIM" = 1 ] && REPORT=$RUN/hw-sim-$DATE.md   # the simulated one does not overwrite real reports
 [ -e "$REPORT" ] && REPORT=${REPORT%.md}-$SHORT.md   # a second run on the same day does not overwrite the first
-"$REPORT_BIN" report --require-monitors "$MONITORS" --date "$DATE" --out "$REPORT" --log "agent PC=$OUT/agent-pc.log" --log "agent Mac=$OUT/agent-mac.log" "$RES_PC" "$RES_MAC"
+LOGS=(--log "agent PC=$OUT/agent-pc.log")
+[ -s "$OUT/agent-mac.log" ] && LOGS+=(--log "agent Mac=$OUT/agent-mac.log")
+"$REPORT_BIN" report --require-monitors "$MONITORS" --date "$DATE" --out "$REPORT" "${LOGS[@]}" "$RES_PC" "$RES_MAC"
 code=$?
 say "report: $REPORT"
 exit $code
