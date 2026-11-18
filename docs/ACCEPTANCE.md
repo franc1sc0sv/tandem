@@ -27,7 +27,7 @@ Notación: `[hw]` = necesita el hardware real (lo cubre la suite T-123 o queda e
 | P3 | Máquina | `V3-Maquina`, `F-MaquinaMac` |
 | P4 | Monitores y escenas | `V3-Monitores` (cada entrada seleccionada), `F-NuevaEscena` |
 | P5 | Acomodo | `V3-Acomodo`: 4 lados × 3 alineaciones, cada pantalla seleccionada, pantalla no compatible |
-| P6 | Prueba de cruce | `F-PruebaCruce`: esperando, cruzó bien, borde equivocado, tiempo agotado |
+| P6 | Prueba de cruce | `F-PruebaCruce`: esperando, cruzó bien, «No cruzó en 20 s» (tiempo agotado: `F-PruebaCruce--no-cruza`) |
 | P7 | Red | `V3-Red` |
 | P8 | Asistente | `F-Asis1`, `V3-Asistente`, `F-Asis3`, `F-Asis4`, `F-Asis5`, `F-Asis6` |
 | P9 | Progreso de escena / energía | `F-Transacciones`: en curso, éxito, vuelta atrás |
@@ -38,7 +38,7 @@ Notación: `[hw]` = necesita el hardware real (lo cubre la suite T-123 o queda e
 | P14 | Barra de menú / bandeja | `V3-Bandeja` |
 | P15 | Lo que ve Claude | `F-ClaudeMCP` (las herramientas listadas existen en `tandem mcp`) |
 
-Estados que el mockup no dibuja (Túneles vacío y con 12 procesos, prueba de cruce con tiempo agotado): se aceptan si usan los mismos componentes, tokens y animaciones de la pantalla, sin comparación de píxeles.
+Estados que el mockup no dibuja (Túneles vacío y con 12 procesos, prueba de cruce por otro borde, «Cruzó por otro borde»: el mockup no la dibuja): se aceptan si usan los mismos componentes, tokens y animaciones de la pantalla, sin comparación de píxeles.
 
 Diferencias permitidas con el mockup: las de `mockups/README.md` («Lo que los mockups dicen y DECISIONS corrige») y los datos reales en lugar de los de ejemplo. Nada más.
 

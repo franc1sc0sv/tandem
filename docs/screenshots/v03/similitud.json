@@ -356,7 +356,7 @@
     "errores": []
   },
   "ajustes-actualizaciones": {
-    "mockup": "F-Ajustes",
+    "mockup": "F-Ajustes--actualizaciones",
     "pantalla": {
       "name": "contenido",
       "similarity": 1,
@@ -382,7 +382,7 @@
     "errores": []
   },
   "ajustes-actualizaciones-buscado": {
-    "mockup": "F-Ajustes",
+    "mockup": "F-Ajustes--actualizaciones-buscado",
     "pantalla": {
       "name": "contenido",
       "similarity": 1,
@@ -408,7 +408,7 @@
     "errores": []
   },
   "ajustes-atajos": {
-    "mockup": "F-Ajustes",
+    "mockup": "F-Ajustes--atajos",
     "pantalla": {
       "name": "contenido",
       "similarity": 1,
@@ -434,7 +434,7 @@
     "errores": []
   },
   "ajustes-avanzado": {
-    "mockup": "F-Ajustes",
+    "mockup": "F-Ajustes--avanzado",
     "pantalla": {
       "name": "contenido",
       "similarity": 0.9999,
@@ -460,7 +460,7 @@
     "errores": []
   },
   "ajustes-teclado": {
-    "mockup": "F-Ajustes",
+    "mockup": "F-Ajustes--teclado",
     "pantalla": {
       "name": "contenido",
       "similarity": 1,
@@ -726,6 +726,32 @@
       {
         "name": "contenido",
         "similarity": 0.9997,
+        "worstTile": 0.9939,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "avisos-cerrado": {
+    "mockup": "F-Avisos--cerrado",
+    "pantalla": {
+      "name": "contenido",
+      "similarity": 0.9998,
+      "worstTile": 0.9939,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 0.9998,
         "worstTile": 0.9939,
         "min": {
           "similarity": 0.99,
@@ -1006,7 +1032,59 @@
     "zonas": [
       {
         "name": "diálogo",
-        "similarity": 0.9986,
+        "similarity": 0.9985,
+        "worstTile": 0.9724,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "paleta-filtro": {
+    "mockup": "F-Paleta--filtro",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9997,
+      "worstTile": 0.9709,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "diálogo",
+        "similarity": 0.9972,
+        "worstTile": 0.9724,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "paleta-sin-resultados": {
+    "mockup": "F-Paleta--sin-resultados",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9996,
+      "worstTile": 0.9709,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "diálogo",
+        "similarity": 0.9955,
         "worstTile": 0.9724,
         "min": {
           "similarity": 0.99,
@@ -1086,6 +1164,36 @@
         "ok": true
       }
     ],
+    "errores": []
+  },
+  "puesto-escena-juego": {
+    "mockup": "V3-Puesto--escena-juego",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9999,
+      "worstTile": 0.9839,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "puesto-escena-solo-macbook": {
+    "mockup": "V3-Puesto--escena-solo-macbook",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9999,
+      "worstTile": 0.9839,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
     "errores": []
   },
   "puesto-mac-mac": {

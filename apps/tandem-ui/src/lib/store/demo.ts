@@ -92,7 +92,11 @@ export interface DemoOptions {
   /** Aplicar esta escena falla en su monitor y se deshace. */
   failScene?: string;
   /** Los túneles del demo: los de `V3-Computo`, ninguno o uno con 12 procesos. */
-  tunnels?: "normal" | "none" | "many" | "notas";
+  tunnels?: "normal" | "none" | "many" | "notas" | "paleta" | "bandeja";
+  /** Los datos que dibuja `F-Paleta`: «Trabajo» sobre la Mac, la tercera escena «Solo PC» y un túnel por proyecto. */
+  paleta?: boolean;
+  /** Los datos que dibuja `V3-Bandeja`: enlace de 0.4 ms, carga de la Mac al 18 %, «Solo PC» y túneles en tres proyectos. */
+  bandeja?: boolean;
   /** La otra máquina cambia el puesto poco después de abrir (aviso «Cambiado desde…», D5). */
   peerEdit?: boolean;
 }
@@ -113,10 +117,12 @@ export function demoOptions(query: string): DemoOptions {
     perms: p.get("perms") === "missing" ? "missing" : undefined,
     txn: p.get("txn") === "run" || p.get("txn") === "ok" || p.get("txn") === "fail" ? (p.get("txn") as "run" | "ok" | "fail") : undefined,
     failScene: p.get("fail") ?? undefined,
-    tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notas" ? "notas" : "normal",
+    tunnels: p.has("paleta") ? "paleta" : p.has("bandeja") ? "bandeja" : p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notas" ? "notas" : "normal",
+    paleta: p.has("paleta"),
+    bandeja: p.has("bandeja"),
     peerEdit: p.has("peeredit"),
     admin: p.get("admin") === "pending" ? "pending" : p.get("admin") === "off" ? "off" : undefined,
-    soloPc: p.has("solopc"),
+    soloPc: p.has("solopc") || p.has("paleta") || p.has("bandeja"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
 }
@@ -321,10 +327,10 @@ function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
 }
 
 /** Las escenas del demo sobre el primer monitor compatible (como el mockup). */
-export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean, soloPc = false): SceneView[] {
+export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean, soloPc = false, trabajoEnA = false): SceneView[] {
   const m = monitors.find((x) => x.compat.ok)?.id;
   const raw: SceneJson[] = [
-    { id: "trabajo", name: "Trabajo", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(1) },
+    { id: "trabajo", name: "Trabajo", monitors: m ? [[m, trabajoEnA ? "a" : "b"]] : [], shortcut: ctrlAlt(1) },
     { id: "solo-a", name: `Solo ${a.split(" ")[0]}`, monitors: m ? [[m, "a"]] : [], shortcut: ctrlAlt(2) },
     { id: "juego", name: soloPc ? "Solo PC" : "Juego", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
   ];
@@ -416,6 +422,10 @@ export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal
   ];
   if (which === "many") return [{ ...list[0], processes: MANY.length }, ...list.slice(1)];
   // `V3-Bandeja` dibuja la revisión del PR como un tercer proyecto («notas»); `V3-Computo` la deja en «tandem».
+  // `F-Paleta` lista un túnel por proyecto, con el proyecto como título.
+  if (which === "paleta") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }];
+  // `V3-Bandeja`: dos proyectos activos con un túnel cada uno y las «notas» en reposo.
+  if (which === "bandeja") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }, { ...list[2], project: "notas", projectPath: "~/…/notas" }];
   if (which === "notas") return list.map((x) => (x.id === "pr" ? { ...x, project: "notas", projectPath: "~/…/notas" } : x));
   return list;
 }
@@ -543,6 +553,8 @@ function demoLayout(sa: Spec, sb: Spec, scenes: SceneView[], active: string | nu
 
 /** Con el puesto emparejado la otra máquina va por el cable; antes solo se la encuentra por la red (Wi-Fi). */
 const PAIRED_LINK: LinkView = { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 };
+/** `V3-Bandeja` dice 0.4 ms (el Puesto, 0.3). */
+const TRAY_LINK: LinkView = { ...PAIRED_LINK, ms: 0.4 };
 const UNPAIRED_LINK: LinkView = { kind: "wifi", gbps: 0.41, ms: 3.8, inputP99: null };
 const NO_LINK: LinkView = { kind: null, gbps: null, ms: null, inputP99: null };
 
@@ -562,7 +574,7 @@ export function demoDesk(o: DemoOptions): DeskView {
       detail: s.detail,
       here,
       power,
-      resources: power === "on" ? { ...s.resources, history: [...s.resources.history] } : null,
+      resources: power === "on" ? { ...s.resources, ...(o.bandeja && s.os === "macos" ? { gpu: { percent: 18, label: "18 %" } } : {}), history: [...s.resources.history] } : null,
       modules: modulesOf(s.os, s.name, otherName, s.environments.length, o.admin === "pending"),
       system: s.system,
       hardware: s.hardware,
@@ -572,7 +584,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     };
   };
   const monitors = demoMonitors(sa, sb).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
-  const scenes = demoScenes(sa.name, sb.name, monitors, (o.here === "a" ? sa : sb).os === "macos", o.soloPc);
+  const scenes = demoScenes(sa.name, sb.name, monitors, (o.here === "a" ? sa : sb).os === "macos", o.soloPc, o.paleta);
   const linkUp = o.trouble !== "peer-off" && o.trouble !== "link-down" && o.trouble !== "no-agent";
   return {
     ready: true,
@@ -583,7 +595,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     troubleText: TROUBLE_TEXT[o.trouble](peerSpec.name),
     here: o.here,
     machines: { a: mk("a", sa, sb.name), b: mk("b", sb, sa.name) },
-    link: linkUp ? (o.unpaired ? UNPAIRED_LINK : PAIRED_LINK) : NO_LINK,
+    link: linkUp ? (o.unpaired ? UNPAIRED_LINK : o.bandeja ? TRAY_LINK : PAIRED_LINK) : NO_LINK,
     network: o.txn && linkUp ? { ...demoNetwork(linkUp), measuring: "usb4" } : demoNetwork(linkUp),
     tunnels: demoTunnels(o.still ? DEMO_NOW : Date.now(), o.tunnels),
     scenes,

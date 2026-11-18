@@ -3,6 +3,7 @@
 // ejecuta.
 
 import type { Machine } from "./model";
+import { shortLabels } from "./tunnels";
 import type { Route } from "./routes";
 import type { ActResult, DeskView } from "./store/types";
 
@@ -83,11 +84,15 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
   out.push({ id: "pair:change", group: "Máquinas", title: "Cambiar la otra máquina…", detail: "", key: "", color: TEAL, run: () => ctx.openWizard(1) });
 
   for (const t of desk.tunnels.filter((t) => t.state !== "closed")) {
+    const from = m[t.from];
+    const to = m[t.to];
+    // Los mismos rótulos que la lista de Túneles («Mac → PC»).
+    const [lf, lt] = from && to ? shortLabels(from, to) : [shortName(name(t.from)), shortName(name(t.to))];
     out.push({
       id: `tunnel:${t.id}`,
       group: "Túneles",
       title: `Ir al túnel «${t.title}»`,
-      detail: `${shortName(name(t.from))} → ${shortName(name(t.to))} · ${t.state === "busy" ? "activo" : "inactivo"}`,
+      detail: `${lf} → ${lt} · ${t.state === "busy" ? "activo" : "inactivo"}`,
       key: "",
       color: color(t.to),
       run: () => ctx.go({ screen: "tuneles" }),

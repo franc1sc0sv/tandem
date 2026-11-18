@@ -70,6 +70,17 @@ describe("comandos", () => {
   });
 });
 
+describe("túneles en la paleta", () => {
+  it("usan los rótulos de la lista de Túneles: «Mac → PC» si los sistemas difieren", () => {
+    const d = demoDesk({ pair: "mac-win", here: "a", trouble: "none", still: true, tunnels: "paleta", paleta: true });
+    const t = buildCommands(d, ctx(), true).filter((c) => c.group === "Túneles");
+    expect(t.map((c) => [c.title, c.detail])).toEqual([
+      ["Ir al túnel «ia-local»", "Mac → PC · activo"],
+      ["Ir al túnel «tandem»", "Mac → PC · activo"],
+    ]);
+  });
+});
+
 describe("búsqueda", () => {
   const cmds = buildCommands(desk, ctx(), true);
 
