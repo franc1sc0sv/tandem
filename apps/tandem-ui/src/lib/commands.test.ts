@@ -11,6 +11,7 @@ function ctx(can = true): CommandContext & { calls: string[] } {
     applyScene: async (id) => (calls.push(`scene:${id}`), { ok: true }),
     setPower: async (m, on) => (calls.push(`power:${m}:${on}`), { ok: true }),
     measureLink: async () => (calls.push("measure"), { ok: true }),
+    lockHere: async (on) => (calls.push(`lock:${on}`), { ok: true }),
     openWizard: (step?: number) => calls.push(step ? `wizard:${step}` : "wizard"),
     can: () => can,
   };
@@ -30,6 +31,12 @@ describe("comandos", () => {
     expect(titles).toContain("Abrir el asistente");
     // Los túneles cerrados no se ofrecen.
     expect(titles.some((t) => t.includes("ComfyUI"))).toBe(false);
+  });
+
+  it("«Bloquear aquí» y «Quitar el bloqueo» están en Acciones y se esconden sin motor de entrada", () => {
+    const titles = flatten(filterCommands(buildCommands(desk, ctx(), true), "bloque")).map((c) => c.title);
+    expect(titles).toEqual(["Bloquear aquí", "Quitar el bloqueo"]);
+    expect(buildCommands(desk, ctx(false), true).some((c) => c.id.startsWith("lock:"))).toBe(false);
   });
 
   it("D1: nunca ofrece agregar una tercera máquina", () => {
@@ -103,11 +110,13 @@ describe("ejecutar", () => {
     await run("scene:juego");
     await run("power:b");
     await run("link:measure");
+    await run("lock:on");
+    await run("lock:off");
     run("wizard:open");
     run("go:maquina:a");
     run("pair:change");
     run("tunnel:t97");
-    expect(c.calls).toEqual(["scene:juego", "power:b:false", "measure", "wizard", "go:maquina/a", "wizard:1", "go:tuneles"]);
+    expect(c.calls).toEqual(["scene:juego", "power:b:false", "measure", "lock:true", "lock:false", "wizard", "go:maquina/a", "wizard:1", "go:tuneles"]);
   });
 
   it("con la otra apagada ofrece encenderla", () => {

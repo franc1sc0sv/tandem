@@ -31,7 +31,9 @@ export interface CommandContext {
   measureLink(): Promise<ActResult>;
   /** Abre el asistente en un paso (0 = el primero; 1 = emparejar). */
   openWizard(step?: number): void;
-  can(what: "scenes" | "modules" | "power" | "measure"): boolean;
+  /** Bloquea (`on`) o suelta el cursor en esta máquina (T-129). */
+  lockHere(on: boolean): Promise<ActResult>;
+  can(what: "scenes" | "modules" | "power" | "measure" | "lock"): boolean;
 }
 
 const GREY = "#6a6d76";
@@ -115,6 +117,12 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
 
   if (ctx.can("measure")) {
     out.push({ id: "link:measure", group: "Acciones", title: "Medir el enlace", detail: "", key: "", color: GREY, run: () => ctx.measureLink() });
+  }
+  if (ctx.can("lock")) {
+    out.push(
+      { id: "lock:on", group: "Acciones", title: "Bloquear aquí", detail: "el cursor no cruza", key: "", color: GREY, run: () => ctx.lockHere(true) },
+      { id: "lock:off", group: "Acciones", title: "Quitar el bloqueo", detail: "", key: "", color: GREY, run: () => ctx.lockHere(false) },
+    );
   }
   out.push({ id: "wizard:open", group: "Acciones", title: "Abrir el asistente", detail: "", key: "", color: GREY, run: () => ctx.openWizard() });
   return out;

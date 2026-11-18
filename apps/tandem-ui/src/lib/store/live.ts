@@ -31,6 +31,7 @@ export const DEFAULT_DESK_NAME = "Mi puesto";
 
 export const EMPTY_DESK: DeskView = {
   ready: false,
+  lockShortcut: ["ScrollLock"],
   deskName: DEFAULT_DESK_NAME,
   trouble: "none",
   troubleText: "",
@@ -176,6 +177,7 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
     scenes: snap.desk.scenes.map((sc) => sceneView(sc, { monitors, name, mac })),
     activeScene: snap.state.scene ?? null,
     prefs: prefsOf(snap.desk),
+    lockShortcut: snap.desk.shortcuts?.lock ?? ["ScrollLock"],
     trouble,
     troubleText,
     here,
@@ -429,6 +431,10 @@ export class LiveSource implements Source {
     return this.ask({ kind: "set_prefs", cmd_ctrl: p.cmdCtrl, drag_files: p.dragFiles });
   }
 
+  setLockShortcut(lock: string[]): Promise<ActResult> {
+    return this.ask({ kind: "set_lock_shortcut", lock });
+  }
+
   async undoDesk(rev: number): Promise<ActResult> {
     const r = await this.ask({ kind: "undo_desk", to_rev: rev });
     return r.ok ? { ok: true, text: "Cambio deshecho" } : r;
@@ -495,6 +501,10 @@ export class LiveSource implements Source {
 
   async pairAction(kind: PairActionKind): Promise<ActResult> {
     return result(await this.bridge.act({ kind }));
+  }
+
+  async lockHere(on: boolean): Promise<ActResult> {
+    return result(await this.bridge.act({ kind: "lock_here", on }));
   }
 
   async requestPermissions(): Promise<ActResult> {
@@ -568,7 +578,7 @@ export class LiveSource implements Source {
     if (what === "scenes" || what === "monitors") return this.last.kind === "connected";
     if (what === "power" || what === "measure") return this.last.kind === "connected" && this.last.peer.kind === "paired";
     if (what === "cursor") return this.last.kind === "connected" && this.last.peer.kind === "paired";
-    if (what === "modules" || what === "machine") return this.last.kind === "connected";
+    if (what === "modules" || what === "machine" || what === "lock") return this.last.kind === "connected";
     return false;
   }
 

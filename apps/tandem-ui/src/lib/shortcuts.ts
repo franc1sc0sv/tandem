@@ -54,6 +54,7 @@ const KEY_TEXT: Record<string, string> = {
   Quote: "'", Comma: ",", Period: ".", Slash: "/", Space: "Espacio", Enter: "↩", Tab: "⇥", Escape: "Esc",
   Backspace: "⌫", Delete: "Supr", Insert: "Insert", Home: "Inicio", End: "Fin", PageUp: "RePág", PageDown: "AvPág",
   ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→",
+  ScrollLock: "Bloq Despl", Pause: "Pausa", PrintScreen: "ImprPant",
 };
 
 function keyText(code: string): string {

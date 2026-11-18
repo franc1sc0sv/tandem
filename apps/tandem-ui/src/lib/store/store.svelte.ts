@@ -339,6 +339,10 @@ export class Store implements CommandContext {
     return this.report(this.source.pairAction(kind));
   }
 
+  lockHere(on: boolean): Promise<ActResult> {
+    return this.report(this.source.lockHere(on));
+  }
+
   requestPermissions(): Promise<ActResult> {
     return this.report(this.source.requestPermissions());
   }
@@ -435,6 +439,10 @@ export class Store implements CommandContext {
 
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
     return this.report(this.source.setPrefs(p));
+  }
+
+  setLockShortcut(lock: string[]): Promise<ActResult> {
+    return this.report(this.source.setLockShortcut(lock));
   }
 
   files(): Promise<FilesView> {

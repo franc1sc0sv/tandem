@@ -124,6 +124,9 @@ pub struct Agent {
     /// Cuántas veces el usuario pidió los permisos de macOS (T-090): el motor de entrada
     /// escucha el contador y los pide al sistema.
     permission_requests: watch::Sender<u64>,
+    /// Pedidos de «Bloquear aquí» (T-129): el contador sube con cada uno y el motor de
+    /// entrada aplica el último valor pedido.
+    lock_requests: watch::Sender<(u64, bool)>,
     /// Este proceso, para anunciarlo en las capacidades.
     process: tandem_proto::ProcessInfo,
     /// Los monitores del puesto: canales, dueños y lo que leyó cada dueño (T-110).
@@ -371,6 +374,7 @@ impl Agent {
             keyboard: watch::Sender::new(cfg.input.keyboard),
             input_engine: std::sync::atomic::AtomicBool::new(false),
             permission_requests: watch::Sender::new(0),
+            lock_requests: watch::Sender::new((0, false)),
             process,
             monitors,
             // Sin backends no se encuentra nada; [`Agent::with_env_host`] pone el real.
@@ -795,6 +799,11 @@ impl Agent {
         self.permission_requests.subscribe()
     }
 
+    /// Avisa cada vez que la UI pide bloquear o soltar el cursor (T-129).
+    pub fn subscribe_lock_requests(&self) -> watch::Receiver<(u64, bool)> {
+        self.lock_requests.subscribe()
+    }
+
     /// Lo que puede cada máquina, para la UI.
     pub fn capabilities(&self) -> DeskCapabilities {
         self.caps.borrow().clone()
@@ -848,6 +857,20 @@ impl Agent {
     pub fn abilities(&self) -> Abilities {
         let caps = self.caps.borrow();
         capabilities::abilities(&caps.here, caps.peer.as_ref())
+    }
+
+    /// «Bloquear aquí»: solo tiene efecto si esta máquina es el servidor y su motor de
+    /// entrada corre; si no, se rechaza para que la UI no crea que se bloqueó.
+    fn lock_here(&self, on: bool) -> Reply {
+        if self.input_status().server != self.machine() {
+            return Reply::Rejected("esta máquina no es la que tiene el teclado".into());
+        }
+        // El motor se suscribe solo mientras hay una sesión de servidor armada.
+        if self.lock_requests.receiver_count() == 0 {
+            return Reply::Rejected("el motor de entrada no está activo en esta máquina".into());
+        }
+        self.lock_requests.send_modify(|r| *r = (r.0 + 1, on));
+        Reply::Done
     }
 
     /// El teclado y mouse, para la UI.
@@ -1083,6 +1106,7 @@ impl Agent {
                 self.permission_requests.send_modify(|n| *n += 1);
                 Reply::Done
             }
+            UiCommand::LockHere { on } => self.lock_here(on),
             UiCommand::SetPower { machine, on } => self.start_power(machine, on),
             UiCommand::ApplyScene { id } => self.apply_scene(&id),
             UiCommand::SetModule {
@@ -1307,6 +1331,44 @@ pub(crate) mod tests {
             fixtures::desk_with_wol(),
             StateStore::new(dir.join("state.json")),
         )
+    }
+
+    #[test]
+    fn lock_here_is_rejected_without_input_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        // Sin motor de entrada no hay quien escuche la petición.
+        assert!(matches!(
+            a.handle(UiCommand::LockHere { on: true }),
+            Reply::Rejected(_)
+        ));
+        assert_eq!(*a.lock_requests.borrow(), (0, false));
+    }
+
+    #[test]
+    fn lock_here_is_rejected_when_not_the_server() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        let _engine = a.subscribe_lock_requests();
+        let mut st = a.input_status();
+        st.server = a.machine().other();
+        a.set_input_status(st);
+        assert!(matches!(
+            a.handle(UiCommand::LockHere { on: true }),
+            Reply::Rejected(_)
+        ));
+    }
+
+    #[test]
+    fn lock_here_is_accepted_on_the_server_with_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = Arc::new(agent(dir.path()));
+        let engine = a.subscribe_lock_requests();
+        let mut st = a.input_status();
+        st.server = a.machine();
+        a.set_input_status(st);
+        assert_eq!(a.handle(UiCommand::LockHere { on: true }), Reply::Done);
+        assert_eq!(*engine.borrow(), (1, true));
     }
 
     #[test]

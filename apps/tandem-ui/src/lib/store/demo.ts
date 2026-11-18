@@ -85,6 +85,8 @@ export interface DemoOptions {
   admin?: "pending";
   /** Cómo termina la prueba de cruce. */
   cross?: "ok" | "wrong" | "timeout";
+  /** La tercera escena se llama «Solo PC», como en `F-Ajustes` (el resto del mockup la llama «Juego»). */
+  soloPc?: boolean;
   /** La pantalla de progreso de una escena en este punto. */
   txn?: "run" | "ok" | "fail";
   /** Aplicar esta escena falla en su monitor y se deshace. */
@@ -114,6 +116,7 @@ export function demoOptions(query: string): DemoOptions {
     tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notas" ? "notas" : "normal",
     peerEdit: p.has("peeredit"),
     admin: p.get("admin") === "pending" ? "pending" : undefined,
+    soloPc: p.has("solopc"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
 }
@@ -318,12 +321,12 @@ function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
 }
 
 /** Las escenas del demo sobre el primer monitor compatible (como el mockup). */
-export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean): SceneView[] {
+export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean, soloPc = false): SceneView[] {
   const m = monitors.find((x) => x.compat.ok)?.id;
   const raw: SceneJson[] = [
     { id: "trabajo", name: "Trabajo", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(1) },
     { id: "solo-a", name: `Solo ${a.split(" ")[0]}`, monitors: m ? [[m, "a"]] : [], shortcut: ctrlAlt(2) },
-    { id: "juego", name: "Juego", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
+    { id: "juego", name: soloPc ? "Solo PC" : "Juego", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
   ];
   return raw.map((r) => sceneView(r, { monitors, name: (x) => (x === "a" ? a : b), mac }));
 }
@@ -569,12 +572,13 @@ export function demoDesk(o: DemoOptions): DeskView {
     };
   };
   const monitors = demoMonitors(sa, sb).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
-  const scenes = demoScenes(sa.name, sb.name, monitors, (o.here === "a" ? sa : sb).os === "macos");
+  const scenes = demoScenes(sa.name, sb.name, monitors, (o.here === "a" ? sa : sb).os === "macos", o.soloPc);
   const linkUp = o.trouble !== "peer-off" && o.trouble !== "link-down" && o.trouble !== "no-agent";
   return {
     ready: true,
     deskName: "Mi puesto",
     prefs: { cmdCtrl: true, dragFiles: false, clipboard: true },
+    lockShortcut: ["ScrollLock"],
     trouble: o.trouble,
     troubleText: TROUBLE_TEXT[o.trouble](peerSpec.name),
     here: o.here,
@@ -665,6 +669,11 @@ export class DemoSource implements Source {
     const undoTo = this.bump();
     this.set({ ...this.desk, prefs: { ...this.desk.prefs, clipboard: !this.desk.prefs.clipboard } });
     this.simulateChange({ by: this.desk.here === "a" ? "b" : "a", rev: this.rev, summary, undoTo });
+  }
+
+  async setLockShortcut(lock: string[]): Promise<ActResult> {
+    this.set({ ...this.desk, lockShortcut: lock });
+    return { ok: true, text: "Atajo de bloqueo guardado" };
   }
 
   async setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
@@ -1086,6 +1095,11 @@ export class DemoSource implements Source {
         this.setPairing({ kind: "idle" }, { kind: "unpaired" });
         return { ok: true };
     }
+  }
+
+  /** El demo no tiene motor de entrada: el bloqueo se acepta sin más. */
+  async lockHere(_on: boolean): Promise<ActResult> {
+    return { ok: true };
   }
 
   async requestPermissions(): Promise<ActResult> {

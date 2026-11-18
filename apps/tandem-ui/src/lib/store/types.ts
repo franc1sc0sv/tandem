@@ -355,6 +355,8 @@ export interface FilesView {
 
 export interface DeskView {
   prefs: PrefsView;
+  /** El atajo de bloqueo del puesto (`KeyboardEvent.code`); vacío = sin atajo. */
+  lockShortcut: string[];
   /** `connecting` mientras no hay primer estado. */
   ready: boolean;
   /** El nombre del puesto (junto al logo en `V3-Maquina`); «Mi puesto» si no tiene. */
@@ -384,7 +386,7 @@ export type Topic = "machines" | "resources" | "link" | "network" | "tunnels" | 
 export const ALL_TOPICS: Topic[] = ["machines", "resources", "link", "network", "tunnels", "scenes", "monitors"];
 
 /** Lo que una fuente puede o no hacer todavía. */
-export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing" | "machine" | "monitors" | "forget" | "cursor";
+export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing" | "machine" | "monitors" | "forget" | "cursor" | "lock";
 
 /** Lo que llega con el cursor en vivo (T-128): su posición o un cruce de borde. */
 export type CursorEvent = Extract<Notice, { kind: "cursor" | "crossed" }>;
@@ -402,6 +404,8 @@ export interface Source {
   start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void>;
   /** Teclado y mouse compartidos: se manda el par entero. */
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult>;
+  /** El atajo de bloqueo del puesto (vacío = sin atajo). */
+  setLockShortcut(lock: string[]): Promise<ActResult>;
   /** «Deshacer» el cambio de la otra máquina: vuelve el puesto a la versión `rev`. */
   undoDesk(rev: number): Promise<ActResult>;
   /** Archivo de configuración y logs (Ajustes → Avanzado). */
@@ -439,6 +443,8 @@ export interface Source {
   editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult>;
   /** Emparejar (`start_pairing`, `confirm_pairing`, `cancel_pairing`) o desemparejar. */
   pairAction(kind: PairActionKind): Promise<ActResult>;
+  /** «Bloquear aquí» (T-129): el cursor no cruza a la otra máquina mientras esté bloqueado. */
+  lockHere(on: boolean): Promise<ActResult>;
   /** macOS muestra su diálogo de permisos a nombre de tandemd. */
   requestPermissions(): Promise<ActResult>;
   /** Abre el panel de Ajustes del Sistema que concede el permiso. */
