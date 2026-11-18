@@ -534,6 +534,7 @@ impl OriginInner {
             | TunnelDown::List(_)
             | TunnelDown::Files(_)
             | TunnelDown::Port(_)
+            | TunnelDown::Workspace(_)
             | TunnelDown::Started(_)
             | TunnelDown::Killed(_) => {}
         }

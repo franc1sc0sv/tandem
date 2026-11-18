@@ -157,8 +157,8 @@ pub async fn serve(stream: ControlStream, conn: &Connection, agent: &Agent) -> R
         mode: Mode::Control(stream),
     };
     agent
-        .files()
-        .serve(&agent.tunnels().host, wire)
+        .workspaces()
+        .serve(agent.files(), &agent.tunnels().host, wire)
         .await
         .map_err(|e| e.to_string())
 }
@@ -200,6 +200,7 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
             project,
             target,
             session,
+            workspace,
         } => {
             let Some(kind) = client else {
                 return Reply::Rejected(CLIENTS_ONLY.into());
@@ -216,15 +217,29 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
                 target,
                 opened_by: Client { kind, session },
             };
-            match agent.tunnels().origin.open(spec).await {
-                Ok(t) => Reply::Tunnel(Box::new(t)),
-                Err(e) => Reply::Rejected(e.to_string()),
+            let origin = &agent.tunnels().origin;
+            let tunnel = match origin.open(spec).await {
+                Ok(t) => t,
+                Err(e) => return Reply::Rejected(e.to_string()),
+            };
+            if let Some(ws) = workspace {
+                let opened = agent
+                    .workspaces()
+                    .open(agent.files(), origin, &tunnel, &ws)
+                    .await;
+                if let Err(e) = opened {
+                    // Un túnel a medias (sin su repo) no le sirve a nadie.
+                    let _ = origin.close(tunnel.id).await;
+                    return Reply::Rejected(format!("no se pudo preparar el workspace: {e}"));
+                }
             }
+            Reply::Tunnel(Box::new(tunnel))
         }
         UiCommand::CloseTunnel { id } => {
             if client.is_none() {
                 return Reply::Rejected(CLIENTS_ONLY.into());
             }
+            agent.workspaces().forget(id);
             match agent.tunnels().origin.close(id).await {
                 Ok(()) => Reply::Done,
                 Err(e) => Reply::Rejected(e.to_string()),
@@ -238,6 +253,24 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
                 return Reply::Rejected(CLIENTS_ONLY.into());
             }
             files_and_ports(agent, cmd).await
+        }
+        UiCommand::BringBack {
+            tunnel,
+            commit,
+            name,
+        } => {
+            if client.is_none() {
+                return Reply::Rejected(CLIENTS_ONLY.into());
+            }
+            let (files, origin) = (agent.files(), &agent.tunnels().origin);
+            match agent
+                .workspaces()
+                .bring_back(files, origin, tunnel, commit, name)
+                .await
+            {
+                Ok(r) => Reply::BroughtBack(Box::new(r)),
+                Err(e) => Reply::Rejected(e.to_string()),
+            }
         }
         UiCommand::Exec { tunnel, spec } => {
             if client.is_none() {
@@ -315,5 +348,14 @@ async fn files_and_ports(agent: &Arc<Agent>, cmd: UiCommand) -> Reply {
 /// Los pedidos que tardan (copias de archivos): la IPC los corre en su propia tarea para no
 /// detener la conexión mientras tanto.
 pub fn is_slow(cmd: &UiCommand) -> bool {
-    matches!(cmd, UiCommand::FilesPut { .. } | UiCommand::FilesGet { .. })
+    matches!(
+        cmd,
+        UiCommand::FilesPut { .. }
+            | UiCommand::FilesGet { .. }
+            | UiCommand::BringBack { .. }
+            | UiCommand::OpenTunnel {
+                workspace: Some(_),
+                ..
+            }
+    )
 }

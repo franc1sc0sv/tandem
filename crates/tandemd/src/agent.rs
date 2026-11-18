@@ -61,6 +61,7 @@ pub struct Agent {
     tunnels: tandem_tunnel::Tunnels,
     /// Archivos y puertos por túnel (T-106): el lado destino y los clientes locales.
     files: tandem_files::Files,
+    workspaces: tandem_workspace::Workspaces,
     /// Prioridad, tope y pausa de los datos, uno por camino (T-101).
     link_qos: LinkQos,
     /// El lado de esta máquina. Sale de la identidad: cambia una sola vez, si al emparejar
@@ -327,6 +328,14 @@ impl Agent {
         Agent {
             tunnels: tandem_tunnel::Tunnels::default(),
             files: tandem_files::Files::default(),
+            // Junto al estado: `<datos>/workspaces` (T-107).
+            workspaces: tandem_workspace::Workspaces::new(
+                store
+                    .path()
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."))
+                    .join("workspaces"),
+            ),
             link_qos,
             me: watch::Sender::new(me),
             editing: Mutex::new(()),
@@ -1095,7 +1104,8 @@ impl Agent {
             | UiCommand::PortForward { .. }
             | UiCommand::StopForward { .. }
             | UiCommand::Exec { .. }
-            | UiCommand::Kill { .. } => Reply::Rejected(crate::tunnels::CLIENTS_ONLY.into()),
+            | UiCommand::Kill { .. }
+            | UiCommand::BringBack { .. } => Reply::Rejected(crate::tunnels::CLIENTS_ONLY.into()),
             // También de la conexión: la suscripción y la medición, que tarda unos segundos
             // ([`Agent::measure_link`]).
             UiCommand::WatchNetwork { .. } | UiCommand::MeasureLink { .. } => {
@@ -1130,6 +1140,10 @@ impl Agent {
     /// Los túneles de esta máquina (los que hospeda y los que abrió).
     pub fn files(&self) -> &tandem_files::Files {
         &self.files
+    }
+
+    pub fn workspaces(&self) -> &tandem_workspace::Workspaces {
+        &self.workspaces
     }
 
     pub fn tunnels(&self) -> &tandem_tunnel::Tunnels {

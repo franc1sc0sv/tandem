@@ -20,6 +20,7 @@ use crate::tunnel::{
     ClientKind, ExecSpec, OutputCursor, ProcessId, ProcessOutput, Project, ProjectTunnels, Tunnel,
     TunnelId, TunnelProcess,
 };
+use crate::workspace::{BringBackReport, WorkspaceSpec};
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
 
 /// Quién abre la conexión.
@@ -639,6 +640,9 @@ pub enum UiCommand {
         target: Machine,
         /// La sesión del cliente (la de Claude).
         session: String,
+        /// Un repo de git que acompaña al túnel (T-107): se copia a la destino y los
+        /// procesos arrancan en su carpeta.
+        workspace: Option<WorkspaceSpec>,
     },
     /// Cerrar un túnel abierto desde esta máquina: se cierran sus recursos en la destino.
     /// Solo desde un [`Peer::Client`].
@@ -714,6 +718,15 @@ pub enum UiCommand {
     /// ([`Reply::Processes`]).
     GetProcesses {
         tunnel: TunnelId,
+    },
+    /// Traer el trabajo del workspace del túnel como una rama del repo de origen (T-107);
+    /// `commit` es el mensaje para hacer commit de lo pendiente en la destino. Solo desde
+    /// un [`Peer::Client`]; contesta [`Reply::BroughtBack`].
+    BringBack {
+        tunnel: TunnelId,
+        commit: Option<String>,
+        /// Nombre de la rama (`tandem/<nombre>`); por omisión, el título del túnel.
+        name: Option<String>,
     },
 }
 
@@ -967,6 +980,8 @@ pub enum Reply {
     Process(Box<TunnelProcess>),
     Processes(Vec<TunnelProcess>),
     Output(Box<ProcessOutput>),
+    /// El resultado de [`UiCommand::BringBack`].
+    BroughtBack(Box<BringBackReport>),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso.
@@ -1586,12 +1601,17 @@ pub(crate) mod samples {
                 project: tunnel_sample().project,
                 target: Machine::B,
                 session: "claude-1234".into(),
+                workspace: Some(WorkspaceSpec {
+                    repo_path: "/src/tandem".into(),
+                    keep: true,
+                }),
             },
             UiCommand::OpenTunnel {
                 title: String::new(),
                 project: None,
                 target: Machine::A,
                 session: String::new(),
+                workspace: None,
             },
             UiCommand::CloseTunnel {
                 id: crate::TunnelId(u64::MAX),
@@ -1652,6 +1672,11 @@ pub(crate) mod samples {
             UiCommand::GetProcesses {
                 tunnel: crate::TunnelId(1),
             },
+            UiCommand::BringBack {
+                tunnel: crate::TunnelId(1),
+                commit: Some("trabajo en el destino".into()),
+                name: None,
+            },
         ];
         let mut cmds = cmds;
         cmds.extend(
@@ -1711,6 +1736,7 @@ pub(crate) mod samples {
             UiCommand::Exec { .. } => 38,
             UiCommand::Kill { .. } => 39,
             UiCommand::Output { .. } => 40,
+            UiCommand::BringBack { .. } => 42,
             UiCommand::GetProcesses { .. } => 41,
         }
     }
@@ -1959,6 +1985,18 @@ pub(crate) mod samples {
                 done: true,
             })),
         });
+        v.push(AgentToUi::Reply {
+            id: 18,
+            reply: Reply::BroughtBack(Box::new(BringBackReport {
+                branch: Some("tandem/arreglo".into()),
+                commits: vec![crate::CommitInfo {
+                    id: "abc123".into(),
+                    summary: "Arregla el bug".into(),
+                    author: "Claude".into(),
+                }],
+                committed_pending: true,
+            })),
+        });
         v.push(AgentToUi::Monitors(monitor_views()));
         v.push(AgentToUi::Reply {
             id: 12,
@@ -2104,6 +2142,7 @@ pub(crate) mod samples {
             Reply::Process(_) => 19,
             Reply::Processes(_) => 20,
             Reply::Output(_) => 21,
+            Reply::BroughtBack(_) => 22,
         }
     }
 
@@ -2183,7 +2222,7 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 22);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 42);
+        covers(&cmds, ui_command_arm, 43);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
         covers(&to_ui(), to_ui_arm, 19);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
@@ -2202,7 +2241,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 22);
+        covers(&replies, reply_arm, 23);
         covers(&txn_events(), txn_arm, 7);
     }
 

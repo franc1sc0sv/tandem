@@ -485,3 +485,46 @@ proptest! {
         })?;
     }
 }
+
+#[tokio::test]
+async fn la_carpeta_por_omision_vale_para_shells_locales_y_no_para_docker() {
+    let r = rig().await;
+    r.host
+        .get(r.tunnel)
+        .unwrap()
+        .set_default_cwd("/datos/workspaces/t");
+    for (shell, cwd) in [
+        (None, None),
+        (Some("zsh"), None),
+        (None, Some("/otra")),
+        (Some("docker:web"), None),
+    ] {
+        let spec = ExecSpec {
+            cmd: "ls".into(),
+            shell: shell.map(str::to_owned),
+            cwd: cwd.map(str::to_owned),
+            ..ExecSpec::default()
+        };
+        tokio::time::timeout(TIMEOUT, r.origin.exec(r.tunnel, spec))
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    let got: Vec<_> = r
+        .fake
+        .processes()
+        .iter()
+        .map(|p| p.launch.cwd.clone())
+        .collect();
+    let some = |s: &str| Some(s.to_owned());
+    // En WSL (solo Windows) y Docker la carpeta la pone el entorno.
+    assert_eq!(
+        got,
+        [
+            some("/datos/workspaces/t"),
+            some("/datos/workspaces/t"),
+            some("/otra"),
+            None
+        ]
+    );
+}

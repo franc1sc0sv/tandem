@@ -140,6 +140,7 @@ async fn la_salida_sobrevive_al_corte_del_camino_y_cerrar_suelta_los_recursos() 
         }),
         target: Machine::B,
         session: "claude-1".into(),
+        workspace: None,
     };
     assert_eq!(
         within(ui.request(open.clone())).await.unwrap(),

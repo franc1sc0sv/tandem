@@ -79,6 +79,17 @@ impl Files {
         let Some(req) = wire.recv().await? else {
             return Ok(());
         };
+        self.serve_request(host, wire, req).await
+    }
+
+    /// Como [`Files::serve`] con el primer pedido ya leído: para quien reparte pedidos de
+    /// otros módulos (workspaces) y deja los de archivos y puertos aquí.
+    pub async fn serve_request<W: TargetWire>(
+        &self,
+        host: &Host,
+        mut wire: W,
+        req: TunnelUp,
+    ) -> Result<(), WireError> {
         match req {
             TunnelUp::Files(f) => transfer::serve(host, &mut wire, f, self.opts.chunk_size).await,
             TunnelUp::Port(p) => ports::serve(host, &self.ports, &mut wire, p).await,
