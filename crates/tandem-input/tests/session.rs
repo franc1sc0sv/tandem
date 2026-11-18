@@ -668,14 +668,20 @@ async fn la_latencia_se_mide_en_el_cliente_y_llega_al_servidor() {
 }
 
 /// Captura que tarda en tomar la entrada: mientras tanto el driver está ocupado y lo que
-/// se captura espera en el canal.
-struct SlowCapture(Duration);
+/// se captura espera en el canal. No dura un plazo fijo: avisa que ya está ocupada y
+/// espera a que la prueba la suelte, así la prueba decide cuánto tiempo pasó dentro.
+struct SlowCapture {
+    entered: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+}
 
 impl tandem_input::session::Capture for SlowCapture {
     type Error = std::convert::Infallible;
 
     fn set_grab(&mut self, _grab: bool) -> Result<(), Self::Error> {
-        std::thread::sleep(self.0);
+        let _ = self.entered.send(());
+        // Con el emisor soltado (al cerrar) no espera a nadie.
+        let _ = self.release.recv();
         Ok(())
     }
 
@@ -685,14 +691,22 @@ impl tandem_input::session::Capture for SlowCapture {
 }
 
 /// T-093 (revisión): la latencia cuenta desde la captura, no desde que el driver saca el
-/// evento del canal. Con el driver ocupado 60 ms (tomar la entrada al cruzar), lo que se
-/// capturó mientras tanto llega con esa espera en la muestra.
+/// evento del canal. Con el driver ocupado (tomar la entrada al cruzar), lo que se capturó
+/// mientras tanto llega con esa espera en la muestra. La prueba sabe cuándo el driver está
+/// ocupado (aviso de la captura) y lo suelta después de `busy` desde que capturó, así que
+/// no depende de qué tan rápido corran los hilos.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn la_latencia_incluye_la_espera_con_el_driver_ocupado() {
     let busy = Duration::from_millis(60);
     let l = link().await;
     let (tx, rx) = mpsc::unbounded_channel();
-    let mut server = ServerDriver::new(server_session(), SlowCapture(busy), rx, cfg());
+    let (entered_tx, entered) = std::sync::mpsc::channel();
+    let (release, release_rx) = std::sync::mpsc::channel::<()>();
+    let capture = SlowCapture {
+        entered: entered_tx,
+        release: release_rx,
+    };
+    let mut server = ServerDriver::new(server_session(), capture, rx, cfg());
     let mut active = server.active();
     let samples = Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = samples.clone();
@@ -726,29 +740,35 @@ async fn la_latencia_incluye_la_espera_con_el_driver_ocupado() {
     // Latidos con eco antes de medir.
     tokio::time::sleep(cfg().heartbeat_interval * 3).await;
 
-    // Cruzar ocupa al driver tomando la entrada; lo que sigue espera en el canal.
-    // Lo que sigue se captura desde otro hilo, como el del hook o el tap: el driver
-    // ocupado puede tener tomado el hilo del runtime donde corre la prueba.
+    // Cruzar ocupa al driver tomando la entrada y no lo suelta hasta que la prueba quiera.
+    // Lo que sigue se captura desde otro hilo, como el del hook o el tap, solo después de
+    // que el driver avisó que está ocupado: así espera en el canal sí o sí.
     tx.send(Captured::now(rel(60.0, 0.0))).unwrap();
     let more = tx.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(5));
+    tokio::task::spawn_blocking(move || {
+        entered.recv_timeout(TIMEOUT).unwrap();
         for _ in 0..5 {
             more.send(Captured::now(rel(1.0, 0.0))).unwrap();
         }
+        // Piso del tiempo en el canal: dormir nunca dura menos de lo pedido.
+        std::thread::sleep(busy);
+        release.send(()).unwrap();
+        // Soltado el emisor, las demás tomas de entrada no esperan.
     })
-    .join()
+    .await
     .unwrap();
+    // La espera de los movimientos llega en la muestra; esperar a verla (no a la primera
+    // muestra, que puede ser la del cruce).
+    let floor = busy * 2 / 3;
     within(async {
-        while samples.lock().unwrap().is_empty() {
+        while !samples.lock().unwrap().iter().any(|d| *d >= floor) {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
     })
     .await;
     let worst = samples.lock().unwrap().iter().copied().max().unwrap();
-    // Se capturó ~5 ms después de que el driver empezó a esperar 60 ms.
     assert!(
-        worst >= Duration::from_millis(40),
+        worst >= floor,
         "la muestra no cuenta la espera en el canal: {worst:?}"
     );
 
