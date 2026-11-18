@@ -17,7 +17,7 @@ Alcance: calidad base, reglas G1-G11 no visuales, coherencia documental, plan v0
 | `pnpm test` (vitest) | PASA: 46 archivos, 619 pruebas |
 | `pnpm check` (svelte-check `--fail-on-warnings`) | PASA: 513 archivos, 0 errores, 0 avisos |
 | `pnpm build` | PASA |
-| CI de `develop`, últimas 30 corridas | 23 verdes, 5 rojas, 2 en curso al empezar (04f2967 terminó en verde; 36c4907 terminó en rojo, ver abajo) |
+| CI de `develop`, últimas 30 corridas | 23 verdes y 5 rojas al empezar, más 36c4907 que terminó en rojo (6 rojas); 04f2967 terminó en verde |
 
 Las ignoradas son las `#[ignore = "hardware"]` y los bancos de latencia.
 
