@@ -304,11 +304,14 @@ describe("red en el demo (T-102)", () => {
     expect(n.paths[2]?.targetMs).toBe(20);
     expect(n.switches[1]).toMatchObject({ from: "usb4", to: "wifi", tookMs: 600 });
     expect(n.switches[0]?.at).toBeGreaterThan(n.switches[1]!.at);
-    // El pico de la gráfica es del Wi-Fi, en el segundo del corte (hace 25 s).
+    // El pico de la gráfica es del Wi-Fi, mientras el cable estuvo fuera (corte hace 36 s).
     const wifi = n.paths[2]!.history;
     const peak = Math.max(...wifi.map((h) => h.inputP99Ms ?? 0));
-    expect(wifi.findIndex((h) => h.inputP99Ms === peak)).toBe(59 - 25);
-    expect(DEMO_NOW - n.switches[1]!.at).toBe(25_000);
+    expect(peak).toBe(5.6);
+    expect(wifi.findIndex((h) => h.inputP99Ms === peak)).toBe(27);
+    expect(DEMO_NOW - n.switches[1]!.at).toBe(36_000);
+    expect(n.now).toBe(DEMO_NOW);
+    expect(n.paths.map((p) => p.detail)).toEqual(["USB4 · 20 Gbps", "2.5 GbE", "Wi-Fi 7 · casa"]);
     // Sin enlace, todos sin cable.
     const off = demoDesk(demoOptions("demo&trouble=peer-off")).network;
     expect(off.paths.every((p) => p.state === "unplugged" && p.history.length === 0)).toBe(true);
@@ -335,9 +338,9 @@ describe("red en el demo (T-102)", () => {
     const src = new DemoSource(demoOptions("demo&still"));
     const store = new Store(src);
     await store.start();
-    expect(await src.measureLink("wifi")).toEqual({ ok: true, text: "410 Mbps" });
+    expect(await src.measureLink("wifi")).toEqual({ ok: true, text: "Wi-Fi: 410 Mbps" });
     expect(store.desk.network.paths[2]?.gbps).toBe(0.41);
-    expect(await src.measureLink()).toEqual({ ok: true, text: "9.4 Gbps" });
+    expect(await src.measureLink()).toEqual({ ok: true, text: "USB-C: 9.4 Gbps" });
     expect((await src.measureLink("ethernet")).ok).toBe(false);
   });
 });
@@ -388,7 +391,7 @@ describe("fuente real", () => {
   });
 
   it("pide al agente lo que sabe hacer y dice lo que todavía no", async () => {
-    const act = vi.fn(async () => ({ kind: "pong" as const, link: "wifi" as const, millis: 4 }));
+    const act = vi.fn(async (_a: unknown) => ({ kind: "bandwidth" as const, link: "wifi" as const, bytes_per_sec: 51_250_000 }));
     let push: ((s: Snapshot) => void) | undefined;
     const bridge = {
       snapshot: async () => connected(),
@@ -405,7 +408,11 @@ describe("fuente real", () => {
     expect(store.desk.machines.b?.name).toBe("Nuevo");
     expect(src.can("measure")).toBe(true);
     expect(src.can("scenes")).toBe(false);
-    expect(await src.measureLink()).toEqual({ ok: true, text: "4 ms" });
+    // Sin red a la vista, mide el camino por el que se ve a la otra máquina (410 Mbps = 51.25 MB/s).
+    expect(await src.measureLink()).toEqual({ ok: true, text: "Wi-Fi: 410 Mbps" });
+    expect(act).toHaveBeenLastCalledWith({ kind: "measure_link", path: "wifi" });
+    expect(await src.measureLink("usb4")).toEqual({ ok: true, text: "USB-C: 410 Mbps" });
+    expect(act).toHaveBeenLastCalledWith({ kind: "measure_link", path: "usb4" });
     expect((await src.applyScene()).ok).toBe(false);
     act.mockResolvedValueOnce({ kind: "done" } as never);
     expect(await src.setModule("b", "clipboard", false)).toEqual({ ok: true });

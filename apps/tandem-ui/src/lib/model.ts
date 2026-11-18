@@ -215,7 +215,11 @@ export type Action =
   /** Recibir los recursos en vivo mientras la pantalla visible los muestra. */
   | { kind: "watch_resources"; on: boolean }
   /** Nombre o color de una máquina (el puesto compartido). */
-  | { kind: "set_machine"; machine: Machine; name?: string; color?: string };
+  | { kind: "set_machine"; machine: Machine; name?: string; color?: string }
+  /** La pantalla Red pide (o deja de pedir) el estado de la red, una vez por segundo (T-118). */
+  | { kind: "watch_network"; on: boolean }
+  /** Prueba de ancho de banda de un camino (3 s); contesta `bandwidth`. */
+  | { kind: "measure_link"; path: Link };
 
 /** De dónde salió la configuración del agente (`tandem_proto::SetupInfo`). */
 export interface AgentSetup {
@@ -231,7 +235,8 @@ export type ActionResult =
   | { kind: "rejected"; reason: string }
   | { kind: "unavailable"; reason: string }
   | { kind: "setup"; setup: AgentSetup }
-  | { kind: "pong"; link: Link; millis: number };
+  | { kind: "pong"; link: Link; millis: number }
+  | { kind: "bandwidth"; link: Link; bytes_per_sec: number };
 
 // Atajos globales (`tandem_ui::shortcuts`).
 export type ShortcutAction = "toggle_window";

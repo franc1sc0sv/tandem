@@ -1,41 +1,54 @@
 <script lang="ts">
-  // Red: base de T-112 (camino actual y medir el enlace). T-118 trae caminos, eventos y
-  // prioridades de `V3-Red`.
+  // Red (`V3-Red`, T-118): el mapa de enlaces, los indicadores y una tarjeta por camino. Todo
+  // sale del estado de la red del agente (`desk.network`); «Medir ancho de banda» le pide la
+  // prueba de 3 s al agente.
   import { useStore } from "../lib/context";
-  import { LINK_NAME } from "../lib/machines";
+  import { LINK_NAME, MACHINES, machineName } from "../lib/machines";
   import PageHeader from "../shell/PageHeader.svelte";
   import Button from "../ui/Button.svelte";
-  import Card from "../ui/Card.svelte";
-  import Chip from "../ui/Chip.svelte";
-  import Ring from "../ui/Ring.svelte";
+  import Indicators from "./red/Indicators.svelte";
+  import LinkMap, { type MapNode } from "./red/LinkMap.svelte";
+  import PathCard from "./red/PathCard.svelte";
 
   const store = useStore();
-  const link = $derived(store.desk.link);
-  let measuring = $state(false);
+  const network = $derived(store.desk.network);
+  const nodes = $derived(
+    MACHINES.map((id): MapNode => {
+      const m = store.desk.machines[id];
+      return { name: m?.name ?? machineName(id), os: m?.os ?? "windows", color: m?.color ?? (id === "a" ? "#7aa7e6" : "#a99be8") };
+    }),
+  );
+
+  /** Se está midiendo: por este botón o (otra ventana) según el agente. */
+  let asked = $state(false);
+  const measuring = $derived(asked || network.measuring !== null);
+  const measuringName = $derived(network.measuring ? LINK_NAME[network.measuring] : null);
 
   async function measure() {
-    measuring = true;
-    await store.measureLink();
-    measuring = false;
+    asked = true;
+    try {
+      await store.measureLink();
+    } finally {
+      asked = false;
+    }
   }
 </script>
 
 <div class="page">
-  <PageHeader title="Red">
+  <PageHeader title="Red" search={false}>
     {#snippet actions()}
-      <Button icon="refresh" motion="spin" disabled={measuring || !store.can("measure")} onclick={measure}>Medir ancho de banda</Button>
+      <Button icon="gauge" motion="tilt" style="--btn-h:38px;--btn-px:15px" disabled={measuring || !store.can("measure")} onclick={measure}>
+        {measuring ? `Midiendo${measuringName ? ` ${measuringName}` : ""}…` : "Medir ancho de banda"}
+      </Button>
     {/snippet}
   </PageHeader>
-  <Card tag="section" label="Camino actual" class="now">
-    <Ring value={link.gbps !== null ? Math.min(1, link.gbps / 10) : 0} color="#6cc59a" label="Ancho de banda" />
-    <div class="col">
-      <span class="mut sm">Camino de la entrada</span>
-      <b>{link.kind ? LINK_NAME[link.kind] : "Sin enlace"}</b>
-    </div>
-    <span class="fill"></span>
-    <span class="mono mut">{link.gbps !== null ? `${link.gbps} Gbps` : "—"} · {link.ms !== null ? `${link.ms} ms` : "—"}</span>
-    <Chip tone={link.kind ? "ok" : "bad"} pulse={link.kind !== null}>{link.kind ? "en uso" : "caído"}</Chip>
-  </Card>
+  <LinkMap {network} a={nodes[0]!} b={nodes[1]!} />
+  <Indicators {network} />
+  <section class="paths">
+    {#each network.paths as path, i (path.kind)}
+      <PathCard {path} delay={0.18 + i * 0.04} />
+    {/each}
+  </section>
 </div>
 
 <style>
@@ -45,20 +58,9 @@
     gap: 14px;
     flex: 1;
   }
-  .page :global(.card.now) {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-  .col {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .sm {
-    font-size: 12px;
-  }
-  .fill {
-    flex: 1;
+  .paths {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
   }
 </style>

@@ -143,6 +143,8 @@ export interface PathView {
   gbps: number | null;
   /** Hasta 60 muestras, una por segundo, de la más vieja a la más nueva. */
   history: LatencyPoint[];
+  /** Lo que se sabe del enlace («USB4 · 20 Gbps», «Wi-Fi 7 · casa»); `null` si el agente no lo dice. */
+  detail: string | null;
 }
 
 /** Un cambio de camino («pasó a Wi-Fi en 0.6 s»). */
@@ -163,6 +165,8 @@ export interface NetworkView {
   switches: PathSwitchView[];
   /** El camino que se está midiendo. */
   measuring: LinkKind | null;
+  /** Cuándo es el último segundo del historial (milisegundos Unix): fecha los cambios de camino. */
+  now: number;
 }
 
 /** p99 tolerado a la entrada por camino (DESIGN §7.1). */
@@ -177,6 +181,7 @@ const unplugged = (kind: LinkKind): PathView => ({
   targetMs: INPUT_TARGET_MS[kind],
   gbps: null,
   history: [],
+  detail: null,
 });
 
 /** Sin red: los tres caminos sin cable. */
@@ -184,6 +189,7 @@ export const EMPTY_NETWORK: NetworkView = {
   paths: (["usb4", "ethernet", "wifi"] as LinkKind[]).map(unplugged),
   switches: [],
   measuring: null,
+  now: 0,
 };
 
 export type TunnelState = "busy" | "idle" | "closed";

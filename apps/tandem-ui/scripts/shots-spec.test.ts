@@ -1,7 +1,7 @@
 import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
 
-import { SHOTS, SIDEBAR_GATE, appUrl, crop, mask } from "./shots-spec.ts";
+import { SCREEN_GATE, SHOTS, SIDEBAR_GATE, appUrl, crop, mask } from "./shots-spec.ts";
 
 function solid(w: number, h: number, rgb: [number, number, number]): Buffer {
   const p = new PNG({ width: w, height: h });
@@ -56,6 +56,16 @@ describe("arnés de capturas", () => {
   it("recorta la zona pedida", () => {
     const out = PNG.sync.read(crop(solid(6, 5, [9, 9, 9]), { x: 1, y: 2, width: 3, height: 9 }));
     expect([out.width, out.height]).toEqual([3, 3]);
+  });
+
+  it("la pantalla Red entera exige el umbral y solo tapa lo permitido por mockups/README.md", () => {
+    const red = SHOTS.find((s) => s.name === "red");
+    expect(red?.mockup).toBe("V3-Red");
+    expect(red?.min).toEqual(SCREEN_GATE);
+    expect(SCREEN_GATE).toEqual({ similarity: 0.99, worstTile: 0.97 });
+    expect(red?.ignore?.map((i) => i.reason.split(":")[0])).toEqual(["D1", "T-102"]);
+    // Una sola zona de la pantalla se tapa además de D1: el rótulo de la ventana de la gráfica.
+    expect(red?.ignore?.[1]?.mockupSelector).toContain("Latencia · 10 min");
   });
 
   it("tapa las zonas pedidas y nada más", () => {

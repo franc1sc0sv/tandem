@@ -567,8 +567,12 @@
     "mockup": "V3-Red",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9771,
-      "worstTile": 0.7886,
+      "similarity": 0.9998,
+      "worstTile": 0.9792,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
       "ok": true
     },
     "zonas": [

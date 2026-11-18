@@ -10,8 +10,9 @@ import type { Bridge } from "../bridge";
 import { nextLive, summaryOf } from "../machine";
 import { machineColor, machineName, other } from "../machines";
 import type { Action, ActionResult, Bindings, Caps, Link, Machine, MachineCaps, Permission, ResourceSample, SetupView, ShortcutsView, Snapshot } from "../model";
+import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { grantTo, permissionState } from "../permissions";
-import type { ActResult, Capability, DeskView, EnvView, HardwareView, LiveView, MachineView, ModuleView, PairActionKind, PermissionsView, Source, Topic } from "./types";
+import type { ActResult, Capability, DeskView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, PairActionKind, PermissionsView, Source, Topic } from "./types";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK } from "./types";
 
@@ -119,8 +120,14 @@ function machineView(who: Machine, here: Machine, caps: Caps, snap: Extract<Snap
 
 const LINK_KIND: Record<Link, DeskView["link"]["kind"]> = { usb4: "usb4", ethernet: "ethernet", wifi: "wifi" };
 
+/** El resumen del camino que lleva la entrada; los números salen de la red si se está mirando. */
+function linkOf(kind: DeskView["link"]["kind"], network: NetworkView): DeskView["link"] {
+  const p = kind && primaryOf(network)?.kind === kind ? primaryOf(network) : null;
+  return { kind, gbps: p?.gbps ?? null, ms: p?.rttMs ?? null, inputP99: p?.inputP99Ms ?? null };
+}
+
 /** El puesto que dibuja la UI a partir de la foto del agente. Puro; lanza `ShapeError`. */
-export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}): DeskView {
+export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, network: NetworkView = EMPTY_NETWORK): DeskView {
   const snap: unknown = raw;
   checkSnapshot(snap);
   if (snap.kind === "connecting") return EMPTY_DESK;
@@ -152,7 +159,8 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}): DeskV
     troubleText,
     here,
     machines,
-    link: { kind: snap.peer.kind === "paired" && snap.peer.link ? LINK_KIND[snap.peer.link] : null, gbps: null, ms: null, inputP99: null },
+    link: linkOf(snap.peer.kind === "paired" && snap.peer.link ? LINK_KIND[snap.peer.link] : null, network),
+    network,
     pair: { peer: snap.peer, pairing: snap.pairing },
     permissions: permissionsOf(snap.caps.here),
     layout: layoutFromDesk(snap),
@@ -222,6 +230,9 @@ export class LiveSource implements Source {
   private live: LiveByMachine = {};
   /** Se le pidieron al agente los recursos en vivo. */
   private watching = false;
+  private network: NetworkView = EMPTY_NETWORK;
+  /** Se le pidió al agente la red en vivo. */
+  private watchingNetwork = false;
 
   constructor(private readonly bridge: Bridge) {}
 
@@ -229,7 +240,7 @@ export class LiveSource implements Source {
     // Un error al leer una foto no cuelga la ventana: se muestra como «sin agente» con la razón.
     const push = (s: Snapshot) => {
       try {
-        const d = deskFromSnapshot(s, this.live);
+        const d = deskFromSnapshot(s, this.live, s.kind === "connected" ? this.network : EMPTY_NETWORK);
         this.last = s;
         onDesk(d);
       } catch (e) {
@@ -246,17 +257,31 @@ export class LiveSource implements Source {
         if (this.last.kind === "connected") push(this.last);
       }),
     ).catch(() => {});
+    // Lo mismo con la red: cada estado se pinta con la última foto.
+    void Promise.resolve(
+      this.bridge.onNetwork?.((w) => {
+        this.network = networkFromWire(w, Date.now());
+        if (this.last.kind === "connected") push(this.last);
+      }),
+    ).catch(() => {});
     push(await this.bridge.snapshot());
   }
 
-  /** Los recursos solo se muestrean mientras una pantalla visible los muestra. */
+  /** Los recursos y la red solo se piden mientras una pantalla visible los muestra. */
   watch(topics: Topic[]): void {
     this.topics = [...topics];
-    const want = topics.includes("resources");
-    if (want === this.watching || typeof this.bridge.act !== "function") return;
-    this.watching = want;
-    // La sesión recuerda el pedido y lo repite al reconectar; si falla ahora, no hay agente.
-    this.bridge.act({ kind: "watch_resources", on: want }).catch(() => {});
+    if (typeof this.bridge.act !== "function") return;
+    const resources = topics.includes("resources");
+    if (resources !== this.watching) {
+      this.watching = resources;
+      // La sesión recuerda el pedido y lo repite al reconectar; si falla ahora, no hay agente.
+      this.bridge.act({ kind: "watch_resources", on: resources }).catch(() => {});
+    }
+    const network = topics.includes("network");
+    if (network !== this.watchingNetwork) {
+      this.watchingNetwork = network;
+      this.bridge.act({ kind: "watch_network", on: network }).catch(() => {});
+    }
   }
 
   private async ask(action: Action): Promise<ActResult> {
@@ -277,9 +302,13 @@ export class LiveSource implements Source {
     return { ok: false, reason: "reason" in r ? r.reason : "El agente no lo aceptó" };
   }
 
-  async measureLink(): Promise<ActResult> {
-    const r = await this.bridge.act({ kind: "ping_peer" });
-    if (r.kind === "pong") return { ok: true, text: `${r.millis} ms` };
+  /** Prueba de ancho de banda de 3 s por `path` (por omisión, el camino que lleva la entrada). */
+  async measureLink(path?: LinkKind): Promise<ActResult> {
+    const peerLink = this.last.kind === "connected" && this.last.peer.kind === "paired" ? this.last.peer.link : null;
+    const kind = path ?? primaryOf(this.network)?.kind ?? peerLink;
+    if (!kind) return { ok: false, reason: "Sin enlace con la otra máquina" };
+    const r = await this.bridge.act({ kind: "measure_link", path: kind });
+    if (r.kind === "bandwidth") return { ok: true, text: measuredText(kind, gbpsOf(r.bytes_per_sec) ?? 0) };
     return { ok: false, reason: "reason" in r ? r.reason : "Sin respuesta de la otra máquina" };
   }
 

@@ -38,6 +38,8 @@ pub const SNAPSHOT_EVENT: &str = "agent-snapshot";
 pub const NOTICE_EVENT: &str = "agent-notice";
 /// Una muestra de recursos en vivo (`{ machine, resources }`), solo con `watch_resources`.
 pub const RESOURCES_EVENT: &str = "agent-resources";
+/// El estado de la red (`NetworkView`), una vez por segundo y solo con `watch_network`.
+pub const NETWORK_EVENT: &str = "agent-network";
 pub const MESSAGE_EVENT: &str = "ui-message";
 pub const SHORTCUTS_EVENT: &str = "ui-shortcuts";
 
@@ -149,6 +151,10 @@ impl Sink for Windows {
             RESOURCES_EVENT,
             serde_json::json!({ "machine": machine, "resources": resources }),
         );
+    }
+
+    fn network(&self, network: &crate::session::NetworkView) {
+        let _ = self.0.emit(NETWORK_EVENT, network);
     }
 }
 
