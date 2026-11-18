@@ -215,7 +215,7 @@ async fn cerrar_desde_el_origen_suelta_los_recursos_en_la_destino() {
     for view in [tunnels_a.view(), tunnels_b.view()] {
         assert_eq!(view.len(), 1);
         assert_eq!(view[0].project.as_ref().unwrap().name, "tandem");
-        assert_eq!(view[0].tunnels[0].id, t.id);
+        assert_eq!(view[0].tunnels[0].tunnel.id, t.id);
     }
 
     let ht = tunnels_b.host.get(t.id).unwrap();

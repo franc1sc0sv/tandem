@@ -16,7 +16,10 @@ use crate::cursor::CursorSample;
 use crate::env::{Environment, Hardware, Resources};
 use crate::files::{Direction, FilesReport, ForwardInfo, TransferProgress};
 use crate::net::NetworkStatus;
-use crate::tunnel::{ClientKind, Project, ProjectTunnels, Tunnel, TunnelId};
+use crate::tunnel::{
+    ClientKind, ExecSpec, OutputCursor, ProcessId, ProcessOutput, Project, ProjectTunnels, Tunnel,
+    TunnelId, TunnelProcess,
+};
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
 
 /// Quién abre la conexión.
@@ -688,6 +691,30 @@ pub enum UiCommand {
     StopForward {
         id: u64,
     },
+    /// Lanzar un proceso en un túnel abierto desde esta máquina (T-104). Solo desde un
+    /// [`Peer::Client`]; contesta [`Reply::Process`].
+    Exec {
+        tunnel: TunnelId,
+        spec: ExecSpec,
+    },
+    /// Matar un proceso con todo su árbol. Solo desde un [`Peer::Client`].
+    Kill {
+        tunnel: TunnelId,
+        process: ProcessId,
+    },
+    /// La salida de un proceso desde `from` (hasta `max` bytes de cada flujo); contesta
+    /// [`Reply::Output`].
+    Output {
+        tunnel: TunnelId,
+        process: ProcessId,
+        from: OutputCursor,
+        max: u32,
+    },
+    /// Los procesos de un túnel, también los que terminaron hace poco
+    /// ([`Reply::Processes`]).
+    GetProcesses {
+        tunnel: TunnelId,
+    },
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -936,6 +963,10 @@ pub enum Reply {
     Files(FilesReport),
     /// El puerto que quedó reenviándose ([`UiCommand::PortForward`]).
     Forward(ForwardInfo),
+    /// El proceso que se lanzó (T-104).
+    Process(Box<TunnelProcess>),
+    Processes(Vec<TunnelProcess>),
+    Output(Box<ProcessOutput>),
 }
 
 /// Avance de una transacción, para que la UI muestre cada paso.
@@ -1595,6 +1626,32 @@ pub(crate) mod samples {
                 direction: Direction::RemoteToLocal,
             },
             UiCommand::StopForward { id: 7 },
+            UiCommand::Exec {
+                tunnel: crate::TunnelId(1),
+                spec: ExecSpec {
+                    cmd: "cargo".into(),
+                    args: vec!["test".into()],
+                    shell: Some("zsh".into()),
+                    cwd: Some("/src/tandem".into()),
+                    env: vec![("RUST_LOG".into(), "info".into())],
+                },
+            },
+            UiCommand::Kill {
+                tunnel: crate::TunnelId(1),
+                process: ProcessId(2),
+            },
+            UiCommand::Output {
+                tunnel: crate::TunnelId(1),
+                process: ProcessId(2),
+                from: OutputCursor {
+                    stdout: 10,
+                    stderr: u64::MAX,
+                },
+                max: 65536,
+            },
+            UiCommand::GetProcesses {
+                tunnel: crate::TunnelId(1),
+            },
         ];
         let mut cmds = cmds;
         cmds.extend(
@@ -1651,6 +1708,10 @@ pub(crate) mod samples {
             UiCommand::FilesGet { .. } => 35,
             UiCommand::PortForward { .. } => 36,
             UiCommand::StopForward { .. } => 37,
+            UiCommand::Exec { .. } => 38,
+            UiCommand::Kill { .. } => 39,
+            UiCommand::Output { .. } => 40,
+            UiCommand::GetProcesses { .. } => 41,
         }
     }
 
@@ -1870,6 +1931,34 @@ pub(crate) mod samples {
             id: 14,
             reply: Reply::Tunnels(crate::group_by_project([tunnel_sample()])),
         });
+        v.push(AgentToUi::Tunnels(crate::group_by_project([
+            crate::TunnelView {
+                tunnel: tunnel_sample(),
+                running: vec![process_sample()],
+            },
+        ])));
+        v.push(AgentToUi::Reply {
+            id: 15,
+            reply: Reply::Process(Box::new(process_sample())),
+        });
+        v.push(AgentToUi::Reply {
+            id: 16,
+            reply: Reply::Processes(vec![process_sample()]),
+        });
+        v.push(AgentToUi::Reply {
+            id: 17,
+            reply: Reply::Output(Box::new(ProcessOutput {
+                process: process_sample(),
+                stdout: b"ok\n".to_vec(),
+                stderr: vec![0xff, b'\n'],
+                from: OutputCursor::default(),
+                next: OutputCursor {
+                    stdout: 3,
+                    stderr: 2,
+                },
+                done: true,
+            })),
+        });
         v.push(AgentToUi::Monitors(monitor_views()));
         v.push(AgentToUi::Reply {
             id: 12,
@@ -2012,6 +2101,9 @@ pub(crate) mod samples {
             Reply::Bandwidth { .. } => 16,
             Reply::Files(_) => 17,
             Reply::Forward(_) => 18,
+            Reply::Process(_) => 19,
+            Reply::Processes(_) => 20,
+            Reply::Output(_) => 21,
         }
     }
 
@@ -2021,6 +2113,22 @@ pub(crate) mod samples {
             Peer::Agent(Machine::B) => 1,
             Peer::Ui => 2,
             Peer::Client(_) => 3,
+        }
+    }
+
+    pub fn process_sample() -> TunnelProcess {
+        TunnelProcess {
+            id: ProcessId(1),
+            tunnel: tunnel_sample().id,
+            command: "cargo test".into(),
+            shell: Some("wsl:Ubuntu-24.04".into()),
+            cwd: Some("/src/tandem".into()),
+            pid: Some(4242),
+            stdout: crate::FlowId(1),
+            stderr: crate::FlowId(2),
+            started: 1_763_400_000_000,
+            duration: None,
+            state: crate::ProcessState::Running,
         }
     }
 
@@ -2075,7 +2183,7 @@ mod tests {
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
         covers(&control(), control_arm, 22);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 38);
+        covers(&cmds, ui_command_arm, 42);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
         covers(&to_ui(), to_ui_arm, 19);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
@@ -2094,7 +2202,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        covers(&replies, reply_arm, 19);
+        covers(&replies, reply_arm, 22);
         covers(&txn_events(), txn_arm, 7);
     }
 

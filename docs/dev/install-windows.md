@@ -9,7 +9,10 @@ su lanzador sin consola `tandemw.exe`, y deja el agente arrancando con la sesió
 1. Descarga el artefacto `tandem-windows-installer` del CI (job `instalador (windows)`) o
    constrúyelo (ver abajo).
 2. Ejecuta `Tandem_<versión>_x64-setup.exe`. No pide administrador: se instala para el
-   usuario actual en `%LOCALAPPDATA%\Tandem`.
+   usuario actual en `%LOCALAPPDATA%\Tandem`. **Para que Claude pueda correr cosas como
+   administrador en esta PC** (D8, A7), ejecútalo con *Ejecutar como administrador* (o desde
+   una terminal elevada): el agente se registra entonces con los privilegios más altos (ver
+   «Privilegios de los túneles»).
 3. Al terminar, `tandemd` ya está corriendo; no hace falta cerrar sesión.
 
 Instalación desatendida: `Tandem_<versión>_x64-setup.exe /S`.
@@ -21,7 +24,7 @@ Qué deja el instalador:
 | Programa (la app, `tandemd.exe`, `tandemw.exe`, `uninstall.exe`) | `%LOCALAPPDATA%\Tandem` |
 | Configuración (`tandem.toml`, la genera el agente al arrancar) | `%APPDATA%\Tandem\tandem.toml` |
 | Estado y logs del agente | `%APPDATA%\Tandem` (`state.json`, `logs\`) |
-| Arranque con la sesión | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, valor `tandemd` |
+| Arranque con la sesión | Con administrador, la tarea programada `Tandem\tandemd` (privilegios más altos); sin él, `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, valor `tandemd` |
 | Accesos directos | Menú Inicio (y escritorio en la instalación desatendida) |
 
 ### Configuración automática
@@ -59,9 +62,30 @@ netsh interface ipv4 show excludedportrange protocol=udp
 
 ## Arranque automático
 
-Al terminar de copiar, el instalador ejecuta `tandemd --install`, que registra en la clave
-`Run` de `HKCU` el valor `tandemd` = `"…\Tandem\tandemw.exe"`, y arranca el agente (que
-genera la configuración si no hay).
+Al terminar de copiar, el instalador ejecuta `tandemd --install`, que registra el arranque
+con la sesión y arranca el agente (que genera la configuración si no hay). Qué registra
+depende de si el instalador tiene administrador:
+
+- **Con administrador y el programa en una ruta solo de administradores** (por ejemplo
+  `%ProgramFiles%\Tandem`): la tarea programada `Tandem\tandemd`, con disparador «al iniciar
+  sesión» del usuario y `RunLevel = HighestAvailable` (los privilegios más altos, sin
+  confirmación de UAC en cada inicio). Se define con un XML, no con las opciones de
+  `schtasks /Create` y se registra por la API COM del Programador de tareas, sin archivos
+  intermedios, para no heredar los valores por omisión del Programador de tareas
+  (detener la tarea a los 3 días y no arrancar con batería); la tarea no tiene límite de
+  tiempo. Con la tarea registrada se quita el valor de `Run`, para no arrancar dos copias.
+  Antes de registrarla se lee la ACL del ejecutable y de su carpeta: si `Users`,
+  `Authenticated Users`, `Everyone` o el usuario pueden escribir ahí, no se registra (si no,
+  cualquier proceso del usuario cambiaría el `.exe` y lo correría elevado sin UAC).
+- **Sin administrador, o con el programa en una ruta escribible por el usuario** (la
+  instalación por usuario en `%LOCALAPPDATA%\Tandem`): la clave `Run` de `HKCU`, valor
+  `tandemd` = `"…\Tandem\tandemw.exe"`, y un aviso en el log y por consola. El agente corre
+  sin elevar y lo que se lance en un túnel también.
+
+Para pasar de una a otra, vuelve a ejecutar `tandemd --install` (o el instalador) como
+administrador. Desinstalar quita las dos; quitar la tarea también pide administrador (si el
+desinstalador no lo tiene, avisa y deja la tarea: bórrala con `schtasks /Delete /F /TN
+Tandem\tandemd` desde una terminal elevada).
 
 `tandemw.exe` es un lanzador de subsistema gráfico que arranca `tandemd.exe` con
 `CREATE_NO_WINDOW`: `tandemd` es una aplicación de consola (su CLI escribe en la terminal) y
@@ -69,10 +93,22 @@ lanzado directamente desde `Run` abriría una ventana negra en cada inicio de se
 argumentos pasan tal cual y el código de salida es el de `tandemd`; los errores van al log en
 `%APPDATA%\Tandem\logs`.
 
-Se eligió la clave `Run` de `HKCU` (y no una tarea programada) porque no pide administrador,
-solo afecta al usuario que instala y es lo que Windows muestra en *Administrador de tareas →
-Aplicaciones de inicio*, donde se puede desactivar. El modo servicio SYSTEM con escritorio
-seguro (UAC, pantalla de inicio de sesión) es T-027 y queda como mejora posterior.
+La clave `Run` queda como alternativa porque no pide administrador, solo afecta al usuario
+que instala y es lo que Windows muestra en *Administrador de tareas → Aplicaciones de
+inicio*, donde se puede desactivar. El modo servicio SYSTEM con escritorio seguro (UAC,
+pantalla de inicio de sesión) es T-027 y queda como mejora posterior.
+
+### Privilegios de los túneles
+
+Lo que se lanza en un túnel (`exec`, T-104) corre con los privilegios del agente (A7): nada
+en Tandem los sube ni los baja. Si el agente arrancó desde la tarea de arriba, los procesos
+son de administrador (`net session` responde sin error de acceso); si arrancó desde `Run`,
+son del usuario. Un proceso elevado es un riesgo asumido (D8): solo entra por la IPC local del
+usuario y el enlace autenticado (DESIGN §11).
+
+Al actualizar con un agente elevado, el instalador (sin administrador) puede no lograr
+detenerlo y los `.exe` quedan bloqueados: ejecuta también la actualización como
+administrador.
 
 Para registrarlo o quitarlo a mano:
 

@@ -6,10 +6,11 @@
 //!   (T-101).
 //! - [`follow_link`] le pasa al origen cada enlace activo nuevo: si el camino cambia, los
 //!   seguidores retoman la salida por el nuevo desde el último byte recibido.
-//! - [`handle`]: los pedidos de la IPC. Abrir y cerrar solo lo puede un cliente
+//! - [`handle`]: los pedidos de la IPC. Abrir, cerrar, lanzar procesos y matarlos solo lo
+//!   puede un cliente
 //!   ([`Peer::Client`](tandem_proto::Peer::Client): `tandem mcp` o la CLI), que corre como
 //!   el usuario y entra por la IPC local, que solo acepta a ese usuario (DESIGN §11). La
-//!   UI solo mira (D9).
+//!   UI solo mira (D9): la lista de procesos y su salida sí puede leerlas.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -237,6 +238,24 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
                 return Reply::Rejected(CLIENTS_ONLY.into());
             }
             files_and_ports(agent, cmd).await
+        }
+        UiCommand::Exec { tunnel, spec } => {
+            if client.is_none() {
+                return Reply::Rejected(CLIENTS_ONLY.into());
+            }
+            match agent.tunnels().origin.exec(tunnel, spec).await {
+                Ok(p) => Reply::Process(Box::new(p)),
+                Err(e) => Reply::Rejected(e.to_string()),
+            }
+        }
+        UiCommand::Kill { tunnel, process } => {
+            if client.is_none() {
+                return Reply::Rejected(CLIENTS_ONLY.into());
+            }
+            match agent.tunnels().origin.kill(tunnel, process).await {
+                Ok(()) => Reply::Done,
+                Err(e) => Reply::Rejected(e.to_string()),
+            }
         }
         other => agent.handle(other),
     }

@@ -85,6 +85,90 @@ pub struct FlowInfo {
     pub label: String,
 }
 
+/// Un proceso dentro de un túnel (T-104). Su id es único dentro del túnel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ProcessId(pub u32);
+
+impl fmt::Display for ProcessId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "p{}", self.0)
+    }
+}
+
+/// Qué lanzar en la destino (`exec`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecSpec {
+    /// El programa; con `shell`, la línea de órdenes que interpreta ese shell.
+    pub cmd: String,
+    pub args: Vec<String>,
+    /// Un entorno detectado de la destino ([`crate::Environment::id`]: `zsh`, `pwsh`,
+    /// `cmd`, `wsl:<distro>`), o `docker:<contenedor>`. `None`: el programa directo, sin
+    /// shell.
+    pub shell: Option<String>,
+    /// Carpeta de trabajo en la destino (la del agente si no hay).
+    pub cwd: Option<String>,
+    /// Variables que se agregan a las del agente.
+    pub env: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ProcessState {
+    Running,
+    /// Terminó solo; `code` es `None` si lo terminó una señal.
+    Exited {
+        code: Option<i32>,
+    },
+    /// Lo mató `kill` o el cierre del túnel (con todo su árbol).
+    Killed,
+}
+
+/// Un proceso de un túnel tal como lo ven las dos máquinas.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TunnelProcess {
+    pub id: ProcessId,
+    pub tunnel: TunnelId,
+    /// Para mostrar: el programa y sus argumentos.
+    pub command: String,
+    pub shell: Option<String>,
+    pub cwd: Option<String>,
+    /// El del sistema en la destino, si lo dio.
+    pub pid: Option<u32>,
+    pub stdout: FlowId,
+    pub stderr: FlowId,
+    /// Milisegundos desde 1970 (UTC), según el reloj de la destino.
+    pub started: u64,
+    /// Milisegundos que corrió, cuando ya terminó.
+    pub duration: Option<u64>,
+    pub state: ProcessState,
+}
+
+impl TunnelProcess {
+    pub fn is_running(&self) -> bool {
+        self.state == ProcessState::Running
+    }
+}
+
+/// Cuántos bytes de cada salida ya tiene quien lee (`output { from_byte }`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputCursor {
+    pub stdout: u64,
+    pub stderr: u64,
+}
+
+/// La salida de un proceso desde un [`OutputCursor`], con stdout y stderr por separado.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessOutput {
+    pub process: TunnelProcess,
+    pub stdout: Vec<u8>,
+    pub stderr: Vec<u8>,
+    /// Dónde empieza lo devuelto: lo pedido, o más adelante si eso ya se descartó.
+    pub from: OutputCursor,
+    /// Lo que hay que pedir la próxima vez.
+    pub next: OutputCursor,
+    /// El proceso terminó y ya no queda salida por leer.
+    pub done: bool,
+}
+
 /// Del origen a la destino. Cada stream lleva un solo pedido.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TunnelUp {
@@ -105,6 +189,13 @@ pub enum TunnelUp {
     Files(crate::FilesUp),
     /// Puertos (T-106), por su propio stream.
     Port(crate::PortUp),
+    /// Lanzar un proceso en el túnel (T-104). Contesta [`TunnelDown::Started`].
+    Exec { tunnel: TunnelId, spec: ExecSpec },
+    /// Matar un proceso con todo su árbol. Contesta [`TunnelDown::Killed`].
+    Kill {
+        tunnel: TunnelId,
+        process: ProcessId,
+    },
 }
 
 /// De la destino al origen.
@@ -141,6 +232,28 @@ pub enum TunnelDown {
     Files(crate::FilesDown),
     /// Puertos (T-106), por su propio stream.
     Port(crate::PortDown),
+    /// El proceso que se lanzó.
+    Started(TunnelProcess),
+    Killed(ProcessId),
+    /// Por el canal de datos: un proceso del túnel, cada vez que cambia (termina).
+    Process(TunnelProcess),
+}
+
+/// Un túnel en la UI, con los procesos que están corriendo en él (los terminados salen de
+/// la lista; por MCP se pueden consultar un rato más).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TunnelView {
+    pub tunnel: Tunnel,
+    pub running: Vec<TunnelProcess>,
+}
+
+impl From<Tunnel> for TunnelView {
+    fn from(tunnel: Tunnel) -> Self {
+        TunnelView {
+            tunnel,
+            running: Vec::new(),
+        }
+    }
 }
 
 /// Los túneles de un proyecto, para la UI (solo lectura, D9). `project` es `None` para
@@ -148,24 +261,27 @@ pub enum TunnelDown {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectTunnels {
     pub project: Option<Project>,
-    pub tunnels: Vec<Tunnel>,
+    pub tunnels: Vec<TunnelView>,
 }
 
 /// Agrupa por proyecto, en orden de proyecto (los sin proyecto al final) y, dentro de cada
 /// uno, del más viejo al más nuevo.
-pub fn group_by_project(tunnels: impl IntoIterator<Item = Tunnel>) -> Vec<ProjectTunnels> {
+pub fn group_by_project(
+    tunnels: impl IntoIterator<Item = impl Into<TunnelView>>,
+) -> Vec<ProjectTunnels> {
     let mut groups: Vec<ProjectTunnels> = Vec::new();
     for t in tunnels {
-        match groups.iter_mut().find(|g| g.project == t.project) {
+        let t: TunnelView = t.into();
+        match groups.iter_mut().find(|g| g.project == t.tunnel.project) {
             Some(g) => g.tunnels.push(t),
             None => groups.push(ProjectTunnels {
-                project: t.project.clone(),
+                project: t.tunnel.project.clone(),
                 tunnels: vec![t],
             }),
         }
     }
     for g in &mut groups {
-        g.tunnels.sort_by_key(|t| (t.created, t.id));
+        g.tunnels.sort_by_key(|t| (t.tunnel.created, t.tunnel.id));
     }
     // `None` < `Some` en `Option`: se invierte para dejarlos al final.
     groups.sort_by(|a, b| match (&a.project, &b.project) {
@@ -214,7 +330,7 @@ mod tests {
             .map(|g| {
                 (
                     g.project.as_ref().map(|p| p.name.clone()),
-                    g.tunnels.iter().map(|t| t.id.0).collect(),
+                    g.tunnels.iter().map(|t| t.tunnel.id.0).collect(),
                 )
             })
             .collect();
@@ -243,6 +359,38 @@ mod tests {
         assert_eq!(decode::<TunnelDown>(&encode(&down).unwrap()).unwrap(), down);
         let open = TunnelUp::Open(tunnel(9, Some("x"), 3));
         assert_eq!(decode::<TunnelUp>(&encode(&open).unwrap()).unwrap(), open);
+        let exec = TunnelUp::Exec {
+            tunnel: TunnelId(1),
+            spec: ExecSpec {
+                cmd: "cargo test".into(),
+                args: vec!["--".into(), "ñ".into()],
+                shell: Some("wsl:Ubuntu-24.04".into()),
+                cwd: Some("/src".into()),
+                env: vec![("RUST_LOG".into(), "debug".into())],
+            },
+        };
+        assert_eq!(decode::<TunnelUp>(&encode(&exec).unwrap()).unwrap(), exec);
+        let process = TunnelDown::Process(process_sample());
+        assert_eq!(
+            decode::<TunnelDown>(&encode(&process).unwrap()).unwrap(),
+            process
+        );
+    }
+
+    pub(crate) fn process_sample() -> TunnelProcess {
+        TunnelProcess {
+            id: ProcessId(3),
+            tunnel: TunnelId(7),
+            command: "cargo test".into(),
+            shell: Some("pwsh".into()),
+            cwd: None,
+            pid: Some(4242),
+            stdout: FlowId(5),
+            stderr: FlowId(6),
+            started: 1_763_400_000_000,
+            duration: Some(1500),
+            state: ProcessState::Exited { code: Some(101) },
+        }
     }
 
     #[test]

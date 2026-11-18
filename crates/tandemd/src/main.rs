@@ -121,12 +121,23 @@ fn backends(args: &RunArgs, paths: &Paths) -> (Backends, NetOptions) {
 
 #[cfg(windows)]
 fn install(args: RunArgs) -> anyhow::Result<()> {
-    use tandemd::install::{self, RunKey};
+    use tandemd::install::{self, AgentInstall, HighestTask, NotElevated, RunKey, WinAcl};
 
     let paths = Paths::resolve(args.config.clone(), args.data_dir.clone())?;
     let exe = std::env::current_exe().context("no se encontró el ejecutable de tandemd")?;
     let launcher = install::launcher_for(&exe, |p| p.is_file());
-    let report = install::install(&mut RunKey, &install::command_line(&launcher, &args))?;
+    let user = match (std::env::var("USERDOMAIN"), std::env::var("USERNAME")) {
+        (Ok(domain), Ok(name)) => Some(format!("{domain}\\{name}")),
+        _ => None,
+    };
+    let installed = install::install_agent(
+        &mut HighestTask,
+        &WinAcl,
+        &mut RunKey,
+        &launcher,
+        &args,
+        user.as_deref(),
+    )?;
     if paths.config.exists() {
         println!("se conserva la configuración de {}", paths.config.display());
     } else {
@@ -135,13 +146,34 @@ fn install(args: RunArgs) -> anyhow::Result<()> {
             paths.config.display()
         );
     }
-    println!("arranque con la sesión: {}", report.command);
+    match installed {
+        AgentInstall::Task { .. } => println!(
+            "arranque con la sesión: tarea programada «{}» con los privilegios más altos",
+            install::TASK_NAME
+        ),
+        AgentInstall::RunKey(report, reason) => {
+            let why = match reason {
+                NotElevated::NoAdmin => "sin administrador".to_owned(),
+                NotElevated::NoUser => "no se conoce el usuario".to_owned(),
+                NotElevated::Writable(why) => {
+                    format!("{why}: instala en %ProgramFiles% para elevarlo")
+                }
+            };
+            println!(
+                "arranque con la sesión: {} ({why}: los túneles correrán sin elevar)",
+                report.command
+            );
+        }
+    }
     Ok(())
 }
 
 #[cfg(windows)]
 fn uninstall() -> anyhow::Result<()> {
-    if tandemd::install::uninstall(&mut tandemd::install::RunKey)? {
+    use tandemd::install::{HighestTask, RunKey, uninstall_agent};
+
+    let (task, run) = uninstall_agent(&mut HighestTask, &mut RunKey)?;
+    if task || run {
         println!("arranque con la sesión quitado");
     } else {
         println!("el arranque con la sesión no estaba registrado");

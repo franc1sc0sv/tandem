@@ -12,7 +12,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tandem_core::Machine;
 use tandem_proto::{
-    Client, FlowId, FlowInfo, Project, Tunnel, TunnelDown, TunnelId, TunnelState, TunnelUp,
+    Client, ExecSpec, FlowId, FlowInfo, OutputCursor, ProcessId, ProcessOutput, Project, Tunnel,
+    TunnelDown, TunnelId, TunnelProcess, TunnelState, TunnelUp, TunnelView,
 };
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
@@ -20,6 +21,7 @@ use tokio::time::Instant;
 
 use crate::Changes;
 use crate::buffer::{DEFAULT_CAPACITY, OutputBuffer, Read};
+use crate::process::output::{self, FlowRead};
 use crate::wire::{Dialer, WireError};
 
 /// El enlace por el que se habla con la otra máquina; `None` si ninguno la ve.
@@ -65,6 +67,8 @@ pub enum TunnelError {
     SameMachine(Machine),
     #[error("no hay ningún túnel {0} abierto desde esta máquina")]
     Unknown(TunnelId),
+    #[error("el túnel {0} no tiene el proceso {1}")]
+    UnknownProcess(TunnelId, ProcessId),
     #[error("no se pudo elegir un id al azar: {0}")]
     Entropy(String),
 }
@@ -112,9 +116,17 @@ struct OriginInner {
 struct Entry {
     info: Tunnel,
     flows: BTreeMap<FlowId, Mirror>,
+    /// Los procesos que avisó la destino, también los terminados hace menos de `linger`.
+    processes: BTreeMap<ProcessId, Proc>,
     follower: Option<JoinHandle<()>>,
     /// Desde cuándo está cerrado; pasado `linger` se olvida.
     closed_at: Option<Instant>,
+}
+
+struct Proc {
+    info: TunnelProcess,
+    /// Desde cuándo se sabe que terminó; pasado `linger` se olvida con sus flujos.
+    ended_at: Option<Instant>,
 }
 
 struct Mirror {
@@ -209,6 +221,7 @@ impl Origin {
             Entry {
                 info: opened.clone(),
                 flows: BTreeMap::new(),
+                processes: BTreeMap::new(),
                 follower: None,
                 closed_at: None,
             },
@@ -273,6 +286,104 @@ impl Origin {
             .collect()
     }
 
+    /// Lanza un proceso en el túnel `id` de la otra máquina (T-104). Los procesos son de
+    /// ese túnel: cerrarlo los mata.
+    pub async fn exec(&self, id: TunnelId, spec: ExecSpec) -> Result<TunnelProcess, TunnelError> {
+        if !self.inner.tunnels().contains_key(&id) {
+            return Err(TunnelError::Unknown(id));
+        }
+        match self
+            .inner
+            .request(TunnelUp::Exec { tunnel: id, spec })
+            .await?
+        {
+            TunnelDown::Started(p) => {
+                self.inner.note_process(id, &p);
+                Ok(p)
+            }
+            _ => Err(TunnelError::Unexpected),
+        }
+    }
+
+    /// Mata un proceso del túnel con todo su árbol. Su estado nuevo llega por el canal de
+    /// datos.
+    pub async fn kill(&self, id: TunnelId, process: ProcessId) -> Result<(), TunnelError> {
+        if !self.inner.tunnels().contains_key(&id) {
+            return Err(TunnelError::Unknown(id));
+        }
+        match self
+            .inner
+            .request(TunnelUp::Kill {
+                tunnel: id,
+                process,
+            })
+            .await?
+        {
+            TunnelDown::Killed(_) => Ok(()),
+            _ => Err(TunnelError::Unexpected),
+        }
+    }
+
+    /// Los procesos del túnel que se conocen aquí (corriendo y terminados hace poco), por
+    /// id. `None` si el túnel no se abrió desde esta máquina.
+    pub fn processes(&self, id: TunnelId) -> Option<Vec<TunnelProcess>> {
+        self.inner
+            .tunnels()
+            .get(&id)
+            .map(|e| e.processes.values().map(|p| p.info.clone()).collect())
+    }
+
+    /// La salida de un proceso desde `from`, con hasta `max` bytes de cada flujo (lo que
+    /// T-104 expone como `output`). Sin esperar: lo que ya llegó.
+    pub fn output(
+        &self,
+        id: TunnelId,
+        process: ProcessId,
+        from: OutputCursor,
+        max: usize,
+    ) -> Result<ProcessOutput, TunnelError> {
+        let tunnels = self.inner.tunnels();
+        let e = tunnels.get(&id).ok_or(TunnelError::Unknown(id))?;
+        let p = e
+            .processes
+            .get(&process)
+            .ok_or(TunnelError::UnknownProcess(id, process))?;
+        Ok(output::collect(
+            p.info.clone(),
+            from,
+            max,
+            |flow, at, max| {
+                let m = e.flows.get(&flow)?;
+                Some(FlowRead {
+                    read: m.buf.read(at, max),
+                    end: m.buf.end(),
+                    ended: m.ended.is_some(),
+                })
+            },
+        ))
+    }
+
+    /// Los túneles abiertos desde aquí, con sus procesos corriendo, para la UI.
+    pub fn views(&self) -> Vec<TunnelView> {
+        self.inner
+            .tunnels()
+            .values()
+            .map(|e| {
+                let mut running: Vec<TunnelProcess> = e
+                    .processes
+                    .values()
+                    .filter(|p| p.info.is_running())
+                    .map(|p| p.info.clone())
+                    .collect();
+                running.sort_by_key(|p| (p.started, p.id));
+                TunnelView {
+                    tunnel: e.info.clone(),
+                    running,
+                }
+            })
+            .collect()
+    }
+
     pub fn flows(&self, id: TunnelId) -> Vec<FlowStatus> {
         self.inner
             .tunnels()
@@ -313,7 +424,20 @@ impl OriginInner {
         let mut tunnels = lock(&self.tunnels);
         let linger = self.opts.linger;
         tunnels.retain(|_, e| e.closed_at.is_none_or(|at| at.elapsed() < linger));
+        for e in tunnels.values_mut() {
+            forget_old_processes(e, linger);
+        }
         tunnels
+    }
+
+    /// Anota un proceso que avisó la destino (la respuesta de `exec` o el canal de datos).
+    fn note_process(&self, id: TunnelId, p: &TunnelProcess) {
+        let changed = lock(&self.tunnels)
+            .get_mut(&id)
+            .is_some_and(|e| upsert_process(e, p));
+        if changed {
+            self.changes.bump();
+        }
     }
 
     async fn request(&self, up: TunnelUp) -> Result<TunnelDown, TunnelError> {
@@ -384,6 +508,15 @@ impl OriginInner {
                 }
             }
             TunnelDown::End { flow, total } => mirror(e, flow, capacity).ended = Some(total),
+            TunnelDown::Process(p) => {
+                let changed = upsert_process(e, &p);
+                drop(tunnels);
+                if changed {
+                    self.changes.bump();
+                }
+                self.output.send_modify(|n| *n = n.wrapping_add(1));
+                return false;
+            }
             TunnelDown::TunnelClosed | TunnelDown::Refused(_) => {
                 if let TunnelDown::Refused(why) = &msg {
                     tracing::warn!(tunnel = %id, "la otra máquina ya no tiene el túnel: {why}");
@@ -400,11 +533,52 @@ impl OriginInner {
             | TunnelDown::Closed(_)
             | TunnelDown::List(_)
             | TunnelDown::Files(_)
-            | TunnelDown::Port(_) => {}
+            | TunnelDown::Port(_)
+            | TunnelDown::Started(_)
+            | TunnelDown::Killed(_) => {}
         }
         drop(tunnels);
         self.output.send_modify(|n| *n = n.wrapping_add(1));
         false
+    }
+}
+
+/// Guarda lo que avisó la destino de un proceso. Un aviso viejo (corriendo) no pisa uno
+/// nuevo (terminado): la respuesta de `exec` y el canal de datos pueden llegar en cualquier
+/// orden. `true` si algo cambió.
+fn upsert_process(e: &mut Entry, p: &TunnelProcess) -> bool {
+    if let Some(old) = e.processes.get_mut(&p.id) {
+        if old.info == *p || (!old.info.is_running() && p.is_running()) {
+            return false;
+        }
+        old.info = p.clone();
+        if !p.is_running() && old.ended_at.is_none() {
+            old.ended_at = Some(Instant::now());
+        }
+        return true;
+    }
+    e.processes.insert(
+        p.id,
+        Proc {
+            info: p.clone(),
+            ended_at: (!p.is_running()).then(Instant::now),
+        },
+    );
+    true
+}
+
+/// Olvida los procesos terminados hace más de `linger`, con sus flujos.
+fn forget_old_processes(e: &mut Entry, linger: Duration) {
+    let gone: Vec<TunnelProcess> = e
+        .processes
+        .values()
+        .filter(|p| p.ended_at.is_some_and(|at| at.elapsed() >= linger))
+        .map(|p| p.info.clone())
+        .collect();
+    for p in gone {
+        e.processes.remove(&p.id);
+        e.flows.remove(&p.stdout);
+        e.flows.remove(&p.stderr);
     }
 }
 
