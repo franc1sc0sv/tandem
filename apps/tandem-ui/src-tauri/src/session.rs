@@ -19,10 +19,10 @@ use tandem_core::{
     Step,
 };
 use tandem_proto::{
-    AgentToUi, Capabilities, CursorSample, DeskCapabilities, DragStatus, EnvKind, Environment, Hardware,
-    InputPermission, InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo, ModuleState,
-    MonitorView, NetworkStatus, PairingStatus, PathState, PeerStatus, PowerEvent, Reply, Resources,
-    SetupInfo, TunnelId, TxnEvent, UiCommand, UpdateStatus,
+    AgentToUi, Capabilities, CursorSample, DeskCapabilities, DragStatus, EnvKind, Environment,
+    Hardware, InputPermission, InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo,
+    ModuleState, MonitorView, NetworkStatus, PairingStatus, PathState, PeerStatus, PowerEvent,
+    Reply, Resources, SetupInfo, TunnelId, TxnEvent, UiCommand, UpdateStatus,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
