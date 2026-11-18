@@ -24,8 +24,8 @@ afterEach(() => vi.useRealTimers());
 describe("lista de pasos", () => {
   it("tiene los seis pasos, clicables, con hechos, actual y por hacer", async () => {
     const { dlg, store } = await mount("demo&still", 2);
-    const steps = within(within(dlg).getByRole("complementary", { name: "Pasos" })).getAllByRole("button").filter((b) => /^\d/.test(b.textContent ?? ""));
-    expect(steps.map((b) => b.textContent)).toEqual(["1Esta máquina", "2Tu puesto", "3Permisos", "4Teclado y mouse", "5Acomodo y prueba de cruce", "6Listo"]);
+    const steps = within(within(dlg).getByRole("complementary", { name: "Pasos" })).getAllByRole("button").filter((b) => /^[\d✓]/.test(b.textContent ?? ""));
+    expect(steps.map((b) => b.textContent)).toEqual(["✓Esta máquina", "✓Tu puesto", "3Permisos", "4Teclado y mouse", "5Acomodo y prueba de cruce", "6Listo"]);
     expect(steps[0]).toHaveClass("done");
     expect(steps[2]).toHaveAttribute("aria-current", "step");
     expect(steps[3]).not.toHaveClass("done");
@@ -173,6 +173,22 @@ describe("paso 4: teclado y mouse", () => {
     const mac = within(dlg).getByRole("group", { name: "MacBook Pro" });
     expect(within(mac).queryByText("Actividad detectada")).toBeNull();
     await fireEvent.keyDown(window, { key: "a" });
+    expect(await within(mac).findByText("Actividad detectada")).toBeInTheDocument();
+  });
+});
+
+describe("paso 4: el puntero quieto no es actividad", () => {
+  it("un `pointermove` sin desplazamiento (el navegador lo emite al cambiar el diseño) no marca nada", async () => {
+    const { dlg } = await mount("demo&still", 3);
+    const mac = within(dlg).getByRole("group", { name: "MacBook Pro" });
+    const still = new Event("pointermove");
+    Object.assign(still, { movementX: 0, movementY: 0 });
+    window.dispatchEvent(still);
+    await tick();
+    expect(within(mac).queryByText("Actividad detectada")).toBeNull();
+    const moved = new Event("pointermove");
+    Object.assign(moved, { movementX: 3, movementY: 0 });
+    window.dispatchEvent(moved);
     expect(await within(mac).findByText("Actividad detectada")).toBeInTheDocument();
   });
 });

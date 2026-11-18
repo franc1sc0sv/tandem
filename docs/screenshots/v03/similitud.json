@@ -511,6 +511,216 @@
     ],
     "errores": []
   },
+  "asistente-acomodo": {
+    "mockup": "F-Asis5",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-acomodo-cruzo": {
+    "mockup": "F-Asis5--cruzo",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9993,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-acomodo-esperando": {
+    "mockup": "F-Asis5--esperando",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-acomodo-otro-borde": {
+    "mockup": "F-Asis5--otro-borde",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9999,
+      "worstTile": 0.9768,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-listo": {
+    "mockup": "F-Asis6",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-maquina": {
+    "mockup": "F-Asis1",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-maquina-ambar": {
+    "mockup": "F-Asis1--ambar",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-maquina-verde-azulado": {
+    "mockup": "F-Asis1--verde-azulado",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-maquina-violeta": {
+    "mockup": "F-Asis1--violeta",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9999,
+      "worstTile": 0.9744,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-permisos": {
+    "mockup": "F-Asis3",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9998,
+      "worstTile": 0.9758,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-permisos-todo": {
+    "mockup": "F-Asis3--todo-concedido",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-permisos-uno": {
+    "mockup": "F-Asis3--uno-concedido",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 0.9999,
+      "worstTile": 0.9778,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-puesto": {
+    "mockup": "V3-Asistente",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 0.9976,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
+  "asistente-teclado": {
+    "mockup": "F-Asis4",
+    "pantalla": {
+      "name": "pantalla",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [],
+    "errores": []
+  },
   "bandeja": {
     "mockup": "V3-Bandeja",
     "pantalla": {

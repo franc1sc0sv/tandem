@@ -403,6 +403,67 @@ export const AVISOS: ShotSpec = {
   },
 };
 
+// T-119: el asistente de 6 pasos. El demo lo abre en el paso pedido (`wizard=N`) con los datos
+// del mockup (MacBook Pro como esta máquina, PC-Escritorio como la otra).
+const asisShot = (name: string, mockup: string, query: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
+  name,
+  page: "index.html",
+  query: `${DEMO}&${query}`,
+  hash: "#/puesto",
+  mockup,
+  width: W,
+  height: H,
+  min: SCREEN_GATE,
+  ...extra,
+});
+/** Los botones «Simular…» son solo del mockup (README): en la app esos pasos ocurren de verdad. */
+const SIMULAR_ASIS: Ignore[] = [
+  { mockupSelector: 'button.sim:has-text("Simular cruce")', reason: "«Simular cruce» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simular otro borde")', reason: "«Simular otro borde» es solo del mockup" },
+];
+/** «Instalar» (F-Asis1): sin módulo de pantallas protegidas no hay instalador (README). */
+const NO_INSTALL: Ignore = { mockupSelector: 'section[aria-label="Lo que encontró"] button:has-text("Instalar")', reason: "Botón «Instalar» del servicio de administrador: la app no tiene instalador" };
+/**
+ * `F-Asis5`: su CSS declara `.cur` para el cursor del dibujo y esa clase también la lleva el paso
+ * actual de la lista (`.stl.cur`): el mockup lo saca del flujo (14 × 14, absoluto) y «Listo» sube
+ * 44 px. La app dibuja la lista como las demás pantallas; se tapan los dos pasos afectados.
+ */
+const ASIS5_LIST: Ignore[] = [
+  { rect: { x: 10, y: 138, width: 140, height: 60 }, reason: "F-Asis5: el paso actual sale del flujo por la clase .cur duplicada" },
+  { rect: { x: 0, y: 258, width: 300, height: 94 }, reason: "F-Asis5: «Listo» sube 44 px en el mockup por la clase .cur duplicada" },
+];
+/** `F-Asis5` escribe «de la MacBook a la PC»; la app dice los nombres de las máquinas del puesto. */
+const ASIS5_LEAD: Ignore = { rect: { x: 350, y: 106, width: 640, height: 50 }, reason: "F-Asis5: el texto nombra a las máquinas del puesto, no «la MacBook» y «la PC»" };
+/** Los textos del veredicto nombran a las máquinas del puesto (el mockup dice «la MacBook»). */
+const ASIS5_VERDICT: Ignore = { rect: { x: 350, y: 482, width: 440, height: 40 }, reason: "F-Asis5: el veredicto nombra a las máquinas del puesto" };
+const ASIS5: Ignore[] = [...ASIS5_LIST, ASIS5_LEAD];
+/** `F-Asis3` escribe «Faltan 1» y no ofrece reiniciar el agente; la app concuerda («Falta 1») y lo ofrece (T-090). */
+const PERMS_FOOT: Ignore = { rect: { x: 775, y: 770, width: 200, height: 40 }, reason: "F-Asis3: «Faltan 1» y «Reiniciar agente» (solo en la app)" };
+const asisColor = (label: string, state: string) => asisShot(`asistente-maquina-${state}`, "F-Asis1", "wizard=0&admin=pending", { ignore: [NO_INSTALL], state, clicks: [`[role="radio"][aria-label="${label}"]`] });
+export const ASISTENTE: ShotSpec[] = [
+  asisShot("asistente-maquina", "F-Asis1", "wizard=0&admin=pending", { ignore: [NO_INSTALL] }),
+  asisColor("Violeta", "violeta"),
+  asisColor("Verde azulado", "verde-azulado"),
+  asisColor("Ámbar", "ambar"),
+  asisShot("asistente-puesto", "V3-Asistente", "wizard=1&peer=none&pair=code", {
+    fills: ["4", "8", "2", "9"].map((text, i) => ({ selector: `input[aria-label="Dígito ${i + 1}"]`, text })),
+    // El foco salta solo al dígito siguiente; el mockup no tiene foco en ninguno.
+    clicks: [".wiz h1"],
+  }),
+  asisShot("asistente-permisos", "F-Asis3", "wizard=2&perms=missing"),
+  asisShot("asistente-permisos-uno", "F-Asis3", "wizard=2&perms=missing", { state: "uno-concedido", clicks: ['button:has-text("Abrir ajustes") >> nth=0'], ignore: [PERMS_FOOT] }),
+  asisShot("asistente-permisos-todo", "F-Asis3", "wizard=2&perms=missing", {
+    state: "todo-concedido",
+    clicks: ['button:has-text("Abrir ajustes") >> nth=0', 'button:has-text("Abrir ajustes") >> nth=0'],
+  }),
+  asisShot("asistente-teclado", "F-Asis4", "wizard=3"),
+  asisShot("asistente-acomodo", "F-Asis5", "wizard=4", { ignore: ASIS5 }),
+  asisShot("asistente-acomodo-esperando", "F-Asis5", "wizard=4", { state: "esperando", clicks: ['button:has-text("Probar cruce")'], ignore: [...ASIS5, ASIS5_VERDICT, ...SIMULAR_ASIS] }),
+  asisShot("asistente-acomodo-cruzo", "F-Asis5", "wizard=4&cross=ok", { state: "cruzo", clicks: ['button:has-text("Probar cruce")'], ignore: ASIS5 }),
+  asisShot("asistente-acomodo-otro-borde", "F-Asis5", "wizard=4&cross=wrong", { state: "otro-borde", clicks: ['button:has-text("Probar cruce")'], ignore: ASIS5 }),
+  asisShot("asistente-listo", "F-Asis6", "wizard=5&crossed"),
+];
+
 export const SHOTS: ShotSpec[] = [
   {
     name: "puesto",
@@ -425,6 +486,7 @@ export const SHOTS: ShotSpec[] = [
   ...TUNELES,
   ...MONITORES,
   ...ACOMODO,
+  ...ASISTENTE,
   // T-118: la pantalla Red entera contra `V3-Red`. Se tapa lo que D1 quita («Agregar máquina») y
   // el rótulo de la ventana de la gráfica: el agente guarda 60 s, el mockup dice «10 min».
   {

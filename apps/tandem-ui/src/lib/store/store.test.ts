@@ -495,3 +495,20 @@ describe("escenas y transacciones contra el puente simulado", () => {
     expect(store.measured).toBe("wifi");
   });
 });
+
+describe("el enlace del demo sin emparejar", () => {
+  it("antes de emparejar solo se ve a la otra máquina por Wi-Fi; al emparejar pasa al cable", async () => {
+    vi.useFakeTimers();
+    const store = new Store(new DemoSource(demoOptions("demo&still&peer=none")));
+    await store.start();
+    expect(store.desk.link.kind).toBe("wifi");
+    await store.pairAction("start_pairing");
+    await vi.advanceTimersByTimeAsync(2000);
+    await store.pairAction("confirm_pairing");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(store.desk.pair.peer.kind).toBe("paired");
+    expect(store.desk.link.kind).toBe("usb4");
+    await store.pairAction("unpair");
+    expect(store.desk.link.kind).toBe("wifi");
+  });
+});

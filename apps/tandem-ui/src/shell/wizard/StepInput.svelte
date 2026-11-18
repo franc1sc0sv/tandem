@@ -28,9 +28,14 @@
   });
 
   const here = () => (activity = heard(activity, desk.here));
+  // El navegador también emite un `pointermove` sin desplazamiento cuando el diseño cambia bajo un
+  // puntero quieto: eso no es actividad.
+  const moved = (e: PointerEvent) => {
+    if (e.movementX !== 0 || e.movementY !== 0) here();
+  };
 </script>
 
-<svelte:window onkeydown={here} onpointermove={here} />
+<svelte:window onkeydown={here} onpointermove={moved} />
 
 <div class="wz-head">
   <span class="wz-mut wz-sm">Paso 4 de 6</span>
@@ -52,7 +57,7 @@
         <div class="wz-dev" style="animation-delay:{((n === 0 ? 0.2 : 0.8) + 0.2 * i).toFixed(1)}s">
           <span class="wz-ok"
             ><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="3" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg></span
-          >{d.name}{#if d.via}&nbsp;<span class="wz-mut wz-xs">{d.via}</span>{/if}
+          >{d.via ? `${d.name} ` : d.name}{#if d.via}<span class="wz-mut wz-xs">{d.via}</span>{/if}
         </div>
       {:else}
         <div class="wz-dev" style="animation-delay:0.8s"><span class="wz-off"></span><span class="wz-mut">Sin teclado ni mouse ahora</span></div>

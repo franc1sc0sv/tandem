@@ -1,6 +1,7 @@
 /* Estilos del asistente (`F-Asis1`…`F-Asis6`). Van sin ámbito porque los comparten los seis
    pasos; todos cuelgan de `.wiz` y sus nombres llevan el prefijo `wz-`. Las animaciones se
-   apagan con la regla global de `prefers-reduced-motion`: ninguna deja un elemento invisible. */
+   apagan con la regla global de `prefers-reduced-motion`: ninguna deja un elemento invisible
+   (el círculo y la marca del paso 6 se dibujan con el trazo ya completo, como el mockup). */
 .wiz .wz-head {
   display: flex;
   flex-direction: column;
@@ -32,10 +33,40 @@
   font-size: 12px;
 }
 .wiz .wz-sbtn {
-  --btn-h: 34px;
-  --btn-px: 13px;
-  --btn-fs: 12.5px;
-  --btn-r: 9px;
+  --btn-h: 36px;
+  --btn-px: 14px;
+  --btn-fs: 13px;
+  --btn-r: 10px;
+}
+/* «Ir al puesto» (`F-Asis6`): un poco más grande, entra al final y respira. */
+.wiz .wz-fin {
+  --btn-h: 46px;
+  --btn-px: 22px;
+  --btn-r: 12px;
+  animation:
+    wz-up 0.45s 1.6s both,
+    wz-glow 2.6s 2.2s ease-in-out infinite;
+}
+@keyframes wz-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(122, 167, 230, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(122, 167, 230, 0);
+  }
+}
+/* `F-Asis5`: el ícono de sus botones se mueve en 0.3 s (los demás, 0.25 s). */
+.wiz .body.arrange .btn svg {
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* `F-Asis3` y `F-Asis5`: todos sus botones animan también la opacidad (ACCEPTANCE G7). */
+.wiz .body.tight .btn {
+  transition:
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    border-color 0.18s,
+    box-shadow 0.18s,
+    opacity 0.3s;
 }
 /* El botón de «Continuar» anima su opacidad (`F-Asis3`, `F-Asis5`): .45 mientras falta algo. */
 .wiz .wz-next {
@@ -160,7 +191,7 @@
   border-radius: 50%;
   cursor: pointer;
   padding: 0;
-  box-sizing: content-box;
+  box-sizing: border-box;
   transition: transform 0.2s;
 }
 .wiz .wz-sw:hover {
@@ -483,6 +514,8 @@
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
+  /* La fila del mockup guarda el alto de sus botones de simulación. */
+  min-height: 36px;
   animation: wz-popy 0.3s ease-out;
 }
 .wiz .wz-banner {
@@ -513,6 +546,12 @@
   stroke-dasharray: 60;
   stroke-dashoffset: 60;
   animation: wz-draw 0.5s 0.8s ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wiz .wz-ring,
+  .wiz .wz-tickd {
+    stroke-dashoffset: 0;
+  }
 }
 .wiz .wz-sum {
   display: flex;
@@ -559,4 +598,11 @@
 .wiz .wz-copy:focus-visible {
   outline: 2px solid #7aa7e6;
   outline-offset: 2px;
+}
+/* La fila del servicio guarda el alto de la del mockup (que lleva «Instalar»). */
+.wiz .wz-chk.service {
+  min-height: 57px;
+  box-sizing: border-box;
+  padding-top: 11px;
+  padding-bottom: 11px;
 }

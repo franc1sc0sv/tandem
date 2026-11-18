@@ -130,7 +130,7 @@
 <div style="min-height:64px" aria-live="polite">
   {#if phase === null}
     <div class="wz-row">
-      <Button icon="cursor" variant="pri" iconLinecap="round" onclick={begin}>Probar cruce</Button><span class="wz-mut" style="font-size:13px">Necesitas el mouse a mano.</span>
+      <Button icon="cursor" variant="pri" size="xl" onclick={begin}>Probar cruce</Button><span class="wz-mut" style="font-size:13px">Necesitas el mouse a mano.</span>
     </div>
   {:else if waiting && verdict}
     <div class="wz-verdict">

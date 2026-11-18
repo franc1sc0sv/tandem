@@ -15,7 +15,10 @@
     void store.start().then(() => {
       // El demo abre el asistente en el paso pedido (`?wizard=3`), para capturas y pruebas.
       const step = __DEMO__ ? new URLSearchParams(location.search).get("wizard") : null;
-      if (step !== null && /^[0-5]$/.test(step)) store.openWizard(Number(step));
+      if (step !== null && /^[0-5]$/.test(step)) {
+        store.openWizard(Number(step));
+        if (new URLSearchParams(location.search).has("crossed")) store.wizardCrossed = true;
+      }
       else void store.maybeFirstRun();
     });
   });

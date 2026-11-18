@@ -57,7 +57,7 @@
     <div class="wz-chk"><span class="wz-off"></span>Sin conexión con tandemd<span class="wz-fill"></span><span class="wz-mut wz-xs">{store.desk.troubleText}</span></div>
   {/if}
   {#each rows as r, i (r.id)}
-    <div class="wz-chk" style="animation-delay:{(0.1 + 0.4 * i).toFixed(1)}s">
+    <div class="wz-chk" class:service={r.id === "service"} style="animation-delay:{(0.1 + 0.4 * i).toFixed(1)}s">
       {#if r.state === "ok"}
         <span class="wz-ok"
           ><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="3" aria-hidden="true"><path d="m4 12 5 5L20 6"></path></svg></span

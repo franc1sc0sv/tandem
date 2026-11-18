@@ -75,7 +75,8 @@ export function foundRows(m: MachineView | null): FoundRow[] {
     const mod = m.modules.find((x) => x.id === id);
     if (!mod) continue;
     const label = LABEL[id] ?? mod.name;
-    if (id === "tunnels" && mod.state === "active") rows.push({ id, state: "ok", label, note: computeNote(m), mono: true });
+    // El cómputo se dibuja con los entornos que hay, aunque falte el servicio de administrador.
+    if (id === "tunnels" && (mod.state === "active" || m.environments.length > 0)) rows.push({ id, state: "ok", label, note: computeNote(m), mono: true });
     else if (mod.state === "active") rows.push({ id, state: "ok", label, note: SHORT[id] ?? mod.detail, mono: false });
     else if (id === "monitors" && mod.state === "off") rows.push({ id, state: "off", label, note: "sin canal DDC ahora; otra máquina los controla", mono: false });
     else rows.push({ id, state: "off", label, note: mod.detail, mono: false });
@@ -91,7 +92,10 @@ export interface PermCard {
   id: Permission;
   title: string;
   why: string;
+  /** Concedido y comprobado por el agente. */
   granted: boolean;
+  /** Falta de verdad. Lo que el agente no puede comprobar (Red local) ni cuenta como faltante ni como concedido. */
+  missing: boolean;
 }
 
 // Los textos de `F-Asis3`: se dirigen a las otras máquinas del puesto sin nombrar ningún sistema.
@@ -102,10 +106,10 @@ const PERM_TEXT: Record<Permission, { title: string; why: string }> = {
 };
 
 export function permCards(rows: PermissionRow[]): PermCard[] {
-  return rows.map((r) => ({ id: r.id, ...PERM_TEXT[r.id], granted: r.state === "granted" }));
+  return rows.map((r) => ({ id: r.id, ...PERM_TEXT[r.id], granted: r.state === "granted", missing: r.state === "missing" }));
 }
 
-export const missingOf = (cards: PermCard[]): number => cards.filter((c) => !c.granted).length;
+export const missingOf = (cards: PermCard[]): number => cards.filter((c) => c.missing).length;
 
 /** «Faltan 2», «Falta 1» o «Todo concedido». */
 export function permFooter(missing: number): string {
@@ -268,7 +272,7 @@ export function summaryRows(d: DeskView, facts: Facts): SummaryRow[] {
     {
       id: "monitors",
       label: "Monitores",
-      note: mon ? `${mon.name} compatible${mon.owner ? ` · dueño ${d.machines[mon.owner]?.name ?? ""}` : ""}` : "ninguno compatible",
+      note: mon ? `${d.layout.screens.find((x) => x.id === mon.id)?.size ?? mon.name} compatible${mon.owner ? ` · dueño ${d.machines[mon.owner]?.name ?? ""}` : ""}` : "ninguno compatible",
       mono: false,
       ok: !!mon,
     },

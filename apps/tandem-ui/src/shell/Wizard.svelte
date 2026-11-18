@@ -70,18 +70,18 @@
           {@const mark = stepMark(i, step)}
           <li>
             <button type="button" class="stl" class:done={mark === "done"} class:cur={mark === "cur"} aria-current={mark === "cur" ? "step" : undefined} onclick={() => goTo(i)}
-              ><i>{i + 1}</i>{s}</button
+              ><i>{mark === "done" ? "✓" : i + 1}</i>{s}</button
             >
           </li>
         {/each}
       </ol>
       <span class="fill"></span>
-      <Button icon="x" variant="ghost" size="sm" onclick={close}>Cerrar</Button>
+      <Button icon="x" variant="ghost" size="sm" class="wz-close" onclick={close}>Cerrar</Button>
     </aside>
 
-    <main bind:this={main} tabindex="-1" class:final={step === last}>
+    <main bind:this={main} tabindex="-1" class:wide={step === 3 || step === 4}>
       {#key step}
-        <div class="body" class:final={step === last} in:enter={{ y: 6, duration: 350 }}>
+        <div class="body" class:tight={step === 2 || step === 4} class:arrange={step === 4} in:enter={{ y: 6, duration: 350 }}>
           {#if step === 0}
             <StepMachine />
           {:else if step === 1}
@@ -115,7 +115,7 @@
                 onclick={() => goTo(step + 1)}>Continuar</Button
               >
             {:else}
-              <Button icon="arrow-right" variant="pri" motion="go" iconAfter size="xl" onclick={finish}>Ir al puesto</Button>
+              <Button icon="arrow-right" variant="pri" motion="go" iconAfter size="xl" class="wz-fin" onclick={finish}>Ir al puesto</Button>
             {/if}
           </div>
         </div>
@@ -225,11 +225,16 @@
     outline: 2px solid #7aa7e6;
     outline-offset: 2px;
   }
+  /* Como el mockup: el ancho máximo es de `main`, y la lista de pasos crece hasta 300 px. */
   main {
     flex: 999 1 560px;
     min-width: 0;
+    max-width: 860px;
     outline: none;
     display: flex;
+  }
+  main.wide {
+    max-width: 900px;
   }
   .body {
     box-sizing: border-box;
@@ -237,12 +242,12 @@
     display: flex;
     flex-direction: column;
     gap: 22px;
-    max-width: 900px;
     width: 100%;
     min-height: 100%;
   }
-  .body.final {
-    max-width: 860px;
+  /* `F-Asis3` y `F-Asis5` separan sus bloques 20 px; los demás, 22. */
+  .body.tight {
+    gap: 20px;
   }
   .fill {
     flex: 1;
@@ -252,6 +257,15 @@
   }
   .sm {
     font-size: 12.5px;
+  }
+  /* El mockup no dibuja un botón de cerrar: aparece al llegar con el teclado (y Escape siempre cierra). */
+  .side :global(.wz-close:not(:focus-visible)) {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    opacity: 0;
+    pointer-events: none;
   }
   .foot {
     display: flex;

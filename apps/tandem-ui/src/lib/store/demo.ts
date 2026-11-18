@@ -60,6 +60,7 @@ import type {
   OutputCursor,
   ProcessRow,
   TunnelState,
+  LinkView,
   TunnelView,
 } from "./types";
 
@@ -80,6 +81,8 @@ export interface DemoOptions {
   wizard?: number;
   /** macOS con Accesibilidad y Monitorización sin conceder y Red local concedida (`F-Asis3`). */
   perms?: "missing";
+  /** El servicio de administrador de macOS sin instalar: el asistente lo muestra pendiente (`F-Asis1`). */
+  admin?: "pending";
   /** Cómo termina la prueba de cruce. */
   cross?: "ok" | "wrong" | "timeout";
   /** La pantalla de progreso de una escena en este punto. */
@@ -110,6 +113,7 @@ export function demoOptions(query: string): DemoOptions {
     failScene: p.get("fail") ?? undefined,
     tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notas" ? "notas" : "normal",
     peerEdit: p.has("peeredit"),
+    admin: p.get("admin") === "pending" ? "pending" : undefined,
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
 }
@@ -252,7 +256,7 @@ const PAIRS: Record<DemoPair, [Spec, Spec]> = {
   "mac-mac": [MACBOOK, MINI],
 };
 
-function modulesOf(os: Os, name: string, otherName: string, envs: number): ModuleView[] {
+function modulesOf(os: Os, name: string, otherName: string, envs: number, adminPending = false): ModuleView[] {
   const mac = os === "macos";
   // Con un permiso de macOS faltando, la página lo muestra en su propia fila («Permisos», como
   // `F-MaquinaMac`); el módulo sigue con lo que sí puede hacer.
@@ -270,7 +274,9 @@ function modulesOf(os: Os, name: string, otherName: string, envs: number): Modul
       switchable: false,
     },
     mac
-      ? { id: "tunnels", name: "Cómputo remoto", state: "active", detail: `${envs} entornos · admin (LaunchDaemon instalado)`, switchable: true }
+      ? adminPending
+        ? { id: "tunnels", name: "Cómputo remoto", state: "off", detail: `${envs} entornos · falta instalar el servicio de administrador`, switchable: true }
+        : { id: "tunnels", name: "Cómputo remoto", state: "active", detail: `${envs} entornos · admin (LaunchDaemon instalado)`, switchable: true }
       : { id: "tunnels", name: "Túneles", state: "active", detail: `Recibe túneles de Claude en ${envs} entornos, como administrador.`, switchable: true },
   ];
   if (!mac) list.push({ id: "secure_desktop", name: "Pantallas protegidas", state: "active", detail: "El mouse y el teclado también funcionan en avisos de UAC y en el inicio de sesión.", switchable: true });
@@ -532,6 +538,11 @@ function demoLayout(sa: Spec, sb: Spec, scenes: SceneView[], active: string | nu
   return { screens: [...screens, ...off], arrangement: { ...DEMO_ARRANGEMENT } };
 }
 
+/** Con el puesto emparejado la otra máquina va por el cable; antes solo se la encuentra por la red (Wi-Fi). */
+const PAIRED_LINK: LinkView = { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 };
+const UNPAIRED_LINK: LinkView = { kind: "wifi", gbps: 0.41, ms: 3.8, inputP99: null };
+const NO_LINK: LinkView = { kind: null, gbps: null, ms: null, inputP99: null };
+
 /** El puesto simulado para unas opciones (puro: mismas opciones, mismo puesto). */
 export function demoDesk(o: DemoOptions): DeskView {
   const [sa, sb] = PAIRS[o.pair];
@@ -549,7 +560,7 @@ export function demoDesk(o: DemoOptions): DeskView {
       here,
       power,
       resources: power === "on" ? { ...s.resources, history: [...s.resources.history] } : null,
-      modules: modulesOf(s.os, s.name, otherName, s.environments.length),
+      modules: modulesOf(s.os, s.name, otherName, s.environments.length, o.admin === "pending"),
       system: s.system,
       hardware: s.hardware,
       environments: s.environments.map((e) => ({ ...e })),
@@ -568,7 +579,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     troubleText: TROUBLE_TEXT[o.trouble](peerSpec.name),
     here: o.here,
     machines: { a: mk("a", sa, sb.name), b: mk("b", sb, sa.name) },
-    link: linkUp ? { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 } : { kind: null, gbps: null, ms: null, inputP99: null },
+    link: linkUp ? (o.unpaired ? UNPAIRED_LINK : PAIRED_LINK) : NO_LINK,
     network: o.txn && linkUp ? { ...demoNetwork(linkUp), measuring: "usb4" } : demoNetwork(linkUp),
     tunnels: demoTunnels(o.still ? DEMO_NOW : Date.now(), o.tunnels),
     scenes,
@@ -967,7 +978,8 @@ export class DemoSource implements Source {
   private keys: ShortcutsView = { bindings: { ...DEFAULT_BINDINGS }, failed: {}, warning: null, file: null };
 
   private setPairing(pairing: PairingView, peer = this.desk.pair.peer): void {
-    this.set({ ...this.desk, pair: { peer, pairing } });
+    const link = this.desk.link.kind === null ? this.desk.link : peer.kind === "paired" ? PAIRED_LINK : UNPAIRED_LINK;
+    this.set({ ...this.desk, link, pair: { peer, pairing } });
   }
 
   /** Simula a la otra máquina: aparece el código y, al confirmar, confirma ella también. */

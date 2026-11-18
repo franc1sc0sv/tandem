@@ -41,11 +41,13 @@
 {#if perms.needed}
   {#each cards as p (p.id)}
     <div class="wz-perm" class:granted={p.granted}>
-      <span class="wz-dot {p.granted ? 'got' : 'wait'}"></span>
+      <span class="wz-dot {p.granted ? 'got' : p.missing ? 'wait' : ''}"></span>
       <div style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:0">
         <b style="font-weight:600">{p.title}</b>
         <span class="wz-mut" style="font-size:13px;line-height:1.5">{p.why}</span>
-        <span style="font-size:12.5px;color:{p.granted ? '#9fd8b9' : '#e6c48f'}">{p.granted ? "Concedido · comprobado ahora" : "Esperando… se comprueba solo"}</span>
+        <span style="font-size:12.5px;color:{p.granted ? '#9fd8b9' : p.missing ? '#e6c48f' : '#9a9da6'}"
+          >{p.granted ? "Concedido · comprobado ahora" : p.missing ? "Esperando… se comprueba solo" : "Sin comprobar · macOS lo pide la primera vez que se use"}</span
+        >
       </div>
       {#if !p.granted}
         <Button icon="external" size="sm" motion="lift" class="wz-sbtn" onclick={() => grant(p.id)}>Abrir ajustes</Button>

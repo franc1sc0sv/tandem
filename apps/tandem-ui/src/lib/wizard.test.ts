@@ -59,6 +59,15 @@ describe("paso 1", () => {
     expect(rows.find((r) => r.id === "tunnels")?.mono).toBe(true);
   });
 
+  it("con el servicio de administrador pendiente, el cómputo sigue listo y la fila del servicio gira", async () => {
+    const d = await desk("demo&still&admin=pending");
+    const rows = foundRows(d.machines.a!);
+    expect(rows.find((r) => r.id === "tunnels")).toMatchObject({ state: "ok", note: "zsh · Docker · uv · node" });
+    expect(rows.at(-1)).toMatchObject({ id: "service", state: "wait" });
+    const ok = foundRows((await desk("demo&still")).machines.a!);
+    expect(ok.at(-1)).toMatchObject({ id: "service", state: "ok" });
+  });
+
   it("sin la máquina no hay filas, y en Windows los monitores sí tienen canal", async () => {
     expect(foundRows(null)).toEqual([]);
     const d = await desk("demo&still");
@@ -76,6 +85,10 @@ describe("paso 3", () => {
       ["Red local", true],
     ]);
     expect(missingOf(cards)).toBe(2);
+    // Lo que el agente no puede comprobar (Red local en un agente real) no bloquea ni se da por concedido.
+    const sinComprobar = permCards([{ id: "accessibility", state: "granted" }, { id: "local_network", state: "unknown" }]);
+    expect(sinComprobar.map((c) => [c.granted, c.missing])).toEqual([[true, false], [false, false]]);
+    expect(missingOf(sinComprobar)).toBe(0);
     expect(permFooter(2)).toBe("Faltan 2");
     expect(permFooter(1)).toBe("Falta 1");
     expect(permFooter(0)).toBe("Todo concedido");
@@ -95,8 +108,11 @@ describe("paso 4", () => {
     expect(deviceRows(d.machines.a!).map((x) => x.name)).toEqual(["Teclado integrado", "Trackpad", "Keychron K3 · MX Master 3S"]);
     expect(deviceRows(d.machines.b!)).toEqual([]);
     expect(deviceRows(null)).toEqual([]);
-    const mini = await desk("demo=mac-mac&still");
-    expect(deviceRows(mini.machines.a!)).toEqual([{ name: "Teclado y mouse" }]);
+    // Un agente que no lista los dispositivos: el módulo de entrada activo vale por «Teclado y mouse».
+    const { inputDevices: _omit, ...bare } = d.machines.a!;
+    expect(deviceRows(bare)).toEqual([{ name: "Teclado y mouse" }]);
+    const off = { ...bare, modules: bare.modules.map((x) => (x.id === "input" ? { ...x, state: "off" as const } : x)) };
+    expect(deviceRows(off)).toEqual([]);
   });
 });
 
