@@ -267,13 +267,15 @@ const PAIRS: Record<DemoPair, [Spec, Spec]> = {
 
 function modulesOf(os: Os, name: string, otherName: string, envs: number, adminPending = false): ModuleView[] {
   const mac = os === "macos";
+  // «la MacBook» (el mockup la nombra así); cualquier otra Mac, con su nombre completo («el Mac mini»), sin cortarlo.
+  const shown = name.startsWith("MacBook") ? "la MacBook" : `el ${name}`;
   // Con un permiso de macOS faltando, la página lo muestra en su propia fila («Permisos», como
   // `F-MaquinaMac`); el módulo sigue con lo que sí puede hacer.
   const list: ModuleView[] = [
     { id: "input", name: "Teclado y mouse", state: "active", detail: mac ? "Captura con CGEventTap e inyección con CGEventPost" : "Captura e inyección (hooks de bajo nivel, SendInput)", switchable: true },
     { id: "clipboard", name: "Portapapeles", state: "active", detail: "Texto, HTML e imagen", switchable: true },
     mac
-      ? { id: "monitors", name: "Monitores", state: "off", detail: `Por HDMI solo hay canal DDC mientras el monitor muestra la ${name.split(" ")[0]}. Hoy los controla ${otherName}.`, switchable: true }
+      ? { id: "monitors", name: "Monitores", state: "off", detail: `Por HDMI solo hay canal DDC mientras el monitor muestra ${shown}. Hoy los controla ${otherName}.`, switchable: true }
       : { id: "monitors", name: "Monitores", state: "active", detail: 'Canal DDC por DisplayPort a 2 monitores. Dueño del 34".', switchable: true },
     {
       id: "power",
@@ -392,8 +394,10 @@ const MANY_COMMANDS = [
 const MANY: DemoProc[] = MANY_COMMANDS.map((c, i) => p(c, 3 + i * 4, 6000 + i, `$ ${c}\nlisto\n`));
 
 /** El demo de los túneles: los cinco de `V3-Computo`, ninguno (`tunnels=none`) o uno con 12 procesos (`tunnels=many`). */
-export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal"): TunnelView[] {
+export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal", oses: Record<Machine, Os> = { a: "macos", b: "windows" }): TunnelView[] {
   if (which === "none") return [];
+  // El entorno sale del sistema de la máquina destino (G2): en Windows, WSL o el propio Windows; en macOS, zsh.
+  const env = (to: Machine, windows: string) => (oses[to] === "macos" ? "zsh" : windows);
   const t = (id: string, project: string, path: string, title: string, branch: string, from: Machine, to: Machine, state: TunnelState, openMin: number, env: string, o: Partial<TunnelView>): TunnelView => ({
     id,
     project,
@@ -414,11 +418,11 @@ export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal
     ...o,
   });
   const list = [
-    t("t97", "tandem", "~/…/apps/tandem", "Crate de monitores (T-097)", "task/T-097", "a", "b", "busy", 34, "WSL · Ubuntu", { commands: 22, traffic: { up: 120e6, down: 4e6 } }),
-    t("t101", "tandem", "~/…/apps/tandem", "Túneles en tandemd (T-101)", "task/T-101", "a", "b", "busy", 18, "WSL · Ubuntu", { commands: 12, traffic: { up: 64e6, down: 3e6 } }),
-    t("pr", "tandem", "~/…/apps/tandem", "Revisar PR #66 en Windows", "develop", "b", "a", "idle", 41, "zsh", { commands: 9, ports: 1, idleSince: now - 9 * MIN - PAD, traffic: { up: 2e6, down: 18e6 } }),
-    t("lora", "ia-local", "~/…/ia-local", "Entrenar LoRA de estilo", "main", "a", "b", "busy", 134, "WSL · Ubuntu", { commands: 37, ports: 1, traffic: { up: 2.1e9, down: 38e6 } }),
-    t("comfy", "ia-local", "~/…/ia-local", "Probar flujo de ComfyUI", "main", "a", "b", "closed", 0, "Windows", { commands: 4, closedAt: now - 60 * MIN, traffic: { up: 12e6, down: 1e6 } }),
+    t("t97", "tandem", "~/…/apps/tandem", "Crate de monitores (T-097)", "task/T-097", "a", "b", "busy", 34, env("b", "WSL · Ubuntu"), { commands: 22, traffic: { up: 120e6, down: 4e6 } }),
+    t("t101", "tandem", "~/…/apps/tandem", "Túneles en tandemd (T-101)", "task/T-101", "a", "b", "busy", 18, env("b", "WSL · Ubuntu"), { commands: 12, traffic: { up: 64e6, down: 3e6 } }),
+    t("pr", "tandem", "~/…/apps/tandem", `Revisar PR #66 en ${oses.b === "macos" ? "macOS" : "Windows"}`, "develop", "b", "a", "idle", 41, env("a", "WSL · Ubuntu"), { commands: 9, ports: 1, idleSince: now - 9 * MIN - PAD, traffic: { up: 2e6, down: 18e6 } }),
+    t("lora", "ia-local", "~/…/ia-local", "Entrenar LoRA de estilo", "main", "a", "b", "busy", 134, env("b", "WSL · Ubuntu"), { commands: 37, ports: 1, traffic: { up: 2.1e9, down: 38e6 } }),
+    t("comfy", "ia-local", "~/…/ia-local", "Probar flujo de ComfyUI", "main", "a", "b", "closed", 0, env("b", "Windows"), { commands: 4, closedAt: now - 60 * MIN, traffic: { up: 12e6, down: 1e6 } }),
   ];
   if (which === "many") return [{ ...list[0], processes: MANY.length }, ...list.slice(1)];
   // `V3-Bandeja` dibuja la revisión del PR como un tercer proyecto («notas»); `V3-Computo` la deja en «tandem».
@@ -599,7 +603,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     machines: { a: mk("a", sa, sb.name), b: mk("b", sb, sa.name) },
     link: linkUp ? (o.unpaired ? UNPAIRED_LINK : o.bandeja ? TRAY_LINK : PAIRED_LINK) : NO_LINK,
     network: o.txn && linkUp ? { ...demoNetwork(linkUp), measuring: "usb4" } : demoNetwork(linkUp),
-    tunnels: demoTunnels(o.still ? DEMO_NOW : Date.now(), o.tunnels),
+    tunnels: demoTunnels(o.still ? DEMO_NOW : Date.now(), o.tunnels, { a: sa.os, b: sb.os }),
     scenes,
     activeScene: "trabajo",
     monitors,
