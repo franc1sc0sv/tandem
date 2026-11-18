@@ -125,7 +125,8 @@ pub async fn ping(ctx: &Ctx, count: usize) -> CheckResult {
         }
         let (p50, p99) =
             latency::percentiles(&mut millis).ok_or_else(|| anyhow::anyhow!("sin pings"))?;
-        let said = format!("{link:?}: p50 {p50} ms, p99 {p99} ms en {count} pings");
+        let link = link.map_or_else(|| "?".to_string(), |l| format!("{l:?}"));
+        let said = format!("{link}: p50 {p50} ms, p99 {p99} ms en {count} pings");
         anyhow::ensure!(p99 <= 200, "p99 demasiado alto: {said}");
         Ok(said)
     }
