@@ -134,7 +134,7 @@ fn run_hosted(args: RunArgs) -> anyhow::Result<()> {
         .spawn(move || {
             // Si `run` entra en pánico el hilo muere, pero el run loop del hilo principal
             // no vuelve: sin esto el proceso quedaría vivo y sin agente.
-            let _guard = ExitOnPanic::new(std::process::exit);
+            let _guard = ExitOnPanic::new(|code| std::process::exit(code));
             let code = match run(args) {
                 Ok(()) => 0,
                 Err(e) => {
