@@ -143,7 +143,7 @@ describe("bandeja contra el agente real (IPC)", () => {
   });
 
   it("sin agente lo dice y no ofrece botones que no sirven", async () => {
-    const bridge = { snapshot: async () => ({ kind: "unavailable", endpoint: null, reason: "no corre" }), onSnapshot: async () => {}, act: vi.fn() } as unknown as Bridge;
+    const bridge = { snapshot: async () => ({ kind: "unavailable", endpoint: null, reason: "no corre" }), onSnapshot: async () => {}, act: vi.fn(async () => ({ kind: "done" })) } as unknown as Bridge;
     const store = new Store(new LiveSource(bridge), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
     await vi.waitFor(() => expect(screen.getByText("no corre")).toBeInTheDocument());
