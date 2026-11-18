@@ -67,7 +67,7 @@
 {#if store.paletteOpen}
   <div class="veil" role="presentation" onclick={close} in:enter={{ duration: 200 }} out:leave></div>
   <div class="wrap">
-    <div role="dialog" aria-modal="true" aria-label="Paleta de comandos" class="pal" in:enter={{ y: -10, scale: 0.98, duration: 250 }} out:leave>
+    <div role="dialog" aria-modal="true" aria-label="Paleta de comandos" class="pal" out:leave>
       <div class="top">
         <Icon name="search" size={18} stroke={2} color="#9a9da6" />
         <input
@@ -145,6 +145,7 @@
     box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
     overflow: hidden;
     font-size: 14px;
+    animation: pal-pop 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.1);
   }
   .top {
     display: flex;
@@ -231,6 +232,16 @@
   }
   .fill {
     flex: 1;
+  }
+  @keyframes pal-pop {
+    from {
+      opacity: 0;
+      transform: translateY(-10px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
   }
   @keyframes pal-up {
     from {

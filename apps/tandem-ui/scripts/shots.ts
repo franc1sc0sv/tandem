@@ -143,7 +143,7 @@ function compareContent(spec: ShotSpec, png: Buffer, appBoxes: Record<string, Re
   const c = spec.content;
   const a = appBoxes[c?.app ?? ""]?.[0];
   const m = mockBoxes[c?.mockup ?? ""]?.[0];
-  if (!c || !a || !m) throw new Error(`${spec.name}: no se encontró el contenido en la app o en el mockup`);
+  if (!c || !a || !m) throw new Error(`${spec.name}: no se encontró el contenido en la app (${a ? "sí" : "no"}) o en el mockup (${m ? "sí" : "no"})`);
   const appImg = pngSize(png);
   const width = Math.floor(Math.min(a.width, m.width));
   const height = Math.floor(Math.min(appImg.height - a.y, spec.height - m.y));
@@ -154,7 +154,7 @@ function compareContent(spec: ShotSpec, png: Buffer, appBoxes: Record<string, Re
     if (k.mockup) for (const r of mockBoxes[k.mockup] ?? []) holes.push(rel(r, m));
   }
   const app = mask(crop(png, { x: a.x, y: a.y, width, height }), holes);
-  const ref = mask(crop(readFileSync(mockupShotPath(spec.mockup)), { x: m.x, y: m.y, width, height }), holes);
+  const ref = mask(crop(readFileSync(mockupShotPath(spec.mockup, spec.state)), { x: m.x, y: m.y, width, height }), holes);
   const r = compare(app, ref);
   if (diffPath) writeFileSync(diffPath, r.diffPng);
   const ok = r.similarity >= c.min.similarity && r.worstTile.similarity >= c.min.worstTile;
@@ -220,6 +220,10 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     }
     for (const k of spec.keys ?? []) {
       await page.keyboard.press(k);
+      await settle(page);
+    }
+    if (spec.unhover) {
+      await page.mouse.move(0, 0);
       await settle(page);
     }
     const text = await page.evaluate(() => document.body.innerText);

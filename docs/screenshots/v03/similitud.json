@@ -332,23 +332,209 @@
   "ajustes": {
     "mockup": "F-Ajustes",
     "pantalla": {
-      "name": "pantalla",
-      "similarity": 0.9783,
-      "worstTile": 0.4688,
+      "name": "contenido",
+      "similarity": 1,
+      "worstTile": 0.9966,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
       "ok": true
     },
-    "zonas": [],
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 1,
+        "worstTile": 0.9966,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "ajustes-actualizaciones": {
+    "mockup": "F-Ajustes",
+    "pantalla": {
+      "name": "contenido",
+      "similarity": 1,
+      "worstTile": 0.9983,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 1,
+        "worstTile": 0.9983,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "ajustes-actualizaciones-buscado": {
+    "mockup": "F-Ajustes",
+    "pantalla": {
+      "name": "contenido",
+      "similarity": 1,
+      "worstTile": 0.9983,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 1,
+        "worstTile": 0.9983,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "ajustes-atajos": {
+    "mockup": "F-Ajustes",
+    "pantalla": {
+      "name": "contenido",
+      "similarity": 0.9999,
+      "worstTile": 0.9871,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 0.9999,
+        "worstTile": 0.9871,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "ajustes-avanzado": {
+    "mockup": "F-Ajustes",
+    "pantalla": {
+      "name": "contenido",
+      "similarity": 0.9999,
+      "worstTile": 0.9922,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 0.9999,
+        "worstTile": 0.9922,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "ajustes-teclado": {
+    "mockup": "F-Ajustes",
+    "pantalla": {
+      "name": "contenido",
+      "similarity": 1,
+      "worstTile": 0.9983,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 1,
+        "worstTile": 0.9983,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errores": []
+  },
+  "avisos": {
+    "mockup": "F-Avisos",
+    "pantalla": {
+      "name": "contenido",
+      "similarity": 0.9997,
+      "worstTile": 0.9939,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 0.9997,
+        "worstTile": 0.9939,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
     "errores": []
   },
   "bandeja": {
     "mockup": "V3-Bandeja",
     "pantalla": {
-      "name": "pantalla",
-      "similarity": 0.9731,
-      "worstTile": 0.832,
+      "name": "contenido",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
       "ok": true
     },
-    "zonas": [],
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 1,
+        "worstTile": 1,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
     "errores": []
   },
   "cruce": {
@@ -455,12 +641,27 @@
   "estados": {
     "mockup": "V3-Estados",
     "pantalla": {
-      "name": "pantalla",
-      "similarity": 0.9296,
-      "worstTile": 0.4924,
+      "name": "contenido",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
       "ok": true
     },
-    "zonas": [],
+    "zonas": [
+      {
+        "name": "contenido",
+        "similarity": 1,
+        "worstTile": 0.9961,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
     "errores": []
   },
   "maquina-a": {
@@ -569,11 +770,26 @@
     "mockup": "F-Paleta",
     "pantalla": {
       "name": "pantalla",
-      "similarity": 0.9956,
-      "worstTile": 0.9031,
+      "similarity": 0.9995,
+      "worstTile": 0.9709,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
       "ok": true
     },
-    "zonas": [],
+    "zonas": [
+      {
+        "name": "diálogo",
+        "similarity": 0.9986,
+        "worstTile": 0.9724,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
     "errores": []
   },
   "progreso-en-curso": {

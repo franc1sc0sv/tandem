@@ -5,7 +5,7 @@ import type { Notice, SceneJson, Snapshot, TxnView } from "../model";
 import { formatHash, parseHash, SCREEN_TOPICS } from "../routes";
 import { DEMO_NOW, DemoSource, demoDesk, demoOptions, isDemo } from "./demo";
 import { deskFromSnapshot, LiveSource } from "./live";
-import { SHELL_TOPICS, Store, TRAY_TOPICS, topicsFor } from "./store.svelte";
+import { SHELL_TOPICS, Store, TOAST_MS, TRAY_TOPICS, topicsFor } from "./store.svelte";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -78,10 +78,10 @@ describe("store", () => {
     await store.start();
     await store.applyScene("juego");
     expect(store.desk.activeScene).toBe("juego");
-    expect(store.toasts.at(-1)).toMatchObject({ text: "Escena «Juego» activa.", tone: "ok" });
+    expect(store.toasts[0]).toMatchObject({ text: "Escena «Juego» activa.", tone: "ok" });
     await store.applyScene("nada");
-    expect(store.toasts.at(-1)).toMatchObject({ tone: "bad" });
-    vi.advanceTimersByTime(5000);
+    expect(store.toasts[0]).toMatchObject({ tone: "bad" });
+    vi.advanceTimersByTime(TOAST_MS);
     expect(store.toasts).toEqual([]);
   });
 

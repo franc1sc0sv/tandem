@@ -3,7 +3,7 @@
 import type { Machine } from "./model";
 import type { Topic } from "./store/types";
 
-export type Screen = "puesto" | "tuneles" | "monitores" | "escena" | "progreso" | "acomodo" | "cruce" | "red" | "maquina" | "ajustes";
+export type Screen = "puesto" | "tuneles" | "monitores" | "escena" | "progreso" | "acomodo" | "cruce" | "red" | "maquina" | "ajustes" | "estados";
 
 export type Route = { screen: Exclude<Screen, "maquina" | "escena"> } | { screen: "maquina"; machine: Machine } | { screen: "escena"; id: string | null };
 
@@ -20,6 +20,7 @@ export const SCREEN_TITLE: Record<Screen, string> = {
   red: "Red",
   maquina: "Máquina",
   ajustes: "Ajustes",
+  estados: "Estados difíciles",
 };
 
 /** Qué temas necesita en vivo cada pantalla: el store solo se suscribe a esos. */
@@ -34,9 +35,10 @@ export const SCREEN_TOPICS: Record<Screen, Topic[]> = {
   red: ["machines", "link", "network"],
   maquina: ["machines", "resources", "tunnels"],
   ajustes: ["machines"],
+  estados: ["machines", "link"],
 };
 
-const SIMPLE: Exclude<Screen, "maquina" | "escena">[] = ["puesto", "tuneles", "monitores", "progreso", "acomodo", "red", "ajustes"];
+const SIMPLE: Exclude<Screen, "maquina" | "escena">[] = ["puesto", "tuneles", "monitores", "progreso", "acomodo", "red", "ajustes", "estados"];
 
 export function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);

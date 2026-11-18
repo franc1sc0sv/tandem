@@ -33,7 +33,10 @@ import type {
   ActResult,
   Capability,
   CursorEvent,
+  DeskChange,
+  TransferView,
   DeskView,
+  FilesView,
   EnvView,
   HardwareView,
   LatencyPoint,
@@ -80,7 +83,9 @@ export interface DemoOptions {
   /** Aplicar esta escena falla en su monitor y se deshace. */
   failScene?: string;
   /** Los túneles del demo: los de `V3-Computo`, ninguno o uno con 12 procesos. */
-  tunnels?: "normal" | "none" | "many";
+  tunnels?: "normal" | "none" | "many" | "notas";
+  /** La otra máquina cambia el puesto poco después de abrir (aviso «Cambiado desde…», D5). */
+  peerEdit?: boolean;
 }
 
 export function demoOptions(query: string): DemoOptions {
@@ -97,7 +102,8 @@ export function demoOptions(query: string): DemoOptions {
     firstRun: p.has("setup"),
     txn: p.get("txn") === "run" || p.get("txn") === "ok" || p.get("txn") === "fail" ? (p.get("txn") as "run" | "ok" | "fail") : undefined,
     failScene: p.get("fail") ?? undefined,
-    tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : "normal",
+    tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notas" ? "notas" : "normal",
+    peerEdit: p.has("peeredit"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
 }
@@ -391,6 +397,8 @@ export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal
     t("comfy", "ia-local", "~/…/ia-local", "Probar flujo de ComfyUI", "main", "a", "b", "closed", 0, "Windows", { commands: 4, closedAt: now - 60 * MIN, traffic: { up: 12e6, down: 1e6 } }),
   ];
   if (which === "many") return [{ ...list[0], processes: MANY.length }, ...list.slice(1)];
+  // `V3-Bandeja` dibuja la revisión del PR como un tercer proyecto («notas»); `V3-Computo` la deja en «tandem».
+  if (which === "notas") return list.map((x) => (x.id === "pr" ? { ...x, project: "notas", projectPath: "~/…/notas" } : x));
   return list;
 }
 
@@ -545,6 +553,7 @@ export function demoDesk(o: DemoOptions): DeskView {
   return {
     ready: true,
     deskName: "Mi puesto",
+    prefs: { cmdCtrl: true, dragFiles: false, clipboard: true },
     trouble: o.trouble,
     troubleText: TROUBLE_TEXT[o.trouble](peerSpec.name),
     here: o.here,
@@ -570,6 +579,9 @@ const CROSS_MS = 2500;
 const PAIR_FOUND_MS = 1400;
 const PAIR_OTHER_MS = 1200;
 
+/** Cuánto tarda la otra máquina en «editar» el puesto cuando el demo lo pide. */
+const PEER_EDIT_MS = 1200;
+
 const CURSOR_MS = 33;
 const TICK_MS = 1500;
 const RESCAN_MS = 900;
@@ -581,6 +593,7 @@ const STEP_MS = 700;
 
 /** Una fuente simulada: responde a las acciones como lo haría el agente. */
 export class DemoSource implements Source {
+  readonly demo = true;
   private desk: DeskView;
   private emit: (d: DeskView) => void = () => {};
   private timer: ReturnType<typeof setInterval> | undefined;
@@ -592,9 +605,70 @@ export class DemoSource implements Source {
     this.desk = demoDesk(opts);
   }
 
-  async start(onDesk: (d: DeskView) => void): Promise<void> {
+  async start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void> {
     this.emit = onDesk;
+    this.onChange = onChange;
+    this.onTransfer = onTransfer;
     onDesk(this.desk);
+    if (this.opts.peerEdit) setTimeout(() => this.peerEdit(), PEER_EDIT_MS);
+  }
+
+  private onChange: ((c: DeskChange) => void) | undefined;
+  private onTransfer: ((t: TransferView) => void) | undefined;
+
+  /** El avance de una copia de archivos, como lo mandaría el agente. */
+  simulateTransfer(t: TransferView): void {
+    this.onTransfer?.(t);
+  }
+
+  /** La otra máquina cambió el puesto (D5): lo que haría `DeskChanged` del agente. */
+  simulateChange(c: DeskChange): void {
+    this.onChange?.(c);
+  }
+
+  /** Versión del puesto en el demo: cada cambio la sube. */
+  rev = 1;
+  /** El puesto tal como estaba en cada versión, para que «Deshacer» lo restaure de verdad. */
+  private readonly history = new Map<number, DeskView>();
+
+  /** Guarda el puesto actual como la versión vigente y sube la versión; devuelve la anterior. */
+  private bump(): number {
+    const before = this.rev;
+    this.history.set(before, this.desk);
+    this.rev += 1;
+    return before;
+  }
+
+  /** Un cambio hecho desde la otra máquina (acomodo): se aplica y avisa con «Deshacer». */
+  peerEdit(summary = "Teclado y mouse: el portapapeles compartido está apagado"): void {
+    const undoTo = this.bump();
+    this.set({ ...this.desk, prefs: { ...this.desk.prefs, clipboard: !this.desk.prefs.clipboard } });
+    this.simulateChange({ by: this.desk.here === "a" ? "b" : "a", rev: this.rev, summary, undoTo });
+  }
+
+  async setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
+    this.bump();
+    this.set({ ...this.desk, prefs: { ...this.desk.prefs, ...p } });
+    return { ok: true };
+  }
+
+  async undoDesk(rev: number): Promise<ActResult> {
+    const before = this.history.get(rev);
+    if (!before) return { ok: false, reason: "Esa versión del puesto ya no está" };
+    this.bump();
+    this.set(before);
+    return { ok: true, text: "Cambio deshecho" };
+  }
+
+  async files(): Promise<FilesView> {
+    const mac = this.desk.machines[this.desk.here]?.os !== "windows";
+    return mac
+      ? { config: "~/Library/Application Support/Tandem/tandem.toml", logs: "~/Library/Application Support/Tandem/logs" }
+      : { config: "%APPDATA%\\Tandem\\tandem.toml", logs: "%APPDATA%\\Tandem\\logs" };
+  }
+
+  async openFiles(): Promise<ActResult> {
+    return { ok: true };
   }
 
   watch(topics: Topic[]): void {
@@ -843,7 +917,8 @@ export class DemoSource implements Source {
     if (!m || !mod) return { ok: false, reason: "No existe ese módulo" };
     if (mod.state === "unavailable") return { ok: false, reason: mod.detail };
     const modules = m.modules.map((x) => (x.id === module ? { ...x, state: on ? ("active" as const) : ("off" as const) } : x));
-    this.set({ ...this.desk, machines: { ...this.desk.machines, [machine]: { ...m, modules } } });
+    const prefs = module === "clipboard" ? { ...this.desk.prefs, clipboard: on } : this.desk.prefs;
+    this.set({ ...this.desk, prefs, machines: { ...this.desk.machines, [machine]: { ...m, modules } } });
     return { ok: true };
   }
 

@@ -91,7 +91,7 @@ describe("V3-Maquina (la otra máquina)", () => {
     await userEvent.clear(screen.getByRole("textbox", { name: "Nombre de la máquina" }));
     await userEvent.keyboard("{Enter}");
     expect(store.desk.machines.b?.name).toBe("Estudio");
-    expect(store.toasts.at(-1)).toMatchObject({ tone: "bad", text: "El nombre no puede quedar vacío" });
+    expect(store.toasts[0]).toMatchObject({ tone: "bad", text: "El nombre no puede quedar vacío" });
   });
 
   it("cada módulo que se puede apagar tiene su interruptor; Energía no", async () => {
@@ -307,7 +307,7 @@ describe("contra el agente (IPC)", () => {
     const { store, act } = await mountLive();
     act.mockResolvedValueOnce({ kind: "rejected", reason: "ese color ya es el de Estudio" } as never);
     await userEvent.click(screen.getByRole("radio", { name: "Ámbar" }));
-    await vi.waitFor(() => expect(store.toasts.at(-1)).toMatchObject({ tone: "bad", text: "ese color ya es el de Estudio" }));
+    await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ tone: "bad", text: "ese color ya es el de Estudio" }));
   });
 
   it("al salir de la página deja de pedir los recursos", async () => {

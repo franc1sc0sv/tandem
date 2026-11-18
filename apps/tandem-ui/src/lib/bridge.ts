@@ -48,6 +48,9 @@ export interface Bridge {
   /** «Actualizar todas»: rechaza con la razón si no se puede empezar. */
   updateAll(): Promise<UpdateView>;
   setAutoUpdate(on: boolean): Promise<UpdateView>;
+  /** Ajustes → Avanzado: dónde están la configuración y los logs, y mostrarlos. */
+  files(): Promise<{ config: string; logs: string }>;
+  openFiles(target: "config" | "logs"): Promise<void>;
 }
 
 // Nombres de `tandem_ui::app`.
@@ -109,6 +112,8 @@ export async function tauriBridge(): Promise<Bridge> {
     checkUpdates: () => invoke<UpdateView>("update_check"),
     updateAll: () => invoke<UpdateView>("update_all"),
     setAutoUpdate: (on) => invoke<UpdateView>("update_auto", { on }),
+    files: () => invoke<{ config: string; logs: string }>("files_info"),
+    openFiles: (target) => invoke<void>("files_open", { target }),
   };
 }
 

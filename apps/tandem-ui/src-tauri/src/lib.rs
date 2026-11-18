@@ -9,6 +9,7 @@
 //! - [`update`]: actualizar las dos máquinas (versiones, plan y «Actualizar solo»).
 //! - `app` (feature `app`): la app de Tauri y sus comandos.
 
+pub mod files;
 pub mod launch_agent;
 pub mod session;
 pub mod setup;

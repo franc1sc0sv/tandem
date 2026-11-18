@@ -366,6 +366,35 @@ fn ui_hide_tray(app: AppHandle) {
     hide_tray(&app);
 }
 
+/// Las rutas del archivo de configuración y de los logs (Ajustes → Avanzado).
+#[tauri::command]
+fn files_info() -> Result<crate::files::FilesInfo, String> {
+    let (config, logs) = crate::files::locate()?;
+    Ok(crate::files::FilesInfo {
+        config: config.display().to_string(),
+        logs: logs.display().to_string(),
+    })
+}
+
+/// Muestra el archivo de configuración o la carpeta de logs en el explorador del sistema.
+#[tauri::command]
+fn files_open(target: crate::files::Target) -> Result<(), String> {
+    let (config, logs) = crate::files::locate()?;
+    let (path, is_file) = match target {
+        crate::files::Target::Config => (config, true),
+        crate::files::Target::Logs => (logs, false),
+    };
+    if !is_file {
+        std::fs::create_dir_all(&path).map_err(|e| e.to_string())?;
+    }
+    let (program, args) = crate::files::reveal_command(std::env::consts::OS, &path, is_file);
+    std::process::Command::new(program)
+        .args(args)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 /// «Salir» desde la bandeja / barra de menú (V3-Bandeja), igual que el menú del ícono.
 #[tauri::command]
 fn ui_quit(app: AppHandle) {
@@ -651,7 +680,9 @@ pub fn run() -> Result<(), tauri::Error> {
             ui_show_main,
             ui_hide_main,
             ui_hide_tray,
-            ui_quit
+            ui_quit,
+            files_info,
+            files_open
         ])
         .build(tauri::generate_context!())?;
     app.run(|app, event| {
