@@ -553,6 +553,7 @@ fn input_setup(id: &str) -> InputSetup {
             retry: Duration::from_millis(100),
             ..InputOptions::default()
         },
+        file_drag: None,
     }
 }
 

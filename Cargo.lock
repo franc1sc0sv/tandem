@@ -4321,6 +4321,7 @@ name = "tandem-files"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "dispatch2",
  "getrandom 0.4.3",
  "objc2",
  "objc2-app-kit",

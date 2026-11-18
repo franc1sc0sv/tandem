@@ -182,6 +182,7 @@ async fn start_one(
             input: Some(Box::new(InputSetup {
                 backends: Arc::new(fake.clone()),
                 opts,
+                file_drag: None,
             })),
             env: None,
         },

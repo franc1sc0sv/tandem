@@ -5,7 +5,7 @@
 //!   [`run_origin`] corre `DragOut`, publicando el avance para la UI;
 //! - destino: [`serve`] atiende `Begin`/`Ready`/`Cancel` con un `DragIn`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 
@@ -13,7 +13,9 @@ use tandem_files::FilesError;
 use tandem_files::drag::{
     DragDetector, DragEnd, DragIn, DragOut, DragPeer, DragProgress, DragStarter, Upload,
 };
-use tandem_proto::{ControlMsg, DragMsg, DragOutcome, DragStatus};
+use tandem_files::drag_os::{PxRect, StripEdge};
+use tandem_proto::{Client, ClientKind, ControlMsg, DragMsg, DragOutcome, DragStatus, TunnelId};
+use tandem_tunnel::{BoxFuture, OpenSpec};
 use tokio::sync::{Mutex as AsyncMutex, broadcast, mpsc};
 
 use crate::agent::Agent;
@@ -222,5 +224,138 @@ pub async fn serve<S: DragStarter>(agent: &Agent, drag: DragIn<S>) {
             }
             _ => tracing::debug!("mensaje de arrastre de uno que ya terminó"),
         }
+    }
+}
+
+/// Lo que el motor de entrada necesita del sistema para los arrastres de archivos de
+/// origen (T-121): detectar el arrastre, saber dónde está el borde y subir los archivos.
+/// Es un trait de objeto para que el motor lo reciba en [`crate::input::InputSetup`]; las
+/// pruebas lo dan con un doble.
+pub trait FileDragBackend: Send + Sync {
+    /// Las rutas que se están arrastrando, o `None` si no hay un arrastre de archivos.
+    fn file_drag(&self) -> Option<Vec<PathBuf>>;
+
+    /// Dónde está el borde de cruce (la franja del detector); `None` si no se puede cruzar.
+    /// Los detectores que no necesitan ventana (macOS lee el portapapeles de arrastre) lo
+    /// ignoran.
+    fn set_edge(&self, _edge: Option<(PxRect, StripEdge)>) {}
+
+    /// Copia `local` a `remote` en la otra máquina.
+    fn upload<'a>(
+        &'a self,
+        agent: &'a Agent,
+        local: &'a Path,
+        remote: &'a str,
+    ) -> BoxFuture<'a, Result<()>>;
+
+    /// El arrastre terminó (soltado, cancelado o con error): libera lo que abrió `upload`.
+    fn finish<'a>(&'a self, _agent: &'a Agent) -> BoxFuture<'a, ()> {
+        Box::pin(async {})
+    }
+}
+
+/// Sube archivos por un túnel que el propio agente abre al primer archivo y cierra al
+/// terminar el arrastre.
+#[derive(Debug, Default)]
+pub struct TunnelUploader {
+    tunnel: AsyncMutex<Option<TunnelId>>,
+}
+
+impl TunnelUploader {
+    pub async fn upload(&self, agent: &Agent, local: &Path, remote: &str) -> Result<()> {
+        let id = {
+            let mut slot = self.tunnel.lock().await;
+            match *slot {
+                Some(id) => id,
+                None => {
+                    let spec = OpenSpec {
+                        title: "Arrastre de archivos".into(),
+                        project: None,
+                        origin: agent.machine(),
+                        target: agent.machine().other(),
+                        opened_by: Client {
+                            kind: ClientKind::Cli,
+                            session: "arrastre".into(),
+                        },
+                    };
+                    let t = agent
+                        .tunnels()
+                        .origin
+                        .open(spec)
+                        .await
+                        .map_err(|e| FilesError::Remote(e.to_string()))?;
+                    *slot = Some(t.id);
+                    t.id
+                }
+            }
+        };
+        let up = tandem_files::drag::TunnelUpload {
+            files: agent.files(),
+            origin: &agent.tunnels().origin,
+            tunnel: id,
+        };
+        up.upload(local, remote).await
+    }
+
+    pub async fn finish(&self, agent: &Agent) {
+        if let Some(id) = self.tunnel.lock().await.take()
+            && let Err(e) = agent.tunnels().origin.close(id).await
+        {
+            tracing::debug!("no se pudo cerrar el túnel del arrastre: {e}");
+        }
+    }
+}
+
+/// Cómo mover la franja del detector.
+type EdgeFn = Box<dyn Fn(Option<(PxRect, StripEdge)>) + Send + Sync>;
+
+/// [`FileDragBackend`] con un [`DragDetector`] del sistema y el túnel del agente.
+pub struct SystemFileDrag<D> {
+    detector: D,
+    uploads: TunnelUploader,
+    edge: Option<EdgeFn>,
+}
+
+impl<D: DragDetector + Send + Sync> SystemFileDrag<D> {
+    pub fn new(detector: D) -> Self {
+        SystemFileDrag {
+            detector,
+            uploads: TunnelUploader::default(),
+            edge: None,
+        }
+    }
+
+    /// Cómo mover la franja del detector cuando cambia el borde de cruce.
+    pub fn with_edge(
+        mut self,
+        f: impl Fn(Option<(PxRect, StripEdge)>) + Send + Sync + 'static,
+    ) -> Self {
+        self.edge = Some(Box::new(f));
+        self
+    }
+}
+
+impl<D: DragDetector + Send + Sync> FileDragBackend for SystemFileDrag<D> {
+    fn file_drag(&self) -> Option<Vec<PathBuf>> {
+        self.detector.file_drag()
+    }
+
+    fn set_edge(&self, edge: Option<(PxRect, StripEdge)>) {
+        if let Some(f) = &self.edge {
+            f(edge);
+        }
+    }
+
+    fn upload<'a>(
+        &'a self,
+        agent: &'a Agent,
+        local: &'a Path,
+        remote: &'a str,
+    ) -> BoxFuture<'a, Result<()>> {
+        Box::pin(self.uploads.upload(agent, local, remote))
+    }
+
+    fn finish<'a>(&'a self, agent: &'a Agent) -> BoxFuture<'a, ()> {
+        Box::pin(self.uploads.finish(agent))
     }
 }

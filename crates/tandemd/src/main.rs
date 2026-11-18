@@ -62,7 +62,7 @@ fn main() -> ExitCode {
             }
         }
         Command::Run(args) => {
-            if let Err(e) = run(args) {
+            if let Err(e) = run_hosted(args) {
                 tracing::error!("{e:#}");
                 eprintln!("tandemd: {e:#}");
                 return ExitCode::FAILURE;
@@ -122,6 +122,36 @@ async fn network_status(data_dir: &std::path::Path) -> Option<tandem_proto::Netw
         .await
         .ok()
         .flatten()
+}
+
+/// En macOS, AppKit pide el hilo principal para el arrastre sintético de archivos (T-121):
+/// el agente corre en otro hilo y este atiende el run loop. Al terminar el agente se sale
+/// del proceso, porque ese run loop no vuelve solo.
+#[cfg(target_os = "macos")]
+fn run_hosted(args: RunArgs) -> anyhow::Result<()> {
+    let agent = std::thread::Builder::new()
+        .name("tandemd".into())
+        .spawn(move || {
+            let code = match run(args) {
+                Ok(()) => 0,
+                Err(e) => {
+                    tracing::error!("{e:#}");
+                    eprintln!("tandemd: {e:#}");
+                    1
+                }
+            };
+            std::process::exit(code)
+        })
+        .context("no se pudo crear el hilo del agente")?;
+    tandem_files::drag_macos::run_app_loop();
+    // Solo se llega aquí si el run loop no arrancó: el agente sigue su curso.
+    let _ = agent.join();
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn run_hosted(args: RunArgs) -> anyhow::Result<()> {
+    run(args)
 }
 
 fn run(args: RunArgs) -> anyhow::Result<()> {

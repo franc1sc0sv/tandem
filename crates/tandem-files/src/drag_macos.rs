@@ -11,14 +11,15 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use dispatch2::DispatchQueue;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2::{AnyThread, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
 use objc2_app_kit::{
-    NSBackingStoreType, NSColor, NSDragOperation, NSDraggingContext, NSDraggingItem,
-    NSDraggingSession, NSDraggingSource, NSEvent, NSEventModifierFlags, NSEventType, NSPasteboard,
-    NSPasteboardNameDrag, NSPasteboardTypeFileURL, NSPasteboardWriting, NSWindow,
-    NSWindowStyleMask,
+    NSApplication, NSApplicationActivationPolicy, NSBackingStoreType, NSColor, NSDragOperation,
+    NSDraggingContext, NSDraggingItem, NSDraggingSession, NSDraggingSource, NSEvent,
+    NSEventModifierFlags, NSEventType, NSPasteboard, NSPasteboardNameDrag, NSPasteboardTypeFileURL,
+    NSPasteboardWriting, NSWindow, NSWindowStyleMask,
 };
 use objc2_core_graphics::{CGEventSource, CGEventSourceStateID, CGMouseButton};
 use objc2_foundation::{
@@ -32,6 +33,34 @@ use crate::error::{FilesError, Result};
 
 /// Corre un cierre en el hilo principal de la app.
 pub type RunOnMain = Arc<dyn Fn(Box<dyn FnOnce(MainThreadMarker) + Send>) + Send + Sync>;
+
+/// [`RunOnMain`] sobre la cola principal de GCD: el cierre corre en el hilo principal del
+/// proceso, que tiene que estar atendiendo su run loop ([`run_app_loop`]). El marcador se
+/// obtiene comprobando el hilo, no suponiéndolo: si por alguna razón no fuera el principal
+/// el cierre se descarta y `start` falla con «no atendió el arrastre» en vez de tocar AppKit
+/// desde otro hilo.
+pub fn main_queue() -> RunOnMain {
+    Arc::new(|work| {
+        DispatchQueue::main().exec_async(move || {
+            if let Some(mtm) = MainThreadMarker::new() {
+                work(mtm);
+            }
+        });
+    })
+}
+
+/// Atiende el run loop de AppKit en el hilo principal hasta que el proceso termine. Sin
+/// ícono en el Dock (`Accessory`): el agente no es una app con ventanas, solo necesita los
+/// eventos para la sesión de arrastre. Llamar solo desde el hilo principal; en otro hilo no
+/// hace nada.
+pub fn run_app_loop() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let app = NSApplication::sharedApplication(mtm);
+    app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+    app.run();
+}
 
 /// ¿Está apretado el botón izquierdo del mouse? Sin eso, lo que quede en el portapapeles de
 /// arrastre es de un arrastre que ya terminó.
@@ -219,3 +248,13 @@ impl DragStarter for MacDragStarter {
         Ok(end_of(true, op != NSDragOperation::None))
     }
 }
+
+// El futuro de `start` viaja entre hilos del runtime: se comprueba al compilar.
+const _: () = {
+    fn is_send<T: Send>(_: &T) {}
+    #[allow(dead_code)]
+    fn assert_send(starter: &MacDragStarter) {
+        is_send(&starter.start(Vec::new()));
+        is_send(starter);
+    }
+};
