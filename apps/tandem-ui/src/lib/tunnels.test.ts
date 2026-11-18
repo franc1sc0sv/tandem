@@ -72,6 +72,10 @@ describe("estado y proyectos con el demo (V3-Computo)", () => {
   const now = 1_763_400_000_000;
   const tunnels = demoTunnels(now);
 
+  it("`tunnels=notas` (V3-Bandeja) saca la revisión del PR a un tercer proyecto", () => {
+    expect(groupByProject(demoTunnels(now, "notas")).map((x) => x.name).sort()).toEqual(["ia-local", "notas", "tandem"]);
+  });
+
   it("agrupa en dos proyectos con su proporción de abiertos", () => {
     const g = groupByProject(tunnels);
     expect(g.map((x) => [x.name, ratio(x)])).toEqual([

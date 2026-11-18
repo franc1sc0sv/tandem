@@ -83,7 +83,7 @@ export interface DemoOptions {
   /** Aplicar esta escena falla en su monitor y se deshace. */
   failScene?: string;
   /** Los túneles del demo: los de `V3-Computo`, ninguno o uno con 12 procesos. */
-  tunnels?: "normal" | "none" | "many";
+  tunnels?: "normal" | "none" | "many" | "notas";
   /** La otra máquina cambia el puesto poco después de abrir (aviso «Cambiado desde…», D5). */
   peerEdit?: boolean;
 }
@@ -102,7 +102,7 @@ export function demoOptions(query: string): DemoOptions {
     firstRun: p.has("setup"),
     txn: p.get("txn") === "run" || p.get("txn") === "ok" || p.get("txn") === "fail" ? (p.get("txn") as "run" | "ok" | "fail") : undefined,
     failScene: p.get("fail") ?? undefined,
-    tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : "normal",
+    tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notas" ? "notas" : "normal",
     peerEdit: p.has("peeredit"),
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
@@ -397,6 +397,8 @@ export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal
     t("comfy", "ia-local", "~/…/ia-local", "Probar flujo de ComfyUI", "main", "a", "b", "closed", 0, "Windows", { commands: 4, closedAt: now - 60 * MIN, traffic: { up: 12e6, down: 1e6 } }),
   ];
   if (which === "many") return [{ ...list[0], processes: MANY.length }, ...list.slice(1)];
+  // `V3-Bandeja` dibuja la revisión del PR como un tercer proyecto («notas»); `V3-Computo` la deja en «tandem».
+  if (which === "notas") return list.map((x) => (x.id === "pr" ? { ...x, project: "notas", projectPath: "~/…/notas" } : x));
   return list;
 }
 

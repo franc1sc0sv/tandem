@@ -34,10 +34,10 @@ const nameOf = (d: DeskView, m: Machine) => d.machines[m]?.name ?? `la máquina 
 
 /**
  * Avisos de ejemplo del modo demo (`?demo&avisos`): los tres con que abre `F-Avisos`, del más nuevo
- * al más viejo. Solo se siembran a pedido, para ver y capturar la pila.
+ * al más viejo. Solo se siembran a pedido, para ver y capturar la pila. El botón «Enviar por Wi-Fi igual» no hace nada: el agente no tiene esa función y la app real no lo muestra; está aquí para que la pila mida lo mismo que el mockup.
  */
 export const DEMO_AVISOS: ToastSpec[] = [
-  { text: "Se desconectó el cable USB-C", body: "El teclado y el mouse siguen por Wi-Fi. Los envíos de datos esperan al cable.", tone: "warn" },
+  { text: "Se desconectó el cable USB-C", body: "El teclado y el mouse siguen por Wi-Fi. Los envíos de datos esperan al cable.", tone: "warn", action: { label: "Enviar por Wi-Fi igual", run: () => {} } },
   { text: "Escena «Trabajo» aplicada", body: '34" confirmado en PC-Escritorio en 1.8 s.', tone: "ok" },
   { text: "Claude abrió el túnel «tandem»", body: "MacBook Pro → PC-Escritorio · WSL.", tone: "claude" },
 ];

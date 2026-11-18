@@ -51,3 +51,23 @@ Más detalle en `tools/mockup-render/README.md`.
 - **«Latencia · 10 min»** (`V3-Red`, gráfica de latencia): el agente guarda 60 s por camino (DESIGN §6, T-102); la app dice «Latencia · 60 s» y el arnés tapa ese rótulo en las dos capturas.
 - **`F-Transacciones`: «Dejar de esperar»**: el agente no tiene un comando para cancelar un encendido, así que la app no muestra el botón (misma regla que «olvidar monitor»). Región tapada: el último bloque de la tarjeta de energía en el mockup.
 - **`F-Transacciones`: «de la MacBook»**: el mockup nombra la máquina a mano; la app dice el nombre real (D10).
+
+## Regiones que el arnés tapa en T-120 (Ajustes, Estados, Paleta, Bandeja, Avisos)
+
+Regla: solo se tapa una caja que no puede coincidir (dato real, función que no existe) y nunca un título, texto o botón que la app sí tiene. Cada región va con su razón; la fuente es `apps/tandem-ui/scripts/shots-spec.ts`.
+
+**Estados (`V3-Estados`).** `?demo&estados` siembra los textos de ejemplo del mockup (nombres, cifras, la línea `epoch 9/20 · loss 0.0371`), así que títulos, textos y botones de las nueve tarjetas se comparan sin tapar; la altura de las tarjetas sale del CSS real de la app, sin ajustes en la medición. Región tapada:
+- Botón «Enviar por Wi-Fi igual» de la tarjeta «Enlace»: el agente no tiene esa función, y sin función no hay botón.
+
+**Ajustes (`F-Ajustes`).**
+- Nombre del puesto: el mockup trae un campo editable y la app muestra el texto, porque el nombre no viaja en el puesto y un campo que no guarda nada viola DESIGN §3.8. Se tapa solo esa caja.
+- Botón «Sacar del puesto» (mockup): D1, exactamente dos máquinas. Por lo mismo, el lápiz de la otra máquina cae en el borde derecho de la fila en la app; se tapa solo ese lápiz.
+- Fila «Agregar una máquina · Mostrar código» (D1): la app dice «Cambiar la otra máquina · Emparejar de nuevo». Se tapan el rótulo y el botón, no la fila.
+- Atajos: la combinación de la primera fila sigue al sistema (`Ctrl+Alt+0` en Windows y Linux, `⌃⌥0` en macOS). Además, la app solo tiene un atajo editable; las cinco filas siguientes del mockup (bloqueo, paleta, tres escenas) no existen y en su lugar está «Restablecer · Guardar», así que esa franja se tapa en las dos capturas hasta que existan esos atajos.
+- Avanzado: la cuenta de sesiones del servidor MCP; el agente todavía no las cuenta.
+
+**Paleta (`F-Paleta`).** El punto de color del renglón «Trabajo» (es el de la máquina real); los renglones de escenas («Aplicar «Solo PC»»), «Agregar máquina…» (D1) y los túneles «ia-local» y «tandem» (datos reales del puesto); y, porque los túneles reales empujan lo que sigue, el rótulo «Ir a» y los renglones «Monitores» y «Red».
+
+**Bandeja (`V3-Bandeja`).** `?demo&tunnels=notas` agrupa los túneles en tres proyectos como el mockup (`V3-Computo` deja la revisión del PR en «tandem»), para que la altura de la lista coincida. Se tapan los datos reales del puesto: el enlace y su latencia, el estado y la carga de cada máquina, la escena de la tercera fila y los renglones de túneles. «Bloquear aquí» no existe (T-112, G6: sin acción en la IPC no hay botón).
+
+**Avisos (`F-Avisos`).** Se compara la pila completa (los tres avisos con sus tonos: advertencia, correcto y Claude), sin regiones tapadas: `?demo&avisos` siembra los textos del mockup, incluido el botón «Enviar por Wi-Fi igual», que en el demo no hace nada (la app real no lo muestra) para que la pila mida lo mismo. Técnica de medición: la app dibuja la pila como una capa fija en la esquina de la ventana y el mockup la apila en el flujo dentro de un cuadro; para que el texto caiga en el mismo píxel, durante la captura se oculta la página real (`.shell`; en el mockup es un esqueleto), se pinta el fondo del cuadro y la pila pasa a posición absoluta. Se recorta desde la esquina del primer aviso en cada imagen. El aviso «Cambiado desde… · Deshacer» (D5) no está en `F-Avisos`: lo cubren las pruebas de la app.

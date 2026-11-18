@@ -285,12 +285,13 @@ export const AJUSTES: ShotSpec[] = [
   ajustesShot("ajustes", undefined, [], [
     { app: ".pane > .row:nth-child(1) > .mut", mockup: ".pane > .row:nth-child(1) > input", reason: "El nombre del puesto es texto: el campo editable del mockup no tiene función aquí (§3.8)" },
     { app: NONE, mockup: 'button.danger:has-text("Sacar del puesto")', reason: "D1: sin «Sacar del puesto» (exactamente dos máquinas)" },
-    { app: ".pane > .row:nth-child(3) > button", mockup: ".pane > .row:nth-child(3) > button", reason: "D1: la fila de la otra máquina no trae «Sacar del puesto»; sus botones se corren" },
-    { app: ".pane > .row:nth-child(4)", mockup: ".pane > .row:nth-child(4)", reason: "D1: «Cambiar la otra máquina» en lugar de «Agregar una máquina»" },
+    { app: ".pane > .row:nth-child(3) > button", mockup: ".pane > .row:nth-child(3) > button.ic", reason: "Sin «Sacar del puesto» a su lado, el lápiz de la otra máquina cae en el borde derecho de la fila" },
+    { app: ".pane > .row:nth-child(4) > .fill", mockup: ".pane > .row:nth-child(4) > span", reason: "D1: «Cambiar la otra máquina» en lugar de «Agregar una máquina»" },
+    { app: ".pane > .row:nth-child(4) > button", mockup: ".pane > .row:nth-child(4) > a.btn", reason: "D1: «Emparejar de nuevo» en lugar de «Mostrar código»" },
   ]),
   ajustesShot("ajustes-atajos", "atajos", [tab("Atajos")], [
+    { app: ".pane > .row:nth-child(3)", mockup: ".pane > .row:nth-child(n+3)", reason: "Solo hay un atajo en la app; las filas de bloqueo, paleta y escenas del mockup no existen, y la app pone ahí «Restablecer» y «Guardar»" },
     { app: ".combo", mockup: ".combo", reason: "El texto de la combinación sigue al sistema de la ventana (Ctrl+Alt+0 en Windows y Linux, ⌃⌥0 en macOS)" },
-    { app: ".pane > .row:nth-child(n+3)", mockup: ".pane > .row:nth-child(n+3)", reason: "Solo hay un atajo editable en la app (mostrar u ocultar); bloqueo, paleta y escenas llegan después" },
   ]),
   ajustesShot("ajustes-teclado", "teclado", [tab("Teclado y mouse")]),
   ajustesShot("ajustes-actualizaciones", "actualizaciones", [tab("Actualizaciones")]),
@@ -356,7 +357,8 @@ export const PALETA: ShotSpec = {
 export const BANDEJA: ShotSpec = {
   name: "bandeja",
   page: "tray.html",
-  query: DEMO,
+  // `V3-Bandeja` agrupa los túneles en tres proyectos; `tunnels=notas` los siembra así.
+  query: `${DEMO}&tunnels=notas`,
   hash: "",
   mockup: "V3-Bandeja",
   width: 380,
@@ -378,11 +380,10 @@ export const BANDEJA: ShotSpec = {
 };
 
 /**
- * `F-Avisos`: la pila de avisos de la app (`?avisos` los siembra). Se compara desde el segundo
- * aviso hacia abajo: el primero del mockup trae «Enviar por Wi-Fi igual», que el agente no tiene
- * (sin función no hay botón), y su altura movería a los demás. Los textos son los del mockup. Para
- * medir, la página de fondo se oculta y la pila (fija en la ventana) pasa a absoluta: el mockup la
- * apila en el flujo y, como capa fija, el texto cae en otro píxel.
+ * `F-Avisos`: la pila entera de avisos (`?avisos` siembra los tres del mockup, con sus textos,
+ * tonos y el botón del primero) contra la del mockup. Para medir, la página de fondo se oculta y
+ * la pila (fija en la ventana) pasa a absoluta: el mockup la apila en el flujo, dentro de un
+ * cuadro, y como capa fija el texto cae en otro píxel (ver `mockups/README.md`).
  */
 export const AVISOS: ShotSpec = {
   name: "avisos",
@@ -395,8 +396,8 @@ export const AVISOS: ShotSpec = {
   content: {
     appWidth: W,
     appStyle: "html, body { background: #0b0c0e !important; } .shell { visibility: hidden !important; } .toasts { position: absolute !important; }",
-    app: ".toast:nth-child(2)",
-    mockup: ".toast:nth-child(2)",
+    app: ".toast:nth-child(1)",
+    mockup: ".toast:nth-child(1)",
     masks: [],
     min: SCREEN_GATE,
   },
