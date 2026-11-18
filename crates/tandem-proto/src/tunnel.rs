@@ -101,6 +101,10 @@ pub enum TunnelUp {
         tunnel: TunnelId,
         from: Vec<(FlowId, u64)>,
     },
+    /// Archivos (T-106), por su propio stream.
+    Files(crate::FilesUp),
+    /// Puertos (T-106), por su propio stream.
+    Port(crate::PortUp),
 }
 
 /// De la destino al origen.
@@ -133,6 +137,10 @@ pub enum TunnelDown {
     },
     /// El túnel se cerró y ya se mandó toda su salida: el canal de datos termina aquí.
     TunnelClosed,
+    /// Archivos (T-106), por su propio stream.
+    Files(crate::FilesDown),
+    /// Puertos (T-106), por su propio stream.
+    Port(crate::PortDown),
 }
 
 /// Los túneles de un proyecto, para la UI (solo lectura, D9). `project` es `None` para

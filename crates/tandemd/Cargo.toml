@@ -21,6 +21,7 @@ serde_json.workspace = true
 tandem-clipboard = { path = "../tandem-clipboard" }
 tandem-core = { path = "../tandem-core" }
 tandem-env = { path = "../tandem-env" }
+tandem-files = { path = "../tandem-files" }
 tandem-input = { path = "../tandem-input" }
 tandem-link = { path = "../tandem-link" }
 tandem-monitor = { path = "../tandem-monitor" }

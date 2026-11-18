@@ -834,7 +834,9 @@ impl From<Reply> for ActionResult {
             | Reply::Monitors(_)
             | Reply::Update(_)
             | Reply::Tunnel(_)
-            | Reply::Tunnels(_) => ActionResult::Done,
+            | Reply::Tunnels(_)
+            | Reply::Files(_)
+            | Reply::Forward(_) => ActionResult::Done,
         }
     }
 }
@@ -1223,7 +1225,8 @@ impl Runner {
                 self.sink.resources(machine, &resources);
             }
             // La pantalla Túneles (solo lectura, D9) llega con su tarea de UI.
-            AgentToUi::Tunnels(_) => {}
+            // Las transferencias las pide un cliente, no la UI (T-106).
+            AgentToUi::Tunnels(_) | AgentToUi::Transfer(_) => {}
             // Solo con `Action::WatchCursor`: las pantallas Puesto y Acomodo los pintan.
             AgentToUi::Cursor(sample) => self.sink.notice(&Notice::Cursor {
                 sample: sample.into(),

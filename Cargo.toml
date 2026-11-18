@@ -15,6 +15,9 @@ repository = "https://github.com/franc1sc0sv/tandem"
 # Portables
 anyhow = "1.0.104"
 arboard = "3.7.0"
+# Hash de fragmentos y de archivos completos (T-106). `pure`: sin C ni SIMD a mano, para que
+# compile igual en las tres plataformas.
+blake3 = { version = "1.8", default-features = false, features = ["std", "pure"] }
 bytes = "1"
 # Directorios estándar de la app (datos, configuración) en cada sistema.
 dirs = "7.0.0"

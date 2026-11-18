@@ -13,6 +13,7 @@
 
 pub mod cursor;
 pub mod env;
+pub mod files;
 pub mod frame;
 pub mod msg;
 pub mod net;
@@ -22,6 +23,11 @@ mod wire;
 pub use cursor::CursorSample;
 pub use env::{
     CpuLoad, DiskSpace, EnvKind, Environment, Gpu, GpuLoad, Hardware, MemoryUse, Resources, Tool,
+};
+pub use files::{
+    CHUNK_SIZE, Direction, EntryKind, FileEntry, FilesDown, FilesReport, FilesUp, ForwardInfo,
+    Hash, MAX_ENTRIES, Manifest, Need, PAGE_BUDGET, PIECE, PortDown, PortUp, TransferProgress,
+    entry_cost, entry_fits, page_entries, page_needs,
 };
 pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encode_frame};
 pub use msg::{
@@ -43,7 +49,7 @@ pub use tunnel::{
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 30;
+pub const PROTOCOL_VERSION: u16 = 31;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -111,10 +117,12 @@ mod tests {
     /// prueba de ancho de banda) sube a la v28.
     /// T-111 (`[[cables]]` en el puesto y su parche, la entrada de cada máquina según el EDID
     /// en el canal y la vista de cada monitor) sube a la v29. T-128 (el cursor en vivo:
-    /// `WatchCursor`, `Cursor` y `Crossed` en la UI y entre agentes) sube a la v30.
+    /// `WatchCursor`, `Cursor` y `Crossed` en la UI y entre agentes) sube a la v30. T-106
+    /// (archivos y puertos por túnel, sus pedidos y el avance de las transferencias) sube a
+    /// la v31.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 30);
+        assert_eq!(PROTOCOL_VERSION, 31);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

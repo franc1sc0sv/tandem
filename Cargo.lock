@@ -245,6 +245,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3"
+version = "1.8.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d9e454fc11f76977dc803893aff6304ed33d6a26efae8696573bea74baa27ae"
+dependencies = [
+ "arrayvec",
+ "cc",
+ "cfg-if",
+ "constant_time_eq 0.4.2",
+ "cpufeatures 0.3.1",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -531,6 +544,12 @@ name = "const-oid"
 version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
+
+[[package]]
+name = "constant_time_eq"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "constant_time_eq"
@@ -4281,6 +4300,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem-files"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "getrandom 0.4.3",
+ "proptest",
+ "serde",
+ "tandem-core",
+ "tandem-proto",
+ "tandem-tunnel",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "tandem-input"
 version = "0.1.0"
 dependencies = [
@@ -4443,6 +4479,7 @@ dependencies = [
  "tandem-clipboard",
  "tandem-core",
  "tandem-env",
+ "tandem-files",
  "tandem-input",
  "tandem-link",
  "tandem-monitor",
@@ -6236,7 +6273,7 @@ version = "9.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "953a376f4930ed5af88e1e65948385f76866b45e7f75b21ac275327d0eeb9b46"
 dependencies = [
- "constant_time_eq",
+ "constant_time_eq 0.6.1",
  "crc32fast",
  "getrandom 0.4.3",
  "indexmap 2.14.2",

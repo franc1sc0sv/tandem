@@ -1,0 +1,25 @@
+[package]
+name = "tandem-files"
+description = "Archivos y puertos por túnel: fragmentos con BLAKE3, reanudables, y reenvío de puertos TCP"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+blake3.workspace = true
+getrandom.workspace = true
+serde = { workspace = true }
+tandem-proto = { path = "../tandem-proto" }
+tandem-tunnel = { path = "../tandem-tunnel" }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tandem-core = { path = "../tandem-core" }
+tempfile.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync", "test-util", "time"] }
+
+[lints]
+workspace = true

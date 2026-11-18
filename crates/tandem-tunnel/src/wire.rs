@@ -26,6 +26,11 @@ pub trait OriginWire: Send {
     fn send(&mut self, msg: TunnelUp) -> BoxFuture<'_, Result<(), WireError>>;
     /// `None` si la destino cerró el stream.
     fn recv(&mut self) -> BoxFuture<'_, Result<Option<TunnelDown>, WireError>>;
+    /// Desde aquí este stream lleva bytes en volumen en el sentido del origen (archivos,
+    /// puertos): prioridad de datos, con la pausa y el tope del camino (T-101).
+    fn start_data(&mut self) -> Result<(), WireError> {
+        Ok(())
+    }
 }
 
 /// Abre streams de túnel hacia la destino por un camino (una conexión). El origen usa

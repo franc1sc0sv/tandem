@@ -11,9 +11,11 @@
 //!   el usuario y entra por la IPC local, que solo acepta a ese usuario (DESIGN §11). La
 //!   UI solo mira (D9).
 
+use std::path::Path;
 use std::sync::Arc;
 
 use tandem_core::Machine;
+use tandem_files::ForwardSpec;
 use tandem_link::qos::Qos;
 use tandem_link::transport::{Connection, ControlReceiver, ControlStream, DataSender};
 use tandem_proto::{Channel, Client, ClientKind, Reply, TunnelDown, TunnelUp, UiCommand};
@@ -47,21 +49,47 @@ impl Dialer for QuicDialer {
             let stream = open_channel(&self.conn, self.me, Channel::Tunnel)
                 .await
                 .map_err(WireError::new)?;
-            let wire: Box<dyn OriginWire> = Box::new(QuicOrigin(stream));
+            let wire: Box<dyn OriginWire> = Box::new(QuicOrigin {
+                qos: self.conn.qos().clone(),
+                mode: Mode::Control(stream),
+            });
             Ok(wire)
         })
     }
 }
 
-struct QuicOrigin(ControlStream);
+/// El lado del origen: control para los pedidos, datos desde `start_data` (archivos y
+/// puertos mandan bytes en los dos sentidos, no solo la destino).
+struct QuicOrigin {
+    qos: Qos,
+    mode: Mode,
+}
 
 impl OriginWire for QuicOrigin {
     fn send(&mut self, msg: TunnelUp) -> BoxFuture<'_, Result<(), WireError>> {
-        Box::pin(async move { self.0.send(&msg).await.map_err(WireError::new) })
+        Box::pin(async move {
+            let r = match &mut self.mode {
+                Mode::Control(s) => s.send(&msg).await,
+                Mode::Data(tx, _) => tx.send(&msg).await,
+                Mode::Gone => return Err(WireError::new(GONE)),
+            };
+            r.map_err(WireError::new)
+        })
     }
 
     fn recv(&mut self) -> BoxFuture<'_, Result<Option<TunnelDown>, WireError>> {
-        Box::pin(async move { self.0.recv().await.map_err(WireError::new) })
+        Box::pin(async move {
+            let r = match &mut self.mode {
+                Mode::Control(s) => s.recv().await,
+                Mode::Data(_, rx) => rx.recv().await,
+                Mode::Gone => return Err(WireError::new(GONE)),
+            };
+            r.map_err(WireError::new)
+        })
+    }
+
+    fn start_data(&mut self) -> Result<(), WireError> {
+        self.mode.switch_to_data(&self.qos)
     }
 }
 
@@ -79,6 +107,23 @@ enum Mode {
 }
 
 const GONE: &str = "stream de túnel inutilizable";
+
+impl Mode {
+    /// Pasa a datos (prioridad mínima, con la pausa y el tope de `qos`); si ya lo es, nada.
+    fn switch_to_data(&mut self, qos: &Qos) -> Result<(), WireError> {
+        match std::mem::replace(self, Mode::Gone) {
+            Mode::Control(s) => {
+                let (tx, rx) = s.into_data(qos).map_err(WireError::new)?;
+                *self = Mode::Data(tx, rx);
+                Ok(())
+            }
+            other => {
+                *self = other;
+                Ok(())
+            }
+        }
+    }
+}
 
 impl TargetWire for QuicTarget {
     async fn recv(&mut self) -> Result<Option<TunnelUp>, WireError> {
@@ -100,17 +145,7 @@ impl TargetWire for QuicTarget {
     }
 
     fn start_data(&mut self) -> Result<(), WireError> {
-        match std::mem::replace(&mut self.mode, Mode::Gone) {
-            Mode::Control(s) => {
-                let (tx, rx) = s.into_data(&self.qos).map_err(WireError::new)?;
-                self.mode = Mode::Data(tx, rx);
-                Ok(())
-            }
-            other => {
-                self.mode = other;
-                Ok(())
-            }
-        }
+        self.mode.switch_to_data(&self.qos)
     }
 }
 
@@ -120,7 +155,9 @@ pub async fn serve(stream: ControlStream, conn: &Connection, agent: &Agent) -> R
         qos: conn.qos().clone(),
         mode: Mode::Control(stream),
     };
-    tandem_tunnel::serve(&agent.tunnels().host, wire)
+    agent
+        .files()
+        .serve(&agent.tunnels().host, wire)
         .await
         .map_err(|e| e.to_string())
 }
@@ -192,6 +229,72 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
                 Err(e) => Reply::Rejected(e.to_string()),
             }
         }
+        cmd @ (UiCommand::FilesPut { .. }
+        | UiCommand::FilesGet { .. }
+        | UiCommand::PortForward { .. }
+        | UiCommand::StopForward { .. }) => {
+            if client.is_none() {
+                return Reply::Rejected(CLIENTS_ONLY.into());
+            }
+            files_and_ports(agent, cmd).await
+        }
         other => agent.handle(other),
     }
+}
+
+/// Archivos y puertos (T-106): lo que pide un cliente sobre un túnel abierto.
+async fn files_and_ports(agent: &Arc<Agent>, cmd: UiCommand) -> Reply {
+    let (files, origin) = (agent.files(), &agent.tunnels().origin);
+    let rejected = |e: tandem_files::FilesError| Reply::Rejected(e.to_string());
+    match cmd {
+        UiCommand::FilesPut {
+            tunnel,
+            local,
+            remote,
+        } => match files.put(origin, tunnel, Path::new(&local), &remote).await {
+            Ok(r) => Reply::Files(r),
+            Err(e) => rejected(e),
+        },
+        UiCommand::FilesGet {
+            tunnel,
+            remote,
+            local,
+        } => match files.get(origin, tunnel, &remote, Path::new(&local)).await {
+            Ok(r) => Reply::Files(r),
+            Err(e) => rejected(e),
+        },
+        UiCommand::PortForward {
+            tunnel,
+            local_port,
+            remote_host,
+            remote_port,
+            direction,
+        } => {
+            let spec = ForwardSpec {
+                tunnel,
+                local_port,
+                remote_host,
+                remote_port,
+                direction,
+            };
+            match files.forward(origin, spec).await {
+                Ok(info) => Reply::Forward(info),
+                Err(e) => rejected(e),
+            }
+        }
+        UiCommand::StopForward { id } => {
+            if files.forwards().stop(id) {
+                Reply::Done
+            } else {
+                Reply::Rejected(format!("no hay ningún reenvío {id}"))
+            }
+        }
+        _ => Reply::Rejected("pedido de archivos o puertos desconocido".into()),
+    }
+}
+
+/// Los pedidos que tardan (copias de archivos): la IPC los corre en su propia tarea para no
+/// detener la conexión mientras tanto.
+pub fn is_slow(cmd: &UiCommand) -> bool {
+    matches!(cmd, UiCommand::FilesPut { .. } | UiCommand::FilesGet { .. })
 }
