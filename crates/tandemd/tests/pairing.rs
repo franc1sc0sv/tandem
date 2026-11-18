@@ -33,9 +33,15 @@ use tokio::task::JoinHandle;
 const TIMEOUT: Duration = Duration::from_secs(30);
 
 async fn within<F: Future>(f: F) -> F::Output {
-    tokio::time::timeout(TIMEOUT, f)
-        .await
-        .expect("la prueba superó el tiempo máximo")
+    within_for("una espera sin rótulo", f).await
+}
+
+/// Igual que [`within`], pero el mensaje de vencimiento dice qué se esperaba.
+async fn within_for<F: Future>(what: &str, f: F) -> F::Output {
+    match tokio::time::timeout(TIMEOUT, f).await {
+        Ok(out) => out,
+        Err(_) => panic!("la prueba superó el tiempo máximo esperando: {what}"),
+    }
 }
 
 /// Pasos simulados que siempre salen bien.
@@ -290,9 +296,10 @@ fn code_of(s: &PairingStatus) -> String {
     }
 }
 
-async fn until_input(agent: &Agent, f: impl Fn(&InputStatus) -> bool) {
+async fn until_input(what: &str, agent: &Agent, f: impl Fn(&InputStatus) -> bool) {
     let mut rx = agent.subscribe_input();
-    within(rx.wait_for(|s| f(s))).await.unwrap();
+    let seen = within_for(what, rx.wait_for(|s| f(s))).await.unwrap();
+    drop(seen);
 }
 
 async fn until_peer(agent: &Agent, want: PeerStatus) {
@@ -749,8 +756,11 @@ async fn pair_two_fresh_agents(x: u8, y: u8) {
     assert_eq!(mac.ask(UiCommand::ConfirmPairing).await, Reply::Done);
     assert_eq!(pc.ask(UiCommand::ConfirmPairing).await, Reply::Done);
 
-    until_input(&mac.agent, |s| s.session).await;
-    until_input(&pc.agent, |s| s.session).await;
+    until_input("sesión de entrada abierta en Mac", &mac.agent, |s| {
+        s.session
+    })
+    .await;
+    until_input("sesión de entrada abierta en PC", &pc.agent, |s| s.session).await;
     // Cada una con el lado de las claves, y los dos distintos.
     let mac_side = Machine::of_keys(
         mac_id.public_key().as_bytes(),
@@ -763,9 +773,12 @@ async fn pair_two_fresh_agents(x: u8, y: u8) {
     // puesto y los anuncios), y el archivo de la que cambió ya lo dice.
     for r in [&mac, &pc] {
         let mut desk = r.agent.subscribe_desk();
-        within(desk.wait_for(|d| {
-            d.machines.name(mac_side) == "Mac" && d.machines.name(mac_side.other()) == "PC"
-        }))
+        within_for(
+            "los nombres de las máquinas en el puesto",
+            desk.wait_for(|d| {
+                d.machines.name(mac_side) == "Mac" && d.machines.name(mac_side.other()) == "PC"
+            }),
+        )
         .await
         .unwrap();
     }
@@ -779,8 +792,14 @@ async fn pair_two_fresh_agents(x: u8, y: u8) {
     }
 
     assert_eq!(pc.ask(UiCommand::Unpair).await, Reply::Done);
-    until_input(&pc.agent, |s| !s.session).await;
-    until_input(&mac.agent, |s| !s.session).await;
+    until_input("sesión de entrada cerrada en PC", &pc.agent, |s| {
+        !s.session
+    })
+    .await;
+    until_input("sesión de entrada cerrada en Mac", &mac.agent, |s| {
+        !s.session
+    })
+    .await;
     pc.stop().await;
     mac.stop().await;
 }
