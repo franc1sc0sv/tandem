@@ -2,6 +2,8 @@
 //! carpeta temporal por el canal de control, copia, y el destino inicia el arrastre
 //! sintético (aquí un doble) y avisa cómo terminó. Si se cancela, el destino borra todo.
 
+mod common;
+
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -126,6 +128,7 @@ async fn start(
             bind: Some(loopback(port)),
             mdns: false,
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );

@@ -3,6 +3,8 @@
 //! que la otra vuelva a escanear, y los recursos en vivo de la otra llegan mientras la UI
 //! mira y dejan de muestrearse cuando deja de mirar.
 
+mod common;
+
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
@@ -179,6 +181,7 @@ async fn start(
             mdns: false,
             // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );

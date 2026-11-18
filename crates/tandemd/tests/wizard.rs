@@ -3,6 +3,8 @@
 //! y sus permisos, (2) emparejar y ver el ping del enlace, (3) «presiona una tecla» y (4)
 //! el resumen. Solo los pasos de cada máquina son simulados.
 
+mod common;
+
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -117,6 +119,7 @@ async fn start(
             mdns: false,
             // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );

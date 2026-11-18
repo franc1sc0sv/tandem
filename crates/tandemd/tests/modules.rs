@@ -2,6 +2,8 @@
 //! enciende o apaga en la otra llega por el plano de control, y las dos UIs ven el estado
 //! nuevo en [`AgentToUi::Machines`].
 
+mod common;
+
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
@@ -129,6 +131,7 @@ async fn start(
             mdns: false,
             // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );

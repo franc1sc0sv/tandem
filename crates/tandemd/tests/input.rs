@@ -11,6 +11,8 @@
 //! Salvo que la prueba diga otra cosa, el lado A es una Mac y el B una PC (los nombres de
 //! las variables lo reflejan); el código no lo supone: lo dice el `Os` de cada agente.
 
+mod common;
+
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -104,8 +106,8 @@ fn loopback(port: u16) -> SocketAddr {
 fn fast() -> InputOptions {
     InputOptions {
         session: SessionConfig {
+            heartbeat_timeout: common::session().heartbeat_timeout,
             heartbeat_interval: Duration::from_millis(100),
-            heartbeat_timeout: Duration::from_millis(1500),
             resync_idle: Duration::from_millis(20),
             resync_every: 8,
             latency_every: Duration::from_millis(500),
@@ -297,6 +299,7 @@ async fn start_os_drag(
             mdns: false,
             // Sin reserva: un puerto tomado falla enseguida y `start_pair!` elige otro.
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );

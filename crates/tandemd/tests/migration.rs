@@ -4,6 +4,8 @@
 //! Lo que importa: después de migrar, las dos máquinas tienen el mismo puesto (cada pantalla
 //! en el lado de su máquina, el acomodo igual) sea cual sea la que quedó como `A`.
 
+mod common;
+
 use std::sync::Arc;
 
 use tandem_core::{Machine, Side};
@@ -103,6 +105,7 @@ async fn an_agent_rewrites_an_old_file_with_the_sides_of_its_keys() {
             bind: Some("127.0.0.1:0".parse().unwrap()),
             mdns: false,
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         };
         let backends = Backends::Custom {

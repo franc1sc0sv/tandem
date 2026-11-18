@@ -2,6 +2,8 @@
 //! emparejadas en el directorio de datos, QUIC real en loopback y los enlaces fijos de
 //! la config. Solo los pasos de cada máquina son simulados.
 
+mod common;
+
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -163,6 +165,7 @@ async fn start_with(
             mdns: false,
             // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );
@@ -329,6 +332,7 @@ async fn identity_is_created_once_and_kept() {
     let opts = NetOptions {
         bind: Some(loopback(0)),
         mdns: false,
+        health: common::health(),
         ..NetOptions::default()
     };
     let backends = || Backends::Custom {
@@ -437,6 +441,7 @@ fn start_on(
             bind: Some(bind),
             fallback_ports,
             mdns: false,
+            health: common::health(),
             ..NetOptions::default()
         },
     )
