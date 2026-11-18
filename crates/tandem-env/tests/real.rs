@@ -1,5 +1,5 @@
-//! El escaneo y el muestreo de verdad, en la máquina que corre las pruebas (en CI, el runner
-//! de cada sistema): tienen que terminar sin error y encontrar al menos el shell del runner.
+//! The scan and the sampling for real, on the machine running the tests (in CI, the runner
+//! of each system): they must finish without error and find at least the runner's shell.
 
 use tandem_env::{Host, Platform};
 use tandem_proto::EnvKind;
@@ -16,14 +16,14 @@ fn the_real_scan_finds_the_runner_shell() {
         .collect();
     eprintln!("{scan:#?}");
     let expected: &[&str] = match Platform::current() {
-        // Los runners de Windows traen PowerShell 5 y cmd; los de macOS, zsh y bash.
+        // Windows runners ship PowerShell 5 and cmd; macOS ones, zsh and bash.
         Platform::Windows => &["powershell", "cmd"],
         Platform::MacOs => &["zsh", "bash"],
         Platform::Linux => &["bash"],
     };
     assert!(
         expected.iter().any(|s| shells.contains(s)),
-        "ningún shell esperado ({expected:?}) en {shells:?}"
+        "no expected shell ({expected:?}) in {shells:?}"
     );
     assert_eq!(
         scan.environments
@@ -31,7 +31,7 @@ fn the_real_scan_finds_the_runner_shell() {
             .filter(|e| e.kind == EnvKind::Shell && e.default)
             .count(),
         1,
-        "un solo shell predeterminado"
+        "a single default shell"
     );
     assert!(scan.hardware.cores > 0);
     assert!(scan.hardware.memory > 0);
@@ -46,6 +46,6 @@ fn the_real_sample_reads_cpu_memory_and_disk() {
     assert!(!s.cpu.cores.is_empty());
     assert!(s.cpu.load <= 1000 && first.cpu.load <= 1000);
     assert!(s.memory.total > 0 && s.memory.used <= s.memory.total);
-    let disk = s.disk.expect("el disco del sistema");
+    let disk = s.disk.expect("the system disk");
     assert!(disk.total > 0 && disk.free <= disk.total);
 }

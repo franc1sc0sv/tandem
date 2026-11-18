@@ -7,22 +7,22 @@ use tokio::task::JoinHandle;
 
 use super::{Interfaces, NetInterface, classify};
 
-/// Cada cuánto se vuelve a leer la lista del sistema.
+/// How often the system's list is read again.
 pub const POLL: Duration = Duration::from_millis(500);
 
-/// Las interfaces reales (`getifaddrs` en macOS y Linux, `GetAdaptersAddresses` en
-/// Windows, por `if-addrs`). Se lee cada [`POLL`] y se publica solo lo que cambió.
+/// The real interfaces (`getifaddrs` on macOS and Linux, `GetAdaptersAddresses` on
+/// Windows, through `if-addrs`). It is read every [`POLL`] and only what changed is published.
 ///
-/// Pendiente de hardware: los avisos nativos (`SCDynamicStore`, `NotifyIpInterfaceChange`)
-/// bajarían la detección de una baja de 0,5 s a casi nada, y la MAC, la velocidad negociada y
-/// el tipo por `IfType` / `SCNetworkInterface` no los da esta lectura.
+/// Pending hardware: native notifications (`SCDynamicStore`, `NotifyIpInterfaceChange`)
+/// would lower the detection of a removal from 0.5 s to almost nothing, and the MAC, the negotiated speed and
+/// the type via `IfType` / `SCNetworkInterface` are not given by this reading.
 pub struct SystemInterfaces {
     state: watch::Receiver<Vec<NetInterface>>,
     task: JoinHandle<()>,
 }
 
 impl SystemInterfaces {
-    /// Empieza a leer. Tiene que llamarse dentro de un runtime de tokio.
+    /// Starts reading. It has to be called inside a tokio runtime.
     pub fn spawn() -> Self {
         let (tx, state) = watch::channel(read());
         let task = tokio::spawn(async move {
@@ -59,7 +59,7 @@ impl Interfaces for SystemInterfaces {
     }
 }
 
-/// Las interfaces del sistema, sin loopback, una por nombre y con todas sus direcciones.
+/// The system's interfaces, without loopback, one per name and with all their addresses.
 fn read() -> Vec<NetInterface> {
     let Ok(all) = if_addrs::get_if_addrs() else {
         return Vec::new();

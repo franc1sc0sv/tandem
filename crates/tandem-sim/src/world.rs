@@ -1,10 +1,10 @@
-//! El puesto físico simulado: la energía de cada máquina y el hub USB.
+//! The simulated physical desk: each machine's power and the USB hub.
 //!
-//! Las dos máquinas son iguales ante la energía (DESIGN §3.7): cualquiera puede estar
-//! apagada (o suspendida) mientras la otra trabaja sola.
+//! The two machines are equal with respect to power (DESIGN §3.7): either can be
+//! off (or suspended) while the other works alone.
 //!
-//! Es la verdad contra la que se compara el [`State`] de los agentes: ellos solo
-//! saben lo que creen haber hecho.
+//! It is the truth against which the agents' [`State`] is compared: they only
+//! know what they believe they did.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -12,16 +12,16 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tandem_core::{Machine, State, Step};
 use tokio::sync::watch;
 
-/// Energía de una máquina.
+/// A machine's power.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Power {
     Off,
-    /// Llegó el Wake-on-LAN y está arrancando.
+    /// Wake-on-LAN arrived and it is starting up.
     Booting,
     On,
 }
 
-/// Un dispositivo USB detrás del hub (DESIGN §7: el servidor es donde está el hub).
+/// A USB device behind the hub (DESIGN §7: the server is where the hub is).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UsbDevice {
     pub vid: u16,
@@ -29,7 +29,7 @@ pub struct UsbDevice {
     pub name: String,
 }
 
-/// Lo observable del puesto, para comparar antes y después de un fallo.
+/// What is observable on the desk, to compare before and after a fault.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Physical {
     pub power: BTreeMap<Machine, Power>,
@@ -38,44 +38,44 @@ pub struct Physical {
 #[derive(Debug)]
 pub(crate) struct Inner {
     pub(crate) power: BTreeMap<Machine, Power>,
-    /// Avisa cada cambio de `power`: la simulación apaga y prende lo que corre en cada
-    /// máquina (la vigilancia del par) como lo haría el sistema.
+    /// Notifies every change of `power`: the simulation turns off and on what runs on each
+    /// machine (the pair watch) as the system would.
     pub(crate) power_tx: watch::Sender<BTreeMap<Machine, Power>>,
     pub(crate) hub: Machine,
     pub(crate) usb: Vec<UsbDevice>,
-    /// Cada paso pedido a cada máquina, en orden, se haya aplicado o no.
+    /// Each step requested of each machine, in order, whether or not it was applied.
     pub(crate) calls: Vec<(Machine, Step)>,
-    /// Cosas que no pueden pasar en el puesto real (un paso en una máquina apagada...).
+    /// Things that cannot happen on the real desk (a step on an off machine...).
     pub(crate) violations: Vec<String>,
 }
 
-/// El puesto físico, compartido por los backends simulados de las dos máquinas.
+/// The physical desk, shared by the simulated backends of both machines.
 #[derive(Debug, Clone)]
 pub struct World(Arc<Mutex<Inner>>);
 
 impl World {
-    /// La Mac prendida, la PC apagada y el hub en la Mac.
+    /// The Mac on, the PC off and the hub on the Mac.
     pub fn new() -> Self {
-        Self::with_principal(Machine::A)
+        Self::with_primary(Machine::A)
     }
 
-    /// `principal` prendida, la otra apagada y el hub en `principal`.
-    pub fn with_principal(principal: Machine) -> Self {
-        let power = BTreeMap::from([(principal, Power::On), (principal.other(), Power::Off)]);
+    /// `primary` on, the other off and the hub on `primary`.
+    pub fn with_primary(primary: Machine) -> Self {
+        let power = BTreeMap::from([(primary, Power::On), (primary.other(), Power::Off)]);
         World(Arc::new(Mutex::new(Inner {
             power_tx: watch::Sender::new(power.clone()),
             power,
-            hub: principal,
+            hub: primary,
             usb: vec![
                 UsbDevice {
                     vid: 0x046D,
                     pid: 0xC548,
-                    name: "receptor del teclado y mouse".into(),
+                    name: "keyboard and mouse receiver".into(),
                 },
                 UsbDevice {
                     vid: 0x2109,
                     pid: 0x2817,
-                    name: "hub USB-C".into(),
+                    name: "USB-C hub".into(),
                 },
             ],
             calls: Vec::new(),
@@ -91,7 +91,7 @@ impl World {
         self.lock().power_of(machine)
     }
 
-    /// La energía de las dos máquinas, con aviso en cada cambio.
+    /// The power of both machines, with a notice on each change.
     pub fn subscribe_power(&self) -> watch::Receiver<BTreeMap<Machine, Power>> {
         self.lock().power_tx.subscribe()
     }
@@ -102,7 +102,7 @@ impl World {
         }
     }
 
-    /// Pasos pedidos a cada máquina, en orden (aplicados o no).
+    /// Steps requested of each machine, in order (applied or not).
     pub fn calls(&self) -> Vec<(Machine, Step)> {
         self.lock().calls.clone()
     }
@@ -111,19 +111,19 @@ impl World {
         self.lock().violations.clone()
     }
 
-    /// Conecta el hub USB-C a otra máquina.
+    /// Connects the USB-C hub to another machine.
     pub fn plug_hub(&self, machine: Machine) {
         self.lock().hub = machine;
     }
 
-    /// Dispositivos USB que ve una máquina: todos los del hub, o ninguno.
+    /// USB devices a machine sees: all those of the hub, or none.
     pub fn usb_devices(&self, machine: Machine) -> Vec<UsbDevice> {
         let w = self.lock();
         let visible = w.hub == machine && w.power_of(machine) == Power::On;
         if visible { w.usb.clone() } else { Vec::new() }
     }
 
-    /// Compara el puesto con lo que cree un agente. Devuelve cada diferencia.
+    /// Compares the desk with what an agent believes. Returns each difference.
     pub fn check(&self, state: &State) -> Result<(), Vec<String>> {
         let w = self.lock();
         let mut errors = w.violations.clone();
@@ -131,12 +131,12 @@ impl World {
             let on = w.power_of(machine) == Power::On;
             if on != state.is_on(machine) {
                 errors.push(format!(
-                    "la máquina {machine} está {:?} pero el agente la cree {}",
+                    "machine {machine} is {:?} but the agent believes it {}",
                     w.power_of(machine),
                     if state.is_on(machine) {
-                        "prendida"
+                        "on"
                     } else {
-                        "apagada"
+                        "off"
                     }
                 ));
             }
@@ -165,7 +165,7 @@ impl Inner {
         self.power.get(&machine).copied().unwrap_or(Power::Off)
     }
 
-    /// `machine` termina de arrancar (o de despertarse).
+    /// `machine` finishes starting up (or waking).
     pub(crate) fn boot_done(&mut self, machine: Machine) {
         self.set_power(machine, Power::On);
     }
@@ -186,11 +186,11 @@ mod tests {
         w.check(&state).unwrap();
         w.lock().boot_done(Machine::B);
         let errors = w.check(&state).unwrap_err();
-        assert!(errors[0].contains("la máquina B está On"), "{errors:?}");
+        assert!(errors[0].contains("machine B is On"), "{errors:?}");
         state.on.b = true;
         w.check(&state).unwrap();
-        // Lo imposible también se informa.
-        w.lock().violations.push("algo imposible".into());
+        // The impossible is also reported.
+        w.lock().violations.push("something impossible".into());
         assert!(w.check(&state).is_err());
     }
 
@@ -200,7 +200,7 @@ mod tests {
         assert!(!w.usb_devices(Machine::A).is_empty());
         w.plug_hub(Machine::B);
         assert!(w.usb_devices(Machine::A).is_empty());
-        // Con la PC apagada nadie ve el teclado.
+        // With the PC off nobody sees the keyboard.
         assert!(w.usb_devices(Machine::B).is_empty());
         w.lock().boot_done(Machine::B);
         assert!(!w.usb_devices(Machine::B).is_empty());
@@ -208,7 +208,7 @@ mod tests {
 
     #[test]
     fn power_changes_are_announced() {
-        let w = World::with_principal(Machine::B);
+        let w = World::with_primary(Machine::B);
         let mut rx = w.subscribe_power();
         assert_eq!(w.power_of(Machine::A), Power::Off);
         w.lock().boot_done(Machine::A);

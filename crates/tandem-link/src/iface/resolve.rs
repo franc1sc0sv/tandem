@@ -6,8 +6,8 @@ use tandem_core::{Machine, Os};
 
 use super::{AddrAssigner, AssignError, InterfaceDiscovery, NetInterface, fallback_ip, plan};
 
-/// Un aviso para la pantalla Red: el cable no tiene la IP de respaldo y el agente no pudo
-/// ponérsela; `command` es la orden exacta para el usuario.
+/// A notice for the Network screen: the cable does not have the fallback IP and the agent could not
+/// set it; `command` is the exact command for the user.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssignNotice {
     pub interface: String,
@@ -17,8 +17,8 @@ pub struct AssignNotice {
 
 type Sink = Arc<dyn Fn(Vec<AssignNotice>) + Send + Sync>;
 
-/// Los avisos de asignación vigentes, uno por interfaz. Se clona barato. Cada cambio se
-/// entrega a un receptor opcional (el estado que lee la pantalla Red).
+/// The current assignment notices, one per interface. Cheap to clone. Every change is
+/// delivered to an optional receiver (the state the Network screen reads).
 #[derive(Clone, Default)]
 pub struct AssignNotices {
     inner: Arc<Mutex<BTreeMap<u32, AssignNotice>>>,
@@ -68,7 +68,7 @@ impl AssignNotices {
     }
 }
 
-/// Todo lo que hace falta para decidir dónde está el otro agente por un cable.
+/// Everything needed to decide where the other agent is through a cable.
 pub struct WiredResolver {
     pub side: Machine,
     pub os: Os,
@@ -79,10 +79,10 @@ pub struct WiredResolver {
 }
 
 impl WiredResolver {
-    /// Dónde está el otro agente por `iface`. Con link-local, la dirección sale del
-    /// descubrimiento de esa interfaz (hasta que conteste, el cable no entra). Sin ella,
-    /// el respaldo: se le asigna la IP al cable y solo si el sistema no deja queda el aviso
-    /// con la orden exacta.
+    /// Where the other agent is through `iface`. With link-local, the address comes from the
+    /// discovery of that interface (until it answers, the cable does not come in). Without it,
+    /// the fallback: the IP is assigned to the cable and only if the system does not allow it the notice
+    /// with the exact command remains.
     pub fn resolve(&self, iface: &NetInterface) -> Option<SocketAddr> {
         let p = plan(
             iface,
@@ -97,20 +97,20 @@ impl WiredResolver {
         };
         match self.assigner.assign(iface, fallback_ip(self.side)) {
             Ok(()) => {
-                tracing::info!(interfaz = %iface.name, "IP de respaldo asignada al cable");
+                tracing::info!(interface = %iface.name, "fallback IP assigned to the cable");
                 self.notices.clear(iface.index);
             }
             Err(e) => {
                 let message = match e {
-                    AssignError::PermissionDenied => "Falta la IP de respaldo del cable y el \
-                        agente no tiene permisos para asignarla; ejecuta la orden como \
-                        administrador"
+                    AssignError::PermissionDenied => "The cable's fallback IP is missing and the \
+                        agent has no permission to assign it; run the command as \
+                        administrator"
                         .to_owned(),
                     AssignError::Failed(why) => {
-                        format!("No se pudo asignar la IP de respaldo del cable ({why})")
+                        format!("Could not assign the cable's fallback IP ({why})")
                     }
                 };
-                tracing::warn!(interfaz = %iface.name, "{message}: {}", order.command);
+                tracing::warn!(interface = %iface.name, "{message}: {}", order.command);
                 self.notices.set(
                     iface.index,
                     AssignNotice {

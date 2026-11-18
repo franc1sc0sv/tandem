@@ -1,7 +1,7 @@
-//! [`MacSink`] real: publica con `CGEventPost` en `kCGHIDEventTap`.
+//! Real [`MacSink`]: publishes with `CGEventPost` at `kCGHIDEventTap`.
 //!
-//! Requiere el permiso de Accesibilidad (TCC) para el binario; sin él macOS
-//! descarta los eventos en silencio.
+//! It requires the Accessibility permission (TCC) for the binary; without it macOS
+//! drops the events silently.
 
 use std::time::Duration;
 
@@ -17,10 +17,10 @@ use objc2_foundation::{NSUserDefaults, ns_string};
 use super::{EmulateError, MacEvent, MacSink, MouseKind, ScrollUnit};
 use crate::geometry::{Point, Rect};
 
-/// Máximo de pantallas que se piden a CoreGraphics; sobra para un escritorio.
+/// Maximum number of screens requested from CoreGraphics; plenty for a desktop.
 const MAX_DISPLAYS: usize = 32;
 
-/// Subtipo de `NSEvent` `SystemDefined` para las teclas auxiliares
+/// `NSEvent` `SystemDefined` subtype for auxiliary keys
 /// (`NX_SUBTYPE_AUX_CONTROL_BUTTONS`).
 const AUX_CONTROL_BUTTONS: i16 = 8;
 
@@ -28,9 +28,9 @@ pub struct CgSink {
     source: CFRetained<CGEventSource>,
 }
 
-// SAFETY: `CGEventSource` es un objeto CF con conteo de referencias atómico;
-// `CgSink` es su único dueño y solo lo usa con `&mut self`, así que nunca se
-// toca desde dos hilos a la vez. Moverlo de hilo es seguro.
+// SAFETY: `CGEventSource` is a CF object with atomic reference counting;
+// `CgSink` is its only owner and only uses it with `&mut self`, so it is never
+// touched from two threads at once. Moving it across threads is safe.
 unsafe impl Send for CgSink {}
 
 impl std::fmt::Debug for CgSink {
@@ -42,10 +42,10 @@ impl std::fmt::Debug for CgSink {
 impl CgSink {
     pub fn new() -> Result<Self, EmulateError> {
         let source = CGEventSource::new(CGEventSourceStateID::HIDSystemState)
-            .ok_or_else(|| platform("CGEventSourceCreate devolvió NULL"))?;
-        // Por defecto macOS ignora el mouse y el teclado locales 0,25 s después
-        // de cada evento inyectado; en la Mac cliente el usuario también puede
-        // usar su trackpad.
+            .ok_or_else(|| platform("CGEventSourceCreate returned NULL"))?;
+        // By default macOS ignores the local mouse and keyboard for 0.25 s after
+        // each injected event; on the client Mac the user can also
+        // use their trackpad.
         CGEventSource::set_local_events_suppression_interval(Some(&source), 0.0);
         Ok(Self { source })
     }
@@ -56,7 +56,7 @@ impl CgSink {
 
     fn keyboard(&self, keycode: u16, down: bool) -> Result<CFRetained<CGEvent>, EmulateError> {
         CGEvent::new_keyboard_event(Some(&self.source), keycode, down)
-            .ok_or_else(|| platform("CGEventCreateKeyboardEvent devolvió NULL"))
+            .ok_or_else(|| platform("CGEventCreateKeyboardEvent returned NULL"))
     }
 }
 
@@ -117,7 +117,7 @@ impl MacSink for CgSink {
                     CGPoint::new(pos.x, pos.y),
                     CGMouseButton(button),
                 )
-                .ok_or_else(|| platform("CGEventCreateMouseEvent devolvió NULL"))?;
+                .ok_or_else(|| platform("CGEventCreateMouseEvent returned NULL"))?;
                 CGEvent::set_integer_value_field(
                     Some(&ev),
                     CGEventField::MouseEventClickState,
@@ -128,7 +128,7 @@ impl MacSink for CgSink {
                     CGEventField::MouseEventButtonNumber,
                     i64::from(button),
                 );
-                // Los campos de delta son enteros; `as` redondea hacia cero y satura.
+                // The delta fields are integers; `as` rounds toward zero and saturates.
                 CGEvent::set_integer_value_field(
                     Some(&ev),
                     CGEventField::MouseEventDeltaX,
@@ -160,7 +160,7 @@ impl MacSink for CgSink {
                     wheel2,
                     0,
                 )
-                .ok_or_else(|| platform("CGEventCreateScrollWheelEvent2 devolvió NULL"))?;
+                .ok_or_else(|| platform("CGEventCreateScrollWheelEvent2 returned NULL"))?;
                 CGEvent::set_flags(Some(&ev), CGEventFlags(flags));
                 Self::post_cg(&ev);
             }
@@ -169,8 +169,8 @@ impl MacSink for CgSink {
                 modifier_flags,
             } => {
                 let modifier_flags = usize::try_from(modifier_flags)
-                    .map_err(|_| platform("modifierFlags fuera de rango"))?;
-                let data1 = isize::try_from(data1).map_err(|_| platform("data1 fuera de rango"))?;
+                    .map_err(|_| platform("modifierFlags out of range"))?;
+                let data1 = isize::try_from(data1).map_err(|_| platform("data1 out of range"))?;
                 let ns = NSEvent::otherEventWithType_location_modifierFlags_timestamp_windowNumber_context_subtype_data1_data2(
                     NSEventType::SystemDefined,
                     CGPoint::new(0.0, 0.0),
@@ -182,10 +182,10 @@ impl MacSink for CgSink {
                     data1,
                     -1,
                 )
-                .ok_or_else(|| platform("NSEvent otherEventWithType devolvió nil"))?;
+                .ok_or_else(|| platform("NSEvent otherEventWithType returned nil"))?;
                 let ev = ns
                     .CGEvent()
-                    .ok_or_else(|| platform("NSEvent sin CGEvent"))?;
+                    .ok_or_else(|| platform("NSEvent without CGEvent"))?;
                 Self::post_cg(&ev);
             }
         }
@@ -193,8 +193,8 @@ impl MacSink for CgSink {
     }
 
     fn cursor(&mut self) -> Result<Point, EmulateError> {
-        // Un evento vacío trae la posición actual del cursor.
-        let ev = CGEvent::new(None).ok_or_else(|| platform("CGEventCreate devolvió NULL"))?;
+        // An empty event carries the cursor's current position.
+        let ev = CGEvent::new(None).ok_or_else(|| platform("CGEventCreate returned NULL"))?;
         let p = CGEvent::location(Some(&ev));
         Ok(Point::new(p.x, p.y))
     }
@@ -204,7 +204,7 @@ impl MacSink for CgSink {
             .into_iter()
             .map(|id| {
                 let b = CGDisplayBounds(id);
-                // Los límites en puntos son enteros en la práctica; `as` satura.
+                // The bounds in points are integers in practice; `as` saturates.
                 Rect::new(
                     b.origin.x.round() as i32,
                     b.origin.y.round() as i32,
@@ -224,7 +224,7 @@ impl MacSink for CgSink {
     fn natural_scroll(&mut self) -> bool {
         let defaults = NSUserDefaults::standardUserDefaults();
         let key = ns_string!("com.apple.swipescrolldirection");
-        // Sin la clave, macOS usa su valor de fábrica: scroll natural activado.
+        // Without the key, macOS uses its factory value: natural scrolling on.
         defaults.objectForKey(key).is_none() || defaults.boolForKey(key)
     }
 }
@@ -232,12 +232,12 @@ impl MacSink for CgSink {
 fn active_displays() -> Result<Vec<CGDirectDisplayID>, EmulateError> {
     let mut ids: [CGDirectDisplayID; MAX_DISPLAYS] = [0; MAX_DISPLAYS];
     let mut count: u32 = 0;
-    // SAFETY: `ids` tiene espacio para `MAX_DISPLAYS` y `count` es un u32 válido;
-    // CoreGraphics no escribe más de lo que se le indica.
+    // SAFETY: `ids` has room for `MAX_DISPLAYS` and `count` is a valid u32;
+    // CoreGraphics writes no more than it is told.
     let err = unsafe { CGGetActiveDisplayList(MAX_DISPLAYS as u32, ids.as_mut_ptr(), &mut count) };
     if err != CGError::Success {
         return Err(EmulateError::Platform(format!(
-            "CGGetActiveDisplayList falló: {}",
+            "CGGetActiveDisplayList failed: {}",
             err.0
         )));
     }
@@ -252,7 +252,7 @@ mod tests {
     use crate::macos::emulate::MacEmulator;
 
     #[test]
-    fn tipos_de_mouse_de_coregraphics() {
+    fn coregraphics_mouse_types() {
         let cases = [
             (MouseKind::Moved, 5),
             (MouseKind::LeftDown, 1),
@@ -272,26 +272,26 @@ mod tests {
 
     #[test]
     #[ignore = "hardware"]
-    fn lee_pantallas_y_preferencias() {
+    fn reads_screens_and_preferences() {
         let mut sink = CgSink::new().unwrap();
         let screens = sink.screens().unwrap();
         assert!(!screens.is_empty());
         let p = sink.cursor().unwrap();
         assert!(
             screens.iter().any(|r| r.contains(p)),
-            "{p:?} fuera de {screens:?}"
+            "{p:?} outside {screens:?}"
         );
         assert!(sink.double_click_interval() > Duration::ZERO);
         eprintln!(
-            "pantallas {screens:?}, cursor {p:?}, natural {}",
+            "screens {screens:?}, cursor {p:?}, natural {}",
             sink.natural_scroll()
         );
     }
 
-    /// Requiere Accesibilidad. Mueve el cursor 40 px y lo devuelve.
+    /// Requires Accessibility. Moves the cursor 40 px and puts it back.
     #[test]
     #[ignore = "hardware"]
-    fn mueve_el_cursor_y_lo_devuelve() {
+    fn moves_the_cursor_and_puts_it_back() {
         let mut e = MacEmulator::new(CgSink::new().unwrap()).unwrap();
         let start = e.sink_mut().cursor().unwrap();
         e.emit(&InputEvent::MotionRelative { dx: 40.0, dy: 0.0 })

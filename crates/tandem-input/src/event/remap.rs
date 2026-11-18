@@ -1,15 +1,15 @@
-//! Reasignación de modificadores, configurable por dirección.
+//! Modifier remapping, configurable per direction.
 //!
-//! Por defecto Mac→Win: Cmd→Ctrl, Ctrl→Win, Option→Alt, Option derecha→AltGr;
-//! y al revés para Win→Mac (docs/research/input-engine.md). Se aplica en el
-//! servidor antes de enviar, así el cliente inyecta lo que recibe tal cual.
+//! By default Mac→Win: Cmd→Ctrl, Ctrl→Win, Option→Alt, right Option→AltGr;
+//! and the reverse for Win→Mac (docs/research/input-engine.md). It is applied on the
+//! server before sending, so the client injects what it receives as is.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::{InputEvent, ModifierKey, Modifiers};
 
-/// Sentido en que viaja la entrada: de la máquina que captura a la que inyecta.
+/// Direction in which input travels: from the machine that captures to the one that injects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Direction {
@@ -19,9 +19,9 @@ pub enum Direction {
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum RemapError {
-    /// Dos modificadores irían a la misma tecla: soltar uno soltaría el otro en el
-    /// destino mientras sigue presionado en el origen.
-    #[error("{first:?} y {second:?} se reasignan los dos a {target:?}")]
+    /// Two modifiers would go to the same key: releasing one would release the other at the
+    /// destination while it is still pressed at the origin.
+    #[error("{first:?} and {second:?} are both remapped to {target:?}")]
     NotBijective {
         first: ModifierKey,
         second: ModifierKey,
@@ -29,15 +29,15 @@ pub enum RemapError {
     },
 }
 
-/// Destino de cada modificador del origen. Siempre es una permutación de los ocho.
+/// Destination of each source modifier. It is always a permutation of the eight.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "RemapTable", into = "RemapTable")]
 pub struct ModifierRemap {
-    /// Indexado por `ModifierKey::bit()` del origen.
+    /// Indexed by the source's `ModifierKey::bit()`.
     targets: [ModifierKey; 8],
 }
 
-/// Forma de la configuración: un campo por modificador del origen.
+/// Shape of the configuration: one field per source modifier.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RemapTable {
@@ -94,7 +94,7 @@ impl From<ModifierRemap> for RemapTable {
 }
 
 impl ModifierRemap {
-    /// `targets[i]` es el destino de `ModifierKey::ALL[i]`.
+    /// `targets[i]` is the destination of `ModifierKey::ALL[i]`.
     pub fn new(targets: [ModifierKey; 8]) -> Result<Self, RemapError> {
         let mut seen: [Option<ModifierKey>; 8] = [None; 8];
         for (source, target) in ModifierKey::ALL.into_iter().zip(targets) {
@@ -117,24 +117,24 @@ impl ModifierRemap {
         }
     }
 
-    /// Mac→Win: Cmd→Ctrl, Ctrl→Win, Option→Alt, Option derecha→AltGr.
+    /// Mac→Win: Cmd→Ctrl, Ctrl→Win, Option→Alt, right Option→AltGr.
     pub const fn mac_to_win() -> Self {
         use ModifierKey::*;
         Self {
             targets: [
-                MetaLeft,     // Ctrl izq. → Win izq.
+                MetaLeft,     // left Ctrl → left Win
                 ShiftLeft,    //
-                AltLeft,      // Option izq. → Alt
-                ControlLeft,  // Cmd izq. → Ctrl izq.
-                MetaRight,    // Ctrl der. → Win der.
+                AltLeft,      // left Option → Alt
+                ControlLeft,  // left Cmd → left Ctrl
+                MetaRight,    // right Ctrl → right Win
                 ShiftRight,   //
-                AltRight,     // Option der. → AltGr
-                ControlRight, // Cmd der. → Ctrl der.
+                AltRight,     // right Option → AltGr
+                ControlRight, // right Cmd → right Ctrl
             ],
         }
     }
 
-    /// Win→Mac: la inversa de [`ModifierRemap::mac_to_win`].
+    /// Win→Mac: the inverse of [`ModifierRemap::mac_to_win`].
     pub const fn win_to_mac() -> Self {
         Self::mac_to_win().inverse()
     }
@@ -157,7 +157,7 @@ impl ModifierRemap {
         mods.iter().map(|k| self.map(k)).collect()
     }
 
-    /// Reasigna un evento; lo que no es un modificador pasa igual.
+    /// Remaps an event; what is not a modifier passes unchanged.
     pub fn apply(&self, event: InputEvent) -> InputEvent {
         match event {
             InputEvent::Key { usage, state } => match usage.modifier() {
@@ -179,7 +179,7 @@ impl Default for ModifierRemap {
     }
 }
 
-/// La política completa: una tabla por dirección.
+/// The full policy: one table per direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RemapPolicy {
@@ -224,14 +224,14 @@ mod tests {
     }
 
     #[test]
-    fn por_defecto_mac_a_win() {
+    fn default_mac_to_win() {
         let p = RemapPolicy::default();
         let d = Direction::MacToWin;
         assert_eq!(p.apply(d, key(MetaLeft)), key(ControlLeft), "Cmd→Ctrl");
         assert_eq!(
             p.apply(d, key(MetaRight)),
             key(ControlRight),
-            "Cmd der.→Ctrl der."
+            "right Cmd→right Ctrl"
         );
         assert_eq!(p.apply(d, key(ControlLeft)), key(MetaLeft), "Ctrl→Win");
         assert_eq!(p.apply(d, key(ControlRight)), key(MetaRight));
@@ -239,14 +239,14 @@ mod tests {
         assert_eq!(
             p.apply(d, key(AltRight)),
             key(AltRight),
-            "Option der.→AltGr"
+            "right Option→AltGr"
         );
         assert_eq!(p.apply(d, key(ShiftLeft)), key(ShiftLeft));
         assert_eq!(p.apply(d, key(ShiftRight)), key(ShiftRight));
     }
 
     #[test]
-    fn por_defecto_win_a_mac() {
+    fn default_win_to_mac() {
         let p = RemapPolicy::default();
         let d = Direction::WinToMac;
         assert_eq!(p.apply(d, key(ControlLeft)), key(MetaLeft), "Ctrl→Cmd");
@@ -257,12 +257,12 @@ mod tests {
         assert_eq!(
             p.apply(d, key(AltRight)),
             key(AltRight),
-            "AltGr→Option der."
+            "AltGr→right Option"
         );
     }
 
     #[test]
-    fn copiar_en_mac_es_ctrl_c_en_windows() {
+    fn copy_on_mac_is_ctrl_c_on_windows() {
         let p = RemapPolicy::default();
         let c = InputEvent::Key {
             usage: HidUsage::key(0x06),
@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn otros_eventos_pasan_igual() {
+    fn other_events_pass_unchanged() {
         let p = RemapPolicy::default();
         for e in [
             InputEvent::Button {
@@ -301,9 +301,9 @@ mod tests {
     }
 
     #[test]
-    fn rechaza_tablas_no_biyectivas() {
+    fn rejects_non_bijective_tables() {
         let mut t = ModifierKey::ALL;
-        t[0] = MetaLeft; // Ctrl izq. y Cmd izq. → Cmd izq.
+        t[0] = MetaLeft; // left Ctrl and left Cmd → left Cmd
         assert_eq!(
             ModifierRemap::new(t),
             Err(RemapError::NotBijective {
@@ -315,7 +315,7 @@ mod tests {
     }
 
     #[test]
-    fn identidad_y_default() {
+    fn identity_and_default() {
         let id = ModifierRemap::default();
         assert_eq!(id, ModifierRemap::identity());
         for k in ModifierKey::ALL {
@@ -324,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn configuracion_toml_por_direccion() {
+    fn toml_configuration_per_direction() {
         let toml = r#"
             [mac_to_win]
             control_left = "control_left"
@@ -341,7 +341,7 @@ mod tests {
         assert_eq!(
             p.win_to_mac,
             ModifierRemap::win_to_mac(),
-            "lo omitido queda por defecto"
+            "what is omitted stays at the default"
         );
 
         let s = toml::to_string(&RemapPolicy::default()).unwrap();
@@ -353,7 +353,7 @@ mod tests {
     }
 
     #[test]
-    fn configuracion_invalida_se_rechaza() {
+    fn an_invalid_configuration_is_rejected() {
         let toml = r#"
             [win_to_mac]
             control_left = "meta_left"
@@ -366,7 +366,7 @@ mod tests {
             meta_right = "meta_right"
         "#;
         let err = toml::from_str::<RemapPolicy>(toml).unwrap_err().to_string();
-        assert!(err.contains("se reasignan los dos"), "{err}");
+        assert!(err.contains("are both remapped"), "{err}");
     }
 
     fn any_remap() -> impl Strategy<Value = ModifierRemap> {
@@ -388,23 +388,23 @@ mod tests {
         }
 
         #[test]
-        fn conserva_la_cantidad_de_modificadores(r in any_remap(), bits in any::<u8>()) {
+        fn keeps_the_number_of_modifiers(r in any_remap(), bits in any::<u8>()) {
             let m = Modifiers::from_bits(bits);
             prop_assert_eq!(r.map_modifiers(m).bits().count_ones(), bits.count_ones());
         }
 
         #[test]
-        fn modificadores_coinciden_con_teclas(r in any_remap(), bits in any::<u8>()) {
-            // Reasignar el conjunto = reasignar cada tecla presionada.
+        fn modifiers_match_keys(r in any_remap(), bits in any::<u8>()) {
+            // Remapping the set = remapping each pressed key.
             let m = Modifiers::from_bits(bits);
-            let por_tecla: Modifiers = m
+            let per_key: Modifiers = m
                 .iter()
                 .filter_map(|k| match r.apply(key(k)) {
                     InputEvent::Key { usage, .. } => usage.modifier(),
                     _ => None,
                 })
                 .collect();
-            prop_assert_eq!(r.map_modifiers(m), por_tecla);
+            prop_assert_eq!(r.map_modifiers(m), per_key);
         }
     }
 

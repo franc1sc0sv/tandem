@@ -1,11 +1,11 @@
-//! Escenarios de los monitores (T-110, DESIGN §10): dos agentes reales, un monitor estándar
-//! (firmware propio) y uno de fábrica, con los dobles de `monitor-ddc`.
+//! Monitor scenarios (T-110, DESIGN §10): two real agents, a standard monitor
+//! (own firmware) and a factory one, with the `monitor-ddc` doubles.
 //!
-//! - Elección del dueño: igual en las dos máquinas, la de menor latencia.
-//! - Cambio de entrada desde la UI de la que no es dueña: lo hace el dueño, con veredicto.
-//! - Re-elección al apagarse el dueño, con un cursor de eventos nuevo.
-//! - Vuelta atrás si el cambio se queda sin veredicto.
-//! - El monitor de fábrica nunca recibe un Set.
+//! - Owner election: the same on both machines, the one with the lower latency.
+//! - Input switch from the UI of the one that is not the owner: the owner does it, with a verdict.
+//! - Re-election when the owner shuts down, with a new event cursor.
+//! - Rollback if the switch is left without a verdict.
+//! - The factory monitor never receives a Set.
 
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ fn ms(n: u64) -> Duration {
     Duration::from_millis(n)
 }
 
-/// El 34" con el firmware propio (la PC más rápida por DP) y otro de fábrica que solo ve la PC.
+/// The 34" with the own firmware (the PC faster over DP) and a factory one that only the PC sees.
 fn monitors(standard: FakeMonitorConfig) -> Vec<MonitorSpec> {
     let mut factory = FakeMonitorConfig::new(Personality::Factory);
     factory.edid = test_edid("SAM", 0x7154, "Odyssey G5", "FAKE0000002");
@@ -49,10 +49,10 @@ async fn desk_with(standard: FakeMonitorConfig) -> Desk {
     let run = d.power_on(Machine::B).await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     d.pc_agrees().await.unwrap();
-    // Mientras la PC estaba apagada el monitor era de la Mac; con las dos, de la PC.
+    // While the PC was off the monitor was the Mac's; with both, the PC's.
     let std = d.monitors().unwrap().id(STD).to_owned();
     for m in Machine::ALL {
-        d.wait_monitors(m, "el dueño elegido", owner_is(&std, Machine::B))
+        d.wait_monitors(m, "the elected owner", owner_is(&std, Machine::B))
             .await
             .unwrap();
     }
@@ -71,7 +71,7 @@ fn input_is(id: &str, input: MonitorInput) -> impl Fn(&[MonitorView]) -> bool + 
     move |v| view(v, id).is_some_and(|m| m.report.as_ref().and_then(|r| r.input) == Some(input))
 }
 
-/// Los Set al monitor `i` y quién los mandó.
+/// The Sets to monitor `i` and who sent them.
 fn sets(d: &Desk, i: usize) -> Vec<(Machine, u8, u16)> {
     let sim = d.monitors().unwrap();
     sim.sets_to(sim.handle(i))
@@ -83,10 +83,10 @@ async fn the_owner_is_elected_the_same_on_both_and_switches_with_its_verdict() {
     let sim = d.monitors().unwrap().clone();
     let (std, fab) = (sim.id(STD).to_owned(), sim.id(FACTORY).to_owned());
 
-    // Las dos llegan al mismo dueño: la PC (B), que contesta en 5 ms contra 30 ms.
+    // Both reach the same owner: the PC (B), which answers in 5 ms against 30 ms.
     for m in Machine::ALL {
         let views = d
-            .wait_monitors(m, "el dueño elegido", owner_is(&std, Machine::B))
+            .wait_monitors(m, "the elected owner", owner_is(&std, Machine::B))
             .await
             .unwrap();
         let s = view(&views, &std).unwrap();
@@ -96,16 +96,16 @@ async fn the_owner_is_elected_the_same_on_both_and_switches_with_its_verdict() {
         assert!(!f.compat.is_compatible(), "{f:?}");
         assert_eq!((f.owner, f.seen_by.as_slice()), (None, &[Machine::B][..]));
     }
-    // La Mac ve lo que lee la PC: la entrada real.
+    // The Mac sees what the PC reads: the real input.
     d.wait_monitors(
         Machine::A,
-        "la entrada leída por la PC",
+        "the input read by the PC",
         input_is(&std, MonitorInput::DisplayPort),
     )
     .await
     .unwrap();
 
-    // Desde la UI de la Mac: el cambio lo hace la PC, con el veredicto del firmware.
+    // From the Mac's UI: the PC does the switch, with the firmware's verdict.
     sim.clear_ops();
     let run = d
         .switch_monitor(Machine::A, &std, MonitorInput::Hdmi)
@@ -120,14 +120,14 @@ async fn the_owner_is_elected_the_same_on_both_and_switches_with_its_verdict() {
     assert_eq!(input_sets, [(Machine::B, VCP_INPUT, Input::Hdmi.vcp())]);
     assert!(
         sets(&d, STD).iter().all(|(m, _, _)| *m == Machine::B),
-        "solo el dueño escribe: {:?}",
+        "only the owner writes: {:?}",
         sets(&d, STD)
     );
 
-    // Las dos UIs ven la entrada nueva y el veredicto entre los eventos.
+    // Both UIs see the new input and the verdict among the events.
     for m in Machine::ALL {
         let views = d
-            .wait_monitors(m, "la entrada nueva", input_is(&std, MonitorInput::Hdmi))
+            .wait_monitors(m, "the new input", input_is(&std, MonitorInput::Hdmi))
             .await
             .unwrap();
         let events = &view(&views, &std).unwrap().report.as_ref().unwrap().events;
@@ -140,7 +140,7 @@ async fn the_owner_is_elected_the_same_on_both_and_switches_with_its_verdict() {
         );
     }
 
-    // El de fábrica se muestra, pero no se controla: el pedido se rechaza sin tocarlo.
+    // The factory one is shown, but not controlled: the request is rejected without touching it.
     let e = d
         .switch_monitor(Machine::A, &fab, MonitorInput::Hdmi)
         .await
@@ -163,16 +163,16 @@ async fn when_the_owner_powers_off_the_other_takes_over_with_a_fresh_cursor() {
     let d = desk_with(FakeMonitorConfig::new(Personality::Standard)).await;
     let sim = d.monitors().unwrap().clone();
     let std = sim.id(STD).to_owned();
-    d.wait_monitors(Machine::A, "la PC dueña", owner_is(&std, Machine::B))
+    d.wait_monitors(Machine::A, "the PC as owner", owner_is(&std, Machine::B))
         .await
         .unwrap();
 
-    // Mientras lee la PC, el usuario cambia dos veces con el menú del monitor. La Mac fue la
-    // dueña antes de que arrancara la PC: si al volver a serlo usara aquel cursor, informaría
-    // también estos dos.
+    // While the PC reads, the user switches twice with the monitor menu. The Mac was the
+    // owner before the PC started: if on becoming one again it used that cursor, it would report
+    // these two as well.
     sim.fake().osd_switch(sim.handle(STD), Input::Hdmi);
     sim.fake().osd_switch(sim.handle(STD), Input::DisplayPort);
-    d.wait_monitors(Machine::A, "los cambios leídos por la PC", |v| {
+    d.wait_monitors(Machine::A, "the switches read by the PC", |v| {
         view(v, &std)
             .and_then(|m| m.report.as_ref())
             .is_some_and(|r| {
@@ -186,20 +186,20 @@ async fn when_the_owner_powers_off_the_other_takes_over_with_a_fresh_cursor() {
     .await
     .unwrap();
 
-    // La PC se queda sin corriente: la Mac la da por apagada y el monitor pasa a ella.
+    // The PC loses power: the Mac considers it off and the monitor goes to it.
     d.pull_plug(Machine::B);
     let views = d
-        .wait_monitors(Machine::A, "la Mac dueña", owner_is(&std, Machine::A))
+        .wait_monitors(Machine::A, "the Mac as owner", owner_is(&std, Machine::A))
         .await
         .unwrap();
     assert_eq!(view(&views, &std).unwrap().seen_by, [Machine::A]);
 
-    // Un cambio nuevo con el menú: la Mac, ahora dueña, informa ese y nada de lo anterior.
+    // A new switch with the menu: the Mac, now the owner, reports that one and nothing from before.
     sim.fake().osd_switch(sim.handle(STD), Input::Hdmi);
     let views = d
         .wait_monitors(
             Machine::A,
-            "el cambio del menú",
+            "the menu switch",
             input_is(&std, MonitorInput::Hdmi),
         )
         .await
@@ -214,11 +214,11 @@ async fn when_the_owner_powers_off_the_other_takes_over_with_a_fresh_cursor() {
     assert_eq!(
         inputs,
         [Some(MonitorInput::Hdmi)],
-        "cursor nuevo: solo lo de después de tomar el monitor: {:?}",
+        "new cursor: only what came after taking the monitor: {:?}",
         report.events
     );
 
-    // Y el cambio desde la Mac lo hace la Mac.
+    // And the switch from the Mac is done by the Mac.
     sim.clear_ops();
     let run = d
         .switch_monitor(Machine::A, &std, MonitorInput::DisplayPort)
@@ -248,7 +248,7 @@ async fn a_switch_without_verdict_goes_back() {
     let std = sim.id(STD).to_owned();
     d.wait_monitors(
         Machine::A,
-        "la entrada leída",
+        "the input read",
         input_is(&std, MonitorInput::DisplayPort),
     )
     .await
@@ -261,7 +261,7 @@ async fn a_switch_without_verdict_goes_back() {
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
     let (_, why) = run.failure().unwrap();
     assert!(why.contains(tandem_monitor::NO_VERDICT), "{why}");
-    // Vuelta atrás: el dueño volvió a poner DP.
+    // Rollback: the owner put DP back.
     assert_eq!(
         sim.fake().screen_input(sim.handle(STD)),
         Some(Input::DisplayPort)
@@ -288,7 +288,7 @@ async fn a_failed_verdict_leaves_the_monitor_where_it_was() {
     let std = sim.id(STD).to_owned();
     d.wait_monitors(
         Machine::B,
-        "la entrada leída",
+        "the input read",
         input_is(&std, MonitorInput::DisplayPort),
     )
     .await
@@ -300,9 +300,9 @@ async fn a_failed_verdict_leaves_the_monitor_where_it_was() {
     assert_eq!(run.outcome(), Some(Outcome::Failed));
     assert_eq!(
         run.failure().map(|(_, w)| w.to_owned()),
-        Some("el monitor no mostró imagen en HDMI; sigue en DP".into())
+        Some("the monitor showed no image on HDMI; it stays on DP".into())
     );
-    // El firmware ya se quedó donde estaba: no hace falta volver.
+    // The firmware already stayed where it was: no need to return.
     assert_eq!(
         sets(&d, STD)
             .iter()

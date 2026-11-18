@@ -1,4 +1,4 @@
-//! Puestos de prueba para las máquinas de estados.
+//! Test desks for the state machines.
 
 use crate::geometry::{Arrangement, Layout, LayoutOptions, Rect, Screen, Side};
 
@@ -23,7 +23,7 @@ fn layout(mac: Vec<Screen>, pc: Vec<Screen>, a_side: Side) -> Layout {
     .unwrap()
 }
 
-/// 34" (3440×1440) en la PC a la izquierda; 32" (1920×1080) en la Mac a la derecha.
+/// 34" (3440×1440) on the PC at the left; 32" (1920×1080) on the Mac at the right.
 pub fn layout_pc_mac() -> Layout {
     layout(
         vec![mon("m32", 3440, 1920, 1080, 1.0)],
@@ -32,7 +32,7 @@ pub fn layout_pc_mac() -> Layout {
     )
 }
 
-/// Como [`layout_pc_mac`], con el monitor de la Mac de solo 600 de alto.
+/// Like [`layout_pc_mac`], with the Mac's monitor only 600 tall.
 pub fn layout_pc_mac_small() -> Layout {
     layout(
         vec![mon("m32", 3440, 1920, 600, 1.0)],
@@ -41,12 +41,12 @@ pub fn layout_pc_mac_small() -> Layout {
     )
 }
 
-/// Lo mismo, pero la Mac no tiene pantallas: no hay a dónde cruzar.
+/// The same, but the Mac has no screens: there is nowhere to cross to.
 pub fn layout_pc_only() -> Layout {
     layout(vec![], vec![mon("m34", 0, 3440, 1440, 1.0)], Side::Right)
 }
 
-/// 34" en la Mac a la izquierda; 32" 4K al 150 % en la PC a la derecha.
+/// 34" on the Mac at the left; 32" 4K at 150 % on the PC at the right.
 pub fn layout_mac_pc_hidpi() -> Layout {
     layout(
         vec![mon("m34", 0, 3440, 1440, 1.0)],
@@ -55,7 +55,7 @@ pub fn layout_mac_pc_hidpi() -> Layout {
     )
 }
 
-/// Última columna del 34" de la PC en [`layout_pc_mac`].
+/// Last column of the PC's 34" in [`layout_pc_mac`].
 pub fn edge_pc() -> f64 {
     3439.0
 }

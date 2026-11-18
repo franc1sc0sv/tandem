@@ -1,4 +1,4 @@
-//! Servidor y cliente juntos, sin red, con datagramas que se pierden.
+//! Server and client together, without a network, with datagrams that get lost.
 
 use proptest::prelude::*;
 use tandem_core::Machine;
@@ -24,7 +24,7 @@ fn any_event() -> impl Strategy<Value = InputEvent> {
     ]
 }
 
-/// Cuántas veces cada tecla o botón está presionado según lo inyectado.
+/// How many times each key or button is pressed according to what was injected.
 fn injected(system: &mut Pressed, events: &[InputEvent]) -> Result<(), TestCaseError> {
     for e in events {
         let released = matches!(
@@ -39,7 +39,11 @@ fn injected(system: &mut Pressed, events: &[InputEvent]) -> Result<(), TestCaseE
         );
         let change = system.record(e);
         if released {
-            prop_assert_eq!(change, crate::event::Change::Changed, "suelta sin presión");
+            prop_assert_eq!(
+                change,
+                crate::event::Change::Changed,
+                "release without a press"
+            );
         }
     }
     Ok(())
@@ -47,7 +51,7 @@ fn injected(system: &mut Pressed, events: &[InputEvent]) -> Result<(), TestCaseE
 
 proptest! {
     #[test]
-    fn el_cliente_sigue_al_servidor_aunque_se_pierdan_datagramas(
+    fn the_client_follows_the_server_even_if_datagrams_are_lost(
         steps in prop::collection::vec((any_event(), any::<bool>(), any::<bool>()), 0..120),
     ) {
         let mut server = ServerSession::new(
@@ -81,8 +85,8 @@ proptest! {
             }
             deliver(outs, drop, &mut client, &mut system)?;
 
-            // Nada puede estar presionado en el cliente si el usuario no lo tiene
-            // presionado de verdad.
+            // Nothing can be pressed on the client if the user does not have it
+            // really pressed.
             for id in (0x04u16..0x08).chain(0xE0..=0xE3) {
                 let u = HidUsage::key(id);
                 prop_assert!(!system.is_key_pressed(u) || physical.is_key_pressed(u));
@@ -93,7 +97,7 @@ proptest! {
             prop_assert_eq!(client.is_active(), server.is_remote());
         }
 
-        // El mouse se detiene: lo pendiente sale y la resincronización llega.
+        // The mouse stops: what is pending goes out and the resynchronization arrives.
         let outs = server.flush().map(ServerOutput::Datagram).into_iter().collect();
         deliver(outs, true, &mut client, &mut system)?;
         let outs = server.resync();
@@ -102,8 +106,8 @@ proptest! {
     }
 }
 
-/// El cliente con dos pantallas de escalas distintas una al lado de la otra, a la
-/// derecha del servidor.
+/// The client with two screens of different scales side by side, to the
+/// right of the server.
 fn layout_mixed_scales() -> crate::geometry::Layout {
     use crate::geometry::{Arrangement, Layout, LayoutOptions, Rect, Screen, Side};
     let a = vec![
@@ -123,7 +127,7 @@ fn layout_mixed_scales() -> crate::geometry::Layout {
     .unwrap()
 }
 
-/// Cruza el cursor del servidor a la otra máquina y entrega el `Enter` al cliente.
+/// Crosses the server's cursor to the other machine and delivers the `Enter` to the client.
 fn cross_mixed(server: &mut ServerSession, client: &mut ClientSession) {
     server.handle(InputEvent::MotionAbsolute {
         x: 3439.0,
@@ -137,15 +141,15 @@ fn cross_mixed(server: &mut ServerSession, client: &mut ClientSession) {
 }
 
 proptest! {
-    /// Sin pérdidas, después de cada datagrama el cursor del cliente está exactamente
-    /// donde el servidor cree, aunque el movimiento acumulado pase por pantallas de
-    /// escalas distintas (T-093: escala por pantalla).
+    /// Without losses, after each datagram the client's cursor is exactly
+    /// where the server believes, even if the accumulated movement passes through screens of
+    /// different scales (T-093: per-screen scale).
     #[test]
-    fn sin_perdidas_el_cliente_coincide_con_el_servidor_entre_escalas(
+    fn without_losses_the_client_matches_the_server_across_scales(
         moves in prop::collection::vec((-300.0f64..300.0, -200.0f64..200.0, any::<bool>()), 1..60),
     ) {
         let layout = layout_mixed_scales();
-        // Sin resincronización periódica: solo cuentan los deltas.
+        // Without periodic resynchronization: only the deltas count.
         let mut server = ServerSession::new(Machine::B, layout.clone(), Point::new(3400.0, 700.0), u32::MAX);
         let mut client = ClientSession::new(layout.screens(Machine::A).to_vec());
         cross_mixed(&mut server, &mut client);
@@ -165,10 +169,10 @@ proptest! {
         }
     }
 
-    /// El cursor mantiene la velocidad física al cruzar: un delta nativo del servidor se
-    /// convierte en el cliente con la razón de las escalas de las dos pantallas.
+    /// The cursor keeps its physical speed on crossing: a native delta of the server is
+    /// converted on the client with the ratio of the scales of the two screens.
     #[test]
-    fn la_velocidad_fisica_se_conserva_entre_escalas(
+    fn physical_speed_is_kept_between_scales(
         local_scale in prop::sample::select(vec![1.0, 1.25, 1.5, 2.0]),
         remote_scale in prop::sample::select(vec![1.0, 1.25, 1.5, 2.0]),
         dx in 1.0f64..40.0,
@@ -199,12 +203,12 @@ proptest! {
 }
 
 proptest! {
-    /// T-093, respetar pantallas: con la sesión completa (servidor y cliente, sin red),
-    /// el cursor que sigue el servidor y el que inyecta el cliente nunca quedan fuera de
-    /// una pantalla, vayan y vengan entre las dos máquinas por pantallas de escalas y
-    /// alturas distintas.
+    /// T-093, respecting screens: with the complete session (server and client, without a network),
+    /// the cursor the server follows and the one the client injects never end up outside
+    /// a screen, whether they go back and forth between the two machines over screens of different scales and
+    /// heights.
     #[test]
-    fn el_cursor_inyectado_nunca_sale_de_las_pantallas(
+    fn the_injected_cursor_never_leaves_the_screens(
         moves in prop::collection::vec((-600.0f64..600.0, -500.0f64..500.0), 1..80),
     ) {
         let layout = layout_mixed_scales();
@@ -222,7 +226,7 @@ proptest! {
                 };
                 for e in events {
                     if let InputEvent::MotionAbsolute { x, y } = e {
-                        prop_assert!(on(Machine::A, Point::new(x, y)), "inyectado fuera: ({x}, {y})");
+                        prop_assert!(on(Machine::A, Point::new(x, y)), "injected outside: ({x}, {y})");
                     }
                 }
             }

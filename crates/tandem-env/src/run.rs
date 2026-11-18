@@ -1,8 +1,8 @@
-//! Correr programas del sistema para el escaneo, detrás de [`Runner`].
+//! Running system programs for the scan, behind [`Runner`].
 //!
-//! El escaneo solo lee la salida de herramientas (`git --version`, `wsl.exe -l -v`,
-//! `nvidia-smi`...). Detrás del trait, las pruebas usan las salidas guardadas como fixtures
-//! ([`crate::fake::FakeRunner`]) y en la máquina real va [`SystemRunner`].
+//! The scan only reads the output of tools (`git --version`, `wsl.exe -l -v`,
+//! `nvidia-smi`...). Behind the trait, tests use the outputs saved as fixtures
+//! ([`crate::fake::FakeRunner`]) and on the real machine [`SystemRunner`] is used.
 
 use std::ffi::OsString;
 use std::io::Read;
@@ -10,17 +10,17 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-/// Lo que dejó un programa.
+/// What a program left behind.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Output {
-    /// Terminó con código 0.
+    /// Ended with code 0.
     pub success: bool,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
 }
 
 impl Output {
-    /// Salida exitosa con `stdout`.
+    /// Successful output with `stdout`.
     pub fn ok(stdout: impl Into<Vec<u8>>) -> Self {
         Output {
             success: true,
@@ -29,7 +29,7 @@ impl Output {
         }
     }
 
-    /// Salida fallida con `stdout` y `stderr`.
+    /// Failed output with `stdout` and `stderr`.
     pub fn failed(stdout: impl Into<Vec<u8>>, stderr: impl Into<Vec<u8>>) -> Self {
         Output {
             success: false,
@@ -38,7 +38,7 @@ impl Output {
         }
     }
 
-    /// `stdout` como texto; `wsl.exe` escribe UTF-16LE, el resto UTF-8.
+    /// `stdout` as text; `wsl.exe` writes UTF-16LE, the rest UTF-8.
     pub fn text(&self) -> String {
         crate::parse::decode_text(&self.stdout)
     }
@@ -46,33 +46,33 @@ impl Output {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum RunError {
-    #[error("no se pudo lanzar {program}: {reason}")]
+    #[error("could not launch {program}: {reason}")]
     Spawn { program: String, reason: String },
-    #[error("{program} no terminó en {secs} s")]
+    #[error("{program} did not finish in {secs} s")]
     Timeout { program: String, secs: u64 },
 }
 
-/// Corre programas y los busca en el `PATH`.
+/// Runs programs and looks them up in the `PATH`.
 pub trait Runner: Send + Sync {
-    /// Dónde está `program` (sin extensión) en el `PATH` de este proceso o en `extra` (otro
-    /// `PATH`, por ejemplo el del shell de inicio de sesión del usuario).
+    /// Where `program` (without extension) is in this process's `PATH` or in `extra` (another
+    /// `PATH`, for example the user's login shell one).
     fn find(&self, program: &str, extra: Option<&str>) -> Option<PathBuf>;
 
-    /// Todas las copias de `program` en el `PATH`, en orden (por ejemplo, el `bash.exe` de
-    /// System32 y el de Git).
+    /// All the copies of `program` in the `PATH`, in order (for example, the `bash.exe` of
+    /// System32 and the Git one).
     fn find_all(&self, program: &str) -> Vec<PathBuf> {
         self.find(program, None).into_iter().collect()
     }
 
-    /// Corre `program` (una ruta de [`Runner::find`]) y espera hasta `timeout`. Un código de
-    /// salida distinto de 0 no es error: lo dice [`Output::success`].
+    /// Runs `program` (a path from [`Runner::find`]) and waits up to `timeout`. An exit code
+    /// other than 0 is not an error: [`Output::success`] says so.
     fn run(&self, program: &Path, args: &[&str], timeout: Duration) -> Result<Output, RunError>;
 
-    /// Una variable de entorno de este proceso.
+    /// An environment variable of this process.
     fn var(&self, name: &str) -> Option<String>;
 }
 
-/// Los programas de verdad.
+/// The real programs.
 #[derive(Debug, Clone, Default)]
 pub struct SystemRunner;
 
@@ -107,8 +107,8 @@ impl Runner for SystemRunner {
             program: name.clone(),
             reason: e.to_string(),
         })?;
-        // Las tuberías se leen en hilos aparte: un programa que escribe mucho no se traba
-        // esperando a que alguien lea mientras aquí se espera a que termine.
+        // The pipes are read on separate threads: a program that writes a lot does not get stuck
+        // waiting for someone to read while here we wait for it to finish.
         let out = child.stdout.take().map(drain);
         let err = child.stderr.take().map(drain);
         let deadline = Instant::now() + timeout;
@@ -133,7 +133,7 @@ impl Runner for SystemRunner {
                 secs: timeout.as_secs(),
             });
         };
-        // Un nieto que se quedó con la tubería abierta no puede colgar el escaneo.
+        // A grandchild that kept the pipe open cannot hang the scan.
         let grace = Duration::from_secs(2);
         Ok(Output {
             success: status.success(),
@@ -161,8 +161,8 @@ fn drain(mut r: impl Read + Send + 'static) -> std::sync::mpsc::Receiver<Vec<u8>
     rx
 }
 
-/// En Windows el agente corre sin consola: sin esta bandera cada programa abriría una
-/// ventana negra un instante.
+/// On Windows the agent runs without a console: without this flag every program would open a
+/// black window for a moment.
 #[cfg(windows)]
 fn no_window(cmd: &mut Command) {
     use std::os::windows::process::CommandExt;
@@ -173,8 +173,8 @@ fn no_window(cmd: &mut Command) {
 #[cfg(not(windows))]
 fn no_window(_cmd: &mut Command) {}
 
-/// Las extensiones con que se prueba cada nombre: en Windows las de `PATHEXT` (`npm` es
-/// `npm.cmd`); en el resto, el nombre tal cual.
+/// The extensions each name is tried with: on Windows those of `PATHEXT` (`npm` is
+/// `npm.cmd`); on the rest, the name as is.
 pub(crate) fn executable_exts(pathext: Option<OsString>) -> Vec<String> {
     if !cfg!(windows) {
         return vec![String::new()];
@@ -188,7 +188,7 @@ pub(crate) fn executable_exts(pathext: Option<OsString>) -> Vec<String> {
         .collect()
 }
 
-/// El primer `dir/program{ext}` que existe, en el orden de `dirs` y de `exts`.
+/// The first `dir/program{ext}` that exists, in the order of `dirs` and `exts`.
 pub(crate) fn find_in(
     program: &str,
     dirs: &[PathBuf],
@@ -235,17 +235,17 @@ mod tests {
     #[test]
     fn a_real_program_runs_and_a_slow_one_is_cut() {
         let r = SystemRunner;
-        let sh = r.find("sh", None).expect("sh en el PATH");
+        let sh = r.find("sh", None).expect("sh in the PATH");
         let out = r
             .run(
                 &sh,
-                &["-c", "echo hola; echo mal >&2; exit 3"],
+                &["-c", "echo hello; echo bad >&2; exit 3"],
                 Duration::from_secs(5),
             )
             .unwrap();
         assert!(!out.success);
-        assert_eq!(out.text(), "hola\n");
-        assert_eq!(out.stderr, b"mal\n");
+        assert_eq!(out.text(), "hello\n");
+        assert_eq!(out.stderr, b"bad\n");
         let e = r
             .run(&sh, &["-c", "sleep 5"], Duration::from_millis(100))
             .unwrap_err();

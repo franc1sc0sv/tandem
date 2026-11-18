@@ -1,10 +1,10 @@
-//! Motor de teclado y mouse: captura, inyección, mapa de teclas, bordes.
+//! Keyboard and mouse engine: capture, injection, key map, edges.
 //!
-//! - [`event`]: modelo de eventos portable, tablas de teclas y reasignación de modificadores.
-//! - [`geometry`]: el acomodo de pantallas de cada máquina y el cruce de bordes entre ellas.
-//! - [`macos`]: captura e inyección en macOS (traducción portable + CoreGraphics).
-//! - [`session`]: sesión de entrada sobre el enlace (servidor y cliente).
-//! - [`windows`]: captura e inyección en Windows (lógica portable; las llamadas al sistema, `cfg(windows)`).
+//! - [`event`]: portable event model, key tables and modifier remapping.
+//! - [`geometry`]: the screen arrangement of each machine and the edge crossing between them.
+//! - [`macos`]: capture and injection on macOS (portable translation + CoreGraphics).
+//! - [`session`]: input session over the link (server and client).
+//! - [`windows`]: capture and injection on Windows (portable logic; system calls, `cfg(windows)`).
 
 pub mod event;
 pub mod geometry;

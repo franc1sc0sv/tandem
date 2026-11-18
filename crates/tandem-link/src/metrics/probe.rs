@@ -1,12 +1,12 @@
-//! La prueba de ancho de banda, sobre cualquier par de flujos de bytes: el stream de
-//! datos de QUIC ([`ControlStream::measure`](crate::transport::ControlStream::measure)) o,
-//! en las pruebas, el Wi-Fi simulado.
+//! The bandwidth test, over any pair of byte streams: QUIC's data
+//! stream ([`ControlStream::measure`](crate::transport::ControlStream::measure)) or,
+//! in tests, the simulated Wi-Fi.
 //!
-//! Mide quien recibe: lo que el que manda escribe se queda un rato en sus colas (las de
-//! QUIC, las del sistema), así que contar del lado que escribe da de más.
+//! The receiver measures: what the sender writes stays for a while in its queues (QUIC's,
+//! the system's), so counting on the writing side gives too much.
 //!
-//! Va sin el tope de los datos (medir a través del tope daría el tope), pero respeta la
-//! pausa de T-101: si la entrada pasa su objetivo, la prueba se corta (DECISIONS).
+//! It runs without the data cap (measuring through the cap would give the cap), but respects the
+//! pause of T-101: if input exceeds its target, the test is cut off (DECISIONS).
 
 use std::io;
 use std::time::Duration;
@@ -19,17 +19,17 @@ use crate::qos::Qos;
 
 const CHUNK: usize = 64 * 1024;
 
-/// Cómo terminó la parte que manda.
+/// How the sending part ended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProbeEnd {
-    /// Bytes escritos.
+    /// Bytes written.
     pub sent: u64,
-    /// Se cortó antes de tiempo porque la entrada pasó su objetivo (`qos` en pausa).
+    /// Cut short because input exceeded its target (`qos` paused).
     pub paused: bool,
 }
 
-/// Escribe sin parar durante `duration` y cierra la escritura; antes, si `qos` (el del
-/// camino que se mide) pausa los datos.
+/// Writes without stopping for `duration` and closes the write side; earlier, if `qos` (the
+/// one of the path being measured) pauses the data.
 pub async fn send_probe<W: AsyncWrite + Unpin>(
     w: &mut W,
     duration: Duration,
@@ -40,8 +40,8 @@ pub async fn send_probe<W: AsyncWrite + Unpin>(
     let mut gate = qos.watch_gate();
     let mut sent = 0u64;
     let mut paused = !gate.borrow_and_update().is_open();
-    // Una escritura frenada por el control de flujo no alarga la prueba ni demora el
-    // corte: se cancela (y entonces no escribió nada).
+    // A write held back by flow control neither lengthens the test nor delays the
+    // cut: it is cancelled (and then it wrote nothing).
     while !paused {
         tokio::select! {
             written = time::timeout_at(end, w.write(&chunk)) => match written {
@@ -63,19 +63,16 @@ pub async fn send_probe<W: AsyncWrite + Unpin>(
         }
     }
     if paused {
-        tracing::info!(
-            sent,
-            "prueba de ancho de banda cortada: la entrada pasó su objetivo"
-        );
+        tracing::info!(sent, "bandwidth test cut off: input exceeded its target");
     }
     w.shutdown().await?;
     Ok(ProbeEnd { sent, paused })
 }
 
-/// Lee hasta el fin y cuenta lo que llegó después de la primera lectura, en el tiempo que
-/// va de esa primera lectura a la última: así no cuenta lo que tardó en arrancar.
-/// `already` son bytes de la prueba que ya se leyeron (junto con la apertura del canal):
-/// cuentan como la primera lectura.
+/// Reads until the end and counts what arrived after the first read, over the time that
+/// goes from that first read to the last: that way it does not count the time taken to start.
+/// `already` are bytes of the test that were already read (along with the channel opening):
+/// they count as the first read.
 pub async fn receive_probe<R: AsyncRead + Unpin>(
     r: &mut R,
     already: usize,
@@ -111,7 +108,7 @@ mod tests {
     use super::*;
 
     #[tokio::test(start_paused = true)]
-    async fn sin_datos_no_hay_medición() {
+    async fn without_data_there_is_no_measurement() {
         let (mut a, mut b) = duplex(1024);
         a.shutdown().await.unwrap();
         let r = receive_probe(&mut b, 0).await.unwrap();
@@ -119,7 +116,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn quien_manda_para_a_tiempo_aunque_nadie_lea() {
+    async fn the_sender_stops_in_time_even_if_nobody_reads() {
         let (mut a, _b) = duplex(1024);
         let t0 = Instant::now();
         let end = send_probe(&mut a, Duration::from_secs(3), &Qos::default())
@@ -136,7 +133,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn lo_ya_leído_con_la_apertura_marca_el_comienzo() {
+    async fn what_was_already_read_with_the_opening_marks_the_start() {
         let (mut a, mut b) = duplex(1024);
         let recv = tokio::spawn(async move { receive_probe(&mut b, 10).await.unwrap() });
         time::sleep(Duration::from_secs(1)).await;

@@ -1,10 +1,10 @@
-//! Tragar la entrada y congelar/ocultar el cursor, de forma balanceada.
+//! Swallowing input and freezing/hiding the cursor, in a balanced way.
 //!
-//! `CGDisplayHideCursor` lleva un contador: cada ocultar necesita su mostrar, o el
-//! cursor queda invisible. Esto garantiza que se oculta y congela una sola vez por
-//! cada vez que se toma la entrada, y que se devuelve todo aunque la toma se
-//! suelte desde el hilo del tap (el consumidor de eventos desapareció) o al
-//! destruir la captura.
+//! `CGDisplayHideCursor` keeps a counter: every hide needs its show, or the
+//! cursor stays invisible. This guarantees that it is hidden and frozen only once for
+//! each time input is taken, and that everything is given back even if the grab is
+//! dropped from the tap thread (the event consumer disappeared) or on
+//! destroying the capture.
 
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,33 +12,33 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use super::CaptureError;
 use crate::geometry::Point;
 
-/// Lo que la toma necesita del sistema. En macOS lo implementa `sys` con
-/// CoreGraphics; las pruebas usan un doble.
+/// What the grab needs from the system. On macOS `sys` implements it with
+/// CoreGraphics; tests use a double.
 pub trait CursorBackend: Send {
-    /// `true`: el mouse deja de mover el cursor (pero sus deltas siguen llegando
-    /// al tap). `CGAssociateMouseAndMouseCursorPosition(!frozen)`.
+    /// `true`: the mouse stops moving the cursor (but its deltas keep reaching
+    /// the tap). `CGAssociateMouseAndMouseCursorPosition(!frozen)`.
     fn set_frozen(&mut self, frozen: bool) -> Result<(), CaptureError>;
-    /// Ocultar o mostrar el cursor aunque Tandem no sea la app activa.
+    /// Hide or show the cursor even if Tandem is not the active app.
     fn set_hidden(&mut self, hidden: bool) -> Result<(), CaptureError>;
-    /// Poner el cursor en `pos` (coordenadas globales en puntos).
+    /// Put the cursor at `pos` (global coordinates in points).
     fn warp(&mut self, pos: Point) -> Result<(), CaptureError>;
-    /// Secure Event Input (un campo de contraseña tiene el foco): el tap no ve
-    /// el teclado, así que no se cruza a la otra máquina.
+    /// Secure Event Input (a password field has focus): the tap does not see
+    /// the keyboard, so there is no crossing to the other machine.
     fn secure_input_active(&self) -> bool;
 }
 
 struct Inner<C> {
     backend: C,
-    /// Lo que está aplicado de verdad. Van por separado para que un fallo a mitad
-    /// de camino no desbalancee el contador de ocultar: lo que no se pudo
-    /// deshacer se reintenta la próxima vez.
+    /// What is really applied. They go separately so that a failure halfway
+    /// does not unbalance the hide counter: what could not be
+    /// undone is retried next time.
     frozen: bool,
     hidden: bool,
 }
 
-/// Estado de la toma, compartido entre el dueño de la captura y el hilo del tap.
+/// State of the grab, shared between the capture's owner and the tap thread.
 pub struct Grab<C> {
-    /// Lo que lee el tap en cada evento, sin bloquear.
+    /// What the tap reads on each event, without blocking.
     grabbed: AtomicBool,
     inner: Mutex<Inner<C>>,
 }
@@ -55,17 +55,17 @@ impl<C: CursorBackend> Grab<C> {
         }
     }
 
-    /// Si el tap tiene que tragar la entrada.
+    /// Whether the tap has to swallow input.
     pub fn is_grabbed(&self) -> bool {
         self.grabbed.load(Ordering::Acquire)
     }
 
-    /// Toma (`true`) o devuelve (`false`) la entrada local. Repetir el mismo
-    /// valor no hace nada.
+    /// Takes (`true`) or gives back (`false`) local input. Repeating the same
+    /// value does nothing.
     ///
-    /// Tomarla falla con [`CaptureError::SecureInput`] si hay un campo de
-    /// contraseña activo. Si congelar u ocultar falla, se deshace lo hecho y la
-    /// entrada sigue local.
+    /// Taking it fails with [`CaptureError::SecureInput`] if a password
+    /// field is active. If freezing or hiding fails, what was done is undone and
+    /// input stays local.
     pub fn set(&self, grab: bool) -> Result<(), CaptureError> {
         let mut inner = self.lock();
         if grab {
@@ -81,7 +81,7 @@ impl<C: CursorBackend> Grab<C> {
             }
             if !inner.hidden {
                 if let Err(e) = inner.backend.set_hidden(true) {
-                    // Lo más importante es no dejar el mouse muerto.
+                    // The most important thing is not to leave the mouse dead.
                     if inner.backend.set_frozen(false).is_ok() {
                         inner.frozen = false;
                     }
@@ -92,8 +92,8 @@ impl<C: CursorBackend> Grab<C> {
             self.grabbed.store(true, Ordering::Release);
             Ok(())
         } else {
-            // Primero deja de tragar: aunque falle lo demás, la Mac vuelve a
-            // recibir su teclado.
+            // First it stops swallowing: even if the rest fails, the Mac gets its
+            // keyboard back.
             self.grabbed.store(false, Ordering::Release);
             let mut result = Ok(());
             if inner.hidden {
@@ -112,15 +112,15 @@ impl<C: CursorBackend> Grab<C> {
         }
     }
 
-    /// Devuelve la entrada sin importar errores (al destruir la captura, o
-    /// cuando el consumidor de eventos ya no existe).
+    /// Gives input back regardless of errors (on destroying the capture, or
+    /// when the event consumer no longer exists).
     pub fn release(&self) {
         let _ = self.set(false);
     }
 
-    /// Lleva el cursor a `pos`. Con la entrada local, vuelve a asociar el mouse:
-    /// así macOS no ignora el movimiento durante el cuarto de segundo que sigue a
-    /// un warp.
+    /// Takes the cursor to `pos`. With local input, it reassociates the mouse:
+    /// that way macOS does not ignore movement during the quarter second that follows
+    /// a warp.
     pub fn warp(&self, pos: Point) -> Result<(), CaptureError> {
         let mut inner = self.lock();
         inner.backend.warp(pos)?;
@@ -136,8 +136,8 @@ impl<C: CursorBackend> Grab<C> {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner<C>> {
-        // Un pánico con el candado tomado no invalida el estado (son booleanos),
-        // y devolver el cursor importa más que propagar el veneno.
+        // A panic with the lock held does not invalidate the state (they are booleans),
+        // and giving the cursor back matters more than propagating the poison.
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
@@ -155,8 +155,8 @@ pub(crate) mod fake {
         Warp(Point),
     }
 
-    /// Doble de prueba: registra las llamadas y simula el contador de
-    /// `CGDisplayHideCursor`.
+    /// Test double: records the calls and simulates the
+    /// `CGDisplayHideCursor` counter.
     #[derive(Debug, Default)]
     pub struct State {
         pub calls: Vec<Call>,
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn tomar_congela_y_oculta_una_vez() {
+    fn taking_freezes_and_hides_once() {
         let (g, c) = grab();
         assert!(!g.is_grabbed());
         g.set(true).unwrap();
@@ -249,19 +249,19 @@ mod tests {
     }
 
     #[test]
-    fn con_secure_input_no_se_toma() {
+    fn with_secure_input_it_is_not_taken() {
         let (g, c) = grab();
         c.state().secure_input = true;
         assert!(g.secure_input_active());
         assert!(matches!(g.set(true), Err(CaptureError::SecureInput)));
         assert!(!g.is_grabbed());
         assert!(c.state().calls.is_empty());
-        // Soltar sigue funcionando.
+        // Releasing still works.
         g.set(false).unwrap();
     }
 
     #[test]
-    fn si_ocultar_falla_se_descongela() {
+    fn if_hiding_fails_it_is_unfrozen() {
         let (g, c) = grab();
         c.state().fail_hidden = true;
         assert!(g.set(true).is_err());
@@ -272,7 +272,7 @@ mod tests {
     }
 
     #[test]
-    fn si_congelar_falla_no_se_oculta() {
+    fn if_freezing_fails_it_is_not_hidden() {
         let (g, c) = grab();
         c.state().fail_frozen = true;
         assert!(g.set(true).is_err());
@@ -281,18 +281,18 @@ mod tests {
     }
 
     #[test]
-    fn soltar_deja_de_tragar_aunque_falle_mostrar() {
+    fn releasing_stops_swallowing_even_if_showing_fails() {
         let (g, c) = grab();
         g.set(true).unwrap();
         c.state().fail_hidden = true;
         assert!(g.set(false).is_err());
         assert!(!g.is_grabbed());
-        // Igual intentó descongelar.
+        // It tried to unfreeze all the same.
         assert!(!c.state().frozen);
     }
 
     #[test]
-    fn release_desde_otro_hilo() {
+    fn release_from_another_thread() {
         let (g, c) = grab();
         let g = std::sync::Arc::new(g);
         g.set(true).unwrap();
@@ -303,7 +303,7 @@ mod tests {
     }
 
     #[test]
-    fn warp_reasocia_solo_con_foco_local() {
+    fn warp_reassociates_only_with_local_focus() {
         let (g, c) = grab();
         let p = Point::new(100.0, 200.0);
         g.warp(p).unwrap();
@@ -316,11 +316,11 @@ mod tests {
     }
 
     proptest! {
-        /// Cualquier secuencia de tomar/soltar (con fallos intermedios) deja el
-        /// contador de ocultar en 0 o 1, coherente con `is_grabbed`, y soltar al
-        /// final siempre deja el cursor visible y libre.
+        /// Any sequence of take/release (with intermediate failures) leaves the
+        /// hide counter at 0 or 1, consistent with `is_grabbed`, and releasing at the
+        /// end always leaves the cursor visible and free.
         #[test]
-        fn el_cursor_queda_balanceado(ops in prop::collection::vec((any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>()), 0..40)) {
+        fn the_cursor_stays_balanced(ops in prop::collection::vec((any::<bool>(), any::<bool>(), any::<bool>(), any::<bool>()), 0..40)) {
             let (g, c) = grab();
             for (want, secure, fail_frozen, fail_hidden) in ops {
                 {

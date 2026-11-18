@@ -1,10 +1,10 @@
-//! La red simulada entre los dos agentes: un enlace por tipo (USB4, Ethernet, Wi-Fi)
-//! con flujos en memoria que se pueden cortar.
+//! The simulated network between the two agents: one link per type (USB4, Ethernet, Wi-Fi)
+//! with in-memory streams that can be cut.
 //!
-//! Sobre cada enlace corre el protocolo de control real de `tandemd` (`PeerClient` y
-//! `peer::serve`) y el gestor de enlaces real de `tandem-link` elige por cuál van los
-//! pasos. Un corte imita un cable desenchufado: nada falla, solo hay silencio, y los
-//! flujos abiertos por ese enlace quedan muertos aunque el cable vuelva.
+//! Over each link runs `tandemd`'s real control protocol (`PeerClient` and
+//! `peer::serve`) and `tandem-link`'s real link manager chooses which one the
+//! steps go over. A cut imitates an unplugged cable: nothing fails, there is just
+//! silence, and streams opened over that link stay dead even if the cable comes back.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -23,14 +23,14 @@ use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 
 use crate::world::{Power, World};
 
-/// Tamaño del búfer de cada flujo en memoria.
+/// Size of each in-memory stream's buffer.
 const WIRE_BUFFER: usize = 64 * 1024;
 
 #[derive(Debug, Clone, Copy)]
 struct LinkWire {
     addr: SocketAddr,
     up: bool,
-    /// Cambia con cada corte: los flujos de una generación anterior quedan muertos.
+    /// Changes with every cut: streams of an earlier generation stay dead.
     generation: u64,
 }
 
@@ -39,14 +39,14 @@ struct NetInner {
     links: BTreeMap<LinkKind, LinkWire>,
 }
 
-/// Los enlaces físicos entre las dos máquinas.
+/// The physical links between the two machines.
 #[derive(Debug, Clone)]
 pub struct SimNet {
     inner: Arc<Mutex<NetInner>>,
     world: World,
 }
 
-/// Dirección simulada del otro agente por cada enlace (las de DESIGN §6).
+/// Simulated address of the other agent for each link (those of DESIGN §6).
 pub fn link_addr(kind: LinkKind) -> SocketAddr {
     let net = match kind {
         LinkKind::Usb4 => 1,
@@ -57,7 +57,7 @@ pub fn link_addr(kind: LinkKind) -> SocketAddr {
 }
 
 impl SimNet {
-    /// Los enlaces indicados, todos con el cable puesto.
+    /// The given links, all with the cable plugged in.
     pub fn new(world: World, kinds: &[LinkKind]) -> Self {
         let links = kinds
             .iter()
@@ -90,16 +90,16 @@ impl SimNet {
             .collect()
     }
 
-    /// Desenchufa un enlace: los flujos abiertos por él no vuelven a funcionar.
+    /// Unplugs a link: the streams opened over it do not work again.
     pub fn cut(&self, kind: LinkKind) {
         if let Some(l) = self.lock().links.get_mut(&kind) {
             l.up = false;
             l.generation += 1;
         }
-        tracing::info!(link = %kind, "enlace cortado (simulado)");
+        tracing::info!(link = %kind, "link cut (simulated)");
     }
 
-    /// Enchufa un cable que no estaba (o el que se cortó): el enlace existe y responde.
+    /// Plugs in a cable that was not there (or the one that was cut): the link exists and answers.
     pub fn plug(&self, kind: LinkKind) {
         let mut inner = self.lock();
         let wire = inner.links.entry(kind).or_insert(LinkWire {
@@ -110,14 +110,14 @@ impl SimNet {
         wire.up = true;
     }
 
-    /// Vuelve a enchufar un enlace: sirve para conexiones nuevas.
+    /// Plugs a link back in: it works for new connections.
     pub fn restore(&self, kind: LinkKind) {
         if let Some(l) = self.lock().links.get_mut(&kind) {
             l.up = true;
         }
     }
 
-    /// Una máquina se apagó: todas las conexiones con su agente mueren.
+    /// A machine shut down: all connections with its agent die.
     pub(crate) fn drop_all(&self) {
         for l in self.lock().links.values_mut() {
             l.generation += 1;
@@ -128,7 +128,7 @@ impl SimNet {
         self.lock().links.get(&kind).is_some_and(|l| l.up)
     }
 
-    /// Si una conexión nueva por `kind` llegaría al otro agente, y con qué generación.
+    /// Whether a new connection over `kind` would reach the other agent, and with what generation.
     fn reachable(&self, kind: LinkKind) -> Option<u64> {
         let link = *self.lock().links.get(&kind)?;
         let both = [Machine::A, Machine::B]
@@ -149,7 +149,7 @@ impl SimNet {
             .map(|(k, _)| *k)
     }
 
-    /// Un par de flujos unidos por `kind`.
+    /// A pair of streams joined by `kind`.
     fn wire_pair(&self, kind: LinkKind, generation: u64) -> (SimWire, SimWire) {
         let (a, b) = tokio::io::duplex(WIRE_BUFFER);
         let wire = |io| SimWire {
@@ -162,10 +162,10 @@ impl SimNet {
     }
 }
 
-/// Un extremo de un flujo por un enlace simulado.
+/// One end of a stream over a simulated link.
 ///
-/// Con el enlace muerto todo queda en espera para siempre, sin despertar a nadie:
-/// así se ve un cable desenchufado desde el software.
+/// With the link dead everything waits forever, without waking anyone:
+/// this is how an unplugged cable looks from the software.
 #[derive(Debug)]
 pub struct SimWire {
     io: DuplexStream,
@@ -221,7 +221,7 @@ impl AsyncWrite for SimWire {
 #[error("{0}")]
 pub struct NetError(String);
 
-/// Lo que el gestor de enlaces entrega del enlace activo: por dónde pedir pasos.
+/// What the link manager hands over for the active link: where to ask for steps.
 #[derive(Clone)]
 pub struct SimHandle {
     pub kind: LinkKind,
@@ -234,7 +234,7 @@ pub struct SimSession {
     handle: SimHandle,
 }
 
-/// Abre conexiones con el agente del otro lado por la red simulada.
+/// Opens connections with the agent on the other side over the simulated network.
 pub struct SimProber {
     net: SimNet,
     far: Arc<Agent>,
@@ -255,20 +255,20 @@ impl Prober for SimProber {
         let kind = self
             .net
             .kind_of(addr)
-            .ok_or_else(|| NetError(format!("{addr} no es un enlace simulado")))?;
+            .ok_or_else(|| NetError(format!("{addr} is not a simulated link")))?;
         let Some(generation) = self.net.reachable(kind) else {
-            // Sin cable o con la otra máquina apagada nadie contesta: lo corta el gestor.
+            // Without a cable or with the other machine off nobody answers: the manager cuts it off.
             return std::future::pending().await;
         };
-        // Un flujo para los pings del gestor y otro para los pedidos de pasos, como
-        // los dos streams de control de QUIC.
+        // One stream for the manager's pings and another for step requests, like
+        // QUIC's two control streams.
         let (ping, ping_far) = self.net.wire_pair(kind, generation);
         let (steps, steps_far) = self.net.wire_pair(kind, generation);
         for far in [ping_far, steps_far] {
             let agent = self.far.clone();
             tokio::spawn(async move {
                 if let Err(e) = peer::serve(Framed::new(far), agent).await {
-                    tracing::debug!("flujo simulado terminado: {e}");
+                    tracing::debug!("simulated stream ended: {e}");
                 }
             });
         }
@@ -294,7 +294,7 @@ impl Prober for SimProber {
             match s.ping.recv::<ControlMsg>().await.map_err(err)? {
                 Some(ControlMsg::Pong { nonce: n }) if n == nonce => return Ok(()),
                 Some(_) => {}
-                None => return Err(NetError("el otro lado cerró".into())),
+                None => return Err(NetError("the other side closed".into())),
             }
         }
     }
@@ -304,9 +304,9 @@ impl Prober for SimProber {
     }
 }
 
-/// El otro agente visto por el orquestador: cada pedido va por el enlace activo en
-/// ese momento, el que eligió el gestor de enlaces, y falla con `PEER_LOST` si ese
-/// enlace cae antes de la respuesta.
+/// The other agent as seen by the orchestrator: each request goes over the link active at
+/// that moment, the one the link manager chose, and fails with `PEER_LOST` if that
+/// link drops before the answer.
 pub struct ManagedPeer {
     links: LinkManager<SimHandle>,
 }

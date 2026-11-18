@@ -1,17 +1,17 @@
-//! Lo que viaja entre servidor y cliente de la sesión de entrada.
+//! What travels between server and client of the input session.
 //!
-//! Dos canales sobre la misma conexión (docs/research/input-engine.md):
-//! - [`StreamMsg`], por un stream confiable y ordenado: entrar, salir, teclas,
-//!   botones y el latido;
-//! - [`Datagram`], no confiable: movimiento y scroll coalescidos.
+//! Two channels over the same connection (docs/research/input-engine.md):
+//! - [`StreamMsg`], over a reliable ordered stream: enter, leave, keys,
+//!   buttons and the heartbeat;
+//! - [`Datagram`], unreliable: coalesced movement and scroll.
 //!
-//! Los números de secuencia unen los dos: cada datagrama lleva uno creciente, y
-//! los mensajes del stream que dependen de la posición (entrar, botones, la
-//! posición exacta al detenerse) llevan el último enviado. El cliente descarta cualquier datagrama que no sea más nuevo
-//! que lo último que aplicó, así uno atrasado nunca mueve el cursor hacia atrás.
+//! Sequence numbers tie the two together: every datagram carries an increasing one, and
+//! stream messages that depend on position (enter, buttons, the
+//! exact position on stopping) carry the last one sent. The client discards any datagram that is not newer
+//! than the last one it applied, so a late one never moves the cursor backwards.
 //!
-//! Las marcas `t_us` son del reloj monotónico del servidor ([`super::latency::now_us`])
-//! al capturar: el cliente mide con ellas la latencia (T-093).
+//! The `t_us` stamps are from the server's monotonic clock ([`super::latency::now_us`])
+//! at capture: the client uses them to measure latency (T-093).
 
 use serde::{Deserialize, Serialize};
 use tandem_proto::ProtoError;
@@ -22,27 +22,27 @@ use super::latency::Beat;
 use crate::event::{Button, HidUsage, KeyState, Modifiers, Scroll};
 use crate::geometry::Point;
 
-/// Mensajes del stream confiable de entrada. Las posiciones van en las
-/// coordenadas nativas del cursor del cliente.
+/// Messages of the reliable input stream. Positions go in the
+/// client cursor's native coordinates.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum StreamMsg {
-    /// El cursor entra a la pantalla del cliente en `pos`, con estos modificadores
-    /// presionados (el usuario puede cruzar con Shift apretado). `seq` es el último
-    /// datagrama enviado: los anteriores ya no valen.
+    /// The cursor enters the client's screen at `pos`, with these modifiers
+    /// pressed (the user may cross with Shift held). `seq` is the last
+    /// datagram sent: earlier ones are no longer valid.
     Enter {
         seq: u64,
         pos: Point,
         modifiers: Modifiers,
     },
-    /// El cursor vuelve al servidor: el cliente suelta todo.
+    /// The cursor goes back to the server: the client releases everything.
     Leave,
     Key {
         usage: HidUsage,
         state: KeyState,
         t_us: u64,
     },
-    /// Un clic en `pos`: si el datagrama con el último movimiento se perdió o llega
-    /// después, el clic igual cae donde el usuario lo vio.
+    /// A click at `pos`: if the datagram with the last movement was lost or arrives
+    /// later, the click still lands where the user saw it.
     Button {
         button: Button,
         state: KeyState,
@@ -50,38 +50,38 @@ pub enum StreamMsg {
         pos: Point,
         t_us: u64,
     },
-    /// Posición exacta cuando el mouse se detiene, para que el cursor del cliente
-    /// termine donde debe aunque se hayan perdido datagramas.
+    /// Exact position when the mouse stops, so that the client's cursor
+    /// ends up where it should even if datagrams were lost.
     Sync { seq: u64, pos: Point },
-    /// Latido, en los dos sentidos: el silencio prolongado cuenta como enlace caído. Con
-    /// su marca y el eco del último del otro lado estiman el desfase de los relojes.
+    /// Heartbeat, in both directions: prolonged silence counts as a dropped link. With
+    /// its stamp and the echo of the last one from the other side they estimate the clock offset.
     Heartbeat(Beat),
-    /// Del cliente al servidor: la latencia que midió en la última ventana.
+    /// From the client to the server: the latency it measured in the last window.
     Latency(InputLatency),
 }
 
-/// Datagramas de la conexión entre agentes. Es un enum para que otros usos
-/// puedan sumarse sin confundirse con los de entrada.
+/// Datagrams of the connection between agents. It is an enum so that other uses
+/// can be added without being confused with the input ones.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Datagram {
     Motion(MotionDatagram),
 }
 
-/// Movimiento y scroll acumulados desde el datagrama anterior.
+/// Movement and scroll accumulated since the previous datagram.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct MotionDatagram {
     pub seq: u64,
-    /// Delta en las unidades nativas del cliente, ya convertido por el servidor con la
-    /// escala de cada pantalla que cruzó: el cliente solo lo suma, así su cursor queda
-    /// exactamente donde el servidor cree aunque el tramo pase por pantallas de escalas
-    /// distintas.
+    /// Delta in the client's native units, already converted by the server with the
+    /// scale of each screen it crossed: the client just adds it, so its cursor ends up
+    /// exactly where the server believes even if the stretch passes through screens of
+    /// different scales.
     pub dx: f64,
     pub dy: f64,
     pub scroll: Option<Scroll>,
-    /// Resincronización absoluta: dónde tiene que quedar el cursor después de este
-    /// datagrama (coordenadas nativas del cliente). Corrige lo que se haya perdido.
+    /// Absolute resynchronization: where the cursor has to end up after this
+    /// datagram (the client's native coordinates). It corrects whatever was lost.
     pub resync: Option<Point>,
-    /// Marca del primer evento que acumula (el más viejo).
+    /// Stamp of the first event it accumulates (the oldest).
     pub t_us: u64,
 }
 
@@ -101,7 +101,7 @@ mod tests {
     use crate::event::ModifierKey;
 
     #[test]
-    fn mensajes_ida_y_vuelta() {
+    fn messages_round_trip() {
         let msgs = [
             StreamMsg::Enter {
                 seq: 9,
@@ -151,7 +151,7 @@ mod tests {
     }
 
     #[test]
-    fn datagrama_ida_y_vuelta_y_compacto() {
+    fn datagram_round_trip_and_compact() {
         let d = Datagram::Motion(MotionDatagram {
             seq: 1_000_000,
             dx: 1.5,
@@ -164,7 +164,7 @@ mod tests {
             t_us: 3_600_000_000,
         });
         let bytes = d.encode().unwrap();
-        // Tiene que caber de sobra en cualquier MTU.
+        // It has to fit comfortably in any MTU.
         assert!(bytes.len() < 64, "{} bytes", bytes.len());
         assert_eq!(Datagram::decode(&bytes).unwrap(), d);
         assert!(Datagram::decode(&[0xFF]).is_err());

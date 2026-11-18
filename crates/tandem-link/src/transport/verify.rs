@@ -1,9 +1,9 @@
-//! Verificadores rustls por pinning de la llave Ed25519 del par.
+//! rustls verifiers by pinning the peer's Ed25519 key.
 //!
-//! No hay CA ni cadena: el certificado solo transporta la llave pública. Se
-//! acepta si esa llave está en la confianza local y si el par firmó el
-//! handshake con ella (eso lo comprueba `verify_tls13_signature`, que prueba
-//! que tiene la llave privada). Nombre, vigencia y extensiones se ignoran.
+//! There is no CA or chain: the certificate only carries the public key. It is
+//! accepted if that key is in the local trust and if the peer signed the
+//! handshake with it (that is checked by `verify_tls13_signature`, which proves
+//! it has the private key). Name, validity and extensions are ignored.
 
 use std::fmt;
 use std::sync::{Arc, RwLock};
@@ -20,9 +20,9 @@ use rustls::{
 
 use crate::identity::{PublicKey, TrustStore};
 
-/// Decide en qué llaves se confía. La fuente normal es el [`TrustStore`];
-/// con `RwLock` los pares emparejados después de crear el endpoint cuentan
-/// en las conexiones nuevas.
+/// Decides which keys are trusted. The normal source is the [`TrustStore`];
+/// with `RwLock` the peers paired after the endpoint was created count
+/// for new connections.
 pub trait PeerTrust: Send + Sync + 'static {
     fn is_trusted(&self, key: &PublicKey) -> bool;
 }
@@ -35,15 +35,15 @@ impl PeerTrust for TrustStore {
 
 impl<T: PeerTrust> PeerTrust for RwLock<T> {
     fn is_trusted(&self, key: &PublicKey) -> bool {
-        // Un lector no deja datos a medias; si otro hilo entró en pánico
-        // escribiendo, el store sigue siendo un mapa válido.
+        // A reader leaves no data half done; if another thread panicked
+        // while writing, the store is still a valid map.
         let guard = self.read().unwrap_or_else(|e| e.into_inner());
         guard.is_trusted(key)
     }
 }
 
-/// Acepta cualquier llave: solo para el endpoint de emparejamiento, donde el par
-/// todavía no es de confianza. La firma del handshake se sigue comprobando.
+/// Accepts any key: only for the pairing endpoint, where the peer
+/// is not yet trusted. The handshake signature is still checked.
 pub(crate) struct AnyKey;
 
 impl PeerTrust for AnyKey {
@@ -52,14 +52,14 @@ impl PeerTrust for AnyKey {
     }
 }
 
-/// Prefijo DER fijo de un SubjectPublicKeyInfo Ed25519 (RFC 8410): después
-/// vienen los 32 bytes de la llave.
+/// Fixed DER prefix of an Ed25519 SubjectPublicKeyInfo (RFC 8410): the
+/// 32 bytes of the key follow.
 const ED25519_SPKI_PREFIX: [u8; 12] = [
     0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00,
 ];
 
-/// Llave Ed25519 del certificado, o `None` si no es un certificado X.509
-/// con llave Ed25519.
+/// The certificate's Ed25519 key, or `None` if it is not an X.509 certificate
+/// with an Ed25519 key.
 pub fn peer_public_key(cert: &CertificateDer<'_>) -> Option<PublicKey> {
     let parsed = ParsedCertificate::try_from(cert).ok()?;
     let spki = parsed.subject_public_key_info();
@@ -68,7 +68,7 @@ pub fn peer_public_key(cert: &CertificateDer<'_>) -> Option<PublicKey> {
     PublicKey::from_bytes(bytes).ok()
 }
 
-/// Lógica común a los dos lados.
+/// Logic common to both sides.
 #[derive(Clone)]
 struct Pinning {
     trust: Arc<dyn PeerTrust>,
@@ -89,7 +89,7 @@ impl Pinning {
         if self.trust.is_trusted(&key) {
             Ok(())
         } else {
-            tracing::warn!(peer = %key, "par no emparejado rechazado");
+            tracing::warn!(peer = %key, "unpaired peer rejected");
             Err(Error::InvalidCertificate(
                 CertificateError::ApplicationVerificationFailure,
             ))
@@ -102,7 +102,7 @@ impl Pinning {
         cert: &CertificateDer<'_>,
         dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error> {
-        // Solo Ed25519: es el único tipo de llave que puede tener una identidad.
+        // Ed25519 only: it is the only key type an identity can have.
         if dss.scheme != SignatureScheme::ED25519 {
             return Err(Error::PeerIncompatible(
                 PeerIncompatible::NoSignatureSchemesInCommon,
@@ -118,7 +118,7 @@ impl fmt::Debug for Pinning {
     }
 }
 
-/// Lado cliente: verifica el certificado del servidor.
+/// Client side: verifies the server's certificate.
 #[derive(Debug)]
 pub(crate) struct PinnedServerVerifier(Pinning);
 
@@ -147,7 +147,7 @@ impl ServerCertVerifier for PinnedServerVerifier {
         _cert: &CertificateDer<'_>,
         _dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, Error> {
-        // QUIC exige TLS 1.3; esto no debería llamarse nunca.
+        // QUIC requires TLS 1.3; this should never be called.
         Err(Error::PeerIncompatible(
             PeerIncompatible::Tls13RequiredForQuic,
         ))
@@ -167,7 +167,7 @@ impl ServerCertVerifier for PinnedServerVerifier {
     }
 }
 
-/// Lado servidor: exige y verifica el certificado del cliente.
+/// Server side: requires and verifies the client's certificate.
 #[derive(Debug)]
 pub(crate) struct PinnedClientVerifier(Pinning);
 
@@ -255,19 +255,19 @@ mod tests {
     }
 
     #[test]
-    fn extrae_la_llave_del_certificado() {
+    fn extracts_the_key_from_the_certificate() {
         let id = Identity::from_seed([1; 32]);
         assert_eq!(peer_public_key(&cert_of(1)), Some(id.public_key()));
     }
 
     #[test]
-    fn certificado_basura_no_tiene_llave() {
+    fn a_garbage_certificate_has_no_key() {
         assert_eq!(peer_public_key(&CertificateDer::from(vec![0x30, 0])), None);
         assert_eq!(peer_public_key(&CertificateDer::from(Vec::new())), None);
     }
 
     #[test]
-    fn certificado_con_otra_curva_no_tiene_llave() {
+    fn a_certificate_with_another_curve_has_no_key() {
         let kp = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).unwrap();
         let cert = rcgen::CertificateParams::new(vec!["tandem".to_owned()])
             .unwrap()
@@ -277,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn servidor_emparejado_se_acepta_y_otro_se_rechaza() {
+    fn a_paired_server_is_accepted_and_another_rejected() {
         let v = PinnedServerVerifier::new(trusting(&[1]), &provider());
         let name = ServerName::try_from("tandem").unwrap();
         let now = UnixTime::now();
@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn cliente_emparejado_se_acepta_y_otro_se_rechaza() {
+    fn a_paired_client_is_accepted_and_another_rejected() {
         let v = PinnedClientVerifier::new(trusting(&[1, 3]), &provider());
         let now = UnixTime::now();
         assert!(v.client_auth_mandatory());
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn solo_se_ofrece_ed25519() {
+    fn only_ed25519_is_offered() {
         let p = provider();
         let s = PinnedServerVerifier::new(trusting(&[]), &p);
         let c = PinnedClientVerifier::new(trusting(&[]), &p);
@@ -317,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn el_rwlock_ve_pares_agregados_despues() {
+    fn the_rwlock_sees_peers_added_later() {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(RwLock::new(
             TrustStore::open(dir.path().join("trust.toml")).unwrap(),
@@ -338,10 +338,10 @@ mod tests {
         );
     }
 
-    // QA ronda 1: olvidar un emparejamiento tiene que valer para las conexiones nuevas
-    // de un endpoint ya abierto, en los dos lados.
+    // QA round 1: forgetting a pairing has to hold for new connections
+    // of an endpoint that is already open, on both sides.
     #[test]
-    fn el_rwlock_ve_pares_olvidados_despues() {
+    fn the_rwlock_sees_peers_forgotten_later() {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(RwLock::new(
             TrustStore::open(dir.path().join("trust.toml")).unwrap(),
@@ -373,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn un_rwlock_envenenado_sigue_verificando() {
+    fn a_poisoned_rwlock_keeps_verifying() {
         let dir = tempfile::tempdir().unwrap();
         let store = Arc::new(RwLock::new(
             TrustStore::open(dir.path().join("trust.toml")).unwrap(),
@@ -385,7 +385,7 @@ mod tests {
                 public_key: Identity::from_seed([6; 32]).public_key(),
                 name: "PC".to_owned(),
             });
-            panic!("pánico con el candado de escritura tomado");
+            panic!("panic with the write lock held");
         })
         .join();
         assert!(store.is_poisoned());

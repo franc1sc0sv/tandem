@@ -1,8 +1,8 @@
-//! Presupuestos de latencia de la entrada (T-093) y percentiles del ping de control.
+//! Input latency budgets (T-093) and percentiles of the control ping.
 
 use tandem_proto::{InputLatency, Link};
 
-/// (p50, p99) máximos en microsegundos para el enlace.
+/// Maximum (p50, p99) in microseconds for the link.
 pub fn budget(link: Link) -> (u32, u32) {
     match link {
         Link::Usb4 | Link::Ethernet => (1_000, 4_000),
@@ -10,14 +10,14 @@ pub fn budget(link: Link) -> (u32, u32) {
     }
 }
 
-/// Eventos mínimos para que el percentil 99 signifique algo.
+/// Minimum events for the 99th percentile to mean anything.
 pub const MIN_SAMPLES: u32 = 20;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Judgement {
     Pass(String),
     Fail(String),
-    /// Muy pocos eventos en la ventana: no se puede juzgar.
+    /// Too few events in the window: it cannot be judged.
     TooFew(u32),
 }
 
@@ -26,11 +26,11 @@ pub fn judge(l: &InputLatency) -> Judgement {
         return Judgement::TooFew(l.count);
     }
     let Some(link) = l.link else {
-        return Judgement::Fail("la medición no dice por qué enlace fue".into());
+        return Judgement::Fail("the measurement does not say which link it was on".into());
     };
     let (p50, p99) = budget(link);
     let said = format!(
-        "{link:?}: p50 {} us (tope {p50}), p99 {} us (tope {p99}), {} eventos",
+        "{link:?}: p50 {} us (limit {p50}), p99 {} us (limit {p99}), {} events",
         l.p50_us, l.p99_us, l.count
     );
     if l.p50_us <= p50 && l.p99_us <= p99 {
@@ -40,7 +40,7 @@ pub fn judge(l: &InputLatency) -> Judgement {
     }
 }
 
-/// p50 y p99 de una lista de tiempos (rango más cercano); `None` si está vacía.
+/// p50 and p99 of a list of times (nearest rank); `None` if empty.
 pub fn percentiles(samples: &mut [u32]) -> Option<(u32, u32)> {
     if samples.is_empty() {
         return None;

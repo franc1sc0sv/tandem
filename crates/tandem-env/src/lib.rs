@@ -1,15 +1,15 @@
-//! Entornos de ejecución detectados y recursos en vivo de esta máquina (T-105, DESIGN §8).
+//! Detected execution environments and live resources of this machine (T-105, DESIGN §8).
 //!
-//! - [`Host::scan`]: shells (zsh, bash, fish, PowerShell 5/7, cmd), distros de WSL, Docker,
-//!   herramientas (git, cargo/rustc, node/pnpm/npm/bun, uv/python, CUDA) y las GPU. Al
-//!   arrancar el agente y a pedido.
-//! - [`Host::sample`]: CPU (total y por núcleo), RAM, GPU (uso, VRAM, temperatura) y el disco
-//!   del sistema; [`ResourceMonitor`] la llama a 1 Hz solo mientras alguien mira.
+//! - [`Host::scan`]: shells (zsh, bash, fish, PowerShell 5/7, cmd), WSL distros, Docker,
+//!   tools (git, cargo/rustc, node/pnpm/npm/bun, uv/python, CUDA) and the GPUs. When the
+//!   agent starts and on demand.
+//! - [`Host::sample`]: CPU (total and per core), RAM, GPU (usage, VRAM, temperature) and the
+//!   system disk; [`ResourceMonitor`] calls it at 1 Hz only while someone is watching.
 //!
-//! Lo de plataforma va detrás de dos traits: [`Runner`] (los programas que se leen) y
-//! [`Meter`] (los contadores del sistema). La lógica se prueba en cualquier sistema con
-//! [`fake::FakeRunner`] y las salidas reales guardadas en `tests/fixtures/`, eligiendo el
-//! [`Platform`] a mano. Nada supone un modelo de equipo (DECISIONS D10).
+//! Anything platform-specific goes behind two traits: [`Runner`] (the programs that are read)
+//! and [`Meter`] (the system counters). The logic is tested on any system with
+//! [`fake::FakeRunner`] and the saved real outputs in `tests/fixtures/`, choosing the
+//! [`Platform`] by hand. Nothing assumes a machine model (DECISIONS D10).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -29,8 +29,8 @@ pub use monitor::{ResourceMonitor, Watch};
 pub use run::{Output, RunError, Runner, SystemRunner};
 pub use scan::GpuSource;
 
-/// El sistema que se escanea: decide qué se busca y cómo. Es el sistema real donde corre
-/// (en Linux, el de las pruebas y la CI), no el que se anuncia.
+/// The system being scanned: it decides what is looked for and how. It is the real system it runs on
+/// (on Linux, the one of the tests and CI), not the one being advertised.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Platform {
     Windows,
@@ -50,20 +50,20 @@ impl Platform {
     }
 }
 
-/// Lo que encontró un escaneo, listo para anunciar.
+/// What a scan found, ready to announce.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Scan {
     pub environments: Vec<Environment>,
     pub hardware: Hardware,
 }
 
-/// Esta máquina: escanea y muestrea. Las llamadas bloquean (corren programas): desde async,
-/// en `spawn_blocking`.
+/// This machine: scans and samples. Calls block (they run programs): from async,
+/// in `spawn_blocking`.
 pub struct Host {
     platform: Platform,
     runner: Arc<dyn Runner>,
     meter: Mutex<Box<dyn Meter>>,
-    /// Por dónde leer la GPU en vivo; lo fija el escaneo.
+    /// Where to read the live GPU from; the scan sets it.
     gpu: Mutex<Option<GpuSource>>,
 }
 
@@ -75,10 +75,10 @@ impl std::fmt::Debug for Host {
     }
 }
 
-/// Cuánto se espera a la lectura de la GPU de cada muestra.
+/// How long to wait for the GPU reading of each sample.
 const GPU_SAMPLE_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// Sin programas ni contadores: no encuentra nada (agentes de prueba sin backends).
+/// No programs or counters: it finds nothing (test agents without backends).
 #[derive(Debug, Default)]
 struct Nothing;
 
@@ -94,7 +94,7 @@ impl Runner for Nothing {
     ) -> Result<Output, RunError> {
         Err(RunError::Spawn {
             program: program.display().to_string(),
-            reason: "sin programas".into(),
+            reason: "no programs".into(),
         })
     }
     fn var(&self, _name: &str) -> Option<String> {
@@ -112,7 +112,7 @@ impl Meter for Nothing {
 }
 
 impl Host {
-    /// La máquina real.
+    /// The real machine.
     pub fn system() -> Self {
         Host::new(
             Platform::current(),
@@ -121,7 +121,7 @@ impl Host {
         )
     }
 
-    /// Una que no encuentra nada ni mide nada.
+    /// One that finds nothing and measures nothing.
     pub fn none() -> Self {
         Host::new(Platform::current(), Arc::new(Nothing), Box::new(Nothing))
     }
@@ -139,7 +139,7 @@ impl Host {
         self.platform
     }
 
-    /// Escanea entornos y equipo. Tarda (puede arrancar una distro de WSL).
+    /// Scans environments and hardware. It takes a while (it may start a WSL distro).
     pub fn scan(&self) -> Scan {
         let found = scan::scan(self.runner.as_ref(), self.platform);
         let info = self
@@ -159,7 +159,7 @@ impl Host {
         }
     }
 
-    /// Una muestra de los recursos ahora.
+    /// A sample of the resources now.
     pub fn sample(&self) -> Resources {
         let reading = self
             .meter
@@ -196,7 +196,7 @@ impl Host {
         }
     }
 
-    /// Sin escaneo previo, por dónde se leería la GPU (sin correr nada).
+    /// Without a previous scan, where the GPU would be read from (without running anything).
     fn detect_gpu_source(&self) -> GpuSource {
         match self.platform {
             Platform::MacOs => self

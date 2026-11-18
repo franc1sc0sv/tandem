@@ -4,8 +4,8 @@ use std::net::SocketAddr;
 use super::DiscoveryError;
 use crate::manager::{LinkCandidate, LinkKind};
 
-/// Comprueba las direcciones fijas del otro agente que vienen de la config
-/// (los enlaces directos, por ejemplo `10.77.1.2` por USB4 y `10.77.2.2` por
+/// Checks the other agent's fixed addresses that come from the config
+/// (the direct links, for example `10.77.1.2` over USB4 and `10.77.2.2` over
 /// Ethernet; DESIGN §6).
 pub fn validate_static_links(links: &[LinkCandidate]) -> Result<(), DiscoveryError> {
     let mut kinds = BTreeSet::new();
@@ -23,13 +23,13 @@ pub fn validate_static_links(links: &[LinkCandidate]) -> Result<(), DiscoveryErr
     Ok(())
 }
 
-/// Candidatos para el [`LinkManager`](crate::manager::LinkManager): las
-/// direcciones fijas de la config tal cual y, si la config no fija el Wi-Fi,
-/// la mejor dirección que el par anunció en la LAN como enlace Wi-Fi.
+/// Candidates for the [`LinkManager`](crate::manager::LinkManager): the
+/// config's fixed addresses as they are and, if the config does not set Wi-Fi,
+/// the best address the peer announced on the LAN as a Wi-Fi link.
 ///
-/// Una dirección descubierta que ya es la de un enlace fijo se descarta: el
-/// par también anuncia por mDNS en las interfaces de cable y esa dirección no
-/// es la de la LAN.
+/// A discovered address that is already that of a fixed link is discarded: the
+/// peer also announces over mDNS on the cable interfaces and that address is not
+/// the LAN's.
 pub fn link_candidates(statics: &[LinkCandidate], discovered: &[SocketAddr]) -> Vec<LinkCandidate> {
     let mut out: Vec<LinkCandidate> = statics.to_vec();
     if !statics.iter().any(|l| l.kind == LinkKind::Wifi) {
@@ -68,7 +68,7 @@ mod tests {
     }
 
     #[test]
-    fn valida_las_fijas() {
+    fn validates_the_fixed_ones() {
         assert!(validate_static_links(&statics()).is_ok());
         assert!(validate_static_links(&[]).is_ok());
         assert!(matches!(
@@ -89,7 +89,7 @@ mod tests {
     }
 
     #[test]
-    fn las_fijas_pasan_tal_cual_y_en_orden_de_prioridad() {
+    fn the_fixed_ones_pass_as_they_are_and_in_priority_order() {
         assert_eq!(
             link_candidates(&statics(), &[]),
             vec![
@@ -100,7 +100,7 @@ mod tests {
     }
 
     #[test]
-    fn lo_descubierto_se_agrega_como_wifi() {
+    fn the_discovered_is_added_as_wifi() {
         let lan: SocketAddr = "192.168.1.20:47770".parse().unwrap();
         let got = link_candidates(&statics(), &["10.77.1.2:47770".parse().unwrap(), lan]);
         assert_eq!(
@@ -111,7 +111,7 @@ mod tests {
     }
 
     #[test]
-    fn un_wifi_fijo_manda_sobre_lo_descubierto() {
+    fn a_fixed_wifi_overrides_the_discovered() {
         let mut s = statics();
         s.push(link(LinkKind::Wifi, "192.168.1.99:47770"));
         let got = link_candidates(&s, &["192.168.1.20:47770".parse().unwrap()]);
@@ -123,15 +123,15 @@ mod tests {
     }
 
     #[test]
-    fn sin_fijas_queda_solo_lo_descubierto() {
+    fn without_fixed_ones_only_the_discovered_remains() {
         let got = link_candidates(&[], &["192.168.1.20:47770".parse().unwrap()]);
         assert_eq!(got, vec![link(LinkKind::Wifi, "192.168.1.20:47770")]);
         assert!(link_candidates(&[], &[]).is_empty());
     }
 
     proptest! {
-        /// El resultado siempre es aceptable para el gestor: sin tipos
-        /// repetidos, con todas las fijas y en orden de prioridad.
+        /// The result is always acceptable to the manager: no repeated
+        /// types, with all the fixed ones and in priority order.
         #[test]
         fn candidatos_validos(
             kinds in prop::sample::subsequence(LinkKind::ALL.to_vec(), 0..=3),

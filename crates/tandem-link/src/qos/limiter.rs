@@ -1,22 +1,22 @@
-//! Limitador de tasa de los datos de una conexión (cubeta de fichas).
+//! Rate limiter for a connection's data (token bucket).
 //!
-//! Garantía: en cualquier ventana de 1 s no se entregan más bytes que el tope. Por eso la
-//! cubeta se llena a `tope − ráfaga` por segundo: lo que puede salir de golpe (la ráfaga)
-//! más lo que se repone en un segundo nunca pasa del tope. La cuenta es entera, en
-//! nanobytes, para que el redondeo no rompa la garantía.
+//! Guarantee: in any 1 s window no more bytes than the cap are delivered. That is why the
+//! bucket fills at `cap − burst` per second: what can go out at once (the burst)
+//! plus what is replenished in a second never exceeds the cap. The count is integer, in
+//! nanobytes, so that rounding does not break the guarantee.
 
 use std::time::Duration;
 
 use tokio::time::Instant;
 
-/// El tope más bajo que se acepta: con menos, una trama tardaría segundos en salir.
+/// The lowest cap accepted: with less, a frame would take seconds to go out.
 pub const MIN_CAP: u64 = 64 * 1024;
 
-/// La ráfaga más grande. Una ráfaga entra entera a la cola del punto de acceso, delante de
-/// la próxima tecla: 16 KiB son 8 ms con un Wi-Fi que da 2 MB/s.
+/// The largest burst. A burst enters the access point's queue whole, ahead of
+/// the next key: 16 KiB is 8 ms on a Wi-Fi that gives 2 MB/s.
 pub const MAX_BURST: u64 = 16 * 1024;
 
-/// Lo menos que se entrega si no alcanza para todo lo pedido: un paquete de QUIC.
+/// The least that is delivered if there is not enough for everything asked: a QUIC packet.
 pub const MIN_GRANT: u64 = 1200;
 
 const NANOS: u128 = 1_000_000_000;
@@ -25,16 +25,16 @@ const NANOS: u128 = 1_000_000_000;
 pub struct RateLimiter {
     cap: u64,
     burst: u64,
-    /// Bytes por segundo que se reponen: `cap - burst`.
+    /// Bytes per second that are replenished: `cap - burst`.
     refill: u64,
-    /// Fichas en nanobytes (bytes × 10⁹).
+    /// Tokens in nanobytes (bytes × 10⁹).
     tokens: u128,
     last: Instant,
 }
 
 impl RateLimiter {
-    /// Un limitador con la cubeta llena. `cap` en bytes por segundo; por debajo de
-    /// [`MIN_CAP`] vale [`MIN_CAP`].
+    /// A limiter with a full bucket. `cap` in bytes per second; below
+    /// [`MIN_CAP`] it is [`MIN_CAP`].
     pub fn new(cap: u64, now: Instant) -> Self {
         let mut l = RateLimiter {
             cap: 0,
@@ -48,17 +48,17 @@ impl RateLimiter {
         l
     }
 
-    /// El tope en bytes por segundo.
+    /// The cap in bytes per second.
     pub fn cap(&self) -> u64 {
         self.cap
     }
 
-    /// Lo más que entrega [`Self::take`] de una vez.
+    /// The most that [`Self::take`] delivers at once.
     pub fn burst(&self) -> u64 {
         self.burst
     }
 
-    /// Cambia el tope sin regalar fichas: las que sobran del tope anterior se pierden.
+    /// Changes the cap without giving away tokens: those left over from the previous cap are lost.
     pub fn set_cap(&mut self, cap: u64, now: Instant) {
         self.refill_to(now);
         let cap = cap.max(MIN_CAP);
@@ -82,13 +82,13 @@ impl RateLimiter {
         self.last = now;
     }
 
-    /// Pide hasta `want` bytes. `Ok(n)`: pueden salir `n` (como mucho la ráfaga) ya; si no
-    /// alcanza para todo pero sí para un paquete, sale lo que hay. `Err(espera)`: cuánto
-    /// falta para un paquete; quien pide espera y vuelve a pedir.
+    /// Asks for up to `want` bytes. `Ok(n)`: `n` may go out now (at most the burst); if there is
+    /// not enough for everything but there is for a packet, what there is goes out. `Err(wait)`: how long
+    /// until a packet; whoever asks waits and asks again.
     ///
-    /// Que salga lo que hay importa: quien espera se despierta tarde (el reloj de tokio
-    /// redondea al milisegundo), y si esperara la ráfaga entera, lo que se juntó de más
-    /// rebalsaría la cubeta y se perdería.
+    /// That what there is goes out matters: whoever waits wakes up late (the tokio clock
+    /// rounds to the millisecond), and if it waited for the whole burst, what was gathered extra
+    /// would overflow the bucket and be lost.
     pub fn take(&mut self, now: Instant, want: usize) -> Result<usize, Duration> {
         self.refill_to(now);
         let n = u64::try_from(want).unwrap_or(u64::MAX).min(self.burst);
@@ -100,7 +100,7 @@ impl RateLimiter {
         if have >= least {
             let n = n.min(have);
             self.tokens -= u128::from(n) * NANOS;
-            // `n` ≤ `want`, que ya era usize.
+            // `n` ≤ `want`, which was already usize.
             return Ok(usize::try_from(n).unwrap_or(want));
         }
         let missing = u128::from(least) * NANOS - self.tokens;
@@ -117,8 +117,8 @@ mod tests {
 
     const SEC: Duration = Duration::from_secs(1);
 
-    /// Lo más entregado en una ventana [t, t + 1 s] que empiece en una entrega (las
-    /// entregas van en orden de tiempo).
+    /// The most delivered in a window [t, t + 1 s] that starts at a delivery (deliveries
+    /// go in time order).
     fn worst_window(grants: &[(Duration, usize)]) -> u64 {
         let (mut worst, mut sum, mut end) = (0, 0u64, 0);
         for (start, n) in grants {
@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn el_tope_se_respeta_y_se_aprovecha() {
+    fn the_cap_is_respected_and_used() {
         let t0 = Instant::now();
         let mut l = RateLimiter::new(1_000_000, t0);
         assert_eq!(l.burst(), 10_000);
@@ -147,19 +147,19 @@ mod tests {
         }
         let total: u64 = grants.iter().map(|(_, n)| *n as u64).sum();
         assert!(worst_window(&grants) <= 1_000_000);
-        // Lo que se repone por segundo (99 % del tope) más la ráfaga del principio.
-        assert!(total >= 4 * 990_000, "solo salieron {total}");
+        // What is replenished per second (99 % of the cap) plus the initial burst.
+        assert!(total >= 4 * 990_000, "only {total} came out");
     }
 
     #[test]
-    fn un_tope_bajo_sube_al_mínimo() {
+    fn a_low_cap_rises_to_the_minimum() {
         let l = RateLimiter::new(10, Instant::now());
         assert_eq!(l.cap(), MIN_CAP);
         assert!(l.burst() > 0);
     }
 
     #[test]
-    fn bajar_el_tope_no_deja_fichas_de_más() {
+    fn lowering_the_cap_leaves_no_extra_tokens() {
         let t0 = Instant::now();
         let mut l = RateLimiter::new(10_000_000, t0);
         l.set_cap(MIN_CAP, t0);
@@ -168,19 +168,19 @@ mod tests {
     }
 
     #[test]
-    fn si_no_alcanza_para_todo_sale_lo_que_hay_desde_un_paquete() {
+    fn if_there_is_not_enough_for_everything_what_there_is_goes_out_from_one_packet() {
         let t0 = Instant::now();
         let mut l = RateLimiter::new(1_000_000, t0);
         assert_eq!(l.take(t0, 10_000), Ok(10_000));
-        // Se reponen 990 kB/s: en 1 ms, 990 bytes, menos que un paquete.
+        // 990 kB/s are replenished: in 1 ms, 990 bytes, less than a packet.
         let wait = l.take(t0 + Duration::from_millis(1), 10_000).unwrap_err();
         assert!(wait > Duration::ZERO);
-        // En 5 ms hay 4950: salen esos, no los 10 000.
+        // In 5 ms there are 4950: those come out, not the 10,000.
         assert_eq!(l.take(t0 + Duration::from_millis(5), 10_000), Ok(4950));
     }
 
     #[test]
-    fn la_espera_alcanza_justo() {
+    fn the_wait_is_just_enough() {
         let t0 = Instant::now();
         let mut l = RateLimiter::new(1_000_000, t0);
         assert_eq!(l.take(t0, 10_000), Ok(10_000));
@@ -192,10 +192,10 @@ mod tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(64))]
 
-        /// Pedidos de cualquier tamaño en cualquier momento: nunca más que el tope en una
-        /// ventana de 1 s.
+        /// Requests of any size at any moment: never more than the cap in a
+        /// 1 s window.
         #[test]
-        fn nunca_supera_el_tope_en_una_ventana_de_1_s(
+        fn never_exceeds_the_cap_in_a_1_s_window(
             cap in MIN_CAP..50_000_000u64,
             steps in prop::collection::vec((0u64..400_000, 1usize..300_000), 1..400),
         ) {
@@ -213,10 +213,10 @@ mod tests {
             prop_assert!(worst_window(&grants) <= cap);
         }
 
-        /// Quien espera lo que dice el limitador y vuelve a pedir tampoco lo supera, y
-        /// aprovecha lo que se repone.
+        /// Whoever waits what the limiter says and asks again does not exceed it either, and
+        /// makes use of what is replenished.
         #[test]
-        fn quien_espera_lo_justo_no_lo_supera_y_lo_aprovecha(
+        fn whoever_waits_exactly_does_not_exceed_it_and_makes_use_of_it(
             cap in MIN_CAP..20_000_000u64,
             want in 4096usize..200_000,
         ) {
@@ -234,7 +234,7 @@ mod tests {
             prop_assert!(worst_window(&grants) <= cap);
             let total: u64 = grants.iter().map(|(_, n)| *n as u64).sum();
             let refill = cap - l.burst();
-            // Tres segundos de reposición, menos lo que pueda quedar a medio juntar.
+            // Three seconds of replenishment, minus what may be left half gathered.
             prop_assert!(total + l.burst() >= 3 * refill, "{} < {}", total, 3 * refill);
         }
     }

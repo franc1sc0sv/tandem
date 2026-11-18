@@ -1,5 +1,5 @@
-//! Las direcciones fijas de la config llegan al gestor de enlaces como
-//! candidatas, junto con lo que se descubre en la LAN.
+//! The config's fixed addresses reach the link manager as
+//! candidates, together with what is discovered on the LAN.
 
 use std::collections::BTreeSet;
 use std::net::SocketAddr;
@@ -13,15 +13,15 @@ use tandem_link::discovery::{
 use tandem_link::identity::Identity;
 use tandem_link::manager::{HealthConfig, LinkCandidate, LinkKind, LinkManager, Prober};
 
-/// Doble del transporte: todo responde y se anota a qué direcciones se
-/// conectó el gestor.
+/// Transport double: everything answers and it records which addresses
+/// the manager connected to.
 #[derive(Default)]
 struct Recorder(Mutex<BTreeSet<SocketAddr>>);
 
 struct FakeProber(Arc<Recorder>);
 
 #[derive(Debug, thiserror::Error)]
-#[error("nunca falla")]
+#[error("never fails")]
 struct Never;
 
 impl Prober for FakeProber {
@@ -56,11 +56,11 @@ peers = [
 "#;
 
 #[tokio::test(start_paused = true)]
-async fn las_fijas_y_lo_descubierto_llegan_al_gestor() {
+async fn the_fixed_and_the_discovered_reach_the_manager() {
     let statics = toml::from_str::<Network>(CONFIG).unwrap().peers;
     validate_static_links(&statics).unwrap();
 
-    // El par anuncia por mDNS su IP de la LAN y también la del USB4.
+    // The peer announces over mDNS its LAN IP and also the USB4 one.
     let me = Identity::from_seed([1; 32]).public_key();
     let peer = Identity::from_seed([2; 32]).public_key();
     let mut resolver = PeerResolver::new(Fingerprint::of(&me), [Fingerprint::of(&peer)]);
@@ -72,9 +72,9 @@ async fn las_fijas_y_lo_descubierto_llegan_al_gestor() {
             "192.168.1.20:47770".parse().unwrap(),
         ],
     }));
-    // Y un vecino con otro Tandem, que no cuenta.
+    // And a neighbor with another Tandem, which does not count.
     resolver.apply(DiscoveryEvent::Resolved(Announcement {
-        instance: "tandem-otro._tandem._udp.local.".into(),
+        instance: "tandem-other._tandem._udp.local.".into(),
         fingerprint: Some(Fingerprint::of(&Identity::from_seed([3; 32]).public_key()).to_hex()),
         addrs: vec!["192.168.1.99:47770".parse().unwrap()],
     }));

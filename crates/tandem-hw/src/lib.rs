@@ -1,12 +1,12 @@
-//! Suite de pruebas en hardware (T-123).
+//! Hardware test suite (T-123).
 //!
-//! Dos piezas: el orquestador (`scripts/hw/run.sh`) que compila, instala y arranca agentes de
-//! prueba en las dos máquinas, y este crate, que corre en cada máquina: aprovisiona la
-//! identidad y la config del agente de prueba, hace las comprobaciones hablando con su IPC
-//! y escribe un resultado por línea (JSON) que el orquestador junta en el informe.
+//! Two pieces: the orchestrator (`scripts/hw/run.sh`), which builds, installs and starts test
+//! agents on both machines, and this crate, which runs on each machine: it provisions the
+//! test agent's identity and config, runs the checks by talking to its IPC, and writes one
+//! result per line (JSON) that the orchestrator gathers into the report.
 //!
-//! Nada de esto corre en CI: lo que toca dispositivos es `#[ignore = "hardware"]` y el
-//! binario solo lo lanza el orquestador.
+//! None of this runs in CI: anything that touches devices is `#[ignore = "hardware"]` and the
+//! binary is only launched by the orchestrator.
 
 pub mod checks;
 pub mod conn;

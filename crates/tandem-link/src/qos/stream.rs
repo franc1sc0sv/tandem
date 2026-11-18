@@ -7,12 +7,12 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 use super::Qos;
 use crate::transport::TransportError;
 
-/// Escritura de datos que respeta la pausa y el tope de su conexión ([`Qos`]).
+/// Data writing that respects the pause and the cap of its connection ([`Qos`]).
 ///
-/// Lo normal es el lado de escritura de un stream QUIC de clase
+/// The usual one is the write side of a QUIC stream of class
 /// [`StreamClass::Data`](super::StreamClass::Data)
-/// ([`ControlStream::into_data`](crate::transport::ControlStream::into_data)); en las
-/// pruebas, cualquier [`AsyncWrite`].
+/// ([`ControlStream::into_data`](crate::transport::ControlStream::into_data)); in
+/// tests, any [`AsyncWrite`].
 #[derive(Debug)]
 pub struct DataStream<W> {
     qos: Qos,
@@ -42,7 +42,7 @@ impl<W> DataStream<W> {
 }
 
 impl<W: AsyncWrite + Unpin> DataStream<W> {
-    /// Escribe todo `buf`, de a lo que deje salir el tope; en pausa, espera.
+    /// Writes all of `buf`, in pieces as the cap lets out; when paused, waits.
     pub async fn write_all(&mut self, mut buf: &[u8]) -> io::Result<()> {
         while !buf.is_empty() {
             let n = self.qos.acquire(buf.len()).await;
@@ -53,7 +53,7 @@ impl<W: AsyncWrite + Unpin> DataStream<W> {
         Ok(())
     }
 
-    /// Un mensaje en una trama de `tandem-proto`.
+    /// A message in a `tandem-proto` frame.
     pub async fn send<T: Serialize>(&mut self, msg: &T) -> Result<(), TransportError> {
         let frame = encode_frame(msg)?;
         self.write_all(&frame).await.map_err(TransportError::Data)
@@ -63,7 +63,7 @@ impl<W: AsyncWrite + Unpin> DataStream<W> {
         self.inner.flush().await
     }
 
-    /// Avisa al otro lado de que no hay más datos.
+    /// Tells the other side that no more data is coming.
     pub async fn shutdown(&mut self) -> io::Result<()> {
         self.inner.shutdown().await
     }

@@ -1,14 +1,14 @@
-//! Las comprobaciones como pruebas de hardware, para correrlas a mano contra un agente de
-//! prueba que ya esté en marcha:
+//! The checks as hardware tests, to run by hand against a test agent that is already
+//! running:
 //!
 //! ```text
-//! TANDEM_HW_DATA_DIR=<carpeta de datos del agente de prueba> \
+//! TANDEM_HW_DATA_DIR=<data directory of the test agent> \
 //!   cargo test -p tandem-hw --test hardware -- --ignored --test-threads=1
 //! ```
 //!
-//! Las de monitor cambian la entrada **con vuelta automática** (guardia + vigilante) y
-//! necesitan `TANDEM_HW_MONITORS=1` y `tandem-monitor-guard` junto al ejecutable de la
-//! prueba (`cargo build -p tandem-monitor` lo deja en `target/<perfil>/`). Nunca en CI.
+//! The monitor ones switch the input **with automatic rollback** (guard + watchdog) and
+//! need `TANDEM_HW_MONITORS=1` and `tandem-monitor-guard` next to the test executable
+//! (`cargo build -p tandem-monitor` leaves it in `target/<profile>/`). Never in CI.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -19,7 +19,7 @@ use tandem_hw::report::{CheckResult, Outcome};
 fn ctx() -> Ctx {
     let data_dir = std::env::var_os("TANDEM_HW_DATA_DIR")
         .map(PathBuf::from)
-        .expect("falta TANDEM_HW_DATA_DIR (carpeta de datos del agente de prueba)");
+        .expect("missing TANDEM_HW_DATA_DIR (data directory of the test agent)");
     let scratch = data_dir.join("scratch");
     std::fs::create_dir_all(&scratch).unwrap();
     Ctx {
@@ -66,12 +66,12 @@ async fn tunnels_end_to_end() {
     }
 }
 
-/// Solo con `TANDEM_HW_MONITORS=1`: cambia el 34" a la otra entrada y vuelve.
+/// Only with `TANDEM_HW_MONITORS=1`: switches the 34" to the other input and back.
 #[test]
 #[ignore = "hardware"]
 fn monitor_switch_returns_automatically() {
     if std::env::var_os("TANDEM_HW_MONITORS").is_none() {
-        eprintln!("omitida: falta TANDEM_HW_MONITORS=1");
+        eprintln!("skipped: TANDEM_HW_MONITORS=1 is missing");
         return;
     }
     expect(tandem_hw::monitor::roundtrip("local"));

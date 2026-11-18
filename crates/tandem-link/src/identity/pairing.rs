@@ -1,20 +1,20 @@
-//! Emparejamiento por comparación numérica con compromiso previo.
+//! Pairing by numeric comparison with a prior commitment.
 //!
-//! Un código derivado solo de las dos llaves públicas no sirve: un intermediario
-//! puede buscar por fuerza bruta una llave propia que dé el mismo código en las
-//! dos pantallas (un millón de intentos tarda segundos). Por eso, como en
-//! Bluetooth SSP o la SAS de ZRTP, cada lado aporta un nonce aleatorio y quien
-//! inicia se compromete con el suyo antes de ver el del otro:
+//! A code derived only from the two public keys is no good: a man in the middle
+//! can brute-force a key of their own that gives the same code on the
+//! two screens (a million attempts take seconds). That is why, as in
+//! Bluetooth SSP or ZRTP's SAS, each side contributes a random nonce and whoever
+//! initiates commits to theirs before seeing the other's:
 //!
-//! 1. Quien inicia envía su llave y `commit = H(llave ‖ nonce_i)` ([`PairingOffer`]).
-//! 2. Quien responde envía su llave y `nonce_r` ([`PairingAnswer`]).
-//! 3. Quien inicia revela `nonce_i` ([`PairingReveal`]); el otro comprueba el
-//!    compromiso.
+//! 1. The initiator sends its key and `commit = H(key ‖ nonce_i)` ([`PairingOffer`]).
+//! 2. The responder sends its key and `nonce_r` ([`PairingAnswer`]).
+//! 3. The initiator reveals `nonce_i` ([`PairingReveal`]); the other checks the
+//!    commitment.
 //!
-//! El código depende de las dos llaves y los dos nonces. Cuando un atacante
-//! tiene que fijar su llave y su nonce, todavía no conoce el nonce que decide
-//! el código del otro lado, así que acierta con probabilidad 1 en un millón por
-//! intento, y cada intento fallido lo ven los usuarios.
+//! The code depends on the two keys and the two nonces. When an attacker
+//! has to fix their key and their nonce, they do not yet know the nonce that decides
+//! the code on the other side, so they succeed with probability 1 in a million per
+//! attempt, and users see every failed attempt.
 
 use std::fmt;
 
@@ -22,20 +22,20 @@ use sha2::{Digest, Sha256};
 
 use super::{IdentityError, PublicKey, TrustStore, TrustedPeer};
 
-/// Separa el hash del código de cualquier otro hash sobre las mismas llaves.
+/// Separates the code's hash from any other hash over the same keys.
 const CODE_DOMAIN: &[u8] = b"tandem-pairing-v2";
-/// Separa el hash del compromiso del hash del código.
+/// Separates the commitment's hash from the code's hash.
 const COMMIT_DOMAIN: &[u8] = b"tandem-pairing-commit-v1";
 
 pub const NONCE_LEN: usize = 32;
 
-/// Nonce de un solo uso que cada lado aporta a un emparejamiento.
+/// Single-use nonce that each side contributes to a pairing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PairingNonce([u8; NONCE_LEN]);
 
 impl PairingNonce {
-    /// Nonce nuevo con la entropía del sistema. Debe ser distinto en cada
-    /// intento: reutilizarlo devuelve al atacante la ventaja de la fuerza bruta.
+    /// New nonce with the system's entropy. It must be different on every
+    /// attempt: reusing it hands the attacker back the brute-force advantage.
     pub fn generate() -> Result<Self, IdentityError> {
         let mut bytes = [0u8; NONCE_LEN];
         getrandom::fill(&mut bytes).map_err(IdentityError::Entropy)?;
@@ -51,7 +51,7 @@ impl PairingNonce {
     }
 }
 
-/// Compromiso de quien inicia con su llave y su nonce.
+/// Commitment of the initiator with its key and its nonce.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PairingCommitment([u8; 32]);
 
@@ -76,7 +76,7 @@ impl PairingCommitment {
     }
 }
 
-/// Código de 6 dígitos que el usuario compara en las dos pantallas.
+/// 6-digit code the user compares on the two screens.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PairingCode(u32);
 
@@ -85,7 +85,7 @@ impl PairingCode {
         self.0
     }
 
-    /// El código que manda el par al confirmar; `None` si no tiene 6 dígitos.
+    /// The code the peer sends on confirming; `None` if it does not have 6 digits.
     pub fn from_value(value: u32) -> Option<Self> {
         (value < 1_000_000).then_some(Self(value))
     }
@@ -103,10 +103,10 @@ impl fmt::Debug for PairingCode {
     }
 }
 
-/// Deriva el código de comparación de las dos llaves y los dos nonces.
+/// Derives the comparison code from the two keys and the two nonces.
 ///
-/// Las llaves se ordenan para que ambos lados obtengan el mismo código sin
-/// acordar quién es "A"; los nonces van en orden de rol (quien inicia primero).
+/// The keys are sorted so both sides get the same code without
+/// agreeing on who is "A"; the nonces go in role order (initiator first).
 pub fn pairing_code(
     a: &PublicKey,
     b: &PublicKey,
@@ -123,12 +123,12 @@ pub fn pairing_code(
         .finalize();
     let mut head = [0u8; 8];
     head.copy_from_slice(&digest[..8]);
-    // Con 64 bits el sesgo del módulo es despreciable (< 2^-44).
+    // With 64 bits the modulo bias is negligible (< 2^-44).
     let code = u64::from_be_bytes(head) % 1_000_000;
     PairingCode(code as u32)
 }
 
-/// Primer mensaje, de quien inicia a quien responde.
+/// First message, from the initiator to the responder.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PairingOffer {
     pub public_key: PublicKey,
@@ -136,7 +136,7 @@ pub struct PairingOffer {
     pub commitment: PairingCommitment,
 }
 
-/// Respuesta, de quien responde a quien inicia.
+/// Answer, from the responder to the initiator.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PairingAnswer {
     pub public_key: PublicKey,
@@ -144,13 +144,13 @@ pub struct PairingAnswer {
     pub nonce: PairingNonce,
 }
 
-/// Último mensaje: quien inicia revela el nonce con el que se comprometió.
+/// Last message: the initiator reveals the nonce it committed to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PairingReveal {
     pub nonce: PairingNonce,
 }
 
-/// Lado que inicia, tras enviar su [`PairingOffer`].
+/// Initiating side, after sending its [`PairingOffer`].
 #[derive(Debug)]
 pub struct PairingInitiator {
     local: PublicKey,
@@ -158,7 +158,7 @@ pub struct PairingInitiator {
 }
 
 impl PairingInitiator {
-    /// `nonce` debe venir de [`PairingNonce::generate`] en cada intento.
+    /// `nonce` must come from [`PairingNonce::generate`] on every attempt.
     pub fn start(
         local: PublicKey,
         local_name: impl Into<String>,
@@ -172,7 +172,7 @@ impl PairingInitiator {
         (Self { local, nonce }, offer)
     }
 
-    /// Recibe la respuesta, revela el nonce y pasa a la comparación de códigos.
+    /// Receives the answer, reveals the nonce and moves on to the code comparison.
     pub fn receive_answer(
         self,
         answer: PairingAnswer,
@@ -192,7 +192,7 @@ impl PairingInitiator {
     }
 }
 
-/// Lado que responde, tras recibir la oferta y enviar su [`PairingAnswer`].
+/// Responding side, after receiving the offer and sending its [`PairingAnswer`].
 #[derive(Debug)]
 pub struct PairingResponder {
     local: PublicKey,
@@ -202,7 +202,7 @@ pub struct PairingResponder {
 }
 
 impl PairingResponder {
-    /// `nonce` debe venir de [`PairingNonce::generate`] en cada intento.
+    /// `nonce` must come from [`PairingNonce::generate`] on every attempt.
     pub fn receive_offer(
         local: PublicKey,
         local_name: impl Into<String>,
@@ -229,7 +229,7 @@ impl PairingResponder {
         Ok((responder, answer))
     }
 
-    /// Comprueba que el nonce revelado es el comprometido para la llave recibida.
+    /// Checks that the revealed nonce is the one committed to for the received key.
     pub fn receive_reveal(self, reveal: PairingReveal) -> Result<Pairing, IdentityError> {
         if PairingCommitment::new(&self.remote.public_key, &reveal.nonce) != self.commitment {
             return Err(IdentityError::CommitMismatch);
@@ -244,11 +244,11 @@ impl PairingResponder {
     }
 }
 
-/// Un emparejamiento en fase de comparación del código.
+/// A pairing in the code comparison phase.
 ///
-/// La seguridad la da que el usuario compare el código en las dos pantallas.
-/// El aviso del par ([`Pairing::confirm_remote`]) solo coordina que ambos
-/// lados terminen: viaja por el mismo canal que un intermediario controlaría.
+/// Security comes from the user comparing the code on the two screens.
+/// The peer's notice ([`Pairing::confirm_remote`]) only coordinates that both
+/// sides finish: it travels over the same channel that a man in the middle would control.
 #[derive(Debug)]
 pub struct Pairing {
     remote: TrustedPeer,
@@ -267,7 +267,7 @@ impl Pairing {
         }
     }
 
-    /// Código que esta máquina debe mostrar.
+    /// Code this machine must show.
     pub fn code(&self) -> PairingCode {
         self.code
     }
@@ -276,14 +276,14 @@ impl Pairing {
         &self.remote
     }
 
-    /// El usuario de esta máquina confirmó que los códigos coinciden.
+    /// The user of this machine confirmed that the codes match.
     pub fn confirm_local(&mut self) {
         self.local_confirmed = true;
     }
 
-    /// El par informa que su usuario confirmó `code`. Un código distinto
-    /// delata un fallo del protocolo o un intermediario torpe; no sustituye a
-    /// la comparación del usuario.
+    /// The peer reports that its user confirmed `code`. A different code
+    /// betrays a protocol failure or a clumsy man in the middle; it does not replace
+    /// the user's comparison.
     pub fn confirm_remote(&mut self, code: PairingCode) -> Result<(), IdentityError> {
         if code != self.code {
             return Err(IdentityError::CodeMismatch {
@@ -299,7 +299,7 @@ impl Pairing {
         self.local_confirmed && self.remote_confirmed
     }
 
-    /// Guarda la llave del par en el trust store y lo persiste.
+    /// Stores the peer's key in the trust store and persists it.
     pub fn complete(self, store: &mut TrustStore) -> Result<TrustedPeer, IdentityError> {
         if !self.is_confirmed() {
             return Err(IdentityError::NotConfirmed);
@@ -323,22 +323,22 @@ mod tests {
         PairingNonce::from_bytes([seed; NONCE_LEN])
     }
 
-    /// Ejecuta los tres mensajes entre dos máquinas sin intermediario.
-    fn emparejar(
-        iniciador: PublicKey,
+    /// Runs the three messages between two machines without a man in the middle.
+    fn pair_up(
+        initiator: PublicKey,
         ni: PairingNonce,
-        respondedor: PublicKey,
+        responder: PublicKey,
         nr: PairingNonce,
     ) -> (Pairing, Pairing) {
-        let (ini, offer) = PairingInitiator::start(iniciador, "Mac", ni);
-        let (resp, answer) = PairingResponder::receive_offer(respondedor, "PC", offer, nr).unwrap();
-        let (en_ini, reveal) = ini.receive_answer(answer).unwrap();
-        let en_resp = resp.receive_reveal(reveal).unwrap();
-        (en_ini, en_resp)
+        let (init, offer) = PairingInitiator::start(initiator, "Mac", ni);
+        let (resp, answer) = PairingResponder::receive_offer(responder, "PC", offer, nr).unwrap();
+        let (at_init, reveal) = init.receive_answer(answer).unwrap();
+        let at_resp = resp.receive_reveal(reveal).unwrap();
+        (at_init, at_resp)
     }
 
     #[test]
-    fn el_codigo_tiene_seis_digitos() {
+    fn the_code_has_six_digits() {
         let code = pairing_code(&key(1), &key(2), &nonce(1), &nonce(2));
         assert!(code.value() < 1_000_000);
         assert_eq!(code.to_string().len(), 6);
@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn el_codigo_recibido_tiene_seis_digitos() {
+    fn the_received_code_has_six_digits() {
         assert_eq!(PairingCode::from_value(0), Some(PairingCode(0)));
         assert_eq!(PairingCode::from_value(999_999), Some(PairingCode(999_999)));
         assert_eq!(PairingCode::from_value(1_000_000), None);
@@ -354,8 +354,8 @@ mod tests {
     }
 
     #[test]
-    fn el_codigo_es_estable() {
-        // Fija el algoritmo: cambiarlo rompe el emparejamiento entre versiones.
+    fn the_code_is_stable() {
+        // Fixes the algorithm: changing it breaks pairing between versions.
         assert_eq!(
             pairing_code(&key(1), &key(2), &nonce(3), &nonce(4)).to_string(),
             "307316"
@@ -363,7 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn los_nonces_generados_son_distintos() {
+    fn the_generated_nonces_are_different() {
         assert_ne!(
             PairingNonce::generate().unwrap(),
             PairingNonce::generate().unwrap()
@@ -372,7 +372,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn mismo_codigo_en_ambos_lados(
+        fn same_code_on_both_sides(
             a in any::<[u8; 32]>(),
             b in any::<[u8; 32]>(),
             ni in any::<[u8; 32]>(),
@@ -383,12 +383,12 @@ mod tests {
             prop_assume!(a != b);
             let (ni, nr) = (PairingNonce::from_bytes(ni), PairingNonce::from_bytes(nr));
             prop_assert_eq!(pairing_code(&a, &b, &ni, &nr), pairing_code(&b, &a, &ni, &nr));
-            let (en_a, en_b) = emparejar(a, ni, b, nr);
-            prop_assert_eq!(en_a.code(), en_b.code());
+            let (at_a, at_b) = pair_up(a, ni, b, nr);
+            prop_assert_eq!(at_a.code(), at_b.code());
         }
 
         #[test]
-        fn con_el_compromiso_fijado_cambiar_la_llave_cambia_el_codigo(
+        fn with_the_commitment_fixed_changing_the_key_changes_the_code(
             a in any::<[u8; 32]>(),
             b in any::<[u8; 32]>(),
             c in any::<[u8; 32]>(),
@@ -402,33 +402,33 @@ mod tests {
             );
             prop_assume!(a != b && c != a && c != b);
             let (ni, nr) = (PairingNonce::from_bytes(ni), PairingNonce::from_bytes(nr));
-            // Una colisión real tiene probabilidad 1e-6 por caso; con las
-            // semillas de proptest es determinista y no ocurre.
+            // A real collision has probability 1e-6 per case; with proptest's
+            // seeds it is deterministic and does not happen.
             let base = pairing_code(&a, &b, &ni, &nr);
             prop_assert_ne!(base, pairing_code(&c, &b, &ni, &nr));
             prop_assert_ne!(base, pairing_code(&a, &c, &ni, &nr));
         }
 
         #[test]
-        fn cambiar_cualquier_nonce_cambia_el_codigo(
+        fn changing_any_nonce_changes_the_code(
             ni in any::<[u8; 32]>(),
             nr in any::<[u8; 32]>(),
-            otro in any::<[u8; 32]>(),
+            other in any::<[u8; 32]>(),
         ) {
-            prop_assume!(otro != ni && otro != nr);
+            prop_assume!(other != ni && other != nr);
             let (a, b) = (key(1), key(2));
-            let (ni, nr, otro) = (
+            let (ni, nr, other) = (
                 PairingNonce::from_bytes(ni),
                 PairingNonce::from_bytes(nr),
-                PairingNonce::from_bytes(otro),
+                PairingNonce::from_bytes(other),
             );
             let base = pairing_code(&a, &b, &ni, &nr);
-            prop_assert_ne!(base, pairing_code(&a, &b, &otro, &nr));
-            prop_assert_ne!(base, pairing_code(&a, &b, &ni, &otro));
+            prop_assert_ne!(base, pairing_code(&a, &b, &other, &nr));
+            prop_assert_ne!(base, pairing_code(&a, &b, &ni, &other));
         }
 
         #[test]
-        fn el_compromiso_ata_llave_y_nonce(
+        fn the_commitment_binds_key_and_nonce(
             a in any::<[u8; 32]>(),
             c in any::<[u8; 32]>(),
             n in any::<[u8; 32]>(),
@@ -447,65 +447,65 @@ mod tests {
     }
 
     #[test]
-    fn no_se_empareja_consigo_mismo() {
-        let (ini, offer) = PairingInitiator::start(key(1), "yo", nonce(1));
+    fn does_not_pair_with_itself() {
+        let (init, offer) = PairingInitiator::start(key(1), "me", nonce(1));
         assert!(matches!(
-            PairingResponder::receive_offer(key(1), "yo", offer, nonce(2)),
+            PairingResponder::receive_offer(key(1), "me", offer, nonce(2)),
             Err(IdentityError::SelfPairing)
         ));
         let answer = PairingAnswer {
             public_key: key(1),
-            name: "yo".into(),
+            name: "me".into(),
             nonce: nonce(2),
         };
         assert!(matches!(
-            ini.receive_answer(answer),
+            init.receive_answer(answer),
             Err(IdentityError::SelfPairing)
         ));
     }
 
     #[test]
-    fn flujo_completo_entre_dos_maquinas() {
+    fn full_flow_between_two_machines() {
         let dir = tempfile::tempdir().unwrap();
         let (mac, pc) = (key(10), key(20));
         let mut store_mac = TrustStore::open(dir.path().join("mac.toml")).unwrap();
         let mut store_pc = TrustStore::open(dir.path().join("pc.toml")).unwrap();
 
-        let (mut en_mac, mut en_pc) = emparejar(
+        let (mut at_mac, mut at_pc) = pair_up(
             mac,
             PairingNonce::generate().unwrap(),
             pc,
             PairingNonce::generate().unwrap(),
         );
-        assert_eq!(en_mac.code(), en_pc.code());
-        assert_eq!(en_mac.remote().name, "PC");
-        assert_eq!(en_pc.remote().name, "Mac");
+        assert_eq!(at_mac.code(), at_pc.code());
+        assert_eq!(at_mac.remote().name, "PC");
+        assert_eq!(at_pc.remote().name, "Mac");
 
-        en_mac.confirm_local();
-        en_pc.confirm_local();
-        en_mac.confirm_remote(en_pc.code()).unwrap();
-        en_pc.confirm_remote(en_mac.code()).unwrap();
+        at_mac.confirm_local();
+        at_pc.confirm_local();
+        at_mac.confirm_remote(at_pc.code()).unwrap();
+        at_pc.confirm_remote(at_mac.code()).unwrap();
 
-        en_mac.complete(&mut store_mac).unwrap();
-        en_pc.complete(&mut store_pc).unwrap();
+        at_mac.complete(&mut store_mac).unwrap();
+        at_pc.complete(&mut store_pc).unwrap();
         assert!(store_mac.is_trusted(&pc));
         assert!(store_pc.is_trusted(&mac));
         assert!(!store_mac.is_trusted(&key(30)));
     }
 
     #[test]
-    fn sin_ambas_confirmaciones_no_se_guarda() {
+    fn without_both_confirmations_nothing_is_saved() {
         let dir = tempfile::tempdir().unwrap();
         let mut store = TrustStore::open(dir.path().join("t.toml")).unwrap();
 
-        let (mut solo_local, _) = emparejar(key(1), nonce(1), key(2), nonce(2));
+        let (mut solo_local, _) = pair_up(key(1), nonce(1), key(2), nonce(2));
         solo_local.confirm_local();
         assert!(matches!(
             solo_local.complete(&mut store),
             Err(IdentityError::NotConfirmed)
         ));
 
-        let (mut solo_remoto, _) = emparejar(key(1), nonce(1), key(2), nonce(2));
+        let (mut solo_remoto, _) = pair_up(key(1), nonce(1), key(2), nonce(2));
         let code = solo_remoto.code();
         solo_remoto.confirm_remote(code).unwrap();
         assert!(matches!(
@@ -518,14 +518,14 @@ mod tests {
     }
 
     #[test]
-    fn llave_cambiada_tras_el_compromiso_se_rechaza() {
-        // Un intermediario reemplaza la llave de la oferta pero no puede
-        // rehacer el compromiso sin conocer el nonce de quien inicia.
-        let (mac, pc, intruso) = (key(1), key(2), key(3));
-        let (ini, mut offer) = PairingInitiator::start(mac, "Mac", nonce(1));
-        offer.public_key = intruso;
+    fn a_key_changed_after_the_commitment_is_rejected() {
+        // A man in the middle replaces the offer's key but cannot
+        // redo the commitment without knowing the initiator's nonce.
+        let (mac, pc, intruder) = (key(1), key(2), key(3));
+        let (init, mut offer) = PairingInitiator::start(mac, "Mac", nonce(1));
+        offer.public_key = intruder;
         let (resp, answer) = PairingResponder::receive_offer(pc, "PC", offer, nonce(2)).unwrap();
-        let (_, reveal) = ini.receive_answer(answer).unwrap();
+        let (_, reveal) = init.receive_answer(answer).unwrap();
         assert!(matches!(
             resp.receive_reveal(reveal),
             Err(IdentityError::CommitMismatch)
@@ -533,11 +533,11 @@ mod tests {
     }
 
     #[test]
-    fn nonce_revelado_distinto_del_comprometido_se_rechaza() {
-        let (ini, offer) = PairingInitiator::start(key(1), "Mac", nonce(1));
+    fn a_revealed_nonce_different_from_the_committed_one_is_rejected() {
+        let (init, offer) = PairingInitiator::start(key(1), "Mac", nonce(1));
         let (resp, answer) =
             PairingResponder::receive_offer(key(2), "PC", offer, nonce(2)).unwrap();
-        let (_, mut reveal) = ini.receive_answer(answer).unwrap();
+        let (_, mut reveal) = init.receive_answer(answer).unwrap();
         reveal.nonce = nonce(9);
         assert!(matches!(
             resp.receive_reveal(reveal),
@@ -546,10 +546,10 @@ mod tests {
     }
 
     #[test]
-    fn intermediario_que_reenvia_con_sus_llaves_muestra_otro_codigo() {
-        // Mac <-> intruso <-> PC. El intruso se compromete con la PC antes de
-        // conocer nonce_r, y responde a la Mac antes de conocer nonce_i: no
-        // puede elegir sus valores para igualar los códigos.
+    fn a_man_in_the_middle_relaying_with_his_keys_shows_another_code() {
+        // Mac <-> intruder <-> PC. The intruder commits to the PC before
+        // knowing nonce_r, and answers the Mac before knowing nonce_i: it
+        // cannot choose its values to match the codes.
         let (mac, pc, m1, m2) = (key(1), key(2), key(3), key(4));
 
         let (mac_ini, oferta_mac) = PairingInitiator::start(mac, "Mac", nonce(10));
@@ -559,23 +559,23 @@ mod tests {
         let (intruso_resp, respuesta_intruso) =
             PairingResponder::receive_offer(m2, "PC", oferta_mac, nonce(13)).unwrap();
 
-        let (en_mac, revelado_mac) = mac_ini.receive_answer(respuesta_intruso).unwrap();
+        let (at_mac, revelado_mac) = mac_ini.receive_answer(respuesta_intruso).unwrap();
         let (_, revelado_intruso) = intruso_ini.receive_answer(respuesta_pc).unwrap();
-        let en_pc = pc_resp.receive_reveal(revelado_intruso).unwrap();
+        let at_pc = pc_resp.receive_reveal(revelado_intruso).unwrap();
         intruso_resp.receive_reveal(revelado_mac).unwrap();
 
-        assert_ne!(en_mac.code(), en_pc.code());
+        assert_ne!(at_mac.code(), at_pc.code());
     }
 
     #[test]
-    fn codigo_distinto_del_par_se_rechaza() {
-        let (mut en_mac, _) = emparejar(key(1), nonce(1), key(2), nonce(2));
-        en_mac.confirm_local();
-        let otro = PairingCode((en_mac.code().value() + 1) % 1_000_000);
+    fn a_code_different_from_the_peers_is_rejected() {
+        let (mut at_mac, _) = pair_up(key(1), nonce(1), key(2), nonce(2));
+        at_mac.confirm_local();
+        let other = PairingCode((at_mac.code().value() + 1) % 1_000_000);
         assert!(matches!(
-            en_mac.confirm_remote(otro),
+            at_mac.confirm_remote(other),
             Err(IdentityError::CodeMismatch { .. })
         ));
-        assert!(!en_mac.is_confirmed());
+        assert!(!at_mac.is_confirmed());
     }
 }

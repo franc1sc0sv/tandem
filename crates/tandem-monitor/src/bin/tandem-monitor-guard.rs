@@ -1,8 +1,8 @@
-//! Vigilante de la vuelta automática (ver `tandem_monitor::guard`).
+//! Automatic-rollback watchdog (see `tandem_monitor::guard`).
 //!
-//! `tandem-monitor-guard <id-del-monitor> <dp|hdmi>`: espera en la entrada estándar. Si llega
-//! `disarm`, termina sin tocar nada; si la entrada se cierra sin eso (el proceso que lo lanzó
-//! murió), vuelve el monitor a la entrada indicada.
+//! `tandem-monitor-guard <monitor-id> <dp|hdmi>`: waits on standard input. If `disarm`
+//! arrives, it exits without touching anything; if the input closes without it (the process
+//! that launched it died), it puts the monitor back on the given input.
 
 use std::process::ExitCode;
 use std::sync::Arc;
@@ -22,23 +22,23 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     eprintln!(
-        "el proceso vigilado terminó sin volver: se pone {} en {}",
+        "the watched process ended without restoring: setting {} on {}",
         plan.restore_to, plan.monitor
     );
     let bus = match monitor_ddc::system_bus() {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("no se pudo volver: {e}");
+            eprintln!("could not restore: {e}");
             return ExitCode::from(2);
         }
     };
     match restore_by_id(bus, Arc::new(monitor_ddc::SystemClock::new()), &plan) {
         Ok(verdict) => {
-            eprintln!("vuelta automática: {verdict:?}");
+            eprintln!("automatic rollback: {verdict:?}");
             ExitCode::SUCCESS
         }
         Err(e) => {
-            eprintln!("no se pudo volver: {e}");
+            eprintln!("could not restore: {e}");
             ExitCode::from(2)
         }
     }

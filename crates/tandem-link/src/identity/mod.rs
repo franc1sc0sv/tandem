@@ -1,14 +1,14 @@
-//! Identidad de la máquina y emparejamiento (DESIGN §9).
+//! Machine identity and pairing (DESIGN §9).
 //!
-//! Cada agente tiene una llave Ed25519 propia. Dos agentes se emparejan una
-//! sola vez comparando un código de 6 dígitos que ambos derivan de sus llaves
-//! públicas y de un nonce por lado, con compromiso previo de quien inicia para
-//! que un intermediario no pueda forzar el mismo código; al confirmarlo en los dos lados, cada uno guarda la llave del otro
-//! en su [`TrustStore`]. El transporte (T-004) fija esa llave al verificar el
-//! certificado autofirmado que genera [`Identity::tls_certificate`].
+//! Each agent has its own Ed25519 key. Two agents pair only once by comparing a
+//! 6-digit code that both derive from their public keys and a nonce per side, with a prior
+//! commitment from the initiator so
+//! that a man in the middle cannot force the same code; once confirmed on both sides, each one stores the other's key
+//! in its [`TrustStore`]. The transport (T-004) pins that key when verifying the
+//! self-signed certificate that [`Identity::tls_certificate`] generates.
 //!
-//! Por ahora la llave vive en un archivo con permisos 0600; el llavero del
-//! sistema (Keychain / DPAPI) llega en una tarea posterior.
+//! For now the key lives in a file with 0600 permissions; the system keychain
+//! (Keychain / DPAPI) arrives in a later task.
 
 mod cert;
 mod error;

@@ -1,22 +1,22 @@
-//! El dueño de un monitor (DESIGN §10, DECISIONS D13).
+//! The owner of a monitor (DESIGN §10, DECISIONS D13).
 //!
-//! Las dos máquinas calculan lo mismo con los mismos datos: los canales que anunció cada una
-//! ([`MonitorChannel`]). No hay votación ni mensajes propios: si las dos tienen los dos
-//! anuncios, coinciden. El dueño es la que tiene canal; si las dos, la que contestó más
-//! rápido al sondeo, y ante una diferencia chica, `A` (la latencia se mide una vez al abrir el
-//! canal, así que no oscila). Si el dueño se va o pierde el canal, su anuncio deja de
-//! nombrar al monitor y queda la otra.
+//! Both machines compute the same thing from the same data: the channels each one announced
+//! ([`MonitorChannel`]). There is no voting and no messages of its own: if both have both
+//! announcements, they agree. The owner is the one that has a channel; if both do, the one
+//! that answered the probe faster, and on a small difference, `A` (latency is measured once
+//! when the channel opens, so it does not oscillate). If the owner leaves or loses the
+//! channel, its announcement stops naming the monitor and the other one remains.
 
 use tandem_core::Machine;
 use tandem_proto::MonitorChannel;
 
-/// Lo que tiene que ganar `B` en latencia para quitarle el monitor a `A`: por debajo, el
-/// ruido de una medición decidiría.
+/// What `B` has to win in latency to take the monitor from `A`: below that, the
+/// noise of a measurement would decide.
 pub const LATENCY_MARGIN_MS: u32 = 10;
 
-/// El dueño del monitor con los canales de `a` y de `b` (`None` si esa máquina no lo ve o
-/// no se sabe nada de ella). Solo un monitor compatible tiene dueño: uno que no habla el
-/// estándar no se lee ni se controla.
+/// The owner of the monitor given the channels of `a` and of `b` (`None` if that machine does
+/// not see it or nothing is known about it). Only a compatible monitor has an owner: one that
+/// does not speak the standard is neither read nor controlled.
 pub fn elect(a: Option<&MonitorChannel>, b: Option<&MonitorChannel>) -> Option<Machine> {
     let usable = |c: Option<&MonitorChannel>| c.filter(|c| c.compat.is_compatible()).cloned();
     match (usable(a), usable(b)) {
@@ -49,7 +49,7 @@ mod tests {
                 MonitorCompat::Compatible { protocol: 2 }
             } else {
                 MonitorCompat::NotCompatible {
-                    reason: "fábrica".into(),
+                    reason: "factory".into(),
                 }
             },
             latency_ms,
@@ -69,7 +69,7 @@ mod tests {
         let (slow, fast) = (channel(true, 40), channel(true, 8));
         assert_eq!(elect(Some(&slow), Some(&fast)), Some(Machine::B));
         assert_eq!(elect(Some(&fast), Some(&slow)), Some(Machine::A));
-        // 5 ms de diferencia es ruido.
+        // 5 ms of difference is noise.
         assert_eq!(
             elect(Some(&channel(true, 20)), Some(&channel(true, 15))),
             Some(Machine::A)
@@ -80,7 +80,7 @@ mod tests {
     fn a_monitor_that_is_not_compatible_has_no_owner() {
         let factory = channel(false, 1);
         assert_eq!(elect(Some(&factory), Some(&factory)), None);
-        // Si una lo ve compatible y la otra no (otra versión del protocolo), la que puede.
+        // If one sees it as compatible and the other does not (another protocol version), the one that can.
         assert_eq!(
             elect(Some(&factory), Some(&channel(true, 90))),
             Some(Machine::B)
@@ -92,7 +92,7 @@ mod tests {
     }
 
     proptest! {
-        /// El dueño siempre tiene un canal compatible, y si alguna lo tiene, hay dueño.
+        /// The owner always has a compatible channel, and if anyone has one, there is an owner.
         #[test]
         fn the_owner_always_has_a_compatible_channel(a in any_channel(), b in any_channel()) {
             let usable = |c: &Option<MonitorChannel>| c.as_ref().is_some_and(|c| c.compat.is_compatible());
@@ -103,7 +103,7 @@ mod tests {
             }
         }
 
-        /// Cambiar los lados cambia al dueño, salvo en un empate (que es de `A` en las dos).
+        /// Swapping the sides swaps the owner, except in a tie (which belongs to `A` on both).
         #[test]
         fn swapping_sides_swaps_the_owner_outside_a_tie(la in 0u32..500, lb in 0u32..500) {
             let (a, b) = (channel(true, la), channel(true, lb));

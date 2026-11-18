@@ -1,11 +1,11 @@
-//! Backends de macOS del motor de entrada.
+//! macOS backends of the input engine.
 //!
-//! La lógica que se puede (traducción de eventos, balance del cursor, permisos)
-//! es portable y se prueba en Linux; solo las llamadas a CoreGraphics y AppKit
-//! van bajo `#[cfg(target_os = "macos")]`.
+//! The logic that can be portable (event translation, cursor balance, permissions)
+//! is portable and is tested on Linux; only the CoreGraphics and AppKit calls
+//! go under `#[cfg(target_os = "macos")]`.
 //!
-//! - [`capture`]: CGEventTap en el servidor (T-022).
-//! - [`emulate`]: inyección con `CGEventPost` (T-023, docs/research/input-engine.md).
+//! - [`capture`]: CGEventTap on the server (T-022).
+//! - [`emulate`]: injection with `CGEventPost` (T-023, docs/research/input-engine.md).
 
 pub mod capture;
 pub mod emulate;
