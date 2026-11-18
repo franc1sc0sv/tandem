@@ -45,6 +45,7 @@ jobs:
   preparar:
     name: preparar
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       version: ${{ steps.modo.outputs.version }}
       tag: ${{ steps.modo.outputs.tag }}
