@@ -142,6 +142,8 @@ impl<C: Capture> ServerDriver<C> {
     /// `true` mientras hay un botón del mouse apretado.
     pub fn buttons(&self) -> watch::Receiver<bool> {
         self.held.subscribe()
+    }
+
     /// Por dónde pedir bloquear (`true`) o soltar (`false`) el cursor sin el atajo: el mismo
     /// efecto que [`ServerSession::set_locked`], dentro del bucle que es dueño de la sesión.
     /// Deja de funcionar cuando el driver se suelta.
