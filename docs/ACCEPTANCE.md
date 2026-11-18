@@ -14,7 +14,7 @@ Notation: `[hw]` = needs the real hardware (covered by the T-123 suite or left i
 - [ ] G6. Every interactive element does something real and verifiable in the agent; nothing decorative that looks like a button.
 - [ ] G7. **Animations:** every `@keyframes` and every `transition` of the screen's mockup has its equivalent in the app (same effect, approximate duration and curve); card entrances, screen changes and state changes animated.
 - [ ] G8. With `prefers-reduced-motion: reduce` there are no animations.
-- [ ] G9. No console with errors; no visible `{{`, `undefined` or `NaN`.
+- [ ] G9. No console with errors; no visible `{{`, `undefined` or `NaN`; all visible text is in English (no Spanish anywhere in the app).
 - [ ] G10. Configuration: everything editable is edited from the UI and reaches the other machine; the "Changed from X · Undo" notice works (D4, D5).
 - [ ] G11. Quality: fmt, clippy, Rust tests, `pnpm test/check/build` and `develop` CI green on Linux, Windows and macOS.
 
