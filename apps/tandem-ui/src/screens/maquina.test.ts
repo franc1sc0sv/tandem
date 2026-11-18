@@ -52,6 +52,46 @@ describe("Wake-on-LAN (T-159)", () => {
   });
 });
 
+describe("Wake-on-LAN en el demo (T-171)", () => {
+  const mac = () => screen.getByRole("textbox", { name: /MAC de/ });
+  const guardar = () => screen.getByRole("button", { name: "Guardar" });
+
+  it("guardar una MAC válida la muestra y deja Guardar deshabilitado", async () => {
+    const { store } = await mount();
+    await userEvent.click(screen.getByRole("button", { name: "Apagar" }));
+    await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("off"));
+    await userEvent.clear(mac());
+    await userEvent.type(mac(), "aa:bb:cc:dd:ee:01");
+    await userEvent.click(guardar());
+    await tick();
+    expect(mac()).toHaveValue("aa:bb:cc:dd:ee:01");
+    expect(guardar()).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Encender" })).toBeEnabled();
+  });
+
+  it("borrar la MAC deja el campo vacío, sin Encender y con el aviso", async () => {
+    const { store } = await mount();
+    await userEvent.click(screen.getByRole("button", { name: "Apagar" }));
+    await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("off"));
+    await userEvent.click(screen.getByRole("button", { name: "Borrar MAC" }));
+    await tick();
+    expect(mac()).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Encender" })).toBeDisabled();
+    expect(screen.getByText(/Falta la MAC/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Borrar MAC" })).toBeNull();
+  });
+
+  it("una MAC inválida muestra el motivo y no cambia lo guardado", async () => {
+    const { store } = await mount();
+    await userEvent.clear(mac());
+    await userEvent.type(mac(), "zz");
+    await userEvent.click(guardar());
+    await tick();
+    expect(store.toasts.at(-1)?.text ?? "").toMatch(/MAC inválida/);
+    expect(store.desk.machines.b?.wake?.mac).toBe("aa:bb:cc:dd:ee:ff");
+  });
+});
+
 describe("V3-Maquina (la otra máquina)", () => {
   it("muestra cabecera, recursos agrupados, disco, módulos y entornos", async () => {
     await mount();

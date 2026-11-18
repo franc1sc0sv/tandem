@@ -988,6 +988,9 @@ export class DemoSource implements Source {
     if (mac !== null && !/^([0-9a-f]{2}[:-]){5}[0-9a-f]{2}$/i.test(mac.trim())) {
       return { ok: false, reason: `dirección MAC inválida «${mac}»: se esperan 6 bytes, como aa:bb:cc:dd:ee:ff` };
     }
+    const m = this.desk.machines.b;
+    if (!m?.wake) return { ok: false, reason: "esta máquina no se enciende por red" };
+    this.set({ ...this.desk, machines: { ...this.desk.machines, b: { ...m, wake: { mac: mac === null ? null : mac.trim().toLowerCase().replaceAll("-", ":") } } } });
     return { ok: true };
   }
 
