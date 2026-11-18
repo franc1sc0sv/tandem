@@ -224,6 +224,9 @@ export class Store implements CommandContext {
   }
 
   can(what: Capability): boolean {
+    // `source.can` lee un campo común: leer `desk` (reactivo) hace que lo que lo use se
+    // vuelva a evaluar cuando llega una foto nueva, y no se quede con la primera (T-153).
+    void this.desk;
     return this.source.can(what);
   }
 

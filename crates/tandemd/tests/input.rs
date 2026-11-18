@@ -1751,6 +1751,64 @@ mod file_drag {
         }
     }
 
+    /// T-158: «Archivos» sale activo con detector de arrastre y con la razón verdadera sin él,
+    /// por el camino real (`spawn_engine`), no llamando a `set_problem` a mano.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn files_module_follows_the_drag_backend() {
+        use tandem_proto::{ModuleId, ModuleState};
+        let (a_id, b_id) = sides(Identity::from_seed([23; 32]), Identity::from_seed([24; 32]));
+        let a_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+        let b_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+        let hook: Arc<dyn FileDragBackend> = Arc::new(Hook::default());
+        let (without, with) = tandemd::start_pair!(
+            |a_port, b_port| start_os_drag(
+                Machine::A,
+                os_of(Machine::A),
+                &a_id,
+                a_port,
+                (b_id.public_key(), b_port),
+                a_fake.clone(),
+                "",
+                "",
+                None,
+            ),
+            start_os_drag(
+                Machine::B,
+                os_of(Machine::B),
+                &b_id,
+                b_port,
+                (a_id.public_key(), a_port),
+                b_fake.clone(),
+                "",
+                "",
+                Some(hook.clone()),
+            )
+        );
+        let state_of = |r: &Running| {
+            r.agent
+                .capabilities()
+                .here
+                .modules
+                .into_iter()
+                .find(|m| m.id == ModuleId::Files)
+                .map(|m| m.state)
+        };
+        let expected =
+            tandemd::modules::file_drag_problem(cfg!(any(windows, target_os = "macos")), false)
+                .unwrap();
+        let want = ModuleState::Unavailable {
+            reason: expected.into(),
+        };
+        // El motor reporta su problema al arrancar: se espera a que el anuncio lo traiga.
+        let mut rx = without.agent.subscribe_capabilities();
+        within(rx.wait_for(|_| state_of(&without) == Some(want.clone())))
+            .await
+            .unwrap();
+        assert_eq!(state_of(&with), Some(ModuleState::Active));
+        with.stop().await;
+        without.stop().await;
+    }
+
     fn name(i: u32, n: &str) -> DragStatus {
         DragStatus::Copying {
             name: n.into(),

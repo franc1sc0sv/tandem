@@ -14,8 +14,21 @@ use std::collections::{BTreeMap, BTreeSet};
 use tandem_core::Os;
 use tandem_proto::{InputPermission, InputStatus, ModuleId, ModuleInfo, ModuleState, PowerCaps};
 
-/// Lo que dice un módulo que todavía no está implementado en esta versión.
-pub const NOT_YET: &str = "Aún no está en esta versión de Tandem";
+/// Razones de «Archivos» (T-158): el módulo existe y funciona; solo se dice que no está
+/// disponible por una de estas causas verdaderas.
+pub const NO_FILE_DRAG: &str = "No se pudo abrir el detector de arrastre de archivos del sistema";
+pub const NO_FILE_DRAG_OS: &str = "Este sistema no tiene arrastre de archivos entre máquinas";
+pub const NO_ENGINE: &str = "El motor de teclado y mouse no arrancó, y el arrastre va con él";
+
+/// El problema de «Archivos» según lo que dio el sistema: `supported` es si este sistema
+/// tiene detector (Windows y macOS), `present` si el motor recibió uno.
+pub fn file_drag_problem(supported: bool, present: bool) -> Option<&'static str> {
+    match (present, supported) {
+        (true, _) => None,
+        (false, true) => Some(NO_FILE_DRAG),
+        (false, false) => Some(NO_FILE_DRAG_OS),
+    }
+}
 
 /// Lo que el agente sabe y los módulos miran para decir su estado.
 #[derive(Debug, Clone, Copy)]
@@ -274,10 +287,10 @@ impl Module for Files {
     fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
         "Arrastrar archivos al cruzar el borde".into()
     }
+    /// Activo: el arrastre existe en los dos sistemas. Si el detector del sistema no abre,
+    /// el motor de entrada lo reporta como problema (`ModuleSwitches::set_problem`).
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
-        ModuleState::Unavailable {
-            reason: NOT_YET.into(),
-        }
+        ModuleState::Active
     }
 }
 
@@ -294,10 +307,10 @@ impl Module for Tunnels {
     fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
         "Recibe túneles de Claude".into()
     }
+    /// Los túneles (procesos, archivos, puertos) son un servicio del propio agente en los
+    /// dos sistemas: no dependen de un backend aparte.
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
-        ModuleState::Unavailable {
-            reason: NOT_YET.into(),
-        }
+        ModuleState::Active
     }
 }
 
@@ -437,6 +450,56 @@ mod tests {
         }
         fn switchable(&self) -> bool {
             self.switchable
+        }
+    }
+
+    /// T-158: Túneles y Archivos existen; ninguna razón dice que «aún no está».
+    #[test]
+    fn tunnels_and_files_are_active_and_no_reason_says_not_yet() {
+        for os in Os::ALL {
+            let reg = Registry::for_os(os);
+            let input = InputStatus::new(Machine::A);
+            let switches = ModuleSwitches::default();
+            let p = power(true, true, true);
+            let ctx = ModuleContext {
+                os,
+                input: &input,
+                power: &p,
+                switches: &switches,
+            };
+            assert_eq!(state_of(&reg, &ctx, ModuleId::Tunnels), ModuleState::Active);
+            assert_eq!(state_of(&reg, &ctx, ModuleId::Files), ModuleState::Active);
+        }
+    }
+
+    /// Sin detector de arrastre en el sistema, «Archivos» lo dice con una razón verdadera.
+    #[test]
+    fn files_report_a_missing_drag_backend() {
+        let reg = Registry::for_os(Os::Windows);
+        let input = InputStatus::new(Machine::A);
+        let mut switches = ModuleSwitches::default();
+        switches.set_problem(ModuleId::Files, Some(NO_FILE_DRAG.into()));
+        assert_eq!(
+            on_pc(&reg, &input, &switches, ModuleId::Files),
+            ModuleState::Unavailable {
+                reason: NO_FILE_DRAG.into()
+            }
+        );
+        switches.set_problem(ModuleId::Files, None);
+        assert_eq!(
+            on_pc(&reg, &input, &switches, ModuleId::Files),
+            ModuleState::Active
+        );
+    }
+
+    #[test]
+    fn the_file_drag_problem_tells_the_true_cause() {
+        assert_eq!(file_drag_problem(true, true), None);
+        assert_eq!(file_drag_problem(false, true), None);
+        assert_eq!(file_drag_problem(true, false), Some(NO_FILE_DRAG));
+        assert_eq!(file_drag_problem(false, false), Some(NO_FILE_DRAG_OS));
+        for r in [NO_FILE_DRAG, NO_FILE_DRAG_OS, NO_ENGINE] {
+            assert!(!r.to_lowercase().contains("aún no"), "{r}");
         }
     }
 

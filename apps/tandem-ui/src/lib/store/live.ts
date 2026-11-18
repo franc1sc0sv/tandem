@@ -32,6 +32,7 @@ export const DEFAULT_DESK_NAME = "Mi puesto";
 export const EMPTY_DESK: DeskView = {
   ready: false,
   lockShortcut: ["ScrollLock"],
+  locked: false,
   deskName: DEFAULT_DESK_NAME,
   trouble: "none",
   troubleText: "",
@@ -178,6 +179,7 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
     activeScene: snap.state.scene ?? null,
     prefs: prefsOf(snap.desk),
     lockShortcut: snap.desk.shortcuts?.lock ?? ["ScrollLock"],
+    locked: snap.input.locked === true,
     trouble,
     troubleText,
     here,
@@ -262,6 +264,9 @@ export class LiveSource implements Source {
   private groups: ProjectWire[] = [];
   private readonly memory: Memory = newMemory();
   private tunnels: TunnelView[] = [];
+  /** Ya llegaron túneles (por evento o por pedido): un pedido tardío no pisa lo más nuevo. */
+  private gotTunnels = false;
+  private askedTunnels = false;
   /** Quién recibe el cursor en vivo; el agente solo lo manda mientras haya alguien. */
   private readonly cursorListeners = new Set<(e: CursorEvent) => void>();
 
@@ -274,10 +279,31 @@ export class LiveSource implements Source {
         const d = deskFromSnapshot(s, this.live, s.kind === "connected" ? this.network : EMPTY_NETWORK, s.kind === "connected" ? this.tunnels : []);
         this.last = s;
         onDesk(d);
+        if (s.kind === "connected") askTunnels();
       } catch (e) {
         this.last = { kind: "connecting" };
         onDesk(deskFromError(e));
       }
+    };
+    // La sesión solo empuja los túneles al conectar y con cada cambio: una ventana que se abre
+    // o recarga después los pide una vez (T-154). Cualquier otra respuesta se ignora.
+    const retunnel = () => {
+      this.tunnels = tunnelsFromWire(this.groups, Date.now(), this.memory);
+      if (this.last.kind === "connected") push(this.last);
+    };
+    const askTunnels = () => {
+      if (this.askedTunnels || typeof this.bridge.act !== "function") return;
+      this.askedTunnels = true;
+      Promise.resolve(this.bridge.act({ kind: "tunnels" }))
+        .then((r) => {
+          if (r?.kind !== "tunnels" || this.gotTunnels) return;
+          this.gotTunnels = true;
+          this.groups = r.tunnels;
+          retunnel();
+        })
+        .catch(() => {
+          this.askedTunnels = false;
+        });
     };
     await this.bridge.onSnapshot(push);
     // El aviso «Cambiado desde X · Deshacer» (D5): solo viaja por los avisos, no por la foto.
@@ -304,12 +330,9 @@ export class LiveSource implements Source {
     ).catch(() => {});
     // Los túneles llegan al conectar y con cada cambio, sin pedirlos; el avance de las copias
     // alimenta el tráfico de cada uno.
-    const retunnel = () => {
-      this.tunnels = tunnelsFromWire(this.groups, Date.now(), this.memory);
-      if (this.last.kind === "connected") push(this.last);
-    };
     void Promise.resolve(
       this.bridge.onTunnels?.((g) => {
+        this.gotTunnels = true;
         this.groups = g;
         retunnel();
       }),
@@ -504,7 +527,8 @@ export class LiveSource implements Source {
   }
 
   async lockHere(on: boolean): Promise<ActResult> {
-    return result(await this.bridge.act({ kind: "lock_here", on }));
+    const r = result(await this.bridge.act({ kind: "lock_here", on }));
+    return r.ok ? { ok: true, text: on ? "Cursor bloqueado aquí" : "Bloqueo quitado" } : r;
   }
 
   async requestPermissions(): Promise<ActResult> {
