@@ -1,19 +1,37 @@
 <script lang="ts">
   import { useStore } from "../lib/context";
-  import { enter, leave } from "../lib/motion";
+  import { leave } from "../lib/motion";
+  import { TONE_COLOR } from "../lib/notices";
+  import { TOAST_MS } from "../lib/store/store.svelte";
   import Icon from "../ui/Icon.svelte";
 
   const store = useStore();
 </script>
 
-<!-- Avisos cortos de lo que pasó con una acción (F-Avisos). -->
-<div class="toasts" role="status" aria-live="polite">
+<!-- Avisos dentro de la app (F-Avisos): arriba a la derecha, se apilan y se van solos en 6 s
+     salvo los que piden una decisión. -->
+<div class="toasts" role="region" aria-label="Avisos">
   {#each store.toasts as t (t.id)}
-    <div class="toast {t.tone}" in:enter={{ x: 24, duration: 350 }} out:leave>
-      <Icon name={t.tone === "ok" ? "check" : "warn"} size={16} stroke={2} color={t.tone === "ok" ? "#6cc59a" : "#e07a6f"} />
-      <span class="tx">{t.text}</span>
-      <button type="button" class="x" aria-label="Cerrar aviso" onclick={() => store.dismiss(t.id)}><Icon name="x" size={14} stroke={2.2} /></button>
-      <span class="life"></span>
+    <div class="toast" role="status" out:leave>
+      <span class="dot" style:background={TONE_COLOR[t.tone]}></span>
+      <div class="col">
+        <b>{t.text}</b>
+        {#if t.body}<span class="body">{t.body}</span>{/if}
+        {#if t.action}
+          <span class="acts">
+            <button
+              type="button"
+              class="act"
+              onclick={() => {
+                t.action?.run();
+                store.dismiss(t.id);
+              }}>{t.action.label}</button
+            >
+          </span>
+        {/if}
+      </div>
+      <button type="button" class="x" aria-label="Cerrar" onclick={() => store.dismiss(t.id)}><Icon name="x" size={14} stroke={2.2} /></button>
+      {#if t.auto}<span class="life" style:animation-duration="{TOAST_MS}ms"></span>{/if}
     </div>
   {/each}
 </div>
@@ -21,8 +39,8 @@
 <style>
   .toasts {
     position: fixed;
+    top: 20px;
     right: 20px;
-    bottom: 20px;
     z-index: 30;
     display: flex;
     flex-direction: column;
@@ -42,11 +60,61 @@
     padding: 12px 14px;
     display: flex;
     gap: 12px;
-    align-items: center;
-    font-size: 13px;
+    align-items: flex-start;
+    font-size: 14px;
+    animation: sl 0.45s cubic-bezier(0.2, 0.9, 0.25, 1.15);
   }
-  .tx {
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    margin-top: 5px;
+    flex: none;
+  }
+  .col {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     flex: 1;
+    min-width: 0;
+  }
+  b {
+    font-weight: 600;
+    font-size: 13.5px;
+  }
+  .body {
+    color: #9a9da6;
+    font-size: 12.5px;
+    line-height: 1.45;
+  }
+  .acts {
+    display: flex;
+    gap: 6px;
+  }
+  .act {
+    font: inherit;
+    font-size: 12.5px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px solid #31343b;
+    background: transparent;
+    color: #e8e8eb;
+    cursor: pointer;
+    min-height: 30px;
+    transition:
+      border-color 0.2s,
+      background 0.2s,
+      transform 0.2s;
+  }
+  .act:hover {
+    border-color: #4a4e58;
+    background: #25262c;
+    transform: translateY(-1px);
+  }
+  .act:focus-visible,
+  .x:focus-visible {
+    outline: 2px solid #7aa7e6;
+    outline-offset: 2px;
   }
   .x {
     font: inherit;
@@ -70,22 +138,25 @@
     color: #e8e8eb;
     transform: rotate(90deg);
   }
-  .x:focus-visible {
-    outline: 2px solid #7aa7e6;
-    outline-offset: 2px;
-  }
   .life {
     position: absolute;
     left: 0;
     bottom: 0;
     height: 2px;
     background: #7aa7e6;
-    animation: toast-life 4s linear forwards;
+    animation: life 6s linear forwards;
   }
-  .bad .life {
-    background: #e07a6f;
+  @keyframes sl {
+    from {
+      transform: translateX(40px);
+      opacity: 0;
+    }
+    to {
+      transform: none;
+      opacity: 1;
+    }
   }
-  @keyframes toast-life {
+  @keyframes life {
     from {
       width: 100%;
     }

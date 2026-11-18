@@ -256,6 +256,59 @@ const NO_ADD_CARD: Ignore = { mockupSelector: 'a[href="F-AgregarHost.dc.html"].c
 /** D2: los escritorios a escala toman el color de cada máquina; con dos del mismo sistema el fondo no puede coincidir con el mockup. */
 const D2_DESKS: Ignore = { mockupSelector: 'div:has(> div[role="img"][aria-label^="A escala"])', reason: "D2: el color de las máquinas cambia el fondo de los escritorios" };
 
+// T-120: Ajustes (una captura por pestaña) y los estados difíciles. Los dos mockups no tienen
+// barra lateral (G3/D16): se compara el contenido, desde la esquina de su título.
+const NONE = "#sin-contraparte-en-la-app";
+const ajustesShot = (name: string, state: string | undefined, clicks: string[], masks: ContentMask[] = []): ShotSpec => ({
+  name,
+  page: "index.html",
+  query: DEMO,
+  hash: "#/ajustes",
+  mockup: "F-Ajustes",
+  state,
+  clicks,
+  width: W,
+  height: H,
+  content: {
+    appWidth: MAC_PAGE_WIDTH,
+    appStyle: 'nav[aria-label="Principal"] { flex: 0 0 220px !important; }',
+    app: "main h1",
+    mockup: "h1",
+    masks,
+    min: SIDEBAR_GATE,
+  },
+});
+const tab = (label: string) => `[role="tab"]:has-text("${label}")`;
+export const AJUSTES: ShotSpec[] = [
+  ajustesShot("ajustes", undefined, [], [
+    { app: NONE, mockup: 'button.danger:has-text("Sacar del puesto")', reason: "D1: sin «Sacar del puesto» (exactamente dos máquinas)" },
+    { app: ".pane > .row:nth-child(4)", mockup: ".pane > .row:nth-child(4)", reason: "D1: «Cambiar la otra máquina» en lugar de «Agregar una máquina»" },
+  ]),
+  ajustesShot("ajustes-atajos", "atajos", [tab("Atajos")]),
+  ajustesShot("ajustes-teclado", "teclado", [tab("Teclado y mouse")]),
+  ajustesShot("ajustes-actualizaciones", "actualizaciones", [tab("Actualizaciones")]),
+  ajustesShot("ajustes-actualizaciones-buscado", "actualizaciones-buscado", [tab("Actualizaciones"), 'button:has-text("Buscar ahora")']),
+  ajustesShot("ajustes-avanzado", "avanzado", [tab("Avanzado")]),
+];
+
+export const ESTADOS: ShotSpec = {
+  name: "estados",
+  page: "index.html",
+  query: DEMO,
+  hash: "#/estados",
+  mockup: "V3-Estados",
+  width: W,
+  height: H,
+  content: {
+    appWidth: 220 + 2 * 28 + (1280 - 2 * 28),
+    appStyle: 'nav[aria-label="Principal"] { flex: 0 0 220px !important; }',
+    app: "main h1",
+    mockup: "h1",
+    masks: [{ app: NONE, mockup: 'button.btn:has-text("Enviar por Wi-Fi igual")', reason: "El agente no tiene «enviar por Wi-Fi igual»: sin función, sin botón" }],
+    min: SIDEBAR_GATE,
+  },
+};
+
 export const SHOTS: ShotSpec[] = [
   {
     name: "puesto",
@@ -329,9 +382,9 @@ export const SHOTS: ShotSpec[] = [
       min: SIDEBAR_GATE,
     },
   },
-  { name: "ajustes", page: "index.html", query: DEMO, hash: "#/ajustes", mockup: "F-Ajustes", width: W, height: H },
-  { name: "paleta", page: "index.html", query: DEMO, hash: "#/puesto", mockup: "F-Paleta", width: W, height: H, keys: ["Meta+k"] },
-  { name: "estados", page: "index.html", query: `${DEMO}&trouble=peer-off`, hash: "#/puesto", mockup: "V3-Estados", width: W, height: H },
+  ...AJUSTES,
+  { name: "paleta", page: "index.html", query: DEMO, hash: "#/puesto", mockup: "F-Paleta", width: W, height: H, keys: ["Control+k"] },
+  ESTADOS,
   { name: "bandeja", page: "tray.html", query: DEMO, hash: "", mockup: "V3-Bandeja", width: 380, height: 600 },
 ];
 

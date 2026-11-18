@@ -14,6 +14,7 @@
   import Progreso from "../screens/Progreso.svelte";
   import Puesto from "../screens/Puesto.svelte";
   import Red from "../screens/Red.svelte";
+  import Estados from "../screens/Estados.svelte";
   import Trouble from "../screens/Trouble.svelte";
   import Tuneles from "../screens/Tuneles.svelte";
   import Palette from "./Palette.svelte";
@@ -85,6 +86,8 @@
         <Red />
       {:else if store.route.screen === "maquina"}
         <Maquina machine={store.route.machine} />
+      {:else if store.route.screen === "estados"}
+        <Estados />
       {:else}
         <Ajustes />
       {/if}
