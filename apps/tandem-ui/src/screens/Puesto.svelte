@@ -11,6 +11,7 @@
   import PageHeader from "../shell/PageHeader.svelte";
   import Bar from "../ui/Bar.svelte";
   import Card from "../ui/Card.svelte";
+  import Chip from "../ui/Chip.svelte";
   import Icon from "../ui/Icon.svelte";
   import { machineIcon } from "../ui/icons";
   import Kbd from "../ui/Kbd.svelte";
@@ -101,7 +102,11 @@
 </script>
 
 <div class="page">
-  <PageHeader title="Puesto" />
+  <PageHeader title="Puesto">
+    {#snippet actions()}
+      {#if desk.locked}<Chip tone="warn" icon="lock">Cursor bloqueado aquí</Chip>{/if}
+    {/snippet}
+  </PageHeader>
 
   <section aria-label="Máquinas" class="machines">
     {#each list as m, i (m.id)}

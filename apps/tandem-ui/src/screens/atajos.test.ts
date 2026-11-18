@@ -202,7 +202,7 @@ describe("editar atajos contra el agente real (IPC simulada)", () => {
     await store.start();
     const cmds = buildCommands(store.desk, store, false);
     await cmds.find((c) => c.id === "lock:on")?.run();
-    await cmds.find((c) => c.id === "lock:off")?.run();
+    await buildCommands({ ...store.desk, locked: true }, store, false).find((c) => c.id === "lock:off")?.run();
     expect(act).toHaveBeenCalledWith({ kind: "lock_here", on: true });
     expect(act).toHaveBeenCalledWith({ kind: "lock_here", on: false });
   });

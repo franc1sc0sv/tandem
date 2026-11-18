@@ -14,8 +14,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use tandem_core::Os;
 use tandem_proto::{InputPermission, InputStatus, ModuleId, ModuleInfo, ModuleState, PowerCaps};
 
-/// Lo que dice un módulo que todavía no está implementado en esta versión.
-pub const NOT_YET: &str = "Aún no está en esta versión de Tandem";
+/// La razón de «Archivos» cuando el sistema no dio un detector de arrastres (T-158): el
+/// módulo existe y funciona; esto solo se dice si el sistema no lo pudo abrir.
+pub const NO_FILE_DRAG: &str = "El sistema no dejó abrir el detector de arrastre de archivos";
 
 /// Lo que el agente sabe y los módulos miran para decir su estado.
 #[derive(Debug, Clone, Copy)]
@@ -274,10 +275,10 @@ impl Module for Files {
     fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
         "Arrastrar archivos al cruzar el borde".into()
     }
+    /// Activo: el arrastre existe en los dos sistemas. Si el detector del sistema no abre,
+    /// el motor de entrada lo reporta como problema (`ModuleSwitches::set_problem`).
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
-        ModuleState::Unavailable {
-            reason: NOT_YET.into(),
-        }
+        ModuleState::Active
     }
 }
 
@@ -294,10 +295,10 @@ impl Module for Tunnels {
     fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
         "Recibe túneles de Claude".into()
     }
+    /// Los túneles (procesos, archivos, puertos) son un servicio del propio agente en los
+    /// dos sistemas: no dependen de un backend aparte.
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
-        ModuleState::Unavailable {
-            reason: NOT_YET.into(),
-        }
+        ModuleState::Active
     }
 }
 
@@ -438,6 +439,45 @@ mod tests {
         fn switchable(&self) -> bool {
             self.switchable
         }
+    }
+
+    /// T-158: Túneles y Archivos existen; ninguna razón dice que «aún no está».
+    #[test]
+    fn tunnels_and_files_are_active_and_no_reason_says_not_yet() {
+        for os in Os::ALL {
+            let reg = Registry::for_os(os);
+            let input = InputStatus::new(Machine::A);
+            let switches = ModuleSwitches::default();
+            let p = power(true, true, true);
+            let ctx = ModuleContext {
+                os,
+                input: &input,
+                power: &p,
+                switches: &switches,
+            };
+            assert_eq!(state_of(&reg, &ctx, ModuleId::Tunnels), ModuleState::Active);
+            assert_eq!(state_of(&reg, &ctx, ModuleId::Files), ModuleState::Active);
+        }
+    }
+
+    /// Sin detector de arrastre en el sistema, «Archivos» lo dice con una razón verdadera.
+    #[test]
+    fn files_report_a_missing_drag_backend() {
+        let reg = Registry::for_os(Os::Windows);
+        let input = InputStatus::new(Machine::A);
+        let mut switches = ModuleSwitches::default();
+        switches.set_problem(ModuleId::Files, Some(NO_FILE_DRAG.into()));
+        assert_eq!(
+            on_pc(&reg, &input, &switches, ModuleId::Files),
+            ModuleState::Unavailable {
+                reason: NO_FILE_DRAG.into()
+            }
+        );
+        switches.set_problem(ModuleId::Files, None);
+        assert_eq!(
+            on_pc(&reg, &input, &switches, ModuleId::Files),
+            ModuleState::Active
+        );
     }
 
     #[test]

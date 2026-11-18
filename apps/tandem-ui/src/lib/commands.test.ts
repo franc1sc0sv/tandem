@@ -33,9 +33,11 @@ describe("comandos", () => {
     expect(titles.some((t) => t.includes("ComfyUI"))).toBe(false);
   });
 
-  it("«Bloquear aquí» y «Quitar el bloqueo» están en Acciones y se esconden sin motor de entrada", () => {
+  it("ofrece «Bloquear aquí» o «Quitar el bloqueo» según el estado, y nada sin motor de entrada", () => {
     const titles = flatten(filterCommands(buildCommands(desk, ctx(), true), "bloque")).map((c) => c.title);
-    expect(titles).toEqual(["Bloquear aquí", "Quitar el bloqueo"]);
+    expect(titles).toEqual(["Bloquear aquí"]);
+    const locked = flatten(filterCommands(buildCommands({ ...desk, locked: true }, ctx(), true), "bloque")).map((c) => c.title);
+    expect(locked).toEqual(["Quitar el bloqueo"]);
     expect(buildCommands(desk, ctx(false), true).some((c) => c.id.startsWith("lock:"))).toBe(false);
   });
 
@@ -117,12 +119,13 @@ describe("ejecutar", () => {
   it("cada comando pide lo suyo", async () => {
     const c = ctx();
     const cmds = buildCommands(desk, c, true);
+    const cmdsLocked = buildCommands({ ...desk, locked: true }, c, true);
     const run = (id: string) => cmds.find((x) => x.id === id)?.run();
     await run("scene:juego");
     await run("power:b");
     await run("link:measure");
     await run("lock:on");
-    await run("lock:off");
+    await cmdsLocked.find((x) => x.id === "lock:off")?.run();
     run("wizard:open");
     run("go:maquina:a");
     run("pair:change");

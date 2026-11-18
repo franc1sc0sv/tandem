@@ -124,9 +124,11 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
     out.push({ id: "link:measure", group: "Acciones", title: "Medir el enlace", detail: "", key: "", color: GREY, run: () => ctx.measureLink() });
   }
   if (ctx.can("lock")) {
+    // Solo la orden que aplica según el estado (T-157).
     out.push(
-      { id: "lock:on", group: "Acciones", title: "Bloquear aquí", detail: "el cursor no cruza", key: "", color: GREY, run: () => ctx.lockHere(true) },
-      { id: "lock:off", group: "Acciones", title: "Quitar el bloqueo", detail: "", key: "", color: GREY, run: () => ctx.lockHere(false) },
+      desk.locked
+        ? { id: "lock:off", group: "Acciones", title: "Quitar el bloqueo", detail: "el cursor está bloqueado aquí", key: "", color: GREY, run: () => ctx.lockHere(false) }
+        : { id: "lock:on", group: "Acciones", title: "Bloquear aquí", detail: "el cursor no cruza", key: "", color: GREY, run: () => ctx.lockHere(true) },
     );
   }
   out.push({ id: "wizard:open", group: "Acciones", title: "Abrir el asistente", detail: "", key: "", color: GREY, run: () => ctx.openWizard() });

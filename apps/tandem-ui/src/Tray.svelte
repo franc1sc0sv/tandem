@@ -17,6 +17,7 @@
   import type { Store } from "./lib/store/store.svelte";
   import type { TunnelView } from "./lib/store/types";
   import Logo from "./shell/Logo.svelte";
+  import Chip from "./ui/Chip.svelte";
   import Icon from "./ui/Icon.svelte";
 
   interface Props {
@@ -60,6 +61,8 @@
 
 <div class="pop">
   <div class="head"><Logo size={18} stroke={2.6} />Mi puesto<span class="fill"></span><span class="mono mut ln">{link}</span></div>
+
+  {#if desk.locked}<Chip tone="warn" icon="lock">Cursor bloqueado aquí</Chip>{/if}
 
   <div class="box">
     {#each machines as m, i (m.id)}

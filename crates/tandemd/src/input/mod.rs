@@ -398,6 +398,13 @@ fn spawn_engine(
     tasks.push(spawn(Box::pin(server(sh.clone()))));
     tasks.push(spawn(Box::pin(client(sh.clone(), input_rx))));
     tasks.push(tokio::spawn(clipboard_module(sh.clone(), clip_rx)));
+    // Sin detector, «Archivos» lo dice con la razón en vez de aparecer activo (T-158).
+    sh.agent.set_module_problem(
+        ModuleId::Files,
+        file_drag
+            .is_none()
+            .then(|| crate::modules::NO_FILE_DRAG.to_owned()),
+    );
     if let Some(hook) = file_drag {
         tasks.push(tokio::spawn(file_drag::follow_edge(
             sh.clone(),
