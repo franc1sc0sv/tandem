@@ -312,6 +312,8 @@ async fn respond<C: ControlChannel>(
                 return Err(format!("canal {channel:?} abierto a mitad de un stream"));
             }
             // Las respuestas son del que pide.
+            // Se atiende en `serve_stream`, que tiene la conexión.
+            ControlMsg::LinkClass { .. } => {}
             ControlMsg::Pong { .. } | ControlMsg::StepResult { .. } => {}
         }
     }
@@ -373,11 +375,20 @@ async fn serve_stream(
     conn: Connection,
     agent: Arc<Agent>,
 ) -> Result<(), String> {
-    let first = match stream.recv::<ControlMsg>().await {
+    let mut first = match stream.recv::<ControlMsg>().await {
         Ok(Some(first)) => first,
         Ok(None) => return Ok(()),
         Err(e) => return Err(e.to_string()),
     };
+    // El otro lado dice cómo clasifica esta conexión antes que nada (T-094).
+    if let ControlMsg::LinkClass { kind } = first {
+        apply_link_class(&conn, kind.into());
+        first = match stream.recv::<ControlMsg>().await {
+            Ok(Some(next)) => next,
+            Ok(None) => return Ok(()),
+            Err(e) => return Err(e.to_string()),
+        };
+    }
     if let ControlMsg::Open(Channel::Tunnel) = first {
         // Los túneles no van al motor de entrada: los atiende su módulo.
         return crate::tunnels::serve(stream, &conn, &agent).await;
@@ -398,6 +409,19 @@ async fn serve_stream(
         return Ok(());
     }
     serve_from(stream, agent, Some(first)).await
+}
+
+/// La etiqueta de la conexión es la peor de las dos clasificaciones: si el otro extremo la
+/// ve por Wi-Fi, esta también, y sus datos llevan el tope del Wi-Fi aunque aquí el cable
+/// parezca Ethernet. El `Qos` es el del camino, así que vale para todas sus conexiones.
+fn apply_link_class(conn: &Connection, theirs: LinkKind) {
+    let qos = conn.qos();
+    let Some(ours) = qos.link() else { return };
+    let label = tandem_link::iface::worst(ours, theirs);
+    if label != ours {
+        tracing::info!(nuestra = %ours, suya = %theirs, "el otro extremo ve el enlace peor: se usa {label}");
+        qos.set_link(Some(label));
+    }
 }
 
 /// Lo más que puede tardar una prueba de ancho de banda, de punta a punta: la prueba y

@@ -4348,6 +4348,7 @@ dependencies = [
  "bytes",
  "ed25519-dalek",
  "getrandom 0.4.3",
+ "if-addrs",
  "mdns-sd",
  "proptest",
  "quinn",

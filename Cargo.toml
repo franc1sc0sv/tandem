@@ -32,6 +32,7 @@ mdns-sd = "0.21.5"
 monitor-ddc = { git = "https://github.com/franc1sc0sv/monitor-firmware", rev = "e850a2d4a63c26c100aa846970f8673afed39229" }
 postcard = { version = "1.1.3", features = ["use-std"] }
 # Solo pruebas: invariantes de planes, transacciones y protocolo.
+if-addrs = { version = "0.15.0", features = ["link-local"] }
 proptest = "1.12.0"
 # Sin `platform-verifier` (la confianza la da el pinning) y con ring como en rcgen,
 # para no arrastrar aws-lc-rs (cmake/nasm en Windows).

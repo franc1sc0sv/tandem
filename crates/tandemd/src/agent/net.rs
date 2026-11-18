@@ -65,6 +65,14 @@ impl Agent {
     /// Lo medido queda en las métricas y en el tope de los datos de ese camino (T-101).
     pub async fn measure_link(&self, path: Link) -> Reply {
         let kind = LinkKind::from(path);
+        // La prueba manda datos sin tope durante 3 s: por Wi-Fi le metería latencia a la
+        // entrada. Cuenta la etiqueta del camino, que es la peor de las dos puntas (T-094).
+        let label = self.link_qos().get(kind).link().unwrap_or(kind);
+        if !label.is_wired() {
+            return Reply::Rejected(format!(
+                "No se mide el ancho de banda por {label}: la prueba satura el enlace y solo se hace por cable"
+            ));
+        }
         let Some(conn) = self.path_conn(kind) else {
             return Reply::Rejected(format!("Sin conexión con la otra máquina por {kind}"));
         };
@@ -95,6 +103,7 @@ impl Agent {
 mod tests {
     use std::net::{Ipv4Addr, SocketAddr};
     use std::sync::Arc;
+    use std::time::Duration;
 
     use tandem_core::Machine;
     use tandem_link::identity::{Identity, PublicKey};
@@ -137,6 +146,79 @@ mod tests {
         assert!(s.paths.iter().all(|p| p.state == PathState::Unplugged));
     }
 
+    #[tokio::test]
+    async fn por_wifi_no_se_mide_ni_con_conexion() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent(dir.path(), Machine::A);
+        let Reply::Rejected(why) = a.measure_link(Link::Wifi).await else {
+            panic!("se esperaba un rechazo");
+        };
+        assert!(why.contains("Wi-Fi") && why.contains("cable"), "{why}");
+        assert_eq!(a.network_status().measuring, None);
+        assert_eq!(a.link_qos().get(LinkKind::Wifi).measured(), None);
+    }
+
+    /// Una etiqueta peor que la propia (el otro extremo ve Wi-Fi) tampoco se mide.
+    #[tokio::test]
+    async fn si_el_otro_extremo_lo_ve_por_wifi_el_cable_tampoco_se_mide() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent(dir.path(), Machine::A);
+        a.link_qos()
+            .get(LinkKind::Ethernet)
+            .set_link(Some(tandem_link::iface::worst(
+                LinkKind::Ethernet,
+                LinkKind::Wifi,
+            )));
+        let Reply::Rejected(why) = a.measure_link(Link::Ethernet).await else {
+            panic!("se esperaba un rechazo");
+        };
+        assert!(why.contains("Wi-Fi"), "{why}");
+    }
+
+    /// PC con Ethernet, Mac con Wi-Fi: cada extremo anuncia su clasificación al abrir la
+    /// conexión y la etiqueta de los dos es la peor, Wi-Fi: sin plano de datos por cable.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn clasificaciones_distintas_dan_la_peor() {
+        let dir = tempfile::tempdir().unwrap();
+        let (mac, pc) = (agent(dir.path(), Machine::A), agent(dir.path(), Machine::B));
+        let loopback = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
+        let ep_a =
+            Endpoint::bind(loopback, &Identity::from_seed([1; 32]), Arc::new(Anyone)).unwrap();
+        let ep_b =
+            Endpoint::bind(loopback, &Identity::from_seed([2; 32]), Arc::new(Anyone)).unwrap();
+        let to_b = ep_b.local_addr().unwrap();
+        let (conn_a, conn_b) = tokio::join!(ep_a.connect(to_b), ep_b.accept());
+        // La Mac (A) ve el camino como Wi-Fi y la PC (B) como Ethernet.
+        let conn_a = conn_a.unwrap().with_qos(mac.link_qos().get(LinkKind::Wifi));
+        let conn_b = conn_b
+            .unwrap()
+            .unwrap()
+            .with_qos(pc.link_qos().get(LinkKind::Ethernet));
+        tokio::spawn(peer::accept_streams(conn_b, pc.clone()));
+
+        let client = crate::PeerClient::open(&conn_a, Machine::A).await.unwrap();
+        client.send(tandem_proto::ControlMsg::LinkClass { kind: Link::Wifi });
+        let pc_qos = pc.link_qos().get(LinkKind::Ethernet);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while pc_qos.link() != Some(LinkKind::Wifi) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("la PC no adoptó la etiqueta peor");
+
+        // Sin plano de datos por cable: ni se mide ni lleva el tope de un cable.
+        let Reply::Rejected(why) = pc.measure_link(Link::Ethernet).await else {
+            panic!("se esperaba un rechazo");
+        };
+        assert!(why.contains("Wi-Fi"), "{why}");
+        // La Mac ya lo ve así por su propia clasificación.
+        assert_eq!(
+            mac.link_qos().get(LinkKind::Wifi).link(),
+            Some(LinkKind::Wifi)
+        );
+    }
+
     /// Dos agentes por QUIC real en loopback (puertos efímeros): la medición va por la
     /// conexión del camino pedido, la contesta el otro agente y queda en las métricas y en
     /// el `Qos` de ese camino.
@@ -153,13 +235,13 @@ mod tests {
         let (conn_a, conn_b) = tokio::join!(ep_a.connect(to_b), ep_b.accept());
         let (conn_a, conn_b) = (conn_a.unwrap(), conn_b.unwrap().unwrap());
         tokio::spawn(peer::accept_streams(conn_b, b));
-        a.set_path_conns(BTreeMap::from([(LinkKind::Wifi, conn_a)]));
+        a.set_path_conns(BTreeMap::from([(LinkKind::Ethernet, conn_a)]));
 
-        let reply = tokio::time::timeout(peer::MEASURE_TIMEOUT, a.measure_link(Link::Wifi))
+        let reply = tokio::time::timeout(peer::MEASURE_TIMEOUT, a.measure_link(Link::Ethernet))
             .await
             .unwrap();
         let Reply::Bandwidth {
-            link: Link::Wifi,
+            link: Link::Ethernet,
             bytes_per_sec,
         } = reply
         else {
@@ -169,13 +251,13 @@ mod tests {
         let s = a.network_status();
         assert_eq!(s.measuring, None);
         assert_eq!(
-            s.path(Link::Wifi)
+            s.path(Link::Ethernet)
                 .and_then(|p| p.bandwidth)
                 .map(|b| b.bytes_per_sec),
             Some(bytes_per_sec)
         );
         assert_eq!(
-            a.link_qos().get(LinkKind::Wifi).measured(),
+            a.link_qos().get(LinkKind::Ethernet).measured(),
             Some(bytes_per_sec)
         );
     }

@@ -167,3 +167,49 @@ async fn la_medición_se_corta_si_la_entrada_pasa_su_objetivo() {
     // El otro lado recibe el fin igual.
     answer.await.unwrap();
 }
+
+/// T-094: un cable USB4 que se enchufa a mitad de la sesión se detecta por su interfaz, se
+/// vuelve el camino principal en las dos máquinas, y al desconectarlo la entrada pasa al
+/// camino siguiente en menos de 1 s, sin esperar a la revisión de salud.
+#[tokio::test(start_paused = true)]
+async fn el_cable_usb4_que_aparece_se_vuelve_el_principal_y_su_baja_pasa_al_siguiente() {
+    let d = Desk::builder()
+        .links(&[LinkKind::Ethernet, LinkKind::Wifi])
+        .build()
+        .await
+        .unwrap();
+    let run = d.power_on(Machine::B).await.unwrap();
+    assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
+    d.pc_agrees().await.unwrap();
+    tokio::time::sleep(Duration::from_secs(5)).await;
+    let (mac, pc) = (d.agent(Machine::A), d.agent(Machine::B));
+    for a in [mac, pc] {
+        let s = a.network_status();
+        assert_eq!(s.primary().map(|p| p.link), Some(Link::Ethernet));
+        assert_eq!(
+            s.path(Link::Usb4).map(|p| p.state),
+            Some(PathState::Unplugged)
+        );
+    }
+
+    // Aparece la interfaz USB4 en las dos máquinas.
+    d.plug_cable(LinkKind::Usb4);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    for a in [mac, pc] {
+        let s = a.network_status();
+        assert_eq!(s.primary().map(|p| p.link), Some(Link::Usb4), "{s:?}");
+    }
+
+    // Se desconecta: en menos de 1 s la entrada ya va por el Ethernet.
+    d.unplug_cable(LinkKind::Usb4);
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    for a in [mac, pc] {
+        let s = a.network_status();
+        assert_eq!(s.primary().map(|p| p.link), Some(Link::Ethernet), "{s:?}");
+        let last = s.switches.first().expect("quedó el cambio en el historial");
+        assert_eq!(
+            (last.from, last.to),
+            (Some(Link::Usb4), Some(Link::Ethernet))
+        );
+    }
+}

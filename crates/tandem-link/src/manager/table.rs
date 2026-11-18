@@ -36,6 +36,9 @@ pub(crate) struct LinkTable<H> {
     links: BTreeMap<LinkKind, Slot<H>>,
     active: Option<LinkKind>,
     next_seq: u64,
+    /// Enlaces que se quitaron estando sanos: al volver entran con la histéresis, como los
+    /// que se caen (un cable que parpadea no arrastra el tráfico).
+    flapped: std::collections::BTreeSet<LinkKind>,
     /// Cuánto tiene que estar sano un enlace que ya se cayó antes de volver a él.
     settle: Duration,
 }
@@ -87,8 +90,44 @@ impl<H> LinkTable<H> {
             links,
             active: None,
             next_seq: 0,
+            flapped: Default::default(),
             settle,
         })
+    }
+
+    /// Un enlace nuevo (apareció su interfaz). Si ya estaba con esa dirección no hace
+    /// nada; con otra, se reemplaza. Devuelve si quedó un enlace nuevo que pingear.
+    pub(crate) fn add(&mut self, c: LinkCandidate) -> bool {
+        if self.links.get(&c.kind).is_some_and(|s| s.addr == c.addr) {
+            return false;
+        }
+        let dropped = self.flapped.contains(&c.kind);
+        self.links.insert(
+            c.kind,
+            Slot {
+                addr: c.addr,
+                up: None,
+                up_since: None,
+                last_ok: None,
+                dropped,
+            },
+        );
+        true
+    }
+
+    /// Quita un enlace (su interfaz bajó). Si era el activo, el cambio al siguiente sale
+    /// en el acto, haya o no una transacción en curso.
+    pub(crate) fn remove(&mut self, kind: LinkKind, now: Instant) -> Option<LinkEvent> {
+        let slot = self.links.get_mut(&kind)?;
+        if slot.up.is_some() {
+            self.flapped.insert(kind);
+        }
+        // Primero caído, para que el evento cuente cuánto estuvo sin camino; después sale.
+        slot.up = None;
+        slot.up_since = None;
+        let event = self.reevaluate(now, false);
+        self.links.remove(&kind);
+        event
     }
 
     /// Aplica el resultado de un ping: `Some((handle, rtt))` si respondió.

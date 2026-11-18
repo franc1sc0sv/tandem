@@ -398,3 +398,64 @@ fn el_presupuesto_por_omisión_cumple_el_diseño() {
     assert_eq!(c.ping_interval, Duration::from_secs(1));
     assert!(c.ping_interval + c.ping_timeout < MAX_SWITCH);
 }
+
+#[tokio::test(start_paused = true)]
+async fn un_enlace_que_aparece_se_pingea_y_se_vuelve_el_activo() {
+    let mut rig = Rig::new(&[LinkKind::Wifi], &[LinkKind::Wifi]);
+    rig.until_active(Some(LinkKind::Wifi)).await;
+
+    rig.net.set(addr(LinkKind::Usb4), Wire::Up);
+    let usb4 = cands(&[LinkKind::Usb4])[0];
+    rig.manager.control().add(usb4).unwrap();
+    let took = rig.until_active(Some(LinkKind::Usb4)).await;
+    assert!(took <= Duration::from_secs(2), "{took:?}");
+    let kinds: Vec<_> = rig.manager.links().iter().map(|l| l.kind).collect();
+    assert_eq!(kinds, [LinkKind::Usb4, LinkKind::Wifi]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn quitar_el_activo_pasa_al_siguiente_en_el_acto_aunque_haya_retención() {
+    let mut rig = Rig::new(
+        &[LinkKind::Usb4, LinkKind::Wifi],
+        &[LinkKind::Usb4, LinkKind::Wifi],
+    );
+    rig.until_active(Some(LinkKind::Usb4)).await;
+    time::sleep(Duration::from_secs(2)).await;
+    let _hold = rig.manager.hold();
+
+    rig.manager.control().remove(LinkKind::Usb4).unwrap();
+    let took = rig.until_active(Some(LinkKind::Wifi)).await;
+    assert!(took < Duration::from_millis(100), "{took:?}");
+    assert_eq!(rig.manager.links().len(), 1);
+    assert_eq!(rig.manager.active().map(|a| a.kind), Some(LinkKind::Wifi));
+}
+
+#[tokio::test(start_paused = true)]
+async fn el_enlace_que_vuelve_tras_quitarse_espera_la_histéresis() {
+    let mut rig = Rig::new(
+        &[LinkKind::Usb4, LinkKind::Wifi],
+        &[LinkKind::Usb4, LinkKind::Wifi],
+    );
+    rig.until_active(Some(LinkKind::Usb4)).await;
+    time::sleep(Duration::from_secs(2)).await;
+    let control = rig.manager.control();
+    control.remove(LinkKind::Usb4).unwrap();
+    rig.until_active(Some(LinkKind::Wifi)).await;
+
+    // El cable vuelve: hasta que no lleve `settle` sin cortes, el tráfico sigue en el Wi-Fi.
+    control.add(cands(&[LinkKind::Usb4])[0]).unwrap();
+    time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(rig.manager.active().map(|a| a.kind), Some(LinkKind::Wifi));
+    let took = rig.until_active(Some(LinkKind::Usb4)).await;
+    assert!(took <= Duration::from_secs(3), "{took:?}");
+}
+
+#[tokio::test(start_paused = true)]
+async fn quitar_un_enlace_que_no_está_no_hace_nada() {
+    let mut rig = Rig::new(&[LinkKind::Wifi], &[LinkKind::Wifi]);
+    rig.until_active(Some(LinkKind::Wifi)).await;
+    rig.manager.control().remove(LinkKind::Ethernet).unwrap();
+    time::sleep(Duration::from_secs(3)).await;
+    assert_eq!(rig.manager.active().map(|a| a.kind), Some(LinkKind::Wifi));
+    assert_eq!(rig.seen.len(), 1);
+}

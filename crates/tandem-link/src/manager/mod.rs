@@ -26,13 +26,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, watch};
-use tokio::task::{JoinHandle, JoinSet};
+use tokio::task::{AbortHandle, JoinHandle, JoinSet};
 use tokio::time::{self, Instant, MissedTickBehavior};
 
 pub use kind::{LinkCandidate, LinkKind};
 pub use probe::Prober;
 pub use quic::{QuicProber, QuicSession, answer_pings};
 pub use table::{LinkEvent, LinkStatus};
+// `LinkControl` y `ManagerGone` se definen abajo.
 
 use table::LinkTable;
 
@@ -95,7 +96,45 @@ pub struct Snapshot<H> {
 pub struct LinkManager<H> {
     state: watch::Receiver<Snapshot<H>>,
     holds: Arc<watch::Sender<usize>>,
+    control: LinkControl,
     task: JoinHandle<()>,
+}
+
+enum Command {
+    Add(LinkCandidate),
+    Remove(LinkKind),
+}
+
+/// Para agregar y quitar enlaces con el gestor en marcha (T-094): un cable que aparece o
+/// se desconecta. Se clona barato.
+#[derive(Debug, Clone)]
+pub struct LinkControl {
+    tx: mpsc::UnboundedSender<Command>,
+}
+
+impl fmt::Debug for Command {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("Command")
+    }
+}
+
+/// El gestor ya no existe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("el gestor de enlaces ya terminó")]
+pub struct ManagerGone;
+
+impl LinkControl {
+    /// Agrega un enlace y empieza a pingearlo. Si ya estaba con esa dirección no cambia
+    /// nada. Si volvió después de quitarse sano, entra con la histéresis de siempre.
+    pub fn add(&self, link: LinkCandidate) -> Result<(), ManagerGone> {
+        self.tx.send(Command::Add(link)).map_err(|_| ManagerGone)
+    }
+
+    /// Quita un enlace en el acto, sin esperar al ping: si era el activo, la entrada pasa
+    /// al siguiente.
+    pub fn remove(&self, kind: LinkKind) -> Result<(), ManagerGone> {
+        self.tx.send(Command::Remove(kind)).map_err(|_| ManagerGone)
+    }
 }
 
 /// Mientras exista, el gestor no cambia de enlace salvo que el activo caiga.
@@ -150,18 +189,45 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
 
         let prober = Arc::new(prober);
         let mut links = JoinSet::new();
+        let mut pingers: BTreeMap<LinkKind, AbortHandle> = BTreeMap::new();
         for c in table.candidates() {
-            links.spawn(run_link(prober.clone(), c, config, report_tx.clone()));
+            let kind = c.kind;
+            let handle = links.spawn(run_link(prober.clone(), c, config, report_tx.clone()));
+            pingers.insert(kind, handle);
         }
-        drop(report_tx);
+        let (control_tx, mut commands) = mpsc::unbounded_channel::<Command>();
 
         // Una sola tarea aplica los resultados: así los eventos salen en el
         // orden en que cambió la tabla. Al abortarla, `links` se suelta y
         // aborta los pings.
         let task = tokio::spawn(async move {
-            let _links = links;
+            let mut links = links;
             loop {
                 let event = tokio::select! {
+                    Some(command) = commands.recv() => match command {
+                        Command::Add(c) => {
+                            if table.add(c) {
+                                if let Some(old) = pingers.remove(&c.kind) {
+                                    old.abort();
+                                }
+                                let handle = links.spawn(run_link(
+                                    prober.clone(),
+                                    c,
+                                    config,
+                                    report_tx.clone(),
+                                ));
+                                pingers.insert(c.kind, handle);
+                            }
+                            // Un enlace sin ping todavía no cambia el activo.
+                            None
+                        }
+                        Command::Remove(kind) => {
+                            if let Some(old) = pingers.remove(&kind) {
+                                old.abort();
+                            }
+                            table.remove(kind, Instant::now())
+                        }
+                    },
                     report = reports.recv() => {
                         let Some((kind, up)) = report else { return };
                         let held = *held.borrow_and_update() > 0;
@@ -185,11 +251,24 @@ impl<H: Clone + Send + Sync + 'static> LinkManager<H> {
                 }
             }
         });
-        Ok((Self { state, holds, task }, events))
+        Ok((
+            Self {
+                state,
+                holds,
+                control: LinkControl { tx: control_tx },
+                task,
+            },
+            events,
+        ))
     }
 }
 
 impl<H> LinkManager<H> {
+    /// Para agregar y quitar enlaces en marcha.
+    pub fn control(&self) -> LinkControl {
+        self.control.clone()
+    }
+
     /// Retiene el enlace activo durante una transacción: los pasos de un mismo
     /// cambio no saltan de enlace a medias salvo que el activo caiga.
     pub fn hold(&self) -> LinkHold {

@@ -124,7 +124,8 @@ mod tests {
     /// (archivos y puertos por túnel, sus pedidos y el avance de las transferencias) sube a
     /// la v31. T-104 (procesos por túnel: `Exec`, `Kill`, `Output`, `GetProcesses` y los
     /// procesos en la vista de túneles) sube a la v32: iba a ser la v29, pero T-111, T-128 y
-    /// T-106 entraron antes.
+    /// T-106 entraron antes. T-094 (`ControlMsg::LinkClass`, la clasificación de cada
+    /// conexión por su interfaz) sube a la v33.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
         assert_eq!(PROTOCOL_VERSION, 33);
