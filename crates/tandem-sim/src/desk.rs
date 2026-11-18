@@ -22,7 +22,7 @@ use crate::steps::{HardwareTimes, SimSteps};
 use crate::world::{Power, World};
 
 /// La tarjeta de red a la que va el Wake-on-LAN (simulado) de cada agente.
-const WOL_MAC: &str = "9c:6b:00:1a:2b:ff";
+const WOL_MAC: &str = "aa:bb:cc:dd:ee:ff";
 
 /// Tope de espera para cualquier cosa de la simulación, en tiempo de tokio (pausado).
 pub const SIM_LIMIT: Duration = Duration::from_secs(3600);

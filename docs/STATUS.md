@@ -1,75 +1,65 @@
 # Tandem — Estado del proyecto
 
-> **2026-11-16: comienza v0.3.** Plan en `docs/DESIGN.md` (v0.3) y `docs/DECISIONS.md`; backlog T-097…T-125; definición de terminado en `docs/ACCEPTANCE.md`; trabajo autónomo en `docs/dev/night-run.md`. Lo de abajo es el corte de v0.2.
-
-
-> Corte: 2026-10-16 · rama `develop` · CI en verde en Linux, Windows y macOS
+> Corte de **v0.3**: 2026-11-18 · rama `develop` en `509727a` · el CI de `develop` pasa en Linux, Windows y macOS salvo pruebas inestables conocidas (T-160).
+> Diseño en `DESIGN.md` (v0.3) y `DECISIONS.md`; definición de terminado en `ACCEPTANCE.md`; trabajo autónomo en `dev/night-run.md`; informes de aceptación en `reports/`.
 
 ## En una línea
 
-**Todo lo que se puede construir y probar sin tu hardware está hecho.** Lo que falta es probarlo en tu Mac, tu PC y tus monitores reales, y 3 tareas que necesitan una acción tuya.
+**Todo lo que se puede construir y probar sin tu hardware está hecho; lo que falta es probarlo en tu Mac, tu PC y tus monitores reales** (la suite `scripts/hw/run.sh`, T-123, está lista para correrla) y cerrar las fallas que halló la aceptación de hoy.
 
 | | |
 |---|---|
-| Tareas integradas | **41 de 44** (las 3 restantes necesitan al usuario) |
-| Pruebas | **909 de Rust + 60 de la UI**, 0 fallos |
-| Código | ~55 mil líneas de Rust en 10 crates + UI en Tauri |
+| Tareas | **92 hechas de 111** (`T-001`…`T-165`; ver abajo las abiertas) |
+| Pruebas | **1442 de Rust + 619 de la UI (vitest)**, 0 fallos, 11 ignoradas (`#[ignore = "hardware"]` y bancos de latencia) |
+| Calidad | `fmt`, `clippy -D warnings`, `svelte-check` y `pnpm build` sin avisos |
 | CI por PR | Linux · Windows · macOS · UI x3 · cobertura · `.dmg` · instalador de Windows |
-| Rondas de QA adversarial | 2, con 5 bugs reales encontrados y corregidos |
 
 ## Qué hay
 
 | Área | Estado |
 |---|---|
-| **Red** | QUIC cifrado con autenticación mutua, enlaces USB4 → Ethernet → Wi-Fi con failover e histéresis, el Wi-Fi solo lleva control, descubrimiento mDNS, emparejamiento con código de 6 dígitos desde la UI |
-| **Agente `tandemd`** | Ensamblado de punta a punta: red, orquestador de encendido y apagado, energía, entrada, portapapeles y roles. Probado con **dos procesos reales** que hablan entre sí (T-075) |
-| **Monitores** | Quitado en T-092 (DESIGN §8): vuelve con el firmware propio del 34". La UI los muestra deshabilitados. El motor de entrada usa el acomodo declarado (`[[screens]]`) o las pantallas que lee cada sistema |
-| **Teclado y mouse** | Motor propio: captura e inyección en macOS y Windows, mapa de teclas HID, geometría y cruce de bordes, bloqueo del cursor, sesión por el enlace |
-| **Portapapeles** | Texto, HTML e imagen, sin eco |
-| **Roles** | El servidor es la máquina donde está el hub USB-C, con selector manual |
+| **Máquinas** | Dos máquinas simétricas, `Machine::{A, B}` (A1), con su sistema, nombre y color en la config (`MachineInfo`); no hay «Mac» y «PC» fijos (D2) |
+| **Red** | QUIC cifrado con autenticación mutua; enlaces USB4 → Ethernet → Wi-Fi con failover e histéresis. **Los datos también pueden ir por Wi-Fi** (A2): túneles y archivos en streams de baja prioridad y con tope, para no meter latencia a la entrada. mDNS y emparejamiento con código de 6 dígitos |
+| **Agente `tandemd`** | Orquestador de escenas, energía, entrada, portapapeles, túneles, archivos y roles; probado con dos agentes reales en `tandem-sim` |
+| **Escenas** | Sustituyen a los modos (D6): una escena guarda qué muestra cada monitor y el acomodo, y se aplica como transacción con vuelta atrás |
+| **Monitores** | Un solo estándar (D11): se controla el monitor que habla el protocolo del firmware propio; si no, aparece «no compatible». Lectura de EDID y cables por entrada (`[[cables]]`) |
+| **Teclado y mouse** | Motor propio, sin dueño (D7): funcionan desde cualquier máquina y Tandem sigue a la que se usa (arbitraje por mensajes entre agentes). Cursor en vivo con suscripción (hasta 30 Hz) |
+| **Portapapeles, archivos, túneles** | Texto, HTML e imagen sin eco; arrastre de archivos; túneles de puertos |
 | **Energía** | Wake-on-LAN, apagado limpio, detección de corte de corriente |
-| **UI** | Escena principal (el mockup, funcionando), barra de menú y bandeja, atajos globales, emparejamiento, avisos |
-| **Instalación** | `.dmg` de macOS con LaunchAgent y guía de permisos; instalador de Windows con arranque automático; release en CI con un tag `v*` (en borrador) |
+| **UI** | Mockup funcionando (T-115) en modo real y demo, barra de menú, bandeja, atajos, capturas de paridad en `docs/screenshots/v03/` |
+| **Pruebas en hardware** | Suite `crates/tandem-hw` + `scripts/hw/run.sh` (T-123); las pruebas que cambian la entrada de un monitor son opt-in (`--with-monitors`) y llevan vuelta automática (A8) |
+| **Instalación** | `.dmg` de macOS con LaunchAgent; instalador de Windows; release en CI con un tag `v*` (borrador) |
 
-## Cómo probarlo
+## Tareas abiertas
 
-1. **Instaladores:** en GitHub → *Actions* → la última corrida de CI en `develop` → artefactos `dmg` e `instalador`. O empuja un tag `v0.1.0` y el workflow *release* crea un release en **borrador** con los dos.
-2. **macOS:** abre el `.dmg`, arrastra a Aplicaciones y ábrelo con clic derecho → Abrir (la firma es ad-hoc). La guía te lleva a dar los permisos.
-3. **Windows:** corre el instalador. `tandemd` arranca con tu sesión.
-4. **Emparejar:** en la UI de cualquiera de las dos → Emparejar → confirma el mismo código en las dos.
-5. **Configs de ejemplo:** `docs/examples/tandem.mac.toml` y `tandem.pc.toml`. Guías en `docs/dev/install-macos.md`, `install-windows.md` y `release.md`.
+| Tarea | Estado | Qué |
+|---|---|---|
+| T-027 | todo (`windows-hw`, `user`) | Servicio SYSTEM de Windows para UAC; necesita decidir certificado Authenticode |
+| T-088, T-095, T-096 | blocked | Monitores ignorados, firmware propio del 34" y UI viva |
+| T-124 | todo | Aceptación de punta a punta |
+| T-140…T-147, T-160, T-161 | todo | Fallas de las partes A y B de la aceptación (demo, textos, capturas, D1) y pruebas inestables en CI |
+| T-162…T-165 | done en este corte | Datos personales fuera del repo, documentación al día, criterios de tareas y comentarios `SAFETY` |
 
-## Plan de prueba en hardware (en orden)
+## Verificación en hardware pendiente
 
-Cada tarea tiene su lista detallada en `docs/tasks/T-xxx.md`, en la sección *Verificación en hardware pendiente*. Este es el orden que recomiendo:
+Cada tarea con hardware lleva su lista en `docs/tasks/T-xxx.md`, sección `## Verificación en hardware pendiente`. Tareas con ítems abiertos:
 
-| # | Qué probar | Tareas | Necesita |
-|---|---|---|---|
-| 1 | Activar SSH a la Mac para que los agentes prueben ahí | T-051 | Tú, una vez |
-| 2 | Instalar los dos instaladores y emparejar | T-070, T-071, T-073 | Las dos máquinas |
-| 3 | Teclado y mouse: cruzar bordes, distribución ES (`ñ`, teclas muertas, AltGr), modificadores, scroll, multimedia, bloqueo con ScrollLock | T-022…T-025, T-074 | Las dos máquinas |
-| 4 | Portapapeles y roles moviendo el hub | T-028, T-029 | Las dos máquinas |
-| 5 | Red: mDNS entre las dos, firewall, y después los cables USB4 y Ethernet | T-006 | Cables |
-| 6 | Wake-on-LAN y apagado limpio (BIOS: ErP off, WoL on; Inicio rápido desactivado) | T-030 | Cable Ethernet |
-
-## Lo que necesita al usuario
-
-| Tarea | Qué |
-|---|---|
-| **T-051** | Activar Sesión remota en la Mac y autorizar la llave de WSL (`docs/dev/hardware.md`) |
-| **T-027** | Servicio SYSTEM de Windows para que el mouse funcione en UAC y en la pantalla de inicio de sesión. Necesita decidir un certificado Authenticode |
-| **Pasar a `main`** | Revisar `develop` y abrir el PR a `main` |
+- **Teclado y mouse:** T-022, T-023, T-024, T-025, T-074, T-093 (captura e inyección en macOS/Windows, distribución ES, scroll, bloqueo).
+- **Pantallas y monitores:** T-010, T-011, T-012, T-013, T-014, T-015, T-104, T-109, T-110, T-111, T-121 (CGS/CCD en la Mac, DDC/CI, entradas con vuelta automática).
+- **Red y energía:** T-006, T-030, T-070, T-071, T-078, T-080, T-081, T-082 (mDNS, firewall, cables, Wake-on-LAN, instaladores).
+- **Roles, portapapeles, UI:** T-028, T-029, T-087, T-089, T-090, T-092, T-094, T-105, T-108, T-122, T-131.
+- **Suite completa:** T-123 (`scripts/hw/run.sh` de punta a punta y marcar los ítems cubiertos).
 
 ## Riesgos y limitaciones conocidas
 
-- **Nada se probó aún en hardware real.** Todo pasa con dobles de prueba, en el simulador del puesto y en CI. Lo físico (APIs de macOS, hooks de Windows, distribución de teclado) solo se confirma en tus equipos.
-- **APIs privadas de macOS** (`SetsCursorInBackground`): pueden cambiar entre versiones de macOS.
-- **Firma:** macOS usa firma ad-hoc (clic derecho → Abrir; los permisos TCC están atados a la firma, así que al reinstalar puede pedirlos otra vez). Windows sin firma Authenticode: SmartScreen va a avisar.
-- **Windows sin el servicio SYSTEM (T-027):** el mouse remoto no funciona en diálogos UAC ni en la pantalla de inicio de sesión.
-- **Escala en Windows:** la topología no da los DPI y las pantallas de la PC van con escala 1; la velocidad del cursor entre monitores puede sentirse distinta (T-074).
-- **Corte de corriente durante un cambio que usa la Mac:** la Mac espera hasta ~130 s antes de marcar la PC como apagada (T-063).
-- **Monitores en pausa:** desde T-092 Tandem no cambia entradas; lo hará el firmware propio del 34", que reporta su estado real.
+- **Casi nada se probó aún en hardware real.** Todo pasa con dobles de prueba, el simulador del puesto y CI; lo físico (APIs de macOS, hooks de Windows, DDC/CI, distribución de teclado) solo se confirma en tus equipos.
+- **Pruebas inestables en CI** (macOS y Ubuntu, T-160): no son regresiones, pero hacen rojo el CI al azar.
+- **APIs privadas de macOS** (`SetsCursorInBackground`, `CGSConfigureDisplayEnabled`): pueden cambiar entre versiones.
+- **Firma:** macOS con firma ad-hoc (los permisos TCC pueden volver a pedirse al reinstalar); Windows sin Authenticode (SmartScreen avisa).
+- **Windows sin el servicio SYSTEM (T-027):** el mouse remoto no funciona en UAC ni en el inicio de sesión.
+- **Corte de corriente durante un cambio que usa a la otra máquina:** espera hasta ~130 s antes de marcarla apagada (T-063).
+- **Monitores:** el cambio de entrada depende del firmware propio del 34" (T-095, bloqueada); las pruebas que cambian entradas exigen vuelta automática porque el usuario puede quedarse sin ver una máquina.
 
-## Cómo se construyó
+## Qué falta para pasar a `main`
 
-Un piloto de agentes en paralelo (hasta 11 tareas a la vez), cada tarea en su worktree: implementar → revisión independiente → correcciones → CI en las tres plataformas → merge a `develop` desde la sesión principal. Las rondas de QA usan `tandem-sim`, un puesto simulado con fallos inyectados. Detalle en `docs/dev/agents.md`, estrategia de pruebas en `docs/TESTING.md`, diseño en `docs/DESIGN.md`.
+Cerrar las fallas abiertas de la aceptación, correr la suite de hardware (T-123) y revisar `develop`; el PR a `main` lo abre el usuario.

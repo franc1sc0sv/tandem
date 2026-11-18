@@ -24,7 +24,7 @@
 //!
 //! # Cómo despertar a la otra máquina: Wake-on-LAN por el enlace Ethernet directo.
 //! [power.wol]
-//! mac = "9c:6b:00:1a:2b:ff"
+//! mac = "aa:bb:cc:dd:ee:ff"
 //! source = "10.77.2.1"
 //! broadcast = "10.77.2.3"
 //!
@@ -532,7 +532,7 @@ pub(crate) mod fixtures {
     pub fn desk_with_wol() -> AgentConfig {
         let mut cfg = desk();
         cfg.power.wol = Some(tandem_power::WolTarget::new(
-            "9c:6b:00:1a:2b:ff".parse().unwrap(),
+            "aa:bb:cc:dd:ee:ff".parse().unwrap(),
         ));
         cfg
     }
@@ -819,17 +819,17 @@ mod tests {
     #[test]
     fn parses_wake_on_lan() {
         let cfg = AgentConfig::from_toml(
-            "machine = \"a\"\n[power.wol]\nmac = \"9c-6b-00-1a-2b-ff\"\nsource = \"10.77.2.1\"\nbroadcast = \"10.77.2.3\"",
+            "machine = \"a\"\n[power.wol]\nmac = \"aa-bb-cc-dd-ee-ff\"\nsource = \"10.77.2.1\"\nbroadcast = \"10.77.2.3\"",
         )
         .unwrap();
         let wol = cfg.power.wol.unwrap();
-        assert_eq!(wol.mac.to_string(), "9c:6b:00:1a:2b:ff");
+        assert_eq!(wol.mac.to_string(), "aa:bb:cc:dd:ee:ff");
         assert_eq!(wol.destination(), "10.77.2.3:9".parse().unwrap());
     }
 
     #[test]
     fn rejects_bad_wake_on_lan() {
-        let base = "machine = \"a\"\n[power.wol]\nmac = \"9c:6b:00:1a:2b:ff\"\n";
+        let base = "machine = \"a\"\n[power.wol]\nmac = \"aa:bb:cc:dd:ee:ff\"\n";
         let err = AgentConfig::from_toml(&format!("{base}port = 0")).unwrap_err();
         assert!(matches!(err, ConfigError::ZeroWolPort), "{err}");
         let err = AgentConfig::from_toml(&format!("{base}source = \"fe80::1\"")).unwrap_err();

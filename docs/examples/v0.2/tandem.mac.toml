@@ -46,7 +46,7 @@ wakeable = true
 # Wake-on-LAN por el Ethernet directo: la MAC de la tarjeta de la PC, la IP de la Mac
 # en ese enlace y el broadcast de su subred.
 [power.wol]
-mac = "9c:6b:00:1a:2b:ff"
+mac = "aa:bb:cc:dd:ee:ff"
 source = "10.77.2.1"
 broadcast = "10.77.2.3"
 

@@ -34,7 +34,7 @@ Objetivo: cuando se conecte el hardware real, que lo único pendiente de verific
 - **Red** (`net`): un enlace en memoria por USB4, Ethernet y Wi-Fi. Cortar un enlace es silencio, como un cable desenchufado; los flujos abiertos por él no vuelven aunque el cable vuelva. Con la PC apagada su agente no contesta por ningún enlace.
 - **Fallos** (`FaultPlan`): en el paso que se quiera de cualquiera de las dos máquinas, `Fail` (falla sin aplicarse), `Hang` (no termina: lo corta el tiempo máximo), `Delay`, `CutLink` (se cae un enlace al empezar el paso) y `ApplyThenCut` (se aplica y la respuesta se pierde con el enlace). También `cut_link_at` para cortar un enlace en un instante. Cada fallo se dispara una vez salvo `.times(n)`, así el inverso del paso no falla también.
 
-Las comprobaciones comparan la verdad física con lo que cree el agente: `Desk::check` (energía y ningún paso imposible, como uno en la PC apagada), `Desk::check_geometry` y `Desk::pc_agrees` (el agente de la PC tiene el mismo estado).
+Las comprobaciones comparan la verdad física con lo que cree el agente: `Desk::check` (energía y ningún paso imposible, como uno en la PC apagada) y `Desk::pc_agrees` (el agente de la PC tiene el mismo estado).
 
 ### Agregar un escenario
 
@@ -43,25 +43,28 @@ Los escenarios van en `crates/tandem-sim/tests/scenarios.rs` (o en otro archivo 
 ```rust
 #[tokio::test(start_paused = true)]
 async fn mi_escenario() {
-    // Todo en la Mac, PC apagada, tres enlaces. `Desk::builder()` cambia enlaces y tiempos.
-    let d = Desk::new().await.unwrap();
+    // Un monitor de escena; las escenas se agregan como en `tests/scenes.rs`.
+    let d = Desk::builder()
+        .scene_monitors(&[("34", Machine::A)])
+        .build()
+        .await
+        .unwrap();
 
-    // Llegar al punto de partida por la vía normal.
-    let run = d.set_mode(Machine::Mac, Mode::SoloPc).await.unwrap();
+    // Llegar al punto de partida por la vía normal: apagar la máquina B.
+    let run = d.shutdown_pc().await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed));
 
     // Armar los fallos justo antes de lo que se prueba.
     d.arm(FaultPlan::new().on(
-        Machine::Pc,
-        Step::PowerOffPc,
-        FaultAction::Fail("no se apaga".into()),
+        Machine::A,
+        Step::Geometry,
+        FaultAction::Fail("el motor no respondió".into()),
     ));
-    let run = d.shutdown_pc().await.unwrap();
-    assert_eq!(run.outcome(), Some(Outcome::RolledBack));
+    let run = d.apply_scene(Machine::A, "trabajo").await.unwrap();
+    assert_eq!(run.outcome(), Some(Outcome::Failed));
 
     // El puesto coincide con el estado y la PC está de acuerdo.
     d.check().await.unwrap();
-    d.check_geometry().unwrap();
     d.pc_agrees().await.unwrap();
 }
 ```

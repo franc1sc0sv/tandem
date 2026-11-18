@@ -14,7 +14,7 @@ machine = "a"
 
 # Con qué despertar a la PC: sin esto el plan rechaza encenderla.
 [power.wol]
-mac = "9c:6b:00:1a:2b:ff"
+mac = "aa:bb:cc:dd:ee:ff"
 "#;
 
 fn endpoint(dir: &std::path::Path) -> PathBuf {

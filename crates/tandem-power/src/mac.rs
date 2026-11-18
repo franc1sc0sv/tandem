@@ -64,27 +64,27 @@ mod tests {
 
     use super::*;
 
-    const PC: MacAddr = MacAddr([0x9c, 0x6b, 0x00, 0x1a, 0x2b, 0xff]);
+    const PC: MacAddr = MacAddr([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
 
     #[test]
     fn parses_colon_and_dash_forms() {
-        assert_eq!("9c:6b:00:1a:2b:ff".parse::<MacAddr>().unwrap(), PC);
-        assert_eq!("9C-6B-00-1A-2B-FF".parse::<MacAddr>().unwrap(), PC);
-        assert_eq!(PC.to_string(), "9c:6b:00:1a:2b:ff");
+        assert_eq!("aa:bb:cc:dd:ee:ff".parse::<MacAddr>().unwrap(), PC);
+        assert_eq!("AA-BB-CC-DD-EE-FF".parse::<MacAddr>().unwrap(), PC);
+        assert_eq!(PC.to_string(), "aa:bb:cc:dd:ee:ff");
     }
 
     #[test]
     fn rejects_malformed() {
         for bad in [
             "",
-            "9c:6b:00:1a:2b",
-            "9c:6b:00:1a:2b:ff:00",
-            "9c:6b:00:1a:2b:f",
-            "9c:6b:00:1a:2b:fff",
-            "9c:6b:00:1a:2b:zz",
+            "aa:bb:cc:dd:ee",
+            "aa:bb:cc:dd:ee:ff:00",
+            "aa:bb:cc:dd:ee:f",
+            "aa:bb:cc:dd:ee:fff",
+            "aa:bb:cc:dd:ee:zz",
             "9c6b001a2bff",
-            "9c:6b-00:1a:2b:ff",
-            "+c:6b:00:1a:2b:ff",
+            "aa:bb-cc:dd:ee:ff",
+            "+a:bb:cc:dd:ee:ff",
         ] {
             assert!(
                 bad.parse::<MacAddr>().is_err(),
@@ -99,7 +99,7 @@ mod tests {
         struct T {
             mac: MacAddr,
         }
-        let t: T = toml::from_str("mac = \"9c-6b-00-1a-2b-ff\"").unwrap();
+        let t: T = toml::from_str("mac = \"aa-bb-cc-dd-ee-ff\"").unwrap();
         assert_eq!(t.mac, PC);
         assert!(toml::from_str::<T>("mac = \"nope\"").is_err());
     }
