@@ -158,7 +158,9 @@ export function devicesOfHub(hub: boolean | null | undefined): DeviceRow[] {
 /** El cómputo funciona: el módulo de túneles no está apagado y hay un entorno listo. */
 export function computeWorks(m: MachineView | null | undefined): boolean {
   if (!m) return false;
-  return m.modules.find((x) => x.id === "tunnels")?.state !== "off" && m.environments.some((e) => e.ready);
+  // Un módulo que el agente da por no disponible tampoco cuenta como cómputo remoto (T-158).
+  const state = m.modules.find((x) => x.id === "tunnels")?.state;
+  return state !== "off" && state !== "unavailable" && m.environments.some((e) => e.ready);
 }
 
 // ---- Paso 5: acomodo y prueba de cruce ------------------------------------------------------
@@ -229,7 +231,7 @@ export function crossVerdict(phase: CrossPhase, expected: Side, here: string, pe
     case "waiting":
       return { tone: "wait", text: `Esperando el cruce por el borde ${EDGE_WORD[expected]} de ${here}…` };
     case "passed":
-      return { tone: "ok", text: `Cruzó a ${peer} por el borde ${EDGE_WORD[expected]}, como dice el acomodo. Vuelta medida: ${formatMs(phase.sample.ms)}.` };
+      return { tone: "ok", text: `Cruzó a ${peer} por el borde ${EDGE_WORD[expected]}, como dice el acomodo.${phase.sample.ms === null ? "" : ` Vuelta medida: ${formatMs(phase.sample.ms)}.`}` };
     case "wrong-edge":
       return {
         tone: "warn",

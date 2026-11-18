@@ -158,9 +158,7 @@
       >
       <div class="txt">
         <b>Cruzó bien</b><span class="mut sub"
-          >Entró a {peerM?.name ?? "la otra máquina"} {vertical ? "a la altura correcta" : "en el lugar correcto"} ({vertical ? "y" : "x"} = {s.at} de {s.of}). Latencia del cruce: {formatMs(
-            s.ms,
-          )}.</span
+          >Entró a {peerM?.name ?? "la otra máquina"}{#if s.of > 0}{" "}{vertical ? "a la altura correcta" : "en el lugar correcto"} ({vertical ? "y" : "x"} = {s.at} de {s.of}){/if}.{#if s.ms !== null}{" "}Latencia del cruce: {formatMs(s.ms)}.{/if}</span
         >
       </div>
       <span class="fill"></span>

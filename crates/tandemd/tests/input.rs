@@ -658,6 +658,50 @@ async fn an_arrangement_edited_on_one_machine_reaches_the_other_by_desk() {
     mac.stop().await;
 }
 
+/// T-150: sin `[[screens]]`, el estado de la entrada trae las pantallas que lee cada motor
+/// (las de aquí y las que anunció la otra máquina), para que la UI las dibuje.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_input_status_carries_the_real_screens_of_both_machines() {
+    let (mac_id, pc_id) = sides(Identity::from_seed([61; 32]), Identity::from_seed([62; 32]));
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let (mac, pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
+    let both = |s: &InputStatus| !s.screens.is_empty() && !s.peer_screens.is_empty();
+    mac.until_input(both).await;
+    pc.until_input(both).await;
+    let seen = mac.agent.input_status();
+    assert_eq!(
+        (seen.screens[0].width, seen.screens[0].height),
+        (1920, 1080)
+    );
+    assert_eq!(
+        (seen.peer_screens[0].width, seen.peer_screens[0].height),
+        (3440, 1440)
+    );
+    let seen = pc.agent.input_status();
+    assert_eq!(
+        (seen.screens[0].width, seen.screens[0].height),
+        (3440, 1440)
+    );
+    assert_eq!(seen.peer_screens[0].width, 1920);
+}
+
 /// Un `[[screens]]` escrito a mano en `tandem.toml` cambia la geometría: la PC declara su
 /// pantalla de 2000×720 aunque lea 3440×1440, y la Mac a su derecha, centradas (D18). El
 /// cruce sale del acomodo declarado (el tramo compartido), y el puesto editado llega también
@@ -924,6 +968,102 @@ async fn nothing_is_requested_when_nothing_is_missing() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(fake.permission_requests(), 0);
     mac.stop().await;
+}
+
+/// T-150, los tres desenlaces de la prueba de cruce con el motor doble y `WatchCursor`: sin
+/// mover nada no llega ningún `Crossed` (tiempo agotado), un movimiento hasta un borde que no
+/// es el del acomodo tampoco (borde equivocado: ahí el cursor no sale), y por el borde marcado
+/// llegan `Crossed` y la `Cursor` de la otra máquina.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn the_cross_test_outcomes_come_from_the_engine_through_watch_cursor() {
+    let (mac_id, pc_id) = sides(Identity::from_seed([63; 32]), Identity::from_seed([64; 32]));
+    let mac_fake = FakeInputBackends::new(vec![screen("m32", 1920, 1080)]);
+    let pc_fake = FakeInputBackends::new(vec![screen("m34", 3440, 1440)]);
+    pc_fake.devices().set(vec![KEYBOARD, MOUSE]);
+    let (mac, mut pc) = tandemd::start_pair!(
+        |mac_port, pc_port| start(
+            Machine::A,
+            &mac_id,
+            mac_port,
+            (pc_id.public_key(), pc_port),
+            mac_fake.clone(),
+        ),
+        start(
+            Machine::B,
+            &pc_id,
+            pc_port,
+            (mac_id.public_key(), mac_port),
+            pc_fake.clone(),
+        )
+    );
+    let pc_serving = |s: &InputStatus| s.server == Machine::B && s.session;
+    mac.until_input(pc_serving).await;
+    pc.until_input(pc_serving).await;
+    both_on(&mac, &pc).await;
+    assert_eq!(
+        pc.ui
+            .request(UiCommand::WatchCursor { on: true })
+            .await
+            .unwrap(),
+        Reply::Done
+    );
+    let mac_gate = mac.agent.cursor_gate();
+    within(async {
+        while !mac_gate.is_on() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+
+    // Lo que llega a la UI de la PC durante `ms`: los cruces (y las muestras de la Mac).
+    async fn crossings(
+        ui: &mut IpcClient<tokio::io::DuplexStream>,
+        ms: u64,
+    ) -> (Vec<(Machine, Machine, Side)>, usize) {
+        let (mut crossed, mut from_mac) = (Vec::new(), 0);
+        let end = tokio::time::Instant::now() + Duration::from_millis(ms);
+        while let Ok(Ok(Some(ev))) = tokio::time::timeout_at(end, ui.next_event()).await {
+            match ev {
+                AgentToUi::Crossed { from, to, edge } => crossed.push((from, to, edge)),
+                AgentToUi::Cursor(s) if s.machine == Machine::A => from_mac += 1,
+                _ => {}
+            }
+        }
+        (crossed, from_mac)
+    }
+
+    // Tiempo agotado: nadie mueve el mouse, no hay cruce.
+    let (crossed, _) = crossings(&mut pc.ui, 700).await;
+    assert!(crossed.is_empty(), "{crossed:?}");
+
+    // Borde equivocado: contra el borde derecho y el de arriba de la PC, el cursor no sale.
+    for (x, y, dx, dy) in [(3439.0, 700.0, 50.0, 0.0), (1000.0, 0.0, 0.0, -50.0)] {
+        pc_fake.capture(InputEvent::MotionAbsolute { x, y });
+        pc_fake.capture(InputEvent::MotionRelative { dx, dy });
+    }
+    let (crossed, from_mac) = crossings(&mut pc.ui, 700).await;
+    assert!(crossed.is_empty(), "{crossed:?}");
+    assert_eq!(from_mac, 0, "el cursor no debió pasar a la Mac");
+
+    // Borde marcado (el izquierdo de la PC): Crossed y la muestra en la Mac.
+    let mut crossed = Vec::new();
+    let mut from_mac = 0;
+    within(async {
+        let mut tries = 0;
+        while crossed.is_empty() || from_mac == 0 {
+            if tries % 10 == 0 {
+                pc_fake.capture(InputEvent::MotionAbsolute { x: 0.0, y: 500.0 });
+                pc_fake.capture(InputEvent::MotionRelative { dx: -5.0, dy: 0.0 });
+            }
+            pc_fake.capture(InputEvent::MotionRelative { dx: -1.0, dy: 0.0 });
+            tries += 1;
+            let (c, m) = crossings(&mut pc.ui, 30).await;
+            crossed.extend(c);
+            from_mac += m;
+        }
+    })
+    .await;
+    assert_eq!(crossed[0], (Machine::B, Machine::A, Side::Left));
 }
 
 /// El cursor en vivo (T-128) entre dos agentes: sin suscripción no se emite nada; con la UI

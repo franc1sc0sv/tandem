@@ -176,7 +176,7 @@ describe("paso 6", () => {
   it("el cómputo remoto exige el módulo encendido y un entorno listo", async () => {
     const d = await desk();
     type M = NonNullable<typeof d.machines.a>;
-    const setTunnels = (m: M, state: "off" | "active") => ({ ...m, modules: m.modules.map((x) => (x.id === "tunnels" ? { ...x, state } : x)) });
+    const setTunnels = (m: M, state: "off" | "active" | "unavailable") => ({ ...m, modules: m.modules.map((x) => (x.id === "tunnels" ? { ...x, state } : x)) });
     const tunnels = (machines: typeof d.machines) => summaryRows({ ...d, machines }, { crossed: true }).find((r) => r.id === "tunnels");
     const a = d.machines.a!;
     const b = d.machines.b!;
@@ -184,6 +184,7 @@ describe("paso 6", () => {
     expect(tunnels({ a, b })).toMatchObject({ ok: true, note: "MCP listo para Claude Code en las dos" });
     // Túneles apagados en una máquina, aunque haya entornos detectados.
     expect(tunnels({ a, b: setTunnels(b, "off") })?.ok).toBe(false);
+    expect(tunnels({ a, b: setTunnels(b, "unavailable") })?.ok).toBe(false);
     // Entornos sin ninguno listo.
     const noReady = { ...b, environments: b.environments.map((e) => ({ ...e, ready: false })) };
     expect(tunnels({ a, b: noReady })?.ok).toBe(false);

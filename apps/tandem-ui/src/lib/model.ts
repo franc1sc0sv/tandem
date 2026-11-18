@@ -201,6 +201,20 @@ export interface InputView {
   problem: string | null;
   /** Se sabe dónde está el teclado (hub, configuración o asistente); si no, «sin definir». */
   defined: boolean;
+  /** Las pantallas que lee el motor aquí y las que anunció la otra máquina (T-150). */
+  screens?: EngineScreen[];
+  peer_screens?: EngineScreen[];
+}
+
+/** Una pantalla como la lee el motor de entrada (`tandem_proto::ScreenRect`). */
+export interface EngineScreen {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** Unidades nativas por punto lógico, en milésimas (1500 = 150 %). */
+  scale_milli: number;
 }
 
 export type Snapshot =

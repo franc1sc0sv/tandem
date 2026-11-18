@@ -22,7 +22,7 @@ use tandem_proto::{
     AgentToUi, Capabilities, CursorSample, DeskCapabilities, DragStatus, EnvKind, Environment,
     Hardware, InputPermission, InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo,
     ModuleState, MonitorView, NetworkStatus, PairingStatus, PathState, PeerStatus, PowerEvent,
-    Reply, Resources, SetupInfo, TunnelId, TxnEvent, UiCommand, UpdateStatus,
+    Reply, Resources, ScreenRect, SetupInfo, TunnelId, TxnEvent, UiCommand, UpdateStatus,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -284,6 +284,10 @@ pub struct InputView {
     /// Se sabe dónde está el teclado (hub, configuración o asistente). Si no, la ventana
     /// dice «sin definir» y nunca supone la Mac (T-087).
     pub defined: bool,
+    /// Las pantallas que lee el motor aquí y las que anunció la otra máquina (T-150): la
+    /// ventana las dibuja si el puesto no declara `[[screens]]`.
+    pub screens: Vec<ScreenRect>,
+    pub peer_screens: Vec<ScreenRect>,
 }
 
 /// [`DeskCapabilities`] en JSON para el frontend.
@@ -537,6 +541,8 @@ impl From<InputStatus> for InputView {
             missing: s.missing.into_iter().map(permission_view).collect(),
             problem: s.problem,
             defined: s.defined,
+            screens: s.screens,
+            peer_screens: s.peer_screens,
         }
     }
 }
@@ -2294,6 +2300,8 @@ mac = "aa:bb:cc:dd:ee:ff"
                 problem: None,
                 defined: true,
                 latency: None,
+                screens: vec![],
+                peer_screens: vec![],
             }
             .into(),
             caps: test_caps(Machine::A),
@@ -2339,6 +2347,8 @@ mac = "aa:bb:cc:dd:ee:ff"
                 "missing": ["input_monitoring"],
                 "problem": null,
                 "defined": true,
+                "screens": [],
+                "peer_screens": [],
             })
         );
         assert_eq!(v["peer"], serde_json::json!({ "kind": "unpaired" }));

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { render, screen, within } from "@testing-library/svelte";
+import { render, screen, waitFor, within } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { tick } from "svelte";
 import { describe, expect, it, vi } from "vitest";
@@ -8,7 +8,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Bridge } from "../lib/bridge";
 import { formatHash, parseHash } from "../lib/routes";
 import { STORE_KEY } from "../lib/context";
-import type { Action, Snapshot } from "../lib/model";
+import type { Action, Notice, Snapshot } from "../lib/model";
 import { DemoSource, demoOptions } from "../lib/store/demo";
 import { LiveSource, layoutFromDesk } from "../lib/store/live";
 import { Store } from "../lib/store/store.svelte";
@@ -100,6 +100,15 @@ describe("Prueba de cruce (F-PruebaCruce)", () => {
     expect(parseHash("#/acomodo/otra")).toEqual({ screen: "acomodo" });
   });
 
+
+  it("un cruce sin posición ni latencia medidas no las inventa", async () => {
+    const src = new DemoSource(demoOptions("demo&still"));
+    await open(src, "#/acomodo/cruce");
+    src.cross({ from: "a", to: "b", edge: "right", at: 0, of: 0, ms: null });
+    expect(await screen.findByText("Cruzó bien")).toBeInTheDocument();
+    expect(screen.getByText(/Entró a PC-Escritorio\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Latencia/)).toBeNull();
+  });
 
   it("pide cruzar por el borde del acomodo y pasa con el cruce", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
@@ -286,11 +295,28 @@ describe("con el agente real", () => {
     expect(store.desk.layout.arrangement.aSide).toBe("right");
   });
 
-  it("la prueba de cruce dice que el agente todavía no informa cruces", async () => {
-    await open(new LiveSource(bridge(async () => ({ kind: "done" }))));
-    expect(screen.getByRole("button", { name: /Probar cruce/ })).toBeDisabled();
+  it("la prueba de cruce usa el cruce que informa el agente: botón habilitado y «Cruzó bien» por el borde correcto", async () => {
+    let notice: ((n: Notice) => void) | undefined;
+    const act = vi.fn(async (_a: Action) => ({ kind: "done" as const }));
+    const withNotice = (): Bridge => {
+      const known: Partial<Record<keyof Bridge, unknown>> = {
+        snapshot: async () => connected(),
+        onSnapshot: async () => {},
+        act,
+        onNotice: async (cb: (n: Notice) => void) => {
+          notice = cb;
+        },
+      };
+      return new Proxy({} as Bridge, { get: (_t, k) => known[k as keyof Bridge] ?? (() => new Promise(() => {})) });
+    };
+    await open(new LiveSource(withNotice()));
+    expect(screen.getByRole("link", { name: /Probar cruce/ })).toBeInTheDocument();
     document.body.innerHTML = "";
-    await open(new LiveSource(bridge(async () => ({ kind: "done" }))), "#/acomodo/cruce");
-    expect(await screen.findByText("No se puede probar el cruce")).toBeInTheDocument();
+    await open(new LiveSource(withNotice()), "#/acomodo/cruce");
+    await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "watch_cursor", on: true }));
+    // El acomodo dice «A a la derecha»: la Mac sale por su borde izquierdo.
+    notice?.({ kind: "crossed", from: "a", to: "b", edge: "left" });
+    notice?.({ kind: "cursor", sample: { machine: "b", screen: "Odyssey", x: 3439, y: 700 } });
+    expect(await screen.findByText("Cruzó bien")).toBeInTheDocument();
   });
 });

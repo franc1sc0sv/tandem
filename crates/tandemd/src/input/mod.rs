@@ -700,6 +700,8 @@ async fn status(sh: Arc<Shared>) {
         // Lo que el usuario declara en el asistente (T-087).
         sh.agent.subscribe_keyboard(),
         sh.latency.subscribe(),
+        sh.screens.subscribe(),
+        sh.agent.inbox().screens.subscribe(),
     );
     loop {
         let server = *rx.0.borrow_and_update();
@@ -734,6 +736,13 @@ async fn status(sh: Arc<Shared>) {
             // El hub, la configuración o el asistente lo dicen; si no, es «sin definir».
             defined: keyboard_defined(declared, hub_here, peer_hub),
             latency: *rx.10.borrow_and_update(),
+            screens: rx
+                .11
+                .borrow_and_update()
+                .iter()
+                .map(screens::to_wire)
+                .collect(),
+            peer_screens: rx.12.borrow_and_update().clone().unwrap_or_default(),
         };
         sh.agent.set_input_status(status);
         tokio::select! {
@@ -748,6 +757,8 @@ async fn status(sh: Arc<Shared>) {
             () = changed(&mut rx.8) => {}
             () = changed(&mut rx.9) => {}
             () = changed(&mut rx.10) => {}
+            () = changed(&mut rx.11) => {}
+            () = changed(&mut rx.12) => {}
         }
     }
 }
