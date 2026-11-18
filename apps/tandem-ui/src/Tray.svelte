@@ -8,7 +8,7 @@
 
 <script lang="ts">
   // Barra de menú / bandeja (`V3-Bandeja`, 380×600): las dos máquinas, escenas, túneles y
-  // avisos, con «Abrir» y «Salir». T-120 completa los avisos y «Bloquear aquí».
+  // avisos, con «Abrir» y «Salir». «Bloquear aquí» no está hasta que la IPC tenga la acción.
   import { onDestroy, onMount } from "svelte";
   import { shortName } from "./lib/commands";
   import { LINK_NAME } from "./lib/machines";
@@ -35,6 +35,9 @@
   const link = $derived(desk.link.kind ? `${LINK_NAME[desk.link.kind]}${desk.link.ms !== null ? ` · ${desk.link.ms} ms` : ""}` : "sin enlace");
   const hot = $derived(machines.find((m) => (m.resources?.gpu?.percent ?? 0) >= 85));
   const AMBER = "#d9a75a";
+  /** Estado difícil (`V3-Estados`) en una línea: el mockup de la bandeja solo dibuja el aviso de la VRAM. */
+  const peer = $derived<Machine>(desk.here === "a" ? "b" : "a");
+  const canWake = $derived(desk.trouble === "peer-off" && store.can("power"));
 </script>
 
 <div class="pop">
@@ -75,7 +78,12 @@
     </div>
   {/if}
 
-  {#if hot?.resources?.gpu}
+  {#if desk.trouble !== "none"}
+    <div class="warn" role="status">
+      <Icon name="warn" size={16} stroke={2} /><span class="fill">{desk.troubleText}</span>
+      {#if canWake}<button type="button" class="lnk on" onclick={() => store.setPower(peer, true)}>Encender</button>{/if}
+    </div>
+  {:else if hot?.resources?.gpu}
     <div class="warn"><Icon name="warn" size={16} stroke={2} />{hot.name} con la {hot.resources.gpuLabel} al {hot.resources.gpu.percent} %</div>
   {/if}
 

@@ -317,6 +317,65 @@ export const ESTADOS: ShotSpec = {
   },
 };
 
+/**
+ * T-120: la paleta contra `F-Paleta`. Se tapan los renglones con datos del puesto (el mockup
+ * trae escenas, túneles y colores de ejemplo) y la página de fondo, que en la app es la real y
+ * en el mockup un esqueleto.
+ */
+const ROW = (text: string) => `section[role="dialog"] .it:has(span:text-is("${text}"))`;
+export const PALETA: ShotSpec = {
+  name: "paleta",
+  page: "index.html",
+  query: DEMO,
+  hash: "#/puesto",
+  mockup: "F-Paleta",
+  width: W,
+  height: H,
+  keys: ["Control+k"],
+  ignore: [
+    { mockupSelector: 'section[role="dialog"] .it:has-text("Trabajo") > span:first-child', reason: "Datos reales: el color del punto es el de la máquina que muestra la escena" },
+    { mockupSelector: ROW("Aplicar «Solo PC»"), reason: "Datos reales: las escenas del puesto" },
+    { mockupSelector: ROW("Agregar máquina…"), reason: "D1: no hay tercera máquina; se cambia la otra" },
+    { mockupSelector: ROW("Ir al túnel «ia-local»"), reason: "Datos reales: los túneles del puesto" },
+    { mockupSelector: ROW("Ir al túnel «tandem»"), reason: "Datos reales: los túneles del puesto" },
+    { mockupSelector: 'section[role="dialog"] .grp:text-is("Ir a")', reason: "Los túneles reales empujan los grupos siguientes" },
+    { mockupSelector: ROW("Monitores"), reason: "Los túneles reales empujan los renglones siguientes" },
+    { mockupSelector: ROW("Red"), reason: "Los túneles reales empujan los renglones siguientes" },
+  ],
+  regions: [{ name: "diálogo", mockupSelector: 'section[role="dialog"]', min: SCREEN_GATE }],
+  min: SCREEN_GATE,
+};
+
+/**
+ * T-120: la bandeja contra `V3-Bandeja`. Los datos del puesto reemplazan a los de ejemplo
+ * (enlace, carga, escenas y túneles); como los túneles reales empujan el aviso hacia abajo, el
+ * aviso también se tapa. «Bloquear aquí» no existe en la app (DECISIONS, T-112).
+ */
+export const BANDEJA: ShotSpec = {
+  name: "bandeja",
+  page: "tray.html",
+  query: DEMO,
+  hash: "",
+  mockup: "V3-Bandeja",
+  width: 380,
+  height: 600,
+  content: {
+    appWidth: 380,
+    app: ".pop",
+    mockup: "x-dc > div",
+    masks: [
+      { app: ".ln", mockup: ".mono.mut:has-text(\"USB-C\")", reason: "Datos reales: el enlace y su latencia" },
+      { app: ".box:not(.tl) .sm", mockup: ".row > b + .mut", reason: "Datos reales: el estado de cada máquina" },
+      { app: ".box:not(.tl) .bar", mockup: ".row .bar", reason: "Datos reales: la carga de cada máquina" },
+      { app: ".sc:nth-child(3)", mockup: ".sc:nth-child(3)", reason: "Datos reales: las escenas del puesto" },
+      { app: ".box.tl", mockup: 'div[style*="gap:2px"]', reason: "Datos reales: los túneles abiertos" },
+      { app: ".warn", mockup: 'div[style*="#1e1a12"]', reason: "Los túneles reales empujan el aviso hacia abajo" },
+      { app: NONE, mockup: '.lnk:has-text("Bloquear aquí")', reason: "Sin la acción en la IPC no hay botón (T-112, G6)" },
+    ],
+    min: SCREEN_GATE,
+  },
+};
+
 export const SHOTS: ShotSpec[] = [
   {
     name: "puesto",
@@ -391,9 +450,9 @@ export const SHOTS: ShotSpec[] = [
     },
   },
   ...AJUSTES,
-  { name: "paleta", page: "index.html", query: DEMO, hash: "#/puesto", mockup: "F-Paleta", width: W, height: H, keys: ["Control+k"] },
+  PALETA,
   ESTADOS,
-  { name: "bandeja", page: "tray.html", query: DEMO, hash: "", mockup: "V3-Bandeja", width: 380, height: 600 },
+  BANDEJA,
 ];
 
 // ---- Imágenes -----------------------------------------------------------------------------
