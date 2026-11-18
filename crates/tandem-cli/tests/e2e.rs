@@ -196,16 +196,22 @@ impl McpClient {
         v
     }
 
-    /// Llama a una herramienta; el resultado estructurado, o el texto del error.
+    /// Llama a una herramienta; el resultado (JSON de `content`), o el texto del error.
     async fn tool(&mut self, name: &str, args: Value) -> Result<Value, String> {
+        Ok(self.call(name, args).await?.0)
+    }
+
+    /// Como `tool`, y además la respuesta cruda de `tools/call` (para ver su forma).
+    async fn call(&mut self, name: &str, args: Value) -> Result<(Value, Value), String> {
         let v = self
             .rpc("tools/call", json!({"name": name, "arguments": args}))
             .await;
-        let r = &v["result"];
+        let r = v["result"].clone();
+        let text = r["content"][0]["text"].as_str().unwrap();
         if r["isError"] == true {
-            return Err(r["content"][0]["text"].as_str().unwrap().to_owned());
+            return Err(text.to_owned());
         }
-        Ok(r["structuredContent"].clone())
+        Ok((serde_json::from_str(text).unwrap(), r))
     }
 }
 
@@ -406,6 +412,120 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
     let listed = mcp.tool("tunnels", json!({})).await.unwrap();
     assert!(listed["projects"].as_array().unwrap().is_empty());
     assert!(proc.is_killed() || proc.has_exited());
+
+    a.stop().await;
+    b.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn una_salida_grande_se_lee_por_paginas_sin_perder_ni_repetir_bytes() {
+    let (a_id, b_id) = sides(Identity::from_seed([33; 32]), Identity::from_seed([34; 32]));
+    let (mut a, b) = tandemd::start_pair!(
+        |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
+        start(Machine::B, &b_id, b_port, (a_id.public_key(), a_port))
+    );
+    let fake = FakeSpawner::new();
+    b.agent.tunnels().host.set_spawner(Arc::new(fake.clone()));
+    let dir = tempfile::tempdir().unwrap();
+    let mut mcp = McpClient::start(a.client.take().unwrap(), dir.path());
+    let tunnel = within(async {
+        loop {
+            match mcp.tool("tunnel_open", json!({"title": "grande"})).await {
+                Ok(t) => return t,
+                Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+    })
+    .await;
+    let id = tunnel["id"].as_str().unwrap().to_owned();
+    let p = mcp
+        .tool(
+            "exec",
+            json!({"tunnel": id, "cmd": "cargo", "args": ["test"]}),
+        )
+        .await
+        .unwrap();
+    let pid = p["id"].as_u64().unwrap();
+    let proc = fake.processes().remove(0);
+
+    // 200 KiB de stdout con caracteres de 1 a 4 bytes (los cortes caen en medio de alguno) y
+    // 100 KiB de stderr, más de lo que cabe en una página.
+    let unit = "línea €uro 😀 ok\n";
+    let out_text = unit.repeat(200 * 1024 / unit.len());
+    let err_text = "x\u{e9}".repeat(50 * 1024 / 3);
+    proc.stdout(out_text.as_bytes());
+    proc.stderr(err_text.as_bytes());
+    proc.exit(0);
+
+    let (mut got_out, mut got_err) = (String::new(), String::new());
+    let (mut from_o, mut from_e) = (json!(0), json!(0));
+    let mut pages = 0;
+    within(async {
+        loop {
+            let (o, raw) = mcp
+                .call(
+                    "output",
+                    json!({"tunnel": id, "process": pid, "wait_ms": 10000,
+                           "from_stdout": from_o, "from_stderr": from_e}),
+                )
+                .await
+                .unwrap();
+            pages += 1;
+            let (so, se) = (o["stdout"].as_str().unwrap(), o["stderr"].as_str().unwrap());
+            assert!(so.len() + se.len() <= 24 * 1024, "página sobre el tope");
+            // Sin partir caracteres.
+            assert!(!so.contains('\u{FFFD}') && !se.contains('\u{FFFD}'));
+            // El cursor avanza por los bytes entregados.
+            assert_eq!(
+                o["next"]["stdout"],
+                o["from"]["stdout"].as_u64().unwrap() + so.len() as u64
+            );
+            assert_eq!(
+                o["next"]["stderr"],
+                o["from"]["stderr"].as_u64().unwrap() + se.len() as u64
+            );
+            // Sin duplicar: la respuesta grande va solo en `content`, compacta.
+            assert!(raw.get("structuredContent").is_none());
+            assert!(!raw["content"][0]["text"].as_str().unwrap().contains("\n  "));
+            got_out.push_str(so);
+            got_err.push_str(se);
+            from_o = o["next"]["stdout"].clone();
+            from_e = o["next"]["stderr"].clone();
+            if o["more"] == false {
+                assert_eq!(o["done"], true);
+                break;
+            }
+            assert_eq!(o["done"], false);
+        }
+    })
+    .await;
+    assert!(pages >= 10, "se esperaban varias páginas: {pages}");
+    assert!(got_out == out_text, "stdout perdió o repitió bytes");
+    assert!(got_err == err_text, "stderr perdió o repitió bytes");
+
+    // `max_bytes` baja el tope y el tope duro lo limita.
+    let (o, _) = mcp
+        .call(
+            "output",
+            json!({"tunnel": id, "process": pid, "max_bytes": 100}),
+        )
+        .await
+        .unwrap();
+    assert!(o["stdout"].as_str().unwrap().len() + o["stderr"].as_str().unwrap().len() <= 100);
+    assert_eq!(o["more"], true);
+    let (o, _) = mcp
+        .call(
+            "output",
+            json!({"tunnel": id, "process": pid, "max_bytes": 10_000_000}),
+        )
+        .await
+        .unwrap();
+    assert!(o["stdout"].as_str().unwrap().len() + o["stderr"].as_str().unwrap().len() <= 64 * 1024);
+
+    // Una respuesta pequeña sí lleva `structuredContent` y el mismo JSON compacto.
+    let (small, raw) = mcp.call("machines", json!({})).await.unwrap();
+    assert_eq!(raw["structuredContent"], small);
+    assert_eq!(raw["content"][0]["text"], small.to_string());
 
     a.stop().await;
     b.stop().await;

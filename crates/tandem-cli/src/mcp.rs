@@ -79,11 +79,7 @@ where
             };
             let args = params.get("arguments").cloned().unwrap_or(Value::Null);
             let result = match api.call(name, &args).await {
-                Ok(v) => json!({
-                    "content": [{"type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default()}],
-                    "structuredContent": v,
-                    "isError": false,
-                }),
+                Ok(v) => ok_result(&v),
                 // Un fallo de la herramienta es resultado (la ve el modelo), no del protocolo.
                 Err(ToolError::Unknown(n)) => {
                     return Some(error(id, -32602, &format!("herramienta desconocida: {n}")));
@@ -97,6 +93,22 @@ where
         }
         other => error(id, -32601, &format!("método desconocido: {other}")),
     })
+}
+
+/// Desde este tamaño (JSON compacto) el resultado va solo en `content`.
+pub const STRUCTURED_MAX: usize = 4 * 1024;
+
+/// El resultado de una herramienta sin duplicarlo: `content` lleva el JSON compacto (sin
+/// sangrías) y `structuredContent` solo se añade si es pequeño. Las respuestas grandes
+/// (`output`) irían dos veces al contexto del modelo; los clientes leen `content`.
+fn ok_result(v: &Value) -> Value {
+    let text = v.to_string();
+    let small = text.len() <= STRUCTURED_MAX;
+    let mut r = json!({"content": [{"type": "text", "text": text}], "isError": false});
+    if small {
+        r["structuredContent"] = v.clone();
+    }
+    r
 }
 
 fn tools_list() -> Vec<Value> {

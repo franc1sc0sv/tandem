@@ -23,7 +23,9 @@ pub fn render(tool: &str, v: &Value) -> Rendered {
 /// stdout y stderr del proceso en los suyos, y el estado al final por stderr.
 fn output(v: &Value) -> Rendered {
     let text = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
-    let state = if v["done"].as_bool().unwrap_or(false) {
+    let state = if v["more"].as_bool().unwrap_or(false) {
+        "[hay más]".to_owned()
+    } else if v["done"].as_bool().unwrap_or(false) {
         format!("[terminó: {}]", v["process"]["state"])
     } else {
         "[sigue corriendo]".to_owned()

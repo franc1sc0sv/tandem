@@ -182,9 +182,11 @@ pub const TOOLS: &[Tool] = &[
     Tool {
         name: "output",
         desc: "Salida de un proceso desde un punto (stdout y stderr por separado) y si ya terminó. \
-               Vuelve a pedir desde `next` para seguirlo; `wait_ms` espera salida nueva. \
+               Devuelve a lo más `max_bytes` (24 KiB por omisión, 64 KiB de tope); si `more` es true, \
+               vuelve a pedir desde `next` para seguir leyendo. `wait_ms` espera salida nueva. \
                / Output of a process from a point (stdout and stderr apart) and whether it finished. \
-               Ask again from `next` to follow it; `wait_ms` waits for new output.",
+               Returns at most `max_bytes` (24 KiB default, 64 KiB cap); if `more` is true, ask again \
+               from `next` to keep reading. `wait_ms` waits for new output.",
         params: &[
             TUNNEL,
             PROCESS,
@@ -205,6 +207,12 @@ pub const TOOLS: &[Tool] = &[
                 Ty::Int,
                 false,
                 "Esperar hasta tanto por salida nueva o el fin del proceso (máx. 60000) / Wait up to this long for new output or the end of the process (max 60000)",
+            ),
+            p(
+                "max_bytes",
+                Ty::Int,
+                false,
+                "Bytes como máximo entre stdout y stderr (24576; tope 65536) / Max bytes across stdout and stderr (24576; cap 65536)",
             ),
         ],
     },

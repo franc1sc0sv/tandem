@@ -38,8 +38,51 @@ pub struct Context {
 
 /// Cuánto se espera como máximo por salida nueva en `output`.
 const MAX_WAIT: Duration = Duration::from_secs(60);
-/// Bytes por flujo en cada lectura (el agente topa en 400 KiB).
-const CHUNK: u32 = 256 * 1024;
+/// Bytes de `output` por llamada, entre stdout y stderr, si no se pide otra cosa. Una salida
+/// ruidosa no debe llenar el contexto del modelo: se lee por páginas con `next`.
+pub const DEFAULT_MAX_BYTES: u64 = 24 * 1024;
+/// Tope duro de `max_bytes`.
+pub const HARD_MAX_BYTES: u64 = 64 * 1024;
+/// Piso de `max_bytes`: cabe un carácter UTF-8 entero, así que siempre se avanza.
+const MIN_MAX_BYTES: u64 = 16;
+
+/// Cuántos bytes de cada flujo entran en una página de `budget` bytes en total.
+/// Cada flujo tiene derecho a la mitad y lo que el otro no usa pasa al primero; luego se
+/// recorta al último límite UTF-8 si el corte cayó en medio de un carácter.
+fn page(stdout: &[u8], stderr: &[u8], budget: usize, agent_max: usize) -> (usize, usize) {
+    let half = budget / 2;
+    let err0 = stderr.len().min(half);
+    let out = stdout.len().min(budget - err0);
+    let err = stderr.len().min(budget - out);
+    (
+        utf8_cut(stdout, out, agent_max),
+        utf8_cut(stderr, err, agent_max),
+    )
+}
+
+/// Recorta `take` bytes de `s` para no dejar un carácter partido al final. Solo si el corte es
+/// nuestro (`take < len`) o pudo ser del agente (`len >= agent_max`): una cola incompleta al
+/// final real de la salida se entrega tal cual, o no se entregaría nunca.
+fn utf8_cut(s: &[u8], take: usize, agent_max: usize) -> usize {
+    let cut_here = take < s.len() || s.len() >= agent_max;
+    if !cut_here {
+        return take;
+    }
+    for back in 1..=take.min(3) {
+        let b = s[take - back];
+        if b & 0xC0 == 0x80 {
+            continue; // continuación: seguir hasta el inicio del carácter
+        }
+        let width = match b {
+            0xF0..=0xF7 => 4,
+            0xE0..=0xEF => 3,
+            0xC0..=0xDF => 2,
+            _ => 1,
+        };
+        return if width > back { take - back } else { take };
+    }
+    take
+}
 
 pub struct Api<S> {
     ipc: IpcClient<S>,
@@ -429,6 +472,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
             stdout: a.int("from_stdout").unwrap_or(0),
             stderr: a.int("from_stderr").unwrap_or(0),
         };
+        let budget = a
+            .int("max_bytes")
+            .unwrap_or(DEFAULT_MAX_BYTES)
+            .clamp(MIN_MAX_BYTES, HARD_MAX_BYTES) as u32;
         let wait = Duration::from_millis(a.int("wait_ms").unwrap_or(0)).min(MAX_WAIT);
         let deadline = Instant::now() + wait;
         loop {
@@ -437,7 +484,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                     tunnel,
                     process,
                     from,
-                    max: CHUNK,
+                    max: budget,
                 })
                 .await?;
             let Reply::Output(o) = reply else {
@@ -446,13 +493,23 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
             // El agente no espera: aquí se sondea hasta que haya algo o venza `wait_ms`.
             let empty = o.stdout.is_empty() && o.stderr.is_empty();
             if !(empty && !o.done && Instant::now() < deadline) {
+                let (so, se) = page(&o.stdout, &o.stderr, budget as usize, budget as usize);
+                // Hay más si recortamos nosotros o si el agente pudo haberse topado con `max`.
+                let more = so < o.stdout.len()
+                    || se < o.stderr.len()
+                    || o.stdout.len() >= budget as usize
+                    || o.stderr.len() >= budget as usize;
+                // El cursor avanza solo por lo entregado, no por lo que devolvió el agente.
+                let next_out = o.from.stdout + so as u64;
+                let next_err = o.from.stderr + se as u64;
                 return Ok(json!({
                     "process": process_json(&o.process),
-                    "stdout": String::from_utf8_lossy(&o.stdout),
-                    "stderr": String::from_utf8_lossy(&o.stderr),
+                    "stdout": String::from_utf8_lossy(&o.stdout[..so]),
+                    "stderr": String::from_utf8_lossy(&o.stderr[..se]),
                     "from": {"stdout": o.from.stdout, "stderr": o.from.stderr},
-                    "next": {"stdout": o.next.stdout, "stderr": o.next.stderr},
-                    "done": o.done,
+                    "next": {"stdout": next_out, "stderr": next_err},
+                    "more": more,
+                    "done": o.done && !more,
                 }));
             }
             tokio::time::sleep(Duration::from_millis(25)).await;
@@ -488,6 +545,51 @@ mod tests {
         assert_eq!(v["process"], 3);
         let v = check("resources", json!({"rescan": "true", "machine": null})).unwrap();
         assert_eq!(v, json!({"rescan": true}));
+    }
+
+    #[test]
+    fn la_pagina_reparte_el_tope_entre_flujos() {
+        let big = vec![b'a'; 1000];
+        assert_eq!(page(&big, &big, 100, 100), (50, 50));
+        assert_eq!(page(&big, b"xy", 100, 100), (98, 2));
+        assert_eq!(page(b"", &big, 100, 100), (0, 100));
+    }
+
+    #[test]
+    fn recorta_en_el_ultimo_limite_utf8() {
+        let s = "añ€😀".as_bytes(); // 1 + 2 + 3 + 4 bytes
+        assert_eq!(s.len(), 10);
+        // Cortes que parten un carácter retroceden al anterior.
+        assert_eq!(utf8_cut(s, 2, 100), 1);
+        assert_eq!(utf8_cut(s, 5, 100), 3);
+        assert_eq!(utf8_cut(s, 7, 100), 6);
+        assert_eq!(utf8_cut(s, 9, 100), 6);
+        assert_eq!(utf8_cut(s, 6, 100), 6);
+        // El final real de la salida se entrega entero aunque quede una cola rota.
+        assert_eq!(utf8_cut(&s[..9], 9, 100), 9);
+        // Pero si pudo cortar el agente (len == max), también se recorta.
+        assert_eq!(utf8_cut(&s[..9], 9, 9), 6);
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn paginar_nunca_pierde_ni_repite_bytes(
+            text in "\\PC{0,300}", budget in 16usize..64,
+        ) {
+            let bytes = text.as_bytes();
+            let mut pos = 0;
+            let mut got = Vec::new();
+            while pos < bytes.len() {
+                let rest = &bytes[pos..];
+                let win = &rest[..rest.len().min(budget)];
+                let (n, _) = page(win, b"", budget, budget);
+                proptest::prop_assert!(n > 0);
+                proptest::prop_assert!(std::str::from_utf8(&win[..n]).is_ok());
+                got.extend_from_slice(&win[..n]);
+                pos += n;
+            }
+            proptest::prop_assert_eq!(got, bytes);
+        }
     }
 
     #[test]
