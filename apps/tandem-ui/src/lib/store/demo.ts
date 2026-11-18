@@ -60,6 +60,7 @@ import type {
   OutputCursor,
   ProcessRow,
   TunnelState,
+  LinkView,
   TunnelView,
 } from "./types";
 
@@ -76,6 +77,12 @@ export interface DemoOptions {
   pairing?: "code" | "reject";
   /** La guía de permisos del primer arranque se abre sola. */
   firstRun?: boolean;
+  /** Abre el asistente en ese paso (0 a 5), para capturas y pruebas. */
+  wizard?: number;
+  /** macOS con Accesibilidad y Monitorización sin conceder y Red local concedida (`F-Asis3`). */
+  perms?: "missing";
+  /** El servicio de administrador de macOS sin instalar: el asistente lo muestra pendiente (`F-Asis1`). */
+  admin?: "pending";
   /** Cómo termina la prueba de cruce. */
   cross?: "ok" | "wrong" | "timeout";
   /** La pantalla de progreso de una escena en este punto. */
@@ -100,10 +107,13 @@ export function demoOptions(query: string): DemoOptions {
     unpaired: p.get("peer") === "none",
     pairing: p.get("pair") === "code" ? "code" : p.get("pair") === "reject" ? "reject" : undefined,
     firstRun: p.has("setup"),
+    wizard: p.has("wizard") && Number.isInteger(Number(p.get("wizard"))) ? Number(p.get("wizard")) : undefined,
+    perms: p.get("perms") === "missing" ? "missing" : undefined,
     txn: p.get("txn") === "run" || p.get("txn") === "ok" || p.get("txn") === "fail" ? (p.get("txn") as "run" | "ok" | "fail") : undefined,
     failScene: p.get("fail") ?? undefined,
     tunnels: p.get("tunnels") === "none" ? "none" : p.get("tunnels") === "many" ? "many" : p.get("tunnels") === "notas" ? "notas" : "normal",
     peerEdit: p.has("peeredit"),
+    admin: p.get("admin") === "pending" ? "pending" : undefined,
     cross: p.get("cross") === "ok" ? "ok" : p.get("cross") === "wrong" ? "wrong" : p.get("cross") === "timeout" ? "timeout" : undefined,
   };
 }
@@ -143,6 +153,7 @@ interface Spec {
   system: string;
   hardware: HardwareView;
   environments: EnvView[];
+  inputDevices?: { name: string; via?: string }[];
   live: LiveView;
 }
 
@@ -176,6 +187,7 @@ const MACBOOK: Spec = {
     { id: "zsh", kind: "shell", name: "zsh", default: true, ready: true, detail: "uv · node · pnpm · cargo · git" },
     { id: "docker", kind: "docker", name: "Docker", default: false, ready: true, detail: "arm64 · sin GPU" },
   ],
+  inputDevices: [{ name: "Teclado integrado" }, { name: "Trackpad" }, { name: "Keychron K3 · MX Master 3S", via: "por el hub" }],
   live: {
     cpu: { percent: 18, temp: 48, history: fromY(34, [28, 26, 29, 24, 27, 25, 28, 26, 27]) },
     ram: { used: 12.4 * GIB, total: 24 * GIB, history: fromY(22, [14, 13, 13, 12, 12, 11, 12, 12, 11]) },
@@ -205,6 +217,7 @@ const DESKTOP: Spec = {
     { id: "wsl:Ubuntu-24.04", kind: "wsl", name: "Ubuntu 24.04", default: true, ready: true, detail: "uv · cargo · node · CUDA 12.8 · git" },
     { id: "docker", kind: "docker", name: "Docker Desktop", default: false, ready: true, detail: "GPU: --gpus all disponible" },
   ],
+  inputDevices: [],
   live: {
     cpu: { percent: 64, temp: 62, history: fromY(34, [26, 24, 28, 20, 18, 15, 17, 14, 16]) },
     ram: { used: 17.1 * GIB, total: 24 * GIB, history: fromY(22, [14, 13, 13, 11, 10, 9, 9, 8, 8]) },
@@ -243,7 +256,7 @@ const PAIRS: Record<DemoPair, [Spec, Spec]> = {
   "mac-mac": [MACBOOK, MINI],
 };
 
-function modulesOf(os: Os, name: string, otherName: string, envs: number): ModuleView[] {
+function modulesOf(os: Os, name: string, otherName: string, envs: number, adminPending = false): ModuleView[] {
   const mac = os === "macos";
   // Con un permiso de macOS faltando, la página lo muestra en su propia fila («Permisos», como
   // `F-MaquinaMac`); el módulo sigue con lo que sí puede hacer.
@@ -261,7 +274,9 @@ function modulesOf(os: Os, name: string, otherName: string, envs: number): Modul
       switchable: false,
     },
     mac
-      ? { id: "tunnels", name: "Cómputo remoto", state: "active", detail: `${envs} entornos · admin (LaunchDaemon instalado)`, switchable: true }
+      ? adminPending
+        ? { id: "tunnels", name: "Cómputo remoto", state: "off", detail: `${envs} entornos · falta instalar el servicio de administrador`, switchable: true }
+        : { id: "tunnels", name: "Cómputo remoto", state: "active", detail: `${envs} entornos · admin (LaunchDaemon instalado)`, switchable: true }
       : { id: "tunnels", name: "Túneles", state: "active", detail: `Recibe túneles de Claude en ${envs} entornos, como administrador.`, switchable: true },
   ];
   if (!mac) list.push({ id: "secure_desktop", name: "Pantallas protegidas", state: "active", detail: "El mouse y el teclado también funcionan en avisos de UAC y en el inicio de sesión.", switchable: true });
@@ -485,14 +500,14 @@ const TROUBLE_TEXT: Record<Trouble, (peer: string) => string> = {
 
 export const DEMO_CODE = "418027";
 
-function permissionsFor(os: Os, missing: boolean): PermissionsView {
+function permissionsFor(os: Os, missing: boolean, netGranted = false): PermissionsView {
   if (os !== "macos") return { needed: false, rows: [], binary: null };
   return {
     needed: true,
     rows: [
       { id: "accessibility", state: missing ? "missing" : "granted" },
       { id: "input_monitoring", state: missing ? "missing" : "granted" },
-      { id: "local_network", state: "unknown" },
+      { id: "local_network", state: netGranted ? "granted" : "unknown" },
     ],
     binary: "Concede el permiso a este binario: /Applications/Tandem.app/Contents/MacOS/tandemd (pid 4242)",
   };
@@ -523,6 +538,11 @@ function demoLayout(sa: Spec, sb: Spec, scenes: SceneView[], active: string | nu
   return { screens: [...screens, ...off], arrangement: { ...DEMO_ARRANGEMENT } };
 }
 
+/** Con el puesto emparejado la otra máquina va por el cable; antes solo se la encuentra por la red (Wi-Fi). */
+const PAIRED_LINK: LinkView = { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 };
+const UNPAIRED_LINK: LinkView = { kind: "wifi", gbps: 0.41, ms: 3.8, inputP99: null };
+const NO_LINK: LinkView = { kind: null, gbps: null, ms: null, inputP99: null };
+
 /** El puesto simulado para unas opciones (puro: mismas opciones, mismo puesto). */
 export function demoDesk(o: DemoOptions): DeskView {
   const [sa, sb] = PAIRS[o.pair];
@@ -540,11 +560,12 @@ export function demoDesk(o: DemoOptions): DeskView {
       here,
       power,
       resources: power === "on" ? { ...s.resources, history: [...s.resources.history] } : null,
-      modules: modulesOf(s.os, s.name, otherName, s.environments.length),
+      modules: modulesOf(s.os, s.name, otherName, s.environments.length, o.admin === "pending"),
       system: s.system,
       hardware: s.hardware,
       environments: s.environments.map((e) => ({ ...e })),
       live: power === "on" ? s.live : null,
+      ...(s.inputDevices ? { inputDevices: s.inputDevices } : {}),
     };
   };
   const monitors = demoMonitors(sa, sb).map((m) => (o.txn === "fail" && m.compat.ok ? { ...m, input: "hdmi" as const, shows: "a" as const, owner: "b" as const } : m));
@@ -558,7 +579,7 @@ export function demoDesk(o: DemoOptions): DeskView {
     troubleText: TROUBLE_TEXT[o.trouble](peerSpec.name),
     here: o.here,
     machines: { a: mk("a", sa, sb.name), b: mk("b", sb, sa.name) },
-    link: linkUp ? { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 } : { kind: null, gbps: null, ms: null, inputP99: null },
+    link: linkUp ? (o.unpaired ? UNPAIRED_LINK : PAIRED_LINK) : NO_LINK,
     network: o.txn && linkUp ? { ...demoNetwork(linkUp), measuring: "usb4" } : demoNetwork(linkUp),
     tunnels: demoTunnels(o.still ? DEMO_NOW : Date.now(), o.tunnels),
     scenes,
@@ -568,7 +589,7 @@ export function demoDesk(o: DemoOptions): DeskView {
       peer: o.unpaired ? { kind: "unpaired" } : { kind: "paired", name: peerSpec.name, link: linkUp ? "usb4" : null },
       pairing: o.pairing === "code" ? { kind: "comparing", code: DEMO_CODE, peer: peerSpec.name, confirmed: false } : { kind: "idle" },
     },
-    permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions"),
+    permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions" || o.perms === "missing", o.perms === "missing"),
     layout: demoLayout(sa, sb, scenes, "trabajo"),
   };
 }
@@ -957,7 +978,8 @@ export class DemoSource implements Source {
   private keys: ShortcutsView = { bindings: { ...DEFAULT_BINDINGS }, failed: {}, warning: null, file: null };
 
   private setPairing(pairing: PairingView, peer = this.desk.pair.peer): void {
-    this.set({ ...this.desk, pair: { peer, pairing } });
+    const link = this.desk.link.kind === null ? this.desk.link : peer.kind === "paired" ? PAIRED_LINK : UNPAIRED_LINK;
+    this.set({ ...this.desk, link, pair: { peer, pairing } });
   }
 
   /** Simula a la otra máquina: aparece el código y, al confirmar, confirma ella también. */
@@ -965,6 +987,19 @@ export class DemoSource implements Source {
     if (this.desk.trouble === "no-agent") return { ok: false, reason: "El agente de Tandem no está corriendo en esta máquina" };
     this.set({ ...this.desk, layout: { ...this.desk.layout, arrangement: { ...a } } });
     return { ok: true, text: "Acomodo guardado" };
+  }
+
+  private listeners = new Set<(m: Machine) => void>();
+
+  /** Escuchar teclas en cada máquina; el demo las recibe de `heardKey` (las pruebas) o de la ventana. */
+  async watchKeyProbe(onHeard: (m: Machine) => void): Promise<() => void> {
+    this.listeners.add(onHeard);
+    return () => void this.listeners.delete(onHeard);
+  }
+
+  /** Una tecla oída en `m`. */
+  heardKey(m: Machine): void {
+    for (const f of [...this.listeners]) f(m);
   }
 
   private crossers = new Set<(s: CrossSample) => void>();

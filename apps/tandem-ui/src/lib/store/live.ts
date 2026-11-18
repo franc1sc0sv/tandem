@@ -365,6 +365,8 @@ export class LiveSource implements Source {
     return { ok: false, reason: "El agente todavía no sabe olvidar un monitor" };
   }
 
+  private probeListeners = new Set<(m: Machine) => void>();
+
   private txnListeners = new Set<(e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void>();
   /** El evento de Tauri no se puede dejar de oír: se oye una vez y se reparte (transacciones y cursor). */
   private noticesBound: Promise<void> | null = null;
@@ -373,7 +375,9 @@ export class LiveSource implements Source {
     this.noticesBound ??= Promise.resolve(
       this.bridge.onNotice?.((n) => {
         if (n.kind === "txn") for (const l of this.txnListeners) l(n.event);
-        else if (n.kind === "cursor" || n.kind === "crossed") for (const f of [...this.cursorListeners]) f(n);
+        else if (n.kind === "key_probe") {
+          if (n.event.heard) for (const f of [...this.probeListeners]) f(n.event.heard);
+        } else if (n.kind === "cursor" || n.kind === "crossed") for (const f of [...this.cursorListeners]) f(n);
       }),
     );
     return this.noticesBound;
@@ -455,6 +459,22 @@ export class LiveSource implements Source {
     return () => {
       if (!this.cursorListeners.delete(onEvent) || this.cursorListeners.size > 0) return;
       this.bridge.act({ kind: "watch_cursor", on: false }).catch(() => {});
+    };
+  }
+
+  async watchKeyProbe(onHeard: (m: Machine) => void): Promise<() => void> {
+    await this.bindNotices();
+    this.probeListeners.add(onHeard);
+    if (this.probeListeners.size === 1) {
+      const r = await this.bridge.act({ kind: "key_probe", on: true });
+      if (r.kind === "rejected" || r.kind === "unavailable") {
+        this.probeListeners.delete(onHeard);
+        throw new Error(r.reason);
+      }
+    }
+    return () => {
+      if (!this.probeListeners.delete(onHeard) || this.probeListeners.size > 0) return;
+      this.bridge.act({ kind: "key_probe", on: false }).catch(() => {});
     };
   }
 

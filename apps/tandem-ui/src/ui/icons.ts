@@ -49,6 +49,12 @@ export const ICONS = {
   refresh: { body: '<path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 4v4h-4M4 20v-4h4"></path>', linecap: "round" },
   download: { body: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path>', linecap: "round" },
   external: { body: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path>', linecap: "round" },
+  login: { body: '<path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H4"></path>', linecap: "round", linejoin: "round" },
+  "grid-plus": {
+    body: '<rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><path d="M17.5 14v7M14 17.5h7"></path>',
+    linecap: "round",
+  },
+  skip: { body: '<path d="M5 5l7 7-7 7M13 5l7 7-7 7"></path>', linecap: "round", linejoin: "round" },
   copy: { body: '<rect x="9" y="9" width="12" height="12" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path>' },
   mouse: { body: '<path d="M12 3a6 6 0 0 1 6 6v6a6 6 0 0 1-12 0V9a6 6 0 0 1 6-6zM12 7v4"></path>', linecap: "round" },
   sliders: { body: '<path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4"></path>', linecap: "round" },

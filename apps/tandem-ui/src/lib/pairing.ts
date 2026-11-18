@@ -90,3 +90,18 @@ export function shouldOpen(before: PairingView | null, after: PairingView): bool
 export function pairButton(peer: PeerView): string {
   return peer.kind === "paired" ? "Par" : "Emparejar";
 }
+
+// ---- Escribir el código (asistente, «Unirme a un puesto») -----------------------------------
+
+/** Pone un dígito en su casilla (vacío la borra); cualquier otra cosa se ignora. */
+export function setDigit(digits: string[], i: number, value: string): string[] {
+  const d = value.replace(/\D/g, "").slice(-1);
+  return digits.map((x, j) => (j === i ? d : x));
+}
+
+export const isComplete = (digits: string[]): boolean => digits.length === 6 && digits.every((d) => /^\d$/.test(d));
+
+/** ¿Lo escrito es el código que calculó el agente? Solo cuenta con las seis casillas llenas. */
+export function codeMatches(typed: string[], code: string): boolean {
+  return isComplete(typed) && typed.join("") === code.replace(/\D/g, "");
+}
