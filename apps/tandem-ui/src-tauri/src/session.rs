@@ -15,7 +15,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{
-    Align, Arrangement, Config, DeskPatch, Machine, MonitorInput, Scene, Side, State, Step,
+    Align, Arrangement, Config, DeskPatch, InputPrefs, Machine, MonitorInput, Scene, Side, State,
+    Step,
 };
 use tandem_proto::{
     AgentToUi, Capabilities, CursorSample, DeskCapabilities, EnvKind, Environment, Hardware,
@@ -568,6 +569,14 @@ pub enum Notice {
         to: Machine,
         edge: Side,
     },
+    /// La otra máquina cambió el puesto y ganó (D5): «Cambiado desde X · Deshacer». Deshacer
+    /// es [`Action::UndoDesk`] con `undo_to`.
+    DeskChanged {
+        by: Machine,
+        rev: u64,
+        summary: String,
+        undo_to: u64,
+    },
 }
 
 /// [`CursorSample`] en JSON para el frontend.
@@ -768,6 +777,15 @@ pub enum Action {
         #[serde(default)]
         stderr: u64,
     },
+    /// Teclado y mouse compartidos (`EditDesk { Prefs }`): se manda el par entero.
+    SetPrefs {
+        cmd_ctrl: bool,
+        drag_files: bool,
+    },
+    /// «Deshacer» del aviso de cambio (D5): vuelve el puesto a la versión `to_rev`.
+    UndoDesk {
+        to_rev: u64,
+    },
 }
 
 /// Suma o resta una ventana a `n`; devuelve si había alguna y si hay alguna.
@@ -853,6 +871,16 @@ impl From<Action> for UiCommand {
                 from: tunnels::cursor(stdout, stderr),
                 max: OUTPUT_CHUNK,
             },
+            Action::SetPrefs {
+                cmd_ctrl,
+                drag_files,
+            } => UiCommand::EditDesk {
+                patch: DeskPatch::Prefs(InputPrefs {
+                    cmd_ctrl,
+                    drag_files,
+                }),
+            },
+            Action::UndoDesk { to_rev } => UiCommand::UndoDesk { to_rev },
         }
     }
 }
@@ -1342,9 +1370,18 @@ impl Runner {
             AgentToUi::Update(status) => self.sink.update(&status),
             // Solo llegan respuestas dentro de `request`; una suelta no le sirve a nadie.
             AgentToUi::Reply { .. } => {}
-            // El puesto nuevo ya llega con `Desk`; el aviso con «Deshacer» lo muestra la UI
-            // nueva (T-112), no esta.
-            AgentToUi::DeskChanged { .. } => {}
+            // El puesto nuevo ya llega con `Desk`; esto es solo el aviso con «Deshacer».
+            AgentToUi::DeskChanged {
+                by,
+                rev,
+                summary,
+                undo_to,
+            } => self.sink.notice(&Notice::DeskChanged {
+                by,
+                rev,
+                summary,
+                undo_to,
+            }),
             AgentToUi::Resources { machine, resources } => {
                 self.sink.resources(machine, &resources);
             }
@@ -2491,7 +2528,30 @@ mac = "9c:6b:00:1a:2b:ff"
                 patch: DeskPatch::DeleteScene { id: "juego".into() }
             }
         );
-        // Lo viejo de los monitores ya no existe: la ventana no puede pedirlo.
+        assert_eq!(
+            read(serde_json::json!({ "kind": "set_prefs", "cmd_ctrl": false, "drag_files": true })),
+            UiCommand::EditDesk {
+                patch: DeskPatch::Prefs(InputPrefs {
+                    cmd_ctrl: false,
+                    drag_files: true
+                })
+            }
+        );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "undo_desk", "to_rev": 4 })),
+            UiCommand::UndoDesk { to_rev: 4 }
+        );
+        assert_eq!(
+            serde_json::to_value(Notice::DeskChanged {
+                by: Machine::B,
+                rev: 5,
+                summary: "Acomodo".into(),
+                undo_to: 4
+            })
+            .unwrap(),
+            serde_json::json!({ "kind": "desk_changed", "by": "b", "rev": 5, "summary": "Acomodo", "undo_to": 4 })
+        );
+        // Lo de los monitores ya no existe: la ventana no puede pedirlo.
         for gone in ["set_mode", "list_displays", "scan_monitors", "answer_probe"] {
             assert!(serde_json::from_value::<Action>(serde_json::json!({ "kind": gone })).is_err());
         }
