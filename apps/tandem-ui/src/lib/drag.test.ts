@@ -4,7 +4,7 @@ import type { Bridge } from "./bridge";
 import { dragNotice } from "./drag";
 import type { DragStatus, Notice, Snapshot } from "./model";
 import { LiveSource } from "./store/live";
-import { Store } from "./store/store.svelte";
+import { Store, TOAST_MS } from "./store/store.svelte";
 
 afterEach(() => vi.useRealTimers());
 
@@ -56,7 +56,7 @@ describe("aviso del arrastre de archivos", () => {
     emit({ kind: "copied", total: 2 });
     emit({ kind: "dropped" });
     expect(store.toasts.map((t) => t.text)).toEqual(["Archivos copiados a la otra máquina"]);
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(TOAST_MS);
     expect(store.toasts).toHaveLength(0);
   });
 
