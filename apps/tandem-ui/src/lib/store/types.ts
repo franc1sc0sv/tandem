@@ -336,6 +336,15 @@ export interface DeskChange {
   undoTo: number;
 }
 
+/** El avance de una copia de archivos entre las máquinas (aviso con progreso). */
+export interface TransferView {
+  upload: boolean;
+  path: string;
+  done: number;
+  total: number;
+  finished: boolean;
+}
+
 /** Dónde están el archivo de configuración y los logs de esta máquina. */
 export interface FilesView {
   config: string;
@@ -388,7 +397,7 @@ export type ActResult = { ok: true; text?: string } | { ok: false; reason: strin
  * y recibe el estado nuevo cada vez que cambia.
  */
 export interface Source {
-  start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void): Promise<void>;
+  start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void>;
   /** Teclado y mouse compartidos: se manda el par entero. */
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult>;
   /** «Deshacer» el cambio de la otra máquina: vuelve el puesto a la versión `rev`. */

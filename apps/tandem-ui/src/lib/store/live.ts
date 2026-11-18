@@ -14,7 +14,7 @@ import { gbpsOf, measuredText, networkFromWire, primaryOf } from "../network";
 import { monitorsUi } from "../monitors";
 import { sceneView } from "../scenes";
 import { grantTo, permissionState } from "../permissions";
-import type { ActResult, Capability, CursorEvent, DeskChange, DeskView, FilesView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, PrefsView, ProcessRow, Source, Topic, TunnelView } from "./types";
+import type { ActResult, Capability, CursorEvent, DeskChange, DeskView, FilesView, EnvView, HardwareView, LinkKind, LiveView, MachineView, ModuleView, NetworkView, OutputChunk, OutputCursor, PairActionKind, PermissionsView, PrefsView, ProcessRow, Source, Topic, TransferView, TunnelView } from "./types";
 import { addTransfer, newMemory, outputChunk, processRow, tunnelsFromWire, type Memory, type ProjectWire } from "../tunnels";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK } from "./types";
@@ -265,7 +265,7 @@ export class LiveSource implements Source {
 
   constructor(private readonly bridge: Bridge) {}
 
-  async start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void): Promise<void> {
+  async start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void> {
     // Un error al leer una foto no cuelga la ventana: se muestra como «sin agente» con la razón.
     const push = (s: Snapshot) => {
       try {
@@ -282,6 +282,7 @@ export class LiveSource implements Source {
     void Promise.resolve(
       this.bridge.onNotice?.((n) => {
         if (n.kind === "desk_changed") onChange?.({ by: n.by, rev: n.rev, summary: n.summary, undoTo: n.undo_to });
+        else if (n.kind === "transfer") onTransfer?.({ upload: n.upload, path: n.path, done: n.done, total: n.total, finished: n.finished });
       }),
     ).catch(() => {});
     // Las muestras llegan aparte (una por segundo): cada una avanza la línea de su máquina.

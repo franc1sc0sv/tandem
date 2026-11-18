@@ -577,6 +577,15 @@ pub enum Notice {
         summary: String,
         undo_to: u64,
     },
+    /// Avance de una copia de archivos entre las máquinas (`AgentToUi::Transfer`): un aviso con
+    /// barra. `finished` cierra la copia.
+    Transfer {
+        upload: bool,
+        path: String,
+        done: u64,
+        total: u64,
+        finished: bool,
+    },
 }
 
 /// [`CursorSample`] en JSON para el frontend.
@@ -1387,7 +1396,17 @@ impl Runner {
             }
             // La pantalla Túneles (solo lectura, D9) y el tráfico de cada túnel (T-114).
             AgentToUi::Tunnels(groups) => self.sink.tunnels(&tunnels::projects_of(groups)),
-            AgentToUi::Transfer(t) => self.sink.transfer(&t.into()),
+            // Las copias las pide un cliente (T-106): el avance va a Túneles y, como aviso, a la ventana.
+            AgentToUi::Transfer(t) => {
+                self.sink.notice(&Notice::Transfer {
+                    upload: t.upload,
+                    path: t.path.clone(),
+                    done: t.done,
+                    total: t.total,
+                    finished: t.finished,
+                });
+                self.sink.transfer(&t.into());
+            }
             // Solo con `Action::WatchCursor`: las pantallas Puesto y Acomodo los pintan.
             AgentToUi::Cursor(sample) => self.sink.notice(&Notice::Cursor {
                 sample: sample.into(),
@@ -2550,6 +2569,17 @@ mac = "9c:6b:00:1a:2b:ff"
             })
             .unwrap(),
             serde_json::json!({ "kind": "desk_changed", "by": "b", "rev": 5, "summary": "Acomodo", "undo_to": 4 })
+        );
+        assert_eq!(
+            serde_json::to_value(Notice::Transfer {
+                upload: true,
+                path: "/a/b".into(),
+                done: 5,
+                total: 10,
+                finished: false
+            })
+            .unwrap(),
+            serde_json::json!({ "kind": "transfer", "upload": true, "path": "/a/b", "done": 5, "total": 10, "finished": false })
         );
         // Lo de los monitores ya no existe: la ventana no puede pedirlo.
         for gone in ["set_mode", "list_displays", "scan_monitors", "answer_probe"] {

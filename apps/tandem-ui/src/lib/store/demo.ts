@@ -34,6 +34,7 @@ import type {
   Capability,
   CursorEvent,
   DeskChange,
+  TransferView,
   DeskView,
   FilesView,
   EnvView,
@@ -602,14 +603,21 @@ export class DemoSource implements Source {
     this.desk = demoDesk(opts);
   }
 
-  async start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void): Promise<void> {
+  async start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void> {
     this.emit = onDesk;
     this.onChange = onChange;
+    this.onTransfer = onTransfer;
     onDesk(this.desk);
     if (this.opts.peerEdit) setTimeout(() => this.peerEdit(), PEER_EDIT_MS);
   }
 
   private onChange: ((c: DeskChange) => void) | undefined;
+  private onTransfer: ((t: TransferView) => void) | undefined;
+
+  /** El avance de una copia de archivos, como lo mandaría el agente. */
+  simulateTransfer(t: TransferView): void {
+    this.onTransfer?.(t);
+  }
 
   /** La otra máquina cambió el puesto (D5): lo que haría `DeskChanged` del agente. */
   simulateChange(c: DeskChange): void {

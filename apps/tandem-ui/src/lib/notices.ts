@@ -2,7 +2,7 @@
 // el store lo llama con el estado de antes y el de ahora.
 
 import type { Machine } from "./model";
-import type { DeskChange, DeskView, LinkKind } from "./store/types";
+import type { DeskChange, DeskView, LinkKind, TransferView } from "./store/types";
 
 export type ToastTone = "ok" | "bad" | "warn" | "info" | "claude";
 
@@ -16,6 +16,10 @@ export interface ToastAction {
 
 /** Lo que pide un aviso; el store le pone el id y lo apaga a los 6 s si no pide una decisión. */
 export interface ToastSpec {
+  /** Con clave, un aviso nuevo reemplaza al que ya la tenga (el avance de una copia). */
+  key?: string;
+  /** Avance con barra: el aviso no se va solo hasta que termina. */
+  progress?: { done: number; total: number };
   text: string;
   body?: string;
   tone: ToastTone;
@@ -25,6 +29,29 @@ export interface ToastSpec {
 export const KIND_NAME: Record<LinkKind, string> = { usb4: "USB-C", ethernet: "Ethernet", wifi: "Wi-Fi" };
 
 const nameOf = (d: DeskView, m: Machine) => d.machines[m]?.name ?? `la máquina ${m.toUpperCase()}`;
+
+/** Bytes legibles: «1.4 GB», «320 MB», «12 KB». */
+export function bytesText(n: number): string {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
+  if (n >= 1e6) return `${Math.round(n / 1e6)} MB`;
+  return `${Math.max(0, Math.round(n / 1e3))} KB`;
+}
+
+/** El aviso de una copia de archivos: con barra mientras avanza y «Listo» al terminar. */
+export function transferToast(t: TransferView, d: DeskView): ToastSpec {
+  const name = t.path.split(/[\\/]/).filter(Boolean).pop() ?? t.path;
+  const peer = nameOf(d, d.here === "a" ? "b" : "a");
+  const key = `transfer:${t.path}`;
+  if (t.finished) return { key, text: `Se copió «${name}»`, body: t.upload ? `Ya está en ${peer}.` : `Ya está en esta máquina.`, tone: "ok" };
+  const pct = t.total > 0 ? Math.min(100, Math.floor((t.done / t.total) * 100)) : 0;
+  return {
+    key,
+    text: t.upload ? `Enviando «${name}» a ${peer}` : `Recibiendo «${name}» de ${peer}`,
+    body: `${pct} % · ${bytesText(t.done)} de ${bytesText(t.total)}`,
+    tone: "info",
+    progress: { done: t.done, total: t.total },
+  };
+}
 
 /** «Cambiado desde X · Deshacer» (D5): el aviso espera la decisión, no se va solo. */
 export function changeToast(c: DeskChange, d: DeskView, undo: (rev: number) => void): ToastSpec {

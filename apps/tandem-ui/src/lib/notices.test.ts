@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { changeToast, deskEvents, KIND_NAME, TONE_COLOR } from "./notices";
+import { bytesText, changeToast, deskEvents, KIND_NAME, TONE_COLOR, transferToast } from "./notices";
 import { demoDesk, demoOptions } from "./store/demo";
 import type { DeskView } from "./store/types";
 
@@ -56,5 +56,33 @@ describe("deskEvents", () => {
 
   it("cada tono tiene su color", () => {
     expect(Object.keys(TONE_COLOR).sort()).toEqual(["bad", "claude", "info", "ok", "warn"]);
+  });
+});
+
+describe("transferToast (alcance 3)", () => {
+  const d = desk();
+  const peer = d.machines[d.here === "a" ? "b" : "a"]?.name;
+
+  it("mientras avanza trae la barra, el porcentaje y los bytes, y no se va solo", () => {
+    const t = transferToast({ upload: true, path: "/home/yo/fotos/boda.zip", done: 500_000_000, total: 2_000_000_000, finished: false }, d);
+    expect(t).toMatchObject({ key: "transfer:/home/yo/fotos/boda.zip", text: `Enviando «boda.zip» a ${peer}`, body: "25 % · 500 MB de 2.0 GB", tone: "info" });
+    expect(t.progress).toEqual({ done: 500_000_000, total: 2_000_000_000 });
+  });
+
+  it("al recibir lo dice en la otra dirección, con la ruta de Windows también", () => {
+    const t = transferToast({ upload: false, path: "C:\\datos\\notas.txt", done: 0, total: 0, finished: false }, d);
+    expect(t.text).toBe(`Recibiendo «notas.txt» de ${peer}`);
+    expect(t.body).toBe("0 % · 0 KB de 0 KB");
+  });
+
+  it("al terminar es un aviso ok con la misma clave y sin barra", () => {
+    const run = transferToast({ upload: true, path: "/x/a.bin", done: 1, total: 2, finished: false }, d);
+    const end = transferToast({ upload: true, path: "/x/a.bin", done: 2, total: 2, finished: true }, d);
+    expect(end).toMatchObject({ key: run.key, text: "Se copió «a.bin»", tone: "ok" });
+    expect(end.progress).toBeUndefined();
+  });
+
+  it("bytesText elige la unidad", () => {
+    expect([bytesText(12_000), bytesText(320_000_000), bytesText(1_400_000_000)]).toEqual(["12 KB", "320 MB", "1.4 GB"]);
   });
 });

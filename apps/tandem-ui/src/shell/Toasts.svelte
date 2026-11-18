@@ -17,6 +17,11 @@
       <div class="col">
         <b>{t.text}</b>
         {#if t.body}<span class="body">{t.body}</span>{/if}
+        {#if t.progress}
+          <span class="bar" role="progressbar" aria-label="Avance" aria-valuemin="0" aria-valuemax="100" aria-valuenow={t.progress.total > 0 ? Math.floor((t.progress.done / t.progress.total) * 100) : 0}>
+            <span class="fill" style:width="{t.progress.total > 0 ? (t.progress.done / t.progress.total) * 100 : 0}%"></span>
+          </span>
+        {/if}
         {#if t.action}
           <span class="acts">
             <button
@@ -137,6 +142,20 @@
     background: #25272d;
     color: #e8e8eb;
     transform: rotate(90deg);
+  }
+  .bar {
+    display: block;
+    height: 4px;
+    margin-top: 8px;
+    border-radius: 2px;
+    background: #2a2c33;
+    overflow: hidden;
+  }
+  .bar .fill {
+    display: block;
+    height: 100%;
+    background: #7aa7e6;
+    transition: width 0.3s ease-out;
   }
   .life {
     position: absolute;

@@ -9,7 +9,7 @@ import { machineName } from "../machines";
 import type { Bindings, Permission, ShortcutsView } from "../model";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
-import { changeToast, deskEvents, type ToastSpec, type ToastTone } from "../notices";
+import { changeToast, deskEvents, transferToast, type ToastSpec, type ToastTone } from "../notices";
 import type { ActResult, Capability, CursorEvent, DeskView, FilesView, LinkKind, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
 import type { UpdateView } from "../updates";
 import type { Arrangement } from "../acomodo";
@@ -101,6 +101,9 @@ export class Store implements CommandContext {
         },
         (c) => {
           if (this.opensOnPairing) this.notify(changeToast(c, this.desk, (rev) => void this.undoDesk(rev)));
+        },
+        (t) => {
+          if (this.opensOnPairing) this.notify(transferToast(t, this.desk));
         },
       );
     } catch (e) {
@@ -387,8 +390,11 @@ export class Store implements CommandContext {
 
   /** Un aviso nuevo arriba de la pila; el más viejo sale si pasan de `TOAST_MAX`. */
   notify(spec: ToastSpec): void {
-    const t: Toast = { ...spec, id: this.nextToast++, auto: !spec.action };
-    this.toasts = [t, ...this.toasts].slice(0, TOAST_MAX);
+    const auto = !spec.action && !spec.progress;
+    const at = spec.key ? this.toasts.findIndex((x) => x.key === spec.key) : -1;
+    // El avance de una copia actualiza su aviso en el sitio; no apila uno por cada muestra.
+    const t: Toast = { ...spec, id: at >= 0 ? this.toasts[at].id : this.nextToast++, auto };
+    this.toasts = at >= 0 ? this.toasts.map((x, i) => (i === at ? t : x)) : [t, ...this.toasts].slice(0, TOAST_MAX);
     if (t.auto) setTimeout(() => this.dismiss(t.id), TOAST_MS);
   }
 

@@ -139,3 +139,33 @@ describe("aviso de cambio del puesto (D5) en modo demo", () => {
     expect(await src.undoDesk(99)).toEqual({ ok: false, reason: expect.any(String) });
   });
 });
+
+describe("aviso de transferencia con progreso (alcance 3)", () => {
+  const t = (done: number, finished = false) => ({ kind: "transfer" as const, upload: true, path: "/x/boda.zip", done, total: 100, finished });
+
+  it("cada muestra actualiza el mismo aviso y al terminar queda en ok y se va solo", async () => {
+    vi.useFakeTimers();
+    const { bridge, emit } = fake();
+    const store = new Store(new LiveSource(bridge));
+    await store.start();
+    emit(t(10));
+    const id = store.toasts[0].id;
+    emit(t(60));
+    expect(store.toasts).toHaveLength(1);
+    expect(store.toasts[0]).toMatchObject({ id, auto: false, progress: { done: 60, total: 100 } });
+    vi.advanceTimersByTime(TOAST_MS * 2);
+    expect(store.toasts).toHaveLength(1);
+    emit(t(100, true));
+    expect(store.toasts[0]).toMatchObject({ id, text: "Se copió «boda.zip»", tone: "ok", auto: true });
+    vi.advanceTimersByTime(TOAST_MS + 10);
+    expect(store.toasts).toEqual([]);
+  });
+
+  it("en el demo también se puede simular", async () => {
+    const src = new DemoSource(demoOptions("demo&still"));
+    const store = new Store(src);
+    await store.start();
+    src.simulateTransfer({ upload: false, path: "/x/a.txt", done: 5, total: 10, finished: false });
+    expect(store.toasts[0].progress).toEqual({ done: 5, total: 10 });
+  });
+});

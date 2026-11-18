@@ -238,7 +238,9 @@ export type Notice =
   | { kind: "key_probe"; event: { armed: boolean; heard: Machine | null } }
   | { kind: "power"; machine: Machine; reason: string }
   /** La otra máquina cambió el puesto y ganó (D5): «Cambiado desde X · Deshacer». */
-  | { kind: "desk_changed"; by: Machine; rev: number; summary: string; undo_to: number };
+  | { kind: "desk_changed"; by: Machine; rev: number; summary: string; undo_to: number }
+  /** El avance de una copia de archivos entre las máquinas. */
+  | { kind: "transfer"; upload: boolean; path: string; done: number; total: number; finished: boolean };
 
 export type Action =
   | { kind: "set_power"; machine: Machine; on: boolean }
