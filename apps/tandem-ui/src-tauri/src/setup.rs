@@ -160,7 +160,7 @@ mod tests {
             false,
             Some(Report {
                 ok: true,
-                text: "listo".into(),
+                text: "ready".into(),
             }),
         );
         assert_eq!(
@@ -169,7 +169,7 @@ mod tests {
                 "available": true,
                 "show": true,
                 "permissions": ["accessibility", "input_monitoring", "local_network"],
-                "agent": { "ok": true, "text": "listo" }
+                "agent": { "ok": true, "text": "ready" }
             })
         );
     }

@@ -1,15 +1,16 @@
-; Ganchos del instalador NSIS de Tandem (los inserta el bundler de Tauri; ver
-; docs/dev/install-windows.md). tandemd.exe y tandemw.exe se copian a $INSTDIR como sidecars.
+; Tandem NSIS installer hooks (inserted by the Tauri bundler; see
+; docs/dev/install-windows.md). tandemd.exe and tandemw.exe are copied to $INSTDIR as sidecars.
 ;
-; - Antes de copiar y de desinstalar: se detiene el agente, que si no deja los .exe bloqueados.
-; - Al instalar: `tandemd --install` registra tandemw.exe (tarea programada con los privilegios mas altos si hay administrador, si no HKCU\...\Run); despues se
-;   arranca el agente para no esperar al proximo inicio de sesion. No se instala ninguna
-;   config: el agente la genera al arrancar con los monitores que detecta (T-082).
-; - Al desinstalar (no en una actualizacion): `tandemd --uninstall` quita el arranque. Los
-;   datos del usuario (%APPDATA%\Tandem) se borran solo si se marca la casilla de borrar datos.
+; - Before copying and before uninstalling: the agent is stopped, or it would leave the .exe files locked.
+; - On install: `tandemd --install` registers tandemw.exe (a scheduled task with the highest
+;   privileges if there is an administrator, otherwise HKCU\...\Run); then the agent is
+;   started so as not to wait for the next login. No config is installed: the agent
+;   generates it on startup with the monitors it detects (T-082).
+; - On uninstall (not on an update): `tandemd --uninstall` removes the autostart. The
+;   user's data (%APPDATA%\Tandem) is deleted only if the delete-data checkbox is ticked.
 
 !macro TANDEM_STOP_AGENT
-  ; Primero el lanzador (espera al agente) y despues el agente. Solo procesos de este usuario.
+  ; The launcher first (it waits for the agent) and then the agent. Only this user's processes.
   nsis_tauri_utils::KillProcessCurrentUser "tandemw.exe"
   Pop $R0
   nsis_tauri_utils::KillProcessCurrentUser "tandemd.exe"
@@ -22,13 +23,13 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  DetailPrint "Registrando tandemd para arrancar con la sesion"
+  DetailPrint "Registering tandemd to start at login"
   nsExec::ExecToLog '"$INSTDIR\tandemd.exe" --install'
   Pop $R0
   ${If} $R0 != 0
-    DetailPrint "tandemd --install fallo (codigo $R0)"
+    DetailPrint "tandemd --install failed (code $R0)"
     ${IfNot} ${Silent}
-      MessageBox MB_ICONEXCLAMATION|MB_OK "No se pudo registrar el arranque automatico de tandemd (codigo $R0). Ejecuta $\"$INSTDIR\tandemd.exe$\" --install para ver el error."
+      MessageBox MB_ICONEXCLAMATION|MB_OK "Could not register tandemd to start automatically (code $R0). Run $\"$INSTDIR\tandemd.exe$\" --install to see the error."
     ${EndIf}
   ${Else}
     Exec '"$INSTDIR\tandemw.exe"'
@@ -37,7 +38,7 @@
 
 !macro NSIS_HOOK_PREUNINSTALL
   !insertmacro TANDEM_STOP_AGENT
-  ; En una actualizacion el instalador nuevo vuelve a registrar el arranque.
+  ; On an update the new installer registers the autostart again.
   ${If} $UpdateMode <> 1
     nsExec::ExecToLog '"$INSTDIR\tandemd.exe" --uninstall'
     Pop $R0

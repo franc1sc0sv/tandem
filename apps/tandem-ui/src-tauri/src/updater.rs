@@ -1,14 +1,15 @@
-//! El updater dentro de la app (T-122): buscar, «Actualizar todas», «Actualizar solo» y
-//! atender el pedido de la otra máquina. Las decisiones están en [`crate::update`]; aquí
-//! solo se conectan con el plugin de Tauri, la sesión con `tandemd` y la ventana.
+//! The in-app updater (T-122): check, "Update all", "Update automatically" and serving the
+//! other machine's request. The decisions live in [`crate::update`]; here they are only wired
+//! to the Tauri plugin, the session with `tandemd` and the window.
 //!
-//! - El paquete de cada sistema trae la UI y `tandemd`. En macOS el updater reemplaza
-//!   `Tandem.app` y la app se reinicia; al arrancar pone al día el LaunchAgent, que vuelve a
-//!   lanzar `tandemd` con el binario nuevo ([`crate::launch_agent`]). En Windows corre el
-//!   instalador NSIS en modo pasivo: sus ganchos detienen `tandemd` y `tandemw` antes de
-//!   copiar y los vuelven a arrancar al terminar (`windows/hooks.nsh`).
-//! - La versión nueva sale de `latest.json` en el último release publicado de GitHub; cada
-//!   paquete va firmado con la llave minisign del updater (la pública está en
+//! - Each system's package ships the UI and `tandemd`. On macOS the updater replaces
+//!   `Tandem.app` and the app restarts; on startup it refreshes the LaunchAgent, which
+//!   relaunches `tandemd` with the new binary ([`crate::launch_agent`]). On Windows it runs
+//!   the NSIS installer in passive mode: its hooks stop `tandemd` and `tandemw` before
+//!   copying and start them again when done (`windows/hooks.nsh`).
+//! - The new version comes from `latest.json` in the latest published GitHub release; each
+//!   package is signed with the updater's minisign key (the public one is in
+//!   `tauri.conf.json`).
 //!   `tauri.conf.json`).
 
 use std::path::PathBuf;
@@ -29,10 +30,10 @@ use crate::update::{
 
 pub const UPDATE_EVENT: &str = "ui-update";
 
-/// La primera búsqueda automática espera a que el arranque termine y la sesión se conecte.
+/// The first automatic check waits for startup to finish and the session to connect.
 const FIRST_AUTO_CHECK: Duration = Duration::from_secs(90);
 
-/// La versión de esta app (y de su `tandemd`).
+/// The version of this app (and of its `tandemd`).
 const HERE: &str = env!("CARGO_PKG_VERSION");
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -41,8 +42,8 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 
 pub struct Updater {
     state: Mutex<State>,
-    /// Lo último que dijo `tandemd` de las versiones; «Actualizar todas» espera aquí a que
-    /// la otra vuelva.
+    /// The latest `tandemd` said about versions; "Update all" waits here for the other
+    /// machine to come back.
     agent: watch::Sender<Option<UpdateStatus>>,
 }
 
@@ -50,7 +51,7 @@ struct State {
     view: UpdateView,
     found: Option<Version>,
     settings_file: Option<PathBuf>,
-    /// Hay una instalación (de todas o la pedida por la otra) en curso.
+    /// An install (of all, or the one the other machine asked for) is in progress.
     busy: bool,
 }
 
@@ -97,8 +98,8 @@ impl Updater {
         view
     }
 
-    /// Lo nuevo que dijo `tandemd`. Si la otra pidió instalar una versión más nueva, esta
-    /// la instala (es el paso «la otra» de su «Actualizar todas»).
+    /// What `tandemd` just said. If the other machine asked to install a newer version, this
+    /// one installs it (it is the "other machine" step of its "Update all").
     pub fn on_agent(self: &Arc<Self>, app: &AppHandle, status: &UpdateStatus) {
         self.agent.send_replace(Some(status.clone()));
         let paired = matches!(peer_view(app), Some(PeerView::Paired { .. }));
@@ -129,7 +130,7 @@ impl Updater {
         }
     }
 
-    /// Busca una versión nueva en GitHub Releases.
+    /// Looks for a new version on GitHub Releases.
     pub async fn check(&self, app: &AppHandle) -> UpdateView {
         self.change(app, |s| {
             s.view.checking = true;
@@ -155,17 +156,17 @@ impl Updater {
             Some(PeerView::Paired { link, .. }) => {
                 update::peer_from(true, link.is_some(), status.as_ref())
             }
-            // Sin `tandemd` no se sabe nada de la otra: no se puede actualizar de a dos.
+            // Without `tandemd` nothing is known about the other machine: it cannot update both.
             None => Peer::Unreachable,
         }
     }
 
-    /// «Actualizar todas»: arranca en segundo plano; el avance llega por [`UPDATE_EVENT`].
+    /// "Update all": starts in the background; progress arrives through [`UPDATE_EVENT`].
     pub fn update_all(self: &Arc<Self>, app: &AppHandle) -> Result<UpdateView, String> {
         let target = lock(&self.state)
             .found
             .clone()
-            .ok_or("no hay una versión nueva: busca primero")?;
+            .ok_or("there is no new version: check first")?;
         let steps =
             update::plan(&parse(HERE), &self.peer(app), &target).map_err(|e| e.to_string())?;
         let mut taken = false;
@@ -177,7 +178,7 @@ impl Updater {
             }
         });
         if !taken {
-            return Err("ya hay una actualización en curso".into());
+            return Err("an update is already in progress".into());
         }
         let (me, app) = (self.clone(), app.clone());
         tauri::async_runtime::spawn(async move {
@@ -206,13 +207,13 @@ impl Updater {
         let file = lock(&self.state).settings_file.clone();
         if let Some(file) = file {
             update::save_settings(&file, Settings { auto: on })
-                .map_err(|e| format!("no se pudo guardar {}: {e}", file.display()))?;
+                .map_err(|e| format!("could not save {}: {e}", file.display()))?;
         }
         Ok(self.change(app, |s| s.view.auto = on))
     }
 
-    /// «Actualizar solo»: busca cada [`AUTO_CHECK_EVERY`] y, si esta máquina es la que guía
-    /// ([`update::drives_auto`]), actualiza las dos.
+    /// "Update automatically": checks every [`AUTO_CHECK_EVERY`] and, if this machine is the
+    /// one that drives ([`update::drives_auto`]), updates both.
     pub fn spawn_auto(self: &Arc<Self>, app: &AppHandle) {
         let (me, app) = (self.clone(), app.clone());
         tauri::async_runtime::spawn(async move {
@@ -226,7 +227,7 @@ impl Updater {
                         && me.view().available.is_some()
                         && let Err(e) = me.update_all(&app)
                     {
-                        eprintln!("tandem-ui: actualizar solo: {e}");
+                        eprintln!("tandem-ui: update automatically: {e}");
                     }
                 }
                 tokio::time::sleep(AUTO_CHECK_EVERY).await;
@@ -242,7 +243,7 @@ impl Default for Updater {
 }
 
 fn parse(s: &str) -> Version {
-    // La versión propia sale de Cargo.toml, que `scripts/release/version.sh` comprueba.
+    // Our own version comes from Cargo.toml, which `scripts/release/version.sh` checks.
     s.parse().unwrap_or(Version {
         major: 0,
         minor: 0,
@@ -269,8 +270,8 @@ fn this_machine(app: &AppHandle) -> Option<Machine> {
     }
 }
 
-/// La versión del último release, si alguna de las dos máquinas va atrás (aunque esta ya esté
-/// al día, ver [`update::fetch_release`]).
+/// The version of the latest release, if either machine is behind (even when this one is
+/// already up to date, see [`update::fetch_release`]).
 async fn find(app: &AppHandle, peer: Peer) -> Result<Option<Version>, String> {
     let updater = app
         .updater_builder()
@@ -280,7 +281,7 @@ async fn find(app: &AppHandle, peer: Peer) -> Result<Option<Version>, String> {
                 release.version.to_string().parse::<Version>(),
             ) {
                 (Ok(c), Ok(r)) => update::fetch_release(&c, &r, &peer),
-                // Lo que no se entiende como versión no se ofrece.
+                // Anything that does not parse as a version is not offered.
                 _ => false,
             }
         })
@@ -289,7 +290,7 @@ async fn find(app: &AppHandle, peer: Peer) -> Result<Option<Version>, String> {
     let update = updater
         .check()
         .await
-        .map_err(|e| format!("no se pudo buscar: {e}"))?;
+        .map_err(|e| format!("could not check: {e}"))?;
     update
         .map(|u| {
             u.version
@@ -299,32 +300,30 @@ async fn find(app: &AppHandle, peer: Peer) -> Result<Option<Version>, String> {
         .transpose()
 }
 
-/// Baja `target` (o una más nueva, si salió otra entre tanto), la instala y reinicia.
+/// Downloads `target` (or a newer one, if another came out meanwhile), installs it and restarts.
 async fn install_here(app: &AppHandle, target: &Version) -> Result<(), String> {
     let updater = app.updater().map_err(|e| e.to_string())?;
     let update = updater
         .check()
         .await
-        .map_err(|e| format!("no se pudo buscar: {e}"))?
-        .ok_or_else(|| format!("el release de la {target} ya no está publicado"))?;
+        .map_err(|e| format!("could not check: {e}"))?
+        .ok_or_else(|| format!("release {target} is no longer published"))?;
     let found: Version = update
         .version
         .parse()
         .map_err(|e: update::BadVersion| e.to_string())?;
     if found < *target {
-        return Err(format!(
-            "el release publicado es la {found}, no la {target}"
-        ));
+        return Err(format!("the published release is {found}, not {target}"));
     }
     update
         .download_and_install(|_, _| {}, || {})
         .await
-        .map_err(|e| format!("no se pudo instalar: {e}"))?;
-    // En Windows el instalador ya cerró la app; en macOS hay que reiniciarla.
+        .map_err(|e| format!("could not install: {e}"))?;
+    // On Windows the installer already closed the app; on macOS it must be restarted.
     app.restart();
 }
 
-/// La otra máquina por `tandemd` y el updater de esta.
+/// The other machine through `tandemd`, and this one's updater.
 struct AppFleet {
     app: AppHandle,
     agent: watch::Receiver<Option<UpdateStatus>>,
@@ -335,7 +334,7 @@ impl Fleet for AppFleet {
         let handle = self
             .app
             .try_state::<Handle>()
-            .ok_or("la sesión con tandemd no arrancó")?
+            .ok_or("the session with tandemd did not start")?
             .inner()
             .clone();
         match handle
@@ -346,7 +345,7 @@ impl Fleet for AppFleet {
         {
             ActionResult::Done => Ok(()),
             ActionResult::Rejected { reason } | ActionResult::Unavailable { reason } => Err(reason),
-            other => Err(format!("respuesta inesperada de tandemd: {other:?}")),
+            other => Err(format!("unexpected reply from tandemd: {other:?}")),
         }
     }
 

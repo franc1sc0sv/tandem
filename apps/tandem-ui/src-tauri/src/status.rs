@@ -95,8 +95,7 @@ pub(crate) fn explain(e: &IpcError) -> String {
             | io::ErrorKind::ConnectionReset
             | io::ErrorKind::UnexpectedEof => CLOSED.into(),
             io::ErrorKind::PermissionDenied => {
-                "no permission to talk to tandemd: its IPC is only for the user running it"
-                    .into()
+                "no permission to talk to tandemd: its IPC is only for the user running it".into()
             }
             _ => format!("could not talk to tandemd: {io}"),
         },
@@ -104,7 +103,7 @@ pub(crate) fn explain(e: &IpcError) -> String {
             format!("{e}; update the UI or tandemd so they match")
         }
         IpcError::Closed => CLOSED.into(),
-        other => format!("respuesta inesperada de tandemd: {other}"),
+        other => format!("unexpected reply from tandemd: {other}"),
     }
 }
 
@@ -247,9 +246,9 @@ machine = "b"
     #[tokio::test]
     async fn other_io_errors_keep_the_detail() {
         let failed =
-            async { Err::<IpcClient<DuplexStream>, _>(io::Error::other("cable roto").into()) };
+            async { Err::<IpcClient<DuplexStream>, _>(io::Error::other("broken cable").into()) };
         let r = reason(status_with(here(), failed, QUERY_TIMEOUT).await);
-        assert!(r.contains("cable roto"), "{r}");
+        assert!(r.contains("broken cable"), "{r}");
     }
 
     #[tokio::test(start_paused = true)]
@@ -275,8 +274,8 @@ machine = "b"
             let _ = s.recv_hello().await;
         });
         let r = reason(status_with(here(), IpcClient::handshake(client), QUERY_TIMEOUT).await);
-        assert!(r.contains("incompatible protocol version"), "{r}");
-        assert!(r.contains("actualiza"), "{r}");
+        // The first half of the message comes from `ProtoError` (tandem-proto); only our hint is checked here.
+        assert!(r.contains("update the UI or tandemd"), "{r}");
     }
 
     #[tokio::test]
@@ -306,12 +305,12 @@ machine = "b"
             let _ = s.recv_hello().await;
         });
         let r = reason(status_with(here(), IpcClient::handshake(client), QUERY_TIMEOUT).await);
-        assert!(r.starts_with("respuesta inesperada de tandemd"), "{r}");
+        assert!(r.starts_with("unexpected reply from tandemd"), "{r}");
     }
 
     #[test]
     fn endpoint_follows_the_agent_data_dir() {
-        let dir = PathBuf::from("/datos/Tandem");
+        let dir = PathBuf::from("/data/Tandem");
         let got = endpoint_for(Some(dir.clone())).unwrap();
         assert_eq!(got, ipc::default_endpoint(&dir).unwrap());
         #[cfg(unix)]

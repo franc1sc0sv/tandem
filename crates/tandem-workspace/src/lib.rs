@@ -358,7 +358,7 @@ impl Workspaces {
             files.get(origin, tunnel, &remote, &local).await?;
             let name = repo::slug(
                 name.as_deref().unwrap_or(&entry.title),
-                &format!("tunel-{tunnel}"),
+                &format!("tunnel-{tunnel}"),
             );
             let git = self.inner.git.clone();
             let (root, bundle) = (entry.root.clone(), local.clone());

@@ -79,7 +79,7 @@ async fn rig() -> Rig {
     let origin = Origin::new(OriginOptions::default(), Changes::default());
     let host = Host::new(HostOptions::default(), Changes::default());
     let (files_a, files_b) = (Files::new(opts()), Files::new(opts()));
-    let ws_a = Workspaces::new(tmp.path().join("datos-a").join("workspaces"));
+    let ws_a = Workspaces::new(tmp.path().join("data-a").join("workspaces"));
     let ws_b = Workspaces::new(&data_b);
     let (ws, files) = (ws_b.clone(), files_b.clone());
     let path = MemPath::with_server(&host, move |host, wire| {
@@ -197,7 +197,7 @@ fn sample_repo(repo: &Path) {
     write(repo, "src/lib.rs", b"fn a() {}\n");
     write(repo, "README.md", b"hello\n");
     write(repo, "bin.dat", &[0, 1, 2, 255, 254, 0, 7]);
-    commit_all(repo, "inicial");
+    commit_all(repo, "initial");
 }
 
 #[tokio::test]
@@ -290,18 +290,18 @@ async fn without_asking_for_a_commit_pending_work_does_not_return_and_without_co
 
     commit_all(&dir, "one");
     let report = r.back(None, Some("My Branch")).await.unwrap();
-    assert_eq!(report.branch.as_deref(), Some("tandem/mi-rama"));
+    assert_eq!(report.branch.as_deref(), Some("tandem/my-branch"));
     // A second return with the same name does not overwrite the previous one.
     let again = r.back(None, Some("My Branch")).await.unwrap();
-    assert_eq!(again.branch.as_deref(), Some("tandem/mi-rama-2"));
+    assert_eq!(again.branch.as_deref(), Some("tandem/my-branch-2"));
 }
 
 #[tokio::test]
 async fn works_with_a_git_worktree() {
     let r = rig().await;
-    let main = r.base.join("principal");
+    let main = r.base.join("main");
     sample_repo(&main);
-    let linked = r.base.join("enlazado");
+    let linked = r.base.join("linked");
     git(
         &main,
         &[
@@ -309,7 +309,7 @@ async fn works_with_a_git_worktree() {
             "add",
             "-q",
             "-b",
-            "rama-enlazada",
+            "linked-branch",
             linked.to_str().unwrap(),
         ],
     );
@@ -357,7 +357,7 @@ async fn submodules_are_copied_as_they_are() {
     let dir = PathBuf::from(r.open(&repo, false).await);
     assert_eq!(
         fs::read(dir.join("vendor/lib/lib.txt")).unwrap(),
-        b"editada\n"
+        b"edited\n"
     );
     assert!(!dir.join("vendor/lib/.git").exists());
 
@@ -408,10 +408,10 @@ async fn errors_are_clear() {
         .unwrap_err();
     assert!(e.to_string().contains("is not inside a git repo"), "{e}");
 
-    let vacio = r.base.join("vacio");
-    init_repo(&vacio);
+    let empty_repo = r.base.join("empty_repo");
+    init_repo(&empty_repo);
     let spec = WorkspaceSpec {
-        repo_path: vacio.to_string_lossy().into_owned(),
+        repo_path: empty_repo.to_string_lossy().into_owned(),
         keep: false,
         include: vec![],
     };
@@ -435,7 +435,7 @@ async fn errors_are_clear() {
 fn inherited_hooks_and_fsmonitor_are_not_run() {
     let tmp = tempfile::tempdir().unwrap();
     let hooks = tmp.path().join("hooks");
-    let sentinels = tmp.path().join("centinelas");
+    let sentinels = tmp.path().join("sentinels");
     fs::create_dir_all(&hooks).unwrap();
     fs::create_dir_all(&sentinels).unwrap();
     let fwd = |p: &Path| p.to_string_lossy().replace('\\', "/");
@@ -469,7 +469,7 @@ fn inherited_hooks_and_fsmonitor_are_not_run() {
     let out = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", "inherited_hooks_inner", "--include-ignored"])
         .env("GIT_CONFIG_GLOBAL", &global)
-        .env("TANDEM_CENTINELAS", &sentinels)
+        .env("TANDEM_SENTINELS", &sentinels)
         .output()
         .unwrap();
     assert!(
@@ -482,7 +482,7 @@ fn inherited_hooks_and_fsmonitor_are_not_run() {
 
 /// The sentinels the hooks left since the last time; deletes them.
 fn sentinels_found() -> Vec<String> {
-    let dir = PathBuf::from(std::env::var("TANDEM_CENTINELAS").unwrap());
+    let dir = PathBuf::from(std::env::var("TANDEM_SENTINELS").unwrap());
     let mut found: Vec<String> = fs::read_dir(&dir)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -527,7 +527,7 @@ async fn inherited_hooks_inner() {
     write(&dir, "more.txt", b"pending\n");
     sentinels_found();
 
-    let report = r.back(Some("Pendiente"), None).await.unwrap();
+    let report = r.back(Some("Pending"), None).await.unwrap();
     assert!(report.branch.is_some());
     assert_eq!(sentinels_found(), Vec::<String>::new(), "on the way back");
 }
@@ -621,7 +621,7 @@ async fn a_modified_credential_returns_to_its_committed_version() {
     assert!(opened.skipped.contains(&"app.pem".to_owned()));
     // The change is not sent (nor is the file deleted): what was already committed stays.
     let pem = fs::read(Path::new(&opened.dir).join("app.pem")).unwrap();
-    assert_eq!(pem, b"viejo\n");
+    assert_eq!(pem, b"old\n");
 }
 
 #[tokio::test]

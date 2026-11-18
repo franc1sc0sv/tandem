@@ -42,7 +42,7 @@ pub async fn pair(chunk_size: u32) -> Pair {
     origin.set_link(Some(path.dialer()));
     let tunnel = origin
         .open(OpenSpec {
-            title: "pruebas".into(),
+            title: "tests".into(),
             project: None,
             origin: Machine::A,
             target: Machine::B,

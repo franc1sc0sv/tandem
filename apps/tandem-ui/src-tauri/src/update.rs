@@ -1,17 +1,17 @@
-//! Actualización de las dos máquinas (T-122, DESIGN §13, DECISIONS D19).
+//! Updating both machines (T-122, DESIGN §13, DECISIONS D19).
 //!
-//! El updater de Tauri baja e instala el paquete de **esta** máquina (UI y `tandemd`, que
-//! va dentro). Lo de aquí decide el resto y es portable:
+//! Tauri's updater downloads and installs the package of **this** machine (UI and `tandemd`,
+//! which is inside). What lives here decides the rest and is portable:
 //!
-//! - [`Version`]: comparar versiones (`x.y.z` y `x.y.z-rc.n`, con el orden de SemVer).
-//! - [`plan`] y [`run`]: «Actualizar todas». Primero la otra máquina y, cuando vuelve con la
-//!   versión nueva, esta. Nunca se reinician las dos a la vez: mientras una se actualiza la
-//!   otra sigue con el teclado y el mouse, y esta (la que guía) no se toca hasta que la otra
-//!   volvió. Si la otra no vuelve, vuelta atrás: esta se queda en su versión y nada más
-//!   cambia, así el puesto sigue usable con la máquina que funciona.
-//! - [`drives_auto`] y [`requested_install`]: quién actualiza solo y cuándo la otra pidió
-//!   instalar.
-//! - [`Settings`]: el interruptor «Actualizar solo» en `update.toml`.
+//! - [`Version`]: comparing versions (`x.y.z` and `x.y.z-rc.n`, in SemVer order).
+//! - [`plan`] and [`run`]: "Update all". The other machine first and, when it comes back with
+//!   the new version, this one. The two are never restarted at once: while one updates, the
+//!   other keeps the keyboard and mouse, and this one (the one that drives) is not touched until
+//!   the other has come back. If the other does not come back, rollback: this one stays on its
+//!   version and nothing else changes, so the desk stays usable with the machine that works.
+//! - [`drives_auto`] and [`requested_install`]: who updates automatically and when the other
+//!   machine asked to install.
+//! - [`Settings`]: the "Update automatically" switch in `update.toml`.
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -25,32 +25,32 @@ use serde::{Deserialize, Serialize};
 use tandem_core::Machine;
 use tandem_proto::UpdateStatus;
 
-/// Cuánto se espera a que la otra máquina vuelva con la versión nueva: bajar el paquete,
-/// instalarlo y arrancar de nuevo. Pasado esto se da por perdida y esta no se actualiza.
+/// How long to wait for the other machine to come back with the new version: download the
+/// package, install it and start again. Past this it is given up for lost and this one is not updated.
 pub const PEER_RETURN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
-/// Cada cuánto se busca una versión nueva con «Actualizar solo».
+/// How often to look for a new version with "Update automatically".
 pub const AUTO_CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 
-/// Archivo del interruptor, junto a la configuración del agente.
+/// The switch's file, next to the agent's configuration.
 pub const SETTINGS_FILE: &str = "update.toml";
 
 // ---------------------------------------------------------------------------------------
-// Versiones
+// Versions
 
-/// Una versión de Tandem: `mayor.menor.parche` con un sufijo de prerelease opcional
-/// (`0.3.0-rc.2`). Se ordena como SemVer: una prerelease va antes que su versión final y
-/// sus partes numéricas se comparan como números.
+/// A Tandem version: `major.minor.patch` with an optional prerelease suffix
+/// (`0.3.0-rc.2`). Ordered like SemVer: a prerelease comes before its final version and
+/// its numeric parts compare as numbers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Version {
     pub major: u64,
     pub minor: u64,
     pub patch: u64,
-    /// Las partes del sufijo, separadas por `.`; vacío en una versión final.
+    /// The suffix parts, separated by `.`; empty in a final version.
     pub pre: Vec<Ident>,
 }
 
-/// Una parte del sufijo de prerelease.
+/// One part of the prerelease suffix.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Ident {
     Num(u64),
@@ -58,7 +58,7 @@ pub enum Ident {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("«{0}» no es una versión (se espera x.y.z o x.y.z-rc.n)")]
+#[error("\"{0}\" is not a version (expected x.y.z or x.y.z-rc.n)")]
 pub struct BadVersion(pub String);
 
 impl FromStr for Version {
@@ -66,7 +66,7 @@ impl FromStr for Version {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let bad = || BadVersion(s.to_owned());
-        // Los tags llevan `v`; los metadatos de compilación (`+...`) no cuentan para el orden.
+        // Tags carry a `v`; build metadata (`+...`) does not count for ordering.
         let t = s.trim();
         let t = t.strip_prefix('v').unwrap_or(t);
         let t = t.split_once('+').map_or(t, |(v, _)| v);
@@ -86,7 +86,7 @@ impl FromStr for Version {
                 .split('.')
                 .map(|part| match number(part) {
                     Some(n) => Some(Ident::Num(n)),
-                    // Solo dígitos pero no un número: ceros a la izquierda, que SemVer no admite.
+                    // Only digits but not a number: leading zeros, which SemVer does not allow.
                     None if part.bytes().any(|b| !b.is_ascii_digit())
                         && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') =>
                     {
@@ -106,7 +106,7 @@ impl FromStr for Version {
     }
 }
 
-/// Un número sin ceros a la izquierda (SemVer); `None` si no lo es.
+/// A number without leading zeros (SemVer); `None` if it is not one.
 fn number(s: &str) -> Option<u64> {
     let digits = !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
     let leading_zero = s.len() > 1 && s.starts_with('0');
@@ -135,7 +135,7 @@ impl Ord for Ident {
     fn cmp(&self, other: &Self) -> Ordering {
         match (self, other) {
             (Ident::Num(a), Ident::Num(b)) => a.cmp(b),
-            // Los numéricos van antes que los de texto.
+            // Numeric ones come before text ones.
             (Ident::Num(_), Ident::Text(_)) => Ordering::Less,
             (Ident::Text(_), Ident::Num(_)) => Ordering::Greater,
             (Ident::Text(a), Ident::Text(b)) => a.cmp(b),
@@ -158,7 +158,7 @@ impl Ord for Version {
                 // `1.0.0-rc.1` < `1.0.0`.
                 (true, false) => Ordering::Greater,
                 (false, true) => Ordering::Less,
-                // Parte por parte; con todas iguales, la más larga es mayor.
+                // Part by part; with all equal, the longer one is greater.
                 (false, false) => self.pre.cmp(&other.pre),
             })
     }
@@ -171,50 +171,50 @@ impl PartialOrd for Version {
 }
 
 // ---------------------------------------------------------------------------------------
-// El plan de las dos máquinas
+// The plan for the two machines
 
-/// La otra máquina, vista para actualizar.
+/// The other machine, as seen for updating.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Peer {
-    /// Sin par: esta máquina se actualiza sola.
+    /// No peer: this machine updates by itself.
     Alone,
-    /// Emparejada pero sin enlace.
+    /// Paired but without a link.
     Unreachable,
-    /// Conectada, pero todavía no dijo su versión.
+    /// Connected, but it has not said its version yet.
     Unknown,
-    /// Se conectó hablando otra versión del protocolo: corre otra versión de Tandem.
+    /// It connected speaking another protocol version: it runs another version of Tandem.
     OtherProtocol,
     At(Version),
 }
 
-/// Un paso de «Actualizar todas», en orden.
+/// One step of "Update all", in order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Step {
-    /// Pedirle a la otra que instale la versión nueva.
+    /// Ask the other machine to install the new version.
     AskPeer,
-    /// Esperar a que vuelva con ella.
+    /// Wait for it to come back with it.
     WaitPeer,
-    /// Instalar aquí; la app se reinicia y con ella `tandemd`.
+    /// Install here; the app restarts and `tandemd` with it.
     InstallHere,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlanError {
-    #[error("las dos máquinas ya tienen la {0}")]
+    #[error("both machines already have {0}")]
     UpToDate(Version),
-    #[error("la otra máquina no está conectada: hay que actualizar las dos juntas")]
+    #[error("the other machine is not connected: both must be updated together")]
     PeerUnreachable,
-    #[error("todavía no se sabe qué versión tiene la otra máquina")]
+    #[error("it is not yet known which version the other machine has")]
     PeerUnknown,
     #[error(
-        "la otra máquina tiene otra versión de Tandem que no se entiende con esta: instala la {0} a mano en la que falte"
+        "the other machine runs a different Tandem version that cannot talk to this one: install {0} by hand on the one that is behind"
     )]
     PeerOtherProtocol(Version),
 }
 
-/// Los pasos para dejar las dos máquinas en `target`: primero la otra, después esta, y
-/// solo las que tienen una versión anterior.
+/// The steps to leave both machines on `target`: the other first, then this one, and
+/// only those with an older version.
 pub fn plan(here: &Version, peer: &Peer, target: &Version) -> Result<Vec<Step>, PlanError> {
     let here_behind = here < target;
     let peer_behind = match peer {
@@ -237,13 +237,13 @@ pub fn plan(here: &Version, peer: &Peer, target: &Version) -> Result<Vec<Step>, 
     Ok(steps)
 }
 
-/// La otra máquina según la sesión con `tandemd`: `paired` y `link` salen del par
-/// ([`crate::session::PeerView`]) y `status` de lo último que dijo el agente de las versiones.
+/// The other machine according to the session with `tandemd`: `paired` and `link` come from the peer
+/// ([`crate::session::PeerView`]) and `status` from the latest the agent said about versions.
 pub fn peer_from(paired: bool, link: bool, status: Option<&UpdateStatus>) -> Peer {
     if !paired {
         return Peer::Alone;
     }
-    // Primero el protocolo: si la otra habla otro, el enlace no llega a levantarse.
+    // Protocol first: if the other speaks another, the link never comes up.
     if status.is_some_and(|s| s.peer_protocol.is_some()) {
         return Peer::OtherProtocol;
     }
@@ -256,8 +256,8 @@ pub fn peer_from(paired: bool, link: bool, status: Option<&UpdateStatus>) -> Pee
     }
 }
 
-/// La otra volvió con `target` (o una más nueva). Si ya no se entiende con esta, también:
-/// solo pasa si cambió de versión, y se le pidió justamente eso.
+/// The other machine came back with `target` (or a newer one). If it no longer understands this one, also:
+/// that only happens if its version changed, and that is exactly what it was asked.
 pub fn came_back(peer: &Peer, target: &Version) -> bool {
     match peer {
         Peer::At(v) => v >= target,
@@ -266,37 +266,37 @@ pub fn came_back(peer: &Peer, target: &Version) -> bool {
     }
 }
 
-/// Lo que «Actualizar todas» necesita de afuera: la otra máquina (por `tandemd`) y el
-/// updater de esta. En las pruebas, un doble.
+/// What "Update all" needs from outside: the other machine (through `tandemd`) and this
+/// one's updater. In tests, a double.
 pub trait Fleet: Send {
-    /// Pedirle a la otra que instale `target`.
+    /// Ask the other machine to install `target`.
     fn ask_peer(&mut self, target: &Version) -> impl Future<Output = Result<(), String>> + Send;
-    /// Espera el siguiente cambio de la otra (su versión, o que se perdió); `None` si ya no
-    /// llegarán más (la sesión con `tandemd` terminó).
+    /// Waits for the other machine's next change (its version, or that it was lost); `None` if no more
+    /// will come (the session with `tandemd` ended).
     fn peer_changed(&mut self) -> impl Future<Output = Option<Peer>> + Send;
-    /// Baja e instala `target` aquí. En la app no vuelve si sale bien: se reinicia.
+    /// Downloads and installs `target` here. In the app it does not return on success: it restarts.
     fn install_here(&mut self, target: &Version)
     -> impl Future<Output = Result<(), String>> + Send;
 }
 
-/// Por qué «Actualizar todas» no terminó.
+/// Why "Update all" did not finish.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Failure {
-    #[error("la otra máquina no aceptó actualizarse: {0}")]
+    #[error("the other machine did not agree to update: {0}")]
     PeerRefused(String),
-    /// La vuelta atrás: esta no se instaló y el puesto sigue con la máquina que funciona.
+    /// Rollback: this one was not installed and the desk stays with the machine that works.
     #[error(
-        "la otra máquina no volvió con la {target} en {} min: esta se queda en su versión",
+        "the other machine did not come back with {target} in {} min: this one stays on its version",
         .waited.as_secs() / 60
     )]
     PeerDidNotReturn { target: Version, waited: Duration },
-    #[error("se perdió la conexión con tandemd mientras la otra máquina se actualizaba")]
+    #[error("the connection with tandemd was lost while the other machine was updating")]
     SessionLost,
-    #[error("la otra máquina ya tiene la {target}, pero esta no se pudo actualizar: {reason}")]
+    #[error("the other machine already has {target}, but this one could not be updated: {reason}")]
     InstallHere { target: Version, reason: String },
 }
 
-/// Corre los pasos de [`plan`] en orden, contando cada uno a `on_step` antes de empezarlo.
+/// Runs the steps of [`plan`] in order, reporting each one to `on_step` before starting it.
 pub async fn run<F: Fleet>(
     steps: &[Step],
     target: &Version,
@@ -342,26 +342,26 @@ pub async fn run<F: Fleet>(
     Ok(())
 }
 
-/// Con «Actualizar solo», quién guía: sin par, esta; con par, solo `A`. Así las dos
-/// máquinas lo saben sin hablarse y nunca guían las dos a la vez (DECISIONS A1).
+/// With "Update automatically", who drives: with no peer, this one; with a peer, only `A`. That way both
+/// machines know without talking and never both drive at once (DECISIONS A1).
 pub fn drives_auto(me: Machine, peer: &Peer) -> bool {
     matches!(peer, Peer::Alone) || me == Machine::A
 }
 
-/// La versión que la otra pidió instalar aquí, si es más nueva que la de esta.
+/// The version the other machine asked to install here, if it is newer than this one's.
 pub fn requested_install(here: &Version, request: Option<&str>) -> Option<Version> {
     let v: Version = request?.parse().ok()?;
     (v > *here).then_some(v)
 }
 
 // ---------------------------------------------------------------------------------------
-// «Actualizar solo»
+// "Update automatically"
 
-/// Lo que se guarda en `update.toml`.
+/// What is saved in `update.toml`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Settings {
-    /// Buscar e instalar solo (por omisión, sí: así viene en `F-Ajustes`).
+    /// Search and install automatically (by default, yes: that is how it comes in `F-Settings`).
     pub auto: bool,
 }
 
@@ -371,15 +371,15 @@ impl Default for Settings {
     }
 }
 
-/// `update.toml` en el mismo directorio que la configuración del agente.
+/// `update.toml` in the same directory as the agent's configuration.
 pub fn settings_file_for(agent_config: &Path) -> PathBuf {
     agent_config
         .parent()
         .map_or_else(|| PathBuf::from(SETTINGS_FILE), |d| d.join(SETTINGS_FILE))
 }
 
-/// Un archivo que falta o no se entiende vale lo de siempre: no es motivo para no
-/// actualizar.
+/// A file that is missing or not understood means the usual: it is no reason not to
+/// update.
 pub fn load_settings(path: &Path) -> Settings {
     std::fs::read_to_string(path)
         .ok()
@@ -392,44 +392,44 @@ pub fn save_settings(path: &Path, s: Settings) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    // Escribir aparte y renombrar: un corte a medias no deja el archivo vacío.
+    // Write aside and rename: a cut halfway does not leave the file empty.
     let tmp = path.with_extension("toml.tmp");
     std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, path)
 }
 
 // ---------------------------------------------------------------------------------------
-// Lo que ve la ventana
+// What the window sees
 
-/// La pestaña Actualizaciones de Ajustes (`F-Ajustes`).
+/// The Updates tab of Settings (`F-Settings`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UpdateView {
-    /// La versión de esta máquina.
+    /// This machine's version.
     pub here: String,
-    /// La de la otra; `None` sin par o si todavía no se sabe.
+    /// The other machine's; `None` with no peer or if it is not known yet.
     pub peer: Option<String>,
-    /// Hay par: «Actualizar todas» incluye a la otra.
+    /// There is a peer: "Update all" includes the other machine.
     pub paired: bool,
-    /// La versión nueva que se encontró, si hay una más nueva que alguna de las dos.
+    /// The new version that was found, if it is newer than either machine's.
     pub available: Option<String>,
-    /// Buscando ahora.
+    /// Checking now.
     pub checking: bool,
-    /// El paso de «Actualizar todas» en curso.
+    /// The "Update all" step in progress.
     pub step: Option<Step>,
-    /// Lo último que salió mal (al buscar o al actualizar), para mostrarlo tal cual.
+    /// The latest thing that went wrong (when checking or updating), to show as is.
     pub error: Option<String>,
-    /// «Actualizar solo».
+    /// "Update automatically".
     pub auto: bool,
 }
 
-/// El comparador del updater al **buscar**: el release sirve si alguna de las dos máquinas
-/// va atrás, no solo esta (el comparador por omisión solo mira «más nueva que esta app», y
-/// con esta al día y la otra atrás nunca ofrecería nada). Al instalar aquí vale el de siempre.
+/// The updater's comparator when **checking**: the release is useful if either machine
+/// is behind, not just this one (the default comparator only looks at "newer than this app", and
+/// with this one up to date and the other behind it would never offer anything). When installing here the usual one applies.
 pub fn fetch_release(current: &Version, release: &Version, peer: &Peer) -> bool {
     worth_offering(release, current, peer)
 }
 
-/// La versión encontrada sirve si es más nueva que alguna de las dos máquinas.
+/// The found version is useful if it is newer than either machine.
 pub fn worth_offering(found: &Version, here: &Version, peer: &Peer) -> bool {
     found > here || matches!(peer, Peer::At(v) if found > v)
 }
@@ -475,15 +475,15 @@ mod tests {
             "0.3.0-rc..1",
             "0.3.0-rc.01",
             "-1.0.0",
-            "0.3.0-ñ",
+            "0.3.0-\u{f1}",
         ] {
-            assert!(s.parse::<Version>().is_err(), "«{s}» no debería valer");
+            assert!(s.parse::<Version>().is_err(), "\"{s}\" should not be valid");
         }
     }
 
     #[test]
     fn semver_order() {
-        // El ejemplo de la especificación de SemVer, de menor a mayor.
+        // The example from the SemVer specification, from lowest to highest.
         let ordered = [
             "1.0.0-alpha",
             "1.0.0-alpha.1",
@@ -545,7 +545,7 @@ mod tests {
             prop_assert_eq!(a == release, a.pre.is_empty());
         }
 
-        /// El plan nunca reinicia esta antes que la otra, y solo pide lo que falta.
+        /// The plan never restarts this one before the other, and only asks for what is missing.
         #[test]
         fn plan_goes_other_first(here in version(), peer in version(), target in version()) {
             match plan(&here, &Peer::At(peer.clone()), &target) {
@@ -577,9 +577,9 @@ mod tests {
             plan(&old, &at("0.3.0"), &new),
             Ok(vec![AskPeer, WaitPeer, InstallHere])
         );
-        // La otra ya se actualizó (por ejemplo, la vez anterior esta falló): solo esta.
+        // The other already updated (for example, last time this one failed): only this one.
         assert_eq!(plan(&old, &at("0.3.1"), &new), Ok(vec![InstallHere]));
-        // Esta ya está: solo la otra.
+        // This one is already done: only the other.
         assert_eq!(plan(&new, &at("0.3.0"), &new), Ok(vec![AskPeer, WaitPeer]));
         assert_eq!(plan(&old, &Peer::Alone, &new), Ok(vec![InstallHere]));
         assert_eq!(
@@ -611,7 +611,7 @@ mod tests {
         assert_eq!(requested_install(&here, Some("0.3.1")), Some(v("0.3.1")));
         assert_eq!(requested_install(&here, Some("0.3.0")), None);
         assert_eq!(requested_install(&here, Some("0.2.9")), None);
-        assert_eq!(requested_install(&here, Some("basura")), None);
+        assert_eq!(requested_install(&here, Some("garbage")), None);
         assert_eq!(requested_install(&here, None), None);
     }
 
@@ -633,18 +633,18 @@ mod tests {
             Peer::Unknown
         );
         assert_eq!(
-            peer_from(true, true, Some(&status(Some("rara"), None))),
+            peer_from(true, true, Some(&status(Some("weird"), None))),
             Peer::Unknown
         );
-        // Con otro protocolo no hay enlace, pero se sabe que corre otra versión.
+        // With another protocol there is no link, but it is known that it runs another version.
         assert_eq!(
             peer_from(true, false, Some(&status(Some("0.3.0"), Some(99)))),
             Peer::OtherProtocol
         );
     }
 
-    /// Revisión de #77: con esta al día y la otra atrás, el release igual tiene que bajarse
-    /// para ofrecer «Actualizar todas» (solo la otra).
+    /// Review of #77: with this one up to date and the other behind, the release still has to be downloaded
+    /// to offer "Update all" (just the other).
     #[test]
     fn this_up_to_date_and_the_other_behind_still_offers() {
         let (here, release) = (v("0.3.1"), v("0.3.1"));
@@ -654,11 +654,11 @@ mod tests {
             plan(&here, &peer, &release),
             Ok(vec![Step::AskPeer, Step::WaitPeer])
         );
-        // Las dos al día, o un release más viejo que las dos: nada que ofrecer.
+        // Both up to date, or a release older than both: nothing to offer.
         let same = Peer::At(v("0.3.1"));
         assert!(!fetch_release(&here, &release, &same));
         assert!(!fetch_release(&here, &v("0.3.0"), &same));
-        // Esta atrás, como el comparador de siempre.
+        // This one behind, like the usual comparator.
         assert!(fetch_release(&v("0.3.0"), &release, &Peer::Alone));
     }
 
@@ -673,8 +673,8 @@ mod tests {
 
     // ---- run ----
 
-    /// La otra máquina y el updater, simulados. `peer` son los cambios que irá anunciando
-    /// la otra; vacía, se queda callada para siempre.
+    /// The other machine and the updater, simulated. `peer` are the changes it will go on
+    /// announcing; empty, it stays silent forever.
     #[derive(Default)]
     struct FakeFleet {
         log: Vec<String>,
@@ -685,7 +685,7 @@ mod tests {
 
     impl Fleet for FakeFleet {
         async fn ask_peer(&mut self, target: &Version) -> Result<(), String> {
-            self.log.push(format!("pedir {target}"));
+            self.log.push(format!("ask {target}"));
             match &self.refuse {
                 Some(why) => Err(why.clone()),
                 None => Ok(()),
@@ -695,7 +695,7 @@ mod tests {
         async fn peer_changed(&mut self) -> Option<Peer> {
             match self.peer.pop_front() {
                 Some(p) => {
-                    self.log.push(format!("otra: {p:?}"));
+                    self.log.push(format!("peer: {p:?}"));
                     p
                 }
                 None => std::future::pending().await,
@@ -703,7 +703,7 @@ mod tests {
         }
 
         async fn install_here(&mut self, target: &Version) -> Result<(), String> {
-            self.log.push(format!("instalar {target}"));
+            self.log.push(format!("install {target}"));
             match &self.install_fails {
                 Some(why) => Err(why.clone()),
                 None => Ok(()),
@@ -724,7 +724,7 @@ mod tests {
     async fn other_first_then_this_once_it_is_back() {
         let mut f = FakeFleet {
             peer: VecDeque::from([
-                // Se cae mientras se instala y vuelve con la nueva.
+                // It drops while installing and comes back with the new one.
                 Some(Peer::Unreachable),
                 Some(Peer::At(v("0.3.1"))),
             ]),
@@ -736,10 +736,10 @@ mod tests {
         assert_eq!(
             f.log,
             [
-                "pedir 0.3.1",
-                "otra: Some(Unreachable)",
-                "otra: Some(At(Version { major: 0, minor: 3, patch: 1, pre: [] }))",
-                "instalar 0.3.1",
+                "ask 0.3.1",
+                "peer: Some(Unreachable)",
+                "peer: Some(At(Version { major: 0, minor: 3, patch: 1, pre: [] }))",
+                "install 0.3.1",
             ]
         );
     }
@@ -747,7 +747,7 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn the_old_version_coming_back_is_not_enough() {
         let mut f = FakeFleet {
-            // Volvió, pero con la de antes (el instalador falló allá): se sigue esperando.
+            // It came back, but with the old one (the installer failed there): keep waiting.
             peer: VecDeque::from([Some(Peer::At(v("0.3.0")))]),
             ..FakeFleet::default()
         };
@@ -760,7 +760,7 @@ mod tests {
             })
         );
         assert!(
-            !f.log.iter().any(|l| l.starts_with("instalar")),
+            !f.log.iter().any(|l| l.starts_with("install")),
             "{:?}",
             f.log
         );
@@ -776,11 +776,11 @@ mod tests {
         let err = r.unwrap_err();
         assert_eq!(
             err.to_string(),
-            "la otra máquina no volvió con la 0.3.1 en 1 min: esta se queda en su versión"
+            "the other machine did not come back with 0.3.1 in 1 min: this one stays on its version"
         );
-        // Esta no se tocó.
+        // This one was not touched.
         assert_eq!(seen, [Step::AskPeer, Step::WaitPeer]);
-        assert_eq!(f.log, ["pedir 0.3.1", "otra: Some(Unreachable)"]);
+        assert_eq!(f.log, ["ask 0.3.1", "peer: Some(Unreachable)"]);
     }
 
     #[tokio::test(start_paused = true)]
@@ -790,20 +790,20 @@ mod tests {
             ..FakeFleet::default()
         };
         assert_eq!(go(&mut f).await.0, Ok(()));
-        assert_eq!(f.log.last().map(String::as_str), Some("instalar 0.3.1"));
+        assert_eq!(f.log.last().map(String::as_str), Some("install 0.3.1"));
     }
 
     #[tokio::test(start_paused = true)]
     async fn refused_or_lost_stops_before_touching_this() {
         let mut f = FakeFleet {
-            refuse: Some("la otra máquina no está conectada".into()),
+            refuse: Some("the other machine is not connected".into()),
             ..FakeFleet::default()
         };
         let (r, seen) = go(&mut f).await;
         assert_eq!(
             r,
             Err(Failure::PeerRefused(
-                "la otra máquina no está conectada".into()
+                "the other machine is not connected".into()
             ))
         );
         assert_eq!(seen, [Step::AskPeer]);
@@ -813,20 +813,20 @@ mod tests {
             ..FakeFleet::default()
         };
         assert_eq!(go(&mut f).await.0, Err(Failure::SessionLost));
-        assert!(!f.log.iter().any(|l| l.starts_with("instalar")));
+        assert!(!f.log.iter().any(|l| l.starts_with("install")));
     }
 
     #[tokio::test(start_paused = true)]
     async fn install_here_failing_is_reported_with_the_other_updated() {
         let mut f = FakeFleet {
             peer: VecDeque::from([Some(Peer::At(v("0.3.1")))]),
-            install_fails: Some("sin red".into()),
+            install_fails: Some("no network".into()),
             ..FakeFleet::default()
         };
         let err = go(&mut f).await.0.unwrap_err();
         assert_eq!(
             err.to_string(),
-            "la otra máquina ya tiene la 0.3.1, pero esta no se pudo actualizar: sin red"
+            "the other machine already has 0.3.1, but this one could not be updated: no network"
         );
     }
 
@@ -838,7 +838,7 @@ mod tests {
         assert_eq!(load_settings(&path), Settings { auto: true });
         save_settings(&path, Settings { auto: false }).unwrap();
         assert_eq!(load_settings(&path), Settings { auto: false });
-        std::fs::write(&path, "auto = \"quizás\"").unwrap();
+        std::fs::write(&path, "auto = \"maybe\"").unwrap();
         assert_eq!(load_settings(&path), Settings::default());
     }
 

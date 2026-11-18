@@ -284,7 +284,7 @@ mod tests {
     fn symbolic_links_are_skipped() {
         let d = tempfile::tempdir().unwrap();
         fs::write(d.path().join("a"), b"x").unwrap();
-        std::os::unix::fs::symlink("a", d.path().join("enlace")).unwrap();
+        std::os::unix::fs::symlink("a", d.path().join("link")).unwrap();
         let s = Source::scan(d.path(), 4).unwrap();
         assert_eq!(s.manifest().entries.len(), 1);
     }

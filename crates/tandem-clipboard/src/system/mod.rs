@@ -22,7 +22,7 @@ use windows::Counter;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ClipboardError {
-    #[error("portapapeles: {0}")]
+    #[error("clipboard: {0}")]
     Arboard(#[from] arboard::Error),
     #[error("image of {width}x{height} with {len} bytes")]
     BadImage {
@@ -58,7 +58,7 @@ fn optional<T>(r: Result<T, arboard::Error>) -> Result<Option<T>, ClipboardError
         Ok(v) => Ok(Some(v)),
         Err(e @ arboard::Error::ClipboardOccupied) => Err(e.into()),
         Err(e) => {
-            tracing::trace!("formato no disponible: {e}");
+            tracing::trace!("format not available: {e}");
             Ok(None)
         }
     }

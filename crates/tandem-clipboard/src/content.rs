@@ -234,7 +234,7 @@ pub(crate) mod tests {
 
     proptest! {
         #[test]
-        fn hash_igual_sii_contenido_igual(a in content(), b in content()) {
+        fn hash_equal_iff_content_equal(a in content(), b in content()) {
             prop_assert_eq!(a.hash() == b.hash(), a == b);
         }
 

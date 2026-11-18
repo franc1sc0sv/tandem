@@ -181,7 +181,7 @@ proptest! {
 async fn the_cut_leaves_the_copy_half_done_and_the_resumption_sends_the_rest() {
     let d = tempfile::tempdir().unwrap();
     let src = d.path().join("big.bin");
-    let data: Vec<u8> = (0..80u8).collect(); // 10 fragmentos de 8
+    let data: Vec<u8> = (0..80u8).collect(); // 10 chunks of 8
     fs::write(&src, &data).unwrap();
     let dst = d.path().join("copy.bin");
     let dst_s = dst.to_str().unwrap();
@@ -193,7 +193,7 @@ async fn the_cut_leaves_the_copy_half_done_and_the_resumption_sends_the_rest() {
     let again = tandem_files::mem::MemPath::new(&p.host, &p.files_b);
     p.origin.set_link(Some(again.dialer()));
     let missing = settled_missing(&dst, &src).await;
-    assert!(missing <= 10, "faltan {missing}");
+    assert!(missing <= 10, "{missing} missing");
     let r = within(p.files_a.put(&p.origin, p.tunnel, &src, dst_s))
         .await
         .unwrap();
@@ -370,11 +370,7 @@ async fn a_huge_tree_travels_paged() {
     for i in 0..12_000u32 {
         let dir = src.join(format!("d{:03}", i / 200));
         fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join(format!("archivo-{i}.txt")),
-            format!("contenido {i}"),
-        )
-        .unwrap();
+        fs::write(dir.join(format!("file-{i}.txt")), format!("content {i}")).unwrap();
     }
     let p = pair(CHUNK).await;
     let dst_s = dst.to_str().unwrap();

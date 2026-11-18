@@ -732,7 +732,7 @@ async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
     until_desk(&b, &edited).await;
     assert_eq!(saved(&b).desk.arrangement, Some(arr));
     let (by, rev, summary, _) = next_desk_changed(&mut b).await;
-    assert_eq!((by, summary.as_str()), (Machine::A, "Acomodo"));
+    assert_eq!((by, summary.as_str()), (Machine::A, "Arrangement"));
     assert_eq!(rev, a.agent.desk_sync().stamp.rev);
 
     // Las dos a la vez: primero B y enseguida A, sin esperar a que se vean. Gana A: o

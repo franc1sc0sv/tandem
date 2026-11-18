@@ -35,7 +35,7 @@ impl ShortcutAction {
 
     pub fn label(self) -> &'static str {
         match self {
-            ShortcutAction::ToggleWindow => "Mostrar u ocultar Tandem",
+            ShortcutAction::ToggleWindow => "Show or hide Tandem",
         }
     }
 }
@@ -458,17 +458,14 @@ mod tests {
     fn invalid_binding_names_the_action() {
         let b: Bindings = [(ShortcutAction::ToggleWindow, Some("Shift+KeyA".into()))].into();
         let e = Shortcuts::from_bindings(&b).unwrap_err();
-        assert!(
-            e.to_string().starts_with("Mostrar u ocultar Tandem: "),
-            "{e}"
-        );
+        assert!(e.to_string().starts_with("Show or hide Tandem: "), "{e}");
     }
 
     #[test]
     fn json_is_what_the_frontend_reads() {
         let view = ShortcutsView {
             bindings: Shortcuts::default().bindings(),
-            failed: [(ShortcutAction::ToggleWindow, "ocupado".into())].into(),
+            failed: [(ShortcutAction::ToggleWindow, "busy".into())].into(),
             warning: None,
             file: Some("/x/ui.toml".into()),
         };
@@ -476,7 +473,7 @@ mod tests {
             serde_json::to_value(&view).unwrap(),
             serde_json::json!({
                 "bindings": { "toggle_window": "Ctrl+Alt+Digit0" },
-                "failed": { "toggle_window": "ocupado" },
+                "failed": { "toggle_window": "busy" },
                 "warning": null,
                 "file": "/x/ui.toml"
             })
@@ -555,7 +552,7 @@ mod tests {
         for bad in [
             "[shortcuts\n",
             "[shortcuts]\ntoggle_window = \"KeyA\"\n",
-            "[shortcuts]\nno_existe = \"Ctrl+KeyA\"\n",
+            "[shortcuts]\ndoes_not_exist = \"Ctrl+KeyA\"\n",
         ] {
             std::fs::write(&path, bad).unwrap();
             let l = load(&path);

@@ -179,7 +179,7 @@ async fn five_processes_at_once_with_interleaved_output_and_kill_of_one() {
     );
 
     // The output of the five is interleaved, over stdout and stderr.
-    let line = |i: usize, round: usize| format!("proceso {i} ronda {round}\n");
+    let line = |i: usize, round: usize| format!("process {i} round {round}\n");
     for round in 0..3 {
         for (i, (_, fake)) in procs.iter().enumerate() {
             fake.stdout(line(i, round).as_bytes());

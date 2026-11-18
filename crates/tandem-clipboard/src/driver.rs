@@ -43,7 +43,7 @@ impl Default for ClipConfig {
 pub enum SyncEnd {
     #[error("stopped: the link changed")]
     Stopped,
-    #[error("enlace: {0}")]
+    #[error("link: {0}")]
     Link(#[from] TransportError),
 }
 
@@ -254,7 +254,7 @@ fn changed<C: Clipboard>(clipboard: &mut C, last: &Option<u64>) -> bool {
     match clipboard.change_count() {
         Ok(n) => Some(n) != *last,
         Err(e) => {
-            tracing::debug!("portapapeles: contador: {e}");
+            tracing::debug!("clipboard: counter: {e}");
             false
         }
     }
@@ -272,7 +272,7 @@ fn read_local<C: Clipboard>(
 ) -> Option<Option<ClipContent>> {
     match clipboard.change_count() {
         Ok(n) => *last = Some(n),
-        Err(e) => tracing::debug!("portapapeles: contador: {e}"),
+        Err(e) => tracing::debug!("clipboard: counter: {e}"),
     }
     match clipboard.read() {
         Ok(c) => {
@@ -315,7 +315,7 @@ async fn apply<C: Clipboard>(
                 // while pasting what came from the other one.
                 match clipboard.change_count() {
                     Ok(n) => *last = Some(n),
-                    Err(e) => tracing::debug!("portapapeles: contador: {e}"),
+                    Err(e) => tracing::debug!("clipboard: counter: {e}"),
                 }
             }
         }

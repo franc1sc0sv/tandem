@@ -269,7 +269,9 @@ pub fn install(
     // The elevated `--install` falls back to the `Run` key if its checks fail: that is not success.
     match probe.state(platform) {
         AdminState::Ok => Ok(()),
-        _ => Err(AdminError::Failed("the service did not become active".to_owned())),
+        _ => Err(AdminError::Failed(
+            "the service did not become active".to_owned(),
+        )),
     }
 }
 
@@ -540,7 +542,7 @@ mod tests {
         let Platform::Unsupported(why) = mac_platform(exe, linked) else {
             panic!("it should have been rejected")
         };
-        assert!(why.contains("enlace"));
+        assert!(why.contains("symbolic link"));
         let missing = |_: &Path| Err(io::Error::from(io::ErrorKind::NotFound));
         assert!(matches!(
             mac_platform(exe, missing),
@@ -687,7 +689,7 @@ mod tests {
 
     #[test]
     fn osascript_shows_the_system_dialog() {
-        let a = osascript_args("echo \"x\"", "Pide");
+        let a = osascript_args("echo \"x\"", "Prompt");
         assert_eq!(a[0], "-e");
         assert!(a[1].ends_with("with administrator privileges"));
         assert!(a[1].contains(r#"\"x\""#));

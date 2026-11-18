@@ -1616,7 +1616,10 @@ impl Runner {
 }
 
 fn timed_out() -> String {
-    format!("tandemd did not respond in {} s", QUERY_TIMEOUT.as_secs_f64())
+    format!(
+        "tandemd did not respond in {} s",
+        QUERY_TIMEOUT.as_secs_f64()
+    )
 }
 
 #[cfg(test)]
@@ -2520,7 +2523,7 @@ mac = "aa:bb:cc:dd:ee:ff"
     fn machine_page_views_keep_what_the_window_draws() {
         let m = ModuleView::from(ModuleInfo {
             id: ModuleId::SecureDesktop,
-            name: "Pantallas protegidas".into(),
+            name: "Protected screens".into(),
             detail: "UAC".into(),
             state: ModuleState::Unavailable {
                 reason: "Service missing".into(),
@@ -2530,7 +2533,7 @@ mac = "aa:bb:cc:dd:ee:ff"
         assert_eq!(
             serde_json::to_value(&m).unwrap(),
             serde_json::json!({
-                "id": "secure_desktop", "name": "Pantallas protegidas", "detail": "UAC",
+                "id": "secure_desktop", "name": "Protected screens", "detail": "UAC",
                 "state": "unavailable", "reason": "Service missing", "switchable": false
             })
         );
@@ -2601,9 +2604,9 @@ mac = "aa:bb:cc:dd:ee:ff"
             }
         );
         assert_eq!(
-            read(serde_json::json!({ "kind": "set_desk_name", "name": "Oficina" })),
+            read(serde_json::json!({ "kind": "set_desk_name", "name": "Office" })),
             UiCommand::EditDesk {
-                patch: DeskPatch::Name("Oficina".into())
+                patch: DeskPatch::Name("Office".into())
             }
         );
         assert_eq!(
@@ -2642,7 +2645,7 @@ mac = "aa:bb:cc:dd:ee:ff"
             }
         );
         assert!(
-            serde_json::from_value::<Action>(serde_json::json!({ "kind": "set_module", "machine": "b", "module": "nada", "on": false }))
+            serde_json::from_value::<Action>(serde_json::json!({ "kind": "set_module", "machine": "b", "module": "nothing", "on": false }))
                 .is_err()
         );
         assert_eq!(
@@ -2666,8 +2669,8 @@ mac = "aa:bb:cc:dd:ee:ff"
             }
         );
         assert_eq!(
-            read(serde_json::json!({ "kind": "apply_scene", "id": "juego" })),
-            UiCommand::ApplyScene { id: "juego".into() }
+            read(serde_json::json!({ "kind": "apply_scene", "id": "game" })),
+            UiCommand::ApplyScene { id: "game".into() }
         );
         assert_eq!(
             read(
@@ -2678,16 +2681,15 @@ mac = "aa:bb:cc:dd:ee:ff"
                 input: MonitorInput::Hdmi
             }
         );
-        let scene =
-            serde_json::json!({ "id": "juego", "name": "Juego", "monitors": [["m-1", "b"]] });
+        let scene = serde_json::json!({ "id": "game", "name": "Game", "monitors": [["m-1", "b"]] });
         assert!(matches!(
             read(serde_json::json!({ "kind": "add_scene", "scene": scene })),
-            UiCommand::EditDesk { patch: DeskPatch::AddScene(s) } if s.name == "Juego"
+            UiCommand::EditDesk { patch: DeskPatch::AddScene(s) } if s.name == "Game"
         ));
         assert_eq!(
-            read(serde_json::json!({ "kind": "delete_scene", "id": "juego" })),
+            read(serde_json::json!({ "kind": "delete_scene", "id": "game" })),
             UiCommand::EditDesk {
-                patch: DeskPatch::DeleteScene { id: "juego".into() }
+                patch: DeskPatch::DeleteScene { id: "game".into() }
             }
         );
         assert_eq!(
@@ -2717,11 +2719,11 @@ mac = "aa:bb:cc:dd:ee:ff"
             serde_json::to_value(Notice::DeskChanged {
                 by: Machine::B,
                 rev: 5,
-                summary: "Acomodo".into(),
+                summary: "Arrangement".into(),
                 undo_to: 4
             })
             .unwrap(),
-            serde_json::json!({ "kind": "desk_changed", "by": "b", "rev": 5, "summary": "Acomodo", "undo_to": 4 })
+            serde_json::json!({ "kind": "desk_changed", "by": "b", "rev": 5, "summary": "Arrangement", "undo_to": 4 })
         );
         assert_eq!(
             serde_json::to_value(Notice::Transfer {

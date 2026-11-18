@@ -131,7 +131,7 @@ impl Dialer for MemPath {
             let (host, server) = (self.inner.host.clone(), self.inner.server.clone());
             tokio::spawn(async move {
                 if let Err(e) = server(host, target).await {
-                    tracing::debug!("stream en memoria terminado: {e}");
+                    tracing::debug!("in-memory stream finished: {e}");
                 }
             });
             let wire: Box<dyn OriginWire> = Box::new(MemOrigin {
@@ -151,7 +151,7 @@ fn check_frame<T: serde::Serialize>(msg: &T) -> Result<(), WireError> {
         .len();
     if len > tandem_proto::MAX_FRAME_LEN {
         return Err(WireError::new(format!(
-            "mensaje de {len} B: no cabe en un marco"
+            "message of {len} B does not fit in a frame"
         )));
     }
     Ok(())

@@ -392,7 +392,7 @@ impl ClipSync {
     }
 
     fn reject(&mut self, why: &str) -> Vec<Action> {
-        tracing::warn!("portapapeles: {why}");
+        tracing::warn!("clipboard: {why}");
         self.stats.rejected += 1;
         Vec::new()
     }

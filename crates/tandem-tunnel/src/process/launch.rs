@@ -330,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn powershell_va_codificado() {
+    fn powershell_is_encoded() {
         let l = plan(&spec("Write-Output", &["a'b"], Some("pwsh")), Os::Windows).unwrap();
         assert_eq!(l.program, "pwsh");
         assert_eq!(
@@ -420,7 +420,7 @@ mod tests {
     }
 
     #[test]
-    fn base64_conocido() {
+    fn known_base64() {
         assert_eq!(base64(b""), "");
         assert_eq!(base64(b"f"), "Zg==");
         assert_eq!(base64(b"fo"), "Zm8=");

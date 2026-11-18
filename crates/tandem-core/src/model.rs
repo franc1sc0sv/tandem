@@ -712,7 +712,7 @@ mod tests {
             Config::from_toml("[arrangement]\na_side = \"left\"\noffset = 0"),
             Err(ConfigError::Parse(_))
         ));
-        let color = "[machines.a]\nos = \"macos\"\nname = \"Mac\"\ncolor = \"azul\"";
+        let color = "[machines.a]\nos = \"macos\"\nname = \"Mac\"\ncolor = \"blue\"";
         assert!(matches!(
             Config::from_toml(color),
             Err(ConfigError::BadColor { .. })

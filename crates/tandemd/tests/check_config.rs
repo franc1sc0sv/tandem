@@ -54,7 +54,7 @@ fn invalid_desk_exits_nonzero() {
     );
     assert!(!out.status.success());
     let stderr = String::from_utf8(out.stderr).unwrap();
-    assert!(stderr.contains("no tiene área"), "{stderr}");
+    assert!(stderr.contains("has no area"), "{stderr}");
 }
 
 /// Una configuración de v0.1 es válida: los `[[monitors]]` se ignoran con un aviso.

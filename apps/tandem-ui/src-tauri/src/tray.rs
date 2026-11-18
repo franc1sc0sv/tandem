@@ -36,9 +36,9 @@ impl MenuView {
                     .map(|p| p.name.clone())
                     .unwrap_or_else(|| desk.machines.name(other));
                 let power = if state.is_on(other) {
-                    format!("{name} encendida")
+                    format!("{name} on")
                 } else {
-                    format!("{name} apagada")
+                    format!("{name} off")
                 };
                 let mut status = power.clone();
                 if *peer == PeerView::Unpaired {
@@ -50,7 +50,7 @@ impl MenuView {
                 }
             }
             Snapshot::Connecting => MenuView {
-                tooltip: "Tandem · conectando…".into(),
+                tooltip: "Tandem · connecting…".into(),
                 status: "Connecting to tandemd…".into(),
             },
             Snapshot::Unavailable { .. } => MenuView {
@@ -147,11 +147,11 @@ mod tests {
         let mut on = State::initial(A);
         on.on.b = true;
         let v = MenuView::of(&connected(A, on, paired()));
-        assert_eq!(v.tooltip, "Tandem · PC encendida");
-        assert_eq!(v.status, "PC encendida");
+        assert_eq!(v.tooltip, "Tandem · PC on");
+        assert_eq!(v.status, "PC on");
 
         let off = MenuView::of(&connected(A, State::initial(A), paired()));
-        assert_eq!(off.status, "PC apagada");
+        assert_eq!(off.status, "PC off");
 
         // Without a peer, the menu says so: the PC is not going to respond.
         let alone = MenuView::of(&connected(A, State::initial(A), PeerView::Unpaired));
@@ -159,7 +159,7 @@ mod tests {
 
         // On the PC: the one that is said to be off is the Mac, never the PC itself.
         let on_pc = MenuView::of(&connected(B, State::initial(B), paired()));
-        assert_eq!(on_pc.status, "Mac apagada");
+        assert_eq!(on_pc.status, "Mac off");
         // With nothing saved about the other, "machine A", never an invented "Mac".
         let mut bare = connected(B, State::initial(B), paired());
         if let Snapshot::Connected { desk, .. } = &mut bare {

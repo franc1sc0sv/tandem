@@ -295,7 +295,7 @@ async fn the_peer_that_closes_the_stream_ends_the_session() {
 /// Windows' clipboard busy with another app ("being held by another party"): the
 /// read fails for a while. Each consecutive failure waits twice as long (T-087), it is not retried on
 /// every polling turn, and as soon as it is released the copy reaches the other side.
-mod ocupado {
+mod busy {
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -368,7 +368,7 @@ mod ocupado {
         // 4 failures and a success, not a retry on every 5 ms turn; and each wait
         // is greater than the previous (5, 10, 20, 40 ms of base).
         let times = at.lock().unwrap().clone();
-        assert!(times.len() <= 8, "{} lecturas", times.len());
+        assert!(times.len() <= 8, "{} reads", times.len());
         let gaps: Vec<Duration> = times.windows(2).map(|w| w[1] - w[0]).collect();
         assert!(
             gaps[3] >= Duration::from_millis(35),

@@ -532,9 +532,9 @@ fn on_window_event(window: &tauri::Window, event: &WindowEvent) {
 // Icon and menu
 
 fn build_tray(app: &AppHandle) -> tauri::Result<TrayMenu> {
-    let status = MenuItem::with_id(app, MENU_STATUS, "Conectando…", false, None::<&str>)?;
-    let open = MenuItem::with_id(app, MENU_OPEN, "Abrir Tandem", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, MENU_QUIT, "Salir de Tandem", true, None::<&str>)?;
+    let status = MenuItem::with_id(app, MENU_STATUS, "Connecting…", false, None::<&str>)?;
+    let open = MenuItem::with_id(app, MENU_OPEN, "Open Tandem", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, MENU_QUIT, "Quit Tandem", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let menu = Menu::with_items(app, &[&status, &sep, &open, &quit])?;
     let tray = TrayIconBuilder::with_id("tandem")
@@ -598,7 +598,9 @@ fn register(app: &AppHandle, keys: &Shortcuts) -> BTreeMap<ShortcutAction, Strin
         if let Err(e) = done {
             failed.insert(
                 action,
-                format!("the system did not let {text} be registered (is another app using it?): {e}"),
+                format!(
+                    "the system did not let {text} be registered (is another app using it?): {e}"
+                ),
             );
         }
     }

@@ -154,7 +154,7 @@ mod tests {
         fn display_round_trips(vendor: u16, product: u16) {
             let id = UsbId::new(vendor, product);
             prop_assert_eq!(id.to_string().parse::<UsbId>(), Ok(id));
-            let win = format!(r"USB\VID_{vendor:04X}&PID_{product:04X}\serie");
+            let win = format!(r"USB\VID_{vendor:04X}&PID_{product:04X}\serial");
             prop_assert_eq!(UsbId::from_windows_instance_id(&win), Some(id));
         }
     }

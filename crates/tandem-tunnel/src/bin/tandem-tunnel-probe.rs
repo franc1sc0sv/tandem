@@ -70,7 +70,7 @@ fn run(args: &[String]) -> Option<ExitCode> {
             writeln!(out, "ready").ok()?;
         }
         other => {
-            eprintln!("orden desconocida: {other:?}");
+            eprintln!("unknown command: {other:?}");
             return Some(ExitCode::from(64));
         }
     }

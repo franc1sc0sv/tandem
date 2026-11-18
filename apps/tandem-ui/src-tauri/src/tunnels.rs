@@ -210,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn el_id_viaja_como_texto_y_vuelve_sin_perder_bits() {
+    fn the_id_travels_as_text_and_comes_back_without_losing_bits() {
         let id = TunnelId(u64::MAX - 3);
         let text = id.to_string();
         assert_eq!(text.len(), 16);
@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn los_proyectos_conservan_orden_procesos_y_estado() {
+    fn projects_keep_order_processes_and_state() {
         let mut running = TunnelView::from(tunnel(1, Some("tandem"), TunnelState::Open));
         running.running = vec![process(3, ProcessState::Running)];
         let groups = group_by_project([
@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn la_salida_llega_como_texto_con_su_cursor() {
+    fn output_arrives_as_text_with_its_cursor() {
         let out = ProcessOutput {
             process: process(3, ProcessState::Exited { code: Some(0) }),
             stdout: b"ok\n".to_vec(),
@@ -261,7 +261,7 @@ mod tests {
     }
 
     #[test]
-    fn la_transferencia_nombra_el_tunel_con_su_id_de_texto() {
+    fn the_transfer_names_the_tunnel_with_its_text_id() {
         let t = TransferItem::from(TransferProgress {
             tunnel: TunnelId(255),
             upload: true,

@@ -79,7 +79,7 @@ fn received(origin: &Origin, id: TunnelId, flow: FlowId) -> Vec<u8> {
     match origin.read(id, flow, 0, usize::MAX) {
         Some(Read::Data { offset: 0, bytes }) => bytes,
         Some(Read::Pending) => Vec::new(),
-        other => panic!("lectura inesperada: {other:?}"),
+        other => panic!("unexpected read: {other:?}"),
     }
 }
 

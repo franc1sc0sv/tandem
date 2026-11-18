@@ -519,7 +519,7 @@ impl Model {
                 Action::Write(c) => {
                     agent.clip = Some(c.clone());
                     let echo = agent.sync.local_changed(Some(c));
-                    assert!(echo.is_empty(), "eco: {echo:?}");
+                    assert!(echo.is_empty(), "echo: {echo:?}");
                 }
             }
         }
