@@ -30,6 +30,8 @@ describe("arnés de capturas", () => {
     const puesto = SHOTS.find((s) => s.name === "puesto");
     expect(puesto?.mockup).toBe("V3-Puesto");
     expect(puesto?.regions?.[0]?.min).toEqual(SIDEBAR_GATE);
+    // T-113: y toda la pantalla.
+    expect(puesto?.min).toEqual(SIDEBAR_GATE);
     expect(SIDEBAR_GATE).toEqual({ similarity: 0.99, worstTile: 0.97 });
     // Lo único que se tapa es lo que D1 quita.
     expect(puesto?.ignore?.every((i) => i.reason.startsWith("D1"))).toBe(true);

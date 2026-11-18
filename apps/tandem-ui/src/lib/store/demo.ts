@@ -25,11 +25,14 @@ import { measuredText } from "../network";
 import { sceneView } from "../scenes";
 import { DEFAULT_BINDINGS } from "../shortcuts";
 import { checkName } from "../machine";
+import { reducedMotion } from "../motion";
+import { DEMO_LOOP_MS, demoPath, sampleAt, sceneOf } from "../puesto";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK, INPUT_TARGET_MS } from "./types";
 import type {
   ActResult,
   Capability,
+  CursorEvent,
   DeskView,
   EnvView,
   HardwareView,
@@ -399,13 +402,15 @@ function demoLayout(sa: Spec, sb: Spec, scenes: SceneView[], active: string | nu
   for (const [m, spec] of [["a", sa] as const, ["b", sb] as const]) {
     for (const d of spec.screens) {
       const { external, off: gone, ...rest } = d;
+      const [pw, ph] = d.res.split("×").map((v) => parseInt(v, 10));
+      const native = { id: d.id, x: 0, y: 0, w: pw ?? 0, h: ph ?? 0 };
       const id = sa.screens.includes(d) && sb.screens.includes(d) ? `${m}-${d.id}` : d.id;
       if (gone) {
         off.push({ ...rest, id, machine: null, x: 0, y: 0, usable: false, line: "Desconectado" });
         continue;
       }
       const shows = external && scene?.shows === m ? ` · escena ${scene.name}` : "";
-      screens.push({ ...rest, id, machine: m, x: 0, y: 0, usable: true, line: `${spec.name}${shows}` });
+      screens.push({ ...rest, id, machine: m, x: 0, y: 0, usable: true, line: `${spec.name}${shows}`, external: external === true, native });
     }
   }
   return { screens: [...screens, ...off], arrangement: { ...DEMO_ARRANGEMENT } };
@@ -466,6 +471,7 @@ const CROSS_MS = 2500;
 const PAIR_FOUND_MS = 1400;
 const PAIR_OTHER_MS = 1200;
 
+const CURSOR_MS = 33;
 const TICK_MS = 1500;
 const RESCAN_MS = 900;
 /** Lo que tarda la medición de ancho de banda en el demo. */
@@ -806,6 +812,34 @@ export class DemoSource implements Source {
     return () => {
       clearTimeout(timer);
       this.crossers.delete(onCross);
+    };
+  }
+
+  /**
+   * El cursor en vivo: sigue el recorrido del mockup (7 s, de la MacBook al 34" y de vuelta) y
+   * avisa cada cruce. Con `still` (o sin movimiento permitido) manda solo el punto de partida.
+   */
+  async watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void> {
+    const names = (m: Machine) => this.desk.machines[m]?.name ?? m;
+    const colors = (m: Machine) => this.desk.machines[m]?.color ?? "";
+    let last: Machine | null = null;
+    const step = (t: number) => {
+      const scene = sceneOf(this.desk.layout, { a: names("a"), b: names("b") }, { a: colors("a"), b: colors("b") });
+      const sample = sampleAt(scene, this.desk.layout, demoPath(t));
+      if (!sample) return;
+      if (last && last !== sample.machine) onEvent({ kind: "crossed", from: last, to: sample.machine, edge: exitSide(this.desk.layout.arrangement, last) });
+      last = sample.machine;
+      onEvent({ kind: "cursor", sample });
+    };
+    const first = setTimeout(() => step(0), 0);
+    let timer: ReturnType<typeof setInterval> | undefined;
+    if (!this.opts.still && !reducedMotion()) {
+      const t0 = Date.now();
+      timer = setInterval(() => step(((Date.now() - t0) % DEMO_LOOP_MS) / DEMO_LOOP_MS), CURSOR_MS);
+    }
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
     };
   }
 

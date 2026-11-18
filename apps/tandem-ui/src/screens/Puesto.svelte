@@ -1,8 +1,11 @@
 <script lang="ts">
-  // Puesto (inicio), base de T-112 sobre `V3-Puesto`: máquinas, enlace y escenas con los
-  // componentes del sistema. T-113 la completa (escritorios en vivo a escala real, enlace
-  // por la IPC).
+  // Puesto (inicio, `V3-Puesto`): las dos máquinas, el enlace vivo, los escritorios a escala
+  // real con el cursor en vivo (solo con la ventana visible) y las escenas.
+  import { onMount } from "svelte";
   import { useStore } from "../lib/context";
+  import { wallOf } from "../lib/acomodo";
+  import { cursorPoint, flowSeconds, RateMeter, sceneOf, type Point } from "../lib/puesto";
+  import Button from "../ui/Button.svelte";
   import type { Machine } from "../lib/model";
   import { LINK_NAME } from "../lib/machines";
   import PageHeader from "../shell/PageHeader.svelte";
@@ -21,7 +24,75 @@
   const link = $derived(desk.link);
   const linkName = $derived(link.kind ? LINK_NAME[link.kind] : "Sin enlace");
   const AMBER = "#d9a75a";
-  const WALL = (c: string) => (c === "#7aa7e6" ? "linear-gradient(160deg,#34496a,#1d2738)" : "linear-gradient(160deg,#463d63,#241f33)");
+
+  // Los escritorios a escala física, del mismo cálculo que el acomodo.
+  const scene = $derived(
+    a && b
+      ? sceneOf(desk.layout, { a: a.name, b: b.name }, { a: a.color, b: b.color })
+      : null,
+  );
+
+  // El cursor en vivo: se pide al agente solo mientras la ventana se ve.
+  let visible = $state(typeof document === "undefined" || document.visibilityState !== "hidden");
+  let point = $state<Point | null>(null);
+  let flashes = $state(0);
+  let rate = $state(0);
+  const meter = new RateMeter();
+  const canCursor = $derived(store.can("cursor"));
+  const flow = $derived(flowSeconds(rate));
+
+  onMount(() => {
+    const onVis = () => (visible = document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  });
+
+  $effect(() => {
+    if (!visible || !scene || !canCursor) return;
+    const layout = desk.layout;
+    let stop: (() => void) | undefined;
+    let gone = false;
+    const tick = setInterval(() => (rate = meter.rate(Date.now())), 500);
+    store
+      .watchCursor((e) => {
+        if (e.kind === "crossed") {
+          flashes += 1;
+          return;
+        }
+        meter.push(Date.now());
+        const p = scene ? cursorPoint(scene, layout, e.sample) : null;
+        if (p) point = p;
+      })
+      .then((f) => {
+        if (gone) f();
+        else stop = f;
+      })
+      // Sin cursor en vivo (el agente no lo ofrece): el escritorio se ve sin punto.
+      .catch(() => {});
+    return () => {
+      gone = true;
+      stop?.();
+      clearInterval(tick);
+      rate = 0;
+    };
+  });
+
+  // `V3-Puesto` escribe «34" muestra PC-Escritorio»; `V3-Monitores` (y `scenes.ts`) usan «→».
+  const sceneLine = (desc: string) => desc.replaceAll(" → ", " muestra ");
+
+  // Energía de la otra máquina (transacción: el agente informa cada paso).
+  const peer = $derived(list.find((m) => !m.here) ?? null);
+  const showPower = $derived(peer !== null && store.can("power") && peer.power !== "lost");
+  let pending = $state<"on" | "off" | null>(null);
+  async function power(on: boolean) {
+    if (!peer || pending) return;
+    pending = on ? "on" : "off";
+    try {
+      await store.setPower(peer.id, on);
+    } finally {
+      pending = null;
+    }
+  }
 </script>
 
 <div class="page">
@@ -29,6 +100,7 @@
 
   <section aria-label="Máquinas" class="machines">
     {#each list as m, i (m.id)}
+      <div class="mslot">
       <Card href="#/maquina/{m.id}" delay={i * 0.06} class="mcard">
         <div class="mhead">
           <span class="nicon"><Icon name={machineIcon(m.os)} size={20} color={m.color} /></span>
@@ -47,6 +119,17 @@
           <div class="spark"><Sparkline values={r.history} color={m.color} /></div>
         {/if}
       </Card>
+      {#if showPower && peer && m.id === peer.id}
+        <!-- Fuera del enlace de la tarjeta (un botón dentro de un <a> no es válido), encima de su cabecera. -->
+        <div class="pwr" role="group" aria-label="Energía de {peer.name}">
+          {#if peer.power === "on"}
+            <Button icon="power" variant="ghost" size="sm" iconOnly label={pending === "off" ? "Apagando…" : "Apagar"} disabled={pending !== null} onclick={() => power(false)} />
+          {:else}
+            <Button icon="power" variant="ghost" size="sm" iconOnly label={pending === "on" || peer.power === "booting" ? "Encendiendo…" : "Encender"} disabled={pending !== null || peer.power === "booting"} onclick={() => power(true)} />
+          {/if}
+        </div>
+      {/if}
+      </div>
     {/each}
   </section>
 
@@ -56,9 +139,9 @@
       <svg viewBox="0 0 600 40" preserveAspectRatio="none" class="wire" aria-hidden="true">
         <defs><linearGradient id="lk" x1="0" x2="1"><stop offset="0" stop-color={a.color}></stop><stop offset="1" stop-color={b.color}></stop></linearGradient></defs>
         <line x1="0" y1="14" x2="600" y2="14" stroke="#24262c" stroke-width="2"></line>
-        {#if link.kind}<line class="flow" x1="0" y1="14" x2="600" y2="14" stroke="url(#lk)" stroke-width="3"></line>{/if}
+        {#if link.kind}<line class="flow" style="animation-duration:{flow}s" x1="0" y1="14" x2="600" y2="14" stroke="url(#lk)" stroke-width="3"></line>{/if}
         <line x1="0" y1="30" x2="600" y2="30" stroke="#24262c" stroke-width="1.5" stroke-dasharray="3 6"></line>
-        {#if link.kind}<line class="flow r" x1="0" y1="30" x2="600" y2="30" stroke={b.color} stroke-opacity=".35" stroke-width="1.5"></line>{/if}
+        {#if link.kind}<line class="flow r" style="animation-duration:{flow * 1.3}s" x1="0" y1="30" x2="600" y2="30" stroke={b.color} stroke-opacity=".35" stroke-width="1.5"></line>{/if}
       </svg>
       <span class="node"><span class="nt">{b.name}</span><span class="ndot" style="background:{b.color}"></span></span>
       <span class="sep"></span>
@@ -77,15 +160,25 @@
     <Card delay={0.2} class="desks">
       <div class="ch"><h2 class="h3">Escritorios en vivo</h2><span class="fill"></span><a href="#/acomodo" class="ib" aria-label="Editar acomodo" title="Editar acomodo"><Icon name="edit" /></a></div>
       <div class="canvas">
-        {#if a && b}
-          <div role="img" aria-label="{a.name} a la izquierda de {b.name}" class="scale">
-            <div class="desk" style="left:7.5%;top:36%;width:22.9%;height:35.8%"><div class="w" style="background:{WALL(a.color)}">{a.name}</div></div>
-            <div class="foot" style="left:6%;top:71.8%;width:25.9%;height:2.6%;border-radius:0 0 6px 6px"></div>
-            <div class="desk" style="left:32.6%;top:10.9%;width:60%;height:60.9%"><div class="w" style="background:{WALL(b.color)}">34" · {b.name}</div></div>
-            <div class="foot" style="left:60.4%;top:71.8%;width:4.5%;height:9%"></div>
-            <div class="foot" style="left:55.1%;top:80.8%;width:15%;height:2.6%;border-radius:3px"></div>
-            <span class="edge"></span>
-            <span class="curdot"></span>
+        {#if scene && a && b}
+          <div role="img" aria-label="A escala: {scene.desks.map((k) => k.label).join(' y ')}. El cursor se mueve entre los dos." class="scale" style="aspect-ratio:{scene.aspect}">
+            {#each scene.desks as k (k.id)}
+              <div class="desk" style="left:{k.left}%;top:{k.top}%;width:{k.width}%;height:{k.height}%"><div class="w" style="background:{k.wall}">{k.label}</div></div>
+            {/each}
+            {#each scene.feet as f, i (i)}
+              <div class="foot" style="left:{f.left}%;top:{f.top}%;width:{f.width}%;height:{f.height}%;border-radius:0 0 {f.radius}px {f.radius}px"></div>
+            {/each}
+            {#if scene.edge}
+              {@const e = scene.edge}
+              {#key flashes}
+                <span
+                  class="edge"
+                  class:on={flashes > 0}
+                  style={e.vertical ? `left:calc(${e.left}% - 1px);top:${e.top}%;width:2px;height:${e.length}%` : `left:${e.left}%;top:calc(${e.top}% - 1px);width:${e.length}%;height:2px`}
+                ></span>
+              {/key}
+            {/if}
+            {#if point}<span class="curdot" style="left:{point.left}%;top:{point.top}%"></span>{/if}
           </div>
         {/if}
       </div>
@@ -103,8 +196,8 @@
           {@const shows = s.shows ? desk.machines[s.shows] : null}
           <button type="button" class="scene" class:act={on} aria-pressed={on} onclick={() => store.applyScene(s.id)}>
             <span class="srow">
-              <span class="thumb"><div style="background:{WALL(shows?.color ?? '#7aa7e6')}"></div></span>
-              <span class="stext"><b>{s.name}</b><span class="mut sd">{s.desc}</span></span>
+              <span class="thumb"><div style="background:{wallOf(shows?.color ?? "#7aa7e6")}"></div></span>
+              <span class="stext"><b>{s.name}</b><span class="mut sd">{sceneLine(s.desc)}</span></span>
               <Kbd>{s.key}</Kbd>
             </span>
           </button>
@@ -127,12 +220,13 @@
   .sm {
     font-size: 12px;
   }
+  /* La tercera columna es el hueco de «Agregar máquina» (D1): el mockup reparte así el ancho. */
   .machines {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 200px;
     gap: 14px;
   }
-  .machines :global(.card.mcard) {
+  .mslot > :global(.card.mcard) {
     display: flex;
     flex-direction: column;
     gap: 14px;
@@ -252,6 +346,8 @@
     flex: 1;
   }
   .bottom :global(.card.desks) {
+    /* Como el mockup: la base de 440 px es del contenido, sin relleno ni borde. */
+    box-sizing: content-box;
     flex: 1.3 1 440px;
     min-width: 0;
     display: flex;
@@ -259,6 +355,7 @@
     gap: 12px;
   }
   .bottom :global(.card.scenes) {
+    box-sizing: content-box;
     flex: 1 1 340px;
     min-width: 0;
     display: flex;
@@ -310,7 +407,6 @@
   .scale {
     position: relative;
     width: 100%;
-    aspect-ratio: 133/55;
   }
   .desk {
     position: absolute;
@@ -338,8 +434,6 @@
   }
   .curdot {
     position: absolute;
-    left: 16%;
-    top: 56%;
     width: 10px;
     height: 10px;
     margin: -5px 0 0 -5px;
@@ -348,20 +442,21 @@
     box-shadow:
       0 0 0 4px rgba(232, 232, 235, 0.14),
       0 0 18px rgba(232, 232, 235, 0.35);
-    animation: cur 7s cubic-bezier(0.45, 0, 0.3, 1) infinite;
+    transition:
+      left 70ms linear,
+      top 70ms linear;
     z-index: 2;
   }
   .edge {
     position: absolute;
-    left: calc(32.6% - 1px);
-    top: 36%;
-    width: 2px;
-    height: 35.8%;
     border-radius: 2px;
     background: #e8e8eb;
     opacity: 0;
-    animation: eg 7s ease-in-out infinite;
     z-index: 1;
+  }
+  /* Destello al cruzar el borde (el `eg` del mockup, una vez por cruce). */
+  .edge.on {
+    animation: eg 1s ease-in-out;
   }
   .slist {
     display: flex;
@@ -437,45 +532,24 @@
     font-size: 12px;
     white-space: nowrap;
   }
-  @keyframes cur {
-    0% {
-      left: 16%;
-      top: 56%;
-    }
-    22% {
-      left: 25%;
-      top: 52%;
-    }
-    38% {
-      left: 40%;
-      top: 48%;
-    }
-    62% {
-      left: 63%;
-      top: 30%;
-    }
-    80% {
-      left: 80%;
-      top: 55%;
-    }
-    100% {
-      left: 16%;
-      top: 56%;
-    }
-  }
   @keyframes eg {
-    0%,
-    30% {
+    0% {
       opacity: 0;
     }
-    34% {
+    18% {
       opacity: 0.9;
     }
-    48% {
-      opacity: 0;
-    }
     100% {
       opacity: 0;
     }
+  }
+  .mslot {
+    position: relative;
+    display: grid;
+  }
+  .pwr {
+    position: absolute;
+    top: 6px;
+    right: 38px;
   }
 </style>
