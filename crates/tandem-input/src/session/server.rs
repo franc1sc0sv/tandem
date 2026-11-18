@@ -72,6 +72,9 @@ pub struct ServerSession {
     /// Si el cursor cruza a la otra máquina con un botón presionado (arrastrar). Por
     /// omisión no, como Deskflow: un arrastre que llega al borde se queda en su máquina.
     drag_across: bool,
+    /// Hay un arrastre de archivos del sistema en curso (T-121): cruza aunque `drag_across`
+    /// esté apagado, y solo mientras dure.
+    file_drag: bool,
     /// Marca del evento que se está procesando.
     now_us: u64,
     /// Los cruces de borde desde la última vez que el driver los recogió
@@ -97,6 +100,7 @@ impl ServerSession {
             lock_shortcut: Vec::new(),
             locked: false,
             drag_across: false,
+            file_drag: false,
             now_us: 0,
             crossings: Vec::new(),
         }
@@ -108,9 +112,14 @@ impl ServerSession {
         self
     }
 
+    /// El agente detectó (o ya no) un arrastre de archivos en la máquina de origen.
+    pub fn set_file_drag(&mut self, active: bool) {
+        self.file_drag = active;
+    }
+
     /// El cursor no puede cruzar ahora: bloqueado por el atajo o arrastrando.
     fn held_in_place(&self) -> bool {
-        self.locked || (!self.drag_across && self.pressed.any_button())
+        self.locked || (!self.drag_across && !self.file_drag && self.pressed.any_button())
     }
 
     /// Atajo de teclado (todas las teclas a la vez) que bloquea y desbloquea el
@@ -738,6 +747,26 @@ mod tests {
             y: 720.0,
         });
         s.handle(press);
+        assert!(matches!(
+            s.handle(rel(5.0, 0.0))[0],
+            ServerOutput::Grab(true)
+        ));
+    }
+
+    #[test]
+    fn un_arrastre_de_archivos_cruza_aunque_arrastrar_este_apagado() {
+        let press = InputEvent::Button {
+            button: Button::Left,
+            state: KeyState::Pressed,
+        };
+        let mut s = session();
+        s.handle(InputEvent::MotionAbsolute {
+            x: edge_pc(),
+            y: 720.0,
+        });
+        s.handle(press);
+        assert!(s.handle(rel(50.0, 0.0)).is_empty());
+        s.set_file_drag(true);
         assert!(matches!(
             s.handle(rel(5.0, 0.0))[0],
             ServerOutput::Grab(true)

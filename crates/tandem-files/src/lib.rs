@@ -6,11 +6,13 @@
 //! - [`transfer`]: `put` y `get` sobre un stream de túnel, con progreso y reintento.
 //! - [`ports`]: reenvío de puertos TCP en las dos direcciones.
 //! - [`Files`]: lo que cuelga un agente (el lado destino y los reenvíos del origen).
+//! - [`drag`]: arrastrar archivos al cruzar el borde (D14), con el sistema detrás de traits.
 //! - [`mem`]: caminos en memoria con cortes, para probar con dos agentes en un proceso.
 //!
 //! Los fragmentos y los pedidos van por `Channel::Tunnel` (T-103), así que heredan la
 //! prioridad baja y el tope de ancho de banda de los datos (T-101).
 
+pub mod drag;
 pub mod error;
 pub mod mem;
 pub mod path;
