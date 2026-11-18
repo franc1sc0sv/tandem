@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Bridge } from "../bridge";
-import type { Snapshot } from "../model";
+import type { Notice, SceneJson, Snapshot, TxnView } from "../model";
 import { formatHash, parseHash, SCREEN_TOPICS } from "../routes";
 import { DEMO_NOW, DemoSource, demoDesk, demoOptions, isDemo } from "./demo";
 import { deskFromSnapshot, LiveSource } from "./live";
@@ -432,5 +432,66 @@ describe("fuente real", () => {
     expect(act).toHaveBeenLastCalledWith({ kind: "set_power", machine: "a", on: false });
     src.watch(["link"]);
     expect(src.currentTopics).toEqual(["link"]);
+  });
+});
+
+describe("escenas y transacciones contra el puente simulado", () => {
+  const scene: SceneJson = { id: "juego", name: "Juego", monitors: [["g34", "b"]], shortcut: ["ControlLeft", "AltLeft", "Digit4"] };
+
+  function fake() {
+    const act = vi.fn(async (_a: unknown) => ({ kind: "done" as const }));
+    let notice: ((n: Notice) => void) | undefined;
+    const onNotice = vi.fn(async (cb: (n: Notice) => void) => {
+      notice = cb;
+    });
+    const bridge = { snapshot: async () => ({ kind: "connecting" }) as Snapshot, onSnapshot: async () => {}, act, onNotice } as unknown as Bridge;
+    return { src: new LiveSource(bridge), act, onNotice, emit: (event: TxnView) => notice?.({ kind: "txn", event } as Notice) };
+  }
+
+  it("saveScene crea con add_scene y edita con edit_scene, y dice el texto de guardado", async () => {
+    const { src, act } = fake();
+    expect(await src.saveScene(scene, true)).toEqual({ ok: true, text: "Escena «Juego» guardada" });
+    expect(act).toHaveBeenLastCalledWith({ kind: "add_scene", scene });
+    expect(await src.saveScene(scene, false)).toEqual({ ok: true, text: "Escena «Juego» guardada" });
+    expect(act).toHaveBeenLastCalledWith({ kind: "edit_scene", scene });
+  });
+
+  it("saveScene devuelve la razón si el agente rechaza la escena", async () => {
+    const { src, act } = fake();
+    act.mockResolvedValueOnce({ kind: "rejected", reason: "el atajo ya lo usa «Trabajo»" } as never);
+    expect(await src.saveScene(scene, true)).toEqual({ ok: false, reason: "el atajo ya lo usa «Trabajo»" });
+  });
+
+  it("watchTxn oye una sola vez, reparte cada aviso a todos y deja de repartir al cancelar", async () => {
+    const { src, onNotice, emit } = fake();
+    const a: TxnView[] = [];
+    const b: TxnView[] = [];
+    const stopA = await src.watchTxn((e) => a.push(e));
+    await src.watchTxn((e) => b.push(e));
+    expect(onNotice).toHaveBeenCalledTimes(1);
+    const started: TxnView = { type: "started", txn: 3, steps: [{ step: "geometry" }] };
+    emit(started);
+    expect(a).toEqual([started]);
+    expect(b).toEqual([started]);
+    stopA();
+    emit({ type: "step_started", txn: 3, index: 0 });
+    expect(a).toHaveLength(1);
+    expect(b).toHaveLength(2);
+  });
+
+  it("el store separa el encendido de la escena y recuerda el enlace medido", async () => {
+    const { src, emit, act } = fake();
+    const store = new Store(src);
+    await store.start();
+    emit({ type: "started", txn: 1, steps: [{ step: "geometry" }] });
+    emit({ type: "started", txn: 2, steps: [{ step: "power_on", machine: "b" }] });
+    expect(store.run?.progress.txn).toBe(1);
+    expect(store.powerRun?.progress.txn).toBe(2);
+    emit({ type: "step_started", txn: 2, index: 0 });
+    expect(store.powerRun?.progress.status[0]).toBe("run");
+    expect(store.run?.progress.status[0]).toBe("pending");
+    act.mockResolvedValueOnce({ kind: "bandwidth", link: "wifi", bytes_per_sec: 51_250_000 } as never);
+    await store.measureLink("wifi");
+    expect(store.measured).toBe("wifi");
   });
 });

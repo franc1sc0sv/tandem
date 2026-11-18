@@ -286,6 +286,11 @@
     gap: 8px;
     flex-wrap: wrap;
   }
+  @media (prefers-reduced-motion: reduce) {
+    .meter span {
+      width: var(--w);
+    }
+  }
   @keyframes pr-sp {
     to {
       transform: rotate(360deg);

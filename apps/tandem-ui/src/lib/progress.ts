@@ -62,7 +62,7 @@ export function energyView(run: Run | null, name: (m: Machine) => string, from: 
     },
     { key: "join", icon: st === "done" ? "done" : "todo", text: "Volver a incluirla en el puesto", detail: "", mono: false, dim: st !== "done" },
   ];
-  return { title: `Encendiendo ${name(target)}`, rows, waiting: st === "run" || st === "todo" };
+  return { title: `Encendiendo ${name(target)}`, rows, waiting: st === "run" || st === "pending" };
 }
 
 export interface MeterRow {

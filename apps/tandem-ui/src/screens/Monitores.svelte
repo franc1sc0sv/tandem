@@ -148,7 +148,10 @@
                 {#if !m.connected}<Chip dot={false} class="mut" style="padding:4px 10px 4px 8px"><Icon name="unplugged" size={13} stroke={2} />Desconectado</Chip>{/if}
               </span>
             </div>
-            <Button icon="trash" variant="ghost" size="sm" iconSize={16} iconStroke={1.8} iconOnly label="Olvidar este monitor" disabled={!store.can("forget") || m.connected} onclick={() => store.forgetMonitor(m.id)} />
+            <!-- Sin comando del agente para olvidar un monitor, la acción no se ofrece (DESIGN §3.8). -->
+            {#if store.can("forget")}
+              <Button icon="trash" variant="ghost" size="sm" iconSize={16} iconStroke={1.8} iconOnly label="Olvidar este monitor" disabled={m.connected} onclick={() => store.forgetMonitor(m.id)} />
+            {/if}
           </div>
           <p class="why">{m.compat.ok ? "" : m.compat.reason}</p>
           <Button icon="info" size="sm" iconSize={16} class="explain" pressed={explained[m.id] ?? false} onclick={() => (explained[m.id] = !explained[m.id])}>Qué es el estándar</Button>

@@ -317,6 +317,7 @@ export class LiveSource implements Source {
     return r.ok ? { ok: true, text: `Escena «${scene.name}» guardada` } : r;
   }
 
+  /** Sin comando en la IPC del agente: `can("forget")` es falso y la pantalla no ofrece la acción. */
   async forgetMonitor(): Promise<ActResult> {
     return { ok: false, reason: "El agente todavía no sabe olvidar un monitor" };
   }

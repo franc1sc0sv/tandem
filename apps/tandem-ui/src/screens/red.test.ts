@@ -146,7 +146,7 @@ function snapshot(link: "usb4" | "wifi" | null = "usb4"): Snapshot {
   return {
     kind: "connected",
     agent: "a",
-    desk: { machines: { a: { os: "macos", name: "MacBook Pro", color: "#7aa7e6" }, b: { os: "windows", name: "PC-Escritorio", color: "#a99be8" } }, screens: [], arrangement: null },
+    desk: { machines: { a: { os: "macos", name: "MacBook Pro", color: "#7aa7e6" }, b: { os: "windows", name: "PC-Escritorio", color: "#a99be8" } }, screens: [], arrangement: null, scenes: [] },
     state: { on: { a: true, b: true } },
     peer: { kind: "paired", name: "PC-Escritorio", link },
     pairing: { kind: "idle" },
@@ -164,6 +164,7 @@ function snapshot(link: "usb4" | "wifi" | null = "usb4"): Snapshot {
       },
       peer: null,
     },
+    monitors: [],
   };
 }
 

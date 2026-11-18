@@ -136,3 +136,17 @@ describe("Progreso (F-Transacciones) en modo demo", () => {
     expect(screen.getByText(/nada quedó a medias/)).toBeInTheDocument();
   });
 });
+
+describe("Cambios en progreso (F-Transacciones): una tarjeta por transacción", () => {
+  it("con txn=run salen la escena, el encendido y la medición del enlace", async () => {
+    await open("#/progreso", "demo&still&txn=run");
+    expect(screen.getByRole("region", { name: "Aplicando la escena «Juego»" })).toBeInTheDocument();
+    const energy = screen.getByRole("region", { name: "Encendiendo PC-Escritorio" });
+    expect(within(energy).getByText("0:18 / 2:00")).toBeInTheDocument();
+    expect(within(energy).queryByRole("button")).toBeNull();
+    const link = screen.getByRole("region", { name: "Midiendo el enlace USB-C" });
+    expect(within(link).getByText("9.4")).toBeInTheDocument();
+    expect(within(link).getByRole("img", { name: "9.4 de 10 Gbps" })).toBeInTheDocument();
+    expect(within(link).getByText("410 Mbps · 3.8 ms")).toBeInTheDocument();
+  });
+});
