@@ -836,9 +836,7 @@ impl From<Reply> for ActionResult {
             | Reply::Tunnel(_)
             | Reply::Tunnels(_)
             | Reply::Files(_)
-            | Reply::Forward(_)
-            // `MeasureLink` lo pide la pantalla Red (T-118); esta sesión aún no.
-            | Reply::Bandwidth { .. } => ActionResult::Done,
+            | Reply::Forward(_) => ActionResult::Done,
         }
     }
 }
@@ -1227,12 +1225,8 @@ impl Runner {
                 self.sink.resources(machine, &resources);
             }
             // La pantalla Túneles (solo lectura, D9) llega con su tarea de UI.
-            // La pantalla Túneles (solo lectura, D9) llega con su tarea de UI.
             // Las transferencias las pide un cliente, no la UI (T-106).
             AgentToUi::Tunnels(_) | AgentToUi::Transfer(_) => {}
-            // Llega solo si se pidió `WatchNetwork`, y esta sesión aún no lo pide (la
-            // pantalla Red, T-118).
-            AgentToUi::Network(_) => {}
             // Solo con `Action::WatchCursor`: las pantallas Puesto y Acomodo los pintan.
             AgentToUi::Cursor(sample) => self.sink.notice(&Notice::Cursor {
                 sample: sample.into(),
