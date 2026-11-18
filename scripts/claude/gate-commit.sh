@@ -9,6 +9,11 @@ if ! grep -Eq '(^|[;&|[:space:]])(git([[:space:]]+-C[[:space:]]+[^[:space:]]+)?[
   exit 0
 fi
 [ -n "$cwd" ] && cd "$cwd"
+# Nunca atribución a Claude/Anthropic (CLAUDE.md global del usuario manda sobre el harness).
+if grep -Eqi 'co-authored-by:[^"]*(claude|anthropic)|generated with \[?claude|noreply@anthropic' <<<"$cmd"; then
+  echo "Bloqueado: el mensaje lleva atribución a Claude/Anthropic. Quita Co-Authored-By y «Generated with Claude Code»." >&2
+  exit 2
+fi
 # Fuera de un workspace de Cargo (p. ej. commits solo de docs antes de T-001) no hay nada que revisar.
 [ -f Cargo.toml ] || exit 0
 
