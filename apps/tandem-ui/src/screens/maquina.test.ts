@@ -311,7 +311,12 @@ describe("contra el agente (IPC)", () => {
 
   it("al salir de la página deja de pedir los recursos", async () => {
     const { store, act } = await mountLive();
-    store.go({ screen: "red" });
+    store.go({ screen: "ajustes" });
     expect(act).toHaveBeenLastCalledWith({ kind: "watch_resources", on: false });
+    // Red no muestra recursos: también los suelta, y pide su propio tema (T-118).
+    store.go({ screen: "maquina", machine: "a" });
+    store.go({ screen: "red" });
+    expect(act).toHaveBeenCalledWith({ kind: "watch_resources", on: false });
+    expect(act).toHaveBeenLastCalledWith({ kind: "watch_network", on: true });
   });
 });

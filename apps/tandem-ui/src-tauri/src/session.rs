@@ -18,8 +18,8 @@ use tandem_core::{Align, Arrangement, Config, DeskPatch, Machine, Side, State, S
 use tandem_proto::{
     AgentToUi, Capabilities, CursorSample, DeskCapabilities, EnvKind, Environment, Hardware,
     InputPermission, InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo, ModuleState,
-    PairingStatus, PeerStatus, PowerEvent, Reply, Resources, SetupInfo, TxnEvent, UiCommand,
-    UpdateStatus,
+    NetworkStatus, PairingStatus, PathState, PeerStatus, PowerEvent, Reply, Resources, SetupInfo,
+    TxnEvent, UiCommand, UpdateStatus,
 };
 use tandemd::ipc::{IpcClient, IpcError};
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -72,12 +72,124 @@ pub enum PeerView {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LinkView {
     Usb4,
     Ethernet,
     Wifi,
+}
+
+impl From<Link> for LinkView {
+    fn from(l: Link) -> Self {
+        match l {
+            Link::Usb4 => LinkView::Usb4,
+            Link::Ethernet => LinkView::Ethernet,
+            Link::Wifi => LinkView::Wifi,
+        }
+    }
+}
+
+impl From<LinkView> for Link {
+    fn from(l: LinkView) -> Self {
+        match l {
+            LinkView::Usb4 => Link::Usb4,
+            LinkView::Ethernet => Link::Ethernet,
+            LinkView::Wifi => Link::Wifi,
+        }
+    }
+}
+
+/// El papel de un camino en la pantalla Red (T-118).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PathStateView {
+    Primary,
+    Backup,
+    Unplugged,
+    Down,
+}
+
+/// Un segundo del historial de un camino, en microsegundos.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SampleView {
+    pub rtt_us: Option<u32>,
+    pub input_p99_us: Option<u32>,
+}
+
+/// Un camino de la pantalla Red: lo que `tandem_proto::PathMetrics` dice, con los nombres
+/// que lee la ventana.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PathView {
+    pub link: LinkView,
+    pub state: PathStateView,
+    pub rtt_us: Option<u32>,
+    pub input_p50_us: Option<u32>,
+    pub input_p99_us: Option<u32>,
+    pub input_target_us: u32,
+    pub bytes_per_sec: Option<u64>,
+    pub history: Vec<SampleView>,
+}
+
+/// Un cambio de camino («pasó a Wi-Fi en 0.6 s»).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SwitchView {
+    pub at_ms: u64,
+    pub from: Option<LinkView>,
+    pub to: Option<LinkView>,
+    pub took_ms: Option<u32>,
+}
+
+/// [`NetworkStatus`] en JSON para el frontend (evento `agent-network`, una vez por segundo).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct NetworkView {
+    pub paths: Vec<PathView>,
+    pub switches: Vec<SwitchView>,
+    pub measuring: Option<LinkView>,
+}
+
+impl From<NetworkStatus> for NetworkView {
+    fn from(n: NetworkStatus) -> Self {
+        NetworkView {
+            paths: n
+                .paths
+                .into_iter()
+                .map(|p| PathView {
+                    link: p.link.into(),
+                    state: match p.state {
+                        PathState::Primary => PathStateView::Primary,
+                        PathState::Backup => PathStateView::Backup,
+                        PathState::Unplugged => PathStateView::Unplugged,
+                        PathState::Down => PathStateView::Down,
+                    },
+                    rtt_us: p.rtt_us,
+                    input_p50_us: p.input_p50_us,
+                    input_p99_us: p.input_p99_us,
+                    input_target_us: p.input_target_us,
+                    bytes_per_sec: p.bandwidth.map(|b| b.bytes_per_sec),
+                    history: p
+                        .history
+                        .into_iter()
+                        .map(|s| SampleView {
+                            rtt_us: s.rtt_us,
+                            input_p99_us: s.input_p99_us,
+                        })
+                        .collect(),
+                })
+                .collect(),
+            switches: n
+                .switches
+                .into_iter()
+                .map(|s| SwitchView {
+                    at_ms: s.at_ms,
+                    from: s.from.map(Into::into),
+                    to: s.to.map(Into::into),
+                    took_ms: s.took_ms,
+                })
+                .collect(),
+            measuring: n.measuring.map(Into::into),
+        }
+    }
 }
 
 impl From<PeerStatus> for PeerView {
@@ -86,11 +198,7 @@ impl From<PeerStatus> for PeerView {
             PeerStatus::Unpaired => PeerView::Unpaired,
             PeerStatus::Paired { name, link } => PeerView::Paired {
                 name,
-                link: link.map(|l| match l {
-                    Link::Usb4 => LinkView::Usb4,
-                    Link::Ethernet => LinkView::Ethernet,
-                    Link::Wifi => LinkView::Wifi,
-                }),
+                link: link.map(Into::into),
             },
         }
     }
@@ -591,6 +699,15 @@ pub enum Action {
     WatchCursor {
         on: bool,
     },
+    /// Recibir el estado de la red ([`Sink::network`]) una vez por segundo mientras la pantalla
+    /// Red está visible. La sesión lo recuerda y lo vuelve a pedir al reconectar.
+    WatchNetwork {
+        on: bool,
+    },
+    /// Medir el ancho de banda de un camino; contesta [`ActionResult::Bandwidth`].
+    MeasureLink {
+        path: LinkView,
+    },
 }
 
 /// Suma o resta una ventana a `n`; devuelve si había alguna y si hay alguna.
@@ -651,6 +768,8 @@ impl From<Action> for UiCommand {
                 },
             },
             Action::WatchCursor { on } => UiCommand::WatchCursor { on },
+            Action::WatchNetwork { on } => UiCommand::WatchNetwork { on },
+            Action::MeasureLink { path } => UiCommand::MeasureLink { path: path.into() },
         }
     }
 }
@@ -680,6 +799,11 @@ pub enum ActionResult {
         link: LinkView,
         millis: u32,
     },
+    /// Lo que midió la prueba de ancho de banda de un camino.
+    Bandwidth {
+        link: LinkView,
+        bytes_per_sec: u64,
+    },
 }
 
 impl From<Reply> for ActionResult {
@@ -689,12 +813,15 @@ impl From<Reply> for ActionResult {
             Reply::Rejected(reason) => ActionResult::Rejected { reason },
             Reply::Setup(setup) => ActionResult::Setup { setup },
             Reply::Pong { link, millis } => ActionResult::Pong {
-                link: match link {
-                    Link::Usb4 => LinkView::Usb4,
-                    Link::Ethernet => LinkView::Ethernet,
-                    Link::Wifi => LinkView::Wifi,
-                },
+                link: link.into(),
                 millis,
+            },
+            Reply::Bandwidth {
+                link,
+                bytes_per_sec,
+            } => ActionResult::Bandwidth {
+                link: link.into(),
+                bytes_per_sec,
             },
             Reply::Done
             | Reply::State(_)
@@ -707,9 +834,7 @@ impl From<Reply> for ActionResult {
             | Reply::Monitors(_)
             | Reply::Update(_)
             | Reply::Tunnel(_)
-            | Reply::Tunnels(_)
-            // `MeasureLink` lo pide la pantalla Red (T-118); esta sesión aún no.
-            | Reply::Bandwidth { .. } => ActionResult::Done,
+            | Reply::Tunnels(_) => ActionResult::Done,
         }
     }
 }
@@ -727,6 +852,12 @@ pub trait Sink: Send + Sync + 'static {
     /// No va en la [`Snapshot`]: llega cada segundo y la ventana arma su propia historia.
     fn resources(&self, machine: Machine, resources: &Resources) {
         let _ = (machine, resources);
+    }
+
+    /// El estado de la red (solo mientras se pidió `WatchNetwork`). No va en la
+    /// [`Snapshot`]: llega cada segundo y solo la pantalla Red lo usa.
+    fn network(&self, network: &NetworkView) {
+        let _ = network;
     }
 }
 
@@ -823,6 +954,7 @@ where
         retry,
         watchers: 0,
         cursor_watchers: 0,
+        watch_network: false,
     };
     (handle, runner.run(connect))
 }
@@ -839,7 +971,15 @@ struct Runner {
     /// Cuántas ventanas piden el cursor en vivo (T-128), contadas igual: mientras haya alguna,
     /// cada conexión nueva lo vuelve a pedir.
     cursor_watchers: u32,
+    /// La pantalla Red pidió la red en vivo: cada conexión nueva la vuelve a pedir. Es un
+    /// booleano y no una cuenta: solo la ventana principal muestra Red, y recargarla no debe
+    /// dejar el pedido encendido para siempre.
+    watch_network: bool,
 }
+
+/// Cuánto se espera la respuesta de `MeasureLink`: la prueba misma más lo normal.
+const MEASURE_TIMEOUT: Duration =
+    Duration::from_secs(tandem_proto::net::MEASURE_SECS).saturating_add(QUERY_TIMEOUT);
 
 /// Una conexión recién abierta, con lo necesario para dibujar la escena.
 struct Opened<S> {
@@ -930,6 +1070,7 @@ impl Runner {
     {
         let watching = self.watchers > 0;
         let watching_cursor = self.cursor_watchers > 0;
+        let watching_network = self.watch_network;
         let opening = async {
             let mut client = connect.await?;
             if watching {
@@ -965,6 +1106,9 @@ impl Runner {
                 Reply::Update(u) => u,
                 other => return Err(IpcError::UnexpectedReply(Box::new(other))),
             };
+            if watching_network {
+                client.request(UiCommand::WatchNetwork { on: true }).await?;
+            }
             Ok(Opened {
                 client,
                 desk,
@@ -1009,7 +1153,13 @@ impl Runner {
                         }
                         p.command = UiCommand::WatchCursor { on: now };
                     }
-                    let reply = tokio::time::timeout(QUERY_TIMEOUT, client.request(p.command.clone())).await;
+                    if let UiCommand::WatchNetwork { on } = p.command {
+                        self.watch_network = on;
+                    }
+                    // La medición dura `MEASURE_SECS`: con el límite de siempre se daría por
+                    // perdida la conexión a medio medir.
+                    let limit = if matches!(p.command, UiCommand::MeasureLink { .. }) { MEASURE_TIMEOUT } else { QUERY_TIMEOUT };
+                    let reply = tokio::time::timeout(limit, client.request(p.command.clone())).await;
                     let lost = match reply {
                         Ok(Ok(reply)) => {
                             p.answer(reply.into());
@@ -1074,9 +1224,6 @@ impl Runner {
             }
             // La pantalla Túneles (solo lectura, D9) llega con su tarea de UI.
             AgentToUi::Tunnels(_) => {}
-            // Llega solo si se pidió `WatchNetwork`, y esta sesión aún no lo pide (la
-            // pantalla Red, T-118).
-            AgentToUi::Network(_) => {}
             // Solo con `Action::WatchCursor`: las pantallas Puesto y Acomodo los pintan.
             AgentToUi::Cursor(sample) => self.sink.notice(&Notice::Cursor {
                 sample: sample.into(),
@@ -1084,6 +1231,8 @@ impl Runner {
             AgentToUi::Crossed { from, to, edge } => {
                 self.sink.notice(&Notice::Crossed { from, to, edge });
             }
+            // Llega solo si se pidió `WatchNetwork` (la pantalla Red, T-118).
+            AgentToUi::Network(status) => self.sink.network(&(*status).into()),
         }
     }
 
@@ -1172,9 +1321,12 @@ impl Runner {
                 () = self.retry.notified() => return true,
                 pending = self.actions.recv() => match pending {
                     Some(p) => {
-                        // Sin agente no hay recursos, pero el pedido vale para la próxima conexión.
+                        // Sin agente no hay recursos ni red, pero el pedido vale para la próxima conexión.
                         if let UiCommand::WatchResources { on } = p.command {
                             self.count_watcher(on);
+                        }
+                        if let UiCommand::WatchNetwork { on } = p.command {
+                            self.watch_network = on;
                         }
                         p.answer(ActionResult::Unavailable { reason: reason.into() });
                     }
@@ -1214,6 +1366,7 @@ mac = "9c:6b:00:1a:2b:ff"
         snapshots: Mutex<Vec<Snapshot>>,
         notices: Mutex<Vec<Notice>>,
         resources: Mutex<Vec<(Machine, Resources)>>,
+        networks: Mutex<Vec<NetworkView>>,
         changed: Notify,
     }
 
@@ -1228,6 +1381,10 @@ mac = "9c:6b:00:1a:2b:ff"
         }
         fn resources(&self, machine: Machine, r: &Resources) {
             self.resources.lock().unwrap().push((machine, r.clone()));
+            self.changed.notify_waiters();
+        }
+        fn network(&self, n: &NetworkView) {
+            self.networks.lock().unwrap().push(n.clone());
             self.changed.notify_waiters();
         }
     }
@@ -1276,6 +1433,24 @@ mac = "9c:6b:00:1a:2b:ff"
 
         fn last(&self) -> Snapshot {
             self.snapshots.lock().unwrap().last().cloned().unwrap()
+        }
+
+        /// Espera a que lleguen al menos `n` estados de la red (falla a los 10 s).
+        async fn until_networks(&self, n: usize) {
+            let wait = async {
+                loop {
+                    let changed = self.changed.notified();
+                    tokio::pin!(changed);
+                    changed.as_mut().enable();
+                    if self.networks.lock().unwrap().len() >= n {
+                        return;
+                    }
+                    changed.await;
+                }
+            };
+            tokio::time::timeout(Duration::from_secs(10), wait)
+                .await
+                .expect("no llegó el estado de la red");
         }
     }
 
@@ -2244,6 +2419,7 @@ mac = "9c:6b:00:1a:2b:ff"
             retry: Arc::new(Notify::new()),
             watchers: 0,
             cursor_watchers: 0,
+            watch_network: false,
         };
         runner.on_event(AgentToUi::Power(PowerEvent::PeerLost {
             machine: Machine::B,
@@ -2258,5 +2434,143 @@ mac = "9c:6b:00:1a:2b:ff"
         );
         // Un aviso de energía no toca el estado: ese llega empujado aparte.
         assert!(rec.snapshots.lock().unwrap().is_empty());
+    }
+    /// T-118: la pantalla Red pide la red en vivo y llega a la ventana con sus tres caminos;
+    /// si el agente se reinicia, la sesión la vuelve a pedir sola.
+    #[tokio::test]
+    async fn the_network_reaches_the_window_and_survives_a_reconnection() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+        assert!(
+            rec.networks.lock().unwrap().is_empty(),
+            "sin pedirla no llega"
+        );
+        assert_eq!(
+            handle.act(Action::WatchNetwork { on: true }).await,
+            ActionResult::Done
+        );
+        rec.until_networks(1).await;
+        let first = rec.networks.lock().unwrap()[0].clone();
+        let links: Vec<_> = first.paths.iter().map(|p| p.link).collect();
+        assert_eq!(links, [LinkView::Usb4, LinkView::Ethernet, LinkView::Wifi]);
+        assert!(
+            first
+                .paths
+                .iter()
+                .all(|p| p.state == PathStateView::Unplugged)
+        );
+
+        *slot.lock().unwrap() = None;
+        a.stop.send(()).unwrap();
+        a.task.await.unwrap().unwrap();
+        rec.until(|s, _| is_unavailable(s)).await;
+        let seen = rec.networks.lock().unwrap().len();
+        let b = agent_in(dir.path());
+        *slot.lock().unwrap() = Some(b.connector.clone());
+        handle.retry_now();
+        rec.until(|s, _| connected(s)).await;
+        rec.until_networks(seen + 1).await;
+    }
+
+    /// Dejar de mirar la red corta el flujo; y un pedido hecho sin agente vale para la
+    /// próxima conexión.
+    #[tokio::test]
+    async fn the_network_stops_when_the_window_stops_watching() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(None));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| is_unavailable(s)).await;
+        assert!(matches!(
+            handle.act(Action::WatchNetwork { on: true }).await,
+            ActionResult::Unavailable { .. }
+        ));
+        *slot.lock().unwrap() = Some(a.connector.clone());
+        handle.retry_now();
+        rec.until(|s, _| connected(s)).await;
+        rec.until_networks(1).await;
+        assert_eq!(
+            handle.act(Action::WatchNetwork { on: false }).await,
+            ActionResult::Done
+        );
+        let n = rec.networks.lock().unwrap().len();
+        tokio::time::sleep(Duration::from_millis(2300)).await;
+        assert_eq!(rec.networks.lock().unwrap().len(), n);
+    }
+
+    /// Medir un camino sin conexión por él se rechaza con la razón del agente, sin tirar la
+    /// sesión.
+    #[tokio::test]
+    async fn measuring_a_path_without_connection_is_rejected_and_the_session_survives() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+        let got = handle
+            .act(Action::MeasureLink {
+                path: LinkView::Wifi,
+            })
+            .await;
+        assert!(matches!(got, ActionResult::Rejected { .. }), "{got:?}");
+        assert!(connected(&rec.snapshots.lock().unwrap()));
+    }
+
+    #[test]
+    fn network_views_use_the_names_the_window_reads() {
+        let n = NetworkView::from(NetworkStatus {
+            paths: vec![tandem_proto::PathMetrics {
+                link: Link::Usb4,
+                state: PathState::Primary,
+                rtt_us: Some(300),
+                input_p50_us: Some(400),
+                input_p99_us: Some(1900),
+                input_target_us: 4000,
+                bandwidth: Some(tandem_proto::Bandwidth {
+                    bytes_per_sec: 1_175_000_000,
+                    at_ms: 5,
+                }),
+                history: vec![tandem_proto::LatencySample {
+                    rtt_us: Some(300),
+                    input_p99_us: None,
+                }],
+            }],
+            switches: vec![tandem_proto::PathSwitch {
+                at_ms: 9,
+                from: Some(Link::Usb4),
+                to: Some(Link::Wifi),
+                took_ms: Some(600),
+            }],
+            measuring: Some(Link::Wifi),
+        });
+        let v = serde_json::to_value(&n).unwrap();
+        assert_eq!(v["paths"][0]["link"], "usb4");
+        assert_eq!(v["paths"][0]["state"], "primary");
+        assert_eq!(v["paths"][0]["bytes_per_sec"], 1_175_000_000u64);
+        assert_eq!(v["paths"][0]["history"][0]["rtt_us"], 300);
+        assert_eq!(v["switches"][0]["to"], "wifi");
+        assert_eq!(v["switches"][0]["took_ms"], 600);
+        assert_eq!(v["measuring"], "wifi");
+        let action: Action =
+            serde_json::from_str(r#"{"kind":"measure_link","path":"ethernet"}"#).unwrap();
+        assert_eq!(
+            UiCommand::from(action),
+            UiCommand::MeasureLink {
+                path: Link::Ethernet
+            }
+        );
+        let got = ActionResult::from(Reply::Bandwidth {
+            link: Link::Usb4,
+            bytes_per_sec: 7,
+        });
+        let v = serde_json::to_value(&got).unwrap();
+        assert_eq!(
+            (v["kind"].as_str(), v["link"].as_str()),
+            (Some("bandwidth"), Some("usb4"))
+        );
+        assert_eq!(v["bytes_per_sec"], 7);
     }
 }

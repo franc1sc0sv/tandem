@@ -17,12 +17,14 @@
 import { exitSide, isVertical, type Arrangement, type LayoutScreen, type LayoutView } from "../acomodo";
 import type { CrossSample } from "../crossing";
 import type { Bindings, PairingView, Permission, SetupView, ShortcutsView } from "../model";
+import { measuredText } from "../network";
 import { DEFAULT_BINDINGS } from "../shortcuts";
 import { checkName } from "../machine";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK, INPUT_TARGET_MS } from "./types";
 import type {
   ActResult,
+  Capability,
   DeskView,
   EnvView,
   HardwareView,
@@ -260,10 +262,20 @@ const DEMO_GBPS: Record<LinkKind, number> = { usb4: 9.4, ethernet: 2.3, wifi: 0.
 
 const HISTORY = 60;
 /** Segundo del historial en que se desconectó el cable y en que volvió. */
-const CUT_AT = 34;
-const BACK_AT = 41;
+const CUT_AT = 23;
+const BACK_AT = 31;
 
 const round = (n: number, d = 10) => Math.round(n * d) / d;
+
+/**
+ * El p99 de la entrada de cada segundo (ms): la línea baja de `V3-Red` y, entre el corte y la
+ * vuelta del cable, el pico, que lleva el Wi-Fi.
+ */
+const DEMO_INPUT = [
+  1.2, 1.22, 1.25, 1.27, 1.29, 1.27, 1.23, 1.18, 1.14, 1.11, 1.18, 1.25, 1.31, 1.38, 1.37, 1.32, 1.28, 1.23, 1.21, 1.23, 1.25, 1.27, 1.3, 2.15, 3.12,
+  4.09, 5.3, 5.6, 3.9, 2.82, 2.05, 1.3, 1.28, 1.25, 1.23, 1.21, 1.21, 1.24, 1.26, 1.28, 1.3, 1.33, 1.35, 1.37, 1.39, 1.37, 1.32, 1.28, 1.23, 1.21,
+  1.23, 1.25, 1.28, 1.3, 1.3, 1.3, 1.3, 1.3, 1.3, 1.3,
+];
 
 /**
  * El segundo `i` del historial de un camino (determinista). El USB-C lleva la entrada salvo
@@ -272,22 +284,23 @@ const round = (n: number, d = 10) => Math.round(n * d) / d;
 function demoPoint(kind: LinkKind, i: number): LatencyPoint {
   const jitter = ((i * 7) % 5) / 5;
   if (kind === "ethernet") return { rttMs: null, inputP99Ms: null };
+  const cut = i >= CUT_AT && i < BACK_AT;
   if (kind === "usb4") {
-    if (i >= CUT_AT && i < BACK_AT) return { rttMs: null, inputP99Ms: null };
-    return { rttMs: round(0.3 + jitter * 0.1, 100), inputP99Ms: round(1.6 + (((i * 5) % 7) / 7) * 0.6, 100) };
+    if (cut) return { rttMs: null, inputP99Ms: null };
+    return { rttMs: round(0.3 + jitter * 0.1, 100), inputP99Ms: DEMO_INPUT[i % DEMO_INPUT.length] ?? null };
   }
-  const carrying = i >= CUT_AT && i < BACK_AT;
-  // El pico: la primera tecla después del corte esperó el cambio de camino.
-  const input = !carrying ? null : i === CUT_AT ? 14.2 : round(6.5 + jitter * 2);
-  return { rttMs: round(3.6 + jitter * 0.6, 100), inputP99Ms: input };
+  return { rttMs: round(3.6 + jitter * 0.6, 100), inputP99Ms: cut ? (DEMO_INPUT[i] ?? null) : null };
 }
+
+/** Lo que se sabe de cada enlace en el demo (los textos de `V3-Red`). */
+const DEMO_DETAIL: Record<LinkKind, string> = { usb4: "USB4 · 20 Gbps", ethernet: "2.5 GbE", wifi: "Wi-Fi 7 · casa" };
 
 /** La red del demo: USB-C principal, Ethernet sin cable y Wi-Fi de respaldo (`V3-Red`). */
 export function demoNetwork(linkUp: boolean): NetworkView {
   if (!linkUp) return { ...EMPTY_NETWORK, paths: EMPTY_NETWORK.paths.map((p) => ({ ...p })) };
   const path = (kind: LinkKind, state: PathView["state"], rttMs: number | null, input: [number, number] | null, gbps: number | null): PathView => {
     const history = Array.from({ length: HISTORY }, (_, i) => demoPoint(kind, i));
-    return { kind, state, rttMs, inputP50Ms: input?.[0] ?? null, inputP99Ms: input?.[1] ?? null, targetMs: INPUT_TARGET_MS[kind], gbps, history };
+    return { kind, state, rttMs, inputP50Ms: input?.[0] ?? null, inputP99Ms: input?.[1] ?? null, targetMs: INPUT_TARGET_MS[kind], gbps, history, detail: DEMO_DETAIL[kind] };
   };
   const at = (i: number) => DEMO_NOW - (HISTORY - 1 - i) * 1000;
   return {
@@ -297,6 +310,7 @@ export function demoNetwork(linkUp: boolean): NetworkView {
       { at: at(CUT_AT), from: "usb4", to: "wifi", tookMs: 600 },
     ],
     measuring: null,
+    now: DEMO_NOW,
   };
 }
 
@@ -401,6 +415,8 @@ const PAIR_OTHER_MS = 1200;
 
 const TICK_MS = 1500;
 const RESCAN_MS = 900;
+/** Lo que tarda la medición de ancho de banda en el demo. */
+const DEMO_MEASURE_MS = 1500;
 
 /** Una fuente simulada: responde a las acciones como lo haría el agente. */
 export class DemoSource implements Source {
@@ -445,7 +461,7 @@ export class DemoSource implements Source {
       return { ...p, rttMs: point.rttMs ?? p.rttMs, history: [...p.history.slice(1), point] };
     });
     this.ticks += 1;
-    this.set({ ...this.desk, network: { ...this.desk.network, paths } });
+    this.set({ ...this.desk, network: { ...this.desk.network, paths, now: DEMO_NOW + this.ticks * 1000 } });
   }
 
   private ticks = 0;
@@ -495,11 +511,16 @@ export class DemoSource implements Source {
     const kind = path ?? this.desk.link.kind;
     const target = this.desk.network.paths.find((p) => p.kind === kind);
     if (!kind || !target || (target.state !== "primary" && target.state !== "backup")) return { ok: false, reason: "Sin enlace con la otra máquina por ese camino" };
+    if (!this.opts.still) {
+      // La prueba real dura 3 s: la pantalla muestra qué camino se está midiendo.
+      this.set({ ...this.desk, network: { ...this.desk.network, measuring: kind } });
+      await new Promise((done) => setTimeout(done, DEMO_MEASURE_MS));
+    }
     const gbps = DEMO_GBPS[kind];
     const paths = this.desk.network.paths.map((p) => (p.kind === kind ? { ...p, gbps } : p));
     const link = this.desk.link.kind === kind ? { ...this.desk.link, gbps } : this.desk.link;
     this.set({ ...this.desk, link, network: { ...this.desk.network, paths, measuring: null } });
-    return { ok: true, text: gbps >= 1 ? `${gbps} Gbps` : `${Math.round(gbps * 1000)} Mbps` };
+    return { ok: true, text: measuredText(kind, gbps) };
   }
 
   async setModule(machine: Machine, module: string, on: boolean): Promise<ActResult> {
@@ -683,8 +704,9 @@ export class DemoSource implements Source {
     return this.setUpd({ ...this.upd, auto: on });
   }
 
-  can(): boolean {
-    return true;
+  /** Todo se puede simular; medir, solo con un camino que responda. */
+  can(what: Capability): boolean {
+    return what !== "measure" || this.desk.link.kind !== null;
   }
 
   stop(): void {

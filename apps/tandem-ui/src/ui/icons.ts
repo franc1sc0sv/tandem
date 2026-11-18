@@ -70,6 +70,9 @@ export const ICONS = {
   /** El triángulo del aviso de VRAM (sin el punto de `warn`). */
   alert: { body: '<path d="M12 3 2 20h20z"></path><path d="M12 10v4"></path>' },
   keyboard: { body: '<rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"></path>' },
+  /** Medidor de velocidad (`Medir ancho de banda`). */
+  gauge: { body: '<path d="M4 15a8 8 0 1 1 16 0"></path><path d="m12 15 4-5"></path>', linecap: "round" },
+  ethernet: { body: '<path d="M5 4h14v10h-3v3h-2v3h-4v-3H8v-3H5z"></path>', fill: true },
   sparkle: { body: '<path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"></path>', fill: true },
 } satisfies Record<string, IconDef>;
 

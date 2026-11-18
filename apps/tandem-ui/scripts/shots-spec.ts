@@ -179,7 +179,20 @@ export const SHOTS: ShotSpec[] = [
   { name: "tuneles", page: "index.html", query: DEMO, hash: "#/tuneles", mockup: "V3-Computo", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   { name: "monitores", page: "index.html", query: DEMO, hash: "#/monitores", mockup: "V3-Monitores", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
   ...ACOMODO,
-  { name: "red", page: "index.html", query: DEMO, hash: "#/red", mockup: "V3-Red", width: W, height: H, ignore: [NO_ADD_MACHINE], regions: [SIDEBAR] },
+  // T-118: la pantalla Red entera contra `V3-Red`. Se tapa lo que D1 quita («Agregar máquina») y
+  // el rótulo de la ventana de la gráfica: el agente guarda 60 s, el mockup dice «10 min».
+  {
+    name: "red",
+    page: "index.html",
+    query: DEMO,
+    hash: "#/red",
+    mockup: "V3-Red",
+    width: W,
+    height: H,
+    ignore: [NO_ADD_MACHINE, { mockupSelector: 'span.mut:has-text("Latencia · 10 min")', reason: "T-102: la gráfica es de 60 s (DESIGN §6), no de 10 min" }],
+    regions: [SIDEBAR],
+    min: SCREEN_GATE,
+  },
   // T-115: la página de la otra máquina, con umbral en la barra lateral y en el contenido.
   {
     name: "maquina-b",

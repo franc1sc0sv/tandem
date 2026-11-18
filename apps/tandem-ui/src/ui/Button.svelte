@@ -3,7 +3,7 @@
   /** Alto fijo por tamaño: sm 32, md 36, lg 40, xl 44 (los de los mockups). */
   export type ButtonSize = "sm" | "md" | "lg" | "xl";
   /** Cómo se mueve el ícono al pasar: crece, avanza, retrocede o gira. */
-  export type IconMotion = "scale" | "go" | "back" | "spin" | "lift";
+  export type IconMotion = "scale" | "go" | "back" | "spin" | "lift" | "tilt";
 </script>
 
 <script lang="ts">
@@ -163,6 +163,10 @@
   }
   .btn.m-lift:hover:not(:disabled) :global(svg) {
     transform: translate(2px, -2px);
+  }
+  /* El medidor se inclina como una aguja (`Medir ancho de banda`, V3-Red). */
+  .btn.m-tilt:hover:not(:disabled) :global(svg) {
+    transform: rotate(-25deg) scale(1.1);
   }
   .btn:active:not(:disabled) {
     transform: scale(0.97);
