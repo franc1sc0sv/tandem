@@ -25,8 +25,9 @@ function connected(over: Partial<Extract<Snapshot, { kind: "connected" }>> = {})
   return {
     kind: "connected",
     agent: "b",
-    desk: { machines: { a: { os: "windows", name: "Taller", color: "#6cc59a" }, b: null }, screens: [], arrangement: { a_side: "up", align: "end" } },
+    desk: { machines: { a: { os: "windows", name: "Taller", color: "#6cc59a" }, b: null }, screens: [], arrangement: { a_side: "up", align: "end" }, scenes: [] },
     state: { on: { a: true, b: true } },
+    monitors: [],
     peer: { kind: "paired", name: "Taller", link: "wifi" },
     pairing: { kind: "idle" },
     input: { server: "b", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true },
