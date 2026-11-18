@@ -6,7 +6,8 @@ import { shouldOpen as pairingShouldOpen } from "../pairing";
 import type { Machine, MonitorInput, SceneJson } from "../model";
 import { feedRun, running, viewOf, type Names, type Run, type RunView } from "../txn";
 import { machineName } from "../machines";
-import type { Bindings, Permission, ShortcutsView } from "../model";
+import type { Bindings, DragStatus, Permission, ShortcutsView } from "../model";
+import { dragNotice } from "../drag";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
 import { changeToast, deskEvents, transferToast, type ToastSpec, type ToastTone } from "../notices";
@@ -65,6 +66,8 @@ export class Store implements CommandContext {
   /** Lo que se pidió desde esta ventana: da el título y el texto final de la transacción que arranque. */
   private origin: { title: string; doneText: string } | null = null;
   private stopTxn: (() => void) | null = null;
+  private stopDrag: (() => void) | null = null;
+  /** El aviso del arrastre en curso: se actualiza en lugar de apilar uno por archivo. */
   private clockTimer: ReturnType<typeof setInterval> | undefined;
 
   /**
@@ -113,6 +116,23 @@ export class Store implements CommandContext {
     this.source.watch(this.topics());
     // No se espera: si la fuente tarda en dar los avisos (o no los tiene), la ventana ya se dibuja.
     void this.listenTxn();
+    void this.listenDrag();
+  }
+
+  /** El avance del arrastre de archivos va en un solo aviso que se actualiza (T-121). */
+  private async listenDrag(): Promise<void> {
+    try {
+      this.stopDrag = (await this.source.watchDrag?.((s) => this.showDrag(s))) ?? null;
+    } catch {
+      // Sin avisos del agente (fuera de la app): no hay arrastre que mostrar.
+    }
+  }
+
+  /** Pinta el estado del arrastre en su aviso. */
+  showDrag(s: DragStatus): void {
+    const n = dragNotice(s);
+    // Con clave, cada estado reemplaza al aviso anterior; mientras sigue en curso no se va solo.
+    this.notify({ key: "drag", text: n.text, tone: n.tone, hold: n.ongoing });
   }
 
   /** Se queda oyendo el avance de las transacciones; sin eso (fuente sin ellas) no hay progreso que mostrar. */
@@ -184,6 +204,7 @@ export class Store implements CommandContext {
   stop(): void {
     this.stopClock();
     this.stopTxn?.();
+    this.stopDrag?.();
     this.source.stop();
   }
 

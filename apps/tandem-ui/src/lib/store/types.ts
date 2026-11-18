@@ -7,7 +7,7 @@
 
 import type { Arrangement, LayoutView } from "../acomodo";
 import type { CrossSample } from "../crossing";
-import type { Bindings, Machine, MonitorInput, Notice, Os, PairingView, PeerView, Permission, SceneJson, SetupView, ShortcutsView, TxnView } from "../model";
+import type { Bindings, Machine, MonitorInput, Notice, Os, PairingView, PeerView, Permission, SceneJson, SetupView, ShortcutsView, TxnView, DragStatus } from "../model";
 import type { PermissionState } from "../permissions";
 import type { UpdateView } from "../updates";
 
@@ -425,6 +425,8 @@ export interface Source {
   watchTxn(onEvent: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void): Promise<() => void>;
   /** Es el modo demo: las pantallas de referencia (Estados) muestran su galería completa. */
   readonly demo?: boolean;
+  /** El avance de los arrastres de archivos entre las máquinas; las fuentes sin agente no lo tienen. */
+  watchDrag?(onStatus: (s: DragStatus) => void): Promise<() => void>;
   /** La hora de la fuente si no es la del reloj (el demo quieto, para capturas deterministas). */
   now?(): number;
   setPower(machine: Machine, on: boolean): Promise<ActResult>;

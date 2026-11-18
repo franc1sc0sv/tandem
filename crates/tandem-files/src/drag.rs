@@ -104,7 +104,7 @@ impl<D: DragDetector, U: Upload, P: DragPeer> DragOut<D, U, P> {
         &self,
         files: &[PathBuf],
         cancelled: impl Future<Output = ()>,
-        progress: &dyn Fn(DragProgress),
+        progress: &(dyn Fn(DragProgress) + Sync),
     ) -> Result<DragEnd> {
         let names = names_of(files)?;
         let dir = self.peer.begin(names.clone()).await?;
@@ -241,9 +241,10 @@ impl<S: DragStarter> DragIn<S> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::{Cell, RefCell};
+    use std::cell::RefCell;
     use std::fs;
     use std::rc::Rc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::*;
 
@@ -353,16 +354,16 @@ mod tests {
     #[tokio::test]
     async fn soltar_arranca_el_arrastre_con_lo_copiado_y_limpia() {
         let (tmp, files, din, seen) = fixture(Some(DragEnd::Dropped));
-        let steps = Cell::new(0);
+        let steps = AtomicUsize::new(0);
         let end = out(&din, CopyUpload, None)
             .run(&files, std::future::pending(), &|p| {
-                steps.set(steps.get() + 1);
+                steps.fetch_add(1, Ordering::Relaxed);
                 assert_eq!(p.total, 2);
             })
             .await
             .unwrap();
         assert_eq!(end, DragEnd::Dropped);
-        assert_eq!(steps.get(), 3);
+        assert_eq!(steps.load(Ordering::Relaxed), 3);
         let seen = seen.borrow();
         assert_eq!(seen.len(), 2);
         assert!(seen.iter().all(|(_, existed)| *existed));

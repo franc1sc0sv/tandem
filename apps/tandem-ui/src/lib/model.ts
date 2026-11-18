@@ -229,7 +229,16 @@ export interface CursorSample {
   y: number;
 }
 
+/** El avance de un arrastre de archivos entre las máquinas (`tandem_proto::DragStatus`, T-121). */
+export type DragStatus =
+  | { kind: "copying"; name: string; index: number; total: number }
+  | { kind: "copied"; total: number }
+  | { kind: "dropped" }
+  | { kind: "cancelled" }
+  | { kind: "failed"; reason: string };
+
 export type Notice =
+  | { kind: "drag"; status: DragStatus }
   | { kind: "txn"; event: TxnView }
   /** El cursor en vivo (T-128), a 30 Hz como mucho; solo llega con `watch_cursor`. */
   | { kind: "cursor"; sample: CursorSample }

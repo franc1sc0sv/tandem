@@ -3,9 +3,9 @@
 
 mod common;
 
-use std::cell::Cell;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use common::{TIMEOUT, pair, snapshot};
 use tandem_files::FilesError;
@@ -95,18 +95,18 @@ async fn flow(drop: bool) -> (DragEnd, tempfile::TempDir, usize) {
         peer: Direct(&din),
     };
     assert_eq!(out.detect().as_deref(), Some(files.as_slice()));
-    let steps = Cell::new(0);
+    let steps = AtomicUsize::new(0);
     let end = tokio::time::timeout(
         TIMEOUT,
         out.run(&files, std::future::pending(), &|_| {
-            steps.set(steps.get() + 1)
+            steps.fetch_add(1, Ordering::Relaxed);
         }),
     )
     .await
     .unwrap()
     .unwrap();
     assert_eq!(fs::read_dir(&staging).unwrap().count(), 0, "se limpia");
-    (end, tmp, steps.get())
+    (end, tmp, steps.load(Ordering::Relaxed))
 }
 
 #[tokio::test]

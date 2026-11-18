@@ -153,6 +153,57 @@ pub enum ControlMsg {
     LinkClass {
         kind: Link,
     },
+    /// Arrastre de archivos entre las dos máquinas (T-121).
+    Drag(DragMsg),
+}
+
+/// Los mensajes del arrastre de archivos (D14), uno por paso de `DragPeer`. `id` lo pone
+/// el origen: una respuesta de un arrastre viejo no se confunde con la del actual.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DragMsg {
+    /// Origen → destino: prepara una carpeta temporal para `names`.
+    Begin { id: u64, names: Vec<String> },
+    /// Destino → origen: la carpeta lista (su ruta) o por qué no se pudo.
+    Staged {
+        id: u64,
+        dir: Result<String, String>,
+    },
+    /// Origen → destino: todo está copiado, inicia el arrastre sintético.
+    Ready { id: u64 },
+    /// Destino → origen: cómo terminó el arrastre allí.
+    Finished {
+        id: u64,
+        end: Result<DragOutcome, String>,
+    },
+    /// Origen → destino: aborta y borra lo copiado.
+    Cancel { id: u64 },
+}
+
+/// Cómo terminó el arrastre en el destino.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DragOutcome {
+    /// Soltó sobre una app o carpeta: el sistema copió los archivos.
+    Dropped,
+    /// Esc, o soltó fuera de un destino válido.
+    Cancelled,
+}
+
+/// Avance del arrastre de archivos para el aviso de la UI (T-121).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DragStatus {
+    /// Copiando `name`, el archivo `index` (desde 0) de `total`.
+    Copying {
+        name: String,
+        index: u32,
+        total: u32,
+    },
+    /// Todo copiado: queda soltar en la otra máquina.
+    Copied {
+        total: u32,
+    },
+    Dropped,
+    Cancelled,
+    Failed(String),
 }
 
 /// Lo que se dicen los dos agentes para actualizarse (T-122). Las versiones son las de la
@@ -813,6 +864,8 @@ pub enum AgentToUi {
     },
     /// El avance de una transferencia de archivos de esta máquina (T-106).
     Transfer(TransferProgress),
+    /// El avance de un arrastre de archivos entre las máquinas (T-121).
+    Drag(DragStatus),
 }
 
 /// El emparejamiento visto desde la UI.
@@ -1267,6 +1320,32 @@ pub(crate) mod samples {
             }),
             ControlMsg::WatchCursor { on: true },
             ControlMsg::WatchCursor { on: false },
+            ControlMsg::Drag(DragMsg::Begin {
+                id: 1,
+                names: vec!["a.txt".into(), "carpeta".into()],
+            }),
+            ControlMsg::Drag(DragMsg::Staged {
+                id: 1,
+                dir: Ok("/tmp/drag-1".into()),
+            }),
+            ControlMsg::Drag(DragMsg::Staged {
+                id: u64::MAX,
+                dir: Err("sin espacio".into()),
+            }),
+            ControlMsg::Drag(DragMsg::Ready { id: 1 }),
+            ControlMsg::Drag(DragMsg::Finished {
+                id: 1,
+                end: Ok(DragOutcome::Dropped),
+            }),
+            ControlMsg::Drag(DragMsg::Finished {
+                id: 1,
+                end: Ok(DragOutcome::Cancelled),
+            }),
+            ControlMsg::Drag(DragMsg::Finished {
+                id: 1,
+                end: Err("falló".into()),
+            }),
+            ControlMsg::Drag(DragMsg::Cancel { id: 1 }),
             ControlMsg::Crossed {
                 from: Machine::A,
                 to: Machine::B,
@@ -1334,6 +1413,7 @@ pub(crate) mod samples {
             ControlMsg::Cursor(_) => 20,
             ControlMsg::Crossed { .. } => 21,
             ControlMsg::LinkClass { .. } => 22,
+            ControlMsg::Drag(_) => 23,
         }
     }
 
@@ -1878,6 +1958,17 @@ pub(crate) mod samples {
                 reply: Reply::Input(InputStatus::new(Machine::B)),
             },
         ];
+        v.extend([
+            AgentToUi::Drag(DragStatus::Copying {
+                name: "a.txt".into(),
+                index: 0,
+                total: 2,
+            }),
+            AgentToUi::Drag(DragStatus::Copied { total: 2 }),
+            AgentToUi::Drag(DragStatus::Dropped),
+            AgentToUi::Drag(DragStatus::Cancelled),
+            AgentToUi::Drag(DragStatus::Failed("sin espacio".into())),
+        ]);
         v.push(AgentToUi::Reply {
             id: 7,
             reply: Reply::Pairing(PairingStatus::Searching),
@@ -2124,6 +2215,7 @@ pub(crate) mod samples {
             AgentToUi::Cursor(_) => 16,
             AgentToUi::Crossed { .. } => 17,
             AgentToUi::Transfer(_) => 18,
+            AgentToUi::Drag(_) => 19,
         }
     }
 
@@ -2233,7 +2325,7 @@ mod tests {
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
         covers(&cmds, ui_command_arm, 43);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 19);
+        covers(&to_ui(), to_ui_arm, 20);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
         let kinds: Vec<_> = capabilities()
             .iter()
