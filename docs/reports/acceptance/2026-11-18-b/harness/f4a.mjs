@@ -1,0 +1,13 @@
+import * as L from "./lib.mjs";
+const { m1, m2 } = L.attach("host");
+const p = await L.openUi(m1, { hash: "#/monitores" }); await L.sleep(1500);
+console.log("screen before:", await m2.ctl({ cmd: "monitor_screen", id: 0 }));
+const s = await m1.snapshot(); console.log(JSON.stringify(s.monitors).slice(0, 1500));
+console.log(await p.locator("[role=radio]").evaluateAll(els => els.map(e => e.innerText.replace(/\n/g," ")+"|"+e.getAttribute("aria-checked"))));
+await m2.ctl({ cmd: "monitor_clear_ops" });
+await p.locator("[role=radio]", { hasText: "Mac" }).first().click(); await L.sleep(4000);
+console.log("toast/text:", (await L.text(p)).replace(/\n+/g," | ").slice(0, 700));
+console.log("screen after:", await m2.ctl({ cmd: "monitor_screen", id: 0 }));
+console.log((await m2.ctl({ cmd: "monitor_ops" })).ops.slice(0,12));
+console.log(p.errors);
+await L.closeBrowser();
