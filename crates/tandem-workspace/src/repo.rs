@@ -37,6 +37,15 @@ pub struct Packed {
     pub submodules: Vec<String>,
 }
 
+/// Borra el archivo al salir, por el camino que sea (un `?` incluido).
+struct RemoveOnDrop<'a>(&'a Path);
+
+impl Drop for RemoveOnDrop<'_> {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(self.0);
+    }
+}
+
 fn io(what: &str, e: std::io::Error) -> WorkspaceError {
     WorkspaceError::Io(format!("{what}: {e}"))
 }
@@ -68,6 +77,7 @@ pub fn pack_origin(git: &dyn Git, repo: &Path, stage: &Path) -> Result<Packed, W
 
     // Índice aparte: `add -A` en el del usuario le cambiaría lo que tiene preparado.
     let index = stage.join("index.tmp");
+    let _cleanup = RemoveOnDrop(&index);
     let with_index = |args: &[&str]| GitCmd::new(&root, args).env("GIT_INDEX_FILE", s(&index));
     git.run(&with_index(&["read-tree", "HEAD"]))?;
     git.run(&with_index(&["add", "-A"]))?;
@@ -83,7 +93,6 @@ pub fn pack_origin(git: &dyn Git, repo: &Path, stage: &Path) -> Result<Packed, W
         "--ignore-submodules=all",
         "HEAD",
     ]));
-    let _ = fs::remove_file(&index);
     let patch = patch?;
     let has_patch = !patch.is_empty();
     if has_patch {
@@ -157,7 +166,7 @@ pub fn checkout(git: &dyn Git, stage: &Path, work: &Path) -> Result<(), Workspac
         fs::remove_dir_all(work).map_err(|e| io("limpiar el workspace", e))?;
     }
     fs::create_dir_all(work).map_err(|e| io("crear el workspace", e))?;
-    git.run(&GitCmd::new(work, &["init", "-q"]))?;
+    git.run(&GitCmd::new(work, &["init", "-q", "--template="]))?;
     let fetch = format!("+HEAD:{BASE_REF}");
     git.run(&GitCmd::new(
         work,
@@ -281,26 +290,52 @@ pub fn fetch_back(
     bundle: &Path,
     name: &str,
 ) -> Result<String, WorkspaceError> {
-    let mut branch = format!("tandem/{name}");
-    let mut n = 1;
-    while git.ok(
-        root,
-        &[
-            "show-ref",
-            "--verify",
-            "--quiet",
-            &format!("refs/heads/{branch}"),
-        ],
-    ) {
-        n += 1;
-        branch = format!("tandem/{name}-{n}");
-    }
-    let spec = format!("HEAD:refs/heads/{branch}");
+    // Primero a una referencia propia y después `update-ref` con "no existe" como valor
+    // viejo: la comprobación y la creación son una sola operación atómica, así que otra
+    // llamada concurrente con el mismo nombre no puede pisar la rama.
+    let incoming = format!("refs/tandem/incoming/{name}");
     git.run(&GitCmd::new(
         root,
-        &["fetch", "-q", "--no-tags", &s(bundle), &spec],
+        &[
+            "fetch",
+            "-q",
+            "--no-tags",
+            &s(bundle),
+            &format!("+HEAD:{incoming}"),
+        ],
     ))?;
+    let result = create_branch(git, root, name, &incoming);
+    let _ = git.run(&GitCmd::new(root, &["update-ref", "-d", &incoming]));
+    let branch = result?;
     Ok(branch)
+}
+
+fn create_branch(
+    git: &dyn Git,
+    root: &Path,
+    name: &str,
+    incoming: &str,
+) -> Result<String, WorkspaceError> {
+    let sha = git.out(root, &["rev-parse", "--verify", incoming])?;
+    let mut n = 1;
+    loop {
+        let branch = if n == 1 {
+            format!("tandem/{name}")
+        } else {
+            format!("tandem/{name}-{n}")
+        };
+        let full = format!("refs/heads/{branch}");
+        match git.run(&GitCmd::new(root, &["update-ref", &full, &sha, ""])) {
+            Ok(_) => return Ok(branch),
+            // Ya existía (o la ganaron): siguiente sufijo. Otro fallo es real.
+            Err(e) => {
+                if !git.ok(root, &["show-ref", "--verify", "--quiet", &full]) {
+                    return Err(e.into());
+                }
+                n += 1;
+            }
+        }
+    }
 }
 
 /// Un nombre de rama seguro a partir de un título: minúsculas ASCII, dígitos y `-`.
@@ -352,6 +387,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let e = pack_origin(&git, dir.path(), &dir.path().join("s")).unwrap_err();
         assert!(matches!(e, WorkspaceError::NotARepo(_)), "{e}");
+    }
+
+    #[test]
+    fn el_indice_temporal_se_borra_aunque_falle_read_tree_o_add() {
+        for fallo in ["read-tree", "add"] {
+            let git = FakeGit::default();
+            git.push(Ok("/r")); // show-toplevel
+            git.push(Ok("abc")); // HEAD
+            git.push(Ok("main")); // rama
+            git.push(Ok("")); // bundle
+            if fallo == "add" {
+                git.push(Ok("")); // read-tree
+            }
+            git.push(Err("boom"));
+            let dir = tempfile::tempdir().unwrap();
+            let stage = dir.path().join("s");
+            fs::create_dir_all(&stage).unwrap();
+            fs::write(stage.join("index.tmp"), b"x").unwrap();
+            assert!(pack_origin(&git, dir.path(), &stage).is_err());
+            assert!(!stage.join("index.tmp").exists(), "tras fallar {fallo}");
+        }
     }
 
     #[test]

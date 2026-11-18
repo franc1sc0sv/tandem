@@ -59,6 +59,12 @@ pub trait GitExt: Git {
 
 impl<G: Git + ?Sized> GitExt for G {}
 
+/// Donde apuntar `core.hooksPath` para que no exista ningún hook.
+#[cfg(windows)]
+const NULL_DEVICE: &str = "NUL";
+#[cfg(not(windows))]
+const NULL_DEVICE: &str = "/dev/null";
+
 /// El `git` del PATH.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemGit;
@@ -69,9 +75,20 @@ impl Git for SystemGit {
         // Sin conversión de fin de línea (el parche y los archivos tienen que viajar tal
         // cual), sin pedir nada por la terminal y sin heredar el repo de quien nos lanzó
         // (por ejemplo un hook).
+        // Además, nada de código ajeno: los hooks y el fsmonitor vienen de la configuración
+        // heredada (o de un `.git` dentro del workspace) y esto puede correr elevado. Con
+        // `protocol.file.allow=user` un submódulo `file://` del bundle no se clona solo.
         c.args(["-c", "core.autocrlf=false", "-c", "core.safecrlf=false"])
+            .args(["-c", &format!("core.hooksPath={NULL_DEVICE}")])
+            .args([
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "protocol.file.allow=user",
+            ])
             .args(&cmd.args)
             .current_dir(&cmd.dir)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("LC_ALL", "C")
             .env_remove("GIT_DIR")

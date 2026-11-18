@@ -421,3 +421,108 @@ async fn los_errores_son_claros() {
     let e = r.back(None, None).await.unwrap_err();
     assert!(e.to_string().contains("no tiene workspace"), "{e}");
 }
+
+/// Hooks y `core.fsmonitor` heredados de la configuración global son código ajeno corriendo
+/// en la destino (quizá elevado): el crate no debe ejecutarlos ni en la ida ni en la vuelta.
+/// Se corre en un proceso hijo para poder fijar `GIT_CONFIG_GLOBAL` sin tocar el entorno de
+/// las demás pruebas.
+#[test]
+fn los_hooks_y_el_fsmonitor_heredados_no_se_ejecutan() {
+    let tmp = tempfile::tempdir().unwrap();
+    let hooks = tmp.path().join("hooks");
+    let sentinels = tmp.path().join("centinelas");
+    fs::create_dir_all(&hooks).unwrap();
+    fs::create_dir_all(&sentinels).unwrap();
+    let fwd = |p: &Path| p.to_string_lossy().replace('\\', "/");
+    // Solo dejan huella dentro de las carpetas de las dos máquinas de la prueba interna.
+    let script = |name: &str| {
+        format!(
+            "#!/bin/sh\ncase \"$PWD\" in */datos-b/*|*/a/*) echo x > \"{}/{name}\" ;; esac\nexit 0\n",
+            fwd(&sentinels)
+        )
+    };
+    for name in ["post-commit", "post-checkout", "fsmonitor"] {
+        let p = hooks.join(name);
+        fs::write(&p, script(name)).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&p, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    let global = tmp.path().join("gitconfig");
+    fs::write(
+        &global,
+        format!(
+            "[core]\n\thooksPath = {}\n\tfsmonitor = {}\n",
+            fwd(&hooks),
+            fwd(&hooks.join("fsmonitor"))
+        ),
+    )
+    .unwrap();
+
+    let out = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "hooks_heredados_interna", "--include-ignored"])
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .env("TANDEM_CENTINELAS", &sentinels)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+/// Los centinelas que dejaron los hooks desde la última vez; los borra.
+fn sentinels_found() -> Vec<String> {
+    let dir = PathBuf::from(std::env::var("TANDEM_CENTINELAS").unwrap());
+    let mut found: Vec<String> = fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    found.sort();
+    for n in &found {
+        let _ = fs::remove_file(dir.join(n));
+    }
+    found
+}
+
+#[tokio::test]
+#[ignore = "la corre `los_hooks_y_el_fsmonitor_heredados_no_se_ejecutan` en un hijo"]
+async fn hooks_heredados_interna() {
+    let r = rig().await;
+    let repo = r.base.join("repo");
+    sample_repo(&repo);
+    write(&repo, "pendiente.txt", b"sin commit\n");
+    // Control: si la config global no se aplicara, la prueba no probaría nada.
+    assert!(
+        !sentinels_found().is_empty(),
+        "la configuración heredada no se aplicó: la prueba no sirve"
+    );
+
+    let dir = PathBuf::from(r.open(&repo, false).await);
+    assert_eq!(sentinels_found(), Vec::<String>::new(), "en la ida");
+
+    // El commit de la destino va sin hooks de nuestra parte: lo medido es el crate.
+    write(&dir, "nuevo.txt", b"hecho en la destino\n");
+    let quiet = |args: &[&str]| {
+        let mut a = vec![
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "core.fsmonitor=false",
+        ];
+        a.extend_from_slice(args);
+        git(&dir, &a)
+    };
+    quiet(&["add", "-A"]);
+    quiet(&["commit", "-q", "-m", "En la destino"]);
+    write(&dir, "mas.txt", b"pendiente\n");
+    sentinels_found();
+
+    let report = r.back(Some("Pendiente"), None).await.unwrap();
+    assert!(report.branch.is_some());
+    assert_eq!(sentinels_found(), Vec::<String>::new(), "en la vuelta");
+}
