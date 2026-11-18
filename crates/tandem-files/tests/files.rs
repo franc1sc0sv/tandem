@@ -296,7 +296,14 @@ async fn una_ruta_con_escape_no_sale_de_la_carpeta() {
     wire.send(TunnelUp::Files(FilesUp::Put {
         tunnel: p.tunnel,
         remote: d.path().join("dst").to_str().unwrap().into(),
-        manifest,
+        chunk_size: manifest.chunk_size,
+        single: manifest.single,
+    }))
+    .await
+    .unwrap();
+    wire.send(TunnelUp::Files(FilesUp::Entries {
+        entries: manifest.entries,
+        last: true,
     }))
     .await
     .unwrap();
@@ -306,4 +313,36 @@ async fn una_ruta_con_escape_no_sale_de_la_carpeta() {
         Some(TunnelDown::Files(FilesDown::Failed(_)))
     ));
     assert!(!d.path().join("fuera").exists());
+}
+
+/// Un árbol de ~20 000 archivos: el manifiesto y el plan no caben en un marco, así que
+/// viajan en páginas; llega idéntico en las dos direcciones.
+#[tokio::test(flavor = "multi_thread")]
+async fn un_arbol_enorme_viaja_paginado() {
+    let d = tempfile::tempdir().unwrap();
+    let (src, dst, back) = (
+        d.path().join("origen"),
+        d.path().join("destino"),
+        d.path().join("vuelta"),
+    );
+    for i in 0..20_000u32 {
+        let dir = src.join(format!("d{:03}", i / 200));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join(format!("archivo-{i}.txt")),
+            format!("contenido {i}"),
+        )
+        .unwrap();
+    }
+    let p = pair(CHUNK).await;
+    let dst_s = dst.to_str().unwrap();
+    let r = within(p.files_a.put(&p.origin, p.tunnel, &src, dst_s))
+        .await
+        .unwrap();
+    assert_eq!(r.files, 20_000);
+    assert_eq!(snapshot(&src), snapshot(&dst));
+    within(p.files_a.get(&p.origin, p.tunnel, dst_s, &back))
+        .await
+        .unwrap();
+    assert_eq!(snapshot(&src), snapshot(&back));
 }

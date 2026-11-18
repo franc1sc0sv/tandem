@@ -62,9 +62,15 @@ struct TunnelPorts {
 }
 
 impl TunnelPorts {
-    fn insert(self: &Arc<Self>, conn: u64, tcp: TcpStream) {
+    /// `false` (y se descarta) si ya hay [`MAX_CONNS`] esperando: sin tope, cualquiera que
+    /// alcance un `Listen` abierto llenaría la memoria de sockets.
+    fn insert(self: &Arc<Self>, conn: u64, tcp: TcpStream) -> bool {
         let (read, write) = tcp.into_split();
-        lock(&self.pending).insert(
+        let mut pending = lock(&self.pending);
+        if pending.len() >= MAX_CONNS {
+            return false;
+        }
+        pending.insert(
             conn,
             Pending {
                 read: Some(read),
@@ -79,6 +85,7 @@ impl TunnelPorts {
                 lock(&me.pending).remove(&conn);
             }
         });
+        true
     }
 
     fn take_read(&self, conn: u64) -> Option<OwnedReadHalf> {
@@ -200,7 +207,10 @@ pub async fn serve<W: TargetWire>(
             let tcp = tokio::time::timeout(CONNECT_TIMEOUT, TcpStream::connect((host, port)));
             match tcp.await {
                 Ok(Ok(tcp)) => {
-                    tp.insert(conn, tcp);
+                    if !tp.insert(conn, tcp) {
+                        return failed(wire, "demasiadas conexiones pendientes en este túnel")
+                            .await;
+                    }
                     reply(wire, PortDown::Ready).await
                 }
                 Ok(Err(e)) => {
@@ -226,7 +236,9 @@ pub async fn serve<W: TargetWire>(
                     accepted = listener.accept() => {
                         let Ok((tcp, _)) = accepted else { continue };
                         let Ok(id) = getrandom::u64() else { continue };
-                        tp.insert(id, tcp);
+                        if !tp.insert(id, tcp) {
+                            continue;
+                        }
                         reply(wire, PortDown::Incoming { conn: id }).await?;
                     }
                     () = tokio::time::sleep(BEAT) => reply(wire, PortDown::Beat).await?,
@@ -554,4 +566,31 @@ async fn pump(origin: &Origin, tunnel: TunnelId, conn: u64, tcp: TcpStream) -> R
 /// Termina cuando la señal de parada se activa (o se cierra el emisor).
 async fn stopped(rx: &mut watch::Receiver<bool>) {
     let _ = rx.wait_for(|s| *s).await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn socket(l: &TcpListener) -> TcpStream {
+        let (c, _s) = tokio::join!(TcpStream::connect(l.local_addr().unwrap()), l.accept());
+        c.unwrap()
+    }
+
+    #[tokio::test]
+    async fn pending_tiene_tope_por_tunel() {
+        let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let tp = Arc::new(TunnelPorts {
+            stop: watch::channel(false).0,
+            pending: Mutex::new(HashMap::new()),
+        });
+        for i in 0..MAX_CONNS as u64 {
+            assert!(tp.insert(i, socket(&l).await));
+        }
+        assert!(!tp.insert(999, socket(&l).await));
+        assert_eq!(lock(&tp.pending).len(), MAX_CONNS);
+        // Al tomar una mitad y la otra se libera el lugar.
+        assert!(tp.take_read(0).is_some() && tp.take_write(0).is_some());
+        assert!(tp.insert(1000, socket(&l).await));
+    }
 }

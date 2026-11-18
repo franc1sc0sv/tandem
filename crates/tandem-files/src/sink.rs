@@ -191,7 +191,7 @@ impl Sink {
             ..FilesReport::default()
         };
         for (i, e) in self.manifest.entries.iter().enumerate() {
-            let EntryKind::File { hash, .. } = &e.kind else {
+            let EntryKind::File { size, hash, .. } = &e.kind else {
                 continue;
             };
             let path = &self.finals[i];
@@ -199,11 +199,14 @@ impl Sink {
             if part.exists() {
                 let (_, _, got) = hash_file(&part, cs).map_err(|e| FilesError::io(&part, e))?;
                 if got != *hash {
-                    // Se empieza de cero la próxima vez.
                     let _ = fs::remove_file(&part);
-                    return Err(FilesError::BadFile(e.path.clone()));
+                    // Un `.part` viejo junto a un archivo que ya estaba bien no cuenta.
+                    if !is_complete(path, *size, hash, cs) {
+                        return Err(FilesError::BadFile(e.path.clone()));
+                    }
+                } else {
+                    replace(&part, path)?;
                 }
-                replace(&part, path)?;
             } else if !path.is_file() {
                 return Err(FilesError::BadFile(e.path.clone()));
             }
@@ -261,10 +264,11 @@ fn apply_meta(path: &Path, mode: Option<u32>, mtime_ms: Option<u64>) {
     }
 }
 
+/// Sin setuid, setgid ni sticky: lo que llega de la otra máquina no escala privilegios.
 #[cfg(unix)]
 fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+    fs::set_permissions(path, fs::Permissions::from_mode(mode & 0o777))
 }
 
 #[cfg(not(unix))]
@@ -371,5 +375,36 @@ mod tests {
         assert_eq!(meta.permissions().mode() & 0o7777, 0o640);
         let ms = meta.modified().unwrap().duration_since(UNIX_EPOCH).unwrap();
         assert_eq!(ms.as_millis(), 1_700_000_000_000);
+    }
+
+    #[test]
+    fn un_part_viejo_junto_a_un_archivo_completo_no_lo_rompe() {
+        let d = tempfile::tempdir().unwrap();
+        let out = d.path().join("o");
+        fs::write(&out, b"abcd").unwrap();
+        fs::write(part_path(&out), b"basura vieja").unwrap();
+        let s = Sink::open(&out, file_manifest(b"abcd", 4)).unwrap();
+        assert!(s.plan().unwrap().is_empty());
+        s.finish().unwrap();
+        assert_eq!(fs::read(&out).unwrap(), b"abcd");
+        assert!(!part_path(&out).exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn no_aplica_setuid_setgid_ni_sticky() {
+        use std::os::unix::fs::PermissionsExt;
+        let d = tempfile::tempdir().unwrap();
+        let out = d.path().join("o");
+        let mut m = file_manifest(b"abcd", 4);
+        m.entries[0].mode = Some(0o7755);
+        let s = Sink::open(&out, m).unwrap();
+        s.plan().unwrap();
+        s.write_chunk(0, 0, b"abcd").unwrap();
+        s.finish().unwrap();
+        assert_eq!(
+            fs::metadata(&out).unwrap().permissions().mode() & 0o7777,
+            0o755
+        );
     }
 }

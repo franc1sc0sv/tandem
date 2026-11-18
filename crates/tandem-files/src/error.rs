@@ -18,6 +18,8 @@ pub enum FilesError {
     BadFile(String),
     #[error("manifiesto no válido: {0}")]
     Manifest(String),
+    #[error("«{0}» tiene demasiados fragmentos para describirse en un mensaje")]
+    TooLarge(String),
     #[error("la otra máquina: {0}")]
     Remote(String),
     #[error(transparent)]

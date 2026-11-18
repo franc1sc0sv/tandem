@@ -4306,6 +4306,7 @@ dependencies = [
  "blake3",
  "getrandom 0.4.3",
  "proptest",
+ "serde",
  "tandem-core",
  "tandem-proto",
  "tandem-tunnel",

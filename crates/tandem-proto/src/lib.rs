@@ -26,7 +26,8 @@ pub use env::{
 };
 pub use files::{
     CHUNK_SIZE, Direction, EntryKind, FileEntry, FilesDown, FilesReport, FilesUp, ForwardInfo,
-    Hash, Manifest, Need, PIECE, PortDown, PortUp, TransferProgress,
+    Hash, MAX_ENTRIES, Manifest, Need, PAGE_BUDGET, PIECE, PortDown, PortUp, TransferProgress,
+    entry_cost, entry_fits, page_entries, page_needs,
 };
 pub use frame::{FrameDecoder, MAX_FRAME_LEN, decode, decode_hello, encode, encode_frame};
 pub use msg::{

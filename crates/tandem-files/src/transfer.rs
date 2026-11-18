@@ -14,8 +14,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tandem_proto::{
-    CHUNK_SIZE, FilesDown, FilesReport, FilesUp, Manifest, Need, PIECE, TransferProgress,
-    TunnelDown, TunnelId, TunnelUp,
+    CHUNK_SIZE, FileEntry, FilesDown, FilesReport, FilesUp, MAX_ENTRIES, Manifest, Need, PIECE,
+    TransferProgress, TunnelDown, TunnelId, TunnelUp, entry_fits, page_entries, page_needs,
 };
 use tandem_tunnel::{Host, Origin, OriginWire, TargetWire, WireError};
 
@@ -104,6 +104,55 @@ async fn recv_files(wire: &mut Box<dyn OriginWire>) -> Result<FilesDown> {
     }
 }
 
+/// Las entradas del manifiesto en páginas que caben en un marco; una sola que no cabe
+/// (un archivo gigante) es un error claro y sin reintento.
+fn entry_pages(manifest: &Manifest) -> Result<Vec<&[FileEntry]>> {
+    if let Some(e) = manifest.entries.iter().find(|e| !entry_fits(e)) {
+        return Err(FilesError::TooLarge(e.path.clone()));
+    }
+    let mut pages = page_entries(&manifest.entries);
+    if pages.is_empty() {
+        pages.push(&[]);
+    }
+    Ok(pages)
+}
+
+fn check_entries(have: usize, more: usize) -> Result<()> {
+    if have + more > MAX_ENTRIES {
+        return Err(FilesError::Manifest("demasiadas entradas".into()));
+    }
+    Ok(())
+}
+
+/// Recibe las páginas de entradas hasta la última.
+async fn recv_entries_down(wire: &mut Box<dyn OriginWire>) -> Result<Vec<FileEntry>> {
+    let mut all = Vec::new();
+    loop {
+        let FilesDown::Entries { entries, last } = recv_files(wire).await? else {
+            return Err(FilesError::Unexpected);
+        };
+        check_entries(all.len(), entries.len())?;
+        all.extend(entries);
+        if last {
+            return Ok(all);
+        }
+    }
+}
+
+/// Recibe las páginas del plan hasta la última.
+async fn recv_plan(wire: &mut Box<dyn OriginWire>) -> Result<Vec<Need>> {
+    let mut all = Vec::new();
+    loop {
+        let FilesDown::Plan { needs, last } = recv_files(wire).await? else {
+            return Err(FilesError::Unexpected);
+        };
+        all.extend(needs);
+        if last {
+            return Ok(all);
+        }
+    }
+}
+
 fn need_bytes(manifest: &Manifest, needs: &[Need]) -> u64 {
     needs
         .iter()
@@ -162,18 +211,30 @@ async fn put_once(
 ) -> Result<FilesReport> {
     let manifest = src.manifest();
     let mut wire = origin.dial().await?;
+    let pages = entry_pages(manifest)?;
     send_files(
         &mut wire,
         FilesUp::Put {
             tunnel,
             remote: remote.to_owned(),
-            manifest: manifest.clone(),
+            chunk_size: manifest.chunk_size,
+            single: manifest.single,
         },
     )
     .await?;
-    let FilesDown::Plan(needs) = recv_files(&mut wire).await? else {
-        return Err(FilesError::Unexpected);
-    };
+    let n = pages.len();
+    for (i, page) in pages.into_iter().enumerate() {
+        let entries = page.to_vec();
+        send_files(
+            &mut wire,
+            FilesUp::Entries {
+                entries,
+                last: i + 1 == n,
+            },
+        )
+        .await?;
+    }
+    let needs = recv_plan(&mut wire).await?;
     wire.start_data()?;
     let total = manifest.total_bytes();
     let mut done = total.saturating_sub(need_bytes(manifest, &needs));
@@ -266,8 +327,13 @@ async fn get_once(
         },
     )
     .await?;
-    let FilesDown::Manifest(manifest) = recv_files(&mut wire).await? else {
+    let FilesDown::ManifestHead { chunk_size, single } = recv_files(&mut wire).await? else {
         return Err(FilesError::Unexpected);
+    };
+    let manifest = Manifest {
+        chunk_size,
+        single,
+        entries: recv_entries_down(&mut wire).await?,
     };
     let total = manifest.total_bytes();
     let path = local.to_path_buf();
@@ -345,12 +411,14 @@ pub async fn serve<W: TargetWire>(
         FilesUp::Put {
             tunnel,
             remote,
-            manifest,
-        } => serve_put(host, wire, tunnel, remote, manifest).await,
+            chunk_size,
+            single,
+        } => serve_put(host, wire, tunnel, remote, chunk_size, single).await,
         FilesUp::Get { tunnel, remote } => serve_get(host, wire, tunnel, remote, chunk_size).await,
-        FilesUp::Chunk { .. } | FilesUp::Finish | FilesUp::Fetch { .. } => {
-            fail(wire, "el stream tiene que empezar con Put o Get").await
-        }
+        FilesUp::Chunk { .. }
+        | FilesUp::Entries { .. }
+        | FilesUp::Finish
+        | FilesUp::Fetch { .. } => fail(wire, "el stream tiene que empezar con Put o Get").await,
     }
 }
 
@@ -371,7 +439,8 @@ async fn serve_put<W: TargetWire>(
     wire: &mut W,
     tunnel: TunnelId,
     remote: String,
-    manifest: Manifest,
+    chunk_size: u32,
+    single: bool,
 ) -> std::result::Result<(), WireError> {
     if !open_tunnel(host, tunnel) {
         return wire
@@ -380,6 +449,30 @@ async fn serve_put<W: TargetWire>(
             )))
             .await;
     }
+    let mut entries: Vec<FileEntry> = Vec::new();
+    loop {
+        match wire.recv().await? {
+            None => return Ok(()),
+            Some(TunnelUp::Files(FilesUp::Entries {
+                entries: page,
+                last,
+            })) => {
+                if let Err(e) = check_entries(entries.len(), page.len()) {
+                    return fail(wire, e).await;
+                }
+                entries.extend(page);
+                if last {
+                    break;
+                }
+            }
+            Some(_) => return fail(wire, "se esperaba una página del manifiesto").await,
+        }
+    }
+    let manifest = Manifest {
+        chunk_size,
+        single,
+        entries,
+    };
     let prepared = blocking(move || {
         let sink = Arc::new(Sink::open(Path::new(&remote), manifest)?);
         let needs = sink.plan()?;
@@ -390,8 +483,18 @@ async fn serve_put<W: TargetWire>(
         Ok(p) => p,
         Err(e) => return fail(wire, e).await,
     };
-    wire.send(&TunnelDown::Files(FilesDown::Plan(needs)))
+    let mut pages = page_needs(&needs);
+    if pages.is_empty() {
+        pages.push(Vec::new());
+    }
+    let n = pages.len();
+    for (i, needs) in pages.into_iter().enumerate() {
+        wire.send(&TunnelDown::Files(FilesDown::Plan {
+            needs,
+            last: i + 1 == n,
+        }))
         .await?;
+    }
     let mut asm = Assembler::default();
     loop {
         match wire.recv().await? {
@@ -446,10 +549,23 @@ async fn serve_get<W: TargetWire>(
         Ok(s) => Arc::new(s),
         Err(e) => return fail(wire, e).await,
     };
-    wire.send(&TunnelDown::Files(FilesDown::Manifest(
-        src.manifest().clone(),
-    )))
+    let pages = match entry_pages(src.manifest()) {
+        Ok(p) => p,
+        Err(e) => return fail(wire, e).await,
+    };
+    wire.send(&TunnelDown::Files(FilesDown::ManifestHead {
+        chunk_size: src.manifest().chunk_size,
+        single: src.manifest().single,
+    }))
     .await?;
+    let n = pages.len();
+    for (i, page) in pages.into_iter().enumerate() {
+        wire.send(&TunnelDown::Files(FilesDown::Entries {
+            entries: page.to_vec(),
+            last: i + 1 == n,
+        }))
+        .await?;
+    }
     wire.start_data()?;
     loop {
         match wire.recv().await? {

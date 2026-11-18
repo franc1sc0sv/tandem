@@ -124,6 +124,19 @@ impl Dialer for MemPath {
     }
 }
 
+/// Como el cable de verdad: un mensaje que no cabe en un marco no pasa.
+fn check_frame<T: serde::Serialize>(msg: &T) -> Result<(), WireError> {
+    let len = tandem_proto::encode(msg)
+        .map_err(|e| WireError::new(e.to_string()))?
+        .len();
+    if len > tandem_proto::MAX_FRAME_LEN {
+        return Err(WireError::new(format!(
+            "mensaje de {len} B: no cabe en un marco"
+        )));
+    }
+    Ok(())
+}
+
 async fn recv_or_cut<T>(
     path: &MemPath,
     rx: &mut mpsc::UnboundedReceiver<T>,
@@ -152,6 +165,7 @@ impl OriginWire for MemOrigin {
             if matches!(msg, TunnelUp::Files(FilesUp::Chunk { .. })) {
                 self.path.spend()?;
             }
+            check_frame(&msg)?;
             self.tx
                 .send(msg)
                 .map_err(|_| WireError::new("la destino cerró el stream"))
@@ -179,6 +193,7 @@ impl TargetWire for MemTarget {
         if matches!(msg, TunnelDown::Files(FilesDown::Chunk { .. })) {
             self.path.spend()?;
         }
+        check_frame(msg)?;
         self.tx
             .send(msg.clone())
             .map_err(|_| WireError::new("el origen cerró el stream"))
