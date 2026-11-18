@@ -1,5 +1,5 @@
 #!/bin/bash
-# Corrida oficial de aceptación B sobre un par nuevo (tag fin).
+# Official acceptance B run on a new pair (tag fin).
 source /tmp/claude-1000/accB/env.sh
 cd /tmp/claude-1000/accB/harness
 T=fin

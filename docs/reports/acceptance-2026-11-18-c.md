@@ -1,101 +1,101 @@
-# Aceptación de Tandem v0.3, parte C: calidad base, decisiones y backlog
+# Tandem v0.3 acceptance, part C: baseline quality, decisions and backlog
 
-Fecha: 2026-11-18 · base: `origin/develop` 04f2967 (T-131) · worktree detached `acceptance-c` · rama `qa/acceptance-2026-11-18-c`.
-Alcance: calidad base, reglas G1-G11 no visuales, coherencia documental, plan v0.3 (T-093 a T-131), ítems de hardware y seguridad. La paridad visual (parte A) y los flujos con UI (parte B) no se tocaron aquí.
+Date: 2026-11-18 · base: `origin/develop` 04f2967 (T-131) · detached worktree `acceptance-c` · branch `qa/acceptance-2026-11-18-c`.
+Scope: baseline quality, non-visual rules G1-G11, documentation consistency, plan v0.3 (T-093 to T-131), hardware items and security. Visual parity (part A) and the flows with UI (part B) were not touched here.
 
-**Veredicto de la parte C: FALLA (6 fallas, tareas T-160 a T-165).**
+**Verdict of part C: FAIL (6 failures, tasks T-160 to T-165).**
 
-## 1. Calidad base (G11)
+## 1. Baseline quality (G11)
 
-| Comprobación | Resultado |
+| Check | Result |
 |---|---|
-| `cargo fmt --all -- --check` | PASA |
-| `cargo clippy --workspace --all-targets -- -D warnings` | PASA |
-| `cargo test --workspace`, corrida 1 | PASA: 1442 pruebas, 0 fallos, 11 ignoradas |
-| `cargo test --workspace`, corrida 2 | PASA: 1442 pruebas, 0 fallos, 11 ignoradas |
-| Pruebas inestables en local | Ninguna entre las dos corridas |
-| `pnpm test` (vitest) | PASA: 46 archivos, 619 pruebas |
-| `pnpm check` (svelte-check `--fail-on-warnings`) | PASA: 513 archivos, 0 errores, 0 avisos |
-| `pnpm build` | PASA |
-| CI de `develop`, últimas 30 corridas | 23 verdes y 5 rojas al empezar, más 36c4907 que terminó en rojo (6 rojas); 04f2967 terminó en verde |
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS |
+| `cargo test --workspace`, run 1 | PASS: 1442 tests, 0 failures, 11 ignored |
+| `cargo test --workspace`, run 2 | PASS: 1442 tests, 0 failures, 11 ignored |
+| Flaky tests locally | None between the two runs |
+| `pnpm test` (vitest) | PASS: 46 files, 619 tests |
+| `pnpm check` (svelte-check `--fail-on-warnings`) | PASS: 513 files, 0 errors, 0 warnings |
+| `pnpm build` | PASS |
+| `develop` CI, last 30 runs | 23 green and 5 red at the start, plus 36c4907 which ended red (6 red); 04f2967 ended green |
 
-Las ignoradas son las `#[ignore = "hardware"]` y los bancos de latencia.
+The ignored ones are the `#[ignore = "hardware"]` tests and the latency benches.
 
-**CI: FALLA (T-160).** Todos los fallos son pruebas inestables, no regresiones; las tres pasan en local:
+**CI: FAIL (T-160).** All failures are flaky tests, not regressions; all three pass locally:
 
-| Prueba | Job | Corridas rojas |
+| Test | Job | Red runs |
 |---|---|---|
-| `tandem-input/tests/session.rs::la_latencia_incluye_la_espera_con_el_driver_ocupado` | macos | 72ca3bc, 5703559 |
+| `tandem-input/tests/session.rs::latency_includes_the_wait_with_the_driver_busy` | macos | 72ca3bc, 5703559 |
 | `tandemd/tests/pairing.rs::pairing_hot_opens_the_input_session` | macos | 59dd296, f327049 |
-| `tandem-cli/tests/e2e.rs::un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra` | ubuntu, macos, cobertura | e551446, 36c4907 |
+| `tandem-cli/tests/e2e.rs::an_mcp_client_opens_a_tunnel_runs_reads_copies_and_closes` | ubuntu, macos, coverage | e551446, 36c4907 |
 
-La corrida de 04f2967 (el commit evaluado) terminó en verde en Linux, Windows y macOS, además de UI x3, cobertura, `.dmg` e instalador. Pero la corrida del commit anterior (36c4907) quedó roja por la prueba del MCP, y con tres pruebas que fallan al azar en CI el verde de un commit depende de la suerte, así que G11 no se da por cumplida hasta T-160.
+The run of 04f2967 (the evaluated commit) ended green on Linux, Windows and macOS, plus UI x3, coverage, `.dmg` and installer. But the run of the previous commit (36c4907) was red because of the MCP test, and with three tests that fail at random in CI a commit's green depends on luck, so G11 is not considered met until T-160.
 
-## 2. Reglas G1-G11 no visuales y coherencia documental
+## 2. Non-visual rules G1-G11 and documentation consistency
 
-| Regla | Resultado | Evidencia |
+| Rule | Result | Evidence |
 |---|---|---|
-| G1 dos máquinas | FALLA | `states.ts` (estado «Primera vez») dibuja el botón «Agregar máquina» y el texto «Agrega otra máquina»; D1 los excluye. T-161 |
-| G2 nada fijo a Mac/PC | PASA | `Machine::{A,B}`; pruebas con pares del mismo sistema en `tandem-sim/tests/power.rs`, `tandemd/tests/input.rs`, `tandem-env`; en la UI el ícono sale del sistema (`machine.test.ts`) |
-| G3 barra lateral | no evaluada aquí (visual, parte A); `shell.test.ts` la prueba |
-| G4 botones, chips | parte A |
-| G5 sin relleno ni «Teclado aquí» / «requiere cable» | FALLA solo por el texto de G1; `git grep` no halla «Teclado aquí» ni «requiere cable» en `apps/` ni `crates/` |
-| G6 todo hace algo real | parte B |
-| G7, G8 animaciones | parte A; `prefers-reduced-motion` aparece en 17 archivos de la UI y en `styles/global.css` |
-| G9 sin errores de consola | parte B (el arnés `shots.ts` comprueba errores de consola) |
-| G10 configuración compartida y «Deshacer» | cubierta en el agente por `tandemd/tests/network.rs` (`UndoDesk`, `undo_to`); la parte con UI es de la parte B |
-| G11 calidad | FALLA por la CI inestable (T-160) |
+| G1 two machines | FAIL | `states.ts` ("First time" state) draws the "Add machine" button and the text "Add another machine"; D1 excludes them. T-161 |
+| G2 nothing fixed to Mac/PC | PASS | `Machine::{A,B}`; tests with same-system pairs in `tandem-sim/tests/power.rs`, `tandemd/tests/input.rs`, `tandem-env`; in the UI the icon comes from the system (`machine.test.ts`) |
+| G3 sidebar | not evaluated here (visual, part A); `shell.test.ts` tests it |
+| G4 buttons, chips | part A |
+| G5 no filler or "Keyboard here" / "requires cable" | FAIL only because of the G1 text; `git grep` finds no "Keyboard here" or "requires cable" in `apps/` or `crates/` |
+| G6 everything does something real | part B |
+| G7, G8 animations | part A; `prefers-reduced-motion` appears in 17 UI files and in `styles/global.css` |
+| G9 no console errors | part B (the `shots.ts` harness checks console errors) |
+| G10 shared configuration and "Undo" | covered in the agent by `tandemd/tests/network.rs` (`UndoDesk`, `undo_to`); the UI part belongs to part B |
+| G11 quality | FAIL because of the flaky CI (T-160) |
 
-Coherencia documental (DECISIONS, DESIGN, ACCEPTANCE y tareas):
+Documentation consistency (DECISIONS, DESIGN, ACCEPTANCE and tasks):
 
-- DECISIONS y DESIGN no se contradicen entre sí en lo que revisé (A1, A2, A6, A7, D1-D20 y las notas de los agentes concuerdan; T-098 «solo teclado y portapapeles se apagan» fue ampliado por T-115 con el módulo `tunnels`, y T-098 lo documenta como de ese momento).
-- FALLA (T-163): `docs/STATUS.md` es el corte de v0.2 y contradice A2, D7, D11 y D2; `docs/TESTING.md:50-55` usa `Machine::Mac/Pc` y `set_mode` (contra A1 y D6); `docs/dev/hardware.md:7` dice «ninguna prueba cambia entradas» (contra A8, T-110 y T-123).
-- FALLA (T-164): tareas `done` con criterios sin marcar o fuera de protocolo: T-051, T-115, T-123 (dos criterios que son de hardware), T-128 (encabezado `## Verificación pendiente` y ítem no de hardware), T-012 y T-022.
+- DECISIONS and DESIGN do not contradict each other in what I reviewed (A1, A2, A6, A7, D1-D20 and the agents' notes agree; T-098 "only keyboard and clipboard are turned off" was extended by T-115 with the `tunnels` module, and T-098 documents it as of that moment).
+- FAIL (T-163): `docs/STATUS.md` is the v0.2 cut and contradicts A2, D7, D11 and D2; `docs/TESTING.md:50-55` uses `Machine::Mac/Pc` and `set_mode` (against A1 and D6); `docs/dev/hardware.md:7` says "no test changes inputs" (against A8, T-110 and T-123).
+- FAIL (T-164): `done` tasks with unchecked criteria or outside the protocol: T-051, T-115, T-123 (two criteria that are hardware), T-128 (heading `## Pending verification` and a non-hardware item), T-012 and T-022.
 
-## 3. Plan v0.3 (T-093 a T-131)
+## 3. Plan v0.3 (T-093 to T-131)
 
-Los 39 archivos existen. 36 están `done`. Las demás:
+All 39 files exist. 36 are `done`. The others:
 
-| Tarea | Estado | Justificación |
+| Task | Status | Justification |
 |---|---|---|
-| T-095 | blocked | Reemplazada por T-109, T-110 y T-111 (nota del 2026-11-16) |
-| T-096 | blocked | Reemplazada por T-112 a T-120 |
-| T-124 | todo | Es esta aceptación (partes A, B y C); se cierra con `FINAL_OK` |
+| T-095 | blocked | Replaced by T-109, T-110 and T-111 (note of 2026-11-16) |
+| T-096 | blocked | Replaced by T-112 to T-120 |
+| T-124 | todo | It is this acceptance (parts A, B and C); it closes with `FINAL_OK` |
 
-T-088 (fuera del rango) también está reemplazada (T-110). Ninguna tarea `done` depende de una `blocked`. Salvo lo de T-164, no hay tarea `done` de T-093 a T-131 con criterios sin cumplir fuera de su lista de hardware.
+T-088 (outside the range) is also replaced (T-110). No `done` task depends on a `blocked` one. Except for what is in T-164, no `done` task from T-093 to T-131 has unmet criteria outside its hardware list.
 
-Listas «Verificación en hardware pendiente»: las de T-093, T-094, T-096, T-104, T-105, T-108, T-109, T-110, T-111, T-121, T-122, T-123 y T-131 son concretas (qué comando, qué resultado, en qué máquina). La de T-128 no lo es (T-164).
+"Pending hardware verification" lists: those of T-093, T-094, T-096, T-104, T-105, T-108, T-109, T-110, T-111, T-121, T-122, T-123 and T-131 are concrete (which command, which result, on which machine). T-128's is not (T-164).
 
-## 4. Ítems de hardware
+## 4. Hardware items
 
-| Ítem | Estado | Dónde está su comprobación |
+| Item | Status | Where its check is |
 |---|---|---|
-| H1 emparejar por Wi-Fi | pendiente de hardware | T-123, primer ítem (`scripts/hw/run.sh`, empareja con identidades de prueba); T-093 |
-| H2 túneles PC→Mac y Mac→PC | pendiente de hardware | T-104 (WSL y PowerShell desde la Mac), T-108, T-123 |
-| H3 34" con vuelta automática | pendiente de hardware | T-109, T-110 (matar la prueba a mitad), T-123 con `--with-monitors` |
-| H4 cruce real con entrada sintética | pendiente de hardware | T-123 («`SendInput`/`CGEventPost` sintéticos crucen de verdad») y T-093 |
-| H5 USB-C | pendiente de hardware | T-094 (spike S5 y cable TB4/USB4, A6) |
+| H1 pair over Wi-Fi | pending hardware | T-123, first item (`scripts/hw/run.sh`, pairs with test identities); T-093 |
+| H2 PC→Mac and Mac→PC tunnels | pending hardware | T-104 (WSL and PowerShell from the Mac), T-108, T-123 |
+| H3 34" with automatic rollback | pending hardware | T-109, T-110 (kill the test halfway), T-123 with `--with-monitors` |
+| H4 real crossing with synthetic input | pending hardware | T-123 ("synthetic `SendInput`/`CGEventPost` really cross") and T-093 |
+| H5 USB-C | pending hardware | T-094 (spike S5 and TB4/USB4 cable, A6) |
 
-Cuentan como pendientes, no como falla: cada uno tiene su comprobación concreta. La suite T-123 todavía no corrió en el equipo real (solo `--sim`, 12/12); por eso ningún ítem `[hw]` está verificado con fecha.
+They count as pending, not as failures: each one has its concrete check. The T-123 suite has not run on the real machines yet (only `--sim`, 12/12); that is why no `[hw]` item is verified with a date.
 
-## 5. Seguridad
+## 5. Security
 
-| Comprobación | Resultado |
+| Check | Result |
 |---|---|
-| Secretos, tokens y llaves | PASA: ninguno versionado; los `ghp_x` y `BEGIN OPENSSH PRIVATE KEY` son fixtures del filtro de credenciales (T-130); no hay `.env`, `.pem` ni identidades en `git ls-files` |
-| Datos del usuario | FALLA (T-162): el repo es público y trae la IP de la Mac (`<ip-de-la-mac>`) y su usuario de macOS (`<usuario>`) en `docs/dev/hardware.md`, `docs/tasks/T-051.md` y `docs/dev/HANDOFF.md`; MAC y ruta `<ruta personal>` en fixtures |
-| `unsafe` con `// SAFETY:` | FALLA (T-165): de 162 usos, 155 lo llevan; faltan 7 (`extern` de IOKit, ApplicationServices y Carbon, `tap_callback`, `unsafe impl` de `drag_macos.rs`) |
-| Código GPL copiado | PASA, con el límite de una revisión por búsqueda: no hay encabezados GPL ni «copiado de»; las únicas menciones a Deskflow son comentarios de comportamiento («como Deskflow») |
+| Secrets, tokens and keys | PASS: none versioned; the `ghp_x` and `BEGIN OPENSSH PRIVATE KEY` are fixtures of the credential filter (T-130); there is no `.env`, `.pem` or identities in `git ls-files` |
+| User data | FAIL (T-162): the repo is public and carries the Mac's IP (`<mac-ip>`) and its macOS user (`<user>`) in `docs/dev/hardware.md`, `docs/tasks/T-051.md` and `docs/dev/HANDOFF.md`; MAC and `<personal path>` path in fixtures |
+| `unsafe` with `// SAFETY:` | FAIL (T-165): of 162 uses, 155 have it; 7 are missing (`extern` of IOKit, ApplicationServices and Carbon, `tap_callback`, `unsafe impl` in `drag_macos.rs`) |
+| Copied GPL code | PASS, within the limit of a search-based review: no GPL headers or "copied from"; the only mentions of Deskflow are behavior comments ("like Deskflow") |
 
-## Tareas de corrección
+## Fix tasks
 
-| Tarea | Falla |
+| Task | Failure |
 |---|---|
-| [T-160](../tasks/T-160.md) | Pruebas inestables en CI (macOS y Ubuntu) |
-| [T-161](../tasks/T-161.md) | «Agregar máquina» en el estado «Primera vez» (D1, G1, G5) |
-| [T-162](../tasks/T-162.md) | IP de la LAN y usuario de la Mac en el repo público |
-| [T-163](../tasks/T-163.md) | STATUS, TESTING y dev/hardware desactualizados |
-| [T-164](../tasks/T-164.md) | Criterios sin marcar y encabezados de hardware |
-| [T-165](../tasks/T-165.md) | Comentarios SAFETY que faltan |
+| [T-160](../tasks/T-160.md) | Flaky tests in CI (macOS and Ubuntu) |
+| [T-161](../tasks/T-161.md) | "Add machine" in the "First time" state (D1, G1, G5) |
+| [T-162](../tasks/T-162.md) | LAN IP and Mac user in the public repo |
+| [T-163](../tasks/T-163.md) | STATUS, TESTING and dev/hardware out of date |
+| [T-164](../tasks/T-164.md) | Unchecked criteria and hardware headings |
+| [T-165](../tasks/T-165.md) | Missing SAFETY comments |
 
-`ACCEPTANCE: FAIL 6 (tareas: T-160, T-161, T-162, T-163, T-164, T-165)`
+`ACCEPTANCE: FAIL 6 (tasks: T-160, T-161, T-162, T-163, T-164, T-165)`

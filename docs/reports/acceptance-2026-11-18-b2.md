@@ -1,65 +1,65 @@
-# Aceptación de Tandem v0.3 — parte B, ronda 2 (flujos de punta a punta)
+# Tandem v0.3 acceptance — part B, round 2 (end-to-end flows)
 
-Fecha: 2026-11-18 · Base: `origin/develop` en `b3841bc` (T-152, T-155, T-159 integradas) · Agente: acceptance (parte B). Fuera de alcance: paridad píxel a píxel (parte A) y calidad base de CI (parte C).
+Date: 2026-11-18 · Base: `origin/develop` at `b3841bc` (T-152, T-155, T-159 integrated) · Agent: acceptance (part B). Out of scope: pixel-by-pixel parity (part A) and baseline CI quality (part C).
 
-## Veredicto
+## Verdict
 
-**FALLA.** Las 10 fallas de la ronda 1 (T-150 a T-159) quedaron corregidas salvo **una que sigue rota** (T-151: la actividad de la otra máquina en el paso 4 no llega a la UI) y se encontró **una nueva** (bandeja). Dos tareas de corrección: **T-166** y **T-167**. Un solo ítem sin pasar basta para no declarar la app terminada.
+**FAIL.** The 10 failures from round 1 (T-150 to T-159) were fixed except for **one that is still broken** (T-151: the other machine's activity in step 4 does not reach the UI) and **a new one** was found (tray). Two fix tasks: **T-166** and **T-167**. A single failing item is enough not to declare the app finished.
 
-## Cómo se probó
+## How it was tested
 
-Mismo arnés que la ronda 1 (`docs/reports/acceptance/2026-11-18-b/harness/`): dos `tandemd` reales por loopback, un puente HTTP por máquina con el código real de la app, la UI de producción en Chromium con Playwright, anfitrión con dobles de motor de entrada, DDC y portapapeles, proxies UDP para cortar caminos, cliente MCP contra `tandem mcp`. Se corrió la tanda completa (`all.sh`), se rehicieron en parejas limpias las comprobaciones que dependían de la UI vieja y se añadieron las nuevas (`docs/reports/acceptance/2026-11-18-b2/harness/`). Pares: macOS+Windows, Windows+Windows y macOS+macOS (G2); modo demo con todas las rutas y variantes. Capturas en `docs/reports/acceptance/2026-11-18-b2/<flujo>/` (las de Túneles se quitaron: muestran la ruta del proyecto de prueba). Resultados crudos: `resultados.jsonl` (144 filas: 133 pasan, 2 fallan, 8 invalidadas con su nota: falsos negativos del arnés comprobados aparte).
+Same harness as round 1 (`docs/reports/acceptance/2026-11-18-b/harness/`): two real `tandemd` over loopback, one HTTP bridge per machine with the app's real code, the production UI in Chromium with Playwright, a host with doubles for the input engine, DDC and clipboard, UDP proxies to cut paths, MCP client against `tandem mcp`. The full batch was run (`all.sh`), the checks that depended on the old UI were redone on clean pairs and the new ones were added (`docs/reports/acceptance/2026-11-18-b2/harness/`). Pairs: macOS+Windows, Windows+Windows and macOS+macOS (G2); demo mode with all routes and variants. Screenshots in `docs/reports/acceptance/2026-11-18-b2/<flow>/` (the Tunnels ones were removed: they show the test project's path). Raw results: `results.jsonl` (144 rows: 133 pass, 2 fail, 8 invalidated with their note: harness false negatives checked separately).
 
-Límites del entorno (sin cambio respecto de la ronda 1): sin WebKitGTK, sin bandeja ni atajos globales del sistema, updater real sustituido por un doble, y todo lo `[hw]` (permisos reales de macOS, UAC, Wake-on-LAN real, DDC real, cruce con mouse real, arrastre de archivos con compositor real) queda para la suite T-123 o la lista de hardware pendiente de cada tarea. Los flujos F7 y F8 de arrastre se cubren con sus pruebas de integración con dobles.
+Environment limits (unchanged from round 1): no WebKitGTK, no tray or system global shortcuts, real updater replaced by a double, and everything `[hw]` (real macOS permissions, UAC, real Wake-on-LAN, real DDC, crossing with a real mouse, file drag with a real compositor) is left for the T-123 suite or each task's pending hardware list. The F7 and F8 drag flows are covered by their integration tests with doubles.
 
-## Las fallas de la ronda 1, vueltas a comprobar
+## Round 1 failures, checked again
 
-| Tarea | Qué se comprobó ahora | Resultado |
+| Task | What was checked now | Result |
 |---|---|---|
-| T-150 | «Probar cruce» habilitado; un cruce real del motor da «Cruzó a … por el borde derecho, como dice el acomodo» y «Continuar» se habilita; sin cruce, «No cruzó en 20 s»; el resumen dice «cruce probado»; Acomodo muestra 1920 × 1080 y 3440 × 1440, 21:9, 100 %; los 12 casos 4 lados × 3 alineaciones llegan a las dos máquinas y a `tandem.toml` (y el motor cruza por el borde nuevo, no por el viejo) | PASA |
-| T-151 | Una máquina sin hub ya no aparece con «Teclado y mouse» (PASA). **Pero** «Actividad detectada» de la otra máquina sigue sin llegar a la UI | **FALLA** → T-166 |
-| T-152 | «Salir del puesto» con confirmación: las dos quedan «sin emparejar» en 14 ms y `trust.toml` queda sin llaves | PASA |
-| T-153 | Recargar en Red deja «Medir ancho de banda» habilitado | PASA |
-| T-154 | Una ventana recién abierta o recargada muestra los túneles existentes (origen y otra máquina) | PASA |
-| T-155 | `files_put` de una credencial se omite con aviso («1 archivo(s) omitido(s) por parecer credenciales») | PASA |
-| T-156 | El asistente se abre solo en Windows; «Cerrar» mide 32 × 32, recibe el clic y cierra | PASA |
-| T-157 | «Bloquear aquí» bloquea (el cursor no cruza), la UI lo muestra, «Quitar el bloqueo» lo suelta; en la máquina que no manda explica por qué no | PASA |
-| T-158 | Túneles y Archivos con razones correctas; el resumen no dice «falta el cómputo remoto» | PASA |
-| T-159 | MAC de Wake-on-LAN editable en la página de la otra máquina y guardada en `tandem.toml`; el nombre del puesto se edita en Ajustes y la otra máquina lo ve (`desk_name` en las dos) | PASA |
+| T-150 | "Test crossing" enabled; a real engine crossing gives "Crossed to … through the right edge, as the arrangement says" and "Continue" is enabled; without a crossing, "Did not cross in 20 s"; the summary says "crossing tested"; Arrangement shows 1920 × 1080 and 3440 × 1440, 21:9, 100 %; the 12 cases 4 sides × 3 alignments reach both machines and `tandem.toml` (and the engine crosses through the new edge, not the old one) | PASS |
+| T-151 | A machine without a hub no longer appears with "Keyboard and mouse" (PASS). **But** "Activity detected" from the other machine still does not reach the UI | **FAIL** → T-166 |
+| T-152 | "Leave desk" with confirmation: both end up "unpaired" in 14 ms and `trust.toml` ends up without keys | PASS |
+| T-153 | Reloading on Network leaves "Measure bandwidth" enabled | PASS |
+| T-154 | A freshly opened or reloaded window shows the existing tunnels (origin and other machine) | PASS |
+| T-155 | `files_put` of a credential is skipped with a notice ("1 file(s) skipped because they looked like credentials") | PASS |
+| T-156 | Setup opens by itself on Windows; "Close" measures 32 × 32, receives the click and closes | PASS |
+| T-157 | "Lock here" locks (the cursor does not cross), the UI shows it, "Remove lock" releases it; on the machine that is not in control it explains why not | PASS |
+| T-158 | Tunnels and Files with correct reasons; the summary does not say "remote compute is missing" | PASS |
+| T-159 | Wake-on-LAN MAC editable on the other machine's page and saved in `tandem.toml`; the desk name is edited in Settings and the other machine sees it (`desk_name` on both) | PASS |
 
-## Veredicto por ítem de `docs/ACCEPTANCE.md`
+## Verdict per item of `docs/ACCEPTANCE.md`
 
-| Ítem | Veredicto | Tareas | Evidencia |
+| Item | Verdict | Tasks | Evidence |
 |---|---|---|---|
-| F1 Primer uso | **FALLA** | T-166 | Pasan: asistente solo en Windows, mismo código de 6 dígitos, código malo rechazado, emparejadas, paso 4 sin falsos positivos, paso 5 con cruce real, resumen, comando MCP copiado. Falla: actividad de la otra máquina en el paso 4 (`F1-asistente/04-actividad-otra.png`) |
-| F2 Acomodo | PASA | | F2-acomodo, F2-prueba-de-cruce-en-vivo |
-| F3 Escenas | PASA | | F3-escenas |
-| F4 Monitores | PASA | | F4-monitores · `[hw]` del 34" en T-123 |
-| F5 Túneles por MCP | PASA | | todos los pasos pasan, incluidos T-130, la UI recién abierta y `files_put` de credencial |
-| F6 Red | PASA | | F6-red |
-| F7 Teclado y mouse sin dueño | PASA | | tres comprobaciones |
-| F8 Portapapeles y archivos | PASA | | portapapeles texto/imagen A↔B; archivos con pruebas de integración |
-| F9 Configuración compartida y Deshacer | PASA | | F9-config-compartida |
-| F10 Energía | PASA | | F10-energia (la MAC se escribe desde la UI) |
-| F11 Módulos | PASA | | razones correctas |
-| F12 Ajustes y paleta | PASA | | todas las acciones y comandos; «Salir del puesto» y «Bloquear aquí» corregidos |
-| F13 Actualizaciones | PASA | | F13-actualizaciones, estados difíciles |
-| F14 Bandeja | **FALLA** | T-167 | Muestra el estado y aplica escenas, pero dice «1 túneles» y el conteo depende del sistema (`F14-bandeja/02-bandeja-con-tunel.png`) |
-| G2 Nada fijo a Mac/PC | **FALLA** | T-167 | Windows+Windows y macOS+macOS pasan en todas las pantallas y la paleta; la bandeja (`Tray.svelte`) pinta «macOS» o «N túneles» según el sistema (leído del código) |
-| G6 Cada elemento hace algo real | PASA | | barrido de botones: «Probar cruce» y «Medir» ya funcionan; los 6 «sin efecto» son la pestaña ya activa y el atajo fijo deshabilitado |
-| G7 / G8 Animaciones y movimiento reducido | no reevaluado | | no se repitió en esta ronda (la ronda 1 los dio por PASA); lo cubre la parte A |
-| G9 Consola sin errores / sin `{{`, `undefined`, `NaN` | PASA | | ninguna consola con errores en vivo; barrido demo (3 variantes × 12 rutas + 14 estados): sin hallazgos |
-| G10 Todo lo editable se edita desde la UI | PASA | | Wake-on-LAN y nombre del puesto |
+| F1 First use | **FAIL** | T-166 | Pass: setup by itself on Windows, same 6-digit code, bad code rejected, paired, step 4 without false positives, step 5 with a real crossing, summary, MCP command copied. Fails: the other machine's activity in step 4 (`F1-setup/04-activity-other.png`) |
+| F2 Arrangement | PASS | | F2-arrangement, F2-live-crossing-test |
+| F3 Scenes | PASS | | F3-scenes |
+| F4 Monitors | PASS | | F4-monitors · the 34" `[hw]` in T-123 |
+| F5 Tunnels through MCP | PASS | | all steps pass, including T-130, the freshly opened UI and `files_put` of a credential |
+| F6 Network | PASS | | F6-network |
+| F7 Keyboard and mouse without an owner | PASS | | three checks |
+| F8 Clipboard and files | PASS | | text/image clipboard A↔B; files with integration tests |
+| F9 Shared configuration and Undo | PASS | | F9-shared-config |
+| F10 Power | PASS | | F10-power (the MAC is typed from the UI) |
+| F11 Modules | PASS | | correct reasons |
+| F12 Settings and palette | PASS | | all actions and commands; "Leave desk" and "Lock here" fixed |
+| F13 Updates | PASS | | F13-updates, trouble states |
+| F14 Tray | **FAIL** | T-167 | Shows the state and applies scenes, but says "1 tunnels" and the count depends on the system (`F14-tray/02-tray-with-tunnel.png`) |
+| G2 Nothing fixed to Mac/PC | **FAIL** | T-167 | Windows+Windows and macOS+macOS pass on every screen and the palette; the tray (`Tray.svelte`) draws "macOS" or "N tunnels" depending on the system (read from the code) |
+| G6 Every element does something real | PASS | | button sweep: "Test crossing" and "Measure" now work; the 6 "no effect" ones are the already active tab and the disabled fixed shortcut |
+| G7 / G8 Animations and reduced motion | not re-evaluated | | not repeated in this round (round 1 gave them PASS); part A covers it |
+| G9 Console without errors / without `{{`, `undefined`, `NaN` | PASS | | no console with errors live; demo sweep (3 variants × 12 routes + 14 states): no findings |
+| G10 Everything editable is edited from the UI | PASS | | Wake-on-LAN and desk name |
 
-No evaluados aquí: P1–P15 y la similitud con los mockups (parte A), G1/G3–G5/G11 de calidad base (parte C) y H1–H5 (hardware). Cosas que se vieron y no se cuentan como falla: «Tamaño —» en Acomodo (el motor no lee el tamaño físico; documentado en T-150) y el nombre «s0» de las pantallas, que es el que da el motor simulado.
+Not evaluated here: P1–P15 and similarity with the mockups (part A), G1/G3–G5/G11 baseline quality (part C) and H1–H5 (hardware). Things that were seen and do not count as failures: "Size —" in Arrangement (the engine does not read the physical size; documented in T-150) and the name "s0" of the screens, which is the one the simulated engine gives.
 
-## Tareas de corrección
+## Fix tasks
 
-| Tarea | Falla | Flujo |
+| Task | Failure | Flow |
 |---|---|---|
-| T-166 | El IPC de `tandemd` nunca reenvía `AgentToUi::KeyProbe`: «Actividad detectada» de la otra máquina no llega a la UI | F1 |
-| T-167 | Bandeja: «1 túneles» y conteo por sistema operativo | F14, G2 |
+| T-166 | The `tandemd` IPC never forwards `AgentToUi::KeyProbe`: the other machine's "Activity detected" does not reach the UI | F1 |
+| T-167 | Tray: "1 tunnels" and a count per operating system | F14, G2 |
 
-## Reproducir
+## Reproduce
 
-Como en la ronda 1 (`docs/reports/acceptance/2026-11-18-b/harness/`), con `h.sh` y los scripts de `2026-11-18-b2/harness/` (`f2.mjs`, `f2cross.mjs`, `wiz5.mjs`, `aco.mjs`, `cerrar.mjs`, `g10.mjs`, `g10b.mjs`, `tray.mjs`, `f16.mjs`, `dbg3.mjs` para T-166). `ACC_RUN` tiene que ser una ruta corta (el socket de `tandemd` no admite más de 108 bytes). Nota de entorno: `pnpm install --frozen-lockfile` falla hoy con `fast-check@4.10.3` por la política de edad mínima (publicado el mismo día); se instaló con `--config.minimumReleaseAge=0`.
+As in round 1 (`docs/reports/acceptance/2026-11-18-b/harness/`), with `h.sh` and the scripts in `2026-11-18-b2/harness/` (`f2.mjs`, `f2cross.mjs`, `wiz5.mjs`, `aco.mjs`, `close.mjs`, `g10.mjs`, `g10b.mjs`, `tray.mjs`, `f16.mjs`, `dbg3.mjs` for T-166). `ACC_RUN` has to be a short path (the `tandemd` socket does not allow more than 108 bytes). Environment note: `pnpm install --frozen-lockfile` fails today with `fast-check@4.10.3` because of the minimum-age policy (published the same day); it was installed with `--config.minimumReleaseAge=0`.

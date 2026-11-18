@@ -1,11 +1,11 @@
-// Barrido: cada botón visible de cada pantalla (agente real) tiene que producir algún efecto observable.
+// Sweep: every visible button on every screen (real agent) must produce an observable effect.
 import { createRequire } from "node:module"; const require = createRequire(import.meta.url);
 import * as L from "./lib.mjs"; import { readFileSync } from "node:fs"; import { createHash } from "node:crypto";
 const tag = process.argv[2] ?? "host3"; const { m1, m2 } = L.attach(tag);
-const F = "G6-botones-con-efecto";
+const F = "G6-buttons-with-effect";
 const SKIP = /^(Salir|Confirmar|Desemparejar|Apagar|Cerrar)$/;
 const logLines = (m) => readFileSync(m.log, "utf8").split("\n").length;
-const routes = ["#/puesto", "#/tuneles", "#/monitores", "#/acomodo", "#/red", "#/maquina/a", "#/maquina/b", "#/ajustes", "#/ajustes:Atajos", "#/ajustes:Teclado y mouse", "#/ajustes:Actualizaciones", "#/ajustes:Avanzado", "#/estados"];
+const routes = ["#/desk", "#/tunnels", "#/monitors", "#/arrangement", "#/network", "#/machine/a", "#/machine/b", "#/settings", "#/settings:Shortcuts", "#/settings:Keyboard and mouse", "#/settings:Actualizaciones", "#/settings:Avanzado", "#/states"];
 const noEffect = [], tried = [];
 for (const r of routes) {
   const [hash, tab] = r.split(":");
@@ -20,14 +20,14 @@ for (const r of routes) {
     const dis = await el.isDisabled().catch(() => false);
     const snap = async () => JSON.stringify([createHash("md5").update(await L.text(p)).digest("hex"), await p.evaluate(() => location.hash), await p.locator("[role=dialog]").count(), logLines(m1) + logLines(m2), (await m1.calls()).length, await p.evaluate(() => document.querySelectorAll("[aria-checked=true],[aria-selected=true],[aria-pressed=true]").length + "|" + [...document.querySelectorAll("[aria-checked],[aria-selected],[aria-pressed]")].map(e => e.getAttribute("aria-checked") + e.getAttribute("aria-selected") + e.getAttribute("aria-pressed")).join(""))]);
     const before = await snap();
-    try { await el.click({ timeout: 3000, force: true }); } catch (e) { tried.push(`${r} «${b.t}»: no se pudo pulsar (${e.message.split("\n")[0]})`); continue; }
+    try { await el.click({ timeout: 3000, force: true }); } catch (e) { tried.push(`${r} «${b.t}»: could not be clicked (${e.message.split("\n")[0]})`); continue; }
     await L.sleep(900); const after = await snap();
-    tried.push(`${r} «${b.t}»${dis ? " [deshabilitado]" : ""}: ${before === after ? "SIN EFECTO" : "ok"}`);
-    if (before === after) noEffect.push(`${r} «${b.t}»${dis ? " (deshabilitado)" : ""}`);
+    tried.push(`${r} «${b.t}»${dis ? " [disabled]" : ""}: ${before === after ? "SIN EFECTO" : "ok"}`);
+    if (before === after) noEffect.push(`${r} «${b.t}»${dis ? " (disabled)" : ""}`);
   }
   await p.ctx.close();
 }
 console.log(tried.join("\n"));
 console.log("SIN EFECTO:", JSON.stringify(noEffect, null, 1));
-L.record(F, "cada botón visible de las pantallas en vivo produce un efecto observable", noEffect.filter((x) => !/deshabilitado/.test(x)).length === 0, noEffect.join(" ; "));
+L.record(F, "every visible button on the live screens produces an observable effect", noEffect.filter((x) => !/disabled/.test(x)).length === 0, noEffect.join(" ; "));
 await L.closeBrowser();

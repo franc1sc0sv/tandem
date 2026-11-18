@@ -1,5 +1,5 @@
-// Arnés de aceptación B: dos tandemd reales (--sim-backends) por loopback, un puente HTTP por máquina
-// (apps/tandem-ui/src-tauri/examples/acc_bridge.rs) y la UI de producción en Chromium con Playwright.
+// Acceptance harness B: two real tandemd (--sim-backends) over loopback, one HTTP bridge per machine
+// (apps/tandem-ui/src-tauri/examples/acc_bridge.rs) and the production UI in Chromium with Playwright.
 import { spawn, execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync, appendFileSync } from "node:fs";
@@ -37,7 +37,7 @@ export function record(flow, item, ok, detail = "") {
   console.log(`${ok ? "PASA " : "FALLA"} [${flow}] ${item}${detail ? " — " + detail : ""}`);
 }
 
-/** Una máquina: agente + puente. `os` es lo que declara su tandem.toml. */
+/** One machine: agent + bridge. `os` is what its tandem.toml declares. */
 export class Machine {
   constructor(tag, label, os, name, color) {
     this.tag = tag; this.label = label; this.os = os; this.name = name; this.color = color;
@@ -77,7 +77,7 @@ ${extra}`);
     this.proc.unref(); this.pid = this.proc.pid;
     return this.proc;
   }
-  /** Control del «mundo físico» (solo con anfitrión): una línea JSON, una respuesta. */
+  /** Control of the "physical world" (host only): one JSON line, one response. */
   async ctl(obj) {
     const { connect } = await import("node:net");
     return new Promise((res, rej) => { const s = connect(this.ctlPort, "127.0.0.1"); let b = ""; s.on("data", (d) => { b += d; if (b.includes("\n")) { s.end(); res(JSON.parse(b)); } }); s.on("error", rej); s.write(JSON.stringify(obj) + "\n"); });
@@ -90,7 +90,7 @@ ${extra}`);
     this.bridge = spawn(bin("examples/acc_bridge"), ["--port", String(this.bridgePort), "--static", join(WT, "apps/tandem-ui/dist"), ...extraArgs], { env, stdio: ["ignore", out, out], detached: true });
     this.bridge.unref(); this.bridgePid = this.bridge.pid;
     for (let i = 0; i < 100; i++) { try { const r = await fetch(`${this.origin}/__bridge/calls`); if (r.ok) return; } catch {} await sleep(100); }
-    throw new Error("el puente no arrancó: " + readFileSync(this.blog, "utf8"));
+    throw new Error("the bridge did not start: " + readFileSync(this.blog, "utf8"));
   }
   get origin() { return `http://127.0.0.1:${this.bridgePort}`; }
   async calls() { return (await fetch(`${this.origin}/__bridge/calls`)).json(); }
@@ -147,9 +147,9 @@ export async function getBrowser() {
 }
 export async function closeBrowser() { await browser?.close(); browser = undefined; }
 
-/** Abre la UI de una máquina (agente real por el puente) o el modo demo (`url` propia). */
+/** Opens a machine's UI (real agent through the bridge) or demo mode (own `url`). */
 export async function openUi(machine, { hash = "", query = "", viewport = { width: 1280, height: 860 }, reducedMotion = "no-preference" } = {}) {
-  const ctx = await (await getBrowser()).newContext({ viewport, locale: "es-ES", colorScheme: "dark", reducedMotion });
+  const ctx = await (await getBrowser()).newContext({ viewport, locale: "en-US", colorScheme: "dark", reducedMotion });
   await ctx.addInitScript(INIT);
   const page = await ctx.newPage();
   const errors = [];
@@ -161,7 +161,7 @@ export async function openUi(machine, { hash = "", query = "", viewport = { widt
 }
 
 export async function openDemo(origin, query, hash = "", viewport = { width: 1280, height: 860 }, reducedMotion = "no-preference") {
-  const ctx = await (await getBrowser()).newContext({ viewport, locale: "es-ES", colorScheme: "dark", reducedMotion });
+  const ctx = await (await getBrowser()).newContext({ viewport, locale: "en-US", colorScheme: "dark", reducedMotion });
   const page = await ctx.newPage();
   const errors = [];
   page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
@@ -181,7 +181,7 @@ export async function shot(page, flow, step) {
 export async function until(what, fn, ms = 15000, every = 100) {
   const t = Date.now(); let last;
   while (Date.now() - t < ms) { try { const v = await fn(); if (v) return v; } catch (e) { last = e; } await sleep(every); }
-  throw new Error(`tiempo agotado: ${what}${last ? " (" + last.message + ")" : ""}`);
+  throw new Error(`time timed-out: ${what}${last ? " (" + last.message + ")" : ""}`);
 }
 
 export const text = (page) => page.evaluate(() => document.body.innerText);
@@ -189,7 +189,7 @@ export const text = (page) => page.evaluate(() => document.body.innerText);
 export function saveInfo(tag, m1, m2) { writeFileSync(join(RUN, tag, "info.json"), JSON.stringify({ m1: m1.info(), m2: m2.info() })); }
 export function attach(tag) { const i = JSON.parse(readFileSync(join(RUN, tag, "info.json"), "utf8")); return { m1: Machine.fromInfo(i.m1), m2: Machine.fromInfo(i.m2) }; }
 
-/** Deja el acomodo en «A a la izquierda de B, centrado» y devuelve la geometría de cruce entre m1 y m2 según sus lados. */
+/** Leaves the arrangement as "A to the left of B, centered" and returns the crossing geometry between m1 and m2 according to their sides. */
 export async function geoLeftCenter(m1, m2) {
   await m1.act({ kind: "set_arrangement", a_side: "left", align: "center" }); await sleep(1500);
   const a1 = (await m1.snapshot()).agent;

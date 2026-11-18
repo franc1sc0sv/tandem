@@ -1,0 +1,206 @@
+[desk] sel n=1 area=7035 (0.6%)
+[desk] sel n=1 area=42000 (3.8%)
+   sel: a[href="F-AddHost.dc.html"].card
+   reason: D1: no "Add machine" card
+[desk-win-win] sel n=1 area=188246 (17.1%)
+   sel: div:has(> div[role="img"][aria-label^="To scale"])
+   reason: D2: the machines' color changes the desktops' background
+   under the mask (mockup): MacBook Pro 34" · PC-Desktop
+[progress-in-flight] sel n=1 area=12888 (1.2%)
+   sel: section.card:nth-of-type(1) > div:last-of-type
+   reason: Simulate…: mockup-only buttons
+   under the mask (mockup): Simulate success Simulate failure
+[progress-in-flight] sel n=1 area=12888 (1.2%)
+   sel: section.card:nth-of-type(2) > div:last-of-type
+   reason: Stop waiting: no cancel command in the IPC, not shown
+   under the mask (mockup): Stop waiting
+[progress-in-flight] rect n=1 area=1980 (0.2%)
+   sel: {"x":236,"y":228,"width":90,"height":22}
+   reason: "of the MacBook": the app uses the machine's real name
+   under the mask (mockup): Mouse: take the 34" off the MacBook
+[progress-success] sel n=1 area=12888 (1.2%)
+   sel: section.card:nth-of-type(1) > div:last-of-type
+   reason: Simulate…: mockup-only buttons
+   under the mask (mockup): Simulate success Simulate failure
+[progress-success] sel n=1 area=12888 (1.2%)
+   sel: section.card:nth-of-type(2) > div:last-of-type
+   reason: Stop waiting: no cancel command in the IPC, not shown
+   under the mask (mockup): Stop waiting
+[progress-success] rect n=1 area=1980 (0.2%)
+   sel: {"x":236,"y":228,"width":90,"height":22}
+   reason: "of the MacBook": the app uses the machine's real name
+   under the mask (mockup): Mouse: take the 34" off the MacBook
+[progress-rollback] sel n=1 area=12888 (1.2%)
+   sel: section.card:nth-of-type(1) > div:last-of-type
+   reason: Simulate…: mockup-only buttons
+   under the mask (mockup): Simulate success Simulate failure
+[progress-rollback] sel n=1 area=12888 (1.2%)
+   sel: section.card:nth-of-type(2) > div:last-of-type
+   reason: Stop waiting: no cancel command in the IPC, not shown
+   under the mask (mockup): Stop waiting
+[crossing] sel n=1 area=4488 (0.4%)
+   sel: button.sim:has-text("Simulate crossing")
+   reason: "Simulate crossing" is mockup-only
+   under the mask (mockup): Simulate crossing
+[crossing] sel n=1 area=6018 (0.5%)
+   sel: button.sim:has-text("no crossing")
+   reason: "Simulate no crossing" is mockup-only
+   under the mask (mockup): Simulate no crossing
+[setup-permissions-one] rect n=1 area=8000 (0.7%)
+   sel: {"x":775,"y":770,"width":200,"height":40}
+   reason: F-Setup3: "1 missing" and "Restart agent" (app only)
+   under the mask (mockup): 1 missing
+[setup-arrangement] rect n=1 area=8400 (0.8%)
+   sel: {"x":10,"y":138,"width":140,"height":60}
+   reason: F-Setup5: the current step leaves the flow because of the duplicated .cur class
+   under the mask (mockup): ✓ ¦ Your desk ¦ ✓ ¦ Permissions ¦ 5 ¦ Arrangement and crossing test
+[setup-arrangement] rect n=1 area=28200 (2.6%)
+   sel: {"x":0,"y":258,"width":300,"height":94}
+   reason: F-Setup5: "Done" moves up 44 px in the mockup because of the duplicated .cur class
+   under the mask (mockup): 6 ¦ Done
+[setup-arrangement] rect n=1 area=32000 (2.9%)
+   sel: {"x":350,"y":106,"width":640,"height":50}
+   reason: F-Setup5: the text names the desk's machines, not "the MacBook" and "the PC"
+   under the mask (mockup): This is the arrangement Tandem read. Drag if it does not match your desktop and test: move the mouse from the MacBook to the PC through the marked edge.
+[setup-arrangement-waiting] rect n=1 area=8400 (0.8%)
+   sel: {"x":10,"y":138,"width":140,"height":60}
+   reason: F-Setup5: the current step leaves the flow because of the duplicated .cur class
+   under the mask (mockup): ✓ ¦ Your desk ¦ ✓ ¦ Permissions ¦ 5 ¦ Arrangement and crossing test
+[setup-arrangement-waiting] rect n=1 area=28200 (2.6%)
+   sel: {"x":0,"y":258,"width":300,"height":94}
+   reason: F-Setup5: "Done" moves up 44 px in the mockup because of the duplicated .cur class
+   under the mask (mockup): 6 ¦ Done
+[setup-arrangement-waiting] rect n=1 area=32000 (2.9%)
+   sel: {"x":350,"y":106,"width":640,"height":50}
+   reason: F-Setup5: the text names the desk's machines, not "the MacBook" and "the PC"
+   under the mask (mockup): This is the arrangement Tandem read. Drag if it does not match your desktop and test: move the mouse from the MacBook to the PC through the marked edge.
+[setup-arrangement-waiting] rect n=1 area=17600 (1.6%)
+   sel: {"x":350,"y":482,"width":440,"height":40}
+   reason: F-Setup5: the verdict names the desk's machines
+   under the mask (mockup): Waiting for the crossing through the MacBook's right edge… ¦ 20 s
+[setup-arrangement-waiting] sel n=1 area=5040 (0.5%)
+   sel: button.sim:has-text("Simulate crossing")
+   reason: "Simulate crossing" is mockup-only
+   under the mask (mockup): Simulate crossing
+[setup-arrangement-waiting] sel n=1 area=6048 (0.5%)
+   sel: button.sim:has-text("Simulate another edge")
+   reason: "Simulate another edge" is mockup-only
+   under the mask (mockup): Simulate another edge
+[setup-arrangement-crossed] rect n=1 area=8400 (0.8%)
+   sel: {"x":10,"y":138,"width":140,"height":60}
+   reason: F-Setup5: the current step leaves the flow because of the duplicated .cur class
+   under the mask (mockup): ✓ ¦ Your desk ¦ ✓ ¦ Permissions ¦ 5 ¦ Arrangement and crossing test
+[setup-arrangement-crossed] rect n=1 area=28200 (2.6%)
+   sel: {"x":0,"y":258,"width":300,"height":94}
+   reason: F-Setup5: "Done" moves up 44 px in the mockup because of the duplicated .cur class
+   under the mask (mockup): 6 ¦ Done
+[setup-arrangement-crossed] rect n=1 area=32000 (2.9%)
+   sel: {"x":350,"y":106,"width":640,"height":50}
+   reason: F-Setup5: the text names the desk's machines, not "the MacBook" and "the PC"
+   under the mask (mockup): This is the arrangement Tandem read. Drag if it does not match your desktop and test: move the mouse from the MacBook to the PC through the marked edge.
+[setup-arrangement-other-edge] rect n=1 area=8400 (0.8%)
+   sel: {"x":10,"y":138,"width":140,"height":60}
+   reason: F-Setup5: the current step leaves the flow because of the duplicated .cur class
+   under the mask (mockup): ✓ ¦ Your desk ¦ ✓ ¦ Permissions ¦ 5 ¦ Arrangement and crossing test
+[setup-arrangement-other-edge] rect n=1 area=28200 (2.6%)
+   sel: {"x":0,"y":258,"width":300,"height":94}
+   reason: F-Setup5: "Done" moves up 44 px in the mockup because of the duplicated .cur class
+   under the mask (mockup): 6 ¦ Done
+[setup-arrangement-other-edge] rect n=1 area=32000 (2.9%)
+   sel: {"x":350,"y":106,"width":640,"height":50}
+   reason: F-Setup5: the text names the desk's machines, not "the MacBook" and "the PC"
+   under the mask (mockup): This is the arrangement Tandem read. Drag if it does not match your desktop and test: move the mouse from the MacBook to the PC through the marked edge.
+[network] sel n=1 area=7035 (0.6%)
+[network] sel n=1 area=1425 (0.1%)
+   sel: span.mut:has-text("Latency · 10 min")
+   reason: T-102: the chart is 60 s (DESIGN §6), not 10 min
+   under the mask (mockup): Latency · 10 min
+[machine-b] sel n=1 area=7035 (0.6%)
+[machine-a] sel n=6 area=7318 (0.7%)
+   sel: .mod > :last-child
+   reason: G4: the module state is the uniform chip (switch)
+   under the mask (mockup): active ¦ Open settings ¦ active ¦ on hold ¦ partial ¦ active
+[settings] sel n=1 area=7514 (0.7%)
+   sel: .pane > .row:nth-child(1) > input
+   reason: The desk name is text: the mockup's editable field has no function here (§3.8)
+   under the mask (mockup): 
+[settings] sel n=1 area=5100 (0.5%)
+   sel: button.danger:has-text("Remove from desk")
+   reason: D1: no "Remove from desk" (exactly two machines)
+   under the mask (mockup): Remove from desk
+[settings] sel n=1 area=1156 (0.1%)
+   sel: .pane > .row:nth-child(3) > button.ic
+   reason: Without "Remove from desk" beside it, the other machine's pencil falls on the row's right edge
+   under the mask (mockup): 
+[settings] sel n=1 area=9664 (0.9%)
+   sel: .pane > .row:nth-child(4) > span
+   reason: D1: "Change the other machine" instead of "Add a machine"
+   under the mask (mockup): Add a machine
+[settings] sel n=1 area=4828 (0.4%)
+   sel: .pane > .row:nth-child(4) > a.btn
+   reason: D1: "Pair again" instead of "Show code"
+   under the mask (mockup): Show code
+[settings-advanced] sel n=1 area=9536 (0.9%)
+   sel: .pane > .row:nth-child(3) .mono
+   reason: The agent does not count MCP server sessions yet
+   under the mask (mockup): tandem mcp · 2 sessions connected
+[palette] sel n=1 area=64 (0.0%)
+   sel: section[role="dialog"] .it:has-text("Trabajo") > span:first-child
+   reason: Real data: the dot's color is that of the machine the scene shows
+   under the mask (mockup): 
+[palette] sel n=1 area=26376 (2.4%)
+   sel: section[role="dialog"] .it:has(span:text-is("Aplicar «Only PC»"))
+   reason: Real data: the desk's scenes
+   under the mask (mockup): Apply "Only PC" ⌃⌥3
+[palette] sel n=1 area=26376 (2.4%)
+   sel: section[role="dialog"] .it:has(span:text-is("Add machine…"))
+   reason: D1: there is no third machine; the other one is changed
+   under the mask (mockup): Add machine…
+[palette] sel n=1 area=26376 (2.4%)
+   sel: section[role="dialog"] .it:has(span:text-is("Go to tunnel "ia-local""))
+   reason: Real data: the desk's tunnels
+   under the mask (mockup): Go to tunnel "ia-local" Mac → PC · active
+[palette] sel n=1 area=26376 (2.4%)
+   sel: section[role="dialog"] .it:has(span:text-is("Go to tunnel "tandem""))
+   reason: Real data: the desk's tunnels
+   under the mask (mockup): Go to tunnel "tandem" Mac → PC · active
+[palette] sel n=1 area=17584 (1.6%)
+   sel: section[role="dialog"] .grp:text-is("Ir a")
+   reason: Real tunnels push the following groups
+   under the mask (mockup): GO TO
+[palette] sel n=1 area=26376 (2.4%)
+   sel: section[role="dialog"] .it:has(span:text-is("Monitors"))
+   reason: Real tunnels push the following rows
+   under the mask (mockup): Monitors
+[palette] sel n=1 area=26376 (2.4%)
+   sel: section[role="dialog"] .it:has(span:text-is("Red"))
+   reason: Real tunnels push the following rows
+   under the mask (mockup):Network
+[states] sel n=1 area=7068 (0.6%)
+   sel: button.btn:has-text("Send over Wi-Fi anyway")
+   reason: The agent has no "send over Wi-Fi anyway": no function, no button
+   under the mask (mockup): Send over Wi-Fi anyway
+[tray] sel n=1 area=1470 (0.6%)
+   sel: .mono.mut:has-text("USB-C")
+   reason: Real data: the link and its latency
+   under the mask (mockup): USB-C · 0.4 ms
+[tray] sel n=2 area=1395 (0.6%)
+   sel: .row > b + .mut
+   reason: Real data: the state of each machine
+   under the mask (mockup): macOS ¦ 2 tunnels
+[tray] sel n=2 area=693 (0.3%)
+   sel: .row .bar
+   reason: Real data: the load of each machine
+   under the mask (mockup):  ¦ 
+[tray] sel n=1 area=4507 (2.0%)
+   sel: .sc:nth-child(3)
+   reason: Real data: the desk's scenes
+   under the mask (mockup): Only PC
+[tray] sel n=1 area=40600 (17.8%)
+   sel: div[style*="gap:2px"]
+   reason: Real data: the open tunnels (one row per project, with the machines' real names)
+   under the mask (mockup): ia-local Mac → PC · active tandem Mac → PC · active notes PC → Mac · inactive
+[tray] sel n=1 area=3968 (1.7%)
+   sel: .lnk:has-text("Lock here")
+   reason: Without the action in the IPC there is no button (T-112, G6)
+   under the mask (mockup): Lock here

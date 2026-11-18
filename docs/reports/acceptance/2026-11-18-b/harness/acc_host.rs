@@ -1,10 +1,10 @@
-//! Anfitrión de aceptación: un `tandemd` real (red QUIC, orquestador, IPC) con los dobles de
-//! prueba que `--sim-backends` no trae: motor de entrada con backends falsos, monitores con el bus
-//! falso de `monitor-ddc` y el sistema operativo declarado. Un puerto de control (TCP, JSON por
-//! línea) hace de «mundo físico»: mover el mouse, conectar el hub, agregar o apagar monitores.
+//! Acceptance host: a real `tandemd` (QUIC network, orchestrator, IPC) with the test doubles
+//! that `--sim-backends` does not bring: input engine with fake backends, monitors with the fake
+//! `monitor-ddc` bus and the declared operating system. A control port (TCP, JSON per
+//! line) acts as the "physical world": move the mouse, plug in the hub, add or power off monitors.
 //!
-//! Uso: `acc_host --os mac|windows --control PORT [--screen WxH]...` (con `--config`/`--data-dir`
-//! o los directorios estándar, como `tandemd`). Se compila con `--features sim-backends`.
+//! Usage: `acc_host --os mac|windows --control PORT [--screen WxH]...` (with `--config`/`--data-dir`
+//! or the standard directories, like `tandemd`). Built with `--features sim-backends`.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
@@ -188,7 +188,7 @@ fn main() -> anyhow::Result<()> {
                 let (w, h) = s.split_once('x').context("WxH")?;
                 screens.push((w.parse::<u32>()?, h.parse::<u32>()?));
             }
-            other => anyhow::bail!("opción desconocida {other}"),
+            other => anyhow::bail!("unknown option {other}"),
         }
     }
     if screens.is_empty() {

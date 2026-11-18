@@ -1,6 +1,6 @@
 import * as L from "./lib.mjs";
-const { m1, m2 } = L.attach(process.argv[2] ?? "win2"); const F = "F1-asistente";
-const wiz = (p) => p.locator('[role=dialog][aria-label=Asistente]');
+const { m1, m2 } = L.attach(process.argv[2] ?? "win2"); const F = "F1-setup";
+const wiz = (p) => p.locator('[role=dialog][aria-label=Setup]');
 const step = (p, s) => p.locator("aside[aria-label=Pasos] button", { hasText: s }).click();
 async function entered(src, dst, [x, y, dx, dy], tries = 25) {
   for (let i = 0; i < tries; i++) {
@@ -13,25 +13,25 @@ async function entered(src, dst, [x, y, dx, dy], tries = 25) {
 }
 try {
   const g = await L.geoLeftCenter(m1, m2);
-  const p = await L.openUi(m1, { hash: "#/ajustes" }); await L.sleep(1000);
-  await p.getByRole("button", { name: /Abrir/ }).first().click();
+  const p = await L.openUi(m1, { hash: "#/settings" }); await L.sleep(1000);
+  await p.getByRole("button", { name: /Open/ }).first().click();
   await L.until("w", async () => (await wiz(p).count()) === 1);
-  await step(p, "Acomodo y prueba de cruce"); await L.sleep(1200);
+  await step(p, "Arrangement and crossing test"); await L.sleep(1200);
   const t5 = (await wiz(p).locator("main").innerText()).replace(/\n+/g, " | ");
   console.log("PASO5:", t5.slice(0, 900));
-  L.record(F, "paso 5: el acomodo muestra resolución, proporción y escala reales de las pantallas", /1920/.test(t5) && /3440/.test(t5) && !/—/.test(t5.replace(/Tamaño[^|]*\|[^|]*—/, "")), t5.slice(0, 300));
-  await L.shot(p, F, "10-paso5");
-  await wiz(p).getByRole("button", { name: /Probar cruce/ }).click(); await L.sleep(1200);
+  L.record(F, "step 5: the arrangement shows the real resolution, aspect ratio and scale of the screens", /1920/.test(t5) && /3440/.test(t5) && !/—/.test(t5.replace(/Size[^|]*\|[^|]*—/, "")), t5.slice(0, 300));
+  await L.shot(p, F, "10-step5");
+  await wiz(p).getByRole("button", { name: /Test crossing/ }).click(); await L.sleep(1200);
   const ok = await entered(m1, m2, g.m1m2); await L.sleep(1800);
   const t5b = (await wiz(p).locator("main").innerText()).replace(/\n+/g, " | ");
   const cont = wiz(p).getByRole("button", { name: /Continuar/ });
   const enabled = await cont.isEnabled();
-  L.record(F, "paso 5: un cruce real pasa la prueba y habilita «Continuar»", ok && /Cruzó bien/.test(t5b) && enabled, `cruce=${ok} continuar=${enabled}; ${t5b.slice(0, 300)}`);
-  await L.shot(p, F, "11-paso5-cruzo");
-  await step(p, "Listo"); await L.sleep(800);
+  L.record(F, "step 5: a real crossing passes the test and enables \"Continue\"", ok && /Crossed OK/.test(t5b) && enabled, `crossing=${ok} continue=${enabled}; ${t5b.slice(0, 300)}`);
+  await L.shot(p, F, "11-step5-crossed");
+  await step(p, "Done"); await L.sleep(800);
   const t6 = (await wiz(p).locator("main").innerText()).replace(/\n+/g, " | ");
-  L.record(F, "resumen: dice «cruce probado» tras el cruce real", /cruce probado/i.test(t6) && !/cruce sin probar/.test(t6), t6.slice(0, 400));
-  await L.shot(p, F, "12-resumen");
+  L.record(F, "summary: says \"crossing tested\" after the real crossing", /crossing tested/i.test(t6) && !/crossing not tested/.test(t6), t6.slice(0, 400));
+  await L.shot(p, F, "12-summary");
   console.log(p.errors);
   await L.closeBrowser();
 } catch (e) { console.log("ERROR", e); await L.closeBrowser(); }
