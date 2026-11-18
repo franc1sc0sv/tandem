@@ -24,24 +24,24 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      # Higiene del repo público (T-162) y comentarios SAFETY (T-165) y estado de tareas (T-193).
+      # Public repo hygiene (T-162), SAFETY comments (T-165) and task status (T-193).
       - if: runner.os == 'Linux'
         env:
           PRIVACY_PATTERNS: ${{ secrets.PRIVACY_PATTERNS }}
-        run: scripts/ci/privacidad.sh && scripts/ci/safety.sh && scripts/ci/tasks.sh
+        run: scripts/ci/privacy.sh && scripts/ci/safety.sh && scripts/ci/tasks.sh
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets
       - name: cargo test
         timeout-minutes: 20
         run: cargo test --workspace
-      # Scripts del workflow de release (notas y versión); bash 4+, por eso solo en Linux.
+      # Release workflow scripts (notes and version); bash 4+, hence Linux only.
       - if: runner.os == 'Linux'
         run: scripts/release/test.sh
 
-  # La app de Tauri (feature `app`) se compila aparte, con el frontend ya construido
-  # (`frontendDist`), en los tres sistemas: la barra de menú (macOS), la bandeja (Windows) y
-  # los atajos globales tienen código propio de cada uno. En Linux necesita WebKitGTK. La
-  # lógica portable de tandem-ui ya corre en la matriz de arriba.
+  # The Tauri app (feature `app`) is built separately, with the frontend already built
+  # (`frontendDist`), on all three systems: the menu bar (macOS), the tray (Windows) and
+  # the global shortcuts each have their own code. On Linux it needs WebKitGTK. The
+  # portable logic of tandem-ui already runs in the matrix above.
   ui:
     name: ui (${{ matrix.os }})
     strategy:
@@ -55,7 +55,7 @@ jobs:
         working-directory: apps/tandem-ui
     steps:
       - uses: actions/checkout@v4
-      - name: Dependencias de sistema de Tauri
+      - name: Tauri system dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
@@ -81,13 +81,13 @@ jobs:
       - run: cargo clippy -p tandem-ui --features app --all-targets
       - run: cargo build -p tandem-ui --features app
 
-  # Mockups de v0.3 (T-125): renderiza mockups/v03 con el support.js propio en Chromium
-  # headless, prueba el renderizador y la comparación de capturas, y sube las capturas (cada
-  # mockup y cada estado con nombre) como artefacto. Al final las compara con las de
-  # docs/mockups-png: la captura es determinista en una máquina (sin red, fuentes empaquetadas,
-  # Chromium fijado por el lockfile y sin partial raster) y entre máquinas solo puede variar
-  # dentro de la tolerancia de compare(), así que si baja de 0.999 es que un mockup cambió sin regenerarlas
-  # (`pnpm mockups:shot`); las diferencias quedan en el artefacto `mockups-diff`.
+  # v0.3 mockups (T-125): renders mockups/v03 with the project's own support.js in headless
+  # Chromium, tests the renderer and the screenshot comparison, and uploads the screenshots (each
+  # mockup and each named state) as an artifact. At the end it compares them with those in
+  # docs/mockups-png: the capture is deterministic on one machine (no network, bundled fonts,
+  # Chromium pinned by the lockfile and no partial raster) and across machines it can only vary
+  # within compare()'s tolerance, so if it drops below 0.999 a mockup changed without regenerating them
+  # (`pnpm mockups:shot`); the differences are left in the `mockups-diff` artifact.
   mockups:
     name: ui (mockups)
     runs-on: ubuntu-latest
@@ -109,32 +109,32 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm check
       - run: pnpm test
-      - name: Capturas
+      - name: Screenshots
         run: pnpm mockups:shot --out "$RUNNER_TEMP/mockups-png"
       - uses: actions/upload-artifact@v4
         with:
           name: mockups-png
           path: ${{ runner.temp }}/mockups-png
           if-no-files-found: error
-      - name: Comparar con docs/mockups-png
-        id: comparar
+      - name: Compare with docs/mockups-png
+        id: compare
         run: |
           set -o pipefail
           node src/cli/compare.ts --dirs ../../docs/mockups-png "$RUNNER_TEMP/mockups-png" \
             --min 0.999 --diff-dir "$RUNNER_TEMP/mockups-diff" | tee -a "$GITHUB_STEP_SUMMARY"
-      - if: failure() && steps.comparar.outcome == 'failure'
+      - if: failure() && steps.compare.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: mockups-diff
           path: ${{ runner.temp }}/mockups-diff
 
-  # Capturas de la app (T-112): construye el modo demo, toma cada pantalla en Chromium
-  # headless igual que los mockups (sin red, fuentes empaquetadas) y la compara con
-  # docs/mockups-png. Falla si la barra lateral no llega a la similitud pedida (≥ 0.99, peor
-  # cuadro ≥ 0.97) o si una pantalla muestra errores; las capturas y las diferencias quedan
-  # como artefactos.
-  capturas:
-    name: ui (capturas)
+  # App screenshots (T-112): builds the demo mode, takes each screen in headless Chromium
+  # like the mockups (no network, bundled fonts) and compares it with
+  # docs/mockups-png. Fails if the sidebar does not reach the required similarity (>= 0.99, worst
+  # tile >= 0.97) or if a screen shows errors; the screenshots and the differences are left
+  # as artifacts.
+  screenshots:
+    name: ui (screenshots)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -157,19 +157,19 @@ jobs:
         working-directory: apps/tandem-ui
       - run: pnpm check:scripts
         working-directory: apps/tandem-ui
-      - name: Capturas y comparación
+      - name: Screenshots and comparison
         working-directory: apps/tandem-ui
         run: |
           set -o pipefail
           pnpm shots --check --diff-dir "$RUNNER_TEMP/app-diff" | tee -a "$GITHUB_STEP_SUMMARY"
-      # Las capturas versionadas deben ser las de la app actual (T-172): si regenerar las cambia,
-      # hay que correr `pnpm shots` en apps/tandem-ui y commitear docs/screenshots/v03.
-      - name: Capturas versionadas al día
+      # The versioned screenshots must be those of the current app (T-172): if regenerating them changes them,
+      # run `pnpm shots` in apps/tandem-ui and commit docs/screenshots/v03.
+      - name: Versioned screenshots up to date
         run: |
-          estado="$(git status --porcelain -- docs/screenshots/v03)"
-          if [ -n "$estado" ]; then
-            echo "docs/screenshots/v03 está desactualizado; corre 'pnpm shots' y commitea:"
-            echo "$estado"
+          state="$(git status --porcelain -- docs/screenshots/v03)"
+          if [ -n "$state" ]; then
+            echo "docs/screenshots/v03 is out of date; run 'pnpm shots' and commit:"
+            echo "$state"
             exit 1
           fi
       - if: always()
@@ -180,8 +180,8 @@ jobs:
             docs/screenshots/v03
             ${{ runner.temp }}/app-diff
 
-  # El instalador de macOS (T-070): Tandem.app con tandemd dentro y el .dmg, firmados ad-hoc
-  # (sin secretos en CI). El script además comprueba el sidecar, el Info.plist y la firma.
+  # The macOS installer (T-070): Tandem.app with tandemd inside and the .dmg, signed ad-hoc
+  # (no secrets in CI). The script also checks the sidecar, the Info.plist and the signature.
   bundle-macos:
     name: dmg (macos-latest)
     runs-on: macos-latest
@@ -209,10 +209,10 @@ jobs:
           path: target/*-apple-darwin/release/bundle/dmg/Tandem_*.dmg
           if-no-files-found: error
 
-  # Instalador NSIS de Windows (T-071): lo construye, lo sube como artefacto y lo prueba de
-  # punta a punta (instalar, arranque con la sesión, reinstalar, desinstalar) en el runner.
+  # Windows NSIS installer (T-071): builds it, uploads it as an artifact and tests it end to
+  # end (install, startup with the session, reinstall, uninstall) on the runner.
   installer-windows:
-    name: instalador (windows)
+    name: installer (windows)
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -231,7 +231,7 @@ jobs:
           key: installer
       - run: pnpm install --frozen-lockfile
         working-directory: apps/tandem-ui
-      - name: Construir el instalador
+      - name: Build the installer
         id: build
         shell: pwsh
         run: ./tools/windows/installer/build-installer.ps1
@@ -240,13 +240,13 @@ jobs:
           name: tandem-windows-installer
           path: target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error
-      - name: Probar instalar y desinstalar
+      - name: Test install and uninstall
         shell: pwsh
         run: ./tools/windows/installer/test-installer.ps1 -Installer "${{ steps.build.outputs.installer }}"
 
-  # Informativo: no bloquea el merge. Objetivo ≥ 80 % en los crates portables (docs/TESTING.md).
+  # Informational: does not block the merge. Target >= 80 % on the portable crates (docs/TESTING.md).
   coverage:
-    name: cobertura
+    name: coverage
     runs-on: ubuntu-latest
     timeout-minutes: 30
     continue-on-error: true
@@ -259,12 +259,12 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - run: cargo llvm-cov --workspace --lcov --output-path lcov.info
       - run: cargo llvm-cov report --html --output-dir coverage
-      - name: Resumen en la página del job
+      - name: Summary on the job page
         run: |
           { echo '```'; cargo llvm-cov report --summary-only; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
-          name: cobertura
+          name: coverage
           path: |
             lcov.info
             coverage/html

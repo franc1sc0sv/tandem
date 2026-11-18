@@ -1,38 +1,38 @@
-# Construye el instalador NSIS de Tandem (Tandem_<version>_x64-setup.exe) con tandemd.exe y
-# tandemw.exe como sidecars. Ver docs/dev/install-windows.md.
+# Builds the Tandem NSIS installer (Tandem_<version>_x64-setup.exe) with tandemd.exe and
+# tandemw.exe as sidecars. See docs/dev/install-windows.md.
 #
-# Uso (PowerShell 7, desde cualquier carpeta, con pnpm y Rust en el PATH):
+# Usage (PowerShell 7, from any folder, with pnpm and Rust on the PATH):
 #   pwsh tools/windows/installer/build-installer.ps1
 #
-# Firma Authenticode opcional (si no hay ninguna variable, el instalador sale sin firmar):
-#   TANDEM_WINDOWS_CERT_THUMBPRINT  huella SHA-1 de un certificado del almacen del usuario
-#   TANDEM_WINDOWS_TIMESTAMP_URL    servidor de sellado de tiempo (por omision, el de DigiCert)
-#   TANDEM_WINDOWS_SIGN_COMMAND     orden propia de firma; "%1" es el archivo a firmar
-#                                   (por ejemplo, Azure Trusted Signing). Gana sobre la huella.
+# Optional Authenticode signing (if no variable is set, the installer comes out unsigned):
+#   TANDEM_WINDOWS_CERT_THUMBPRINT  SHA-1 thumbprint of a certificate in the user store
+#   TANDEM_WINDOWS_TIMESTAMP_URL    timestamp server (DigiCert's by default)
+#   TANDEM_WINDOWS_SIGN_COMMAND     custom signing command; "%1" is the file to sign
+#                                   (for example, Azure Trusted Signing). Wins over the thumbprint.
 #
-# Paquete del updater (T-122): con TANDEM_UPDATER_ARTIFACTS=1 tambien deja la firma minisign
-# del instalador (<instalador>.sig) para latest.json. Necesita TAURI_SIGNING_PRIVATE_KEY (y
-# TAURI_SIGNING_PRIVATE_KEY_PASSWORD si la llave tiene clave); ver docs/dev/release.md.
+# Updater package (T-122): with TANDEM_UPDATER_ARTIFACTS=1 it also leaves the minisign signature
+# of the installer (<installer>.sig) for latest.json. It needs TAURI_SIGNING_PRIVATE_KEY (and
+# TAURI_SIGNING_PRIVATE_KEY_PASSWORD if the key has a password); see docs/dev/release.md.
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
 function Invoke-Checked([string]$what, [scriptblock]$block) {
     & $block
-    if ($LASTEXITCODE -ne 0) { throw "$what fallo (codigo $LASTEXITCODE)" }
+    if ($LASTEXITCODE -ne 0) { throw "$what failed (code $LASTEXITCODE)" }
 }
 
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $ui = Join-Path $repo 'apps\tandem-ui'
 $srcTauri = Join-Path $ui 'src-tauri'
 
-# Los sidecars de Tauri llevan el triple del destino en el nombre; al instalarse se les quita.
+# Tauri sidecars carry the target triple in the name; it is stripped on install.
 $hostLine = (rustc -vV | Select-String '^host: ').Line
 $triple = $hostLine.Substring('host: '.Length).Trim()
 
 Push-Location $repo
 try {
-    Invoke-Checked 'cargo build de tandemd' { cargo build --release -p tandemd --bins }
+    Invoke-Checked 'cargo build of tandemd' { cargo build --release -p tandemd --bins }
 } finally {
     Pop-Location
 }
@@ -45,9 +45,9 @@ foreach ($name in 'tandemd', 'tandemw') {
 
 $configs = @((Join-Path $srcTauri 'windows\installer.conf.json'))
 if ($env:TANDEM_UPDATER_ARTIFACTS -eq '1') {
-    if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw 'TANDEM_UPDATER_ARTIFACTS=1 necesita TAURI_SIGNING_PRIVATE_KEY (docs/dev/release.md)' }
+    if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw 'TANDEM_UPDATER_ARTIFACTS=1 needs TAURI_SIGNING_PRIVATE_KEY (docs/dev/release.md)' }
     $configs += (Join-Path $srcTauri 'tauri.updater.json')
-    Write-Host 'Con paquete firmado del updater'
+    Write-Host 'With signed updater package'
 }
 $signing = $null
 if ($env:TANDEM_WINDOWS_SIGN_COMMAND) {
@@ -64,9 +64,9 @@ if ($signing) {
     $signConfig = Join-Path ([IO.Path]::GetTempPath()) 'tandem-sign.conf.json'
     @{ bundle = @{ windows = $signing } } | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8 $signConfig
     $configs += $signConfig
-    Write-Host 'Firma Authenticode activada'
+    Write-Host 'Authenticode signing enabled'
 } else {
-    Write-Host 'Sin firma Authenticode (no hay TANDEM_WINDOWS_CERT_THUMBPRINT ni TANDEM_WINDOWS_SIGN_COMMAND)'
+    Write-Host 'No Authenticode signing (neither TANDEM_WINDOWS_CERT_THUMBPRINT nor TANDEM_WINDOWS_SIGN_COMMAND is set)'
 }
 
 $configArgs = @()
@@ -81,6 +81,6 @@ try {
 
 $installer = Get-ChildItem (Join-Path $repo 'target\release\bundle\nsis\*-setup.exe') |
     Sort-Object LastWriteTime -Descending | Select-Object -First 1
-if (-not $installer) { throw 'tauri build no dejo ningun instalador en target\release\bundle\nsis' }
-Write-Host "Instalador: $($installer.FullName)"
+if (-not $installer) { throw 'tauri build left no installer in target\release\bundle\nsis' }
+Write-Host "Installer: $($installer.FullName)"
 if ($env:GITHUB_OUTPUT) { "installer=$($installer.FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_OUTPUT }
