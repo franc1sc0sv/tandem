@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Paso 6 (`F-Asis6`): el resumen de lo que se comprobó de verdad y el comando que agrega
+  // Paso 6 (`F-Setup6`): el resumen de lo que se comprobó de verdad y el comando que agrega
   // Tandem a Claude Code.
   import { useStore } from "../../lib/context";
   import { MCP_COMMAND, deskTitle, summaryRows } from "../../lib/wizard";
@@ -17,10 +17,10 @@
     try {
       await navigator.clipboard.writeText(MCP_COMMAND);
       copied = true;
-      store.toast("Comando copiado");
+      store.toast("Command copied");
       setTimeout(() => (copied = false), 1800);
     } catch {
-      store.toast("No se pudo copiar: selecciónalo y cópialo a mano", "bad");
+      store.toast("Could not copy: select it and copy it by hand", "bad");
     }
   }
 </script>
@@ -36,13 +36,13 @@
     stroke-linejoin="round"></path></svg
 >
 <div class="wz-head">
-  <h1 style="font-size:28px">Tu puesto está listo</h1>
-  <p class="wz-mut wz-lead" style="max-width:600px">Esto se comprobó de verdad, no se supuso.</p>
+  <h1 style="font-size:28px">Your desk is ready</h1>
+  <p class="wz-mut wz-lead" style="max-width:600px">This was actually checked, not assumed.</p>
 </div>
-<section aria-label="Resumen" class="wz-list">
+<section aria-label="Summary" class="wz-list">
   <div class="wz-sum first" style="animation-delay:.3s">
     <span style="width:8px;height:8px;border-radius:50%;background:{hereColor}"></span>{title.here}{title.peer ? " y" : ""}
-    {#if title.peer}<span style="width:8px;height:8px;border-radius:50%;background:{peerColor}"></span>{title.peer} en «{title.desk}»{:else}en «{title.desk}»{/if}<span class="wz-fill"></span><span class="wz-mut wz-sm">{title.peer ? "2 máquinas" : "1 máquina"}</span>
+    {#if title.peer}<span style="width:8px;height:8px;border-radius:50%;background:{peerColor}"></span>{title.peer} in “{title.desk}”{:else}in “{title.desk}”{/if}<span class="wz-fill"></span><span class="wz-mut wz-sm">{title.peer ? "2 machines" : "1 machine"}</span>
   </div>
   {#each rows as r, i (r.id)}
     <div class="wz-sum" style="animation-delay:{(0.5 + 0.2 * i).toFixed(1)}s" data-ok={r.ok}>
@@ -51,9 +51,9 @@
   {/each}
 </section>
 <div class="wz-mcp">
-  <b style="font-weight:600;font-size:13.5px">Para usarlo desde Claude Code</b>
+  <b style="font-weight:600;font-size:13.5px">To use it from Claude Code</b>
   <span style="display:flex;align-items:center;gap:10px"
-    ><span class="wz-mono" style="font-size:12.5px;color:#c4c6cc;flex:1">{MCP_COMMAND}</span><button type="button" class="wz-copy" aria-label="Copiar comando" title="Copiar" onclick={copy}
+    ><span class="wz-mono" style="font-size:12.5px;color:#c4c6cc;flex:1">{MCP_COMMAND}</span><button type="button" class="wz-copy" aria-label="Copy command" title="Copy" onclick={copy}
       ><Icon name={copied ? "check" : "copy"} size={15} color={copied ? "#6cc59a" : "currentColor"} /></button
     ></span
   >

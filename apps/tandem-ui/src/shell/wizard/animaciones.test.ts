@@ -11,7 +11,7 @@ import { Store } from "../../lib/store/store.svelte";
 import { setReducedMotion } from "../../test/setup";
 import Shell from "../Shell.svelte";
 
-// G7 y G8 para el asistente de 6 pasos (`F-Asis1`, `V3-Asistente`, `F-Asis3`…`F-Asis6`).
+// G7 y G8 para el asistente de 6 pasos (`F-Setup1`, `V3-Setup`, `F-Setup3`…`F-Setup6`).
 // vitest corre desde apps/tandem-ui.
 const SRC = join(process.cwd(), "src");
 const read = (...p: string[]) => readFileSync(join(SRC, ...p), "utf8");
@@ -81,12 +81,12 @@ interface Step {
 }
 
 const STEPS: Record<string, Step> = {
-  "1 · esta máquina": { mock: "F-Asis1", keyframes: { up: ["wz-up"], sp: ["wz-sp"] } },
-  "2 · tu puesto": { mock: "V3-Asistente", keyframes: { fdi: ["wz-fdi"] } },
-  "3 · permisos": { mock: "F-Asis3", keyframes: { pl: ["wz-pl"], pop: ["wz-pop"] }, unused: ["sp"] },
-  "4 · teclado y mouse": { mock: "F-Asis4", keyframes: { up: ["wz-up"], fl: ["wz-fl"] } },
-  "5 · acomodo y prueba": { mock: "F-Asis5", keyframes: { mv: ["wz-mvx", "wz-mvy"], gl: ["wz-gl"], pop: ["wz-popy"] } },
-  "6 · listo": { mock: "F-Asis6", keyframes: { draw: ["wz-draw"], draw2: ["wz-draw"], up: ["wz-up"], glow: ["wz-glow"] } },
+  "1 · this machine": { mock: "F-Setup1", keyframes: { up: ["wz-up"], sp: ["wz-sp"] } },
+  "2 · tu puesto": { mock: "V3-Setup", keyframes: { fdi: ["wz-fdi"] } },
+  "3 · permisos": { mock: "F-Setup3", keyframes: { pl: ["wz-pl"], pop: ["wz-pop"] }, unused: ["sp"] },
+  "4 · teclado y mouse": { mock: "F-Setup4", keyframes: { up: ["wz-up"], fl: ["wz-fl"] } },
+  "5 · acomodo y prueba": { mock: "F-Setup5", keyframes: { mv: ["wz-mvx", "wz-mvy"], gl: ["wz-gl"], pop: ["wz-popy"] } },
+  "6 · listo": { mock: "F-Setup6", keyframes: { draw: ["wz-draw"], draw2: ["wz-draw"], up: ["wz-up"], glow: ["wz-glow"] } },
 };
 
 describe.each(Object.entries(STEPS))("animaciones del paso %s", (_name, s) => {
@@ -123,25 +123,25 @@ async function mount(query: string, step: number) {
   store.openWizard(step);
   const r = render(Shell, { context: new Map([[STORE_KEY, store]]) });
   await tick();
-  const dlg = screen.getByRole("dialog", { name: "Asistente" });
+  const dlg = screen.getByRole("dialog", { name: "Setup" });
   return { ...r, store, source, dlg };
 }
 
-/** Los retrasos de animación en línea, en segundos y en orden de aparición. */
+/** Los retrasos de animación online, en segundos y en orden de aparición. */
 const delays = (root: Element, selector: string) => [...root.querySelectorAll<HTMLElement>(selector)].map((e) => parseFloat(e.style.animationDelay));
 /** Los de las filas del mockup (`class="chk" style="animation-delay:.1s"`). */
 const mockDelays = (html: string, cls: string) => [...html.matchAll(new RegExp(`class="${cls}"[^>]*?animation-delay:([\\d.]+)s`, "g"))].map((m) => parseFloat(m[1]!));
 
 describe("cada pantalla anima lo que anima su mockup", () => {
-  it("paso 1: las filas de «Lo que encontró» entran escalonadas y la del servicio gira", async () => {
+  it("paso 1: las filas de «What it found» entran escalonadas y la del servicio gira", async () => {
     const { dlg } = await mount("demo&still&admin=pending", 0);
-    expect(delays(dlg, ".wz-chk")).toEqual(mockDelays(mockup("F-Asis1"), "chk"));
+    expect(delays(dlg, ".wz-chk")).toEqual(mockDelays(mockup("F-Setup1"), "chk"));
     expect(dlg.querySelectorAll(".wz-spin")).toHaveLength(1);
   });
 
   it("paso 2: el panel de los dígitos entra con fundido", async () => {
     const { dlg } = await mount("demo&still&peer=none&pair=code", 1);
-    expect(mockup("V3-Asistente")).toContain("animation:fdi .35s ease-out");
+    expect(mockup("V3-Setup")).toContain("animation:fdi .35s ease-out");
     expect(dlg.querySelectorAll(".wz-panel").length).toBeGreaterThan(0);
   });
 
@@ -154,7 +154,7 @@ describe("cada pantalla anima lo que anima su mockup", () => {
 
   it("paso 4: las máquinas y sus dispositivos entran escalonados y el flujo corre", async () => {
     const { dlg } = await mount("demo&still", 3);
-    expect(delays(dlg, ".wz-dev")).toEqual(mockDelays(mockup("F-Asis4"), "dev"));
+    expect(delays(dlg, ".wz-dev")).toEqual(mockDelays(mockup("F-Setup4"), "dev"));
     expect(delays(dlg, ".wz-mc")).toEqual([0, 0.1]);
     expect(dlg.querySelectorAll(".wz-flow")).toHaveLength(2);
   });
@@ -162,7 +162,7 @@ describe("cada pantalla anima lo que anima su mockup", () => {
   it("paso 5: el cursor recorre el borde mientras espera y el borde brilla al cruzar", async () => {
     const { dlg, store } = await mount("demo&still&cross=ok", 4);
     expect(dlg.querySelector(".wz-cur.go")).toBeNull();
-    screen.getByRole("button", { name: "Probar cruce" }).click();
+    screen.getByRole("button", { name: "Test crossing" }).click();
     await tick();
     await waitFor(() => expect(store.wizardCrossed).toBe(true));
     expect(dlg.querySelector(".wz-edge.glow")).not.toBeNull();
@@ -174,19 +174,19 @@ describe("cada pantalla anima lo que anima su mockup", () => {
     await tick();
     expect(dlg.querySelector(".wz-ring")).not.toBeNull();
     expect(dlg.querySelector(".wz-tickd")).not.toBeNull();
-    expect(delays(dlg, ".wz-sum")).toEqual(mockDelays(mockup("F-Asis6"), "row").slice(0, 5));
+    expect(delays(dlg, ".wz-sum")).toEqual(mockDelays(mockup("F-Setup6"), "row").slice(0, 5));
     expect(dlg.querySelector(".wz-fin")).not.toBeNull();
-    expect(mockup("F-Asis6")).toContain("animation:up .45s 1.6s both,glow 2.6s 2.2s ease-in-out infinite");
+    expect(mockup("F-Setup6")).toContain("animation:up .45s 1.6s both,glow 2.6s 2.2s ease-in-out infinite");
   });
 });
 
-describe("el botón anima también la opacidad en F-Asis3 y F-Asis5 (ACCEPTANCE G7)", () => {
+describe("el botón anima también la opacidad en F-Setup3 y F-Setup5 (ACCEPTANCE G7)", () => {
   const withOpacity = (name: string) => /\.btn\{display[^}]*opacity \.3s/.test(mockup(name));
 
   it("solo esos dos mockups lo hacen, y solo esos dos pasos llevan la regla", async () => {
-    const expected: Record<string, boolean> = { "F-Asis1": false, "V3-Asistente": false, "F-Asis3": true, "F-Asis4": false, "F-Asis5": true, "F-Asis6": false };
+    const expected: Record<string, boolean> = { "F-Setup1": false, "V3-Setup": false, "F-Setup3": true, "F-Setup4": false, "F-Setup5": true, "F-Setup6": false };
     for (const [name, yes] of Object.entries(expected)) expect(withOpacity(name), name).toBe(yes);
-    const names = ["F-Asis1", "V3-Asistente", "F-Asis3", "F-Asis4", "F-Asis5", "F-Asis6"];
+    const names = ["F-Setup1", "V3-Setup", "F-Setup3", "F-Setup4", "F-Setup5", "F-Setup6"];
     for (const [step, name] of names.entries()) {
       const { dlg, unmount } = await mount("demo&still", step);
       expect(dlg.querySelector(".body")?.classList.contains("tight"), `paso ${step + 1}`).toBe(expected[name]);
@@ -235,7 +235,7 @@ describe("movimiento reducido en el asistente", () => {
   });
 
   it("el círculo y la marca del paso 6 se ven completos sin animación, como en el mockup", () => {
-    expect(mockup("F-Asis6")).toMatch(/prefers-reduced-motion:reduce\)\{\*\{[^}]*stroke-dashoffset:0!important/);
+    expect(mockup("F-Setup6")).toMatch(/prefers-reduced-motion:reduce\)\{\*\{[^}]*stroke-dashoffset:0!important/);
     const block = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(read("shell", "wizard", "wizard.css"))?.[1] ?? "";
     expect(canon(block)).toContain(".wiz .wz-ring, .wiz .wz-tickd { stroke-dashoffset: 0;");
   });
@@ -253,7 +253,7 @@ describe("movimiento reducido en el asistente", () => {
     setReducedMotion(true);
     const { dlg } = await mount("demo&still&perms=missing", step);
     expect(dlg.querySelector("h1")?.textContent?.length).toBeGreaterThan(0);
-    // Sin animación, nada queda con estilos en línea que lo escondan.
+    // Sin animación, nada queda con estilos online que lo escondan.
     for (const el of dlg.querySelectorAll<HTMLElement>("[style]")) {
       expect(el.style.opacity, el.outerHTML.slice(0, 80)).not.toBe("0");
       expect(el.style.visibility).not.toBe("hidden");

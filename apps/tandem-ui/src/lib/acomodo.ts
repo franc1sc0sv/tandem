@@ -1,4 +1,4 @@
-// Acomodo (D18, `V3-Acomodo`): de qué lado de la otra máquina está esta y con qué
+// Acomodo (D18, `V3-Arrangement`): de qué lado de the other machine está esta y con qué
 // alineación, sin X/Y. Aquí está el dibujo a escala física (pulgadas), lo que dice el panel
 // y el texto de la prueba de cruce. Puro: lo usan la pantalla, el demo y las pruebas.
 
@@ -12,7 +12,7 @@ export interface Arrangement {
   align: Align;
 }
 
-/** Sin acomodo declarado: A a la izquierda de B, centradas (`tandem_core::Arrangement`). */
+/** Sin acomodo declarado: A to the left of de B, centradas (`tandem_core::Arrangement`). */
 export const DEFAULT_ARRANGEMENT: Arrangement = { aSide: "left", align: "center" };
 
 export const SIDES: Side[] = ["up", "down", "left", "right"];
@@ -150,7 +150,7 @@ function desktopOf(screens: LayoutScreen[], m: Machine): Desktop | null {
 /**
  * Las pantallas a escala física, centradas en el lienzo. Las de cada máquina van juntas, con
  * su x/y, como el escritorio único que ve el motor: el de B en el origen, el de A a su lado
- * según el acomodo y el resto (las que no entran) a la derecha, alineadas abajo con el de B.
+ * según el acomodo y el resto (las que no entran) to the right of, alineadas abajo con el de B.
  * El borde de cruce es el tramo que comparten los dos escritorios (`shared_span` de
  * tandem-input), no el largo de uno de ellos; se mide sobre la caja de cada escritorio, que
  * con pantallas contiguas es lo que mide el motor.
@@ -229,16 +229,16 @@ export const SLOTS: Record<Side, { left: number; top: number; width: number; hei
   right: { left: 74, top: 37, width: 20, height: 26 },
 };
 
-export const SIDE_LABEL: Record<Side, string> = { up: "Arriba", down: "Abajo", left: "Izquierda", right: "Derecha" };
+export const SIDE_LABEL: Record<Side, string> = { up: "Top", down: "Bottom", left: "Left", right: "Right" };
 
 /** Las etiquetas de la alineación: a los lados se alinea en vertical, arriba y abajo en horizontal. */
 export function alignLabels(side: Side): Record<Align, string> {
-  return isVertical(side) ? { start: "Arriba", center: "Centro", end: "Abajo" } : { start: "Izquierda", center: "Centro", end: "Derecha" };
+  return isVertical(side) ? { start: "Top", center: "Center", end: "Bottom" } : { start: "Left", center: "Center", end: "Right" };
 }
 
 export interface Panel {
   screen: LayoutScreen;
-  /** La pantalla principal de la otra máquina (la que se mueve en el mini plano), si se puede editar. */
+  /** La pantalla principal de the other machine (la que se mueve en el mini plano), si se puede editar. */
   other: LayoutScreen | null;
   /** Dónde está `other` respecto de la elegida. */
   shown: Side;
@@ -257,15 +257,15 @@ export function panelFor(layout: LayoutView, selected: string): Panel | null {
   const aSide = layout.arrangement.aSide;
   // `aSide` es dónde está A visto desde B: desde A, B queda del lado opuesto.
   const shown = m === "a" ? OPPOSITE[aSide] : aSide;
-  return { screen, other: editable ? other : null, shown, question: editable && other ? `¿Dónde está ${other.ask}?` : "" };
+  return { screen, other: editable ? other : null, shown, question: editable && other ? `Where is ${other.ask}?` : "" };
 }
 
-/** Poner la otra máquina en `slot` del mini plano de la pantalla de `machine`. */
+/** Poner the other machine en `slot` del mini plano de la pantalla de `machine`. */
 export function placeOther(arr: Arrangement, machine: Machine, slot: Side): Arrangement {
   return { ...arr, aSide: machine === "a" ? OPPOSITE[slot] : slot };
 }
 
-/** La pantalla que se elige al abrir: la principal de la otra máquina (la que se suele mover alrededor). */
+/** La pantalla que se elige al abrir: la principal de the other machine (la que se suele mover alrededor). */
 export function initialSelection(layout: LayoutView, here: Machine): string | null {
   const peer = mainOf(layout.screens, here === "a" ? "b" : "a");
   return peer?.id ?? mainOf(layout.screens, here)?.id ?? layout.screens[0]?.id ?? null;
@@ -333,15 +333,15 @@ export function wallOf(color: string): string {
   return `linear-gradient(160deg,${from},${to})`;
 }
 
-// ---- Prueba de cruce -----------------------------------------------------------------------
+// ---- Crossing test -----------------------------------------------------------------------
 
-/** Por dónde tiene que salir el cursor de `from` para llegar a la otra máquina. */
+/** Por dónde tiene que salir el cursor de `from` para llegar a the other machine. */
 export function exitSide(arr: Arrangement, from: Machine): Side {
   // `aSide` es el lado de B donde está A: desde B se sale por `aSide`, desde A por el opuesto.
   return from === "b" ? arr.aSide : OPPOSITE[arr.aSide];
 }
 
-/** «a la derecha», «arriba». */
-export const SIDE_PHRASE: Record<Side, string> = { right: "a la derecha", left: "a la izquierda", up: "arriba", down: "abajo" };
-/** «por la derecha», «por arriba». */
-export const SIDE_BY: Record<Side, string> = { right: "por la derecha", left: "por la izquierda", up: "por arriba", down: "por abajo" };
+/** «to the right of», «arriba». */
+export const SIDE_PHRASE: Record<Side, string> = { right: "to the right of", left: "to the left of", up: "above", down: "below" };
+/** «the right», «the top». */
+export const SIDE_BY: Record<Side, string> = { right: "the right", left: "the left", up: "the top", down: "the bottom" };

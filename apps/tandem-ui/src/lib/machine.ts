@@ -1,4 +1,4 @@
-// La página Máquina (T-115, `V3-Maquina`/`F-MaquinaMac`): textos, unidades y orden de lo que
+// La página Máquina (T-115, `V3-Machine`/`F-MachineMac`): textos, unidades y orden de lo que
 // muestra, y cómo se arma la vista en vivo con las muestras del agente. Puro: se prueba sin
 // pantalla.
 
@@ -15,10 +15,10 @@ export const VRAM_WARN = 0.85;
 
 /** La paleta de colores de máquina (D17), con el nombre de cada uno. */
 export const PALETTE: { color: string; name: string }[] = [
-  { color: "#7aa7e6", name: "Azul" },
-  { color: "#a99be8", name: "Violeta" },
-  { color: "#5fbfb0", name: "Verde azulado" },
-  { color: "#d9a75a", name: "Ámbar" },
+  { color: "#7aa7e6", name: "Blue" },
+  { color: "#a99be8", name: "Violet" },
+  { color: "#5fbfb0", name: "Teal" },
+  { color: "#d9a75a", name: "Amber" },
 ];
 
 /** El nombre largo máximo que acepta el puesto (`tandem_core::desk::MAX_NAME`). */
@@ -53,7 +53,7 @@ export function gb(bytes: number): string {
 export function diskText(free: number, total: number): string {
   const t = total / GIB;
   const totalText = t >= 1000 ? `${one(t / 1024)} TB` : `${gb(total)} GB`;
-  return `${gb(free)} GB libres de ${totalText}`;
+  return `${gb(free)} GB free of ${totalText}`;
 }
 
 /** Porcentaje de 0 a 100 (acotado). */
@@ -87,7 +87,7 @@ export function shortGpu(name: string): string {
 /** Bajo «CPU»: modelo corto y núcleos lógicos («Ryzen 7 · 16 hilos», «M5 · 12 núcleos»). */
 export function cpuSub(hw: HardwareView | null, os: MachineView["os"]): string {
   if (!hw) return "";
-  const cores = hw.cores > 0 ? `${hw.cores} ${os === "windows" ? "hilos" : "núcleos"}` : "";
+  const cores = hw.cores > 0 ? `${hw.cores} ${os === "windows" ? "threads" : "cores"}` : "";
   return [hw.cpu ? shortCpu(hw.cpu) : "", cores].filter(Boolean).join(" · ");
 }
 
@@ -117,9 +117,9 @@ export function vramWarn(live: LiveView | null): boolean {
   return g.vramUsed / g.vramTotal >= VRAM_WARN;
 }
 
-const POWER_TEXT: Record<Power, string> = { on: "en línea", off: "apagada", booting: "encendiendo", lost: "sin conexión" };
+const POWER_TEXT: Record<Power, string> = { on: "online", off: "apagada", booting: "encendiendo", lost: "offline" };
 
-/** La línea bajo el nombre: la otra dice si está en línea; esta, su procesador. */
+/** La línea bajo el nombre: la otra dice si está online; esta, su procesador. */
 export function headerSub(m: Pick<MachineView, "here" | "system" | "power" | "hardware">): string {
   const second = m.here ? (m.hardware?.cpu ?? "") : POWER_TEXT[m.power];
   return [m.system, second].filter(Boolean).join(" · ");
@@ -139,11 +139,11 @@ export function orderEnvs(envs: EnvView[]): { main: EnvView | null; rest: EnvVie
   return { main, rest: envs.filter((e) => e !== main) };
 }
 
-// Qué deja de andar sin cada permiso de macOS (la fila «Permisos», `F-MaquinaMac`).
+// Qué deja de andar sin cada permiso de macOS (la fila «Permisos», `F-MachineMac`).
 const PERMISSION_TEXT: Record<Permission, string> = {
-  input_monitoring: "Falta «Monitorización de entrada»: no puede mandar el teclado. Se comprueba solo.",
-  accessibility: "Falta «Accesibilidad»: no puede mover el mouse ni escribir aquí. Se comprueba solo.",
-  local_network: "Falta «Red local»: no encuentra a la otra máquina. Se comprueba solo.",
+  input_monitoring: "“Input Monitoring” is missing: it cannot send the keyboard. It is checked automatically.",
+  accessibility: "“Accessibility” is missing: it cannot move the mouse or type here. It is checked automatically.",
+  local_network: "“Local Network” is missing: it cannot find the other machine. It is checked automatically.",
 };
 
 // El que más se nota primero: sin teclado no se puede trabajar.
@@ -155,7 +155,7 @@ export function missingPermission(missing: Permission[]): { id: Permission; text
   return id ? { id, text: PERMISSION_TEXT[id] } : null;
 }
 
-export const MODULE_TEXT: Record<ModuleState, string> = { active: "activo", off: "apagado", unavailable: "no disponible" };
+export const MODULE_TEXT: Record<ModuleState, string> = { active: "activo", off: "apagado", unavailable: "unavailable" };
 
 // ---- Líneas de tendencia ------------------------------------------------------------------
 
@@ -225,7 +225,7 @@ export function summaryOf(live: LiveView): Resources {
 /** Lo que la página puede editar del nombre: recortado y dentro del largo del puesto. */
 export function checkName(raw: string): { ok: true; name: string } | { ok: false; reason: string } {
   const name = raw.trim();
-  if (!name) return { ok: false, reason: "El nombre no puede quedar vacío" };
-  if ([...name].length > MAX_NAME) return { ok: false, reason: `El nombre no puede pasar de ${MAX_NAME} caracteres` };
+  if (!name) return { ok: false, reason: "The name cannot be empty" };
+  if ([...name].length > MAX_NAME) return { ok: false, reason: `The name cannot exceed ${MAX_NAME} characters` };
   return { ok: true, name };
 }

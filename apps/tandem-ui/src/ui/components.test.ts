@@ -16,8 +16,8 @@ import { text } from "../test/snippet";
 
 describe("Button", () => {
   it("siempre lleva ícono y el texto; el alto sale del tamaño", () => {
-    render(Button, { icon: "check", size: "sm", children: text("Guardar") });
-    const b = screen.getByRole("button", { name: "Guardar" });
+    render(Button, { icon: "check", size: "sm", children: text("Save") });
+    const b = screen.getByRole("button", { name: "Save" });
     expect(b.querySelector("svg")).not.toBeNull();
     expect(b).toHaveClass("btn", "sm");
   });
@@ -31,19 +31,19 @@ describe("Button", () => {
   });
 
   it("solo ícono: nombre accesible y título, sin texto", () => {
-    render(Button, { icon: "edit", iconOnly: true, label: "Editar acomodo", children: text("no se ve") });
-    const b = screen.getByRole("button", { name: "Editar acomodo" });
+    render(Button, { icon: "edit", iconOnly: true, label: "Edit arrangement", children: text("no se ve") });
+    const b = screen.getByRole("button", { name: "Edit arrangement" });
     expect(b).toHaveClass("ic");
-    expect(b).toHaveAttribute("title", "Editar acomodo");
+    expect(b).toHaveAttribute("title", "Edit arrangement");
     expect(b.textContent).toBe("");
   });
 
   it("se activa con clic, Enter y Espacio, y recibe el foco con Tab", async () => {
     const user = userEvent.setup();
     const onclick = vi.fn();
-    render(Button, { icon: "play", onclick, children: text("Aplicar") });
+    render(Button, { icon: "play", onclick, children: text("Apply") });
     await user.tab();
-    const b = screen.getByRole("button", { name: "Aplicar" });
+    const b = screen.getByRole("button", { name: "Apply" });
     expect(b).toHaveFocus();
     await user.keyboard("{Enter}");
     await user.keyboard(" ");
@@ -53,8 +53,8 @@ describe("Button", () => {
 
   it("deshabilitado no hace nada", async () => {
     const onclick = vi.fn();
-    render(Button, { icon: "play", disabled: true, onclick, children: text("Aplicar") });
-    await userEvent.click(screen.getByRole("button", { name: "Aplicar" }));
+    render(Button, { icon: "play", disabled: true, onclick, children: text("Apply") });
+    await userEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onclick).not.toHaveBeenCalled();
   });
 
@@ -75,41 +75,41 @@ describe("Button", () => {
 
 describe("Segmented", () => {
   const options = [
-    { value: "izq", label: "Izquierda" },
-    { value: "cen", label: "Centro" },
-    { value: "der", label: "Derecha" },
+    { value: "izq", label: "Left" },
+    { value: "cen", label: "Center" },
+    { value: "der", label: "Right" },
   ];
 
   it("es un grupo de radio con la opción elegida marcada", () => {
-    render(Segmented, { options, value: "cen", label: "Alineación" });
-    expect(screen.getByRole("radiogroup", { name: "Alineación" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "Centro" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("radio", { name: "Izquierda" })).toHaveAttribute("aria-checked", "false");
+    render(Segmented, { options, value: "cen", label: "Alignment" });
+    expect(screen.getByRole("radiogroup", { name: "Alignment" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Center" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Left" })).toHaveAttribute("aria-checked", "false");
   });
 
   it("el indicador se desliza a la opción elegida", async () => {
     const onchange = vi.fn();
-    const { container } = render(Segmented, { options, value: "izq", label: "Alineación", onchange });
+    const { container } = render(Segmented, { options, value: "izq", label: "Alignment", onchange });
     const ind = container.querySelector(".ind") as HTMLElement;
     expect(ind.style.transform).toBe("translateX(0%)");
-    await userEvent.click(screen.getByRole("radio", { name: "Derecha" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Right" }));
     expect(onchange).toHaveBeenCalledWith("der");
     expect(ind.style.transform).toBe("translateX(200%)");
   });
 
   it("flechas, Inicio y Fin mueven la elección y el foco; solo la elegida está en el orden de Tab", async () => {
     const onchange = vi.fn();
-    render(Segmented, { options, value: "izq", label: "Alineación", onchange });
-    const izq = screen.getByRole("radio", { name: "Izquierda" });
+    render(Segmented, { options, value: "izq", label: "Alignment", onchange });
+    const izq = screen.getByRole("radio", { name: "Left" });
     expect(izq).toHaveAttribute("tabindex", "0");
-    expect(screen.getByRole("radio", { name: "Centro" })).toHaveAttribute("tabindex", "-1");
+    expect(screen.getByRole("radio", { name: "Center" })).toHaveAttribute("tabindex", "-1");
     izq.focus();
     await fireEvent.keyDown(izq, { key: "ArrowRight" });
-    expect(screen.getByRole("radio", { name: "Centro" })).toHaveFocus();
+    expect(screen.getByRole("radio", { name: "Center" })).toHaveFocus();
     await fireEvent.keyDown(document.activeElement as Element, { key: "End" });
-    expect(screen.getByRole("radio", { name: "Derecha" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Right" })).toHaveAttribute("aria-checked", "true");
     await fireEvent.keyDown(document.activeElement as Element, { key: "ArrowRight" });
-    expect(screen.getByRole("radio", { name: "Izquierda" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Left" })).toHaveAttribute("aria-checked", "true");
     await fireEvent.keyDown(document.activeElement as Element, { key: "ArrowLeft" });
     await fireEvent.keyDown(document.activeElement as Element, { key: "Home" });
     expect(onchange.mock.calls.map((c) => c[0])).toEqual(["cen", "der", "izq", "der", "izq"]);
@@ -122,7 +122,7 @@ describe("Segmented", () => {
         { value: "b", label: "B", accent: "#6a5fa6" },
       ],
       value: "b",
-      label: "Máquina",
+      label: "Machine",
       size: "lg",
     });
     const ind = container.querySelector(".ind") as HTMLElement;
@@ -135,8 +135,8 @@ describe("Switch", () => {
   it("cambia con clic y con el teclado, y avisa", async () => {
     const user = userEvent.setup();
     const onchange = vi.fn();
-    render(Switch, { checked: true, label: "Portapapeles compartido", onchange });
-    const sw = screen.getByRole("switch", { name: "Portapapeles compartido" });
+    render(Switch, { checked: true, label: "Shared clipboard", onchange });
+    const sw = screen.getByRole("switch", { name: "Shared clipboard" });
     expect(sw).toHaveAttribute("aria-checked", "true");
     await user.click(sw);
     expect(sw).toHaveAttribute("aria-checked", "false");
@@ -172,7 +172,7 @@ describe("Chip", () => {
   });
 
   it("con ícono en lugar de punto", () => {
-    const { container } = render(Chip, { icon: "warn", tone: "warn", children: text("No compatible") });
+    const { container } = render(Chip, { icon: "warn", tone: "warn", children: text("Unsupported") });
     expect(container.querySelector(".chip svg")).not.toBeNull();
     expect(container.querySelector(".chip .d")).toBeNull();
   });

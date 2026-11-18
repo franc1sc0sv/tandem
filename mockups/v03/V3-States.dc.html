@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tandem v0.3: trouble states</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+.mut{color:#9a9da6}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.btn{font:inherit;font-size:13px;padding:7px 13px;border-radius:9px;border:1px solid #31343b;background:#1b1c21;color:#e8e8eb;cursor:pointer;min-height:36px}
+.st{background:#15161a;border:1px solid #25272d;border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.tag{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#80838d}
+.hd{display:flex;align-items:center;gap:10px;font-weight:600;font-size:14.5px}
+.ic{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;flex:none}
+p{margin:0;font-size:13px;line-height:1.5;color:#c4c6cc}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;min-height:0;padding:0 15px;box-sizing:border-box;flex:none;align-self:center;white-space:nowrap;font:inherit;font-size:13px;font-weight:500;line-height:1;border-radius:10px;border:1px solid #2e3138;background:linear-gradient(180deg,#1f2025,#18191d);color:#e8e8eb;cursor:pointer;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.3);transition:transform .18s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .18s;position:relative;overflow:hidden}
+.btn svg{width:16px;height:16px;flex:none;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{border-color:#41454e;transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 6px 16px rgba(0,0,0,.35)}
+.btn:hover svg{transform:scale(1.14)}
+.btn:hover svg.rf{transform:rotate(-180deg)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid #7aa7e6;outline-offset:2px}
+.btn.pri{background:linear-gradient(180deg,#3a6aa8,#2c5288)!important;border-color:#5b8fd4!important;color:#fff}
+.btn.pri:hover{box-shadow:0 0 0 4px rgba(122,167,230,.16),0 8px 20px rgba(44,82,136,.45)}
+.btn.pri::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.2) 50%,transparent 70%);transform:translateX(-120%);transition:transform .6s}
+.btn.pri:hover::after{transform:translateX(120%)}
+.btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:#9a9da6;padding:0 10px}
+.btn.ghost:hover{background:#1f2026;color:#e8e8eb}
+.st{animation:up .45s cubic-bezier(.2,.8,.2,1) both;transition:transform .25s,border-color .25s,box-shadow .25s}
+.st:hover{transform:translateY(-3px);border-color:#3a3d45;box-shadow:0 12px 26px rgba(0,0,0,.3)}
+.st:nth-child(2){animation-delay:.04s}.st:nth-child(3){animation-delay:.08s}.st:nth-child(4){animation-delay:.12s}.st:nth-child(5){animation-delay:.16s}.st:nth-child(6){animation-delay:.2s}.st:nth-child(7){animation-delay:.24s}.st:nth-child(8){animation-delay:.28s}.st:nth-child(9){animation-delay:.32s}
+.ic{transition:transform .3s cubic-bezier(.3,1.5,.5,1)}
+.st:hover .ic{transform:scale(1.12) rotate(-6deg)}
+@keyframes up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;box-sizing:border-box;padding:28px;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12;display:flex;flex-direction:column;gap:18px">
+  <div style="display:flex;flex-direction:column;gap:4px"><h1 style="margin:0;font-size:20px;font-weight:650">Trouble states</h1><span class="mut" style="font-size:12.5px">How each thing looks when it does not go well. Rule: it always says what happened, what Tandem did on its own and what you can do.</span></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px">
+
+    <article class="st"><span class="tag">First time</span>
+      <div class="hd"><span class="ic" style="background:#16202e"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7aa7e6" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></span>One-machine desk</div>
+      <p>Everything works on this machine. What needs another one (shared keyboard, compute, scenes) shows as off with “Add another machine to use this”.</p>
+      <div><a class="btn pri" href="F-AddHost.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add machine</a></div>
+    </article>
+
+    <article class="st"><span class="tag">Machine off</span>
+      <div class="hd"><span class="ic" style="background:#1b1c21"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9a9da6" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 6.8a8 8 0 1 0 11.4 0"></path></svg></span>PC-Desktop is off</div>
+      <p>Its card is dimmed and the mouse no longer crosses to it. MacBook Pro can wake it over the network.</p>
+      <div style="display:flex;gap:8px"><a class="btn pri" href="F-Transactions.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8"></path><path d="M6.3 6.8a8 8 0 1 0 11.4 0"></path></svg>Power on</a><span class="mut" style="font-size:12px;align-self:center">≈ 40 s</span></div>
+    </article>
+
+    <article class="st"><span class="tag">Link</span>
+      <div class="hd"><span class="ic" style="background:#1e1a12"><svg width="16" height="16" viewBox="0 0 24 24" fill="#d9a75a" aria-hidden="true"><path d="M12 20a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM6.3 13.3l1.4 1.4a6 6 0 0 1 8.6 0l1.4-1.4a8 8 0 0 0-11.4 0z"></path></svg></span>The USB-C cable was unplugged</div>
+      <p>Keyboard and mouse carried on over Wi-Fi without a break (0.6 s). Sending 2 workspaces is paused until a cable comes back, or you can send them over Wi-Fi now.</p>
+      <div><button type="button" class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9 9 0 0 1 13 0M9 16a4 4 0 0 1 6 0"></path><path d="M12 19.5h.01"></path></svg>Send over Wi-Fi anyway</button></div>
+    </article>
+
+    <article class="st"><span class="tag">Compute</span>
+      <div class="hd"><span class="ic" style="background:#16202e"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7aa7e6" stroke-width="2" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3"></path><path d="M18 3v4h-4M6 21v-4h4"></path></svg></span>Reconnected: the tunnel kept going</div>
+      <p>“Train LoRA” kept running on PC-Desktop while there was no link. 3 min of output were recovered.</p>
+      <span class="mono mut" style="font-size:11.5px">epoch 9/20 · loss 0.0371</span>
+    </article>
+
+    <article class="st"><span class="tag">Compute</span>
+      <div class="hd"><span class="ic" style="background:#25171a"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e07a6f" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg></span>“ComfyUI render” failed</div>
+      <p>Out of GPU memory: “Train LoRA” uses 14.1 of 16 GB on PC-Desktop. Claude sees this reason over MCP and can wait or pick another machine.</p>
+      <div><a class="btn ghost" href="V3-Compute.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>View in Tunnels</a></div>
+    </article>
+
+    <article class="st"><span class="tag">Monitors</span>
+      <div class="hd"><span class="ic" style="background:#25171a"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#e07a6f" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M9 20h6"></path></svg></span>The scene “MacBook only” was not applied</div>
+      <p>The 34" answered “change failed” (no HDMI signal from the MacBook). Tandem rolled back the scene: everything stayed as it was.</p>
+      <div><button type="button" class="btn"><svg class="rf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 4v4h-4M4 20v-4h4"></path></svg>Retry</button></div>
+    </article>
+
+    <article class="st"><span class="tag">Monitors</span>
+      <div class="hd"><span class="ic" style="background:#1e1a12"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2" aria-hidden="true"><path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17h.01"></path></svg></span>Unsupported monitor</div>
+      <p>Tandem only controls monitors that meet the standard: they report which input they show, confirm each change and report changes made with their buttons. The others are shown but not touched.</p>
+    </article>
+
+    <article class="st"><span class="tag">Monitors</span>
+      <div class="hd"><span class="ic" style="background:#1b1c21"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9a9da6" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M9 20h6"></path></svg></span>Nobody can talk to the 34"</div>
+      <p>Its owner (PC-Desktop) is off and MacBook Pro reaches it only over HDMI while it is showing it. When either can, it takes control on its own.</p>
+    </article>
+
+    <article class="st"><span class="tag">Permissions</span>
+      <div class="hd"><span class="ic" style="background:#1e1a12"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2" aria-hidden="true"><path d="M12 3 5 6v5c0 4.5 3 8.3 7 10 4-1.7 7-5.5 7-10V6z"></path></svg></span>“Input Monitoring” is missing on macOS</div>
+      <p>Without this permission, MacBook Pro cannot send its keyboard. Grant it to <span class="mono" style="font-size:12px">/Applications/Tandem.app/…/tandemd</span>; Tandem detects it on its own.</p>
+      <div><button type="button" class="btn pri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"></path></svg>Open System Settings</button></div>
+    </article>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

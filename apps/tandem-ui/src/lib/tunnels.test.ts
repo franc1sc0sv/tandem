@@ -66,14 +66,14 @@ describe("formatos", () => {
   });
 
   it("los nombres cortos del camino: por sistema si difieren, por nombre si no (D2)", () => {
-    expect(shortLabels({ name: "MacBook Pro", os: "macos" }, { name: "PC-Escritorio", os: "windows" })).toEqual(["Mac", "PC"]);
+    expect(shortLabels({ name: "MacBook Pro", os: "macos" }, { name: "PC-Desktop", os: "windows" })).toEqual(["Mac", "PC"]);
     expect(shortLabels({ name: "Oficina", os: "windows" }, { name: "Casa-PC", os: "windows" })).toEqual(["Oficina", "Casa"]);
   });
 
   it("con el mismo sistema y la misma primera palabra, lo que distingue (T-141)", () => {
     const w = (name: string) => ({ name, os: "windows" as const });
     const m = (name: string) => ({ name, os: "macos" as const });
-    expect(shortLabels(w("PC-Escritorio"), w("PC-Taller"))).toEqual(["Escritorio", "Taller"]);
+    expect(shortLabels(w("PC-Desktop"), w("PC-Workshop"))).toEqual(["Escritorio", "Taller"]);
     expect(shortLabels(m("MacBook Pro"), m("Mac mini"))).toEqual(["Pro", "mini"]);
     expect(shortLabels(m("Mac Pro"), m("MacBook Pro"))).toEqual(["Mac Pro", "MacBook Pro"]);
   });
@@ -90,11 +90,11 @@ describe("formatos", () => {
   });
 });
 
-describe("estado y proyectos con el demo (V3-Computo)", () => {
+describe("estado y proyectos con el demo (V3-Compute)", () => {
   const now = 1_763_400_000_000;
   const tunnels = demoTunnels(now);
 
-  it("`tunnels=notas` (V3-Bandeja) saca la revisión del PR a un tercer proyecto", () => {
+  it("`tunnels=notas` (V3-Tray) saca la revisión del PR a un tercer proyecto", () => {
     expect(groupByProject(demoTunnels(now, "notas")).map((x) => x.name).sort()).toEqual(["ia-local", "notas", "tandem"]);
   });
 
@@ -108,7 +108,7 @@ describe("estado y proyectos con el demo (V3-Computo)", () => {
   });
 
   it("sin túneles no hay nada abierto, y con uno se dice en singular", () => {
-    expect(summary([])).toBe("Sin túneles abiertos");
+    expect(summary([])).toBe("No open tunnels");
     expect(summary(groupByProject(tunnels.slice(0, 1)))).toBe("1 abierto · 1 proyecto");
   });
 
@@ -120,9 +120,9 @@ describe("estado y proyectos con el demo (V3-Computo)", () => {
     expect(statusText(closed, now)).toBe("cerrado");
   });
 
-  it("el panel vacío dice «Túnel cerrado» o «Nada corriendo ahora»", () => {
-    expect(emptyLabel(tunnels[4])).toBe("Túnel cerrado");
-    expect(emptyLabel(tunnels[2])).toBe("Nada corriendo ahora");
+  it("el panel vacío dice «Tunnel closed» o «Nothing running right now»", () => {
+    expect(emptyLabel(tunnels[4])).toBe("Tunnel closed");
+    expect(emptyLabel(tunnels[2])).toBe("Nothing running right now");
   });
 
   it("el tubo corre más rápido mientras más activo y se apaga si está cerrado", () => {
@@ -174,9 +174,9 @@ describe("de lo que manda el agente a lo que se dibuja", () => {
     expect(again).toMatchObject({ state: "busy", idleSince: null });
   });
 
-  it("los túneles sin proyecto van bajo «Sin proyecto»", () => {
+  it("los túneles sin proyecto van bajo «No project»", () => {
     const [t] = tunnelsFromWire([proj(null, [tun("1")])], 0, newMemory());
-    expect(t.project).toBe("Sin proyecto");
+    expect(t.project).toBe("No project");
     expect(t.projectPath).toBeNull();
   });
 

@@ -40,7 +40,7 @@
   .spark {
     display: block;
   }
-  /* La línea se dibuja al entrar (V3-Puesto). */
+  /* La línea se dibuja al entrar (V3-Desk). */
   .ln {
     stroke-dasharray: 600;
     stroke-dashoffset: 600;

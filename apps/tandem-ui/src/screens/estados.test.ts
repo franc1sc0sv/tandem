@@ -1,4 +1,4 @@
-// Estados difíciles (V3-Estados, T-120): qué tarjetas salen, con qué datos y qué hace cada acción.
+// Trouble states (V3-States, T-120): qué tarjetas salen, con qué datos y qué hace cada acción.
 import { render, screen } from "@testing-library/svelte";
 import userEvent from "@testing-library/user-event";
 import { tick } from "svelte";
@@ -35,7 +35,7 @@ describe("lib/states: qué tarjetas aplican", () => {
     expect(ids(base, GALLERY)).toEqual(["first", "off", "cable", "resumed", "failed", "scene", "unsupported", "nobody", "permission"]);
   });
 
-  it("con todo en orden la app real solo muestra lo que el puesto tiene (el monitor sin compatibilidad)", () => {
+  it("con todo en orden la app real solo muestra lo que el puesto tiene (the monitor sin compatibilidad)", () => {
     expect(ids(base)).toEqual(["unsupported"]);
     expect(stateCards(base)[0].title).toMatch(/^«.+» no es compatible$/);
   });
@@ -44,11 +44,11 @@ describe("lib/states: qué tarjetas aplican", () => {
     const cards = stateCards(base, { ...GALLERY, example: true });
     expect(cards).toHaveLength(9);
     expect(JSON.stringify(cards)).toContain("epoch 9/20 · loss 0.0371");
-    expect(cards.find((c) => c.id === "unsupported")?.title).toBe("Monitor no compatible");
+    expect(cards.find((c) => c.id === "unsupported")?.title).toBe("Unsupported monitor");
     expect(JSON.stringify(stateCards(base, GALLERY))).not.toContain("Se recuperaron 3 min");
   });
 
-  it("la otra máquina apagada, un solo Wi-Fi, sin otra máquina y el permiso faltante salen solos", () => {
+  it("the other machine apagada, un solo Wi-Fi, sin otra máquina y el permiso faltante salen solos", () => {
     expect(ids(demoDesk(demoOptions("demo&still&trouble=peer-off")))).toContain("off");
     expect(ids(demoDesk(demoOptions("demo&still&trouble=link-down")))).toContain("cable");
     expect(ids(demoDesk(demoOptions("demo&still&peer=none")))).toContain("first");
@@ -56,7 +56,7 @@ describe("lib/states: qué tarjetas aplican", () => {
   });
 
   it("la escena fallida sale con su nombre y su id, no con la primera ni la activa", () => {
-    const cards = stateCards(base, { gallery: false, failedScene: { id: "juego", name: "Juego" } });
+    const cards = stateCards(base, { gallery: false, failedScene: { id: "juego", name: "Game" } });
     const scene = cards.find((c) => c.id === "scene");
     expect(scene?.title).toBe("La escena «Juego» no se aplicó");
     expect(scene?.action).toMatchObject({ does: "retry-scene", sceneId: "juego" });
@@ -77,9 +77,9 @@ describe("lib/states: qué tarjetas aplican", () => {
 describe("pantalla Estados", () => {
   it("en el demo muestra la galería con sus acciones", async () => {
     await mount();
-    expect(screen.getByRole("heading", { level: 1, name: "Estados difíciles" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Trouble states" })).toBeInTheDocument();
     expect(screen.getAllByRole("article")).toHaveLength(9);
-    for (const name of ["Emparejar la otra máquina", "Encender", "Ver en Túneles", "Reintentar", "Abrir Ajustes del Sistema"]) {
+    for (const name of ["Pair the other machine", "Power on", "View in Tunnels", "Retry", "Open System Settings"]) {
       expect(screen.getByRole("button", { name: new RegExp(name) })).toBeInTheDocument();
     }
   });
@@ -89,37 +89,37 @@ describe("pantalla Estados", () => {
     expect(document.body.textContent).not.toMatch(/agrega(r)? (otra )?máquina/i);
   });
 
-  it("«Emparejar la otra máquina» abre el asistente de emparejar", async () => {
+  it("«Pair the other machine» abre el asistente de emparejar", async () => {
     const store = await mount();
     const open = vi.spyOn(store, "openWizard");
-    await userEvent.click(screen.getByRole("button", { name: /Emparejar la otra máquina/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Pair the other machine/ }));
     expect(open).toHaveBeenCalledTimes(1);
   });
 
-  it("«Encender» enciende la otra máquina", async () => {
+  it("«Encender» enciende the other machine", async () => {
     const store = await mount();
     const power = vi.spyOn(store, "setPower");
     await userEvent.click(screen.getByRole("button", { name: /Encender/ }));
     expect(power).toHaveBeenCalledWith("b", true);
   });
 
-  it("«Ver en Túneles» navega a Túneles", async () => {
+  it("«View in Tunnels» navega a Túneles", async () => {
     const store = await mount();
-    await userEvent.click(screen.getByRole("button", { name: /Ver en Túneles/ }));
+    await userEvent.click(screen.getByRole("button", { name: /View in Tunnels/ }));
     expect(store.route).toEqual({ screen: "tuneles" });
   });
 
-  it("«Abrir Ajustes del Sistema» pide el permiso de monitoreo de entrada", async () => {
+  it("«Open System Settings» pide el permiso de monitoreo de entrada", async () => {
     const store = await mount();
     const open = vi.spyOn(store, "openPermission");
-    await userEvent.click(screen.getByRole("button", { name: /Abrir Ajustes del Sistema/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Open System Settings/ }));
     expect(open).toHaveBeenCalledWith("input_monitoring");
   });
 
   it("«Reintentar» reaplica la escena que falló, no la primera", async () => {
     const store = await mount();
     const apply = vi.spyOn(store, "applyScene").mockResolvedValue({ ok: true });
-    store.failedScene = { id: "juego", name: "Juego" };
+    store.failedScene = { id: "juego", name: "Game" };
     await tick();
     expect(screen.getByText("La escena «Juego» no se aplicó")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Reintentar/ }));

@@ -1,6 +1,6 @@
-// API para el arnés de capturas de la app (T-112) y las pruebas de pantalla (T-113…T-120):
-// `import { … } from '@tandem/mockup-render/harness'`. No carga Playwright al importarse
-// (solo `launchBrowser` lo abre), así que sirve también en pruebas unitarias con PNG ya hechos.
+// API for the app screenshot harness (T-112) and the screen tests (T-113…T-120):
+// `import { … } from '@tandem/mockup-render/harness'`. It does not load Playwright when imported
+// (only `launchBrowser` opens it), so it also works in unit tests with ready-made PNGs.
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { compare, type CompareOptions, type CompareResult } from './compare.ts';
@@ -10,19 +10,19 @@ export { CHROMIUM_ARGS, capture, launchBrowser, settle } from './browser.ts';
 export { compare, SizeMismatchError, type CompareOptions, type CompareResult, type Region, type Tile } from './compare.ts';
 export { SHOTS_DIR, shotName } from './paths.ts';
 
-/** No hay captura de referencia para ese mockup o estado. */
+/** There is no reference screenshot for that mockup or state. */
 export class MissingMockupShotError extends Error {
   readonly path: string;
 
   constructor(path: string) {
-    super(`no existe la captura del mockup ${path} (¿nombre o estado mal escrito? se generan con \`pnpm mockups:shot\`)`);
+    super(`there is no mockup screenshot ${path} (misspelled name or state? they are generated with \`pnpm mockups:shot\`)`);
     this.name = 'MissingMockupShotError';
     this.path = path;
   }
 }
 
 /**
- * Ruta de la captura de referencia: `<shotsDir>/<mockup>.png` o `<mockup>--<estado>.png`.
+ * Path of the reference screenshot: `<shotsDir>/<mockup>.png` or `<mockup>--<state>.png`.
  * Lanza `MissingMockupShotError` si no existe.
  */
 export function mockupShotPath(mockup: string, state?: string, shotsDir: string = SHOTS_DIR): string {
@@ -32,35 +32,35 @@ export function mockupShotPath(mockup: string, state?: string, shotsDir: string 
 }
 
 export interface MockupCompareOptions extends CompareOptions {
-  /** Nombre del mockup, sin `.dc.html` (por ejemplo `V3-Puesto`). */
+  /** Mockup name, without `.dc.html` (for example `V3-Desk`). */
   mockup: string;
-  /** Estado con nombre de `states.ts` (por ejemplo `escena-juego`); sin esto, el inicial. */
+  /** Named state from `states.ts` (for example `scene-game`); without it, the initial one. */
   state?: string;
-  /** Dónde guardar el PNG de diferencias (se crea la carpeta). */
+  /** Where to save the difference PNG (the folder is created). */
   diffPath?: string;
-  /** Carpeta de las capturas de referencia (por omisión `docs/mockups-png`). */
+  /** Folder of the reference screenshots (default `docs/mockups-png`). */
   shotsDir?: string;
 }
 
 export interface MockupCompareResult extends CompareResult {
-  /** Captura de referencia contra la que se comparó. */
+  /** Reference screenshot it was compared against. */
   expectedPath: string;
-  /** Dónde quedó el PNG de diferencias, si se pidió `diffPath`. */
+  /** Where the difference PNG ended up, if `diffPath` was requested. */
   diffPath?: string;
 }
 
 /**
- * Compara una captura de la app (PNG en memoria o ruta) con la del mockup en
+ * Compares an app screenshot (in-memory PNG or path) with the mockup one in
  * `docs/mockups-png/<mockup>[--<estado>].png`.
  *
  * ```ts
- * const r = compareWithMockup(await capture(page), { mockup: 'V3-Puesto', diffPath: 'out/puesto-diff.png' });
+ * const r = compareWithMockup(await capture(page), { mockup: 'V3-Desk', diffPath: 'out/desk-diff.png' });
  * expect(r.similarity).toBeGreaterThanOrEqual(0.99);           // DESIGN §12
  * expect(r.worstTile.similarity).toBeGreaterThanOrEqual(0.9);  // un cambio local no pasa desapercibido
  * ```
  *
- * Lanza `MissingMockupShotError` si no hay referencia y `SizeMismatchError` si los tamaños no
- * coinciden (la app tiene que capturarse al `$preview` del mockup, 1280×860 casi siempre).
+ * Throws `MissingMockupShotError` if there is no reference and `SizeMismatchError` if the sizes do not
+ * match (the app has to be captured at the mockup's `$preview`, 1280×860 almost always).
  */
 export function compareWithMockup(actual: Buffer | string, opts: MockupCompareOptions): MockupCompareResult {
   const { mockup, state, diffPath, shotsDir, ...compareOpts } = opts;

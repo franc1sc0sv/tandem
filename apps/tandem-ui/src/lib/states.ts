@@ -1,10 +1,10 @@
-// Los estados difíciles (`V3-Estados`): cada uno dice qué pasó, qué hizo Tandem solo y qué
+// Los estados difíciles (`V3-States`): cada uno dice qué pasó, qué hizo Tandem solo y qué
 // puede hacer el usuario. Puro: arma las tarjetas con los nombres reales del puesto.
 
 import type { IconName } from "../ui/icons";
 import type { DeskView } from "./store/types";
 
-/** Color del ícono de la tarjeta: fondo y trazo (`V3-Estados`). */
+/** Color del ícono de la tarjeta: fondo y trazo (`V3-States`). */
 export type StateTone = "blue" | "grey" | "amber" | "red";
 
 export const TONE_STYLE: Record<StateTone, { bg: string; fg: string }> = {
@@ -44,7 +44,7 @@ export interface StateCardSpec {
   action?: StateAction;
 }
 
-/** Cuánto tarda en despertar la otra máquina (DESIGN §8). */
+/** Cuánto tarda en despertar the other machine (DESIGN §8). */
 export const WAKE_HINT = "≈ 40 s";
 
 /**
@@ -63,39 +63,39 @@ export interface StateContext {
   gallery: boolean;
   /** La última escena que no se pudo aplicar (la guarda el store al ver el fallo). */
   failedScene: { id: string; name: string } | null;
-  /** `?demo&estados`: los textos de ejemplo de `V3-Estados` (nombres, cifras), para compararlos con el mockup. */
+  /** `?demo&estados`: los textos de ejemplo de `V3-States` (nombres, cifras), para compararlos con el mockup. */
   example?: boolean;
 }
 
 /** Los textos de ejemplo del mockup, por tarjeta: lo único que cambia respecto a la galería genérica. */
 const EXAMPLE: Record<string, Partial<Pick<StateCardSpec, "title" | "body" | "mono" | "code">>> = {
-  off: { title: "PC-Escritorio está apagada", body: "Su tarjeta queda atenuada y el mouse ya no cruza hacia ella. MacBook Pro puede despertarla por la red." },
+  off: { title: "PC-Desktop is off", body: "Its card is dimmed and the mouse no longer crosses to it. MacBook Pro can wake it over the network." },
   cable: {
-    title: "Se desconectó el cable USB-C",
-    body: "El teclado y el mouse siguieron por Wi-Fi sin cortarse (0.6 s). El envío de 2 workspaces quedó en pausa hasta que vuelva un cable, o puedes mandarlos por Wi-Fi ahora.",
+    title: "The USB-C cable was unplugged",
+    body: "Keyboard and mouse carried on over Wi-Fi without a break (0.6 s). Sending 2 workspaces is paused until a cable comes back, or you can send them over Wi-Fi now.",
   },
-  resumed: { body: "«Entrenar LoRA» siguió corriendo en PC-Escritorio mientras no había enlace. Se recuperaron 3 min de salida.", mono: "epoch 9/20 · loss 0.0371" },
-  failed: { title: "«Render ComfyUI» falló", body: "Sin memoria de GPU: «Entrenar LoRA» usa 14.1 de 16 GB en PC-Escritorio. Claude ve este motivo por MCP y puede esperar o elegir otra máquina." },
-  scene: { title: "La escena «Solo MacBook» no se aplicó", body: "El 34\" respondió «cambio fallido» (no hay señal HDMI de la MacBook). Tandem deshizo la escena: todo quedó como estaba." },
-  unsupported: { title: "Monitor no compatible" },
-  nobody: { title: "Nadie puede hablar con el 34\"", body: "Su dueño (PC-Escritorio) está apagado y MacBook Pro solo llega a él por HDMI mientras lo está mostrando. Cuando una de las dos pueda, toma el control sola." },
-  permission: { title: "Falta «Monitoreo de entrada» en macOS", body: "Sin este permiso, MacBook Pro no puede mandar su teclado. Concédelo a {code}; Tandem lo detecta solo.", code: "/Applications/Tandem.app/…/tandemd" },
+  resumed: { body: "“Train LoRA” kept running on PC-Desktop while there was no link. 3 min of output were recovered.", mono: "epoch 9/20 · loss 0.0371" },
+  failed: { title: "“ComfyUI render” failed", body: "Out of GPU memory: “Train LoRA” uses 14.1 of 16 GB on PC-Desktop. Claude sees this reason over MCP and can wait or pick another machine." },
+  scene: { title: "The scene “MacBook only” was not applied", body: "The 34\" answered “change failed” (no HDMI signal from the MacBook). Tandem rolled back the scene: everything stayed as it was." },
+  unsupported: { title: "Unsupported monitor" },
+  nobody: { title: "Nobody can talk to the 34\"", body: "Its owner (PC-Desktop) is off and MacBook Pro reaches it only over HDMI while it is showing it. When either can, it takes control on its own." },
+  permission: { title: "“Input Monitoring” is missing on macOS", body: "Without this permission, MacBook Pro cannot send its keyboard. Grant it to {code}; Tandem detects it on its own.", code: "/Applications/Tandem.app/…/tandemd" },
 };
 
 /** Las tarjetas que aplican (o las nueve en la galería), en el orden del mockup. */
 export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, failedScene: null }): StateCardSpec[] {
-  const here = d.machines[d.here]?.name ?? "Esta máquina";
+  const here = d.machines[d.here]?.name ?? "This machine";
   const peerId = d.here === "a" ? "b" : "a";
-  const peer = d.machines[peerId]?.name ?? "La otra máquina";
+  const peer = d.machines[peerId]?.name ?? "The other machine";
   const mac = d.machines[d.here]?.os === "macos";
   const g = ctx.gallery;
   const alone = d.pair.peer.kind === "unpaired";
   const peerOff = !alone && d.machines[peerId]?.power === "off";
-  // Sin cable: por Wi-Fi o, peor, sin ningún enlace (con la otra máquina apagada es la tarjeta de arriba).
+  // No cable: por Wi-Fi o, peor, sin ningún enlace (con the other machine apagada es la tarjeta de arriba).
   const noCable = !alone && !peerOff && d.link.kind !== "usb4" && d.link.kind !== "ethernet";
   // Los datos de la tarjeta salen del puesto; sin ellos (galería) se nombra lo genérico.
   const tunnel = d.tunnels.find((t) => t.state !== "closed") ?? d.tunnels[0];
-  const job = tunnel ? `«${tunnel.title}»` : "El trabajo";
+  const job = tunnel ? `«${tunnel.title}»` : "The job";
   const scene = ctx.failedScene ?? (g ? { id: d.activeScene ?? d.scenes[0]?.id ?? "", name: d.scenes.find((x) => x.id === d.activeScene)?.name ?? d.scenes[0]?.name ?? "" } : null);
   const bad = d.monitors.find((m) => !m.compat.ok);
   const unreachable = d.monitors.find((m) => m.compat.ok && m.owner === null);
@@ -106,104 +106,104 @@ export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, fa
     alone || g
       ? {
           id: "first",
-          tag: "Primera vez",
+          tag: "First time",
           tone: "blue",
           icon: "plus",
-          title: "Puesto de una sola máquina",
-          body: "Todo funciona en esta máquina. Lo que necesita otra (teclado compartido, cómputo, escenas) aparece apagado hasta que emparejes la otra máquina.",
-          action: { label: "Emparejar la otra máquina", icon: "plus", variant: "pri", does: "pair-peer" },
+          title: "One-machine desk",
+          body: "Everything works on this machine. What needs another one (shared keyboard, compute, scenes) shows as off until you pair the other machine.",
+          action: { label: "Pair the other machine", icon: "plus", variant: "pri", does: "pair-peer" },
         }
       : null,
     peerOff || g
       ? {
           id: "off",
-          tag: "Máquina apagada",
+          tag: "Machine off",
           tone: "grey",
           icon: "power",
           stroke: 2.2,
-          title: `${peer} está apagada`,
-          body: `Su tarjeta queda atenuada y el mouse ya no cruza hacia ella. ${here} puede despertarla por la red.`,
-          action: { label: "Encender", icon: "power", variant: "pri", does: "power-on", hint: WAKE_HINT },
+          title: `${peer} is off`,
+          body: `Its card is dimmed and the mouse no longer crosses to it. ${here} can wake it over the network.`,
+          action: { label: "Power on", icon: "power", variant: "pri", does: "power-on", hint: WAKE_HINT },
         }
       : null,
     noCable || g
       ? {
           id: "cable",
-          tag: "Enlace",
+          tag: "Link",
           tone: "amber",
           icon: "wifi-fill",
-          title: "Se desconectó el cable",
+          title: "The cable was unplugged",
           body:
             d.link.kind === null && !g
-              ? `No hay enlace con ${peer}. El teclado y el mouse no cruzan hasta que vuelva un cable o el Wi-Fi.`
-              : "El teclado y el mouse siguen por Wi-Fi. Los envíos de datos esperan a que vuelva un cable, o puedes mandarlos por Wi-Fi ahora.",
+              ? `There is no link with ${peer}. Keyboard and mouse do not cross until a cable or Wi-Fi comes back.`
+              : "Keyboard and mouse carry on over Wi-Fi. Data transfers wait for a cable to come back, or you can send them over Wi-Fi now.",
         }
       : null,
     // Reconexión y fallo de un trabajo: el agente todavía no manda ese historial, así que solo la galería.
     g
       ? {
           id: "resumed",
-          tag: "Cómputo",
+          tag: "Compute",
           tone: "blue",
           icon: "sync",
-          title: "Reconectado: el túnel siguió",
-          body: `${job} siguió corriendo en ${peer} mientras no había enlace. Se recuperó la salida que faltaba.`,
+          title: "Reconnected: the tunnel kept going",
+          body: `${job} kept running on ${peer} while there was no link. The missing output was recovered.`,
         }
       : null,
     g
       ? {
           id: "failed",
-          tag: "Cómputo",
+          tag: "Compute",
           tone: "red",
           icon: "x",
-          title: `${job} falló`,
-          body: `Se quedó sin recursos en ${peer}. Claude ve este motivo por MCP y puede esperar o elegir otra máquina.`,
-          action: { label: "Ver en Túneles", icon: "eye", variant: "ghost", does: "tunnels" },
+          title: `${job} failed`,
+          body: `It ran out of resources on ${peer}. Claude sees this reason over MCP and can wait or pick another machine.`,
+          action: { label: "View in Tunnels", icon: "eye", variant: "ghost", does: "tunnels" },
         }
       : null,
     scene && (ctx.failedScene || g)
       ? {
           id: "scene",
-          tag: "Monitores",
+          tag: "Monitors",
           tone: "red",
           icon: "screen",
-          title: `La escena «${scene.name}» no se aplicó`,
-          body: "Un monitor respondió «cambio fallido». Tandem deshizo la escena: todo quedó como estaba.",
-          action: { label: "Reintentar", icon: "refresh", variant: "default", does: "retry-scene", sceneId: scene.id },
+          title: `The scene “${scene.name}” was not applied`,
+          body: "A monitor answered “change failed”. Tandem rolled back the scene: everything stayed as it was.",
+          action: { label: "Retry", icon: "refresh", variant: "default", does: "retry-scene", sceneId: scene.id },
         }
       : null,
     bad || g
       ? {
           id: "unsupported",
-          tag: "Monitores",
+          tag: "Monitors",
           tone: "amber",
           icon: "warn",
-          title: bad ? `«${bad.name}» no es compatible` : "Monitor no compatible",
-          body: "Tandem solo controla monitores que cumplen el estándar: dicen qué entrada muestran, confirman cada cambio y avisan los cambios hechos con sus botones. Los demás se ven, pero no se tocan.",
+          title: bad ? `“${bad.name}” is not supported` : "Unsupported monitor",
+          body: "Tandem only controls monitors that meet the standard: they report which input they show, confirm each change and report changes made with their buttons. The others are shown but not touched.",
         }
       : null,
     unreachable || g
       ? {
           id: "nobody",
-          tag: "Monitores",
+          tag: "Monitors",
           tone: "grey",
           icon: "screen",
-          title: `Nadie puede hablar con ${monitor ? `«${monitor.name}»` : "el monitor"}`,
-          body: `Su dueño (${peer}) está apagado y ${here} solo llega a él por HDMI mientras lo está mostrando. Cuando una de las dos pueda, toma el control sola.`,
+          title: `Nobody can talk to ${monitor ? `“${monitor.name}”` : "the monitor"}`,
+          body: `Its owner (${peer}) is off and ${here} reaches it only over HDMI while it is showing it. When either can, it takes control on its own.`,
         }
       : null,
     missingPermission || g
       ? {
           id: "permission",
-          tag: "Permisos",
+          tag: "Permissions",
           tone: "amber",
           icon: "shield-plain",
-          title: mac ? "Falta «Monitoreo de entrada» en macOS" : "Falta un permiso del sistema",
+          title: mac ? "“Input Monitoring” is missing on macOS" : "A system permission is missing",
           body: mac
-            ? `Sin este permiso, ${here} no puede mandar su teclado. Concédelo a {code}; Tandem lo detecta solo.`
-            : `Sin este permiso, ${here} no puede mandar su teclado. Concédelo a Tandem; Tandem lo detecta solo.`,
+            ? `Without this permission, ${here} cannot send its keyboard. Grant it to {code}; Tandem detects it on its own.`
+            : `Without this permission, ${here} cannot send its keyboard. Grant it to Tandem; Tandem detects it on its own.`,
           code: mac ? shortPath(d.permissions.binary) : undefined,
-          action: { label: "Abrir Ajustes del Sistema", icon: "external", variant: "pri", does: "permission" },
+          action: { label: "Open System Settings", icon: "external", variant: "pri", does: "permission" },
         }
       : null,
   ];

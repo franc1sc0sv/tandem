@@ -2,7 +2,7 @@
   import type { Snippet } from "svelte";
 
   interface Props {
-    /** `raised`: con el borde de abajo más grueso (V3-Monitores). */
+    /** `raised`: con el borde de abajo más grueso (V3-Monitors). */
     raised?: boolean;
     style?: string;
     children: Snippet;

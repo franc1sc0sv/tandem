@@ -8,10 +8,10 @@ describe("capturas del acomodo y la prueba de cruce (T-117)", () => {
   it("cubren los 4 lados × 3 alineaciones, cada pantalla elegida y los estados de la prueba, con el umbral de ACCEPTANCE", () => {
     expect(SCREEN_GATE).toEqual({ similarity: 0.99, worstTile: 0.97 });
     for (const s of ACOMODO) expect(SHOTS).toContain(s);
-    const states = ACOMODO.filter((s) => s.mockup === "V3-Acomodo").map((s) => s.state ?? "");
+    const states = ACOMODO.filter((s) => s.mockup === "V3-Arrangement").map((s) => s.state ?? "");
     for (const side of ["arriba", "abajo", "izquierda", "derecha"]) for (const al of ["inicio", "centro", "fin"]) expect(states).toContain(`lado-${side}-${al}`);
     expect(states).toEqual(expect.arrayContaining(["", "pantalla-mac", "pantalla-no-compatible"]));
-    const cruce = ACOMODO.filter((s) => s.mockup === "F-PruebaCruce").map((s) => s.state ?? "");
+    const cruce = ACOMODO.filter((s) => s.mockup === "F-CrossingTest").map((s) => s.state ?? "");
     expect(cruce).toEqual(expect.arrayContaining(["", "cruzo", "no-cruza"]));
     // Todo lo que tiene mockup propio exige el umbral; el borde equivocado no tiene mockup.
     for (const s of ACOMODO) expect(s.min, s.name).toEqual(s.name === "cruce-otro-borde" ? undefined : SCREEN_GATE);

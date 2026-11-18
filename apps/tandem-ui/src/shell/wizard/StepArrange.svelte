@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Paso 5 (`F-Asis5`): el acomodo que Tandem leyó, que se puede mover arrastrando, y la
+  // Paso 5 (`F-Setup5`): el acomodo que Tandem leyó, que se puede mover arrastrando, y la
   // prueba de cruce (T-117): se lleva el mouse por el borde marcado y se juzga con el cruce
   // que informa el motor de entrada.
   import { onDestroy } from "svelte";
@@ -30,8 +30,8 @@
   let timer: ReturnType<typeof setInterval> | undefined;
   let hereBox: HTMLElement | undefined = $state();
 
-  const hereName = $derived(hereM?.name ?? "esta máquina");
-  const peerName = $derived(peerM?.name ?? "la otra máquina");
+  const hereName = $derived(hereM?.name ?? "this machine");
+  const peerName = $derived(peerM?.name ?? "the other machine");
   const peerLabel = $derived(target && target.short !== peerName ? `${target.short} · ${peerName}` : peerName);
   const verdict = $derived(phase ? crossVerdict(phase, expected, hereName, peerName, seconds) : null);
   const passed = $derived(phase?.kind === "passed");
@@ -65,7 +65,7 @@
     stop?.();
   });
 
-  /** Mover la otra máquina a `side` guarda el acomodo y vuelve a empezar la prueba. */
+  /** Mover the other machine a `side` guarda el acomodo y vuelve a empezar la prueba. */
   async function place(side: Side) {
     if (side === expected) return;
     const r = await store.setArrangement(placeOther(desk.layout.arrangement, here, side));
@@ -98,19 +98,19 @@
 </script>
 
 <div class="wz-head">
-  <span class="wz-mut wz-sm">Paso 5 de 6</span>
-  <h1>¿Dónde está cada pantalla?</h1>
+  <span class="wz-mut wz-sm">Step 5 of 6</span>
+  <h1>Where is each screen?</h1>
   <p class="wz-mut wz-lead" style="max-width:620px">
-    Este es el acomodo que Tandem leyó. Arrastra si no coincide con tu escritorio y prueba: lleva el mouse de {hereName} a {peerName} por el borde marcado.
+    This is the arrangement Tandem read. Drag if it does not match your desk and test: move the mouse from {hereName} to {peerName} across the marked edge.
   </p>
 </div>
-<div class="wz-canvas" role="group" aria-label="Acomodo de las pantallas">
+<div class="wz-canvas" role="group" aria-label="Screen arrangement">
   <div class="wz-scr" bind:this={hereBox} style="{sketch.here};border-color:{hereColor};background:{fillOf(hereColor)}">{hereName}</div>
   <div
     class="wz-scr drag"
     role="button"
     tabindex="0"
-    aria-label="Mover {peerName}: arrastra o usa las flechas"
+    aria-label="Move {peerName}: drag or use the arrow keys"
     style="{sketch.other};border-color:{peerColor};background:{fillOf(peerColor)}"
     onpointerdown={(e) => e.currentTarget.setPointerCapture?.(e.pointerId)}
     onpointerup={drop}
@@ -130,7 +130,7 @@
 <div style="min-height:64px" aria-live="polite">
   {#if phase === null}
     <div class="wz-row">
-      <Button icon="cursor" variant="pri" size="xl" onclick={begin}>Probar cruce</Button><span class="wz-mut" style="font-size:13px">Necesitas el mouse a mano.</span>
+      <Button icon="cursor" variant="pri" size="xl" onclick={begin}>Test crossing</Button><span class="wz-mut" style="font-size:13px">You need the mouse at hand.</span>
     </div>
   {:else if waiting && verdict}
     <div class="wz-verdict">
@@ -144,7 +144,7 @@
   {:else if verdict}
     <div class="wz-banner warn">
       <span style="font-size:13.5px;color:#e6c48f">{verdict.text}</span><span class="wz-fill"></span>
-      <Button icon="refresh" size="sm" class="wz-sbtn" onclick={begin}>Probar de nuevo</Button>
+      <Button icon="refresh" size="sm" class="wz-sbtn" onclick={begin}>Test again</Button>
     </div>
   {/if}
 </div>

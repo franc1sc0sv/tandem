@@ -40,7 +40,7 @@ function sample(over: Partial<ResourceSample> = {}): ResourceSample {
   };
 }
 
-describe("unidades (V3-Maquina)", () => {
+describe("unidades (V3-Machine)", () => {
   it("GB con un decimal sin «.0» y enteros desde 100", () => {
     expect(gb(17.1 * GIB)).toBe("17.1");
     expect(gb(24 * GIB)).toBe("24");
@@ -89,10 +89,10 @@ describe("nombres del equipo (salen del escaneo, D10)", () => {
     expect(gpuSub({ ...PC, gpu: null })).toBe("");
   });
 
-  it("bajo el nombre: la otra dice si está en línea; esta, su procesador", () => {
-    expect(headerSub({ here: false, system: "Windows 11", power: "on", hardware: PC })).toBe("Windows 11 · en línea");
+  it("bajo el nombre: la otra dice si está online; esta, su procesador", () => {
+    expect(headerSub({ here: false, system: "Windows 11", power: "on", hardware: PC })).toBe("Windows 11 · online");
     expect(headerSub({ here: false, system: "Windows 11", power: "off", hardware: PC })).toBe("Windows 11 · apagada");
-    expect(headerSub({ here: false, system: "Windows", power: "lost", hardware: null })).toBe("Windows · sin conexión");
+    expect(headerSub({ here: false, system: "Windows", power: "lost", hardware: null })).toBe("Windows · offline");
     expect(headerSub({ here: true, system: "macOS 26", power: "on", hardware: MAC })).toBe("macOS 26 · Apple M5");
     expect(headerSub({ here: true, system: "macOS", power: "on", hardware: null })).toBe("macOS");
   });

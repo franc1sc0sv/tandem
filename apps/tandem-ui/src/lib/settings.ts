@@ -1,15 +1,15 @@
-// Las pestañas de Ajustes (`F-Ajustes`) y cómo se recorren con el teclado. Puro.
+// Las pestañas de Ajustes (`F-Settings`) y cómo se recorren con el teclado. Puro.
 
 import type { IconName } from "../ui/icons";
 
 export type SettingsTab = "puesto" | "atajos" | "teclado" | "upd" | "avanzado";
 
 export const SETTINGS_TABS: { id: SettingsTab; name: string; icon: IconName }[] = [
-  { id: "puesto", name: "Puesto y máquinas", icon: "puesto" },
-  { id: "atajos", name: "Atajos", icon: "keyboard" },
-  { id: "teclado", name: "Teclado y mouse", icon: "mouse" },
-  { id: "upd", name: "Actualizaciones", icon: "download" },
-  { id: "avanzado", name: "Avanzado", icon: "sliders" },
+  { id: "puesto", name: "Desk and machines", icon: "puesto" },
+  { id: "atajos", name: "Shortcuts", icon: "keyboard" },
+  { id: "teclado", name: "Keyboard and mouse", icon: "mouse" },
+  { id: "upd", name: "Updates", icon: "download" },
+  { id: "avanzado", name: "Advanced", icon: "sliders" },
 ];
 
 /** La pestaña a la que llevan las flechas, Inicio y Fin (lista vertical, sin dar la vuelta). */

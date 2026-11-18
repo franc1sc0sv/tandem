@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Prueba de cruce (F-PruebaCruce): pide llevar el cursor a la otra máquina por el borde del
+  // Crossing test (F-CrossingTest): pide llevar el cursor a the other machine por el borde del
   // acomodo guardado y la juzga con los cruces que informa el motor de entrada.
   import { onDestroy, onMount } from "svelte";
   import { SIDE_BY, SIDE_PHRASE, exitSide, fillOf, isVertical, mainOf, type Side } from "../lib/acomodo";
@@ -105,14 +105,14 @@
 </script>
 
 <div class="cross">
-  <nav aria-label="Ruta" class="mut crumbs"><a href={acomodo}>Acomodo</a> › Prueba de cruce</nav>
+  <nav aria-label="Path" class="mut crumbs"><a href={acomodo}>Arrangement</a> › Crossing test</nav>
   <div class="stage">
     <div class="desk" style="{scene.from};border:1.5px solid {hereM?.color ?? '#7aa7e6'};background:{fillOf(hereM?.color ?? '#7aa7e6')}">
-      <b>{from?.name ?? hereM?.name ?? ""}</b><span class="mut">el cursor está aquí</span>
+      <b>{from?.name ?? hereM?.name ?? ""}</b><span class="mut">the cursor is here</span>
     </div>
     <div class="desk" style="{scene.to};border:1.5px solid {peerM?.color ?? '#a99be8'};background:{fillOf(peerM?.color ?? '#a99be8')}">
       <b>{target && target.short !== peerM?.name ? `${target.short} · ${peerM?.name ?? ""}` : (peerM?.name ?? "")}</b><span class="mut"
-        >{phase.kind === "passed" ? "el cursor llegó aquí" : "esperando el cursor"}</span
+        >{phase.kind === "passed" ? "the cursor arrived here" : "waiting for the cursor"}</span
       >
     </div>
     {#if phase.kind === "waiting"}
@@ -146,8 +146,8 @@
         >
       {/key}
       <div class="txt">
-        <b>Lleva el mouse {SIDE_PHRASE[expected]} de la {short(hereM?.name)}</b><span class="mut sub"
-          >Tienes {seconds} segundos. El borde que brilla es por donde debería cruzar.</span
+        <b>Move the mouse {SIDE_PHRASE[expected]} the {short(hereM?.name)}</b><span class="mut sub"
+          >You have {seconds} seconds. The glowing edge is where it should cross.</span
         >
       </div>
       <span class="fill"></span>
@@ -157,33 +157,33 @@
         ><circle cx="12" cy="12" r="10"></circle><path d="m7.5 12.5 3 3 6-6.5"></path></svg
       >
       <div class="txt">
-        <b>Cruzó bien</b><span class="mut sub"
-          >Entró a {peerM?.name ?? "la otra máquina"}{#if s.of > 0}{" "}{vertical ? "a la altura correcta" : "en el lugar correcto"} ({vertical ? "y" : "x"} = {s.at} de {s.of}){/if}.{#if s.ms !== null}{" "}Latencia del cruce: {formatMs(s.ms)}.{/if}</span
+        <b>Crossed fine</b><span class="mut sub"
+          >It entered {peerM?.name ?? "the other machine"}{#if s.of > 0}{" "}{vertical ? "at the right height" : "at the right place"} ({vertical ? "y" : "x"} = {s.at} of {s.of}){/if}.{#if s.ms !== null}{" "}Crossing latency: {formatMs(s.ms)}.{/if}</span
         >
       </div>
       <span class="fill"></span>
-      <Button icon="refresh" motion="spin" size="lg" onclick={begin}>Probar otra vez</Button>
-      <Button icon="check" variant="pri" size="lg" href={acomodo}>Listo</Button>
+      <Button icon="refresh" motion="spin" size="lg" onclick={begin}>Test again</Button>
+      <Button icon="check" variant="pri" size="lg" href={acomodo}>Done</Button>
     {:else}
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2.2" aria-hidden="true"
         ><path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17h.01"></path></svg
       >
       <div class="txt">
         {#if phase.kind === "timeout"}
-          <b class="warn">No cruzó en {seconds} s</b><span class="mut sub"
-            >Quizá {target?.ask ?? "la otra pantalla"} está en otro lado de tu escritorio. Muévelo en el acomodo y prueba de nuevo.</span
+          <b class="warn">Did not cross in {seconds} s</b><span class="mut sub"
+            >Maybe {target?.ask ?? "the other screen"} is on another side of your desk. Move it in the arrangement and test again.</span
           >
         {:else if phase.kind === "wrong-edge"}
-          <b class="warn">Cruzó por otro borde</b><span class="mut sub"
-            >Cruzó {SIDE_BY[phase.sample.edge]}, no {SIDE_BY[expected]}: el acomodo no coincide con tu escritorio. Muévelo en el acomodo y prueba de nuevo.</span
+          <b class="warn">Crossed at another edge</b><span class="mut sub"
+            >Crossed at {SIDE_BY[phase.sample.edge]}, not {SIDE_BY[expected]}: the arrangement does not match your desk. Move it in the arrangement and test again.</span
           >
         {:else}
-          <b class="warn">No se puede probar el cruce</b><span class="mut sub">{phase.reason}</span>
+          <b class="warn">The crossing cannot be tested</b><span class="mut sub">{phase.reason}</span>
         {/if}
       </div>
       <span class="fill"></span>
-      <Button icon="edit" size="lg" href={acomodo}>Editar acomodo</Button>
-      {#if phase.kind !== "unavailable"}<Button icon="refresh" motion="spin" variant="pri" size="lg" onclick={begin}>Probar otra vez</Button>{/if}
+      <Button icon="edit" size="lg" href={acomodo}>Edit arrangement</Button>
+      {#if phase.kind !== "unavailable"}<Button icon="refresh" motion="spin" variant="pri" size="lg" onclick={begin}>Test again</Button>{/if}
     {/if}
   </section>
 </div>

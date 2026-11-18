@@ -1,5 +1,5 @@
 // Escenas (D6): del puesto del agente a las tarjetas de Monitores, y el borrador del editor
-// (`F-NuevaEscena`). Puro.
+// (`F-NewScene`). Puro.
 
 import { shortMonitor } from "./monitors";
 import type { Machine, SceneJson } from "./model";
@@ -24,7 +24,7 @@ export function codesOfAccel(accel: string): string[] {
   return accel.split("+").map((p) => names[p] ?? p);
 }
 
-/** Cómo se ve el atajo de una escena en esta máquina (`⌃⌥1` o `Ctrl+Alt+1`); vacío sin atajo. */
+/** Cómo se ve el atajo de una escena en this machine (`⌃⌥1` o `Ctrl+Alt+1`); vacío sin atajo. */
 export function shortcutText(codes: string[], mac: boolean): string {
   return formatAccel(accelOfCodes(codes), mac);
 }
@@ -47,7 +47,7 @@ export function sceneView(s: SceneJson, ctx: SceneContext): SceneView {
     const m = ctx.monitors.find((x) => x.id === id);
     return m ? [{ m, machine }] : [];
   });
-  const desc = known.length > 0 ? known.map(({ m, machine }) => `${shortMonitor(m.name)} → ${ctx.name(machine)}`).join(", ") : "Sin cambiar monitores";
+  const desc = known.length > 0 ? known.map(({ m, machine }) => `${shortMonitor(m.name)} → ${ctx.name(machine)}`).join(", ") : "No monitors changed";
   return {
     id: s.id,
     name: s.name,
@@ -100,10 +100,10 @@ export type Problem = { field: "name" | "shortcut"; text: string };
 /** Lo que impide guardar; `null` si se puede. `others` son las demás escenas (nombres y atajos ya tomados). */
 export function problemOf(d: Draft, others: SceneView[]): Problem | null {
   const name = d.name.trim();
-  if (name === "") return { field: "name", text: "Ponle un nombre a la escena" };
-  if ([...name].length > MAX_NAME) return { field: "name", text: `El nombre no puede pasar de ${MAX_NAME} caracteres` };
+  if (name === "") return { field: "name", text: "Give the scene a name" };
+  if ([...name].length > MAX_NAME) return { field: "name", text: `The name cannot exceed ${MAX_NAME} characters` };
   const clash = others.find((o) => sameShortcut(o.shortcut, d.shortcut));
-  if (clash) return { field: "shortcut", text: `Ese atajo ya es el de «${clash.name}»` };
+  if (clash) return { field: "shortcut", text: `That shortcut already belongs to “${clash.name}”` };
   return null;
 }
 

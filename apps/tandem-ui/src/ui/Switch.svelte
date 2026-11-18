@@ -16,7 +16,7 @@
   }
 </script>
 
-<!-- Un <button role="switch">: Espacio y Enter lo cambian solos (F-Ajustes). -->
+<!-- Un <button role="switch">: Espacio y Enter lo cambian solos (F-Settings). -->
 <button type="button" class="sw" class:off={!checked} role="switch" aria-checked={checked} aria-label={label} {disabled} onclick={toggle}></button>
 
 <style>

@@ -20,7 +20,7 @@ function fake() {
 describe("aviso del arrastre de archivos", () => {
   it("dice qué archivo se copia y cuántos faltan", () => {
     expect(dragNotice({ kind: "copying", name: "a.txt", index: 1, total: 3 })).toEqual({ text: "Copiando 2 de 3: a.txt", tone: "ok", ongoing: true });
-    expect(dragNotice({ kind: "copied", total: 1 }).text).toBe("Listo para soltar: 1 archivo");
+    expect(dragNotice({ kind: "copied", total: 1 }).text).toBe("Listo para soltar: 1 file");
     expect(dragNotice({ kind: "copied", total: 2 }).text).toBe("Listo para soltar: 2 archivos");
   });
 
@@ -55,7 +55,7 @@ describe("aviso del arrastre de archivos", () => {
     expect(store.toasts).toHaveLength(1);
     emit({ kind: "copied", total: 2 });
     emit({ kind: "dropped" });
-    expect(store.toasts.map((t) => t.text)).toEqual(["Archivos copiados a la otra máquina"]);
+    expect(store.toasts.map((t) => t.text)).toEqual(["Files copied to the other machine"]);
     vi.advanceTimersByTime(TOAST_MS);
     expect(store.toasts).toHaveLength(0);
   });

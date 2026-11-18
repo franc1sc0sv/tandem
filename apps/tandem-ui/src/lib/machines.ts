@@ -24,7 +24,7 @@ export function capsOf(caps: Caps, who: Machine): MachineCaps | null {
 export function machineName(who: Machine, caps?: Caps | null, desk?: Desk | null): string {
   const fromCaps = caps ? capsOf(caps, who)?.name : undefined;
   const fromDesk = desk?.machines[who]?.name;
-  return fromCaps || fromDesk || `máquina ${who.toUpperCase()}`;
+  return fromCaps || fromDesk || `machine ${who.toUpperCase()}`;
 }
 
 export function machineColor(who: Machine, caps?: Caps | null, desk?: Desk | null): string {
@@ -60,9 +60,9 @@ export function stepLabel(s: Step, name: (m: Machine) => string): string {
     case "show_machine":
       return `Monitor ${s.monitor} → ${name(s.machine)}`;
     case "arrange":
-      return "Acomodar los escritorios";
+      return "Arrange the desktops";
     case "geometry":
-      return "Teclado y mouse: geometría nueva";
+      return "Keyboard and mouse: new geometry";
   }
 }
 
@@ -89,7 +89,7 @@ export function advance(p: Progress | null, e: TxnView): Progress | null {
     case "committed":
       return { ...p, outcome: { kind: "committed" } };
     case "failed":
-      return { ...p, outcome: { kind: "failed", error: p.error ?? "un paso falló" } };
+      return { ...p, outcome: { kind: "failed", error: p.error ?? "a step failed" } };
   }
 }
 

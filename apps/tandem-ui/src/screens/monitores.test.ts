@@ -18,30 +18,30 @@ async function open(hash: string, query = "demo&still") {
 
 const picker = () => screen.getByRole("radiogroup", { name: "Qué máquina muestra el 34 pulgadas" });
 
-describe("Monitores (V3-Monitores) en modo demo", () => {
+describe("Monitores (V3-Monitors) en modo demo", () => {
   it("el 34\" compatible trae su selector, su dueño y sus eventos", async () => {
     await open("#/monitores");
     const card = screen.getByRole("article", { name: 'Odyssey G5 34"' });
-    expect(within(card).getByText("Estándar Tandem")).toBeInTheDocument();
+    expect(within(card).getByText("Tandem standard")).toBeInTheDocument();
     const radios = within(picker()).getAllByRole("radio");
     expect(radios).toHaveLength(2);
     expect(radios[0]).toHaveTextContent("MacBook Pro");
-    expect(radios[1]).toHaveTextContent("PC-Escritorio");
+    expect(radios[1]).toHaveTextContent("PC-Desktop");
     expect(within(card).getAllByText(/Entrada →|Cambio|Señal/).length).toBeGreaterThan(0);
   });
 
   it("D11: el 32\" se muestra «no compatible», con su razón, sin selector ni cambio de entrada", async () => {
     await open("#/monitores");
     const card = screen.getByRole("article", { name: /Odyssey G5 32", no compatible/ });
-    expect(within(card).getByText("No compatible")).toBeInTheDocument();
+    expect(within(card).getByText("Unsupported")).toBeInTheDocument();
     expect(within(card).getByText(/firmware cumpla el estándar/)).toBeInTheDocument();
     expect(within(card).queryByRole("radiogroup")).toBeNull();
     expect(screen.getAllByRole("radiogroup")).toHaveLength(1);
   });
 
-  it("«Qué es el estándar» abre y cierra la explicación", async () => {
+  it("«What the standard is» abre y cierra la explicación", async () => {
     await open("#/monitores");
-    const b = screen.getByRole("button", { name: "Qué es el estándar" });
+    const b = screen.getByRole("button", { name: "What the standard is" });
     expect(b).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByText(/habla el protocolo del firmware propio/)).toBeNull();
     await userEvent.click(b);
@@ -51,7 +51,7 @@ describe("Monitores (V3-Monitores) en modo demo", () => {
     expect(screen.queryByText(/habla el protocolo del firmware propio/)).toBeNull();
   });
 
-  it("elegir la otra máquina pide el cambio de entrada y el selector sigue lo que muestra el monitor", async () => {
+  it("elegir the other machine pide el cambio de entrada y el selector sigue lo que muestra the monitor", async () => {
     await open("#/monitores");
     const radios = () => within(picker()).getAllByRole("radio");
     expect(radios()[1]).toHaveAttribute("aria-checked", "true");
@@ -64,32 +64,32 @@ describe("Monitores (V3-Monitores) en modo demo", () => {
     await open("#/monitores");
     const cards = screen.getAllByRole("article", { name: /^Escena / });
     expect(cards.length).toBeGreaterThan(1);
-    const active = cards.filter((c) => within(c).queryByText("Activa"));
+    const active = cards.filter((c) => within(c).queryByText("Active"));
     expect(active).toHaveLength(1);
-    expect(within(active[0] as HTMLElement).queryByRole("button", { name: "Aplicar" })).toBeNull();
-    for (const c of cards.filter((x) => x !== active[0])) expect(within(c).getByRole("button", { name: "Aplicar" })).toBeEnabled();
+    expect(within(active[0] as HTMLElement).queryByRole("button", { name: "Apply" })).toBeNull();
+    for (const c of cards.filter((x) => x !== active[0])) expect(within(c).getByRole("button", { name: "Apply" })).toBeEnabled();
   });
 
   it("«Aplicar» lleva al progreso paso a paso y se puede volver a Monitores", async () => {
     const store = await open("#/monitores");
-    const other = screen.getAllByRole("article", { name: /^Escena / }).find((c) => !within(c).queryByText("Activa")) as HTMLElement;
-    await userEvent.click(within(other).getByRole("button", { name: "Aplicar" }));
+    const other = screen.getAllByRole("article", { name: /^Escena / }).find((c) => !within(c).queryByText("Active")) as HTMLElement;
+    await userEvent.click(within(other).getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(store.route.screen).toBe("progreso"));
-    expect(await screen.findByRole("heading", { name: "Cambios en progreso" })).toBeInTheDocument();
-    expect(screen.getByText("Guardar cómo está todo")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Volver a Monitores" })).toHaveAttribute("href", "#/monitores");
+    expect(await screen.findByRole("heading", { name: "Changes in progress" })).toBeInTheDocument();
+    expect(screen.getByText("Save how everything is")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Back to Monitors" })).toHaveAttribute("href", "#/monitores");
   });
 });
 
-describe("Nueva escena (F-NuevaEscena) en modo demo", () => {
-  it("no se guarda sin nombre; con nombre y la otra máquina queda como tarjeta en Monitores", async () => {
+describe("New scene (F-NewScene) en modo demo", () => {
+  it("no se guarda sin nombre; con nombre y the other machine queda como tarjeta en Monitores", async () => {
     const store = await open("#/monitores/escena");
-    const save = screen.getByRole("button", { name: "Guardar" });
+    const save = screen.getByRole("button", { name: "Save" });
     expect(save).toBeDisabled();
     await userEvent.type(screen.getByRole("textbox"), "Juego 2");
     expect(save).toBeEnabled();
     await userEvent.click(screen.getByRole("radio", { name: /PC-Escritorio/ }));
-    expect(screen.getByText("PC-Escritorio", { selector: "b" })).toBeInTheDocument();
+    expect(screen.getByText("PC-Desktop", { selector: "b" })).toBeInTheDocument();
     await userEvent.click(save);
     await waitFor(() => expect(store.route.screen).toBe("monitores"));
     expect(await screen.findByRole("article", { name: "Escena Juego 2" })).toBeInTheDocument();
@@ -98,30 +98,30 @@ describe("Nueva escena (F-NuevaEscena) en modo demo", () => {
   it("el atajo se graba con la combinación y avisa si ya es de otra escena", async () => {
     await open("#/monitores/escena");
     await userEvent.type(screen.getByRole("textbox"), "Otra");
-    const kbd = screen.getByRole("button", { name: "Atajo" });
-    expect(kbd).toHaveTextContent("Sin atajo");
+    const kbd = screen.getByRole("button", { name: "Shortcut" });
+    expect(kbd).toHaveTextContent("No shortcut");
     kbd.focus();
     await userEvent.keyboard("{Control>}{Alt>}4{/Alt}{/Control}");
-    expect(kbd.textContent).not.toBe("Sin atajo");
+    expect(kbd.textContent).not.toBe("No shortcut");
     await userEvent.keyboard("{Backspace}");
-    expect(kbd).toHaveTextContent("Sin atajo");
+    expect(kbd).toHaveTextContent("No shortcut");
   });
 
-  it("«Guardar y aplicar» guarda y abre el progreso", async () => {
+  it("«Save and apply» guarda y abre el progreso", async () => {
     const store = await open("#/monitores/escena");
     await userEvent.type(screen.getByRole("textbox"), "Con progreso");
     await userEvent.click(screen.getByRole("radio", { name: /PC-Escritorio/ }));
-    await userEvent.click(screen.getByRole("button", { name: "Guardar y aplicar" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save and apply" }));
     await waitFor(() => expect(store.route.screen).toBe("progreso"));
   });
 });
 
-describe("Progreso (F-Transacciones) en modo demo", () => {
-  it("una escena en curso muestra sus pasos y el aviso de que el monitor confirma cada cambio", async () => {
+describe("Progreso (F-Transactions) en modo demo", () => {
+  it("una escena in progress muestra sus pasos y el aviso de que the monitor confirma cada cambio", async () => {
     await open("#/progreso", "demo&still&txn=run");
-    expect(await screen.findByText("Aplicando la escena «Juego»")).toBeInTheDocument();
-    expect(screen.getByText("El monitor confirma cada cambio; no se adivina.")).toBeInTheDocument();
-    expect(screen.getByText("esperando al monitor")).toBeInTheDocument();
+    expect(await screen.findByText("Applying the scene “Game”")).toBeInTheDocument();
+    expect(screen.getByText("The monitor confirms each change; nothing is guessed.")).toBeInTheDocument();
+    expect(screen.getByText("waiting for the monitor")).toBeInTheDocument();
   });
 
   it("al terminar bien dice que la escena quedó activa", async () => {
@@ -129,18 +129,18 @@ describe("Progreso (F-Transacciones) en modo demo", () => {
     expect(await screen.findByText(/Escena «Juego» activa/)).toBeInTheDocument();
   });
 
-  it("si el monitor no da imagen se ve la vuelta atrás y nada queda a medias", async () => {
+  it("si the monitor no da imagen se ve la vuelta atrás y nada queda a medias", async () => {
     await open("#/progreso", "demo&still&txn=fail");
-    expect(await screen.findByText("Volviendo a como estaba")).toBeInTheDocument();
-    expect(screen.getByText("el monitor dijo: cambio fallido")).toBeInTheDocument();
+    expect(await screen.findByText("Rolling back to how it was")).toBeInTheDocument();
+    expect(screen.getByText("the monitor said: change failed")).toBeInTheDocument();
     expect(screen.getByText(/nada quedó a medias/)).toBeInTheDocument();
   });
 });
 
-describe("Cambios en progreso (F-Transacciones): una tarjeta por transacción", () => {
+describe("Changes in progress (F-Transactions): una tarjeta por transacción", () => {
   it("con txn=run salen la escena, el encendido y la medición del enlace", async () => {
     await open("#/progreso", "demo&still&txn=run");
-    expect(screen.getByRole("region", { name: "Aplicando la escena «Juego»" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Applying the scene “Game”" })).toBeInTheDocument();
     const energy = screen.getByRole("region", { name: "Encendiendo PC-Escritorio" });
     expect(within(energy).getByText("0:18 / 2:00")).toBeInTheDocument();
     expect(within(energy).queryByRole("button")).toBeNull();

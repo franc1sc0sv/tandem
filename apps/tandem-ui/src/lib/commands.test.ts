@@ -20,24 +20,24 @@ function ctx(can = true): CommandContext & { calls: string[] } {
 const desk = demoDesk({ pair: "mac-win", here: "a", trouble: "none", still: true });
 
 describe("comandos", () => {
-  it("salen del puesto: escenas, la otra máquina, túneles abiertos, pantallas y acciones", () => {
+  it("salen del puesto: escenas, the other machine, túneles abiertos, pantallas y acciones", () => {
     const groups = filterCommands(buildCommands(desk, ctx(), true), "");
-    expect(groups.map((g) => g.name)).toEqual(["Escenas", "Máquinas", "Túneles", "Ir a", "Acciones"]);
+    expect(groups.map((g) => g.name)).toEqual(["Scenes", "Machines", "Tunnels", "Go to", "Actions"]);
     const titles = flatten(groups).map((c) => c.title);
-    expect(titles.slice(0, 4)).toEqual(["Aplicar «Trabajo»", "Aplicar «Solo MacBook»", "Aplicar «Juego»", "Nueva escena…"]);
+    expect(titles.slice(0, 4)).toEqual(["Aplicar «Trabajo»", "Aplicar «Solo MacBook»", "Aplicar «Juego»", "New scene…"]);
     expect(titles).toContain("Apagar PC-Escritorio");
-    expect(titles).toContain("Cambiar la otra máquina…");
-    expect(titles).toContain("Medir el enlace");
-    expect(titles).toContain("Abrir el asistente");
+    expect(titles).toContain("Change the other machine…");
+    expect(titles).toContain("Measure the link");
+    expect(titles).toContain("Open setup");
     // Los túneles cerrados no se ofrecen.
     expect(titles.some((t) => t.includes("ComfyUI"))).toBe(false);
   });
 
-  it("ofrece «Bloquear aquí» o «Quitar el bloqueo» según el estado, y nada sin motor de entrada", () => {
+  it("ofrece «Lock here» o «Remove the lock» según el estado, y nada sin motor de entrada", () => {
     const titles = flatten(filterCommands(buildCommands(desk, ctx(), true), "bloque")).map((c) => c.title);
-    expect(titles).toEqual(["Bloquear aquí"]);
+    expect(titles).toEqual(["Lock here"]);
     const locked = flatten(filterCommands(buildCommands({ ...desk, locked: true }, ctx(), true), "bloque")).map((c) => c.title);
-    expect(locked).toEqual(["Quitar el bloqueo"]);
+    expect(locked).toEqual(["Remove the lock"]);
     expect(buildCommands(desk, ctx(false), true).some((c) => c.id.startsWith("lock:"))).toBe(false);
   });
 
@@ -68,14 +68,14 @@ describe("comandos", () => {
     const ww = demoDesk({ pair: "win-win", here: "b", trouble: "none", still: true });
     const cmds = buildCommands(ww, ctx(), false);
     expect(cmds.find((c) => c.id === "power:a")?.title).toBe("Apagar PC-Escritorio");
-    expect(cmds.find((c) => c.id === "go:maquina:b")).toMatchObject({ title: "PC-Taller", color: "#6cc59a" });
+    expect(cmds.find((c) => c.id === "go:maquina:b")).toMatchObject({ title: "PC-Workshop", color: "#6cc59a" });
   });
 });
 
 describe("túneles en la paleta", () => {
   it("usan los rótulos de la lista de Túneles: «Mac → PC» si los sistemas difieren", () => {
     const d = demoDesk({ pair: "mac-win", here: "a", trouble: "none", still: true, tunnels: "paleta", paleta: true });
-    const t = buildCommands(d, ctx(), true).filter((c) => c.group === "Túneles");
+    const t = buildCommands(d, ctx(), true).filter((c) => c.group === "Tunnels");
     expect(t.map((c) => [c.title, c.detail])).toEqual([
       ["Ir al túnel «ia-local»", "Mac → PC · activo"],
       ["Ir al túnel «tandem»", "Mac → PC · activo"],
@@ -96,7 +96,7 @@ describe("búsqueda", () => {
 
   it("el nombre del grupo también cuenta", () => {
     const hits = flatten(filterCommands(cmds, "escenas")).map((c) => c.group);
-    expect(new Set(hits)).toEqual(new Set(["Escenas"]));
+    expect(new Set(hits)).toEqual(new Set(["Scenes"]));
   });
 
   it("sin resultados, nada", () => {
@@ -111,7 +111,7 @@ describe("búsqueda", () => {
 
   it("nombre corto de una máquina", () => {
     expect(shortName("MacBook Pro")).toBe("MacBook");
-    expect(shortName("PC-Escritorio")).toBe("PC-Escritorio");
+    expect(shortName("PC-Desktop")).toBe("PC-Desktop");
   });
 });
 

@@ -62,7 +62,7 @@ describe("progreso por pasos", () => {
     expect(stepLabel({ step: "power_on", machine: "b" }, name)).toBe("Encender Taller");
     expect(stepLabel({ step: "power_off", machine: "a" }, name)).toBe("Apagar Estudio");
     expect(stepLabel({ step: "show_machine", monitor: "34", machine: "b" }, name)).toBe("Monitor 34 → Taller");
-    expect(stepLabel({ step: "geometry" }, name)).toBe("Teclado y mouse: geometría nueva");
+    expect(stepLabel({ step: "geometry" }, name)).toBe("Keyboard and mouse: new geometry");
   });
 
   it("avanza, termina y falla con el error del paso", () => {

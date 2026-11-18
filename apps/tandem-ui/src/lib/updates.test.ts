@@ -3,18 +3,18 @@ import { availableRow, checkLabel, upToDate, versionRow, type UpdateView } from 
 
 const base: UpdateView = { here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true };
 
-describe("Actualizaciones", () => {
+describe("Updates", () => {
   it("dice si las dos máquinas están en la misma versión", () => {
-    expect(versionRow(base)).toEqual({ title: "Tandem 0.3.0", detail: "Todas las máquinas del puesto en la misma versión." });
-    expect(versionRow({ ...base, peer: "0.3.1" }).detail).toBe("La otra máquina tiene la 0.3.1.");
+    expect(versionRow(base)).toEqual({ title: "Tandem 0.3.0", detail: "All machines of the desk on the same version." });
+    expect(versionRow({ ...base, peer: "0.3.1" }).detail).toBe("The other machine tiene la 0.3.1.");
     expect(versionRow({ ...base, peer: null }).detail).toMatch(/Todavía no se sabe/);
-    expect(versionRow({ ...base, paired: false, peer: null }).detail).toBe("Esta máquina trabaja sola.");
+    expect(versionRow({ ...base, paired: false, peer: null }).detail).toBe("This machine works alone.");
   });
 
-  it("el botón cambia de «Buscar ahora» a «Buscar de nuevo»", () => {
-    expect(checkLabel(base, false)).toBe("Buscar ahora");
-    expect(checkLabel(base, true)).toBe("Buscar de nuevo");
-    expect(checkLabel({ ...base, checking: true }, true)).toBe("Buscando…");
+  it("el botón cambia de «Check now» a «Check again»", () => {
+    expect(checkLabel(base, false)).toBe("Check now");
+    expect(checkLabel(base, true)).toBe("Check again");
+    expect(checkLabel({ ...base, checking: true }, true)).toBe("Checking…");
   });
 
   it("la versión nueva dice cómo se instala y en qué paso va", () => {
@@ -22,9 +22,9 @@ describe("Actualizaciones", () => {
     const found = { ...base, available: "0.3.1" };
     expect(availableRow(found)).toEqual({
       title: "Hay una versión nueva: 0.3.1",
-      detail: "Se instala en todas las máquinas, una a la vez, sin cortar el teclado.",
+      detail: "It installs on every machine, one at a time, without cutting the keyboard.",
     });
-    expect(availableRow({ ...found, paired: false })?.detail).toBe("Se instala en esta máquina.");
+    expect(availableRow({ ...found, paired: false })?.detail).toBe("It installs on this machine.");
     expect(availableRow({ ...found, step: "wait_peer" })?.detail).toMatch(/esta sigue con el teclado/);
   });
 

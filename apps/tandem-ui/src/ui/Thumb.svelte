@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Miniatura de una pantalla (`.thumb` + `.wall` de V3-Monitores): el fondo de la máquina que
+  // Miniatura de una pantalla (`.thumb` + `.wall` de V3-Monitors): el fondo de la máquina que
   // muestra; con `flashKey`, un destello blanco al montarse y cada vez que cambia (cambio de entrada).
   interface Props {
     width: number;

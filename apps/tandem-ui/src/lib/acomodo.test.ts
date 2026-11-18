@@ -23,7 +23,7 @@ const screen = (id: string, machine: "a" | "b" | null, w: number, h: number, usa
 
 const MOCK: LayoutView = demoDesk(demoOptions("demo&still")).layout;
 
-/** Lo que calcula el mockup (`V3-Acomodo`, `renderVals`) para el Mac, el 34" y el 32". */
+/** Lo que calcula el mockup (`V3-Arrangement`, `renderVals`) para el Mac, el 34" y el 32". */
 function mockupBoxes(side: string, al: string) {
   const W = 76,
     H = 26,
@@ -161,7 +161,7 @@ describe("dibujo a escala física", () => {
   });
 
   it("las pantallas de una misma máquina se dibujan juntas con su x/y", () => {
-    // A tiene dos pantallas pegadas, la segunda 2" más abajo; B una sola, a la derecha de A.
+    // A tiene dos pantallas pegadas, la segunda 2" más abajo; B una sola, to the right of de A.
     const layout: LayoutView = {
       screens: [screen("a1", "a", 10, 8), screen("a2", "a", 10, 8, true, 10, 2), screen("b1", "b", 20, 10), screen("x", null, 6, 5, false)],
       arrangement: { aSide: "left", align: "start" },
@@ -173,7 +173,7 @@ describe("dibujo a escala física", () => {
     expect(a2.left).toBeCloseTo(a1.left + a1.width, 6);
     const inH = a1.height / 8; // alto en % por pulgada
     expect(a2.top - a1.top).toBeCloseTo(2 * inH, 6);
-    // A, como un solo escritorio, queda a la izquierda de B; la desconectada, aparte.
+    // A, como un solo escritorio, queda to the left of de B; la desconectada, aparte.
     expect(Math.max(a1.left + a1.width, a2.left + a2.width)).toBeLessThan(b1.left);
     for (const [i, p] of d.boxes.entries()) for (const q of d.boxes.slice(i + 1)) expect(overlap(p, q), `${p.id}/${q.id}`).toBe(false);
     expect(x.left).toBeGreaterThan(b1.left + b1.width);
@@ -189,7 +189,7 @@ describe("dibujo a escala física", () => {
     for (const b of d.boxes) expect(b.left + b.width).toBeLessThanOrEqual(100 + 1e-9);
   });
 
-  it("sin la otra máquina dibuja solo lo que hay, sin borde", () => {
+  it("sin the other machine dibuja solo lo que hay, sin borde", () => {
     const d = draw({ screens: [screen("a1", "a", 12, 8)], arrangement: DEFAULT_ARRANGEMENT });
     expect(d.boxes).toHaveLength(1);
     expect(d.edge).toBeNull();
@@ -198,7 +198,7 @@ describe("dibujo a escala física", () => {
 });
 
 describe("panel", () => {
-  it("con el 34\" elegido pregunta por la otra máquina y la muestra de su lado", () => {
+  it("con el 34\" elegido pregunta por the other machine y la muestra de su lado", () => {
     const p = panelFor(MOCK, "g34");
     expect(p?.question).toBe("¿Dónde está MacBook Pro?");
     expect(p?.other?.id).toBe("mbp");
@@ -232,7 +232,7 @@ describe("panel", () => {
     expect(panelFor(MOCK, "nada")).toBeNull();
   });
 
-  it("poner la otra máquina en una casilla y volver a leerla da la misma casilla, desde las dos", () => {
+  it("poner the other machine en una casilla y volver a leerla da la misma casilla, desde las dos", () => {
     for (const m of ["a", "b"] as const) {
       for (const slot of SIDES) {
         const arr = placeOther(DEFAULT_ARRANGEMENT, m, slot);
@@ -244,13 +244,13 @@ describe("panel", () => {
   });
 
   it("la alineación dice Arriba/Centro/Abajo a los lados e Izquierda/Centro/Derecha arriba y abajo", () => {
-    expect(Object.values(alignLabels("left"))).toEqual(["Arriba", "Centro", "Abajo"]);
-    expect(Object.values(alignLabels("right"))).toEqual(["Arriba", "Centro", "Abajo"]);
-    expect(Object.values(alignLabels("up"))).toEqual(["Izquierda", "Centro", "Derecha"]);
-    expect(Object.values(alignLabels("down"))).toEqual(["Izquierda", "Centro", "Derecha"]);
+    expect(Object.values(alignLabels("left"))).toEqual(["Top", "Center", "Bottom"]);
+    expect(Object.values(alignLabels("right"))).toEqual(["Top", "Center", "Bottom"]);
+    expect(Object.values(alignLabels("up"))).toEqual(["Left", "Center", "Right"]);
+    expect(Object.values(alignLabels("down"))).toEqual(["Left", "Center", "Right"]);
   });
 
-  it("al abrir se elige la pantalla de la otra máquina", () => {
+  it("al abrir se elige la pantalla de the other machine", () => {
     expect(initialSelection(MOCK, "a")).toBe("g34");
     expect(initialSelection(MOCK, "b")).toBe("mbp");
     expect(initialSelection({ screens: [], arrangement: DEFAULT_ARRANGEMENT }, "a")).toBeNull();

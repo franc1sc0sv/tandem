@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest";
 import { demoDesk, demoOptions } from "./store/demo";
 import { cursorPoint, DEMO_LOOP_MS, demoPath, flowSeconds, RateMeter, sampleAt, sceneOf } from "./puesto";
 
-const names = { a: "MacBook Pro", b: "PC-Escritorio" };
+const names = { a: "MacBook Pro", b: "PC-Desktop" };
 const colors = { a: "#7aa7e6", b: "#a99be8" };
 const desk = () => demoDesk(demoOptions("demo&still"));
 const scene = () => sceneOf(desk().layout, names, colors);
 
-describe("escritorios a escala (V3-Puesto)", () => {
-  it("el demo cae donde el mockup dibuja la MacBook y el 34\"", () => {
+describe("escritorios a escala (V3-Desk)", () => {
+  it("el demo cae donde el mockup dibuja the MacBook y el 34\"", () => {
     const s = scene();
     const mac = s.desks.find((d) => d.machine === "a");
     const pc = s.desks.find((d) => d.machine === "b");
@@ -34,7 +34,7 @@ describe("escritorios a escala (V3-Puesto)", () => {
     expect(other.desks[0]?.wall).not.toBe(s.desks[0]?.wall);
   });
 
-  it("la MacBook tiene base y el monitor, soporte y pie", () => {
+  it("the MacBook tiene base y the monitor, soporte y pie", () => {
     expect(scene().feet).toHaveLength(3);
     expect(scene().feet.filter((f) => f.radius === 6)).toHaveLength(1);
   });
@@ -44,7 +44,7 @@ describe("escritorios a escala (V3-Puesto)", () => {
     const pc = s.desks.find((d) => d.machine === "b");
     expect(s.edge?.vertical).toBe(true);
     expect(s.edge?.left).toBeCloseTo(pc?.left ?? 0, 5);
-    // Con A abajo del todo (align end) el tramo compartido es el alto de la MacBook.
+    // Con A abajo del todo (align end) el tramo compartido es el alto de the MacBook.
     expect(s.edge?.length).toBeGreaterThan(30);
     expect(s.edge?.length).toBeLessThan(40);
   });

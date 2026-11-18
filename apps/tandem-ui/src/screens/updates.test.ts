@@ -13,34 +13,34 @@ async function openUpdates() {
   await store.start();
   render(Shell, { context: new Map([[STORE_KEY, store]]) });
   await tick();
-  await userEvent.click(screen.getByRole("tab", { name: "Actualizaciones" }));
+  await userEvent.click(screen.getByRole("tab", { name: "Updates" }));
   await screen.findByText("Tandem 0.3.0");
   return store;
 }
 
-describe("Ajustes → Actualizaciones (F-Ajustes, T-122)", () => {
-  it("muestra la versión de las dos máquinas, el origen y «Actualizar solo» encendido", async () => {
+describe("Ajustes → Actualizaciones (F-Settings, T-122)", () => {
+  it("muestra la versión de las dos máquinas, el origen y «Update only» encendido", async () => {
     await openUpdates();
-    expect(screen.getByText("Todas las máquinas del puesto en la misma versión.")).toBeInTheDocument();
-    expect(screen.getByText("GitHub Releases · sin firma")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Actualizar solo" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.queryByRole("button", { name: /Actualizar todas/ })).toBeNull();
+    expect(screen.getByText("All machines of the desk on the same version.")).toBeInTheDocument();
+    expect(screen.getByText("GitHub Releases · unsigned")).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: "Update only" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByRole("button", { name: /Update all/ })).toBeNull();
   });
 
-  it("buscar ahora encuentra la versión nueva y «Actualizar todas» empieza por la otra máquina", async () => {
+  it("buscar ahora encuentra la versión nueva y «Update all» empieza por the other machine", async () => {
     await openUpdates();
-    await userEvent.click(screen.getByRole("button", { name: /Buscar ahora/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Check now/ }));
     expect(await screen.findByText("Hay una versión nueva: 0.3.1")).toBeInTheDocument();
-    expect(screen.getByText("Se instala en todas las máquinas, una a la vez, sin cortar el teclado.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Buscar de nuevo/ })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Actualizar todas/ }));
-    expect(await screen.findByText("Pidiendo a la otra máquina que se actualice…")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Actualizar todas/ })).toBeDisabled();
+    expect(screen.getByText("It installs on every machine, one at a time, without cutting the keyboard.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Check again/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Update all/ }));
+    expect(await screen.findByText("Asking the other machine to update…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Update all/ })).toBeDisabled();
   });
 
   it("el interruptor se guarda", async () => {
     const store = await openUpdates();
-    const sw = screen.getByRole("switch", { name: "Actualizar solo" });
+    const sw = screen.getByRole("switch", { name: "Update only" });
     await userEvent.click(sw);
     expect(sw).toHaveAttribute("aria-checked", "false");
     expect((await store.updates(() => {})).auto).toBe(false);

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Página de una máquina (T-115, `V3-Maquina`/`F-MaquinaMac`): nombre y color editables,
+  // Página de una máquina (T-115, `V3-Machine`/`F-MachineMac`): nombre y color editables,
   // recursos en vivo, módulos con su interruptor y entornos de ejecución.
   import { tick } from "svelte";
   import { useStore } from "../lib/context";
@@ -42,10 +42,10 @@
   const warn = $derived(vramWarn(live));
   const envs = $derived(orderEnvs(m?.environments ?? []));
   const tunnels = $derived(m?.modules.find((x) => x.id === "tunnels") ?? null);
-  // La fila «Permisos» (F-MaquinaMac): solo en la página de esta máquina, si falta alguno.
+  // La fila «Permisos» (F-MachineMac): solo en la página de this machine, si falta alguno.
   const perm = $derived(m?.here ? missingPermission(store.desk.permissions.rows.filter((r) => r.state === "missing").map((r) => r.id)) : null);
 
-  const WOL_MISSING = "Falta la MAC de su tarjeta de red: se aprende al emparejar; si no llegó, escríbela aquí (aa:bb:cc:dd:ee:ff).";
+  const WOL_MISSING = "Its network card’s MAC is missing: it is learned when pairing; if it did not arrive, type it here (aa:bb:cc:dd:ee:ff).";
   const wolMac = $derived(m?.wake?.mac ?? null);
   let macDraft = $state("");
   $effect(() => {
@@ -96,7 +96,7 @@
     void store.editMachine(machine, { color });
   }
 
-  // Radiogroup: las flechas mueven la elección (saltando el color de la otra máquina).
+  // Radiogroup: las flechas mueven la elección (saltando el color de the other machine).
   function colorKey(e: KeyboardEvent) {
     if (!m || !["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp"].includes(e.key)) return;
     e.preventDefault();
@@ -151,13 +151,13 @@
               bind:this={input}
               bind:value={draft}
               class="name-in"
-              aria-label="Nombre de la máquina"
+              aria-label="Machine name"
               maxlength={40}
               onkeydown={nameKey}
               onblur={() => void saveName()}
             />
           {:else}
-            <button type="button" class="name" title="Cambiar el nombre" disabled={!store.can("machine")} onclick={startEdit}
+            <button type="button" class="name" title="Change the name" disabled={!store.can("machine")} onclick={startEdit}
               >{m.name}<Icon name="edit" size={14} stroke={2} class="pen" /></button
             >
           {/if}
@@ -165,7 +165,7 @@
         <span class="mut sub">{headerSub(m)}</span>
       </div>
       <span class="fill"></span>
-      <div class="colors" role="radiogroup" aria-label="Color de la máquina" tabindex="-1" onkeydown={colorKey}>
+      <div class="colors" role="radiogroup" aria-label="Machine color" tabindex="-1" onkeydown={colorKey}>
         {#each PALETTE as p (p.color)}
           {@const on = p.color.toLowerCase() === m.color.toLowerCase()}
           <button
@@ -175,7 +175,7 @@
             class:on
             aria-checked={on}
             aria-label={p.name}
-            title={taken(p.color) ? `Es el color de ${peer?.name}` : p.name}
+            title={taken(p.color) ? `It is ${peer?.name}’s color` : p.name}
             tabindex={on ? 0 : -1}
             disabled={taken(p.color) || !store.can("machine")}
             style="background:{p.color}"
@@ -185,9 +185,9 @@
       </div>
       {#if !m.here && store.can("power")}
         {#if m.power === "on"}
-          <Button icon="power" variant="danger" style="--btn-h:38px;--btn-px:15px" onclick={() => store.setPower(machine, false)}>Apagar</Button>
+          <Button icon="power" variant="danger" style="--btn-h:38px;--btn-px:15px" onclick={() => store.setPower(machine, false)}>Power off</Button>
         {:else if m.power === "off"}
-          <span title={wolMac ? undefined : WOL_MISSING}><Button icon="power" style="--btn-h:38px;--btn-px:15px" disabled={!wolMac} onclick={() => store.setPower(machine, true)}>Encender</Button></span>
+          <span title={wolMac ? undefined : WOL_MISSING}><Button icon="power" style="--btn-h:38px;--btn-px:15px" disabled={!wolMac} onclick={() => store.setPower(machine, true)}>Power on</Button></span>
         {/if}
       {/if}
     </header>
@@ -196,15 +196,15 @@
       <section class="wol" aria-label="Wake-on-LAN">
         <label for="wol-mac"><b>Wake-on-LAN</b></label>
         {#if !wolMac}<span class="mut s12">{WOL_MISSING}</span>{/if}
-        <input id="wol-mac" class="mono" placeholder="aa:bb:cc:dd:ee:ff" bind:value={macDraft} aria-label="MAC de {m.name}" />
-        <Button icon="check" size="sm" disabled={macDraft.trim() === (wolMac ?? "")} onclick={() => void store.setWol(macDraft.trim() || null)}>Guardar</Button>
-        {#if wolMac}<Button icon="trash" variant="ghost" size="sm" iconOnly label="Borrar MAC" onclick={() => void store.setWol(null)} />{/if}
+        <input id="wol-mac" class="mono" placeholder="aa:bb:cc:dd:ee:ff" bind:value={macDraft} aria-label="MAC of {m.name}" />
+        <Button icon="check" size="sm" disabled={macDraft.trim() === (wolMac ?? "")} onclick={() => void store.setWol(macDraft.trim() || null)}>Save</Button>
+        {#if wolMac}<Button icon="trash" variant="ghost" size="sm" iconOnly label="Clear MAC" onclick={() => void store.setWol(null)} />{/if}
       </section>
     {/if}
 
     {#if live || hw}
       {@const gpu = live?.gpu ?? null}
-      <section class="res" class:two={!hw?.gpu && !gpu} aria-label="Recursos en vivo">
+      <section class="res" class:two={!hw?.gpu && !gpu} aria-label="Live resources">
         <div class="grp">
           <div class="gh">
             <span class="gi" style="background:{tint(m.color)}"><Icon name="cpu" size={16} stroke={1.8} color={m.color} /></span><b>CPU</b><span class="mut s115"
@@ -246,11 +246,11 @@
               <span class="gi" style="background:{tint(m.color)}"><Icon name="gpu" size={16} stroke={1.8} color={m.color} /></span><b>GPU</b><span class="mut s115"
                 >{gpuSub(hw)}</span
               >
-              {#if warn}<span class="fill"></span><span class="warnchip"><Icon name="alert" size={12} stroke={2.2} />VRAM casi llena</span>{/if}
+              {#if warn}<span class="fill"></span><span class="warnchip"><Icon name="alert" size={12} stroke={2.2} />VRAM almost full</span>{/if}
             </div>
             <div class="g3">
               <div class="gc">
-                <span class="mut s115">Uso</span><b class="mono big">{fmt(gpu?.percent, "%")}</b>
+                <span class="mut s115">Usage</span><b class="mono big">{fmt(gpu?.percent, "%")}</b>
                 {#if gpu && gpu.history.length > 0}
                   <svg viewBox="0 0 120 26" width="100%" height="26" preserveAspectRatio="none" aria-hidden="true"
                     ><polyline class="ln" points={trendPoints(gpu.history, 120, 26)} fill="none" stroke={m.color} stroke-width="1.6"></polyline></svg
@@ -259,9 +259,9 @@
               </div>
               {#if sharedMemory(hw)}
                 <div class="gc">
-                  <span class="mut s115">Memoria</span><b class="mono big"
+                  <span class="mut s115">Memory</span><b class="mono big"
                     >{gpu?.vramUsed != null ? gb(gpu.vramUsed) : "—"}<span class="mut unit">{" GB"}</span></b
-                  ><span class="mut s115">de la RAM</span>
+                  ><span class="mut s115">of RAM</span>
                 </div>
               {:else}
                 <div class="gc">
@@ -275,8 +275,8 @@
                 </div>
               {/if}
               <div class="gc">
-                <span class="mut s115">Temperatura</span><b class="mono big">{fmt(gpu?.temp, "°C")}</b>
-                {#if gpu?.fans != null}<span class="mut s115">ventiladores {gpu.fans} %</span>{:else if hw?.fanless}<span class="mut s115">sin ventilador</span>{/if}
+                <span class="mut s115">Temperature</span><b class="mono big">{fmt(gpu?.temp, "°C")}</b>
+                {#if gpu?.fans != null}<span class="mut s115">fans {gpu.fans} %</span>{:else if hw?.fanless}<span class="mut s115">fanless</span>{/if}
               </div>
             </div>
           </div>
@@ -286,7 +286,7 @@
     {#if live?.disk || live?.battery}
       <div class="disk mut">
         {#if live.disk}
-          <Icon name="disk" size={15} stroke={1.8} />Disco<div class="bar2 dbar" class:short={!!live.battery}>
+          <Icon name="disk" size={15} stroke={1.8} />Disk<div class="bar2 dbar" class:short={!!live.battery}>
             <span style="width:{100 - pct(live.disk.free, live.disk.total)}%;background:#6a6d76"></span>
           </div>
           <span class="mono">{diskText(live.disk.free, live.disk.total)}</span>
@@ -303,16 +303,16 @@
               fill={live.battery.percent <= 20 ? "#d9a75a" : "#6cc59a"}
               stroke="none"
             ></rect></svg
-          >Batería<span class="mono">{Math.round(live.battery.percent)} % · {live.battery.plugged ? "conectada" : "con batería"}</span>
+          >Battery<span class="mono">{Math.round(live.battery.percent)} % · {live.battery.plugged ? "conectada" : "on battery"}</span>
         {/if}
       </div>
     {/if}
 
-    <!-- La página de esta máquina usa la lista compacta de `F-MaquinaMac`; la de la otra, la de
-         `V3-Maquina`. -->
+    <!-- La página de this machine usa la lista compacta de `F-MachineMac`; la de la otra, la de
+         `V3-Machine`. -->
     <div class="lower" class:compact={m.here}>
-      <section class="card mods" aria-label="Módulos">
-        <div class="mh"><h2 class="h3">Módulos</h2></div>
+      <section class="card mods" aria-label="Modules">
+        <div class="mh"><h2 class="h3">Modules</h2></div>
         {#each m.modules as mod, i (mod.id)}
           <div class="mod">
             <span class="d {mod.state}"></span>
@@ -337,24 +337,24 @@
             {@const id = perm.id}
             <div class="mod">
               <span class="d unavailable"></span>
-              <b>Permisos</b>
+              <b>Permissions</b>
               <span class="amber">{perm.text}</span>
-              <Button icon="external" variant="pri" size="sm" motion="lift" style="--btn-h:34px;--btn-px:13px" onclick={() => store.openPermission(id)}>Abrir ajustes</Button>
+              <Button icon="external" variant="pri" size="sm" motion="lift" style="--btn-h:34px;--btn-px:13px" onclick={() => store.openPermission(id)}>Open settings</Button>
             </div>
           {/if}
         {/each}
       </section>
 
-      <section class="card envs" aria-label="Entornos">
+      <section class="card envs" aria-label="Environments">
         <div class="eh">
-          <h2 class="h3">Entornos de ejecución</h2>
+          <h2 class="h3">Execution environments</h2>
           <span class="fill"></span>
           <button
             type="button"
             class="rescan"
             class:spin={scanning}
-            aria-label="Volver a escanear"
-            title="Volver a escanear"
+            aria-label="Scan again"
+            title="Scan again"
             aria-busy={scanning}
             disabled={m.power !== "on"}
             onclick={rescan}><Icon name="refresh" size={15} stroke={2} /></button
@@ -375,10 +375,10 @@
         {/each}
         {#if tunnels && !m.here}
           <div class="remote">
-            <span>Permitir ejecución remota</span><span class="fill"></span>
+            <span>Allow remote execution</span><span class="fill"></span>
             <Switch
               checked={tunnels.state === "active"}
-              label="Permitir ejecución remota"
+              label="Allow remote execution"
               disabled={!canSwitch(tunnels) || busy !== null}
               onchange={() => toggle(tunnels)}
             />
@@ -387,8 +387,8 @@
       </section>
     </div>
   {:else}
-    <header class="hd"><h1>Máquina</h1></header>
-    <section class="card"><span class="mut">Todavía no se conoce esta máquina.</span></section>
+    <header class="hd"><h1>Machine</h1></header>
+    <section class="card"><span class="mut">This machine is not known yet.</span></section>
   {/if}
 </div>
 
@@ -541,7 +541,7 @@
     cursor: not-allowed;
   }
 
-  /* Recursos agrupados (V3-Maquina). */
+  /* Recursos agrupados (V3-Machine). */
   .wol {
     display: flex;
     align-items: center;
@@ -689,7 +689,7 @@
     flex-direction: column;
     gap: 2px;
   }
-  /* Compacta (F-MaquinaMac): filas de 37 px; el chip no las agranda. */
+  /* Compacta (F-MachineMac): filas de 37 px; el chip no las agranda. */
   .compact .mods {
     gap: 0;
   }

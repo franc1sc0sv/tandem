@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Acomodo (V3-Acomodo, D18): las pantallas a escala física, centradas solas; el panel de la
-  // elegida con sus datos, el mini plano de 4 casillas para la otra máquina y la alineación.
+  // Acomodo (V3-Arrangement, D18): las pantallas a escala física, centradas solas; el panel de la
+  // elegida con sus datos, el mini plano de 4 casillas para the other machine y la alineación.
   // Sin X/Y. «Guardar» es un cambio del puesto compartido (T-099).
   import { ALIGNS, SIDES, SIDE_LABEL, SLOTS, alignLabels, draw, fillOf, initialSelection, isVertical, panelFor, placeOther, wallOf, type Align, type Arrangement, type LayoutScreen, type Side } from "../lib/acomodo";
   import { useStore } from "../lib/context";
@@ -93,7 +93,7 @@
     else awaiting = before;
   }
 
-  // Llegó otro acomodo del puesto (el guardado, o uno de la otra máquina): el borrador ya no hace falta.
+  // Llegó otro acomodo del puesto (el guardado, o uno de the other machine): el borrador ya no hace falta.
   $effect(() => {
     const now = desk.layout.arrangement;
     if (awaiting && !same(now, awaiting)) {
@@ -106,20 +106,20 @@
 </script>
 
 <div class="page">
-  <PageHeader title="Acomodo" search={false}>
+  <PageHeader title="Arrangement" search={false}>
     {#snippet actions()}
       {#if scene}
         <Chip dot={false} style="height:30px;box-sizing:border-box"
           ><Icon name="play" size={13} color={(scene.shows ? desk.machines[scene.shows]?.color : null) ?? "#9a9da6"} />{scene.name}</Chip
         >
       {/if}
-      <Button icon="cursor" href={crossHref} disabled={!store.can("crossing")} style="--btn-h:38px;--btn-px:15px">Probar cruce</Button>
-      <Button icon="check" variant="pri" disabled={saving} onclick={save} style="--btn-h:38px;--btn-px:15px">Guardar</Button>
+      <Button icon="cursor" href={crossHref} disabled={!store.can("crossing")} style="--btn-h:38px;--btn-px:15px">Test crossing</Button>
+      <Button icon="check" variant="pri" disabled={saving} onclick={save} style="--btn-h:38px;--btn-px:15px">Save</Button>
     {/snippet}
   </PageHeader>
 
   <div class="row">
-    <Card tag="section" label="Lienzo del acomodo" class="canvas">
+    <Card tag="section" label="Arrangement canvas" class="canvas">
       <div class="board">
         <div class="stage" style="aspect-ratio:{drawing.aspect}">
           {#each layout.screens as s (s.id)}
@@ -134,7 +134,7 @@
           {#each machines as m (m.id)}
             <span class="li"><span class="sw" style="border-color:{m.color}"></span>{m.name}</span>
           {/each}
-          {#if drawing.edge}<span class="li"><span class="ln"></span>Borde de cruce</span>{/if}
+          {#if drawing.edge}<span class="li"><span class="ln"></span>Crossing edge</span>{/if}
         </div>
       </div>
     </Card>
@@ -142,7 +142,7 @@
     {#if panel}
       {@const s = panel.screen}
       {#key s.id}
-        <Card tag="section" label="Pantalla seleccionada" class="panel">
+        <Card tag="section" label="Selected screen" class="panel">
           <div class="who">
             <div class="thumb"><div style="background:{s.usable ? wallOf(colorOf(s)) : 'repeating-linear-gradient(45deg,#17181c 0 6px,#121316 6px 12px)'}"></div></div>
             <div class="names">
@@ -154,22 +154,22 @@
           <div class="facts">
             <div class="fact">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="5" width="18" height="12" rx="2"></rect><path d="M8 21h8"></path></svg><span
-                class="mut k">Tamaño</span
+                class="mut k">Size</span
               ><span class="mono">{s.size}</span>
             </div>
             <div class="fact">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"></path></svg><span class="mut k"
-                >Resolución</span
+                >Resolution</span
               ><span class="mono">{s.res}</span>
             </div>
             <div class="fact">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M21 21H3V3"></path><path d="M7 14l4-4 3 3 5-6"></path></svg><span class="mut k"
-                >Proporción</span
+                >Aspect ratio</span
               ><span class="mono">{s.ratio}</span>
             </div>
             <div class="fact">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5M8 11h6M11 8v6"></path></svg><span
-                class="mut k">Escala</span
+                class="mut k">Scale</span
               ><span class="mono">{s.scale}</span>
             </div>
           </div>
@@ -199,13 +199,13 @@
               </div>
             </div>
             <div class="group">
-              <span class="lbl">Alineación</span>
-              <Segmented options={alignOptions} value={arrangement.align} label="Alineación" onchange={setAlign} />
+              <span class="lbl">Alignment</span>
+              <Segmented options={alignOptions} value={arrangement.align} label="Alignment" onchange={setAlign} />
             </div>
           {:else if !s.usable}
-            <div class="locked"><Icon name="warn" size={16} stroke={2} />No compatible: no entra en el acomodo.</div>
+            <div class="locked"><Icon name="warn" size={16} stroke={2} />Unsupported: it does not take part in the arrangement.</div>
           {:else}
-            <div class="locked"><Icon name="warn" size={16} stroke={2} />La otra máquina no tiene pantallas conectadas: no hay acomodo que editar.</div>
+            <div class="locked"><Icon name="warn" size={16} stroke={2} />The other machine has no screens connected: there is no arrangement to edit.</div>
           {/if}
         </Card>
       {/key}
@@ -474,7 +474,7 @@
     outline: 2px solid #7aa7e6;
     outline-offset: 2px;
   }
-  /* La ficha de la otra máquina se desliza a la casilla elegida. */
+  /* La ficha de the other machine se desliza a la casilla elegida. */
   .mpos {
     position: absolute;
     box-sizing: border-box;

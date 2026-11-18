@@ -38,7 +38,7 @@ export interface Toast extends ToastSpec {
   auto: boolean;
 }
 
-/** Lo que dura un aviso en pantalla (`F-Avisos`: «se van solos en 6 s»). */
+/** Lo que dura un aviso en pantalla (`F-Notices`: «se van solos en 6 s»). */
 export const TOAST_MS = 6000;
 /** Cuántos avisos se apilan a la vez. */
 export const TOAST_MAX = 5;
@@ -51,7 +51,7 @@ export class Store implements CommandContext {
   toasts: Toast[] = $state([]);
   /** La transacción que se está viendo o acaba de terminar (escena, cambio de entrada). */
   run: Run | null = $state(null);
-  /** El encendido de una máquina (otra tarjeta de «Cambios en progreso»). */
+  /** El encendido de una máquina (otra tarjeta de «Changes in progress»). */
   powerRun: Run | null = $state(null);
   /** El último enlace que se midió desde esta ventana (su tarjeta queda a la vista). */
   measured: LinkKind | null = $state(null);
@@ -67,7 +67,7 @@ export class Store implements CommandContext {
   private origin: { title: string; doneText: string } | null = null;
   private stopTxn: (() => void) | null = null;
   private stopDrag: (() => void) | null = null;
-  /** El aviso del arrastre en curso: se actualiza en lugar de apilar uno por archivo. */
+  /** El aviso del arrastre in progress: se actualiza en lugar de apilar uno por archivo. */
   private clockTimer: ReturnType<typeof setInterval> | undefined;
 
   /**
@@ -100,7 +100,7 @@ export class Store implements CommandContext {
         this.desk = d;
         // Los avisos de lo que cambió, solo en la ventana principal; la bandeja no los repite.
         if (this.opensOnPairing) for (const spec of deskEvents(prev, d)) this.notify(spec);
-        // Si la otra máquina empezó a emparejar (o apareció el código), el asistente se abre en ese paso.
+        // Si the other machine empezó a emparejar (o apareció el código), el asistente se abre en ese paso.
         if (this.opensOnPairing && pairingShouldOpen(before, d.pair.pairing)) this.openWizard(WIZARD_PAIR);
         },
         (c) => {
@@ -131,7 +131,7 @@ export class Store implements CommandContext {
   /** Pinta el estado del arrastre en su aviso. */
   showDrag(s: DragStatus): void {
     const n = dragNotice(s);
-    // Con clave, cada estado reemplaza al aviso anterior; mientras sigue en curso no se va solo.
+    // Con clave, cada estado reemplaza al aviso anterior; mientras sigue in progress no se va solo.
     this.notify({ key: "drag", text: n.text, tone: n.tone, hold: n.ongoing });
   }
 
@@ -155,7 +155,7 @@ export class Store implements CommandContext {
         if (e.type === "failed" && running(before) && this.sceneAsked && before?.title?.includes(this.sceneAsked.name)) this.failedScene = this.sceneAsked;
         if (e.type === "committed") this.failedScene = null;
         if (e.type === "failed" && running(before) && this.route.screen !== "progreso" && this.run) {
-          this.toast(this.runView(this.run)?.message.text ?? "No se pudo aplicar el cambio", "bad");
+          this.toast(this.runView(this.run)?.message.text ?? "Could not apply the change", "bad");
         }
         // Lo que sale bien se ve en la pantalla de Monitores (el selector, la escena activa); en las demás se avisa.
         if (e.type === "committed" && this.run?.doneText && !["monitores", "progreso", "escena"].includes(this.route.screen)) this.toast(this.run.doneText, "ok");
@@ -242,7 +242,7 @@ export class Store implements CommandContext {
     return r;
   }
 
-  /** Lleva a la pantalla de progreso de la transacción en curso (la de Monitores y el editor lo piden al aplicar). */
+  /** Lleva a la pantalla de progreso de la transacción in progress (la de Monitores y el editor lo piden al aplicar). */
   showProgress(): void {
     this.go({ screen: "progreso" });
   }
@@ -260,16 +260,16 @@ export class Store implements CommandContext {
   async applyScene(id: string): Promise<ActResult> {
     const scene = this.desk.scenes.find((s) => s.id === id);
     this.sceneAsked = { id, name: scene?.name ?? id };
-    this.origin = { title: `Aplicando la escena «${scene?.name ?? id}»`, doneText: `Escena «${scene?.name ?? id}» activa.` };
+    this.origin = { title: `Applying the scene “${scene?.name ?? id}”`, doneText: `Escena «${scene?.name ?? id}» activa.` };
     const r = await this.report(this.source.applyScene(id));
     if (!r.ok) this.origin = null;
     return r;
   }
 
-  /** Pide la entrada de un monitor compatible. El veredicto lo da el monitor: la pantalla no adivina. */
+  /** Pide la entrada de un monitor compatible. El veredicto lo da the monitor: la pantalla no adivina. */
   async switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult> {
     const m = this.desk.monitors.find((x) => x.id === monitor);
-    this.origin = { title: `Cambiando la entrada del ${m?.name ?? monitor}`, doneText: "Entrada cambiada." };
+    this.origin = { title: `Changing the input of ${m?.name ?? monitor}`, doneText: "Input changed." };
     const r = await this.report(this.source.switchMonitor(monitor, input));
     if (!r.ok) this.origin = null;
     return r;
@@ -317,7 +317,7 @@ export class Store implements CommandContext {
     return this.source.watchCrossing(onCross);
   }
 
-  /** La ventana oyó actividad: el agente la anuncia a la otra máquina. Sin agente, no pasa nada. */
+  /** La ventana oyó actividad: el agente la anuncia a the other machine. Sin agente, no pasa nada. */
   reportHeardKey(): Promise<void> {
     return this.source.reportHeardKey?.().catch(() => {}) ?? Promise.resolve();
   }
@@ -369,23 +369,23 @@ export class Store implements CommandContext {
 
   /** Lo que reporta el servicio de administrador; `null` hasta la primera lectura. */
   admin = $state<AdminView | null>(null);
-  /** «Instalar» en curso (diálogo de administrador abierto). */
+  /** «Instalar» in progress (diálogo de administrador abierto). */
   adminBusy = $state(false);
 
   async refreshAdmin(): Promise<void> {
     try {
       this.admin = await this.source.adminStatus();
     } catch {
-      this.admin = { state: "off", canInstall: false, note: "no se pudo leer el estado del servicio" };
+      this.admin = { state: "off", canInstall: false, note: "could not read the service state" };
     }
   }
 
   /** Instala el servicio. Cancelar o fallar deja la fila en su estado real y avisa, sin giro eterno. */
   async installAdmin(): Promise<ActResult> {
-    if (this.adminBusy) return { ok: false, reason: "ya se está instalando" };
+    if (this.adminBusy) return { ok: false, reason: "it is already being installed" };
     this.adminBusy = true;
     try {
-      const r = await this.report(this.source.installAdmin().then((v): ActResult => ((this.admin = v), { ok: true, text: "Servicio de administrador instalado" })));
+      const r = await this.report(this.source.installAdmin().then((v): ActResult => ((this.admin = v), { ok: true, text: "Administrator service installed" })));
       if (!r.ok) await this.refreshAdmin();
       return r;
     } finally {
@@ -399,7 +399,7 @@ export class Store implements CommandContext {
 
   /**
    * La primera vez el asistente se abre solo, en cualquier sistema: en el de permisos si hay
-   * permisos que conceder (T-090) y, si no, en «Tu puesto» mientras no haya par (T-156).
+   * permisos que conceder (T-090) y, si no, en «Your desk» mientras no haya par (T-156).
    */
   async maybeFirstRun(): Promise<void> {
     try {

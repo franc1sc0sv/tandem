@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Arrangement: crossing test</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+a{color:#9cc0f0}
+.mut{color:#9a9da6}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.btn{font:inherit;font-size:13.5px;padding:10px 18px;border-radius:10px;border:1px solid #31343b;background:#1b1c21;color:#e8e8eb;cursor:pointer;min-height:44px}
+.pri{background:#22324a;border-color:#7aa7e6}
+.desk{position:absolute;border-radius:12px;box-sizing:border-box;padding:14px;display:flex;flex-direction:column;justify-content:flex-end;gap:4px;font-size:13px}
+.edgeG{position:absolute;top:0;bottom:0;width:6px;border-radius:3px;background:linear-gradient(180deg,transparent,#7aa7e6,transparent);animation:eg 1.4s ease-in-out infinite}
+@keyframes eg{0%,100%{opacity:.25}50%{opacity:1}}
+.arr{animation:nud 1.2s ease-in-out infinite}
+@keyframes nud{0%,100%{transform:translateX(0)}50%{transform:translateX(10px)}}
+.cd{stroke-dasharray:113;animation:cnt 20s linear forwards}
+@keyframes cnt{to{stroke-dashoffset:113}}
+.burst{position:absolute;width:24px;height:24px;border-radius:50%;border:2px solid #6cc59a;animation:bs 1.2s ease-out infinite}
+@keyframes bs{from{transform:scale(.4);opacity:1}to{transform:scale(3);opacity:0}}
+@keyframes in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:40px;min-height:0;padding:0 16px;box-sizing:border-box;flex:none;align-self:center;white-space:nowrap;font:inherit;font-size:13.5px;font-weight:500;line-height:1;border-radius:10px;border:1px solid #2e3138;background:linear-gradient(180deg,#1f2025,#18191d);color:#e8e8eb;cursor:pointer;text-decoration:none!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.3);transition:transform .18s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .18s;position:relative;overflow:hidden}
+.btn svg{width:16px;height:16px;flex:none;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{border-color:#41454e;transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 6px 16px rgba(0,0,0,.35)}
+.btn:hover svg{transform:scale(1.14)}
+.btn:hover svg.rf{transform:rotate(-180deg)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid #7aa7e6;outline-offset:2px}
+.btn.pri{background:linear-gradient(180deg,#3a6aa8,#2c5288)!important;border-color:#5b8fd4!important;color:#fff}
+.btn.pri:hover{box-shadow:0 0 0 4px rgba(122,167,230,.16),0 8px 20px rgba(44,82,136,.45)}
+.btn.pri::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.2) 50%,transparent 70%);transform:translateX(-120%);transition:transform .6s}
+.btn.pri:hover::after{transform:translateX(120%)}
+.btn.sm{height:34px;padding:0 12px;font-size:12.5px;border-radius:9px}
+.btn.sim{border-style:dashed}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;box-sizing:border-box;padding:24px 32px;display:flex;flex-direction:column;gap:18px;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12">
+  <nav aria-label="Path" style="font-size:12.5px" class="mut"><a href="V3-Arrangement.dc.html">Arrangement</a> › Crossing test</nav>
+  <div style="position:relative;height:430px;border-radius:16px;border:1px solid #1f2126;background-color:#0b0c0e;background-image:radial-gradient(#1c1e23 1px,transparent 1px);background-size:20px 20px;overflow:hidden">
+    <div class="desk" style="left:6%;top:120px;width:34%;height:200px;border:1.5px solid #7aa7e6;background:#16202e"><b style="font-weight:600">MacBook Pro</b><span class="mut" style="font-size:12px">the cursor is here</span></div>
+    <div class="desk" style="left:40%;top:50px;width:52%;height:330px;border:1.5px solid #a99be8;background:#1d1a2b"><b style="font-weight:600">34" · PC-Desktop</b><span class="mut" style="font-size:12px">{{targetNote}}</span></div>
+    <sc-if value="{{waiting}}" hint-placeholder-val="{{ true }}">
+      <div class="edgeG" style="left:calc(40% - 3px);top:120px;bottom:auto;height:200px"></div>
+      <svg class="arr" style="position:absolute;left:calc(40% - 90px);top:200px" width="70" height="40" viewBox="0 0 70 40" aria-hidden="true"><path d="M4 20h54M44 6l14 14-14 14" fill="none" stroke="#e8e8eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+    </sc-if>
+    <sc-if value="{{passed}}" hint-placeholder-val="{{ false }}">
+      <div style="position:absolute;left:calc(40% - 3px);top:120px;width:6px;height:200px;border-radius:3px;background:#6cc59a"></div>
+      <span class="burst" style="left:calc(40% + 30px);top:198px"></span>
+      <span style="position:absolute;left:calc(40% + 36px);top:204px;width:12px;height:12px;border-radius:50%;background:#e8e8eb"></span>
+    </sc-if>
+  </div>
+
+  <section aria-live="polite" style="border-radius:14px;background:#15161a;border:1px solid #25272d;padding:18px 20px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;animation:in .35s ease-out">
+    <sc-if value="{{waiting}}" hint-placeholder-val="{{ true }}">
+      <svg width="40" height="40" viewBox="0 0 40 40" aria-hidden="true" style="transform:rotate(-90deg);flex:none"><circle cx="20" cy="20" r="18" fill="none" stroke="#25272d" stroke-width="3"></circle><circle class="cd" cx="20" cy="20" r="18" fill="none" stroke="#7aa7e6" stroke-width="3"></circle></svg>
+      <div style="display:flex;flex-direction:column;gap:3px"><b style="font-weight:600">Move the mouse to the right of the MacBook</b><span class="mut" style="font-size:12.5px">You have 20 seconds. The glowing edge is where it should cross.</span></div>
+      <span style="flex:1"></span>
+      <button type="button" class="btn sm sim" onClick="{{pass}}"><svg viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>Simulate crossing</button>
+      <button type="button" class="btn sm sim" onClick="{{fail}}"><svg viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>Simulate no crossing</button>
+    </sc-if>
+    <sc-if value="{{passed}}" hint-placeholder-val="{{ false }}">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m7.5 12.5 3 3 6-6.5"></path></svg>
+      <div style="display:flex;flex-direction:column;gap:3px"><b style="font-weight:600">Crossed fine</b><span class="mut" style="font-size:12.5px">It entered PC-Desktop at the right height (y = 612 of 1440). Crossing latency: 0.4 ms.</span></div>
+      <span style="flex:1"></span><button type="button" class="btn" onClick="{{again}}"><svg class="rf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 4v4h-4M4 20v-4h4"></path></svg>Test again</button><a class="btn pri" href="V3-Arrangement.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>Done</a>
+    </sc-if>
+    <sc-if value="{{failed}}" hint-placeholder-val="{{ false }}">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2.2" aria-hidden="true"><path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17h.01"></path></svg>
+      <div style="display:flex;flex-direction:column;gap:3px"><b style="font-weight:600;color:#e6c48f">Did not cross in 20 s</b><span class="mut" style="font-size:12.5px">Maybe the 34" is on another side of your desk. Move it in the arrangement and test again.</span></div>
+      <span style="flex:1"></span><a class="btn" href="V3-Arrangement.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg>Edit arrangement</a><button type="button" class="btn pri" onClick="{{again}}"><svg class="rf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 4v4h-4M4 20v-4h4"></path></svg>Test again</button>
+    </sc-if>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { s: 'wait' }; }
+  renderVals() {
+    const s = this.state.s;
+    return {
+      waiting: s === 'wait', passed: s === 'ok', failed: s === 'fail',
+      targetNote: s === 'ok' ? 'the cursor arrived here' : 'waiting for the cursor',
+      pass: () => this.setState({ s: 'ok' }), fail: () => this.setState({ s: 'fail' }), again: () => this.setState({ s: 'wait' })
+    };
+  }
+}
+</script>
+</body>
+</html>

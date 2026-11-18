@@ -1,4 +1,4 @@
-// T-120: la paleta ⌘K (F-Paleta) y la bandeja (V3-Bandeja) contra el agente real (IPC simulada) y en
+// T-120: la paleta ⌘K (F-Palette) y la bandeja (V3-Tray) contra el agente real (IPC simulada) y en
 // modo demo, y sus animaciones con `prefers-reduced-motion`.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -64,13 +64,13 @@ async function openPalette(store: Store) {
 }
 
 describe("paleta contra el agente real (IPC)", () => {
-  it("lista lo que el agente sabe hacer: apagar la otra máquina y medir el enlace; sin escenas", async () => {
+  it("lista lo que el agente sabe hacer: apagar the other machine y medir el enlace; sin escenas", async () => {
     const { bridge } = fakeBridge(connected());
     const store = new Store(new LiveSource(bridge), { hash: "#/puesto" });
     await store.start();
     await openPalette(store);
     expect(screen.getByRole("option", { name: /Apagar Taller/ })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: /Medir el enlace/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Measure the link/ })).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: /Aplicar/ })).toBeNull();
   });
 
@@ -84,16 +84,16 @@ describe("paleta contra el agente real (IPC)", () => {
     expect(store.paletteOpen).toBe(false);
   });
 
-  it("«Medir el enlace» pide measure_link por el camino de la otra máquina", async () => {
+  it("«Measure the link» pide measure_link por el camino de the other machine", async () => {
     const { bridge, act } = fakeBridge(connected());
     const store = new Store(new LiveSource(bridge), { hash: "#/puesto" });
     await store.start();
     await openPalette(store);
-    await userEvent.click(screen.getByRole("option", { name: /Medir el enlace/ }));
+    await userEvent.click(screen.getByRole("option", { name: /Measure the link/ }));
     expect(act).toHaveBeenCalledWith({ kind: "measure_link", path: "wifi" });
   });
 
-  it("con la otra máquina apagada ofrece «Encender»", async () => {
+  it("con the other machine apagada ofrece «Encender»", async () => {
     const { bridge, act } = fakeBridge(connected({ state: { on: { a: false, b: true } } }));
     const store = new Store(new LiveSource(bridge), { hash: "#/puesto" });
     await store.start();
@@ -108,14 +108,14 @@ describe("paleta en modo demo", () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/puesto" });
     await store.start();
     await openPalette(store);
-    const input = screen.getByRole("combobox", { name: "Buscar" });
+    const input = screen.getByRole("combobox", { name: "Search" });
     await userEvent.type(input, "solo macbook");
     await fireEvent.keyDown(input, { key: "Enter" });
     await vi.waitFor(() => expect(store.desk.activeScene).toBe("solo-a"));
     expect(store.paletteOpen).toBe(false);
   });
 
-  it("apaga la otra máquina y el grupo «Máquinas» pasa a ofrecer «Encender»", async () => {
+  it("apaga the other machine y el grupo «Máquinas» pasa a ofrecer «Encender»", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/puesto" });
     await store.start();
     await openPalette(store);
@@ -134,12 +134,12 @@ describe("paleta en modo demo", () => {
 });
 
 describe("bandeja contra el agente real (IPC)", () => {
-  it("muestra el estado difícil con una línea y, si la otra máquina está apagada, «Encender» la enciende", async () => {
+  it("muestra el estado difícil con una línea y, si the other machine está apagada, «Encender» la enciende", async () => {
     const { bridge, act } = fakeBridge(connected({ state: { on: { a: false, b: true } } }));
     const store = new Store(new LiveSource(bridge), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
     await vi.waitFor(() => expect(screen.getByText("Taller está apagada")).toBeInTheDocument());
-    await userEvent.click(screen.getByRole("button", { name: "Encender" }));
+    await userEvent.click(screen.getByRole("button", { name: "Power on" }));
     expect(act).toHaveBeenCalledWith({ kind: "set_power", machine: "a", on: true });
   });
 
@@ -148,8 +148,8 @@ describe("bandeja contra el agente real (IPC)", () => {
     const store = new Store(new LiveSource(bridge), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
     await vi.waitFor(() => expect(screen.getByText("no corre")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Encender" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Abrir" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Power on" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
   });
 
   it("con el agente al día no hay aviso de estado", async () => {
@@ -165,13 +165,13 @@ describe("bandeja en modo demo", () => {
   it("la escena activa queda marcada y cada escena aplica con un clic", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
-    await vi.waitFor(() => expect(screen.getByRole("button", { name: "Trabajo" })).toHaveAttribute("aria-pressed", "true"));
+    await vi.waitFor(() => expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute("aria-pressed", "true"));
     await userEvent.click(screen.getByRole("button", { name: "Solo MacBook" }));
     await vi.waitFor(() => expect(screen.getByRole("button", { name: "Solo MacBook" })).toHaveAttribute("aria-pressed", "true"));
-    expect(screen.getByRole("button", { name: "Trabajo" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("no inventa «Bloquear aquí»: no hay acción detrás (G6)", async () => {
+  it("no inventa «Lock here»: no hay acción detrás (G6)", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
     await vi.waitFor(() => expect(screen.getByText("MacBook Pro")).toBeInTheDocument());

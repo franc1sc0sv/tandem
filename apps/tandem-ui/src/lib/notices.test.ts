@@ -12,7 +12,7 @@ describe("changeToast (D5)", () => {
     const undo: number[] = [];
     const t = changeToast({ by: "b", rev: 5, summary: "Acomodo de pantallas", undoTo: 4 }, d, (r) => undo.push(r));
     expect(t).toMatchObject({ text: `Cambiado desde ${d.machines.b?.name}`, body: "Acomodo de pantallas", tone: "info" });
-    expect(t.action?.label).toBe("Deshacer");
+    expect(t.action?.label).toBe("Undo");
     t.action?.run();
     expect(undo).toEqual([4]);
   });
@@ -29,7 +29,7 @@ describe("deskEvents", () => {
   it("el cable que se va avisa con tono de advertencia y el que vuelve, en ok", () => {
     const usb = desk();
     const wifi = { ...usb, link: { ...usb.link, kind: "wifi" as const } };
-    expect(deskEvents(usb, wifi)).toEqual([expect.objectContaining({ text: `Se desconectó el cable ${KIND_NAME.usb4}`, tone: "warn" })]);
+    expect(deskEvents(usb, wifi)).toEqual([expect.objectContaining({ text: `The cable was unplugged ${KIND_NAME.usb4}`, tone: "warn" })]);
     expect(deskEvents(wifi, usb)).toEqual([expect.objectContaining({ text: `Volvió el cable ${KIND_NAME.usb4}`, tone: "ok" })]);
   });
 
@@ -43,7 +43,7 @@ describe("deskEvents", () => {
     expect(out[0]).toMatchObject({ text: "Claude abrió el túnel «Servidor de pruebas»", tone: "claude" });
   });
 
-  it("la otra máquina que se apaga, se pierde o vuelve", () => {
+  it("the other machine que se apaga, se pierde o vuelve", () => {
     const d = desk();
     const peer = d.here === "a" ? "b" : "a";
     const con = (power: "on" | "off" | "lost"): DeskView => ({ ...d, machines: { ...d.machines, [peer]: { ...d.machines[peer], power } } }) as DeskView;

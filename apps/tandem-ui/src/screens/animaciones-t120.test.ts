@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 import { enter, leave, reducedMotion } from "../lib/motion";
 import { setReducedMotion } from "../test/setup";
 
-// G7 y G8 para los avisos (`F-Avisos`), las tarjetas de estado (`V3-Estados`) y las pestañas
-// de Ajustes (`F-Ajustes`). Mismo modelo que `animaciones.test.ts` (T-116).
+// G7 y G8 para los avisos (`F-Notices`), las tarjetas de estado (`V3-States`) y las pestañas
+// de Ajustes (`F-Settings`). Mismo modelo que `animaciones.test.ts` (T-116).
 const SRC = join(process.cwd(), "src");
 const read = (...p: string[]) => readFileSync(join(SRC, ...p), "utf8");
 const mockup = (name: string) => readFileSync(join(process.cwd(), "..", "..", "mockups", "v03", `${name}.dc.html`), "utf8");
@@ -25,20 +25,20 @@ const RULE = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(G
 
 const SCREENS = {
   avisos: {
-    mock: mockup("F-Avisos"),
+    mock: mockup("F-Notices"),
     css: read("shell", "Toasts.svelte"),
     // `dr` (la salida) es la de `motion.leave`: se prueba aparte. `sl` y `life` viven en el aviso.
     keyframes: ["sl", "life"],
     skip: ["dr"],
   },
   estados: {
-    mock: mockup("V3-Estados"),
+    mock: mockup("V3-States"),
     css: read("ui", "StateCard.svelte"),
     keyframes: ["up"],
     skip: [],
   },
   "pestañas de ajustes": {
-    mock: mockup("F-Ajustes"),
+    mock: mockup("F-Settings"),
     css: read("screens", "Ajustes.svelte"),
     keyframes: ["fd"],
     skip: ["sp"],
@@ -67,7 +67,7 @@ describe.each(Object.entries(SCREENS))("animaciones de %s", (_name, s) => {
 });
 
 describe("detalles de cada animación", () => {
-  it("el aviso entra con `sl` desde la derecha y su barra de vida dura lo que el aviso (6 s)", () => {
+  it("el aviso entra con `sl` desde the right y su barra de vida dura lo que el aviso (6 s)", () => {
     const t = read("shell", "Toasts.svelte");
     expect(t).toMatch(/@keyframes sl \{\s*from \{\s*transform: translateX\(40px\);\s*opacity: 0;/);
     expect(t).toMatch(/@keyframes life \{\s*from \{\s*width: 100%;\s*\}\s*to \{\s*width: 0;/);

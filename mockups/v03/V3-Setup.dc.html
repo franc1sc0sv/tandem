@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tandem v0.3: setup</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+a{color:#9cc0f0}a:hover{color:#c3d8f6}
+.mut{color:#9a9da6}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.btn{font:inherit;font-size:13.5px;padding:10px 18px;border-radius:10px;border:1px solid #31343b;background:#1b1c21;color:#e8e8eb;cursor:pointer;min-height:44px}
+.st{display:flex;align-items:center;gap:12px;font-size:13.5px;color:#9a9da6;padding:8px 0}
+.st i{width:26px;height:26px;border-radius:50%;border:1.5px solid #31343b;display:grid;place-items:center;font-style:normal;font-size:12px;flex:none}
+.opt{font:inherit;text-align:left;cursor:pointer;flex:1 1 240px;min-width:0;padding:16px;border-radius:12px;border:1px solid #31343b;background:#15161a;color:#e8e8eb;display:flex;flex-direction:column;gap:6px;min-height:44px}
+.dg{width:46px;height:58px;border-radius:10px;background:#111215;border:1px solid #31343b;font-family:'JetBrains Mono',monospace;font-size:26px;color:#e8e8eb;text-align:center;box-sizing:border-box}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:9px;height:44px;min-height:0;padding:0 20px;box-sizing:border-box;flex:none;align-self:center;white-space:nowrap;font:inherit;font-size:14px;font-weight:500;line-height:1;border-radius:11px;border:1px solid #2e3138;background:linear-gradient(180deg,#1f2025,#18191d);color:#e8e8eb;cursor:pointer;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.3);transition:transform .18s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .18s;position:relative;overflow:hidden}
+.btn svg{width:17px;height:17px;flex:none;transition:transform .25s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{border-color:#41454e;transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,.35)}
+.btn:hover svg.bk{transform:translateX(-3px)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid #7aa7e6;outline-offset:2px}
+.btn.pri{background:linear-gradient(180deg,#3a6aa8,#2c5288)!important;border-color:#5b8fd4!important;color:#fff}
+.btn.pri:hover{box-shadow:0 0 0 4px rgba(122,167,230,.16),0 8px 20px rgba(44,82,136,.45)}
+.btn.pri::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.2) 50%,transparent 70%);transform:translateX(-120%);transition:transform .6s}
+.btn.pri:hover::after{transform:translateX(120%)}
+.btn.pri:hover svg.go{transform:translateX(4px)}
+.btn.ghost{background:transparent;border-color:transparent;box-shadow:none;color:#9a9da6}
+.btn.ghost:hover{background:#1f2026;color:#e8e8eb}
+.opt{transition:border-color .25s,background .25s,transform .2s,box-shadow .25s}
+.opt:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,.3)}
+.oi{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:#1b1c21;border:1px solid #2a2c33;margin-bottom:4px;transition:background .25s}
+.oi svg{width:19px;height:19px}
+section{animation:fdi .35s ease-out}
+@keyframes fdi{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.stl{display:flex;align-items:center;gap:12px;font-size:13.5px;color:#9a9da6!important;padding:8px 10px!important;margin:0 -10px;border-radius:9px;text-decoration:none;font-weight:400;transition:background .2s,color .2s}
+.stl:hover{background:#17181c;color:#e8e8eb!important}
+.stl i{width:26px;height:26px;border-radius:50%;border:1.5px solid #31343b!important;color:#9a9da6!important;display:grid;place-items:center;font-style:normal;font-size:12px;flex:none;transition:transform .25s cubic-bezier(.3,1.5,.5,1)}
+.stl:hover i{transform:scale(1.1)}
+.stl.done{color:#c4c6cc!important}
+.stl.done i{border-color:#6cc59a!important;color:#6cc59a!important}
+.stl.cur{color:#e8e8eb!important;font-weight:600;background:#15161a}
+.stl.cur i{border-color:#e8e8eb!important;color:#e8e8eb!important}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;display:flex;flex-wrap:wrap;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12">
+  <aside aria-label="Steps" style="flex:1 1 240px;max-width:300px;box-sizing:border-box;padding:28px 28px;border-right:1px solid #1f2126;background:#0b0c0e;display:flex;flex-direction:column;gap:4px">
+    <div style="display:flex;align-items:center;gap:9px;padding-bottom:22px;font-weight:650;font-size:16px"><svg width="22" height="22" viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="11.5" cy="16" r="8" stroke="#7aa7e6" stroke-width="2.4"></circle><circle cx="20.5" cy="16" r="8" stroke="#a99be8" stroke-width="2.4"></circle></svg>Tandem</div>
+    <ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px">
+      <li><a class="st stl done" href="F-Setup1.dc.html"><i>✓</i>This machine</a></li>
+      <li><a class="st stl cur" href="V3-Setup.dc.html" aria-current="step"><i>2</i>Your desk</a></li>
+      <li><a class="st stl" href="F-Setup3.dc.html"><i>3</i>Permissions</a></li>
+      <li><a class="st stl" href="F-Setup4.dc.html"><i>4</i>Keyboard and mouse</a></li>
+      <li><a class="st stl" href="F-Setup5.dc.html"><i>5</i>Arrangement and crossing test</a></li>
+      <li><a class="st stl" href="F-Setup6.dc.html"><i>6</i>Done</a></li>
+    </ol>
+  </aside>
+
+  <main style="flex:999 1 560px;min-width:0;box-sizing:border-box;padding:48px 56px;display:flex;flex-direction:column;gap:22px;max-width:860px">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <span class="mut" style="font-size:12.5px">Step 2 of 6</span>
+      <h1 style="margin:0;font-size:26px;font-weight:650">Does this machine join a desk?</h1>
+      <p class="mut" style="margin:0;line-height:1.55;max-width:560px">A desk is the group of machines that share keyboard, mouse, monitors and work. This one is “MacBook Pro”.</p>
+    </div>
+
+    <div role="radiogroup" aria-label="Create or join" style="display:flex;gap:12px;flex-wrap:wrap">
+      <button type="button" role="radio" class="opt" aria-checked="{{joinOn}}" onClick="{{toJoin}}" style="{{joinStyle}}">
+        <span class="oi"><svg viewBox="0 0 24 24" fill="none" stroke="#7aa7e6" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-4M10 17l5-5-5-5M15 12H4"></path></svg></span>
+        <b style="font-weight:600">Join a desk</b>
+        <span class="mut" style="font-size:12.5px">You already have Tandem on another machine.</span>
+      </button>
+      <button type="button" role="radio" class="opt" aria-checked="{{newOn}}" onClick="{{toNew}}" style="{{newStyle}}">
+        <span class="oi"><svg viewBox="0 0 24 24" fill="none" stroke="#a99be8" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><path d="M17.5 14v7M14 17.5h7"></path></svg></span>
+        <b style="font-weight:600">Create a new desk</b>
+        <span class="mut" style="font-size:12.5px">This is the first machine. The others join later.</span>
+      </button>
+    </div>
+
+    <sc-if value="{{join}}" hint-placeholder-val="{{ true }}">
+      <section aria-label="Join" style="display:flex;flex-direction:column;gap:16px;padding:20px;border-radius:14px;background:#15161a;border:1px solid #25272d">
+        <span style="font-size:13px;font-weight:600">Found on your network</span>
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;border:1px solid #a99be8;background:#1d1a2b">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#a99be8" stroke-width="1.8" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2"></rect><circle cx="12" cy="15" r="2.5"></circle></svg>
+          <div style="display:flex;flex-direction:column;gap:2px"><b style="font-weight:600">PC-Desktop</b><span class="mut" style="font-size:12px">Windows · desk “My desk” · 1 machine · over Wi-Fi</span></div>
+        </div>
+        <label for="code" style="font-size:13px">Enter the code PC-Desktop shows</label>
+        <div id="code" style="display:flex;gap:8px;align-items:center">
+          <input class="dg" aria-label="Digit 1" value="4"><input class="dg" aria-label="Digit 2" value="8"><input class="dg" aria-label="Digit 3" value="2"><span style="width:8px"></span><input class="dg" aria-label="Digit 4" value="9"><input class="dg" aria-label="Digit 5" value=""><input class="dg" aria-label="Digit 6" value="">
+        </div>
+        <p class="mut" style="margin:0;font-size:12.5px;line-height:1.5">On joining, this machine trusts every machine of the desk and they trust it, with administrator access for remote compute. You can remove it later from any machine; the other one forgets its key only if connected, otherwise once it also leaves the desk.</p>
+      </section>
+    </sc-if>
+    <sc-if value="{{create}}" hint-placeholder-val="{{ false }}">
+      <section aria-label="Create" style="display:flex;flex-direction:column;gap:12px;padding:20px;border-radius:14px;background:#15161a;border:1px solid #25272d">
+        <label for="pn" style="font-size:13px">Desk name</label>
+        <input id="pn" value="My desk" style="font:inherit;font-size:14px;color:#e8e8eb;background:#111215;border:1px solid #31343b;border-radius:10px;padding:12px 14px;max-width:360px">
+        <p class="mut" style="margin:0;font-size:12.5px">Then, on the other machine, choose “Join a desk” and enter the code that will appear here.</p>
+      </section>
+    </sc-if>
+
+    <div style="display:flex;gap:10px;margin-top:auto"><a class="btn ghost" href="F-Setup1.dc.html"><svg class="bk" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>Back</a><span style="flex:1"></span><a class="btn pri" href="F-Setup3.dc.html">Continue<svg class="go" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a></div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { mode: 'join' }; }
+  renderVals() {
+    const j = this.state.mode === 'join';
+    const sel = 'border-color:#7aa7e6;background:#16202e';
+    return {
+      join: j, create: !j,
+      joinOn: j ? 'true' : 'false', newOn: j ? 'false' : 'true',
+      joinStyle: j ? sel : '', newStyle: j ? '' : sel,
+      toJoin: () => this.setState({ mode: 'join' }),
+      toNew: () => this.setState({ mode: 'new' })
+    };
+  }
+}
+</script>
+</body>
+</html>

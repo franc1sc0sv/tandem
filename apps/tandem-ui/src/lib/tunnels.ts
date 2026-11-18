@@ -1,4 +1,4 @@
-// La pantalla Túneles (`V3-Computo`) sin DOM: de lo que manda el agente (`tandem_ui::tunnels`)
+// La pantalla Túneles (`V3-Compute`) sin DOM: de lo que manda el agente (`tandem_ui::tunnels`)
 // a lo que se dibuja, y la lógica de la lista (proyectos plegables, selección, salida en vivo).
 // Solo lectura (D9): nada aquí detiene ni abre túneles.
 
@@ -52,7 +52,7 @@ export interface TransferWire {
 }
 
 /** Los túneles sin proyecto se agrupan bajo este nombre. */
-export const NO_PROJECT = "Sin proyecto";
+export const NO_PROJECT = "No project";
 
 export function processRow(p: ProcessWire): ProcessRow {
   return {
@@ -80,7 +80,7 @@ export interface Memory {
   idle: Map<string, number>;
   /** Bytes copiados por túnel; cada transferencia cuenta una vez (la clave es la copia). */
   traffic: Map<string, { up: number; down: number }>;
-  /** El último avance de cada copia en curso o terminada, para no sumar dos veces. */
+  /** El último avance de cada copia in progress o terminada, para no sumar dos veces. */
   copies: Map<string, number>;
 }
 
@@ -194,11 +194,11 @@ export function groupByProject(tunnels: TunnelView[]): ProjectGroup[] {
 /** «1/2»: túneles abiertos sobre el total del proyecto. */
 export const ratio = (g: ProjectGroup): string => `${g.live}/${g.tunnels.length}`;
 
-/** «4 abiertos · 2 proyectos», o «Sin túneles abiertos». */
+/** «4 abiertos · 2 proyectos», o «No open tunnels». */
 export function summary(groups: ProjectGroup[]): string {
   const live = groups.reduce((n, g) => n + g.live, 0);
   const projects = groups.filter((g) => g.live > 0).length;
-  if (live === 0) return "Sin túneles abiertos";
+  if (live === 0) return "No open tunnels";
   return `${live} ${live === 1 ? "abierto" : "abiertos"} · ${projects} ${projects === 1 ? "proyecto" : "proyectos"}`;
 }
 
@@ -235,7 +235,7 @@ export function statusText(t: TunnelView, now: number): string {
 export const processesLabel = (n: number): string => `${n} ${n === 1 ? "proceso corriendo" : "procesos corriendo"}`;
 
 /** El texto del panel de procesos cuando no hay ninguno. */
-export const emptyLabel = (t: TunnelView): string => (t.state === "closed" ? "Túnel cerrado" : "Nada corriendo ahora");
+export const emptyLabel = (t: TunnelView): string => (t.state === "closed" ? "Tunnel closed" : "Nothing running right now");
 
 /** «0.3 ms», o «—» si no hay camino medido. */
 export const latencyLabel = (ms: number | null): string => (ms === null ? "—" : `${ms} ms`);
@@ -279,7 +279,7 @@ export function appendOutput(o: Output, chunk: OutputChunk): Output {
 }
 
 /** «1 túnel», «2 túneles»: el plural no se fija. */
-export const countTunnels = (n: number): string => `${n} ${n === 1 ? "túnel" : "túneles"}`;
+export const countTunnels = (n: number): string => `${n} ${n === 1 ? "tunnel" : "tunnels"}`;
 
 /** Renglón de una máquina en la bandeja: sale de sus datos, sin mirar qué sistema es. */
 export function machineLine(m: { id: Machine; power: string; detail: string }, tunnels: readonly { to: Machine; state: string }[]): string {

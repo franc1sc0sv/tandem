@@ -1,4 +1,4 @@
-// Pantalla Túneles (T-114, `V3-Computo`): lo que muestra y cada interacción, en modo demo y
+// Pantalla Túneles (T-114, `V3-Compute`): lo que muestra y cada interacción, en modo demo y
 // contra un agente simulado (IPC). Solo lectura (D9): ningún botón detiene ni abre nada.
 import { act as flush, fireEvent, render, screen, within } from "@testing-library/svelte";
 import { tick } from "svelte";
@@ -27,19 +27,19 @@ async function open(source: Source) {
 }
 
 const demo = (q = "demo&still") => open(new DemoSource(demoOptions(q)));
-const detail = () => within(screen.getByRole("region", { name: "Detalle del túnel" }));
-const list = () => within(screen.getByRole("region", { name: "Túneles por proyecto" }));
+const detail = () => within(screen.getByRole("region", { name: "Tunnel detail" }));
+const list = () => within(screen.getByRole("region", { name: "Tunnels by project" }));
 const tunnelButton = (re: RegExp) => list().getByRole("button", { name: re });
 
 describe("Túneles en modo demo", () => {
   it("dibuja los proyectos con su proporción, el resumen y el primer túnel", async () => {
     await demo();
-    expect(screen.getByRole("heading", { name: "Túneles", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Tunnels", level: 1 })).toBeInTheDocument();
     expect(screen.getByText("4 abiertos · 2 proyectos")).toBeInTheDocument();
     expect(list().getByRole("button", { name: /^tandem/ })).toHaveAttribute("aria-expanded", "true");
     expect(list().getByText("3/3")).toBeInTheDocument();
     expect(list().getByText("1/2")).toBeInTheDocument();
-    expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Crate de monitores (T-097)");
+    expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Monitors crate (T-097)");
     expect(detail().getByText("task/T-097")).toBeInTheDocument();
     expect(detail().getByText("WSL · Ubuntu")).toBeInTheDocument();
     expect(detail().getByText("120 MB")).toBeInTheDocument();
@@ -50,7 +50,7 @@ describe("Túneles en modo demo", () => {
 
   it("lista solo los procesos que corren y muestra la salida del primero", async () => {
     await demo();
-    const procs = detail().getByRole("listbox", { name: "Procesos corriendo" });
+    const procs = detail().getByRole("listbox", { name: "Running processes" });
     expect(within(procs).getAllByRole("option")).toHaveLength(6);
     expect(within(procs).getByText("6 procesos corriendo")).toBeInTheDocument();
     expect(within(procs).getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
@@ -71,19 +71,19 @@ describe("Túneles en modo demo", () => {
     await demo();
     await fireEvent.click(tunnelButton(/Túneles en tandemd/));
     expect(tunnelButton(/Túneles en tandemd/)).toHaveAttribute("aria-pressed", "true");
-    expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Túneles en tandemd (T-101)");
+    expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Tunnels in tandemd (T-101)");
     expect(detail().getByText("2 procesos corriendo")).toBeInTheDocument();
     expect(detail().getAllByRole("option")).toHaveLength(2);
   });
 
-  it("un túnel sin procesos dice «Nada corriendo ahora» y uno cerrado, «Túnel cerrado»", async () => {
+  it("un túnel sin procesos dice «Nothing running right now» y uno cerrado, «Tunnel closed»", async () => {
     await demo();
     await fireEvent.click(tunnelButton(/Revisar PR #66/));
-    expect(detail().getByText("Nada corriendo ahora")).toBeInTheDocument();
+    expect(detail().getByText("Nothing running right now")).toBeInTheDocument();
     expect(detail().queryByRole("listbox")).toBeNull();
     expect(detail().getByText("inactivo 9 m")).toBeInTheDocument();
-    await fireEvent.click(tunnelButton(/Probar flujo de ComfyUI/));
-    expect(detail().getByText("Túnel cerrado")).toBeInTheDocument();
+    await fireEvent.click(tunnelButton(/Try ComfyUI workflow/));
+    expect(detail().getByText("Tunnel closed")).toBeInTheDocument();
     expect(detail().getByText("cerrado")).toBeInTheDocument();
     // Cerrado: sin tiempo abierto ni latencia.
     expect(detail().getAllByText("—")).toHaveLength(2);
@@ -103,7 +103,7 @@ describe("Túneles en modo demo", () => {
 
   it("con 12 procesos la lista los trae todos con su encabezado, en una caja con scroll", async () => {
     await demo("demo&still&tunnels=many");
-    const procs = detail().getByRole("listbox", { name: "Procesos corriendo" });
+    const procs = detail().getByRole("listbox", { name: "Running processes" });
     expect(within(procs).getAllByRole("option")).toHaveLength(12);
     expect(within(procs).getByText("12 procesos corriendo")).toBeInTheDocument();
     expect(detail().getByText("12", { selector: "b" })).toBeInTheDocument();
@@ -111,8 +111,8 @@ describe("Túneles en modo demo", () => {
 
   it("sin túneles solo dice que no hay", async () => {
     await demo("demo&still&tunnels=none");
-    expect(screen.getAllByText("Sin túneles abiertos").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("region", { name: "Detalle del túnel" })).toBeNull();
+    expect(screen.getAllByText("No open tunnels").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("region", { name: "Tunnel detail" })).toBeNull();
   });
 
   it("es de solo lectura: ningún botón detiene, cierra ni abre túneles o procesos", async () => {
@@ -121,24 +121,24 @@ describe("Túneles en modo demo", () => {
     expect(names.join("|")).not.toMatch(/detener|cerrar|matar|kill|abrir|nuevo/i);
   });
 
-  it("«Cómo los abre Claude» copia el comando del servidor MCP", async () => {
+  it("«How Claude opens them» copia el comando del servidor MCP", async () => {
     const writeText = vi.fn(async () => {});
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
     await demo();
-    await fireEvent.click(screen.getByRole("button", { name: "Cómo los abre Claude" }));
+    await fireEvent.click(screen.getByRole("button", { name: "How Claude opens them" }));
     expect(writeText).toHaveBeenCalledWith("tandem mcp");
     expect(await screen.findByText("Copiado: tandem mcp")).toBeInTheDocument();
   });
 
   it("la barra lateral cuenta los túneles activos y, dentro de la pantalla, los marca con un punto vivo", async () => {
     const store = await demo();
-    const nav = within(screen.getByRole("navigation", { name: "Principal" }));
+    const nav = within(screen.getByRole("navigation", { name: "Main" }));
     const link = nav.getByRole("link", { name: /Túneles/ });
     expect(link.querySelector(".pdot")).not.toBeNull();
     expect(store.activeTunnels).toBe(3);
     store.go({ screen: "puesto" });
     await tick();
-    const away = within(screen.getByRole("navigation", { name: "Principal" })).getByRole("link", { name: /Túneles/ });
+    const away = within(screen.getByRole("navigation", { name: "Main" })).getByRole("link", { name: /Túneles/ });
     expect(away).toHaveTextContent("3");
     expect(away.querySelector(".pdot")).toBeNull();
   });
@@ -151,9 +151,9 @@ function snapshot(): Snapshot {
   return {
     kind: "connected",
     agent: "a",
-    desk: { machines: { a: { os: "macos", name: "MacBook Pro", color: "#7aa7e6" }, b: { os: "windows", name: "PC-Escritorio", color: "#a99be8" } }, screens: [], arrangement: null, scenes: [] },
+    desk: { machines: { a: { os: "macos", name: "MacBook Pro", color: "#7aa7e6" }, b: { os: "windows", name: "PC-Desktop", color: "#a99be8" } }, screens: [], arrangement: null, scenes: [] },
     state: { on: { a: true, b: true } },
-    peer: { kind: "paired", name: "PC-Escritorio", link: "usb4" },
+    peer: { kind: "paired", name: "PC-Desktop", link: "usb4" },
     pairing: { kind: "idle" },
     input: { server: "a", hub_here: null, session: true, locked: false, missing: [], problem: null, defined: true },
     caps: {
@@ -212,16 +212,16 @@ describe("Túneles con el agente real (IPC)", () => {
   it("pinta los túneles que manda el agente con los nombres y colores de cada máquina", async () => {
     const { b, handlers } = bridge([out("listo\n", 6)]);
     await open(new LiveSource(b));
-    expect(screen.getAllByText("Sin túneles abiertos").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("No open tunnels").length).toBeGreaterThan(0);
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
     expect(await screen.findByText("1 abierto · 1 proyecto")).toBeInTheDocument();
     expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Revisar el PR");
     expect(detail().getByText("MacBook Pro")).toBeInTheDocument();
-    expect(detail().getByText("PC-Escritorio")).toBeInTheDocument();
+    expect(detail().getByText("PC-Desktop")).toBeInTheDocument();
     expect(detail().getByText("5 m")).toBeInTheDocument();
     // El agente aún no da la rama ni los puertos: no se muestran ni se inventan.
     expect(document.querySelector(".br")).toBeNull();
-    expect(detail().queryByText("Puertos")).toBeNull();
+    expect(detail().queryByText("Ports")).toBeNull();
   });
 
   it("pide procesos y salida con el id de texto, y la salida nueva se suma a la anterior", async () => {
@@ -257,9 +257,9 @@ describe("Túneles con el agente real (IPC)", () => {
     await flush(async () => handlers.tunnels?.(wire([proc(1, "cargo test", 0)])));
     expect(await screen.findByText("1 abierto · 1 proyecto")).toBeInTheDocument();
     await flush(async () => handlers.tunnels?.(wire([], false)));
-    expect((await screen.findAllByText("Sin túneles abiertos")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("No open tunnels")).length).toBeGreaterThan(0);
     expect(detail().getByRole("heading", { level: 2 })).toHaveTextContent("Revisar el PR");
-    expect(detail().getByText("Túnel cerrado")).toBeInTheDocument();
+    expect(detail().getByText("Tunnel closed")).toBeInTheDocument();
     expect(detail().getAllByText("cerrado").length).toBeGreaterThan(0);
   });
 
@@ -278,6 +278,6 @@ describe("Túneles con el agente real (IPC)", () => {
     await open(new LiveSource(b));
     await flush(async () => handlers.tunnels?.(wire([])));
     expect(await screen.findByText("1 abierto · 1 proyecto")).toBeInTheDocument();
-    expect(detail().getByText("Nada corriendo ahora")).toBeInTheDocument();
+    expect(detail().getByText("Nothing running right now")).toBeInTheDocument();
   });
 });

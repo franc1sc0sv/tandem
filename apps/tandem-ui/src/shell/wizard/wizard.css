@@ -1,4 +1,4 @@
-/* Estilos del asistente (`F-Asis1`…`F-Asis6`). Van sin ámbito porque los comparten los seis
+/* Estilos del asistente (`F-Setup1`…`F-Setup6`). Van sin ámbito porque los comparten los seis
    pasos; todos cuelgan de `.wiz` y sus nombres llevan el prefijo `wz-`. Las animaciones se
    apagan con la regla global de `prefers-reduced-motion`: ninguna deja un elemento invisible
    (el círculo y la marca del paso 6 se dibujan con el trazo ya completo, como el mockup). */
@@ -38,7 +38,7 @@
   --btn-fs: 13px;
   --btn-r: 10px;
 }
-/* «Instalar» (`F-Asis1`): 34 de alto y la flecha un poco más abajo, como el mockup. */
+/* «Instalar» (`F-Setup1`): 34 de alto y la flecha un poco más abajo, como el mockup. */
 .wiz .wz-inst {
   --btn-h: 34px;
   --btn-px: 13px;
@@ -47,7 +47,7 @@
 .wiz .wz-inst svg {
   transform: translateY(2px);
 }
-/* «Ir al puesto» (`F-Asis6`): un poco más grande, entra al final y respira. */
+/* «Go to desk» (`F-Setup6`): un poco más grande, entra al final y respira. */
 .wiz .wz-fin {
   --btn-h: 46px;
   --btn-px: 22px;
@@ -65,11 +65,11 @@
     box-shadow: 0 0 0 7px rgba(122, 167, 230, 0);
   }
 }
-/* `F-Asis5`: el ícono de sus botones se mueve en 0.3 s (los demás, 0.25 s). */
+/* `F-Setup5`: el ícono de sus botones se mueve en 0.3 s (los demás, 0.25 s). */
 .wiz .body.arrange .btn svg {
   transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-/* `F-Asis3` y `F-Asis5`: todos sus botones animan también la opacidad (ACCEPTANCE G7). */
+/* `F-Setup3` y `F-Setup5`: todos sus botones animan también la opacidad (ACCEPTANCE G7). */
 .wiz .body.tight .btn {
   transition:
     transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -77,7 +77,7 @@
     box-shadow 0.18s,
     opacity 0.3s;
 }
-/* El botón de «Continuar» anima su opacidad (`F-Asis3`, `F-Asis5`): .45 mientras falta algo. */
+/* El botón de «Continuar» anima su opacidad (`F-Setup3`, `F-Setup5`): .45 mientras falta algo. */
 .wiz .wz-next {
   transition:
     opacity 0.3s,

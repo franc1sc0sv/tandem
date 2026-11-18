@@ -10,7 +10,7 @@ const SEARCHING: PairingView = { kind: "searching" };
 const COMPARING: PairingView = { kind: "comparing", code: "042917", peer: "Taller", confirmed: false };
 
 describe("pantalla", () => {
-  it("sin par ofrece emparejar con la otra máquina", () => {
+  it("sin par ofrece emparejar con the other machine", () => {
     expect(pairScreen("Taller", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Taller" });
     expect(pairScreen("Estudio", UNPAIRED, IDLE)).toEqual({ kind: "intro", other: "Estudio" });
   });
@@ -22,7 +22,7 @@ describe("pantalla", () => {
     expect(pairScreen("Taller", UNPAIRED, IDLE, true).kind).toBe("intro");
   });
 
-  it("buscando dice qué hacer en la otra máquina", () => {
+  it("buscando dice qué hacer en the other machine", () => {
     const s = pairScreen("Taller", UNPAIRED, SEARCHING);
     expect(s).toMatchObject({ kind: "searching", other: "Taller" });
     expect(s.kind === "searching" && s.hint).toContain("En Taller");
@@ -88,8 +88,8 @@ describe("abrir y cerrar", () => {
   });
 
   it("la píldora ofrece emparejar si no hay par", () => {
-    expect(pairButton(UNPAIRED)).toBe("Emparejar");
-    expect(pairButton(PAIRED)).toBe("Par");
+    expect(pairButton(UNPAIRED)).toBe("Pair");
+    expect(pairButton(PAIRED)).toBe("Pair again");
   });
 });
 

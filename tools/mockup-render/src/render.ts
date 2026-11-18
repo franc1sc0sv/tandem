@@ -14,7 +14,7 @@ export interface RenderJob {
 export interface RenderResult {
   mockup: string;
   state?: string;
-  /** Ruta de la captura, si se pidió `outDir`. */
+  /** Screenshot path, if `outDir` was requested. */
   file?: string;
   consoleErrors: string[];
   pageErrors: string[];
@@ -27,46 +27,46 @@ export interface RenderResult {
 }
 
 export interface RenderOptions {
-  /** Mockups a renderizar (por omisión, todos los de `dir`). */
+  /** Mockups to render (by default, all those in `dir`). */
   names?: string[];
   dir?: string;
-  /** Dónde guardar las capturas; sin esto solo se comprueba. */
+  /** Where to save the screenshots; without it they are only checked. */
   outDir?: string;
-  /** Incluir los estados interactivos de `states.ts` (por omisión, sí). */
+  /** Include the interactive states of `states.ts` (default yes). */
   states?: boolean;
-  /** Páginas en paralelo (entero ≥ 1; por omisión 4). */
+  /** Pages in parallel (integer ≥ 1; default 4). */
   concurrency?: number;
-  /** Navegador ya abierto (las pruebas lo reutilizan); ábrelo con `launchBrowser()`. */
+  /** Already open browser (the tests reuse it); open it with `launchBrowser()`. */
   browser?: Browser;
 }
 
-/** Problemas de un resultado; vacío = el mockup renderizó bien. */
+/** Problems of a result; empty = the mockup rendered fine. */
 export function problems(r: RenderResult): string[] {
   return [
     ...r.consoleErrors.map((e) => `consola: ${e}`),
-    ...r.pageErrors.map((e) => `excepción: ${e}`),
-    ...r.blocked.map((e) => `petición bloqueada: ${e}`),
+    ...r.pageErrors.map((e) => `exception: ${e}`),
+    ...r.blocked.map((e) => `blocked request: ${e}`),
     ...r.stepErrors.map((e) => `paso: ${e}`),
-    ...r.braces.map((e) => `sin sustituir: ${e}`),
+    ...r.braces.map((e) => `unsubstituted: ${e}`),
     ...r.dcErrors.map((e) => `runtime: ${e}`),
-    ...r.dcMissing.map((e) => `valor ausente: ${e}`),
-    ...r.fontErrors.map((e) => `fuente: ${e}`),
+    ...r.dcMissing.map((e) => `missing value: ${e}`),
+    ...r.fontErrors.map((e) => `font: ${e}`),
   ];
 }
 
-/** Valida `--concurrency` / `concurrency`: un entero ≥ 1, o un error que dice qué llegó. */
+/** Validates `--concurrency` / `concurrency`: an integer ≥ 1, or an error that says what arrived. */
 export function parseConcurrency(value: string | number): number {
   const n = typeof value === 'number' ? value : value.trim() === '' ? NaN : Number(value);
   if (!Number.isInteger(n) || n < 1) {
-    throw new RangeError(`concurrency tiene que ser un entero ≥ 1 (llegó ${JSON.stringify(value)})`);
+    throw new RangeError(`concurrency must be an integer ≥ 1 (got ${JSON.stringify(value)})`);
   }
   return n;
 }
 
 /**
- * Capturas de `existing` (nombres de archivo) que no corresponden a ningún trabajo de `jobs`:
- * las de un estado o un mockup que ya no existe. Sale de los trabajos y no de los resultados,
- * así un trabajo que falló antes de capturar no hace borrar su referencia.
+ * Screenshots in `existing` (file names) that match no job in `jobs`:
+ * those of a state or mockup that no longer exists. It comes from the jobs, not the results,
+ * so a job that failed before capturing does not get its reference deleted.
  */
 export function staleShots(existing: string[], jobs: RenderJob[]): string[] {
   const keep = new Set(jobs.map((j) => shotName(j.mockup, j.state)));
@@ -96,7 +96,7 @@ async function runJob(browser: Browser, job: RenderJob, dir: string, outDir?: st
   const context = await browser.newContext({
     viewport: mockupViewport(job.mockup, dir),
     deviceScaleFactor: 1,
-    locale: 'es-ES',
+    locale: 'en-US',
     timezoneId: 'UTC',
     colorScheme: 'dark',
     reducedMotion: 'no-preference',
@@ -122,7 +122,7 @@ async function runJob(browser: Browser, job: RenderJob, dir: string, outDir?: st
       await settle(page);
     }
     if (job.steps.length > 0) {
-      // Sin el puntero encima del último botón (su :hover cambiaría la captura).
+      // Without the pointer over the last button (its :hover would change the screenshot).
       await page.mouse.move(0, 0);
       await settle(page);
     }
@@ -143,7 +143,7 @@ async function runJob(browser: Browser, job: RenderJob, dir: string, outDir?: st
   return result;
 }
 
-/** Renderiza mockups (y sus estados) en Chromium headless; opcionalmente guarda las capturas. */
+/** Renders mockups (and their states) in headless Chromium; optionally saves the screenshots. */
 export async function renderMockups(opts: RenderOptions = {}): Promise<RenderResult[]> {
   const concurrency = parseConcurrency(opts.concurrency ?? 4);
   const dir = opts.dir ?? MOCKUPS_DIR;

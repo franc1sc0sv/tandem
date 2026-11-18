@@ -7,8 +7,8 @@
 </script>
 
 <script lang="ts">
-  // Barra de menú / bandeja (`V3-Bandeja`, 380×600): las dos máquinas, escenas, túneles y
-  // avisos, con «Abrir» y «Salir». «Bloquear aquí» no está hasta que la IPC tenga la acción.
+  // Barra de menú / bandeja (`V3-Tray`, 380×600): las dos máquinas, escenas, túneles y
+  // avisos, con «Abrir» y «Salir». «Lock here» no está hasta que la IPC tenga la acción.
   import { onDestroy, onMount } from "svelte";
   import { shortName } from "./lib/commands";
   import { machineLine, shortLabels } from "./lib/tunnels";
@@ -51,18 +51,18 @@
     const [x, y] = a && b ? shortLabels(a, b) : [name(from), name(to)];
     return `${x} → ${y}`;
   };
-  const link = $derived(desk.link.kind ? `${LINK_NAME[desk.link.kind]}${desk.link.ms !== null ? ` · ${desk.link.ms} ms` : ""}` : "sin enlace");
+  const link = $derived(desk.link.kind ? `${LINK_NAME[desk.link.kind]}${desk.link.ms !== null ? ` · ${desk.link.ms} ms` : ""}` : "no link");
   const hot = $derived(machines.find((m) => (m.resources?.gpu?.percent ?? 0) >= 85));
   const AMBER = "#d9a75a";
-  /** Estado difícil (`V3-Estados`) en una línea: el mockup de la bandeja solo dibuja el aviso de la VRAM. */
+  /** Estado difícil (`V3-States`) en una línea: el mockup de la bandeja solo dibuja el aviso de la VRAM. */
   const peer = $derived<Machine>(desk.here === "a" ? "b" : "a");
   const canWake = $derived(desk.trouble === "peer-off" && store.can("power"));
 </script>
 
 <div class="pop">
-  <div class="head"><Logo size={18} stroke={2.6} />Mi puesto<span class="fill"></span><span class="mono mut ln">{link}</span></div>
+  <div class="head"><Logo size={18} stroke={2.6} />My desk<span class="fill"></span><span class="mono mut ln">{link}</span></div>
 
-  {#if desk.locked}<Chip tone="warn" icon="lock">Cursor bloqueado aquí</Chip>{/if}
+  {#if desk.locked}<Chip tone="warn" icon="lock">Cursor locked here</Chip>{/if}
 
   <div class="box">
     {#each machines as m, i (m.id)}
@@ -77,7 +77,7 @@
   </div>
 
   {#if desk.scenes.length > 0}
-    <span class="mut cap">Escenas</span>
+    <span class="mut cap">Scenes</span>
     <div class="scenes">
       {#each desk.scenes as s (s.id)}
         <button type="button" class="sc" class:act={desk.activeScene === s.id} aria-pressed={desk.activeScene === s.id} disabled={!store.can("scenes")} onclick={() => store.applyScene(s.id)}
@@ -88,7 +88,7 @@
   {/if}
 
   {#if open.length > 0}
-    <span class="mut cap">Túneles</span>
+    <span class="mut cap">Tunnels</span>
     <div class="box tl">
       {#each open as t, i (t.id)}
         <div class="row" class:sep={i > 0}>
@@ -102,17 +102,17 @@
   {#if desk.trouble !== "none"}
     <div class="warn" role="status">
       <Icon name="warn" size={16} stroke={2} /><span class="fill">{desk.troubleText}</span>
-      {#if canWake}<button type="button" class="lnk on" onclick={() => store.setPower(peer, true)}>Encender</button>{/if}
+      {#if canWake}<button type="button" class="lnk on" onclick={() => store.setPower(peer, true)}>Power on</button>{/if}
     </div>
   {:else if hot?.resources?.gpu}
-    <div class="warn"><Icon name="warn" size={16} stroke={2} />{hot.name} con la {hot.resources.gpuLabel} al {hot.resources.gpu.percent} %</div>
+    <div class="warn"><Icon name="warn" size={16} stroke={2} />{hot.name} with {hot.resources.gpuLabel} at {hot.resources.gpu.percent} %</div>
   {/if}
 
   <span class="fill"></span>
   <div class="foot">
-    <button type="button" class="lnk on" onclick={() => actions.showMain()}><Icon name="window" size={15} />Abrir</button>
+    <button type="button" class="lnk on" onclick={() => actions.showMain()}><Icon name="window" size={15} />Open</button>
     <span class="fill"></span>
-    <button type="button" class="lnk" aria-label="Salir" title="Salir" onclick={() => actions.quit()}><Icon name="power" size={15} stroke={2} /></button>
+    <button type="button" class="lnk" aria-label="Leave" title="Leave" onclick={() => actions.quit()}><Icon name="power" size={15} stroke={2} /></button>
   </div>
 </div>
 

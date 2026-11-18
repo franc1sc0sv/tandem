@@ -1,4 +1,4 @@
-// Los monitores de la pantalla Monitores (`V3-Monitores`): del JSON del agente (`MonitorView`)
+// Los monitores de la pantalla Monitores (`V3-Monitors`): del JSON del agente (`MonitorView`)
 // a lo que se dibuja. Puro. D11: un monitor que no habla el estándar se muestra «no
 // compatible» con su razón y nunca se le pide nada.
 
@@ -44,25 +44,25 @@ export function eventView(e: MonitorEventJson): MonitorEventView {
   const base = { at: e.at_ms };
   switch (e.kind) {
     case "SwitchRequested":
-      return { ...base, kind: "switch", text: to ? `Entrada → ${to}, pedida por Tandem` : "Cambio de entrada pedido por Tandem" };
+      return { ...base, kind: "switch", text: to ? `Input → ${to}, requested by Tandem` : "Input change requested by Tandem" };
     case "Input":
-      return { ...base, kind: "button", text: to ? `Entrada → ${to}, con los botones` : "Entrada cambiada con los botones" };
+      return { ...base, kind: "button", text: to ? `Input → ${to}, with the buttons` : "Input changed with the buttons" };
     case "SwitchDone":
-      return { ...base, kind: "switch", text: to ? `Cambio a ${to} confirmado` : "Cambio de entrada confirmado" };
+      return { ...base, kind: "switch", text: to ? `Switch to ${to} confirmed` : "Input change confirmed" };
     case "SwitchFailed":
-      return { ...base, kind: "failed", text: to ? `Cambio a ${to} sin imagen` : "Cambio de entrada sin imagen" };
+      return { ...base, kind: "failed", text: to ? `Switch to ${to} with no picture` : "Input change with no picture" };
     case "Signal":
-      return { ...base, kind: "signal", text: to ? `Señal ${to} detectada` : "Señal detectada" };
+      return { ...base, kind: "signal", text: to ? `${to} signal detected` : "Signal detected" };
     case "Boot":
-      return { ...base, kind: "boot", text: "El monitor arrancó" };
+      return { ...base, kind: "boot", text: "The monitor started up" };
     case "Power":
-      return { ...base, kind: "power", text: "Cambió el encendido" };
+      return { ...base, kind: "power", text: "Power state changed" };
     case "Setting":
-      return { ...base, kind: "other", text: "Cambió un ajuste del menú" };
+      return { ...base, kind: "other", text: "A menu setting changed" };
     case "Lost":
-      return { ...base, kind: "other", text: "Se perdieron eventos" };
+      return { ...base, kind: "other", text: "Events were lost" };
     case "Other":
-      return { ...base, kind: "other", text: "Evento del monitor" };
+      return { ...base, kind: "other", text: "Monitor event" };
   }
 }
 
@@ -84,13 +84,13 @@ export function monitorsUi(list: MonitorJson[]): MonitorUi[] {
 
 /** Por qué no se puede pedir el cambio a `who` (o `null` si sí se puede). */
 export function whyNotSwitch(m: MonitorUi, who: Machine, name: string): string | null {
-  if (!m.compat.ok) return `${m.name} no es compatible con el estándar de Tandem`;
-  if (!m.connected) return `${m.name} está desconectado`;
-  if (!m.ports[who]) return `Falta saber a qué entrada va ${name}`;
+  if (!m.compat.ok) return `${m.name} does not support the Tandem standard`;
+  if (!m.connected) return `${m.name} is disconnected`;
+  if (!m.ports[who]) return `It is not known which input ${name} uses`;
   return null;
 }
 
-/** El fondo de la vista previa de una escena (`F-NuevaEscena`): un poco más claro que el de la miniatura. */
+/** El fondo de la vista previa de una escena (`F-NewScene`): un poco más claro que el de la miniatura. */
 export function previewWall(color: string): string {
   const known: Record<string, [string, string]> = { "#7aa7e6": ["#34496a", "#222d3d"], "#a99be8": ["#463d63", "#2a2539"] };
   const hit = known[color.toLowerCase()];

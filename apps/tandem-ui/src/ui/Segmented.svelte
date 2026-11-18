@@ -74,7 +74,7 @@
 </div>
 
 <style>
-  /* Segmentado con indicador deslizante (V3-Acomodo, V3-Monitores). */
+  /* Segmentado con indicador deslizante (V3-Arrangement, V3-Monitors). */
   .seg {
     --pad: 3px;
     position: relative;
@@ -104,7 +104,7 @@
   .lg .ind {
     border-radius: 9px;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-    /* El borde toma el color de la máquina elegida (V3-Monitores). */
+    /* El borde toma el color de la máquina elegida (V3-Monitors). */
     transition:
       transform 0.38s cubic-bezier(0.3, 1.3, 0.5, 1),
       border-color 0.3s;

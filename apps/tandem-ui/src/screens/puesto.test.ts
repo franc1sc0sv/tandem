@@ -31,11 +31,11 @@ async function mount(query = "demo&still") {
 
 const dot = (c: HTMLElement) => c.querySelector<HTMLElement>(".curdot");
 
-describe("V3-Puesto en modo demo", () => {
+describe("V3-Desk en modo demo", () => {
   it("muestra las dos máquinas, el enlace, los escritorios y las escenas", async () => {
     await mount();
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Puesto");
-    const machines = within(screen.getByRole("region", { name: "Máquinas" }));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Desk");
+    const machines = within(screen.getByRole("region", { name: "Machines" }));
     expect(machines.getByRole("link", { name: /MacBook Pro/ })).toHaveAttribute("href", "#/maquina/a");
     expect(machines.getByRole("link", { name: /PC-Escritorio/ })).toHaveAttribute("href", "#/maquina/b");
     expect(screen.getByRole("link", { name: /Enlace entre MacBook Pro y PC-Escritorio: USB-C/ })).toHaveAttribute("href", "#/red");
@@ -55,21 +55,21 @@ describe("V3-Puesto en modo demo", () => {
 
   it("los botones de ícono llevan a acomodo y a monitores", async () => {
     await mount();
-    expect(screen.getByRole("link", { name: "Editar acomodo" })).toHaveAttribute("href", "#/acomodo");
-    expect(screen.getByRole("link", { name: "Nueva escena" })).toHaveAttribute("href", "#/monitores");
-    expect(screen.getByRole("link", { name: "Editar escenas" })).toHaveAttribute("href", "#/monitores");
+    expect(screen.getByRole("link", { name: "Edit arrangement" })).toHaveAttribute("href", "#/acomodo");
+    expect(screen.getByRole("link", { name: "New scene" })).toHaveAttribute("href", "#/monitores");
+    expect(screen.getByRole("link", { name: "Edit scenes" })).toHaveAttribute("href", "#/monitores");
   });
 
-  it("apagar y encender la otra máquina desde su tarjeta de energía", async () => {
+  it("apagar y encender the other machine desde su tarjeta de energía", async () => {
     await mount();
     const card = within(screen.getByRole("group", { name: "Energía de PC-Escritorio" }));
-    await userEvent.click(card.getByRole("button", { name: "Apagar" }));
-    expect(await card.findByRole("button", { name: "Encender" })).toBeEnabled();
-    await userEvent.click(card.getByRole("button", { name: "Encender" }));
-    expect(await card.findByRole("button", { name: "Apagar" })).toBeInTheDocument();
+    await userEvent.click(card.getByRole("button", { name: "Power off" }));
+    expect(await card.findByRole("button", { name: "Power on" })).toBeEnabled();
+    await userEvent.click(card.getByRole("button", { name: "Power on" }));
+    expect(await card.findByRole("button", { name: "Power off" })).toBeInTheDocument();
   });
 
-  it("no ofrece energía si la otra máquina no está emparejada o ya está perdida", async () => {
+  it("no ofrece energía si the other machine no está emparejada o ya está perdida", async () => {
     await mount("demo&still&trouble=link-down");
     expect(screen.queryByRole("group", { name: "Energía de PC-Escritorio" })).toBeNull();
   });
@@ -190,9 +190,9 @@ describe("contra el agente (IPC)", () => {
     expect(dot(container)).toBeNull();
   });
 
-  it("apagar la otra máquina va al agente", async () => {
+  it("apagar the other machine va al agente", async () => {
     const { act } = await mountLive();
-    await userEvent.click(screen.getByRole("button", { name: "Apagar" }));
+    await userEvent.click(screen.getByRole("button", { name: "Power off" }));
     expect(act).toHaveBeenCalledWith({ kind: "set_power", machine: "b", on: false });
   });
 });

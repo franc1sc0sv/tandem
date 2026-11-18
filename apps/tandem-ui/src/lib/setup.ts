@@ -17,18 +17,18 @@ const SIDECAR = "/Applications/Tandem.app/Contents/MacOS/tandemd";
 export const PERMISSION_INFO: Record<Permission, PermissionInfo> = {
   accessibility: {
     title: "Accesibilidad (Accessibility)",
-    why: "Para escribir y mover el mouse en esta máquina cuando los usas desde la otra.",
-    how: `En Ajustes del Sistema → Privacidad y seguridad → Accesibilidad (System Settings → Privacy & Security → Accessibility), activa tandemd. Primero pulsa «Pedir permisos»: así aparece solo. Si no, pulsa + y elige ${SIDECAR}.`,
+    why: "To type and move the mouse on this machine when you use them from the other one.",
+    how: `In System Settings → Privacy & Security → Accessibility, turn on tandemd. First press “Request permissions”: that way it shows up on its own. If not, press + and choose ${SIDECAR}.`,
   },
   input_monitoring: {
-    title: "Monitorización de entrada (Input Monitoring)",
-    why: "Para llevar el teclado y el mouse a la otra máquina cuando el cursor cruza el borde.",
-    how: `En Ajustes del Sistema → Privacidad y seguridad → Monitorización de entrada (System Settings → Privacy & Security → Input Monitoring), activa tandemd. Primero pulsa «Pedir permisos»: así aparece solo. Si no, pulsa + y elige ${SIDECAR}.`,
+    title: "Input Monitoring",
+    why: "To carry the keyboard and mouse to the other machine when the cursor crosses the edge.",
+    how: `In System Settings → Privacy & Security → Input Monitoring, turn on tandemd. First press “Request permissions”: that way it shows up on its own. If not, press + and choose ${SIDECAR}.`,
   },
   local_network: {
     title: "Red local (Local Network)",
-    why: "Para encontrar la otra máquina en la red y hablar con ella cifrado.",
-    how: "En Ajustes del Sistema → Privacidad y seguridad → Red local (System Settings → Privacy & Security → Local Network), activa Tandem y tandemd. Si no aparecen todavía, macOS lo preguntará la primera vez que busquen la otra máquina.",
+    why: "To find the other machine on the network and talk to it encrypted.",
+    how: "In System Settings → Privacy & Security → Local Network, turn on Tandem and tandemd. If they do not show up yet, macOS will ask the first time they look for the other machine.",
   },
 };
 

@@ -147,7 +147,7 @@ export function transitions(s: Styles): Map<string, string> {
 /**
  * Animaciones como lista de `«duración curva repeticiones relleno»`. El nombre no se compara
  * (Svelte le agrega un prefijo por componente) ni el retraso (las tarjetas entran escalonadas
- * con un `animation-delay` en línea): solo si hay animación, su duración y su curva.
+ * con un `animation-delay` online): solo si hay animación, su duración y su curva.
  */
 export function animations(s: Styles): string[] {
   const names = splitList(s["animation-name"] ?? "none");
@@ -240,33 +240,33 @@ const KNOB: Group[] = ["alto", "ancho", "radio", "fondo", "posicion", "transitio
 const IND: Group[] = ["alto", "caja", "radio", "borde", "fondo", "sombra", "posicion", "transition"];
 
 export const PAIRS: StylePair[] = [
-  // V3-Acomodo: los botones del encabezado (38 px).
-  { name: "botón 38 px", app: part("btn-38", ".btn"), mockup: "V3-Acomodo", ref: ref('a.btn[href="F-PruebaCruce.dc.html"]'), groups: ALL },
-  { name: "botón primario 38 px", app: part("btn-pri-38", ".btn"), mockup: "V3-Acomodo", ref: ref("button.btn.pri"), groups: ALL },
-  { name: "brillo del primario", app: part("btn-pri-38", ".btn", "::after"), mockup: "V3-Acomodo", ref: ref("button.btn.pri", "::after"), groups: SHINE },
-  // V3-Monitores: sm, primario sm y fantasma de solo ícono.
-  { name: "botón sm", app: part("btn-sm", ".btn"), mockup: "V3-Monitores", ref: ref('a.btn.sm[href="V3-Estados.dc.html"]'), groups: ALL },
-  { name: "botón primario sm", app: part("btn-pri-sm", ".btn"), mockup: "V3-Monitores", ref: ref("a.btn.pri.sm"), groups: ALL },
-  { name: "botón fantasma ícono sm", app: part("btn-ghost-ic-sm", ".btn"), mockup: "V3-Monitores", ref: ref("button.btn.ghost.ic.sm"), groups: [...ALL, "ancho"] },
-  // F-Ajustes: peligro («Salir del puesto»).
-  { name: "botón peligro", app: part("btn-danger", ".btn"), mockup: "F-Ajustes", ref: ref("button.btn.danger"), groups: ALL },
-  // Segmentados: el de alineación de V3-Acomodo (md) y el de máquina de V3-Monitores (lg).
-  { name: "segmentado md", app: part("seg-md", ".seg"), mockup: "V3-Acomodo", ref: ref(".seg"), groups: ["relleno", "radio", "borde", "fondo", "sombra"] },
-  { name: "segmentado md · indicador", app: part("seg-md", ".ind"), mockup: "V3-Acomodo", ref: ref(".seg .ind"), groups: IND },
-  { name: "segmentado md · opción elegida", app: part("seg-md", '[aria-checked="true"]'), mockup: "V3-Acomodo", ref: ref('.seg .sb[aria-checked="true"]'), groups: ALL },
-  { name: "segmentado md · opción", app: part("seg-md", '[aria-checked="false"]'), mockup: "V3-Acomodo", ref: ref('.seg .sb[aria-checked="false"]'), groups: ["fuente"] },
-  { name: "segmentado lg", app: part("seg-lg", ".seg"), mockup: "V3-Monitores", ref: ref(".seg"), groups: ["relleno", "radio", "borde", "fondo", "sombra"] },
-  { name: "segmentado lg · indicador", app: part("seg-lg", ".ind"), mockup: "V3-Monitores", ref: ref(".seg .ind"), groups: IND },
-  { name: "segmentado lg · opción elegida", app: part("seg-lg", '[aria-checked="true"]'), mockup: "V3-Monitores", ref: ref('.seg .segb[aria-checked="true"]'), groups: ALL },
-  { name: "segmentado lg · opción", app: part("seg-lg", '[aria-checked="false"]'), mockup: "V3-Monitores", ref: ref('.seg .segb[aria-checked="false"]'), groups: ["fuente"] },
-  // F-Ajustes, pestaña «Teclado y mouse»: interruptor encendido y apagado, con su perilla.
-  { name: "interruptor encendido", app: part("sw-on", ".sw"), mockup: "F-Ajustes", state: "teclado", ref: ref("button.sw:not(.off)"), groups: SWITCH },
-  { name: "interruptor encendido · perilla", app: part("sw-on", ".sw", "::after"), mockup: "F-Ajustes", state: "teclado", ref: ref("button.sw:not(.off)", "::after"), groups: KNOB },
-  { name: "interruptor apagado", app: part("sw-off", ".sw"), mockup: "F-Ajustes", state: "teclado", ref: ref("button.sw.off"), groups: SWITCH },
-  { name: "interruptor apagado · perilla", app: part("sw-off", ".sw", "::after"), mockup: "F-Ajustes", state: "teclado", ref: ref("button.sw.off", "::after"), groups: KNOB },
-  // V3-Puesto: el chip contador de Túneles y las tarjetas (la de escritorios y la de máquina).
-  { name: "chip contador", app: part("chip-count", ".chip"), mockup: "V3-Puesto", ref: ref(".nav .chip"), groups: ALL },
-  { name: "tarjeta", app: part("card", ".card"), mockup: "V3-Puesto", ref: ref("div.card"), groups: ["relleno", "radio", "borde", "fondo", "sombra", "transition", "animation"] },
+  // V3-Arrangement: los botones del encabezado (38 px).
+  { name: "botón 38 px", app: part("btn-38", ".btn"), mockup: "V3-Arrangement", ref: ref('a.btn[href="F-CrossingTest.dc.html"]'), groups: ALL },
+  { name: "botón primario 38 px", app: part("btn-pri-38", ".btn"), mockup: "V3-Arrangement", ref: ref("button.btn.pri"), groups: ALL },
+  { name: "brillo del primario", app: part("btn-pri-38", ".btn", "::after"), mockup: "V3-Arrangement", ref: ref("button.btn.pri", "::after"), groups: SHINE },
+  // V3-Monitors: sm, primario sm y fantasma de solo ícono.
+  { name: "botón sm", app: part("btn-sm", ".btn"), mockup: "V3-Monitors", ref: ref('a.btn.sm[href="V3-States.dc.html"]'), groups: ALL },
+  { name: "botón primario sm", app: part("btn-pri-sm", ".btn"), mockup: "V3-Monitors", ref: ref("a.btn.pri.sm"), groups: ALL },
+  { name: "botón fantasma ícono sm", app: part("btn-ghost-ic-sm", ".btn"), mockup: "V3-Monitors", ref: ref("button.btn.ghost.ic.sm"), groups: [...ALL, "ancho"] },
+  // F-Settings: peligro («Leave desk»).
+  { name: "botón peligro", app: part("btn-danger", ".btn"), mockup: "F-Settings", ref: ref("button.btn.danger"), groups: ALL },
+  // Segmentados: el de alineación de V3-Arrangement (md) y el de máquina de V3-Monitors (lg).
+  { name: "segmentado md", app: part("seg-md", ".seg"), mockup: "V3-Arrangement", ref: ref(".seg"), groups: ["relleno", "radio", "borde", "fondo", "sombra"] },
+  { name: "segmentado md · indicador", app: part("seg-md", ".ind"), mockup: "V3-Arrangement", ref: ref(".seg .ind"), groups: IND },
+  { name: "segmentado md · opción elegida", app: part("seg-md", '[aria-checked="true"]'), mockup: "V3-Arrangement", ref: ref('.seg .sb[aria-checked="true"]'), groups: ALL },
+  { name: "segmentado md · opción", app: part("seg-md", '[aria-checked="false"]'), mockup: "V3-Arrangement", ref: ref('.seg .sb[aria-checked="false"]'), groups: ["fuente"] },
+  { name: "segmentado lg", app: part("seg-lg", ".seg"), mockup: "V3-Monitors", ref: ref(".seg"), groups: ["relleno", "radio", "borde", "fondo", "sombra"] },
+  { name: "segmentado lg · indicador", app: part("seg-lg", ".ind"), mockup: "V3-Monitors", ref: ref(".seg .ind"), groups: IND },
+  { name: "segmentado lg · opción elegida", app: part("seg-lg", '[aria-checked="true"]'), mockup: "V3-Monitors", ref: ref('.seg .segb[aria-checked="true"]'), groups: ALL },
+  { name: "segmentado lg · opción", app: part("seg-lg", '[aria-checked="false"]'), mockup: "V3-Monitors", ref: ref('.seg .segb[aria-checked="false"]'), groups: ["fuente"] },
+  // F-Settings, pestaña «Keyboard and mouse»: interruptor encendido y apagado, con su perilla.
+  { name: "interruptor encendido", app: part("sw-on", ".sw"), mockup: "F-Settings", state: "teclado", ref: ref("button.sw:not(.off)"), groups: SWITCH },
+  { name: "interruptor encendido · perilla", app: part("sw-on", ".sw", "::after"), mockup: "F-Settings", state: "teclado", ref: ref("button.sw:not(.off)", "::after"), groups: KNOB },
+  { name: "interruptor apagado", app: part("sw-off", ".sw"), mockup: "F-Settings", state: "teclado", ref: ref("button.sw.off"), groups: SWITCH },
+  { name: "interruptor apagado · perilla", app: part("sw-off", ".sw", "::after"), mockup: "F-Settings", state: "teclado", ref: ref("button.sw.off", "::after"), groups: KNOB },
+  // V3-Desk: el chip contador de Túneles y las tarjetas (la de escritorios y la de máquina).
+  { name: "chip contador", app: part("chip-count", ".chip"), mockup: "V3-Desk", ref: ref(".nav .chip"), groups: ALL },
+  { name: "tarjeta", app: part("card", ".card"), mockup: "V3-Desk", ref: ref("div.card"), groups: ["relleno", "radio", "borde", "fondo", "sombra", "transition", "animation"] },
   // `.mcard` quita el relleno de abajo para la gráfica: de la tarjeta enlace se mira el resto.
-  { name: "tarjeta enlace", app: part("card-link", ".card"), mockup: "V3-Puesto", ref: ref("a.card.mcard"), groups: ["radio", "borde", "fondo", "sombra", "transition", "animation"] },
+  { name: "tarjeta enlace", app: part("card-link", ".card"), mockup: "V3-Desk", ref: ref("a.card.mcard"), groups: ["radio", "borde", "fondo", "sombra", "transition", "animation"] },
 ];

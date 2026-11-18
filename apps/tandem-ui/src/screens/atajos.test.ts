@@ -42,7 +42,7 @@ describe("lib/atajos", () => {
       toggle: "Ctrl+Alt+Digit0",
       lock: ["ScrollLock"],
       palette: "Ctrl+KeyK",
-      scenes: [{ id: "t", name: "Trabajo", shortcut: ["ControlLeft", "AltLeft", "Digit1"] }],
+      scenes: [{ id: "t", name: "Work", shortcut: ["ControlLeft", "AltLeft", "Digit1"] }],
     });
     expect(rows.map((r) => r.id)).toEqual(["toggle_window", "lock", "palette", "scene:t"]);
     expect(rows.find((r) => r.id === "palette")?.editable).toBe(false);
@@ -74,7 +74,7 @@ const chord = { ctrlKey: true, altKey: true };
 async function open(store: Store) {
   const r = render(Shell, { context: new Map([[STORE_KEY, store]]) });
   await tick();
-  await userEvent.click(screen.getByRole("tab", { name: "Atajos" }));
+  await userEvent.click(screen.getByRole("tab", { name: "Shortcuts" }));
   return r;
 }
 
@@ -90,15 +90,15 @@ describe("editar atajos en modo demo", () => {
 
   it("las filas del mockup: ventana, bloqueo, paleta y una por escena", async () => {
     await demo();
-    await comboOf("Mostrar u ocultar Tandem");
-    expect(await comboOf("Bloquear el teclado en esta máquina")).toHaveTextContent("Bloq Despl");
-    expect(await comboOf("Paleta de comandos")).toBeDisabled();
+    await comboOf("Show or hide Tandem");
+    expect(await comboOf("Lock the keyboard on this machine")).toHaveTextContent("Scroll Lock");
+    expect(await comboOf("Command palette")).toBeDisabled();
     expect(await comboOf("Escena «Trabajo»")).toBeInTheDocument();
   });
 
   it("el bloqueo se guarda al grabarlo y admite F13 solo", async () => {
     const store = await demo();
-    const combo = await comboOf("Bloquear el teclado en esta máquina");
+    const combo = await comboOf("Lock the keyboard on this machine");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "F13", code: "F13" });
     await vi.waitFor(() => expect(store.desk.lockShortcut).toEqual(["F13"]));
@@ -123,12 +123,12 @@ describe("editar atajos en modo demo", () => {
     expect(store.desk.scenes.map((s) => s.shortcut)).toEqual(antes);
     // ⌃⌥0 es el de la ventana.
     await fireEvent.keyDown(combo, { key: "0", code: "Digit0", ...chord });
-    expect(screen.getByRole("alert")).toHaveTextContent("Ya lo usa «Mostrar u ocultar Tandem»");
+    expect(screen.getByRole("alert")).toHaveTextContent("Ya lo usa «Show or hide Tandem»");
   });
 
   it("el bloqueo no puede ser el de una escena", async () => {
     const store = await demo();
-    const combo = await comboOf("Bloquear el teclado en esta máquina");
+    const combo = await comboOf("Lock the keyboard on this machine");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "1", code: "Digit1", ...chord });
     expect(screen.getByRole("alert")).toHaveTextContent("Ya lo usa «Escena «Trabajo»»");
@@ -145,8 +145,8 @@ function connected(): Snapshot {
       screens: [],
       arrangement: { a_side: "up", align: "end" },
       scenes: [
-        { id: "trabajo", name: "Trabajo", monitors: [], shortcut: ["ControlLeft", "AltLeft", "Digit1"] },
-        { id: "juego", name: "Juego", monitors: [], shortcut: [] },
+        { id: "trabajo", name: "Work", monitors: [], shortcut: ["ControlLeft", "AltLeft", "Digit1"] },
+        { id: "juego", name: "Game", monitors: [], shortcut: [] },
       ],
       shortcuts: { lock: ["ScrollLock"] },
     },
@@ -189,13 +189,13 @@ describe("editar atajos contra el agente real (IPC simulada)", () => {
 
   it("el bloqueo manda set_lock_shortcut con los códigos", async () => {
     const { act } = await live();
-    const combo = await comboOf("Bloquear el teclado en esta máquina");
+    const combo = await comboOf("Lock the keyboard on this machine");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "l", code: "KeyL", ctrlKey: true });
     await vi.waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "set_lock_shortcut", lock: ["ControlLeft", "KeyL"] }));
   });
 
-  it("«Bloquear aquí» de la paleta manda lock_here (T-129)", async () => {
+  it("«Lock here» de la paleta manda lock_here (T-129)", async () => {
     const act = vi.fn(async (_a: unknown): Promise<{ kind: "done" }> => ({ kind: "done" }));
     const bridge = { snapshot: async () => connected(), onSnapshot: async () => {}, act } as unknown as Bridge;
     const store = new Store(new LiveSource(bridge), { hash: "#/ajustes" });
@@ -215,14 +215,14 @@ describe("editar atajos contra el agente real (IPC simulada)", () => {
     await vi.waitFor(() =>
       expect(act).toHaveBeenCalledWith({
         kind: "edit_scene",
-        scene: expect.objectContaining({ id: "juego", name: "Juego", shortcut: ["ControlLeft", "AltLeft", "Digit3"] }),
+        scene: expect.objectContaining({ id: "juego", name: "Game", shortcut: ["ControlLeft", "AltLeft", "Digit3"] }),
       }),
     );
   });
 
   it("el atajo de la ventana va a ui.toml por setShortcuts", async () => {
     const { bridge } = await live();
-    const combo = await comboOf("Mostrar u ocultar Tandem");
+    const combo = await comboOf("Show or hide Tandem");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "j", code: "KeyJ", ctrlKey: true });
     await vi.waitFor(() => expect(bridge.setShortcuts).toHaveBeenCalledWith({ toggle_window: "Ctrl+KeyJ" }));
@@ -235,14 +235,14 @@ describe("editar atajos contra el agente real (IPC simulada)", () => {
     await fireEvent.keyDown(combo, { key: "1", code: "Digit1", ...chord });
     expect(screen.getByRole("alert")).toHaveTextContent("Ya lo usa «Escena «Trabajo»»");
     await fireEvent.keyDown(combo, { key: "k", code: "KeyK", ctrlKey: true });
-    expect(screen.getByRole("alert")).toHaveTextContent("Ya lo usa «Paleta de comandos»");
+    expect(screen.getByRole("alert")).toHaveTextContent("Ya lo usa «Command palette»");
     expect(act).not.toHaveBeenCalledWith(expect.objectContaining({ kind: "edit_scene" }));
   });
 
   it("si el agente rechaza el cambio, se muestra el motivo", async () => {
     const { act } = await live();
     act.mockImplementation(async () => ({ kind: "rejected" as const, reason: "tecla desconocida" }));
-    const combo = await comboOf("Bloquear el teclado en esta máquina");
+    const combo = await comboOf("Lock the keyboard on this machine");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "l", code: "KeyL", ctrlKey: true });
     expect(await screen.findByRole("alert")).toHaveTextContent("tecla desconocida");

@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Asistente de configuración (`F-Asis1`…`F-Asis6`): la lista de pasos a la izquierda y el paso
-  // actual a la derecha. Cada paso vive en `wizard/` y habla con el agente por el store. Se
+  // Asistente de configuración (`F-Setup1`…`F-Setup6`): la lista de pasos to the left of y el paso
+  // actual to the right of. Cada paso vive en `wizard/` y habla con el agente por el store. Se
   // abre solo la primera vez y se puede reabrir desde Ajustes.
   import { tick } from "svelte";
   import { useStore } from "../lib/context";
@@ -63,8 +63,8 @@
 </script>
 
 {#if store.wizardOpen}
-  <div class="wiz" role="dialog" aria-modal="true" aria-label="Asistente" tabindex="-1" {onkeydown} in:enter={{ duration: 250 }} out:leave>
-    <aside aria-label="Pasos" class="side">
+  <div class="wiz" role="dialog" aria-modal="true" aria-label="Setup" tabindex="-1" {onkeydown} in:enter={{ duration: 250 }} out:leave>
+    <aside aria-label="Steps" class="side">
       <div class="brand"><Logo size={22} />Tandem</div>
       <ol>
         {#each WIZARD_STEPS as s, i (s)}
@@ -77,7 +77,7 @@
         {/each}
       </ol>
       <span class="fill"></span>
-      <button type="button" class="wz-close" aria-label="Cerrar" onclick={close}><Icon name="x" size={16} stroke={2.2} /></button>
+      <button type="button" class="wz-close" aria-label="Close" onclick={close}><Icon name="x" size={16} stroke={2.2} /></button>
     </aside>
 
     <main bind:this={main} tabindex="-1" class:wide={step === 3 || step === 4}>
@@ -98,13 +98,13 @@
           {/if}
 
           <div class="foot">
-            {#if step > 0 && step < last}<Button icon="arrow-left" variant="ghost" motion="back" size="xl" onclick={() => goTo(step - 1)}>Atrás</Button>{/if}
+            {#if step > 0 && step < last}<Button icon="arrow-left" variant="ghost" motion="back" size="xl" onclick={() => goTo(step - 1)}>Back</Button>{/if}
             <span class="fill"></span>
             {#if step === 2 && perms.needed}
-              {#if opened && missing > 0}<Button icon="refresh" variant="ghost" size="sm" motion="spin" onclick={() => store.restartAgent()}>Reiniciar agente</Button>{/if}
+              {#if opened && missing > 0}<Button icon="refresh" variant="ghost" size="sm" motion="spin" onclick={() => store.restartAgent()}>Restart agent</Button>{/if}
               <span class="mut sm">{permFooter(missing)}</span>
             {/if}
-            {#if step === 4}<Button icon="skip" variant="ghost" size="xl" onclick={() => goTo(step + 1)}>Saltar</Button>{/if}
+            {#if step === 4}<Button icon="skip" variant="ghost" size="xl" onclick={() => goTo(step + 1)}>Skip</Button>{/if}
             {#if step < last}
               <Button
                 icon="arrow-right"
@@ -113,10 +113,10 @@
                 iconAfter
                 size="xl"
                 class="wz-next {(step === 2 && missing > 0) || (step === 4 && !store.wizardCrossed) ? 'wait' : ''}"
-                onclick={() => goTo(step + 1)}>Continuar</Button
+                onclick={() => goTo(step + 1)}>Continue</Button
               >
             {:else}
-              <Button icon="arrow-right" variant="pri" motion="go" iconAfter size="xl" class="wz-fin" onclick={finish}>Ir al puesto</Button>
+              <Button icon="arrow-right" variant="pri" motion="go" iconAfter size="xl" class="wz-fin" onclick={finish}>Go to desk</Button>
             {/if}
           </div>
         </div>
@@ -246,7 +246,7 @@
     width: 100%;
     min-height: 100%;
   }
-  /* `F-Asis3` y `F-Asis5` separan sus bloques 20 px; los demás, 22. */
+  /* `F-Setup3` y `F-Setup5` separan sus bloques 20 px; los demás, 22. */
   .body.tight {
     gap: 20px;
   }

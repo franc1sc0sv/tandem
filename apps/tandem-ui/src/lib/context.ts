@@ -9,6 +9,6 @@ export function provideStore(store: Store): void {
 
 export function useStore(): Store {
   const s = getContext<Store | undefined>(STORE_KEY);
-  if (!s) throw new Error("falta el store de Tandem en el contexto");
+  if (!s) throw new Error("the Tandem store is missing from the context");
   return s;
 }

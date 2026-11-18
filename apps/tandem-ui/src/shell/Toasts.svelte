@@ -8,9 +8,9 @@
   const store = useStore();
 </script>
 
-<!-- Avisos dentro de la app (F-Avisos): arriba a la derecha, se apilan y se van solos en 6 s
+<!-- Avisos dentro de la app (F-Notices): arriba to the right of, se apilan y se van solos en 6 s
      salvo los que piden una decisión. -->
-<div class="toasts" role="region" aria-label="Avisos">
+<div class="toasts" role="region" aria-label="Notices">
   {#each store.toasts as t (t.id)}
     <div class="toast" role="status" out:leave>
       <span class="dot" style:background={TONE_COLOR[t.tone]}></span>
@@ -18,7 +18,7 @@
         <b>{t.text}</b>
         {#if t.body}<span class="body">{t.body}</span>{/if}
         {#if t.progress}
-          <span class="bar" role="progressbar" aria-label="Avance" aria-valuemin="0" aria-valuemax="100" aria-valuenow={t.progress.total > 0 ? Math.floor((t.progress.done / t.progress.total) * 100) : 0}>
+          <span class="bar" role="progressbar" aria-label="Progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow={t.progress.total > 0 ? Math.floor((t.progress.done / t.progress.total) * 100) : 0}>
             <span class="fill" style:width="{t.progress.total > 0 ? (t.progress.done / t.progress.total) * 100 : 0}%"></span>
           </span>
         {/if}
@@ -35,7 +35,7 @@
           </span>
         {/if}
       </div>
-      <button type="button" class="x" aria-label="Cerrar" onclick={() => store.dismiss(t.id)}><Icon name="x" size={14} stroke={2.2} /></button>
+      <button type="button" class="x" aria-label="Close" onclick={() => store.dismiss(t.id)}><Icon name="x" size={14} stroke={2.2} /></button>
       {#if t.auto}<span class="life" style:animation-duration="{TOAST_MS}ms"></span>{/if}
     </div>
   {/each}

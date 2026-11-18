@@ -18,7 +18,7 @@ function mac(exe: string): MachineCaps {
 
 it("nombra cada permiso en español y como lo llama macOS en inglés", () => {
   expect(permissionLabel("accessibility")).toBe("Accesibilidad (Accessibility)");
-  expect(permissionLabel("input_monitoring")).toBe("Monitorización de entrada (Input Monitoring)");
+  expect(permissionLabel("input_monitoring")).toBe("Input Monitoring");
   expect(permissionLabel("local_network")).toBe("Red local (Local Network)");
   expect(Object.keys(PERMISSION_NAMES)).toHaveLength(3);
 });
@@ -26,7 +26,7 @@ it("nombra cada permiso en español y como lo llama macOS en inglés", () => {
 it("dice a qué binario se concede, con la ruta real que anuncia el agente", () => {
   const here = mac("/Applications/Tandem.app/Contents/MacOS/tandemd");
   expect(agentBinary(here)).toBe("/Applications/Tandem.app/Contents/MacOS/tandemd");
-  expect(grantTo(here)).toBe("Concede el permiso a este binario: /Applications/Tandem.app/Contents/MacOS/tandemd (pid 4242)");
+  expect(grantTo(here)).toBe("Grant the permission to this binary: /Applications/Tandem.app/Contents/MacOS/tandemd (pid 4242)");
 });
 
 it("sin ruta (agente que no la dio) o sin agente no inventa ninguna", () => {
@@ -36,8 +36,8 @@ it("sin ruta (agente que no la dio) o sin agente no inventa ninguna", () => {
 });
 
 it("la ayuda cubre pedir, conceder, reiniciar y la entrada vieja", () => {
-  expect(MISSING_HELP).toContain("Pedir permisos");
-  expect(MISSING_HELP).toContain("Reiniciar agente");
+  expect(MISSING_HELP).toContain("Request permissions");
+  expect(MISSING_HELP).toContain("Restart agent");
   expect(MISSING_HELP).toContain("Privacy & Security");
   expect(MISSING_HELP).toContain("entrada vieja");
 });
@@ -58,13 +58,13 @@ const deps = (over: Partial<Parameters<typeof pressPermission>[1]> = {}) => ({
   ...over,
 });
 
-it("«Pedir permisos» devuelve la razón si el agente la rechaza", async () => {
+it("«Request permissions» devuelve la razón si el agente la rechaza", async () => {
   expect(await pressPermission("request", deps())).toEqual({ error: null });
   const r = await pressPermission("request", deps({ request: async () => ({ kind: "rejected" as const, reason: "no" }) }));
   expect(r.error).toBe("no");
 });
 
-it("«Reiniciar agente» avisa solo si de verdad reinició", async () => {
+it("«Restart agent» avisa solo si de verdad reinició", async () => {
   const ok = await pressPermission("restart", deps());
   expect(ok.error).toBeNull();
   expect(ok.message).toContain("se reinicia");

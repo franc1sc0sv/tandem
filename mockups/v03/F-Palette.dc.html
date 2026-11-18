@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Command palette</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+.mut{color:#9a9da6}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.it{font:inherit;width:100%;text-align:left;display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:9px;border:0;background:transparent;color:#e8e8eb;cursor:pointer;min-height:42px;font-size:13.5px;animation:up .2s ease-out both}
+.it:hover{background:#1f2026}
+.kbd{font-family:'JetBrains Mono',monospace;font-size:11px;color:#9a9da6;border:1px solid #31343b;border-radius:5px;padding:1px 6px}
+.grp{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#80838d;padding:10px 12px 4px}
+@keyframes up{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes pop{from{opacity:0;transform:translateY(-10px) scale(.98)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;position:relative;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12;box-sizing:border-box;padding:90px 24px 24px;display:flex;justify-content:center;align-items:flex-start">
+  <div aria-hidden="true" style="position:absolute;inset:0;display:flex;opacity:.22"><div style="width:230px;background:#0b0c0e;border-right:1px solid #1f2126"></div><div style="flex:1;padding:28px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-content:start"><div style="height:200px;border-radius:14px;background:#15161a"></div><div style="height:200px;border-radius:14px;background:#15161a"></div><div style="height:200px;border-radius:14px;background:#15161a"></div></div></div>
+  <div aria-hidden="true" style="position:absolute;inset:0;background:rgba(8,9,11,.55)"></div>
+  <section role="dialog" aria-label="Command palette" style="position:relative;width:min(640px,100%);border-radius:16px;background:#17181c;border:1px solid #31343b;box-shadow:0 30px 70px rgba(0,0,0,.55);overflow:hidden;animation:pop .25s cubic-bezier(.2,.9,.3,1.1)">
+    <div style="display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid #25272d">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#9a9da6" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+      <input aria-label="Search" placeholder="Scene, machine, job or action…" value="{{q}}" onInput="{{type}}" style="flex:1;font:inherit;font-size:15px;color:#e8e8eb;background:transparent;border:0;outline:none">
+      <span class="kbd">esc</span>
+    </div>
+    <div style="max-height:520px;overflow:auto;padding:6px">
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
+        <div class="grp">{{g.name}}</div>
+        <sc-for list="{{g.items}}" as="i" hint-placeholder-count="3">
+          <button type="button" class="it" style="{{i.style}}"><span style="{{i.dot}}"></span><span style="flex:1">{{i.t}}</span><span class="mut" style="font-size:12px">{{i.d}}</span><span class="kbd" style="{{i.kStyle}}">{{i.k}}</span></button>
+        </sc-for>
+      </sc-for>
+      <sc-if value="{{empty}}" hint-placeholder-val="{{ false }}"><div class="mut" style="padding:24px;text-align:center;font-size:13px">Nothing matches “{{q}}”.</div></sc-if>
+    </div>
+    <div style="display:flex;gap:14px;padding:10px 16px;border-top:1px solid #25272d;font-size:12px" class="mut"><span><span class="kbd">↑↓</span> move</span><span><span class="kbd">↵</span> run</span><span style="flex:1"></span><span>Type to filter</span></div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { q: '' }; }
+  renderVals() {
+    const dot = (c) => 'width:8px;height:8px;border-radius:50%;flex:none;background:' + c;
+    const data = [
+      ['Scenes', [['Apply “Work”', 'active', '⌃⌥1', '#7aa7e6'], ['Apply “MacBook only”', '', '⌃⌥2', '#7aa7e6'], ['Apply “PC only”', '', '⌃⌥3', '#a99be8'], ['New scene…', '', '', '#6a6d76']]],
+      ['Machines', [['Power off PC-Desktop', 'on', '', '#a99be8'], ['Add machine…', '', '', '#5fbfb0']]],
+      ['Tunnels', [['Go to tunnel “ia-local”', 'Mac → PC · active', '', '#a99be8'], ['Go to tunnel “tandem”', 'Mac → PC · active', '', '#a99be8']]],
+      ['Go to', [['Monitors', '', '', '#6a6d76'], ['Network', '', '', '#6a6d76'], ['Arrangement', '', '', '#6a6d76'], ['Settings', '', '⌘,', '#6a6d76']]]
+    ];
+    const q = (this.state.q || '').toLowerCase();
+    let first = true;
+    const groups = data.map(([name, items]) => ({ name, items: items.filter(([t]) => !q || t.toLowerCase().includes(q)).map(([t, d, k, c]) => {
+      const sel = first; first = false;
+      return { t, d, k, dot: dot(c), kStyle: k ? '' : 'display:none', style: sel ? 'background:#22324a' : '' };
+    }) })).filter((g) => g.items.length);
+    return { q: this.state.q, groups, empty: groups.length === 0, type: (e) => this.setState({ q: e.target.value }) };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Ajustes → Atajos (`F-Ajustes--atajos`): una fila por atajo, que se guarda al grabarlo.
+  // Ajustes → Atajos (`F-Settings--atajos`): una fila por atajo, que se guarda al grabarlo.
   // La ventana (ui.toml) y el bloqueo y las escenas (el puesto compartido) se editan aquí;
   // la paleta es de la ventana y no se cambia.
   import { onMount } from "svelte";
@@ -43,7 +43,7 @@
     if (r.id === "toggle_window") {
       const next: Bindings = { ...(view?.bindings ?? { toggle_window: null }), toggle_window: accel };
       view = await store.setShortcuts(next);
-      store.toast("Atajo guardado");
+      store.toast("Shortcut saved");
       return null;
     }
     if (r.id === "lock") {
@@ -51,7 +51,7 @@
       return res.ok ? null : res.reason;
     }
     const scene = store.desk.scenes.find((s) => `scene:${s.id}` === r.id);
-    if (!scene?.raw) return "Esa escena ya no existe";
+    if (!scene?.raw) return "That scene no longer exists";
     const res = await store.saveScene({ ...scene.raw, shortcut: codesOf(accel) }, false);
     return res.ok ? null : res.reason;
   }
@@ -72,7 +72,7 @@
     }
     const dup = clashOf(rows, r.id, c.accel);
     if (dup) {
-      error = `Ya lo usa «${dup.label}»`;
+      error = `Already used by “${dup.label}”`;
       return;
     }
     busy = true;
@@ -88,22 +88,22 @@
 </script>
 
 {#if view?.warning}<p class="warn">{view.warning}</p>{/if}
-<p class="mut intro">Funcionan en cualquier máquina del puesto, aunque Tandem esté en segundo plano. Haz clic y pulsa la combinación nueva.</p>
+<p class="mut intro">They work on any machine of the desk, even with Tandem in the background. Click and press the new combination.</p>
 {#each rows as r (r.id)}
   <div class="row">
     <span class="fill col">
       {r.label}
-      {#if r.id === "toggle_window" && view?.failed.toggle_window}<span class="bad">El sistema no lo dejó registrar: {view.failed.toggle_window}. Funciona con la ventana al frente.</span>{/if}
+      {#if r.id === "toggle_window" && view?.failed.toggle_window}<span class="bad">The system did not let it register: {view.failed.toggle_window}. It works with the window in front.</span>{/if}
     </span>
     <button
       type="button"
       class="combo"
       class:rec={recording === r.id}
       disabled={!r.editable}
-      aria-label="Atajo de «{r.label}»: {recording === r.id ? 'pulsa la combinación nueva' : formatAccel(r.accel, mac) || 'sin atajo'}"
+      aria-label="Shortcut for “{r.label}”: {recording === r.id ? 'press the new combination' : formatAccel(r.accel, mac) || 'no shortcut'}"
       aria-pressed={recording === r.id}
       onclick={() => record(r)}
-      onkeydown={(e) => onkeydown(e, r)}>{recording === r.id ? "Pulsa…" : formatAccel(r.accel, mac) || "—"}</button
+      onkeydown={(e) => onkeydown(e, r)}>{recording === r.id ? "Press…" : formatAccel(r.accel, mac) || "—"}</button
     >
   </div>
 {/each}
@@ -131,7 +131,7 @@
     flex-direction: column;
     gap: 3px;
   }
-  /* El campo de la combinación (F-Ajustes). */
+  /* El campo de la combinación (F-Settings). */
   .combo {
     font-family: "JetBrains Mono", monospace;
     font-size: 12.5px;

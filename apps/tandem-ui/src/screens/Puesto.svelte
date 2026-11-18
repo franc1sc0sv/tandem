@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Puesto (inicio, `V3-Puesto`): las dos máquinas, el enlace vivo, los escritorios a escala
+  // Puesto (inicio, `V3-Desk`): las dos máquinas, el enlace vivo, los escritorios a escala
   // real con el cursor en vivo (solo con la ventana visible) y las escenas.
   import { onMount, untrack } from "svelte";
   import { useStore } from "../lib/context";
@@ -23,7 +23,7 @@
   const a = $derived(desk.machines.a);
   const b = $derived(desk.machines.b);
   const link = $derived(desk.link);
-  const linkName = $derived(link.kind ? LINK_NAME[link.kind] : "Sin enlace");
+  const linkName = $derived(link.kind ? LINK_NAME[link.kind] : "No link");
   const AMBER = "#d9a75a";
 
   // Los escritorios a escala física, del mismo cálculo que el acomodo.
@@ -83,10 +83,10 @@
     };
   });
 
-  // `V3-Puesto` escribe «34" muestra PC-Escritorio»; `V3-Monitores` (y `scenes.ts`) usan «→».
+  // `V3-Desk` escribe «34" muestra PC-Escritorio»; `V3-Monitors` (y `scenes.ts`) usan «→».
   const sceneLine = (desc: string) => desc.replaceAll(" → ", " muestra ");
 
-  // Energía de la otra máquina (transacción: el agente informa cada paso).
+  // Energía de the other machine (transacción: el agente informa cada paso).
   const peer = $derived(list.find((m) => !m.here) ?? null);
   const showPower = $derived(peer !== null && store.can("power") && peer.power !== "lost");
   let pending = $state<"on" | "off" | null>(null);
@@ -102,20 +102,20 @@
 </script>
 
 <div class="page">
-  <PageHeader title="Puesto">
+  <PageHeader title="Desk">
     {#snippet actions()}
-      {#if desk.locked}<Chip tone="warn" icon="lock">Cursor bloqueado aquí</Chip>{/if}
+      {#if desk.locked}<Chip tone="warn" icon="lock">Cursor locked here</Chip>{/if}
     {/snippet}
   </PageHeader>
 
-  <section aria-label="Máquinas" class="machines">
+  <section aria-label="Machines" class="machines">
     {#each list as m, i (m.id)}
       <div class="mslot">
       <Card href="#/maquina/{m.id}" delay={i * 0.06} class="mcard">
         <div class="mhead">
           <span class="nicon"><Icon name={machineIcon(m.os)} size={20} color={m.color} /></span>
           <div class="mname"><b>{m.name}</b><span class="mut sm">{m.detail}</span></div>
-          <span class="fill"></span><span class="on-dot" class:off={m.power !== "on"} title={m.power === "on" ? "Encendida" : "Apagada"}></span>
+          <span class="fill"></span><span class="on-dot" class:off={m.power !== "on"} title={m.power === "on" ? "On" : "Off"}></span>
         </div>
         {#if m.resources}
           {@const r = m.resources}
@@ -131,11 +131,11 @@
       </Card>
       {#if showPower && peer && m.id === peer.id}
         <!-- Fuera del enlace de la tarjeta (un botón dentro de un <a> no es válido), encima de su cabecera. -->
-        <div class="pwr" role="group" aria-label="Energía de {peer.name}">
+        <div class="pwr" role="group" aria-label="Power of {peer.name}">
           {#if peer.power === "on"}
-            <Button icon="power" variant="ghost" size="sm" iconOnly label={pending === "off" ? "Apagando…" : "Apagar"} disabled={pending !== null} onclick={() => power(false)} />
+            <Button icon="power" variant="ghost" size="sm" iconOnly label={pending === "off" ? "Powering off…" : "Power off"} disabled={pending !== null} onclick={() => power(false)} />
           {:else}
-            <Button icon="power" variant="ghost" size="sm" iconOnly label={pending === "on" || peer.power === "booting" ? "Encendiendo…" : "Encender"} disabled={pending !== null || peer.power === "booting"} onclick={() => power(true)} />
+            <Button icon="power" variant="ghost" size="sm" iconOnly label={pending === "on" || peer.power === "booting" ? "Powering on…" : "Power on"} disabled={pending !== null || peer.power === "booting"} onclick={() => power(true)} />
           {/if}
         </div>
       {/if}
@@ -144,7 +144,7 @@
   </section>
 
   {#if a && b}
-    <Card href="#/red" delay={0.16} class="link" label="Enlace entre {a.name} y {b.name}: {linkName}">
+    <Card href="#/red" delay={0.16} class="link" label="Link between {a.name} and {b.name}: {linkName}">
       <span class="node"><span class="ndot" style="background:{a.color}"></span><span class="nt">{a.name}</span></span>
       <svg viewBox="0 0 600 40" preserveAspectRatio="none" class="wire" aria-hidden="true">
         <defs><linearGradient id="lk" x1="0" x2="1"><stop offset="0" stop-color={a.color}></stop><stop offset="1" stop-color={b.color}></stop></linearGradient></defs>
@@ -160,7 +160,7 @@
         <span class="mono mut ss">{link.gbps !== null ? `${link.gbps} Gbps` : "—"} · {link.ms !== null ? `${link.ms} ms` : "—"}</span>
       </span>
       <span class="stat w110">
-        <span class="st">Entrada</span>
+        <span class="st">Input</span>
         <span class="mono mut ss">{link.inputP99 !== null ? `p99 ${link.inputP99} ms` : "—"}</span>
       </span>
     </Card>
@@ -168,10 +168,10 @@
 
   <section class="bottom">
     <Card delay={0.2} class="desks">
-      <div class="ch"><h2 class="h3">Escritorios en vivo</h2><span class="fill"></span><a href="#/acomodo" class="ib" aria-label="Editar acomodo" title="Editar acomodo"><Icon name="edit" /></a></div>
+      <div class="ch"><h2 class="h3">Live desktops</h2><span class="fill"></span><a href="#/acomodo" class="ib" aria-label="Edit arrangement" title="Edit arrangement"><Icon name="edit" /></a></div>
       <div class="canvas">
         {#if scene && a && b}
-          <div role="img" aria-label="A escala: {scene.desks.map((k) => k.label).join(' y ')}. El cursor se mueve entre los dos." class="scale" style="aspect-ratio:{scene.aspect}">
+          <div role="img" aria-label="To scale: {scene.desks.map((k) => k.label).join(' and ')}. The cursor moves between the two." class="scale" style="aspect-ratio:{scene.aspect}">
             {#each scene.desks as k (k.id)}
               <div class="desk" style="left:{k.left}%;top:{k.top}%;width:{k.width}%;height:{k.height}%"><div class="w" style="background:{k.wall}">{k.label}</div></div>
             {/each}
@@ -196,9 +196,9 @@
 
     <Card delay={0.24} class="scenes">
       <div class="ch g4">
-        <h2 class="h3">Escenas</h2><span class="fill"></span>
-        <a href="#/monitores" class="ib" aria-label="Nueva escena" title="Nueva escena"><Icon name="plus" /></a>
-        <a href="#/monitores" class="ib" aria-label="Editar escenas" title="Editar escenas"><Icon name="edit" /></a>
+        <h2 class="h3">Scenes</h2><span class="fill"></span>
+        <a href="#/monitores" class="ib" aria-label="New scene" title="New scene"><Icon name="plus" /></a>
+        <a href="#/monitores" class="ib" aria-label="Edit scenes" title="Edit scenes"><Icon name="edit" /></a>
       </div>
       <div class="slist">
         {#each desk.scenes as s (s.id)}

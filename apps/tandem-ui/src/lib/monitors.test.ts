@@ -19,14 +19,14 @@ const std = (over: Partial<MonitorJson> = {}): MonitorJson => ({
 const factory: MonitorJson = {
   id: "g5-32",
   name: 'Odyssey G5 32"',
-  compat: { NotCompatible: { reason: "Entra solo cuando su firmware cumpla el estándar." } },
+  compat: { NotCompatible: { reason: "It joins only once its firmware meets the standard." } },
   seen_by: [],
   via: [],
   owner: null,
   report: null,
 };
 
-describe("monitores (V3-Monitores)", () => {
+describe("monitores (V3-Monitors)", () => {
   it("el nombre corto es la diagonal en pulgadas", () => {
     expect(shortMonitor('Odyssey G5 34"')).toBe('34"');
     expect(shortMonitor("Sin medida")).toBe("Sin medida");
@@ -45,8 +45,8 @@ describe("monitores (V3-Monitores)", () => {
   });
 
   it("cada evento del firmware tiene su ícono y su texto", () => {
-    expect(eventView({ at_ms: 1, kind: "SwitchRequested", input: "display_port" })).toMatchObject({ kind: "switch", text: "Entrada → DP, pedida por Tandem" });
-    expect(eventView({ at_ms: 1, kind: "Input", input: "hdmi" })).toMatchObject({ kind: "button", text: "Entrada → HDMI, con los botones" });
+    expect(eventView({ at_ms: 1, kind: "SwitchRequested", input: "display_port" })).toMatchObject({ kind: "switch", text: "Input → DP, requested by Tandem" });
+    expect(eventView({ at_ms: 1, kind: "Input", input: "hdmi" })).toMatchObject({ kind: "button", text: "Input → HDMI, with the buttons" });
     expect(eventView({ at_ms: 1, kind: "SwitchFailed", input: "hdmi" })).toMatchObject({ kind: "failed", text: "Cambio a HDMI sin imagen" });
     expect(eventView({ at_ms: 1, kind: "Boot", input: null })).toMatchObject({ kind: "boot" });
     expect(eventView({ at_ms: 1, kind: "Other", input: null })).toMatchObject({ kind: "other" });
@@ -59,7 +59,7 @@ describe("monitores (V3-Monitores)", () => {
   });
 
   it("D11: uno de fábrica es «no compatible», con su razón, y no tiene entrada", () => {
-    expect(monitorUi(factory)).toMatchObject({ compat: { ok: false, reason: "Entra solo cuando su firmware cumpla el estándar." }, connected: false, shows: null });
+    expect(monitorUi(factory)).toMatchObject({ compat: { ok: false, reason: "It joins only once its firmware meets the standard." }, connected: false, shows: null });
   });
 
   it("los compatibles van primero y solo se listan los eventos más nuevos", () => {

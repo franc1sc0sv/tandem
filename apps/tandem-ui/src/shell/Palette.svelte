@@ -67,19 +67,19 @@
 {#if store.paletteOpen}
   <div class="veil" role="presentation" onclick={close} in:enter={{ duration: 200 }} out:leave></div>
   <div class="wrap">
-    <div role="dialog" aria-modal="true" aria-label="Paleta de comandos" class="pal" out:leave>
+    <div role="dialog" aria-modal="true" aria-label="Command palette" class="pal" out:leave>
       <div class="top">
         <Icon name="search" size={18} stroke={2} color="#9a9da6" />
         <input
           bind:this={input}
           bind:value={query}
-          aria-label="Buscar"
+          aria-label="Search"
           role="combobox"
           aria-expanded="true"
           aria-controls="palette-list"
           aria-activedescendant={flat[index] ? `cmd-${flat[index].id}` : undefined}
           aria-autocomplete="list"
-          placeholder="Escena, máquina, trabajo o acción…"
+          placeholder="Scene, machine, job or action…"
           autocomplete="off"
           spellcheck="false"
           {onkeydown}
@@ -87,7 +87,7 @@
         />
         <span class="kbd">esc</span>
       </div>
-      <div class="list" id="palette-list" role="listbox" aria-label="Comandos" bind:this={list}>
+      <div class="list" id="palette-list" role="listbox" aria-label="Commands" bind:this={list}>
         {#each groups as g (g.name)}
           <div class="grp" role="presentation">{g.name}</div>
           {#each g.items as c (c.id)}
@@ -108,16 +108,16 @@
           {/each}
         {/each}
         {#if flat.length === 0}
-          <div class="mut empty">Nada coincide con «{query}».</div>
+          <div class="mut empty">Nothing matches “{query}”.</div>
         {/if}
       </div>
-      <div class="foot mut"><span><span class="kbd">↑↓</span> moverse</span><span><span class="kbd">↵</span> ejecutar</span><span class="fill"></span><span>Escribe para filtrar</span></div>
+      <div class="foot mut"><span><span class="kbd">↑↓</span> moverse</span><span><span class="kbd">↵</span> ejecutar</span><span class="fill"></span><span>Type to filter</span></div>
     </div>
   </div>
 {/if}
 
 <style>
-  /* F-Paleta: velo, diálogo de 640 px y lista agrupada. */
+  /* F-Palette: velo, diálogo de 640 px y lista agrupada. */
   .veil {
     position: fixed;
     inset: 0;

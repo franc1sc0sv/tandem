@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Túneles (`V3-Computo`, solo lectura por D9): proyectos plegables a la izquierda, el detalle
-  // del elegido a la derecha con el tubo, las cifras y el panel de procesos con su salida en vivo.
+  // Túneles (`V3-Compute`, solo lectura por D9): proyectos plegables to the left of, el detalle
+  // del elegido to the right of con el tubo, las cifras y el panel de procesos con su salida en vivo.
   import { onMount } from "svelte";
     import { useStore } from "../lib/context";
   import { DEFAULT_COLOR } from "../lib/machines";
@@ -118,24 +118,24 @@
       await navigator.clipboard.writeText(MCP_COMMAND);
       store.toast(`Copiado: ${MCP_COMMAND}`, "ok");
     } catch {
-      store.toast("No se pudo copiar el comando", "bad");
+      store.toast("Could not copy the command", "bad");
     }
   }
 </script>
 
 <div class="page">
   <header class="head">
-    <h1>Túneles</h1>
+    <h1>Tunnels</h1>
     <span class="chip"><span class="pdot"></span>{summary(groups)}</span>
     <span class="fill"></span>
-    <button type="button" class="chip act" onclick={copyCommand} title="Copia el comando que conecta a Claude">
-      <svg viewBox="0 0 24 24" fill="#cbbff5" aria-hidden="true"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"></path></svg>Cómo los abre Claude
+    <button type="button" class="chip act" onclick={copyCommand} title="Copy the command that connects Claude">
+      <svg viewBox="0 0 24 24" fill="#cbbff5" aria-hidden="true"><path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"></path></svg>How Claude opens them
     </button>
   </header>
 
   {#if sel}
     <div class="cols">
-      <Card tag="section" label="Túneles por proyecto" style="box-sizing:content-box;flex:1 1 300px;max-width:380px;min-width:0;--card-pad:8px;display:flex;flex-direction:column;gap:2px">
+      <Card tag="section" label="Tunnels by project" style="box-sizing:content-box;flex:1 1 300px;max-width:380px;min-width:0;--card-pad:8px;display:flex;flex-direction:column;gap:2px">
         {#each groups as g, gi (g.name)}
           {@const open = !folded[g.name]}
           <!-- Plegar vuelve a dibujar el encabezado, como el mockup: el cambio entra otra vez. -->
@@ -143,7 +143,7 @@
           <button type="button" class="proj" style="animation-delay:{gi * 0.1}s" onclick={() => toggle(g.name)} aria-expanded={open}>
             <span class="pf"><svg viewBox="0 0 24 24" fill="none" stroke="#c4c6cc" stroke-width="1.8" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span>
             <span class="pn"><b>{g.name}</b>{#if g.path}<span class="mut mono pp">{g.path}</span>{/if}</span>
-            <span class="cnt" title="{g.live} abiertos de {g.tunnels.length}"><span class="cd" class:live={g.live > 0}></span><span class="mono">{ratio(g)}</span></span>
+            <span class="cnt" title="{g.live} open of {g.tunnels.length}"><span class="cd" class:live={g.live > 0}></span><span class="mono">{ratio(g)}</span></span>
             <svg class="chev" class:folded={!open} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"></path></svg>
           </button>
           {/key}
@@ -167,7 +167,7 @@
         {/each}
       </Card>
 
-      <Card tag="section" label="Detalle del túnel" style="box-sizing:content-box;flex:999 1 500px;min-width:0;display:flex;flex-direction:column;gap:16px">
+      <Card tag="section" label="Tunnel detail" style="box-sizing:content-box;flex:999 1 500px;min-width:0;display:flex;flex-direction:column;gap:16px">
         <div class="dh">
           <div class="dt">
             <span class="mut crumb">
@@ -183,10 +183,10 @@
           <span class="chip" style="border-color:{chipBorder[sel.state]};color:{chipColor[sel.state]}">{stateText}</span>
         </div>
 
-        <div class="flow" role="img" aria-label="Túnel {sel.title} de {nameOf(sel.from)} a {nameOf(sel.to)}">
+        <div class="flow" role="img" aria-label="Tunnel {sel.title} from {nameOf(sel.from)} to {nameOf(sel.to)}">
           <div class="node" style="--c:{color(sel.from)}">
             <span class="nic"><svg viewBox="0 0 24 24" fill="none" stroke={color(sel.from)} stroke-width="1.6" aria-hidden="true"><path d={machine(sel.from)?.os === "macos" ? "M4 5h16v11H4zM2 19h20" : "M6 3h12v18H6zM9 7h6M12 13a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z"}></path></svg></span>
-            <b>{nameOf(sel.from)}</b><span class="mut sm">sesión de Claude</span>
+            <b>{nameOf(sel.from)}</b><span class="mut sm">Claude session</span>
           </div>
           <div class="tube">
             <svg width="100%" height="96" viewBox="0 0 400 96" preserveAspectRatio="none" aria-hidden="true">
@@ -205,17 +205,17 @@
         </div>
 
         <div class="stats">
-          <div class="stat"><span class="mut sm">Abierto</span><b class="mono">{closed ? "—" : elapsed(now - sel.created)}</b></div>
-          <div class="stat"><span class="mut sm">Comandos</span><b class="mono">{sel.commands ?? rows.length}</b></div>
-          <div class="stat"><span class="mut sm">Procesos vivos</span><b class="mono">{sel.processes}</b></div>
-          {#if sel.ports !== null}<div class="stat"><span class="mut sm">Puertos</span><b class="mono">{sel.ports}</b></div>{/if}
-          <div class="stat"><span class="mut sm">Latencia</span><b class="mono">{closed ? "—" : latencyLabel(desk.link.ms)}</b></div>
+          <div class="stat"><span class="mut sm">Opened</span><b class="mono">{closed ? "—" : elapsed(now - sel.created)}</b></div>
+          <div class="stat"><span class="mut sm">Commands</span><b class="mono">{sel.commands ?? rows.length}</b></div>
+          <div class="stat"><span class="mut sm">Live processes</span><b class="mono">{sel.processes}</b></div>
+          {#if sel.ports !== null}<div class="stat"><span class="mut sm">Ports</span><b class="mono">{sel.ports}</b></div>{/if}
+          <div class="stat"><span class="mut sm">Latency</span><b class="mono">{closed ? "—" : latencyLabel(desk.link.ms)}</b></div>
         </div>
 
         <div class="below">
           <div class="pwrap">
             {#if running.length > 0 && proc}
-              <div class="plist" role="listbox" aria-label="Procesos corriendo">
+              <div class="plist" role="listbox" aria-label="Running processes">
                 <div class="plh"><span class="spin" style="width:9px;height:9px"></span>{processesLabel(running.length)}</div>
                 {#each running as q, i (q.id)}
                   <button type="button" role="option" class="prow" aria-selected={q.id === proc.id} onclick={() => (chosen[sel.id] = q.id)} style="animation-delay:{i * 0.04}s"><span class="spin"></span><span class="mono pc">{q.command}</span><span class="mono mut since">{elapsed(now - q.startedAt)}</span></button>
@@ -235,9 +235,9 @@
       </Card>
     </div>
   {:else}
-    <Card tag="section" label="Túneles por proyecto" style="flex:1;display:flex">
+    <Card tag="section" label="Tunnels by project" style="flex:1;display:flex">
       <div class="pempty none">
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4a4d55" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4M17 12h4"></path><rect x="7" y="8" width="10" height="8" rx="4"></rect></svg><span>Sin túneles abiertos</span>
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#4a4d55" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4M17 12h4"></path><rect x="7" y="8" width="10" height="8" rx="4"></rect></svg><span>No open tunnels</span>
       </div>
     </Card>
   {/if}
