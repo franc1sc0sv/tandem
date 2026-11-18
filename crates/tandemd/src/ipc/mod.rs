@@ -50,11 +50,11 @@ pub mod mem;
 #[cfg(unix)]
 mod unix;
 #[cfg(unix)]
-pub use unix::{UnixIpcListener as PlatformListener, bind, connect, default_endpoint};
+pub use unix::{UnixIpcListener as PlatformListener, bind, connect, connect_as, default_endpoint};
 #[cfg(windows)]
 mod windows;
 #[cfg(windows)]
-pub use windows::{PipeListener as PlatformListener, bind, connect, default_endpoint};
+pub use windows::{PipeListener as PlatformListener, bind, connect, connect_as, default_endpoint};
 
 #[derive(Debug, thiserror::Error)]
 pub enum IpcError {

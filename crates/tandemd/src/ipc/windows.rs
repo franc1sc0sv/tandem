@@ -4,6 +4,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tandem_proto::Peer;
 
 use tokio::net::windows::named_pipe::{
     ClientOptions, NamedPipeClient, NamedPipeServer, ServerOptions,
@@ -54,6 +55,11 @@ pub async fn bind(name: &Path) -> Result<PipeListener, IpcError> {
 }
 
 pub async fn connect(name: &Path) -> Result<IpcClient<NamedPipeClient>, IpcError> {
+    connect_as(name, Peer::Ui).await
+}
+
+/// Como [`connect`], presentándose como `peer` (`tandem mcp` y la CLI, como cliente).
+pub async fn connect_as(name: &Path, peer: Peer) -> Result<IpcClient<NamedPipeClient>, IpcError> {
     // Todas las instancias ocupadas: el servidor crea otra enseguida.
     let mut tries = 0;
     let client = loop {
@@ -66,7 +72,7 @@ pub async fn connect(name: &Path) -> Result<IpcClient<NamedPipeClient>, IpcError
             Err(e) => return Err(e.into()),
         }
     };
-    IpcClient::handshake(client).await
+    IpcClient::handshake_as(client, peer).await
 }
 
 impl Listener for PipeListener {

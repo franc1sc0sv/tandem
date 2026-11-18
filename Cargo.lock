@@ -4257,6 +4257,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tandem-cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "proptest",
+ "serde_json",
+ "tandem-core",
+ "tandem-link",
+ "tandem-proto",
+ "tandem-tunnel",
+ "tandemd",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+]
+
+[[package]]
 name = "tandem-clipboard"
 version = "0.1.0"
 dependencies = [
