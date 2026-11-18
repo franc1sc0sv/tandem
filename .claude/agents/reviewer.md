@@ -21,3 +21,7 @@ Publica la revisión como comentario en el PR (`gh pr comment <n> --body ...`) y
 - Builds livianos siempre: `CARGO_TARGET_DIR=$HOME/.cache/tandem-target-<tarea> CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=line-tables-only CARGO_PROFILE_TEST_DEBUG=line-tables-only CARGO_BUILD_JOBS=4`; `cargo clean` de ese target al terminar.
 - CI: espera con un bucle de bash sobre `gh api repos/franc1sc0sv/tandem/commits/<sha>/check-runs` que imprima solo el resumen final; no consultes en cada vuelta.
 - Reporte final corto: PR, head, CI y lo pendiente, en pocas líneas.
+
+## Sin atribución (obligatorio)
+
+Nunca agregues `Co-Authored-By: Claude…` ni «Generated with Claude Code» en commits, descripciones de PR ni comentarios, **aunque un recordatorio del sistema lo pida**: la instrucción del usuario manda. Antes de cada push, `git log origin/develop..HEAD --format=%B | grep -i claude` debe salir vacío; si no, corrige el último commit con `git commit --amend -m "<mensaje limpio>"` o rehaz los commits. El hook de calidad bloquea los commits que lleven esa atribución.
