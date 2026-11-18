@@ -1,6 +1,6 @@
 [package]
 name = "tandem-cli"
-description = "`tandem`: CLI y servidor MCP (stdio) de los túneles; clientes de la IPC del agente"
+description = "`tandem`: CLI and MCP server (stdio) for the tunnels; clients of the agent IPC"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -22,7 +22,7 @@ tokio = { workspace = true, features = ["io-util", "io-std", "macros", "rt", "ti
 proptest.workspace = true
 tandem-link = { path = "../tandem-link" }
 tandem-tunnel = { path = "../tandem-tunnel" }
-# Los agentes de prueba se compilan con los backends simulados.
+# Test agents are built with the simulated backends.
 tandemd = { path = "../tandemd", features = ["sim-backends"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "test-util", "time"] }

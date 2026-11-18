@@ -1,6 +1,6 @@
 [package]
 name = "tandem-clipboard"
-description = "Sincronización del portapapeles"
+description = "Clipboard synchronization"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

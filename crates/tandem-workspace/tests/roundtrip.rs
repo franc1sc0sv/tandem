@@ -1,5 +1,5 @@
-//! Repos de git reales en carpetas temporales, con dos agentes en el mismo proceso: ida con
-//! cambios sin commit, commits en la destino y vuelta como rama.
+//! Real git repos in temporary folders, with two agents in the same process: outbound with
+//! uncommitted changes, commits on the destination and return as a branch.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,7 @@ use tandem_proto::{Client, ClientKind, Tunnel, WorkspaceSpec};
 use tandem_tunnel::{Changes, Host, HostOptions, OpenSpec, Origin, OriginOptions};
 use tandem_workspace::{Opened, Workspaces};
 
-/// Corre git de verdad en `dir`; falla la prueba si git falla.
+/// Runs real git in `dir`; fails the test if git fails.
 fn git(dir: &Path, args: &[&str]) -> String {
     let out = Command::new("git")
         .args(["-c", "protocol.file.allow=always"])
@@ -23,7 +23,7 @@ fn git(dir: &Path, args: &[&str]) -> String {
         .env_remove("GIT_INDEX_FILE")
         .env_remove("GIT_WORK_TREE")
         .output()
-        .expect("git en el PATH");
+        .expect("git on the PATH");
     assert!(
         out.status.success(),
         "git {args:?}: {}",
@@ -53,7 +53,7 @@ fn commit_all(dir: &Path, msg: &str) {
 
 struct Rig {
     _tmp: tempfile::TempDir,
-    /// Carpeta que contiene el repo de origen.
+    /// Folder that contains the origin repo.
     base: PathBuf,
     origin: Origin,
     host: Host,
@@ -75,11 +75,11 @@ fn opts() -> Options {
 async fn rig() -> Rig {
     let tmp = tempfile::tempdir().unwrap();
     let base = tmp.path().join("a");
-    let data_b = tmp.path().join("datos-b").join("workspaces");
+    let data_b = tmp.path().join("data-b").join("workspaces");
     let origin = Origin::new(OriginOptions::default(), Changes::default());
     let host = Host::new(HostOptions::default(), Changes::default());
     let (files_a, files_b) = (Files::new(opts()), Files::new(opts()));
-    let ws_a = Workspaces::new(tmp.path().join("datos-a").join("workspaces"));
+    let ws_a = Workspaces::new(tmp.path().join("data-a").join("workspaces"));
     let ws_b = Workspaces::new(&data_b);
     let (ws, files) = (ws_b.clone(), files_b.clone());
     let path = MemPath::with_server(&host, move |host, wire| {
@@ -89,7 +89,7 @@ async fn rig() -> Rig {
     origin.set_link(Some(path.dialer()));
     let tunnel = origin
         .open(OpenSpec {
-            title: "Arregla el bug".into(),
+            title: "Fix the bug".into(),
             project: None,
             origin: Machine::A,
             target: Machine::B,
@@ -151,10 +151,10 @@ impl Rig {
 async fn within<T>(f: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(60), f)
         .await
-        .expect("la operación no terminó")
+        .expect("the operation did not finish")
 }
 
-/// Todo lo que el usuario ve del repo: rama, HEAD, estado y archivos.
+/// Everything the user sees of the repo: branch, HEAD, status and files.
 fn fingerprint(repo: &Path) -> (String, String, String, String, String) {
     (
         git(repo, &["symbolic-ref", "-q", "HEAD"]),
@@ -195,23 +195,23 @@ fn sample_repo(repo: &Path) {
     init_repo(repo);
     write(repo, ".gitignore", b"target/\n");
     write(repo, "src/lib.rs", b"fn a() {}\n");
-    write(repo, "README.md", b"hola\n");
+    write(repo, "README.md", b"hello\n");
     write(repo, "bin.dat", &[0, 1, 2, 255, 254, 0, 7]);
-    commit_all(repo, "inicial");
+    commit_all(repo, "initial");
 }
 
 #[tokio::test]
-async fn la_ida_lleva_el_commit_y_los_cambios_sin_commit() {
+async fn the_outbound_carries_the_commit_and_the_uncommitted_changes() {
     let r = rig().await;
     let repo = r.base.join("repo");
     sample_repo(&repo);
-    // Pendiente de todo tipo: modificado, preparado, nuevo sin seguimiento, binario, borrado, ignorado.
+    // Pending work of every kind: modified, staged, new untracked, binary, deleted, ignored.
     write(&repo, "src/lib.rs", b"fn a() {}\nfn b() {}\n");
-    write(&repo, "README.md", b"hola, mundo\n");
+    write(&repo, "README.md", b"hello, world\n");
     git(&repo, &["add", "README.md"]);
-    write(&repo, "nuevo/archivo.txt", "ñandú\n".as_bytes());
+    write(&repo, "new/file.txt", "emu\n".as_bytes());
     write(&repo, "bin.dat", &[9, 0, 0, 1, 2, 3]);
-    write(&repo, "target/basura", b"no debe viajar");
+    write(&repo, "target/junk", b"must not travel");
     let before = (fingerprint(&repo), tree_files(&repo));
 
     let dir = r.open(&repo, false).await;
@@ -227,83 +227,81 @@ async fn la_ida_lleva_el_commit_y_los_cambios_sin_commit() {
         .filter(|(p, _)| !p.starts_with("target/"))
         .collect();
     assert_eq!(tree_files(&work), sent);
-    // Lo sin commit sigue sin commit en la destino.
-    assert!(git(&work, &["status", "--porcelain"]).contains("nuevo/"));
-    // El origen quedó exactamente como estaba (incluido lo que tenía preparado).
+    // What is uncommitted stays uncommitted on the destination.
+    assert!(git(&work, &["status", "--porcelain"]).contains("new/"));
+    // The origin stayed exactly as it was (including what it had staged).
     assert_eq!(before, (fingerprint(&repo), tree_files(&repo)));
-    // Los procesos del túnel arrancan en la carpeta.
+    // The tunnel's processes start in the folder.
     assert_eq!(r.host.get(r.tunnel.id).unwrap().default_cwd(), Some(dir));
 }
 
 #[tokio::test]
-async fn los_commits_de_la_destino_vuelven_como_rama_sin_tocar_el_origen() {
+async fn destination_commits_return_as_a_branch_without_touching_the_origin() {
     let r = rig().await;
     let repo = r.base.join("repo");
     sample_repo(&repo);
-    write(&repo, "pendiente.txt", b"sin commit en el origen\n");
+    write(&repo, "pending.txt", b"uncommitted at the origin\n");
     let dir = PathBuf::from(r.open(&repo, false).await);
 
-    write(&dir, "src/lib.rs", b"fn a() {}\nfn arreglo() {}\n");
-    commit_all(&dir, "Arregla el bug");
-    write(&dir, "src/otro.rs", b"fn otro() {}\n");
-    commit_all(&dir, "Agrega otro");
-    write(&dir, "sobra.txt", b"trabajo sin commit\n");
+    write(&dir, "src/lib.rs", b"fn a() {}\nfn fix() {}\n");
+    commit_all(&dir, "Fix the bug");
+    write(&dir, "src/other.rs", b"fn other() {}\n");
+    commit_all(&dir, "Add other");
+    write(&dir, "extra.txt", b"uncommitted work\n");
 
     let before = (fingerprint(&repo), tree_files(&repo));
-    let report = r.back(Some("Guarda lo pendiente"), None).await.unwrap();
+    let report = r.back(Some("Save the pending work"), None).await.unwrap();
 
-    assert_eq!(report.branch.as_deref(), Some("tandem/arregla-el-bug"));
+    assert_eq!(report.branch.as_deref(), Some("tandem/fix-the-bug"));
     assert!(report.committed_pending);
     let summaries: Vec<_> = report.commits.iter().map(|c| c.summary.as_str()).collect();
-    // El pendiente del origen (pendiente.txt) también viajó, así que entra en el último commit.
+    // The origin's pending file (pending.txt) also traveled, so it goes into the last commit.
     assert_eq!(
         summaries,
-        ["Arregla el bug", "Agrega otro", "Guarda lo pendiente"]
+        ["Fix the bug", "Add other", "Save the pending work"]
     );
     assert!(report.commits.iter().all(|c| c.author == "Yo"));
 
-    // La rama existe en el origen con esos commits sobre el HEAD de siempre.
-    let log = git(
-        &repo,
-        &["log", "--format=%s", "main..tandem/arregla-el-bug"],
-    );
-    assert_eq!(log, "Guarda lo pendiente\nAgrega otro\nArregla el bug");
+    // The branch exists at the origin with those commits on top of the usual HEAD.
+    let log = git(&repo, &["log", "--format=%s", "main..tandem/fix-the-bug"]);
+    assert_eq!(log, "Save the pending work\nAdd other\nFix the bug");
     assert_eq!(
-        git(&repo, &["show", "tandem/arregla-el-bug:sobra.txt"]),
-        "trabajo sin commit"
+        git(&repo, &["show", "tandem/fix-the-bug:extra.txt"]),
+        "uncommitted work"
     );
-    // Rama actual, HEAD, índice y árbol de trabajo: intactos.
+    // Current branch, HEAD, index and working tree: untouched.
     assert_eq!(before, (fingerprint(&repo), tree_files(&repo)));
     assert_eq!(git(&repo, &["symbolic-ref", "--short", "HEAD"]), "main");
 }
 
 #[tokio::test]
-async fn sin_pedir_commit_lo_pendiente_no_vuelve_y_sin_commits_no_hay_rama() {
+async fn without_asking_for_a_commit_pending_work_does_not_return_and_without_commits_there_is_no_branch()
+ {
     let r = rig().await;
     let repo = r.base.join("repo");
     sample_repo(&repo);
     let dir = PathBuf::from(r.open(&repo, false).await);
 
-    write(&dir, "suelto.txt", b"sin commit\n");
+    write(&dir, "loose.txt", b"uncommitted\n");
     let report = r.back(None, None).await.unwrap();
     assert_eq!(report.branch, None);
     assert!(report.commits.is_empty() && !report.committed_pending);
     assert_eq!(git(&repo, &["branch", "--list", "tandem/*"]), "");
 
-    commit_all(&dir, "uno");
-    let report = r.back(None, Some("Mi Rama")).await.unwrap();
-    assert_eq!(report.branch.as_deref(), Some("tandem/mi-rama"));
-    // Una segunda vuelta con el mismo nombre no pisa la anterior.
-    let again = r.back(None, Some("Mi Rama")).await.unwrap();
-    assert_eq!(again.branch.as_deref(), Some("tandem/mi-rama-2"));
+    commit_all(&dir, "one");
+    let report = r.back(None, Some("My Branch")).await.unwrap();
+    assert_eq!(report.branch.as_deref(), Some("tandem/my-branch"));
+    // A second return with the same name does not overwrite the previous one.
+    let again = r.back(None, Some("My Branch")).await.unwrap();
+    assert_eq!(again.branch.as_deref(), Some("tandem/my-branch-2"));
 }
 
 #[tokio::test]
-async fn funciona_con_un_worktree_de_git() {
+async fn works_with_a_git_worktree() {
     let r = rig().await;
-    let main = r.base.join("principal");
+    let main = r.base.join("main");
     sample_repo(&main);
-    let linked = r.base.join("enlazado");
+    let linked = r.base.join("linked");
     git(
         &main,
         &[
@@ -311,11 +309,11 @@ async fn funciona_con_un_worktree_de_git() {
             "add",
             "-q",
             "-b",
-            "rama-enlazada",
+            "linked-branch",
             linked.to_str().unwrap(),
         ],
     );
-    write(&linked, "solo-enlazado.txt", b"x\n");
+    write(&linked, "linked-only.txt", b"x\n");
     let before = (fingerprint(&linked), fingerprint(&main));
 
     let dir = PathBuf::from(r.open(&linked, false).await);
@@ -323,22 +321,22 @@ async fn funciona_con_un_worktree_de_git() {
         git(&dir, &["rev-parse", "HEAD"]),
         git(&linked, &["rev-parse", "HEAD"])
     );
-    assert!(dir.join("solo-enlazado.txt").is_file());
+    assert!(dir.join("linked-only.txt").is_file());
 
-    write(&dir, "nuevo.txt", b"y\n");
-    let report = r.back(Some("desde el worktree"), Some("wt")).await.unwrap();
+    write(&dir, "new.txt", b"y\n");
+    let report = r.back(Some("from the worktree"), Some("wt")).await.unwrap();
     assert_eq!(report.branch.as_deref(), Some("tandem/wt"));
     assert_eq!(before, (fingerprint(&linked), fingerprint(&main)));
-    // La rama quedó en el repo compartido.
+    // The branch ended up in the shared repo.
     assert!(git(&main, &["branch", "--list", "tandem/wt"]).contains("tandem/wt"));
 }
 
 #[tokio::test]
-async fn los_submodulos_se_copian_como_estan() {
+async fn submodules_are_copied_as_they_are() {
     let r = rig().await;
     let lib = r.base.join("lib");
     init_repo(&lib);
-    write(&lib, "lib.txt", b"de la libreria\n");
+    write(&lib, "lib.txt", b"from the library\n");
     commit_all(&lib, "lib");
     let repo = r.base.join("repo");
     sample_repo(&repo);
@@ -352,28 +350,28 @@ async fn los_submodulos_se_copian_como_estan() {
             "vendor/lib",
         ],
     );
-    commit_all(&repo, "con submodulo");
-    // Un cambio sin commit dentro del submódulo viaja tal cual.
-    write(&repo.join("vendor/lib"), "lib.txt", b"editada\n");
+    commit_all(&repo, "with submodule");
+    // An uncommitted change inside the submodule travels as is.
+    write(&repo.join("vendor/lib"), "lib.txt", b"edited\n");
 
     let dir = PathBuf::from(r.open(&repo, false).await);
     assert_eq!(
         fs::read(dir.join("vendor/lib/lib.txt")).unwrap(),
-        b"editada\n"
+        b"edited\n"
     );
     assert!(!dir.join("vendor/lib/.git").exists());
 
     write(&dir, "extra.txt", b"z\n");
-    let report = r.back(Some("trabajo"), Some("sub")).await.unwrap();
+    let report = r.back(Some("work"), Some("sub")).await.unwrap();
     assert_eq!(report.commits.len(), 1);
-    // El submódulo no se convirtió en archivos sueltos del repo.
+    // The submodule did not become loose files of the repo.
     let tree = git(&repo, &["ls-tree", "-r", "tandem/sub"]);
     assert!(tree.contains("160000 commit"), "{tree}");
     assert!(!tree.contains("vendor/lib/lib.txt"), "{tree}");
 }
 
 #[tokio::test]
-async fn cerrar_el_tunel_limpia_el_workspace_salvo_que_se_pida_conservarlo() {
+async fn closing_the_tunnel_cleans_the_workspace_unless_keep_is_requested() {
     for keep in [false, true] {
         let r = rig().await;
         let repo = r.base.join("repo");
@@ -381,7 +379,7 @@ async fn cerrar_el_tunel_limpia_el_workspace_salvo_que_se_pida_conservarlo() {
         let dir = PathBuf::from(r.open(&repo, keep).await);
         assert!(dir.is_dir());
         r.host.close(r.tunnel.id).unwrap();
-        // El borrado corre en su propio hilo.
+        // The deletion runs on its own thread.
         for _ in 0..100 {
             if !dir.exists() {
                 break;
@@ -394,12 +392,12 @@ async fn cerrar_el_tunel_limpia_el_workspace_salvo_que_se_pida_conservarlo() {
 }
 
 #[tokio::test]
-async fn los_errores_son_claros() {
+async fn errors_are_clear() {
     let r = rig().await;
-    let nada = r.base.join("no-es-repo");
-    fs::create_dir_all(&nada).unwrap();
+    let nothing = r.base.join("not-a-repo");
+    fs::create_dir_all(&nothing).unwrap();
     let spec = WorkspaceSpec {
-        repo_path: nada.to_string_lossy().into_owned(),
+        repo_path: nothing.to_string_lossy().into_owned(),
         keep: false,
         include: vec![],
     };
@@ -408,12 +406,12 @@ async fn los_errores_son_claros() {
         .open(&r.files_a, &r.origin, &r.tunnel, &spec)
         .await
         .unwrap_err();
-    assert!(e.to_string().contains("no está dentro de un repo"), "{e}");
+    assert!(e.to_string().contains("is not inside a git repo"), "{e}");
 
-    let vacio = r.base.join("vacio");
-    init_repo(&vacio);
+    let empty_repo = r.base.join("empty_repo");
+    init_repo(&empty_repo);
     let spec = WorkspaceSpec {
-        repo_path: vacio.to_string_lossy().into_owned(),
+        repo_path: empty_repo.to_string_lossy().into_owned(),
         keep: false,
         include: vec![],
     };
@@ -422,29 +420,29 @@ async fn los_errores_son_claros() {
         .open(&r.files_a, &r.origin, &r.tunnel, &spec)
         .await
         .unwrap_err();
-    assert!(e.to_string().contains("ningún commit"), "{e}");
+    assert!(e.to_string().contains("has no commits"), "{e}");
 
-    // Sin abrir workspace, no hay a dónde volver.
+    // Without opening a workspace, there is nowhere to return to.
     let e = r.back(None, None).await.unwrap_err();
-    assert!(e.to_string().contains("no tiene workspace"), "{e}");
+    assert!(e.to_string().contains("has no workspace"), "{e}");
 }
 
-/// Hooks y `core.fsmonitor` heredados de la configuración global son código ajeno corriendo
-/// en la destino (quizá elevado): el crate no debe ejecutarlos ni en la ida ni en la vuelta.
-/// Se corre en un proceso hijo para poder fijar `GIT_CONFIG_GLOBAL` sin tocar el entorno de
-/// las demás pruebas.
+/// Hooks and `core.fsmonitor` inherited from the global configuration are foreign code running
+/// on the destination (perhaps elevated): the crate must not run them on the way out or on the way back.
+/// It runs in a child process so `GIT_CONFIG_GLOBAL` can be set without touching the environment of
+/// the other tests.
 #[test]
-fn los_hooks_y_el_fsmonitor_heredados_no_se_ejecutan() {
+fn inherited_hooks_and_fsmonitor_are_not_run() {
     let tmp = tempfile::tempdir().unwrap();
     let hooks = tmp.path().join("hooks");
-    let sentinels = tmp.path().join("centinelas");
+    let sentinels = tmp.path().join("sentinels");
     fs::create_dir_all(&hooks).unwrap();
     fs::create_dir_all(&sentinels).unwrap();
     let fwd = |p: &Path| p.to_string_lossy().replace('\\', "/");
-    // Solo dejan huella dentro de las carpetas de las dos máquinas de la prueba interna.
+    // They only leave a trace inside the folders of the two machines of the inner test.
     let script = |name: &str| {
         format!(
-            "#!/bin/sh\ncase \"$PWD\" in */datos-b/*|*/a/*) echo x > \"{}/{name}\" ;; esac\nexit 0\n",
+            "#!/bin/sh\ncase \"$PWD\" in */data-b/*|*/a/*) echo x > \"{}/{name}\" ;; esac\nexit 0\n",
             fwd(&sentinels)
         )
     };
@@ -469,9 +467,9 @@ fn los_hooks_y_el_fsmonitor_heredados_no_se_ejecutan() {
     .unwrap();
 
     let out = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "hooks_heredados_interna", "--include-ignored"])
+        .args(["--exact", "inherited_hooks_inner", "--include-ignored"])
         .env("GIT_CONFIG_GLOBAL", &global)
-        .env("TANDEM_CENTINELAS", &sentinels)
+        .env("TANDEM_SENTINELS", &sentinels)
         .output()
         .unwrap();
     assert!(
@@ -482,9 +480,9 @@ fn los_hooks_y_el_fsmonitor_heredados_no_se_ejecutan() {
     );
 }
 
-/// Los centinelas que dejaron los hooks desde la última vez; los borra.
+/// The sentinels the hooks left since the last time; deletes them.
 fn sentinels_found() -> Vec<String> {
-    let dir = PathBuf::from(std::env::var("TANDEM_CENTINELAS").unwrap());
+    let dir = PathBuf::from(std::env::var("TANDEM_SENTINELS").unwrap());
     let mut found: Vec<String> = fs::read_dir(&dir)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
@@ -497,23 +495,23 @@ fn sentinels_found() -> Vec<String> {
 }
 
 #[tokio::test]
-#[ignore = "la corre `los_hooks_y_el_fsmonitor_heredados_no_se_ejecutan` en un hijo"]
-async fn hooks_heredados_interna() {
+#[ignore = "run by `inherited_hooks_and_fsmonitor_are_not_run` in a child"]
+async fn inherited_hooks_inner() {
     let r = rig().await;
     let repo = r.base.join("repo");
     sample_repo(&repo);
-    write(&repo, "pendiente.txt", b"sin commit\n");
-    // Control: si la config global no se aplicara, la prueba no probaría nada.
+    write(&repo, "pending.txt", b"uncommitted\n");
+    // Control: if the global config were not applied, the test would prove nothing.
     assert!(
         !sentinels_found().is_empty(),
-        "la configuración heredada no se aplicó: la prueba no sirve"
+        "the inherited configuration was not applied: the test is useless"
     );
 
     let dir = PathBuf::from(r.open(&repo, false).await);
-    assert_eq!(sentinels_found(), Vec::<String>::new(), "en la ida");
+    assert_eq!(sentinels_found(), Vec::<String>::new(), "on the way out");
 
-    // El commit de la destino va sin hooks de nuestra parte: lo medido es el crate.
-    write(&dir, "nuevo.txt", b"hecho en la destino\n");
+    // The destination commit goes without hooks on our part: what is measured is the crate.
+    write(&dir, "new.txt", b"done on the destination\n");
     let quiet = |args: &[&str]| {
         let mut a = vec![
             "-c",
@@ -525,17 +523,17 @@ async fn hooks_heredados_interna() {
         git(&dir, &a)
     };
     quiet(&["add", "-A"]);
-    quiet(&["commit", "-q", "-m", "En la destino"]);
-    write(&dir, "mas.txt", b"pendiente\n");
+    quiet(&["commit", "-q", "-m", "On the destination"]);
+    write(&dir, "more.txt", b"pending\n");
     sentinels_found();
 
-    let report = r.back(Some("Pendiente"), None).await.unwrap();
+    let report = r.back(Some("Pending"), None).await.unwrap();
     assert!(report.branch.is_some());
-    assert_eq!(sentinels_found(), Vec::<String>::new(), "en la vuelta");
+    assert_eq!(sentinels_found(), Vec::<String>::new(), "on the way back");
 }
 
-/// Un repo con credenciales que git no sabe que lo son: nada de esto está en `.gitignore`.
-fn repo_con_credenciales(repo: &Path) {
+/// A repo with credentials that git does not know are such: none of this is in `.gitignore`.
+fn repo_with_credentials(repo: &Path) {
     sample_repo(repo);
     write(repo, ".env", b"DB_PASSWORD=hunter2\n");
     write(repo, "config/.env.local", b"X=1\n");
@@ -556,14 +554,14 @@ fn repo_con_credenciales(repo: &Path) {
         "sub/.npmrc",
         b"registry=https://registry.npmjs.org/\n",
     );
-    write(repo, "src/nuevo.rs", b"fn n() {}\n");
+    write(repo, "src/new.rs", b"fn n() {}\n");
 }
 
 #[tokio::test]
-async fn las_credenciales_no_llegan_a_la_destino_y_el_informe_lo_dice() {
+async fn credentials_do_not_reach_the_destination_and_the_report_says_so() {
     let r = rig().await;
     let repo = r.base.join("repo");
-    repo_con_credenciales(&repo);
+    repo_with_credentials(&repo);
     let before = (fingerprint(&repo), tree_files(&repo));
 
     let opened = r.open_with(&repo, false, &[]).await;
@@ -577,26 +575,29 @@ async fn las_credenciales_no_llegan_a_la_destino_y_el_informe_lo_dice() {
         "certs/server.pem",
         ".npmrc",
     ] {
-        assert!(!got.contains(&secret.to_owned()), "llegó {secret}: {got:?}");
+        assert!(
+            !got.contains(&secret.to_owned()),
+            "arrived {secret}: {got:?}"
+        );
         assert!(
             opened.skipped.contains(&secret.to_owned()),
-            "el informe no dice {secret}: {:?}",
+            "the report does not mention {secret}: {:?}",
             opened.skipped
         );
     }
-    // Lo corriente sí llega, también un .npmrc sin token y lo nuevo sin seguimiento.
-    for ok in ["src/nuevo.rs", "sub/.npmrc", "README.md"] {
-        assert!(got.contains(&ok.to_owned()), "falta {ok}: {got:?}");
+    // The ordinary ones do arrive, also a .npmrc without a token and new untracked files.
+    for ok in ["src/new.rs", "sub/.npmrc", "README.md"] {
+        assert!(got.contains(&ok.to_owned()), "missing {ok}: {got:?}");
     }
-    // El repo de origen queda intacto.
+    // The origin repo is left intact.
     assert_eq!(before, (fingerprint(&repo), tree_files(&repo)));
 }
 
 #[tokio::test]
-async fn include_manda_solo_el_archivo_nombrado() {
+async fn include_sends_only_the_named_file() {
     let r = rig().await;
     let repo = r.base.join("repo");
-    repo_con_credenciales(&repo);
+    repo_with_credentials(&repo);
     let opened = r.open_with(&repo, false, &["config/.env.local"]).await;
     let got: Vec<String> = tree_files(Path::new(&opened.dir))
         .into_iter()
@@ -609,26 +610,26 @@ async fn include_manda_solo_el_archivo_nombrado() {
 }
 
 #[tokio::test]
-async fn una_credencial_modificada_vuelve_a_su_version_confirmada() {
+async fn a_modified_credential_returns_to_its_committed_version() {
     let r = rig().await;
     let repo = r.base.join("repo");
     sample_repo(&repo);
-    write(&repo, "app.pem", b"viejo\n");
-    commit_all(&repo, "con pem");
-    write(&repo, "app.pem", b"nuevo secreto\n");
+    write(&repo, "app.pem", b"old\n");
+    commit_all(&repo, "with pem");
+    write(&repo, "app.pem", b"new secret\n");
     let opened = r.open_with(&repo, false, &[]).await;
     assert!(opened.skipped.contains(&"app.pem".to_owned()));
-    // No se manda el cambio (ni se borra el archivo): queda lo que ya estaba confirmado.
+    // The change is not sent (nor is the file deleted): what was already committed stays.
     let pem = fs::read(Path::new(&opened.dir).join("app.pem")).unwrap();
-    assert_eq!(pem, b"viejo\n");
+    assert_eq!(pem, b"old\n");
 }
 
 #[tokio::test]
-async fn el_repo_de_la_destino_no_tiene_remotos_ni_ayudante_de_credenciales() {
+async fn the_destination_repo_has_no_remotes_or_credential_helper() {
     let r = rig().await;
     let repo = r.base.join("repo");
     sample_repo(&repo);
-    // El origen sí los tiene: no tienen que cruzar.
+    // The origin does have them: they do not need to cross.
     git(
         &repo,
         &[
@@ -645,28 +646,28 @@ async fn el_repo_de_la_destino_no_tiene_remotos_ni_ayudante_de_credenciales() {
     let config = fs::read_to_string(work.join(".git/config")).unwrap();
     assert!(!config.contains("credential"), "{config}");
     assert!(!config.contains("ghp_"), "{config}");
-    // Ni el bundle dejó la URL en ninguna referencia.
+    // Not even the bundle left the URL in any reference.
     let refs = git(work, &["for-each-ref"]);
     assert!(!refs.contains("origin/"), "{refs}");
 }
 
 #[tokio::test]
-async fn la_historia_con_credenciales_se_avisa_aunque_ya_no_esten() {
+async fn credentials_in_history_are_reported_even_if_no_longer_present() {
     let r = rig().await;
     let repo = r.base.join("repo");
     sample_repo(&repo);
-    write(&repo, "deploy/id_ed25519", b"llave\n");
-    commit_all(&repo, "con llave");
-    // Se borra del árbol, pero sigue en la historia que viaja en el bundle.
+    write(&repo, "deploy/id_ed25519", b"key\n");
+    commit_all(&repo, "with key");
+    // It is deleted from the tree, but remains in the history that travels in the bundle.
     fs::remove_file(repo.join("deploy/id_ed25519")).unwrap();
-    commit_all(&repo, "sin llave");
+    commit_all(&repo, "without key");
     let opened = r.open_with(&repo, false, &[]).await;
     assert_eq!(opened.history_secrets, vec!["deploy/id_ed25519".to_owned()]);
     assert!(opened.skipped.is_empty(), "{:?}", opened.skipped);
 }
 
 #[tokio::test]
-async fn una_historia_limpia_no_avisa() {
+async fn a_clean_history_does_not_warn() {
     let r = rig().await;
     let repo = r.base.join("repo");
     sample_repo(&repo);

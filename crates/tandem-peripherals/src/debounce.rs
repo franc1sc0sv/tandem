@@ -1,14 +1,14 @@
-//! Antirrebote: un valor nuevo cuenta solo si se sostiene un tiempo.
+//! Debounce: a new value counts only if it holds for some time.
 
 use std::time::{Duration, Instant};
 
-/// Valor estable de una señal ruidosa. Un cambio se acepta cuando la señal lleva
-/// `delay` seguido con el valor nuevo; si vuelve al estable antes, se olvida.
-/// No tiene reloj propio: quien lo usa pasa el instante de cada observación.
+/// Stable value of a noisy signal. A change is accepted when the signal has been
+/// at the new value for `delay` in a row; if it returns to the stable one before, it is forgotten.
+/// It has no clock of its own: the caller passes the instant of each observation.
 #[derive(Debug, Clone)]
 pub struct Debouncer<T> {
     stable: T,
-    /// Valor distinto del estable y desde cuándo se ve sin interrupción.
+    /// Value different from the stable one and since when it has been seen uninterrupted.
     pending: Option<(T, Instant)>,
     delay: Duration,
 }
@@ -30,7 +30,7 @@ impl<T: PartialEq + Clone> Debouncer<T> {
         self.delay
     }
 
-    /// Registra lo que se ve en `now`. Devuelve el valor estable nuevo si cambió.
+    /// Records what is seen at `now`. Returns the new stable value if it changed.
     pub fn observe(&mut self, value: T, now: Instant) -> Option<T> {
         if value == self.stable {
             self.pending = None;
@@ -51,7 +51,7 @@ impl<T: PartialEq + Clone> Debouncer<T> {
         None
     }
 
-    /// Cuándo se aceptaría el cambio pendiente si nada más cambia.
+    /// When the pending change would be accepted if nothing else changes.
     pub fn deadline(&self) -> Option<Instant> {
         self.pending.as_ref().map(|(_, since)| *since + self.delay)
     }
@@ -87,12 +87,12 @@ mod tests {
     fn brief_glitch_is_ignored_and_restarts_the_count() {
         let t0 = Instant::now();
         let mut d = Debouncer::new(true, DELAY);
-        // Desconexión de 2 s: no cuenta.
+        // 2 s disconnection: does not count.
         assert_eq!(d.observe(false, t0), None);
         assert_eq!(d.observe(false, secs(t0, 2.0)), None);
         assert_eq!(d.observe(true, secs(t0, 2.5)), None);
         assert_eq!(d.deadline(), None);
-        // La cuenta empieza de cero con la siguiente desconexión.
+        // The count starts from zero with the next disconnection.
         assert_eq!(d.observe(false, secs(t0, 4.0)), None);
         assert_eq!(d.observe(false, secs(t0, 6.9)), None);
         assert_eq!(d.observe(false, secs(t0, 7.0)), Some(false));
@@ -117,8 +117,8 @@ mod tests {
     }
 
     proptest! {
-        /// Cada cambio del valor estable lo justifica una racha del valor nuevo de
-        /// al menos `delay`, sin interrupciones, que termina en esa observación.
+        /// Each change of the stable value is justified by a run of the new value lasting
+        /// at least `delay`, uninterrupted, that ends at that observation.
         #[test]
         fn every_change_is_backed_by_a_long_enough_run(
             samples in proptest::collection::vec((any::<bool>(), 0u64..2_000), 1..80),
@@ -134,7 +134,7 @@ mod tests {
                 if let Some(new) = d.observe(value, now) {
                     prop_assert_eq!(new, value);
                     prop_assert_ne!(new, before);
-                    // Inicio de la racha: la primera muestra seguida con `value`.
+                    // Start of the run: the first sample in a row with `value`.
                     let start = history
                         .iter()
                         .rev()

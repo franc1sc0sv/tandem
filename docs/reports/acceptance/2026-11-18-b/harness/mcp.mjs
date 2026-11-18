@@ -1,4 +1,4 @@
-// Cliente MCP de prueba contra `tandem mcp` (JSON-RPC por stdio).
+// Test MCP client against `tandem mcp` (JSON-RPC over stdio).
 import { spawn } from "node:child_process";
 import { bin } from "./lib.mjs";
 export class Mcp {

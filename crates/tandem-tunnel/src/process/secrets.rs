@@ -1,12 +1,12 @@
-//! Variables de entorno que parecen credenciales (T-130, D2: la máquina destino de un túnel
-//! nunca recibe credenciales del origen, sea cual sea cada máquina).
+//! Environment variables that look like credentials (T-130, D2: a tunnel's destination machine
+//! never receives credentials from the origin, whichever machine each is).
 //!
-//! Los procesos ya no heredan el entorno del origen; esto cierra el único camino que queda,
-//! el `env` explícito de `exec`. Se rechaza por nombre en la destino, aunque el origen no
-//! lo haya revisado. `SSH_AUTH_SOCK` y los agentes no tienen permiso que valga: un socket
-//! de agente da la firma sin entregar la llave, y justo eso es lo que no debe cruzar.
+//! Processes no longer inherit the origin's environment; this closes the only remaining path,
+//! the explicit `env` of `exec`. It is rejected by name on the destination, even if the origin did not
+//! check it. `SSH_AUTH_SOCK` and agents have no permission that applies: an agent
+//! socket gives the signature without handing over the key, and that is exactly what must not cross.
 
-/// Variables que nunca pasan: agentes y programas que piden credenciales.
+/// Variables that never pass: agents and programs that ask for credentials.
 const AGENTS: &[&str] = &[
     "SSH_AUTH_SOCK",
     "SSH_AGENT_PID",
@@ -16,7 +16,7 @@ const AGENTS: &[&str] = &[
     "GNUPGHOME",
 ];
 
-/// Prefijos de familias de credenciales.
+/// Prefixes of credential families.
 const PREFIXES: &[&str] = &[
     "GH_",
     "GITHUB_",
@@ -27,14 +27,14 @@ const PREFIXES: &[&str] = &[
     "NPM_CONFIG_",
     "DOCKER_AUTH",
     "KUBECONFIG",
-    // Git lee configuración (helpers, `url.*.insteadOf`, cabeceras) de estas variables.
+    // Git reads configuration (helpers, `url.*.insteadOf`, headers) from these variables.
     "GIT_CONFIG_COUNT",
     "GIT_CONFIG_KEY_",
     "GIT_CONFIG_VALUE_",
     "GIT_CONFIG_PARAMETERS",
 ];
 
-/// Sufijos (o el nombre entero) que delatan un secreto.
+/// Suffixes (or the whole name) that give away a secret.
 const SUFFIXES: &[&str] = &[
     "TOKEN",
     "SECRET",
@@ -48,16 +48,16 @@ const SUFFIXES: &[&str] = &[
     "PAT",
 ];
 
-/// Por qué se rechaza una variable.
+/// Why a variable is rejected.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EnvSecret {
-    /// Un agente: no hay permiso que lo deje pasar.
+    /// An agent: no permission lets it through.
     Agent,
-    /// Parece un secreto: pasa solo con permiso explícito de la llamada.
+    /// Looks like a secret: passes only with the call's explicit permission.
     Secret,
 }
 
-/// Qué es `name`, o `None` si es una variable corriente.
+/// What `name` is, or `None` if it is an ordinary variable.
 pub fn classify_env(name: &str) -> Option<EnvSecret> {
     let up = name.to_ascii_uppercase();
     if AGENTS.contains(&up.as_str()) {
@@ -70,8 +70,8 @@ pub fn classify_env(name: &str) -> Option<EnvSecret> {
     SUFFIXES.contains(&last).then_some(EnvSecret::Secret)
 }
 
-/// Revisa el `env` de un `exec`. Devuelve el nombre y el motivo de la primera variable que
-/// no puede pasar.
+/// Checks the `env` of an `exec`. Returns the name and the reason of the first variable that
+/// cannot pass.
 pub fn check_env(env: &[(String, String)], allow_secrets: bool) -> Result<(), (String, EnvSecret)> {
     for (k, _) in env {
         match classify_env(k) {
@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn los_secretos_se_reconocen_por_nombre() {
+    fn secrets_are_recognized_by_name() {
         for n in [
             "GH_TOKEN",
             "GITHUB_TOKEN",
@@ -114,7 +114,7 @@ mod tests {
     }
 
     #[test]
-    fn la_configuracion_de_git_por_entorno_es_secreto() {
+    fn git_configuration_through_the_environment_is_secret() {
         for n in [
             "GIT_CONFIG_COUNT",
             "GIT_CONFIG_KEY_0",
@@ -134,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn lo_corriente_pasa() {
+    fn ordinary_names_pass() {
         for n in [
             "RUST_LOG",
             "PATH",
@@ -149,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn los_agentes_nunca_pasan() {
+    fn agents_never_pass() {
         for n in [
             "SSH_AUTH_SOCK",
             "ssh_auth_sock",
@@ -158,7 +158,7 @@ mod tests {
         ] {
             assert_eq!(classify_env(n), Some(EnvSecret::Agent), "{n}");
         }
-        // Ni con permiso.
+        // Not even with permission.
         let e = env(&["SSH_AUTH_SOCK"]);
         assert_eq!(
             check_env(&e, true),
@@ -167,7 +167,7 @@ mod tests {
     }
 
     #[test]
-    fn un_secreto_pasa_solo_con_permiso() {
+    fn a_secret_passes_only_with_permission() {
         let e = env(&["RUST_LOG", "GH_TOKEN"]);
         assert_eq!(
             check_env(&e, false),
@@ -178,16 +178,16 @@ mod tests {
     }
 
     proptest! {
-        // Con o sin permiso, un agente siempre se rechaza.
+        // With or without permission, an agent is always rejected.
         #[test]
-        fn el_agente_siempre_se_rechaza(allow: bool, extra in "[A-Z]{1,6}") {
+        fn the_agent_is_always_rejected(allow: bool, extra in "[A-Z]{1,6}") {
             let e = vec![(extra, "x".into()), ("SSH_AUTH_SOCK".into(), "/s".into())];
             prop_assert!(check_env(&e, allow).is_err());
         }
 
-        // Sin permiso, cualquier nombre que termine en _TOKEN se rechaza.
+        // Without permission, any name ending in _TOKEN is rejected.
         #[test]
-        fn terminar_en_token_se_rechaza(pre in "[A-Z]{1,8}") {
+        fn ending_in_token_is_rejected(pre in "[A-Z]{1,8}") {
             let e = vec![(format!("{pre}_TOKEN"), "x".into())];
             prop_assert!(check_env(&e, false).is_err());
             prop_assert!(check_env(&e, true).is_ok());

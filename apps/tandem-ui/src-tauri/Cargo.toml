@@ -1,12 +1,12 @@
 [package]
 name = "tandem-ui"
-description = "UI de Tandem (Tauri 2): ventana principal y cliente de la IPC local de tandemd"
+description = "Tandem UI (Tauri 2): main window and client of tandemd's local IPC"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# La app de Tauri necesita WebKitGTK en Linux; sin la feature `app` el crate es solo la
-# lógica portable (estado del agente por la IPC) y se prueba en cualquier sistema.
+# The Tauri app needs WebKitGTK on Linux; without the `app` feature the crate is only the
+# portable logic (agent state over the IPC) and is tested on any system.
 [features]
 app = [
   "dep:tauri",
@@ -25,12 +25,12 @@ required-features = ["app"]
 
 [dependencies]
 serde.workspace = true
-# La vista de la sonda viaja como JSON en la URL de su ventana.
+# The probe view travels as JSON in its window's URL.
 serde_json.workspace = true
 tandem-core = { path = "../../../crates/tandem-core" }
 tandem-proto = { path = "../../../crates/tandem-proto" }
 tandemd = { path = "../../../crates/tandemd" }
-# Bandeja / barra de menú con su ícono propio (PNG).
+# Tray / menu bar with its own icon (PNG).
 tauri = { workspace = true, optional = true, features = ["tray-icon", "image-png"] }
 tauri-plugin-global-shortcut = { workspace = true, optional = true }
 tauri-plugin-updater = { workspace = true, optional = true }

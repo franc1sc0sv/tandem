@@ -1,6 +1,6 @@
-//! Punto de entrada de la app de escritorio.
+//! Entry point of the desktop app.
 
-// Sin consola extra en Windows en las compilaciones de release.
+// No extra console on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::process::ExitCode;

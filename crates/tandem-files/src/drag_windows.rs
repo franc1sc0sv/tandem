@@ -1,8 +1,8 @@
-//! Arrastre sintético en Windows (T-121): `DoDragDrop` con un `IDataObject` de archivos
-//! (CF_HDROP, que arma el shell desde las rutas de la carpeta temporal) y un `IDropSource`
-//! propio. El sistema hace la copia al soltar; esto solo espera cómo termina.
+//! Synthetic drag on Windows (T-121): `DoDragDrop` with an `IDataObject` of files
+//! (CF_HDROP, built by the shell from the temporary folder's paths) and an `IDropSource`
+//! of its own. The system does the copy on drop; this only waits for how it ends.
 //!
-//! `DoDragDrop` bloquea y exige un hilo con OLE iniciado: va en un hilo aparte.
+//! `DoDragDrop` blocks and requires a thread with OLE initialized: it goes on a separate thread.
 
 use std::path::PathBuf;
 
@@ -24,7 +24,7 @@ use crate::drag::{DragEnd, DragStarter};
 use crate::drag_os::{DropAction, drop_action, end_of};
 use crate::error::{FilesError, Result};
 
-/// `IDropSource`: Esc cancela, soltar el botón izquierdo suelta.
+/// `IDropSource`: Esc cancels, releasing the left button drops.
 #[implement(IDropSource)]
 struct Source;
 
@@ -42,13 +42,13 @@ impl IDropSource_Impl for Source_Impl {
     }
 }
 
-/// Un PIDL absoluto del shell; se libera al soltarlo.
+/// An absolute shell PIDL; freed when dropped.
 struct Pidl(*mut ITEMIDLIST);
 
 impl Drop for Pidl {
     fn drop(&mut self) {
-        // SAFETY: el shell lo reservó con el asignador de COM en `SHParseDisplayName` y
-        // aquí se libera una sola vez.
+        // SAFETY: the shell allocated it with the COM allocator in `SHParseDisplayName` and
+        // it is freed here only once.
         unsafe { CoTaskMemFree(Some(self.0.cast_const().cast())) };
     }
 }
@@ -57,25 +57,25 @@ fn parse(path: &std::path::Path) -> WinResult<Pidl> {
     use std::os::windows::ffi::OsStrExt;
     let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
     let mut pidl: *mut ITEMIDLIST = std::ptr::null_mut();
-    // SAFETY: `wide` termina en nulo y vive durante la llamada; `pidl` es una salida válida.
+    // SAFETY: `wide` ends in null and lives during the call; `pidl` is a valid output.
     unsafe { SHParseDisplayName(PCWSTR(wide.as_ptr()), None, &mut pidl, 0, None)? };
     Ok(Pidl(pidl))
 }
 
-/// El `IDataObject` del shell con CF_HDROP de `paths` (rutas absolutas).
+/// The shell's `IDataObject` with CF_HDROP of `paths` (absolute paths).
 fn data_object(paths: &[PathBuf]) -> WinResult<IDataObject> {
     let pidls: Vec<Pidl> = paths.iter().map(|p| parse(p)).collect::<WinResult<_>>()?;
     let raw: Vec<*const ITEMIDLIST> = pidls.iter().map(|p| p.0.cast_const()).collect();
-    // SAFETY: `raw` tiene PIDLs absolutos válidos que `pidls` mantiene vivos hasta el final.
+    // SAFETY: `raw` has valid absolute PIDLs that `pidls` keeps alive until the end.
     unsafe { SHCreateDataObject(None, Some(&raw), None) }
 }
 
-/// Resultado de `DoDragDrop` con los efectos aceptados.
+/// Result of `DoDragDrop` with the accepted effects.
 fn run(data: &IDataObject) -> WinResult<DragEnd> {
     let source: IDropSource = Source.into();
     let mut effect = DROPEFFECT_NONE;
-    // SAFETY: `data` y `source` son objetos COM vivos y `effect` una salida válida; el hilo
-    // tiene OLE iniciado (lo hace `drag_blocking`).
+    // SAFETY: `data` and `source` are live COM objects and `effect` a valid output; the thread
+    // has OLE initialized (done by `drag_blocking`).
     let hr = unsafe { DoDragDrop(data, &source, DROPEFFECT_COPY, &mut effect) };
     if hr == DRAGDROP_S_DROP {
         Ok(end_of(true, effect != DROPEFFECT_NONE))
@@ -87,15 +87,15 @@ fn run(data: &IDataObject) -> WinResult<DragEnd> {
 }
 
 fn drag_blocking(staged: &[PathBuf]) -> WinResult<DragEnd> {
-    // SAFETY: se inicia OLE en este hilo y se cierra al terminar, aunque falle lo de en medio.
+    // SAFETY: OLE is initialized on this thread and closed at the end, even if what is in between fails.
     unsafe { OleInitialize(None)? };
     let end = data_object(staged).and_then(|d| run(&d));
-    // SAFETY: empareja el `OleInitialize` de arriba.
+    // SAFETY: pairs with the `OleInitialize` above.
     unsafe { OleUninitialize() };
     end
 }
 
-/// [`DragStarter`] de Windows.
+/// Windows [`DragStarter`].
 #[derive(Debug, Default, Clone, Copy)]
 pub struct WindowsDragStarter;
 

@@ -1,4 +1,4 @@
-//! Detección del hub: qué dispositivos hay, con antirrebote, sondeando.
+//! Hub detection: which devices are there, debounced, by polling.
 
 use std::fmt::Display;
 use std::time::{Duration, Instant};
@@ -9,12 +9,12 @@ use tokio::sync::watch;
 use crate::debounce::Debouncer;
 use crate::id::UsbId;
 
-/// Cuánto tiene que sostenerse un cambio para invertir los roles (DESIGN §7).
+/// How long a change has to hold to invert the roles (DESIGN §7).
 pub const DEFAULT_DEBOUNCE: Duration = Duration::from_secs(3);
-/// Cada cuánto se leen los dispositivos conectados.
+/// How often the connected devices are read.
 pub const DEFAULT_POLL: Duration = Duration::from_millis(500);
 
-/// El teclado y el mouse que viajan en el hub, por VID/PID.
+/// The keyboard and mouse that travel on the hub, by VID/PID.
 ///
 /// ```toml
 /// keyboard = "046d:c33f"
@@ -27,7 +27,7 @@ pub struct HubConfig {
     pub mouse: UsbId,
 }
 
-/// Qué dispositivos del hub se ven en esta máquina.
+/// Which hub devices are seen on this machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Presence {
     pub keyboard: bool,
@@ -42,24 +42,24 @@ impl Presence {
         }
     }
 
-    /// El hub está aquí si se ve cualquiera de los dos: con solo el mouse, esta
-    /// máquina sigue siendo la que tiene que capturar. Para el chip de la UI está
-    /// el detalle de cada uno.
+    /// The hub is here if either of the two is seen: with only the mouse, this
+    /// machine is still the one that has to capture. For the UI chip there is
+    /// the detail of each one.
     pub fn hub(&self) -> bool {
         self.keyboard || self.mouse
     }
 }
 
-/// Lista los dispositivos USB conectados en esta máquina. Lo implementa cada
-/// plataforma; puede bloquear unos milisegundos.
+/// Lists the USB devices connected on this machine. Each platform
+/// implements it; it may block for a few milliseconds.
 pub trait DeviceScanner: Send {
     type Error: Display;
 
     fn scan(&mut self) -> Result<Vec<UsbId>, Self::Error>;
 }
 
-/// Presencia del hub con antirrebote, sin reloj ni E/S: recibe cada lectura con
-/// su instante.
+/// Hub presence with debounce, without clock or I/O: receives each reading with
+/// its instant.
 #[derive(Debug, Clone)]
 pub struct HubTracker {
     cfg: HubConfig,
@@ -67,7 +67,7 @@ pub struct HubTracker {
 }
 
 impl HubTracker {
-    /// La primera lectura se acepta tal cual: al arrancar no hay nada que filtrar.
+    /// The first reading is accepted as is: at startup there is nothing to filter.
     pub fn new(cfg: HubConfig, first: &[UsbId], debounce: Duration) -> Self {
         let initial = Presence::from_devices(&cfg, first);
         HubTracker {
@@ -80,14 +80,14 @@ impl HubTracker {
         *self.debouncer.stable()
     }
 
-    /// Devuelve la presencia nueva cuando un cambio se sostuvo lo suficiente.
+    /// Returns the new presence when a change held long enough.
     pub fn observe(&mut self, devices: &[UsbId], now: Instant) -> Option<Presence> {
         let seen = Presence::from_devices(&self.cfg, devices);
         self.debouncer.observe(seen, now)
     }
 }
 
-/// Tiempos del sondeo.
+/// Polling times.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WatchConfig {
     pub poll: Duration,
@@ -103,9 +103,9 @@ impl Default for WatchConfig {
     }
 }
 
-/// Sondea el escáner y publica la presencia estable en un `watch`. Quien la
-/// recibe se la pasa al [`RoleArbiter`](crate::RoleArbiter) local y la reporta
-/// al otro agente.
+/// Polls the scanner and publishes the stable presence on a `watch`. Whoever
+/// receives it passes it to the local [`RoleArbiter`](crate::RoleArbiter) and reports it
+/// to the other agent.
 pub struct HubWatcher<S> {
     scanner: S,
     tracker: HubTracker,
@@ -114,8 +114,8 @@ pub struct HubWatcher<S> {
 }
 
 impl<S: DeviceScanner> HubWatcher<S> {
-    /// Hace la primera lectura. Si falla, se arranca como si no hubiera nada
-    /// conectado: el antirrebote se encarga cuando el escáner se recupere.
+    /// Does the first reading. If it fails, it starts as if nothing were
+    /// connected: the debounce takes care of it when the scanner recovers.
     pub fn new(mut scanner: S, cfg: HubConfig, timing: WatchConfig) -> Self {
         let first = scan_or_log(&mut scanner).unwrap_or_default();
         let tracker = HubTracker::new(cfg, &first, timing.debounce);
@@ -136,8 +136,8 @@ impl<S: DeviceScanner> HubWatcher<S> {
         self.tracker.presence()
     }
 
-    /// Sondea hasta que se suelten todos los receptores. Una lectura fallida no
-    /// cuenta como «no hay nada»: se ignora.
+    /// Polls until all receivers are dropped. A failed reading does not
+    /// count as "nothing there": it is ignored.
     pub async fn run(mut self) {
         let mut tick = tokio::time::interval(self.poll);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -147,7 +147,7 @@ impl<S: DeviceScanner> HubWatcher<S> {
                 now = tick.tick() => {
                     let Some(devices) = scan_or_log(&mut self.scanner) else { continue };
                     if let Some(p) = self.tracker.observe(&devices, now.into_std()) {
-                        tracing::info!(teclado = p.keyboard, mouse = p.mouse, "cambió el hub");
+                        tracing::info!(keyboard = p.keyboard, mouse = p.mouse, "hub changed");
                         self.tx.send_replace(p);
                     }
                 }
@@ -160,7 +160,7 @@ fn scan_or_log<S: DeviceScanner>(scanner: &mut S) -> Option<Vec<UsbId>> {
     match scanner.scan() {
         Ok(devices) => Some(devices),
         Err(e) => {
-            tracing::warn!("no se pudieron leer los dispositivos USB: {e}");
+            tracing::warn!("could not read the USB devices: {e}");
             None
         }
     }
@@ -220,13 +220,13 @@ mod tests {
         assert_eq!(t.observe(&[KB, MOUSE], at(2)), None);
         let p = t.observe(&[KB, MOUSE], at(3)).unwrap();
         assert!(p.keyboard && p.mouse);
-        // El teclado se enumera tarde: es otro cambio, con su propia espera.
+        // The keyboard enumerates late: it is another change, with its own wait.
         assert_eq!(t.observe(&[MOUSE], at(4)), None);
         assert_eq!(t.observe(&[KB, MOUSE], at(5)), None);
         assert_eq!(t.presence(), p);
     }
 
-    /// Avanza el reloj de tokio de a poco para que el sondeo corra.
+    /// Advances the tokio clock in small steps so the polling runs.
     async fn advance(d: Duration) {
         let step = Duration::from_millis(100);
         let mut left = d;
@@ -247,23 +247,23 @@ mod tests {
         assert!(!rx.borrow().hub());
         let task = tokio::spawn(w.run());
 
-        // Se conecta el hub.
+        // The hub connects.
         devices.set(vec![OTHER, KB, MOUSE]);
         advance(Duration::from_millis(2_500)).await;
-        assert!(!rx.has_changed().unwrap(), "cambió antes de 3 s");
+        assert!(!rx.has_changed().unwrap(), "changed before 3 s");
         advance(Duration::from_secs(1)).await;
         assert!(rx.has_changed().unwrap());
         assert!(rx.borrow_and_update().hub());
 
-        // Un tirón de 1 s del cable no cambia nada.
+        // A 1 s tug on the cable changes nothing.
         devices.set(vec![OTHER]);
         advance(Duration::from_secs(1)).await;
         devices.set(vec![OTHER, KB, MOUSE]);
         advance(Duration::from_secs(5)).await;
         assert!(!rx.has_changed().unwrap());
 
-        // Lecturas fallidas en medio de una desconexión no la interrumpen ni la
-        // adelantan.
+        // Failed readings in the middle of a disconnection neither interrupt nor
+        // advance it.
         devices.set(vec![OTHER]);
         advance(Duration::from_secs(1)).await;
         devices.fail(true);
@@ -276,7 +276,7 @@ mod tests {
 
         drop(rx);
         advance(Duration::from_secs(1)).await;
-        assert!(task.is_finished(), "el sondeo sigue sin receptores");
+        assert!(task.is_finished(), "polling continues without receivers");
     }
 
     #[tokio::test(start_paused = true)]

@@ -1,45 +1,45 @@
-//! Entornos de ejecución, equipo y recursos en vivo de una máquina (T-105).
+//! Execution environments, hardware and live resources of a machine (T-105).
 //!
-//! Todo sale del escaneo de la máquina que lo anuncia (DECISIONS D10): ningún tipo supone
-//! un modelo de equipo. Los porcentajes van en décimas (`0..=1000`) para que los mensajes se
-//! puedan comparar con `Eq`.
+//! Everything comes from the scan of the machine that announces it (DECISIONS D10): no type assumes
+//! a hardware model. Percentages are in tenths (`0..=1000`) so the messages can be
+//! be compared with `Eq`.
 
 use serde::{Deserialize, Serialize};
 
-/// Qué clase de entorno es.
+/// What kind of environment it is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EnvKind {
-    /// Un shell del sistema (zsh, bash, fish, PowerShell, cmd).
+    /// A system shell (zsh, bash, fish, PowerShell, cmd).
     Shell,
-    /// Una distro de WSL.
+    /// A WSL distro.
     Wsl,
-    /// Docker (el CLI y, si responde, su daemon).
+    /// Docker (the CLI and, if it answers, its daemon).
     Docker,
 }
 
-/// Un entorno de ejecución detectado: donde un túnel puede correr procesos (DESIGN §8).
+/// A detected execution environment: where a tunnel can run processes (DESIGN §8).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Environment {
-    /// Estable entre escaneos, para elegirlo al ejecutar (`zsh`, `pwsh`, `wsl:Ubuntu-24.04`,
+    /// Stable across scans, to pick it when executing (`zsh`, `pwsh`, `wsl:Ubuntu-24.04`,
     /// `docker`).
     pub id: String,
     pub kind: EnvKind,
-    /// Para mostrar («PowerShell 7», «Ubuntu 24.04», «Docker Desktop»).
+    /// For display ("PowerShell 7", "Ubuntu 24.04", "Docker Desktop").
     pub name: String,
     pub version: Option<String>,
-    /// El predeterminado de su clase: el shell del usuario, la distro de WSL por omisión.
+    /// The default of its kind: the user's shell, the default WSL distro.
     pub default: bool,
-    /// Se puede usar ahora (Docker con el daemon vivo).
+    /// It can be used now (Docker with the daemon alive).
     pub ready: bool,
-    /// La línea bajo el nombre: las herramientas, o por qué no está listo.
+    /// The line under the name: the tools, or why it is not ready.
     pub detail: String,
-    /// Herramientas encontradas dentro de este entorno.
+    /// Tools found inside this environment.
     pub tools: Vec<Tool>,
-    /// La GPU llega a este entorno (CUDA en WSL, `--gpus all` en Docker).
+    /// The GPU reaches this environment (CUDA in WSL, `--gpus all` in Docker).
     pub gpu: bool,
 }
 
-/// Una herramienta encontrada en un entorno.
+/// A tool found in an environment.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tool {
     /// `git`, `cargo`, `node`, `uv`, `python`, `CUDA`...
@@ -47,45 +47,45 @@ pub struct Tool {
     pub version: String,
 }
 
-/// El equipo, según el escaneo.
+/// The hardware, according to the scan.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hardware {
-    /// Modelo del procesador, si el sistema lo dice.
+    /// Processor model, if the system says so.
     pub cpu: Option<String>,
-    /// Núcleos lógicos.
+    /// Logical cores.
     pub cores: u32,
     /// RAM total, en bytes.
     pub memory: u64,
     pub gpus: Vec<Gpu>,
 }
 
-/// Una GPU del equipo.
+/// A GPU of the hardware.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Gpu {
     pub name: String,
-    /// Memoria propia, en bytes; `None` si comparte la RAM (Apple) o no se sabe.
+    /// Own memory, in bytes; `None` if it shares RAM (Apple) or is unknown.
     pub vram: Option<u64>,
     pub driver: Option<String>,
 }
 
-/// Una muestra de los recursos de una máquina (1 Hz mientras alguien mira).
+/// A sample of a machine's resources (1 Hz while someone is watching).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Resources {
     pub cpu: CpuLoad,
     pub memory: MemoryUse,
-    /// En el orden de [`Hardware::gpus`] cuando el sistema da sus lecturas.
+    /// In the order of [`Hardware::gpus`] when the system gives its readings.
     pub gpus: Vec<GpuLoad>,
-    /// El volumen del sistema; `None` si no se pudo leer.
+    /// The system volume; `None` if it could not be read.
     pub disk: Option<DiskSpace>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CpuLoad {
-    /// Uso total, en décimas de por ciento (0–1000).
+    /// Total usage, in tenths of a percent (0-1000).
     pub load: u16,
-    /// Uso de cada núcleo lógico, en décimas de por ciento.
+    /// Usage of each logical core, in tenths of a percent.
     pub cores: Vec<u16>,
-    /// En grados Celsius, si el sistema la da.
+    /// In degrees Celsius, if the system gives it.
     pub temperature: Option<i16>,
 }
 
@@ -99,12 +99,12 @@ pub struct MemoryUse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GpuLoad {
     pub name: String,
-    /// Uso, en décimas de por ciento; `None` si el sistema no lo da.
+    /// Usage, in tenths of a percent; `None` if the system does not give it.
     pub load: Option<u16>,
     /// En bytes.
     pub vram_used: Option<u64>,
     pub vram_total: Option<u64>,
-    /// En grados Celsius.
+    /// In degrees Celsius.
     pub temperature: Option<i16>,
 }
 
@@ -153,7 +153,7 @@ pub(crate) mod samples {
                 version: None,
                 default: false,
                 ready: false,
-                detail: "El daemon no responde".into(),
+                detail: "The daemon is not responding".into(),
                 tools: vec![],
                 gpu: false,
             },

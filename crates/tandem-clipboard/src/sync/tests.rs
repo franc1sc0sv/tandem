@@ -13,7 +13,7 @@ fn cfg() -> SyncConfig {
     }
 }
 
-/// Sin reloj de pared: el orden lo dan solo Lamport y el hash.
+/// Without a wall clock: the order is given only by Lamport and the hash.
 fn side(focused: bool) -> ClipSync {
     ClipSync::with_clock(cfg(), focused, || 0)
 }
@@ -22,7 +22,7 @@ fn text(s: &str) -> ClipContent {
     ClipContent::text(s)
 }
 
-/// Más grande que `inline_max`: va perezoso.
+/// Larger than `inline_max`: goes lazy.
 fn big(fill: u8) -> ClipContent {
     ClipContent {
         image: Some(Image {
@@ -39,7 +39,7 @@ fn sends(actions: Vec<Action>) -> Vec<ClipMsg> {
         .into_iter()
         .map(|a| match a {
             Action::Send(m) => m,
-            Action::Write(c) => panic!("se esperaba solo envíos, hubo Write({c:?})"),
+            Action::Write(c) => panic!("only sends expected, got Write({c:?})"),
         })
         .collect()
 }
@@ -60,7 +60,7 @@ fn written(actions: &[Action]) -> Vec<ClipContent> {
         .collect()
 }
 
-/// Todos los trozos de la transferencia en curso.
+/// All the chunks of the transfer in progress.
 fn drain_chunks(s: &mut ClipSync) -> Vec<ClipMsg> {
     let mut out = Vec::new();
     while let Some(c) = s.next_chunk() {
@@ -71,38 +71,38 @@ fn drain_chunks(s: &mut ClipSync) -> Vec<ClipMsg> {
 }
 
 #[test]
-fn copia_chica_va_dentro_del_anuncio_y_el_otro_la_escribe() {
+fn a_small_copy_goes_inside_the_announcement_and_the_other_writes_it() {
     let mut mac = side(false);
     let mut pc = side(false);
-    let offer = one_send(mac.local_changed(Some(text("hola"))));
+    let offer = one_send(mac.local_changed(Some(text("hello"))));
     let ClipMsg::Offer { content, len, .. } = &offer else {
         panic!("{offer:?}")
     };
-    assert_eq!(content.as_ref(), Some(&text("hola")));
+    assert_eq!(content.as_ref(), Some(&text("hello")));
     assert!(*len > 0);
-    // Aunque la PC no tenga el foco: lo chico se escribe al llegar.
+    // Even if the PC does not have focus: small content is written on arrival.
     let acts = pc.on_message(offer);
-    assert_eq!(acts, vec![Action::Write(text("hola"))]);
+    assert_eq!(acts, vec![Action::Write(text("hello"))]);
     assert_eq!(pc.stats().written, 1);
     assert_eq!(mac.stats().offers_sent, 1);
 }
 
 #[test]
-fn la_propia_escritura_no_se_anuncia_de_vuelta() {
+fn the_own_write_is_not_announced_back() {
     let mut mac = side(false);
     let mut pc = side(false);
-    let offer = one_send(mac.local_changed(Some(text("eco"))));
-    assert_eq!(written(&pc.on_message(offer)), vec![text("eco")]);
-    // El sistema avisa que el portapapeles de la PC cambió: es lo que escribimos.
-    assert!(pc.local_changed(Some(text("eco"))).is_empty());
+    let offer = one_send(mac.local_changed(Some(text("echo"))));
+    assert_eq!(written(&pc.on_message(offer)), vec![text("echo")]);
+    // The system reports that the PC's clipboard changed: it is what we wrote.
+    assert!(pc.local_changed(Some(text("echo"))).is_empty());
     assert_eq!(pc.stats().offers_sent, 0);
-    // Un cambio que no cambia nada tampoco.
-    assert!(mac.local_changed(Some(text("eco"))).is_empty());
+    // A change that changes nothing, neither.
+    assert!(mac.local_changed(Some(text("echo"))).is_empty());
     assert_eq!(mac.stats().offers_sent, 1);
 }
 
 #[test]
-fn una_oferta_con_lo_que_ya_tenemos_no_se_escribe() {
+fn an_offer_with_what_we_already_have_is_not_written() {
     let mut mac = side(true);
     let mut pc = side(true);
     let _ = pc.local_changed(Some(big(3)));
@@ -113,7 +113,7 @@ fn una_oferta_con_lo_que_ya_tenemos_no_se_escribe() {
 }
 
 #[test]
-fn copia_grande_se_transfiere_al_tomar_el_foco() {
+fn a_large_copy_is_transferred_on_taking_focus() {
     let mut mac = side(true);
     let mut pc = side(false);
     let content = big(9);
@@ -127,13 +127,13 @@ fn copia_grande_se_transfiere_al_tomar_el_foco() {
     else {
         panic!("{offer:?}")
     };
-    // Sin el foco solo queda anotada.
+    // Without focus it is only noted.
     assert!(pc.on_message(offer).is_empty());
     assert!(pc.has_pending());
 
     let request = one_send(pc.set_focus(true));
     assert_eq!(request, ClipMsg::Request { id });
-    // Volver a tener el foco no lo pide dos veces.
+    // Getting focus again does not request it twice.
     assert!(pc.set_focus(true).is_empty());
 
     assert!(mac.on_message(request).is_empty());
@@ -154,12 +154,12 @@ fn copia_grande_se_transfiere_al_tomar_el_foco() {
     assert_eq!(total as u64, len);
     assert_eq!(written(&acts), vec![content.clone()]);
     assert!(!pc.has_pending());
-    // Y la escritura no vuelve como eco.
+    // And the write does not come back as an echo.
     assert!(pc.local_changed(Some(content)).is_empty());
 }
 
 #[test]
-fn con_el_foco_se_pide_apenas_llega_el_anuncio() {
+fn with_focus_it_is_requested_as_soon_as_the_announcement_arrives() {
     let mut mac = side(false);
     let mut pc = side(true);
     let offer = one_send(mac.local_changed(Some(big(1))));
@@ -170,7 +170,7 @@ fn con_el_foco_se_pide_apenas_llega_el_anuncio() {
 }
 
 #[test]
-fn pedido_de_una_copia_vieja_responde_no_disponible() {
+fn a_request_for_an_old_copy_answers_unavailable() {
     let mut mac = side(false);
     let mut pc = side(false);
     let old = one_send(mac.local_changed(Some(big(1))));
@@ -178,19 +178,19 @@ fn pedido_de_una_copia_vieja_responde_no_disponible() {
         panic!()
     };
     let _ = pc.on_message(old);
-    // La Mac copia otra cosa antes de que el anuncio nuevo llegue a la PC.
-    let newer = one_send(mac.local_changed(Some(text("nuevo"))));
+    // The Mac copies something else before the new announcement reaches the PC.
+    let newer = one_send(mac.local_changed(Some(text("new"))));
     let request = one_send(pc.set_focus(true));
     let reply = one_send(mac.on_message(request));
     assert_eq!(reply, ClipMsg::Unavailable { id: old_id });
     assert!(!mac.is_sending());
     assert!(pc.on_message(reply).is_empty());
     assert!(!pc.has_pending());
-    assert_eq!(written(&pc.on_message(newer)), vec![text("nuevo")]);
+    assert_eq!(written(&pc.on_message(newer)), vec![text("new")]);
 }
 
 #[test]
-fn copiar_a_mitad_de_una_transferencia_la_corta() {
+fn copying_midway_through_a_transfer_cuts_it() {
     let mut mac = side(false);
     let mut pc = side(true);
     let offer = one_send(mac.local_changed(Some(big(1))));
@@ -201,7 +201,7 @@ fn copiar_a_mitad_de_una_transferencia_la_corta() {
     let newer = one_send(mac.local_changed(Some(big(2))));
     assert!(!mac.is_sending());
     assert_eq!(mac.next_chunk(), None);
-    // El anuncio nuevo reemplaza la transferencia a medias del otro lado.
+    // The new announcement replaces the other side's half-done transfer.
     let ClipMsg::Offer { id, .. } = newer else {
         panic!()
     };
@@ -215,20 +215,20 @@ fn copiar_a_mitad_de_una_transferencia_la_corta() {
 }
 
 #[test]
-fn una_copia_local_reemplaza_lo_pendiente_del_otro_lado() {
+fn a_local_copy_replaces_what_is_pending_from_the_other_side() {
     let mut mac = side(false);
     let mut pc = side(false);
     let offer = one_send(mac.local_changed(Some(big(1))));
     let _ = pc.on_message(offer);
     assert!(pc.has_pending());
-    let _ = pc.local_changed(Some(text("mío")));
+    let _ = pc.local_changed(Some(text("mine")));
     assert!(!pc.has_pending());
-    // Al tomar el foco no se pide lo viejo.
+    // On taking focus the old one is not requested.
     assert!(pc.set_focus(true).is_empty());
 }
 
 #[test]
-fn trozos_de_algo_no_pedido_se_ignoran() {
+fn chunks_of_something_not_requested_are_ignored() {
     let mut pc = side(true);
     let acts = pc.on_message(ClipMsg::Chunk {
         id: 5,
@@ -239,7 +239,7 @@ fn trozos_de_algo_no_pedido_se_ignoran() {
     assert_eq!(pc.stats(), SyncStats::default());
 }
 
-/// Lleva una oferta grande hasta tener la transferencia pedida.
+/// Carries a large offer until it has the requested transfer.
 fn requested(mac: &mut ClipSync, pc: &mut ClipSync, content: ClipContent) -> (u64, Vec<u8>) {
     let offer = one_send(mac.local_changed(Some(content.clone())));
     let ClipMsg::Offer { id, .. } = offer else {
@@ -250,7 +250,7 @@ fn requested(mac: &mut ClipSync, pc: &mut ClipSync, content: ClipContent) -> (u6
 }
 
 #[test]
-fn transferencia_corrupta_se_descarta() {
+fn a_corrupt_transfer_is_discarded() {
     let mut mac = side(false);
     let mut pc = side(true);
     let (id, mut bytes) = requested(&mut mac, &mut pc, big(4));
@@ -267,7 +267,7 @@ fn transferencia_corrupta_se_descarta() {
 }
 
 #[test]
-fn transferencia_mas_larga_o_mas_corta_que_lo_anunciado_se_descarta() {
+fn a_transfer_longer_or_shorter_than_announced_is_discarded() {
     let mut mac = side(false);
     let mut pc = side(true);
     let (id, mut bytes) = requested(&mut mac, &mut pc, big(4));
@@ -298,9 +298,9 @@ fn transferencia_mas_larga_o_mas_corta_que_lo_anunciado_se_descarta() {
 }
 
 #[test]
-fn ofertas_invalidas_se_descartan() {
+fn invalid_offers_are_discarded() {
     let mut pc = side(true);
-    // Contenido que no es el de su hash.
+    // Content that is not that of its hash.
     let acts = pc.on_message(ClipMsg::Offer {
         id: 1,
         hash: text("a").hash(),
@@ -308,7 +308,7 @@ fn ofertas_invalidas_se_descartan() {
         content: Some(text("b")),
     });
     assert!(acts.is_empty());
-    // Más grande que el máximo.
+    // Larger than the maximum.
     let acts = pc.on_message(ClipMsg::Offer {
         id: 2,
         hash: text("a").hash(),
@@ -322,7 +322,7 @@ fn ofertas_invalidas_se_descartan() {
 }
 
 #[test]
-fn una_copia_que_supera_el_maximo_no_se_anuncia() {
+fn a_copy_that_exceeds_the_maximum_is_not_announced() {
     let mut mac = side(false);
     let huge = ClipContent {
         image: Some(Image {
@@ -337,13 +337,13 @@ fn una_copia_que_supera_el_maximo_no_se_anuncia() {
 }
 
 #[test]
-fn portapapeles_vacio_o_sin_formatos_no_se_anuncia_y_corta_lo_ofrecido() {
+fn an_empty_clipboard_or_one_without_formats_is_not_announced_and_cuts_what_was_offered() {
     let mut mac = side(false);
     let offer = one_send(mac.local_changed(Some(big(1))));
     let ClipMsg::Offer { id, .. } = offer else {
         panic!()
     };
-    // El usuario copia archivos: no se sincronizan.
+    // The user copies files: they are not synchronized.
     assert!(mac.local_changed(None).is_empty());
     assert_eq!(
         one_send(mac.on_message(ClipMsg::Request { id })),
@@ -352,7 +352,7 @@ fn portapapeles_vacio_o_sin_formatos_no_se_anuncia_y_corta_lo_ofrecido() {
 }
 
 #[test]
-fn copias_cruzadas_terminan_iguales_en_los_dos_lados() {
+fn crossed_copies_end_up_equal_on_both_sides() {
     for (a, b) in [
         (text("x"), text("y")),
         (big(1), big(2)),
@@ -360,7 +360,7 @@ fn copias_cruzadas_terminan_iguales_en_los_dos_lados() {
     ] {
         let mut mac = side(true);
         let mut pc = side(true);
-        // Las dos copias salen antes de que llegue la del otro.
+        // Both copies go out before the other's arrives.
         let from_mac = one_send(mac.local_changed(Some(a.clone())));
         let from_pc = one_send(pc.local_changed(Some(b.clone())));
         let winner = if a.hash() > b.hash() { &a } else { &b };
@@ -376,8 +376,8 @@ fn copias_cruzadas_terminan_iguales_en_los_dos_lados() {
 }
 
 #[test]
-fn copia_hecha_despues_de_ver_la_del_otro_gana_siempre() {
-    // Sea cual sea el orden de los hashes, la copia que vio la otra no es cruzada.
+fn a_copy_made_after_seeing_the_other_one_always_wins() {
+    // Whatever the order of the hashes, the copy the other saw is not crossed.
     for (a, b) in [(text("x"), text("y")), (text("y"), text("x"))] {
         let mut mac = side(false);
         let mut pc = side(false);
@@ -389,28 +389,28 @@ fn copia_hecha_despues_de_ver_la_del_otro_gana_siempre() {
 }
 
 #[test]
-fn al_empezar_se_anuncia_lo_copiado_sin_enlace_y_se_reanuncia_lo_vigente() {
+fn on_start_what_was_copied_without_a_link_is_announced_and_the_current_one_is_re_announced() {
     let mut mac = side(false);
-    // Sin cambios y sin nada copiado: nada.
+    // No changes and nothing copied: nothing.
     assert!(mac.start(None).is_empty());
-    // Copiado mientras no había enlace.
+    // Copied while there was no link.
     let first = one_send(mac.start(Some(text("a"))));
     let ClipMsg::Offer { id, .. } = first else {
         panic!()
     };
-    // Enlace nuevo, mismo contenido: se vuelve a anunciar la misma copia.
+    // New link, same content: the same copy is announced again.
     let again = one_send(mac.start(Some(text("a"))));
     assert!(matches!(again, ClipMsg::Offer { id: i, content: Some(_), .. } if i == id));
-    // Sin poder leer el portapapeles, también.
+    // Without being able to read the clipboard, either.
     assert_eq!(one_send(mac.resume()), again);
-    // Si lo vigente vino del otro lado, no es nuestro: no se anuncia.
+    // If the current one came from the other side, it is not ours: it is not announced.
     let mut pc = side(false);
     let _ = pc.on_message(again);
     assert!(pc.start(Some(text("a"))).is_empty());
 }
 
 #[test]
-fn lo_pendiente_sobrevive_al_cambio_de_enlace_y_se_vuelve_a_pedir() {
+fn what_is_pending_survives_the_link_change_and_is_requested_again() {
     let mut mac = side(false);
     let mut pc = side(true);
     let offer = one_send(mac.local_changed(Some(big(7))));
@@ -418,12 +418,12 @@ fn lo_pendiente_sobrevive_al_cambio_de_enlace_y_se_vuelve_a_pedir() {
     let _ = mac.on_message(request.clone());
     let first = mac.next_chunk().unwrap();
     let _ = pc.on_message(first);
-    // Se cae el enlace a mitad de la transferencia.
+    // The link drops midway through the transfer.
     let mac_start = sends(mac.start(Some(big(7))));
     assert!(!mac.is_sending());
     let pc_start = sends(pc.start(None));
     assert_eq!(pc_start, vec![request.clone()]);
-    // El reanuncio de la Mac llega y no duplica el pedido... sino que lo renueva.
+    // The Mac's re-announcement arrives and does not duplicate the request... it renews it.
     let mut model = Model::new(mac, pc);
     model.mac.clip = Some(big(7));
     model.to_pc.extend(mac_start);
@@ -434,15 +434,15 @@ fn lo_pendiente_sobrevive_al_cambio_de_enlace_y_se_vuelve_a_pedir() {
 }
 
 #[test]
-fn las_copias_de_un_agente_reiniciado_ganan_por_el_reloj_de_pared() {
+fn the_copies_of_a_restarted_agent_win_by_the_wall_clock() {
     let mut mac = side(false);
     let mut pc = side(false);
     let offer = one_send(mac.local_changed(Some(text("x"))));
     let _ = pc.on_message(offer);
     let offer = one_send(pc.local_changed(Some(text("y"))));
     let _ = mac.on_message(offer);
-    // La PC se reinicia y olvida todo: sin reloj de pared, su copia nueva
-    // tendría un id menor que el vigente y la Mac la ignoraría.
+    // The PC restarts and forgets everything: without a wall clock, its new copy
+    // would have a lower id than the current one and the Mac would ignore it.
     let mut forgetful = side(false);
     let stale = one_send(forgetful.local_changed(Some(text("z"))));
     assert!(mac.clone().on_message(stale).is_empty());
@@ -452,7 +452,7 @@ fn las_copias_de_un_agente_reiniciado_ganan_por_el_reloj_de_pared() {
 }
 
 #[test]
-fn chunk_len_y_inline_se_ajustan_a_la_trama() {
+fn chunk_len_and_inline_fit_the_frame() {
     let s = ClipSync::new(
         SyncConfig {
             inline_max: usize::MAX,
@@ -465,11 +465,11 @@ fn chunk_len_y_inline_se_ajustan_a_la_trama() {
     assert_eq!(s.cfg.chunk_len, 1);
 }
 
-// --- Modelo de dos agentes con colas, para las propiedades ---
+// --- Two-agent model with queues, for the properties ---
 
 struct Agent {
     sync: ClipSync,
-    /// Lo que tiene el portapapeles del sistema.
+    /// What the system clipboard holds.
     clip: Option<ClipContent>,
 }
 
@@ -509,8 +509,8 @@ impl Model {
         }
     }
 
-    /// Aplica acciones como el driver: un `Write` cambia el portapapeles y el
-    /// sistema avisa del cambio, que tiene que salir sin anuncio (sin eco).
+    /// Applies actions like the driver: a `Write` changes the clipboard and the
+    /// system reports the change, which has to go out without an announcement (no echo).
     fn apply(&mut self, who: Who, actions: Vec<Action>) {
         let (agent, outbox) = self.parts(who);
         for a in actions {
@@ -519,11 +519,11 @@ impl Model {
                 Action::Write(c) => {
                     agent.clip = Some(c.clone());
                     let echo = agent.sync.local_changed(Some(c));
-                    assert!(echo.is_empty(), "eco: {echo:?}");
+                    assert!(echo.is_empty(), "echo: {echo:?}");
                 }
             }
         }
-        // Los trozos salen de a uno, como en el driver.
+        // Chunks go out one at a time, like in the driver.
         while let Some(c) = agent.sync.next_chunk() {
             outbox.push_back(c);
         }
@@ -542,7 +542,7 @@ impl Model {
         self.apply(who, acts);
     }
 
-    /// Entrega el siguiente mensaje hacia `who`; `false` si no había.
+    /// Delivers the next message to `who`; `false` if there was none.
     fn deliver(&mut self, who: Who) -> bool {
         let msg = match who {
             Who::Mac => self.to_mac.pop_front(),
@@ -557,7 +557,7 @@ impl Model {
         true
     }
 
-    /// Enlace nuevo: lo que estaba en vuelo se pierde.
+    /// New link: what was in flight is lost.
     fn restart(&mut self) {
         self.to_mac.clear();
         self.to_pc.clear();
@@ -569,13 +569,13 @@ impl Model {
         }
     }
 
-    /// Entrega todo; el número de mensajes tiene que ser finito (sin eco
-    /// infinito).
+    /// Delivers everything; the number of messages has to be finite (no infinite
+    /// echo).
     fn settle(&mut self, max: usize) {
         let mut n = 0;
         while self.deliver(Who::Mac) | self.deliver(Who::Pc) {
             n += 1;
-            assert!(n < max, "los mensajes no se acaban");
+            assert!(n < max, "the messages never end");
         }
     }
 }
@@ -593,7 +593,7 @@ fn who() -> impl Strategy<Value = Who> {
 }
 
 fn clip() -> impl Strategy<Value = ClipContent> {
-    // Pocos valores, para que se repitan (eco, ofertas iguales).
+    // Few values, so they repeat (echo, equal offers).
     prop_oneof![
         (0u8..4).prop_map(|i| text(&format!("t{i}"))),
         (0u8..3).prop_map(big),
@@ -610,12 +610,12 @@ fn op() -> impl Strategy<Value = Op> {
 }
 
 proptest! {
-    /// Cualquier secuencia de copias, cambios de foco, entregas parciales y
-    /// cambios de enlace (perdiendo lo que estaba en vuelo) termina con los dos
-    /// portapapeles iguales una vez que los dos tuvieron el foco, sin eco y con un
-    /// número finito de mensajes.
+    /// Any sequence of copies, focus changes, partial deliveries and
+    /// link changes (losing what was in flight) ends with both
+    /// clipboards equal once both have had focus, without echo and with a
+    /// finite number of messages.
     #[test]
-    fn los_dos_lados_convergen_sin_eco(ops in proptest::collection::vec(op(), 1..60)) {
+    fn both_sides_converge_without_echo(ops in proptest::collection::vec(op(), 1..60)) {
         let mut m = Model::new(side(false), side(true));
         let mut copied = false;
         for op in ops {
@@ -625,7 +625,7 @@ proptest! {
                     m.copy(w, c);
                 }
                 Op::Focus(w) => {
-                    // El foco está en una sola máquina.
+                    // Focus is on a single machine.
                     let other = if w == Who::Mac { Who::Pc } else { Who::Mac };
                     m.focus(other, false);
                     m.focus(w, true);

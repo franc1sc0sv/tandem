@@ -1,8 +1,8 @@
-//! El [`Spawner`] real: `tokio::process`, con un grupo de procesos propio por proceso en
-//! Unix y un objeto de trabajo (job object) en Windows, para poder matar el árbol entero.
+//! The real [`Spawner`]: `tokio::process`, with a process group of its own per process on
+//! Unix and a job object on Windows, to be able to kill the whole tree.
 //!
-//! Un descendiente que se sale a propósito del grupo (`setsid`, un servicio que se
-//! desacopla) escapa del kill en Unix; en Windows, de los objetos de trabajo no se sale.
+//! A descendant that deliberately leaves the group (`setsid`, a service that
+//! detaches) escapes the kill on Unix; on Windows, job objects cannot be left.
 
 use std::process::Stdio;
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use tokio::sync::watch;
 use super::{Child, Launch, SpawnError, Spawned, Spawner};
 use crate::wire::BoxFuture;
 
-/// Lanza procesos de verdad en esta máquina.
+/// Launches real processes on this machine.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SystemSpawner;
 
@@ -43,12 +43,12 @@ impl Spawner for SystemSpawner {
             Ok(t) => t,
             Err(e) => {
                 let _ = child.start_kill();
-                return Err(fail(&format!("no se pudo agrupar el proceso: {e}")));
+                return Err(fail(&format!("could not group the process: {e}")));
             }
         };
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
             let _ = child.start_kill();
-            return Err(fail(&"no se pudo abrir su salida"));
+            return Err(fail(&"could not open its output"));
         };
         let (tx, exit) = watch::channel(None);
         tokio::spawn(async move {
@@ -94,7 +94,7 @@ mod tree {
     use std::os::unix::process::CommandExt;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    /// El grupo de procesos del hijo (su pid, porque es el líder).
+    /// The child's process group (its pid, because it is the leader).
     pub struct Tree {
         pgid: Option<i32>,
         live: AtomicBool,
@@ -106,8 +106,8 @@ mod tree {
 
     impl Tree {
         pub fn attach(child: &tokio::process::Child) -> std::io::Result<Tree> {
-            // Sin pid (ya lo recogieron) no hay grupo al que apuntar: `killpg(0)` sería el
-            // del propio agente.
+            // Without a pid (already reaped) there is no group to aim at: `killpg(0)` would be the
+            // agent's own.
             let pgid = child
                 .id()
                 .and_then(|p| i32::try_from(p).ok())
@@ -121,8 +121,8 @@ mod tree {
         pub fn kill(&self) {
             let Some(pgid) = self.pgid else { return };
             if self.live.load(Ordering::SeqCst) {
-                // SAFETY: `killpg` solo recibe enteros; un grupo que ya no existe da ESRCH,
-                // que aquí no importa.
+                // SAFETY: `killpg` only receives integers; a group that no longer exists gives ESRCH,
+                // which does not matter here.
                 unsafe {
                     libc::killpg(pgid, libc::SIGKILL);
                 }
@@ -154,7 +154,7 @@ mod tree {
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
     const CREATE_SUSPENDED: u32 = 0x0000_0004;
 
-    /// Un objeto de trabajo con el proceso adentro: lo que lance después queda en él.
+    /// A job object with the process inside: whatever it launches afterwards stays in it.
     pub struct Tree {
         job: Job,
         live: AtomicBool,
@@ -162,78 +162,78 @@ mod tree {
 
     struct Job(HANDLE);
 
-    // SAFETY: un HANDLE de objeto de trabajo es un identificador del núcleo, válido desde
-    // cualquier hilo; solo se cierra al soltar `Job`.
+    // SAFETY: a job object HANDLE is a kernel identifier, valid from
+    // any thread; it is only closed when `Job` is dropped.
     unsafe impl Send for Job {}
-    // SAFETY: igual: las funciones del núcleo que se le aplican se pueden llamar a la vez.
+    // SAFETY: likewise: the kernel functions applied to it can be called concurrently.
     unsafe impl Sync for Job {}
 
     impl Drop for Job {
         fn drop(&mut self) {
-            // SAFETY: el identificador es nuestro y se cierra una sola vez.
+            // SAFETY: the handle is ours and is closed only once.
             let _ = unsafe { CloseHandle(self.0) };
         }
     }
 
-    /// Sin ventana de consola: el agente corre sin una y cada `cmd` abriría la suya. Nace
-    /// suspendido: [`Tree::attach`] lo mete en el objeto de trabajo y solo entonces lo
-    /// reanuda, así que ningún nieto puede lanzarse antes de quedar dentro.
+    /// No console window: the agent runs without one and each `cmd` would open its own. Born
+    /// suspended: [`Tree::attach`] puts it in the job object and only then
+    /// resumes it, so no grandchild can launch before being inside.
     pub fn prepare(cmd: &mut std::process::Command) {
         cmd.creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
     }
 
-    /// Reanuda los hilos del proceso recién creado (solo tiene el principal).
+    /// Resumes the threads of the newly created process (it only has the main one).
     fn resume(pid: u32) -> std::io::Result<()> {
         let err = |e: windows::core::Error| std::io::Error::other(e.to_string());
-        // SAFETY: instantánea de hilos; el identificador se cierra abajo.
+        // SAFETY: thread snapshot; the handle is closed below.
         let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) }.map_err(err)?;
         let mut entry = THREADENTRY32 {
             dwSize: std::mem::size_of::<THREADENTRY32>() as u32,
             ..Default::default()
         };
         let mut resumed = false;
-        // SAFETY: `snap` es válido y `entry` tiene `dwSize` puesto.
+        // SAFETY: `snap` is valid and `entry` has `dwSize` set.
         let mut more = unsafe { Thread32First(snap, &mut entry) }.is_ok();
         while more {
             if entry.th32OwnerProcessID == pid {
-                // SAFETY: abre el hilo solo con permiso de suspender/reanudar.
+                // SAFETY: opens the thread only with suspend/resume permission.
                 if let Ok(thread) =
                     unsafe { OpenThread(THREAD_SUSPEND_RESUME, false, entry.th32ThreadID) }
                 {
-                    // SAFETY: `thread` es válido; `u32::MAX` es el error de ResumeThread.
+                    // SAFETY: `thread` is valid; `u32::MAX` is ResumeThread's error.
                     resumed |= unsafe { ResumeThread(thread) } != u32::MAX;
-                    // SAFETY: lo abrimos arriba.
+                    // SAFETY: we opened it above.
                     let _ = unsafe { CloseHandle(thread) };
                 }
             }
-            // SAFETY: igual que en la primera llamada.
+            // SAFETY: same as in the first call.
             more = unsafe { Thread32Next(snap, &mut entry) }.is_ok();
         }
-        // SAFETY: `snap` se abrió arriba y no se usa después.
+        // SAFETY: `snap` was opened above and is not used afterwards.
         let _ = unsafe { CloseHandle(snap) };
         if resumed {
             Ok(())
         } else {
-            Err(std::io::Error::other("no se pudo reanudar el proceso"))
+            Err(std::io::Error::other("could not resume the process"))
         }
     }
 
     impl Tree {
         pub fn attach(child: &tokio::process::Child) -> std::io::Result<Tree> {
-            let process = child
-                .raw_handle()
-                .ok_or_else(|| std::io::Error::other("el proceso ya terminó antes de agruparlo"))?;
-            // SAFETY: sin atributos ni nombre; devuelve un identificador nuevo o un error.
+            let process = child.raw_handle().ok_or_else(|| {
+                std::io::Error::other("the process already ended before being grouped")
+            })?;
+            // SAFETY: no attributes or name; returns a new handle or an error.
             let job = unsafe { CreateJobObjectW(None, PCWSTR::null()) }
                 .map_err(|e| std::io::Error::other(e.to_string()))?;
             let job = Job(job);
-            // SAFETY: `process` es el identificador del hijo, que `child` mantiene abierto.
+            // SAFETY: `process` is the child's handle, which `child` keeps open.
             unsafe { AssignProcessToJobObject(job.0, HANDLE(process.cast::<c_void>())) }
                 .map_err(|e| std::io::Error::other(e.to_string()))?;
             resume(
                 child
                     .id()
-                    .ok_or_else(|| std::io::Error::other("el proceso ya terminó"))?,
+                    .ok_or_else(|| std::io::Error::other("the process already ended"))?,
             )?;
             Ok(Tree {
                 job,
@@ -243,7 +243,7 @@ mod tree {
 
         pub fn kill(&self) {
             if self.live.load(Ordering::SeqCst) {
-                // SAFETY: el identificador es del objeto de trabajo que `self` mantiene abierto.
+                // SAFETY: the handle is of the job object that `self` keeps open.
                 let _ = unsafe { TerminateJobObject(self.job.0, 1) };
             }
         }

@@ -1,11 +1,11 @@
-//! Driver: conecta [`ClipSync`] con el portapapeles del sistema y con un stream
-//! confiable de `tandem-link`.
+//! Driver: connects [`ClipSync`] with the system clipboard and with a reliable
+//! `tandem-link` stream.
 //!
-//! Cada `run` dura lo que dura un enlace. El stream lo abre y lo acepta el
-//! cableado del agente (es un stream propio del portapapeles, aparte del de la
-//! entrada, para que una imagen grande no retrase las teclas); el driver lo parte
-//! en sus dos mitades para seguir leyendo mientras manda una transferencia.
-//! El estado de la sincronización sobrevive entre sesiones.
+//! Each `run` lasts as long as a link does. The stream is opened and accepted by the
+//! agent's wiring (it is a clipboard-only stream, separate from the
+//! input one, so a large image does not delay the keys); the driver splits it
+//! into its two halves to keep reading while a transfer is being sent.
+//! The synchronization state survives between sessions.
 
 use std::future::Future;
 use std::time::Duration;
@@ -23,7 +23,7 @@ use crate::sync::{Action, ClipSync, SyncConfig, SyncStats};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ClipConfig {
-    /// Cada cuánto se mira el contador de cambios del sistema.
+    /// How often the system change counter is checked.
     pub poll: Duration,
     pub sync: SyncConfig,
 }
@@ -31,28 +31,28 @@ pub struct ClipConfig {
 impl Default for ClipConfig {
     fn default() -> Self {
         Self {
-            // Copiar y cambiar de máquina para pegar lleva más que esto.
+            // Copying and switching machines to paste takes longer than this.
             poll: Duration::from_millis(250),
             sync: SyncConfig::default(),
         }
     }
 }
 
-/// Por qué terminó una sesión.
+/// Why a session ended.
 #[derive(Debug, thiserror::Error)]
 pub enum SyncEnd {
-    #[error("detenida: el enlace cambió")]
+    #[error("stopped: the link changed")]
     Stopped,
-    #[error("enlace: {0}")]
+    #[error("link: {0}")]
     Link(#[from] TransportError),
 }
 
-/// Espera progresiva cuando otra app tiene el portapapeles abierto y no se puede leer
-/// (en Windows, «being held by another party»): sin esto, cada vuelta del sondeo reintenta
-/// y vuelve a quejarse en el log (T-087).
+/// Progressive wait when another app has the clipboard open and it cannot be read
+/// (on Windows, "being held by another party"): without it, each polling turn retries
+/// and complains in the log again (T-087).
 ///
-/// Cada fallo seguido espera el doble que el anterior (con `base` de partida, hasta
-/// [`ReadBackoff::MAX`]) y solo el primero de la racha se avisa en el log.
+/// Each consecutive failure waits twice as long as the previous (starting from `base`, up to
+/// [`ReadBackoff::MAX`]) and only the first of the streak is reported in the log.
 #[derive(Debug, Default)]
 pub struct ReadBackoff {
     failures: u32,
@@ -60,15 +60,15 @@ pub struct ReadBackoff {
 }
 
 impl ReadBackoff {
-    /// Lo máximo que se espera entre dos intentos.
+    /// The most that is waited between two attempts.
     pub const MAX: Duration = Duration::from_secs(5);
 
-    /// Si ya toca volver a intentar.
+    /// Whether it is time to try again.
     pub fn ready(&self, now: Instant) -> bool {
         self.retry_at.is_none_or(|at| now >= at)
     }
 
-    /// La lectura falló. `true` si es la primera de la racha: la única que se avisa.
+    /// The read failed. `true` if it is the first of the streak: the only one reported.
     pub fn failed(&mut self, now: Instant, base: Duration) -> bool {
         let first = self.failures == 0;
         let shift = self.failures.min(16);
@@ -80,7 +80,7 @@ impl ReadBackoff {
         first
     }
 
-    /// La lectura salió. `Some(n)` si cerraba una racha de `n` fallos.
+    /// The read succeeded. `Some(n)` if it closed a streak of `n` failures.
     pub fn succeeded(&mut self) -> Option<u32> {
         self.retry_at = None;
         match std::mem::take(&mut self.failures) {
@@ -93,7 +93,7 @@ impl ReadBackoff {
 pub struct ClipDriver<C> {
     sync: ClipSync,
     clipboard: C,
-    /// Último valor visto del contador del sistema.
+    /// Last seen value of the system counter.
     last_count: Option<u64>,
     focus: Option<watch::Receiver<bool>>,
     stats: watch::Sender<SyncStats>,
@@ -101,7 +101,7 @@ pub struct ClipDriver<C> {
 }
 
 impl<C: Clipboard> ClipDriver<C> {
-    /// `focused`: si esta máquina tiene ahora el teclado y el mouse.
+    /// `focused`: whether this machine now has the keyboard and mouse.
     pub fn new(clipboard: C, cfg: ClipConfig, focused: bool) -> Self {
         Self {
             sync: ClipSync::new(cfg.sync, focused),
@@ -113,17 +113,17 @@ impl<C: Clipboard> ClipDriver<C> {
         }
     }
 
-    /// Foco en caliente: `true` mientras el teclado y el mouse están en esta
-    /// máquina. Es cuando se piden las copias grandes del otro lado.
+    /// Live focus: `true` while the keyboard and mouse are on this
+    /// machine. It is when the other side's large copies are requested.
     pub fn with_focus(mut self, mut focus: watch::Receiver<bool>) -> Self {
         let now = *focus.borrow_and_update();
-        // Sin sesión no hay nada que mandar.
+        // Without a session there is nothing to send.
         let _ = self.sync.set_focus(now);
         self.focus = Some(focus);
         self
     }
 
-    /// Contadores de la sincronización, al día mientras corre.
+    /// Synchronization counters, up to date while it runs.
     pub fn stats(&self) -> watch::Receiver<SyncStats> {
         self.stats.subscribe()
     }
@@ -139,15 +139,15 @@ impl<C: Clipboard> ClipDriver<C> {
     pub async fn run(&mut self, stream: ControlStream, stop: impl Future<Output = ()>) -> SyncEnd {
         let end = self.serve(stream, stop).await;
         self.stats.send_replace(self.sync.stats());
-        tracing::info!("sesión del portapapeles terminada: {end}");
+        tracing::info!("clipboard session ended: {end}");
         end
     }
 
     async fn serve(&mut self, stream: ControlStream, stop: impl Future<Output = ()>) -> SyncEnd {
         let (mut tx, mut rx) = stream.split();
         let (inbox_tx, mut inbox) = mpsc::unbounded_channel();
-        // La lectura va aparte: mientras se manda una imagen y el control de
-        // flujo frena la escritura, lo que llega del otro lado se sigue leyendo.
+        // Reading is separate: while an image is being sent and flow control
+        // slows the writing, what arrives from the other side keeps being read.
         let reader = async move {
             loop {
                 match rx.recv::<ClipMsg>().await {
@@ -188,7 +188,7 @@ impl<C: Clipboard> ClipDriver<C> {
                 tokio::select! {
                     biased;
                     msg = inbox.recv() => {
-                        // Si el lector terminó, el otro brazo del select lo dice.
+                        // If the reader ended, the other arm of the select says so.
                         let Some(msg) = msg else { std::future::pending::<()>().await; continue };
                         let acts = sync.on_message(msg);
                         apply(clipboard, last_count, &mut tx, acts).await?;
@@ -213,7 +213,7 @@ impl<C: Clipboard> ClipDriver<C> {
                         }
                     }
                     () = std::future::ready(()), if sync.is_sending() => {
-                        // Un trozo por vuelta: entre trozos se atiende lo demás.
+                        // One chunk per turn: between chunks the rest is attended to.
                         if let Some(chunk) = sync.next_chunk() {
                             tx.send(&chunk).await?;
                         }
@@ -249,21 +249,21 @@ async fn next_focus(focus: &mut Option<watch::Receiver<bool>>) -> Option<bool> {
     }
 }
 
-/// Si el contador del sistema se movió desde la última vez.
+/// Whether the system counter moved since the last time.
 fn changed<C: Clipboard>(clipboard: &mut C, last: &Option<u64>) -> bool {
     match clipboard.change_count() {
         Ok(n) => Some(n) != *last,
         Err(e) => {
-            tracing::debug!("portapapeles: contador: {e}");
+            tracing::debug!("clipboard: counter: {e}");
             false
         }
     }
 }
 
-/// Lee el contenido y deja anotado el contador que le corresponde. El contador
-/// se toma antes de leer: si cambia mientras tanto, la próxima vuelta lo ve.
-/// `None` si no se pudo leer (otra app lo tiene abierto): se reintenta en la
-/// próxima vuelta.
+/// Reads the content and notes the counter that corresponds to it. The counter
+/// is taken before reading: if it changes in the meantime, the next turn sees it.
+/// `None` if it could not be read (another app has it open): it is retried on the
+/// next turn.
 fn read_local<C: Clipboard>(
     clipboard: &mut C,
     last: &mut Option<u64>,
@@ -272,21 +272,21 @@ fn read_local<C: Clipboard>(
 ) -> Option<Option<ClipContent>> {
     match clipboard.change_count() {
         Ok(n) => *last = Some(n),
-        Err(e) => tracing::debug!("portapapeles: contador: {e}"),
+        Err(e) => tracing::debug!("clipboard: counter: {e}"),
     }
     match clipboard.read() {
         Ok(c) => {
             if let Some(n) = backoff.succeeded() {
-                tracing::info!("portapapeles: se pudo leer de nuevo tras {n} intentos");
+                tracing::info!("clipboard: could be read again after {n} attempts");
             }
             Some(c)
         }
         Err(e) => {
-            // Un solo aviso por racha: el resto, a depuración, con espera creciente.
+            // One notice per streak: the rest, to debug, with growing wait.
             if backoff.failed(Instant::now(), base) {
-                tracing::warn!("portapapeles: no se pudo leer ({e}); se reintenta con espera");
+                tracing::warn!("clipboard: could not be read ({e}); retrying with backoff");
             } else {
-                tracing::debug!("portapapeles: sigue sin poder leerse: {e}");
+                tracing::debug!("clipboard: still cannot be read: {e}");
             }
             *last = None;
             None
@@ -305,17 +305,17 @@ async fn apply<C: Clipboard>(
             Action::Send(msg) => tx.send(&msg).await?,
             Action::Write(content) => {
                 if let Err(e) = clipboard.write(&content) {
-                    tracing::error!("portapapeles: no se pudo escribir: {e}");
+                    tracing::error!("clipboard: could not write: {e}");
                 }
-                // Nuestra propia escritura no es un cambio del usuario: ni se lee.
-                // Si el sistema la convirtió y otra cosa la vuelve a tocar, el
-                // hash igual la frena en `ClipSync`. Una copia del usuario justo
-                // entre la escritura y esta lectura se perdería, pero son
-                // microsegundos y el usuario no está copiando en esta máquina
-                // mientras pega lo que vino de la otra.
+                // Our own write is not a user change: it is not even read.
+                // If the system converted it and something else touches it again, the
+                // hash stops it anyway in `ClipSync`. A user copy right
+                // between the write and this read would be lost, but it is
+                // microseconds and the user is not copying on this machine
+                // while pasting what came from the other one.
                 match clipboard.change_count() {
                     Ok(n) => *last = Some(n),
-                    Err(e) => tracing::debug!("portapapeles: contador: {e}"),
+                    Err(e) => tracing::debug!("clipboard: counter: {e}"),
                 }
             }
         }
@@ -337,7 +337,7 @@ mod tests {
         let mut waits = Vec::new();
         for _ in 0..8 {
             b.failed(t0, BASE);
-            // El primer instante en que ya toca: busca por intervalos de 50 ms.
+            // The first instant at which it is due: searches in 50 ms intervals.
             let w = (0..200u64)
                 .map(|i| Duration::from_millis(i * 50))
                 .find(|d| b.ready(t0 + *d))
@@ -355,7 +355,7 @@ mod tests {
         assert!(!b.failed(t0, BASE));
         assert!(!b.failed(t0, BASE));
         assert_eq!(b.succeeded(), Some(3));
-        // Una racha nueva vuelve a avisar una vez.
+        // A new streak notifies once again.
         assert!(b.failed(t0, BASE));
         assert_eq!(b.succeeded(), Some(1));
         assert_eq!(b.succeeded(), None);

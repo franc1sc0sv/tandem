@@ -1,4 +1,4 @@
-//! Apagado limpio en Windows: lo mismo que `shutdown /s /t 0`, por API.
+//! Clean shutdown on Windows: the same as `shutdown /s /t 0`, through the API.
 
 use windows::Win32::Foundation::{CloseHandle, ERROR_NOT_ALL_ASSIGNED, GetLastError, HANDLE, LUID};
 use windows::Win32::Security::{
@@ -14,16 +14,16 @@ use windows::core::PCWSTR;
 
 use crate::{PowerError, Shutdown};
 
-/// Apaga la PC con `InitiateShutdownW`: sin gracia y sin forzar (los programas que
-/// piden guardar cambios pueden frenarlo, como con `shutdown /s /t 0`). Sin
-/// `SHUTDOWN_HYBRID`: un arranque de Inicio rápido no sería limpio (DESIGN §6).
+/// Shuts the PC down with `InitiateShutdownW`: no grace period and no forcing (programs that
+/// ask to save changes can stop it, as with `shutdown /s /t 0`). Without
+/// `SHUTDOWN_HYBRID`: a Fast Startup boot would not be clean (DESIGN §6).
 #[derive(Debug, Default, Clone, Copy)]
 pub struct WindowsShutdown;
 
 impl Shutdown for WindowsShutdown {
     fn power_off(&self) -> Result<(), PowerError> {
         enable_shutdown_privilege()?;
-        // SAFETY: sin punteros propios; máquina y mensaje nulos significan «esta» y «ninguno».
+        // SAFETY: no pointers of our own; null machine and message mean "this one" and "none".
         let code = unsafe {
             InitiateShutdownW(
                 PCWSTR::null(),
@@ -43,12 +43,12 @@ impl Shutdown for WindowsShutdown {
     }
 }
 
-/// `SeShutdownPrivilege` existe en el token (SYSTEM y administradores lo tienen) pero
-/// viene deshabilitado: hay que activarlo antes de pedir el apagado.
+/// `SeShutdownPrivilege` exists in the token (SYSTEM and administrators have it) but
+/// comes disabled: it has to be enabled before asking for the shutdown.
 fn enable_shutdown_privilege() -> Result<(), PowerError> {
     let err = |what: &str, e: windows::core::Error| PowerError::Shutdown(format!("{what}: {e}"));
     let mut token = HANDLE::default();
-    // SAFETY: `token` es un HANDLE escribible; el pseudo-handle del proceso no se cierra.
+    // SAFETY: `token` is a writable HANDLE; the process pseudo-handle is not closed.
     unsafe {
         OpenProcessToken(
             GetCurrentProcess(),
@@ -58,14 +58,14 @@ fn enable_shutdown_privilege() -> Result<(), PowerError> {
     }
     .map_err(|e| err("OpenProcessToken", e))?;
     let result = adjust(token);
-    // SAFETY: `token` se abrió arriba y no se usa después.
+    // SAFETY: `token` was opened above and is not used afterwards.
     let _ = unsafe { CloseHandle(token) };
     result.map_err(|e| err("SeShutdownPrivilege", e))
 }
 
 fn adjust(token: HANDLE) -> windows::core::Result<()> {
     let mut luid = LUID::default();
-    // SAFETY: `luid` es escribible; el nombre es una constante del sistema.
+    // SAFETY: `luid` is writable; the name is a system constant.
     unsafe { LookupPrivilegeValueW(PCWSTR::null(), SE_SHUTDOWN_NAME, &mut luid) }?;
     let privileges = TOKEN_PRIVILEGES {
         PrivilegeCount: 1,
@@ -74,10 +74,10 @@ fn adjust(token: HANDLE) -> windows::core::Result<()> {
             Attributes: SE_PRIVILEGE_ENABLED,
         }],
     };
-    // SAFETY: `token` es válido y tiene TOKEN_ADJUST_PRIVILEGES; `privileges` vive durante la llamada.
+    // SAFETY: `token` is valid and has TOKEN_ADJUST_PRIVILEGES; `privileges` lives for the duration of the call.
     unsafe { AdjustTokenPrivileges(token, false, Some(&privileges), 0, None, None) }?;
-    // Devuelve éxito aunque el token no tenga el privilegio: eso solo se ve en el último error.
-    // SAFETY: GetLastError no tiene precondiciones.
+    // Returns success even if the token lacks the privilege: that is only visible in the last error.
+    // SAFETY: GetLastError has no preconditions.
     if unsafe { GetLastError() } == ERROR_NOT_ALL_ASSIGNED {
         return Err(windows::core::Error::from(ERROR_NOT_ALL_ASSIGNED));
     }

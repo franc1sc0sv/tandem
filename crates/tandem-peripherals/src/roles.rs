@@ -1,78 +1,78 @@
-//! Quién es el servidor de teclado y mouse (DESIGN §7).
+//! Who is the keyboard and mouse server (DESIGN §7).
 
 use serde::{Deserialize, Serialize};
 use tandem_core::Machine;
 
-/// Papel de esta máquina en la sesión de entrada.
+/// Role of this machine in the input session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
-    /// Tiene el teclado y el mouse: captura y manda.
+    /// Has the keyboard and mouse: captures and sends.
     Server,
-    /// Recibe e inyecta.
+    /// Receives and injects.
     Client,
 }
 
-/// Selector de la UI. `Manual` gana sobre la detección del hub.
+/// UI selector. `Manual` wins over hub detection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase", tag = "mode", content = "server")]
 pub enum Selector {
-    /// El servidor es la máquina donde está el hub.
+    /// The server is the machine where the hub is.
     #[default]
     Auto,
-    /// El servidor es esta máquina, esté donde esté el hub.
+    /// The server is this machine, wherever the hub is.
     Manual(Machine),
 }
 
-/// Lo que un agente le reporta al otro: si el hub está en su máquina y a quién
-/// tiene él de servidor.
+/// What one agent reports to the other: whether the hub is on its machine and whom
+/// it has as server.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PeerReport {
     pub hub: bool,
     pub server: Machine,
 }
 
-/// Lo que este agente sabe del otro.
+/// What this agent knows about the other one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Peer {
-    /// Sin conexión, o todavía sin reporte.
+    /// No connection, or no report yet.
     Unknown,
-    /// Se lo da por apagado (el estado de esta máquina lo dice): una máquina apagada no
-    /// ve ningún dispositivo USB, así que no tiene el hub.
+    /// Assumed off (this machine's state says so): a powered-off machine does not
+    /// see any USB device, so it does not have the hub.
     Off,
-    /// Su último reporte. `server` falta si solo reportó el hub.
+    /// Its last report. `server` is missing if it only reported the hub.
     Seen { hub: bool, server: Option<Machine> },
 }
 
-/// Decide qué máquina es el servidor con lo que sabe este agente: si el hub está
-/// aquí (ya con antirrebote), lo que reporta el otro agente y el selector.
+/// Decides which machine is the server from what this agent knows: whether the hub is
+/// here (already debounced), what the other agent reports and the selector.
 ///
-/// Las dos máquinas corren cada una su árbitro; si ven lo mismo (lo de aquí de
-/// una es lo del otro de la otra, y el mismo selector), llegan al mismo servidor.
-/// En automático solo se decide con las dos lecturas y el hub en una sola
-/// máquina. Si falta una lectura (sin conexión con el otro agente) o el hub no
-/// aparece en ninguna o aparece en las dos, se queda el servidor que había: una
-/// desconexión larga del hub o del enlace no invierte los roles, y las dos
-/// máquinas no pueden separarse por verlo distinto mientras no se hablan.
+/// Each of the two machines runs its own arbiter; if they see the same thing (what is here for
+/// one is what is there for the other, and the same selector), they reach the same server.
+/// In automatic mode a decision is made only with both readings and the hub on a single
+/// machine. If a reading is missing (no connection with the other agent) or the hub
+/// appears on neither or on both, the previous server stays: a long
+/// hub or link disconnection does not invert the roles, and the two
+/// machines cannot split by seeing it differently while they are not talking.
 ///
-/// La excepción es un otro agente apagado ([`RoleArbiter::set_peer_off`], T-066):
-/// la que sigue prendida decide sola, porque la apagada no tiene el hub. La apagada no
-/// se entera, así que al volver puede traer otro servidor; si el hub tampoco decide
-/// entonces (en ninguna o en las dos), manda el del lado `A` y `B` lo adopta de su
-/// [`PeerReport`]: así las dos vuelven a coincidir sin depender de qué sistema tiene
-/// cada una.
+/// The exception is a powered-off other agent ([`RoleArbiter::set_peer_off`], T-066):
+/// the one still on decides alone, because the off one does not have the hub. The off one
+/// does not find out, so on return it may bring another server; if the hub does not decide
+/// then either (on neither or on both), the `A` side rules and `B` adopts it from its
+/// [`PeerReport`]: this way the two agree again without depending on which system each
+/// one has.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RoleArbiter {
     me: Machine,
     selector: Selector,
-    /// `None` hasta la primera lectura.
+    /// `None` until the first reading.
     local_hub: Option<bool>,
     peer: Peer,
     server: Machine,
 }
 
 impl RoleArbiter {
-    /// `server` es el servidor con el que se arranca (el último guardado, por ejemplo).
+    /// `server` is the server to start with (the last saved one, for example).
     pub fn new(me: Machine, server: Machine) -> Self {
         RoleArbiter {
             me,
@@ -107,7 +107,7 @@ impl RoleArbiter {
         self.local_hub
     }
 
-    /// Si el hub está en la otra máquina, según su reporte; `Some(false)` si está apagada.
+    /// Whether the hub is on the other machine, according to its report; `Some(false)` if it is off.
     pub fn peer_hub(&self) -> Option<bool> {
         match self.peer {
             Peer::Unknown => None,
@@ -116,12 +116,12 @@ impl RoleArbiter {
         }
     }
 
-    /// Si se da al otro agente por apagado.
+    /// Whether the other agent is assumed off.
     pub fn peer_off(&self) -> bool {
         self.peer == Peer::Off
     }
 
-    /// Lo que este agente le reporta al otro.
+    /// What this agent reports to the other.
     pub fn report(&self) -> Option<PeerReport> {
         self.local_hub.map(|hub| PeerReport {
             hub,
@@ -129,9 +129,9 @@ impl RoleArbiter {
         })
     }
 
-    /// Cambia el selector. Devuelve el servidor nuevo si cambió.
-    /// El usuario dijo dónde está el teclado (el asistente, T-087). Sin hub que decida, es
-    /// el servidor; con hub, la próxima lectura del hub manda otra vez.
+    /// Changes the selector. Returns the new server if it changed.
+    /// The user said where the keyboard is (the setup, T-087). With no hub to decide, it is
+    /// the server; with a hub, the next hub reading rules again.
     pub fn declare(&mut self, server: Machine) -> Option<Machine> {
         let before = self.server;
         self.server = server;
@@ -143,13 +143,13 @@ impl RoleArbiter {
         self.resolve()
     }
 
-    /// El hub (estable) se conectó o desconectó aquí.
+    /// The (stable) hub connected or disconnected here.
     pub fn set_local_hub(&mut self, present: bool) -> Option<Machine> {
         self.local_hub = Some(present);
         self.resolve()
     }
 
-    /// Lo que reporta el otro agente, solo el hub; `None` al perder la conexión con él.
+    /// What the other agent reports, only the hub; `None` on losing the connection with it.
     pub fn set_peer_hub(&mut self, present: Option<bool>) -> Option<Machine> {
         self.peer = match present {
             Some(hub) => Peer::Seen { hub, server: None },
@@ -158,7 +158,7 @@ impl RoleArbiter {
         self.resolve()
     }
 
-    /// El reporte completo del otro agente; `None` al perder la conexión con él.
+    /// The complete report of the other agent; `None` on losing the connection with it.
     pub fn set_peer(&mut self, report: Option<PeerReport>) -> Option<Machine> {
         self.peer = match report {
             Some(r) => Peer::Seen {
@@ -170,8 +170,8 @@ impl RoleArbiter {
         self.resolve()
     }
 
-    /// El otro agente se da por apagado (según el estado de esta máquina): cuenta como
-    /// que no tiene el hub. Lo quita el siguiente reporte suyo o perder la conexión.
+    /// The other agent is assumed off (according to this machine's state): counts as
+    /// not having the hub. Removed by its next report or by losing the connection.
     pub fn set_peer_off(&mut self) -> Option<Machine> {
         self.peer = Peer::Off;
         self.resolve()
@@ -183,7 +183,7 @@ impl RoleArbiter {
             Selector::Auto => match (self.local_hub, self.peer_hub()) {
                 (Some(true), Some(false)) => self.me,
                 (Some(false), Some(true)) => self.me.other(),
-                // Empate: en B manda el servidor de A (ver arriba).
+                // Tie: on B the server of A rules (see above).
                 _ => match self.peer {
                     Peer::Seen {
                         server: Some(theirs),
@@ -221,13 +221,13 @@ mod tests {
         let mut a = RoleArbiter::new(Machine::B, Machine::B);
         a.set_local_hub(true);
         a.set_peer_hub(Some(false));
-        // El usuario mueve el hub: aquí desaparece y allá aparece, en cualquier orden.
+        // The user moves the hub: it disappears here and appears there, in any order.
         assert_eq!(a.set_local_hub(false), None);
         assert_eq!(a.server(), Machine::B);
         assert_eq!(a.set_peer_hub(Some(true)), Some(Machine::A));
         assert_eq!(a.role(), Role::Client);
 
-        // Y de vuelta, con el orden contrario: los dos un momento lo ven.
+        // And back, in the opposite order: both see it for a moment.
         assert_eq!(a.set_local_hub(true), None);
         assert_eq!(a.server(), Machine::A);
         assert_eq!(a.set_peer_hub(Some(false)), Some(Machine::B));
@@ -249,9 +249,9 @@ mod tests {
         let mut a = RoleArbiter::new(Machine::A, Machine::B);
         assert_eq!(a.set_local_hub(true), None);
         assert_eq!(a.server(), Machine::B);
-        // Llega el reporte del otro agente: ahora sí.
+        // The other agent's report arrives: now it does.
         assert_eq!(a.set_peer_hub(Some(false)), Some(Machine::A));
-        // Perder la conexión no cambia nada, aunque el hub se vaya de aquí.
+        // Losing the connection changes nothing, even if the hub leaves here.
         assert_eq!(a.set_peer_hub(None), None);
         assert_eq!(a.set_local_hub(false), None);
         assert_eq!(a.server(), Machine::A);
@@ -274,13 +274,13 @@ mod tests {
             Some(Machine::B)
         );
         assert_eq!(a.role(), Role::Client);
-        // La detección sigue llegando y no cambia nada.
+        // Detection keeps arriving and changes nothing.
         assert_eq!(a.set_local_hub(false), None);
         assert_eq!(a.set_peer_hub(Some(true)), None);
         assert_eq!(a.set_local_hub(true), None);
         assert_eq!(a.set_peer_hub(Some(false)), None);
         assert_eq!(a.server(), Machine::B);
-        // Volver a automático aplica lo detectado.
+        // Going back to automatic applies what was detected.
         assert_eq!(a.set_selector(Selector::Auto), Some(Machine::A));
     }
 
@@ -296,15 +296,15 @@ mod tests {
         toml::to_string(s).unwrap().trim().to_owned()
     }
 
-    /// Un hecho del puesto. Cada uno llega a los dos agentes antes del siguiente:
-    /// el antirrebote es de segundos y el reporte tarda milisegundos.
+    /// A fact about the desk. Each one reaches both agents before the next:
+    /// the debounce is seconds and the report takes milliseconds.
     #[derive(Debug, Clone, Copy)]
     enum Op {
         Selector(Selector),
-        /// El hub (estable) aparece o desaparece en una máquina.
+        /// The (stable) hub appears or disappears on a machine.
         Hub(Machine, bool),
         PeerLost,
-        /// Se recupera la conexión y cada uno manda lo que ve.
+        /// The connection is recovered and each one sends what it sees.
         PeerBack,
     }
 
@@ -323,7 +323,7 @@ mod tests {
         ]
     }
 
-    /// Los dos agentes y el puesto real.
+    /// The two agents and the real desk.
     struct Desk {
         mac: RoleArbiter,
         pc: RoleArbiter,
@@ -353,7 +353,7 @@ mod tests {
             self.pc.set_peer_hub(Some(self.hub_on_mac));
         }
 
-        /// Aplica el hecho y devuelve el cambio que avisó cada agente.
+        /// Applies the fact and returns the change each agent notified.
         fn apply(&mut self, op: Op) -> [Option<Machine>; 2] {
             match op {
                 Op::Selector(s) => [self.mac.set_selector(s), self.pc.set_selector(s)],
@@ -393,8 +393,8 @@ mod tests {
     }
 
     proptest! {
-        /// Con el selector en manual, el servidor es el elegido pase lo que pase
-        /// con el hub; y solo se avisa un cambio de verdad.
+        /// With the selector on manual, the server is the chosen one no matter what happens
+        /// with the hub; and only a real change is notified.
         #[test]
         fn manual_always_wins(start in machine(), ops in proptest::collection::vec(op(), 0..40)) {
             let mut desk = Desk::new(start);
@@ -416,9 +416,9 @@ mod tests {
             }
         }
 
-        /// Las dos máquinas coinciden siempre en el servidor (una es servidor y la
-        /// otra cliente); y en automático y conectadas, si el hub está en una sola
-        /// máquina, esa es el servidor.
+        /// The two machines always agree on the server (one is server and the
+        /// other client); and in automatic mode and connected, if the hub is on a single
+        /// machine, that one is the server.
         #[test]
         fn both_agents_agree(start in machine(), ops in proptest::collection::vec(op(), 0..40)) {
             let mut desk = Desk::new(start);
@@ -434,20 +434,24 @@ mod tests {
         }
     }
 
-    // --- La PC apagada (T-066) ---
+    // --- The PC off (T-066) ---
 
     #[test]
     fn with_the_pc_off_the_mac_decides_alone() {
-        // La PC tenía el hub; se apaga y el hub pasa a la Mac.
+        // The PC had the hub; it powers off and the hub moves to the Mac.
         let mut mac = RoleArbiter::new(Machine::A, Machine::B);
         mac.set_local_hub(false);
         mac.set_peer_hub(Some(true));
         assert_eq!(mac.server(), Machine::B);
-        assert_eq!(mac.set_peer_off(), None, "sin el hub aquí no cambia nada");
+        assert_eq!(
+            mac.set_peer_off(),
+            None,
+            "without the hub here nothing changes"
+        );
         assert!(mac.peer_off());
         assert_eq!(mac.peer_hub(), Some(false));
         assert_eq!(mac.set_local_hub(true), Some(Machine::A));
-        // Perder el hub aquí tampoco devuelve el servidor a la PC apagada.
+        // Losing the hub here does not return the server to the powered-off PC either.
         assert_eq!(mac.set_local_hub(false), None);
         assert_eq!(mac.server(), Machine::A);
     }
@@ -470,8 +474,8 @@ mod tests {
 
     #[test]
     fn the_pc_coming_back_follows_the_mac_on_a_tie() {
-        // La Mac quedó de servidor mientras la PC estaba apagada; al volver la
-        // PC trae lo último que guardó, y el hub no está en ninguna.
+        // The Mac stayed as server while the PC was off; on return the
+        // PC brings the last thing it saved, and the hub is on neither.
         let mut pc = RoleArbiter::new(Machine::B, Machine::B);
         let mut mac = RoleArbiter::new(Machine::A, Machine::A);
         mac.set_local_hub(false);
@@ -518,20 +522,20 @@ mod tests {
         );
     }
 
-    /// Un hecho del puesto con la PC que se apaga y vuelve.
+    /// A fact about the desk with the PC that powers off and comes back.
     #[derive(Debug, Clone, Copy)]
     enum PowerOp {
         Selector(Selector),
-        /// Dónde está el hub de verdad (en la PC apagada no se ve).
+        /// Where the hub really is (on the powered-off PC it is not seen).
         Hub(Machine, bool),
         LinkDown,
         LinkUp,
-        /// La PC se apaga (o pierde la corriente) y la Mac, pasado el umbral, lo sabe.
+        /// The PC powers off (or loses power) and the Mac, past the threshold, knows it.
         PcOff,
-        /// Los enlaces caen el tiempo suficiente para que la Mac dé la PC por
-        /// apagada, aunque siga prendida (T-063).
+        /// The links drop long enough for the Mac to consider the PC
+        /// off, even if it is still on (T-063).
         PresumedOff,
-        /// La PC arranca con el servidor que haya guardado, sea cual sea.
+        /// The PC starts with whatever server it saved, whichever it is.
         PcOn(Machine),
     }
 
@@ -600,7 +604,7 @@ mod tests {
                 }
                 PowerOp::PcOn(saved) => {
                     if !self.pc_running {
-                        // El selector se aplica en los dos agentes.
+                        // The selector is applied on both agents.
                         self.pc = RoleArbiter::new(Machine::B, saved);
                         self.pc.set_selector(self.mac.selector());
                         self.pc_running = true;
@@ -611,15 +615,15 @@ mod tests {
             self.deliver();
         }
 
-        /// Cada agente lee su hub y, si se hablan, intercambian reportes hasta
-        /// que no cambia nada (cada cambio de servidor se vuelve a reportar).
+        /// Each agent reads its hub and, if they talk, they exchange reports until
+        /// nothing changes (each server change is reported again).
         fn deliver(&mut self) {
             self.mac.set_local_hub(self.hub_on_mac);
             if self.pc_running {
                 self.pc.set_local_hub(self.hub_on_pc);
             }
             if self.connected() {
-                // Flanco de subida: la Mac vuelve a dar la PC por prendida.
+                // Rising edge: the Mac considers the PC on again.
                 self.mac_thinks_off = false;
                 for _ in 0..4 {
                     self.mac.set_peer(self.pc.report());
@@ -639,9 +643,9 @@ mod tests {
     }
 
     proptest! {
-        /// Con la PC apagada y el hub en la Mac, la Mac es el servidor; y cuando
-        /// las dos se hablan, coinciden, sea cual sea el servidor que la PC
-        /// traiga al arrancar.
+        /// With the PC off and the hub on the Mac, the Mac is the server; and when
+        /// the two talk, they agree, whichever server the PC
+        /// brings on startup.
         #[test]
         fn roles_converge_after_the_pc_is_off(
             start in machine(),

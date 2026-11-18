@@ -1,12 +1,12 @@
-//! Lo portable de los arrastres del sistema operativo (T-121): decisiones puras que las
-//! implementaciones de Windows y macOS comparten, para probarlas en Linux.
+//! The portable part of operating system drags (T-121): pure decisions that the
+//! Windows and macOS implementations share, to test them on Linux.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use crate::drag::{DragDetector, DragEnd};
 
-/// Qué hace `IDropSource::QueryContinueDrag` en cada vuelta del arrastre de Windows.
+/// What `IDropSource::QueryContinueDrag` does on each turn of the Windows drag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DropAction {
     Continue,
@@ -14,7 +14,7 @@ pub enum DropAction {
     Cancel,
 }
 
-/// Esc cancela; soltar el botón izquierdo suelta; si no, el arrastre sigue.
+/// Esc cancels; releasing the left button drops; otherwise the drag continues.
 pub fn drop_action(escape: bool, left_down: bool) -> DropAction {
     if escape {
         DropAction::Cancel
@@ -25,8 +25,8 @@ pub fn drop_action(escape: bool, left_down: bool) -> DropAction {
     }
 }
 
-/// Cómo terminó el arrastre: soltar donde nadie acepta la copia (efecto o operación vacíos)
-/// es lo mismo que cancelar.
+/// How the drag ended: dropping where nobody accepts the copy (empty effect or operation)
+/// is the same as canceling.
 pub fn end_of(dropped: bool, accepted: bool) -> DragEnd {
     if dropped && accepted {
         DragEnd::Dropped
@@ -35,11 +35,11 @@ pub fn end_of(dropped: bool, accepted: bool) -> DragEnd {
     }
 }
 
-/// La ruta de un `file://` del portapapeles de arrastre de macOS, con los `%xx` resueltos.
-/// `None` si no es un archivo local o el texto no es UTF-8 válido.
+/// The path of a `file://` from the macOS drag pasteboard, with the `%xx` resolved.
+/// `None` if it is not a local file or the text is not valid UTF-8.
 pub fn parse_file_url(url: &str) -> Option<PathBuf> {
     let rest = url.strip_prefix("file://")?;
-    // `file://localhost/ruta` y `file:///ruta` son lo mismo; otro host no es local.
+    // `file://localhost/path` and `file:///path` are the same; another host is not local.
     let path = match rest.strip_prefix("localhost") {
         Some(p) => p,
         None => rest,
@@ -61,7 +61,7 @@ pub fn parse_file_url(url: &str) -> Option<PathBuf> {
         }
     }
     let path = String::from_utf8(out).ok()?;
-    // Las carpetas llegan con «/» al final.
+    // Folders arrive with a trailing "/".
     let trimmed = path.trim_end_matches('/');
     Some(PathBuf::from(if trimmed.is_empty() {
         "/"
@@ -70,19 +70,19 @@ pub fn parse_file_url(url: &str) -> Option<PathBuf> {
     }))
 }
 
-/// Lo que el destino de arrastre invisible del borde sabe del arrastre en curso. Lo escribe
-/// el hilo de la ventana (Windows) y lo lee el agente por [`DragDetector`]; el doble de
-/// prueba escribe lo mismo sin ventana.
+/// What the edge's invisible drag target knows about the drag in progress. Written by
+/// the window thread (Windows) and read by the agent through [`DragDetector`]; the test
+/// double writes the same without a window.
 #[derive(Debug, Clone, Default)]
 pub struct DragProbe(Arc<Mutex<Option<Vec<PathBuf>>>>);
 
 impl DragProbe {
-    /// Entró un arrastre con `paths` (CF_HDROP). Sin rutas no es un arrastre de archivos.
+    /// A drag with `paths` entered (CF_HDROP). Without paths it is not a file drag.
     pub fn enter(&self, paths: Vec<PathBuf>) {
         self.set((!paths.is_empty()).then_some(paths));
     }
 
-    /// El arrastre salió del borde, se soltó o se canceló.
+    /// The drag left the edge, was dropped or was canceled.
     pub fn leave(&self) {
         self.set(None);
     }
@@ -101,7 +101,7 @@ impl DragDetector for DragProbe {
     }
 }
 
-/// Borde de la pantalla por el que se cruza.
+/// Screen edge through which it crosses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StripEdge {
     Left,
@@ -110,11 +110,11 @@ pub enum StripEdge {
     Bottom,
 }
 
-/// Rectángulo en píxeles de pantalla `(x, y, ancho, alto)`.
+/// Rectangle in screen pixels `(x, y, width, height)`.
 pub type PxRect = (i32, i32, i32, i32);
 
-/// La franja delgada, pegada por dentro al `edge` de `bounds`, donde vive la ventana
-/// destino de arrastre. Por dentro: fuera del escritorio virtual nadie recibe un soltar.
+/// The thin strip, flush inside the `edge` of `bounds`, where the drag target window
+/// lives. Inside: outside the virtual desktop nobody receives a drop.
 pub fn strip_rect(bounds: PxRect, edge: StripEdge, thickness: i32) -> PxRect {
     let (x, y, w, h) = bounds;
     let t = thickness.clamp(1, w.min(h).max(1));
@@ -133,7 +133,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn esc_cancela_y_soltar_el_boton_suelta() {
+    fn esc_cancels_and_releasing_the_button_drops() {
         assert_eq!(drop_action(true, true), DropAction::Cancel);
         assert_eq!(drop_action(true, false), DropAction::Cancel);
         assert_eq!(drop_action(false, false), DropAction::Drop);
@@ -141,34 +141,34 @@ mod tests {
     }
 
     #[test]
-    fn soltar_sin_destino_que_acepte_es_cancelar() {
+    fn dropping_where_nobody_accepts_is_canceling() {
         assert_eq!(end_of(true, true), DragEnd::Dropped);
         assert_eq!(end_of(true, false), DragEnd::Cancelled);
         assert_eq!(end_of(false, true), DragEnd::Cancelled);
     }
 
     #[test]
-    fn las_url_de_archivo_se_vuelven_rutas() {
+    fn file_urls_become_paths() {
         assert_eq!(
-            parse_file_url("file:///Users/ana/Mi%20foto%C3%B1.png"),
-            Some(PathBuf::from("/Users/ana/Mi fotoñ.png"))
+            parse_file_url("file:///Users/ana/My%20photo%C3%BC.png"),
+            Some(PathBuf::from("/Users/ana/My photo\u{fc}.png"))
         );
         assert_eq!(
             parse_file_url("file://localhost/tmp/x"),
             Some(PathBuf::from("/tmp/x"))
         );
         assert_eq!(
-            parse_file_url("file:///Users/ana/carpeta/"),
-            Some(PathBuf::from("/Users/ana/carpeta"))
+            parse_file_url("file:///Users/ana/folder/"),
+            Some(PathBuf::from("/Users/ana/folder"))
         );
         assert_eq!(parse_file_url("file:///"), Some(PathBuf::from("/")));
     }
 
     #[test]
-    fn lo_que_no_es_un_archivo_local_se_descarta() {
+    fn what_is_not_a_local_file_is_discarded() {
         for bad in [
-            "https://ejemplo.com/a",
-            "file://otro-host/a",
+            "https://example.com/a",
+            "file://other-host/a",
             "file:///a%zz",
             "file:///a%2",
             "file:///a%FF",
@@ -179,25 +179,25 @@ mod tests {
     }
 
     #[test]
-    fn la_sonda_refleja_el_arrastre_de_archivos() {
+    fn the_probe_reflects_the_file_drag() {
         let p = DragProbe::default();
         assert_eq!(p.file_drag(), None);
         p.enter(vec![PathBuf::from("C:/a.txt")]);
         assert_eq!(p.file_drag(), Some(vec![PathBuf::from("C:/a.txt")]));
-        let otra = p.clone();
-        otra.leave();
-        assert_eq!(p.file_drag(), None, "las copias comparten estado");
+        let other = p.clone();
+        other.leave();
+        assert_eq!(p.file_drag(), None, "the copies share state");
     }
 
     #[test]
-    fn un_arrastre_sin_archivos_no_cuenta() {
+    fn a_drag_without_files_does_not_count() {
         let p = DragProbe::default();
         p.enter(Vec::new());
         assert_eq!(p.file_drag(), None);
     }
 
     #[test]
-    fn la_franja_queda_dentro_del_borde() {
+    fn the_strip_stays_inside_the_edge() {
         let b = (100, 50, 1920, 1080);
         assert_eq!(strip_rect(b, StripEdge::Left, 4), (100, 50, 4, 1080));
         assert_eq!(strip_rect(b, StripEdge::Right, 4), (2016, 50, 4, 1080));
@@ -207,7 +207,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn la_franja_siempre_cabe_en_la_pantalla(
+        fn the_strip_always_fits_on_the_screen(
             x in -3000i32..3000, y in -3000i32..3000,
             w in 1i32..5000, h in 1i32..5000, t in -5i32..50, e in 0u8..4,
         ) {
@@ -218,7 +218,7 @@ mod tests {
         }
     }
 
-    /// Lo que codifica macOS: todo salvo los caracteres sin reservar queda en `%xx`.
+    /// What macOS encodes: everything except unreserved characters ends up as `%xx`.
     fn encode(path: &str) -> String {
         let mut out = String::from("file://");
         for b in path.bytes() {
@@ -233,7 +233,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn codificar_y_leer_devuelve_la_misma_ruta(
+        fn encode_and_read_returns_the_same_path(
             parts in proptest::collection::vec("[^/\\x00]{1,12}", 1..5)
         ) {
             let path = format!("/{}", parts.join("/"));

@@ -1,6 +1,6 @@
-//! Módulos entre dos `tandemd` reales por loopback (T-098): lo que la UI de una máquina
-//! enciende o apaga en la otra llega por el plano de control, y las dos UIs ven el estado
-//! nuevo en [`AgentToUi::Machines`].
+//! Modules between two real `tandemd`s over loopback (T-098): what one machine's UI
+//! turns on or off on the other arrives over the control plane, and both UIs see the new
+//! state in [`AgentToUi::Machines`].
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -25,10 +25,10 @@ const TIMEOUT: Duration = Duration::from_secs(20);
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
-/// La primera es la del lado A (DECISIONS A1).
+/// The first is side A's (DECISIONS A1).
 fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     if x.public_key().as_bytes() < y.public_key().as_bytes() {
         (x, y)
@@ -64,7 +64,7 @@ impl Running {
         within(self.task).await.unwrap().unwrap();
     }
 
-    /// Espera un aviso de las máquinas que cumpla `pred`.
+    /// Waits for a machines notice that satisfies `pred`.
     async fn until_machines(
         &mut self,
         pred: impl Fn(&Capabilities, Option<&Capabilities>) -> bool,
@@ -78,7 +78,7 @@ impl Running {
                         }
                     }
                     Some(_) => {}
-                    None => panic!("el agente cerró la IPC"),
+                    None => panic!("the agent closed the IPC"),
                 }
             }
         })
@@ -86,8 +86,8 @@ impl Running {
     }
 }
 
-/// Un agente armado como en el binario, ya emparejado con el otro, con el enlace de
-/// loopback hacia él. Sin motor de entrada: solo importa el estado de los módulos.
+/// An agent built as in the binary, already paired with the other, with the loopback
+/// link to it. Without an input engine: only the modules' state matters.
 async fn start(
     machine: Machine,
     identity: &Identity,
@@ -127,7 +127,7 @@ async fn start(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
-            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
             ..NetOptions::default()
         },
@@ -165,11 +165,11 @@ fn module(caps: &Capabilities, id: ModuleId) -> ModuleState {
         .iter()
         .find(|m| m.id == id)
         .map(|m| m.state.clone())
-        .unwrap_or_else(|| panic!("{} no anuncia {id:?}", caps.info.name))
+        .unwrap_or_else(|| panic!("{} does not announce {id:?}", caps.info.name))
 }
 
-/// Apagar un módulo de la otra máquina desde la UI de esta cambia su estado en las dos UIs;
-/// y encenderlo desde la otra UI, también.
+/// Turning off a module of the other machine from this one's UI changes its state in both UIs;
+/// and turning it on from the other UI, too.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn switching_a_remote_module_shows_in_both_uis() {
     let (a_id, b_id) = sides(Identity::from_seed([7; 32]), Identity::from_seed([8; 32]));
@@ -178,7 +178,7 @@ async fn switching_a_remote_module_shows_in_both_uis() {
         start(Machine::B, &b_id, b_port, (a_id.public_key(), a_port))
     );
 
-    // Hasta que A tiene enlace con B y conoce sus módulos (su anuncio llega al conectarse).
+    // Until A has a link to B and knows its modules (its announcement arrives on connecting).
     within(async {
         while !matches!(
             a.ui.request(UiCommand::PingPeer).await.unwrap(),
@@ -216,7 +216,7 @@ async fn switching_a_remote_module_shows_in_both_uis() {
     })
     .await;
 
-    // Desde la UI de B, lo suyo vuelve a encenderse y A lo ve.
+    // From B's UI, its own turns on again and A sees it.
     let reply =
         b.ui.request(UiCommand::SetModule {
             machine: Machine::B,
@@ -231,7 +231,7 @@ async fn switching_a_remote_module_shows_in_both_uis() {
     })
     .await;
 
-    // Lo que la otra no puede apagar se rechaza aquí, con su razón.
+    // What the other cannot turn off is rejected here, with its reason.
     let Reply::Rejected(why) =
         a.ui.request(UiCommand::SetModule {
             machine: Machine::B,
@@ -241,9 +241,9 @@ async fn switching_a_remote_module_shows_in_both_uis() {
         .await
         .unwrap()
     else {
-        panic!("los túneles no se apagan");
+        panic!("tunnels cannot be turned off");
     };
-    assert!(why.contains("no se puede"), "{why}");
+    assert!(why.contains("cannot"), "{why}");
 
     a.stop().await;
     b.stop().await;

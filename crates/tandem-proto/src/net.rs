@@ -1,104 +1,104 @@
-//! Métricas de red por camino, para la pantalla Red y el resumen del Puesto (T-102,
-//! DESIGN §6, mockups `V3-Red` y `V3-Puesto`).
+//! Network metrics per path, for the Network screen and the Desk summary (T-102,
+//! DESIGN §6, mockups `V3-Network` and `V3-Desk`).
 //!
-//! Los tiempos van en microsegundos enteros (las latencias por cable son de décimas de
-//! milisegundo) y las fechas en milisegundos Unix, para que los mensajes se comparen con
-//! `Eq` y la UI diga «hace 3 min».
+//! Times are in whole microseconds (cable latencies are tenths of a
+//! millisecond) and dates in Unix milliseconds, so the messages compare with
+//! `Eq` and the UI can say "3 min ago".
 
 use serde::{Deserialize, Serialize};
 
 use crate::msg::Link;
 
-/// Muestras del historial de cada camino (una por segundo).
+/// Samples in each path's history (one per second).
 pub const HISTORY_SECS: usize = 60;
-/// Cambios de camino que se guardan.
+/// Path changes that are kept.
 pub const MAX_SWITCHES: usize = 50;
-/// Lo que dura la prueba de ancho de banda.
+/// How long the bandwidth test lasts.
 pub const MEASURE_SECS: u64 = 3;
 
-/// El papel de un camino ahora.
+/// A path's role right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PathState {
-    /// Lleva la entrada y los pedidos.
+    /// Carries the input and the requests.
     Primary,
-    /// Responde, listo para tomar el tráfico si el principal cae.
+    /// Answers, ready to take the traffic if the main one drops.
     Backup,
-    /// Nunca respondió desde que arrancó el agente (o no está configurado): «Sin cable».
+    /// Never answered since the agent started (or is not configured): "No cable".
     Unplugged,
-    /// Respondió y dejó de hacerlo.
+    /// Answered and stopped doing so.
     Down,
 }
 
-/// El último ancho de banda medido de un camino.
+/// The last bandwidth measured for a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bandwidth {
     pub bytes_per_sec: u64,
-    /// Cuándo se midió.
+    /// When it was measured.
     pub at_ms: u64,
 }
 
-/// Un segundo del historial de un camino. `None`: no respondió o no hubo entrada.
+/// One second of a path's history. `None`: it did not answer or there was no input.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LatencySample {
     pub rtt_us: Option<u32>,
     pub input_p99_us: Option<u32>,
 }
 
-/// Un camino con sus números.
+/// A path with its numbers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathMetrics {
     pub link: Link,
     pub state: PathState,
-    /// Ida y vuelta del último ping; `None` si no responde.
+    /// Round trip of the last ping; `None` if it does not answer.
     pub rtt_us: Option<u32>,
-    /// Latencia de la entrada en el último segundo; `None` sin entrada por este camino.
+    /// Input latency in the last second; `None` without input on this path.
     pub input_p50_us: Option<u32>,
     pub input_p99_us: Option<u32>,
-    /// El p99 que se le tolera a la entrada por este camino (DESIGN §7.1): la línea de
-    /// «objetivo» de la gráfica.
+    /// The p99 tolerated for input on this path (DESIGN §7.1): the chart's
+    /// "target" line.
     pub input_target_us: u32,
     pub bandwidth: Option<Bandwidth>,
-    /// Hasta [`HISTORY_SECS`] muestras, de la más vieja a la más nueva.
+    /// Up to [`HISTORY_SECS`] samples, oldest to newest.
     pub history: Vec<LatencySample>,
 }
 
-/// Un cambio del camino principal («pasó a Wi-Fi en 0.6 s»).
+/// A change of the main path ("switched to Wi-Fi in 0.6 s").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathSwitch {
     pub at_ms: u64,
     pub from: Option<Link>,
     pub to: Option<Link>,
-    /// Si `from` se cayó: desde su última respuesta hasta que `to` tomó el tráfico (lo
-    /// que la entrada estuvo sin camino, como mucho). `None` si fue una subida a un camino
-    /// mejor, sin corte.
+    /// If `from` went down: from its last answer until `to` took the traffic (how
+    /// long the input was without a path, at most). `None` if it was a switch up to a path
+    /// better, without a cut.
     pub took_ms: Option<u32>,
 }
 
-/// Un aviso de la red para la pantalla Red: algo que el agente no pudo hacer solo y el
-/// usuario sí (por ejemplo, asignar la IP de respaldo de un cable sin permisos).
+/// A network notice for the Network screen: something the agent could not do on its own and the
+/// user can (for example, assigning a cable's backup IP without permissions).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkNotice {
     pub interface: String,
     pub message: String,
-    /// La orden exacta que resuelve el aviso.
+    /// The exact command that resolves the notice.
     pub command: String,
 }
 
-/// La red con la otra máquina vista desde este agente.
+/// The network with the other machine as seen from this agent.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NetworkStatus {
-    /// Los tres caminos, en orden de prioridad (USB-C, Ethernet, Wi-Fi).
+    /// The three paths, in priority order (USB-C, Ethernet, Wi-Fi).
     pub paths: Vec<PathMetrics>,
-    /// Hasta [`MAX_SWITCHES`] cambios, del más nuevo al más viejo.
+    /// Up to [`MAX_SWITCHES`] changes, newest to oldest.
     pub switches: Vec<PathSwitch>,
-    /// El camino que se está midiendo ahora, si alguno.
+    /// The path being measured right now, if any.
     pub measuring: Option<Link>,
-    /// Lo que el usuario tiene que hacer a mano (T-094).
+    /// What the user has to do by hand (T-094).
     pub notices: Vec<NetworkNotice>,
 }
 
 impl NetworkStatus {
-    /// El camino principal, si hay.
+    /// The main path, if there is one.
     pub fn primary(&self) -> Option<&PathMetrics> {
         self.paths.iter().find(|p| p.state == PathState::Primary)
     }
@@ -108,8 +108,8 @@ impl NetworkStatus {
     }
 }
 
-/// Lo que contesta quien recibe la prueba de ancho de banda (por el mismo stream, al
-/// llegarle el fin): cuánto recibió y en cuánto tiempo, del primer byte al último.
+/// What the receiver of the bandwidth test answers (over the same stream, when the
+/// end arrives): how much it received and in how long, from the first byte to the last.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MeasureReport {
     pub bytes: u64,
@@ -117,7 +117,7 @@ pub struct MeasureReport {
 }
 
 impl MeasureReport {
-    /// Bytes por segundo; `None` si no llegó nada que medir.
+    /// Bytes per second; `None` if nothing arrived to measure.
     pub fn bytes_per_sec(&self) -> Option<u64> {
         if self.bytes == 0 || self.micros == 0 {
             return None;
@@ -131,8 +131,8 @@ impl MeasureReport {
 pub(crate) mod samples {
     use super::*;
 
-    /// El ejemplo del mockup `V3-Red`: USB-C principal, Ethernet sin cable, Wi-Fi de
-    /// respaldo, y el corte del cable.
+    /// The `V3-Network` mockup example: USB-C main, Ethernet without cable, Wi-Fi as
+    /// backup, and the cable cut.
     pub fn status() -> NetworkStatus {
         let sample = LatencySample {
             rtt_us: Some(300),
@@ -211,7 +211,7 @@ pub(crate) mod samples {
         }
     }
 
-    /// Un estado de cada clase.
+    /// One state of each kind.
     pub fn path_states() -> Vec<PathState> {
         let mut v: Vec<_> = status().paths.iter().map(|p| p.state).collect();
         v.push(PathState::Down);
@@ -226,7 +226,7 @@ mod tests {
     use crate::{decode, encode};
 
     #[test]
-    fn el_estado_de_la_red_va_y_vuelve() {
+    fn network_state_round_trips() {
         let s = status();
         assert_eq!(decode::<NetworkStatus>(&encode(&s).unwrap()).unwrap(), s);
         let r = MeasureReport {
@@ -236,11 +236,11 @@ mod tests {
         assert_eq!(decode::<MeasureReport>(&encode(&r).unwrap()).unwrap(), r);
         let seen: std::collections::BTreeSet<_> =
             path_states().into_iter().map(path_state_arm).collect();
-        assert_eq!(seen.len(), 4, "faltan muestras de algún estado");
+        assert_eq!(seen.len(), 4, "samples missing for some state");
     }
 
     #[test]
-    fn el_principal_es_el_que_lleva_el_tráfico() {
+    fn the_main_path_is_the_one_carrying_the_traffic() {
         let s = status();
         assert_eq!(s.primary().map(|p| p.link), Some(Link::Usb4));
         assert_eq!(
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn el_ancho_de_banda_sale_de_lo_recibido_y_su_tiempo() {
+    fn bandwidth_comes_from_what_was_received_and_its_time() {
         let r = |bytes, micros| MeasureReport { bytes, micros }.bytes_per_sec();
         assert_eq!(r(30_000_000, 3_000_000), Some(10_000_000));
         assert_eq!(r(1, 1), Some(1_000_000));

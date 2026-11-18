@@ -293,8 +293,11 @@ async fn an_agent_without_a_capabilities_announcement_is_rejected_with_a_clear_e
         "{e}"
     );
     let text = e.to_string();
-    assert!(text.contains("versión de protocolo incompatible"), "{text}");
-    assert!(text.contains("sin anuncio de capacidades"), "{text}");
+    assert!(text.contains("incompatible protocol version"), "{text}");
+    assert!(
+        text.contains("without a capabilities announcement"),
+        "{text}"
+    );
 }
 
 /// With the stream split, both sides can send a lot at once: each one

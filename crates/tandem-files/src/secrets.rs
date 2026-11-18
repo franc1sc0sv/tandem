@@ -1,20 +1,20 @@
-//! La lista única de lo que parece una credencial (T-130, D2: vale en los dos sentidos).
+//! The single list of what looks like a credential (T-130, D2: applies in both directions).
 //!
-//! La usan archivos (`Source`) y workspaces (el parche). Se rechaza por omisión, aunque
-//! no esté en `.gitignore`; la única salida es nombrar el archivo concreto en `include`.
-//! Las rutas son las del cable: relativas, con `/`.
+//! Used by files (`Source`) and workspaces (the patch). Rejected by default, even if
+//! it is not in `.gitignore`; the only way out is naming the specific file in `include`.
+//! Paths are the wire ones: relative, with `/`.
 
 use std::fs;
 use std::io::Read;
 use std::path::Path;
 
-/// Nombres de carpeta que contienen credenciales: todo lo de adentro es secreto.
+/// Folder names that contain credentials: everything inside is secret.
 const SECRET_DIRS: &[&str] = &[".ssh", ".aws", ".gnupg", ".kube", ".azure"];
 
-/// Pares de carpetas consecutivas (`.config/gh`).
+/// Pairs of consecutive folders (`.config/gh`).
 const SECRET_DIR_PAIRS: &[(&str, &str)] = &[(".config", "gh"), (".config", "gcloud")];
 
-/// Nombres exactos de archivo (sin distinguir mayúsculas).
+/// Exact file names (case-insensitive).
 const SECRET_NAMES: &[&str] = &[
     ".env",
     ".git-credentials",
@@ -29,27 +29,27 @@ const SECRET_NAMES: &[&str] = &[
     "client_secret.json",
 ];
 
-/// Extensiones de archivo (sin el punto).
+/// File extensions (without the dot).
 const SECRET_EXTS: &[&str] = &["pem", "key", "p12", "pfx", "jks", "keystore", "ppk", "kdbx"];
 
-/// Prefijos de nombre: `id_rsa`, `id_rsa.pub`, `id_ed25519_work`…
+/// Name prefixes: `id_rsa`, `id_rsa.pub`, `id_ed25519_work`…
 const SECRET_PREFIXES: &[&str] = &["id_rsa", "id_ed25519", "id_ecdsa", "id_dsa"];
 
-/// `.env.*` que son plantillas sin valores reales.
+/// `.env.*` that are templates without real values.
 const ENV_TEMPLATES: &[&str] = &["example", "sample", "template", "dist", "defaults"];
 
-/// Archivos que solo son secretos si traen un token o una contraseña.
+/// Files that are only secret if they carry a token or a password.
 const TOKEN_FILES: &[&str] = &[".npmrc", ".pypirc", ".yarnrc", ".yarnrc.yml", "pip.conf"];
 
-/// Cuánto de un `.npmrc` y similares se lee buscando un token.
+/// How much of an `.npmrc` and similar is read looking for a token.
 const TOKEN_SCAN_LIMIT: u64 = 64 * 1024;
 
-/// Qué es una ruta según su nombre.
+/// What a path is according to its name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Class {
     Clean,
     Secret,
-    /// Depende del contenido.
+    /// Depends on the content.
     IfToken,
 }
 
@@ -62,7 +62,7 @@ fn classify(rel: &str) -> Class {
     let Some(name) = parts.last() else {
         return Class::Clean;
     };
-    // Una carpeta secreta en cualquier tramo, el último incluido (`.ssh` mismo).
+    // A secret folder at any stretch, the last one included (`.ssh` itself).
     if parts.iter().any(|d| SECRET_DIRS.contains(&d.as_str())) {
         return Class::Secret;
     }
@@ -98,7 +98,7 @@ fn classify(rel: &str) -> Class {
     Class::Clean
 }
 
-/// ¿El contenido de un `.npmrc`/`.pypirc` trae un token o una contraseña?
+/// Does the content of an `.npmrc`/`.pypirc` carry a token or a password?
 pub fn has_token(content: &[u8]) -> bool {
     let text = String::from_utf8_lossy(content).to_ascii_lowercase();
     text.lines()
@@ -118,13 +118,13 @@ pub fn has_token(content: &[u8]) -> bool {
         })
 }
 
-/// ¿Esta ruta del cable parece secreta por su nombre? (Los `.npmrc` y similares
-/// dependen del contenido: usa [`SecretFilter::blocks`].)
+/// Does this wire path look secret by its name? (`.npmrc` files and similar
+/// depend on the content: use [`SecretFilter::blocks`].)
 pub fn looks_secret(rel: &str) -> bool {
     classify(rel) == Class::Secret
 }
 
-/// El filtro con las excepciones explícitas de una llamada.
+/// The filter with the explicit exceptions of a call.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SecretFilter {
     include: Vec<String>,
@@ -139,15 +139,15 @@ fn norm(path: &str) -> String {
 }
 
 impl SecretFilter {
-    /// `include`: rutas exactas (relativas a lo que se copia) que sí se mandan.
+    /// `include`: exact paths (relative to what is copied) that are sent.
     pub fn new(include: &[String]) -> Self {
         SecretFilter {
             include: include.iter().map(|p| norm(p)).collect(),
         }
     }
 
-    /// ¿Se omite `rel`? `abs` es dónde está en disco, para mirar el contenido de los
-    /// archivos que solo son secretos con token.
+    /// Is `rel` omitted? `abs` is where it is on disk, to look at the contents of
+    /// files that are only secret with a token.
     pub fn blocks(&self, rel: &str, abs: &Path) -> bool {
         let blocked = match classify(rel) {
             Class::Clean => false,
@@ -159,8 +159,8 @@ impl SecretFilter {
 }
 
 impl SecretFilter {
-    /// ¿Lo que se copia está dentro de una carpeta secreta (`~/.ssh`, `~/.aws`…)? Para
-    /// una carpeta no hay excepción; un archivo suelto se salva nombrándolo en `include`.
+    /// Is what is copied inside a secret folder (`~/.ssh`, `~/.aws`…)? For
+    /// a folder there is no exception; a loose file is saved by naming it in `include`.
     pub fn root_blocked(&self, local: &Path, is_dir: bool) -> bool {
         let full = local.to_string_lossy().replace('\\', "/");
         if !looks_secret(&full) {
@@ -190,7 +190,7 @@ mod tests {
     use proptest::prelude::*;
 
     #[test]
-    fn nombres_que_son_secretos() {
+    fn names_that_are_secrets() {
         for p in [
             ".env",
             "app/.env",
@@ -215,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    fn nombres_que_no_lo_son() {
+    fn names_that_are_not_secrets() {
         for p in [
             "src/main.rs",
             ".env.example",
@@ -234,39 +234,39 @@ mod tests {
     }
 
     #[test]
-    fn el_token_decide_en_npmrc() {
+    fn the_token_decides_in_npmrc() {
         assert!(has_token(b"//registry.npmjs.org/:_authToken=abc123\n"));
         assert!(has_token(b"[pypi]\nusername = u\npassword = p\n"));
         assert!(!has_token(b"registry=https://registry.npmjs.org/\n"));
-        assert!(!has_token(b"# _authToken=comentado\nsave-exact=true\n"));
+        assert!(!has_token(b"# _authToken=commented\nsave-exact=true\n"));
     }
 
     #[test]
-    fn npmrc_con_y_sin_token_en_disco() {
+    fn npmrc_with_and_without_token_on_disk() {
         let d = tempfile::tempdir().unwrap();
-        let con = d.path().join(".npmrc");
-        fs::write(&con, "//r/:_authToken=zzz\n").unwrap();
-        let sin = d.path().join("sub");
-        fs::create_dir(&sin).unwrap();
-        fs::write(sin.join(".npmrc"), "registry=https://r/\n").unwrap();
+        let with_token = d.path().join(".npmrc");
+        fs::write(&with_token, "//r/:_authToken=zzz\n").unwrap();
+        let without_token = d.path().join("sub");
+        fs::create_dir(&without_token).unwrap();
+        fs::write(without_token.join(".npmrc"), "registry=https://r/\n").unwrap();
         let f = SecretFilter::default();
-        assert!(f.blocks(".npmrc", &con));
-        assert!(!f.blocks("sub/.npmrc", &sin.join(".npmrc")));
+        assert!(f.blocks(".npmrc", &with_token));
+        assert!(!f.blocks("sub/.npmrc", &without_token.join(".npmrc")));
     }
 
     #[test]
-    fn include_nombra_un_archivo_concreto() {
+    fn include_names_a_specific_file() {
         let f = SecretFilter::new(&["./app/.env".into()]);
-        let nada = Path::new("/nonexistent");
-        assert!(!f.blocks("app/.env", nada));
-        assert!(f.blocks(".env", nada));
-        assert!(f.blocks("otra/.env", nada));
+        let nothing = Path::new("/nonexistent");
+        assert!(!f.blocks("app/.env", nothing));
+        assert!(f.blocks(".env", nothing));
+        assert!(f.blocks("other/.env", nothing));
     }
 
     proptest! {
-        // Una carpeta secreta en cualquier lugar del camino hace secreto lo de adentro.
+        // A secret folder anywhere along the path makes what is inside secret.
         #[test]
-        fn lo_de_adentro_de_una_carpeta_secreta_es_secreto(
+        fn what_is_inside_a_secret_folder_is_secret(
             pre in "[a-z]{1,6}(/[a-z]{1,6}){0,2}",
             dir in prop::sample::select(vec![".ssh", ".aws", ".gnupg", ".kube"]),
             name in "[a-z]{1,8}",
@@ -275,15 +275,15 @@ mod tests {
             prop_assert!(looks_secret(&rel));
         }
 
-        // Un nombre sin ninguna marca nunca se rechaza.
+        // A name with no mark is never rejected.
         #[test]
-        fn lo_corriente_pasa(path in "[a-z]{1,6}(/[a-z]{1,6}){0,3}\\.(rs|md|txt|toml)") {
+        fn ordinary_names_pass(path in "[a-z]{1,6}(/[a-z]{1,6}){0,3}\\.(rs|md|txt|toml)") {
             prop_assert!(!looks_secret(&path));
         }
 
-        // Con `include` exacto, nada de lo nombrado se bloquea.
+        // With an exact `include`, nothing named is blocked.
         #[test]
-        fn include_siempre_gana(pre in "[a-z]{1,6}", name in "[a-z]{1,6}") {
+        fn include_always_wins(pre in "[a-z]{1,6}", name in "[a-z]{1,6}") {
             let rel = format!("{pre}/.ssh/{name}");
             let f = SecretFilter::new(std::slice::from_ref(&rel));
             prop_assert!(!f.blocks(&rel, Path::new("/nonexistent")));

@@ -1,20 +1,20 @@
-//! La salida de un proceso (`output`) armada desde sus dos flujos, igual en la destino
-//! (flujos propios) y en el origen (su espejo).
+//! A process's output (`output`) built from its two flows, the same on the destination
+//! (own flows) and on the origin (its mirror).
 
 use tandem_proto::{FlowId, OutputCursor, ProcessOutput, TunnelProcess};
 
 use crate::buffer::Read;
 
-/// Lo más que devuelve un `output` por flujo: dos flujos más el resto caben en una trama
-/// de la IPC (1 MiB).
+/// The most an `output` returns per flow: two flows plus the rest fit in one IPC
+/// frame (1 MiB).
 pub const OUTPUT_MAX: usize = 400 * 1024;
 
-/// Lo que da un flujo en una lectura.
+/// What a flow gives on one read.
 pub(crate) struct FlowRead {
     pub read: Read,
-    /// Posición del próximo byte que va a escribirse.
+    /// Position of the next byte to be written.
     pub end: u64,
-    /// El flujo ya no recibe más.
+    /// The flow receives no more.
     pub ended: bool,
 }
 
@@ -22,7 +22,7 @@ struct Part {
     bytes: Vec<u8>,
     from: u64,
     next: u64,
-    /// Ya se leyó todo y no va a haber más.
+    /// Everything was read and there will be no more.
     finished: bool,
 }
 
@@ -38,8 +38,8 @@ fn part(
         next: at,
         finished: false,
     };
-    // Si lo pedido ya se descartó, se sigue desde lo que queda: una vez, porque la segunda
-    // lectura ya empieza en lo más viejo que hay.
+    // If what was asked for was already discarded, it continues from what remains: once, because the second
+    // read already starts at the oldest there is.
     let mut at = from;
     for _ in 0..2 {
         let Some(r) = read(flow, at, max) else {
@@ -67,7 +67,7 @@ fn part(
     nothing(at)
 }
 
-/// `read(flujo, desde, máximo)` da el estado del flujo, o `None` si todavía no se conoce.
+/// `read(flow, from, max)` gives the flow's state, or `None` if it is not yet known.
 pub(crate) fn collect(
     process: TunnelProcess,
     from: OutputCursor,
@@ -133,10 +133,10 @@ mod tests {
     }
 
     #[test]
-    fn lee_cada_flujo_desde_su_posicion_y_marca_el_final() {
+    fn reads_each_flow_from_its_position_and_marks_the_end() {
         let (mut out, mut err) = (OutputBuffer::new(100), OutputBuffer::new(100));
-        out.push(b"hola\n");
-        err.push(b"mal\n");
+        out.push(b"ahoy\n");
+        err.push(b"bad\n");
         let p = process(ProcessState::Exited { code: Some(0) });
         let o = collect(
             p.clone(),
@@ -146,7 +146,7 @@ mod tests {
         );
         assert_eq!(
             (o.stdout.as_slice(), o.stderr.as_slice()),
-            (&b"hola\n"[..], &b"mal\n"[..])
+            (&b"ahoy\n"[..], &b"bad\n"[..])
         );
         assert_eq!(
             o.next,
@@ -156,14 +156,14 @@ mod tests {
             }
         );
         assert!(o.done);
-        // Desde donde terminó la lectura anterior no hay nada más, y sigue terminado.
+        // From where the previous read ended there is nothing more, and it stays ended.
         let o2 = collect(p, o.next, 100, flows(&out, &err, true));
         assert!(o2.stdout.is_empty() && o2.stderr.is_empty() && o2.done);
         assert_eq!(o2.from, o.next);
     }
 
     #[test]
-    fn corriendo_o_con_salida_pendiente_no_esta_terminado() {
+    fn running_or_with_pending_output_is_not_ended() {
         let (mut out, err) = (OutputBuffer::new(100), OutputBuffer::new(100));
         out.push(b"abc");
         let o = collect(
@@ -172,10 +172,10 @@ mod tests {
             2,
             flows(&out, &err, false),
         );
-        // `max` limita cada flujo.
+        // `max` limits each flow.
         assert_eq!(o.stdout, b"ab");
         assert!(!o.done);
-        // Terminó el proceso pero queda salida por leer: todavía no.
+        // The process ended but there is output left to read: not yet.
         let o = collect(
             process(ProcessState::Killed),
             OutputCursor::default(),
@@ -186,7 +186,7 @@ mod tests {
     }
 
     #[test]
-    fn lo_descartado_se_salta_y_se_avisa_en_from() {
+    fn what_was_discarded_is_skipped_and_reported_in_from() {
         let (mut out, err) = (OutputBuffer::new(4), OutputBuffer::new(4));
         out.push(b"0123456789");
         let o = collect(
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn un_flujo_desconocido_no_da_nada() {
+    fn an_unknown_flow_gives_nothing() {
         let o = collect(
             process(ProcessState::Running),
             OutputCursor {

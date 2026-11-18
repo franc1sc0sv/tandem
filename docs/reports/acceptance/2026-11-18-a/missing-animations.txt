@@ -1,0 +1,41 @@
+# Mockup animations and transitions without an exact equivalent in the app (signature = duration, iterations and properties; run 2026-11-18, part A).
+# Reviewed by hand: only T-140 (Desk cursor/flash) is a real gap. The rest are minor duration differences (svg button .25 s vs .3 s, grow bar 1.1 s vs 1.2 s, switch .3 s vs .25 s,
+# Tunnels pipe speed fixed 0.7/1.2 s vs 1.0/1.5 and 0.6/1.1 s per tunnel) or the demo's seeded notices (no life bar; real notices do carry it).
+
+== V3-Desk: missing 2
+  MISSING anim|7000|inf|opacity <- eg@span.edge
+  MISSING anim|7000|inf|left,top <- cur@span.curdot
+== V3-Compute: missing 4
+  MISSING anim|1000|inf|stroke-dashoffset <- fa@line
+  MISSING anim|1500|inf|stroke-dashoffset <- fb@line
+  MISSING anim|600|inf|stroke-dashoffset <- fa@line
+  MISSING anim|1100|inf|stroke-dashoffset <- fb@line
+== V3-Monitors: missing 0
+== F-NewScene: missing 1
+  MISSING trans|transform|300 <- transform@svg
+== F-Transactions: missing 1
+  MISSING trans|transform|300 <- transform@svg
+== V3-Arrangement: missing 0
+== F-CrossingTest: missing 1
+  MISSING trans|transform|300 <- transform@svg
+== F-Setup1: missing 0
+== V3-Setup: missing 0
+== F-Setup3: missing 0
+== F-Setup4: missing 0
+== F-Setup5: missing 0
+== F-Setup6: missing 0
+== V3-Network: missing 2
+  MISSING trans|transform|350 <- transform@svg
+  MISSING anim|1200|1|width <- grow@span
+== V3-Machine: missing 1
+  MISSING trans|left|250 <- left@button.sw::after
+== F-MachineMac: missing 0
+== F-Settings: missing 1
+  MISSING trans|transform|300 <- transform@svg
+== F-Palette: missing 0
+== V3-States: missing 0
+== F-Notices: missing 3
+  MISSING trans|transform|300 <- transform@svg
+  MISSING anim|6000|1|width <- life@span.life
+  MISSING anim|500|1|opacity,transform <- dr@div.os
+== V3-Tray: missing 0

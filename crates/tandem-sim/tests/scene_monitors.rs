@@ -382,9 +382,9 @@ async fn the_editor_only_accepts_compatible_monitors() {
         })
     };
     for (monitor, why) in [
-        (fab.as_str(), "no es compatible"),
-        ("ghost", "no se ve"),
-        (m27.as_str(), "no se sabe a qué entrada"),
+        (fab.as_str(), "is not compatible"),
+        ("ghost", "is not seen"),
+        (m27.as_str(), "it is not known which input"),
     ] {
         match add(monitor) {
             Reply::Rejected(e) => assert!(e.contains(why), "{monitor}: {e}"),

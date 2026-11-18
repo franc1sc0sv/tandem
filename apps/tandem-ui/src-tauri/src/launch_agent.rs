@@ -1,32 +1,32 @@
-//! El LaunchAgent de macOS que arranca `tandemd` al iniciar sesión.
+//! The macOS LaunchAgent that starts `tandemd` at login.
 //!
-//! La app lo instala o lo pone al día cada vez que arranca: el plist apunta al `tandemd`
-//! que viaja dentro de `Tandem.app` (`Contents/MacOS/tandemd`) y lleva la versión, así que
-//! una app nueva cambia el plist y eso reinicia el agente con el binario nuevo.
+//! The app installs or refreshes it every time it starts: the plist points at the `tandemd`
+//! that ships inside `Tandem.app` (`Contents/MacOS/tandemd`) and carries the version, so a
+//! new app changes the plist and that restarts the agent with the new binary.
 //!
-//! Todo lo que decide (el plist, si la app está en un lugar estable, qué hacer con lo que ya
-//! hay) es portable y se prueba en cualquier sistema; `launchctl` queda detrás de
+//! Everything it decides (the plist, whether the app is in a stable place, what to do with
+//! what is already there) is portable and tested on any system; `launchctl` sits behind
 //! [`Launchd`].
 
 use std::io;
 use std::path::{Component, Path, PathBuf};
 
-/// Etiqueta del servicio en launchd y nombre del plist.
+/// Service label in launchd and plist name.
 pub const LABEL: &str = "com.franc1sc0sv.tandem.tandemd";
-/// Nombre del sidecar dentro de `Contents/MacOS` (Tauri le quita el sufijo del target).
+/// Name of the sidecar inside `Contents/MacOS` (Tauri strips the target suffix).
 pub const SIDECAR: &str = "tandemd";
-/// Si `tandemd` sale con error (por ejemplo, un `tandem.toml` inválido), launchd espera
-/// esto antes de volver a lanzarlo: sin espera, un error fijo llenaría el log.
+/// If `tandemd` exits with an error (for example, an invalid `tandem.toml`), launchd waits
+/// this long before relaunching it: without a wait, a persistent error would flood the log.
 pub const THROTTLE_SECS: u32 = 30;
 
-/// Lo que va en el plist.
+/// What goes in the plist.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentSpec {
-    /// `tandemd` dentro de la app.
+    /// `tandemd` inside the app.
     pub program: PathBuf,
-    /// Salida y errores de `tandemd` antes de que abra su propio log.
+    /// Output and errors of `tandemd` before it opens its own log.
     pub log: PathBuf,
-    /// Versión de la app: si cambia, el plist cambia y el agente se reinicia.
+    /// App version: if it changes, the plist changes and the agent restarts.
     pub version: String,
 }
 
@@ -36,28 +36,30 @@ pub fn plist_path(home: &Path) -> PathBuf {
         .join(format!("{LABEL}.plist"))
 }
 
-/// `~/Library/Logs/Tandem/tandemd.log`: `~/Library/Logs` existe siempre y launchd no crea
-/// directorios.
+/// `~/Library/Logs/Tandem/tandemd.log`: `~/Library/Logs` always exists and launchd does not
+/// create directories.
 pub fn log_path(home: &Path) -> PathBuf {
     home.join("Library/Logs/Tandem/tandemd.log")
 }
 
-/// Por qué la app no instala el agente desde donde está.
+/// Why the app does not install the agent from where it is.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum Placement {
-    #[error("la app no corre desde un Tandem.app (compilación de desarrollo)")]
+    #[error("the app is not running from a Tandem.app (development build)")]
     NotBundled,
     #[error(
-        "macOS abrió la app desde una copia temporal (App Translocation); \
-         muévela a Aplicaciones y vuelve a abrirla"
+        "macOS opened the app from a temporary copy (App Translocation); \
+         move it to Applications and open it again"
     )]
     Translocated,
-    #[error("la app corre desde la imagen de disco; cópiala a Aplicaciones y ábrela desde ahí")]
+    #[error(
+        "the app is running from the disk image; copy it to Applications and open it from there"
+    )]
     DiskImage,
 }
 
-/// El `tandemd` que acompaña al ejecutable de la app, si la app está en un lugar del que el
-/// agente puede depender: dentro de un `.app` y no en una copia temporal ni en el `.dmg`.
+/// The `tandemd` that sits next to the app's executable, if the app is somewhere the agent
+/// can depend on: inside a `.app`, not in a temporary copy or on the `.dmg`.
 pub fn sidecar_for(exe: &Path) -> Result<PathBuf, Placement> {
     let dir = exe.parent().ok_or(Placement::NotBundled)?;
     let names: Vec<&str> = dir
@@ -98,14 +100,14 @@ fn escape(s: &str) -> String {
     out
 }
 
-/// El plist del LaunchAgent.
+/// The LaunchAgent plist.
 ///
-/// - `RunAtLoad`: arranca al iniciar sesión (y al instalarlo).
-/// - `KeepAlive.SuccessfulExit = false`: si cae con error, launchd lo levanta de nuevo (tras
-///   [`THROTTLE_SECS`]); si sale bien (por ejemplo, al apagar) no.
-/// - `LimitLoadToSessionType = Aqua` y `ProcessType = Interactive`: solo en una sesión
-///   gráfica (la captura de teclado y mouse la necesita) y sin que macOS lo frene como a un
-///   proceso de fondo.
+/// - `RunAtLoad`: starts at login (and when installed).
+/// - `KeepAlive.SuccessfulExit = false`: if it dies with an error, launchd brings it back (after
+///   [`THROTTLE_SECS`]); if it exits cleanly (for example, on shutdown) it does not.
+/// - `LimitLoadToSessionType = Aqua` and `ProcessType = Interactive`: only in a graphical
+///   session (keyboard and mouse capture needs it) and without macOS throttling it like a
+///   background process.
 pub fn plist(spec: &AgentSpec) -> String {
     let program = escape(&spec.program.to_string_lossy());
     let log = escape(&spec.log.to_string_lossy());
@@ -149,66 +151,66 @@ pub fn plist(spec: &AgentSpec) -> String {
     )
 }
 
-/// `launchctl` en el dominio de la sesión del usuario (`gui/<uid>`).
+/// `launchctl` in the user's session domain (`gui/<uid>`).
 pub trait Launchd {
     fn is_loaded(&self, label: &str) -> bool;
-    /// Lo saca de launchd (y lo detiene). Que no estuviera cargado no es un error.
+    /// Removes it from launchd (and stops it). Not being loaded is not an error.
     fn bootout(&self, label: &str) -> Result<(), String>;
-    /// Lo carga desde el plist; con `RunAtLoad` arranca enseguida.
+    /// Loads it from the plist; with `RunAtLoad` it starts right away.
     fn bootstrap(&self, plist: &Path) -> Result<(), String>;
-    /// Mata el servicio y lo vuelve a lanzar (`launchctl kickstart -k`).
+    /// Kills the service and launches it again (`launchctl kickstart -k`).
     fn kickstart(&self, label: &str) -> Result<(), String>;
 }
 
-/// Reinicia `tandemd` para que los permisos recién concedidos valgan: macOS evalúa varios
-/// de ellos (Monitorización de entrada, sobre todo) una sola vez por proceso. No arranca un
-/// agente que no está cargado: eso es cosa de [`ensure`], al abrir la app.
+/// Restarts `tandemd` so newly granted permissions take effect: macOS evaluates several of
+/// them (Input Monitoring, above all) only once per process. It does not start an agent
+/// that is not loaded: that is [`ensure`]'s job, when the app opens.
 pub fn restart(launchd: &dyn Launchd) -> Result<(), String> {
     if !launchd.is_loaded(LABEL) {
         return Err(
-            "tandemd no está cargado en launchd; abre Tandem.app desde Aplicaciones".to_owned(),
+            "tandemd is not loaded in launchd; open Tandem.app from Applications".to_owned(),
         );
     }
     launchd.kickstart(LABEL)
 }
 
-/// Qué hizo [`ensure`].
+/// What [`ensure`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
-    /// El plist ya era este y launchd lo tenía cargado.
+    /// The plist was already this one and launchd had it loaded.
     Unchanged,
-    /// El plist ya era este pero no estaba cargado (lo habían sacado a mano o falló antes).
+    /// The plist was already this one but it was not loaded (it had been removed by hand or failed before).
     Loaded,
-    /// No había plist.
+    /// There was no plist.
     Created,
-    /// Había otro (otra versión u otra ubicación de la app): se reemplazó y se reinició.
+    /// There was a different one (another version or another app location): it was replaced and restarted.
     Updated,
 }
 
 impl Outcome {
     pub fn describe(self) -> &'static str {
         match self {
-            Outcome::Unchanged => "tandemd ya estaba instalado como agente de inicio de sesión",
-            Outcome::Loaded => "tandemd se volvió a cargar en launchd",
-            Outcome::Created => "tandemd quedó instalado: arranca solo al iniciar sesión",
-            Outcome::Updated => "tandemd se puso al día y se reinició",
+            Outcome::Unchanged => "tandemd was already installed as a login agent",
+            Outcome::Loaded => "tandemd was loaded into launchd again",
+            Outcome::Created => "tandemd is installed: it starts by itself at login",
+            Outcome::Updated => "tandemd was brought up to date and restarted",
         }
     }
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum InstallError {
-    #[error("no está {0}; la app parece incompleta")]
+    #[error("{0} is missing; the app looks incomplete")]
     MissingSidecar(PathBuf),
-    #[error("no se pudo escribir {path}: {source}")]
+    #[error("could not write {path}: {source}")]
     Write { path: PathBuf, source: io::Error },
-    #[error("launchctl no cargó el agente: {0}")]
+    #[error("launchctl did not load the agent: {0}")]
     Launchctl(String),
 }
 
-/// Deja instalado y cargado el LaunchAgent de `spec` en `plist_file`.
+/// Installs and loads the LaunchAgent for `spec` in `plist_file`.
 ///
-/// Solo toca launchd si hace falta: abrir la app con el agente ya al día no lo reinicia.
+/// It only touches launchd when needed: opening the app with the agent already up to date does not restart it.
 pub fn ensure(
     plist_file: &Path,
     spec: &AgentSpec,
@@ -233,7 +235,7 @@ pub fn ensure(
         create_dir(dir)?;
     }
     write_atomic(plist_file, &want)?;
-    // El viejo sigue corriendo con el binario anterior hasta que se lo saque.
+    // The old one keeps running with the previous binary until it is removed.
     let outcome = if have.is_some() {
         Outcome::Updated
     } else {
@@ -248,22 +250,22 @@ pub fn ensure(
     Ok(outcome)
 }
 
-/// Cómo quedó el agente de inicio de sesión, para el primer arranque.
+/// How the login agent ended up, for the first start.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Report {
-    /// `tandemd` quedó instalado y cargado.
+    /// `tandemd` is installed and loaded.
     pub ok: bool,
     pub text: String,
 }
 
-/// Instala o pone al día el agente de la app que corre en `exe`, para el usuario de `home`.
+/// Installs or updates the agent of the app running at `exe`, for the user of `home`.
 pub fn install_from(exe: &Path, home: &Path, version: &str, launchd: &dyn Launchd) -> Report {
     let program = match sidecar_for(exe) {
         Ok(p) => p,
         Err(why) => {
             return Report {
                 ok: false,
-                text: format!("tandemd no se instaló: {why}"),
+                text: format!("tandemd was not installed: {why}"),
             };
         }
     };
@@ -279,7 +281,7 @@ pub fn install_from(exe: &Path, home: &Path, version: &str, launchd: &dyn Launch
         },
         Err(e) => Report {
             ok: false,
-            text: format!("tandemd no se instaló: {e}"),
+            text: format!("tandemd was not installed: {e}"),
         },
     }
 }
@@ -299,13 +301,13 @@ fn write_atomic(path: &Path, text: &str) -> Result<(), InstallError> {
     if let Some(dir) = path.parent() {
         create_dir(dir)?;
     }
-    // Escribir aparte y renombrar: launchd nunca ve un plist a medias.
+    // Write aside and rename: launchd never sees a half-written plist.
     let tmp = path.with_extension("plist.tmp");
     std::fs::write(&tmp, text).map_err(err)?;
     std::fs::rename(&tmp, path).map_err(err)
 }
 
-/// `launchctl` de verdad, en la sesión gráfica del usuario.
+/// The real `launchctl`, in the user's graphical session.
 #[cfg(target_os = "macos")]
 pub mod system {
     use std::path::Path;
@@ -321,15 +323,15 @@ pub mod system {
     }
 
     impl SystemLaunchd {
-        /// El dominio `gui/<uid>` del usuario que corre la app.
+        /// The user's `gui/<uid>` domain, who runs the app.
         pub fn current_user() -> Result<Self, String> {
             let out = Command::new("/usr/bin/id")
                 .arg("-u")
                 .output()
-                .map_err(|e| format!("no se pudo correr id -u: {e}"))?;
+                .map_err(|e| format!("could not run id -u: {e}"))?;
             let uid = String::from_utf8_lossy(&out.stdout).trim().to_owned();
             if !out.status.success() || uid.is_empty() || !uid.bytes().all(|b| b.is_ascii_digit()) {
-                return Err(format!("id -u devolvió «{uid}»"));
+                return Err(format!("id -u returned \"{uid}\""));
             }
             Ok(SystemLaunchd {
                 domain: format!("gui/{uid}"),
@@ -340,7 +342,7 @@ pub mod system {
             let out = Command::new(LAUNCHCTL)
                 .args(args)
                 .output()
-                .map_err(|e| format!("no se pudo correr launchctl: {e}"))?;
+                .map_err(|e| format!("could not run launchctl: {e}"))?;
             if out.status.success() {
                 Ok(())
             } else {
@@ -364,15 +366,15 @@ pub mod system {
         fn bootout(&self, label: &str) -> Result<(), String> {
             let target = format!("{}/{label}", self.domain);
             if self.run(&["bootout", target.as_str()]).is_err() && self.is_loaded(label) {
-                return Err(format!("no se pudo detener {target}"));
+                return Err(format!("could not stop {target}"));
             }
             Ok(())
         }
 
         fn bootstrap(&self, plist: &Path) -> Result<(), String> {
             let plist = plist.to_string_lossy();
-            // Justo después de un `bootout`, launchd puede tardar en soltar el servicio
-            // («Bootstrap failed: 5»): se reintenta un par de veces.
+            // Right after a `bootout`, launchd may take a while to release the service
+            // ("Bootstrap failed: 5"): retry a couple of times.
             let mut last = String::new();
             for attempt in 0..4 {
                 if attempt > 0 {
@@ -453,7 +455,7 @@ mod tests {
     fn plist_content() {
         let s = AgentSpec {
             program: "/Applications/Tandem.app/Contents/MacOS/tandemd".into(),
-            log: "/Users/usuario/Library/Logs/Tandem/tandemd.log".into(),
+            log: "/Users/user/Library/Logs/Tandem/tandemd.log".into(),
             version: "0.1.0".into(),
         };
         let expected = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -485,9 +487,9 @@ mod tests {
 	<key>ProcessType</key>
 	<string>Interactive</string>
 	<key>StandardOutPath</key>
-	<string>/Users/usuario/Library/Logs/Tandem/tandemd.log</string>
+	<string>/Users/user/Library/Logs/Tandem/tandemd.log</string>
 	<key>StandardErrorPath</key>
-	<string>/Users/usuario/Library/Logs/Tandem/tandemd.log</string>
+	<string>/Users/user/Library/Logs/Tandem/tandemd.log</string>
 </dict>
 </plist>
 "#;
@@ -511,14 +513,14 @@ mod tests {
 
     #[test]
     fn standard_locations() {
-        let home = Path::new("/Users/usuario");
+        let home = Path::new("/Users/user");
         assert_eq!(
             plist_path(home),
-            Path::new("/Users/usuario/Library/LaunchAgents/com.franc1sc0sv.tandem.tandemd.plist")
+            Path::new("/Users/user/Library/LaunchAgents/com.franc1sc0sv.tandem.tandemd.plist")
         );
         assert_eq!(
             log_path(home),
-            Path::new("/Users/usuario/Library/Logs/Tandem/tandemd.log")
+            Path::new("/Users/user/Library/Logs/Tandem/tandemd.log")
         );
     }
 
@@ -632,7 +634,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let s = spec(dir.path());
         let file = dir.path().join("a.plist");
-        std::fs::write(&file, "viejo").unwrap();
+        std::fs::write(&file, "old").unwrap();
         let ld = FakeLaunchd::default();
         assert_eq!(ensure(&file, &s, &ld).unwrap(), Outcome::Updated);
         assert_eq!(ld.calls(), ["bootstrap a.plist"]);
@@ -642,7 +644,7 @@ mod tests {
     fn missing_sidecar_touches_nothing() {
         let dir = tempfile::tempdir().unwrap();
         let s = AgentSpec {
-            program: dir.path().join("no-existe"),
+            program: dir.path().join("missing"),
             log: dir.path().join("l/t.log"),
             version: "0.1.0".into(),
         };
@@ -667,7 +669,7 @@ mod tests {
         };
         let e = ensure(&file, &s, &ld).unwrap_err();
         assert!(e.to_string().contains("Bootstrap failed: 5"), "{e}");
-        // El plist queda escrito: el próximo arranque de la app solo intenta cargarlo.
+        // The plist stays written: the app's next start only tries to load it.
         assert_eq!(std::fs::read_to_string(&file).unwrap(), plist(&s));
     }
     #[test]
@@ -682,7 +684,7 @@ mod tests {
     fn restart_without_a_loaded_agent_says_so_and_starts_nothing() {
         let ld = FakeLaunchd::default();
         let e = restart(&ld).unwrap_err();
-        assert!(e.contains("no está cargado"), "{e}");
+        assert!(e.contains("not loaded"), "{e}");
         assert!(ld.calls().is_empty());
     }
 
@@ -697,7 +699,7 @@ mod tests {
         assert!(r.ok, "{r:?}");
         assert_eq!(r.text, Outcome::Created.describe());
         let text = std::fs::read_to_string(plist_path(&home)).unwrap();
-        // En Windows, `s.program` mezcla separadores: se compara con el que calcula la app.
+        // On Windows, `s.program` mixes separators: compare with the one the app computes.
         let program = sidecar_for(&exe).unwrap();
         assert!(program.is_file());
         assert!(text.contains(&format!(
@@ -705,7 +707,7 @@ mod tests {
             escape(&program.to_string_lossy())
         )));
         assert!(log_path(&home).parent().unwrap().is_dir());
-        // La segunda vez no hay nada que hacer.
+        // The second time there is nothing to do.
         let r = install_from(&exe, &home, "0.1.0", &ld);
         assert_eq!(r.text, Outcome::Unchanged.describe());
     }
@@ -721,7 +723,7 @@ mod tests {
             &ld,
         );
         assert!(!r.ok);
-        assert!(r.text.contains("desarrollo"), "{}", r.text);
+        assert!(r.text.contains("development"), "{}", r.text);
         assert!(!plist_path(dir.path()).exists());
         assert!(ld.calls().is_empty());
     }

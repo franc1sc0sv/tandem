@@ -1,6 +1,6 @@
 [package]
 name = "tandem-proto"
-description = "Mensajes entre agentes y UI, versionado"
+description = "Versioned messages between agents and the UI"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

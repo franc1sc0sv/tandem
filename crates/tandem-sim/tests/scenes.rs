@@ -69,14 +69,14 @@ async fn work_with_the_other_off_powers_it_on_first() {
     let d = Desk::new().await.unwrap();
     paired(&d).await;
     let names: Vec<String> = d.mac.desk().scenes.iter().map(|s| s.name.clone()).collect();
-    assert_eq!(names[0], "Trabajo");
+    assert_eq!(names[0], "Work");
     assert_eq!(
         names[1],
-        format!("Solo {}", d.mac.desk().machines.name(Machine::A))
+        format!("Only {}", d.mac.desk().machines.name(Machine::A))
     );
     assert_eq!(
         names[2],
-        format!("Solo {}", d.mac.desk().machines.name(Machine::B))
+        format!("Only {}", d.mac.desk().machines.name(Machine::B))
     );
 
     let off = d.shutdown_pc().await.unwrap();
@@ -259,7 +259,7 @@ async fn an_impossible_scene_touches_nothing() {
     let Reply::Rejected(why) = d.mac.handle(UiCommand::ApplyScene { id: "none".into() }) else {
         panic!("a scene that does not exist was accepted");
     };
-    assert!(why.contains("no existe"), "{why}");
+    assert!(why.contains("does not exist"), "{why}");
     // A monitor that is not seen does not go into a scene (T-111: the editor rejects it).
     let reply = d.mac.handle(UiCommand::EditDesk {
         patch: DeskPatch::AddScene(Scene {

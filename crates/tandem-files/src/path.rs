@@ -1,9 +1,9 @@
-//! Rutas normalizadas entre Windows y Unix.
+//! Normalized paths between Windows and Unix.
 //!
-//! En el cable una ruta es relativa a la raíz de la copia, con `/` como separador y sin
-//! `.` ni `..`. Quien recibe la une a su carpeta de destino con el separador de su sistema
-//! y rechaza lo que su sistema no puede guardar (en Windows, `:`, `\`, `?`, nombres
-//! reservados como `CON`, puntos o espacios al final).
+//! On the wire a path is relative to the root of the copy, with `/` as separator and no
+//! `.` or `..`. Whoever receives it joins it to its destination folder with its system's separator
+//! and rejects what its system cannot store (on Windows, `:`, `\`, `?`, reserved
+//! names like `CON`, trailing dots or spaces).
 
 use std::path::{Component, Path, PathBuf};
 
@@ -15,36 +15,36 @@ const WINDOWS_RESERVED: &[&str] = &[
     "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
-/// Un nombre de archivo o carpeta, sin separadores. `windows` dice qué reglas aplicar.
+/// A file or folder name, without separators. `windows` says which rules to apply.
 pub fn check_segment(seg: &str, windows: bool) -> std::result::Result<(), &'static str> {
     if seg.is_empty() {
-        return Err("componente vacío");
+        return Err("empty component");
     }
     if seg == "." || seg == ".." {
-        return Err("`.` y `..` no se aceptan");
+        return Err("`.` and `..` are not accepted");
     }
     if seg.contains('/') || seg.contains('\0') {
-        return Err("el nombre trae un separador o un byte nulo");
+        return Err("the name carries a separator or a null byte");
     }
     if windows {
         if seg
             .chars()
             .any(|c| c.is_control() || WINDOWS_FORBIDDEN.contains(&c))
         {
-            return Err("el nombre trae caracteres que Windows no admite");
+            return Err("the name carries characters Windows does not accept");
         }
         if seg.ends_with('.') || seg.ends_with(' ') {
-            return Err("Windows no admite nombres que terminan en punto o espacio");
+            return Err("Windows does not accept names ending in a dot or space");
         }
         let stem = seg.split('.').next().unwrap_or(seg).to_ascii_uppercase();
         if WINDOWS_RESERVED.contains(&stem.as_str()) {
-            return Err("nombre reservado de Windows");
+            return Err("Windows reserved name");
         }
     }
     Ok(())
 }
 
-/// De una ruta relativa nativa a la del cable (`a/b/c`).
+/// From a native relative path to the wire one (`a/b/c`).
 pub fn to_wire(rel: &Path) -> Result<String> {
     let mut parts = Vec::new();
     for c in rel.components() {
@@ -52,20 +52,20 @@ pub fn to_wire(rel: &Path) -> Result<String> {
             Component::Normal(s) => {
                 let s = s
                     .to_str()
-                    .ok_or_else(|| FilesError::path(&rel.to_string_lossy(), "no es UTF-8"))?;
-                // Un nombre de Unix con `/` es imposible, pero con `\` o `:` es válido allá
-                // y lo rechazará quien lo reciba en Windows.
+                    .ok_or_else(|| FilesError::path(&rel.to_string_lossy(), "not UTF-8"))?;
+                // A Unix name with `/` is impossible, but one with `\` or `:` is valid there
+                // and will be rejected by whoever receives it on Windows.
                 check_segment(s, false).map_err(|w| FilesError::path(s, w))?;
                 parts.push(s);
             }
             Component::CurDir => {}
-            _ => return Err(FilesError::path(&rel.to_string_lossy(), "no es relativa")),
+            _ => return Err(FilesError::path(&rel.to_string_lossy(), "not relative")),
         }
     }
     Ok(parts.join("/"))
 }
 
-/// De la ruta del cable a una nativa bajo `root`, con las reglas de este sistema.
+/// From the wire path to a native one under `root`, with this system's rules.
 pub fn from_wire(root: &Path, wire: &str) -> Result<PathBuf> {
     from_wire_for(root, wire, cfg!(windows))
 }
@@ -86,17 +86,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn la_ruta_del_cable_usa_barras_y_se_une_a_la_raiz() {
-        let p = from_wire_for(Path::new("/dst"), "a b/ñandú/x.txt", false).unwrap();
-        assert_eq!(p, Path::new("/dst/a b/ñandú/x.txt"));
+    fn the_wire_path_uses_slashes_and_joins_the_root() {
+        let p = from_wire_for(Path::new("/dst"), "a b/\u{fc}ber/x.txt", false).unwrap();
+        assert_eq!(p, Path::new("/dst/a b/\u{fc}ber/x.txt"));
         assert_eq!(
-            to_wire(Path::new("a b/ñandú/x.txt")).unwrap(),
-            "a b/ñandú/x.txt"
+            to_wire(Path::new("a b/\u{fc}ber/x.txt")).unwrap(),
+            "a b/\u{fc}ber/x.txt"
         );
     }
 
     #[test]
-    fn rechaza_lo_que_escapa_de_la_raiz() {
+    fn rejects_what_escapes_the_root() {
         for bad in [
             "",
             "..",
@@ -117,24 +117,24 @@ mod tests {
     }
 
     #[test]
-    fn windows_rechaza_lo_que_no_puede_guardar() {
+    fn windows_rejects_what_it_cannot_store() {
         for bad in ["a:b", "a\\b", "CON", "con.txt", "x?", "fin.", "fin ", "a|b"] {
             assert!(
                 from_wire_for(Path::new("C:\\d"), bad, true).is_err(),
                 "{bad:?}"
             );
         }
-        // En Unix los mismos nombres son válidos, salvo los del cable.
+        // On Unix the same names are valid, except those of the wire.
         for ok in ["a:b", "a\\b", "CON", "fin."] {
             assert!(from_wire_for(Path::new("/d"), ok, false).is_ok(), "{ok:?}");
         }
     }
 
     proptest! {
-        /// Cualquier ruta que sale de `to_wire` vuelve igual por `from_wire` y no escapa de
-        /// la raíz.
+        /// Any path that comes out of `to_wire` comes back the same through `from_wire` and does not escape
+        /// the root.
         #[test]
-        fn ida_y_vuelta_sin_escapar(segs in proptest::collection::vec("[a-zA-Z0-9 ñáéí_.-]{1,12}", 1..5)) {
+        fn round_trip_without_escaping(segs in proptest::collection::vec("[a-zA-Z0-9 \u{f1}\u{e1}\u{e9}\u{ed}_.-]{1,12}", 1..5)) {
             let segs: Vec<String> = segs.into_iter().filter(|s| s != "." && s != "..").collect();
             prop_assume!(!segs.is_empty());
             let rel: PathBuf = segs.iter().collect();

@@ -1,22 +1,22 @@
-//! Workspaces de git por túnel (DESIGN §8, D8, T-107): los mensajes.
+//! Per-tunnel git workspaces (DESIGN §8, D8, T-107): the messages.
 //!
-//! La ida y la vuelta de los datos (bundles y parches) viajan como archivos
-//! ([`crate::FilesUp`]); estos pedidos solo preparan carpetas y piden a la destino que
-//! ejecute git. La lógica está en `tandem-workspace`.
+//! The data going and coming back (bundles and patches) travel as files
+//! ([`crate::FilesUp`]); these requests only prepare folders and ask the destination to
+//! run git. The logic is in `tandem-workspace`.
 
 use serde::{Deserialize, Serialize};
 
 use crate::TunnelId;
 
-/// El repo que acompaña a un túnel (`tunnel_open { workspace }`).
+/// The repo that goes along with a tunnel (`tunnel_open { workspace }`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceSpec {
-    /// Ruta del repo en la máquina que abre (puede ser un worktree o una subcarpeta).
+    /// Path of the repo on the opening machine (can be a worktree or a subfolder).
     pub repo_path: String,
-    /// Conservar la carpeta de la destino al cerrar el túnel.
+    /// Keep the destination folder when the tunnel closes.
     pub keep: bool,
-    /// Credenciales sin seguimiento que sí viajan, una por una (rutas del repo). Por
-    /// omisión nada que parezca una se manda (T-130).
+    /// Untracked credentials that do travel, one by one (repo paths). By
+    /// default nothing that looks like one is sent (T-130).
     pub include: Vec<String>,
 }
 
@@ -27,46 +27,46 @@ pub struct CommitInfo {
     pub author: String,
 }
 
-/// Lo que dejó `bring_back`.
+/// What `bring_back` left.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BringBackReport {
-    /// La rama creada en el origen; `None` si no había commits nuevos.
+    /// The branch created on the source; `None` if there were no new commits.
     pub branch: Option<String>,
     pub commits: Vec<CommitInfo>,
-    /// Se hizo un commit con lo pendiente de la destino.
+    /// A commit was made with what was pending on the destination.
     pub committed_pending: bool,
 }
 
-/// Del origen a la destino.
+/// From the source to the destination.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkspaceUp {
-    /// Crear las carpetas del workspace del túnel. Contesta [`WorkspaceDown::Prepared`].
+    /// Create the folders of the tunnel's workspace. Answers [`WorkspaceDown::Prepared`].
     Prepare { tunnel: TunnelId, keep: bool },
-    /// Con el bundle y el parche ya copiados a `stage`: clonar, aplicar y dejar la carpeta
-    /// como `cwd` de los procesos. Contesta [`WorkspaceDown::Ready`].
+    /// With the bundle and patch already copied to `stage`: clone, apply and leave the folder
+    /// as the processes' `cwd`. Answers [`WorkspaceDown::Ready`].
     Checkout { tunnel: TunnelId },
-    /// Empaquetar lo nuevo: `commit` (un mensaje) hace commit de lo pendiente antes.
-    /// Contesta [`WorkspaceDown::Packed`].
+    /// Package what is new: `commit` (a message) commits what is pending first.
+    /// Answers [`WorkspaceDown::Packed`].
     Pack {
         tunnel: TunnelId,
         commit: Option<String>,
     },
 }
 
-/// De la destino al origen.
+/// From the destination to the source.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum WorkspaceDown {
     Prepared {
-        /// Carpeta donde el origen deja `repo.bundle`, `changes.patch` y `submodules/`.
+        /// Folder where the source leaves `repo.bundle`, `changes.patch` and `submodules/`.
         stage: String,
     },
     Ready {
         dir: String,
     },
     Packed {
-        /// Archivo (en la destino) con los commits nuevos; `None` si no hay.
+        /// File (on the destination) with the new commits; `None` if there are none.
         bundle: Option<String>,
-        /// El commit del que parte (el `HEAD` del origen al abrir).
+        /// The commit it starts from (the source's `HEAD` when opening).
         base: String,
         commits: Vec<CommitInfo>,
         committed_pending: bool,

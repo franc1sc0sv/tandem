@@ -1,7 +1,7 @@
-//! Backends simulados del motor de entrada, para las pruebas con dos agentes: la
-//! prueba "mueve el mouse" por [`FakeInputBackends::capture`], ve lo inyectado en
-//! [`FakeInputBackends::injected`], copia en el portapapeles simulado y conecta o
-//! desconecta el hub.
+//! Simulated input engine backends, for tests with two agents: the
+//! test "moves the mouse" through [`FakeInputBackends::capture`], sees what was injected in
+//! [`FakeInputBackends::injected`], copies to the simulated clipboard and connects or
+//! disconnects the hub.
 
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Instant;
@@ -17,7 +17,7 @@ use super::backends::{
     CaptureSink, DynCapture, DynClipboard, DynInjector, DynScanner, InputBackends,
 };
 
-/// Lo que se le pidió a la captura simulada.
+/// What the simulated capture was asked.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CaptureCall {
     Grab(bool),
@@ -29,27 +29,27 @@ struct Inner {
     sink: Option<CaptureSink>,
     screens: Vec<Screen>,
     missing: Vec<InputPermission>,
-    /// Cuántas veces se pidieron los permisos al sistema.
+    /// How many times the permissions were requested from the system.
     requested: u32,
-    /// Lo que macOS concede al pedirlos: si `true`, ya no falta ninguno.
+    /// What macOS grants when they are requested: if `true`, none is missing anymore.
     grant_on_request: bool,
     fail_capture: Option<String>,
 }
 
-/// Se clona para tener otra vista de los mismos backends.
+/// It is cloned to have another view of the same backends.
 #[derive(Clone)]
 pub struct FakeInputBackends {
     inner: Arc<Mutex<Inner>>,
     calls: Arc<watch::Sender<Vec<CaptureCall>>>,
     injected: Arc<watch::Sender<Vec<InputEvent>>>,
-    /// Lo inyectado con el momento en que llegó al inyector (el banco de latencia).
+    /// What was injected with the moment it reached the injector (the latency bench).
     timeline: Arc<Mutex<Vec<(Instant, InputEvent)>>>,
     clipboard: FakeClipboard,
     scanner: FakeScanner,
 }
 
 impl FakeInputBackends {
-    /// Con estas pantallas y sin ningún dispositivo USB conectado.
+    /// With these screens and without any USB device connected.
     pub fn new(screens: Vec<Screen>) -> Self {
         FakeInputBackends {
             inner: Arc::new(Mutex::new(Inner {
@@ -68,13 +68,13 @@ impl FakeInputBackends {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// El usuario mueve el mouse o escribe en esta máquina. `false` si la captura no
-    /// está corriendo (esta máquina nunca fue servidor) o ya nadie la escucha.
+    /// The user moves the mouse or types on this machine. `false` if the capture is not
+    /// running (this machine was never a server) or nobody listens to it anymore.
     pub fn capture(&self, event: InputEvent) -> bool {
         self.lock().sink.as_ref().is_some_and(|s| s.send(event))
     }
 
-    /// Si la captura está corriendo.
+    /// Whether the capture is running.
     pub fn capturing(&self) -> bool {
         self.lock().sink.is_some()
     }
@@ -83,12 +83,12 @@ impl FakeInputBackends {
         self.calls.subscribe()
     }
 
-    /// Todo lo inyectado en esta máquina, en orden.
+    /// Everything injected on this machine, in order.
     pub fn injected(&self) -> watch::Receiver<Vec<InputEvent>> {
         self.injected.subscribe()
     }
 
-    /// Todo lo inyectado con el instante en que el inyector lo recibió.
+    /// Everything injected with the instant at which the injector received it.
     pub fn timeline(&self) -> Vec<(Instant, InputEvent)> {
         self.timeline
             .lock()
@@ -100,7 +100,7 @@ impl FakeInputBackends {
         &self.clipboard
     }
 
-    /// Los dispositivos USB conectados a esta máquina.
+    /// The USB devices connected to this machine.
     pub fn devices(&self) -> FakeDevices {
         self.scanner.handle()
     }
@@ -113,17 +113,17 @@ impl FakeInputBackends {
         self.lock().missing = missing;
     }
 
-    /// Cuántas veces el agente pidió los permisos al sistema.
+    /// How many times the agent asked the system for the permissions.
     pub fn permission_requests(&self) -> u32 {
         self.lock().requested
     }
 
-    /// Al pedir los permisos, el «usuario» los concede.
+    /// When asking for the permissions, the "user" grants them.
     pub fn grant_on_request(&self, grant: bool) {
         self.lock().grant_on_request = grant;
     }
 
-    /// Mientras tenga un error, arrancar la captura falla con él (un permiso que falta).
+    /// While it has an error, starting the capture fails with it.
     pub fn fail_capture(&self, error: Option<String>) {
         self.lock().fail_capture = error;
     }

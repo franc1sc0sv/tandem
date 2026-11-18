@@ -1,4 +1,4 @@
-//! Salida legible de la CLI (sin `--json`). El JSON es el contrato; esto es para personas.
+//! Readable CLI output (without `--json`). JSON is the contract; this is for people.
 
 use serde_json::Value;
 
@@ -14,23 +14,23 @@ pub fn render(tool: &str, v: &Value) -> Rendered {
     }
     let mut out = String::new();
     tree(v, 0, &mut out);
-    // El aviso de lo omitido va por stderr para que no ensucie lo que se canaliza.
+    // The warning about what was omitted goes to stderr so it does not pollute what is piped.
     let err = v["warning"]
         .as_str()
-        .map(|w| format!("[aviso] {w}\n"))
+        .map(|w| format!("[warning] {w}\n"))
         .unwrap_or_default();
     Rendered { out, err }
 }
 
-/// stdout y stderr del proceso en los suyos, y el estado al final por stderr.
+/// The process's stdout and stderr in their own, and the state at the end on stderr.
 fn output(v: &Value) -> Rendered {
     let text = |k: &str| v[k].as_str().unwrap_or_default().to_owned();
     let state = if v["more"].as_bool().unwrap_or(false) {
-        "[hay más]".to_owned()
+        "[more]".to_owned()
     } else if v["done"].as_bool().unwrap_or(false) {
-        format!("[terminó: {}]", v["process"]["state"])
+        format!("[finished: {}]", v["process"]["state"])
     } else {
-        "[sigue corriendo]".to_owned()
+        "[still running]".to_owned()
     };
     let next = format!(
         "--from-stdout {} --from-stderr {}",
@@ -59,7 +59,7 @@ fn tree(v: &Value, depth: usize, out: &mut String) {
                     out.push_str(&format!("{pad}{k}:\n"));
                     tree(v, depth + 1, out);
                 } else if is_empty(v) {
-                    out.push_str(&format!("{pad}{k}: (vacío)\n"));
+                    out.push_str(&format!("{pad}{k}: (empty)\n"));
                 } else {
                     out.push_str(&format!("{pad}{k}: {}\n", scalar(v)));
                 }
@@ -94,28 +94,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn arbol_con_sangria() {
+    fn indented_tree() {
         let r = render(
             "tunnels",
             &json!({"a": 1, "b": {"c": "x", "d": []}, "e": ["p", {"f": 2}]}),
         );
         assert_eq!(
             r.out,
-            "a: 1\nb:\n  c: x\n  d: (vacío)\ne:\n  - p\n  -\n    f: 2\n"
+            "a: 1\nb:\n  c: x\n  d: (empty)\ne:\n  - p\n  -\n    f: 2\n"
         );
     }
 
     #[test]
-    fn la_salida_va_a_su_flujo_y_dice_desde_donde_seguir() {
+    fn output_goes_to_its_stream_and_says_where_to_continue() {
         let r = render(
             "output",
-            &json!({"stdout": "hola\n", "stderr": "mal\n", "done": false,
+            &json!({"stdout": "hello\n", "stderr": "bad\n", "done": false,
                     "next": {"stdout": 5, "stderr": 4}, "process": {"state": "Running"}}),
         );
-        assert_eq!(r.out, "hola\n");
+        assert_eq!(r.out, "hello\n");
         assert_eq!(
             r.err,
-            "mal\n[sigue corriendo] --from-stdout 5 --from-stderr 4\n"
+            "bad\n[still running] --from-stdout 5 --from-stderr 4\n"
         );
     }
 }

@@ -172,7 +172,7 @@ async fn power_cut_and_manual_return() {
             .unwrap()
             .unwrap();
     assert_eq!(machine, Machine::B);
-    assert!(reason.contains("corte de corriente"), "{reason}");
+    assert!(reason.contains("power cut"), "{reason}");
     assert!(!d.mac.state().on.b);
     d.check().await.unwrap();
 

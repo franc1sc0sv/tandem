@@ -1,16 +1,16 @@
-//! Puente de aceptación: lo que hace Tauri entre la ventana y `tandemd`, pero sobre HTTP, para
-//! manejar la UI real (el build de producción) con Playwright sin WebKitGTK.
+//! Acceptance bridge: what Tauri does between the window and `tandemd`, but over HTTP, to
+//! drive the real UI (the production build) with Playwright without WebKitGTK.
 //!
-//! Usa el código real de la app (`tandem_ui::session` para la IPC, `shortcuts`, `setup`,
-//! `files`, `admin_service`, `update`); solo el pegamento de Tauri se reemplaza:
+//! It uses the app's real code (`tandem_ui::session` for the IPC, `shortcuts`, `setup`,
+//! `files`, `admin_service`, `update`); only the Tauri glue is replaced:
 //!
-//! - `GET  /__bridge/events`        flujo SSE `{event, payload}` (los eventos de Tauri).
-//! - `POST /__bridge/invoke/<cmd>`  cuerpo JSON = argumentos del comando; respuesta JSON, o 500 `{error}`.
-//! - `GET  /__bridge/calls`         lo que la UI pidió y Tauri habría hecho en la ventana (salir, ocultar…).
-//! - `GET  /<ruta>`                 archivos estáticos de `--static` (por omisión `index.html`).
+//! - `GET  /__bridge/events`        SSE stream `{event, payload}` (Tauri's events).
+//! - `POST /__bridge/invoke/<cmd>`  JSON body = command arguments; JSON response, or 500 `{error}`.
+//! - `GET  /__bridge/calls`         what the UI asked for and Tauri would have done in the window (quit, hide…).
+//! - `GET  /<path>`                 static files from `--static` (default `index.html`).
 //!
-//! Uso: `acc_bridge --port N --static DIR [--latest-json URL]`, con `TANDEM_DATA_DIR`,
-//! `XDG_CONFIG_HOME` y `XDG_DATA_HOME` como los del agente al que se conecta.
+//! Usage: `acc_bridge --port N --static DIR [--latest-json URL]`, with `TANDEM_DATA_DIR`,
+//! `XDG_CONFIG_HOME` and `XDG_DATA_HOME` as those of the agent it connects to.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -148,7 +148,7 @@ impl App {
             s.view.error = None;
         });
         let found = match &self.latest {
-            None => Err("no se pudo buscar: sin servidor de actualizaciones".to_owned()),
+            None => Err("could not check: no update server".to_owned()),
             Some(url) => fetch_latest(url).await,
         };
         let peer = self.peer();
@@ -169,7 +169,7 @@ impl App {
         let target = lock(&self.updater)
             .found
             .clone()
-            .ok_or("no hay una versión nueva: busca primero")?;
+            .ok_or("there is no new version: check first")?;
         let steps = update::plan(&parse_version(HERE), &self.peer(), &target).map_err(|e| e.to_string())?;
         let mut taken = false;
         let view = self.change(|s| {
@@ -180,7 +180,7 @@ impl App {
             }
         });
         if !taken {
-            return Err("ya hay una actualización en curso".into());
+            return Err("an update is already in progress".into());
         }
         let me = self.clone();
         tokio::spawn(async move {
@@ -212,7 +212,7 @@ impl Fleet for BridgeFleet {
         match self.app.handle.act(Action::UpdatePeer { version: target.to_string() }).await {
             ActionResult::Done => Ok(()),
             ActionResult::Rejected { reason } | ActionResult::Unavailable { reason } => Err(reason),
-            other => Err(format!("respuesta inesperada de tandemd: {other:?}")),
+            other => Err(format!("unexpected response from tandemd: {other:?}")),
         }
     }
     async fn peer_changed(&mut self) -> Option<Peer> {
@@ -227,17 +227,17 @@ impl Fleet for BridgeFleet {
         })
     }
     async fn install_here(&mut self, target: &Version) -> Result<(), String> {
-        // Doble: aquí el updater real baja el paquete y reinicia la app.
+        // Double: here the real updater downloads the package and restarts the app.
         self.app.record("install_here", json!(target.to_string()));
         Ok(())
     }
 }
 
-/// `latest.json` mínimo por HTTP plano (`http://host:port/ruta`): `{"version": "x.y.z"}`.
+/// Minimal `latest.json` over plain HTTP (`http://host:port/path`): `{"version": "x.y.z"}`.
 async fn fetch_latest(url: &str) -> Result<Version, String> {
-    let rest = url.strip_prefix("http://").ok_or("solo http en las pruebas")?;
+    let rest = url.strip_prefix("http://").ok_or("http only in tests")?;
     let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
-    let mut s = TcpStream::connect(host).await.map_err(|e| format!("no se pudo buscar: {e}"))?;
+    let mut s = TcpStream::connect(host).await.map_err(|e| format!("could not check: {e}"))?;
     let req = format!("GET /{path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n");
     s.write_all(req.as_bytes()).await.map_err(|e| e.to_string())?;
     let mut buf = Vec::new();
@@ -245,13 +245,13 @@ async fn fetch_latest(url: &str) -> Result<Version, String> {
     let text = String::from_utf8_lossy(&buf);
     let status_line = text.lines().next().unwrap_or("");
     if !status_line.contains(" 200") {
-        return Err(format!("no se pudo buscar: {status_line}"));
+        return Err(format!("could not check: {status_line}"));
     }
     let body = text.split("\r\n\r\n").nth(1).unwrap_or("");
-    let v: Value = serde_json::from_str(body).map_err(|e| format!("no se pudo buscar: latest.json inválido: {e}"))?;
+    let v: Value = serde_json::from_str(body).map_err(|e| format!("could not check: invalid latest.json: {e}"))?;
     v["version"]
         .as_str()
-        .ok_or("latest.json sin versión")?
+        .ok_or("latest.json without a version")?
         .parse::<Version>()
         .map_err(|e| e.to_string())
 }
@@ -262,7 +262,7 @@ async fn invoke(app: &Arc<App>, cmd: &str, args: Value) -> Reply {
     match cmd {
         "agent_snapshot" => Ok(serde_json::to_value(app.handle.snapshot()).map_err(|e| e.to_string())?),
         "agent_act" => {
-            let action: Action = serde_json::from_value(args["action"].clone()).map_err(|e| format!("acción inválida: {e}"))?;
+            let action: Action = serde_json::from_value(args["action"].clone()).map_err(|e| format!("invalid action: {e}"))?;
             let r = app.handle.act(action).await;
             Ok(json!(r_to_value(&r)))
         }
@@ -276,7 +276,7 @@ async fn invoke(app: &Arc<App>, cmd: &str, args: Value) -> Reply {
             let next = Shortcuts::from_bindings(&b).map_err(|e| e.to_string())?;
             let mut keys = lock(&app.keys);
             if let Some(file) = &keys.file {
-                shortcuts::save(file, &next).map_err(|e| format!("no se pudo guardar {}: {e}", file.display()))?;
+                shortcuts::save(file, &next).map_err(|e| format!("could not save {}: {e}", file.display()))?;
             }
             keys.current = next;
             keys.warning = None;
@@ -293,7 +293,7 @@ async fn invoke(app: &Arc<App>, cmd: &str, args: Value) -> Reply {
             app.record("setup_open", args);
             Err("estos permisos solo existen en macOS".into())
         }
-        "agent_restart" => Err("el agente de inicio de sesión solo existe en macOS".into()),
+        "agent_restart" => Err("the sign-in agent only exists on macOS".into()),
         "admin_status" => {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             let v = admin_service::view(&admin_service::platform_for(&exe), &admin_service::System, &admin_service::UnixAcl);
@@ -456,7 +456,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--port" => port = args.next().ok_or("falta --port")?.parse()?,
             "--static" => root = PathBuf::from(args.next().ok_or("falta --static")?),
             "--latest-json" => latest = args.next(),
-            other => return Err(format!("opción desconocida {other}").into()),
+            other => return Err(format!("unknown option {other}").into()),
         }
     }
     let (tx, _) = broadcast::channel(4096);
@@ -498,7 +498,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
         latest,
     });
-    // El estado de las versiones de la otra, como lo vería la pestaña Actualizaciones.
+    // The other machine's version state, as the Updates tab would see it.
     {
         let app = app.clone();
         let mut rx = hub.update.subscribe();

@@ -1,11 +1,11 @@
-//! Entornos y recursos en el agente (T-105): el escaneo al arrancar y a pedido, y los
-//! recursos en vivo de las dos máquinas para quien mire.
+//! Environments and resources in the agent (T-105): the scan on start and on request, and the
+//! live resources of both machines for whoever watches.
 //!
-//! Los recursos se muestrean solo con alguien mirando ([`tandem_env::ResourceMonitor`]): una
-//! conexión de la UI de esta máquina ([`Agent::watch_resources`]) o la otra máquina, que los
-//! pide para su UI. Ese pedido es un alquiler: quien mira lo renueva cada [`RENEW`] y si deja
-//! de llegar (el enlace se cayó) el otro deja de mandar a los [`LEASE`], sin depender de
-//! saber cuándo se cortó.
+//! Resources are sampled only with someone watching ([`tandem_env::ResourceMonitor`]): a
+//! UI connection on this machine ([`Agent::watch_resources`]) or the other machine, which
+//! asks for them for its UI. That request is a lease: whoever watches renews it every [`RENEW`] and if it stops
+//! arriving (the link dropped) the other stops sending after [`LEASE`], without depending on
+//! knowing when it was cut.
 
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::Duration;
@@ -20,9 +20,9 @@ use tokio::time::Instant;
 
 use super::Agent;
 
-/// Cada cuánto quien mira le renueva el pedido a la otra máquina.
+/// How often whoever watches renews the request to the other machine.
 pub const RENEW: Duration = Duration::from_secs(3);
-/// Cuánto vale un pedido de recursos de la otra máquina sin renovar.
+/// How long a resources request from the other machine is valid without renewal.
 pub const LEASE: Duration = Duration::from_secs(10);
 
 pub(super) struct EnvState {
@@ -30,18 +30,18 @@ pub(super) struct EnvState {
     scan: Mutex<Scan>,
     scanning: Mutex<Scanning>,
     monitor: ResourceMonitor,
-    /// Las muestras que manda la otra máquina.
+    /// The samples the other machine sends.
     peer_resources: broadcast::Sender<Resources>,
-    /// Las conexiones de la UI de aquí que miran, y la tarea que renueva el pedido a la otra.
+    /// The UI connections here that watch, and the task that renews the request to the other.
     local: Mutex<Local>,
-    /// Hasta cuándo la otra máquina quiere los recursos de esta.
+    /// Until when the other machine wants this one's resources.
     serving: Mutex<Serving>,
 }
 
 #[derive(Default)]
 struct Scanning {
     running: bool,
-    /// Se pidió otro escaneo mientras corría uno: al terminar se hace otra vez.
+    /// Another scan was requested while one was running: when it finishes it is done again.
     again: bool,
 }
 
@@ -86,31 +86,31 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Agent {
-    /// Escanear con `host` en lugar del que se armó al crear el agente (las pruebas y el
-    /// agente con backends reales).
+    /// Scan with `host` instead of the one built when the agent was created (tests and the
+    /// real-backend agent).
     pub fn with_env_host(mut self, host: Arc<Host>) -> Self {
         self.env = EnvState::new(host);
         self
     }
 
-    /// Lo que encontró el último escaneo.
+    /// What the last scan found.
     pub fn environment_scan(&self) -> Scan {
         lock(&self.env.scan).clone()
     }
 
-    /// Lo encontrado entra en lo que anuncia esta máquina.
+    /// What was found goes into what this machine announces.
     pub(super) fn add_environments(&self, caps: &mut Capabilities) {
         let scan = lock(&self.env.scan);
         caps.environments = scan.environments.clone();
         caps.hardware = scan.hardware.clone();
     }
 
-    /// Escanea en segundo plano; lo encontrado sale en las capacidades (la UI y la otra
-    /// máquina lo ven con el próximo anuncio). Uno a la vez: pedirlo mientras corre repite
-    /// el escaneo al terminar. Fuera de un runtime no hace nada.
+    /// Scans in the background; what is found goes out in the capabilities (the UI and the other
+    /// machine see it with the next announcement). One at a time: asking while one runs repeats
+    /// the scan when it finishes. Outside a runtime it does nothing.
     pub fn rescan(self: &Arc<Self>) {
         let Ok(rt) = tokio::runtime::Handle::try_current() else {
-            tracing::warn!("sin runtime: no se escanean los entornos");
+            tracing::warn!("no runtime: environments are not scanned");
             return;
         };
         {
@@ -132,12 +132,12 @@ impl Agent {
                             entornos = scan.environments.len(),
                             gpus = scan.hardware.gpus.len(),
                             ms = started.elapsed().as_millis() as u64,
-                            "entornos escaneados"
+                            "environments scanned"
                         );
                         *lock(&agent.env.scan) = scan;
                         agent.refresh_capabilities();
                     }
-                    Err(e) => tracing::warn!("el escaneo de entornos falló: {e}"),
+                    Err(e) => tracing::warn!("the environment scan failed: {e}"),
                 }
                 let mut s = lock(&agent.env.scanning);
                 if s.again {
@@ -150,7 +150,7 @@ impl Agent {
         });
     }
 
-    /// [`tandem_proto::UiCommand::Rescan`]: aquí se escanea; a la otra se le pide.
+    /// [`tandem_proto::UiCommand::Rescan`]: here it is scanned; the other is asked.
     pub(super) fn rescan_machine(self: &Arc<Self>, machine: Machine) -> Reply {
         if machine == self.machine() {
             self.rescan();
@@ -158,7 +158,7 @@ impl Agent {
         }
         if !*self.orch.peer_connected().borrow() {
             return Reply::Rejected(format!(
-                "la {} no está conectada",
+                "the {} is not connected",
                 self.machine_name(machine)
             ));
         }
@@ -166,13 +166,13 @@ impl Agent {
         Reply::Done
     }
 
-    /// La otra máquina pidió escanear esta.
+    /// The other machine asked to scan this one.
     pub fn receive_rescan(self: &Arc<Self>) {
         self.rescan();
     }
 
-    /// Empezar a recibir los recursos de las dos máquinas. Los de esta se muestrean mientras
-    /// exista; los de la otra se le piden (y se renueva el pedido) mientras haya alguno.
+    /// Start receiving the resources of both machines. This one's are sampled while one
+    /// exists; the other's are asked for (and the request renewed) while there is any.
     pub fn watch_resources(self: &Arc<Self>) -> ResourceWatch {
         let watch = self.env.monitor.watch();
         let local = self.env.monitor.subscribe();
@@ -216,7 +216,7 @@ impl Agent {
         }
     }
 
-    /// La otra máquina quiere (o ya no) los recursos de esta.
+    /// The other machine wants (or no longer wants) this one's resources.
     pub fn receive_watch_resources(self: &Arc<Self>, on: bool) {
         let mut s = lock(&self.env.serving);
         if !on {
@@ -260,14 +260,14 @@ impl Agent {
         });
     }
 
-    /// Una muestra de la otra máquina, para quien mire aquí.
+    /// A sample from the other machine, for whoever watches here.
     pub fn receive_peer_resources(&self, resources: Resources) {
-        // Sin nadie mirando no es un error: el pedido pudo cancelarse en camino.
+        // With nobody watching it is not an error: the request may have been canceled on the way.
         let _ = self.env.peer_resources.send(resources);
     }
 }
 
-/// Los recursos de las dos máquinas para una conexión de la UI. Al soltarlo se deja de mirar.
+/// The resources of both machines for a UI connection. Dropping it stops watching.
 pub struct ResourceWatch {
     agent: Weak<Agent>,
     _watch: Watch,
@@ -282,8 +282,8 @@ impl std::fmt::Debug for ResourceWatch {
 }
 
 impl ResourceWatch {
-    /// La siguiente muestra de cualquiera de las dos, con su máquina; `None` si el agente ya
-    /// no existe. Se puede cancelar sin perder muestras.
+    /// The next sample from either of the two, with its machine; `None` if the agent no longer
+    /// exists. It can be canceled without losing samples.
     pub async fn next(&mut self) -> Option<(Machine, Resources)> {
         loop {
             let (here, got) = tokio::select! {
@@ -294,7 +294,7 @@ impl ResourceWatch {
             let me = agent.machine();
             match got {
                 Ok(r) => return Some((if here { me } else { me.other() }, r)),
-                // Una muestra vieja no le sirve a nadie: se sigue con la próxima.
+                // An old sample is no use to anyone: continue with the next.
                 Err(RecvError::Lagged(_)) => continue,
                 Err(RecvError::Closed) => return None,
             }
@@ -423,9 +423,9 @@ mod tests {
         assert_eq!(peer.taken(), [ControlMsg::Rescan]);
         a.orchestrator().clear_peer();
         let Reply::Rejected(why) = a.handle(UiCommand::Rescan { machine: other }) else {
-            panic!("sin la otra conectada no se puede");
+            panic!("without the other connected it cannot");
         };
-        assert!(why.contains("no está conectada"), "{why}");
+        assert!(why.contains("is not connected"), "{why}");
     }
 
     #[tokio::test(start_paused = true)]
@@ -437,21 +437,24 @@ mod tests {
         assert_eq!(machine, a.machine());
         assert_eq!(r.cpu.load, 180);
         assert_eq!(r.memory.used, 12 << 30);
-        // Pedido al empezar y renovado cada RENEW.
+        // Request on start and renewed every RENEW.
         tokio::time::sleep(RENEW * 3).await;
         let renewals = peer.watches();
         assert!(
             renewals.len() >= 3 && renewals.iter().all(|on| *on),
             "{renewals:?}"
         );
-        // Una segunda conexión no pide de nuevo; soltar la última avisa una vez.
+        // A second connection does not ask again; dropping the last notifies once.
         let w2 = a.watch_resources();
         drop(w);
         assert!(peer.watches().iter().all(|on| *on));
         drop(w2);
         assert_eq!(peer.watches(), [false]);
         tokio::time::sleep(RENEW * 3).await;
-        assert!(peer.watches().is_empty(), "sin nadie mirando no se renueva");
+        assert!(
+            peer.watches().is_empty(),
+            "with nobody watching it is not renewed"
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -459,7 +462,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (a, _peer) = agent(dir.path());
         let mut w = a.watch_resources();
-        // La primera muestra local sale enseguida; después llega la de la otra.
+        // The first local sample goes out right away; then the other's arrives.
         assert_eq!(w.next().await.unwrap().0, a.machine());
         let mut theirs = Resources::default();
         theirs.cpu.load = 970;
@@ -474,16 +477,16 @@ mod tests {
         a.receive_watch_resources(true);
         tokio::time::sleep(Duration::from_millis(4500)).await;
         let sent = peer.samples();
-        assert!((4..=6).contains(&sent), "{sent} muestras en 4,5 s");
-        // Renovar alarga el alquiler.
+        assert!((4..=6).contains(&sent), "{sent} samples in 4.5 s");
+        // Renewing extends the lease.
         a.receive_watch_resources(true);
         tokio::time::sleep(LEASE - Duration::from_secs(1)).await;
         assert!(peer.samples() >= 8);
-        // Sin renovar, se corta solo.
+        // Without renewal, it cuts itself off.
         tokio::time::sleep(Duration::from_secs(3)).await;
         peer.taken();
         tokio::time::sleep(Duration::from_secs(5)).await;
-        assert_eq!(peer.samples(), 0, "siguió mandando sin alquiler");
+        assert_eq!(peer.samples(), 0, "it kept sending without a lease");
         assert_eq!(a.env.monitor.watchers(), 0);
     }
 
@@ -499,7 +502,7 @@ mod tests {
         peer.taken();
         tokio::time::sleep(Duration::from_secs(5)).await;
         assert_eq!(peer.samples(), 0);
-        // Y volver a pedir arranca otra vez.
+        // And asking again starts it again.
         a.receive_watch_resources(true);
         tokio::time::sleep(Duration::from_millis(2500)).await;
         assert!(peer.samples() >= 1);

@@ -1,19 +1,19 @@
-//! `tandem.toml` de antes de los lados A/B (v0.2, T-097): los lados se llamaban `mac` y
-//! `pc` y cada máquina decía cuál era (`machine = "mac"`).
+//! `tandem.toml` from before sides A/B (v0.2, T-097): the sides were called `mac` and
+//! `pc` and each machine said which it was (`machine = "mac"`).
 //!
-//! La migración pasa en dos tiempos, porque al leer el archivo todavía no se conocen las
-//! claves:
+//! The migration happens in two steps, because the keys are not yet known when
+//! reading the file:
 //!
-//! 1. Al leer ([`sides_v02`]): esta máquina queda como `A` y la otra como `B`, de forma
-//!    provisional. Las pantallas, el acomodo, el teclado y el autor del último cambio se
-//!    traducen con esa misma regla, así que el puesto sigue diciendo lo mismo.
-//! 2. Al arrancar el agente, con la identidad y el par de la confianza
-//!    ([`crate::config::AgentConfig::with_side`]): si por las claves esta máquina es `B`, se
-//!    cambian los lados. El archivo se reescribe en el formato nuevo.
+//! 1. When reading ([`sides_v02`]): this machine is left as `A` and the other as `B`, provisionally.
+//!    The screens, the arrangement, the keyboard and the author of the last change are
+//!    translated with that same rule, so the desk keeps saying the same.
+//! 2. When the agent starts, with the identity and the trusted peer
+//!    ([`crate::config::AgentConfig::with_side`]): if by the keys this machine is `B`, the
+//!    sides are switched. The file is rewritten in the new format.
 
 use toml::{Table, Value};
 
-/// Los nombres de antes.
+/// The former names.
 const MAC: &str = "mac";
 const PC: &str = "pc";
 
@@ -21,7 +21,7 @@ fn is_old(v: Option<&Value>) -> bool {
     matches!(v.and_then(Value::as_str), Some(MAC | PC))
 }
 
-/// Si `table` (un `tandem.toml` entero) usa los nombres de antes en algún lado.
+/// Whether `table` (a whole `tandem.toml`) uses the former names on any side.
 pub fn is_v02(table: &Table) -> bool {
     let screens = table
         .get("screens")
@@ -39,15 +39,15 @@ pub fn is_v02(table: &Table) -> bool {
         || arrangement.is_some_and(|a| a.contains_key("mac_side"))
 }
 
-/// Traduce `table` al formato de lados A/B, con esta máquina como `A` (paso 1 de arriba).
-/// Devuelve si había algo que traducir. Lo que no sea de los nombres de antes se deja como
-/// está (y la validación de siempre lo rechaza si está mal).
+/// Translates `table` to the A/B sides format, with this machine as `A` (step 1 above).
+/// Returns whether there was anything to translate. What is not one of the former names is left as
+/// is (and the usual validation rejects it if wrong).
 pub fn sides_v02(table: &mut Table) -> bool {
     if !is_v02(table) {
         return false;
     }
-    // Sin `machine` (o con uno ya nuevo), las máquinas de antes se toman por la Mac: era lo
-    // que suponía v0.2 cuando faltaba (el teclado arrancaba en la Mac).
+    // Without `machine` (or with an already new one), the former machines are taken as the Mac: that was
+    // what v0.2 assumed when it was missing (the keyboard started on the Mac).
     let local = match table.get("machine").and_then(Value::as_str) {
         Some(PC) => PC,
         _ => MAC,
@@ -76,7 +76,7 @@ pub fn sides_v02(table: &mut Table) -> bool {
         }
     }
     if let Some(Value::Table(input)) = table.get_mut("input") {
-        // `server` es el nombre de antes de `keyboard`; si están los dos, vale `keyboard`.
+        // `server` is the former name of `keyboard`; if both are present, `keyboard` holds.
         let server = input.remove("server");
         if !input.contains_key("keyboard")
             && let Some(s) = server
@@ -90,8 +90,8 @@ pub fn sides_v02(table: &mut Table) -> bool {
     if let Some(Value::Table(arr)) = table.get_mut("arrangement")
         && let Some(mac_side) = arr.remove("mac_side")
     {
-        // `mac_side` era el lado de la PC en que está la Mac; `a_side`, el de B en que
-        // está A. Si la Mac quedó como B, el lado se invierte, y el desplazamiento también.
+        // `mac_side` was the side of the PC the Mac is on; `a_side`, the side of B A is
+        // on. If the Mac ended up as B, the side is inverted, and so is the offset.
         let mac_is_a = local == MAC;
         let side = match (mac_side.as_str(), mac_is_a) {
             (Some("left"), true) | (Some("right"), false) => Value::String("left".into()),
@@ -106,18 +106,18 @@ pub fn sides_v02(table: &mut Table) -> bool {
     true
 }
 
-/// `tandem.toml` de antes del puesto editable desde la UI (T-099): el atajo de bloqueo y el
-/// portapapeles estaban en `[input]` (ahora `[shortcuts] lock` y `[prefs] clipboard`, del
-/// puesto) y `[arrangement]` llevaba un desplazamiento a mano (`offset`), que ya no existe
-/// (D18). El acomodo que escribía el agente de T-097 sin que nadie lo declarara (A a la
-/// izquierda) se toma por no declarado; uno a la derecha queda con alineación al centro.
-/// Uno de v0.2 (`mac_side`) dice dónde está la Mac y se conserva tal cual: lo traduce
-/// [`sides_v02`] después.
+/// `tandem.toml` from before the desk was editable from the UI (T-099): the lock shortcut and the
+/// clipboard were in `[input]` (now `[shortcuts] lock` and `[prefs] clipboard`, of the
+/// desk) and `[arrangement]` carried a manual offset (`offset`), which no longer exists
+/// (D18). The arrangement the T-097 agent wrote without anyone declaring it (A on the
+/// left) is taken as undeclared; one on the right is left with center alignment.
+/// A v0.2 one (`mac_side`) says where the Mac is and is kept as is: it is translated by
+/// [`sides_v02`] afterwards.
 ///
-/// El portapapeles es un módulo de cada máquina, y lo encendido o apagado de cada una está en
-/// el puesto (`[modules.<lado>] clipboard`, D4): si esta lo tenía apagado, eso es un cambio
-/// suyo (`local`), para que la otra lo adopte. Si no, las dos podrían quedar con la misma
-/// versión y distinto puesto. Encendido es lo de omisión y no se escribe.
+/// The clipboard is a module of each machine, and what is on or off for each is in
+/// the desk (`[modules.<side>] clipboard`, D4): if this one had it off, that is a change
+/// by it (`local`), so the other adopts it. Otherwise, both could end up with the same
+/// version and a different desk. On is the default and is not written.
 pub fn desk_v03(table: &mut Table) -> DeskMigration {
     let mut changed = false;
     if let Some(Value::Table(arr)) = table.get_mut("arrangement")
@@ -137,12 +137,12 @@ pub fn desk_v03(table: &mut Table) -> DeskMigration {
         Some(Value::Table(input)) => (input.remove("lock_shortcut"), input.remove("clipboard")),
         _ => (None, None),
     };
-    // `true` si el valor pasó a su sección nueva.
+    // `true` if the value moved to its new section.
     let mut move_to = |section: &str, key: &str, value: Option<Value>| {
         let Some(value) = value else { return false };
         changed = true;
         if table.contains_key(section) {
-            // Lo nuevo manda: lo de antes sobra.
+            // The new one rules: the old one is redundant.
             return false;
         }
         let mut t = Table::new();
@@ -156,9 +156,9 @@ pub fn desk_v03(table: &mut Table) -> DeskMigration {
     }
     let mut local = false;
     if clipboard.as_ref().and_then(Value::as_bool) == Some(false) {
-        // El lado de esta máquina; uno de v0.2 (`mac`/`pc`) queda como `a` en
-        // [`sides_v02`], igual que ella.
-        // `B` también vale (como se muestra).
+        // This machine's side; a v0.2 one (`mac`/`pc`) is left as `a` in
+        // [`sides_v02`], just like it.
+        // `B` also holds (as shown).
         let side = match table.get("machine").and_then(Value::as_str) {
             Some("b" | "B") => "b",
             _ => "a",
@@ -181,12 +181,12 @@ pub fn desk_v03(table: &mut Table) -> DeskMigration {
     DeskMigration { changed, local }
 }
 
-/// Lo que hizo [`desk_v03`].
+/// What [`desk_v03`] did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct DeskMigration {
-    /// Había algo del formato de antes.
+    /// There was something in the old format.
     pub changed: bool,
-    /// Pasó al puesto un valor que era de esta máquina y no el de omisión.
+    /// A value that belonged to this machine and was not the default moved into the desk.
     pub local: bool,
 }
 
@@ -214,16 +214,16 @@ mod tests {
                 changed: true,
                 local: true
             },
-            "el portapapeles apagado era de esta máquina"
+            "the turned-off clipboard belonged to this machine"
         );
         assert!(
             t.get("arrangement").is_none(),
-            "el de omisión no se declara"
+            "the default is not declared"
         );
         assert_eq!(t["shortcuts"]["lock"].as_array().unwrap().len(), 1);
         assert_eq!(t["modules"]["a"]["clipboard"].as_bool(), Some(false));
         assert_eq!(t["input"].as_table().unwrap().len(), 1);
-        // Una segunda vez no hay nada que hacer.
+        // A second time there is nothing to do.
         assert_eq!(desk_v03(&mut t), DeskMigration::default());
 
         let mut right: Table = "[arrangement]\na_side = \"right\"\noffset = 40\n[shortcuts]\nlock = []\n[input]\nlock_shortcut = [\"KeyL\"]\n"
@@ -236,13 +236,13 @@ mod tests {
                 local: false
             }
         );
-        // Encendido (lo de omisión) no es un cambio de nadie.
+        // On (the default) is nobody's change.
         let mut on: Table = "machine = \"b\"\n[input]\nclipboard = true\n"
             .parse()
             .unwrap();
         assert!(!desk_v03(&mut on).local);
         assert!(on.get("modules").is_none() && on.get("prefs").is_none());
-        // Apagado en B va al lado B.
+        // Off on B goes to side B.
         let mut off: Table = "machine = \"b\"\n[input]\nclipboard = false\n"
             .parse()
             .unwrap();
@@ -251,7 +251,7 @@ mod tests {
         assert_eq!(right["arrangement"]["a_side"].as_str(), Some("right"));
         assert!(right["arrangement"].get("offset").is_none());
         assert!(right["shortcuts"]["lock"].as_array().unwrap().is_empty());
-        // Un archivo nuevo queda igual.
+        // A new file stays the same.
         let text = "[arrangement]\na_side = \"up\"\nalign = \"end\"\n";
         let mut new: Table = text.parse().unwrap();
         assert_eq!(desk_v03(&mut new), DeskMigration::default());
@@ -299,7 +299,7 @@ mod tests {
         let screens = t["screens"].as_array().unwrap();
         assert_eq!(screens[0]["machine"].as_str(), Some("a"));
         assert_eq!(screens[1]["machine"].as_str(), Some("b"));
-        // La Mac (ahora B) a la izquierda de la PC (ahora A): A queda a la derecha de B.
+        // The Mac (now B) to the left of the PC (now A): A ends up to the right of B.
         assert_eq!(t["arrangement"]["a_side"].as_str(), Some("right"));
         assert_eq!(t["arrangement"]["offset"].as_integer(), Some(-30));
         assert!(t["arrangement"].get("mac_side").is_none());

@@ -1,6 +1,6 @@
 [package]
 name = "tandem-workspace"
-description = "Workspaces de git por túnel: el repo viaja como bundle más parche y vuelve como rama"
+description = "Per-tunnel workspaces: the repo travels as a bundle plus a patch and comes back as a branch"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

@@ -1,16 +1,16 @@
-//! El cursor en vivo en el agente (T-128): posición y cruces para la UI, solo mientras
-//! alguien mira.
+//! The live cursor in the agent (T-128): position and crossings for the UI, only while
+//! someone is watching.
 //!
-//! El motor de entrada ([`crate::input`]) publica muestras (a 30 Hz como mucho) y cruces
-//! cuando [`CursorGate`] está encendido, y el agente las reparte: a las conexiones de la UI
-//! de aquí que pidieron [`tandem_proto::UiCommand::WatchCursor`] y, por el plano de control,
-//! a la otra máquina si ella mira. Las muestras salen de quien tiene el foco, así que la UI
-//! de la otra máquina las recibe por aquí ([`ControlMsg::Cursor`]); ese camino descarta lo
-//! que se atrasa ([`PeerLink::send_lossy`](crate::orchestrator::PeerLink::send_lossy)).
+//! The input engine ([`crate::input`]) publishes samples (at 30 Hz at most) and crossings
+//! when [`CursorGate`] is on, and the agent distributes them: to the UI connections
+//! here that asked for [`tandem_proto::UiCommand::WatchCursor`] and, over the control plane,
+//! to the other machine if it watches. Samples come from whoever has focus, so the UI
+//! of the other machine receives them from here ([`ControlMsg::Cursor`]); that path discards what
+//! lags ([`PeerLink::send_lossy`](crate::orchestrator::PeerLink::send_lossy)).
 //!
-//! El interruptor se enciende con la primera suscripción (de aquí o de la otra máquina) y se
-//! apaga con la última. El pedido de la otra máquina es un alquiler, como el de los
-//! recursos ([`super::env`]): si deja de renovarse (el enlace cayó), se apaga solo.
+//! The switch turns on with the first subscription (from here or from the other machine) and
+//! turns off with the last. The other machine's request is a lease, like the resources one
+//! ([`super::env`]): if it stops being renewed (the link dropped), it turns off on its own.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
@@ -25,30 +25,30 @@ use tokio::time::Instant;
 use super::Agent;
 use super::env::{LEASE, RENEW};
 
-/// Cuántos avisos espera una conexión lenta de la UI antes de empezar a perder los más
-/// viejos.
+/// How many notices a slow UI connection waits before starting to lose the
+/// old ones.
 const BACKLOG: usize = 64;
 
 pub(super) struct CursorState {
     gate: Arc<CursorGate>,
-    /// Lo que se publica aquí y lo que manda la otra máquina, para las conexiones de la UI.
+    /// What is published here and what the other machine sends, for the UI connections.
     events: broadcast::Sender<CursorEvent>,
     local: Mutex<Local>,
     serving: Mutex<Serving>,
-    /// Cuántos eventos salieron del motor de entrada (las pruebas lo miran).
+    /// How many events came out of the input engine (tests look at it).
     published: AtomicU64,
 }
 
 #[derive(Default)]
 struct Local {
-    /// Conexiones de la UI de aquí que miran, y la tarea que renueva el pedido a la otra.
+    /// UI connections here that are watching, and the task that renews the request to the other.
     watchers: usize,
     renew: Option<JoinHandle<()>>,
 }
 
 #[derive(Default)]
 struct Serving {
-    /// Hasta cuándo la otra máquina quiere el cursor de esta.
+    /// Until when the other machine wants this one's cursor.
     until: Option<Instant>,
     running: bool,
 }
@@ -78,13 +78,13 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Agent {
-    /// El interruptor que lee el motor de entrada: encendido mientras haya quien mire el
-    /// cursor, de aquí o de la otra máquina.
+    /// The switch the input engine reads: on while there is someone watching the
+    /// cursor, from here or from the other machine.
     pub fn cursor_gate(&self) -> Arc<CursorGate> {
         self.cursor.gate.clone()
     }
 
-    /// Cuántos eventos del cursor publicó el motor de entrada desde que arrancó el agente.
+    /// How many cursor events the input engine published since the agent started.
     pub fn cursor_published(&self) -> u64 {
         self.cursor.published.load(Ordering::Relaxed)
     }
@@ -95,14 +95,14 @@ impl Agent {
             .is_some_and(|until| Instant::now() < until)
     }
 
-    /// Enciende o apaga el interruptor según haya quien mire.
+    /// Turns the switch on or off depending on whether anyone is watching.
     fn refresh_cursor_gate(&self) {
         let local = lock(&self.cursor.local).watchers > 0;
         self.cursor.gate.set(local || self.peer_watches_cursor());
     }
 
-    /// Una muestra o un cruce de este motor de entrada: va a las conexiones de aquí y, si
-    /// la otra máquina mira, a ella.
+    /// A sample or a crossing of this input engine: it goes to the connections here and, if
+    /// the other machine watches, to it.
     pub fn publish_cursor(&self, event: CursorEvent) {
         self.cursor.published.fetch_add(1, Ordering::Relaxed);
         if self.peer_watches_cursor() {
@@ -111,7 +111,7 @@ impl Agent {
                     .orch
                     .peer()
                     .send_lossy(ControlMsg::Cursor(sample.clone())),
-                // Un cruce es raro y la UI no lo puede perder: va por el camino de siempre.
+                // A crossing is rare and the UI cannot lose it: it goes over the usual path.
                 CursorEvent::Crossed { from, to, edge } => {
                     self.orch.peer().send(ControlMsg::Crossed {
                         from: *from,
@@ -121,17 +121,17 @@ impl Agent {
                 }
             }
         }
-        // Sin conexiones de la UI no es un error.
+        // Without UI connections it is not an error.
         let _ = self.cursor.events.send(event);
     }
 
-    /// Una muestra o un cruce que mandó la otra máquina, para quien mire aquí.
+    /// A sample or a crossing the other machine sent, for whoever watches here.
     pub fn receive_peer_cursor(&self, event: CursorEvent) {
         let _ = self.cursor.events.send(event);
     }
 
-    /// Empezar a recibir el cursor de las dos máquinas. Mientras exista alguno se enciende
-    /// el interruptor aquí y se le pide (y se renueva el pedido) a la otra máquina.
+    /// Start receiving the cursor of both machines. While any exists the switch
+    /// is turned on here and the other machine is asked (and the request renewed).
     pub fn watch_cursor(self: &Arc<Self>) -> CursorWatch {
         let events = self.cursor.events.subscribe();
         let mut l = lock(&self.cursor.local);
@@ -172,7 +172,7 @@ impl Agent {
         }
     }
 
-    /// La otra máquina quiere (o ya no) el cursor de esta.
+    /// The other machine wants (or no longer wants) this one's cursor.
     pub fn receive_watch_cursor(self: &Arc<Self>, on: bool) {
         let mut s = lock(&self.cursor.serving);
         if !on {
@@ -196,17 +196,17 @@ impl Agent {
     }
 }
 
-/// Qué hacer con el alquiler de la otra máquina en este instante.
+/// What to do with the other machine's lease at this instant.
 enum Lease {
-    /// Sigue vigente hasta ese momento.
+    /// Still valid until that moment.
     Until(Instant),
-    /// Venció y ya quedó limpio.
+    /// It expired and is already cleaned.
     Expired,
 }
 
-/// Decide y limpia en una sola sección crítica: si decidiera y limpiara por separado, una
-/// renovación entre ambas pasos se borraría y el interruptor quedaría apagado hasta la
-/// siguiente (y `running` en falso la dejaría sin tarea que la vigile).
+/// Decides and cleans in a single critical section: if it decided and cleaned separately, a
+/// renewal between the two steps would be erased and the switch would stay off until the
+/// next one (and `running` false would leave it without a task to watch it).
 fn settle(serving: &Mutex<Serving>, now: Instant) -> Lease {
     let mut s = lock(serving);
     match s.until {
@@ -219,7 +219,7 @@ fn settle(serving: &Mutex<Serving>, now: Instant) -> Lease {
     }
 }
 
-/// Vigila el alquiler de la otra máquina y apaga el interruptor cuando vence sin renovarse.
+/// Watches the other machine's lease and turns the switch off when it expires unrenewed.
 async fn lease(weak: Weak<Agent>) {
     loop {
         let Some(agent) = weak.upgrade() else { return };
@@ -236,7 +236,7 @@ async fn lease(weak: Weak<Agent>) {
     }
 }
 
-/// El cursor de las dos máquinas para una conexión de la UI. Al soltarlo se deja de mirar.
+/// The cursor of both machines for a UI connection. Dropping it stops watching.
 pub struct CursorWatch {
     agent: Weak<Agent>,
     events: broadcast::Receiver<CursorEvent>,
@@ -249,9 +249,9 @@ impl std::fmt::Debug for CursorWatch {
 }
 
 impl CursorWatch {
-    /// El siguiente evento; `None` si el agente ya no existe. Si la conexión se atrasó,
-    /// lo perdido se descarta: la próxima muestra ya dice dónde está el cursor. Se puede
-    /// cancelar sin perder eventos.
+    /// The next event; `None` if the agent no longer exists. If the connection lagged,
+    /// what was lost is discarded: the next sample already says where the cursor is. It can
+    /// be canceled without losing events.
     pub async fn next(&mut self) -> Option<CursorEvent> {
         loop {
             match self.events.recv().await {
@@ -284,7 +284,7 @@ mod tests {
     use crate::config::fixtures;
     use crate::orchestrator::{PeerLink, StepFuture};
 
-    /// Anota lo que el agente le manda a la otra máquina, y por qué camino.
+    /// Records what the agent sends to the other machine, and over which path.
     #[derive(Default)]
     struct Recorder(Mutex<Vec<(bool, ControlMsg)>>);
 
@@ -344,12 +344,12 @@ mod tests {
             until: Some(Instant::now() + Duration::from_secs(5)),
             running: true,
         });
-        // Renovado: ni se limpia `until` ni se baja `running`.
+        // Renewed: neither `until` is cleaned nor `running` lowered.
         let Lease::Until(until) = settle(&serving, Instant::now()) else {
-            panic!("el alquiler seguía vigente");
+            panic!("the lease was still valid");
         };
         assert!(lock(&serving).running);
-        // Vencido: se limpia todo en la misma llamada, sin dejar `running` a medias.
+        // Expired: everything is cleaned in the same call, without leaving `running` half done.
         tokio::time::advance(Duration::from_secs(6)).await;
         assert!(matches!(settle(&serving, Instant::now()), Lease::Expired));
         let s = lock(&serving);
@@ -357,8 +357,8 @@ mod tests {
         assert!(until > Instant::now() - Duration::from_secs(6));
     }
 
-    /// La carrera real (renovar entre leer y limpiar) solo ocurre entre hilos; aquí se
-    /// castiga `settle` contra renovaciones concurrentes: nunca debe borrar una vigente.
+    /// The real race (renewing between reading and cleaning) only happens between threads; here
+    /// `settle` is punished against concurrent renewals: it must never delete a valid one.
     #[test]
     fn a_renewal_is_never_wiped_by_a_concurrent_settle() {
         let base = Instant::now();
@@ -379,8 +379,8 @@ mod tests {
             let verdict = settle(&serving, base + Duration::from_secs(1));
             renewer.join().unwrap();
             let s = lock(&serving);
-            // O vio la renovación (sigue vigente) o venció antes y la renovación llegó
-            // después: en ambos casos la renovación sobrevive.
+            // Either it saw the renewal (still valid) or it expired earlier and the renewal arrived
+            // afterwards: in both cases the renewal survives.
             assert!(
                 s.until.is_some() && s.running,
                 "{}",
@@ -400,7 +400,7 @@ mod tests {
         let second = a.watch_cursor();
         assert!(gate.is_on());
         tokio::task::yield_now().await;
-        // El pedido a la otra máquina sale una vez y se renueva mientras alguien mire.
+        // The request to the other machine goes out once and is renewed while someone watches.
         assert_eq!(
             peer.taken(),
             vec![(false, ControlMsg::WatchCursor { on: true })]
@@ -411,7 +411,7 @@ mod tests {
             vec![(false, ControlMsg::WatchCursor { on: true })]
         );
 
-        // Con una conexión que se va, sigue habiendo quien mire.
+        // With one connection leaving, there is still someone watching.
         drop(first);
         assert!(gate.is_on());
         assert!(peer.taken().is_empty());
@@ -421,7 +421,7 @@ mod tests {
             peer.taken(),
             vec![(false, ControlMsg::WatchCursor { on: false })]
         );
-        // Ya no se renueva.
+        // It is no longer renewed.
         tokio::time::sleep(RENEW * 3).await;
         assert!(peer.taken().is_empty());
     }
@@ -432,7 +432,7 @@ mod tests {
         let (a, peer) = agent(dir.path());
         let gate = a.cursor_gate();
 
-        // Nadie mira: lo que publique el motor no va a ningún lado.
+        // Nobody watches: what the engine publishes goes nowhere.
         a.publish_cursor(sample(1));
         assert!(peer.taken().is_empty());
 
@@ -440,7 +440,7 @@ mod tests {
         assert!(gate.is_on());
         a.publish_cursor(sample(2));
         a.publish_cursor(crossed());
-        // Las muestras van por el camino que se descarta; el cruce, por el normal.
+        // Samples go over the path that discards; the crossing, over the normal one.
         assert_eq!(
             peer.taken(),
             vec![
@@ -456,17 +456,17 @@ mod tests {
             ]
         );
 
-        // Renovado a tiempo, sigue; sin renovar, vence y el interruptor se apaga solo.
+        // Renewed in time, it continues; without renewing, it expires and the switch turns off on its own.
         tokio::time::sleep(LEASE - Duration::from_secs(1)).await;
         a.receive_watch_cursor(true);
         tokio::time::sleep(LEASE - Duration::from_secs(1)).await;
-        assert!(gate.is_on(), "se renovó");
+        assert!(gate.is_on(), "it was renewed");
         tokio::time::sleep(Duration::from_secs(2)).await;
-        assert!(!gate.is_on(), "venció sin renovar");
+        assert!(!gate.is_on(), "it expired without renewal");
         a.publish_cursor(sample(3));
         assert!(peer.taken().is_empty());
 
-        // Y se puede cancelar a mano.
+        // And it can be canceled by hand.
         a.receive_watch_cursor(true);
         assert!(gate.is_on());
         a.receive_watch_cursor(false);
@@ -485,13 +485,13 @@ mod tests {
         assert_eq!(watch.next().await, Some(crossed()));
         assert_eq!(a.cursor_published(), 1);
 
-        // Una conexión que no lee se atrasa: pierde lo viejo y sigue con lo nuevo.
+        // A connection that does not read lags: it loses the old and continues with the new.
         for x in 0..(BACKLOG as i32 + 10) {
             a.receive_peer_cursor(sample(x));
         }
         let Some(CursorEvent::Sample(first)) = watch.next().await else {
-            panic!("se esperaba una muestra");
+            panic!("a sample was expected");
         };
-        assert!(first.x >= 10, "las más viejas se descartaron: {first:?}");
+        assert!(first.x >= 10, "the oldest were discarded: {first:?}");
     }
 }

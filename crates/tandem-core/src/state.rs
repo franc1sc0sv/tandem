@@ -2,13 +2,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::Machine;
 
-/// Qué máquinas están encendidas, según quien lleva el estado.
+/// Which machines are on, according to whoever keeps the state.
 ///
-/// No hay una máquina central (DESIGN §3.7): la máquina local siempre está encendida
-/// para sí misma, y la otra lo está mientras algún enlace la ve o un paso la encendió.
+/// There is no central machine (DESIGN §3.7): the local machine is always on
+/// for itself, and the other is on while some link sees it or a step turned it on.
 ///
-/// Un estado guardado antes de los lados A/B (`mac`/`pc`) no trae ninguno: se lee como
-/// todo apagado y el agente lo rehace (la local siempre prendida; la otra según los enlaces).
+/// A state saved before the A/B sides (`mac`/`pc`) carries neither: it is read as
+/// everything off and the agent rebuilds it (the local one always on; the other per the links).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Powered {
@@ -31,19 +31,19 @@ impl Powered {
         }
     }
 
-    /// Solo `machine` encendida.
-    pub fn only(machine: Machine) -> Self {
+    /// Only `machine` on.
+    pub fn solo(machine: Machine) -> Self {
         let mut p = Powered::default();
         p.set(machine, true);
         p
     }
 
-    /// Las dos encendidas.
+    /// Both on.
     pub fn both() -> Self {
         Powered { a: true, b: true }
     }
 
-    /// Lo mismo con los lados cambiados (la máquina descubrió que es el otro lado).
+    /// The same with the sides swapped (the machine discovered it is the other side).
     pub fn swapped(self) -> Self {
         Powered {
             a: self.b,
@@ -52,28 +52,28 @@ impl Powered {
     }
 }
 
-/// Estado del puesto según Tandem: qué máquinas están encendidas y qué escena está puesta.
+/// Desk state according to Tandem: which machines are on and which scene is in place.
 ///
-/// Un estado guardado por una versión anterior trae además lo de los monitores (`owner`,
-/// `builtin_pref`, `doubt`); se ignora al leerlo.
+/// A state saved by an earlier version also carries the monitors' data (`owner`,
+/// `builtin_pref`, `doubt`); it is ignored when read.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct State {
-    /// Un estado guardado con `pc_on` (antes de T-084) no la trae: el agente la rehace
-    /// con lo que ven los enlaces.
+    /// A state saved with `pc_on` (before T-084) does not carry it: the agent rebuilds it
+    /// from what the links see.
     #[serde(default)]
     pub on: Powered,
-    /// El id de la escena que se aplicó por última vez y sigue valiendo (D6). `None` si
-    /// nunca se aplicó una, se borró o se apagó una máquina que necesitaba.
+    /// The id of the scene last applied that still holds (D6). `None` if
+    /// one was never applied, was deleted or a machine it needed was turned off.
     #[serde(default)]
     pub scene: Option<String>,
 }
 
 impl State {
-    /// El estado de partida visto desde `me`: solo `me` encendida, porque de la otra
-    /// todavía no se sabe nada.
+    /// The starting state seen from `me`: only `me` on, because nothing is known yet
+    /// about the other.
     pub fn initial(me: Machine) -> Self {
         State {
-            on: Powered::only(me),
+            on: Powered::solo(me),
             scene: None,
         }
     }
@@ -82,7 +82,7 @@ impl State {
         self.on.is_on(machine)
     }
 
-    /// El mismo estado con los lados cambiados.
+    /// The same state with the sides swapped.
     pub fn swapped(&self) -> Self {
         State {
             on: self.on.swapped(),
@@ -113,7 +113,7 @@ mod tests {
         assert_eq!(s.on, Powered::both());
     }
 
-    /// Antes de los lados A/B se guardaba `mac`/`pc`: no se adivina cuál es cuál.
+    /// Before the A/B sides `mac`/`pc` was saved: which is which is not guessed.
     #[test]
     fn a_state_saved_with_mac_and_pc_loads_as_unknown() {
         let s: State = serde_json::from_str(r#"{"on":{"mac":true,"pc":true}}"#).unwrap();

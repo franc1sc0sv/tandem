@@ -1,6 +1,6 @@
 [package]
 name = "tandem-peripherals"
-description = "Detección del hub USB (VID/PID)"
+description = "USB hub detection (VID/PID)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

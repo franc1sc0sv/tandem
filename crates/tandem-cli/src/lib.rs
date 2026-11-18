@@ -1,9 +1,9 @@
-//! `tandem`: el MCP (stdio) y la CLI de los túneles (D8, DESIGN §8).
+//! `tandem`: the MCP (stdio) and the tunnels CLI (D8, DESIGN §8).
 //!
-//! Los dos son clientes de la IPC del agente y comparten todo: la tabla de herramientas
-//! ([`spec`]) describe nombre, parámetros y descripciones una sola vez; [`api::Api`] las
-//! ejecuta contra la IPC; el MCP ([`mcp`]) las expone por JSON-RPC y la CLI ([`cli`]) las
-//! lee de la línea de órdenes. Ninguno de los dos tiene lógica propia de túneles.
+//! Both are clients of the agent's IPC and share everything: the tools table
+//! ([`spec`]) describes name, parameters and descriptions once; [`api::Api`] runs
+//! them against the IPC; the MCP ([`mcp`]) exposes them over JSON-RPC and the CLI ([`cli`]) reads
+//! them from the command line. Neither has tunnel logic of its own.
 
 pub mod api;
 pub mod cli;
