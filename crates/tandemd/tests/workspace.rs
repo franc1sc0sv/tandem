@@ -79,8 +79,24 @@ fn git(dir: &Path, args: &[&str]) -> String {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
     let dir = tempfile::tempdir().unwrap();
-    let mac = agent(dir.path(), Machine::A);
-    let pc = agent(dir.path(), Machine::B);
+    round_trip(dir.path(), dir.path()).await;
+}
+
+/// T-197: con `--data-dir` relativo, git corre en otro cwd y no encontraba los bundles.
+/// El directorio temporal vive bajo el cwd de la prueba para poder nombrarlo en relativo.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn el_workspace_funciona_con_directorio_de_datos_relativo() {
+    let dir = tempfile::tempdir_in(".").unwrap();
+    let name = dir.path().file_name().unwrap();
+    let relative = Path::new(".").join(name).join("datos");
+    assert!(relative.is_relative());
+    fs::create_dir_all(&relative).unwrap();
+    round_trip(&dir.path().canonicalize().unwrap(), &relative).await;
+}
+
+async fn round_trip(root: &Path, data: &Path) {
+    let mac = agent(data, Machine::A);
+    let pc = agent(data, Machine::B);
     let (mac_id, pc_id) = (Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
     let trust = |id: &Identity| Arc::new(Keys(BTreeSet::from([id.public_key()])));
     let loopback = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
@@ -101,7 +117,7 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
     let mut ui = ipc(&mac, Peer::Ui, &mut stops).await;
 
     // El repo de A, con un cambio sin commit y un archivo nuevo.
-    let repo = dir.path().join("proyecto");
+    let repo = root.join("proyecto");
     fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init", "-q", "-b", "main"]);
     git(&repo, &["config", "user.email", "yo@example.com"]);
@@ -133,7 +149,7 @@ async fn el_repo_va_a_la_otra_maquina_y_vuelve_como_rama_por_quic() {
     );
     // Un repo que no existe no deja un túnel abierto.
     let bad = WorkspaceSpec {
-        repo_path: dir.path().join("no-existe").display().to_string(),
+        repo_path: root.join("no-existe").display().to_string(),
         keep: false,
         include: vec![],
     };

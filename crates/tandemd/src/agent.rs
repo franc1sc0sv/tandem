@@ -349,13 +349,13 @@ impl Agent {
             tunnels: tandem_tunnel::Tunnels::default(),
             files: tandem_files::Files::default(),
             // Junto al estado: `<datos>/workspaces` (T-107).
-            workspaces: tandem_workspace::Workspaces::new(
+            workspaces: tandem_workspace::Workspaces::new(crate::paths::absolute(
                 store
                     .path()
                     .parent()
                     .unwrap_or_else(|| std::path::Path::new("."))
                     .join("workspaces"),
-            ),
+            )),
             link_qos,
             me: watch::Sender::new(me),
             editing: Mutex::new(()),

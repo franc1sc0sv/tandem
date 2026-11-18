@@ -23,6 +23,11 @@ pub struct Paths {
 #[error("el sistema no indica un directorio de {0}; pásalo con la opción correspondiente")]
 pub struct NoDefaultDir(&'static str);
 
+/// Ruta absoluta sin exigir que exista; si el cwd no se puede leer, se deja como vino.
+pub fn absolute(path: PathBuf) -> PathBuf {
+    std::path::absolute(&path).unwrap_or(path)
+}
+
 impl Paths {
     /// Lo que no venga en la línea de órdenes sale de los directorios estándar.
     pub fn resolve(
@@ -41,7 +46,11 @@ impl Paths {
                 .map(|d| d.join(APP_DIR).join(CONFIG_FILE))
                 .ok_or(NoDefaultDir("configuración"))?,
         };
-        Ok(Paths { config, data_dir })
+        // Absolutas una sola vez: git y otros hijos corren en otro cwd (T-197).
+        Ok(Paths {
+            config: absolute(config),
+            data_dir: absolute(data_dir),
+        })
     }
 
     pub fn state_file(&self) -> PathBuf {
@@ -81,6 +90,13 @@ pub fn create_private_dir(dir: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn las_rutas_relativas_se_vuelven_absolutas() {
+        let p = Paths::resolve(Some("c.toml".into()), Some("agent/data".into())).unwrap();
+        assert!(p.data_dir.is_absolute() && p.data_dir.ends_with("agent/data"));
+        assert!(p.config.is_absolute());
+    }
 
     #[test]
     fn explicit_paths_win() {
