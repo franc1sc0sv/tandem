@@ -64,6 +64,11 @@ export const ICONS = {
   plug: { body: '<path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"></path>' },
   pulse: { body: '<path d="M2 12h4l3-8 4 16 3-8h6"></path>' },
   cpu: { body: '<rect x="6" y="6" width="12" height="12" rx="2"></rect><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"></path>' },
+  ram: { body: '<rect x="2" y="7" width="20" height="10" rx="1.5"></rect><path d="M6 17v3M10 17v3M14 17v3M18 17v3M6 11h2M10 11h2M14 11h2"></path>' },
+  gpu: { body: '<rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="9" cy="12" r="3"></circle><path d="M15 10h4M15 14h4M6 18v3"></path>' },
+  disk: { body: '<ellipse cx="12" cy="6" rx="8" ry="3"></ellipse><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path>' },
+  /** El triángulo del aviso de VRAM (sin el punto de `warn`). */
+  alert: { body: '<path d="M12 3 2 20h20z"></path><path d="M12 10v4"></path>' },
   keyboard: { body: '<rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"></path>' },
   sparkle: { body: '<path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"></path>', fill: true },
 } satisfies Record<string, IconDef>;

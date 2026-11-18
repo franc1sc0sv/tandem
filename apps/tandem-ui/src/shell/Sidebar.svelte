@@ -29,7 +29,11 @@
 <!-- Barra lateral (D16, `V3-Puesto`): las pantallas, una página por máquina con su color y
      Ajustes abajo. Sin «Agregar máquina» (D1). -->
 <nav aria-label="Principal" class="side">
-  <div class="brand"><Logo size={20} />Tandem</div>
+  <!-- El nombre del puesto junto al logo solo en las páginas de máquina (`V3-Maquina`); las
+       demás pantallas no lo dibujan (`V3-Puesto`, `V3-Red`…). -->
+  <div class="brand">
+    <Logo size={20} />Tandem{#if store.route.screen === "maquina"}<span class="fill"></span><span class="desk">{store.desk.deskName}</span>{/if}
+  </div>
   {#each MAIN as item (item.label)}
     {@const href = formatHash(item.route)}
     <a class="nav" class:on={current === href} {href} aria-current={current === href ? "page" : undefined} onclick={(e) => go(e, item.route)}>
@@ -72,6 +76,11 @@
     padding: 4px 10px 14px;
     font-weight: 650;
     font-size: 15px;
+  }
+  .desk {
+    color: #9a9da6;
+    font-size: 11.5px;
+    font-weight: 400;
   }
   .nav {
     display: flex;

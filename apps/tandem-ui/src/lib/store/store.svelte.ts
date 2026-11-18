@@ -7,10 +7,10 @@ import type { Machine } from "../model";
 import type { Bindings, Permission, ShortcutsView } from "../model";
 import { HOME, SCREEN_TOPICS, formatHash, parseHash, sameRoute, type Route } from "../routes";
 import { EMPTY_DESK, deskFromError } from "./live";
+import type { ActResult, Capability, DeskView, LinkKind, PairActionKind, Source, Topic } from "./types";
 import type { UpdateView } from "../updates";
 import type { Arrangement } from "../acomodo";
 import type { CrossSample } from "../crossing";
-import type { ActResult, Capability, DeskView, LinkKind, PairActionKind, Source, Topic } from "./types";
 
 /** Pasos del asistente que se abren desde otras partes (índices de `WIZARD_STEPS`). */
 export const WIZARD_PAIR = 1;
@@ -143,6 +143,14 @@ export class Store implements CommandContext {
   /** El tiempo para cruzar en la prueba (`undefined`: el de siempre). */
   get crossTimeoutMs(): number | undefined {
     return this.source.crossTimeoutMs;
+  }
+
+  rescan(machine: Machine): Promise<ActResult> {
+    return this.report(this.source.rescan(machine));
+  }
+
+  editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult> {
+    return this.report(this.source.editMachine(machine, edit));
   }
 
   pairAction(kind: PairActionKind): Promise<ActResult> {

@@ -284,7 +284,7 @@ describe("modo demo", () => {
     const down = demoDesk(demoOptions("demo&trouble=link-down"));
     expect(down.machines.b?.power).toBe("lost");
     const perms = demoDesk(demoOptions("demo&trouble=permissions"));
-    expect(perms.machines.a?.modules.find((m) => m.id === "input")?.state).toBe("unavailable");
+    expect(perms.permissions.rows.filter((r) => r.state === "missing").map((r) => r.id)).toEqual(["accessibility", "input_monitoring"]);
     expect(demoDesk(demoOptions("demo&trouble=no-agent")).troubleText).toContain("agente");
     expect(demoOptions("demo&trouble=otra").trouble).toBe("none");
   });
@@ -407,7 +407,9 @@ describe("fuente real", () => {
     expect(src.can("scenes")).toBe(false);
     expect(await src.measureLink()).toEqual({ ok: true, text: "4 ms" });
     expect((await src.applyScene()).ok).toBe(false);
-    expect((await src.setModule()).ok).toBe(false);
+    act.mockResolvedValueOnce({ kind: "done" } as never);
+    expect(await src.setModule("b", "clipboard", false)).toEqual({ ok: true });
+    expect(act).toHaveBeenLastCalledWith({ kind: "set_module", machine: "b", module: "clipboard", on: false });
     act.mockResolvedValueOnce({ kind: "accepted", txn: 1 } as never);
     expect(await src.setPower("a", false)).toEqual({ ok: true });
     expect(act).toHaveBeenLastCalledWith({ kind: "set_power", machine: "a", on: false });

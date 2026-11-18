@@ -18,13 +18,17 @@ import { exitSide, isVertical, type Arrangement, type LayoutScreen, type LayoutV
 import type { CrossSample } from "../crossing";
 import type { Bindings, PairingView, Permission, SetupView, ShortcutsView } from "../model";
 import { DEFAULT_BINDINGS } from "../shortcuts";
+import { checkName } from "../machine";
 import type { UpdateView } from "../updates";
 import { EMPTY_NETWORK, INPUT_TARGET_MS } from "./types";
 import type {
   ActResult,
   DeskView,
+  EnvView,
+  HardwareView,
   LatencyPoint,
   LinkKind,
+  LiveView,
   Machine,
   MachineView,
   ModuleView,
@@ -106,7 +110,16 @@ interface Spec {
   detail: string;
   resources: Resources;
   screens: DemoScreen[];
+  system: string;
+  hardware: HardwareView;
+  environments: EnvView[];
+  live: LiveView;
 }
+
+const GIB = 2 ** 30;
+
+/** Una línea de los mockups (alturas `y` en un lienzo de `h`) como valores 0–100. */
+const fromY = (h: number, ys: number[]) => ys.map((y) => ((h - y) / h) * 100);
 
 const BUILTIN_14: DemoScreen = { id: "mbp", name: "MacBook Pro", short: "Mac", ask: "MacBook Pro", w: 12, h: 7.8, size: '14"', res: "1512 × 982", ratio: "16:10", scale: "200 % (Retina)" };
 const G34: DemoScreen = { id: "g34", name: 'Odyssey G5 34"', short: '34"', ask: 'el 34"', w: 31.4, h: 13.1, size: '34"', res: "3440 × 1440", ratio: "21:9", scale: "100 %", external: true };
@@ -127,6 +140,19 @@ const MACBOOK: Spec = {
     history: [26, 30, 22, 37, 32, 44, 33, 39, 28, 43, 35, 41, 33],
   },
   screens: [BUILTIN_14],
+  system: "macOS 26",
+  hardware: { cpu: "Apple M5", cores: 12, memory: 24 * GIB, gpu: { name: "Apple M5", vram: null }, fanless: true },
+  environments: [
+    { id: "zsh", kind: "shell", name: "zsh", default: true, ready: true, detail: "uv · node · pnpm · cargo · git" },
+    { id: "docker", kind: "docker", name: "Docker", default: false, ready: true, detail: "arm64 · sin GPU" },
+  ],
+  live: {
+    cpu: { percent: 18, temp: 48, history: fromY(34, [28, 26, 29, 24, 27, 25, 28, 26, 27]) },
+    ram: { used: 12.4 * GIB, total: 24 * GIB, history: fromY(22, [14, 13, 13, 12, 12, 11, 12, 12, 11]) },
+    gpu: { percent: 6, vramUsed: 1.2 * GIB, vramTotal: null, temp: 44, fans: null, history: fromY(26, [22, 21, 22, 19, 22, 21, 22, 21, 22]) },
+    disk: { free: 231 * GIB, total: 1024 * GIB },
+    battery: { percent: 84, plugged: true },
+  },
 };
 
 const DESKTOP: Spec = {
@@ -142,6 +168,20 @@ const DESKTOP: Spec = {
     history: [44, 52, 59, 67, 63, 74, 70, 78, 72, 81, 76, 80, 78],
   },
   screens: [G34, G32],
+  system: "Windows 11",
+  hardware: { cpu: "AMD Ryzen 7", cores: 16, memory: 24 * GIB, gpu: { name: "NVIDIA GeForce RTX 5080", vram: 16 * GIB } },
+  environments: [
+    { id: "pwsh", kind: "shell", name: "PowerShell 7", default: true, ready: true, detail: "winget · python · git" },
+    { id: "wsl:Ubuntu-24.04", kind: "wsl", name: "Ubuntu 24.04", default: true, ready: true, detail: "uv · cargo · node · CUDA 12.8 · git" },
+    { id: "docker", kind: "docker", name: "Docker Desktop", default: false, ready: true, detail: "GPU: --gpus all disponible" },
+  ],
+  live: {
+    cpu: { percent: 64, temp: 62, history: fromY(34, [26, 24, 28, 20, 18, 15, 17, 14, 16]) },
+    ram: { used: 17.1 * GIB, total: 24 * GIB, history: fromY(22, [14, 13, 13, 11, 10, 9, 9, 8, 8]) },
+    gpu: { percent: 97, vramUsed: 14.1 * GIB, vramTotal: 16 * GIB, temp: 71, fans: 58, history: fromY(26, [8, 5, 6, 4, 5, 4, 5, 4, 4]) },
+    disk: { free: 412 * GIB, total: 1.8 * 1024 * GIB },
+    battery: null,
+  },
 };
 
 const WORKSHOP: Spec = {
@@ -151,6 +191,9 @@ const WORKSHOP: Spec = {
   detail: "Windows · Ryzen 7",
   resources: { ...DESKTOP.resources, gpu: null, gpuLabel: "GPU", cpu: { percent: 31, label: "31 %" } },
   screens: [U27],
+  system: "Windows 11",
+  hardware: { ...DESKTOP.hardware, gpu: null },
+  live: { ...DESKTOP.live, cpu: { ...DESKTOP.live.cpu, percent: 31 }, gpu: null },
 };
 
 const MINI: Spec = {
@@ -160,6 +203,8 @@ const MINI: Spec = {
   detail: "macOS · M4",
   resources: { ...MACBOOK.resources, cpu: { percent: 9, label: "9 %" } },
   screens: [STUDIO],
+  hardware: { ...MACBOOK.hardware, cpu: "Apple M4", gpu: { name: "Apple M4", vram: null } },
+  live: { ...MACBOOK.live, cpu: { ...MACBOOK.live.cpu, percent: 9 } },
 };
 
 const PAIRS: Record<DemoPair, [Spec, Spec]> = {
@@ -168,19 +213,28 @@ const PAIRS: Record<DemoPair, [Spec, Spec]> = {
   "mac-mac": [MACBOOK, MINI],
 };
 
-function modulesOf(os: Os, otherName: string, permissions: boolean): ModuleView[] {
+function modulesOf(os: Os, name: string, otherName: string, envs: number): ModuleView[] {
   const mac = os === "macos";
+  // Con un permiso de macOS faltando, la página lo muestra en su propia fila («Permisos», como
+  // `F-MaquinaMac`); el módulo sigue con lo que sí puede hacer.
   const list: ModuleView[] = [
-    mac && permissions
-      ? { id: "input", name: "Teclado y mouse", state: "unavailable", detail: "Falta el permiso de Monitorización de entrada" }
-      : { id: "input", name: "Teclado y mouse", state: "active", detail: mac ? "Captura con CGEventTap e inyección con CGEventPost" : "Captura e inyección (hooks de bajo nivel, SendInput)" },
-    { id: "clipboard", name: "Portapapeles", state: "active", detail: "Texto, HTML e imagen" },
-    { id: "files", name: "Archivos", state: "active", detail: "Arrastrar al cruzar el borde" },
-    { id: "monitors", name: "Monitores", state: mac ? "off" : "active", detail: mac ? `Hoy los controla ${otherName}` : "Canal DDC por DisplayPort" },
-    { id: "power", name: "Energía", state: "active", detail: mac ? "Despierta a la otra por Wake-on-LAN" : `Se apaga sola. Se despierta por Wake-on-LAN desde ${otherName}.` },
-    { id: "tunnels", name: "Túneles", state: "active", detail: mac ? "2 entornos" : "3 entornos, como administrador" },
+    { id: "input", name: "Teclado y mouse", state: "active", detail: mac ? "Captura con CGEventTap e inyección con CGEventPost" : "Captura e inyección (hooks de bajo nivel, SendInput)", switchable: true },
+    { id: "clipboard", name: "Portapapeles", state: "active", detail: "Texto, HTML e imagen", switchable: true },
+    mac
+      ? { id: "monitors", name: "Monitores", state: "off", detail: `Por HDMI solo hay canal DDC mientras el monitor muestra la ${name.split(" ")[0]}. Hoy los controla ${otherName}.`, switchable: true }
+      : { id: "monitors", name: "Monitores", state: "active", detail: 'Canal DDC por DisplayPort a 2 monitores. Dueño del 34".', switchable: true },
+    {
+      id: "power",
+      name: "Energía",
+      state: mac ? "off" : "active",
+      detail: mac ? "Puede despertar a otras por Wake-on-LAN. No se apaga sola." : `Se apaga sola. Se despierta por Wake-on-LAN desde ${otherName}.`,
+      switchable: false,
+    },
+    mac
+      ? { id: "tunnels", name: "Cómputo remoto", state: "active", detail: `${envs} entornos · admin (LaunchDaemon instalado)`, switchable: true }
+      : { id: "tunnels", name: "Túneles", state: "active", detail: `Recibe túneles de Claude en ${envs} entornos, como administrador.`, switchable: true },
   ];
-  if (!mac) list.push({ id: "secure-desktop", name: "Pantallas protegidas", state: "active", detail: "También en avisos de UAC y en el inicio de sesión" });
+  if (!mac) list.push({ id: "secure_desktop", name: "Pantallas protegidas", state: "active", detail: "El mouse y el teclado también funcionan en avisos de UAC y en el inicio de sesión.", switchable: true });
   return list;
 }
 
@@ -309,13 +363,18 @@ export function demoDesk(o: DemoOptions): DeskView {
       here,
       power,
       resources: power === "on" ? { ...s.resources, history: [...s.resources.history] } : null,
-      modules: modulesOf(s.os, otherName, here && o.trouble === "permissions"),
+      modules: modulesOf(s.os, s.name, otherName, s.environments.length),
+      system: s.system,
+      hardware: s.hardware,
+      environments: s.environments.map((e) => ({ ...e })),
+      live: power === "on" ? s.live : null,
     };
   };
   const scenes = DEMO_SCENES(sa.name, sb.name);
   const linkUp = o.trouble !== "peer-off" && o.trouble !== "link-down" && o.trouble !== "no-agent";
   return {
     ready: true,
+    deskName: "Mi puesto",
     trouble: o.trouble,
     troubleText: TROUBLE_TEXT[o.trouble](peerSpec.name),
     here: o.here,
@@ -341,6 +400,7 @@ const PAIR_FOUND_MS = 1400;
 const PAIR_OTHER_MS = 1200;
 
 const TICK_MS = 1500;
+const RESCAN_MS = 900;
 
 /** Una fuente simulada: responde a las acciones como lo haría el agente. */
 export class DemoSource implements Source {
@@ -400,7 +460,8 @@ export class DemoSource implements Source {
       const last = h[h.length - 1] ?? 30;
       const drift = ((h.length * 7 + last) % 11) - 5;
       const v = Math.max(3, Math.min(97, last + drift));
-      next.machines[id] = { ...m, resources: { ...m.resources, history: [...h.slice(1), v], cpu: { percent: v, label: `${v} %` } } };
+      const live = m.live ? { ...m.live, cpu: { ...m.live.cpu, percent: v, history: [...m.live.cpu.history.slice(1), v] } } : null;
+      next.machines[id] = { ...m, live, resources: { ...m.resources, history: [...h.slice(1), v], cpu: { percent: v, label: `${v} %` } } };
     }
     this.set(next);
   }
@@ -424,7 +485,7 @@ export class DemoSource implements Source {
     const spec = demoDesk(this.opts).machines[machine];
     this.set({
       ...this.desk,
-      machines: { ...this.desk.machines, [machine]: { ...m, power: on ? "on" : "off", resources: on ? (spec?.resources ?? null) : null } },
+      machines: { ...this.desk.machines, [machine]: { ...m, power: on ? "on" : "off", resources: on ? (spec?.resources ?? null) : null, live: on ? (spec?.live ?? null) : null } },
     });
     return { ok: true, text: on ? `${m.name} encendida` : `${m.name} apagada` };
   }
@@ -448,6 +509,37 @@ export class DemoSource implements Source {
     if (mod.state === "unavailable") return { ok: false, reason: mod.detail };
     const modules = m.modules.map((x) => (x.id === module ? { ...x, state: on ? ("active" as const) : ("off" as const) } : x));
     this.set({ ...this.desk, machines: { ...this.desk.machines, [machine]: { ...m, modules } } });
+    return { ok: true };
+  }
+
+  /** Re-escanear tarda un poco, como en la máquina real; lo encontrado vuelve con el puesto. */
+  async rescan(machine: Machine): Promise<ActResult> {
+    const m = this.desk.machines[machine];
+    if (!m) return { ok: false, reason: "No se conoce esa máquina" };
+    if (m.power !== "on") return { ok: false, reason: `${m.name} está apagada` };
+    await new Promise((r) => setTimeout(r, RESCAN_MS));
+    const now = this.desk.machines[machine];
+    if (now) this.set({ ...this.desk, machines: { ...this.desk.machines, [machine]: { ...now, environments: now.environments.map((e) => ({ ...e })) } } });
+    return { ok: true };
+  }
+
+  /** Lo mismo que valida el puesto: nombre no vacío y corto, color de la paleta y distinto. */
+  async editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult> {
+    const m = this.desk.machines[machine];
+    if (!m) return { ok: false, reason: `la máquina ${machine.toUpperCase()} todavía no se conoce` };
+    let { name, color } = m;
+    if (edit.name !== undefined) {
+      const c = checkName(edit.name);
+      if (!c.ok) return { ok: false, reason: c.reason };
+      name = c.name;
+    }
+    if (edit.color !== undefined) {
+      if (!/^#[0-9a-f]{6}$/i.test(edit.color)) return { ok: false, reason: `«${edit.color}» no es un color #rrggbb` };
+      const other = this.desk.machines[machine === "a" ? "b" : "a"];
+      if (other && other.color.toLowerCase() === edit.color.toLowerCase()) return { ok: false, reason: `ese color ya es el de ${other.name}` };
+      color = edit.color;
+    }
+    this.set({ ...this.desk, machines: { ...this.desk.machines, [machine]: { ...m, name, color } } });
     return { ok: true };
   }
 

@@ -43,3 +43,6 @@ Más detalle en `tools/mockup-render/README.md`.
 - **Botón «Instalar» del servicio de administrador** (`F-Asis1`): solo si el módulo de pantallas protegidas (T-027) está disponible; si no, la fila muestra su estado sin botón.
 - **«macOS 26 · Apple M5 · 24 GB»** y demás datos de ejemplo: en la app salen del escaneo real (D10).
 - **Botones «Simular…»** (borde punteado): son solo del mockup; en la app esos pasos ocurren de verdad.
+- **`F-MaquinaMac` sin barra lateral** (G3/D16): es una pantalla de flujo con la ruta «Puesto › MacBook Pro» arriba; la app tiene la barra lateral. Se compara solo el contenido: desde la esquina de su `header` hasta el borde de abajo (en el mockup, `x 32, y 55`, 1216 × 805 px; la app se captura a 1492 px de ancho para que su contenido mida lo mismo). La ruta y la barra quedan fuera de la comparación.
+- **Selector de color en la página de esta máquina** (D17): `F-MaquinaMac` no lo dibuja; la app lo tiene en las dos páginas. Región tapada: el `radiogroup` «Color de la máquina» de la cabecera (cuatro círculos de 22 px, 106 × 22 px).
+- **Estado de los módulos en `F-MaquinaMac`** (G4): el mockup lo escribe como texto suelto («activo», «en espera», «parcial»); la app usa el chip uniforme (interruptor si se puede apagar). Región tapada: la última celda de cada fila de módulo (`.mod > :last-child`), en la app y en el mockup.

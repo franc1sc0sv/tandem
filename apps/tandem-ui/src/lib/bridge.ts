@@ -1,6 +1,6 @@
 // Cómo habla la ventana con el núcleo de la app (y él con tandemd).
 
-import type { Action, ActionResult, Bindings, Notice, Permission, SetupView, ShortcutsView, Snapshot } from "./model";
+import type { Action, ActionResult, Bindings, Machine, Notice, Permission, ResourceSample, SetupView, ShortcutsView, Snapshot } from "./model";
 import type { UpdateView } from "./updates";
 
 export interface Bridge {
@@ -9,6 +9,8 @@ export interface Bridge {
   retry(): Promise<void>;
   onSnapshot(cb: (s: Snapshot) => void): Promise<void>;
   onNotice(cb: (n: Notice) => void): Promise<void>;
+  /** Muestras de recursos en vivo (solo tras `watch_resources`). */
+  onResources(cb: (machine: Machine, r: ResourceSample) => void): Promise<void>;
   /** Lo que pasó con un pedido hecho desde fuera de la ventana (atajo global, menú del ícono). */
   onMessage(cb: (text: string) => void): Promise<void>;
   shortcuts(): Promise<ShortcutsView>;
@@ -43,6 +45,7 @@ export interface Bridge {
 // Nombres de `tandem_ui::app`.
 const SNAPSHOT_EVENT = "agent-snapshot";
 const NOTICE_EVENT = "agent-notice";
+const RESOURCES_EVENT = "agent-resources";
 const MESSAGE_EVENT = "ui-message";
 const SHORTCUTS_EVENT = "ui-shortcuts";
 const UPDATE_EVENT = "ui-update";
@@ -59,6 +62,9 @@ export async function tauriBridge(): Promise<Bridge> {
     },
     onNotice: async (cb) => {
       await listen<Notice>(NOTICE_EVENT, (e) => cb(e.payload));
+    },
+    onResources: async (cb) => {
+      await listen<{ machine: Machine; resources: ResourceSample }>(RESOURCES_EVENT, (e) => cb(e.payload.machine, e.payload.resources));
     },
     onMessage: async (cb) => {
       await listen<string>(MESSAGE_EVENT, (e) => cb(e.payload));
