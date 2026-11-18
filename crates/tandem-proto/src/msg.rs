@@ -2321,7 +2321,7 @@ mod tests {
     fn samples_cover_every_variant() {
         covers(&steps(), step_arm, 6);
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
-        covers(&control(), control_arm, 23);
+        covers(&control(), control_arm, 24);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
         covers(&cmds, ui_command_arm, 43);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
