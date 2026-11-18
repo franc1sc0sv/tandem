@@ -1778,7 +1778,7 @@ pub(crate) mod tests {
             DeskChanged {
                 by: Machine::B,
                 rev: 5,
-                summary: "Acomodo y pantallas".into(),
+                summary: "Arrangement and screens".into(),
                 undo_to: before,
             }
         );
@@ -1870,7 +1870,7 @@ pub(crate) mod tests {
             revs,
             [start.stamp.rev + 2, start.stamp.rev + 1, start.stamp.rev]
         );
-        assert_eq!(h[0].summary, "Teclado y mouse");
+        assert_eq!(h[0].summary, "Keyboard and mouse");
 
         // Undo to the beginning: exactly that desk, as a new version.
         let Reply::Desk(back) = a.handle(UiCommand::UndoDesk {
@@ -1935,7 +1935,7 @@ pub(crate) mod tests {
         let cfg = AgentConfig::load(&file).unwrap();
         let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
         let names: Vec<String> = a.desk().scenes.iter().map(|s| s.name.clone()).collect();
-        assert_eq!(names, ["Trabajo", "Solo MacBook Pro", "Solo PC-Escritorio"]);
+        assert_eq!(names, ["Work", "Only MacBook Pro", "Only PC-Escritorio"]);
         assert!(a.desk().scenes[0].shortcut.is_empty(), "⌃⌥1 is the lock");
         assert_eq!(a.desk_sync().stamp.rev, 8, "a change by this machine");
         assert_eq!(a.desk_sync().stamp.by, Machine::A);

@@ -1,12 +1,12 @@
-# Prueba de punta a punta del instalador NSIS en una maquina limpia (lo corre el CI en
-# windows-latest): instalar, comprobar el arranque con la sesion (la tarea programada con los
-# privilegios mas altos si el instalador corre como administrador, como en el CI; si no, la
-# clave Run) y que el agente arranca sin
-# config y la genera solo (T-082: el instalador no trae plantilla), reinstalar encima
-# (actualizacion), desinstalar y comprobar que no queda nada del programa.
+# End-to-end test of the NSIS installer on a clean machine (run by CI on
+# windows-latest): install, check the startup with the session (the scheduled task with the
+# highest privileges if the installer runs as administrator, as in CI; otherwise the
+# Run key) and that the agent starts without a
+# config and generates it itself (T-082: the installer ships no template), reinstall on top
+# (update), uninstall and check that nothing of the program is left.
 #
-# Uso: pwsh tools/windows/installer/test-installer.ps1 -Installer <Tandem_..._x64-setup.exe>
-# Ojo: instala y desinstala de verdad para el usuario actual; no correrlo en la PC de uso diario.
+# Usage: pwsh tools/windows/installer/test-installer.ps1 -Installer <Tandem_..._x64-setup.exe>
+# Careful: it really installs and uninstalls for the current user; do not run it on the daily-use PC.
 
 param([Parameter(Mandatory = $true)][string]$Installer)
 
@@ -28,7 +28,7 @@ function Fail([string]$msg) {
             Get-Content $_.FullName -Tail 40
         }
     }
-    throw "FALLO: $msg"
+    throw "FAILED: $msg"
 }
 
 function Ok([string]$msg) { Write-Host "ok: $msg" }
@@ -39,7 +39,7 @@ function Get-RunValue {
     return $null
 }
 
-# T-104 (A7): con administrador el arranque es una tarea programada con los privilegios mas altos.
+# T-104 (A7): with administrator rights startup is a scheduled task with the highest privileges.
 $taskName = 'Tandem\tandemd'
 
 function Get-TaskXml {
@@ -59,87 +59,87 @@ function Wait-Until([scriptblock]$cond, [int]$seconds, [string]$what) {
         if (& $cond) { return }
         Start-Sleep -Milliseconds 500
     }
-    Fail "$what (esperado en $seconds s)"
+    Fail "$what (expected within $seconds s)"
 }
 
-# Start-Process -Wait espera tambien a los descendientes, y el instalador deja corriendo
-# tandemw/tandemd: nunca volveria. Se espera solo al proceso (leer Handle antes conserva
-# el codigo de salida).
+# Start-Process -Wait also waits for descendants, and the installer leaves
+# tandemw/tandemd running: it would never return. Only the process is awaited (reading Handle first keeps
+# the exit code).
 function Invoke-Silent([string]$exe) {
     $p = Start-Process -FilePath $exe -ArgumentList '/S' -PassThru
     $null = $p.Handle
-    if (-not $p.WaitForExit(300000)) { Fail "$exe no termino en 5 min" }
+    if (-not $p.WaitForExit(300000)) { Fail "$exe did not finish in 5 min" }
     return $p.ExitCode
 }
 
 function Install-Silent {
     $code = Invoke-Silent $Installer
-    if ($code -ne 0) { Fail "el instalador salio con $code" }
+    if ($code -ne 0) { Fail "the installer exited with $code" }
 }
 
 function Assert-Installed {
     foreach ($f in 'tandemd.exe', 'tandemw.exe', 'uninstall.exe') {
-        if (-not (Test-Path (Join-Path $installDir $f))) { Fail "falta $f en $installDir" }
+        if (-not (Test-Path (Join-Path $installDir $f))) { Fail "$f missing in $installDir" }
     }
-    Ok "archivos en $installDir"
-    # La tarea elevada solo se registra si el ejecutable esta donde solo escriben administradores
-    # (Program Files); en %LOCALAPPDATA% (instalacion por usuario) queda la clave Run sin elevar.
+    Ok "files in $installDir"
+    # The elevated task is only registered if the executable is where only administrators write
+    # (Program Files); in %LOCALAPPDATA% (per-user install) the non-elevated Run key is used.
     $adminOnly = $installDir.StartsWith($env:ProgramFiles, [StringComparison]::OrdinalIgnoreCase)
     if ((Test-Elevated) -and $adminOnly) {
         $xml = Get-TaskXml
-        if (-not $xml) { Fail "como administrador se esperaba la tarea $taskName" }
-        if ($xml -notmatch 'HighestAvailable') { Fail 'la tarea no pide los privilegios mas altos' }
-        if (-not $xml.Contains($launcher)) { Fail "la tarea no lanza $launcher" }
-        if ($null -ne (Get-RunValue)) { Fail 'con la tarea registrada no debe quedar la clave Run (arrancaria dos veces)' }
-        Ok "tarea $taskName con los privilegios mas altos"
+        if (-not $xml) { Fail "as administrator the task $taskName was expected" }
+        if ($xml -notmatch 'HighestAvailable') { Fail 'the task does not ask for the highest privileges' }
+        if (-not $xml.Contains($launcher)) { Fail "the task does not launch $launcher" }
+        if ($null -ne (Get-RunValue)) { Fail 'with the task registered the Run key must not remain (it would start twice)' }
+        Ok "task $taskName with the highest privileges"
     } else {
         $expected = '"' + $launcher + '"'
         $actual = Get-RunValue
-        if ($actual -ne $expected) { Fail "clave Run: se esperaba $expected y hay '$actual'" }
-        if ($null -ne (Get-TaskXml)) { Fail 'una ruta escribible por el usuario no debe tener la tarea elevada' }
-        Ok "clave Run -> $actual"
+        if ($actual -ne $expected) { Fail "Run key: expected $expected but found '$actual'" }
+        if ($null -ne (Get-TaskXml)) { Fail 'a user-writable path must not have the elevated task' }
+        Ok "Run key -> $actual"
     }
-    Wait-Until { Get-Process -Name tandemd -ErrorAction SilentlyContinue } 20 'tandemd no arranco tras instalar'
-    Ok 'tandemd corriendo'
-    # La genera el agente al arrancar, con los monitores que detecta.
-    Wait-Until { Test-Path $config } 30 "tandemd no genero $config"
+    Wait-Until { Get-Process -Name tandemd -ErrorAction SilentlyContinue } 20 'tandemd did not start after install'
+    Ok 'tandemd running'
+    # The agent generates it on startup, with the monitors it detects.
+    Wait-Until { Test-Path $config } 30 "tandemd did not generate $config"
     & $daemon --check-config $config
-    if ($LASTEXITCODE -ne 0) { Fail 'la config generada no es valida' }
-    # T-097: la config generada empieza en el lado A; el lado de verdad lo deciden las claves al emparejar.
-    if (-not (Select-String -Path $config -Pattern '^machine = "a"' -Quiet)) { Fail 'la config generada no empieza en el lado A' }
-    Ok 'config generada por el agente y valida'
+    if ($LASTEXITCODE -ne 0) { Fail 'the generated config is not valid' }
+    # T-097: the generated config starts on side A; the real side is decided by the keys when pairing.
+    if (-not (Select-String -Path $config -Pattern '^machine = "a"' -Quiet)) { Fail 'the generated config does not start on side A' }
+    Ok 'config generated by the agent and valid'
 }
 
-if ((Test-Path $installDir) -or (Get-RunValue) -or (Get-TaskXml)) { Fail 'la maquina no esta limpia: ya hay un Tandem instalado' }
-if (Test-Path $config) { Fail "la maquina no esta limpia: ya hay $config" }
+if ((Test-Path $installDir) -or (Get-RunValue) -or (Get-TaskXml)) { Fail 'the machine is not clean: a Tandem is already installed' }
+if (Test-Path $config) { Fail "the machine is not clean: $config already exists" }
 
-Write-Host '== instalar'
+Write-Host '== install'
 Install-Silent
 Assert-Installed
 
-Write-Host '== reinstalar encima (actualizacion): la config del usuario se conserva'
-Add-Content -Path $config -Value '# cambio del usuario'
+Write-Host '== reinstall on top (update): the user config is kept'
+Add-Content -Path $config -Value '# user change'
 $before = Get-Content -Raw $config
 Install-Silent
 Assert-Installed
-if ((Get-Content -Raw $config) -ne $before) { Fail 'reinstalar cambio la config del usuario' }
-Ok 'config del usuario intacta'
+if ((Get-Content -Raw $config) -ne $before) { Fail 'reinstalling changed the user config' }
+Ok 'user config intact'
 
-Write-Host '== desinstalar'
+Write-Host '== uninstall'
 $code = Invoke-Silent (Join-Path $installDir 'uninstall.exe')
-if ($code -ne 0) { Fail "el desinstalador salio con $code" }
-# El desinstalador de NSIS se copia a %TEMP% y sigue desde ahi: se espera a que termine.
-Wait-Until { -not (Test-Path $daemon) -and -not (Test-Path $launcher) } 60 'el desinstalador no borro los binarios'
-Wait-Until { -not (Test-Path (Join-Path $installDir 'uninstall.exe')) } 30 'el desinstalador no termino'
-Ok 'binarios borrados'
-if (Get-Process -Name tandemd, tandemw -ErrorAction SilentlyContinue) { Fail 'tandemd sigue corriendo' }
-Ok 'tandemd detenido'
-if ($null -ne (Get-RunValue)) { Fail 'la clave Run sigue registrada' }
-if ($null -ne (Get-TaskXml)) { Fail "la tarea $taskName sigue registrada" }
-Ok 'arranque con la sesion quitado'
-if (-not (Test-Path $config)) { Fail 'la desinstalacion normal no debe borrar la config del usuario' }
-Ok 'config del usuario conservada'
+if ($code -ne 0) { Fail "the uninstaller exited with $code" }
+# The NSIS uninstaller copies itself to %TEMP% and continues from there: wait for it to finish.
+Wait-Until { -not (Test-Path $daemon) -and -not (Test-Path $launcher) } 60 'the uninstaller did not delete the binaries'
+Wait-Until { -not (Test-Path (Join-Path $installDir 'uninstall.exe')) } 30 'the uninstaller did not finish'
+Ok 'binaries deleted'
+if (Get-Process -Name tandemd, tandemw -ErrorAction SilentlyContinue) { Fail 'tandemd is still running' }
+Ok 'tandemd stopped'
+if ($null -ne (Get-RunValue)) { Fail 'the Run key is still registered' }
+if ($null -ne (Get-TaskXml)) { Fail "the task $taskName is still registered" }
+Ok 'startup with the session removed'
+if (-not (Test-Path $config)) { Fail 'a normal uninstall must not delete the user config' }
+Ok 'user config kept'
 
 Remove-Item -Recurse -Force $dataDir
-Write-Host 'instalador OK'
+Write-Host 'installer OK'
 exit 0

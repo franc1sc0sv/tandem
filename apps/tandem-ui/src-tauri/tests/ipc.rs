@@ -1,5 +1,5 @@
-//! La UI lee el estado de un `tandemd` real por el transporte de la plataforma (Unix
-//! socket en Linux y macOS, named pipe en Windows), y explica cuando no hay agente.
+//! The UI reads the state of a real `tandemd` over the platform's transport (Unix
+//! socket on Linux and macOS, named pipe on Windows), and explains when there is no agent.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -37,12 +37,12 @@ async fn reads_state_from_a_running_agent() {
     let path = endpoint(dir.path(), "up");
     let listener = match ipc::bind(&path).await {
         Ok(l) => l,
-        // El sandbox de desarrollo (WSL) no deja crear sockets Unix; en CI esto nunca se omite.
+        // The development sandbox (WSL) does not allow creating Unix sockets; on CI this is never skipped.
         Err(ipc::IpcError::Io(e))
             if e.kind() == std::io::ErrorKind::PermissionDenied
                 && std::env::var_os("CI").is_none() =>
         {
-            eprintln!("omitida: este entorno no permite sockets Unix");
+            eprintln!("skipped: this environment does not allow Unix sockets");
             return;
         }
         Err(e) => panic!("{e}"),
@@ -62,7 +62,7 @@ async fn reads_state_from_a_running_agent() {
 
     stop.send(()).unwrap();
     daemon.await.unwrap().unwrap();
-    // Ya apagado, la misma ventana explica que no hay agente.
+    // Already off, the same window explains there is no agent.
     assert!(matches!(
         fetch_status(&path, QUERY_TIMEOUT).await,
         AgentStatus::Unavailable { .. }
@@ -74,16 +74,16 @@ async fn no_agent_is_a_clear_error() {
     let dir = tempfile::tempdir().unwrap();
     let path = endpoint(dir.path(), "down");
     match fetch_status(&path, QUERY_TIMEOUT).await {
-        // El sandbox de desarrollo (WSL) no deja usar sockets Unix; en CI esto nunca se omite.
+        // The development sandbox (WSL) does not allow using Unix sockets; on CI this is never skipped.
         AgentStatus::Unavailable { reason, .. }
-            if reason.starts_with("sin permiso") && std::env::var_os("CI").is_none() =>
+            if reason.starts_with("no permission") && std::env::var_os("CI").is_none() =>
         {
-            eprintln!("omitida: este entorno no permite sockets Unix");
+            eprintln!("skipped: this environment does not allow Unix sockets");
         }
         AgentStatus::Unavailable { endpoint, reason } => {
             assert_eq!(endpoint, Some(path.display().to_string()));
-            assert!(reason.contains("tandemd no está corriendo"), "{reason}");
+            assert!(reason.contains("tandemd is not running"), "{reason}");
         }
-        other => panic!("sin agente no puede haber estado: {other:?}"),
+        other => panic!("no agent cannot have a state: {other:?}"),
     }
 }

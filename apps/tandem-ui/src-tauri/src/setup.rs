@@ -1,8 +1,8 @@
-//! El primer arranque: la guía del asistente en todos los sistemas y, en macOS, sus permisos
-//! (Accesibilidad, Input Monitoring, red local) y cómo quedó el agente de inicio de sesión.
+//! The first launch: the setup guide on all systems and, on macOS, its permissions
+//! (Accessibility, Input Monitoring, local network) and how the login agent ended up.
 //!
-//! La guía se muestra hasta que el usuario la termina; eso queda marcado en `setup.done`,
-//! junto a `tandem.toml`. Se puede volver a abrir desde la ventana.
+//! The guide is shown until the user finishes it; that is marked in `setup.done`,
+//! next to `tandem.toml`. It can be reopened from the window.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -13,15 +13,15 @@ use crate::launch_agent::Report;
 
 const SETUP_FILE: &str = "setup.done";
 
-/// Un permiso de macOS que `tandemd` necesita.
+/// A macOS permission that `tandemd` needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Permission {
-    /// Inyectar teclado y mouse, y mover ventanas («Traer ventanas»).
+    /// Inject keyboard and mouse, and move windows ("Bring windows").
     Accessibility,
-    /// Capturar teclado y mouse para mandarlos a la PC.
+    /// Capture keyboard and mouse to send them to the PC.
     InputMonitoring,
-    /// Hablar con la PC por la LAN (mDNS y QUIC).
+    /// Talk to the PC over the LAN (mDNS and QUIC).
     LocalNetwork,
 }
 
@@ -32,7 +32,7 @@ impl Permission {
         Permission::LocalNetwork,
     ];
 
-    /// El panel de Ajustes del Sistema que lo concede.
+    /// The System Settings panel that grants it.
     pub fn settings_url(self) -> &'static str {
         match self {
             Permission::Accessibility => {
@@ -48,7 +48,7 @@ impl Permission {
     }
 }
 
-/// `setup.done` en el mismo directorio que la configuración del agente.
+/// `setup.done` in the same directory as the agent's configuration.
 pub fn setup_file_for(agent_config: &Path) -> PathBuf {
     agent_config
         .parent()
@@ -59,8 +59,8 @@ pub fn is_done(file: &Path) -> bool {
     file.is_file()
 }
 
-/// Marca la guía como terminada. Guarda la versión: sirve para saber, si una versión futura
-/// pide un permiso nuevo, quién vio la guía anterior.
+/// Marks the guide as finished. Saves the version: useful to know, if a future version
+/// asks for a new permission, who saw the previous guide.
 pub fn mark_done(file: &Path, version: &str) -> io::Result<()> {
     if let Some(dir) = file.parent() {
         std::fs::create_dir_all(dir)?;
@@ -68,15 +68,15 @@ pub fn mark_done(file: &Path, version: &str) -> io::Result<()> {
     std::fs::write(file, format!("{version}\n"))
 }
 
-/// Lo que recibe la ventana.
+/// What the window receives.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct SetupView {
-    /// Hay permisos que conceder en este sistema (solo macOS).
+    /// There are permissions to grant on this system (macOS only).
     pub available: bool,
-    /// Abrir el asistente al arrancar: todavía no se terminó (en cualquier sistema).
+    /// Open the setup on launch: it was not finished yet (on any system).
     pub show: bool,
     pub permissions: Vec<Permission>,
-    /// Cómo quedó el agente de inicio de sesión, si la app intentó instalarlo.
+    /// How the login agent ended up, if the app tried to install it.
     pub agent: Option<Report>,
 }
 
@@ -146,7 +146,7 @@ mod tests {
 
     #[test]
     fn first_run_opens_on_every_system() {
-        // Fuera de macOS no hay permisos que conceder, pero el asistente se abre igual.
+        // Outside macOS there are no permissions to grant, but the setup opens anyway.
         let v = SetupView::new(false, false, None);
         assert!(!v.available && v.show);
         assert!(v.permissions.is_empty());
@@ -160,7 +160,7 @@ mod tests {
             false,
             Some(Report {
                 ok: true,
-                text: "listo".into(),
+                text: "ready".into(),
             }),
         );
         assert_eq!(
@@ -169,7 +169,7 @@ mod tests {
                 "available": true,
                 "show": true,
                 "permissions": ["accessibility", "input_monitoring", "local_network"],
-                "agent": { "ok": true, "text": "listo" }
+                "agent": { "ok": true, "text": "ready" }
             })
         );
     }

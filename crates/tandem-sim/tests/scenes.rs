@@ -69,14 +69,14 @@ async fn trabajo_con_la_otra_apagada_la_enciende_primero() {
     let d = Desk::new().await.unwrap();
     paired(&d).await;
     let names: Vec<String> = d.mac.desk().scenes.iter().map(|s| s.name.clone()).collect();
-    assert_eq!(names[0], "Trabajo");
+    assert_eq!(names[0], "Work");
     assert_eq!(
         names[1],
-        format!("Solo {}", d.mac.desk().machines.name(Machine::A))
+        format!("Only {}", d.mac.desk().machines.name(Machine::A))
     );
     assert_eq!(
         names[2],
-        format!("Solo {}", d.mac.desk().machines.name(Machine::B))
+        format!("Only {}", d.mac.desk().machines.name(Machine::B))
     );
 
     let off = d.shutdown_pc().await.unwrap();

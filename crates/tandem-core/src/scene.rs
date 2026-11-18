@@ -1,10 +1,10 @@
-//! Escenas (DECISIONS D6, DESIGN §5): reemplazan a los modos de antes.
+//! Scenes (DECISIONS D6, DESIGN §5): they replace the former modes.
 //!
-//! Una escena dice qué máquina muestra cada monitor compatible, cómo quedan los escritorios
-//! (el acomodo) y qué máquina tiene que estar encendida. Aplicarla es una transacción
-//! ([`Scene::plan`]): encender lo que haga falta → cada monitor → el acomodo → la geometría
-//! del motor de entrada. Los pasos de monitor y de acomodo se deshacen si falla uno
-//! posterior; los de energía no (ver [`crate::txn`]).
+//! A scene says which machine shows each compatible monitor, how the desktops are laid out
+//! (the arrangement) and which machine has to be on. Applying it is a transaction
+//! ([`Scene::plan`]): power on what is needed → each monitor → the arrangement → the geometry
+//! of the input engine. The monitor and arrangement steps are undone if a later one
+//! fails; the power ones are not (see [`crate::txn`]).
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
@@ -16,16 +16,16 @@ use crate::monitor::MonitorCable;
 use crate::plan::{Abilities, Plan, PlanError, Step};
 use crate::state::State;
 
-/// El id de un monitor compatible (`<modelo>-<hash>`, el de `tandem-monitor`).
+/// The id of a compatible monitor (`<model>-<hash>`, the one from `tandem-monitor`).
 pub type MonitorId = String;
 
-/// Largo máximo del nombre de una escena, en caracteres.
+/// Maximum length of a scene name, in characters.
 pub const MAX_SCENE_NAME: usize = 40;
 
-/// Ícono de una escena sin ícono elegido (los nombres son los de la UI).
+/// Icon of a scene with no chosen icon (the names are the UI's).
 pub const DEFAULT_ICON: &str = "puesto";
 
-/// Una escena del puesto (D6).
+/// A desk scene (D6).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct Scene {
@@ -33,18 +33,18 @@ pub struct Scene {
     pub name: String,
     #[serde(default = "default_icon")]
     pub icon: String,
-    /// Qué máquina muestra cada monitor compatible. Los no compatibles no entran (DESIGN §5).
+    /// Which machine shows each compatible monitor. Incompatible ones do not enter (DESIGN §5).
     #[serde(default)]
     pub monitors: Vec<(MonitorId, Machine)>,
-    /// Cómo quedan los escritorios; `None`: el acomodo no se toca. Un acomodo relaciona a las
-    /// dos máquinas, así que pide las dos encendidas ([`Scene::needs`]).
+    /// How the desktops are laid out; `None`: the arrangement is not touched. An arrangement relates the
+    /// two machines, so it requires both on ([`Scene::needs`]).
     #[serde(default)]
     pub layout: Option<Arrangement>,
-    /// Una máquina que tiene que estar encendida aunque ningún monitor la muestre.
+    /// A machine that has to be on even if no monitor shows it.
     #[serde(default)]
     pub require_on: Option<Machine>,
-    /// Atajo global (todas las teclas a la vez), con los nombres de `KeyboardEvent.code`.
-    /// Vacío = sin atajo.
+    /// Global shortcut (all keys at once), with the `KeyboardEvent.code` names.
+    /// Empty = no shortcut.
     #[serde(default)]
     pub shortcut: Vec<String>,
 }
@@ -54,7 +54,7 @@ fn default_icon() -> String {
 }
 
 impl Scene {
-    /// Una escena vacía: no cambia nada al aplicarla, salvo marcarse como activa.
+    /// An empty scene: changes nothing when applied, except marking itself as active.
     pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
         Scene {
             id: id.into(),
@@ -67,8 +67,8 @@ impl Scene {
         }
     }
 
-    /// Las máquinas que tienen que estar encendidas con la escena puesta: la que pide, las
-    /// que muestra algún monitor y, con acomodo, las dos.
+    /// The machines that have to be on with the scene in place: the one it asks for, the
+    /// ones some monitor shows and, with an arrangement, both.
     pub fn needs(&self) -> BTreeSet<Machine> {
         let mut needs: BTreeSet<Machine> = self.monitors.iter().map(|(_, m)| *m).collect();
         needs.extend(self.require_on);
@@ -78,15 +78,15 @@ impl Scene {
         needs
     }
 
-    /// Si la escena sigue valiendo con `state`: todo lo que necesita está encendido.
+    /// Whether the scene still holds given `state`: everything it needs is on.
     pub fn holds(&self, state: &State) -> bool {
         self.needs().iter().all(|&m| state.is_on(m))
     }
 
-    /// Los pasos para aplicarla desde `from`, con el acomodo `current` del puesto: encender
-    /// lo que falte → cada monitor → el acomodo (si cambia) → la geometría (si cambió algo
-    /// de lo anterior). Lo que ya está no genera pasos de energía ni de acomodo; los monitores
-    /// van siempre, porque el estado no sabe qué muestra cada uno.
+    /// The steps to apply it from `from`, with the desk's current arrangement `current`: power on
+    /// what is missing → each monitor → the arrangement (if it changes) → the geometry (if anything
+    /// of the former changed). What is already there generates no power or arrangement steps; monitors
+    /// always go, because the state does not know what each one shows.
     pub fn plan(
         &self,
         from: &State,
@@ -119,7 +119,7 @@ impl Scene {
         Ok(Plan { steps })
     }
 
-    /// La misma escena con los lados cambiados ([`crate::Desk::swap_sides`]).
+    /// The same scene with the sides swapped ([`crate::Desk::swap_sides`]).
     pub fn swapped(self) -> Self {
         Scene {
             monitors: self
@@ -133,24 +133,24 @@ impl Scene {
         }
     }
 
-    /// Qué falla en la escena por sí sola (los ids y atajos repetidos los ve el puesto).
+    /// What fails in the scene on its own (repeated ids and shortcuts are seen by the desk).
     pub fn problem(&self) -> Option<String> {
         if self.id.trim().is_empty() || self.name.trim().is_empty() {
-            return Some("una escena no tiene id o nombre".to_owned());
+            return Some("a scene has no id or name".to_owned());
         }
         if self.name.chars().count() > MAX_SCENE_NAME {
             return Some(format!(
-                "el nombre de una escena no puede pasar de {MAX_SCENE_NAME} caracteres"
+                "a scene name cannot exceed {MAX_SCENE_NAME} characters"
             ));
         }
         let mut seen = BTreeSet::new();
         for (monitor, _) in &self.monitors {
             if monitor.trim().is_empty() {
-                return Some(format!("un monitor de «{}» no tiene id", self.name));
+                return Some(format!("a monitor of \"{}\" has no id", self.name));
             }
             if !seen.insert(monitor.as_str()) {
                 return Some(format!(
-                    "el monitor `{monitor}` está dos veces en «{}»",
+                    "the monitor `{monitor}` appears twice in \"{}\"",
                     self.name
                 ));
             }
@@ -159,12 +159,12 @@ impl Scene {
     }
 }
 
-/// El nombre de la escena «solo» de una máquina.
-fn solo_name(machine_name: &str) -> String {
-    format!("Solo {machine_name}")
+/// The name of a machine's "only" scene.
+fn only_name(machine_name: &str) -> String {
+    format!("Only {machine_name}")
 }
 
-/// El atajo por omisión de la escena `n` (1, 2, 3…): ⌃⌥n, como en los mockups.
+/// The default shortcut of scene `n` (1, 2, 3…): ⌃⌥n, as in the mockups.
 fn default_shortcut(n: u8) -> Vec<String> {
     vec![
         "ControlLeft".to_owned(),
@@ -173,10 +173,10 @@ fn default_shortcut(n: u8) -> Vec<String> {
     ]
 }
 
-/// Las escenas que se crean al emparejar: «Trabajo» (las dos, con el acomodo de ahora) y
-/// «Solo <A>» y «Solo <B>» con los nombres reales. Sus monitores los asigna T-111.
+/// The scenes created when pairing: "Work" (both, with the current arrangement) and
+/// "Only <A>" and "Only <B>" with the real names. Their monitors are assigned by T-111.
 pub fn default_scenes(machines: &Machines, arrangement: Option<Arrangement>) -> Vec<Scene> {
-    let solo = |side: Machine, n: u8| {
+    let only = |side: Machine, n: u8| {
         let icon = match machines.get(side).map(|i| i.os) {
             Some(Os::Windows) => "tower",
             _ => "laptop",
@@ -187,7 +187,7 @@ pub fn default_scenes(machines: &Machines, arrangement: Option<Arrangement>) -> 
             shortcut: default_shortcut(n),
             ..Scene::new(
                 format!("solo-{}", side.as_str()),
-                solo_name(&machines.name(side)),
+                only_name(&machines.name(side)),
             )
         }
     };
@@ -195,16 +195,16 @@ pub fn default_scenes(machines: &Machines, arrangement: Option<Arrangement>) -> 
         Scene {
             layout: Some(arrangement.unwrap_or_default()),
             shortcut: default_shortcut(1),
-            ..Scene::new("trabajo", "Trabajo")
+            ..Scene::new("trabajo", "Work")
         },
-        solo(Machine::A, 2),
-        solo(Machine::B, 3),
+        only(Machine::A, 2),
+        only(Machine::B, 3),
     ]
 }
 
-/// Pone las escenas por omisión en `desk` si conoce a las dos máquinas y no tiene ninguna.
-/// Una cuyo atajo ya usa el bloqueo (u otra escena) queda sin atajo; si aun así el puesto no
-/// fuera válido, no se agrega nada. `true` si las agregó.
+/// Sets the default scenes in `desk` if it knows both machines and has none.
+/// One whose shortcut the lock (or another scene) already uses is left without a shortcut; if even so the desk
+/// were not valid, nothing is added. `true` if it added them.
 pub fn add_defaults(desk: &mut Desk) -> bool {
     let both = Machine::ALL.iter().all(|&m| desk.machines.get(m).is_some());
     if !both || !desk.scenes.is_empty() {
@@ -230,8 +230,8 @@ pub fn add_defaults(desk: &mut Desk) -> bool {
     true
 }
 
-/// Si `scenes` son las de omisión para `desk` (con o sin sus atajos): las puso el agente al
-/// emparejar, no una persona.
+/// Whether `scenes` are the default ones for `desk` (with or without their shortcuts): the agent set them when
+/// pairing, not a person.
 pub fn are_defaults(scenes: &[Scene], desk: &Desk) -> bool {
     let bare = |s: &Scene| Scene {
         shortcut: Vec::new(),
@@ -245,18 +245,18 @@ pub fn are_defaults(scenes: &[Scene], desk: &Desk) -> bool {
             .all(|(a, b)| bare(a) == bare(b))
 }
 
-/// Un id nuevo para una escena llamada `name` que no choque con `taken`: el nombre en
-/// minúsculas, sin acentos ni espacios («Solo MacBook» → `solo-macbook`).
+/// A new id for a scene called `name` that does not clash with `taken`: the name in
+/// lowercase, without accents or spaces ("Only MacBook" → `only-macbook`).
 pub fn scene_id(name: &str, taken: &[&str]) -> String {
     let mut base = String::new();
     for c in name.trim().chars().flat_map(char::to_lowercase) {
         let c = match c {
-            'á' | 'à' | 'ä' | 'â' => 'a',
-            'é' | 'è' | 'ë' | 'ê' => 'e',
-            'í' | 'ì' | 'ï' | 'î' => 'i',
-            'ó' | 'ò' | 'ö' | 'ô' => 'o',
-            'ú' | 'ù' | 'ü' | 'û' => 'u',
-            'ñ' => 'n',
+            '\u{e1}' | '\u{e0}' | '\u{e4}' | '\u{e2}' => 'a',
+            '\u{e9}' | '\u{e8}' | '\u{eb}' | '\u{ea}' => 'e',
+            '\u{ed}' | '\u{ec}' | '\u{ef}' | '\u{ee}' => 'i',
+            '\u{f3}' | '\u{f2}' | '\u{f6}' | '\u{f4}' => 'o',
+            '\u{fa}' | '\u{f9}' | '\u{fc}' | '\u{fb}' => 'u',
+            '\u{f1}' => 'n',
             c if c.is_ascii_alphanumeric() => c,
             _ => '-',
         };
@@ -268,7 +268,7 @@ pub fn scene_id(name: &str, taken: &[&str]) -> String {
         base.pop();
     }
     if base.is_empty() {
-        base.push_str("escena");
+        base.push_str("scene");
     }
     let mut id = base.clone();
     let mut n = 2;
@@ -279,11 +279,11 @@ pub fn scene_id(name: &str, taken: &[&str]) -> String {
     id
 }
 
-/// Presenta un monitor compatible nuevo al puesto (T-111): anota su cableado y lo agrega a
-/// las escenas por omisión que siguen siéndolo por id: «Solo A» lo muestra en A, «Solo B» en
-/// B y «Trabajo» con lo que muestra ahora (`shows`; sin saberlo, no entra). Una escena que ya
-/// lo nombra no se toca. `false` si ya tenía cableado (ya se presentó: lo que el usuario haya
-/// hecho después se respeta) o si el puesto no quedaría válido.
+/// Introduces a new compatible monitor to the desk (T-111): records its cabling and adds it to
+/// the default scenes that still are so by id: "Only A" shows it on A, "Only B" on
+/// B and "Work" with what it shows now (`shows`; without knowing, it does not enter). A scene that already
+/// names it is not touched. `false` if it already had cabling (already introduced: whatever the user did
+/// afterwards is respected) or if the desk would not stay valid.
 pub fn introduce_monitor(desk: &mut Desk, cable: MonitorCable, shows: Option<Machine>) -> bool {
     if desk.cable(&cable.monitor).is_some() {
         return false;
@@ -310,8 +310,8 @@ pub fn introduce_monitor(desk: &mut Desk, cable: MonitorCable, shows: Option<Mac
     true
 }
 
-/// Si de `old` a `new` solo cambió lo que hace [`introduce_monitor`]: cables nuevos (los de
-/// antes iguales) y esos monitores agregados a escenas. Lo hizo el agente, no una persona.
+/// Whether from `old` to `new` only what [`introduce_monitor`] does changed: new cables (the earlier
+/// ones equal) and those monitors added to scenes. The agent did it, not a person.
 pub fn introduced_by_agent(old: &Desk, new: &Desk) -> bool {
     let added: BTreeSet<&str> = new
         .cables
@@ -339,12 +339,12 @@ pub fn introduced_by_agent(old: &Desk, new: &Desk) -> bool {
     new.scenes != old.scenes && stripped == old.scenes
 }
 
-/// La escena que está puesta según lo que muestra de verdad cada monitor (`shows`, de la
-/// entrada real que lee el dueño): de las que valen con `state`, tienen monitores, todos
-/// muestran su máquina y su acomodo (si tiene) es el del puesto (sin declarar, el de
-/// omisión), la que más pide (más
-/// monitores, más máquinas); con empate, la primera. Una escena sin monitores no se puede
-/// reconocer.
+/// The scene in place according to what each monitor really shows (`shows`, from the
+/// real input read by the owner): of those that hold with `state`, have monitors, all
+/// show their machine and whose arrangement (if it has one) is the desk's (undeclared, the
+/// default), the one that asks for the most (more
+/// monitors, more machines); on a tie, the first. A scene without monitors cannot be
+/// recognized.
 pub fn detect<'a>(
     desk: &'a Desk,
     state: &State,
@@ -366,8 +366,8 @@ pub fn detect<'a>(
         .map(|(_, s)| s)
 }
 
-/// Si lo que muestran los monitores contradice a `scene`: alguno muestra otra máquina que la
-/// de la escena. Un monitor del que no se sabe nada no contradice.
+/// Whether what the monitors show contradicts `scene`: one shows another machine than the
+/// scene's. A monitor of which nothing is known does not contradict.
 pub fn contradicted(scene: &Scene, shows: &BTreeMap<MonitorId, Machine>) -> bool {
     scene
         .monitors
@@ -375,12 +375,12 @@ pub fn contradicted(scene: &Scene, shows: &BTreeMap<MonitorId, Machine>) -> bool
         .any(|(m, machine)| shows.get(m).is_some_and(|s| s != machine))
 }
 
-/// Al renombrar `side` de `old` a `new`, su escena «Solo <old>» pasa a «Solo <new>». Una
-/// que el usuario ya renombró a otra cosa se respeta.
+/// When renaming `side` from `old` to `new`, its scene "Only <old>" becomes "Only <new>". One
+/// that the user already renamed to something else is respected.
 pub fn rename_machine(scenes: &mut [Scene], side: Machine, old: &str, new: &str) {
     for s in scenes {
-        if s.require_on == Some(side) && s.name == solo_name(old) {
-            s.name = solo_name(new);
+        if s.require_on == Some(side) && s.name == only_name(old) {
+            s.name = only_name(new);
         }
     }
 }
@@ -400,7 +400,7 @@ mod tests {
             b: Some(MachineInfo::new(
                 Machine::B,
                 Os::Windows,
-                Some("PC-Escritorio".into()),
+                Some("Desktop-PC".into()),
             )),
         }
     }
@@ -420,7 +420,7 @@ mod tests {
         };
         let s = default_scenes(&machines(), Some(up));
         let names: Vec<&str> = s.iter().map(|s| s.name.as_str()).collect();
-        assert_eq!(names, ["Trabajo", "Solo MacBook Pro", "Solo PC-Escritorio"]);
+        assert_eq!(names, ["Work", "Only MacBook Pro", "Only Desktop-PC"]);
         let ids: Vec<&str> = s.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(ids, ["trabajo", "solo-a", "solo-b"]);
         assert_eq!(s[0].layout, Some(up));
@@ -436,7 +436,7 @@ mod tests {
             s.iter()
                 .all(|s| s.monitors.is_empty() && s.problem().is_none())
         );
-        // Sin acomodo declarado, «Trabajo» lleva el de omisión.
+        // Without a declared arrangement, "Work" carries the default one.
         assert_eq!(
             default_scenes(&machines(), None)[0].layout,
             Some(Arrangement::default())
@@ -448,7 +448,7 @@ mod tests {
         let s: Scene = toml::from_str("id = \"x\"\nname = \"X\"").unwrap();
         assert_eq!(s, Scene::new("x", "X"));
         let full: Scene = toml::from_str(
-            "id = \"j\"\nname = \"Juego\"\nicon = \"play\"\nmonitors = [[\"lc34-01\", \"b\"]]\n\
+            "id = \"j\"\nname = \"Game\"\nicon = \"play\"\nmonitors = [[\"lc34-01\", \"b\"]]\n\
              layout = { a_side = \"up\", align = \"end\" }\nrequire_on = \"b\"\n\
              shortcut = [\"ControlLeft\", \"Digit4\"]",
         )
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn the_plan_wakes_first_then_monitors_then_arrangement_then_geometry() {
-        let mut s = Scene::new("t", "Trabajo");
+        let mut s = Scene::new("t", "Work");
         s.monitors = vec![("m34".into(), Machine::B), ("m27".into(), Machine::A)];
         s.layout = Some(left());
         let from = State::initial(Machine::A);
@@ -486,7 +486,7 @@ mod tests {
                 Step::Geometry,
             ]
         );
-        // Lo que ya está no se repite.
+        // What is already there is not repeated.
         let mut both = from.clone();
         both.on.set(Machine::B, true);
         s.monitors.clear();
@@ -496,7 +496,7 @@ mod tests {
                 .steps
                 .is_empty()
         );
-        // Una que no se puede encender es un error del plan, antes de tocar nada.
+        // One that cannot be powered on is a plan error, before touching anything.
         assert_eq!(
             s.plan(&from, None, &Abilities::default()).unwrap_err(),
             PlanError::CannotWake(Machine::B)
@@ -505,7 +505,7 @@ mod tests {
 
     #[test]
     fn only_power_changes_need_no_geometry() {
-        let mut s = Scene::new("b", "Solo B");
+        let mut s = Scene::new("b", "Only B");
         s.require_on = Some(Machine::B);
         let plan = s
             .plan(&State::initial(Machine::A), None, &Abilities::both_wake())
@@ -541,7 +541,7 @@ mod tests {
         assert!(Scene::new("x", "y".repeat(41)).problem().is_some());
         let mut s = Scene::new("x", "X");
         s.monitors = vec![("m".into(), Machine::A), ("m".into(), Machine::B)];
-        assert!(s.problem().unwrap().contains("dos veces"));
+        assert!(s.problem().unwrap().contains("twice"));
         s.monitors = vec![(" ".into(), Machine::A)];
         assert!(s.problem().is_some());
     }
@@ -559,10 +559,13 @@ mod tests {
         d.shortcuts.lock = vec!["ControlLeft".into(), "AltLeft".into(), "Digit1".into()];
         assert!(add_defaults(&mut d));
         assert!(d.validate().is_ok());
-        assert!(d.scenes[0].shortcut.is_empty(), "«Trabajo» queda sin atajo");
+        assert!(
+            d.scenes[0].shortcut.is_empty(),
+            "\"Work\" is left without a shortcut"
+        );
         assert_eq!(d.scenes[1].shortcut, ["ControlLeft", "AltLeft", "Digit2"]);
         assert!(are_defaults(&d.scenes, &d));
-        // Solo una vez, y solo con las dos máquinas.
+        // Only once, and only with both machines.
         assert!(!add_defaults(&mut d));
         let mut half = Desk::default();
         half.machines.a = machines().a;
@@ -572,10 +575,13 @@ mod tests {
 
     #[test]
     fn new_ids_come_from_the_name() {
-        assert_eq!(scene_id("Solo MacBook", &[]), "solo-macbook");
-        assert_eq!(scene_id("  Música y Diseño!  ", &[]), "musica-y-diseno");
-        assert_eq!(scene_id("!!!", &[]), "escena");
-        assert_eq!(scene_id("Juego", &["juego", "juego-2"]), "juego-3");
+        assert_eq!(scene_id("Only MacBook", &[]), "only-macbook");
+        assert_eq!(
+            scene_id("  Caf\u{e9} and Design!  ", &[]),
+            "cafe-and-design"
+        );
+        assert_eq!(scene_id("!!!", &[]), "scene");
+        assert_eq!(scene_id("Game", &["game", "game-2"]), "game-3");
     }
 
     fn cable(monitor: &str) -> MonitorCable {
@@ -601,17 +607,17 @@ mod tests {
         assert_eq!(d.scenes[2].monitors, [("m34".to_owned(), Machine::B)]);
         assert_eq!(d.cable("m34"), Some(&cable("m34")));
         assert!(introduced_by_agent(&old, &d));
-        assert_eq!(old.summary_of_changes(&d), None, "lo hizo el agente");
-        // Ya presentado: lo que haga el usuario después se respeta.
+        assert_eq!(old.summary_of_changes(&d), None, "the agent did it");
+        // Already introduced: what the user does afterwards is respected.
         d.scenes[1].monitors.clear();
         assert!(!introduce_monitor(&mut d, cable("m34"), Some(Machine::A)));
         assert!(d.scenes[1].monitors.is_empty());
-        // Sin saber qué muestra, «Trabajo» no lo lleva; una escena del usuario, tampoco.
-        d.scenes.push(Scene::new("juego", "Juego"));
+        // Without knowing what it shows, "Work" does not carry it; neither does a user scene.
+        d.scenes.push(Scene::new("game", "Game"));
         assert!(introduce_monitor(&mut d, cable("m27"), None));
         assert_eq!(d.scenes[0].monitors.len(), 1);
         assert!(d.scenes[3].monitors.is_empty());
-        // Un cable que declara una persona sí avisa.
+        // A cable that a person declares does notify.
         let mut by_hand = old.clone();
         by_hand
             .apply(crate::DeskPatch::Cable(cable("m34")))
@@ -619,7 +625,7 @@ mod tests {
         assert!(!introduced_by_agent(&old, &by_hand));
         assert_eq!(
             old.summary_of_changes(&by_hand).as_deref(),
-            Some("Monitores")
+            Some("Monitors")
         );
     }
 
@@ -632,13 +638,13 @@ mod tests {
             scene: None,
         };
         let shows = |m: Machine| BTreeMap::from([("m34".to_owned(), m)]);
-        // Con las dos y el 34" en B: «Trabajo» (pide más que «Solo B»).
+        // With both and the 34" on B: "Work" (it asks for more than "Only B").
         d.arrangement = Some(Arrangement::default());
         assert_eq!(
             detect(&d, &both, &shows(Machine::B)).map(|s| s.id.as_str()),
             Some("trabajo")
         );
-        // Con otro acomodo, «Trabajo» no está puesta: queda «Solo B».
+        // With another arrangement, "Work" is not in place: "Only B" remains.
         d.arrangement = Some(left().swapped());
         assert_eq!(
             detect(&d, &both, &shows(Machine::B)).map(|s| s.id.as_str()),
@@ -648,7 +654,7 @@ mod tests {
             detect(&d, &both, &shows(Machine::A)).map(|s| s.id.as_str()),
             Some("solo-a")
         );
-        // Sin B prendida, solo «Solo A» puede valer; sin saber nada, ninguna.
+        // Without B powered on, only "Only A" can hold; knowing nothing, none.
         let only_a = State::initial(Machine::A);
         assert_eq!(detect(&d, &only_a, &shows(Machine::B)), None);
         assert_eq!(detect(&d, &both, &BTreeMap::new()), None);
@@ -658,13 +664,13 @@ mod tests {
     }
 
     #[test]
-    fn renaming_a_machine_renames_its_solo_scene() {
+    fn renaming_a_machine_renames_its_only_scene() {
         let mut s = default_scenes(&machines(), None);
         s[2].name = "Gaming".into();
         rename_machine(&mut s, Machine::A, "MacBook Pro", "Mac");
-        rename_machine(&mut s, Machine::B, "PC-Escritorio", "Torre");
-        assert_eq!(s[1].name, "Solo Mac");
+        rename_machine(&mut s, Machine::B, "Desktop-PC", "Tower");
+        assert_eq!(s[1].name, "Only Mac");
         assert_eq!(s[2].name, "Gaming");
-        assert_eq!(s[0].name, "Trabajo");
+        assert_eq!(s[0].name, "Work");
     }
 }

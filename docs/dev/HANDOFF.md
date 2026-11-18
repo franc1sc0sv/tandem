@@ -1,50 +1,50 @@
-# Traspaso — estado al 2026-10-16
+# Handoff — state as of 2026-10-16
 
-Punto de partida para la próxima sesión. Léelo entero antes de tocar nada.
+Starting point for the next session. Read it all before touching anything.
 
-## Dónde estamos
+## Where we are
 
-- `develop` está en `T-085` (#57) + este traspaso. **50 tareas `done`**, CI verde. `main` sigue sin tocar: el paso develop → main lo hace el usuario.
-- **Siguiente tarea: [T-087](../tasks/T-087.md)**, el asistente de configuración inicial con verificación: puesto vacío por defecto, monitores por selector (solo los conectados), eliminar un monitor borra todo lo suyo, seguridad de pantallas, teclado por pulsación y portapapeles en Windows. La especificación completa está en el archivo de la tarea. Se lanzó dos veces y se detuvo a pedido del usuario. No existe T-086 en `develop`: se reemplazó por T-087. Las ramas o worktrees locales `task/T-086` y `task/T-087`, si existen, son descartables.
-- Pendientes que necesitan al usuario: **T-027** (servicio SYSTEM en Windows; requiere decidir la firma Authenticode), **T-051** (SSH a la Mac; bloqueado: la Mac es de trabajo y Remote Login queda en Off, probablemente por MDM; no forzarlo).
-- Por decidir con el usuario: firmar y notarizar en macOS (Apple Developer, 99 USD al año). Sin eso, Gatekeeper bloquea la app y hay que usar *Abrir igualmente* o `xattr -dr com.apple.quarantine`.
+- `develop` is at `T-085` (#57) + this handoff. **50 tasks `done`**, CI green. `main` is still untouched: the develop → main step is done by the user.
+- **Next task: [T-087](../tasks/T-087.md)**, the initial setup wizard with verification: empty desk by default, monitors through a selector (only the connected ones), removing a monitor deletes everything of its own, screen safety, keyboard by key press and clipboard on Windows. The full specification is in the task file. It was launched twice and stopped at the user's request. T-086 does not exist in `develop`: it was replaced by T-087. The local branches or worktrees `task/T-086` and `task/T-087`, if they exist, are disposable.
+- Pending items that need the user: **T-027** (SYSTEM service on Windows; requires deciding on Authenticode signing), **T-051** (SSH to the Mac; blocked: the Mac is a work machine and Remote Login stays Off, probably because of MDM; do not force it).
+- To decide with the user: signing and notarizing on macOS (Apple Developer, USD 99 a year). Without it, Gatekeeper blocks the app and you have to use *Open Anyway* or `xattr -dr com.apple.quarantine`.
 
-> **v0.2 (T-092):** Tandem ya no controla monitores; vuelve con el firmware propio del 34" (DESIGN §8). La tabla de abajo queda como referencia para ese firmware. Un `[[monitors]]` viejo en `tandem.toml` se ignora con un aviso y un `state.json` de v0.1 sigue cargando (solo se lee la energía).
+> **v0.2 (T-092):** Tandem no longer controls monitors; it comes back with the 34"'s own firmware (DESIGN §8). The table below stays as a reference for that firmware. An old `[[monitors]]` in `tandem.toml` is ignored with a warning and a v0.1 `state.json` still loads (only power is read).
 
-## Hechos de hardware verificados (no volver a investigar)
+## Verified hardware facts (do not research again)
 
 | | 34" Samsung LC34G55T | 32" Samsung Odyssey G5 |
 |---|---|---|
-| EDID visto por la PC (DP) | `SAM711A` | `SAM7489` |
-| EDID visto por la Mac (HDMI) | `SAM7119` | `SAM748A` |
+| EDID seen by the PC (DP) | `SAM711A` | `SAM7489` |
+| EDID seen by the Mac (HDMI) | `SAM7119` | `SAM748A` |
 | DDC → HDMI (Mac) | `0x06` | `0x05` |
 | DDC → DP (PC) | `0x09` | `0x0F` |
 
-- **El EDID cambia según la entrada**: el mismo monitor tiene un id PnP distinto en cada máquina. Por eso se duplicaron los monitores al sincronizar.
-- Los dos monitores declaran en sus capabilities códigos que **no obedecen**. La lectura de `0x60` no es confiable: el 34" siempre lee `0x09`, y el 32" no se actualiza tras un cambio desde el menú. El timing report del 34" no distingue la entrada. **Pendiente:** probar el timing report del 32" con el usuario presente.
-- Solo la PC tiene canal DDC con los monitores. La Mac no lo tiene: BetterDisplay da "DDC channel unavailable".
-- **Windows reserva los puertos UDP 47000–48999** en esa PC (WSL/Hyper-V). Tandem usa 52000 (default desde T-082, con puertos de reserva).
-- PC: Gigabyte X870, Realtek 2.5GbE, USB4. La Mac es una MacBook Pro M5 de trabajo (por Wi-Fi; su IP vive en `~/.ssh/config`).
+- **The EDID changes depending on the input**: the same monitor has a different PnP id on each machine. That is why monitors were duplicated when syncing.
+- Both monitors declare in their capabilities codes that they **do not obey**. Reading `0x60` is not reliable: the 34" always reads `0x09`, and the 32" does not update after a change from the menu. The 34"'s timing report does not tell the input. **Pending:** test the 32"'s timing report with the user present.
+- Only the PC has a DDC channel to the monitors. The Mac does not: BetterDisplay says "DDC channel unavailable".
+- **Windows reserves UDP ports 47000–48999** on that PC (WSL/Hyper-V). Tandem uses 52000 (default since T-082, with fallback ports).
+- PC: Gigabyte X870, Realtek 2.5GbE, USB4. The Mac is a work MacBook Pro M5 (over Wi-Fi; its IP lives in `~/.ssh/config`).
 
-## Estado de las máquinas del usuario
+## State of the user's machines
 
-- **PC:** Tandem instalado (versión T-085) en `%LOCALAPPDATA%\Tandem`, con `tandemd` arrancando con la sesión. La config `%APPDATA%\Tandem\tandem.toml` tiene **el puesto duplicado (4 monitores)** que dejó la primera sincronización. Antes de probar T-087 hay que hacer «Restablecer puesto», o vaciar `[[monitors]]` a mano y borrar `state.json`. Respaldo de la primera config en `tandem.toml.original`. Está **emparejada** con la Mac (`trust.toml`).
-- **Mac:** Tandem instalado desde el `.dmg` de CI. El usuario **detuvo el agente** con `launchctl bootout gui/$(id -u)/com.franc1sc0sv.tandem.tandemd` porque el 32" quedó en negro. Para volver a cargarlo: `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.franc1sc0sv.tandem.tandemd.plist`, o abrir la app. Su config la generó T-082 y también tiene el puesto duplicado.
-- La herramienta de diagnóstico de monitores (`tandem-ddc`) se eliminó en T-092; si quedó una copia en `%LOCALAPPDATA%\Temp\tandem`, se puede borrar.
+- **PC:** Tandem installed (T-085 version) in `%LOCALAPPDATA%\Tandem`, with `tandemd` starting with the session. The config `%APPDATA%\Tandem\tandem.toml` has **the duplicated desk (4 monitors)** left by the first sync. Before testing T-087 you have to do "Reset desk", or empty `[[monitors]]` by hand and delete `state.json`. Backup of the first config in `tandem.toml.original`. It is **paired** with the Mac (`trust.toml`).
+- **Mac:** Tandem installed from the CI `.dmg`. The user **stopped the agent** with `launchctl bootout gui/$(id -u)/com.franc1sc0sv.tandem.tandemd` because the 32" went black. To load it again: `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.franc1sc0sv.tandem.tandemd.plist`, or open the app. Its config was generated by T-082 and also has the duplicated desk.
+- The monitor diagnostic tool (`tandem-ddc`) was removed in T-092; if a copy remains in `%LOCALAPPDATA%\Temp\tandem`, it can be deleted.
 
-## Cómo trabajamos (flujo probado)
+## How we work (proven flow)
 
-- **Abre la sesión de Claude Code en `apps/tandem`** para que carguen `CLAUDE.md`, los agentes y el workflow. Si se abre en la carpeta padre, usa `portable: true`.
-- Cada tarea se corre con el workflow `.claude/workflows/autopilot.js` en modo *pool*, una corrida por tarea:
-  `{"rounds":1,"perRound":1,"portable":true,"hostMerge":true,"tasks":[{"id":"T-087","title":"…lee docs/tasks/T-087.md…"}],"auth":"<orden textual del usuario>"}`
-  - `hostMerge: true` es obligatorio. El clasificador de auto mode **no deja hacer merge a los subagentes** (ni con la regla en settings): el merge lo hace la sesión principal.
-  - `auth` lleva la orden textual del usuario. Los subagentes leen el último mensaje del usuario y se frenan si es solo una pregunta; si el usuario escribe en medio, que termine con "y sigue".
-- **Integrar:** `scripts/claude/integrate-pr.sh <pr> <rama>`. Solo hace merge si el CI pasó **sobre una cabeza que contiene el `develop` actual**: si la rama está atrasada, hace `gh pr update-branch` y espera. Resuelve solo los conflictos de `Cargo.lock`; para cualquier otro conflicto se detiene.
-- **Tareas listas:** `scripts/claude/ready-tasks.py [ids en curso…]`.
-- **El repo es público** (minutos de CI ilimitados). El CI corre en cada PR y en `develop`. No intentes apagarlo ni hacer merge sin CI: el clasificador lo bloquea como "CI Bypass", y el usuario eligió mantenerlo.
-- **Probar en la PC desde WSL:** `powershell.exe` por interop, que necesita salir del sandbox. Instalar con `Start-Process … /S -PassThru` y `WaitForExit`; lanzar el `.exe` directo desde WSL no instala. Descargar artefactos de CI con `allowed_domains: *.blob.core.windows.net`.
-- En WSL, fuera del sandbox, la prueba `pairing::tests::nobody_confirming_times_out_without_saving` falla también en `develop` (`ConnectionLost(TimedOut)` en 0.06 s); en CI pasa. Está pendiente investigarlo.
-- **Lecciones:**
-  - Antes de cada merge, comprueba que el CI de `develop` siga verde después del anterior.
-  - El sandbox local salta las pruebas de sockets Unix, así que el CI es la verdad.
-  - Cualquier prueba de hardware que cambie entradas de monitor lleva vuelta automática.
+- **Open the Claude Code session in `apps/tandem`** so that `CLAUDE.md`, the agents and the workflow load. If it is opened in the parent folder, use `portable: true`.
+- Each task is run with the `.claude/workflows/autopilot.js` workflow in *pool* mode, one run per task:
+  `{"rounds":1,"perRound":1,"portable":true,"hostMerge":true,"tasks":[{"id":"T-087","title":"…read docs/tasks/T-087.md…"}],"auth":"<verbatim user order>"}`
+  - `hostMerge: true` is mandatory. The auto mode classifier **does not let subagents merge** (not even with the rule in settings): the merge is done by the main session.
+  - `auth` carries the user's verbatim order. Subagents read the user's last message and stop if it is only a question; if the user writes in the middle, have it end with "and continue".
+- **Integrate:** `scripts/claude/integrate-pr.sh <pr> <branch>`. It only merges if CI passed **on a head that contains the current `develop`**: if the branch is behind, it runs `gh pr update-branch` and waits. It resolves only `Cargo.lock` conflicts; for any other conflict it stops.
+- **Ready tasks:** `scripts/claude/ready-tasks.py [ids in progress…]`.
+- **The repo is public** (unlimited CI minutes). CI runs on every PR and on `develop`. Do not try to turn it off nor merge without CI: the classifier blocks it as "CI Bypass", and the user chose to keep it.
+- **Testing on the PC from WSL:** `powershell.exe` through interop, which needs to leave the sandbox. Install with `Start-Process … /S -PassThru` and `WaitForExit`; launching the `.exe` directly from WSL does not install. Download CI artifacts with `allowed_domains: *.blob.core.windows.net`.
+- In WSL, outside the sandbox, the test `pairing::tests::nobody_confirming_times_out_without_saving` also fails on `develop` (`ConnectionLost(TimedOut)` in 0.06 s); in CI it passes. Investigating it is pending.
+- **Lessons:**
+  - Before each merge, check that `develop`'s CI is still green after the previous one.
+  - The local sandbox skips the Unix socket tests, so CI is the truth.
+  - Any hardware test that changes monitor inputs carries automatic revert.

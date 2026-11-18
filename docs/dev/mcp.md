@@ -1,40 +1,39 @@
-# MCP y CLI de túneles
+# Tunnels MCP and CLI
 
-`tandem` es un solo binario (crate `tandem-cli`) con dos caras que comparten la misma tabla de herramientas y la misma API sobre la IPC del agente local: `tandem mcp` (servidor MCP por stdio) y `tandem <herramienta>` (CLI). El agente (`tandemd`) debe estar corriendo; ambos se conectan a su socket como `Peer::Client` (solo el usuario puede entrar, DESIGN §11).
+`tandem` is a single binary (crate `tandem-cli`) with two faces that share the same tool table and the same API over the local agent's IPC: `tandem mcp` (MCP server over stdio) and `tandem <tool>` (CLI). The agent (`tandemd`) must be running; both connect to its socket as `Peer::Client` (only the user can get in, DESIGN §11).
 
-## Agregarlo a Claude Code
+## Adding it to Claude Code
 
 ```
 claude mcp add tandem -- tandem mcp
 ```
 
-Si el agente usa otro directorio de datos: `claude mcp add tandem -- tandem --data-dir <dir> mcp`. El asistente de la app (paso 6) muestra este comando con botón de copiar.
+If the agent uses another data directory: `claude mcp add tandem -- tandem --data-dir <dir> mcp`. The app's setup (step 6) shows this command with a copy button.
 
-## Herramientas
+## Tools
 
-`machines`, `resources`, `tunnels`, `tunnel_open`, `tunnel_close`, `exec`, `processes`, `output`, `kill`, `files_put`, `files_get`, `port_forward`, `port_stop`, `bring_back`. Cada una trae su descripción en español e inglés (`tandem --help` las lista con sus parámetros).
+`machines`, `resources`, `tunnels`, `tunnel_open`, `tunnel_close`, `exec`, `processes`, `output`, `kill`, `files_put`, `files_get`, `port_forward`, `port_stop`, `bring_back`. Each one carries its description (`tandem --help` lists them with their parameters).
 
-- Los ids de túnel son texto hex (los devuelve `tunnel_open`); los de proceso, números.
-- `exec` no espera: devuelve el proceso. `output` lee desde un punto (`next` de la lectura anterior) y con `wait_ms` espera salida nueva o el fin del proceso.
-- `tunnel_open` sin `title` usa el nombre del proyecto; el proyecto sale de la carpeta actual (o de `project`/`project_root`) y la sesión de `CLAUDE_SESSION_ID`. Con `workspace` el repo viaja con el túnel y vuelve con `bring_back` como rama `tandem/<nombre>`.
+- Tunnel ids are hex text (returned by `tunnel_open`); process ids are numbers.
+- `exec` does not wait: it returns the process. `output` reads from a point (`next` from the previous read) and with `wait_ms` waits for new output or for the process to end.
+- `tunnel_open` without `title` uses the project name; the project comes from the current folder (or from `project`/`project_root`) and the session from `CLAUDE_SESSION_ID`. With `workspace` the repo travels with the tunnel and comes back with `bring_back` as a `tandem/<name>` branch.
 
-## Ejemplos
+## Examples
 
 ```
-tandem tunnel-open --workspace --title "tests en la Mac"
+tandem tunnel-open --workspace --title "tests on the Mac"
 tandem exec --tunnel 3fa2... --cmd cargo --args test --args --workspace
 tandem output --tunnel 3fa2... --process 1 --wait-ms 5000
-tandem bring-back --tunnel 3fa2... --name arreglo
+tandem bring-back --tunnel 3fa2... --name fix
 tandem tunnel-close --tunnel 3fa2...
 ```
 
-`--json` imprime el mismo JSON que devuelve el MCP (contrato estable); sin él, texto legible. En `output`, stdout y stderr del proceso van a los suyos y el estado (con el punto desde el que seguir) a stderr.
+`--json` prints the same JSON the MCP returns (stable contract); without it, readable text. In `output`, the process's stdout and stderr go to their own and the status (with the point from which to continue) to stderr.
 
-## Credenciales (T-130)
+## Credentials (T-130)
 
-La otra máquina nunca recibe credenciales:
+The other machine never receives credentials:
 
-- `files_put` y `tunnel_open { workspace }` no mandan lo que parece una credencial (`.env`, `*.pem`, `id_rsa*`, `.ssh/`, `.aws/`, `.npmrc` con token…), esté o no en `.gitignore`. La respuesta trae `skipped` y un `warning`; la CLI avisa por stderr. Para mandar uno, nómbralo en `include_secrets` (ruta exacta relativa a `local` o al repo).
-- `exec` rechaza las variables de `env` que parecen secretos (`GH_TOKEN`, `AWS_*`, `*_KEY`…) salvo `allow_secret_env: true` en esa llamada. `SSH_AUTH_SOCK` y los agentes nunca pasan.
-- El repo del workspace llega sin remotos ni `credential.helper`; lo ya confirmado viaja con su historia.
-
+- `files_put` and `tunnel_open { workspace }` do not send what looks like a credential (`.env`, `*.pem`, `id_rsa*`, `.ssh/`, `.aws/`, `.npmrc` with a token…), whether or not it is in `.gitignore`. The response carries `skipped` and a `warning`; the CLI warns on stderr. To send one, name it in `include_secrets` (exact path relative to `local` or to the repo).
+- `exec` rejects `env` variables that look like secrets (`GH_TOKEN`, `AWS_*`, `*_KEY`…) unless `allow_secret_env: true` is set in that call. `SSH_AUTH_SOCK` and agents never pass.
+- The workspace repo arrives without remotes or `credential.helper`; what is already committed travels with its history.

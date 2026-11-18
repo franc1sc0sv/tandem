@@ -1,6 +1,6 @@
-# DDC/CI — Samsung Odyssey G5 32" (EDID "Odyssey G5", id PnP SAM7489)
+# DDC/CI — Samsung Odyssey G5 32" (EDID "Odyssey G5", PnP id SAM7489)
 
-Pruebas del 2026-10-16 desde Windows (PC → monitor por DisplayPort) con `tandem-ddc`, con el usuario mirando el monitor (T-050).
+Tests of 2026-10-16 from Windows (PC → monitor over DisplayPort) with `tandem-ddc`, with the user watching the monitor (T-050).
 
 ## Capabilities string
 
@@ -9,39 +9,39 @@ Pruebas del 2026-10-16 desde Windows (PC → monitor por DisplayPort) con `tande
  60(01 03 04 11 12 0F 10) 62 8D FF)mswhql(1)mccs_ver(2.0)asset_eep(32)mpu_ver(01))
 ```
 
-Declara `60 = {01, 03, 04, 11, 12, 0F, 10}`. Igual que el 34", el código que obedece para HDMI **no está en esa lista**.
+It declares `60 = {01, 03, 04, 11, 12, 0F, 10}`. Like the 34", the code it obeys for HDMI **is not in that list**.
 
-## Resultados
+## Results
 
-| VCP 0x60 | Efecto |
+| VCP 0x60 | Effect |
 |---|---|
-| `0x0F` | ✅ pasa a DisplayPort (PC) |
-| `0x05` | ✅ pasa a HDMI (Mac) |
-| `0x06` | se va a una entrada sin señal (negro); `0x0F` lo recupera |
-| `0x11`, `0x12`, `0x03`, `0x04`, `0x01` | sin efecto |
+| `0x0F` | ✅ switches to DisplayPort (PC) |
+| `0x05` | ✅ switches to HDMI (Mac) |
+| `0x06` | goes to an input with no signal (black); `0x0F` recovers it |
+| `0x11`, `0x12`, `0x03`, `0x04`, `0x01` | no effect |
 
-## La pista que lo resolvió
+## The clue that solved it
 
-Leer `0x60` estando en HDMI devolvió `0x05`, y el 34" devuelve siempre `0x09`, que es su código real de DP. Estos Samsung **reportan el código que usan para la entrada en la que están**, aunque no reporten bien cuando cambian. Para un monitor nuevo, leer `0x60` en cada entrada es el primer candidato a probar.
+Reading `0x60` while on HDMI returned `0x05`, and the 34" always returns `0x09`, which is its real DP code. These Samsung monitors **report the code they use for the input they are on**, even though they do not report well when they change. For a new monitor, reading `0x60` on each input is the first candidate to try.
 
-## Perfil
+## Profile
 
-`hdmi = 0x05`, `display_port = 0x0F` ([`profiles/ddc/SAM7489.toml`](../../profiles/ddc/SAM7489.toml), configs de `docs/examples/`). El nombre "Odyssey G5" lo comparten varios modelos, así que el perfil se aplica por id PnP (`SAM7489`).
+`hdmi = 0x05`, `display_port = 0x0F` ([`profiles/ddc/SAM7489.toml`](../../profiles/ddc/SAM7489.toml), configs in `docs/examples/`). The name "Odyssey G5" is shared by several models, so the profile is applied by PnP id (`SAM7489`).
 
-## Pendiente: ¿el timing report distingue la entrada? (T-085)
+## Pending: does the timing report tell the input? (T-085)
 
-Tras un cambio desde el menú del monitor, `0x60` no se actualiza (sigue con el último código escrito por DDC), así que Tandem no puede saber solo qué muestra el 32": el estado arranca sin confirmar y lo confirma «Aplicar modo» o el usuario (T-085).
+After a change from the monitor's menu, `0x60` does not update (it keeps the last code written over DDC), so Tandem cannot know by itself what the 32" is showing: the state starts unconfirmed and "Apply mode" or the user confirms it (T-085).
 
-Falta probar **con el usuario delante** si el *timing report* (`GetTimingReport` de dxva2, o el VCP de estado de sincronía) cambia según la entrada que muestra: con el 32" en DP (PC), en HDMI (Mac) y en negro, leerlo desde la PC y comparar frecuencias, polaridad y el bit de «fuera de rango / sin señal». En el 34" no sirve (siempre reporta lo de su DP aunque muestre HDMI). Si en el 32" sí distingue, sería una capacidad nueva por perfil, «detección de entrada», y ese monitor podría arrancar confirmado sin preguntar.
+It remains to test **with the user present** whether the *timing report* (dxva2's `GetTimingReport`, or the sync-status VCP) changes according to the input it shows: with the 32" on DP (PC), on HDMI (Mac) and on black, read it from the PC and compare frequencies, polarity and the "out of range / no signal" bit. On the 34" it is of no use (it always reports its DP's even when it shows HDMI). If on the 32" it does tell them apart, it would be a new per-profile capability, "input detection", and that monitor could start confirmed without asking.
 
-- [ ] Leer el timing report del 32" en DP, en HDMI y en negro, y anotar los valores aquí.
+- [ ] Read the 32"'s timing report on DP, on HDMI and on black, and note the values here.
 
-## El EDID cambia según la entrada (T-087)
+## The EDID changes depending on the input (T-087)
 
-Hecho de la primera prueba con las dos máquinas: el mismo monitor tiene un id PnP distinto en cada entrada, así que la PC (DisplayPort) y la Mac (HDMI) lo ven con ids distintos. El número de serie del EDID suele coincidir y sirve para vincular las dos identidades; si no, se vincula por modelo o tamaño y el usuario lo confirma en el asistente.
+A fact from the first test with both machines: the same monitor has a different PnP id on each input, so the PC (DisplayPort) and the Mac (HDMI) see it with different ids. The EDID serial number usually matches and serves to link the two identities; if not, it is linked by model or size and the user confirms it in the setup.
 
 | | PC (DisplayPort) | Mac (HDMI) |
 |---|---|---|
 | 32" Odyssey G5 | `SAM7489` | `SAM748A` |
 
-Por eso el perfil lleva `pnp_aliases` (`profiles/ddc/`) y el puesto, `edid_aliases` en cada `[[monitors]]`: cualquiera de las dos identidades encuentra el monitor (DDC, topología de Windows y Quartz). Antes de T-087 la sincronización los trataba como dos monitores y el puesto quedaba duplicado.
+That is why the profile carries `pnp_aliases` (`profiles/ddc/`) and the desk, `edid_aliases` in each `[[monitors]]`: either identity finds the monitor (DDC, Windows topology and Quartz). Before T-087 the sync treated them as two monitors and the desk ended up duplicated.

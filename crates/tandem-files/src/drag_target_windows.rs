@@ -1,11 +1,11 @@
-//! Detector de arrastre de archivos en Windows (T-121): una ventana destino de arrastre
-//! casi invisible, pegada al borde de cruce, registrada con `RegisterDragDrop`.
+//! File drag detector on Windows (T-121): an almost invisible drag target
+//! window, flush with the crossing edge, registered with `RegisterDragDrop`.
 //!
-//! Cuando el usuario arrastra archivos (CF_HDROP) con el botón apretado hasta la franja,
-//! `IDropTarget::DragEnter` los recibe y quedan en un [`DragProbe`] que el agente consulta
-//! por [`DragDetector`]. La franja nunca acepta el soltar (efecto `NONE`): solo mira.
+//! When the user drags files (CF_HDROP) with the button pressed up to the strip,
+//! `IDropTarget::DragEnter` receives them and they end up in a [`DragProbe`] the agent queries
+//! through [`DragDetector`]. The strip never accepts the drop (`NONE` effect): it only watches.
 //!
-//! La ventana, OLE y el bucle de mensajes viven en un hilo propio.
+//! The window, OLE and the message loop live on a thread of their own.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicIsize, Ordering};
@@ -35,7 +35,7 @@ use crate::drag::DragDetector;
 use crate::drag_os::{DragProbe, PxRect};
 use crate::error::{FilesError, Result};
 
-/// Las rutas de CF_HDROP de `data`, o vacío si no trae archivos.
+/// The CF_HDROP paths of `data`, or empty if it carries no files.
 fn hdrop_paths(data: &IDataObject) -> Vec<PathBuf> {
     use std::os::windows::ffi::OsStringExt;
     let fmt = FORMATETC {
@@ -45,13 +45,13 @@ fn hdrop_paths(data: &IDataObject) -> Vec<PathBuf> {
         lindex: -1,
         tymed: TYMED_HGLOBAL.0 as u32,
     };
-    // SAFETY: `fmt` es válido; el medio que devuelve se libera con `ReleaseStgMedium`.
+    // SAFETY: `fmt` is valid; the medium it returns is freed with `ReleaseStgMedium`.
     let Ok(mut medium) = (unsafe { data.GetData(&fmt) }) else {
         return Vec::new();
     };
     let mut out = Vec::new();
-    // SAFETY: con `TYMED_HGLOBAL` la unión trae un HGLOBAL con un DROPFILES; se bloquea
-    // mientras se lee y se desbloquea antes de liberar el medio.
+    // SAFETY: with `TYMED_HGLOBAL` the union carries an HGLOBAL with a DROPFILES; it is locked
+    // while being read and unlocked before freeing the medium.
     unsafe {
         let hglobal = medium.u.hGlobal;
         if !GlobalLock(hglobal).is_null() {
@@ -70,7 +70,7 @@ fn hdrop_paths(data: &IDataObject) -> Vec<PathBuf> {
     out
 }
 
-/// `IDropTarget` que solo observa: anota los archivos que entran y no acepta nada.
+/// `IDropTarget` that only observes: records the files that enter and accepts nothing.
 #[implement(IDropTarget)]
 struct Target {
     probe: DragProbe,
@@ -87,7 +87,7 @@ impl IDropTarget_Impl for Target_Impl {
         if let Some(d) = data.as_ref() {
             self.probe.enter(hdrop_paths(d));
         }
-        // SAFETY: OLE pasa un puntero válido para escribir el efecto.
+        // SAFETY: OLE passes a valid pointer to write the effect.
         unsafe { *effect = DROPEFFECT_NONE };
         Ok(())
     }
@@ -98,7 +98,7 @@ impl IDropTarget_Impl for Target_Impl {
         _pt: &POINTL,
         effect: *mut DROPEFFECT,
     ) -> WinResult<()> {
-        // SAFETY: OLE pasa un puntero válido para escribir el efecto.
+        // SAFETY: OLE passes a valid pointer to write the effect.
         unsafe { *effect = DROPEFFECT_NONE };
         Ok(())
     }
@@ -116,7 +116,7 @@ impl IDropTarget_Impl for Target_Impl {
         effect: *mut DROPEFFECT,
     ) -> WinResult<()> {
         self.probe.leave();
-        // SAFETY: OLE pasa un puntero válido para escribir el efecto.
+        // SAFETY: OLE passes a valid pointer to write the effect.
         unsafe { *effect = DROPEFFECT_NONE };
         Ok(())
     }
@@ -125,25 +125,25 @@ impl IDropTarget_Impl for Target_Impl {
 extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match msg {
         WM_CLOSE => {
-            // SAFETY: `hwnd` es la ventana de este hilo.
+            // SAFETY: `hwnd` is this thread's window.
             let _ = unsafe { DestroyWindow(hwnd) };
             LRESULT(0)
         }
         WM_DESTROY => {
-            // SAFETY: se desregistra el destino de esta ventana y se termina el bucle.
+            // SAFETY: the target of this window is unregistered and the loop ends.
             unsafe {
                 let _ = RevokeDragDrop(hwnd);
                 PostQuitMessage(0);
             }
             LRESULT(0)
         }
-        // SAFETY: reenvío de los mismos argumentos que recibió el procedimiento.
+        // SAFETY: forwarding of the same arguments the procedure received.
         _ => unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) },
     }
 }
 
-/// Crea la ventana y registra el destino; devuelve el HWND como entero para pasarlo
-/// entre hilos.
+/// Creates the window and registers the target; returns the HWND as an integer to pass it
+/// between threads.
 fn create_window(probe: &DragProbe) -> WinResult<isize> {
     let class = w!("TandemDragEdge");
     let wc = WNDCLASSW {
@@ -151,10 +151,10 @@ fn create_window(probe: &DragProbe) -> WinResult<isize> {
         lpszClassName: class,
         ..Default::default()
     };
-    // SAFETY: `wc` es válido; registrar dos veces la clase solo devuelve 0 y se ignora.
+    // SAFETY: `wc` is valid; registering the class twice only returns 0 and is ignored.
     unsafe { RegisterClassW(&wc) };
-    // SAFETY: clase registrada arriba; sin padre ni menú. WS_EX_NOACTIVATE y TOOLWINDOW
-    // evitan robar el foco y salir en la barra de tareas.
+    // SAFETY: class registered above; no parent or menu. WS_EX_NOACTIVATE and TOOLWINDOW
+    // avoid stealing focus and appearing in the taskbar.
     let hwnd = unsafe {
         CreateWindowExW(
             WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_LAYERED,
@@ -171,21 +171,21 @@ fn create_window(probe: &DragProbe) -> WinResult<isize> {
             None,
         )?
     };
-    // Alfa 1/255: invisible a la vista pero que sigue recibiendo el arrastre (con 0 la
-    // prueba de impacto la puede atravesar).
-    // SAFETY: `hwnd` recién creada en este hilo.
+    // Alpha 1/255: invisible to the eye but still receives the drag (with 0 the
+    // hit test can pass through it).
+    // SAFETY: `hwnd` just created on this thread.
     unsafe { SetLayeredWindowAttributes(hwnd, Default::default(), 1, LWA_ALPHA)? };
     let target: IDropTarget = Target {
         probe: probe.clone(),
     }
     .into();
-    // SAFETY: `hwnd` es de este hilo y OLE está iniciado en él.
+    // SAFETY: `hwnd` belongs to this thread and OLE is initialized on it.
     unsafe { RegisterDragDrop(hwnd, &target)? };
     Ok(hwnd.0 as isize)
 }
 
 fn thread_main(probe: &DragProbe, ready: &mpsc::Sender<WinResult<isize>>) {
-    // SAFETY: OLE (apartamento) en este hilo; se cierra al salir del bucle.
+    // SAFETY: OLE (apartment) on this thread; closed on leaving the loop.
     if let Err(e) = unsafe { OleInitialize(None) } {
         let _ = ready.send(Err(e));
         return;
@@ -194,9 +194,9 @@ fn thread_main(probe: &DragProbe, ready: &mpsc::Sender<WinResult<isize>>) {
         Ok(h) => {
             let _ = ready.send(Ok(h));
             let mut msg = MSG::default();
-            // SAFETY: bucle estándar; `GetMessageW` devuelve 0 con WM_QUIT y -1 si falla.
+            // SAFETY: standard loop; `GetMessageW` returns 0 with WM_QUIT and -1 if it fails.
             while unsafe { GetMessageW(&mut msg, None, 0, 0) }.0 > 0 {
-                // SAFETY: `msg` lo llenó `GetMessageW`.
+                // SAFETY: `msg` was filled by `GetMessageW`.
                 unsafe {
                     let _ = TranslateMessage(&msg);
                     DispatchMessageW(&msg);
@@ -207,7 +207,7 @@ fn thread_main(probe: &DragProbe, ready: &mpsc::Sender<WinResult<isize>>) {
             let _ = ready.send(Err(e));
         }
     }
-    // SAFETY: empareja el `OleInitialize` de arriba.
+    // SAFETY: pairs with the `OleInitialize` above.
     unsafe { OleUninitialize() };
 }
 
@@ -215,7 +215,7 @@ fn failed(e: &windows::core::Error) -> FilesError {
     FilesError::io(Path::new(""), std::io::Error::other(e.to_string()))
 }
 
-/// La ventana destino en el borde de cruce. Al soltarla se cierra la ventana y el hilo.
+/// The target window on the crossing edge. Dropping it closes the window and the thread.
 pub struct WindowsDropWatcher {
     probe: DragProbe,
     hwnd: AtomicIsize,
@@ -223,7 +223,7 @@ pub struct WindowsDropWatcher {
 }
 
 impl WindowsDropWatcher {
-    /// Arranca el hilo con la ventana (oculta hasta [`Self::set_strip`]).
+    /// Starts the thread with the window (hidden until [`Self::set_strip`]).
     pub fn new() -> Result<Self> {
         let probe = DragProbe::default();
         let (tx, rx) = mpsc::channel();
@@ -247,11 +247,11 @@ impl WindowsDropWatcher {
         HWND(self.hwnd.load(Ordering::Relaxed) as *mut _)
     }
 
-    /// Coloca la franja en `rect` (píxeles de pantalla) o la oculta con `None`.
+    /// Places the strip at `rect` (screen pixels) or hides it with `None`.
     pub fn set_strip(&self, rect: Option<PxRect>) {
         let hwnd = self.hwnd();
-        // SAFETY: `hwnd` vive hasta el `Drop`; el sistema despacha estas llamadas al hilo
-        // dueño de la ventana.
+        // SAFETY: `hwnd` lives until `Drop`; the system dispatches these calls to the thread
+        // that owns the window.
         unsafe {
             match rect {
                 Some((x, y, w, h)) => {
@@ -282,7 +282,7 @@ impl DragDetector for WindowsDropWatcher {
 
 impl Drop for WindowsDropWatcher {
     fn drop(&mut self) {
-        // SAFETY: pide cerrar la ventana de nuestro hilo, que termina su bucle.
+        // SAFETY: asks to close the window of our thread, which ends its loop.
         unsafe {
             let _ = PostMessageW(Some(self.hwnd()), WM_CLOSE, WPARAM(0), LPARAM(0));
         }

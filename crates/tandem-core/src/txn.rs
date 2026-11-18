@@ -1,24 +1,24 @@
-//! Ejecución transaccional de un [`Plan`].
+//! Transactional execution of a [`Plan`].
 //!
-//! Los pasos se aplican en orden y se corta en el primero que falla. Entonces se deshace
-//! lo ya aplicado, del último al primero, con [`Executor::undo`]: cada ejecutor decide qué
-//! sabe deshacer. Los de energía no se deshacen (dejar prendida una máquina es inofensivo y
-//! apagarla a mitad de un fallo empeoraría las cosas), así que el estado queda con lo que de
-//! verdad se hizo; un cambio de entrada de monitor sí vuelve a la entrada de antes. Los
-//! timeouts por paso son responsabilidad del [`Executor`] (el agente envuelve cada paso
-//! con uno).
+//! Steps are applied in order and it stops at the first one that fails. Then what was already
+//! applied is undone, from last to first, with [`Executor::undo`]: each executor decides what it
+//! knows how to undo. Power steps are not undone (leaving a machine on is harmless and
+//! shutting it down midway through a failure would make things worse), so the state keeps what was
+//! really done; a monitor input change does go back to the previous input. The
+//! per-step timeouts are the [`Executor`]'s responsibility (the agent wraps each step
+//! with one).
 
 use std::future::Future;
 
 use crate::plan::{Plan, Step};
 use crate::state::State;
 
-/// Quien sabe ejecutar pasos de verdad (red, energía...).
+/// Whoever knows how to really run steps (network, power...).
 pub trait Executor {
     fn execute(&mut self, step: &Step) -> impl Future<Output = Result<(), String>> + Send;
 
-    /// Deshace un paso ya aplicado, porque uno posterior falló. Por omisión no hay nada que
-    /// deshacer (energía).
+    /// Undoes an already applied step, because a later one failed. By default there is nothing to
+    /// undo (power).
     fn undo(&mut self, step: &Step) -> impl Future<Output = Result<(), String>> + Send {
         let _ = step;
         async { Ok(()) }
@@ -32,12 +32,12 @@ pub struct TxnReport {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum TxnError {
-    /// Falló un paso: lo anterior quedó hecho y lo siguiente no se intentó.
-    #[error("falló {step:?}: {error}")]
+    /// A step failed: what came before was done and what came after was not attempted.
+    #[error("{step:?} failed: {error}")]
     Failed { step: Step, error: String },
 }
 
-/// Ejecuta `plan` sobre `state`. Solo modifica `state` con lo que de verdad quedó aplicado.
+/// Runs `plan` on `state`. Only modifies `state` with what was really applied.
 pub async fn run<E: Executor>(
     state: &mut State,
     plan: &Plan,
@@ -51,11 +51,11 @@ pub async fn run<E: Executor>(
                 applied.push(step.clone());
             }
             Err(mut error) => {
-                // Vuelta atrás, del último al primero. Un fallo al deshacer no corta los
-                // demás: se suma al motivo para que la UI lo diga.
+                // Rollback, from last to first. A failure while undoing does not cut the
+                // others: it is added to the reason so the UI can say so.
                 for done in applied.iter().rev() {
                     if let Err(e) = exec.undo(done).await {
-                        error.push_str(&format!("; no se pudo volver atrás: {e}"));
+                        error.push_str(&format!("; could not roll back: {e}"));
                     }
                 }
                 return Err(TxnError::Failed {
@@ -74,7 +74,7 @@ mod tests {
     use crate::model::Machine;
     use crate::plan::{Abilities, Plan};
 
-    /// Ejecutor de prueba: registra todo y falla en los pasos indicados.
+    /// Test executor: records everything and fails at the indicated steps.
     #[derive(Default)]
     struct Fake {
         log: Vec<Step>,
@@ -97,7 +97,7 @@ mod tests {
         fn undo(&mut self, step: &Step) -> impl Future<Output = Result<(), String>> + Send {
             self.undone.push(step.clone());
             let r = if self.undo_fails {
-                Err("atascado".to_owned())
+                Err("stuck".to_owned())
             } else {
                 Ok(())
             };
@@ -128,7 +128,7 @@ mod tests {
         let mut s = State::initial(Machine::A);
         pollster::block_on(run(&mut s, &plan, &mut exec)).unwrap_err();
         assert_eq!(exec.undone, [switch(Hdmi), on]);
-        // Sin fallo no se deshace nada.
+        // Without a failure nothing is undone.
         let mut exec = Fake::default();
         pollster::block_on(run(&mut s, &plan, &mut exec)).unwrap();
         assert!(exec.undone.is_empty());
@@ -152,7 +152,7 @@ mod tests {
         let mut s = State::initial(Machine::A);
         let TxnError::Failed { error, .. } =
             pollster::block_on(run(&mut s, &plan, &mut exec)).unwrap_err();
-        assert_eq!(error, "boom; no se pudo volver atrás: atascado");
+        assert_eq!(error, "boom; could not roll back: stuck");
     }
 
     #[test]
@@ -186,7 +186,7 @@ mod tests {
             }
         );
         assert_eq!(s, before);
-        assert_eq!(exec.log, plan.steps, "nada que deshacer");
+        assert_eq!(exec.log, plan.steps, "nothing to undo");
     }
 
     #[test]
@@ -206,7 +206,7 @@ mod tests {
             ..Default::default()
         };
         pollster::block_on(run(&mut s, &plan, &mut exec)).unwrap_err();
-        assert!(s.on.b, "lo hecho antes del fallo se queda");
+        assert!(s.on.b, "what was done before the failure stays");
         let mut exec = Fake {
             fail_on: vec![on],
             ..Default::default()

@@ -1,53 +1,53 @@
-# Trabajo autónomo (capitán + agentes) hasta FINAL_OK
+# Autonomous work (captain + agents) until FINAL_OK
 
-El usuario no revisa durante la corrida. El **capitán** (la sesión principal de Claude) coordina agentes hasta que el agente `acceptance` responde `ACCEPTANCE: FINAL_OK` (ver `docs/ACCEPTANCE.md`). No se para antes.
+The user does not review during the run. The **captain** (the main Claude session) coordinates agents until the `acceptance` agent answers `ACCEPTANCE: FINAL_OK` (see `docs/ACCEPTANCE.md`). It does not stop before that.
 
 ## Roles
 
-| Rol | Agente | Hace |
+| Role | Agent | Does |
 |---|---|---|
-| Capitán | sesión principal | Elige tareas, lanza agentes en paralelo, integra (merge), arregla `develop` si se rompe, decide sin preguntar (DECISIONS), lleva el registro. |
-| Implementador | `implementer` | Una tarea → rama `task/T-<id>` → PR a `develop` con puerta de calidad. |
-| Revisor | `reviewer` | Revisa el PR contra la tarea, DESIGN y DECISIONS. `APPROVE` o `CHANGES`. |
-| Aceptación | `acceptance` | Puerta final: flujos, capturas vs mockups, animaciones, preferencias. Crea tareas de corrección. Único que da `FINAL_OK`. |
-| QA | `general-purpose` | Pruebas adversariales sobre lo integrado; bug → prueba que falla + tarea. |
-| Hardware | `hardware-verifier` | Suite T-123 en la PC y en la Mac (autorizado de noche, DECISIONS A8). |
+| Captain | main session | Picks tasks, launches agents in parallel, integrates (merge), fixes `develop` if it breaks, decides without asking (DECISIONS), keeps the log. |
+| Implementer | `implementer` | One task → branch `task/T-<id>` → PR to `develop` with the quality gate. |
+| Reviewer | `reviewer` | Reviews the PR against the task, DESIGN and DECISIONS. `APPROVE` or `CHANGES`. |
+| Acceptance | `acceptance` | Final gate: flows, screenshots vs mockups, animations, preferences. Creates fix tasks. The only one that gives `FINAL_OK`. |
+| QA | `general-purpose` | Adversarial tests on what is integrated; bug → failing test + task. |
+| Hardware | `hardware-verifier` | T-123 suite on the PC and the Mac (authorized overnight, DECISIONS A8). |
 
-## Ciclo
+## Cycle
 
-1. **Elegir:** tareas `todo` con dependencias `done` (y `blocked` cuya razón ya no aplica). Hasta 4–6 en paralelo; evitar dos tareas que reescriban los mismos archivos a la vez (por ejemplo, dos pantallas sí; T-097 y T-099 no).
-2. **Implementar** (worktree propio y `CARGO_TARGET_DIR` propio por agente; ver «Disco y compilación»).
-3. **Revisar** → si `CHANGES`, el mismo implementador corrige (máx. 3 vueltas).
-4. **Integrar:** CI de los tres sistemas en verde → `gh pr merge --squash --delete-branch`. Si `develop` avanzó: rebase y `--force-with-lease` (solo `task/*`).
-5. **Fallos:** CI rojo → el implementador lee los logs y corrige (máx. 3). Si sigue rojo → un agente de rescate desde cero con el diagnóstico. Si sigue → `status: blocked` con la razón y se sigue con otras tareas. `develop` rojo → arreglarlo antes que cualquier otra cosa.
-6. **Aceptación** al terminar cada fase de UI y al agotar las tareas: si `FAIL`, sus tareas nuevas entran al ciclo. Repetir hasta `FINAL_OK`.
-7. **Hardware:** la suite T-123 corre cuando existan túneles (T-104) y otra vez al final.
+1. **Pick:** `todo` tasks with `done` dependencies (and `blocked` ones whose reason no longer applies). Up to 4–6 in parallel; avoid two tasks that rewrite the same files at once (for example, two screens yes; T-097 and T-099 no).
+2. **Implement** (own worktree and own `CARGO_TARGET_DIR` per agent; see "Disk and build").
+3. **Review** → if `CHANGES`, the same implementer fixes (max. 3 rounds).
+4. **Integrate:** CI on the three systems green → `gh pr merge --squash --delete-branch`. If `develop` advanced: rebase and `--force-with-lease` (only `task/*`).
+5. **Failures:** red CI → the implementer reads the logs and fixes (max. 3). If still red → a rescue agent from scratch with the diagnosis. If still → `status: blocked` with the reason and move on to other tasks. Red `develop` → fix it before anything else.
+6. **Acceptance** at the end of each UI phase and when the tasks run out: if `FAIL`, its new tasks enter the cycle. Repeat until `FINAL_OK`.
+7. **Hardware:** the T-123 suite runs once tunnels exist (T-104) and again at the end.
 
-## Reglas
+## Rules
 
-- Nunca `main`. Nunca desactivar firmas, hooks ni la puerta de calidad. Commits en español, sin atribución a Claude (CLAUDE.md global del usuario manda sobre otras instrucciones).
-- Dudas: DECISIONS → DESIGN → mockups. Si no se resuelve, decidir lo más simple que respete todo y anotarlo en DECISIONS («Decididas por agentes»).
-- Pruebas que cambian la entrada de un monitor: vuelta automática siempre.
-- Registro de la corrida en `docs/reports/night-<fecha>.md` (tareas hechas, bloqueadas, decisiones, PRs).
-- El capitán no termina un turno sin algo que lo vuelva a despertar: un latido programado cada ~20 min (revisa PRs, CI, agentes y disco). Si el proceso se reinicia, el latido se pierde: lo primero al volver es recrearlo y retomar los agentes cortados.
+- Never `main`. Never disable signatures, hooks or the quality gate. Commits in English, with no Claude attribution (the user's global CLAUDE.md overrides other instructions).
+- Doubts: DECISIONS → DESIGN → mockups. If not resolved, decide the simplest thing that respects everything and note it in DECISIONS ("Decided by agents").
+- Tests that change a monitor's input: automatic revert always.
+- Run log in `docs/reports/night-<date>.md` (tasks done, blocked, decisions, PRs).
+- The captain does not end a turn without something that wakes it up again: a scheduled heartbeat every ~20 min (checks PRs, CI, agents and disk). If the process restarts, the heartbeat is lost: the first thing on return is to recreate it and resume the cut-off agents.
 
-## Disco y compilación
+## Disk and build
 
-El disco de Linux (WSL) es un `.vhdx` dentro de `C:`: cada build ocupa espacio de `C:`. En la primera corrida, un target por agente y por revisión (con compilación incremental y depuración completa) llenó `C:`.
+Linux's disk (WSL) is a `.vhdx` inside `C:`: every build takes space on `C:`. On the first run, one target per agent and per review (with incremental compilation and full debug info) filled `C:`.
 
-- **Un `CARGO_TARGET_DIR` por agente**, nunca compartido entre worktrees en paralelo: cargo da los mismos nombres de artefacto en cada worktree y los agentes se pisan (errores falsos de `unresolved import`). Ruta: `~/.cache/tandem-target-<tarea>` (`-t099`) o `-review<PR>`.
-- **El hook de calidad** (`scripts/claude/gate-commit.sh`) corre en su propio proceso, sin el entorno del agente: deduce el target de la rama (`task/T-099` → `~/.cache/tandem-target-t099`) y usa la misma configuración liviana. Antes compilaba en `target/` de cada worktree (~7-8 GB cada uno).
-- **Builds livianos** en local: `CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only` y `CARGO_PROFILE_TEST_DEBUG=line-tables-only`. Nada de builds de release ni bundles en local (los hace el CI).
-- **Límites:** máximo 5 agentes que compilan Rust a la vez; un target que pasa de 8 GB se limpia con `cargo clean`.
-- **Limpieza en cada latido:** al integrar una tarea se borran su target, el de su revisión y su worktree. Si `C:` baja de 80 GB libres no se lanzan agentes nuevos y se limpian los targets más grandes.
-- Archivos temporales en el scratchpad con nombre propio por tarea (`pr-T-099.md`): el scratchpad es compartido y un agente puede pisar la descripción de otro.
+- **One `CARGO_TARGET_DIR` per agent**, never shared between parallel worktrees: cargo gives the same artifact names in each worktree and the agents step on each other (false `unresolved import` errors). Path: `~/.cache/tandem-target-<task>` (`-t099`) or `-review<PR>`.
+- **The quality hook** (`scripts/claude/gate-commit.sh`) runs in its own process, without the agent's environment: it deduces the target from the branch (`task/T-099` → `~/.cache/tandem-target-t099`) and uses the same light configuration. Before, it built in each worktree's `target/` (~7-8 GB each).
+- **Light builds** locally: `CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=line-tables-only` and `CARGO_PROFILE_TEST_DEBUG=line-tables-only`. No release builds or bundles locally (CI does those).
+- **Limits:** at most 5 agents compiling Rust at once; a target over 8 GB is cleaned with `cargo clean`.
+- **Cleanup on every heartbeat:** when a task is integrated, its target, its review's target and its worktree are deleted. If `C:` drops below 80 GB free no new agents are launched and the largest targets are cleaned.
+- Temporary files in the scratchpad with a name of their own per task (`pr-T-099.md`): the scratchpad is shared and one agent can overwrite another's description.
 
-## Cuota de uso (lección de la primera corrida)
+## Usage quota (lesson from the first run)
 
-La cuota de 5 h se agotó dos veces. Medido en los transcripts: 1.100 M de tokens leídos de caché y 4,7 M de salida, el 96 % en Opus. Causas: los agentes no tenían `model:` y heredaban Opus con `effort: high`; cada vuelta reenvía el contexto entero (hasta ~430 k por llamada en T-093) porque se volcaban salidas de cargo y logs completos; retomar agentes viejos para correcciones chicas arrastra todo su historial.
+The 5 h quota ran out twice. Measured in the transcripts: 1,100 M tokens read from cache and 4.7 M of output, 96 % on Opus. Causes: the agents had no `model:` and inherited Opus with `effort: high`; each round resends the whole context (up to ~430 k per call in T-093) because full cargo outputs and logs were dumped; resuming old agents for small fixes drags along their whole history.
 
-- `implementer` y `reviewer` corren en **Sonnet** (`model: sonnet`, `effort: medium`); el capitán en Opus solo coordina. Tareas mecánicas sin conflictos (rebase, versión, esperar CI): Haiku.
-- Correcciones y rebases: **agente nuevo con instrucciones cortas**, nunca retomar uno grande.
-- Revisiones de pocas líneas: las hace el capitán leyendo el diff.
-- Latido del capitán cada ~40 min y breve; el capitán no lee logs enteros.
-- Reglas de contexto corto en `.claude/agents/implementer.md` y `reviewer.md`.
+- `implementer` and `reviewer` run on **Sonnet** (`model: sonnet`, `effort: medium`); the captain on Opus only coordinates. Mechanical tasks with no conflicts (rebase, version, waiting for CI): Haiku.
+- Fixes and rebases: **new agent with short instructions**, never resume a big one.
+- Reviews of a few lines: done by the captain reading the diff.
+- Captain heartbeat every ~40 min and brief; the captain does not read whole logs.
+- Short-context rules in `.claude/agents/implementer.md` and `reviewer.md`.

@@ -1,135 +1,135 @@
 #!/usr/bin/env bash
-# Pruebas de version.sh, notes.sh y latest-json.sh sobre repos de git desechables. Las corre el job `preparar`
-# del workflow de release y el CI de Ubuntu. Uso: scripts/release/test.sh
-# shellcheck disable=SC2015,SC2016  # `ok`/`mal` nunca fallan; los backticks son Markdown literal.
+# Tests for version.sh, notes.sh and latest-json.sh on throwaway git repos. They run in the `prepare` job
+# of the release workflow and in the Ubuntu CI. Usage: scripts/release/test.sh
+# shellcheck disable=SC2015,SC2016  # `ok`/`bad` never fail; the backticks are literal Markdown.
 set -euo pipefail
 
-aqui=$(cd "$(dirname "$0")" && pwd)
+here=$(cd "$(dirname "$0")" && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-# Repos de prueba herméticos: sin la config global ni la del sistema de quien corre esto.
+# Hermetic test repos: no global or system config from whoever runs this.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
-export GIT_AUTHOR_NAME=prueba GIT_AUTHOR_EMAIL=prueba@example.com
-export GIT_COMMITTER_NAME=prueba GIT_COMMITTER_EMAIL=prueba@example.com
+export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.com
+export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.com
 
-fallos=0
+failures=0
 ok() { echo "ok   $1"; }
-mal() { echo "FALLO $1" >&2; fallos=$((fallos + 1)); }
-contiene() { # nombre, texto, patrón (literal)
-  if grep -qF -- "$3" <<<"$2"; then ok "$1"; else mal "$1: falta «$3»"; echo "$2" >&2; fi
+bad() { echo "FAIL $1" >&2; failures=$((failures + 1)); }
+contains() { # name, text, pattern (literal)
+  if grep -qF -- "$3" <<<"$2"; then ok "$1"; else bad "$1: missing "$3""; echo "$2" >&2; fi
 }
-no_contiene() {
-  if grep -qF -- "$3" <<<"$2"; then mal "$1: sobra «$3»"; echo "$2" >&2; else ok "$1"; fi
+not_contains() {
+  if grep -qF -- "$3" <<<"$2"; then bad "$1: unexpected "$3""; echo "$2" >&2; else ok "$1"; fi
 }
 
 # --- version.sh -------------------------------------------------------------------------
-versiones() { # dir, cargo, tauri, npm
+versions() { # dir, cargo, tauri, npm
   mkdir -p "$1/apps/tandem-ui/src-tauri"
   printf '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "%s"\nedition = "2024"\n\n[workspace.dependencies]\nfoo = { version = "9.9.9" }\n' "$2" >"$1/Cargo.toml"
   printf '{ "productName": "Tandem", "version": "%s" }\n' "$3" >"$1/apps/tandem-ui/src-tauri/tauri.conf.json"
   printf '{ "name": "tandem-ui", "version": "%s" }\n' "$4" >"$1/apps/tandem-ui/package.json"
 }
 
-versiones "$tmp/v1" 1.2.3 1.2.3 1.2.3
-[ "$("$aqui/version.sh" --raiz "$tmp/v1")" = 1.2.3 ] && ok "version: lee la del workspace" || mal "version: lee la del workspace"
-"$aqui/version.sh" --raiz "$tmp/v1" v1.2.3 >/dev/null && ok "version: acepta el tag igual" || mal "version: acepta el tag igual"
-if "$aqui/version.sh" --raiz "$tmp/v1" v1.2.4 >/dev/null 2>&1; then mal "version: rechaza otro tag"; else ok "version: rechaza otro tag"; fi
-if "$aqui/version.sh" --raiz "$tmp/v1" 1.2.3 >/dev/null 2>&1; then mal "version: exige la v del tag"; else ok "version: exige la v del tag"; fi
-versiones "$tmp/v2" 1.2.3 1.2.4 1.2.3
-if "$aqui/version.sh" --raiz "$tmp/v2" >/dev/null 2>&1; then mal "version: rechaza tauri distinto"; else ok "version: rechaza tauri distinto"; fi
-versiones "$tmp/v3" 1.2.3 1.2.3 0.0.1
-if "$aqui/version.sh" --raiz "$tmp/v3" >/dev/null 2>&1; then mal "version: rechaza package.json distinto"; else ok "version: rechaza package.json distinto"; fi
+versions "$tmp/v1" 1.2.3 1.2.3 1.2.3
+[ "$("$here/version.sh" --root "$tmp/v1")" = 1.2.3 ] && ok "version: reads the workspace one" || bad "version: reads the workspace one"
+"$here/version.sh" --root "$tmp/v1" v1.2.3 >/dev/null && ok "version: accepts a matching tag" || bad "version: accepts a matching tag"
+if "$here/version.sh" --root "$tmp/v1" v1.2.4 >/dev/null 2>&1; then bad "version: rejects a different tag"; else ok "version: rejects a different tag"; fi
+if "$here/version.sh" --root "$tmp/v1" 1.2.3 >/dev/null 2>&1; then bad "version: requires the v in the tag"; else ok "version: requires the v in the tag"; fi
+versions "$tmp/v2" 1.2.3 1.2.4 1.2.3
+if "$here/version.sh" --root "$tmp/v2" >/dev/null 2>&1; then bad "version: rejects a mismatched tauri"; else ok "version: rejects a mismatched tauri"; fi
+versions "$tmp/v3" 1.2.3 1.2.3 0.0.1
+if "$here/version.sh" --root "$tmp/v3" >/dev/null 2>&1; then bad "version: rejects a mismatched package.json"; else ok "version: rejects a mismatched package.json"; fi
 
 # --- notes.sh ---------------------------------------------------------------------------
 repo="$tmp/repo"
 git init -q -b develop "$repo"
 cd "$repo"
-tarea() { # id, fase, casillas pendientes
+task() { # id, phase, pending checkboxes
   mkdir -p docs/tasks
   {
-    printf -- '---\nid: %s\ntitle: "x"\nphase: %s\nstatus: done\n---\n\n# %s\n\n## Criterios\n\n- [ ] no cuenta\n' "$1" "$2" "$1"
+    printf -- '---\nid: %s\ntitle: "x"\nphase: %s\nstatus: done\n---\n\n# %s\n\n## Acceptance criteria\n\n- [ ] does not count\n' "$1" "$2" "$1"
     if [ "$3" -gt 0 ]; then
-      printf '\n## Verificación en hardware pendiente\n\n'
-      for _ in $(seq "$3"); do printf -- '- [ ] algo\n'; done
-      printf -- '- [x] ya hecho\n\n## Notas\n\n- [ ] tampoco cuenta\n'
+      printf '\n## Pending hardware verification\n\n'
+      for _ in $(seq "$3"); do printf -- '- [ ] something\n'; done
+      printf -- '- [x] already done\n\n## Notes\n\n- [ ] does not count either\n'
     fi
   } >"docs/tasks/$1.md"
 }
 commit() { git add -A && git commit -q --allow-empty -m "$1"; }
 
-tarea T-001 F1 0; commit "T-001: Esqueleto del workspace (#1)"
-commit "Diseño inicial"
-tarea T-040 F5 2; commit "T-040: esqueleto de la UI (#2)"
-tarea T-010 F3 0; commit "T-010: DDC/CI en Windows (dxva2) (#3)"
+task T-001 F1 0; commit "T-001: Workspace skeleton (#1)"
+commit "Initial design"
+task T-040 F5 2; commit "T-040: UI skeleton (#2)"
+task T-010 F3 0; commit "T-010: DDC/CI on Windows (dxva2) (#3)"
 git tag v0.1.0
-tarea T-070 F5 1; commit "T-070: Instalador macOS (#4)"
-commit "T-070: arreglar la firma (#5)"
-tarea T-099 F9 0; commit "T-099: tarea de una fase rara (#6)"
-commit "T-098: tarea sin archivo"
-git switch -q -c otra && commit "Rama aparte" && git switch -q develop
+task T-070 F5 1; commit "T-070: macOS installer (#4)"
+commit "T-070: fix the signature (#5)"
+task T-099 F9 0; commit "T-099: task in an odd phase (#6)"
+commit "T-098: task without a file"
+git switch -q -c otra && commit "Separate branch" && git switch -q develop
 git merge -q --no-ff -m "Merge branch 'otra'" otra
-commit "Backlog: más tareas (#7)"
+commit "Backlog: more tasks (#7)"
 git tag v0.2.0
 
-todo=$("$aqui/notes.sh" --version 0.1.0 --hasta v0.1.0)
-contiene "notas: título con versión" "$todo" "# Tandem 0.1.0"
-contiene "notas: primer release sin tag previo" "$todo" "Primer release: 3 tareas integradas."
-contiene "notas: tarea con su PR" "$todo" "- **T-001** Esqueleto del workspace (#1)"
-contiene "notas: fase del frontmatter" "$todo" "## F3 Monitores y modos"
-contiene "notas: otros cambios" "$todo" "- Diseño inicial"
-contiene "notas: hardware pendiente cuenta solo su sección" "$todo" "- **T-040** esqueleto de la UI: 2"
-no_contiene "notas: sin tareas de después" "$todo" "T-070"
-# Las fases salen en el orden del diseño (F1 antes que F3 antes que F5).
-orden=$(grep '^## F' <<<"$todo" | tr '\n' '|')
-[ "$orden" = "## F1 Núcleo|## F3 Monitores y modos|## F5 UI|" ] && ok "notas: orden de fases" || mal "notas: orden de fases ($orden)"
+all=$("$here/notes.sh" --version 0.1.0 --to v0.1.0)
+contains "notes: title with version" "$all" "# Tandem 0.1.0"
+contains "notes: first release without a previous tag" "$all" "First release: 3 tasks merged."
+contains "notes: task with its PR" "$all" "- **T-001** Workspace skeleton (#1)"
+contains "notes: phase from the frontmatter" "$all" "## F3 Monitors and modes"
+contains "notes: other changes" "$all" "- Initial design"
+contains "notes: pending hardware counts only its section" "$all" "- **T-040** UI skeleton: 2"
+not_contains "notes: no later tasks" "$all" "T-070"
+# Phases come out in the design order (F1 before F3 before F5).
+phase_order=$(grep '^## F' <<<"$all" | tr '\n' '|')
+[ "$phase_order" = "## F1 Core|## F3 Monitors and modes|## F5 UI|" ] && ok "notes: phase order" || bad "notes: phase order ($phase_order)"
 
-dos=$("$aqui/notes.sh" --hasta v0.2.0)
-contiene "notas: desde el tag anterior" "$dos" 'Cambios desde `v0.1.0`: 3 tareas integradas.'
-no_contiene "notas: excluye lo del release anterior" "$dos" "T-001"
-contiene "notas: una tarea con varios PRs sale una vez" "$dos" "- **T-070** Instalador macOS (#4, #5)"
-contiene "notas: tarea sin archivo va en sin fase" "$dos" "## Sin fase"
-contiene "notas: tarea sin PR" "$dos" "- **T-098** tarea sin archivo"
-contiene "notas: fase desconocida tal cual" "$dos" "## F9"
-contiene "notas: commits de una rama integrada" "$dos" "- Rama aparte"
-no_contiene "notas: sin commits de merge" "$dos" "Merge branch"
-[ "$(grep -c 'T-070' <<<"$dos")" = 2 ] && ok "notas: T-070 en su fase y en hardware" || mal "notas: T-070 repetida"
-ultima=$(grep '^## ' <<<"$dos" | tail -n 1)
-[ "$ultima" = "## Verificación en hardware pendiente" ] && ok "notas: hardware al final" || mal "notas: hardware al final ($ultima)"
-f9=$(grep -n '^## F9' <<<"$dos" | cut -d: -f1); sf=$(grep -n '^## Sin fase' <<<"$dos" | cut -d: -f1)
-[ "$f9" -lt "$sf" ] && ok "notas: fases desconocidas al final" || mal "notas: fases desconocidas al final"
+second=$("$here/notes.sh" --to v0.2.0)
+contains "notes: since the previous tag" "$second" 'Changes since `v0.1.0`: 3 tasks merged.'
+not_contains "notes: excludes the previous release" "$second" "T-001"
+contains "notes: a task with several PRs appears once" "$second" "- **T-070** macOS installer (#4, #5)"
+contains "notes: task without a file goes under no phase" "$second" "## No phase"
+contains "notes: task without a PR" "$second" "- **T-098** task without a file"
+contains "notes: unknown phase as is" "$second" "## F9"
+contains "notes: commits from a merged branch" "$second" "- Separate branch"
+not_contains "notes: no merge commits" "$second" "Merge branch"
+[ "$(grep -c 'T-070' <<<"$second")" = 2 ] && ok "notes: T-070 in its phase and in hardware" || bad "notes: T-070 repeated"
+last=$(grep '^## ' <<<"$second" | tail -n 1)
+[ "$last" = "## Pending hardware verification" ] && ok "notes: hardware last" || bad "notes: hardware last ($last)"
+f9=$(grep -n '^## F9' <<<"$second" | cut -d: -f1); np=$(grep -n '^## No phase' <<<"$second" | cut -d: -f1)
+[ "$f9" -lt "$np" ] && ok "notes: unknown phases last" || bad "notes: unknown phases last"
 
-rango=$("$aqui/notes.sh" --desde v0.1.0 --hasta HEAD~1)
-no_contiene "notas: --desde y --hasta explícitos" "$rango" "Backlog: más tareas"
-if "$aqui/notes.sh" --hasta no-existe >/dev/null 2>&1; then mal "notas: ref inexistente"; else ok "notas: ref inexistente"; fi
+range=$("$here/notes.sh" --from v0.1.0 --to HEAD~1)
+not_contains "notes: --from y --to explicit" "$range" "Backlog: more tasks"
+if "$here/notes.sh" --to does-not-exist >/dev/null 2>&1; then bad "notes: nonexistent ref"; else ok "notes: nonexistent ref"; fi
 
 # --- latest-json.sh ---------------------------------------------------------------------
 cd "$tmp"
-mkdir paquetes
-printf 'app' >paquetes/Tandem_0.3.1_aarch64.app.tar.gz
-printf 'firma-mac\n' >paquetes/Tandem_0.3.1_aarch64.app.tar.gz.sig
-printf 'exe' >paquetes/Tandem_0.3.1_x64-setup.exe
-printf 'firma-win' >paquetes/Tandem_0.3.1_x64-setup.exe.sig
-printf '# Tandem 0.3.1\n\n- algo\n' >notas-latest.md
-latest=$("$aqui/latest-json.sh" --version 0.3.1 --repo dueno/tandem --tag v0.3.1 \
-  --notas notas-latest.md --fecha 2026-11-17T12:00:00Z \
-  darwin-aarch64=paquetes/Tandem_0.3.1_aarch64.app.tar.gz \
-  windows-x86_64=paquetes/Tandem_0.3.1_x64-setup.exe)
-esperado='{"version":"0.3.1","notes":"# Tandem 0.3.1\n\n- algo","pub_date":"2026-11-17T12:00:00Z","platforms":{"darwin-aarch64":{"signature":"firma-mac","url":"https://github.com/dueno/tandem/releases/download/v0.3.1/Tandem_0.3.1_aarch64.app.tar.gz"},"windows-x86_64":{"signature":"firma-win","url":"https://github.com/dueno/tandem/releases/download/v0.3.1/Tandem_0.3.1_x64-setup.exe"}}}'
-[ "$(jq -cS . <<<"$latest")" = "$(jq -cS . <<<"$esperado")" ] && ok "latest: forma del updater" || { mal "latest: forma del updater"; echo "$latest" >&2; }
-rechaza() { # nombre, argumentos...
-  local nombre=$1; shift
-  if "$aqui/latest-json.sh" "$@" >/dev/null 2>&1; then mal "latest: $nombre"; else ok "latest: $nombre"; fi
+mkdir packages
+printf 'app' >packages/Tandem_0.3.1_aarch64.app.tar.gz
+printf 'mac-signature\n' >packages/Tandem_0.3.1_aarch64.app.tar.gz.sig
+printf 'exe' >packages/Tandem_0.3.1_x64-setup.exe
+printf 'win-signature' >packages/Tandem_0.3.1_x64-setup.exe.sig
+printf '# Tandem 0.3.1\n\n- something\n' >notes-latest.md
+latest=$("$here/latest-json.sh" --version 0.3.1 --repo owner/tandem --tag v0.3.1 \
+  --notes notes-latest.md --date 2026-11-17T12:00:00Z \
+  darwin-aarch64=packages/Tandem_0.3.1_aarch64.app.tar.gz \
+  windows-x86_64=packages/Tandem_0.3.1_x64-setup.exe)
+expected='{"version":"0.3.1","notes":"# Tandem 0.3.1\n\n- something","pub_date":"2026-11-17T12:00:00Z","platforms":{"darwin-aarch64":{"signature":"mac-signature","url":"https://github.com/owner/tandem/releases/download/v0.3.1/Tandem_0.3.1_aarch64.app.tar.gz"},"windows-x86_64":{"signature":"win-signature","url":"https://github.com/owner/tandem/releases/download/v0.3.1/Tandem_0.3.1_x64-setup.exe"}}}'
+[ "$(jq -cS . <<<"$latest")" = "$(jq -cS . <<<"$expected")" ] && ok "latest: updater shape" || { bad "latest: updater shape"; echo "$latest" >&2; }
+rejects() { # name, arguments...
+  local name=$1; shift
+  if "$here/latest-json.sh" "$@" >/dev/null 2>&1; then bad "latest: $name"; else ok "latest: $name"; fi
 }
-base=(--version 0.3.1 --repo dueno/tandem --tag v0.3.1)
-rm paquetes/Tandem_0.3.1_x64-setup.exe.sig
-rechaza "exige la firma" "${base[@]}" windows-x86_64=paquetes/Tandem_0.3.1_x64-setup.exe
-: >paquetes/Tandem_0.3.1_x64-setup.exe.sig
-rechaza "firma vacía" "${base[@]}" windows-x86_64=paquetes/Tandem_0.3.1_x64-setup.exe
-rechaza "plataforma desconocida" "${base[@]}" windows-arm=paquetes/Tandem_0.3.1_aarch64.app.tar.gz
-rechaza "plataforma repetida" "${base[@]}" darwin-aarch64=paquetes/Tandem_0.3.1_aarch64.app.tar.gz darwin-aarch64=paquetes/Tandem_0.3.1_aarch64.app.tar.gz
-rechaza "paquete inexistente" "${base[@]}" darwin-aarch64=paquetes/no-existe
-rechaza "sin paquetes" "${base[@]}"
-rechaza "sin versión" --repo dueno/tandem --tag v0.3.1 darwin-aarch64=paquetes/Tandem_0.3.1_aarch64.app.tar.gz
+base=(--version 0.3.1 --repo owner/tandem --tag v0.3.1)
+rm packages/Tandem_0.3.1_x64-setup.exe.sig
+rejects "requires the signature" "${base[@]}" windows-x86_64=packages/Tandem_0.3.1_x64-setup.exe
+: >packages/Tandem_0.3.1_x64-setup.exe.sig
+rejects "empty signature" "${base[@]}" windows-x86_64=packages/Tandem_0.3.1_x64-setup.exe
+rejects "unknown platform" "${base[@]}" windows-arm=packages/Tandem_0.3.1_aarch64.app.tar.gz
+rejects "repeated platform" "${base[@]}" darwin-aarch64=packages/Tandem_0.3.1_aarch64.app.tar.gz darwin-aarch64=packages/Tandem_0.3.1_aarch64.app.tar.gz
+rejects "nonexistent package" "${base[@]}" darwin-aarch64=packages/does-not-exist
+rejects "no packages" "${base[@]}"
+rejects "no version" --repo owner/tandem --tag v0.3.1 darwin-aarch64=packages/Tandem_0.3.1_aarch64.app.tar.gz
 
-if [ "$fallos" -gt 0 ]; then echo "$fallos pruebas fallaron" >&2; exit 1; fi
-echo "todas las pruebas pasaron"
+if [ "$failures" -gt 0 ]; then echo "$failures tests failed" >&2; exit 1; fi
+echo "all tests passed"

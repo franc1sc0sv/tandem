@@ -1,13 +1,13 @@
-//! De un `exec` (programa, argumentos, entorno elegido) a la orden concreta que se lanza.
+//! From an `exec` (program, arguments, chosen environment) to the concrete command that is launched.
 //!
-//! Portable y sin efectos: se prueba en Linux para los dos sistemas. Con un shell, `cmd` es
-//! la línea que interpreta ese shell y cada argumento se le agrega citado como un literal.
+//! Portable and side-effect free: tested on Linux for both systems. With a shell, `cmd` is
+//! the line that shell interprets and each argument is appended to it quoted as a literal.
 
 use tandem_proto::ExecSpec;
 
 use super::secrets;
 
-/// El sistema de la destino: cambia qué shells hay y cómo se citan los argumentos.
+/// The destination's system: changes which shells exist and how arguments are quoted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Os {
     Windows,
@@ -20,42 +20,42 @@ impl Os {
     }
 }
 
-/// La orden concreta que lanza un [`super::Spawner`].
+/// The concrete command that a [`super::Spawner`] launches.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Launch {
     pub program: String,
     pub args: Vec<String>,
-    /// Se agrega tal cual al final de la línea de órdenes de Windows (`cmd /s /c "…"`, que
-    /// no sigue las reglas de citado de los demás programas). En Unix no se usa.
+    /// Appended as is to the end of the Windows command line (`cmd /s /c "…"`, which
+    /// does not follow the quoting rules of other programs). Not used on Unix.
     pub raw: Option<String>,
-    /// Carpeta de trabajo del proceso; `None` deja la del agente.
+    /// Working folder of the process; `None` leaves the agent's.
     pub cwd: Option<String>,
-    /// Variables que se agregan al proceso.
+    /// Variables added to the process.
     pub env: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum LaunchError {
-    #[error("falta el programa a ejecutar")]
+    #[error("the program to run is missing")]
     NoCommand,
-    #[error("no hay ningún entorno «{0}» que sepa lanzar")]
+    #[error("there is no environment \"{0}\" that it knows how to launch")]
     UnknownShell(String),
-    #[error("el entorno «{0}» solo existe en Windows")]
+    #[error("the environment \"{0}\" only exists on Windows")]
     WindowsOnly(String),
-    #[error("para Docker hay que decir el contenedor: «docker:<contenedor>»")]
+    #[error("for Docker the container has to be named: \"docker:<container>\"")]
     NoContainer,
-    #[error("nombre de variable inválido: «{0}»")]
+    #[error("invalid variable name: \"{0}\"")]
     BadVariable(String),
     #[error(
-        "la variable «{0}» parece un secreto: la otra máquina no recibe credenciales; \
-         hace falta permiso explícito en esta llamada (allow_secret_env)"
+        "the variable \"{0}\" looks like a secret: the other machine does not receive credentials; \
+         explicit permission is needed in this call (allow_secret_env)"
     )]
     SecretEnv(String),
-    #[error("la variable «{0}» es un agente de credenciales y nunca se reenvía")]
+    #[error("the variable \"{0}\" is a credentials agent and is never forwarded")]
     AgentEnv(String),
 }
 
-/// Lo que se muestra del proceso: el programa y sus argumentos (citados si hace falta).
+/// What is shown of the process: the program and its arguments (quoted if needed).
 pub fn display(spec: &ExecSpec) -> String {
     let mut line = spec.cmd.trim().to_owned();
     for a in &spec.args {
@@ -100,8 +100,8 @@ pub fn plan(spec: &ExecSpec, os: Os) -> Result<Launch, LaunchError> {
         line
     };
     match shell {
-        // Shell de login: el agente arranca con el PATH mínimo del sistema (launchd, la
-        // tarea programada) y las herramientas del usuario (cargo, uv) están en su perfil.
+        // Login shell: the agent starts with the system's minimal PATH (launchd, the
+        // scheduled task) and the user's tools (cargo, uv) are in their profile.
         "zsh" | "bash" | "fish" | "sh" => Ok(Launch {
             program: shell.to_owned(),
             args: vec!["-l".into(), "-c".into(), posix_line()],
@@ -113,8 +113,8 @@ pub fn plan(spec: &ExecSpec, os: Os) -> Result<Launch, LaunchError> {
                 line.push(' ');
                 line.push_str(&pwsh_quote(a));
             }
-            // `-EncodedCommand` (UTF-16LE en base64): la línea llega entera, sin pasar por
-            // las reglas de citado de la línea de órdenes de Windows.
+            // `-EncodedCommand` (UTF-16LE in base64): the line arrives whole, without going through
+            // the quoting rules of the Windows command line.
             Ok(Launch {
                 program: shell.to_owned(),
                 args: vec![
@@ -136,8 +136,8 @@ pub fn plan(spec: &ExecSpec, os: Os) -> Result<Launch, LaunchError> {
                 line.push(' ');
                 line.push_str(&cmd_quote(a));
             }
-            // Con `/s`, cmd quita la primera y la última comilla y ejecuta lo de adentro
-            // tal cual.
+            // With `/s`, cmd strips the first and last quote and runs what is inside
+            // as is.
             Ok(Launch {
                 program: "cmd".into(),
                 args: vec!["/d".into(), "/s".into(), "/c".into()],
@@ -153,7 +153,7 @@ pub fn plan(spec: &ExecSpec, os: Os) -> Result<Launch, LaunchError> {
                 if distro.is_empty() {
                     return Err(LaunchError::UnknownShell(shell.into()));
                 }
-                // Las variables de Windows no cruzan a WSL (salvo con WSLENV): van en la línea.
+                // Windows variables do not cross into WSL (except with WSLENV): they go in the line.
                 let mut args = vec!["-d".into(), distro.to_owned()];
                 if let Some(cwd) = &spec.cwd {
                     args.push("--cd".into());
@@ -206,7 +206,7 @@ fn exports(env: &[(String, String)]) -> String {
         .collect()
 }
 
-/// Un literal para sh: sin citar si no hace falta, si no entre comillas simples.
+/// A literal for sh: unquoted if not needed, otherwise in single quotes.
 pub fn posix_quote(s: &str) -> String {
     let plain = !s.is_empty()
         && s.bytes()
@@ -218,11 +218,11 @@ pub fn posix_quote(s: &str) -> String {
     }
 }
 
-/// Un literal para PowerShell: comillas simples, con `''` para una comilla.
+/// A literal for PowerShell: single quotes, with `''` for a quote.
 pub fn pwsh_quote(s: &str) -> String {
     let mut out = String::from("'");
     for c in s.chars() {
-        // PowerShell también toma las comillas tipográficas simples como delimitadores.
+        // PowerShell also takes typographic single quotes as delimiters.
         if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}') {
             out.push(c);
         }
@@ -232,8 +232,8 @@ pub fn pwsh_quote(s: &str) -> String {
     out
 }
 
-/// Un argumento para cmd: entre comillas si tiene espacios o metacaracteres. Las comillas
-/// de adentro se duplican (como las entiende la mayoría de los programas de Windows).
+/// An argument for cmd: in quotes if it has spaces or metacharacters. The inner
+/// quotes are doubled (as most Windows programs understand them).
 pub fn cmd_quote(s: &str) -> String {
     let plain = !s.is_empty()
         && !s
@@ -246,7 +246,7 @@ pub fn cmd_quote(s: &str) -> String {
     }
 }
 
-/// Base64 (estándar, con relleno) del texto en UTF-16LE: lo que pide `-EncodedCommand`.
+/// Base64 (standard, with padding) of the UTF-16LE text: what `-EncodedCommand` asks for.
 pub fn encode_utf16_base64(text: &str) -> String {
     let bytes: Vec<u8> = text.encode_utf16().flat_map(u16::to_le_bytes).collect();
     base64(&bytes)
@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn un_secreto_en_el_entorno_se_rechaza_sin_permiso_explicito() {
+    fn a_secret_in_the_environment_is_rejected_without_explicit_permission() {
         let mut s = spec("git", &["push"], None);
         s.env = vec![("GH_TOKEN".into(), "ghp_x".into())];
         assert_eq!(
@@ -300,7 +300,7 @@ mod tests {
         );
         s.allow_secret_env = true;
         assert!(plan(&s, Os::Unix).is_ok());
-        // Un agente no tiene permiso que valga, ni con shell.
+        // An agent has no permission that applies, not even with a shell.
         s.env = vec![("SSH_AUTH_SOCK".into(), "/tmp/a".into())];
         s.shell = Some("zsh".into());
         assert_eq!(
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn sin_shell_es_el_programa_directo() {
+    fn without_a_shell_it_is_the_program_directly() {
         let l = plan(&spec("cargo", &["test", "a b"], None), Os::Unix).unwrap();
         assert_eq!(l.program, "cargo");
         assert_eq!(l.args, ["test", "a b"]);
@@ -323,14 +323,14 @@ mod tests {
     }
 
     #[test]
-    fn los_shells_posix_son_de_login_y_citan_los_argumentos() {
+    fn posix_shells_are_login_and_quote_the_arguments() {
         let l = plan(&spec("cargo test", &["it's", "x"], Some("zsh")), Os::Unix).unwrap();
         assert_eq!(l.program, "zsh");
         assert_eq!(l.args, ["-l", "-c", r"cargo test 'it'\''s' x"]);
     }
 
     #[test]
-    fn powershell_va_codificado() {
+    fn powershell_is_encoded() {
         let l = plan(&spec("Write-Output", &["a'b"], Some("pwsh")), Os::Windows).unwrap();
         assert_eq!(l.program, "pwsh");
         assert_eq!(
@@ -346,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn cmd_va_crudo_y_solo_en_windows() {
+    fn cmd_goes_raw_and_only_on_windows() {
         let l = plan(&spec("echo", &["a b", "c\"d"], Some("cmd")), Os::Windows).unwrap();
         assert_eq!(l.args, ["/d", "/s", "/c"]);
         assert_eq!(l.raw.as_deref(), Some(r#""echo "a b" "c""d"""#));
@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn wsl_lleva_la_carpeta_y_las_variables_en_la_linea() {
+    fn wsl_carries_the_folder_and_the_variables_in_the_line() {
         let l = plan(
             &spec("cargo", &["test"], Some("wsl:Ubuntu-24.04")),
             Os::Windows,
@@ -381,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn docker_necesita_el_contenedor() {
+    fn docker_needs_the_container() {
         assert_eq!(
             plan(&spec("ls", &[], Some("docker")), Os::Unix),
             Err(LaunchError::NoContainer)
@@ -406,7 +406,7 @@ mod tests {
     }
 
     #[test]
-    fn entornos_y_variables_invalidos() {
+    fn invalid_environments_and_variables() {
         assert_eq!(
             plan(&spec("x", &[], Some("tcsh")), Os::Unix),
             Err(LaunchError::UnknownShell("tcsh".into()))
@@ -420,17 +420,17 @@ mod tests {
     }
 
     #[test]
-    fn base64_conocido() {
+    fn known_base64() {
         assert_eq!(base64(b""), "");
         assert_eq!(base64(b"f"), "Zg==");
         assert_eq!(base64(b"fo"), "Zm8=");
         assert_eq!(base64(b"foobar"), "Zm9vYmFy");
-        // `powershell -EncodedCommand` de «dir».
+        // `powershell -EncodedCommand` of "dir".
         assert_eq!(encode_utf16_base64("dir"), "ZABpAHIA");
     }
 
-    /// Decodifica lo que produce `posix_quote` como lo haría sh (solo comillas simples y
-    /// `\'` fuera de ellas).
+    /// Decodes what `posix_quote` produces as sh would (only single quotes and
+    /// `\'` outside them).
     fn sh_unquote(s: &str) -> String {
         let (mut out, mut inside, mut chars) = (String::new(), false, s.chars());
         while let Some(c) = chars.next() {
@@ -445,12 +445,12 @@ mod tests {
 
     proptest! {
         #[test]
-        fn citar_para_sh_conserva_el_literal(s in "\\PC{0,40}") {
+        fn quoting_for_sh_preserves_the_literal(s in "\\PC{0,40}") {
             prop_assert_eq!(sh_unquote(&posix_quote(&s)), s);
         }
 
         #[test]
-        fn citar_para_powershell_conserva_el_literal(s in "[a-z' \u{2019}]{0,20}") {
+        fn quoting_for_powershell_preserves_the_literal(s in "[a-z' \u{2019}]{0,20}") {
             let q = pwsh_quote(&s);
             let inner = &q[1..q.len() - 1];
             let mut out = String::new();

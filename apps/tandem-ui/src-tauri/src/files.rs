@@ -1,18 +1,18 @@
-//! Ajustes → Avanzado: dónde están el archivo de configuración y los logs, y cómo mostrarlos
-//! en el explorador de cada sistema. La orden se arma aquí (pura) para probarla en Linux.
+//! Settings → Advanced: where the configuration file and the logs are, and how to show them
+//! in each system's file explorer. The command is built here (pure) to test it on Linux.
 
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Rutas que muestra Ajustes → Avanzado (texto, tal como las ve el usuario).
+/// Paths shown by Settings → Advanced (text, as the user sees them).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FilesInfo {
     pub config: String,
     pub logs: String,
 }
 
-/// Qué abrir.
+/// What to open.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Target {
@@ -20,14 +20,14 @@ pub enum Target {
     Logs,
 }
 
-/// El archivo de configuración y la carpeta de logs de esta máquina.
+/// The configuration file and the logs folder of this machine.
 pub fn locate() -> Result<(PathBuf, PathBuf), String> {
     let p = tandemd::paths::Paths::resolve(None, None).map_err(|e| e.to_string())?;
     let logs = p.log_dir();
     Ok((p.config, logs))
 }
 
-/// Orden que muestra `path` en el explorador: el archivo seleccionado o la carpeta abierta.
+/// Command that shows `path` in the explorer: the file selected or the folder open.
 pub fn reveal_command(os: &str, path: &Path, is_file: bool) -> (String, Vec<String>) {
     let p = path.display().to_string();
     match os {

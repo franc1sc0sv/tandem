@@ -1,4 +1,4 @@
-// Proxies UDP entre los dos agentes: un par por camino (usb4, wifi). Cortar un camino = crear el archivo cut-<camino>.
+// UDP proxies between the two agents: one pair per path (usb4, wifi). Cutting a path = creating the file cut-<path>.
 import dgram from "node:dgram"; import { existsSync, writeFileSync, readFileSync } from "node:fs"; import { join } from "node:path";
 import * as L from "./lib.mjs";
 const tag = process.argv[2]; const { m1, m2 } = L.attach(tag); const dir = join(L.RUN, tag);

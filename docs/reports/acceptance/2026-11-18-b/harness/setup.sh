@@ -1,5 +1,5 @@
 #!/bin/bash
-# setup.sh <tag> : pareja nueva con anfitrión, emparejada por la UI, sin guía y con monitores dobles
+# setup.sh <tag> : new pair with a host, paired through the UI, without the tour and with fake monitors
 source /tmp/claude-1000/accB/env.sh
 cd /tmp/claude-1000/accB/harness
 node up.mjs $1 '{"host":true}' > /dev/null && sleep 2

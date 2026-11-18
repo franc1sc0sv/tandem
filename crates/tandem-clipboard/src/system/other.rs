@@ -1,5 +1,5 @@
-//! Linux y demás: no son destinos de Tandem, pero el crate compila y el
-//! contador funciona (más caro: lee y compara el contenido cada vez).
+//! Linux and the rest: not Tandem targets, but the crate compiles and the
+//! counter works (more expensive: reads and compares the content every time).
 
 use super::{ClipboardError, read_arboard};
 use crate::content::ContentHash;

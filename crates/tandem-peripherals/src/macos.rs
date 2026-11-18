@@ -1,8 +1,8 @@
-//! macOS: dispositivos USB presentes, por IOKit.
+//! macOS: USB devices present, through IOKit.
 //!
-//! Se recorren los `IOUSBHostDevice` del registro de IOKit y se leen sus
-//! propiedades `idVendor` e `idProduct`, el mismo VID/PID que muestra el Informe
-//! del sistema y que Windows pone en el identificador de instancia.
+//! The `IOUSBHostDevice` entries of the IOKit registry are walked and their
+//! `idVendor` and `idProduct` properties are read, the same VID/PID shown by the System
+//! Report and that Windows puts in the instance ID.
 
 use std::ffi::{CStr, c_char, c_void};
 
@@ -16,14 +16,14 @@ type CFTypeRef = *const c_void;
 type CFIndex = isize;
 
 const KERN_SUCCESS: KernReturn = 0;
-/// `kIOMainPortDefault`: el puerto principal de IOKit.
+/// `kIOMainPortDefault`: IOKit's main port.
 const IO_MAIN_PORT_DEFAULT: MachPort = 0;
 const CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 const CF_NUMBER_SINT32_TYPE: CFIndex = 3;
 
 #[link(name = "IOKit", kind = "framework")]
-// SAFETY: firmas copiadas de los encabezados de IOKit del SDK; los punteros que se
-// pasan solo viven durante cada llamada y los objetos devueltos los libera el llamador.
+// SAFETY: signatures copied from the IOKit headers of the SDK; the pointers
+// passed only live during each call and the returned objects are released by the caller.
 unsafe extern "C" {
     fn IOServiceMatching(name: *const c_char) -> *mut c_void;
     fn IOServiceGetMatchingServices(
@@ -42,8 +42,8 @@ unsafe extern "C" {
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
-// SAFETY: firmas copiadas de CoreFoundation; las cadenas C son NUL-terminadas y no
-// sobreviven la llamada, y los objetos creados con `Create` los libera el llamador.
+// SAFETY: signatures copied from CoreFoundation; the C strings are NUL-terminated and do not
+// outlive the call, and objects created with `Create` are released by the caller.
 unsafe extern "C" {
     fn CFStringCreateWithCString(
         allocator: CFTypeRef,
@@ -58,15 +58,15 @@ unsafe extern "C" {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ScanError {
-    #[error("IOServiceMatching no devolvió el diccionario")]
+    #[error("IOServiceMatching did not return the dictionary")]
     Matching,
-    #[error("IOServiceGetMatchingServices falló (kern_return {0:#x})")]
+    #[error("IOServiceGetMatchingServices failed (kern_return {0:#x})")]
     Services(KernReturn),
-    #[error("no se pudo crear la clave {0}")]
+    #[error("could not create the key {0}")]
     Key(&'static str),
 }
 
-/// Escáner real de macOS.
+/// Real macOS scanner.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct IoKitScanner;
 
@@ -97,12 +97,12 @@ impl DeviceScanner for IoKitScanner {
     }
 }
 
-/// Objeto de IOKit (servicio o iterador); se libera al soltarlo.
+/// IOKit object (service or iterator); freed when dropped.
 struct IoOwned(IoObject);
 
 impl IoOwned {
     fn next(&self) -> Option<IoOwned> {
-        // SAFETY: `self.0` es un iterador válido mientras viva `self`.
+        // SAFETY: `self.0` is a valid iterator while `self` lives.
         let obj = unsafe { IOIteratorNext(self.0) };
         (obj != 0).then_some(IoOwned(obj))
     }
@@ -110,19 +110,19 @@ impl IoOwned {
 
 impl Drop for IoOwned {
     fn drop(&mut self) {
-        // SAFETY: el objeto es nuestro (lo devolvió IOKit con una referencia) y se
-        // libera una sola vez.
+        // SAFETY: the object is ours (IOKit returned it with a reference) and is
+        // released only once.
         unsafe { IOObjectRelease(self.0) };
     }
 }
 
-/// Valor de CoreFoundation con una referencia propia; se libera al soltarlo.
+/// CoreFoundation value with its own reference; freed when dropped.
 struct CfOwned(CFTypeRef);
 
 impl CfOwned {
     fn string(s: &CStr) -> Option<Self> {
-        // SAFETY: `s` termina en cero y vive durante la llamada; el asignador nulo
-        // es el predeterminado.
+        // SAFETY: `s` ends in zero and lives during the call; the null allocator
+        // is the default one.
         let cf = unsafe {
             CFStringCreateWithCString(std::ptr::null(), s.as_ptr(), CF_STRING_ENCODING_UTF8)
         };
@@ -132,20 +132,20 @@ impl CfOwned {
 
 impl Drop for CfOwned {
     fn drop(&mut self) {
-        // SAFETY: solo se construye con punteros no nulos de funciones «Create».
+        // SAFETY: only built from non-null pointers of "Create" functions.
         unsafe { CFRelease(self.0) };
     }
 }
 
 fn usb_devices() -> Result<IoOwned, ScanError> {
-    // SAFETY: el nombre de clase es una cadena estática terminada en cero.
+    // SAFETY: the class name is a zero-terminated static string.
     let matching = unsafe { IOServiceMatching(c"IOUSBHostDevice".as_ptr()) };
     if matching.is_null() {
         return Err(ScanError::Matching);
     }
     let mut iter: IoObject = 0;
-    // SAFETY: `IOServiceGetMatchingServices` se queda con el diccionario (lo
-    // libera ella, también si falla) e inicializa `iter`, una variable local.
+    // SAFETY: `IOServiceGetMatchingServices` takes the dictionary (it
+    // releases it itself, also on failure) and initializes `iter`, a local variable.
     let kr = unsafe { IOServiceGetMatchingServices(IO_MAIN_PORT_DEFAULT, matching, &mut iter) };
     if kr != KERN_SUCCESS {
         return Err(ScanError::Services(kr));
@@ -154,15 +154,15 @@ fn usb_devices() -> Result<IoOwned, ScanError> {
 }
 
 fn u16_property(device: &IoOwned, key: &CfOwned) -> Option<u16> {
-    // SAFETY: servicio y clave válidos mientras vivan sus dueños; la propiedad
-    // devuelta es nuestra («Create») y la suelta `CfOwned`.
+    // SAFETY: valid service and key while their owners live; the property
+    // returned is ours ("Create") and `CfOwned` releases it.
     let raw = unsafe { IORegistryEntryCreateCFProperty(device.0, key.0, std::ptr::null(), 0) };
     if raw.is_null() {
         return None;
     }
     let value = CfOwned(raw);
-    // SAFETY: `value.0` es un objeto CF válido; se comprueba que sea un número
-    // antes de leerlo en un i32 local.
+    // SAFETY: `value.0` is a valid CF object; it is checked to be a number
+    // before reading it into a local i32.
     unsafe {
         if CFGetTypeID(value.0) != CFNumberGetTypeID() {
             return None;
@@ -179,8 +179,8 @@ fn u16_property(device: &IoOwned, key: &CfOwned) -> Option<u16> {
 mod tests {
     use super::*;
 
-    /// Corre en el runner de macOS: la enumeración funciona aunque no haya
-    /// ningún dispositivo USB.
+    /// Runs on the macOS runner: enumeration works even when there is
+    /// no USB device.
     #[test]
     fn scan_runs() {
         let ids = IoKitScanner::new().scan().unwrap();

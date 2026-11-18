@@ -1,5 +1,5 @@
-//! Portapapeles simulado: la prueba "copia" desde fuera y ve lo que el driver
-//! escribió.
+//! Simulated clipboard: the test "copies" from outside and sees what the driver
+//! wrote.
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -9,23 +9,23 @@ use tokio::sync::watch;
 use crate::clipboard::Clipboard;
 use crate::content::ClipContent;
 
-/// Estado del portapapeles simulado.
+/// State of the simulated clipboard.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FakeState {
     pub change_count: u64,
     pub content: Option<ClipContent>,
-    /// Lo que escribió el driver, en orden.
+    /// What the driver wrote, in order.
     pub writes: Vec<ClipContent>,
-    /// Cuántas veces leyó el driver el contenido.
+    /// How many times the driver read the content.
     pub reads: u64,
 }
 
-/// Se clona para tener otra vista del mismo portapapeles.
+/// Cloned to have another view of the same clipboard.
 #[derive(Clone)]
 pub struct FakeClipboard {
     state: Arc<watch::Sender<FakeState>>,
-    /// Lo que el "sistema" hace con lo que se escribe (convertir formatos, por
-    /// ejemplo): al leerlo de vuelta no es igual.
+    /// What the "system" does with what is written (convert formats, for
+    /// example): reading it back is not equal.
     rewrite: Option<fn(ClipContent) -> ClipContent>,
 }
 
@@ -48,7 +48,7 @@ impl FakeClipboard {
         self
     }
 
-    /// El usuario copia algo en esta máquina.
+    /// The user copies something on this machine.
     pub fn copy(&self, content: Option<ClipContent>) {
         self.state.send_modify(|s| {
             s.change_count += 1;
@@ -56,8 +56,8 @@ impl FakeClipboard {
         });
     }
 
-    /// Algo toca el portapapeles sin cambiar el contenido (otra app que lo
-    /// vuelve a escribir igual).
+    /// Something touches the clipboard without changing the content (another app that
+    /// writes it again the same).
     pub fn touch(&self) {
         self.state.send_modify(|s| s.change_count += 1);
     }

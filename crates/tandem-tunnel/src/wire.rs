@@ -1,7 +1,7 @@
-//! Por dónde van los mensajes de túnel entre los dos agentes.
+//! The path tunnel messages take between the two agents.
 //!
-//! En el agente es un stream QUIC propio por pedido (`Channel::Tunnel`, en `tandemd`); en
-//! las pruebas, los caminos en memoria de [`crate::mem`], que se pueden cortar.
+//! On the agent it is a dedicated QUIC stream per request (`Channel::Tunnel`, in `tandemd`); in
+//! tests, the in-memory paths of [`crate::mem`], which can be cut.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -10,7 +10,7 @@ use tandem_proto::{TunnelDown, TunnelUp};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// El stream se rompió o el otro lado no se pudo alcanzar.
+/// The stream broke or the other side could not be reached.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{0}")]
 pub struct WireError(pub String);
@@ -21,31 +21,31 @@ impl WireError {
     }
 }
 
-/// El lado del origen de un stream de túnel.
+/// The origin side of a tunnel stream.
 pub trait OriginWire: Send {
     fn send(&mut self, msg: TunnelUp) -> BoxFuture<'_, Result<(), WireError>>;
-    /// `None` si la destino cerró el stream.
+    /// `None` if the destination closed the stream.
     fn recv(&mut self) -> BoxFuture<'_, Result<Option<TunnelDown>, WireError>>;
-    /// Desde aquí este stream lleva bytes en volumen en el sentido del origen (archivos,
-    /// puertos): prioridad de datos, con la pausa y el tope del camino (T-101).
+    /// From here this stream carries bulk bytes in the origin's direction (files,
+    /// ports): data priority, with the pause and the cap of the path (T-101).
     fn start_data(&mut self) -> Result<(), WireError> {
         Ok(())
     }
 }
 
-/// Abre streams de túnel hacia la destino por un camino (una conexión). El origen usa
-/// siempre el del enlace activo ([`crate::Origin::set_link`]).
+/// Opens tunnel streams toward the destination over a path (a connection). The origin always
+/// uses that of the active link ([`crate::Origin::set_link`]).
 pub trait Dialer: Send + Sync {
     fn dial(&self) -> BoxFuture<'_, Result<Box<dyn OriginWire>, WireError>>;
 }
 
-/// El lado de la destino de un stream de túnel.
+/// The destination side of a tunnel stream.
 pub trait TargetWire: Send {
-    /// `None` si el origen cerró el stream.
+    /// `None` if the origin closed the stream.
     fn recv(&mut self) -> impl Future<Output = Result<Option<TunnelUp>, WireError>> + Send;
     fn send(&mut self, msg: &TunnelDown) -> impl Future<Output = Result<(), WireError>> + Send;
-    /// Desde aquí el stream lleva la salida del túnel: prioridad de datos, con la pausa y
-    /// el tope del camino (T-101). Antes, los pedidos van como control.
+    /// From here the stream carries the tunnel's output: data priority, with the pause and
+    /// the cap of the path (T-101). Before that, requests go as control.
     fn start_data(&mut self) -> Result<(), WireError> {
         Ok(())
     }

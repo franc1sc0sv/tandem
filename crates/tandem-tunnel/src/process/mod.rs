@@ -1,17 +1,17 @@
-//! Procesos dentro de un túnel (T-104, DESIGN §8).
+//! Processes inside a tunnel (T-104, DESIGN §8).
 //!
-//! `exec` lanza un proceso en la destino con el `Spawner` del agente; su stdout y su stderr
-//! son dos flujos del túnel (con el búfer circular y la posición por byte de siempre, así que
-//! sobreviven a las caídas del enlace) y el proceso se anota en la tabla del túnel con su
-//! estado, código de salida y duración. Cerrar el túnel mata todos los árboles.
+//! `exec` launches a process on the destination with the agent's `Spawner`; its stdout and stderr
+//! are two tunnel flows (with the usual circular buffer and per-byte position, so they
+//! survive link drops) and the process is recorded in the tunnel's table with its
+//! state, exit code and duration. Closing the tunnel kills all the trees.
 //!
-//! - [`launch`]: de un `exec` a la orden concreta (shells, WSL, Docker). Portable.
-//! - [`Spawner`] / [`Child`]: lo que depende del sistema. [`system::SystemSpawner`] es el
-//!   real (grupo de procesos en Unix, objeto de trabajo en Windows); [`fake::FakeSpawner`],
-//!   el doble de prueba.
-//! - [`output`]: `output { desde }` armado desde los flujos.
+//! - [`launch`]: from an `exec` to the concrete command (shells, WSL, Docker). Portable.
+//! - [`Spawner`] / [`Child`]: what depends on the system. [`system::SystemSpawner`] is the
+//!   real one (process group on Unix, job object on Windows); [`fake::FakeSpawner`],
+//!   the test double.
+//! - [`output`]: `output { from }` built from the flows.
 //!
-//! **Privilegios (A7):** el proceso hereda los del agente; nada aquí los cambia.
+//! **Privileges (A7):** the process inherits the agent's; nothing here changes them.
 
 pub mod fake;
 pub mod launch;
@@ -29,23 +29,23 @@ use crate::wire::BoxFuture;
 
 pub use launch::{Launch, LaunchError, Os};
 
-/// El proceso lanzado, para esperarlo y matarlo.
+/// The launched process, to wait for it and kill it.
 pub trait Child: Send + Sync {
-    /// Resuelve cuando el proceso principal terminó, con su código (`None` si lo terminó una
-    /// señal). Se llama una vez.
+    /// Resolves when the main process ended, with its code (`None` if a
+    /// signal ended it). Called once.
     fn wait(&self) -> BoxFuture<'_, Option<i32>>;
-    /// Mata el proceso y todos sus descendientes. Tiene que volver enseguida y se puede
-    /// llamar varias veces.
+    /// Kills the process and all its descendants. Has to return right away and can be
+    /// called several times.
     fn kill_tree(&self);
-    /// Ya no queda nada del árbol (el proceso terminó y sus salidas se cerraron): matarlo
-    /// después no hace nada, para no tocar un identificador que el sistema ya reutilizó.
+    /// Nothing is left of the tree (the process ended and its outputs closed): killing it
+    /// afterwards does nothing, so as not to touch an identifier the system already reused.
     fn release(&self) {}
 }
 
-/// Un proceso recién lanzado con sus salidas. Su stdin va cerrado: no hay entrada
-/// interactiva.
+/// A newly launched process with its outputs. Its stdin is closed: there is no interactive
+/// input.
 pub struct Spawned {
-    /// El identificador del sistema, si lo dio.
+    /// The system identifier, if it gave one.
     pub pid: Option<u32>,
     pub stdout: Box<dyn AsyncRead + Send + Unpin>,
     pub stderr: Box<dyn AsyncRead + Send + Unpin>,
@@ -56,27 +56,27 @@ pub struct Spawned {
 #[error("{0}")]
 pub struct SpawnError(pub String);
 
-/// Lanza procesos en esta máquina. El real es [`system::SystemSpawner`].
+/// Launches processes on this machine. The real one is [`system::SystemSpawner`].
 pub trait Spawner: Send + Sync {
     fn spawn(&self, launch: &Launch) -> Result<Spawned, SpawnError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ExecError {
-    #[error("no hay ningún túnel {0} en esta máquina")]
+    #[error("there is no tunnel {0} on this machine")]
     UnknownTunnel(tandem_proto::TunnelId),
-    #[error("el túnel {0} no tiene el proceso {1}")]
+    #[error("tunnel {0} does not have process {1}")]
     UnknownProcess(tandem_proto::TunnelId, tandem_proto::ProcessId),
-    #[error("el túnel {0} está cerrado")]
+    #[error("tunnel {0} is closed")]
     Closed(tandem_proto::TunnelId),
     #[error("{0}")]
     Launch(#[from] LaunchError),
-    #[error("no se pudo lanzar: {0}")]
+    #[error("could not launch: {0}")]
     Spawn(#[from] SpawnError),
 }
 
-/// Copia lo que sale por `from` al flujo hasta que se cierre. Al terminar suelta el flujo,
-/// que queda terminado.
+/// Copies what comes out of `from` to the flow until it closes. On finishing it releases the flow,
+/// which ends up finished.
 async fn pump(mut from: Box<dyn AsyncRead + Send + Unpin>, to: FlowWriter) {
     let mut buf = vec![0u8; 32 * 1024];
     loop {
@@ -87,8 +87,8 @@ async fn pump(mut from: Box<dyn AsyncRead + Send + Unpin>, to: FlowWriter) {
     }
 }
 
-/// Vigila el proceso: copia sus salidas a los flujos y anota cuando termina. Lo que
-/// quede vivo del árbol sigue escribiendo mientras tenga la salida abierta.
+/// Watches the process: copies its outputs to the flows and notes when it ends. What
+/// stays alive of the tree keeps writing while it has the output open.
 pub(crate) fn supervise(
     tunnel: HostTunnel,
     id: tandem_proto::ProcessId,

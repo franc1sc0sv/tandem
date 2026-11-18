@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
-# Falla si el encabezado de docs/STATUS.md no coincide con docs/tasks/ (T-192):
-# conteo de hechas y total, última tarea, y que toda tarea abierta (todo/blocked) aparezca en la tabla.
+# Fails if the header of docs/STATUS.md does not match docs/tasks/ (T-192):
+# done count and total, last task, and every open task (todo/blocked) must appear in the table.
 set -u
 cd "$(dirname "$0")/../.."
 total=$(ls docs/tasks/T-*.md | wc -l)
-hechas=$(grep -l '^status: *done' docs/tasks/T-*.md | wc -l)
-ultima=$(ls docs/tasks/T-*.md | sed 's#.*/##; s#\.md##' | sort | tail -1)
-esperado="**$hechas hechas de $total** (\`T-001\`…\`$ultima\`"
-fallo=0
-if ! grep -qF -- "$esperado" docs/STATUS.md; then
-  echo "STATUS.md: el encabezado debe decir: $esperado"
-  fallo=1
+done_count=$(grep -l '^status: *done' docs/tasks/T-*.md | wc -l)
+last=$(ls docs/tasks/T-*.md | sed 's#.*/##; s#\.md##' | sort | tail -1)
+expected="**$done_count done of $total** (\`T-001\`…\`$last\`"
+failed=0
+if ! grep -qF -- "$expected" docs/STATUS.md; then
+  echo "STATUS.md: the header must say: $expected"
+  failed=1
 fi
 for f in $(grep -lE '^status: *(todo|blocked|in-progress)' docs/tasks/T-*.md); do
   id=$(basename "$f" .md)
-  awk '/^## Tareas abiertas/{a=1;next} /^## /{a=0} a' docs/STATUS.md | grep -q "$id" \
-    || { echo "STATUS.md: $id está abierta y falta en «Tareas abiertas»"; fallo=1; }
+  awk '/^## Open tasks/{a=1;next} /^## /{a=0} a' docs/STATUS.md | grep -q "$id" \
+    || { echo "STATUS.md: $id is open and missing from \"Open tasks\""; failed=1; }
 done
-[ "$fallo" -eq 0 ] && echo "status: sin hallazgos"
-exit "$fallo"
+[ "$failed" -eq 0 ] && echo "status: no findings"
+exit "$failed"

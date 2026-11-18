@@ -1,6 +1,6 @@
 [package]
 name = "tandem-power"
-description = "Wake-on-LAN, apagado remoto"
+description = "Wake-on-LAN and remote shutdown"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

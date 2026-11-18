@@ -1,12 +1,12 @@
-//! El lado que escribe: valida el manifiesto, dice qué falta, guarda fragmentos
-//! verificados en un archivo `.tandem-part` y al terminar lo renombra con sus permisos y
-//! fechas.
+//! The writing side: validates the manifest, says what is missing, stores verified
+//! chunks in a `.tandem-part` file and on finishing renames it with its permissions and
+//! dates.
 //!
-//! Lo recibido vive en disco, no en memoria: si el enlace se corta (o el agente se
-//! reinicia), la siguiente vuelta recorre los `.tandem-part`, compara hash por fragmento y
-//! pide solo lo que no coincide.
+//! What is received lives on disk, not in memory: if the link is cut (or the agent
+//! restarts), the next round walks the `.tandem-part` files, compares the hash per chunk and
+//! asks only for what does not match.
 //!
-//! Todo es bloqueante (disco): los llamadores lo corren en `spawn_blocking`.
+//! Everything is blocking (disk): callers run it in `spawn_blocking`.
 
 use std::collections::HashSet;
 use std::ffi::OsString;
@@ -33,41 +33,41 @@ pub fn part_path(final_path: &Path) -> PathBuf {
 #[derive(Debug)]
 pub struct Sink {
     manifest: Manifest,
-    /// La ruta final de cada entrada.
+    /// The final path of each entry.
     finals: Vec<PathBuf>,
-    /// Carpeta raíz (copias de carpeta), que se crea aunque no haya entradas.
+    /// Root folder (folder copies), created even if there are no entries.
     root: Option<PathBuf>,
 }
 
 impl Sink {
-    /// Valida el manifiesto (que viene de la otra máquina) y decide dónde va cada cosa.
-    /// No toca el disco.
+    /// Validates the manifest (which comes from the other machine) and decides where each thing goes.
+    /// Does not touch the disk.
     pub fn open(remote: &Path, manifest: Manifest) -> Result<Sink> {
         let bad = |m: &str| FilesError::Manifest(m.to_owned());
         if manifest.chunk_size == 0 || manifest.chunk_size > MAX_CHUNK_SIZE {
-            return Err(bad("tamaño de fragmento fuera de rango"));
+            return Err(bad("chunk size out of range"));
         }
         if manifest.single && manifest.entries.len() != 1 {
-            return Err(bad("una copia de un archivo trae exactamente una entrada"));
+            return Err(bad("a single-file copy carries exactly one entry"));
         }
         let mut seen = HashSet::new();
         for e in &manifest.entries {
             if !seen.insert(e.path.as_str()) {
-                return Err(bad("rutas repetidas"));
+                return Err(bad("repeated paths"));
             }
             if let EntryKind::File { size, chunks, .. } = &e.kind
                 && chunks.len() as u64 != chunk_count(*size, manifest.chunk_size)
             {
-                return Err(bad("los hashes no corresponden al tamaño"));
+                return Err(bad("the hashes do not match the size"));
             }
         }
         let (finals, root) = if manifest.single {
             let e = &manifest.entries[0];
             if !matches!(e.kind, EntryKind::File { .. }) {
-                return Err(bad("una copia de un archivo no puede ser una carpeta"));
+                return Err(bad("a single-file copy cannot be a folder"));
             }
             check_segment(&e.path, cfg!(windows)).map_err(|w| FilesError::path(&e.path, w))?;
-            // Si el destino es una carpeta que ya existe, el archivo entra con su nombre.
+            // If the destination is a folder that already exists, the file goes in under its name.
             let target = if remote.is_dir() {
                 remote.join(&e.path)
             } else {
@@ -93,9 +93,9 @@ impl Sink {
         &self.manifest
     }
 
-    /// Largo esperado del fragmento `index` del archivo `entry`.
+    /// Expected length of chunk `index` of file `entry`.
     pub fn chunk_len(&self, entry: u32, index: u32) -> Result<usize> {
-        let bad = || FilesError::Manifest(format!("no existe el fragmento {index} de {entry}"));
+        let bad = || FilesError::Manifest(format!("chunk {index} of {entry} does not exist"));
         match self.manifest.entries.get(entry as usize).map(|e| &e.kind) {
             Some(EntryKind::File { size, .. }) => {
                 chunk_len(*size, self.manifest.chunk_size, index).ok_or_else(bad)
@@ -104,8 +104,8 @@ impl Sink {
         }
     }
 
-    /// Crea las carpetas, prepara los `.tandem-part` y dice qué fragmentos faltan. Lo que ya
-    /// está completo en su lugar no se vuelve a pedir.
+    /// Creates the folders, prepares the `.tandem-part` files and says which chunks are missing. What is already
+    /// complete in place is not requested again.
     pub fn plan(&self) -> Result<Vec<Need>> {
         if let Some(root) = &self.root {
             fs::create_dir_all(root).map_err(|e| FilesError::io(root, e))?;
@@ -159,12 +159,12 @@ impl Sink {
         Ok(needs)
     }
 
-    /// Verifica un fragmento contra el manifiesto y lo escribe en su lugar.
+    /// Verifies a chunk against the manifest and writes it in place.
     pub fn write_chunk(&self, entry: u32, index: u32, bytes: &[u8]) -> Result<()> {
         let len = self.chunk_len(entry, index)?;
         let path = &self.finals[entry as usize];
         let EntryKind::File { chunks, .. } = &self.manifest.entries[entry as usize].kind else {
-            return Err(FilesError::Manifest("no es un archivo".into()));
+            return Err(FilesError::Manifest("not a file".into()));
         };
         if bytes.len() != len || blake3::hash(bytes).as_bytes() != &chunks[index as usize] {
             return Err(FilesError::BadChunk {
@@ -182,8 +182,8 @@ impl Sink {
         f.write_all(bytes).map_err(io)
     }
 
-    /// Verifica el hash de cada archivo, lo renombra a su nombre final y fija permisos y
-    /// fechas (las carpetas al final, para que sus fechas no cambien al llenarlas).
+    /// Verifies each file's hash, renames it to its final name and sets permissions and
+    /// dates (folders last, so their dates do not change as they fill up).
     pub fn finish(&self) -> Result<FilesReport> {
         let cs = self.manifest.chunk_size;
         let mut report = FilesReport {
@@ -200,7 +200,7 @@ impl Sink {
                 let (_, _, got) = hash_file(&part, cs).map_err(|e| FilesError::io(&part, e))?;
                 if got != *hash {
                     let _ = fs::remove_file(&part);
-                    // Un `.part` viejo junto a un archivo que ya estaba bien no cuenta.
+                    // An old `.part` next to a file that was already fine does not count.
                     if !is_complete(path, *size, hash, cs) {
                         return Err(FilesError::BadFile(e.path.clone()));
                     }
@@ -223,7 +223,7 @@ impl Sink {
     }
 }
 
-/// `path` ya es un archivo de `size` bytes con ese hash.
+/// `path` is already a file of `size` bytes with that hash.
 fn is_complete(path: &Path, size: u64, hash: &[u8; 32], chunk_size: u32) -> bool {
     match fs::metadata(path) {
         Ok(m) if m.is_file() && m.len() == size => {
@@ -233,7 +233,7 @@ fn is_complete(path: &Path, size: u64, hash: &[u8; 32], chunk_size: u32) -> bool
     }
 }
 
-/// Renombra sobre el destino aunque exista (en Windows no se reemplaza uno de solo lectura).
+/// Renames over the destination even if it exists (on Windows a read-only one is not replaced).
 fn replace(part: &Path, path: &Path) -> Result<()> {
     if let Ok(m) = fs::metadata(path) {
         let mut perms = m.permissions();
@@ -244,7 +244,7 @@ fn replace(part: &Path, path: &Path) -> Result<()> {
     fs::rename(part, path).map_err(|e| FilesError::io(path, e))
 }
 
-/// Mejor esfuerzo: un sistema que no admite permisos o fechas no hace fallar la copia.
+/// Best effort: a system that does not support permissions or dates does not fail the copy.
 fn apply_meta(path: &Path, mode: Option<u32>, mtime_ms: Option<u64>) {
     if let Some(ms) = mtime_ms {
         let when = UNIX_EPOCH + Duration::from_millis(ms);
@@ -254,17 +254,17 @@ fn apply_meta(path: &Path, mode: Option<u32>, mtime_ms: Option<u64>) {
             .or_else(|_| File::open(path))
             .and_then(|f| f.set_modified(when));
         if let Err(e) = r {
-            tracing::debug!("no se pudo fijar la fecha de {}: {e}", path.display());
+            tracing::debug!("could not set the date of {}: {e}", path.display());
         }
     }
     if let Some(mode) = mode
         && let Err(e) = set_mode(path, mode)
     {
-        tracing::debug!("no se pudo fijar el permiso de {}: {e}", path.display());
+        tracing::debug!("could not set the permission of {}: {e}", path.display());
     }
 }
 
-/// Sin setuid, setgid ni sticky: lo que llega de la otra máquina no escala privilegios.
+/// Without setuid, setgid or sticky: what arrives from the other machine does not escalate privileges.
 #[cfg(unix)]
 fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn un_fragmento_malo_no_se_escribe() {
+    fn a_bad_chunk_is_not_written() {
         let d = tempfile::tempdir().unwrap();
         let m = file_manifest(b"abcdefgh", 4);
         let s = Sink::open(&d.path().join("out"), m).unwrap();
@@ -316,7 +316,7 @@ mod tests {
             Err(FilesError::BadChunk { .. })
         ));
         s.write_chunk(0, 1, b"efgh").unwrap();
-        // Retomar: solo falta el primero.
+        // Resume: only the first one is missing.
         let again = Sink::open(&d.path().join("out"), file_manifest(b"abcdefgh", 4)).unwrap();
         assert_eq!(again.plan().unwrap()[0].chunks, [0]);
         again.write_chunk(0, 0, b"abcd").unwrap();
@@ -324,13 +324,13 @@ mod tests {
         assert_eq!((r.files, r.bytes), (1, 8));
         assert_eq!(fs::read(d.path().join("out")).unwrap(), b"abcdefgh");
         assert!(!part_path(&d.path().join("out")).exists());
-        // Ya completo: no falta nada.
+        // Already complete: nothing is missing.
         let done = Sink::open(&d.path().join("out"), file_manifest(b"abcdefgh", 4)).unwrap();
         assert!(done.plan().unwrap().is_empty());
     }
 
     #[test]
-    fn rechaza_manifiestos_inconsistentes() {
+    fn rejects_inconsistent_manifests() {
         let d = tempfile::tempdir().unwrap();
         let mut m = file_manifest(b"abcdefgh", 4);
         if let EntryKind::File { chunks, .. } = &mut m.entries[0].kind {
@@ -342,12 +342,12 @@ mod tests {
         assert!(Sink::open(d.path(), m).is_err());
         let mut m = file_manifest(b"ab", 4);
         m.single = false;
-        m.entries[0].path = "../fuera".into();
+        m.entries[0].path = "../outside".into();
         assert!(Sink::open(d.path(), m).is_err());
     }
 
     #[test]
-    fn el_hash_total_malo_borra_lo_recibido() {
+    fn a_bad_total_hash_deletes_what_was_received() {
         let d = tempfile::tempdir().unwrap();
         let mut m = file_manifest(b"abcd", 4);
         if let EntryKind::File { hash, .. } = &mut m.entries[0].kind {
@@ -363,7 +363,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn conserva_permisos_y_fecha() {
+    fn keeps_permissions_and_date() {
         use std::os::unix::fs::PermissionsExt;
         let d = tempfile::tempdir().unwrap();
         let out = d.path().join("o");
@@ -378,11 +378,11 @@ mod tests {
     }
 
     #[test]
-    fn un_part_viejo_junto_a_un_archivo_completo_no_lo_rompe() {
+    fn an_old_part_next_to_a_complete_file_does_not_break_it() {
         let d = tempfile::tempdir().unwrap();
         let out = d.path().join("o");
         fs::write(&out, b"abcd").unwrap();
-        fs::write(part_path(&out), b"basura vieja").unwrap();
+        fs::write(part_path(&out), b"old junk").unwrap();
         let s = Sink::open(&out, file_manifest(b"abcd", 4)).unwrap();
         assert!(s.plan().unwrap().is_empty());
         s.finish().unwrap();
@@ -392,7 +392,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn no_aplica_setuid_setgid_ni_sticky() {
+    fn does_not_apply_setuid_setgid_or_sticky() {
         use std::os::unix::fs::PermissionsExt;
         let d = tempfile::tempdir().unwrap();
         let out = d.path().join("o");

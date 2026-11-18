@@ -1,22 +1,22 @@
-//! Lo que se sincroniza: el contenido del portapapeles en los formatos de v1
-//! (DESIGN §7: texto, texto enriquecido e imagen) y su hash.
+//! What is synchronized: the clipboard content in the v1 formats
+//! (DESIGN §7: text, rich text and image) and its hash.
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Contenido del portapapeles. Una copia puede traer varios formatos a la vez
-/// (texto y HTML desde un navegador, por ejemplo); se guardan todos.
+/// Clipboard content. A copy may carry several formats at once
+/// (text and HTML from a browser, for example); all are kept.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClipContent {
     pub text: Option<String>,
-    /// HTML del texto enriquecido.
+    /// HTML of the rich text.
     pub html: Option<String>,
     pub image: Option<Image>,
 }
 
-/// Imagen en RGBA de 8 bits, fila por fila, como la da y la toma `arboard`.
+/// 8-bit RGBA image, row by row, as `arboard` gives and takes it.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Image {
     pub width: u32,
@@ -37,7 +37,7 @@ impl fmt::Debug for Image {
 }
 
 impl Image {
-    /// Si los bytes alcanzan exactamente para `width × height` píxeles RGBA.
+    /// Whether the bytes are exactly enough for `width × height` RGBA pixels.
     pub fn is_valid(&self) -> bool {
         (self.width as u64)
             .checked_mul(self.height as u64)
@@ -46,9 +46,9 @@ impl Image {
     }
 }
 
-/// SHA-256 de un [`ClipContent`]: identifica el contenido para no devolver como
-/// cambio nuevo lo que llegó del otro lado (supresión de eco) y para comprobar
-/// una transferencia.
+/// SHA-256 of a [`ClipContent`]: identifies the content so as not to return as a
+/// new change what arrived from the other side (echo suppression) and to check
+/// a transfer.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ContentHash(pub [u8; 32]);
 
@@ -70,10 +70,10 @@ impl ClipContent {
         }
     }
 
-    /// Quita los formatos vacíos; `None` si no queda nada que sincronizar.
+    /// Removes empty formats; `None` if nothing is left to synchronize.
     ///
-    /// Una imagen con medidas que no cuadran con sus bytes se descarta: escribirla
-    /// en el otro sistema fallaría o daría basura.
+    /// An image whose dimensions do not match its bytes is discarded: writing it
+    /// on the other system would fail or give garbage.
     pub fn normalized(mut self) -> Option<Self> {
         self.text = self.text.filter(|t| !t.is_empty());
         self.html = self.html.filter(|h| !h.is_empty());
@@ -87,9 +87,9 @@ impl ClipContent {
         self.text.is_none() && self.html.is_none() && self.image.is_none()
     }
 
-    /// Hash del contenido. Cada formato entra con su etiqueta y su largo, así dos
-    /// contenidos distintos nunca se codifican igual (texto "ab" + HTML "c" no
-    /// choca con texto "a" + HTML "bc").
+    /// Hash of the content. Each format enters with its tag and its length, so two
+    /// different contents are never encoded the same (text "ab" + HTML "c" does not
+    /// clash with text "a" + HTML "bc").
     pub fn hash(&self) -> ContentHash {
         let mut h = Sha256::new();
         let mut field = |tag: u8, bytes: Option<&[u8]>| {
@@ -111,7 +111,7 @@ impl ClipContent {
         ContentHash(h.finalize().into())
     }
 
-    /// Lo que mide aproximadamente en el cable, sin codificarlo.
+    /// What it measures approximately on the wire, without encoding it.
     pub fn approx_len(&self) -> usize {
         self.text.as_ref().map_or(0, String::len)
             + self.html.as_ref().map_or(0, String::len)
@@ -134,11 +134,11 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn normalizar_quita_lo_vacio() {
+    fn normalizing_removes_the_empty_parts() {
         assert_eq!(ClipContent::default().normalized(), None);
         assert_eq!(ClipContent::text("").normalized(), None);
         let c = ClipContent {
-            text: Some("hola".into()),
+            text: Some("hello".into()),
             html: Some(String::new()),
             image: Some(Image {
                 width: 2,
@@ -146,7 +146,7 @@ pub(crate) mod tests {
                 rgba: vec![0; 3],
             }),
         };
-        assert_eq!(c.normalized(), Some(ClipContent::text("hola")));
+        assert_eq!(c.normalized(), Some(ClipContent::text("hello")));
         let img = ClipContent {
             image: Some(image(2, 3)),
             ..ClipContent::default()
@@ -155,7 +155,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn imagen_valida_solo_si_los_bytes_cuadran() {
+    fn image_is_valid_only_if_the_bytes_match() {
         assert!(image(3, 5).is_valid());
         let mut i = image(3, 5);
         i.rgba.pop();
@@ -169,7 +169,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn el_hash_separa_los_formatos() {
+    fn the_hash_separates_the_formats() {
         let a = ClipContent {
             text: Some("ab".into()),
             html: Some("c".into()),
@@ -188,7 +188,7 @@ pub(crate) mod tests {
         assert_ne!(a.hash(), b.hash());
         assert_ne!(a.hash(), c.hash());
         assert_ne!(ClipContent::text("abc").hash(), c.hash());
-        // Mismas bytes de imagen con otras medidas: otra imagen.
+        // Same image bytes with other dimensions: another image.
         let mut w = image(2, 3);
         let h = image(3, 2);
         assert_ne!(
@@ -234,12 +234,12 @@ pub(crate) mod tests {
 
     proptest! {
         #[test]
-        fn hash_igual_sii_contenido_igual(a in content(), b in content()) {
+        fn hash_equal_iff_content_equal(a in content(), b in content()) {
             prop_assert_eq!(a.hash() == b.hash(), a == b);
         }
 
         #[test]
-        fn ida_y_vuelta_por_el_cable(c in content()) {
+        fn round_trip_over_the_wire(c in content()) {
             let bytes = tandem_proto::encode(&c).unwrap();
             let back: ClipContent = tandem_proto::decode(&bytes).unwrap();
             prop_assert_eq!(back.hash(), c.hash());

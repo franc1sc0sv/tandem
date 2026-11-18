@@ -10,24 +10,24 @@ pub enum WorkspaceError {
     Git(#[from] GitError),
     #[error("{0}")]
     Io(String),
-    #[error("«{0}» no está dentro de un repo de git")]
+    #[error("\"{0}\" is not inside a git repo")]
     NotARepo(String),
-    #[error("el repo «{0}» no tiene ningún commit")]
+    #[error("the repo \"{0}\" has no commits")]
     NoCommits(String),
-    #[error("falta {0}")]
+    #[error("missing {0}")]
     Missing(String),
-    #[error("el túnel {0} no tiene workspace abierto desde esta máquina")]
+    #[error("tunnel {0} has no workspace open from this machine")]
     NoWorkspace(TunnelId),
     #[error(transparent)]
     Tunnel(#[from] TunnelError),
     #[error(transparent)]
     Files(#[from] FilesError),
-    #[error("se cortó el enlace: {0}")]
+    #[error("the link was cut: {0}")]
     Wire(#[from] WireError),
-    #[error("la otra máquina: {0}")]
+    #[error("the other machine: {0}")]
     Refused(String),
-    #[error("respuesta inesperada de la otra máquina")]
+    #[error("unexpected response from the other machine")]
     Unexpected,
-    #[error("la tarea de git se interrumpió")]
+    #[error("the git task was interrupted")]
     Join,
 }

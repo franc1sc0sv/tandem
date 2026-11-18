@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
-# Imprime la versión de Tandem y comprueba que coincide en los tres lugares donde vive
-# (Cargo.toml del workspace, tauri.conf.json y package.json de la UI). Con un tag, además
-# exige que sea exactamente `v<versión>`: así el release nunca sale con instaladores de otra
-# versión que la del tag. Ver docs/dev/release.md.
+# Prints the Tandem version and checks that it matches in the three places it lives
+# (workspace Cargo.toml, tauri.conf.json and the UI's package.json). With a tag, it also
+# requires it to be exactly `v<version>`: that way the release never ships installers of a
+# different version than the tag. See docs/dev/release.md.
 #
-# Uso: scripts/release/version.sh [--raiz <dir>] [v<versión>]
+# Usage: scripts/release/version.sh [--root <dir>] [v<version>]
 set -euo pipefail
 
-raiz=$(cd "$(dirname "$0")/../.." && pwd)
+root=$(cd "$(dirname "$0")/../.." && pwd)
 tag=
 while [ $# -gt 0 ]; do
   case "$1" in
-    --raiz) raiz=$2; shift 2 ;;
-    -*) echo "version.sh: opción desconocida $1" >&2; exit 2 ;;
+    --root) root=$2; shift 2 ;;
+    -*) echo "version.sh: unknown option $1" >&2; exit 2 ;;
     *) tag=$1; shift ;;
   esac
 done
 
-fallo() { echo "version.sh: $*" >&2; exit 1; }
+fail() { echo "version.sh: $*" >&2; exit 1; }
 
-cargo=$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p;}' "$raiz/Cargo.toml")
-[ -n "$cargo" ] || fallo "no encontré version en [workspace.package] de Cargo.toml"
-tauri=$(jq -r '.version // empty' "$raiz/apps/tandem-ui/src-tauri/tauri.conf.json")
-npm=$(jq -r '.version // empty' "$raiz/apps/tandem-ui/package.json")
+cargo=$(sed -n '/^\[workspace\.package\]/,/^\[/{s/^version *= *"\([^"]*\)".*/\1/p;}' "$root/Cargo.toml")
+[ -n "$cargo" ] || fail "version not found in [workspace.package] of Cargo.toml"
+tauri=$(jq -r '.version // empty' "$root/apps/tandem-ui/src-tauri/tauri.conf.json")
+npm=$(jq -r '.version // empty' "$root/apps/tandem-ui/package.json")
 
-[ "$tauri" = "$cargo" ] || fallo "tauri.conf.json dice '$tauri' y Cargo.toml '$cargo'"
-[ "$npm" = "$cargo" ] || fallo "package.json dice '$npm' y Cargo.toml '$cargo'"
+[ "$tauri" = "$cargo" ] || fail "tauri.conf.json says '$tauri' and Cargo.toml '$cargo'"
+[ "$npm" = "$cargo" ] || fail "package.json says '$npm' and Cargo.toml '$cargo'"
 if [ -n "$tag" ] && [ "$tag" != "v$cargo" ]; then
-  fallo "el tag $tag no coincide con la versión $cargo (se esperaba v$cargo)"
+  fail "tag $tag does not match version $cargo (expected v$cargo)"
 fi
 echo "$cargo"

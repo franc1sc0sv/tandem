@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Tareas listas en origin/develop: todo, sin needs:user, dependencias done, sin PR abierto.
-Uso: ready.py [ids-en-vuelo...]  → imprime JSON [{id,title,phase}] ordenado por fase e id."""
+"""Tasks ready on origin/develop: todo, no needs:user, dependencies done, no open PR.
+Usage: ready.py [in-flight-ids...]  -> prints JSON [{id,title,phase}] sorted by phase and id."""
 import json, re, subprocess, sys
 repo = __import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.dirname(__import__("os").path.abspath(__file__))))
 def sh(*a): return subprocess.run(a, cwd=repo, capture_output=True, text=True).stdout

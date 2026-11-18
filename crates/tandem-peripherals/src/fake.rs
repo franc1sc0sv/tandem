@@ -1,4 +1,4 @@
-//! Doble de prueba del escáner: los dispositivos los pone la prueba.
+//! Scanner test double: the test sets the devices.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -11,21 +11,21 @@ struct Inner {
     fail: bool,
 }
 
-/// Escáner simulado. Se maneja desde la prueba con [`FakeScanner::handle`].
+/// Simulated scanner. Driven from the test with [`FakeScanner::handle`].
 #[derive(Debug, Clone, Default)]
 pub struct FakeScanner {
     inner: Arc<Mutex<Inner>>,
 }
 
-/// Mando del escáner simulado: conectar y desconectar dispositivos, o hacer que
-/// las lecturas fallen.
+/// Handle of the simulated scanner: connect and disconnect devices, or make
+/// reads fail.
 #[derive(Debug, Clone)]
 pub struct FakeDevices {
     inner: Arc<Mutex<Inner>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error("lectura simulada fallida")]
+#[error("simulated read failure")]
 pub struct FakeScanError;
 
 impl FakeScanner {
