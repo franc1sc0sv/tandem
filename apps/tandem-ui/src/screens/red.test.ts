@@ -303,6 +303,7 @@ describe("animaciones de V3-Red", () => {
   it("con las mismas duraciones y curvas", () => {
     expect(files.map).toContain("animation: halo 2.6s ease-in-out infinite");
     expect(files.map).toContain("animation: fa-usb 0.8s linear infinite");
+    expect(files.map).toContain("animation: fa-eth 0.8s linear infinite");
     expect(files.map).toContain("animation: fa-wifi 2.4s linear infinite");
     expect(files.card).toContain("card-up 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both");
     expect(files.ring).toContain("ring-in 1.4s cubic-bezier(0.2, 0.8, 0.2, 1) both");

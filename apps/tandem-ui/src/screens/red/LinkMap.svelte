@@ -171,7 +171,7 @@
   }
   .flow.ethernet {
     stroke-dasharray: 3 14;
-    animation: fa-eth 1.4s linear infinite;
+    animation: fa-eth 0.8s linear infinite;
   }
   .flow.wifi {
     stroke-dasharray: 2 16;
