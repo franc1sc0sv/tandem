@@ -8,7 +8,7 @@
 
   const store = useStore();
   const desk = $derived(store.desk);
-  const cards = $derived(stateCards(desk, { gallery: store.demo, failedScene: store.failedScene }));
+  const cards = $derived(stateCards(desk, { gallery: store.demo, failedScene: store.failedScene, example: store.demo && new URLSearchParams(location.search).has("estados") }));
   const peer = $derived(desk.here === "a" ? "b" : "a");
 
   function run(does: StateDo, sceneId?: string) {

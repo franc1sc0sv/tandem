@@ -40,6 +40,14 @@ describe("lib/states: qué tarjetas aplican", () => {
     expect(stateCards(base)[0].title).toMatch(/^«.+» no es compatible$/);
   });
 
+  it("con `example` (`?demo&estados`) las nueve tarjetas traen los textos del mockup, solo en la galería de ejemplo", () => {
+    const cards = stateCards(base, { ...GALLERY, example: true });
+    expect(cards).toHaveLength(9);
+    expect(JSON.stringify(cards)).toContain("epoch 9/20 · loss 0.0371");
+    expect(cards.find((c) => c.id === "unsupported")?.title).toBe("Monitor no compatible");
+    expect(JSON.stringify(stateCards(base, GALLERY))).not.toContain("Se recuperaron 3 min");
+  });
+
   it("la otra máquina apagada, un solo Wi-Fi, sin otra máquina y el permiso faltante salen solos", () => {
     expect(ids(demoDesk(demoOptions("demo&still&trouble=peer-off")))).toContain("off");
     expect(ids(demoDesk(demoOptions("demo&still&trouble=link-down")))).toContain("cable");

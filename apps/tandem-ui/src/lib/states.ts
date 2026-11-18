@@ -63,7 +63,24 @@ export interface StateContext {
   gallery: boolean;
   /** La última escena que no se pudo aplicar (la guarda el store al ver el fallo). */
   failedScene: { id: string; name: string } | null;
+  /** `?demo&estados`: los textos de ejemplo de `V3-Estados` (nombres, cifras), para compararlos con el mockup. */
+  example?: boolean;
 }
+
+/** Los textos de ejemplo del mockup, por tarjeta: lo único que cambia respecto a la galería genérica. */
+const EXAMPLE: Record<string, Partial<Pick<StateCardSpec, "title" | "body" | "mono" | "code">>> = {
+  off: { title: "PC-Escritorio está apagada", body: "Su tarjeta queda atenuada y el mouse ya no cruza hacia ella. MacBook Pro puede despertarla por la red." },
+  cable: {
+    title: "Se desconectó el cable USB-C",
+    body: "El teclado y el mouse siguieron por Wi-Fi sin cortarse (0.6 s). El envío de 2 workspaces quedó en pausa hasta que vuelva un cable, o puedes mandarlos por Wi-Fi ahora.",
+  },
+  resumed: { body: "«Entrenar LoRA» siguió corriendo en PC-Escritorio mientras no había enlace. Se recuperaron 3 min de salida.", mono: "epoch 9/20 · loss 0.0371" },
+  failed: { title: "«Render ComfyUI» falló", body: "Sin memoria de GPU: «Entrenar LoRA» usa 14.1 de 16 GB en PC-Escritorio. Claude ve este motivo por MCP y puede esperar o elegir otra máquina." },
+  scene: { title: "La escena «Solo MacBook» no se aplicó", body: "El 34\" respondió «cambio fallido» (no hay señal HDMI de la MacBook). Tandem deshizo la escena: todo quedó como estaba." },
+  unsupported: { title: "Monitor no compatible" },
+  nobody: { title: "Nadie puede hablar con el 34\"", body: "Su dueño (PC-Escritorio) está apagado y MacBook Pro solo llega a él por HDMI mientras lo está mostrando. Cuando una de las dos pueda, toma el control sola." },
+  permission: { title: "Falta «Monitoreo de entrada» en macOS", body: "Sin este permiso, MacBook Pro no puede mandar su teclado. Concédelo a {code}; Tandem lo detecta solo.", code: "/Applications/Tandem.app/…/tandemd" },
+};
 
 /** Las tarjetas que aplican (o las nueve en la galería), en el orden del mockup. */
 export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, failedScene: null }): StateCardSpec[] {
@@ -190,5 +207,5 @@ export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, fa
         }
       : null,
   ];
-  return cards.filter((c): c is StateCardSpec => c !== null);
+  return cards.filter((c): c is StateCardSpec => c !== null).map((c) => (ctx.example && EXAMPLE[c.id] ? { ...c, ...EXAMPLE[c.id] } : c));
 }

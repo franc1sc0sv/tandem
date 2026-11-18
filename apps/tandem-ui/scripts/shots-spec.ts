@@ -303,27 +303,18 @@ export const AJUSTES: ShotSpec[] = [
 export const ESTADOS: ShotSpec = {
   name: "estados",
   page: "index.html",
-  query: DEMO,
+  // `?estados` siembra los textos de ejemplo del mockup (nombres, cifras): se compara todo.
+  query: `${DEMO}&estados`,
   hash: "#/estados",
   mockup: "V3-Estados",
   width: W,
   height: H,
   content: {
     appWidth: 220 + 2 * 28 + (1280 - 2 * 28),
-    // La segunda fila de tarjetas del mockup mide 204,5 px; la de la app, con los textos reales (sin
-    // el estado de entrenamiento ni «Render ComfyUI» inventados), mide menos. Se iguala para comparar el resto.
-    appStyle: 'nav[aria-label="Principal"] { flex: 0 0 220px !important; } .grid > article:nth-child(n+4):nth-child(-n+6) { box-sizing: border-box; min-height: 204.5px; }',
+    appStyle: 'nav[aria-label="Principal"] { flex: 0 0 220px !important; }',
     app: "main .head",
     mockup: "h1",
-    masks: [
-      { app: NONE, mockup: 'button.btn:has-text("Enviar por Wi-Fi igual")', reason: "El agente no tiene «enviar por Wi-Fi igual»: sin función, sin botón" },
-      ...[3, 4, 5, 6, 7, 8, 9].flatMap((n) => [
-        { app: `.grid > article:nth-child(${n}) .hd`, mockup: `article.st:nth-child(${n}) .hd`, reason: "Datos reales: el título nombra el monitor, la escena o el trabajo del puesto" },
-        { app: `.grid > article:nth-child(${n}) p`, mockup: `article.st:nth-child(${n}) p`, reason: "Datos reales: el texto solo dice lo que el agente sabe (sin cifras ni nombres de ejemplo)" },
-      ]),
-      ...[4, 5, 6, 9].map((n) => ({ app: `.grid > article:nth-child(${n}) .act`, mockup: `article.st:nth-child(${n}) .btn`, reason: "Con el texto real, más corto, el botón queda más arriba" })),
-      { app: NONE, mockup: "article.st:nth-child(4) .mono.mut", reason: "Estado de entrenamiento inventado: el agente no lo cuenta" },
-    ],
+    masks: [{ app: NONE, mockup: 'button.btn:has-text("Enviar por Wi-Fi igual")', reason: "El agente no tiene «enviar por Wi-Fi igual»: sin función, sin botón" }],
     min: SIDEBAR_GATE,
   },
 };
