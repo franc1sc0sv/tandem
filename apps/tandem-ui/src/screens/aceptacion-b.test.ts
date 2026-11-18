@@ -100,15 +100,15 @@ describe("T-153: los botones con can() se habilitan al conectar el agente", () =
     expect(await screen.findByRole("button", { name: "Aplicar" })).toBeEnabled();
   });
 
-  it("Acomodo reevalúa can() con cada foto; «Probar cruce» sigue deshabilitado hasta T-150 (no hay `crossing` en la fuente real)", async () => {
+  it("Acomodo reevalúa can() con cada foto; con el par emparejado «Probar cruce» queda habilitado (T-150)", async () => {
     const { b, push } = bridge({ kind: "connecting" });
     const src = new LiveSource(b);
     const store = await open(src, "#/acomodo");
     expect(store.can("monitors")).toBe(false);
     await flush(async () => push(snapshot()));
-    // `can()` sí cambia con la foto (lo de T-153); el cruce real depende de T-150.
+    // `can()` cambia con la foto (T-153) y, con el par emparejado, el cruce real está disponible (T-150).
     expect(store.can("monitors")).toBe(true);
-    expect(store.can("crossing")).toBe(false);
+    expect(store.can("crossing")).toBe(true);
   });
 
   it("vuelve a deshabilitarse si el agente se pierde", async () => {
