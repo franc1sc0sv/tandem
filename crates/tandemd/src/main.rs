@@ -132,6 +132,9 @@ fn run_hosted(args: RunArgs) -> anyhow::Result<()> {
     let agent = std::thread::Builder::new()
         .name("tandemd".into())
         .spawn(move || {
+            // Si `run` entra en pánico el hilo muere, pero el run loop del hilo principal
+            // no vuelve: sin esto el proceso quedaría vivo y sin agente.
+            let _guard = ExitOnPanic::new(std::process::exit);
             let code = match run(args) {
                 Ok(()) => 0,
                 Err(e) => {
@@ -278,4 +281,54 @@ fn install(_args: RunArgs) -> anyhow::Result<()> {
 #[cfg(not(windows))]
 fn uninstall() -> anyhow::Result<()> {
     anyhow::bail!("--uninstall solo existe en Windows")
+}
+
+/// Al soltarse durante un pánico llama a `exit(1)`; en una salida normal no hace nada.
+/// `exit` se inyecta para poder probarlo sin matar el proceso de pruebas.
+#[cfg(any(test, target_os = "macos"))]
+struct ExitOnPanic<F: FnMut(i32)> {
+    exit: F,
+}
+
+#[cfg(any(test, target_os = "macos"))]
+impl<F: FnMut(i32)> ExitOnPanic<F> {
+    fn new(exit: F) -> Self {
+        Self { exit }
+    }
+}
+
+#[cfg(any(test, target_os = "macos"))]
+impl<F: FnMut(i32)> Drop for ExitOnPanic<F> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            (self.exit)(1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExitOnPanic;
+    use std::cell::Cell;
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    #[test]
+    fn el_guard_sale_con_1_si_hay_panico() {
+        let code = Cell::new(None);
+        let r = catch_unwind(AssertUnwindSafe(|| {
+            let _g = ExitOnPanic::new(|c| code.set(Some(c)));
+            panic!("prueba");
+        }));
+        assert!(r.is_err());
+        assert_eq!(code.get(), Some(1));
+    }
+
+    #[test]
+    fn el_guard_no_sale_sin_panico() {
+        let code = Cell::new(None);
+        {
+            let _g = ExitOnPanic::new(|c| code.set(Some(c)));
+        }
+        assert_eq!(code.get(), None);
+    }
 }
