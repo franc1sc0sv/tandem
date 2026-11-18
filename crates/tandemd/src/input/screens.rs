@@ -42,7 +42,8 @@ pub fn from_spec(s: &ScreenSpec) -> Screen {
 }
 
 /// The ones a machine reads, with an id per screen (`pantalla-1`, `pantalla-2`...; the Spanish ids
-/// are kept: saved `[[cables]]` refer to them). The id only has to be unique on its machine, so it does not depend on the side.
+/// are kept: saved `[[cables]]` refer to them). The id only has to be unique on its machine, so it
+/// does not depend on the side.
 pub fn detected(bounds: &[Rect]) -> Vec<Screen> {
     bounds
         .iter()

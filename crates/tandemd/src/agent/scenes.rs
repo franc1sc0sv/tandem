@@ -220,7 +220,7 @@ impl Agent {
                 Some(d) => d.check(monitor, *machine),
                 None => self.check_real_monitor(monitor, *machine),
             };
-            r.map_err(|e| format!("«{}»: {e}", scene.name))?;
+            r.map_err(|e| format!("\"{}\": {e}", scene.name))?;
         }
         Ok(())
     }

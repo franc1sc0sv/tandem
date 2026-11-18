@@ -465,10 +465,7 @@ fn fill_machines(doc: &mut DocumentMut, machines: &Machines) -> Result<(), Confi
                     .entry(side.as_str())
                     .or_insert_with(|| Item::Table(Table::new()));
                 let t = entry.as_table_like_mut().ok_or_else(|| {
-                    ConfigEditError::Invalid(format!(
-                        "[machines.{}] is not a table",
-                        side.as_str()
-                    ))
+                    ConfigEditError::Invalid(format!("[machines.{}] is not a table", side.as_str()))
                 })?;
                 fill_machine(t, info);
             }
@@ -590,10 +587,10 @@ mod tests {
         assert_eq!(AgentConfig::from_toml(&text).unwrap().desk.name, None);
     }
 
-    const PC: &str = r#"# La PC.
+    const PC: &str = r#"# The PC.
 machine = "b"
 
-# El 34", medido a mano.
+# The 34", measured by hand.
 [[screens]]
 machine = "b"
 id = "34"
@@ -653,7 +650,7 @@ scale = 2.0
         sync.desk.modules.set(Machine::B, "clipboard", false);
         sync.stamp.at = 1_763_400_000_000;
         let out = with_desk(PC, Machine::B, &sync).unwrap();
-        assert!(out.starts_with("# La PC.\n"), "{out}");
+        assert!(out.starts_with("# The PC.\n"), "{out}");
         // The 34"'s comment remains: it was updated in place.
         assert!(out.contains("# The 34\", measured by hand."), "{out}");
         assert!(!out.contains("id = \"laptop\""), "{out}");
@@ -669,7 +666,10 @@ scale = 2.0
             Some(crate::desk_sync::fingerprint(&sync.desk))
         );
         assert!(out.contains("[modules.b]"), "{out}");
-        assert!(!out.contains("[modules]\n"), "without an empty header: {out}");
+        assert!(
+            !out.contains("[modules]\n"),
+            "without an empty header: {out}"
+        );
         // And again it changes nothing.
         assert_eq!(with_desk(&out, Machine::B, &sync).unwrap(), out);
         // Without arrangement, without scenes or modules, their sections go away.
@@ -749,7 +749,7 @@ scale = 2.0
         assert_eq!(cfg.input.keyboard, Some(Machine::B));
         assert!(!cfg.desk.prefs.drag_files);
         assert!(!out.contains("server"), "{out}");
-        assert!(out.starts_with("# La PC.\n"));
+        assert!(out.starts_with("# The PC.\n"));
         // Without an [input] section, it creates it.
         let out = with_keyboard(PC, Machine::A).unwrap();
         assert_eq!(
@@ -813,7 +813,10 @@ scale = 2.0
         ));
         let out = with_desk(PC, Machine::B, &sync).unwrap();
         assert!(out.contains("[machines.a]"), "{out}");
-        assert!(!out.contains("[machines]\n"), "without an empty header: {out}");
+        assert!(
+            !out.contains("[machines]\n"),
+            "without an empty header: {out}"
+        );
         let cfg = AgentConfig::from_toml(&out).unwrap();
         assert_eq!(cfg.desk.machines, sync.desk.machines);
         sync.desk.machines.a = None;
@@ -828,7 +831,7 @@ scale = 2.0
         let cfg = AgentConfig::from_toml(&text).unwrap().with_side(Machine::A);
         let sync = version(cfg.desk.clone(), 1, Machine::A);
         let out = with_sides(&text, cfg.machine, cfg.input.keyboard, &sync).unwrap();
-        assert!(out.starts_with("# La PC.\n"), "{out}");
+        assert!(out.starts_with("# The PC.\n"), "{out}");
         let back = AgentConfig::from_toml(&out).unwrap();
         assert!(!back.rewrite_sides);
         assert_eq!(back.machine, Machine::A);

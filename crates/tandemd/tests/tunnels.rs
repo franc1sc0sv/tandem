@@ -205,10 +205,7 @@ async fn the_output_survives_the_path_cut_and_closing_releases_the_resources() {
             .unwrap(),
         Reply::Done
     );
-    assert!(
-        closed.load(Ordering::SeqCst),
-        "B's resource is still open"
-    );
+    assert!(closed.load(Ordering::SeqCst), "B's resource is still open");
     until(|| origin.tunnels()[0].state == TunnelState::Closed).await;
     assert_eq!(
         within(ui.request(UiCommand::GetTunnels)).await.unwrap(),

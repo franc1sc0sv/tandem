@@ -99,11 +99,7 @@ async fn start(
     );
     std::fs::write(&paths.config, &text).unwrap();
     let cfg = AgentConfig::load(&paths.config).unwrap();
-    assert_eq!(
-        cfg.desk,
-        tandem_core::Config::default(),
-        "clean install"
-    );
+    assert_eq!(cfg.desk, tandem_core::Config::default(), "clean install");
     let started = daemon::start(
         cfg,
         &paths,

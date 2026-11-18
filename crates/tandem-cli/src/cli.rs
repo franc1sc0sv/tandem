@@ -69,10 +69,10 @@ pub fn usage() -> String {
         }
     }
     s.push_str(
-        "\n  mcp           Servidor MCP por stdio (`claude mcp add tandem -- tandem mcp`)\n\
+        "\n  mcp           MCP server over stdio (`claude mcp add tandem -- tandem mcp`)\n\
          \n\
-         Opciones:\n  --json                 salida JSON (la misma que da el MCP)\n  \
-         --data-dir <dir>       directorio de datos del agente\n  \
+         Options:\n  --json                 JSON output (the same the MCP gives)\n  \
+         --data-dir <dir>       the agent's data directory\n  \
          -h, --help | -V, --version\n",
     );
     s

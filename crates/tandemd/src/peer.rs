@@ -326,7 +326,9 @@ async fn respond<C: ControlChannel>(
             }
             // It only counts as a first message ([`accept_streams`]).
             ControlMsg::Open(channel) => {
-                return Err(format!("channel {channel:?} opened midway through a stream"));
+                return Err(format!(
+                    "channel {channel:?} opened midway through a stream"
+                ));
             }
             // Replies belong to the requester.
             // Served in `serve_stream`, which has the connection.

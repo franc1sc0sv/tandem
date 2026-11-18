@@ -78,7 +78,7 @@ pub fn two_ports() -> io::Result<(u16, u16)> {
 #[macro_export]
 macro_rules! start_pair {
     (|$pa:ident, $pb:ident| $a:expr, $b:expr) => {
-        $crate::start_pair!(ports: || $crate::test_ports::free_port().expect("loopback port")
+        $crate::start_pair!(ports: || $crate::test_ports::free_port().expect("loopback port"); |$pa, $pb| $a, $b)
     };
     // With another way of choosing each port (for example, one with its free neighbor).
     (ports: $gen:expr; |$pa:ident, $pb:ident| $a:expr, $b:expr) => {{

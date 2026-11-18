@@ -62,7 +62,7 @@ port = {DEFAULT_PORT}
 
 [input]
 # Where the keyboard and mouse are is stated by the USB hub or setup (saved here as
-# `keyboard = \"a\"` or `\"b\"`). Without that, the app says "not set".
+# `keyboard = \"a\"` or `\"b\"`). Without that, the app says \"not set\".
 # For the roles to change on their own when moving the hub, add [input.hub] with the VID:PID
 # of the keyboard and the mouse (`keyboard` and `mouse`).
 
@@ -179,7 +179,10 @@ pub(crate) mod tests {
             assert!(cfg.network.peers.is_empty());
             assert_eq!(cfg.power.wol, None, "without an invented MAC");
             assert_eq!(cfg.input.hub, None, "without an invented VID:PID");
-            assert!(!cfg.input.keyboard_defined(), "the keyboard is never assumed");
+            assert!(
+                !cfg.input.keyboard_defined(),
+                "the keyboard is never assumed"
+            );
             // Nor an example value that looks real.
             for fake in ["9c:6b", "046d", "10.77.", "monitors", "\"mac\"", "\"pc\""] {
                 assert!(!text.contains(fake), "{fake} en\n{text}");

@@ -150,7 +150,7 @@ async fn copies_folders_and_forwards_ports_over_quic() {
     let Reply::Files(r) = within(claude.request(put)).await.unwrap() else {
         panic!("the report was expected");
     };
-    assert_eq!((r.files, r.bytes, r.sent), (3, 2_500_004, 2_500_004));
+    assert_eq!((r.files, r.bytes, r.sent), (3, 2_500_005, 2_500_005));
     assert_eq!(fs::read(dst.join("big.bin")).unwrap(), big);
     assert_eq!(
         fs::read(dst.join("sub folder/smörgås.txt")).unwrap(),
@@ -177,7 +177,7 @@ async fn copies_folders_and_forwards_ports_over_quic() {
     .unwrap() else {
         panic!("the report was expected");
     };
-    assert_eq!((r.files, r.bytes), (3, 2_500_004));
+    assert_eq!((r.files, r.bytes), (3, 2_500_005));
     assert_eq!(fs::read(back.join("big.bin")).unwrap(), big);
 
     // Ports in both directions against an echo of A.

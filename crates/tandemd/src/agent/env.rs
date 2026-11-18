@@ -451,7 +451,10 @@ mod tests {
         drop(w2);
         assert_eq!(peer.watches(), [false]);
         tokio::time::sleep(RENEW * 3).await;
-        assert!(peer.watches().is_empty(), "with nobody watching it is not renewed");
+        assert!(
+            peer.watches().is_empty(),
+            "with nobody watching it is not renewed"
+        );
     }
 
     #[tokio::test(start_paused = true)]

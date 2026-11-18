@@ -1778,7 +1778,7 @@ pub(crate) mod tests {
             DeskChanged {
                 by: Machine::B,
                 rev: 5,
-                summary: "Arrangement and screens".into(),
+                summary: "Acomodo y pantallas".into(),
                 undo_to: before,
             }
         );
@@ -1870,7 +1870,7 @@ pub(crate) mod tests {
             revs,
             [start.stamp.rev + 2, start.stamp.rev + 1, start.stamp.rev]
         );
-        assert_eq!(h[0].summary, "Keyboard and mouse");
+        assert_eq!(h[0].summary, "Teclado y mouse");
 
         // Undo to the beginning: exactly that desk, as a new version.
         let Reply::Desk(back) = a.handle(UiCommand::UndoDesk {
@@ -2108,7 +2108,10 @@ pub(crate) mod tests {
         let side = a.subscribe_machine();
         let before = a.desk();
         a.adopt_side(Machine::A);
-        assert!(!side.has_changed().unwrap(), "the same side changes nothing");
+        assert!(
+            !side.has_changed().unwrap(),
+            "the same side changes nothing"
+        );
 
         a.adopt_side(Machine::B);
         assert!(side.has_changed().unwrap());

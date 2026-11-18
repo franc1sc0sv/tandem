@@ -275,7 +275,7 @@ machine = "b"
             let _ = s.recv_hello().await;
         });
         let r = reason(status_with(here(), IpcClient::handshake(client), QUERY_TIMEOUT).await);
-        assert!(r.contains("versión de protocolo incompatible"), "{r}");
+        assert!(r.contains("incompatible protocol version"), "{r}");
         assert!(r.contains("actualiza"), "{r}");
     }
 

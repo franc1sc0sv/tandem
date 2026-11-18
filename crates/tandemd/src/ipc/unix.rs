@@ -77,7 +77,10 @@ impl Listener for UnixIpcListener {
             match stream.peer_cred() {
                 Ok(cred) if cred.uid() == self.uid => return Ok(stream),
                 Ok(cred) => {
-                    tracing::warn!(uid = cred.uid(), "IPC connection from another user rejected")
+                    tracing::warn!(
+                        uid = cred.uid(),
+                        "IPC connection from another user rejected"
+                    )
                 }
                 Err(e) => tracing::warn!("IPC connection without credentials rejected: {e}"),
             }

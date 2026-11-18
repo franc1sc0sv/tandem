@@ -80,10 +80,7 @@ pub fn render(
     }
     match status {
         None => {
-            let _ = writeln!(
-                out,
-                "Paths: the agent is not running (no state to show)."
-            );
+            let _ = writeln!(out, "Paths: the agent is not running (no state to show).");
         }
         Some(s) => {
             let _ = writeln!(out, "Paths:");

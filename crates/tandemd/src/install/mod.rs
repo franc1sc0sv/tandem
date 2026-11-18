@@ -239,7 +239,7 @@ mod tests {
         };
         assert_eq!(
             command_line(Path::new("t.exe"), &args),
-            r#""t.exe" --config "D:\cfg\tandem.toml" --data-dir "D:\datos""#
+            r#""t.exe" --config "D:\cfg\tandem.toml" --data-dir "D:\data""#
         );
     }
 

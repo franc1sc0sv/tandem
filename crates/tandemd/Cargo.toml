@@ -51,7 +51,7 @@ windows = { workspace = true, features = [
 
 [dev-dependencies]
 proptest.workspace = true
-# Las pruebas (y el binario que lanzan) se compilan con los backends simulados.
+# The tests (and the binary they launch) are built with the simulated backends.
 tandemd = { path = ".", features = ["sim-backends"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "test-util", "time"] }

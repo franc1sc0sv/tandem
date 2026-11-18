@@ -996,7 +996,8 @@ mod tests {
     #[test]
     fn rejects_bad_input() {
         let base = "machine = \"a\"\n[input]\n";
-        let err = AgentConfig::from_toml(&format!("{base}lock_shortcut = [\"NotAKey\"]")).unwrap_err();
+        let err =
+            AgentConfig::from_toml(&format!("{base}lock_shortcut = [\"NotAKey\"]")).unwrap_err();
         assert!(
             matches!(err, ConfigError::UnknownKey(ref k) if k == "NotAKey"),
             "{err}"

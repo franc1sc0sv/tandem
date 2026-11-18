@@ -255,7 +255,7 @@ async fn una_escena_imposible_no_toca_nada() {
     let Reply::Rejected(why) = d.mac.handle(UiCommand::ApplyScene { id: "nada".into() }) else {
         panic!("se aceptó una escena que no existe");
     };
-    assert!(why.contains("no existe"), "{why}");
+    assert!(why.contains("does not exist"), "{why}");
     // Un monitor que no se ve no entra en una escena (T-111: el editor lo rechaza).
     let reply = d.mac.handle(UiCommand::EditDesk {
         patch: DeskPatch::AddScene(Scene {

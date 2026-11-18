@@ -705,7 +705,7 @@ async fn the_input_status_carries_the_real_screens_of_both_machines() {
 /// A hand-written `[[screens]]` in `tandem.toml` changes the geometry: the PC declares its
 /// 2000x720 screen even though it reads 3440x1440, and the Mac to its right, centered (D18). The
 /// crossing comes from the declared arrangement (the shared stretch), and the edited desk also arrives
-/// a la Mac.
+/// at the Mac.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn a_hand_written_screen_in_tandem_toml_changes_the_geometry() {
     let (mac_id, pc_id) = sides(Identity::from_seed([33; 32]), Identity::from_seed([34; 32]));
@@ -1365,7 +1365,10 @@ async fn switching_off_the_clipboard_and_the_input_stops_them() {
     assert!(copied("before", true).await);
 
     pc.agent.set_module(ModuleId::Clipboard, false).unwrap();
-    assert!(!copied("off", false).await, "without the clipboard it does not arrive");
+    assert!(
+        !copied("off", false).await,
+        "without the clipboard it does not arrive"
+    );
     // The input was not cut.
     assert!(pc.agent.input_status().session);
 

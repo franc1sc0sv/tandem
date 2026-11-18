@@ -107,10 +107,7 @@ fn example_configs_are_valid() {
         assert!(out.status.success(), "{file}: {out:?}");
         let stdout = String::from_utf8(out.stdout).unwrap();
         // Until the keys are known, this machine is A.
-        assert!(
-            stdout.contains("side A, 3 screens declared;"),
-            "{stdout}"
-        );
+        assert!(stdout.contains("side A, 3 screens declared;"), "{stdout}");
         assert!(stdout.contains("v0.2"), "{stdout}");
         assert!(out.stderr.is_empty(), "{file}: no warnings");
     }

@@ -522,7 +522,11 @@ mod tests {
         let policy = RemapPolicy::default();
         for os in Os::ALL {
             assert_eq!(direction(os, Some(os)), None);
-            assert_eq!(direction(os, None), None, "without knowing the other, nothing");
+            assert_eq!(
+                direction(os, None),
+                None,
+                "without knowing the other, nothing"
+            );
             let (tx, mut rx) = mpsc::unbounded_channel();
             let sink = CaptureSink::new(tx, &policy, os, Some(os));
             for m in [ModifierKey::MetaLeft, ModifierKey::ControlLeft] {

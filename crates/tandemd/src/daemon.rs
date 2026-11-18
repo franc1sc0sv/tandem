@@ -340,7 +340,11 @@ mod tests {
             }
         };
         let mut trust = TrustStore::open(dir.path().join("trust.toml")).unwrap();
-        assert_eq!(resolve_side(&low.public_key(), &trust), None, "without a peer");
+        assert_eq!(
+            resolve_side(&low.public_key(), &trust),
+            None,
+            "without a peer"
+        );
         trust.add(tandem_link::identity::TrustedPeer {
             public_key: high.public_key(),
             name: "other".into(),

@@ -250,16 +250,13 @@ mod tests {
             let mut want = before.clone();
             want.on.set(me.other(), false);
             assert_eq!(r.agent.state(), want, "{me}");
-            assert!(
-                r.agent.state().is_on(me),
-                "{me}: never off for itself"
-            );
+            assert!(r.agent.state().is_on(me), "{me}: never off for itself");
             let PowerEvent::PeerLost { machine, reason } = r.events.try_recv().unwrap();
             assert_eq!(machine, me.other());
             assert!(reason.contains("15 s"), "{reason}");
             assert!(
                 reason.starts_with(&format!(
-                    "The {} is not responding",
+                    "The {} has not responded",
                     r.agent.machine_name(me.other())
                 )),
                 "{reason}"

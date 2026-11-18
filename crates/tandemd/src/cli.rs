@@ -3,22 +3,22 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+pub const USAGE: &str = "\
 Usage: tandemd [options]
        tandemd links [--config <file>] [--data-dir <dir>]
-       tandemd links [--config <archivo>] [--data-dir <dir>]
+
 Options:
-Opciones:
-    --config <file>           tandem.toml to use (by default, the one in the app directory;
-                                                        if it does not exist, the agent generates it with an empty desk)
-    --data-dir <dir>          directory for state, logs and socket (by default, the app's)
-    --check-config <file>     validates the configuration and exits (code != 0 if invalid)
-    --install                 registers the startup with the session (Windows; used by the
-                                                        installer)
-    --uninstall               removes the startup with the session (leaves the configuration)
-    links                     lists the network interfaces, their detected type, the address the
-                                                        wired link would use and the state of each path (spike S5)
-    -h, --help                shows this help
-    -V, --version             shows the version
+  --config <file>           tandem.toml to use (by default, the one in the app directory;
+                            if it does not exist, the agent generates it with an empty desk)
+  --data-dir <dir>          directory for state, logs and socket (by default, the app's)
+  --check-config <file>     validates the configuration and exits (code != 0 if invalid)
+  --install                 registers the startup with the session (Windows; used by the
+                            installer)
+  --uninstall               removes the startup with the session (leaves the configuration)
+  links                     lists the network interfaces, their detected type, the address the
+                            wired link would use and the state of each path (spike S5)
+  -h, --help                shows this help
+  -V, --version             shows the version";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
@@ -260,7 +260,10 @@ mod tests {
             p(&["--check-config"]),
             Err(CliError::MissingValue("--check-config"))
         );
-        assert_eq!(p(&["--nothing"]), Err(CliError::Unknown("--nothing".into())));
+        assert_eq!(
+            p(&["--nothing"]),
+            Err(CliError::Unknown("--nothing".into()))
+        );
         assert_eq!(p(&["loose"]), Err(CliError::Unknown("loose".into())));
         assert_eq!(
             p(&["--config", "a", "--config", "b"]),

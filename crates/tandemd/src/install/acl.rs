@@ -102,10 +102,7 @@ pub fn verdict(owner: &str, aces: &[Ace], rigor: Rigor) -> Result<(), String> {
     }
     for ace in aces {
         if !ace.inherit_only && ace.mask & rigor.mask() != 0 && !trusted(&ace.sid) {
-            return Err(format!(
-                "{} can write (mask {:#x})",
-                ace.sid, ace.mask
-            ));
+            return Err(format!("{} can write (mask {:#x})", ace.sid, ace.mask));
         }
     }
     Ok(())

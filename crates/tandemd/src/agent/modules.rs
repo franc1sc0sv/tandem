@@ -102,7 +102,10 @@ impl Agent {
             return Reply::Rejected(format!("it is not yet known which modules the {name} has"));
         };
         match peer.modules.iter().find(|m| m.id == module) {
-            None => Reply::Rejected(format!("\"{}\" does not exist on the {name}", default_name(module))),
+            None => Reply::Rejected(format!(
+                "\"{}\" does not exist on the {name}",
+                default_name(module)
+            )),
             Some(m) if !m.switchable => {
                 Reply::Rejected(format!("\"{}\" cannot be turned on or off", m.name))
             }

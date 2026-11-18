@@ -756,10 +756,7 @@ async fn pair_two_fresh_agents(x: u8, y: u8) {
     assert_eq!(mac.ask(UiCommand::ConfirmPairing).await, Reply::Done);
     assert_eq!(pc.ask(UiCommand::ConfirmPairing).await, Reply::Done);
 
-    until_input("input session open on Mac", &mac.agent, |s| {
-        s.session
-    })
-    .await;
+    until_input("input session open on Mac", &mac.agent, |s| s.session).await;
     until_input("input session open on PC", &pc.agent, |s| s.session).await;
     // Each with the keys' side, and the two distinct.
     let mac_side = Machine::of_keys(
@@ -792,14 +789,8 @@ async fn pair_two_fresh_agents(x: u8, y: u8) {
     }
 
     assert_eq!(pc.ask(UiCommand::Unpair).await, Reply::Done);
-    until_input("input session closed on PC", &pc.agent, |s| {
-        !s.session
-    })
-    .await;
-    until_input("input session closed on Mac", &mac.agent, |s| {
-        !s.session
-    })
-    .await;
+    until_input("input session closed on PC", &pc.agent, |s| !s.session).await;
+    until_input("input session closed on Mac", &mac.agent, |s| !s.session).await;
     pc.stop().await;
     mac.stop().await;
 }

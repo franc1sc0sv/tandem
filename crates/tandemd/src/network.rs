@@ -946,7 +946,9 @@ fn spawn_manager(
         if let Some(shared) = shared.upgrade() {
             tokio::spawn(async move {
                 match shared.forget(false) {
-                    Ok(()) => tracing::info!("the other machine no longer trusts this one: unpaired"),
+                    Ok(()) => {
+                        tracing::info!("the other machine no longer trusts this one: unpaired")
+                    }
                     Err(e) => tracing::debug!("there was no peer to forget: {e}"),
                 }
             });

@@ -1268,10 +1268,7 @@ mod tests {
         assert!(!f(None, None, false), "nothing, not set");
         assert!(f(Some(Machine::B), None, false));
         assert!(f(None, Some(false), false), "the hub here is detected");
-        assert!(
-            f(None, None, true),
-            "the other machine's hub also counts"
-        );
+        assert!(f(None, None, true), "the other machine's hub also counts");
     }
 
     use super::*;

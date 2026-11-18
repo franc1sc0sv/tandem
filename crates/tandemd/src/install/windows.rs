@@ -437,10 +437,10 @@ mod tests {
     fn round_trip_in_hkcu() {
         let mut run = RunKey;
         let before = run.get().unwrap();
-        run.set(r#""C:\Ruta con espacios\tandemw.exe""#).unwrap();
+        run.set(r#""C:\Path with spaces\tandemw.exe""#).unwrap();
         assert_eq!(
             run.get().unwrap().as_deref(),
-            Some(r#""C:\Ruta con espacios\tandemw.exe""#)
+            Some(r#""C:\Path with spaces\tandemw.exe""#)
         );
         assert!(run.remove().unwrap());
         assert_eq!(run.get().unwrap(), None);

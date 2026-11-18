@@ -18,7 +18,8 @@ use tandem_proto::{InputPermission, InputStatus, ModuleId, ModuleInfo, ModuleSta
 /// unavailable for one of these true causes.
 pub const NO_FILE_DRAG: &str = "Could not open the system's file drag detector";
 pub const NO_FILE_DRAG_OS: &str = "This system has no file drag between machines";
-pub const NO_ENGINE: &str = "The keyboard and mouse engine did not start, and the drag goes with it";
+pub const NO_ENGINE: &str =
+    "The keyboard and mouse engine did not start, and the drag goes with it";
 
 /// The "Files" problem according to what the system gave: `supported` is whether this system
 /// has a detector (Windows and macOS), `present` whether the engine received one.
@@ -161,7 +162,10 @@ impl Registry {
     /// Whether the user can turn `id` on or off here; if not, the reason for the UI.
     pub fn check_switch(&self, id: ModuleId) -> Result<(), String> {
         match self.get(id) {
-            None => Err(format!("\"{}\" does not exist on this machine", default_name(id))),
+            None => Err(format!(
+                "\"{}\" does not exist on this machine",
+                default_name(id)
+            )),
             Some(m) if !m.switchable() => {
                 Err(format!("\"{}\" cannot be turned on or off", m.name()))
             }
@@ -226,7 +230,10 @@ fn permission_name(p: InputPermission) -> &'static str {
 fn missing_permissions(missing: &[InputPermission]) -> Option<String> {
     match missing {
         [] => None,
-        [one] => Some(format!("The {} permission is missing", permission_name(*one))),
+        [one] => Some(format!(
+            "The {} permission is missing",
+            permission_name(*one)
+        )),
         many => {
             let names: Vec<_> = many.iter().map(|p| permission_name(*p)).collect();
             let (last, rest) = names.split_last()?;
@@ -388,8 +395,7 @@ impl Module for SecureDesktop {
     }
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
         ModuleState::Unavailable {
-            reason: "It needs Tandem's system service, which is not yet in this version"
-                .into(),
+            reason: "It needs Tandem's system service, which is not yet in this version".into(),
         }
     }
 }

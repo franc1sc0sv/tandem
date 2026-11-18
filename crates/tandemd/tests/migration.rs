@@ -31,10 +31,7 @@ fn keys(mac_low: bool) -> (Identity, Identity) {
 /// What a machine's agent would do on start: read and resolve the side.
 fn migrate(text: &str, own: &Identity, peer: &Identity) -> AgentConfig {
     let cfg = AgentConfig::from_toml(text).unwrap();
-    assert!(
-        cfg.rewrite_sides,
-        "a v0.2 file has to be rewritten"
-    );
+    assert!(cfg.rewrite_sides, "a v0.2 file has to be rewritten");
     let side = Machine::of_keys(own.public_key().as_bytes(), peer.public_key().as_bytes()).unwrap();
     cfg.with_side(side)
 }

@@ -208,7 +208,10 @@ mod tests {
         let mut cfg = fixtures::desk();
         cfg.os = tandem_core::Os::MacOs;
         let p = PowerSteps::for_machine(&cfg);
-        assert!(!p.has_wake(), "without [power.wol] there is nothing to wake with");
+        assert!(
+            !p.has_wake(),
+            "without [power.wol] there is nothing to wake with"
+        );
         assert!(p.shutdown.is_none(), "macOS does not shut down from Tandem");
 
         cfg.power.wol = Some(tandem_power::WolTarget::new(

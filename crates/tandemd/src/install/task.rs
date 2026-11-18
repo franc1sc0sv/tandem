@@ -312,7 +312,10 @@ mod tests {
                 panic!("the Run key was expected for a writable path: {got:?}");
             };
             assert!(why.contains(writable), "{why}");
-            assert_eq!(task.task, None, "it is not registered with the writable path");
+            assert_eq!(
+                task.task, None,
+                "it is not registered with the writable path"
+            );
             assert!(run.command.is_some());
         }
     }
