@@ -2,7 +2,7 @@
 # Suite de hardware (T-123). Se corre a mano desde WSL; NUNCA en CI.
 #
 #   scripts/hw/run.sh [--sim] [--with-monitors] [--only a,b] [--skip-build] [--keep-cache] [--ref REF]
-#                     [--mac HOST] [--pc-ip IP] [--mac-ip IP] [--plan]
+#                     [--mac HOST] [--mac-link DIR] [--pc-ip IP] [--mac-ip IP] [--plan]
 #
 # Compila los binarios de Windows (mingw, en WSL) y de macOS (por ssh, en la Mac), arranca
 # un agente de prueba en cada máquina con identidades preprovisionadas y datos en carpetas
@@ -20,7 +20,13 @@
 #                    ignora sin --with-monitors.
 #   --keep-cache     conserva en la Mac ~/.cache/tandem-hw-src y ~/.cache/tandem-hw-target
 #                    (caché de compilación); por defecto se borran al terminar.
+#   --mac-link DIR   dirección link-local del cable USB4 de la Mac (o TANDEM_HW_MAC_LINK). Si
+#                    `mac-runner` no responde (Wi-Fi caído), se usa esta dirección con el mismo
+#                    usuario y llave del alias ssh. Sin IPs fijas en el repo (D10).
 #   --plan           imprime los pasos y sale.
+#
+# Todas las llamadas a powershell.exe y ssh llevan `< /dev/null` y `timeout`; los pasos largos
+# corren en segundo plano con `wait`, así Ctrl-C y SIGTERM disparan siempre la limpieza.
 #
 # Salida: 0 sin fallos, 1 con fallos, 2 si no se pudo armar el entorno.
 
@@ -35,6 +41,10 @@ ONLY=link,tunnels,input
 REF=origin/develop
 MAC_HOST=${TANDEM_HW_MAC:-mac-runner}
 PC_IP="" MAC_IP=""
+MAC_LINK=${TANDEM_HW_MAC_LINK:-}
+T_CALL=${TANDEM_HW_TIMEOUT:-60}      # llamadas cortas a powershell.exe / ssh (s)
+T_HW=${TANDEM_HW_STEP_TIMEOUT:-900}  # una corrida de tandem-hw (s)
+T_BUILD=${TANDEM_HW_BUILD_TIMEOUT:-3600}
 
 while [ $# -gt 0 ]; do
   case $1 in
@@ -46,9 +56,10 @@ while [ $# -gt 0 ]; do
     --only) ONLY=$2; shift ;;
     --ref) REF=$2; shift ;;
     --mac) MAC_HOST=$2; shift ;;
+    --mac-link) MAC_LINK=$2; shift ;;
     --pc-ip) PC_IP=$2; shift ;;
     --mac-ip) MAC_IP=$2; shift ;;
-    -h|--help) sed -n 2,25p "$0"; exit 0 ;;
+    -h|--help) sed -n 2,30p "$0"; exit 0 ;;
     *) echo "opción desconocida: $1" >&2; exit 2 ;;
   esac
   shift
@@ -68,6 +79,7 @@ if [ "$PLAN" = 1 ]; then
   echo "1 comprobar que no hay un tandemd real  2 compilar  3 aprovisionar y arrancar"
   echo "4 pair,ping  5 túneles PC->Mac y Mac->PC  6 entrada sintética en las dos direcciones"
   echo "7 monitores con vuelta automática (solo --with-monitors)  8 informe  9 limpieza"
+  echo "Mac: ssh $MAC_HOST; respaldo por cable: ${MAC_LINK:-ninguno (usa --mac-link o TANDEM_HW_MAC_LINK)}"
   exit 0
 fi
 
@@ -85,9 +97,38 @@ die() { say "ERROR: $*"; exit 2; }
 
 # --- Ayudantes por máquina ----------------------------------------------------------------
 psq() { local a out=""; for a in "$@"; do out+="'${a//\'/\'\'}' "; done; printf '%s' "$out"; }
-pc() { "$PS" -NoProfile -NonInteractive -Command "$1" | tr -d '\r'; }
-mac() { ssh -o BatchMode=yes -o ConnectTimeout=10 "$MAC_HOST" "$@"; }
+# Siempre con stdin cerrado y tope de tiempo: powershell.exe y ssh no deben poder colgar la suite.
+pc() { timeout -k 5 "${TMO:-$T_CALL}" "$PS" -NoProfile -NonInteractive -Command "$1" </dev/null | tr -d '\r'; }
+MAC_OPTS=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=3)
+mac() { timeout -k 5 "${TMO:-$T_CALL}" ssh "${MAC_OPTS[@]}" "$MAC_HOST" "$@" </dev/null; }
+mac_in() { timeout -k 5 "${TMO:-$T_CALL}" ssh "${MAC_OPTS[@]}" "$MAC_HOST" "$@"; }   # lee stdin (tar)
 macq() { local a out=""; for a in "$@"; do out+="$(printf '%q ' "$a")"; done; printf '%s' "$out"; }
+
+# Mata un proceso y todos sus descendientes (un `cargo` en segundo plano no muere con su subshell).
+killtree() {
+  local p=$1 c
+  for c in $(pgrep -P "$p" 2>/dev/null); do killtree "$c"; done
+  kill "$p" 2>/dev/null
+}
+# Corre un comando largo en segundo plano y espera con `wait`: bash ejecuta el trap de
+# inmediato al llegar una señal, cosa que no hace mientras un hijo de primer plano sigue vivo.
+bgwait() {
+  "$@" &
+  local p=$!
+  BG_PIDS+=("$p")
+  wait "$p"
+}
+
+# Si `mac-runner` no contesta (a veces el Wi-Fi), usa la dirección link-local del cable.
+MAC_VIA_CABLE=0
+pick_mac_route() {
+  mac true >/dev/null 2>&1 && return 0
+  [ -n "$MAC_LINK" ] || return 1
+  say "sin respuesta de $MAC_HOST; probando el cable en $MAC_LINK"
+  MAC_OPTS+=(-o "HostName=$MAC_LINK")
+  MAC_VIA_CABLE=1
+  mac true >/dev/null 2>&1
+}
 
 PC_DIR="" PC_BIN="" MAC_DIR="" SIM_BIN=""
 PC_PID="" MAC_PID="" SIM_PIDS=() PC_ORIG_INPUT=""
@@ -96,11 +137,11 @@ BG_PIDS=()
 # tandem-hw en cada "máquina" (en --sim, las dos son locales).
 pc_hw() {
   if [ "$SIM" = 1 ]; then "$SIM_BIN/tandem-hw" "$@"
-  else pc "& $(psq "$PC_DIR\\bin\\tandem-hw.exe" "$@")"; fi
+  else TMO=$T_HW pc "& $(psq "$PC_DIR\\bin\\tandem-hw.exe" "$@")"; fi
 }
 mac_hw() {
   if [ "$SIM" = 1 ]; then "$SIM_BIN/tandem-hw" "$@"
-  else mac "$(macq "$MAC_DIR/bin/tandem-hw" "$@")"; fi
+  else TMO=$T_HW mac "$(macq "$MAC_DIR/bin/tandem-hw" "$@")"; fi
 }
 
 # --- Limpieza: siempre, aunque algo falle -------------------------------------------------
@@ -109,12 +150,12 @@ cleanup() {
   trap - EXIT INT TERM
   say "limpieza"
   local p
-  for p in "${BG_PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
-  for p in "${SIM_PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null; done
+  for p in "${BG_PIDS[@]:-}"; do [ -n "$p" ] && killtree "$p"; done
+  for p in "${SIM_PIDS[@]:-}"; do [ -n "$p" ] && killtree "$p"; done
   if [ "$SIM" = 0 ]; then
     # 1. Primero tandem-hw (dueño del guardia) y los agentes; el vigilante NO se toca: tiene
     #    que ver cerrarse su entrada y volver solo.
-    [ -n "$PC_PID" ] && pc "Stop-Process -Id $PC_PID -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1
+    [ -n "$PC_PID" ] && pc "taskkill /F /T /PID $PC_PID" >/dev/null 2>&1
     [ -n "$PC_DIR" ] && pc "Get-Process | Where-Object { \$_.Path -like '$PC_DIR\\*' -and \$_.Path -notlike '*tandem-monitor-guard*' } | Stop-Process -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1
     [ -n "$MAC_PID" ] && mac "kill $MAC_PID 2>/dev/null; pkill -f '$MAC_DIR/bin/' 2>/dev/null; true" >/dev/null 2>&1
     if [ -n "$PC_DIR" ] && [ "$MONITORS" = 1 ]; then
@@ -146,11 +187,11 @@ trap cleanup EXIT INT TERM
 # --- 1. Preparar el código ----------------------------------------------------------------
 git -C "$ROOT" fetch -q origin 2>/dev/null
 git -C "$ROOT" archive "$REF" | tar -x -C "$SRC" || die "no se pudo extraer $REF"
-HW_TARGET=$HOME/.cache/tandem-target-hw
+HW_TARGET=${TANDEM_HW_TARGET:-$HOME/.cache/tandem-target-hw}
 
 if [ "$SIM" = 1 ]; then
   say "modo simulado: compilando en Linux"
-  ( cd "$SRC" && CARGO_TARGET_DIR=$HW_TARGET cargo build --release -p tandem-hw -p tandemd --features tandemd/sim-backends ) >"$OUT/build-sim.log" 2>&1 \
+  bgwait timeout "$T_BUILD" bash -c 'cd "$1" && CARGO_TARGET_DIR=$2 cargo build --release -p tandem-hw -p tandemd --features tandemd/sim-backends' _ "$SRC" "$HW_TARGET" >"$OUT/build-sim.log" 2>&1 \
     || { tail -20 "$OUT/build-sim.log" >&2; die "falló la compilación simulada"; }
   SIM_BIN=$RUN/bin; mkdir -p "$SIM_BIN"
   cp "$HW_TARGET/release/tandem-hw" "$HW_TARGET/release/tandemd" "$SIM_BIN/"
@@ -160,17 +201,25 @@ else
   if [ -n "$(pc 'Get-Process tandemd,tandemw -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty Id')" ]; then
     die "hay un tandemd real corriendo en la PC; la suite no lo toca. Ciérralo y vuelve a correr"
   fi
+  pick_mac_route || die "no hay ssh a $MAC_HOST ni por el cable (ver docs/dev/hardware.md; --mac-link o TANDEM_HW_MAC_LINK)"
+  [ "$MAC_VIA_CABLE" = 1 ] && say "la Mac responde por el cable ($MAC_LINK)"
   mac 'pgrep -x tandemd >/dev/null' && die "hay un tandemd real corriendo en la Mac; ciérralo y vuelve a correr"
-  mac 'true' || die "no hay ssh a $MAC_HOST (ver docs/dev/hardware.md)"
 
   if [ "$SKIP_BUILD" = 0 ]; then
     say "compilando para Windows (mingw) y para Linux (el informe)"
-    ( cd "$SRC" && CARGO_TARGET_DIR=$HW_TARGET cargo build --release --target x86_64-pc-windows-gnu -p tandemd -p tandem-hw -p tandem-monitor \
-        && CARGO_TARGET_DIR=$HW_TARGET cargo build --release -p tandem-hw ) >"$OUT/build-pc.log" 2>&1 \
+    bgwait timeout "$T_BUILD" bash -c 'cd "$1" && export CARGO_TARGET_DIR=$2 && cargo build --release --target x86_64-pc-windows-gnu -p tandemd -p tandem-hw -p tandem-monitor && cargo build --release -p tandem-hw' _ "$SRC" "$HW_TARGET" >"$OUT/build-pc.log" 2>&1 \
       || { tail -20 "$OUT/build-pc.log" >&2; die "falló la compilación de Windows"; }
+    # La Mac no tiene credenciales de GitHub (T-130) y así debe seguir: las dependencias git
+    # (repos privados) se vendorizan aquí, donde sí hay acceso, y viajan con el código.
+    if grep -q 'source = "git+' "$SRC/Cargo.lock"; then
+      say "vendorizando las dependencias git para la Mac"
+      mkdir -p "$SRC/.cargo"
+      bgwait timeout "$T_BUILD" bash -c 'cd "$1" && cargo vendor --locked vendor' _ "$SRC" >"$SRC/.cargo/config.toml" 2>"$OUT/vendor.log" \
+        || { tail -20 "$OUT/vendor.log" >&2; die "falló cargo vendor"; }
+    fi
     say "compilando en la Mac"
-    tar -C "$SRC" -c . | mac 'rm -rf ~/.cache/tandem-hw-src && mkdir -p ~/.cache/tandem-hw-src && tar -x -C ~/.cache/tandem-hw-src' || die "no se pudo copiar el código a la Mac"
-    mac 'source ~/.cargo/env 2>/dev/null; cd ~/.cache/tandem-hw-src && CARGO_TARGET_DIR=$HOME/.cache/tandem-hw-target cargo build --release -p tandemd -p tandem-hw -p tandem-monitor' >"$OUT/build-mac.log" 2>&1 \
+    tar -C "$SRC" -c . | mac_in 'rm -rf ~/.cache/tandem-hw-src && mkdir -p ~/.cache/tandem-hw-src && tar -x -C ~/.cache/tandem-hw-src' || die "no se pudo copiar el código a la Mac"
+    TMO=$T_BUILD bgwait mac 'source ~/.cargo/env 2>/dev/null; cd ~/.cache/tandem-hw-src && CARGO_TARGET_DIR=$HOME/.cache/tandem-hw-target cargo build --release -p tandemd -p tandem-hw -p tandem-monitor' >"$OUT/build-mac.log" 2>&1 \
       || { tail -20 "$OUT/build-mac.log" >&2; die "falló la compilación de macOS"; }
   fi
   REPORT_BIN=$HW_TARGET/release/tandem-hw
@@ -186,6 +235,11 @@ else
   done
   mac "mkdir -p '$MAC_DIR/bin' '$MAC_DIR/work' && cd ~/.cache/tandem-hw-target/release && cp tandemd tandem-hw tandem-monitor-guard '$MAC_DIR/bin/'" || die "no se pudieron instalar los binarios en la Mac"
 
+  # Por el cable, el enlace entre agentes también va por las direcciones link-local.
+  if [ "$MAC_VIA_CABLE" = 1 ]; then
+    [ -n "$MAC_IP" ] || MAC_IP=$MAC_LINK
+    [ -n "$PC_IP" ] || PC_IP=$(pc '(Get-NetIPAddress -AddressFamily IPv4 -PrefixOrigin WellKnown,Manual,Dhcp -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -like "169.254.*" } | Select-Object -First 1).IPAddress')
+  fi
   [ -n "$PC_IP" ] || PC_IP=$(pc '(Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway -ne $null -and $_.NetAdapter.Status -eq "Up" } | Select-Object -First 1).IPv4Address.IPAddress')
   [ -n "$MAC_IP" ] || MAC_IP=$(mac 'ipconfig getifaddr en0 || ipconfig getifaddr en1')
   [ -n "$PC_IP" ] && [ -n "$MAC_IP" ] || die "no se pudo saber la IP de las dos máquinas (usa --pc-ip y --mac-ip)"
@@ -209,7 +263,12 @@ if [ "$SIM" = 1 ]; then
 else
   pc_hw provision --role pc --root "$PC_DIR\\agent" --port $PORT_A --peer "$MAC_IP:$PORT_A" >/dev/null || die "provision pc"
   mac_hw provision --role mac --root "$MAC_DIR/agent" --port $PORT_A --peer "$PC_IP:$PORT_A" >/dev/null || die "provision mac"
-  PC_PID=$(pc "\$env:TANDEM_LOG='$LOG_LEVEL'; (Start-Process -FilePath '$PC_DIR\\bin\\tandemd.exe' -ArgumentList '--config','$PC_DIR\\agent\\tandem.toml','--data-dir','$PC_DIR\\agent\\data' -WindowStyle Hidden -PassThru -RedirectStandardOutput '$PC_DIR\\agent.out' -RedirectStandardError '$PC_DIR\\agent.err').Id")
+  # Desacoplado: `Start-Process` directo sobre tandemd.exe con el puente de interop de WSL hacía
+  # que powershell no regresara nunca (el hijo hereda los handles). Aquí cmd redirige su propia
+  # salida a archivo y `Start-Process` no lleva redirecciones; sigue en la sesión interactiva del
+  # usuario (SendInput lo necesita, a diferencia de Win32_Process.Create, que va a la sesión 0).
+  inner="set \"TANDEM_LOG=$LOG_LEVEL\" && \"$PC_DIR\\bin\\tandemd.exe\" --config \"$PC_DIR\\agent\\tandem.toml\" --data-dir \"$PC_DIR\\agent\\data\" >\"$PC_DIR\\agent.out\" 2>&1"
+  PC_PID=$(pc "(Start-Process -FilePath cmd.exe -ArgumentList '/d /s /c \"$(printf '%s' "$inner" | sed "s/'/''/g")\"' -WindowStyle Hidden -PassThru).Id")
   MAC_PID=$(mac "cd '$MAC_DIR' && TANDEM_LOG='$LOG_LEVEL' nohup bin/tandemd --config agent/tandem.toml --data-dir agent/data >agent.out 2>&1 </dev/null & echo \$!")
   [ -n "$PC_PID" ] && [ -n "$MAC_PID" ] || die "no arrancaron los agentes de prueba"
   PC_DATA=$PC_DIR\\agent\\data; MAC_DATA=$MAC_DIR/agent/data
@@ -230,7 +289,7 @@ step() {
   local data res tmp="$OUT/step.$side.$$.$RANDOM" c
   if [ "$side" = pc ]; then data=$PC_DATA; res=$RES_PC; else data=$MAC_DATA; res=$RES_MAC; fi
   say "$side: $checks"
-  "${side}_hw" run --label "$side" --data-dir "$data" --checks "$checks" "$@" >"$tmp" 2>>"$OUT/step-$side.err"
+  bgwait "${side}_hw" run --label "$side" --data-dir "$data" --checks "$checks" "$@" >"$tmp" 2>>"$OUT/step-$side.err"
   local rc=$?
   cat "$tmp" >>"$res"
   if [ $rc -ne 0 ] && ! grep -q '"outcome"' "$tmp"; then
