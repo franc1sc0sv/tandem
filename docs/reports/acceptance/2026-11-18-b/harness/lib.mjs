@@ -7,7 +7,7 @@ import { createServer } from "node:net";
 import dgram from "node:dgram";
 import { join } from "node:path";
 
-export const WT = process.env.WT ?? "/home/francisco/projects/personal-projects/apps/tandem/.claude/worktrees/acceptance-b";
+export const WT = process.env.WT ?? new URL("../../../../..", import.meta.url).pathname;
 export const TARGET = process.env.CARGO_TARGET_DIR ?? `${process.env.HOME}/.cache/tandem-target-accB`;
 export const RUN = process.env.ACC_RUN ?? "/tmp/claude-1000/accB/run";
 export const SHOTS = process.env.ACC_SHOTS ?? join(WT, "docs/reports/acceptance/2026-11-18-b");
