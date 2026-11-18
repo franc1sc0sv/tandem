@@ -1,23 +1,23 @@
-//! La red del agente (DESIGN §6 y §9): endpoint QUIC con pinning, descubrimiento del
-//! par, gestor de enlaces y el [`PeerLink`] del orquestador sobre el enlace activo.
+//! The agent's network (DESIGN §6 and §9): QUIC endpoint with pinning, peer
+//! discovery, link manager and the orchestrator's [`PeerLink`] over the active link.
 //!
-//! Es lo mismo que arma `tandem-sim` con su red en memoria, sobre el transporte real:
+//! It is the same thing `tandem-sim` builds with its in-memory network, over the real transport:
 //!
-//! - El endpoint atiende cada conexión del par con [`peer::accept_streams`]: los pings
-//!   de su gestor de enlaces y sus pedidos de pasos.
-//! - Con un par emparejado, el gestor de enlaces prueba los enlaces fijos de la config
-//!   y la dirección que el par anuncie en la LAN por mDNS ([`NetworkConfig::link_candidates`]).
-//!   Por cada enlace abre una conexión con un stream de pings y otro de pedidos
+//! - The endpoint serves each of the peer's connections with [`peer::accept_streams`]: the pings
+//!   of its link manager and its step requests.
+//! - With a paired peer, the link manager tries the config's fixed links
+//!   and the address the peer announces on the LAN over mDNS ([`NetworkConfig::link_candidates`]).
+//!   For each link it opens a connection with a ping stream and a request stream
 //!   ([`AgentProber`]).
-//! - Mientras algún enlace ve al otro agente, el orquestador tiene un [`ManagedPeer`]
-//!   que manda cada pedido por el enlace activo; si ninguno lo ve, vuelve a no tener
-//!   par, y encender la máquina B espera a que aparezca. Lo mismo alimenta a
-//!   [`peer_watch`](crate::peer_watch) en las dos máquinas y lo que la UI ve como [`PeerStatus`].
-//! - Sin par emparejado no hay gestor ni descubrimiento: el agente trabaja solo y la
-//!   UI recibe [`PeerStatus::Unpaired`].
-//! - La UI empareja y desempareja en caliente ([`PairingControl`]): al emparejar se
-//!   empieza a seguir al par nuevo; al desemparejar se lo borra de la confianza, se
-//!   deja de seguirlo y se cortan sus conexiones.
+//! - While any link sees the other agent, the orchestrator has a [`ManagedPeer`]
+//!   that sends each request over the active link; if none sees it, it goes back to having no
+//!   peer, and powering on machine B waits for it to appear. The same feeds
+//!   [`peer_watch`](crate::peer_watch) on both machines and what the UI sees as [`PeerStatus`].
+//! - Without a paired peer there is no manager or discovery: the agent works alone and the
+//!   UI receives [`PeerStatus::Unpaired`].
+//! - The UI pairs and unpairs live ([`PairingControl`]): when pairing, the new
+//!   peer starts to be followed; when unpairing, it is removed from trust, it is
+//!   no longer followed and its connections are cut.
 //!
 //! [`NetworkConfig::link_candidates`]: crate::NetworkConfig::link_candidates
 
@@ -51,20 +51,20 @@ use crate::orchestrator::{LinkHold, PEER_NOT_CONNECTED, PeerLink, StepFuture};
 use crate::pairing::{self, PairingTimeouts};
 use crate::peer::{self, PeerClient, PeerError};
 
-/// Lo que se espera a que el par se entere del cierre de las conexiones al apagar.
+/// How long to wait for the peer to learn of the connections closing on shutdown.
 pub const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// Cómo arrancar la red. Lo normal es [`NetOptions::default`]; las pruebas eligen la
-/// dirección, apagan mDNS y aceleran la revisión de salud.
+/// How to start the network. The normal one is [`NetOptions::default`]; tests choose the
+/// address, turn off mDNS and speed up the health check.
 #[derive(Debug, Clone)]
 pub struct NetOptions {
-    /// Dirección UDP donde escucha el endpoint. Por omisión, todas las interfaces en el
-    /// puerto de la config ([`default_bind`]).
+    /// UDP address the endpoint listens on. By default, all interfaces on the
+    /// config's port ([`default_bind`]).
     pub bind: Option<SocketAddr>,
-    /// Los puertos que se prueban, en la misma IP, si el de `bind` (o el de la config) no
-    /// se puede abrir. El real se anuncia por mDNS.
+    /// The ports tried, on the same IP, if the one in `bind` (or the config's) cannot
+    /// be opened. The real one is announced over mDNS.
     pub fallback_ports: Vec<u16>,
-    /// Anunciar y buscar al par en la LAN por mDNS.
+    /// Announce and look for the peer on the LAN over mDNS.
     pub mdns: bool,
     pub health: HealthConfig,
     pub pairing: PairingTimeouts,
@@ -82,27 +82,27 @@ impl Default for NetOptions {
     }
 }
 
-/// Los errores del transporte son grandes: van en caja para no agrandar cada `Result`.
+/// Transport errors are large: they are boxed so as not to enlarge every `Result`.
 #[derive(Debug, thiserror::Error)]
 pub enum NetError {
-    #[error("no se pudo abrir el endpoint QUIC en {addr}: {source}")]
+    #[error("could not open the QUIC endpoint at {addr}: {source}")]
     Bind {
         addr: SocketAddr,
         #[source]
         source: Box<TransportError>,
     },
     #[error(
-        "no se pudo abrir ningún puerto UDP para el agente en {ip} (probados: {}): {last}. \
-         Otro programa los está usando o el sistema los reserva; en Windows con WSL o \
-         Hyper-V, `netsh interface ipv4 show excludedportrange protocol=udp` muestra los \
-         rangos reservados. Elige un puerto libre en `[network] port` de tandem.toml y \
-         reinicia el agente",
+        "could not open any UDP port for the agent at {ip} (tried: {}): {last}. \
+         Another program is using them or the system reserves them; on Windows with WSL or \
+         Hyper-V, `netsh interface ipv4 show excludedportrange protocol=udp` shows the \
+         reserved ranges. Pick a free port in `[network] port` of tandem.toml and \
+         restart the agent",
         list(tried)
     )]
     NoPort {
         ip: IpAddr,
         tried: Vec<u16>,
-        /// El error del último intento.
+        /// The error of the last attempt.
         last: String,
     },
 }
@@ -115,7 +115,7 @@ fn list(ports: &[u16]) -> String {
         .join(", ")
 }
 
-/// `first` y después `fallbacks`, sin repetir: los puertos a probar.
+/// `first` and then `fallbacks`, without repeating: the ports to try.
 pub fn port_candidates(first: u16, fallbacks: &[u16]) -> Vec<u16> {
     let mut out = vec![first];
     for p in fallbacks {
@@ -126,29 +126,29 @@ pub fn port_candidates(first: u16, fallbacks: &[u16]) -> Vec<u16> {
     out
 }
 
-/// Abre con `bind` el primero de `ports` que se pueda, en `ip`. Solo se sigue probando si
-/// no se pudo abrir el socket (ocupado, reservado o sin permiso); cualquier otro error
-/// (la identidad, TLS) no depende del puerto y se devuelve enseguida.
+/// Opens with `bind` the first of `ports` that can be, on `ip`. It only keeps trying if
+/// the socket could not be opened (busy, reserved or without permission); any other error
+/// (identity, TLS) does not depend on the port and is returned right away.
 pub fn bind_first<T>(
     ip: IpAddr,
     ports: &[u16],
     mut bind: impl FnMut(SocketAddr) -> Result<T, TransportError>,
 ) -> Result<(T, SocketAddr), NetError> {
-    let mut last = String::from("no había puertos para probar");
+    let mut last = String::from("there were no ports to try");
     for (i, port) in ports.iter().enumerate() {
         let addr = SocketAddr::new(ip, *port);
         match bind(addr) {
             Ok(t) => {
                 if i > 0 {
                     tracing::warn!(
-                        "el puerto {} no se pudo abrir ({last}): el agente usa el {port}",
+                        "port {} could not be opened ({last}): the agent uses {port}",
                         ports[0]
                     );
                 }
                 return Ok((t, addr));
             }
             Err(TransportError::Bind(e)) => {
-                tracing::debug!(%addr, "no se pudo abrir: {e}");
+                tracing::debug!(%addr, "could not open: {e}");
                 last = e.to_string();
             }
             Err(source) => {
@@ -166,9 +166,9 @@ pub fn bind_first<T>(
     })
 }
 
-/// Todas las interfaces en `port`. IPv6 solo si algún enlace fijo es IPv6: un socket
-/// IPv6 no recibe IPv4 en todos los sistemas (en Windows es solo IPv6 por omisión), y
-/// los enlaces directos de DESIGN §6 son IPv4.
+/// All interfaces on `port`. IPv6 only if some fixed link is IPv6: an IPv6
+/// socket does not receive IPv4 on every system (on Windows it is IPv6-only by default), and
+/// the direct links of DESIGN §6 are IPv4.
 pub fn default_bind(port: u16, statics: &[LinkCandidate]) -> SocketAddr {
     let ip = if statics.iter().any(|l| l.addr.is_ipv6()) {
         IpAddr::V6(Ipv6Addr::UNSPECIFIED)
@@ -178,7 +178,7 @@ pub fn default_bind(port: u16, statics: &[LinkCandidate]) -> SocketAddr {
     SocketAddr::new(ip, port)
 }
 
-/// El enlace del gestor, como lo ve la UI.
+/// The manager's link, as the UI sees it.
 pub fn link_of(kind: LinkKind) -> Link {
     match kind {
         LinkKind::Usb4 => Link::Usb4,
@@ -187,41 +187,41 @@ pub fn link_of(kind: LinkKind) -> Link {
     }
 }
 
-/// La red en marcha. Al soltarla se cierran las conexiones y se detienen el gestor de
-/// enlaces, el descubrimiento y el emparejamiento en curso.
+/// The running network. Dropping it closes the connections and stops the link manager,
+/// the discovery and the pairing in progress.
 pub struct Network {
     shared: Arc<Shared>,
 }
 
-/// Lo que comparten la red, el emparejamiento y quien atiende sus pedidos.
+/// What the network, the pairing and whoever serves its requests share.
 struct Shared {
     agent: Arc<Agent>,
     identity: Identity,
     endpoint: Arc<Endpoint>,
     local_addr: SocketAddr,
-    /// Con candado: el emparejamiento desde la UI agrega y quita pares en caliente, y
-    /// el pinning del endpoint lo ve en las conexiones nuevas.
+    /// With a lock: pairing from the UI adds and removes peers live, and
+    /// the endpoint's pinning sees it on new connections.
     trust: Arc<RwLock<TrustStore>>,
     opts: NetOptions,
     conns: Arc<Conns>,
     accept: JoinHandle<()>,
-    /// Las interfaces del sistema: de ahí salen los enlaces por cable y el tipo de cada
-    /// conexión (T-094).
+    /// The system's interfaces: the wired links and the type of each
+    /// connection come from them (T-094).
     interfaces: Arc<SystemInterfaces>,
-    /// El par que se sigue (gestor de enlaces, mDNS y `peer_watch`), si hay.
+    /// The peer being followed (link manager, mDNS and `peer_watch`), if any.
     peer: Mutex<Option<Following>>,
     pairing: Mutex<Option<PairingRun>>,
-    /// El enlace activo con el par que se sigue, para el motor de entrada. Vive aquí y
-    /// no en cada `supervise`: el par puede emparejarse o desemparejarse en caliente, y
-    /// quien lo escucha desde el arranque tiene que ver cada enlace nuevo.
+    /// The active link with the followed peer, for the input engine. It lives here and
+    /// not in each `supervise`: the peer can be paired or unpaired live, and
+    /// whoever listens from startup has to see every new link.
     active: LinkFeed,
-    /// Lleva el `[data]` del puesto a los `Qos` de cada camino.
+    /// Carries the desk's `[data]` to each path's `Qos`.
     desk_follow: JoinHandle<()>,
 }
 
-/// El enlace activo y quién puede escribirlo: solo el `supervise` del par que se
-/// sigue ahora. Uno que ya se abortó puede estar a mitad de un poll; sin la
-/// generación podría reponer el enlace de un par olvidado.
+/// The active link and who can write it: only the `supervise` of the peer that is
+/// followed now. One that was already aborted may be midway through a poll; without the
+/// generation it could restore the link of a forgotten peer.
 struct LinkFeed {
     tx: watch::Sender<Option<ActiveLink>>,
     generation: AtomicU64,
@@ -235,17 +235,17 @@ impl LinkFeed {
         }
     }
 
-    /// Invalida al escritor anterior y deja el enlace en `None`. Devuelve la
-    /// generación del escritor nuevo.
+    /// Invalidates the previous writer and leaves the link at `None`. Returns the
+    /// new writer's generation.
     fn reset(&self) -> u64 {
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.tx.send_replace(None);
         generation
     }
 
-    /// Publica `link` si `generation` sigue siendo la vigente y cambió algo. La
-    /// comparación va dentro del candado del canal: `reset` escribe con ese mismo
-    /// candado, así que lo que se publique antes lo pisa el `None`.
+    /// Publishes `link` if `generation` is still the current one and something changed. The
+    /// comparison goes inside the channel's lock: `reset` writes with that same
+    /// lock, so whatever is published before is overwritten by the `None`.
     fn publish(&self, generation: u64, link: Option<ActiveLink>) {
         self.tx.send_if_modified(|old| {
             if self.generation.load(Ordering::SeqCst) != generation || same_link(old, &link) {
@@ -257,7 +257,7 @@ impl LinkFeed {
     }
 }
 
-/// Lo que `supervise` usa para publicar el enlace activo.
+/// What `supervise` uses to publish the active link.
 struct LinkWriter {
     shared: Weak<Shared>,
     generation: u64,
@@ -281,8 +281,8 @@ struct PairingRun {
     task: JoinHandle<()>,
 }
 
-/// Las conexiones que abrió el otro agente, para cortarlas al desemparejar: el
-/// pinning solo mira la confianza en el handshake.
+/// The connections the other agent opened, to cut them when unpairing: the
+/// pinning only looks at trust in the handshake.
 #[derive(Default)]
 struct Conns {
     next: AtomicU64,
@@ -302,29 +302,29 @@ impl Conns {
 
     fn close_from(&self, key: &PublicKey) {
         for conn in lock(&self.open).values().filter(|c| c.peer() == *key) {
-            conn.close("desemparejado");
+            conn.close("unpaired");
         }
     }
 }
 
-/// Cuánto se espera a que salga el aviso de «salí del puesto» antes de cerrar la conexión.
+/// How long to wait for the "left the desk" notice to go out before closing the connection.
 const GOODBYE_WAIT: Duration = Duration::from_millis(500);
 
-/// Si otro hilo entró en pánico con el candado, lo de adentro sigue sirviendo.
+/// If another thread panicked with the lock, what is inside is still usable.
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
 
-/// Lo que la UI recibe al pedir emparejar con un par ya emparejado.
+/// What the UI receives when asking to pair with an already paired peer.
 pub fn already_paired(name: &str) -> String {
-    format!("ya está emparejado con {name}: desemparéjalo primero")
+    format!("already paired with {name}: unpair it first")
 }
-pub const PAIRING_IN_PROGRESS: &str = "ya hay un emparejamiento en curso";
-pub const NOTHING_TO_CONFIRM: &str = "no hay ningún código que confirmar";
-pub const NOT_PAIRED: &str = "no hay ningún par emparejado";
+pub const PAIRING_IN_PROGRESS: &str = "a pairing is already in progress";
+pub const NOTHING_TO_CONFIRM: &str = "there is no code to confirm";
+pub const NOT_PAIRED: &str = "there is no paired peer";
 
-/// El enlace por el que va todo en este momento: el motor de entrada abre ahí sus
-/// streams y manda sus avisos.
+/// The link everything goes over at this moment: the input engine opens its
+/// streams there and sends its notices.
 #[derive(Clone)]
 pub struct ActiveLink {
     pub kind: LinkKind,
@@ -332,7 +332,7 @@ pub struct ActiveLink {
 }
 
 impl ActiveLink {
-    /// La misma sesión: mismo enlace y misma conexión.
+    /// The same session: same link and same connection.
     pub fn same(&self, other: &ActiveLink) -> bool {
         self.kind == other.kind && Arc::ptr_eq(&self.handle.client, &other.handle.client)
     }
@@ -347,9 +347,9 @@ fn same_link(a: &Option<ActiveLink>, b: &Option<ActiveLink>) -> bool {
 }
 
 impl Network {
-    /// Abre el endpoint y, si hay un par emparejado en `trust`, empieza a buscarlo.
-    /// Atiende los pedidos de emparejamiento del agente. Tiene que llamarse dentro de
-    /// un runtime de tokio.
+    /// Opens the endpoint and, if there is a paired peer in `trust`, starts looking for it.
+    /// Serves the agent's pairing requests. It must be called inside
+    /// a tokio runtime.
     pub fn start(
         agent: Arc<Agent>,
         identity: &Identity,
@@ -360,7 +360,7 @@ impl Network {
         let wanted = opts
             .bind
             .unwrap_or_else(|| default_bind(net_cfg.port, &net_cfg.peers));
-        // El primer par de la confianza: por ahora un agente se empareja con uno solo.
+        // The first peer in trust: for now an agent pairs with just one.
         let paired = trust.peers().next().cloned();
         let trust = Arc::new(RwLock::new(trust));
         let ports = port_candidates(wanted.port(), &opts.fallback_ports);
@@ -372,7 +372,7 @@ impl Network {
             addr,
             source: Box::new(source),
         })?;
-        tracing::info!(addr = %local_addr, "endpoint QUIC escuchando");
+        tracing::info!(addr = %local_addr, "QUIC endpoint listening");
         agent.set_port(local_addr.port());
 
         let conns = Arc::new(Conns::default());
@@ -402,32 +402,32 @@ impl Network {
         match paired {
             Some(peer) => shared.follow(peer),
             None => {
-                tracing::info!("sin par emparejado: el agente trabaja solo");
+                tracing::info!("no paired peer: the agent works alone");
                 agent.set_peer_status(PeerStatus::Unpaired);
             }
         }
         Ok(Network { shared })
     }
 
-    /// El enlace activo con el otro agente; `None` si ninguno lo ve (o no hay par).
+    /// The active link with the other agent; `None` if none sees it (or there is no peer).
     pub fn active_link(&self) -> watch::Receiver<Option<ActiveLink>> {
         self.shared.active.tx.subscribe()
     }
 
-    /// Dirección real del endpoint (con el puerto elegido si se pidió el 0).
+    /// The endpoint's real address (with the chosen port if 0 was requested).
     pub fn local_addr(&self) -> SocketAddr {
         self.shared.local_addr
     }
 
-    /// Cierra las conexiones y espera un poco a que el par se entere, para que no
-    /// tenga que esperar a que se le venzan los pings.
+    /// Closes the connections and waits a bit for the peer to learn of it, so it does not
+    /// have to wait for its pings to time out.
     pub async fn shutdown(self) {
         self.shared.stop();
         if tokio::time::timeout(CLOSE_TIMEOUT, self.shared.endpoint.wait_idle())
             .await
             .is_err()
         {
-            tracing::debug!("el par no confirmó el cierre de las conexiones a tiempo");
+            tracing::debug!("the peer did not confirm the connections closing in time");
         }
     }
 }
@@ -453,11 +453,11 @@ impl Shared {
         self.endpoint.close();
     }
 
-    /// Empieza a seguir a `peer`: mDNS, gestor de enlaces y la vigilancia del par (`peer_watch`).
-    /// Antes, el lado de esta máquina queda el que dicen las dos claves (DECISIONS A1).
+    /// Starts following `peer`: mDNS, link manager and the peer watch (`peer_watch`).
+    /// First, this machine's side is set to what the two keys say (DECISIONS A1).
     fn follow(self: &Arc<Self>, peer: TrustedPeer) {
         let TrustedPeer { public_key, name } = peer;
-        tracing::info!(par = %name, llave = %public_key.to_hex(), "par emparejado");
+        tracing::info!(peer = %name, key = %public_key.to_hex(), "peer paired");
         let agent = &self.agent;
         if let Some(side) =
             Machine::of_keys(self.identity.public_key().as_bytes(), public_key.as_bytes())
@@ -475,9 +475,9 @@ impl Shared {
                 [public_key],
             ) {
                 Ok(d) => Some(d),
-                // Sin multicast quedan los enlaces fijos: no es motivo para no arrancar.
+                // Without multicast the fixed links remain: not a reason not to start.
                 Err(e) => {
-                    tracing::warn!("mDNS no disponible, solo se usan los enlaces fijos: {e}");
+                    tracing::warn!("mDNS unavailable, only the fixed links are used: {e}");
                     None
                 }
             }
@@ -486,7 +486,7 @@ impl Shared {
         };
         let (reachable_tx, reachable) = watch::channel(false);
         let mut following = lock(&self.peer);
-        // Primero se calla al anterior: su enlace no es el del par nuevo.
+        // First the previous one is silenced: its link is not the new peer's.
         if let Some(p) = following.take() {
             for t in p.tasks {
                 t.abort();
@@ -507,7 +507,7 @@ impl Shared {
                 link,
                 self.interfaces.clone(),
             )),
-            // Las dos vigilan a la otra: cualquiera puede quedarse sola (DESIGN §3.7).
+            // Both watch the other: either can be left alone (DESIGN §3.7).
             tokio::spawn(crate::peer_watch::watch(agent.clone(), reachable)),
         ];
         *following = Some(Following {
@@ -516,8 +516,8 @@ impl Shared {
         });
     }
 
-    /// Olvida al par: lo borra de la confianza, deja de buscarlo y corta sus
-    /// conexiones. Si no se puede guardar la confianza, no cambia nada.
+    /// Forgets the peer: removes it from trust, stops looking for it and cuts its
+    /// connections. If trust cannot be saved, nothing changes.
     fn forget(&self, notify: bool) -> Result<(), String> {
         let mut following = lock(&self.peer);
         let Some(key) = following.as_ref().map(|f| f.key) else {
@@ -527,10 +527,10 @@ impl Shared {
             let mut trust = self.trust.write().unwrap_or_else(|e| e.into_inner());
             trust
                 .remove_and_save(&key)
-                .map_err(|e| format!("no se pudo guardar la confianza: {e}"))?;
+                .map_err(|e| format!("could not save trust: {e}"))?;
         }
-        // Con enlace, se le avisa a la otra máquina para que también olvide la llave
-        // (T-152); la conexión se cierra cuando el aviso ya salió.
+        // With a link, the other machine is told so it also forgets the key
+        // (T-152); the connection is closed once the notice has gone out.
         let goodbye = notify
             .then(|| self.active.tx.borrow().clone())
             .flatten()
@@ -540,10 +540,10 @@ impl Shared {
                 t.abort();
             }
         }
-        // Sin par no hay enlace: el motor de entrada cierra su sesión.
+        // Without a peer there is no link: the input engine closes its session.
         self.active.reset();
         drop(following);
-        // `supervise` no llega a soltar el par al abortarse.
+        // `supervise` does not get to release the peer when aborted.
         self.agent.orchestrator().clear_peer();
         match goodbye {
             Some(client) => {
@@ -556,7 +556,7 @@ impl Shared {
             }
             None => self.conns.close_from(&key),
         }
-        tracing::info!(llave = %key.to_hex(), "desemparejado");
+        tracing::info!(key = %key.to_hex(), "unpaired");
         self.agent.set_peer_status(PeerStatus::Unpaired);
         self.agent.set_pairing_status(PairingStatus::Idle);
         Ok(())
@@ -598,7 +598,7 @@ impl Shared {
             mdns: self.opts.mdns,
             timeouts: self.opts.pairing,
         };
-        // Antes de devolver: la UI que pidió empezar ya ve que se está buscando.
+        // Before returning: the UI that asked to start already sees that it is searching.
         self.agent.set_pairing_status(PairingStatus::Searching);
         let shared = self.clone();
         let task = tokio::spawn(async move {
@@ -611,7 +611,7 @@ impl Shared {
                 }
                 pairing::Outcome::Cancelled => PairingStatus::Idle,
                 pairing::Outcome::Failed(reason) => {
-                    tracing::warn!("no se emparejó: {reason}");
+                    tracing::warn!("not paired: {reason}");
                     PairingStatus::Failed { reason }
                 }
             };
@@ -629,8 +629,8 @@ impl Shared {
     }
 }
 
-/// Lo que el agente usa para emparejar. Débil: la red es de quien la arrancó, y sin
-/// ella los pedidos se rechazan.
+/// What the agent uses to pair. Weak: the network belongs to whoever started it, and without
+/// it requests are rejected.
 struct Pairer(Weak<Shared>);
 
 impl Pairer {
@@ -663,7 +663,7 @@ impl PairingControl for Pairer {
     fn cancel(&self) -> Result<(), String> {
         let shared = self.shared()?;
         if !shared.answer(pairing::Answer::Cancel) && !shared.pairing_running() {
-            // Nada en curso: la UI cierra un resultado ya mostrado.
+            // Nothing in progress: the UI closes an already shown result.
             shared.agent.set_pairing_status(PairingStatus::Idle);
         }
         Ok(())
@@ -678,7 +678,7 @@ impl PairingControl for Pairer {
     }
 }
 
-/// Atiende cada conexión entrante. El pinning ya rechazó a quien no esté en la confianza.
+/// Serves each incoming connection. Pinning already rejected whoever is not in trust.
 async fn accept_loop(
     endpoint: Arc<Endpoint>,
     agent: Arc<Agent>,
@@ -688,12 +688,12 @@ async fn accept_loop(
     while let Some(conn) = endpoint.accept().await {
         match conn {
             Ok(conn) => {
-                tracing::debug!(from = %conn.remote_address(), "conexión del otro agente");
-                // Lo que este lado mande por ella (respuestas, el portapapeles de la
-                // otra) comparte el tope y la pausa de su camino con la conexión que abre
-                // este agente (T-101).
+                tracing::debug!(from = %conn.remote_address(), "connection from the other agent");
+                // What this side sends over it (replies, the other's clipboard) shares
+                // the cap and pause of its path with the connection this agent
+                // opens (T-101).
                 let statics = agent.config().network.link_candidates(&[]);
-                // El tipo sale de la interfaz por la que llegó, no de la configuración.
+                // The type comes from the interface it arrived on, not from the configuration.
                 let remote = conn.remote_address();
                 let kind = kind_for_addr(&interfaces.list(), remote)
                     .unwrap_or_else(|| kind_of_remote(&statics, remote));
@@ -705,13 +705,13 @@ async fn accept_loop(
                     conns.remove(id);
                 });
             }
-            Err(e) => tracing::debug!("conexión entrante rechazada: {e}"),
+            Err(e) => tracing::debug!("incoming connection rejected: {e}"),
         }
     }
 }
 
-/// El `[data]` del puesto, cada vez que cambia (desde la UI, la otra máquina o a mano), en
-/// el [`LinkQos`] del agente: llega a todas las conexiones, abiertas y aceptadas (T-101).
+/// The desk's `[data]`, every time it changes (from the UI, the other machine or by hand), in
+/// the agent's [`LinkQos`]: it reaches all connections, opened and accepted (T-101).
 fn follow_desk(agent: &Agent) -> JoinHandle<()> {
     let qos = agent.link_qos().clone();
     let mut desk = agent.subscribe_desk();
@@ -726,10 +726,10 @@ fn follow_desk(agent: &Agent) -> JoinHandle<()> {
     })
 }
 
-/// Por qué camino llegó una conexión que abrió el otro agente: el de la dirección fija
-/// con la misma IP; si no hay, la LAN (Wi-Fi), que es la que se descubre por mDNS. Ante
-/// la duda, el tope del Wi-Fi: un cable con tope solo es más lento, un Wi-Fi sin tope le
-/// mete latencia a la entrada.
+/// Which path a connection opened by the other agent came over: the fixed-address one
+/// with the same IP; if there is none, the LAN (Wi-Fi), which is the one discovered over mDNS. When in
+/// doubt, the Wi-Fi cap: a capped cable is only slower, an uncapped Wi-Fi
+/// adds latency to the input.
 fn kind_of_remote(statics: &[LinkCandidate], remote: SocketAddr) -> LinkKind {
     let ip = |a: SocketAddr| match a.ip() {
         IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
@@ -741,10 +741,10 @@ fn kind_of_remote(statics: &[LinkCandidate], remote: SocketAddr) -> LinkKind {
         .map_or(LinkKind::Wifi, |c| c.kind)
 }
 
-/// Arma el gestor de enlaces con los candidatos de cada momento y sigue su enlace
-/// activo. Si lo descubierto en la LAN cambia los candidatos, se arma de nuevo: el
-/// gestor no admite enlaces nuevos en marcha, y las conexiones de los enlaces fijos se
-/// vuelven a abrir en un ping.
+/// Builds the link manager with the candidates of each moment and follows its active
+/// link. If what is discovered on the LAN changes the candidates, it is rebuilt: the
+/// manager does not admit new links while running, and the fixed links' connections are
+/// reopened in one ping.
 #[allow(clippy::too_many_arguments)]
 async fn supervise(
     agent: Arc<Agent>,
@@ -760,16 +760,16 @@ async fn supervise(
     let raw = |d: &Option<watch::Receiver<Vec<SocketAddr>>>| {
         d.as_ref().map(|d| d.borrow().clone()).unwrap_or_default()
     };
-    // La LAN (Wi-Fi) no incluye las link-local con interfaz: son de los cables y las
-    // resuelve `WiredResolver`.
+    // The LAN (Wi-Fi) does not include the link-local ones with an interface: they belong to the cables and the
+    // `WiredResolver` resolves them.
     let lan = |d: &Option<watch::Receiver<Vec<SocketAddr>>>| {
         let mut all = raw(d);
         all.retain(|a| !matches!(a, SocketAddr::V6(v6) if v6.scope_id() != 0));
         all
     };
     let mut candidates = agent.config().network.link_candidates(&lan(&discovered));
-    // El otro agente por cada cable: su link-local sale del mDNS, atado al `scope_id` de la
-    // interfaz. Sin descubrimiento, un canal vacío.
+    // The other agent for each cable: its link-local comes from mDNS, tied to the interface's `scope_id`.
+    // Without discovery, an empty channel.
     let (_quiet, silent) = watch::channel(Vec::new());
     let scoped = Arc::new(ScopedDiscovery::new(discovered.clone().unwrap_or(silent)));
     let metrics = agent.net_metrics().clone();
@@ -786,8 +786,8 @@ async fn supervise(
     });
     let mut scoped_seen = scoped_snapshot(&raw(&discovered));
     loop {
-        // Los cables que ya están puestos entran con el gestor; los que aparezcan o se
-        // desconecten después los sigue `follow_wired`. Lo configurado a mano manda.
+        // The cables already plugged in enter with the manager; the ones that appear or
+        // disconnect later are followed by `follow_wired`. What is configured by hand rules.
         let side = agent.machine();
         let port = agent.config().network.port;
         let fixed = relabel(&candidates, &interfaces.list());
@@ -823,11 +823,11 @@ async fn supervise(
         ) {
             Ok(m) => Some(m),
             Err(ManagerError::NoCandidates) => {
-                tracing::info!("sin enlaces con el par: se espera a descubrirlo en la LAN");
+                tracing::info!("no links with the peer: waiting to discover it on the LAN");
                 None
             }
             Err(e) => {
-                tracing::error!("no se pudo arrancar el gestor de enlaces: {e}");
+                tracing::error!("could not start the link manager: {e}");
                 None
             }
         };
@@ -845,7 +845,7 @@ async fn supervise(
             });
             let active = current.as_ref().map(|a| a.kind);
             active_link.publish(current);
-            // Cada camino sano, para medir su ancho de banda aunque no sea el activo (T-102).
+            // Each healthy path, to measure its bandwidth even if it is not the active one (T-102).
             agent.set_path_conns(
                 links
                     .as_ref()
@@ -882,7 +882,7 @@ async fn supervise(
             tokio::select! {
                 changed = changed(&mut links) => {
                     if changed.is_err() {
-                        // El gestor no termina solo; si pasara, no queda nada que seguir.
+                        // The manager does not finish on its own; if it did, there is nothing left to follow.
                         links = None;
                     }
                 }
@@ -893,12 +893,12 @@ async fn supervise(
                     }
                     let now = lan(&discovered);
                     let next = agent.config().network.link_candidates(&now);
-                    // Un cable que contesta por mDNS cambia a quién se le puede hablar
-                    // por él: se arma de nuevo para que `resolve` lo vea.
+                    // A cable that answers over mDNS changes who can be spoken to
+                    // over it: it is rebuilt so that `resolve` sees it.
                     let seen = scoped_snapshot(&raw(&discovered));
                     if next != candidates || seen != scoped_seen {
                         scoped_seen = seen;
-                        tracing::info!(?next, "cambiaron los enlaces con el par");
+                        tracing::info!(?next, "the links with the peer changed");
                         candidates = next;
                         break;
                     }
@@ -913,7 +913,7 @@ async fn supervise(
     }
 }
 
-/// Las link-local descubiertas (una por cable): cuando cambian, hay que resolver de nuevo.
+/// The discovered link-locals (one per cable): when they change, resolve again.
 fn scoped_snapshot(lan: &[SocketAddr]) -> Vec<SocketAddr> {
     let mut v: Vec<SocketAddr> = lan
         .iter()
@@ -924,7 +924,7 @@ fn scoped_snapshot(lan: &[SocketAddr]) -> Vec<SocketAddr> {
     v
 }
 
-/// Espera el próximo cambio; sin receptor, nunca termina.
+/// Waits for the next change; without a receiver, it never finishes.
 async fn changed<T>(rx: &mut Option<watch::Receiver<T>>) -> Result<(), watch::error::RecvError> {
     match rx {
         Some(rx) => rx.changed().await,
@@ -940,14 +940,16 @@ fn spawn_manager(
     interfaces: &Arc<SystemInterfaces>,
     link: &LinkWriter,
 ) -> Result<Arc<ManagedPeer>, ManagerError> {
-    // Si la otra ya no confía en nosotras, aquí también se olvida la llave: queda `Unpaired`.
+    // If the other no longer trusts us, the key is also forgotten here: it ends up `Unpaired`.
     let shared = link.shared.clone();
     let rejected: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
         if let Some(shared) = shared.upgrade() {
             tokio::spawn(async move {
                 match shared.forget(false) {
-                    Ok(()) => tracing::info!("la otra máquina ya no confía en esta: desemparejada"),
-                    Err(e) => tracing::debug!("no había par que olvidar: {e}"),
+                    Ok(()) => {
+                        tracing::info!("the other machine no longer trusts this one: unpaired")
+                    }
+                    Err(e) => tracing::debug!("there was no peer to forget: {e}"),
                 }
             });
         }
@@ -961,7 +963,7 @@ fn spawn_manager(
     .with_interfaces(interfaces.clone())
     .with_rejected(rejected);
     let (links, events) = LinkManager::spawn(candidates, prober, health)?;
-    // Las métricas de la pantalla Red siguen a este gestor mientras viva (T-102).
+    // The Network screen's metrics follow this manager while it lives (T-102).
     tokio::spawn(metrics::follow(
         agent.net_metrics().clone(),
         links.watch(),
@@ -969,12 +971,12 @@ fn spawn_manager(
         agent.link_qos().clone(),
         metrics::SAMPLE_EVERY,
     ));
-    tracing::info!(?candidates, "gestor de enlaces en marcha");
+    tracing::info!(?candidates, "link manager running");
     Ok(Arc::new(ManagedPeer { links }))
 }
 
-/// Lo que el gestor de enlaces entrega del enlace activo: la conexión y el stream de
-/// pedidos abierto sobre ella.
+/// What the link manager hands over of the active link: the connection and the
+/// request stream opened over it.
 #[derive(Clone)]
 pub struct PeerHandle {
     pub conn: Connection,
@@ -986,22 +988,22 @@ pub struct AgentSession {
     handle: PeerHandle,
 }
 
-/// [`QuicProber`] más el stream de pedidos: cada enlace sano ya tiene por dónde
-/// pedirle pasos al otro agente. El otro lado atiende los dos streams con
+/// [`QuicProber`] plus the request stream: each healthy link already has a way
+/// to ask the other agent for steps. The other side serves the two streams with
 /// [`peer::accept_streams`].
 pub struct AgentProber {
     quic: QuicProber,
     me: Machine,
-    /// Por qué camino va cada dirección, para darle a su conexión el `Qos` del camino.
+    /// Which path each address goes over, to give its connection the path's `Qos`.
     kinds: Vec<LinkCandidate>,
     qos: LinkQos,
-    /// Para clasificar los enlaces por cable que aparecen después de armar el prober.
+    /// To classify the wired links that appear after building the prober.
     interfaces: Option<Arc<dyn Interfaces>>,
-    /// Se llama cuando la otra máquina rechaza nuestra llave por no ser de confianza.
+    /// Called when the other machine rejects our key for not being trusted.
     rejected: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
-/// Aborta la tarea al soltarla (un `JoinHandle` suelto la deja corriendo).
+/// Aborts the task when dropped (a loose `JoinHandle` leaves it running).
 struct AbortOnDrop(JoinHandle<()>);
 
 impl Drop for AbortOnDrop {
@@ -1010,7 +1012,7 @@ impl Drop for AbortOnDrop {
     }
 }
 
-/// El sistema de esta máquina, para mostrar la orden exacta de la IP de respaldo.
+/// This machine's system, to show the exact command of the backup IP.
 fn local_os() -> Os {
     if cfg!(windows) {
         Os::Windows
@@ -1025,7 +1027,7 @@ impl AgentProber {
         let kind = self.kind_of(addr);
         let conn = QuicProber::handle(&quic).with_qos(self.qos.get(kind));
         let client = Arc::new(PeerClient::open(&conn, self.me).await?);
-        // Lo primero que sabe el otro lado: cómo clasifica este lado la conexión.
+        // The first thing the other side knows: how this side classifies the connection.
         client.send(ControlMsg::LinkClass { kind: kind.into() });
         Ok(AgentSession {
             quic,
@@ -1033,7 +1035,7 @@ impl AgentProber {
         })
     }
 
-    /// Qué hacer si la otra máquina rechaza nuestra llave.
+    /// What to do if the other machine rejects our key.
     #[must_use]
     pub fn with_rejected(mut self, f: Arc<dyn Fn() + Send + Sync>) -> Self {
         self.rejected = Some(f);
@@ -1062,8 +1064,8 @@ impl AgentProber {
         self
     }
 
-    /// El tipo de la conexión a `addr`: el del candidato conocido o, si apareció después,
-    /// el de su interfaz. Ante la duda, Wi-Fi.
+    /// The type of the connection to `addr`: the known candidate's or, if it appeared later,
+    /// its interface's. When in doubt, Wi-Fi.
     fn kind_of(&self, addr: SocketAddr) -> LinkKind {
         self.kinds
             .iter()
@@ -1085,7 +1087,7 @@ impl Prober for AgentProber {
     async fn connect(&self, addr: SocketAddr) -> Result<AgentSession, PeerError> {
         let opened = self.open(addr).await;
         if let Err(PeerError::Transport(e)) = &opened {
-            tracing::debug!(%addr, error = ?e, "conexión al otro agente fallida");
+            tracing::debug!(%addr, error = ?e, "connection to the other agent failed");
             if e.is_peer_rejection()
                 && let Some(rejected) = &self.rejected
             {
@@ -1104,8 +1106,8 @@ impl Prober for AgentProber {
     }
 }
 
-/// El otro agente visto por el orquestador: cada pedido va por el enlace activo en
-/// ese momento y falla con `PEER_LOST` si ese enlace cae antes de la respuesta.
+/// The other agent seen by the orchestrator: each request goes over the active link at
+/// that moment and fails with `PEER_LOST` if that link drops before the reply.
 pub struct ManagedPeer {
     links: LinkManager<PeerHandle>,
 }
@@ -1192,7 +1194,7 @@ mod tests {
             link(LinkKind::Ethernet, "[fe80::1]:47770"),
         ];
         let from = |a: &str| kind_of_remote(&statics, a.parse().unwrap());
-        // El puerto de origen no importa: el otro agente puede salir por otro.
+        // The origin port does not matter: the other agent can go out through another.
         assert_eq!(from("10.77.1.2:52000"), LinkKind::Usb4);
         assert_eq!(from("[::ffff:10.77.1.2]:47770"), LinkKind::Usb4);
         assert_eq!(from("[fe80::1]:1"), LinkKind::Ethernet);

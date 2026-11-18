@@ -1,13 +1,13 @@
-//! Lo que cada máquina tiene y sabe hacer (T-084, DESIGN §3.7).
+//! What each machine has and knows how to do (T-084, DESIGN §3.7).
 //!
-//! No hay una máquina central: cada agente arma su [`Capabilities`] con lo que tiene (el
-//! hub, los permisos, la energía) y se lo anuncia al otro al conectarse y cada vez que
-//! cambia. Los planes salen de los dos anuncios ([`abilities`]), no del nombre de la
-//! máquina.
+//! There is no central machine: each agent builds its [`Capabilities`] with what it has (the
+//! hub, the permissions, the power) and announces it to the other on connecting and every time it
+//! changes. Plans come from the two announcements ([`abilities`]), not from the machine's
+//! name.
 //!
-//! Lo único que depende del sistema es qué backends existen: hoy solo Windows sabe
-//! apagarse solo. Eso vive aquí, en una función por capacidad que pregunta por el [`Os`]
-//! (nunca por el lado, DECISIONS D2), y el resto del agente pregunta por la capacidad.
+//! The only thing that depends on the system is which backends exist: today only Windows knows how to
+//! shut itself down. That lives here, in one function per capability that asks for the [`Os`]
+//! (never for the side, DECISIONS D2), and the rest of the agent asks for the capability.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -18,17 +18,17 @@ use tandem_proto::{Capabilities, InputCaps, InputStatus, ModuleInfo, PowerCaps, 
 
 use crate::config::AgentConfig;
 
-/// Cuánto se juntan los cambios de capacidades antes de anunciarlos a la otra máquina
-/// (T-098): un permiso concedido o un módulo que arranca cambian varias cosas seguidas.
+/// How long capability changes are gathered before announcing them to the other machine
+/// (T-098): a granted permission or a module that starts changes several things in a row.
 pub const ANNOUNCE_DEBOUNCE: Duration = Duration::from_millis(250);
 
-/// Si una máquina con `os` sabe apagarse limpio a pedido de la otra. Hoy, Windows
+/// Whether a machine with `os` knows how to shut down cleanly on the other's request. Today, Windows
 /// (`shutdown /s`).
 pub fn powers_off(os: Os) -> bool {
     os == Os::Windows
 }
 
-/// El nombre de la máquina en el sistema, si se puede saber sin llamar a nada.
+/// The machine's name on the system, if it can be known without calling anything.
 pub fn host_name() -> Option<String> {
     ["COMPUTERNAME", "HOSTNAME"]
         .iter()
@@ -37,8 +37,8 @@ pub fn host_name() -> Option<String> {
         .filter(|n| !n.is_empty())
 }
 
-/// El proceso que corre ahora: macOS concede los permisos a este binario exacto, así que la
-/// UI lo muestra tal cual (T-090).
+/// The process running now: macOS grants permissions to this exact binary, so the
+/// UI shows it as is (T-090).
 pub fn current_process() -> ProcessInfo {
     ProcessInfo {
         exe: std::env::current_exe()
@@ -51,7 +51,7 @@ pub fn current_process() -> ProcessInfo {
     }
 }
 
-/// La energía de una máquina con `os` y esta configuración.
+/// The power of a machine with `os` and this configuration.
 pub fn power(cfg: &AgentConfig, os: Os) -> PowerCaps {
     PowerCaps {
         wake_peer: cfg.power.wol.is_some(),
@@ -62,15 +62,15 @@ pub fn power(cfg: &AgentConfig, os: Os) -> PowerCaps {
     }
 }
 
-/// `power` con el `[power.wol]` que vale ahora (el aprendido al emparejar o el que escribió
-/// la UI), que puede no ser el de la configuración con que arrancó el agente.
+/// `power` with the `[power.wol]` that holds now (the one learned when pairing or the one the
+/// UI wrote), which may not be the one from the configuration the agent started with.
 pub fn with_wol(mut power: PowerCaps, wol: Option<&tandem_power::WolTarget>) -> PowerCaps {
     power.wake_peer = wol.is_some();
     power.wol_mac = wol.map(|w| w.mac.to_string());
     power
 }
 
-/// Lo que esta máquina (el lado `me`, que es `info`) anuncia, con sus módulos ya armados
+/// What this machine (side `me`, which is `info`) announces, with its modules already built
 /// ([`crate::modules::Registry::snapshot`]).
 pub fn local(
     cfg: &AgentConfig,
@@ -95,22 +95,22 @@ pub fn local(
         power: power(cfg, os),
         services: Vec::new(),
         modules,
-        // Los entornos y el equipo los agrega el agente con su último escaneo (T-105), y los
-        // monitores con lo que ve su bus ([`crate::monitors::MonitorHub::local_channels`]).
+        // The environments and hardware are added by the agent with its last scan (T-105), and the
+        // monitors with what its bus sees ([`crate::monitors::MonitorHub::local_channels`]).
         environments: Vec::new(),
         hardware: tandem_proto::Hardware::default(),
         monitors: Vec::new(),
     }
 }
 
-/// Junta en un solo envío lo que pasa dentro de una ventana: el primer cambio la abre y al
-/// cerrarse corre el último pedido. Así hay como mucho un anuncio por ventana y ninguno se
-/// retrasa más que la ventana.
+/// Gathers into a single send what happens within a window: the first change opens it and when
+/// it closes the last request runs. This way there is at most one announcement per window and none
+/// is delayed more than the window.
 pub struct Debounce {
     window: Duration,
     pending: Arc<AtomicBool>,
-    /// El último pedido de la ventana abierta: lleva lo que valía al pedirlo (por ejemplo,
-    /// el enlace con la otra máquina), que puede no ser lo de cuando se abrió.
+    /// The last request of the open window: it carries what held when requested (for example,
+    /// the link to the other machine), which may not be what it was when it opened.
     last: Arc<Mutex<Option<Fire>>>,
 }
 
@@ -134,8 +134,8 @@ impl Debounce {
         }
     }
 
-    /// Corre `fire` al cerrar la ventana, en lugar de lo pedido antes en la misma. Fuera de
-    /// un runtime de tokio (nada que espere) corre enseguida.
+    /// Runs `fire` when the window closes, in place of what was requested earlier in it. Outside
+    /// a tokio runtime (nothing to wait for) it runs right away.
     pub fn schedule(&self, fire: impl FnOnce() + Send + 'static) {
         let Ok(rt) = tokio::runtime::Handle::try_current() else {
             fire();
@@ -148,8 +148,8 @@ impl Debounce {
         let (pending, last, window) = (self.pending.clone(), self.last.clone(), self.window);
         rt.spawn(async move {
             tokio::time::sleep(window).await;
-            // Primero se cierra la ventana y después se toma el pedido: uno que llegue entre
-            // medio abre otra ventana, y si este ya lo corrió, esa no encuentra nada.
+            // First the window is closed and then the request is taken: one that arrives in
+            // between opens another window, and if this one already ran it, that one finds nothing.
             pending.store(false, Ordering::SeqCst);
             let fire = last.lock().unwrap_or_else(PoisonError::into_inner).take();
             if let Some(fire) = fire {
@@ -159,15 +159,15 @@ impl Debounce {
     }
 }
 
-/// Lo que el plan puede pedirle a cada máquina, visto desde `here`.
+/// What the plan can ask of each machine, seen from `here`.
 ///
-/// Mientras no se sepa nada de la otra (no se la vio desde que arrancó este agente), se
-/// supone que se deja despertar si esta tiene con qué despertarla (`[power.wol]`). Si se
-/// equivoca, el paso falla con su motivo.
+/// While nothing is known about the other (it was not seen since this agent started), it is
+/// assumed it lets itself be woken if this one has something to wake it with (`[power.wol]`). If
+/// it is wrong, the step fails with its reason.
 pub fn abilities(here: &Capabilities, peer: Option<&Capabilities>) -> Abilities {
     let me = here.machine;
     let other = me.other();
-    // Despertar es cosa de dos: una que manda el Wake-on-LAN y otra que se deja despertar.
+    // Waking is a two-party thing: one that sends the Wake-on-LAN and another that lets itself be woken.
     let mut wakeable = std::collections::BTreeSet::new();
     if here.power.wakeable && peer.is_none_or(|p| p.power.wake_peer) {
         wakeable.insert(me);
@@ -183,7 +183,7 @@ mod tests {
     use super::*;
     use crate::config::fixtures;
 
-    /// Las dos con `[power.wol]`, como en `docs/examples`.
+    /// Both with `[power.wol]`, as in `docs/examples`.
     fn caps_of(machine: Machine, os: Os) -> Capabilities {
         let cfg = fixtures::desk_with_wol();
         local(
@@ -196,7 +196,7 @@ mod tests {
         )
     }
 
-    /// A con macOS y B con Windows, como el puesto de `docs/examples`.
+    /// A with macOS and B with Windows, like the `docs/examples` desk.
     fn caps(machine: Machine) -> Capabilities {
         let os = match machine {
             Machine::A => Os::MacOs,
@@ -229,10 +229,10 @@ mod tests {
             &ProcessInfo::default(),
             Vec::new(),
         );
-        assert!(!c.power.wake_peer, "sin [power.wol] no despierta a nadie");
+        assert!(!c.power.wake_peer, "without [power.wol] it wakes nobody");
     }
 
-    /// Lo que sabe hacer cada máquina sale de su sistema, no de su lado (DECISIONS D2).
+    /// What each machine knows how to do comes from its system, not from its side (DECISIONS D2).
     #[test]
     fn powering_off_depends_on_the_system_not_the_side() {
         for side in Machine::ALL {
@@ -287,7 +287,7 @@ mod tests {
             Vec::new(),
         );
         assert_eq!(c.input.process, process);
-        // El de verdad: esta misma prueba, con su pid y un ejecutable no vacío.
+        // The real one: this very test, with its pid and a non-empty executable.
         let now = current_process();
         assert_eq!(now.pid, std::process::id());
         assert!(!now.exe.is_empty() && now.started > 0);
@@ -301,8 +301,8 @@ mod tests {
         assert!(fired.load(Ordering::SeqCst));
     }
 
-    /// Una ráfaga dentro de la ventana es un solo envío, al cerrarse; lo que llega después
-    /// abre otra.
+    /// A burst within the window is a single send, when it closes; what arrives afterwards
+    /// opens another.
     #[tokio::test(start_paused = true)]
     async fn a_burst_inside_the_window_fires_once() {
         let d = Debounce::new(ANNOUNCE_DEBOUNCE);
@@ -317,7 +317,7 @@ mod tests {
             schedule(&d);
             tokio::time::sleep(Duration::from_millis(40)).await;
         }
-        assert_eq!(count.load(Ordering::SeqCst), 0, "la ventana sigue abierta");
+        assert_eq!(count.load(Ordering::SeqCst), 0, "the window is still open");
         tokio::time::sleep(ANNOUNCE_DEBOUNCE).await;
         assert_eq!(count.load(Ordering::SeqCst), 1);
         schedule(&d);
@@ -325,7 +325,7 @@ mod tests {
         assert_eq!(count.load(Ordering::SeqCst), 2);
     }
 
-    /// Al cerrarse la ventana corre el último pedido, no el que la abrió.
+    /// When the window closes the last request runs, not the one that opened it.
     #[tokio::test(start_paused = true)]
     async fn the_window_runs_the_last_request() {
         let d = Debounce::new(ANNOUNCE_DEBOUNCE);
@@ -359,7 +359,7 @@ mod tests {
         );
         assert_eq!(c.modules, modules);
         assert!(c.environments.is_empty() && c.monitors.is_empty());
-        // El anuncio entero viaja tal cual.
+        // The whole announcement travels as is.
         let back: Capabilities = tandem_proto::decode(&tandem_proto::encode(&c).unwrap()).unwrap();
         assert_eq!(back, c);
     }
@@ -371,7 +371,7 @@ mod tests {
             let ab = abilities(here, Some(peer));
             assert!(ab.can_wake(Machine::B) && ab.can_wake(Machine::A));
         }
-        // Sin saber nada de la otra, se supone que se deja despertar.
+        // Without knowing anything about the other, it is assumed it lets itself be woken.
         assert!(abilities(&caps(Machine::B), None).can_wake(Machine::A));
     }
 
@@ -383,8 +383,8 @@ mod tests {
         assert!(!ab.can_wake(Machine::A));
     }
 
-    /// Hallazgo del PR #56: una máquina sin `[power.wol]` armaba `PowerOn` de la otra, que
-    /// fallaba siempre al ejecutarse en vez de rechazarse.
+    /// Finding from PR #56: a machine without `[power.wol]` built the other's `PowerOn`, which
+    /// always failed on execution instead of being rejected.
     #[test]
     fn without_wake_on_lan_here_the_other_cannot_be_woken() {
         let b = without_wol(Machine::B);
@@ -393,12 +393,12 @@ mod tests {
             let ab = abilities(&b, peer);
             assert!(!ab.can_wake(Machine::A), "{peer:?}");
         }
-        // Y desde A: B sin WoL no la puede despertar a ella.
+        // And from A: B without WoL cannot wake it.
         let ab = abilities(&a, Some(&b));
         assert!(!ab.can_wake(Machine::A));
         assert!(ab.can_wake(Machine::B));
 
-        // El plan lo rechaza con su motivo (antes de tocar nada).
+        // The plan rejects it with its reason (before touching anything).
         let state = tandem_core::State::initial(Machine::B);
         let ab = abilities(&b, Some(&a));
         let e = tandem_core::Plan::power_on(&state, Machine::A, &ab).unwrap_err();

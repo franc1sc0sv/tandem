@@ -1,12 +1,12 @@
-//! Puertos para las pruebas con agentes reales por loopback (los arneses de
+//! Ports for tests with real agents over loopback (the harnesses of
 //! `tandemd/tests` y `tandem-sim`).
 //!
-//! Elegir un puerto «libre» y abrirlo después deja una carrera: otra suite que corre a
-//! la vez puede tomarlo entre medio. Con los puertos de reserva de la red el agente se
-//! pasaba sin error a otro puerto mientras el otro agente seguía marcando el viejo, y la
-//! prueba se colgaba hasta su tiempo máximo. Por eso los arneses arrancan sin puertos de
-//! reserva ([`NetOptions::fallback_ports`](crate::network::NetOptions) vacío): un choque
-//! falla enseguida con [`NetError::NoPort`], y [`with_free_ports`] vuelve a elegir.
+//! Choosing a "free" port and opening it afterwards leaves a race: another suite running at
+//! the same time can take it in between. With the network's reserve ports the agent
+//! silently moved to another port while the other agent kept dialing the old one, and the
+//! test hung until its maximum time. That is why the harnesses start without reserve ports
+//! ([`NetOptions::fallback_ports`](crate::network::NetOptions) empty): a clash
+//! fails right away with [`NetError::NoPort`], and [`with_free_ports`] chooses again.
 
 use std::future::Future;
 use std::io;
@@ -16,23 +16,23 @@ use std::sync::atomic::{AtomicU16, Ordering};
 use crate::daemon::StartError;
 use crate::network::NetError;
 
-/// Cuántas veces se vuelve a elegir antes de rendirse.
+/// How many times it chooses again before giving up.
 pub const ATTEMPTS: usize = 20;
 
-/// El arranque falló porque el puerto elegido ya estaba tomado.
+/// The start failed because the chosen port was already taken.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PortTaken;
 
-/// Puertos que el sistema no reparte solo. Pedirle uno al sistema (bind al 0) y soltarlo
-/// dejaba que otra prueba, o el puerto de origen de un cliente QUIC, lo recibiera enseguida
-/// (Windows reparte los efímeros en orden y reutiliza el recién soltado: «Address already in
-/// use», error 10013). Por debajo del rango efímero (49152-65535) y del que Windows reserva
-/// con Hyper-V (47000-48999), un contador del proceso no repite ninguno entre pruebas.
+/// Ports the system does not hand out on its own. Asking the system for one (bind to 0) and releasing it
+/// let another test, or a QUIC client's source port, receive it right away
+/// (Windows hands out ephemerals in order and reuses the just-released one: "Address already in
+/// use", error 10013). Below the ephemeral range (49152-65535) and the one Windows reserves
+/// with Hyper-V (47000-48999), a process counter does not repeat any between tests.
 static NEXT: AtomicU16 = AtomicU16::new(0);
 const SPAN: u16 = 6_000;
 
 fn base() -> u16 {
-    // Cada proceso de pruebas en su tramo, por si dos corren a la vez.
+    // Each test process in its own stretch, in case two run at once.
     20_000 + (std::process::id() % 2_000) as u16 * 10
 }
 
@@ -40,7 +40,7 @@ fn is_free(port: u16) -> bool {
     UdpSocket::bind((Ipv4Addr::LOCALHOST, port)).is_ok()
 }
 
-/// Un puerto UDP de loopback libre ahora y que el proceso no vuelve a entregar.
+/// A loopback UDP port free right now and that the process does not hand out again.
 pub fn free_port() -> io::Result<u16> {
     loop {
         let p = base() + NEXT.fetch_add(1, Ordering::Relaxed) % SPAN;
@@ -50,8 +50,8 @@ pub fn free_port() -> io::Result<u16> {
     }
 }
 
-/// Un puerto libre con el siguiente también libre: el agente escucha en el primero y
-/// empareja en el segundo. Los pares no se solapan entre llamadas.
+/// A free port with the next one also free: the agent listens on the first and
+/// pairs on the second. Pairs do not overlap between calls.
 pub fn free_pair() -> u16 {
     loop {
         let p = base() + NEXT.fetch_add(2, Ordering::Relaxed) % SPAN;
@@ -61,7 +61,7 @@ pub fn free_pair() -> u16 {
     }
 }
 
-/// Dos puertos de loopback distintos, libres hace un instante.
+/// Two distinct loopback ports, free a moment ago.
 pub fn two_ports() -> io::Result<(u16, u16)> {
     loop {
         let (a, b) = (free_port()?, free_port()?);
@@ -71,16 +71,16 @@ pub fn two_ports() -> io::Result<(u16, u16)> {
     }
 }
 
-/// Arranca dos agentes de prueba con un par de puertos nuevo: `start_pair!(|pa, pb|
-/// arranque_a, arranque_b)`, donde cada arranque es un futuro de `Result<_, PortTaken>`
-/// que usa `pa` y `pb`. Si alguno encuentra su puerto tomado, se detiene el que arrancó
-/// (`.stop().await`) y se eligen otros.
+/// Starts two test agents with a new pair of ports: `start_pair!(|pa, pb|
+/// start_a, start_b)`, where each start is a future of `Result<_, PortTaken>`
+/// that uses `pa` and `pb`. If one finds its port taken, the one that started is stopped
+/// (`.stop().await`) and others are chosen.
 #[macro_export]
 macro_rules! start_pair {
     (|$pa:ident, $pb:ident| $a:expr, $b:expr) => {
-        $crate::start_pair!(ports: || $crate::test_ports::free_port().expect("puerto de loopback"); |$pa, $pb| $a, $b)
+        $crate::start_pair!(ports: || $crate::test_ports::free_port().expect("loopback port"); |$pa, $pb| $a, $b)
     };
-    // Con otra forma de elegir cada puerto (por ejemplo, uno con su vecino libre).
+    // With another way of choosing each port (for example, one with its free neighbor).
     (ports: $gen:expr; |$pa:ident, $pb:ident| $a:expr, $b:expr) => {{
         let mut left = $crate::test_ports::ATTEMPTS;
         loop {
@@ -97,28 +97,28 @@ macro_rules! start_pair {
                 }
             }
             left -= 1;
-            assert!(left > 0, "no se encontraron puertos libres");
+            assert!(left > 0, "no free ports were found");
         }
     }};
 }
 
-/// Como [`start_pair!`], con un solo agente (el puerto del otro no se abre).
+/// Like [`start_pair!`], with a single agent (the other's port is not opened).
 #[macro_export]
 macro_rules! start_solo {
     (|$pa:ident, $pb:ident| $a:expr) => {{
         let mut left = $crate::test_ports::ATTEMPTS;
         loop {
-            let ($pa, $pb) = $crate::test_ports::two_ports().expect("puertos de loopback");
+            let ($pa, $pb) = $crate::test_ports::two_ports().expect("loopback ports");
             if let Ok(a) = $a.await {
                 break a;
             }
             left -= 1;
-            assert!(left > 0, "no se encontraron puertos libres");
+            assert!(left > 0, "no free ports were found");
         }
     }};
 }
 
-/// `Err(PortTaken)` si el agente no arrancó por el puerto; cualquier otro error, tal cual.
+/// `Err(PortTaken)` if the agent did not start because of the port; any other error, as is.
 pub fn port_taken<T>(r: Result<T, StartError>) -> Result<Result<T, PortTaken>, StartError> {
     match r {
         Ok(t) => Ok(Ok(t)),
@@ -127,9 +127,9 @@ pub fn port_taken<T>(r: Result<T, StartError>) -> Result<Result<T, PortTaken>, S
     }
 }
 
-/// Elige `n` puertos libres distintos y llama a `start`; si devuelve [`PortTaken`] (otra
-/// suite tomó alguno entre medio), elige otros y vuelve a empezar. `start` tiene que
-/// soltar lo que haya arrancado antes de devolver el error.
+/// Chooses `n` distinct free ports and calls `start`; if it returns [`PortTaken`] (another
+/// suite took one in between), it chooses others and starts over. `start` must
+/// release whatever it started before returning the error.
 pub async fn with_free_ports<T, F, Fut>(n: usize, mut start: F) -> io::Result<T>
 where
     F: FnMut(Vec<u16>) -> Fut,
@@ -145,12 +145,12 @@ where
         }
         match start(ports.clone()).await {
             Ok(t) => return Ok(t),
-            Err(PortTaken) => tracing::debug!(?ports, "puerto tomado: se eligen otros"),
+            Err(PortTaken) => tracing::debug!(?ports, "port taken: choosing others"),
         }
     }
     Err(io::Error::new(
         io::ErrorKind::AddrInUse,
-        "no se encontraron puertos libres para la prueba",
+        "no free ports were found for the test",
     ))
 }
 
@@ -165,8 +165,8 @@ mod tests {
             let single = free_port().unwrap();
             let pair = free_pair();
             for p in [single, pair, pair + 1] {
-                assert!(p < 47_000, "{p} cae en el rango que reparte el sistema");
-                assert!(seen.insert(p), "{p} se entregó dos veces");
+                assert!(p < 47_000, "{p} falls in the range the system hands out");
+                assert!(seen.insert(p), "{p} was handed out twice");
             }
         }
     }
@@ -177,7 +177,7 @@ mod tests {
         let taken = held.local_addr().unwrap().port();
         let mut first = true;
         let got = with_free_ports(2, |ports| {
-            // El primer intento usa el puerto que alguien más tiene abierto.
+            // The first attempt uses the port someone else has open.
             let ports = if std::mem::take(&mut first) {
                 vec![taken, ports[1]]
             } else {

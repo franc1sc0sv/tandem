@@ -1,19 +1,19 @@
-//! Archivos y puertos dentro de un túnel (DESIGN §8, T-106): los mensajes.
+//! Files and ports inside a tunnel (DESIGN §8, T-106): the messages.
 //!
-//! Van como pedidos propios de [`crate::TunnelUp`] / [`crate::TunnelDown`] en streams de
-//! [`crate::Channel::Tunnel`]. Un stream = una operación (una transferencia, una conexión
-//! reenviada), así que un corte solo afecta a esa operación y se reintenta sin tocar lo
-//! demás. La lógica está en `tandem-files`.
+//! They travel as [`crate::TunnelUp`] / [`crate::TunnelDown`] requests of their own on streams of
+//! [`crate::Channel::Tunnel`]. One stream = one operation (a transfer, a forwarded
+//! connection), so a cut only affects that operation and is retried without touching the
+//! rest. The logic is in `tandem-files`.
 
 use serde::{Deserialize, Serialize};
 
 use crate::TunnelId;
 
-/// Tamaño de los fragmentos: 1 MiB.
+/// Chunk size: 1 MiB.
 pub const CHUNK_SIZE: u32 = 1 << 20;
 
-/// Lo máximo que lleva un mensaje de datos: un fragmento viaja en pedazos porque un
-/// marco no puede pasar de [`crate::MAX_FRAME_LEN`] (1 MiB, con el sobrecosto del mensaje).
+/// The most a data message carries: a chunk travels in pieces because a
+/// frame cannot exceed [`crate::MAX_FRAME_LEN`] (1 MiB, with the message overhead).
 pub const PIECE: usize = 256 * 1024;
 
 /// BLAKE3 de 256 bits.
@@ -24,35 +24,35 @@ pub enum EntryKind {
     Dir,
     File {
         size: u64,
-        /// BLAKE3 de cada fragmento (el último puede ser más corto).
+        /// BLAKE3 of each chunk (the last one may be shorter).
         chunks: Vec<Hash>,
-        /// BLAKE3 del contenido completo.
+        /// BLAKE3 of the whole content.
         hash: Hash,
     },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileEntry {
-    /// Relativa a la raíz, con `/` como separador en las dos plataformas; sin `..`.
+    /// Relative to the root, with `/` as separator on both platforms; without `..`.
     pub path: String,
     pub kind: EntryKind,
-    /// Bits de permisos de Unix (`0o7777`); `None` si el origen no los tiene.
+    /// Unix permission bits (`0o7777`); `None` if the source does not have them.
     pub mode: Option<u32>,
-    /// Fecha de modificación en milisegundos desde 1970.
+    /// Modification date in milliseconds since 1970.
     pub mtime_ms: Option<u64>,
 }
 
-/// Lo que se va a copiar, con los hashes para verificar y reanudar.
+/// What is going to be copied, with the hashes to verify and resume.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub chunk_size: u32,
-    /// Una sola entrada de archivo, cuya ruta es el nombre del archivo.
+    /// A single file entry, whose path is the file name.
     pub single: bool,
     pub entries: Vec<FileEntry>,
 }
 
 impl Manifest {
-    /// Bytes de contenido de todos los archivos.
+    /// Content bytes of all the files.
     pub fn total_bytes(&self) -> u64 {
         self.entries
             .iter()
@@ -64,14 +64,14 @@ impl Manifest {
     }
 }
 
-/// Lo que cabe en una página de manifiesto o de plan: bien por debajo de
-/// [`crate::MAX_FRAME_LEN`], para que un árbol de cualquier tamaño viaje en varios mensajes.
+/// What fits in a manifest or plan page: well below
+/// [`crate::MAX_FRAME_LEN`], so a tree of any size travels in several messages.
 pub const PAGE_BUDGET: usize = 256 * 1024;
 
-/// Tope de entradas de un manifiesto, para que la otra máquina no pida memoria sin límite.
+/// Cap on manifest entries, so the other machine does not ask for unbounded memory.
 pub const MAX_ENTRIES: usize = 4_000_000;
 
-/// Peso aproximado de una entrada una vez codificada.
+/// Approximate weight of an entry once encoded.
 pub fn entry_cost(e: &FileEntry) -> usize {
     let chunks = match &e.kind {
         EntryKind::File { chunks, .. } => 32 * chunks.len() + 32,
@@ -80,8 +80,8 @@ pub fn entry_cost(e: &FileEntry) -> usize {
     e.path.len() + chunks + 40
 }
 
-/// Parte las entradas en páginas contiguas de a lo sumo [`PAGE_BUDGET`] (una entrada sola
-/// puede pasarse; [`entry_fits`] dice si aun así cabe en un marco).
+/// Splits the entries into contiguous pages of at most [`PAGE_BUDGET`] (a single entry
+/// may exceed it; [`entry_fits`] says whether it still fits in a frame).
 pub fn page_entries(entries: &[FileEntry]) -> Vec<&[FileEntry]> {
     let (mut pages, mut start, mut cost) = (Vec::new(), 0, 0);
     for (i, e) in entries.iter().enumerate() {
@@ -98,13 +98,13 @@ pub fn page_entries(entries: &[FileEntry]) -> Vec<&[FileEntry]> {
     pages
 }
 
-/// Si la entrada, sola, cabe en un marco.
+/// Whether the entry, alone, fits in a frame.
 pub fn entry_fits(e: &FileEntry) -> bool {
     entry_cost(e) < crate::MAX_FRAME_LEN - 1024
 }
 
-/// Parte un plan en páginas por cantidad de fragmentos (5 B por índice como máximo); un
-/// archivo con muchos fragmentos se reparte en varios [`Need`] con el mismo `entry`.
+/// Splits a plan into pages by number of chunks (5 B per index at most); a
+/// file with many chunks is spread over several [`Need`]s with the same `entry`.
 pub fn page_needs(needs: &[Need]) -> Vec<Vec<Need>> {
     const PER_PAGE: usize = PAGE_BUDGET / 8;
     let (mut pages, mut cur, mut room) = (Vec::new(), Vec::new(), PER_PAGE);
@@ -127,7 +127,7 @@ pub fn page_needs(needs: &[Need]) -> Vec<Vec<Need>> {
     pages
 }
 
-/// Los fragmentos que le faltan a un archivo.
+/// The chunks a file is missing.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Need {
     pub entry: u32,
@@ -138,23 +138,23 @@ pub struct Need {
 pub struct FilesReport {
     pub files: u64,
     pub dirs: u64,
-    /// Bytes de contenido del total.
+    /// Content bytes of the total.
     pub bytes: u64,
-    /// Bytes que de verdad viajaron (menos que `bytes` si se reanudó o ya estaba).
+    /// Bytes that actually traveled (fewer than `bytes` if it resumed or was already there).
     pub sent: u64,
-    /// Lo que no se copió por parecer una credencial (T-130); las carpetas terminan en
-    /// `/`. Nunca viaja a la otra máquina salvo que se nombre en `include`.
+    /// What was not copied for looking like a credential (T-130); folders end in
+    /// `/`. It never travels to the other machine unless named in `include`.
     #[serde(default)]
     pub skipped: Vec<String>,
 }
 
-/// Avance de una transferencia, para la UI y el cliente.
+/// Transfer progress, for the UI and the client.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TransferProgress {
     pub tunnel: TunnelId,
-    /// `true` si va hacia la otra máquina (`files_put`).
+    /// `true` if it goes to the other machine (`files_put`).
     pub upload: bool,
-    /// La ruta local que se copia.
+    /// The local path being copied.
     pub path: String,
     pub done: u64,
     pub total: u64,
@@ -163,49 +163,49 @@ pub struct TransferProgress {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilesUp {
-    /// Copiar hacia la destino. `remote` es la carpeta de destino (o el archivo, si el
-    /// manifiesto es de uno solo). El manifiesto sigue en [`FilesUp::Entries`], por
-    /// páginas; con la última contesta [`FilesDown::Plan`].
+    /// Copy to the destination. `remote` is the destination folder (or the file, if the
+    /// manifest is for a single one). The manifest continues in [`FilesUp::Entries`], in
+    /// pages; with the last one it answers [`FilesDown::Plan`].
     Put {
         tunnel: TunnelId,
         remote: String,
         chunk_size: u32,
         single: bool,
     },
-    /// Una página de entradas del manifiesto de `Put`; `last` cierra el manifiesto.
+    /// A page of entries of the `Put` manifest; `last` closes the manifest.
     Entries { entries: Vec<FileEntry>, last: bool },
-    /// Un pedazo (`offset` dentro del fragmento, hasta [`PIECE`] bytes) de un fragmento que
-    /// pidió el plan. Sin respuesta.
+    /// A piece (`offset` within the chunk, up to [`PIECE`] bytes) of a chunk that
+    /// the plan asked for. No reply.
     Chunk {
         entry: u32,
         index: u32,
         offset: u32,
         bytes: Vec<u8>,
     },
-    /// Ya se mandó todo: verificar, renombrar y fijar permisos y fechas. Contesta
+    /// Everything has been sent: verify, rename and set permissions and dates. It answers
     /// [`FilesDown::Done`] o [`FilesDown::Failed`].
     Finish,
-    /// Traer de la destino. Contesta [`FilesDown::ManifestHead`] y las páginas de entradas.
+    /// Bring from the destination. Answers [`FilesDown::ManifestHead`] and the pages of entries.
     Get { tunnel: TunnelId, remote: String },
-    /// Pedir fragmentos de un archivo del manifiesto de `Get`; contesta un
-    /// [`FilesDown::Chunk`] por cada pedazo de cada uno, en orden.
+    /// Ask for chunks of a file of the `Get` manifest; answers one
+    /// [`FilesDown::Chunk`] per piece of each one, in order.
     Fetch { entry: u32, indices: Vec<u32> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FilesDown {
-    /// Una página del plan; con `last` termina.
+    /// A page of the plan; with `last` it ends.
     Plan {
         needs: Vec<Need>,
         last: bool,
     },
     Done(FilesReport),
     Failed(String),
-    /// Encabezado del manifiesto de `Get`; siguen las páginas [`FilesDown::Entries`].
+    /// Header of the `Get` manifest; the [`FilesDown::Entries`] pages follow.
     ManifestHead {
         chunk_size: u32,
         single: bool,
-        /// Lo que la destino no mandó por parecer una credencial (T-130).
+        /// What the destination did not send for looking like a credential (T-130).
         skipped: Vec<String>,
     },
     Entries {
@@ -220,13 +220,13 @@ pub enum FilesDown {
     },
 }
 
-/// Hacia dónde va un reenvío de puerto.
+/// Where a port forward goes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Direction {
-    /// Escucha `local_port` aquí y sale por `remote_host:remote_port` en la destino.
+    /// Listens on `local_port` here and exits through `remote_host:remote_port` on the destination.
     LocalToRemote,
-    /// Escucha `remote_port` en la destino (en `remote_host`) y sale por
-    /// `127.0.0.1:local_port` de aquí.
+    /// Listens on `remote_port` on the destination (on `remote_host`) and exits through
+    /// `127.0.0.1:local_port` here.
     RemoteToLocal,
 }
 
@@ -235,7 +235,7 @@ pub struct ForwardInfo {
     pub id: u64,
     pub tunnel: TunnelId,
     pub direction: Direction,
-    /// El puerto real de este lado (si se pidió el 0, el que dio el sistema).
+    /// The real port on this side (if 0 was requested, the one the system gave).
     pub local_port: u16,
     pub remote_host: String,
     pub remote_port: u16,
@@ -243,29 +243,29 @@ pub struct ForwardInfo {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PortUp {
-    /// Abrir en la destino una conexión TCP a `host:port`, identificada por `conn`.
-    /// Contesta [`PortDown::Ready`] o [`PortDown::Failed`].
+    /// Open a TCP connection to `host:port` on the destination, identified by `conn`.
+    /// Answers [`PortDown::Ready`] or [`PortDown::Failed`].
     Connect {
         tunnel: TunnelId,
         conn: u64,
         host: String,
         port: u16,
     },
-    /// Escuchar en la destino. Contesta [`PortDown::Listening`] y luego un
-    /// [`PortDown::Incoming`] por conexión, mientras el stream siga abierto.
+    /// Listen on the destination. Answers [`PortDown::Listening`] and then one
+    /// [`PortDown::Incoming`] per connection, while the stream stays open.
     Listen {
         tunnel: TunnelId,
         bind: String,
         port: u16,
     },
-    /// Este stream lleva lo que va del origen a la conexión `conn`. Contesta
-    /// [`PortDown::Ready`]; luego solo `Bytes` y `Eof` hacia la destino.
+    /// This stream carries what goes from the source to connection `conn`. Answers
+    /// [`PortDown::Ready`]; afterwards only `Bytes` and `Eof` toward the destination.
     Send {
         tunnel: TunnelId,
         conn: u64,
     },
-    /// Este stream lleva lo que sale de la conexión `conn`. Contesta [`PortDown::Ready`];
-    /// luego solo `Bytes` y `Eof` hacia el origen.
+    /// This stream carries what comes out of connection `conn`. Answers [`PortDown::Ready`];
+    /// afterwards only `Bytes` and `Eof` toward the source.
     Recv {
         tunnel: TunnelId,
         conn: u64,
@@ -284,8 +284,8 @@ pub enum PortDown {
     Incoming {
         conn: u64,
     },
-    /// Latido de un stream de `Listen` (cada pocos segundos): si no se puede mandar, el
-    /// origen se fue y la destino deja de escuchar.
+    /// Heartbeat of a `Listen` stream (every few seconds): if it cannot be sent, the
+    /// source is gone and the destination stops listening.
     Beat,
     Bytes(Vec<u8>),
     Eof,
@@ -298,7 +298,7 @@ mod tests {
 
     fn entry(i: usize, chunks: usize) -> FileEntry {
         FileEntry {
-            path: format!("dir/archivo-{i}.txt"),
+            path: format!("dir/file-{i}.txt"),
             kind: EntryKind::File {
                 size: 1,
                 chunks: vec![[1; 32]; chunks],
@@ -310,7 +310,7 @@ mod tests {
     }
 
     #[test]
-    fn las_paginas_de_entradas_caben_en_un_marco_y_no_pierden_nada() {
+    fn entry_pages_fit_in_a_frame_and_lose_nothing() {
         let entries: Vec<_> = (0..30_000).map(|i| entry(i, 3)).collect();
         let pages = page_entries(&entries);
         assert!(pages.len() > 1);
@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn las_paginas_del_plan_caben_en_un_marco_y_no_pierden_nada() {
+    fn plan_pages_fit_in_a_frame_and_lose_nothing() {
         let needs: Vec<_> = (0..300u32)
             .map(|e| Need {
                 entry: e,
@@ -354,7 +354,7 @@ mod tests {
     }
 
     #[test]
-    fn los_mensajes_hacen_ida_y_vuelta() {
+    fn messages_round_trip() {
         let manifest = Manifest {
             chunk_size: CHUNK_SIZE,
             single: false,
@@ -370,7 +370,7 @@ mod tests {
                     mtime_ms: Some(1),
                 },
                 FileEntry {
-                    path: "vacia".into(),
+                    path: "empty".into(),
                     kind: EntryKind::Dir,
                     mode: None,
                     mtime_ms: None,

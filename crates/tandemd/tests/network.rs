@@ -1,6 +1,6 @@
-//! Dos `tandemd` armados con [`daemon::start`], como en el binario: identidades
-//! emparejadas en el directorio de datos, QUIC real en loopback y los enlaces fijos de
-//! la config. Solo los pasos de cada máquina son simulados.
+//! Two `tandemd`s built with [`daemon::start`], as in the binary: paired identities
+//! in the data directory, real QUIC over loopback and the config's fixed links.
+//! Only each machine's steps are simulated.
 
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -20,8 +20,8 @@ use tandemd::{Agent, AgentConfig, StoreError};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
-/// Las dos identidades ordenadas por clave: la primera es la del lado A (DECISIONS A1), así
-/// cada prueba sabe qué lado le toca a cada agente.
+/// The two identities sorted by key: the first is side A's (DECISIONS A1), so
+/// each test knows which side each agent gets.
 fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     if x.public_key().as_bytes() < y.public_key().as_bytes() {
         (x, y)
@@ -30,16 +30,16 @@ fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     }
 }
 
-/// Tope para que una prueba rota falle en vez de colgarse.
+/// Cap so a broken test fails instead of hanging.
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
-/// Pasos simulados: registran lo que se les pide.
+/// Simulated steps: they record what they are asked.
 #[derive(Default)]
 struct Fake {
     log: Mutex<Vec<Step>>,
@@ -66,8 +66,8 @@ impl LocalSteps for Fake {
     }
 }
 
-/// Un puerto UDP libre de loopback. Se suelta enseguida para que lo tome el agente:
-/// cada uno necesita conocer el del otro antes de arrancar.
+/// A free loopback UDP port. It is released right away for the agent to take it:
+/// each one needs to know the other's before starting.
 fn free_port() -> u16 {
     UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
         .unwrap()
@@ -98,8 +98,8 @@ impl Running {
     }
 }
 
-/// Un agente de `machine` armado como en el binario. `peer` es la llave y el puerto del
-/// otro agente; sin él, el agente no tiene par emparejado.
+/// An agent of `machine` built as in the binary. `peer` is the other agent's key and port;
+/// without it, the agent has no paired peer.
 async fn start(
     machine: Machine,
     identity: &Identity,
@@ -109,8 +109,8 @@ async fn start(
     start_with(machine, identity, port, peer, "").await
 }
 
-/// Como [`start`], con `extra` justo después de `machine` en `tandem.toml` (claves de arriba
-/// y tablas propias, como un archivo de una versión anterior).
+/// Like [`start`], with `extra` right after `machine` in `tandem.toml` (top-level keys
+/// and tables of its own, like a file from an earlier version).
 async fn start_with(
     machine: Machine,
     identity: &Identity,
@@ -138,13 +138,13 @@ async fn start_with(
             loopback(peer_port)
         ));
     }
-    // Las dos con `[power.wol]` para despertar a la otra (los pasos son simulados).
+    // Both with `[power.wol]` to wake the other (the steps are simulated).
     let text = format!("machine = \"{machine}\"\n{extra}\n{network}\n{WOL}");
-    // En el disco, como en el binario: lo que se cambia desde la UI se guarda ahí.
+    // On disk, as in the binary: what is changed from the UI is saved there.
     std::fs::write(&paths.config, &text).unwrap();
     let mut cfg = AgentConfig::from_toml(&text).unwrap();
-    // A es una Mac y B una PC en estas pruebas: lo que puede cada una sale de su sistema, no
-    // del de la máquina que corre la prueba (en macOS ninguna se apagaría sola).
+    // A is a Mac and B a PC in these tests: what each can do comes from its system, not
+    // from the machine running the test (on macOS neither would shut itself down).
     cfg.os = match machine {
         Machine::A => tandem_core::Os::MacOs,
         Machine::B => tandem_core::Os::Windows,
@@ -161,7 +161,7 @@ async fn start_with(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
-            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
             ..NetOptions::default()
         },
@@ -227,7 +227,7 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
         )
     );
 
-    // Cada uno ve al otro por el único enlace fijo, y la UI lo recibe.
+    // Each sees the other over the only fixed link, and the UI receives it.
     until_peer(&mac.agent, paired("B", Some(Link::Usb4))).await;
     until_peer(&pc.agent, paired("A", Some(Link::Usb4))).await;
     assert_eq!(
@@ -235,7 +235,7 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
         Reply::Peer(paired("B", Some(Link::Usb4)))
     );
 
-    // La Mac ve aparecer a la PC y la da por prendida (peer_watch), y viceversa.
+    // The Mac sees the PC appear and considers it on (peer_watch), and vice versa.
     let mut mac_state = mac.agent.subscribe();
     within(mac_state.wait_for(|s| s.is_on(Machine::B)))
         .await
@@ -245,8 +245,8 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
         .await
         .unwrap();
 
-    // Apagar la PC: la Mac le pide el paso por el enlace. Darla por prendida toma el
-    // orquestador un instante: si coincide, se reintenta.
+    // Power off the PC: the Mac asks it for the step over the link. Considering it on takes the
+    // orchestrator for an instant: if it coincides, it is retried.
     let txn = within(async {
         loop {
             match mac
@@ -262,7 +262,7 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
                 Reply::Rejected(why) if why == tandemd::agent::BUSY => {
                     tokio::time::sleep(Duration::from_millis(20)).await;
                 }
-                other => panic!("se esperaba Accepted: {other:?}"),
+                other => panic!("Accepted was expected: {other:?}"),
             }
         }
     })
@@ -271,7 +271,7 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
         loop {
             match mac.ui.next_event().await.unwrap().unwrap() {
                 AgentToUi::Txn(TxnEvent::Committed { txn: t, state }) if t == txn => break state,
-                AgentToUi::Txn(e @ TxnEvent::Failed { .. }) => panic!("el apagado falló: {e:?}"),
+                AgentToUi::Txn(e @ TxnEvent::Failed { .. }) => panic!("the shutdown failed: {e:?}"),
                 _ => {}
             }
         }
@@ -286,7 +286,7 @@ async fn paired_agents_find_each_other_and_shut_down_the_pc() {
         }]
     );
 
-    // Al apagarse la PC, la Mac deja de verla enseguida y ya no tiene a quién pedirle pasos.
+    // When the PC shuts down, the Mac stops seeing it right away and has nobody to ask for steps.
     let mac_agent = mac.agent.clone();
     pc.stop().await;
     until_peer(&mac_agent, paired("B", None)).await;
@@ -305,7 +305,7 @@ async fn unpaired_agent_works_alone_and_says_so() {
     );
     assert_eq!(a.ui.get_state().await.unwrap(), a.agent.state());
     assert!(!*a.agent.orchestrator().peer_connected().borrow());
-    // Lo que solo toca a esta máquina se hace igual: aquí, nada que cambiar.
+    // What only concerns this machine is done all the same: here, nothing to change.
     let reply =
         a.ui.request(UiCommand::SetPower {
             machine: Machine::A,
@@ -317,7 +317,7 @@ async fn unpaired_agent_works_alone_and_says_so() {
     a.stop().await;
 }
 
-/// La primera vez el agente crea su identidad y la guarda; la siguiente la reusa.
+/// The first time the agent creates its identity and saves it; the next one reuses it.
 #[tokio::test]
 async fn identity_is_created_once_and_kept() {
     let dir = tempfile::tempdir().unwrap();
@@ -347,10 +347,10 @@ async fn identity_is_created_once_and_kept() {
     assert_eq!(second.agent.peer_status(), PeerStatus::Unpaired);
 }
 
-/// Lo que hace falta para que una máquina despierte a la otra.
+/// What is needed for one machine to wake the other.
 const WOL: &str = "[power.wol]\nmac = \"aa:bb:cc:dd:ee:ff\"\n";
 
-/// Encender la PC termina cuando su agente aparece por un enlace, no antes.
+/// Powering on the PC ends when its agent appears over a link, not before.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn power_on_waits_for_the_pc_agent() {
     let (mac_id, pc_id) = sides(Identity::from_seed([4; 32]), Identity::from_seed([5; 32]));
@@ -374,7 +374,7 @@ async fn power_on_waits_for_the_pc_agent() {
         .await
         .unwrap();
     assert!(matches!(reply, Reply::Accepted { .. }), "{reply:?}");
-    // El Wake-on-LAN salió y la transacción espera.
+    // The Wake-on-LAN went out and the transaction waits.
     within(async {
         while mac.steps.steps().is_empty() {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -383,8 +383,8 @@ async fn power_on_waits_for_the_pc_agent() {
     .await;
     assert!(!mac.agent.state().on.b);
 
-    // La PC arranca después, a propósito: si otra suite tomó su puerto mientras tanto,
-    // falla enseguida (sin puertos de reserva) en vez de colgarse.
+    // The PC starts afterwards, on purpose: if another suite took its port meanwhile,
+    // it fails right away (without reserve ports) instead of hanging.
     let pc = start(
         Machine::B,
         &pc_id,
@@ -392,12 +392,12 @@ async fn power_on_waits_for_the_pc_agent() {
         Some((mac_id.public_key(), mac_port)),
     )
     .await
-    .expect("el puerto de la PC se tomó mientras tanto");
+    .expect("the PC's port was taken meanwhile");
     let state = within(async {
         loop {
             match mac.ui.next_event().await.unwrap().unwrap() {
                 AgentToUi::Txn(TxnEvent::Committed { state, .. }) => break state,
-                AgentToUi::Txn(e @ TxnEvent::Failed { .. }) => panic!("no se encendió: {e:?}"),
+                AgentToUi::Txn(e @ TxnEvent::Failed { .. }) => panic!("it did not power on: {e:?}"),
                 _ => {}
             }
         }
@@ -414,7 +414,7 @@ async fn power_on_waits_for_the_pc_agent() {
     mac.stop().await;
 }
 
-/// Arranca un agente de la PC sin par en `bind`, con esos puertos de reserva.
+/// Starts a PC agent without a peer at `bind`, with those reserve ports.
 fn start_on(
     dir: &std::path::Path,
     bind: SocketAddr,
@@ -443,8 +443,8 @@ fn start_on(
     .map_err(|e| e.to_string())
 }
 
-/// T-082: el puerto del agente ocupado (en la PC real, reservado por Windows) no impide
-/// arrancar: se usa el primero libre de la lista de reserva, y es el que se anunciaría.
+/// T-082: the agent's port being busy (on the real PC, reserved by Windows) does not prevent
+/// starting: the first free one from the reserve list is used, and it is the one that would be announced.
 #[tokio::test]
 async fn an_occupied_port_falls_back_to_a_free_one() {
     let dir = tempfile::tempdir().unwrap();
@@ -459,7 +459,7 @@ async fn an_occupied_port_falls_back_to_a_free_one() {
     d.network.shutdown().await;
 }
 
-/// Si ningún puerto abre, el error dice cuáles se probaron, la causa y cómo arreglarlo.
+/// If no port opens, the error says which were tried, the cause and how to fix it.
 #[tokio::test]
 async fn no_free_port_explains_how_to_fix_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -468,7 +468,7 @@ async fn no_free_port_explains_how_to_fix_it() {
     let busy2 = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
     let taken2 = busy2.local_addr().unwrap().port();
     let Err(text) = start_on(dir.path(), loopback(taken), vec![taken2]) else {
-        panic!("arrancó con todos los puertos ocupados");
+        panic!("it started with all ports busy");
     };
     for want in [
         taken.to_string(),
@@ -477,11 +477,11 @@ async fn no_free_port_explains_how_to_fix_it() {
         "[network] port".into(),
         "tandem.toml".into(),
     ] {
-        assert!(text.contains(&want), "falta «{want}» en: {text}");
+        assert!(text.contains(&want), "missing \"{want}\" in: {text}");
     }
 }
 
-/// Lo que el puesto tiene en `tandem.toml` de `r` (lo que leería al volver a arrancar).
+/// What the desk has in `r`'s `tandem.toml` (what it would read on starting again).
 fn saved(r: &Running) -> AgentConfig {
     AgentConfig::load(&r._dir.path().join("tandem.toml")).unwrap()
 }
@@ -491,8 +491,8 @@ async fn until_desk(r: &Running, want: &tandem_core::Config) {
     within(rx.wait_for(|d| d == want)).await.unwrap();
 }
 
-/// Lo mismo, mirando solo el acomodo (las pantallas y los lados): qué máquina es cada lado
-/// se anota aparte, cuando las dos se anuncian.
+/// The same, looking only at the arrangement (the screens and the sides): which machine each side is
+/// is noted separately, when both announce themselves.
 async fn until_layout(r: &Running, want: &tandem_core::Config) {
     let mut rx = r.agent.subscribe_desk();
     within(rx.wait_for(|d| d.screens == want.screens && d.arrangement == want.arrangement))
@@ -500,8 +500,8 @@ async fn until_layout(r: &Running, want: &tandem_core::Config) {
         .unwrap();
 }
 
-/// Espera a que las dos tengan anotadas a las dos máquinas en el puesto, con la misma
-/// versión: a partir de ahí lo que cambie es del usuario.
+/// Waits for both to have both machines noted in the desk, with the same
+/// version: from then on what changes is the user's.
 async fn until_both_known(a: &Running, b: &Running) {
     within(async {
         loop {
@@ -517,8 +517,8 @@ async fn until_both_known(a: &Running, b: &Running) {
     .await;
 }
 
-/// T-084: el puesto es de las dos. Cambiar el acomodo en la Mac llega a la PC (en caliente
-/// y en su `tandem.toml`), y al revés; lo solo-local no viaja.
+/// T-084: the desk belongs to both. Changing the arrangement on the Mac reaches the PC (live
+/// and in its `tandem.toml`), and vice versa; what is local-only does not travel.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_desk_changed_on_either_machine_reaches_the_other() {
     let (mac_id, pc_id) = sides(Identity::from_seed([5; 32]), Identity::from_seed([6; 32]));
@@ -539,13 +539,13 @@ async fn the_desk_changed_on_either_machine_reaches_the_other() {
     until_peer(&mac.agent, paired("B", Some(Link::Usb4))).await;
     until_peer(&pc.agent, paired("A", Some(Link::Usb4))).await;
 
-    // Cada una ve lo que la otra puede: la PC se apaga sola.
+    // Each sees what the other can do: the PC shuts itself down.
     let mut caps = mac.agent.subscribe_capabilities();
     within(caps.wait_for(|c| c.peer.as_ref().is_some_and(|p| p.machine == Machine::B)))
         .await
         .unwrap();
     assert!(mac.agent.capabilities().peer.unwrap().power.power_off);
-    // Al conocerse, las dos quedan anotadas en el puesto (en las dos máquinas).
+    // On getting to know each other, both are noted in the desk (on both machines).
     until_both_known(&mac, &pc).await;
     let base = mac.agent.desk_sync().stamp.rev;
     assert_eq!(
@@ -553,7 +553,7 @@ async fn the_desk_changed_on_either_machine_reaches_the_other() {
         Some(mac.agent.capabilities().peer.unwrap().info)
     );
 
-    // En la Mac: la Mac pasa a la derecha de la PC.
+    // On the Mac: the Mac moves to the right of the PC.
     let mut desk = mac.agent.desk();
     desk.arrangement = Some(tandem_core::Arrangement {
         a_side: Side::Right,
@@ -567,11 +567,11 @@ async fn the_desk_changed_on_either_machine_reaches_the_other() {
         assert_eq!(cfg.desk_rev, base + 1);
         assert_eq!(cfg.desk_origin, Some(Machine::A));
     }
-    // Lo solo-local sigue siendo de cada una.
+    // What is local-only is still each one's.
     assert_eq!(saved(&pc).machine, Machine::B);
     assert_eq!(saved(&pc).network.port, pc.agent.config().network.port);
 
-    // Al revés, desde la PC: vuelve el acomodo de siempre.
+    // The other way, from the PC: the usual arrangement returns.
     let mut back = desk.clone();
     back.arrangement = None;
     pc.agent.set_desk(back.clone()).unwrap();
@@ -582,7 +582,7 @@ async fn the_desk_changed_on_either_machine_reaches_the_other() {
         (cfg.desk_rev, cfg.desk_origin),
         (base + 2, Some(Machine::B))
     );
-    // La UI de la Mac recibe el puesto nuevo empujado.
+    // The Mac's UI receives the new desk pushed.
     within(async {
         loop {
             if let Some(AgentToUi::Desk(d)) = mac.ui.next_event().await.unwrap()
@@ -598,8 +598,8 @@ async fn the_desk_changed_on_either_machine_reaches_the_other() {
     pc.stop().await;
 }
 
-/// T-084: la Mac se reconecta tras perderse un cambio (estaba apagada): al volver, se
-/// pone al día con la versión más nueva de la PC.
+/// T-084: the Mac reconnects after missing a change (it was off): on returning, it
+/// catches up with the PC's newest version.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_change_made_while_the_other_was_away_arrives_on_reconnect() {
     let (mac_id, pc_id) = sides(Identity::from_seed([7; 32]), Identity::from_seed([8; 32]));
@@ -613,7 +613,7 @@ async fn a_change_made_while_the_other_was_away_arrives_on_reconnect() {
         .await;
         r.map(|r| (r, mac_port, pc_port))
     });
-    // La Mac todavía no está: el cambio queda solo en la PC.
+    // The Mac is not there yet: the change stays only on the PC.
     let mut desk = pc.agent.desk();
     desk.arrangement = Some(tandem_core::Arrangement {
         a_side: Side::Right,
@@ -621,8 +621,8 @@ async fn a_change_made_while_the_other_was_away_arrives_on_reconnect() {
     });
     pc.agent.set_desk(desk.clone()).unwrap();
 
-    // La Mac arranca después, a propósito: si otra suite tomó su puerto mientras tanto,
-    // falla enseguida (sin puertos de reserva) en vez de colgarse.
+    // The Mac starts afterwards, on purpose: if another suite took its port meanwhile,
+    // it fails right away (without reserve ports) instead of hanging.
     let mac = start(
         Machine::A,
         &mac_id,
@@ -630,9 +630,9 @@ async fn a_change_made_while_the_other_was_away_arrives_on_reconnect() {
         Some((pc_id.public_key(), pc_port)),
     )
     .await
-    .expect("el puerto de la Mac se tomó mientras tanto");
+    .expect("the Mac's port was taken meanwhile");
     until_layout(&mac, &desk).await;
-    // Además del cambio, al conocerse se anotan las dos máquinas: una versión más.
+    // Besides the change, on getting to know each other both machines are noted: one more version.
     until_both_known(&mac, &pc).await;
     let got = saved(&mac);
     assert_eq!(got.desk.arrangement, desk.arrangement);
@@ -643,8 +643,8 @@ async fn a_change_made_while_the_other_was_away_arrives_on_reconnect() {
     pc.stop().await;
 }
 
-/// El siguiente aviso «Cambiado desde X» que recibe la UI de `r`: quién, versión, qué y a
-/// qué versión volver.
+/// The next "Changed from X" notice that `r`'s UI receives: who, version, what and which
+/// version to go back to.
 async fn next_desk_changed(r: &mut Running) -> (Machine, u64, String, u64) {
     within(async {
         loop {
@@ -671,7 +671,7 @@ async fn until_same_desk(a: &Running, b: &Running) {
     .await;
 }
 
-/// T-159: el nombre del puesto se edita desde la UI y llega a la otra máquina y a su archivo.
+/// T-159: the desk's name is edited from the UI and reaches the other machine and its file.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_desk_name_edited_in_one_machine_reaches_the_other() {
     let (a_id, b_id) = sides(Identity::from_seed([43; 32]), Identity::from_seed([44; 32]));
@@ -684,25 +684,25 @@ async fn the_desk_name_edited_in_one_machine_reaches_the_other() {
     until_both_known(&a, &b).await;
     let Reply::Desk(edited) =
         a.ui.request(UiCommand::EditDesk {
-            patch: DeskPatch::Name("Oficina".into()),
+            patch: DeskPatch::Name("Office".into()),
         })
         .await
         .unwrap()
     else {
-        panic!("la edición no devolvió el puesto");
+        panic!("the edit did not return the desk");
     };
-    assert_eq!(edited.name.as_deref(), Some("Oficina"));
+    assert_eq!(edited.name.as_deref(), Some("Office"));
     until_desk(&b, &edited).await;
-    assert_eq!(saved(&b).desk.name.as_deref(), Some("Oficina"));
-    assert_eq!(saved(&a).desk.name.as_deref(), Some("Oficina"));
+    assert_eq!(saved(&b).desk.name.as_deref(), Some("Office"));
+    assert_eq!(saved(&a).desk.name.as_deref(), Some("Office"));
     a.stop().await;
     b.stop().await;
 }
 
-/// T-099 (DESIGN §4.4, D5): el puesto se edita desde la UI de cualquiera de las dos. Lo que
-/// se edita en A se ve en B; si se edita en las dos a la vez, gana el último y las dos
-/// quedan iguales, B recibe el aviso con «Deshacer», y deshacer en B vuelve exactamente a
-/// su versión, también en A.
+/// T-099 (DESIGN §4.4, D5): the desk is edited from the UI of either machine. What
+/// is edited on A is seen on B; if edited on both at once, the last wins and both
+/// end up the same, B receives the notice with "Undo", and undoing on B goes back exactly to
+/// its version, also on A.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
     let (a_id, b_id) = sides(Identity::from_seed([41; 32]), Identity::from_seed([42; 32]));
@@ -714,7 +714,7 @@ async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
     until_peer(&b.agent, paired("A", Some(Link::Usb4))).await;
     until_both_known(&a, &b).await;
 
-    // Editar en A (por su UI) se ve en B, en caliente y en su archivo, con el aviso.
+    // Editing on A (from its UI) is seen on B, live and in its file, with the notice.
     let arr = tandem_core::Arrangement {
         a_side: Side::Up,
         align: tandem_core::Align::End,
@@ -726,7 +726,7 @@ async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
         .await
         .unwrap()
     else {
-        panic!("la edición no devolvió el puesto");
+        panic!("the edit did not return the desk");
     };
     assert_eq!(edited.arrangement, Some(arr));
     until_desk(&b, &edited).await;
@@ -735,9 +735,9 @@ async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
     assert_eq!((by, summary.as_str()), (Machine::A, "Arrangement"));
     assert_eq!(rev, a.agent.desk_sync().stamp.rev);
 
-    // Las dos a la vez: primero B y enseguida A, sin esperar a que se vean. Gana A: o
-    // empatan en versión y A tiene la fecha igual o más nueva (y el empate es de A), o A
-    // ya había recibido la de B y la suya es la siguiente.
+    // Both at once: first B and right after A, without waiting for them to be seen. A wins: either
+    // they tie on version and A has the same or newer date (and the tie is A's), or A
+    // had already received B's and its own is the next one.
     let prefs = tandem_core::InputPrefs {
         drag_files: false,
         ..tandem_core::InputPrefs::default()
@@ -754,7 +754,7 @@ async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
     assert_eq!(last.stamp.by, Machine::A);
     assert_eq!(last.desk.shortcuts.lock, ["KeyL"]);
     assert_eq!(saved(&b).desk, last.desk);
-    // B recibe el aviso, y deshacer lleva a su propia versión.
+    // B receives the notice, and undoing takes it to its own version.
     let (by, rev, _, undo_to) = next_desk_changed(&mut b).await;
     assert_eq!((by, rev), (Machine::A, last.stamp.rev));
     assert_eq!(undo_to, mine_on_b.stamp.rev);
@@ -763,18 +763,18 @@ async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
             .await
             .unwrap()
     else {
-        panic!("no se deshizo");
+        panic!("it did not undo");
     };
     assert_eq!(back, mine_on_b.desk);
     until_same_desk(&a, &b).await;
     assert_eq!(a.agent.desk(), mine_on_b.desk);
     assert!(!saved(&a).desk.prefs.drag_files);
-    // Ahora el aviso es para A.
+    // Now the notice is for A.
     let (by, _, summary, _) = next_desk_changed(&mut a).await;
     assert_eq!(by, Machine::B);
     assert!(!summary.is_empty());
     let Reply::DeskHistory(h) = a.ui.request(UiCommand::GetDeskHistory).await.unwrap() else {
-        panic!("sin historial");
+        panic!("no history");
     };
     assert_eq!(h[0].stamp, a.agent.desk_sync().stamp);
 
@@ -782,8 +782,8 @@ async fn desk_edits_from_either_ui_converge_and_the_other_gets_the_notice() {
     b.stop().await;
 }
 
-/// Un `tandem.toml` de antes de T-099, con las dos máquinas ya conocidas y la misma versión
-/// del puesto. `input` va en su `[input]`.
+/// A pre-T-099 `tandem.toml`, with both machines already known and the same desk
+/// version. `input` goes in its `[input]`.
 fn before_t099(input: &str) -> String {
     format!(
         "desk_rev = 3\ndesk_origin = \"a\"\ndesk_sum = \"0123456789abcdef\"\n\n\
@@ -794,10 +794,10 @@ fn before_t099(input: &str) -> String {
     )
 }
 
-/// Revisión de #74: antes de T-099 el portapapeles era de cada máquina (`[input]
-/// clipboard`); ahora es un módulo de cada una, en el puesto (`[modules.b] clipboard`). Si una lo tenía apagado y la otra no, las dos
-/// arrancaban con el mismo sello y distinto puesto, y no convergían nunca. Al conectarse
-/// tienen que quedar iguales, con el portapapeles como lo dejó quien lo había cambiado.
+/// Review of #74: before T-099 the clipboard belonged to each machine (`[input]
+/// clipboard`); now it is a module of each, in the desk (`[modules.b] clipboard`). If one had it off and the other did not, both
+/// started with the same stamp and a different desk, and never converged. On connecting
+/// they have to end up equal, with the clipboard as left by whoever had changed it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_local_setting_moved_to_the_desk_does_not_leave_the_machines_apart() {
     let (a_id, b_id) = sides(Identity::from_seed([43; 32]), Identity::from_seed([44; 32]));
@@ -828,15 +828,15 @@ async fn a_local_setting_moved_to_the_desk_does_not_leave_the_machines_apart() {
         saved(&a).desk.modules.get(Machine::B, "clipboard"),
         Some(false)
     );
-    // Cada una aplica lo de su lado: B lo tiene apagado, A no.
+    // Each applies what is on its side: B has it off, A does not.
     assert!(!b.agent.module_on(tandem_proto::ModuleId::Clipboard));
     assert!(a.agent.module_on(tandem_proto::ModuleId::Clipboard));
     a.stop().await;
     b.stop().await;
 }
 
-/// T-101: un cambio de `[data]` llega al `Qos` de todas las conexiones, también a la que
-/// cada agente aceptó del otro (comparten el `Qos` de su camino).
+/// T-101: a `[data]` change reaches the `Qos` of all connections, also the one
+/// each agent accepted from the other (they share their path's `Qos`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_wifi_data_cap_reaches_the_connections_already_open() {
     use tandem_link::manager::LinkKind;
@@ -850,8 +850,8 @@ async fn the_wifi_data_cap_reaches_the_connections_already_open() {
     until_peer(&b.agent, paired("A", Some(Link::Usb4))).await;
     until_both_known(&a, &b).await;
 
-    // Las conexiones ya están abiertas (cada una la suya y la que aceptó de la otra) y usan
-    // el `Qos` de su camino, el mismo que se pide aquí.
+    // The connections are already open (each its own and the one it accepted from the other) and use
+    // their path's `Qos`, the same one requested here.
     let b_usb4 = b.agent.link_qos().get(LinkKind::Usb4);
     let b_wifi = b.agent.link_qos().get(LinkKind::Wifi);
     let before = b_wifi.cap().unwrap();
@@ -878,10 +878,10 @@ async fn the_wifi_data_cap_reaches_the_connections_already_open() {
     b.stop().await;
 }
 
-/// Lo que el puesto muestra en memoria ya está en `tandem.toml`: al conocerse, las dos
-/// máquinas se anotan en el puesto, y antes se publicaba en memoria (lo veían la UI, la
-/// otra máquina y las pruebas) un instante antes de guardarlo. Una prueba que comparaba el
-/// archivo con la memoria fallaba de vez en cuando en macOS (T-093, revisión de #78).
+/// What the desk shows in memory is already in `tandem.toml`: on getting to know each other, both
+/// machines are noted in the desk, and before it was published in memory (seen by the UI, the
+/// other machine and the tests) an instant before saving it. A test that compared the
+/// file with memory failed now and then on macOS (T-093, review of #78).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_desk_in_memory_is_never_ahead_of_tandem_toml() {
     for seed in 0..6u8 {
@@ -911,10 +911,10 @@ async fn the_desk_in_memory_is_never_ahead_of_tandem_toml() {
                 rx.changed().await.unwrap();
                 let shown = rx.borrow_and_update().clone();
                 if known(&shown) {
-                    // En el instante en que se ve, el archivo ya lo tiene.
+                    // At the instant it is seen, the file already has it.
                     assert!(
                         known(&saved(&mac).desk),
-                        "el puesto se mostró antes de guardarse"
+                        "the desk was shown before being saved"
                     );
                     return;
                 }

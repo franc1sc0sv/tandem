@@ -1,14 +1,14 @@
-//! Los monitores en el agente (DESIGN §10, T-110).
+//! The monitors in the agent (DESIGN §10, T-110).
 //!
-//! [`MonitorHub`] junta los monitores que ve esta máquina ([`LocalMonitors`], por su bus
-//! DDC) con lo que anunció la otra, y de ahí sale el dueño de cada uno
-//! ([`tandem_monitor::Directory`]). Solo el dueño lee eventos y estado; se los manda a la otra
-//! por el plano de control ([`tandem_proto::ControlMsg::Monitors`]). Los cambios de entrada
-//! los hace el orquestador con el dueño ([`MonitorControl`]).
+//! [`MonitorHub`] brings together the monitors this machine sees ([`LocalMonitors`], over its DDC
+//! bus) with what the other announced, and from there comes each one's owner
+//! ([`tandem_monitor::Directory`]). Only the owner reads events and state; it sends them to the other
+//! over the control plane ([`tandem_proto::ControlMsg::Monitors`]). Input changes
+//! are done by the orchestrator with the owner ([`MonitorControl`]).
 //!
-//! El DDC bloquea: en el agente real cada llamada va a un hilo aparte (`spawn_blocking`); en
-//! la simulación, con el bus falso que no espera, se llama en el lugar (`inline`), así el reloj
-//! pausado de tokio no avanza solo mientras tanto.
+//! DDC blocks: in the real agent each call goes to a separate thread (`spawn_blocking`); in
+//! the simulation, with the fake bus that does not wait, it is called in place (`inline`), so tokio's
+//! paused clock does not advance on its own meanwhile.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -21,19 +21,19 @@ use tokio::sync::{Notify, watch};
 
 use crate::orchestrator::{MonitorControl, StepFuture};
 
-/// Lo que dice el módulo de monitores en una máquina sin acceso a DDC.
-pub const NO_DDC: &str = "Sin canal DDC en esta máquina";
+/// What the monitors module says on a machine without DDC access.
+pub const NO_DDC: &str = "No DDC channel on this machine";
 
-/// A qué entrada de `monitor` va cada máquina: su `[[cables]]` del puesto o, si no, lo que
-/// dice el EDID que lee cada una (`view.via`).
+/// Which input of `monitor` each machine goes to: its `[[cables]]` of the desk or, if not, what
+/// the EDID each one reads says (`view.via`).
 pub fn inputs(desk: &Desk, monitor: &str, view: Option<&MonitorView>) -> Inputs {
     Inputs::resolve(desk.cable(monitor), |m| {
         view.and_then(|v| v.via.iter().find(|(w, _)| *w == m).map(|(_, i)| *i))
     })
 }
 
-/// Qué máquina muestra cada monitor compatible: la entrada real que leyó su dueño y a qué
-/// máquina va esa entrada. Uno del que falta algo no aparece.
+/// Which machine each compatible monitor shows: the real input its owner read and which
+/// machine that input goes to. One missing something does not appear.
 pub fn shows(views: &[MonitorView], desk: &Desk) -> BTreeMap<String, Machine> {
     views
         .iter()
@@ -46,12 +46,12 @@ pub fn shows(views: &[MonitorView], desk: &Desk) -> BTreeMap<String, Machine> {
         .collect()
 }
 
-/// Cada cuánto se mira el bus.
+/// How often the bus is looked at.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MonitorTimes {
-    /// Volver a sondear: canales nuevos o perdidos (un monitor que se apagó).
+    /// Probe again: new or lost channels (a monitor that turned off).
     pub scan_every: Duration,
-    /// Leer eventos y estado de los monitores propios.
+    /// Read events and state of the own monitors.
     pub poll_every: Duration,
 }
 
@@ -70,14 +70,14 @@ struct Local {
     inline: bool,
 }
 
-/// Lo que dejó una vuelta del bucle de monitores.
+/// What a turn of the monitors loop left.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Tick {
-    /// Cambiaron los canales de esta máquina: hay que anunciarlo.
+    /// This machine's channels changed: it has to be announced.
     pub channels_changed: bool,
-    /// El sistema no dejó enumerar los monitores.
+    /// The system did not let the monitors be enumerated.
     pub scan_error: Option<String>,
-    /// Lo leído de los monitores propios, si cambió desde el último envío.
+    /// What was read from the own monitors, if it changed since the last send.
     pub reports: Option<Vec<MonitorReport>>,
 }
 
@@ -85,9 +85,9 @@ pub struct MonitorHub {
     dir: Mutex<Directory>,
     local: Mutex<Option<Local>>,
     views: watch::Sender<Vec<MonitorView>>,
-    /// Lo último que se mandó a la otra máquina.
+    /// The last thing sent to the other machine.
     sent: Mutex<Vec<MonitorReport>>,
-    /// Despierta el bucle antes de tiempo (cambió el dueño, terminó un cambio).
+    /// Wakes the loop early (the owner changed, a change finished).
     wake: Notify,
 }
 
@@ -114,7 +114,7 @@ impl MonitorHub {
         }
     }
 
-    /// El bus de esta máquina. `inline`: llamar en el lugar (solo con un bus que no bloquea).
+    /// This machine's bus. `inline`: call in place (only with a bus that does not block).
     pub fn attach(&self, core: LocalMonitors, inline: bool) {
         *lock(&self.local) = Some(Local {
             core: Arc::new(Mutex::new(core)),
@@ -126,19 +126,19 @@ impl MonitorHub {
         lock(&self.local).is_some()
     }
 
-    /// Esta máquina resultó ser el otro lado.
+    /// This machine turned out to be the other side.
     pub fn set_me(&self, me: Machine) {
         lock(&self.dir).set_me(me);
         self.publish();
     }
 
-    /// Los canales de esta máquina, para su anuncio.
+    /// This machine's channels, for its announcement.
     pub fn local_channels(&self) -> Vec<MonitorChannel> {
         lock(&self.dir).local().to_vec()
     }
 
-    /// Lo que anunció la otra, mientras está prendida; `None` si no. Si cambian los dueños,
-    /// el bucle se entera enseguida.
+    /// What the other announced, while it is on; `None` if not. If the owners change,
+    /// the loop finds out right away.
     pub fn set_peer(&self, channels: Option<Vec<MonitorChannel>>) {
         if lock(&self.dir).set_peer(channels) {
             self.publish();
@@ -146,7 +146,7 @@ impl MonitorHub {
         }
     }
 
-    /// Lo que leyó la otra de los monitores que son suyos.
+    /// What the other read from the monitors that are its own.
     pub fn receive(&self, from: Machine, reports: Vec<MonitorReport>) {
         {
             let mut dir = lock(&self.dir);
@@ -165,12 +165,12 @@ impl MonitorHub {
         self.views.subscribe()
     }
 
-    /// Lo último que se leyó de los monitores propios (para mandarlo al aparecer un enlace).
+    /// The last thing read from the own monitors (to send it when a link appears).
     pub fn reports_here(&self) -> Vec<MonitorReport> {
         lock(&self.sent).clone()
     }
 
-    /// Espera a que algo pida una vuelta antes de tiempo.
+    /// Waits for something to request a turn early.
     pub async fn woken(&self) {
         self.wake.notified().await;
     }
@@ -184,7 +184,7 @@ impl MonitorHub {
         });
     }
 
-    /// Corre `f` con el bus: en el lugar o en un hilo aparte. `None` sin bus.
+    /// Runs `f` with the bus: in place or on a separate thread. `None` without a bus.
     async fn with_core<T: Send + 'static>(
         &self,
         f: impl FnOnce(&mut LocalMonitors) -> T + Send + 'static,
@@ -198,8 +198,8 @@ impl MonitorHub {
             .ok()
     }
 
-    /// Una vuelta: sondear (si toca), tomar o soltar los monitores según el dueño y leer los
-    /// propios.
+    /// One turn: probe (if due), take or release the monitors according to the owner and read the
+    /// own monitors.
     pub async fn tick(&self, scan: bool) -> Tick {
         let mut tick = Tick::default();
         if scan {
@@ -257,7 +257,7 @@ impl MonitorControl for MonitorHub {
                 .with_core(move |c| c.switch(&id, input))
                 .await
                 .unwrap_or_else(|| Err(NO_DDC.to_owned()));
-            // Lo que pasó se ve con la próxima lectura: que sea ya.
+            // What happened is seen with the next read: make it now.
             self.wake.notify_one();
             r
         })
@@ -298,7 +298,7 @@ mod tests {
         assert_eq!(reports[0].input, Some(MonitorInput::DisplayPort));
         let views = hub.views();
         assert_eq!(views[0].owner, Some(Machine::A));
-        // Nada cambió: no se vuelve a mandar.
+        // Nothing changed: it is not sent again.
         assert_eq!(hub.tick(false).await, Tick::default());
     }
 
@@ -318,7 +318,7 @@ mod tests {
         hub.tick(false).await;
         assert!(
             bus.ops().is_empty(),
-            "sin dueño aquí no se lee: {:?}",
+            "without an owner here nothing is read: {:?}",
             bus.ops()
         );
         let e = hub.switch(&id, MonitorInput::Hdmi).await.unwrap_err();
@@ -328,7 +328,7 @@ mod tests {
             "{:?}",
             bus.ops()
         );
-        // La otra se fue: vuelve aquí.
+        // The other left: it returns here.
         hub.set_peer(None);
         assert_eq!(hub.owner(&id), Some(Machine::A));
         hub.tick(false).await;
@@ -345,14 +345,14 @@ mod tests {
         let views = hub.views();
         let id = views[0].id.clone();
         let mut desk = Desk::default();
-        // Sin cable ni EDID que lo diga, no se sabe.
+        // Without a cable or an EDID that says so, it is not known.
         assert!(shows(&views, &desk).is_empty());
-        // El cable de A va a DP (la entrada en pantalla): muestra A.
+        // A's cable goes to DP (the input on screen): it shows A.
         let mut cable = tandem_core::MonitorCable::new(id.clone());
         cable.a.input = Some(MonitorInput::DisplayPort);
         desk.cables.push(cable);
         assert_eq!(shows(&views, &desk).get(&id), Some(&Machine::A));
-        // Con lo que dice el EDID de B (DP) y sin cable: muestra B.
+        // With what B's EDID says (DP) and without a cable: it shows B.
         let mut seen = views.clone();
         seen[0].via = vec![(Machine::B, MonitorInput::DisplayPort)];
         assert_eq!(shows(&seen, &Desk::default()).get(&id), Some(&Machine::B));

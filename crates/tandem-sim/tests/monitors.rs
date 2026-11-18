@@ -146,7 +146,7 @@ async fn the_owner_is_elected_the_same_on_both_and_switches_with_its_verdict() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&e, SimError::Rejected(why) if why.contains("no es compatible")),
+        matches!(&e, SimError::Rejected(why) if why.contains("is not compatible")),
         "{e}"
     );
     let e = d

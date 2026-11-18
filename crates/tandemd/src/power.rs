@@ -1,6 +1,6 @@
-//! Los pasos de energía de esta máquina: Wake-on-LAN hacia la otra (si tiene su
-//! `[power.wol]`) y apagado limpio de sí misma (si sabe, DESIGN §5). Cualquiera de las
-//! dos puede despertar a la otra (DESIGN §3.7).
+//! This machine's power steps: Wake-on-LAN toward the other (if it has its
+//! `[power.wol]`) and clean shutdown of itself (if it can, DESIGN §5). Either of the
+//! two can wake the other (DESIGN §3.7).
 
 use std::sync::{Arc, PoisonError, RwLock};
 
@@ -10,10 +10,10 @@ use tandem_power::{Shutdown, UdpWake, Wake};
 use crate::config::AgentConfig;
 use crate::orchestrator::{LocalSteps, STEP_NOT_IMPLEMENTED, StepFuture, describe};
 
-/// Sin `[power.wol]` no hay con qué despertar a la otra.
-pub const WOL_NOT_CONFIGURED: &str = "falta la MAC de la otra máquina para encenderla (se aprende al emparejar o se escribe en su página)";
+/// Without `[power.wol]` there is nothing to wake the other with.
+pub const WOL_NOT_CONFIGURED: &str = "the other machine's MAC is missing to power it on (it is learned when pairing or written on its page)";
 
-/// Los pasos de energía de una máquina.
+/// A machine's power steps.
 pub struct PowerSteps {
     wake: RwLock<Option<Arc<dyn Wake>>>,
     shutdown: Option<Arc<dyn Shutdown>>,
@@ -43,8 +43,8 @@ impl PowerSteps {
             .is_some()
     }
 
-    /// Lo que corresponde a la máquina de `cfg`: despierta a la otra con `[power.wol]` y
-    /// se apaga a sí misma si su sistema sabe (hoy, Windows).
+    /// What corresponds to `cfg`'s machine: it wakes the other with `[power.wol]` and
+    /// shuts itself down if its system can (today, Windows).
     pub fn for_machine(cfg: &AgentConfig) -> Self {
         let wake = cfg
             .power
@@ -78,9 +78,9 @@ impl LocalSteps for PowerSteps {
 
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a> {
         match step {
-            // Encender a la otra (el orquestador solo lo manda a la que no se enciende).
+            // Power on the other (the orchestrator only sends it to the one that does not power itself on).
             Step::PowerOn { .. } => {
-                // Un envío UDP no bloquea: no hace falta sacarlo del runtime.
+                // A UDP send does not block: it need not be taken out of the runtime.
                 let wake = self
                     .wake
                     .read()
@@ -92,19 +92,19 @@ impl LocalSteps for PowerSteps {
                 };
                 Box::pin(async move { r })
             }
-            // Apagarse a sí misma.
+            // Shutting itself down.
             Step::PowerOff { .. } => {
                 let r = match &self.shutdown {
                     Some(s) => {
-                        tracing::warn!("apagando esta máquina a pedido del orquestador");
+                        tracing::warn!("shutting this machine down at the orchestrator's request");
                         s.power_off().map_err(|e| e.to_string())
                     }
                     None => Err(format!("{}: {STEP_NOT_IMPLEMENTED}", describe(step))),
                 };
                 Box::pin(async move { r })
             }
-            // Los monitores los cambia el orquestador con su dueño, y los pasos de escena los
-            // hace quien la aplica: nada de esto es energía.
+            // Monitors are changed by the orchestrator with their owner, and scene steps are
+            // done by whoever applies it: none of this is power.
             Step::SwitchMonitor { .. }
             | Step::ShowMachine { .. }
             | Step::Arrange { .. }
@@ -147,7 +147,7 @@ mod tests {
 
     impl Shutdown for Refuse {
         fn power_off(&self) -> Result<(), PowerError> {
-            Err(PowerError::Shutdown("acceso denegado".into()))
+            Err(PowerError::Shutdown("access denied".into()))
         }
     }
 
@@ -179,7 +179,7 @@ mod tests {
             })
             .await
             .unwrap_err(),
-            format!("encender la máquina B: {WOL_NOT_CONFIGURED}")
+            format!("power on machine B: {WOL_NOT_CONFIGURED}")
         );
         assert_eq!(
             p.execute(&Step::PowerOff {
@@ -187,7 +187,7 @@ mod tests {
             })
             .await
             .unwrap_err(),
-            format!("apagar la máquina B: {STEP_NOT_IMPLEMENTED}")
+            format!("power off machine B: {STEP_NOT_IMPLEMENTED}")
         );
     }
 
@@ -200,7 +200,7 @@ mod tests {
             })
             .await
             .unwrap_err();
-        assert!(e.contains("acceso denegado"), "{e}");
+        assert!(e.contains("access denied"), "{e}");
     }
 
     #[test]
@@ -208,8 +208,11 @@ mod tests {
         let mut cfg = fixtures::desk();
         cfg.os = tandem_core::Os::MacOs;
         let p = PowerSteps::for_machine(&cfg);
-        assert!(!p.has_wake(), "sin [power.wol] no hay con qué despertar");
-        assert!(p.shutdown.is_none(), "macOS no se apaga desde Tandem");
+        assert!(
+            !p.has_wake(),
+            "without [power.wol] there is nothing to wake with"
+        );
+        assert!(p.shutdown.is_none(), "macOS does not shut down from Tandem");
 
         cfg.power.wol = Some(tandem_power::WolTarget::new(
             "aa:bb:cc:dd:ee:ff".parse().unwrap(),
@@ -217,12 +220,12 @@ mod tests {
         let p = PowerSteps::for_machine(&cfg);
         assert!(p.has_wake());
 
-        // Una con Windows también despierta a la otra si tiene su [power.wol], sea el lado
-        // que sea (DESIGN §3.7), y se apaga sola solo donde el backend existe.
+        // One with Windows also wakes the other if it has its [power.wol], whichever the side
+        // is (DESIGN §3.7), and shuts itself down only where the backend exists.
         cfg.machine = Machine::B;
         cfg.os = tandem_core::Os::Windows;
         let p = PowerSteps::for_machine(&cfg);
-        assert!(p.has_wake(), "B despierta a A");
+        assert!(p.has_wake(), "B wakes A");
         assert_eq!(p.shutdown.is_some(), cfg!(windows));
         cfg.power.wol = None;
         let p = PowerSteps::for_machine(&cfg);

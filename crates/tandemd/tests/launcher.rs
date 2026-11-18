@@ -1,4 +1,4 @@
-//! `tandemw` arranca el `tandemd` de al lado con los mismos argumentos y devuelve su código.
+//! `tandemw` starts the `tandemd` next to it with the same arguments and returns its code.
 
 use std::process::Command;
 
@@ -12,14 +12,14 @@ fn launch(args: &[&std::ffi::OsStr]) -> std::process::ExitStatus {
 #[test]
 fn forwards_arguments_and_exit_code() {
     let dir = tempfile::tempdir().unwrap();
-    let valid = dir.path().join("valida.toml");
+    let valid = dir.path().join("valid.toml");
     std::fs::write(&valid, "machine = \"b\"\nmonitors = []\n").unwrap();
-    let invalid = dir.path().join("invalida.toml");
+    let invalid = dir.path().join("invalid.toml");
     std::fs::write(&invalid, "machine = ").unwrap();
 
     assert!(launch(&["--check-config".as_ref(), valid.as_os_str()]).success());
     let status = launch(&["--check-config".as_ref(), invalid.as_os_str()]);
     assert_eq!(status.code(), Some(1));
-    // Argumentos mal formados: tandemd sale con 2.
-    assert_eq!(launch(&["--nada".as_ref()]).code(), Some(2));
+    // Malformed arguments: tandemd exits with 2.
+    assert_eq!(launch(&["--nothing".as_ref()]).code(), Some(2));
 }

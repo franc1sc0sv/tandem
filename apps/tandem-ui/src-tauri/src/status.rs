@@ -274,7 +274,7 @@ machine = "b"
             let _ = s.recv_hello().await;
         });
         let r = reason(status_with(here(), IpcClient::handshake(client), QUERY_TIMEOUT).await);
-        // The first half of the message comes from `ProtoError` (tandem-proto); only our hint is checked here.
+        assert!(r.contains("incompatible protocol version"), "{r}");
         assert!(r.contains("update the UI or tandemd"), "{r}");
     }
 

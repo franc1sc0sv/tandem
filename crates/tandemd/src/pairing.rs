@@ -1,21 +1,21 @@
-//! Emparejamiento desde la UI (DESIGN §9): encontrar al otro agente, mostrar el mismo
-//! código de 6 dígitos en las dos pantallas y, si el usuario lo confirma en las dos,
-//! guardar la llave del otro en la confianza.
+//! Pairing from the UI (DESIGN §9): find the other agent, show the same
+//! 6-digit code on both screens and, if the user confirms it on both,
+//! save the other's key in trust.
 //!
-//! - Va por un endpoint aparte ([`Endpoint::bind_pairing`]), que acepta llaves
-//!   desconocidas y solo existe mientras se empareja. El endpoint normal sigue sin
-//!   aceptar a nadie que no esté en la confianza.
-//! - Las dos máquinas hacen lo mismo (DECISIONS D1/D2: ninguna es especial): esperan en
-//!   su puerto de emparejamiento (y lo anuncian por mDNS) y buscan a la otra por los
-//!   enlaces fijos de la config y por mDNS. Cuando se encuentran, las dos conocen las dos
-//!   claves y con ellas los lados (A1): vale solo la conexión que abre `A`, y en ella `A`
-//!   inicia el protocolo. `B` corta las que abre ella y deja de buscar. El usuario abre el
-//!   emparejamiento en las dos, en cualquier orden.
-//! - El protocolo es el de compromiso de [`tandem_link::identity`]; las llaves que se
-//!   intercambian tienen que ser las mismas que autenticó la conexión.
-//! - Cada lado manda su [`PairingMsg::Confirm`] cuando su usuario confirma y guarda la
-//!   confianza cuando tiene las dos confirmaciones. Rechazar en cualquiera de los dos
-//!   lados (o que venza el tiempo) termina sin guardar nada en ninguno.
+//! - It goes over a separate endpoint ([`Endpoint::bind_pairing`]), which accepts unknown
+//!   keys and exists only while pairing. The normal endpoint still does not
+//!   accept anyone who is not in trust.
+//! - Both machines do the same (DECISIONS D1/D2: neither is special): they wait on
+//!   their pairing port (and announce it over mDNS) and look for the other over the
+//!   config's fixed links and over mDNS. When they find each other, both know both
+//!   keys and with them the sides (A1): only the connection opened by `A` counts, and on it `A`
+//!   starts the protocol. `B` cuts the ones it opens and stops looking. The user opens
+//!   pairing on both, in any order.
+//! - The protocol is the commitment one from [`tandem_link::identity`]; the keys that are
+//!   exchanged have to be the same ones the connection authenticated.
+//! - Each side sends its [`PairingMsg::Confirm`] when its user confirms and saves
+//!   trust when it has both confirmations. Rejecting on either
+//!   side (or the time running out) ends without saving anything on either.
 
 use std::collections::BTreeSet;
 use std::net::{IpAddr, SocketAddr};
@@ -37,12 +37,12 @@ use tokio::sync::mpsc;
 
 use crate::agent::Agent;
 
-/// Lo que se espera en cada fase.
+/// What is waited for in each phase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PairingTimeouts {
-    /// Buscar a la otra máquina (que también tiene que estar emparejando).
+    /// Look for the other machine (which also has to be pairing).
     pub search: Duration,
-    /// Que los dos usuarios confirmen el código.
+    /// Wait for both users to confirm the code.
     pub confirm: Duration,
 }
 
@@ -55,32 +55,32 @@ impl Default for PairingTimeouts {
     }
 }
 
-/// Los tres mensajes del protocolo, sin contar la espera del usuario.
+/// The three protocol messages, not counting the user's wait.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
-/// Lo que se espera a un intento de conexión antes de darlo por perdido; mientras, se
-/// siguen lanzando otros (ver [`look`]).
+/// How long to wait for a connection attempt before giving it up; meanwhile, others
+/// keep being launched (see [`look`]).
 const CONNECT_ATTEMPT: Duration = Duration::from_secs(10);
 const RETRY_EVERY: Duration = Duration::from_millis(300);
-/// Lo que se espera a que el otro lado reciba el último mensaje antes de cortar.
+/// How long to wait for the other side to receive the last message before cutting.
 const CLOSE_WAIT: Duration = Duration::from_secs(2);
-/// El nombre del otro se muestra en la UI: se recorta uno absurdo.
+/// The other's name is shown in the UI: an absurd one is trimmed.
 const MAX_NAME_CHARS: usize = 64;
 
-/// Lo que contesta el usuario de esta máquina.
+/// What this machine's user answers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Answer {
     Confirm,
     Cancel,
 }
 
-/// Cómo terminó un emparejamiento.
+/// How a pairing ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
-    /// Guardado en la confianza.
+    /// Saved in trust.
     Paired(TrustedPeer),
-    /// Lo canceló o rechazó el usuario de esta máquina.
+    /// This machine's user canceled or rejected it.
     Cancelled,
-    /// No se emparejó; el motivo es para la UI.
+    /// Not paired; the reason is for the UI.
     Failed(String),
 }
 
@@ -90,38 +90,38 @@ pub enum PairError {
     Transport(#[from] TransportError),
     #[error("{0}")]
     Identity(#[from] IdentityError),
-    #[error("se esperaba el agente de la máquina {expected}, contestó {got:?}")]
+    #[error("expected the agent of machine {expected}, got {got:?}")]
     UnexpectedPeer { expected: Machine, got: Peer },
-    #[error("la otra punta tiene la misma clave que esta máquina")]
+    #[error("the other end has the same key as this machine")]
     SameKey,
-    #[error("la llave del emparejamiento no es la de la conexión")]
+    #[error("the pairing key is not the connection's")]
     KeyMismatch,
-    #[error("mensaje de emparejamiento inesperado")]
+    #[error("unexpected pairing message")]
     Unexpected,
-    #[error("la otra máquina cortó el emparejamiento")]
+    #[error("the other machine cut the pairing")]
     Closed,
-    #[error("la otra máquina dejó de responder")]
+    #[error("the other machine stopped responding")]
     Timeout,
 }
 
-/// Lo que necesita un emparejamiento.
+/// What a pairing needs.
 pub struct Ctx {
     pub agent: Arc<Agent>,
     pub identity: Identity,
     pub trust: Arc<RwLock<TrustStore>>,
-    /// La IP del endpoint normal: el de emparejamiento usa la misma familia.
+    /// The normal endpoint's IP: the pairing one uses the same family.
     pub bind_ip: IpAddr,
-    /// El puerto real del endpoint normal (puede no ser el de la config, si estaba ocupado).
+    /// The normal endpoint's real port (it may not be the config's, if it was busy).
     pub port: u16,
-    /// Los de reserva de la red ([`crate::network::NetOptions::fallback_ports`]).
+    /// The network's reserve ones ([`crate::network::NetOptions::fallback_ports`]).
     pub fallback_ports: Vec<u16>,
     pub mdns: bool,
     pub timeouts: PairingTimeouts,
 }
 
-/// Dónde espera esta máquina al emparejar, en orden: el `pairing_port` de la config si se
-/// fijó, si no el siguiente al puerto real del agente; después el siguiente a cada puerto
-/// de reserva. La otra lo encuentra por el anuncio de mDNS, que lleva el puerto real.
+/// Where this machine waits when pairing, in order: the config's `pairing_port` if it was
+/// fixed, otherwise the one after the agent's real port; then the one after each reserve port.
+/// The other finds it through the mDNS announcement, which carries the real port.
 pub fn pairing_ports(net: &crate::NetworkConfig, port: u16, fallbacks: &[u16]) -> Vec<u16> {
     let next = |p: u16| p.checked_add(1).unwrap_or(p - 1);
     let first = net.pairing_port.unwrap_or_else(|| next(port));
@@ -135,8 +135,8 @@ pub fn pairing_ports(net: &crate::NetworkConfig, port: u16, fallbacks: &[u16]) -
 }
 
 impl Ctx {
-    /// El lado de esta máquina frente a quien está al otro lado de `conn`: mientras se
-    /// empareja todavía no hay par, así que sale de las dos claves de la conexión.
+    /// This machine's side relative to whoever is on the other side of `conn`: while
+    /// pairing there is no peer yet, so it comes from the connection's two keys.
     fn side_on(&self, conn: &Connection) -> Result<Machine, PairError> {
         Machine::of_keys(
             self.identity.public_key().as_bytes(),
@@ -149,20 +149,20 @@ impl Ctx {
         self.agent.set_pairing_status(status);
     }
 
-    /// El nombre con que esta máquina se presenta a la otra (y con el que la otra la guarda).
+    /// The name this machine introduces itself with to the other (and the one the other saves it under).
     fn name(&self) -> String {
         self.agent.local_info().name
     }
 }
 
-/// Un emparejamiento completo: buscar, comparar, guardar. Publica cada paso en el
-/// agente; el resultado final lo publica quien llama.
+/// A complete pairing: look, compare, save. Publishes each step to the
+/// agent; the final result is published by the caller.
 pub async fn run(ctx: &Ctx, answers: &mut mpsc::UnboundedReceiver<Answer>) -> Outcome {
     ctx.publish(PairingStatus::Searching);
     let found = tokio::select! {
         found = tokio::time::timeout(ctx.timeouts.search, search(ctx)) => found,
         cancelled = cancelled(answers) => {
-            // Sin conexión no hay a quién avisar.
+            // Without a connection there is nobody to notify.
             let () = cancelled;
             return Outcome::Cancelled;
         }
@@ -172,7 +172,7 @@ pub async fn run(ctx: &Ctx, answers: &mut mpsc::UnboundedReceiver<Answer>) -> Ou
         Ok(Err(e)) => return Outcome::Failed(e),
         Err(_) => {
             return Outcome::Failed(
-                "no apareció la otra máquina (¿está abierto el emparejamiento allá?)".into(),
+                "the other machine did not appear (is pairing open over there?)".into(),
             );
         }
     };
@@ -181,7 +181,7 @@ pub async fn run(ctx: &Ctx, answers: &mut mpsc::UnboundedReceiver<Answer>) -> Ou
     outcome
 }
 
-/// Espera a que el usuario cancele; confirmar mientras se busca no significa nada.
+/// Waits for the user to cancel; confirming while searching means nothing.
 async fn cancelled(answers: &mut mpsc::UnboundedReceiver<Answer>) {
     loop {
         match answers.recv().await {
@@ -193,22 +193,22 @@ async fn cancelled(answers: &mut mpsc::UnboundedReceiver<Answer>) {
 
 type Found = (Connection, ControlStream, Pairing);
 
-/// Espera a la otra y la busca a la vez, con un solo endpoint (el mismo puerto atiende y
-/// llama). Termina con la primera conexión abierta por `A` en la que el protocolo sale bien.
+/// Waits for the other and looks for it at the same time, with a single endpoint (the same port serves and
+/// calls). Ends with the first connection opened by `A` on which the protocol goes well.
 async fn search(ctx: &Ctx) -> Result<Found, String> {
     let ports = pairing_ports(&ctx.agent.config().network, ctx.port, &ctx.fallback_ports);
     let (endpoint, addr) = crate::network::bind_first(ctx.bind_ip, &ports, |addr| {
         Endpoint::bind_pairing(addr, &ctx.identity)
     })
-    .map_err(|e| format!("no se pudo abrir el emparejamiento: {e}"))?;
+    .map_err(|e| format!("could not open the pairing: {e}"))?;
     let port = endpoint
         .local_addr()
         .map(|a| a.port())
         .unwrap_or(addr.port());
-    tracing::info!(%addr, "emparejando: se espera y se busca a la otra máquina");
+    tracing::info!(%addr, "pairing: waiting for and looking for the other machine");
     let discovery = if ctx.mdns {
         MdnsDiscovery::pairing(&ctx.identity.public_key(), Some(port))
-            .map_err(|e| tracing::warn!("sin mDNS, solo se busca por los enlaces fijos: {e}"))
+            .map_err(|e| tracing::warn!("no mDNS, only searching over the fixed links: {e}"))
             .ok()
     } else {
         None
@@ -221,42 +221,42 @@ async fn search(ctx: &Ctx) -> Result<Found, String> {
     }
 }
 
-/// Atiende las conexiones que llegan: solo vale la que abre `A`, así que esta máquina
-/// responde si es `B` frente a quien llama.
+/// Serves the connections that arrive: only the one opened by `A` counts, so this machine
+/// answers if it is `B` relative to the caller.
 async fn wait(ctx: &Ctx, endpoint: &Endpoint) -> Result<Found, String> {
     loop {
         let conn = match endpoint.accept().await {
             Some(Ok(conn)) => conn,
             Some(Err(e)) => {
-                tracing::debug!("conexión de emparejamiento fallida: {e}");
+                tracing::debug!("pairing connection failed: {e}");
                 continue;
             }
-            None => return Err("se cerró el puerto de emparejamiento".into()),
+            None => return Err("the pairing port closed".into()),
         };
         match ctx.side_on(&conn) {
             Ok(Machine::B) => {}
-            // Esta máquina es A: la conexión que vale es la que abre ella.
+            // This machine is A: the connection that counts is the one it opens.
             Ok(Machine::A) | Err(_) => {
-                conn.close("emparejamiento: llama la otra");
+                conn.close("pairing: the other calls");
                 continue;
             }
         }
         match tokio::time::timeout(HANDSHAKE_TIMEOUT, respond(ctx, &conn)).await {
             Ok(Ok((stream, pairing))) => return Ok((conn, stream, pairing)),
             Ok(Err(e)) => {
-                tracing::warn!(from = %conn.remote_address(), "emparejamiento rechazado: {e}")
+                tracing::warn!(from = %conn.remote_address(), "pairing rejected: {e}")
             }
-            Err(_) => tracing::warn!(from = %conn.remote_address(), "emparejamiento sin respuesta"),
+            Err(_) => tracing::warn!(from = %conn.remote_address(), "pairing without a reply"),
         }
     }
 }
 
-/// Prueba las direcciones de la otra hasta que una conteste. Si esta máquina resulta ser
-/// `B`, deja de buscar: la otra (A) la llama a ella y [`wait`] la atiende.
+/// Tries the other's addresses until one answers. If this machine turns out to be
+/// `B`, it stops looking: the other (A) calls it and [`wait`] serves it.
 ///
-/// Cada intento corre aparte y no se corta por empezar otro: con la máquina cargada (o en
-/// Windows, donde un puerto sin nadie no falla enseguida) un handshake puede tardar más que
-/// el intervalo entre intentos, y cortarlo cada vez dejaba a las dos buscándose para siempre.
+/// Each attempt runs apart and is not cut by starting another: with the machine loaded (or on
+/// Windows, where a port with nobody on it does not fail right away) a handshake can take longer than
+/// the interval between attempts, and cutting it every time left both searching for each other forever.
 async fn look(
     ctx: &Ctx,
     endpoint: &Arc<Endpoint>,
@@ -285,7 +285,7 @@ async fn look(
         let conn = match result {
             Ok(Ok(conn)) => conn,
             Ok(Err(e)) => {
-                tracing::debug!(%addr, "la otra máquina no contesta al emparejamiento: {e}");
+                tracing::debug!(%addr, "the other machine does not answer the pairing: {e}");
                 continue;
             }
             Err(_) => continue,
@@ -293,33 +293,33 @@ async fn look(
         match ctx.side_on(&conn) {
             Ok(Machine::A) => {}
             Ok(Machine::B) => {
-                conn.close("emparejamiento: llama la otra");
-                tracing::debug!(%addr, "esta máquina es B: espera a que la otra llame");
+                conn.close("pairing: the other calls");
+                tracing::debug!(%addr, "this machine is B: waiting for the other to call");
                 return std::future::pending().await;
             }
-            // Esta misma máquina.
+            // This very machine.
             Err(_) => {
-                conn.close("emparejamiento: es esta misma máquina");
+                conn.close("pairing: it is this very machine");
                 continue;
             }
         }
         match tokio::time::timeout(HANDSHAKE_TIMEOUT, initiate(ctx, &conn)).await {
             Ok(Ok((stream, pairing))) => return Ok((conn, stream, pairing)),
-            Ok(Err(e)) => tracing::warn!(%addr, "emparejamiento rechazado: {e}"),
-            Err(_) => tracing::warn!(%addr, "emparejamiento sin respuesta"),
+            Ok(Err(e)) => tracing::warn!(%addr, "pairing rejected: {e}"),
+            Err(_) => tracing::warn!(%addr, "pairing without a reply"),
         }
     }
 }
 
-/// Dónde buscar a la otra: la IP de cada enlace fijo con su puerto de emparejamiento (el
-/// siguiente al de su agente, y el que dice la config de esta) y lo que anuncie por mDNS,
-/// sin repetir.
+/// Where to look for the other: the IP of each fixed link with its pairing port (the
+/// one after its agent's, and the one this one's config says) and what it announces over mDNS,
+/// without repeats.
 fn candidates(ctx: &Ctx, discovered: &[SocketAddr], own: u16) -> Vec<SocketAddr> {
     let net = &ctx.agent.config().network;
     let mine = net.pairing_port();
     let mut seen = BTreeSet::new();
-    // El propio puerto de emparejamiento en loopback sería esta misma máquina: llamarse a sí
-    // misma no sirve y en Windows enreda el endpoint.
+    // The own pairing port on loopback would be this very machine: calling itself
+    // is useless and on Windows it tangles the endpoint.
     let itself = |a: &SocketAddr| a.ip().is_loopback() && a.port() == own;
     net.peers
         .iter()
@@ -346,8 +346,8 @@ fn check_peer(me: Machine, got: Peer) -> Result<(), PairError> {
     }
 }
 
-/// La llave que el otro dice tener tiene que ser la que firmó el handshake: así el
-/// código que comparan los usuarios también autentica esta conexión.
+/// The key the other claims to have must be the one that signed the handshake: this way the
+/// code the users compare also authenticates this connection.
 fn their_key(conn: &Connection, bytes: [u8; 32]) -> Result<PublicKey, PairError> {
     let key = PublicKey::from_bytes(bytes)?;
     if key == conn.peer() {
@@ -365,7 +365,7 @@ fn clean_name(name: String) -> String {
         .collect();
     let name = name.trim();
     if name.is_empty() {
-        "otra máquina".into()
+        "other machine".into()
     } else {
         name.to_owned()
     }
@@ -375,7 +375,7 @@ async fn next(stream: &mut ControlStream) -> Result<PairingMsg, PairError> {
     stream.recv().await?.ok_or(PairError::Closed)
 }
 
-/// Quien inicia (el lado A): oferta con compromiso, respuesta, revelación.
+/// The initiator (side A): offer with commitment, answer, reveal.
 pub async fn initiate(ctx: &Ctx, conn: &Connection) -> Result<(ControlStream, Pairing), PairError> {
     let me = ctx.side_on(conn)?;
     let (mut stream, theirs) = conn.open_control(&Hello::new(Peer::Agent(me))).await?;
@@ -414,7 +414,7 @@ pub async fn initiate(ctx: &Ctx, conn: &Connection) -> Result<(ControlStream, Pa
     Ok((stream, pairing))
 }
 
-/// Quien responde (el lado B).
+/// The responder (side B).
 pub async fn respond(ctx: &Ctx, conn: &Connection) -> Result<(ControlStream, Pairing), PairError> {
     let me = ctx.side_on(conn)?;
     let (mut stream, theirs) = conn.accept_control(&Hello::new(Peer::Agent(me))).await?;
@@ -454,8 +454,8 @@ pub async fn respond(ctx: &Ctx, conn: &Connection) -> Result<(ControlStream, Pai
     Ok((stream, pairing))
 }
 
-/// Los dos usuarios comparan el código. Termina al tener las dos confirmaciones (y
-/// entonces guarda la confianza), o al primer rechazo, corte o vencimiento.
+/// The two users compare the code. Ends on having both confirmations (and
+/// then saves trust), or on the first rejection, cut or timeout.
 pub async fn compare(
     ctx: &Ctx,
     stream: ControlStream,
@@ -470,7 +470,7 @@ pub async fn compare(
         confirmed,
     };
     ctx.publish(comparing(false));
-    tracing::info!(par = %peer, "comparando el código de emparejamiento");
+    tracing::info!(peer = %peer, "comparing the pairing code");
     let (mut tx, mut rx) = stream.split();
     let deadline = tokio::time::sleep(ctx.timeouts.confirm);
     tokio::pin!(deadline);
@@ -499,12 +499,12 @@ pub async fn compare(
                     if !ok {
                         reject(&mut tx, &mut rx).await;
                         return Outcome::Failed(
-                            "la otra máquina confirmó otro código: no se emparejó".into(),
+                            "the other machine confirmed another code: not paired".into(),
                         );
                     }
                 }
                 Ok(Some(PairingMsg::Reject)) => {
-                    return Outcome::Failed(format!("se rechazó en {peer}: no se emparejó"));
+                    return Outcome::Failed(format!("rejected at {peer}: not paired"));
                 }
                 Ok(Some(_)) => {
                     reject(&mut tx, &mut rx).await;
@@ -515,13 +515,13 @@ pub async fn compare(
             },
             () = &mut deadline => {
                 reject(&mut tx, &mut rx).await;
-                return Outcome::Failed("se acabó el tiempo para confirmar el código".into());
+                return Outcome::Failed("time ran out to confirm the code".into());
             }
         }
     }
-    // El lado, antes de confiar en la otra: hasta que se guarda la confianza el endpoint
-    // normal no la acepta, así que nada suyo (su puesto, con los lados ya buenos) llega
-    // antes del cambio de lados y se da vuelta dos veces.
+    // The side, before trusting the other: until trust is saved the normal endpoint
+    // does not accept it, so nothing of its (its desk, with the sides already right) arrives
+    // before the side switch and is flipped twice.
     if let Some(side) = Machine::of_keys(
         ctx.identity.public_key().as_bytes(),
         pairing.remote().public_key.as_bytes(),
@@ -532,24 +532,24 @@ pub async fn compare(
         let mut trust = ctx.trust.write().unwrap_or_else(|e| e.into_inner());
         pairing.complete(&mut trust)
     };
-    // Que el otro lado reciba la confirmación antes de cortar.
+    // Let the other side receive the confirmation before cutting.
     let _ = tx.finish();
     drain(&mut rx).await;
     match saved {
         Ok(peer) => {
-            tracing::info!(par = %peer.name, llave = %peer.public_key.to_hex(), "emparejado");
+            tracing::info!(peer = %peer.name, key = %peer.public_key.to_hex(), "paired");
             Outcome::Paired(peer)
         }
-        Err(e) => Outcome::Failed(format!("no se pudo guardar la confianza: {e}")),
+        Err(e) => Outcome::Failed(format!("could not save trust: {e}")),
     }
 }
 
 fn lost(e: &PairError) -> Outcome {
-    tracing::warn!("emparejamiento cortado: {e}");
-    Outcome::Failed("se perdió la conexión con la otra máquina: no se emparejó".into())
+    tracing::warn!("pairing cut: {e}");
+    Outcome::Failed("the connection to the other machine was lost: not paired".into())
 }
 
-/// Avisa al otro lado y le da un momento para leerlo.
+/// Notifies the other side and gives it a moment to read it.
 async fn reject(tx: &mut ControlSender, rx: &mut ControlReceiver) {
     if tx.send(&PairingMsg::Reject).await.is_ok() {
         let _ = tx.finish();
@@ -557,7 +557,7 @@ async fn reject(tx: &mut ControlSender, rx: &mut ControlReceiver) {
     }
 }
 
-/// Lee hasta que el otro lado cierra (o corta, o pasa [`CLOSE_WAIT`]).
+/// Reads until the other side closes (or cuts, or [`CLOSE_WAIT`] passes).
 async fn drain(rx: &mut ControlReceiver) {
     let _ = tokio::time::timeout(CLOSE_WAIT, async {
         while let Ok(Some(_)) = rx.recv::<PairingMsg>().await {}
@@ -602,12 +602,12 @@ mod tests {
     #[test]
     fn names_are_cleaned_for_the_ui() {
         assert_eq!(clean_name("  PC\n".into()), "PC");
-        assert_eq!(clean_name("\u{7}\t".into()), "otra máquina");
+        assert_eq!(clean_name("\u{7}\t".into()), "other machine");
         assert_eq!(clean_name("x".repeat(500)).chars().count(), MAX_NAME_CHARS);
     }
 
-    /// Cada máquina se presenta con el nombre de su `MachineInfo`, nunca con «Mac» o «PC»
-    /// fijos por lado.
+    /// Each machine introduces itself with its `MachineInfo` name, never with fixed "Mac" or "PC"
+    /// per side.
     #[test]
     fn each_machine_introduces_itself_by_its_own_name() {
         let dir = tempfile::tempdir().unwrap();
@@ -655,13 +655,13 @@ mod tests {
             .unwrap()
             .network
         };
-        // El agente quedó en 52100 porque el 52000 estaba ocupado: espera en 52101.
+        // The agent ended up on 52100 because 52000 was busy: it waits on 52101.
         let fallbacks = [52000, 52100, 53100];
         assert_eq!(
             pairing_ports(&net("port = 52000"), 52100, &fallbacks),
             [52101, 52001, 53101]
         );
-        // Un `pairing_port` fijo va primero; ninguno choca con el puerto del agente.
+        // A fixed `pairing_port` goes first; none clashes with the agent's port.
         assert_eq!(
             pairing_ports(&net("pairing_port = 50000"), 52001, &fallbacks),
             [50000, 52101, 53101]
@@ -686,8 +686,8 @@ mod tests {
         assert_eq!(p.remote().name, mac.name());
     }
 
-    /// Un intermediario que conecta con su propia llave pero ofrece la de la Mac: la
-    /// PC lo corta antes de mostrar ningún código.
+    /// A middleman that connects with its own key but offers the Mac's: the
+    /// PC cuts it before showing any code.
     #[tokio::test]
     async fn an_offer_with_someone_elses_key_is_refused() {
         let dir = tempfile::tempdir().unwrap();
@@ -704,7 +704,7 @@ mod tests {
                 .await
                 .unwrap();
             let (_, offer) =
-                PairingInitiator::start(mac_key, "otra", PairingNonce::generate().unwrap());
+                PairingInitiator::start(mac_key, "other", PairingNonce::generate().unwrap());
             s.send(&PairingMsg::Offer {
                 public_key: *offer.public_key.as_bytes(),
                 name: offer.name,
@@ -723,7 +723,7 @@ mod tests {
         assert_eq!(pc.agent.pairing_status(), PairingStatus::Idle);
     }
 
-    /// Con la misma clave en las dos puntas no hay dos lados: se corta antes de nada.
+    /// With the same key on both ends there are no two sides: it is cut before anything.
     #[tokio::test]
     async fn the_same_key_on_both_ends_is_refused() {
         let dir = tempfile::tempdir().unwrap();
@@ -737,8 +737,8 @@ mod tests {
         assert!(matches!(r, Err(PairError::SameKey)), "{:?}", r.err());
     }
 
-    /// Lo que guardaba cada lado en su config no importa al emparejar: los lados salen de
-    /// las claves de la conexión, así que dos agentes que se creían `A` se emparejan igual.
+    /// What each side kept in its config does not matter when pairing: the sides come from
+    /// the connection's keys, so two agents that thought they were `A` pair all the same.
     #[tokio::test]
     async fn two_agents_that_think_they_are_a_still_pair() {
         let dir = tempfile::tempdir().unwrap();
@@ -752,7 +752,7 @@ mod tests {
         assert_eq!(i.code(), r.code());
     }
 
-    /// Las dos confirmaciones guardan la confianza en los dos.
+    /// Both confirmations save trust on both.
     #[tokio::test]
     async fn confirming_on_both_sides_saves_both() {
         let dir = tempfile::tempdir().unwrap();
@@ -793,8 +793,8 @@ mod tests {
         );
     }
 
-    /// Rechazar en un lado, aunque el otro ya haya confirmado, no guarda nada en
-    /// ninguno.
+    /// Rejecting on one side, even if the other already confirmed, saves nothing on
+    /// either.
     #[tokio::test]
     async fn rejecting_on_one_side_saves_nothing() {
         let dir = tempfile::tempdir().unwrap();
@@ -815,7 +815,7 @@ mod tests {
         );
         assert_eq!(po, Outcome::Cancelled);
         assert!(
-            matches!(&mo, Outcome::Failed(why) if why.contains("rechazó")),
+            matches!(&mo, Outcome::Failed(why) if why.contains("rejected")),
             "{mo:?}"
         );
         assert!(
@@ -832,9 +832,9 @@ mod tests {
         );
     }
 
-    // Reloj real: con `start_paused` y QUIC por loopback, tokio salta al siguiente temporizador
-    // en cuanto no hay tareas listas y el handshake vencía antes de que llegara el paquete
-    // (pasaba en WSL fuera del sandbox).
+    // Real clock: with `start_paused` and QUIC over loopback, tokio jumps to the next timer
+    // as soon as there are no ready tasks and the handshake expired before the packet arrived
+    // (it happened on WSL outside the sandbox).
     #[tokio::test]
     async fn nobody_confirming_times_out_without_saving() {
         let dir = tempfile::tempdir().unwrap();
@@ -854,7 +854,7 @@ mod tests {
             compare(&pc, ps, pp, &mut pc_rx)
         );
         assert!(
-            matches!(&mo, Outcome::Failed(why) if why.contains("tiempo")),
+            matches!(&mo, Outcome::Failed(why) if why.contains("time")),
             "{mo:?}"
         );
         assert!(matches!(&po, Outcome::Failed(_)), "{po:?}");
@@ -866,8 +866,8 @@ mod tests {
         );
     }
 
-    /// En loopback (las pruebas, dos agentes en la misma máquina) el propio puerto de
-    /// emparejamiento no es un candidato: sería llamarse a sí misma.
+    /// On loopback (tests, two agents on the same machine) the own pairing port
+    /// is not a candidate: it would be calling itself.
     #[test]
     fn this_machine_never_dials_itself() {
         let dir = tempfile::tempdir().unwrap();
