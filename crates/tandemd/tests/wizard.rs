@@ -263,3 +263,47 @@ async fn el_asistente_reducido_de_punta_a_punta() {
     mac.stop().await;
     pc.stop().await;
 }
+
+/// T-166: la tecla oída en B llega a la UI de A por su socket IPC, no solo al agente.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn la_actividad_de_la_otra_llega_a_la_ui_por_ipc() {
+    let (a_id, b_id) = sides(Identity::from_seed([3; 32]), Identity::from_seed([4; 32]));
+    let (mut a, mut b) = tandemd::start_pair!(
+        |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
+        start(Machine::B, &b_id, b_port, (a_id.public_key(), a_port))
+    );
+    within(async {
+        loop {
+            match a.ui.request(UiCommand::PingPeer).await.unwrap() {
+                Reply::Pong { .. } => break,
+                _ => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+    })
+    .await;
+    assert_eq!(
+        a.ui.request(UiCommand::KeyProbe { on: true })
+            .await
+            .unwrap(),
+        Reply::Done
+    );
+    let mut probe = b.agent.subscribe_key_probe();
+    within(probe.wait_for(|s| s.armed)).await.unwrap();
+    b.ui.request(UiCommand::HeardKey).await.unwrap();
+    // A nunca recibió una tecla: solo el empuje del IPC puede avisarle a su UI.
+    let heard = within(async {
+        loop {
+            match a.ui.next_event().await.unwrap() {
+                Some(tandem_proto::AgentToUi::KeyProbe(s)) if s.heard.is_some() => {
+                    break s.heard;
+                }
+                Some(_) => {}
+                None => panic!("la conexión se cerró"),
+            }
+        }
+    })
+    .await;
+    assert_eq!(heard, Some(Machine::B));
+    a.stop().await;
+    b.stop().await;
+}

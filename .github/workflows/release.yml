@@ -45,6 +45,7 @@ jobs:
   preparar:
     name: preparar
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     outputs:
       version: ${{ steps.modo.outputs.version }}
       tag: ${{ steps.modo.outputs.tag }}
@@ -55,6 +56,9 @@ jobs:
         with:
           fetch-depth: 0 # las notas recorren la historia desde el tag anterior
       - run: scripts/release/test.sh
+      # STATUS.md al día con docs/tasks/ antes de publicar (T-192). No va en el CI de cada PR:
+      # obligaría a cada tarea a tocar STATUS.md y los PRs en paralelo chocarían entre sí.
+      - run: scripts/ci/status.sh
       - name: Versión y modo
         id: modo
         env:
