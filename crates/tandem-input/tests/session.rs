@@ -12,13 +12,13 @@ use tandem_input::event::KeyState;
 use tandem_input::geometry::{Arrangement, Layout, LayoutOptions, Point, Rect, Screen, Side};
 use tandem_input::session::fake::{CaptureCall, FakeCapture, FakeInjector};
 use tandem_input::session::{
-    Captured, ClientDriver, ClientSession, ServerDriver, ServerOutput, ServerSession,
-    SessionConfig, SessionEnd,
+    Captured, ClientDriver, ClientSession, CursorEvent, CursorGate, CursorTap, ServerDriver,
+    ServerOutput, ServerSession, SessionConfig, SessionEnd,
 };
 use tandem_input::{Button, HidUsage, InputEvent, Scroll};
 use tandem_link::identity::{Identity, PublicKey};
 use tandem_link::transport::{Connection, Endpoint, PeerTrust};
-use tandem_proto::{Hello, Peer};
+use tandem_proto::{CursorSample, Hello, Peer};
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
@@ -756,6 +756,113 @@ async fn la_latencia_incluye_la_espera_con_el_driver_ocupado() {
     let _ = stop_c.send(());
     within(s).await.unwrap();
     within(c).await.unwrap();
+    l.server_ep.close();
+    l.client_ep.close();
+}
+
+/// Los dos drivers publican el cursor mientras alguien mira (T-128): el servidor su
+/// posición y el cruce; el cliente, con el foco, la suya. Con el interruptor apagado no
+/// sale nada.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn el_cursor_en_vivo_sale_de_quien_tiene_el_foco_y_solo_con_el_interruptor_encendido() {
+    let l = link().await;
+    let gate = Arc::new(CursorGate::default());
+    let (server_tap, mut server_rx) = CursorTap::new(gate.clone());
+    let (client_tap, mut client_rx) = CursorTap::new(gate.clone());
+
+    let (tx, rx) = mpsc::unbounded_channel();
+    let capture = FakeCapture::new();
+    let mut server =
+        ServerDriver::new(server_session(), capture, rx, cfg()).with_cursor(server_tap);
+    let active = server.active();
+    let (stop_server, stopped) = oneshot::channel::<()>();
+    let conn = l.server.clone();
+    let server_task = tokio::spawn(async move {
+        let hello = Hello::new(Peer::Agent(Machine::B));
+        server
+            .run(&conn, &hello, async {
+                let _ = stopped.await;
+            })
+            .await
+    });
+    let injector = FakeInjector::new();
+    let mut injected = injector.events();
+    let mut client = ClientDriver::new(ClientSession::new(mac_screens()), injector, cfg())
+        .with_cursor(client_tap, Machine::A);
+    let (stop_client, stopped) = oneshot::channel::<()>();
+    let conn = l.client.clone();
+    let client_task = tokio::spawn(async move {
+        let hello = Hello::new(Peer::Agent(Machine::A));
+        client
+            .run(&conn, &hello, async {
+                let _ = stopped.await;
+            })
+            .await
+    });
+    up(&mut { active }).await;
+
+    // Sin suscripción: un movimiento, un cruce y más movimiento no publican nada.
+    for e in [rel(5.0, 0.0), rel(60.0, 0.0), rel(3.0, 1.0)] {
+        tx.send(Captured::now(e)).unwrap();
+    }
+    within(injected.wait_for(|ev| last_position(ev).is_some()))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    assert!(
+        server_rx.try_recv().is_err(),
+        "el servidor publicó sin suscripción"
+    );
+    assert!(
+        client_rx.try_recv().is_err(),
+        "el cliente publicó sin suscripción"
+    );
+
+    // Con suscripción: el cliente, que tiene el foco, publica su posición con su pantalla.
+    gate.set(true);
+    tx.send(Captured::now(rel(2.0, 0.0))).unwrap();
+    let sample = within(client_rx.recv()).await.unwrap();
+    let CursorEvent::Sample(CursorSample {
+        machine,
+        screen,
+        x,
+        y,
+    }) = sample
+    else {
+        panic!("se esperaba una muestra: {sample:?}");
+    };
+    assert_eq!((machine, screen.as_str()), (Machine::A, "m32"));
+    assert!(Rect::new(3440, 0, 1920, 1080).contains(Point::new(f64::from(x), f64::from(y))));
+    assert!(
+        server_rx.try_recv().is_err(),
+        "el servidor no tiene el foco"
+    );
+
+    // Al volver por el borde, el servidor publica el cruce y su propia posición.
+    tx.send(Captured::now(rel(-100.0, 0.0))).unwrap();
+    let mut crossed = None;
+    let mut sample = None;
+    within(async {
+        while crossed.is_none() || sample.is_none() {
+            match server_rx.recv().await.unwrap() {
+                CursorEvent::Crossed { from, to, edge } => crossed = Some((from, to, edge)),
+                CursorEvent::Sample(s) => sample = Some(s),
+            }
+        }
+    })
+    .await;
+    let (from, to, _) = crossed.unwrap();
+    assert_eq!((from, to), (Machine::A, Machine::B));
+    let sample = sample.unwrap();
+    assert_eq!(
+        (sample.machine, sample.screen.as_str()),
+        (Machine::B, "m34")
+    );
+
+    let _ = stop_server.send(());
+    let _ = stop_client.send(());
+    let _ = within(server_task).await;
+    let _ = within(client_task).await;
     l.server_ep.close();
     l.client_ep.close();
 }

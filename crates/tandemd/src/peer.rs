@@ -12,9 +12,11 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use tandem_core::{Machine, State, Step};
+use tandem_input::session::CursorEvent;
 use tandem_link::manager::{LinkKind, Snapshot};
 use tandem_link::qos::StreamClass;
 use tandem_link::transport::{Connection, ControlStream, TransportError};
@@ -61,11 +63,19 @@ impl<S: AsyncRead + AsyncWrite + Unpin + Send + 'static> ControlChannel for Fram
 enum Outgoing {
     Step(Step, oneshot::Sender<Result<(), String>>),
     Msg(ControlMsg),
+    /// Como `Msg`, pero cuenta en [`PeerClient::lossy`]: se descarta si el stream se atrasa.
+    Lossy(ControlMsg),
 }
+
+/// Cuántos avisos descartables esperan a la vez en un [`PeerClient`] antes de empezar a
+/// tirar los nuevos. Con 30 muestras por segundo, dos pendientes son unos 70 ms de atraso.
+pub const LOSSY_BACKLOG: usize = 2;
 
 /// Pide pasos al otro agente por un stream propio. Al soltarlo se cierra el stream.
 pub struct PeerClient {
     tx: mpsc::UnboundedSender<Outgoing>,
+    /// Avisos descartables en la cola (el cursor en vivo, T-128).
+    lossy: Arc<AtomicUsize>,
     task: JoinHandle<()>,
 }
 
@@ -73,9 +83,11 @@ impl PeerClient {
     /// Toma el canal y lo atiende en una tarea propia. Llamar dentro de un runtime de tokio.
     pub fn spawn<C: ControlChannel>(chan: C) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
+        let lossy = Arc::new(AtomicUsize::new(0));
         PeerClient {
             tx,
-            task: tokio::spawn(client_loop(chan, rx)),
+            task: tokio::spawn(client_loop(chan, rx, lossy.clone())),
+            lossy,
         }
     }
 
@@ -111,6 +123,10 @@ impl PeerLink for PeerClient {
     fn send(&self, msg: ControlMsg) {
         PeerClient::send(self, msg);
     }
+
+    fn send_lossy(&self, msg: ControlMsg) {
+        PeerClient::send_lossy(self, msg);
+    }
 }
 
 impl PeerClient {
@@ -119,9 +135,26 @@ impl PeerClient {
     pub fn send(&self, msg: ControlMsg) {
         let _ = self.tx.send(Outgoing::Msg(msg));
     }
+
+    /// Como [`PeerClient::send`] para lo que se reemplaza solo (las muestras del cursor): si
+    /// ya esperan [`LOSSY_BACKLOG`] avisos así porque el stream se atrasó, este se descarta
+    /// en lugar de acumularse.
+    pub fn send_lossy(&self, msg: ControlMsg) {
+        if self.lossy.fetch_add(1, Ordering::AcqRel) >= LOSSY_BACKLOG {
+            self.lossy.fetch_sub(1, Ordering::AcqRel);
+            return;
+        }
+        if self.tx.send(Outgoing::Lossy(msg)).is_err() {
+            self.lossy.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
 }
 
-async fn client_loop<C: ControlChannel>(mut chan: C, mut rx: mpsc::UnboundedReceiver<Outgoing>) {
+async fn client_loop<C: ControlChannel>(
+    mut chan: C,
+    mut rx: mpsc::UnboundedReceiver<Outgoing>,
+    lossy: Arc<AtomicUsize>,
+) {
     // Al salir se sueltan las respuestas pendientes: quien espera ve [`PEER_LOST`].
     let mut pending: HashMap<u64, oneshot::Sender<Result<(), String>>> = HashMap::new();
     let mut next_id = 0u64;
@@ -165,6 +198,11 @@ async fn client_loop<C: ControlChannel>(mut chan: C, mut rx: mpsc::UnboundedRece
                 chan.send(&ControlMsg::ExecuteStep { id, step }).await
             }
             Outgoing::Msg(msg) => chan.send(&msg).await,
+            Outgoing::Lossy(msg) => {
+                // Sale de la cola: el que llegue ahora ya no espera detrás de este.
+                lossy.fetch_sub(1, Ordering::AcqRel);
+                chan.send(&msg).await
+            }
         };
         if let Err(e) = sent {
             tracing::debug!("stream de pedidos al otro agente: {e}");
@@ -264,6 +302,11 @@ async fn respond<C: ControlChannel>(
             ControlMsg::Rescan => agent.receive_rescan(),
             ControlMsg::Update(msg) => agent.receive_update(msg),
             ControlMsg::Focus(msg) => agent.inbox().deliver_focus(msg),
+            ControlMsg::WatchCursor { on } => agent.receive_watch_cursor(on),
+            ControlMsg::Cursor(sample) => agent.receive_peer_cursor(CursorEvent::Sample(sample)),
+            ControlMsg::Crossed { from, to, edge } => {
+                agent.receive_peer_cursor(CursorEvent::Crossed { from, to, edge });
+            }
             // Solo vale como primer mensaje ([`accept_streams`]).
             ControlMsg::Open(channel) => {
                 return Err(format!("canal {channel:?} abierto a mitad de un stream"));
@@ -708,5 +751,70 @@ mod tests {
             .await,
             Err(PEER_LOST.to_owned())
         );
+    }
+
+    /// Un canal que se traba hasta que se lo suelta y anota lo que logra mandar.
+    struct Stalled {
+        open: Arc<tokio::sync::Semaphore>,
+        sent: Arc<std::sync::Mutex<Vec<ControlMsg>>>,
+    }
+
+    impl ControlChannel for Stalled {
+        async fn send(&mut self, msg: &ControlMsg) -> Result<(), String> {
+            let _ = self.open.acquire().await.map_err(|e| e.to_string())?;
+            self.sent.lock().unwrap().push(msg.clone());
+            Ok(())
+        }
+
+        async fn recv(&mut self) -> Result<Option<ControlMsg>, String> {
+            std::future::pending().await
+        }
+    }
+
+    /// El cursor en vivo (T-128) no se acumula si el stream se atrasa: se descartan los
+    /// nuevos y lo importante (un cruce) sigue por el camino de siempre.
+    #[tokio::test]
+    async fn lossy_messages_are_dropped_while_the_stream_is_backed_up() {
+        let open = Arc::new(tokio::sync::Semaphore::new(0));
+        let sent = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let client = PeerClient::spawn(Stalled {
+            open: open.clone(),
+            sent: sent.clone(),
+        });
+        let sample = |x: i32| {
+            ControlMsg::Cursor(tandem_proto::CursorSample {
+                machine: Machine::A,
+                screen: String::new(),
+                x,
+                y: 0,
+            })
+        };
+        // El primero se lo lleva la tarea (queda trabado enviando); los siguientes esperan.
+        client.send_lossy(sample(0));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        for x in 1..=20 {
+            client.send_lossy(sample(x));
+        }
+        client.send(ControlMsg::Rescan);
+        open.add_permits(1000);
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while sent.lock().unwrap().len() < LOSSY_BACKLOG + 2 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let got = sent.lock().unwrap().clone();
+        // La que estaba en vuelo, las dos que cupieron en la cola y el aviso normal.
+        assert_eq!(
+            got,
+            vec![sample(0), sample(1), sample(2), ControlMsg::Rescan],
+            "{got:?}"
+        );
+        // Ya vacía la cola, vuelve a aceptar.
+        client.send_lossy(sample(99));
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert_eq!(sent.lock().unwrap().last(), Some(&sample(99)));
     }
 }

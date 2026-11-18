@@ -66,3 +66,4 @@ pub use orchestrator::{LocalSteps, NoPeer, Orchestrator, PeerLink, StepTimeouts,
 pub use peer::PeerClient;
 pub use power::PowerSteps;
 pub use store::{StateStore, StoreError};
+pub use tandem_input::session::CursorEvent;

@@ -338,6 +338,12 @@ impl PeerLink for ManagedPeer {
         }
     }
 
+    fn send_lossy(&self, msg: ControlMsg) {
+        if let Some(a) = self.links.active() {
+            a.handle.client.send_lossy(msg);
+        }
+    }
+
     fn hold_link(&self) -> Option<LinkHold> {
         Some(Box::new(self.links.hold()))
     }

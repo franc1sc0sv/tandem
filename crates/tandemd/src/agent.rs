@@ -17,6 +17,7 @@ use tandem_proto::{
 };
 use tokio::sync::{broadcast, mpsc, watch};
 
+mod cursor;
 mod env;
 mod modules;
 mod monitors;
@@ -25,6 +26,7 @@ mod scenes;
 mod setup;
 mod update;
 
+pub use cursor::CursorWatch;
 pub use env::ResourceWatch;
 pub use scenes::{SceneBackend, SceneShortcuts, UNKNOWN_SHOWS};
 
@@ -131,6 +133,8 @@ pub struct Agent {
     scene_backend: std::sync::RwLock<Option<Arc<dyn SceneBackend>>>,
     /// Métricas de red y la conexión de cada camino sano (T-102).
     net: net::NetState,
+    /// El cursor en vivo, mientras alguien lo mira (T-128).
+    cursor: cursor::CursorState,
 }
 
 #[derive(Debug, Clone)]
@@ -363,6 +367,7 @@ impl Agent {
             }),
             scene_backend: std::sync::RwLock::new(None),
             net: net::NetState::default(),
+            cursor: cursor::CursorState::default(),
             cfg,
         }
     }
@@ -1087,6 +1092,10 @@ impl Agent {
             // ([`Agent::measure_link`]).
             UiCommand::WatchNetwork { .. } | UiCommand::MeasureLink { .. } => {
                 Reply::Rejected("la red se pide por una conexión de la IPC".into())
+            }
+            // La suscripción es de la conexión ([`Agent::watch_cursor`]).
+            UiCommand::WatchCursor { .. } => {
+                Reply::Rejected("el cursor se pide por una conexión de la IPC".into())
             }
         }
     }

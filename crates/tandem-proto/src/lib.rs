@@ -11,6 +11,7 @@
 //! Los mensajes de entrada (teclado y mouse) los define la sesión de entrada, en
 //! `tandem_input::session::msg`, con la codificación de este crate.
 
+pub mod cursor;
 pub mod env;
 pub mod frame;
 pub mod msg;
@@ -18,6 +19,7 @@ pub mod net;
 pub mod tunnel;
 mod wire;
 
+pub use cursor::CursorSample;
 pub use env::{
     CpuLoad, DiskSpace, EnvKind, Environment, Gpu, GpuLoad, Hardware, MemoryUse, Resources, Tool,
 };
@@ -41,7 +43,7 @@ pub use tunnel::{
 /// Versión del protocolo. Se sube con cualquier cambio incompatible en los mensajes.
 ///
 /// Solo se habla con la misma versión: los dos agentes y la UI se distribuyen juntos.
-pub const PROTOCOL_VERSION: u16 = 29;
+pub const PROTOCOL_VERSION: u16 = 30;
 
 /// Desde esta versión cada agente anuncia sus capacidades al conectarse (T-084): uno
 /// anterior no las manda y no se le puede hablar como a un par.
@@ -108,10 +110,11 @@ mod tests {
     /// iba a ser la v24, pero entró después de T-103. T-102 (métricas de red, el canal de la
     /// prueba de ancho de banda) sube a la v28.
     /// T-111 (`[[cables]]` en el puesto y su parche, la entrada de cada máquina según el EDID
-    /// en el canal y la vista de cada monitor) sube a la v29.
+    /// en el canal y la vista de cada monitor) sube a la v29. T-128 (el cursor en vivo:
+    /// `WatchCursor`, `Cursor` y `Crossed` en la UI y entre agentes) sube a la v30.
     #[test]
     fn la_version_queda_por_encima_de_la_de_t084() {
-        assert_eq!(PROTOCOL_VERSION, 29);
+        assert_eq!(PROTOCOL_VERSION, 30);
         assert_eq!(super::CAPABILITIES_SINCE, 10);
         assert_eq!(super::SIDES_SINCE, 16);
     }

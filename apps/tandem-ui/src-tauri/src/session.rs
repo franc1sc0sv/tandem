@@ -16,7 +16,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use tandem_core::{Align, Arrangement, Config, DeskPatch, Machine, Side, State, Step};
 use tandem_proto::{
-    AgentToUi, Capabilities, DeskCapabilities, EnvKind, Environment, Hardware, InputPermission,
+    AgentToUi, Capabilities, CursorSample, DeskCapabilities, EnvKind, Environment, Hardware, InputPermission,
     InputStatus, KeyProbeStatus, Link, ModuleId, ModuleInfo, ModuleState, PairingStatus,
     PeerStatus, PowerEvent, Reply, Resources, SetupInfo, TxnEvent, UiCommand, UpdateStatus,
 };
@@ -425,6 +425,37 @@ pub enum Notice {
         machine: Machine,
         reason: String,
     },
+    /// Dónde está el cursor, a 30 Hz como mucho (T-128); solo llega con [`Action::WatchCursor`].
+    Cursor {
+        sample: CursorView,
+    },
+    /// El cursor cruzó el borde entre las dos máquinas: `edge` es el borde de `from` por el
+    /// que salió.
+    Crossed {
+        from: Machine,
+        to: Machine,
+        edge: Side,
+    },
+}
+
+/// [`CursorSample`] en JSON para el frontend.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CursorView {
+    pub machine: Machine,
+    pub screen: String,
+    pub x: i32,
+    pub y: i32,
+}
+
+impl From<CursorSample> for CursorView {
+    fn from(s: CursorSample) -> Self {
+        CursorView {
+            machine: s.machine,
+            screen: s.screen,
+            x: s.x,
+            y: s.y,
+        }
+    }
 }
 
 /// [`KeyProbeStatus`] en JSON para el frontend.
@@ -554,6 +585,22 @@ pub enum Action {
         #[serde(default)]
         color: Option<String>,
     },
+    /// Recibir (o dejar de recibir) el cursor en vivo como [`Notice::Cursor`] y
+    /// [`Notice::Crossed`] (T-128). La sesión lo vuelve a pedir si se reconecta.
+    WatchCursor {
+        on: bool,
+    },
+}
+
+/// Suma o resta una ventana a `n`; devuelve si había alguna y si hay alguna.
+fn count(n: &mut u32, on: bool) -> (bool, bool) {
+    let before = *n > 0;
+    *n = if on {
+        n.saturating_add(1)
+    } else {
+        n.saturating_sub(1)
+    };
+    (before, *n > 0)
 }
 
 /// El id del módulo como lo guarda el puesto (`clipboard`, `secure_desktop`).
@@ -602,6 +649,7 @@ impl From<Action> for UiCommand {
                     color,
                 },
             },
+            Action::WatchCursor { on } => UiCommand::WatchCursor { on },
         }
     }
 }
@@ -773,6 +821,7 @@ where
         actions,
         retry,
         watchers: 0,
+        cursor_watchers: 0,
     };
     (handle, runner.run(connect))
 }
@@ -786,6 +835,9 @@ struct Runner {
     /// Cuántas ventanas piden los recursos en vivo (la principal y la bandeja comparten esta
     /// sesión): mientras haya alguna, cada conexión nueva los vuelve a pedir.
     watchers: u32,
+    /// Cuántas ventanas piden el cursor en vivo (T-128), contadas igual: mientras haya alguna,
+    /// cada conexión nueva lo vuelve a pedir.
+    cursor_watchers: u32,
 }
 
 /// Una conexión recién abierta, con lo necesario para dibujar la escena.
@@ -856,13 +908,12 @@ impl Runner {
 
     /// Suma o resta una ventana que mira los recursos; devuelve si había y si hay alguna.
     fn count_watcher(&mut self, on: bool) -> (bool, bool) {
-        let before = self.watchers > 0;
-        self.watchers = if on {
-            self.watchers.saturating_add(1)
-        } else {
-            self.watchers.saturating_sub(1)
-        };
-        (before, self.watchers > 0)
+        count(&mut self.watchers, on)
+    }
+
+    /// Lo mismo para las ventanas que miran el cursor en vivo.
+    fn count_cursor_watcher(&mut self, on: bool) -> (bool, bool) {
+        count(&mut self.cursor_watchers, on)
     }
 
     fn publish(&self, snapshot: Snapshot) {
@@ -877,12 +928,16 @@ impl Runner {
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let watching = self.watchers > 0;
+        let watching_cursor = self.cursor_watchers > 0;
         let opening = async {
             let mut client = connect.await?;
             if watching {
                 client
                     .request(UiCommand::WatchResources { on: true })
                     .await?;
+            }
+            if watching_cursor {
+                client.request(UiCommand::WatchCursor { on: true }).await?;
             }
             let desk = match client.request(UiCommand::GetDesk).await? {
                 Reply::Desk(d) => d,
@@ -943,6 +998,15 @@ impl Runner {
                             continue;
                         }
                         p.command = UiCommand::WatchResources { on: now };
+                    }
+                    if let UiCommand::WatchCursor { on } = p.command {
+                        // Igual: la conexión con el agente cuenta una vez por todas las ventanas.
+                        let (before, now) = self.count_cursor_watcher(on);
+                        if before == now {
+                            p.answer(ActionResult::Done);
+                            continue;
+                        }
+                        p.command = UiCommand::WatchCursor { on: now };
                     }
                     let reply = tokio::time::timeout(QUERY_TIMEOUT, client.request(p.command.clone())).await;
                     let lost = match reply {
@@ -1012,6 +1076,13 @@ impl Runner {
             // Llega solo si se pidió `WatchNetwork`, y esta sesión aún no lo pide (la
             // pantalla Red, T-118).
             AgentToUi::Network(_) => {}
+            // Solo con `Action::WatchCursor`: las pantallas Puesto y Acomodo los pintan.
+            AgentToUi::Cursor(sample) => self.sink.notice(&Notice::Cursor {
+                sample: sample.into(),
+            }),
+            AgentToUi::Crossed { from, to, edge } => {
+                self.sink.notice(&Notice::Crossed { from, to, edge });
+            }
         }
     }
 
@@ -1615,6 +1686,81 @@ mac = "9c:6b:00:1a:2b:ff"
         assert!(tries.load(Ordering::SeqCst) >= 2);
     }
 
+    /// El cursor en vivo llega como avisos solo si la ventana lo pidió, y se vuelve a pedir
+    /// al reconectar.
+    #[tokio::test]
+    async fn the_live_cursor_is_forwarded_only_when_asked_and_asked_again_on_reconnect() {
+        let sample = |x| CursorSample {
+            machine: Machine::B,
+            screen: "b-1".into(),
+            x,
+            y: 7,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let a = agent_in(dir.path());
+        let slot = Arc::new(Mutex::new(Some(a.connector.clone())));
+        let (handle, rec) = session(&slot);
+        rec.until(|s, _| connected(s)).await;
+
+        // Sin pedirlo, la conexión no recibe nada y el motor ni se entera.
+        assert!(!a.agent.cursor_gate().is_on());
+        a.agent
+            .publish_cursor(tandemd::CursorEvent::Sample(sample(1)));
+        assert_eq!(
+            handle.act(Action::WatchCursor { on: true }).await,
+            ActionResult::Done
+        );
+        assert!(a.agent.cursor_gate().is_on());
+        a.agent
+            .publish_cursor(tandemd::CursorEvent::Sample(sample(2)));
+        a.agent.publish_cursor(tandemd::CursorEvent::Crossed {
+            from: Machine::A,
+            to: Machine::B,
+            edge: Side::Right,
+        });
+        rec.until(|_, n| n.iter().any(|n| matches!(n, Notice::Crossed { .. })))
+            .await;
+        let notices = rec.notices.lock().unwrap().clone();
+        assert_eq!(
+            notices,
+            vec![
+                Notice::Cursor {
+                    sample: sample(2).into()
+                },
+                Notice::Crossed {
+                    from: Machine::A,
+                    to: Machine::B,
+                    edge: Side::Right
+                },
+            ]
+        );
+        assert_eq!(
+            serde_json::to_value(&notices[1]).unwrap(),
+            serde_json::json!({ "kind": "crossed", "from": "a", "to": "b", "edge": "right" })
+        );
+
+        // Otro agente en el mismo lugar: la sesión se reconecta y lo vuelve a pedir.
+        *slot.lock().unwrap() = None;
+        a.stop.send(()).unwrap();
+        a.task.await.unwrap().unwrap();
+        rec.until(|s, _| is_unavailable(s)).await;
+        let b = agent_in(dir.path());
+        *slot.lock().unwrap() = Some(b.connector.clone());
+        rec.until(|s, _| connected(s)).await;
+        within_secs(async {
+            while !b.agent.cursor_gate().is_on() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+    }
+
+    async fn within_secs<F: Future>(f: F) -> F::Output {
+        tokio::time::timeout(Duration::from_secs(10), f)
+            .await
+            .expect("la prueba superó el tiempo máximo")
+    }
+
     #[tokio::test]
     async fn dropping_the_handle_ends_the_session() {
         let dir = tempfile::tempdir().unwrap();
@@ -1940,6 +2086,10 @@ mac = "9c:6b:00:1a:2b:ff"
             read(serde_json::json!({ "kind": "set_keyboard", "machine": "a" })),
             UiCommand::SetKeyboard(Machine::A)
         );
+        assert_eq!(
+            read(serde_json::json!({ "kind": "watch_cursor", "on": true })),
+            UiCommand::WatchCursor { on: true }
+        );
         for (kind, cmd) in [
             ("start_pairing", UiCommand::StartPairing),
             ("confirm_pairing", UiCommand::ConfirmPairing),
@@ -2092,6 +2242,7 @@ mac = "9c:6b:00:1a:2b:ff"
             actions,
             retry: Arc::new(Notify::new()),
             watchers: 0,
+            cursor_watchers: 0,
         };
         runner.on_event(AgentToUi::Power(PowerEvent::PeerLost {
             machine: Machine::B,

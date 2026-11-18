@@ -8,9 +8,11 @@
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{
-    Config, DeskPatch, DeskVersion, HistoryEntry, Machine, MachineInfo, MonitorInput, State, Step,
+    Config, DeskPatch, DeskVersion, HistoryEntry, Machine, MachineInfo, MonitorInput, Side, State,
+    Step,
 };
 
+use crate::cursor::CursorSample;
 use crate::env::{Environment, Hardware, Resources};
 use crate::net::NetworkStatus;
 use crate::tunnel::{ClientKind, Project, ProjectTunnels, Tunnel, TunnelId};
@@ -124,6 +126,22 @@ pub enum ControlMsg {
     /// Quién manda el teclado y el mouse: los dos capturan y manda la máquina que
     /// recibe entrada física (DECISIONS D7, DESIGN §7).
     Focus(FocusMsg),
+    /// Quien lo manda quiere el cursor en vivo de quien lo recibe (T-128): muestras y
+    /// cruces. Con `on` se renueva cada pocos segundos mientras alguien mira, como
+    /// [`ControlMsg::WatchResources`].
+    WatchCursor {
+        on: bool,
+    },
+    /// Una muestra del cursor de quien lo manda, que tiene el foco. Se descarta si el
+    /// enlace se atrasa: la siguiente la reemplaza.
+    Cursor(CursorSample),
+    /// El cursor cruzó el borde entre las dos máquinas.
+    Crossed {
+        from: Machine,
+        to: Machine,
+        /// El borde de `from` por el que salió.
+        edge: Side,
+    },
 }
 
 /// Lo que se dicen los dos agentes para actualizarse (T-122). Las versiones son las de la
@@ -636,6 +654,12 @@ pub enum UiCommand {
     MeasureLink {
         path: Link,
     },
+    /// Recibir (o dejar de recibir) [`AgentToUi::Cursor`] y [`AgentToUi::Crossed`] de las
+    /// dos máquinas por esta conexión (T-128). Solo se muestrea mientras alguna conexión,
+    /// de aquí o de la otra máquina, lo pida; al cerrarse la conexión se deja.
+    WatchCursor {
+        on: bool,
+    },
 }
 
 /// La configuración del agente, para que la UI la muestre.
@@ -703,6 +727,16 @@ pub enum AgentToUi {
     /// Las métricas de cada camino, a las conexiones que pidieron
     /// [`UiCommand::WatchNetwork`] (T-102).
     Network(Box<NetworkStatus>),
+    /// El cursor, a 30 Hz como mucho, a las conexiones que pidieron
+    /// [`UiCommand::WatchCursor`] (T-128).
+    Cursor(CursorSample),
+    /// El cursor cruzó el borde entre las dos máquinas: `edge` es el borde de `from` por el
+    /// que salió. A las mismas conexiones.
+    Crossed {
+        from: Machine,
+        to: Machine,
+        edge: Side,
+    },
 }
 
 /// El emparejamiento visto desde la UI.
@@ -1143,6 +1177,13 @@ pub(crate) mod samples {
                 epoch: 3,
                 server: Machine::A,
             }),
+            ControlMsg::WatchCursor { on: true },
+            ControlMsg::WatchCursor { on: false },
+            ControlMsg::Crossed {
+                from: Machine::A,
+                to: Machine::B,
+                edge: Side::Right,
+            },
             ControlMsg::Desk(Box::new(DeskVersion {
                 stamp: DeskStamp {
                     rev: 4,
@@ -1165,6 +1206,11 @@ pub(crate) mod samples {
             crate::env::samples::resources()
                 .into_iter()
                 .map(|r| ControlMsg::Resources(Box::new(r))),
+        );
+        v.extend(
+            crate::cursor::samples::samples()
+                .into_iter()
+                .map(ControlMsg::Cursor),
         );
         v.extend(
             steps()
@@ -1196,6 +1242,9 @@ pub(crate) mod samples {
             ControlMsg::Rescan => 16,
             ControlMsg::Update(_) => 17,
             ControlMsg::Focus(_) => 18,
+            ControlMsg::WatchCursor { .. } => 19,
+            ControlMsg::Cursor(_) => 20,
+            ControlMsg::Crossed { .. } => 21,
         }
     }
 
@@ -1485,6 +1534,8 @@ pub(crate) mod samples {
             UiCommand::GetTunnels,
             UiCommand::WatchNetwork { on: true },
             UiCommand::MeasureLink { path: Link::Wifi },
+            UiCommand::WatchCursor { on: true },
+            UiCommand::WatchCursor { on: false },
         ];
         let mut cmds = cmds;
         cmds.extend(
@@ -1536,6 +1587,7 @@ pub(crate) mod samples {
             UiCommand::GetTunnels => 30,
             UiCommand::WatchNetwork { .. } => 31,
             UiCommand::MeasureLink { .. } => 32,
+            UiCommand::WatchCursor { .. } => 33,
         }
     }
 
@@ -1770,6 +1822,16 @@ pub(crate) mod samples {
         );
         v.push(AgentToUi::Network(Box::new(crate::net::samples::status())));
         v.push(AgentToUi::Network(Box::default()));
+        v.extend(
+            crate::cursor::samples::samples()
+                .into_iter()
+                .map(AgentToUi::Cursor),
+        );
+        v.push(AgentToUi::Crossed {
+            from: Machine::B,
+            to: Machine::A,
+            edge: Side::Left,
+        });
         v.push(AgentToUi::Reply {
             id: 14,
             reply: Reply::Bandwidth {
@@ -1832,6 +1894,8 @@ pub(crate) mod samples {
             AgentToUi::Update(_) => 13,
             AgentToUi::Tunnels(_) => 14,
             AgentToUi::Network(_) => 15,
+            AgentToUi::Cursor(_) => 16,
+            AgentToUi::Crossed { .. } => 17,
         }
     }
 
@@ -1915,11 +1979,11 @@ mod tests {
     fn samples_cover_every_variant() {
         covers(&steps(), step_arm, 6);
         covers(&hellos(), |h| peer_arm(&h.peer), 4);
-        covers(&control(), control_arm, 19);
+        covers(&control(), control_arm, 22);
         let cmds: Vec<_> = ui_requests().into_iter().map(|r| r.command).collect();
-        covers(&cmds, ui_command_arm, 33);
+        covers(&cmds, ui_command_arm, 34);
         covers(&modules(), |m| module_state_arm(&m.state), 3);
-        covers(&to_ui(), to_ui_arm, 16);
+        covers(&to_ui(), to_ui_arm, 18);
         covers(&monitor_event_kinds(), monitor_event_kind_arm, 10);
         let kinds: Vec<_> = capabilities()
             .iter()

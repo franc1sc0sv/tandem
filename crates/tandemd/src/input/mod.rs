@@ -44,8 +44,8 @@ use tandem_clipboard::{ClipConfig, ClipDriver};
 use tandem_core::{Machine, Os};
 use tandem_input::geometry::{Arrangement, Layout, LayoutOptions};
 use tandem_input::session::{
-    ClientDriver, ClientSession, Follow, FollowConfig, ServerDriver, ServerSession, SessionConfig,
-    SessionEnd,
+    ClientDriver, ClientSession, CursorEvent, CursorTap, Follow, FollowConfig, ServerDriver,
+    ServerSession, SessionConfig, SessionEnd,
 };
 use tandem_input::{HidUsage, Point, Screen};
 use tandem_peripherals::{HubWatcher, Presence, WatchConfig};
@@ -186,6 +186,8 @@ struct Shared {
     lock_keys: Vec<HidUsage>,
     /// Adonde van los atajos de escena que se apretaron.
     scene_keys: mpsc::UnboundedSender<String>,
+    /// Por dónde sale el cursor en vivo; los drivers solo publican con alguien mirando.
+    cursor: CursorTap,
     link: watch::Receiver<Option<ActiveLink>>,
     /// Quién manda el teclado y el mouse según el arbitraje (D7).
     server: watch::Sender<Machine>,
@@ -309,12 +311,14 @@ fn spawn_engine(
         }
     };
     let (scene_keys, scene_fired) = mpsc::unbounded_channel();
+    let (cursor, cursor_events) = CursorTap::new(agent.cursor_gate());
     let sh = Arc::new(Shared {
         me,
         backends: setup.backends,
         opts: setup.opts,
         lock_keys,
         scene_keys,
+        cursor,
         link,
         server: watch::Sender::new(keyboard),
         activity: watch::Sender::new(None),
@@ -362,6 +366,7 @@ fn spawn_engine(
         tokio::spawn(report(sh.clone())),
         tokio::spawn(permissions(sh.clone())),
         tokio::spawn(status(sh.clone())),
+        tokio::spawn(publish_cursor(sh.agent.clone(), cursor_events)),
     ]);
     // Captura, envío e inyección en su propio hilo; si no se puede crear, en el runtime
     // de siempre (funciona igual, solo comparte la cola).
@@ -400,6 +405,15 @@ fn set<T: PartialEq>(tx: &watch::Sender<T>, value: T) {
 async fn changed<T>(rx: &mut watch::Receiver<T>) {
     if rx.changed().await.is_err() {
         std::future::pending::<()>().await;
+    }
+}
+
+/// Lleva al agente lo que publican los drivers del cursor en vivo (T-128): el agente lo
+/// reparte a la UI y, si la otra máquina mira, a ella. Corre en el runtime común, no en el
+/// del camino caliente.
+async fn publish_cursor(agent: Arc<Agent>, mut events: mpsc::UnboundedReceiver<CursorEvent>) {
+    while let Some(event) = events.recv().await {
+        agent.publish_cursor(event);
     }
 }
 
@@ -819,7 +833,9 @@ async fn new_server(sh: &Arc<Shared>, peer: Option<Os>) -> Result<Server, String
     let session = ServerSession::new(sh.me, layout, cursor, sh.opts.session.resync_every)
         .with_lock_shortcut(lock_keys)
         .with_drag_across(sh.agent.config().input.drag_between_machines);
-    let driver = ServerDriver::new(session, capture, rx, sh.opts.session).with_layouts(layouts);
+    let driver = ServerDriver::new(session, capture, rx, sh.opts.session)
+        .with_layouts(layouts)
+        .with_cursor(sh.cursor.clone());
     forward_activity(sh.clone(), driver.activity());
     forward_latency(sh.clone(), driver.latency(), true);
     let s = sh.clone();
@@ -992,6 +1008,7 @@ async fn new_client(sh: &Arc<Shared>) -> Result<Client, String> {
     let s = sh.clone();
     let driver = ClientDriver::new(session, injector, sh.opts.session)
         .with_screens(sh.visible.subscribe())
+        .with_cursor(sh.cursor.clone(), sh.me)
         .on_latency_sample(move |d| feed_qos(&s, d));
     forward_latency(sh.clone(), driver.latency(), false);
     let s = sh.clone();

@@ -172,8 +172,24 @@ export type TxnView =
   /** Falló un paso: `state` es lo que quedó hecho. */
   | { type: "failed"; txn: number; state: DeskState };
 
+/** Borde del escritorio de una máquina (`tandem_core::Side`). */
+export type Edge = "left" | "right" | "up" | "down";
+
+/** Dónde está el cursor, en las coordenadas nativas de su máquina (`tandem_proto::CursorSample`). */
+export interface CursorSample {
+  machine: Machine;
+  /** Id de la pantalla que lo contiene; vacío si no se conocen. */
+  screen: string;
+  x: number;
+  y: number;
+}
+
 export type Notice =
   | { kind: "txn"; event: TxnView }
+  /** El cursor en vivo (T-128), a 30 Hz como mucho; solo llega con `watch_cursor`. */
+  | { kind: "cursor"; sample: CursorSample }
+  /** El cursor cruzó el borde `edge` de `from` hacia `to` (T-128). */
+  | { kind: "crossed"; from: Machine; to: Machine; edge: Edge }
   | { kind: "key_probe"; event: { armed: boolean; heard: Machine | null } }
   | { kind: "power"; machine: Machine; reason: string };
 
@@ -188,6 +204,8 @@ export type Action =
   | { kind: "heard_key" }
   | { kind: "set_keyboard"; machine: Machine }
   | { kind: "ping_peer" }
+  /** Recibir (o dejar de recibir) el cursor en vivo como avisos `cursor` y `crossed` (T-128). */
+  | { kind: "watch_cursor"; on: boolean }
   /** «Pedir permisos» (T-090): macOS muestra su diálogo a nombre de `tandemd`. */
   | { kind: "request_permissions" }
   /** Guardar el acomodo en el puesto compartido (`EditDesk { Arrangement }`, T-099). */

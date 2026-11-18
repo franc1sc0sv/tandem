@@ -265,3 +265,70 @@ async fn input_latency_bench_target() {
     assert!(run.p99() <= Duration::from_millis(1), "p99 {:?}", run.p99());
     pair.stop().await;
 }
+
+/// T-128: con el cursor en vivo pedido en las dos máquinas (el peor caso: las dos muestrean
+/// y se mandan las muestras), la latencia de la entrada no empeora. En CI, la misma
+/// regresión grande que sin suscripción; la comparación fina es la de abajo.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn input_latency_with_the_live_cursor_watched_in_ci() {
+    let pair = InputPair::start(
+        vec![screen("a-1", 1920, 1080)],
+        vec![screen("b-1", 3440, 1440)],
+        opts(),
+    )
+    .await
+    .unwrap();
+    let _watching = (pair.a.agent.watch_cursor(), pair.b.agent.watch_cursor());
+    let mut best = Duration::MAX;
+    for _ in 0..3 {
+        let run = bench(&pair, 1000).await;
+        println!(
+            "latencia con el cursor en vivo: p50 {:?}, p99 {:?}, máx {:?}",
+            run.p50(),
+            run.p99(),
+            run.max()
+        );
+        best = best.min(run.p99());
+        if best <= Duration::from_millis(20) {
+            break;
+        }
+    }
+    assert!(
+        best <= Duration::from_millis(20),
+        "regresión grande con el cursor en vivo: el mejor p99 de tres tandas es {best:?}"
+    );
+    // De verdad se estuvo publicando: el banco movió el cursor.
+    assert!(pair.a.agent.cursor_published() + pair.b.agent.cursor_published() > 0);
+    pair.stop().await;
+}
+
+/// En local y en release: el p99 con el cursor en vivo pedido no pasa del de sin pedirlo
+/// más 0,3 ms (el ruido de la medición; en una máquina con otra carga el ruido es mayor que eso: correrlo en reposo). Cada lado es el mejor de tres tandas de 5000
+/// movimientos, alternadas: una pausa del planificador de la máquina arruina una tanda
+/// suelta (se ve hasta sin el cursor en vivo), no las tres.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "bench"]
+async fn input_latency_does_not_get_worse_with_the_live_cursor_watched() {
+    let pair = InputPair::start(
+        vec![screen("a-1", 1920, 1080)],
+        vec![screen("b-1", 7680, 1440)],
+        opts(),
+    )
+    .await
+    .unwrap();
+    let (mut without, mut with) = (Duration::MAX, Duration::MAX);
+    for _ in 0..3 {
+        let run = bench(&pair, 5000).await;
+        without = without.min(run.p99());
+        let watching = (pair.a.agent.watch_cursor(), pair.b.agent.watch_cursor());
+        let run = bench(&pair, 5000).await;
+        with = with.min(run.p99());
+        drop(watching);
+    }
+    println!("mejor p99 sin el cursor en vivo {without:?}; con él {with:?}");
+    assert!(
+        with <= without + Duration::from_micros(300),
+        "el cursor en vivo empeora la latencia: {with:?} contra {without:?}"
+    );
+    pair.stop().await;
+}

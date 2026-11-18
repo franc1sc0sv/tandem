@@ -109,6 +109,11 @@ pub trait PeerLink: Send + Sync {
     fn send(&self, msg: ControlMsg) {
         let _ = msg;
     }
+    /// Como [`PeerLink::send`] para lo que se reemplaza solo (las muestras del cursor en
+    /// vivo): si el enlace se atrasa, se descarta en lugar de acumularse.
+    fn send_lossy(&self, msg: ControlMsg) {
+        self.send(msg);
+    }
     /// Retiene el enlace por el que van los pasos mientras dure una transacción
     /// propia: no se cambia de enlace a medias salvo que el activo caiga. Se libera
     /// al soltar lo devuelto. Sin gestor de enlaces no hay nada que retener.
