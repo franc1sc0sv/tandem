@@ -504,11 +504,12 @@ async fn una_salida_grande_se_lee_por_paginas_sin_perder_ni_repetir_bytes() {
             got_err.push_str(se);
             from_o = o["next"]["stdout"].clone();
             from_e = o["next"]["stderr"].clone();
-            if o["more"] == false {
-                assert_eq!(o["done"], true);
+            // `more: false` solo dice que no queda nada leído sin entregar: el proceso puede no haber
+            // terminado aún (T-194). Se sigue pidiendo hasta `done`, que nunca llega con `more`.
+            if o["done"] == true {
+                assert_eq!(o["more"], false);
                 break;
             }
-            assert_eq!(o["done"], false);
         }
     })
     .await;
