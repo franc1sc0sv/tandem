@@ -6,6 +6,11 @@ export type UpdateStep = "ask_peer" | "wait_peer" | "install_here";
 
 /** Mirror of `tandem_ui::update::UpdateView`. */
 export interface UpdateView {
+  /**
+   * Grows with every change of the view. The command replies and the events travel on different
+   * channels: the window keeps the view with the highest one, not the last to arrive (T-251).
+   */
+  seq: number;
   /** This machine's version. */
   here: string;
   /** The other one's (`null` without a peer or if not known yet). */
