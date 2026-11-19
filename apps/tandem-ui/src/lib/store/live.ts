@@ -412,7 +412,9 @@ export class LiveSource implements Source {
       this.bridge.onNotice?.((n) => {
         if (n.kind === "txn") for (const l of this.txnListeners) l(n.event);
         else if (n.kind === "key_probe") {
-          if (n.event.heard) for (const f of [...this.probeListeners]) f(n.event.heard);
+          for (const m of [n.event.heard, n.event.second]) {
+            if (m) for (const f of [...this.probeListeners]) f(m);
+          }
         } else if (n.kind === "cursor" || n.kind === "crossed") for (const f of [...this.cursorListeners]) f(n);
         else if (n.kind === "drag") for (const l of this.dragListeners) l(n.status);
       }),

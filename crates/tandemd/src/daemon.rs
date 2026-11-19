@@ -71,7 +71,7 @@ pub fn start(
     let identity =
         Identity::load_or_create(&paths.identity_file()).map_err(StartError::Identity)?;
     tracing::info!(
-        llave = %identity.public_key().to_hex(),
+        key = %identity.public_key().to_hex(),
         "this machine's identity"
     );
     let trust = TrustStore::open(paths.trust_file()).map_err(StartError::Trust)?;

@@ -254,7 +254,7 @@ impl PeerInbox {
                 }
             }
             None => tracing::debug!(
-                canal = ?incoming.channel,
+                channel = ?incoming.channel,
                 "stream from the other agent without an input engine: closing it"
             ),
         }
@@ -473,8 +473,10 @@ impl Agent {
         });
         self.record_current();
         self.keyboard.send_modify(|k| *k = k.map(Machine::other));
-        self.key_probe
-            .send_modify(|p| p.heard = p.heard.map(Machine::other));
+        self.key_probe.send_modify(|p| {
+            p.heard = p.heard.map(Machine::other);
+            p.second = p.second.map(Machine::other);
+        });
         self.input_status
             .send_modify(|s| s.server = s.server.other());
         self.orch.set_machine(side);
