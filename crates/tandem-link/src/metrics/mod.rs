@@ -9,7 +9,10 @@
 //!   one sample per second.
 //! - [`probe`]: the bandwidth test.
 
+mod notices;
 pub mod probe;
+
+pub use notices::link_notices;
 
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -45,6 +48,9 @@ pub struct NetMetrics {
     switches: VecDeque<PathSwitch>,
     measuring: Option<LinkKind>,
     notices: Vec<tandem_proto::NetworkNotice>,
+    /// About the link set itself (T-223), kept apart from the cable notices because a
+    /// different task replaces those.
+    link_notices: Vec<tandem_proto::NetworkNotice>,
 }
 
 impl Default for NetMetrics {
@@ -58,6 +64,7 @@ impl Default for NetMetrics {
             switches: VecDeque::new(),
             measuring: None,
             notices: Vec::new(),
+            link_notices: Vec::new(),
         }
     }
 }
@@ -151,7 +158,12 @@ impl NetMetrics {
                 .collect(),
             switches: self.switches.iter().copied().collect(),
             measuring: self.measuring.map(Into::into),
-            notices: self.notices.clone(),
+            notices: self
+                .link_notices
+                .iter()
+                .chain(&self.notices)
+                .cloned()
+                .collect(),
         }
     }
 }
@@ -191,6 +203,12 @@ impl Metrics {
     /// The notices for the user (replaced whole).
     pub fn set_notices(&self, notices: Vec<tandem_proto::NetworkNotice>) {
         self.lock().notices = notices;
+    }
+
+    /// The notices about the link set: shadowed candidates or a manager that could not
+    /// start (replaced whole, see [`link_notices`]).
+    pub fn set_link_notices(&self, notices: Vec<tandem_proto::NetworkNotice>) {
+        self.lock().link_notices = notices;
     }
 
     pub fn status(&self) -> NetworkStatus {
