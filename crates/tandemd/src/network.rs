@@ -8,7 +8,9 @@
 //! - With a paired peer, the link manager tries the config's fixed links
 //!   and the address the peer announces on the LAN over mDNS ([`NetworkConfig::link_candidates`]).
 //!   For each link it opens a connection with a ping stream and a request stream
-//!   ([`AgentProber`]).
+//!   ([`AgentProber`]), or adopts the one the other agent opened over that path: that is the
+//!   only one when the other side's firewall drops what this side sends (T-237). Both sides
+//!   serve every connection, whoever opened it.
 //! - While any link sees the other agent, the orchestrator has a [`ManagedPeer`]
 //!   that sends each request over the active link; if none sees it, it goes back to having no
 //!   peer, and powering on machine B waits for it to appear. The same feeds
@@ -31,12 +33,12 @@ use tandem_core::{Machine, Os, State, Step};
 use tandem_link::discovery::MdnsDiscovery;
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_link::iface::{
-    AssignNotices, Interfaces, ScopedDiscovery, SystemAssigner, SystemInterfaces, WiredChange,
-    WiredResolver, follow_wired, kind_for_addr, relabel_with_shadowed, wired_changes,
+    AssignNotices, Interfaces, ScopedDiscovery, Shadowed, SystemAssigner, SystemInterfaces,
+    WiredChange, WiredResolver, follow_wired, kind_for_addr, relabel_with_shadowed, wired_changes,
 };
 use tandem_link::manager::{
-    HealthConfig, LinkCandidate, LinkKind, LinkManager, ManagerError, Prober, QuicProber,
-    QuicSession,
+    HealthConfig, LinkCandidate, LinkKind, LinkManager, LinkStatus, ManagerError, Prober,
+    QuicProber, QuicSession,
 };
 use tandem_link::metrics;
 use tandem_link::qos::LinkQos;
@@ -68,6 +70,9 @@ pub struct NetOptions {
     pub mdns: bool,
     pub health: HealthConfig,
     pub pairing: PairingTimeouts,
+    /// Whether this agent dials the peer. Tests turn it off to play a peer whose firewall
+    /// silently drops inbound UDP (T-237): the dial then hangs until the connect timeout.
+    pub dial: bool,
 }
 
 impl Default for NetOptions {
@@ -78,6 +83,7 @@ impl Default for NetOptions {
             mdns: true,
             health: HealthConfig::default(),
             pairing: PairingTimeouts::default(),
+            dial: true,
         }
     }
 }
@@ -277,18 +283,49 @@ struct PairingRun {
     task: JoinHandle<()>,
 }
 
-/// The connections the other agent opened, to cut them when unpairing: the
-/// pinning only looks at trust in the handshake.
-#[derive(Default)]
+/// The connections with the other agent that this side serves: the ones the other agent
+/// opened and the ones this side dialled. They are cut when unpairing (the pinning only looks at trust in the
+/// handshake), and the ones the other opened are also a path this side can use when it
+/// cannot dial the other (T-237).
 struct Conns {
     next: AtomicU64,
-    open: Mutex<BTreeMap<u64, Connection>>,
+    open: Mutex<BTreeMap<u64, Tracked>>,
+    /// Bumped when the other agent opens a connection: `supervise` checks whether its path
+    /// is one the link manager follows.
+    arrived: watch::Sender<u64>,
+}
+
+struct Tracked {
+    conn: Connection,
+    kind: LinkKind,
+    /// Opened by the other agent: this side may adopt it as its path.
+    inbound: bool,
+}
+
+impl Default for Conns {
+    fn default() -> Self {
+        Conns {
+            next: AtomicU64::new(0),
+            open: Mutex::new(BTreeMap::new()),
+            arrived: watch::channel(0).0,
+        }
+    }
 }
 
 impl Conns {
-    fn add(&self, conn: Connection) -> u64 {
+    fn add(&self, conn: Connection, kind: LinkKind, inbound: bool) -> u64 {
         let id = self.next.fetch_add(1, Ordering::Relaxed);
-        lock(&self.open).insert(id, conn);
+        lock(&self.open).insert(
+            id,
+            Tracked {
+                conn,
+                kind,
+                inbound,
+            },
+        );
+        if inbound {
+            self.arrived.send_modify(|n| *n = n.wrapping_add(1));
+        }
         id
     }
 
@@ -297,9 +334,59 @@ impl Conns {
     }
 
     fn close_from(&self, key: &PublicKey) {
-        for conn in lock(&self.open).values().filter(|c| c.peer() == *key) {
-            conn.close("unpaired");
+        self.close_from_except(key, usize::MAX);
+    }
+
+    /// Like [`Conns::close_from`], except the connection with quinn's id `keep`.
+    fn close_from_except(&self, key: &PublicKey, keep: usize) {
+        for t in lock(&self.open)
+            .values()
+            .filter(|t| t.conn.peer() == *key && t.conn.id() != keep)
+        {
+            t.conn.close("unpaired");
         }
+    }
+
+    /// A live connection `key` opened toward this side over the path of `addr`: the one from
+    /// the same IP or, failing that, the one over the same kind of link. The newest wins.
+    fn inbound(&self, key: &PublicKey, addr: SocketAddr, kind: LinkKind) -> Option<Connection> {
+        let open = lock(&self.open);
+        let live = || {
+            open.values()
+                .rev()
+                .filter(|t| t.inbound && t.conn.peer() == *key && !t.conn.is_closed())
+        };
+        let ip = unmapped(addr.ip());
+        live()
+            .find(|t| unmapped(t.conn.remote_address().ip()) == ip)
+            .or_else(|| live().find(|t| t.kind == kind))
+            .map(|t| t.conn.clone())
+    }
+
+    /// The paths over which `key` has a live connection toward this side.
+    fn inbound_paths(&self, key: &PublicKey) -> Vec<LinkCandidate> {
+        lock(&self.open)
+            .values()
+            .filter(|t| t.inbound && t.conn.peer() == *key && !t.conn.is_closed())
+            .map(|t| {
+                let addr = t.conn.remote_address();
+                LinkCandidate {
+                    kind: t.kind,
+                    // A dual-stack socket shows IPv4 peers mapped: dialled back as IPv4.
+                    addr: match unmapped(addr.ip()) {
+                        ip @ IpAddr::V4(_) => SocketAddr::new(ip, addr.port()),
+                        IpAddr::V6(_) => addr,
+                    },
+                }
+            })
+            .collect()
+    }
+}
+
+fn unmapped(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
+        v4 => v4,
     }
 }
 
@@ -494,6 +581,11 @@ impl Shared {
             tokio::spawn(supervise(
                 agent.clone(),
                 self.endpoint.clone(),
+                PeerSide {
+                    conns: self.conns.clone(),
+                    key: public_key,
+                    dial: self.opts.dial,
+                },
                 name,
                 discovery,
                 self.opts.health,
@@ -528,7 +620,7 @@ impl Shared {
         let goodbye = notify
             .then(|| self.active.tx.borrow().clone())
             .flatten()
-            .map(|a| a.handle.client);
+            .map(|a| a.handle);
         if let Some(f) = following.take() {
             for t in f.tasks {
                 t.abort();
@@ -540,11 +632,15 @@ impl Shared {
         // `supervise` does not get to release the peer when aborted.
         self.agent.orchestrator().clear_peer();
         match goodbye {
-            Some(client) => {
+            Some(PeerHandle { conn, client }) => {
                 client.send(ControlMsg::Unpaired);
                 let conns = self.conns.clone();
                 tokio::spawn(async move {
                     let _ = tokio::time::timeout(GOODBYE_WAIT, client.flush()).await;
+                    // Closing drops what is still unsent: the notice's connection is left for
+                    // the other side to close once it reads it, with a cap.
+                    conns.close_from_except(&key, conn.id());
+                    tokio::time::sleep(GOODBYE_WAIT).await;
                     conns.close_from(&key);
                 });
             }
@@ -693,7 +789,7 @@ async fn accept_loop(
                     .unwrap_or_else(|| kind_of_remote(&statics, remote));
                 let conn = conn.with_qos(agent.link_qos().get(kind));
                 let (agent, conns) = (agent.clone(), conns.clone());
-                let id = conns.add(conn.clone());
+                let id = conns.add(conn.clone(), kind, true);
                 tokio::spawn(async move {
                     peer::accept_streams(conn, agent).await;
                     conns.remove(id);
@@ -725,24 +821,23 @@ fn follow_desk(agent: &Agent) -> JoinHandle<()> {
 /// doubt, the Wi-Fi cap: a capped cable is only slower, an uncapped Wi-Fi
 /// adds latency to the input.
 fn kind_of_remote(statics: &[LinkCandidate], remote: SocketAddr) -> LinkKind {
-    let ip = |a: SocketAddr| match a.ip() {
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map_or(IpAddr::V6(v6), IpAddr::V4),
-        v4 => v4,
-    };
     statics
         .iter()
-        .find(|c| ip(c.addr) == ip(remote))
+        .find(|c| unmapped(c.addr.ip()) == unmapped(remote.ip()))
         .map_or(LinkKind::Wifi, |c| c.kind)
 }
 
 /// Builds the link manager with the candidates of each moment and follows its active
-/// link. If what is discovered on the LAN changes the candidates, it is rebuilt: the
-/// manager does not admit new links while running, and the fixed links' connections are
-/// reopened in one ping.
+/// link. If what is discovered on the LAN changes the links the manager should follow, it
+/// is rebuilt: the manager does not admit new links while running, and the fixed links'
+/// connections are reopened in one ping. A discovery change that leaves the same links does
+/// not rebuild it: that would cut healthy connections for nothing, which the other side sees
+/// as "closed by peer" over and over (T-237).
 #[allow(clippy::too_many_arguments)]
 async fn supervise(
     agent: Arc<Agent>,
     endpoint: Arc<Endpoint>,
+    peer: PeerSide,
     name: String,
     discovery: Option<MdnsDiscovery>,
     health: HealthConfig,
@@ -778,15 +873,27 @@ async fn supervise(
                 .collect(),
         );
     });
+    let new_resolver = || {
+        Arc::new(WiredResolver {
+            side: agent.machine(),
+            os: local_os(),
+            port: agent.config().network.port,
+            discovery: scoped.clone(),
+            assigner: Arc::new(SystemAssigner),
+            notices: notices.clone(),
+        })
+    };
+    // Paths the other agent reached this side over that no candidate covered (T-237).
+    let mut extra: Vec<LinkCandidate> = Vec::new();
+    let mut arrived = peer.conns.arrived.subscribe();
     let mut scoped_seen = scoped_snapshot(&raw(&discovered));
     loop {
         // The cables already plugged in enter with the manager; the ones that appear or
         // disconnect later are followed by `follow_wired`. What is configured by hand rules.
-        let side = agent.machine();
-        let port = agent.config().network.port;
+        let resolver = new_resolver();
+        let plan = plan_links(&candidates, &extra, &interfaces.list(), &resolver);
         // Two candidates on one interface get the same kind: one is kept, never refused (T-223).
-        let (fixed, shadowed) = relabel_with_shadowed(&candidates, &interfaces.list());
-        for s in &shadowed {
+        for s in &plan.shadowed {
             tracing::warn!(
                 kind = %s.kind,
                 kept = %s.kept,
@@ -794,31 +901,17 @@ async fn supervise(
                 "two peers reach the same link: only the first one is used"
             );
         }
-        let fixed_kinds: Vec<LinkKind> = fixed.iter().map(|c| c.kind).collect();
-        let resolver = Arc::new(WiredResolver {
-            side,
-            os: local_os(),
-            port,
-            discovery: scoped.clone(),
-            assigner: Arc::new(SystemAssigner),
-            notices: notices.clone(),
-        });
+        let (spawned, fixed_kinds, shadowed) = (plan.links, plan.fixed_kinds, plan.shadowed);
         let resolve = move |i: &tandem_link::iface::NetInterface| {
             if fixed_kinds.contains(&i.kind.link_kind()) {
                 return None;
             }
             resolver.resolve(i)
         };
-        let mut spawned = fixed;
-        let mut applied = BTreeMap::new();
-        for change in wired_changes(&mut applied, &interfaces.list(), &resolve) {
-            if let WiredChange::Add(c) = change {
-                spawned.push(c);
-            }
-        }
         let managed = match spawn_manager(
             &agent,
             &endpoint,
+            &peer,
             &spawned,
             health,
             &interfaces,
@@ -843,6 +936,8 @@ async fn supervise(
             .as_ref()
             .map(|m| AbortOnDrop(follow_wired(&*interfaces, m.links.control(), resolve)));
         let mut installed = false;
+        // An inbound connection that arrived before this manager existed is checked right away.
+        arrived.mark_changed();
         loop {
             let current = links.as_ref().and_then(|l| {
                 l.borrow().active.as_ref().map(|a| ActiveLink {
@@ -893,6 +988,34 @@ async fn supervise(
                         links = None;
                     }
                 }
+                changed = arrived.changed() => {
+                    if changed.is_err() {
+                        continue;
+                    }
+                    // A path the other agent reached this side over and the manager does not
+                    // follow: it enters, so its connection is adopted (T-237).
+                    let followed: Vec<LinkKind> = managed
+                        .as_ref()
+                        .map(|m| m.links.links().iter().map(|l| l.kind).collect())
+                        .unwrap_or_default();
+                    let mut rebuild = false;
+                    for c in peer.conns.inbound_paths(&peer.key) {
+                        if followed.contains(&c.kind) || extra.iter().any(|e| e.kind == c.kind) {
+                            continue;
+                        }
+                        tracing::info!(link = %c.kind, addr = %c.addr, "the other agent reached this side over a new path");
+                        extra.push(c);
+                        match &managed {
+                            Some(m) => {
+                                let _ = m.links.control().add(c);
+                            }
+                            None => rebuild = true,
+                        }
+                    }
+                    if rebuild {
+                        break;
+                    }
+                }
                 changed = changed(&mut discovered) => {
                     if changed.is_err() {
                         discovered = None;
@@ -905,8 +1028,17 @@ async fn supervise(
                     let seen = scoped_snapshot(&raw(&discovered));
                     if next != candidates || seen != scoped_seen {
                         scoped_seen = seen;
-                        tracing::info!(?next, "the links with the peer changed");
                         candidates = next;
+                        let want =
+                            plan_links(&candidates, &extra, &interfaces.list(), &new_resolver())
+                                .links;
+                        if let Some(m) = &managed
+                            && same_links(&want, &m.links.links())
+                        {
+                            tracing::debug!(?want, "discovery changed, the links did not");
+                            continue;
+                        }
+                        tracing::info!(next = ?want, "the links with the peer changed");
                         break;
                     }
                 }
@@ -918,6 +1050,60 @@ async fn supervise(
         active_link.publish(None);
         agent.set_path_conns(BTreeMap::new());
     }
+}
+
+/// What the manager should follow, from [`plan_links`].
+struct LinkPlan {
+    links: Vec<LinkCandidate>,
+    /// The kinds that are fixed, which `follow_wired` leaves alone.
+    fixed_kinds: Vec<LinkKind>,
+    /// Candidates left out because another one reaches the same link (T-223).
+    shadowed: Vec<Shadowed>,
+}
+
+/// The links the manager should follow: the configured and discovered ones relabelled by
+/// their interface, the cables `resolver` finds, and the paths the other agent reached this
+/// side over that none of those covers (T-237).
+fn plan_links(
+    candidates: &[LinkCandidate],
+    extra: &[LinkCandidate],
+    list: &[tandem_link::iface::NetInterface],
+    resolver: &WiredResolver,
+) -> LinkPlan {
+    let (fixed, shadowed) = relabel_with_shadowed(candidates, list);
+    let fixed_kinds: Vec<LinkKind> = fixed.iter().map(|c| c.kind).collect();
+    let resolve = |i: &tandem_link::iface::NetInterface| {
+        if fixed_kinds.contains(&i.kind.link_kind()) {
+            return None;
+        }
+        resolver.resolve(i)
+    };
+    let mut links = fixed;
+    let mut applied = BTreeMap::new();
+    for change in wired_changes(&mut applied, list, &resolve) {
+        if let WiredChange::Add(c) = change {
+            links.push(c);
+        }
+    }
+    for c in extra {
+        if !links.iter().any(|s| s.kind == c.kind) {
+            links.push(*c);
+        }
+    }
+    LinkPlan {
+        links,
+        fixed_kinds,
+        shadowed,
+    }
+}
+
+/// The manager already follows exactly `want` (same kinds, same addresses).
+fn same_links(want: &[LinkCandidate], have: &[LinkStatus]) -> bool {
+    let mut want: Vec<(LinkKind, SocketAddr)> = want.iter().map(|c| (c.kind, c.addr)).collect();
+    let mut have: Vec<(LinkKind, SocketAddr)> = have.iter().map(|l| (l.kind, l.addr)).collect();
+    want.sort();
+    have.sort();
+    want == have
 }
 
 /// The discovered link-locals (one per cable): when they change, resolve again.
@@ -940,8 +1126,9 @@ async fn changed<T>(rx: &mut Option<watch::Receiver<T>>) -> Result<(), watch::er
 }
 
 fn spawn_manager(
-    agent: &Agent,
+    agent: &Arc<Agent>,
     endpoint: &Arc<Endpoint>,
+    peer: &PeerSide,
     candidates: &[LinkCandidate],
     health: HealthConfig,
     interfaces: &Arc<SystemInterfaces>,
@@ -968,7 +1155,8 @@ fn spawn_manager(
         agent.link_qos().clone(),
     )
     .with_interfaces(interfaces.clone())
-    .with_rejected(rejected);
+    .with_rejected(rejected)
+    .with_peer(agent.clone(), peer.clone(), health.connect_timeout / 2);
     let (links, events) = LinkManager::spawn(candidates, prober, health)?;
     // The Network screen's metrics follow this manager while it lives (T-102).
     tokio::spawn(metrics::follow(
@@ -995,6 +1183,23 @@ pub struct AgentSession {
     handle: PeerHandle,
 }
 
+/// The followed peer, as the link manager's prober needs it.
+#[derive(Clone)]
+struct PeerSide {
+    conns: Arc<Conns>,
+    key: PublicKey,
+    /// See [`NetOptions::dial`].
+    dial: bool,
+}
+
+/// What lets the prober serve and adopt connections (T-237).
+struct Adoption {
+    agent: Arc<Agent>,
+    peer: PeerSide,
+    /// The most an inbound connection can take to answer before dialling instead.
+    timeout: Duration,
+}
+
 /// [`QuicProber`] plus the request stream: each healthy link already has a way
 /// to ask the other agent for steps. The other side serves the two streams with
 /// [`peer::accept_streams`].
@@ -1008,6 +1213,7 @@ pub struct AgentProber {
     interfaces: Option<Arc<dyn Interfaces>>,
     /// Called when the other machine rejects our key for not being trusted.
     rejected: Option<Arc<dyn Fn() + Send + Sync>>,
+    adoption: Option<Adoption>,
 }
 
 /// Aborts the task when dropped (a loose `JoinHandle` leaves it running).
@@ -1033,6 +1239,26 @@ impl AgentProber {
         let quic = self.quic.connect(addr).await?;
         let kind = self.kind_of(addr);
         let conn = QuicProber::handle(&quic).with_qos(self.qos.get(kind));
+        // The other agent may use this connection as its own path (it cannot always dial this
+        // side): what it opens over it is served here, as on the ones it opens (T-237).
+        if let Some(a) = &self.adoption {
+            let id = a.peer.conns.add(conn.clone(), kind, false);
+            let (agent, conns, served) = (a.agent.clone(), a.peer.conns.clone(), conn.clone());
+            tokio::spawn(async move {
+                peer::accept_streams(served, agent).await;
+                conns.remove(id);
+            });
+        }
+        self.session(quic, conn, kind).await
+    }
+
+    /// The request stream over `conn`, whoever opened it.
+    async fn session(
+        &self,
+        quic: QuicSession,
+        conn: Connection,
+        kind: LinkKind,
+    ) -> Result<AgentSession, PeerError> {
         let client = Arc::new(PeerClient::open(&conn, self.me).await?);
         // The first thing the other side knows: how this side classifies the connection.
         client.send(ControlMsg::LinkClass { kind: kind.into() });
@@ -1040,6 +1266,50 @@ impl AgentProber {
             quic,
             handle: PeerHandle { conn, client },
         })
+    }
+
+    /// A session over the connection the other agent opened over this path, if there is
+    /// one. That is the path when this side cannot dial (its packets are dropped on the way
+    /// or by the other's firewall), and when both can, using it means one connection
+    /// instead of two. One that does not answer in time is closed, so it is not tried again.
+    async fn adopt(&self, addr: SocketAddr, kind: LinkKind) -> Option<AgentSession> {
+        let a = self.adoption.as_ref()?;
+        let conn = a.peer.conns.inbound(&a.peer.key, addr, kind)?;
+        let conn = conn.with_qos(self.qos.get(kind));
+        let from = conn.remote_address();
+        let opened = tokio::time::timeout(a.timeout, async {
+            let quic = self.quic.session_over(conn.clone()).await?;
+            self.session(quic, conn.clone(), kind).await
+        })
+        .await;
+        match opened {
+            Ok(Ok(s)) => {
+                tracing::info!(link = %kind, %from, "using the connection the other agent opened");
+                Some(s)
+            }
+            Ok(Err(e)) => {
+                tracing::debug!(%from, "the other agent's connection did not take a session: {e}");
+                conn.close("no session");
+                None
+            }
+            Err(_) => {
+                tracing::debug!(%from, "the other agent's connection did not answer in time");
+                conn.close("no answer");
+                None
+            }
+        }
+    }
+
+    /// Serves what the other agent opens over the connections this side dials, and adopts
+    /// the ones it opens when this side cannot dial it (T-237).
+    #[must_use]
+    fn with_peer(mut self, agent: Arc<Agent>, peer: PeerSide, timeout: Duration) -> Self {
+        self.adoption = Some(Adoption {
+            agent,
+            peer,
+            timeout,
+        });
+        self
     }
 
     /// What to do if the other machine rejects our key.
@@ -1062,6 +1332,7 @@ impl AgentProber {
             qos,
             interfaces: None,
             rejected: None,
+            adoption: None,
         }
     }
 
@@ -1092,6 +1363,15 @@ impl Prober for AgentProber {
     type Error = PeerError;
 
     async fn connect(&self, addr: SocketAddr) -> Result<AgentSession, PeerError> {
+        // The other agent's connection first: it is the only one when this side's packets
+        // never reach the other, and dialling would only find that out at the timeout.
+        if let Some(s) = self.adopt(addr, self.kind_of(addr)).await {
+            return Ok(s);
+        }
+        if self.adoption.as_ref().is_some_and(|a| !a.peer.dial) {
+            // As a firewall that drops everything: no answer until the manager's timeout.
+            return std::future::pending().await;
+        }
         let opened = self.open(addr).await;
         if let Err(PeerError::Transport(e)) = &opened {
             tracing::debug!(%addr, error = ?e, "connection to the other agent failed");
@@ -1237,6 +1517,131 @@ mod tests {
         assert_eq!(
             kind_of_remote(&[], "10.77.1.2:1".parse().unwrap()),
             LinkKind::Wifi
+        );
+    }
+
+    fn status(kind: LinkKind, addr: &str) -> LinkStatus {
+        LinkStatus {
+            kind,
+            addr: addr.parse().unwrap(),
+            rtt: None,
+        }
+    }
+
+    /// A discovery change that leaves the same links keeps the manager and its
+    /// connections; any other rebuilds it (T-237).
+    #[test]
+    fn the_manager_is_rebuilt_only_when_its_links_change() {
+        let have = [
+            status(LinkKind::Usb4, "169.254.93.252:47871"),
+            status(LinkKind::Wifi, "192.168.1.20:47871"),
+        ];
+        let same = [
+            link(LinkKind::Wifi, "192.168.1.20:47871"),
+            link(LinkKind::Usb4, "169.254.93.252:47871"),
+        ];
+        assert!(same_links(&same, &have));
+        let moved = [
+            link(LinkKind::Usb4, "169.254.93.252:47871"),
+            link(LinkKind::Wifi, "192.168.1.21:47871"),
+        ];
+        assert!(!same_links(&moved, &have));
+        assert!(!same_links(&same[..1], &have));
+        let more = [
+            link(LinkKind::Usb4, "169.254.93.252:47871"),
+            link(LinkKind::Ethernet, "10.0.0.2:47871"),
+            link(LinkKind::Wifi, "192.168.1.20:47871"),
+        ];
+        assert!(!same_links(&more, &have));
+    }
+
+    struct Anyone;
+    impl tandem_link::transport::PeerTrust for Anyone {
+        fn is_trusted(&self, _: &PublicKey) -> bool {
+            true
+        }
+    }
+
+    /// `n` connections from the agent with `seed` to a fresh endpoint, as that endpoint
+    /// accepts them, and what keeps them open while the test runs: the endpoints and the
+    /// dialling side's handles (dropping them closes the connection).
+    async fn inbound_from(
+        seed: u8,
+        n: usize,
+    ) -> (Vec<Connection>, (Endpoint, Endpoint, Vec<Connection>)) {
+        let ours = Endpoint::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            &Identity::from_seed([100; 32]),
+            Arc::new(Anyone),
+        )
+        .unwrap();
+        let theirs = Endpoint::bind(
+            "127.0.0.1:0".parse().unwrap(),
+            &Identity::from_seed([seed; 32]),
+            Arc::new(Anyone),
+        )
+        .unwrap();
+        let to = ours.local_addr().unwrap();
+        let (mut accepted, mut dialled) = (Vec::new(), Vec::new());
+        for _ in 0..n {
+            let (out, got) = tokio::join!(theirs.connect(to), ours.accept());
+            dialled.push(out.unwrap());
+            accepted.push(got.unwrap().unwrap());
+        }
+        (accepted, (ours, theirs, dialled))
+    }
+
+    #[tokio::test]
+    async fn an_inbound_connection_is_found_by_ip_then_by_kind_and_the_newest_wins() {
+        let (accepted, _keep) = inbound_from(7, 2).await;
+        let key = accepted[0].peer();
+        let conns = Conns::default();
+        let first = conns.add(accepted[0].clone(), LinkKind::Usb4, true);
+        conns.add(accepted[1].clone(), LinkKind::Usb4, true);
+        let from = accepted[0].remote_address();
+        // Same IP (any port): the newest of the two.
+        let got = conns.inbound(&key, from, LinkKind::Wifi).unwrap();
+        assert_eq!(got.id(), accepted[1].id());
+        // Another IP: by kind, and not over another kind.
+        let elsewhere: SocketAddr = "10.9.9.9:1".parse().unwrap();
+        assert!(conns.inbound(&key, elsewhere, LinkKind::Usb4).is_some());
+        assert!(conns.inbound(&key, elsewhere, LinkKind::Ethernet).is_none());
+        // Not another peer's, not a closed one, not one this side dialled.
+        let stranger = Identity::from_seed([8; 32]).public_key();
+        assert!(conns.inbound(&stranger, from, LinkKind::Usb4).is_none());
+        accepted[1].close("test");
+        assert_eq!(
+            conns.inbound(&key, from, LinkKind::Usb4).unwrap().id(),
+            accepted[0].id()
+        );
+        conns.remove(first);
+        assert!(conns.inbound(&key, from, LinkKind::Usb4).is_none());
+        let dialled = Conns::default();
+        dialled.add(accepted[0].clone(), LinkKind::Usb4, false);
+        assert!(dialled.inbound(&key, from, LinkKind::Usb4).is_none());
+        assert!(dialled.inbound_paths(&key).is_empty());
+    }
+
+    #[tokio::test]
+    async fn an_inbound_path_is_dialled_back_as_plain_ipv4() {
+        let (accepted, _keep) = inbound_from(9, 1).await;
+        let key = accepted[0].peer();
+        let conns = Conns::default();
+        let arrived = conns.arrived.subscribe();
+        conns.add(accepted[0].clone(), LinkKind::Ethernet, true);
+        assert!(arrived.has_changed().unwrap(), "supervise is told");
+        let paths = conns.inbound_paths(&key);
+        assert_eq!(
+            paths,
+            [LinkCandidate {
+                kind: LinkKind::Ethernet,
+                addr: accepted[0].remote_address(),
+            }]
+        );
+        assert!(paths[0].addr.is_ipv4());
+        assert_eq!(
+            unmapped("::ffff:169.254.93.252".parse().unwrap()),
+            "169.254.93.252".parse::<IpAddr>().unwrap()
         );
     }
 

@@ -265,6 +265,11 @@ impl Connection {
         self.inner.close(0u32.into(), reason.as_bytes());
     }
 
+    /// Already closed, by either side or by a timeout.
+    pub fn is_closed(&self) -> bool {
+        self.inner.close_reason().is_some()
+    }
+
     /// Waits for the connection to close and returns the reason.
     pub async fn closed(&self) -> TransportError {
         self.inner.closed().await.into()
