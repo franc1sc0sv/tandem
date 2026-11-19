@@ -19,8 +19,8 @@ export type PairScreen =
 export type PairLine = "idle" | "searching" | "found" | "linked" | "broken";
 
 /**
- * Qué muestra el diálogo. `theOther` es el nombre de la otra máquina (de su anuncio, o
- * «la otra máquina» si todavía no se la conoce): nada se supone por sistema (D2).
+ * Qué muestra el diálogo. `theOther` es el nombre de the other machine (de su anuncio, o
+ * «the other machine» si todavía no se la conoce): nada se supone por sistema (D2).
  */
 export function pairScreen(theOther: string, peer: PeerView, pairing: PairingView, askUnpair = false): PairScreen {
   switch (pairing.kind) {
@@ -29,7 +29,7 @@ export function pairScreen(theOther: string, peer: PeerView, pairing: PairingVie
         kind: "searching",
         other: theOther,
         // Una espera y la otra la busca: lo que tiene que hacer el usuario es lo mismo.
-        hint: `En ${theOther}, abre Tandem y pulsa «Emparejar».`,
+        hint: `On ${theOther}, open Tandem and press “Pair”.`,
       };
     case "comparing":
       return { kind: "compare", digits: splitCode(pairing.code), peer: pairing.peer, confirmed: pairing.confirmed };
@@ -66,7 +66,7 @@ export function pairLine(screen: PairScreen): PairLine {
   }
 }
 
-/** Hay un emparejamiento vivo: cerrar el diálogo lo cancela (y avisa a la otra máquina). */
+/** Hay un emparejamiento vivo: cerrar el diálogo lo cancela (y avisa a the other machine). */
 export function isActive(pairing: PairingView): boolean {
   return pairing.kind === "searching" || pairing.kind === "comparing";
 }
@@ -78,7 +78,7 @@ export function needsDismiss(pairing: PairingView): boolean {
 
 /**
  * Abrir el diálogo solo: cuando el emparejamiento pasa a estar vivo (por ejemplo, la
- * ventana se abrió con uno en curso) o aparece el código. Nunca para un resultado viejo.
+ * ventana se abrió con uno in progress) o aparece el código. Nunca para un resultado viejo.
  */
 export function shouldOpen(before: PairingView | null, after: PairingView): boolean {
   if (!isActive(after)) return false;
@@ -88,10 +88,10 @@ export function shouldOpen(before: PairingView | null, after: PairingView): bool
 
 /** El texto del botón de la píldora del enlace. */
 export function pairButton(peer: PeerView): string {
-  return peer.kind === "paired" ? "Par" : "Emparejar";
+  return peer.kind === "paired" ? "Pair again" : "Pair";
 }
 
-// ---- Escribir el código (asistente, «Unirme a un puesto») -----------------------------------
+// ---- Escribir el código (asistente, «Join a desk») -----------------------------------
 
 /** Pone un dígito en su casilla (vacío la borra); cualquier otra cosa se ignora. */
 export function setDigit(digits: string[], i: number, value: string): string[] {

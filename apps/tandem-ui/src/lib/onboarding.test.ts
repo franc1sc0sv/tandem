@@ -83,7 +83,7 @@ describe("los pasos", () => {
   });
 });
 
-describe("paso 1: esta máquina", () => {
+describe("paso 1: this machine", () => {
   it("dice cómo se detectó la máquina", () => {
     const v = viewOf(at("machine"), snap({ agent: "b" }));
     expect(v.checks[0]).toMatchObject({ state: "ok", label: "ESCRITORIO", detail: expect.stringContaining("Windows") });
@@ -94,23 +94,23 @@ describe("paso 1: esta máquina", () => {
     const missing = caps("a", { input: { capture: false, inject: false, missing: ["accessibility", "input_monitoring"], process: PROCESS } });
     const v = viewOf(at("machine"), snap({ here: missing }));
     expect(v.verified).toBe(false);
-    expect(v.blocker).toBe("faltan permisos de macOS");
+    expect(v.blocker).toBe("macOS permissions are missing");
     expect(ids(v)).toEqual(["perm:request", "perm:accessibility", "perm:input_monitoring", "perm:restart"]);
     expect(v.checks.filter((c) => c.state === "fail")).toHaveLength(2);
     // Los nombres salen también como los llama macOS en inglés.
-    expect(v.checks.some((c) => c.label === "Permiso: Accesibilidad (Accessibility)")).toBe(true);
-    expect(v.checks.some((c) => c.label === "Permiso: Monitorización de entrada (Input Monitoring)")).toBe(true);
+    expect(v.checks.some((c) => c.label === "Permission: Accessibility")).toBe(true);
+    expect(v.checks.some((c) => c.label === "Permission: Input Monitoring")).toBe(true);
     // Y a qué binario concederlos, sin abrir una terminal.
-    const binary = v.checks.find((c) => c.label === "Binario del agente");
+    const binary = v.checks.find((c) => c.label === "Agent binary");
     expect(binary?.detail).toContain("/Applications/Tandem.app/Contents/MacOS/tandemd");
-    expect(v.checks.some((c) => c.label === "Cómo conceder" && (c.detail ?? "").includes("Reiniciar agente"))).toBe(true);
+    expect(v.checks.some((c) => c.label === "How to grant" && (c.detail ?? "").includes("Restart agent"))).toBe(true);
     // Se concede uno: el otro sigue.
     const one = caps("a", { input: { capture: true, inject: true, missing: ["input_monitoring"], process: PROCESS } });
     expect(ids(viewOf(at("machine"), snap({ here: one })))).toEqual(["perm:request", "perm:input_monitoring", "perm:restart"]);
     // Se conceden todos: se comprueba solo.
     const ok = viewOf(at("machine"), snap());
     expect(ok.verified).toBe(true);
-    expect(ok.checks.some((c) => c.label === "Permisos de macOS" && c.state === "ok")).toBe(true);
+    expect(ok.checks.some((c) => c.label === "macOS permissions" && c.state === "ok")).toBe(true);
     // Con todo concedido no se ofrece pedir ni reiniciar nada.
     expect(ids(ok)).toEqual([]);
   });
@@ -122,7 +122,7 @@ describe("paso 1: esta máquina", () => {
   });
 });
 
-describe("paso 2: la otra máquina", () => {
+describe("paso 2: the other machine", () => {
   const unpaired: PeerView = { kind: "unpaired" };
 
   it("sin emparejar se puede buscar o seguir solo por ahora", () => {
@@ -131,7 +131,7 @@ describe("paso 2: la otra máquina", () => {
     expect(v.verified).toBe(false);
     const skipped = viewOf(at("pair", { pair: { ...begin().pair, skipped: true } }), snap({ peer: unpaired }));
     expect(skipped.verified).toBe(true);
-    expect(skipped.checks.some((c) => c.label.includes("solo con esta máquina"))).toBe(true);
+    expect(skipped.checks.some((c) => c.label.includes("this machine alone"))).toBe(true);
   });
 
   it("muestra el código y pide compararlo; no se puede saltar a mitad", () => {
@@ -154,64 +154,64 @@ describe("paso 2: la otra máquina", () => {
   it("emparejada pero sin verificar el enlace no avanza: hace falta el ping", () => {
     const v = viewOf(at("pair"), snap());
     expect(v.verified).toBe(false);
-    expect(v.blocker).toBe("prueba el enlace");
-    expect(btn(v, "ping")).toMatchObject({ enabled: true, label: "Probar el enlace" });
+    expect(v.blocker).toBe("test the link");
+    expect(btn(v, "ping")).toMatchObject({ enabled: true, label: "Test the link" });
     const done = viewOf(at("pair", { pair: { ...begin().pair, ping: { link: "wifi", millis: 7 } } }), snap());
     expect(done.verified).toBe(true);
-    expect(done.checks.find((c) => c.label === "Ping del enlace")).toMatchObject({ state: "ok", detail: "Wi-Fi · 7 ms" });
+    expect(done.checks.find((c) => c.label === "Link ping")).toMatchObject({ state: "ok", detail: "Wi-Fi · 7 ms" });
   });
 
-  it("emparejada pero sin enlace no se puede verificar", () => {
+  it("emparejada pero no link no se puede verificar", () => {
     const v = viewOf(at("pair", { pair: { ...begin().pair, ping: { link: "wifi", millis: 7 } } }), snap({ peer: { kind: "paired", name: "ESCRITORIO", link: null } }));
     expect(v.verified).toBe(false);
-    expect(v.blocker).toBe("la otra máquina no responde");
+    expect(v.blocker).toBe("the other machine does not respond");
   });
 
   it("un ping fallido se ve", () => {
-    const v = viewOf(at("pair", { pair: { ...begin().pair, pingError: "ningún enlace ve a la otra máquina" } }), snap());
-    expect(v.checks.find((c) => c.label === "Ping del enlace")).toMatchObject({ state: "fail" });
+    const v = viewOf(at("pair", { pair: { ...begin().pair, pingError: "ningún enlace ve a the other machine" } }), snap());
+    expect(v.checks.find((c) => c.label === "Link ping")).toMatchObject({ state: "fail" });
   });
 });
 
 describe("paso 3: teclado y mouse", () => {
-  it("al principio no hay nada definido y nunca se supone una máquina", () => {
+  it("al principio no hay nada definido y a machine is never assumed", () => {
     const v = viewOf(at("keyboard"), snap());
     expect(v.verified).toBe(false);
     expect(ids(v)).toEqual(["key:start", "key:pick:a", "key:pick:b", "key:skip"]);
-    expect(v.checks.some((c) => c.detail === "nunca se supone una máquina")).toBe(true);
+    expect(v.checks.some((c) => c.detail === "a machine is never assumed")).toBe(true);
   });
 
   it("escucha en las dos máquinas mientras espera la tecla", () => {
     const v = viewOf(at("keyboard", { keyboard: { ...begin().keyboard, armed: true } }), snap());
     expect(v.checks[0]).toMatchObject({ state: "wait" });
-    expect(v.checks[0]!.label).toContain("las dos máquinas");
+    expect(v.checks[0]!.label).toContain("both machines");
     expect(ids(v)).not.toContain("key:start");
   });
 
   it("la máquina que recibió la tecla la tiene, pero hay que confirmarlo", () => {
     const heard = at("keyboard", { keyboard: { ...begin().keyboard, armed: true, heard: "b" } });
     const v = viewOf(heard, snap());
-    expect(v.checks[0]!.label).toBe("La tecla llegó a ESCRITORIO");
+    expect(v.checks[0]!.label).toBe("The key arrived on ESCRITORIO");
     expect(ids(v)).toEqual(["key:yes:b", "key:yes:a", "key:again"]);
     expect(v.verified).toBe(false);
-    expect(v.blocker).toBe("confirma dónde está el teclado");
+    expect(v.blocker).toBe("confirm where the keyboard is");
   });
 
   it("confirmado queda verificado", () => {
     const v = viewOf(at("keyboard", { keyboard: { ...begin().keyboard, confirmed: "b" } }), snap());
     expect(v.verified).toBe(true);
-    expect(v.checks[0]).toMatchObject({ state: "ok", label: "El teclado y el mouse están en ESCRITORIO" });
+    expect(v.checks[0]).toMatchObject({ state: "ok", label: "The keyboard and mouse are on ESCRITORIO" });
   });
 
   it("sin respuesta se deja explícitamente sin definir", () => {
     const v = viewOf(at("keyboard", { keyboard: { ...begin().keyboard, undefinedOk: true } }), snap());
     expect(v.verified).toBe(true);
-    expect(v.checks.some((c) => c.label === "Sin definir")).toBe(true);
+    expect(v.checks.some((c) => c.label === "Undefined")).toBe(true);
   });
 
-  it("sin la otra máquina enlazada avisa que solo se escucha aquí", () => {
+  it("sin the other machine enlazada avisa que solo se escucha aquí", () => {
     const v = viewOf(at("keyboard"), snap({ peer: { kind: "unpaired" } }));
-    expect(v.checks[0]!.detail).toContain("solo se escucha aquí");
+    expect(v.checks[0]!.detail).toContain("it only listens here");
   });
 });
 
@@ -223,17 +223,17 @@ describe("paso 4: resumen", () => {
     });
     const text = summaryChecks(o, snap()).map((l) => `${l.state}|${l.label}|${l.detail ?? ""}`);
     expect(text).toEqual([
-      "ok|MacBook-Pro|permisos verificados",
-      "ok|ESCRITORIO emparejada|USB-C · 2 ms",
-      "ok|Teclado y mouse en ESCRITORIO|confirmado por ti",
+      "ok|MacBook-Pro|permissions verified",
+      "ok|ESCRITORIO paired|USB-C · 2 ms",
+      "ok|Keyboard and mouse on ESCRITORIO|confirmed by you",
     ]);
     expect(viewOf(o, snap()).buttons.map((b) => b.id)).toEqual(["finish"]);
   });
 
-  it("lo que no se hizo se dice: teclado sin definir, sin la otra máquina", () => {
+  it("lo que no se hizo se dice: teclado sin definir, sin the other machine", () => {
     const lines = summaryChecks(begin("summary"), snap({ peer: { kind: "unpaired" } })).map((l) => l.label);
-    expect(lines).toContain("Teclado y mouse sin definir");
-    expect(lines).toContain("Sin la otra máquina");
+    expect(lines).toContain("Keyboard and mouse undefined");
+    expect(lines).toContain("Without the other machine");
   });
 });
 

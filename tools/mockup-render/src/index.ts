@@ -1,5 +1,5 @@
-// API completa: renderizar mockups, comparar capturas y el arnés de UI (T-112). Para el arnés
-// basta `@tandem/mockup-render/harness`, que no carga Playwright al importarse.
+// Full API: render mockups, compare screenshots and the UI harness (T-112). For the harness
+// `@tandem/mockup-render/harness` is enough, and it does not load Playwright when imported.
 export {
   compare,
   SizeMismatchError,

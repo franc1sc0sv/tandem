@@ -1,4 +1,4 @@
-// Avisos de la app (F-Avisos): qué cambio del puesto merece un aviso y con qué texto. Puro:
+// Avisos de la app (F-Notices): qué cambio del puesto merece un aviso y con qué texto. Puro:
 // el store lo llama con el estado de antes y el de ahora.
 
 import type { Machine } from "./model";
@@ -6,7 +6,7 @@ import type { DeskChange, DeskView, LinkKind, TransferView } from "./store/types
 
 export type ToastTone = "ok" | "bad" | "warn" | "info" | "claude";
 
-/** Color del punto de cada tono (`F-Avisos`). */
+/** Color del punto de cada tono (`F-Notices`). */
 export const TONE_COLOR: Record<ToastTone, string> = { ok: "#6cc59a", bad: "#e07a6f", warn: "#d9a75a", info: "#7aa7e6", claude: "#a99be8" };
 
 export interface ToastAction {
@@ -24,22 +24,22 @@ export interface ToastSpec {
   body?: string;
   tone: ToastTone;
   action?: ToastAction;
-  /** No se va solo (el demo de `F-Avisos`, para capturar la pila entera). */
+  /** No se va solo (el demo de `F-Notices`, para capturar la pila entera). */
   hold?: boolean;
 }
 
 export const KIND_NAME: Record<LinkKind, string> = { usb4: "USB-C", ethernet: "Ethernet", wifi: "Wi-Fi" };
 
-const nameOf = (d: DeskView, m: Machine) => d.machines[m]?.name ?? `la máquina ${m.toUpperCase()}`;
+const nameOf = (d: DeskView, m: Machine) => d.machines[m]?.name ?? `machine ${m.toUpperCase()}`;
 
 /**
- * Avisos de ejemplo del modo demo (`?demo&avisos`): los tres con que abre `F-Avisos`, del más nuevo
- * al más viejo. Solo se siembran a pedido, para ver y capturar la pila. El botón «Enviar por Wi-Fi igual» no hace nada: el agente no tiene esa función y la app real no lo muestra; está aquí para que la pila mida lo mismo que el mockup.
+ * Avisos de ejemplo del modo demo (`?demo&avisos`): los tres con que abre `F-Notices`, del más nuevo
+ * al más viejo. Solo se siembran a pedido, para ver y capturar la pila. El botón «Send over Wi-Fi anyway» no hace nada: el agente no tiene esa función y la app real no lo muestra; está aquí para que la pila mida lo mismo que el mockup.
  */
 export const DEMO_AVISOS: ToastSpec[] = [
-  { text: "Se desconectó el cable USB-C", body: "El teclado y el mouse siguen por Wi-Fi. Los envíos de datos esperan al cable.", tone: "warn", action: { label: "Enviar por Wi-Fi igual", run: () => {} } },
-  { text: "Escena «Trabajo» aplicada", body: '34" confirmado en PC-Escritorio en 1.8 s.', tone: "ok" },
-  { text: "Claude abrió el túnel «tandem»", body: "MacBook Pro → PC-Escritorio · WSL.", tone: "claude" },
+  { text: "The USB-C cable was unplugged", body: "Keyboard and mouse carry on over Wi-Fi. Data transfers wait for the cable.", tone: "warn", action: { label: "Send over Wi-Fi anyway", run: () => {} } },
+  { text: "Scene “Work” applied", body: '34" confirmed on PC-Desktop in 1.8 s.', tone: "ok" },
+  { text: "Claude opened the tunnel “tandem”", body: "MacBook Pro → PC-Desktop · WSL.", tone: "claude" },
 ];
 
 /** Bytes legibles: «1.4 GB», «320 MB», «12 KB». */
@@ -54,12 +54,12 @@ export function transferToast(t: TransferView, d: DeskView): ToastSpec {
   const name = t.path.split(/[\\/]/).filter(Boolean).pop() ?? t.path;
   const peer = nameOf(d, d.here === "a" ? "b" : "a");
   const key = `transfer:${t.path}`;
-  if (t.finished) return { key, text: `Se copió «${name}»`, body: t.upload ? `Ya está en ${peer}.` : `Ya está en esta máquina.`, tone: "ok" };
+  if (t.finished) return { key, text: `Copied “${name}”`, body: t.upload ? `It is now on ${peer}.` : `It is now on this machine.`, tone: "ok" };
   const pct = t.total > 0 ? Math.min(100, Math.floor((t.done / t.total) * 100)) : 0;
   return {
     key,
-    text: t.upload ? `Enviando «${name}» a ${peer}` : `Recibiendo «${name}» de ${peer}`,
-    body: `${pct} % · ${bytesText(t.done)} de ${bytesText(t.total)}`,
+    text: t.upload ? `Sending “${name}” to ${peer}` : `Receiving “${name}” from ${peer}`,
+    body: `${pct} % · ${bytesText(t.done)} of ${bytesText(t.total)}`,
     tone: "info",
     progress: { done: t.done, total: t.total },
   };
@@ -68,10 +68,10 @@ export function transferToast(t: TransferView, d: DeskView): ToastSpec {
 /** «Cambiado desde X · Deshacer» (D5): el aviso espera la decisión, no se va solo. */
 export function changeToast(c: DeskChange, d: DeskView, undo: (rev: number) => void): ToastSpec {
   return {
-    text: `Cambiado desde ${nameOf(d, c.by)}`,
+    text: `Changed from ${nameOf(d, c.by)}`,
     body: c.summary,
     tone: "info",
-    action: { label: "Deshacer", run: () => undo(c.undoTo) },
+    action: { label: "Undo", run: () => undo(c.undoTo) },
   };
 }
 
@@ -84,25 +84,25 @@ export function deskEvents(before: DeskView, after: DeskView): ToastSpec[] {
   const now = after.link.kind;
   if (was && now && was !== now) {
     if (now === "wifi") {
-      out.push({ text: `Se desconectó el cable ${KIND_NAME[was]}`, body: "El teclado y el mouse siguen por Wi-Fi. Los envíos de datos esperan al cable.", tone: "warn" });
+      out.push({ text: `The ${KIND_NAME[was]} cable was unplugged`, body: "Keyboard and mouse carry on over Wi-Fi. Data transfers wait for the cable.", tone: "warn" });
     } else {
-      out.push({ text: `Volvió el cable ${KIND_NAME[now]}`, body: "La entrada y los envíos vuelven a ir por el cable.", tone: "ok" });
+      out.push({ text: `The ${KIND_NAME[now]} cable is back`, body: "Input and transfers go over the cable again.", tone: "ok" });
     }
   }
 
   const known = new Set(before.tunnels.map((t) => t.id));
   for (const t of after.tunnels) {
     if (known.has(t.id) || t.state === "closed") continue;
-    out.push({ text: `Claude abrió el túnel «${t.title}»`, body: `${nameOf(after, t.from)} → ${nameOf(after, t.to)}`, tone: "claude" });
+    out.push({ text: `Claude opened the tunnel “${t.title}”`, body: `${nameOf(after, t.from)} → ${nameOf(after, t.to)}`, tone: "claude" });
   }
 
   const peer: Machine = after.here === "a" ? "b" : "a";
   const p0 = before.machines[peer]?.power;
   const p1 = after.machines[peer]?.power;
   if (p0 && p1 && p0 !== p1) {
-    if (p1 === "on") out.push({ text: `${nameOf(after, peer)} volvió`, body: "Encendida y otra vez en el puesto.", tone: "claude" });
+    if (p1 === "on") out.push({ text: `${nameOf(after, peer)} is back`, body: "Powered on and back on the desk.", tone: "claude" });
     else if (p0 === "on" && (p1 === "off" || p1 === "lost")) {
-      out.push({ text: `${nameOf(after, peer)} ${p1 === "off" ? "se apagó" : "se perdió"}`, body: "El mouse ya no cruza hacia ella.", tone: "warn" });
+      out.push({ text: `${nameOf(after, peer)} ${p1 === "off" ? "went off" : "was lost"}`, body: "The mouse no longer crosses to it.", tone: "warn" });
     }
   }
   return out;

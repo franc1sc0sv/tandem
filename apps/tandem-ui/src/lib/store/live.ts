@@ -32,7 +32,7 @@ const MAC_PERMISSIONS: Permission[] = ["accessibility", "input_monitoring", "loc
 const OS_NAME = { macos: "macOS", windows: "Windows" } as const;
 
 /** El nombre del puesto cuando no tiene uno propio. */
-export const DEFAULT_DESK_NAME = "Mi puesto";
+export const DEFAULT_DESK_NAME = "My desk";
 
 export const EMPTY_DESK: DeskView = {
   ready: false,
@@ -58,7 +58,7 @@ export const EMPTY_DESK: DeskView = {
 /** La foto del agente no tiene la forma que espera esta versión de la UI. */
 export class ShapeError extends Error {
   constructor(what: string) {
-    super(`el agente respondió algo que esta versión de la app no entiende (${what})`);
+    super(`the agent replied with something this version of the app does not understand (${what})`);
     this.name = "ShapeError";
   }
 }
@@ -71,22 +71,22 @@ const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object
  * uno con lados `mac`/`pc`) da un estado difícil con la razón, no una ventana colgada.
  */
 export function checkSnapshot(snap: unknown): asserts snap is Snapshot {
-  if (!isObj(snap) || typeof snap.kind !== "string") throw new ShapeError("sin «kind»");
+  if (!isObj(snap) || typeof snap.kind !== "string") throw new ShapeError("no “kind”");
   if (snap.kind !== "connected") return;
-  if (!isSide(snap.agent)) throw new ShapeError(`lado «${String(snap.agent)}»`);
+  if (!isSide(snap.agent)) throw new ShapeError(`side “${String(snap.agent)}”`);
   const desk = snap.desk;
   if (!isObj(desk) || !isObj(desk.machines) || !Array.isArray(desk.screens) || (desk.arrangement !== null && !isObj(desk.arrangement))) throw new ShapeError("puesto");
-  if (!isObj(snap.state) || !isObj(snap.state.on) || typeof snap.state.on.a !== "boolean" || typeof snap.state.on.b !== "boolean") throw new ShapeError("encendido");
-  if (!isObj(snap.peer) || !isObj(snap.pairing)) throw new ShapeError("emparejamiento");
+  if (!isObj(snap.state) || !isObj(snap.state.on) || typeof snap.state.on.a !== "boolean" || typeof snap.state.on.b !== "boolean") throw new ShapeError("on");
+  if (!isObj(snap.peer) || !isObj(snap.pairing)) throw new ShapeError("pairing");
   if (!Array.isArray(desk.scenes)) throw new ShapeError("escenas");
   if (!Array.isArray(snap.monitors)) throw new ShapeError("monitores");
-  if (!isObj(snap.input) || !Array.isArray(snap.input.missing)) throw new ShapeError("entrada");
+  if (!isObj(snap.input) || !Array.isArray(snap.input.missing)) throw new ShapeError("input");
   const caps = snap.caps;
-  if (!isObj(caps) || !isObj(caps.here) || !isSide(caps.here.machine) || !isObj(caps.here.input)) throw new ShapeError("capacidades");
-  if (caps.peer !== null && (!isObj(caps.peer) || !isSide(caps.peer.machine))) throw new ShapeError("capacidades de la otra");
+  if (!isObj(caps) || !isObj(caps.here) || !isSide(caps.here.machine) || !isObj(caps.here.input)) throw new ShapeError("capabilities");
+  if (caps.peer !== null && (!isObj(caps.peer) || !isSide(caps.peer.machine))) throw new ShapeError("the other one’s capabilities");
 }
 
-/** Teclado y mouse según el puesto; lo que el agente no diga vale «encendido» (como en su `Default`). */
+/** Keyboard and mouse según el puesto; lo que el agente no diga vale «encendido» (como en su `Default`). */
 export function prefsOf(desk: Desk): PrefsView {
   const on = (m: Machine) => desk.modules?.[m]?.clipboard !== false;
   return { cmdCtrl: desk.prefs?.cmd_ctrl ?? true, dragFiles: desk.prefs?.drag_files ?? true, clipboard: on("a") && on("b") };
@@ -165,16 +165,16 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
   let troubleText = "";
   if (snap.input.missing.length > 0) {
     trouble = "permissions";
-    troubleText = "Faltan permisos en esta máquina";
+    troubleText = "Permissions are missing on this machine";
   } else if (snap.peer.kind === "paired" && !snap.state.on[peer]) {
     trouble = "peer-off";
-    troubleText = `${peerName} está apagada`;
+    troubleText = `${peerName} is off`;
   } else if (snap.peer.kind === "paired" && !linked) {
     trouble = "link-down";
-    troubleText = `Sin enlace con ${peerName}`;
+    troubleText = `No link with ${peerName}`;
   }
   const monitors = monitorsUi(snap.monitors);
-  // Los atajos se escriben según el sistema de esta máquina, no el del navegador.
+  // Los atajos se escriben según el sistema de this machine, no el del navegador.
   const mac = snap.caps.here.os === "macos";
   const name = (m: Machine) => machineName(m, snap.caps, snap.desk);
   return {
@@ -392,12 +392,12 @@ export class LiveSource implements Source {
 
   async saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult> {
     const r = result(await this.bridge.act(isNew ? { kind: "add_scene", scene } : { kind: "edit_scene", scene }));
-    return r.ok ? { ok: true, text: `Escena «${scene.name}» guardada` } : r;
+    return r.ok ? { ok: true, text: `Scene “${scene.name}” saved` } : r;
   }
 
   /** Sin comando en la IPC del agente: `can("forget")` es falso y la pantalla no ofrece la acción. */
   async forgetMonitor(): Promise<ActResult> {
-    return { ok: false, reason: "El agente todavía no sabe olvidar un monitor" };
+    return { ok: false, reason: "The agent cannot forget a monitor yet" };
   }
 
   private probeListeners = new Set<(m: Machine) => void>();
@@ -439,17 +439,17 @@ export class LiveSource implements Source {
   async setPower(machine: Machine, on: boolean): Promise<ActResult> {
     const r = await this.bridge.act({ kind: "set_power", machine, on });
     if (r.kind === "accepted" || r.kind === "done") return { ok: true };
-    return { ok: false, reason: "reason" in r ? r.reason : "El agente no lo aceptó" };
+    return { ok: false, reason: "reason" in r ? r.reason : "The agent did not accept it" };
   }
 
   /** Prueba de ancho de banda de 3 s por `path` (por omisión, el camino que lleva la entrada). */
   async measureLink(path?: LinkKind): Promise<ActResult> {
     const peerLink = this.last.kind === "connected" && this.last.peer.kind === "paired" ? this.last.peer.link : null;
     const kind = path ?? primaryOf(this.network)?.kind ?? peerLink;
-    if (!kind) return { ok: false, reason: "Sin enlace con la otra máquina" };
+    if (!kind) return { ok: false, reason: "No link with the other machine" };
     const r = await this.bridge.act({ kind: "measure_link", path: kind });
     if (r.kind === "bandwidth") return { ok: true, text: measuredText(kind, gbpsOf(r.bytes_per_sec) ?? 0) };
-    return { ok: false, reason: "reason" in r ? r.reason : "Sin respuesta de la otra máquina" };
+    return { ok: false, reason: "reason" in r ? r.reason : "No answer from the other machine" };
   }
 
   setModule(machine: Machine, module: string, on: boolean): Promise<ActResult> {
@@ -478,7 +478,7 @@ export class LiveSource implements Source {
 
   async undoDesk(rev: number): Promise<ActResult> {
     const r = await this.ask({ kind: "undo_desk", to_rev: rev });
-    return r.ok ? { ok: true, text: "Cambio deshecho" } : r;
+    return r.ok ? { ok: true, text: "Change undone" } : r;
   }
 
   async files(): Promise<FilesView> {
@@ -500,11 +500,11 @@ export class LiveSource implements Source {
 
   async setArrangement(a: Arrangement): Promise<ActResult> {
     const r = result(await this.bridge.act({ kind: "set_arrangement", a_side: a.aSide, align: a.align }));
-    return r.ok ? { ok: true, text: "Acomodo guardado" } : r;
+    return r.ok ? { ok: true, text: "Arrangement saved" } : r;
   }
 
   async watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void> {
-    if (typeof this.bridge.onNotice !== "function") throw new Error("El agente todavía no informa el cursor");
+    if (typeof this.bridge.onNotice !== "function") throw new Error("The agent does not report the cursor yet");
     this.cursorListeners.add(onEvent);
     if (this.cursorListeners.size === 1) {
       const r = await this.bridge.act({ kind: "watch_cursor", on: true });
@@ -537,7 +537,7 @@ export class LiveSource implements Source {
 
   /**
    * La prueba de cruce con lo que informa el motor (T-128): cada `Crossed` es un cruce real. El
-   * punto de entrada sale de la primera muestra del cursor ya en la otra máquina; si no llega
+   * punto de entrada sale de la primera muestra del cursor ya en the other machine; si no llega
    * en [`CROSS_SETTLE_MS`], se informa el cruce sin posición (`of: 0`) en vez de inventarla.
    */
   async watchCrossing(onCross: (s: CrossSample) => void): Promise<() => void> {
@@ -582,7 +582,7 @@ export class LiveSource implements Source {
 
   async lockHere(on: boolean): Promise<ActResult> {
     const r = result(await this.bridge.act({ kind: "lock_here", on }));
-    return r.ok ? { ok: true, text: on ? "Cursor bloqueado aquí" : "Bloqueo quitado" } : r;
+    return r.ok ? { ok: true, text: on ? "Cursor locked here" : "Lock removed" } : r;
   }
 
   async requestPermissions(): Promise<ActResult> {
@@ -596,7 +596,7 @@ export class LiveSource implements Source {
 
   async restartAgent(): Promise<ActResult> {
     await this.bridge.restartAgent();
-    return { ok: true, text: "tandemd se reinicia: en unos segundos se vuelven a comprobar los permisos" };
+    return { ok: true, text: "tandemd is restarting: permissions are re-checked in a few seconds" };
   }
 
   adminStatus(): Promise<AdminView> {
@@ -651,13 +651,13 @@ export class LiveSource implements Source {
   async processes(tunnel: string): Promise<ProcessRow[]> {
     const r = await this.bridge.act({ kind: "processes", tunnel });
     if (r.kind === "processes") return r.processes.map(processRow);
-    throw new Error(r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "el agente no contestó con procesos");
+    throw new Error(r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "the agent did not answer with processes");
   }
 
   async output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk> {
     const r = await this.bridge.act({ kind: "output", tunnel, process, stdout: from.stdout, stderr: from.stderr });
     if (r.kind === "output") return outputChunk(r.output);
-    throw new Error(r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "el agente no contestó con la salida");
+    throw new Error(r.kind === "rejected" || r.kind === "unavailable" ? r.reason : "the agent did not answer with the output");
   }
 
   can(what: Capability): boolean {

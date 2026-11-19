@@ -61,10 +61,10 @@
 
 <div class="shell" class:dim={store.paletteOpen} inert={store.paletteOpen || store.wizardOpen}>
   {#if store.route.screen === "cruce"}
-    <!-- La prueba de cruce ocupa toda la ventana, con su ruta de vuelta (F-PruebaCruce). -->
+    <!-- La prueba de cruce ocupa toda la ventana, con su ruta de vuelta (F-CrossingTest). -->
     {#key key}<CrossTest />{/key}
   {:else if store.route.screen === "escena"}
-    <!-- El editor de escenas y el progreso también ocupan toda la ventana (F-NuevaEscena, F-Transacciones). -->
+    <!-- El editor de escenas y el progreso también ocupan toda la ventana (F-NewScene, F-Transactions). -->
     {#key key}<Escena id={store.route.id} />{/key}
   {:else if store.route.screen === "progreso"}
     {#key key}<Progreso />{/key}
@@ -112,7 +112,7 @@
     background: #0e0f12;
     transition: opacity 0.25s;
   }
-  /* Con la paleta abierta, la app queda atrás tenue (F-Paleta). */
+  /* Con la paleta abierta, la app queda atrás tenue (F-Palette). */
   .shell.dim {
     opacity: 0.22;
   }

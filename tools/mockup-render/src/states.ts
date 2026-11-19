@@ -1,9 +1,9 @@
 /**
- * Estados interactivos con nombre de cada mockup: se parte del estado inicial, se aplican los
- * pasos en orden (esperando a que terminen las animaciones después de cada uno) y se captura
- * `docs/mockups-png/<mockup>--<estado>.png`. Los selectores son de Playwright.
+ * Named interactive states of each mockup: start from the initial state, apply the steps in
+ * order (waiting for animations to finish after each one) and capture
+ * `docs/mockups-png/<mockup>--<state>.png`. The selectors are Playwright selectors.
  *
- * Cubre los estados que pide `docs/ACCEPTANCE.md` (§1) hasta donde el mockup los tiene.
+ * Covers the states `docs/ACCEPTANCE.md` (§1) asks for as far as the mockup has them.
  */
 
 export type Step = { click: string } | { fill: string; text: string };
@@ -16,94 +16,94 @@ export interface MockupState {
 const click = (selector: string): Step => ({ click: selector });
 const button = (text: string): Step => click(`button:has-text("${text}")`);
 
-// V3-Acomodo: la otra máquina en cada lado × cada alineación (con el 34" seleccionado). Las
-// alineaciones son Arriba/Centro/Abajo a los lados y Izquierda/Centro/Derecha arriba y abajo;
-// en los dos casos son los tres botones del segmento, en ese orden.
+// V3-Arrangement: the other machine on each side × each alignment (with the 34" selected). The
+// alignments are Top/Center/Bottom on the sides and Left/Center/Right above and below; in both
+// cases they are the three buttons of the segmented control, in that order.
 const SIDES = [
-  ['arriba', 'Arriba'],
-  ['abajo', 'Abajo'],
-  ['izquierda', 'Izquierda'],
-  ['derecha', 'Derecha'],
+  ['top', 'Top'],
+  ['bottom', 'Bottom'],
+  ['left', 'Left'],
+  ['right', 'Right'],
 ] as const;
-const ALIGNS = ['inicio', 'centro', 'fin'] as const;
-const acomodo: MockupState[] = SIDES.flatMap(([side, label]) =>
+const ALIGNS = ['start', 'center', 'end'] as const;
+const arrangement: MockupState[] = SIDES.flatMap(([side, label]) =>
   ALIGNS.map((al, i) => ({
-    name: `lado-${side}-${al}`,
+    name: `side-${side}-${al}`,
     steps: [click(`.slot[aria-label="${label}"]`), click(`.seg .sb >> nth=${i}`)],
   })),
 );
 
 export const STATES: Record<string, MockupState[]> = {
-  'F-AgregarHost': [
-    { name: 'llega', steps: [button('Simular que llega')] },
-    { name: 'termina', steps: [button('Simular que llega'), button('Simular que termina')] },
+  'F-AddHost': [
+    { name: 'arrives', steps: [button('Simulate arrival')] },
+    { name: 'finishes', steps: [button('Simulate arrival'), button('Simulate completion')] },
   ],
-  'F-Ajustes': [
-    { name: 'atajos', steps: [click('[role="tab"]:has-text("Atajos")')] },
-    { name: 'teclado', steps: [click('[role="tab"]:has-text("Teclado y mouse")')] },
-    { name: 'actualizaciones', steps: [click('[role="tab"]:has-text("Actualizaciones")')] },
+  'F-Settings': [
+    { name: 'shortcuts', steps: [click('[role="tab"]:has-text("Shortcuts")')] },
+    { name: 'keyboard', steps: [click('[role="tab"]:has-text("Keyboard and mouse")')] },
+    { name: 'updates', steps: [click('[role="tab"]:has-text("Updates")')] },
     {
-      name: 'actualizaciones-buscado',
-      steps: [click('[role="tab"]:has-text("Actualizaciones")'), button('Buscar ahora')],
+      name: 'updates-checked',
+      steps: [click('[role="tab"]:has-text("Updates")'), button('Check now')],
     },
-    { name: 'avanzado', steps: [click('[role="tab"]:has-text("Avanzado")')] },
+    { name: 'advanced', steps: [click('[role="tab"]:has-text("Advanced")')] },
   ],
-  'F-Asis1': [
-    { name: 'violeta', steps: [click('[role="radio"][aria-label="Violeta"]')] },
-    { name: 'verde-azulado', steps: [click('[role="radio"][aria-label="Verde azulado"]')] },
-    { name: 'ambar', steps: [click('[role="radio"][aria-label="Ámbar"]')] },
+  'F-Setup1': [
+    { name: 'violet', steps: [click('[role="radio"][aria-label="Violet"]')] },
+    { name: 'teal', steps: [click('[role="radio"][aria-label="Teal"]')] },
+    { name: 'amber', steps: [click('[role="radio"][aria-label="Amber"]')] },
   ],
-  'F-Asis3': [
-    { name: 'uno-concedido', steps: [click('button:has-text("Abrir ajustes") >> nth=0')] },
+  'F-Setup3': [
+    { name: 'one-granted', steps: [click('button:has-text("Open settings") >> nth=0')] },
     {
-      name: 'todo-concedido',
-      steps: [click('button:has-text("Abrir ajustes") >> nth=0'), click('button:has-text("Abrir ajustes") >> nth=0')],
+      name: 'all-granted',
+      steps: [click('button:has-text("Open settings") >> nth=0'), click('button:has-text("Open settings") >> nth=0')],
     },
   ],
-  'F-Asis5': [
-    { name: 'esperando', steps: [button('Probar cruce')] },
-    { name: 'cruzo', steps: [button('Probar cruce'), button('Simular cruce')] },
-    { name: 'otro-borde', steps: [button('Probar cruce'), button('Simular otro borde')] },
+  'F-Setup5': [
+    { name: 'waiting', steps: [button('Test crossing')] },
+    { name: 'crossed', steps: [button('Test crossing'), button('Simulate crossing')] },
+    { name: 'other-edge', steps: [button('Test crossing'), button('Simulate another edge')] },
   ],
-  'F-Avisos': [
-    { name: 'agregado', steps: [button('Agregar aviso')] },
-    { name: 'cerrado', steps: [click('button[aria-label="Cerrar"] >> nth=0')] },
+  'F-Notices': [
+    { name: 'added', steps: [button('Add notice')] },
+    { name: 'closed', steps: [click('button[aria-label="Close"] >> nth=0')] },
   ],
-  'F-NuevaEscena': [
-    { name: 'muestra-mac', steps: [click('[role="radio"]:has-text("MacBook Pro") >> nth=0')] },
-    // `kopts` (a quién sigue el teclado) se calcula pero la plantilla no lo muestra.
-    { name: 'sin-cambiar', steps: [click('[role="radio"]:has-text("Sin cambiar")')] },
+  'F-NewScene': [
+    { name: 'shows-mac', steps: [click('[role="radio"]:has-text("MacBook Pro") >> nth=0')] },
+    // `kopts` (whom the keyboard follows) is computed but the template does not show it.
+    { name: 'unchanged', steps: [click('[role="radio"]:has-text("Keep as is")')] },
   ],
-  'F-Paleta': [
-    { name: 'filtro', steps: [{ fill: 'input[aria-label="Buscar"]', text: 'solo' }] },
-    { name: 'sin-resultados', steps: [{ fill: 'input[aria-label="Buscar"]', text: 'zzz' }] },
+  'F-Palette': [
+    { name: 'filter', steps: [{ fill: 'input[aria-label="Search"]', text: 'only' }] },
+    { name: 'no-results', steps: [{ fill: 'input[aria-label="Search"]', text: 'zzz' }] },
   ],
-  'F-PruebaCruce': [
-    { name: 'cruzo', steps: [button('Simular cruce')] },
-    { name: 'no-cruza', steps: [button('Simular que no cruza')] },
+  'F-CrossingTest': [
+    { name: 'crossed', steps: [button('Simulate crossing')] },
+    { name: 'no-cross', steps: [button('Simulate no crossing')] },
   ],
-  'F-Transacciones': [
-    { name: 'exito', steps: [button('Simular éxito')] },
-    { name: 'vuelta-atras', steps: [button('Simular fallo')] },
+  'F-Transactions': [
+    { name: 'success', steps: [button('Simulate success')] },
+    { name: 'rollback', steps: [button('Simulate failure')] },
   ],
-  'V3-Acomodo': [
-    ...acomodo,
-    { name: 'pantalla-mac', steps: [click('.scr:has-text("MacBook Pro")')] },
-    { name: 'pantalla-no-compatible', steps: [click('.scr:has-text("Odyssey G5 32")')] },
+  'V3-Arrangement': [
+    ...arrangement,
+    { name: 'screen-mac', steps: [click('.scr:has-text("MacBook Pro")')] },
+    { name: 'screen-unsupported', steps: [click('.scr:has-text("Odyssey G5 32")')] },
   ],
-  'V3-Asistente': [{ name: 'nuevo', steps: [click('[role="radio"] >> nth=1')] }],
-  'V3-Computo': [
-    { name: 'proceso-2', steps: [click('[role="option"] >> nth=1')] },
-    { name: 'tunel-2-procesos', steps: [click('.tun:has-text("T-101")')] },
-    { name: 'tunel-sin-procesos', steps: [click('.tun:has-text("Revisar PR #66")')] },
-    { name: 'tunel-lora', steps: [click('.tun:has-text("Entrenar LoRA")')] },
-    { name: 'tunel-cerrado', steps: [click('.tun:has-text("ComfyUI")')] },
-    { name: 'proyecto-plegado', steps: [click('.proj:has-text("tandem")')] },
+  'V3-Setup': [{ name: 'new', steps: [click('[role="radio"] >> nth=1')] }],
+  'V3-Compute': [
+    { name: 'process-2', steps: [click('[role="option"] >> nth=1')] },
+    { name: 'tunnel-2-processes', steps: [click('.tun:has-text("T-101")')] },
+    { name: 'tunnel-no-processes', steps: [click('.tun:has-text("Review PR #66")')] },
+    { name: 'tunnel-lora', steps: [click('.tun:has-text("Train style LoRA")')] },
+    { name: 'tunnel-closed', steps: [click('.tun:has-text("ComfyUI")')] },
+    { name: 'project-collapsed', steps: [click('.proj:has-text("tandem")')] },
   ],
-  'V3-Monitores': [{ name: 'entrada-mac', steps: [click('[role="radio"]:has-text("MacBook Pro")')] }],
-  'V3-Puesto': [
-    { name: 'escena-solo-macbook', steps: [click('.scene:has-text("Solo MacBook")')] },
-    { name: 'escena-juego', steps: [click('.scene:has-text("Juego")')] },
+  'V3-Monitors': [{ name: 'input-mac', steps: [click('[role="radio"]:has-text("MacBook Pro")')] }],
+  'V3-Desk': [
+    { name: 'scene-macbook-only', steps: [click('.scene:has-text("MacBook only")')] },
+    { name: 'scene-game', steps: [click('.scene:has-text("Game")')] },
   ],
 };
 

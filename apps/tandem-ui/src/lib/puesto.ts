@@ -1,4 +1,4 @@
-// Escritorios en vivo del Puesto (`V3-Puesto`): las pantallas a escala física sobre la mesa,
+// Live desktops del Puesto (`V3-Desk`): las pantallas a escala física sobre la mesa,
 // con su pie, el borde de cruce y el cursor. Puro: la geometría sale del mismo cálculo que el
 // acomodo (`draw`), con otro lienzo y los pies debajo.
 
@@ -50,7 +50,7 @@ const LAPTOP_OVER = 0.0655;
 const BASE_H = 2.6;
 const NECK = { w: 0.075, h: 9 };
 const STAND_W = 0.25;
-/** El mockup dibuja a mano el portátil un 0,7 % más bajo y el monitor un 0,5 % más alto que su medida. */
+/** El mockup dibuja a mano el portátil un 0,7 % más bajo y the monitor un 0,5 % más alto que su medida. */
 const LAPTOP_H = 0.993;
 const EXTERNAL_H = 1.005;
 

@@ -17,7 +17,7 @@ import {
   type Styles,
 } from "./style-parity-spec.ts";
 
-// Estilos calculados como los da Chromium para el botón de 38 px de V3-Acomodo.
+// Estilos calculados como los da Chromium para el botón de 38 px de V3-Arrangement.
 const BTN: Styles = {
   height: "38px",
   "padding-top": "0px",
@@ -163,14 +163,14 @@ describe("compareStyles", () => {
 describe("informe", () => {
   it("dice qué par, qué propiedad y dónde está cada lado", () => {
     const pairs = PAIRS.filter((p) => p.name === "botón peligro" || p.name === "tarjeta");
-    const out = formatReport(pairs, [{ pair: "botón peligro", group: "radio", property: "border-top-left-radius", app: "10px", mockup: "9px" }], ["tarjeta: no está en V3-Puesto (div.card)"]);
+    const out = formatReport(pairs, [{ pair: "botón peligro", group: "radio", property: "border-top-left-radius", app: "10px", mockup: "9px" }], ["tarjeta: no está en V3-Desk (div.card)"]);
     const lines = out.split("\n");
     expect(lines[0]).toContain("✗ botón peligro");
     expect(lines[0]).toContain('gallery.html [data-part="btn-danger"] .btn');
-    expect(lines[0]).toContain("F-Ajustes button.btn.danger");
+    expect(lines[0]).toContain("F-Settings button.btn.danger");
     expect(lines[1]).toBe("    radio · border-top-left-radius: app «10px» ≠ mockup «9px»");
     expect(out).toContain("✗ tarjeta");
-    expect(out).toContain("! no está en V3-Puesto (div.card)");
+    expect(out).toContain("! no está en V3-Desk (div.card)");
   });
 
   it("marca con ✓ los pares iguales", () => {
@@ -181,16 +181,16 @@ describe("informe", () => {
 describe("pares", () => {
   it("cubren los componentes y mockups que pide T-127", () => {
     const has = (mockup: string, sel: RegExp) => PAIRS.some((p) => p.mockup === mockup && sel.test(p.ref.selector));
-    expect(has("V3-Acomodo", /^a\.btn\[/)).toBe(true); // botón 38 px
-    expect(has("V3-Monitores", /\.btn\.sm/)).toBe(true);
-    expect(has("V3-Monitores", /\.btn\.pri\.sm/)).toBe(true);
-    expect(has("V3-Monitores", /\.btn\.ghost\.ic\.sm/)).toBe(true);
-    expect(has("F-Ajustes", /\.btn\.danger/)).toBe(true);
-    expect(has("V3-Acomodo", /\.seg/)).toBe(true);
-    expect(has("V3-Monitores", /\.seg/)).toBe(true);
-    expect(has("F-Ajustes", /\.sw/)).toBe(true);
-    expect(has("V3-Puesto", /\.chip/)).toBe(true);
-    expect(has("V3-Puesto", /\.card/)).toBe(true);
+    expect(has("V3-Arrangement", /^a\.btn\[/)).toBe(true); // botón 38 px
+    expect(has("V3-Monitors", /\.btn\.sm/)).toBe(true);
+    expect(has("V3-Monitors", /\.btn\.pri\.sm/)).toBe(true);
+    expect(has("V3-Monitors", /\.btn\.ghost\.ic\.sm/)).toBe(true);
+    expect(has("F-Settings", /\.btn\.danger/)).toBe(true);
+    expect(has("V3-Arrangement", /\.seg/)).toBe(true);
+    expect(has("V3-Monitors", /\.seg/)).toBe(true);
+    expect(has("F-Settings", /\.sw/)).toBe(true);
+    expect(has("V3-Desk", /\.chip/)).toBe(true);
+    expect(has("V3-Desk", /\.card/)).toBe(true);
   });
 
   it("tienen nombre único y piden propiedades conocidas", () => {

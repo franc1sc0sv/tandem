@@ -54,10 +54,10 @@ export interface Desk {
   /** De qué lado de `b` está `a` y con qué alineación (D18); `null` sin declarar: `a` a la
    * izquierda de `b` y todo el borde cruza (T-099). */
   arrangement: { a_side: Side; align: Align } | null;
-  /** Nombre del puesto (`desk_name`, T-159); sin él la UI usa «Mi puesto». */
+  /** Desk name (`desk_name`, T-159); sin él la UI usa «My desk». */
   desk_name?: string | null;
   scenes: SceneJson[];
-  /** Teclado y mouse compartidos (`[prefs]` del puesto). */
+  /** Keyboard and mouse compartidos (`[prefs]` del puesto). */
   prefs?: { cmd_ctrl: boolean; drag_files: boolean };
   /** Módulos encendidos por máquina (`clipboard`…); lo que falte vale «encendido». */
   modules?: Record<Machine, Record<string, boolean>>;
@@ -115,13 +115,13 @@ export interface MachineCaps {
     power_off: boolean;
     /** La MAC de su tarjeta Ethernet, para que la otra la guarde al emparejar (T-159). */
     mac?: string | null;
-    /** La MAC con que esta máquina despierta a la otra (`[power.wol]`); `null`: no puede. */
+    /** La MAC con que this machine despierta a la otra (`[power.wol]`); `null`: no puede. */
     wol_mac?: string | null;
   };
   services: string[];
   /** Módulos de su sistema (T-098); opcionales para leer un agente de antes. */
   modules?: ModuleCaps[];
-  /** Entornos de ejecución detectados (T-105). */
+  /** Execution environments detectados (T-105). */
   environments?: EnvCaps[];
   /** El equipo según el escaneo (T-105). */
   hardware?: HardwareCaps;
@@ -174,7 +174,7 @@ export interface ResourceSample {
   disk: { free: number; total: number } | null;
 }
 
-/** Esta máquina y la otra (`null` si nunca se la vio). */
+/** This machine y la otra (`null` si nunca se la vio). */
 export interface Caps {
   here: MachineCaps;
   peer: MachineCaps | null;
@@ -182,10 +182,10 @@ export interface Caps {
 
 export type Link = "usb4" | "ethernet" | "wifi";
 
-/** El otro agente: sin par, esta máquina trabaja sola. `link` es `null` si no se lo ve. */
+/** El otro agente: sin par, this machine trabaja sola. `link` es `null` si no se lo ve. */
 export type PeerView = { kind: "unpaired" } | { kind: "paired"; name: string; link: Link | null };
 
-/** En qué va el emparejamiento (DESIGN §9): `code` son los 6 dígitos, con ceros a la izquierda. */
+/** En qué va el emparejamiento (DESIGN §9): `code` son los 6 dígitos, con ceros to the left of. */
 export type PairingView =
   | { kind: "idle" }
   | { kind: "searching" }
@@ -197,19 +197,19 @@ export type PairingView =
 export interface InputView {
   /** Dónde está el teclado y el mouse (el campo se llama así en el agente). */
   server: Machine;
-  /** Si el hub está en esta máquina; `null` sin detección. */
+  /** Si el hub está en this machine; `null` sin detección. */
   hub_here: boolean | null;
   /** La sesión con el otro agente está establecida. */
   session: boolean;
   /** El cursor está bloqueado en su máquina (atajo de la que tiene el teclado). */
   locked: boolean;
-  /** Permisos de macOS que le faltan a esta máquina. */
+  /** macOS permissions que le faltan a this machine. */
   missing: ("accessibility" | "input_monitoring")[];
-  /** Por qué el motor de entrada de esta máquina no funciona, si no funciona. */
+  /** Por qué el motor de entrada de this machine no funciona, si no funciona. */
   problem: string | null;
   /** Se sabe dónde está el teclado (hub, configuración o asistente); si no, «sin definir». */
   defined: boolean;
-  /** Las pantallas que lee el motor aquí y las que anunció la otra máquina (T-150). */
+  /** Las pantallas que lee el motor aquí y las que anunció the other machine (T-150). */
   screens?: EngineScreen[];
   peer_screens?: EngineScreen[];
 }
@@ -279,7 +279,7 @@ export type Notice =
   | { kind: "crossed"; from: Machine; to: Machine; edge: CrossEdge }
   | { kind: "key_probe"; event: { armed: boolean; heard: Machine | null } }
   | { kind: "power"; machine: Machine; reason: string }
-  /** La otra máquina cambió el puesto y ganó (D5): «Cambiado desde X · Deshacer». */
+  /** The other machine cambió el puesto y ganó (D5): «Cambiado desde X · Deshacer». */
   | { kind: "desk_changed"; by: Machine; rev: number; summary: string; undo_to: number }
   /** El avance de una copia de archivos entre las máquinas. */
   | { kind: "transfer"; upload: boolean; path: string; done: number; total: number; finished: boolean };
@@ -297,15 +297,15 @@ export type Action =
   | { kind: "ping_peer" }
   /** Recibir (o dejar de recibir) el cursor en vivo como avisos `cursor` y `crossed` (T-128). */
   | { kind: "watch_cursor"; on: boolean }
-  /** «Pedir permisos» (T-090): macOS muestra su diálogo a nombre de `tandemd`. */
+  /** «Request permissions» (T-090): macOS muestra su diálogo a nombre de `tandemd`. */
   | { kind: "request_permissions" }
-  /** «Bloquear aquí» (T-129): bloquea (`on`) o suelta el cursor en esta máquina. */
+  /** «Lock here» (T-129): bloquea (`on`) o suelta el cursor en this machine. */
   | { kind: "lock_here"; on: boolean }
   /** Guardar el acomodo en el puesto compartido (`EditDesk { Arrangement }`, T-099). */
   | { kind: "set_arrangement"; a_side: Side; align: Align }
-  /** El nombre del puesto (`EditDesk { Name }`); vacío vuelve a «Mi puesto». */
+  /** El nombre del puesto (`EditDesk { Name }`); vacío vuelve a «My desk». */
   | { kind: "set_desk_name"; name: string }
-  /** La MAC con que esta máquina despierta a la otra (T-159); `null` la borra. */
+  /** La MAC con que this machine despierta a la otra (T-159); `null` la borra. */
   | { kind: "set_wol"; mac: string | null }
   | { kind: "set_module"; machine: Machine; module: string; on: boolean }
   | { kind: "set_prefs"; cmd_ctrl: boolean; drag_files: boolean }
@@ -375,7 +375,7 @@ export type Permission = "accessibility" | "input_monitoring" | "local_network";
 export interface SetupView {
   /** Hay permisos que conceder en este sistema (solo macOS). */
   available: boolean;
-  /** Abrir el asistente al arrancar: todavía no se terminó (en cualquier sistema). */
+  /** Open setup al arrancar: todavía no se terminó (en cualquier sistema). */
   show: boolean;
   permissions: Permission[];
   /** Cómo quedó el agente de inicio de sesión (`tandemd`), si la app intentó instalarlo. */

@@ -21,7 +21,7 @@ function deadBridge(reason: string): Bridge {
 
 export async function chooseSource(search: string, hasTauri: boolean): Promise<Source> {
   if (__DEMO__ && (isDemo(search) || !hasTauri)) return new DemoSource(demoOptions(search));
-  if (!hasTauri) return new LiveSource(deadBridge("la ventana no corre dentro de Tauri"));
+  if (!hasTauri) return new LiveSource(deadBridge("the window is not running inside Tauri"));
   try {
     return new LiveSource(await tauriBridge());
   } catch (e) {

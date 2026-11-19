@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { setReducedMotion } from "../test/setup";
 import { reducedMotion } from "../lib/motion";
 
-// G7 y G8 para Monitores, Escena y Progreso (`V3-Monitores`, `F-NuevaEscena`, `F-Transacciones`).
+// G7 y G8 para Monitores, Escena y Progreso (`V3-Monitors`, `F-NewScene`, `F-Transactions`).
 // vitest corre desde apps/tandem-ui.
 const SRC = join(process.cwd(), "src");
 const read = (...p: string[]) => readFileSync(join(SRC, ...p), "utf8");
@@ -32,29 +32,29 @@ const timing = (decl: string) => decl.replace(/^\w+ /, "");
 
 const SCREENS = {
   monitores: {
-    mock: mockup("V3-Monitores"),
+    mock: mockup("V3-Monitors"),
     // `up`, `in` y `pl` viven en la pantalla; `fls` (el destello de la miniatura) en `Thumb`.
     files: [read("screens", "Monitores.svelte"), read("ui", "Thumb.svelte")],
     keyframes: ["mon-up", "mon-in", "mon-pl", "thumb-fls"],
     skip: ["dr"],
   },
   escena: {
-    mock: mockup("F-NuevaEscena"),
+    mock: mockup("F-NewScene"),
     files: [read("screens", "Escena.svelte")],
     keyframes: ["es-bd"],
     skip: [],
   },
   tuneles: {
-    mock: mockup("V3-Computo"),
+    mock: mockup("V3-Compute"),
     // El pulso del punto de la barra lateral (`pl`) vive en `Sidebar`; el de los contadores, en la pantalla.
     files: [read("screens", "Tuneles.svelte"), read("shell", "Sidebar.svelte")],
     keyframes: ["tu-up", "tu-dn", "tu-bar", "tu-sp", "tu-mv", "tu-fa", "tu-fb", "tu-halo", "tu-pl", "tu-bl"],
     // `nw` (el destello de un evento nuevo) lo declara el mockup para una lista que no dibuja; `pl` se
-    // prueba aparte (la declaración en línea del mockup no se deja leer como CSS).
+    // prueba aparte (la declaración online del mockup no se deja leer como CSS).
     skip: ["nw", "pl"],
   },
   progreso: {
-    mock: mockup("F-Transacciones"),
+    mock: mockup("F-Transactions"),
     files: [read("screens", "Progreso.svelte")],
     keyframes: ["pr-sp", "pr-wv", "pr-fl", "pr-up"],
     skip: ["cnt"],
@@ -64,7 +64,7 @@ const SCREENS = {
 describe.each(Object.entries(SCREENS))("animaciones de %s", (_name, s) => {
   // La pantalla y los componentes compartidos que dibujan parte del mockup (tarjeta, miniatura, selector, botón).
   const css = [...s.files, read("ui", "Card.svelte"), read("ui", "Thumb.svelte"), read("ui", "Segmented.svelte"), read("ui", "Button.svelte")].join("\n");
-  const has = (text: string, what: string) => expect(canon(css).includes(text), `falta «${what}»`).toBe(true);
+  const has = (text: string, what: string) => expect(canon(css).includes(text), `falta “${what}”`).toBe(true);
 
   it("cada @keyframes del mockup tiene su equivalente", () => {
     const names = keyframesOf(s.mock).filter((k) => !(s.skip as readonly string[]).includes(k));
@@ -90,7 +90,7 @@ describe.each(Object.entries(SCREENS))("animaciones de %s", (_name, s) => {
   });
 });
 
-describe("animaciones de Túneles que el mockup declara en línea", () => {
+describe("animaciones de Túneles que el mockup declara online", () => {
   it("el pulso de los puntos dura lo mismo que en el mockup", () => {
     expect(SCREENS.tuneles.mock).toContain("animation:pl 1.8s infinite");
     for (const f of SCREENS.tuneles.files) expect(f).toContain("1.8s infinite");

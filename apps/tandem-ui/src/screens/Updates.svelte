@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Ajustes → Actualizaciones (`F-Ajustes`, T-122): la versión de las dos máquinas, buscar
-  // ahora, «Actualizar todas» (primero la otra, después esta) y «Actualizar solo».
+  // Ajustes → Actualizaciones (`F-Settings`, T-122): la versión de las dos máquinas, buscar
+  // ahora, «Update all» (primero la otra, después esta) y «Update only».
   import { onMount } from "svelte";
   import { useStore } from "../lib/context";
   import { availableRow, checkLabel, upToDate, versionRow, type UpdateView } from "../lib/updates";
@@ -8,7 +8,7 @@
   import Switch from "../ui/Switch.svelte";
 
   const store = useStore();
-  // Los botones de Ajustes miden 34 px (`F-Ajustes`).
+  // Los botones de Ajustes miden 34 px (`F-Settings`).
   const B34 = "--btn-h:34px;--btn-px:13px;--btn-gap:7px";
 
   let view = $state<UpdateView | null>(null);
@@ -69,17 +69,17 @@
   {#if found}
     <div class="row appear">
       <span class="fill col">{found.title}<span class="mut sub">{found.detail}</span></span>
-      <Button icon="download" variant="pri" size="sm" style={B34} disabled={view.step !== null} onclick={updateAll}>Actualizar todas</Button>
+      <Button icon="download" variant="pri" size="sm" style={B34} disabled={view.step !== null} onclick={updateAll}>Update all</Button>
     </div>
   {:else if upToDate(view, checkedOnce)}
-    <div class="row appear"><span class="fill mut">No hay versiones nuevas.</span></div>
+    <div class="row appear"><span class="fill mut">There are no new versions.</span></div>
   {/if}
   <div class="row">
-    <span class="fill">Actualizar solo</span>
-    <Switch checked={view.auto} label="Actualizar solo" onchange={setAuto} />
+    <span class="fill">Update only</span>
+    <Switch checked={view.auto} label="Update only" onchange={setAuto} />
   </div>
   <div class="row">
-    <span class="fill">Origen</span><span class="mono mut src">GitHub Releases · sin firma</span>
+    <span class="fill">Source</span><span class="mono mut src">GitHub Releases · unsigned</span>
   </div>
 {/if}
 {#if shownError}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Nueva escena y editar escena (`F-NuevaEscena`): nombre, qué muestra cada monitor compatible,
+  // New scene y editar escena (`F-NewScene`): nombre, qué muestra cada monitor compatible,
   // atajo y vista previa. Ocupa toda la ventana, con su ruta de vuelta a Monitores.
   import { untrack } from "svelte";
   import { useStore } from "../lib/context";
@@ -30,10 +30,10 @@
     if (id === null) draft = untrack(() => newDraft(desk.monitors));
     else if (existing) draft = untrack(() => draftOf(existing, desk.monitors));
   });
-  // Una escena que no existe (se borró en la otra máquina, o la dirección está mal).
+  // Una escena que no existe (se borró en the other machine, o la dirección está mal).
   $effect(() => {
     if (id !== null && desk.ready && desk.scenes.length > 0 && !existing && draft === null) {
-      store.toast("Esa escena ya no existe", "bad");
+      store.toast("That scene no longer exists", "bad");
       store.go({ screen: "monitores" });
     }
   });
@@ -44,7 +44,7 @@
   let busy = $state(false);
   const home = formatHash({ screen: "monitores" });
 
-  const optionsOf = (): { value: Pick; label: string; color: string }[] => [...machines.map((m) => ({ value: m.id as Pick, label: m.name, color: m.color })), { value: "keep", label: "Sin cambiar", color: "#6a6d76" }];
+  const optionsOf = (): { value: Pick; label: string; color: string }[] => [...machines.map((m) => ({ value: m.id as Pick, label: m.name, color: m.color })), { value: "keep", label: "Keep as is", color: "#6a6d76" }];
   const wallFor = (p: Pick) => (p === "keep" ? KEEP_WALL : previewWall(desk.machines[p]?.color ?? "#9a9da6"));
 
   function choose(monitor: string, p: Pick) {
@@ -90,7 +90,7 @@
     if (r.ok && apply) {
       const target = scene.id || (await store.waitForScene(scene.name));
       if (target && (await store.applyScene(target)).ok) store.showProgress();
-      else store.toast(`No se encontró «${scene.name}» para aplicarla`, "bad");
+      else store.toast(`“${scene.name}” was not found to apply it`, "bad");
     }
     busy = false;
     if (r.ok && !apply) store.go({ screen: "monitores" });
@@ -100,13 +100,13 @@
 </script>
 
 <div class="wrap">
-  <nav aria-label="Ruta" class="mut crumbs"><a href={home}>Monitores</a> › {id === null ? "Nueva escena" : "Editar escena"}</nav>
+  <nav aria-label="Path" class="mut crumbs"><a href={home}>Monitors</a> › {id === null ? "New scene" : "Edit scene"}</nav>
   {#if draft}
     {@const d = draft}
     <div class="cols">
       <section class="form">
         <label class="f"
-          ><span class="lbl">Nombre</span><input
+          ><span class="lbl">Name</span><input
             value={d.name}
             maxlength="60"
             aria-invalid={why("name") ? "true" : undefined}
@@ -116,8 +116,8 @@
         {#each monitors as m (m.id)}
           {@const now = d.picks[m.id] ?? "keep"}
           <div class="f">
-            <span class="lbl">{m.name} muestra</span>
-            <div class="seg" role="radiogroup" aria-label="Qué muestra el {m.name.match(/\d+/)?.[0] ?? m.name}">
+            <span class="lbl">{m.name} shows</span>
+            <div class="seg" role="radiogroup" aria-label="What the {m.name.match(/\d+/)?.[0] ?? m.name} shows">
               {#each optionsOf() as o (o.value)}
                 <button type="button" role="radio" class="sb" class:on={o.value === now} aria-checked={o.value === now} tabindex={o.value === now ? 0 : -1} onclick={() => choose(m.id, o.value)} onkeydown={(e) => arrows(e, m.id, now)}
                   ><span class="dot" style="background:{o.color}"></span>{o.label}</button
@@ -127,23 +127,23 @@
           </div>
         {/each}
         <div class="f">
-          <span class="lbl" id="atajo">Atajo</span>
+          <span class="lbl" id="atajo">Shortcut</span>
           <div class="krow">
-            <button type="button" class="kbd" aria-labelledby="atajo" onkeydown={capture}>{shortcut || "Sin atajo"}</button>
-            <span class="mut note">{shortcutNote || "Pulsa la combinación nueva. Funciona en cualquier máquina del puesto."}</span>
+            <button type="button" class="kbd" aria-labelledby="atajo" onkeydown={capture}>{shortcut || "No shortcut"}</button>
+            <span class="mut note">{shortcutNote || "Press the new combination. It works on any machine of the desk."}</span>
           </div>
           {#if why("shortcut")}<span class="err" role="alert">{why("shortcut")}</span>{/if}
         </div>
         <div class="acts">
-          <Button icon="x" variant="ghost" size="lg" href={home} style="--btn-fs:13.5px;--btn-px:16px">Cancelar</Button>
+          <Button icon="x" variant="ghost" size="lg" href={home} style="--btn-fs:13.5px;--btn-px:16px">Cancel</Button>
           <span class="fill"></span>
-          <Button icon="play" size="lg" disabled={busy || problem !== null || !store.can("scenes")} onclick={() => save(true)} style="--btn-fs:13.5px;--btn-px:16px">Guardar y aplicar</Button>
-          <Button icon="check" variant="pri" size="lg" disabled={busy || problem !== null} onclick={() => save(false)} style="--btn-fs:13.5px;--btn-px:16px">Guardar</Button>
+          <Button icon="play" size="lg" disabled={busy || problem !== null || !store.can("scenes")} onclick={() => save(true)} style="--btn-fs:13.5px;--btn-px:16px">Save and apply</Button>
+          <Button icon="check" variant="pri" size="lg" disabled={busy || problem !== null} onclick={() => save(false)} style="--btn-fs:13.5px;--btn-px:16px">Save</Button>
         </div>
       </section>
 
-      <section class="prev" aria-label="Vista previa">
-        <span class="lbl self">Vista previa</span>
+      <section class="prev" aria-label="Preview">
+        <span class="lbl self">Preview</span>
         <div class="stages">
           {#each monitors as m (m.id)}
             {@const now = d.picks[m.id] ?? "keep"}
@@ -151,11 +151,11 @@
               <div class="scr" style="width:300px;height:126px"><div class="wall" style="background:{wallFor(now)}"></div></div>
               <div class="neck"></div>
               <div class="base"></div>
-              <span class="cap">{m.name.match(/\d+"/)?.[0] ?? m.name} · <b>{now === "keep" ? "Sin cambiar" : (desk.machines[now]?.name ?? "")}</b></span>
+              <span class="cap">{m.name.match(/\d+"/)?.[0] ?? m.name} · <b>{now === "keep" ? "Keep as is" : (desk.machines[now]?.name ?? "")}</b></span>
             </div>
           {/each}
         </div>
-        <p class="mut hint">Al aplicarla, cada monitor confirma su cambio. Si uno falla, la escena se deshace completa.</p>
+        <p class="mut hint">When applied, each monitor confirms its change. If one fails, the whole scene is rolled back.</p>
       </section>
     </div>
   {/if}

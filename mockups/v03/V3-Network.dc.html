@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tandem v0.3: network and links</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+.nav{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;color:#a3a6af;text-decoration:none;font-size:13.5px;min-height:20px;transition:background .2s,color .2s}
+.nav:hover{background:#17181c;color:#e8e8eb}
+.nav.on{background:#1c1d22;color:#e8e8eb}
+.navh{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:#80838d;padding:14px 10px 6px}
+.card{background:#15161a;border:1px solid #25272d;border-radius:14px;padding:16px;animation:up .45s cubic-bezier(.2,.8,.2,1) both;transition:border-color .25s,transform .25s}
+.h3{margin:0;font-size:13px;font-weight:600;color:#e8e8eb}
+.mut{color:#9a9da6}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;border:1px solid #31343b;font-size:12px;color:#c4c6cc;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 15px;box-sizing:border-box;flex:none;align-self:center;white-space:nowrap;font:inherit;font-size:13px;font-weight:500;line-height:1;border-radius:10px;border:1px solid #2e3138;background:linear-gradient(180deg,#1f2025,#18191d);color:#e8e8eb;cursor:pointer;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.3);transition:transform .18s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .18s}
+.btn svg{width:16px;height:16px;flex:none;transition:transform .35s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{border-color:#41454e;transform:translateY(-1px);box-shadow:0 6px 16px rgba(0,0,0,.35)}
+.btn:hover svg{transform:rotate(-25deg) scale(1.1)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid #7aa7e6;outline-offset:2px}
+.node{display:flex;flex-direction:column;align-items:center;gap:8px;flex:none;width:120px;text-align:center}
+.nic{width:60px;height:60px;border-radius:17px;display:grid;place-items:center;background:#111215;border:1px solid #2a2c33;position:relative}
+.nic::after{content:"";position:absolute;inset:-6px;border-radius:21px;border:1px solid var(--c);opacity:.35;animation:halo 2.6s ease-in-out infinite}
+.nic svg{width:27px;height:27px}
+.paths{flex:1;min-width:0;position:relative;height:170px}
+.ptag{position:absolute;left:50%;transform:translate(-50%,-50%);display:flex;align-items:center;gap:7px;height:28px;padding:0 11px;border-radius:999px;background:#0e0f12;border:1px solid #2a2c33;font-size:12px;white-space:nowrap;transition:transform .25s}
+.ptag:hover{transform:translate(-50%,-50%) scale(1.05)}
+.ptag svg{width:13px;height:13px}
+.fA{stroke-dasharray:3 12;stroke-linecap:round;animation:fa .8s linear infinite}
+.fW{stroke-dasharray:2 16;stroke-linecap:round;animation:fa 2.4s linear infinite}
+.st{display:inline-flex;align-items:center;gap:7px;height:26px;padding:0 11px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap;border:1px solid}
+.st .d{width:7px;height:7px;border-radius:50%}
+.st.on{color:#9fd8b9;border-color:#2c4a3c;background:#121a16}
+.st.on .d{background:#6cc59a;animation:pg 1.8s infinite}
+.st.bk{color:#e6c48f;border-color:#4a3e26;background:#1a1712}
+.st.bk .d{background:#d9a75a}
+.st.off{color:#80838d;border-color:#2a2c33;border-style:dashed;background:transparent}
+.st.off .d{background:#4a4d55}
+.pc{display:flex;flex-direction:column;gap:14px}
+.pc:hover{transform:translateY(-3px);border-color:#3a3d45}
+.pi{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;flex:none;transition:transform .3s cubic-bezier(.3,1.5,.5,1)}
+.pc:hover .pi{transform:rotate(-8deg) scale(1.08)}
+.pi svg{width:18px;height:18px}
+.met{display:grid;grid-template-columns:78px minmax(0,1fr) 70px;gap:8px 10px;align-items:center;font-size:12px}
+.bar{height:6px;border-radius:3px;background:#24262c;overflow:hidden}
+.bar span{display:block;height:100%;border-radius:3px;animation:grow 1.2s cubic-bezier(.2,.8,.2,1) both}
+.kpi{display:flex;align-items:center;gap:14px}
+.kpi:hover{transform:translateY(-2px);border-color:#3a3d45}
+.ring circle.v{animation:ring 1.4s cubic-bezier(.2,.8,.2,1) both}
+.ln{stroke-dasharray:900;stroke-dashoffset:900;animation:dr 2s ease-out .2s forwards}
+@keyframes up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes halo{0%,100%{transform:scale(1);opacity:.35}50%{transform:scale(1.06);opacity:.08}}
+@keyframes fa{to{stroke-dashoffset:-30}}
+@keyframes pg{0%,100%{box-shadow:0 0 0 0 rgba(108,197,154,.55)}50%{box-shadow:0 0 0 4px rgba(108,197,154,0)}}
+@keyframes grow{from{width:0}}
+@keyframes ring{from{stroke-dashoffset:113}}
+@keyframes dr{to{stroke-dashoffset:0}}
+@keyframes pk{0%,100%{r:4}50%{r:7}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.ln{stroke-dashoffset:0}}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;display:flex;flex-wrap:wrap;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12">
+  <nav aria-label="Main" style="flex:1 1 220px;max-width:240px;box-sizing:border-box;padding:16px 12px;border-right:1px solid #1f2126;display:flex;flex-direction:column;gap:2px;background:#0b0c0e">
+    <div style="display:flex;align-items:center;gap:9px;padding:4px 10px 14px;font-weight:650;font-size:15px"><svg width="20" height="20" viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="11.5" cy="16" r="8" stroke="#7aa7e6" stroke-width="2.4"></circle><circle cx="20.5" cy="16" r="8" stroke="#a99be8" stroke-width="2.4"></circle></svg>Tandem</div>
+    <a class="nav" href="V3-Desk.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>Desk</a>
+    <a class="nav" href="V3-Compute.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4M17 12h4"></path><rect x="7" y="8" width="10" height="8" rx="4"></rect></svg>Tunnels<span style="flex:1"></span><span class="chip" style="padding:1px 7px;font-size:11px">3</span></a>
+    <a class="nav" href="V3-Monitors.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M9 20h6M12 16v4"></path></svg>Monitors</a>
+    <a class="nav" href="V3-Arrangement.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="2" y="7" width="9" height="10" rx="1.5"></rect><rect x="13" y="5" width="9" height="14" rx="1.5"></rect></svg>Arrangement</a>
+    <a class="nav on" href="V3-Network.dc.html" aria-current="page"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="5" cy="12" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle><path d="M7.5 12h9"></path></svg>Network</a>
+    <div class="navh">Machines</div>
+    <a class="nav" href="F-MachineMac.dc.html"><span style="width:8px;height:8px;border-radius:50%;background:#7aa7e6"></span>MacBook Pro</a>
+    <a class="nav" href="V3-Machine.dc.html"><span style="width:8px;height:8px;border-radius:50%;background:#a99be8"></span>PC-Desktop</a>
+    <a class="nav" href="F-AddHost.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Add machine</a>
+    <span style="flex:1"></span>
+    <a class="nav" href="F-Settings.dc.html"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path></svg>Settings</a>
+  </nav>
+
+  <main style="flex:999 1 640px;min-width:0;box-sizing:border-box;padding:20px 28px 28px;display:flex;flex-direction:column;gap:14px">
+    <header style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <h1 style="margin:0;font-size:20px;font-weight:650">Network</h1>
+      <span style="flex:1"></span>
+      <a href="F-Transactions.dc.html" class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 15a8 8 0 1 1 16 0"></path><path d="m12 15 4-5"></path></svg>Measure bandwidth</a>
+    </header>
+
+    <section class="card" aria-label="Link map" style="display:flex;align-items:center;gap:8px;padding:20px 24px">
+      <div class="node" style="--c:#7aa7e6"><span class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="#7aa7e6" stroke-width="1.6" aria-hidden="true"><rect x="4" y="5" width="16" height="11" rx="1.5"></rect><path d="M2 19h20"></path></svg></span><b style="font-size:13px;font-weight:600">MacBook Pro</b></div>
+      <div class="paths" role="img" aria-label="Three paths: USB-C active at 0.3 ms, Ethernet with no cable, Wi-Fi as backup at 3.8 ms">
+        <svg width="100%" height="170" viewBox="0 0 400 170" preserveAspectRatio="none" aria-hidden="true">
+          <defs><linearGradient id="g1" x1="0" x2="1"><stop offset="0" stop-color="#7aa7e6"></stop><stop offset="1" stop-color="#a99be8"></stop></linearGradient></defs>
+          <path d="M0 85 C 120 85, 120 30, 200 30 S 280 85, 400 85" fill="none" stroke="#1f2126" stroke-width="10" stroke-linecap="round"></path>
+          <path class="fA" d="M0 85 C 120 85, 120 30, 200 30 S 280 85, 400 85" fill="none" stroke="url(#g1)" stroke-width="3.5"></path>
+          <path d="M0 85 L 400 85" fill="none" stroke="#2a2c33" stroke-width="2" stroke-dasharray="4 7"></path>
+          <path d="M0 85 C 120 85, 120 140, 200 140 S 280 85, 400 85" fill="none" stroke="#1f2126" stroke-width="8" stroke-linecap="round"></path>
+          <path class="fW" d="M0 85 C 120 85, 120 140, 200 140 S 280 85, 400 85" fill="none" stroke="#d9a75a" stroke-opacity=".7" stroke-width="2"></path>
+        </svg>
+        <span class="ptag" style="top:18%;border-color:#3a4a66"><svg viewBox="0 0 24 24" fill="#7aa7e6" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"></path></svg><b style="font-weight:600">USB-C</b><span class="mono mut">0.3 ms</span></span>
+        <span class="ptag" style="top:50%;opacity:.6"><svg viewBox="0 0 24 24" fill="#80838d" aria-hidden="true"><path d="M5 4h14v10h-3v3h-2v3h-4v-3H8v-3H5z"></path></svg><span class="mut">Ethernet · no cable</span></span>
+        <span class="ptag" style="top:82%"><svg viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9 9 0 0 1 13 0M9 16a4 4 0 0 1 6 0"></path><path d="M12 19.5h.01"></path></svg><span>Wi-Fi</span><span class="mono mut">3.8 ms</span></span>
+      </div>
+      <div class="node" style="--c:#a99be8"><span class="nic"><svg viewBox="0 0 24 24" fill="none" stroke="#a99be8" stroke-width="1.6" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2"></rect><circle cx="12" cy="15" r="2.5"></circle><path d="M9 7h6"></path></svg></span><b style="font-size:13px;font-weight:600">PC-Desktop</b></div>
+    </section>
+
+    <section style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.6fr);gap:12px">
+      <div class="card kpi" style="animation-delay:.06s">
+        <svg class="ring" width="54" height="54" viewBox="0 0 44 44" aria-hidden="true" style="transform:rotate(-90deg);flex:none"><circle cx="22" cy="22" r="18" fill="none" stroke="#24262c" stroke-width="4"></circle><circle class="v" cx="22" cy="22" r="18" fill="none" stroke="#6cc59a" stroke-width="4" stroke-linecap="round" stroke-dasharray="113" stroke-dashoffset="60"></circle></svg>
+        <div style="display:flex;flex-direction:column;gap:3px"><span class="mut" style="font-size:12px">Keyboard and mouse</span><b class="mono" style="font-size:22px;font-weight:500">0.4 ms</b><span class="mut mono" style="font-size:11.5px">p99 1.9 ms</span></div>
+      </div>
+      <div class="card kpi" style="animation-delay:.1s">
+        <svg class="ring" width="54" height="54" viewBox="0 0 44 44" aria-hidden="true" style="transform:rotate(-90deg);flex:none"><circle cx="22" cy="22" r="18" fill="none" stroke="#24262c" stroke-width="4"></circle><circle class="v" cx="22" cy="22" r="18" fill="none" stroke="#7aa7e6" stroke-width="4" stroke-linecap="round" stroke-dasharray="113" stroke-dashoffset="7"></circle></svg>
+        <div style="display:flex;flex-direction:column;gap:3px"><span class="mut" style="font-size:12px">Bandwidth</span><b class="mono" style="font-size:22px;font-weight:500">9.4 Gbps</b><span class="mut mono" style="font-size:11.5px">over USB-C</span></div>
+      </div>
+      <div class="card" style="animation-delay:.14s;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;align-items:center;gap:8px"><span class="mut" style="font-size:12px">Latency · 10 min</span><span style="flex:1"></span><span class="mono mut" style="font-size:11px">target 4 ms</span></div>
+        <svg viewBox="0 0 400 74" width="100%" height="74" preserveAspectRatio="none" role="img" aria-label="Latency steady under 2 ms with a 6 ms spike when the cable was unplugged">
+          <defs><linearGradient id="la" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#7aa7e6" stop-opacity=".3"></stop><stop offset="1" stop-color="#7aa7e6" stop-opacity="0"></stop></linearGradient></defs>
+          <line x1="0" y1="34" x2="400" y2="34" stroke="#2a2c33" stroke-dasharray="3 5"></line>
+          <path d="M0 62 L30 61 L60 63 L90 60 L120 62 L150 61 L180 18 L195 44 L210 61 L240 62 L270 61 L300 60 L330 62 L360 61 L400 61 L400 74 L0 74Z" fill="url(#la)"></path>
+          <path class="ln" d="M0 62 L30 61 L60 63 L90 60 L120 62 L150 61 L180 18 L195 44 L210 61 L240 62 L270 61 L300 60 L330 62 L360 61 L400 61" fill="none" stroke="#7aa7e6" stroke-width="1.8"></path>
+          <circle cx="180" cy="18" r="4" fill="#d9a75a" style="animation:pk 2s ease-in-out infinite"></circle>
+        </svg>
+        <span style="font-size:11.5px;color:#e6c48f;display:flex;align-items:center;gap:6px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M12 3 2 20h20z"></path></svg>Spike when the cable was unplugged · switched to Wi-Fi in 0.6 s</span>
+      </div>
+    </section>
+
+    <section style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px">
+      <article class="card pc" style="animation-delay:.18s;border-color:#2c4a3c">
+        <div style="display:flex;align-items:center;gap:10px"><span class="pi" style="background:#16202e"><svg viewBox="0 0 24 24" fill="#7aa7e6" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"></path></svg></span><div style="display:flex;flex-direction:column;gap:2px;min-width:0"><b style="font-weight:600">USB-C cable</b><span class="mono mut" style="font-size:11px">USB4 · 20 Gbps</span></div><span style="flex:1"></span><span class="st on"><span class="d"></span>Main</span></div>
+        <div class="met"><span class="mut">Latency</span><div class="bar"><span style="width:8%;background:#6cc59a"></span></div><span class="mono" style="text-align:right">0.3 ms</span><span class="mut">Band</span><div class="bar"><span style="width:94%;background:#7aa7e6"></span></div><span class="mono" style="text-align:right">9.4 Gbps</span></div>
+      </article>
+      <article class="card pc" style="animation-delay:.22s;border-style:dashed">
+        <div style="display:flex;align-items:center;gap:10px"><span class="pi" style="background:#1b1c21"><svg viewBox="0 0 24 24" fill="#80838d" aria-hidden="true"><path d="M5 4h14v10h-3v3h-2v3h-4v-3H8v-3H5z"></path></svg></span><div style="display:flex;flex-direction:column;gap:2px;min-width:0"><b style="font-weight:600">Ethernet</b><span class="mono mut" style="font-size:11px">2.5 GbE</span></div><span style="flex:1"></span><span class="st off"><span class="d"></span>No cable</span></div>
+        <div class="met" style="opacity:.45"><span class="mut">Latency</span><div class="bar"></div><span class="mono" style="text-align:right">—</span><span class="mut">Band</span><div class="bar"></div><span class="mono" style="text-align:right">—</span></div>
+      </article>
+      <article class="card pc" style="animation-delay:.26s">
+        <div style="display:flex;align-items:center;gap:10px"><span class="pi" style="background:#1a1712"><svg viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9 9 0 0 1 13 0M9 16a4 4 0 0 1 6 0"></path><path d="M12 19.5h.01"></path></svg></span><div style="display:flex;flex-direction:column;gap:2px;min-width:0"><b style="font-weight:600">Wi-Fi</b><span class="mono mut" style="font-size:11px">Wi-Fi 7 · home</span></div><span style="flex:1"></span><span class="st bk"><span class="d"></span>Backup</span></div>
+        <div class="met"><span class="mut">Latency</span><div class="bar"><span style="width:40%;background:#d9a75a"></span></div><span class="mono" style="text-align:right">3.8 ms</span><span class="mut">Band</span><div class="bar"><span style="width:12%;background:#d9a75a"></span></div><span class="mono" style="text-align:right">410 Mbps</span></div>
+      </article>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

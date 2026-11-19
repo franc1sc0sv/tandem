@@ -173,7 +173,7 @@
   .btn.m-lift:hover:not(:disabled) :global(svg) {
     transform: translate(2px, -2px);
   }
-  /* El medidor se inclina como una aguja (`Medir ancho de banda`, V3-Red). */
+  /* El medidor se inclina como una aguja (`Medir ancho de banda`, V3-Network). */
   .btn.m-tilt:hover:not(:disabled) :global(svg) {
     transform: rotate(-25deg) scale(1.1);
   }

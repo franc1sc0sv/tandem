@@ -7,7 +7,7 @@
     /** Grosor del trazo (1.8 en la navegación, 2 en botones y chips). */
     stroke?: number;
     color?: string;
-    /** Remate del trazo si el mockup lo pide distinto al del ícono (el «+» de «Nueva escena» lo trae redondo). */
+    /** Remate del trazo si el mockup lo pide distinto al del ícono (el «+» de «New scene» lo trae redondo). */
     linecap?: "round" | "butt";
     class?: string;
     style?: string;

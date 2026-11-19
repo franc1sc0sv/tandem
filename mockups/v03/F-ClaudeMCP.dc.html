@@ -1,8 +1,8 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Túneles: lo que ve Claude</title>
+<title>Tunnels: what Claude sees</title>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -31,35 +31,35 @@ a{color:#9cc0f0}
 </style>
 </helmet>
 <div style="width:100%;min-height:860px;box-sizing:border-box;padding:24px 28px;display:flex;flex-direction:column;gap:16px;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12">
-  <div><a class="back" href="V3-Computo.dc.html"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>Túneles</a></div>
+  <div><a class="back" href="V3-Compute.dc.html"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg>Tunnels</a></div>
   <div style="display:flex;gap:18px;flex-wrap:wrap;flex:1">
-  <section aria-label="Sesión de Claude Code" style="flex:999 1 620px;min-width:0;border-radius:14px;background:#0a0b0d;border:1px solid #25272d;overflow:hidden;display:flex;flex-direction:column">
+  <section aria-label="Claude Code session" style="flex:999 1 620px;min-width:0;border-radius:14px;background:#0a0b0d;border:1px solid #25272d;overflow:hidden;display:flex;flex-direction:column">
     <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid #1f2126;background:#111215"><span style="width:10px;height:10px;border-radius:50%;background:#31343b"></span><span style="width:10px;height:10px;border-radius:50%;background:#31343b"></span><span style="width:10px;height:10px;border-radius:50%;background:#31343b"></span><span class="mono mut" style="font-size:12px;margin-left:8px">claude · ia-local · MacBook Pro</span></div>
     <div class="mono" style="padding:18px 20px;font-size:12.5px;line-height:1.7;color:#c4c6cc;display:flex;flex-direction:column">
-      <p class="ln" style="animation-delay:.1s;color:#e8e8eb">&gt; entrena el LoRA de estilo donde haya más GPU libre y mientras sigo con la UI</p>
+      <p class="ln" style="animation-delay:.1s;color:#e8e8eb">&gt; train the style LoRA wherever there is more free GPU while I keep working on the UI</p>
       <div class="ln call" style="animation-delay:.7s"><span style="color:#cbbff5">tandem · machines</span>()</div>
-      <p class="ln res" style="animation-delay:1s">PC-Escritorio  VRAM libre 14 GB  entornos: wsl, powershell, docker  0.3 ms</p>
-      <div class="ln call" style="animation-delay:1.5s"><span style="color:#cbbff5">tandem · tunnel_open</span>(machine="PC-Escritorio", env="wsl", workspace="ia-local + cambios")</div>
-      <p class="ln res" style="animation-delay:1.8s">túnel ia-local abierto · workspace listo en 1.9 s</p>
-      <div class="ln call" style="animation-delay:2.2s"><span style="color:#cbbff5">tandem · files_put</span>(tunnel="ia-local", path="models/estilo/")</div>
-      <p class="ln res" style="animation-delay:2.5s">2.1 GB por USB-C en 2.0 s</p>
-      <div class="ln call" style="animation-delay:2.9s"><span style="color:#cbbff5">tandem · exec</span>(tunnel="ia-local", cmd="uv run train.py --config estilo.toml", background=true)</div>
-      <p class="ln res" style="animation-delay:3.2s">proceso 4127 vivo · sigue aunque se corte el enlace</p>
+      <p class="ln res" style="animation-delay:1s">PC-Desktop  free VRAM 14 GB  environments: wsl, powershell, docker  0.3 ms</p>
+      <div class="ln call" style="animation-delay:1.5s"><span style="color:#cbbff5">tandem · tunnel_open</span>(machine="PC-Desktop", env="wsl", workspace="ia-local + changes")</div>
+      <p class="ln res" style="animation-delay:1.8s">tunnel ia-local open · workspace ready in 1.9 s</p>
+      <div class="ln call" style="animation-delay:2.2s"><span style="color:#cbbff5">tandem · files_put</span>(tunnel="ia-local", path="models/style/")</div>
+      <p class="ln res" style="animation-delay:2.5s">2.1 GB over USB-C in 2.0 s</p>
+      <div class="ln call" style="animation-delay:2.9s"><span style="color:#cbbff5">tandem · exec</span>(tunnel="ia-local", cmd="uv run train.py --config style.toml", background=true)</div>
+      <p class="ln res" style="animation-delay:3.2s">process 4127 alive · keeps running even if the link drops</p>
       <div class="ln call" style="animation-delay:3.6s"><span style="color:#cbbff5">tandem · exec</span>(tunnel="ia-local", cmd="nvidia-smi --query-gpu=memory.used --format=csv")</div>
       <p class="ln res" style="animation-delay:3.9s">14108 MiB</p>
-      <p class="ln" style="animation-delay:4.4s;margin-top:8px">Entrenando en PC-Escritorio (≈ 2 h). El túnel queda abierto; te aviso cuando termine y traigo los pesos.</p>
+      <p class="ln" style="animation-delay:4.4s;margin-top:8px">Training on PC-Desktop (≈ 2 h). The tunnel stays open; I will tell you when it finishes and bring back the weights.</p>
       <p class="ln" style="animation-delay:4.8s;margin-top:10px;color:#e8e8eb">&gt; <span class="caret"></span></p>
     </div>
   </section>
 
-  <aside aria-label="Herramientas MCP de Tandem" style="flex:1 1 320px;min-width:0;border-radius:14px;background:#15161a;border:1px solid #25272d;padding:16px;display:flex;flex-direction:column">
-    <h2 style="margin:0 0 12px;font-size:14px;font-weight:600">Lo que Tandem le da a Claude</h2>
-    <div class="tool" style="animation-delay:.1s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2"></rect><circle cx="12" cy="15" r="2.5"></circle></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">machines</span><span class="mut" style="font-size:12.5px">Máquinas, recursos en vivo y entornos.</span></div>
-    <div class="tool" style="animation-delay:.16s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4M17 12h4"></path><rect x="7" y="8" width="10" height="8" rx="4"></rect></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">tunnel_open · tunnel_close</span><span class="mut" style="font-size:12.5px">Abre un túnel a una máquina y entorno, con o sin workspace.</span></div>
-    <div class="tool" style="animation-delay:.22s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m5 8 4 4-4 4M12 16h7"></path></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">exec · output · kill</span><span class="mut" style="font-size:12.5px">Cualquier comando, en primer plano o en segundo; sobrevive al enlace.</span></div>
-    <div class="tool" style="animation-delay:.28s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v4h4"></path></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">files_put · files_get</span><span class="mut" style="font-size:12.5px">Mueve archivos por el mejor enlace.</span></div>
-    <div class="tool" style="animation-delay:.34s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" aria-hidden="true"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"></path></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">port_forward</span><span class="mut" style="font-size:12.5px">Un puerto de la otra máquina aparece en localhost.</span></div>
-    <div class="tool" style="animation-delay:.4s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><path d="M6 8.5v7M18 10.5c0 4-6 3-11 5.5"></path></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">bring_back</span><span class="mut" style="font-size:12.5px">Trae los cambios del workspace como rama.</span></div>
+  <aside aria-label="Tandem MCP tools" style="flex:1 1 320px;min-width:0;border-radius:14px;background:#15161a;border:1px solid #25272d;padding:16px;display:flex;flex-direction:column">
+    <h2 style="margin:0 0 12px;font-size:14px;font-weight:600">What Tandem gives Claude</h2>
+    <div class="tool" style="animation-delay:.1s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" aria-hidden="true"><rect x="6" y="3" width="12" height="18" rx="2"></rect><circle cx="12" cy="15" r="2.5"></circle></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">machines</span><span class="mut" style="font-size:12.5px">Machines, live resources and environments.</span></div>
+    <div class="tool" style="animation-delay:.16s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M3 12h4M17 12h4"></path><rect x="7" y="8" width="10" height="8" rx="4"></rect></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">tunnel_open · tunnel_close</span><span class="mut" style="font-size:12.5px">Opens a tunnel to a machine and environment, with or without a workspace.</span></div>
+    <div class="tool" style="animation-delay:.22s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="m5 8 4 4-4 4M12 16h7"></path></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">exec · output · kill</span><span class="mut" style="font-size:12.5px">Any command, in the foreground or background; it survives the link.</span></div>
+    <div class="tool" style="animation-delay:.28s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v4h4"></path></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">files_put · files_get</span><span class="mut" style="font-size:12.5px">Moves files over the best link.</span></div>
+    <div class="tool" style="animation-delay:.34s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" aria-hidden="true"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4"></path></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">port_forward</span><span class="mut" style="font-size:12.5px">A port of the other machine shows up on localhost.</span></div>
+    <div class="tool" style="animation-delay:.4s"><span class="ti"><svg viewBox="0 0 24 24" fill="none" stroke="#cbbff5" stroke-width="1.8" aria-hidden="true"><circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><path d="M6 8.5v7M18 10.5c0 4-6 3-11 5.5"></path></svg></span><span class="mono" style="font-size:12.5px;color:#cbbff5">bring_back</span><span class="mut" style="font-size:12.5px">Brings the workspace changes back as a branch.</span></div>
   </aside>
   </div>
 </div>

@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Cambios en progreso (`F-Transacciones`): los pasos de una transacción uno por uno, lo que
-  // dijo el monitor y la vuelta atrás visible si algo falla. Ocupa toda la ventana.
+  // Changes in progress (`F-Transactions`): los pasos de una transacción uno por uno, lo que
+  // dijo the monitor y la vuelta atrás visible si algo falla. Ocupa toda la ventana.
   import { useStore } from "../lib/context";
   import { formatHash } from "../lib/routes";
   import Button from "../ui/Button.svelte";
@@ -15,7 +15,7 @@
     energyView(
       store.powerRun,
       (m) => store.desk.machines[m]?.name ?? m,
-      store.desk.machines[store.desk.here]?.name ?? "esta máquina",
+      store.desk.machines[store.desk.here]?.name ?? "this machine",
       store.clock,
     ),
   );
@@ -28,13 +28,13 @@
     if (store.txnReady && store.run === null && store.powerRun === null && !meter) store.go({ screen: "monitores" });
   });
 
-  const WORD: Record<RowIcon, string> = { done: "listo", run: "en curso", bad: "falló", todo: "pendiente", back: "deshaciendo" };
+  const WORD: Record<RowIcon, string> = { done: "done", run: "in progress", bad: "failed", todo: "pending", back: "rolling back" };
 </script>
 
 <div class="wrap">
   <div class="top">
-    <h1>Cambios en progreso</h1>
-    <span class="mut sub">Todo lo que toca a otra máquina es una transacción: pasos visibles, un tiempo máximo y vuelta atrás si algo falla.</span>
+    <h1>Changes in progress</h1>
+    <span class="mut sub">Everything that touches another machine is a transaction: visible steps, a time limit and rollback if something fails.</span>
   </div>
   {#if view || energy || meter}
     <div class="grid">
@@ -49,7 +49,7 @@
           {/each}
         </div>
         <p class="msg {view.message.tone}">{view.message.text}</p>
-        <div class="acts"><Button icon="arrow-left" size="md" motion="back" href={back} style="--btn-fs:12.5px;--btn-px:13px">Volver a Monitores</Button></div>
+        <div class="acts"><Button icon="arrow-left" size="md" motion="back" href={back} style="--btn-fs:12.5px;--btn-px:13px">Back to Monitors</Button></div>
       </Card>
       {/if}
       {#if energy}
@@ -71,7 +71,7 @@
       {#if meter}
         <Card tag="section" class="txn" label={meter.title} style="--card-pad:18px">
           <h2>{meter.title}</h2>
-          <span class="mut sub">3 s de prueba por el camino de datos. No frena al teclado ni al mouse.</span>
+          <span class="mut sub">3 s test over the data path. It does not slow the keyboard or mouse.</span>
           <div class="big"><b class="mono">{meter.value}</b><span class="u">{meter.unit}</span><span class="fill"></span><span class="mono mut lat">{meter.latency}</span></div>
           <div class="meter" role="img" aria-label={meter.aria}><span style="--w:{meter.percent}%"></span></div>
           <div class="mono mut scale"><span>0</span><span>{meter.caption}</span></div>

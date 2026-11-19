@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 
-/** Rectángulo en píxeles de la captura. */
+/** Rectangle in screenshot pixels. */
 export interface Region {
   x: number;
   y: number;
@@ -12,18 +12,18 @@ export interface Region {
 
 export interface CompareOptions {
   /**
-   * Diferencia de color por píxel que se tolera (0–1, la de pixelmatch). 0.1 deja pasar
-   * variaciones mínimas de color de la composición de Chromium.
+   * Per-pixel color difference that is tolerated (0–1, pixelmatch's). 0.1 lets through
+   * minimal color variations from Chromium's compositing.
    */
   threshold?: number;
-  /** Si es `false` (por omisión), los píxeles de antialias no cuentan como distintos. */
+  /** If `false` (the default), antialiased pixels do not count as different. */
   includeAA?: boolean;
-  /** Lado de los cuadros de `worstTile`, en píxeles (por omisión 64). */
+  /** Side of the `worstTile` tiles, in pixels (default 64). */
   tile?: number;
   /**
-   * Compara solo esta zona de las dos capturas (por ejemplo la barra lateral, T-112). Las
-   * coordenadas de `worstTile` siguen siendo las de la captura entera; `diffPng` es del tamaño
-   * de la zona.
+   * Compares only this area of the two screenshots (for example the sidebar, T-112). The
+   * `worstTile` coordinates remain those of the whole screenshot; `diffPng` is the size
+   * of the area.
    */
   region?: Region;
 }
@@ -33,20 +33,20 @@ export interface Tile extends Region {
 }
 
 export interface CompareResult {
-  /** 1 = iguales; fracción de píxeles que coinciden. */
+  /** 1 = identical; fraction of pixels that match. */
   similarity: number;
   mismatched: number;
   total: number;
   width: number;
   height: number;
   /**
-   * El cuadro de `tile`×`tile` con menos parecido, sobre una rejilla solapada (paso `tile/2`).
-   * La similitud global puede quedar ≥ 0.99 aunque falte un botón o cambie un chip (en los
-   * mockups, cambiar de estado suele mover menos del 1 % de los píxeles); este cuadro deja ver
-   * un cambio local así.
+   * The `tile`×`tile` tile with the least similarity, over an overlapping grid (step `tile/2`).
+   * Global similarity can stay ≥ 0.99 even if a button is missing or a chip changes (in the
+   * mockups, changing state usually moves under 1 % of the pixels); this tile exposes
+   * a local change like that.
    */
   worstTile: Tile;
-  /** PNG con las diferencias en rojo sobre la imagen esperada atenuada. */
+  /** PNG with the differences in red over the dimmed expected image. */
   diffPng: Buffer;
 }
 
@@ -55,7 +55,7 @@ export class SizeMismatchError extends Error {
   readonly expected: { width: number; height: number };
 
   constructor(actual: { width: number; height: number }, expected: { width: number; height: number }) {
-    super(`tamaños distintos: ${actual.width}×${actual.height} contra ${expected.width}×${expected.height}`);
+    super(`different sizes: ${actual.width}×${actual.height} versus ${expected.width}×${expected.height}`);
     this.name = 'SizeMismatchError';
     this.actual = actual;
     this.expected = expected;
@@ -65,10 +65,10 @@ export class SizeMismatchError extends Error {
 const DIFF_COLOR: [number, number, number] = [255, 0, 0];
 
 /**
- * Inicios de los cuadros sobre un eje de `length` píxeles: cada `size/2` y uno pegado al borde
- * final, así todos los cuadros miden lo mismo y ninguno queda afuera. Con una rejilla fija, un
- * cambio de `size`×`size` que cruza cuatro cuadros se ve diluido al ~25 % en cada uno; con
- * paso `size/2`, algún cuadro tiene al menos la mitad de cada lado del cambio.
+ * Tile starts along an axis of `length` pixels: every `size/2` and one flush with the final
+ * edge, so all tiles are the same size and none is left out. With a fixed grid, a
+ * `size`×`size` change that spans four tiles looks diluted to ~25 % in each; with
+ * step `size/2`, some tile has at least half of each side of the change.
  */
 export function tileStarts(length: number, size: number): number[] {
   if (length <= size) return [0];
@@ -80,8 +80,8 @@ export function tileStarts(length: number, size: number): number[] {
 }
 
 /**
- * El cuadro con menos parecido de una máscara de píxeles distintos (1 = distinto), sobre la
- * rejilla solapada de `tileStarts`. Con sumas acumuladas cada cuadro cuesta O(1) aunque se
+ * The least similar tile of a mask of different pixels (1 = different), over the
+ * overlapping grid of `tileStarts`. With prefix sums each tile costs O(1) even if they
  * solapen.
  */
 export function worstTileOf(mask: Uint8Array, width: number, height: number, size: number): Tile {
@@ -89,7 +89,7 @@ export function worstTileOf(mask: Uint8Array, width: number, height: number, siz
   const h = Math.min(size, height);
   let worst: Tile = { x: 0, y: 0, width: w, height: h, similarity: 1 };
   if (w === 0 || h === 0) return worst;
-  // sum[y * stride + x] = píxeles distintos en [0, x) × [0, y)
+  // sum[y * stride + x] = different pixels in [0, x) × [0, y)
   const stride = width + 1;
   const sum = new Uint32Array(stride * (height + 1));
   for (let y = 0; y < height; y++) {
@@ -110,8 +110,8 @@ export function worstTileOf(mask: Uint8Array, width: number, height: number, siz
   return worst;
 }
 
-// pixelmatch pinta cada píxel distinto exactamente de DIFF_COLOR; los iguales quedan en gris
-// (r = g = b) y los de antialias en amarillo, así que se cuentan solo los rojos puros.
+// pixelmatch paints each different pixel exactly DIFF_COLOR; identical ones stay grey
+// (r = g = b) and antialiased ones yellow, so only the pure reds are counted.
 function mismatchMask(diff: PNG): Uint8Array {
   const mask = new Uint8Array(diff.width * diff.height);
   for (let p = 0; p < mask.length; p++) {
@@ -135,15 +135,15 @@ function checkRegion(r: Region, width: number, height: number): void {
   const ints = [r.x, r.y, r.width, r.height].every((v) => Number.isInteger(v));
   if (!ints || r.x < 0 || r.y < 0 || r.width <= 0 || r.height <= 0 || r.x + r.width > width || r.y + r.height > height) {
     throw new RangeError(
-      `región inválida: x=${r.x} y=${r.y} ${r.width}×${r.height} en una captura de ${width}×${height} ` +
-        '(enteros, tamaño > 0 y dentro de la imagen)',
+      `invalid region: x=${r.x} y=${r.y} ${r.width}×${r.height} in a screenshot of ${width}×${height} ` +
+        '(integers, size > 0 and inside the image)',
     );
   }
 }
 
 /**
- * Compara una captura de la app con la del mockup. La similitud es la fracción de píxeles
- * iguales (con la tolerancia de color y de antialias de pixelmatch); DESIGN §12 pide ≥ 0.99.
+ * Compares an app screenshot with the mockup's. Similarity is the fraction of
+ * identical pixels (with pixelmatch's color and antialias tolerance); DESIGN §12 asks for ≥ 0.99.
  */
 export function compare(actual: Buffer | string, expected: Buffer | string, opts: CompareOptions = {}): CompareResult {
   let a = load(actual);

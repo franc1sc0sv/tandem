@@ -6,7 +6,7 @@ import { EMPTY_NETWORK, type NetworkView, type PathView } from "./store/types";
 import { feedRun, type Run } from "./txn";
 
 const steps: Step[] = [{ step: "power_on", machine: "b" }];
-const name = (m: string) => (m === "a" ? "MacBook Pro" : "PC-Escritorio");
+const name = (m: string) => (m === "a" ? "MacBook Pro" : "PC-Desktop");
 function run(events: TxnView[], t0 = 0): Run {
   let r: Run | null = null;
   events.forEach((e, i) => {
@@ -18,15 +18,15 @@ function run(events: TxnView[], t0 = 0): Run {
 const started: TxnView = { type: "started", txn: 2, steps };
 const going: TxnView = { type: "step_started", txn: 2, index: 0 };
 
-describe("tarjeta de energía (F-Transacciones)", () => {
+describe("tarjeta de energía (F-Transactions)", () => {
   it("espera con Wake-on-LAN, el reloj contra el máximo y lo que falta", () => {
     const v = energyView(run([started, going]), name, "MacBook Pro", 18_000);
-    expect(v?.title).toBe("Encendiendo PC-Escritorio");
+    expect(v?.title).toBe("Powering on PC-Desktop");
     expect(v?.waiting).toBe(true);
     expect(v?.rows.map((r) => [r.icon, r.text, r.detail])).toEqual([
-      ["done", "Wake-on-LAN enviado desde MacBook Pro", "cada 5 s"],
-      ["run", "Esperando a que su agente conteste", "0:18 / 2:00"],
-      ["todo", "Volver a incluirla en el puesto", ""],
+      ["done", "Wake-on-LAN sent from MacBook Pro", "every 5 s"],
+      ["run", "Waiting for its agent to answer", "0:18 / 2:00"],
+      ["todo", "Add it back to the desk", ""],
     ]);
     expect(v?.rows[2]?.dim).toBe(true);
   });
@@ -40,8 +40,8 @@ describe("tarjeta de energía (F-Transacciones)", () => {
     );
     expect(ok?.waiting).toBe(false);
     expect(ok?.rows.map((r) => r.icon)).toEqual(["done", "done", "done"]);
-    const bad = energyView(run([started, going, { type: "step_failed", txn: 2, index: 0, error: "no contestó en 2:00" }]), name, "MacBook Pro", 99_000);
-    expect(bad?.rows[1]).toMatchObject({ icon: "bad", detail: "no contestó en 2:00", mono: false });
+    const bad = energyView(run([started, going, { type: "step_failed", txn: 2, index: 0, error: "did not answer en 2:00" }]), name, "MacBook Pro", 99_000);
+    expect(bad?.rows[1]).toMatchObject({ icon: "bad", detail: "did not answer en 2:00", mono: false });
   });
 
   it("solo dibuja corridas de encendido", () => {
@@ -76,26 +76,26 @@ const net = (measuring: NetworkView["measuring"] = "usb4"): NetworkView => ({
   measuring,
 });
 
-describe("tarjeta de medición (F-Transacciones)", () => {
+describe("tarjeta de medición (F-Transactions)", () => {
   it("dibuja lo medido, la barra y los otros caminos", () => {
     const v = measureView(net(), "usb4");
-    expect(v).toMatchObject({ title: "Midiendo el enlace USB-C", value: "9.4", unit: "Gbps", latency: "0.3 ms", percent: 94, aria: "9.4 de 10 Gbps", caption: "USB4 20 Gbps de enlace" });
+    expect(v).toMatchObject({ title: "Measuring the USB-C link", value: "9.4", unit: "Gbps", latency: "0.3 ms", percent: 94, aria: "9.4 of 10 Gbps", caption: "USB4 20 Gbps link" });
     expect(v?.others).toEqual([
-      { name: "Ethernet", text: "sin cable" },
+      { name: "Ethernet", text: "no cable" },
       { name: "Wi-Fi", text: "410 Mbps · 3.8 ms" },
     ]);
   });
 
-  it("el Wi-Fi caído dice «sin señal», no «sin cable» (T-147)", () => {
+  it("el Wi-Fi caído dice «no signal», no «no cable» (T-147)", () => {
     const n = net("usb4");
     n.paths = [path("usb4", "primary", 0.3, 9.4), path("ethernet", "unplugged", null, null), path("wifi", "unplugged", null, null)];
     expect(measureView(n, "usb4")?.others).toEqual([
-      { name: "Ethernet", text: "sin cable" },
-      { name: "Wi-Fi", text: "sin señal" },
+      { name: "Ethernet", text: "no cable" },
+      { name: "Wi-Fi", text: "no signal" },
     ]);
   });
 
-  it("sin medir todavía muestra guiones y la barra vacía; Mbps bajo 1 Gbps", () => {
+  it("not measured todavía muestra guiones y la barra vacía; Mbps bajo 1 Gbps", () => {
     const n = net();
     n.paths[0] = path("usb4", "primary", null, null);
     expect(measureView(n, "usb4")).toMatchObject({ value: "—", latency: "—", percent: 0 });

@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Paso 2 (`V3-Asistente`): unirse a un puesto o crear uno. Quien crea muestra el código de 6
-  // dígitos; quien se une lo escribe, y así prueba que ve la pantalla de la otra máquina antes
+  // Paso 2 (`V3-Setup`): unirse a un puesto o crear uno. Quien crea muestra el código de 6
+  // dígitos; quien se une lo escribe, y así prueba que ve la pantalla de the other machine antes
   // de confirmar. Las dos máquinas se emparejan una vez (D1: exactamente dos).
   import { onMount } from "svelte";
   import { fillOf } from "../../lib/acomodo";
@@ -23,7 +23,7 @@
   const desk = $derived(store.desk);
   const here = $derived(desk.machines[desk.here]);
   const other = $derived(desk.machines[desk.here === "a" ? "b" : "a"]);
-  const otherName = $derived(other?.name ?? "la otra máquina");
+  const otherName = $derived(other?.name ?? "the other machine");
   const pair = $derived(pairScreen(otherName, desk.pair.peer, desk.pair.pairing, askUnpair));
 
   let mode = $state<"join" | "new">("join");
@@ -33,10 +33,10 @@
 
   const peerColor = $derived(other?.color ?? "#a99be8");
   const detail = $derived.by(() => {
-    if (!other) return "encontrada en tu red";
+    if (!other) return "found on your network";
     const os = other.os === "macos" ? "macOS" : "Windows";
-    const via = desk.link.kind ? ` · por ${LINK_NAME[desk.link.kind]}` : "";
-    return `${os} · puesto «${desk.deskName}» · 1 máquina${via}`;
+    const via = desk.link.kind ? ` · over ${LINK_NAME[desk.link.kind]}` : "";
+    return `${os} · desk “${desk.deskName}” · 1 machine${via}`;
   });
 
   // Se busca sola al entrar: las dos máquinas tienen que estar en este paso para encontrarse.
@@ -44,7 +44,7 @@
     if (desk.pair.peer.kind === "unpaired" && desk.pair.pairing.kind === "idle") void store.pairAction("start_pairing");
   });
 
-  // Quien crea el puesto no confirma a mano: la otra máquina lo hace al escribir el código.
+  // Quien crea el puesto no confirma a mano: the other machine lo hace al escribir el código.
   $effect(() => {
     if (mode === "new" && pair.kind === "compare" && !pair.confirmed) void store.pairAction("confirm_pairing");
   });
@@ -79,40 +79,40 @@
 </script>
 
 <div class="wz-head">
-  <span class="wz-mut wz-sm">Paso 2 de 6</span>
-  <h1>¿Esta máquina se une a un puesto?</h1>
-  <p class="wz-mut wz-lead">Un puesto es el grupo de máquinas que comparten teclado, mouse, monitores y trabajo. Esta es «{here?.name ?? "esta máquina"}».</p>
+  <span class="wz-mut wz-sm">Step 2 of 6</span>
+  <h1>Does this machine join a desk?</h1>
+  <p class="wz-mut wz-lead">A desk is the group of machines that share keyboard, mouse, monitors and work. This one is “{here?.name ?? "this machine"}”.</p>
 </div>
 
-<div role="radiogroup" aria-label="Crear o unirse" style="display:flex;gap:12px;flex-wrap:wrap">
+<div role="radiogroup" aria-label="Create or join" style="display:flex;gap:12px;flex-wrap:wrap">
   <button type="button" role="radio" class="wz-opt" aria-checked={mode === "join"} onclick={() => (mode = "join")} style={mode === "join" ? OPT_ON : ""}>
     <span class="wz-oi"><Icon name="login" size={19} color="#7aa7e6" /></span>
-    <b style="font-weight:600">Unirme a un puesto</b>
-    <span class="wz-mut wz-sm">Ya tienes Tandem en otra máquina.</span>
+    <b style="font-weight:600">Join a desk</b>
+    <span class="wz-mut wz-sm">You already have Tandem on another machine.</span>
   </button>
   <button type="button" role="radio" class="wz-opt" aria-checked={mode === "new"} onclick={() => (mode = "new")} style={mode === "new" ? OPT_ON : ""}>
     <span class="wz-oi"><Icon name="grid-plus" size={19} color="#a99be8" /></span>
-    <b style="font-weight:600">Crear un puesto nuevo</b>
-    <span class="wz-mut wz-sm">Es la primera máquina. Las demás se unen después.</span>
+    <b style="font-weight:600">Create a new desk</b>
+    <span class="wz-mut wz-sm">This is the first machine. The others join later.</span>
   </button>
 </div>
 
 {#if pair.kind === "done" || pair.kind === "paired"}
-  <section class="wz-panel" aria-label="Emparejadas">
+  <section class="wz-panel" aria-label="Paired">
     <div class="wz-found ok">
       <Icon name={other ? machineIcon(other.os) : "tower"} size={22} color={peerColor} />
-      <div class="wz-col"><b>{pair.kind === "done" ? pair.peer : pair.name}</b><span class="wz-xs" style="color:#6cc59a">Emparejada{desk.link.kind ? " · se ven" : ""}</span></div>
+      <div class="wz-col"><b>{pair.kind === "done" ? pair.peer : pair.name}</b><span class="wz-xs" style="color:#6cc59a">Paired{desk.link.kind ? " · they see each other" : ""}</span></div>
       <span class="wz-fill"></span>
       <span class="wz-tick"><Icon name="check" size={17} stroke={2.6} color="#6cc59a" /></span>
     </div>
     {#if pair.kind === "paired"}
-      <div class="wz-row"><Button icon="refresh" variant="danger" size="sm" motion="spin" onclick={() => onAsk(true)}>Cambiar la otra máquina</Button></div>
+      <div class="wz-row"><Button icon="refresh" variant="danger" size="sm" motion="spin" onclick={() => onAsk(true)}>Change the other machine</Button></div>
     {/if}
   </section>
 {:else if pair.kind === "unpair"}
-  <section class="wz-panel" aria-label="Desemparejar">
-    <span class="wz-pt">¿Desemparejar {pair.name}?</span>
-    <p class="wz-mut wz-note">Dejan de compartir teclado, mouse y túneles hasta que vuelvas a emparejar.</p>
+  <section class="wz-panel" aria-label="Unpair">
+    <span class="wz-pt">Unpair {pair.name}?</span>
+    <p class="wz-mut wz-note">They stop sharing keyboard, mouse and tunnels until you pair again.</p>
     <div class="wz-row">
       <Button
         icon="x"
@@ -121,34 +121,34 @@
           onAsk(false);
           await store.pairAction("unpair");
           await store.pairAction("start_pairing");
-        }}>Desemparejar</Button
+        }}>Unpair</Button
       >
       <Button icon="arrow-left" variant="ghost" motion="back" onclick={() => onAsk(false)}>No</Button>
     </div>
   </section>
 {:else if pair.kind === "failed"}
-  <section class="wz-panel" aria-label="No se emparejaron">
-    <span class="wz-pt">No se emparejaron</span>
+  <section class="wz-panel" aria-label="They did not pair">
+    <span class="wz-pt">They did not pair</span>
     <p class="wz-mut wz-note">{pair.reason}</p>
-    <div class="wz-row"><Button icon="refresh" variant="pri" motion="spin" onclick={() => store.pairAction("start_pairing")}>Reintentar</Button></div>
+    <div class="wz-row"><Button icon="refresh" variant="pri" motion="spin" onclick={() => store.pairAction("start_pairing")}>Retry</Button></div>
   </section>
 {:else if mode === "join"}
-  <section class="wz-panel" aria-label="Unirse">
+  <section class="wz-panel" aria-label="Join">
     {#if pair.kind === "compare"}
-      <span class="wz-pt">Encontrada en tu red</span>
+      <span class="wz-pt">Found on your network</span>
       <div class="wz-found" style="border-color:{peerColor};background:{fillOf(peerColor)}">
         <Icon name={other ? machineIcon(other.os) : "tower"} size={22} color={peerColor} />
         <div class="wz-col"><b>{pair.peer}</b><span class="wz-mut wz-xs">{detail}</span></div>
       </div>
-      <label for="wz-code-1" style="font-size:13px">Escribe el código que muestra {pair.peer}</label>
-      <div class="wz-code" role="group" aria-label="Código de emparejamiento" id="wz-code">
+      <label for="wz-code-1" style="font-size:13px">Enter the code {pair.peer} shows</label>
+      <div class="wz-code" role="group" aria-label="Pairing code" id="wz-code">
         {#each digits as d, i (i)}
           {#if i === 3}<span style="width:8px"></span>{/if}
           <input
             id="wz-code-{i + 1}"
             class="wz-dg"
             class:bad={wrong}
-            aria-label="Dígito {i + 1}"
+            aria-label="Digit {i + 1}"
             inputmode="numeric"
             autocomplete="off"
             maxlength="6"
@@ -161,24 +161,24 @@
         {/each}
       </div>
       {#if wrong}
-        <p role="alert" class="wz-note" style="color:#e6c48f">No es el código que muestra {pair.peer}. Revísalo y vuelve a escribirlo.</p>
+        <p role="alert" class="wz-note" style="color:#e6c48f">That is not the code {pair.peer} shows. Check it and type it again.</p>
       {/if}
       {#if pair.confirmed}
-        <div class="wz-row"><span class="wz-spin" aria-hidden="true"></span><span class="wz-mut">Esperando a que confirme {pair.peer}…</span></div>
+        <div class="wz-row"><span class="wz-spin" aria-hidden="true"></span><span class="wz-mut">Waiting for {pair.peer} to confirm…</span></div>
       {/if}
       <p class="wz-mut wz-note">
-        Al entrar, esta máquina confía en todas las del puesto y ellas en ella, con acceso de administrador para el cómputo remoto. Puedes sacarla después desde cualquier máquina; la otra olvida su llave solo si está conectada, si no, cuando también salga del puesto.
+        On joining, this machine trusts every machine of the desk and they trust it, with administrator access for remote compute. You can remove it later from any machine; the other one forgets its key only if connected, otherwise once it also leaves the desk.
       </p>
     {:else}
-      <div class="wz-row"><span class="wz-spin" aria-hidden="true"></span><span class="wz-pt">Buscando a {otherName} en tu red…</span></div>
-      <p class="wz-mut wz-note">Abre Tandem en {otherName} y elige «Crear un puesto nuevo»: ahí aparece el código que se escribe aquí.</p>
-      <div class="wz-row"><Button icon="search" variant="pri" size="sm" onclick={() => store.pairAction("start_pairing")}>Buscar {otherName}</Button></div>
+      <div class="wz-row"><span class="wz-spin" aria-hidden="true"></span><span class="wz-pt">Looking for {otherName} on your network…</span></div>
+      <p class="wz-mut wz-note">Open Tandem on {otherName} and choose “Create a new desk”: the code to type here appears there.</p>
+      <div class="wz-row"><Button icon="search" variant="pri" size="sm" onclick={() => store.pairAction("start_pairing")}>Look for {otherName}</Button></div>
     {/if}
   </section>
 {:else}
-  <section class="wz-panel" aria-label="Crear" style="gap:12px">
+  <section class="wz-panel" aria-label="Create" style="gap:12px">
     {#if pair.kind === "compare"}
-      <span class="wz-pt" id="wz-new-code">Código de {here?.name ?? "esta máquina"}</span>
+      <span class="wz-pt" id="wz-new-code">Code of {here?.name ?? "this machine"}</span>
       <div class="wz-code" role="group" aria-labelledby="wz-new-code">
         {#each pair.digits[0].split("") as d, i (i)}<span class="wz-dg" style="display:grid;place-items:center">{d}</span>{/each}<span style="width:8px"></span>{#each pair.digits[1].split("") as d, i (i)}<span
             class="wz-dg"
@@ -186,11 +186,11 @@
           >{/each}
       </div>
       {#if pair.confirmed}
-        <div class="wz-row"><span class="wz-spin" aria-hidden="true"></span><span class="wz-mut">Esperando a que {pair.peer} escriba el código…</span></div>
+        <div class="wz-row"><span class="wz-spin" aria-hidden="true"></span><span class="wz-mut">Waiting for {pair.peer} to enter the code…</span></div>
       {/if}
     {:else}
-      <div class="wz-row"><span class="wz-spin" aria-hidden="true"></span><span class="wz-pt">Esperando a {otherName}…</span></div>
+      <div class="wz-row"><span class="wz-spin" aria-hidden="true"></span><span class="wz-pt">Waiting for {otherName}…</span></div>
     {/if}
-    <p class="wz-mut wz-note">Después, en la otra máquina, elige «Unirme a un puesto» y escribe el código que aparecerá aquí.</p>
+    <p class="wz-mut wz-note">Then, on the other machine, choose “Join a desk” and enter the code that will appear here.</p>
   </section>
 {/if}

@@ -5,7 +5,7 @@ import { PNG } from 'pngjs';
 import { afterAll, describe, expect, it } from 'vitest';
 import { MissingMockupShotError, compareWithMockup, mockupShotPath } from '../src/harness.ts';
 
-// Carpeta de referencias falsa: no depende de que docs/mockups-png esté generada.
+// Fake references folder: it does not depend on docs/mockups-png being generated.
 const shots = mkdtempSync(join(tmpdir(), 'mockup-harness-'));
 afterAll(() => rmSync(shots, { recursive: true, force: true }));
 
@@ -25,11 +25,11 @@ function solid(width: number, height: number, rgb: [number, number, number], blo
 }
 
 const reference = solid(320, 200, [14, 15, 18]);
-writeFileSync(join(shots, 'V3-Puesto.png'), reference);
-writeFileSync(join(shots, 'V3-Puesto--escena-juego.png'), solid(320, 200, [14, 15, 18], [10, 10, 40, 40]));
+writeFileSync(join(shots, 'V3-Desk.png'), reference);
+writeFileSync(join(shots, 'V3-Desk--scene-game.png'), solid(320, 200, [14, 15, 18], [10, 10, 40, 40]));
 
-describe('export de @tandem/mockup-render/harness', () => {
-  it('resuelve por nombre de paquete, como lo importa tandem-ui', async () => {
+describe('export of @tandem/mockup-render/harness', () => {
+  it('resolves by package name, as tandem-ui imports it', async () => {
     const harness = await import('@tandem/mockup-render/harness');
     expect(typeof harness.compareWithMockup).toBe('function');
     expect(typeof harness.capture).toBe('function');
@@ -41,46 +41,46 @@ describe('export de @tandem/mockup-render/harness', () => {
 });
 
 describe('compareWithMockup', () => {
-  it('busca <mockup>.png o <mockup>--<estado>.png', () => {
-    expect(mockupShotPath('V3-Puesto', undefined, shots)).toBe(join(shots, 'V3-Puesto.png'));
-    expect(mockupShotPath('V3-Puesto', 'escena-juego', shots)).toBe(join(shots, 'V3-Puesto--escena-juego.png'));
+  it('looks for <mockup>.png or <mockup>--<state>.png', () => {
+    expect(mockupShotPath('V3-Desk', undefined, shots)).toBe(join(shots, 'V3-Desk.png'));
+    expect(mockupShotPath('V3-Desk', 'scene-game', shots)).toBe(join(shots, 'V3-Desk--scene-game.png'));
   });
 
-  it('la misma captura da similitud 1 y deja el diff donde se pidió', () => {
+  it('the same screenshot gives similarity 1 and leaves the diff where requested', () => {
     const diffPath = join(shots, 'sub', 'dir', 'diff.png');
-    const r = compareWithMockup(reference, { mockup: 'V3-Puesto', shotsDir: shots, diffPath });
+    const r = compareWithMockup(reference, { mockup: 'V3-Desk', shotsDir: shots, diffPath });
     expect(r.similarity).toBe(1);
     expect(r.worstTile.similarity).toBe(1);
-    expect(r.expectedPath).toBe(join(shots, 'V3-Puesto.png'));
+    expect(r.expectedPath).toBe(join(shots, 'V3-Desk.png'));
     expect(r.diffPath).toBe(diffPath);
     const diff = PNG.sync.read(readFileSync(diffPath));
     expect([diff.width, diff.height]).toEqual([320, 200]);
   });
 
-  it('contra otro estado, el peor cuadro delata la diferencia', () => {
+  it('against another state, the worst tile exposes the difference', () => {
     const file = join(shots, 'app.png');
     writeFileSync(file, reference);
-    const r = compareWithMockup(file, { mockup: 'V3-Puesto', state: 'escena-juego', shotsDir: shots });
+    const r = compareWithMockup(file, { mockup: 'V3-Desk', state: 'scene-game', shotsDir: shots });
     expect(r.similarity).toBeGreaterThan(0.97);
     expect(r.worstTile.similarity).toBeLessThan(0.7);
     expect(r.diffPath).toBeUndefined();
   });
 
-  it('acepta region y las opciones de compare', () => {
+  it('accepts region and the compare options', () => {
     const r = compareWithMockup(reference, {
-      mockup: 'V3-Puesto',
-      state: 'escena-juego',
+      mockup: 'V3-Desk',
+      state: 'scene-game',
       shotsDir: shots,
       region: { x: 100, y: 0, width: 220, height: 200 },
     });
     expect(r.similarity).toBe(1);
   });
 
-  it('sin referencia da un error que dice cuál falta', () => {
-    expect(() => compareWithMockup(reference, { mockup: 'V3-Puesto', state: 'no-existe', shotsDir: shots })).toThrow(
+  it('without a reference it gives an error that says which one is missing', () => {
+    expect(() => compareWithMockup(reference, { mockup: 'V3-Desk', state: 'does-not-exist', shotsDir: shots })).toThrow(
       MissingMockupShotError,
     );
-    expect(() => mockupShotPath('V3-Nada', undefined, shots)).toThrow(/V3-Nada\.png.*pnpm mockups:shot/);
-    expect(existsSync(join(shots, 'V3-Nada.png'))).toBe(false);
+    expect(() => mockupShotPath('V3-Nothing', undefined, shots)).toThrow(/V3-Nothing\.png.*pnpm mockups:shot/);
+    expect(existsSync(join(shots, 'V3-Nothing.png'))).toBe(false);
   });
 });

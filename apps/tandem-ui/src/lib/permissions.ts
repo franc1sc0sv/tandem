@@ -1,19 +1,19 @@
-// Los permisos de macOS tal como el usuario los ve: el nombre en español y el del panel en
-// inglés (la Mac puede estar en inglés), y a qué binario se conceden (T-090). Sin DOM.
+// macOS permissions as the user sees them: the name shown in the Settings panel, and which
+// binary they are granted to (T-090). No DOM.
 
 import type { ActionResult, MachineCaps, Permission } from "./model";
 
-export const PERMISSION_NAMES: Record<Permission, { es: string; en: string }> = {
-  accessibility: { es: "Accesibilidad", en: "Accessibility" },
-  input_monitoring: { es: "Monitorización de entrada", en: "Input Monitoring" },
-  local_network: { es: "Red local", en: "Local Network" },
+export const PERMISSION_NAMES: Record<Permission, string> = {
+  accessibility: "Accessibility",
+  input_monitoring: "Input Monitoring",
+  local_network: "Local Network",
 };
 
-/** «Accesibilidad (Accessibility)»: el español y, entre paréntesis, el nombre del panel en inglés. */
-export const permissionLabel = (p: Permission) => `${PERMISSION_NAMES[p].es} (${PERMISSION_NAMES[p].en})`;
+/** The permission name as the Settings panel shows it. */
+export const permissionLabel = (p: Permission) => `${PERMISSION_NAMES[p]}`;
 
-/** Dónde se concede, en las dos lenguas del sistema. */
-export const SETTINGS_PATH = "Ajustes del Sistema → Privacidad y seguridad (System Settings → Privacy & Security)";
+/** Where it is granted. */
+export const SETTINGS_PATH = "System Settings → Privacy & Security";
 
 /** El binario que corre el agente, o `null` si el agente no lo dijo. */
 export function agentBinary(here: MachineCaps | null): string | null {
@@ -25,7 +25,7 @@ export function agentBinary(here: MachineCaps | null): string | null {
 export function grantTo(here: MachineCaps | null): string | null {
   const exe = agentBinary(here);
   if (!exe || !here) return null;
-  return `Concede el permiso a este binario: ${exe} (pid ${here.input.process.pid})`;
+  return `Grant the permission to this binary: ${exe} (pid ${here.input.process.pid})`;
 }
 
 /** Lo que sabe el agente de un permiso: `unknown` si no hay agente o no lo comprueba (red local). */
@@ -43,10 +43,10 @@ export function permissionState(here: MachineCaps | null, p: Permission): Permis
  * pedirla.
  */
 export const MISSING_HELP = [
-  "1. Pulsa «Pedir permisos»: macOS muestra su diálogo para este binario.",
-  `2. Actívalo en ${SETTINGS_PATH}.`,
-  "3. Pulsa «Reiniciar agente» para que valga el permiso recién dado.",
-  "Si ya estaba activado y sigue faltando, quita la entrada vieja con «−», pulsa «Pedir permisos» y reinicia el agente.",
+  "1. Press “Request permissions”: macOS shows its dialog for this binary.",
+  `2. Turn it on in ${SETTINGS_PATH}.`,
+  "3. Press “Restart agent” so the permission you just gave takes effect.",
+  "If it was already on and is still missing, remove the old entry with “−”, press “Request permissions” and restart the agent.",
 ].join(" ");
 
 /** Lo que hacen los botones de permisos, sin DOM: cada uno devuelve el error a mostrar y el aviso. */
@@ -65,15 +65,15 @@ export interface PermissionOutcome {
 export async function pressPermission(action: string, d: PermissionDeps): Promise<PermissionOutcome> {
   if (action === "request") {
     const r = await d.request();
-    return { error: r.kind === "rejected" ? r.reason : r.kind === "unavailable" ? `sin agente: ${r.reason}` : null };
+    return { error: r.kind === "rejected" ? r.reason : r.kind === "unavailable" ? `no agent: ${r.reason}` : null };
   }
   if (action === "restart") {
-    if (!d.restartAgent) return { error: "No se pudo reiniciar el agente: la app no está disponible" };
+    if (!d.restartAgent) return { error: "Could not restart the agent: the app is not available" };
     try {
       await d.restartAgent();
-      return { error: null, message: "tandemd se reinicia: en unos segundos se vuelven a comprobar los permisos" };
+      return { error: null, message: "tandemd is restarting: permissions are re-checked in a few seconds" };
     } catch (e) {
-      return { error: `No se pudo reiniciar el agente: ${e instanceof Error ? e.message : String(e)}` };
+      return { error: `Could not restart the agent: ${e instanceof Error ? e.message : String(e)}` };
     }
   }
   await d.openSettings?.();

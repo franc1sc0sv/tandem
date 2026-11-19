@@ -1,4 +1,4 @@
-// «Cambios en progreso» (`F-Transacciones`): una transacción con sus pasos, el tiempo de cada
+// «Changes in progress» (`F-Transactions`): una transacción con sus pasos, el tiempo de cada
 // uno y la vuelta atrás visible. Puro: la pantalla solo dibuja `viewOf`.
 
 import { advance, type Progress } from "./machines";
@@ -7,9 +7,9 @@ import type { Machine, Step, TxnView } from "./model";
 import type { MonitorUi } from "./store/types";
 
 export interface Run {
-  /** Título fijo si lo puso quien pidió el cambio («Aplicando la escena «Juego»»); si no, sale de los pasos. */
+  /** Título fijo si lo puso quien pidió el cambio («Applying the scene “Game”»); si no, sale de los pasos. */
   title: string | null;
-  /** Lo que se dice al terminar bien («Escena «Juego» activa.»). */
+  /** Lo que se dice al terminar bien («Scene “Game” active.»). */
   doneText: string | null;
   progress: Progress;
   startedAt: number;
@@ -96,21 +96,21 @@ const LONG: Record<string, string> = { DisplayPort: "DisplayPort", HDMI: "HDMI" 
 /** El título de lo que se está haciendo, a partir de sus pasos. */
 export function titleOf(steps: Step[], names: Names): string {
   const first = steps[0];
-  if (!first) return "Cambio en progreso";
-  if (steps.some((s) => s.step === "show_machine" || s.step === "arrange" || s.step === "geometry")) return "Aplicando una escena";
-  if (first.step === "power_on") return `Encendiendo ${names.machine(first.machine)}`;
-  if (first.step === "power_off") return `Apagando ${names.machine(first.machine)}`;
-  if (first.step === "switch_monitor") return `Cambiando la entrada del ${monitorName(first.monitor, names)}`;
-  return "Cambio en progreso";
+  if (!first) return "Change in progress";
+  if (steps.some((s) => s.step === "show_machine" || s.step === "arrange" || s.step === "geometry")) return "Applying a scene";
+  if (first.step === "power_on") return `Powering on ${names.machine(first.machine)}`;
+  if (first.step === "power_off") return `Powering off ${names.machine(first.machine)}`;
+  if (first.step === "switch_monitor") return `Changing the input of ${monitorName(first.monitor, names)}`;
+  return "Change in progress";
 }
 
 function label(s: Step, steps: Step[], names: Names): string {
   const m = names.machine;
   switch (s.step) {
     case "power_on":
-      return `Encender ${m(s.machine)}`;
+      return `Power on ${m(s.machine)}`;
     case "power_off":
-      return `Apagar ${m(s.machine)}`;
+      return `Power off ${m(s.machine)}`;
     case "switch_monitor":
       return `${monitorName(s.monitor, names)} → ${INPUT_LABEL[s.input]}`;
     case "show_machine": {
@@ -118,10 +118,10 @@ function label(s: Step, steps: Step[], names: Names): string {
       return `${monitorName(s.monitor, names)} → ${m(s.machine)}${port ? ` (${INPUT_LABEL[port]})` : ""}`;
     }
     case "arrange":
-      return "Acomodar los escritorios";
+      return "Arrange the desktops";
     case "geometry": {
       const show = steps.find((x): x is Extract<Step, { step: "show_machine" }> => x.step === "show_machine");
-      return show ? `Mouse: sacar el ${monitorName(show.monitor, names)} de ${m(other(show.machine))}` : "Teclado y mouse: geometría nueva";
+      return show ? `Mouse: take the ${monitorName(show.monitor, names)} off ${m(other(show.machine))}` : "Keyboard and mouse: new geometry";
     }
   }
 }
@@ -130,7 +130,7 @@ const isMonitorStep = (s: Step) => s.step === "show_machine" || s.step === "swit
 
 /** El error de una entrada que no dio imagen (lo que dice el agente) en una frase corta. */
 function noImage(error: string): string | null {
-  const m = /no mostró imagen en (\S+?)(?:;|$)/.exec(error);
+  const m = /(?:no mostró imagen en|showed no picture (?:on|over|in)) (\S+?)(?:;|$)/.exec(error);
   return m ? (LONG[m[1]] ?? m[1]) : null;
 }
 
@@ -140,7 +140,7 @@ export function viewOf(run: Run, names: Names, now: number): RunView {
   const { progress: p } = run;
   const outcome = p.outcome.kind === "committed" ? "ok" : p.outcome.kind === "failed" ? "failed" : "running";
   const failedAt = p.status.findIndex((s) => s === "failed");
-  const rows: Row[] = [{ key: "save", icon: "done", text: "Guardar cómo está todo", detail: "listo", tone: "" }];
+  const rows: Row[] = [{ key: "save", icon: "done", text: "Save how everything is", detail: "done", tone: "" }];
   p.steps.forEach((s, i) => {
     // Lo que no llegó a empezar antes de un fallo no se muestra: lo reemplaza la vuelta atrás.
     if (failedAt >= 0 && i > failedAt) return;
@@ -148,28 +148,28 @@ export function viewOf(run: Run, names: Names, now: number): RunView {
     const took = run.stepStart[i] !== undefined && run.stepEnd[i] !== undefined ? seconds((run.stepEnd[i] ?? 0) - (run.stepStart[i] ?? 0)) : "";
     const text = label(s, p.steps, names);
     const key = `s${i}`;
-    if (st === "done") rows.push({ key, icon: "done", text, detail: isMonitorStep(s) ? (took ? `confirmado · ${took}` : "confirmado") : "listo", tone: "" });
-    else if (st === "undone") rows.push({ key, icon: "done", text, detail: "deshecho", tone: "" });
-    else if (st === "run") rows.push({ key, icon: "run", text, detail: isMonitorStep(s) ? "esperando al monitor" : "", tone: "" });
+    if (st === "done") rows.push({ key, icon: "done", text, detail: isMonitorStep(s) ? (took ? `confirmed · ${took}` : "confirmed") : "done", tone: "" });
+    else if (st === "undone") rows.push({ key, icon: "done", text, detail: "undone", tone: "" });
+    else if (st === "run") rows.push({ key, icon: "run", text, detail: isMonitorStep(s) ? "waiting for the monitor" : "", tone: "" });
     else if (st === "failed") {
       const verdict = isMonitorStep(s) && noImage(p.error ?? "") !== null;
-      rows.push({ key, icon: "bad", text, detail: verdict ? "el monitor dijo: cambio fallido" : (p.error ?? "falló"), tone: "bad" });
+      rows.push({ key, icon: "bad", text, detail: verdict ? "the monitor said: change failed" : (p.error ?? "failed"), tone: "bad" });
     } else rows.push({ key, icon: "todo", text, detail: "", tone: "" });
   });
   if (failedAt >= 0) {
     const bad = p.steps[failedAt];
     const was = bad && isMonitorStep(bad) ? names.monitors.find((x) => x.id === (bad as { monitor: string }).monitor) : null;
     const back = was?.shows ? `${shortMonitor(was.name)} → ${names.machine(was.shows)}` : "";
-    rows.push({ key: "back", icon: outcome === "running" ? "back" : "done", text: "Volviendo a como estaba", detail: back, tone: "" });
+    rows.push({ key: "back", icon: outcome === "running" ? "back" : "done", text: "Rolling back to how it was", detail: back, tone: "" });
   }
 
   let message: Message;
-  if (outcome === "ok") message = { text: run.doneText ?? "Listo.", tone: "ok" };
+  if (outcome === "ok") message = { text: run.doneText ?? "Done.", tone: "ok" };
   else if (failedAt >= 0) {
     const sig = noImage(p.error ?? "");
-    const why = sig ? `No había señal por ${sig}` : sentence((p.error ?? "").replace(/\.$/, ""));
-    message = { text: `${why ? `${why}. ` : ""}Todo vuelve a como estaba; nada quedó a medias.`, tone: "warn" };
-  } else message = { text: "El monitor confirma cada cambio; no se adivina.", tone: "mut" };
+    const why = sig ? `There was no ${sig} signal` : sentence((p.error ?? "").replace(/\.$/, ""));
+    message = { text: `${why ? `${why}. ` : ""}Everything goes back to how it was; nothing was left half done.`, tone: "warn" };
+  } else message = { text: "The monitor confirms each change; nothing is guessed.", tone: "mut" };
 
   return { title: run.title ?? titleOf(p.steps, names), elapsed: seconds((run.endedAt ?? now) - run.startedAt), rows, message, outcome };
 }

@@ -1,5 +1,5 @@
-// El asistente de 6 pasos (DESIGN §12, mockups `F-Asis1`…`F-Asis6`): lo que no depende del
-// DOM. Qué pasos hay, qué muestra «Lo que encontró», las tarjetas de permisos, el dibujo y el
+// El asistente de 6 pasos (DESIGN §12, mockups `F-Setup1`…`F-Setup6`): lo que no depende del
+// DOM. Qué pasos hay, qué muestra «What it found», las tarjetas de permisos, el dibujo y el
 // veredicto de la prueba de cruce y el resumen final. Cada dato sale del estado real del
 // puesto: nada se supone por sistema (D2).
 
@@ -8,7 +8,7 @@ import { LINK_NAME } from "./machines";
 import type { AdminView, Machine, Permission, Side } from "./model";
 import type { DeskView, MachineView, PermissionRow } from "./store/types";
 
-export const WIZARD_STEPS = ["Esta máquina", "Tu puesto", "Permisos", "Teclado y mouse", "Acomodo y prueba de cruce", "Listo"];
+export const WIZARD_STEPS = ["This machine", "Your desk", "Permissions", "Keyboard and mouse", "Arrangement and crossing test", "Done"];
 
 /** Pasos que se abren desde otras partes de la app (índices de `WIZARD_STEPS`). */
 export const STEP_MACHINE = 0;
@@ -37,7 +37,7 @@ export function clampStep(i: number): number {
 
 export interface FoundRow {
   id: string;
-  /** `ok` encontrado, `off` no disponible ahora, `wait` comprobando. */
+  /** `ok` encontrado, `off` unavailable ahora, `wait` comprobando. */
   state: "ok" | "off" | "wait";
   label: string;
   note: string;
@@ -48,8 +48,8 @@ export interface FoundRow {
 }
 
 /** Lo que cada módulo activo dice de sí, en pocas palabras (como el mockup). */
-const SHORT: Record<string, string> = { input: "captura e inyección", clipboard: "texto, HTML, imagen", monitors: "canal DDC" };
-const LABEL: Record<string, string> = { tunnels: "Cómputo" };
+const SHORT: Record<string, string> = { input: "capture and injection", clipboard: "text, HTML, image", monitors: "DDC channel" };
+const LABEL: Record<string, string> = { tunnels: "Compute" };
 const ORDER = ["input", "clipboard", "tunnels", "monitors"];
 
 /** Los entornos con las herramientas del primero que las anuncia: «zsh · Docker · uv · node». */
@@ -75,7 +75,7 @@ export function systemNote(m: MachineView): string {
  * Sin lectura todavía se usa el módulo del agente, pero nunca queda girando: sin dato, `off`.
  */
 export function serviceRow(admin: AdminView | null, moduleActive: boolean): FoundRow {
-  const base = { id: "service", label: "Servicio de administrador", mono: false };
+  const base = { id: "service", label: "Administrator service", mono: false };
   if (!admin) return { ...base, state: moduleActive ? "ok" : "off", note: "" };
   const state = admin.state === "ok" ? "ok" : admin.state === "pending" ? "wait" : "off";
   return { ...base, state, note: admin.canInstall ? "" : admin.note, install: admin.canInstall && admin.state !== "ok" };
@@ -83,7 +83,7 @@ export function serviceRow(admin: AdminView | null, moduleActive: boolean): Foun
 
 export function foundRows(m: MachineView | null, admin: AdminView | null = null): FoundRow[] {
   if (!m) return [];
-  const rows: FoundRow[] = [{ id: "system", state: "ok", label: systemNote(m), note: "sistema", mono: false }];
+  const rows: FoundRow[] = [{ id: "system", state: "ok", label: systemNote(m), note: "system", mono: false }];
   for (const id of ORDER) {
     const mod = m.modules.find((x) => x.id === id);
     if (!mod) continue;
@@ -91,7 +91,7 @@ export function foundRows(m: MachineView | null, admin: AdminView | null = null)
     // El cómputo se dibuja con los entornos que hay, aunque falte el servicio de administrador.
     if (id === "tunnels" && (mod.state === "active" || m.environments.length > 0)) rows.push({ id, state: "ok", label, note: computeNote(m), mono: true });
     else if (mod.state === "active") rows.push({ id, state: "ok", label, note: SHORT[id] ?? mod.detail, mono: false });
-    else if (id === "monitors" && mod.state === "off") rows.push({ id, state: "off", label, note: "sin canal DDC ahora; otra máquina los controla", mono: false });
+    else if (id === "monitors" && mod.state === "off") rows.push({ id, state: "off", label, note: "no DDC channel right now; another machine controls them", mono: false });
     else rows.push({ id, state: "off", label, note: mod.detail, mono: false });
   }
   const tunnels = m.modules.find((x) => x.id === "tunnels");
@@ -112,11 +112,11 @@ export interface PermCard {
   missing: boolean;
 }
 
-// Los textos de `F-Asis3`: se dirigen a las otras máquinas del puesto sin nombrar ningún sistema.
+// Los textos de `F-Setup3`: se dirigen a las otras máquinas del puesto sin nombrar ningún sistema.
 const PERM_TEXT: Record<Permission, { title: string; why: string }> = {
-  accessibility: { title: "Accesibilidad", why: "Para escribir y mover el mouse en esta máquina cuando los usas desde otra." },
-  input_monitoring: { title: "Monitorización de entrada", why: "Para llevar el teclado y el mouse de esta máquina a otra cuando el cursor cruza el borde." },
-  local_network: { title: "Red local", why: "Para encontrar las otras máquinas del puesto y hablar con ellas cifrado." },
+  accessibility: { title: "Accessibility", why: "To type and move the mouse on this machine when you use them from another one." },
+  input_monitoring: { title: "Input Monitoring", why: "To carry this machine’s keyboard and mouse to another one when the cursor crosses the edge." },
+  local_network: { title: "Local Network", why: "To find the other machines of the desk and talk to them encrypted." },
 };
 
 export function permCards(rows: PermissionRow[]): PermCard[] {
@@ -125,9 +125,9 @@ export function permCards(rows: PermissionRow[]): PermCard[] {
 
 export const missingOf = (cards: PermCard[]): number => cards.filter((c) => c.missing).length;
 
-/** «Faltan 2», «Falta 1» o «Todo concedido». */
+/** «Missing 2» or «All granted». */
 export function permFooter(missing: number): string {
-  return missing === 0 ? "Todo concedido" : missing === 1 ? "Falta 1" : `Faltan ${missing}`;
+  return missing === 0 ? "All granted" : `Missing ${missing}`;
 }
 
 // ---- Paso 4: teclado y mouse ----------------------------------------------------------------
@@ -152,20 +152,20 @@ export function deviceRows(m: MachineView | null): DeviceRow[] {
 
 /** Lo que el agente anuncia del hub: sin `true` no hay teclado ni mouse que mostrar. */
 export function devicesOfHub(hub: boolean | null | undefined): DeviceRow[] {
-  return hub === true ? [{ name: "Teclado y mouse", via: "por el hub" }] : [];
+  return hub === true ? [{ name: "Keyboard and mouse", via: "through the hub" }] : [];
 }
 
 /** El cómputo funciona: el módulo de túneles no está apagado y hay un entorno listo. */
 export function computeWorks(m: MachineView | null | undefined): boolean {
   if (!m) return false;
-  // Un módulo que el agente da por no disponible tampoco cuenta como cómputo remoto (T-158).
+  // Un módulo que el agente da por unavailable tampoco cuenta como cómputo remoto (T-158).
   const state = m.modules.find((x) => x.id === "tunnels")?.state;
   return state !== "off" && state !== "unavailable" && m.environments.some((e) => e.ready);
 }
 
 // ---- Paso 5: acomodo y prueba de cruce ------------------------------------------------------
 
-/** Las cajas del dibujo, en el lienzo de 290 px de alto de `F-Asis5`: la propia, la otra y el borde. */
+/** Las cajas del dibujo, en el lienzo de 290 px de alto de `F-Setup5`: la propia, la otra y el borde. */
 export interface Sketch {
   here: string;
   other: string;
@@ -212,8 +212,8 @@ export const SKETCH: Record<Side, Sketch> = {
   },
 };
 
-const EDGE_WORD: Record<Side, string> = { right: "derecho", left: "izquierdo", up: "superior", down: "inferior" };
-const BY_WORD: Record<Side, string> = { right: "la derecha", left: "la izquierda", up: "arriba", down: "abajo" };
+const EDGE_WORD: Record<Side, string> = { right: "right", left: "left", up: "top", down: "bottom" };
+const BY_WORD: Record<Side, string> = { right: "the right", left: "the left", up: "the top", down: "the bottom" };
 
 export const edgeWord = (s: Side): string => EDGE_WORD[s];
 
@@ -224,32 +224,32 @@ export interface CrossVerdict {
 
 /**
  * Lo que se le dice al usuario según la fase de la prueba. `expected` es el borde del acomodo,
- * `here` el nombre de esta máquina y `peer` el de la otra.
+ * `here` el nombre de this machine y `peer` el de la otra.
  */
 export function crossVerdict(phase: CrossPhase, expected: Side, here: string, peer: string, seconds: number): CrossVerdict {
   switch (phase.kind) {
     case "waiting":
-      return { tone: "wait", text: `Esperando el cruce por el borde ${EDGE_WORD[expected]} de ${here}…` };
+      return { tone: "wait", text: `Waiting for the crossing at the ${EDGE_WORD[expected]} edge of ${here}…` };
     case "passed":
-      return { tone: "ok", text: `Cruzó a ${peer} por el borde ${EDGE_WORD[expected]}, como dice el acomodo.${phase.sample.ms === null ? "" : ` Vuelta medida: ${formatMs(phase.sample.ms)}.`}` };
+      return { tone: "ok", text: `Crossed to ${peer} through the ${EDGE_WORD[expected]} edge, as the arrangement says.${phase.sample.ms === null ? "" : ` Round trip measured: ${formatMs(phase.sample.ms)}.`}` };
     case "wrong-edge":
       return {
         tone: "warn",
-        text: `Cruzó por ${BY_WORD[phase.sample.edge]}, no por ${BY_WORD[expected]}: el acomodo no coincide con tu escritorio. Mueve las pantallas y prueba de nuevo.`,
+        text: `Crossed at ${BY_WORD[phase.sample.edge]}, not ${BY_WORD[expected]}: the arrangement does not match your desk. Move the screens and test again.`,
       };
     case "timeout":
-      return { tone: "warn", text: `No cruzó en ${seconds} s. Lleva el mouse hasta el borde ${EDGE_WORD[expected]} de ${here} y prueba de nuevo, o mueve las pantallas.` };
+      return { tone: "warn", text: `Did not cross in ${seconds} s. Move the mouse to the ${EDGE_WORD[expected]} edge of ${here} and test again, or move the screens.` };
     case "unavailable":
-      return { tone: "warn", text: `No se puede probar el cruce todavía: ${phase.reason}.` };
+      return { tone: "warn", text: `The crossing cannot be tested yet: ${phase.reason}.` };
   }
 }
 
-/** Dónde queda la otra máquina según adónde se soltó, visto desde el centro de la propia. */
+/** Dónde queda the other machine según adónde se soltó, visto desde el centro de la propia. */
 export function dropSide(dx: number, dy: number): Side {
   return Math.abs(dx) >= Math.abs(dy) ? (dx >= 0 ? "right" : "left") : dy >= 0 ? "down" : "up";
 }
 
-/** La flecha del teclado mueve la otra máquina hacia ese lado. */
+/** La flecha del teclado mueve the other machine hacia ese lado. */
 export function arrowSide(key: string): Side | null {
   return key === "ArrowRight" ? "right" : key === "ArrowLeft" ? "left" : key === "ArrowUp" ? "up" : key === "ArrowDown" ? "down" : null;
 }
@@ -285,34 +285,34 @@ export function summaryRows(d: DeskView, facts: Facts): SummaryRow[] {
   const mon = d.monitors.find((x) => x.compat.ok && x.connected);
   const tunnels = [here, peer].every(computeWorks);
   return [
-    { id: "link", label: "Enlace", note: link ?? "sin enlace", mono: link !== null, ok: link !== null },
+    { id: "link", label: "Link", note: link ?? "no link", mono: link !== null, ok: link !== null },
     {
       id: "input",
-      label: "Teclado y mouse",
-      note: facts.crossed ? "desde cualquier máquina · cruce probado" : "cruce sin probar",
+      label: "Keyboard and mouse",
+      note: facts.crossed ? "from any machine · crossing tested" : "crossing not tested",
       mono: false,
       ok: input?.state === "active" && facts.crossed,
     },
     {
       id: "monitors",
-      label: "Monitores",
-      note: mon ? `${d.layout.screens.find((x) => x.id === mon.id)?.size ?? mon.name} compatible${mon.owner ? ` · dueño ${d.machines[mon.owner]?.name ?? ""}` : ""}` : "ninguno compatible",
+      label: "Monitors",
+      note: mon ? `${d.layout.screens.find((x) => x.id === mon.id)?.size ?? mon.name} compatible${mon.owner ? ` · owner ${d.machines[mon.owner]?.name ?? ""}` : ""}` : "none supported",
       mono: false,
       ok: !!mon,
     },
     {
       id: "tunnels",
-      label: "Cómputo remoto",
-      note: tunnels ? "MCP listo para Claude Code en las dos" : "el cómputo remoto no responde en alguna",
+      label: "Remote compute",
+      note: tunnels ? "MCP ready for Claude Code on both" : "remote compute does not respond on one of them",
       mono: false,
       ok: tunnels,
     },
   ];
 }
 
-/** La primera fila del resumen: «MacBook Pro y PC-Escritorio en «Mi puesto»». */
+/** La primera fila del resumen: «MacBook Pro y PC-Escritorio en «My desk»». */
 export function deskTitle(d: DeskView): { here: string; peer: string | null; desk: string } {
   const peerId: Machine = d.here === "a" ? "b" : "a";
   const peer = d.pair.peer.kind === "paired" ? (d.machines[peerId]?.name ?? d.pair.peer.name) : null;
-  return { here: d.machines[d.here]?.name ?? "Esta máquina", peer, desk: d.deskName };
+  return { here: d.machines[d.here]?.name ?? "This machine", peer, desk: d.deskName };
 }

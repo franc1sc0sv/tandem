@@ -22,7 +22,7 @@ function fileAsset(path: string): Asset {
   return { body: readFileSync(path), contentType: TYPES[extname(path)] ?? 'application/octet-stream' };
 }
 
-/** Archivo dentro de `dir`, sin salirse de él (`..`). */
+/** File inside `dir`, without escaping it (`..`). */
 function inside(dir: string, pathname: string): string | null {
   const rel = normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/, '');
   if (rel.startsWith('..')) return null;
@@ -35,15 +35,15 @@ function indexPage(dir: string): Asset {
   const items = listMockups(dir)
     .map((n) => `<li><a href="${n}${MOCKUP_SUFFIX}">${n}</a></li>`)
     .join('\n');
-  const html = `<!doctype html><html lang="es"><meta charset="utf-8"><title>Mockups v0.3</title>
+  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><title>Mockups v0.3</title>
 <body style="font-family:system-ui;background:#0e0f12;color:#e8e8eb"><h1>Mockups v0.3</h1><ul>${items}</ul></body></html>`;
   return { body: Buffer.from(html), contentType: TYPES['.html'] ?? 'text/html' };
 }
 
 /**
- * Lo que sirve el renderizador para una ruta: el `support.js` propio (cualquier ruta que
- * termine en `/support.js`, porque los mockups lo piden como `./support.js`), los archivos de
- * la carpeta de mockups y un índice en `/`.
+ * What the renderer serves for a path: our own `support.js` (any path that
+ * ends in `/support.js`, because the mockups ask for it as `./support.js`), the files of
+ * the mockups folder and an index at `/`.
  */
 export function mockupAsset(pathname: string, dir: string = MOCKUPS_DIR): Asset | null {
   if (pathname === '/' || pathname === '') return indexPage(dir);
@@ -53,9 +53,9 @@ export function mockupAsset(pathname: string, dir: string = MOCKUPS_DIR): Asset 
 }
 
 // ---- Fuentes -----------------------------------------------------------------------------
-// Los mockups piden Inter y JetBrains Mono a Google Fonts. Para que las capturas no dependan
-// de la red (ni de qué devuelva Google ese día), el capturador responde esa hoja con las
-// mismas fuentes empaquetadas en `@fontsource/*`.
+// The mockups request Inter and JetBrains Mono from Google Fonts. So screenshots do not depend
+// on the network (or on what Google returns that day), the capturer answers that stylesheet with the
+// same fonts bundled in `@fontsource/*`.
 
 export const FONT_ORIGIN = 'http://fonts.local';
 
@@ -64,16 +64,16 @@ function fontPackageDir(family: string): string {
 }
 
 /**
- * Bloques que los subconjuntos de Inter y JetBrains Mono no traen y los mockups usan (⌃ ⌥ ⌘
- * en los atajos, → ↵ ≈ ✓ ➜). Sin esto, cada máquina los dibuja con su fuente del sistema y
- * las capturas de WSL y de CI difieren. Se cubren con DejaVu Sans (completa) como caras extra
- * de la misma familia.
+ * Blocks that the Inter and JetBrains Mono subsets lack and the mockups use (⌃ ⌥ ⌘
+ * in shortcuts, → ↵ ≈ ✓ ➜). Without this, each machine draws them with its system font and
+ * the WSL and CI screenshots differ. They are covered with DejaVu Sans (complete) as extra faces
+ * of the same family.
  */
 export const FALLBACK_RANGES = 'U+2190-21FF, U+2200-22FF, U+2300-23FF, U+2700-27BF';
 
-// Una cara por peso, con el mismo peso exacto que las caras propias: con un rango de pesos
-// (`550 900`) la de respaldo calza mejor con `font-weight:650` que la de 700 de Inter, y como
-// no tiene latín, ese texto termina en la fuente del sistema.
+// One face per weight, with the exact same weight as the own faces: with a weight range
+// (`550 900`) the fallback fits `font-weight:650` better than Inter's 700, and since it
+// has no Latin, that text ends up in the system font.
 function fallbackFaces(family: string, weights: string[]): string {
   return weights
     .map(
@@ -89,10 +89,10 @@ function fallbackFaces(family: string, weights: string[]): string {
     .join('\n');
 }
 
-/** CSS equivalente a `https://fonts.googleapis.com/css2?family=…` con las fuentes locales. */
+/** CSS equivalent to `https://fonts.googleapis.com/css2?family=…` with the local fonts. */
 export function googleFontsCss(url: URL): { css: string; missing: string[] } {
-  // Las caras de respaldo van primero: con rangos superpuestos gana la última definida, así
-  // que donde la fuente propia tiene el carácter se usa el suyo.
+  // The fallback faces go first: with overlapping ranges the last defined wins, so
+  // where the own font has the character, its own is used.
   const fallback: string[] = [];
   const css: string[] = [];
   const missing: string[] = [];
@@ -115,7 +115,7 @@ export function googleFontsCss(url: URL): { css: string; missing: string[] } {
   return { css: [...fallback, ...css].join('\n'), missing };
 }
 
-/** Archivo de fuente pedido a `FONT_ORIGIN` (`/@fontsource/<familia>/files/<archivo>`). */
+/** Font file requested from `FONT_ORIGIN` (`/@fontsource/<family>/files/<file>`). */
 export function fontAsset(pathname: string): Asset | null {
   const path = inside(join(TOOL_DIR, 'node_modules'), pathname);
   return path && /\.woff2?$/.test(path) ? fileAsset(path) : null;

@@ -1,5 +1,5 @@
-// `pnpm mockups:shot [--out <carpeta>] [--only <mockup>]… [--no-states] [--concurrency N]`
-// Renderiza los mockups de mockups/v03 y guarda las capturas (por omisión en docs/mockups-png).
+// `pnpm mockups:shot [--out <folder>] [--only <mockup>]… [--no-states] [--concurrency N]`
+// Renders the mockups in mockups/v03 and saves the screenshots (by default in docs/mockups-png).
 import { readdirSync, rmSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -36,25 +36,25 @@ for (const r of results) {
     console.log(`ok    ${label}`);
   } else {
     failed += 1;
-    console.log(`FALLA ${label}`);
+    console.log(`FAIL  ${label}`);
     for (const i of issues) console.log(`      ${i}`);
   }
 }
 
-// Sin `--only` y sin fallos, se borran las capturas que no corresponden a ningún mockup o estado
-// (contra la lista completa, así `--no-states` no borra las de los estados). Si algo falló, no
-// se toca nada: mejor una captura de más que perder una referencia.
+// Without `--only` and without failures, screenshots that match no mockup or state are deleted
+// (against the full list, so `--no-states` does not delete the state ones). If something failed,
+// nothing is touched: better one screenshot too many than losing a reference.
 if (!values.only) {
   if (failed > 0) {
-    console.log('\nhubo fallos: no se borra ninguna captura vieja');
+    console.log('\nthere were failures: no old screenshot is deleted');
   } else {
     for (const f of staleShots(readdirSync(outDir), jobsFor(listMockups()))) {
       rmSync(join(outDir, f));
-      console.log(`borrada ${f} (ya no hay ese estado)`);
+      console.log(`deleted ${f} (that state no longer exists)`);
     }
   }
 }
 
 const secs = ((Date.now() - started) / 1000).toFixed(1);
-console.log(`\n${results.length - failed}/${results.length} capturas en ${relative(process.cwd(), outDir) || '.'} (${secs} s)`);
+console.log(`\n${results.length - failed}/${results.length} screenshots in ${relative(process.cwd(), outDir) || '.'} (${secs} s)`);
 process.exit(failed > 0 ? 1 : 0);

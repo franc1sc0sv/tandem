@@ -10,7 +10,7 @@ export const SUPPORT_JS = join(TOOL_DIR, 'support.js');
 
 export const MOCKUP_SUFFIX = '.dc.html';
 
-/** Nombres de los mockups (sin `.dc.html`), en orden alfabético. */
+/** Mockup names (without `.dc.html`), in alphabetical order. */
 export function listMockups(dir: string = MOCKUPS_DIR): string[] {
   return readdirSync(dir)
     .filter((f) => f.endsWith(MOCKUP_SUFFIX))
@@ -25,7 +25,7 @@ export interface Viewport {
 
 export const DEFAULT_VIEWPORT: Viewport = { width: 1280, height: 860 };
 
-/** Tamaño de la pantalla: el `$preview` de `data-props` o 1280×860. */
+/** Screen size: the `$preview` of `data-props` or 1280×860. */
 export function previewOf(html: string): Viewport {
   const props = /data-props='([^']*)'/.exec(html)?.[1];
   if (!props) return DEFAULT_VIEWPORT;
@@ -35,7 +35,7 @@ export function previewOf(html: string): Viewport {
       return { width: preview.width, height: preview.height };
     }
   } catch {
-    // data-props inválido: se usa el tamaño de siempre
+    // invalid data-props: the usual size is used
   }
   return DEFAULT_VIEWPORT;
 }
@@ -44,7 +44,7 @@ export function mockupViewport(name: string, dir: string = MOCKUPS_DIR): Viewpor
   return previewOf(readFileSync(join(dir, name + MOCKUP_SUFFIX), 'utf8'));
 }
 
-/** Archivo de la captura: `<mockup>.png` o `<mockup>--<estado>.png`. */
+/** Screenshot file: `<mockup>.png` or `<mockup>--<state>.png`. */
 export function shotName(mockup: string, state?: string): string {
   return state ? `${mockup}--${state}.png` : `${mockup}.png`;
 }

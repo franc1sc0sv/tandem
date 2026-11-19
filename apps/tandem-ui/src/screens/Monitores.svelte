@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Monitores y escenas (`V3-Monitores`): cada monitor compatible con su entrada real y quién lo
+  // Monitores y escenas (`V3-Monitors`): cada monitor compatible con su entrada real y quién lo
   // controla, los que no lo son (D11) con su razón, y las escenas como tarjetas.
   import { useStore } from "../lib/context";
   import { wallOf } from "../lib/acomodo";
@@ -28,7 +28,7 @@
   const colorOf = (m: Machine | null) => (m ? (desk.machines[m]?.color ?? "#9a9da6") : "#9a9da6");
   const wall = (m: Machine | null) => (m ? wallOf(colorOf(m)) : KEEP_WALL);
 
-  /** Lo que se pidió y el monitor todavía no confirmó: el indicador ya se va, pero la verdad es la del monitor. */
+  /** Lo que se pidió y the monitor todavía no confirmó: el indicador ya se va, pero la verdad es la dthe monitor. */
   let pending: Record<string, { machine: Machine; since: number }> = $state({});
 
   function options(m: MonitorUi): SegOption[] {
@@ -48,7 +48,7 @@
     return `${nameOf(m.owner)}${port ? ` · ${INPUT_LABEL[port]}` : ""}`;
   };
 
-  /** Qué máquina marca el selector: lo pedido mientras el monitor decide, si no, lo que muestra. */
+  /** Qué máquina marca el selector: lo pedido mientras the monitor decide, si no, lo que muestra. */
   const selected = (m: MonitorUi): string => pending[m.id]?.machine ?? m.shows ?? "";
 
   async function pick(m: MonitorUi, who: string) {
@@ -57,7 +57,7 @@
     const input = m.ports[target];
     const why = whyNotSwitch(m, target, nameOf(target));
     if (!input || why) {
-      store.toast(why ?? `Falta saber a qué entrada va ${nameOf(target)}`, "bad");
+      store.toast(why ?? `It is not known which input ${nameOf(target)} uses`, "bad");
       return;
     }
     pending[m.id] = { machine: target, since: Date.now() };
@@ -86,9 +86,9 @@
   };
 
   /** «34 pulgadas» en la etiqueta accesible, como el mockup. */
-  const spoken = (name: string) => shortMonitor(name).replace('"', " pulgadas");
+  const spoken = (name: string) => shortMonitor(name).replace('"', " inches");
 
-  /** «Aplicar» lleva al progreso paso a paso (F-Transacciones). */
+  /** «Aplicar» lleva al progreso paso a paso (F-Transactions). */
   async function apply(id: string) {
     const r = await store.applyScene(id);
     if (r.ok) store.showProgress();
@@ -100,7 +100,7 @@
 </script>
 
 <div class="page">
-  <PageHeader title="Monitores" search={false} />
+  <PageHeader title="Monitors" search={false} />
 
   {#if desk.monitors.length > 0}
     <div class="grid">
@@ -111,19 +111,19 @@
             <div class="who">
               <b>{m.name}</b>
               <span class="chips">
-                <Chip dot={false} style="padding:4px 10px 4px 8px"><Icon name="shield" size={13} stroke={2} color="#6cc59a" />Estándar Tandem</Chip>
+                <Chip dot={false} style="padding:4px 10px 4px 8px"><Icon name="shield" size={13} stroke={2} color="#6cc59a" />Tandem standard</Chip>
                 {#if m.owner}
                   <Chip dot={false} style="padding:4px 10px 4px 8px"
                     ><Icon name="plug" size={13} stroke={2} color={colorOf(m.owner)} />{ownerText(m)}</Chip
                   >
                 {/if}
                 {#if !m.connected}
-                  <Chip dot={false} class="mut" style="padding:4px 10px 4px 8px"><Icon name="unplugged" size={13} stroke={2} />Desconectado</Chip>
+                  <Chip dot={false} class="mut" style="padding:4px 10px 4px 8px"><Icon name="unplugged" size={13} stroke={2} />Disconnected</Chip>
                 {/if}
               </span>
             </div>
           </div>
-          <Segmented size="lg" label="Qué máquina muestra el {spoken(m.name)}" options={options(m)} value={selected(m)} onchange={(v) => pick(m, v)} />
+          <Segmented size="lg" label="Which machine shows the {spoken(m.name)}" options={options(m)} value={selected(m)} onchange={(v) => pick(m, v)} />
           {#if m.events.length > 0}
             <div class="events">
               {#each m.events as e, k (`${e.at}-${e.text}-${k}`)}
@@ -138,41 +138,41 @@
       {/each}
 
       {#each others as m, i (m.id)}
-        <Card tag="article" delay={0.08 + i * 0.08} class="mon off" style="--card-pad:18px" label="{m.name}, no compatible">
+        <Card tag="article" delay={0.08 + i * 0.08} class="mon off" style="--card-pad:18px" label="{m.name}, unsupported">
           <div class="head">
             <Thumb width={110} height={58} wall="repeating-linear-gradient(45deg,#17181c 0 8px,#121316 8px 16px)" dim />
             <div class="who grow">
               <b>{m.name}</b>
               <span class="chips">
-                <Chip dot={false} tone="warn" style="padding:4px 10px 4px 8px"><Icon name="warn" size={13} stroke={2} />No compatible</Chip>
-                {#if !m.connected}<Chip dot={false} class="mut" style="padding:4px 10px 4px 8px"><Icon name="unplugged" size={13} stroke={2} />Desconectado</Chip>{/if}
+                <Chip dot={false} tone="warn" style="padding:4px 10px 4px 8px"><Icon name="warn" size={13} stroke={2} />Unsupported</Chip>
+                {#if !m.connected}<Chip dot={false} class="mut" style="padding:4px 10px 4px 8px"><Icon name="unplugged" size={13} stroke={2} />Disconnected</Chip>{/if}
               </span>
             </div>
             <!-- Sin comando del agente para olvidar un monitor, la acción no se ofrece (DESIGN §3.8). -->
             {#if store.can("forget")}
-              <Button icon="trash" variant="ghost" size="sm" iconSize={16} iconStroke={1.8} iconOnly label="Olvidar este monitor" disabled={m.connected} onclick={() => store.forgetMonitor(m.id)} />
+              <Button icon="trash" variant="ghost" size="sm" iconSize={16} iconStroke={1.8} iconOnly label="Forget this monitor" disabled={m.connected} onclick={() => store.forgetMonitor(m.id)} />
             {/if}
           </div>
           <p class="why">{m.compat.ok ? "" : m.compat.reason}</p>
-          <Button icon="info" size="sm" iconSize={16} class="explain" pressed={explained[m.id] ?? false} onclick={() => (explained[m.id] = !explained[m.id])}>Qué es el estándar</Button>
+          <Button icon="info" size="sm" iconSize={16} class="explain" pressed={explained[m.id] ?? false} onclick={() => (explained[m.id] = !explained[m.id])}>What the standard is</Button>
           {#if explained[m.id]}
-            <p class="standard">Tandem controla un monitor solo si habla el protocolo del firmware propio (el del 34"). Los demás se muestran sin tocarlos hasta que tengan su parche.</p>
+            <p class="standard">Tandem controls a monitor only if it speaks the custom firmware protocol (the 34"’s). The others are shown untouched until they get their patch.</p>
           {/if}
         </Card>
       {/each}
     </div>
   {/if}
 
-  <Card tag="section" delay={0.12} label="Escenas" class="scenes" style="--card-pad:18px">
+  <Card tag="section" delay={0.12} label="Scenes" class="scenes" style="--card-pad:18px">
     <div class="sh">
-      <h2 class="h3">Escenas</h2>
+      <h2 class="h3">Scenes</h2>
       <span class="fill"></span>
-      <Button icon="plus" variant="pri" size="sm" iconSize={16} iconStroke={2.2} iconLinecap="round" href={newHref} style="--btn-px:11px">Nueva escena</Button>
+      <Button icon="plus" variant="pri" size="sm" iconSize={16} iconStroke={2.2} iconLinecap="round" href={newHref} style="--btn-px:11px">New scene</Button>
     </div>
     <div class="sgrid">
       {#each desk.scenes as s, i (s.id)}
         {@const on = desk.activeScene === s.id}
-        <article class="sc" class:act={on} style="animation-delay:{0.15 + i * 0.06}s" aria-label="Escena {s.name}">
+        <article class="sc" class:act={on} style="animation-delay:{0.15 + i * 0.06}s" aria-label="Scene {s.name}">
           <div class="st">
             <Thumb width={72} height={36} pad={3} wall={wall(s.shows)} />
             <div class="sn"><b>{s.name}</b><span class="mut">{s.desc}</span></div>
@@ -181,10 +181,10 @@
             {#if s.key}<Kbd raised>{s.key}</Kbd>{/if}
             <span class="fill"></span>
             {#if on}
-              <span class="badge"><span class="d"></span>Activa</span>
+              <span class="badge"><span class="d"></span>Active</span>
             {:else}
-              <Button icon="pencil" variant="ghost" size="sm" iconSize={16} iconStroke={1.8} iconOnly label="Editar escena" href={editHref(s.id)} />
-              <Button icon="play" size="sm" iconSize={16} disabled={!store.can("scenes")} onclick={() => apply(s.id)}>Aplicar</Button>
+              <Button icon="pencil" variant="ghost" size="sm" iconSize={16} iconStroke={1.8} iconOnly label="Edit scene" href={editHref(s.id)} />
+              <Button icon="play" size="sm" iconSize={16} disabled={!store.can("scenes")} onclick={() => apply(s.id)}>Apply</Button>
             {/if}
           </div>
         </article>

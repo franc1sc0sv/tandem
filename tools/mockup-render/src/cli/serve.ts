@@ -1,5 +1,5 @@
-// `pnpm mockups:serve [--port 4173]`: sirve mockups/v03 con el support.js propio para verlos
-// y navegarlos en un navegador (los enlaces `X.dc.html` llevan de una pantalla a otra).
+// `pnpm mockups:serve [--port 4173]`: serves mockups/v03 with our own support.js to view them
+// and browse them in a browser (the `X.dc.html` links lead from one screen to another).
 import { createServer } from 'node:http';
 import { parseArgs } from 'node:util';
 import { mockupAsset } from '../assets.ts';
@@ -11,7 +11,7 @@ const server = createServer((req, res) => {
   const asset = mockupAsset(url.pathname);
   if (!asset) {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-    res.end('no existe: ' + url.pathname);
+    res.end('not found: ' + url.pathname);
     return;
   }
   res.writeHead(200, { 'content-type': asset.contentType, 'cache-control': 'no-store' });
@@ -19,5 +19,5 @@ const server = createServer((req, res) => {
 });
 
 server.listen(Number(values.port), '127.0.0.1', () => {
-  console.log(`Mockups en http://127.0.0.1:${values.port}/ (por ejemplo /V3-Puesto.dc.html). Ctrl+C para salir.`);
+  console.log(`Mockups at http://127.0.0.1:${values.port}/ (for example /V3-Desk.dc.html). Ctrl+C to quit.`);
 });

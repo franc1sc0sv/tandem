@@ -8,13 +8,13 @@ describe("capturas del acomodo y la prueba de cruce (T-117)", () => {
   it("cubren los 4 lados × 3 alineaciones, cada pantalla elegida y los estados de la prueba, con el umbral de ACCEPTANCE", () => {
     expect(SCREEN_GATE).toEqual({ similarity: 0.99, worstTile: 0.97 });
     for (const s of ACOMODO) expect(SHOTS).toContain(s);
-    const states = ACOMODO.filter((s) => s.mockup === "V3-Acomodo").map((s) => s.state ?? "");
-    for (const side of ["arriba", "abajo", "izquierda", "derecha"]) for (const al of ["inicio", "centro", "fin"]) expect(states).toContain(`lado-${side}-${al}`);
-    expect(states).toEqual(expect.arrayContaining(["", "pantalla-mac", "pantalla-no-compatible"]));
-    const cruce = ACOMODO.filter((s) => s.mockup === "F-PruebaCruce").map((s) => s.state ?? "");
-    expect(cruce).toEqual(expect.arrayContaining(["", "cruzo", "no-cruza"]));
+    const states = ACOMODO.filter((s) => s.mockup === "V3-Arrangement").map((s) => s.state ?? "");
+    for (const side of ["top", "bottom", "left", "right"]) for (const al of ["start", "center", "end"]) expect(states).toContain(`side-${side}-${al}`);
+    expect(states).toEqual(expect.arrayContaining(["", "screen-mac", "screen-unsupported"]));
+    const cruce = ACOMODO.filter((s) => s.mockup === "F-CrossingTest").map((s) => s.state ?? "");
+    expect(cruce).toEqual(expect.arrayContaining(["", "crossed", "no-cross"]));
     // Todo lo que tiene mockup propio exige el umbral; el borde equivocado no tiene mockup.
-    for (const s of ACOMODO) expect(s.min, s.name).toEqual(s.name === "cruce-otro-borde" ? undefined : SCREEN_GATE);
+    for (const s of ACOMODO) expect(s.min, s.name).toEqual(s.name === "crossing-other-edge" ? undefined : SCREEN_GATE);
   });
 
   it("los clics de cada estado son los del mockup (`tools/mockup-render/src/states.ts`)", () => {
@@ -28,8 +28,8 @@ describe("capturas del acomodo y la prueba de cruce (T-117)", () => {
     const readme = readFileSync(join(process.cwd(), "..", "..", "mockups", "README.md"), "utf8");
     for (const s of ACOMODO) {
       for (const i of s.ignore ?? []) {
-        if (i.reason.startsWith("D1")) expect(readme).toContain("Agregar máquina");
-        else expect(readme).toContain("Simular…");
+        if (i.reason.startsWith("D1")) expect(readme).toContain("Add machine");
+        else expect(readme).toContain("Simulate…");
       }
     }
   });

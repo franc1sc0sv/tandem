@@ -6,14 +6,14 @@
 // - `demo` o `demo=mac-win` (por omisión), `demo=win-win`, `demo=mac-mac`: qué sistemas hay
 //   en cada lado (D2).
 // - `here=b`: la ventana es la de la máquina B.
-// - `trouble=no-agent|peer-off|link-down|permissions`: un estado difícil (`V3-Estados`).
+// - `trouble=no-agent|peer-off|link-down|permissions`: un estado difícil (`V3-States`).
 // - `still`: sin recursos que cambien solos (para capturas deterministas).
-// - `peer=none`: sin emparejar; emparejar simula a la otra máquina (código y confirmación).
-//   `pair=code` arranca mostrando el código; `pair=reject`: la otra máquina rechaza.
+// - `peer=none`: sin emparejar; emparejar simula a the other machine (código y confirmación).
+//   `pair=code` arranca mostrando el código; `pair=reject`: the other machine rechaza.
 // - `cross=ok|wrong|timeout`: la prueba de cruce cruza por el borde del acomodo, por otro,
 //   o se queda sin tiempo apenas empieza (para las capturas). Sin esto (y sin `still`), cruza
 //   bien a los pocos segundos.
-// - `txn=run|ok|fail`: la pantalla de progreso de una escena ya en curso, terminada o
+// - `txn=run|ok|fail`: la pantalla de progreso de una escena ya in progress, terminada o
 //   deshaciéndose (para capturas). `fail=<escena>`: aplicar esa escena falla y se deshace.
 //   Con `still`, un cambio de entrada o de escena se aplica al instante y no agrega eventos ni
 //   cambia la escena activa: así las capturas no dependen del reloj.
@@ -73,31 +73,31 @@ export interface DemoOptions {
   still: boolean;
   /** Arranca sin emparejar. */
   unpaired?: boolean;
-  /** Cómo responde la otra máquina al emparejar. */
+  /** Cómo responde the other machine al emparejar. */
   pairing?: "code" | "reject";
   /** La guía de permisos del primer arranque se abre sola. */
   firstRun?: boolean;
   /** Abre el asistente en ese paso (0 a 5), para capturas y pruebas. */
   wizard?: number;
-  /** macOS con Accesibilidad y Monitorización sin conceder y Red local concedida (`F-Asis3`). */
+  /** macOS con Accesibilidad y Monitorización sin conceder y Red local concedida (`F-Setup3`). */
   perms?: "missing";
-  /** El servicio de administrador de macOS sin instalar: el asistente lo muestra pendiente (`F-Asis1`). */
+  /** El servicio de administrador de macOS sin instalar: el asistente lo muestra pendiente (`F-Setup1`). */
   admin?: "pending" | "off";
   /** Cómo termina la prueba de cruce. */
   cross?: "ok" | "wrong" | "timeout";
-  /** La tercera escena se llama «Solo PC», como en `F-Ajustes` (el resto del mockup la llama «Juego»). */
+  /** La tercera escena se llama «PC only», como en `F-Settings` (el resto del mockup la llama «Juego»). */
   soloPc?: boolean;
   /** La pantalla de progreso de una escena en este punto. */
   txn?: "run" | "ok" | "fail";
   /** Aplicar esta escena falla en su monitor y se deshace. */
   failScene?: string;
-  /** Los túneles del demo: los de `V3-Computo`, ninguno o uno con 12 procesos. */
+  /** Los túneles del demo: los de `V3-Compute`, ninguno o uno con 12 procesos. */
   tunnels?: "normal" | "none" | "many" | "notas" | "paleta" | "bandeja";
-  /** Los datos que dibuja `F-Paleta`: «Trabajo» sobre la Mac, la tercera escena «Solo PC» y un túnel por proyecto. */
+  /** Los datos que dibuja `F-Palette`: «Trabajo» sobre la Mac, la tercera escena «PC only» y un túnel por proyecto. */
   paleta?: boolean;
-  /** Los datos que dibuja `V3-Bandeja`: enlace de 0.4 ms, carga de la Mac al 18 %, «Solo PC» y túneles en tres proyectos. */
+  /** Los datos que dibuja `V3-Tray`: enlace de 0.4 ms, carga de la Mac al 18 %, «PC only» y túneles en tres proyectos. */
   bandeja?: boolean;
-  /** La otra máquina cambia el puesto poco después de abrir (aviso «Cambiado desde…», D5). */
+  /** The other machine cambia el puesto poco después de abrir (aviso «Cambiado desde…», D5). */
   peerEdit?: boolean;
 }
 
@@ -134,7 +134,7 @@ export function isDemo(query: string): boolean {
 const BLUE = "#7aa7e6";
 const VIOLET = "#a99be8";
 
-/** Una pantalla de ejemplo (datos del mockup `V3-Acomodo`). */
+/** Una pantalla de ejemplo (datos del mockup `V3-Arrangement`). */
 interface DemoScreen {
   id: string;
   name: string;
@@ -172,10 +172,10 @@ const GIB = 2 ** 30;
 const fromY = (h: number, ys: number[]) => ys.map((y) => ((h - y) / h) * 100);
 
 const BUILTIN_14: DemoScreen = { id: "mbp", name: "MacBook Pro", short: "Mac", ask: "MacBook Pro", w: 12, h: 7.8, size: '14"', res: "1512 × 982", ratio: "16:10", scale: "200 % (Retina)" };
-const G34: DemoScreen = { id: "g34", name: 'Odyssey G5 34"', short: '34"', ask: 'el 34"', w: 31.4, h: 13.1, size: '34"', res: "3440 × 1440", ratio: "21:9", scale: "100 %", external: true };
-const G32: DemoScreen = { id: "g32", name: 'Odyssey G5 32"', short: '32"', ask: 'el 32"', w: 27.9, h: 15.7, size: '32"', res: "2560 × 1440", ratio: "16:9", scale: "—", external: true, off: true };
-const U27: DemoScreen = { id: "u27", name: 'UltraFine 27"', short: '27"', ask: 'el 27"', w: 23.5, h: 13.2, size: '27"', res: "2560 × 1440", ratio: "16:9", scale: "100 %", external: true };
-const STUDIO: DemoScreen = { id: "sd27", name: "Studio Display", short: "Studio", ask: "el Studio Display", w: 23.5, h: 13.2, size: '27"', res: "2560 × 1440", ratio: "16:9", scale: "200 %", external: true };
+const G34: DemoScreen = { id: "g34", name: 'Odyssey G5 34"', short: '34"', ask: 'the 34"', w: 31.4, h: 13.1, size: '34"', res: "3440 × 1440", ratio: "21:9", scale: "100 %", external: true };
+const G32: DemoScreen = { id: "g32", name: 'Odyssey G5 32"', short: '32"', ask: 'the 32"', w: 27.9, h: 15.7, size: '32"', res: "2560 × 1440", ratio: "16:9", scale: "—", external: true, off: true };
+const U27: DemoScreen = { id: "u27", name: 'UltraFine 27"', short: '27"', ask: 'the 27"', w: 23.5, h: 13.2, size: '27"', res: "2560 × 1440", ratio: "16:9", scale: "100 %", external: true };
+const STUDIO: DemoScreen = { id: "sd27", name: "Studio Display", short: "Studio", ask: "the Studio Display", w: 23.5, h: 13.2, size: '27"', res: "2560 × 1440", ratio: "16:9", scale: "200 %", external: true };
 
 const MACBOOK: Spec = {
   name: "MacBook Pro",
@@ -194,9 +194,9 @@ const MACBOOK: Spec = {
   hardware: { cpu: "Apple M5", cores: 12, memory: 24 * GIB, gpu: { name: "Apple M5", vram: null }, fanless: true },
   environments: [
     { id: "zsh", kind: "shell", name: "zsh", default: true, ready: true, detail: "uv · node · pnpm · cargo · git" },
-    { id: "docker", kind: "docker", name: "Docker", default: false, ready: true, detail: "arm64 · sin GPU" },
+    { id: "docker", kind: "docker", name: "Docker", default: false, ready: true, detail: "arm64 · no GPU" },
   ],
-  inputDevices: [{ name: "Teclado integrado" }, { name: "Trackpad" }, { name: "Keychron K3 · MX Master 3S", via: "por el hub" }],
+  inputDevices: [{ name: "Built-in keyboard" }, { name: "Trackpad" }, { name: "Keychron K3 · MX Master 3S", via: "through the hub" }],
   live: {
     cpu: { percent: 18, temp: 48, history: fromY(34, [28, 26, 29, 24, 27, 25, 28, 26, 27]) },
     ram: { used: 12.4 * GIB, total: 24 * GIB, history: fromY(22, [14, 13, 13, 12, 12, 11, 12, 12, 11]) },
@@ -207,7 +207,7 @@ const MACBOOK: Spec = {
 };
 
 const DESKTOP: Spec = {
-  name: "PC-Escritorio",
+  name: "PC-Desktop",
   os: "windows",
   color: VIOLET,
   detail: "Windows + WSL · RTX 5080",
@@ -224,7 +224,7 @@ const DESKTOP: Spec = {
   environments: [
     { id: "pwsh", kind: "shell", name: "PowerShell 7", default: true, ready: true, detail: "winget · python · git" },
     { id: "wsl:Ubuntu-24.04", kind: "wsl", name: "Ubuntu 24.04", default: true, ready: true, detail: "uv · cargo · node · CUDA 12.8 · git" },
-    { id: "docker", kind: "docker", name: "Docker Desktop", default: false, ready: true, detail: "GPU: --gpus all disponible" },
+    { id: "docker", kind: "docker", name: "Docker Desktop", default: false, ready: true, detail: "GPU: --gpus all available" },
   ],
   inputDevices: [],
   live: {
@@ -238,7 +238,7 @@ const DESKTOP: Spec = {
 
 const WORKSHOP: Spec = {
   ...DESKTOP,
-  name: "PC-Taller",
+  name: "PC-Workshop",
   color: "#6cc59a",
   detail: "Windows · Ryzen 7",
   resources: { ...DESKTOP.resources, gpu: null, gpuLabel: "GPU", cpu: { percent: 31, label: "31 %" } },
@@ -267,30 +267,30 @@ const PAIRS: Record<DemoPair, [Spec, Spec]> = {
 
 function modulesOf(os: Os, name: string, otherName: string, envs: number, adminPending = false): ModuleView[] {
   const mac = os === "macos";
-  // «la MacBook» (el mockup la nombra así); cualquier otra Mac, con su nombre completo («el Mac mini»), sin cortarlo.
-  const shown = name.startsWith("MacBook") ? "la MacBook" : `el ${name}`;
+  // «the MacBook» (el mockup la nombra así); cualquier otra Mac, con su nombre completo («el Mac mini»), sin cortarlo.
+  const shown = name.startsWith("MacBook") ? "the MacBook" : `the ${name}`;
   // Con un permiso de macOS faltando, la página lo muestra en su propia fila («Permisos», como
-  // `F-MaquinaMac`); el módulo sigue con lo que sí puede hacer.
+  // `F-MachineMac`); el módulo sigue con lo que sí puede hacer.
   const list: ModuleView[] = [
-    { id: "input", name: "Teclado y mouse", state: "active", detail: mac ? "Captura con CGEventTap e inyección con CGEventPost" : "Captura e inyección (hooks de bajo nivel, SendInput)", switchable: true },
-    { id: "clipboard", name: "Portapapeles", state: "active", detail: "Texto, HTML e imagen", switchable: true },
+    { id: "input", name: "Keyboard and mouse", state: "active", detail: mac ? "Capture with CGEventTap and injection with CGEventPost" : "Capture and injection (low-level hooks, SendInput)", switchable: true },
+    { id: "clipboard", name: "Clipboard", state: "active", detail: "Text, HTML and image", switchable: true },
     mac
-      ? { id: "monitors", name: "Monitores", state: "off", detail: `Por HDMI solo hay canal DDC mientras el monitor muestra ${shown}. Hoy los controla ${otherName}.`, switchable: true }
-      : { id: "monitors", name: "Monitores", state: "active", detail: 'Canal DDC por DisplayPort a 2 monitores. Dueño del 34".', switchable: true },
+      ? { id: "monitors", name: "Monitors", state: "off", detail: `Over HDMI there is a DDC channel only while the monitor shows ${shown}. Today ${otherName} controls them.`, switchable: true }
+      : { id: "monitors", name: "Monitors", state: "active", detail: 'DDC channel over DisplayPort to 2 monitors. Owner of the 34".', switchable: true },
     {
       id: "power",
-      name: "Energía",
+      name: "Power",
       state: mac ? "off" : "active",
-      detail: mac ? "Puede despertar a otras por Wake-on-LAN. No se apaga sola." : `Se apaga sola. Se despierta por Wake-on-LAN desde ${otherName}.`,
+      detail: mac ? "It can wake the others over Wake-on-LAN. It does not power itself off." : `It powers itself off. It wakes over Wake-on-LAN from ${otherName}.`,
       switchable: false,
     },
     mac
       ? adminPending
-        ? { id: "tunnels", name: "Cómputo remoto", state: "off", detail: `${envs} entornos · falta instalar el servicio de administrador`, switchable: true }
-        : { id: "tunnels", name: "Cómputo remoto", state: "active", detail: `${envs} entornos · admin (LaunchDaemon instalado)`, switchable: true }
-      : { id: "tunnels", name: "Túneles", state: "active", detail: `Recibe túneles de Claude en ${envs} entornos, como administrador.`, switchable: true },
+        ? { id: "tunnels", name: "Remote compute", state: "off", detail: `${envs} environments · the administrator service still needs installing`, switchable: true }
+        : { id: "tunnels", name: "Remote compute", state: "active", detail: `${envs} environments · admin (LaunchDaemon installed)`, switchable: true }
+      : { id: "tunnels", name: "Tunnels", state: "active", detail: `Receives Claude tunnels in ${envs} environments, as administrator.`, switchable: true },
   ];
-  if (!mac) list.push({ id: "secure_desktop", name: "Pantallas protegidas", state: "active", detail: "El mouse y el teclado también funcionan en avisos de UAC y en el inicio de sesión.", switchable: true });
+  if (!mac) list.push({ id: "secure_desktop", name: "Protected screens", state: "active", detail: "The mouse and keyboard also work on UAC prompts and at the sign-in screen.", switchable: true });
   return list;
 }
 
@@ -302,7 +302,7 @@ function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
   for (const [owner, spec] of [["b", sb] as const, ["a", sa] as const]) {
     for (const d of spec.screens.filter((x) => x.external)) {
       if (d.off) {
-        out.push({ id: d.id, name: d.name, compat: { ok: false, reason: "Entra solo cuando su firmware cumpla el estándar." }, connected: false, owner: null, input: null, ports: {}, shows: null, events: [] });
+        out.push({ id: d.id, name: d.name, compat: { ok: false, reason: "It joins only once its firmware meets the standard." }, connected: false, owner: null, input: null, ports: {}, shows: null, events: [] });
         continue;
       }
       const input: MonitorInput = owner === "a" ? "hdmi" : "display_port";
@@ -318,9 +318,9 @@ function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
         ports: { a: "hdmi", b: "display_port" },
         shows: owner,
         events: [
-          { at: at(14, 2), kind: "switch", text: "Entrada → DP, pedida por Tandem" },
-          { at: at(13, 47), kind: "button", text: "Entrada → HDMI, con los botones" },
-          { at: at(13, 47), kind: "signal", text: "Señal HDMI detectada" },
+          { at: at(14, 2), kind: "switch", text: "Input → DP, requested by Tandem" },
+          { at: at(13, 47), kind: "button", text: "Input → HDMI, with the buttons" },
+          { at: at(13, 47), kind: "signal", text: "HDMI signal detected" },
         ],
       });
     }
@@ -332,9 +332,9 @@ function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
 export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean, soloPc = false, trabajoEnA = false): SceneView[] {
   const m = monitors.find((x) => x.compat.ok)?.id;
   const raw: SceneJson[] = [
-    { id: "trabajo", name: "Trabajo", monitors: m ? [[m, trabajoEnA ? "a" : "b"]] : [], shortcut: ctrlAlt(1) },
-    { id: "solo-a", name: `Solo ${a.split(" ")[0]}`, monitors: m ? [[m, "a"]] : [], shortcut: ctrlAlt(2) },
-    { id: "juego", name: soloPc ? "Solo PC" : "Juego", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
+    { id: "trabajo", name: "Work", monitors: m ? [[m, trabajoEnA ? "a" : "b"]] : [], shortcut: ctrlAlt(1) },
+    { id: "solo-a", name: `${a.split(" ")[0]} only`, monitors: m ? [[m, "a"]] : [], shortcut: ctrlAlt(2) },
+    { id: "juego", name: soloPc ? "PC only" : "Game", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
   ];
   return raw.map((r) => sceneView(r, { monitors, name: (x) => (x === "a" ? a : b), mac }));
 }
@@ -353,23 +353,23 @@ interface DemoProc {
 
 const p = (cmd: string, min: number, pid: number, log: string): DemoProc => ({ cmd, ago: min * MIN + PAD, pid, log });
 
-/** Los procesos que corren en cada túnel del demo (los de `V3-Computo`) y su salida. */
+/** Los procesos que corren en cada túnel del demo (los de `V3-Compute`) y su salida. */
 const DEMO_PROCS: Record<string, DemoProc[]> = {
   t97: [
     p("cargo test -p tandem-monitor", 2, 4127, "   Compiling tandem-monitor v0.3.0\n     Running unittests src/lib.rs\ntest probe_never_sends_vendor_codes ... ok\ntest hotplug_adds_monitor ... ok\ntest owner_failover_when_pc_sleeps ... ok\ntest verdict_failed_rolls_back_scene ... "),
     p("monitor-events serve --sim 2", 30, 3810, "listening on 127.0.0.1:8765\nGET /api/monitors 200\nSSE monitor-added lc34g55t-9c1e\nSSE input-changed lc34g55t-9c1e dp\nSSE switch-done lc34g55t-9c1e 1.8s\n"),
     p("cargo watch -x check -p tandem-monitor", 25, 3902, "[Running cargo check]\n    Finished dev in 0.9s\n[Finished running. Exit status: 0]\n"),
-    p("tandemd --sim --monitors 2", 22, 3955, "monitores: 2 detectados (1 compatible)\ndueño de lc34g55t-9c1e: pc-sim\n"),
-    p("pnpm --filter tandem-ui dev", 20, 3988, "VITE v6 listo en 412 ms\n➜ Local: http://localhost:1420/\n"),
-    p("tail -f ~/.tandem/logs/tandemd.log", 19, 4001, "14:06:12 monitor lc34g55t-9c1e input=dp (firmware)\n14:06:14 escena «Trabajo» aplicada\n"),
+    p("tandemd --sim --monitors 2", 22, 3955, "monitors: 2 detected (1 compatible)\nowner of lc34g55t-9c1e: pc-sim\n"),
+    p("pnpm --filter tandem-ui dev", 20, 3988, "VITE v6 ready in 412 ms\n➜ Local: http://localhost:1420/\n"),
+    p("tail -f ~/.tandem/logs/tandemd.log", 19, 4001, "14:06:12 monitor lc34g55t-9c1e input=dp (firmware)\n14:06:14 scene “Work” applied\n"),
   ],
   t101: [
     p("cargo test --workspace", 3, 5210, "     Running tests/two_processes.rs\ntest tunnel_survives_link_drop ... ok\ntest tunnel_many_processes ... ok\ntest pairing_with_real_quic ... "),
-    p("tandemd --sim --peers 2", 15, 5102, "peer mac-sim conectado por loopback\ntúnel t-01 abierto · 0.1 ms\n3 procesos vivos en t-01\n"),
+    p("tandemd --sim --peers 2", 15, 5102, "peer mac-sim connected over loopback\ntunnel t-01 open · 0.1 ms\n3 live processes in t-01\n"),
   ],
   pr: [],
   lora: [
-    p("uv run train.py --config estilo.toml", 41, 2290, "epoch 7/20  step 1860/5200  loss 0.0398\nguardado out/estilo-e7.safetensors\nepoch 8/20  step 1880/5200  loss 0.0405\n"),
+    p("uv run train.py --config style.toml", 41, 2290, "epoch 7/20  step 1860/5200  loss 0.0398\nsaved out/style-e7.safetensors\nepoch 8/20  step 1880/5200  loss 0.0405\n"),
     p("python main.py --listen 127.0.0.1", 60, 2104, "Starting server on 127.0.0.1:8188\nGPU: RTX 5080 · 16 GB\nprompt executed in 4.2 s\n"),
     p("tensorboard --logdir out", 40, 2301, "TensorBoard 2.18 at http://localhost:6006/\n"),
   ],
@@ -386,14 +386,14 @@ const MANY_COMMANDS = [
   "tandemd --sim --peers 2",
   "tail -f ~/.tandem/logs/tandemd.log",
   "monitor-events serve --sim 2",
-  "uv run train.py --config estilo.toml",
+  "uv run train.py --config style.toml",
   "python main.py --listen 127.0.0.1",
   "tensorboard --logdir out",
   "nvidia-smi -l 5",
 ];
 const MANY: DemoProc[] = MANY_COMMANDS.map((c, i) => p(c, 3 + i * 4, 6000 + i, `$ ${c}\nlisto\n`));
 
-/** El demo de los túneles: los cinco de `V3-Computo`, ninguno (`tunnels=none`) o uno con 12 procesos (`tunnels=many`). */
+/** El demo de los túneles: los cinco de `V3-Compute`, ninguno (`tunnels=none`) o uno con 12 procesos (`tunnels=many`). */
 export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal", oses: Record<Machine, Os> = { a: "macos", b: "windows" }): TunnelView[] {
   if (which === "none") return [];
   // El entorno sale del sistema de la máquina destino (G2): en Windows, WSL o el propio Windows; en macOS, zsh.
@@ -418,19 +418,19 @@ export function demoTunnels(now: number, which: DemoOptions["tunnels"] = "normal
     ...o,
   });
   const list = [
-    t("t97", "tandem", "~/…/apps/tandem", "Crate de monitores (T-097)", "task/T-097", "a", "b", "busy", 34, env("b", "WSL · Ubuntu"), { commands: 22, traffic: { up: 120e6, down: 4e6 } }),
-    t("t101", "tandem", "~/…/apps/tandem", "Túneles en tandemd (T-101)", "task/T-101", "a", "b", "busy", 18, env("b", "WSL · Ubuntu"), { commands: 12, traffic: { up: 64e6, down: 3e6 } }),
-    t("pr", "tandem", "~/…/apps/tandem", `Revisar PR #66 en ${oses.b === "macos" ? "macOS" : "Windows"}`, "develop", "b", "a", "idle", 41, env("a", "WSL · Ubuntu"), { commands: 9, ports: 1, idleSince: now - 9 * MIN - PAD, traffic: { up: 2e6, down: 18e6 } }),
-    t("lora", "ia-local", "~/…/ia-local", "Entrenar LoRA de estilo", "main", "a", "b", "busy", 134, env("b", "WSL · Ubuntu"), { commands: 37, ports: 1, traffic: { up: 2.1e9, down: 38e6 } }),
-    t("comfy", "ia-local", "~/…/ia-local", "Probar flujo de ComfyUI", "main", "a", "b", "closed", 0, env("b", "Windows"), { commands: 4, closedAt: now - 60 * MIN, traffic: { up: 12e6, down: 1e6 } }),
+    t("t97", "tandem", "~/…/apps/tandem", "Monitors crate (T-097)", "task/T-097", "a", "b", "busy", 34, env("b", "WSL · Ubuntu"), { commands: 22, traffic: { up: 120e6, down: 4e6 } }),
+    t("t101", "tandem", "~/…/apps/tandem", "Tunnels in tandemd (T-101)", "task/T-101", "a", "b", "busy", 18, env("b", "WSL · Ubuntu"), { commands: 12, traffic: { up: 64e6, down: 3e6 } }),
+    t("pr", "tandem", "~/…/apps/tandem", `Review PR #66 on ${oses.b === "macos" ? "macOS" : "Windows"}`, "develop", "b", "a", "idle", 41, env("a", "WSL · Ubuntu"), { commands: 9, ports: 1, idleSince: now - 9 * MIN - PAD, traffic: { up: 2e6, down: 18e6 } }),
+    t("lora", "ia-local", "~/…/ia-local", "Train style LoRA", "main", "a", "b", "busy", 134, env("b", "WSL · Ubuntu"), { commands: 37, ports: 1, traffic: { up: 2.1e9, down: 38e6 } }),
+    t("comfy", "ia-local", "~/…/ia-local", "Try ComfyUI workflow", "main", "a", "b", "closed", 0, env("b", "Windows"), { commands: 4, closedAt: now - 60 * MIN, traffic: { up: 12e6, down: 1e6 } }),
   ];
   if (which === "many") return [{ ...list[0], processes: MANY.length }, ...list.slice(1)];
-  // `V3-Bandeja` dibuja la revisión del PR como un tercer proyecto («notas»); `V3-Computo` la deja en «tandem».
-  // `F-Paleta` lista un túnel por proyecto, con el proyecto como título.
+  // `V3-Tray` dibuja la revisión del PR como un tercer proyecto («notas»); `V3-Compute` la deja en «tandem».
+  // `F-Palette` lista un túnel por proyecto, con el proyecto como título.
   if (which === "paleta") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }];
-  // `V3-Bandeja`: dos proyectos activos con un túnel cada uno y las «notas» en reposo.
-  if (which === "bandeja") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }, { ...list[2], project: "notas", projectPath: "~/…/notas" }];
-  if (which === "notas") return list.map((x) => (x.id === "pr" ? { ...x, project: "notas", projectPath: "~/…/notas" } : x));
+  // `V3-Tray`: dos proyectos activos con un túnel cada uno y las «notas» en reposo.
+  if (which === "bandeja") return [{ ...list[3], title: "ia-local" }, { ...list[0], title: "tandem" }, { ...list[2], project: "notes", projectPath: "~/…/notes" }];
+  if (which === "notas") return list.map((x) => (x.id === "pr" ? { ...x, project: "notes", projectPath: "~/…/notes" } : x));
   return list;
 }
 
@@ -449,7 +449,7 @@ export function demoLog(id: string, process: number, which: DemoOptions["tunnels
 /** La hora del demo (fija: capturas deterministas). Los cambios de camino se fechan desde aquí. */
 export const DEMO_NOW = 1_763_400_000_000;
 
-/** Lo que da cada camino en el demo, en Gbps (los números de `V3-Red`). */
+/** Lo que da cada camino en el demo, en Gbps (los números de `V3-Network`). */
 const DEMO_GBPS: Record<LinkKind, number> = { usb4: 9.4, ethernet: 2.3, wifi: 0.41 };
 
 const HISTORY = 60;
@@ -460,7 +460,7 @@ const BACK_AT = 31;
 const round = (n: number, d = 10) => Math.round(n * d) / d;
 
 /**
- * El p99 de la entrada de cada segundo (ms): la línea baja de `V3-Red` y, entre el corte y la
+ * El p99 de la entrada de cada segundo (ms): la línea baja de `V3-Network` y, entre el corte y la
  * vuelta del cable, el pico, que lleva el Wi-Fi.
  */
 const DEMO_INPUT = [
@@ -484,10 +484,10 @@ function demoPoint(kind: LinkKind, i: number): LatencyPoint {
   return { rttMs: round(3.6 + jitter * 0.6, 100), inputP99Ms: cut ? (DEMO_INPUT[i] ?? null) : null };
 }
 
-/** Lo que se sabe de cada enlace en el demo (los textos de `V3-Red`). */
-const DEMO_DETAIL: Record<LinkKind, string> = { usb4: "USB4 · 20 Gbps", ethernet: "2.5 GbE", wifi: "Wi-Fi 7 · casa" };
+/** Lo que se sabe de cada enlace en el demo (los textos de `V3-Network`). */
+const DEMO_DETAIL: Record<LinkKind, string> = { usb4: "USB4 · 20 Gbps", ethernet: "2.5 GbE", wifi: "Wi-Fi 7 · home" };
 
-/** La red del demo: USB-C principal, Ethernet sin cable y Wi-Fi de respaldo (`V3-Red`). */
+/** La red del demo: USB-C principal, Ethernet no cable y Wi-Fi de respaldo (`V3-Network`). */
 export function demoNetwork(linkUp: boolean): NetworkView {
   if (!linkUp) return { ...EMPTY_NETWORK, paths: EMPTY_NETWORK.paths.map((p) => ({ ...p })) };
   const path = (kind: LinkKind, state: PathView["state"], rttMs: number | null, input: [number, number] | null, gbps: number | null): PathView => {
@@ -509,10 +509,10 @@ export function demoNetwork(linkUp: boolean): NetworkView {
 
 const TROUBLE_TEXT: Record<Trouble, (peer: string) => string> = {
   none: () => "",
-  "no-agent": () => "El agente de Tandem no está corriendo en esta máquina",
-  "peer-off": (peer) => `${peer} está apagada`,
-  "link-down": (peer) => `Sin enlace con ${peer}`,
-  permissions: () => "Faltan permisos en esta máquina",
+  "no-agent": () => "The Tandem agent is not running on this machine",
+  "peer-off": (peer) => `${peer} is off`,
+  "link-down": (peer) => `No link with ${peer}`,
+  permissions: () => "Permissions are missing on this machine",
 };
 
 export const DEMO_CODE = "418027";
@@ -526,11 +526,11 @@ function permissionsFor(os: Os, missing: boolean, netGranted = false): Permissio
       { id: "input_monitoring", state: missing ? "missing" : "granted" },
       { id: "local_network", state: netGranted ? "granted" : "unknown" },
     ],
-    binary: "Concede el permiso a este binario: /Applications/Tandem.app/Contents/MacOS/tandemd (pid 4242)",
+    binary: "Grant the permission to this binary: /Applications/Tandem.app/Contents/MacOS/tandemd (pid 4242)",
   };
 }
 
-/** Como en el mockup: la otra máquina a la izquierda del 34", alineada abajo. */
+/** Como en el mockup: the other machine to the left of del 34", alineada abajo. */
 export const DEMO_ARRANGEMENT: Arrangement = { aSide: "left", align: "end" };
 
 /** Las pantallas de ejemplo: las de A primero (como el mockup), las desconectadas al final. */
@@ -545,19 +545,19 @@ function demoLayout(sa: Spec, sb: Spec, scenes: SceneView[], active: string | nu
       const native = { id: d.id, x: 0, y: 0, w: pw ?? 0, h: ph ?? 0 };
       const id = sa.screens.includes(d) && sb.screens.includes(d) ? `${m}-${d.id}` : d.id;
       if (gone) {
-        off.push({ ...rest, id, machine: null, x: 0, y: 0, usable: false, line: "Desconectado" });
+        off.push({ ...rest, id, machine: null, x: 0, y: 0, usable: false, line: "Disconnected" });
         continue;
       }
-      const shows = external && scene?.shows === m ? ` · escena ${scene.name}` : "";
+      const shows = external && scene?.shows === m ? ` · scene ${scene.name}` : "";
       screens.push({ ...rest, id, machine: m, x: 0, y: 0, usable: true, line: `${spec.name}${shows}`, external: external === true, native });
     }
   }
   return { screens: [...screens, ...off], arrangement: { ...DEMO_ARRANGEMENT } };
 }
 
-/** Con el puesto emparejado la otra máquina va por el cable; antes solo se la encuentra por la red (Wi-Fi). */
+/** Con el puesto emparejado the other machine va por el cable; antes solo se la encuentra por la red (Wi-Fi). */
 const PAIRED_LINK: LinkView = { kind: "usb4", gbps: 9.4, ms: 0.3, inputP99: 1.9 };
-/** `V3-Bandeja` dice 0.4 ms (el Puesto, 0.3). */
+/** `V3-Tray` dice 0.4 ms (el Puesto, 0.3). */
 const TRAY_LINK: LinkView = { ...PAIRED_LINK, ms: 0.4 };
 const UNPAIRED_LINK: LinkView = { kind: "wifi", gbps: 0.41, ms: 3.8, inputP99: null };
 const NO_LINK: LinkView = { kind: null, gbps: null, ms: null, inputP99: null };
@@ -593,7 +593,7 @@ export function demoDesk(o: DemoOptions): DeskView {
   const linkUp = o.trouble !== "peer-off" && o.trouble !== "link-down" && o.trouble !== "no-agent";
   return {
     ready: true,
-    deskName: "Mi puesto",
+    deskName: "My desk",
     prefs: { cmdCtrl: true, dragFiles: false, clipboard: true },
     lockShortcut: ["ScrollLock"],
     locked: false,
@@ -622,7 +622,7 @@ const CROSS_MS = 2500;
 const PAIR_FOUND_MS = 1400;
 const PAIR_OTHER_MS = 1200;
 
-/** Cuánto tarda la otra máquina en «editar» el puesto cuando el demo lo pide. */
+/** Cuánto tarda the other machine en «editar» el puesto cuando el demo lo pide. */
 const PEER_EDIT_MS = 1200;
 
 const CURSOR_MS = 33;
@@ -664,7 +664,7 @@ export class DemoSource implements Source {
     this.onTransfer?.(t);
   }
 
-  /** La otra máquina cambió el puesto (D5): lo que haría `DeskChanged` del agente. */
+  /** The other machine cambió el puesto (D5): lo que haría `DeskChanged` del agente. */
   simulateChange(c: DeskChange): void {
     this.onChange?.(c);
   }
@@ -682,8 +682,8 @@ export class DemoSource implements Source {
     return before;
   }
 
-  /** Un cambio hecho desde la otra máquina (acomodo): se aplica y avisa con «Deshacer». */
-  peerEdit(summary = "Teclado y mouse: el portapapeles compartido está apagado"): void {
+  /** Un cambio hecho desde the other machine (acomodo): se aplica y avisa con «Deshacer». */
+  peerEdit(summary = "Keyboard and mouse: the shared clipboard is off"): void {
     const undoTo = this.bump();
     this.set({ ...this.desk, prefs: { ...this.desk.prefs, clipboard: !this.desk.prefs.clipboard } });
     this.simulateChange({ by: this.desk.here === "a" ? "b" : "a", rev: this.rev, summary, undoTo });
@@ -691,7 +691,7 @@ export class DemoSource implements Source {
 
   async setLockShortcut(lock: string[]): Promise<ActResult> {
     this.set({ ...this.desk, lockShortcut: lock });
-    return { ok: true, text: "Atajo de bloqueo guardado" };
+    return { ok: true, text: "Lock shortcut saved" };
   }
 
   async setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult> {
@@ -702,10 +702,10 @@ export class DemoSource implements Source {
 
   async undoDesk(rev: number): Promise<ActResult> {
     const before = this.history.get(rev);
-    if (!before) return { ok: false, reason: "Esa versión del puesto ya no está" };
+    if (!before) return { ok: false, reason: "That desk version is gone" };
     this.bump();
     this.set(before);
-    return { ok: true, text: "Cambio deshecho" };
+    return { ok: true, text: "Change undone" };
   }
 
   async files(): Promise<FilesView> {
@@ -790,7 +790,7 @@ export class DemoSource implements Source {
     };
   }
 
-  /** El progreso de «Juego» en un punto fijo, con las horas de `F-Transacciones`. */
+  /** El progreso de «Juego» en un punto fijo, con las horas de `F-Transactions`. */
   private replay(emit: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void, at: "run" | "ok" | "fail"): void {
     const g34 = this.desk.monitors.find((m) => m.compat.ok);
     const steps: Step[] = [
@@ -799,16 +799,16 @@ export class DemoSource implements Source {
     ];
     const t0 = DEMO_NOW;
     const txn = 1;
-    // Las otras dos tarjetas de `F-Transacciones`: la PC encendiéndose lleva 18 s esperando
+    // Las otras dos tarjetas de `F-Transactions`: la PC encendiéndose lleva 18 s esperando
     // (el reloj de la fuente corre a la par) y el enlace USB-C se está midiendo (en `demoDesk`).
     const boot = this.now() - 18_000;
     emit({ type: "started", txn: 2, steps: [{ step: "power_on", machine: "b" }] }, boot);
     emit({ type: "step_started", txn: 2, index: 0 }, boot + 100);
-    emit({ type: "started", txn, steps }, t0, { title: "Aplicando la escena «Juego»", doneText: "Escena «Juego» activa." });
+    emit({ type: "started", txn, steps }, t0, { title: "Applying the scene “Game”", doneText: "Scene “Game” active." });
     emit({ type: "step_started", txn, index: 0 }, t0 + 100);
     if (at === "run") return;
     if (at === "fail") {
-      emit({ type: "step_failed", txn, index: 0, error: "el monitor no mostró imagen en DisplayPort; sigue en HDMI" }, t0 + 3000);
+      emit({ type: "step_failed", txn, index: 0, error: "the monitor showed no picture over DisplayPort; it stays on HDMI" }, t0 + 3000);
       return;
     }
     emit({ type: "step_done", txn, index: 0 }, t0 + 1900);
@@ -844,7 +844,7 @@ export class DemoSource implements Source {
       this.emitTxn({ type: "step_started", txn, index: i });
       after(gap, () => {
         if (i === failAt) {
-          this.emitTxn({ type: "step_failed", txn, index: i, error: "el monitor no mostró imagen en DisplayPort; sigue en HDMI" });
+          this.emitTxn({ type: "step_failed", txn, index: i, error: "the monitor showed no picture over DisplayPort; it stays on HDMI" });
           undo(i - 1);
           return;
         }
@@ -858,9 +858,9 @@ export class DemoSource implements Source {
 
   async switchMonitor(id: string, input: MonitorInput): Promise<ActResult> {
     const m = this.desk.monitors.find((x) => x.id === id);
-    if (!m) return { ok: false, reason: "No se conoce ese monitor" };
-    if (!m.compat.ok) return { ok: false, reason: `${m.name} no es compatible: no se le escribe nada` };
-    if (!m.connected) return { ok: false, reason: `${m.name} está desconectado` };
+    if (!m) return { ok: false, reason: "That monitor is not known" };
+    if (!m.compat.ok) return { ok: false, reason: `${m.name} is not supported: nothing is written to it` };
+    if (!m.connected) return { ok: false, reason: `${m.name} is disconnected` };
     const to = (["a", "b"] as Machine[]).find((x) => m.ports[x] === input) ?? null;
     this.runTxn(
       [{ step: "switch_monitor", monitor: id, input }],
@@ -875,7 +875,7 @@ export class DemoSource implements Source {
     const monitors = this.desk.monitors.map((m) => {
       if (m.id !== id) return m;
       // Con `still` no se agrega el evento: llevaría la hora del reloj (capturas deterministas).
-      const events = this.opts.still ? m.events : [{ at: Date.now(), kind: "switch" as const, text: `Entrada → ${input === "hdmi" ? "HDMI" : "DP"}, pedida por Tandem` }, ...m.events].slice(0, 3);
+      const events = this.opts.still ? m.events : [{ at: Date.now(), kind: "switch" as const, text: `Input → ${input === "hdmi" ? "HDMI" : "DP"}, requested by Tandem` }, ...m.events].slice(0, 3);
       return { ...m, input, shows, events };
     });
     this.set({ ...this.desk, monitors });
@@ -883,7 +883,7 @@ export class DemoSource implements Source {
 
   async applyScene(id: string): Promise<ActResult> {
     const scene = this.desk.scenes.find((s) => s.id === id);
-    if (!scene) return { ok: false, reason: "No existe esa escena" };
+    if (!scene) return { ok: false, reason: "That scene does not exist" };
     const steps: Step[] = [
       ...scene.monitors.map((x): Step => ({ step: "show_machine", monitor: x.monitor, machine: x.machine })),
       ...(scene.monitors.length > 0 ? [{ step: "geometry" } as Step] : []),
@@ -908,15 +908,15 @@ export class DemoSource implements Source {
     const id = scene.id || this.freeId(scene.name);
     const view = sceneView({ ...scene, id }, ctx);
     const exists = this.desk.scenes.some((s) => s.id === id);
-    if (isNew && exists) return { ok: false, reason: `Ya hay una escena con el id «${id}»` };
-    if (!isNew && !exists) return { ok: false, reason: "Esa escena ya no existe" };
+    if (isNew && exists) return { ok: false, reason: `There is already a scene with the id “${id}”` };
+    if (!isNew && !exists) return { ok: false, reason: "That scene no longer exists" };
     const scenes = isNew ? [...this.desk.scenes, view] : this.desk.scenes.map((s) => (s.id === id ? view : s));
     this.set({ ...this.desk, scenes });
-    return { ok: true, text: `Escena «${scene.name}» guardada` };
+    return { ok: true, text: `Scene “${scene.name}” saved` };
   }
 
   private freeId(name: string): string {
-    const base = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "escena";
+    const base = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "scene";
     let id = base;
     for (let n = 2; this.desk.scenes.some((s) => s.id === id); n++) id = `${base}-${n}`;
     return id;
@@ -924,29 +924,29 @@ export class DemoSource implements Source {
 
   async forgetMonitor(id: string): Promise<ActResult> {
     const m = this.desk.monitors.find((x) => x.id === id);
-    if (!m) return { ok: false, reason: "No se conoce ese monitor" };
-    if (m.compat.ok || m.connected) return { ok: false, reason: `${m.name} está en uso: solo se olvidan los que no son compatibles y no están` };
+    if (!m) return { ok: false, reason: "That monitor is not known" };
+    if (m.compat.ok || m.connected) return { ok: false, reason: `${m.name} is in use: only unsupported ones that are not present can be forgotten` };
     this.set({ ...this.desk, monitors: this.desk.monitors.filter((x) => x.id !== id) });
-    return { ok: true, text: `${m.name} olvidado` };
+    return { ok: true, text: `${m.name} forgotten` };
   }
 
   async setPower(machine: Machine, on: boolean): Promise<ActResult> {
     const m = this.desk.machines[machine];
-    if (!m) return { ok: false, reason: "No se conoce esa máquina" };
-    if (m.here) return { ok: false, reason: "Esta máquina no se apaga desde aquí" };
+    if (!m) return { ok: false, reason: "That machine is not known" };
+    if (m.here) return { ok: false, reason: "This machine cannot be powered off from here" };
     const spec = demoDesk(this.opts).machines[machine];
     this.set({
       ...this.desk,
       machines: { ...this.desk.machines, [machine]: { ...m, power: on ? "on" : "off", resources: on ? (spec?.resources ?? null) : null, live: on ? (spec?.live ?? null) : null } },
     });
-    return { ok: true, text: on ? `${m.name} encendida` : `${m.name} apagada` };
+    return { ok: true, text: on ? `${m.name} powered on` : `${m.name} powered off` };
   }
 
   /** Mide al instante lo que da cada camino en el demo. */
   async measureLink(path?: LinkKind): Promise<ActResult> {
     const kind = path ?? this.desk.link.kind;
     const target = this.desk.network.paths.find((p) => p.kind === kind);
-    if (!kind || !target || (target.state !== "primary" && target.state !== "backup")) return { ok: false, reason: "Sin enlace con la otra máquina por ese camino" };
+    if (!kind || !target || (target.state !== "primary" && target.state !== "backup")) return { ok: false, reason: "No link with the other machine over that path" };
     if (!this.opts.still) {
       // La prueba real dura 3 s: la pantalla muestra qué camino se está midiendo.
       this.set({ ...this.desk, network: { ...this.desk.network, measuring: kind } });
@@ -962,7 +962,7 @@ export class DemoSource implements Source {
   async setModule(machine: Machine, module: string, on: boolean): Promise<ActResult> {
     const m = this.desk.machines[machine];
     const mod = m?.modules.find((x) => x.id === module);
-    if (!m || !mod) return { ok: false, reason: "No existe ese módulo" };
+    if (!m || !mod) return { ok: false, reason: "That module does not exist" };
     if (mod.state === "unavailable") return { ok: false, reason: mod.detail };
     const modules = m.modules.map((x) => (x.id === module ? { ...x, state: on ? ("active" as const) : ("off" as const) } : x));
     const prefs = module === "clipboard" ? { ...this.desk.prefs, clipboard: on } : this.desk.prefs;
@@ -973,8 +973,8 @@ export class DemoSource implements Source {
   /** Re-escanear tarda un poco, como en la máquina real; lo encontrado vuelve con el puesto. */
   async rescan(machine: Machine): Promise<ActResult> {
     const m = this.desk.machines[machine];
-    if (!m) return { ok: false, reason: "No se conoce esa máquina" };
-    if (m.power !== "on") return { ok: false, reason: `${m.name} está apagada` };
+    if (!m) return { ok: false, reason: "That machine is not known" };
+    if (m.power !== "on") return { ok: false, reason: `${m.name} is off` };
     await new Promise((r) => setTimeout(r, RESCAN_MS));
     const now = this.desk.machines[machine];
     if (now) this.set({ ...this.desk, machines: { ...this.desk.machines, [machine]: { ...now, environments: now.environments.map((e) => ({ ...e })) } } });
@@ -983,17 +983,17 @@ export class DemoSource implements Source {
 
   async setDeskName(name: string): Promise<ActResult> {
     const n = name.trim();
-    if (n.length > 40) return { ok: false, reason: "el nombre no puede pasar de 40 caracteres" };
-    this.set({ ...this.desk, deskName: n || "Mi puesto" });
+    if (n.length > 40) return { ok: false, reason: "the name cannot exceed 40 characters" };
+    this.set({ ...this.desk, deskName: n || "My desk" });
     return { ok: true };
   }
 
   async setWol(mac: string | null): Promise<ActResult> {
     if (mac !== null && !/^([0-9a-f]{2}[:-]){5}[0-9a-f]{2}$/i.test(mac.trim())) {
-      return { ok: false, reason: `dirección MAC inválida «${mac}»: se esperan 6 bytes, como aa:bb:cc:dd:ee:ff` };
+      return { ok: false, reason: `invalid MAC address “${mac}”: 6 bytes expected, like aa:bb:cc:dd:ee:ff` };
     }
     const m = this.desk.machines.b;
-    if (!m?.wake) return { ok: false, reason: "esta máquina no se enciende por red" };
+    if (!m?.wake) return { ok: false, reason: "this machine cannot be powered on over the network" };
     this.set({ ...this.desk, machines: { ...this.desk.machines, b: { ...m, wake: { mac: mac === null ? null : mac.trim().toLowerCase().replaceAll("-", ":") } } } });
     return { ok: true };
   }
@@ -1001,7 +1001,7 @@ export class DemoSource implements Source {
   /** Lo mismo que valida el puesto: nombre no vacío y corto, color de la paleta y distinto. */
   async editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult> {
     const m = this.desk.machines[machine];
-    if (!m) return { ok: false, reason: `la máquina ${machine.toUpperCase()} todavía no se conoce` };
+    if (!m) return { ok: false, reason: `machine ${machine.toUpperCase()} is not known yet` };
     let { name, color } = m;
     if (edit.name !== undefined) {
       const c = checkName(edit.name);
@@ -1009,9 +1009,9 @@ export class DemoSource implements Source {
       name = c.name;
     }
     if (edit.color !== undefined) {
-      if (!/^#[0-9a-f]{6}$/i.test(edit.color)) return { ok: false, reason: `«${edit.color}» no es un color #rrggbb` };
+      if (!/^#[0-9a-f]{6}$/i.test(edit.color)) return { ok: false, reason: `“${edit.color}” is not a #rrggbb color` };
       const other = this.desk.machines[machine === "a" ? "b" : "a"];
-      if (other && other.color.toLowerCase() === edit.color.toLowerCase()) return { ok: false, reason: `ese color ya es el de ${other.name}` };
+      if (other && other.color.toLowerCase() === edit.color.toLowerCase()) return { ok: false, reason: `that color already belongs to ${other.name}` };
       color = edit.color;
     }
     this.set({ ...this.desk, machines: { ...this.desk.machines, [machine]: { ...m, name, color } } });
@@ -1026,11 +1026,11 @@ export class DemoSource implements Source {
     this.set({ ...this.desk, link, pair: { peer, pairing } });
   }
 
-  /** Simula a la otra máquina: aparece el código y, al confirmar, confirma ella también. */
+  /** Simula a the other machine: aparece el código y, al confirmar, confirma ella también. */
   async setArrangement(a: Arrangement): Promise<ActResult> {
-    if (this.desk.trouble === "no-agent") return { ok: false, reason: "El agente de Tandem no está corriendo en esta máquina" };
+    if (this.desk.trouble === "no-agent") return { ok: false, reason: "The Tandem agent is not running on this machine" };
     this.set({ ...this.desk, layout: { ...this.desk.layout, arrangement: { ...a } } });
-    return { ok: true, text: "Acomodo guardado" };
+    return { ok: true, text: "Arrangement saved" };
   }
 
   private listeners = new Set<(m: Machine) => void>();
@@ -1069,7 +1069,7 @@ export class DemoSource implements Source {
   }
 
   /**
-   * El cursor en vivo: sigue el recorrido del mockup (7 s, de la MacBook al 34" y de vuelta) y
+   * El cursor en vivo: sigue el recorrido del mockup (7 s, de the MacBook al 34" y de vuelta) y
    * avisa cada cruce. Con `still` (o sin movimiento permitido) manda solo el punto de partida.
    */
   async watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void> {
@@ -1108,7 +1108,7 @@ export class DemoSource implements Source {
 
   async pairAction(kind: PairActionKind): Promise<ActResult> {
     clearTimeout(this.pairTimer);
-    const peerName = this.desk.machines[this.desk.here === "a" ? "b" : "a"]?.name ?? "la otra máquina";
+    const peerName = this.desk.machines[this.desk.here === "a" ? "b" : "a"]?.name ?? "the other machine";
     const p = this.desk.pair.pairing;
     switch (kind) {
       case "start_pairing":
@@ -1116,10 +1116,10 @@ export class DemoSource implements Source {
         this.pairTimer = setTimeout(() => this.setPairing({ kind: "comparing", code: DEMO_CODE, peer: peerName, confirmed: false }), PAIR_FOUND_MS);
         return { ok: true };
       case "confirm_pairing":
-        if (p.kind !== "comparing") return { ok: false, reason: "No hay código que confirmar" };
+        if (p.kind !== "comparing") return { ok: false, reason: "There is no code to confirm" };
         this.setPairing({ ...p, confirmed: true });
         this.pairTimer = setTimeout(() => {
-          if (this.opts.pairing === "reject") this.setPairing({ kind: "failed", reason: `se rechazó en ${peerName}` });
+          if (this.opts.pairing === "reject") this.setPairing({ kind: "failed", reason: `it was rejected on ${peerName}` });
           else this.setPairing({ kind: "done", peer: peerName }, { kind: "paired", name: peerName, link: "usb4" });
         }, PAIR_OTHER_MS);
         return { ok: true };
@@ -1135,7 +1135,7 @@ export class DemoSource implements Source {
   /** El demo no tiene motor de entrada: el bloqueo solo cambia el estado que se ve. */
   async lockHere(on: boolean): Promise<ActResult> {
     this.set({ ...this.desk, locked: on });
-    return { ok: true, text: on ? "Cursor bloqueado aquí" : "Bloqueo quitado" };
+    return { ok: true, text: on ? "Cursor locked here" : "Lock removed" };
   }
 
   async requestPermissions(): Promise<ActResult> {
@@ -1152,7 +1152,7 @@ export class DemoSource implements Source {
   }
 
   async restartAgent(): Promise<ActResult> {
-    return { ok: true, text: "tandemd se reinicia: en unos segundos se vuelven a comprobar los permisos" };
+    return { ok: true, text: "tandemd is restarting: permissions are re-checked in a few seconds" };
   }
 
   private adminDone = false;
@@ -1160,11 +1160,11 @@ export class DemoSource implements Source {
   async adminStatus(): Promise<AdminView> {
     const off = this.opts.admin === "off";
     const state: AdminView["state"] = this.adminDone ? "ok" : (this.opts.admin ?? "ok");
-    return { state, canInstall: state !== "ok" && !off, note: off ? "instalación por usuario: instala Tandem en Archivos de programa para el servicio" : "" };
+    return { state, canInstall: state !== "ok" && !off, note: off ? "per-user install: install Tandem under Program Files for the service" : "" };
   }
 
   async installAdmin(): Promise<AdminView> {
-    if (this.opts.admin === "off") throw new Error("instalación por usuario: no aplica");
+    if (this.opts.admin === "off") throw new Error("per-user install: not applicable");
     this.adminDone = true;
     return this.adminStatus();
   }
@@ -1201,7 +1201,7 @@ export class DemoSource implements Source {
     return { text: from.stdout > 0 ? "" : text, next: { stdout: text.length, stderr: 0 }, done: false };
   }
 
-  // Actualizaciones simuladas (`F-Ajustes`): las dos en 0.3.0 y, al buscar, aparece 0.3.1.
+  // Actualizaciones simuladas (`F-Settings`): las dos en 0.3.0 y, al buscar, aparece 0.3.1.
   private upd: UpdateView = { here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true };
   private onUpd: ((v: UpdateView) => void) | null = null;
 
@@ -1222,7 +1222,7 @@ export class DemoSource implements Source {
 
   /** En el demo no se instala nada: se muestra el primer paso y queda ahí. */
   async updateAll(): Promise<UpdateView> {
-    if (!this.upd.available) throw new Error("no hay una versión nueva: busca primero");
+    if (!this.upd.available) throw new Error("there is no new version: check first");
     return this.setUpd({ ...this.upd, step: "ask_peer" });
   }
 

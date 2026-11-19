@@ -1,4 +1,4 @@
-// Las otras dos tarjetas de «Cambios en progreso» (`F-Transacciones`): el encendido de una
+// Las otras dos tarjetas de «Changes in progress» (`F-Transactions`): el encendido de una
 // máquina y la medición de un enlace. Puro: la pantalla solo dibuja lo que sale de aquí.
 
 import { LINK_NAME } from "./machines";
@@ -51,18 +51,18 @@ export function energyView(run: Run | null, name: (m: Machine) => string, from: 
   const st = run.progress.status[0];
   const waited = clockText((run.endedAt ?? now) - run.startedAt);
   const rows: EnergyRow[] = [
-    { key: "wol", icon: "done", text: `Wake-on-LAN enviado desde ${from}`, detail: st === "done" ? "listo" : `cada ${WOL_EVERY_S} s`, mono: false, dim: false },
+    { key: "wol", icon: "done", text: `Wake-on-LAN sent from ${from}`, detail: st === "done" ? "done" : `every ${WOL_EVERY_S} s`, mono: false, dim: false },
     {
       key: "wait",
       icon: st === "done" ? "done" : st === "failed" ? "bad" : "run",
-      text: "Esperando a que su agente conteste",
-      detail: st === "done" ? waited : st === "failed" ? (run.progress.error ?? "no contestó") : `${waited} / ${clockText(BOOT_WAIT_MS)}`,
+      text: "Waiting for its agent to answer",
+      detail: st === "done" ? waited : st === "failed" ? (run.progress.error ?? "did not answer") : `${waited} / ${clockText(BOOT_WAIT_MS)}`,
       mono: st !== "failed",
       dim: false,
     },
-    { key: "join", icon: st === "done" ? "done" : "todo", text: "Volver a incluirla en el puesto", detail: "", mono: false, dim: st !== "done" },
+    { key: "join", icon: st === "done" ? "done" : "todo", text: "Add it back to the desk", detail: "", mono: false, dim: st !== "done" },
   ];
-  return { title: `Encendiendo ${name(target)}`, rows, waiting: st === "run" || st === "pending" };
+  return { title: `Powering on ${name(target)}`, rows, waiting: st === "run" || st === "pending" };
 }
 
 export interface MeterRow {
@@ -86,14 +86,14 @@ export interface MeasureView {
 }
 
 const CAPTION: Record<LinkKind, string> = {
-  usb4: "USB4 20 Gbps de enlace",
-  ethernet: "Ethernet 2.5 Gbps de enlace",
-  wifi: "Wi-Fi: enlace negociado",
+  usb4: "USB4 20 Gbps link",
+  ethernet: "Ethernet 2.5 Gbps link",
+  wifi: "Wi-Fi: negotiated link",
 };
 
 const otherText = (p: PathView): string => {
   if (p.state === "unplugged") return unpluggedText(p.kind);
-  if (p.state === "down") return "caído";
+  if (p.state === "down") return "down";
   return [p.gbps === null ? null : formatRate(p.gbps), p.rttMs === null ? null : formatMs(p.rttMs)].filter(Boolean).join(" · ") || "—";
 };
 
@@ -110,12 +110,12 @@ export function measureView(n: NetworkView, kind: LinkKind): MeasureView | null 
   const percent = g === null ? 0 : Math.max(0, Math.min(100, Math.round((g / RING_GBPS) * 100)));
   return {
     kind,
-    title: `Midiendo el enlace ${LINK_NAME[kind]}`,
+    title: `Measuring the ${LINK_NAME[kind]} link`,
     value,
     unit,
     latency: path.rttMs === null ? "—" : formatMs(path.rttMs),
     percent,
-    aria: `${g === null ? "sin medir" : `${Math.round(g * 10) / 10}`} de ${RING_GBPS} Gbps`,
+    aria: `${g === null ? "not measured" : `${Math.round(g * 10) / 10}`} of ${RING_GBPS} Gbps`,
     caption: CAPTION[kind],
     others: n.paths.filter((p) => p.kind !== kind).map((p) => ({ name: LINK_NAME[p.kind], text: otherText(p) })),
   };

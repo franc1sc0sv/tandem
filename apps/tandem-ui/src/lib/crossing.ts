@@ -1,4 +1,4 @@
-// Prueba de cruce (`F-PruebaCruce`): se pide llevar el cursor a la otra máquina por el borde
+// Crossing test (`F-CrossingTest`): se pide llevar el cursor a the other machine por el borde
 // del acomodo y se juzga con lo que informa el motor de entrada. Puro: el tiempo entra como
 // número para probarlo sin relojes.
 
@@ -35,7 +35,7 @@ export function start(now: number): CrossPhase {
 
 /**
  * Lo que pasa con un cruce informado. Solo cuenta mientras se espera y si sale de `from`:
- * un cruce de vuelta (de la otra máquina hacia aquí) no dice nada del borde.
+ * un cruce de vuelta (de the other machine hacia aquí) no dice nada del borde.
  */
 export function onSample(phase: CrossPhase, from: Machine, expected: Side, s: CrossSample): CrossPhase {
   if (phase.kind !== "waiting" || s.from !== from) return phase;

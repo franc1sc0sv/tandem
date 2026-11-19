@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Red (`V3-Red`, T-118): el mapa de enlaces, los indicadores y una tarjeta por camino. Todo
+  // Red (`V3-Network`, T-118): el mapa de enlaces, los indicadores y una tarjeta por camino. Todo
   // sale del estado de la red del agente (`desk.network`); «Medir ancho de banda» le pide la
   // prueba de 3 s al agente.
   import { useStore } from "../lib/context";
@@ -35,10 +35,10 @@
 </script>
 
 <div class="page">
-  <PageHeader title="Red" search={false}>
+  <PageHeader title="Network" search={false}>
     {#snippet actions()}
       <Button icon="gauge" motion="tilt" style="--btn-h:38px;--btn-px:15px" disabled={measuring || !store.can("measure")} onclick={measure}>
-        {measuring ? `Midiendo${measuringName ? ` ${measuringName}` : ""}…` : "Medir ancho de banda"}
+        {measuring ? `Measuring${measuringName ? ` ${measuringName}` : ""}…` : "Measure bandwidth"}
       </Button>
     {/snippet}
   </PageHeader>

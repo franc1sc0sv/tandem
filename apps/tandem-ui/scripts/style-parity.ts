@@ -49,7 +49,7 @@ export async function runStyleParity(browser: Browser, openGallery: (page: Page)
   const wanted = (side: "app" | "ref", list: StylePair[]): Wanted[] => list.map((p) => ({ key: p.name, target: p[side], props: propertiesOf(p.groups) }));
 
   // La app: un solo contexto para toda la galería.
-  const appCtx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, locale: "es-ES", colorScheme: "dark" });
+  const appCtx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, locale: "en-US", colorScheme: "dark" });
   let app: Record<string, Styles | null>;
   let galleryPng: Buffer;
   try {
@@ -67,7 +67,7 @@ export async function runStyleParity(browser: Browser, openGallery: (page: Page)
   const ref: Record<string, Styles | null> = {};
   const views = [...new Map(pairs.map((p) => [`${p.mockup}--${p.state ?? ""}`, { mockup: p.mockup, state: p.state }])).values()];
   for (const { mockup, state } of views) {
-    const ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, locale: "es-ES", colorScheme: "dark" });
+    const ctx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, locale: "en-US", colorScheme: "dark" });
     try {
       await installRoutes(ctx);
       const page = await ctx.newPage();

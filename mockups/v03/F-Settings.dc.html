@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#0e0f12}
+a{color:#9cc0f0}
+.mut{color:#9a9da6}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+.btn{font:inherit;font-size:13px;padding:8px 14px;border-radius:9px;border:1px solid #31343b;background:#1b1c21;color:#e8e8eb;cursor:pointer;min-height:36px}
+.tab{font:inherit;text-align:left;font-size:13.5px;padding:9px 12px;border-radius:9px;border:0;background:transparent;color:#a3a6af;cursor:pointer;min-height:38px;transition:background .2s,color .2s}
+.tab:hover{background:#17181c;color:#e8e8eb}
+.row{display:flex;align-items:center;gap:14px;padding:14px 0;border-top:1px solid #1f2126;font-size:13.5px;flex-wrap:wrap}
+.combo{font-family:'JetBrains Mono',monospace;font-size:12.5px;padding:6px 12px;border-radius:8px;background:#111215;border:1px solid #31343b;min-width:110px;text-align:center}
+.sw{width:38px;height:22px;border-radius:11px;position:relative;border:0;cursor:pointer;flex:none;background:#2f6a52}
+.sw::after{content:"";position:absolute;top:3px;left:19px;width:16px;height:16px;border-radius:50%;background:#e8e8eb}
+.sw.off{background:#31343b}.sw.off::after{left:3px}
+.pane{animation:fd .3s ease-out}
+.danger{border-color:#7a4540;color:#f0b1aa}
+@keyframes fd{from{opacity:0;transform:translateX(8px)}to{opacity:1;transform:none}}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:34px;min-height:0;padding:0 13px;box-sizing:border-box;flex:none;align-self:center;white-space:nowrap;font:inherit;font-size:12.5px;font-weight:500;line-height:1;border-radius:9px;border:1px solid #2e3138;background:linear-gradient(180deg,#1f2025,#18191d);color:#e8e8eb;cursor:pointer;text-decoration:none!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 1px 2px rgba(0,0,0,.3);transition:transform .18s cubic-bezier(.2,.8,.2,1),border-color .18s,box-shadow .18s;position:relative;overflow:hidden}
+.btn svg{width:15px;height:15px;flex:none;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+.btn:hover{border-color:#41454e;transform:translateY(-1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.06),0 6px 16px rgba(0,0,0,.35)}
+.btn:hover svg{transform:scale(1.14)}
+.btn:hover svg.rf{transform:rotate(-180deg)}
+.btn:active{transform:scale(.97)}
+.btn:focus-visible{outline:2px solid #7aa7e6;outline-offset:2px}
+.btn.pri{background:linear-gradient(180deg,#3a6aa8,#2c5288)!important;border-color:#5b8fd4!important;color:#fff}
+.btn.pri:hover{box-shadow:0 0 0 4px rgba(122,167,230,.16),0 8px 20px rgba(44,82,136,.45)}
+.btn.pri::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.2) 50%,transparent 70%);transform:translateX(-120%);transition:transform .6s}
+.btn.pri:hover::after{transform:translateX(120%)}
+.btn.danger{color:#f0b1aa;border-color:#5a3532;background:linear-gradient(180deg,#24191a,#1c1516)}
+.btn.danger:hover{border-color:#8a4c46;box-shadow:0 0 0 4px rgba(224,122,111,.12)}
+.btn.ic{width:34px;padding:0}
+.tab{display:flex;align-items:center;gap:10px}
+.tab svg{width:16px;height:16px;flex:none;opacity:.8}
+.row{transition:background .2s}
+.row:hover{background:rgba(255,255,255,.015)}
+.sw{transition:background .25s}
+.sw::after{transition:left .3s cubic-bezier(.3,1.4,.5,1)}
+</style>
+</helmet>
+<div style="width:100%;min-height:860px;box-sizing:border-box;padding:28px 32px;display:flex;flex-direction:column;gap:18px;font-family:'Inter',system-ui,sans-serif;color:#e8e8eb;font-size:14px;background:#0e0f12">
+  <nav aria-label="Path" style="font-size:12.5px" class="mut"><a href="V3-Desk.dc.html">Desk</a> › Settings</nav>
+  <h1 style="margin:0;font-size:20px;font-weight:650">Settings</h1>
+  <div style="display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start">
+    <div role="tablist" aria-label="Sections" aria-orientation="vertical" style="flex:0 0 200px;display:flex;flex-direction:column;gap:2px">
+      <sc-for list="{{tabs}}" as="t" hint-placeholder-count="5"><button type="button" role="tab" class="tab" aria-selected="{{t.on}}" onClick="{{t.pick}}" style="{{t.style}}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{t.ic}}"></path></svg>{{t.name}}</button></sc-for>
+    </div>
+    <section style="flex:1 1 560px;min-width:0;max-width:760px">
+      <sc-if value="{{isPuesto}}" hint-placeholder-val="{{ true }}">
+        <div class="pane">
+          <div class="row" style="border-top:0"><span style="flex:1">Desk name</span><input value="My desk" style="font:inherit;font-size:13.5px;color:#e8e8eb;background:#111215;border:1px solid #31343b;border-radius:9px;padding:8px 12px"></div>
+          <div class="row"><span style="width:8px;height:8px;border-radius:50%;background:#7aa7e6"></span><span style="flex:1">MacBook Pro <span class="mut" style="font-size:12.5px">· this machine</span></span><button type="button" class="btn ic" aria-label="Rename" title="Rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button></div>
+          <div class="row"><span style="width:8px;height:8px;border-radius:50%;background:#a99be8"></span><span style="flex:1">PC-Desktop</span><button type="button" class="btn ic" aria-label="Rename" title="Rename"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"></path></svg></button><button type="button" class="btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path></svg>Remove from desk</button></div>
+          <div class="row"><span style="flex:1">Add a machine</span><a class="btn pri" href="F-AddHost.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="15" r="4"></circle><path d="M11 12l9-9M17 6l3 3"></path></svg>Show code</a></div>
+          <div class="row"><span style="flex:1">Run setup again</span><a class="btn" href="F-Setup1.dc.html"><svg class="rf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 4v4h-4M4 20v-4h4"></path></svg>Open</a></div>
+          <div class="row"><span style="flex:1;display:flex;flex-direction:column;gap:3px">Leave desk<span class="mut" style="font-size:12.5px">This machine forgets the other machines’ keys and, if they are connected, they forget its key; if not, they do once they leave too.</span></span><button type="button" class="btn danger"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M14 17l5-5-5-5M19 12H9"></path></svg>Leave</button></div>
+        </div>
+      </sc-if>
+      <sc-if value="{{isAtajos}}" hint-placeholder-val="{{ false }}">
+        <div class="pane">
+          <p class="mut" style="margin:0 0 8px;font-size:12.5px">They work on any machine of the desk, even with Tandem in the background. Click and press the new combination.</p>
+          <div class="row"><span style="flex:1">Show or hide Tandem</span><span class="combo">⌃⌥0</span></div>
+          <div class="row"><span style="flex:1">Lock the keyboard on this machine</span><span class="combo">Scroll Lock</span></div>
+          <div class="row"><span style="flex:1">Command palette</span><span class="combo">⌘K</span></div>
+          <div class="row"><span style="flex:1">Scene “Work”</span><span class="combo">⌃⌥1</span></div>
+          <div class="row"><span style="flex:1">Scene “MacBook only”</span><span class="combo">⌃⌥2</span></div>
+          <div class="row"><span style="flex:1">Scene “PC only”</span><span class="combo">⌃⌥3</span></div>
+        </div>
+      </sc-if>
+      <sc-if value="{{isTeclado}}" hint-placeholder-val="{{ false }}">
+        <div class="pane">
+          <div class="row" style="border-top:0"><span style="flex:1;display:flex;flex-direction:column;gap:3px">Swap Cmd and Ctrl between macOS and Windows<span class="mut" style="font-size:12.5px">Copy is ⌘C on the Mac and Ctrl+C on the PC, with the same finger.</span></span><button type="button" class="sw" role="switch" aria-checked="true" aria-label="Swap Cmd and Ctrl"></button></div>
+          <div class="row"><span style="flex:1;display:flex;flex-direction:column;gap:3px">Drag between machines<span class="mut" style="font-size:12.5px">With a button held down, the cursor does not cross the edge.</span></span><button type="button" class="sw off" role="switch" aria-checked="false" aria-label="Drag between machines"></button></div>
+          <div class="row"><span style="flex:1">Shared clipboard</span><button type="button" class="sw" role="switch" aria-checked="true" aria-label="Shared clipboard"></button></div>
+        </div>
+      </sc-if>
+      <sc-if value="{{isUpd}}" hint-placeholder-val="{{ false }}">
+        <div class="pane">
+          <div class="row" style="border-top:0"><span style="flex:1;display:flex;flex-direction:column;gap:3px">Tandem 0.3.0<span class="mut" style="font-size:12.5px">All machines of the desk on the same version.</span></span><button type="button" class="btn" onClick="{{check}}"><svg class="rf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 4v4h-4M4 20v-4h4"></path></svg>{{checkLabel}}</button></div>
+          <sc-if value="{{found}}" hint-placeholder-val="{{ false }}"><div class="row" style="animation:fd .3s"><span style="flex:1;display:flex;flex-direction:column;gap:3px">A new version is available: 0.3.1<span class="mut" style="font-size:12.5px">It installs on every machine, one at a time, without cutting the keyboard.</span></span><button type="button" class="btn pri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>Update all</button></div></sc-if>
+          <div class="row"><span style="flex:1">Update only</span><button type="button" class="sw" role="switch" aria-checked="true" aria-label="Update only"></button></div>
+          <div class="row"><span style="flex:1">Source</span><span class="mono mut" style="font-size:12.5px">GitHub Releases · unsigned</span></div>
+        </div>
+      </sc-if>
+      <sc-if value="{{isAdv}}" hint-placeholder-val="{{ false }}">
+        <div class="pane">
+          <div class="row" style="border-top:0"><span style="flex:1;display:flex;flex-direction:column;gap:3px">Configuration<span class="mono mut" style="font-size:12px">~/Library/Application Support/Tandem/tandem.toml</span></span><button type="button" class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 3h8l4 4v14H6zM14 3v4h4"></path></svg>Show file</button></div>
+          <div class="row"><span style="flex:1">Agent logs</span><button type="button" class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg>Open folder</button></div>
+          <div class="row"><span style="flex:1;display:flex;flex-direction:column;gap:3px">MCP server<span class="mono mut" style="font-size:12px">tandem mcp · 2 sessions connected</span></span><button type="button" class="btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h8"></path></svg>Copy command</button></div>
+          <div class="row"><span style="flex:1">Trouble states (reference view)</span><a class="btn" href="V3-States.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></svg>View</a></div>
+        </div>
+      </sc-if>
+    </section>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":860}}'>
+class Component extends DCLogic {
+  constructor(p) { super(p); this.state = { t: 'puesto', found: false }; }
+  renderVals() {
+    const ts = [['puesto', 'Desk and machines', 'M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z'], ['atajos', 'Shortcuts', 'M2 6h20v12H2zM6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10'], ['teclado', 'Keyboard and mouse', 'M12 3a6 6 0 0 1 6 6v6a6 6 0 0 1-12 0V9a6 6 0 0 1 6-6zM12 7v4'], ['upd', 'Updates', 'M12 4v11M7 10l5 5 5-5M5 20h14'], ['adv', 'Advanced', 'M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4']];
+    const t = this.state.t;
+    return {
+      isPuesto: t === 'puesto', isAtajos: t === 'atajos', isTeclado: t === 'teclado', isUpd: t === 'upd', isAdv: t === 'adv',
+      found: this.state.found, checkLabel: this.state.found ? 'Check again' : 'Check now',
+      check: () => this.setState({ found: true }),
+      tabs: ts.map(([id, name, ic]) => ({ name, ic, on: id === t ? 'true' : 'false', style: id === t ? 'background:#1c1d22;color:#e8e8eb' : '', pick: () => this.setState({ t: id }) }))
+    };
+  }
+}
+</script>
+</body>
+</html>

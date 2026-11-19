@@ -19,15 +19,15 @@ function fake() {
 
 describe("aviso del arrastre de archivos", () => {
   it("dice qué archivo se copia y cuántos faltan", () => {
-    expect(dragNotice({ kind: "copying", name: "a.txt", index: 1, total: 3 })).toEqual({ text: "Copiando 2 de 3: a.txt", tone: "ok", ongoing: true });
-    expect(dragNotice({ kind: "copied", total: 1 }).text).toBe("Listo para soltar: 1 archivo");
-    expect(dragNotice({ kind: "copied", total: 2 }).text).toBe("Listo para soltar: 2 archivos");
+    expect(dragNotice({ kind: "copying", name: "a.txt", index: 1, total: 3 })).toEqual({ text: "Copying 2 of 3: a.txt", tone: "ok", ongoing: true });
+    expect(dragNotice({ kind: "copied", total: 1 }).text).toBe("Ready to drop: 1 file");
+    expect(dragNotice({ kind: "copied", total: 2 }).text).toBe("Ready to drop: 2 files");
   });
 
   it("los finales cierran el aviso y un fallo va en tono de error", () => {
     expect(dragNotice({ kind: "dropped" }).ongoing).toBe(false);
     expect(dragNotice({ kind: "cancelled" }).ongoing).toBe(false);
-    expect(dragNotice({ kind: "failed", reason: "sin espacio" })).toEqual({ text: "No se pudo arrastrar: sin espacio", tone: "bad", ongoing: false });
+    expect(dragNotice({ kind: "failed", reason: "sin espacio" })).toEqual({ text: "Could not drag: sin espacio", tone: "bad", ongoing: false });
   });
 
   it("LiveSource reparte el aviso con el mismo oyente de avisos que las transacciones", async () => {
@@ -49,13 +49,13 @@ describe("aviso del arrastre de archivos", () => {
     await store.start();
     emit({ kind: "copying", name: "a.txt", index: 0, total: 2 });
     emit({ kind: "copying", name: "b.txt", index: 1, total: 2 });
-    expect(store.toasts.map((t) => t.text)).toEqual(["Copiando 2 de 2: b.txt"]);
+    expect(store.toasts.map((t) => t.text)).toEqual(["Copying 2 of 2: b.txt"]);
     // Mientras dura el arrastre no se cierra solo.
     vi.advanceTimersByTime(30_000);
     expect(store.toasts).toHaveLength(1);
     emit({ kind: "copied", total: 2 });
     emit({ kind: "dropped" });
-    expect(store.toasts.map((t) => t.text)).toEqual(["Archivos copiados a la otra máquina"]);
+    expect(store.toasts.map((t) => t.text)).toEqual(["Files copied to the other machine"]);
     vi.advanceTimersByTime(TOAST_MS);
     expect(store.toasts).toHaveLength(0);
   });

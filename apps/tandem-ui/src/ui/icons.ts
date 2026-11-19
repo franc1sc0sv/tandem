@@ -37,7 +37,7 @@ export const ICONS = {
   "arrow-left": { body: '<path d="M19 12H5M11 6l-6 6 6 6"></path>', linecap: "round", linejoin: "round" },
   "chevron-down": { body: '<path d="m6 9 6 6 6-6"></path>', linecap: "round", linejoin: "round" },
   "chevron-right": { body: '<path d="m9 6 6 6-6 6"></path>' },
-  // Acomodo (V3-Acomodo): flechas del mini plano y alineaciones a lo largo del borde.
+  // Acomodo (V3-Arrangement): flechas del mini plano y alineaciones a lo largo del borde.
   "arrow-up": { body: '<path d="M12 19V5M6 11l6-6 6 6"></path>', linecap: "round", linejoin: "round" },
   "arrow-down": { body: '<path d="M12 5v14M6 13l6 6 6-6"></path>', linecap: "round", linejoin: "round" },
   "align-top": { body: '<path d="M4 4h16"></path><rect x="6" y="8" width="5" height="12" rx="1"></rect><rect x="13" y="8" width="5" height="7" rx="1"></rect>', linecap: "round" },
@@ -75,7 +75,7 @@ export const ICONS = {
     body: '<circle cx="6" cy="6" r="2.5"></circle><circle cx="6" cy="18" r="2.5"></circle><circle cx="18" cy="8" r="2.5"></circle><path d="M6 8.5v7M18 10.5c0 4-6 3-11 5.5"></path>',
   },
   trash: { body: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"></path>', linecap: "round" },
-  /** El lápiz de «Editar» de V3-Monitores (sin la línea de `edit`). */
+  /** El lápiz de «Editar» de V3-Monitors (sin la línea de `edit`). */
   pencil: { body: '<path d="M4 20h4L19 9l-4-4L4 16z"></path>', linejoin: "round" },
   hand: { body: '<path d="M9 11V5a2 2 0 0 1 4 0v6M13 11V4a2 2 0 0 1 4 0v8M9 11a2 2 0 0 0-4 0v2a7 7 0 0 0 14 0v-1"></path>' },
   unplugged: { body: '<path d="M7 7l10 10M9 3v4M15 3v4M6 9h3M15 9h3"></path>' },

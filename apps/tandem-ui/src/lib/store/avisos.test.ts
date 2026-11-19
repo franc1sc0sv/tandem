@@ -55,14 +55,14 @@ describe("aviso de cambio del puesto (D5) por el agente", () => {
     const { bridge, act, emit } = fake();
     const store = new Store(new LiveSource(bridge));
     await store.start();
-    emit({ kind: "desk_changed", by: "b", rev: 7, summary: "Acomodo", undo_to: 6 });
+    emit({ kind: "desk_changed", by: "b", rev: 7, summary: "Arrangement", undo_to: 6 });
     expect(store.toasts).toHaveLength(1);
-    expect(store.toasts[0]).toMatchObject({ text: "Cambiado desde Taller", body: "Acomodo", tone: "info", auto: false });
-    expect(store.toasts[0].action?.label).toBe("Deshacer");
+    expect(store.toasts[0]).toMatchObject({ text: "Changed from Taller", body: "Arrangement", tone: "info", auto: false });
+    expect(store.toasts[0].action?.label).toBe("Undo");
 
     store.toasts[0].action?.run();
     await vi.waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "undo_desk", to_rev: 6 }));
-    await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "Cambio deshecho", tone: "ok" }));
+    await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "Change undone", tone: "ok" }));
   });
 
   it("el aviso con «Deshacer» no se va solo; los demás sí a los 6 s", async () => {
@@ -70,15 +70,15 @@ describe("aviso de cambio del puesto (D5) por el agente", () => {
     const { bridge, emit } = fake();
     const store = new Store(new LiveSource(bridge));
     await store.start();
-    emit({ kind: "desk_changed", by: "b", rev: 2, summary: "Atajos", undo_to: 1 });
-    store.toast("Listo");
+    emit({ kind: "desk_changed", by: "b", rev: 2, summary: "Shortcuts", undo_to: 1 });
+    store.toast("Done");
     vi.advanceTimersByTime(TOAST_MS + 100);
-    expect(store.toasts.map((t) => t.text)).toEqual(["Cambiado desde Taller"]);
+    expect(store.toasts.map((t) => t.text)).toEqual(["Changed from Taller"]);
     store.dismiss(store.toasts[0].id);
     expect(store.toasts).toEqual([]);
   });
 
-  it("un aviso retenido (`hold`, la pila de ejemplo de F-Avisos) no se va solo", async () => {
+  it("un aviso retenido (`hold`, la pila de ejemplo de F-Notices) no se va solo", async () => {
     vi.useFakeTimers();
     const { bridge } = fake();
     const store = new Store(new LiveSource(bridge));
@@ -97,7 +97,7 @@ describe("aviso de cambio del puesto (D5) por el agente", () => {
     );
     const store = new Store(new LiveSource(bridge));
     await store.start();
-    emit({ kind: "desk_changed", by: "b", rev: 3, summary: "Acomodo", undo_to: 2 });
+    emit({ kind: "desk_changed", by: "b", rev: 3, summary: "Arrangement", undo_to: 2 });
     store.toasts[0].action?.run();
     await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "esa versión ya no está", tone: "bad" }));
   });
@@ -106,7 +106,7 @@ describe("aviso de cambio del puesto (D5) por el agente", () => {
     const { bridge, emit } = fake();
     const store = new Store(new LiveSource(bridge), null, TRAY_TOPICS);
     await store.start();
-    emit({ kind: "desk_changed", by: "b", rev: 3, summary: "Acomodo", undo_to: 2 });
+    emit({ kind: "desk_changed", by: "b", rev: 3, summary: "Arrangement", undo_to: 2 });
     expect(store.toasts).toEqual([]);
   });
 
@@ -120,30 +120,30 @@ describe("aviso de cambio del puesto (D5) por el agente", () => {
 });
 
 describe("aviso de cambio del puesto (D5) en modo demo", () => {
-  it("la otra máquina cambia el puesto, avisa y «Deshacer» restaura el estado anterior", async () => {
+  it("the other machine cambia el puesto, avisa y «Deshacer» restaura el estado anterior", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     const store = new Store(src);
     await store.start();
     const antes = store.desk.ready ? store.desk.prefs : null;
     expect(antes).not.toBeNull();
 
-    src.peerEdit("Portapapeles apagado");
+    src.peerEdit("Clipboard apagado");
     expect(store.desk.ready && store.desk.prefs.clipboard).toBe(!antes?.clipboard);
-    expect(store.toasts[0]).toMatchObject({ body: "Portapapeles apagado", auto: false });
-    expect(store.toasts[0].text).toMatch(/^Cambiado desde /);
+    expect(store.toasts[0]).toMatchObject({ body: "Clipboard apagado", auto: false });
+    expect(store.toasts[0].text).toMatch(/^Changed from /);
 
     store.toasts[0].action?.run();
     await vi.waitFor(() => expect(store.desk.ready && store.desk.prefs).toEqual(antes));
-    await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "Cambio deshecho", tone: "ok" }));
+    await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "Change undone", tone: "ok" }));
   });
 
-  it("?peeredit hace que la otra máquina cambie el puesto sola", async () => {
+  it("?peeredit hace que the other machine cambie el puesto sola", async () => {
     vi.useFakeTimers();
     const store = new Store(new DemoSource(demoOptions("demo&still&peeredit")));
     await store.start();
     expect(store.toasts).toEqual([]);
     vi.advanceTimersByTime(1500);
-    expect(store.toasts[0]?.text).toMatch(/^Cambiado desde /);
+    expect(store.toasts[0]?.text).toMatch(/^Changed from /);
   });
 
   it("deshacer una versión que no existe no cambia nada y lo dice", async () => {
@@ -168,7 +168,7 @@ describe("aviso de transferencia con progreso (alcance 3)", () => {
     vi.advanceTimersByTime(TOAST_MS * 2);
     expect(store.toasts).toHaveLength(1);
     emit(t(100, true));
-    expect(store.toasts[0]).toMatchObject({ id, text: "Se copió «boda.zip»", tone: "ok", auto: true });
+    expect(store.toasts[0]).toMatchObject({ id, text: "Copied “boda.zip”", tone: "ok", auto: true });
     vi.advanceTimersByTime(TOAST_MS + 10);
     expect(store.toasts).toEqual([]);
   });

@@ -37,7 +37,7 @@ export interface Bridge {
   setup(): Promise<SetupView>;
   /** Abre el panel de Ajustes del Sistema que concede el permiso. */
   openSettings(permission: Permission): Promise<void>;
-  /** Reinicia `tandemd` (launchd lo vuelve a levantar) para que valgan los permisos recién dados. */
+  /** Reinicia `tandemd` (launchd lo vuelve a levantar) so the permissions you just gave take effect. */
   restartAgent(): Promise<void>;
   /** El estado real del servicio de administrador (T-131). */
   adminStatus(): Promise<AdminView>;
@@ -45,11 +45,11 @@ export interface Bridge {
   installAdmin(): Promise<AdminView>;
   /** Marca la guía como vista: no vuelve a abrirse sola. */
   finishSetup(): Promise<SetupView>;
-  /** Ajustes → Actualizaciones (T-122): versiones, búsqueda y «Actualizar solo». */
+  /** Ajustes → Actualizaciones (T-122): versiones, búsqueda y «Update only». */
   updates(): Promise<UpdateView>;
   onUpdates(cb: (view: UpdateView) => void): Promise<void>;
   checkUpdates(): Promise<UpdateView>;
-  /** «Actualizar todas»: rechaza con la razón si no se puede empezar. */
+  /** «Update all»: rechaza con la razón si no se puede empezar. */
   updateAll(): Promise<UpdateView>;
   setAutoUpdate(on: boolean): Promise<UpdateView>;
   /** Ajustes → Avanzado: dónde están la configuración y los logs, y mostrarlos. */
@@ -129,6 +129,6 @@ export function bridgeFailed(err: unknown): Snapshot {
   return {
     kind: "unavailable",
     endpoint: null,
-    reason: `la ventana no pudo preguntarle al núcleo de la app: ${detail}`,
+    reason: `the window could not ask the app core: ${detail}`,
   };
 }

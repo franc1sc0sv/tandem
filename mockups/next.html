@@ -4,8 +4,8 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Tandem v0.2</title>
-<!-- Mockup v0.2 (DESIGN §10): enlace vivo, cursor en vivo, acomodo de pantallas, monitores en pausa.
-     `?view=layout` abre el editor de acomodo; `?view=link` el detalle del enlace. -->
+<!-- Mockup v0.2 (DESIGN §10): live link, live cursor, screen arrangement, monitors paused.
+     `?view=layout` opens the arrangement editor; `?view=link` the link detail. -->
 <style>
   :root {
     --bg: #0f1013; --panel: #16171b; --panel-2: #1c1d22; --line: #26282e; --line-2: #32353d;
@@ -91,7 +91,7 @@
 <div class="app" id="app">
   <div class="top">
     <div class="logo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2.5" y="5" width="8" height="12" rx="2"/><rect x="13.5" y="5" width="8" height="12" rx="2"/><path d="M10.5 11h3"/></svg>Tandem</div>
-    <div class="tabs"><div class="tab sel" data-v="scene">Escena</div><div class="tab" data-v="layout">Acomodo de pantallas</div></div>
+    <div class="tabs"><div class="tab sel" data-v="scene">Scene</div><div class="tab" data-v="layout">Screen arrangement</div></div>
     <div class="spacer"></div>
     <div class="pill on"><span class="dot" style="background:var(--usb)"></span><b>USB-C</b> 20 Gbps · <span id="rtt">0.31</span> ms</div>
     <div class="pill"><span class="dot"></span><b>tandemd</b> · Mac</div>
@@ -100,46 +100,46 @@
 
   <div class="scene">
     <div class="side mac" id="sideMac">
-      <div class="head"><div><div class="name">Mac</div><div class="state">esta máquina</div></div><div class="badge"><i></i>Teclado aquí</div></div>
+      <div class="head"><div><div class="name">Mac</div><div class="state">this machine</div></div><div class="badge"><i></i>Keyboard here</div></div>
       <div class="screens" id="macScreens"></div>
-      <div class="foot"><span class="chip">hub USB <b>conectado</b></span><span class="chip">portapapeles <b>sincronizado</b></span></div>
+      <div class="foot"><span class="chip">USB hub <b>connected</b></span><span class="chip">clipboard <b>synced</b></span></div>
     </div>
 
     <div class="link">
       <div class="wires">
         <div class="wire usb active"><div class="lbl">USB-C · 20 Gbps</div><div class="bar"></div></div>
-        <div class="wire eth"><div class="lbl">Ethernet · sin cable</div><div class="bar"></div></div>
-        <div class="wire wifi"><div class="lbl">Wi-Fi · solo control</div><div class="bar"></div></div>
+        <div class="wire eth"><div class="lbl">Ethernet · no cable</div><div class="bar"></div></div>
+        <div class="wire wifi"><div class="lbl">Wi-Fi · control only</div><div class="bar"></div></div>
       </div>
       <div class="lat">
         <div class="big"><span id="p50">0.7</span><small> ms</small></div>
-        <div class="sub">entrada p50 · p99 <span id="p99">2.1</span> ms · <span id="eps">0</span> ev/s</div>
+        <div class="sub">input p50 · p99 <span id="p99">2.1</span> ms · <span id="eps">0</span> ev/s</div>
         <svg class="spark" id="spark" viewBox="0 0 190 40" preserveAspectRatio="none"><polyline id="sparkLine" fill="none" stroke="var(--usb)" stroke-width="1.6" points=""/></svg>
       </div>
     </div>
 
     <div class="side pc" id="sidePc">
-      <div class="head"><div><div class="name">PC</div><div class="state">encendida · Windows 11</div></div><div class="badge"><i></i>Recibe teclado</div></div>
+      <div class="head"><div><div class="name">PC</div><div class="state">on · Windows 11</div></div><div class="badge"><i></i>Receives keyboard</div></div>
       <div class="screens" id="pcScreens"></div>
-      <div class="foot"><span class="chip btn">⏻ <b>Apagar</b></span><span class="chip">RTX 5080 <b>requiere cable</b> ✓</span></div>
+      <div class="foot"><span class="chip btn">⏻ <b>Power off</b></span><span class="chip">RTX 5080 <b>needs cable</b> ✓</span></div>
     </div>
   </div>
 
   <div class="editor">
-    <div class="props"><b style="color:var(--text);font-size:15px">Acomodo de pantallas</b><span>Arrastra cada pantalla a donde está en tu escritorio. El mouse cruza por los bordes que se tocan.</span></div>
+    <div class="props"><b style="color:var(--text);font-size:15px">Screen arrangement</b><span>Drag each screen to where it sits on your desk. The mouse crosses at the edges that touch.</span></div>
     <div class="canvas" id="canvas"></div>
-    <div class="props">Seleccionada: <b style="color:var(--text)">PC · 32"</b><span class="field">2560 × 1440</span><span class="field">escala 100 %</span><span class="field">a la derecha de la Mac · desplazamiento 0</span><span class="btnp">Probar cruce</span></div>
+    <div class="props">Selected: <b style="color:var(--text)">PC · 32"</b><span class="field">2560 × 1440</span><span class="field">scale 100 %</span><span class="field">right of the Mac · offset 0</span><span class="btnp">Test crossing</span></div>
   </div>
 
   <div class="bottom">
-    <div class="card off"><div><div class="t">Monitores</div><div class="d">34" · 32"</div></div><span class="soon">Próximamente: firmware propio</span></div>
-    <div class="card off"><div class="t">Modos</div><div class="modes"><span class="mode">Solo Mac</span><span class="mode">Compartido</span><span class="mode">Solo Windows</span></div></div>
+    <div class="card off"><div><div class="t">Monitors</div><div class="d">34" · 32"</div></div><span class="soon">Coming soon: own firmware</span></div>
+    <div class="card off"><div class="t">Modes</div><div class="modes"><span class="mode">Mac only</span><span class="mode">Shared</span><span class="mode">Windows only</span></div></div>
   </div>
 </div>
 
 <script>
 const q = new URLSearchParams(location.search);
-// Acomodo declarado (DESIGN §7): rectángulos en px virtuales de cada máquina.
+// Declared arrangement (DESIGN §7): rectangles in each machine's virtual px.
 const layout = {
   mac: [{ id: "Mac · 34\"", w: 3440, h: 1440, x: 0, y: 0 }],
   pc: [{ id: "PC · 32\"", w: 2560, h: 1440, x: 0, y: 0 }],
@@ -160,11 +160,11 @@ function draw(el, list, cls) {
 let gm, gp;
 function layoutAll() { gm = draw(macScreens, layout.mac); gp = draw(pcScreens, layout.pc); drawCanvas(); }
 
-// Editor: dos máquinas en un mismo lienzo, la PC a la derecha de la Mac.
+// Editor: two machines on one canvas, the PC to the right of the Mac.
 function drawCanvas() {
   const c = document.getElementById("canvas"); const b = c.getBoundingClientRect();
   const items = [
-    { id: "Mac · integrada", w: 1512, h: 982, x: 0, y: 360, a: "var(--mac)" },
+    { id: "Mac · built-in", w: 1512, h: 982, x: 0, y: 360, a: "var(--mac)" },
     { id: "Mac · 34\"", w: 3440, h: 1440, x: 1512, y: 0, a: "var(--mac)" },
     { id: "PC · 32\"", w: 2560, h: 1440, x: 4952, y: 0, a: "var(--pc)", sel: true },
   ];
@@ -202,14 +202,14 @@ function tick(dt) {
   c.style.opacity = 1; o.style.opacity = 0;
   c.style.left = g.ox + lx * g.W * g.k + "px"; c.style.top = g.oy + y * g.H * g.k + "px";
   sideMac.classList.toggle("focus", side === "mac"); sidePc.classList.toggle("focus", side === "pc");
-  sidePc.querySelector(".badge").innerHTML = side === "pc" ? "<i></i>Foco aquí" : "<i></i>Recibe teclado";
+  sidePc.querySelector(".badge").innerHTML = side === "pc" ? "<i></i>Focus here" : "<i></i>Receives keyboard";
   if (side !== lastSide) {
     Object.assign(fm.style, { left: gm.ox + gm.W * gm.k - 2 + "px" });
     Object.assign(fp.style, { left: gp.ox + "px" });
     for (const f of [fm, fp]) { f.classList.remove("go"); void f.offsetWidth; f.classList.add("go"); }
     lastSide = side;
   }
-  // métricas simuladas
+  // simulated metrics
   const busy = Math.abs(Math.cos(t * 1.3)) * 900 + 120;
   eps.textContent = Math.round(busy);
   const v = .55 + Math.random() * .35; p50s.push(v); if (p50s.length > 60) p50s.shift();
@@ -217,7 +217,7 @@ function tick(dt) {
   p99.textContent = (1.6 + Math.random() * .8).toFixed(1);
   rtt.textContent = (.27 + Math.random() * .08).toFixed(2);
   sparkLine.setAttribute("points", p50s.map((v, i) => `${i * 190 / 59},${40 - v * 30}`).join(" "));
-  // paquetes por el cable activo, al ritmo del tráfico
+  // packets on the active cable, at the traffic rate
   const w = document.querySelector(".wire.active");
   if (Math.random() < busy / 2500) {
     const pk = document.createElement("div"); pk.className = "pk"; w.appendChild(pk);

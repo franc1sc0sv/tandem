@@ -7,7 +7,7 @@
 
   interface Props {
     title: string;
-    /** El acceso a la paleta («Buscar o ejecutar… ⌘K»), como en `V3-Puesto`. */
+    /** El acceso a la paleta («Search or run… ⌘K»), como en `V3-Desk`. */
     search?: boolean;
     actions?: Snippet;
   }
@@ -23,7 +23,7 @@
   {#if actions}{@render actions()}{/if}
   {#if search}
     <button type="button" class="find" aria-haspopup="dialog" aria-keyshortcuts={isMacPlatform() ? "Meta+K" : "Control+K"} onclick={() => store.togglePalette(true)}>
-      <Icon name="search" size={15} stroke={2} />Buscar o ejecutar…<span class="fill"></span><Kbd>{combo}</Kbd>
+      <Icon name="search" size={15} stroke={2} />Search or run…<span class="fill"></span><Kbd>{combo}</Kbd>
     </button>
   {/if}
 </header>
@@ -43,7 +43,7 @@
   .fill {
     flex: 1;
   }
-  /* Campo de búsqueda que abre la paleta (V3-Puesto). */
+  /* Campo de búsqueda que abre la paleta (V3-Desk). */
   .find {
     font: inherit;
     font-size: 13px;

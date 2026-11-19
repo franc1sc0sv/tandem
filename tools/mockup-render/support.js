@@ -1,13 +1,13 @@
 /*
- * Runtime propio y mínimo del formato de los mockups `mockups/v03/*.dc.html` (T-125).
+ * Own minimal runtime for the `mockups/v03/*.dc.html` mockup format (T-125).
  *
- * El runtime original no está en el repo; este implementa lo que los mockups usan:
- * `<x-dc>` con la plantilla, `<helmet>` (va a `<head>`), `{{expr}}` en texto y atributos
- * (incluidos `style` y manejadores `onClick="{{fn}}"`), `<sc-for list as>`, `<sc-if value>`
- * y la clase `Component extends DCLogic` del `<script type="text/x-dc">` con `state`,
- * `setState` y `renderVals()`.
+ * The original runtime is not in the repo; this one implements what the mockups use:
+ * `<x-dc>` with the template, `<helmet>` (goes to `<head>`), `{{expr}}` in text and attributes
+ * (including `style` and `onClick="{{fn}}"` handlers), `<sc-for list as>`, `<sc-if value>`
+ * and the `Component extends DCLogic` class of the `<script type="text/x-dc">` with `state`,
+ * `setState` and `renderVals()`.
  *
- * Es un script clásico (no módulo) porque los mockups lo cargan con `<script src>` en `<head>`.
+ * It is a classic script (not a module) because the mockups load it with `<script src>` in `<head>`.
  */
 (function () {
   'use strict';
@@ -15,7 +15,7 @@
   var HTML_NS = 'http://www.w3.org/1999/xhtml';
   var EXPR = /\{\{([\s\S]+?)\}\}/g;
 
-  // Diagnóstico que leen las pruebas y el capturador (`window.__dc`).
+  // Diagnostics read by the tests and the capturer (`window.__dc`).
   var dc = (window.__dc = { ready: false, renders: 0, errors: [], missing: [], component: null });
 
   function report(kind, msg) {
@@ -28,13 +28,13 @@
     }
   }
 
-  // ---- Expresiones -------------------------------------------------------------------------
+  // ---- Expressions -------------------------------------------------------------------------
 
   var compiled = new Map();
 
-  // `with` resuelve los nombres contra el ámbito (valores de `renderVals()` y variables de
-  // `sc-for`); lo que no esté ahí cae a los globales (`Math`, `true`…). Las funciones creadas
-  // con `Function` no heredan el modo estricto, así que `with` es válido aquí.
+  // `with` resolves names against the scope (values of `renderVals()` and variables of
+  // `sc-for`); whatever is not there falls to the globals (`Math`, `true`…). Functions created
+  // with `Function` do not inherit strict mode, so `with` is valid here.
   function compile(src) {
     var fn = compiled.get(src);
     if (!fn) {
@@ -52,11 +52,11 @@
       report('error', '{{' + src.trim() + '}}: ' + (e && e.message ? e.message : String(e)));
       return undefined;
     }
-    if (value === undefined) report('missing', '{{' + src.trim() + '}} es undefined');
+    if (value === undefined) report('missing', '{{' + src.trim() + '}} is undefined');
     return value;
   }
 
-  // Parte un texto en literales y expresiones.
+  // Splits a text into literals and expressions.
   function tokens(str) {
     var out = [];
     var last = 0;
@@ -75,8 +75,8 @@
     return v === null || v === undefined || typeof v === 'boolean' ? '' : String(v);
   }
 
-  // Si el texto es una sola expresión (con espacios alrededor como mucho), devuelve el valor
-  // crudo (función, objeto, booleano); si no, el texto con cada expresión sustituida.
+  // If the text is a single expression (with at most surrounding spaces), returns the raw
+  // value (function, object, boolean); otherwise the text with each expression substituted.
   function evalTemplate(str, scope) {
     var parts = tokens(str);
     var exprs = parts.filter(function (p) { return 'expr' in p; });
@@ -91,13 +91,13 @@
     return s;
   }
 
-  // ---- Atributos ---------------------------------------------------------------------------
+  // ---- Attributes --------------------------------------------------------------------------
 
   function kebab(name) {
     return name.replace(/[A-Z]/g, function (c) { return '-' + c.toLowerCase(); });
   }
 
-  // Valor de atributo como string, o null si el atributo no debe estar.
+  // Attribute value as a string, or null if the attribute must not be present.
   function attrValue(name, v) {
     if (v === null || v === undefined || typeof v === 'function') return null;
     var aria = name.indexOf('aria-') === 0 || name.indexOf('data-') === 0;
@@ -148,7 +148,7 @@
       var items = [];
       if (Array.isArray(list)) items = list;
       else if (list && typeof list[Symbol.iterator] === 'function') items = Array.from(list);
-      else if (list !== null && list !== undefined) report('error', '<sc-for list="' + n.getAttribute('list') + '"> no es una lista');
+      else if (list !== null && list !== undefined) report('error', '<sc-for list="' + n.getAttribute('list') + '"> is not a list');
       items.forEach(function (item, i) {
         var s = child(scope, as, item);
         if (index) s = child(s, index, i);
@@ -161,7 +161,7 @@
       return;
     }
     if (tag === 'script') {
-      report('missing', '<script> dentro de la plantilla: se ignora');
+      report('missing', '<script> inside the template: ignored');
       return;
     }
 
@@ -182,7 +182,7 @@
       if (name.indexOf('on') === 0 && name.length > 2) {
         var type = name.slice(2).toLowerCase();
         if (typeof v === 'function') handlers[EVENT_ALIAS[type] || type] = v;
-        else if (v !== undefined) report('error', name + '="' + a.value + '" no es una función');
+        else if (v !== undefined) report('error', name + '="' + a.value + '" is not a function');
         continue;
       }
       var s = attrValue(name, v);
@@ -190,15 +190,15 @@
     }
     bind(el, handlers);
 
-    if (tag === 'style') el.textContent = n.textContent; // CSS tal cual: sin sustituir
+    if (tag === 'style') el.textContent = n.textContent; // CSS as is: no substitution
     else renderChildren(n, scope, el);
     if ((tag === 'input' || tag === 'textarea') && el.hasAttribute('value')) el.value = el.getAttribute('value');
     out.appendChild(el);
   }
 
-  // ---- Reconciliación ----------------------------------------------------------------------
-  // Se parchea el DOM existente en vez de reemplazarlo, para que las transiciones CSS corran
-  // (por ejemplo, las pantallas de `V3-Acomodo` se deslizan) y un `<input>` no pierda el foco.
+  // ---- Reconciliation ----------------------------------------------------------------------
+  // The existing DOM is patched instead of replaced, so CSS transitions run
+  // (for example, the `V3-Arrangement` screens slide) and an `<input>` does not lose focus.
 
   function same(a, b) {
     return a.nodeType === b.nodeType && (a.nodeType !== 1 || (a.localName === b.localName && a.namespaceURI === b.namespaceURI));
@@ -243,7 +243,7 @@
     morphChildren(o, n);
   }
 
-  // ---- Componente --------------------------------------------------------------------------
+  // ---- Component ---------------------------------------------------------------------------
 
   function DCLogic(props) {
     this.props = props || {};
@@ -259,11 +259,11 @@
   };
   window.DCLogic = DCLogic;
 
-  // ---- Arranque ----------------------------------------------------------------------------
-  // El HTML de la plantilla no puede pasar por el parser de la página: atributos como
-  // `d="{{p.ic}}"` en un `<path>` ya dan errores de consola al parsearse. Por eso, si este
-  // script se carga desde el parser (lo normal: `<script src>` en `<head>`), convierte el resto
-  // del documento en texto con `<plaintext>` y lo parsea aparte con DOMParser, que es inerte.
+  // ---- Startup -----------------------------------------------------------------------------
+  // The template HTML cannot go through the page parser: attributes such as
+  // `d="{{p.ic}}"` on a `<path>` already give console errors when parsed. So, if this
+  // script is loaded from the parser (the usual case: `<script src>` in `<head>`), it turns the rest
+  // of the document into text with `<plaintext>` and parses it separately with DOMParser, which is inert.
 
   var fromParser = document.readyState === 'loading' && !!document.currentScript;
   if (fromParser) document.write('<plaintext hidden data-dc-source>');
@@ -275,8 +275,8 @@
       pt.remove();
       return new DOMParser().parseFromString(raw, 'text/html');
     }
-    // Cargado tarde (sin `<plaintext>`): la plantilla ya está en la página; se mueve a un
-    // documento inerte para renderizar desde ahí.
+    // Loaded late (without `<plaintext>`): the template is already on the page; it is moved to an
+    // inert document to render from there.
     var inert = document.implementation.createHTMLDocument('');
     var nodes = document.querySelectorAll('x-dc, script[type="text/x-dc"]');
     for (var i = 0; i < nodes.length; i++) inert.body.appendChild(inert.adoptNode(nodes[i]));
@@ -287,7 +287,7 @@
     var src = source();
     var tpl = src.querySelector('x-dc');
     if (!tpl) {
-      report('error', 'no hay <x-dc> en la página');
+      report('error', 'there is no <x-dc> on the page');
       return;
     }
 
@@ -317,7 +317,7 @@
         : undefined;
       comp = Comp ? new Comp(props) : new DCLogic(props);
     } catch (e) {
-      report('error', 'el componente no arranca: ' + (e && e.message ? e.message : String(e)));
+      report('error', 'the component does not start: ' + (e && e.message ? e.message : String(e)));
       comp = new DCLogic(props);
     }
     dc.component = comp;
@@ -345,7 +345,7 @@
       dc.renders += 1;
     }
 
-    // Varios `setState` seguidos (en el mismo manejador) dan un solo render.
+    // Several consecutive `setState` calls (in the same handler) give a single render.
     comp.__dcSchedule = function (callback) {
       if (!pending) {
         pending = [];
