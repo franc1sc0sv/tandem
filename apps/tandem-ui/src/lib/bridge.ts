@@ -45,7 +45,7 @@ export interface Bridge {
   installAdmin(): Promise<AdminView>;
   /** Marks the guide as seen: it does not open by itself again. */
   finishSetup(): Promise<SetupView>;
-  /** Settings → Updates (T-122): versions, search and "Update only". */
+  /** Settings → Updates (T-122): versions, search and "Update automatically". */
   updates(): Promise<UpdateView>;
   onUpdates(cb: (view: UpdateView) => void): Promise<void>;
   checkUpdates(): Promise<UpdateView>;

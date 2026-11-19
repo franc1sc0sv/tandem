@@ -19,11 +19,11 @@ async function openUpdates() {
 }
 
 describe("Settings → Updates (F-Settings, T-122)", () => {
-  it("shows the version of the two machines, the source and \"Update only\" on", async () => {
+  it("shows the version of the two machines, the source and \"Update automatically\" on", async () => {
     await openUpdates();
     expect(screen.getByText("All machines of the desk on the same version.")).toBeInTheDocument();
     expect(screen.getByText("GitHub Releases · unsigned")).toBeInTheDocument();
-    expect(screen.getByRole("switch", { name: "Update only" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("switch", { name: "Update automatically" })).toHaveAttribute("aria-checked", "true");
     expect(screen.queryByRole("button", { name: /Update all/ })).toBeNull();
   });
 
@@ -40,7 +40,7 @@ describe("Settings → Updates (F-Settings, T-122)", () => {
 
   it("the switch is saved", async () => {
     const store = await openUpdates();
-    const sw = screen.getByRole("switch", { name: "Update only" });
+    const sw = screen.getByRole("switch", { name: "Update automatically" });
     await userEvent.click(sw);
     expect(sw).toHaveAttribute("aria-checked", "false");
     expect((await store.updates(() => {})).auto).toBe(false);

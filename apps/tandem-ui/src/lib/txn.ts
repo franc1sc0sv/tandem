@@ -140,7 +140,7 @@ export function viewOf(run: Run, names: Names, now: number): RunView {
   const { progress: p } = run;
   const outcome = p.outcome.kind === "committed" ? "ok" : p.outcome.kind === "failed" ? "failed" : "running";
   const failedAt = p.status.findIndex((s) => s === "failed");
-  const rows: Row[] = [{ key: "save", icon: "done", text: "Save how everything is", detail: "done", tone: "" }];
+  const rows: Row[] = [{ key: "save", icon: "done", text: "Save the current state", detail: "done", tone: "" }];
   p.steps.forEach((s, i) => {
     // What did not get to start before a failure is not shown: the rollback replaces it.
     if (failedAt >= 0 && i > failedAt) return;
@@ -160,7 +160,7 @@ export function viewOf(run: Run, names: Names, now: number): RunView {
     const bad = p.steps[failedAt];
     const was = bad && isMonitorStep(bad) ? names.monitors.find((x) => x.id === (bad as { monitor: string }).monitor) : null;
     const back = was?.shows ? `${shortMonitor(was.name)} → ${names.machine(was.shows)}` : "";
-    rows.push({ key: "back", icon: outcome === "running" ? "back" : "done", text: "Rolling back to how it was", detail: back, tone: "" });
+    rows.push({ key: "back", icon: outcome === "running" ? "back" : "done", text: "Rolling back to the previous state", detail: back, tone: "" });
   }
 
   let message: Message;

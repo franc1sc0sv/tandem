@@ -90,7 +90,7 @@ a{color:#9cc0f0}
         <div class="pane">
           <div class="row" style="border-top:0"><span style="flex:1;display:flex;flex-direction:column;gap:3px">Tandem 0.3.0<span class="mut" style="font-size:12.5px">All machines of the desk on the same version.</span></span><button type="button" class="btn" onClick="{{check}}"><svg class="rf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 4v4h-4M4 20v-4h4"></path></svg>{{checkLabel}}</button></div>
           <sc-if value="{{found}}" hint-placeholder-val="{{ false }}"><div class="row" style="animation:fd .3s"><span style="flex:1;display:flex;flex-direction:column;gap:3px">A new version is available: 0.3.1<span class="mut" style="font-size:12.5px">It installs on every machine, one at a time, without cutting the keyboard.</span></span><button type="button" class="btn pri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"></path></svg>Update all</button></div></sc-if>
-          <div class="row"><span style="flex:1">Update only</span><button type="button" class="sw" role="switch" aria-checked="true" aria-label="Update only"></button></div>
+          <div class="row"><span style="flex:1">Update automatically</span><button type="button" class="sw" role="switch" aria-checked="true" aria-label="Update automatically"></button></div>
           <div class="row"><span style="flex:1">Source</span><span class="mono mut" style="font-size:12.5px">GitHub Releases · unsigned</span></div>
         </div>
       </sc-if>

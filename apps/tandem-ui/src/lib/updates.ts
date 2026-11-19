@@ -16,7 +16,7 @@ export interface UpdateView {
   checking: boolean;
   step: UpdateStep | null;
   error: string | null;
-  /** «Update only». */
+  /** «Update automatically». */
   auto: boolean;
 }
 

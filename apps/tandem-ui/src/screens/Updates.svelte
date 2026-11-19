@@ -1,6 +1,6 @@
 <script lang="ts">
   // Settings → Updates (`F-Settings`, T-122): the version of the two machines, search
-  // now, "Update all" (the other one first, then this one) and "Update only".
+  // now, "Update all" (the other one first, then this one) and "Update automatically".
   import { onMount } from "svelte";
   import { useStore } from "../lib/context";
   import { availableRow, checkLabel, upToDate, versionRow, type UpdateView } from "../lib/updates";
@@ -75,8 +75,8 @@
     <div class="row appear"><span class="fill mut">There are no new versions.</span></div>
   {/if}
   <div class="row">
-    <span class="fill">Update only</span>
-    <Switch checked={view.auto} label="Update only" onchange={setAuto} />
+    <span class="fill">Update automatically</span>
+    <Switch checked={view.auto} label="Update automatically" onchange={setAuto} />
   </div>
   <div class="row">
     <span class="fill">Source</span><span class="mono mut src">GitHub Releases · unsigned</span>

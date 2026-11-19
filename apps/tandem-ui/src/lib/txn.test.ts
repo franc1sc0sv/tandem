@@ -25,13 +25,13 @@ function play(events: TxnView[], at = 1000): Run {
 const started: TxnView = { type: "started", txn: 7, steps };
 
 describe("transaction progress (F-Transactions)", () => {
-  it("starts with \"Save how everything is\" ready and the steps pending", () => {
+  it("starts with \"Save the current state\" ready and the steps pending", () => {
     const run = play([started]);
     expect(running(run)).toBe(true);
     const v = viewOf(run, names, 1000);
     expect(v.title).toBe("Applying the scene “Game”");
     expect(v.rows.map((r) => [r.icon, r.text])).toEqual([
-      ["done", "Save how everything is"],
+      ["done", "Save the current state"],
       ["todo", '34" → PC-Desktop (DP)'],
       ["todo", 'Mouse: take the 34" off MacBook Pro'],
     ]);
@@ -63,7 +63,7 @@ describe("transaction progress (F-Transactions)", () => {
     const v = viewOf(run, names, 5000);
     expect(v.rows.map((r) => r.icon)).toEqual(["done", "bad", "back"]);
     expect(v.rows[1]).toMatchObject({ tone: "bad", detail: "the monitor said: change failed" });
-    expect(v.rows[2]).toMatchObject({ text: "Rolling back to how it was", detail: '34" → MacBook Pro' });
+    expect(v.rows[2]).toMatchObject({ text: "Rolling back to the previous state", detail: '34" → MacBook Pro' });
     expect(v.message).toEqual({ text: "There was no DisplayPort signal. Everything goes back to how it was; nothing was left half done.", tone: "warn" });
     const over = play([started, { type: "step_started", txn: 7, index: 0 }, { type: "step_failed", txn: 7, index: 0, error: "the monitor showed no image on DisplayPort" }, { type: "failed", txn: 7, state: { on: { a: true, b: true } } }]);
     expect(viewOf(over, names, 5000)).toMatchObject({ outcome: "failed" });

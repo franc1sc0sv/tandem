@@ -41,7 +41,7 @@
     <span class="mut">Latency</span>
     <Bar percent={up ? latencyBar(path.rttMs) : 0} color={colors.latency} label={up ? `${LINK_NAME[path.kind]} latency` : undefined} />
     <span class="mono val">{up ? formatMs(path.rttMs) : "—"}</span>
-    <span class="mut">Band</span>
+    <span class="mut">Bandwidth</span>
     <Bar percent={up ? bandwidthBar(path.kind, path.gbps) : 0} color={colors.bandwidth} label={up ? `${LINK_NAME[path.kind]} bandwidth` : undefined} />
     <span class="mono val">{up ? formatRate(path.gbps) : "—"}</span>
   </div>

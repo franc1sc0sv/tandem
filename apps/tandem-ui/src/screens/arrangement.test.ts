@@ -105,7 +105,7 @@ describe("Crossing test (F-CrossingTest)", () => {
     const src = new DemoSource(demoOptions("demo&still"));
     await open(src, "#/arrangement/crossing");
     src.cross({ from: "a", to: "b", edge: "right", at: 0, of: 0, ms: null });
-    expect(await screen.findByText("Crossed fine")).toBeInTheDocument();
+    expect(await screen.findByText("Crossed correctly")).toBeInTheDocument();
     expect(screen.getByText(/It entered PC-Desktop\./)).toBeInTheDocument();
     expect(screen.queryByText(/Latency/)).toBeNull();
   });
@@ -116,7 +116,7 @@ describe("Crossing test (F-CrossingTest)", () => {
     expect(screen.getByText("Move the mouse to the right of the MacBook")).toBeInTheDocument();
     expect(screen.getByText("waiting for the cursor")).toBeInTheDocument();
     src.cross({ from: "a", to: "b", edge: "right", at: 612, of: 1440, ms: 0.4 });
-    expect(await screen.findByText("Crossed fine")).toBeInTheDocument();
+    expect(await screen.findByText("Crossed correctly")).toBeInTheDocument();
     expect(screen.getByText(/It entered PC-Desktop at the right height \(y = 612 of 1440\)\. Crossing latency: 0\.4 ms\./)).toBeInTheDocument();
     expect(screen.getByText("the cursor arrived here")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Test again/ }));
@@ -295,7 +295,7 @@ describe("with the real agent", () => {
     expect(store.desk.layout.arrangement.aSide).toBe("right");
   });
 
-  it("the crossing test uses the crossing the agent reports: enabled button and \"Crossed fine\" through the right edge", async () => {
+  it("the crossing test uses the crossing the agent reports: enabled button and \"Crossed correctly\" through the right edge", async () => {
     let notice: ((n: Notice) => void) | undefined;
     const act = vi.fn(async (_a: Action) => ({ kind: "done" as const }));
     const withNotice = (): Bridge => {
@@ -317,6 +317,6 @@ describe("with the real agent", () => {
     // The arrangement says "A to the right of": the Mac leaves through its left edge.
     notice?.({ kind: "crossed", from: "a", to: "b", edge: "left" });
     notice?.({ kind: "cursor", sample: { machine: "b", screen: "Odyssey", x: 3439, y: 700 } });
-    expect(await screen.findByText("Crossed fine")).toBeInTheDocument();
+    expect(await screen.findByText("Crossed correctly")).toBeInTheDocument();
   });
 });

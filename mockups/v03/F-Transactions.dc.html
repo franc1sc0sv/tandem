@@ -96,13 +96,13 @@ class Component extends DCLogic {
     const check = '';
     let steps, msg, msgStyle, elapsed;
     if (s === 'run') {
-      steps = [{ t: 'Save how everything is', ...ok('done') }, { t: '34" → PC-Desktop (DP)', icon: 'i run', d: 'waiting for the monitor' }, { t: 'Mouse: take the 34" off the MacBook', icon: 'i todo', d: '' }];
+      steps = [{ t: 'Save the current state', ...ok('done') }, { t: '34" → PC-Desktop (DP)', icon: 'i run', d: 'waiting for the monitor' }, { t: 'Mouse: take the 34" off the MacBook', icon: 'i todo', d: '' }];
       msg = 'The monitor confirms each change; nothing is guessed.'; msgStyle = 'color:#9a9da6'; elapsed = '1.2 s';
     } else if (s === 'ok') {
-      steps = [{ t: 'Save how everything is', ...ok('done') }, { t: '34" → PC-Desktop (DP)', ...ok('confirmed · 1.8 s') },{ t: 'Mouse: take the 34" off the MacBook', ...ok('done') }];
+      steps = [{ t: 'Save the current state', ...ok('done') }, { t: '34" → PC-Desktop (DP)', ...ok('confirmed · 1.8 s') },{ t: 'Mouse: take the 34" off the MacBook', ...ok('done') }];
       msg = 'Scene “Game” active.'; msgStyle = 'color:#9fd8b9'; elapsed = '2.3 s';
     } else {
-      steps = [{ t: 'Save how everything is', ...ok('done') }, { t: '34" → PC-Desktop (DP)', icon: 'i bad', d: 'the monitor said: change failed', rowStyle: 'color:#f0b1aa' }, { t: 'Rolling back to how it was', icon: 'i back', d: '34" → MacBook Pro' }];
+      steps = [{ t: 'Save the current state', ...ok('done') }, { t: '34" → PC-Desktop (DP)', icon: 'i bad', d: 'the monitor said: change failed', rowStyle: 'color:#f0b1aa' }, { t: 'Rolling back to the previous state', icon: 'i back', d: '34" → MacBook Pro' }];
       msg = 'There was no DisplayPort signal. Everything goes back to how it was; nothing was left half done.'; msgStyle = 'color:#e6c48f'; elapsed = '3.0 s';
     }
     return {
