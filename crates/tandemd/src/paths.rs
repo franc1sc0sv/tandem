@@ -100,12 +100,15 @@ mod tests {
 
     #[test]
     fn explicit_paths_win() {
-        let p = Paths::resolve(Some("/x/t.toml".into()), Some("/d".into())).unwrap();
-        assert_eq!(p.config, PathBuf::from("/x/t.toml"));
-        assert_eq!(p.state_file(), Path::new("/d").join("state.json"));
-        assert_eq!(p.log_dir(), Path::new("/d").join("logs"));
-        assert_eq!(p.identity_file(), Path::new("/d").join("identity.key"));
-        assert_eq!(p.trust_file(), Path::new("/d").join("trust.toml"));
+        // Already absolute on every platform (on Windows `/x` would gain the current drive).
+        let base = std::env::temp_dir();
+        let (config, data) = (base.join("x").join("t.toml"), base.join("d"));
+        let p = Paths::resolve(Some(config.clone()), Some(data.clone())).unwrap();
+        assert_eq!(p.config, config);
+        assert_eq!(p.state_file(), data.join("state.json"));
+        assert_eq!(p.log_dir(), data.join("logs"));
+        assert_eq!(p.identity_file(), data.join("identity.key"));
+        assert_eq!(p.trust_file(), data.join("trust.toml"));
     }
 
     #[test]
