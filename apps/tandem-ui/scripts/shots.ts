@@ -89,7 +89,7 @@ async function mockupRects(browser: Browser, spec: ShotSpec, selectors: string[]
     await page.goto(`${ORIGIN}/${spec.mockup}.dc.html`);
     await waitForMockup(page);
     await settle(page);
-        // Boxes are measured in the state of the capture (in "rollback" the text changes the card height).
+    // Boxes are measured in the state of the capture (in "rollback" the text changes the card height).
     const state = spec.state ? statesOf(spec.mockup).find((x) => x.name === spec.state) : undefined;
     for (const step of state?.steps ?? []) {
       if ("click" in step) await page.locator(step.click).click({ timeout: 5_000 });
@@ -136,8 +136,8 @@ async function mockupBoxes(browser: Browser, spec: ShotSpec, selectors: string[]
 }
 
 /**
-  * Compares only the content (`ShotSpec.content`): crops the app and the mockup from the corner
-  * of their element, of the same size, and masks the allowed regions of each side in both.
+ * Compares only the content (`ShotSpec.content`): crops the app and the mockup from the corner
+ * of their element, of the same size, and masks the allowed regions of each side in both.
  */
 function compareContent(spec: ShotSpec, png: Buffer, appBoxes: Record<string, Rect[]>, mockBoxes: Record<string, Rect[]>, diffPath?: string): Measure {
   const c = spec.content;
@@ -188,7 +188,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     timezoneId: "UTC",
     colorScheme: "dark",
     reducedMotion: "no-preference",
-        // The mockups are drawn on macOS (⌘K): the app is captured with that shortcut.
+    // The mockups are drawn on macOS (⌘K): the app is captured with that shortcut.
     userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
   });
   let png: Buffer;
@@ -208,13 +208,13 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
       await page.locator(f.selector).first().fill(f.text, { timeout: 5_000 });
       await settle(page);
     }
-        // The same clicks that lead to the mockup state (`tools/mockup-render/src/states.ts`).
+    // The same clicks that lead to the mockup state (`tools/mockup-render/src/states.ts`).
     for (const sel of spec.clicks ?? []) {
       await page.locator(sel).click({ timeout: 5_000 });
       await settle(page);
     }
     if ((spec.clicks?.length ?? 0) > 0) {
-            // Same as the mockup renderer: without the pointer over the last button (its :hover would change the capture).
+      // Same as the mockup renderer: without the pointer over the last button (its :hover would change the capture).
       await page.mouse.move(0, 0);
       await settle(page);
     }
@@ -243,8 +243,8 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     const content = compareContent(spec, png, appBoxes, mock, diffPath);
     return { name: spec.name, mockup: spec.state ? `${spec.mockup}--${spec.state}` : spec.mockup, file, errors, full: content, regions: [content] };
   }
-    // With masked regions, comparison is against the equally masked reference; otherwise directly against the
-    // mockup capture (`compareWithMockup`).
+  // With masked regions, comparison is against the equally masked reference; otherwise directly against the
+  // mockup capture (`compareWithMockup`).
   let ref: Buffer | null = null;
 
   const ignoreSel = (spec.ignore ?? []).flatMap((i) => (i.mockupSelector ? [i.mockupSelector] : []));
@@ -293,7 +293,7 @@ async function main(): Promise<void> {
   if (args.diffDir) mkdirSync(args.diffDir, { recursive: true });
   const specs = args.only.length ? SHOTS.filter((s) => args.only.includes(s.name)) : SHOTS;
   const styles = args.only.length === 0 || args.only.includes("styles");
-    // Same Chromium options as the mockup captures (`--disable-partial-raster`).
+  // Same Chromium options as the mockup captures (`--disable-partial-raster`).
   const browser = await launchBrowser();
   const results: ShotResult[] = [];
   let styleFailed = false;
@@ -322,7 +322,7 @@ async function main(): Promise<void> {
     for (const e of r.errors) console.log(`${"".padEnd(10)} ! ${e}`);
   }
 
-    // The summary is merged with the existing one, so `--only` does not erase the other screens.
+  // The summary is merged with the existing one, so `--only` does not erase the other screens.
   const summaryFile = join(OUT, "similarity.json");
   const prev: Record<string, unknown> = existsSync(summaryFile) ? (JSON.parse(readFileSync(summaryFile, "utf8")) as Record<string, unknown>) : {};
   for (const r of results) prev[r.name] = { mockup: r.mockup, screen: r.full, regions: r.regions, errors: r.errors };

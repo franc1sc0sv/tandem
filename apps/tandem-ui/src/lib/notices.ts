@@ -1,12 +1,12 @@
-// Notices de la app (F-Notices): qué cambio del desk merece un notice y con qué texto. Puro:
-// el store lo llama con el estado de antes y el de ahora.
+// App notices (F-Notices): which desk change deserves a notice and with what text. Pure:
+// the store calls it with the previous state and the current one.
 
 import type { Machine } from "./model";
 import type { DeskChange, DeskView, LinkKind, TransferView } from "./store/types";
 
 export type ToastTone = "ok" | "bad" | "warn" | "info" | "claude";
 
-/** Color del punto de cada tono (`F-Notices`). */
+/** Dot color of each tone (`F-Notices`). */
 export const TONE_COLOR: Record<ToastTone, string> = { ok: "#6cc59a", bad: "#e07a6f", warn: "#d9a75a", info: "#7aa7e6", claude: "#a99be8" };
 
 export interface ToastAction {
@@ -14,17 +14,17 @@ export interface ToastAction {
   run: () => void;
 }
 
-/** Lo que pide un notice; el store le pone el id y lo apaga a los 6 s si no pide una decisión. */
+/** What a notice asks for; the store gives it the id and turns it off after 6 s if it does not ask for a decision. */
 export interface ToastSpec {
-  /** Con clave, un notice fresh reemplaza al que ya la tenga (el avance de una copia). */
+  /** With a key, a new notice replaces the one that already has it (the progress of a copy). */
   key?: string;
-  /** Avance con barra: el notice no se va solo hasta que termina. */
+  /** Progress with a bar: the notice does not go away by itself until it finishes. */
   progress?: { done: number; total: number };
   text: string;
   body?: string;
   tone: ToastTone;
   action?: ToastAction;
-  /** No se va solo (el demo de `F-Notices`, para capturar la pila entera). */
+  /** Does not go away by itself (the `F-Notices` demo, to capture the whole stack). */
   hold?: boolean;
 }
 
@@ -33,8 +33,8 @@ export const KIND_NAME: Record<LinkKind, string> = { usb4: "USB-C", ethernet: "E
 const nameOf = (d: DeskView, m: Machine) => d.machines[m]?.name ?? `machine ${m.toUpperCase()}`;
 
 /**
- * Notices de ejemplo del modo demo (`?demo&notices`): los tres con que abre `F-Notices`, del más fresh
- * al más viejo. Solo se siembran a pedido, para ver y capturar la pila. El botón «Send over Wi-Fi anyway» no hace nada: el agente no tiene esa función y la app real no lo muestra; está aquí para que la pila mida lo mismo que el mockup.
+ * Sample notices of demo mode (`?demo&notices`): the three `F-Notices` opens with, from newest
+ * to oldest. They are seeded only on request, to see and capture the stack. The "Send over Wi-Fi anyway" button does nothing: the agent has no such function and the real app does not show it; it is here so the stack measures the same as the mockup.
  */
 export const DEMO_NOTICES: ToastSpec[] = [
   { text: "The USB-C cable was unplugged", body: "Keyboard and mouse carry on over Wi-Fi. Data transfers wait for the cable.", tone: "warn", action: { label: "Send over Wi-Fi anyway", run: () => {} } },
@@ -49,7 +49,7 @@ export function bytesText(n: number): string {
   return `${Math.max(0, Math.round(n / 1e3))} KB`;
 }
 
-/** El notice de una copia de archivos: con barra mientras avanza y «Listo» al terminar. */
+/** The notice of a file copy: with a bar while it advances and "Done" when it ends. */
 export function transferToast(t: TransferView, d: DeskView): ToastSpec {
   const name = t.path.split(/[\\/]/).filter(Boolean).pop() ?? t.path;
   const peer = nameOf(d, d.here === "a" ? "b" : "a");
@@ -65,7 +65,7 @@ export function transferToast(t: TransferView, d: DeskView): ToastSpec {
   };
 }
 
-/** «Cambiado desde X · Deshacer» (D5): el notice espera la decisión, no se va solo. */
+/** "Changed from X · Undo" (D5): the notice waits for the decision, it does not go away by itself. */
 export function changeToast(c: DeskChange, d: DeskView, undo: (rev: number) => void): ToastSpec {
   return {
     text: `Changed from ${nameOf(d, c.by)}`,
@@ -75,7 +75,7 @@ export function changeToast(c: DeskChange, d: DeskView, undo: (rev: number) => v
   };
 }
 
-/** Los notices que salen de pasar de `before` a `after` (cambio de camino, tunnel, machine). */
+/** The notices that result from going from `before` to `after` (path change, tunnel, machine). */
 export function deskEvents(before: DeskView, after: DeskView): ToastSpec[] {
   if (!before.ready || !after.ready) return [];
   const out: ToastSpec[] = [];

@@ -34,13 +34,13 @@ export interface Target {
 }
 
 export interface StylePair {
-    /** Name in the report. */
+  /** Name in the report. */
   name: string;
-    /** Element in `gallery.html`. */
+  /** Element in `gallery.html`. */
   app: Target;
-    /** Mockup (without `.dc.html`) and element. */
+  /** Mockup (without `.dc.html`) and element. */
   mockup: string;
-    /** Named mockup state (`tools/mockup-render/src/states.ts`) if the element is not in the initial one. */
+  /** Named mockup state (`tools/mockup-render/src/states.ts`) if the element is not in the initial one. */
   state?: string;
   ref: Target;
   groups: Group[];
@@ -126,8 +126,8 @@ function cycle(list: string[], i: number): string {
 }
 
 /**
-  * Transitions of an element as `property → "duration curve delay"`. Those with duration and
-  * delay 0 (the initial value `all 0s ease 0s`) animate nothing and are omitted.
+ * Transitions of an element as `property → "duration curve delay"`. Those with duration and
+ * delay 0 (the initial value `all 0s ease 0s`) animate nothing and are omitted.
  */
 export function transitions(s: Styles): Map<string, string> {
   const props = splitList(s["transition-property"] ?? "");
@@ -145,9 +145,9 @@ export function transitions(s: Styles): Map<string, string> {
 }
 
 /**
-  * Animations as a list of `"duration curve repetitions fill"`. The name is not compared
-  * (Svelte adds a per-component prefix) nor the delay (cards enter staggered
-  * with an online `animation-delay`): only whether there is an animation, its duration and its curve.
+ * Animations as a list of `"duration curve repetitions fill"`. The name is not compared
+ * (Svelte adds a per-component prefix) nor the delay (cards enter staggered
+ * with an online `animation-delay`): only whether there is an animation, its duration and its curve.
  */
 export function animations(s: Styles): string[] {
   const names = splitList(s["animation-name"] ?? "none");
@@ -234,23 +234,23 @@ const SWITCH: Group[] = [...ALL.filter((g) => g !== "font"), "width"];
 /** The switch knob (`::after`). */
 const KNOB: Group[] = ["height", "width", "radius", "background", "position", "transition"];
 /**
-  * The segmented indicator. The width depends on the width of the group (different in the gallery), so
-  * the box is looked at (`box-sizing`): with the same formula, the same box gives the same width.
+ * The segmented indicator. The width depends on the width of the group (different in the gallery), so
+ * the box is looked at (`box-sizing`): with the same formula, the same box gives the same width.
  */
 const IND: Group[] = ["height", "box", "radius", "border", "background", "shadow", "position", "transition"];
 
 export const PAIRS: StylePair[] = [
-    // V3-Arrangement: the header buttons (38 px).
+  // V3-Arrangement: the header buttons (38 px).
   { name: "button 38 px", app: part("btn-38", ".btn"), mockup: "V3-Arrangement", ref: ref('a.btn[href="F-CrossingTest.dc.html"]'), groups: ALL },
   { name: "primary button 38 px", app: part("btn-pri-38", ".btn"), mockup: "V3-Arrangement", ref: ref("button.btn.pri"), groups: ALL },
   { name: "primary shine", app: part("btn-pri-38", ".btn", "::after"), mockup: "V3-Arrangement", ref: ref("button.btn.pri", "::after"), groups: SHINE },
-    // V3-Monitors: sm, primary sm and icon-only ghost.
+  // V3-Monitors: sm, primary sm and icon-only ghost.
   { name: "button sm", app: part("btn-sm", ".btn"), mockup: "V3-Monitors", ref: ref('a.btn.sm[href="V3-States.dc.html"]'), groups: ALL },
   { name: "primary button sm", app: part("btn-pri-sm", ".btn"), mockup: "V3-Monitors", ref: ref("a.btn.pri.sm"), groups: ALL },
   { name: "ghost icon button sm", app: part("btn-ghost-ic-sm", ".btn"), mockup: "V3-Monitors", ref: ref("button.btn.ghost.ic.sm"), groups: [...ALL, "width"] },
-    // F-Settings: danger ("Leave desk").
+  // F-Settings: danger ("Leave desk").
   { name: "danger button", app: part("btn-danger", ".btn"), mockup: "F-Settings", ref: ref("button.btn.danger"), groups: ALL },
-    // Segmented: the alignment one of V3-Arrangement (md) and the machine one of V3-Monitors (lg).
+  // Segmented: the alignment one of V3-Arrangement (md) and the machine one of V3-Monitors (lg).
   { name: "segmented md", app: part("seg-md", ".seg"), mockup: "V3-Arrangement", ref: ref(".seg"), groups: ["padding", "radius", "border", "background", "shadow"] },
   { name: "segmented md · indicador", app: part("seg-md", ".ind"), mockup: "V3-Arrangement", ref: ref(".seg .ind"), groups: IND },
   { name: "segmented md · selected option", app: part("seg-md", '[aria-checked="true"]'), mockup: "V3-Arrangement", ref: ref('.seg .sb[aria-checked="true"]'), groups: ALL },
@@ -259,14 +259,14 @@ export const PAIRS: StylePair[] = [
   { name: "segmented lg · indicador", app: part("seg-lg", ".ind"), mockup: "V3-Monitors", ref: ref(".seg .ind"), groups: IND },
   { name: "segmented lg · selected option", app: part("seg-lg", '[aria-checked="true"]'), mockup: "V3-Monitors", ref: ref('.seg .segb[aria-checked="true"]'), groups: ALL },
   { name: "segmented lg · option", app: part("seg-lg", '[aria-checked="false"]'), mockup: "V3-Monitors", ref: ref('.seg .segb[aria-checked="false"]'), groups: ["font"] },
-    // F-Settings, "Keyboard and mouse" tab: switch on and off, with its knob.
+  // F-Settings, "Keyboard and mouse" tab: switch on and off, with its knob.
   { name: "switch on", app: part("sw-on", ".sw"), mockup: "F-Settings", state: "keyboard", ref: ref("button.sw:not(.off)"), groups: SWITCH },
   { name: "switch on · knob", app: part("sw-on", ".sw", "::after"), mockup: "F-Settings", state: "keyboard", ref: ref("button.sw:not(.off)", "::after"), groups: KNOB },
   { name: "switch off", app: part("sw-off", ".sw"), mockup: "F-Settings", state: "keyboard", ref: ref("button.sw.off"), groups: SWITCH },
   { name: "switch off · knob", app: part("sw-off", ".sw", "::after"), mockup: "F-Settings", state: "keyboard", ref: ref("button.sw.off", "::after"), groups: KNOB },
-    // V3-Desk: the Tunnels count chip and the cards (the desks one and the machine one).
+  // V3-Desk: the Tunnels count chip and the cards (the desks one and the machine one).
   { name: "count chip", app: part("chip-count", ".chip"), mockup: "V3-Desk", ref: ref(".nav .chip"), groups: ALL },
   { name: "card", app: part("card", ".card"), mockup: "V3-Desk", ref: ref("div.card"), groups: ["padding", "radius", "border", "background", "shadow", "transition", "animation"] },
-    // `.mcard` removes the bottom padding for the chart: the rest of the link card is looked at.
+  // `.mcard` removes the bottom padding for the chart: the rest of the link card is looked at.
   { name: "link card", app: part("card-link", ".card"), mockup: "V3-Desk", ref: ref("a.card.mcard"), groups: ["radius", "border", "background", "shadow", "transition", "animation"] },
 ];

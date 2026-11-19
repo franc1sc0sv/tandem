@@ -1,19 +1,19 @@
-// La página Machine (T-115, `V3-Machine`/`F-MachineMac`): textos, unidades y orden de lo que
-// muestra, y cómo se arma la vista en vivo con las muestras del agente. Puro: se prueba sin
-// pantalla.
+// The Machine page (T-115, `V3-Machine`/`F-MachineMac`): texts, units and order of what it
+// shows, and how the live view is built from the agent's samples. Pure: tested without a
+// screen.
 
 import type { Permission, ResourceSample } from "./model";
 import type { EnvView, HardwareView, LiveView, MachineView, ModuleState, Power, Resources } from "./store/types";
 
 const GIB = 2 ** 30;
 
-/** Muestras que guarda cada línea (una por segundo con el agente). */
+/** Samples kept per line (one per second with the agent). */
 export const HISTORY = 30;
 
-/** Desde aquí la VRAM se da por casi llena (el notice ámbar). */
+/** From here the VRAM counts as almost full (the amber notice). */
 export const VRAM_WARN = 0.85;
 
-/** La palette de colores de machine (D17), con el nombre de cada uno. */
+/** The machine color palette (D17), with the name of each. */
 export const PALETTE: { color: string; name: string }[] = [
   { color: "#7aa7e6", name: "Blue" },
   { color: "#a99be8", name: "Violet" },
@@ -21,10 +21,10 @@ export const PALETTE: { color: string; name: string }[] = [
   { color: "#d9a75a", name: "Amber" },
 ];
 
-/** El nombre largo máximo que acepta el desk (`tandem_core::desk::MAX_NAME`). */
+/** The maximum long name the desk accepts (`tandem_core::desk::MAX_NAME`). */
 export const MAX_NAME = 40;
 
-// El fondo tenue de cada acento sobre una tarjeta (los de los mockups).
+// The faint background of each accent on a card (those of the mockups).
 const TINTS: Record<string, string> = {
   "#7aa7e6": "#16202e",
   "#a99be8": "#1d1a2b",
@@ -32,37 +32,37 @@ const TINTS: Record<string, string> = {
   "#d9a75a": "#1e1a12",
 };
 
-/** El fondo tenue del acento de la machine (íconos de grupo, entorno predeterminado). */
+/** The faint background of the machine's accent (group icons, default environment). */
 export function tint(color: string): string {
   return TINTS[color.toLowerCase()] ?? `color-mix(in srgb, ${color} 9%, #15161a)`;
 }
 
-/** Un decimal sin «.0» (`17.1`, `24`). */
+/** A decimal without ".0" (`17.1`, `24`). */
 function one(v: number): string {
   const r = Math.round(v * 10) / 10;
   return Number.isInteger(r) ? String(r) : r.toFixed(1);
 }
 
-/** Bytes en GB, como los muestra el sistema (base 1024): `17.1`, `24`, `412`. */
+/** Bytes in GB, as the system shows them (base 1024): `17.1`, `24`, `412`. */
 export function gb(bytes: number): string {
   const v = bytes / GIB;
   return v >= 100 ? String(Math.round(v)) : one(v);
 }
 
-/** «412 GB libres de 1.8 TB». */
+/** "412 GB free of 1.8 TB". */
 export function diskText(free: number, total: number): string {
   const t = total / GIB;
   const totalText = t >= 1000 ? `${one(t / 1024)} TB` : `${gb(total)} GB`;
   return `${gb(free)} GB free of ${totalText}`;
 }
 
-/** Porcentaje de 0 a 100 (acotado). */
+/** Percentage from 0 to 100 (clamped). */
 export function pct(part: number, total: number): number {
   if (!(total > 0)) return 0;
   return Math.max(0, Math.min(100, (part / total) * 100));
 }
 
-/** El modelo del procesador sin marcas ni relleno: «Ryzen 7», «M5», «Core i7-13700K». */
+/** The processor model without brands or padding: "Ryzen 7", "M5", "Core i7-13700K". */
 export function shortCpu(model: string): string {
   return model
     .replace(/\((R|TM)\)/gi, "")
@@ -74,7 +74,7 @@ export function shortCpu(model: string): string {
     .trim();
 }
 
-/** El nombre de la GPU sin marca: «RTX 5080», «M5». */
+/** The GPU name without the brand: "RTX 5080", "M5". */
 export function shortGpu(name: string): string {
   return name
     .replace(/\((R|TM)\)/gi, "")
@@ -84,33 +84,33 @@ export function shortGpu(name: string): string {
     .trim();
 }
 
-/** Bajo «CPU»: modelo corto y núcleos lógicos («Ryzen 7 · 16 hilos», «M5 · 12 núcleos»). */
+/** Under "CPU": short model and logical cores ("Ryzen 7 · 16 threads", "M5 · 12 cores"). */
 export function cpuSub(hw: HardwareView | null, os: MachineView["os"]): string {
   if (!hw) return "";
   const cores = hw.cores > 0 ? `${hw.cores} ${os === "windows" ? "threads" : "cores"}` : "";
   return [hw.cpu ? shortCpu(hw.cpu) : "", cores].filter(Boolean).join(" · ");
 }
 
-/** La GPU comparte la RAM (Apple): no tiene VRAM propia. */
+/** The GPU shares the RAM (Apple): it has no VRAM of its own. */
 export function sharedMemory(hw: HardwareView | null): boolean {
   return !!hw?.gpu && hw.gpu.vram === null;
 }
 
-/** Bajo «RAM»: el total, o «unificada» si la GPU la comparte. */
+/** Under "RAM": the total, or "unified" if the GPU shares it. */
 export function ramSub(hw: HardwareView | null, live: LiveView | null): string {
   if (sharedMemory(hw)) return "unified";
   const total = hw?.memory || live?.ram.total || 0;
   return total > 0 ? `${gb(total)} GB` : "";
 }
 
-/** Bajo «GPU»: «RTX 5080» o «M5 integrada». */
+/** Under "GPU": "RTX 5080" or "M5 integrated". */
 export function gpuSub(hw: HardwareView | null): string {
   if (!hw?.gpu) return "";
   const n = shortGpu(hw.gpu.name);
   return sharedMemory(hw) ? `${n} integrated` : n;
 }
 
-/** La VRAM pasa del umbral del notice. */
+/** The VRAM passes the notice threshold. */
 export function vramWarn(live: LiveView | null): boolean {
   const g = live?.gpu;
   if (!g || g.vramUsed === null || !g.vramTotal) return false;
@@ -119,37 +119,37 @@ export function vramWarn(live: LiveView | null): boolean {
 
 const POWER_TEXT: Record<Power, string> = { on: "online", off: "off", booting: "powering on", lost: "offline" };
 
-/** La línea bajo el nombre: la otra dice si está online; esta, su procesador. */
+/** The line under the name: the other one says whether it is online; this one, its processor. */
 export function headerSub(m: Pick<MachineView, "here" | "system" | "power" | "hardware">): string {
   const second = m.here ? (m.hardware?.cpu ?? "") : POWER_TEXT[m.power];
   return [m.system, second].filter(Boolean).join(" · ");
 }
 
-/** El nombre que se muestra de un entorno: las distros de WSL dicen que lo son. */
+/** The name shown for an environment: WSL distros say they are one. */
 export function envLabel(e: Pick<EnvView, "kind" | "name">): string {
   return e.kind === "wsl" ? `WSL · ${e.name}` : e.name;
 }
 
 /**
- * El entorno donde corre lo remoto si nadie elige (el resaltado) va primero; los demás en el
- * orden del agente. Se prefiere la distro de WSL por omisión sobre el shell del sistema.
+ * The environment where remote work runs if nobody chooses (the highlighted one) goes first; the rest in the
+ * agent's order. The default WSL distro is preferred over the system shell.
  */
 export function orderEnvs(envs: EnvView[]): { main: EnvView | null; rest: EnvView[] } {
   const main = envs.find((e) => e.default && e.kind === "wsl") ?? envs.find((e) => e.default && e.kind === "shell") ?? envs.find((e) => e.default) ?? null;
   return { main, rest: envs.filter((e) => e !== main) };
 }
 
-// Qué deja de andar sin cada permiso de macOS (la fila «Permisos», `F-MachineMac`).
+// What stops working without each macOS permission (the "Permissions" row, `F-MachineMac`).
 const PERMISSION_TEXT: Record<Permission, string> = {
   input_monitoring: "“Input Monitoring” is missing: it cannot send the keyboard. It is checked automatically.",
   accessibility: "“Accessibility” is missing: it cannot move the mouse or type here. It is checked automatically.",
   local_network: "“Local Network” is missing: it cannot find the other machine. It is checked automatically.",
 };
 
-// El que más se nota primero: sin teclado no se puede trabajar.
+// The most noticeable first: without a keyboard you cannot work.
 const PERMISSION_ORDER: Permission[] = ["input_monitoring", "accessibility", "local_network"];
 
-/** El permiso que falta y que la fila «Permisos» muestra primero, con su texto. */
+/** The missing permission that the "Permissions" row shows first, with its text. */
 export function missingPermission(missing: Permission[]): { id: Permission; text: string } | null {
   const id = PERMISSION_ORDER.find((p) => missing.includes(p));
   return id ? { id, text: PERMISSION_TEXT[id] } : null;
@@ -157,9 +157,9 @@ export function missingPermission(missing: Permission[]): { id: Permission; text
 
 export const MODULE_TEXT: Record<ModuleState, string> = { active: "active", off: "off", unavailable: "unavailable" };
 
-// ---- Líneas de tendencia ------------------------------------------------------------------
+// ---- Trend lines --------------------------------------------------------------------------
 
-/** `points` de una polilínea de `width`×`height` con valores 0–100 (abajo es 0). */
+/** `points` of a polyline of `width`×`height` with values 0–100 (bottom is 0). */
 export function trendPoints(values: number[], width = 120, height = 34): string {
   if (values.length === 0) return "";
   const step = values.length > 1 ? width / (values.length - 1) : 0;
@@ -167,18 +167,18 @@ export function trendPoints(values: number[], width = 120, height = 34): string 
   return values.map((v, i) => `${r(i * step)},${r(height - (Math.max(0, Math.min(100, v)) * height) / 100)}`).join(" ");
 }
 
-/** El área bajo la línea (el relleno tenue de la CPU). */
+/** The area under the line (the faint CPU fill). */
 export function trendArea(values: number[], width = 120, height = 34): string {
   const pts = trendPoints(values, width, height);
   if (!pts) return "";
   return `M${pts.split(" ").join(" L")} L${width} ${height} L0 ${height}Z`;
 }
 
-// ---- Muestras del agente → vista en vivo ---------------------------------------------------
+// ---- Agent samples → live view -------------------------------------------------------------
 
 const push = (h: number[], v: number) => [...h, v].slice(-HISTORY);
 
-/** La vista en vivo con una muestra nueva (la historia de cada línea avanza un punto). */
+/** The live view with a new sample (the history of each line advances one point). */
 export function nextLive(prev: LiveView | null, s: ResourceSample): LiveView {
   const cpu = s.cpu.load / 10;
   const g = s.gpus[0];
@@ -201,7 +201,7 @@ export function nextLive(prev: LiveView | null, s: ResourceSample): LiveView {
   };
 }
 
-/** El resumen que muestran el Desk y la tray, a partir de la vista en vivo. */
+/** The summary that the Desk and the tray show, from the live view. */
 export function summaryOf(live: LiveView): Resources {
   const ram = pct(live.ram.used, live.ram.total);
   const g = live.gpu;
@@ -222,7 +222,7 @@ export function summaryOf(live: LiveView): Resources {
   };
 }
 
-/** Lo que la página puede editar del nombre: recortado y dentro del largo del desk. */
+/** What the page can edit of the name: trimmed and within the desk's length. */
 export function checkName(raw: string): { ok: true; name: string } | { ok: false; reason: string } {
   const name = raw.trim();
   if (!name) return { ok: false, reason: "The name cannot be empty" };

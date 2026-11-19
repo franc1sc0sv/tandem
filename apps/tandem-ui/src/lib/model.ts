@@ -1,26 +1,26 @@
-// Espejo en TypeScript del JSON de `tandem_ui::session` (serde). Si cambia allá, cambia aquí;
-// las pruebas de los dos lados fijan la forma.
+// TypeScript mirror of the JSON of `tandem_ui::session` (serde). If it changes there, it changes here;
+// the tests on both sides pin the shape.
 
 import type { OutputWire, ProcessWire, ProjectWire } from "./tunnels";
 
 /**
- * Los dos lados del desk (T-097, DECISIONS A1): `a` es el de clave pública menor. Ningún
- * lado supone un sistema: nombre, sistema y color salen de su anuncio (`MachineInfo`).
+ * The two sides of the desk (T-097, DECISIONS A1): `a` is the one with the lower public key. Neither
+ * side assumes a system: name, system and color come from its announcement (`MachineInfo`).
  */
 export type Machine = "a" | "b";
 export type Os = "macos" | "windows";
 
-/** Lo que una machine dice de sí misma (`tandem_core::MachineInfo`). */
+/** What a machine says about itself (`tandem_core::MachineInfo`). */
 export interface MachineInfo {
   os: Os;
   name: string;
-  /** Color de acento en CSS (`#rrggbb`), elegido al emparejar (D17). */
+  /** Accent color in CSS (`#rrggbb`), chosen when pairing (D17). */
   color: string;
 }
 export type Side = "left" | "right" | "up" | "down";
 export type Align = "start" | "center" | "end";
 
-/** Una pantalla del arrangement declarado (DESIGN §7), en coordenadas nativas de su machine. */
+/** A screen of the declared arrangement (DESIGN §7), in the native coordinates of its machine. */
 export interface ScreenSpec {
   machine: Machine;
   id: string;
@@ -31,10 +31,10 @@ export interface ScreenSpec {
   scale: number;
 }
 
-/** Una entrada de video de un monitor compatible (`tandem_core::MonitorInput`). */
+/** A video input of a compatible monitor (`tandem_core::MonitorInput`). */
 export type MonitorInput = "display_port" | "hdmi";
 
-/** Una scene del desk (`tandem_core::Scene`): qué machine muestra cada monitor compatible. */
+/** A scene of the desk (`tandem_core::Scene`): which machine shows each compatible monitor. */
 export interface SceneJson {
   id: string;
   name: string;
@@ -42,42 +42,42 @@ export interface SceneJson {
   monitors: [string, Machine][];
   layout?: { a_side: Side; align: Align } | null;
   require_on?: Machine | null;
-  /** Shortcut global, con los nombres de `KeyboardEvent.code`, todas las teclas a la vez. */
+  /** Global shortcut, with `KeyboardEvent.code` names, all keys at once. */
   shortcut: string[];
 }
 
-/** El desk compartido: el arrangement de pantallas para el teclado y el mouse. */
+/** The shared desk: the screen arrangement for keyboard and mouse. */
 export interface Desk {
-  /** Lo que se sabe de cada lado (`null` si todavía no se anunció). */
+  /** What is known about each side (`null` if it has not announced itself yet). */
   machines: Record<Machine, MachineInfo | null>;
   screens: ScreenSpec[];
-  /** De qué lado de `b` está `a` y con qué alineación (D18); `null` sin declarar: `a` a la
-   * izquierda de `b` y todo el borde cruza (T-099). */
+  /** Which side of `b` `a` is on and with what alignment (D18); `null` if undeclared: `a` to the
+   * left of `b` and the whole edge crosses (T-099). */
   arrangement: { a_side: Side; align: Align } | null;
-  /** Desk name (`desk_name`, T-159); sin él la UI usa «My desk». */
+  /** Desk name (`desk_name`, T-159); without it the UI uses "My desk". */
   desk_name?: string | null;
   scenes: SceneJson[];
-  /** Keyboard and mouse compartidos (`[prefs]` del desk). */
+  /** Shared keyboard and mouse (`[prefs]` of the desk). */
   prefs?: { cmd_ctrl: boolean; drag_files: boolean };
-  /** Módulos encendidos por machine (`clipboard`…); lo que falte vale «encendido». */
+  /** Modules turned on per machine (`clipboard`…); what is missing counts as "on". */
   modules?: Record<Machine, Record<string, boolean>>;
-  /** Shortcuts del desk (`[shortcuts]`): el de bloqueo, con nombres de `KeyboardEvent.code`. */
+  /** Desk shortcuts (`[shortcuts]`): the lock one, with `KeyboardEvent.code` names. */
   shortcuts?: { lock: string[] };
 }
 
-/** `tandem_proto::MonitorCompat`: serde por omisión (etiqueta externa). */
+/** `tandem_proto::MonitorCompat`: serde default (external tag). */
 export type MonitorCompatJson = { Compatible: { protocol: number } } | { NotCompatible: { reason: string } };
 
 export type MonitorEventKindJson = "Boot" | "Input" | "SwitchRequested" | "SwitchDone" | "SwitchFailed" | "Power" | "Signal" | "Setting" | "Lost" | "Other";
 
 export interface MonitorEventJson {
-  /** Milisegundos Unix, según el reloj del dueño. */
+  /** Unix milliseconds, according to the owner's clock. */
   at_ms: number;
   kind: MonitorEventKindJson;
   input: MonitorInput | null;
 }
 
-/** Un monitor como lo manda el agente (`tandem_proto::MonitorView`). */
+/** A monitor as the agent sends it (`tandem_proto::MonitorView`). */
 export interface MonitorJson {
   id: string;
   name: string;
@@ -89,13 +89,13 @@ export interface MonitorJson {
 }
 
 export interface DeskState {
-  /** Qué machines están encendidas. La del agente siempre lo está para sí misma (T-084). */
+  /** Which machines are powered on. The agent's one always is for itself (T-084). */
   on: Record<Machine, boolean>;
-  /** La scene activa (D6), si sigue valiendo. */
+  /** The active scene (D6), if it still holds. */
   scene?: string | null;
 }
 
-/** Lo que tiene y sabe hacer una machine, según su anuncio (`tandem_ui::session::MachineView`). */
+/** What a machine has and can do, according to its announcement (`tandem_ui::session::MachineView`). */
 export interface MachineCaps {
   machine: Machine;
   name: string;
@@ -106,39 +106,39 @@ export interface MachineCaps {
     capture: boolean;
     inject: boolean;
     missing: ("accessibility" | "input_monitoring")[];
-    /** El proceso del agente: macOS concede los permisos a ese binario exacto (T-090). */
+    /** The agent process: macOS grants permissions to that exact binary (T-090). */
     process: { exe: string; pid: number; started: number };
   };
   power: {
     wake_peer: boolean;
     wakeable: boolean;
     power_off: boolean;
-    /** La MAC de su tarjeta Ethernet, para que la otra la guarde al emparejar (T-159). */
+    /** The MAC of its Ethernet card, so the other one stores it when pairing (T-159). */
     mac?: string | null;
-    /** La MAC con que this machine despierta a la otra (`[power.wol]`); `null`: no puede. */
+    /** The MAC with which this machine wakes the other (`[power.wol]`); `null`: it cannot. */
     wol_mac?: string | null;
   };
   services: string[];
-  /** Módulos de su sistema (T-098); opcionales para leer un agente de antes. */
+  /** Modules of its system (T-098); optional so an older agent can be read. */
   modules?: ModuleCaps[];
   /** Execution environments detectados (T-105). */
   environments?: EnvCaps[];
-  /** El equipo según el escaneo (T-105). */
+  /** The hardware according to the scan (T-105). */
   hardware?: HardwareCaps;
 }
 
-/** El servicio de administrador (T-131): lo que reporta la app, no un spinner inventado. */
+/** The administrator service (T-131): what the app reports, not an invented spinner. */
 export interface AdminView {
-  /** `off` sin instalar, `pending` por instalar o a medias, `ok` activo. */
+  /** `off` not installed, `pending` to install or half-done, `ok` active. */
   state: "off" | "pending" | "ok";
-  /** Hay botón «Instalar»; si no, `note` dice por qué. */
+  /** There is an "Install" button; if not, `note` says why. */
   canInstall: boolean;
   note: string;
 }
 
-/** Un módulo tal como lo anuncia su machine (`tandem_ui::session::ModuleView`). */
+/** A module as its machine announces it (`tandem_ui::session::ModuleView`). */
 export interface ModuleCaps {
-  /** El id del desk: `input`, `clipboard`, `secure_desktop`… */
+  /** The id of the module: `input`, `clipboard`, `secure_desktop`… */
   id: string;
   name: string;
   detail: string;
@@ -147,7 +147,7 @@ export interface ModuleCaps {
   switchable: boolean;
 }
 
-/** Un entorno de ejecución (`tandem_ui::session::EnvView`). */
+/** An execution environment (`tandem_ui::session::EnvView`). */
 export interface EnvCaps {
   id: string;
   kind: "shell" | "wsl" | "docker";
@@ -161,12 +161,12 @@ export interface EnvCaps {
 export interface HardwareCaps {
   cpu: string | null;
   cores: number;
-  /** RAM total, en bytes. */
+  /** Total RAM, in bytes. */
   memory: number;
   gpus: { name: string; vram: number | null }[];
 }
 
-/** Una muestra de recursos (`tandem_proto::Resources`): porcentajes en décimas, bytes. */
+/** A resource sample (`tandem_proto::Resources`): percentages in tenths, bytes. */
 export interface ResourceSample {
   cpu: { load: number; cores: number[]; temperature: number | null };
   memory: { used: number; total: number };
@@ -174,7 +174,7 @@ export interface ResourceSample {
   disk: { free: number; total: number } | null;
 }
 
-/** This machine y la otra (`null` si nunca se la vio). */
+/** This machine and the other one (`null` if it was never seen). */
 export interface Caps {
   here: MachineCaps;
   peer: MachineCaps | null;
@@ -182,10 +182,10 @@ export interface Caps {
 
 export type Link = "usb4" | "ethernet" | "wifi";
 
-/** El otro agente: sin par, this machine trabaja sola. `link` es `null` si no se lo ve. */
+/** The other agent: without a peer, this machine works alone. `link` is `null` if it is not seen. */
 export type PeerView = { kind: "unpaired" } | { kind: "paired"; name: string; link: Link | null };
 
-/** En qué va el emparejamiento (DESIGN §9): `code` son los 6 dígitos, con ceros to the left of. */
+/** How pairing is going (DESIGN §9): `code` is the 6 digits, with leading zeros. */
 export type PairingView =
   | { kind: "idle" }
   | { kind: "searching" }
@@ -193,35 +193,35 @@ export type PairingView =
   | { kind: "done"; peer: string }
   | { kind: "failed"; reason: string };
 
-/** El teclado y mouse compartidos (`tandem_ui::session::InputView`). */
+/** The shared keyboard and mouse (`tandem_ui::session::InputView`). */
 export interface InputView {
-  /** Dónde está el teclado y el mouse (el campo se llama así en el agente). */
+  /** Where the keyboard and mouse are (the field is called that in the agent). */
   server: Machine;
-  /** Si el hub está en this machine; `null` sin detección. */
+  /** Whether the hub is on this machine; `null` without detection. */
   hub_here: boolean | null;
-  /** La sesión con el otro agente está establecida. */
+  /** The session with the other agent is established. */
   session: boolean;
-  /** El cursor está bloqueado en su machine (shortcut de la que tiene el teclado). */
+  /** The cursor is locked on its machine (shortcut of the one that has the keyboard). */
   locked: boolean;
-  /** macOS permissions que le faltan a this machine. */
+  /** macOS permissions that this machine is missing. */
   missing: ("accessibility" | "input_monitoring")[];
-  /** Por qué el motor de entrada de this machine no funciona, si no funciona. */
+  /** Why the input engine of this machine does not work, if it does not. */
   problem: string | null;
-  /** Se sabe dónde está el teclado (hub, configuración o asistente); si no, «sin definir». */
+  /** It is known where the keyboard is (hub, configuration or setup); if not, "undefined". */
   defined: boolean;
-  /** Las pantallas que lee el motor aquí y las que anunció the other machine (T-150). */
+  /** The screens the engine reads here and those the other machine announced (T-150). */
   screens?: EngineScreen[];
   peer_screens?: EngineScreen[];
 }
 
-/** Una pantalla como la lee el motor de entrada (`tandem_proto::ScreenRect`). */
+/** A screen as the input engine reads it (`tandem_proto::ScreenRect`). */
 export interface EngineScreen {
   id: string;
   x: number;
   y: number;
   width: number;
   height: number;
-  /** Unidades nativas por punto lógico, en milésimas (1500 = 150 %). */
+  /** Native units per logical point, in thousandths (1500 = 150 %). */
   scale_milli: number;
 }
 
@@ -234,7 +234,7 @@ export type Step =
   | { step: "power_on"; machine: Machine }
   | { step: "power_off"; machine: Machine }
   | { step: "switch_monitor"; monitor: string; input: "display_port" | "hdmi" }
-  /** Pasos de scene (T-100): qué machine muestra un monitor, el arrangement y la geometría. */
+  /** Scene steps (T-100): which machine shows a monitor, the arrangement and the geometry. */
   | { step: "show_machine"; monitor: string; machine: Machine }
   | { step: "arrange"; layout: unknown }
   | { step: "geometry" };
@@ -244,25 +244,25 @@ export type TxnView =
   | { type: "step_started"; txn: number; index: number }
   | { type: "step_done"; txn: number; index: number }
   | { type: "step_failed"; txn: number; index: number; error: string }
-  /** Vuelta atrás: un paso ya hecho se deshizo porque falló uno posterior. */
+  /** Rollback: a step already done was undone because a later one failed. */
   | { type: "step_undone"; txn: number; index: number }
   | { type: "committed"; txn: number; state: DeskState }
-  /** Falló un paso: `state` es lo que quedó hecho. */
+  /** A step failed: `state` is what was left done. */
   | { type: "failed"; txn: number; state: DeskState };
 
-/** Borde del escritorio de una machine (`tandem_core::Side`). */
+/** Edge of a machine's desktop (`tandem_core::Side`). */
 export type CrossEdge = "left" | "right" | "up" | "down";
 
-/** Dónde está el cursor, en las coordenadas nativas de su machine (`tandem_proto::CursorSample`). */
+/** Where the cursor is, in the native coordinates of its machine (`tandem_proto::CursorSample`). */
 export interface CursorSample {
   machine: Machine;
-  /** Id de la pantalla que lo contiene; vacío si no se conocen. */
+  /** Id of the screen that contains it; empty if they are not known. */
   screen: string;
   x: number;
   y: number;
 }
 
-/** El avance de un arrastre de archivos entre las machines (`tandem_proto::DragStatus`, T-121). */
+/** The progress of a file drag between the machines (`tandem_proto::DragStatus`, T-121). */
 export type DragStatus =
   | { kind: "copying"; name: string; index: number; total: number }
   | { kind: "copied"; total: number }
@@ -273,15 +273,15 @@ export type DragStatus =
 export type Notice =
   | { kind: "drag"; status: DragStatus }
   | { kind: "txn"; event: TxnView }
-  /** El cursor en vivo (T-128), a 30 Hz como mucho; solo llega con `watch_cursor`. */
+  /** The live cursor (T-128), at 30 Hz at most; only arrives with `watch_cursor`. */
   | { kind: "cursor"; sample: CursorSample }
-  /** El cursor cruzó el borde `edge` de `from` hacia `to` (T-128). */
+  /** The cursor crossed the `edge` edge from `from` to `to` (T-128). */
   | { kind: "crossed"; from: Machine; to: Machine; edge: CrossEdge }
   | { kind: "key_probe"; event: { armed: boolean; heard: Machine | null } }
   | { kind: "power"; machine: Machine; reason: string }
-  /** The other machine cambió el desk y ganó (D5): «Cambiado desde X · Deshacer». */
+  /** The other machine changed the desk and won (D5): "Changed from X · Undo". */
   | { kind: "desk_changed"; by: Machine; rev: number; summary: string; undo_to: number }
-  /** El avance de una copia de archivos entre las machines. */
+  /** The progress of a file copy between the machines. */
   | { kind: "transfer"; upload: boolean; path: string; done: number; total: number; finished: boolean };
 
 export type Action =
@@ -295,50 +295,50 @@ export type Action =
   | { kind: "heard_key" }
   | { kind: "set_keyboard"; machine: Machine }
   | { kind: "ping_peer" }
-  /** Recibir (o dejar de recibir) el cursor en vivo como notices `cursor` y `crossed` (T-128). */
+  /** Receive (or stop receiving) the live cursor as `cursor` and `crossed` notices (T-128). */
   | { kind: "watch_cursor"; on: boolean }
-  /** «Request permissions» (T-090): macOS muestra su diálogo a nombre de `tandemd`. */
+  /** "Request permissions" (T-090): macOS shows its dialog in the name of `tandemd`. */
   | { kind: "request_permissions" }
-  /** «Lock here» (T-129): bloquea (`on`) o suelta el cursor en this machine. */
+  /** "Lock here" (T-129): locks (`on`) or releases the cursor on this machine. */
   | { kind: "lock_here"; on: boolean }
-  /** Guardar el arrangement en el desk compartido (`EditDesk { Arrangement }`, T-099). */
+  /** Save the arrangement in the shared desk (`EditDesk { Arrangement }`, T-099). */
   | { kind: "set_arrangement"; a_side: Side; align: Align }
-  /** El nombre del desk (`EditDesk { Name }`); vacío vuelve a «My desk». */
+  /** The desk name (`EditDesk { Name }`); empty goes back to "My desk". */
   | { kind: "set_desk_name"; name: string }
-  /** La MAC con que this machine despierta a la otra (T-159); `null` la borra. */
+  /** The MAC with which this machine wakes the other (T-159); `null` deletes it. */
   | { kind: "set_wol"; mac: string | null }
   | { kind: "set_module"; machine: Machine; module: string; on: boolean }
   | { kind: "set_prefs"; cmd_ctrl: boolean; drag_files: boolean }
-  /** El shortcut de bloqueo del desk (`EditDesk { Shortcuts }`); vacío = sin shortcut. */
+  /** The desk lock shortcut (`EditDesk { Shortcuts }`); empty = no shortcut. */
   | { kind: "set_lock_shortcut"; lock: string[] }
-  /** «Deshacer» del notice de cambio: vuelve el desk a la versión `to_rev` (D5). */
+  /** "Undo" of the change notice: returns the desk to version `to_rev` (D5). */
   | { kind: "undo_desk"; to_rev: number }
   | { kind: "rescan"; machine: Machine }
-  /** Recibir los recursos en vivo mientras la pantalla visible los muestra. */
+  /** Receive live resources while the visible screen shows them. */
   | { kind: "watch_resources"; on: boolean }
-  /** Nombre o color de una machine (el desk compartido). */
+  /** Name or color of a machine (the shared desk). */
   | { kind: "set_machine"; machine: Machine; name?: string; color?: string }
-  /** La pantalla Red pide (o deja de pedir) el estado de la red, una vez por segundo (T-118). */
+  /** The Network screen asks for (or stops asking for) the network state, once per second (T-118). */
   | { kind: "watch_network"; on: boolean }
-  /** Prueba de ancho de banda de un camino (3 s); contesta `bandwidth`. */
+  /** Bandwidth test of a path (3 s); answers `bandwidth`. */
   | { kind: "measure_link"; path: Link }
-  /** Aplicar una scene: una transacción con progress (T-116). */
+  /** Apply a scene: a transaction with progress (T-116). */
   | { kind: "apply_scene"; id: string }
-  /** Cambiar la entrada de un monitor compatible, con el verdict del firmware (T-110). */
+  /** Change the input of a compatible monitor, with the firmware verdict (T-110). */
   | { kind: "switch_monitor"; monitor: string; input: MonitorInput }
   | { kind: "add_scene"; scene: SceneJson }
   | { kind: "edit_scene"; scene: SceneJson }
-  /** Los procesos de un tunnel, también los que terminaron hace poco (T-114); `tunnel` es el id de texto. */
+  /** The processes of a tunnel, including those that ended recently (T-114); `tunnel` is the text id. */
   | { kind: "processes"; tunnel: string }
-  /** La salida de un proceso desde los cursores dados (T-114). */
+  /** The output of a process from the given cursors (T-114). */
   | { kind: "output"; tunnel: string; process: number; stdout: number; stderr: number }
-  /** Los tunnels abiertos ahora (T-154): la ventana que se abre o recarga no espera un cambio. */
+  /** The tunnels open now (T-154): a window that opens or reloads does not wait for a change. */
   | { kind: "tunnels" };
 
-/** De dónde salió la configuración del agente (`tandem_proto::SetupInfo`). */
+/** Where the agent configuration came from (`tandem_proto::SetupInfo`). */
 export interface AgentSetup {
   config_file: string | null;
-  /** El agente la generó al arrancar por primera vez (T-082). */
+  /** The agent generated it on its first start (T-082). */
   generated: boolean;
   port: number | null;
 }
@@ -355,29 +355,29 @@ export type ActionResult =
   | { kind: "output"; output: OutputWire }
   | { kind: "tunnels"; tunnels: ProjectWire[] };
 
-// Shortcuts globales (`tandem_ui::shortcuts`).
+// Global shortcuts (`tandem_ui::shortcuts`).
 export type ShortcutAction = "toggle_window";
 
-/** Acción → combinación canónica (`Ctrl+Alt+Digit0`), o `null` si no tiene. */
+/** Action → canonical combination (`Ctrl+Alt+Digit0`), or `null` if it has none. */
 export type Bindings = Record<ShortcutAction, string | null>;
 
 export interface ShortcutsView {
   bindings: Bindings;
-  /** Los que el sistema no dejó registrar, con la razón: los atiende la ventana. */
+  /** Those the system would not let register, with the reason: the window handles them. */
   failed: Partial<Record<ShortcutAction, string>>;
   warning: string | null;
   file: string | null;
 }
 
-// Primer arranque en macOS (`tandem_ui::setup`).
+// First run on macOS (`tandem_ui::setup`).
 export type Permission = "accessibility" | "input_monitoring" | "local_network";
 
 export interface SetupView {
-  /** Hay permisos que conceder en este sistema (solo macOS). */
+  /** There are permissions to grant on this system (macOS only). */
   available: boolean;
-  /** Open setup al arrancar: todavía no se terminó (en cualquier sistema). */
+  /** Open setup on start: it has not been finished yet (on any system). */
   show: boolean;
   permissions: Permission[];
-  /** Cómo quedó el agente de inicio de sesión (`tandemd`), si la app intentó instalarlo. */
+  /** How the login agent (`tandemd`) ended up, if the app tried to install it. */
   agent: { ok: boolean; text: string } | null;
 }

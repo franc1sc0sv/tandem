@@ -1,4 +1,4 @@
-// Las pestañas de Settings (`F-Settings`) y cómo se recorren con el teclado. Puro.
+// The Settings tabs (`F-Settings`) and how they are traversed with the keyboard. Pure.
 
 import type { IconName } from "../ui/icons";
 
@@ -12,7 +12,7 @@ export const SETTINGS_TABS: { id: SettingsTab; name: string; icon: IconName }[] 
   { id: "advanced", name: "Advanced", icon: "sliders" },
 ];
 
-/** La pestaña a la que llevan las flechas, Inicio y Fin (lista vertical, sin dar la vuelta). */
+/** The tab the arrows, Home and End lead to (vertical list, without wrapping). */
 export function nextTab(current: SettingsTab, key: string): SettingsTab | null {
   const i = SETTINGS_TABS.findIndex((t) => t.id === current);
   const to = key === "ArrowDown" ? i + 1 : key === "ArrowUp" ? i - 1 : key === "Home" ? 0 : key === "End" ? SETTINGS_TABS.length - 1 : i;

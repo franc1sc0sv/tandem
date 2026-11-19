@@ -1,4 +1,4 @@
-// Scenes (D6): del desk del agente a las tarjetas de Monitors, y el borrador del editor
+// Scenes (D6): from the agent's desk to the Monitors cards, and the editor draft
 // (`F-NewScene`). Puro.
 
 import { shortMonitor } from "./monitors";
@@ -11,25 +11,25 @@ const ALT = /^Alt(Left|Right)?$/;
 const SHIFT = /^Shift(Left|Right)?$/;
 const META = /^(Meta|OS)(Left|Right)?$/;
 
-/** `["ControlLeft","AltLeft","Digit1"]` → `Ctrl+Alt+Digit1` (el formato de `formatAccel`). */
+/** `["ControlLeft","AltLeft","Digit1"]` → `Ctrl+Alt+Digit1` (the `formatAccel` format). */
 export function accelOfCodes(codes: string[]): string {
   const mods = [codes.some((c) => CTRL.test(c)) && "Ctrl", codes.some((c) => ALT.test(c)) && "Alt", codes.some((c) => SHIFT.test(c)) && "Shift", codes.some((c) => META.test(c)) && "Super"].filter(Boolean);
   const key = codes.find((c) => isKey(c));
   return key ? [...mods, key].join("+") : "";
 }
 
-/** `Ctrl+Alt+Digit4` → los códigos que guarda la scene. */
+/** `Ctrl+Alt+Digit4` → the codes a scene stores. */
 export function codesOfAccel(accel: string): string[] {
   const names: Record<string, string> = { Ctrl: "ControlLeft", Alt: "AltLeft", Shift: "ShiftLeft", Super: "MetaLeft" };
   return accel.split("+").map((p) => names[p] ?? p);
 }
 
-/** Cómo se ve el shortcut de una scene en this machine (`⌃⌥1` o `Ctrl+Alt+1`); vacío sin shortcut. */
+/** How a scene's shortcut looks on this machine (`⌃⌥1` or `Ctrl+Alt+1`); empty without a shortcut. */
 export function shortcutText(codes: string[], mac: boolean): string {
   return formatAccel(accelOfCodes(codes), mac);
 }
 
-/** El mismo shortcut (con cualquiera de las teclas de cada modificador). */
+/** The same shortcut (with either of the keys of each modifier). */
 export function sameShortcut(a: string[], b: string[]): boolean {
   const x = accelOfCodes(a);
   return x !== "" && x === accelOfCodes(b);
@@ -41,7 +41,7 @@ export interface SceneContext {
   mac: boolean;
 }
 
-/** La tarjeta de una scene: `34" → PC-Escritorio`, su shortcut y la machine de la miniatura. */
+/** A scene card: `34" → PC-Desktop`, its shortcut and the machine of the thumbnail. */
 export function sceneView(s: SceneJson, ctx: SceneContext): SceneView {
   const known = s.monitors.flatMap(([id, machine]) => {
     const m = ctx.monitors.find((x) => x.id === id);
@@ -60,44 +60,44 @@ export function sceneView(s: SceneJson, ctx: SceneContext): SceneView {
   };
 }
 
-// ---- El editor -----------------------------------------------------------------------------
+// ---- The editor ----------------------------------------------------------------------------
 
-/** Qué muestra un monitor en la scene: una machine, o `keep` (sin cambiar). */
+/** What a monitor shows in the scene: a machine, or `keep` (unchanged). */
 export type Pick = Machine | "keep";
 
 export interface Draft {
-  /** `null`: scene nueva. */
+  /** `null`: a new scene. */
   id: string | null;
   name: string;
   picks: Record<string, Pick>;
   shortcut: string[];
-  /** Lo que la pantalla no edita (arrangement, machine requerida, ícono) se conserva. */
+  /** What the screen does not edit (arrangement, required machine, icon) is preserved. */
   base: SceneJson | null;
 }
 
-/** Igual que el núcleo (`MAX_SCENE_NAME`). */
+/** Same as the core (`MAX_SCENE_NAME`). */
 export const MAX_NAME = 40;
 
-/** Solo los compatibles entran a una scene (D11, DESIGN §5). */
+/** Only compatible ones enter a scene (D11, DESIGN §5). */
 export function compatible(monitors: MonitorUi[]): MonitorUi[] {
   return monitors.filter((m) => m.compat.ok);
 }
 
-/** Borrador de una scene nueva: cada monitor compatible, sin cambiar. */
+/** Draft of a new scene: each compatible monitor, unchanged. */
 export function newDraft(monitors: MonitorUi[]): Draft {
   return { id: null, name: "", picks: Object.fromEntries(compatible(monitors).map((m) => [m.id, "keep" as Pick])), shortcut: [], base: null };
 }
 
 export function draftOf(s: SceneView, monitors: MonitorUi[]): Draft {
   const picks: Record<string, Pick> = Object.fromEntries(compatible(monitors).map((m) => [m.id, "keep" as Pick]));
-  // Un monitor de la scene que hoy no se ve se conserva: editar el nombre no lo borra.
+  // A scene monitor that is not visible today is preserved: editing the name does not delete it.
   for (const { monitor, machine } of s.monitors) picks[monitor] = machine;
   return { id: s.id, name: s.name, picks, shortcut: s.shortcut, base: s.raw };
 }
 
 export type Problem = { field: "name" | "shortcut"; text: string };
 
-/** Lo que impide guardar; `null` si se puede. `others` son las demás scenes (nombres y shortcuts ya tomados). */
+/** What prevents saving; `null` if it can be saved. `others` are the other scenes (names and shortcuts already taken). */
 export function problemOf(d: Draft, others: SceneView[]): Problem | null {
   const name = d.name.trim();
   if (name === "") return { field: "name", text: "Give the scene a name" };
@@ -107,7 +107,7 @@ export function problemOf(d: Draft, others: SceneView[]): Problem | null {
   return null;
 }
 
-/** La scene que se guarda: lo editado encima de lo que ya tenía. Una nueva va sin id: el agente se lo da. */
+/** The scene that is saved: what was edited on top of what it already had. A new one goes without an id: the agent gives it one. */
 export function sceneOf(d: Draft): SceneJson {
   const monitors = Object.entries(d.picks).flatMap(([monitor, p]) => (p === "keep" ? [] : [[monitor, p] as [string, Machine]]));
   return { id: d.id ?? "", name: d.name.trim(), icon: d.base?.icon, monitors, layout: d.base?.layout ?? null, require_on: d.base?.require_on ?? null, shortcut: d.shortcut };

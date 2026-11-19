@@ -1,5 +1,5 @@
-// Los dos lados del desk vistos desde la UI: nombres, colores y el avance de una
-// transacción. Puro, para probarlo sin DOM. Nada supone qué sistema hay en cada lado (D2).
+// The two sides of the desk as the UI sees them: names, colors and the progress of a
+// transaction. Pure, to test without a DOM. Nothing assumes which system is on each side (D2).
 
 import type { Caps, Desk, Link, Machine, MachineCaps, Step, TxnView } from "./model";
 
@@ -7,20 +7,20 @@ export const MACHINES: Machine[] = ["a", "b"];
 
 export const LINK_NAME: Record<Link, string> = { usb4: "USB-C", ethernet: "Ethernet", wifi: "Wi-Fi" };
 
-/** Colores que se asignan al emparejar (D17) si el anuncio no trae uno. */
+/** Colors assigned when pairing (D17) if the announcement does not carry one. */
 export const DEFAULT_COLOR: Record<Machine, string> = { a: "#7aa7e6", b: "#a99be8" };
 
 export function other(m: Machine): Machine {
   return m === "a" ? "b" : "a";
 }
 
-/** Lo que anunció `who`, si se sabe. */
+/** What `who` announced, if known. */
 export function capsOf(caps: Caps, who: Machine): MachineCaps | null {
   if (caps.here.machine === who) return caps.here;
   return caps.peer && caps.peer.machine === who ? caps.peer : null;
 }
 
-/** Nombre de `who`: su anuncio, lo guardado en el desk o «machine A/B». */
+/** Name of `who`: its announcement, what is saved in the desk or "machine A/B". */
 export function machineName(who: Machine, caps?: Caps | null, desk?: Desk | null): string {
   const fromCaps = caps ? capsOf(caps, who)?.name : undefined;
   const fromDesk = desk?.machines[who]?.name;
@@ -33,7 +33,7 @@ export function machineColor(who: Machine, caps?: Caps | null, desk?: Desk | nul
 }
 
 // ---------------------------------------------------------------------------------------
-// Avance de una transacción (scene, encender o apagar).
+// Progress of a transaction (scene, power on or off).
 
 export type StepStatus = "pending" | "run" | "done" | "failed" | "undone";
 
@@ -44,11 +44,11 @@ export interface Progress {
   steps: Step[];
   status: StepStatus[];
   outcome: Outcome;
-  /** El error del paso que falló, hasta que llegue el desenlace. */
+  /** The error of the step that failed, until the outcome arrives. */
   error?: string;
 }
 
-/** Texto corto de un paso, con el nombre de la machine. */
+/** Short text of a step, with the machine name. */
 export function stepLabel(s: Step, name: (m: Machine) => string): string {
   switch (s.step) {
     case "power_on":
@@ -66,7 +66,7 @@ export function stepLabel(s: Step, name: (m: Machine) => string): string {
   }
 }
 
-/** Avanza el progress con un notice. Los notices de otra transacción se ignoran. */
+/** Advances the progress with a notice. Notices of another transaction are ignored. */
 export function advance(p: Progress | null, e: TxnView): Progress | null {
   if (e.type === "started") {
     return { txn: e.txn, steps: e.steps, status: e.steps.map(() => "pending"), outcome: { kind: "running" } };

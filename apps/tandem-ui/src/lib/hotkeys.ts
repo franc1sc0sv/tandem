@@ -1,8 +1,8 @@
-// Settings → Shortcuts: las filas (ventana, bloqueo, palette y una por scene), qué combinaciones
-// admite cada una y los choques entre ellas. Puro: la pantalla solo dibuja y guarda.
+// Settings → Shortcuts: the rows (window, lock, palette and one per scene), which combinations
+// each accepts and the clashes between them. Pure: the screen only draws and saves.
 //
-// Decisión (DECISIONS): ⌘K / Ctrl+K es solo de la ventana. Como shortcut global se comería Ctrl+K
-// de cualquier otra app, y la palette solo tiene sentido con Tandem al frente.
+// Decision (DECISIONS): ⌘K / Ctrl+K belongs to the window only. As a global shortcut it would eat Ctrl+K
+// from any other app, and the palette only makes sense with Tandem in front.
 
 import { codesOfAccel } from "./scenes";
 import { isKey, readCombo, type Combo } from "./shortcuts";
@@ -12,12 +12,12 @@ export type RowId = "toggle_window" | "lock" | "palette" | `scene:${string}`;
 export interface ShortcutRow {
   id: RowId;
   label: string;
-  /** Combinación canónica (`Ctrl+Alt+Digit0`, `ScrollLock`); vacía sin shortcut. */
+  /** Canonical combination (`Ctrl+Alt+Digit0`, `ScrollLock`); empty without a shortcut. */
   accel: string;
   editable: boolean;
 }
 
-/** Teclas que bloquean solas, sin modificador: ninguna se escribe en un texto. */
+/** Keys that lock on their own, without a modifier: none of them is typed into text. */
 const LONE_KEYS = /^(ScrollLock|Pause|PrintScreen|F([1-9]|1[0-9]|2[0-4]))$/;
 
 const CTRL = /^Control(Left|Right)?$/;
@@ -29,7 +29,7 @@ function isMainKey(code: string): boolean {
   return LONE_KEYS.test(code) || isKey(code);
 }
 
-/** La combinación canónica de las teclas de un shortcut del desk (bloqueo o scene). */
+/** The canonical combination of the keys of a desk shortcut (lock or scene). */
 export function canon(codes: string[]): string {
   const key = codes.find(isMainKey);
   if (!key) return "";
@@ -37,13 +37,13 @@ export function canon(codes: string[]): string {
   return [...mods, key].join("+");
 }
 
-/** Lo que se lee del teclado para el bloqueo: como un shortcut global, o una tecla que vale sola. */
+/** What is read from the keyboard for the lock: like a global shortcut, or a key that works alone. */
 export function readLockCombo(e: Parameters<typeof readCombo>[0]): Combo {
   if (LONE_KEYS.test(e.code) && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) return { kind: "ok", accel: e.code };
   return readCombo(e);
 }
 
-/** Lo que guarda el desk para una combinación canónica. */
+/** What the desk stores for a canonical combination. */
 export function codesOf(accel: string): string[] {
   return accel ? codesOfAccel(accel) : [];
 }
@@ -52,7 +52,7 @@ export interface Inputs {
   toggle: string | null;
   lock: string[];
   scenes: { id: string; name: string; shortcut: string[] }[];
-  /** ⌘K en macOS, Ctrl+K en el resto, en forma canónica. */
+  /** ⌘K on macOS, Ctrl+K elsewhere, in canonical form. */
   palette: string;
 }
 
@@ -65,7 +65,7 @@ export function rowsOf(i: Inputs): ShortcutRow[] {
   ];
 }
 
-/** Quién ya usa esta combinación (otra fila), para rechazarla con su nombre. */
+/** Who already uses this combination (another row), to reject it with its name. */
 export function clashOf(rows: ShortcutRow[], id: RowId, accel: string): ShortcutRow | null {
   if (!accel) return null;
   return rows.find((r) => r.id !== id && r.accel === accel) ?? null;

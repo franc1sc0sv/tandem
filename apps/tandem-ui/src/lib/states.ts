@@ -1,10 +1,10 @@
-// Los states difíciles (`V3-States`): cada uno dice qué pasó, qué hizo Tandem solo y qué
-// puede hacer el usuario. Puro: arma las tarjetas con los nombres reales del desk.
+// The trouble states (`V3-States`): each says what happened, what Tandem did on its own and what
+// the user can do. Pure: builds the cards with the real names of the desk.
 
 import type { IconName } from "../ui/icons";
 import type { DeskView } from "./store/types";
 
-/** Color del ícono de la tarjeta: fondo y trazo (`V3-States`). */
+/** Color of the card icon: background and stroke (`V3-States`). */
 export type StateTone = "blue" | "grey" | "amber" | "red";
 
 export const TONE_STYLE: Record<StateTone, { bg: string; fg: string }> = {
@@ -14,7 +14,7 @@ export const TONE_STYLE: Record<StateTone, { bg: string; fg: string }> = {
   red: { bg: "#25171a", fg: "#e07a6f" },
 };
 
-/** Qué hace el botón de una tarjeta; la pantalla lo conecta con el store. */
+/** What a card's button does; the screen wires it to the store. */
 export type StateDo = "pair-peer" | "power-on" | "retry-scene" | "tunnels" | "permission";
 
 export interface StateAction {
@@ -22,9 +22,9 @@ export interface StateAction {
   icon: IconName;
   variant: "pri" | "default" | "ghost";
   does: StateDo;
-  /** La scene que «Reintentar» reaplica: la que falló. */
+  /** The scene that "Retry" reapplies: the one that failed. */
   sceneId?: string;
-  /** Cuánto tarda, junto al botón («≈ 40 s»). */
+  /** How long it takes, next to the button ("≈ 40 s"). */
   hint?: string;
 }
 
@@ -33,23 +33,23 @@ export interface StateCardSpec {
   tag: string;
   tone: StateTone;
   icon: IconName;
-  /** Trazo más grueso que el de la mayoría (los íconos de acción). */
+  /** A stroke thicker than most (the action icons). */
   stroke?: number;
   title: string;
   body: string;
-  /** Una línea de salida del trabajo, en monoespaciada. */
+  /** A line of job output, in monospace. */
   mono?: string;
-  /** Texto en monoespaciada dentro del cuerpo, donde dice `{code}`. */
+  /** Monospace text inside the body, where it says `{code}`. */
   code?: string;
   action?: StateAction;
 }
 
-/** Cuánto tarda en despertar the other machine (DESIGN §8). */
+/** How long the other machine takes to wake up (DESIGN §8). */
 export const WAKE_HINT = "≈ 40 s";
 
 /**
- * La ruta del binario sin el texto que la rodea («Concede el permiso a este binario: <ruta> (pid
- * 12)») y abreviada: `/Applications/Tandem.app/Contents/MacOS/tandemd` → `/Applications/Tandem.app/…/tandemd`.
+ * The binary path without the text around it ("Grant the permission to this binary: <path> (pid
+ * 12)") and shortened: `/Applications/Tandem.app/Contents/MacOS/tandemd` → `/Applications/Tandem.app/…/tandemd`.
  */
 export function shortPath(text: string | null): string {
   const raw = (text ?? "/Applications/Tandem.app/Contents/MacOS/tandemd").replace(/^.*?:\s*/, "").replace(/\s*\(pid \d+\)$/, "");
@@ -57,17 +57,17 @@ export function shortPath(text: string | null): string {
   return parts.length > 4 ? [...parts.slice(0, 3), "…", parts[parts.length - 1]].join("/") : raw;
 }
 
-/** De dónde salen las tarjetas: el estado real del desk, o la galería completa del demo. */
+/** Where the cards come from: the real state of the desk, or the full demo gallery. */
 export interface StateContext {
-  /** Demo: se muestran las nueve, con datos genéricos. En la app real solo las que aplican. */
+  /** Demo: all nine are shown, with generic data. In the real app only those that apply. */
   gallery: boolean;
-  /** La última scene que no se pudo aplicar (la guarda el store al ver el fallo). */
+  /** The last scene that could not be applied (the store keeps it when it sees the failure). */
   failedScene: { id: string; name: string } | null;
-  /** `?demo&states`: los textos de ejemplo de `V3-States` (nombres, cifras), para compararlos con el mockup. */
+  /** `?demo&states`: the sample texts of `V3-States` (names, figures), to compare them with the mockup. */
   example?: boolean;
 }
 
-/** Los textos de ejemplo del mockup, por tarjeta: lo único que cambia respecto a la galería genérica. */
+/** The mockup's sample texts, per card: the only thing that differs from the generic gallery. */
 const EXAMPLE: Record<string, Partial<Pick<StateCardSpec, "title" | "body" | "mono" | "code">>> = {
   off: { title: "PC-Desktop is off", body: "Its card is dimmed and the mouse no longer crosses to it. MacBook Pro can wake it over the network." },
   cable: {
@@ -82,7 +82,7 @@ const EXAMPLE: Record<string, Partial<Pick<StateCardSpec, "title" | "body" | "mo
   permission: { title: "“Input Monitoring” is missing on macOS", body: "Without this permission, MacBook Pro cannot send its keyboard. Grant it to {code}; Tandem detects it on its own.", code: "/Applications/Tandem.app/…/tandemd" },
 };
 
-/** Las tarjetas que aplican (o las nueve en la galería), en el orden del mockup. */
+/** The cards that apply (or all nine in the gallery), in the mockup's order. */
 export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, failedScene: null }): StateCardSpec[] {
   const here = d.machines[d.here]?.name ?? "This machine";
   const peerId = d.here === "a" ? "b" : "a";
@@ -91,9 +91,9 @@ export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, fa
   const g = ctx.gallery;
   const alone = d.pair.peer.kind === "unpaired";
   const peerOff = !alone && d.machines[peerId]?.power === "off";
-  // No cable: por Wi-Fi o, peor, sin ningún link (con the other machine apagada es la tarjeta de arriba).
+  // No cable: over Wi-Fi or, worse, with no link at all (with the other machine off it is the card above).
   const noCable = !alone && !peerOff && d.link.kind !== "usb4" && d.link.kind !== "ethernet";
-  // Los datos de la tarjeta salen del desk; sin ellos (galería) se nombra lo genérico.
+  // The card data comes from the desk; without it (gallery) the generic is named.
   const tunnel = d.tunnels.find((t) => t.state !== "closed") ?? d.tunnels[0];
   const job = tunnel ? `«${tunnel.title}»` : "The job";
   const scene = ctx.failedScene ?? (g ? { id: d.activeScene ?? d.scenes[0]?.id ?? "", name: d.scenes.find((x) => x.id === d.activeScene)?.name ?? d.scenes[0]?.name ?? "" } : null);
@@ -139,7 +139,7 @@ export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, fa
               : "Keyboard and mouse carry on over Wi-Fi. Data transfers wait for a cable to come back, or you can send them over Wi-Fi now.",
         }
       : null,
-    // Reconexión y fallo de un trabajo: el agente todavía no manda ese historial, así que solo la galería.
+    // Reconnection and failure of a job: the agent does not send that history yet, so only the gallery.
     g
       ? {
           id: "resumed",

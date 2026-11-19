@@ -15,20 +15,20 @@ export const permissionLabel = (p: Permission) => `${PERMISSION_NAMES[p]}`;
 /** Where it is granted. */
 export const SETTINGS_PATH = "System Settings → Privacy & Security";
 
-/** El binario que corre el agente, o `null` si el agente no lo dijo. */
+/** The binary the agent runs, or `null` if the agent did not say. */
 export function agentBinary(here: MachineCaps | null): string | null {
   const exe = here?.input.process.exe;
   return exe ? exe : null;
 }
 
-/** «Concede el permiso a este binario: <ruta>», con el pid para distinguir un reinicio. */
+/** "Grant the permission to this binary: <path>", with the pid to tell a restart apart. */
 export function grantTo(here: MachineCaps | null): string | null {
   const exe = agentBinary(here);
   if (!exe || !here) return null;
   return `Grant the permission to this binary: ${exe} (pid ${here.input.process.pid})`;
 }
 
-/** Lo que sabe el agente de un permiso: `unknown` si no hay agente o no lo comprueba (red local). */
+/** What the agent knows about a permission: `unknown` if there is no agent or it does not check (local network). */
 export type PermissionState = "granted" | "missing" | "unknown";
 
 export function permissionState(here: MachineCaps | null, p: Permission): PermissionState {
@@ -37,10 +37,10 @@ export function permissionState(here: MachineCaps | null, p: Permission): Permis
 }
 
 /**
- * Qué hacer cuando falta algo. macOS evalúa parte de los permisos una vez por proceso, y la
- * entrada de la lista es de un binario concreto: si ya estaba activada pero sigue faltando,
- * casi siempre es una entrada vieja (otra versión o ruta) y hay que quitarla y volver a
- * pedirla.
+ * What to do when something is missing. macOS evaluates part of the permissions once per process, and the
+ * list entry belongs to a specific binary: if it was already on but is still missing,
+ * it is almost always an old entry (another version or path) and it has to be removed and
+ * requested again.
  */
 export const MISSING_HELP = [
   "1. Press “Request permissions”: macOS shows its dialog for this binary.",
@@ -49,10 +49,10 @@ export const MISSING_HELP = [
   "If it was already on and is still missing, remove the old entry with “−”, press “Request permissions” and restart the agent.",
 ].join(" ");
 
-/** Lo que hacen los botones de permisos, sin DOM: cada uno devuelve el error a mostrar y el notice. */
+/** What the permission buttons do, without a DOM: each returns the error to show and the notice. */
 export interface PermissionDeps {
   request(): Promise<ActionResult>;
-  /** `null` fuera de la app (no hay con qué reiniciar el agente). */
+  /** `null` outside the app (there is nothing to restart the agent with). */
   restartAgent: (() => Promise<void>) | null;
   openSettings: (() => Promise<void>) | null;
 }

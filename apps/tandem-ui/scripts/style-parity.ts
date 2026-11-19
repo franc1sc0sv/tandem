@@ -34,21 +34,21 @@ const VIEWPORT = { width: 1280, height: 860 };
 export interface ParityResult {
   pairs: StylePair[];
   diffs: StyleDiff[];
-    /** Selectors that did not find their element, as `"pair": where`. */
+  /** Selectors that did not find their element, as `"pair": where`. */
   missing: string[];
-    /** Gallery capture. */
+  /** Gallery capture. */
   galleryPng: Buffer;
 }
 
 /**
-  * Opens the gallery with `openGallery` (which serves the app and navigates) and each mockup of `pairs`, reads
-  * the computed styles of both sides and compares them.
+ * Opens the gallery with `openGallery` (which serves the app and navigates) and each mockup of `pairs`, reads
+ * the computed styles of both sides and compares them.
  */
 export async function runStyleParity(browser: Browser, openGallery: (page: Page) => Promise<void>, pairs: StylePair[] = PAIRS): Promise<ParityResult> {
   const missing: string[] = [];
   const wanted = (side: "app" | "ref", list: StylePair[]): Wanted[] => list.map((p) => ({ key: p.name, target: p[side], props: propertiesOf(p.groups) }));
 
-    // The app: a single context for the whole gallery.
+  // The app: a single context for the whole gallery.
   const appCtx = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1, locale: "en-US", colorScheme: "dark" });
   let app: Record<string, Styles | null>;
   let galleryPng: Buffer;
@@ -63,7 +63,7 @@ export async function runStyleParity(browser: Browser, openGallery: (page: Page)
     await appCtx.close();
   }
 
-    // The mockups: one per context (and per state), like `mockupRects` in `shots.ts`.
+  // The mockups: one per context (and per state), like `mockupRects` in `shots.ts`.
   const ref: Record<string, Styles | null> = {};
   const views = [...new Map(pairs.map((p) => [`${p.mockup}--${p.state ?? ""}`, { mockup: p.mockup, state: p.state }])).values()];
   for (const { mockup, state } of views) {
@@ -82,7 +82,7 @@ export async function runStyleParity(browser: Browser, openGallery: (page: Page)
           else await page.locator(step.fill).fill(step.text, { timeout: 5_000 });
           await settle(page);
         }
-          // Without the pointer over the last button (its :hover would change the styles).
+        // Without the pointer over the last button (its :hover would change the styles).
         await page.mouse.move(0, 0);
         await settle(page);
       }

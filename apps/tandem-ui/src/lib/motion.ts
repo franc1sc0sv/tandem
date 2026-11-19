@@ -1,5 +1,5 @@
-// Transiciones de Svelte que respetan `prefers-reduced-motion` (G8). Las animaciones de CSS
-// ya las apaga la regla global de `global.css`; las de Svelte corren por JS y miran esto.
+// Svelte transitions that respect `prefers-reduced-motion` (G8). CSS animations
+// are already turned off by the global rule in `global.css`; Svelte's run in JS and look at this.
 
 import { cubicOut } from "svelte/easing";
 import type { TransitionConfig } from "svelte/transition";
@@ -9,16 +9,16 @@ export function reducedMotion(): boolean {
 }
 
 export interface EnterParams {
-  /** Desplazamiento vertical initial, en px. */
+  /** Initial vertical offset, in px. */
   y?: number;
-  /** Desplazamiento horizontal initial, en px. */
+  /** Initial horizontal offset, in px. */
   x?: number;
   scale?: number;
   duration?: number;
   delay?: number;
 }
 
-/** Entrada con fundido y desplazamiento (la `up`/`fd` de los mockups). Sin movimiento: 0 ms. */
+/** Entrance with fade and offset (the `up`/`fd` of the mockups). Without motion: 0 ms. */
 export function enter(_node: Element, { y = 0, x = 0, scale = 1, duration = 250, delay = 0 }: EnterParams = {}): TransitionConfig {
   if (reducedMotion()) return { duration: 0 };
   return {
@@ -29,7 +29,7 @@ export function enter(_node: Element, { y = 0, x = 0, scale = 1, duration = 250,
   };
 }
 
-/** Salida: solo fundido. */
+/** Exit: fade only. */
 export function leave(_node: Element, { duration = 150 }: { duration?: number } = {}): TransitionConfig {
   if (reducedMotion()) return { duration: 0 };
   return { duration, css: (t) => `opacity:${t}` };

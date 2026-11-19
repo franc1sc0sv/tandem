@@ -1,60 +1,60 @@
-// Live desktops del Desk (`V3-Desk`): las pantallas a escala física sobre la mesa,
-// con su pie, el borde de crossing y el cursor. Puro: la geometría sale del mismo cálculo que el
-// arrangement (`draw`), con otro lienzo y los pies debajo.
+// Live desktops of the Desk (`V3-Desk`): the screens at physical scale on the table,
+// with their stand, the crossing edge and the cursor. Pure: the geometry comes from the same calculation as the
+// arrangement (`draw`), with another canvas and the stands below.
 
 import { draw, mainOf, wallOf, type Drawing, type LayoutScreen, type LayoutView } from "./arrangement";
 import type { CursorSample, Machine, Side } from "./model";
 
-/** El lienzo del mockup mide ≈ 52,3 × 21,6 pulgadas; el 34" (31,4") ocupa el 60 % del ancho. */
+/** The mockup canvas measures ≈ 52.3 × 21.6 inches; the 34" (31.4") takes 60 % of the width. */
 const DESK_DRAW = { view: { w: 52.3, h: 21.63 }, gap: 1.15, below: 3.67 };
 
 export interface DeskBox {
   id: string;
   machine: Machine | null;
-  /** En porcentaje del lienzo. */
+  /** As a percentage of the canvas. */
   left: number;
   top: number;
   width: number;
   height: number;
-  /** «MacBook Pro» (integrada) o «34" · PC-Escritorio». */
+  /** "MacBook Pro" (built-in) or "34" · PC-Desktop". */
   label: string;
   wall: string;
 }
 
-/** Una pieza del pie (soporte o base), en porcentaje del lienzo. */
+/** A piece of the stand (support or base), as a percentage of the canvas. */
 export interface Foot {
   left: number;
   top: number;
   width: number;
   height: number;
-  /** Radio de las esquinas de abajo, en px. */
+  /** Radius of the bottom corners, in px. */
   radius: number;
 }
 
 export interface DeskScene {
-  /** Ancho / alto del lienzo. */
+  /** Canvas width / height. */
   aspect: number;
   desks: DeskBox[];
   feet: Foot[];
-  /** El borde por donde cruza el cursor, en porcentaje; vertical u horizontal. */
+  /** The edge where the cursor crosses, as a percentage; vertical or horizontal. */
   edge: { vertical: boolean; left: number; top: number; length: number } | null;
 }
 
-/** Un monitor externo tiene pie de soporte; una pantalla integrada, la base del portátil. */
+/** An external monitor has a support stand; a built-in screen, the laptop base. */
 export function isExternal(s: Pick<LayoutScreen, "external" | "w">): boolean {
   return s.external ?? s.w > 16;
 }
 
-/** Cuánto sobresale la base del portátil a cada lado (fracción del ancho) y las medidas del pie. */
+/** How far the laptop base sticks out on each side (fraction of the width) and the stand measurements. */
 const LAPTOP_OVER = 0.0655;
 const BASE_H = 2.6;
 const NECK = { w: 0.075, h: 9 };
 const STAND_W = 0.25;
-/** El mockup dibuja a mano el portátil un 0,7 % más bajo y the monitor un 0,5 % más alto que su medida. */
+/** The mockup draws the laptop by hand 0.7 % lower and the monitor 0.5 % higher than their measurement. */
 const LAPTOP_H = 0.993;
 const EXTERNAL_H = 1.005;
 
-/** Las pantallas del desk a escala física, bajadas a la mesa (con sus pies). */
+/** The desk screens at physical scale, lowered onto the table (with their stands). */
 export function sceneOf(layout: LayoutView, names: Record<Machine, string>, colors: Record<Machine, string>): DeskScene {
   const usable: LayoutView = { ...layout, screens: layout.screens.filter((s) => s.usable && s.machine !== null) };
   const d: Drawing = draw(usable, DESK_DRAW);
@@ -78,7 +78,7 @@ export function sceneOf(layout: LayoutView, names: Record<Machine, string>, colo
       feet.push({ left: b.left - b.width * LAPTOP_OVER, top: floor, width: b.width * (1 + 2 * LAPTOP_OVER), height: BASE_H, radius: 6 });
     }
   }
-  // El borde cae sobre el escritorio de B: en el lado donde queda A.
+  // The edge falls on B's desktop: on the side where A is.
   let edge: DeskScene["edge"] = null;
   const main = mainOf(usable.screens, "b");
   const box = d.boxes.find((x) => x.id === main?.id);
@@ -96,7 +96,7 @@ export interface Point {
   top: number;
 }
 
-/** La pantalla del desk que contiene la muestra (por su id nativo, o por el punto). */
+/** The desk screen that contains the sample (by its native id, or by the point). */
 function screenOf(layout: LayoutView, s: CursorSample): LayoutScreen | null {
   const own = layout.screens.filter((x) => x.machine === s.machine && x.usable && x.native);
   const byId = s.screen ? own.find((x) => x.native?.id === s.screen) : undefined;
@@ -109,7 +109,7 @@ function screenOf(layout: LayoutView, s: CursorSample): LayoutScreen | null {
 
 const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
 
-/** Dónde dibujar el cursor (porcentaje del lienzo); `null` si no se sabe de qué pantalla es. */
+/** Where to draw the cursor (percentage of the canvas); `null` if it is not known which screen it is on. */
 export function cursorPoint(scene: DeskScene, layout: LayoutView, s: CursorSample): Point | null {
   const sc = screenOf(layout, s);
   const n = sc?.native;
@@ -118,7 +118,7 @@ export function cursorPoint(scene: DeskScene, layout: LayoutView, s: CursorSampl
   return { left: box.left + clamp01((s.x - n.x) / n.w) * box.width, top: box.top + clamp01((s.y - n.y) / n.h) * box.height };
 }
 
-/** Lo contrario de `cursorPoint`: la muestra que corresponde a un punto del lienzo (para el demo). */
+/** The opposite of `cursorPoint`: the sample that corresponds to a point of the canvas (for the demo). */
 export function sampleAt(scene: DeskScene, layout: LayoutView, p: Point): CursorSample | null {
   const box = scene.desks.find((k) => p.left >= k.left && p.left <= k.left + k.width && p.top >= k.top && p.top <= k.top + k.height);
   const sc = layout.screens.find((x) => x.id === box?.id);
@@ -127,9 +127,9 @@ export function sampleAt(scene: DeskScene, layout: LayoutView, p: Point): Cursor
   return { machine: sc.machine, screen: n.id, x: n.x + ((p.left - box.left) / box.width) * n.w, y: n.y + ((p.top - box.top) / box.height) * n.h };
 }
 
-// ---- Tráfico del link ----------------------------------------------------------------------
+// ---- Link traffic --------------------------------------------------------------------------
 
-/** Cuenta los eventos de la última ventana para dar eventos por segundo. */
+/** Counts the events of the last window to give events per second. */
 export class RateMeter {
   private stamps: number[] = [];
 
@@ -140,7 +140,7 @@ export class RateMeter {
     this.trim(now);
   }
 
-  /** Eventos por segundo en la ventana que termina en `now`. */
+  /** Events per second in the window ending at `now`. */
   rate(now: number): number {
     this.trim(now);
     return (this.stamps.length * 1000) / this.windowMs;
@@ -155,8 +155,8 @@ export class RateMeter {
 }
 
 /**
- * Lo que tarda el pulso en recorrer un tramo del link: más rápido con más tráfico. En reposo
- * va lento; con el cursor en movimiento (decenas de eventos por segundo), a la velocidad del mockup.
+ * How long the pulse takes to travel a stretch of the link: faster with more traffic. At rest
+ * it is slow; with the cursor moving (tens of events per second), at the mockup's speed.
  */
 export function flowSeconds(eventsPerSec: number): number {
   if (!(eventsPerSec > 0)) return 1.8;
@@ -164,11 +164,11 @@ export function flowSeconds(eventsPerSec: number): number {
   return 1;
 }
 
-// ---- Recorrido del demo (los fotogramas de `cur` del mockup) -----------------------------------
+// ---- Demo path (the `cur` keyframes of the mockup) --------------------------------------------
 
 export const DEMO_LOOP_MS = 7000;
 
-/** Los puntos del recorrido, en porcentaje del lienzo, con su instante (0–1). */
+/** The points of the path, as a percentage of the canvas, with their instant (0–1). */
 const PATH: { t: number; p: Point }[] = [
   { t: 0, p: { left: 16, top: 56 } },
   { t: 0.22, p: { left: 25, top: 52 } },
@@ -178,10 +178,10 @@ const PATH: { t: number; p: Point }[] = [
   { t: 1, p: { left: 16, top: 56 } },
 ];
 
-/** Suave al salir y al llegar de cada tramo (aproxima `cubic-bezier(.45,0,.3,1)`). */
+/** Smooth when leaving and arriving at each stretch (approximates `cubic-bezier(.45,0,.3,1)`). */
 const ease = (u: number) => u * u * (3 - 2 * u);
 
-/** El punto del recorrido en el instante `t` del ciclo (0–1). */
+/** The path point at instant `t` of the cycle (0–1). */
 export function demoPath(t: number): Point {
   const x = ((t % 1) + 1) % 1;
   for (let i = 1; i < PATH.length; i++) {

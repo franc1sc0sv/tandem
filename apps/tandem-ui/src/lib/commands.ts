@@ -1,6 +1,6 @@
-// Los comandos de la palette ⌘K / Ctrl+K (D15: solo comandos de Tandem, sin lenguaje
-// natural). Puro: qué comandos hay para un desk y cómo se filtran; la palette los dibuja y
-// ejecuta.
+// The commands of the ⌘K / Ctrl+K palette (D15: only Tandem commands, no natural
+// language). Pure: which commands exist for a desk and how they are filtered; the palette draws and
+// runs them.
 
 import type { Machine } from "./model";
 import { shortLabels } from "./tunnels";
@@ -15,24 +15,24 @@ export interface Command {
   id: string;
   group: Group;
   title: string;
-  /** Texto gris to the right of (estado). */
+  /** Gray text on the right (state). */
   detail: string;
-  /** Shortcut, o vacío. */
+  /** Shortcut, or empty. */
   key: string;
-  /** Color del punto. */
+  /** Dot color. */
   color: string;
   run: () => unknown;
 }
 
-/** Lo que la palette puede pedir: lo da el store. */
+/** What the palette can ask for: the store provides it. */
 export interface CommandContext {
   go(route: Route): void;
   applyScene(id: string): Promise<ActResult>;
   setPower(machine: Machine, on: boolean): Promise<ActResult>;
   measureLink(): Promise<ActResult>;
-  /** Abre el asistente en un paso (0 = el primero; 1 = emparejar). */
+  /** Opens the setup at a step (0 = the first; 1 = pair). */
   openWizard(step?: number): void;
-  /** Bloquea (`on`) o suelta el cursor en this machine (T-129). */
+  /** Locks (`on`) or releases the cursor on this machine (T-129). */
   lockHere(on: boolean): Promise<ActResult>;
   can(what: "scenes" | "modules" | "power" | "measure" | "lock"): boolean;
 }
@@ -40,7 +40,7 @@ export interface CommandContext {
 const GREY = "#6a6d76";
 const TEAL = "#5fbfb0";
 
-/** Nombre corto de una machine para los tunnels («MacBook → PC-Escritorio»). */
+/** Short name of a machine for the tunnels ("MacBook → PC-Desktop"). */
 export function shortName(name: string): string {
   return name.split(" ")[0] ?? name;
 }
@@ -80,13 +80,13 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
       run: () => ctx.setPower(peer, !on),
     });
   }
-  // D1: no hay tercera machine; sí se puede cambiar la otra (emparejar de fresh).
+  // D1: there is no third machine; the other one can be changed (pair again from scratch).
   out.push({ id: "pair:change", group: "Machines", title: "Change the other machine…", detail: "", key: "", color: TEAL, run: () => ctx.openWizard(1) });
 
   for (const t of desk.tunnels.filter((t) => t.state !== "closed")) {
     const from = m[t.from];
     const to = m[t.to];
-    // Los mismos rótulos que la lista de Tunnels («Mac → PC»).
+    // The same labels as the Tunnels list ("Mac → PC").
     const [lf, lt] = from && to ? shortLabels(from, to) : [shortName(name(t.from)), shortName(name(t.to))];
     out.push({
       id: `tunnel:${t.id}`,
@@ -124,7 +124,7 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
     out.push({ id: "link:measure", group: "Actions", title: "Measure the link", detail: "", key: "", color: GREY, run: () => ctx.measureLink() });
   }
   if (ctx.can("lock")) {
-    // Solo la orden que aplica según el estado (T-157).
+    // Only the command that applies for the state (T-157).
     out.push(
       desk.locked
         ? { id: "lock:off", group: "Actions", title: "Remove the lock", detail: "the cursor is locked here", key: "", color: GREY, run: () => ctx.lockHere(false) }
@@ -135,7 +135,7 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
   return out;
 }
 
-/** Minúsculas y sin acentos: «tunnels» encuentra «Tunnels». */
+/** Lowercase and without accents: "tunnels" finds "Tunnels". */
 export function normalize(s: string): string {
   return s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
 }
@@ -146,8 +146,8 @@ export interface CommandGroup {
 }
 
 /**
- * Los comandos que coinciden con la búsqueda, agrupados en el orden de siempre. Coincide si
- * todas las palabras de la búsqueda están en el título o en el grupo.
+ * The commands that match the search, grouped in the usual order. It matches if
+ * all the words of the search are in the title or in the group.
  */
 export function filterCommands(cmds: Command[], query: string): CommandGroup[] {
   const words = normalize(query).split(/\s+/).filter(Boolean);
@@ -158,12 +158,12 @@ export function filterCommands(cmds: Command[], query: string): CommandGroup[] {
   return GROUP_ORDER.map((name) => ({ name, items: cmds.filter((c) => c.group === name && hit(c)) })).filter((g) => g.items.length > 0);
 }
 
-/** Los comandos visibles en orden, para moverse con ↑↓. */
+/** The visible commands in order, to move with ↑↓. */
 export function flatten(groups: CommandGroup[]): Command[] {
   return groups.flatMap((g) => g.items);
 }
 
-/** El índice fresh al moverse `delta` posiciones, dando la vuelta. */
+/** The new index when moving `delta` positions, wrapping around. */
 export function move(index: number, delta: number, length: number): number {
   if (length === 0) return 0;
   return (((index + delta) % length) + length) % length;

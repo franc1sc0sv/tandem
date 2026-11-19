@@ -1,17 +1,17 @@
-// La guía de permisos del primer arranque en macOS: una pantalla de bienvenida (con cómo
-// quedó tandemd) y una por permiso. Aquí, lo que no depende del DOM.
+// The first-run permissions guide on macOS: a welcome screen (with how
+// tandemd ended up) and one per permission. Here, what does not depend on the DOM.
 
 import type { Permission, SetupView } from "./model";
 
 export interface PermissionInfo {
   title: string;
-  /** Para qué lo usa Tandem. */
+  /** What Tandem uses it for. */
   why: string;
-  /** Qué hacer en Settings del Sistema. */
+  /** What to do in System Settings. */
   how: string;
 }
 
-// Los permisos son de `tandemd` (es quien captura e inyecta): la app solo guía.
+// The permissions belong to `tandemd` (it is the one that captures and injects): the app only guides.
 const SIDECAR = "/Applications/Tandem.app/Contents/MacOS/tandemd";
 
 export const PERMISSION_INFO: Record<Permission, PermissionInfo> = {
@@ -32,14 +32,14 @@ export const PERMISSION_INFO: Record<Permission, PermissionInfo> = {
   },
 };
 
-/** Las pantallas de la guía: la bienvenida y una por permiso. */
+/** The guide's screens: the welcome and one per permission. */
 export type Screen = { kind: "intro" } | { kind: "permission"; permission: Permission };
 
 export function screensOf(view: SetupView): Screen[] {
   return [{ kind: "intro" }, ...view.permissions.map((permission) => ({ kind: "permission" as const, permission }))];
 }
 
-/** Dónde está la guía. `index` siempre es una pantalla válida. */
+/** Where the guide is. `index` is always a valid screen. */
 export interface Wizard {
   index: number;
   total: number;

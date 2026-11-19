@@ -1,9 +1,9 @@
-// El asistente de configuración initial (DESIGN §5, sin monitors): un paso por pantalla y
-// cada paso verificado antes de pasar al siguiente: (1) this machine y sus permisos, (2)
-// emparejar y ver el ping del link, (3) «presiona una tecla» y (4) el resumen. El arrangement
-// de pantallas llega con T-117. Aquí, lo que no depende del DOM: el estado del asistente, lo
-// que se muestra en cada paso (`viewOf`) y las reglas de cuándo se puede avanzar. El
-// asistente de 6 pasos de v0.3 (T-119) lo usa desde Svelte.
+// The initial setup (DESIGN §5, without monitors): one step per screen and
+// each step verified before moving to the next: (1) this machine and its permissions, (2)
+// pair and see the link ping, (3) "press a key" and (4) the summary. The screen arrangement
+// arrives with T-117. Here, what does not depend on the DOM: the setup state, what
+// is shown in each step (`viewOf`) and the rules for when it can advance. The
+// 6-step setup of v0.3 (T-119) uses it from Svelte.
 
 import type { Link, Machine, Snapshot } from "./model";
 import { MISSING_HELP, grantTo, permissionLabel } from "./permissions";
@@ -19,10 +19,10 @@ export const STEPS: { id: StepId; title: string }[] = [
 ];
 
 // ---------------------------------------------------------------------------------------
-// Estado
+// State
 
 export interface PairFacts {
-  /** El último ping al otro agente, con el link por el que fue. */
+  /** The last ping to the other agent, with the link it went over. */
   ping: { link: Link; millis: number } | null;
   pingError: string | null;
   /** «Continue alone for now». */
@@ -30,11 +30,11 @@ export interface PairFacts {
 }
 
 export interface KeyFacts {
-  /** Las dos machines están escuchando. */
+  /** Both machines are listening. */
   armed: boolean;
-  /** La machine que recibió la tecla. */
+  /** The machine that received the key. */
   heard: Machine | null;
-  /** Lo que el usuario confirmó (o eligió a mano). */
+  /** What the user confirmed (or chose by hand). */
   confirmed: Machine | null;
   /** «Leave undefined»: a machine is never assumed. */
   undefinedOk: boolean;
@@ -44,7 +44,7 @@ export interface Onboarding {
   step: StepId;
   pair: PairFacts;
   keyboard: KeyFacts;
-  /** Un mensaje del último pedido que el agente rechazó. */
+  /** A message from the last request the agent rejected. */
   error: string | null;
 }
 
@@ -57,13 +57,13 @@ export function begin(step: StepId = "machine"): Onboarding {
   };
 }
 
-/** Si el asistente debe abrirse solo: una instalación limpia (sin par y sin teclado dicho). */
+/** Whether the setup should open by itself: a clean install (no peer and no keyboard declared). */
 export function shouldOpen(snap: Snapshot): boolean {
   return snap.kind === "connected" && snap.peer.kind === "unpaired" && !snap.input.defined;
 }
 
 // ---------------------------------------------------------------------------------------
-// Qué se muestra
+// What is shown
 
 export type CheckState = "ok" | "wait" | "fail" | "idle";
 
@@ -78,7 +78,7 @@ export interface Btn {
   label: string;
   kind?: "primary" | "danger";
   enabled: boolean;
-  /** Por qué está apagado, o qué hace. */
+  /** Why it is off, or what it does. */
   hint?: string;
 }
 
@@ -87,12 +87,12 @@ export interface StepView {
   title: string;
   lead: string;
   checks: Check[];
-  /** Un número grande para mostrar (el código de emparejamiento). */
+  /** A big number to show (the pairing code). */
   code: string | null;
   buttons: Btn[];
-  /** El paso quedó verificado: se puede pasar al siguiente. */
+  /** The step is verified: it is possible to move to the next one. */
   verified: boolean;
-  /** Por qué todavía no, en una línea. */
+  /** Why not yet, in one line. */
   blocker: string | null;
 }
 
@@ -108,7 +108,7 @@ const empty = (id: StepId, lead: string): StepView => ({
 });
 
 // ---------------------------------------------------------------------------------------
-// Cada paso
+// Each step
 
 function connected(snap: Snapshot) {
   return snap.kind === "connected" ? snap : null;
@@ -116,7 +116,7 @@ function connected(snap: Snapshot) {
 
 type Connected = Extract<Snapshot, { kind: "connected" }>;
 
-/** El nombre de cada lado sale de su anuncio (D2): nada de «la Mac» o «la PC». */
+/** The name of each side comes from its announcement (D2): no "the Mac" or "the PC". */
 const nameOf = (c: Connected, m: Machine) => machineName(m, c.caps, c.desk);
 
 function machineStep(snap: Snapshot): StepView {
@@ -139,7 +139,7 @@ function machineStep(snap: Snapshot): StepView {
       v.checks.push({ state: "fail", label: `Permission: ${permissionLabel(p)}`, detail: "missing; it is checked automatically as soon as you grant it" });
     }
     if (missing.length > 0) {
-      // macOS concede los permisos a un binario concreto: se le dice cuál es, sin terminal (T-090).
+      // macOS grants permissions to a specific binary: it is told which one, without a terminal (T-090).
       const binary = grantTo(here);
       if (binary) v.checks.push({ state: "wait", label: "Agent binary", detail: binary });
       v.checks.push({ state: "wait", label: "How to grant", detail: MISSING_HELP });
@@ -279,7 +279,7 @@ function summaryStep(o: Onboarding, snap: Snapshot): StepView {
   return v;
 }
 
-/** Lo que se muestra en el paso actual. */
+/** What is shown in the current step. */
 export function viewOf(o: Onboarding, snap: Snapshot): StepView {
   switch (o.step) {
     case "machine":
@@ -319,9 +319,9 @@ export function goBack(o: Onboarding): Onboarding {
 }
 
 /**
- * ¿Esta pulsación cuenta como «presiona una tecla»? Enter, espacio y tab sobre un botón son
- * del propio diálogo (activar o moverse), no del teclado que se está probando; las teclas
- * que solo modifican tampoco dicen nada.
+ * Does this key press count as "press a key"? Enter, space and tab on a button belong
+ * to the dialog itself (activate or move), not to the keyboard being tested; keys
+ * that only modify say nothing either.
  */
 export function countsAsKeyProbe(e: { key: string; repeat?: boolean; targetIsButton: boolean }): boolean {
   if (e.repeat) return false;

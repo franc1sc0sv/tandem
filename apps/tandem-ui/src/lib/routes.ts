@@ -1,4 +1,4 @@
-// Las pantallas de la ventana principal y su dirección (`#/tunnels`, `#/machine/b`). Puro.
+// The screens of the main window and their address (`#/tunnels`, `#/machine/b`). Pure.
 
 import type { Machine } from "./model";
 import type { Topic } from "./store/types";
@@ -23,7 +23,7 @@ export const SCREEN_TITLE: Record<Screen, string> = {
   states: "Trouble states",
 };
 
-/** Qué temas necesita en vivo cada pantalla: el store solo se suscribe a esos. */
+/** Which live topics each screen needs: the store subscribes only to those. */
 export const SCREEN_TOPICS: Record<Screen, Topic[]> = {
   desk: ["machines", "resources", "link", "scenes"],
   tunnels: ["machines", "tunnels"],
@@ -44,9 +44,9 @@ export function parseHash(hash: string): Route {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   const [head, arg] = parts;
   if (head === "machine" && (arg === "a" || arg === "b")) return { screen: "machine", machine: arg };
-  // El editor de scenes cuelga de Monitors (`#/monitors/scene`, o `…/scene/<id>` para editar).
+  // The scene editor hangs off Monitors (`#/monitors/scene`, or `…/scene/<id>` to edit).
   if (head === "monitors" && arg === "scene") return { screen: "scene", id: parts[2] ? decodeURIComponent(parts[2]) : null };
-  // La prueba de crossing cuelga del arrangement (`#/arrangement/crossing`).
+  // The crossing test hangs off the arrangement (`#/arrangement/crossing`).
   if (head === "arrangement" && arg === "crossing") return { screen: "crossing" };
   const simple = SIMPLE.find((s) => s === head);
   return simple ? { screen: simple } : HOME;

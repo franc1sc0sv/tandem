@@ -1,6 +1,6 @@
-// Los monitors de la pantalla Monitors (`V3-Monitors`): del JSON del agente (`MonitorView`)
-// a lo que se dibuja. Puro. D11: un monitor que no habla el estándar se muestra «no
-// compatible» con su razón y nunca se le pide nada.
+// The monitors of the Monitors screen (`V3-Monitors`): from the agent's JSON (`MonitorView`)
+// to what is drawn. Pure. D11: a monitor that does not speak the standard is shown "not
+// compatible" with its reason and is never asked for anything.
 
 import { wallOf } from "./arrangement";
 import { MACHINES } from "./machines";
@@ -9,19 +9,19 @@ import type { MonitorEventView, MonitorUi } from "./store/types";
 
 export const INPUT_LABEL: Record<MonitorInput, string> = { display_port: "DP", hdmi: "HDMI" };
 
-/** Cuántos eventos se listan en la tarjeta (los más freshs). */
+/** How many events are listed on the card (the most recent). */
 export const EVENTS_SHOWN = 3;
 
-/** El nombre corto de un monitor para frases («34"» de `Odyssey G5 34"`). */
+/** The short name of a monitor for sentences ("34"" from `Odyssey G5 34"`). */
 export function shortMonitor(name: string): string {
   return /\d+(?:[.,]\d+)?"/.exec(name)?.[0] ?? name;
 }
 
-// Los dos acentos por omisión tienen el tono exacto del mockup (borde del indicador); el
-// resto se oscurece igual.
+// The two default accents have the exact tone of the mockup (indicator border); the
+// rest is darkened the same way.
 const ACCENT: Record<string, string> = { "#7aa7e6": "#4f7cbc", "#a99be8": "#6a5fa6" };
 
-/** El borde del indicador deslizante cuando una machine está elegida. */
+/** The border of the sliding indicator when a machine is chosen. */
 export function accentOf(color: string): string {
   const known = ACCENT[color.toLowerCase()];
   if (known) return known;
@@ -32,13 +32,13 @@ export function accentOf(color: string): string {
   return `#${ch.join("")}`;
 }
 
-/** `HH:MM` en la hora local (la del reloj de la machine dueña, ya convertida por el agente). */
+/** `HH:MM` in local time (that of the owning machine's clock, already converted by the agent). */
 export function formatClock(ms: number): string {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-/** El ícono y el texto de un evento del firmware. */
+/** The icon and text of a firmware event. */
 export function eventView(e: MonitorEventJson): MonitorEventView {
   const to = e.input ? INPUT_LABEL[e.input] : null;
   const base = { at: e.at_ms };
@@ -76,13 +76,13 @@ export function monitorUi(m: MonitorJson): MonitorUi {
   return { id: m.id, name: m.name, compat, connected: m.seen_by.length > 0, owner: m.owner, input, ports, shows, events };
 }
 
-/** Compatibles primero, como los muestra la pantalla; el orden del agente se respeta dentro de cada grupo. */
+/** Compatible first, as the screen shows them; the agent's order is kept within each group. */
 export function monitorsUi(list: MonitorJson[]): MonitorUi[] {
   const all = list.map(monitorUi);
   return [...all.filter((m) => m.compat.ok), ...all.filter((m) => !m.compat.ok)];
 }
 
-/** Por qué no se puede pedir el cambio a `who` (o `null` si sí se puede). */
+/** Why the change cannot be requested for `who` (or `null` if it can). */
 export function whyNotSwitch(m: MonitorUi, who: Machine, name: string): string | null {
   if (!m.compat.ok) return `${m.name} does not support the Tandem standard`;
   if (!m.connected) return `${m.name} is disconnected`;
@@ -90,7 +90,7 @@ export function whyNotSwitch(m: MonitorUi, who: Machine, name: string): string |
   return null;
 }
 
-/** El fondo de la vista previa de una scene (`F-NewScene`): un poco más claro que el de la miniatura. */
+/** The background of a scene preview (`F-NewScene`): slightly lighter than the thumbnail's. */
 export function previewWall(color: string): string {
   const known: Record<string, [string, string]> = { "#7aa7e6": ["#34496a", "#222d3d"], "#a99be8": ["#463d63", "#2a2539"] };
   const hit = known[color.toLowerCase()];
@@ -98,5 +98,5 @@ export function previewWall(color: string): string {
   return wallOf(color);
 }
 
-/** Fondo de «sin cambiar»: la franja de las pantallas que la scene no toca. */
+/** Background of "unchanged": the strip of screens the scene does not touch. */
 export const KEEP_WALL = "repeating-linear-gradient(45deg,#1b1c21 0 8px,#15161a 8px 16px)";

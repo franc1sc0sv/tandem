@@ -1,5 +1,5 @@
-// Las otras dos tarjetas de «Changes in progress» (`F-Transactions`): el encendido de una
-// machine y la medición de un link. Puro: la pantalla solo dibuja lo que sale de aquí.
+// The other two cards of "Changes in progress" (`F-Transactions`): powering on a
+// machine and measuring a link. Pure: the screen only draws what comes out of here.
 
 import { LINK_NAME } from "./machines";
 import type { Machine } from "./model";
@@ -7,9 +7,9 @@ import { formatMs, formatRate, RING_GBPS, unpluggedText } from "./network";
 import type { LinkKind, NetworkView, PathView } from "./store/types";
 import type { Run } from "./txn";
 
-/** Lo que se espera a que el agente de la machine encendida conteste (DESIGN §3.6). */
+/** How long to wait for the powered-on machine's agent to answer (DESIGN §3.6). */
 export const BOOT_WAIT_MS = 120_000;
-/** Cada cuánto se reenvía el paquete Wake-on-LAN. */
+/** How often the Wake-on-LAN packet is resent. */
 export const WOL_EVERY_S = 5;
 
 export type StepIcon = "done" | "run" | "bad" | "todo";
@@ -19,16 +19,16 @@ export interface EnergyRow {
   icon: StepIcon;
   text: string;
   detail: string;
-  /** El detalle va en monoespaciada (el reloj). */
+  /** The detail goes in monospace (the clock). */
   mono: boolean;
-  /** Fila apagada (lo que aún no empezó). */
+  /** Dimmed row (what has not started yet). */
   dim: boolean;
 }
 
 export interface EnergyView {
   title: string;
   rows: EnergyRow[];
-  /** Mientras espera se puede dejar de esperar. */
+  /** While waiting, it is possible to stop waiting. */
   waiting: boolean;
 }
 
@@ -38,13 +38,13 @@ export function clockText(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/** La machine que se está encendiendo en esta corrida, si lo es. */
+/** The machine being powered on in this run, if it is one. */
 export function powerTarget(run: Run | null): Machine | null {
   const s = run?.progress.steps[0];
   return s?.step === "power_on" ? s.machine : null;
 }
 
-/** La tarjeta de energía de una corrida `power_on`; `null` si la corrida es de otra cosa. */
+/** The power card of a `power_on` run; `null` if the run is something else. */
 export function energyView(run: Run | null, name: (m: Machine) => string, from: string, now: number): EnergyView | null {
   const target = powerTarget(run);
   if (!run || !target) return null;
@@ -73,13 +73,13 @@ export interface MeterRow {
 export interface MeasureView {
   kind: LinkKind;
   title: string;
-  /** El número grande: «9.4» y su unidad. */
+  /** The big number: "9.4" and its unit. */
   value: string;
   unit: string;
   latency: string;
-  /** 0–100: lo medido contra la escala de la barra. */
+  /** 0–100: what was measured against the bar's scale. */
   percent: number;
-  /** `9.4 de 10 Gbps`, para lectores de pantalla. */
+  /** `9.4 of 10 Gbps`, for screen readers. */
   aria: string;
   caption: string;
   others: MeterRow[];
@@ -97,7 +97,7 @@ const otherText = (p: PathView): string => {
   return [p.gbps === null ? null : formatRate(p.gbps), p.rttMs === null ? null : formatMs(p.rttMs)].filter(Boolean).join(" · ") || "—";
 };
 
-/** El camino que se mide ahora, o el último medido; `null` si no hay medición que mostrar. */
+/** The path being measured now, or the last one measured; `null` if there is no measurement to show. */
 export function measureKind(n: NetworkView, last: LinkKind | null): LinkKind | null {
   return n.measuring ?? last;
 }

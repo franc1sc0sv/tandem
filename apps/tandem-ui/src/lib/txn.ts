@@ -1,5 +1,5 @@
-// «Changes in progress» (`F-Transactions`): una transacción con sus pasos, el tiempo de cada
-// uno y la vuelta atrás visible. Puro: la pantalla solo dibuja `viewOf`.
+// "Changes in progress" (`F-Transactions`): a transaction with its steps, the time of each
+// one and the visible rollback. Pure: the screen only draws `viewOf`.
 
 import { advance, type Progress } from "./machines";
 import { INPUT_LABEL, shortMonitor } from "./monitors";
@@ -7,14 +7,14 @@ import type { Machine, Step, TxnView } from "./model";
 import type { MonitorUi } from "./store/types";
 
 export interface Run {
-  /** Título fijo si lo puso quien pidió el cambio («Applying the scene “Game”»); si no, sale de los pasos. */
+  /** Fixed title if the requester set it ("Applying the scene “Game”"); otherwise it comes from the steps. */
   title: string | null;
-  /** Lo que se dice al terminar bien («Scene “Game” active.»). */
+  /** What is said on success ("Scene “Game” active."). */
   doneText: string | null;
   progress: Progress;
   startedAt: number;
   endedAt: number | null;
-  /** Hora en que empezó y terminó cada paso (milisegundos). */
+  /** Time at which each step started and ended (milliseconds). */
   stepStart: (number | undefined)[];
   stepEnd: (number | undefined)[];
 }
@@ -24,7 +24,7 @@ export interface Origin {
   doneText: string;
 }
 
-/** Un `started` abre la corrida; los demás notices de la misma transacción la avanzan. */
+/** A `started` opens the run; the other notices of the same transaction advance it. */
 export function feedRun(run: Run | null, e: TxnView, at: number, origin: Origin | null = null): Run | null {
   if (e.type === "started") {
     const progress = advance(null, e);
@@ -58,7 +58,7 @@ export interface Row {
   icon: RowIcon;
   text: string;
   detail: string;
-  /** `bad`: el paso que falló. */
+  /** `bad`: the step that failed. */
   tone: "" | "bad";
 }
 
@@ -84,16 +84,16 @@ export interface Names {
 const seconds = (ms: number) => `${(Math.max(0, ms) / 1000).toFixed(1)} s`;
 const other = (m: Machine): Machine => (m === "a" ? "b" : "a");
 
-/** El monitor de un paso, con el nombre corto («34"»). */
+/** The monitor of a step, with the short name ("34""). */
 function monitorName(id: string, names: Names): string {
   const m = names.monitors.find((x) => x.id === id);
   return m ? shortMonitor(m.name) : id;
 }
 
-/** `MonitorInput` en la forma larga que usa el agente en sus errores. */
+/** `MonitorInput` in the long form the agent uses in its errors. */
 const LONG: Record<string, string> = { DisplayPort: "DisplayPort", HDMI: "HDMI" };
 
-/** El título de lo que se está haciendo, a partir de sus pasos. */
+/** The title of what is being done, from its steps. */
 export function titleOf(steps: Step[], names: Names): string {
   const first = steps[0];
   if (!first) return "Change in progress";
@@ -128,7 +128,7 @@ function label(s: Step, steps: Step[], names: Names): string {
 
 const isMonitorStep = (s: Step) => s.step === "show_machine" || s.step === "switch_monitor";
 
-/** El error de una entrada que no dio imagen (lo que dice el agente) en una frase corta. */
+/** The error of an input that gave no image (what the agent says) in a short sentence. */
 function noImage(error: string): string | null {
   const m = /showed no image (?:on|over|in) (\S+?)(?:;|$)/.exec(error);
   return m ? (LONG[m[1]] ?? m[1]) : null;
@@ -142,7 +142,7 @@ export function viewOf(run: Run, names: Names, now: number): RunView {
   const failedAt = p.status.findIndex((s) => s === "failed");
   const rows: Row[] = [{ key: "save", icon: "done", text: "Save how everything is", detail: "done", tone: "" }];
   p.steps.forEach((s, i) => {
-    // Lo que no llegó a empezar antes de un fallo no se muestra: lo reemplaza la vuelta atrás.
+    // What did not get to start before a failure is not shown: the rollback replaces it.
     if (failedAt >= 0 && i > failedAt) return;
     const st = p.status[i];
     const took = run.stepStart[i] !== undefined && run.stepEnd[i] !== undefined ? seconds((run.stepEnd[i] ?? 0) - (run.stepStart[i] ?? 0)) : "";

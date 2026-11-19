@@ -1,26 +1,26 @@
-// La pantalla de emparejamiento a partir del par y del avance que manda el agente. Pura,
-// para probarla sin DOM.
+// The pairing screen from the peer and the progress the agent sends. Pure,
+// to test without a DOM.
 
 import type { PairingView, PeerView } from "./model";
 
 export type PairScreen =
-  /** Sin par y sin emparejar: qué va a pasar y el botón para empezar. */
+  /** No peer and not paired: what is going to happen and the button to start. */
   | { kind: "intro"; other: string }
-  /** Ya emparejado: con quién, y desemparejar. */
+  /** Already paired: with whom, and unpair. */
   | { kind: "paired"; name: string }
-  /** Pidió desemparejar: se confirma antes. */
+  /** Asked to unpair: confirmed first. */
   | { kind: "unpair"; name: string }
   | { kind: "searching"; other: string; hint: string }
   | { kind: "compare"; digits: [string, string]; peer: string; confirmed: boolean }
   | { kind: "done"; peer: string }
   | { kind: "failed"; reason: string };
 
-/** El estado de la línea entre las dos machines que dibuja el diálogo. */
+/** The state of the line between the two machines that the dialog draws. */
 export type PairLine = "idle" | "searching" | "found" | "linked" | "broken";
 
 /**
- * Qué muestra el diálogo. `theOther` es el nombre de the other machine (de su anuncio, o
- * «the other machine» si todavía no se la conoce): nada se supone por sistema (D2).
+ * What the dialog shows. `theOther` is the name of the other machine (from its announcement, or
+ * "the other machine" if it is not known yet): nothing is assumed by system (D2).
  */
 export function pairScreen(theOther: string, peer: PeerView, pairing: PairingView, askUnpair = false): PairScreen {
   switch (pairing.kind) {
@@ -28,7 +28,7 @@ export function pairScreen(theOther: string, peer: PeerView, pairing: PairingVie
       return {
         kind: "searching",
         other: theOther,
-        // Una espera y la otra la busca: lo que tiene que hacer el usuario es lo mismo.
+        // One waits and the other searches for it: what the user has to do is the same.
         hint: `On ${theOther}, open Tandem and press “Pair”.`,
       };
     case "comparing":
@@ -43,7 +43,7 @@ export function pairScreen(theOther: string, peer: PeerView, pairing: PairingVie
   }
 }
 
-/** 6 dígitos en dos grupos de 3, que se comparan mejor de un vistazo. */
+/** 6 digits in two groups of 3, which compare better at a glance. */
 export function splitCode(code: string): [string, string] {
   const digits = code.replace(/\D/g, "").padStart(6, "0").slice(-6);
   return [digits.slice(0, 3), digits.slice(3)];
@@ -66,19 +66,19 @@ export function pairLine(screen: PairScreen): PairLine {
   }
 }
 
-/** Hay un emparejamiento vivo: cerrar el diálogo lo cancela (y avisa a the other machine). */
+/** There is a live pairing: closing the dialog cancels it (and notifies the other machine). */
 export function isActive(pairing: PairingView): boolean {
   return pairing.kind === "searching" || pairing.kind === "comparing";
 }
 
-/** Cerrar un resultado ya mostrado lo deja en reposo en el agente. */
+/** Closing an already shown result leaves it at rest in the agent. */
 export function needsDismiss(pairing: PairingView): boolean {
   return pairing.kind === "done" || pairing.kind === "failed";
 }
 
 /**
- * Abrir el diálogo solo: cuando el emparejamiento pasa a estar vivo (por ejemplo, la
- * ventana se abrió con uno in progress) o aparece el código. Nunca para un resultado viejo.
+ * Open the dialog by itself: when pairing becomes live (for example, the
+ * window opened with one in progress) or the code appears. Never for an old result.
  */
 export function shouldOpen(before: PairingView | null, after: PairingView): boolean {
   if (!isActive(after)) return false;
@@ -86,14 +86,14 @@ export function shouldOpen(before: PairingView | null, after: PairingView): bool
   return before.kind === "searching" && after.kind === "comparing";
 }
 
-/** El texto del botón de la píldora del link. */
+/** The text of the link pill button. */
 export function pairButton(peer: PeerView): string {
   return peer.kind === "paired" ? "Pair again" : "Pair";
 }
 
-// ---- Escribir el código (asistente, «Join a desk») -----------------------------------
+// ---- Typing the code (setup, "Join a desk") -------------------------------------------
 
-/** Pone un dígito en su casilla (vacío la borra); cualquier otra cosa se ignora. */
+/** Puts a digit in its box (empty clears it); anything else is ignored. */
 export function setDigit(digits: string[], i: number, value: string): string[] {
   const d = value.replace(/\D/g, "").slice(-1);
   return digits.map((x, j) => (j === i ? d : x));
@@ -101,7 +101,7 @@ export function setDigit(digits: string[], i: number, value: string): string[] {
 
 export const isComplete = (digits: string[]): boolean => digits.length === 6 && digits.every((d) => /^\d$/.test(d));
 
-/** ¿Lo escrito es el código que calculó el agente? Solo cuenta con las seis casillas llenas. */
+/** Is what was typed the code the agent computed? It only counts with all six boxes filled. */
 export function codeMatches(typed: string[], code: string): boolean {
   return isComplete(typed) && typed.join("") === code.replace(/\D/g, "");
 }
