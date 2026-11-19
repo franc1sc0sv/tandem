@@ -589,17 +589,17 @@ mod tests {
         let d = desk();
         let mut s = State::initial(Machine::A);
         s.on.b = true;
-        s.scene = Some("trabajo".into());
+        s.scene = Some("work".into());
         settle(&mut s, &d);
-        assert_eq!(s.scene.as_deref(), Some("trabajo"));
+        assert_eq!(s.scene.as_deref(), Some("work"));
         // The other powered off: the scene that uses both needs both.
         s.on.b = false;
         settle(&mut s, &d);
         assert_eq!(s.scene, None);
         // The single-machine scene still holds with the other off; deleted, no.
-        s.scene = Some("solo-a".into());
+        s.scene = Some("only-a".into());
         settle(&mut s, &d);
-        assert_eq!(s.scene.as_deref(), Some("solo-a"));
+        assert_eq!(s.scene.as_deref(), Some("only-a"));
         settle(&mut s, &Config::default());
         assert_eq!(s.scene, None);
     }
@@ -609,11 +609,11 @@ mod tests {
         let mut m = ShortcutMatcher::for_desk(&desk());
         assert_eq!(m.key(CTRL, KeyState::Pressed), None);
         assert_eq!(m.key(ALT, KeyState::Pressed), None);
-        assert_eq!(m.key(ONE, KeyState::Pressed).as_deref(), Some("trabajo"));
+        assert_eq!(m.key(ONE, KeyState::Pressed).as_deref(), Some("work"));
         // Auto-repeat does not apply again.
         assert_eq!(m.key(ONE, KeyState::Pressed), None);
         assert_eq!(m.key(ONE, KeyState::Released), None);
-        assert_eq!(m.key(TWO, KeyState::Pressed).as_deref(), Some("solo-a"));
+        assert_eq!(m.key(TWO, KeyState::Pressed).as_deref(), Some("only-a"));
         m.key(TWO, KeyState::Released);
         // With one more key, no.
         m.key(SHIFT, KeyState::Pressed);
@@ -624,7 +624,7 @@ mod tests {
         // The right Ctrl counts like the left, and order does not matter.
         m.key(ONE, KeyState::Pressed);
         m.key(ALT, KeyState::Pressed);
-        assert_eq!(m.key(RCTRL, KeyState::Pressed).as_deref(), Some("trabajo"));
+        assert_eq!(m.key(RCTRL, KeyState::Pressed).as_deref(), Some("work"));
     }
 
     #[test]
@@ -643,7 +643,7 @@ mod tests {
         keys.observe(&press(CTRL));
         keys.observe(&press(ALT));
         keys.observe(&press(TWO));
-        assert_eq!(rx.try_recv().as_deref(), Ok("solo-a"));
+        assert_eq!(rx.try_recv().as_deref(), Ok("only-a"));
         keys.observe(&release(TWO));
         // The user removes the shortcut from the single-machine scene from the other machine.
         desk_tx.send_modify(|d| d.scenes[1].shortcut.clear());

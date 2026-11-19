@@ -757,7 +757,7 @@ mod tests {
     }
 
     #[test]
-    fn dos_pantallas_apiladas_suman_su_borde() {
+    fn two_stacked_screens_add_up_their_edge() {
         // The Mac has the 34" and its screen below, aligned to the right.
         let mac = vec![
             mon("m34", 0, 0, 3440, 1440, 1.0),

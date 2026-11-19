@@ -5,7 +5,7 @@ import type { IconName } from "../ui/icons";
 export type SettingsTab = "puesto" | "atajos" | "teclado" | "upd" | "avanzado";
 
 export const SETTINGS_TABS: { id: SettingsTab; name: string; icon: IconName }[] = [
-  { id: "puesto", name: "Desk and machines", icon: "puesto" },
+  { id: "puesto", name: "Desk and machines", icon: "desk" },
   { id: "atajos", name: "Shortcuts", icon: "keyboard" },
   { id: "teclado", name: "Keyboard and mouse", icon: "mouse" },
   { id: "upd", name: "Updates", icon: "download" },

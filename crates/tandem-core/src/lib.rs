@@ -4,6 +4,7 @@
 //!   shared desk ([`Desk`]).
 //! - [`desk`]: how it is edited (patches), synchronized (last one wins) and undone the
 //!   desk.
+//! - [`legacy`]: Spanish identifiers saved before T-209, migrated when reading.
 //! - [`data`]: the cap on data over Wi-Fi (`[data]` of the desk).
 //! - [`state`]: the observed state (which machines are on).
 //! - [`plan`]: powering on and off as an ordered list of steps.
@@ -13,6 +14,7 @@
 
 pub mod data;
 pub mod desk;
+pub mod legacy;
 pub mod model;
 pub mod monitor;
 pub mod plan;

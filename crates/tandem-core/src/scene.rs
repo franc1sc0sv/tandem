@@ -23,7 +23,7 @@ pub type MonitorId = String;
 pub const MAX_SCENE_NAME: usize = 40;
 
 /// Icon of a scene with no chosen icon (the names are the UI's).
-pub const DEFAULT_ICON: &str = "puesto";
+pub const DEFAULT_ICON: &str = "desk";
 
 /// A desk scene (D6).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
@@ -186,7 +186,7 @@ pub fn default_scenes(machines: &Machines, arrangement: Option<Arrangement>) -> 
             require_on: Some(side),
             shortcut: default_shortcut(n),
             ..Scene::new(
-                format!("solo-{}", side.as_str()),
+                format!("only-{}", side.as_str()),
                 only_name(&machines.name(side)),
             )
         }
@@ -195,7 +195,7 @@ pub fn default_scenes(machines: &Machines, arrangement: Option<Arrangement>) -> 
         Scene {
             layout: Some(arrangement.unwrap_or_default()),
             shortcut: default_shortcut(1),
-            ..Scene::new("trabajo", "Work")
+            ..Scene::new("work", "Work")
         },
         only(Machine::A, 2),
         only(Machine::B, 3),
@@ -291,9 +291,9 @@ pub fn introduce_monitor(desk: &mut Desk, cable: MonitorCable, shows: Option<Mac
     let mut next = desk.clone();
     for s in &mut next.scenes {
         let machine = match s.id.as_str() {
-            "trabajo" => shows,
-            "solo-a" if s.require_on == Some(Machine::A) => Some(Machine::A),
-            "solo-b" if s.require_on == Some(Machine::B) => Some(Machine::B),
+            "work" => shows,
+            "only-a" if s.require_on == Some(Machine::A) => Some(Machine::A),
+            "only-b" if s.require_on == Some(Machine::B) => Some(Machine::B),
             _ => None,
         };
         if let Some(machine) = machine
@@ -422,7 +422,7 @@ mod tests {
         let names: Vec<&str> = s.iter().map(|s| s.name.as_str()).collect();
         assert_eq!(names, ["Work", "Only MacBook Pro", "Only Desktop-PC"]);
         let ids: Vec<&str> = s.iter().map(|s| s.id.as_str()).collect();
-        assert_eq!(ids, ["trabajo", "solo-a", "solo-b"]);
+        assert_eq!(ids, ["work", "only-a", "only-b"]);
         assert_eq!(s[0].layout, Some(up));
         assert_eq!(s[0].needs(), BTreeSet::from(Machine::ALL));
         assert_eq!(s[1].needs(), BTreeSet::from([Machine::A]));
@@ -642,17 +642,17 @@ mod tests {
         d.arrangement = Some(Arrangement::default());
         assert_eq!(
             detect(&d, &both, &shows(Machine::B)).map(|s| s.id.as_str()),
-            Some("trabajo")
+            Some("work")
         );
         // With another arrangement, "Work" is not in place: "Only B" remains.
         d.arrangement = Some(left().swapped());
         assert_eq!(
             detect(&d, &both, &shows(Machine::B)).map(|s| s.id.as_str()),
-            Some("solo-b")
+            Some("only-b")
         );
         assert_eq!(
             detect(&d, &both, &shows(Machine::A)).map(|s| s.id.as_str()),
-            Some("solo-a")
+            Some("only-a")
         );
         // Without B powered on, only "Only A" can hold; knowing nothing, none.
         let only_a = State::initial(Machine::A);
