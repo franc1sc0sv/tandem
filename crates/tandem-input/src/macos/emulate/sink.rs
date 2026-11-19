@@ -10,6 +10,8 @@ use crate::geometry::{Point, Rect};
 #[derive(Debug, Clone)]
 pub struct RecordingSink {
     pub events: Vec<MacEvent>,
+    /// `kCGEventSourceUserData` of each event in `events`, in the same order.
+    pub source_user_data: Vec<i64>,
     pub cursor: Point,
     pub screens: Vec<Rect>,
     pub double_click: Duration,
@@ -24,6 +26,7 @@ impl RecordingSink {
     pub fn new() -> Self {
         Self {
             events: Vec::new(),
+            source_user_data: Vec::new(),
             cursor: Point::new(960.0, 540.0),
             screens: vec![Rect::new(0, 0, 1920, 1080)],
             double_click: Duration::from_millis(500),
@@ -34,7 +37,17 @@ impl RecordingSink {
 
     /// Empties and returns what was published.
     pub fn take(&mut self) -> Vec<MacEvent> {
+        self.source_user_data.clear();
         std::mem::take(&mut self.events)
+    }
+
+    /// Like [`RecordingSink::take`], with the `kCGEventSourceUserData` of each event.
+    pub fn take_tagged(&mut self) -> Vec<(MacEvent, i64)> {
+        let tags = std::mem::take(&mut self.source_user_data);
+        std::mem::take(&mut self.events)
+            .into_iter()
+            .zip(tags)
+            .collect()
     }
 }
 
@@ -45,7 +58,7 @@ impl Default for RecordingSink {
 }
 
 impl MacSink for RecordingSink {
-    fn post(&mut self, event: &MacEvent) -> Result<(), EmulateError> {
+    fn post(&mut self, event: &MacEvent, source_user_data: i64) -> Result<(), EmulateError> {
         if let Some(msg) = &self.fail_post {
             return Err(EmulateError::Platform(msg.clone()));
         }
@@ -53,6 +66,7 @@ impl MacSink for RecordingSink {
             self.cursor = *pos;
         }
         self.events.push(*event);
+        self.source_user_data.push(source_user_data);
         Ok(())
     }
 

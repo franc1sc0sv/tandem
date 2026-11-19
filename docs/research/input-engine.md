@@ -33,6 +33,7 @@ Research of 2026-10-15. The code of lan-mouse (`f1b96bd`) and Deskflow (`c46781f
   - Mouse: `*Dragged` events while a button is pressed; `kCGMouseEventClickState` for double and triple click.
   - Scroll: `CGEventCreateScrollWheelEvent2` in pixels.
   - Media: `NSEvent` of type `SystemDefined` with subtype 8.
+  - Echo: every injected event carries `INJECTED_MARKER` in `kCGEventSourceUserData`; the tap lets tagged events through without forwarding them (T-241).
 
 ## Windows
 

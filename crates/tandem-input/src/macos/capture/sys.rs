@@ -22,7 +22,7 @@ use objc2_core_graphics::{
 };
 
 use super::grab::{CursorBackend, Grab};
-use super::translate::{INJECTED_MARKER, RawEvent, TapAction, TapDisabledBy, Translator};
+use super::translate::{RawEvent, TapAction, TapDisabledBy, Translator};
 use super::{CaptureError, Permissions};
 use crate::event::InputEvent;
 use crate::geometry::Point;
@@ -205,19 +205,17 @@ struct TapContext {
 impl TapContext {
     fn handle(&mut self, ty: CGEventType, event: &CGEvent) -> TapAction {
         let raw = read_event(ty, event);
-        if !matches!(raw, RawEvent::TapDisabled(_) | RawEvent::Other)
-            && CGEvent::integer_value_field(Some(event), CGEventField::EventSourceUserData)
-                == INJECTED_MARKER
-        {
-            return TapAction::Pass;
-        }
+        let source_user_data =
+            CGEvent::integer_value_field(Some(event), CGEventField::EventSourceUserData);
         let grabbed = self.grab.is_grabbed();
         let natural = self.natural_scroll.load(Ordering::Relaxed);
         let mut alive = true;
         let sink = &mut self.sink;
         let action = self
             .translator
-            .translate(&raw, grabbed, natural, &mut |e| alive &= sink(e));
+            .tap(&raw, source_user_data, grabbed, natural, &mut |e| {
+                alive &= sink(e)
+            });
         if !alive && grabbed {
             // Nobody receives what we swallow: give the Mac back to its owner.
             self.grab.release();

@@ -8,10 +8,7 @@ use crate::event::keymap::{self, MacKeycode};
 use crate::event::{Button, HidUsage, InputEvent, KeyState, ModifierKey, Scroll};
 use crate::geometry::Point;
 
-/// Mark that Tandem's injection puts in `kCGEventSourceUserData` of its
-/// events ("TNDM"). Capture lets them pass without forwarding them, so as not to echo
-/// if both run on the same Mac.
-pub const INJECTED_MARKER: i64 = 0x544E_444D;
+pub use crate::macos::INJECTED_MARKER;
 
 /// Caps Lock keycode on Mac. macOS sends one `FlagsChanged` per press
 /// (on activating and on deactivating), never the release.
@@ -158,6 +155,28 @@ where
 impl Translator {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// What the tap does with an event whose `kCGEventSourceUserData` is
+    /// `source_user_data`: Tandem's own injection ([`INJECTED_MARKER`]) goes on its way
+    /// untouched, without being forwarded or swallowed and without changing what this
+    /// translator remembers; anything else is [`Translator::translate`]d. Without this, motion
+    /// injected on the receiving Mac would come back as local input and could cross an edge
+    /// or take the keyboard and mouse back (T-241).
+    pub fn tap(
+        &mut self,
+        raw: &RawEvent,
+        source_user_data: i64,
+        grabbed: bool,
+        natural_scroll: bool,
+        emit: &mut impl FnMut(InputEvent),
+    ) -> TapAction {
+        // The tap's own notifications carry no source: they are always handled.
+        let notice = matches!(raw, RawEvent::TapDisabled(_) | RawEvent::Other);
+        if !notice && source_user_data == INJECTED_MARKER {
+            return TapAction::Pass;
+        }
+        self.translate(raw, grabbed, natural_scroll, emit)
     }
 
     /// Translates `raw` and decides its fate.

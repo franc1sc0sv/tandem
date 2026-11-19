@@ -34,6 +34,7 @@ use crate::event::{
     PAGE_KEYBOARD, Pressed, Scroll,
 };
 use crate::geometry::{Point, Rect};
+use crate::macos::INJECTED_MARKER;
 
 #[cfg(target_os = "macos")]
 pub use cg::CgSink;
@@ -130,7 +131,10 @@ pub enum EmulateError {
 
 /// What the emulator needs from the system: publish events and read the cursor.
 pub trait MacSink {
-    fn post(&mut self, event: &MacEvent) -> Result<(), EmulateError>;
+    /// Posts `event` with `source_user_data` in its `kCGEventSourceUserData`. The emulator
+    /// always passes [`INJECTED_MARKER`], so this Mac's own capture recognises what Tandem
+    /// injected and does not forward it again (T-241).
+    fn post(&mut self, event: &MacEvent, source_user_data: i64) -> Result<(), EmulateError>;
 
     /// Real position of the cursor, in global points.
     fn cursor(&mut self) -> Result<Point, EmulateError>;
@@ -168,6 +172,11 @@ pub struct MacEmulator<S: MacSink> {
 }
 
 impl<S: MacSink> MacEmulator<S> {
+    /// Every event leaves tagged as Tandem's: the tap lets it through without echoing it.
+    fn post(&mut self, event: MacEvent) -> Result<(), EmulateError> {
+        self.sink.post(&event, INJECTED_MARKER)
+    }
+
     /// Reads from the sink the screens, the double click and natural scrolling.
     pub fn new(mut sink: S) -> Result<Self, EmulateError> {
         let screens = sink.screens()?;
@@ -271,7 +280,7 @@ impl<S: MacSink> MacEmulator<S> {
         let repeat = change == Change::Repeat;
 
         if let Some(key) = media_key(usage) {
-            return self.sink.post(&MacEvent::SystemKey {
+            return self.post(MacEvent::SystemKey {
                 data1: system_key_data1(key, down, repeat),
                 modifier_flags: system_key_modifier_flags(down),
             });
@@ -286,7 +295,7 @@ impl<S: MacSink> MacEmulator<S> {
                 return Ok(());
             }
             let flags = self.flags();
-            return self.sink.post(&MacEvent::FlagsChanged { keycode, flags });
+            return self.post(MacEvent::FlagsChanged { keycode, flags });
         }
         if usage == CAPS_LOCK {
             // Caps Lock toggles on press; releasing it changes nothing.
@@ -295,9 +304,9 @@ impl<S: MacSink> MacEmulator<S> {
             }
             self.caps_lock = !self.caps_lock;
             let flags = self.flags();
-            return self.sink.post(&MacEvent::FlagsChanged { keycode, flags });
+            return self.post(MacEvent::FlagsChanged { keycode, flags });
         }
-        self.sink.post(&MacEvent::Key {
+        self.post(MacEvent::Key {
             keycode,
             down,
             autorepeat: repeat,
@@ -327,7 +336,7 @@ impl<S: MacSink> MacEmulator<S> {
             (_, true) => MouseKind::OtherDown,
             (_, false) => MouseKind::OtherUp,
         };
-        self.sink.post(&MacEvent::Mouse {
+        self.post(MacEvent::Mouse {
             kind,
             pos,
             button: number,
@@ -340,7 +349,7 @@ impl<S: MacSink> MacEmulator<S> {
     fn motion(&mut self, to: Point, from: Point) -> Result<(), EmulateError> {
         let to = clamp_to_screens(&self.screens, to).ok_or(EmulateError::NoScreens)?;
         let (kind, button) = self.drag_kind();
-        self.sink.post(&MacEvent::Mouse {
+        self.post(MacEvent::Mouse {
             kind,
             pos: to,
             button,
@@ -393,7 +402,7 @@ impl<S: MacSink> MacEmulator<S> {
         if dx == 0 && dy == 0 {
             return Ok(());
         }
-        self.sink.post(&MacEvent::Scroll {
+        self.post(MacEvent::Scroll {
             unit,
             wheel1: dy.saturating_mul(sign),
             wheel2: dx.saturating_mul(-sign),

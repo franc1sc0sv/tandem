@@ -9,3 +9,12 @@
 
 pub mod capture;
 pub mod emulate;
+
+/// Tag that Tandem's injection writes into `kCGEventSourceUserData` of every event it
+/// posts ("TNDM"). The tap lets tagged events through without forwarding them, so what
+/// Tandem injects on this Mac never comes back as local input (T-241). Windows gets the
+/// same guard from `LLMHF_INJECTED` and Raw Input without a device.
+pub const INJECTED_MARKER: i64 = 0x544E_444D;
+
+#[cfg(test)]
+mod tests;
