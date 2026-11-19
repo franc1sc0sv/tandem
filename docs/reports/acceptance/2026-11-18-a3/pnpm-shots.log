@@ -1,5 +1,5 @@
 
-> tandem-ui@0.1.0 shots /home/francisco/projects/personal-projects/apps/tandem/.claude/worktrees/agent-ad53b8ba58c617a95/apps/tandem-ui
+> tandem-ui@0.1.0 shots <repo>-ui
 > node scripts/shots.ts --check
 
 
