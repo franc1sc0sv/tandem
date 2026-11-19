@@ -749,6 +749,9 @@ impl Agent {
     /// `tandem.toml`, and the UI receives the notice with what changed. The input engine
     /// recomputes the geometry with it.
     pub fn receive_desk(&self, theirs: DeskVersion) {
+        // An older peer still sends the Spanish ids (T-209): same mapping as when reading the file.
+        let mut theirs = theirs;
+        theirs.desk.migrate_legacy_ids();
         // A shortcut with keys this version does not know could not be saved.
         if let Err(e) = crate::config::desk_keys(&theirs.desk) {
             tracing::warn!("desk from the other machine ignored: {e}");
@@ -761,8 +764,8 @@ impl Agent {
         };
         tracing::info!(
             rev = next.stamp.rev,
-            origen = %next.stamp.by,
-            pantallas = next.desk.screens.len(),
+            origin = %next.stamp.by,
+            screens = next.desk.screens.len(),
             "desk updated from the other machine"
         );
         {
@@ -1919,6 +1922,61 @@ pub(crate) mod tests {
         assert_eq!(fresh.desk_sync().stamp.rev, 0);
     }
 
+    /// T-209: a file with the Spanish ids (scenes, icon, screens, cables) is rewritten once with
+    /// the English ones, without counting it as a change; a new one is not touched, and a second
+    /// start leaves it as it is.
+    #[test]
+    fn a_desk_with_spanish_ids_is_rewritten_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tandem.toml");
+        let old = "machine = \"a\"\ndesk_rev = 4\ndesk_origin = \"a\"\n\
+                   [machines.a]\nos = \"macos\"\nname = \"MacBook\"\ncolor = \"#7aa7e6\"\n\
+                   [machines.b]\nos = \"windows\"\nname = \"PC\"\ncolor = \"#a99be8\"\n\
+                   [[screens]]\nmachine = \"a\"\nid = \"pantalla-1\"\nx = 0\ny = 0\nwidth = 1512\nheight = 982\n\
+                   [[scenes]]\nid = \"trabajo\"\nname = \"Trabajo\"\nicon = \"puesto\"\n\
+                   [[scenes]]\nid = \"solo-a\"\nname = \"Solo MacBook\"\nrequire_on = \"a\"\n\
+                   [[cables]]\nmonitor = \"lc34-01\"\n[cables.a]\nscreen = \"pantalla-1\"\n";
+        std::fs::write(&file, old).unwrap();
+        let cfg = AgentConfig::load(&file).unwrap();
+        assert!(cfg.legacy_desk);
+        let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
+        assert_eq!(a.desk_sync().stamp.rev, 4, "a rename is not a change");
+        a.set_config_file(file.clone());
+
+        let text = std::fs::read_to_string(&file).unwrap();
+        for gone in ["trabajo", "Trabajo", "puesto", "pantalla", "solo-a", "Solo"] {
+            assert!(!text.contains(gone), "{gone}: {text}");
+        }
+        for kept in ["work", "only-a", "Only MacBook", "screen-1"] {
+            assert!(text.contains(kept), "{kept}: {text}");
+        }
+        let saved = AgentConfig::load(&file).unwrap();
+        assert!(!saved.legacy_desk);
+        assert_eq!(saved.desk_rev, 4);
+        // A second start changes neither the desk nor the file.
+        let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
+        again.set_config_file(file.clone());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
+        assert_eq!(again.desk_sync().stamp.rev, 4);
+    }
+
+    /// T-209: a peer that still has the Spanish ids sends them; they are stored in English.
+    #[tokio::test]
+    async fn a_desk_from_an_older_peer_is_stored_in_english() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("tandem.toml");
+        std::fs::write(&file, "machine = \"a\"\n").unwrap();
+        let cfg = AgentConfig::load(&file).unwrap();
+        let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
+        a.set_config_file(file);
+        let mut theirs = a.desk_sync();
+        theirs.stamp = theirs.stamp.next(Machine::B, 1);
+        theirs.desk.scenes = vec![tandem_core::Scene::new("trabajo", "Trabajo")];
+        a.receive_desk(theirs);
+        assert_eq!(a.desk().scenes[0].id, "work");
+        assert_eq!(a.desk().scenes[0].name, "Work");
+    }
+
     /// Review of #82: an already-paired T-099 desk (without the `scenes` key) receives the
     /// default scenes only once on loading, as a change by this machine; the one that clashes
     /// with the lock shortcut is left without a shortcut. If the user then deletes them all, they do not
@@ -1950,7 +2008,7 @@ pub(crate) mod tests {
 
         // All deleted on purpose: the file says so and they do not come back.
         again.set_config_file(file.clone());
-        for id in ["trabajo", "solo-a", "solo-b"] {
+        for id in ["work", "only-a", "only-b"] {
             again
                 .edit_desk(DeskPatch::DeleteScene { id: id.into() })
                 .unwrap();

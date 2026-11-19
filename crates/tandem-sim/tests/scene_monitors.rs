@@ -76,7 +76,7 @@ async fn scene_until(d: &Desk, m: Machine, scene: Option<&str>) {
 }
 
 /// Both on and paired; the PC (owner) presented the compatible monitors whose
-/// inputs are known, and both recognize "Trabajo" by the real input (all on DP, the PC).
+/// inputs are known, and both recognize "Work" by the real input (all on DP, the PC).
 async fn paired(switch27: SwitchBehavior, known27: bool) -> Desk {
     let d = Desk::builder()
         .monitors(specs(switch27, known27))
@@ -105,22 +105,22 @@ async fn paired(switch27: SwitchBehavior, known27: bool) -> Desk {
     );
     let n = if known27 { 2 } else { 1 };
     let scene = |sid: &str| desk.scenes.iter().find(|s| s.id == sid).unwrap().clone();
-    assert_eq!(scene("solo-a").monitors.len(), n);
+    assert_eq!(scene("only-a").monitors.len(), n);
     assert!(
-        scene("solo-a")
+        scene("only-a")
             .monitors
             .iter()
             .all(|(_, m)| *m == Machine::A)
     );
     assert!(
-        scene("solo-b")
+        scene("only-b")
             .monitors
             .iter()
             .all(|(_, m)| *m == Machine::B)
     );
-    assert_eq!(scene("trabajo").monitors[0], (m34.clone(), Machine::B));
+    assert_eq!(scene("work").monitors[0], (m34.clone(), Machine::B));
     for m in Machine::ALL {
-        scene_until(&d, m, Some("trabajo")).await;
+        scene_until(&d, m, Some("work")).await;
     }
     d
 }
@@ -229,7 +229,7 @@ fn on_screen(d: &Desk, i: usize) -> Option<Input> {
     sim.fake().screen_input(sim.handle(i))
 }
 
-/// Apply "Solo A" and then "Solo B" from the Mac: each monitor is switched by the PC (its owner)
+/// Apply "Only A" and then "Only B" from the Mac: each monitor is switched by the PC (its owner)
 /// with the firmware's verdict, and both machines' geometry takes the 34" off the one
 /// that stops being seen on it.
 #[tokio::test(start_paused = true)]
@@ -242,7 +242,7 @@ async fn only_b_switches_the_monitors_and_the_geometry() {
     }
     d.monitors().unwrap().clear_ops();
 
-    let run = d.apply_scene(Machine::A, "solo-a").await.unwrap();
+    let run = d.apply_scene(Machine::A, "only-a").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     assert_eq!(
         steps(&run),
@@ -260,9 +260,9 @@ async fn only_b_switches_the_monitors_and_the_geometry() {
         (vec!["mac".into(), "mac-34".into()], vec![])
     );
     geometry_until(&d, Machine::B, &["mac", "mac-34"], &[]).await;
-    scene_until(&d, Machine::B, Some("solo-a")).await;
+    scene_until(&d, Machine::B, Some("only-a")).await;
 
-    let run = d.apply_scene(Machine::A, "solo-b").await.unwrap();
+    let run = d.apply_scene(Machine::A, "only-b").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
     assert_eq!(
         steps(&run),
@@ -286,8 +286,8 @@ async fn only_b_switches_the_monitors_and_the_geometry() {
         (vec!["mac".into()], vec!["pc-34".into()])
     );
     geometry_until(&d, Machine::B, &["mac"], &["pc-34"]).await;
-    assert_eq!(d.mac.state().scene.as_deref(), Some("solo-b"));
-    scene_until(&d, Machine::B, Some("solo-b")).await;
+    assert_eq!(d.mac.state().scene.as_deref(), Some("only-b"));
+    scene_until(&d, Machine::B, Some("only-b")).await;
     d.check().await.unwrap();
 }
 
@@ -299,7 +299,7 @@ async fn a_verdict_fails_and_the_already_switched_monitors_roll_back() {
     declare_screens(&d);
     d.monitors().unwrap().clear_ops();
 
-    let run = d.apply_scene(Machine::A, "solo-a").await.unwrap();
+    let run = d.apply_scene(Machine::A, "only-a").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
     assert_eq!(run.failure().map(|f| f.0), Some(1), "{:#?}", run.events);
     assert_eq!(undone(&run), [0]);
@@ -320,10 +320,10 @@ async fn a_verdict_fails_and_the_already_switched_monitors_roll_back() {
             (Machine::B, Input::DisplayPort.vcp())
         ]
     );
-    assert_eq!(d.mac.state().scene.as_deref(), Some("trabajo"));
+    assert_eq!(d.mac.state().scene.as_deref(), Some("work"));
     for m in Machine::ALL {
         geometry_until(&d, m, &["mac"], &["pc-34"]).await;
-        scene_until(&d, m, Some("trabajo")).await;
+        scene_until(&d, m, Some("work")).await;
     }
 }
 
@@ -332,7 +332,7 @@ async fn a_verdict_fails_and_the_already_switched_monitors_roll_back() {
 #[tokio::test(start_paused = true)]
 async fn without_a_verdict_the_monitor_that_failed_also_rolls_back() {
     let d = paired(SwitchBehavior::Silent, true).await;
-    let run = d.apply_scene(Machine::A, "solo-a").await.unwrap();
+    let run = d.apply_scene(Machine::A, "only-a").await.unwrap();
     assert_eq!(run.outcome(), Some(Outcome::Failed), "{:#?}", run.events);
     let (index, error) = run.failure().unwrap();
     assert_eq!(index, 1);
@@ -347,11 +347,11 @@ async fn without_a_verdict_the_monitor_that_failed_also_rolls_back() {
             (Machine::B, Input::DisplayPort.vcp())
         ]
     );
-    assert_eq!(d.mac.state().scene.as_deref(), Some("trabajo"));
+    assert_eq!(d.mac.state().scene.as_deref(), Some("work"));
 }
 
 /// The active scene comes from the real input: someone switches the inputs from the monitor's
-/// menu and both machines recognize "Solo A"; with only one switched there is none.
+/// menu and both machines recognize "Only A"; with only one switched there is none.
 #[tokio::test(start_paused = true)]
 async fn the_active_scene_comes_from_the_real_input() {
     let d = paired(SwitchBehavior::Done, true).await;
@@ -359,7 +359,7 @@ async fn the_active_scene_comes_from_the_real_input() {
     sim.fake().osd_switch(sim.handle(M34), Input::Hdmi);
     sim.fake().osd_switch(sim.handle(M27), Input::Hdmi);
     for m in Machine::ALL {
-        scene_until(&d, m, Some("solo-a")).await;
+        scene_until(&d, m, Some("only-a")).await;
     }
     sim.fake().osd_switch(sim.handle(M34), Input::DisplayPort);
     for m in Machine::ALL {

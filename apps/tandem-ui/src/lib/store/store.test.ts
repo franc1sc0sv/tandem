@@ -77,8 +77,8 @@ describe("store", () => {
     vi.useFakeTimers();
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     await store.start();
-    await store.applyScene("juego");
-    expect(store.desk.activeScene).toBe("juego");
+    await store.applyScene("game");
+    expect(store.desk.activeScene).toBe("game");
     expect(store.toasts[0]).toMatchObject({ text: "Scene “Game” active.", tone: "ok" });
     await store.applyScene("nada");
     expect(store.toasts[0]).toMatchObject({ tone: "bad" });
@@ -562,8 +562,8 @@ describe("fuente real", () => {
     expect(await src.measureLink("usb4")).toEqual({ ok: true, text: "USB-C: 410 Mbps" });
     expect(act).toHaveBeenLastCalledWith({ kind: "measure_link", path: "usb4" });
     act.mockResolvedValueOnce({ kind: "accepted", txn: 2 } as never);
-    expect(await src.applyScene("juego")).toEqual({ ok: true });
-    expect(act).toHaveBeenLastCalledWith({ kind: "apply_scene", id: "juego" });
+    expect(await src.applyScene("game")).toEqual({ ok: true });
+    expect(act).toHaveBeenLastCalledWith({ kind: "apply_scene", id: "game" });
     act.mockResolvedValueOnce({ kind: "rejected", reason: "hdmi no signal" } as never);
     expect(await src.switchMonitor("g34", "hdmi")).toEqual({ ok: false, reason: "hdmi no signal" });
     expect(act).toHaveBeenLastCalledWith({ kind: "switch_monitor", monitor: "g34", input: "hdmi" });
@@ -579,7 +579,7 @@ describe("fuente real", () => {
 });
 
 describe("escenas y transacciones contra el puente simulado", () => {
-  const scene: SceneJson = { id: "juego", name: "Game", monitors: [["g34", "b"]], shortcut: ["ControlLeft", "AltLeft", "Digit4"] };
+  const scene: SceneJson = { id: "game", name: "Game", monitors: [["g34", "b"]], shortcut: ["ControlLeft", "AltLeft", "Digit4"] };
 
   function fake() {
     const act = vi.fn(async (_a: unknown) => ({ kind: "done" as const }));

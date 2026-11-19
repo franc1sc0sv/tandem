@@ -469,7 +469,7 @@ fn full_scene() -> impl Strategy<Value = Scene> {
         "[a-c]",
         "[A-Z][a-z]{0,5}",
         proptest::option::of(proptest::sample::select(vec!["Digit1", "Digit2", "Digit3"])),
-        proptest::sample::select(vec!["puesto", "laptop", "play"]),
+        proptest::sample::select(vec!["desk", "laptop", "play"]),
     )
         .prop_map(|(scene, id, name, key, icon)| Scene {
             id,

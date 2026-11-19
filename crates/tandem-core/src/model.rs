@@ -634,7 +634,7 @@ mod tests {
             align = "end"
 
             [[scenes]]
-            id = "trabajo"
+            id = "work"
             name = "Work"
 
             [shortcuts]

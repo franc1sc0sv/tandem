@@ -81,7 +81,15 @@ impl StateStore {
     /// it is set aside as `*.corrupt` (so it can be looked at) and it also starts from the safe state.
     pub fn load_or_initial(&self, me: Machine) -> State {
         match self.load() {
-            Ok(Some(s)) => s,
+            Ok(Some(mut s)) => {
+                // Scene ids from before T-209: translated and written back once.
+                if s.migrate_legacy_ids()
+                    && let Err(e) = self.save(&s)
+                {
+                    tracing::warn!("{e}; the migrated state was not written back");
+                }
+                s
+            }
             Ok(None) => State::initial(me),
             Err(e) => {
                 tracing::warn!("{e}; starting from the initial state");
@@ -157,6 +165,30 @@ mod tests {
         let store = StateStore::new(dir.path().join("a/b/state.json"));
         store.save(&sample()).unwrap();
         assert_eq!(store.load().unwrap(), Some(sample()));
+    }
+
+    /// T-209: the scene id saved by an earlier release is translated and written back once.
+    #[test]
+    fn an_old_scene_id_is_migrated_and_written_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StateStore::new(dir.path().join("state.json"));
+        std::fs::write(
+            store.path(),
+            r#"{"on":{"a":true,"b":true},"scene":"solo-b"}"#,
+        )
+        .unwrap();
+        let loaded = store.load_or_initial(Machine::A);
+        assert_eq!(loaded.scene.as_deref(), Some("only-b"));
+        // Written back: the file already says the new one.
+        assert_eq!(
+            store.load().unwrap().unwrap().scene.as_deref(),
+            Some("only-b")
+        );
+        let text = std::fs::read_to_string(store.path()).unwrap();
+        assert!(!text.contains("solo"), "{text}");
+        // Idempotent, and a new state is untouched.
+        assert_eq!(store.load_or_initial(Machine::A), loaded);
+        assert_eq!(std::fs::read_to_string(store.path()).unwrap(), text);
     }
 
     #[test]

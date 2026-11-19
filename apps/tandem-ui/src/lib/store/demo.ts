@@ -332,9 +332,9 @@ function demoMonitors(sa: Spec, sb: Spec): MonitorUi[] {
 export function demoScenes(a: string, b: string, monitors: MonitorUi[], mac: boolean, soloPc = false, trabajoEnA = false): SceneView[] {
   const m = monitors.find((x) => x.compat.ok)?.id;
   const raw: SceneJson[] = [
-    { id: "trabajo", name: "Work", monitors: m ? [[m, trabajoEnA ? "a" : "b"]] : [], shortcut: ctrlAlt(1) },
-    { id: "solo-a", name: `${a.split(" ")[0]} only`, monitors: m ? [[m, "a"]] : [], shortcut: ctrlAlt(2) },
-    { id: "juego", name: soloPc ? "PC only" : "Game", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
+    { id: "work", name: "Work", monitors: m ? [[m, trabajoEnA ? "a" : "b"]] : [], shortcut: ctrlAlt(1) },
+    { id: "only-a", name: `${a.split(" ")[0]} only`, monitors: m ? [[m, "a"]] : [], shortcut: ctrlAlt(2) },
+    { id: "game", name: soloPc ? "PC only" : "Game", monitors: m ? [[m, "b"]] : [], shortcut: ctrlAlt(3) },
   ];
   return raw.map((r) => sceneView(r, { monitors, name: (x) => (x === "a" ? a : b), mac }));
 }
@@ -605,14 +605,14 @@ export function demoDesk(o: DemoOptions): DeskView {
     network: o.txn && linkUp ? { ...demoNetwork(linkUp), measuring: "usb4" } : demoNetwork(linkUp),
     tunnels: demoTunnels(o.still ? DEMO_NOW : Date.now(), o.tunnels, { a: sa.os, b: sb.os }),
     scenes,
-    activeScene: "trabajo",
+    activeScene: "work",
     monitors,
     pair: {
       peer: o.unpaired ? { kind: "unpaired" } : { kind: "paired", name: peerSpec.name, link: linkUp ? "usb4" : null },
       pairing: o.pairing === "code" ? { kind: "comparing", code: DEMO_CODE, peer: peerSpec.name, confirmed: false } : { kind: "idle" },
     },
     permissions: permissionsFor((o.here === "a" ? sa : sb).os, o.trouble === "permissions" || o.perms === "missing", o.perms === "missing"),
-    layout: demoLayout(sa, sb, scenes, "trabajo"),
+    layout: demoLayout(sa, sb, scenes, "work"),
   };
 }
 
@@ -814,7 +814,7 @@ export class DemoSource implements Source {
     emit({ type: "step_done", txn, index: 0 }, t0 + 1900);
     emit({ type: "step_started", txn, index: 1 }, t0 + 1900);
     emit({ type: "step_done", txn, index: 1 }, t0 + 2300);
-    emit({ type: "committed", txn, state: { on: { a: true, b: true }, scene: "juego" } }, t0 + 2300);
+    emit({ type: "committed", txn, state: { on: { a: true, b: true }, scene: "game" } }, t0 + 2300);
   }
 
   private emitTxn(e: TxnView): void {

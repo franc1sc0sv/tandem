@@ -478,7 +478,10 @@ impl AgentConfig {
         let before_scenes = !table.contains_key("scenes");
         let mut cfg: AgentConfig = table.try_into()?;
         cfg.rewrite_sides = legacy;
-        cfg.legacy_desk = migrated.changed;
+        // Spanish ids from before T-209: translated here and written back once, like the
+        // pre-T-099 desk (the fingerprint of the old one no longer matches).
+        let renamed = cfg.desk.migrate_legacy_ids();
+        cfg.legacy_desk = migrated.changed || renamed;
         cfg.local_to_desk = migrated.local;
         // Already paired: the default scenes replace the modes (D6). It is a change by
         // this machine, with a new version: it is saved and reaches the other.
@@ -991,6 +994,24 @@ mod tests {
         assert_eq!(new.desk.shortcuts.lock, ["KeyL"]);
         assert!(!new.desk.prefs.cmd_ctrl && new.desk.prefs.drag_files);
         assert!(!new.legacy_desk);
+    }
+
+    /// T-209: the Spanish ids of an old file are mapped when reading; a new file is not touched.
+    #[test]
+    fn the_spanish_ids_of_an_old_file_are_mapped() {
+        let old = "machine = \"a\"\n[[scenes]]\nid = \"trabajo\"\nname = \"Trabajo\"\nicon = \"puesto\"\n\
+                   [[screens]]\nmachine = \"a\"\nid = \"pantalla-1\"\nx = 0\ny = 0\nwidth = 10\nheight = 10\n";
+        let cfg = AgentConfig::from_toml(old).unwrap();
+        assert!(cfg.legacy_desk);
+        assert_eq!(cfg.desk.scenes[0].id, "work");
+        assert_eq!(cfg.desk.scenes[0].name, "Work");
+        assert_eq!(cfg.desk.scenes[0].icon, "desk");
+        assert_eq!(cfg.desk.screens[0].id, "screen-1");
+
+        let new = "machine = \"a\"\n[[scenes]]\nid = \"work\"\nname = \"Work\"\nicon = \"desk\"\n";
+        let cfg = AgentConfig::from_toml(new).unwrap();
+        assert!(!cfg.legacy_desk);
+        assert_eq!(cfg.desk.scenes[0].id, "work");
     }
 
     #[test]

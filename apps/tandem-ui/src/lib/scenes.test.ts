@@ -17,7 +17,7 @@ const mon = (id: string, ok = true): MonitorUi => ({
 });
 const monitors = [mon("g5-34"), mon("g5-32", false)];
 const scene = (over: Partial<SceneJson> = {}): SceneJson => ({
-  id: "juego",
+  id: "game",
   name: "Game",
   monitors: [["g5-34", "b"]],
   layout: null,
@@ -44,7 +44,7 @@ describe("escenas (D6)", () => {
 
   it("la tarjeta dice qué muestra cada monitor y qué máquina pone la miniatura", () => {
     const v = sceneView(scene(), ctx);
-    expect(v).toMatchObject({ id: "juego", key: "⌃⌥4", desc: '34" → PC-Desktop', shows: "b" });
+    expect(v).toMatchObject({ id: "game", key: "⌃⌥4", desc: '34" → PC-Desktop', shows: "b" });
     expect(sceneView(scene({ monitors: [] }), ctx)).toMatchObject({ desc: "No monitors changed", shows: null });
   });
 
@@ -58,7 +58,7 @@ describe("escenas (D6)", () => {
     const base = scene({ icon: "bolt", monitors: [["viejo", "a"]], require_on: "b" });
     const d = draftOf(sceneView(base, ctx), monitors);
     expect(d.picks).toEqual({ "g5-34": "keep", viejo: "a" });
-    expect(sceneOf({ ...d, name: " Nuevo " })).toMatchObject({ id: "juego", name: "Nuevo", icon: "bolt", require_on: "b", monitors: [["viejo", "a"]] });
+    expect(sceneOf({ ...d, name: " Nuevo " })).toMatchObject({ id: "game", name: "Nuevo", icon: "bolt", require_on: "b", monitors: [["viejo", "a"]] });
   });
 
   it("una escena nueva se guarda sin id y sin los monitores «sin cambiar»", () => {

@@ -32,7 +32,7 @@ impl Powered {
     }
 
     /// Only `machine` on.
-    pub fn solo(machine: Machine) -> Self {
+    pub fn only(machine: Machine) -> Self {
         let mut p = Powered::default();
         p.set(machine, true);
         p
@@ -73,7 +73,7 @@ impl State {
     /// about the other.
     pub fn initial(me: Machine) -> Self {
         State {
-            on: Powered::solo(me),
+            on: Powered::only(me),
             scene: None,
         }
     }

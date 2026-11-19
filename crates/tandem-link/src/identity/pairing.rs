@@ -498,18 +498,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let mut store = TrustStore::open(dir.path().join("t.toml")).unwrap();
 
-        let (mut solo_local, _) = pair_up(key(1), nonce(1), key(2), nonce(2));
-        solo_local.confirm_local();
+        let (mut local_only, _) = pair_up(key(1), nonce(1), key(2), nonce(2));
+        local_only.confirm_local();
         assert!(matches!(
-            solo_local.complete(&mut store),
+            local_only.complete(&mut store),
             Err(IdentityError::NotConfirmed)
         ));
 
-        let (mut solo_remoto, _) = pair_up(key(1), nonce(1), key(2), nonce(2));
-        let code = solo_remoto.code();
-        solo_remoto.confirm_remote(code).unwrap();
+        let (mut remote_only, _) = pair_up(key(1), nonce(1), key(2), nonce(2));
+        let code = remote_only.code();
+        remote_only.confirm_remote(code).unwrap();
         assert!(matches!(
-            solo_remoto.complete(&mut store),
+            remote_only.complete(&mut store),
             Err(IdentityError::NotConfirmed)
         ));
 

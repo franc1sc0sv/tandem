@@ -111,7 +111,7 @@ describe("paleta en modo demo", () => {
     const input = screen.getByRole("combobox", { name: "Search" });
     await userEvent.type(input, "macbook only");
     await fireEvent.keyDown(input, { key: "Enter" });
-    await vi.waitFor(() => expect(store.desk.activeScene).toBe("solo-a"));
+    await vi.waitFor(() => expect(store.desk.activeScene).toBe("only-a"));
     expect(store.paletteOpen).toBe(false);
   });
 

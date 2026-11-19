@@ -109,7 +109,7 @@ describe("editar atajos en modo demo", () => {
     const combo = await comboOf("Scene “Work”");
     await userEvent.click(combo);
     await fireEvent.keyDown(combo, { key: "7", code: "Digit7", ...chord });
-    await vi.waitFor(() => expect(store.desk.scenes.find((s) => s.id === "trabajo")?.shortcut).toEqual(["ControlLeft", "AltLeft", "Digit7"]));
+    await vi.waitFor(() => expect(store.desk.scenes.find((s) => s.id === "work")?.shortcut).toEqual(["ControlLeft", "AltLeft", "Digit7"]));
   });
 
   it("rechaza el atajo de otra fila y no guarda nada", async () => {
@@ -145,8 +145,8 @@ function connected(): Snapshot {
       screens: [],
       arrangement: { a_side: "up", align: "end" },
       scenes: [
-        { id: "trabajo", name: "Work", monitors: [], shortcut: ["ControlLeft", "AltLeft", "Digit1"] },
-        { id: "juego", name: "Game", monitors: [], shortcut: [] },
+        { id: "work", name: "Work", monitors: [], shortcut: ["ControlLeft", "AltLeft", "Digit1"] },
+        { id: "game", name: "Game", monitors: [], shortcut: [] },
       ],
       shortcuts: { lock: ["ScrollLock"] },
     },
@@ -215,7 +215,7 @@ describe("editar atajos contra el agente real (IPC simulada)", () => {
     await vi.waitFor(() =>
       expect(act).toHaveBeenCalledWith({
         kind: "edit_scene",
-        scene: expect.objectContaining({ id: "juego", name: "Game", shortcut: ["ControlLeft", "AltLeft", "Digit3"] }),
+        scene: expect.objectContaining({ id: "game", name: "Game", shortcut: ["ControlLeft", "AltLeft", "Digit3"] }),
       }),
     );
   });

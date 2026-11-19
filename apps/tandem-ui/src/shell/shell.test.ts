@@ -85,11 +85,11 @@ describe("paleta ⌘K / Ctrl+K (D15)", () => {
     expect(options[0]).toHaveAttribute("aria-selected", "true");
     await user.keyboard("{ArrowDown}{ArrowDown}");
     expect(screen.getAllByRole("option")[2]).toHaveAttribute("aria-selected", "true");
-    expect(input).toHaveAttribute("aria-activedescendant", "cmd-scene:juego");
+    expect(input).toHaveAttribute("aria-activedescendant", "cmd-scene:game");
     await user.keyboard("{Enter}");
     await tick();
     expect(store.paletteOpen).toBe(false);
-    await vi.waitFor(() => expect(store.desk.activeScene).toBe("juego"));
+    await vi.waitFor(() => expect(store.desk.activeScene).toBe("game"));
   });
 
   it("sin resultados lo dice", async () => {
@@ -130,7 +130,7 @@ describe("pantallas", () => {
     const { store } = await mountShell();
     expect(screen.getByRole("link", { name: /MacBook Pro.*macOS · M5/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Game/ }));
-    await vi.waitFor(() => expect(store.desk.activeScene).toBe("juego"));
+    await vi.waitFor(() => expect(store.desk.activeScene).toBe("game"));
     expect(screen.getByRole("button", { name: /Game/ })).toHaveAttribute("aria-pressed", "true");
   });
 
@@ -180,7 +180,7 @@ describe("bandeja (V3-Tray)", () => {
     await vi.waitFor(() => expect(screen.getByText("MacBook Pro")).toBeInTheDocument());
     expect(screen.getByText("PC-Desktop with VRAM at 88 %")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Game" }));
-    await vi.waitFor(() => expect(store.desk.activeScene).toBe("juego"));
+    await vi.waitFor(() => expect(store.desk.activeScene).toBe("game"));
     await userEvent.click(screen.getByRole("button", { name: "Open" }));
     await userEvent.click(screen.getByRole("button", { name: "Leave" }));
     expect(actions.showMain).toHaveBeenCalledOnce();
