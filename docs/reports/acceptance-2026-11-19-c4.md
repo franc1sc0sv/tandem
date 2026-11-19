@@ -32,7 +32,7 @@ Note: T-190 (pairing flake on macOS) is still `blocked` for lack of a reproducti
 | `timeouts.sh` | PASS (T-234 holds; all 5 jobs of `release.yml` and all of `ci.yml` have `timeout-minutes`) |
 | `english.sh` | PASS (T-210 holds; the remaining accents are the allow-listed test data in `english-allow.txt`) |
 | `status.sh` | FAIL, T-231 (still `todo`, being fixed in parallel): header must say `159 done of 165 (T-001…T-241)` and T-231 is missing from "Open tasks" |
-| `privacy.sh` | SKIPPED: `PRIVACY_PATTERNS` is not set in this environment. Manual grep for the owner's name, e-mail and home paths in tracked files outside `docs/reports/` found none; it did find the Windows account `PC` in `docs/dev/hardware.md` and `docs/tasks/T-024.md` (`C:\Users\PC`, `/mnt/c/Users/PC`), a generic account name, left as a note |
+| `privacy.sh` | SKIPPED: `PRIVACY_PATTERNS` is not set in this environment. Manual grep for the owner's name, e-mail and home paths in tracked files outside `docs/reports/` found none; it did find the Windows account `PC` in `docs/dev/hardware.md` and `docs/tasks/T-024.md` (a Windows user-profile path under the generic account `PC`), a generic account name, left as a note |
 
 `docs/STATUS.md` (T-231) is also stale in more than the header: it says 127 done of 141, "1442 Rust + 619 UI" tests (now 1608 and 682), lists T-195 and T-201…T-208 as open (all `done`), T-027 as `todo` (now `done`), and its CI line still names T-160/T-190 as known flaky tests. The count in the "Open tasks" table must be taken when T-231's PR is rebased, since this PR adds T-260 and T-261 (two more tasks).
 
