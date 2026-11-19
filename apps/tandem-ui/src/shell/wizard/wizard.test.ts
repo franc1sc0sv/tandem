@@ -68,7 +68,7 @@ describe("step 1: this machine", () => {
   it("without an installer (per-user install) the row explains it and offers no button", async () => {
     const { dlg } = await mount("demo&still&admin=off");
     const found = within(dlg).getByRole("region", { name: "What it found" });
-    expect(await within(found).findByText(/per-user install/)).toBeInTheDocument();
+    expect(await within(found).findByText(/user-level installation does not support the administrator service/)).toBeInTheDocument();
     expect(within(found).queryByRole("button", { name: "Install" })).toBeNull();
     expect(found.querySelectorAll(".wz-spin")).toHaveLength(0);
   });

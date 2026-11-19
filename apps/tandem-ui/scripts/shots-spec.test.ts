@@ -51,8 +51,8 @@ describe("screenshot harness", () => {
     expect(a?.content?.min).toEqual(SIDEBAR_GATE);
     expect(a?.content?.appWidth).toBe(1492);
     expect(a?.content?.masks.map((m) => m.reason.split(":")[0])).toEqual(["D17", "G4"]);
-    // Nothing masked in V3-Machine beyond D1.
-    expect(SHOTS.find((s) => s.name === "machine-b")?.ignore?.every((i) => i.reason.startsWith("D1"))).toBe(true);
+    // Nothing masked in V3-Machine beyond D1 and the Tunnels switch the agent cannot flip (T-244).
+    expect(SHOTS.find((s) => s.name === "machine-b")?.ignore?.map((i) => i.reason.split(":")[0])).toEqual(["D1", "T-244"]);
   });
 
   it("crops the requested region", () => {

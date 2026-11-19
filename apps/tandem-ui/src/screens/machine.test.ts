@@ -169,11 +169,14 @@ describe("V3-Machine (the other machine)", () => {
     expect(mods.getByText("Power").parentElement).toHaveTextContent("active");
   });
 
-  it("\"Allow remote execution\" is the tunnels module", async () => {
+  it("\"Allow remote execution\" shows the tunnels module, which the agent cannot turn off (T-244)", async () => {
     const { store } = await mount();
-    await userEvent.click(screen.getByRole("switch", { name: "Allow remote execution" }));
-    await vi.waitFor(() => expect(store.desk.machines.b?.modules.find((m) => m.id === "tunnels")?.state).toBe("off"));
-    expect(screen.getByRole("switch", { name: "Allow remote execution" })).toHaveAttribute("aria-checked", "false");
+    const sw = screen.getByRole("switch", { name: "Allow remote execution" });
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    expect(sw).toBeDisabled();
+    await userEvent.click(sw);
+    expect(store.desk.machines.b?.modules.find((m) => m.id === "tunnels")?.state).toBe("active");
+    expect(within(screen.getByRole("region", { name: "Modules" })).queryByRole("switch", { name: "Tunnels" })).toBeNull();
   });
 
   it("rescan shows that it works until it returns", async () => {
@@ -220,7 +223,9 @@ describe("F-MachineMac (this machine)", () => {
     expect(envs.getByText("default")).not.toHaveClass("chip");
     // This machine's tunnels module is turned off from its row: without the switch below.
     expect(envs.queryByRole("switch", { name: "Allow remote execution" })).toBeNull();
-    expect(screen.getByRole("switch", { name: "Remote compute" })).toHaveAttribute("aria-checked", "true");
+    // Remote compute has no switch: the agent cannot turn it off (T-244); it is a plain chip.
+    expect(screen.queryByRole("switch", { name: "Remote compute" })).toBeNull();
+    expect(within(screen.getByRole("region", { name: "Modules" })).getByText("Remote compute").parentElement).toHaveTextContent("active");
   });
 
   it("the desk name goes next to the logo only on the machine pages (V3-Machine)", async () => {

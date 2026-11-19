@@ -2,6 +2,7 @@
 // the user can do. Pure: builds the cards with the real names of the desk.
 
 import type { IconName } from "../ui/icons";
+import { hasInputPermissions } from "./capabilities";
 import type { DeskView } from "./store/types";
 
 /** Color of the card icon: background and stroke (`V3-States`). */
@@ -88,6 +89,8 @@ export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, fa
   const peerId = d.here === "a" ? "b" : "a";
   const peer = d.machines[peerId]?.name ?? "The other machine";
   const mac = d.machines[d.here]?.os === "macos";
+  // Only macOS asks for input permissions; on other systems the card never applies, not even in the gallery.
+  const asksPermissions = hasInputPermissions(d.machines[d.here]?.os ?? "windows");
   const g = ctx.gallery;
   const alone = d.pair.peer.kind === "unpaired";
   const peerOff = !alone && d.machines[peerId]?.power === "off";
@@ -192,7 +195,7 @@ export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, fa
           body: `Its owner (${peer}) is off and ${here} reaches it only over HDMI while it is showing it. When either can, it takes control on its own.`,
         }
       : null,
-    missingPermission || g
+    asksPermissions && (missingPermission || g)
       ? {
           id: "permission",
           tag: "Permissions",
