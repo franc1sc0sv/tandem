@@ -12,12 +12,12 @@ import { LiveSource } from "../../lib/store/live";
 import { Store } from "../../lib/store/store.svelte";
 import Shell from "../Shell.svelte";
 
-// El asistente contra la fuente real (`LiveSource`) y un puente simulado: lo que el usuario hace
-// en cada paso llega al agente como el pedido de IPC que corresponde.
+// The setup against the real source (`LiveSource`) and a simulated bridge: what the user does
+// in each step reaches the agent as the matching IPC request.
 
 type Connected = Extract<Snapshot, { kind: "connected" }>;
 
-/** Una Mac (this machine) con Accesibilidad sin conceder y una PC emparejada por USB-C. */
+/** A Mac (this machine) with Accessibility not granted and a PC paired over USB-C. */
 function snapshot(over: Partial<Connected> = {}): Connected {
   return {
     kind: "connected",
@@ -93,8 +93,8 @@ async function mount(step: number, snap: Connected = snapshot(), onAct?: (a: Act
   return { ...r, store, dlg, act, calls, kinds, openSettings, restartAgent, adminStatus, installAdmin, notice: (n: Notice) => notice?.(n), push: (s: Snapshot) => push?.(s) };
 }
 
-describe("el asistente contra el agente (IPC real)", () => {
-  it("paso 1: el nombre y el color se guardan con `set_machine`", async () => {
+describe("the setup against the agent (real IPC)", () => {
+  it("step 1: the name and color are saved with `set_machine`", async () => {
     const { dlg, act } = await mount(0);
     const input = within(dlg).getByRole("textbox", { name: "Name" });
     await userEvent.clear(input);
@@ -104,7 +104,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "a", color: "#d9a75a" }));
   });
 
-  it("paso 1: «Instalar» llama al puente y la fila toma el estado que devuelve", async () => {
+  it("step 1: \"Install\" calls the bridge and the row takes the state it returns", async () => {
     const { dlg, installAdmin } = await mount(0);
     const found = within(dlg).getByRole("region", { name: "What it found" });
     await userEvent.click(await within(found).findByRole("button", { name: "Install" }));
@@ -112,7 +112,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(within(found).queryByRole("button", { name: "Install" })).toBeNull());
   });
 
-  it("paso 1: si el usuario cancela, avisa y la fila vuelve a su estado real sin girar", async () => {
+  it("step 1: if the user cancels, it warns and the row goes back to its real state without spinning", async () => {
     const { dlg, installAdmin, adminStatus } = await mount(0);
     installAdmin.mockRejectedValueOnce(new Error("the administrator request was canceled"));
     const found = within(dlg).getByRole("region", { name: "What it found" });
@@ -122,7 +122,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(within(found).getByRole("button", { name: "Install" })).toBeEnabled();
   });
 
-  it("paso 2: sin emparejar busca sola y confirma el código que escribe el usuario", async () => {
+  it("step 2: unpaired it searches by itself and confirms the code the user types", async () => {
     const { dlg, act, push, kinds } = await mount(1, snapshot({ peer: { kind: "unpaired" } }));
     await waitFor(() => expect(kinds()).toContain("start_pairing"));
     push(snapshot({ peer: { kind: "unpaired" }, pairing: { kind: "comparing", code: "418027", peer: "PC-Desktop", confirmed: false } }));
@@ -131,7 +131,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(act).toHaveBeenLastCalledWith({ kind: "confirm_pairing" }));
   });
 
-  it("paso 2: «Change the other machine» desempareja con `unpair` solo tras confirmar", async () => {
+  it("step 2: \"Change the other machine\" unpairs with `unpair` only after confirming", async () => {
     const { dlg, kinds } = await mount(1);
     await userEvent.click(within(dlg).getByRole("button", { name: "Change the other machine" }));
     expect(kinds()).not.toContain("unpair");
@@ -139,7 +139,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(kinds()).toContain("unpair"));
   });
 
-  it("paso 3: abre el panel del permiso y reinicia el agente por el puente", async () => {
+  it("step 3: opens the permission panel and restarts the agent through the bridge", async () => {
     const { dlg, openSettings, restartAgent } = await mount(2);
     expect(within(dlg).getByRole("heading", { name: "macOS permissions" })).toBeInTheDocument();
     const next = within(dlg).getByRole("button", { name: "Continue" });
@@ -150,7 +150,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(restartAgent).toHaveBeenCalledTimes(1);
   });
 
-  it("paso 3: cuando el agente informa el permiso concedido, Continuar se habilita", async () => {
+  it("step 3: when the agent reports the permission granted, Continue is enabled", async () => {
     const { dlg, push } = await mount(2);
     expect(within(dlg).getByRole("button", { name: "Continue" })).toHaveClass("wait");
     const ok = snapshot();
@@ -161,7 +161,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(within(dlg).getByRole("button", { name: "Continue" })).not.toHaveClass("wait"));
   });
 
-  it("paso 4: enciende la sonda de teclas, marca la machine que oyó y la apaga al salir", async () => {
+  it("step 4: turns on the key probe, marks the machine that heard and turns it off on leaving", async () => {
     const { dlg, notice, act, unmount } = await mount(3);
     await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "key_probe", on: true }));
     const pc = within(dlg).getByRole("group", { name: "PC-Desktop" });
@@ -172,7 +172,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(act).toHaveBeenLastCalledWith({ kind: "key_probe", on: false }));
   });
 
-  it("paso 4: la actividad de esta ventana se marca y se le avisa al agente con `heard_key`", async () => {
+  it("step 4: this window's activity is marked and reported to the agent with `heard_key`", async () => {
     const { dlg, act, calls } = await mount(3);
     const mac = within(dlg).getByRole("group", { name: "MacBook Pro" });
     await fireEvent.keyDown(window, { key: "a" });
@@ -182,20 +182,20 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(calls.filter((c) => c.kind === "heard_key")).toHaveLength(1);
   });
 
-  it("paso 4: solo lista el teclado y el mouse si el agente anuncia el hub aquí", async () => {
-    const sin = await mount(3);
-    const macSin = within(sin.dlg).getByRole("group", { name: "MacBook Pro" });
-    expect(within(macSin).getByText("No keyboard or mouse right now")).toBeInTheDocument();
-    expect(within(macSin).queryByText("Keyboard and mouse")).toBeNull();
-    sin.unmount();
+  it("step 4: lists the keyboard and mouse only if the agent announces the hub here", async () => {
+    const without = await mount(3);
+    const macWithout = within(without.dlg).getByRole("group", { name: "MacBook Pro" });
+    expect(within(macWithout).getByText("No keyboard or mouse right now")).toBeInTheDocument();
+    expect(within(macWithout).queryByText("Keyboard and mouse")).toBeNull();
+    without.unmount();
     const base = snapshot();
-    const con = await mount(3, snapshot({ caps: { ...base.caps, here: { ...base.caps.here, hub: true } } }));
-    const macCon = within(con.dlg).getByRole("group", { name: "MacBook Pro" });
-    expect(within(macCon).getByText("Keyboard and mouse")).toBeInTheDocument();
-    expect(within(macCon).queryByText("No keyboard or mouse right now")).toBeNull();
+    const withHub = await mount(3, snapshot({ caps: { ...base.caps, here: { ...base.caps.here, hub: true } } }));
+    const macWith = within(withHub.dlg).getByRole("group", { name: "MacBook Pro" });
+    expect(within(macWith).getByText("Keyboard and mouse")).toBeInTheDocument();
+    expect(within(macWith).queryByText("No keyboard or mouse right now")).toBeNull();
   });
 
-  it("«Cerrar» existe con nombre, cierra con un clic y su CSS le da caja de 28 px o más", async () => {
+  it("\"Close\" exists with a name, closes with a click and its CSS gives it a box of 28 px or more", async () => {
     const { dlg, store } = await mount(1);
     const close = within(dlg).getByRole("button", { name: "Close" });
     expect(close.textContent?.trim()).toBe("");
@@ -209,7 +209,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(store.wizardOpen).toBe(false);
   });
 
-  it("paso 4: la tecla que llega antes de armar la sonda se avisa al armarla", async () => {
+  it("step 4: the key that arrives before the probe is armed is reported when it is armed", async () => {
     const calls: Action[] = [];
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => (release = r));
@@ -224,7 +224,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(within(dlg).getAllByText("Activity detected").length).toBeGreaterThan(0);
   });
 
-  it("paso 4: la fila de the other machine también sale de su hub", async () => {
+  it("step 4: the row of the other machine also comes from its hub", async () => {
     const base = snapshot();
     const peer = { ...base.caps.here, machine: "b" as const, name: "PC-Desktop", os: "windows" as const, hub: true };
     const { dlg } = await mount(3, snapshot({ caps: { ...base.caps, peer } }));
@@ -232,7 +232,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(within(within(dlg).getByRole("group", { name: "MacBook Pro" })).getByText("No keyboard or mouse right now")).toBeInTheDocument();
   });
 
-  it("paso 5: mover the other machine guarda el arrangement con `set_arrangement`", async () => {
+  it("step 5: moving the other machine saves the arrangement with `set_arrangement`", async () => {
     const { dlg, act } = await mount(4);
     const other = within(dlg).getByRole("button", { name: /Move PC-Desktop/ });
     other.focus();
@@ -240,7 +240,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(act).toHaveBeenCalledWith(expect.objectContaining({ kind: "set_arrangement", a_side: "up" })));
   });
 
-  it("paso 5: «Test crossing» pide el cursor al agente y un Crossed por el borde marcado lo da por bueno", async () => {
+  it("step 5: \"Test crossing\" asks the agent for the cursor and a Crossed through the marked edge passes it", async () => {
     const { dlg, store, act, notice } = await mount(4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
     await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "watch_cursor", on: true }));
@@ -250,7 +250,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(store.wizardCrossed).toBe(true);
   });
 
-  it("paso 5: un Crossed por otro borde da «Crossed at another edge» y no habilita seguir", async () => {
+  it("step 5: a Crossed through another edge gives \"Crossed at another edge\" and does not enable continuing", async () => {
     const { dlg, store, notice } = await mount(4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
     await waitFor(() => expect(store.wizardCrossed).toBe(false));
@@ -259,7 +259,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(store.wizardCrossed).toBe(false);
   });
 
-  it("paso 5: un Crossed sin muestra del cursor pasa sin posición ni latencia inventada", async () => {
+  it("step 5: a Crossed without a cursor sample passes without a position or an invented latency", async () => {
     const { dlg, store, notice } = await mount(4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
     await waitFor(() => expect(store.wizardCrossed).toBe(false));
@@ -269,7 +269,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(store.wizardCrossed).toBe(true);
   });
 
-  it("paso 5: sin ningún crossing en 20 s la prueba dice «No cruzó» y no habilita seguir", async () => {
+  it("step 5: without any crossing in 20 s the test says \"Did not cross\" and does not enable continuing", async () => {
     const { dlg, store, act } = await mount(4);
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     try {

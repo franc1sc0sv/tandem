@@ -1,7 +1,7 @@
 <script lang="ts" module>
   let seq = 0;
 
-  /** Puntos de la línea en un lienzo de `width`×`height` (valores 0–100, abajo es 0). */
+  /** Points of the line on a canvas of `width`×`height` (values 0–100, the bottom is 0). */
   export function sparkPoints(values: number[], width = 300, height = 54): [number, number][] {
     if (values.length === 0) return [];
     const step = values.length > 1 ? width / (values.length - 1) : 0;
@@ -40,7 +40,7 @@
   .spark {
     display: block;
   }
-  /* La línea se dibuja al entrar (V3-Desk). */
+  /* The line is drawn on entering (V3-Desk). */
   .ln {
     stroke-dasharray: 600;
     stroke-dashoffset: 600;

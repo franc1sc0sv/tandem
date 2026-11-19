@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Paso 3 (`F-Setup3`): los permisos de macOS que `tandemd` necesita, pedidos y verificados de
-  // verdad (T-090): el agente los vuelve a leer solo y la tarjeta pasa a concedida.
+  // Step 3 (`F-Setup3`): the macOS permissions `tandemd` needs, requested and truly verified
+  // (T-090): the agent rereads them by itself and the card turns to granted.
   import { onMount } from "svelte";
   import { useStore } from "../../lib/context";
   import { permCards } from "../../lib/wizard";
@@ -8,7 +8,7 @@
   import Icon from "../../ui/Icon.svelte";
 
   interface Props {
-    /** El usuario ya abrió algún panel: ofrece reiniciar el agente. */
+    /** The user already opened some panel: offers to restart the agent. */
     onOpened: () => void;
   }
   let { onOpened }: Props = $props();
@@ -18,7 +18,7 @@
   const cards = $derived(permCards(perms.rows));
   const here = $derived(store.desk.machines[store.desk.here]);
 
-  // Entrar al paso con permisos pendientes los pide: macOS muestra su diálogo a nombre de tandemd.
+  // Entering the step with pending permissions requests them: macOS shows its dialog in the name of tandemd.
   onMount(() => {
     if (perms.rows.some((r) => r.state === "missing")) void store.requestPermissions();
   });

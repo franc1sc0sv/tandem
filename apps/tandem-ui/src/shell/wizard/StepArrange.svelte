@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Paso 5 (`F-Setup5`): el arrangement que Tandem leyó, que se puede mover arrastrando, y la
-  // prueba de crossing (T-117): se lleva el mouse por el borde marcado y se juzga con el crossing
-  // que informa el motor de entrada.
+  // Step 5 (`F-Setup5`): the arrangement Tandem read, which can be moved by dragging, and the
+  // crossing test (T-117): the mouse is taken across the marked edge and it is judged with the crossing
+  // the input engine reports.
   import { onDestroy } from "svelte";
   import { exitSide, fillOf, mainOf, placeOther } from "../../lib/arrangement";
   import { useStore } from "../../lib/context";
@@ -23,7 +23,7 @@
   const limit = store.crossTimeoutMs ?? CROSS_TIMEOUT_MS;
   const seconds = Math.round(CROSS_TIMEOUT_MS / 1000);
 
-  /** `null` = sin probar todavía. */
+  /** `null` = not tried yet. */
   let phase = $state<CrossPhase | null>(null) as CrossPhase | null;
   let now = $state(Date.now());
   let stop: (() => void) | null = null;
@@ -65,7 +65,7 @@
     stop?.();
   });
 
-  /** Mover the other machine a `side` guarda el arrangement y vuelve a empezar la prueba. */
+  /** Moving the other machine to `side` saves the arrangement and restarts the test. */
   async function place(side: Side) {
     if (side === expected) return;
     const r = await store.setArrangement(placeOther(desk.layout.arrangement, here, side));

@@ -1,5 +1,5 @@
-// T-120: la palette ⌘K (F-Palette) y la tray (V3-Tray) contra el agente real (IPC simulada) y en
-// modo demo, y sus animaciones con `prefers-reduced-motion`.
+// T-120: the ⌘K palette (F-Palette) and the tray (V3-Tray) against the real agent (simulated IPC) and in
+// demo mode, and their animations with `prefers-reduced-motion`.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fireEvent, render, screen } from "@testing-library/svelte";
@@ -48,7 +48,7 @@ function connected(over: Partial<Extract<Snapshot, { kind: "connected" }>> = {})
   } as Snapshot;
 }
 
-/** Un agente simulado: `act` guarda lo que se le pide. */
+/** A simulated agent: `act` stores what it is asked. */
 function fakeBridge(snap: Snapshot) {
   const act = vi.fn(async (_a: unknown) => ({ kind: "done" as const }));
   const bridge = { snapshot: async () => snap, onSnapshot: async () => {}, act, shortcuts: async () => ({ items: [], mac: false }) } as unknown as Bridge;
@@ -63,8 +63,8 @@ async function openPalette(store: Store) {
   return r;
 }
 
-describe("palette contra el agente real (IPC)", () => {
-  it("lista lo que el agente sabe hacer: apagar the other machine y medir el link; sin scenes", async () => {
+describe("palette against the real agent (IPC)", () => {
+  it("lists what the agent can do: power off the other machine and measure the link; no scenes", async () => {
     const { bridge } = fakeBridge(connected());
     const store = new Store(new LiveSource(bridge), { hash: "#/desk" });
     await store.start();
@@ -74,7 +74,7 @@ describe("palette contra el agente real (IPC)", () => {
     expect(screen.queryByRole("option", { name: /Apply/ })).toBeNull();
   });
 
-  it("«Apagar Workshop» pide set_power al agente y cierra la palette", async () => {
+  it("\"Power off Workshop\" asks set_power of the agent and closes the palette", async () => {
     const { bridge, act } = fakeBridge(connected());
     const store = new Store(new LiveSource(bridge), { hash: "#/desk" });
     await store.start();
@@ -84,7 +84,7 @@ describe("palette contra el agente real (IPC)", () => {
     expect(store.paletteOpen).toBe(false);
   });
 
-  it("«Measure the link» pide measure_link por el camino de the other machine", async () => {
+  it("\"Measure the link\" asks measure_link over the other machine's path", async () => {
     const { bridge, act } = fakeBridge(connected());
     const store = new Store(new LiveSource(bridge), { hash: "#/desk" });
     await store.start();
@@ -93,7 +93,7 @@ describe("palette contra el agente real (IPC)", () => {
     expect(act).toHaveBeenCalledWith({ kind: "measure_link", path: "wifi" });
   });
 
-  it("con the other machine apagada ofrece «Encender»", async () => {
+  it("with the other machine off it offers \"Power on\"", async () => {
     const { bridge, act } = fakeBridge(connected({ state: { on: { a: false, b: true } } }));
     const store = new Store(new LiveSource(bridge), { hash: "#/desk" });
     await store.start();
@@ -103,8 +103,8 @@ describe("palette contra el agente real (IPC)", () => {
   });
 });
 
-describe("palette en modo demo", () => {
-  it("aplica una scene con Enter tras filtrar por su nombre", async () => {
+describe("palette in demo mode", () => {
+  it("applies a scene with Enter after filtering by its name", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/desk" });
     await store.start();
     await openPalette(store);
@@ -115,7 +115,7 @@ describe("palette en modo demo", () => {
     expect(store.paletteOpen).toBe(false);
   });
 
-  it("apaga the other machine y el grupo «Machines» pasa a ofrecer «Encender»", async () => {
+  it("powers off the other machine and the \"Machines\" group offers \"Power on\"", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/desk" });
     await store.start();
     await openPalette(store);
@@ -123,7 +123,7 @@ describe("palette en modo demo", () => {
     await vi.waitFor(() => expect(store.desk.machines.b?.power).not.toBe("on"));
   });
 
-  it("el fondo cierra la palette con un clic y devuelve el foco", async () => {
+  it("the backdrop closes the palette with a click and returns the focus", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/desk" });
     await store.start();
     const { container } = await openPalette(store);
@@ -133,8 +133,8 @@ describe("palette en modo demo", () => {
   });
 });
 
-describe("tray contra el agente real (IPC)", () => {
-  it("muestra el estado difícil con una línea y, si the other machine está apagada, «Encender» la enciende", async () => {
+describe("tray against the real agent (IPC)", () => {
+  it("shows the trouble state with one line and, if the other machine is off, \"Power on\" turns it on", async () => {
     const { bridge, act } = fakeBridge(connected({ state: { on: { a: false, b: true } } }));
     const store = new Store(new LiveSource(bridge), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
@@ -143,7 +143,7 @@ describe("tray contra el agente real (IPC)", () => {
     expect(act).toHaveBeenCalledWith({ kind: "set_power", machine: "a", on: true });
   });
 
-  it("no agent lo dice y no ofrece botones que no sirven", async () => {
+  it("with no agent it says so and offers no useless buttons", async () => {
     const bridge = { snapshot: async () => ({ kind: "unavailable", endpoint: null, reason: "not running" }), onSnapshot: async () => {}, act: vi.fn(async () => ({ kind: "done" })) } as unknown as Bridge;
     const store = new Store(new LiveSource(bridge), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
@@ -152,7 +152,7 @@ describe("tray contra el agente real (IPC)", () => {
     expect(screen.getByRole("button", { name: "Open" })).toBeInTheDocument();
   });
 
-  it("con el agente al día no hay notice de estado", async () => {
+  it("with the agent up to date there is no state notice", async () => {
     const { bridge } = fakeBridge(connected());
     const store = new Store(new LiveSource(bridge), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
@@ -161,8 +161,8 @@ describe("tray contra el agente real (IPC)", () => {
   });
 });
 
-describe("tray en modo demo", () => {
-  it("la scene activa queda marcada y cada scene aplica con un clic", async () => {
+describe("tray in demo mode", () => {
+  it("the active scene is marked and each scene applies with a click", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
     await vi.waitFor(() => expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute("aria-pressed", "true"));
@@ -171,7 +171,7 @@ describe("tray en modo demo", () => {
     expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute("aria-pressed", "false");
   });
 
-  it("no inventa «Lock here»: no hay acción detrás (G6)", async () => {
+  it("does not invent \"Lock here\": there is no action behind it (G6)", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), null, TRAY_TOPICS);
     render(Tray, { store, actions: { showMain: vi.fn(), quit: vi.fn() } });
     await vi.waitFor(() => expect(screen.getByText("MacBook Pro")).toBeInTheDocument());
@@ -179,8 +179,8 @@ describe("tray en modo demo", () => {
   });
 });
 
-describe("animaciones de la palette y la tray (G7) y prefers-reduced-motion (G8)", () => {
-  it("la palette trae `pop` (diálogo) y `up` (renglones) con las curvas del mockup", () => {
+describe("palette and tray animations (G7) and prefers-reduced-motion (G8)", () => {
+  it("the palette brings `pop` (dialog) and `up` (rows) with the mockup curves", () => {
     const pal = read("shell", "Palette.svelte");
     expect(pal).toContain("animation: pal-pop 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.1)");
     expect(pal).toMatch(/@keyframes pal-pop \{\s*from \{\s*opacity: 0;\s*transform: translateY\(-10px\) scale\(0\.98\);/);
@@ -188,7 +188,7 @@ describe("animaciones de la palette y la tray (G7) y prefers-reduced-motion (G8)
     expect(pal).toMatch(/@keyframes pal-up \{\s*from \{\s*opacity: 0;\s*transform: translateY\(4px\);/);
   });
 
-  it("la tray trae las transiciones del mockup: botones de scene, barras y links", () => {
+  it("the tray brings the mockup transitions: scene buttons, bars and links", () => {
     const tray = read("Tray.svelte");
     expect(tray).toMatch(/border-color 0\.25s,\s*background 0\.25s,\s*transform 0\.2s/);
     expect(tray).toContain("transform: translateY(-1px)");
@@ -196,7 +196,7 @@ describe("animaciones de la palette y la tray (G7) y prefers-reduced-motion (G8)
     expect(tray).toMatch(/background 0\.2s,\s*color 0\.2s/);
   });
 
-  it("con prefers-reduced-motion el velo y la salida de la palette duran 0 ms y la hoja global apaga las de CSS", () => {
+  it("with prefers-reduced-motion the palette veil and exit last 0 ms and the global sheet turns off the CSS ones", () => {
     const el = document.createElement("div");
     expect(enter(el, { duration: 200 }).duration).toBe(200);
     setReducedMotion(true);
@@ -208,14 +208,14 @@ describe("animaciones de la palette y la tray (G7) y prefers-reduced-motion (G8)
     expect(rule).toContain("transition: none !important");
   });
 
-  it("las animaciones de la palette y la tray son de CSS o de motion.ts: ninguna por JS", () => {
+  it("the palette and tray animations are CSS or motion.ts: none by JS", () => {
     for (const f of [read("shell", "Palette.svelte"), read("Tray.svelte")]) {
       expect(f).not.toMatch(/\.animate\(/);
       expect(f).not.toMatch(/from "svelte\/transition"/);
     }
   });
 
-  it("la tray usa la misma hoja global (reduced-motion incluido) que la app", () => {
+  it("the tray uses the same global sheet (reduced-motion included) as the app", () => {
     expect(read("tray.ts")).toContain('import "./styles/global.css"');
   });
 });

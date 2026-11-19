@@ -18,8 +18,8 @@ async function mountShell(query = "demo&still", hash = "#/desk") {
   return { ...r, store, loc };
 }
 
-describe("barra lateral (D16)", () => {
-  it("tiene las pantallas, el contador de tunnels, una entrada por machine con su color y Settings", async () => {
+describe("sidebar (D16)", () => {
+  it("has the screens, the tunnel counter, one entry per machine with its color and Settings", async () => {
     await mountShell();
     const nav = screen.getByRole("navigation", { name: "Main" });
     const links = within(nav).getAllByRole("link").map((a) => a.textContent?.replace(/\s+/g, " ").trim());
@@ -27,11 +27,11 @@ describe("barra lateral (D16)", () => {
     expect(within(nav).getByText("Machines")).toBeInTheDocument();
     const dot = within(nav).getByRole("link", { name: "PC-Desktop" }).querySelector(".mdot") as HTMLElement;
     expect(dot.style.background).toBe("rgb(169, 155, 232)");
-    // D1: sin tercera machine.
+    // D1: no third machine.
     expect(within(nav).queryByText(/Add/)).toBeNull();
   });
 
-  it("marca la pantalla actual y navega con clic", async () => {
+  it("marks the current screen and navigates with a click", async () => {
     const { store, loc } = await mountShell();
     const nav = screen.getByRole("navigation", { name: "Main" });
     expect(within(nav).getByRole("link", { name: "Desk" })).toHaveAttribute("aria-current", "page");
@@ -44,7 +44,7 @@ describe("barra lateral (D16)", () => {
     expect(store.route).toEqual({ screen: "machine", machine: "a" });
   });
 
-  it("con dos Windows, los nombres y colores salen de cada machine (D2)", async () => {
+  it("with two Windows, the names and colors come from each machine (D2)", async () => {
     await mountShell("demo=win-win&still");
     const nav = screen.getByRole("navigation", { name: "Main" });
     expect(within(nav).getByRole("link", { name: "PC-Desktop" })).toBeInTheDocument();
@@ -54,7 +54,7 @@ describe("barra lateral (D16)", () => {
 });
 
 describe("palette ⌘K / Ctrl+K (D15)", () => {
-  it("Ctrl+K la abre con el foco en la búsqueda; Escape la cierra", async () => {
+  it("Ctrl+K opens it with focus on the search; Escape closes it", async () => {
     const { store } = await mountShell();
     await fireEvent.keyDown(window, { key: "k", ctrlKey: true });
     await tick();
@@ -67,13 +67,13 @@ describe("palette ⌘K / Ctrl+K (D15)", () => {
     expect(store.paletteOpen).toBe(false);
   });
 
-  it("el botón «Search or run…» también la abre", async () => {
+  it("the \"Search or run…\" button also opens it", async () => {
     const { store } = await mountShell();
     await userEvent.click(screen.getByRole("button", { name: /Search or run/ }));
     expect(store.paletteOpen).toBe(true);
   });
 
-  it("filtra al escribir, se mueve con flechas y ejecuta con Enter", async () => {
+  it("filters while typing, moves with arrows and runs with Enter", async () => {
     const user = userEvent.setup();
     const { store } = await mountShell();
     store.togglePalette(true);
@@ -92,7 +92,7 @@ describe("palette ⌘K / Ctrl+K (D15)", () => {
     await vi.waitFor(() => expect(store.desk.activeScene).toBe("game"));
   });
 
-  it("sin resultados lo dice", async () => {
+  it("without results it says so", async () => {
     const user = userEvent.setup();
     const { store } = await mountShell();
     store.togglePalette(true);
@@ -102,7 +102,7 @@ describe("palette ⌘K / Ctrl+K (D15)", () => {
     expect(screen.getByText("Nothing matches “zzz”.")).toBeInTheDocument();
   });
 
-  it("ir a una pantalla desde la palette, con clic", async () => {
+  it("going to a screen from the palette, with a click", async () => {
     const user = userEvent.setup();
     const { store } = await mountShell();
     store.togglePalette(true);
@@ -113,7 +113,7 @@ describe("palette ⌘K / Ctrl+K (D15)", () => {
     expect(store.paletteOpen).toBe(false);
   });
 
-  it("abrir el asistente desde la palette", async () => {
+  it("opening the setup from the palette", async () => {
     const user = userEvent.setup();
     const { store } = await mountShell();
     store.togglePalette(true);
@@ -125,8 +125,8 @@ describe("palette ⌘K / Ctrl+K (D15)", () => {
   });
 });
 
-describe("pantallas", () => {
-  it("Desk muestra las dos machines y aplica scenes", async () => {
+describe("screens", () => {
+  it("Desk shows the two machines and applies scenes", async () => {
     const { store } = await mountShell();
     expect(screen.getByRole("link", { name: /MacBook Pro.*macOS · M5/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Game/ }));
@@ -134,14 +134,14 @@ describe("pantallas", () => {
     expect(screen.getByRole("button", { name: /Game/ })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("un estado difícil reemplaza al Desk y ofrece la acción", async () => {
+  it("a trouble state replaces the Desk and offers the action", async () => {
     const { store } = await mountShell("demo&still&trouble=peer-off");
     expect(screen.getByText("PC-Desktop is off")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Power on PC-Desktop" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("on"));
   });
 
-  it("los módulos de una machine se apagan con su interruptor", async () => {
+  it("a machine's modules are turned off with its switch", async () => {
     const { store } = await mountShell("demo&still", "#/machine/b");
     await userEvent.click(screen.getByRole("switch", { name: "Clipboard" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.modules.find((m) => m.id === "clipboard")?.state).toBe("off"));
@@ -155,7 +155,7 @@ describe("pantallas", () => {
 });
 
 describe("Settings → Shortcuts", () => {
-  it("graba una combinación, avisa si no sirve y la guarda", async () => {
+  it("records a combination, warns if it is no good and saves it", async () => {
     const user = userEvent.setup();
     const { store } = await mountShell("demo&still", "#/settings");
     await user.click(screen.getByRole("tab", { name: "Shortcuts" }));
@@ -173,7 +173,7 @@ describe("Settings → Shortcuts", () => {
 });
 
 describe("tray (V3-Tray)", () => {
-  it("muestra las machines, aplica scenes, abre la ventana y sale", async () => {
+  it("shows the machines, applies scenes, opens the window and quits", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     const actions = { showMain: vi.fn(), quit: vi.fn() };
     render(Tray, { store, actions });

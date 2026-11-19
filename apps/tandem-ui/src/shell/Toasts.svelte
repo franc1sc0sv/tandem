@@ -8,8 +8,8 @@
   const store = useStore();
 </script>
 
-<!-- Notices dentro de la app (F-Notices): arriba to the right of, se apilan y se van solos en 6 s
-     salvo los que piden una decisión. -->
+<!-- Notices inside the app (F-Notices): top right, they stack and go away by themselves in 6 s
+     except those that ask for a decision. -->
 <div class="toasts" role="region" aria-label="Notices">
   {#each store.toasts as t (t.id)}
     <div class="toast" role="status" out:leave>
@@ -55,7 +55,7 @@
   .toast {
     position: relative;
     overflow: hidden;
-    width: 390px; /* 360 de contenido + relleno y borde, como el mockup */
+    width: 390px; /* 360 of content + padding and border, like the mockup */
     max-width: 100%;
     box-sizing: border-box;
     border-radius: 12px;

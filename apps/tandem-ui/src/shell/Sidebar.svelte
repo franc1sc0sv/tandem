@@ -26,11 +26,11 @@
   }
 </script>
 
-<!-- Barra lateral (D16, `V3-Desk`): las pantallas, una página por machine con su color y
-     Settings abajo. Sin «Add machine» (D1). -->
+<!-- Sidebar (D16, `V3-Desk`): the screens, one page per machine with its color and
+     Settings at the bottom. No "Add machine" (D1). -->
 <nav aria-label="Main" class="side">
-  <!-- El nombre del desk junto al logo solo en las páginas de machine (`V3-Machine`); las
-       demás pantallas no lo dibujan (`V3-Desk`, `V3-Network`…). -->
+  <!-- The desk name next to the logo only on the machine pages (`V3-Machine`); the
+       other screens do not draw it (`V3-Desk`, `V3-Network`…). -->
   <div class="brand">
     <Logo size={20} />Tandem{#if store.route.screen === "machine"}<span class="fill"></span><span class="desk">{store.desk.deskName}</span>{/if}
   </div>
@@ -124,7 +124,7 @@
   .fill {
     flex: 1;
   }
-  /* En la pantalla Tunnels el contador pasa a un punto vivo (`V3-Compute`). */
+  /* On the Tunnels screen the counter becomes a live dot (`V3-Compute`). */
   .pdot {
     width: 7px;
     height: 7px;

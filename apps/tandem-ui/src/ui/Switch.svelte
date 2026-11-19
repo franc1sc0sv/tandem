@@ -1,7 +1,7 @@
 <script lang="ts">
   interface Props {
     checked: boolean;
-    /** Nombre accesible. */
+    /** Accessible name. */
     label: string;
     disabled?: boolean;
     onchange?: (checked: boolean) => void;
@@ -16,7 +16,7 @@
   }
 </script>
 
-<!-- Un <button role="switch">: Espacio y Enter lo cambian solos (F-Settings). -->
+<!-- A <button role="switch">: Space and Enter toggle it by themselves (F-Settings). -->
 <button type="button" class="sw" class:off={!checked} role="switch" aria-checked={checked} aria-label={label} {disabled} onclick={toggle}></button>
 
 <style>

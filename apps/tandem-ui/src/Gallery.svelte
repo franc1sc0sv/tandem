@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Galería de componentes (solo en builds con modo demo): el arnés compara sus estilos
-  // calculados con los de los mismos elementos en los mockups (`scripts/style-parity.ts`).
+  // Component gallery (only in builds with demo mode): the harness compares its computed
+  // styles with those of the same elements in the mockups (`scripts/style-parity.ts`).
   import Bar from "./ui/Bar.svelte";
   import Button from "./ui/Button.svelte";
   import Card from "./ui/Card.svelte";
@@ -24,7 +24,7 @@
 <div class="gal">
   <div data-part="btn-md"><Button icon="check">Button</Button></div>
   <div data-part="btn-pri"><Button icon="check" variant="pri">Primary</Button></div>
-  <!-- Los 38 px de los encabezados (V3-Arrangement, V3-Network, V3-Machine…). -->
+  <!-- The 38 px of the headers (V3-Arrangement, V3-Network, V3-Machine…). -->
   <div data-part="btn-38"><Button icon="cursor" style="--btn-h:38px;--btn-px:15px">Test crossing</Button></div>
   <div data-part="btn-pri-38"><Button icon="check" variant="pri" style="--btn-h:38px;--btn-px:15px">Save</Button></div>
   <div data-part="btn-ghost"><Button icon="x" variant="ghost">Ghost</Button></div>
@@ -40,7 +40,7 @@
   <div data-part="chip"><Chip dot={false}>Work</Chip></div>
   <div data-part="chip-count"><Chip count dot={false}>3</Chip></div>
   <div data-part="card"><Card>Card</Card></div>
-  <div data-part="card-link"><Card href="#tarjeta">Link card</Card></div>
+  <div data-part="card-link"><Card href="#card">Link card</Card></div>
   <div data-part="kbd"><Kbd>⌃⌥1</Kbd></div>
   <div data-part="kbd-raised"><Kbd raised>⌃⌥1</Kbd></div>
   <div data-part="bar"><Bar percent={50} color="#7aa7e6" /></div>

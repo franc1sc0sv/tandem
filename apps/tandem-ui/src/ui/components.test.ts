@@ -15,14 +15,14 @@ import Switch from "./Switch.svelte";
 import { text } from "../test/snippet";
 
 describe("Button", () => {
-  it("siempre lleva ícono y el texto; el alto sale del tamaño", () => {
+  it("always carries an icon and the text; the height comes from the size", () => {
     render(Button, { icon: "check", size: "sm", children: text("Save") });
     const b = screen.getByRole("button", { name: "Save" });
     expect(b.querySelector("svg")).not.toBeNull();
     expect(b).toHaveClass("btn", "sm");
   });
 
-  it("variantes pri, ghost y danger", () => {
+  it("pri, ghost and danger variants", () => {
     for (const variant of ["pri", "ghost", "danger"] as const) {
       const { unmount } = render(Button, { icon: "check", variant, children: text(variant) });
       expect(screen.getByRole("button", { name: variant })).toHaveClass(variant);
@@ -30,7 +30,7 @@ describe("Button", () => {
     }
   });
 
-  it("solo ícono: nombre accesible y título, sin texto", () => {
+  it("icon only: accessible name and title, without text", () => {
     render(Button, { icon: "edit", iconOnly: true, label: "Edit arrangement", children: text("no se ve") });
     const b = screen.getByRole("button", { name: "Edit arrangement" });
     expect(b).toHaveClass("ic");
@@ -38,7 +38,7 @@ describe("Button", () => {
     expect(b.textContent).toBe("");
   });
 
-  it("se activa con clic, Enter y Espacio, y recibe el foco con Tab", async () => {
+  it("activates with click, Enter and Space, and receives focus with Tab", async () => {
     const user = userEvent.setup();
     const onclick = vi.fn();
     render(Button, { icon: "play", onclick, children: text("Apply") });
@@ -51,21 +51,21 @@ describe("Button", () => {
     expect(onclick).toHaveBeenCalledTimes(3);
   });
 
-  it("deshabilitado no hace nada", async () => {
+  it("disabled does nothing", async () => {
     const onclick = vi.fn();
     render(Button, { icon: "play", disabled: true, onclick, children: text("Apply") });
     await userEvent.click(screen.getByRole("button", { name: "Apply" }));
     expect(onclick).not.toHaveBeenCalled();
   });
 
-  it("con href es un link con el mismo aspecto", () => {
+  it("with href it is a link with the same look", () => {
     render(Button, { icon: "arrow-right", href: "#/network", children: text("Ver network") });
     const a = screen.getByRole("link", { name: "Ver network" });
     expect(a).toHaveAttribute("href", "#/network");
     expect(a).toHaveClass("btn");
   });
 
-  it("el ícono puede ir después y moverse distinto al pasar", () => {
+  it("the icon can go after and move differently on hover", () => {
     render(Button, { icon: "arrow-right", iconAfter: true, motion: "go", children: text("Next") });
     const b = screen.getByRole("button", { name: "Next" });
     expect(b.lastElementChild?.tagName.toLowerCase()).toBe("svg");
@@ -80,14 +80,14 @@ describe("Segmented", () => {
     { value: "der", label: "Right" },
   ];
 
-  it("es un grupo de radio con la opción elegida marcada", () => {
+  it("is a radio group with the chosen option marked", () => {
     render(Segmented, { options, value: "cen", label: "Alignment" });
     expect(screen.getByRole("radiogroup", { name: "Alignment" })).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "Center" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("radio", { name: "Left" })).toHaveAttribute("aria-checked", "false");
   });
 
-  it("el indicador se desliza a la opción elegida", async () => {
+  it("the indicator slides to the chosen option", async () => {
     const onchange = vi.fn();
     const { container } = render(Segmented, { options, value: "izq", label: "Alignment", onchange });
     const ind = container.querySelector(".ind") as HTMLElement;
@@ -97,7 +97,7 @@ describe("Segmented", () => {
     expect(ind.style.transform).toBe("translateX(200%)");
   });
 
-  it("flechas, Inicio y Fin mueven la elección y el foco; solo la elegida está en el orden de Tab", async () => {
+  it("arrows, Home and End move the choice and the focus; only the chosen one is in the Tab order", async () => {
     const onchange = vi.fn();
     render(Segmented, { options, value: "izq", label: "Alignment", onchange });
     const izq = screen.getByRole("radio", { name: "Left" });
@@ -115,7 +115,7 @@ describe("Segmented", () => {
     expect(onchange.mock.calls.map((c) => c[0])).toEqual(["cen", "der", "izq", "der", "izq"]);
   });
 
-  it("el indicador toma el color de la opción si lo tiene", () => {
+  it("the indicator takes the option's color if it has one", () => {
     const { container } = render(Segmented, {
       options: [
         { value: "a", label: "A", accent: "#4f7cbc" },
@@ -132,7 +132,7 @@ describe("Segmented", () => {
 });
 
 describe("Switch", () => {
-  it("cambia con clic y con el teclado, y avisa", async () => {
+  it("changes with click and with the keyboard, and announces", async () => {
     const user = userEvent.setup();
     const onchange = vi.fn();
     render(Switch, { checked: true, label: "Shared clipboard", onchange });
@@ -147,7 +147,7 @@ describe("Switch", () => {
     expect(onchange.mock.calls.map((c) => c[0])).toEqual([false, true]);
   });
 
-  it("deshabilitado no cambia", async () => {
+  it("disabled does not change", async () => {
     const onchange = vi.fn();
     render(Switch, { checked: false, label: "Module", disabled: true, onchange });
     await userEvent.click(screen.getByRole("switch", { name: "Module" }));
@@ -156,7 +156,7 @@ describe("Switch", () => {
 });
 
 describe("Chip", () => {
-  it("formato uniforme: punto y texto, con el tono como clase", () => {
+  it("uniform format: dot and text, with the tone as a class", () => {
     const { container } = render(Chip, { tone: "ok", children: text("activo") });
     const chip = container.querySelector(".chip") as HTMLElement;
     expect(chip).toHaveClass("ok");
@@ -164,14 +164,14 @@ describe("Chip", () => {
     expect(chip.textContent).toBe("activo");
   });
 
-  it("el contador no lleva punto; el pulso marca lo vivo", () => {
+  it("the counter has no dot; the pulse marks what is live", () => {
     const { container } = render(Chip, { count: true, children: text("3") });
     expect(container.querySelector(".chip.count .d")).toBeNull();
     const live = render(Chip, { tone: "info", pulse: true, children: text("activo") });
     expect(live.container.querySelector(".chip")).toHaveClass("pulse");
   });
 
-  it("con ícono en lugar de punto", () => {
+  it("with an icon instead of a dot", () => {
     const { container } = render(Chip, { icon: "warn", tone: "warn", children: text("Unsupported") });
     expect(container.querySelector(".chip svg")).not.toBeNull();
     expect(container.querySelector(".chip .d")).toBeNull();
@@ -179,22 +179,22 @@ describe("Chip", () => {
 });
 
 describe("Card", () => {
-  it("entra con retraso y no lleva línea de color arriba", () => {
+  it("enters with a delay and has no color line on top", () => {
     const { container } = render(Card, { delay: 0.12, children: text("hello") });
     const card = container.querySelector(".card") as HTMLElement;
     expect(card.style.animationDelay).toBe("0.12s");
     expect(card.style.borderTop).toBe("");
   });
 
-  it("con href es un link que se eleva", () => {
+  it("with href it is a link that lifts", () => {
     render(Card, { href: "#/machine/a", label: "Studio", children: text("x") });
     const a = screen.getByRole("link", { name: "Studio" });
     expect(a).toHaveClass("card", "lift");
   });
 });
 
-describe("íconos, anillos, barras y sparklines", () => {
-  it("cada ícono del set se dibuja con el trazo pedido", () => {
+describe("icons, rings, bars and sparklines", () => {
+  it("each icon of the set is drawn with the requested stroke", () => {
     for (const name of Object.keys(ICONS) as (keyof typeof ICONS)[]) {
       const { container, unmount } = render(Icon, { name, stroke: 2 });
       const svg = container.querySelector("svg") as SVGElement;
@@ -205,19 +205,19 @@ describe("íconos, anillos, barras y sparklines", () => {
     }
   });
 
-  it("el anillo marca la fracción", () => {
+  it("the ring marks the fraction", () => {
     const { container } = render(Ring, { value: 0.5, color: "#6cc59a", label: "CPU 50 %" });
     expect(screen.getByRole("img", { name: "CPU 50 %" })).toBeInTheDocument();
     expect(container.querySelector("circle.v")?.getAttribute("stroke-dashoffset")).toBe("57");
   });
 
-  it("la barra se limita a 0–100", () => {
+  it("the bar is limited to 0–100", () => {
     const { container } = render(Bar, { percent: 140, color: "#7aa7e6", label: "RAM" });
     expect((container.querySelector(".bar span") as HTMLElement).style.width).toBe("100%");
     expect(screen.getByRole("meter", { name: "RAM" })).toHaveAttribute("aria-valuenow", "100");
   });
 
-  it("la sparkline pone 0 abajo y 100 arriba, repartida a lo ancho", () => {
+  it("the sparkline puts 0 at the bottom and 100 at the top, spread across the width", () => {
     expect(sparkPoints([0, 50, 100], 300, 54)).toEqual([
       [0, 54],
       [150, 27],

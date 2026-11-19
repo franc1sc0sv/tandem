@@ -1,7 +1,7 @@
-/* Estilos del asistente (`F-Setup1`…`F-Setup6`). Van sin ámbito porque los comparten los seis
-   pasos; todos cuelgan de `.wiz` y sus nombres llevan el prefijo `wz-`. Las animaciones se
-   apagan con la regla global de `prefers-reduced-motion`: ninguna deja un elemento invisible
-   (el círculo y la marca del paso 6 se dibujan con el trazo ya completo, como el mockup). */
+/* Setup styles (`F-Setup1`…`F-Setup6`). They are unscoped because the six steps share them;
+   all hang from `.wiz` and their names carry the `wz-` prefix. The animations are
+   turned off by the global `prefers-reduced-motion` rule: none leaves an element invisible
+   (the circle and the mark of step 6 are drawn with the stroke already complete, like the mockup). */
 .wiz .wz-head {
   display: flex;
   flex-direction: column;
@@ -39,7 +39,7 @@
   --btn-r: 10px;
   --btn-gap: 9px;
 }
-/* «Instalar» (`F-Setup1`): 34 de alto y la flecha un poco más abajo, como el mockup. */
+/* "Install" (`F-Setup1`): 34 tall and the arrow slightly lower, like the mockup. */
 .wiz .wz-inst {
   --btn-h: 34px;
   --btn-px: 13px;
@@ -48,7 +48,7 @@
 .wiz .wz-inst svg {
   transform: translateY(2px);
 }
-/* «Go to desk» (`F-Setup6`): un poco más grande, entra al final y respira. */
+/* "Go to desk" (`F-Setup6`): a bit bigger, enters last and breathes. */
 .wiz .wz-fin {
   --btn-h: 46px;
   --btn-px: 22px;
@@ -66,11 +66,11 @@
     box-shadow: 0 0 0 7px rgba(122, 167, 230, 0);
   }
 }
-/* `F-Setup5`: el ícono de sus botones se mueve en 0.3 s (los demás, 0.25 s). */
+/* `F-Setup5`: the icon of its buttons moves in 0.3 s (the others, 0.25 s). */
 .wiz .body.arrange .btn svg {
   transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-/* `F-Setup3` y `F-Setup5`: todos sus botones animan también la opacidad (ACCEPTANCE G7). */
+/* `F-Setup3` and `F-Setup5`: all their buttons also animate opacity (ACCEPTANCE G7). */
 .wiz .body.tight .btn {
   transition:
     transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
@@ -78,7 +78,7 @@
     box-shadow 0.18s,
     opacity 0.3s;
 }
-/* El botón de «Continuar» anima su opacidad (`F-Setup3`, `F-Setup5`): .45 mientras falta algo. */
+/* The "Continue" button animates its opacity (`F-Setup3`, `F-Setup5`): .45 while something is missing. */
 .wiz .wz-next {
   transition:
     opacity 0.3s,
@@ -194,7 +194,7 @@
     stroke-dashoffset: 0;
   }
 }
-/* Paso 1 */
+/* Step 1 */
 .wiz .wz-sw {
   width: 30px;
   height: 30px;
@@ -280,7 +280,7 @@
   flex: none;
   margin: 2px;
 }
-/* Paso 2 */
+/* Step 2 */
 .wiz .wz-opt {
   font: inherit;
   text-align: left;
@@ -396,7 +396,7 @@
   gap: 10px;
   flex-wrap: wrap;
 }
-/* Paso 3 */
+/* Step 3 */
 .wiz .wz-perm {
   display: flex;
   gap: 14px;
@@ -440,7 +440,7 @@
   flex: none;
   animation: wz-pop 0.4s cubic-bezier(0.2, 1.6, 0.4, 1);
 }
-/* Paso 4 */
+/* Step 4 */
 .wiz .wz-mc {
   flex: 1 1 260px;
   min-width: 0;
@@ -464,7 +464,7 @@
   stroke-dasharray: 4 8;
   animation: wz-fl 0.9s linear infinite;
 }
-/* Paso 5 */
+/* Step 5 */
 .wiz .wz-canvas {
   position: relative;
   height: 290px;
@@ -524,7 +524,7 @@
   gap: 10px;
   align-items: center;
   flex-wrap: wrap;
-  /* La fila del mockup guarda el alto de sus botones de simulación. */
+  /* The mockup row keeps the height of its simulation buttons. */
   min-height: 36px;
   animation: wz-popy 0.3s ease-out;
 }
@@ -546,7 +546,7 @@
   border: 1px solid #5a4a2c;
   color: #e6c48f;
 }
-/* Paso 6 */
+/* Step 6 */
 .wiz .wz-ring {
   stroke-dasharray: 240;
   stroke-dashoffset: 240;
@@ -609,7 +609,7 @@
   outline: 2px solid #7aa7e6;
   outline-offset: 2px;
 }
-/* La fila del servicio guarda el alto de la del mockup (que lleva «Instalar»). */
+/* The service row keeps the height of the mockup's one (which carries "Install"). */
 .wiz .wz-chk.service {
   min-height: 57px;
   box-sizing: border-box;

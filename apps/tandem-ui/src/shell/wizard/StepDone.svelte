@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Paso 6 (`F-Setup6`): el resumen de lo que se comprobó de verdad y el comando que agrega
+  // Step 6 (`F-Setup6`): the summary of what was truly verified and the command that adds
   // Tandem a Claude Code.
   import { useStore } from "../../lib/context";
   import { MCP_COMMAND, deskTitle, summaryRows } from "../../lib/wizard";

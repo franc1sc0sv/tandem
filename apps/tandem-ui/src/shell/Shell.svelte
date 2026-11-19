@@ -24,7 +24,7 @@
 
   const store = useStore();
   const mac = isMacPlatform();
-  /** Shortcuts que el sistema no dejó registrar: los atiende la ventana cuando está al frente. */
+  /** Shortcuts the system would not let register: the window handles them when it is in front. */
   let keys: ShortcutsView | null = null;
   onMount(() => {
     store.shortcuts().then(
@@ -34,7 +34,7 @@
   });
   const key = $derived(formatHash(store.route));
 
-  // ⌘K / Ctrl+K abre y cierra la palette desde cualquier pantalla; ⌘, / Ctrl+, va a Settings.
+  // ⌘K / Ctrl+K opens and closes the palette from any screen; ⌘, / Ctrl+, goes to Settings.
   function onkeydown(e: KeyboardEvent) {
     if (keys && !e.defaultPrevented) {
       const action = localAction(e, keys);
@@ -61,10 +61,10 @@
 
 <div class="shell" class:dim={store.paletteOpen} inert={store.paletteOpen || store.wizardOpen}>
   {#if store.route.screen === "crossing"}
-    <!-- La prueba de crossing ocupa toda la ventana, con su ruta de vuelta (F-CrossingTest). -->
+    <!-- The crossing test takes the whole window, with its way back (F-CrossingTest). -->
     {#key key}<CrossTest />{/key}
   {:else if store.route.screen === "scene"}
-    <!-- El editor de scenes y el progress también ocupan toda la ventana (F-NewScene, F-Transactions). -->
+    <!-- The scene editor and the progress also take the whole window (F-NewScene, F-Transactions). -->
     {#key key}<Scene id={store.route.id} />{/key}
   {:else if store.route.screen === "progress"}
     {#key key}<Progress />{/key}
@@ -100,7 +100,7 @@
 <Toasts />
 
 <style>
-  /* La caja de los mockups: barra lateral y contenido en un flex que se envuelve. */
+  /* The mockups' box: sidebar and content in a flex that wraps. */
   .shell {
     width: 100%;
     min-height: 100vh;
@@ -112,7 +112,7 @@
     background: #0e0f12;
     transition: opacity 0.25s;
   }
-  /* Con la palette abierta, la app queda atrás tenue (F-Palette). */
+  /* With the palette open, the app stays dimmed behind it (F-Palette). */
   .shell.dim {
     opacity: 0.22;
   }

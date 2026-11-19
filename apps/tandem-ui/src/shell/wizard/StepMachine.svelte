@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Paso 1 (`F-Setup1`): nombre y color de this machine y lo que Tandem encontró en ella.
+  // Step 1 (`F-Setup1`): name and color of this machine and what Tandem found on it.
   import { useStore } from "../../lib/context";
   import { PALETTE } from "../../lib/machine";
   import { foundRows } from "../../lib/wizard";
@@ -8,14 +8,14 @@
   const store = useStore();
   const here = $derived(store.desk.machines[store.desk.here]);
   const rows = $derived(foundRows(here ?? null, store.admin));
-  // El estado real del servicio lo da la app, no el módulo: se lee al abrir el paso.
+  // The real state of the service is given by the app, not the module: it is read when the step opens.
   $effect(() => {
     void store.refreshAdmin();
   });
   let draft = $state<string | null>(null);
   const name = $derived(draft ?? here?.name ?? "");
 
-  /** El nombre se guarda al salir del campo o con Enter; vacío vuelve al que había. */
+  /** The name is saved on leaving the field or with Enter; empty goes back to the previous one. */
   async function commit() {
     const text = (draft ?? "").trim();
     draft = null;

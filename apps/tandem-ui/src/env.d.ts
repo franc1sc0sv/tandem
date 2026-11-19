@@ -1,5 +1,5 @@
 /// <reference types="svelte" />
 /// <reference types="vite/client" />
 
-/** El modo demo está en el build (desarrollo, pruebas y `pnpm build:demo`). */
+/** Demo mode is in the build (development, tests and `pnpm build:demo`). */
 declare const __DEMO__: boolean;

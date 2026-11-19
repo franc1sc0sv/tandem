@@ -1,4 +1,4 @@
-// Snippets de texto para pasar `children` a los componentes en las pruebas.
+// Text snippets to pass `children` to the components in tests.
 import { createRawSnippet, type Snippet } from "svelte";
 
 export function text(s: string): Snippet {

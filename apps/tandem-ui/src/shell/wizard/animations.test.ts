@@ -11,13 +11,13 @@ import { Store } from "../../lib/store/store.svelte";
 import { setReducedMotion } from "../../test/setup";
 import Shell from "../Shell.svelte";
 
-// G7 y G8 para el asistente de 6 pasos (`F-Setup1`, `V3-Setup`, `F-Setup3`…`F-Setup6`).
-// vitest corre desde apps/tandem-ui.
+// G7 and G8 for the 6-step setup (`F-Setup1`, `V3-Setup`, `F-Setup3`…`F-Setup6`).
+// vitest runs from apps/tandem-ui.
 const SRC = join(process.cwd(), "src");
 const read = (...p: string[]) => readFileSync(join(SRC, ...p), "utf8");
 const mockup = (name: string) => readFileSync(join(process.cwd(), "..", "..", "mockups", "v03", `${name}.dc.html`), "utf8");
 
-/** `.45s` -> `0.45s`, `cubic-bezier(.2,.8,.2,1)` -> `cubic-bezier(0.2, 0.8, 0.2, 1)`: como lo escribe el CSS de la app. */
+/** `.45s` -> `0.45s`, `cubic-bezier(.2,.8,.2,1)` -> `cubic-bezier(0.2, 0.8, 0.2, 1)`: as the app's CSS writes it. */
 const canon = (css: string) =>
   css
     .replace(/(^|[^\d])\.(\d)/g, "$10.$2")
@@ -25,7 +25,7 @@ const canon = (css: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
-/** Parte una lista por las comas de primer nivel (las de `cubic-bezier(...)` no cuentan). */
+/** Splits a list on top-level commas (those of `cubic-bezier(...)` do not count). */
 function topLevel(list: string): string[] {
   const out: string[] = [];
   let depth = 0;
@@ -42,7 +42,7 @@ function topLevel(list: string): string[] {
   return out.map((p) => p.trim()).filter(Boolean);
 }
 
-/** Cada animación del mockup, sin su nombre y sin el modo de relleno (la app usa `both`, el mockup `forwards`). */
+/** Each mockup animation, without its name and without the fill mode (the app uses `both`, the mockup `forwards`). */
 const animationsOf = (html: string) =>
   [...html.matchAll(/animation:([^;}"]*)/g)]
     .map((m) => m[1]!)
@@ -60,7 +60,7 @@ const transitionsOf = (html: string) =>
 
 const keyframesOf = (html: string) => [...html.matchAll(/@keyframes (\w+)/g)].map((m) => m[1]!);
 
-// Todo lo que dibuja el asistente: su CSS global, el marco, los seis pasos y el botón.
+// Everything the setup draws: its global CSS, the frame, the six steps and the button.
 const FILES = [
   read("shell", "wizard", "wizard.css"),
   read("shell", "Wizard.svelte"),
@@ -70,51 +70,51 @@ const FILES = [
   read("ui", "Button.svelte"),
 ];
 const CSS = canon(FILES.join("\n"));
-const has = (text: string, what: string) => expect(CSS.includes(text), `falta “${what}”`).toBe(true);
+const has = (text: string, what: string) => expect(CSS.includes(text), `missing "${what}"`).toBe(true);
 
 interface Step {
   mock: string;
-  /** Cada @keyframes del mockup y su equivalente en la app. */
+  /** Each mockup @keyframes and its equivalent in the app. */
   keyframes: Record<string, string[]>;
-  /** Los que el mockup declara y no usa. */
+  /** Those the mockup declares and does not use. */
   unused?: string[];
 }
 
 const STEPS: Record<string, Step> = {
   "1 · this machine": { mock: "F-Setup1", keyframes: { up: ["wz-up"], sp: ["wz-sp"] } },
   "2 · tu desk": { mock: "V3-Setup", keyframes: { fdi: ["wz-fdi"] } },
-  "3 · permisos": { mock: "F-Setup3", keyframes: { pl: ["wz-pl"], pop: ["wz-pop"] }, unused: ["sp"] },
-  "4 · teclado y mouse": { mock: "F-Setup4", keyframes: { up: ["wz-up"], fl: ["wz-fl"] } },
-  "5 · arrangement y prueba": { mock: "F-Setup5", keyframes: { mv: ["wz-mvx", "wz-mvy"], gl: ["wz-gl"], pop: ["wz-popy"] } },
-  "6 · listo": { mock: "F-Setup6", keyframes: { draw: ["wz-draw"], draw2: ["wz-draw"], up: ["wz-up"], glow: ["wz-glow"] } },
+  "3 · permissions": { mock: "F-Setup3", keyframes: { pl: ["wz-pl"], pop: ["wz-pop"] }, unused: ["sp"] },
+  "4 · keyboard and mouse": { mock: "F-Setup4", keyframes: { up: ["wz-up"], fl: ["wz-fl"] } },
+  "5 · arrangement and test": { mock: "F-Setup5", keyframes: { mv: ["wz-mvx", "wz-mvy"], gl: ["wz-gl"], pop: ["wz-popy"] } },
+  "6 · done": { mock: "F-Setup6", keyframes: { draw: ["wz-draw"], draw2: ["wz-draw"], up: ["wz-up"], glow: ["wz-glow"] } },
 };
 
-describe.each(Object.entries(STEPS))("animaciones del paso %s", (_name, s) => {
+describe.each(Object.entries(STEPS))("animations of step %s", (_name, s) => {
   const html = mockup(s.mock);
 
-  it("cada @keyframes del mockup tiene su equivalente", () => {
+  it("each mockup @keyframes has its equivalent", () => {
     const names = keyframesOf(html).filter((k) => !(s.unused ?? []).includes(k));
     expect(names.length).toBeGreaterThan(0);
     for (const k of names) {
-      expect(s.keyframes[k], `sin equivalente para @keyframes ${k}`).toBeDefined();
-      for (const app of s.keyframes[k]!) expect(FILES.join("\n").includes(`@keyframes ${app}`), `falta @keyframes ${app}`).toBe(true);
+      expect(s.keyframes[k], `no equivalent for @keyframes ${k}`).toBeDefined();
+      for (const app of s.keyframes[k]!) expect(FILES.join("\n").includes(`@keyframes ${app}`), `missing @keyframes ${app}`).toBe(true);
     }
   });
 
-  it("con las mismas duraciones, retrasos y curvas", () => {
+  it("with the same durations, delays and curves", () => {
     const used = animationsOf(html);
     expect(used.length).toBeGreaterThan(0);
     for (const a of used) has(a, a);
   });
 
-  it("y las mismas transiciones", () => {
+  it("and the same transitions", () => {
     const used = transitionsOf(html);
     expect(used.length).toBeGreaterThan(0);
     for (const t of used) has(t, t);
   });
 });
 
-// ---- Lo que cada pantalla anima de verdad ------------------------------------------------------
+// ---- What each screen really animates ----------------------------------------------------------
 
 async function mount(query: string, step: number) {
   const source = new DemoSource(demoOptions(query));
@@ -127,39 +127,39 @@ async function mount(query: string, step: number) {
   return { ...r, store, source, dlg };
 }
 
-/** Los retrasos de animación online, en segundos y en orden de aparición. */
+/** The inline animation delays, in seconds and in order of appearance. */
 const delays = (root: Element, selector: string) => [...root.querySelectorAll<HTMLElement>(selector)].map((e) => parseFloat(e.style.animationDelay));
-/** Los de las filas del mockup (`class="chk" style="animation-delay:.1s"`). */
+/** Those of the mockup rows (`class="chk" style="animation-delay:.1s"`). */
 const mockDelays = (html: string, cls: string) => [...html.matchAll(new RegExp(`class="${cls}"[^>]*?animation-delay:([\\d.]+)s`, "g"))].map((m) => parseFloat(m[1]!));
 
-describe("cada pantalla anima lo que anima su mockup", () => {
-  it("paso 1: las filas de «What it found» entran escalonadas y la del servicio gira", async () => {
+describe("each screen animates what its mockup animates", () => {
+  it("step 1: the \"What it found\" rows enter staggered and the service one spins", async () => {
     const { dlg } = await mount("demo&still&admin=pending", 0);
     expect(delays(dlg, ".wz-chk")).toEqual(mockDelays(mockup("F-Setup1"), "chk"));
     expect(dlg.querySelectorAll(".wz-spin")).toHaveLength(1);
   });
 
-  it("paso 2: el panel de los dígitos entra con fundido", async () => {
+  it("step 2: the digits panel enters with a fade", async () => {
     const { dlg } = await mount("demo&still&peer=none&pair=code", 1);
     expect(mockup("V3-Setup")).toContain("animation:fdi .35s ease-out");
     expect(dlg.querySelectorAll(".wz-panel").length).toBeGreaterThan(0);
   });
 
-  it("paso 3: el punto de lo que falta late y el de lo concedido aparece con rebote", async () => {
+  it("step 3: the missing dot pulses and the granted one appears with a bounce", async () => {
     const { dlg } = await mount("demo&still&perms=missing", 2);
     expect(dlg.querySelectorAll(".wz-dot.wait")).toHaveLength(2);
     expect(dlg.querySelectorAll(".wz-perm.granted .wz-tick")).toHaveLength(1);
     expect(dlg.querySelectorAll(".wz-perm")).toHaveLength(3);
   });
 
-  it("paso 4: las machines y sus dispositivos entran escalonados y el flujo corre", async () => {
+  it("step 4: the machines and their devices enter staggered and the flow runs", async () => {
     const { dlg } = await mount("demo&still", 3);
     expect(delays(dlg, ".wz-dev")).toEqual(mockDelays(mockup("F-Setup4"), "dev"));
     expect(delays(dlg, ".wz-mc")).toEqual([0, 0.1]);
     expect(dlg.querySelectorAll(".wz-flow")).toHaveLength(2);
   });
 
-  it("paso 5: el cursor recorre el borde mientras espera y el borde brilla al cruzar", async () => {
+  it("step 5: the cursor travels the edge while waiting and the edge glows on crossing", async () => {
     const { dlg, store } = await mount("demo&still&cross=ok", 4);
     expect(dlg.querySelector(".wz-cur.go")).toBeNull();
     screen.getByRole("button", { name: "Test crossing" }).click();
@@ -168,7 +168,7 @@ describe("cada pantalla anima lo que anima su mockup", () => {
     expect(dlg.querySelector(".wz-edge.glow")).not.toBeNull();
   });
 
-  it("paso 6: el círculo y la marca se dibujan, las filas entran escalonadas y el botón al final", async () => {
+  it("step 6: the circle and the mark are drawn, the rows enter staggered and the button last", async () => {
     const { dlg, store } = await mount("demo&still", 5);
     store.wizardCrossed = true;
     await tick();
@@ -180,67 +180,67 @@ describe("cada pantalla anima lo que anima su mockup", () => {
   });
 });
 
-describe("el botón anima también la opacidad en F-Setup3 y F-Setup5 (ACCEPTANCE G7)", () => {
+describe("the button also animates opacity in F-Setup3 and F-Setup5 (ACCEPTANCE G7)", () => {
   const withOpacity = (name: string) => /\.btn\{display[^}]*opacity \.3s/.test(mockup(name));
 
-  it("solo esos dos mockups lo hacen, y solo esos dos pasos llevan la regla", async () => {
+  it("only those two mockups do it, and only those two steps carry the rule", async () => {
     const expected: Record<string, boolean> = { "F-Setup1": false, "V3-Setup": false, "F-Setup3": true, "F-Setup4": false, "F-Setup5": true, "F-Setup6": false };
     for (const [name, yes] of Object.entries(expected)) expect(withOpacity(name), name).toBe(yes);
     const names = ["F-Setup1", "V3-Setup", "F-Setup3", "F-Setup4", "F-Setup5", "F-Setup6"];
     for (const [step, name] of names.entries()) {
       const { dlg, unmount } = await mount("demo&still", step);
-      expect(dlg.querySelector(".body")?.classList.contains("tight"), `paso ${step + 1}`).toBe(expected[name]);
+      expect(dlg.querySelector(".body")?.classList.contains("tight"), `step ${step + 1}`).toBe(expected[name]);
       unmount();
     }
   });
 
-  it("la regla del CSS agrega `opacity 0.3s` a todos los botones del paso", () => {
+  it("the CSS rule adds `opacity 0.3s` to all the step's buttons", () => {
     const rule = /\.wiz \.body\.tight \.btn \{([^}]*)\}/.exec(read("shell", "wizard", "wizard.css"))?.[1] ?? "";
     expect(canon(rule)).toContain("opacity 0.3s");
-    // Y «Continuar» la conserva mientras falta algo (.45).
+    // And "Continue" keeps it while something is missing (.45).
     expect(canon(read("shell", "wizard", "wizard.css"))).toMatch(/\.wz-next \{ transition: opacity 0\.3s,/);
   });
 });
 
-// ---- Movimiento reducido (G8) ------------------------------------------------------------------
+// ---- Reduced motion (G8) ----------------------------------------------------------------------
 
 const GLOBAL = read("styles", "global.css");
 const RULE = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(GLOBAL)?.[1] ?? "";
-/** El CSS del asistente sin los cuerpos de los @keyframes (que sí arrancan en opacity 0). */
+/** The setup CSS without the @keyframes bodies (which do start at opacity 0). */
 const WIZ_CSS = read("shell", "wizard", "wizard.css").replace(/@keyframes [\w-]+ \{(?:[^{}]|\{[^{}]*\})*\}/g, "");
 
-describe("movimiento reducido en el asistente", () => {
-  it("la regla global apaga animaciones y transiciones", () => {
+describe("reduced motion in the setup", () => {
+  it("the global rule turns off animations and transitions", () => {
     expect(RULE).toContain("animation: none !important");
     expect(RULE).toContain("transition: none !important");
   });
 
-  it("ninguna regla del asistente se escapa de la regla global", () => {
+  it("no setup rule escapes the global rule", () => {
     for (const src of FILES) {
       expect(src).not.toMatch(/(animation|transition)[^;{}]*!important/);
       expect(src).not.toMatch(/\.animate\(|svelte\/transition|svelte\/animate/);
     }
   });
 
-  it("ningún elemento depende de su animación para verse", () => {
-    // Sin la animación (`animation: none`) vale el estilo base: nada arranca en opacity 0.
+  it("no element depends on its animation to be seen", () => {
+    // Without the animation (`animation: none`) the base style holds: nothing starts at opacity 0.
     expect(WIZ_CSS).not.toMatch(/opacity: 0;/);
     for (const m of WIZ_CSS.matchAll(/animation:\s*([^;]*);/g)) {
       for (const p of topLevel(m[1]!.replace(/\s+/g, " "))) {
-        // Las de entrada rellenan hacia adelante; las infinitas no rellenan.
+        // The entrance ones fill forwards; the infinite ones do not fill.
         if (/^wz-(up|draw)\b/.test(p)) expect(p, p).toMatch(/\b(both|forwards)\b/);
         if (p.includes("infinite")) expect(p, p).not.toMatch(/\b(both|forwards)\b/);
       }
     }
   });
 
-  it("el círculo y la marca del paso 6 se ven completos sin animación, como en el mockup", () => {
+  it("the circle and the mark of step 6 are seen whole without animation, like the mockup", () => {
     expect(mockup("F-Setup6")).toMatch(/prefers-reduced-motion:reduce\)\{\*\{[^}]*stroke-dashoffset:0!important/);
     const block = /@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/.exec(read("shell", "wizard", "wizard.css"))?.[1] ?? "";
     expect(canon(block)).toContain(".wiz .wz-ring, .wiz .wz-tickd { stroke-dashoffset: 0;");
   });
 
-  it("las transiciones de Svelte del marco duran 0 ms", async () => {
+  it("the Svelte transitions of the frame last 0 ms", async () => {
     setReducedMotion(true);
     expect(reducedMotion()).toBe(true);
     expect(enter(document.body, { y: 6, duration: 350 }).duration).toBe(0);
@@ -249,11 +249,11 @@ describe("movimiento reducido en el asistente", () => {
     expect(enter(document.body, { y: 6, duration: 350 }).duration).toBe(350);
   });
 
-  it.each([0, 1, 2, 3, 4, 5])("el paso %i muestra todo su contenido sin movimiento", async (step) => {
+  it.each([0, 1, 2, 3, 4, 5])("step %i shows all its content without motion", async (step) => {
     setReducedMotion(true);
     const { dlg } = await mount("demo&still&perms=missing", step);
     expect(dlg.querySelector("h1")?.textContent?.length).toBeGreaterThan(0);
-    // Sin animación, nada queda con estilos online que lo escondan.
+    // Without animation, nothing is left with inline styles that hide it.
     for (const el of dlg.querySelectorAll<HTMLElement>("[style]")) {
       expect(el.style.opacity, el.outerHTML.slice(0, 80)).not.toBe("0");
       expect(el.style.visibility).not.toBe("hidden");

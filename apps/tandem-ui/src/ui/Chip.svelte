@@ -9,12 +9,12 @@
 
   interface Props {
     tone?: ChipTone;
-    /** Punto de estado (el formato uniforme); `false` para un chip de solo texto o con ícono. */
+    /** Status dot (the uniform format); `false` for a text-only chip or one with an icon. */
     dot?: boolean;
-    /** El punto late (estado vivo). */
+    /** The dot pulses (live state). */
     pulse?: boolean;
     icon?: IconName;
-    /** Contador chico (el de Tunnels en la barra lateral). */
+    /** Small counter (the Tunnels one in the sidebar). */
     count?: boolean;
     class?: string;
     style?: string;
@@ -29,7 +29,7 @@
 </span>
 
 <style>
-  /* Chip de estado uniforme: punto (o ícono) + texto, mismo alto en todas las pantallas. */
+  /* Uniform status chip: dot (or icon) + text, same height on all screens. */
   .chip {
     --c: #9a9da6;
     display: inline-flex;
