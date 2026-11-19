@@ -34,7 +34,7 @@ Options: `--only link,tunnels,input,monitors`, `--mac-link DIR`, `--ref REF` (by
 | `tunnel-files` | H2, T-106 | a 3 MiB file round trip, identical |
 | `tunnel-port` | H2, T-106 | port forwarded to an echo server on the other machine |
 | `tunnel-workspace` | H2, T-107 | git repo on the other side, commit there, comes back as a branch |
-| `input-cross` + `input-latency` | H4, T-093 | synthetic movement (`SendInput` / `CGEventPost`) against each edge until the `Crossed` notice; the other machine judges p50/p99 (Wi-Fi 5/20 ms, cable 1/4 ms) |
+| `input-cross` + `input-latency` | H4, T-093 | synthetic movement fed to the agent (`UiCommand::SyntheticMotion`; both captures drop system-injected input) against each edge until the `Crossed` notice; the other machine judges p50/p99 (Wi-Fi 5/20 ms, cable 1/4 ms) |
 | `monitor-roundtrip` | H3, T-109, T-110 | switches the 34" to the other input and back |
 | `monitor-kill` | T-110 | kills the process halfway through the change: the watchdog has to revert by itself |
 

@@ -218,20 +218,20 @@ const PUSHES: [(&str, f64, f64); 4] = [
 /// How `input-cross` moves the cursor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Drive {
-    /// Real system injection (`CGEventPost` on macOS): it goes through the capture like the
-    /// physical mouse. The macOS tap only lets through, unforwarded, events carrying
-    /// `INJECTED_MARKER`, and the check's events do not carry it.
+    /// Real system injection. Neither capture forwards it: the Windows hooks drop
+    /// `LLMHF_INJECTED` and Raw Input without a device (T-239), and the macOS tap drops events
+    /// tagged with `INJECTED_MARKER`, which `CgSink` writes on everything it posts (T-241). Only
+    /// left for systems without injection, where the check is skipped.
     System,
-    /// Motion fed to the agent's input engine (`UiCommand::SyntheticMotion`). The Windows
-    /// capture drops whatever `SendInput` injects on purpose (`LLMHF_INJECTED` in the hook, Raw
-    /// Input without a device), so system injection never reaches the edge there (T-239).
+    /// Motion fed to the agent's input engine (`UiCommand::SyntheticMotion`): the only way an
+    /// edge is reached without moving the physical mouse, on Windows and on macOS.
     Agent,
 }
 
 impl Drive {
     /// The one that reaches the edge on `os` (`std::env::consts::OS`).
     pub fn for_os(os: &str) -> Self {
-        if os == "windows" {
+        if matches!(os, "windows" | "macos") {
             Drive::Agent
         } else {
             Drive::System
@@ -790,12 +790,12 @@ pub async fn run_tunnel(ctx: &Ctx, name: &str) -> Option<CheckResult> {
 mod tests {
     use super::*;
 
-    /// T-239: on Windows system injection never reaches the edge (the capture drops it), so the
-    /// check feeds the agent; on macOS it keeps going through the real tap.
+    /// T-239 and T-241: both captures drop what the system injects (their echo guard), so on
+    /// Windows and macOS the check feeds the agent.
     #[test]
-    fn windows_pushes_through_the_agent_and_macos_through_the_system() {
+    fn windows_and_macos_push_through_the_agent() {
         assert_eq!(Drive::for_os("windows"), Drive::Agent);
-        assert_eq!(Drive::for_os("macos"), Drive::System);
+        assert_eq!(Drive::for_os("macos"), Drive::Agent);
         assert_eq!(Drive::for_os("linux"), Drive::System);
     }
 
