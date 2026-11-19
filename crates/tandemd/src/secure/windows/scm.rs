@@ -48,6 +48,7 @@ pub fn run_service() -> io::Result<()> {
 
 /// Called by the SCM on its own thread. It cannot unwind into the SCM: a panic is caught and
 /// reported as a failure, which triggers the recovery actions.
+// SAFETY: the signature is `LPSERVICE_MAIN_FUNCTIONW`; the arguments are not read.
 unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
     let code = match std::panic::catch_unwind(service_body) {
         Ok(Ok(())) => 0,
@@ -61,6 +62,7 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
 }
 
 /// Control requests from the SCM; they only queue an event.
+// SAFETY: the signature is `LPHANDLER_FUNCTION_EX`; the event data and context are not read.
 unsafe extern "system" fn control_handler(
     control: u32,
     _event_type: u32,
