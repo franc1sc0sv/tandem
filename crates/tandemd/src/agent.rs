@@ -805,6 +805,17 @@ impl Agent {
             screens = next.desk.screens.len(),
             "desk updated from the other machine"
         );
+        // The other's simultaneous sibling never holds here on its own: with this machine's moved
+        // switches on top it is a new change of this one. Neither a "Changed from" notice nor a
+        // history entry for it, whose "Undo" to this `rev` would find the sibling and take the
+        // switches away again (T-322).
+        if let Some(desk) = self.moved_desk(&next) {
+            tracing::info!(
+                "the other machine's simultaneous desk lost this machine's switches: putting them back"
+            );
+            self.commit_local(next.change(desk, self.machine(), now_millis()));
+            return;
+        }
         // The file goes first (the desk in memory is never ahead of it). Writers are already
         // serialized by the change being taken ([`Agent::edit`]), so the file I/O stays out of
         // `sync`, which only keeps stamp and desk consistent for `desk_sync`.
@@ -838,43 +849,27 @@ impl Agent {
         // This machine's name and color may come from the other.
         self.refresh_capabilities();
         self.settle_scene();
-        self.keep_moved_here();
     }
 
-    /// If the version that holds is the other machine's simultaneous one (the same `rev` as this
-    /// one's migration, so made without seeing it), what the migration moved goes back on top, as
-    /// a new change that reaches the other. Once a newer version holds it is forgotten: from then
-    /// on the desk wins whole, as always, and a later change by the other is not undone (T-322).
-    fn keep_moved_here(&self) {
-        let _editing = self.edit();
-        let current = self.desk_sync();
-        let desk = {
-            let mut moved = self
-                .moved_here
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            let Some(m) = moved.as_ref() else {
-                return;
-            };
-            if current.stamp.rev == m.rev && current.stamp.by == self.machine() {
-                // This machine's version holds: the other adopts it.
-                return;
-            }
-            let mut desk = current.desk.clone();
-            if current.stamp.rev == m.rev {
-                for (module, &on) in &m.modules {
-                    desk.modules.set(m.side, module, on);
-                }
-            }
-            *moved = None;
-            desk
-        };
-        if desk != current.desk {
-            tracing::info!(
-                "the other machine's simultaneous desk lost this machine's switches: putting them back"
-            );
-            self.commit_desk(desk);
+    /// The desk to commit on top of `holds`, the version just adopted from the other machine, if
+    /// it is its simultaneous one (the same `rev` as this one's migration, so made without seeing
+    /// it): what the migration moved goes back on top, as a new change that reaches the other.
+    /// Once a newer version holds it is forgotten: from then on the desk wins whole, as always,
+    /// and a later change by the other is not undone (T-322). It is called with the change taken.
+    fn moved_desk(&self, holds: &DeskVersion) -> Option<Config> {
+        let mut moved = self
+            .moved_here
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let m = moved.take()?;
+        if holds.stamp.rev != m.rev {
+            return None;
         }
+        let mut desk = holds.desk.clone();
+        for (module, &on) in &m.modules {
+            desk.modules.set(m.side, module, on);
+        }
+        (desk != holds.desk).then_some(desk)
     }
 
     /// What this machine says about itself: its system and, from the desk, its name and color.
@@ -2300,7 +2295,11 @@ pub(crate) mod tests {
         assert!(theirs.stamp.wins_over(&mine.stamp));
         assert_eq!(theirs.desk.modules.get(Machine::B, "clipboard"), None);
 
+        let mut notices = b.subscribe_desk_changes();
         b.receive_desk(theirs.clone());
+        // Nothing of A's version holds here any more: no "Changed from A" notice, whose Undo
+        // would have gone back to A's sibling with the same `rev` and turned the switch off.
+        assert!(notices.try_recv().is_err());
         let now = b.desk_sync();
         assert_eq!(now.desk.modules.get(Machine::B, "clipboard"), Some(false));
         assert_eq!(
@@ -2315,6 +2314,13 @@ pub(crate) mod tests {
         // And it goes to A, which adopts it.
         assert_eq!(to_a.taken(), std::slice::from_ref(&now));
         a.receive_desk(theirs);
+        a.receive_desk(now.clone());
+        assert_eq!(a.desk_sync(), now);
+        // Going back to B's own rev 4 keeps the switch too.
+        let undone = b.undo_desk(mine.stamp.rev).unwrap();
+        assert_eq!(undone.modules.get(Machine::B, "clipboard"), Some(false));
+        let now = b.desk_sync();
+        to_a.taken();
         a.receive_desk(now.clone());
         assert_eq!(a.desk_sync(), now);
 
