@@ -1,5 +1,5 @@
-//! [`SessionHost`] on Windows: the console session, the helper launched with `winlogon`'s
-//! token and `TokenUIAccess`, and `SendSAS`.
+//! [`SessionHost`] on Windows: the console session, the helper launched with the service's
+//! own LocalSystem token moved to that session with `TokenUIAccess`, and `SendSAS`.
 
 use std::io::{self, BufRead, BufReader};
 use std::os::windows::io::FromRawHandle;
@@ -11,28 +11,44 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Security::Authentication::Identity::SendSAS;
 use windows::Win32::Security::{
-    DuplicateTokenEx, SECURITY_ATTRIBUTES, SecurityIdentification, SetTokenInformation,
-    TOKEN_ALL_ACCESS, TOKEN_DUPLICATE, TOKEN_QUERY, TokenPrimary, TokenUIAccess,
+    DuplicateTokenEx, SECURITY_ATTRIBUTES, SecurityImpersonation, SetTokenInformation,
+    TOKEN_ALL_ACCESS, TOKEN_DUPLICATE, TOKEN_QUERY, TokenPrimary, TokenSessionId, TokenUIAccess,
 };
-use windows::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
+use windows::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+    SetInformationJobObject,
 };
 use windows::Win32::System::Pipes::CreatePipe;
-use windows::Win32::System::RemoteDesktop::{ProcessIdToSessionId, WTSGetActiveConsoleSessionId};
+use windows::Win32::System::RemoteDesktop::WTSGetActiveConsoleSessionId;
 use windows::Win32::System::Threading::{
-    CREATE_NO_WINDOW, CreateProcessAsUserW, GetExitCodeProcess, OpenProcess, OpenProcessToken,
-    PROCESS_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOW,
-    TerminateProcess, WaitForSingleObject,
+    CREATE_NO_WINDOW, CREATE_SUSPENDED, CreateProcessAsUserW, DeleteProcThreadAttributeList,
+    EXTENDED_STARTUPINFO_PRESENT, GetCurrentProcess, GetExitCodeProcess,
+    InitializeProcThreadAttributeList, LPPROC_THREAD_ATTRIBUTE_LIST, OpenProcessToken,
+    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
+    STARTUPINFOEXW, STARTUPINFOW, TerminateProcess, UpdateProcThreadAttribute, WaitForSingleObject,
 };
 use windows::core::{PCWSTR, PWSTR};
 
-use super::{Owned, wide, win_err};
-use crate::secure::supervisor::{Event, SessionHost, winlogon_in};
+use super::{Owned, token_is_system, token_session, wide, win_err};
+use crate::secure::supervisor::{Event, SessionHost, TokenSource, helper_token};
 
-/// A running helper.
+/// A running helper. Dropping it ends the process: if the service unwinds (an error or a
+/// panic in its loop) the helper does not stay behind holding the pipe and the executable.
 pub struct Helper {
     process: Owned,
+    /// `KILL_ON_JOB_CLOSE`: also covers the service dying without unwinding. `None` if
+    /// Windows refused to put the helper in the job; then only `Drop` ends it.
+    _job: Option<Owned>,
     pub pid: u32,
+}
+
+impl Drop for Helper {
+    fn drop(&mut self) {
+        // SAFETY: the handle has PROCESS_TERMINATE (CreateProcessAsUser grants all rights).
+        // Terminating a process that already ended only fails.
+        let _ = unsafe { TerminateProcess(self.process.0, 0) };
+    }
 }
 
 pub struct WinSessionHost {
@@ -56,7 +72,7 @@ impl SessionHost for WinSessionHost {
     }
 
     fn spawn(&mut self, session: u32) -> io::Result<Helper> {
-        let token = helper_token(session)?;
+        let token = helper_token(&mut WinTokens, session)?;
         let (read, write) = control_pipe()?;
         let helper = launch(&token, &self.exe, &write)?;
         drop(write);
@@ -85,6 +101,7 @@ impl SessionHost for WinSessionHost {
         let _ = unsafe { TerminateProcess(helper.process.0, 0) };
         // SAFETY: live handle; bounded wait so a stuck process cannot hang the service.
         let _ = unsafe { WaitForSingleObject(helper.process.0, 5_000) };
+        drop(helper);
     }
 
     fn send_sas(&mut self) -> io::Result<()> {
@@ -113,76 +130,68 @@ fn read_control(read: Owned, pid: u32, events: &Sender<Event>) {
     }
 }
 
-fn processes() -> io::Result<Vec<(u32, String, Option<u32>)>> {
-    // SAFETY: no pointers; the snapshot handle is owned below.
-    let snap = Owned(unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }.map_err(win_err)?);
-    let mut entry = PROCESSENTRY32W {
-        dwSize: size_of::<PROCESSENTRY32W>() as u32,
-        ..Default::default()
-    };
-    let mut out = Vec::new();
-    // SAFETY: `entry` is initialized with its size, as the API requires.
-    let mut more = unsafe { Process32FirstW(snap.0, &mut entry) }.is_ok();
-    while more {
-        let len = entry
-            .szExeFile
-            .iter()
-            .position(|&c| c == 0)
-            .unwrap_or(entry.szExeFile.len());
-        let name = String::from_utf16_lossy(&entry.szExeFile[..len]);
-        out.push((entry.th32ProcessID, name, session_of(entry.th32ProcessID)));
-        // SAFETY: same snapshot and entry.
-        more = unsafe { Process32NextW(snap.0, &mut entry) }.is_ok();
-    }
-    Ok(out)
-}
+/// [`TokenSource`] over the service process's own token.
+pub(super) struct WinTokens;
 
-fn session_of(pid: u32) -> Option<u32> {
-    let mut session = 0u32;
-    // SAFETY: `session` is a valid out pointer.
-    unsafe { ProcessIdToSessionId(pid, &mut session) }.ok()?;
-    Some(session)
-}
+impl TokenSource for WinTokens {
+    type Token = Owned;
 
-/// SYSTEM's primary token in `session` (a copy of its `winlogon.exe`'s) with UIAccess on.
-fn helper_token(session: u32) -> io::Result<Owned> {
-    let pid = winlogon_in(processes()?, session)
-        .ok_or_else(|| io::Error::other(format!("no winlogon.exe in session {session}")))?;
-    // SAFETY: no pointers; the handle is owned below.
-    let process = Owned(
-        unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) }.map_err(win_err)?,
-    );
-    let mut token = HANDLE::default();
-    // SAFETY: live process handle; `token` is an out pointer owned below.
-    unsafe { OpenProcessToken(process.0, TOKEN_DUPLICATE | TOKEN_QUERY, &mut token) }
+    fn duplicate_own(&mut self) -> io::Result<Owned> {
+        let mut own = HANDLE::default();
+        // SAFETY: GetCurrentProcess is a pseudo-handle that needs no closing; `own` is an out
+        // pointer owned below.
+        unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_DUPLICATE | TOKEN_QUERY, &mut own) }
+            .map_err(win_err)?;
+        let own = Owned(own);
+        let mut primary = HANDLE::default();
+        // SAFETY: live token handle; `primary` is an out pointer owned below.
+        unsafe {
+            DuplicateTokenEx(
+                own.0,
+                TOKEN_ALL_ACCESS,
+                None,
+                SecurityImpersonation,
+                TokenPrimary,
+                &mut primary,
+            )
+        }
         .map_err(win_err)?;
-    let token = Owned(token);
-    let mut primary = HANDLE::default();
-    // SAFETY: live token handle; `primary` is an out pointer owned below.
-    unsafe {
-        DuplicateTokenEx(
-            token.0,
-            TOKEN_ALL_ACCESS,
-            None,
-            SecurityIdentification,
-            TokenPrimary,
-            &mut primary,
-        )
+        Ok(Owned(primary))
     }
-    .map_err(win_err)?;
-    let primary = Owned(primary);
-    let ui_access: u32 = 1;
-    // SAFETY: a DWORD is what TokenUIAccess takes; the service has SeTcbPrivilege as SYSTEM.
+
+    fn is_local_system(&mut self, token: &Owned) -> io::Result<bool> {
+        token_is_system(token)
+    }
+
+    fn set_session(&mut self, token: &Owned, session: u32) -> io::Result<()> {
+        set_dword(token, TokenSessionId, session)
+    }
+
+    fn session(&mut self, token: &Owned) -> io::Result<u32> {
+        token_session(token)
+    }
+
+    fn enable_ui_access(&mut self, token: &Owned) -> io::Result<()> {
+        set_dword(token, TokenUIAccess, 1)
+    }
+}
+
+fn set_dword(
+    token: &Owned,
+    class: windows::Win32::Security::TOKEN_INFORMATION_CLASS,
+    value: u32,
+) -> io::Result<()> {
+    // SAFETY: TokenSessionId and TokenUIAccess take a DWORD; the token has TOKEN_ALL_ACCESS
+    // and the service holds SeTcbPrivilege as LocalSystem.
     unsafe {
         SetTokenInformation(
-            primary.0,
-            TokenUIAccess,
-            (&raw const ui_access).cast(),
+            token.0,
+            class,
+            (&raw const value).cast(),
             size_of::<u32>() as u32,
         )
     }
-    .map_err(win_err)?;
-    Ok(primary)
+    .map_err(win_err)
 }
 
 /// An anonymous pipe whose write end the helper inherits as stderr.
@@ -202,22 +211,102 @@ fn control_pipe() -> io::Result<(Owned, Owned)> {
     Ok((read, write))
 }
 
+/// A job that kills its processes when its last handle closes (the service exiting in any way).
+fn kill_on_close_job() -> io::Result<Owned> {
+    // SAFETY: no security attributes (not inheritable) and no name; owned below.
+    let job = Owned(unsafe { CreateJobObjectW(None, PCWSTR::null()) }.map_err(win_err)?);
+    let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    // SAFETY: `limits` is the struct JobObjectExtendedLimitInformation takes, with its size.
+    unsafe {
+        SetInformationJobObject(
+            job.0,
+            JobObjectExtendedLimitInformation,
+            (&raw const limits).cast(),
+            size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+        )
+    }
+    .map_err(win_err)?;
+    Ok(job)
+}
+
+/// A `PROC_THREAD_ATTRIBUTE_LIST` with a handle list, deleted on drop. The list and the
+/// handles it points to must outlive `CreateProcessAsUserW`.
+struct InheritList {
+    buf: Vec<u64>,
+    handles: Box<[HANDLE]>,
+}
+
+impl InheritList {
+    fn new(handles: &[HANDLE]) -> io::Result<Self> {
+        let mut size = 0usize;
+        // SAFETY: first call only learns the size; it fails on purpose with no list.
+        let _ = unsafe { InitializeProcThreadAttributeList(None, 1, None, &mut size) };
+        let mut list = InheritList {
+            buf: vec![0u64; size.div_ceil(8)],
+            handles: handles.into(),
+        };
+        // SAFETY: `buf` has `size` bytes, aligned to 8.
+        unsafe { InitializeProcThreadAttributeList(Some(list.ptr()), 1, None, &mut size) }
+            .map_err(win_err)?;
+        // SAFETY: the list was initialized for one attribute; `handles` is boxed, so its
+        // address does not move while the list lives.
+        let updated = unsafe {
+            UpdateProcThreadAttribute(
+                list.ptr(),
+                0,
+                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                Some(list.handles.as_ptr().cast()),
+                size_of_val(&*list.handles),
+                None,
+                None,
+            )
+        };
+        if let Err(e) = updated {
+            // SAFETY: initialized above and not used afterwards.
+            unsafe { DeleteProcThreadAttributeList(list.ptr()) };
+            list.buf.clear();
+            return Err(win_err(e));
+        }
+        Ok(list)
+    }
+
+    fn ptr(&mut self) -> LPPROC_THREAD_ATTRIBUTE_LIST {
+        LPPROC_THREAD_ATTRIBUTE_LIST(self.buf.as_mut_ptr().cast())
+    }
+}
+
+impl Drop for InheritList {
+    fn drop(&mut self) {
+        if !self.buf.is_empty() {
+            // SAFETY: initialized in `new` (an empty buffer means it was already deleted).
+            unsafe { DeleteProcThreadAttributeList(self.ptr()) };
+        }
+    }
+}
+
 fn launch(token: &Owned, exe: &std::path::Path, stderr: &Owned) -> io::Result<Helper> {
     let mut command = wide(&format!("\"{}\" --input-helper", exe.display()));
     let mut desktop = wide(r"winsta0\default");
-    let startup = STARTUPINFOW {
-        cb: size_of::<STARTUPINFOW>() as u32,
-        lpDesktop: PWSTR(desktop.as_mut_ptr()),
-        dwFlags: STARTF_USESTDHANDLES,
-        hStdInput: HANDLE::default(),
-        hStdOutput: HANDLE::default(),
-        hStdError: stderr.0,
-        ..Default::default()
+    // Only the control pipe reaches the child, whatever else the service has inheritable.
+    let mut inherit = InheritList::new(&[stderr.0])?;
+    let startup = STARTUPINFOEXW {
+        StartupInfo: STARTUPINFOW {
+            cb: size_of::<STARTUPINFOEXW>() as u32,
+            lpDesktop: PWSTR(desktop.as_mut_ptr()),
+            dwFlags: STARTF_USESTDHANDLES,
+            hStdInput: HANDLE::default(),
+            hStdOutput: HANDLE::default(),
+            hStdError: stderr.0,
+            ..Default::default()
+        },
+        lpAttributeList: inherit.ptr(),
     };
+    let job = kill_on_close_job()?;
     let mut info = PROCESS_INFORMATION::default();
-    // SAFETY: every pointer (command line, desktop, startup info) lives during the call; the
-    // command line buffer is writable, as CreateProcessAsUserW requires. Only the inheritable
-    // write end of the control pipe is passed down.
+    // SAFETY: every pointer (command line, desktop, startup info and its attribute list)
+    // lives during the call; the command line buffer is writable, as CreateProcessAsUserW
+    // requires. EXTENDED_STARTUPINFO_PRESENT says `startup` is a STARTUPINFOEXW.
     unsafe {
         CreateProcessAsUserW(
             Some(token.0),
@@ -226,17 +315,34 @@ fn launch(token: &Owned, exe: &std::path::Path, stderr: &Owned) -> io::Result<He
             None,
             None,
             true,
-            CREATE_NO_WINDOW,
+            CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
             None,
             PCWSTR::null(),
-            &startup,
+            &startup.StartupInfo,
             &mut info,
         )
     }
     .map_err(win_err)?;
-    drop(Owned(info.hThread));
-    Ok(Helper {
+    drop(inherit);
+    let thread = Owned(info.hThread);
+    let mut helper = Helper {
         process: Owned(info.hProcess),
+        _job: None,
         pid: info.dwProcessId,
-    })
+    };
+    // Suspended until it is in the job, so it cannot start anything outside it first.
+    // SAFETY: both handles are live; the job was created by this process.
+    match unsafe { AssignProcessToJobObject(job.0, helper.process.0) } {
+        Ok(()) => helper._job = Some(job),
+        Err(e) => tracing::warn!(
+            error = %win_err(e),
+            "the helper is not in a job: it only ends with the service if the service unwinds"
+        ),
+    }
+    // SAFETY: live thread handle of the suspended main thread. On failure `helper` drops and
+    // ends the process.
+    if unsafe { ResumeThread(thread.0) } == u32::MAX {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(helper)
 }

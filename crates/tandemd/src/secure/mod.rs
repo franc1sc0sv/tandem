@@ -5,8 +5,8 @@
 //! a user process away from elevated windows. Three processes share the work:
 //!
 //! - **The service** (`tandemd --service`, LocalSystem, session 0): it only supervises. It
-//!   launches the helper in the session that owns the console, with a token duplicated from
-//!   that session's `winlogon.exe` and `TokenUIAccess` set, follows session changes (WTS
+//!   launches the helper in the session that owns the console, with a copy of its own
+//!   LocalSystem token moved to that session and `TokenUIAccess` set, follows session changes (WTS
 //!   notifications: fast user switching, sign-out, remote sessions) and restarts the helper
 //!   with a backoff if it dies ([`supervisor`]). It is also the one that calls `SendSAS`.
 //! - **The helper** (`tandemd --input-helper`, SYSTEM in the console session, on `winsta0`):

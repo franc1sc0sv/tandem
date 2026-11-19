@@ -36,16 +36,48 @@ pub trait SessionHost {
     fn send_sas(&mut self) -> io::Result<()>;
 }
 
-/// The `winlogon.exe` of `session` among `(pid, executable, session)` of the running
-/// processes. Its token is SYSTEM's in that session: the one the helper is launched with.
-pub fn winlogon_in(
-    processes: impl IntoIterator<Item = (u32, String, Option<u32>)>,
-    session: u32,
-) -> Option<u32> {
-    processes
-        .into_iter()
-        .find(|(_, exe, s)| exe.eq_ignore_ascii_case("winlogon.exe") && *s == Some(session))
-        .map(|(pid, ..)| pid)
+/// Where the helper's token comes from: the service's own process token (LocalSystem), never
+/// another process's. Picking a process by name (`winlogon.exe`) would let a user plant a
+/// renamed binary and have the service give *their* token UIAccess.
+pub trait TokenSource {
+    type Token;
+
+    /// A primary copy of the service process's own token.
+    fn duplicate_own(&mut self) -> io::Result<Self::Token>;
+
+    /// The token's user is LocalSystem (`WinLocalSystemSid`).
+    fn is_local_system(&mut self, token: &Self::Token) -> io::Result<bool>;
+
+    /// Moves the token to `session` (`TokenSessionId`, needs SeTcbPrivilege).
+    fn set_session(&mut self, token: &Self::Token, session: u32) -> io::Result<()>;
+
+    /// The token's session (`TokenSessionId`).
+    fn session(&mut self, token: &Self::Token) -> io::Result<u32>;
+
+    /// `TokenUIAccess = 1`.
+    fn enable_ui_access(&mut self, token: &Self::Token) -> io::Result<()>;
+}
+
+/// The token the helper is launched with: LocalSystem's, in `session`, with UIAccess. Fails
+/// closed: a token that is not LocalSystem's (the service running under another account) or
+/// that did not land in `session` never gets UIAccess.
+pub fn helper_token<S: TokenSource>(source: &mut S, session: u32) -> io::Result<S::Token> {
+    let token = source.duplicate_own()?;
+    if !source.is_local_system(&token)? {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "the service does not run as LocalSystem: the helper is not launched",
+        ));
+    }
+    source.set_session(&token, session)?;
+    let actual = source.session(&token)?;
+    if actual != session {
+        return Err(io::Error::other(format!(
+            "the helper token is in session {actual}, not {session}"
+        )));
+    }
+    source.enable_ui_access(&token)?;
+    Ok(token)
 }
 
 /// What can wake the supervisor up.
@@ -289,6 +321,49 @@ pub(crate) struct FakeHost {
     pub fail_spawn: bool,
     pub fail_sas: bool,
     pub sas: usize,
+    /// Every spawn builds its token through [`helper_token`], as the Windows host does.
+    pub tokens: FakeTokens,
+}
+
+/// Test double of [`TokenSource`]: a token is `(is LocalSystem, session)`.
+#[cfg(test)]
+#[derive(Debug, Default)]
+pub(crate) struct FakeTokens {
+    /// The service runs under another account.
+    pub not_system: bool,
+    /// `set_session` does nothing (the session stays 0).
+    pub ignore_session: bool,
+    /// Sessions whose token got UIAccess.
+    pub ui_access: Vec<u32>,
+}
+
+#[cfg(test)]
+impl TokenSource for FakeTokens {
+    type Token = std::cell::Cell<(bool, u32)>;
+
+    fn duplicate_own(&mut self) -> io::Result<Self::Token> {
+        Ok(std::cell::Cell::new((!self.not_system, 0)))
+    }
+
+    fn is_local_system(&mut self, token: &Self::Token) -> io::Result<bool> {
+        Ok(token.get().0)
+    }
+
+    fn set_session(&mut self, token: &Self::Token, session: u32) -> io::Result<()> {
+        if !self.ignore_session {
+            token.set((token.get().0, session));
+        }
+        Ok(())
+    }
+
+    fn session(&mut self, token: &Self::Token) -> io::Result<u32> {
+        Ok(token.get().1)
+    }
+
+    fn enable_ui_access(&mut self, token: &Self::Token) -> io::Result<()> {
+        self.ui_access.push(token.get().1);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -309,8 +384,9 @@ impl SessionHost for FakeHost {
     fn spawn(&mut self, session: u32) -> io::Result<u32> {
         self.spawns.push(session);
         if self.fail_spawn {
-            return Err(io::Error::other("no winlogon in that session"));
+            return Err(io::Error::other("CreateProcessAsUser failed"));
         }
+        helper_token(&mut self.tokens, session)?;
         self.next_id += 1;
         self.alive.push((self.next_id, session));
         Ok(self.next_id)
@@ -526,18 +602,49 @@ mod tests {
     }
 
     #[test]
-    fn picks_the_winlogon_of_the_session() {
-        let procs = || {
-            vec![
-                (4, "System".to_owned(), Some(0)),
-                (600, "winlogon.exe".to_owned(), Some(1)),
-                (900, "WinLogon.EXE".to_owned(), Some(2)),
-                (950, "winlogon.exe".to_owned(), None),
-            ]
+    fn the_helper_token_is_the_service_token_in_the_session_with_ui_access() {
+        let mut tokens = FakeTokens::default();
+        let token = helper_token(&mut tokens, 3).unwrap();
+        assert_eq!(token.get(), (true, 3));
+        assert_eq!(tokens.ui_access, [3]);
+    }
+
+    #[test]
+    fn a_token_that_is_not_local_system_never_gets_ui_access() {
+        let mut tokens = FakeTokens {
+            not_system: true,
+            ..Default::default()
         };
-        assert_eq!(winlogon_in(procs(), 1), Some(600));
-        assert_eq!(winlogon_in(procs(), 2), Some(900));
-        assert_eq!(winlogon_in(procs(), 3), None);
+        let e = helper_token(&mut tokens, 1).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied);
+        assert!(tokens.ui_access.is_empty());
+    }
+
+    #[test]
+    fn a_token_left_in_another_session_never_gets_ui_access() {
+        let mut tokens = FakeTokens {
+            ignore_session: true,
+            ..Default::default()
+        };
+        assert!(helper_token(&mut tokens, 1).is_err());
+        assert!(tokens.ui_access.is_empty());
+    }
+
+    #[test]
+    fn the_supervisor_launches_nothing_with_a_non_system_token() {
+        let t = Instant::now();
+        let mut s = sup(Some(1));
+        s.host_mut().tokens.not_system = true;
+        assert_eq!(
+            s.handle(Event::Poll, t),
+            [Action::SpawnFailed {
+                session: 1,
+                retry_in: secs(1)
+            }]
+        );
+        assert!(s.host().alive.is_empty());
+        assert!(s.host().tokens.ui_access.is_empty());
+        assert_eq!(s.session(), None);
     }
 
     #[test]

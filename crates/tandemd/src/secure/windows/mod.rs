@@ -6,6 +6,9 @@ use std::io;
 use std::path::PathBuf;
 
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Security::{
+    GetTokenInformation, IsWellKnownSid, TOKEN_USER, TokenSessionId, TokenUser, WinLocalSystemSid,
+};
 use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
 use windows::Win32::System::Threading::GetCurrentProcessId;
 
@@ -51,6 +54,48 @@ pub fn current_session() -> io::Result<u32> {
     Ok(session)
 }
 
+/// The token's user is LocalSystem. Used on both sides: the service checks the token it gives
+/// UIAccess to, the agent checks the pipe server's.
+pub(crate) fn token_is_system(token: &Owned) -> io::Result<bool> {
+    let mut len = 0u32;
+    // SAFETY: first call only learns the size; it fails on purpose with a null buffer.
+    let _ = unsafe { GetTokenInformation(token.0, TokenUser, None, 0, &mut len) };
+    let mut buf = vec![0u64; (len as usize).div_ceil(8)];
+    // SAFETY: `buf` has `len` bytes, aligned to 8, enough for a TOKEN_USER.
+    unsafe {
+        GetTokenInformation(
+            token.0,
+            TokenUser,
+            Some(buf.as_mut_ptr().cast()),
+            len,
+            &mut len,
+        )
+    }
+    .map_err(win_err)?;
+    // SAFETY: GetTokenInformation left a TOKEN_USER at the start of `buf`, still alive.
+    let sid = unsafe { (*buf.as_ptr().cast::<TOKEN_USER>()).User.Sid };
+    // SAFETY: `sid` points into `buf`.
+    Ok(unsafe { IsWellKnownSid(sid, WinLocalSystemSid) }.as_bool())
+}
+
+/// The token's session (`TokenSessionId`).
+pub(crate) fn token_session(token: &Owned) -> io::Result<u32> {
+    let mut session = 0u32;
+    let mut len = 0u32;
+    // SAFETY: `session` is the DWORD TokenSessionId returns, with its size.
+    unsafe {
+        GetTokenInformation(
+            token.0,
+            TokenSessionId,
+            Some((&raw mut session).cast()),
+            size_of::<u32>() as u32,
+            &mut len,
+        )
+    }
+    .map_err(win_err)?;
+    Ok(session)
+}
+
 /// Where the service writes its logs: next to its executable, in `%ProgramFiles%`, where only
 /// administrators write. `%ProgramData%` would let a user plant a link that SYSTEM then
 /// appends to.
@@ -73,6 +118,24 @@ mod tests {
         current_session().unwrap();
         // On CI the service is not installed; on a dev PC it may be. Either way, no error.
         service_state().unwrap();
+    }
+
+    /// CI does not run as SYSTEM: the helper token is refused before it gets UIAccess, on the
+    /// real Win32 calls. The session read back from a token is the process's own.
+    #[test]
+    fn the_helper_token_needs_local_system() {
+        use crate::secure::supervisor::{TokenSource, helper_token};
+        let mut tokens = host::WinTokens;
+        let own = tokens.duplicate_own().unwrap();
+        assert_eq!(token_session(&own).unwrap(), current_session().unwrap());
+        if token_is_system(&own).unwrap() {
+            // Run as SYSTEM (a dev PC under psexec -s): nothing to refuse here.
+            return;
+        }
+        let Err(e) = helper_token(&mut tokens, current_session().unwrap()) else {
+            panic!("a token that is not LocalSystem's was accepted");
+        };
+        assert_eq!(e.kind(), io::ErrorKind::PermissionDenied, "{e}");
     }
 
     /// Without a helper the connector says why; a pipe with the helper's name served by a

@@ -25,10 +25,7 @@ use windows::Win32::Foundation::{
 use windows::Win32::Security::Authorization::{
     ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
 };
-use windows::Win32::Security::{
-    GetTokenInformation, IsWellKnownSid, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY,
-    TOKEN_USER, TokenUser, WinLocalSystemSid,
-};
+use windows::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY};
 use windows::Win32::Storage::FileSystem::{
     FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX, SECURITY_IDENTIFICATION,
     SECURITY_SQOS_PRESENT,
@@ -43,7 +40,7 @@ use windows::Win32::System::Threading::{
 use windows::core::PCWSTR;
 
 use super::desktop::WinDesktops;
-use super::{Owned, current_session, wide, win_err};
+use super::{Owned, current_session, token_is_system, wide, win_err};
 use crate::secure::desktop::{CHECK_INTERVAL, DesktopTracker};
 use crate::secure::helper::Helper;
 use crate::secure::helper_pipe_name;
@@ -214,26 +211,7 @@ fn server_is_system(file: &File) -> io::Result<bool> {
     let mut token = HANDLE::default();
     // SAFETY: live process handle; `token` is owned below.
     unsafe { OpenProcessToken(process.0, TOKEN_QUERY, &mut token) }.map_err(win_err)?;
-    let token = Owned(token);
-    let mut len = 0u32;
-    // SAFETY: first call only learns the size; it fails on purpose with a null buffer.
-    let _ = unsafe { GetTokenInformation(token.0, TokenUser, None, 0, &mut len) };
-    let mut buf = vec![0u64; (len as usize).div_ceil(8)];
-    // SAFETY: `buf` has `len` bytes, aligned to 8, enough for a TOKEN_USER.
-    unsafe {
-        GetTokenInformation(
-            token.0,
-            TokenUser,
-            Some(buf.as_mut_ptr().cast()),
-            len,
-            &mut len,
-        )
-    }
-    .map_err(win_err)?;
-    // SAFETY: GetTokenInformation left a TOKEN_USER at the start of `buf`, still alive.
-    let sid = unsafe { (*buf.as_ptr().cast::<TOKEN_USER>()).User.Sid };
-    // SAFETY: `sid` points into `buf`.
-    Ok(unsafe { IsWellKnownSid(sid, WinLocalSystemSid) }.as_bool())
+    token_is_system(&Owned(token))
 }
 
 /// The helper's pipe, created by the current process (a test that plays squatter).

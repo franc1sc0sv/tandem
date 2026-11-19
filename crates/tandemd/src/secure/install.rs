@@ -126,7 +126,7 @@ pub enum Step {
     Start,
     Delete,
     RemoveFile(PathBuf),
-    /// Only if it is empty.
+    /// With everything in it (the service's logs): `remove_dir_all`.
     RemoveDir(PathBuf),
 }
 

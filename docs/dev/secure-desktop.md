@@ -22,9 +22,12 @@ windows. Tandem solves it with a small SYSTEM service. Code: `crates/tandemd/src
 
 - **Service** (`tandemd --service`, service name `TandemSecureDesktop`): runs as LocalSystem,
   starts with Windows and only supervises. It launches the helper in the session that owns the
-  physical console (`WTSGetActiveConsoleSessionId`) with a copy of that session's
-  `winlogon.exe` token (`DuplicateTokenEx`) with `TokenUIAccess = 1`, on `winsta0\default`,
-  through `CreateProcessAsUser`. WTS notifications (`SERVICE_CONTROL_SESSIONCHANGE`) and a
+  physical console (`WTSGetActiveConsoleSessionId`) with a copy of its own LocalSystem token
+  (`DuplicateTokenEx`) moved to that session (`TokenSessionId`) with `TokenUIAccess = 1`, on
+  `winsta0\default`, through `CreateProcessAsUser`. The helper inherits only its control
+  pipe (`PROC_THREAD_ATTRIBUTE_HANDLE_LIST`) and runs in a job with `KILL_ON_JOB_CLOSE`, so it
+  dies with the service however the service ends. WTS notifications
+  (`SERVICE_CONTROL_SESSIONCHANGE`) and a
   1 s poll move the helper when the console changes session (fast user switching, sign-out,
   a remote session taking the console). A helper that dies comes back after 1, 2, 4 ... 30 s;
   one that lived a minute starts again from 1 s.
@@ -43,6 +46,11 @@ windows. Tandem solves it with a small SYSTEM service. Code: `crates/tandemd/src
 
 ### Security
 
+- The helper's token is the service's own, never another process's: looking up a process by
+  name (`winlogon.exe`) would let a user start a renamed binary in their session and get
+  *their* token UIAccess. Before setting `TokenUIAccess` the service checks that the token's
+  user is LocalSystem and that it landed in the console session; otherwise nothing is launched
+  (`supervisor::helper_token`, tested with a double and on the Windows CI).
 - The pipe carries keystrokes and can click "Yes" on a UAC prompt. Its DACL allows only SYSTEM
   and Administrators, with a high-integrity label: an unelevated process (whose Administrators
   group is deny-only) cannot open it. So the agent must run elevated, which is what the
@@ -66,6 +74,11 @@ windows. Tandem solves it with a small SYSTEM service. Code: `crates/tandemd/src
   prompts, Ctrl+Alt+Del, the lock screen and its sign-in. Before anyone signs in after a boot,
   and in another account's session, there is no agent to receive the Mac's input; that needs
   the whole agent as a service and is not part of T-027.
+- The pipe name, `\\.\pipe\tandem-secure-input-<session>`, is global and predictable. Any
+  local process, even unelevated, can create it first (for example for a session that has no
+  helper yet). The helper then fails to start and the agent falls back to its own `SendInput`:
+  a denial of service of the secure desktop only, since the agent refuses a server that is not
+  LocalSystem and the squatter never sees keystrokes.
 - Capture on the secure desktop (the PC's own keyboard and mouse driving the Mac while a UAC
   prompt is up) is not covered: the agent's hooks do not see that desktop. The PC's input
   simply stays on the PC there.
@@ -135,7 +148,8 @@ certificate. What matters for the secure desktop:
   check of the AppInfo service). Tandem's executables have no such manifest. If that ever
   changes, a valid Authenticode signature and an install under `%ProgramFiles%` become
   mandatory.
-- **Why sign anyway:** a service that copies `winlogon`'s token and injects input is exactly
+- **Why sign anyway:** a SYSTEM service that hands out a UIAccess token and injects input is
+  exactly
   what antivirus heuristics look for. An unsigned build may be quarantined by Microsoft Defender
   or other products, is blocked by WDAC/AppLocker policies that only allow signed code, and the
   installer shows SmartScreen's "unknown publisher". An EV certificate (or Azure Trusted
