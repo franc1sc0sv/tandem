@@ -1,27 +1,27 @@
-//! Pausa de los datos cuando la entrada se atrasa (DESIGN §6).
+//! Pausing data when input falls behind (DESIGN §6).
 //!
-//! Lógica pura: las muestras de latencia de la entrada y el tiempo llegan como argumentos.
-//! El p99 se calcula sobre una ventana deslizante; si pasa el objetivo durante
-//! [`GuardConfig::trip`] seguidos, los datos se pausan. Vuelven cuando el p99 lleva
-//! [`GuardConfig::hold`] por debajo de una fracción del objetivo (histéresis: sin ella,
-//! reanudar haría subir la latencia otra vez y los datos irían a los tirones). Sin entrada
-//! no hay nada que proteger: una ventana vacía cuenta como latencia baja.
+//! Pure logic: the input latency samples and the time arrive as arguments.
+//! The p99 is computed over a sliding window; if it exceeds the target for
+//! [`GuardConfig::trip`] in a row, data is paused. It resumes when the p99 has been below a fraction of the target for
+//! [`GuardConfig::hold`] (hysteresis: without it,
+//! resuming would raise latency again and data would go in jerks). Without input
+//! there is nothing to protect: an empty window counts as low latency.
 
 use std::collections::VecDeque;
 use std::time::Duration;
 
 use tokio::time::Instant;
 
-/// Tiempos y umbrales de la pausa.
+/// Timings and thresholds of the pause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GuardConfig {
-    /// Ventana del p99.
+    /// The p99 window.
     pub window: Duration,
-    /// Cuánto tiene que estar el p99 por encima del objetivo para pausar (T-101: 2 s).
+    /// How long the p99 has to be above the target to pause (T-101: 2 s).
     pub trip: Duration,
-    /// Cuánto tiene que estar por debajo de `resume_percent` del objetivo para reanudar.
+    /// How long it has to be below `resume_percent` of the target to resume.
     pub hold: Duration,
-    /// Por debajo de este % del objetivo se considera que la latencia bajó.
+    /// Below this % of the target the latency is considered to have dropped.
     pub resume_percent: u32,
 }
 
@@ -36,12 +36,12 @@ impl Default for GuardConfig {
     }
 }
 
-/// Un cambio de estado de la pausa.
+/// A change of state of the pause.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Transition {
-    /// El p99 pasó el objetivo durante `trip`.
+    /// The p99 exceeded the target for `trip`.
     Pause { p99: Duration },
-    /// El p99 volvió a bajar. `p99` es `None` si no hubo entrada en la ventana.
+    /// The p99 went down again. `p99` is `None` if there was no input in the window.
     Resume { p99: Option<Duration> },
 }
 
@@ -51,9 +51,9 @@ pub struct LatencyGuard {
     target: Duration,
     samples: VecDeque<(Instant, Duration)>,
     paused: bool,
-    /// Desde cuándo el p99 está del lado que lleva a cambiar de estado.
+    /// Since when the p99 has been on the side that leads to changing state.
     since: Option<Instant>,
-    /// El p99 de la última evaluación.
+    /// The p99 of the last evaluation.
     last_p99: Option<Duration>,
 }
 
@@ -69,7 +69,7 @@ impl LatencyGuard {
         }
     }
 
-    /// El p99 que vio la última evaluación (`None` sin entrada en la ventana).
+    /// The p99 seen by the last evaluation (`None` with no input in the window).
     pub fn last_p99(&self) -> Option<Duration> {
         self.last_p99
     }
@@ -86,8 +86,8 @@ impl LatencyGuard {
         self.paused
     }
 
-    /// Otro objetivo (cambió el camino): lo medido por el anterior ya no dice nada.
-    /// Devuelve [`Transition::Resume`] si estaba en pausa.
+    /// Another target (the path changed): what the previous one measured no longer says anything.
+    /// Returns [`Transition::Resume`] if it was paused.
     pub fn reset(&mut self, target: Duration) -> Option<Transition> {
         self.target = target;
         self.samples.clear();
@@ -96,13 +96,13 @@ impl LatencyGuard {
         std::mem::take(&mut self.paused).then_some(Transition::Resume { p99: None })
     }
 
-    /// Una latencia medida de la entrada.
+    /// A measured input latency.
     pub fn record(&mut self, now: Instant, latency: Duration) {
         self.samples.push_back((now, latency));
     }
 
-    /// El p99 de la ventana que termina en `now`; `None` sin muestras. Va en el camino de
-    /// cada evaluación (cada 20 ms con entrada): selección en O(n), sin ordenar.
+    /// The p99 of the window ending at `now`; `None` with no samples. It is on the path of
+    /// every evaluation (every 20 ms with input): O(n) selection, without sorting.
     pub fn p99(&mut self, now: Instant) -> Option<Duration> {
         self.forget_before(now);
         if self.samples.is_empty() {
@@ -112,8 +112,8 @@ impl LatencyGuard {
         Some(select(&mut lat, 99))
     }
 
-    /// El p50 y el p99 de la ventana que termina en `now`, para la pantalla Red (T-102):
-    /// una vez por segundo, fuera de la evaluación.
+    /// The p50 and p99 of the window ending at `now`, for the Network screen (T-102):
+    /// once per second, outside the evaluation.
     pub fn percentiles(&mut self, now: Instant) -> Option<(Duration, Duration)> {
         self.forget_before(now);
         if self.samples.is_empty() {
@@ -133,7 +133,7 @@ impl LatencyGuard {
         }
     }
 
-    /// Revisa el estado con la ventana que termina en `now`.
+    /// Checks the state with the window ending at `now`.
     pub fn evaluate(&mut self, now: Instant) -> Option<Transition> {
         let p99 = self.p99(now);
         self.last_p99 = p99;
@@ -166,7 +166,7 @@ impl LatencyGuard {
     }
 }
 
-/// El menor valor que deja al `p` % de las muestras (no vacías) en o por debajo.
+/// The smallest value that leaves `p` % of the (non-empty) samples at or below it.
 fn select(lat: &mut [Duration], p: usize) -> Duration {
     if lat.is_empty() {
         return Duration::ZERO;
@@ -188,7 +188,7 @@ mod tests {
         Duration::from_millis(n)
     }
 
-    /// Una muestra por milisegundo con la latencia que diga `lat`, evaluando cada 10 ms.
+    /// One sample per millisecond with the latency that `lat` says, evaluating every 10 ms.
     fn run(
         g: &mut LatencyGuard,
         t0: Instant,
@@ -210,7 +210,7 @@ mod tests {
     }
 
     #[test]
-    fn el_p99_es_el_del_uno_por_ciento_más_lento() {
+    fn the_p99_is_that_of_the_slowest_one_percent() {
         let t0 = Instant::now();
         let mut g = LatencyGuard::new(GuardConfig::default(), TARGET);
         assert_eq!(g.p99(t0), None);
@@ -221,33 +221,33 @@ mod tests {
         assert_eq!(g.percentiles(t0), Some((ms(50), ms(99))));
         g.record(t0, ms(1000));
         assert_eq!(g.p99(t0), Some(ms(100)));
-        // Fuera de la ventana no cuenta.
+        // Outside the window it does not count.
         assert_eq!(g.p99(t0 + ms(1001)), None);
     }
 
     #[test]
-    fn pausa_tras_2_s_por_encima_y_vuelve_con_histéresis() {
+    fn pauses_after_2_s_above_and_resumes_with_hysteresis() {
         let t0 = Instant::now();
         let mut g = LatencyGuard::new(GuardConfig::default(), TARGET);
         assert!(run(&mut g, t0, 0, 3000, |_| ms(5)).is_empty());
-        // Desde 3 s la latencia es de 30 ms. El p99 pasa el objetivo cuando las lentas
-        // son más del 1 % de la ventana (11 de 1001, a los 3010 ms), y 2 s después, pausa.
+        // From 3 s the latency is 30 ms. The p99 exceeds the target when the slow ones
+        // are more than 1 % of the window (11 of 1001, at 3010 ms), and 2 s later, pause.
         let out = run(&mut g, t0, 3000, 6000, |_| ms(30));
         assert_eq!(out, vec![(5010, Transition::Pause { p99: ms(30) })]);
         assert!(g.is_paused());
-        // A 18 ms está bajo el objetivo pero no bajo el 75 %: sigue en pausa.
+        // At 18 ms it is below the target but not below 75 %: it stays paused.
         assert!(run(&mut g, t0, 6000, 9000, |_| ms(18)).is_empty());
-        // A 10 ms: el p99 baja cuando quedan 10 lentas en la ventana (a los 9990 ms), y
-        // hace falta 1 s más.
+        // At 10 ms: the p99 drops when 10 slow ones remain in the window (at 9990 ms), and
+        // one more second is needed.
         let out = run(&mut g, t0, 9000, 12000, |_| ms(10));
         assert_eq!(out, vec![(10990, Transition::Resume { p99: Some(ms(10)) })]);
     }
 
     #[test]
-    fn un_pico_corto_no_pausa() {
+    fn a_short_spike_does_not_pause() {
         let t0 = Instant::now();
         let mut g = LatencyGuard::new(GuardConfig::default(), TARGET);
-        // 1,5 s malos en medio de buenos: el p99 sube y baja antes de los 2 s.
+        // 1.5 s bad among good: the p99 rises and falls before 2 s.
         let out = run(&mut g, t0, 0, 6000, |t| {
             if (2000..2500).contains(&t) {
                 ms(80)
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn sin_entrada_la_pausa_termina_sola() {
+    fn without_input_the_pause_ends_on_its_own() {
         let t0 = Instant::now();
         let mut g = LatencyGuard::new(GuardConfig::default(), TARGET);
         run(&mut g, t0, 0, 2100, |_| ms(50));
@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn cambiar_de_camino_reanuda_y_olvida_lo_medido() {
+    fn changing_path_resumes_and_forgets_what_was_measured() {
         let t0 = Instant::now();
         let mut g = LatencyGuard::new(GuardConfig::default(), TARGET);
         run(&mut g, t0, 0, 2100, |_| ms(50));
@@ -285,9 +285,9 @@ mod tests {
     }
 
     proptest! {
-        /// Con la entrada siempre dentro del objetivo, nunca hay pausa.
+        /// With input always within the target, there is never a pause.
         #[test]
-        fn dentro_del_objetivo_nunca_pausa(lats in prop::collection::vec(0u64..=20_000, 1..3000)) {
+        fn within_the_target_never_pauses(lats in prop::collection::vec(0u64..=20_000, 1..3000)) {
             let t0 = Instant::now();
             let mut g = LatencyGuard::new(GuardConfig::default(), TARGET);
             for (i, us) in lats.iter().enumerate() {
@@ -297,10 +297,10 @@ mod tests {
             }
         }
 
-        /// Si toda la entrada pasa el objetivo, la pausa llega entre los 2 s y los 2 s más
-        /// el paso de evaluación, y una sola vez.
+        /// If all input exceeds the target, the pause arrives between 2 s and 2 s plus
+        /// the evaluation step, and only once.
         #[test]
-        fn por_encima_pausa_a_los_2_s(
+        fn above_it_pauses_at_2_s(
             over in 21u64..500,
             step in 1u64..100,
         ) {
@@ -318,7 +318,7 @@ mod tests {
             }
             prop_assert_eq!(pauses.len(), 1);
             let (at, tr) = pauses[0];
-            prop_assert!((2000..2000 + step).contains(&at), "pausa a {} ms", at);
+            prop_assert!((2000..2000 + step).contains(&at), "pause at {} ms", at);
             prop_assert_eq!(tr, Transition::Pause { p99: ms(over) });
         }
     }

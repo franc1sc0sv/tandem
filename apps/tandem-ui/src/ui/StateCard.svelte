@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Tarjeta de un estado difícil (`V3-Estados`): qué pasó, qué hizo Tandem solo y qué puede
+  // Tarjeta de un estado difícil (`V3-States`): qué pasó, qué hizo Tandem solo y qué puede
   // hacer el usuario. La usa el catálogo de Ajustes → Avanzado y el aviso del Puesto.
   import { TONE_STYLE, type StateCardSpec } from "../lib/states";
   import Button from "./Button.svelte";

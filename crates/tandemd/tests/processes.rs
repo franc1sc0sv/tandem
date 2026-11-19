@@ -1,6 +1,8 @@
-//! Procesos por túnel entre dos `tandemd` reales por loopback (T-104), con el doble de
-//! `Spawner` en la destino: cinco procesos a la vez con la salida intercalada, el kill de
-//! uno sin tocar a los demás y la lista de procesos corriendo en las dos UIs.
+//! Per-tunnel processes between two real `tandemd`s over loopback (T-104), with the
+//! `Spawner` double on the destination: five processes at once with interleaved output, the kill of
+//! one without touching the others and the list of running processes on both UIs.
+
+mod common;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -30,10 +32,10 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
-/// La primera es la del lado A (DECISIONS A1).
+/// The first is side A's (DECISIONS A1).
 fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     if x.public_key().as_bytes() < y.public_key().as_bytes() {
         (x, y)
@@ -56,9 +58,9 @@ fn loopback(port: u16) -> SocketAddr {
 
 struct Running {
     agent: Arc<Agent>,
-    /// La UI de esta máquina (solo mira).
+    /// This machine's UI (only watches).
     ui: IpcClient<DuplexStream>,
-    /// Un cliente (`tandem mcp`) conectado a la IPC de esta máquina.
+    /// A client (`tandem mcp`) connected to this machine's IPC.
     client: IpcClient<DuplexStream>,
     stops: Vec<oneshot::Sender<()>>,
     task: JoinHandle<Result<(), StoreError>>,
@@ -113,8 +115,9 @@ async fn start(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
-            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );
@@ -140,7 +143,7 @@ async fn start(
     let ui = IpcClient::handshake(connector.connect().unwrap())
         .await
         .unwrap();
-    // Otra IPC, esta para el cliente.
+    // Another IPC, this one for the client.
     let (listener, connector) = mem::pair();
     let (stop, stopped) = oneshot::channel::<()>();
     stops.push(stop);
@@ -165,7 +168,7 @@ async fn request(c: &mut IpcClient<DuplexStream>, cmd: UiCommand) -> Reply {
     within(c.request(cmd)).await.unwrap()
 }
 
-/// Los procesos corriendo que ve esa UI en sus túneles.
+/// The running processes that UI sees in its tunnels.
 async fn running(ui: &mut IpcClient<DuplexStream>) -> Vec<TunnelProcess> {
     match request(ui, UiCommand::GetTunnels).await {
         Reply::Tunnels(groups) => groups
@@ -173,11 +176,11 @@ async fn running(ui: &mut IpcClient<DuplexStream>) -> Vec<TunnelProcess> {
             .flat_map(|g| g.tunnels)
             .flat_map(|t| t.running)
             .collect(),
-        other => panic!("se esperaban los túneles: {other:?}"),
+        other => panic!("the tunnels were expected: {other:?}"),
     }
 }
 
-/// Toda la salida del proceso desde esa UI, hasta que termina.
+/// All of the process's output from that UI, until it finishes.
 async fn read_all(
     ui: &mut IpcClient<DuplexStream>,
     tunnel: tandem_proto::TunnelId,
@@ -197,7 +200,7 @@ async fn read_all(
                 .await
                 .unwrap();
             let Reply::Output(o) = reply else {
-                panic!("se esperaba la salida: {reply:?}");
+                panic!("the output was expected: {reply:?}");
             };
             assert_eq!(o.from, cursor);
             out.extend_from_slice(&o.stdout);
@@ -217,7 +220,7 @@ async fn read_all(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
+async fn five_processes_between_two_agents_with_the_kill_of_one() {
     let (a_id, b_id) = sides(Identity::from_seed([21; 32]), Identity::from_seed([22; 32]));
     let (mut a, mut b) = tandemd::start_pair!(
         |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
@@ -226,9 +229,9 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
     let fake = FakeSpawner::new();
     b.agent.tunnels().host.set_spawner(Arc::new(fake.clone()));
 
-    // A abre el túnel en cuanto tiene enlace con B.
+    // A opens the tunnel as soon as it has a link to B.
     let open = UiCommand::OpenTunnel {
-        title: "cinco".into(),
+        title: "five".into(),
         project: Some(Project {
             name: "tandem".into(),
             root: "/src/tandem".into(),
@@ -247,10 +250,10 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
     })
     .await;
 
-    // Lanzar y matar es de los clientes; la UI solo mira (D9).
+    // Launching and killing belong to clients; the UI only watches (D9).
     let spec = |n: usize| ExecSpec {
-        cmd: format!("trabajo-{n}"),
-        args: vec!["--rápido".into()],
+        cmd: format!("work-{n}"),
+        args: vec!["--fast".into()],
         shell: None,
         cwd: Some("/src/tandem".into()),
         env: vec![("N".into(), n.to_string())],
@@ -291,18 +294,18 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
         )
         .await
         else {
-            panic!("se esperaba el proceso {n}");
+            panic!("process {n} was expected");
         };
         assert_eq!(p.state, ProcessState::Running);
         ids.push(p.id);
     }
     let procs = fake.processes();
-    assert_eq!(procs.len(), 5, "los cinco corren a la vez en B");
-    assert_eq!(procs[3].launch.program, "trabajo-3");
+    assert_eq!(procs.len(), 5, "all five run at once on B");
+    assert_eq!(procs[3].launch.program, "work-3");
     assert_eq!(procs[3].launch.cwd.as_deref(), Some("/src/tandem"));
     assert_eq!(procs[3].launch.env, [("N".to_owned(), "3".to_owned())]);
 
-    // Las dos UIs ven los cinco corriendo.
+    // Both UIs see the five running.
     within(async {
         while running(&mut a.ui).await.len() < 5 || running(&mut b.ui).await.len() < 5 {
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -310,7 +313,7 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
     })
     .await;
 
-    // Salida intercalada de los cinco.
+    // Interleaved output of the five.
     let line = |i: usize, round: usize| format!("p{i}.r{round}\n");
     for round in 0..3 {
         for (i, p) in procs.iter().enumerate() {
@@ -320,7 +323,7 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
         tokio::task::yield_now().await;
     }
 
-    // Matar el segundo: solo cae él.
+    // Kill the second: only it falls.
     assert_eq!(
         request(
             &mut a.client,
@@ -333,7 +336,7 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
         Reply::Done
     );
     for (i, p) in procs.iter().enumerate() {
-        assert_eq!(p.is_killed(), i == 1, "kill del proceso {i}");
+        assert_eq!(p.is_killed(), i == 1, "kill of process {i}");
     }
     within(async {
         while running(&mut a.ui).await.len() != 4 || running(&mut b.ui).await.len() != 4 {
@@ -343,10 +346,10 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
     .await;
     assert!(
         !running(&mut a.ui).await.iter().any(|p| p.id == ids[1]),
-        "el matado salió de la lista de la UI"
+        "the killed one left the UI's list"
     );
 
-    // Los demás siguen y terminan cada uno con su código.
+    // The others continue and each ends with its code.
     for round in 3..5 {
         for (i, p) in procs.iter().enumerate() {
             if i != 1 {
@@ -361,7 +364,7 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
     }
 
     for (i, id) in ids.iter().enumerate() {
-        // Desde la UI de A (la que abrió) y, por la otra, desde la UI de B (la destino).
+        // From A's UI (the one that opened) and, through the other, from B's UI (the destination).
         for ui in [&mut a.ui, &mut b.ui] {
             let (out, err, p) = read_all(ui, tunnel, *id).await;
             let rounds = if i == 1 { 3 } else { 5 };
@@ -377,7 +380,7 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
                     code: Some(i32::try_from(i).unwrap()),
                 }
             };
-            assert_eq!(p.state, want, "estado del proceso {i}");
+            assert_eq!(p.state, want, "state of process {i}");
         }
     }
     within(async {
@@ -387,9 +390,9 @@ async fn cinco_procesos_entre_dos_agentes_con_kill_de_uno() {
     })
     .await;
 
-    // Terminados: consultables, aunque ya no estén en la lista de la UI.
+    // Finished: queryable, even if no longer in the UI's list.
     let Reply::Processes(all) = request(&mut a.ui, UiCommand::GetProcesses { tunnel }).await else {
-        panic!("se esperaba la lista");
+        panic!("the list was expected");
     };
     assert_eq!(all.len(), 5);
     assert!(all.iter().all(|p| !p.is_running()));

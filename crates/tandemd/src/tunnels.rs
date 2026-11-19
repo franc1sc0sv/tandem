@@ -1,16 +1,16 @@
-//! Túneles en el agente (T-103): `tandem-tunnel` sobre QUIC y la IPC.
+//! Tunnels in the agent (T-103): `tandem-tunnel` over QUIC and the IPC.
 //!
-//! - Cada pedido de túnel va por un stream propio ([`Channel::Tunnel`]) en la conexión del
-//!   enlace activo ([`QuicDialer`]); el otro agente lo atiende con [`serve`]. El canal de
-//!   datos de un túnel pasa a prioridad de datos, con la pausa y el tope de su camino
+//! - Each tunnel request goes over a stream of its own ([`Channel::Tunnel`]) on the
+//!   active link's connection ([`QuicDialer`]); the other agent serves it with [`serve`]. A tunnel's data
+//!   channel moves to data priority, with the pause and cap of its path
 //!   (T-101).
-//! - [`follow_link`] le pasa al origen cada enlace activo nuevo: si el camino cambia, los
-//!   seguidores retoman la salida por el nuevo desde el último byte recibido.
-//! - [`handle`]: los pedidos de la IPC. Abrir, cerrar, lanzar procesos y matarlos solo lo
-//!   puede un cliente
-//!   ([`Peer::Client`](tandem_proto::Peer::Client): `tandem mcp` o la CLI), que corre como
-//!   el usuario y entra por la IPC local, que solo acepta a ese usuario (DESIGN §11). La
-//!   UI solo mira (D9): la lista de procesos y su salida sí puede leerlas.
+//! - [`follow_link`] hands the source each new active link: if the path changes, the
+//!   followers resume the output over the new one from the last received byte.
+//! - [`handle`]: the IPC requests. Opening, closing, launching processes and killing them can only be
+//!   done by a client
+//!   ([`Peer::Client`](tandem_proto::Peer::Client): `tandem mcp` or the CLI), which runs as
+//!   the user and comes in through the local IPC, which only accepts that user (DESIGN §11). The
+//!   UI only watches (D9): it can read the process list and their output.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -28,11 +28,11 @@ use crate::Agent;
 use crate::network::ActiveLink;
 use crate::peer::open_channel;
 
-/// Lo que contesta el agente si la UI (o un pedido sin cliente) quiere abrir o cerrar.
+/// What the agent answers if the UI (or a request without a client) wants to open or close.
 pub const CLIENTS_ONLY: &str =
-    "los túneles los abre y cierra un cliente (`tandem mcp` o `tandem`), no la UI";
+    "tunnels are opened and closed by a client (`tandem mcp` or `tandem`), not the UI";
 
-/// Abre los streams de túnel por una conexión con el otro agente.
+/// Opens the tunnel streams over a connection with the other agent.
 pub struct QuicDialer {
     conn: Connection,
     me: Machine,
@@ -59,8 +59,8 @@ impl Dialer for QuicDialer {
     }
 }
 
-/// El lado del origen: control para los pedidos, datos desde `start_data` (archivos y
-/// puertos mandan bytes en los dos sentidos, no solo la destino).
+/// The source side: control for requests, data from `start_data` (files and
+/// ports send bytes in both directions, not only the destination).
 struct QuicOrigin {
     qos: Qos,
     mode: Mode,
@@ -94,7 +94,7 @@ impl OriginWire for QuicOrigin {
     }
 }
 
-/// El lado de la destino: control para los pedidos, datos desde `Attach`.
+/// The destination side: control for requests, data from `Attach`.
 struct QuicTarget {
     qos: Qos,
     mode: Mode,
@@ -103,14 +103,14 @@ struct QuicTarget {
 enum Mode {
     Control(ControlStream),
     Data(DataSender, ControlReceiver),
-    /// Solo durante el cambio a datos, si falló.
+    /// Only during the switch to data, if it failed.
     Gone,
 }
 
-const GONE: &str = "stream de túnel inutilizable";
+const GONE: &str = "tunnel stream unusable";
 
 impl Mode {
-    /// Pasa a datos (prioridad mínima, con la pausa y el tope de `qos`); si ya lo es, nada.
+    /// Switches to data (minimum priority, with the pause and cap of `qos`); if it already is, nothing.
     fn switch_to_data(&mut self, qos: &Qos) -> Result<(), WireError> {
         match std::mem::replace(self, Mode::Gone) {
             Mode::Control(s) => {
@@ -150,7 +150,7 @@ impl TargetWire for QuicTarget {
     }
 }
 
-/// Atiende un stream [`Channel::Tunnel`] que abrió el otro agente sobre `conn`.
+/// Serves a [`Channel::Tunnel`] stream the other agent opened over `conn`.
 pub async fn serve(stream: ControlStream, conn: &Connection, agent: &Agent) -> Result<(), String> {
     let wire = QuicTarget {
         qos: conn.qos().clone(),
@@ -163,7 +163,7 @@ pub async fn serve(stream: ControlStream, conn: &Connection, agent: &Agent) -> R
         .map_err(|e| e.to_string())
 }
 
-/// Lleva cada enlace activo nuevo al origen de los túneles, hasta que `links` se cierre.
+/// Carries each new active link to the tunnels' source, until `links` closes.
 pub fn follow_link(
     agent: Arc<Agent>,
     mut links: watch::Receiver<Option<ActiveLink>>,
@@ -192,7 +192,7 @@ pub fn follow_link(
     })
 }
 
-/// Un pedido de la IPC. `client` es quién saludó: `None` para la UI.
+/// An IPC request. `client` is who greeted: `None` for the UI.
 pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiCommand) -> Reply {
     match cmd {
         UiCommand::OpenTunnel {
@@ -205,7 +205,7 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
             let Some(kind) = client else {
                 return Reply::Rejected(CLIENTS_ONLY.into());
             };
-            // Sin título, el del proyecto (DESIGN §8).
+            // Without a title, the project's (DESIGN §8).
             let title = match (title.trim(), &project) {
                 ("", Some(p)) => p.name.clone(),
                 (t, _) => t.to_owned(),
@@ -235,9 +235,9 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
                         history_secrets = o.history_secrets;
                     }
                     Err(e) => {
-                        // Un túnel a medias (sin su repo) no le sirve a nadie.
+                        // A half-built tunnel (without its repo) is no use to anyone.
                         let _ = origin.close(tunnel.id).await;
-                        return Reply::Rejected(format!("no se pudo preparar el workspace: {e}"));
+                        return Reply::Rejected(format!("could not prepare the workspace: {e}"));
                     }
                 }
             }
@@ -306,7 +306,7 @@ pub async fn handle(agent: &Arc<Agent>, client: Option<ClientKind>, cmd: UiComma
     }
 }
 
-/// Archivos y puertos (T-106): lo que pide un cliente sobre un túnel abierto.
+/// Files and ports (T-106): what a client asks over an open tunnel.
 async fn files_and_ports(agent: &Arc<Agent>, cmd: UiCommand) -> Reply {
     let (files, origin) = (agent.files(), &agent.tunnels().origin);
     let rejected = |e: tandem_files::FilesError| Reply::Rejected(e.to_string());
@@ -354,15 +354,15 @@ async fn files_and_ports(agent: &Arc<Agent>, cmd: UiCommand) -> Reply {
             if files.forwards().stop(id) {
                 Reply::Done
             } else {
-                Reply::Rejected(format!("no hay ningún reenvío {id}"))
+                Reply::Rejected(format!("there is no forward {id}"))
             }
         }
-        _ => Reply::Rejected("pedido de archivos o puertos desconocido".into()),
+        _ => Reply::Rejected("unknown files or ports request".into()),
     }
 }
 
-/// Los pedidos que tardan (copias de archivos): la IPC los corre en su propia tarea para no
-/// detener la conexión mientras tanto.
+/// The requests that take a while (file copies): the IPC runs them in its own task so as not to
+/// stall the connection meanwhile.
 pub fn is_slow(cmd: &UiCommand) -> bool {
     matches!(
         cmd,

@@ -1,17 +1,17 @@
-//! Inyección de entrada en Windows con `SendInput`.
+//! Input injection on Windows with `SendInput`.
 //!
-//! [`Emulator`] traduce cada [`InputEvent`] a registros [`WinInput`] (un espejo portable
-//! de la estructura `INPUT` de Win32) y los entrega a un [`InputSink`]. La traducción
-//! vive aquí y se prueba en Linux; [`SendInputSink`] (solo en Windows) es el envío real.
+//! [`Emulator`] translates each [`InputEvent`] into [`WinInput`] records (a portable mirror
+//! of Win32's `INPUT` structure) and hands them to an [`InputSink`]. The translation
+//! lives here and is tested on Linux; [`SendInputSink`] (Windows only) is the real sender.
 //!
-//! Decisiones (docs/research/input-engine.md):
-//! - Teclas por **scancode** (`KEYEVENTF_SCANCODE`, + `EXTENDEDKEY` para las E0): así el
-//!   sistema aplica su propia distribución y ES/LatAm, AltGr y teclas muertas funcionan.
-//! - Mouse **absoluto** sobre el escritorio virtual (`MOVE|ABSOLUTE|VIRTUALDESK`): el
-//!   movimiento relativo de `SendInput` pasa por la aceleración del puntero. La posición
-//!   se guarda en `f64`, así los deltas de menos de un píxel se acumulan en vez de perderse.
-//! - Rueda con `mouseData` en unidades de `WHEEL_DELTA` (120), que admite fracciones.
-//! - Todo lo inyectado lleva [`TANDEM_EXTRA_INFO`] en `dwExtraInfo`.
+//! Decisions (docs/research/input-engine.md):
+//! - Keys by **scancode** (`KEYEVENTF_SCANCODE`, + `EXTENDEDKEY` for the E0 ones): that way the
+//!   system applies its own layout and ES/LatAm, AltGr and dead keys work.
+//! - **Absolute** mouse over the virtual desktop (`MOVE|ABSOLUTE|VIRTUALDESK`): `SendInput`'s
+//!   relative movement goes through pointer acceleration. The position
+//!   is kept in `f64`, so deltas of less than a pixel accumulate instead of being lost.
+//! - Wheel with `mouseData` in `WHEEL_DELTA` units (120), which admits fractions.
+//! - Everything injected carries [`TANDEM_EXTRA_INFO`] in `dwExtraInfo`.
 
 #[cfg(windows)]
 mod sys;
@@ -25,8 +25,8 @@ use crate::event::{
 use crate::geometry::{Point, Rect};
 use crate::windows::TANDEM_EXTRA_INFO;
 
-// Constantes de winuser.h, repetidas aquí para que la traducción sea portable. Una prueba
-// en Windows comprueba que coinciden con las del crate `windows`.
+// Constants of winuser.h, repeated here so the translation is portable. A test
+// on Windows checks that they match those of the `windows` crate.
 pub const KEYEVENTF_EXTENDEDKEY: u32 = 0x0001;
 pub const KEYEVENTF_KEYUP: u32 = 0x0002;
 pub const KEYEVENTF_SCANCODE: u32 = 0x0008;
@@ -45,19 +45,19 @@ pub const MOUSEEVENTF_VIRTUALDESK: u32 = 0x4000;
 pub const MOUSEEVENTF_ABSOLUTE: u32 = 0x8000;
 pub const XBUTTON1: u32 = 0x0001;
 pub const XBUTTON2: u32 = 0x0002;
-/// `VK_PAUSE`: Pausa no tiene un scancode simple (es la secuencia E1 1D 45) y el 0x45
-/// suelto que da la tabla de Chromium Windows lo interpreta como Bloq Num.
+/// `VK_PAUSE`: Pause has no simple scancode (it is the sequence E1 1D 45) and the bare 0x45
+/// that Chromium's Windows table gives is interpreted as Num Lock.
 pub const VK_PAUSE: u16 = 0x13;
 
-/// Rango de las coordenadas absolutas normalizadas de `SendInput`.
+/// Range of `SendInput`'s normalized absolute coordinates.
 const ABS_SCALE: i64 = 65_536;
 
-/// Píxeles de trackpad que equivalen a una muesca de rueda (120). Es lo que desplaza
-/// Chromium en Windows por muesca a escala 100 %; afinarlo con el equipo real.
+/// Trackpad pixels equivalent to one wheel notch (120). It is what Chromium
+/// scrolls on Windows per notch at 100 % scale; refine it on real hardware.
 pub const PIXELS_PER_NOTCH: f64 = 100.0;
 const WHEEL_DELTA: f64 = 120.0;
 
-/// Un registro `INPUT` de Win32, sin depender del crate `windows`.
+/// A Win32 `INPUT` record, without depending on the `windows` crate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WinInput {
     Keyboard {
@@ -69,7 +69,7 @@ pub enum WinInput {
     Mouse {
         dx: i32,
         dy: i32,
-        /// Delta de rueda (con signo, como lo guarda Win32) o botón X.
+        /// Wheel delta (signed, as Win32 stores it) or X button.
         data: u32,
         flags: u32,
         extra_info: usize,
@@ -99,17 +99,17 @@ impl WinInput {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum EmulateError {
-    #[error("la tecla {0:?} no tiene scancode en Windows")]
+    #[error("key {0:?} has no scancode on Windows")]
     UnmappedKey(HidUsage),
-    #[error("Windows no tiene el botón {0}")]
+    #[error("Windows does not have button {0}")]
     UnsupportedButton(u8),
-    #[error("el escritorio no tiene pantallas")]
+    #[error("the desktop has no screens")]
     NoDesktop,
-    /// `SendInput` aceptó menos eventos de los pedidos: típicamente UIPI (la ventana
-    /// activa es de un proceso con más integridad) o el escritorio seguro.
-    #[error("SendInput inyectó {sent} de {expected} eventos (¿UIPI o escritorio seguro?)")]
+    /// `SendInput` accepted fewer events than requested: typically UIPI (the active
+    /// window belongs to a process with higher integrity) or the secure desktop.
+    #[error("SendInput injected {sent} of {expected} events (UIPI or secure desktop?)")]
     Blocked { sent: usize, expected: usize },
-    #[error("{op} falló: {message} ({code:#010X})")]
+    #[error("{op} failed: {message} ({code:#010X})")]
     Os {
         op: &'static str,
         code: u32,
@@ -117,18 +117,18 @@ pub enum EmulateError {
     },
 }
 
-/// Pantallas del escritorio, en píxeles físicos (proceso Per-Monitor-V2).
+/// The desktop's screens, in physical pixels (Per-Monitor-V2 process).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Desktop {
-    /// Rectángulo que encierra a todas (`SM_*VIRTUALSCREEN`): la base de `VIRTUALDESK`.
+    /// Rectangle that encloses all of them (`SM_*VIRTUALSCREEN`): the base of `VIRTUALDESK`.
     pub virtual_rect: Rect,
-    /// Cada monitor. Puede haber huecos dentro de `virtual_rect` donde no hay pantalla.
+    /// Each monitor. There may be gaps inside `virtual_rect` where there is no screen.
     pub monitors: Vec<Rect>,
 }
 
 impl Desktop {
-    /// Lleva el punto al píxel más cercano que esté en algún monitor, para que la
-    /// posición interna no se pierda en un hueco del escritorio virtual.
+    /// Takes the point to the nearest pixel that is on some monitor, so that the
+    /// internal position does not get lost in a gap of the virtual desktop.
     fn clamp(&self, p: Point) -> Point {
         let mut best: Option<(f64, Point)> = None;
         for m in &self.monitors {
@@ -144,8 +144,8 @@ impl Desktop {
         best.map_or_else(|| self.virtual_rect.clamp(p), |(_, c)| c)
     }
 
-    /// Píxel → coordenada normalizada 0–65535 de `VIRTUALDESK`. Windows convierte de
-    /// vuelta con `n * ancho / 65536` truncado; redondear hacia arriba aterriza exacto.
+    /// Pixel → normalized coordinate 0–65535 of `VIRTUALDESK`. Windows converts back
+    /// with `n * width / 65536` truncated; rounding up lands exactly.
     fn normalize(&self, px: i32, py: i32) -> (i32, i32) {
         let r = &self.virtual_rect;
         (
@@ -159,26 +159,26 @@ fn normalize_axis(p: i32, origin: i32, size: u32) -> i32 {
     let size = i64::from(size.max(1));
     let off = (i64::from(p) - i64::from(origin)).clamp(0, size - 1);
     let n = (off * ABS_SCALE + size - 1) / size;
-    // `n` está en 0..=65535 por construcción; el clamp solo documenta el rango.
+    // `n` is in 0..=65535 by construction; the clamp only documents the range.
     n.clamp(0, ABS_SCALE - 1) as i32
 }
 
-/// Lo que necesita el emulador del sistema. En Windows es [`SendInputSink`].
+/// What the emulator needs from the system. On Windows it is [`SendInputSink`].
 pub trait InputSink {
-    /// Inyecta los eventos en una sola llamada, sin intercalar con la entrada física.
+    /// Injects the events in a single call, without interleaving with physical input.
     fn send(&mut self, inputs: &[WinInput]) -> Result<(), EmulateError>;
     fn desktop(&self) -> Result<Desktop, EmulateError>;
-    /// Posición real del cursor, para notar si otro (el mouse local) lo movió.
+    /// Real position of the cursor, to notice if another one (the local mouse) moved it.
     fn cursor_pos(&self) -> Option<(i32, i32)>;
 }
 
-/// Estado de la inyección: posición del cursor con fracciones, restos de la rueda y lo
-/// que quedó presionado.
+/// Injection state: cursor position with fractions, wheel remainders and what
+/// was left pressed.
 pub struct Emulator<S: InputSink> {
     sink: S,
     desktop: Desktop,
     pos: Point,
-    /// Último píxel enviado; si el cursor real ya no está ahí, alguien más lo movió.
+    /// Last pixel sent; if the real cursor is no longer there, someone else moved it.
     last_px: Option<(i32, i32)>,
     wheel_rest: (f64, f64),
     pressed: Pressed,
@@ -208,17 +208,17 @@ impl<S: InputSink> Emulator<S> {
         &mut self.sink
     }
 
-    /// Posición interna del cursor, con fracciones.
+    /// Internal position of the cursor, with fractions.
     pub fn position(&self) -> Point {
         self.pos
     }
 
-    /// Lo que se inyectó presionado y sigue sin soltarse.
+    /// What was injected pressed and has not been released.
     pub fn pressed(&self) -> &Pressed {
         &self.pressed
     }
 
-    /// Vuelve a leer las pantallas; llamarlo con `WM_DISPLAYCHANGE`.
+    /// Reads the screens again; call it with `WM_DISPLAYCHANGE`.
     pub fn refresh_desktop(&mut self) -> Result<(), EmulateError> {
         self.desktop = checked(self.sink.desktop()?)?;
         self.pos = self.desktop.clamp(self.pos);
@@ -226,7 +226,7 @@ impl<S: InputSink> Emulator<S> {
         Ok(())
     }
 
-    /// Inyecta un evento. Si falla, el estado de teclas presionadas no cambia.
+    /// Injects an event. If it fails, the pressed-keys state does not change.
     pub fn emulate(&mut self, event: &InputEvent) -> Result<(), EmulateError> {
         let inputs = match *event {
             InputEvent::Key { usage, state } => vec![key_input(usage, state)?],
@@ -247,8 +247,8 @@ impl<S: InputSink> Emulator<S> {
         Ok(())
     }
 
-    /// Suelta todo lo que se inyectó presionado: al salir de la pantalla, al
-    /// desconectarse o por timeout.
+    /// Releases everything that was injected pressed: on leaving the screen, on
+    /// disconnecting or on timeout.
     pub fn release_all(&mut self) -> Result<(), EmulateError> {
         let mut pending = self.pressed.clone();
         let events = pending.release_all();
@@ -257,7 +257,7 @@ impl<S: InputSink> Emulator<S> {
         Ok(())
     }
 
-    /// Lleva los modificadores al estado pedido: primero suelta, después presiona.
+    /// Takes the modifiers to the requested state: first releases, then presses.
     fn sync_modifiers(&mut self, target: Modifiers) -> Result<(), EmulateError> {
         let current = self.pressed.modifiers();
         let change = |m: ModifierKey, state| InputEvent::Key {
@@ -282,7 +282,7 @@ impl<S: InputSink> Emulator<S> {
         Ok(())
     }
 
-    /// Inyecta en una sola llamada una serie de eventos de tecla o botón.
+    /// Injects in a single call a series of key or button events.
     fn send_presses(&mut self, events: &[InputEvent]) -> Result<(), EmulateError> {
         let inputs = events
             .iter()
@@ -295,7 +295,7 @@ impl<S: InputSink> Emulator<S> {
         self.send(&inputs)
     }
 
-    /// Si el cursor real no está donde lo dejamos, se parte de donde está.
+    /// If the real cursor is not where we left it, it starts from where it is.
     fn resync(&mut self) {
         if let (Some(real), Some(last)) = (self.sink.cursor_pos(), self.last_px)
             && real != last
@@ -311,7 +311,7 @@ impl<S: InputSink> Emulator<S> {
         }
         self.pos = self.desktop.clamp(p);
         let px = (self.pos.x.floor() as i32, self.pos.y.floor() as i32);
-        // Sin cambio de píxel no hay nada que mandar: la fracción queda acumulada.
+        // Without a pixel change there is nothing to send: the fraction stays accumulated.
         if self.last_px == Some(px) {
             return Ok(());
         }
@@ -332,7 +332,7 @@ impl<S: InputSink> Emulator<S> {
             }
         };
         let mut out = Vec::new();
-        // Misma convención que Windows: positivo = adelante en vertical, derecha en horizontal.
+        // Same convention as Windows: positive = forward vertically, right horizontally.
         if dy != 0 {
             out.push(WinInput::mouse(0, 0, dy as u32, MOUSEEVENTF_WHEEL));
         }
@@ -350,13 +350,13 @@ impl<S: InputSink> Emulator<S> {
     }
 }
 
-/// Suma `delta` al resto y saca la parte entera; la fracción queda para la próxima.
+/// Adds `delta` to the remainder and extracts the integer part; the fraction is left for next time.
 fn take_whole(rest: &mut f64, delta: f64) -> i32 {
     if !delta.is_finite() {
         return 0;
     }
     *rest += delta;
-    // El margen evita perder una unidad por redondeo (100 × 1.2 suma 119.999…).
+    // The margin avoids losing a unit to rounding (100 × 1.2 adds up to 119.999…).
     let whole = (*rest + rest.signum() * 1e-9).trunc();
     *rest -= whole;
     whole.clamp(f64::from(i32::MIN), f64::from(i32::MAX)) as i32
@@ -384,7 +384,7 @@ fn px_center((x, y): (i32, i32)) -> Point {
     Point::new(f64::from(x) + 0.5, f64::from(y) + 0.5)
 }
 
-/// Registro de teclado para una tecla física.
+/// Keyboard record for a physical key.
 pub fn key_input(usage: HidUsage, state: KeyState) -> Result<WinInput, EmulateError> {
     let up = if state == KeyState::Released {
         KEYEVENTF_KEYUP
@@ -411,7 +411,7 @@ pub fn key_input(usage: HidUsage, state: KeyState) -> Result<WinInput, EmulateEr
     ))
 }
 
-/// Registro de mouse para un botón.
+/// Mouse record for a button.
 pub fn button_input(button: Button, state: KeyState) -> Result<WinInput, EmulateError> {
     let down = state == KeyState::Pressed;
     let pick = |d: u32, u: u32| if down { d } else { u };
@@ -426,7 +426,7 @@ pub fn button_input(button: Button, state: KeyState) -> Result<WinInput, Emulate
     Ok(WinInput::mouse(0, 0, data, flags))
 }
 
-/// `Other(n)` con un número que Windows sí tiene → su botón con nombre.
+/// `Other(n)` with a number that Windows does have → its named button.
 fn normalize_button(button: Button) -> Result<Button, EmulateError> {
     Ok(match button {
         Button::Other(0) => Button::Left,

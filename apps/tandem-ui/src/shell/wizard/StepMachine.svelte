@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Paso 1 (`F-Asis1`): nombre y color de esta máquina y lo que Tandem encontró en ella.
+  // Paso 1 (`F-Setup1`): nombre y color de this machine y lo que Tandem encontró en ella.
   import { useStore } from "../../lib/context";
   import { PALETTE } from "../../lib/machine";
   import { foundRows } from "../../lib/wizard";
@@ -25,13 +25,13 @@
 </script>
 
 <div class="wz-head">
-  <span class="wz-mut wz-sm">Paso 1 de 6</span>
-  <h1>Esta máquina</h1>
-  <p class="wz-mut wz-lead">Tandem revisa qué sabe hacer esta máquina. Nada está fijo: lo que encuentra es lo que anuncia al resto del puesto.</p>
+  <span class="wz-mut wz-sm">Step 1 of 6</span>
+  <h1>This machine</h1>
+  <p class="wz-mut wz-lead">Tandem checks what this machine can do. Nothing is fixed: what it finds is what it announces to the rest of the desk.</p>
 </div>
 <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end">
   <label style="display:flex;flex-direction:column;gap:6px;font-size:13px;flex:1 1 260px"
-    >Nombre
+    >Name
     <input
       class="wz-input"
       value={name}
@@ -56,10 +56,10 @@
     {/each}
   </div>
 </div>
-<section aria-label="Lo que encontró" class="wz-list">
-  <div class="wz-lt"><i style="background:{here?.color ?? '#7aa7e6'}"></i>Lo que encontró</div>
+<section aria-label="What it found" class="wz-list">
+  <div class="wz-lt"><i style="background:{here?.color ?? '#7aa7e6'}"></i>What it found</div>
   {#if !here}
-    <div class="wz-chk"><span class="wz-off"></span>Sin conexión con tandemd<span class="wz-fill"></span><span class="wz-mut wz-xs">{store.desk.troubleText}</span></div>
+    <div class="wz-chk"><span class="wz-off"></span>Not connected to tandemd<span class="wz-fill"></span><span class="wz-mut wz-xs">{store.desk.troubleText}</span></div>
   {/if}
   {#each rows as r, i (r.id)}
     <div class="wz-chk" class:service={r.id === "service"} style="animation-delay:{(0.1 + 0.4 * i).toFixed(1)}s">
@@ -72,7 +72,7 @@
       {:else}
         <span class="wz-spin"></span>
       {/if}
-      {r.label}<span class="wz-fill"></span>{#if r.note}<span class="wz-mut wz-xs" class:wz-mono={r.mono}>{r.note}</span>{/if}{#if r.install}<Button icon="download" variant="pri" size="sm" class="wz-inst" disabled={store.adminBusy} onclick={() => store.installAdmin()}>Instalar</Button>{/if}
+      {r.label}<span class="wz-fill"></span>{#if r.note}<span class="wz-mut wz-xs" class:wz-mono={r.mono}>{r.note}</span>{/if}{#if r.install}<Button icon="download" variant="pri" size="sm" class="wz-inst" disabled={store.adminBusy} onclick={() => store.installAdmin()}>Install</Button>{/if}
     </div>
   {/each}
 </section>

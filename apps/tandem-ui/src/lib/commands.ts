@@ -7,15 +7,15 @@ import { shortLabels } from "./tunnels";
 import type { Route } from "./routes";
 import type { ActResult, DeskView } from "./store/types";
 
-export type Group = "Escenas" | "Máquinas" | "Túneles" | "Ir a" | "Acciones";
+export type Group = "Scenes" | "Machines" | "Tunnels" | "Go to" | "Actions";
 
-export const GROUP_ORDER: Group[] = ["Escenas", "Máquinas", "Túneles", "Ir a", "Acciones"];
+export const GROUP_ORDER: Group[] = ["Scenes", "Machines", "Tunnels", "Go to", "Actions"];
 
 export interface Command {
   id: string;
   group: Group;
   title: string;
-  /** Texto gris a la derecha (estado). */
+  /** Texto gris to the right of (estado). */
   detail: string;
   /** Atajo, o vacío. */
   key: string;
@@ -32,7 +32,7 @@ export interface CommandContext {
   measureLink(): Promise<ActResult>;
   /** Abre el asistente en un paso (0 = el primero; 1 = emparejar). */
   openWizard(step?: number): void;
-  /** Bloquea (`on`) o suelta el cursor en esta máquina (T-129). */
+  /** Bloquea (`on`) o suelta el cursor en this machine (T-129). */
   lockHere(on: boolean): Promise<ActResult>;
   can(what: "scenes" | "modules" | "power" | "measure" | "lock"): boolean;
 }
@@ -49,21 +49,21 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
   const out: Command[] = [];
   const m = desk.machines;
   const color = (id: Machine) => m[id]?.color ?? GREY;
-  const name = (id: Machine) => m[id]?.name ?? `máquina ${id.toUpperCase()}`;
+  const name = (id: Machine) => m[id]?.name ?? `machine ${id.toUpperCase()}`;
 
   if (ctx.can("scenes")) {
     for (const s of desk.scenes) {
       out.push({
         id: `scene:${s.id}`,
-        group: "Escenas",
-        title: `Aplicar «${s.name}»`,
-        detail: desk.activeScene === s.id ? "activa" : "",
+        group: "Scenes",
+        title: `Apply “${s.name}”`,
+        detail: desk.activeScene === s.id ? "active" : "",
         key: s.key,
         color: s.shows ? color(s.shows) : GREY,
         run: () => ctx.applyScene(s.id),
       });
     }
-    out.push({ id: "scene:new", group: "Escenas", title: "Nueva escena…", detail: "", key: "", color: GREY, run: () => ctx.go({ screen: "escena", id: null }) });
+    out.push({ id: "scene:new", group: "Scenes", title: "New scene…", detail: "", key: "", color: GREY, run: () => ctx.go({ screen: "escena", id: null }) });
   }
 
   const peer: Machine = desk.here === "a" ? "b" : "a";
@@ -72,16 +72,16 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
     const on = other.power === "on";
     out.push({
       id: `power:${peer}`,
-      group: "Máquinas",
-      title: `${on ? "Apagar" : "Encender"} ${other.name}`,
-      detail: on ? "encendida" : "apagada",
+      group: "Machines",
+      title: `${on ? "Power off" : "Power on"} ${other.name}`,
+      detail: on ? "on" : "off",
       key: "",
       color: other.color,
       run: () => ctx.setPower(peer, !on),
     });
   }
   // D1: no hay tercera máquina; sí se puede cambiar la otra (emparejar de nuevo).
-  out.push({ id: "pair:change", group: "Máquinas", title: "Cambiar la otra máquina…", detail: "", key: "", color: TEAL, run: () => ctx.openWizard(1) });
+  out.push({ id: "pair:change", group: "Machines", title: "Change the other machine…", detail: "", key: "", color: TEAL, run: () => ctx.openWizard(1) });
 
   for (const t of desk.tunnels.filter((t) => t.state !== "closed")) {
     const from = m[t.from];
@@ -90,9 +90,9 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
     const [lf, lt] = from && to ? shortLabels(from, to) : [shortName(name(t.from)), shortName(name(t.to))];
     out.push({
       id: `tunnel:${t.id}`,
-      group: "Túneles",
-      title: `Ir al túnel «${t.title}»`,
-      detail: `${lf} → ${lt} · ${t.state === "busy" ? "activo" : "inactivo"}`,
+      group: "Tunnels",
+      title: `Go to tunnel “${t.title}”`,
+      detail: `${lf} → ${lt} · ${t.state === "busy" ? "active" : "inactive"}`,
       key: "",
       color: color(t.to),
       run: () => ctx.go({ screen: "tuneles" }),
@@ -101,7 +101,7 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
 
   const go = (id: string, title: string, route: Route, key = "", dot = GREY): Command => ({
     id: `go:${id}`,
-    group: "Ir a",
+    group: "Go to",
     title,
     detail: "",
     key,
@@ -109,29 +109,29 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
     run: () => ctx.go(route),
   });
   out.push(
-    go("monitores", "Monitores", { screen: "monitores" }),
-    go("red", "Red", { screen: "red" }),
-    go("acomodo", "Acomodo", { screen: "acomodo" }),
-    go("ajustes", "Ajustes", { screen: "ajustes" }, mac ? "⌘," : "Ctrl+,"),
-    go("puesto", "Puesto", { screen: "puesto" }),
-    go("tuneles", "Túneles", { screen: "tuneles" }),
+    go("monitores", "Monitors", { screen: "monitores" }),
+    go("red", "Network", { screen: "red" }),
+    go("acomodo", "Arrangement", { screen: "acomodo" }),
+    go("ajustes", "Settings", { screen: "ajustes" }, mac ? "⌘," : "Ctrl+,"),
+    go("puesto", "Desk", { screen: "puesto" }),
+    go("tuneles", "Tunnels", { screen: "tuneles" }),
   );
   for (const id of ["a", "b"] as Machine[]) {
     if (m[id]) out.push(go(`maquina:${id}`, m[id].name, { screen: "maquina", machine: id }, "", color(id)));
   }
 
   if (ctx.can("measure")) {
-    out.push({ id: "link:measure", group: "Acciones", title: "Medir el enlace", detail: "", key: "", color: GREY, run: () => ctx.measureLink() });
+    out.push({ id: "link:measure", group: "Actions", title: "Measure the link", detail: "", key: "", color: GREY, run: () => ctx.measureLink() });
   }
   if (ctx.can("lock")) {
     // Solo la orden que aplica según el estado (T-157).
     out.push(
       desk.locked
-        ? { id: "lock:off", group: "Acciones", title: "Quitar el bloqueo", detail: "el cursor está bloqueado aquí", key: "", color: GREY, run: () => ctx.lockHere(false) }
-        : { id: "lock:on", group: "Acciones", title: "Bloquear aquí", detail: "el cursor no cruza", key: "", color: GREY, run: () => ctx.lockHere(true) },
+        ? { id: "lock:off", group: "Actions", title: "Remove the lock", detail: "the cursor is locked here", key: "", color: GREY, run: () => ctx.lockHere(false) }
+        : { id: "lock:on", group: "Actions", title: "Lock here", detail: "the cursor does not cross", key: "", color: GREY, run: () => ctx.lockHere(true) },
     );
   }
-  out.push({ id: "wizard:open", group: "Acciones", title: "Abrir el asistente", detail: "", key: "", color: GREY, run: () => ctx.openWizard() });
+  out.push({ id: "wizard:open", group: "Actions", title: "Open setup", detail: "", key: "", color: GREY, run: () => ctx.openWizard() });
   return out;
 }
 

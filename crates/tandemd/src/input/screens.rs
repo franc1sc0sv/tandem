@@ -1,10 +1,10 @@
-//! Las pantallas de cada máquina como las ve el motor de entrada, cómo viajan al otro
-//! agente ([`ScreenRect`]) y el acomodo que sale de ellas y del puesto (DESIGN §7).
+//! Each machine's screens as the input engine sees them, how they travel to the other
+//! agent ([`ScreenRect`]) and the arrangement that comes from them and the desk (DESIGN §7).
 //!
-//! Por máquina valen sus `[[screens]]` declaradas en el puesto; sin declarar, las que lee
-//! ella misma (los límites que usa la inyección). Una máquina apagada no tiene pantallas:
-//! el cursor no cruza hacia ella. Un monitor que muestra a la otra máquina deja de ser una
-//! pantalla de esta (DESIGN §7, T-111): su pantalla sale del `[[cables]]` del puesto.
+//! Per machine its `[[screens]]` declared in the desk apply; if undeclared, the ones it
+//! reads itself (the bounds injection uses). A machine that is off has no screens:
+//! the cursor does not cross to it. A monitor that shows the other machine ceases to be a
+//! screen of this one (DESIGN §7, T-111): its screen comes from the desk's `[[cables]]`.
 
 use std::collections::BTreeMap;
 
@@ -19,7 +19,7 @@ pub fn to_wire(s: &Screen) -> ScreenRect {
         y: s.rect.y,
         width: s.rect.width,
         height: s.rect.height,
-        // Escalas absurdas no llegan: `Layout::compute` las rechaza antes.
+        // Absurd scales do not arrive: `Layout::compute` rejects them first.
         scale_milli: (s.scale * 1000.0).round().clamp(1.0, f64::from(u32::MAX)) as u32,
     }
 }
@@ -32,7 +32,7 @@ pub fn from_wire(r: &ScreenRect) -> Screen {
     )
 }
 
-/// Una pantalla declarada en el puesto.
+/// A screen declared in the desk.
 pub fn from_spec(s: &ScreenSpec) -> Screen {
     Screen::new(
         s.id.as_str().into(),
@@ -41,8 +41,9 @@ pub fn from_spec(s: &ScreenSpec) -> Screen {
     )
 }
 
-/// Las que lee una máquina, con un id por pantalla (`pantalla-1`, `pantalla-2`...). El id
-/// solo tiene que ser único en su máquina, así que no depende del lado.
+/// The ones a machine reads, with an id per screen (`pantalla-1`, `pantalla-2`...; the Spanish ids
+/// are kept: saved `[[cables]]` refer to them). The id only has to be unique on its machine, so it
+/// does not depend on the side.
 pub fn detected(bounds: &[Rect]) -> Vec<Screen> {
     bounds
         .iter()
@@ -52,11 +53,11 @@ pub fn detected(bounds: &[Rect]) -> Vec<Screen> {
         .collect()
 }
 
-/// Qué máquina muestra cada monitor compatible, por id (`crate::monitors::shows`).
+/// Which machine each compatible monitor shows, by id (`crate::monitors::shows`).
 pub type Shows = BTreeMap<String, Machine>;
 
-/// Las pantallas de `machine` que son monitores mostrando a la otra: según `shows` y la
-/// pantalla de cada `[[cables]]`. Un monitor sin pantalla declarada no se puede sacar.
+/// The screens of `machine` that are monitors showing the other: according to `shows` and the
+/// screen of each `[[cables]]`. A monitor without a declared screen cannot be removed.
 pub fn hidden(desk: &Config, machine: Machine, shows: &Shows) -> Vec<String> {
     desk.cables
         .iter()
@@ -65,11 +66,11 @@ pub fn hidden(desk: &Config, machine: Machine, shows: &Shows) -> Vec<String> {
         .collect()
 }
 
-/// El acomodo: las pantallas de esta máquina (`me`) y las de la otra, declaradas en
-/// `desk` o, si no, las leídas (`mine` aquí, `theirs` las que mandó el otro agente), sin las
-/// que muestran a la otra máquina ([`hidden`]), y el lado y la alineación del puesto (D18).
-/// Sin acomodo declarado, A a la izquierda de B con todo el borde (el valor por omisión de
-/// siempre).
+/// The arrangement: this machine's screens (`me`) and the other's, declared in
+/// `desk` or, if not, the ones read (`mine` here, `theirs` the ones the other agent sent), without the
+/// ones that show the other machine ([`hidden`]), and the desk's side and alignment (D18).
+/// Without a declared arrangement, A to the left of B with the whole edge (the usual default
+/// value).
 pub fn arrangement(
     desk: &Config,
     state: &State,
@@ -102,7 +103,7 @@ pub fn arrangement(
     }
 }
 
-/// La geometría del acomodo.
+/// The arrangement's geometry.
 pub fn layout(
     desk: &Config,
     state: &State,
@@ -194,7 +195,7 @@ mod tests {
         assert_eq!(arr.b[0].id, "34".into());
         assert_eq!(arr.b[0].scale, 1.25);
         assert_eq!((arr.a_side, arr.align), (Side::Right, Some(Align::End)));
-        // Sin declarar, la Mac va a la izquierda, sin alineación, y valen las leídas.
+        // Undeclared, the Mac goes to the left, without alignment, and the ones read apply.
         let arr = arrangement(
             &Config::default(),
             &both_on(),
@@ -223,8 +224,8 @@ mod tests {
         assert_eq!(arr.a, mine);
     }
 
-    /// T-111: el 34" muestra a la Mac (A) → deja de ser una pantalla de la PC (B), que se queda
-    /// sin pantallas; vuelve a la PC → sale de la Mac. Sin pantalla declarada no se toca nada.
+    /// T-111: the 34" shows the Mac (A) -> it ceases to be a screen of the PC (B), which is left
+    /// without screens; back to the PC -> it leaves the Mac. Without a declared screen nothing is touched.
     #[test]
     fn a_monitor_showing_the_other_machine_leaves_the_geometry() {
         let mut desk = Config::default();
@@ -244,7 +245,7 @@ mod tests {
             &shows(Machine::A),
         );
         assert_eq!(arr.a, mine);
-        assert!(arr.b.is_empty(), "la PC no tiene dónde mostrar el cursor");
+        assert!(arr.b.is_empty(), "the PC has nowhere to show the cursor");
         let arr = arrangement(
             &desk,
             &both_on(),
@@ -255,7 +256,7 @@ mod tests {
         );
         assert_eq!(arr.a, mine[..1]);
         assert_eq!(arr.b, theirs);
-        // Sin saber qué muestra, o sin pantalla declarada, quedan todas.
+        // Without knowing what it shows, or without a declared screen, all remain.
         let arr = arrangement(&desk, &both_on(), Machine::A, &mine, &theirs, &Shows::new());
         assert_eq!((arr.a.len(), arr.b.len()), (2, 1));
         desk.cables[0].a.screen = None;
@@ -271,7 +272,7 @@ mod tests {
     }
 
     proptest! {
-        /// Lo que viaja vuelve igual (con la escala en milésimas).
+        /// What travels comes back the same (with the scale in thousandths).
         #[test]
         fn wire_round_trip(
             x in any::<i32>(), y in any::<i32>(),

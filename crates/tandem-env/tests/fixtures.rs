@@ -1,5 +1,5 @@
-//! El escaneo y el muestreo con las salidas reales de cada herramienta (`tests/fixtures/`),
-//! en cualquier sistema: el [`Platform`] se elige a mano.
+//! The scan and the sampling with the real outputs of each tool (`tests/fixtures/`),
+//! on any system: the [`Platform`] is chosen by hand.
 
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ fn tool(name: &str, version: &str) -> Tool {
 fn find<'a>(envs: &'a [Environment], id: &str) -> &'a Environment {
     envs.iter()
         .find(|e| e.id == id)
-        .unwrap_or_else(|| panic!("falta {id} en {envs:#?}"))
+        .unwrap_or_else(|| panic!("{id} missing in {envs:#?}"))
 }
 
 fn meter() -> FakeMeter {
@@ -55,8 +55,8 @@ fn meter() -> FakeMeter {
     m
 }
 
-/// La PC: PowerShell 5 (sin PowerShell 7), cmd, el bash de System32 (que es WSL), una distro
-/// de WSL, Docker Desktop con el runtime de NVIDIA y dos GPU.
+/// The PC: PowerShell 5 (without PowerShell 7), cmd, the System32 bash (which is WSL), a WSL distro,
+/// Docker Desktop with the NVIDIA runtime and two GPUs.
 fn windows() -> FakeRunner {
     let r = FakeRunner::new();
     let tools = tandem_env::parse::decode_text(include_bytes!("fixtures/windows-tools.txt"));
@@ -164,7 +164,7 @@ fn windows_finds_shells_wsl_docker_and_gpus() {
     assert_eq!(docker.name, "Docker Desktop");
     assert_eq!(docker.version.as_deref(), Some("29.8.0"));
     assert!(docker.ready && docker.gpu);
-    assert_eq!(docker.detail, "GPU: --gpus all disponible");
+    assert_eq!(docker.detail, "GPU: --gpus all available");
 
     assert_eq!(scan.hardware.cores, 16);
     assert_eq!(scan.hardware.memory, 64 * GIB);
@@ -216,7 +216,7 @@ fn powershell_7_is_the_default_when_installed() {
 #[test]
 fn git_bash_counts_as_a_shell_but_the_wsl_launcher_does_not() {
     let r = windows();
-    // El lanzador de WSL va antes en el PATH; Git Bash se encuentra igual.
+    // The WSL launcher comes earlier in the PATH; Git Bash is found anyway.
     r.install_also("bash", r"C:\Program Files\Git\bin\bash.exe");
     r.on(
         "bash",
@@ -240,7 +240,7 @@ fn docker_without_its_daemon_and_a_silent_distro_still_show_up() {
             "Cannot connect to the Docker daemon at npipe:////./pipe/docker_engine.",
         )),
     );
-    // La respuesta más nueva para los mismos argumentos reemplaza a la anterior.
+    // The newest answer for the same arguments replaces the previous one.
     r.answer(
         "wsl",
         &["-d", "Ubuntu-24.04", "-e", "bash", "-lic", PROBE_SCRIPT],
@@ -253,12 +253,12 @@ fn docker_without_its_daemon_and_a_silent_distro_still_show_up() {
     assert!(docker.detail.contains("daemon"), "{}", docker.detail);
     let ubuntu = find(&scan.environments, "wsl:Ubuntu-24.04");
     assert_eq!(ubuntu.name, "Ubuntu-24.04");
-    assert_eq!(ubuntu.detail, "No respondió al escaneo");
+    assert_eq!(ubuntu.detail, "No response to the scan");
     assert!(ubuntu.tools.is_empty());
 }
 
-/// La Mac: zsh de inicio de sesión, bash de sistema, Docker Desktop sin GPU y la GPU de Apple
-/// (sin VRAM propia).
+/// The Mac: login zsh, system bash, Docker Desktop without GPU and the Apple GPU
+/// (without its own VRAM).
 fn macos() -> FakeRunner {
     let r = FakeRunner::new();
     r.set_var("SHELL", "/bin/zsh");
@@ -308,7 +308,7 @@ fn macos_finds_zsh_docker_and_the_apple_gpu() {
     assert_eq!(zsh.tools[0], tool("git", "2.50.1"));
     assert!(!find(&scan.environments, "bash").default);
     let docker = find(&scan.environments, "docker");
-    assert_eq!(docker.detail, "arm64 · sin GPU");
+    assert_eq!(docker.detail, "arm64 · no GPU");
     assert!(docker.ready && !docker.gpu);
     assert_eq!(
         scan.hardware.gpus,
@@ -334,8 +334,8 @@ fn macos_finds_zsh_docker_and_the_apple_gpu() {
 #[test]
 fn without_shell_variable_the_first_shell_is_the_default_and_tools_come_from_a_plain_login() {
     let r = FakeRunner::new();
-    // El modo interactivo no devolvió el guion (por ejemplo, un rc que falla): vale el de
-    // solo inicio de sesión.
+    // Interactive mode did not return the script (for example, an rc that fails): the
+    // login-only one wins.
     r.on("bash", &["-lic"], "bash: no job control in this shell\n");
     r.on(
         "bash",

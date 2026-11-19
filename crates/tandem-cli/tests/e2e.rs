@@ -1,5 +1,5 @@
-//! Punta a punta de T-108: un cliente MCP (JSON-RPC por stdio) y la CLI contra dos
-//! `tandemd` reales por loopback (`start_pair!`), con el doble de `Spawner` en la destino.
+//! End to end for T-108: an MCP client (JSON-RPC over stdio) and the CLI against two
+//! real `tandemd`s over loopback (`start_pair!`), with the `Spawner` double on the destination.
 
 use serde_json::{Value, json};
 use std::net::{Ipv4Addr, SocketAddr};
@@ -29,10 +29,10 @@ const TIMEOUT: Duration = Duration::from_secs(30);
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
-/// La primera es la del lado A (DECISIONS A1).
+/// The first is side A's (DECISIONS A1).
 fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     if x.public_key().as_bytes() < y.public_key().as_bytes() {
         (x, y)
@@ -55,7 +55,7 @@ fn loopback(port: u16) -> SocketAddr {
 
 struct Running {
     agent: Arc<Agent>,
-    /// Un cliente (`tandem mcp`) conectado a la IPC de esta máquina.
+    /// A client (`tandem mcp`) connected to this machine's IPC.
     client: Option<IpcClient<DuplexStream>>,
     stops: Vec<oneshot::Sender<()>>,
     task: JoinHandle<Result<(), StoreError>>,
@@ -110,7 +110,7 @@ async fn start(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
-            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
             ..NetOptions::default()
         },
@@ -134,7 +134,7 @@ async fn start(
             let _ = stopped.await;
         }),
     );
-    // Otra IPC, esta para el cliente.
+    // Another IPC, this one for the client.
     let (listener, connector) = mem::pair();
     let (stop, stopped) = oneshot::channel::<()>();
     stops.push(stop);
@@ -154,7 +154,7 @@ async fn start(
     })
 }
 
-/// Un cliente MCP de prueba: habla JSON-RPC por líneas con `mcp::serve`.
+/// A test MCP client: speaks line-based JSON-RPC with `mcp::serve`.
 struct McpClient {
     to: tokio::io::DuplexStream,
     from: tokio::io::Lines<tokio::io::BufReader<tokio::io::DuplexStream>>,
@@ -187,21 +187,18 @@ impl McpClient {
             .write_all(format!("{msg}\n").as_bytes())
             .await
             .unwrap();
-        let line = within(self.from.next_line())
-            .await
-            .unwrap()
-            .expect("respuesta");
+        let line = within(self.from.next_line()).await.unwrap().expect("reply");
         let v: Value = serde_json::from_str(&line).unwrap();
         assert_eq!(v["id"], self.next);
         v
     }
 
-    /// Llama a una herramienta; el resultado (JSON de `content`), o el texto del error.
+    /// Calls a tool; the result (the `content` JSON), or the error text.
     async fn tool(&mut self, name: &str, args: Value) -> Result<Value, String> {
         Ok(self.call(name, args).await?.0)
     }
 
-    /// Como `tool`, y además la respuesta cruda de `tools/call` (para ver su forma).
+    /// Like `tool`, and also the raw `tools/call` reply (to see its shape).
     async fn call(&mut self, name: &str, args: Value) -> Result<(Value, Value), String> {
         let v = self
             .rpc("tools/call", json!({"name": name, "arguments": args}))
@@ -216,7 +213,7 @@ impl McpClient {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
+async fn an_mcp_client_opens_a_tunnel_runs_reads_copies_and_closes() {
     let (a_id, b_id) = sides(Identity::from_seed([31; 32]), Identity::from_seed([32; 32]));
     let (mut a, b) = tandemd::start_pair!(
         |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
@@ -225,11 +222,11 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
     let fake = FakeSpawner::new();
     b.agent.tunnels().host.set_spawner(Arc::new(fake.clone()));
     let dir = tempfile::tempdir().unwrap();
-    let project = dir.path().join("mi-proyecto");
+    let project = dir.path().join("my-project");
     std::fs::create_dir(&project).unwrap();
     let mut mcp = McpClient::start(a.client.take().unwrap(), &project);
 
-    // Handshake y lista de herramientas.
+    // Handshake and tool list.
     let init = mcp
         .rpc(
             "initialize",
@@ -253,10 +250,10 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
         "kill",
         "bring_back",
     ] {
-        assert!(names.iter().any(|n| n == want), "falta {want}");
+        assert!(names.iter().any(|n| n == want), "missing {want}");
     }
 
-    // Máquinas y recursos de la otra (cuando ya hay enlace).
+    // Machines and resources of the other (once there is a link).
     let machines = mcp.tool("machines", json!({})).await.unwrap();
     assert_eq!(machines["this"], "a");
     within(async {
@@ -266,7 +263,7 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
     })
     .await;
 
-    // Abrir el túnel en cuanto hay enlace; sin título sale el nombre del proyecto.
+    // Open the tunnel as soon as there is a link; without a title the project name comes out.
     let tunnel = within(async {
         loop {
             match mcp.tool("tunnel_open", json!({})).await {
@@ -276,12 +273,12 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
         }
     })
     .await;
-    assert_eq!(tunnel["title"], "mi-proyecto");
+    assert_eq!(tunnel["title"], "my-project");
     assert_eq!(tunnel["target"], "b");
     assert_eq!(tunnel["opened_by"]["session"], "claude-e2e");
     let id = tunnel["id"].as_str().unwrap().to_owned();
 
-    // Ejecutar y leer la salida en vivo.
+    // Run and read the output live.
     let p = mcp
         .tool(
             "exec",
@@ -293,13 +290,13 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
     let proc = fake.processes().remove(0);
     assert_eq!(proc.launch.program, "cargo");
     proc.stdout(b"running 3 tests\n");
-    proc.stderr(b"aviso\n");
-    // stdout y stderr llegan por separado: `output` puede devolver apenas llegue lo primero.
-    // Se lee de a tandas con el cursor hasta tener las dos (antes fallaba en macOS por carrera).
+    proc.stderr(b"warning\n");
+    // stdout and stderr arrive separately: `output` may return as soon as the first arrives.
+    // It is read in batches with the cursor until both are there (it used to fail on macOS due to a race).
     let (mut so, mut se) = (String::new(), String::new());
     let mut out = json!({"next": {"stdout": 0, "stderr": 0}});
     for _ in 0..50 {
-        if so == "running 3 tests\n" && se == "aviso\n" {
+        if so == "running 3 tests\n" && se == "warning\n" {
             break;
         }
         let from = out["next"].clone();
@@ -315,7 +312,7 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
         se.push_str(out["stderr"].as_str().unwrap_or_default());
     }
     assert_eq!(so, "running 3 tests\n");
-    assert_eq!(se, "aviso\n");
+    assert_eq!(se, "warning\n");
     assert_eq!(out["done"], false);
     proc.stdout(b"ok\n");
     proc.exit(0);
@@ -346,7 +343,7 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
     })
     .await;
 
-    // Un segundo proceso, y matarlo.
+    // A second process, and kill it.
     let p2 = mcp
         .tool(
             "exec",
@@ -359,10 +356,10 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
         .unwrap();
     assert!(fake.processes()[1].is_killed());
 
-    // Archivos: copiar a la otra máquina y volver.
-    let src = dir.path().join("hola.txt");
-    std::fs::write(&src, b"hola tandem").unwrap();
-    let dst = dir.path().join("copiado.txt");
+    // Files: copy to the other machine and back.
+    let src = dir.path().join("hello.txt");
+    std::fs::write(&src, b"hello tandem").unwrap();
+    let dst = dir.path().join("copied.txt");
     let r = mcp
         .tool(
             "files_put",
@@ -371,18 +368,18 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
         .await
         .unwrap();
     assert_eq!(r["files"], 1);
-    assert_eq!(std::fs::read(&dst).unwrap(), b"hola tandem");
-    let back = dir.path().join("de-vuelta.txt");
+    assert_eq!(std::fs::read(&dst).unwrap(), b"hello tandem");
+    let back = dir.path().join("back.txt");
     mcp.tool(
         "files_get",
         json!({"tunnel": id, "remote": dst.display().to_string(), "local": back.display().to_string()}),
     )
     .await
     .unwrap();
-    assert_eq!(std::fs::read(&back).unwrap(), b"hola tandem");
+    assert_eq!(std::fs::read(&back).unwrap(), b"hello tandem");
 
-    // Puerto: se abre y se cierra.
-    let free = tandemd::test_ports::free_port().expect("puerto libre");
+    // Port: it is opened and closed.
+    let free = tandemd::test_ports::free_port().expect("free port");
     let fwd = mcp
         .tool(
             "port_forward",
@@ -395,30 +392,30 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
         .await
         .unwrap();
 
-    // Errores: lo ve el modelo como resultado, no como fallo del protocolo.
+    // Errors: the model sees it as a result, not as a protocol failure.
     let err = mcp
         .tool("kill", json!({"tunnel": "zz", "process": 1}))
         .await;
-    assert!(err.unwrap_err().contains("id de túnel"));
+    assert!(err.unwrap_err().contains("tunnel id"));
     let bad = mcp
-        .rpc("tools/call", json!({"name": "nada", "arguments": {}}))
+        .rpc("tools/call", json!({"name": "nothing", "arguments": {}}))
         .await;
     assert_eq!(bad["error"]["code"], -32602);
 
-    // La CLI usa la misma API: `tandem --json tunnels` y la salida legible.
+    // The CLI uses the same API: `tandem --json tunnels` and the readable output.
     let parsed = cli::parse(["--json", "tunnels"].map(String::from)).unwrap();
     assert!(parsed.json);
     let listed = mcp.tool("tunnels", json!({})).await.unwrap();
     let group = &listed["projects"][0];
-    assert_eq!(group["project"]["name"], "mi-proyecto");
+    assert_eq!(group["project"]["name"], "my-project");
     assert_eq!(group["tunnels"][0]["tunnel"]["id"], id.as_str());
     assert!(
         render::render("tunnels", &listed)
             .out
-            .contains("mi-proyecto")
+            .contains("my-project")
     );
 
-    // Cerrar: ya no aparece.
+    // Close: it no longer appears.
     mcp.tool("tunnel_close", json!({"tunnel": id}))
         .await
         .unwrap();
@@ -431,7 +428,7 @@ async fn un_cliente_mcp_abre_un_tunel_ejecuta_lee_copia_y_cierra() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn una_salida_grande_se_lee_por_paginas_sin_perder_ni_repetir_bytes() {
+async fn large_output_is_read_in_pages_without_losing_or_repeating_bytes() {
     let (a_id, b_id) = sides(Identity::from_seed([33; 32]), Identity::from_seed([34; 32]));
     let (mut a, b) = tandemd::start_pair!(
         |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
@@ -443,7 +440,7 @@ async fn una_salida_grande_se_lee_por_paginas_sin_perder_ni_repetir_bytes() {
     let mut mcp = McpClient::start(a.client.take().unwrap(), dir.path());
     let tunnel = within(async {
         loop {
-            match mcp.tool("tunnel_open", json!({"title": "grande"})).await {
+            match mcp.tool("tunnel_open", json!({"title": "big"})).await {
                 Ok(t) => return t,
                 Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
             }
@@ -461,9 +458,9 @@ async fn una_salida_grande_se_lee_por_paginas_sin_perder_ni_repetir_bytes() {
     let pid = p["id"].as_u64().unwrap();
     let proc = fake.processes().remove(0);
 
-    // 200 KiB de stdout con caracteres de 1 a 4 bytes (los cortes caen en medio de alguno) y
-    // 100 KiB de stderr, más de lo que cabe en una página.
-    let unit = "línea €uro 😀 ok\n";
+    // 200 KiB of stdout with characters of 1 to 4 bytes (the cuts fall in the middle of some) and
+    // 100 KiB of stderr, more than fits in a page.
+    let unit = "line €uro 😀 ok\n";
     let out_text = unit.repeat(200 * 1024 / unit.len());
     let err_text = "x\u{e9}".repeat(50 * 1024 / 3);
     proc.stdout(out_text.as_bytes());
@@ -485,10 +482,10 @@ async fn una_salida_grande_se_lee_por_paginas_sin_perder_ni_repetir_bytes() {
                 .unwrap();
             pages += 1;
             let (so, se) = (o["stdout"].as_str().unwrap(), o["stderr"].as_str().unwrap());
-            assert!(so.len() + se.len() <= 24 * 1024, "página sobre el tope");
-            // Sin partir caracteres.
+            assert!(so.len() + se.len() <= 24 * 1024, "page over the cap");
+            // Without splitting characters.
             assert!(!so.contains('\u{FFFD}') && !se.contains('\u{FFFD}'));
-            // El cursor avanza por los bytes entregados.
+            // The cursor advances by the delivered bytes.
             assert_eq!(
                 o["next"]["stdout"],
                 o["from"]["stdout"].as_u64().unwrap() + so.len() as u64
@@ -497,15 +494,15 @@ async fn una_salida_grande_se_lee_por_paginas_sin_perder_ni_repetir_bytes() {
                 o["next"]["stderr"],
                 o["from"]["stderr"].as_u64().unwrap() + se.len() as u64
             );
-            // Sin duplicar: la respuesta grande va solo en `content`, compacta.
+            // Without duplicating: the large reply goes only in `content`, compact.
             assert!(raw.get("structuredContent").is_none());
             assert!(!raw["content"][0]["text"].as_str().unwrap().contains("\n  "));
             got_out.push_str(so);
             got_err.push_str(se);
             from_o = o["next"]["stdout"].clone();
             from_e = o["next"]["stderr"].clone();
-            // `more: false` solo dice que no queda nada leído sin entregar: el proceso puede no haber
-            // terminado aún (T-194). Se sigue pidiendo hasta `done`, que nunca llega con `more`.
+            // `more: false` only says nothing read is left undelivered: the process may not have
+            // finished yet (T-194). Keep asking until `done`, which never arrives with `more`.
             if o["done"] == true {
                 assert_eq!(o["more"], false);
                 break;
@@ -513,11 +510,11 @@ async fn una_salida_grande_se_lee_por_paginas_sin_perder_ni_repetir_bytes() {
         }
     })
     .await;
-    assert!(pages >= 10, "se esperaban varias páginas: {pages}");
-    assert!(got_out == out_text, "stdout perdió o repitió bytes");
-    assert!(got_err == err_text, "stderr perdió o repitió bytes");
+    assert!(pages >= 10, "several pages were expected: {pages}");
+    assert!(got_out == out_text, "stdout lost or repeated bytes");
+    assert!(got_err == err_text, "stderr lost or repeated bytes");
 
-    // `max_bytes` baja el tope y el tope duro lo limita.
+    // `max_bytes` lowers the cap and the hard cap limits it.
     let (o, _) = mcp
         .call(
             "output",
@@ -536,7 +533,7 @@ async fn una_salida_grande_se_lee_por_paginas_sin_perder_ni_repetir_bytes() {
         .unwrap();
     assert!(o["stdout"].as_str().unwrap().len() + o["stderr"].as_str().unwrap().len() <= 64 * 1024);
 
-    // Una respuesta pequeña sí lleva `structuredContent` y el mismo JSON compacto.
+    // A small reply does carry `structuredContent` and the same compact JSON.
     let (small, raw) = mcp.call("machines", json!({})).await.unwrap();
     assert_eq!(raw["structuredContent"], small);
     assert_eq!(raw["content"][0]["text"], small.to_string());
@@ -545,7 +542,7 @@ async fn una_salida_grande_se_lee_por_paginas_sin_perder_ni_repetir_bytes() {
     b.stop().await;
 }
 
-/// Corre git de verdad en `dir`.
+/// Runs real git in `dir`.
 fn git(dir: &std::path::Path, args: &[&str]) {
     let out = std::process::Command::new("git")
         .args(args)
@@ -554,7 +551,7 @@ fn git(dir: &std::path::Path, args: &[&str]) {
         .env_remove("GIT_INDEX_FILE")
         .env_remove("GIT_WORK_TREE")
         .output()
-        .expect("git en el PATH");
+        .expect("git on the PATH");
     assert!(
         out.status.success(),
         "git {args:?}: {}",
@@ -562,10 +559,10 @@ fn git(dir: &std::path::Path, args: &[&str]) {
     );
 }
 
-/// T-130: la otra máquina nunca recibe credenciales. Workspace, archivos y entorno de
-/// `exec`, con dos agentes reales y avisos en cada herramienta.
+/// T-130: the other machine never receives credentials. Workspace, files and `exec`
+/// environment, with two real agents and warnings in each tool.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn la_otra_maquina_nunca_recibe_credenciales() {
+async fn the_other_machine_never_receives_credentials() {
     let (a_id, b_id) = sides(Identity::from_seed([35; 32]), Identity::from_seed([36; 32]));
     let (mut a, b) = tandemd::start_pair!(
         |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
@@ -574,7 +571,7 @@ async fn la_otra_maquina_nunca_recibe_credenciales() {
     let fake = FakeSpawner::new();
     b.agent.tunnels().host.set_spawner(Arc::new(fake.clone()));
     let dir = tempfile::tempdir().unwrap();
-    let project = dir.path().join("proyecto");
+    let project = dir.path().join("project");
     std::fs::create_dir(&project).unwrap();
     git(&project, &["init", "-q", "-b", "main"]);
     git(&project, &["config", "user.email", "yo@example.com"]);
@@ -582,13 +579,13 @@ async fn la_otra_maquina_nunca_recibe_credenciales() {
     git(&project, &["config", "commit.gpgsign", "false"]);
     std::fs::write(project.join("lib.rs"), "fn a() {}\n").unwrap();
     git(&project, &["add", "-A"]);
-    git(&project, &["commit", "-q", "-m", "inicial"]);
-    // Nada de esto está en .gitignore.
+    git(&project, &["commit", "-q", "-m", "initial"]);
+    // None of this is in .gitignore.
     std::fs::write(project.join(".env"), "DB_PASSWORD=hunter2\n").unwrap();
     std::fs::create_dir(project.join(".ssh")).unwrap();
     std::fs::write(project.join(".ssh/id_ed25519"), "PRIVATE\n").unwrap();
     std::fs::write(project.join(".npmrc"), "//r/:_authToken=npm_x\n").unwrap();
-    std::fs::write(project.join("nuevo.rs"), "fn n() {}\n").unwrap();
+    std::fs::write(project.join("new.rs"), "fn n() {}\n").unwrap();
     let mut mcp = McpClient::start(a.client.take().unwrap(), &project);
 
     let tunnel = within(async {
@@ -608,7 +605,10 @@ async fn la_otra_maquina_nunca_recibe_credenciales() {
         .map(|v| v.as_str().unwrap())
         .collect();
     for s in [".env", ".ssh/id_ed25519", ".npmrc"] {
-        assert!(skipped.contains(&s), "el aviso no dice {s}: {skipped:?}");
+        assert!(
+            skipped.contains(&s),
+            "the warning does not say {s}: {skipped:?}"
+        );
     }
     assert!(
         tunnel["warning"]
@@ -618,12 +618,12 @@ async fn la_otra_maquina_nunca_recibe_credenciales() {
     );
     let tid = tandem_proto::TunnelId(u64::from_str_radix(&id, 16).unwrap());
     let work = b.agent.workspaces().dir_of(tid).expect("workspace");
-    assert!(work.join("nuevo.rs").is_file());
+    assert!(work.join("new.rs").is_file());
     for s in [".env", ".ssh", ".npmrc"] {
-        assert!(!work.join(s).exists(), "llegó {s}");
+        assert!(!work.join(s).exists(), "arrived {s}");
     }
 
-    // Un exec con GH_TOKEN se rechaza sin permiso explícito; SSH_AUTH_SOCK nunca.
+    // An exec with GH_TOKEN is rejected without explicit permission; SSH_AUTH_SOCK never.
     let e = mcp
         .tool(
             "exec",
@@ -654,13 +654,13 @@ async fn la_otra_maquina_nunca_recibe_credenciales() {
     .unwrap();
     assert_eq!(fake.processes().len(), 1);
 
-    // Archivos: la carpeta llega sin lo que parece credencial y el aviso lo dice.
-    let src = dir.path().join("para-copiar");
+    // Files: the folder arrives without what looks like a credential and the warning says so.
+    let src = dir.path().join("to-copy");
     std::fs::create_dir_all(src.join("conf")).unwrap();
-    std::fs::write(src.join("ok.txt"), "hola").unwrap();
+    std::fs::write(src.join("ok.txt"), "hello").unwrap();
     std::fs::write(src.join("conf/.env.local"), "X=1").unwrap();
-    std::fs::write(src.join("llave.pem"), "pem").unwrap();
-    let dst = dir.path().join("copiado");
+    std::fs::write(src.join("key.pem"), "pem").unwrap();
+    let dst = dir.path().join("copied");
     let r = mcp
         .tool(
             "files_put",
@@ -671,27 +671,27 @@ async fn la_otra_maquina_nunca_recibe_credenciales() {
         .unwrap();
     assert_eq!(r["files"], 1);
     assert!(dst.join("ok.txt").is_file());
-    assert!(!dst.join("llave.pem").exists());
+    assert!(!dst.join("key.pem").exists());
     assert!(!dst.join("conf/.env.local").exists());
     assert_eq!(r["skipped"].as_array().unwrap().len(), 2, "{r}");
-    assert!(r["warning"].as_str().unwrap().contains("llave.pem"));
-    // Nombrándolo, sí viaja.
-    let dst2 = dir.path().join("copiado2");
+    assert!(r["warning"].as_str().unwrap().contains("key.pem"));
+    // Naming it, it does travel.
+    let dst2 = dir.path().join("copied2");
     let r = mcp
         .tool(
             "files_put",
             json!({"tunnel": id, "local": src.display().to_string(),
-                   "remote": dst2.display().to_string(), "include_secrets": ["llave.pem"]}),
+                   "remote": dst2.display().to_string(), "include_secrets": ["key.pem"]}),
         )
         .await
         .unwrap();
-    assert!(dst2.join("llave.pem").is_file());
+    assert!(dst2.join("key.pem").is_file());
     assert!(!dst2.join("conf/.env.local").exists());
     assert_eq!(r["skipped"].as_array().unwrap().len(), 1);
 
-    // La CLI también avisa, por stderr.
+    // The CLI also warns, on stderr.
     let rendered = render::render("files_put", &r);
-    assert!(rendered.err.starts_with("[aviso]"), "{rendered:?}");
+    assert!(rendered.err.starts_with("[warning]"), "{rendered:?}");
 
     a.stop().await;
     b.stop().await;

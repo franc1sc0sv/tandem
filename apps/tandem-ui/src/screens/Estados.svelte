@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Estados difíciles, vista de referencia (`V3-Estados`, Ajustes → Avanzado): las nueve
+  // Trouble states, vista de referencia (`V3-States`, Ajustes → Avanzado): las nueve
   // tarjetas con los nombres reales del puesto y la acción que arregla cada una.
   import { useStore } from "../lib/context";
   import { stateCards, type StateDo } from "../lib/states";
@@ -22,8 +22,8 @@
 
 <div class="page">
   <div class="head">
-    <h1>Estados difíciles</h1>
-    <span class="mut sub">Cómo se ve cada cosa cuando no sale bien. Regla: siempre se dice qué pasó, qué hizo Tandem solo y qué puedes hacer tú.</span>
+    <h1>Trouble states</h1>
+    <span class="mut sub">How each thing looks when it does not go well. Rule: it always says what happened, what Tandem did on its own and what you can do.</span>
   </div>
   <div class="grid">
     {#each cards as c, i (c.id)}

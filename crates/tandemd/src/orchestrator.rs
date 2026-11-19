@@ -1,29 +1,29 @@
-//! Orquestador: ejecuta un [`Plan`] como transacción repartiendo cada paso a la
-//! máquina que lo tiene que hacer (DESIGN §3.3 y §5).
+//! Orchestrator: runs a [`Plan`] as a transaction, handing each step to the
+//! machine that has to do it (DESIGN §3.3 and §5).
 //!
-//! Cada paso va a esta máquina ([`LocalSteps`]) o al otro agente por el plano de
-//! control ([`PeerLink`]), siempre con un tiempo máximo ([`StepTimeouts`]). La ejecución
-//! la hace [`tandem_core::run`]; aquí solo se despacha y se publica el avance como
-//! [`TxnEvent`] para la UI.
+//! Each step goes to this machine ([`LocalSteps`]) or to the other agent over the
+//! control plane ([`PeerLink`]), always with a maximum time ([`StepTimeouts`]). Execution
+//! is done by [`tandem_core::run`]; here steps are only dispatched and progress is published as
+//! [`TxnEvent`] for the UI.
 //!
-//! Los pasos de energía tienen reglas propias: [`Step::PowerOn`] es mandar el Wake-on-LAN
-//! desde la otra máquina (repetido cada [`WOL_RESEND`]) y esperar a que el agente de la
-//! encendida se conecte, y un [`Step::PowerOff`] cuya respuesta se pierde se da por hecho
-//! (lo más probable es que la máquina se esté apagando).
+//! Power steps have rules of their own: [`Step::PowerOn`] is sending the Wake-on-LAN
+//! from the other machine (repeated every [`WOL_RESEND`]) and waiting for the agent of the
+//! powered-on one to connect, and a [`Step::PowerOff`] whose reply is lost is taken as done
+//! (the machine is most likely shutting down).
 //!
-//! [`Step::SwitchMonitor`] lo hace el dueño del monitor (DECISIONS D13), que sale de
-//! [`MonitorControl`]: si es esta máquina, aquí; si no, se le pide a la otra por el plano de
-//! control. Si falla un paso posterior, o el cambio se queda sin veredicto, se vuelve a la
-//! entrada de antes (vuelta atrás).
+//! [`Step::SwitchMonitor`] is done by the monitor's owner (DECISIONS D13), which comes from
+//! [`MonitorControl`]: if it is this machine, here; if not, the other is asked over the
+//! control plane. If a later step fails, or the change is left without a verdict, it goes back to the
+//! previous input (rollback).
 //!
-//! Los pasos de escena ([`Step::is_scene`]: el monitor abstracto, el acomodo y la geometría)
-//! los hace la máquina que aplica la escena, con lo que le pasa [`Orchestrator::run_scene`]
-//! ([`SceneSteps`]); nunca se le piden a la otra. Si falla un paso posterior, cada uno ya
-//! hecho vuelve a como estaba y la UI lo ve como [`TxnEvent::StepUndone`].
+//! Scene steps ([`Step::is_scene`]: the abstract monitor, the arrangement and the geometry)
+//! are done by the machine that applies the scene, with what [`Orchestrator::run_scene`]
+//! gives it ([`SceneSteps`]); they are never asked of the other. If a later step fails, each one already
+//! done goes back to how it was and the UI sees it as [`TxnEvent::StepUndone`].
 //!
-//! No hay una máquina central (DESIGN §3.7): cualquiera de las dos orquesta, pero de a
-//! una: la que hace pasos para la otra queda prestada hasta recibir su estado final, y la
-//! que orquesta rechaza los pasos ajenos.
+//! There is no central machine (DESIGN §3.7): either of the two orchestrates, but one at
+//! a time: the one doing steps for the other is on loan until it receives its final state, and the
+//! one that orchestrates rejects foreign steps.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -36,63 +36,63 @@ use tandem_proto::{ControlMsg, TxnEvent};
 
 use tokio::sync::{broadcast, watch};
 
-/// Lo que responde un paso que esta máquina todavía no sabe hacer.
-pub const STEP_NOT_IMPLEMENTED: &str = "no implementado";
-/// El paso le toca al otro agente y no hay conexión con él.
-pub const PEER_NOT_CONNECTED: &str = "el otro agente no está conectado";
-/// Se cortó la conexión con el otro agente con un paso pendiente.
-pub const PEER_LOST: &str = "se perdió la conexión con el otro agente";
-/// El otro agente pidió un paso mientras esta máquina orquesta su propio cambio.
-pub const BUSY_HERE: &str = "esta máquina está en medio de otro cambio";
-/// Un monitor que ninguna máquina puede controlar ahora.
-pub const NO_OWNER: &str = "ninguna máquina tiene canal con el monitor";
-/// Todavía no se sabe qué entrada muestra el monitor (falta la primera lectura del dueño).
+/// What a step answers that this machine does not know how to do yet.
+pub const STEP_NOT_IMPLEMENTED: &str = "not implemented";
+/// The step falls to the other agent and there is no connection to it.
+pub const PEER_NOT_CONNECTED: &str = "the other agent is not connected";
+/// The connection to the other agent was cut with a step pending.
+pub const PEER_LOST: &str = "the connection to the other agent was lost";
+/// The other agent asked for a step while this machine orchestrates its own change.
+pub const BUSY_HERE: &str = "this machine is in the middle of another change";
+/// A monitor that no machine can control now.
+pub const NO_OWNER: &str = "no machine has a channel to the monitor";
+/// It is not yet known which input the monitor shows (the owner's first reading is missing).
 pub const UNKNOWN_INPUT: &str =
-    "todavía no se sabe qué entrada muestra; sin eso no se podría volver atrás";
-/// Un paso de escena fuera de una escena, o pedido por la otra máquina.
-pub const SCENE_ONLY: &str = "solo lo hace la máquina que aplica la escena";
+    "it is not yet known which input is shown; without that it could not go back";
+/// A scene step outside a scene, or requested by the other machine.
+pub const SCENE_ONLY: &str = "only the machine that applies the scene does it";
 
-/// Los pasos de escena de esta máquina (DESIGN §5): el agente los arma para cada escena que
-/// aplica ([`crate::scenes`]).
+/// This machine's scene steps (DESIGN §5): the agent builds them for each scene that
+/// applies ([`crate::scenes`]).
 pub trait SceneSteps: Send + Sync {
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a>;
-    /// El paso que deja todo como estaba antes de `step`, leído justo antes de hacerlo
-    /// (`None`: no hay nada que deshacer). Un error rechaza el paso sin hacerlo: sin saber
-    /// cómo estaba, no se podría volver atrás.
+    /// The step that leaves everything as it was before `step`, read right before doing it
+    /// (`None`: there is nothing to undo). An error rejects the step without doing it: without knowing
+    /// how it was, it could not go back.
     fn inverse(&self, step: &Step) -> Result<Option<Step>, String>;
 }
 
-/// Los monitores del puesto, vistos desde el orquestador ([`crate::monitors::MonitorHub`]).
+/// The desk's monitors, seen from the orchestrator ([`crate::monitors::MonitorHub`]).
 pub trait MonitorControl: Send + Sync {
-    /// La máquina dueña de `monitor`, que es la que lo cambia.
+    /// The machine that owns `monitor`, which is the one that changes it.
     fn owner(&self, monitor: &str) -> Option<Machine>;
-    /// La entrada en pantalla según el dueño: a ella se vuelve si hay que deshacer.
+    /// The input on screen according to the owner: it goes back to that if there is something to undo.
     fn input(&self, monitor: &str) -> Option<MonitorInput>;
-    /// Cambia la entrada aquí (esta máquina es la dueña) y espera el veredicto. Un error que
-    /// empieza con [`tandem_monitor::NO_VERDICT`] deja la duda de si cambió.
+    /// Changes the input here (this machine is the owner) and waits for the verdict. An error that
+    /// starts with [`tandem_monitor::NO_VERDICT`] leaves in doubt whether it changed.
     fn switch<'a>(&'a self, monitor: &'a str, input: MonitorInput) -> StepFuture<'a>;
 }
 
-/// Cada cuánto se repite el Wake-on-LAN mientras se espera a la otra máquina: un paquete
-/// UDP se puede perder, y la tarjeta tarda en quedar lista tras cortarse la luz.
+/// How often the Wake-on-LAN is repeated while waiting for the other machine: a UDP
+/// packet can be lost, and the card takes time to be ready after a power cut.
 pub const WOL_RESEND: Duration = Duration::from_secs(5);
 
-/// Resultado de un paso: el error es un texto para mostrar en la UI.
+/// Result of a step: the error is text to show in the UI.
 pub type StepFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
 
-/// Los pasos que esta máquina hace por sí misma (energía).
+/// The steps this machine does by itself (power).
 ///
-/// [`Step::PowerOn`] aquí es solo mandar un Wake-on-LAN a la otra máquina: esperarla y
-/// repetir el envío lo hace el [`Orchestrator`].
+/// [`Step::PowerOn`] here is only sending a Wake-on-LAN to the other machine: waiting for it and
+/// repeating the send is done by the [`Orchestrator`].
 pub trait LocalSteps: Send + Sync {
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a>;
 
-    /// A quién despierta esta máquina cambió (la aprendió al emparejar o la UI la escribió,
-    /// T-159). Solo la energía real lo usa.
+    /// Whom this machine wakes changed (learned when pairing or written by the UI,
+    /// T-159). Only real power uses it.
     fn set_wol(&self, _wol: Option<tandem_power::WolTarget>) {}
 }
 
-/// Ejecutor de una máquina sin backends: todo paso responde [`STEP_NOT_IMPLEMENTED`].
+/// Executor of a machine without backends: every step answers [`STEP_NOT_IMPLEMENTED`].
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Unimplemented;
 
@@ -102,39 +102,39 @@ impl LocalSteps for Unimplemented {
     }
 }
 
-/// El otro agente, visto desde el orquestador.
+/// The other agent, seen from the orchestrator.
 pub trait PeerLink: Send + Sync {
-    /// Pide al otro agente un paso y espera su resultado.
+    /// Asks the other agent for a step and waits for its result.
     fn execute<'a>(&'a self, step: &'a Step) -> StepFuture<'a>;
-    /// Le avisa del estado final de una transacción, sin esperar respuesta.
+    /// Tells it the final state of a transaction, without waiting for a reply.
     fn publish_state(&self, state: &State);
-    /// Le manda un aviso sin respuesta (capacidades, puesto). Sin conexión se pierde:
-    /// se repite al aparecer el enlace siguiente.
+    /// Sends it a notice without a reply (capabilities, desk). Without a connection it is lost:
+    /// it is repeated when the next link appears.
     fn send(&self, msg: ControlMsg) {
         let _ = msg;
     }
-    /// Como [`PeerLink::send`] para lo que se reemplaza solo (las muestras del cursor en
-    /// vivo): si el enlace se atrasa, se descarta en lugar de acumularse.
+    /// Like [`PeerLink::send`] for what replaces itself (the live cursor's
+    /// samples): if the link lags, it is discarded instead of accumulating.
     fn send_lossy(&self, msg: ControlMsg) {
         self.send(msg);
     }
-    /// Retiene el enlace por el que van los pasos mientras dure una transacción
-    /// propia: no se cambia de enlace a medias salvo que el activo caiga. Se libera
-    /// al soltar lo devuelto. Sin gestor de enlaces no hay nada que retener.
+    /// Holds the link the steps go over for the duration of an own
+    /// transaction: the link is not switched midway unless the active one drops. It is released
+    /// on dropping what is returned. Without a link manager there is nothing to hold.
     fn hold_link(&self) -> Option<LinkHold> {
         None
     }
-    /// El enlace activo con el otro agente y lo que tardó su último ping (T-087: el asistente
-    /// lo muestra). `None` sin enlace.
+    /// The active link with the other agent and how long its last ping took (T-087: setup
+    /// shows it). `None` without a link.
     fn rtt(&self) -> Option<(tandem_proto::Link, Duration)> {
         None
     }
 }
 
-/// Lo que devuelve [`PeerLink::hold_link`]; la retención dura lo que viva.
+/// What [`PeerLink::hold_link`] returns; the hold lasts as long as it lives.
 pub type LinkHold = Box<dyn Send + Sync>;
 
-/// Sin conexión con el otro agente.
+/// Without a connection to the other agent.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct NoPeer;
 
@@ -146,62 +146,62 @@ impl PeerLink for NoPeer {
     fn publish_state(&self, _state: &State) {}
 }
 
-/// La máquina que sabe hacer cada paso de energía; un cambio de monitor depende de su
-/// dueño ([`Orchestrator::target_of`]) y da `None`.
+/// The machine that knows how to do each power step; a monitor change depends on its
+/// owner ([`Orchestrator::target_of`]) and gives `None`.
 pub fn target(step: &Step) -> Option<Machine> {
     match step {
-        // Una máquina apagada no puede encenderse sola: el Wake-on-LAN sale de la otra.
+        // A powered-off machine cannot turn itself on: the Wake-on-LAN comes from the other.
         Step::PowerOn { machine } => Some(machine.other()),
         Step::PowerOff { machine } => Some(*machine),
         Step::SwitchMonitor { .. } => None,
-        // Los de escena los hace quien la aplica ([`Orchestrator::run_scene`]).
+        // Scene ones are done by whoever applies it ([`Orchestrator::run_scene`]).
         Step::ShowMachine { .. } | Step::Arrange { .. } | Step::Geometry => None,
     }
 }
 
-/// Texto corto de un paso, para errores y logs.
+/// Short text of a step, for errors and logs.
 pub fn describe(step: &Step) -> String {
     match step {
-        Step::PowerOn { machine } => format!("encender la máquina {machine}"),
-        Step::PowerOff { machine } => format!("apagar la máquina {machine}"),
+        Step::PowerOn { machine } => format!("power on machine {machine}"),
+        Step::PowerOff { machine } => format!("power off machine {machine}"),
         Step::SwitchMonitor { monitor, input } => {
-            format!("poner {input} en el monitor {monitor}")
+            format!("set {input} on monitor {monitor}")
         }
         Step::ShowMachine { monitor, machine } => {
-            format!("mostrar la máquina {machine} en el monitor {monitor}")
+            format!("show machine {machine} on monitor {monitor}")
         }
-        Step::Arrange { .. } => "acomodar los escritorios".to_owned(),
-        Step::Geometry => "llevar el teclado y el mouse a la geometría nueva".to_owned(),
+        Step::Arrange { .. } => "arrange the desktops".to_owned(),
+        Step::Geometry => "move the keyboard and mouse to the new geometry".to_owned(),
     }
 }
 
-/// El error de un cambio de monitor deja la duda de si cambió (sin veredicto del firmware).
+/// A monitor change's error leaves in doubt whether it changed (no verdict from the firmware).
 fn no_verdict(error: &str) -> bool {
     error.contains(tandem_monitor::NO_VERDICT)
 }
 
-/// Lo que dice un paso que se quedó sin respuesta: pudo haberse hecho igual.
-const NO_ANSWER: &str = "sin respuesta en";
+/// What a step that got no reply says: it may have been done anyway.
+const NO_ANSWER: &str = "no reply within";
 
-/// Un error de un paso de escena que deja la duda de si se hizo: el monitor de la escena es un
-/// cambio de entrada que hace el dueño (T-111), con los mismos errores.
+/// An error of a scene step that leaves in doubt whether it was done: the scene's monitor is an
+/// input change done by the owner (T-111), with the same errors.
 fn scene_uncertain(error: &str) -> bool {
     no_verdict(error) || error.contains(PEER_LOST) || error.contains(NO_ANSWER)
 }
 
-/// Tiempo máximo por paso.
+/// Maximum time per step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StepTimeouts {
-    /// Encender la otra máquina incluye esperar a que su agente responda.
+    /// Powering on the other machine includes waiting for its agent to answer.
     pub power_on: Duration,
-    /// Todos los demás pasos.
+    /// All the other steps.
     pub step: Duration,
-    /// Cambiar la entrada de un monitor: el firmware tarda unos segundos en dar su veredicto
-    /// (la espera del veredicto, 12 s, queda dentro).
+    /// Changing a monitor's input: the firmware takes a few seconds to give its verdict
+    /// (the verdict wait, 12 s, is included).
     pub monitor: Duration,
 }
 
-/// Lo que puede tardar un cambio de entrada con su veredicto.
+/// How long an input change with its verdict can take.
 pub const MONITOR_STEP: Duration = Duration::from_secs(20);
 
 impl Default for StepTimeouts {
@@ -220,39 +220,39 @@ impl StepTimeouts {
             Step::PowerOn { .. } => self.power_on,
             Step::PowerOff { .. } => self.step,
             Step::SwitchMonitor { .. } => self.monitor,
-            // El monitor de una escena es un `SwitchMonitor` del dueño (T-111).
+            // A scene's monitor is a `SwitchMonitor` of the owner (T-111).
             Step::ShowMachine { .. } => self.monitor,
             Step::Arrange { .. } | Step::Geometry => self.step,
         }
     }
 }
 
-/// Avisos de transacción que se guardan para un suscriptor lento antes de que pierda alguno.
+/// Transaction notices kept for a slow subscriber before it loses any.
 const EVENT_BUFFER: usize = 256;
 
-/// Despacha pasos y publica el avance de las transacciones de un agente.
+/// Dispatches steps and publishes the progress of an agent's transactions.
 pub struct Orchestrator {
-    /// El lado de esta máquina; cambia solo si al emparejar resulta ser el otro.
+    /// This machine's side; it changes only if when pairing it turns out to be the other.
     me: Mutex<Machine>,
     local: Arc<dyn LocalSteps>,
     peer: RwLock<Arc<dyn PeerLink>>,
-    /// Si hay conexión con el otro agente: encender la otra termina cuando pasa a `true`.
+    /// Whether there is a connection to the other agent: powering on the other ends when it becomes `true`.
     connected: watch::Sender<bool>,
     timeouts: StepTimeouts,
     events: broadcast::Sender<TxnEvent>,
     next_txn: AtomicU64,
     busy: AtomicBool,
-    /// Hasta cuándo esta máquina está prestada a una transacción del otro agente.
-    /// Mientras una orquesta, la otra no puede empezar un cambio propio, y una que
-    /// orquesta no acepta pasos ajenos. Las dos comprobaciones van bajo este candado para
-    /// que no se crucen.
+    /// Until when this machine is on loan to a transaction of the other agent.
+    /// While one orchestrates, the other cannot start a change of its own, and one that
+    /// orchestrates does not accept foreign steps. Both checks go under this lock so
+    /// they do not cross.
     peer_lease: Mutex<Option<tokio::time::Instant>>,
-    /// Los pasos del otro agente corren de a uno aunque lleguen por streams (enlaces)
-    /// distintos.
+    /// The other agent's steps run one at a time even if they arrive over streams (links)
+    /// different ones.
     peer_turn: tokio::sync::Mutex<()>,
-    /// El enlace retenido durante la transacción propia en curso.
+    /// The link held during the current own transaction.
     link_hold: Mutex<Option<LinkHold>>,
-    /// Los monitores; sin ellos, todo cambio de monitor falla con [`NO_OWNER`].
+    /// The monitors; without them, every monitor change fails with [`NO_OWNER`].
     monitors: RwLock<Option<Arc<dyn MonitorControl>>>,
 }
 
@@ -284,12 +284,12 @@ impl Orchestrator {
         }
     }
 
-    /// A quién despierta esta máquina, desde ahora.
+    /// Whom this machine wakes, from now on.
     pub fn set_wol(&self, wol: Option<tandem_power::WolTarget>) {
         self.local.set_wol(wol);
     }
 
-    /// Quién sabe de los monitores del puesto.
+    /// Who knows about the desk's monitors.
     pub fn set_monitors(&self, monitors: Arc<dyn MonitorControl>) {
         *self
             .monitors
@@ -304,7 +304,7 @@ impl Orchestrator {
             .clone()
     }
 
-    /// La máquina que hace `step`: la de [`target`], o el dueño del monitor.
+    /// The machine that does `step`: the one from [`target`], or the monitor's owner.
     pub fn target_of(&self, step: &Step) -> Result<Machine, String> {
         match step {
             Step::SwitchMonitor { monitor, .. } => self
@@ -320,24 +320,24 @@ impl Orchestrator {
         *self.me.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Esta máquina resultó ser el otro lado ([`crate::Agent::adopt_side`]).
+    /// This machine turned out to be the other side ([`crate::Agent::adopt_side`]).
     pub fn set_machine(&self, side: Machine) {
         *self.me.lock().unwrap_or_else(PoisonError::into_inner) = side;
     }
 
-    /// Cambia la conexión con el otro agente. Los pasos ya en curso siguen con la anterior.
+    /// Changes the connection to the other agent. Steps already in progress continue with the previous one.
     pub fn set_peer(&self, peer: Arc<dyn PeerLink>) {
         *self.peer.write().unwrap_or_else(PoisonError::into_inner) = peer;
         self.connected.send_replace(true);
     }
 
-    /// Se perdió la conexión con el otro agente (por ejemplo, la PC se apagó).
+    /// The connection to the other agent was lost (for example, the PC powered off).
     pub fn clear_peer(&self) {
         *self.peer.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(NoPeer);
         self.connected.send_replace(false);
     }
 
-    /// Si hay conexión con el otro agente, y avisos cuando cambia.
+    /// Whether there is a connection to the other agent, and notices when it changes.
     pub fn peer_connected(&self) -> watch::Receiver<bool> {
         self.connected.subscribe()
     }
@@ -353,8 +353,8 @@ impl Orchestrator {
         self.events.subscribe()
     }
 
-    /// Reserva el orquestador para una transacción; `None` si ya hay una en curso,
-    /// propia o del otro agente.
+    /// Reserves the orchestrator for a transaction; `None` if one is already in progress,
+    /// its own or the other agent's.
     pub fn try_begin(&self) -> Option<u64> {
         let lease = self.lease();
         if lease.is_some_and(|until| tokio::time::Instant::now() < until) {
@@ -381,8 +381,8 @@ impl Orchestrator {
             .unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Ninguna transacción en curso, ni propia ni del otro agente. Es solo una foto: para
-    /// reservar el orquestador está [`Orchestrator::try_begin`].
+    /// No transaction in progress, neither its own nor the other agent's. It is only a snapshot: to
+    /// reserve the orchestrator there is [`Orchestrator::try_begin`].
     pub fn is_idle(&self) -> bool {
         let leased = self
             .lease()
@@ -390,33 +390,33 @@ impl Orchestrator {
         !leased && !self.busy.load(Ordering::Acquire)
     }
 
-    /// La transacción del otro agente terminó (llegó su estado final).
+    /// The other agent's transaction ended (its final state arrived).
     pub fn release_peer_lease(&self) {
         *self.lease() = None;
     }
 
-    /// Cuánto dura el préstamo tras cada paso del otro agente: lo más que puede
-    /// tardar él en pedir el siguiente (un paso propio con su tiempo máximo, el
-    /// más largo es encender la otra) más un paso nuestro. Si se pierde su estado
-    /// final, la máquina queda libre a lo sumo tras esto.
+    /// How long the loan lasts after each step of the other agent: the most it can
+    /// take to ask for the next one (an own step with its maximum time, the
+    /// longest is powering on the other) plus one step of ours. If its final state
+    /// is lost, the machine is free after this at most.
     fn lease_length(&self) -> Duration {
         self.timeouts.power_on + self.timeouts.step
     }
 
-    /// Libera lo reservado con [`Orchestrator::try_begin`].
+    /// Releases what was reserved with [`Orchestrator::try_begin`].
     pub fn end(&self) {
-        // Primero el enlace: el aviso final al otro agente ya puede ir por el mejor.
+        // First the link: the final notice to the other agent can already go over the best one.
         drop(self.hold().take());
         self.busy.store(false, Ordering::Release);
     }
 
     fn emit(&self, event: TxnEvent) {
-        // Sin UI conectada no hay a quién avisar, y eso no es un error.
+        // Without a connected UI there is nobody to notify, and that is not an error.
         let _ = self.events.send(event);
     }
 
-    /// Ejecuta `plan` sobre `state` publicando el avance; el desenlace lo publica
-    /// [`Orchestrator::finish`], cuando el estado ya se guardó.
+    /// Runs `plan` over `state` publishing progress; the outcome is published by
+    /// [`Orchestrator::finish`], once the state was saved.
     pub async fn run(
         &self,
         txn: u64,
@@ -426,7 +426,7 @@ impl Orchestrator {
         self.run_with(txn, state, plan, None).await
     }
 
-    /// [`Orchestrator::run`] de una escena: sus pasos de escena los hace `scene`.
+    /// [`Orchestrator::run`] of a scene: its scene steps are done by `scene`.
     pub async fn run_scene(
         &self,
         txn: u64,
@@ -458,7 +458,7 @@ impl Orchestrator {
         tandem_core::run(state, plan, &mut d).await
     }
 
-    /// Publica el desenlace a la UI y el estado final al otro agente.
+    /// Publishes the outcome to the UI and the final state to the other agent.
     pub fn finish(&self, txn: u64, state: &State, outcome: &Result<TxnReport, TxnError>) {
         let event = match outcome {
             Ok(_) => TxnEvent::Committed {
@@ -474,7 +474,7 @@ impl Orchestrator {
         self.peer().publish_state(state);
     }
 
-    /// Un paso con su tiempo máximo, en la máquina que le toca.
+    /// A step with its maximum time, on the machine it falls to.
     pub async fn dispatch(&self, step: &Step) -> Result<(), String> {
         self.attempt(step).await.map_err(|f| f.error)
     }
@@ -512,20 +512,20 @@ impl Orchestrator {
         }
     }
 
-    /// Wake-on-LAN hasta que el agente de la otra máquina se conecta. El tope lo pone
-    /// quien llama (`power_on_timeout_secs`); un error al mandar el paquete corta enseguida.
+    /// Wake-on-LAN until the other machine's agent connects. The cap is set by
+    /// the caller (`power_on_timeout_secs`); an error sending the packet cuts it short right away.
     async fn power_on_peer(&self, step: &Step) -> Result<(), String> {
         let mut connected = self.connected.subscribe();
         loop {
             self.local.execute(step).await?;
             tokio::select! {
-                // El emisor vive en `self`: la espera no puede quedarse sin emisor.
+                // The sender lives in `self`: the wait cannot be left without a sender.
                 r = connected.wait_for(|c| *c) => {
                     return r.map(|_| ()).map_err(|_| PEER_LOST.to_owned());
                 }
                 () = tokio::time::sleep(WOL_RESEND) => {
                     tracing::debug!(
-                        "la máquina {} todavía no responde: se repite el Wake-on-LAN",
+                        "machine {} not responding yet: repeating the Wake-on-LAN",
                         self.me().other()
                     );
                 }
@@ -537,20 +537,20 @@ impl Orchestrator {
         let peer = self.peer();
         peer.execute(step).await.map_err(|e| StepFailure {
             uncertain: e == PEER_LOST || no_verdict(&e),
-            error: format!("máquina {}: {e}", self.me().other()),
+            error: format!("machine {}: {e}", self.me().other()),
         })
     }
 
-    /// Un paso pedido por el otro agente: solo se aceptan los que le tocan a esta máquina.
+    /// A step requested by the other agent: only the ones that fall to this machine are accepted.
     pub async fn execute_for_peer(&self, step: &Step) -> Result<(), String> {
         let me = self.me();
         if self.target_of(step)? != me {
             return Err(format!(
-                "{}: no le corresponde a la máquina {me}",
+                "{}: does not belong to machine {me}",
                 describe(step)
             ));
         }
-        // La espera está acotada: quien tiene el turno corre con su tiempo máximo.
+        // The wait is bounded: whoever has the turn runs with its maximum time.
         let _turn = self.peer_turn.lock().await;
         {
             let mut lease = self.lease();
@@ -563,7 +563,7 @@ impl Orchestrator {
         match tokio::time::timeout(limit, self.run_local(step)).await {
             Ok(r) => r,
             Err(_) => Err(format!(
-                "{}: sin respuesta en {} s",
+                "{}: no reply within {} s",
                 describe(step),
                 limit.as_secs()
             )),
@@ -571,10 +571,10 @@ impl Orchestrator {
     }
 }
 
-/// Por qué falló un paso.
+/// Why a step failed.
 struct StepFailure {
     error: String,
-    /// Si pudo haberse hecho igual: venció el tiempo o se cortó la conexión.
+    /// Whether it may have been done anyway: the time ran out or the connection was cut.
     uncertain: bool,
 }
 
@@ -587,25 +587,25 @@ impl StepFailure {
     }
 }
 
-/// El [`Executor`] de una transacción: despacha y cuenta los pasos para la UI.
+/// A transaction's [`Executor`]: dispatches and counts the steps for the UI.
 struct Dispatcher<'a> {
     orch: &'a Orchestrator,
     txn: u64,
     next: u32,
-    /// Cada paso hecho que se sabe deshacer (cambio de monitor, pasos de escena), con su
-    /// posición en el plan y el paso que lo deshace.
+    /// Each done step that is known how to undo (monitor change, scene steps), with its
+    /// position in the plan and the step that undoes it.
     inverses: Vec<(u32, Step, Step)>,
-    /// Quien hace los pasos de escena; `None` fuera de una escena.
+    /// Whoever does the scene steps; `None` outside a scene.
     scene: Option<Arc<dyn SceneSteps>>,
 }
 
 impl Dispatcher<'_> {
-    /// El paso que deja el monitor como estaba antes de `step` (`None` si no hay nada que
-    /// deshacer). Un cambio de entrada sin saber la de antes no tendría a dónde volver si se
-    /// queda sin veredicto: se rechaza sin tocar el monitor.
+    /// The step that leaves the monitor as it was before `step` (`None` if there is nothing to
+    /// undo). An input change without knowing the previous one would have nowhere to go back to if it
+    /// is left without a verdict: it is rejected without touching the monitor.
     fn inverse(&self, step: &Step) -> Result<Option<Step>, String> {
         if step.is_scene() {
-            // Sin escena el paso falla solo, con [`SCENE_ONLY`].
+            // Without a scene the step fails on its own, with [`SCENE_ONLY`].
             return match &self.scene {
                 Some(scene) => scene.inverse(step),
                 None => Ok(None),
@@ -614,7 +614,7 @@ impl Dispatcher<'_> {
         let Step::SwitchMonitor { monitor, input } = step else {
             return Ok(None);
         };
-        // Sin monitores, el paso falla solo por no tener dueño ([`NO_OWNER`]).
+        // Without monitors, the step fails on its own for having no owner ([`NO_OWNER`]).
         let Some(monitors) = self.orch.monitors() else {
             return Ok(None);
         };
@@ -628,12 +628,12 @@ impl Dispatcher<'_> {
     }
 
     async fn roll_back(&self, inverse: &Step) -> Result<(), String> {
-        tracing::warn!(txn = self.txn, "vuelta atrás: {}", describe(inverse));
+        tracing::warn!(txn = self.txn, "rollback: {}", describe(inverse));
         self.perform(inverse).await.map_err(|f| f.error)
     }
 
-    /// Un paso con su tiempo máximo: los de escena, aquí con [`SceneSteps`]; el resto, en
-    /// la máquina que le toca.
+    /// A step with its maximum time: scene ones, here with [`SceneSteps`]; the rest, on
+    /// the machine it falls to.
     async fn perform(&self, step: &Step) -> Result<(), StepFailure> {
         let scene = match &self.scene {
             Some(scene) if step.is_scene() => scene,
@@ -678,9 +678,9 @@ impl Executor for Dispatcher<'_> {
                 self.next += 1;
                 Ok(())
             }
-            // Si la respuesta del apagado no llega, lo más probable es que se haya apagado
-            // (o esté en eso). Se da por hecho; si sigue prendida, la vigilancia del par la
-            // vuelve a ver y la marca prendida.
+            // If the shutdown reply does not arrive, it most likely powered off
+            // (or is about to). It is taken as done; if it is still on, the peer watch
+            // sees it again and marks it on.
             Err(StepFailure {
                 error,
                 uncertain: true,
@@ -688,7 +688,7 @@ impl Executor for Dispatcher<'_> {
                 tracing::warn!(
                     txn,
                     index,
-                    "el apagado no respondió; se da por hecho: {error}"
+                    "the shutdown did not answer; taken as done: {error}"
                 );
                 self.orch.emit(TxnEvent::StepDone { txn, index });
                 self.next += 1;
@@ -698,14 +698,14 @@ impl Executor for Dispatcher<'_> {
                 mut error,
                 uncertain,
             }) => {
-                tracing::warn!(txn, index, "falló un paso: {error}");
-                // Un cambio de entrada que pudo haberse hecho (sin veredicto, sin respuesta) se
-                // deshace aquí: para la transacción no quedó aplicado.
+                tracing::warn!(txn, index, "a step failed: {error}");
+                // An input change that may have been done (without verdict, without reply) is
+                // undone here: for the transaction it was not applied.
                 if uncertain
                     && let Some(inverse) = &inverse
                     && let Err(e) = self.roll_back(inverse).await
                 {
-                    error.push_str(&format!("; no se pudo volver atrás: {e}"));
+                    error.push_str(&format!("; could not go back: {e}"));
                 }
                 self.orch.emit(TxnEvent::StepFailed {
                     txn,
@@ -739,13 +739,13 @@ pub(crate) mod tests {
 
     use super::*;
 
-    /// Pasos simulados: registran todo, fallan en los indicados y tardan lo que se les diga.
+    /// Simulated steps: they record everything, fail on the indicated ones and take as long as told.
     #[derive(Default)]
     pub struct FakeSteps {
         pub log: Mutex<Vec<Step>>,
         pub fail_on: Vec<Step>,
         pub delays: Vec<(Step, Duration)>,
-        /// Se aplican, pero la respuesta se pierde con la conexión.
+        /// They are applied, but the reply is lost with the connection.
         pub lost_reply_on: Vec<Step>,
     }
 
@@ -760,7 +760,7 @@ pub(crate) mod tests {
                     tokio::time::sleep(*d).await;
                 }
                 if self.fail_on.contains(step) {
-                    Err("falla simulada".to_owned())
+                    Err("simulated failure".to_owned())
                 } else if self.lost_reply_on.contains(step) {
                     Err(PEER_LOST.to_owned())
                 } else {
@@ -779,7 +779,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// El otro agente simulado sin red: otro [`FakeSteps`].
+    /// The simulated other agent without a network: another [`FakeSteps`].
     pub struct FakePeer(pub Arc<FakeSteps>);
 
     impl PeerLink for FakePeer {
@@ -808,7 +808,7 @@ pub(crate) mod tests {
         std::iter::from_fn(|| rx.try_recv().ok()).collect()
     }
 
-    /// Visto desde la Mac, con la PC prendida.
+    /// Seen from the Mac, with the PC on.
     fn both_on() -> State {
         let mut s = State::initial(Machine::A);
         s.on.b = true;
@@ -819,12 +819,12 @@ pub(crate) mod tests {
     fn routes_each_step_to_its_machine() {
         assert_eq!(target(&PC_ON), Some(Machine::A));
         assert_eq!(target(&PC_OFF), Some(Machine::B));
-        assert_eq!(describe(&PC_ON), "encender la máquina B");
+        assert_eq!(describe(&PC_ON), "power on machine B");
         assert_eq!(
             describe(&Step::PowerOff {
                 machine: Machine::A
             }),
-            "apagar la máquina A"
+            "power off machine A"
         );
     }
 
@@ -854,7 +854,7 @@ pub(crate) mod tests {
             },
         );
         let e = o.dispatch(&PC_OFF).await.unwrap_err();
-        assert_eq!(e, "máquina B: falla simulada");
+        assert_eq!(e, "machine B: simulated failure");
     }
 
     #[tokio::test]
@@ -863,7 +863,7 @@ pub(crate) mod tests {
         let e = o.dispatch(&PC_OFF).await.unwrap_err();
         assert!(e.contains(PEER_NOT_CONNECTED), "{e}");
         let e = o.dispatch(&PC_ON).await.unwrap_err();
-        assert_eq!(e, format!("encender la máquina B: {STEP_NOT_IMPLEMENTED}"));
+        assert_eq!(e, format!("power on machine B: {STEP_NOT_IMPLEMENTED}"));
     }
 
     #[tokio::test]
@@ -932,7 +932,7 @@ pub(crate) mod tests {
                 TxnEvent::StepFailed {
                     txn: 1,
                     index: 0,
-                    error: "máquina B: falla simulada".into()
+                    error: "machine B: simulated failure".into()
                 },
                 TxnEvent::Failed {
                     txn: 1,
@@ -959,7 +959,7 @@ pub(crate) mod tests {
         let start = tokio::time::Instant::now();
         o.dispatch(&PC_ON).await.unwrap();
         assert_eq!(start.elapsed(), Duration::from_secs(12));
-        // Envíos en 0, 5 y 10 s.
+        // Sends at 0, 5 and 10 s.
         assert_eq!(local.steps(), vec![PC_ON; 3]);
     }
 
@@ -968,10 +968,10 @@ pub(crate) mod tests {
         let local = Arc::new(FakeSteps::default());
         let o = Orchestrator::new(Machine::A, local.clone(), StepTimeouts::default());
         let e = o.dispatch(&PC_ON).await.unwrap_err();
-        assert_eq!(e, "encender la máquina B: sin respuesta en 120 s");
-        // Un envío cada 5 s desde 0; el de 120 s coincide con el tope y puede salir o no.
+        assert_eq!(e, "power on machine B: no reply within 120 s");
+        // One send every 5 s from 0; the one at 120 s coincides with the cap and may or may not go out.
         let sent = local.steps().len();
-        assert!((24..=25).contains(&sent), "{sent} envíos");
+        assert!((24..=25).contains(&sent), "{sent} sends");
     }
 
     #[tokio::test(start_paused = true)]
@@ -985,7 +985,7 @@ pub(crate) mod tests {
             StepTimeouts::default(),
         );
         let start = tokio::time::Instant::now();
-        assert_eq!(o.dispatch(&PC_ON).await.unwrap_err(), "falla simulada");
+        assert_eq!(o.dispatch(&PC_ON).await.unwrap_err(), "simulated failure");
         assert_eq!(start.elapsed(), Duration::ZERO);
     }
 
@@ -1001,7 +1001,7 @@ pub(crate) mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn power_on_may_take_longer_than_other_steps() {
-        // 60 s para encender la máquina B está dentro de los 120 s.
+        // 60 s to power on machine B is within the 120 s.
         let (o, _, _) = mac(
             FakeSteps {
                 delays: vec![(PC_ON, Duration::from_secs(60))],
@@ -1028,8 +1028,8 @@ pub(crate) mod tests {
         assert_eq!(state, State::initial(Machine::A));
     }
 
-    // QA ronda 2: cada agente solo se cuidaba de sus propias transacciones, así que
-    // la Mac y la PC podían orquestar a la vez sobre el mismo puesto.
+    // QA round 2: each agent only looked after its own transactions, so
+    // the Mac and the PC could orchestrate at once over the same desk.
     #[tokio::test]
     async fn while_orchestrating_peer_steps_are_refused_without_running() {
         let (o, local, _) = mac(FakeSteps::default(), FakeSteps::default());
@@ -1042,7 +1042,7 @@ pub(crate) mod tests {
         assert_eq!(local.steps(), [PC_ON]);
     }
 
-    // T-064: dos pedidos del otro agente que llegan por streams distintos no se pisan.
+    // T-064: two requests from the other agent arriving over different streams do not trample each other.
     #[tokio::test(start_paused = true)]
     async fn peer_steps_from_different_streams_run_one_at_a_time() {
         let mac_off = Step::PowerOff {
@@ -1068,11 +1068,11 @@ pub(crate) mod tests {
             },
         );
         assert_eq!(first, Duration::from_secs(3));
-        assert!(second >= first, "el segundo terminó antes: {second:?}");
+        assert!(second >= first, "the second finished earlier: {second:?}");
         assert_eq!(local.steps(), [PC_ON, mac_off]);
     }
 
-    /// Un otro agente que cuenta cuántas retenciones de enlace hay vivas.
+    /// An other agent that counts how many link holds are alive.
     struct HoldingPeer(Arc<std::sync::atomic::AtomicUsize>);
 
     struct CountedHold(Arc<std::sync::atomic::AtomicUsize>);
@@ -1094,7 +1094,7 @@ pub(crate) mod tests {
         }
     }
 
-    // T-065: durante una transacción propia el enlace no cambia salvo que caiga.
+    // T-065: during an own transaction the link does not change unless it drops.
     #[test]
     fn a_transaction_holds_the_link_until_it_ends() {
         let holds = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -1109,7 +1109,7 @@ pub(crate) mod tests {
         assert_eq!(count(), 0);
         o.try_begin().unwrap();
         assert_eq!(count(), 1);
-        // Un segundo intento rechazado no retiene nada más.
+        // A second rejected attempt holds nothing more.
         assert_eq!(o.try_begin(), None);
         assert_eq!(count(), 1);
         o.end();
@@ -1123,13 +1123,13 @@ pub(crate) mod tests {
     async fn serving_the_peer_blocks_own_changes_until_it_finishes() {
         let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
         o.execute_for_peer(&PC_ON).await.unwrap();
-        assert_eq!(o.try_begin(), None, "la máquina está prestada");
-        // Llega el estado final de la transacción del otro: queda libre.
+        assert_eq!(o.try_begin(), None, "the machine is on loan");
+        // The other's transaction final state arrives: it is free.
         o.release_peer_lease();
         let txn = o.try_begin().unwrap();
         o.end();
 
-        // Si el estado final se pierde, el préstamo vence solo.
+        // If the final state is lost, the loan expires on its own.
         o.execute_for_peer(&PC_ON).await.unwrap();
         let t = StepTimeouts::default();
         tokio::time::advance(t.power_on + t.step - Duration::from_millis(1)).await;
@@ -1138,7 +1138,7 @@ pub(crate) mod tests {
         assert!(o.try_begin().is_some_and(|next| next > txn));
     }
 
-    /// Monitores de prueba: un dueño fijo, una entrada y lo que contesta cada cambio.
+    /// Test monitors: a fixed owner, an input and what each change answers.
     struct FakeMonitors {
         owner: Option<Machine>,
         input: Option<MonitorInput>,
@@ -1187,8 +1187,8 @@ pub(crate) mod tests {
         }
     }
 
-    /// Los pasos de escena los hace quien aplica la escena: nunca la otra a pedido, ni fuera
-    /// de una escena.
+    /// Scene steps are done by whoever applies the scene: never the other on request, nor outside
+    /// a scene.
     #[tokio::test]
     async fn scene_steps_are_never_done_for_the_other() {
         let (o, local, peer) = mac(FakeSteps::default(), FakeSteps::default());
@@ -1210,7 +1210,7 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_monitor_switch_goes_to_its_owner() {
-        // Dueña esta máquina: lo hace aquí, sin pasar por los pasos de energía.
+        // This machine owns: it does it here, without going through the power steps.
         let (o, local, peer) = mac(FakeSteps::default(), FakeSteps::default());
         let m = FakeMonitors::new(Some(Machine::A), vec![]);
         o.set_monitors(m.clone());
@@ -1219,18 +1219,18 @@ pub(crate) mod tests {
         assert!(local.steps().is_empty() && peer.steps().is_empty());
         assert_eq!(o.timeouts.for_step(&to_hdmi()), MONITOR_STEP);
 
-        // Dueña la otra: se le pide a ella.
+        // The other owns: it is asked.
         let (o, _, peer) = mac(FakeSteps::default(), FakeSteps::default());
         let m = FakeMonitors::new(Some(Machine::B), vec![]);
         o.set_monitors(m.clone());
         o.dispatch(&to_hdmi()).await.unwrap();
         assert_eq!(peer.steps(), [to_hdmi()]);
         assert!(m.switched().is_empty());
-        // Y la otra no lo hace por esta si el dueño es esta.
+        // And the other does not do it for this one if the owner is this one.
         let e = o.execute_for_peer(&to_hdmi()).await.unwrap_err();
-        assert!(e.contains("no le corresponde"), "{e}");
+        assert!(e.contains("does not belong to"), "{e}");
 
-        // Sin dueño (o sin monitores) se dice por qué.
+        // Without an owner (or without monitors) it says why.
         let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
         let e = o.dispatch(&to_hdmi()).await.unwrap_err();
         assert!(e.contains(NO_OWNER), "{e}");
@@ -1257,8 +1257,8 @@ pub(crate) mod tests {
         );
     }
 
-    /// Revisión de #80: sin saber la entrada de antes, un cambio sin veredicto no tendría a
-    /// dónde volver. Se rechaza antes de tocar el monitor.
+    /// Review of #80: without knowing the previous input, a change without a verdict would have nowhere to
+    /// go back to. It is rejected before touching the monitor.
     #[tokio::test]
     async fn a_switch_with_an_unknown_input_is_refused() {
         let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
@@ -1279,7 +1279,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_failed_verdict_is_not_undone() {
         let (o, _, _) = mac(FakeSteps::default(), FakeSteps::default());
-        let m = FakeMonitors::new(Some(Machine::A), vec![Err("sigue en DP".into())]);
+        let m = FakeMonitors::new(Some(Machine::A), vec![Err("still on DP".into())]);
         o.set_monitors(m.clone());
         let mut state = both_on();
         let plan = Plan::switch_monitor("m", MonitorInput::Hdmi);
@@ -1307,11 +1307,11 @@ pub(crate) mod tests {
             m.switched(),
             [MonitorInput::Hdmi, MonitorInput::DisplayPort]
         );
-        assert!(state.on.b, "la energía no se deshace ni cambia");
+        assert!(state.on.b, "power is neither undone nor changed");
     }
 
-    // QA ronda 2: si la respuesta del apagado se perdía, la Mac lo daba por fallido aunque
-    // la PC ya se estuviera apagando.
+    // QA round 2: if the shutdown reply was lost, the Mac took it as failed even though
+    // the PC was already shutting down.
     #[tokio::test]
     async fn lost_reply_to_power_off_is_taken_as_done() {
         let (o, _, peer) = mac(
@@ -1328,7 +1328,7 @@ pub(crate) mod tests {
         assert!(!state.on.b);
         assert_eq!(peer.steps(), [PC_OFF]);
 
-        // Un apagado que falla con certeza queda como estaba.
+        // A shutdown that fails for certain stays as it was.
         let (o, _, _) = mac(
             FakeSteps::default(),
             FakeSteps {

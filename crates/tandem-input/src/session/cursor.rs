@@ -1,17 +1,17 @@
-//! El cursor en vivo (T-128): posición y cruces de borde para la UI, sin costo cuando
-//! nadie mira.
+//! The live cursor (T-128): position and edge crossings for the UI, at no cost when
+//! nobody is watching.
 //!
-//! - [`CursorGate`]: un interruptor atómico que el agente enciende mientras haya alguna
-//!   suscripción (la UI de esta máquina o la de la otra). Los drivers lo leen en el camino
-//!   caliente: apagado, el costo por evento es una lectura relajada y nada más.
-//! - [`Limiter`]: deja pasar como mucho [`MAX_HZ`] muestras por segundo. Lo que se frena no
-//!   se pierde: queda pendiente y sale en cuanto toca, para que el punto de la UI no se
-//!   quede unos píxeles antes de donde el mouse se detuvo.
-//! - [`CursorFeed`]: lo que cada driver lleva dentro (la máquina, el límite y por dónde sale).
+//! - [`CursorGate`]: an atomic switch that the agent turns on while there is any
+//!   subscription (this machine's UI or the other's). The drivers read it on the hot
+//!   path: off, the cost per event is one relaxed read and nothing more.
+//! - [`Limiter`]: lets through at most [`MAX_HZ`] samples per second. What is held back
+//!   is not lost: it stays pending and goes out as soon as it is due, so that the UI dot does not
+//!   stay a few pixels short of where the mouse stopped.
+//! - [`CursorFeed`]: what each driver carries inside (the machine, the limit and where it goes out).
 //!
-//! Las muestras las publica la máquina que tiene el foco: el servidor mientras el cursor
-//! está en su pantalla, el cliente mientras está en la suya. Los cruces los publica siempre
-//! el servidor, que es quien los decide.
+//! Samples are published by the machine that has the focus: the server while the cursor
+//! is on its screen, the client while it is on its own. Crossings are always published
+//! by the server, which is the one that decides them.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,23 +25,23 @@ use tokio::time::Instant;
 
 use crate::geometry::{Point, Side};
 
-/// Separación mínima entre dos muestras. Redondeada hacia arriba (no hacia abajo) para que
-/// en cualquier segundo quepan 30 y no 31.
+/// Minimum separation between two samples. Rounded up (not down) so that
+/// in any second 30 fit and not 31.
 pub const MIN_INTERVAL: Duration = Duration::from_micros(1_000_000_u64.div_ceil(MAX_HZ as u64));
 
-/// Qué se publica: una muestra o un cruce.
+/// What is published: a sample or a crossing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CursorEvent {
     Sample(CursorSample),
     Crossed {
         from: Machine,
         to: Machine,
-        /// El borde de `from` por el que salió.
+        /// The edge of `from` it left through.
         edge: Side,
     },
 }
 
-/// Un cruce de borde, tal como lo anota la sesión del servidor.
+/// An edge crossing, as the server's session records it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Crossing {
     pub from: Machine,
@@ -49,7 +49,7 @@ pub struct Crossing {
     pub edge: Side,
 }
 
-/// Interruptor del cursor en vivo, compartido entre el agente y los drivers.
+/// Live-cursor switch, shared between the agent and the drivers.
 #[derive(Debug, Default)]
 pub struct CursorGate(AtomicBool);
 
@@ -58,14 +58,14 @@ impl CursorGate {
         self.0.store(on, Ordering::Relaxed);
     }
 
-    /// Si hay quien mire. Es lo único que paga el camino caliente sin suscripciones.
+    /// Whether anyone is watching. It is the only thing the hot path pays without subscriptions.
     #[inline]
     pub fn is_on(&self) -> bool {
         self.0.load(Ordering::Relaxed)
     }
 }
 
-/// Por dónde salen las muestras y los cruces, y el interruptor que dice si hay quien mire.
+/// Where samples and crossings go out, and the switch that says whether anyone is watching.
 #[derive(Debug, Clone)]
 pub struct CursorTap {
     gate: Arc<CursorGate>,
@@ -73,16 +73,16 @@ pub struct CursorTap {
 }
 
 impl CursorTap {
-    /// El tap y el receptor de lo que publican los drivers. El canal no tiene tope porque
-    /// el límite de [`MAX_HZ`] ya lo acota; quien lo lee es una tarea del agente.
+    /// The tap and the receiver of what the drivers publish. The channel has no cap because
+    /// the [`MAX_HZ`] limit already bounds it; whoever reads it is an agent task.
     pub fn new(gate: Arc<CursorGate>) -> (Self, mpsc::UnboundedReceiver<CursorEvent>) {
         let (tx, rx) = mpsc::unbounded_channel();
         (CursorTap { gate, tx }, rx)
     }
 }
 
-/// Dónde está el cursor, sin la pantalla: lo barato de comparar y de guardar mientras se
-/// espera el turno de publicarlo.
+/// Where the cursor is, without the screen: what is cheap to compare and to store while
+/// waiting for the turn to publish it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Spot {
     pub machine: Machine,
@@ -92,7 +92,7 @@ pub struct Spot {
 
 impl Spot {
     pub fn new(machine: Machine, p: Point) -> Self {
-        // `as` satura al rango de i32, que para un punto de pantalla sobra.
+        // `as` saturates to the i32 range, which is plenty for a screen point.
         Spot {
             machine,
             x: p.x.round() as i32,
@@ -101,11 +101,11 @@ impl Spot {
     }
 }
 
-/// Limita la frecuencia de lo que se publica. Trabaja con el tiempo que le pasan (en
-/// microsegundos desde un origen cualquiera), para probarlo sin reloj.
+/// Limits the frequency of what is published. It works with the time it is given (in
+/// microseconds from any origin), to test it without a clock.
 ///
-/// Garantiza que dos salidas distan al menos `min_us`, que lo repetido no sale y que lo
-/// frenado sale después con el valor más nuevo.
+/// It guarantees that two outputs are at least `min_us` apart, that what is repeated does not go out and that what
+/// was held back goes out later with the newest value.
 #[derive(Debug, Clone)]
 pub struct Limiter<T> {
     min_us: u64,
@@ -136,7 +136,7 @@ impl<T: Copy + PartialEq> Limiter<T> {
         Some(value)
     }
 
-    /// Un valor nuevo: sale ya si toca y no es el que salió; si no, queda pendiente.
+    /// A new value: it goes out now if it is due and is not the one that went out; otherwise, it stays pending.
     pub fn offer(&mut self, now_us: u64, value: T) -> Option<T> {
         if self.sent == Some(value) {
             self.pending = None;
@@ -149,13 +149,13 @@ impl<T: Copy + PartialEq> Limiter<T> {
         None
     }
 
-    /// Cuándo puede salir lo pendiente; `None` si no hay nada pendiente.
+    /// When what is pending can go out; `None` if nothing is pending.
     pub fn due_at(&self) -> Option<u64> {
         let last = self.last_at?;
         self.pending.map(|_| last.saturating_add(self.min_us))
     }
 
-    /// Saca lo pendiente si ya toca.
+    /// Takes out what is pending if it is due.
     pub fn flush(&mut self, now_us: u64) -> Option<T> {
         let value = self.pending?;
         if !self.ready(now_us) {
@@ -164,24 +164,24 @@ impl<T: Copy + PartialEq> Limiter<T> {
         self.emit(now_us, value)
     }
 
-    /// Olvida solo lo pendiente.
+    /// Forgets only what is pending.
     pub fn drop_pending(&mut self) {
         self.pending = None;
     }
 
-    /// Olvida lo pendiente y lo último enviado: lo de antes ya no le sirve a quien vuelva a
-    /// mirar (y a quien mira ahora tampoco, si el interruptor se apagó).
+    /// Forgets what is pending and the last one sent: what came before is no use to whoever looks again
+    /// (nor to whoever is looking now, if the switch was turned off).
     pub fn reset(&mut self) {
         self.sent = None;
         self.pending = None;
     }
 }
 
-/// Lo que un driver lleva para publicar el cursor.
+/// What a driver carries to publish the cursor.
 #[derive(Debug)]
 pub struct CursorFeed {
     tap: CursorTap,
-    /// La máquina de este driver: las muestras que publica son de su cursor.
+    /// This driver's machine: the samples it publishes are of its cursor.
     machine: Machine,
     limiter: Limiter<Spot>,
     epoch: Instant,
@@ -209,8 +209,8 @@ impl CursorFeed {
             .as_micros() as u64
     }
 
-    /// ¿Hay quien mire? Es la comprobación del camino caliente. Al apagarse se descarta lo
-    /// pendiente.
+    /// Is anyone watching? It is the hot-path check. When it turns off, what is
+    /// pending is discarded.
     #[inline]
     pub fn active(&mut self) -> bool {
         let on = self.tap.gate.is_on();
@@ -223,8 +223,8 @@ impl CursorFeed {
         on
     }
 
-    /// El cursor está en `p` (de la máquina de este driver). `screen` dice en qué pantalla
-    /// cae, y solo se llama si la muestra sale.
+    /// The cursor is at `p` (of this driver's machine). `screen` says which screen
+    /// it falls on, and is only called if the sample goes out.
     pub fn observe(&mut self, p: Point, screen: impl FnOnce(Point) -> String) {
         let spot = Spot::new(self.machine, p);
         let now = self.now_us();
@@ -233,19 +233,19 @@ impl CursorFeed {
         }
     }
 
-    /// Descarta la muestra que se frenó: el foco se fue y ya no es de esta máquina.
+    /// Discards the sample that was held back: the focus left and it is no longer this machine's.
     pub fn discard(&mut self) {
         self.limiter.drop_pending();
     }
 
-    /// Cuándo puede salir la muestra que se frenó.
+    /// When the sample that was held back can go out.
     pub fn next_due(&self) -> Option<Instant> {
         self.limiter
             .due_at()
             .map(|us| self.epoch + Duration::from_micros(us))
     }
 
-    /// Saca la muestra frenada si ya toca.
+    /// Takes out the held-back sample if it is due.
     pub fn flush(&mut self, screen: impl FnOnce(Point) -> String) {
         let now = self.now_us();
         if let Some(spot) = self.limiter.flush(now) {
@@ -255,7 +255,7 @@ impl CursorFeed {
 
     fn send_sample(&self, spot: Spot, screen: impl FnOnce(Point) -> String) {
         let screen = screen(Point::new(f64::from(spot.x), f64::from(spot.y)));
-        // Sin receptor el agente ya se fue: no hay a quién avisar.
+        // Without a receiver the agent is already gone: there is nobody to notify.
         let _ = self.tap.tx.send(CursorEvent::Sample(CursorSample {
             machine: spot.machine,
             screen,
@@ -264,7 +264,7 @@ impl CursorFeed {
         }));
     }
 
-    /// Un cruce: no se limita, es raro y la UI no lo puede perder.
+    /// A crossing: it is not limited, it is rare and the UI cannot lose it.
     pub fn crossed(&self, c: Crossing) {
         let _ = self.tap.tx.send(CursorEvent::Crossed {
             from: c.from,
@@ -274,7 +274,7 @@ impl CursorFeed {
     }
 }
 
-/// Espera hasta `due`; sin fecha, nunca. Para el `select!` de los drivers.
+/// Waits until `due`; with no date, never. For the drivers' `select!`.
 pub(super) async fn sleep_until_opt(due: Option<Instant>) {
     match due {
         Some(t) => tokio::time::sleep_until(t).await,
@@ -297,7 +297,7 @@ mod tests {
     #[test]
     fn the_minimum_interval_fits_thirty_samples_a_second() {
         assert_eq!(MIN_INTERVAL, Duration::from_micros(MIN));
-        // Con 33 333 µs entrarían 31 en un segundo.
+        // With 33,333 µs 31 would fit in a second.
         assert!(30 * MIN_INTERVAL.as_micros() >= 1_000_000);
     }
 
@@ -328,7 +328,7 @@ mod tests {
         assert_eq!(l.offer(0, 1), Some(1));
         assert_eq!(l.offer(MIN, 1), None);
         assert_eq!(l.offer(2 * MIN, 1), None);
-        // Volver a lo anterior mientras otro espera cancela la espera.
+        // Going back to the previous one while another waits cancels the wait.
         assert_eq!(l.offer(2 * MIN + 1, 2), Some(2));
         assert_eq!(l.offer(2 * MIN + 2, 3), None);
         assert_eq!(l.offer(2 * MIN + 3, 2), None);
@@ -342,8 +342,8 @@ mod tests {
         l.offer(1, 2);
         l.reset();
         assert_eq!(l.due_at(), None);
-        // Quien vuelva a mirar quiere ver dónde está el cursor aunque no se haya movido,
-        // pero sin saltarse el intervalo.
+        // Whoever looks again wants to see where the cursor is even if it has not moved,
+        // but without skipping the interval.
         assert_eq!(l.offer(2, 1), None);
         assert_eq!(l.flush(MIN), Some(1));
     }
@@ -355,8 +355,8 @@ mod tests {
     }
 
     fn steps() -> impl Strategy<Value = Vec<(u64, Step)>> {
-        // Saltos de tiempo desde 0 hasta 100 ms, con muchos más chicos que grandes: el
-        // mouse a 1000 Hz y pausas.
+        // Time jumps from 0 to 100 ms, with many more small ones than large: the
+        // mouse at 1000 Hz and pauses.
         let gap = prop_oneof![8 => 0u64..2_000, 2 => 0u64..100_000];
         let step = prop_oneof![
             3 => (0u32..50).prop_map(Step::Offer),
@@ -374,8 +374,8 @@ mod tests {
     }
 
     proptest! {
-        /// El invariante de T-128: nunca más de 30 salidas en cualquier segundo, pase lo
-        /// que pase con las ofertas y los avisos del reloj.
+        /// The T-128 invariant: never more than 30 outputs in any second, whatever
+        /// happens with the offers and the clock notices.
         #[test]
         fn never_more_than_thirty_a_second(steps in steps()) {
             let mut l = limiter();
@@ -390,15 +390,15 @@ mod tests {
                 }
             }
             for w in out.windows(31) {
-                prop_assert!(w[30] - w[0] >= 1_000_000, "31 salidas en {} µs", w[30] - w[0]);
+                prop_assert!(w[30] - w[0] >= 1_000_000, "31 outputs in {} µs", w[30] - w[0]);
             }
             for w in out.windows(2) {
                 prop_assert!(w[1] - w[0] >= MIN);
             }
         }
 
-        /// Lo último que se ofreció siempre sale (a lo más un intervalo después): el punto
-        /// de la UI termina donde el mouse se detuvo.
+        /// What was offered last always goes out (at most one interval later): the UI
+        /// dot ends up where the mouse stopped.
         #[test]
         fn the_last_value_always_gets_out(steps in steps(), last in 100u32..200) {
             let mut l = limiter();
@@ -436,8 +436,8 @@ mod tests {
         let screen = |_: Point| "b-1".to_owned();
 
         assert!(!feed.active());
-        // El driver no llama a `observe` con el interruptor apagado; si lo hiciera por
-        // error, aun así `active` devuelve falso y nada se publica.
+        // The driver does not call `observe` with the switch off; if it did by
+        // mistake, `active` would still return false and nothing is published.
         assert!(rx.try_recv().is_err());
 
         gate.set(true);
@@ -453,8 +453,8 @@ mod tests {
                 y: 2,
             }))
         );
-        assert!(rx.try_recv().is_err(), "la segunda espera su turno");
-        let due = feed.next_due().expect("hay una muestra frenada");
+        assert!(rx.try_recv().is_err(), "the second waits its turn");
+        let due = feed.next_due().expect("there is a held-back sample");
         tokio::time::sleep_until(due).await;
         feed.flush(screen);
         assert!(matches!(
@@ -462,7 +462,7 @@ mod tests {
             Ok(CursorEvent::Sample(CursorSample { x: 3, y: 4, .. }))
         ));
 
-        // Al apagarse, lo pendiente se descarta.
+        // When it turns off, what is pending is discarded.
         feed.observe(Point::new(5.0, 6.0), screen);
         gate.set(false);
         assert!(!feed.active());

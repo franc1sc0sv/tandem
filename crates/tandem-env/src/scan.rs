@@ -1,8 +1,8 @@
-//! El escaneo de entornos (DESIGN §8): shells, WSL, Docker, herramientas y GPU.
+//! The environment scan (DESIGN §8): shells, WSL, Docker, tools and GPU.
 //!
-//! Solo lee la salida de programas por [`Runner`]: la misma lógica corre con los programas
-//! reales y con las salidas guardadas de las pruebas. Nada supone un equipo (DECISIONS D10):
-//! lo que no aparece en el escaneo no se anuncia.
+//! It only reads the output of programs through [`Runner`]: the same logic runs with the real
+//! programs and with the saved outputs of the tests. Nothing assumes a machine (DECISIONS D10):
+//! what does not show up in the scan is not announced.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -13,14 +13,14 @@ use crate::Platform;
 use crate::parse;
 use crate::run::Runner;
 
-/// Cuánto se espera a un `--version`.
+/// How long to wait for a `--version`.
 const QUICK: Duration = Duration::from_secs(10);
-/// Cuánto se espera al guion de un shell de inicio de sesión o de una distro de WSL, que
-/// puede tener que arrancarla.
+/// How long to wait for the script of a login shell or a WSL distro, which
+/// may have to start it.
 const SLOW: Duration = Duration::from_secs(45);
 
-/// Las herramientas que se buscan dentro de un shell Unix o de una distro de WSL: el nombre
-/// del programa y cómo se muestra.
+/// The tools looked for inside a Unix shell or a WSL distro: the program name
+/// and how it is shown.
 const UNIX_TOOLS: [(&str, &str); 10] = [
     ("git", "git"),
     ("cargo", "cargo"),
@@ -34,7 +34,7 @@ const UNIX_TOOLS: [(&str, &str); 10] = [
     ("nvcc", "CUDA"),
 ];
 
-/// Las de Windows: `python` (no `python3`) y `winget`.
+/// The Windows ones: `python` (not `python3`) and `winget`.
 const WINDOWS_TOOLS: [(&str, &str); 11] = [
     ("git", "git"),
     ("cargo", "cargo"),
@@ -49,10 +49,10 @@ const WINDOWS_TOOLS: [(&str, &str); 11] = [
     ("nvcc", "CUDA"),
 ];
 
-/// Guion POSIX que corre dentro de un shell de inicio de sesión (o de una distro de WSL):
-/// así se ve el `PATH` del usuario (Homebrew, `~/.cargo/bin`, fnm), no el del agente. Sin
-/// comillas dobles ni barras invertidas, para que pase intacto por la línea de comandos de
-/// Windows hasta `wsl.exe`.
+/// POSIX script that runs inside a login shell (or a WSL distro):
+/// this is how the user's `PATH` is seen (Homebrew, `~/.cargo/bin`, fnm), not the agent's. Without
+/// double quotes or backslashes, so that it passes intact through the Windows command line
+/// to `wsl.exe`.
 pub const PROBE_SCRIPT: &str = "echo @@os; cat /etc/os-release 2>/dev/null; \
 echo @@path; echo $PATH; \
 for t in git cargo rustc node pnpm npm bun uv python3 nvcc; do \
@@ -60,18 +60,18 @@ if command -v $t >/dev/null 2>&1; then echo @@tool $t; $t --version 2>&1 | head 
 if [ -x /usr/local/cuda/bin/nvcc ]; then echo @@tool nvcc; /usr/local/cuda/bin/nvcc --version 2>&1 | head -n 6; fi; \
 if command -v nvidia-smi >/dev/null 2>&1 || [ -e /usr/lib/wsl/lib/nvidia-smi ]; then echo @@gpu; fi";
 
-/// Lo que el guion encontró en un shell o en una distro.
+/// What the script found in a shell or a distro.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Probe {
-    /// «Ubuntu 24.04» (de `/etc/os-release`).
+    /// "Ubuntu 24.04" (from `/etc/os-release`).
     pub os: Option<String>,
     pub path: Option<String>,
     pub tools: Vec<Tool>,
-    /// Hay `nvidia-smi` (la GPU llega).
+    /// There is `nvidia-smi` (the GPU is reachable).
     pub gpu: bool,
 }
 
-/// Lee la salida de [`PROBE_SCRIPT`]. `None` si no es suya (el shell no corrió el guion).
+/// Reads the output of [`PROBE_SCRIPT`]. `None` if it is not its own (the shell did not run the script).
 pub fn read_probe(text: &str) -> Option<Probe> {
     let sections = parse::sections(text);
     if !sections.iter().any(|(k, _)| k == "path") {
@@ -101,7 +101,7 @@ pub fn read_probe(text: &str) -> Option<Probe> {
     Some(probe)
 }
 
-/// Agrega la herramienta si la salida trae una versión y no estaba ya.
+/// Adds the tool if the output carries a version and it was not already there.
 fn add_tool(tools: &mut Vec<Tool>, label: &str, output: &str) {
     if tools.iter().any(|t| t.name == label) {
         return;
@@ -114,10 +114,10 @@ fn add_tool(tools: &mut Vec<Tool>, label: &str, output: &str) {
     }
 }
 
-/// La línea bajo el nombre de un entorno con herramientas («uv · cargo · CUDA 12.8 · git»).
+/// The line under the name of an environment with tools ("uv · cargo · CUDA 12.8 · git").
 pub fn tools_line(tools: &[Tool]) -> String {
     if tools.is_empty() {
-        return "Sin herramientas de desarrollo detectadas".into();
+        return "No development tools detected".into();
     }
     tools
         .iter()
@@ -132,7 +132,7 @@ pub fn tools_line(tools: &[Tool]) -> String {
         .join(" · ")
 }
 
-/// Por dónde se leen los recursos de la GPU en vivo.
+/// Where the live GPU resources are read from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GpuSource {
     NvidiaSmi(PathBuf),
@@ -140,7 +140,7 @@ pub enum GpuSource {
     None,
 }
 
-/// Lo que encontró un escaneo.
+/// What a scan found.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Found {
     pub environments: Vec<Environment>,
@@ -148,8 +148,8 @@ pub struct Found {
     pub gpu_source: GpuSource,
 }
 
-/// Escanea esta máquina con `runner`. No falla: lo que no responde no aparece (o aparece
-/// como no listo, con la razón).
+/// Scans this machine with `runner`. It does not fail: what does not answer does not show up (or shows up
+/// as not ready, with the reason).
 pub fn scan(runner: &dyn Runner, platform: Platform) -> Found {
     match platform {
         Platform::Windows => scan_windows(runner),
@@ -167,9 +167,9 @@ fn run_text(
         Ok(out) if out.success => Some(out.text()),
         Ok(out) => {
             tracing::debug!(
-                programa = %program.display(),
+                program = %program.display(),
                 error = %parse::decode_text(&out.stderr).trim(),
-                "salió con error"
+                "exited with an error"
             );
             None
         }
@@ -180,7 +180,7 @@ fn run_text(
     }
 }
 
-/// El nombre de un shell para la UI.
+/// The name of a shell for the UI.
 fn shell_name(id: &str, version: Option<&str>) -> String {
     match id {
         "pwsh" => match version.and_then(|v| v.split('.').next()) {
@@ -212,11 +212,11 @@ fn shell(id: &str, version: Option<String>, tools: &[Tool]) -> Environment {
     }
 }
 
-/// El shell de inicio de sesión del usuario: el de `$SHELL` o el primero que haya.
+/// The user's login shell: the one in `$SHELL` or the first there is.
 fn login_shell(runner: &dyn Runner) -> Option<PathBuf> {
     if let Some(sh) = runner.var("SHELL") {
         let path = PathBuf::from(sh);
-        // fish no es POSIX: el guion va por sh, que también lee el perfil.
+        // fish is not POSIX: the script goes through sh, which also reads the profile.
         if path.file_stem().is_some_and(|s| s != "fish") {
             return Some(path);
         }
@@ -226,8 +226,8 @@ fn login_shell(runner: &dyn Runner) -> Option<PathBuf> {
         .find_map(|s| runner.find(s, None))
 }
 
-/// Corre [`PROBE_SCRIPT`] en `program` primero como shell interactivo (fnm y nvm se cargan
-/// desde el rc) y, si no salió, solo de inicio de sesión.
+/// Runs [`PROBE_SCRIPT`] in `program` first as an interactive shell (fnm and nvm load
+/// from the rc) and, if that did not come out, as login only.
 fn probe_in(runner: &dyn Runner, program: &Path, prefix: &[&str]) -> Option<Probe> {
     ["-lic", "-lc"].iter().find_map(|flags| {
         let mut args = prefix.to_vec();
@@ -269,7 +269,7 @@ fn scan_unix(runner: &dyn Runner, platform: Platform) -> Found {
     }
 }
 
-/// El shell `id` (o, si no está, el primero) queda como predeterminado.
+/// Shell `id` (or, if it is not there, the first) is left as the default.
 fn mark_default(shells: &mut [Environment], id: Option<&str>) {
     let i = id
         .and_then(|id| shells.iter().position(|e| e.id == id))
@@ -306,8 +306,8 @@ fn scan_windows(runner: &dyn Runner) -> Found {
     ];
     for (id, args) in shells {
         let found = if id == "bash" {
-            // El bash de System32 (o de WindowsApps) es el lanzador de WSL, no un shell de
-            // Windows: vale el primero que no sea ese, aunque esté después en el PATH.
+            // The bash in System32 (or WindowsApps) is the WSL launcher, not a Windows
+            // shell: the first one that is not that wins, even if it comes later in the PATH.
             runner.find_all(id).into_iter().find(|p| {
                 let lower = p.to_string_lossy().to_ascii_lowercase();
                 !lower.contains("system32") && !lower.contains("windowsapps")
@@ -326,7 +326,7 @@ fn scan_windows(runner: &dyn Runner) -> Found {
         }
         environments.push(env);
     }
-    // PowerShell 7 si está; si no, el 5 que trae Windows.
+    // PowerShell 7 if present; otherwise the 5 that ships with Windows.
     let default = ["pwsh", "powershell"]
         .into_iter()
         .find(|id| environments.iter().any(|e| e.id == *id));
@@ -346,7 +346,7 @@ fn scan_windows(runner: &dyn Runner) -> Found {
             ],
             QUICK,
         );
-        // Las que nvidia-smi ya describió (con su VRAM real) no se repiten.
+        // Those that nvidia-smi already described (with their real VRAM) are not repeated.
         for g in cim.map(|t| parse::cim_gpus(&t)).unwrap_or_default() {
             if !gpus.iter().any(|n| n.name.eq_ignore_ascii_case(&g.name)) {
                 gpus.push(g);
@@ -360,8 +360,8 @@ fn scan_windows(runner: &dyn Runner) -> Found {
     }
 }
 
-/// Las distros de WSL, cada una con lo que tiene adentro. Correr el guion arranca la distro
-/// si estaba detenida; WSL la vuelve a apagar sola al rato.
+/// The WSL distros, each with what it has inside. Running the script starts the distro
+/// if it was stopped; WSL shuts it down again on its own after a while.
 fn wsl(runner: &dyn Runner) -> Vec<Environment> {
     let Some(wsl) = runner.find("wsl", None) else {
         return Vec::new();
@@ -383,7 +383,7 @@ fn wsl(runner: &dyn Runner) -> Vec<Environment> {
                 ),
                 None => (
                     d.name.clone(),
-                    "No respondió al escaneo".to_owned(),
+                    "No response to the scan".to_owned(),
                     Vec::new(),
                     false,
                 ),
@@ -405,7 +405,7 @@ fn wsl(runner: &dyn Runner) -> Vec<Environment> {
 
 fn docker(runner: &dyn Runner, path: Option<&str>) -> Option<Environment> {
     let docker = runner.find("docker", path)?;
-    // Con el daemon caído sale con error pero igual escribe la parte del cliente.
+    // With the daemon down it exits with an error but still writes the client part.
     let version = runner
         .run(&docker, &["version", "--format", "json"], QUICK)
         .ok()
@@ -418,7 +418,7 @@ fn docker(runner: &dyn Runner, path: Option<&str>) -> Option<Environment> {
             version: None,
             default: false,
             ready: false,
-            detail: "No respondió a «docker version»".into(),
+            detail: "No response to «docker version»".into(),
             tools: Vec::new(),
             gpu: false,
         });
@@ -431,7 +431,7 @@ fn docker(runner: &dyn Runner, path: Option<&str>) -> Option<Environment> {
             version: version.client,
             default: false,
             ready: false,
-            detail: "El daemon no responde: ¿Docker está abierto?".into(),
+            detail: "The daemon does not respond: is Docker open?".into(),
             tools: Vec::new(),
             gpu: false,
         });
@@ -448,11 +448,11 @@ fn docker(runner: &dyn Runner, path: Option<&str>) -> Option<Environment> {
     )
     .is_some_and(|r| parse::docker_has_gpu(&r));
     let detail = if gpu {
-        "GPU: --gpus all disponible".to_owned()
+        "GPU: --gpus all available".to_owned()
     } else {
         match &server.arch {
-            Some(arch) => format!("{arch} · sin GPU"),
-            None => "sin GPU".to_owned(),
+            Some(arch) => format!("{arch} · no GPU"),
+            None => "no GPU".to_owned(),
         }
     };
     Some(Environment {
@@ -468,7 +468,7 @@ fn docker(runner: &dyn Runner, path: Option<&str>) -> Option<Environment> {
     })
 }
 
-/// Los argumentos de `nvidia-smi` para el escaneo y para cada muestra.
+/// The `nvidia-smi` arguments for the scan and for each sample.
 pub fn nvidia_args() -> [&'static str; 2] {
     [parse::NVIDIA_QUERY, "--format=csv,noheader,nounits"]
 }
@@ -507,7 +507,7 @@ fn mac_gpus(runner: &dyn Runner) -> (Vec<Gpu>, GpuSource) {
     (gpus, source)
 }
 
-/// Los argumentos de `ioreg` para el uso de la GPU en macOS.
+/// The `ioreg` arguments for GPU usage on macOS.
 pub const IOREG_ARGS: [&str; 5] = ["-r", "-d", "1", "-c", "IOAccelerator"];
 
 #[cfg(test)]
@@ -542,7 +542,7 @@ mod tests {
         let probe = read_probe(
             "@@path\n/bin\n@@tool python3\nxcode-select: note: No developer tools were found\n\
              @@tool nvcc\nCuda compilation tools, release 12.8, V12.8.93\n\
-             @@tool nvcc\nCuda compilation tools, release 12.4, V12.4.1\n@@tool raro\n1.0\n",
+             @@tool nvcc\nCuda compilation tools, release 12.4, V12.4.1\n@@tool weird\n1.0\n",
         )
         .unwrap();
         assert_eq!(
@@ -553,7 +553,7 @@ mod tests {
             }]
         );
         assert_eq!(tools_line(&probe.tools), "CUDA 12.8");
-        assert_eq!(tools_line(&[]), "Sin herramientas de desarrollo detectadas");
+        assert_eq!(tools_line(&[]), "No development tools detected");
     }
 
     #[test]

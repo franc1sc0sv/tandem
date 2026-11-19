@@ -24,7 +24,7 @@ function image(width: number, height: number, color: (x: number, y: number) => R
 
 const encode = (png: PNG) => PNG.sync.write(png);
 
-// Algo parecido a una pantalla: fondo oscuro con tarjetas.
+// Something like a screen: dark background with cards.
 const screen = (x: number, y: number): Rgb =>
   x % 300 > 20 && y % 200 > 20 ? [21, 22, 26] : [14 + (x % 7), 15, 18 + (y % 5)];
 
@@ -42,7 +42,7 @@ function withBlock(png: PNG, bx: number, by: number, w: number, h: number, rgb: 
   return out;
 }
 
-// Generador con semilla: las pruebas de propiedades dan siempre lo mismo.
+// Seeded generator: the property tests always give the same result.
 function rng(seed: number) {
   let s = seed >>> 0;
   return () => {
@@ -52,7 +52,7 @@ function rng(seed: number) {
 }
 
 describe('tileStarts / worstTileOf', () => {
-  it('paso size/2 y un último cuadro pegado al borde', () => {
+  it('step size/2 and a last tile flush with the edge', () => {
     expect(tileStarts(64, 64)).toEqual([0]);
     expect(tileStarts(40, 64)).toEqual([0]);
     expect(tileStarts(128, 64)).toEqual([0, 32, 64]);
@@ -60,7 +60,7 @@ describe('tileStarts / worstTileOf', () => {
     expect(tileStarts(10, 1)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });
 
-  it('propiedad: todo píxel queda dentro de algún cuadro y todos los cuadros caben', () => {
+  it('property: every pixel lies inside some tile and every tile fits', () => {
     const next = rng(64);
     for (let n = 0; n < 200; n++) {
       const size = 1 + Math.floor(next() * 80);
@@ -72,7 +72,7 @@ describe('tileStarts / worstTileOf', () => {
     }
   });
 
-  it('propiedad: es el mínimo exacto sobre la rejilla (contra la cuenta a mano)', () => {
+  it('property: it is the exact minimum over the grid (against the hand count)', () => {
     const next = rng(4);
     for (let n = 0; n < 60; n++) {
       const width = 1 + Math.floor(next() * 90);
@@ -103,19 +103,19 @@ describe('tileStarts / worstTileOf', () => {
 describe('compare', () => {
   const base = image(1280, 860, screen);
 
-  it('la misma imagen da 1.0', () => {
+  it('the same image gives 1.0', () => {
     const r = compare(encode(base), encode(base));
     expect(r.similarity).toBe(1);
     expect(r.mismatched).toBe(0);
     expect(r.worstTile.similarity).toBe(1);
   });
 
-  it('un bloque cambiado baja de 0.99 y el peor cuadro cae sobre el bloque', () => {
-    // 120×100 = 1.09 % de 1280×860
+  it('a changed block drops below 0.99 and the worst tile falls on the block', () => {
+    // 120×100 = 1.09 % of 1280×860
     const changed = withBlock(base, 500, 300, 120, 100, [122, 167, 230]);
     const r = compare(encode(changed), encode(base));
     expect(r.similarity).toBeLessThan(0.99);
-    // Algunos bordes del bloque cuentan como antialias (no se cuentan): casi todo el bloque.
+    // Some block edges count as antialiasing (not counted): almost the whole block.
     expect(r.mismatched).toBeGreaterThan(0.98 * 120 * 100);
     expect(r.mismatched).toBeLessThanOrEqual(120 * 100);
     expect(r.worstTile.similarity).toBe(0);
@@ -125,14 +125,14 @@ describe('compare', () => {
     expect(r.worstTile.y).toBeLessThan(400);
   });
 
-  it('un cambio pequeño queda ≥ 0.99 en total pero el peor cuadro lo delata', () => {
+  it('a small change stays ≥ 0.99 overall but the worst tile exposes it', () => {
     const changed = withBlock(base, 40, 40, 30, 20, [230, 230, 235]);
     const r = compare(encode(changed), encode(base));
     expect(r.similarity).toBeGreaterThanOrEqual(0.99);
     expect(r.worstTile.similarity).toBeLessThan(0.9);
   });
 
-  it('tolera diferencias de color mínimas (composición, redondeo)', () => {
+  it('tolerates minimal color differences (compositing, rounding)', () => {
     const jitter = image(1280, 860, (x, y) => {
       const [r, g, b] = screen(x, y);
       return [r + ((x + y) % 2), g, b];
@@ -140,19 +140,19 @@ describe('compare', () => {
     expect(compare(encode(jitter), encode(base)).similarity).toBe(1);
   });
 
-  it('el PNG de diferencias es válido y del mismo tamaño', () => {
+  it('the difference PNG is valid and the same size', () => {
     const changed = withBlock(base, 0, 0, 10, 10, [255, 255, 255]);
     const diff = PNG.sync.read(compare(encode(changed), encode(base)).diffPng);
     expect([diff.width, diff.height]).toEqual([1280, 860]);
   });
 
-  it('tamaños distintos dan un error claro', () => {
+  it('different sizes give a clear error', () => {
     const small = image(100, 50, screen);
     expect(() => compare(encode(small), encode(base))).toThrow(SizeMismatchError);
-    expect(() => compare(encode(small), encode(base))).toThrow(/100×50 contra 1280×860/);
+    expect(() => compare(encode(small), encode(base))).toThrow(/100×50 versus 1280×860/);
   });
 
-  it('propiedad: la similitud está en [0, 1], es simétrica y baja con más píxeles cambiados', () => {
+  it('property: similarity is in [0, 1], symmetric and drops with more changed pixels', () => {
     const next = rng(125);
     const small = image(96, 64, (x, y) => [(x * 3) % 256, (y * 5) % 256, 40]);
     for (let n = 0; n < 40; n++) {
@@ -172,23 +172,23 @@ describe('compare', () => {
     }
   });
 
-  it('un cambio de 64×64 que cruza cuatro cuadros de la rejilla fija no se diluye', () => {
-    // En (96, 96) cae en el medio de cuatro cuadros de 64 de una rejilla fija (25 % en cada
-    // uno); la rejilla solapada tiene un cuadro justo encima.
+  it('a 64×64 change that spans four tiles of the fixed grid does not get diluted', () => {
+    // At (96, 96) it falls in the middle of four 64 tiles of a fixed grid (25 % in each
+    // one); the overlapping grid has a tile right on top of it.
     const changed = withBlock(base, 96, 96, 64, 64, [230, 230, 235]);
     const r = compare(encode(changed), encode(base));
     expect(r.worstTile).toEqual({ x: 96, y: 96, width: 64, height: 64, similarity: 0 });
   });
 
-  it('el peor cuadro cubre también el borde derecho e inferior con cuadros enteros', () => {
-    // 1280×860: 860 no es múltiplo de 64 ni de 32; el último cuadro empieza en 860 - 64.
+  it('the worst tile also covers the right and bottom edge with whole tiles', () => {
+    // 1280×860: 860 is not a multiple of 64 or 32; the last tile starts at 860 - 64.
     const changed = withBlock(base, 1250, 840, 30, 20, [230, 230, 235]);
     const t = compare(encode(changed), encode(base)).worstTile;
     expect([t.x, t.y, t.width, t.height]).toEqual([1216, 796, 64, 64]);
     expect(t.similarity).toBeCloseTo(1 - (30 * 20) / (64 * 64), 10);
   });
 
-  it('con region compara solo esa zona y da el peor cuadro en coordenadas de la captura', () => {
+  it('with region it compares only that area and gives the worst tile in screenshot coordinates', () => {
     const changed = withBlock(base, 600, 400, 40, 40, [230, 230, 235]);
     const outside = compare(encode(changed), encode(base), { region: { x: 0, y: 0, width: 240, height: 860 } });
     expect(outside.similarity).toBe(1);
@@ -204,17 +204,17 @@ describe('compare', () => {
     expect([diff.width, diff.height]).toEqual([200, 200]);
   });
 
-  it('una region fuera de la imagen da un error claro', () => {
+  it('a region outside the image gives a clear error', () => {
     expect(() => compare(encode(base), encode(base), { region: { x: 1200, y: 0, width: 100, height: 10 } })).toThrow(
-      /región inválida: x=1200 y=0 100×10 en una captura de 1280×860/,
+      /invalid region: x=1200 y=0 100×10 in a screenshot of 1280×860/,
     );
     expect(() => compare(encode(base), encode(base), { region: { x: 0, y: 0, width: 0, height: 10 } })).toThrow(RangeError);
     expect(() => compare(encode(base), encode(base), { region: { x: 0.5, y: 0, width: 10, height: 10 } })).toThrow(RangeError);
   });
 
-  it('con una captura real de mockup: igual = 1.0, con un bloque < 0.99', () => {
-    const file = join(SHOTS_DIR, 'V3-Puesto.png');
-    if (!existsSync(file)) return; // se genera con `pnpm mockups:shot`
+  it('with a real mockup screenshot: identical = 1.0, with a block < 0.99', () => {
+    const file = join(SHOTS_DIR, 'V3-Desk.png');
+    if (!existsSync(file)) return; // generated with `pnpm mockups:shot`
     const png = PNG.sync.read(readFileSync(file));
     expect(compare(file, file).similarity).toBe(1);
     const changed = withBlock(png, 600, 300, 120, 100, [255, 0, 255]);

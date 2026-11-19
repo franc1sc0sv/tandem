@@ -1,4 +1,4 @@
-// Ventana de la barra de menú / bandeja (V3-Bandeja).
+// Ventana de la barra de menú / bandeja (V3-Tray).
 import "./styles/fonts";
 import "./styles/global.css";
 

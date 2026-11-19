@@ -1,7 +1,7 @@
-//! Unix socket en el directorio de datos de la app.
+//! Unix socket in the app's data directory.
 //!
-//! Solo para el usuario actual por tres lados: el directorio se crea en 0700, el socket
-//! queda en 0600 y cada conexión se compara con nuestro uid (`peer_cred`).
+//! Only for the current user in three ways: the directory is created as 0700, the socket
+//! is left as 0600 and each connection is compared with our uid (`peer_cred`).
 
 use std::io;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, PermissionsExt};
@@ -25,8 +25,8 @@ pub struct UnixIpcListener {
     uid: u32,
 }
 
-/// Escucha en `path`. Un socket viejo de un agente que ya no corre se reemplaza; si
-/// hay otro agente vivo, error.
+/// Listens on `path`. An old socket from an agent that no longer runs is replaced; if
+/// there is another live agent, error.
 pub async fn bind(path: &Path) -> Result<UnixIpcListener, IpcError> {
     if let Ok(meta) = std::fs::symlink_metadata(path) {
         if !meta.file_type().is_socket() {
@@ -46,9 +46,9 @@ pub async fn bind(path: &Path) -> Result<UnixIpcListener, IpcError> {
         path: path.to_owned(),
         uid: 0,
     };
-    // A partir de aquí el Drop borra el socket si algo falla.
+    // From here on Drop deletes the socket if something fails.
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    // El socket lo acabamos de crear: su dueño somos nosotros.
+    // We just created the socket: we are its owner.
     listener.uid = std::fs::metadata(path)?.uid();
     Ok(listener)
 }
@@ -57,7 +57,7 @@ pub async fn connect(path: &Path) -> Result<IpcClient<UnixStream>, IpcError> {
     connect_as(path, Peer::Ui).await
 }
 
-/// Como [`connect`], presentándose como `peer` (`tandem mcp` y la CLI, como cliente).
+/// Like [`connect`], introducing itself as `peer` (`tandem mcp` and the CLI, as a client).
 pub async fn connect_as(path: &Path, peer: Peer) -> Result<IpcClient<UnixStream>, IpcError> {
     IpcClient::handshake_as(UnixStream::connect(path).await?, peer).await
 }
@@ -77,9 +77,12 @@ impl Listener for UnixIpcListener {
             match stream.peer_cred() {
                 Ok(cred) if cred.uid() == self.uid => return Ok(stream),
                 Ok(cred) => {
-                    tracing::warn!(uid = cred.uid(), "conexión IPC de otro usuario rechazada")
+                    tracing::warn!(
+                        uid = cred.uid(),
+                        "IPC connection from another user rejected"
+                    )
                 }
-                Err(e) => tracing::warn!("conexión IPC sin credenciales rechazada: {e}"),
+                Err(e) => tracing::warn!("IPC connection without credentials rejected: {e}"),
             }
         }
     }
@@ -90,7 +93,7 @@ impl Drop for UnixIpcListener {
         if let Err(e) = std::fs::remove_file(&self.path)
             && e.kind() != io::ErrorKind::NotFound
         {
-            tracing::warn!("no se pudo borrar {}: {e}", self.path.display());
+            tracing::warn!("could not delete {}: {e}", self.path.display());
         }
     }
 }
@@ -99,8 +102,8 @@ impl Drop for UnixIpcListener {
 mod tests {
     use super::*;
 
-    /// El sandbox de desarrollo (WSL) no deja crear sockets Unix. Ahí se omiten estas
-    /// pruebas; en CI (`CI` definido) corren siempre, así que no se pierde cobertura.
+    /// The development sandbox (WSL) does not allow creating Unix sockets. There these
+    /// tests are skipped; in CI (`CI` defined) they always run, so coverage is not lost.
     fn sockets_unavailable() -> bool {
         if std::env::var_os("CI").is_some() {
             return false;
@@ -108,7 +111,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         match std::os::unix::net::UnixListener::bind(dir.path().join("probe.sock")) {
             Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-                eprintln!("omitida: este entorno no permite sockets Unix");
+                eprintln!("skipped: this environment does not allow Unix sockets");
                 true
             }
             _ => false,
@@ -145,7 +148,7 @@ mod tests {
         let _first = bind(&path).await.unwrap();
         let err = bind(&path).await.unwrap_err();
         assert!(matches!(err, IpcError::AlreadyRunning(_)), "{err}");
-        // El primero sigue escuchando.
+        // The first keeps listening.
         assert!(path.exists());
     }
 
@@ -156,7 +159,7 @@ mod tests {
         }
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tandemd.sock");
-        // Un socket que quedó de un agente que murió sin limpiar.
+        // A socket left by an agent that died without cleaning up.
         drop(std::os::unix::net::UnixListener::bind(&path).unwrap());
         assert!(path.exists());
         let _l = bind(&path).await.unwrap();
@@ -166,10 +169,10 @@ mod tests {
     async fn regular_file_is_not_deleted() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tandemd.sock");
-        std::fs::write(&path, b"no tocar").unwrap();
+        std::fs::write(&path, b"do not touch").unwrap();
         let err = bind(&path).await.unwrap_err();
         assert!(matches!(err, IpcError::NotASocket(_)), "{err}");
-        assert_eq!(std::fs::read(&path).unwrap(), b"no tocar");
+        assert_eq!(std::fs::read(&path).unwrap(), b"do not touch");
     }
 
     #[test]

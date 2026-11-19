@@ -3,38 +3,38 @@ use std::net::{IpAddr, SocketAddr};
 
 use super::Fingerprint;
 
-/// Clave TXT con la huella del agente que anuncia.
+/// TXT key with the fingerprint of the announcing agent.
 pub const TXT_FINGERPRINT: &str = "fp";
 
-/// Un servicio `_tandem._udp` resuelto en la LAN, ya sin tipos de mdns-sd.
+/// A `_tandem._udp` service resolved on the LAN, already without mdns-sd types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Announcement {
-    /// Nombre completo de la instancia (identifica el anuncio al retirarse).
+    /// Full name of the instance (identifies the announcement when it is withdrawn).
     pub instance: String,
-    /// Valor crudo de la clave TXT `fp`, si venía.
+    /// Raw value of the TXT key `fp`, if it came.
     pub fingerprint: Option<String>,
-    /// Direcciones con el puerto del servicio.
+    /// Addresses with the service's port.
     pub addrs: Vec<SocketAddr>,
 }
 
-/// Lo que llega del navegador mDNS.
+/// What arrives from the mDNS browser.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiscoveryEvent {
     Resolved(Announcement),
     Removed { instance: String },
 }
 
-/// Filtra los anuncios de la LAN y se queda solo con los del par emparejado.
+/// Filters the announcements on the LAN and keeps only those of the paired peer.
 ///
-/// Se ignoran los anuncios sin huella o con una huella mal formada, los de
-/// agentes no emparejados y el propio (mDNS devuelve también lo que uno
-/// anuncia).
+/// Announcements without a fingerprint or with a malformed fingerprint, those of
+/// unpaired agents and its own are ignored (mDNS also returns what one
+/// announces itself).
 #[derive(Debug, Clone)]
 pub struct PeerResolver {
     own: Fingerprint,
-    /// `None`: cualquier agente salvo el propio (para emparejarse con uno nuevo).
+    /// `None`: any agent except its own (to pair with a new one).
     wanted: Option<BTreeSet<Fingerprint>>,
-    /// Anuncios aceptados, por instancia.
+    /// Accepted announcements, per instance.
     found: BTreeMap<String, (Fingerprint, Vec<SocketAddr>)>,
 }
 
@@ -49,9 +49,9 @@ impl PeerResolver {
         }
     }
 
-    /// Acepta a cualquier agente salvo el propio: lo que anuncia quien está
-    /// emparejando, que todavía no es de confianza. Encontrarlo no le da confianza:
-    /// la da la comparación del código.
+    /// Accepts any agent except its own: what whoever is
+    /// pairing announces, which is not yet trusted. Finding it does not give it trust:
+    /// the code comparison does.
     pub fn any(own: Fingerprint) -> Self {
         Self {
             own,
@@ -60,14 +60,14 @@ impl PeerResolver {
         }
     }
 
-    /// Huella del anuncio si es de un par buscado; `None` si hay que ignorarlo.
+    /// Fingerprint of the announcement if it is from a sought peer; `None` if it must be ignored.
     pub fn accepts(&self, ann: &Announcement) -> Option<Fingerprint> {
         let fp: Fingerprint = ann.fingerprint.as_deref()?.parse().ok()?;
         let wanted = self.wanted.as_ref().is_none_or(|w| w.contains(&fp));
         (fp != self.own && wanted).then_some(fp)
     }
 
-    /// Aplica un evento; devuelve si cambiaron las direcciones del par.
+    /// Applies an event; returns whether the peer's addresses changed.
     pub fn apply(&mut self, event: DiscoveryEvent) -> bool {
         let before = self.addrs();
         match event {
@@ -80,8 +80,8 @@ impl PeerResolver {
                         self.found.insert(ann.instance, (fp, addrs));
                     }
                 }
-                // Si una instancia que antes era del par ahora anuncia otra
-                // huella, deja de contar.
+                // If an instance that used to be the peer's now announces another
+                // fingerprint, it stops counting.
                 None => {
                     self.found.remove(&ann.instance);
                 }
@@ -93,12 +93,12 @@ impl PeerResolver {
         self.addrs() != before
     }
 
-    /// Direcciones del par en la LAN, de la más a la menos preferida.
+    /// The peer's addresses on the LAN, from most to least preferred.
     pub fn addrs(&self) -> Vec<SocketAddr> {
         self.collect(|_| true)
     }
 
-    /// Direcciones de un par concreto.
+    /// Addresses of a specific peer.
     pub fn addrs_of(&self, peer: &Fingerprint) -> Vec<SocketAddr> {
         self.collect(|fp| fp == peer)
     }
@@ -116,7 +116,7 @@ impl PeerResolver {
     }
 }
 
-/// Descarta lo que no sirve para conectar con otra máquina.
+/// Discards what is no use for connecting to another machine.
 fn usable(addrs: &[SocketAddr]) -> Vec<SocketAddr> {
     addrs
         .iter()
@@ -129,8 +129,8 @@ fn usable(addrs: &[SocketAddr]) -> Vec<SocketAddr> {
         .collect()
 }
 
-/// IPv4 primero (la LAN de casa), luego IPv6 global y al final IPv6 de enlace
-/// local, que depende del índice de interfaz.
+/// IPv4 first (the home LAN), then global IPv6 and finally link-local
+/// IPv6, which depends on the interface index.
 fn rank(ip: IpAddr) -> u8 {
     match ip {
         IpAddr::V4(v4) if v4.is_link_local() => 1,
@@ -168,11 +168,11 @@ mod tests {
     }
 
     #[test]
-    fn acepta_solo_la_huella_del_par() {
+    fn accepts_only_the_peers_fingerprint() {
         let r = resolver();
         let peer = ann("pc", Some(fp(PEER).to_hex()), &["192.168.1.20:47770"]);
         assert_eq!(r.accepts(&peer), Some(fp(PEER)));
-        // En mayúsculas también es la misma huella.
+        // In uppercase it is also the same fingerprint.
         let upper = ann("pc", Some(fp(PEER).to_hex().to_uppercase()), &[]);
         assert_eq!(r.accepts(&upper), Some(fp(PEER)));
     }
@@ -181,15 +181,15 @@ mod tests {
     fn ignora_otros_anuncios() {
         let mut r = resolver();
         let otros = [
-            // Otro agente Tandem no emparejado.
+            // Another Tandem agent, unpaired.
             ann("x", Some(fp(STRANGER).to_hex()), &["192.168.1.30:47770"]),
-            // El propio anuncio.
-            ann("yo", Some(fp(ME).to_hex()), &["192.168.1.10:47770"]),
-            // Sin huella.
-            ann("sin", None, &["192.168.1.40:47770"]),
-            // Huella mal formada o truncada.
-            ann("mal", Some("hola".into()), &["192.168.1.50:47770"]),
-            ann("corta", Some(fp(PEER).short()), &["192.168.1.60:47770"]),
+            // Its own announcement.
+            ann("me", Some(fp(ME).to_hex()), &["192.168.1.10:47770"]),
+            // Without a fingerprint.
+            ann("without", None, &["192.168.1.40:47770"]),
+            // Malformed or truncated fingerprint.
+            ann("bad", Some("hello".into()), &["192.168.1.50:47770"]),
+            ann("short", Some(fp(PEER).short()), &["192.168.1.60:47770"]),
         ];
         for a in otros {
             assert_eq!(r.accepts(&a), None, "{a:?}");
@@ -206,29 +206,29 @@ mod tests {
     }
 
     #[test]
-    fn la_propia_huella_nunca_es_el_par() {
-        // Aunque por error se pase la propia llave como par.
+    fn the_own_fingerprint_is_never_the_peer() {
+        // Even if its own key is mistakenly passed as the peer.
         let r = PeerResolver::new(fp(ME), [fp(ME), fp(PEER)]);
-        assert_eq!(r.accepts(&ann("yo", Some(fp(ME).to_hex()), &[])), None);
+        assert_eq!(r.accepts(&ann("me", Some(fp(ME).to_hex()), &[])), None);
     }
 
     #[test]
-    fn sin_lista_acepta_a_cualquiera_menos_a_si_mismo() {
+    fn without_a_list_it_accepts_anyone_but_itself() {
         let mut r = PeerResolver::any(fp(ME));
-        let extrano = ann("x", Some(fp(STRANGER).to_hex()), &["192.168.1.30:47771"]);
-        assert_eq!(r.accepts(&extrano), Some(fp(STRANGER)));
-        assert_eq!(r.accepts(&ann("yo", Some(fp(ME).to_hex()), &[])), None);
-        assert_eq!(r.accepts(&ann("sin", None, &[])), None);
-        assert!(r.apply(DiscoveryEvent::Resolved(extrano)));
+        let stranger = ann("x", Some(fp(STRANGER).to_hex()), &["192.168.1.30:47771"]);
+        assert_eq!(r.accepts(&stranger), Some(fp(STRANGER)));
+        assert_eq!(r.accepts(&ann("me", Some(fp(ME).to_hex()), &[])), None);
+        assert_eq!(r.accepts(&ann("without", None, &[])), None);
+        assert!(r.apply(DiscoveryEvent::Resolved(stranger)));
         assert_eq!(r.addrs(), vec!["192.168.1.30:47771".parse().unwrap()]);
     }
 
     #[test]
-    fn se_olvida_al_retirarse_o_cambiar_de_huella() {
+    fn forgotten_on_withdrawal_or_fingerprint_change() {
         let mut r = resolver();
         let peer = ann("pc", Some(fp(PEER).to_hex()), &["192.168.1.20:47770"]);
         assert!(r.apply(DiscoveryEvent::Resolved(peer.clone())));
-        // Repetir el mismo anuncio no cambia nada.
+        // Repeating the same announcement changes nothing.
         assert!(!r.apply(DiscoveryEvent::Resolved(peer)));
         assert!(r.apply(DiscoveryEvent::Removed {
             instance: "pc".into()
@@ -249,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn ordena_y_limpia_direcciones() {
+    fn sorts_and_cleans_addresses() {
         let mut r = resolver();
         r.apply(DiscoveryEvent::Resolved(ann(
             "pc",
@@ -279,10 +279,10 @@ mod tests {
     }
 
     proptest! {
-        /// Ningún anuncio con una huella ajena aporta direcciones, en
-        /// cualquier orden y mezclado con los del par.
+        /// No announcement with a foreign fingerprint contributes addresses, in
+        /// any order and mixed with the peer's.
         #[test]
-        fn solo_el_par_aporta_direcciones(
+        fn only_the_peer_contributes_addresses(
             events in prop::collection::vec((0u8..4, 0u8..5, any::<bool>(), 1u8..255), 0..40)
         ) {
             let mut r = resolver();
@@ -301,7 +301,7 @@ mod tests {
                     }
                 }
                 for a in r.addrs() {
-                    prop_assert!(peer_ips.contains(&a), "{a} no viene del par");
+                    prop_assert!(peer_ips.contains(&a), "{a} does not come from the peer");
                 }
             }
         }

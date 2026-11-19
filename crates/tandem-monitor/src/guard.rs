@@ -1,18 +1,18 @@
-//! Vuelta automática de la entrada de un monitor (DESIGN §10, DECISIONS A8).
+//! Automatic rollback of a monitor's input (DESIGN §10, DECISIONS A8).
 //!
-//! Toda prueba de hardware que cambia la entrada puede dejar al usuario sin ver la máquina.
-//! Hay dos redes:
+//! Any hardware test that changes the input can leave the user unable to see the machine.
+//! There are two nets:
 //!
-//! - [`InputGuard`], en el mismo proceso: anota la entrada real al armarse y vuelve a ella al
-//!   soltarse (también si la prueba entra en pánico).
-//! - [`Watchdog`], un proceso aparte (`tandem-monitor-guard`): si el proceso de la prueba
-//!   muere sin desarmarlo (se lo mata, se cuelga y lo corta el CI), su entrada estándar se
-//!   cierra sin la orden [`DISARM`] y el vigilante restaura la entrada él solo. Funciona igual
-//!   en macOS y Windows: el sistema cierra la tubería al morir el padre.
+//! - [`InputGuard`], in the same process: it records the real input when armed and returns
+//!   to it when dropped (also if the test panics).
+//! - [`Watchdog`], a separate process (`tandem-monitor-guard`): if the test process
+//!   dies without disarming it (it is killed, it hangs and CI cuts it off), its standard input
+//!   closes without the [`DISARM`] command and the watchdog restores the input on its own.
+//!   It works the same on macOS and Windows: the system closes the pipe when the parent dies.
 //!
-//! Las dos, antes de mirar la entrada, esperan el veredicto de un cambio que esté en curso:
-//! si la prueba muere justo después del `Set 0x60`, el monitor todavía muestra la entrada
-//! original y terminaría en la otra después de que el vigilante la diera por buena.
+//! Both, before looking at the input, wait for the verdict of a switch in progress:
+//! if the test dies right after the `Set 0x60`, the monitor still shows the original input
+//! and would end up on the other one after the watchdog considered it fine.
 
 use std::io::{self, BufRead, Write};
 use std::path::Path;
@@ -22,19 +22,19 @@ use std::time::Duration;
 
 use monitor_ddc::{Clock, DdcBus, DdcError, EventKind, Input, Link, StandardMonitor, Verdict};
 
-/// La orden que desarma al vigilante: la prueba ya dejó la entrada como estaba.
+/// The command that disarms the watchdog: the test already left the input as it was.
 pub const DISARM: &str = "disarm";
 
-/// Cuánto se espera el veredicto al volver, y lo más que se espera el de un cambio en curso.
+/// How long to wait for the verdict on the way back, and the most to wait for one in progress.
 pub const RESTORE_TIMEOUT: Duration = Duration::from_secs(12);
 
-/// Cuántos eventos hacia atrás se busca un cambio pedido que todavía no tiene veredicto.
+/// How many events back to look for a requested switch that has no verdict yet.
 const LOOKBACK: u16 = 16;
 
-/// Cada cuánto se vuelve a mirar mientras un cambio sigue en curso.
+/// How often to look again while a switch is still in progress.
 const SETTLE_POLL: Duration = Duration::from_millis(100);
 
-/// Vuelve a la entrada que había al armarse, al soltarse.
+/// Returns to the input there was when armed, when dropped.
 pub struct InputGuard {
     monitor: StandardMonitor,
     clock: Arc<dyn Clock>,
@@ -52,13 +52,13 @@ impl std::fmt::Debug for InputGuard {
 }
 
 impl InputGuard {
-    /// Anota la entrada real (la de `0xEE`, no la del puerto por el que se pregunta). `clock`
-    /// es el mismo del monitor: con él se espera un cambio en curso al volver.
+    /// Records the real input (the `0xEE` one, not the one of the port being asked). `clock`
+    /// is the monitor's own: it is used to wait for a switch in progress when returning.
     pub fn arm(monitor: StandardMonitor, clock: Arc<dyn Clock>) -> Result<Self, DdcError> {
         let original = monitor
             .live()?
             .input()
-            .ok_or_else(|| DdcError::Protocol("entrada real desconocida".into()))?;
+            .ok_or_else(|| DdcError::Protocol("unknown real input".into()))?;
         Ok(InputGuard {
             monitor,
             clock,
@@ -75,7 +75,7 @@ impl InputGuard {
         &self.monitor
     }
 
-    /// Vuelve ya, con el veredicto del firmware.
+    /// Returns now, with the firmware's verdict.
     pub fn restore(mut self) -> Result<Verdict, DdcError> {
         self.done = true;
         restore(&self.monitor, self.clock.as_ref(), self.original)
@@ -87,12 +87,12 @@ impl Drop for InputGuard {
         if !self.done
             && let Err(e) = restore(&self.monitor, self.clock.as_ref(), self.original)
         {
-            tracing::error!("no se pudo volver a la entrada {}: {e}", self.original);
+            tracing::error!("could not return to input {}: {e}", self.original);
         }
     }
 }
 
-/// Pone `to` si no es la que está en pantalla, después de que termine cualquier cambio en curso.
+/// Sets `to` if it is not the one on screen, after any switch in progress ends.
 fn restore(monitor: &StandardMonitor, clock: &dyn Clock, to: Input) -> Result<Verdict, DdcError> {
     settle(monitor, clock);
     if monitor.live().ok().and_then(|l| l.input()) == Some(to) {
@@ -101,21 +101,21 @@ fn restore(monitor: &StandardMonitor, clock: &dyn Clock, to: Input) -> Result<Ve
     monitor.switch_input(to, RESTORE_TIMEOUT)
 }
 
-/// Espera, hasta [`RESTORE_TIMEOUT`], a que un cambio pedido por DDC tenga su veredicto. Si
-/// vence, se sigue igual: volver es lo que importa.
+/// Waits, up to [`RESTORE_TIMEOUT`], for a switch requested over DDC to have its verdict. If
+/// it expires, it carries on anyway: returning is what matters.
 fn settle(monitor: &StandardMonitor, clock: &dyn Clock) {
     let deadline = clock.now() + RESTORE_TIMEOUT;
     while switch_pending(monitor) {
         if clock.now() >= deadline {
-            tracing::warn!("el cambio en curso no dio veredicto: se vuelve igual");
+            tracing::warn!("the switch in progress gave no verdict: returning anyway");
             return;
         }
         clock.sleep(SETTLE_POLL);
     }
 }
 
-/// Hay un `ddc-switch-request` sin su `switch-done`/`switch-failed`. Si no se puede leer, se
-/// supone que sí: mientras cambia de entrada el enlace se reentrena y no contesta.
+/// There is a `ddc-switch-request` without its `switch-done`/`switch-failed`. If it cannot be
+/// read, it is assumed there is: while the input changes the link retrains and does not answer.
 fn switch_pending(monitor: &StandardMonitor) -> bool {
     let Ok(ring) = monitor.ring_info() else {
         return true;
@@ -133,10 +133,10 @@ fn switch_pending(monitor: &StandardMonitor) -> bool {
     false
 }
 
-/// Lo que el vigilante tiene que restaurar.
+/// What the watchdog has to restore.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WatchPlan {
-    /// El id del monitor (`<modelo>-<hash>`): los handles no sobreviven entre procesos.
+    /// The monitor id (`<model>-<hash>`): handles do not survive between processes.
     pub monitor: String,
     pub restore_to: Input,
 }
@@ -152,21 +152,21 @@ impl WatchPlan {
                 monitor: monitor.clone(),
                 restore_to: input.parse().map_err(|e| format!("{e}"))?,
             }),
-            _ => Err("uso: tandem-monitor-guard <id-del-monitor> <dp|hdmi>".into()),
+            _ => Err("usage: tandem-monitor-guard <monitor-id> <dp|hdmi>".into()),
         }
     }
 }
 
-/// Lo que pasó con el proceso vigilado.
+/// What happened to the watched process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WatchOutcome {
-    /// La prueba terminó bien y lo desarmó.
+    /// The test ended well and disarmed it.
     Disarmed,
-    /// La entrada se cerró sin la orden: el proceso de la prueba murió.
+    /// The input was closed without the command: the test process died.
     ParentGone,
 }
 
-/// Espera en `control` (la entrada estándar del vigilante) hasta la orden o el cierre.
+/// Waits on `control` (the watchdog's standard input) for the command or the close.
 pub fn watch(control: impl BufRead) -> WatchOutcome {
     for line in control.lines() {
         match line {
@@ -178,8 +178,8 @@ pub fn watch(control: impl BufRead) -> WatchOutcome {
     WatchOutcome::ParentGone
 }
 
-/// Restaura la entrada del monitor `plan.monitor` con un bus nuevo (el del vigilante). Solo
-/// a un monitor compatible: el sondeo va antes del Set.
+/// Restores the input of monitor `plan.monitor` with a new bus (the watchdog's own). Only
+/// a compatible monitor: the probe goes before the Set.
 pub fn restore_by_id(
     bus: Arc<dyn DdcBus>,
     clock: Arc<dyn Clock>,
@@ -189,21 +189,21 @@ pub fn restore_by_id(
     let info = monitors
         .into_iter()
         .find(|m| m.id().is_some_and(|id| id.as_str() == plan.monitor))
-        .ok_or_else(|| format!("no se ve el monitor {}", plan.monitor))?;
+        .ok_or_else(|| format!("monitor {} is not visible", plan.monitor))?;
     let monitor = Link::new(bus, clock.clone(), info.handle)
         .open_standard()
         .map_err(|e| e.to_string())?;
     restore(&monitor, clock.as_ref(), plan.restore_to).map_err(|e| e.to_string())
 }
 
-/// El vigilante en marcha, visto desde la prueba.
+/// The running watchdog, seen from the test.
 #[derive(Debug)]
 pub struct Watchdog {
     child: Child,
 }
 
 impl Watchdog {
-    /// Lanza `program` (el binario `tandem-monitor-guard`) con el plan.
+    /// Launches `program` (the `tandem-monitor-guard` binary) with the plan.
     pub fn spawn(program: &Path, plan: &WatchPlan) -> io::Result<Self> {
         let child = Command::new(program)
             .args(plan.to_args())
@@ -212,7 +212,7 @@ impl Watchdog {
         Ok(Watchdog { child })
     }
 
-    /// La prueba ya volvió sola: el vigilante termina sin tocar nada.
+    /// The test already returned on its own: the watchdog ends without touching anything.
     pub fn disarm(mut self) -> io::Result<std::process::ExitStatus> {
         if let Some(mut stdin) = self.child.stdin.take() {
             writeln!(stdin, "{DISARM}")?;
@@ -220,8 +220,8 @@ impl Watchdog {
         self.child.wait()
     }
 
-    /// Cierra la entrada sin desarmar, como si la prueba hubiera muerto (para probar el
-    /// vigilante).
+    /// Closes the input without disarming, as if the test had died (to test the
+    /// watchdog).
     pub fn abandon(mut self) -> io::Result<std::process::ExitStatus> {
         drop(self.child.stdin.take());
         self.child.wait()
@@ -279,7 +279,7 @@ mod tests {
                 .monitor()
                 .switch_input(Input::Hdmi, RESTORE_TIMEOUT)
                 .unwrap();
-            panic!("la prueba falló a mitad");
+            panic!("the test failed midway");
         }));
         assert!(r.is_err());
         assert_eq!(bus.screen_input(h), Some(Input::DisplayPort));
@@ -308,10 +308,13 @@ mod tests {
     #[test]
     fn the_watchdog_restores_only_if_the_parent_dies() {
         assert_eq!(
-            watch(io::Cursor::new(format!("algo\n{DISARM}\n"))),
+            watch(io::Cursor::new(format!("something\n{DISARM}\n"))),
             WatchOutcome::Disarmed
         );
-        assert_eq!(watch(io::Cursor::new("algo\n")), WatchOutcome::ParentGone);
+        assert_eq!(
+            watch(io::Cursor::new("something\n")),
+            WatchOutcome::ParentGone
+        );
         assert_eq!(watch(io::Cursor::new("")), WatchOutcome::ParentGone);
     }
 
@@ -337,9 +340,9 @@ mod tests {
         assert_eq!(bus.screen_input(h), Some(Input::DisplayPort));
     }
 
-    /// Revisión de #80: la prueba muere justo después del Set a HDMI y el vigilante despierta
-    /// cuando el monitor todavía muestra DP. No puede darlo por hecho: el cambio en curso
-    /// termina después y el usuario se queda sin ver la PC.
+    /// Review of #80: the test dies right after the Set to HDMI and the watchdog wakes up
+    /// when the monitor still shows DP. It cannot take it for granted: the switch in progress
+    /// ends later and the user is left unable to see the PC.
     #[test]
     fn the_watchdog_waits_for_a_switch_in_flight() {
         let clock = FakeClock::new();
@@ -365,8 +368,8 @@ mod tests {
         assert_eq!(bus.screen_input(h), Some(Input::DisplayPort));
     }
 
-    /// Un cambio en curso que nunca da veredicto no deja al vigilante esperando para siempre:
-    /// al vencer la espera vuelve igual.
+    /// A switch in progress that never gives a verdict does not leave the watchdog waiting forever:
+    /// when the wait expires it returns anyway.
     #[test]
     fn a_pending_switch_without_verdict_still_ends_on_the_original() {
         let clock = FakeClock::new();
@@ -387,13 +390,13 @@ mod tests {
         restore_by_id(Arc::new(bus.clone()), Arc::new(clock.clone()), &plan).unwrap();
         assert!(
             clock.now() - start >= RESTORE_TIMEOUT,
-            "esperó el veredicto"
+            "waited for the verdict"
         );
         clock.advance(Duration::from_secs(2));
         assert_eq!(bus.screen_input(h), Some(Input::DisplayPort));
     }
 
-    /// Lo mismo dentro del proceso: el guardia se suelta con un cambio a medias.
+    /// The same inside the process: the guard is dropped with a half-done switch.
     #[test]
     fn the_guard_waits_for_a_switch_in_flight() {
         let (bus, h, m) = standard();
@@ -425,6 +428,6 @@ mod tests {
                 .iter()
                 .any(|op| matches!(op, BusOp::Set { .. }))
         );
-        assert!(WatchPlan::from_args(&["solo-uno".into()]).is_err());
+        assert!(WatchPlan::from_args(&["only-one".into()]).is_err());
     }
 }

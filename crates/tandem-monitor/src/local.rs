@@ -1,13 +1,13 @@
-//! Los monitores que ve esta máquina por su bus DDC.
+//! The monitors this machine sees over its DDC bus.
 //!
-//! - [`LocalMonitors::scan`] sondea cada monitor (solo lecturas: `Get 0xEA`) y arma el anuncio
-//!   de canales. Uno que no contesta no se anuncia; uno que contesta sin el estándar se anuncia
-//!   como «no compatible» y nunca se abre para escribirle.
-//! - [`LocalMonitors::set_owned`] abre los que le tocan a esta máquina y suelta los demás.
-//!   Cada vez que una máquina pasa a ser dueña pide un cursor nuevo: el anterior pudo quedar
-//!   viejo mientras leía la otra (el cursor del firmware es uno solo por monitor).
-//! - [`LocalMonitors::poll`] lee eventos y estado de los propios.
-//! - [`LocalMonitors::switch`] cambia la entrada y espera el veredicto del firmware.
+//! - [`LocalMonitors::scan`] probes each monitor (reads only: `Get 0xEA`) and builds the
+//!   channel announcement. One that does not answer is not announced; one that answers without
+//!   the standard is announced as "not compatible" and is never opened for writing.
+//! - [`LocalMonitors::set_owned`] opens the ones that belong to this machine and drops the rest.
+//!   Every time a machine becomes the owner it asks for a new cursor: the previous one may have
+//!   gone stale while the other was reading (the firmware's cursor is one per monitor).
+//! - [`LocalMonitors::poll`] reads events and state of its own.
+//! - [`LocalMonitors::switch`] changes the input and waits for the firmware's verdict.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::sync::Arc;
@@ -22,19 +22,19 @@ use tandem_proto::{MonitorChannel, MonitorCompat, MonitorEvent, MonitorEventKind
 
 use crate::{ring, to_core, to_ddc};
 
-/// Principio del error de un cambio sin veredicto: el monitor pudo cambiar o no, y quien
-/// orquesta vuelve a la entrada de antes.
-pub const NO_VERDICT: &str = "el monitor no dio veredicto";
-/// Esta máquina no es la dueña del monitor.
-pub const NOT_OWNER: &str = "esta máquina no es la dueña del monitor";
+/// Start of the error for a switch without a verdict: the monitor may or may not have changed,
+/// and whoever orchestrates returns to the previous input.
+pub const NO_VERDICT: &str = "the monitor gave no verdict";
+/// This machine is not the owner of the monitor.
+pub const NOT_OWNER: &str = "this machine is not the owner of the monitor";
 
-/// La hora de la máquina, en milisegundos Unix.
+/// The machine's time, in Unix milliseconds.
 pub type WallClock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
-/// La entrada del monitor por la que llega este EDID, según el tipo de interfaz de E-EDID
-/// 1.4 (byte 20: digital, bits 0–3: `2`/`3` HDMI, `5` DisplayPort). Cada entrada tiene su
-/// EDID, así que dice a qué entrada va el cable de esta máquina. Antes de la 1.4 esos bits no
-/// dicen nada, y muchos monitores no los llenan: entonces `None` (T-111).
+/// The monitor input through which this EDID arrives, according to the E-EDID 1.4 interface
+/// type (byte 20: digital, bits 0–3: `2`/`3` HDMI, `5` DisplayPort). Each input has its own
+/// EDID, so it says which input this machine's cable goes to. Before 1.4 those bits say
+/// nothing, and many monitors do not fill them in: then `None` (T-111).
 pub fn edid_input(raw: &[u8]) -> Option<MonitorInput> {
     let (version, revision, video) = (*raw.get(18)?, *raw.get(19)?, *raw.get(20)?);
     if version != 1 || revision < 4 || video & 0x80 == 0 {
@@ -47,9 +47,9 @@ pub fn edid_input(raw: &[u8]) -> Option<MonitorInput> {
     }
 }
 
-/// Escribe en un EDID (bloque base de 128 bytes) el tipo de interfaz de `input` como E-EDID
-/// 1.4, con su suma de control: para los dobles de prueba y la simulación. `None` lo deja sin
-/// definir.
+/// Writes into an EDID (128-byte base block) the interface type of `input` as E-EDID
+/// 1.4, with its checksum: for test doubles and the simulation. `None` leaves it
+/// undefined.
 pub fn set_edid_input(edid: &mut [u8], input: Option<MonitorInput>) {
     if edid.len() < 128 {
         return;
@@ -65,7 +65,7 @@ pub fn set_edid_input(edid: &mut [u8], input: Option<MonitorInput>) {
     edid[127] = 0u8.wrapping_sub(sum);
 }
 
-/// El reloj de pared del sistema.
+/// The system's wall clock.
 pub fn system_wall() -> WallClock {
     Arc::new(|| {
         SystemTime::now()
@@ -77,9 +77,9 @@ pub fn system_wall() -> WallClock {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LocalConfig {
     pub link: LinkConfig,
-    /// Cuánto se espera el veredicto de un cambio de entrada.
+    /// How long to wait for the verdict of an input switch.
     pub switch_timeout: Duration,
-    /// Cuántos eventos se guardan por monitor para la UI.
+    /// How many events are kept per monitor for the UI.
     pub events_kept: usize,
 }
 
@@ -93,12 +93,12 @@ impl Default for LocalConfig {
     }
 }
 
-/// Un monitor que esta máquina lee porque es la dueña.
+/// A monitor that this machine reads because it is the owner.
 struct Reader {
     monitor: StandardMonitor,
-    /// `None` hasta la primera lectura: el cursor se pide al empezar a leer.
+    /// `None` until the first read: the cursor is requested when reading starts.
     cursor: Option<EventCursor>,
-    /// Cuándo se leyó por última vez (reloj de `monitor-ddc`).
+    /// When it was last read (`monitor-ddc` clock).
     read_at: Duration,
     events: VecDeque<MonitorEvent>,
 }
@@ -145,12 +145,12 @@ impl LocalMonitors {
         Link::new(self.bus.clone(), self.clock.clone(), handle).with_config(self.cfg.link)
     }
 
-    /// Los canales vivos, ordenados por id.
+    /// The live channels, sorted by id.
     pub fn channels(&self) -> Vec<MonitorChannel> {
         self.entries.values().map(|e| e.channel.clone()).collect()
     }
 
-    /// Los monitores que esta máquina está leyendo.
+    /// The monitors this machine is reading.
     pub fn reading(&self) -> BTreeSet<String> {
         self.entries
             .iter()
@@ -159,12 +159,12 @@ impl LocalMonitors {
             .collect()
     }
 
-    /// Vuelve a enumerar y sondear. `Err` si el sistema no deja enumerar (sin canal DDC).
+    /// Enumerates and probes again. `Err` if the system does not allow enumerating (no DDC channel).
     pub fn scan(&mut self) -> Result<Vec<MonitorChannel>, DdcError> {
         let infos = self.bus.monitors()?;
         let mut next = BTreeMap::new();
         for info in infos {
-            // Sin EDID no hay identidad estable: no se puede saber si es el mismo que ve la otra.
+            // Without an EDID there is no stable identity: it cannot be known whether it is the same one the other sees.
             let Some(edid) = &info.edid else { continue };
             let id = edid.monitor_id().to_string();
             if next.contains_key(&id) {
@@ -182,14 +182,14 @@ impl LocalMonitors {
                     reason: incompatibility(why),
                 },
                 Probe::NoChannel(e) => {
-                    tracing::debug!(monitor = %id, "sin canal DDC: {e}");
+                    tracing::debug!(monitor = %id, "no DDC channel: {e}");
                     continue;
                 }
             };
-            // La latencia se mide al abrir el canal y se conserva mientras siga vivo: la
-            // elección del dueño no tiene que oscilar con cada sondeo. El monitor se reconoce
-            // por su id, no por su número: en Windows y macOS cada enumeración da números
-            // nuevos. Con otro número solo se rehace la conexión; el cursor y los eventos siguen.
+            // Latency is measured when the channel opens and kept while it stays alive: the
+            // owner election must not oscillate with every probe. The monitor is recognized
+            // by its id, not its number: on Windows and macOS every enumeration gives new
+            // numbers. With another number only the connection is redone; the cursor and events carry on.
             let (latency_ms, reader) = match self.entries.remove(&id) {
                 Some(prev) if prev.channel.compat == compat => {
                     let reader = match prev.reader {
@@ -223,20 +223,20 @@ impl LocalMonitors {
         Ok(self.channels())
     }
 
-    /// El mismo monitor con otro número: se abre de nuevo (otro sondeo, solo lecturas) y se
-    /// conserva lo leído. Si ya no se puede abrir, se suelta: el próximo `set_owned` lo reintenta
-    /// con un cursor nuevo.
+    /// The same monitor with another number: it is opened again (another probe, reads only) and
+    /// what was read is kept. If it can no longer be opened, it is dropped: the next `set_owned`
+    /// retries it with a new cursor.
     fn reconnect(&self, reader: Reader, link: &Link) -> Option<Reader> {
         match link.clone().open_standard() {
             Ok(monitor) => Some(Reader { monitor, ..reader }),
             Err(e) => {
-                tracing::debug!("no se pudo volver a abrir el monitor: {e}");
+                tracing::debug!("could not reopen the monitor: {e}");
                 None
             }
         }
     }
 
-    /// Lee los monitores de `owned` (los compatibles que ve) y suelta los demás.
+    /// Reads the monitors in `owned` (the compatible ones it sees) and drops the rest.
     pub fn set_owned(&mut self, owned: &BTreeSet<String>) {
         let ids: Vec<String> = self.entries.keys().cloned().collect();
         for id in ids {
@@ -246,7 +246,7 @@ impl LocalMonitors {
             };
             if !want {
                 if entry.reader.is_some() {
-                    tracing::info!(monitor = %id, "deja de leer el monitor: el dueño es la otra");
+                    tracing::info!(monitor = %id, "stops reading the monitor: the owner is the other machine");
                 }
                 if let Some(e) = self.entries.get_mut(&id) {
                     e.reader = None;
@@ -256,11 +256,11 @@ impl LocalMonitors {
             if entry.reader.is_some() || !entry.channel.compat.is_compatible() {
                 continue;
             }
-            // Solo se abre tras otro sondeo que lo confirme: un monitor que dejó de hablar
-            // el estándar nunca recibe un Set.
+            // It is only opened after another probe that confirms it: a monitor that stopped speaking
+            // the standard never receives a Set.
             match self.link(entry.handle).open_standard() {
                 Ok(monitor) => {
-                    tracing::info!(monitor = %id, "esta máquina es la dueña: empieza a leer");
+                    tracing::info!(monitor = %id, "this machine is the owner: starts reading");
                     let read_at = self.clock.now();
                     if let Some(e) = self.entries.get_mut(&id) {
                         e.reader = Some(Reader {
@@ -271,12 +271,12 @@ impl LocalMonitors {
                         });
                     }
                 }
-                Err(e) => tracing::debug!(monitor = %id, "no se pudo abrir: {e}"),
+                Err(e) => tracing::debug!(monitor = %id, "could not open: {e}"),
             }
         }
     }
 
-    /// Lee eventos y estado de cada monitor propio.
+    /// Reads events and state of each monitor of its own.
     pub fn poll(&mut self) -> Vec<MonitorReport> {
         let (wall, clock, kept) = (self.wall.clone(), self.clock.clone(), self.cfg.events_kept);
         self.entries
@@ -296,34 +296,34 @@ impl LocalMonitors {
             .collect()
     }
 
-    /// Cambia la entrada de un monitor propio y espera el veredicto del firmware. Un error que
-    /// empieza con [`NO_VERDICT`] deja la duda de si cambió.
+    /// Changes the input of a monitor of its own and waits for the firmware's verdict. An error that
+    /// starts with [`NO_VERDICT`] leaves doubt about whether it changed.
     pub fn switch(&mut self, id: &str, input: MonitorInput) -> Result<(), String> {
         let Some(entry) = self.entries.get(id) else {
-            return Err(format!("esta máquina no ve el monitor {id}"));
+            return Err(format!("this machine does not see monitor {id}"));
         };
         let Some(reader) = &entry.reader else {
             return Err(format!("{id}: {NOT_OWNER}"));
         };
         let timeout = self.cfg.switch_timeout;
-        tracing::info!(monitor = %id, entrada = %input, "cambio de entrada");
+        tracing::info!(monitor = %id, input = %input, "input switch");
         match reader.monitor.switch_input(to_ddc(input), timeout) {
             Ok(Verdict::Confirmed { .. }) => Ok(()),
             Ok(Verdict::Failed { current, .. }) => Err(match current {
                 Some(c) => format!(
-                    "el monitor no mostró imagen en {input}; sigue en {}",
+                    "the monitor showed no image on {input}; it stays on {}",
                     to_core(c)
                 ),
-                None => format!("el monitor no mostró imagen en {input}"),
+                None => format!("the monitor showed no image on {input}"),
             }),
-            Ok(Verdict::TimedOut) => Err(format!("{NO_VERDICT} en {} s", timeout.as_secs())),
-            Err(e) => Err(format!("no se pudo pedir el cambio por DDC: {e}")),
+            Ok(Verdict::TimedOut) => Err(format!("{NO_VERDICT} in {} s", timeout.as_secs())),
+            Err(e) => Err(format!("could not request the switch over DDC: {e}")),
         }
     }
 }
 
-/// Lee lo nuevo del anillo. La primera vez solo toma el cursor: lo anterior a que esta
-/// máquina fuera la dueña ya no es suyo.
+/// Reads what is new in the ring. The first time it only takes the cursor: anything from before this
+/// machine became the owner is no longer its own.
 fn read_events(reader: &mut Reader, clock: &dyn Clock, wall_ms: u64, kept: usize) {
     let now = clock.now();
     let Some(cursor) = reader.cursor.as_mut() else {
@@ -332,7 +332,7 @@ fn read_events(reader: &mut Reader, clock: &dyn Clock, wall_ms: u64, kept: usize
                 reader.cursor = Some(c);
                 reader.read_at = now;
             }
-            Err(e) => tracing::debug!("no se pudo tomar el cursor de eventos: {e}"),
+            Err(e) => tracing::debug!("could not take the event cursor: {e}"),
         }
         return;
     };
@@ -343,14 +343,14 @@ fn read_events(reader: &mut Reader, clock: &dyn Clock, wall_ms: u64, kept: usize
         && let Ok(clock_now) = reader.monitor.clock_10ms()
         && ring::wrapped(before, clock_now, elapsed_10ms)
     {
-        // Sin reloj anterior, `read_events` no lo toma por un reinicio y sigue desde el cursor.
-        tracing::info!("el reloj del monitor dio la vuelta (497 días)");
+        // Without a previous clock, `read_events` does not take it for a restart and goes on from the cursor.
+        tracing::info!("the monitor clock wrapped around (497 days)");
         cursor.clock_10ms = None;
     }
     let batch = match reader.monitor.read_events(cursor) {
         Ok(b) => b,
         Err(e) => {
-            tracing::debug!("no se pudieron leer los eventos: {e}");
+            tracing::debug!("could not read the events: {e}");
             return;
         }
     };
@@ -381,7 +381,7 @@ fn event(e: &Event, wall_ms: u64, clock_10ms: u32) -> MonitorEvent {
             Input::from_vcp(u16::from(e.new)).map(to_core),
         ),
         EventKind::SwitchDone => (MonitorEventKind::SwitchDone, port(e.new)),
-        // `old` es la entrada pedida; `new`, la que quedó.
+        // `old` is the requested input; `new`, the one that stayed.
         EventKind::SwitchFailed => (MonitorEventKind::SwitchFailed, port(e.old)),
         EventKind::PowerFlags | EventKind::PowersaveFlags | EventKind::DdcPowerRequest => {
             (MonitorEventKind::Power, None)
@@ -400,14 +400,14 @@ fn event(e: &Event, wall_ms: u64, clock_10ms: u32) -> MonitorEvent {
     }
 }
 
-/// Por qué no es compatible, para la UI.
+/// Why it is not compatible, for the UI.
 fn incompatibility(why: Incompatibility) -> String {
     match why {
-        Incompatibility::NoEventRing => "Firmware sin el estándar de Tandem".into(),
+        Incompatibility::NoEventRing => "Firmware without the Tandem standard".into(),
         Incompatibility::UnsupportedProtocol(v) => {
-            format!("Protocolo {v} del firmware, que esta versión de Tandem no habla")
+            format!("Firmware protocol {v}, which this version of Tandem does not speak")
         }
-        Incompatibility::UnknownRing(_) => "No habla el estándar del firmware propio".into(),
+        Incompatibility::UnknownRing(_) => "Does not speak the own-firmware standard".into(),
     }
 }
 
@@ -445,7 +445,7 @@ mod tests {
         let std = bus.add(FakeMonitorConfig::new(Personality::Standard));
         let factory = bus.add(factory_config());
         let mut gone = FakeMonitorConfig::new(Personality::Disconnected);
-        gone.edid = test_edid("SAM", 1, "Apagado", "FAKE0000003");
+        gone.edid = test_edid("SAM", 1, "Off", "FAKE0000003");
         bus.add(gone);
         let wall_clock = clock.clone();
         let local = LocalMonitors::new(
@@ -483,7 +483,11 @@ mod tests {
     fn the_scan_announces_live_channels_with_their_compatibility() {
         let mut r = rig();
         let chans = r.local.scan().unwrap();
-        assert_eq!(chans.len(), 2, "el desconectado no se anuncia: {chans:?}");
+        assert_eq!(
+            chans.len(),
+            2,
+            "the disconnected one is not announced: {chans:?}"
+        );
         let std = chans.iter().find(|c| c.compat.is_compatible()).unwrap();
         assert_eq!(std.name, "LC34G55T");
         assert!(std.id.starts_with("lc34g55t-"), "{}", std.id);
@@ -492,10 +496,10 @@ mod tests {
         assert_eq!(
             fab.compat,
             MonitorCompat::NotCompatible {
-                reason: "Firmware sin el estándar de Tandem".into()
+                reason: "Firmware without the Tandem standard".into()
             }
         );
-        // El sondeo solo lee.
+        // The probe only reads.
         assert!(sets(&r.bus, r.std).is_empty() && sets(&r.bus, r.factory).is_empty());
     }
 
@@ -504,7 +508,7 @@ mod tests {
         let mut r = rig();
         r.local.scan().unwrap();
         let first: Vec<u32> = r.local.channels().iter().map(|c| c.latency_ms).collect();
-        r.bus.drop_next(r.std, 1); // un reintento: el sondeo tarda más
+        r.bus.drop_next(r.std, 1); // one retry: the probe takes longer
         r.local.scan().unwrap();
         let again: Vec<u32> = r.local.channels().iter().map(|c| c.latency_ms).collect();
         assert_eq!(first, again);
@@ -536,7 +540,7 @@ mod tests {
         assert_eq!(first[0].input, Some(MonitorInput::DisplayPort));
         assert!(
             first[0].events.is_empty(),
-            "lo de antes no es de este dueño"
+            "what was there before is not from this owner"
         );
         r.local.switch(&std, MonitorInput::Hdmi).unwrap();
         assert_eq!(r.bus.screen_input(r.std), Some(Input::Hdmi));
@@ -551,7 +555,7 @@ mod tests {
             kinds.contains(&(MonitorEventKind::SwitchDone, Some(MonitorInput::Hdmi))),
             "{kinds:?}"
         );
-        // La hora: el cambio se confirmó 300 ms después del pedido.
+        // The time: the switch was confirmed 300 ms after the request.
         let at = |k| report.events.iter().find(|e| e.kind == k).unwrap().at_ms;
         assert_eq!(
             at(MonitorEventKind::SwitchDone) - at(MonitorEventKind::SwitchRequested),
@@ -576,7 +580,7 @@ mod tests {
         let id = local.channels()[0].id.clone();
         local.set_owned(&BTreeSet::from([id.clone()]));
         let e = local.switch(&id, MonitorInput::Hdmi).unwrap_err();
-        assert_eq!(e, "el monitor no mostró imagen en HDMI; sigue en DP");
+        assert_eq!(e, "the monitor showed no image on HDMI; it stays on DP");
     }
 
     #[test]
@@ -599,8 +603,8 @@ mod tests {
         assert!(e.starts_with(NO_VERDICT), "{e}");
     }
 
-    /// Revisión de T-109: al volver a ser dueña se pide un cursor nuevo, así no se repite lo
-    /// que leyó la otra máquina mientras tanto.
+    /// Review of T-109: on becoming the owner again a new cursor is requested, so that what the
+    /// other machine read in the meantime is not repeated.
     #[test]
     fn a_new_owner_starts_with_a_fresh_cursor() {
         let mut r = rig();
@@ -632,7 +636,7 @@ mod tests {
         let std = id_of(&r, true);
         r.local.set_owned(&BTreeSet::from([std]));
         r.local.poll();
-        // El reloj del monitor tiene que haber avanzado para notar que volvió atrás.
+        // The monitor clock must have advanced to notice that it went back.
         r.clock.advance(Duration::from_secs(5));
         r.local.poll();
         r.bus.reboot(r.std);
@@ -667,8 +671,8 @@ mod tests {
         assert_eq!(report.events.len(), LocalConfig::default().events_kept);
     }
 
-    /// Revisión de T-109: el reloj `0xEF` da la vuelta a los ~497 días. No es un reinicio:
-    /// no se repiten los eventos del anillo.
+    /// Review of T-109: the `0xEF` clock wraps around at ~497 days. It is not a restart:
+    /// the ring's events are not repeated.
     #[test]
     fn the_clock_wrap_does_not_replay_the_ring() {
         let mut r = rig();
@@ -676,12 +680,12 @@ mod tests {
         let std = id_of(&r, true);
         r.local.set_owned(&BTreeSet::from([std]));
         r.local.poll();
-        // Unos eventos viejos en el anillo.
+        // Some old events in the ring.
         for to in [Input::Hdmi, Input::DisplayPort, Input::Hdmi] {
             r.bus.osd_switch(r.std, to);
         }
         r.local.poll();
-        // Un minuto antes del tope del reloj (2^32 × 10 ms).
+        // One minute before the clock's limit (2^32 × 10 ms).
         let top = Duration::from_millis((1u64 << 32) * 10);
         let now = r.clock.now();
         r.clock.advance(top - now - Duration::from_secs(60));
@@ -693,7 +697,7 @@ mod tests {
         assert_eq!(
             report.events.len(),
             before,
-            "nada nuevo en la segunda lectura"
+            "nothing new on the second read"
         );
         let last = report.events.last().unwrap();
         assert_eq!(
@@ -705,10 +709,10 @@ mod tests {
             .iter()
             .filter(|e| e.kind == MonitorEventKind::Input)
             .count();
-        assert_eq!(inputs, 4, "sin eventos repetidos: {:?}", report.events);
+        assert_eq!(inputs, 4, "no repeated events: {:?}", report.events);
     }
 
-    /// Como `WindowsBus` y `MacBus`: cada enumeración da números nuevos a los mismos monitores.
+    /// Like `WindowsBus` and `MacBus`: every enumeration gives new numbers to the same monitors.
     struct Renumbering {
         inner: FakeBus,
         map: std::sync::Mutex<BTreeMap<MonitorHandle, MonitorHandle>>,
@@ -762,8 +766,8 @@ mod tests {
         }
     }
 
-    /// Revisión de #80: en Windows y macOS el número de cada monitor cambia en cada
-    /// enumeración. El sondeo no puede tirar la latencia, el cursor ni los eventos.
+    /// Review of #80: on Windows and macOS the number of each monitor changes on every
+    /// enumeration. The probe must not throw away the latency, the cursor or the events.
     #[test]
     fn a_rescan_with_new_handles_keeps_latency_cursor_and_events() {
         let clock = FakeClock::new();
@@ -783,9 +787,9 @@ mod tests {
         fake.osd_switch(h, Input::Hdmi);
         assert_eq!(local.poll()[0].events.len(), 1);
         fake.osd_switch(h, Input::DisplayPort);
-        // Un reintento en el sondeo: si se volviera a medir, la latencia cambiaría.
+        // A retry in the probe: if it were measured again, the latency would change.
         fake.drop_next(h, 1);
-        assert_eq!(local.scan().unwrap(), before, "misma latencia");
+        assert_eq!(local.scan().unwrap(), before, "same latency");
         local.set_owned(&BTreeSet::from([id.clone()]));
         let report = local.poll().remove(0);
         let inputs: Vec<_> = report.events.iter().map(|e| e.input).collect();
@@ -795,7 +799,7 @@ mod tests {
             "{:?}",
             report.events
         );
-        // Y sigue siendo controlable con el número nuevo.
+        // And it is still controllable with the new number.
         local.switch(&id, MonitorInput::Hdmi).unwrap();
         assert_eq!(fake.screen_input(h), Some(Input::Hdmi));
     }
@@ -805,7 +809,7 @@ mod tests {
         struct NoBus;
         impl DdcBus for NoBus {
             fn monitors(&self) -> Result<Vec<monitor_ddc::MonitorInfo>, DdcError> {
-                Err(DdcError::NoChannel("sin backend".into()))
+                Err(DdcError::NoChannel("no backend".into()))
             }
             fn get_vcp(
                 &self,
@@ -834,7 +838,7 @@ mod tests {
     #[test]
     fn the_edid_says_which_input_the_cable_goes_to() {
         let mut e = test_edid("SAM", 0x7155, "LC34G55T", "X1");
-        assert_eq!(edid_input(&e), None, "sin tipo de interfaz");
+        assert_eq!(edid_input(&e), None, "no interface type");
         for input in [
             Some(MonitorInput::Hdmi),
             Some(MonitorInput::DisplayPort),
@@ -842,9 +846,12 @@ mod tests {
         ] {
             set_edid_input(&mut e, input);
             assert_eq!(edid_input(&e), input);
-            assert!(monitor_ddc::Edid::parse(&e).is_ok(), "la suma sigue bien");
+            assert!(
+                monitor_ddc::Edid::parse(&e).is_ok(),
+                "the checksum is still right"
+            );
         }
-        // Antes de E-EDID 1.4 los bits no dicen nada; uno analógico, tampoco.
+        // Before E-EDID 1.4 the bits say nothing; an analog one, neither.
         set_edid_input(&mut e, Some(MonitorInput::Hdmi));
         e[19] = 3;
         assert_eq!(edid_input(&e), None);
@@ -852,7 +859,7 @@ mod tests {
         e[20] &= 0x7F;
         assert_eq!(edid_input(&e), None);
         assert_eq!(edid_input(&e[..10]), None);
-        // El sondeo lo anuncia en el canal.
+        // The probe announces it on the channel.
         let clock = FakeClock::new();
         let bus = FakeBus::new(clock.clone());
         let mut config = FakeMonitorConfig::new(Personality::Standard);
@@ -868,8 +875,8 @@ mod tests {
         assert_eq!(channels[0].via, Some(MonitorInput::DisplayPort));
     }
 
-    /// `test_edid` no reproduce el serial real: la identidad es la misma en DP y HDMI porque
-    /// no depende del código de producto.
+    /// `test_edid` does not reproduce the real serial: the identity is the same on DP and HDMI because
+    /// it does not depend on the product code.
     #[test]
     fn the_id_does_not_depend_on_the_input() {
         let dp = monitor_ddc::Edid::parse(&test_edid("SAM", 0x7155, "LC34G55T", "X1")).unwrap();

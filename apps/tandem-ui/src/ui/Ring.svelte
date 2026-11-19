@@ -9,7 +9,7 @@
 
   let { value, color, size = 54, label }: Props = $props();
 
-  // r = 18 en un viewBox de 44 (V3-Red): la circunferencia es ≈ 113.
+  // r = 18 en un viewBox de 44 (V3-Network): la circunferencia es ≈ 113.
   const CIRC = 113;
   const offset = $derived(Math.round(CIRC * (1 - Math.max(0, Math.min(1, value)))));
 </script>

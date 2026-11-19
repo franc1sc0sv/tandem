@@ -22,13 +22,13 @@ describe("arnés de capturas", () => {
   });
 
   it("hay captura del demo con dos Windows y con dos Mac (D2)", () => {
-    expect(SHOTS.find((s) => s.name === "puesto-win-win")?.query).toContain("demo=win-win");
-    expect(SHOTS.find((s) => s.name === "puesto-mac-mac")?.query).toContain("demo=mac-mac");
+    expect(SHOTS.find((s) => s.name === "desk-win-win")?.query).toContain("demo=win-win");
+    expect(SHOTS.find((s) => s.name === "desk-mac-mac")?.query).toContain("demo=mac-mac");
   });
 
-  it("la barra lateral de V3-Puesto tiene el umbral del criterio (≥ 0.99, peor cuadro ≥ 0.97)", () => {
-    const puesto = SHOTS.find((s) => s.name === "puesto");
-    expect(puesto?.mockup).toBe("V3-Puesto");
+  it("la barra lateral de V3-Desk tiene el umbral del criterio (≥ 0.99, peor cuadro ≥ 0.97)", () => {
+    const puesto = SHOTS.find((s) => s.name === "desk");
+    expect(puesto?.mockup).toBe("V3-Desk");
     expect(puesto?.regions?.[0]?.min).toEqual(SIDEBAR_GATE);
     // T-113: y toda la pantalla.
     expect(puesto?.min).toEqual(SIDEBAR_GATE);
@@ -38,21 +38,21 @@ describe("arnés de capturas", () => {
   });
 
   it("la página Máquina (T-115) tiene umbral en la barra lateral y en el contenido", () => {
-    const b = SHOTS.find((s) => s.name === "maquina-b");
-    expect(b?.mockup).toBe("V3-Maquina");
+    const b = SHOTS.find((s) => s.name === "machine-b");
+    expect(b?.mockup).toBe("V3-Machine");
     expect(b?.regions?.map((r) => [r.name, r.min])).toEqual([
-      ["barra lateral", SIDEBAR_GATE],
-      ["contenido", SIDEBAR_GATE],
+      ["sidebar", SIDEBAR_GATE],
+      ["content", SIDEBAR_GATE],
     ]);
-    const a = SHOTS.find((s) => s.name === "maquina-a");
-    expect(a?.mockup).toBe("F-MaquinaMac");
+    const a = SHOTS.find((s) => s.name === "machine-a");
+    expect(a?.mockup).toBe("F-MachineMac");
     // El estado que dibuja el mockup (falta un permiso) y solo el contenido, con umbral.
     expect(a?.query).toContain("trouble=permissions");
     expect(a?.content?.min).toEqual(SIDEBAR_GATE);
     expect(a?.content?.appWidth).toBe(1492);
     expect(a?.content?.masks.map((m) => m.reason.split(":")[0])).toEqual(["D17", "G4"]);
-    // Nada tapado en V3-Maquina más allá de D1.
-    expect(SHOTS.find((s) => s.name === "maquina-b")?.ignore?.every((i) => i.reason.startsWith("D1"))).toBe(true);
+    // Nada tapado en V3-Machine más allá de D1.
+    expect(SHOTS.find((s) => s.name === "machine-b")?.ignore?.every((i) => i.reason.startsWith("D1"))).toBe(true);
   });
 
   it("recorta la zona pedida", () => {
@@ -61,13 +61,13 @@ describe("arnés de capturas", () => {
   });
 
   it("la pantalla Red entera exige el umbral y solo tapa lo permitido por mockups/README.md", () => {
-    const red = SHOTS.find((s) => s.name === "red");
-    expect(red?.mockup).toBe("V3-Red");
+    const red = SHOTS.find((s) => s.name === "network");
+    expect(red?.mockup).toBe("V3-Network");
     expect(red?.min).toEqual(SCREEN_GATE);
     expect(SCREEN_GATE).toEqual({ similarity: 0.99, worstTile: 0.97 });
     expect(red?.ignore?.map((i) => i.reason.split(":")[0])).toEqual(["D1", "T-102"]);
     // Una sola zona de la pantalla se tapa además de D1: el rótulo de la ventana de la gráfica.
-    expect(red?.ignore?.[1]?.mockupSelector).toContain("Latencia · 10 min");
+    expect(red?.ignore?.[1]?.mockupSelector).toContain("Latency · 10 min");
   });
 
   it("tapa las zonas pedidas y nada más", () => {
@@ -88,7 +88,7 @@ describe("arnés de capturas", () => {
 describe("Túneles (T-114)", () => {
   it("compara los seis estados del mockup y el plegado con el umbral de pantalla, con los clics del mockup", () => {
     const gated = TUNELES.filter((s) => s.min);
-    expect(gated.map((s) => s.state ?? "inicial")).toEqual(["inicial", "proceso-2", "tunel-2-procesos", "tunel-sin-procesos", "tunel-lora", "tunel-cerrado", "proyecto-plegado"]);
+    expect(gated.map((s) => s.state ?? "inicial")).toEqual(["inicial", "process-2", "tunnel-2-processes", "tunnel-no-processes", "tunnel-lora", "tunnel-closed", "project-collapsed"]);
     for (const s of gated) expect(s.min).toEqual(SCREEN_GATE);
     for (const s of TUNELES) expect(SHOTS).toContain(s);
   });

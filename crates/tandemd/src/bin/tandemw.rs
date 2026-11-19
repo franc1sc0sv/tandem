@@ -1,10 +1,10 @@
-//! `tandemw`: arranca `tandemd` sin ventana de consola.
+//! `tandemw`: starts `tandemd` without a console window.
 //!
-//! Es lo que se registra para el arranque con la sesión de Windows: `tandemd` es una
-//! aplicación de consola (su CLI tiene que poder escribir), y lanzada desde la clave `Run`
-//! abriría una ventana negra. Este lanzador es de subsistema gráfico y crea el agente con
-//! `CREATE_NO_WINDOW`; los argumentos pasan tal cual y el código de salida es el del agente.
-//! Los errores van al log de `tandemd`: aquí no hay dónde mostrarlos.
+//! It is what is registered for startup with the Windows session: `tandemd` is a
+//! console application (its CLI must be able to write), and launched from the `Run` key it
+//! would open a black window. This launcher is of the graphical subsystem and creates the agent with
+//! `CREATE_NO_WINDOW`; the arguments pass as is and the exit code is the agent's.
+//! Errors go to `tandemd`'s log: there is nowhere to show them here.
 
 #![cfg_attr(windows, windows_subsystem = "windows")]
 

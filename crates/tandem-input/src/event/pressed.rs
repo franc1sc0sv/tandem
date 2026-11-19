@@ -1,7 +1,7 @@
-//! Teclas y botones presionados, para poder soltarlos todos de una vez.
+//! Pressed keys and buttons, to be able to release them all at once.
 //!
-//! Al salir de la pantalla, al desconectarse o por timeout, el cliente suelta todo
-//! lo que el servidor dejó presionado; si no, una tecla quedaría pegada.
+//! On leaving the screen, on disconnecting or on timeout, the client releases everything
+//! the server left pressed; otherwise a key would be left stuck.
 
 use std::collections::BTreeSet;
 
@@ -13,14 +13,14 @@ pub struct Pressed {
     buttons: BTreeSet<Button>,
 }
 
-/// Qué cambió al registrar un evento.
+/// What changed on recording an event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Change {
-    /// La tecla o el botón cambió de estado.
+    /// The key or button changed state.
     Changed,
-    /// Se presionó algo que ya estaba presionado: repetición automática.
+    /// Something already pressed was pressed: automatic repeat.
     Repeat,
-    /// Se soltó algo que no estaba presionado (o el evento no es de tecla/botón).
+    /// Something not pressed was released (or the event is not a key/button).
     Ignored,
 }
 
@@ -29,7 +29,7 @@ impl Pressed {
         Self::default()
     }
 
-    /// Registra un evento y dice si cambió algo.
+    /// Records an event and says whether anything changed.
     pub fn record(&mut self, event: &InputEvent) -> Change {
         match *event {
             InputEvent::Key { usage, state } => update(&mut self.keys, usage, state),
@@ -46,7 +46,7 @@ impl Pressed {
         self.buttons.contains(&button)
     }
 
-    /// Algún botón del mouse está presionado (se está arrastrando).
+    /// Some mouse button is pressed (a drag is under way).
     pub fn any_button(&self) -> bool {
         !self.buttons.is_empty()
     }
@@ -55,15 +55,15 @@ impl Pressed {
         self.keys.is_empty() && self.buttons.is_empty()
     }
 
-    /// Modificadores presionados en este momento.
+    /// Modifiers pressed right now.
     pub fn modifiers(&self) -> Modifiers {
         self.keys.iter().filter_map(|u| u.modifier()).collect()
     }
 
-    /// Vacía el conjunto y devuelve los eventos para soltar todo.
+    /// Empties the set and returns the events to release everything.
     ///
-    /// Orden: primero botones, después teclas normales y al final los modificadores,
-    /// para que soltar no dispare un atajo (p. ej. soltar Ctrl antes que C).
+    /// Order: buttons first, then normal keys and finally modifiers,
+    /// so that releasing does not trigger a shortcut (e.g. releasing Ctrl before C).
     pub fn release_all(&mut self) -> Vec<InputEvent> {
         let buttons = std::mem::take(&mut self.buttons);
         let keys = std::mem::take(&mut self.keys);
@@ -120,7 +120,7 @@ mod tests {
     }
 
     #[test]
-    fn release_all_suelta_modificadores_al_final() {
+    fn release_all_releases_modifiers_last() {
         let mut p = Pressed::new();
         p.record(&key(0xE0, KeyState::Pressed)); // Ctrl
         p.record(&key(0x06, KeyState::Pressed)); // C
@@ -171,7 +171,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn release_all_deja_todo_suelto(events in prop::collection::vec(any_event(), 0..64)) {
+        fn release_all_leaves_everything_released(events in prop::collection::vec(any_event(), 0..64)) {
             let mut p = Pressed::new();
             for e in &events {
                 p.record(e);
@@ -180,7 +180,7 @@ mod tests {
             let releases = p.release_all();
             prop_assert!(p.is_empty());
 
-            // Exactamente lo que estaba presionado, una vez cada uno, y nada más.
+            // Exactly what was pressed, once each, and nothing else.
             let mut replay = before.clone();
             for e in &releases {
                 prop_assert_eq!(replay.record(e), Change::Changed);
@@ -188,17 +188,17 @@ mod tests {
             prop_assert!(replay.is_empty());
             prop_assert_eq!(releases.len(), before.keys.len() + before.buttons.len());
 
-            // Ningún modificador se suelta antes que una tecla normal.
+            // No modifier is released before a normal key.
             if let Some(i) = releases.iter().position(is_modifier) {
                 prop_assert!(releases[i..].iter().all(is_modifier));
             }
         }
 
-        /// QA ronda 1: el servidor reasigna y el cliente lleva su propio `Pressed`.
-        /// Soltar todo en el destino y deshacer la reasignación da exactamente lo
-        /// que estaba presionado en el origen: ningún modificador queda pegado.
+        /// QA round 1: the server remaps and the client keeps its own `Pressed`.
+        /// Releasing everything at the destination and undoing the remap gives exactly what
+        /// was pressed at the origin: no modifier is left stuck.
         #[test]
-        fn soltar_todo_tras_reasignar_suelta_lo_mismo_que_en_el_origen(
+        fn releasing_all_after_remapping_releases_the_same_as_at_the_origin(
             events in prop::collection::vec(any_event(), 0..64),
             perm in Just(ModifierKey::ALL).prop_shuffle(),
         ) {
@@ -209,7 +209,7 @@ mod tests {
             for e in &events {
                 let a = origin.record(e);
                 let b = target.record(&remap.apply(*e));
-                // La reasignación es biyectiva: el destino ve los mismos cambios.
+                // The remap is bijective: the destination sees the same changes.
                 prop_assert_eq!(a, b);
             }
             let back: Vec<InputEvent> = target
@@ -223,14 +223,14 @@ mod tests {
             want.sort_by_key(key);
             got.sort_by_key(key);
             prop_assert_eq!(got, want);
-            // En el destino los modificadores también se sueltan al final.
+            // At the destination the modifiers are also released last.
             if let Some(i) = back.iter().position(is_modifier) {
                 prop_assert!(back[i..].iter().all(is_modifier));
             }
         }
 
         #[test]
-        fn modifiers_refleja_las_teclas(events in prop::collection::vec(any_event(), 0..64)) {
+        fn modifiers_reflects_the_keys(events in prop::collection::vec(any_event(), 0..64)) {
             let mut p = Pressed::new();
             for e in &events {
                 p.record(e);

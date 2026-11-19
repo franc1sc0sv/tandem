@@ -1,4 +1,4 @@
-//! Punto de entrada de `tandemd`: lee la línea de órdenes y le pasa todo a
+//! Entry point of `tandemd`: reads the command line and hands everything to
 //! [`tandemd::daemon`].
 
 use std::process::ExitCode;
@@ -24,18 +24,18 @@ fn main() -> ExitCode {
         Command::CheckConfig(path) => match AgentConfig::load(&path) {
             Ok(cfg) => {
                 println!(
-                    "{}: configuración válida (lado {}, {} pantallas declaradas{})",
+                    "{}: valid configuration (side {}, {} screens declared{})",
                     path.display(),
                     cfg.machine,
                     cfg.desk.screens.len(),
                     if cfg.rewrite_sides {
-                        "; con los lados mac/pc de v0.2, que el agente traduce solo al arrancar"
+                        "; with the v0.2 mac/pc sides, which the agent translates on its own at startup"
                     } else {
                         ""
                     }
                 );
                 for w in cfg.warnings() {
-                    eprintln!("tandemd: {}: aviso: {w}", path.display());
+                    eprintln!("tandemd: {}: warning: {w}", path.display());
                 }
             }
             Err(e) => {
@@ -72,7 +72,7 @@ fn main() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// `tandemd links`: interfaces, tipo detectado, dirección del enlace y estado de los caminos.
+/// `tandemd links`: interfaces, detected type, link address and state of the paths.
 fn links(args: RunArgs) -> anyhow::Result<()> {
     use tandem_link::iface::{Interfaces, SystemInterfaces};
 
@@ -88,10 +88,10 @@ fn links(args: RunArgs) -> anyhow::Result<()> {
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .context("no se pudo crear el runtime")?;
+        .context("could not create the runtime")?;
     rt.block_on(async {
         let interfaces = SystemInterfaces::spawn().list();
-        // El estado de los caminos solo lo tiene el agente en marcha: sin él se omite.
+        // The paths' state is only held by the running agent: without it it is omitted.
         let status = network_status(&paths.data_dir).await;
         print!(
             "{}",
@@ -124,16 +124,16 @@ async fn network_status(data_dir: &std::path::Path) -> Option<tandem_proto::Netw
         .flatten()
 }
 
-/// En macOS, AppKit pide el hilo principal para el arrastre sintético de archivos (T-121):
-/// el agente corre en otro hilo y este atiende el run loop. Al terminar el agente se sale
-/// del proceso, porque ese run loop no vuelve solo.
+/// On macOS, AppKit requires the main thread for the synthetic file drag (T-121):
+/// the agent runs on another thread and this one serves the run loop. When the agent ends the
+/// process exits, because that run loop does not return on its own.
 #[cfg(target_os = "macos")]
 fn run_hosted(args: RunArgs) -> anyhow::Result<()> {
     let agent = std::thread::Builder::new()
         .name("tandemd".into())
         .spawn(move || {
-            // Si `run` entra en pánico el hilo muere, pero el run loop del hilo principal
-            // no vuelve: sin esto el proceso quedaría vivo y sin agente.
+            // If `run` panics the thread dies, but the main thread's run loop
+            // does not return: without this the process would stay alive without an agent.
             let _guard = ExitOnPanic::new(|code| std::process::exit(code));
             let code = match run(args) {
                 Ok(()) => 0,
@@ -145,9 +145,9 @@ fn run_hosted(args: RunArgs) -> anyhow::Result<()> {
             };
             std::process::exit(code)
         })
-        .context("no se pudo crear el hilo del agente")?;
+        .context("could not create the agent thread")?;
     tandem_files::drag_macos::run_app_loop();
-    // Solo se llega aquí si el run loop no arrancó: el agente sigue su curso.
+    // It only gets here if the run loop did not start: the agent continues on its way.
     let _ = agent.join();
     Ok(())
 }
@@ -160,29 +160,29 @@ fn run_hosted(args: RunArgs) -> anyhow::Result<()> {
 fn run(args: RunArgs) -> anyhow::Result<()> {
     let paths = Paths::resolve(args.config.clone(), args.data_dir.clone())?;
     paths::create_private_dir(&paths.data_dir)
-        .with_context(|| format!("no se pudo crear {}", paths.data_dir.display()))?;
-    let log = logging::init(&paths.log_dir()).context("no se pudo iniciar el log")?;
-    tracing::info!(version = env!("CARGO_PKG_VERSION"), log = %log.display(), "tandemd arranca");
+        .with_context(|| format!("could not create {}", paths.data_dir.display()))?;
+    let log = logging::init(&paths.log_dir()).context("could not initialize the log")?;
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), log = %log.display(), "tandemd starting");
 
-    // Sin `tandem.toml`, se genera con el puesto vacío (T-087).
+    // Without `tandem.toml`, it is generated with an empty desk (T-087).
     let loaded = autoconfig::load_or_generate(&paths.config, autoconfig::initial_side())?;
     let (cfg, generated) = (loaded.config, loaded.generated);
     tracing::info!(
-        "configuración {}: lado {}, {} pantallas declaradas{}",
+        "configuration {}: side {}, {} screens declared{}",
         paths.config.display(),
         cfg.machine,
         cfg.desk.screens.len(),
-        if generated { " (generada ahora)" } else { "" }
+        if generated { " (generated now)" } else { "" }
     );
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .context("no se pudo crear el runtime")?;
+        .context("could not create the runtime")?;
     rt.block_on(async {
-        // La IPC primero: si ya hay un tandemd corriendo, el error lo dice claro.
+        // The IPC first: if a tandemd is already running, the error says so clearly.
         let endpoint = ipc::default_endpoint(&paths.data_dir)?;
         let listener = ipc::bind(&endpoint).await?;
-        tracing::info!("IPC escuchando en {}", endpoint.display());
+        tracing::info!("IPC listening on {}", endpoint.display());
         let (backends, net) = backends(&args, &paths);
         let daemon = daemon::start(cfg, &paths, backends, net)?;
         daemon.agent.set_generated(generated);
@@ -191,16 +191,16 @@ fn run(args: RunArgs) -> anyhow::Result<()> {
     })
 }
 
-/// Los de la plataforma, salvo con `--sim-backends`: pasos simulados y sin mDNS, para
-/// que dos agentes de prueba no se mezclen con nada de la LAN.
+/// The platform's, except with `--sim-backends`: simulated steps and no mDNS, so
+/// two test agents do not mix with anything on the LAN.
 fn backends(args: &RunArgs, paths: &Paths) -> (Backends, NetOptions) {
     #[cfg(feature = "sim-backends")]
     if args.sim_backends {
-        tracing::warn!("backends simulados: esta máquina no toca la entrada ni la energía");
+        tracing::warn!("simulated backends: this machine does not touch input or power");
         let net = NetOptions {
             mdns: false,
-            // Las pruebas de dos procesos fijan los puertos de los dos: un puerto tomado
-            // tiene que fallar enseguida, no pasarse a uno que el otro no conoce.
+            // The two-process tests fix both ports: a taken port
+            // has to fail right away, not move to one the other does not know.
             fallback_ports: Vec::new(),
             ..NetOptions::default()
         };
@@ -215,7 +215,7 @@ fn install(args: RunArgs) -> anyhow::Result<()> {
     use tandemd::install::{self, AgentInstall, HighestTask, NotElevated, RunKey, WinAcl};
 
     let paths = Paths::resolve(args.config.clone(), args.data_dir.clone())?;
-    let exe = std::env::current_exe().context("no se encontró el ejecutable de tandemd")?;
+    let exe = std::env::current_exe().context("could not find tandemd's executable")?;
     let launcher = install::launcher_for(&exe, |p| p.is_file());
     let user = match (std::env::var("USERDOMAIN"), std::env::var("USERNAME")) {
         (Ok(domain), Ok(name)) => Some(format!("{domain}\\{name}")),
@@ -230,28 +230,28 @@ fn install(args: RunArgs) -> anyhow::Result<()> {
         user.as_deref(),
     )?;
     if paths.config.exists() {
-        println!("se conserva la configuración de {}", paths.config.display());
+        println!("the configuration of {} is kept", paths.config.display());
     } else {
         println!(
-            "la configuración se genera al arrancar el agente, en {}",
+            "the configuration is generated when the agent starts, in {}",
             paths.config.display()
         );
     }
     match installed {
         AgentInstall::Task { .. } => println!(
-            "arranque con la sesión: tarea programada «{}» con los privilegios más altos",
+            "startup with the session: scheduled task \"{}\" with the highest privileges",
             install::TASK_NAME
         ),
         AgentInstall::RunKey(report, reason) => {
             let why = match reason {
-                NotElevated::NoAdmin => "sin administrador".to_owned(),
-                NotElevated::NoUser => "no se conoce el usuario".to_owned(),
+                NotElevated::NoAdmin => "without an administrator".to_owned(),
+                NotElevated::NoUser => "the user is not known".to_owned(),
                 NotElevated::Writable(why) => {
-                    format!("{why}: instala en %ProgramFiles% para elevarlo")
+                    format!("{why}: install in %ProgramFiles% to elevate it")
                 }
             };
             println!(
-                "arranque con la sesión: {} ({why}: los túneles correrán sin elevar)",
+                "startup with the session: {} ({why}: tunnels will run without elevation)",
                 report.command
             );
         }
@@ -265,26 +265,26 @@ fn uninstall() -> anyhow::Result<()> {
 
     let (task, run) = uninstall_agent(&mut HighestTask, &mut RunKey)?;
     if task || run {
-        println!("arranque con la sesión quitado");
+        println!("startup with the session removed");
     } else {
-        println!("el arranque con la sesión no estaba registrado");
+        println!("startup with the session was not registered");
     }
     Ok(())
 }
 
-// En macOS el arranque es un LaunchAgent que instala la app (T-070).
+// On macOS startup is a LaunchAgent installed by the app (T-070).
 #[cfg(not(windows))]
 fn install(_args: RunArgs) -> anyhow::Result<()> {
-    anyhow::bail!("--install solo existe en Windows")
+    anyhow::bail!("--install only exists on Windows")
 }
 
 #[cfg(not(windows))]
 fn uninstall() -> anyhow::Result<()> {
-    anyhow::bail!("--uninstall solo existe en Windows")
+    anyhow::bail!("--uninstall only exists on Windows")
 }
 
-/// Al soltarse durante un pánico llama a `exit(1)`; en una salida normal no hace nada.
-/// `exit` se inyecta para poder probarlo sin matar el proceso de pruebas.
+/// When dropped during a panic it calls `exit(1)`; on a normal exit it does nothing.
+/// `exit` is injected so it can be tested without killing the test process.
 #[cfg(any(test, target_os = "macos"))]
 struct ExitOnPanic<F: FnMut(i32)> {
     exit: F,
@@ -313,18 +313,18 @@ mod tests {
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]
-    fn el_guard_sale_con_1_si_hay_panico() {
+    fn the_guard_exits_with_1_on_panic() {
         let code = Cell::new(None);
         let r = catch_unwind(AssertUnwindSafe(|| {
             let _g = ExitOnPanic::new(|c| code.set(Some(c)));
-            panic!("prueba");
+            panic!("test");
         }));
         assert!(r.is_err());
         assert_eq!(code.get(), Some(1));
     }
 
     #[test]
-    fn el_guard_no_sale_sin_panico() {
+    fn the_guard_does_not_exit_without_panic() {
         let code = Cell::new(None);
         {
             let _g = ExitOnPanic::new(|c| code.set(Some(c)));

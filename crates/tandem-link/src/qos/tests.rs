@@ -9,7 +9,7 @@ use tokio::time::Instant;
 
 use super::*;
 
-/// Anota cuándo y cuánto se escribió.
+/// Records when and how much was written.
 #[derive(Clone, Default)]
 struct Recorder(Arc<Mutex<Vec<(Instant, usize)>>>);
 
@@ -46,7 +46,7 @@ fn ms(n: u64) -> Duration {
     Duration::from_millis(n)
 }
 
-/// La próxima pausa o reanudación, sin los cambios de tope.
+/// The next pause or resume, without the cap changes.
 async fn next_gate(events: &mut broadcast::Receiver<QosEvent>) -> QosEvent {
     loop {
         match events.recv().await.unwrap() {
@@ -56,7 +56,7 @@ async fn next_gate(events: &mut broadcast::Receiver<QosEvent>) -> QosEvent {
     }
 }
 
-/// `lat` de latencia de la entrada, un evento por milisegundo, durante `dur`.
+/// `lat` of input latency, one event per millisecond, for `dur`.
 async fn input_for(qos: &Qos, lat: Duration, dur: Duration) {
     let end = Instant::now() + dur;
     while Instant::now() < end {
@@ -66,7 +66,7 @@ async fn input_for(qos: &Qos, lat: Duration, dur: Duration) {
 }
 
 #[test]
-fn la_entrada_va_primero_y_los_datos_al_final() {
+fn input_goes_first_and_data_last() {
     let order = [
         StreamClass::Input,
         StreamClass::Control,
@@ -74,14 +74,14 @@ fn la_entrada_va_primero_y_los_datos_al_final() {
         StreamClass::Data,
     ];
     assert!(order.windows(2).all(|w| w[0].priority() > w[1].priority()));
-    // Un stream sin clase (quinn arranca en 0) es de control.
+    // A stream without a class (quinn starts at 0) is a control one.
     assert_eq!(StreamClass::Control.priority(), 0);
     assert_eq!(StreamClass::of(Channel::Input), StreamClass::Input);
     assert_eq!(StreamClass::of(Channel::Clipboard), StreamClass::Clipboard);
 }
 
 #[tokio::test(start_paused = true)]
-async fn el_tope_sigue_al_camino_y_a_las_preferencias() {
+async fn the_cap_follows_the_path_and_the_preferences() {
     let qos = Qos::default();
     let mut events = qos.events();
     assert_eq!(qos.cap(), None);
@@ -95,7 +95,7 @@ async fn el_tope_sigue_al_camino_y_a_las_preferencias() {
         wifi_cap_mbps: None,
     });
     assert_eq!(qos.cap(), Some(2_000_000));
-    // Por cable, sin tope; de vuelta al Wi-Fi, el de antes.
+    // Over cable, no cap; back on Wi-Fi, the previous one.
     qos.set_link(Some(LinkKind::Ethernet));
     assert_eq!(qos.cap(), None);
     qos.set_link(Some(LinkKind::Wifi));
@@ -131,7 +131,7 @@ async fn el_tope_sigue_al_camino_y_a_las_preferencias() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn los_datos_por_wifi_no_pasan_el_tope_y_por_cable_van_libres() {
+async fn data_over_wifi_does_not_pass_the_cap_and_over_cable_goes_free() {
     let qos = Qos::default();
     qos.set_link(Some(LinkKind::Wifi));
     qos.set_measured(2_000_000);
@@ -149,11 +149,11 @@ async fn los_datos_por_wifi_no_pasan_el_tope_y_por_cable_van_libres() {
             .take_while(|(t, _)| *t <= *start + Duration::from_secs(1))
             .map(|(_, n)| n)
             .sum();
-        assert!(window <= 1_000_000, "{window} bytes en 1 s");
+        assert!(window <= 1_000_000, "{window} bytes in 1 s");
     }
-    assert!(rec.total() >= 2_800_000, "solo {}", rec.total());
+    assert!(rec.total() >= 2_800_000, "only {}", rec.total());
 
-    // Por cable no hay tope: sale todo sin esperar.
+    // Over cable there is no cap: everything goes out without waiting.
     qos.set_link(Some(LinkKind::Usb4));
     let rec = Recorder::default();
     let mut data = qos.data_stream(rec.clone());
@@ -164,13 +164,13 @@ async fn los_datos_por_wifi_no_pasan_el_tope_y_por_cable_van_libres() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn la_entrada_atrasada_pausa_los_datos_y_sin_entrada_vuelven() {
+async fn late_input_pauses_the_data_and_without_input_it_resumes() {
     let qos = Qos::default();
     qos.set_link(Some(LinkKind::Wifi));
     let mut events = qos.events();
     let gate = qos.watch_gate();
     let t0 = Instant::now();
-    // 2,1 s de entrada a 40 ms (el objetivo del Wi-Fi es 20 ms).
+    // 2.1 s of input at 40 ms (the Wi-Fi target is 20 ms).
     while Instant::now() < t0 + ms(2100) {
         qos.record_input_latency(ms(40));
         tokio::time::sleep(ms(1)).await;
@@ -186,14 +186,14 @@ async fn la_entrada_atrasada_pausa_los_datos_y_sin_entrada_vuelven() {
     let paused = next_gate(&mut events).await;
     assert!(matches!(paused, QosEvent::Paused { p99, .. } if p99 == ms(40)));
 
-    // En pausa no sale nada; sin entrada, la pausa termina sola (ventana + histéresis).
+    // While paused nothing goes out; without input, the pause ends on its own (window + hysteresis).
     let rec = Recorder::default();
     let mut data = qos.data_stream(rec.clone());
     let stopped = Instant::now();
-    data.write_all(b"hola").await.unwrap();
+    data.write_all(b"hello").await.unwrap();
     let waited = Instant::now() - stopped;
-    assert!((ms(1900)..ms(2300)).contains(&waited), "esperó {waited:?}");
-    assert_eq!(rec.total(), 4);
+    assert!((ms(1900)..ms(2300)).contains(&waited), "waited {waited:?}");
+    assert_eq!(rec.total(), 5);
     assert_eq!(qos.gate(), DataGate::Open);
     assert!(matches!(
         next_gate(&mut events).await,
@@ -205,7 +205,7 @@ async fn la_entrada_atrasada_pausa_los_datos_y_sin_entrada_vuelven() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn cambiar_de_camino_levanta_la_pausa() {
+async fn changing_path_lifts_the_pause() {
     let qos = Qos::default();
     qos.set_link(Some(LinkKind::Wifi));
     let t0 = Instant::now();
@@ -226,19 +226,19 @@ fn wifi_at(measured: u64) -> Qos {
 }
 
 #[tokio::test(start_paused = true)]
-async fn la_entrada_cerca_del_objetivo_baja_un_poco_el_tope() {
+async fn input_near_the_target_lowers_the_cap_a_bit() {
     let qos = wifi_at(8_000_000);
     assert_eq!(qos.cap(), Some(4_000_000));
-    // Bien: nada cambia.
+    // Fine: nothing changes.
     input_for(&qos, ms(3), ms(3000)).await;
     assert_eq!(qos.cap(), Some(4_000_000));
-    // Cerca del objetivo (16 de 20 ms): un poco menos, una sola vez en la ventana.
+    // Near the target (16 of 20 ms): a bit less, only once in the window.
     input_for(&qos, ms(16), ms(900)).await;
     assert_eq!(qos.cap(), Some(2_800_000));
 }
 
 #[tokio::test(start_paused = true)]
-async fn pasado_el_objetivo_el_tope_baja_a_la_mitad_una_vez_por_ventana() {
+async fn past_the_target_the_cap_drops_to_half_once_per_window() {
     let qos = wifi_at(8_000_000);
     input_for(&qos, ms(25), ms(900)).await;
     assert_eq!(qos.cap(), Some(2_000_000));
@@ -246,16 +246,16 @@ async fn pasado_el_objetivo_el_tope_baja_a_la_mitad_una_vez_por_ventana() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn con_margen_el_tope_vuelve_de_a_poco_y_en_el_medio_se_queda() {
+async fn with_margin_the_cap_returns_little_by_little_and_in_the_middle_it_stays() {
     let qos = wifi_at(8_000_000);
     input_for(&qos, ms(25), ms(900)).await;
-    // En la franja del medio (entre 10 y 15 ms) no sube ni baja, ya con la ventana limpia.
+    // In the middle band (between 10 and 15 ms) it neither rises nor falls, with the window already clean.
     input_for(&qos, ms(12), ms(2100)).await;
     let held = qos.cap().unwrap();
     assert!(held < 4_000_000);
     input_for(&qos, ms(12), ms(3000)).await;
     assert_eq!(qos.cap(), Some(held));
-    // Con margen sube, de a poco y sin pasar el configurado.
+    // With margin it rises, little by little and without exceeding the configured one.
     input_for(&qos, ms(3), ms(2100)).await;
     let up = qos.cap().unwrap();
     assert!(up > held && up < held * 2, "{held} → {up}");
@@ -265,20 +265,20 @@ async fn con_margen_el_tope_vuelve_de_a_poco_y_en_el_medio_se_queda() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn una_pausa_deja_el_tope_a_la_mitad_al_volver() {
+async fn a_pause_leaves_the_cap_at_half_on_returning() {
     let qos = wifi_at(8_000_000);
     input_for(&qos, ms(200), ms(2100)).await;
     assert!(!qos.gate().is_open());
-    // A la mitad una vez por ventana mientras la entrada siguió pasada (4 → 2 → 1 MB/s) y
-    // otra más por la pausa.
+    // To half once per window while input stayed over (4 → 2 → 1 MB/s) and
+    // once more because of the pause.
     assert_eq!(qos.cap(), Some(500_000));
-    // Una medición nueva vuelve a usar el tope entero.
+    // A new measurement uses the whole cap again.
     qos.set_measured(6_000_000);
     assert_eq!(qos.cap(), Some(3_000_000));
 }
 
 #[tokio::test(start_paused = true)]
-async fn un_qos_por_camino_compartido_y_con_el_data_del_puesto() {
+async fn one_qos_per_shared_path_with_the_desks_data() {
     let set = LinkQos::default();
     let wifi = set.get(LinkKind::Wifi);
     assert!(wifi.same(&set.get(LinkKind::Wifi)));
@@ -293,7 +293,7 @@ async fn un_qos_por_camino_compartido_y_con_el_data_del_puesto() {
     set.set_prefs(prefs);
     assert_eq!(set.prefs(), prefs);
     assert_eq!(wifi.cap(), Some(UNMEASURED_WIFI / 5));
-    // Uno que se crea después también las toma.
+    // One created later also takes them.
     let usb4 = set.get(LinkKind::Usb4);
     assert_eq!(usb4.cap(), None);
     usb4.set_link(Some(LinkKind::Wifi));
@@ -301,7 +301,7 @@ async fn un_qos_por_camino_compartido_y_con_el_data_del_puesto() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn la_etiqueta_se_recupera_cuando_el_otro_vuelve_a_anunciar_cable() {
+async fn the_label_recovers_when_the_other_announces_a_cable_again() {
     let qos = Qos::default();
     qos.set_link(Some(LinkKind::Ethernet));
     qos.set_peer_link(Some(LinkKind::Wifi));
@@ -316,7 +316,7 @@ async fn la_etiqueta_se_recupera_cuando_el_otro_vuelve_a_anunciar_cable() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn la_clase_del_otro_no_se_pierde_si_la_propia_no_se_conoce() {
+async fn the_others_class_is_not_lost_if_the_own_is_unknown() {
     let qos = Qos::default();
     qos.set_peer_link(Some(LinkKind::Wifi));
     assert_eq!(qos.link(), Some(LinkKind::Wifi));
@@ -325,15 +325,15 @@ async fn la_clase_del_otro_no_se_pierde_si_la_propia_no_se_conoce() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn cerrarse_una_conexion_vieja_no_borra_la_clase_de_la_nueva() {
+async fn closing_an_old_connection_does_not_erase_the_new_ones_class() {
     let qos = Qos::default();
     qos.set_link(Some(LinkKind::Ethernet));
     qos.set_peer_link_from(1, LinkKind::Wifi);
-    // La nueva conexión anuncia la suya y después se cierra la vieja.
+    // The new connection announces its own and then the old one closes.
     qos.set_peer_link_from(2, LinkKind::Wifi);
     qos.clear_peer_link_of(1);
     assert_eq!(qos.link(), Some(LinkKind::Wifi));
-    // Al cerrarse la que la anunció, sí se borra.
+    // When the one that announced it closes, it is erased.
     qos.clear_peer_link_of(2);
     assert_eq!(qos.link(), Some(LinkKind::Ethernet));
 }

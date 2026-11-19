@@ -1,11 +1,13 @@
-//! Interfaces de red y enlaces por cable detectados solos (T-094, DESIGN §6.1).
+//! Network interfaces and cable links detected on their own (T-094, DESIGN §6.1).
 //!
-//! El sistema operativo se mira detrás de [`Interfaces`]: la implementación real es
-//! [`SystemInterfaces`] y las pruebas usan [`FakeInterfaces`], que enchufa y desenchufa
-//! cables a mano. Lo demás es lógica pura: clasificar la interfaz ([`classify`]), armar las
-//! direcciones del enlace ([`plan`]), etiquetar con la peor de las dos puntas
-//! ([`worst`]) y mantener el gestor de enlaces al día ([`follow_wired`]).
+//! The operating system is looked at behind [`Interfaces`]: the real implementation is
+//! [`SystemInterfaces`] and tests use [`FakeInterfaces`], which plugs and unplugs
+//! cables by hand. The rest is pure logic: classifying the interface ([`classify`]), building the
+//! link addresses ([`plan`]), labeling with the worse of the two ends
+//! ([`worst`]) and keeping the link manager up to date ([`follow_wired`]).
 
+#[cfg(windows)]
+mod adapters_windows;
 mod addr;
 mod assign;
 mod classify;
@@ -14,6 +16,7 @@ mod fake;
 mod follow;
 mod resolve;
 mod system;
+mod table;
 
 use std::net::IpAddr;
 
@@ -33,26 +36,27 @@ pub use fake::FakeInterfaces;
 pub use follow::{WiredChange, follow_wired, wired_changes};
 pub use resolve::{AssignNotice, AssignNotices, WiredResolver};
 pub use system::SystemInterfaces;
+pub use table::{AddrRow, classify_adapter, interfaces_from_rows};
 
 use crate::manager::LinkKind;
 
-/// Lo que el sistema dice que es una interfaz.
+/// What the system says an interface is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InterfaceKind {
-    /// Red entre hosts por USB4 / Thunderbolt (Thunderbolt Bridge en macOS, «USB4 P2P
-    /// Network Adapter» en Windows).
+    /// Host-to-host network over USB4 / Thunderbolt (Thunderbolt Bridge on macOS, "USB4 P2P
+    /// Network Adapter" on Windows).
     Usb4,
     Ethernet,
     Wifi,
-    /// No se pudo identificar (o es loopback, VPN, virtual...).
+    /// Could not be identified (or it is loopback, VPN, virtual...).
     Other,
 }
 
 impl InterfaceKind {
-    /// Para el enlace, lo que no se sabe cuenta como Wi-Fi: un Wi-Fi tomado por cable
-    /// llevaría datos sin tope y le metería latencia a la entrada; un cable tomado por Wi-Fi
-    /// solo va más lento.
+    /// For the link, what is not known counts as Wi-Fi: a Wi-Fi taken for a cable
+    /// would carry data without a cap and add latency to input; a cable taken for Wi-Fi
+    /// is just slower.
     pub fn link_kind(self) -> LinkKind {
         match self {
             InterfaceKind::Usb4 => LinkKind::Usb4,
@@ -62,39 +66,39 @@ impl InterfaceKind {
     }
 }
 
-/// Una interfaz de red.
+/// A network interface.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NetInterface {
-    /// Índice del sistema; es el `scope_id` de sus direcciones link-local.
+    /// System index; it is the `scope_id` of its link-local addresses.
     pub index: u32,
     pub name: String,
     pub kind: InterfaceKind,
     pub addrs: Vec<IpAddr>,
     pub mac: Option<[u8; 6]>,
-    /// Velocidad negociada, si el sistema la da.
+    /// Negotiated speed, if the system gives it.
     pub speed_mbps: Option<u64>,
-    /// Con cable o enlace activo.
+    /// With a cable or active link.
     pub up: bool,
 }
 
-/// Alta o baja de una interfaz.
+/// Addition or removal of an interface.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InterfaceEvent {
     Added(NetInterface),
     Removed(NetInterface),
 }
 
-/// El sistema visto como lista de interfaces con aviso de cambios.
+/// The system seen as a list of interfaces with change notification.
 pub trait Interfaces: Send + Sync + 'static {
-    /// Las interfaces de ahora.
+    /// The interfaces of now.
     fn list(&self) -> Vec<NetInterface>;
 
-    /// Sigue la lista: cada cambio (alta, baja, cable que sube o baja) la publica entera.
+    /// Follows the list: every change (addition, removal, cable going up or down) publishes it whole.
     fn watch(&self) -> watch::Receiver<Vec<NetInterface>>;
 }
 
-/// Altas y bajas entre dos listas. Una interfaz que cambia de dirección, de tipo o de
-/// estado sale como baja y alta; una que baja (`up == false`) cuenta como baja.
+/// Additions and removals between two lists. An interface that changes address, type or
+/// state comes out as a removal and an addition; one that goes down (`up == false`) counts as a removal.
 pub fn diff(old: &[NetInterface], new: &[NetInterface]) -> Vec<InterfaceEvent> {
     let live = |l: &[NetInterface]| l.iter().filter(|i| i.up).cloned().collect::<Vec<_>>();
     let (old, new) = (live(old), live(new));
@@ -113,5 +117,7 @@ pub fn diff(old: &[NetInterface], new: &[NetInterface]) -> Vec<InterfaceEvent> {
     events
 }
 
+#[cfg(test)]
+mod cable_tests;
 #[cfg(test)]
 mod tests;

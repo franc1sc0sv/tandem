@@ -9,7 +9,7 @@
 </script>
 
 <script lang="ts">
-  // El mapa de enlaces de `V3-Red`: las dos máquinas con su halo y un camino por enlace. El
+  // El mapa de enlaces de `V3-Network`: las dos máquinas con su halo y un camino por enlace. El
   // que responde fluye (rápido el cable, lento el Wi-Fi); el que no, va punteado.
   import { LINK_NAME } from "../../lib/machines";
   import { describePath, formatMs, isUp, unpluggedText } from "../../lib/network";
@@ -40,10 +40,10 @@
   /** Borde del rótulo del camino que lleva el tráfico. */
   const EDGE: Record<LinkKind, string> = { usb4: "#3a4a66", ethernet: "#2c4a47", wifi: "#4a3e26" };
 
-  const label = $derived(`Tres caminos: ${network.paths.map(describePath).join(", ")}`);
+  const label = $derived(`Three paths: ${network.paths.map(describePath).join(", ")}`);
 </script>
 
-<Card tag="section" label="Mapa de enlaces" class="map">
+<Card tag="section" label="Link map" class="map">
   {@render node(a)}
   <div class="paths" role="img" aria-label={label}>
     <svg width="100%" height="170" viewBox="0 0 400 170" preserveAspectRatio="none" aria-hidden="true">
@@ -71,7 +71,7 @@
       <span class="ptag" class:dead={!up} style="top:{TOP[p.kind]}%;{p.state === 'primary' ? `border-color:${EDGE[p.kind]}` : ''}">
         <Icon name={ICON[p.kind]} size={13} stroke={2} color={up ? TINT[p.kind] : "#80838d"} />
         {#if !up}
-          <span class="mut">{LINK_NAME[p.kind]} · {p.state === "down" ? "caído" : unpluggedText(p.kind)}</span>
+          <span class="mut">{LINK_NAME[p.kind]} · {p.state === "down" ? "down" : unpluggedText(p.kind)}</span>
         {:else}
           {#if p.state === "primary"}<b>{LINK_NAME[p.kind]}</b>{:else}<span>{LINK_NAME[p.kind]}</span>{/if}
           {#if p.rttMs !== null}<span class="mono mut">{formatMs(p.rttMs)}</span>{/if}

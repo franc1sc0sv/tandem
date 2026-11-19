@@ -1,8 +1,8 @@
-//! `tandem.toml`: el puesto compartido ([`tandem_core::Config`]), la red y qué lado es
-//! esta máquina.
+//! `tandem.toml`: the shared desk ([`tandem_core::Config`]), the network and which side
+//! this machine is.
 //!
 //! ```toml
-//! # El lado de esta máquina: lo decide la clave pública al emparejar (la menor es `a`).
+//! # This machine's side: decided by the public key when pairing (the lower is `a`).
 //! machine = "a"
 //!
 //! [network]
@@ -17,34 +17,34 @@
 //! step_timeout_secs = 10
 //!
 //! [power]
-//! # Sin enlaces con la otra máquina durante esto, se la da por apagada (las dos vigilan).
+//! # Without links to the other machine during this, it is taken as off (both watch).
 //! peer_lost_after_secs = 15
-//! # Esta máquina se despierta por Wake-on-LAN (lo anuncia a la otra).
+//! # This machine is woken by Wake-on-LAN (it announces it to the other).
 //! wakeable = true
 //!
-//! # Cómo despertar a la otra máquina: Wake-on-LAN por el enlace Ethernet directo.
+//! # How to wake the other machine: Wake-on-LAN over the direct Ethernet link.
 //! [power.wol]
 //! mac = "aa:bb:cc:dd:ee:ff"
 //! source = "10.77.2.1"
 //! broadcast = "10.77.2.3"
 //!
 //! [input]
-//! # Dónde está el teclado y mouse al arrancar, hasta que el hub decida.
+//! # Where the keyboard and mouse are at startup, until the hub decides.
 //! keyboard = "a"
 //!
-//! # El teclado y el mouse del hub, por VID:PID. Sin esta sección no hay roles automáticos.
+//! # The hub's keyboard and mouse, by VID:PID. Without this section there are no automatic roles.
 //! [input.hub]
 //! keyboard = "046d:c33f"
 //! mouse = "046d:c539"
 //!
-//! # Qué máquina es cada lado: lo llena el agente con lo que anuncia cada una.
+//! # Which machine each side is: filled in by the agent with what each announces.
 //! [machines.a]
 //! os = "macos"
 //! name = "MacBook Pro"
 //! color = "#7aa7e6"
 //!
-//! # El acomodo de pantallas (DESIGN §7). Sin `[[screens]]` de una máquina valen las que
-//! # ella misma lee; sin `[arrangement]`, A a la izquierda de B.
+//! # The screen arrangement (DESIGN §7). Without `[[screens]]` for a machine, the ones
+//! # it reads itself apply; without `[arrangement]`, A to the left of B.
 //! [[screens]]
 //! machine = "b"
 //! id = "34"
@@ -54,12 +54,12 @@
 //! height = 1440
 //! scale = 1.0
 //!
-//! # De qué lado de B está A (left, right, up, down) y la alineación (start, center, end).
+//! # Which side of B A is on (left, right, up, down) and the alignment (start, center, end).
 //! [arrangement]
 //! a_side = "left"
 //! align = "center"
 //!
-//! # Bloquea el cursor en la máquina donde está (nombres de `KeyboardEvent.code`).
+//! # Locks the cursor on the machine it is on (`KeyboardEvent.code` names).
 //! [shortcuts]
 //! lock = ["ScrollLock"]
 //!
@@ -67,19 +67,19 @@
 //! cmd_ctrl = true
 //! drag_files = true
 //!
-//! # Módulos que el usuario apagó en cada máquina (los demás, encendidos).
+//! # Modules the user turned off on each machine (the others, on).
 //! [modules.b]
 //! clipboard = false
 //! ```
 //!
-//! Todo lo que no es de esta máquina (`[machines]`, `[[screens]]`, `[arrangement]`,
-//! `[[scenes]]`, `[shortcuts]`, `[prefs]`, `[modules]`) es el puesto compartido: se edita
-//! desde la UI (D4) y lo escribe el agente.
+//! Everything that is not this machine's (`[machines]`, `[[screens]]`, `[arrangement]`,
+//! `[[scenes]]`, `[shortcuts]`, `[prefs]`, `[modules]`) is the shared desk: it is edited
+//! from the UI (D4) and written by the agent.
 //!
-//! Una configuración de v0.1 con `[[monitors]]` sigue cargando: la sección se ignora con
-//! un aviso en el log ([`AgentConfig::warnings`]). Una de v0.2, con los lados `mac`/`pc`,
-//! se traduce sola ([`crate::migrate`]), y una de antes de T-099 (atajo y portapapeles en
-//! `[input]`, desplazamiento en `[arrangement]`) también.
+//! A v0.1 configuration with `[[monitors]]` still loads: the section is ignored with
+//! a warning in the log ([`AgentConfig::warnings`]). A v0.2 one, with the `mac`/`pc` sides,
+//! is translated on its own ([`crate::migrate`]), and so is one from before T-099 (shortcut and clipboard in
+//! `[input]`, offset in `[arrangement]`).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -94,39 +94,39 @@ use tandem_link::manager::LinkCandidate;
 use tandem_peripherals::HubConfig;
 use tandem_power::WolTarget;
 
-/// Puerto UDP predeterminado del plano de control (QUIC). Fuera de 47000–48999: Windows
-/// reserva ese rango en las PCs con WSL o Hyper-V (el 47770 de antes daba `os error 10048`).
+/// Default UDP port of the control plane (QUIC). Outside 47000-48999: Windows
+/// reserves that range on PCs with WSL or Hyper-V (the former 47770 gave `os error 10048`).
 pub const DEFAULT_PORT: u16 = 52000;
 
-/// Los que se prueban, en orden, si el configurado no se puede abrir
-/// ([`crate::network::bind_first`]). Repartidos en varios bloques, porque Windows reserva
-/// los puertos de a rangos, y todos fuera de 47000–48999. Cada uno deja libre el siguiente
-/// para el emparejamiento.
+/// The ones tried, in order, if the configured one cannot be opened
+/// ([`crate::network::bind_first`]). Spread over several blocks, because Windows reserves
+/// ports in ranges, and all outside 47000-48999. Each one leaves the next free
+/// for pairing.
 pub const FALLBACK_PORTS: [u16; 8] = [52000, 52100, 53100, 54200, 55300, 56400, 45500, 44600];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentConfig {
-    /// El lado de esta máquina. Lo decide la identidad ([`AgentConfig::with_side`]); lo
-    /// guardado es lo último que se resolvió, y sin par todavía es `A`.
+    /// This machine's side. Decided by the identity ([`AgentConfig::with_side`]); what is
+    /// saved is the last thing resolved, and without a peer yet it is `A`.
     #[serde(default = "default_side")]
     pub machine: Machine,
-    /// El sistema de esta máquina. No se guarda: sale del binario ([`Os::local`]); las
-    /// pruebas y la simulación lo cambian para armar puestos de cualquier combinación.
+    /// This machine's system. It is not saved: it comes from the binary ([`Os::local`]); tests
+    /// and the simulation change it to build desks of any combination.
     #[serde(skip, default = "Os::local")]
     pub os: Os,
-    /// Los lados del archivo no son los que valen: tenía los de v0.2 (`mac`/`pc`,
-    /// [`crate::migrate`]) o la identidad dijo que esta máquina es el otro lado. El agente lo
-    /// reescribe al conocer el archivo.
+    /// The file's sides are not the ones that hold: it had the v0.2 ones (`mac`/`pc`,
+    /// [`crate::migrate`]) or the identity said this machine is the other side. The agent
+    /// rewrites it once it knows the file.
     #[serde(skip)]
     pub rewrite_sides: bool,
-    /// El puesto venía con el formato de antes de T-099 ([`crate::migrate::desk_v03`]): su
-    /// huella ya no dice nada y el agente lo reescribe al conocer el archivo, sin contarlo
-    /// como un cambio.
+    /// The desk came in the pre-T-099 format ([`crate::migrate::desk_v03`]): its
+    /// fingerprint no longer says anything and the agent rewrites it once it knows the file, without counting it
+    /// as a change.
     #[serde(skip)]
     pub legacy_desk: bool,
-    /// La migración pasó al puesto algo que era de esta máquina (el portapapeles apagado) o
-    /// le puso las escenas por omisión (T-100): cuenta como un cambio suyo, con versión
-    /// nueva, para que la otra lo adopte.
+    /// The migration moved into the desk something that belonged to this machine (the turned-off clipboard) or
+    /// gave it the default scenes (T-100): it counts as a change by this machine, with a new
+    /// version, so the other adopts it.
     #[serde(skip)]
     pub local_to_desk: bool,
     #[serde(default)]
@@ -137,23 +137,23 @@ pub struct AgentConfig {
     pub power: PowerConfig,
     #[serde(default)]
     pub input: InputConfig,
-    /// Versión del puesto compartido, que se sincroniza con la otra máquina
-    /// ([`tandem_core::DeskVersion`]). La escribe el agente; 0 = nunca se cambió desde que se
-    /// generó.
+    /// Version of the shared desk, which syncs with the other machine
+    /// ([`tandem_core::DeskVersion`]). Written by the agent; 0 = never changed since it was
+    /// generated.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub desk_rev: u64,
-    /// Cuándo se hizo (milisegundos desde la época Unix, reloj de quien lo hizo).
+    /// When it was made (milliseconds since the Unix epoch, the clock of whoever made it).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub desk_at: u64,
-    /// Qué máquina hizo el último cambio de `desk_rev`.
+    /// Which machine made the last change of `desk_rev`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desk_origin: Option<Machine>,
-    /// La huella del puesto que escribió el agente con `desk_rev`
-    /// ([`crate::desk_sync::fingerprint`]). Si no coincide, alguien lo editó a mano: es un
-    /// cambio de esta máquina y se le manda a la otra.
+    /// The fingerprint of the desk the agent wrote with `desk_rev`
+    /// ([`crate::desk_sync::fingerprint`]). If it does not match, someone edited it by hand: it is a
+    /// change by this machine and is sent to the other.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub desk_sum: Option<String>,
-    /// Cuántos `[[monitors]]` de v0.1 trae: se lee solo para avisar que ya no se usa.
+    /// How many v0.1 `[[monitors]]` it has: read only to warn that it is no longer used.
     #[serde(
         default,
         rename = "monitors",
@@ -161,7 +161,7 @@ pub struct AgentConfig {
         skip_serializing
     )]
     pub legacy_monitors: Option<usize>,
-    /// El puesto: es el mismo en las dos máquinas, salvo `machine`.
+    /// The desk: it is the same on both machines, except `machine`.
     #[serde(flatten)]
     pub desk: Config,
 }
@@ -186,12 +186,12 @@ fn count_entries<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<usize>
 pub struct NetworkConfig {
     #[serde(default = "default_port")]
     pub port: u16,
-    /// Direcciones fijas del otro agente, una por enlace (los directos:
-    /// USB4 y Ethernet). La de la LAN se descubre por mDNS si no se fija.
+    /// Fixed addresses of the other agent, one per link (the direct ones:
+    /// USB4 and Ethernet). The LAN one is discovered over mDNS if not fixed.
     #[serde(default)]
     pub peers: Vec<LinkCandidate>,
-    /// Puerto UDP donde la PC espera mientras se empareja (y al que la Mac le pide
-    /// emparejarse por los enlaces fijos). Por omisión, el siguiente a `port`.
+    /// UDP port the PC waits on while pairing (and the one the Mac asks it to
+    /// pair over the fixed links). By default, the one after `port`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pairing_port: Option<u16>,
 }
@@ -210,14 +210,14 @@ impl Default for NetworkConfig {
     }
 }
 
-/// Tiempos máximos de los pasos de una transacción (energía, monitores, escenas).
+/// Maximum times of a transaction's steps (power, monitors, scenes).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OrchestratorConfig {
-    /// Encender la PC y esperar a que su agente responda.
+    /// Powering on the PC and waiting for its agent to answer.
     #[serde(default = "default_power_on_timeout")]
     pub power_on_timeout_secs: u64,
-    /// Cualquier otro paso.
+    /// Any other step.
     #[serde(default = "default_step_timeout")]
     pub step_timeout_secs: u64,
 }
@@ -249,30 +249,30 @@ impl OrchestratorConfig {
     }
 }
 
-/// Encendido y apagado de las dos máquinas (DESIGN §3.7: cualquiera puede ser la principal).
+/// Power on and off of both machines (DESIGN §3.7: either can be the main one).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "PowerRaw")]
 pub struct PowerConfig {
-    /// Cuánto tiempo sin ningún enlace con la otra máquina hace que esta la dé por
-    /// apagada (un corte de corriente, o se suspendió). Más corto que un reinicio no
-    /// sirve de mucho, pero cualquier caída breve de los cables tiene que quedar por
-    /// debajo. `pc_lost_after_secs` es el nombre de antes.
+    /// How long without any link to the other machine makes this one consider it
+    /// off (a power cut, or it suspended). Shorter than a reboot is not
+    /// of much use, but any brief cable drop has to stay
+    /// below it. `pc_lost_after_secs` is the former name.
     #[serde(default = "default_peer_lost_after", alias = "pc_lost_after_secs")]
     pub peer_lost_after_secs: u64,
-    /// Esta máquina se despierta por Wake-on-LAN; se le anuncia a la otra.
+    /// This machine is woken by Wake-on-LAN; it is announced to the other.
     #[serde(default = "default_true")]
     pub wakeable: bool,
-    /// Cómo despertar a la otra máquina. Sin esta sección, encenderla falla con un error
-    /// claro.
+    /// How to wake the other machine. Without this section, powering it on fails with an error
+    /// clear error.
     #[serde(default)]
     pub wol: Option<WolTarget>,
-    /// El usuario borró la MAC de la otra (`[power.wol] cleared = true`): no se vuelve a
-    /// aprender sola al emparejar; escribir una a mano la quita.
+    /// The user deleted the other's MAC (`[power.wol] cleared = true`): it is not learned
+    /// again on its own when pairing; writing one by hand removes it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub wol_cleared: bool,
-    /// La MAC de la tarjeta Ethernet de esta máquina, que se le anuncia a la otra para que
-    /// la guarde al emparejar (T-159). Sin ella, el agente la detecta al arrancar
-    /// ([`tandem_power::nic::detect`]); escribirla fija la que se anuncia.
+    /// The MAC of this machine's Ethernet card, announced to the other so that it
+    /// saves it when pairing (T-159). Without it, the agent detects it on start
+    /// ([`tandem_power::nic::detect`]); writing it fixes the one that is announced.
     #[serde(default)]
     pub mac: Option<tandem_power::MacAddr>,
 }
@@ -293,7 +293,7 @@ impl Default for PowerConfig {
     }
 }
 
-/// Lo que dice el archivo; `[power.wol]` puede ser solo `cleared = true`.
+/// What the file says; `[power.wol]` can be just `cleared = true`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PowerRaw {
@@ -328,7 +328,7 @@ impl TryFrom<PowerRaw> for PowerConfig {
     fn try_from(raw: PowerRaw) -> Result<Self, String> {
         let (wol, wol_cleared) = match raw.wol {
             None => (None, false),
-            // Una MAC escrita gana sobre `cleared`.
+            // A written MAC wins over `cleared`.
             Some(w) => match w.mac {
                 Some(mac) => {
                     let mut t = WolTarget::new(mac);
@@ -342,7 +342,7 @@ impl TryFrom<PowerRaw> for PowerConfig {
                     (Some(t), false)
                 }
                 None if w.cleared => (None, true),
-                None => return Err("[power.wol] necesita `mac` (o `cleared = true`)".into()),
+                None => return Err("[power.wol] needs `mac` (or `cleared = true`)".into()),
             },
         };
         Ok(PowerConfig {
@@ -361,44 +361,44 @@ impl PowerConfig {
     }
 }
 
-/// Teclado y mouse de esta máquina (DESIGN §7). Lo compartido está en el puesto.
+/// Keyboard and mouse of this machine (DESIGN §7). What is shared is in the desk.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InputConfig {
-    /// Dónde está el teclado y mouse al arrancar, hasta que el hub (o el otro agente) diga
-    /// otra cosa. `server` es el nombre de antes.
-    /// Sin él (la configuración que genera T-087 no lo escribe) no se sabe: el motor arranca
-    /// con el lado A, pero la UI dice «sin definir» hasta que el hub o el asistente lo
-    /// digan ([`InputConfig::keyboard`], [`InputConfig::keyboard_defined`]).
+    /// Where the keyboard and mouse are at startup, until the hub (or the other agent) says
+    /// otherwise. `server` is the former name.
+    /// Without it (the configuration T-087 generates does not write it) it is not known: the engine starts
+    /// with side A, but the UI says "not set" until the hub or setup
+    /// say so ([`InputConfig::keyboard`], [`InputConfig::keyboard_defined`]).
     #[serde(default, alias = "server", skip_serializing_if = "Option::is_none")]
     pub keyboard: Option<Machine>,
-    /// El teclado y el mouse del hub. Sin esto los roles no cambian solos.
+    /// The hub's keyboard and mouse. Without this the roles do not change on their own.
     #[serde(default)]
     pub hub: Option<HubConfig>,
-    /// La tabla de cada dirección de Cmd↔Ctrl; si se reasigna o no lo dice el puesto
+    /// The table for each direction of Cmd<->Ctrl; whether it is remapped or not is stated by the desk
     /// (`[prefs] cmd_ctrl`).
     #[serde(default)]
     pub remap: RemapPolicy,
-    /// Si un arrastre (un botón del mouse presionado) cruza a la otra máquina. Por
-    /// omisión no, como Deskflow (T-093).
+    /// Whether a drag (a mouse button pressed) crosses to the other machine. By
+    /// default no, like Deskflow (T-093).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub drag_between_machines: bool,
 }
 
-/// Las dos máquinas tienen que arrancar con el mismo servidor aunque ninguna sepa nada: el
-/// lado A, que las dos conocen sin hablarse.
+/// Both machines have to start with the same server even if neither knows anything: side
+/// A, which both know without talking.
 fn default_keyboard() -> Machine {
     Machine::A
 }
 
 impl InputConfig {
-    /// Dónde arranca el motor de entrada: lo configurado o, sin definir, el lado A. Para la
-    /// UI, mira [`InputConfig::keyboard_defined`].
+    /// Where the input engine starts: the configured one or, if unset, side A. For the
+    /// UI, see [`InputConfig::keyboard_defined`].
     pub fn keyboard(&self) -> Machine {
         self.keyboard.unwrap_or_else(default_keyboard)
     }
 
-    /// Si el teclado está dicho en la configuración.
+    /// Whether the keyboard is stated in the configuration.
     pub fn keyboard_defined(&self) -> bool {
         self.keyboard.is_some()
     }
@@ -408,7 +408,7 @@ fn default_true() -> bool {
     true
 }
 
-/// Las teclas de un atajo del puesto (`[shortcuts]`), por su nombre de `KeyboardEvent.code`.
+/// The keys of a desk shortcut (`[shortcuts]`), by their `KeyboardEvent.code` name.
 pub fn shortcut_keys(names: &[String]) -> Result<Vec<HidUsage>, ConfigError> {
     names
         .iter()
@@ -416,7 +416,7 @@ pub fn shortcut_keys(names: &[String]) -> Result<Vec<HidUsage>, ConfigError> {
         .collect()
 }
 
-/// Todas las teclas de los atajos del puesto (el de bloqueo y los de las escenas) existen.
+/// All the keys of the desk's shortcuts (the lock one and the scenes') exist.
 pub fn desk_keys(desk: &tandem_core::Desk) -> Result<(), ConfigError> {
     shortcut_keys(&desk.shortcuts.lock)?;
     for scene in &desk.scenes {
@@ -427,30 +427,30 @@ pub fn desk_keys(desk: &tandem_core::Desk) -> Result<(), ConfigError> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("no se pudo leer {path}: {source}")]
+    #[error("could not read {path}: {source}")]
     Read {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
-    #[error("configuración inválida: {0}")]
+    #[error("invalid configuration: {0}")]
     Parse(#[from] toml::de::Error),
     #[error(transparent)]
     Desk(#[from] tandem_core::model::ConfigError),
-    #[error("el puerto de red no puede ser 0")]
+    #[error("the network port cannot be 0")]
     ZeroPort,
-    #[error("el puerto de emparejamiento ({0}) no puede ser 0 ni el mismo que el de red")]
+    #[error("the pairing port ({0}) cannot be 0 nor the same as the network's")]
     BadPairingPort(u16),
-    #[error("los tiempos máximos de los pasos no pueden ser 0")]
+    #[error("the steps' maximum times cannot be 0")]
     ZeroTimeout,
     #[error(
-        "power.peer_lost_after_secs no puede ser 0: cualquier parpadeo de los enlaces daría a la otra máquina por apagada"
+        "power.peer_lost_after_secs cannot be 0: any blink of the links would make the other machine considered off"
     )]
     ZeroPeerLostAfter,
-    #[error("el puerto del Wake-on-LAN no puede ser 0")]
+    #[error("the Wake-on-LAN port cannot be 0")]
     ZeroWolPort,
     #[error(
-        "Wake-on-LAN: el origen {source_ip} y el destino {broadcast} no son de la misma familia (IPv4/IPv6)"
+        "Wake-on-LAN: the source {source_ip} and the destination {broadcast} are not of the same family (IPv4/IPv6)"
     )]
     WolFamilyMismatch {
         source_ip: std::net::IpAddr,
@@ -459,29 +459,29 @@ pub enum ConfigError {
     #[error(transparent)]
     Peers(#[from] DiscoveryError),
     #[error(
-        "shortcuts.lock: «{0}» no es una tecla (se usan los nombres de KeyboardEvent.code, como ScrollLock o KeyL)"
+        "shortcuts.lock: \"{0}\" is not a key (KeyboardEvent.code names are used, like ScrollLock or KeyL)"
     )]
     UnknownKey(String),
 }
 
 impl AgentConfig {
-    /// Lee y valida. Un archivo de v0.2 (lados `mac`/`pc`) se traduce primero, con esta
-    /// máquina como `A` hasta que la identidad diga otra cosa ([`crate::migrate`]).
+    /// Reads and validates. A v0.2 file (`mac`/`pc` sides) is translated first, with this
+    /// machine as `A` until the identity says otherwise ([`crate::migrate`]).
     pub fn from_toml(s: &str) -> Result<Self, ConfigError> {
         let mut table: toml::Table = s.parse()?;
-        // Primero el puesto: decide si el acomodo era el de omisión con los nombres que
-        // trae el archivo, antes de traducirlos.
+        // First the desk: it decides whether the arrangement was the default one with the names
+        // the file carries, before translating them.
         let migrated = crate::migrate::desk_v03(&mut table);
         let legacy = crate::migrate::sides_v02(&mut table);
-        // Un puesto de antes de T-100 no tiene la clave `scenes` (uno sin escenas a propósito
-        // tiene `scenes = []`).
+        // A pre-T-100 desk does not have the `scenes` key (one without scenes on purpose
+        // has `scenes = []`).
         let before_scenes = !table.contains_key("scenes");
         let mut cfg: AgentConfig = table.try_into()?;
         cfg.rewrite_sides = legacy;
         cfg.legacy_desk = migrated.changed;
         cfg.local_to_desk = migrated.local;
-        // Ya emparejado: las escenas por omisión reemplazan a los modos (D6). Es un cambio de
-        // esta máquina, con versión nueva: se guarda y llega a la otra.
+        // Already paired: the default scenes replace the modes (D6). It is a change by
+        // this machine, with a new version: it is saved and reaches the other.
         if before_scenes && tandem_core::scene::add_defaults(&mut cfg.desk) {
             cfg.local_to_desk = true;
         }
@@ -489,9 +489,9 @@ impl AgentConfig {
         Ok(cfg)
     }
 
-    /// La misma configuración vista desde el lado `side`: si no es el guardado, se cambian
-    /// los lados de todo lo que los nombra (el puesto, el teclado, el autor del último
-    /// cambio). Nada físico cambia: cada pantalla sigue siendo de su máquina.
+    /// The same configuration seen from side `side`: if it is not the saved one, the sides
+    /// of everything that names them are switched (the desk, the keyboard, the author of the last
+    /// change). Nothing physical changes: each screen is still its machine's.
     pub fn with_side(mut self, side: Machine) -> Self {
         if side == self.machine {
             return self;
@@ -504,7 +504,7 @@ impl AgentConfig {
         self
     }
 
-    /// Lee `path` y deja en el log lo que se ignora ([`AgentConfig::warnings`]).
+    /// Reads `path` and logs what is ignored ([`AgentConfig::warnings`]).
     pub fn load(path: &Path) -> Result<Self, ConfigError> {
         let text = std::fs::read_to_string(path).map_err(|source| ConfigError::Read {
             path: path.to_owned(),
@@ -517,13 +517,13 @@ impl AgentConfig {
         Ok(cfg)
     }
 
-    /// Lo que la configuración trae y ya no se usa. Un `monitors = []` vacío (lo que
-    /// generaba v0.1) no molesta a nadie y no se avisa.
+    /// What the configuration carries and is no longer used. An empty `monitors = []` (what
+    /// v0.1 generated) bothers nobody and is not warned about.
     pub fn warnings(&self) -> Vec<String> {
         let mut out = Vec::new();
         if self.legacy_monitors.is_some_and(|n| n > 0) {
             out.push(
-                "la sección [[monitors]] ya no se usa (v0.2 quitó el control de monitores): se ignora"
+                "the [[monitors]] section is no longer used (v0.2 removed monitor control): it is ignored"
                     .to_owned(),
             );
         }
@@ -566,13 +566,13 @@ impl AgentConfig {
 }
 
 impl NetworkConfig {
-    /// Candidatos para el gestor de enlaces: los fijos de la config más lo
-    /// descubierto en la LAN (`discovered`, de la mejor a la peor dirección).
+    /// Candidates for the link manager: the config's fixed ones plus what
+    /// is discovered on the LAN (`discovered`, from the best to the worst address).
     pub fn link_candidates(&self, discovered: &[std::net::SocketAddr]) -> Vec<LinkCandidate> {
         link_candidates(&self.peers, discovered)
     }
 
-    /// Ver [`NetworkConfig::pairing_port`](field@NetworkConfig::pairing_port).
+    /// See [`NetworkConfig::pairing_port`](field@NetworkConfig::pairing_port).
     pub fn pairing_port(&self) -> u16 {
         self.pairing_port
             .unwrap_or_else(|| self.port.checked_add(1).unwrap_or(self.port - 1))
@@ -601,7 +601,7 @@ pub(crate) mod fixtures {
         AgentConfig::from_toml(DESK).unwrap()
     }
 
-    /// El puesto con `[power.wol]`: esta máquina puede despertar a la otra.
+    /// The desk with `[power.wol]`: this machine can wake the other.
     pub fn desk_with_wol() -> AgentConfig {
         let mut cfg = desk();
         cfg.power.wol = Some(tandem_power::WolTarget::new(
@@ -670,7 +670,7 @@ mod tests {
         assert!(matches!(err, ConfigError::Desk(_)), "{err}");
     }
 
-    /// Una configuración de v0.1 sigue cargando: `[[monitors]]` se ignora con un aviso.
+    /// A v0.1 configuration still loads: `[[monitors]]` is ignored with a warning.
     #[test]
     fn an_old_config_with_monitors_still_loads_with_a_warning() {
         let old = r#"
@@ -690,10 +690,10 @@ mod tests {
         let w = cfg.warnings();
         assert_eq!(w.len(), 1);
         assert!(w[0].contains("[[monitors]]"), "{w:?}");
-        // Lo que generaba v0.1 (`monitors = []`) no avisa.
+        // What v0.1 generated (`monitors = []`) does not warn.
         let generated = AgentConfig::from_toml("machine = \"b\"").unwrap();
         assert!(generated.warnings().is_empty());
-        // Y desde el archivo también carga.
+        // And from the file it also loads.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("tandem.toml");
         std::fs::write(&path, old).unwrap();
@@ -739,7 +739,7 @@ mod tests {
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
     }
 
-    /// Sin `machine`, el lado A hasta que la identidad diga otra cosa.
+    /// Without `machine`, side A until the identity says otherwise.
     #[test]
     fn without_machine_it_is_side_a() {
         let cfg = AgentConfig::from_toml("monitors = []").unwrap();
@@ -747,8 +747,8 @@ mod tests {
         assert!(!cfg.rewrite_sides);
     }
 
-    /// Un archivo de v0.2 carga con los lados traducidos: esta máquina es A (hasta saber las
-    /// claves) y el puesto dice lo mismo que antes.
+    /// A v0.2 file loads with the sides translated: this machine is A (until the
+    /// keys are known) and the desk says the same as before.
     #[test]
     fn an_old_config_with_mac_and_pc_is_translated() {
         let cfg = AgentConfig::from_toml(
@@ -763,8 +763,8 @@ mod tests {
         assert_eq!(cfg.input.keyboard, Some(Machine::B));
         assert_eq!(cfg.desk.screens[0].machine, Machine::A);
         assert_eq!(cfg.desk.arrangement.unwrap().a_side, Side::Right);
-        // Si por las claves esta máquina (la PC) es B, todo se da vuelta y sigue diciendo
-        // lo mismo: la Mac (ahora A) a la izquierda.
+        // If by the keys this machine (the PC) is B, everything is flipped and keeps saying
+        // the same: the Mac (now A) on the left.
         let b = cfg.with_side(Machine::B);
         assert_eq!(b.machine, Machine::B);
         assert_eq!(b.desk.screens[0].machine, Machine::B);
@@ -905,7 +905,7 @@ mod tests {
         let cfg = AgentConfig::from_toml("machine = \"a\"\n[power.wol]\ncleared = true").unwrap();
         assert_eq!(cfg.power.wol, None);
         assert!(cfg.power.wol_cleared);
-        // Sin MAC y sin `cleared` no vale; con MAC, la MAC gana.
+        // Without MAC and without `cleared` it is not valid; with a MAC, the MAC wins.
         assert!(AgentConfig::from_toml("machine = \"a\"\n[power.wol]\nport = 9").is_err());
         let cfg = AgentConfig::from_toml(
             "machine = \"a\"\n[power.wol]\ncleared = true\nmac = \"aa:bb:cc:dd:ee:ff\"",
@@ -924,7 +924,7 @@ mod tests {
             matches!(err, ConfigError::WolFamilyMismatch { .. }),
             "{err}"
         );
-        let err = AgentConfig::from_toml("machine = \"a\"\n[power.wol]\nmac = \"no-es-una-mac\"")
+        let err = AgentConfig::from_toml("machine = \"a\"\n[power.wol]\nmac = \"not-a-mac\"")
             .unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
         let err = AgentConfig::from_toml("machine = \"a\"\n[power]\nwake = 1").unwrap_err();
@@ -938,7 +938,7 @@ mod tests {
         assert_eq!(cfg.input.keyboard(), Machine::A);
         assert!(
             !cfg.input.keyboard_defined(),
-            "sin definir: no se supone la Mac"
+            "not set: the Mac is not assumed"
         );
         assert!(cfg.desk.modules.b.is_empty() && cfg.input.hub.is_none());
         assert_eq!(
@@ -966,14 +966,14 @@ mod tests {
         .unwrap();
         assert_eq!(cfg.input.keyboard(), Machine::B);
         assert!(cfg.input.keyboard_defined());
-        // El nombre de antes sigue valiendo.
+        // The former name still holds.
         let old = AgentConfig::from_toml(
             "machine = \"a\"\n[input]\nserver = \"b\"\n[power]\npc_lost_after_secs = 9",
         )
         .unwrap();
         assert_eq!(old.input.keyboard(), Machine::B);
         assert_eq!(old.power.peer_lost_after_secs, 9);
-        // El atajo y el portapapeles de antes pasan al puesto.
+        // The shortcut and clipboard from before move to the desk.
         assert!(cfg.legacy_desk);
         assert_eq!(cfg.desk.modules.get(Machine::B, "clipboard"), Some(false));
         assert_eq!(
@@ -996,12 +996,13 @@ mod tests {
     #[test]
     fn rejects_bad_input() {
         let base = "machine = \"a\"\n[input]\n";
-        let err = AgentConfig::from_toml(&format!("{base}lock_shortcut = [\"Bloq\"]")).unwrap_err();
+        let err =
+            AgentConfig::from_toml(&format!("{base}lock_shortcut = [\"NotAKey\"]")).unwrap_err();
         assert!(
-            matches!(err, ConfigError::UnknownKey(ref k) if k == "Bloq"),
+            matches!(err, ConfigError::UnknownKey(ref k) if k == "NotAKey"),
             "{err}"
         );
-        let err = AgentConfig::from_toml("[shortcuts]\nlock = [\"Bloq\"]").unwrap_err();
+        let err = AgentConfig::from_toml("[shortcuts]\nlock = [\"NotAKey\"]").unwrap_err();
         assert!(matches!(err, ConfigError::UnknownKey(_)), "{err}");
         let err = AgentConfig::from_toml(&format!("{base}sever = \"b\"")).unwrap_err();
         assert!(matches!(err, ConfigError::Parse(_)), "{err}");
@@ -1013,7 +1014,7 @@ mod tests {
     #[test]
     fn load_reports_missing_file() {
         let dir = tempfile::tempdir().unwrap();
-        let err = AgentConfig::load(&dir.path().join("no-existe.toml")).unwrap_err();
+        let err = AgentConfig::load(&dir.path().join("missing.toml")).unwrap_err();
         assert!(matches!(err, ConfigError::Read { .. }));
     }
 }

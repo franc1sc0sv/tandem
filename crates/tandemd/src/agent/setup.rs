@@ -1,5 +1,5 @@
-//! Lo que el agente hace para el asistente de configuración inicial (DESIGN §5): la prueba
-//! «presiona una tecla», dónde está el teclado y el ping del enlace.
+//! What the agent does for the initial setup wizard (DESIGN §5): the
+//! "press a key" test, where the keyboard is and the link ping.
 
 use tandem_core::Machine;
 use tandem_proto::{ControlMsg, KeyProbeMsg, KeyProbeStatus, Reply};
@@ -8,7 +8,7 @@ use tokio::sync::watch;
 use super::Agent;
 
 impl Agent {
-    // ---- «Presiona una tecla» ----
+    // ---- "Press a key" ----
 
     pub fn key_probe_status(&self) -> KeyProbeStatus {
         *self.key_probe.borrow()
@@ -18,7 +18,7 @@ impl Agent {
         self.key_probe.subscribe()
     }
 
-    /// Las dos máquinas escuchan (o dejan de escuchar).
+    /// Both machines listen (or stop listening).
     pub(super) fn key_probe(&self, on: bool) {
         self.key_probe.send_replace(if on {
             KeyProbeStatus {
@@ -36,7 +36,7 @@ impl Agent {
         self.orch.peer().send(ControlMsg::KeyProbe(msg));
     }
 
-    /// La ventana de aquí oyó una tecla: el teclado está en esta máquina.
+    /// The window here heard a key: the keyboard is on this machine.
     pub(super) fn heard_key(&self) {
         if self.hear(self.machine()) {
             self.orch
@@ -45,7 +45,7 @@ impl Agent {
         }
     }
 
-    /// Anota la primera tecla que llega. Falso si no se escucha o ya llegó una.
+    /// Records the first key that arrives. False if nobody is listening or one already arrived.
     fn hear(&self, machine: Machine) -> bool {
         self.key_probe.send_if_modified(|s| {
             if s.armed && s.heard.is_none() {
@@ -57,7 +57,7 @@ impl Agent {
         })
     }
 
-    /// Lo que mandó la otra máquina para la prueba.
+    /// What the other machine sent for the test.
     pub fn receive_key_probe(&self, msg: KeyProbeMsg) {
         match msg {
             KeyProbeMsg::Arm => {
@@ -75,9 +75,9 @@ impl Agent {
         }
     }
 
-    // ---- Dónde está el teclado ----
+    // ---- Where the keyboard is ----
 
-    /// Avisa cuando el usuario dice dónde está el teclado (o la configuración lo decía).
+    /// Notifies when the user says where the keyboard is (or the configuration said so).
     pub fn subscribe_keyboard(&self) -> watch::Receiver<Option<Machine>> {
         self.keyboard.subscribe()
     }
@@ -86,14 +86,14 @@ impl Agent {
         *self.keyboard.borrow()
     }
 
-    /// El usuario confirmó dónde está el teclado y el mouse: se guarda, se le dice a la
-    /// otra máquina y el motor de entrada lo adopta.
+    /// The user confirmed where the keyboard and mouse are: it is saved, the
+    /// other machine is told and the input engine adopts it.
     pub(super) fn set_keyboard(&self, machine: Machine) {
         self.declare_keyboard(machine);
         self.orch.peer().send(ControlMsg::Keyboard(machine));
     }
 
-    /// Lo mismo, dicho por la otra máquina.
+    /// The same, said by the other machine.
     pub fn receive_keyboard(&self, machine: Machine) {
         self.declare_keyboard(machine);
     }
@@ -104,14 +104,14 @@ impl Agent {
             && let Err(e) = crate::config_edit::set_keyboard(&path, machine)
         {
             tracing::warn!(
-                "no se guardó dónde está el teclado en {}: {e}",
+                "where the keyboard is was not saved to {}: {e}",
                 path.display()
             );
         }
         self.keyboard.send_replace(Some(machine));
         drop(editing);
-        // Con motor de entrada, su tarea de estado escucha la declaración y publica el
-        // estado; sin él (pruebas, backends simulados) se actualiza aquí.
+        // With an input engine, its state task listens to the declaration and publishes the
+        // state; without it (tests, simulated backends) it is updated here.
         if !self.input_engine.load(std::sync::atomic::Ordering::Acquire) {
             let mut status = self.input_status();
             status.server = machine;
@@ -120,20 +120,20 @@ impl Agent {
         }
     }
 
-    /// Hay un motor de entrada armando el estado: [`Agent::subscribe_keyboard`] lo despierta.
+    /// There is an input engine building the state: [`Agent::subscribe_keyboard`] wakes it.
     pub fn set_input_engine(&self) {
         self.input_engine
             .store(true, std::sync::atomic::Ordering::Release);
     }
 
-    /// La latencia del enlace con la otra máquina, para mostrarla en el asistente.
+    /// The link latency with the other machine, to show it in the wizard.
     pub(super) fn ping_peer(&self) -> Reply {
         match self.orch.peer().rtt() {
             Some((link, rtt)) => Reply::Pong {
                 link,
                 millis: u32::try_from(rtt.as_millis().max(1)).unwrap_or(u32::MAX),
             },
-            None => Reply::Rejected("ningún enlace ve a la otra máquina".into()),
+            None => Reply::Rejected("no link sees the other machine".into()),
         }
     }
 }
@@ -146,7 +146,7 @@ mod tests {
     use crate::config::AgentConfig;
     use crate::store::StateStore;
 
-    /// Un agente de la PC recién instalado, con su `tandem.toml` generado.
+    /// A freshly installed PC agent, with its `tandem.toml` generated.
     fn fresh(dir: &std::path::Path) -> Arc<Agent> {
         let text = crate::autoconfig::generate(Machine::B);
         let file = dir.join("tandem.toml");
@@ -182,10 +182,10 @@ mod tests {
         let a = fresh(dir.path());
         assert!(!a.input_status().defined);
         assert_eq!(a.keyboard_declared(), None);
-        // Escuchar sin que llegue una tecla no define nada.
+        // Listening without a key arriving defines nothing.
         a.handle(tandem_proto::UiCommand::KeyProbe { on: true });
         assert_eq!(a.key_probe_status().heard, None);
-        // Una tecla sin escuchar se ignora.
+        // A key without listening is ignored.
         a.handle(tandem_proto::UiCommand::KeyProbe { on: false });
         a.handle(tandem_proto::UiCommand::HeardKey);
         assert_eq!(a.key_probe_status(), KeyProbeStatus::default());

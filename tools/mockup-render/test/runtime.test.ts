@@ -1,4 +1,4 @@
-// Pruebas del support.js propio en Chromium, con páginas mínimas del mismo formato.
+// Tests of our own support.js in Chromium, with minimal pages of the same format.
 import type { Browser, Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ORIGIN, checkPage, installRoutes, launchBrowser, waitForMockup } from '../src/browser.ts';
@@ -13,10 +13,10 @@ afterAll(async () => {
 
 function doc(body: string, component = '', props = '{"$preview":{"width":800,"height":600}}'): string {
   return `<!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>prueba</title>
+<title>test</title>
 <script src="./support.js"></script>
 </head>
 <body>
@@ -36,7 +36,7 @@ interface Opened {
 async function open(pages: Record<string, string>, path = Object.keys(pages)[0] ?? '/'): Promise<Opened> {
   const context = await browser.newContext({ viewport: { width: 800, height: 600 } });
   const consoleErrors: string[] = [];
-  await installRoutes(context, { pages, onBlocked: (u) => consoleErrors.push('bloqueada: ' + u) });
+  await installRoutes(context, { pages, onBlocked: (u) => consoleErrors.push('blocked: ' + u) });
   const page = await context.newPage();
   page.on('console', (m) => {
     if (m.type() === 'error') consoleErrors.push(m.text());
@@ -51,10 +51,10 @@ const text = (page: Page, sel: string) => page.locator(sel).first().innerText();
 const attr = (page: Page, sel: string, name: string) => page.locator(sel).first().getAttribute(name);
 
 describe('support.js', () => {
-  it('sustituye {{expr}} en texto y atributos, incluidos style, SVG y expresiones', async () => {
+  it('substitutes {{expr}} in text and attributes, including style, SVG and expressions', async () => {
     const { page, consoleErrors } = await open({
       '/a.dc.html': doc(
-        `<p id="t">Hola {{name}}, tienes {{ n + 1 }} avisos{{ none }}</p>
+        `<p id="t">Hello {{name}}, you have {{ n + 1 }} notices{{ none }}</p>
          <p id="s" style="margin:0;{{st}}" title="{{ n > 1 ? 'muchos' : 'uno' }}" data-x="{{ true }}">x</p>
          <svg width="10" height="10"><path id="p" d="{{ic}}" stroke="{{c}}"></path><stop id="g" stop-color="{{c}}"></stop></svg>
          <button id="b" aria-pressed="{{on}}" class="{{cls}}" disabled="{{ false }}">b</button>`,
@@ -63,7 +63,7 @@ describe('support.js', () => {
         }`,
       ),
     });
-    expect(await text(page, '#t')).toBe('Hola Ana, tienes 3 avisos');
+    expect(await text(page, '#t')).toBe('Hello Ana, you have 3 notices');
     expect(await attr(page, '#s', 'style')).toBe('margin:0;color:rgb(255, 0, 0)');
     expect(await page.locator('#s').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(255, 0, 0)');
     expect(await attr(page, '#s', 'title')).toBe('muchos');
@@ -74,20 +74,20 @@ describe('support.js', () => {
     expect(await attr(page, '#b', 'aria-pressed')).toBe('true');
     expect(await attr(page, '#b', 'class')).toBe('btn pri');
     expect(await attr(page, '#b', 'disabled')).toBeNull();
-    // Un `d="{{…}}"` parseado por la página daría un error de consola: no debe haber ninguno.
+    // A `d="{{…}}"` parsed by the page would give a console error: there must be none.
     expect(consoleErrors).toEqual([]);
     const check = await checkPage(page);
     expect(check.braces).toEqual([]);
     expect(check.dcErrors).toEqual([]);
   });
 
-  it('repite sc-for (anidado, con acceso al ámbito de afuera) y muestra u oculta sc-if', async () => {
+  it('repeats sc-for (nested, with access to the outer scope) and shows or hides sc-if', async () => {
     const { page, consoleErrors } = await open({
       '/a.dc.html': doc(
         `<ul><sc-for list="{{groups}}" as="g" hint-placeholder-count="3">
            <li class="g">{{g.name}}<sc-for list="{{g.items}}" as="i"><span class="i">{{title}}/{{g.name}}/{{i}}</span></sc-for></li>
          </sc-for></ul>
-         <sc-if value="{{yes}}" hint-placeholder-val="{{ false }}"><b id="yes">sí</b></sc-if>
+         <sc-if value="{{yes}}" hint-placeholder-val="{{ false }}"><b id="yes">yes</b></sc-if>
          <sc-if value="{{no}}" hint-placeholder-val="{{ true }}"><b id="no">no</b></sc-if>
          <sc-for list="{{empty}}" as="x"><i class="x">{{x}}</i></sc-for>`,
         `class Component extends DCLogic {
@@ -101,12 +101,12 @@ describe('support.js', () => {
     expect(await page.locator('#yes').count()).toBe(1);
     expect(await page.locator('#no').count()).toBe(0);
     expect(await page.locator('.x').count()).toBe(0);
-    // Las etiquetas de plantilla no quedan en la página (no rompen flex ni grid).
+    // Template tags do not stay on the page (they do not break flex or grid).
     expect(await page.locator('sc-for, sc-if').count()).toBe(0);
     expect(consoleErrors).toEqual([]);
   });
 
-  it('pone el contenido de <helmet> en <head>', async () => {
+  it('puts the content of <helmet> in <head>', async () => {
     const { page } = await open({
       '/a.dc.html': doc(
         `<helmet><style>.k{color:rgb(1, 2, 3)}</style></helmet><p class="k" id="k">k</p>`,
@@ -119,7 +119,7 @@ describe('support.js', () => {
     expect(await page.locator('#k').evaluate((e) => getComputedStyle(e).color)).toBe('rgb(1, 2, 3)');
   });
 
-  it('constructor(p) recibe data-props; onClick llama al manejador y setState vuelve a renderizar parcheando el DOM', async () => {
+  it('constructor(p) receives data-props; onClick calls the handler and setState re-renders by patching the DOM', async () => {
     const { page, consoleErrors } = await open({
       '/a.dc.html': doc(
         `<p id="w">{{w}}</p>
@@ -139,7 +139,7 @@ describe('support.js', () => {
       ),
     });
     expect(await text(page, '#w')).toBe('800');
-    // Marca en el nodo: si el render reemplazara el DOM, la marca se perdería.
+    // Mark on the node: if the render replaced the DOM, the mark would be lost.
     await page.locator('.it').nth(1).evaluate((e) => ((e as HTMLElement & { mark?: number }).mark = 1));
     await page.locator('.it').nth(1).click();
     await expect.poll(() => attr(page, '.it >> nth=1', 'style')).toBe('color:rgb(0, 128, 0)');
@@ -151,7 +151,7 @@ describe('support.js', () => {
     expect(consoleErrors).toEqual([]);
   });
 
-  it('un <input> con value/onInput conserva el foco y lo escrito', async () => {
+  it('an <input> with value/onInput keeps the focus and what was typed', async () => {
     const { page } = await open({
       '/a.dc.html': doc(
         `<input id="q" value="{{q}}" onInput="{{type}}"><p id="echo">{{q}}</p>`,
@@ -167,33 +167,33 @@ describe('support.js', () => {
     expect(await page.evaluate(() => document.activeElement?.id)).toBe('q');
   });
 
-  it('los enlaces X.dc.html navegan a otro mockup', async () => {
+  it('X.dc.html links navigate to another mockup', async () => {
     const { page, consoleErrors } = await open({
       '/a.dc.html': doc(`<a id="go" href="b.dc.html">ir</a>`),
-      '/b.dc.html': doc(`<h1 id="b">{{title}}</h1>`, `class Component extends DCLogic { renderVals() { return { title: 'Página B' }; } }`),
+      '/b.dc.html': doc(`<h1 id="b">{{title}}</h1>`, `class Component extends DCLogic { renderVals() { return { title: 'Page B' }; } }`),
     });
     await page.locator('#go').click();
     await page.waitForURL(/b\.dc\.html$/);
     await waitForMockup(page);
-    expect(await text(page, '#b')).toBe('Página B');
+    expect(await text(page, '#b')).toBe('Page B');
     expect(consoleErrors).toEqual([]);
   });
 
-  it('una página sin componente se renderiza tal cual', async () => {
-    const { page } = await open({ '/a.dc.html': doc(`<p id="p">estático</p>`) });
-    expect(await text(page, '#p')).toBe('estático');
+  it('a page without a component renders as is', async () => {
+    const { page } = await open({ '/a.dc.html': doc(`<p id="p">static</p>`) });
+    expect(await text(page, '#p')).toBe('static');
   });
 
-  it('informa las expresiones que fallan y las que dan undefined', async () => {
+  it('reports the expressions that fail and those that give undefined', async () => {
     const { page, consoleErrors } = await open({
       '/a.dc.html': doc(
-        `<p>{{ nadie.nombre }}</p><p>{{ obj.falta }}</p>`,
+        `<p>{{ nobody.name }}</p><p>{{ obj.missing }}</p>`,
         `class Component extends DCLogic { renderVals() { return { obj: {} }; } }`,
       ),
     });
     const check = await checkPage(page);
-    expect(check.dcErrors.join('\n')).toMatch(/nadie\.nombre/);
-    expect(check.dcMissing.join('\n')).toMatch(/obj\.falta/);
-    expect(consoleErrors.join('\n')).toMatch(/nadie\.nombre/);
+    expect(check.dcErrors.join('\n')).toMatch(/nobody\.name/);
+    expect(check.dcMissing.join('\n')).toMatch(/obj\.missing/);
+    expect(consoleErrors.join('\n')).toMatch(/nobody\.name/);
   });
 });

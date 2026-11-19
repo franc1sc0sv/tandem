@@ -1,0 +1,1447 @@
+{
+  "arrangement": {
+    "mockup": "V3-Arrangement",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-bottom-center": {
+    "mockup": "V3-Arrangement--side-bottom-center",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-bottom-end": {
+    "mockup": "V3-Arrangement--side-bottom-end",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-bottom-start": {
+    "mockup": "V3-Arrangement--side-bottom-start",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-left-center": {
+    "mockup": "V3-Arrangement--side-left-center",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-left-end": {
+    "mockup": "V3-Arrangement--side-left-end",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-left-start": {
+    "mockup": "V3-Arrangement--side-left-start",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-right-center": {
+    "mockup": "V3-Arrangement--side-right-center",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-right-end": {
+    "mockup": "V3-Arrangement--side-right-end",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-right-start": {
+    "mockup": "V3-Arrangement--side-right-start",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-screen-mac": {
+    "mockup": "V3-Arrangement--screen-mac",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-top-center": {
+    "mockup": "V3-Arrangement--side-top-center",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-top-end": {
+    "mockup": "V3-Arrangement--side-top-end",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-top-start": {
+    "mockup": "V3-Arrangement--side-top-start",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "arrangement-unsupported": {
+    "mockup": "V3-Arrangement--screen-unsupported",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9973,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "crossing": {
+    "mockup": "F-CrossingTest",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "crossing-crossed": {
+    "mockup": "F-CrossingTest--crossed",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9971,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "crossing-no-cross": {
+    "mockup": "F-CrossingTest--no-cross",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9966,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "crossing-other-edge": {
+    "mockup": "F-CrossingTest--no-cross",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9965,
+      "worstTile": 0.8472,
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "desk": {
+    "mockup": "V3-Desk",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9999,
+      "worstTile": 0.9839,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 1,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "desk-mac-mac": {
+    "mockup": "V3-Desk",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9828,
+      "worstTile": 0.6028,
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 0.9979,
+        "worstTile": 0.9326,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "desk-scene-game": {
+    "mockup": "V3-Desk--scene-game",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9999,
+      "worstTile": 0.9839,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "desk-scene-macbook-only": {
+    "mockup": "V3-Desk--scene-macbook-only",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9999,
+      "worstTile": 0.9839,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "desk-win-win": {
+    "mockup": "V3-Desk",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9679,
+      "worstTile": 0.3264,
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 0.9956,
+        "worstTile": 0.8333,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "machine-a": {
+    "mockup": "F-MachineMac",
+    "screen": {
+      "name": "content",
+      "similarity": 0.9999,
+      "worstTile": 0.9836,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "content",
+        "similarity": 0.9999,
+        "worstTile": 0.9836,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "machine-b": {
+    "mockup": "V3-Machine",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9999,
+      "worstTile": 0.9858,
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      },
+      {
+        "name": "content",
+        "similarity": 0.9999,
+        "worstTile": 0.9858,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "monitors": {
+    "mockup": "V3-Monitors",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9893,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 0.9998,
+        "worstTile": 0.9893,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "monitors-input-mac": {
+    "mockup": "V3-Monitors--input-mac",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9893,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 0.9998,
+        "worstTile": 0.9893,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "network": {
+    "mockup": "V3-Network",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9998,
+      "worstTile": 0.9792,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "notices": {
+    "mockup": "F-Notices",
+    "screen": {
+      "name": "content",
+      "similarity": 0.9997,
+      "worstTile": 0.9939,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "content",
+        "similarity": 0.9997,
+        "worstTile": 0.9939,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "notices-closed": {
+    "mockup": "F-Notices--closed",
+    "screen": {
+      "name": "content",
+      "similarity": 0.9998,
+      "worstTile": 0.9939,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "content",
+        "similarity": 0.9998,
+        "worstTile": 0.9939,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "palette": {
+    "mockup": "F-Palette",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9996,
+      "worstTile": 0.9775,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "dialog",
+        "similarity": 0.9988,
+        "worstTile": 0.979,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "palette-filter": {
+    "mockup": "F-Palette--filter",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9997,
+      "worstTile": 0.9775,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "dialog",
+        "similarity": 0.9975,
+        "worstTile": 0.979,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "palette-no-results": {
+    "mockup": "F-Palette--no-results",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9996,
+      "worstTile": 0.9705,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "dialog",
+        "similarity": 0.9959,
+        "worstTile": 0.9702,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "progress-in-progress": {
+    "mockup": "F-Transactions",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9988,
+      "worstTile": 0.979,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "progress-rollback": {
+    "mockup": "F-Transactions--rollback",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9988,
+      "worstTile": 0.979,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "progress-success": {
+    "mockup": "F-Transactions--success",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9988,
+      "worstTile": 0.979,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "scene-new": {
+    "mockup": "F-NewScene",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9971,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "scene-shows-mac": {
+    "mockup": "F-NewScene--shows-mac",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9971,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "scene-unchanged": {
+    "mockup": "F-NewScene--unchanged",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9971,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "settings": {
+    "mockup": "F-Settings",
+    "screen": {
+      "name": "content",
+      "similarity": 1,
+      "worstTile": 0.9966,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "content",
+        "similarity": 1,
+        "worstTile": 0.9966,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "settings-advanced": {
+    "mockup": "F-Settings--advanced",
+    "screen": {
+      "name": "content",
+      "similarity": 0.9999,
+      "worstTile": 0.9917,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "content",
+        "similarity": 0.9999,
+        "worstTile": 0.9917,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "settings-keyboard": {
+    "mockup": "F-Settings--keyboard",
+    "screen": {
+      "name": "content",
+      "similarity": 1,
+      "worstTile": 0.9983,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "content",
+        "similarity": 1,
+        "worstTile": 0.9983,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "settings-shortcuts": {
+    "mockup": "F-Settings--shortcuts",
+    "screen": {
+      "name": "content",
+      "similarity": 1,
+      "worstTile": 0.9983,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "content",
+        "similarity": 1,
+        "worstTile": 0.9983,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "settings-updates": {
+    "mockup": "F-Settings--updates",
+    "screen": {
+      "name": "content",
+      "similarity": 1,
+      "worstTile": 0.9983,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "content",
+        "similarity": 1,
+        "worstTile": 0.9983,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "settings-updates-checked": {
+    "mockup": "F-Settings--updates-checked",
+    "screen": {
+      "name": "content",
+      "similarity": 1,
+      "worstTile": 0.9983,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "content",
+        "similarity": 1,
+        "worstTile": 0.9983,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "setup-arrangement": {
+    "mockup": "F-Setup5",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-arrangement-crossed": {
+    "mockup": "F-Setup5--crossed",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-arrangement-other-edge": {
+    "mockup": "F-Setup5--other-edge",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-arrangement-waiting": {
+    "mockup": "F-Setup5--waiting",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-desk": {
+    "mockup": "V3-Setup",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-desk-new": {
+    "mockup": "V3-Setup--new",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-done": {
+    "mockup": "F-Setup6",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-keyboard": {
+    "mockup": "F-Setup4",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-machine": {
+    "mockup": "F-Setup1",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9999,
+      "worstTile": 0.9822,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-machine-amber": {
+    "mockup": "F-Setup1--amber",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9999,
+      "worstTile": 0.9822,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-machine-teal": {
+    "mockup": "F-Setup1--teal",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9999,
+      "worstTile": 0.9822,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-machine-violet": {
+    "mockup": "F-Setup1--violet",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9998,
+      "worstTile": 0.9744,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-permissions": {
+    "mockup": "F-Setup3",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-permissions-all": {
+    "mockup": "F-Setup3--all-granted",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "setup-permissions-one": {
+    "mockup": "F-Setup3--one-granted",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 0.9961,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [],
+    "errors": []
+  },
+  "states": {
+    "mockup": "V3-States",
+    "screen": {
+      "name": "content",
+      "similarity": 1,
+      "worstTile": 0.999,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "content",
+        "similarity": 1,
+        "worstTile": 0.999,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "tray": {
+    "mockup": "V3-Tray",
+    "screen": {
+      "name": "content",
+      "similarity": 0.9993,
+      "worstTile": 0.9797,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "content",
+        "similarity": 0.9993,
+        "worstTile": 0.9797,
+        "min": {
+          "similarity": 0.99,
+          "worstTile": 0.97
+        },
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "tunnels": {
+    "mockup": "V3-Compute",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 1,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "tunnels-closed": {
+    "mockup": "V3-Compute--tunnel-closed",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 1,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "tunnels-empty": {
+    "mockup": "V3-Compute",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9826,
+      "worstTile": 0.824,
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 0.9999,
+        "worstTile": 0.9939,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "tunnels-lora": {
+    "mockup": "V3-Compute--tunnel-lora",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 1,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "tunnels-no-processes": {
+    "mockup": "V3-Compute--tunnel-no-processes",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 1,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "tunnels-process-two": {
+    "mockup": "V3-Compute--process-2",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 1,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "tunnels-project-collapsed": {
+    "mockup": "V3-Compute--project-collapsed",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 1,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "tunnels-twelve-processes": {
+    "mockup": "V3-Compute",
+    "screen": {
+      "name": "screen",
+      "similarity": 0.9925,
+      "worstTile": 0.811,
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 1,
+        "ok": true
+      }
+    ],
+    "errors": []
+  },
+  "tunnels-two-processes": {
+    "mockup": "V3-Compute--tunnel-2-processes",
+    "screen": {
+      "name": "screen",
+      "similarity": 1,
+      "worstTile": 1,
+      "min": {
+        "similarity": 0.99,
+        "worstTile": 0.97
+      },
+      "ok": true
+    },
+    "regions": [
+      {
+        "name": "sidebar",
+        "similarity": 1,
+        "worstTile": 1,
+        "ok": true
+      }
+    ],
+    "errors": []
+  }
+}

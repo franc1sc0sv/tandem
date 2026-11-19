@@ -1,7 +1,9 @@
-//! Entornos y recursos entre dos `tandemd` reales por loopback (T-105): lo que escanea una
-//! máquina llega a la UI de la otra en el anuncio de capacidades, la UI de una puede pedir
-//! que la otra vuelva a escanear, y los recursos en vivo de la otra llegan mientras la UI
-//! mira y dejan de muestrearse cuando deja de mirar.
+//! Environments and resources between two real `tandemd`s over loopback (T-105): what one
+//! machine scans reaches the other's UI in the capabilities announcement, one's UI can ask
+//! the other to scan again, and the other's live resources arrive while the UI
+//! watches and stop being sampled when it stops watching.
+
+mod common;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -30,10 +32,10 @@ const GIB: u64 = 1 << 30;
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
-/// La primera es la del lado A (DECISIONS A1).
+/// The first is side A's (DECISIONS A1).
 fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     if x.public_key().as_bytes() < y.public_key().as_bytes() {
         (x, y)
@@ -54,8 +56,8 @@ fn loopback(port: u16) -> SocketAddr {
     SocketAddr::from((Ipv4Addr::LOCALHOST, port))
 }
 
-/// Una máquina simulada: su shell con git, su CPU y su RAM. `load` es el uso de CPU que da
-/// cada lectura, para reconocer de quién es cada muestra.
+/// A simulated machine: its shell with git, its CPU and its RAM. `load` is the CPU usage each
+/// reading gives, to recognize whose each sample is.
 fn machine(shell: &str, cores: u32, load: f32) -> (FakeRunner, FakeMeter, Arc<Host>) {
     let runner = FakeRunner::new();
     runner.set_var("SHELL", &format!("/bin/{shell}"));
@@ -66,7 +68,7 @@ fn machine(shell: &str, cores: u32, load: f32) -> (FakeRunner, FakeMeter, Arc<Ho
     );
     runner.on(shell, &["--version"], format!("{shell} 5.9\n"));
     let meter = FakeMeter::new(MeterInfo {
-        cpu: Some(format!("CPU de prueba de {cores} núcleos")),
+        cpu: Some(format!("Test CPU with {cores} cores")),
         cores,
         memory: 16 * GIB,
     });
@@ -100,7 +102,7 @@ impl Running {
         within(self.task).await.unwrap().unwrap();
     }
 
-    /// Pide las capacidades hasta que las de la otra cumplan `pred`.
+    /// Asks for capabilities until the other's satisfy `pred`.
     async fn until_peer(&mut self, pred: impl Fn(&Capabilities) -> bool) -> Capabilities {
         within(async {
             loop {
@@ -117,7 +119,7 @@ impl Running {
         .await
     }
 
-    /// Espera un aviso de las máquinas en que la otra cumpla `pred`.
+    /// Waits for a machines notice in which the other satisfies `pred`.
     async fn until_remote(&mut self, pred: impl Fn(&Capabilities) -> bool) -> Capabilities {
         within(async {
             loop {
@@ -127,7 +129,7 @@ impl Running {
                         ..
                     }) if pred(&remote) => return *remote,
                     Some(_) => {}
-                    None => panic!("el agente cerró la IPC"),
+                    None => panic!("the agent closed the IPC"),
                 }
             }
         })
@@ -135,8 +137,8 @@ impl Running {
     }
 }
 
-/// Un agente armado como en el binario, ya emparejado con el otro, con el enlace de
-/// loopback hacia él y `host` como su máquina.
+/// An agent built as in the binary, already paired with the other, with the loopback
+/// link to it and `host` as its machine.
 async fn start(
     machine: Machine,
     identity: &Identity,
@@ -177,8 +179,9 @@ async fn start(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
-            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );
@@ -236,7 +239,7 @@ async fn the_other_machine_environments_and_resources_reach_this_ui() {
         )
     );
 
-    // (a) La UI de B ve los entornos y el equipo que escaneó A al arrancar.
+    // (a) B's UI sees the environments and hardware A scanned on start.
     let seen = b.until_peer(|p| has_env(p, "bash")).await;
     assert_eq!(seen.machine, Machine::A);
     let bash = &seen.environments[0];
@@ -244,11 +247,11 @@ async fn the_other_machine_environments_and_resources_reach_this_ui() {
     assert_eq!(bash.detail, "git");
     assert_eq!(seen.hardware.cores, 4);
     assert_eq!(seen.hardware.memory, 16 * GIB);
-    // Y A ve los de B.
+    // And A sees B's.
     a.until_peer(|p| has_env(p, "zsh") && p.hardware.cores == 12)
         .await;
 
-    // (b) A tiene un shell nuevo; la UI de B le pide volver a escanear y lo ve llegar.
+    // (b) A has a new shell; B's UI asks it to scan again and sees it arrive.
     a_runner.on("fish", &["--version"], "fish, version 3.7.1\n");
     assert!(!has_env(&b.until_peer(|_| true).await, "fish"));
     assert_eq!(
@@ -262,7 +265,7 @@ async fn the_other_machine_environments_and_resources_reach_this_ui() {
     let rescanned = b.until_remote(|r| has_env(r, "fish")).await;
     assert!(has_env(&rescanned, "bash"));
 
-    // (c) La UI de B mira los recursos: llegan los de las dos máquinas.
+    // (c) B's UI watches the resources: those of both machines arrive.
     assert_eq!(
         b.ui.request(UiCommand::WatchResources { on: true })
             .await
@@ -290,7 +293,7 @@ async fn the_other_machine_environments_and_resources_reach_this_ui() {
     assert_eq!(from_b.unwrap().cpu.load, 70);
     assert!(a_meter.reads() > 0);
 
-    // Con `on: false`, A deja de muestrear (a lo más con la muestra que ya estaba en curso).
+    // With `on: false`, A stops sampling (at most with the sample that was already in progress).
     assert_eq!(
         b.ui.request(UiCommand::WatchResources { on: false })
             .await
@@ -303,7 +306,7 @@ async fn the_other_machine_environments_and_resources_reach_this_ui() {
     assert_eq!(
         a_meter.reads(),
         reads,
-        "A siguió muestreando sin nadie mirando"
+        "A kept sampling with nobody watching"
     );
 
     a.stop().await;

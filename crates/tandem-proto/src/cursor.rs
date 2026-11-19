@@ -1,23 +1,23 @@
-//! El cursor en vivo (T-128): la posición que la UI pinta como un punto sobre cada
-//! escritorio y los cruces de borde que destellan.
+//! The live cursor (T-128): the position the UI paints as a dot over each
+//! desktop and the edge crossings that flash.
 
 use serde::{Deserialize, Serialize};
 use tandem_core::Machine;
 
-/// Frecuencia máxima de las muestras del cursor, por emisor.
+/// Maximum frequency of cursor samples, per sender.
 pub const MAX_HZ: u32 = 30;
 
-/// Una posición del cursor, en las coordenadas nativas de su máquina (las del
+/// A cursor position, in the native coordinates of its machine (the
 /// [`ScreenRect`](crate::ScreenRect)).
 ///
-/// Enteras: la UI pinta un punto, y así el mensaje se puede comparar. Las muestras salen
-/// de la máquina que tiene el foco: es quien sabe dónde está el cursor.
+/// Integers: the UI paints a dot, and this way the message can be compared. Samples come
+/// from the machine that has focus: it is the one that knows where the cursor is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CursorSample {
-    /// La máquina donde está el cursor.
+    /// The machine where the cursor is.
     pub machine: Machine,
-    /// Id de la pantalla que lo contiene (la más cercana si cae en un hueco); vacío si no
-    /// se conocen las pantallas.
+    /// Id of the screen that contains it (the nearest one if it falls in a gap); empty if the
+    /// screens are not known.
     pub screen: String,
     pub x: i32,
     pub y: i32,

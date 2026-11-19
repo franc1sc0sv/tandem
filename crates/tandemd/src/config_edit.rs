@@ -1,9 +1,9 @@
-//! Cambios que el agente escribe en `tandem.toml` (T-084: el puesto que llegó de la otra
-//! máquina; T-087: dónde está el teclado), sin tocar el resto del archivo: los comentarios
-//! y el orden del usuario se conservan.
+//! Changes the agent writes to `tandem.toml` (T-084: the desk that came from the other
+//! machine; T-087: where the keyboard is), without touching the rest of the file: the user's comments
+//! and order are preserved.
 //!
-//! El archivo nuevo se valida como configuración completa antes de escribirlo, y se
-//! escribe aparte y se renombra: un error o un corte a medias dejan el anterior intacto.
+//! The new file is validated as a complete configuration before writing it, and it is
+//! written apart and renamed: an error or a cut midway leaves the previous one intact.
 
 use std::path::Path;
 
@@ -16,17 +16,17 @@ use crate::config::AgentConfig;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigEditError {
-    #[error("no se pudo leer {path}: {source}")]
+    #[error("could not read {path}: {source}")]
     Read {
         path: String,
         #[source]
         source: std::io::Error,
     },
-    #[error("tandem.toml no es TOML válido: {0}")]
+    #[error("tandem.toml is not valid TOML: {0}")]
     Parse(String),
-    #[error("el cambio dejaría una configuración inválida: {0}")]
+    #[error("the change would leave an invalid configuration: {0}")]
     Invalid(String),
-    #[error("no se pudo escribir {path}: {source}")]
+    #[error("could not write {path}: {source}")]
     Write {
         path: String,
         #[source]
@@ -49,23 +49,23 @@ fn input_table(doc: &mut DocumentMut) -> Result<&mut dyn toml_edit::TableLike, C
     doc.entry("input")
         .or_insert_with(|| Item::Table(Table::new()))
         .as_table_like_mut()
-        .ok_or_else(|| ConfigEditError::Invalid("[input] no es una tabla".into()))
+        .ok_or_else(|| ConfigEditError::Invalid("[input] is not a table".into()))
 }
 
-/// `keyboard = "b"` en `[input]`: dónde está el teclado y el mouse, dicho por el usuario
-/// en el asistente (T-087).
+/// `keyboard = "b"` in `[input]`: where the keyboard and mouse are, stated by the user
+/// in setup (T-087).
 pub fn with_keyboard(text: &str, machine: Machine) -> Result<String, ConfigEditError> {
     let mut doc = parse(text)?;
     let input = input_table(&mut doc)?;
-    // El nombre de antes (`server`) valdría lo mismo; se deja uno solo.
+    // The former name (`server`) would be worth the same; only one is kept.
     input.remove("server");
     input.insert("keyboard", toml_edit::value(machine.as_str()));
     validated(&doc)
 }
 
-/// Los lados de `cfg` sobre el texto de `tandem.toml` (T-097): `machine`, el teclado y todo
-/// el puesto. Es lo que se escribe al traducir un archivo de v0.2 o cuando la identidad dice
-/// que esta máquina es el otro lado. Lo demás (red, energía, comentarios) no se toca.
+/// The sides of `cfg` over the text of `tandem.toml` (T-097): `machine`, the keyboard and the whole
+/// desk. It is what is written when translating a v0.2 file or when the identity says
+/// this machine is the other side. The rest (network, power, comments) is not touched.
 pub fn with_sides(
     text: &str,
     machine: Machine,
@@ -73,12 +73,12 @@ pub fn with_sides(
     sync: &DeskVersion,
 ) -> Result<String, ConfigEditError> {
     let mut doc = parse(text)?;
-    // Las pantallas que ya estaban cambian de nombre en su lugar: así `with_desk` las
-    // reconoce y conserva sus comentarios.
+    // The screens that were already there change name in place: this way `with_desk` recognizes
+    // them and keeps their comments.
     let old = doc.get("machine").and_then(Item::as_str).map(str::to_owned);
     let relabel = |label: &str| -> Option<Machine> {
         match (old.as_deref(), label) {
-            // De v0.2: la de esta máquina es `machine`, la otra el otro lado.
+            // From v0.2: this machine's is `machine`, the other the other side.
             (Some(local), "mac" | "pc") if local == label => Some(machine),
             (_, "mac" | "pc") => Some(machine.other()),
             (Some(prev), _) => {
@@ -112,7 +112,7 @@ pub fn with_sides(
     with_desk(&doc.to_string(), machine, sync)
 }
 
-/// Lo mismo sobre el archivo.
+/// The same over the file.
 pub fn set_sides(
     path: &Path,
     machine: Machine,
@@ -122,14 +122,14 @@ pub fn set_sides(
     rewrite(path, |text| with_sides(text, machine, keyboard, sync))
 }
 
-/// Lo mismo sobre el archivo.
+/// The same over the file.
 pub fn set_keyboard(path: &Path, machine: Machine) -> Result<(), ConfigEditError> {
     rewrite(path, |text| with_keyboard(text, machine))
 }
 
-/// `[power.wol] mac = "..."`: a quién despierta esta máquina (T-159), aprendido al emparejar
-/// o escrito en la UI. `None` quita la MAC y anota `cleared = true`. Lo demás de `[power.wol]` (`source`,
-/// `broadcast`, `port`) se conserva.
+/// `[power.wol] mac = "..."`: whom this machine wakes (T-159), learned when pairing
+/// or written in the UI. `None` removes the MAC and notes `cleared = true`. The rest of `[power.wol]` (`source`,
+/// `broadcast`, `port`) is kept.
 pub fn with_wol_mac(
     text: &str,
     mac: Option<tandem_power::MacAddr>,
@@ -143,19 +143,19 @@ pub fn with_wol_mac(
                 .or_insert_with(|| Item::Table(Table::new()));
             let wol = wol
                 .as_table_like_mut()
-                .ok_or_else(|| ConfigEditError::Invalid("[power.wol] no es una tabla".into()))?;
+                .ok_or_else(|| ConfigEditError::Invalid("[power.wol] is not a table".into()))?;
             wol.remove("cleared");
             wol.insert("mac", toml_edit::value(mac.to_string()));
         }
         None => {
-            // No se borra la tabla: `cleared = true` recuerda que fue una decisión del
-            // usuario y que no hay que volver a aprender la MAC.
+            // The table is not deleted: `cleared = true` remembers it was a decision of the
+            // user and that the MAC must not be learned again.
             let wol = power
                 .entry("wol")
                 .or_insert_with(|| Item::Table(Table::new()));
             let wol = wol
                 .as_table_like_mut()
-                .ok_or_else(|| ConfigEditError::Invalid("[power.wol] no es una tabla".into()))?;
+                .ok_or_else(|| ConfigEditError::Invalid("[power.wol] is not a table".into()))?;
             wol.remove("mac");
             wol.insert("cleared", toml_edit::value(true));
         }
@@ -163,26 +163,26 @@ pub fn with_wol_mac(
     validated(&doc)
 }
 
-/// Lo mismo sobre el archivo.
+/// The same over the file.
 pub fn set_wol_mac(path: &Path, mac: Option<tandem_power::MacAddr>) -> Result<(), ConfigEditError> {
     rewrite(path, |text| with_wol_mac(text, mac))
 }
 
-/// El puesto compartido de `sync` sobre el texto de `tandem.toml` (T-084, T-099): los
-/// `[[screens]]` (se actualizan en su lugar los que ya estaban, se agregan los nuevos al
-/// final y se quitan los que ya no están), `[machines]`, `[arrangement]`, `[[scenes]]`,
-/// `[shortcuts]`, `[prefs]`, `[modules]`, `[data]` y el sello (`desk_rev`, `desk_at`, `desk_origin`,
-/// `desk_sum`). Lo solo-local (máquina, red, energía, `[input]`) no se toca. Los
-/// `[[monitors]]` de v0.1 y lo del puesto que antes vivía en `[input]` se borran.
+/// The shared desk of `sync` over the text of `tandem.toml` (T-084, T-099): the
+/// `[[screens]]` (the ones already there are updated in place, new ones are added at the
+/// end and the ones no longer there are removed), `[machines]`, `[arrangement]`, `[[scenes]]`,
+/// `[shortcuts]`, `[prefs]`, `[modules]`, `[data]` and the stamp (`desk_rev`, `desk_at`, `desk_origin`,
+/// `desk_sum`). What is local-only (machine, network, power, `[input]`) is not touched. The
+/// v0.1 `[[monitors]]` and what of the desk used to live in `[input]` are deleted.
 ///
-/// Se escribe aparte y se renombra ([`rewrite`]): un corte a medias deja el anterior.
+/// It is written apart and renamed ([`rewrite`]): a cut midway leaves the previous one.
 pub fn with_desk(
     text: &str,
     machine: Machine,
     sync: &DeskVersion,
 ) -> Result<String, ConfigEditError> {
     let mut doc = parse(text)?;
-    // El lado va siempre con el puesto: sus pantallas están etiquetadas desde él.
+    // The side always goes with the desk: its screens are labeled from it.
     doc["machine"] = toml_edit::value(machine.as_str());
     doc.remove("monitors");
     let mut old: Vec<Table> = match doc.remove("screens") {
@@ -204,10 +204,10 @@ pub fn with_desk(
                 && t.get("machine").and_then(Item::as_str) == Some(s.machine.as_str())
         });
         let mut table = at.map(|i| old.remove(i)).unwrap_or_default();
-        // Todas en el lugar de la primera de antes: toml_edit ordena las tablas por su
-        // posición (de forma estable), y con la de cada una, una reutilizada quedaría antes
-        // que las nuevas aunque el puesto diga otro orden (y la huella del archivo ya no
-        // sería la del puesto).
+        // All in the place of the first one from before: toml_edit orders tables by their
+        // position (stably), and with each one's, a reused one would end up before
+        // the new ones even if the desk says another order (and the file's fingerprint would no longer
+        // be the desk's).
         table.set_position(first);
         fill_screen(&mut table, s);
         screens.push(table);
@@ -234,7 +234,7 @@ pub fn with_desk(
             doc.remove("arrangement");
         }
     }
-    // `scenes = []` ya escrito se deja donde está: reescribir lo mismo no mueve nada.
+    // An already written `scenes = []` is left where it is: rewriting the same moves nothing.
     let already_empty = desk.scenes.is_empty()
         && doc
             .get("scenes")
@@ -252,7 +252,7 @@ pub fn with_desk(
     fill_modules(&mut doc, &desk.modules)?;
     fill_data(&mut doc, &desk.data)?;
     write_cables(&mut doc, &desk.cables);
-    // Lo que antes guardaba el puesto en `[input]`.
+    // What the desk used to keep in `[input]`.
     if let Some(input) = doc.get_mut("input").and_then(Item::as_table_like_mut) {
         input.remove("lock_shortcut");
         input.remove("clipboard");
@@ -272,7 +272,7 @@ pub fn with_desk(
     validated(&doc)
 }
 
-/// Las `[[scenes]]` del puesto, en el lugar de las de antes: reescribir lo mismo no mueve nada.
+/// The desk's `[[scenes]]`, in the place of the ones from before: rewriting the same moves nothing.
 fn write_scenes(doc: &mut DocumentMut, scenes_of: &[tandem_core::Scene]) {
     let at = match doc.remove("scenes") {
         Some(Item::ArrayOfTables(old)) => old.iter().filter_map(Table::position).min(),
@@ -311,14 +311,14 @@ fn write_scenes(doc: &mut DocumentMut, scenes_of: &[tandem_core::Scene]) {
         scenes.push(t);
     }
     if scenes.is_empty() {
-        // Explícito: sin la clave, al arrancar volverían las escenas por omisión.
+        // Explicit: without the key, the default scenes would come back on start.
         doc.insert("scenes", Item::Value(Value::Array(toml_edit::Array::new())));
     } else {
         doc.insert("scenes", Item::ArrayOfTables(scenes));
     }
 }
 
-/// Los `[[cables]]` del puesto (T-111), en el lugar de los de antes; sin ninguno, sin la clave.
+/// The desk's `[[cables]]` (T-111), in the place of the ones from before; with none, without the key.
 fn write_cables(doc: &mut DocumentMut, cables: &[tandem_core::MonitorCable]) {
     let at = match doc.remove("cables") {
         Some(Item::ArrayOfTables(old)) => old.iter().filter_map(Table::position).min(),
@@ -354,7 +354,7 @@ fn write_cables(doc: &mut DocumentMut, cables: &[tandem_core::MonitorCable]) {
     doc.insert("cables", Item::ArrayOfTables(out));
 }
 
-/// Lo mismo sobre el archivo.
+/// The same over the file.
 pub fn set_desk(path: &Path, machine: Machine, sync: &DeskVersion) -> Result<(), ConfigEditError> {
     rewrite(path, |text| with_desk(text, machine, sync))
 }
@@ -366,11 +366,11 @@ fn section<'a>(
     doc.entry(name)
         .or_insert_with(|| Item::Table(Table::new()))
         .as_table_like_mut()
-        .ok_or_else(|| ConfigEditError::Invalid(format!("[{name}] no es una tabla")))
+        .ok_or_else(|| ConfigEditError::Invalid(format!("[{name}] is not a table")))
 }
 
-/// `[data]`: el tope de los datos por Wi-Fi (T-101). Con los valores de omisión y sin la
-/// tabla en el archivo, no se agrega.
+/// `[data]`: the cap on data over Wi-Fi (T-101). With the default values and without the
+/// table in the file, it is not added.
 fn fill_data(doc: &mut DocumentMut, data: &DataPrefs) -> Result<(), ConfigEditError> {
     if *data == DataPrefs::default() && !doc.contains_key("data") {
         return Ok(());
@@ -408,12 +408,12 @@ fn align_str(align: Align) -> &'static str {
     }
 }
 
-/// `[modules.a]` y `[modules.b]`, de a uno por módulo; sin nada, sin la tabla.
+/// `[modules.a]` and `[modules.b]`, one per module; with nothing, without the table.
 fn fill_modules(
     doc: &mut DocumentMut,
     modules: &tandem_core::Modules,
 ) -> Result<(), ConfigEditError> {
-    // Cada `[modules.x]` en el lugar del de antes: reescribir lo mismo no mueve nada.
+    // Each `[modules.x]` in the place of the one from before: rewriting the same moves nothing.
     let old = doc.remove("modules");
     let at = |side: Machine| {
         old.as_ref()
@@ -442,7 +442,7 @@ fn fill_modules(
     Ok(())
 }
 
-/// `[machines.a]` y `[machines.b]`; sin datos de ningún lado, sin la tabla.
+/// `[machines.a]` and `[machines.b]`; with no data on either side, without the table.
 fn fill_machines(doc: &mut DocumentMut, machines: &Machines) -> Result<(), ConfigEditError> {
     if machines.is_empty() {
         doc.remove("machines");
@@ -452,12 +452,12 @@ fn fill_machines(doc: &mut DocumentMut, machines: &Machines) -> Result<(), Confi
         .entry("machines")
         .or_insert_with(|| {
             let mut t = Table::new();
-            // Solo `[machines.a]`/`[machines.b]`, sin una cabecera `[machines]` vacía.
+            // Only `[machines.a]`/`[machines.b]`, without an empty `[machines]` header.
             t.set_implicit(true);
             Item::Table(t)
         })
         .as_table_like_mut()
-        .ok_or_else(|| ConfigEditError::Invalid("[machines] no es una tabla".into()))?;
+        .ok_or_else(|| ConfigEditError::Invalid("[machines] is not a table".into()))?;
     for side in Machine::ALL {
         match machines.get(side) {
             Some(info) => {
@@ -465,10 +465,7 @@ fn fill_machines(doc: &mut DocumentMut, machines: &Machines) -> Result<(), Confi
                     .entry(side.as_str())
                     .or_insert_with(|| Item::Table(Table::new()));
                 let t = entry.as_table_like_mut().ok_or_else(|| {
-                    ConfigEditError::Invalid(format!(
-                        "[machines.{}] no es una tabla",
-                        side.as_str()
-                    ))
+                    ConfigEditError::Invalid(format!("[machines.{}] is not a table", side.as_str()))
                 })?;
                 fill_machine(t, info);
             }
@@ -500,11 +497,11 @@ fn fill_screen(t: &mut Table, s: &ScreenSpec) {
     t.insert("scale", toml_edit::value(s.scale.as_f64()));
 }
 
-/// Una escritura de `tandem.toml` a la vez: cada cambio lee, cambia y escribe, y dos a la
-/// vez (cambiar de lado mientras llega el puesto o el teclado) se pisarían.
+/// One write of `tandem.toml` at a time: each change reads, changes and writes, and two at the
+/// same time (switching sides while the desk or the keyboard arrives) would trample each other.
 static REWRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Lee, cambia y escribe aparte + renombra: un error deja el archivo como estaba.
+/// Reads, changes and writes apart + renames: an error leaves the file as it was.
 fn rewrite(
     path: &Path,
     change: impl FnOnce(&str) -> Result<String, ConfigEditError>,
@@ -518,8 +515,8 @@ fn rewrite(
         source,
     })?;
     let out = change(&text)?;
-    // Un temporal por escritura: dos procesos (o dos agentes de una prueba) no comparten
-    // nombre aunque escriban archivos vecinos.
+    // One temporary per write: two processes (or two agents in a test) do not share a
+    // name even if they write neighboring files.
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("toml.{}.{n}.tmp", std::process::id()));
@@ -539,13 +536,13 @@ mod tests {
 
     #[test]
     fn the_wol_mac_is_written_and_removed_keeping_the_rest() {
-        let text = "machine = \"a\"\n# energía\n[power]\nwakeable = true\n";
+        let text = "machine = \"a\"\n# pöwer\n[power]\nwakeable = true\n";
         let mac: tandem_power::MacAddr = "AA-BB-CC-DD-EE-FF".parse().unwrap();
         let with = with_wol_mac(text, Some(mac)).unwrap();
-        assert!(with.contains("# energía"), "{with}");
+        assert!(with.contains("# pöwer"), "{with}");
         let cfg = AgentConfig::from_toml(&with).unwrap();
         assert_eq!(cfg.power.wol.unwrap().mac, mac);
-        // Cambiar la MAC deja lo que el usuario puso en la misma tabla.
+        // Changing the MAC leaves what the user put in the same table.
         let custom = format!("{with}source = \"10.77.2.1\"\n");
         let other: tandem_power::MacAddr = "11:22:33:44:55:66".parse().unwrap();
         let cfg = AgentConfig::from_toml(&with_wol_mac(&custom, Some(other)).unwrap()).unwrap();
@@ -554,7 +551,7 @@ mod tests {
         assert_eq!(wol.source, Some("10.77.2.1".parse().unwrap()));
         let without = AgentConfig::from_toml(&with_wol_mac(&with, None).unwrap()).unwrap();
         assert_eq!(without.power.wol, None);
-        // Borrarla queda anotado para que no se vuelva a aprender; escribir otra lo quita.
+        // Deleting it is noted so it is not learned again; writing another removes it.
         assert!(without.power.wol_cleared);
         let back = AgentConfig::from_toml(
             &with_wol_mac(&with_wol_mac(&with, None).unwrap(), Some(mac)).unwrap(),
@@ -573,14 +570,14 @@ mod tests {
                 by: Machine::A,
             },
             desk: tandem_core::Desk {
-                name: Some("Oficina".into()),
+                name: Some("Office".into()),
                 ..Default::default()
             },
         };
         let text = with_desk("machine = \"a\"\n", Machine::A, &sync).unwrap();
         assert_eq!(
             AgentConfig::from_toml(&text).unwrap().desk.name.as_deref(),
-            Some("Oficina")
+            Some("Office")
         );
         let cleared = DeskVersion {
             desk: tandem_core::Desk::default(),
@@ -590,10 +587,10 @@ mod tests {
         assert_eq!(AgentConfig::from_toml(&text).unwrap().desk.name, None);
     }
 
-    const PC: &str = r#"# La PC.
+    const PC: &str = r#"# The PC.
 machine = "b"
 
-# El 34", medido a mano.
+# The 34", measured by hand.
 [[screens]]
 machine = "b"
 id = "34"
@@ -630,7 +627,7 @@ scale = 2.0
     #[test]
     fn the_desk_from_the_other_machine_keeps_what_is_local() {
         let mut sync = sync_of(PC, 3);
-        // La pantalla de la Mac se fue, el 34" cambió de lugar y llegó una nueva.
+        // The Mac's screen went away, the 34" changed place and a new one arrived.
         sync.desk.screens.remove(1);
         sync.desk.screens[0].x = -3440;
         sync.desk.screens.push(ScreenSpec {
@@ -653,9 +650,9 @@ scale = 2.0
         sync.desk.modules.set(Machine::B, "clipboard", false);
         sync.stamp.at = 1_763_400_000_000;
         let out = with_desk(PC, Machine::B, &sync).unwrap();
-        assert!(out.starts_with("# La PC.\n"), "{out}");
-        // El comentario del 34" sigue: se actualizó en su lugar.
-        assert!(out.contains("# El 34\", medido a mano."), "{out}");
+        assert!(out.starts_with("# The PC.\n"), "{out}");
+        // The 34"'s comment remains: it was updated in place.
+        assert!(out.contains("# The 34\", measured by hand."), "{out}");
         assert!(!out.contains("id = \"laptop\""), "{out}");
         let cfg = AgentConfig::from_toml(&out).unwrap();
         assert_eq!(cfg.machine, Machine::B);
@@ -669,10 +666,13 @@ scale = 2.0
             Some(crate::desk_sync::fingerprint(&sync.desk))
         );
         assert!(out.contains("[modules.b]"), "{out}");
-        assert!(!out.contains("[modules]\n"), "sin cabecera vacía: {out}");
-        // Y otra vez no cambia nada.
+        assert!(
+            !out.contains("[modules]\n"),
+            "without an empty header: {out}"
+        );
+        // And again it changes nothing.
         assert_eq!(with_desk(&out, Machine::B, &sync).unwrap(), out);
-        // Sin acomodo, sin escenas ni módulos, sus secciones se van.
+        // Without arrangement, without scenes or modules, their sections go away.
         let mut bare = sync.clone();
         bare.desk.arrangement = None;
         bare.desk.scenes.clear();
@@ -695,8 +695,8 @@ scale = 2.0
         assert_eq!(cfg.desk, Config::default());
     }
 
-    /// Lo que antes era del puesto en `[input]` (atajo, portapapeles) y el desplazamiento a
-    /// mano del acomodo pasan a sus secciones al escribir el puesto.
+    /// What used to belong to the desk in `[input]` (shortcut, clipboard) and the arrangement's manual
+    /// offset move to their sections when writing the desk.
     #[test]
     fn the_desk_from_before_t099_is_rewritten_in_its_sections() {
         let text = format!(
@@ -718,7 +718,7 @@ scale = 2.0
 
     #[test]
     fn the_wifi_data_cap_travels_with_the_desk() {
-        // Con los valores de omisión no aparece una tabla nueva.
+        // With the default values no new table appears.
         let plain = with_desk(PC, Machine::B, &sync_of(PC, 2)).unwrap();
         assert!(!plain.contains("[data]"));
 
@@ -731,7 +731,7 @@ scale = 2.0
         let cfg = AgentConfig::from_toml(&out).unwrap();
         assert_eq!(cfg.desk.data, sync.desk.data);
 
-        // Volver al porcentaje quita el tope fijo.
+        // Going back to the percentage removes the fixed cap.
         sync.desk.data.wifi_cap_mbps = None;
         let back = with_desk(&out, Machine::B, &sync).unwrap();
         assert!(!back.contains("wifi_cap_mbps"));
@@ -749,8 +749,8 @@ scale = 2.0
         assert_eq!(cfg.input.keyboard, Some(Machine::B));
         assert!(!cfg.desk.prefs.drag_files);
         assert!(!out.contains("server"), "{out}");
-        assert!(out.starts_with("# La PC.\n"));
-        // Sin sección [input], la crea.
+        assert!(out.starts_with("# The PC.\n"));
+        // Without an [input] section, it creates it.
         let out = with_keyboard(PC, Machine::A).unwrap();
         assert_eq!(
             AgentConfig::from_toml(&out).unwrap().input.keyboard,
@@ -784,7 +784,7 @@ scale = 2.0
             Err(ConfigEditError::Parse(_))
         ));
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "machine = ");
-        // Un puesto que no valida tampoco se escribe.
+        // A desk that does not validate is not written either.
         std::fs::write(&path, PC).unwrap();
         let mut sync = sync_of(PC, 2);
         sync.desk.screens.push(sync.desk.screens[0].clone());
@@ -795,7 +795,7 @@ scale = 2.0
         assert_eq!(std::fs::read_to_string(&path).unwrap(), PC);
         assert!(matches!(
             set_desk(
-                &dir.path().join("no-existe.toml"),
+                &dir.path().join("missing.toml"),
                 Machine::B,
                 &sync_of(PC, 2)
             ),
@@ -813,7 +813,10 @@ scale = 2.0
         ));
         let out = with_desk(PC, Machine::B, &sync).unwrap();
         assert!(out.contains("[machines.a]"), "{out}");
-        assert!(!out.contains("[machines]\n"), "sin cabecera vacía: {out}");
+        assert!(
+            !out.contains("[machines]\n"),
+            "without an empty header: {out}"
+        );
         let cfg = AgentConfig::from_toml(&out).unwrap();
         assert_eq!(cfg.desk.machines, sync.desk.machines);
         sync.desk.machines.a = None;
@@ -821,14 +824,14 @@ scale = 2.0
         assert!(!out.contains("machines"), "{out}");
     }
 
-    /// Cambiar de lado reescribe todo lo que nombra un lado y deja lo demás.
+    /// Changing side rewrites everything that names a side and leaves the rest.
     #[test]
     fn the_sides_are_rewritten_in_place() {
         let text = format!("{PC}\n[input]\nserver = \"a\"\n\n[prefs]\ndrag_files = false\n");
         let cfg = AgentConfig::from_toml(&text).unwrap().with_side(Machine::A);
         let sync = version(cfg.desk.clone(), 1, Machine::A);
         let out = with_sides(&text, cfg.machine, cfg.input.keyboard, &sync).unwrap();
-        assert!(out.starts_with("# La PC.\n"), "{out}");
+        assert!(out.starts_with("# The PC.\n"), "{out}");
         let back = AgentConfig::from_toml(&out).unwrap();
         assert!(!back.rewrite_sides);
         assert_eq!(back.machine, Machine::A);
@@ -838,7 +841,7 @@ scale = 2.0
         assert_eq!(back.desk.screens_of(Machine::A).next().unwrap().id, "34");
     }
 
-    /// Un archivo de v0.2 se reescribe en el formato nuevo, sin rastros de `mac`/`pc`.
+    /// A v0.2 file is rewritten in the new format, with no traces of `mac`/`pc`.
     #[test]
     fn an_old_file_is_rewritten_with_the_new_sides() {
         let old = include_str!("../../../docs/examples/v0.2/tandem.pc.toml");
@@ -965,7 +968,7 @@ scale = 2.0
                                     .get(usize::from(input))
                                     .copied();
                                 c.b.input = c.a.input.map(tandem_core::MonitorInput::other);
-                                c.b.screen = screen.then(|| "pantalla-1".to_owned());
+                                c.b.screen = screen.then(|| "screen-1".to_owned());
                                 c
                             })
                             .collect(),
@@ -975,11 +978,11 @@ scale = 2.0
     }
 
     proptest::proptest! {
-        // Cada caso valida el archivo entero dos veces: con 64 alcanza y no frena la puerta.
+        // Each case validates the whole file twice: 64 is enough and does not slow the gate.
         #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
 
-        /// Cualquier puesto escrito en `tandem.toml` (sobre el de la PC, con sus comentarios)
-        /// se vuelve a leer igual, con su sello, y escribirlo otra vez no cambia el archivo.
+        /// Any desk written to `tandem.toml` (over the PC's, with its comments)
+        /// is read back the same, with its stamp, and writing it again does not change the file.
         #[test]
         fn any_desk_round_trips_through_the_file(desk in any_desk(), rev in 0u64..1000) {
             let sync = version(desk, rev, Machine::A);
@@ -992,8 +995,8 @@ scale = 2.0
         }
     }
 
-    /// Hallazgo del CI de Windows (PR #68): dos cambios del archivo a la vez (cambiar de lado
-    /// y guardar el teclado) leían el mismo texto y el segundo pisaba al primero.
+    /// Finding from the Windows CI (PR #68): two changes to the file at once (switching side
+    /// and saving the keyboard) read the same text and the second trampled the first.
     #[test]
     fn concurrent_changes_do_not_lose_each_other() {
         let dir = tempfile::tempdir().unwrap();
@@ -1014,7 +1017,7 @@ scale = 2.0
                 });
             });
             let saved = AgentConfig::load(&path).unwrap();
-            assert_eq!(saved.machine, Machine::B, "vuelta {i}");
+            assert_eq!(saved.machine, Machine::B, "round {i}");
         }
     }
 }

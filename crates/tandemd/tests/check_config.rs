@@ -1,4 +1,4 @@
-//! `tandemd --check-config`: código 0 si la configuración es válida, ≠ 0 si no.
+//! `tandemd --check-config`: code 0 if the configuration is valid, != 0 if not.
 
 use std::path::Path;
 use std::process::{Command, Output};
@@ -35,8 +35,8 @@ fn valid_config_exits_zero() {
     let out = check_text(VALID);
     assert!(out.status.success(), "{out:?}");
     let stdout = String::from_utf8(out.stdout).unwrap();
-    assert!(stdout.contains("configuración válida"), "{stdout}");
-    assert!(stdout.contains("1 pantallas declaradas"), "{stdout}");
+    assert!(stdout.contains("valid configuration"), "{stdout}");
+    assert!(stdout.contains("1 screens declared"), "{stdout}");
 }
 
 #[test]
@@ -48,7 +48,7 @@ fn invalid_toml_exits_nonzero() {
 
 #[test]
 fn invalid_desk_exits_nonzero() {
-    // Una pantalla sin área.
+    // A screen without area.
     let out = check_text(
         "machine = \"a\"\n[[screens]]\nmachine = \"a\"\nid = \"a\"\nx = 0\ny = 0\nwidth = 0\nheight = 10\n",
     );
@@ -57,7 +57,7 @@ fn invalid_desk_exits_nonzero() {
     assert!(stderr.contains("has no area"), "{stderr}");
 }
 
-/// Una configuración de v0.1 es válida: los `[[monitors]]` se ignoran con un aviso.
+/// A v0.1 configuration is valid: the `[[monitors]]` are ignored with a warning.
 #[test]
 fn an_old_config_with_monitors_is_valid_with_a_warning() {
     let out = check_text(
@@ -71,7 +71,7 @@ fn an_old_config_with_monitors_is_valid_with_a_warning() {
 #[test]
 fn missing_file_exits_nonzero() {
     let dir = tempfile::tempdir().unwrap();
-    let out = check(&dir.path().join("no-existe.toml"));
+    let out = check(&dir.path().join("missing.toml"));
     assert!(!out.status.success());
 }
 
@@ -84,8 +84,8 @@ fn bad_arguments_exit_nonzero() {
     assert_eq!(out.status.code(), Some(2));
 }
 
-/// Las configs de ejemplo de docs/examples son válidas, y las de v0.2 (lados `mac`/`pc`)
-/// también: el agente las traduce solo.
+/// The example configs in docs/examples are valid, and the v0.2 ones (`mac`/`pc` sides)
+/// too: the agent translates them on its own.
 #[test]
 fn example_configs_are_valid() {
     let examples = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/examples");
@@ -95,23 +95,20 @@ fn example_configs_are_valid() {
         let stdout = String::from_utf8(out.stdout).unwrap();
         assert!(
             stdout.contains(&format!(
-                "lado {}, 3 pantallas declaradas)",
+                "side {}, 3 screens declared)",
                 side.to_uppercase()
             )),
             "{stdout}"
         );
-        assert!(out.stderr.is_empty(), "{file}: sin avisos");
+        assert!(out.stderr.is_empty(), "{file}: no warnings");
     }
     for file in ["v0.2/tandem.mac.toml", "v0.2/tandem.pc.toml"] {
         let out = check(&examples.join(file));
         assert!(out.status.success(), "{file}: {out:?}");
         let stdout = String::from_utf8(out.stdout).unwrap();
-        // Hasta conocer las claves, esta máquina es A.
-        assert!(
-            stdout.contains("lado A, 3 pantallas declaradas;"),
-            "{stdout}"
-        );
+        // Until the keys are known, this machine is A.
+        assert!(stdout.contains("side A, 3 screens declared;"), "{stdout}");
         assert!(stdout.contains("v0.2"), "{stdout}");
-        assert!(out.stderr.is_empty(), "{file}: sin avisos");
+        assert!(out.stderr.is_empty(), "{file}: no warnings");
     }
 }

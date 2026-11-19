@@ -1,5 +1,5 @@
-//! Dobles de prueba de [`Capture`] e [`Injector`]: registran lo que se les pide
-//! y dejan esperar a que llegue algo.
+//! Test doubles of [`Capture`] and [`Injector`]: they record what they are asked
+//! and let a test wait for something to arrive.
 
 use std::convert::Infallible;
 
@@ -9,15 +9,15 @@ use super::{Capture, Injector};
 use crate::event::InputEvent;
 use crate::geometry::Point;
 
-/// Lo que se le pidió a la captura.
+/// What the capture was asked for.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum CaptureCall {
     Grab(bool),
     Warp(Point),
 }
 
-/// Captura simulada. Los eventos "capturados" los manda la prueba por el canal
-/// del driver; esto solo registra los pedidos de control.
+/// Simulated capture. The "captured" events are sent by the test over the driver's
+/// channel; this only records the control requests.
 #[derive(Debug)]
 pub struct FakeCapture {
     calls: watch::Sender<Vec<CaptureCall>>,
@@ -34,7 +34,7 @@ impl FakeCapture {
         self.calls.subscribe()
     }
 
-    /// Si la entrada local está tragada ahora.
+    /// Whether local input is currently swallowed.
     pub fn grabbed(&self) -> bool {
         self.calls
             .borrow()
@@ -68,7 +68,7 @@ impl Capture for FakeCapture {
     }
 }
 
-/// Inyección simulada: guarda todo lo inyectado, en orden.
+/// Simulated injection: stores everything injected, in order.
 #[derive(Debug)]
 pub struct FakeInjector {
     events: watch::Sender<Vec<InputEvent>>,

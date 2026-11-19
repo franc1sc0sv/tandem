@@ -1,15 +1,15 @@
-//! Banco de latencia de la entrada (T-093, DESIGN §7.1): dos agentes por QUIC real en
-//! loopback, captura e inyección simuladas, 1000 movimientos por segundo.
+//! Input latency bench (T-093, DESIGN §7.1): two agents over real QUIC on
+//! loopback, simulated capture and injection, 1000 movements per second.
 //!
-//! La latencia de cada movimiento es desde que la captura simulada lo entrega hasta que
-//! el inyector del otro lado pone el cursor en (o más allá de) su posición; los dos lados
-//! están en el mismo proceso, así que se mide con un solo reloj. Además se comprueba que
-//! la medición propia del motor (marcas del servidor + desfase de los latidos) llegue a
-//! las dos UIs.
+//! The latency of each movement is from when the simulated capture delivers it until
+//! the injector on the other side puts the cursor at (or beyond) its position; both sides
+//! are in the same process, so it is measured with a single clock. It is also checked that
+//! the engine's own measurement (server marks + heartbeat offset) reaches
+//! both UIs.
 //!
-//! - En CI solo falla con una regresión grande (p99 > 20 ms): los runners son
-//!   compartidos y el objetivo real no se puede exigir ahí.
-//! - El objetivo (p99 ≤ 1 ms) se comprueba en local, en release:
+//! - In CI it only fails on a large regression (p99 > 20 ms): runners are
+//!   shared and the real target cannot be demanded there.
+//! - The target (p99 ≤ 1 ms) is checked locally, in release:
 //!   `cargo test -p tandem-sim --release --test latency -- --ignored --nocapture`.
 
 use std::time::{Duration, Instant};
@@ -45,7 +45,7 @@ fn screen(id: &str, w: u32, h: u32) -> Screen {
     Screen::new(id.into(), Rect::new(0, 0, w, h), 1.0)
 }
 
-/// Percentil `q` (0–1) de una lista ordenada.
+/// Percentile `q` (0–1) of a sorted list.
 fn pct(sorted: &[Duration], q: f64) -> Duration {
     let rank = ((q * sorted.len() as f64).ceil() as usize).clamp(1, sorted.len());
     sorted[rank - 1]
@@ -67,8 +67,8 @@ impl Run {
     }
 }
 
-/// Cruza el cursor de A a B y manda `n` movimientos de 1 px a 1000 por segundo desde un
-/// hilo propio (como el de una captura real). Devuelve la latencia de cada uno.
+/// Crosses the cursor from A to B and sends `n` 1 px movements at 1000 per second from a
+/// thread of its own (like a real capture's). Returns the latency of each one.
 async fn bench(pair: &InputPair, n: usize) -> Run {
     if let Ok(filter) = std::env::var("TANDEM_TEST_LOG") {
         let _ = tracing_subscriber::fmt()
@@ -80,10 +80,10 @@ async fn bench(pair: &InputPair, n: usize) -> Run {
     a.until_input(LIMIT, |s| s.session && s.server == a.machine())
         .await
         .unwrap();
-    // Si el cursor quedó en B de una corrida anterior, vuelve a A por el borde.
+    // If the cursor was left on B from a previous run, return to A through the edge.
     a.fake
         .capture(InputEvent::MotionRelative { dx: -1e6, dy: 0.0 });
-    // Las pantallas de B tienen que haber llegado a A para que el borde exista.
+    // B's screens must have reached A for the edge to exist.
     let entered = tokio::time::timeout(LIMIT, async {
         loop {
             let before = b.fake.timeline().len();
@@ -108,7 +108,7 @@ async fn bench(pair: &InputPair, n: usize) -> Run {
     .await
     .unwrap_or_else(|_| {
         panic!(
-            "el cursor no cruzó a B.\n A: {:?}\n B: {:?}\n estado de A: {:?}\n pantallas de B en A: {:?}\n acomodo de A: {:?}\n captura de A: {} {:?}\n inyectado en B: {}",
+            "the cursor did not cross to B.\n A: {:?}\n B: {:?}\n A's state: {:?}\n B's screens on A: {:?}\n A's arrangement: {:?}\n A's capture: {} {:?}\n injected on B: {}",
             a.input(),
             b.input(),
             a.agent.state(),
@@ -119,8 +119,8 @@ async fn bench(pair: &InputPair, n: usize) -> Run {
             b.fake.timeline().len(),
         )
     });
-    assert_eq!(entered, 0.0, "entra por el borde izquierdo de B");
-    // Dos latidos con eco: el motor ya estima el desfase.
+    assert_eq!(entered, 0.0, "enters through B's left edge");
+    // Two heartbeats with echo: the engine already estimates the offset.
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     let start = b.fake.timeline().len();
@@ -129,7 +129,7 @@ async fn bench(pair: &InputPair, n: usize) -> Run {
         let mut at = Vec::with_capacity(n);
         let t0 = Instant::now();
         for i in 0..n {
-            // Al ritmo de un mouse de 1000 Hz, sin acumular atraso.
+            // At the pace of a 1000 Hz mouse, without accumulating lag.
             let due = t0 + Duration::from_millis(i as u64);
             while Instant::now() < due {
                 std::thread::sleep(Duration::from_micros(100));
@@ -155,9 +155,9 @@ async fn bench(pair: &InputPair, n: usize) -> Run {
         }
     })
     .await
-    .expect("no llegaron todos los movimientos");
+    .expect("not all the movements arrived");
 
-    // El movimiento `i` (x = i + 1) llegó cuando el cursor de B alcanzó esa x.
+    // Movement `i` (x = i + 1) arrived when B's cursor reached that x.
     let timeline = b.fake.timeline();
     let positions: Vec<(Instant, f64)> = timeline[start..]
         .iter()
@@ -182,16 +182,16 @@ async fn bench(pair: &InputPair, n: usize) -> Run {
             .filter(|(_, d)| **d > Duration::from_millis(3))
             .map(|(i, d)| (i, d.as_micros()))
             .collect();
-        println!("lentos: {slow:?}");
+        println!("slow: {slow:?}");
     }
     latencies.sort_unstable();
     Run { sorted: latencies }
 }
 
-/// En CI: hasta tres tandas de 1000 movimientos; falla solo si en las tres el p99 pasa de
-/// 20 ms. Una regresión del motor se ve en todas; una pausa del planificador de una
-/// máquina cargada (un runner compartido, otros procesos) solo en alguna. La medición
-/// del motor llega a la UI de las dos máquinas, con el enlace.
+/// In CI: up to three batches of 1000 movements; it fails only if in all three p99 exceeds
+/// 20 ms. An engine regression shows in all of them; a scheduler pause on a
+/// loaded machine (a shared runner, other processes) only in some. The engine's
+/// measurement reaches both machines' UI, with the link.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn input_latency_bench_in_ci() {
     let pair = InputPair::start(
@@ -205,7 +205,7 @@ async fn input_latency_bench_in_ci() {
     for _ in 0..3 {
         let run = bench(&pair, 1000).await;
         println!(
-            "latencia captura → inyección: p50 {:?}, p99 {:?}, máx {:?} ({} movimientos)",
+            "capture → injection latency: p50 {:?}, p99 {:?}, max {:?} ({} movements)",
             run.p50(),
             run.p99(),
             run.max(),
@@ -218,10 +218,10 @@ async fn input_latency_bench_in_ci() {
     }
     assert!(
         best <= Duration::from_millis(20),
-        "regresión grande: el mejor p99 de tres tandas es {best:?}"
+        "large regression: the best p99 of three batches is {best:?}"
     );
 
-    // La medición propia del motor: la publica quien recibe (B) y quien manda (A).
+    // The engine's own measurement: published by the receiver (B) and the sender (A).
     let measured = pair
         .b
         .until_input(LIMIT, |s| s.latency.is_some_and(|l| l.count > 0))
@@ -242,8 +242,8 @@ async fn input_latency_bench_in_ci() {
     pair.stop().await;
 }
 
-/// En local y en release: el objetivo de DESIGN §7.1 para USB-C/Ethernet (p99 ≤ 1 ms) en
-/// loopback, con 5000 movimientos.
+/// Locally and in release: DESIGN §7.1's target for USB-C/Ethernet (p99 ≤ 1 ms) on
+/// loopback, with 5000 movements.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench"]
 async fn input_latency_bench_target() {
@@ -256,7 +256,7 @@ async fn input_latency_bench_target() {
     .unwrap();
     let run = bench(&pair, 5000).await;
     println!(
-        "latencia captura → inyección: p50 {:?}, p99 {:?}, máx {:?} ({} movimientos)",
+        "capture → injection latency: p50 {:?}, p99 {:?}, max {:?} ({} movements)",
         run.p50(),
         run.p99(),
         run.max(),
@@ -266,9 +266,9 @@ async fn input_latency_bench_target() {
     pair.stop().await;
 }
 
-/// T-128: con el cursor en vivo pedido en las dos máquinas (el peor caso: las dos muestrean
-/// y se mandan las muestras), la latencia de la entrada no empeora. En CI, la misma
-/// regresión grande que sin suscripción; la comparación fina es la de abajo.
+/// T-128: with the live cursor requested on both machines (the worst case: both sample
+/// and send the samples), input latency does not get worse. In CI, the same large
+/// regression as without a subscription; the fine comparison is the one below.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn input_latency_with_the_live_cursor_watched_in_ci() {
     let pair = InputPair::start(
@@ -283,7 +283,7 @@ async fn input_latency_with_the_live_cursor_watched_in_ci() {
     for _ in 0..3 {
         let run = bench(&pair, 1000).await;
         println!(
-            "latencia con el cursor en vivo: p50 {:?}, p99 {:?}, máx {:?}",
+            "latency with the live cursor: p50 {:?}, p99 {:?}, max {:?}",
             run.p50(),
             run.p99(),
             run.max()
@@ -295,17 +295,17 @@ async fn input_latency_with_the_live_cursor_watched_in_ci() {
     }
     assert!(
         best <= Duration::from_millis(20),
-        "regresión grande con el cursor en vivo: el mejor p99 de tres tandas es {best:?}"
+        "large regression with the live cursor: the best p99 of three batches is {best:?}"
     );
-    // De verdad se estuvo publicando: el banco movió el cursor.
+    // It was really being published: the bench moved the cursor.
     assert!(pair.a.agent.cursor_published() + pair.b.agent.cursor_published() > 0);
     pair.stop().await;
 }
 
-/// En local y en release: el p99 con el cursor en vivo pedido no pasa del de sin pedirlo
-/// más 0,3 ms (el ruido de la medición; en una máquina con otra carga el ruido es mayor que eso: correrlo en reposo). Cada lado es el mejor de tres tandas de 5000
-/// movimientos, alternadas: una pausa del planificador de la máquina arruina una tanda
-/// suelta (se ve hasta sin el cursor en vivo), no las tres.
+/// Locally and in release: p99 with the live cursor requested does not exceed that of without
+/// it plus 0.3 ms (measurement noise; on a machine with another load the noise is larger than that: run it at rest). Each side is the best of three batches of 5000
+/// movements, alternated: a scheduler pause on the machine ruins a single
+/// batch (it shows even without the live cursor), not all three.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench"]
 async fn input_latency_does_not_get_worse_with_the_live_cursor_watched() {
@@ -325,10 +325,10 @@ async fn input_latency_does_not_get_worse_with_the_live_cursor_watched() {
         with = with.min(run.p99());
         drop(watching);
     }
-    println!("mejor p99 sin el cursor en vivo {without:?}; con él {with:?}");
+    println!("best p99 without the live cursor {without:?}; with it {with:?}");
     assert!(
         with <= without + Duration::from_micros(300),
-        "el cursor en vivo empeora la latencia: {with:?} contra {without:?}"
+        "the live cursor worsens latency: {with:?} against {without:?}"
     );
     pair.stop().await;
 }

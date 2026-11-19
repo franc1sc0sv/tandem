@@ -1,5 +1,5 @@
-//! Dobles de prueba: programas con salidas guardadas y contadores fijos. Públicos para que
-//! el agente (`tandemd`) arme un [`crate::Host`] simulado en sus pruebas.
+//! Test doubles: programs with saved outputs and fixed counters. Public so that
+//! the agent (`tandemd`) can build a simulated [`crate::Host`] in its tests.
 
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -10,7 +10,7 @@ use std::time::Duration;
 use crate::meter::{Meter, MeterInfo, Reading};
 use crate::run::{Output, RunError, Runner};
 
-/// Respuesta a una llamada.
+/// The answer to a call.
 #[derive(Debug, Clone)]
 pub enum Answer {
     Output(Output),
@@ -19,23 +19,23 @@ pub enum Answer {
 
 #[derive(Debug, Default)]
 struct Inner {
-    /// Dónde está instalado cada programa.
+    /// Where each program is installed.
     installed: BTreeMap<String, Vec<PathBuf>>,
-    /// Por programa: prefijo de argumentos → respuesta. Gana el prefijo más largo; a igual largo, el último cargado.
+    /// Per program: argument prefix → answer. The longest prefix wins; at equal length, the last one loaded.
     answers: BTreeMap<String, Vec<(Vec<String>, Answer)>>,
     vars: BTreeMap<String, String>,
     calls: Vec<(String, Vec<String>)>,
 }
 
-/// Programas simulados: cada uno contesta lo que se le cargó (la salida real de un
-/// fixture). Un programa sin respuesta para esos argumentos falla como si no existiera.
+/// Simulated programs: each one answers what was loaded into it (the real output of a
+/// fixture). A program with no answer for those arguments fails as if it did not exist.
 #[derive(Debug, Clone, Default)]
 pub struct FakeRunner {
     inner: Arc<Mutex<Inner>>,
 }
 
-/// El nombre del programa sin carpeta ni extensión, con rutas de Windows o Unix en cualquier
-/// sistema (las pruebas simulan uno desde el otro).
+/// The program name without folder or extension, with Windows or Unix paths on any
+/// system (tests simulate one from the other).
 fn stem(path: &Path) -> String {
     let full = path.to_string_lossy();
     let name = full.rsplit(['/', '\\']).next().unwrap_or_default();
@@ -51,7 +51,7 @@ impl FakeRunner {
         self.inner.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// `program` está en `path` (y solo ahí).
+    /// `program` is at `path` (and only there).
     pub fn install(&self, program: &str, path: impl Into<PathBuf>) -> &Self {
         self.lock()
             .installed
@@ -59,7 +59,7 @@ impl FakeRunner {
         self
     }
 
-    /// Otra copia de `program`, más adelante en el `PATH`.
+    /// Another copy of `program`, further along in the `PATH`.
     pub fn install_also(&self, program: &str, path: impl Into<PathBuf>) -> &Self {
         self.lock()
             .installed
@@ -69,8 +69,8 @@ impl FakeRunner {
         self
     }
 
-    /// `program` con argumentos que empiezan por `args` contesta `answer`. Lo instala en
-    /// `/fake/bin` si no estaba.
+    /// `program` with arguments that start with `args` answers `answer`. It installs it in
+    /// `/fake/bin` if it was not there.
     pub fn answer(&self, program: &str, args: &[&str], answer: Answer) -> &Self {
         let mut inner = self.lock();
         inner
@@ -86,7 +86,7 @@ impl FakeRunner {
         self
     }
 
-    /// Salida exitosa con `stdout`.
+    /// Successful output with `stdout`.
     pub fn on(&self, program: &str, args: &[&str], stdout: impl Into<Vec<u8>>) -> &Self {
         self.answer(program, args, Answer::Output(Output::ok(stdout)))
     }
@@ -96,7 +96,7 @@ impl FakeRunner {
         self
     }
 
-    /// Las llamadas hechas, con el nombre del programa sin ruta.
+    /// The calls made, with the program name without a path.
     pub fn calls(&self) -> Vec<(String, Vec<String>)> {
         self.lock().calls.clone()
     }
@@ -143,7 +143,7 @@ impl Runner for FakeRunner {
             }),
             None => Err(RunError::Spawn {
                 program: name,
-                reason: "sin respuesta cargada".into(),
+                reason: "no answer loaded".into(),
             }),
         }
     }
@@ -153,14 +153,14 @@ impl Runner for FakeRunner {
     }
 }
 
-/// Contadores fijos; cada [`Meter::read`] da la siguiente lectura de la cola y, cuando se
-/// acaba, repite la última.
+/// Fixed counters; each [`Meter::read`] gives the next reading in the queue and, when it
+/// runs out, repeats the last one.
 #[derive(Debug, Clone, Default)]
 pub struct FakeMeter {
     pub info: MeterInfo,
     readings: Arc<Mutex<VecDeque<Reading>>>,
     last: Arc<Mutex<Reading>>,
-    /// Cuántas lecturas se hicieron (en todos los clones): dice si alguien sigue muestreando.
+    /// How many readings were made (across all clones): says whether someone is still sampling.
     reads: Arc<AtomicUsize>,
 }
 
@@ -180,7 +180,7 @@ impl FakeMeter {
         self
     }
 
-    /// Las lecturas hechas hasta ahora.
+    /// The readings made so far.
     pub fn reads(&self) -> usize {
         self.reads.load(Ordering::SeqCst)
     }
@@ -213,11 +213,11 @@ mod tests {
     #[test]
     fn the_longest_prefix_wins_and_unknown_calls_fail() {
         let r = FakeRunner::new();
-        r.on("wsl", &["-l"], "lista").on("wsl", &[], "otra");
+        r.on("wsl", &["-l"], "list").on("wsl", &[], "other");
         let wsl = r.find("wsl", None).unwrap();
         let t = Duration::from_secs(1);
-        assert_eq!(r.run(&wsl, &["-l", "-v"], t).unwrap().text(), "lista");
-        assert_eq!(r.run(&wsl, &["-d", "x"], t).unwrap().text(), "otra");
+        assert_eq!(r.run(&wsl, &["-l", "-v"], t).unwrap().text(), "list");
+        assert_eq!(r.run(&wsl, &["-d", "x"], t).unwrap().text(), "other");
         assert!(r.run(Path::new("/fake/bin/git"), &[], t).is_err());
         assert_eq!(r.calls().len(), 3);
         assert_eq!(r.find("git", None), None);

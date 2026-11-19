@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Ajustes (`F-Ajustes`): pestañas con íconos. Puesto y máquinas, Atajos, Teclado y mouse,
-  // Actualizaciones (T-122) y Avanzado. Todo lo que se edita llega a la otra máquina con el
+  // Ajustes (`F-Settings`): pestañas con íconos. Desk and machines, Atajos, Keyboard and mouse,
+  // Actualizaciones (T-122) y Avanzado. Todo lo que se edita llega a the other machine con el
   // puesto compartido (D4); el nombre del puesto todavía no viaja, así que solo se muestra.
   import { onMount } from "svelte";
   import { useStore } from "../lib/context";
@@ -63,9 +63,9 @@
   async function copyMcp() {
     try {
       await navigator.clipboard.writeText("tandem mcp");
-      store.toast("Comando copiado");
+      store.toast("Command copied");
     } catch {
-      store.toast("No se pudo copiar el comando", "bad");
+      store.toast("Could not copy the command", "bad");
     }
   }
 
@@ -80,9 +80,9 @@
 </script>
 
 <div class="page">
-  <PageHeader title="Ajustes" search={false} />
+  <PageHeader title="Settings" search={false} />
   <div class="cols">
-    <div class="tabs" role="tablist" aria-label="Secciones" aria-orientation="vertical" tabindex="-1" onkeydown={onTabKey}>
+    <div class="tabs" role="tablist" aria-label="Sections" aria-orientation="vertical" tabindex="-1" onkeydown={onTabKey}>
       {#each SETTINGS_TABS as t (t.id)}
         <button
           type="button"
@@ -101,13 +101,13 @@
         <div class="pane">
           {#if tab === "puesto"}
             <div class="row first">
-              <span class="fill">Nombre del puesto</span>
+              <span class="fill">Desk name</span>
               {#if renaming === "desk"}
                 <!-- svelte-ignore a11y_autofocus -->
                 <input
                   class="name fill-in"
                   bind:value={draft}
-                  aria-label="Nombre del puesto"
+                  aria-label="Desk name"
                   autofocus
                   onkeydown={(e) => {
                     if (e.key === "Enter") void commitDeskName();
@@ -116,7 +116,7 @@
                   onblur={() => void commitDeskName()}
                 />
               {:else}
-                <button type="button" class="mut deskname" data-testid="desk-name" title="Cambiar el nombre del puesto" onclick={() => rename("desk", desk.deskName)}>{desk.deskName}</button>
+                <button type="button" class="mut deskname" data-testid="desk-name" title="Change the desk name" onclick={() => rename("desk", desk.deskName)}>{desk.deskName}</button>
               {/if}
             </div>
             {#each machines as m (m.id)}
@@ -127,7 +127,7 @@
                   <input
                     class="name fill-in"
                     bind:value={draft}
-                    aria-label="Nombre de {m.name}"
+                    aria-label="Name of {m.name}"
                     autofocus
                     onkeydown={(e) => {
                       if (e.key === "Enter") void commitName(m.id);
@@ -136,39 +136,39 @@
                     onblur={() => void commitName(m.id)}
                   />
                 {:else}
-                  <span class="fill">{m.name}{#if m.here}&nbsp;<span class="mut sub">· esta máquina</span>{/if}</span>
+                  <span class="fill">{m.name}{#if m.here}&nbsp;<span class="mut sub">· this machine</span>{/if}</span>
                 {/if}
-                <Button icon="edit" size="sm" iconOnly label="Renombrar" style={B34} onclick={() => rename(m.id, m.name)} />
+                <Button icon="edit" size="sm" iconOnly label="Rename" style={B34} onclick={() => rename(m.id, m.name)} />
               </div>
             {/each}
             <div class="row">
-              <span class="fill">Cambiar la otra máquina</span>
-              <Button icon="refresh" variant="pri" size="sm" style={B34} onclick={() => store.openWizard(WIZARD_PAIR)}>Emparejar de nuevo</Button>
+              <span class="fill">Change the other machine</span>
+              <Button icon="refresh" variant="pri" size="sm" style={B34} onclick={() => store.openWizard(WIZARD_PAIR)}>Pair again</Button>
             </div>
             <div class="row">
-              <span class="fill">Volver a correr el asistente</span>
-              <Button icon="refresh" size="sm" motion="spin" style={B34} onclick={() => store.openWizard(0)}>Abrir</Button>
+              <span class="fill">Run setup again</span>
+              <Button icon="refresh" size="sm" motion="spin" style={B34} onclick={() => store.openWizard(0)}>Open</Button>
             </div>
             <div class="row">
-              <span class="fill col">Salir del puesto<span class="mut sub">Esta máquina olvida las llaves de las demás y, si están conectadas, ellas las suyas; si no, cuando salgan también.</span></span>
-              <Button icon="logout" variant="danger" size="sm" style={B34} onclick={leave}>{leaving ? "Confirmar" : "Salir"}</Button>
+              <span class="fill col">Leave desk<span class="mut sub">This machine forgets the other machines’ keys and, if they are connected, they forget its key; if not, they do once they leave too.</span></span>
+              <Button icon="logout" variant="danger" size="sm" style={B34} onclick={leave}>{leaving ? "Confirm" : "Leave"}</Button>
             </div>
           {:else if tab === "atajos"}
             <Shortcuts />
           {:else if tab === "teclado"}
             <div class="row first">
-              <span class="fill col">Cambiar Cmd por Ctrl entre macOS y Windows<span class="mut sub">Copiar es ⌘C en la Mac y Ctrl+C en la PC, con el mismo dedo.</span></span>
-              <Switch checked={desk.prefs.cmdCtrl} label="Cambiar Cmd por Ctrl" onchange={(on) => store.setPrefs({ cmdCtrl: on, dragFiles: desk.prefs.dragFiles })} />
+              <span class="fill col">Swap Cmd and Ctrl between macOS and Windows<span class="mut sub">Copy is ⌘C on the Mac and Ctrl+C on the PC, with the same finger.</span></span>
+              <Switch checked={desk.prefs.cmdCtrl} label="Swap Cmd and Ctrl" onchange={(on) => store.setPrefs({ cmdCtrl: on, dragFiles: desk.prefs.dragFiles })} />
             </div>
             <div class="row">
-              <span class="fill col">Arrastrar entre máquinas<span class="mut sub">Con un botón presionado, el cursor no cruza el borde.</span></span>
-              <Switch checked={desk.prefs.dragFiles} label="Arrastrar entre máquinas" onchange={(on) => store.setPrefs({ cmdCtrl: desk.prefs.cmdCtrl, dragFiles: on })} />
+              <span class="fill col">Drag between machines<span class="mut sub">With a button held down, the cursor does not cross the edge.</span></span>
+              <Switch checked={desk.prefs.dragFiles} label="Drag between machines" onchange={(on) => store.setPrefs({ cmdCtrl: desk.prefs.cmdCtrl, dragFiles: on })} />
             </div>
             <div class="row">
-              <span class="fill">Portapapeles compartido</span>
+              <span class="fill">Shared clipboard</span>
               <Switch
                 checked={desk.prefs.clipboard}
-                label="Portapapeles compartido"
+                label="Shared clipboard"
                 onchange={async (on) => {
                   for (const m of machines) await store.setModule(m.id, "clipboard", on);
                 }}
@@ -178,20 +178,20 @@
             <Updates />
           {:else}
             <div class="row first">
-              <span class="fill col">Configuración<span class="mono mut path">{files?.config ?? "—"}</span></span>
-              <Button icon="file" size="sm" style={B34} onclick={() => store.openFiles("config")}>Mostrar archivo</Button>
+              <span class="fill col">Configuration<span class="mono mut path">{files?.config ?? "—"}</span></span>
+              <Button icon="file" size="sm" style={B34} onclick={() => store.openFiles("config")}>Show file</Button>
             </div>
             <div class="row">
-              <span class="fill">Logs del agente</span>
-              <Button icon="folder" size="sm" style={B34} onclick={() => store.openFiles("logs")}>Abrir carpeta</Button>
+              <span class="fill">Agent logs</span>
+              <Button icon="folder" size="sm" style={B34} onclick={() => store.openFiles("logs")}>Open folder</Button>
             </div>
             <div class="row">
-              <span class="fill col">Servidor MCP<span class="mono mut path">tandem mcp</span></span>
-              <Button icon="copy" size="sm" style={B34} onclick={copyMcp}>Copiar comando</Button>
+              <span class="fill col">MCP server<span class="mono mut path">tandem mcp</span></span>
+              <Button icon="copy" size="sm" style={B34} onclick={copyMcp}>Copy command</Button>
             </div>
             <div class="row">
-              <span class="fill">Estados difíciles (vista de referencia)</span>
-              <Button icon="eye" size="sm" style={B34} onclick={() => store.go({ screen: "estados" })}>Ver</Button>
+              <span class="fill">Trouble states (reference view)</span>
+              <Button icon="eye" size="sm" style={B34} onclick={() => store.go({ screen: "estados" })}>View</Button>
             </div>
           {/if}
         </div>

@@ -10,17 +10,17 @@ export type Route = { screen: Exclude<Screen, "maquina" | "escena"> } | { screen
 export const HOME: Route = { screen: "puesto" };
 
 export const SCREEN_TITLE: Record<Screen, string> = {
-  puesto: "Puesto",
-  tuneles: "Túneles",
-  monitores: "Monitores",
-  escena: "Escena",
-  progreso: "Cambios en progreso",
-  acomodo: "Acomodo",
-  cruce: "Prueba de cruce",
-  red: "Red",
-  maquina: "Máquina",
-  ajustes: "Ajustes",
-  estados: "Estados difíciles",
+  puesto: "Desk",
+  tuneles: "Tunnels",
+  monitores: "Monitors",
+  escena: "Scene",
+  progreso: "Changes in progress",
+  acomodo: "Arrangement",
+  cruce: "Crossing test",
+  red: "Network",
+  maquina: "Machine",
+  ajustes: "Settings",
+  estados: "Trouble states",
 };
 
 /** Qué temas necesita en vivo cada pantalla: el store solo se suscribe a esos. */

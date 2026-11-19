@@ -1,23 +1,23 @@
-//! El gestor con un doble del transporte y el reloj de tokio pausado: los
-//! tiempos medidos son exactos y no hay esperas reales.
+//! The manager with a transport double and the tokio clock paused: the
+//! measured times are exact and there are no real waits.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
 
 use super::*;
 
-/// Lo que hace un enlace simulado.
+/// What a simulated link does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wire {
     Up,
-    /// Cable desconectado: nada responde ni falla, solo silencio.
+    /// Cable disconnected: nothing answers or fails, just silence.
     Cut,
-    /// El par rechaza la conexión al instante.
+    /// The peer rejects the connection instantly.
     Refused,
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("rechazado")]
+#[error("rejected")]
 struct Refused;
 
 #[derive(Default)]
@@ -38,7 +38,7 @@ impl FakeNet {
 
 struct FakeProber(Arc<FakeNet>);
 
-/// Handle = (dirección, número de conexión), para ver reconexiones.
+/// Handle = (address, connection number), to see reconnections.
 type Handle = (SocketAddr, u32);
 
 impl Prober for FakeProber {
@@ -118,8 +118,8 @@ impl Rig {
     async fn next(&mut self) -> LinkEvent {
         let e = time::timeout(Duration::from_secs(30), self.events.recv())
             .await
-            .expect("no llegó ningún evento")
-            .expect("el gestor se detuvo");
+            .expect("no event arrived")
+            .expect("the manager stopped");
         self.seen.push(e);
         e
     }
@@ -131,12 +131,12 @@ impl Rig {
     }
 }
 
-/// Peor caso del diseño: falla justo después de un ping bueno, así que se nota
-/// en el siguiente (1 s) más el tiempo máximo del Pong (0,25 s).
+/// Worst case of the design: it fails right after a good ping, so it is noticed
+/// on the next one (1 s) plus the Pong's maximum time (0.25 s).
 const MAX_SWITCH: Duration = Duration::from_millis(1500);
 
 #[tokio::test(start_paused = true)]
-async fn caída_del_preferido_conmuta_en_menos_de_1_5_s_y_vuelve() {
+async fn preferred_dropping_switches_in_under_1_5_s_and_comes_back() {
     use LinkKind::*;
     let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
     rig.until_active(Some(Usb4)).await;
@@ -144,24 +144,24 @@ async fn caída_del_preferido_conmuta_en_menos_de_1_5_s_y_vuelve() {
 
     rig.net.set(addr(Usb4), Wire::Cut);
     let took = rig.until_active(Some(Ethernet)).await;
-    assert!(took < MAX_SWITCH, "conmutó en {took:?}");
+    assert!(took < MAX_SWITCH, "switched in {took:?}");
     assert_eq!(rig.manager.active().unwrap().kind, Ethernet);
 
     rig.net.set(addr(Usb4), Wire::Up);
     let took = rig.until_active(Some(Usb4)).await;
-    // Hasta el próximo ping (1 s) y después 3 s de pings buenos (histéresis).
+    // Until the next ping (1 s) and then 3 s of good pings (hysteresis).
     let settle = HealthConfig::default().settle;
     assert!(
         took >= settle && took <= settle + Duration::from_millis(1100),
-        "volvió en {took:?}"
+        "came back in {took:?}"
     );
-    // Es una conexión nueva, no la que se cortó.
+    // It is a new connection, not the one that was cut.
     assert_ne!(rig.manager.active().unwrap().handle, first_usb4);
 }
 
 const ALL_KINDS: [LinkKind; 3] = LinkKind::ALL;
 
-/// Corta y repone el USB4 cada 350 ms (un ciclo de 700 ms) durante `cycles` ciclos.
+/// Cuts and restores USB4 every 350 ms (a 700 ms cycle) for `cycles` cycles.
 async fn flap(net: &FakeNet, cycles: u32) {
     for _ in 0..cycles {
         net.set(addr(LinkKind::Usb4), Wire::Cut);
@@ -171,7 +171,7 @@ async fn flap(net: &FakeNet, cycles: u32) {
     }
 }
 
-/// Eventos que ya llegaron, sin esperar más.
+/// Events that already arrived, without waiting for more.
 fn drain(rig: &mut Rig) -> Vec<LinkEvent> {
     let mut out = Vec::new();
     while let Ok(e) = rig.events.try_recv() {
@@ -182,38 +182,38 @@ fn drain(rig: &mut Rig) -> Vec<LinkEvent> {
 }
 
 #[tokio::test(start_paused = true)]
-async fn un_usb4_que_parpadea_no_mueve_el_enlace_y_vuelve_tras_asentarse() {
+async fn a_flickering_usb4_does_not_move_the_link_and_returns_after_settling() {
     use LinkKind::*;
-    // En distintas fases respecto del ping.
+    // At different phases relative to the ping.
     for offset_ms in [0u64, 100, 250, 400, 600, 999] {
         let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
         rig.until_active(Some(Usb4)).await;
         time::sleep(Duration::from_millis(offset_ms)).await;
 
-        // El primer ping que cae en un corte pasa a Ethernet; después, 30 s de
-        // parpadeo sin ningún cambio.
+        // The first ping that falls in a cut moves to Ethernet; after that, 30 s of
+        // flickering without any change.
         let net = rig.net.clone();
         let flapping = tokio::spawn(async move { flap(&net, 43).await });
         rig.until_active(Some(Ethernet)).await;
         flapping.await.unwrap();
         let during = drain(&mut rig);
-        assert!(during.is_empty(), "desfase {offset_ms} ms: {during:?}");
+        assert!(during.is_empty(), "offset {offset_ms} ms: {during:?}");
         assert_eq!(rig.manager.active().unwrap().kind, Ethernet);
 
-        // Quieto: vuelve al USB4 a lo sumo tras el próximo ping y 3 s de pings
-        // buenos. Puede ser antes: un corte entre dos pings no se ve, así que la
-        // racha pudo empezar durante los últimos ciclos.
+        // Still: it returns to USB4 at most after the next ping and 3 s of good
+        // pings. It may be sooner: a cut between two pings is not seen, so the
+        // streak may have started during the last cycles.
         let took = rig.until_active(Some(Usb4)).await;
         let settle = HealthConfig::default().settle;
         assert!(
             took <= settle + Duration::from_millis(1100),
-            "desfase {offset_ms} ms: volvió en {took:?}"
+            "offset {offset_ms} ms: came back in {took:?}"
         );
     }
 }
 
 #[tokio::test(start_paused = true)]
-async fn con_una_transacción_en_curso_solo_se_cambia_si_cae_el_activo() {
+async fn with_a_transaction_in_progress_it_only_switches_if_the_active_one_drops() {
     use LinkKind::*;
     let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
     rig.until_active(Some(Usb4)).await;
@@ -227,7 +227,7 @@ async fn con_una_transacción_en_curso_solo_se_cambia_si_cae_el_activo() {
     assert!(drain(&mut rig).is_empty());
     assert_eq!(rig.manager.active().unwrap().kind, Ethernet);
 
-    // Hasta soltar la última retención no se sube; después, enseguida.
+    // It does not go up until the last hold is released; then, right away.
     drop(second);
     time::sleep(Duration::from_millis(1)).await;
     assert!(drain(&mut rig).is_empty());
@@ -236,7 +236,7 @@ async fn con_una_transacción_en_curso_solo_se_cambia_si_cae_el_activo() {
     rig.until_active(Some(Usb4)).await;
     assert!(start.elapsed() < Duration::from_millis(10));
 
-    // Con una retención, si cae el activo se conmuta igual.
+    // With a hold, if the active one drops it switches anyway.
     let _hold = rig.manager.hold();
     rig.net.set(addr(Usb4), Wire::Cut);
     let took = rig.until_active(Some(Ethernet)).await;
@@ -244,20 +244,20 @@ async fn con_una_transacción_en_curso_solo_se_cambia_si_cae_el_activo() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn la_conmutación_respeta_el_presupuesto_en_cualquier_fase_del_ping() {
-    // Corta el cable en distintos momentos entre dos pings.
+async fn the_switch_respects_the_budget_at_any_phase_of_the_ping() {
+    // Cuts the cable at different moments between two pings.
     for offset_ms in [0u64, 1, 150, 500, 900, 999, 1000, 1001, 1299] {
         let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
         rig.until_active(Some(LinkKind::Usb4)).await;
         time::sleep(Duration::from_millis(offset_ms)).await;
         rig.net.set(addr(LinkKind::Usb4), Wire::Cut);
         let took = rig.until_active(Some(LinkKind::Ethernet)).await;
-        assert!(took < MAX_SWITCH, "corte a +{offset_ms} ms: {took:?}");
+        assert!(took < MAX_SWITCH, "cut at +{offset_ms} ms: {took:?}");
     }
 }
 
 #[tokio::test(start_paused = true)]
-async fn un_rechazo_inmediato_cuenta_como_caída() {
+async fn an_immediate_rejection_counts_as_a_drop() {
     let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
     rig.until_active(Some(LinkKind::Usb4)).await;
     rig.net.set(addr(LinkKind::Usb4), Wire::Refused);
@@ -266,15 +266,15 @@ async fn un_rechazo_inmediato_cuenta_como_caída() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn con_solo_wifi_todo_va_por_wifi() {
+async fn with_only_wifi_everything_goes_over_wifi() {
     let mut rig = Rig::new(&ALL_KINDS, &[LinkKind::Wifi]);
     rig.until_active(Some(LinkKind::Wifi)).await;
-    // Sin la regla «el Wi-Fi no lleva datos» (DECISIONS A2): el activo es para todo.
+    // Without the rule "Wi-Fi carries no data" (DECISIONS A2): the active one is for everything.
     let active = rig.manager.active().unwrap();
     assert_eq!(active.kind, LinkKind::Wifi);
     assert_eq!(active.addr, addr(LinkKind::Wifi));
 
-    // Al conectar un cable, todo pasa a él.
+    // When a cable connects, everything moves to it.
     rig.net.set(addr(LinkKind::Ethernet), Wire::Up);
     let e = rig.next().await;
     assert_eq!(e.to, Some(LinkKind::Ethernet));
@@ -282,7 +282,7 @@ async fn con_solo_wifi_todo_va_por_wifi() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn sin_enlaces_no_hay_activo() {
+async fn without_links_there_is_no_active_one() {
     let rig = Rig::new(&ALL_KINDS, &[]);
     time::sleep(Duration::from_secs(5)).await;
     assert_eq!(rig.manager.active(), None);
@@ -290,7 +290,7 @@ async fn sin_enlaces_no_hay_activo() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn los_eventos_salen_en_orden_y_encadenados() {
+async fn events_come_out_in_order_and_chained() {
     use LinkKind::*;
     let mut rig = Rig::new(&ALL_KINDS, &[Wifi]);
     rig.until_active(Some(Wifi)).await;
@@ -309,7 +309,7 @@ async fn los_eventos_salen_en_orden_y_encadenados() {
     for (i, e) in rig.seen.iter().enumerate() {
         assert_eq!(e.seq, i as u64);
         let prev = i.checked_sub(1).and_then(|p| rig.seen[p].to);
-        assert_eq!(e.from, prev, "evento {i}: {e:?}");
+        assert_eq!(e.from, prev, "event {i}: {e:?}");
     }
     let tos: Vec<_> = rig.seen.iter().map(|e| e.to).collect();
     assert_eq!(tos.first(), Some(&Some(Wifi)));
@@ -318,7 +318,7 @@ async fn los_eventos_salen_en_orden_y_encadenados() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn la_foto_muestra_la_salud_de_cada_enlace() {
+async fn the_snapshot_shows_each_links_health() {
     let mut rig = Rig::new(&[LinkKind::Wifi, LinkKind::Ethernet], &[LinkKind::Ethernet]);
     rig.until_active(Some(LinkKind::Ethernet)).await;
     let snap = rig.manager.snapshot();
@@ -344,7 +344,7 @@ async fn la_foto_muestra_la_salud_de_cada_enlace() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn soltar_el_gestor_detiene_los_pings() {
+async fn dropping_the_manager_stops_the_pings() {
     let mut rig = Rig::new(&ALL_KINDS, &ALL_KINDS);
     rig.until_active(Some(LinkKind::Usb4)).await;
     let Rig {
@@ -354,7 +354,7 @@ async fn soltar_el_gestor_detiene_los_pings() {
         ..
     } = rig;
     drop(manager);
-    // La cola de eventos se cierra y ya no se abren conexiones.
+    // The event queue closes and no more connections are opened.
     assert!(
         time::timeout(Duration::from_secs(5), async {
             while events.recv().await.is_some() {}
@@ -371,7 +371,7 @@ async fn soltar_el_gestor_detiene_los_pings() {
 }
 
 #[tokio::test]
-async fn config_inválida_se_rechaza() {
+async fn an_invalid_config_is_rejected() {
     let net = Arc::new(FakeNet::default());
     let bad = HealthConfig {
         ping_interval: Duration::ZERO,
@@ -393,14 +393,14 @@ async fn config_inválida_se_rechaza() {
 }
 
 #[test]
-fn el_presupuesto_por_omisión_cumple_el_diseño() {
+fn the_default_budget_meets_the_design() {
     let c = HealthConfig::default();
     assert_eq!(c.ping_interval, Duration::from_secs(1));
     assert!(c.ping_interval + c.ping_timeout < MAX_SWITCH);
 }
 
 #[tokio::test(start_paused = true)]
-async fn un_enlace_que_aparece_se_pingea_y_se_vuelve_el_activo() {
+async fn a_link_that_appears_is_pinged_and_becomes_the_active_one() {
     let mut rig = Rig::new(&[LinkKind::Wifi], &[LinkKind::Wifi]);
     rig.until_active(Some(LinkKind::Wifi)).await;
 
@@ -414,7 +414,7 @@ async fn un_enlace_que_aparece_se_pingea_y_se_vuelve_el_activo() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn quitar_el_activo_pasa_al_siguiente_en_el_acto_aunque_haya_retención() {
+async fn removing_the_active_one_moves_to_the_next_at_once_even_with_a_hold() {
     let mut rig = Rig::new(
         &[LinkKind::Usb4, LinkKind::Wifi],
         &[LinkKind::Usb4, LinkKind::Wifi],
@@ -431,7 +431,7 @@ async fn quitar_el_activo_pasa_al_siguiente_en_el_acto_aunque_haya_retención() 
 }
 
 #[tokio::test(start_paused = true)]
-async fn el_enlace_que_vuelve_tras_quitarse_espera_la_histéresis() {
+async fn the_link_that_returns_after_being_removed_waits_for_the_hysteresis() {
     let mut rig = Rig::new(
         &[LinkKind::Usb4, LinkKind::Wifi],
         &[LinkKind::Usb4, LinkKind::Wifi],
@@ -442,7 +442,7 @@ async fn el_enlace_que_vuelve_tras_quitarse_espera_la_histéresis() {
     control.remove(LinkKind::Usb4).unwrap();
     rig.until_active(Some(LinkKind::Wifi)).await;
 
-    // El cable vuelve: hasta que no lleve `settle` sin cortes, el tráfico sigue en el Wi-Fi.
+    // The cable comes back: until it has gone `settle` without cuts, traffic stays on Wi-Fi.
     control.add(cands(&[LinkKind::Usb4])[0]).unwrap();
     time::sleep(Duration::from_secs(2)).await;
     assert_eq!(rig.manager.active().map(|a| a.kind), Some(LinkKind::Wifi));
@@ -451,7 +451,7 @@ async fn el_enlace_que_vuelve_tras_quitarse_espera_la_histéresis() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn quitar_un_enlace_que_no_está_no_hace_nada() {
+async fn removing_a_link_that_is_not_there_does_nothing() {
     let mut rig = Rig::new(&[LinkKind::Wifi], &[LinkKind::Wifi]);
     rig.until_active(Some(LinkKind::Wifi)).await;
     rig.manager.control().remove(LinkKind::Ethernet).unwrap();

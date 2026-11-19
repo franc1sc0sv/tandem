@@ -1,9 +1,9 @@
-//! Monitores simulados (T-110): los dobles de `monitor-ddc` conectados a las dos máquinas.
+//! Simulated monitors (T-110): the `monitor-ddc` doubles connected to both machines.
 //!
-//! Un solo [`FakeBus`] guarda los monitores físicos; cada máquina los ve por su propio
-//! [`MachineBus`], que solo contesta mientras esa máquina está prendida y tiene cable hacia
-//! el monitor, tarda lo que diga su latencia (en el reloj del doble) y anota cada pedido con
-//! la máquina que lo hizo. Así se comprueba quién leyó y quién escribió.
+//! A single [`FakeBus`] holds the physical monitors; each machine sees them through its own
+//! [`MachineBus`], which only answers while that machine is on and has a cable to
+//! the monitor, takes as long as its latency says (on the double's clock) and records each request with
+//! the machine that made it. That way it is checked who read and who wrote.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
@@ -15,26 +15,26 @@ use tandem_core::{Machine, MonitorInput};
 
 use crate::world::{Power, World};
 
-/// Un monitor del puesto y las máquinas que tienen cable hacia él, con su latencia DDC.
+/// A desk monitor and the machines that have a cable to it, with their DDC latency.
 #[derive(Debug, Clone)]
 pub struct MonitorSpec {
     pub config: FakeMonitorConfig,
     pub cables: Vec<(Machine, Duration)>,
-    /// La entrada que dice el EDID que lee cada máquina (cada entrada tiene el suyo, T-111).
-    /// Sin dato, el EDID no dice el tipo de interfaz.
+    /// The input the EDID that each machine reads says (each input has its own, T-111).
+    /// Without data, the EDID does not say the interface type.
     pub via: Vec<(Machine, MonitorInput)>,
 }
 
 #[derive(Debug, Default)]
 struct Shared {
-    /// Monitor → máquina → latencia. Sin entrada, esa máquina no tiene cable.
+    /// Monitor → machine → latency. Without an entry, that machine has no cable.
     cables: BTreeMap<MonitorHandle, BTreeMap<Machine, Duration>>,
-    /// Monitor → máquina → la entrada que dice su EDID.
+    /// Monitor → machine → the input its EDID says.
     via: BTreeMap<MonitorHandle, BTreeMap<Machine, MonitorInput>>,
     ops: Vec<(Machine, BusOp)>,
 }
 
-/// Los monitores físicos del puesto.
+/// The desk's physical monitors.
 #[derive(Debug, Clone)]
 pub struct SimMonitors {
     fake: FakeBus,
@@ -76,7 +76,7 @@ impl SimMonitors {
         self.shared.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// El bus de los monitores físicos (para mirar la verdad o tocar el menú del monitor).
+    /// The bus of the physical monitors (to look at the truth or touch the monitor's menu).
     pub fn fake(&self) -> &FakeBus {
         &self.fake
     }
@@ -85,17 +85,17 @@ impl SimMonitors {
         self.clock.clone()
     }
 
-    /// El handle del monitor `i` (en el orden de los [`MonitorSpec`]).
+    /// The handle of monitor `i` (in the order of the [`MonitorSpec`]s).
     pub fn handle(&self, i: usize) -> MonitorHandle {
         self.handles[i]
     }
 
-    /// El id que Tandem le da al monitor `i`.
+    /// The id Tandem gives monitor `i`.
     pub fn id(&self, i: usize) -> &str {
         &self.ids[i]
     }
 
-    /// Lo que ve `machine`.
+    /// What `machine` sees.
     pub fn bus_of(&self, machine: Machine, world: World) -> MachineBus {
         MachineBus {
             machine,
@@ -104,7 +104,7 @@ impl SimMonitors {
         }
     }
 
-    /// Cada pedido a `handle`, con la máquina que lo hizo.
+    /// Each request to `handle`, with the machine that made it.
     pub fn ops_for(&self, handle: MonitorHandle) -> Vec<(Machine, BusOp)> {
         self.lock()
             .ops
@@ -114,7 +114,7 @@ impl SimMonitors {
             .collect()
     }
 
-    /// Las escrituras (`Set`) a `handle`, con quién las hizo.
+    /// The writes (`Set`) to `handle`, with who made them.
     pub fn sets_to(&self, handle: MonitorHandle) -> Vec<(Machine, u8, u16)> {
         self.ops_for(handle)
             .into_iter()
@@ -129,7 +129,7 @@ impl SimMonitors {
         self.lock().ops.clear();
     }
 
-    /// Desconecta (o conecta, con `Some(latencia)`) el cable de `machine` al monitor `i`.
+    /// Unplugs (or plugs, with `Some(latency)`) `machine`'s cable to monitor `i`.
     pub fn set_cable(&self, i: usize, machine: Machine, latency: Option<Duration>) {
         let h = self.handles[i];
         let mut s = self.lock();
@@ -141,7 +141,7 @@ impl SimMonitors {
     }
 }
 
-/// Los monitores vistos desde una máquina.
+/// The monitors seen from a machine.
 #[derive(Debug, Clone)]
 pub struct MachineBus {
     machine: Machine,
@@ -150,7 +150,7 @@ pub struct MachineBus {
 }
 
 impl MachineBus {
-    /// La latencia de esta máquina hacia `h`, o `None` si no hay canal (apagada o sin cable).
+    /// This machine's latency to `h`, or `None` if there is no channel (off or without a cable).
     fn channel(&self, h: MonitorHandle) -> Option<Duration> {
         if self.world.power_of(self.machine) != Power::On {
             return None;
@@ -167,7 +167,7 @@ impl MachineBus {
         self.monitors.lock().ops.push((self.machine, op));
     }
 
-    /// Un pedido por el cable: tarda su latencia y llega al monitor, o se pierde.
+    /// A request over the cable: it takes its latency and reaches the monitor, or is lost.
     fn wire<T>(
         &self,
         h: MonitorHandle,
@@ -187,7 +187,7 @@ impl MachineBus {
 impl DdcBus for MachineBus {
     fn monitors(&self) -> Result<Vec<MonitorInfo>, DdcError> {
         if self.world.power_of(self.machine) != Power::On {
-            return Err(DdcError::NoChannel("la máquina está apagada".into()));
+            return Err(DdcError::NoChannel("the machine is off".into()));
         }
         let (cables, via) = {
             let s = self.monitors.lock();
@@ -204,7 +204,7 @@ impl DdcBus for MachineBus {
                     .is_some_and(|c| c.contains_key(&self.machine))
             })
             .map(|mut m| {
-                // El EDID de la entrada a la que va el cable de esta máquina.
+                // The EDID of the input the cable of this machine goes to.
                 let input = via.get(&m.handle).and_then(|v| v.get(&self.machine));
                 if let (Some(&input), Some(edid)) = (input, &m.edid) {
                     let mut raw = edid.raw().to_vec();
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn each_machine_sees_only_its_cables_while_it_is_on() {
-        let world = World::new(); // A prendida, B apagada
+        let world = World::new(); // A on, B off
         let sim = SimMonitors::new(&[MonitorSpec {
             config: FakeMonitorConfig::new(Personality::Standard),
             cables: vec![(Machine::A, Duration::from_millis(30))],
@@ -258,12 +258,12 @@ mod tests {
         assert_eq!(seen.len(), 1);
         let edid = seen[0].edid.as_ref().unwrap().raw();
         assert_eq!(tandem_monitor::edid_input(edid), Some(MonitorInput::Hdmi));
-        assert!(b.monitors().is_err(), "B está apagada");
+        assert!(b.monitors().is_err(), "B is off");
         let before = sim.clock().now();
         a.get_vcp(sim.handle(0), 0xEA).unwrap();
         assert_eq!(sim.clock().now() - before, Duration::from_millis(30));
         world.lock().boot_done(Machine::B);
-        assert!(b.monitors().unwrap().is_empty(), "sin cable");
+        assert!(b.monitors().unwrap().is_empty(), "no cable");
         assert!(b.get_vcp(sim.handle(0), 0xEA).is_err());
         assert_eq!(sim.ops_for(sim.handle(0)).len(), 1);
         assert!(sim.id(0).starts_with("lc34g55t-"));

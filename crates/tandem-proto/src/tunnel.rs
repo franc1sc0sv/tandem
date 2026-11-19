@@ -1,22 +1,22 @@
-//! Túneles entre las dos máquinas (DESIGN §8, DECISIONS D8, D9): el modelo y los mensajes.
+//! Tunnels between the two machines (DESIGN §8, DECISIONS D8, D9): the model and the messages.
 //!
-//! Un túnel lo abre un cliente local (Claude por `tandem mcp`, o una persona por la CLI)
-//! en la máquina **origen**; su estado y sus recursos viven en la **destino**. Entre los
-//! dos agentes van por un stream propio ([`crate::Channel::Tunnel`]): el origen manda un
-//! [`TunnelUp`] y la destino contesta con [`TunnelDown`]. El pedido
-//! [`TunnelUp::Attach`] convierte el stream en el canal de datos del túnel (prioridad de
-//! datos, T-101): por ahí baja la salida de cada flujo con su posición en bytes, así que
-//! al reconectar el origen la pide «desde el byte N» y no se pierde ni se repite nada.
+//! A tunnel is opened by a local client (Claude through `tandem mcp`, or a person through the CLI)
+//! on the **source** machine; its state and resources live on the **destination**. Between the
+//! two agents they go over a stream of their own ([`crate::Channel::Tunnel`]): the source sends a
+//! [`TunnelUp`] and the destination answers with [`TunnelDown`]. The
+//! [`TunnelUp::Attach`] request turns the stream into the tunnel's data channel (data
+//! priority, T-101): the output of each flow comes down through it with its byte position, so
+//! on reconnecting the source asks "from byte N" and nothing is lost or repeated.
 //!
-//! La lógica (registro, búfer circular, reconexión) está en `tandem-tunnel`.
+//! The logic (registry, ring buffer, reconnection) is in `tandem-tunnel`.
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use tandem_core::Machine;
 
-/// Identidad de un túnel. La elige el origen al azar: así abrir es idempotente (un
-/// reintento con el mismo id devuelve el mismo túnel) y no choca entre las dos máquinas.
+/// Identity of a tunnel. The source picks it at random: this way opening is idempotent (a
+/// retry with the same id returns the same tunnel) and does not clash between the two machines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct TunnelId(pub u64);
 
@@ -26,12 +26,12 @@ impl fmt::Display for TunnelId {
     }
 }
 
-/// El repo o carpeta en el que trabaja el cliente; agrupa los túneles en la UI.
+/// The repo or folder the client works in; groups the tunnels in the UI.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Project {
-    /// Para mostrar (el nombre de la carpeta, normalmente).
+    /// For display (the folder name, normally).
     pub name: String,
-    /// Ruta en la máquina origen.
+    /// Path on the source machine.
     pub root: String,
 }
 
@@ -39,15 +39,15 @@ pub struct Project {
 pub enum ClientKind {
     /// `tandem mcp` (Claude).
     Mcp,
-    /// `tandem` desde una terminal.
+    /// `tandem` from a terminal.
     Cli,
 }
 
-/// Quién abrió el túnel.
+/// Who opened the tunnel.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Client {
     pub kind: ClientKind,
-    /// La sesión del cliente (la de Claude), para reconocer sus túneles.
+    /// The client's session (Claude's), to recognize its tunnels.
     pub session: String,
 }
 
@@ -60,32 +60,32 @@ pub enum TunnelState {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Tunnel {
     pub id: TunnelId,
-    /// El de la sesión de Claude, o el nombre del proyecto.
+    /// The Claude session's, or the project name.
     pub title: String,
     pub project: Option<Project>,
-    /// Donde está el cliente.
+    /// Where the client is.
     pub origin: Machine,
-    /// Donde viven los procesos, archivos y puertos del túnel.
+    /// Where the tunnel's processes, files and ports live.
     pub target: Machine,
     pub opened_by: Client,
     pub state: TunnelState,
-    /// Milisegundos desde 1970 (UTC), según el reloj del origen.
+    /// Milliseconds since 1970 (UTC), according to the source's clock.
     pub created: u64,
 }
 
-/// Un flujo de salida dentro de un túnel (la salida de un proceso, por ejemplo). Su id es
-/// único dentro del túnel.
+/// An output stream inside a tunnel (a process's output, for example). Its id is
+/// unique within the tunnel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct FlowId(pub u32);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FlowInfo {
     pub id: FlowId,
-    /// Para mostrar («cargo test · stdout»).
+    /// For display ("cargo test · stdout").
     pub label: String,
 }
 
-/// Un proceso dentro de un túnel (T-104). Su id es único dentro del túnel.
+/// A process inside a tunnel (T-104). Its id is unique within the tunnel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ProcessId(pub u32);
 
@@ -95,22 +95,22 @@ impl fmt::Display for ProcessId {
     }
 }
 
-/// Qué lanzar en la destino (`exec`).
+/// What to launch on the destination (`exec`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecSpec {
-    /// El programa; con `shell`, la línea de órdenes que interpreta ese shell.
+    /// The program; with `shell`, the command line that shell interprets.
     pub cmd: String,
     pub args: Vec<String>,
-    /// Un entorno detectado de la destino ([`crate::Environment::id`]: `zsh`, `pwsh`,
-    /// `cmd`, `wsl:<distro>`), o `docker:<contenedor>`. `None`: el programa directo, sin
+    /// A detected environment of the destination ([`crate::Environment::id`]: `zsh`, `pwsh`,
+    /// `cmd`, `wsl:<distro>`), or `docker:<container>`. `None`: the program directly, without
     /// shell.
     pub shell: Option<String>,
-    /// Carpeta de trabajo en la destino (la del agente si no hay).
+    /// Working folder on the destination (the agent's if none).
     pub cwd: Option<String>,
-    /// Variables que se agregan a las del agente.
+    /// Variables added to the agent's.
     pub env: Vec<(String, String)>,
-    /// Deja pasar las variables de `env` que parecen secretos (`GH_TOKEN`…). Por omisión se
-    /// rechazan (T-130); `SSH_AUTH_SOCK` y los agentes nunca pasan.
+    /// Lets through the `env` variables that look like secrets (`GH_TOKEN`...). By default they are
+    /// rejected (T-130); `SSH_AUTH_SOCK` and the agents never pass.
     #[serde(default)]
     pub allow_secret_env: bool,
 }
@@ -118,30 +118,30 @@ pub struct ExecSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ProcessState {
     Running,
-    /// Terminó solo; `code` es `None` si lo terminó una señal.
+    /// It finished on its own; `code` is `None` if a signal ended it.
     Exited {
         code: Option<i32>,
     },
-    /// Lo mató `kill` o el cierre del túnel (con todo su árbol).
+    /// Killed by `kill` or by the tunnel closing (with its whole tree).
     Killed,
 }
 
-/// Un proceso de un túnel tal como lo ven las dos máquinas.
+/// A tunnel's process as both machines see it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TunnelProcess {
     pub id: ProcessId,
     pub tunnel: TunnelId,
-    /// Para mostrar: el programa y sus argumentos.
+    /// For display: the program and its arguments.
     pub command: String,
     pub shell: Option<String>,
     pub cwd: Option<String>,
-    /// El del sistema en la destino, si lo dio.
+    /// The system's on the destination, if it gave one.
     pub pid: Option<u32>,
     pub stdout: FlowId,
     pub stderr: FlowId,
-    /// Milisegundos desde 1970 (UTC), según el reloj de la destino.
+    /// Milliseconds since 1970 (UTC), according to the destination's clock.
     pub started: u64,
-    /// Milisegundos que corrió, cuando ya terminó.
+    /// Milliseconds it ran, once finished.
     pub duration: Option<u64>,
     pub state: ProcessState,
 }
@@ -152,103 +152,103 @@ impl TunnelProcess {
     }
 }
 
-/// Cuántos bytes de cada salida ya tiene quien lee (`output { from_byte }`).
+/// How many bytes of each output the reader already has (`output { from_byte }`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OutputCursor {
     pub stdout: u64,
     pub stderr: u64,
 }
 
-/// La salida de un proceso desde un [`OutputCursor`], con stdout y stderr por separado.
+/// A process's output from an [`OutputCursor`], with stdout and stderr separate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessOutput {
     pub process: TunnelProcess,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
-    /// Dónde empieza lo devuelto: lo pedido, o más adelante si eso ya se descartó.
+    /// Where what is returned starts: what was asked for, or later if that was already discarded.
     pub from: OutputCursor,
-    /// Lo que hay que pedir la próxima vez.
+    /// What to ask for next time.
     pub next: OutputCursor,
-    /// El proceso terminó y ya no queda salida por leer.
+    /// The process finished and there is no output left to read.
     pub done: bool,
 }
 
-/// Del origen a la destino. Cada stream lleva un solo pedido.
+/// From the source to the destination. Each stream carries a single request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TunnelUp {
-    /// Abrir (o, si ya existe con ese id, devolver) el túnel. Contesta
+    /// Open (or, if it already exists with that id, return) the tunnel. Answers
     /// [`TunnelDown::Opened`].
     Open(Tunnel),
-    /// Cerrar el túnel y todo lo suyo en la destino. Contesta [`TunnelDown::Closed`].
+    /// Close the tunnel and everything of its on the destination. Answers [`TunnelDown::Closed`].
     Close(TunnelId),
-    /// Los túneles de la destino. Contesta [`TunnelDown::List`].
+    /// The destination's tunnels. Answers [`TunnelDown::List`].
     List,
-    /// Seguir la salida del túnel: desde aquí el stream es su canal de datos. `from` dice
-    /// cuántos bytes de cada flujo ya tiene el origen; los que no aparecen, desde 0.
+    /// Follow the tunnel's output: from here the stream is its data channel. `from` says
+    /// how many bytes of each flow the source already has; the ones not listed, from 0.
     Attach {
         tunnel: TunnelId,
         from: Vec<(FlowId, u64)>,
     },
-    /// Archivos (T-106), por su propio stream.
+    /// Files (T-106), over their own stream.
     Files(crate::FilesUp),
-    /// Puertos (T-106), por su propio stream.
+    /// Ports (T-106), over their own stream.
     Port(crate::PortUp),
-    /// Lanzar un proceso en el túnel (T-104). Contesta [`TunnelDown::Started`].
+    /// Launch a process in the tunnel (T-104). Answers [`TunnelDown::Started`].
     Exec { tunnel: TunnelId, spec: ExecSpec },
-    /// Matar un proceso con todo su árbol. Contesta [`TunnelDown::Killed`].
+    /// Kill a process with its whole tree. Answers [`TunnelDown::Killed`].
     Kill {
         tunnel: TunnelId,
         process: ProcessId,
     },
-    /// Workspace de git del túnel (T-107).
+    /// The tunnel's git workspace (T-107).
     Workspace(crate::WorkspaceUp),
 }
 
-/// De la destino al origen.
+/// From the destination to the source.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TunnelDown {
     Opened(Tunnel),
     Closed(TunnelId),
     List(Vec<Tunnel>),
-    /// El pedido no se pudo atender (túnel desconocido, el destino no es esta máquina).
+    /// The request could not be handled (unknown tunnel, the destination is not this machine).
     Refused(String),
-    /// Por el canal de datos: un flujo que el origen todavía no conocía.
+    /// Over the data channel: a flow the source did not yet know.
     Flow(FlowInfo),
-    /// Bytes de `flow` desde la posición `offset`.
+    /// Bytes of `flow` from position `offset`.
     Data {
         flow: FlowId,
         offset: u64,
         bytes: Vec<u8>,
     },
-    /// Los bytes `from..to` de `flow` ya no están: el búfer circular los descartó mientras
-    /// nadie los leía. Lo siguiente empieza en `to`.
+    /// Bytes `from..to` of `flow` are gone: the ring buffer discarded them while
+    /// nobody was reading. What follows starts at `to`.
     Lost {
         flow: FlowId,
         from: u64,
         to: u64,
     },
-    /// `flow` terminó con `total` bytes y ya se mandaron todos.
+    /// `flow` ended with `total` bytes and all of them have been sent.
     End {
         flow: FlowId,
         total: u64,
     },
-    /// El túnel se cerró y ya se mandó toda su salida: el canal de datos termina aquí.
+    /// The tunnel closed and all its output has been sent: the data channel ends here.
     TunnelClosed,
-    /// Archivos (T-106), por su propio stream.
+    /// Files (T-106), over their own stream.
     Files(crate::FilesDown),
-    /// Puertos (T-106), por su propio stream.
+    /// Ports (T-106), over their own stream.
     Port(crate::PortDown),
-    /// El proceso que se lanzó.
+    /// The process that was launched.
     Started(TunnelProcess),
     Killed(ProcessId),
-    /// Por el canal de datos: un proceso del túnel, cada vez que cambia (termina).
+    /// Over the data channel: a tunnel process, every time it changes (ends).
     Process(TunnelProcess),
-    /// Workspace de git del túnel (T-107).
+    /// The tunnel's git workspace (T-107).
     Workspace(crate::WorkspaceDown),
 }
 
-/// Un túnel en la UI, con los procesos que están corriendo en él (los terminados salen de
-/// la lista; por MCP se pueden consultar un rato más).
+/// A tunnel in the UI, with the processes running in it (finished ones leave
+/// the list; through MCP they can be queried a while longer).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TunnelView {
     pub tunnel: Tunnel,
@@ -264,16 +264,16 @@ impl From<Tunnel> for TunnelView {
     }
 }
 
-/// Los túneles de un proyecto, para la UI (solo lectura, D9). `project` es `None` para
-/// los abiertos sin proyecto.
+/// A project's tunnels, for the UI (read only, D9). `project` is `None` for
+/// the ones opened without a project.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectTunnels {
     pub project: Option<Project>,
     pub tunnels: Vec<TunnelView>,
 }
 
-/// Agrupa por proyecto, en orden de proyecto (los sin proyecto al final) y, dentro de cada
-/// uno, del más viejo al más nuevo.
+/// Groups by project, in project order (the ones without a project last) and, within each
+/// one, oldest to newest.
 pub fn group_by_project(
     tunnels: impl IntoIterator<Item = impl Into<TunnelView>>,
 ) -> Vec<ProjectTunnels> {
@@ -291,7 +291,7 @@ pub fn group_by_project(
     for g in &mut groups {
         g.tunnels.sort_by_key(|t| (t.tunnel.created, t.tunnel.id));
     }
-    // `None` < `Some` en `Option`: se invierte para dejarlos al final.
+    // `None` < `Some` in `Option`: reversed to leave them last.
     groups.sort_by(|a, b| match (&a.project, &b.project) {
         (Some(x), Some(y)) => x.cmp(y),
         (Some(_), None) => std::cmp::Ordering::Less,
@@ -326,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn agrupa_por_proyecto_con_los_sin_proyecto_al_final() {
+    fn groups_by_project_with_projectless_last() {
         let groups = group_by_project([
             tunnel(1, None, 5),
             tunnel(2, Some("tandem"), 9),
@@ -353,7 +353,7 @@ mod tests {
     }
 
     #[test]
-    fn los_mensajes_hacen_ida_y_vuelta() {
+    fn messages_round_trip() {
         let up = TunnelUp::Attach {
             tunnel: TunnelId(7),
             from: vec![(FlowId(1), 1 << 40)],
@@ -419,7 +419,7 @@ mod tests {
     }
 
     #[test]
-    fn el_id_se_muestra_en_hexadecimal_fijo() {
+    fn id_is_shown_in_fixed_hex() {
         assert_eq!(TunnelId(0xab).to_string(), "00000000000000ab");
     }
 }

@@ -20,7 +20,7 @@ export interface ModuleView {
   id: string;
   name: string;
   state: ModuleState;
-  /** Qué hace en esta máquina, o por qué no está disponible. */
+  /** Qué hace en this machine, o por qué no está disponible. */
   detail: string;
   /** El usuario lo puede encender y apagar. */
   switchable: boolean;
@@ -51,7 +51,7 @@ export interface HardwareView {
   fanless?: boolean;
 }
 
-/** Recursos en vivo para la página Máquina (bytes y porcentajes 0–100). */
+/** Live resources para la página Máquina (bytes y porcentajes 0–100). */
 export interface LiveView {
   cpu: { percent: number; temp: number | null; history: number[] };
   ram: { used: number; total: number; history: number[] };
@@ -72,7 +72,7 @@ export interface LiveView {
 export interface Usage {
   /** 0–100. */
   percent: number;
-  /** Texto corto a la derecha de la barra (`12.4/24 GB`, `18 %`). */
+  /** Texto corto to the right of de la barra (`12.4/24 GB`, `18 %`). */
   label: string;
 }
 
@@ -104,11 +104,11 @@ export interface MachineView {
   system: string;
   hardware: HardwareView | null;
   environments: EnvView[];
-  /** Recursos en vivo (página Máquina); `null` sin muestras. */
+  /** Live resources (página Máquina); `null` sin muestras. */
   live: LiveView | null;
   /** Teclados y mouse que anuncia, si los lista (el asistente, paso 4). */
   inputDevices?: { name: string; via?: string }[];
-  /** Solo en la otra máquina: con qué MAC la despierta esta (T-159); `mac: null` = no puede. */
+  /** Solo en the other machine: con qué MAC la despierta esta (T-159); `mac: null` = no puede. */
   wake?: { mac: string | null } | null;
 }
 
@@ -117,7 +117,7 @@ export type LinkKind = "usb4" | "ethernet" | "wifi";
 export interface LinkView {
   /** Camino que lleva la entrada; `null` si no hay ninguno. */
   kind: LinkKind | null;
-  /** Ancho de banda medido, en Gbps (`null` sin medir). */
+  /** Bandwidth medido, en Gbps (`null` not measured). */
   gbps: number | null;
   /** Latencia del enlace, en ms. */
   ms: number | null;
@@ -134,7 +134,7 @@ export interface LatencyPoint {
   inputP99Ms: number | null;
 }
 
-/** Un camino de la pantalla Red (`V3-Red`). */
+/** Un camino de la pantalla Red (`V3-Network`). */
 export interface PathView {
   kind: LinkKind;
   state: PathState;
@@ -147,7 +147,7 @@ export interface PathView {
   gbps: number | null;
   /** Hasta 60 muestras, una por segundo, de la más vieja a la más nueva. */
   history: LatencyPoint[];
-  /** Lo que se sabe del enlace («USB4 · 20 Gbps», «Wi-Fi 7 · casa»); `null` si el agente no lo dice. */
+  /** Lo que se sabe del enlace («USB4 · 20 Gbps», «Wi-Fi 7 · home»); `null` si el agente no lo dice. */
   detail: string | null;
 }
 
@@ -161,7 +161,7 @@ export interface PathSwitchView {
   tookMs: number | null;
 }
 
-/** La red con la otra máquina (lo que manda el agente con `WatchNetwork`). */
+/** La red con the other machine (lo que manda el agente con `WatchNetwork`). */
 export interface NetworkView {
   /** USB-C, Ethernet y Wi-Fi, en ese orden. */
   paths: PathView[];
@@ -190,7 +190,7 @@ const unplugged = (kind: LinkKind): PathView => ({
   detail: null,
 });
 
-/** Sin red: los tres caminos sin cable. */
+/** Sin red: los tres caminos no cable. */
 export const EMPTY_NETWORK: NetworkView = {
   paths: (["usb4", "ethernet", "wifi"] as LinkKind[]).map(unplugged),
   switches: [],
@@ -212,7 +212,7 @@ export interface TunnelView {
   from: Machine;
   to: Machine;
   state: TunnelState;
-  /** Procesos corriendo ahora. */
+  /** Running processes ahora. */
   processes: number;
   /** La rama del workspace de git (T-107); `null` mientras el agente no la informe. */
   branch: string | null;
@@ -274,7 +274,7 @@ export interface SceneView {
   raw: SceneJson | null;
 }
 
-/** Un evento del monitor, ya con su ícono y su texto (`V3-Monitores`). */
+/** Un evento dthe monitor, ya con su ícono y su texto (`V3-Monitors`). */
 export interface MonitorEventView {
   /** Milisegundos Unix. */
   at: number;
@@ -301,30 +301,30 @@ export interface MonitorUi {
   events: MonitorEventView[];
 }
 
-/** Emparejar con la otra máquina (lo que manda el agente). */
+/** Emparejar con the other machine (lo que manda el agente). */
 export interface PairState {
   peer: PeerView;
   pairing: PairingView;
 }
 
-/** Un permiso del sistema de esta máquina (macOS, T-090). */
+/** Un permiso del sistema de this machine (macOS, T-090). */
 export interface PermissionRow {
   id: Permission;
   state: PermissionState;
 }
 
 export interface PermissionsView {
-  /** Esta máquina pide permisos (macOS); en Windows la lista queda vacía. */
+  /** This machine pide permisos (macOS); en Windows la lista queda vacía. */
   needed: boolean;
   rows: PermissionRow[];
   /** «Concede el permiso a este binario: …», si el agente lo dijo. */
   binary: string | null;
 }
 
-/** Los estados difíciles (`V3-Estados`). */
+/** Los estados difíciles (`V3-States`). */
 export type Trouble = "none" | "no-agent" | "peer-off" | "link-down" | "permissions";
 
-/** Teclado y mouse compartidos (Ajustes → Teclado y mouse). */
+/** Keyboard and mouse compartidos (Ajustes → Keyboard and mouse). */
 export interface PrefsView {
   cmdCtrl: boolean;
   dragFiles: boolean;
@@ -332,7 +332,7 @@ export interface PrefsView {
   clipboard: boolean;
 }
 
-/** Un cambio del puesto hecho desde la otra máquina (D5), para el aviso «Deshacer». */
+/** Un cambio del puesto hecho desde the other machine (D5), para el aviso «Deshacer». */
 export interface DeskChange {
   by: Machine;
   rev: number;
@@ -349,7 +349,7 @@ export interface TransferView {
   finished: boolean;
 }
 
-/** Dónde están el archivo de configuración y los logs de esta máquina. */
+/** Dónde están el archivo de configuración y los logs de this machine. */
 export interface FilesView {
   config: string;
   logs: string;
@@ -357,13 +357,13 @@ export interface FilesView {
 
 export interface DeskView {
   prefs: PrefsView;
-  /** El cursor está bloqueado en esta máquina («Bloquear aquí», T-157). */
+  /** El cursor está bloqueado en this machine («Lock here», T-157). */
   locked: boolean;
   /** El atajo de bloqueo del puesto (`KeyboardEvent.code`); vacío = sin atajo. */
   lockShortcut: string[];
   /** `connecting` mientras no hay primer estado. */
   ready: boolean;
-  /** El nombre del puesto (junto al logo en `V3-Maquina`); «Mi puesto» si no tiene. */
+  /** El nombre del puesto (junto al logo en `V3-Machine`); «My desk» si no tiene. */
   deskName: string;
   trouble: Trouble;
   /** Por qué, en una línea (para el estado difícil). */
@@ -406,11 +406,11 @@ export type ActResult = { ok: true; text?: string } | { ok: false; reason: strin
  */
 export interface Source {
   start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void>;
-  /** Teclado y mouse compartidos: se manda el par entero. */
+  /** Keyboard and mouse compartidos: se manda el par entero. */
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult>;
   /** El atajo de bloqueo del puesto (vacío = sin atajo). */
   setLockShortcut(lock: string[]): Promise<ActResult>;
-  /** «Deshacer» el cambio de la otra máquina: vuelve el puesto a la versión `rev`. */
+  /** «Deshacer» el cambio de the other machine: vuelve el puesto a la versión `rev`. */
   undoDesk(rev: number): Promise<ActResult>;
   /** Archivo de configuración y logs (Ajustes → Avanzado). */
   files(): Promise<FilesView>;
@@ -421,7 +421,7 @@ export interface Source {
   applyScene(id: string): Promise<ActResult>;
   /** Cambiar la entrada de un monitor compatible: una transacción con el veredicto del firmware. */
   switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult>;
-  /** Crear (`isNew`) o guardar una escena en el puesto compartido: llega a la otra máquina. */
+  /** Crear (`isNew`) o guardar una escena en el puesto compartido: llega a the other machine. */
   saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult>;
   /** Olvidar un monitor no compatible que ya no está. */
   forgetMonitor(id: string): Promise<ActResult>;
@@ -441,23 +441,23 @@ export interface Source {
   /** Medir el ancho de banda de un camino (por omisión, el que lleva el tráfico). */
   measureLink(path?: LinkKind): Promise<ActResult>;
   setModule(machine: Machine, module: string, on: boolean): Promise<ActResult>;
-  /** Volver a escanear los entornos de `machine` (lo nuevo llega con el puesto). */
+  /** Scan again los entornos de `machine` (lo nuevo llega con el puesto). */
   rescan(machine: Machine): Promise<ActResult>;
   /** Nombre o color de una máquina (el puesto compartido, D4/D17). */
   editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult>;
   /** El nombre del puesto; vacío vuelve al de omisión (T-159). */
   setDeskName(name: string): Promise<ActResult>;
-  /** La MAC con que se despierta a la otra máquina; `null` la borra (T-159). */
+  /** La MAC con que se despierta a the other machine; `null` la borra (T-159). */
   setWol(mac: string | null): Promise<ActResult>;
   /** Emparejar (`start_pairing`, `confirm_pairing`, `cancel_pairing`) o desemparejar. */
   pairAction(kind: PairActionKind): Promise<ActResult>;
-  /** «Bloquear aquí» (T-129): el cursor no cruza a la otra máquina mientras esté bloqueado. */
+  /** «Lock here» (T-129): the cursor does not cross a the other machine mientras esté bloqueado. */
   lockHere(on: boolean): Promise<ActResult>;
   /** macOS muestra su diálogo de permisos a nombre de tandemd. */
   requestPermissions(): Promise<ActResult>;
   /** Abre el panel de Ajustes del Sistema que concede el permiso. */
   openPermission(p: Permission): Promise<ActResult>;
-  /** Reinicia tandemd para que valgan los permisos recién dados. */
+  /** Reinicia tandemd so the permissions you just gave take effect. */
   restartAgent(): Promise<ActResult>;
   /** El estado real del servicio de administrador. */
   adminStatus(): Promise<AdminView>;
@@ -478,7 +478,7 @@ export interface Source {
   /** Rechaza con la razón si no se puede empezar. */
   updateAll(): Promise<UpdateView>;
   setAutoUpdate(on: boolean): Promise<UpdateView>;
-  /** Guarda el acomodo en el puesto compartido (T-099): llega a la otra máquina. */
+  /** Guarda el acomodo en el puesto compartido (T-099): llega a the other machine. */
   setArrangement(a: Arrangement): Promise<ActResult>;
   /**
    * La prueba de cruce: `onCross` recibe cada cruce del cursor entre las dos máquinas hasta
@@ -491,11 +491,11 @@ export interface Source {
    */
   watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void>;
   /**
-   * Escucha una tecla o un movimiento en cada máquina (paso «Teclado y mouse»): `onHeard`
+   * Escucha una tecla o un movimiento en cada máquina (paso «Keyboard and mouse»): `onHeard`
    * recibe la máquina que lo oyó, hasta que se llama a la función que devuelve.
    */
   watchKeyProbe(onHeard: (m: Machine) => void): Promise<() => void>;
-  /** Avisa al agente de que esta ventana oyó una tecla o un movimiento: él se lo cuenta a la otra máquina. */
+  /** Avisa al agente de que esta ventana oyó una tecla o un movimiento: él se lo cuenta a the other machine. */
   reportHeardKey?(): Promise<void>;
   /** Tiempo para cruzar, si la fuente lo cambia (el demo, para capturar el tiempo agotado). */
   readonly crossTimeoutMs?: number;

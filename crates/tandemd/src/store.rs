@@ -1,5 +1,5 @@
-//! El [`State`] persistido en JSON: lo que sabe el agente al arrancar (qué máquinas
-//! estaban encendidas).
+//! The [`State`] persisted as JSON: what the agent knows on start (which machines
+//! were on).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -9,19 +9,19 @@ use tandem_core::{Machine, State};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    #[error("no se pudo leer o escribir {path}: {source}")]
+    #[error("could not read or write {path}: {source}")]
     Io {
         path: PathBuf,
         #[source]
         source: io::Error,
     },
-    #[error("el estado guardado en {path} está dañado: {source}")]
+    #[error("the state saved at {path} is damaged: {source}")]
     Corrupt {
         path: PathBuf,
         #[source]
         source: serde_json::Error,
     },
-    #[error("no se pudo serializar el estado: {0}")]
+    #[error("could not serialize the state: {0}")]
     Serialize(#[source] serde_json::Error),
 }
 
@@ -39,7 +39,7 @@ impl StateStore {
         &self.path
     }
 
-    /// `None` si todavía no se guardó nunca.
+    /// `None` if it was never saved yet.
     pub fn load(&self) -> Result<Option<State>, StoreError> {
         let bytes = match std::fs::read(&self.path) {
             Ok(b) => b,
@@ -54,10 +54,10 @@ impl StateStore {
             })
     }
 
-    /// Escribe a un archivo temporal y lo renombra: un corte a mitad no deja un JSON a medias.
+    /// Writes to a temporary file and renames it: a cut midway does not leave a half JSON.
     ///
-    /// Cada guardado usa su propio temporal: dos guardados a la vez no se pisan, y el
-    /// rename deja entero el último que termina.
+    /// Each save uses its own temporary: two saves at once do not trample each other, and the
+    /// rename leaves whole the last one that finishes.
     pub fn save(&self, state: &State) -> Result<(), StoreError> {
         static NEXT_TMP: AtomicU64 = AtomicU64::new(0);
         if let Some(dir) = self.path.parent() {
@@ -68,27 +68,27 @@ impl StateStore {
         let tmp = self.sibling(&format!("tmp-{}-{n}", std::process::id()));
         let result = std::fs::write(&tmp, json).and_then(|()| std::fs::rename(&tmp, &self.path));
         if let Err(e) = result {
-            // Mejor esfuerzo: el error que importa es el de la escritura.
+            // Best effort: the error that matters is the write's.
             let _ = std::fs::remove_file(&tmp);
             return Err(self.io(e));
         }
         Ok(())
     }
 
-    /// El estado de arranque.
+    /// The startup state.
     ///
-    /// Si no hay nada guardado, el estado seguro de partida. Si el archivo está dañado,
-    /// se aparta como `*.corrupt` (para poder mirarlo) y también se parte del estado seguro.
+    /// If nothing is saved, the safe starting state. If the file is damaged,
+    /// it is set aside as `*.corrupt` (so it can be looked at) and it also starts from the safe state.
     pub fn load_or_initial(&self, me: Machine) -> State {
         match self.load() {
             Ok(Some(s)) => s,
             Ok(None) => State::initial(me),
             Err(e) => {
-                tracing::warn!("{e}; se parte del estado inicial");
+                tracing::warn!("{e}; starting from the initial state");
                 if matches!(e, StoreError::Corrupt { .. }) {
                     let aside = self.sibling("corrupt");
                     if let Err(e) = std::fs::rename(&self.path, &aside) {
-                        tracing::warn!("no se pudo apartar {}: {e}", self.path.display());
+                        tracing::warn!("could not set aside {}: {e}", self.path.display());
                     }
                 }
                 State::initial(me)
@@ -130,7 +130,7 @@ mod tests {
         let store = StateStore::new(dir.path().join("state.json"));
         store.save(&sample()).unwrap();
         assert_eq!(store.load().unwrap(), Some(sample()));
-        // Un agente nuevo sobre el mismo archivo arranca donde quedó el anterior.
+        // A new agent over the same file starts where the previous one left off.
         let again = StateStore::new(store.path());
         assert_eq!(again.load_or_initial(Machine::A), sample());
     }
@@ -185,7 +185,7 @@ mod tests {
         assert!(dir.path().join("state.json.corrupt").exists());
     }
 
-    /// Un estado guardado por v0.1 (con los monitores) sigue cargando.
+    /// A state saved by v0.1 (with the monitors) still loads.
     #[test]
     fn a_state_saved_with_monitors_still_loads() {
         let dir = tempfile::tempdir().unwrap();
@@ -199,8 +199,8 @@ mod tests {
         assert_eq!(store.load_or_initial(Machine::A), sample());
     }
 
-    /// Uno de antes de los lados A/B (`mac`/`pc`) carga sin adivinar cuál era cuál: nada
-    /// prendido, y el agente pone la suya y la otra según los enlaces.
+    /// One from before sides A/B (`mac`/`pc`) loads without guessing which was which: nothing
+    /// on, and the agent sets its own and the other according to the links.
     #[test]
     fn a_state_saved_with_mac_and_pc_loads_with_nothing_on() {
         let dir = tempfile::tempdir().unwrap();
@@ -213,9 +213,9 @@ mod tests {
         );
     }
 
-    // QA ronda 1: todas las escrituras usaban el mismo `state.json.tmp`. Dos guardados
-    // a la vez (el agente se comparte entre conexiones) se pisaban el temporal: uno
-    // renombraba el archivo a medio escribir del otro y el segundo fallaba con NotFound.
+    // QA round 1: all writes used the same `state.json.tmp`. Two saves
+    // at once (the agent is shared between connections) trampled the temporary: one
+    // renamed the other's half-written file and the second failed with NotFound.
     #[test]
     fn concurrent_saves_never_fail_or_tear_the_file() {
         let dir = tempfile::tempdir().unwrap();

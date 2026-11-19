@@ -1,7 +1,7 @@
-//! `tracing` a stdout y a `<datos>/logs/tandemd.log`.
+//! `tracing` to stdout and to `<data>/logs/tandemd.log`.
 //!
-//! El nivel sale de `TANDEM_LOG` (sintaxis de `EnvFilter`, por ejemplo `tandemd=debug`);
-//! por omisión, `info`.
+//! The level comes from `TANDEM_LOG` (`EnvFilter` syntax, for example `tandemd=debug`);
+//! by default, `info`.
 
 use std::fs::OpenOptions;
 use std::io;
@@ -15,7 +15,7 @@ use tracing_subscriber::prelude::*;
 pub const ENV_VAR: &str = "TANDEM_LOG";
 const FILE: &str = "tandemd.log";
 
-/// Devuelve la ruta del archivo de log.
+/// Returns the log file's path.
 pub fn init(log_dir: &Path) -> io::Result<PathBuf> {
     crate::paths::create_private_dir(log_dir)?;
     let path = log_dir.join(FILE);

@@ -3,12 +3,12 @@
 // empaquetadas, animaciones finitas terminadas y las infinitas en su estado inicial) y la
 // compara con la captura del mockup.
 //
-//   pnpm shots                    # todas → docs/screenshots/v03/<pantalla>.png + similitud.json
-//   pnpm shots --only puesto      # una
+//   pnpm shots                    # todas → docs/screenshots/v03/<screen>.png + similarity.json
+//   pnpm shots --only desk        # one
 //   pnpm shots --check            # falla si una zona con umbral no lo cumple
 //   pnpm shots --no-build         # reutiliza dist-demo/
 //   pnpm shots --diff-dir d/      # guarda las diferencias de cada comparación
-//   pnpm shots --only estilos     # solo la paridad de estilos de los componentes (T-127)
+//   pnpm shots --only styles      # only the component style parity (T-127)
 //
 // Además de las pantallas, compara los estilos calculados de cada componente de la galería
 // (`gallery.html`) con el mismo elemento del mockup (`style-parity-spec.ts`); con `--check`,
@@ -82,7 +82,7 @@ interface ShotResult {
 
 /** Cajas de los selectores en el mockup (para tapar y para recortar zonas). */
 async function mockupRects(browser: Browser, spec: ShotSpec, selectors: string[]): Promise<Record<string, Rect | null>> {
-  const context = await browser.newContext({ viewport: { width: spec.width, height: spec.height }, deviceScaleFactor: 1, locale: "es-ES", colorScheme: "dark" });
+  const context = await browser.newContext({ viewport: { width: spec.width, height: spec.height }, deviceScaleFactor: 1, locale: "en-US", colorScheme: "dark" });
   try {
     await installRoutes(context);
     const page = await context.newPage();
@@ -122,7 +122,7 @@ async function boxes(page: Page, selectors: string[]): Promise<Record<string, Re
 
 /** Cajas del mockup (todas las de cada selector). */
 async function mockupBoxes(browser: Browser, spec: ShotSpec, selectors: string[]): Promise<Record<string, Rect[]>> {
-  const context = await browser.newContext({ viewport: { width: spec.width, height: spec.height }, deviceScaleFactor: 1, locale: "es-ES", colorScheme: "dark" });
+  const context = await browser.newContext({ viewport: { width: spec.width, height: spec.height }, deviceScaleFactor: 1, locale: "en-US", colorScheme: "dark" });
   try {
     await installRoutes(context);
     const page = await context.newPage();
@@ -143,7 +143,7 @@ function compareContent(spec: ShotSpec, png: Buffer, appBoxes: Record<string, Re
   const c = spec.content;
   const a = appBoxes[c?.app ?? ""]?.[0];
   const m = mockBoxes[c?.mockup ?? ""]?.[0];
-  if (!c || !a || !m) throw new Error(`${spec.name}: no se encontró el contenido en la app (${a ? "sí" : "no"}) o en el mockup (${m ? "sí" : "no"})`);
+  if (!c || !a || !m) throw new Error(`${spec.name}: content not found in the app (${a ? "yes" : "no"}) or in the mockup (${m ? "yes" : "no"})`);
   const appImg = pngSize(png);
   const width = Math.floor(Math.min(a.width, m.width));
   const height = Math.floor(Math.min(appImg.height - a.y, spec.height - m.y));
@@ -158,7 +158,7 @@ function compareContent(spec: ShotSpec, png: Buffer, appBoxes: Record<string, Re
   const r = compare(app, ref);
   if (diffPath) writeFileSync(diffPath, r.diffPng);
   const ok = r.similarity >= c.min.similarity && r.worstTile.similarity >= c.min.worstTile;
-  return { name: "contenido", similarity: round(r.similarity), worstTile: round(r.worstTile.similarity), min: c.min, ok };
+  return { name: "content", similarity: round(r.similarity), worstTile: round(r.worstTile.similarity), min: c.min, ok };
 }
 
 function pngSize(png: Buffer): { width: number; height: number } {
@@ -169,12 +169,12 @@ async function serveApp(page: Page, errors: string[]): Promise<void> {
   await page.route("**/*", async (route) => {
     const url = new URL(route.request().url());
     if (url.origin !== APP_ORIGIN) {
-      errors.push(`petición externa bloqueada: ${url.href}`);
+      errors.push(`external request blocked: ${url.href}`);
       return route.abort("blockedbyclient");
     }
     const rel = normalize(decodeURIComponent(url.pathname)).replace(/^([/\\])+/, "") || "index.html";
     const path = join(DIST, rel);
-    if (!path.startsWith(DIST + sep) || !existsSync(path)) return route.fulfill({ status: 404, body: "no existe" });
+    if (!path.startsWith(DIST + sep) || !existsSync(path)) return route.fulfill({ status: 404, body: "not found" });
     return route.fulfill({ body: readFileSync(path), contentType: TYPES[extname(path)] ?? "application/octet-stream" });
   });
 }
@@ -184,7 +184,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
   const context = await browser.newContext({
     viewport: { width: spec.content?.appWidth ?? spec.width, height: spec.height },
     deviceScaleFactor: 1,
-    locale: "es-ES",
+    locale: "en-US",
     timezoneId: "UTC",
     colorScheme: "dark",
     reducedMotion: "no-preference",
@@ -196,9 +196,9 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
   try {
     const page = await context.newPage();
     page.on("console", (m) => {
-      if (m.type() === "error") errors.push(`consola: ${m.text()}`);
+      if (m.type() === "error") errors.push(`console: ${m.text()}`);
     });
-    page.on("pageerror", (e) => errors.push(`excepción: ${e.message}`));
+    page.on("pageerror", (e) => errors.push(`exception: ${e.message}`));
     await serveApp(page, errors);
     await page.goto(appUrl(APP_ORIGIN, spec));
     await page.waitForSelector("#app > *", { timeout: 10_000 });
@@ -227,7 +227,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
       await settle(page);
     }
     const text = await page.evaluate(() => document.body.innerText);
-    for (const bad of ["{{", "undefined", "NaN"]) if (text.includes(bad)) errors.push(`texto visible con «${bad}»`);
+    for (const bad of ["{{", "undefined", "NaN"]) if (text.includes(bad)) errors.push(`visible text with “${bad}”`);
     png = await capture(page);
     if (spec.content) appBoxes = await boxes(page, [spec.content.app, ...spec.content.masks.map((k) => k.app)]);
   } finally {
@@ -258,7 +258,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
   }
 
   const measure = (name: string, region: Rect | undefined, min?: Measure["min"]): Measure => {
-    const diffPath = args.diffDir ? join(args.diffDir, `${spec.name}${name === "pantalla" ? "" : `--${name.replace(/\s+/g, "-")}`}.diff.png`) : undefined;
+    const diffPath = args.diffDir ? join(args.diffDir, `${spec.name}${name === "screen" ? "" : `--${name.replace(/\s+/g, "-")}`}.diff.png`) : undefined;
     const box = region ? { x: Math.floor(region.x), y: Math.floor(region.y), width: Math.floor(region.width), height: Math.floor(region.height) } : undefined;
     let r: CompareResult;
     if (ref) {
@@ -271,12 +271,12 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     return { name, similarity: round(r.similarity), worstTile: round(r.worstTile.similarity), min, ok };
   };
 
-  const full = measure("pantalla", undefined, spec.min);
+  const full = measure("screen", undefined, spec.min);
   const regions: Measure[] = [];
   for (const r of spec.regions ?? []) {
     const rect = r.rect ?? (r.mockupSelector ? rects[r.mockupSelector] : null);
     if (!rect) {
-      errors.push(`zona «${r.name}»: no se encontró en el mockup`);
+      errors.push(`region “${r.name}”: not found in the mockup`);
       continue;
     }
     regions.push(measure(r.name, rect, r.min));
@@ -292,7 +292,7 @@ async function main(): Promise<void> {
   mkdirSync(OUT, { recursive: true });
   if (args.diffDir) mkdirSync(args.diffDir, { recursive: true });
   const specs = args.only.length ? SHOTS.filter((s) => args.only.includes(s.name)) : SHOTS;
-  const styles = args.only.length === 0 || args.only.includes("estilos");
+  const styles = args.only.length === 0 || args.only.includes("styles");
   // Mismas opciones de Chromium que las capturas de los mockups (`--disable-partial-raster`).
   const browser = await launchBrowser();
   const results: ShotResult[] = [];
@@ -302,20 +302,20 @@ async function main(): Promise<void> {
     if (styles) {
       const errors: string[] = [];
       const parity = await runStyleParity(browser, async (page) => {
-        page.on("pageerror", (e) => errors.push(`excepción: ${e.message}`));
+        page.on("pageerror", (e) => errors.push(`exception: ${e.message}`));
         await serveApp(page, errors);
         await page.goto(`${APP_ORIGIN}/gallery.html`);
       });
-      writeFileSync(join(OUT, "galeria.png"), parity.galleryPng);
-      console.log(`\nEstilos de los componentes (galería ↔ mockups):\n${formatReport(parity.pairs, parity.diffs, parity.missing)}`);
-      for (const e of errors) console.log(`! galería: ${e}`);
+      writeFileSync(join(OUT, "gallery.png"), parity.galleryPng);
+      console.log(`\nComponent styles (gallery ↔ mockups):\n${formatReport(parity.pairs, parity.diffs, parity.missing)}`);
+      for (const e of errors) console.log(`! gallery: ${e}`);
       styleFailed = parity.diffs.length > 0 || parity.missing.length > 0 || errors.length > 0;
     }
   } finally {
     await browser.close();
   }
 
-  const fmt = (m: Measure) => `${(m.similarity * 100).toFixed(2)} % (peor cuadro ${(m.worstTile * 100).toFixed(1)} %)${m.min ? (m.ok ? " ✓" : " ✗") : ""}`;
+  const fmt = (m: Measure) => `${(m.similarity * 100).toFixed(2)} % (worst tile ${(m.worstTile * 100).toFixed(1)} %)${m.min ? (m.ok ? " ✓" : " ✗") : ""}`;
   for (const r of results) {
     console.log(`${r.name.padEnd(10)} ${r.mockup.padEnd(13)} ${fmt(r.full)}`);
     for (const g of r.regions) console.log(`${"".padEnd(10)} ${("· " + g.name).padEnd(13)} ${fmt(g)}`);
@@ -323,15 +323,15 @@ async function main(): Promise<void> {
   }
 
   // El resumen se fusiona con el que ya había, así `--only` no borra las otras pantallas.
-  const summaryFile = join(OUT, "similitud.json");
+  const summaryFile = join(OUT, "similarity.json");
   const prev: Record<string, unknown> = existsSync(summaryFile) ? (JSON.parse(readFileSync(summaryFile, "utf8")) as Record<string, unknown>) : {};
-  for (const r of results) prev[r.name] = { mockup: r.mockup, pantalla: r.full, zonas: r.regions, errores: r.errors };
+  for (const r of results) prev[r.name] = { mockup: r.mockup, screen: r.full, regions: r.regions, errors: r.errors };
   const sorted = Object.fromEntries(Object.entries(prev).sort(([a], [b]) => a.localeCompare(b)));
   writeFileSync(summaryFile, JSON.stringify(sorted, null, 2) + "\n");
 
   const failed = results.filter((r) => r.errors.length > 0 || !r.full.ok || r.regions.some((g) => !g.ok));
   if (args.check && (failed.length > 0 || styleFailed)) {
-    console.error(`\nNo cumplen: ${[...failed.map((r) => r.name), ...(styleFailed ? ["estilos"] : [])].join(", ")}`);
+    console.error(`\nFailing: ${[...failed.map((r) => r.name), ...(styleFailed ? ["styles"] : [])].join(", ")}`);
     process.exit(1);
   }
 }

@@ -1,7 +1,9 @@
-//! El asistente de configuración inicial (DESIGN §5, sin monitores) con dos `tandemd`
-//! reales por loopback, armados con la configuración del primer arranque: (1) esta máquina
-//! y sus permisos, (2) emparejar y ver el ping del enlace, (3) «presiona una tecla» y (4)
-//! el resumen. Solo los pasos de cada máquina son simulados.
+//! The initial setup wizard (DESIGN §5, without monitors) with two real `tandemd`s
+//! over loopback, built with the first-start configuration: (1) this machine
+//! and its permissions, (2) pair and see the link ping, (3) "press a key" and (4)
+//! the summary. Only each machine's steps are simulated.
+
+mod common;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -21,8 +23,8 @@ use tandemd::{Agent, AgentConfig, StoreError, autoconfig};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
-/// Las dos identidades ordenadas por clave: la primera es la del lado A (DECISIONS A1), así
-/// cada prueba sabe qué lado le toca a cada agente.
+/// The two identities sorted by key: the first is side A's (DECISIONS A1), so
+/// each test knows which side each agent gets.
 fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     if x.public_key().as_bytes() < y.public_key().as_bytes() {
         (x, y)
@@ -36,7 +38,7 @@ const TIMEOUT: Duration = Duration::from_secs(20);
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
 struct Ok_;
@@ -69,8 +71,8 @@ impl Running {
     }
 }
 
-/// Un agente armado como en el binario, con la configuración que genera el primer arranque
-/// y el enlace de loopback hacia el otro.
+/// An agent built as in the binary, with the configuration the first start generates
+/// and the loopback link toward the other.
 async fn start(
     machine: Machine,
     identity: &Identity,
@@ -99,11 +101,7 @@ async fn start(
     );
     std::fs::write(&paths.config, &text).unwrap();
     let cfg = AgentConfig::load(&paths.config).unwrap();
-    assert_eq!(
-        cfg.desk,
-        tandem_core::Config::default(),
-        "instalación limpia"
-    );
+    assert_eq!(cfg.desk, tandem_core::Config::default(), "clean install");
     let started = daemon::start(
         cfg,
         &paths,
@@ -115,8 +113,9 @@ async fn start(
         NetOptions {
             bind: Some(loopback(port)),
             mdns: false,
-            // Sin reserva: un puerto tomado falla enseguida y se eligen otros.
+            // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
+            health: common::health(),
             ..NetOptions::default()
         },
     );
@@ -151,17 +150,17 @@ async fn start(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn el_asistente_reducido_de_punta_a_punta() {
+async fn the_reduced_wizard_end_to_end() {
     let (mac_id, pc_id) = sides(Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
     let (mut mac, mut pc) = tandemd::start_pair!(
         |mac_port, pc_port| start(Machine::A, &mac_id, mac_port, (pc_id.public_key(), pc_port)),
         start(Machine::B, &pc_id, pc_port, (mac_id.public_key(), mac_port))
     );
 
-    // (1) Esta máquina y sus permisos: lo que puede y el proceso al que darle permisos.
+    // (1) This machine and its permissions: what it can do and the process to grant permissions to.
     let Reply::Capabilities(caps) = mac.ui.request(UiCommand::GetCapabilities).await.unwrap()
     else {
-        panic!("se esperaban capacidades");
+        panic!("capabilities were expected");
     };
     assert_eq!(caps.here.machine, Machine::A);
     assert_eq!(caps.here.input.process.pid, std::process::id());
@@ -170,14 +169,14 @@ async fn el_asistente_reducido_de_punta_a_punta() {
         Reply::Done
     );
     let Reply::Input(input) = mac.ui.request(UiCommand::GetInput).await.unwrap() else {
-        panic!("se esperaba el teclado y mouse");
+        panic!("keyboard and mouse were expected");
     };
     assert!(
         !input.defined,
-        "sin hub ni respuesta, el teclado está sin definir"
+        "without a hub or answer, the keyboard is not set"
     );
 
-    // (2) Emparejadas (la confianza ya está): se ven y el ping del enlace se muestra.
+    // (2) Paired (trust is already there): they see each other and the link ping is shown.
     let reply = within(async {
         loop {
             match mac.ui.request(UiCommand::PingPeer).await.unwrap() {
@@ -195,7 +194,7 @@ async fn el_asistente_reducido_de_punta_a_punta() {
         Reply::Peer(PeerStatus::Paired { link: Some(_), .. })
     ));
 
-    // (3) «Presiona una tecla»: el asistente de la Mac arma la prueba y la PC se entera.
+    // (3) "Press a key": the Mac's wizard arms the test and the PC finds out.
     assert_eq!(
         mac.ui
             .request(UiCommand::KeyProbe { on: true })
@@ -205,7 +204,7 @@ async fn el_asistente_reducido_de_punta_a_punta() {
     );
     let mut probe = pc.agent.subscribe_key_probe();
     within(probe.wait_for(|s| s.armed)).await.unwrap();
-    // La tecla llega a la PC.
+    // The key reaches the PC.
     assert_eq!(
         pc.ui.request(UiCommand::HeardKey).await.unwrap(),
         Reply::Done
@@ -216,11 +215,11 @@ async fn el_asistente_reducido_de_punta_a_punta() {
         .unwrap()
         .heard;
     assert_eq!(heard, Some(Machine::B));
-    // Una segunda tecla en la otra no cambia lo que se oyó primero.
+    // A second key on the other does not change what was heard first.
     mac.ui.request(UiCommand::HeardKey).await.unwrap();
     assert_eq!(mac.agent.key_probe_status().heard, Some(Machine::B));
 
-    // «¿Es correcto?»: sí. Se guarda en las dos y deja de ser «sin definir».
+    // "Is this right?": yes. It is saved on both and stops being "not set".
     assert_eq!(
         mac.ui
             .request(UiCommand::SetKeyboard(Machine::B))
@@ -241,18 +240,18 @@ async fn el_asistente_reducido_de_punta_a_punta() {
         assert_eq!(saved.input.keyboard, Some(Machine::B));
     }
 
-    // (4) Resumen: de dónde salió la configuración y el puesto (sin pantallas declaradas;
-    // solo qué máquina es cada lado, que se anota al conocerse).
+    // (4) Summary: where the configuration came from and the desk (without declared screens;
+    // only which machine each side is, which is noted when getting to know each other).
     let Reply::Setup(setup) = mac.ui.request(UiCommand::GetSetup).await.unwrap() else {
-        panic!("se esperaba la configuración");
+        panic!("the configuration was expected");
     };
     assert!(setup.config_file.is_some());
     let Reply::Desk(desk) = mac.ui.request(UiCommand::GetDesk).await.unwrap() else {
-        panic!("se esperaba el puesto");
+        panic!("the desk was expected");
     };
     assert!(desk.screens.is_empty());
     assert_eq!(desk.arrangement, None);
-    // Desactivar la escucha al terminar.
+    // Turn listening off at the end.
     mac.ui
         .request(UiCommand::KeyProbe { on: false })
         .await
@@ -264,9 +263,9 @@ async fn el_asistente_reducido_de_punta_a_punta() {
     pc.stop().await;
 }
 
-/// T-166: la tecla oída en B llega a la UI de A por su socket IPC, no solo al agente.
+/// T-166: the key heard on B reaches A's UI through its IPC socket, not only the agent.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn la_actividad_de_la_otra_llega_a_la_ui_por_ipc() {
+async fn the_other_ones_activity_reaches_the_ui_over_ipc() {
     let (a_id, b_id) = sides(Identity::from_seed([3; 32]), Identity::from_seed([4; 32]));
     let (mut a, mut b) = tandemd::start_pair!(
         |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
@@ -290,7 +289,7 @@ async fn la_actividad_de_la_otra_llega_a_la_ui_por_ipc() {
     let mut probe = b.agent.subscribe_key_probe();
     within(probe.wait_for(|s| s.armed)).await.unwrap();
     b.ui.request(UiCommand::HeardKey).await.unwrap();
-    // A nunca recibió una tecla: solo el empuje del IPC puede avisarle a su UI.
+    // A never received a key: only the IPC push can notify its UI.
     let heard = within(async {
         loop {
             match a.ui.next_event().await.unwrap() {
@@ -298,7 +297,7 @@ async fn la_actividad_de_la_otra_llega_a_la_ui_por_ipc() {
                     break s.heard;
                 }
                 Some(_) => {}
-                None => panic!("la conexión se cerró"),
+                None => panic!("the connection closed"),
             }
         }
     })

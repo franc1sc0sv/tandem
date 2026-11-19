@@ -1,13 +1,13 @@
-//! Modelo de eventos de entrada, independiente de la plataforma.
+//! Input event model, platform independent.
 //!
-//! Las teclas viajan por su código físico USB HID: el sistema destino aplica su
-//! propia distribución, así ES/LatAm, teclas muertas y AltGr/Option funcionan solos
-//! (docs/research/input-engine.md). Este módulo no depende de ninguna plataforma;
-//! la captura y la inyección convierten desde y hacia estos tipos con [`keymap`].
+//! Keys travel by their physical USB HID code: the target system applies its
+//! own layout, so ES/LatAm, dead keys and AltGr/Option work on their own
+//! (docs/research/input-engine.md). This module depends on no platform;
+//! capture and injection convert from and to these types with [`keymap`].
 //!
-//! - [`keymap`]: tablas HID ↔ keycode de Mac ↔ scancode de Windows.
-//! - [`remap`]: reasignación de modificadores por dirección (Cmd→Ctrl, etc.).
-//! - [`pressed`]: conjunto de teclas y botones presionados, con `release_all()`.
+//! - [`keymap`]: HID ↔ Mac keycode ↔ Windows scancode tables.
+//! - [`remap`]: modifier remapping by direction (Cmd→Ctrl, etc.).
+//! - [`pressed`]: set of pressed keys and buttons, with `release_all()`.
 
 pub mod keymap;
 pub mod pressed;
@@ -19,14 +19,14 @@ pub use keymap::{MacKeycode, WinScancode};
 pub use pressed::{Change, Pressed};
 pub use remap::{Direction, ModifierRemap, RemapError, RemapPolicy};
 
-/// Página HID de teclado (Keyboard/Keypad).
+/// HID keyboard page (Keyboard/Keypad).
 pub const PAGE_KEYBOARD: u16 = 0x07;
-/// Página HID de consumo: teclas multimedia.
+/// HID consumer page: media keys.
 pub const PAGE_CONSUMER: u16 = 0x0C;
-/// Página HID Generic Desktop: dormir, despertar.
+/// HID Generic Desktop page: sleep, wake.
 pub const PAGE_GENERIC_DESKTOP: u16 = 0x01;
 
-/// Código físico de una tecla: página y uso USB HID (equivale a `KeyboardEvent.code`).
+/// Physical code of a key: USB HID page and usage (equivalent to `KeyboardEvent.code`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct HidUsage {
     pub page: u16,
@@ -38,26 +38,26 @@ impl HidUsage {
         Self { page, id }
     }
 
-    /// Uso de la página de teclado (0x07).
+    /// Usage on the keyboard page (0x07).
     pub const fn key(id: u16) -> Self {
         Self::new(PAGE_KEYBOARD, id)
     }
 
-    /// Uso de la página de consumo (0x0C).
+    /// Usage on the consumer page (0x0C).
     pub const fn consumer(id: u16) -> Self {
         Self::new(PAGE_CONSUMER, id)
     }
 
-    /// El modificador que representa esta tecla, si lo es.
+    /// The modifier this key represents, if it is one.
     pub fn modifier(self) -> Option<ModifierKey> {
         ModifierKey::from_usage(self)
     }
 }
 
-/// Las ocho teclas modificadoras de HID (0xE0–0xE7), con lado.
+/// The eight HID modifier keys (0xE0–0xE7), with side.
 ///
-/// `Meta` es Cmd en Mac y la tecla Windows en PC; `Alt` es Option en Mac.
-/// `AltRight` en Windows es AltGr.
+/// `Meta` is Cmd on Mac and the Windows key on PC; `Alt` is Option on Mac.
+/// `AltRight` on Windows is AltGr.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModifierKey {
@@ -72,7 +72,7 @@ pub enum ModifierKey {
 }
 
 impl ModifierKey {
-    /// En el orden de los bits del reporte HID.
+    /// In the order of the HID report bits.
     pub const ALL: [ModifierKey; 8] = [
         ModifierKey::ControlLeft,
         ModifierKey::ShiftLeft,
@@ -84,7 +84,7 @@ impl ModifierKey {
         ModifierKey::MetaRight,
     ];
 
-    /// Posición en el byte de modificadores del reporte HID.
+    /// Position in the HID report's modifier byte.
     pub const fn bit(self) -> u8 {
         self as u8
     }
@@ -101,7 +101,7 @@ impl ModifierKey {
     }
 }
 
-/// Conjunto de modificadores presionados, con el formato del byte HID.
+/// Set of pressed modifiers, with the HID byte format.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct Modifiers(u8);
@@ -150,7 +150,7 @@ impl FromIterator<ModifierKey> for Modifiers {
     }
 }
 
-/// Estado de una tecla o un botón.
+/// State of a key or a button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum KeyState {
@@ -158,37 +158,37 @@ pub enum KeyState {
     Released,
 }
 
-/// Botón del mouse.
+/// Mouse button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Button {
     Left,
     Right,
     Middle,
-    /// Botón lateral "atrás" (X1 en Windows, botón 3 en Mac).
+    /// Side "back" button (X1 on Windows, button 3 on Mac).
     Back,
-    /// Botón lateral "adelante" (X2 en Windows, botón 4 en Mac).
+    /// Side "forward" button (X2 on Windows, button 4 on Mac).
     Forward,
-    /// Cualquier otro, por número de botón empezando en 0 (izquierdo).
+    /// Any other, by button number starting at 0 (left).
     Other(u8),
 }
 
-/// Desplazamiento. Convención: `y` positivo = rueda hacia adelante (alejándose del
-/// usuario, como `WHEEL_DELTA` en Windows); `x` positivo = hacia la derecha. Cada
-/// captura deshace el "scroll natural" de su sistema y cada inyección lo vuelve a
-/// aplicar según el destino, para que el sentido físico se conserve.
+/// Scroll. Convention: positive `y` = wheel forward (away from the
+/// user, like `WHEEL_DELTA` on Windows); positive `x` = to the right. Each
+/// capture undoes its system's "natural scrolling" and each injection reapplies it
+/// according to the destination, so that the physical direction is preserved.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Scroll {
-    /// Rueda con muescas, en unidades v120 (120 = una muesca; admite fracciones).
+    /// Notched wheel, in v120 units (120 = one notch; fractions allowed).
     Wheel { dx_v120: i32, dy_v120: i32 },
-    /// Trackpad o rueda continua, en píxeles lógicos.
+    /// Trackpad or continuous wheel, in logical pixels.
     Pixels { dx: f64, dy: f64 },
 }
 
-/// Un evento de entrada, tal como viaja entre las dos máquinas.
+/// An input event, as it travels between the two machines.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum InputEvent {
-    /// Tecla por código físico HID.
+    /// Key by physical HID code.
     Key {
         usage: HidUsage,
         state: KeyState,
@@ -197,22 +197,22 @@ pub enum InputEvent {
         button: Button,
         state: KeyState,
     },
-    /// Movimiento relativo, sin aceleración del origen. La captura lo da en
-    /// unidades nativas de su máquina; por el enlace viaja en puntos lógicos
+    /// Relative movement, without the source's acceleration. Capture gives it in
+    /// its machine's native units; over the link it travels in logical points
     /// (`session`).
     MotionRelative {
         dx: f64,
         dy: f64,
     },
-    /// Posición absoluta en las coordenadas nativas del cursor de la máquina
-    /// (las de sus [`Screen`](crate::geometry::Screen)). Es lo que inyecta el
-    /// cliente, y así la resincronización corrige datagramas perdidos.
+    /// Absolute position in the machine's native cursor coordinates
+    /// (those of its [`Screen`](crate::geometry::Screen)s). It is what the
+    /// client injects, so that resynchronization corrects lost datagrams.
     MotionAbsolute {
         x: f64,
         y: f64,
     },
     Scroll(Scroll),
-    /// Estado completo de modificadores, para sincronizar al entrar a la pantalla.
+    /// Full modifier state, to synchronize on entering the screen.
     Modifiers(Modifiers),
 }
 
@@ -230,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn solo_la_pagina_de_teclado_tiene_modificadores() {
+    fn only_the_keyboard_page_has_modifiers() {
         assert_eq!(HidUsage::consumer(0xE0).modifier(), None);
         assert_eq!(HidUsage::key(0xDF).modifier(), None);
         assert_eq!(HidUsage::key(0xE8).modifier(), None);
@@ -258,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn eventos_ida_y_vuelta_por_postcard() {
+    fn events_round_trip_through_postcard() {
         let events = [
             InputEvent::Key {
                 usage: HidUsage::consumer(0xCD),

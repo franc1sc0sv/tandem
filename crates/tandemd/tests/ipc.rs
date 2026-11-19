@@ -1,5 +1,5 @@
-//! Un cliente IPC pide el estado a un agente real por el transporte de la plataforma
-//! (Unix socket en Linux y macOS, named pipe en Windows) y lo recibe.
+//! An IPC client asks a real agent for the state over the platform's transport
+//! (Unix socket on Linux and macOS, named pipe on Windows) and receives it.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use tokio::sync::oneshot;
 const CONFIG: &str = r#"
 machine = "a"
 
-# Con qué despertar a la PC: sin esto el plan rechaza encenderla.
+# What to wake the PC with: without this the plan rejects powering it on.
 [power.wol]
 mac = "aa:bb:cc:dd:ee:ff"
 "#;
@@ -29,7 +29,7 @@ fn endpoint(dir: &std::path::Path) -> PathBuf {
 async fn client_requests_state_and_receives_it() {
     let dir = tempfile::tempdir().unwrap();
     let store = StateStore::new(dir.path().join("state.json"));
-    // Un estado guardado por una corrida anterior.
+    // A state saved by an earlier run.
     let cfg = AgentConfig::from_toml(CONFIG).unwrap();
     let mut saved = State::initial(Machine::A);
     saved.on.b = true;
@@ -39,12 +39,12 @@ async fn client_requests_state_and_receives_it() {
     let path = endpoint(dir.path());
     let listener = match ipc::bind(&path).await {
         Ok(l) => l,
-        // El sandbox de desarrollo (WSL) no deja crear sockets Unix; en CI esto nunca se omite.
+        // The development sandbox (WSL) does not allow creating Unix sockets; in CI this is never skipped.
         Err(ipc::IpcError::Io(e))
             if e.kind() == std::io::ErrorKind::PermissionDenied
                 && std::env::var_os("CI").is_none() =>
         {
-            eprintln!("omitida: este entorno no permite sockets Unix");
+            eprintln!("skipped: this environment does not allow Unix sockets");
             return;
         }
         Err(e) => panic!("{e}"),
@@ -58,7 +58,7 @@ async fn client_requests_state_and_receives_it() {
     assert_eq!(client.agent(), Machine::A);
     assert_eq!(client.get_state().await.unwrap(), saved);
 
-    // Un segundo cliente a la vez, y un cambio que llega empujado a los dos.
+    // A second client at once, and a change that arrives pushed to both.
     let mut other = ipc::connect(&path).await.unwrap();
     assert_eq!(other.get_state().await.unwrap(), saved);
     let mut changed = saved.clone();
@@ -72,7 +72,7 @@ async fn client_requests_state_and_receives_it() {
         other.next_event().await.unwrap(),
         Some(AgentToUi::State(changed.clone()))
     );
-    // Sin backends ni otro agente, encender la máquina B arranca y falla solo.
+    // Without backends or another agent, powering on machine B starts and fails on its own.
     let reply = client
         .request(UiCommand::SetPower {
             machine: Machine::B,
@@ -81,7 +81,7 @@ async fn client_requests_state_and_receives_it() {
         .await
         .unwrap();
     let Reply::Accepted { txn } = reply else {
-        panic!("se esperaba Accepted: {reply:?}");
+        panic!("Accepted was expected: {reply:?}");
     };
     loop {
         match client.next_event().await.unwrap() {
@@ -90,7 +90,7 @@ async fn client_requests_state_and_receives_it() {
                 break;
             }
             Some(AgentToUi::Txn(_)) => {}
-            other => panic!("aviso inesperado: {other:?}"),
+            other => panic!("unexpected notice: {other:?}"),
         }
     }
 
@@ -99,5 +99,5 @@ async fn client_requests_state_and_receives_it() {
     assert!(matches!(client.next_event().await, Ok(None)));
     assert_eq!(store.load().unwrap(), Some(changed));
     #[cfg(unix)]
-    assert!(!path.exists(), "el socket se borra al apagar");
+    assert!(!path.exists(), "the socket is deleted on shutdown");
 }

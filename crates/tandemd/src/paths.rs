@@ -1,7 +1,7 @@
-//! Dónde viven la configuración, el estado y los logs.
+//! Where the configuration, state and logs live.
 //!
-//! Por omisión, en el directorio de la app de cada sistema: `~/Library/Application Support/Tandem`
-//! en macOS, `%APPDATA%\Tandem` en Windows y `~/.local/share/Tandem` en Linux (solo pruebas).
+//! By default, in each system's app directory: `~/Library/Application Support/Tandem`
+//! on macOS, `%APPDATA%\Tandem` on Windows and `~/.local/share/Tandem` on Linux (tests only).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -20,7 +20,7 @@ pub struct Paths {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("el sistema no indica un directorio de {0}; pásalo con la opción correspondiente")]
+#[error("the system does not report a {0} directory; pass it with the corresponding option")]
 pub struct NoDefaultDir(&'static str);
 
 /// Absolute path without requiring it to exist; if the cwd cannot be read, it is left as is.
@@ -29,7 +29,7 @@ pub fn absolute(path: PathBuf) -> PathBuf {
 }
 
 impl Paths {
-    /// Lo que no venga en la línea de órdenes sale de los directorios estándar.
+    /// What does not come on the command line comes from the standard directories.
     pub fn resolve(
         config: Option<PathBuf>,
         data_dir: Option<PathBuf>,
@@ -38,13 +38,13 @@ impl Paths {
             Some(d) => d,
             None => dirs::data_dir()
                 .map(|d| d.join(APP_DIR))
-                .ok_or(NoDefaultDir("datos"))?,
+                .ok_or(NoDefaultDir("data"))?,
         };
         let config = match config {
             Some(c) => c,
             None => dirs::config_dir()
                 .map(|d| d.join(APP_DIR).join(CONFIG_FILE))
-                .ok_or(NoDefaultDir("configuración"))?,
+                .ok_or(NoDefaultDir("configuration"))?,
         };
         // Made absolute once: git and other children run in another cwd (T-197).
         Ok(Paths {
@@ -61,21 +61,21 @@ impl Paths {
         self.data_dir.join(LOG_DIR)
     }
 
-    /// La llave Ed25519 de esta máquina (DESIGN §9).
+    /// The Ed25519 key of this machine (DESIGN §9).
     pub fn identity_file(&self) -> PathBuf {
         self.data_dir.join(IDENTITY_FILE)
     }
 
-    /// Las llaves de los pares emparejados.
+    /// The keys of the paired peers.
     pub fn trust_file(&self) -> PathBuf {
         self.data_dir.join(TRUST_FILE)
     }
 }
 
-/// Crea el directorio (y sus padres) accesible solo para el usuario actual.
+/// Creates the directory (and its parents) accessible only to the current user.
 ///
-/// En Unix, el que se crea nuevo queda en 0700: ahí vive el socket de la IPC. Uno que ya
-/// existía no se toca; la IPC igual comprueba quién se conecta.
+/// In Unix, a newly created one is left as 0700: the IPC socket lives there. One that
+/// already existed is not touched; the IPC still checks who connects.
 pub fn create_private_dir(dir: &Path) -> io::Result<()> {
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);
@@ -110,7 +110,7 @@ mod tests {
 
     #[test]
     fn defaults_live_in_app_dir() {
-        // En CI siempre hay HOME / APPDATA.
+        // In CI there is always HOME / APPDATA.
         let p = Paths::resolve(None, None).unwrap();
         assert!(p.data_dir.ends_with(APP_DIR));
         assert!(p.config.ends_with(Path::new(APP_DIR).join(CONFIG_FILE)));
@@ -125,7 +125,7 @@ mod tests {
         create_private_dir(&dir).unwrap();
         let mode = std::fs::metadata(&dir).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o700);
-        // Volver a crearlo no es un error.
+        // Creating it again is not an error.
         create_private_dir(&dir).unwrap();
     }
 }

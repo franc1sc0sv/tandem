@@ -1,6 +1,6 @@
-//! Dos agentes en el mismo proceso, unidos por QUIC real en loopback, con pasos
-//! simulados: encender y apagar pedidos por la UI se reparten entre las dos máquinas, y un
-//! fallo en la otra deja el estado como estaba.
+//! Two agents in the same process, joined by real QUIC over loopback, with simulated
+//! steps: power on and off requested through the UI are split between the two machines, and a
+//! failure on the other leaves the state as it was.
 
 use std::collections::BTreeSet;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -16,8 +16,8 @@ use tandemd::orchestrator::{LocalSteps, StepFuture};
 use tandemd::{Agent, AgentConfig, PeerClient, StateStore, daemon, peer};
 use tokio::sync::oneshot;
 
-/// Las dos identidades ordenadas por clave: la primera es la del lado A (DECISIONS A1), así
-/// cada prueba sabe qué lado le toca a cada agente.
+/// The two identities sorted by key: the first is side A's (DECISIONS A1), so
+/// each test knows which side each agent gets.
 fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     if x.public_key().as_bytes() < y.public_key().as_bytes() {
         (x, y)
@@ -26,16 +26,16 @@ fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     }
 }
 
-/// Tope para que una prueba rota falle en vez de colgarse.
+/// Cap so a broken test fails instead of hanging.
 const TIMEOUT: Duration = Duration::from_secs(20);
 
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
-/// Pasos simulados de una máquina: registran lo que se les pide y fallan donde se diga.
+/// Simulated steps of a machine: they record what they are asked and fail where told.
 #[derive(Default)]
 struct Fake {
     log: Mutex<Vec<Step>>,
@@ -66,7 +66,7 @@ impl LocalSteps for Fake {
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(step.clone());
             if self.fail_on.contains(step) {
-                Err("acceso denegado".to_owned())
+                Err("access denied".to_owned())
             } else {
                 Ok(())
             }
@@ -94,19 +94,19 @@ struct Desk {
 
 type Ui = IpcClient<tokio::io::DuplexStream>;
 
-/// Mantiene vivos los extremos QUIC y los daemons de IPC.
+/// Keeps the QUIC endpoints and the IPC daemons alive.
 struct Link {
     _endpoints: (Endpoint, Endpoint),
     _stops: Vec<oneshot::Sender<()>>,
 }
 
-/// Configuración de `machine` y su almacén en `dir`, con `initial` guardado.
+/// Configuration of `machine` and its store in `dir`, with `initial` saved.
 fn setup(
     dir: &std::path::Path,
     machine: Machine,
     initial: &impl Fn(&mut State),
 ) -> (AgentConfig, StateStore) {
-    // Con `[power.wol]`: cualquiera de las dos despierta a la otra (los pasos son simulados).
+    // With `[power.wol]`: either wakes the other (the steps are simulated).
     let cfg = AgentConfig::from_toml(&format!(
         "machine = \"{machine}\"\n[power.wol]\nmac = \"aa:bb:cc:dd:ee:ff\"\n"
     ))
@@ -118,7 +118,7 @@ fn setup(
     (cfg, store)
 }
 
-/// Levanta los dos agentes con `initial` guardado, los une por QUIC y conecta la UI a la Mac.
+/// Brings up both agents with `initial` saved, joins them by QUIC and connects the UI to the Mac.
 async fn desk(initial: impl Fn(&mut State), mac_steps: Fake, pc_steps: Fake) -> Desk {
     let dir = tempfile::tempdir().unwrap();
     let agent = |machine: Machine, steps: Arc<Fake>| {
@@ -140,9 +140,9 @@ async fn desk(initial: impl Fn(&mut State), mac_steps: Fake, pc_steps: Fake) -> 
     }
 }
 
-/// Une los dos agentes por QUIC en loopback y conecta una UI a cada uno (Mac, PC).
+/// Joins the two agents by QUIC over loopback and connects a UI to each (Mac, PC).
 async fn link(mac: &Arc<Agent>, pc: &Arc<Agent>) -> (Ui, Ui, Link) {
-    // Identidades emparejadas y QUIC por loopback.
+    // Paired identities and QUIC over loopback.
     let (mac_id, pc_id) = sides(Identity::from_seed([1; 32]), Identity::from_seed([2; 32]));
     let trust = |id: &Identity| Arc::new(Keys(BTreeSet::from([id.public_key()])));
     let loopback = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
@@ -153,7 +153,7 @@ async fn link(mac: &Arc<Agent>, pc: &Arc<Agent>) -> (Ui, Ui, Link) {
             .await;
     let (to_pc, to_mac) = (to_pc.unwrap(), to_mac.unwrap().unwrap());
 
-    // Cada agente atiende los streams del otro y abre el suyo para pedir pasos.
+    // Each agent serves the other's streams and opens its own to ask for steps.
     tokio::spawn(peer::accept_streams(to_pc.clone(), mac.clone()));
     tokio::spawn(peer::accept_streams(to_mac.clone(), pc.clone()));
     let (mac_client, pc_client) = within(async {
@@ -166,7 +166,7 @@ async fn link(mac: &Arc<Agent>, pc: &Arc<Agent>) -> (Ui, Ui, Link) {
     mac.set_peer(Arc::new(mac_client.unwrap()));
     pc.set_peer(Arc::new(pc_client.unwrap()));
 
-    // Una UI en cada máquina, por la IPC en memoria.
+    // A UI on each machine, over the in-memory IPC.
     let mut stops = Vec::new();
     let mut ui = async |agent: &Arc<Agent>| {
         let (listener, connector) = mem::pair();
@@ -191,14 +191,14 @@ async fn link(mac: &Arc<Agent>, pc: &Arc<Agent>) -> (Ui, Ui, Link) {
     )
 }
 
-/// Pide encender o apagar `machine` por la UI y junta los avisos de la transacción hasta su
-/// desenlace.
+/// Asks to power `machine` on or off through the UI and gathers the transaction's notices until its
+/// outcome.
 async fn power(ui: &mut Ui, machine: Machine, on: bool) -> Vec<TxnEvent> {
     let reply = within(ui.request(UiCommand::SetPower { machine, on }))
         .await
         .unwrap();
     let Reply::Accepted { txn } = reply else {
-        panic!("se esperaba Accepted: {reply:?}");
+        panic!("Accepted was expected: {reply:?}");
     };
     let mut events = Vec::new();
     loop {
@@ -213,29 +213,29 @@ async fn power(ui: &mut Ui, machine: Machine, on: bool) -> Vec<TxnEvent> {
                     return events;
                 }
             }
-            // El anuncio de capacidades de la otra máquina llega al conectarse (T-084), y con
-            // él se anotan las dos máquinas en el puesto (T-097). También su versión (T-122).
+            // The other machine's capabilities announcement arrives on connecting (T-084), and with
+            // it both machines are noted in the desk (T-097). Also its version (T-122).
             Some(
                 AgentToUi::State(_)
                 | AgentToUi::Machines { .. }
                 | AgentToUi::Desk(_)
                 | AgentToUi::Update(_),
             ) => {}
-            other => panic!("aviso inesperado: {other:?}"),
+            other => panic!("unexpected notice: {other:?}"),
         }
     }
 }
 
-/// Espera a que el agente llegue a `want` (el otro agente recibe el estado final aparte).
+/// Waits for the agent to reach `want` (the other agent receives the final state separately).
 async fn reaches(agent: &Agent, want: &State) {
     let mut rx = agent.subscribe();
     within(rx.wait_for(|s| s == want)).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn encender_la_pc_de_punta_a_punta() {
-    // La Mac la cree apagada: manda el Wake-on-LAN y espera a que su agente conteste (ya
-    // está conectado).
+async fn power_on_the_pc_end_to_end() {
+    // The Mac believes it off: it sends the Wake-on-LAN and waits for its agent to answer (it
+    // is already connected).
     let mut d = desk(|s| s.on.b = false, Fake::default(), Fake::default()).await;
     let events = power(&mut d.ui, Machine::B, true).await;
     let want = d.mac.state();
@@ -248,12 +248,12 @@ async fn encender_la_pc_de_punta_a_punta() {
         }]
     );
     assert!(d.pc_steps.steps().is_empty());
-    // La PC se entera del estado final.
+    // The PC learns the final state.
     reaches(&d.pc, &want).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn apagar_la_pc_corre_en_la_pc() {
+async fn power_off_the_pc_runs_on_the_pc() {
     let mut d = desk(|s| s.on.b = true, Fake::default(), Fake::default()).await;
     let events = power(&mut d.ui, Machine::B, false).await;
     assert!(matches!(events.last(), Some(TxnEvent::Committed { .. })));
@@ -268,7 +268,7 @@ async fn apagar_la_pc_corre_en_la_pc() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn un_fallo_remoto_deja_el_estado_como_estaba() {
+async fn a_remote_failure_leaves_the_state_as_it_was() {
     let off = Step::PowerOff {
         machine: Machine::B,
     };
@@ -287,7 +287,7 @@ async fn un_fallo_remoto_deja_el_estado_como_estaba() {
             TxnEvent::StepFailed {
                 txn: 1,
                 index: 0,
-                error: "máquina B: acceso denegado".into()
+                error: "machine B: access denied".into()
             },
             TxnEvent::Failed {
                 txn: 1,
@@ -300,8 +300,8 @@ async fn un_fallo_remoto_deja_el_estado_como_estaba() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn la_pc_tambien_orquesta() {
-    // El mismo protocolo en el otro sentido: la PC le pide a la Mac que se apague.
+async fn the_pc_also_orchestrates() {
+    // The same protocol in the other direction: the PC asks the Mac to shut down.
     let d = desk(|s| s.on.a = true, Fake::default(), Fake::default()).await;
     let mut rx = d.pc.subscribe_txns();
     assert!(matches!(
@@ -317,7 +317,7 @@ async fn la_pc_tambien_orquesta() {
                 assert!(!state.on.a);
                 break;
             }
-            TxnEvent::Failed { .. } => panic!("falló"),
+            TxnEvent::Failed { .. } => panic!("failed"),
             _ => {}
         }
     }

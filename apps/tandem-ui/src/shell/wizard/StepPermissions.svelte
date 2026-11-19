@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Paso 3 (`F-Asis3`): los permisos de macOS que `tandemd` necesita, pedidos y verificados de
+  // Paso 3 (`F-Setup3`): los permisos de macOS que `tandemd` necesita, pedidos y verificados de
   // verdad (T-090): el agente los vuelve a leer solo y la tarjeta pasa a concedida.
   import { onMount } from "svelte";
   import { useStore } from "../../lib/context";
@@ -30,11 +30,11 @@
 </script>
 
 <div class="wz-head">
-  <span class="wz-mut wz-sm">Paso 3 de 6{here ? ` · ${here.name}` : ""}</span>
-  <h1>{perms.needed ? "Permisos de macOS" : "Permisos"}</h1>
+  <span class="wz-mut wz-sm">Step 3 of 6{here ? ` · ${here.name}` : ""}</span>
+  <h1>{perms.needed ? "macOS permissions" : "Permissions"}</h1>
   {#if perms.needed}
     <p class="wz-mut wz-lead" style="max-width:600px">
-      Se dan a <span class="wz-mono" style="font-size:12.5px;color:#c4c6cc">tandemd</span>, no a la ventana. Tandem los detecta solo en cuanto los concedes: no hace falta volver aquí.
+      They are granted to <span class="wz-mono" style="font-size:12.5px;color:#c4c6cc">tandemd</span>, not to the window. Tandem detects them on its own as soon as you grant them: no need to come back here.
     </p>
   {/if}
 </div>
@@ -46,11 +46,11 @@
         <b style="font-weight:600">{p.title}</b>
         <span class="wz-mut" style="font-size:13px;line-height:1.5">{p.why}</span>
         <span style="font-size:12.5px;color:{p.granted ? '#9fd8b9' : p.missing ? '#e6c48f' : '#9a9da6'}"
-          >{p.granted ? "Concedido · comprobado ahora" : p.missing ? "Esperando… se comprueba solo" : "Sin comprobar · macOS lo pide la primera vez que se use"}</span
+          >{p.granted ? "Granted · checked just now" : p.missing ? "Waiting… it is checked automatically" : "Not checked · macOS asks the first time it is used"}</span
         >
       </div>
       {#if !p.granted}
-        <Button icon="external" size="sm" motion="lift" class="wz-sbtn" onclick={() => grant(p.id)}>Abrir ajustes</Button>
+        <Button icon="external" size="sm" motion="lift" class="wz-sbtn" onclick={() => grant(p.id)}>Open settings</Button>
       {:else}
         <span class="wz-tick"><Icon name="check" size={17} stroke={2.6} color="#6cc59a" /></span>
       {/if}
@@ -60,8 +60,8 @@
   <div class="wz-perm granted">
     <span class="wz-dot got"></span>
     <div style="display:flex;flex-direction:column;gap:5px;flex:1;min-width:0">
-      <b style="font-weight:600">Esta máquina no necesita permisos</b>
-      <span class="wz-mut" style="font-size:13px;line-height:1.5">Windows deja capturar e inyectar el teclado y el mouse sin pedir nada.</span>
+      <b style="font-weight:600">This machine needs no permissions</b>
+      <span class="wz-mut" style="font-size:13px;line-height:1.5">Windows lets you capture and inject the keyboard and mouse without asking for anything.</span>
     </div>
     <span class="wz-tick"><Icon name="check" size={17} stroke={2.6} color="#6cc59a" /></span>
   </div>

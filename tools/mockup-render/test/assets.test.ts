@@ -15,9 +15,9 @@ function parseRanges(list: string): Array<[number, number]> {
   });
 }
 
-// Lo que puede acabar en pantalla: el texto del HTML (sin etiquetas), los `content:` del CSS y
-// el código del componente (`<script type="text/x-dc">`), de donde salen los textos de
-// `renderVals()`. Los demás `<script>` (`support.js`) no tienen texto propio.
+// What can end up on screen: the HTML text (without tags), the CSS `content:` values and
+// the component code (`<script type="text/x-dc">`), where the texts of
+// `renderVals()` come from. The other `<script>` tags (`support.js`) have no text of their own.
 function visibleSource(html: string): string {
   const extra: string[] = [];
   const rest = html
@@ -33,7 +33,7 @@ function visibleSource(html: string): string {
 }
 
 describe('assets', () => {
-  it('visibleSource incluye el componente y los content: del CSS, no las etiquetas', () => {
+  it('visibleSource includes the component and the CSS content: values, not the tags', () => {
     const html =
       '<style>.a{color:#fff}.a::after{content:"≠"}</style><p title="✗">hola ✓</p><script src="./support.js"></script>' +
       '<script type="text/x-dc" data-dc-script>class Component { renderVals() { return { k: "⌘" }; } }</script>';
@@ -45,7 +45,7 @@ describe('assets', () => {
     expect(text).not.toContain('✗');
   });
 
-  it('sirve el support.js propio para cualquier ruta que lo pida', () => {
+  it('serves our own support.js for any path that asks for it', () => {
     const a = mockupAsset('/support.js');
     const b = mockupAsset('/sub/support.js');
     expect(a?.contentType).toMatch(/javascript/);
@@ -53,20 +53,20 @@ describe('assets', () => {
     expect(b?.body.equals(a?.body ?? Buffer.alloc(0))).toBe(true);
   });
 
-  it('sirve los mockups y un índice con enlaces a todos', () => {
-    expect(mockupAsset('/V3-Puesto.dc.html')?.body.toString()).toContain('<x-dc>');
+  it('serves the mockups and an index linking to all of them', () => {
+    expect(mockupAsset('/V3-Desk.dc.html')?.body.toString()).toContain('<x-dc>');
     const index = mockupAsset('/')?.body.toString() ?? '';
     for (const name of listMockups()) expect(index).toContain(`href="${name}.dc.html"`);
   });
 
-  it('no sale de la carpeta de mockups', () => {
+  it('does not leave the mockups folder', () => {
     expect(mockupAsset('/../README.md')).toBeNull();
     expect(mockupAsset('/%2e%2e/README.md')).toBeNull();
     expect(mockupAsset('/../../Cargo.toml')).toBeNull();
-    expect(mockupAsset('/no-existe.dc.html')).toBeNull();
+    expect(mockupAsset('/does-not-exist.dc.html')).toBeNull();
   });
 
-  it('cambia la hoja de Google Fonts por las fuentes empaquetadas', () => {
+  it('replaces the Google Fonts stylesheet with the bundled fonts', () => {
     const { css, missing } = googleFontsCss(GOOGLE_CSS);
     expect(missing).toEqual([]);
     expect(css).toContain("font-family: 'Inter'");
@@ -77,8 +77,8 @@ describe('assets', () => {
     expect(fontAsset(new URL(first).pathname)?.contentType).toBe('font/woff2');
   });
 
-  it('cubre con fuentes empaquetadas cada carácter no ASCII de los mockups', () => {
-    // Si no, ese carácter sale con la fuente del sistema y la captura cambia según la máquina.
+  it('covers every non-ASCII character of the mockups with bundled fonts', () => {
+    // Otherwise that character comes out in the system font and the screenshot changes per machine.
     const { css } = googleFontsCss(GOOGLE_CSS);
     const ranges = [...css.matchAll(/unicode-range:\s*([^;]+);/g)].flatMap((m) => parseRanges(m[1] ?? ''));
     const uncovered = new Set<string>();
@@ -86,10 +86,10 @@ describe('assets', () => {
     for (const name of listMockups()) {
       texts.set(name, visibleSource(readFileSync(join(MOCKUPS_DIR, name + '.dc.html'), 'utf8')));
     }
-    // Los textos de `renderVals()` también se ven (⌃⌥ de F-Paleta, → de V3-Computo): la prueba
-    // tiene que leer el componente, no solo el HTML.
-    expect(texts.get('F-Paleta')).toContain('⌃');
-    expect(texts.get('V3-Computo')).toContain('→');
+    // The `renderVals()` texts are visible too (⌃⌥ of F-Palette, → of V3-Compute): the test
+    // has to read the component, not just the HTML.
+    expect(texts.get('F-Palette')).toContain('⌃');
+    expect(texts.get('V3-Compute')).toContain('→');
     for (const [name, text] of texts) {
       for (const ch of text) {
         const cp = ch.codePointAt(0) ?? 0;
@@ -99,7 +99,7 @@ describe('assets', () => {
     expect([...uncovered]).toEqual([]);
   });
 
-  it('las caras de respaldo van antes que las propias (gana la última en los rangos superpuestos)', () => {
+  it('fallback faces come before the own ones (the last wins in overlapping ranges)', () => {
     const { css } = googleFontsCss(GOOGLE_CSS);
     expect(css.indexOf(FALLBACK_RANGES)).toBeGreaterThanOrEqual(0);
     expect(css.lastIndexOf(FALLBACK_RANGES)).toBeLessThan(css.indexOf('inter-latin-400-normal'));
@@ -108,26 +108,26 @@ describe('assets', () => {
     expect(fontAsset(new URL(dejavu).pathname)?.contentType).toBe('font/woff2');
   });
 
-  it('informa las variantes que no están empaquetadas', () => {
+  it('reports the variants that are not bundled', () => {
     const { missing } = googleFontsCss(new URL('https://fonts.googleapis.com/css2?family=Roboto:wght@400'));
     expect(missing).toEqual(['Roboto 400']);
   });
 
-  it('solo sirve archivos de fuentes desde node_modules', () => {
+  it('only serves font files from node_modules', () => {
     expect(fontAsset('/playwright/package.json')).toBeNull();
     expect(fontAsset('/../package.json')).toBeNull();
   });
 });
 
 describe('paths', () => {
-  it('lee el tamaño de $preview o usa 1280×860', () => {
+  it('reads the $preview size or uses 1280×860', () => {
     expect(previewOf(`<script data-props='{"$preview":{"width":380,"height":600}}'>`)).toEqual({ width: 380, height: 600 });
     expect(previewOf('<script>')).toEqual({ width: 1280, height: 860 });
-    expect(previewOf(`<script data-props='no es json'>`)).toEqual({ width: 1280, height: 860 });
+    expect(previewOf(`<script data-props='not json'>`)).toEqual({ width: 1280, height: 860 });
   });
 
-  it('nombra las capturas por mockup y estado', () => {
-    expect(shotName('V3-Acomodo')).toBe('V3-Acomodo.png');
-    expect(shotName('V3-Acomodo', 'lado-arriba-fin')).toBe('V3-Acomodo--lado-arriba-fin.png');
+  it('names screenshots by mockup and state', () => {
+    expect(shotName('V3-Arrangement')).toBe('V3-Arrangement.png');
+    expect(shotName('V3-Arrangement', 'side-top-end')).toBe('V3-Arrangement--side-top-end.png');
   });
 });

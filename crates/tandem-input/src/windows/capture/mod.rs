@@ -1,22 +1,22 @@
-//! Captura de teclado y mouse en Windows (docs/research/input-engine.md).
+//! Keyboard and mouse capture on Windows (docs/research/input-engine.md).
 //!
-//! Dos hilos:
+//! Two threads:
 //!
-//! - **Hilo de hooks** (`cfg(windows)`): instala `WH_KEYBOARD_LL` y `WH_MOUSE_LL` y
-//!   recibe Raw Input (`RIDEV_INPUTSINK`) en una ventana solo de mensajes. Cada
-//!   callback copia la estructura del sistema, decide si se traga el evento
-//!   ([`HookFilter`]) y lo encola sin bloquear. Windows quita en silencio un hook
-//!   que tarde más que `LowLevelHooksTimeout`, así que ahí no se hace nada más.
-//! - **Hilo de proceso** ([`run_pipeline`], portable): traduce a [`InputEvent`]
-//!   ([`Translator`]: filtro de inyectados, Ctrl falso de AltGr, teclas por
-//!   scancode, deltas de Raw Input) y corre el [`Watchdog`], que compara los
-//!   hooks con Raw Input de dispositivos reales y los reinstala si Windows los
-//!   quitó. Nunca inyecta nada.
+//! - **Hook thread** (`cfg(windows)`): installs `WH_KEYBOARD_LL` and `WH_MOUSE_LL` and
+//!   receives Raw Input (`RIDEV_INPUTSINK`) in a message-only window. Each
+//!   callback copies the system structure, decides whether the event is swallowed
+//!   ([`HookFilter`]) and queues it without blocking. Windows silently removes a hook
+//!   that takes longer than `LowLevelHooksTimeout`, so nothing else is done there.
+//! - **Process thread** ([`run_pipeline`], portable): translates into [`InputEvent`]
+//!   ([`Translator`]: injected filter, AltGr's fake Ctrl, keys by
+//!   scancode, Raw Input deltas) and runs the [`Watchdog`], which compares the
+//!   hooks with Raw Input from real devices and reinstalls them if Windows
+//!   removed them. It never injects anything.
 //!
-//! Contrato con la sesión (T-026): el movimiento llega como `MotionRelative` de
-//! Raw Input (sin aceleración, en píxeles físicos) siempre, y como
-//! `MotionAbsolute` con la posición real del cursor mientras la entrada no se
-//! traga. Las coordenadas son físicas porque el proceso se declara
+//! Contract with the session (T-026): movement always arrives as `MotionRelative` from
+//! Raw Input (without acceleration, in physical pixels), and as
+//! `MotionAbsolute` with the cursor's real position while input is not
+//! swallowed. Coordinates are physical because the process declares itself
 //! Per-Monitor-V2 DPI aware.
 
 mod keyboard;
@@ -38,8 +38,8 @@ pub use watchdog::{HookKind, Watchdog, WatchdogAction, WatchdogConfig};
 #[cfg(windows)]
 pub use sys::{WindowsCapture, ensure_per_monitor_v2};
 
-/// Constantes de Win32 que usa la lógica portable. `sys` comprueba en compilación
-/// que coinciden con las del crate `windows`.
+/// Win32 constants used by the portable logic. `sys` checks at compile time
+/// that they match those of the `windows` crate.
 pub mod consts {
     pub const LLKHF_EXTENDED: u32 = 0x01;
     pub const LLKHF_INJECTED: u32 = 0x10;
@@ -74,13 +74,13 @@ pub mod consts {
     pub const VK_MEDIA_PLAY_PAUSE: u32 = 0xB3;
 }
 
-/// Copia de `KBDLLHOOKSTRUCT`.
+/// Copy of `KBDLLHOOKSTRUCT`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct KeyboardHook {
     pub vk: u32,
     pub scan_code: u32,
     pub flags: u32,
-    /// Milisegundos del sistema; el Ctrl falso de AltGr lleva el mismo que AltGr.
+    /// System milliseconds; AltGr's fake Ctrl carries the same as AltGr.
     pub time: u32,
     pub extra_info: usize,
 }
@@ -99,11 +99,11 @@ impl KeyboardHook {
     }
 }
 
-/// Copia de `MSLLHOOKSTRUCT` más el mensaje (`wParam`).
+/// Copy of `MSLLHOOKSTRUCT` plus the message (`wParam`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MouseHook {
     pub message: u32,
-    /// Posición del cursor en píxeles físicos del escritorio virtual.
+    /// Cursor position in physical pixels of the virtual desktop.
     pub x: i32,
     pub y: i32,
     pub mouse_data: u32,
@@ -117,27 +117,27 @@ impl MouseHook {
         self.flags & consts::LLMHF_INJECTED != 0
     }
 
-    /// Palabra alta de `mouseData`: delta de rueda o número de botón X.
+    /// High word of `mouseData`: wheel delta or X button number.
     pub fn high_word(&self) -> u16 {
         (self.mouse_data >> 16) as u16
     }
 }
 
-/// Lo que importa de un `RAWMOUSE`.
+/// What matters of a `RAWMOUSE`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RawMouse {
-    /// `hDevice`; 0 = inyectado con `SendInput`.
+    /// `hDevice`; 0 = injected with `SendInput`.
     pub device: usize,
     /// `usFlags`.
     pub flags: u16,
     pub last_x: i32,
     pub last_y: i32,
-    /// Ancho y alto en píxeles del área que cubre el rango 0–65535 de los
-    /// movimientos absolutos (escritorio virtual o pantalla principal).
+    /// Width and height in pixels of the area covered by the 0–65535 range of
+    /// absolute movements (virtual desktop or primary screen).
     pub span: (f64, f64),
 }
 
-/// Lo que el hilo de hooks encola.
+/// What the hook thread queues.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HookEvent {
     Keyboard {
@@ -149,15 +149,15 @@ pub enum HookEvent {
         swallowed: bool,
     },
     Raw(RawMouse),
-    /// Raw Input de teclado; solo le sirve al watchdog.
+    /// Keyboard Raw Input; only useful to the watchdog.
     RawKeyboard {
-        /// `hDevice`; 0 = inyectado con `SendInput`.
+        /// `hDevice`; 0 = injected with `SendInput`.
         device: usize,
     },
 }
 
 impl HookEvent {
-    /// Qué hook demuestra que sigue vivo este evento.
+    /// Which hook this event proves is still alive.
     pub fn hook_kind(&self) -> Option<HookKind> {
         match self {
             HookEvent::Keyboard { .. } => Some(HookKind::Keyboard),
@@ -166,9 +166,9 @@ impl HookEvent {
         }
     }
 
-    /// Qué tipo de entrada real (de un dispositivo, no inyectada) demuestra este
-    /// evento de Raw Input. Un mouse sin movimiento no cuenta: basta con que el
-    /// watchdog no actúe de más.
+    /// Which kind of real input (from a device, not injected) this Raw Input
+    /// event proves. A mouse without movement does not count: it is enough that the
+    /// watchdog does not act more than needed.
     pub fn real_activity(&self) -> Option<HookKind> {
         match self {
             HookEvent::Raw(r) if r.device != 0 && (r.last_x != 0 || r.last_y != 0) => {
@@ -180,25 +180,25 @@ impl HookEvent {
     }
 }
 
-/// Qué hace el hook con un evento.
+/// What the hook does with an event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Verdict {
-    /// Seguir la cadena: el sistema local lo recibe.
+    /// Follow the chain: the local system receives it.
     Pass,
-    /// Tragarlo: el foco está en la otra máquina.
+    /// Swallow it: the focus is on the other machine.
     Swallow,
 }
 
-/// Decisión del hook, con memoria de lo que el sistema local vio presionarse.
+/// Hook decision, with memory of what the local system saw pressed.
 ///
-/// Si una tecla o un botón se presionó con la entrada local (por ejemplo,
-/// arrastrando hasta el borde) y se suelta ya con la entrada tragada, la
-/// liberación pasa igual: si no, quedaría pegada en Windows.
+/// If a key or a button was pressed with local input (for example,
+/// dragging to the edge) and is released already with input swallowed, the
+/// release passes anyway: otherwise it would stay stuck on Windows.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HookFilter {
-    /// Bit por código virtual (0–255).
+    /// Bit per virtual code (0–255).
     keys: [u64; 4],
-    /// Bit por botón: izquierdo, derecho, medio, X1, X2.
+    /// Bit per button: left, right, middle, X1, X2.
     buttons: u8,
 }
 
@@ -259,10 +259,10 @@ impl HookFilter {
     }
 }
 
-/// Lo único que hace cada callback de hook: decidir con el [`HookFilter`] y encolar
-/// para el hilo de proceso. Nada de candados, E/S ni esperas (`send` en un canal sin
-/// límite no bloquea): Windows quita el hook si tarda. Si el hilo de proceso ya
-/// terminó, no hay a quién avisar. Devuelve `true` si hay que tragar el evento.
+/// The only thing each hook callback does: decide with the [`HookFilter`] and queue
+/// for the process thread. No locks, I/O or waits (`send` on an unbounded channel
+/// does not block): Windows removes the hook if it takes long. If the process thread
+/// already ended, there is nobody to notify. Returns `true` if the event has to be swallowed.
 pub fn hook_step(
     filter: &mut HookFilter,
     grab: bool,
@@ -274,7 +274,7 @@ pub fn hook_step(
     verdict != Verdict::Pass
 }
 
-/// Traduce lo que encola el hilo de hooks a eventos de Tandem.
+/// Translates what the hook thread queues into Tandem events.
 #[derive(Debug)]
 pub struct Translator {
     altgr: AltGrFilter,
@@ -282,8 +282,8 @@ pub struct Translator {
 }
 
 impl Translator {
-    /// `altgr_window`: cuánto se retiene un Ctrl izquierdo esperando a ver si es
-    /// el falso de AltGr.
+    /// `altgr_window`: how long a left Ctrl is held waiting to see whether it is
+    /// AltGr's fake one.
     pub fn new(altgr_window: Duration) -> Self {
         Self {
             altgr: AltGrFilter::new(altgr_window),
@@ -308,7 +308,7 @@ impl Translator {
                     return;
                 }
                 if let Some(ev) = mouse_event(&hook, swallowed) {
-                    // El Ctrl retenido ocurrió antes: va primero.
+                    // The held Ctrl happened earlier: it goes first.
                     self.altgr.flush_all(&mut emit_key);
                     out(ev);
                 }
@@ -323,7 +323,7 @@ impl Translator {
         }
     }
 
-    /// Suelta el Ctrl retenido si ya pasó la ventana de AltGr.
+    /// Releases the held Ctrl if the AltGr window has passed.
     pub fn flush_expired(&mut self, now: Instant, out: &mut impl FnMut(InputEvent)) {
         self.altgr.flush_expired(now, &mut |k| {
             if let Some(ev) = key_event(&k) {
@@ -345,7 +345,7 @@ impl Translator {
     }
 }
 
-/// Errores al arrancar la captura.
+/// Errors on starting the capture.
 #[derive(Debug, thiserror::Error)]
 pub enum CaptureError {
     #[error("{op}: {message} (0x{code:08X})")]
@@ -354,21 +354,21 @@ pub enum CaptureError {
         code: u32,
         message: String,
     },
-    #[error("el proceso no pudo declararse Per-Monitor-V2 DPI aware")]
+    #[error("the process could not declare itself Per-Monitor-V2 DPI aware")]
     DpiAwareness,
-    #[error("no se pudo crear el hilo de captura: {0}")]
+    #[error("the capture thread could not be created: {0}")]
     Spawn(#[from] std::io::Error),
-    #[error("el hilo de hooks terminó antes de arrancar")]
+    #[error("the hook thread ended before starting")]
     ThreadDied,
 }
 
-/// Parámetros de la captura.
+/// Capture parameters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CaptureConfig {
-    /// Ventana para reconocer el Ctrl falso de AltGr por tiempo. Los dos eventos
-    /// llegan seguidos en el mismo hilo, así que basta con muy poco.
+    /// Window to recognize AltGr's fake Ctrl by time. The two events
+    /// arrive back to back on the same thread, so very little is enough.
     pub altgr_window: Duration,
-    /// Cada cuánto despierta el hilo de proceso sin eventos (watchdog).
+    /// How often the process thread wakes up without events (watchdog).
     pub tick: Duration,
     pub watchdog: WatchdogConfig,
 }
@@ -383,15 +383,15 @@ impl Default for CaptureConfig {
     }
 }
 
-/// Lo que el hilo de proceso le pide al sistema; [`sys`] lo implementa con un
-/// mensaje al hilo de hooks, y las pruebas con un doble.
+/// What the process thread asks of the system; [`sys`] implements it with a
+/// message to the hook thread, and tests with a double.
 pub trait HookControl {
-    /// Quita y vuelve a instalar los dos hooks.
+    /// Removes and installs the two hooks again.
     fn reinstall(&mut self);
 }
 
-/// Bucle del hilo de proceso: traduce lo que llega por `rx` y lo entrega a `out`.
-/// Termina cuando el hilo de hooks suelta su extremo del canal.
+/// Process thread loop: translates what arrives over `rx` and delivers it to `out`.
+/// It ends when the hook thread drops its end of the channel.
 pub fn run_pipeline(
     rx: &Receiver<HookEvent>,
     control: &mut impl HookControl,
@@ -482,11 +482,11 @@ mod tests {
         }
     }
 
-    /// T-093: el callback del hook nunca espera, ni con el hilo de proceso detenido
-    /// (el canal crece y nadie lo lee). Se mide con reloj real: cada paso tarda
-    /// microsegundos, lejos del `LowLevelHooksTimeout` con que Windows quita el hook.
+    /// T-093: the hook callback never waits, not even with the process thread stopped
+    /// (the channel grows and nobody reads it). It is measured with a real clock: each step takes
+    /// microseconds, far from the `LowLevelHooksTimeout` with which Windows removes the hook.
     #[test]
-    fn el_paso_del_hook_no_bloquea_aunque_nadie_lea() {
+    fn the_hook_step_does_not_block_even_if_nobody_reads() {
         let (tx, _rx) = mpsc::channel();
         let mut filter = HookFilter::new();
         let mut times = Vec::with_capacity(20_000);
@@ -509,29 +509,29 @@ mod tests {
         let p99 = times[times.len() * 99 / 100];
         let max = times[times.len() - 1];
         assert!(p99 < Duration::from_micros(200), "p99 {p99:?}");
-        // Holgado para runners compartidos; Windows da al menos 200 ms.
-        assert!(max < Duration::from_millis(50), "máx {max:?}");
+        // Generous for shared runners; Windows gives at least 200 ms.
+        assert!(max < Duration::from_millis(50), "max {max:?}");
     }
 
-    /// T-093: un hook que Windows quita en silencio (Raw Input sigue viendo entrada
-    /// real y el hook ya no) se reinstala a tiempo, con reloj real; mientras el hook
-    /// vivía, nunca. El plazo es de uno a dos `hook_timeout`: durante el primero, una
-    /// entrada real todavía puede ser la del último evento que vio el hook (los dos no
-    /// llegan en orden fijo); el segundo es el plazo mismo.
+    /// T-093: a hook that Windows silently removes (Raw Input still sees real input
+    /// and the hook no longer does) is reinstalled in time, with a real clock; while the hook
+    /// lived, never. The deadline is one to two `hook_timeout`s: during the first, a real
+    /// input may still be that of the last event the hook saw (the two do not
+    /// arrive in a fixed order); the second is the deadline itself.
     #[test]
-    fn el_watchdog_reinstala_a_tiempo_un_hook_perdido() {
+    fn the_watchdog_reinstalls_a_lost_hook_in_time() {
         let (tx, rx) = mpsc::channel();
         let timeout = Duration::from_millis(100);
         let tick = Duration::from_millis(5);
         let feeder = std::thread::spawn(move || {
             let start = Instant::now();
-            // 150 ms con el hook vivo: cada tecla real llega a los dos.
+            // 150 ms with the hook alive: every real key reaches both.
             while start.elapsed() < Duration::from_millis(150) {
                 tx.send(kb(key(0x1E, 0, 0))).unwrap();
                 tx.send(HookEvent::RawKeyboard { device: 3 }).unwrap();
                 std::thread::sleep(Duration::from_millis(5));
             }
-            // El hook se pierde: solo Raw Input.
+            // The hook is lost: only Raw Input.
             let lost = Instant::now();
             while lost.elapsed() < Duration::from_millis(400) {
                 tx.send(HookEvent::RawKeyboard { device: 3 }).unwrap();
@@ -549,14 +549,14 @@ mod tests {
         let mut control = FakeControl::default();
         run_pipeline(&rx, &mut control, &mut |_| {}, &config);
         let lost = feeder.join().unwrap();
-        let first = *control.at.first().expect("no se reinstaló");
-        assert!(first >= lost, "reinstaló con el hook vivo");
+        let first = *control.at.first().expect("it was not reinstalled");
+        assert!(first >= lost, "reinstalled with the hook alive");
         let took = first - lost;
-        // Con margen para el planificador de un runner compartido.
-        assert!(took >= timeout - tick, "demasiado pronto: {took:?}");
+        // With margin for a shared runner's scheduler.
+        assert!(took >= timeout - tick, "too early: {took:?}");
         assert!(
             took <= 2 * timeout + 4 * tick + Duration::from_millis(80),
-            "tarde: {took:?}"
+            "late: {took:?}"
         );
     }
 
@@ -577,7 +577,7 @@ mod tests {
     }
 
     #[test]
-    fn filtro_traga_solo_con_grab_y_nunca_lo_inyectado() {
+    fn the_filter_swallows_only_with_grab_and_never_what_is_injected() {
         let mut f = HookFilter::new();
         let a = KeyboardHook {
             vk: 0x41,
@@ -623,7 +623,7 @@ mod tests {
     }
 
     #[test]
-    fn soltar_lo_presionado_en_local_pasa_aunque_haya_grab() {
+    fn releasing_what_was_pressed_locally_passes_even_with_grab() {
         let mut f = HookFilter::new();
         let ctrl = KeyboardHook {
             vk: 0xA2,
@@ -634,10 +634,10 @@ mod tests {
             ..ctrl
         };
         assert_eq!(f.keyboard(false, &ctrl), Verdict::Pass);
-        // Repetición con el foco ya remoto: se traga, pero la tecla sigue local.
+        // Repeat with the focus already remote: it is swallowed, but the key is still local.
         assert_eq!(f.keyboard(true, &ctrl), Verdict::Swallow);
         assert_eq!(f.keyboard(true, &up), Verdict::Pass);
-        // Ya soltada: la siguiente vuelta completa se traga.
+        // Already released: the next full round is swallowed.
         assert_eq!(f.keyboard(true, &ctrl), Verdict::Swallow);
         assert_eq!(f.keyboard(true, &up), Verdict::Swallow);
 
@@ -647,7 +647,7 @@ mod tests {
         assert_eq!(f.mouse(true, &release), Verdict::Pass);
         assert_eq!(f.mouse(true, &down), Verdict::Swallow);
         assert_eq!(f.mouse(true, &release), Verdict::Swallow);
-        // X1 y X2 se distinguen por la palabra alta.
+        // X1 and X2 are told apart by the high word.
         let x1 = mouse(WM_XBUTTONDOWN, u32::from(XBUTTON1) << 16);
         let x2_up = mouse(WM_XBUTTONUP, u32::from(XBUTTON2) << 16);
         assert_eq!(f.mouse(false, &x1), Verdict::Pass);
@@ -655,7 +655,7 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_traduce_en_orden_y_descarta_inyectados() {
+    fn pipeline_translates_in_order_and_discards_injected() {
         let a = key(0x1E, 0, 1);
         let out = run(vec![
             kb(a),
@@ -716,7 +716,7 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_quita_el_ctrl_falso_de_altgr() {
+    fn pipeline_removes_altgrs_fake_ctrl() {
         let ralt = key(0x38, LLKHF_EXTENDED, 50);
         let lctrl = key(0x1D, 0, 50);
         let out = run(vec![
@@ -748,10 +748,10 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_suelta_el_ctrl_retenido_al_cerrar_y_ante_otros_eventos() {
+    fn pipeline_releases_the_held_ctrl_on_closing_and_before_other_events() {
         let lctrl = key(0x1D, 0, 5);
         let ctrl = HidUsage::key(0xE0);
-        // Solo Ctrl y se corta el canal: no se pierde.
+        // Only Ctrl and the channel is cut: it is not lost.
         assert_eq!(
             run(vec![kb(lctrl)]),
             vec![InputEvent::Key {
@@ -759,7 +759,7 @@ mod tests {
                 state: KeyState::Pressed
             }]
         );
-        // Ctrl + clic: el Ctrl va antes del clic.
+        // Ctrl + click: the Ctrl goes before the click.
         let out = run(vec![
             kb(lctrl),
             HookEvent::Mouse {
@@ -793,10 +793,10 @@ mod tests {
     }
 
     #[test]
-    fn solo_el_raw_input_real_cuenta_como_entrada_real() {
+    fn only_real_raw_input_counts_as_real_input() {
         assert_eq!(raw_mouse(1, 1).hook_kind(), None);
         assert_eq!(raw_mouse(1, 1).real_activity(), Some(HookKind::Mouse));
-        // Inyectado o sin movimiento: no cuenta.
+        // Injected or without movement: it does not count.
         assert_eq!(raw_mouse(0, 1).real_activity(), None);
         assert_eq!(raw_mouse(1, 0).real_activity(), None);
         let kb_raw = HookEvent::RawKeyboard { device: 4 };
@@ -807,8 +807,8 @@ mod tests {
         assert_eq!(kb(key(0x1E, 0, 0)).real_activity(), None);
     }
 
-    /// Corre el pipeline con plazos cortos mientras otro hilo manda `step()` cada
-    /// 5 ms durante unos 300 ms. Devuelve cuántas veces reinstaló.
+    /// Runs the pipeline with short deadlines while another thread sends `step()` every
+    /// 5 ms for about 300 ms. Returns how many times it reinstalled.
     fn reinstalls_with(step: fn() -> Vec<HookEvent>) -> u32 {
         let (tx, rx) = mpsc::channel();
         let feeder = std::thread::spawn(move || {
@@ -833,19 +833,19 @@ mod tests {
     }
 
     #[test]
-    fn pipeline_reinstala_si_el_teclado_real_no_llega_al_hook() {
+    fn pipeline_reinstalls_if_the_real_keyboard_does_not_reach_the_hook() {
         assert!(reinstalls_with(|| vec![HookEvent::RawKeyboard { device: 3 }]) >= 1);
         assert!(reinstalls_with(|| vec![raw_mouse(3, 2)]) >= 1);
     }
 
     #[test]
-    fn pipeline_no_reinstala_con_hooks_vivos_ni_con_entrada_inyectada() {
-        // Inyectado: Raw Input sin hDevice y nada en los hooks.
+    fn pipeline_does_not_reinstall_with_live_hooks_or_injected_input() {
+        // Injected: Raw Input without hDevice and nothing in the hooks.
         assert_eq!(
             reinstalls_with(|| vec![HookEvent::RawKeyboard { device: 0 }, raw_mouse(0, 2)]),
             0
         );
-        // Real y visto por los hooks.
+        // Real and seen by the hooks.
         assert_eq!(
             reinstalls_with(|| vec![
                 kb(key(0x1E, 0, 0)),

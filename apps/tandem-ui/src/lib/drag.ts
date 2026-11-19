@@ -11,20 +11,20 @@ export interface DragNotice {
 }
 
 function files(n: number): string {
-  return n === 1 ? "1 archivo" : `${n} archivos`;
+  return n === 1 ? "1 file" : `${n} files`;
 }
 
 export function dragNotice(s: DragStatus): DragNotice {
   switch (s.kind) {
     case "copying":
-      return { text: `Copiando ${s.index + 1} de ${s.total}: ${s.name}`, tone: "ok", ongoing: true };
+      return { text: `Copying ${s.index + 1} of ${s.total}: ${s.name}`, tone: "ok", ongoing: true };
     case "copied":
-      return { text: `Listo para soltar: ${files(s.total)}`, tone: "ok", ongoing: true };
+      return { text: `Ready to drop: ${files(s.total)}`, tone: "ok", ongoing: true };
     case "dropped":
-      return { text: "Archivos copiados a la otra máquina", tone: "ok", ongoing: false };
+      return { text: "Files copied to the other machine", tone: "ok", ongoing: false };
     case "cancelled":
-      return { text: "Arrastre cancelado", tone: "ok", ongoing: false };
+      return { text: "Drag cancelled", tone: "ok", ongoing: false };
     case "failed":
-      return { text: `No se pudo arrastrar: ${s.reason}`, tone: "bad", ongoing: false };
+      return { text: `Could not drag: ${s.reason}`, tone: "bad", ongoing: false };
   }
 }

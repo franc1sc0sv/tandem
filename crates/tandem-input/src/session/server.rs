@@ -1,10 +1,10 @@
-//! Máquina de estados del servidor: la máquina donde está el teclado y el mouse.
+//! Server state machine: the machine where the keyboard and mouse are.
 //!
-//! Recibe todo lo que captura su sistema y decide, con el [`Layout`], cuándo el
-//! cursor cruza a la otra máquina. Mientras el foco es remoto lleva la posición
-//! del cursor del cliente (es la autoridad: el cliente solo la sigue) y traduce
-//! la entrada a mensajes. No hace E/S: devuelve [`ServerOutput`] y el driver
-//! ([`super::quic`]) los ejecuta en orden.
+//! It receives everything its system captures and decides, with the [`Layout`], when the
+//! cursor crosses to the other machine. While the focus is remote it tracks the client
+//! cursor's position (it is the authority: the client only follows it) and translates
+//! input into messages. It does no I/O: it returns [`ServerOutput`] and the driver
+//! ([`super::quic`]) executes them in order.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,33 +16,33 @@ use super::msg::{MotionDatagram, StreamMsg};
 use crate::event::{Change, HidUsage, InputEvent, KeyState, Pressed, Scroll};
 use crate::geometry::{Layout, Motion, Point};
 
-/// Lo que el driver tiene que hacer, en este orden.
+/// What the driver has to do, in this order.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ServerOutput {
     Stream(StreamMsg),
     Datagram(MotionDatagram),
-    /// Tragar la entrada local y congelar/ocultar el cursor (`true`) o devolverla.
+    /// Swallow local input and freeze/hide the cursor (`true`) or give it back.
     Grab(bool),
-    /// Llevar el cursor local a esta posición (al volver de la otra máquina).
+    /// Take the local cursor to this position (when coming back from the other machine).
     Warp(Point),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Focus {
     Local,
-    /// Posición del cursor del cliente, en sus coordenadas nativas.
+    /// Position of the client's cursor, in its native coordinates.
     Remote {
         pos: Point,
     },
 }
 
-/// Movimiento y scroll acumulados que todavía no salieron.
+/// Accumulated movement and scroll that has not gone out yet.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 struct Pending {
     dx: f64,
     dy: f64,
     scroll: Option<Scroll>,
-    /// Marca del primer evento acumulado.
+    /// Stamp of the first accumulated event.
     t_us: Option<u64>,
 }
 
@@ -56,40 +56,40 @@ impl Pending {
 pub struct ServerSession {
     machine: Machine,
     layout: Layout,
-    /// Cursor local; mientras el foco es remoto queda congelado aquí.
+    /// Local cursor; while the focus is remote it stays frozen here.
     local: Point,
     focus: Focus,
-    /// Todo lo presionado en el teclado y el mouse físicos, sin importar el foco:
-    /// al entrar se mandan los modificadores que el usuario ya tiene apretados.
+    /// Everything pressed on the physical keyboard and mouse, regardless of focus:
+    /// on entering, the modifiers the user already holds are sent.
     pressed: Pressed,
     seq: u64,
     pending: Pending,
     resync_every: u32,
     since_resync: u32,
-    /// El cliente recibió por el stream la posición exacta después del último
-    /// movimiento.
+    /// The client received over the stream the exact position after the last
+    /// movement.
     synced: bool,
-    /// Atajo que bloquea el cursor en la máquina donde está; vacío = sin atajo.
+    /// Shortcut that locks the cursor on the machine where it is; empty = no shortcut.
     lock_shortcut: Vec<HidUsage>,
     locked: bool,
-    /// Si el cursor cruza a la otra máquina con un botón presionado (arrastrar). Por
-    /// omisión no, como Deskflow: un arrastre que llega al borde se queda en su máquina.
+    /// Whether the cursor crosses to the other machine with a button pressed (dragging). By
+    /// default no, like Deskflow: a drag that reaches the edge stays on its machine.
     drag_across: bool,
-    /// Hay un arrastre de archivos del sistema en curso (T-121): cruza aunque `drag_across`
-    /// esté apagado, y solo mientras dure.
+    /// A system file drag is under way (T-121): it crosses even if `drag_across`
+    /// is off, and only for as long as it lasts.
     file_drag: bool,
-    /// Lo mismo, pero escrito por el agente desde otra tarea (el detector del sistema).
+    /// The same, but written by the agent from another task (the system detector).
     file_drag_flag: Option<Arc<AtomicBool>>,
-    /// Marca del evento que se está procesando.
+    /// Stamp of the event being processed.
     now_us: u64,
-    /// Los cruces de borde desde la última vez que el driver los recogió
-    /// ([`Self::take_crossings`]); para el cursor en vivo (T-128).
+    /// The edge crossings since the last time the driver collected them
+    /// ([`Self::take_crossings`]); for the live cursor (T-128).
     crossings: Vec<Crossing>,
 }
 
 impl ServerSession {
-    /// `resync_every`: cada cuántos datagramas va uno con la posición absoluta
-    /// (además del que sale cuando el mouse se detiene). `0` = en todos.
+    /// `resync_every`: how many datagrams apart one goes with the absolute position
+    /// (in addition to the one that goes out when the mouse stops). `0` = on all.
     pub fn new(machine: Machine, layout: Layout, cursor: Point, resync_every: u32) -> Self {
         Self {
             machine,
@@ -112,25 +112,25 @@ impl ServerSession {
         }
     }
 
-    /// Permite cruzar a la otra máquina con un botón presionado.
+    /// Allows crossing to the other machine with a button pressed.
     pub fn with_drag_across(mut self, allow: bool) -> Self {
         self.drag_across = allow;
         self
     }
 
-    /// El agente detectó (o ya no) un arrastre de archivos en la máquina de origen.
+    /// The agent detected (or no longer) a file drag on the source machine.
     pub fn set_file_drag(&mut self, active: bool) {
         self.file_drag = active;
     }
 
-    /// Como [`Self::set_file_drag`], pero lo gobierna `flag`: el agente lo enciende desde
-    /// otra tarea sin pasar por el camino caliente (aquí solo se lee, relajado).
+    /// Like [`Self::set_file_drag`], but governed by `flag`: the agent turns it on from
+    /// another task without going through the hot path (here it is only read, relaxed).
     pub fn with_file_drag_flag(mut self, flag: Arc<AtomicBool>) -> Self {
         self.file_drag_flag = Some(flag);
         self
     }
 
-    /// Hay algún botón del mouse apretado.
+    /// Some mouse button is pressed.
     pub fn button_held(&self) -> bool {
         self.pressed.any_button()
     }
@@ -143,19 +143,19 @@ impl ServerSession {
                 .is_some_and(|f| f.load(Ordering::Relaxed))
     }
 
-    /// El cursor no puede cruzar ahora: bloqueado por el atajo o arrastrando.
+    /// The cursor cannot cross now: locked by the shortcut or dragging.
     fn held_in_place(&self) -> bool {
         self.locked || (!self.drag_across && !self.file_drag_active() && self.pressed.any_button())
     }
 
-    /// Atajo de teclado (todas las teclas a la vez) que bloquea y desbloquea el
-    /// cursor en la máquina donde está. Las teclas siguen su camino normal.
+    /// Keyboard shortcut (all the keys at once) that locks and unlocks the
+    /// cursor on the machine where it is. The keys follow their normal path.
     pub fn with_lock_shortcut(mut self, keys: Vec<HidUsage>) -> Self {
         self.lock_shortcut = keys;
         self
     }
 
-    /// Si el cursor está bloqueado: no cruza a la otra máquina en ningún sentido.
+    /// Whether the cursor is locked: it does not cross to the other machine in either direction.
     pub fn is_locked(&self) -> bool {
         self.locked
     }
@@ -164,7 +164,7 @@ impl ServerSession {
         self.locked = locked;
     }
 
-    /// Con la tecla recién presionada, ¿se completó el atajo?
+    /// With the key just pressed, is the shortcut complete?
     fn shortcut_hit(&self, usage: HidUsage) -> bool {
         let canon = canonical_key(usage);
         !self.lock_shortcut.is_empty()
@@ -178,10 +178,10 @@ impl ServerSession {
             })
     }
 
-    /// Lleva la cuenta de lo presionado y del atajo de bloqueo.
+    /// Keeps count of what is pressed and of the lock shortcut.
     fn record(&mut self, event: &InputEvent) {
-        // La repetición automática llega como otro `Pressed`: solo cuenta el
-        // primero, si no mantener el atajo alternaría el bloqueo sin parar.
+        // Automatic repeat arrives as another `Pressed`: only the
+        // first counts, otherwise holding the shortcut would toggle the lock nonstop.
         let change = self.pressed.record(event);
         if change == Change::Changed
             && let InputEvent::Key {
@@ -191,7 +191,7 @@ impl ServerSession {
             && self.shortcut_hit(usage)
         {
             self.locked = !self.locked;
-            tracing::info!(bloqueado = self.locked, "atajo de bloqueo del cursor");
+            tracing::info!(locked = self.locked, "cursor lock shortcut");
         }
     }
 
@@ -199,12 +199,12 @@ impl ServerSession {
         self.machine
     }
 
-    /// Si el foco está en la otra máquina.
+    /// Whether the focus is on the other machine.
     pub fn is_remote(&self) -> bool {
         matches!(self.focus, Focus::Remote { .. })
     }
 
-    /// Posición del cursor del cliente, si el foco es remoto.
+    /// Position of the client's cursor, if the focus is remote.
     pub fn remote_cursor(&self) -> Option<Point> {
         match self.focus {
             Focus::Remote { pos } => Some(pos),
@@ -216,8 +216,8 @@ impl ServerSession {
         self.local
     }
 
-    /// Los cruces que hubo desde la última llamada, en orden. Vacío casi siempre: no
-    /// cuesta nada en el camino caliente.
+    /// The crossings that happened since the last call, in order. Empty almost always: it
+    /// costs nothing on the hot path.
     pub fn take_crossings(&mut self) -> Vec<Crossing> {
         if self.crossings.is_empty() {
             return Vec::new();
@@ -225,8 +225,8 @@ impl ServerSession {
         std::mem::take(&mut self.crossings)
     }
 
-    /// El id de la pantalla de esta máquina que contiene `p` (la más cercana si cae en un
-    /// hueco); vacío si no se conocen sus pantallas.
+    /// The id of this machine's screen that contains `p` (the nearest if it falls in a
+    /// gap); empty if its screens are not known.
     pub fn screen_id(&self, p: Point) -> String {
         self.layout
             .screen_at(self.machine, p)
@@ -234,9 +234,9 @@ impl ServerSession {
             .unwrap_or_default()
     }
 
-    /// Anota que el cursor cruzó de `from` a la otra máquina por el borde que mira a ella.
+    /// Records that the cursor crossed from `from` to the other machine through the edge facing it.
     fn crossed(&mut self, from: Machine) {
-        // Sin borde (el acomodo cambió mientras tanto) no hay por dónde haber cruzado.
+        // Without an edge (the arrangement changed in the meantime) there is no way it crossed.
         if let Some(edge) = self.layout.facing(from) {
             self.crossings.push(Crossing {
                 from,
@@ -246,15 +246,15 @@ impl ServerSession {
         }
     }
 
-    /// Procesa un evento capturado. Los movimientos van en unidades nativas
-    /// locales; un `MotionAbsolute` es la posición real del cursor local, que la
-    /// captura informa para corregir el seguimiento.
+    /// Processes a captured event. Movements are in local native
+    /// units; a `MotionAbsolute` is the local cursor's real position, which the
+    /// capture reports to correct tracking.
     pub fn handle(&mut self, event: InputEvent) -> Vec<ServerOutput> {
         self.handle_at(event, 0)
     }
 
-    /// Como [`Self::handle`], con la marca de tiempo de la captura ([`super::latency::now_us`])
-    /// que viaja en los mensajes para medir la latencia.
+    /// Like [`Self::handle`], with the capture timestamp ([`super::latency::now_us`])
+    /// that travels in the messages to measure latency.
     pub fn handle_at(&mut self, event: InputEvent, t_us: u64) -> Vec<ServerOutput> {
         self.now_us = t_us;
         let mut out = Vec::new();
@@ -265,10 +265,10 @@ impl ServerSession {
         out
     }
 
-    /// Pone el estado al día con un evento capturado cuando no había sesión (sin
-    /// enlace, o entre una sesión y la siguiente). Solo recuerda lo presionado y
-    /// la posición real del cursor local: el movimiento y el scroll viejos se
-    /// descartan, porque aplicarlos tarde haría cruzar sin que el usuario lo pida.
+    /// Brings the state up to date with an event captured when there was no session (without a
+    /// link, or between one session and the next). It only remembers what is pressed and
+    /// the local cursor's real position: old movement and scroll are
+    /// discarded, because applying them late would make it cross without the user asking.
     pub fn catch_up(&mut self, event: InputEvent) {
         match event {
             InputEvent::Key { .. } | InputEvent::Button { .. } => self.record(&event),
@@ -293,7 +293,7 @@ impl ServerSession {
                 match self.layout.step(self.machine, self.local, dx, dy) {
                     Motion::Local(p) => self.local = p,
                     Motion::Cross { to, pos } if to != self.machine => self.enter(pos, out),
-                    // No debería pasar: cruzar "a sí mismo" es quedarse.
+                    // It should not happen: crossing "to itself" is staying.
                     Motion::Cross { pos, .. } => self.local = pos,
                 }
             }
@@ -305,8 +305,8 @@ impl ServerSession {
         match event {
             InputEvent::Key { usage, state } => {
                 self.record(&event);
-                // Se reenvía siempre: el cliente decide si cambia algo (una tecla
-                // que se apretó antes de entrar no está presionada allá).
+                // It is always forwarded: the client decides whether anything changes (a key
+                // pressed before entering is not pressed over there).
                 out.push(ServerOutput::Stream(StreamMsg::Key {
                     usage,
                     state,
@@ -329,21 +329,21 @@ impl ServerSession {
                 if let Some(merged) = merge_scroll(self.pending.scroll, s) {
                     self.pending.scroll = Some(merged);
                 } else {
-                    // Rueda y píxeles no se suman: sale lo anterior primero.
+                    // Wheel and pixels are not added together: the previous one goes out first.
                     out.extend(self.flush().map(ServerOutput::Datagram));
                     self.pending.scroll = Some(s);
                 }
                 self.pending.t_us.get_or_insert(self.now_us);
             }
-            // La posición real del cursor local no cambia mientras está congelado.
+            // The local cursor's real position does not change while it is frozen.
             InputEvent::MotionAbsolute { .. } | InputEvent::Modifiers(_) => {}
         }
     }
 
     fn move_remote(&mut self, pos: Point, dx: f64, dy: f64, out: &mut Vec<ServerOutput>) {
         let remote = self.machine.other();
-        // Nativo local → lógico → nativo remoto: la velocidad se siente igual
-        // en pantallas de distinto DPI.
+        // Local native → logical → remote native: speed feels the same
+        // on screens of different DPI.
         let (lx, ly) = match self.layout.screen_at(self.machine, self.local) {
             Some(s) => s.to_logical(dx, dy),
             None => (dx, dy),
@@ -359,9 +359,9 @@ impl ServerSession {
         };
         match motion {
             Motion::Local(p) => {
-                // El delta que viaja es nativo del cliente y se mide sobre lo que de
-                // verdad se movió (contra un borde sin cruce, nada): sumados, los deltas
-                // llevan al cliente exactamente a `p`.
+                // The delta that travels is native to the client and is measured over what
+                // really moved (against an edge without a crossing, nothing): added up, the deltas
+                // take the client exactly to `p`.
                 if p != pos {
                     self.pending.dx += p.x - pos.x;
                     self.pending.dy += p.y - pos.y;
@@ -391,7 +391,7 @@ impl ServerSession {
     fn leave(&mut self, back: Point, out: &mut Vec<ServerOutput>) {
         self.crossed(self.machine.other());
         self.focus = Focus::Local;
-        // Lo pendiente era para el cliente, que ahora suelta todo.
+        // What was pending was for the client, which now releases everything.
         self.pending = Pending::default();
         self.local = back;
         out.push(ServerOutput::Stream(StreamMsg::Leave));
@@ -399,8 +399,8 @@ impl ServerSession {
         out.push(ServerOutput::Warp(back));
     }
 
-    /// Datagrama con lo acumulado, si hay algo. El driver lo llama después de
-    /// procesar cada tanda de eventos: lo que llegó junto sale junto.
+    /// Datagram with what has accumulated, if there is anything. The driver calls it after
+    /// processing each batch of events: what arrived together goes out together.
     pub fn flush(&mut self) -> Option<MotionDatagram> {
         let Focus::Remote { pos } = self.focus else {
             return None;
@@ -426,14 +426,14 @@ impl ServerSession {
         })
     }
 
-    /// Si hubo movimiento desde la última posición exacta que recibió el cliente.
+    /// Whether there was movement since the last exact position the client received.
     pub fn needs_resync(&self) -> bool {
         self.is_remote() && !(self.synced && self.pending.is_empty())
     }
 
-    /// Posición exacta por el stream confiable. El driver la pide cuando el mouse
-    /// lleva un rato quieto: si se perdieron datagramas (incluso los periódicos con
-    /// la posición), el cursor del cliente termina igual donde debe.
+    /// Exact position over the reliable stream. The driver asks for it when the mouse
+    /// has been still for a while: if datagrams were lost (even the periodic ones with
+    /// the position), the client's cursor still ends up where it should.
     pub fn resync(&mut self) -> Vec<ServerOutput> {
         let Focus::Remote { pos } = self.focus else {
             return Vec::new();
@@ -441,7 +441,7 @@ impl ServerSession {
         if self.synced && self.pending.is_empty() {
             return Vec::new();
         }
-        // Lo pendiente sale antes, así el `seq` del Sync lo cubre.
+        // What is pending goes out first, so the `seq` of the Sync covers it.
         let mut out: Vec<_> = self
             .flush()
             .map(ServerOutput::Datagram)
@@ -452,8 +452,8 @@ impl ServerSession {
         out
     }
 
-    /// La geometría cambió (cambio de modo o de pantallas). Si la otra máquina ya
-    /// no tiene pantallas visibles, el cursor vuelve.
+    /// The geometry changed (mode or screens change). If the other machine no longer
+    /// has visible screens, the cursor comes back.
     pub fn set_layout(&mut self, layout: Layout) -> Vec<ServerOutput> {
         self.layout = layout;
         let mut out = Vec::new();
@@ -478,8 +478,8 @@ impl ServerSession {
         out
     }
 
-    /// El enlace cayó o cambió: el foco vuelve a esta máquina sin avisar al
-    /// cliente (ya no hay por dónde); él suelta todo por su cuenta.
+    /// The link dropped or changed: the focus returns to this machine without notifying the
+    /// client (there is no way to); it releases everything on its own.
     pub fn link_lost(&mut self) -> Vec<ServerOutput> {
         if !self.is_remote() {
             return Vec::new();
@@ -490,8 +490,8 @@ impl ServerSession {
     }
 }
 
-/// macOS entrega PrintScreen, ScrollLock y Pause de un teclado de PC como F13, F14
-/// y F15 ([`crate::event::keymap`]): para el atajo son la misma tecla.
+/// macOS delivers PrintScreen, ScrollLock and Pause of a PC keyboard as F13, F14
+/// and F15 ([`crate::event::keymap`]): for the shortcut they are the same key.
 fn alias_key(usage: HidUsage) -> Option<HidUsage> {
     const PAIRS: [(u16, u16); 3] = [(0x46, 0x68), (0x47, 0x69), (0x48, 0x6A)];
     if usage.page != crate::event::PAGE_KEYBOARD {
@@ -515,7 +515,7 @@ fn canonical_key(usage: HidUsage) -> HidUsage {
     }
 }
 
-/// Suma dos scrolls del mismo tipo; `None` si son de tipos distintos.
+/// Adds two scrolls of the same type; `None` if they are of different types.
 fn merge_scroll(acc: Option<Scroll>, s: Scroll) -> Option<Scroll> {
     match (acc, s) {
         (None, s) => Some(s),
@@ -562,7 +562,7 @@ mod tests {
         }
     }
 
-    /// Lleva el cursor al borde y cruza; devuelve las salidas del cruce.
+    /// Takes the cursor to the edge and crosses; returns the crossing's outputs.
     fn cross(s: &mut ServerSession) -> Vec<ServerOutput> {
         s.handle(InputEvent::MotionAbsolute {
             x: edge_pc(),
@@ -572,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn local_no_manda_nada() {
+    fn local_sends_nothing() {
         let mut s = session();
         assert!(s.handle(rel(10.0, 5.0)).is_empty());
         assert_eq!(s.local_cursor(), Point::new(110.0, 105.0));
@@ -586,10 +586,10 @@ mod tests {
     }
 
     #[test]
-    fn cruzar_entra_con_los_modificadores_apretados() {
+    fn crossing_enters_with_the_modifiers_held() {
         let mut s = session();
-        s.handle(key(0xE1, KeyState::Pressed)); // Shift izquierdo
-        s.handle(key(0x04, KeyState::Pressed)); // A: no es modificador
+        s.handle(key(0xE1, KeyState::Pressed)); // left Shift
+        s.handle(key(0x04, KeyState::Pressed)); // A: not a modifier
         let out = cross(&mut s);
         assert_eq!(
             out,
@@ -607,7 +607,7 @@ mod tests {
     }
 
     #[test]
-    fn el_movimiento_se_coalesce_y_resincroniza_cada_n() {
+    fn movement_is_coalesced_and_resynchronized_every_n() {
         let mut s = session();
         cross(&mut s);
         for _ in 0..3 {
@@ -615,20 +615,20 @@ mod tests {
         }
         let d = s.flush().unwrap();
         assert_eq!((d.seq, d.dx, d.dy, d.resync), (1, 6.0, 3.0, None));
-        assert_eq!(s.flush(), None, "nada pendiente");
+        assert_eq!(s.flush(), None, "nothing pending");
         for i in 2..=4 {
             s.handle(rel(1.0, 0.0));
             let d = s.flush().unwrap();
             assert_eq!(d.seq, i);
-            // El cuarto datagrama lleva la posición absoluta.
+            // The fourth datagram carries the absolute position.
             assert_eq!(d.resync.is_some(), i == 4);
         }
         assert_eq!(s.remote_cursor(), Some(Point::new(3449.0, 543.0)));
     }
 
     #[test]
-    fn el_delta_viaja_en_unidades_nativas_del_cliente() {
-        // Cliente PC con 150 %, servidor Mac a 1.0.
+    fn the_delta_travels_in_the_clients_native_units() {
+        // PC client at 150 %, Mac server at 1.0.
         let mut s = ServerSession::new(
             Machine::A,
             layout_mac_pc_hidpi(),
@@ -643,17 +643,17 @@ mod tests {
         let start = s.remote_cursor().unwrap();
         s.handle(rel(10.0, 0.0));
         let d = s.flush().unwrap();
-        // 10 puntos de la Mac son 15 píxeles en la pantalla al 150 % de la PC: la misma
-        // distancia física.
+        // 10 Mac points are 15 pixels on the PC's 150 % screen: the same
+        // physical distance.
         assert_eq!((d.dx, d.dy), (15.0, 0.0));
         assert_eq!(d.resync, Some(Point::new(start.x + 15.0, start.y)));
     }
 
     #[test]
-    fn quieto_resincroniza_una_sola_vez() {
+    fn still_resynchronizes_only_once() {
         let mut s = session();
         cross(&mut s);
-        assert!(!s.needs_resync(), "el Enter ya lleva la posición");
+        assert!(!s.needs_resync(), "the Enter already carries the position");
         assert!(s.resync().is_empty());
         s.handle(rel(3.0, 0.0));
         s.flush().unwrap();
@@ -664,7 +664,7 @@ mod tests {
             vec![ServerOutput::Stream(StreamMsg::Sync { seq: 1, pos })]
         );
         assert!(s.resync().is_empty());
-        // Con movimiento pendiente, sale primero el datagrama.
+        // With pending movement, the datagram goes out first.
         s.handle(rel(1.0, 0.0));
         let out = s.resync();
         assert!(matches!(out[0], ServerOutput::Datagram(d) if d.seq == 2));
@@ -676,12 +676,12 @@ mod tests {
         assert!(s.link_lost().len() == 2);
         assert!(
             s.resync().is_empty(),
-            "sin foco remoto no hay nada que sincronizar"
+            "without remote focus there is nothing to synchronize"
         );
     }
 
     #[test]
-    fn el_boton_lleva_la_posicion_y_sale_despues_del_movimiento() {
+    fn the_button_carries_the_position_and_goes_out_after_the_movement() {
         let mut s = session();
         cross(&mut s);
         s.handle(rel(4.0, 0.0));
@@ -705,7 +705,7 @@ mod tests {
     }
 
     #[test]
-    fn el_datagrama_lleva_la_marca_del_evento_mas_viejo() {
+    fn the_datagram_carries_the_stamp_of_the_oldest_event() {
         let mut s = session();
         cross(&mut s);
         s.handle_at(rel(1.0, 0.0), 1_000);
@@ -727,12 +727,12 @@ mod tests {
         );
         s.handle_at(rel(1.0, 0.0), 6_000);
         assert_eq!(s.flush().unwrap().t_us, 5_000);
-        // Un movimiento contra un borde sin cruce no acumula nada.
+        // A movement against an edge without a crossing accumulates nothing.
         assert_eq!(s.flush(), None);
     }
 
     #[test]
-    fn un_arrastre_no_cruza_el_borde_salvo_que_se_permita() {
+    fn a_drag_does_not_cross_the_edge_unless_allowed() {
         let press = InputEvent::Button {
             button: Button::Left,
             state: KeyState::Pressed,
@@ -741,7 +741,7 @@ mod tests {
             button: Button::Left,
             state: KeyState::Released,
         };
-        // Por omisión (como Deskflow) el arrastre se queda en su máquina.
+        // By default (like Deskflow) the drag stays on its machine.
         let mut s = session();
         s.handle(InputEvent::MotionAbsolute {
             x: edge_pc(),
@@ -751,13 +751,13 @@ mod tests {
         assert!(s.handle(rel(50.0, 0.0)).is_empty());
         assert!(!s.is_remote());
         assert_eq!(s.local_cursor(), Point::new(edge_pc(), 720.0));
-        // Al soltar, cruza.
+        // On release, it crosses.
         s.handle(release);
         assert!(matches!(
             s.handle(rel(5.0, 0.0))[0],
             ServerOutput::Grab(true)
         ));
-        // Del otro lado tampoco vuelve arrastrando.
+        // On the other side it does not come back dragging either.
         s.handle(press);
         assert!(s.handle(rel(-500.0, 0.0)).is_empty());
         assert!(s.is_remote());
@@ -766,7 +766,7 @@ mod tests {
             s.handle(rel(-5.0, 0.0))[0],
             ServerOutput::Stream(StreamMsg::Leave)
         ));
-        // Configurado, cruza con el botón presionado.
+        // Configured, it crosses with the button pressed.
         let mut s = session().with_drag_across(true);
         s.handle(InputEvent::MotionAbsolute {
             x: edge_pc(),
@@ -780,7 +780,7 @@ mod tests {
     }
 
     #[test]
-    fn un_arrastre_de_archivos_cruza_aunque_arrastrar_este_apagado() {
+    fn a_file_drag_crosses_even_if_dragging_is_off() {
         let press = InputEvent::Button {
             button: Button::Left,
             state: KeyState::Pressed,
@@ -800,7 +800,7 @@ mod tests {
     }
 
     #[test]
-    fn la_bandera_externa_de_arrastre_de_archivos_permite_cruzar_y_solo_mientras_dura() {
+    fn the_external_file_drag_flag_allows_crossing_and_only_while_it_lasts() {
         let flag = Arc::new(AtomicBool::new(false));
         let press = InputEvent::Button {
             button: Button::Left,
@@ -813,7 +813,10 @@ mod tests {
         });
         s.handle(press);
         assert!(s.button_held());
-        assert!(s.handle(rel(50.0, 0.0)).is_empty(), "sin bandera se queda");
+        assert!(
+            s.handle(rel(50.0, 0.0)).is_empty(),
+            "without the flag it stays"
+        );
         flag.store(true, Ordering::Relaxed);
         assert!(matches!(
             s.handle(rel(5.0, 0.0))[0],
@@ -822,7 +825,7 @@ mod tests {
     }
 
     #[test]
-    fn scroll_suma_del_mismo_tipo_y_separa_los_distintos() {
+    fn scroll_adds_the_same_type_and_separates_different_ones() {
         let mut s = session();
         cross(&mut s);
         let wheel = |dy| {
@@ -836,7 +839,7 @@ mod tests {
         let out = s.handle(InputEvent::Scroll(Scroll::Pixels { dx: 1.0, dy: 2.0 }));
         assert_eq!(out.len(), 1);
         let ServerOutput::Datagram(d) = out[0] else {
-            panic!("se esperaba datagrama: {out:?}")
+            panic!("a datagram was expected: {out:?}")
         };
         assert_eq!(
             d.scroll,
@@ -852,7 +855,7 @@ mod tests {
     }
 
     #[test]
-    fn volver_por_el_borde_sale_y_devuelve_el_cursor() {
+    fn coming_back_through_the_edge_leaves_and_returns_the_cursor() {
         let mut s = session();
         cross(&mut s);
         s.handle(rel(2.0, 0.0));
@@ -867,12 +870,12 @@ mod tests {
             ]
         );
         assert!(!s.is_remote());
-        assert_eq!(s.flush(), None, "lo pendiente se descarta al salir");
+        assert_eq!(s.flush(), None, "what is pending is discarded on leaving");
         assert!(back.x < 3440.0);
     }
 
     #[test]
-    fn cada_cruce_se_anota_con_su_borde_y_se_recoge_una_vez() {
+    fn each_crossing_is_recorded_with_its_edge_and_collected_once() {
         let mut s = session();
         assert!(s.take_crossings().is_empty());
         cross(&mut s);
@@ -885,8 +888,8 @@ mod tests {
                 edge
             }]
         );
-        assert!(s.take_crossings().is_empty(), "ya se recogió");
-        // Moverse dentro de la otra máquina no cruza; volver sí, por el borde de la otra.
+        assert!(s.take_crossings().is_empty(), "already collected");
+        // Moving inside the other machine does not cross; coming back does, through the other's edge.
         s.handle(rel(2.0, 0.0));
         assert!(s.take_crossings().is_empty());
         s.handle(rel(-10.0, 0.0));
@@ -903,25 +906,25 @@ mod tests {
     }
 
     #[test]
-    fn un_movimiento_local_no_anota_cruces() {
+    fn a_local_movement_records_no_crossings() {
         let mut s = session();
         s.handle(rel(10.0, 5.0));
         assert!(s.take_crossings().is_empty());
     }
 
     #[test]
-    fn la_pantalla_del_cursor_es_la_que_lo_contiene_o_la_mas_cercana() {
+    fn the_cursors_screen_is_the_one_containing_it_or_the_nearest() {
         let s = session();
         assert_eq!(s.screen_id(Point::new(100.0, 100.0)), "m34");
-        // Fuera de toda pantalla: la más cercana.
+        // Outside every screen: the nearest.
         assert_eq!(s.screen_id(Point::new(-50.0, 100.0)), "m34");
     }
 
     #[test]
-    fn las_teclas_se_reenvian_mientras_el_foco_es_remoto() {
+    fn keys_are_forwarded_while_the_focus_is_remote() {
         let mut s = session();
         cross(&mut s);
-        // Con la marca de la captura, para medir la latencia.
+        // With the capture stamp, to measure latency.
         assert_eq!(
             s.handle_at(key(0x05, KeyState::Pressed), 42),
             vec![ServerOutput::Stream(StreamMsg::Key {
@@ -937,27 +940,27 @@ mod tests {
     }
 
     #[test]
-    fn ponerse_al_dia_no_cruza_ni_mueve_pero_recuerda_lo_presionado() {
+    fn catching_up_neither_crosses_nor_moves_but_remembers_what_is_pressed() {
         let mut s = session();
         s.catch_up(key(0xE1, KeyState::Pressed));
         s.catch_up(InputEvent::MotionAbsolute {
             x: edge_pc(),
             y: 720.0,
         });
-        // Contra el borde: con `handle` cruzaría.
+        // Against the edge: with `handle` it would cross.
         s.catch_up(rel(50.0, 0.0));
         s.catch_up(InputEvent::Scroll(Scroll::Pixels { dx: 0.0, dy: 3.0 }));
         assert!(!s.is_remote());
         assert_eq!(s.local_cursor(), Point::new(edge_pc(), 720.0));
         assert_eq!(s.flush(), None);
-        // El Shift que sigue apretado entra con el primer cruce de verdad.
+        // The Shift that is still held enters with the first real crossing.
         let out = s.handle(rel(5.0, 0.0));
         assert!(matches!(
             out[1],
             ServerOutput::Stream(StreamMsg::Enter { modifiers, .. })
                 if modifiers == Modifiers::from_iter([ModifierKey::ShiftLeft])
         ));
-        // Con el foco remoto tampoco mueve nada ni manda nada.
+        // With remote focus it neither moves nor sends anything either.
         let remote = s.remote_cursor();
         s.catch_up(rel(10.0, 0.0));
         s.catch_up(InputEvent::MotionAbsolute { x: 0.0, y: 0.0 });
@@ -967,7 +970,7 @@ mod tests {
     }
 
     #[test]
-    fn caida_del_enlace_devuelve_el_foco_local() {
+    fn link_drop_returns_the_focus_locally() {
         let mut s = session();
         assert!(s.link_lost().is_empty());
         cross(&mut s);
@@ -982,7 +985,7 @@ mod tests {
     }
 
     #[test]
-    fn si_la_otra_maquina_deja_de_verse_el_cursor_vuelve() {
+    fn if_the_other_machine_stops_being_seen_the_cursor_comes_back() {
         let mut s = session();
         cross(&mut s);
         let out = s.set_layout(layout_pc_only());
@@ -992,17 +995,17 @@ mod tests {
     }
 
     #[test]
-    fn geometria_nueva_con_el_cursor_fuera_lo_acomoda_y_resincroniza() {
+    fn new_geometry_with_the_cursor_outside_adjusts_it_and_resynchronizes() {
         let mut s = session();
         cross(&mut s);
-        // Mismas pantallas: nada que hacer.
+        // Same screens: nothing to do.
         assert!(s.set_layout(layout_pc_mac()).is_empty());
         assert!(!s.needs_resync());
         s.handle(rel(100.0, 400.0));
         s.flush();
         s.resync();
         assert_eq!(s.remote_cursor(), Some(Point::new(3540.0, 940.0)));
-        // La pantalla del cliente se achica: el cursor queda dentro.
+        // The client's screen shrinks: the cursor stays inside.
         assert!(s.set_layout(layout_pc_mac_small()).is_empty());
         assert_eq!(s.remote_cursor(), Some(Point::new(3540.0, 599.0)));
         assert_eq!(
@@ -1015,24 +1018,24 @@ mod tests {
     }
 
     #[test]
-    fn el_atajo_bloquea_el_cursor_en_su_maquina() {
-        // Ctrl izquierdo + ScrollLock.
+    fn the_shortcut_locks_the_cursor_on_its_machine() {
+        // Left Ctrl + ScrollLock.
         let mut s = session().with_lock_shortcut(vec![HidUsage::key(0xE0), HidUsage::key(0x47)]);
         s.handle(InputEvent::MotionAbsolute {
             x: edge_pc(),
             y: 720.0,
         });
-        // ScrollLock solo no alcanza.
+        // ScrollLock alone is not enough.
         s.handle(key(0x47, KeyState::Pressed));
         s.handle(key(0x47, KeyState::Released));
         assert!(!s.is_locked());
         s.handle(key(0xE0, KeyState::Pressed));
         s.handle(key(0x47, KeyState::Pressed));
         assert!(s.is_locked());
-        assert!(s.handle(rel(50.0, 0.0)).is_empty(), "bloqueado no cruza");
+        assert!(s.handle(rel(50.0, 0.0)).is_empty(), "locked does not cross");
         assert!(!s.is_remote());
         assert_eq!(s.local_cursor(), Point::new(edge_pc(), 720.0));
-        // Repetir el atajo desbloquea y el cursor cruza otra vez.
+        // Repeating the shortcut unlocks and the cursor crosses again.
         s.handle(key(0x47, KeyState::Released));
         s.handle(key(0x47, KeyState::Pressed));
         s.handle(key(0x47, KeyState::Released));
@@ -1045,10 +1048,10 @@ mod tests {
     }
 
     #[test]
-    fn bloqueado_en_la_otra_maquina_no_vuelve() {
+    fn locked_on_the_other_machine_does_not_return() {
         let mut s = session().with_lock_shortcut(vec![HidUsage::key(0x47)]);
         cross(&mut s);
-        // El atajo también llega al cliente: es una tecla más.
+        // The shortcut also reaches the client: it is just another key.
         let out = s.handle(key(0x47, KeyState::Pressed));
         assert!(matches!(
             out[0],
@@ -1056,12 +1059,12 @@ mod tests {
         ));
         assert!(s.is_locked());
         assert!(s.handle(rel(-500.0, 0.0)).is_empty());
-        assert!(s.is_remote(), "contra el borde, sin volver");
+        assert!(s.is_remote(), "against the edge, without coming back");
         assert_eq!(s.remote_cursor().map(|p| p.x), Some(3440.0));
     }
 
     #[test]
-    fn scroll_lock_de_un_teclado_de_pc_en_la_mac_es_f14() {
+    fn scroll_lock_of_a_pc_keyboard_on_the_mac_is_f14() {
         let mut s = ServerSession::new(Machine::A, layout_pc_mac(), Point::new(3500.0, 10.0), 4)
             .with_lock_shortcut(vec![HidUsage::key(0x47)]);
         s.handle(key(0x69, KeyState::Pressed));
@@ -1072,8 +1075,8 @@ mod tests {
     }
 
     #[test]
-    fn la_repeticion_automatica_no_alterna_el_bloqueo() {
-        // Las capturas reenvían la repetición como otro `Pressed`.
+    fn automatic_repeat_does_not_toggle_the_lock() {
+        // The captures forward the repeat as another `Pressed`.
         let mut s = session().with_lock_shortcut(vec![HidUsage::key(0x47)]);
         for _ in 0..3 {
             s.handle(key(0x47, KeyState::Pressed));
@@ -1081,7 +1084,7 @@ mod tests {
         assert!(s.is_locked());
         s.handle(key(0x47, KeyState::Released));
         assert!(s.is_locked());
-        // También con el foco remoto y con un atajo de varias teclas.
+        // Also with remote focus and with a shortcut of several keys.
         let mut s = session().with_lock_shortcut(vec![HidUsage::key(0xE0), HidUsage::key(0x0F)]);
         cross(&mut s);
         s.handle(key(0xE0, KeyState::Pressed));
@@ -1092,7 +1095,7 @@ mod tests {
     }
 
     #[test]
-    fn sin_atajo_nunca_se_bloquea() {
+    fn without_a_shortcut_it_never_locks() {
         let mut s = session();
         s.handle(key(0x47, KeyState::Pressed));
         assert!(!s.is_locked());

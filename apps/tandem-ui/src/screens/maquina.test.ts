@@ -29,36 +29,36 @@ async function mount(query = "demo&still", machine: "a" | "b" = "b") {
   return { ...r, store };
 }
 
-const res = () => screen.getByRole("region", { name: "Recursos en vivo" });
+const res = () => screen.getByRole("region", { name: "Live resources" });
 
 describe("Wake-on-LAN (T-159)", () => {
   it("el campo está siempre, con la MAC actual y un botón para borrarla", async () => {
     const { store } = await mount();
     const set = vi.spyOn(store, "setWol");
-    const field = screen.getByRole("textbox", { name: /MAC de/ });
+    const field = screen.getByRole("textbox", { name: /MAC of/ });
     expect(field).toHaveValue("aa:bb:cc:dd:ee:ff");
-    await userEvent.click(screen.getByRole("button", { name: "Borrar MAC" }));
+    await userEvent.click(screen.getByRole("button", { name: "Clear MAC" }));
     expect(set).toHaveBeenCalledWith(null);
   });
 
   it("editar la MAC la guarda", async () => {
     const { store } = await mount();
     const set = vi.spyOn(store, "setWol");
-    const field = screen.getByRole("textbox", { name: /MAC de/ });
+    const field = screen.getByRole("textbox", { name: /MAC of/ });
     await userEvent.clear(field);
     await userEvent.type(field, "11:22:33:44:55:66");
-    await userEvent.click(screen.getByRole("button", { name: "Guardar" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(set).toHaveBeenCalledWith("11:22:33:44:55:66");
   });
 });
 
 describe("Wake-on-LAN en el demo (T-171)", () => {
-  const mac = () => screen.getByRole("textbox", { name: /MAC de/ });
-  const guardar = () => screen.getByRole("button", { name: "Guardar" });
+  const mac = () => screen.getByRole("textbox", { name: /MAC of/ });
+  const guardar = () => screen.getByRole("button", { name: "Save" });
 
   it("guardar una MAC válida la muestra y deja Guardar deshabilitado", async () => {
     const { store } = await mount();
-    await userEvent.click(screen.getByRole("button", { name: "Apagar" }));
+    await userEvent.click(screen.getByRole("button", { name: "Power off" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("off"));
     await userEvent.clear(mac());
     await userEvent.type(mac(), "aa:bb:cc:dd:ee:01");
@@ -66,19 +66,19 @@ describe("Wake-on-LAN en el demo (T-171)", () => {
     await tick();
     expect(mac()).toHaveValue("aa:bb:cc:dd:ee:01");
     expect(guardar()).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Encender" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Power on" })).toBeEnabled();
   });
 
   it("borrar la MAC deja el campo vacío, sin Encender y con el aviso", async () => {
     const { store } = await mount();
-    await userEvent.click(screen.getByRole("button", { name: "Apagar" }));
+    await userEvent.click(screen.getByRole("button", { name: "Power off" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("off"));
-    await userEvent.click(screen.getByRole("button", { name: "Borrar MAC" }));
+    await userEvent.click(screen.getByRole("button", { name: "Clear MAC" }));
     await tick();
     expect(mac()).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Encender" })).toBeDisabled();
-    expect(screen.getByText(/Falta la MAC/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Borrar MAC" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Power on" })).toBeDisabled();
+    expect(screen.getByText(/MAC is missing/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear MAC" })).toBeNull();
   });
 
   it("una MAC inválida muestra el motivo y no cambia lo guardado", async () => {
@@ -87,49 +87,49 @@ describe("Wake-on-LAN en el demo (T-171)", () => {
     await userEvent.type(mac(), "zz");
     await userEvent.click(guardar());
     await tick();
-    expect(store.toasts.at(-1)?.text ?? "").toMatch(/MAC inválida/);
+    expect(store.toasts.at(-1)?.text ?? "").toMatch(/invalid MAC address/);
     expect(store.desk.machines.b?.wake?.mac).toBe("aa:bb:cc:dd:ee:ff");
   });
 });
 
-describe("V3-Maquina (la otra máquina)", () => {
+describe("V3-Machine (the other machine)", () => {
   it("muestra cabecera, recursos agrupados, disco, módulos y entornos", async () => {
     await mount();
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("PC-Escritorio");
-    expect(screen.getByText("Windows 11 · en línea")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("PC-Desktop");
+    expect(screen.getByText("Windows 11 · online")).toBeInTheDocument();
     const r = within(res());
-    expect(r.getByText("Ryzen 7 · 16 hilos")).toBeInTheDocument();
+    expect(r.getByText("Ryzen 7 · 16 threads")).toBeInTheDocument();
     expect(r.getByText("64 %")).toBeInTheDocument();
     expect(r.getByText("62 °C")).toBeInTheDocument();
     expect(r.getByText("17.1")).toBeInTheDocument();
     expect(r.getByText("/ 24 GB")).toBeInTheDocument();
     expect(r.getByText("RTX 5080")).toBeInTheDocument();
-    expect(r.getByText("VRAM casi llena")).toBeInTheDocument();
+    expect(r.getByText("VRAM almost full")).toBeInTheDocument();
     expect(r.getByText("97 %")).toBeInTheDocument();
     expect(r.getByText("71 °C")).toBeInTheDocument();
-    expect(r.getByText("ventiladores 58 %")).toBeInTheDocument();
-    expect(screen.getByText("412 GB libres de 1.8 TB")).toBeInTheDocument();
-    const mods = within(screen.getByRole("region", { name: "Módulos" }));
-    expect(mods.getAllByText("activo")).toHaveLength(6);
-    const envs = within(screen.getByRole("region", { name: "Entornos" }));
+    expect(r.getByText("fans 58 %")).toBeInTheDocument();
+    expect(screen.getByText("412 GB free of 1.8 TB")).toBeInTheDocument();
+    const mods = within(screen.getByRole("region", { name: "Modules" }));
+    expect(mods.getAllByText("active")).toHaveLength(6);
+    const envs = within(screen.getByRole("region", { name: "Environments" }));
     // El predeterminado (WSL) va primero aunque el agente lo diga segundo.
     const names = envs.getAllByText(/WSL · Ubuntu|PowerShell 7|Docker Desktop/).map((e) => e.textContent);
     expect(names).toEqual(["WSL · Ubuntu 24.04", "PowerShell 7", "Docker Desktop"]);
-    expect(envs.getByText("predeterminado")).toBeInTheDocument();
-    expect(envs.getByRole("switch", { name: "Permitir ejecución remota" })).toHaveAttribute("aria-checked", "true");
+    expect(envs.getByText("default")).toBeInTheDocument();
+    expect(envs.getByRole("switch", { name: "Allow remote execution" })).toHaveAttribute("aria-checked", "true");
     // G9: sin textos rotos.
     expect(document.body.textContent).not.toMatch(/undefined|NaN|\{\{/);
   });
 
-  it("el color se cambia en el puesto; el de la otra máquina no se puede elegir", async () => {
+  it("el color se cambia en el puesto; el de the other machine no se puede elegir", async () => {
     const { store } = await mount();
-    const group = screen.getByRole("radiogroup", { name: "Color de la máquina" });
-    expect(within(group).getByRole("radio", { name: "Violeta" })).toHaveAttribute("aria-checked", "true");
-    expect(within(group).getByRole("radio", { name: "Azul" })).toBeDisabled();
-    await userEvent.click(within(group).getByRole("radio", { name: "Verde azulado" }));
+    const group = screen.getByRole("radiogroup", { name: "Machine color" });
+    expect(within(group).getByRole("radio", { name: "Violet" })).toHaveAttribute("aria-checked", "true");
+    expect(within(group).getByRole("radio", { name: "Blue" })).toBeDisabled();
+    await userEvent.click(within(group).getByRole("radio", { name: "Teal" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.color).toBe("#5fbfb0"));
-    expect(within(group).getByRole("radio", { name: "Verde azulado" })).toHaveAttribute("aria-checked", "true");
-    // Las flechas saltan el color ocupado (azul, de la MacBook).
+    expect(within(group).getByRole("radio", { name: "Teal" })).toHaveAttribute("aria-checked", "true");
+    // Las flechas saltan el color ocupado (azul, de the MacBook).
     await fireEvent.keyDown(group, { key: "ArrowRight" });
     await vi.waitFor(() => expect(store.desk.machines.b?.color).toBe("#d9a75a"));
     await fireEvent.keyDown(group, { key: "ArrowRight" });
@@ -138,49 +138,49 @@ describe("V3-Maquina (la otra máquina)", () => {
 
   it("el nombre se edita en el lugar: Enter guarda, Escape no", async () => {
     const { store } = await mount();
-    await userEvent.click(screen.getByRole("button", { name: /PC-Escritorio/ }));
-    const input = screen.getByRole("textbox", { name: "Nombre de la máquina" });
+    await userEvent.click(screen.getByRole("button", { name: /PC-Desktop/ }));
+    const input = screen.getByRole("textbox", { name: "Machine name" });
     await userEvent.clear(input);
     await userEvent.type(input, "  Estudio {Enter}");
     await vi.waitFor(() => expect(store.desk.machines.b?.name).toBe("Estudio"));
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Estudio");
     await userEvent.click(screen.getByRole("button", { name: /Estudio/ }));
-    await userEvent.type(screen.getByRole("textbox", { name: "Nombre de la máquina" }), "XYZ{Escape}");
+    await userEvent.type(screen.getByRole("textbox", { name: "Machine name" }), "XYZ{Escape}");
     expect(store.desk.machines.b?.name).toBe("Estudio");
     // Vacío: no se manda y se avisa por qué.
     await userEvent.click(screen.getByRole("button", { name: /Estudio/ }));
-    await userEvent.clear(screen.getByRole("textbox", { name: "Nombre de la máquina" }));
+    await userEvent.clear(screen.getByRole("textbox", { name: "Machine name" }));
     await userEvent.keyboard("{Enter}");
     expect(store.desk.machines.b?.name).toBe("Estudio");
-    expect(store.toasts[0]).toMatchObject({ tone: "bad", text: "El nombre no puede quedar vacío" });
+    expect(store.toasts[0]).toMatchObject({ tone: "bad", text: "The name cannot be empty" });
   });
 
   it("cada módulo que se puede apagar tiene su interruptor; Energía no", async () => {
     const { store } = await mount();
-    const mods = within(screen.getByRole("region", { name: "Módulos" }));
-    const clip = mods.getByRole("switch", { name: "Portapapeles" });
+    const mods = within(screen.getByRole("region", { name: "Modules" }));
+    const clip = mods.getByRole("switch", { name: "Clipboard" });
     expect(clip).toHaveAttribute("aria-checked", "true");
     await userEvent.click(clip);
     await vi.waitFor(() => expect(store.desk.machines.b?.modules.find((m) => m.id === "clipboard")?.state).toBe("off"));
-    expect(mods.getByRole("switch", { name: "Portapapeles" })).toHaveTextContent("apagado");
-    await userEvent.click(mods.getByRole("switch", { name: "Portapapeles" }));
+    expect(mods.getByRole("switch", { name: "Clipboard" })).toHaveTextContent("off");
+    await userEvent.click(mods.getByRole("switch", { name: "Clipboard" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.modules.find((m) => m.id === "clipboard")?.state).toBe("active"));
-    expect(mods.queryByRole("switch", { name: "Energía" })).toBeNull();
-    expect(mods.getByText("Energía").parentElement).toHaveTextContent("activo");
+    expect(mods.queryByRole("switch", { name: "Power" })).toBeNull();
+    expect(mods.getByText("Power").parentElement).toHaveTextContent("active");
   });
 
-  it("«Permitir ejecución remota» es el módulo de túneles", async () => {
+  it("«Allow remote execution» es el módulo de túneles", async () => {
     const { store } = await mount();
-    await userEvent.click(screen.getByRole("switch", { name: "Permitir ejecución remota" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Allow remote execution" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.modules.find((m) => m.id === "tunnels")?.state).toBe("off"));
-    expect(screen.getByRole("switch", { name: "Permitir ejecución remota" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("switch", { name: "Allow remote execution" })).toHaveAttribute("aria-checked", "false");
   });
 
   it("re-escanear muestra que trabaja hasta que vuelve", async () => {
     vi.useFakeTimers();
     const { store } = await mount();
     const spy = vi.spyOn(store, "rescan");
-    const btn = screen.getByRole("button", { name: "Volver a escanear" });
+    const btn = screen.getByRole("button", { name: "Scan again" });
     await fireEvent.click(btn);
     expect(spy).toHaveBeenCalledWith("b");
     expect(btn).toHaveAttribute("aria-busy", "true");
@@ -188,78 +188,78 @@ describe("V3-Maquina (la otra máquina)", () => {
     expect(btn).toHaveAttribute("aria-busy", "false");
   });
 
-  it("Apagar apaga la otra máquina y queda Encender", async () => {
+  it("Apagar apaga the other machine y queda Encender", async () => {
     const { store } = await mount();
-    await userEvent.click(screen.getByRole("button", { name: "Apagar" }));
+    await userEvent.click(screen.getByRole("button", { name: "Power off" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("off"));
-    expect(screen.getByText("Windows 11 · apagada")).toBeInTheDocument();
+    expect(screen.getByText("Windows 11 · off")).toBeInTheDocument();
     expect(screen.queryByText("64 %")).toBeNull();
-    expect(screen.getByRole("button", { name: "Volver a escanear" })).toBeDisabled();
-    await userEvent.click(screen.getByRole("button", { name: "Encender" }));
+    expect(screen.getByRole("button", { name: "Scan again" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "Power on" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("on"));
   });
 });
 
-describe("F-MaquinaMac (esta máquina)", () => {
+describe("F-MachineMac (this machine)", () => {
   it("sin Apagar; RAM unificada y GPU integrada con su memoria", async () => {
     await mount("demo&still", "a");
     expect(screen.getByText("macOS 26 · Apple M5")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Apagar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Power off" })).toBeNull();
     const r = within(res());
-    expect(r.getByText("M5 · 12 núcleos")).toBeInTheDocument();
-    expect(r.getByText("unificada")).toBeInTheDocument();
-    expect(r.getByText("M5 integrada")).toBeInTheDocument();
-    expect(r.getByText("Memoria")).toBeInTheDocument();
-    expect(r.getByText("de la RAM")).toBeInTheDocument();
-    expect(r.queryByText("VRAM casi llena")).toBeNull();
-    expect(r.getByText("sin ventilador")).toBeInTheDocument();
-    expect(screen.getByText("231 GB libres de 1 TB")).toBeInTheDocument();
-    expect(screen.getByText("84 % · conectada")).toBeInTheDocument();
-    const envs = within(screen.getByRole("region", { name: "Entornos" }));
+    expect(r.getByText("M5 · 12 cores")).toBeInTheDocument();
+    expect(r.getByText("unified")).toBeInTheDocument();
+    expect(r.getByText("M5 integrated")).toBeInTheDocument();
+    expect(r.getByText("Memory")).toBeInTheDocument();
+    expect(r.getByText("of RAM")).toBeInTheDocument();
+    expect(r.queryByText("VRAM almost full")).toBeNull();
+    expect(r.getByText("fanless")).toBeInTheDocument();
+    expect(screen.getByText("231 GB free of 1 TB")).toBeInTheDocument();
+    expect(screen.getByText("84 % · plugged in")).toBeInTheDocument();
+    const envs = within(screen.getByRole("region", { name: "Environments" }));
     expect(envs.getByText("zsh")).toBeInTheDocument();
-    expect(envs.getByText("predeterminado")).not.toHaveClass("chip");
-    // El módulo de túneles de esta máquina se apaga desde su fila: sin el interruptor de abajo.
-    expect(envs.queryByRole("switch", { name: "Permitir ejecución remota" })).toBeNull();
-    expect(screen.getByRole("switch", { name: "Cómputo remoto" })).toHaveAttribute("aria-checked", "true");
+    expect(envs.getByText("default")).not.toHaveClass("chip");
+    // El módulo de túneles de this machine se apaga desde su fila: sin el interruptor de abajo.
+    expect(envs.queryByRole("switch", { name: "Allow remote execution" })).toBeNull();
+    expect(screen.getByRole("switch", { name: "Remote compute" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("el nombre del puesto va junto al logo solo en las páginas de máquina (V3-Maquina)", async () => {
+  it("el nombre del puesto va junto al logo solo en las páginas de máquina (V3-Machine)", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/puesto" });
     await store.start();
     render(Shell, { context: new Map([[STORE_KEY, store]]) });
     await tick();
-    const nav = screen.getByRole("navigation", { name: "Principal" });
-    expect(within(nav).queryByText("Mi puesto")).toBeNull();
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).queryByText("My desk")).toBeNull();
     store.go({ screen: "maquina", machine: "b" });
     await tick();
-    expect(within(nav).getByText("Mi puesto")).toBeInTheDocument();
+    expect(within(nav).getByText("My desk")).toBeInTheDocument();
   });
 
-  it("si falta un permiso, la fila «Permisos» lo dice y «Abrir ajustes» lo pide", async () => {
+  it("si falta un permiso, la fila «Permisos» lo dice y «Open settings» lo pide", async () => {
     const { store } = await mount("demo&still&trouble=permissions", "a");
-    const mods = within(screen.getByRole("region", { name: "Módulos" }));
-    const names = mods.getAllByText(/^(Teclado y mouse|Permisos|Portapapeles)$/).map((e) => e.textContent);
-    expect(names).toEqual(["Teclado y mouse", "Permisos", "Portapapeles"]);
-    expect(mods.getByText("Falta «Monitorización de entrada»: no puede mandar el teclado. Se comprueba solo.")).toBeInTheDocument();
+    const mods = within(screen.getByRole("region", { name: "Modules" }));
+    const names = mods.getAllByText(/^(Keyboard and mouse|Permissions|Clipboard)$/).map((e) => e.textContent);
+    expect(names).toEqual(["Keyboard and mouse", "Permissions", "Clipboard"]);
+    expect(mods.getByText("“Input Monitoring” is missing: it cannot send the keyboard. It is checked automatically.")).toBeInTheDocument();
     const spy = vi.spyOn(store, "openPermission");
-    await userEvent.click(mods.getByRole("button", { name: "Abrir ajustes" }));
+    await userEvent.click(mods.getByRole("button", { name: "Open settings" }));
     expect(spy).toHaveBeenCalledWith("input_monitoring");
     // Concedido ese, la fila pasa al que sigue faltando; con todo concedido, desaparece.
-    await vi.waitFor(() => expect(mods.getByText(/Falta «Accesibilidad»/)).toBeInTheDocument());
-    await userEvent.click(mods.getByRole("button", { name: "Abrir ajustes" }));
-    await vi.waitFor(() => expect(mods.queryByText("Permisos")).toBeNull());
+    await vi.waitFor(() => expect(mods.getByText(/“Accessibility” is missing/)).toBeInTheDocument());
+    await userEvent.click(mods.getByRole("button", { name: "Open settings" }));
+    await vi.waitFor(() => expect(mods.queryByText("Permissions")).toBeNull());
   });
 
-  it("la página de la otra máquina no tiene la fila «Permisos»", async () => {
+  it("la página de the other machine no tiene la fila «Permisos»", async () => {
     await mount("demo&still&trouble=permissions", "b");
-    expect(screen.queryByText("Permisos")).toBeNull();
+    expect(screen.queryByText("Permissions")).toBeNull();
   });
 
   it("con dos Mac, nombres, colores e íconos salen de cada máquina (D2)", async () => {
     await mount("demo=mac-mac&still", "b");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Mac mini");
-    expect(screen.getByRole("radio", { name: "Ámbar" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("radio", { name: "Azul" })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: "Amber" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Blue" })).toBeDisabled();
   });
 });
 
@@ -291,9 +291,9 @@ describe("contra el agente (IPC)", () => {
     power: { wake_peer: false, wakeable: true, power_off: true },
     services: [],
     modules: [
-      { id: "clipboard", name: "Portapapeles", detail: "Texto", state: "active", reason: null, switchable: true },
-      { id: "secure_desktop", name: "Pantallas protegidas", detail: "UAC", state: "unavailable", reason: "Falta el servicio de administrador", switchable: false },
-      { id: "tunnels", name: "Túneles", detail: "", state: "active", reason: null, switchable: true },
+      { id: "clipboard", name: "Clipboard", detail: "Texto", state: "active", reason: null, switchable: true },
+      { id: "secure_desktop", name: "Protected screens", detail: "UAC", state: "unavailable", reason: "Falta el servicio de administrador", switchable: false },
+      { id: "tunnels", name: "Tunnels", detail: "", state: "active", reason: null, switchable: true },
     ],
     environments: [
       { id: "pwsh", kind: "shell", name: "PowerShell 7", default: true, ready: true, detail: "git", gpu: false },
@@ -335,39 +335,39 @@ describe("contra el agente (IPC)", () => {
   it("la página pide los recursos en vivo y los dibuja con cada muestra", async () => {
     const { act, push } = await mountLive();
     expect(act).toHaveBeenCalledWith({ kind: "watch_resources", on: true });
-    expect(screen.getByText("Ryzen 9 7950X · 32 hilos")).toBeInTheDocument();
+    expect(screen.getByText("Ryzen 9 7950X · 32 threads")).toBeInTheDocument();
     expect(screen.getByText("RTX 4090")).toBeInTheDocument();
     push({ cpu: { load: 425, cores: [], temperature: 55 }, memory: { used: 32 * GIB, total: 64 * GIB }, gpus: [], disk: { free: 100 * GIB, total: 500 * GIB } });
     await tick();
     expect(screen.getByText("43 %")).toBeInTheDocument();
     expect(screen.getByText("55 °C")).toBeInTheDocument();
-    expect(screen.getByText("100 GB libres de 500 GB")).toBeInTheDocument();
-    // Pantallas protegidas no se puede apagar y dice por qué.
+    expect(screen.getByText("100 GB free of 500 GB")).toBeInTheDocument();
+    // Protected screens no se puede apagar y dice por qué.
     expect(screen.getByText("Falta el servicio de administrador")).toBeInTheDocument();
-    expect(screen.queryByRole("switch", { name: "Pantallas protegidas" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Protected screens" })).toBeNull();
   });
 
   it("cada acción va al agente con su comando", async () => {
     const { act } = await mountLive();
-    await userEvent.click(screen.getByRole("switch", { name: "Portapapeles" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Clipboard" }));
     expect(act).toHaveBeenCalledWith({ kind: "set_module", machine: "b", module: "clipboard", on: false });
-    await userEvent.click(screen.getByRole("radio", { name: "Verde azulado" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Teal" }));
     expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "b", color: "#5fbfb0" });
-    await userEvent.click(screen.getByRole("button", { name: "Volver a escanear" }));
+    await userEvent.click(screen.getByRole("button", { name: "Scan again" }));
     expect(act).toHaveBeenCalledWith({ kind: "rescan", machine: "b" });
     await userEvent.click(screen.getByRole("button", { name: /Taller/ }));
-    await userEvent.type(screen.getByRole("textbox", { name: "Nombre de la máquina" }), "{Control>}a{/Control}Nuevo{Enter}");
+    await userEvent.type(screen.getByRole("textbox", { name: "Machine name" }), "{Control>}a{/Control}Nuevo{Enter}");
     expect(act).toHaveBeenCalledWith({ kind: "set_machine", machine: "b", name: "Nuevo" });
-    await userEvent.click(screen.getByRole("switch", { name: "Permitir ejecución remota" }));
+    await userEvent.click(screen.getByRole("switch", { name: "Allow remote execution" }));
     expect(act).toHaveBeenCalledWith({ kind: "set_module", machine: "b", module: "tunnels", on: false });
-    await userEvent.click(screen.getByRole("button", { name: "Apagar" }));
+    await userEvent.click(screen.getByRole("button", { name: "Power off" }));
     expect(act).toHaveBeenCalledWith({ kind: "set_power", machine: "b", on: false });
   });
 
   it("un rechazo del agente se muestra con su razón", async () => {
     const { store, act } = await mountLive();
     act.mockResolvedValueOnce({ kind: "rejected", reason: "ese color ya es el de Estudio" } as never);
-    await userEvent.click(screen.getByRole("radio", { name: "Ámbar" }));
+    await userEvent.click(screen.getByRole("radio", { name: "Amber" }));
     await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ tone: "bad", text: "ese color ya es el de Estudio" }));
   });
 

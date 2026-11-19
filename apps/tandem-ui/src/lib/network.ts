@@ -1,4 +1,4 @@
-// La pantalla Red (`V3-Red`) sin DOM: del estado de la red del agente a lo que se dibuja (la
+// La pantalla Red (`V3-Network`) sin DOM: del estado de la red del agente a lo que se dibuja (la
 // gráfica de 60 s, los indicadores, la nota del último cambio). Puro, para probarlo en vitest.
 
 import { LINK_NAME } from "./machines";
@@ -64,12 +64,12 @@ export function networkFromWire(w: NetworkWire, now: number): NetworkView {
 // ---------------------------------------------------------------------------------------
 // Textos.
 
-export const STATE_LABEL: Record<PathState, string> = { primary: "Principal", backup: "Respaldo", unplugged: "Sin cable", down: "Caído" };
+export const STATE_LABEL: Record<PathState, string> = { primary: "Main", backup: "Backup", unplugged: "No cable", down: "Down" };
 
-/** Un camino sin respuesta: el Wi-Fi no tiene cable, así que no puede estar «sin cable». */
-export const unpluggedText = (kind: LinkKind): string => (kind === "wifi" ? "sin señal" : "sin cable");
+/** Un camino sin respuesta: el Wi-Fi no tiene cable, así que no puede estar «no cable». */
+export const unpluggedText = (kind: LinkKind): string => (kind === "wifi" ? "no signal" : "no cable");
 
-/** El rótulo del estado de un camino («Principal», «Sin cable», «Sin señal»…). */
+/** El rótulo del estado de un camino («Principal», «No cable», «Sin señal»…). */
 export function stateLabel(p: Pick<PathView, "kind" | "state">): string {
   if (p.state === "unplugged") return capitalize(unpluggedText(p.kind));
   return STATE_LABEL[p.state];
@@ -83,7 +83,7 @@ export function formatMs(v: number | null): string {
   return `${v < 10 ? Math.round(v * 10) / 10 : Math.round(v)} ms`;
 }
 
-/** «9.4 Gbps», «410 Mbps»; «—» sin medir. */
+/** «9.4 Gbps», «410 Mbps»; «—» not measured. */
 export function formatRate(gbps: number | null): string {
   if (gbps === null) return "—";
   if (gbps >= 1) return `${Math.round(gbps * 10) / 10} Gbps`;
@@ -114,13 +114,13 @@ export function describePath(p: PathView): string {
   const name = LINK_NAME[p.kind];
   switch (p.state) {
     case "primary":
-      return `${name} activo${p.rttMs !== null ? ` a ${formatMs(p.rttMs)}` : ""}`;
+      return `${name} active${p.rttMs !== null ? ` at ${formatMs(p.rttMs)}` : ""}`;
     case "backup":
-      return `${name} de respaldo${p.rttMs !== null ? ` a ${formatMs(p.rttMs)}` : ""}`;
+      return `${name} as backup${p.rttMs !== null ? ` at ${formatMs(p.rttMs)}` : ""}`;
     case "unplugged":
       return `${name} ${unpluggedText(p.kind)}`;
     case "down":
-      return `${name} caído`;
+      return `${name} down`;
   }
 }
 
@@ -191,7 +191,7 @@ export const CHART = { width: 400, height: 74 } as const;
 
 /**
  * La latencia de la entrada de cada uno de los últimos 60 s, del más viejo al más nuevo (los
- * que faltan al arrancar quedan `null` a la izquierda). En cada segundo vale la del camino que
+ * que faltan al arrancar quedan `null` to the left of). En cada segundo vale la del camino que
  * la llevaba; si en todo el historial no hubo entrada, el ida y vuelta de los pings.
  */
 export function latencySeries(n: NetworkView): (number | null)[] {
@@ -225,7 +225,7 @@ export interface ChartGeometry {
 const r2 = (v: number) => Math.round(v * 100) / 100;
 
 /**
- * Los puntos de la gráfica en el lienzo de `V3-Red` (400×74): la escala deja el objetivo a
+ * Los puntos de la gráfica en el lienzo de `V3-Network` (400×74): la escala deja el objetivo a
  * 46 % de la altura (4 ms en y = 34) y crece solo si el pico lo pide.
  */
 export function chartGeometry(series: (number | null)[], targetMs: number | null): ChartGeometry {
@@ -283,11 +283,11 @@ export function pathNote(n: NetworkView, hasPeak: boolean): PathNote | null {
   const recent = n.switches.filter((s) => s.at >= n.now - HISTORY_SECS * 1000);
   const cut = recent.find((s) => s.tookMs !== null);
   if (cut) {
-    const cause = cut.from === "wifi" ? (hasPeak ? "Pico al caer el Wi-Fi" : "Cayó el Wi-Fi") : hasPeak ? "Pico al desconectar el cable" : "Se desconectó el cable";
-    const after = cut.to ? `pasó a ${LINK_NAME[cut.to]} en ${formatSecs(cut.tookMs ?? 0)}` : `sin camino durante ${formatSecs(cut.tookMs ?? 0)}`;
+    const cause = cut.from === "wifi" ? (hasPeak ? "Spike when Wi-Fi dropped" : "Wi-Fi dropped") : hasPeak ? "Spike when the cable was unplugged" : "The cable was unplugged";
+    const after = cut.to ? `switched to ${LINK_NAME[cut.to]} in ${formatSecs(cut.tookMs ?? 0)}` : `no path for ${formatSecs(cut.tookMs ?? 0)}`;
     return { tone: "warn", text: `${cause} · ${after}` };
   }
   const last = recent[0];
   if (!last?.to) return null;
-  return { tone: "info", text: last.from ? `Pasó de ${LINK_NAME[last.from]} a ${LINK_NAME[last.to]}` : `Conectó por ${LINK_NAME[last.to]}` };
+  return { tone: "info", text: last.from ? `Switched from ${LINK_NAME[last.from]} to ${LINK_NAME[last.to]}` : `Connected over ${LINK_NAME[last.to]}` };
 }

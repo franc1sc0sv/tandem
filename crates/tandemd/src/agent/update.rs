@@ -1,39 +1,39 @@
-//! Lo que el agente hace para actualizar las dos máquinas (T-122, DESIGN §13).
+//! What the agent does to update both machines (T-122, DESIGN §13).
 //!
-//! El agente no descarga ni instala nada: eso lo hace la UI con el updater de Tauri. Aquí
-//! solo se cuenta qué versión corre cada máquina y se pasa el pedido «instala esta versión»
-//! de una UI a la de la otra máquina.
+//! The agent downloads and installs nothing: the UI does that with Tauri's updater. Here it
+//! only tracks which version each machine runs and passes the "install this version" request
+//! from one UI to the other machine's.
 
 use tandem_proto::{ControlMsg, PeerStatus, Reply, UpdateMsg, UpdateStatus};
 use tokio::sync::watch;
 
 use super::Agent;
 
-/// Lo que contesta [`tandem_proto::UiCommand::UpdatePeer`] sin la otra máquina a la vista.
-pub const PEER_UNREACHABLE: &str = "la otra máquina no está conectada";
+/// What [`tandem_proto::UiCommand::UpdatePeer`] answers without the other machine in view.
+pub const PEER_UNREACHABLE: &str = "the other machine is not connected";
 
 impl Agent {
     pub fn update_status(&self) -> UpdateStatus {
         self.update.borrow().clone()
     }
 
-    /// Avisa cada vez que cambia alguna versión o llega un pedido de actualizar.
+    /// Notifies every time some version changes or an update request arrives.
     pub fn subscribe_update(&self) -> watch::Receiver<UpdateStatus> {
         self.update.subscribe()
     }
 
-    /// Lo que mandó el otro agente.
+    /// What the other agent sent.
     pub fn receive_update(&self, msg: UpdateMsg) {
         self.update.send_if_modified(|u| match msg {
             UpdateMsg::Version(v) => {
                 let changed = u.peer.as_deref() != Some(v.as_str()) || u.peer_protocol.is_some();
                 u.peer = Some(v);
-                // Si se entienden, ya no habla otro protocolo.
+                // If they are understood, it no longer speaks another protocol.
                 u.peer_protocol = None;
                 changed
             }
             UpdateMsg::Install { version } => {
-                tracing::info!(%version, "la otra máquina pide instalar una versión nueva");
+                tracing::info!(%version, "the other machine asks to install a new version");
                 let changed = u.install.as_deref() != Some(version.as_str());
                 u.install = Some(version);
                 changed
@@ -41,9 +41,9 @@ impl Agent {
         });
     }
 
-    /// El otro agente se conectó con otra versión del protocolo: es otra versión de Tandem.
-    /// Mientras se actualizan las dos, es la señal de que la otra volvió con la nueva aunque
-    /// ya no se le pueda hablar.
+    /// The other agent connected with another protocol version: it is another Tandem version.
+    /// While both update, it is the signal that the other came back with the new one even if
+    /// it can no longer be spoken to.
     pub fn peer_protocol_mismatch(&self, theirs: u16) {
         self.update.send_if_modified(|u| {
             let changed = u.peer_protocol != Some(theirs);
@@ -52,13 +52,13 @@ impl Agent {
         });
     }
 
-    /// Le pide a la otra máquina que instale `version`. Que vuelva con ella lo dice su
-    /// anuncio de versión al reconectarse.
+    /// Asks the other machine to install `version`. That it comes back with it is told by its
+    /// version announcement on reconnecting.
     pub(super) fn update_peer(&self, version: String) -> Reply {
         if !matches!(self.peer_status(), PeerStatus::Paired { link: Some(_), .. }) {
             return Reply::Rejected(PEER_UNREACHABLE.into());
         }
-        tracing::info!(%version, "se pide a la otra máquina que se actualice");
+        tracing::info!(%version, "the other machine is asked to update");
         self.orch
             .peer()
             .send(ControlMsg::Update(UpdateMsg::Install { version }));
@@ -83,7 +83,7 @@ mod tests {
 
     impl PeerLink for Recorder {
         fn execute<'a>(&'a self, _: &'a Step) -> StepFuture<'a> {
-            Box::pin(async { Err("sin pasos".into()) })
+            Box::pin(async { Err("no steps".into()) })
         }
         fn publish_state(&self, _: &State) {}
         fn send(&self, msg: ControlMsg) {
@@ -134,7 +134,7 @@ mod tests {
         a.receive_update(UpdateMsg::Version("0.3.0".into()));
         assert!(rx.has_changed().unwrap());
         assert_eq!(rx.borrow_and_update().peer.as_deref(), Some("0.3.0"));
-        // Lo mismo otra vez no es un cambio.
+        // The same again is not a change.
         a.receive_update(UpdateMsg::Version("0.3.0".into()));
         assert!(!rx.has_changed().unwrap());
         a.receive_update(UpdateMsg::Install {
@@ -179,7 +179,7 @@ mod tests {
                 version: "0.3.1".into()
             })]
         );
-        // Pedirle a la otra no toca lo que se sabe de esta.
+        // Asking the other does not touch what is known about this one.
         assert_eq!(a.update_status().install, None);
         assert_eq!(a.machine(), Machine::A);
     }

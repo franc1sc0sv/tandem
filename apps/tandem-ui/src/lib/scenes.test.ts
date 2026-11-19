@@ -18,14 +18,14 @@ const mon = (id: string, ok = true): MonitorUi => ({
 const monitors = [mon("g5-34"), mon("g5-32", false)];
 const scene = (over: Partial<SceneJson> = {}): SceneJson => ({
   id: "juego",
-  name: "Juego",
+  name: "Game",
   monitors: [["g5-34", "b"]],
   layout: null,
   require_on: null,
   shortcut: ["ControlLeft", "AltLeft", "Digit4"],
   ...over,
 });
-const ctx = { monitors, name: (m: "a" | "b") => (m === "a" ? "MacBook Pro" : "PC-Escritorio"), mac: true };
+const ctx = { monitors, name: (m: "a" | "b") => (m === "a" ? "MacBook Pro" : "PC-Desktop"), mac: true };
 
 describe("escenas (D6)", () => {
   it("el atajo va de los códigos de teclado al formato de `formatAccel` y de vuelta", () => {
@@ -44,8 +44,8 @@ describe("escenas (D6)", () => {
 
   it("la tarjeta dice qué muestra cada monitor y qué máquina pone la miniatura", () => {
     const v = sceneView(scene(), ctx);
-    expect(v).toMatchObject({ id: "juego", key: "⌃⌥4", desc: '34" → PC-Escritorio', shows: "b" });
-    expect(sceneView(scene({ monitors: [] }), ctx)).toMatchObject({ desc: "Sin cambiar monitores", shows: null });
+    expect(v).toMatchObject({ id: "juego", key: "⌃⌥4", desc: '34" → PC-Desktop', shows: "b" });
+    expect(sceneView(scene({ monitors: [] }), ctx)).toMatchObject({ desc: "No monitors changed", shows: null });
   });
 
   it("el borrador nuevo deja cada monitor compatible sin cambiar y no ofrece el no compatible", () => {
@@ -62,17 +62,17 @@ describe("escenas (D6)", () => {
   });
 
   it("una escena nueva se guarda sin id y sin los monitores «sin cambiar»", () => {
-    const d = { ...newDraft(monitors), name: "Trabajo" };
+    const d = { ...newDraft(monitors), name: "Work" };
     d.picks["g5-34"] = "a";
     expect(sceneOf(d)).toMatchObject({ id: "", monitors: [["g5-34", "a"]], layout: null });
   });
 
   it("no deja guardar sin nombre, con nombre largo ni con el atajo de otra escena", () => {
     const d = newDraft(monitors);
-    expect(problemOf(d, [])).toEqual({ field: "name", text: "Ponle un nombre a la escena" });
+    expect(problemOf(d, [])).toEqual({ field: "name", text: "Give the scene a name" });
     expect(problemOf({ ...d, name: "x".repeat(MAX_NAME + 1) }, [])?.field).toBe("name");
     const other = sceneView(scene({ name: "Otra" }), ctx);
-    expect(problemOf({ ...d, name: "Nueva", shortcut: ["ControlRight", "AltRight", "Digit4"] }, [other])).toEqual({ field: "shortcut", text: "Ese atajo ya es el de «Otra»" });
+    expect(problemOf({ ...d, name: "Nueva", shortcut: ["ControlRight", "AltRight", "Digit4"] }, [other])).toEqual({ field: "shortcut", text: "That shortcut already belongs to “Otra”" });
     expect(problemOf({ ...d, name: "Nueva", shortcut: ["ControlLeft", "Digit9"] }, [other])).toBeNull();
   });
 });

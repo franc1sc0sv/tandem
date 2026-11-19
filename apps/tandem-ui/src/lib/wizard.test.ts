@@ -57,8 +57,8 @@ describe("paso 1", () => {
     expect(systemNote(mac)).toBe("macOS 26 · Apple M5 · 24 GB");
     expect(computeNote(mac)).toBe("zsh · Docker · uv · node");
     const rows = foundRows(mac);
-    expect(rows.map((r) => r.label)).toEqual(["macOS 26 · Apple M5 · 24 GB", "Teclado y mouse", "Portapapeles", "Cómputo", "Monitores", "Servicio de administrador"]);
-    expect(rows.find((r) => r.id === "monitors")).toMatchObject({ state: "off", note: "sin canal DDC ahora; otra máquina los controla" });
+    expect(rows.map((r) => r.label)).toEqual(["macOS 26 · Apple M5 · 24 GB", "Keyboard and mouse", "Clipboard", "Compute", "Monitors", "Administrator service"]);
+    expect(rows.find((r) => r.id === "monitors")).toMatchObject({ state: "off", note: "no DDC channel right now; another machine controls them" });
     expect(rows.find((r) => r.id === "tunnels")?.mono).toBe(true);
   });
 
@@ -79,7 +79,7 @@ describe("paso 1", () => {
   it("sin la máquina no hay filas, y en Windows los monitores sí tienen canal", async () => {
     expect(foundRows(null)).toEqual([]);
     const d = await desk("demo&still");
-    expect(foundRows(d.machines.b!).find((r) => r.id === "monitors")).toMatchObject({ state: "ok", note: "canal DDC" });
+    expect(foundRows(d.machines.b!).find((r) => r.id === "monitors")).toMatchObject({ state: "ok", note: "DDC channel" });
   });
 });
 
@@ -88,18 +88,18 @@ describe("paso 3", () => {
     const d = await desk("demo&still&perms=missing");
     const cards = permCards(d.permissions.rows);
     expect(cards.map((c) => [c.title, c.granted])).toEqual([
-      ["Accesibilidad", false],
-      ["Monitorización de entrada", false],
-      ["Red local", true],
+      ["Accessibility", false],
+      ["Input Monitoring", false],
+      ["Local Network", true],
     ]);
     expect(missingOf(cards)).toBe(2);
     // Lo que el agente no puede comprobar (Red local en un agente real) no bloquea ni se da por concedido.
     const sinComprobar = permCards([{ id: "accessibility", state: "granted" }, { id: "local_network", state: "unknown" }]);
     expect(sinComprobar.map((c) => [c.granted, c.missing])).toEqual([[true, false], [false, false]]);
     expect(missingOf(sinComprobar)).toBe(0);
-    expect(permFooter(2)).toBe("Faltan 2");
-    expect(permFooter(1)).toBe("Falta 1");
-    expect(permFooter(0)).toBe("Todo concedido");
+    expect(permFooter(2)).toBe("Missing 2");
+    expect(permFooter(1)).toBe("Missing 1");
+    expect(permFooter(0)).toBe("All granted");
   });
 });
 
@@ -113,7 +113,7 @@ describe("paso 4", () => {
 
   it("lista solo lo que anuncia la máquina: lo supuesto no cuenta", async () => {
     const d = await desk();
-    expect(deviceRows(d.machines.a!).map((x) => x.name)).toEqual(["Teclado integrado", "Trackpad", "Keychron K3 · MX Master 3S"]);
+    expect(deviceRows(d.machines.a!).map((x) => x.name)).toEqual(["Built-in keyboard", "Trackpad", "Keychron K3 · MX Master 3S"]);
     expect(deviceRows(d.machines.b!)).toEqual([]);
     expect(deviceRows(null)).toEqual([]);
     // Con el módulo de entrada activo pero sin dispositivos anunciados, no hay fila.
@@ -122,7 +122,7 @@ describe("paso 4", () => {
   });
 
   it("el hub del agente es lo único que vale por teclado y mouse", () => {
-    expect(devicesOfHub(true)).toEqual([{ name: "Teclado y mouse", via: "por el hub" }]);
+    expect(devicesOfHub(true)).toEqual([{ name: "Keyboard and mouse", via: "through the hub" }]);
     expect(devicesOfHub(false)).toEqual([]);
     expect(devicesOfHub(null)).toEqual([]);
     expect(devicesOfHub(undefined)).toEqual([]);
@@ -149,10 +149,10 @@ describe("paso 5", () => {
 
   it("el veredicto dice la verdad de cada fase", () => {
     const sample = { from: "a", to: "b", edge: "right", at: 1, of: 2, ms: 0.4 } as const;
-    expect(crossVerdict(start(0), "right", "MacBook Pro", "PC", 20)).toMatchObject({ tone: "wait", text: "Esperando el cruce por el borde derecho de MacBook Pro…" });
-    expect(crossVerdict({ kind: "passed", sample }, "right", "M", "PC", 20)).toMatchObject({ tone: "ok", text: expect.stringContaining("Vuelta medida: 0.4 ms") });
-    expect(crossVerdict({ kind: "wrong-edge", sample: { ...sample, edge: "up" } }, "right", "M", "PC", 20).text).toContain("Cruzó por arriba, no por la derecha");
-    expect(crossVerdict({ kind: "timeout" }, "up", "M", "PC", 20).text).toContain("borde superior");
+    expect(crossVerdict(start(0), "right", "MacBook Pro", "PC", 20)).toMatchObject({ tone: "wait", text: "Waiting for the crossing at the right edge of MacBook Pro…" });
+    expect(crossVerdict({ kind: "passed", sample }, "right", "M", "PC", 20)).toMatchObject({ tone: "ok", text: expect.stringContaining("Round trip measured: 0.4 ms") });
+    expect(crossVerdict({ kind: "wrong-edge", sample: { ...sample, edge: "up" } }, "right", "M", "PC", 20).text).toContain("Crossed at the top, not the right");
+    expect(crossVerdict({ kind: "timeout" }, "up", "M", "PC", 20).text).toContain("top edge");
     expect(crossVerdict({ kind: "unavailable", reason: "sin sonda" }, "up", "M", "PC", 20).tone).toBe("warn");
   });
 });
@@ -168,9 +168,9 @@ describe("paso 6", () => {
       ["tunnels", true],
     ]);
     expect(ok[0]?.note).toBe("USB-C · 0.3 ms");
-    expect(ok[2]?.note).toContain("dueño PC-Escritorio");
+    expect(ok[2]?.note).toContain("owner PC-Desktop");
     const no = summaryRows(d, { crossed: false });
-    expect(no[1]).toMatchObject({ ok: false, note: "cruce sin probar" });
+    expect(no[1]).toMatchObject({ ok: false, note: "crossing not tested" });
   });
 
   it("el cómputo remoto exige el módulo encendido y un entorno listo", async () => {
@@ -181,7 +181,7 @@ describe("paso 6", () => {
     const a = d.machines.a!;
     const b = d.machines.b!;
     expect(a.environments.some((e) => e.ready)).toBe(true);
-    expect(tunnels({ a, b })).toMatchObject({ ok: true, note: "MCP listo para Claude Code en las dos" });
+    expect(tunnels({ a, b })).toMatchObject({ ok: true, note: "MCP ready for Claude Code on both" });
     // Túneles apagados en una máquina, aunque haya entornos detectados.
     expect(tunnels({ a, b: setTunnels(b, "off") })?.ok).toBe(false);
     expect(tunnels({ a, b: setTunnels(b, "unavailable") })?.ok).toBe(false);

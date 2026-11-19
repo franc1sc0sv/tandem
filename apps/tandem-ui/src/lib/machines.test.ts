@@ -34,8 +34,8 @@ describe("lados", () => {
     const caps: Caps = { here: machineCaps("b"), peer: null };
     expect(machineName("b", caps, desk)).toBe("Taller");
     expect(machineName("a", caps, desk)).toBe("Guardada A");
-    expect(machineName("b", null, { ...desk, machines: { a: null, b: null } })).toBe("máquina B");
-    expect(machineName("a")).toBe("máquina A");
+    expect(machineName("b", null, { ...desk, machines: { a: null, b: null } })).toBe("machine B");
+    expect(machineName("a")).toBe("machine A");
   });
 
   it("el color sale del anuncio o del puesto, con uno por omisión por lado", () => {
@@ -59,10 +59,10 @@ describe("progreso por pasos", () => {
   const name = (m: "a" | "b") => (m === "a" ? "Estudio" : "Taller");
 
   it("nombra cada paso con la máquina", () => {
-    expect(stepLabel({ step: "power_on", machine: "b" }, name)).toBe("Encender Taller");
-    expect(stepLabel({ step: "power_off", machine: "a" }, name)).toBe("Apagar Estudio");
+    expect(stepLabel({ step: "power_on", machine: "b" }, name)).toBe("Power on Taller");
+    expect(stepLabel({ step: "power_off", machine: "a" }, name)).toBe("Power off Estudio");
     expect(stepLabel({ step: "show_machine", monitor: "34", machine: "b" }, name)).toBe("Monitor 34 → Taller");
-    expect(stepLabel({ step: "geometry" }, name)).toBe("Teclado y mouse: geometría nueva");
+    expect(stepLabel({ step: "geometry" }, name)).toBe("Keyboard and mouse: new geometry");
   });
 
   it("avanza, termina y falla con el error del paso", () => {

@@ -1,4 +1,4 @@
-//! Envío real con `SendInput` y lectura del escritorio.
+//! Real sending with `SendInput` and reading the desktop.
 
 use ::windows::Win32::Foundation::{ERROR_ACCESS_DENIED, LPARAM, POINT, RECT};
 use ::windows::Win32::Graphics::Gdi::{
@@ -29,11 +29,11 @@ fn os_error(op: &'static str) -> EmulateError {
     }
 }
 
-/// Declara el proceso Per-Monitor-V2 DPI aware, para que coordenadas y métricas sean
-/// píxeles físicos en todos los monitores. Si ya estaba declarado (por el manifiesto o
-/// por una llamada anterior), no es un error.
+/// Declares the process Per-Monitor-V2 DPI aware, so that coordinates and metrics are
+/// physical pixels on all monitors. If it was already declared (by the manifest or
+/// by an earlier call), it is not an error.
 pub fn set_per_monitor_v2_dpi_awareness() -> Result<(), EmulateError> {
-    // SAFETY: solo cambia un atributo del proceso; el contexto es una constante del sistema.
+    // SAFETY: it only changes a process attribute; the context is a system constant.
     match unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) } {
         Ok(()) => Ok(()),
         Err(e) if e.code() == ERROR_ACCESS_DENIED.to_hresult() => Ok(()),
@@ -45,7 +45,7 @@ pub fn set_per_monitor_v2_dpi_awareness() -> Result<(), EmulateError> {
     }
 }
 
-/// Inyección real. Crearla declara el proceso Per-Monitor-V2.
+/// Real injection. Creating it declares the process Per-Monitor-V2.
 pub struct SendInputSink {
     _private: (),
 }
@@ -101,12 +101,12 @@ fn to_win32(input: &WinInput) -> INPUT {
 impl InputSink for SendInputSink {
     fn send(&mut self, inputs: &[WinInput]) -> Result<(), EmulateError> {
         let raw: Vec<INPUT> = inputs.iter().map(to_win32).collect();
-        // SAFETY: `raw` vive durante la llamada y el tamaño es el de la estructura INPUT.
+        // SAFETY: `raw` lives during the call and the size is that of the INPUT structure.
         let sent = unsafe { SendInput(&raw, size_of::<INPUT>() as i32) } as usize;
         if sent == raw.len() {
             Ok(())
         } else if sent == 0 {
-            // UIPI no pone un error propio: GetLastError suele quedar en 0 o ACCESS_DENIED.
+            // UIPI does not set an error of its own: GetLastError is usually left at 0 or ACCESS_DENIED.
             match os_error("SendInput") {
                 EmulateError::Os { code: 0, .. } => Err(EmulateError::Blocked {
                     sent,
@@ -123,7 +123,7 @@ impl InputSink for SendInputSink {
     }
 
     fn desktop(&self) -> Result<Desktop, EmulateError> {
-        // SAFETY: GetSystemMetrics no tiene precondiciones.
+        // SAFETY: GetSystemMetrics has no preconditions.
         let (x, y, w, h) = unsafe {
             (
                 GetSystemMetrics(SM_XVIRTUALSCREEN),
@@ -141,23 +141,23 @@ impl InputSink for SendInputSink {
 
     fn cursor_pos(&self) -> Option<(i32, i32)> {
         let mut p = POINT::default();
-        // SAFETY: `p` es un POINT válido y escribible.
+        // SAFETY: `p` is a valid, writable POINT.
         unsafe { GetCursorPos(&mut p) }.ok()?;
         Some((p.x, p.y))
     }
 }
 
 fn monitors() -> Result<Vec<Rect>, EmulateError> {
-    // SAFETY: la firma coincide con `MONITORENUMPROC`; solo la invoca `EnumDisplayMonitors`
-    // de forma síncrona dentro de `monitors`.
+    // SAFETY: the signature matches `MONITORENUMPROC`; it is only invoked by `EnumDisplayMonitors`
+    // synchronously inside `monitors`.
     unsafe extern "system" fn collect(hmon: HMONITOR, _: HDC, _: *mut RECT, data: LPARAM) -> BOOL {
-        // SAFETY: `data` es el `&mut Vec<Rect>` que pasa `monitors`, vivo durante la enumeración.
+        // SAFETY: `data` is the `&mut Vec<Rect>` that `monitors` passes, alive during the enumeration.
         let out = unsafe { &mut *(data.0 as *mut Vec<Rect>) };
         let mut info = MONITORINFO {
             cbSize: size_of::<MONITORINFO>() as u32,
             ..Default::default()
         };
-        // SAFETY: `info` está inicializada con su tamaño.
+        // SAFETY: `info` is initialized with its size.
         if unsafe { GetMonitorInfoW(hmon, &mut info) }.as_bool() {
             let r = info.rcMonitor;
             out.push(Rect::new(
@@ -171,7 +171,7 @@ fn monitors() -> Result<Vec<Rect>, EmulateError> {
     }
 
     let mut out: Vec<Rect> = Vec::new();
-    // SAFETY: el callback solo usa `out` mientras dura la llamada.
+    // SAFETY: the callback only uses `out` for the duration of the call.
     let ok = unsafe {
         EnumDisplayMonitors(
             None,
@@ -194,7 +194,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn constantes_portables_coinciden_con_win32() {
+    fn portable_constants_match_win32() {
         assert_eq!(KEYEVENTF_EXTENDEDKEY, km::KEYEVENTF_EXTENDEDKEY.0);
         assert_eq!(KEYEVENTF_KEYUP, km::KEYEVENTF_KEYUP.0);
         assert_eq!(KEYEVENTF_SCANCODE, km::KEYEVENTF_SCANCODE.0);
@@ -222,17 +222,17 @@ mod tests {
         assert_eq!(VK_PAUSE, km::VK_PAUSE.0);
     }
 
-    /// En la PC: `cargo test -p tandem-input --lib -- --ignored --test-threads=1 sendinput`.
-    /// Con el cursor lejos de los bordes: lo mueve en un cuadrado de 100 px y lo devuelve a
-    /// donde estaba; presiona Shift y lo suelta con `release_all`.
+    /// On the PC: `cargo test -p tandem-input --lib -- --ignored --test-threads=1 sendinput`.
+    /// With the cursor far from the edges: moves it in a 100 px square and puts it back
+    /// where it was; presses Shift and releases it with `release_all`.
     #[test]
     #[ignore = "hardware"]
-    fn sendinput_mueve_el_cursor_y_lo_devuelve() {
+    fn sendinput_moves_the_cursor_and_puts_it_back() {
         let sink = SendInputSink::new().unwrap();
         let start = sink.cursor_pos().unwrap();
         let mut emu = Emulator::new(sink).unwrap();
         for (dx, dy) in [(100.0, 0.0), (0.0, 100.0), (-100.0, 0.0), (0.0, -100.0)] {
-            // En cuartos de píxel: comprueba que las fracciones se acumulan.
+            // In quarter pixels: checks that fractions accumulate.
             for _ in 0..400 {
                 emu.emulate(&InputEvent::MotionRelative {
                     dx: dx / 400.0,

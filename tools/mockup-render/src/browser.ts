@@ -2,23 +2,23 @@ import type { Browser, BrowserContext, LaunchOptions, Page } from 'playwright';
 import { FONT_ORIGIN, fontAsset, googleFontsCss, mockupAsset } from './assets.ts';
 import { MOCKUPS_DIR } from './paths.ts';
 
-/** Origen ficticio desde el que se sirven los mockups dentro del navegador. */
+/** Fake origin the mockups are served from inside the browser. */
 export const ORIGIN = 'http://mockups.local';
 
 /**
- * Argumentos de Chromium para que la misma página dé siempre el mismo PNG.
+ * Chromium arguments so the same page always yields the same PNG.
  *
- * Con «partial raster» (lo normal), Chromium vuelve a rasterizar solo la parte invalidada de
- * cada baldosa y deja el resto como estaba. El resultado final depende entonces de qué cuadros
- * intermedios llegó a pintar durante una transición: en `V3-Acomodo` la pantalla con
- * `opacity: .4` salía con ±1 de color en toda su área según la corrida (hasta ~10 600 píxeles
- * distintos). Rasterizando la baldosa entera cada vez, el PNG ya no depende del historial.
+ * With “partial raster” (the default), Chromium re-rasterizes only the invalidated part of
+ * each tile and leaves the rest as it was. The final result then depends on which intermediate
+ * frames it got to paint during a transition: in `V3-Arrangement` the screen with
+ * `opacity: .4` came out with ±1 of color over its whole area depending on the run (up to ~10,600 pixels
+ * different). Rasterizing the whole tile every time, the PNG no longer depends on history.
  */
 export const CHROMIUM_ARGS: readonly string[] = ['--disable-partial-raster'];
 
 /**
- * Abre Chromium headless con `CHROMIUM_ARGS`. El arnés de la app (T-112) tiene que lanzar el
- * navegador así para que sus capturas se comparen en igualdad de condiciones con las de los
+ * Opens headless Chromium with `CHROMIUM_ARGS`. The app harness (T-112) has to launch the
+ * browser this way so its screenshots are compared on equal terms with those of the
  * mockups.
  */
 export async function launchBrowser(opts: LaunchOptions = {}): Promise<Browser> {
@@ -27,9 +27,9 @@ export async function launchBrowser(opts: LaunchOptions = {}): Promise<Browser> 
 }
 
 /**
- * Captura la página como se capturan los mockups: espera a que quede quieta (`settle`) y saca
- * la captura con las animaciones infinitas quitadas (quedan con su estilo base) y sin el cursor
- * de texto. Devuelve el PNG y, si se pasa `path`, también lo guarda.
+ * Captures the page the way mockups are captured: waits for it to settle (`settle`) and takes
+ * the screenshot with infinite animations removed (they keep their base style) and without the text
+ * caret. Returns the PNG and, if `path` is given, saves it too.
  */
 export async function capture(page: Page, path?: string): Promise<Buffer> {
   await settle(page);
@@ -37,18 +37,18 @@ export async function capture(page: Page, path?: string): Promise<Buffer> {
 }
 
 export interface RouteOptions {
-  /** Carpeta de mockups (por omisión `mockups/v03`). */
+  /** Mockups folder (default `mockups/v03`). */
   dir?: string;
-  /** Páginas extra por ruta (`/x.dc.html` → HTML), para las pruebas del runtime. */
+  /** Extra pages by path (`/x.dc.html` → HTML), for the runtime tests. */
   pages?: Record<string, string>;
-  /** Se llama con cada petición bloqueada (todo lo externo que no sean las fuentes). */
+  /** Called with each blocked request (everything external that is not the fonts). */
   onBlocked?: (url: string) => void;
 }
 
 /**
- * Sirve los mockups, `support.js` y las fuentes desde Node dentro del contexto, sin servidor
- * ni red: cualquier otra petición externa se bloquea (y se informa), así la captura es
- * siempre la misma.
+ * Serves the mockups, `support.js` and the fonts from Node inside the context, with no server
+ * or network: any other external request is blocked (and reported), so the screenshot is
+ * always the same.
  */
 export async function installRoutes(context: BrowserContext, opts: RouteOptions = {}): Promise<void> {
   const dir = opts.dir ?? MOCKUPS_DIR;
@@ -59,11 +59,11 @@ export async function installRoutes(context: BrowserContext, opts: RouteOptions 
       if (page !== undefined) return route.fulfill({ body: page, contentType: 'text/html; charset=utf-8' });
       const asset = mockupAsset(url.pathname, dir);
       if (asset) return route.fulfill({ body: asset.body, contentType: asset.contentType });
-      return route.fulfill({ status: 404, body: 'no existe: ' + url.pathname });
+      return route.fulfill({ status: 404, body: 'not found: ' + url.pathname });
     }
     if (url.hostname === 'fonts.googleapis.com') {
       const { css, missing } = googleFontsCss(url);
-      for (const m of missing) opts.onBlocked?.(`fuente sin empaquetar: ${m}`);
+      for (const m of missing) opts.onBlocked?.(`unbundled font: ${m}`);
       return route.fulfill({ body: css, contentType: 'text/css; charset=utf-8' });
     }
     if (url.origin === FONT_ORIGIN) {
@@ -75,7 +75,7 @@ export async function installRoutes(context: BrowserContext, opts: RouteOptions 
   });
 }
 
-/** Espera a que `support.js` haya hecho el primer render. */
+/** Waits for `support.js` to have done the first render. */
 export async function waitForMockup(page: Page, timeoutMs = 15_000): Promise<void> {
   await page.waitForFunction(() => (window as { __dc?: { ready?: boolean } }).__dc?.ready === true, undefined, {
     timeout: timeoutMs,
@@ -83,10 +83,10 @@ export async function waitForMockup(page: Page, timeoutMs = 15_000): Promise<voi
 }
 
 /**
- * Espera a que la página quede quieta: fuentes cargadas y todas las animaciones y transiciones
- * finitas terminadas (las de entrada, las de un clic). Las infinitas (pulsos, brillos) no
- * terminan nunca: para la captura se usa `animations: 'disabled'`, que las quita y deja el
- * estilo base del elemento. Sirve igual para la app (T-112) que para los mockups.
+ * Waits for the page to settle: fonts loaded and every finite animation and transition
+ * finished (entrance ones, click ones). Infinite ones (pulses, glows) never
+ * finish: for the screenshot `animations: 'disabled'` is used, which removes them and leaves the
+ * element's base style. It works the same for the app (T-112) as for the mockups.
  */
 export async function settle(page: Page, timeoutMs = 6_000): Promise<void> {
   await page.evaluate(async (timeout) => {
@@ -113,35 +113,35 @@ export async function settle(page: Page, timeoutMs = 6_000): Promise<void> {
 }
 
 export interface PageCheck {
-  /** Textos visibles o atributos con `{{` sin sustituir. */
+  /** Visible texts or attributes with an unsubstituted `{{`. */
   braces: string[];
-  /** Errores que informó `support.js` (expresiones que fallan, componente que no arranca). */
+  /** Errors reported by `support.js` (failing expressions, component that does not start). */
   dcErrors: string[];
-  /** Expresiones que dieron `undefined`. */
+  /** Expressions that evaluated to `undefined`. */
   dcMissing: string[];
-  /** Fuentes que fallaron, o Inter sin cargar en una página que la pide. */
+  /** Fonts that failed, or Inter not loaded on a page that asks for it. */
   fontErrors: string[];
 }
 
 export async function checkPage(page: Page): Promise<PageCheck> {
   return page.evaluate(() => {
     const braces: string[] = [];
-    if (document.body.innerText.includes('{{')) braces.push('texto: ' + document.body.innerText.slice(0, 200));
+    if (document.body.innerText.includes('{{')) braces.push('text: ' + document.body.innerText.slice(0, 200));
     for (const el of Array.from(document.body.querySelectorAll('*'))) {
       for (const a of Array.from(el.attributes)) {
         if (a.value.includes('{{')) braces.push(`<${el.localName} ${a.name}="${a.value}">`);
       }
     }
     const faces = Array.from(document.fonts);
-    const fontErrors = faces.filter((f) => f.status === 'error').map((f) => `${f.family} ${f.weight}: no cargó`);
+    const fontErrors = faces.filter((f) => f.status === 'error').map((f) => `${f.family} ${f.weight}: failed to load`);
     const wantsInter = !!document.querySelector('link[href*="fonts.googleapis.com/css2"][href*="Inter"]');
     if (wantsInter && !faces.some((f) => f.family.replace(/["']/g, '') === 'Inter' && f.status === 'loaded')) {
-      fontErrors.push('Inter: ninguna variante cargada');
+      fontErrors.push('Inter: no variant loaded');
     }
     const dc = (window as { __dc?: { errors: string[]; missing: string[] } }).__dc;
     return {
       braces,
-      dcErrors: dc ? [...dc.errors] : ['sin window.__dc'],
+      dcErrors: dc ? [...dc.errors] : ['no window.__dc'],
       dcMissing: dc ? [...dc.missing] : [],
       fontErrors,
     };

@@ -1,5 +1,5 @@
-//! Las herramientas sobre la IPC del agente. Es el único sitio que sabe qué `UiCommand`
-//! hay detrás de cada una; el MCP y la CLI solo llaman a [`Api::call`].
+//! The tools over the agent's IPC. It is the only place that knows which `UiCommand`
+//! is behind each one; the MCP and the CLI only call [`Api::call`].
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -18,37 +18,37 @@ use crate::spec::{Tool, Ty};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ToolError {
-    #[error("herramienta desconocida: `{0}`")]
+    #[error("unknown tool: `{0}`")]
     Unknown(String),
-    /// Argumentos que no cumplen la tabla de [`crate::spec`].
+    /// Arguments that do not satisfy the [`crate::spec`] table.
     #[error("{0}")]
     Args(String),
-    /// El agente rechazó el pedido o no se pudo hablar con él.
+    /// The agent rejected the request or it could not be spoken to.
     #[error("{0}")]
     Agent(String),
 }
 
-/// De dónde salen los valores por omisión de `tunnel_open`.
+/// Where `tunnel_open`'s default values come from.
 #[derive(Debug, Clone, Default)]
 pub struct Context {
     pub cwd: Option<PathBuf>,
-    /// La sesión que abre túneles (`CLAUDE_SESSION_ID` o el nombre del cliente).
+    /// The session that opens tunnels (`CLAUDE_SESSION_ID` or the client's name).
     pub session: String,
 }
 
-/// Cuánto se espera como máximo por salida nueva en `output`.
+/// How long to wait at most for new output in `output`.
 const MAX_WAIT: Duration = Duration::from_secs(60);
-/// Bytes de `output` por llamada, entre stdout y stderr, si no se pide otra cosa. Una salida
-/// ruidosa no debe llenar el contexto del modelo: se lee por páginas con `next`.
+/// Bytes of `output` per call, between stdout and stderr, if nothing else is requested. Noisy
+/// output must not fill the model's context: it is read in pages with `next`.
 pub const DEFAULT_MAX_BYTES: u64 = 24 * 1024;
-/// Tope duro de `max_bytes`.
+/// Hard cap of `max_bytes`.
 pub const HARD_MAX_BYTES: u64 = 64 * 1024;
-/// Piso de `max_bytes`: cabe un carácter UTF-8 entero, así que siempre se avanza.
+/// Floor of `max_bytes`: a whole UTF-8 character fits, so it always advances.
 const MIN_MAX_BYTES: u64 = 16;
 
-/// Cuántos bytes de cada flujo entran en una página de `budget` bytes en total.
-/// Cada flujo tiene derecho a la mitad y lo que el otro no usa pasa al primero; luego se
-/// recorta al último límite UTF-8 si el corte cayó en medio de un carácter.
+/// How many bytes of each stream fit in a page of `budget` bytes in total.
+/// Each stream is entitled to half and what the other does not use goes to the first; then it is
+/// trimmed to the last UTF-8 boundary if the cut fell in the middle of a character.
 fn page(stdout: &[u8], stderr: &[u8], budget: usize, agent_max: usize) -> (usize, usize) {
     let half = budget / 2;
     let err0 = stderr.len().min(half);
@@ -60,9 +60,9 @@ fn page(stdout: &[u8], stderr: &[u8], budget: usize, agent_max: usize) -> (usize
     )
 }
 
-/// Recorta `take` bytes de `s` para no dejar un carácter partido al final. Solo si el corte es
-/// nuestro (`take < len`) o pudo ser del agente (`len >= agent_max`): una cola incompleta al
-/// final real de la salida se entrega tal cual, o no se entregaría nunca.
+/// Trims `take` bytes of `s` so as not to leave a split character at the end. Only if the cut is
+/// ours (`take < len`) or could have been the agent's (`len >= agent_max`): an incomplete tail at the
+/// real end of the output is delivered as is, or it would never be delivered.
 fn utf8_cut(s: &[u8], take: usize, agent_max: usize) -> usize {
     let cut_here = take < s.len() || s.len() >= agent_max;
     if !cut_here {
@@ -71,7 +71,7 @@ fn utf8_cut(s: &[u8], take: usize, agent_max: usize) -> usize {
     for back in 1..=take.min(3) {
         let b = s[take - back];
         if b & 0xC0 == 0x80 {
-            continue; // continuación: seguir hasta el inicio del carácter
+            continue; // continuation: keep going until the start of the character
         }
         let width = match b {
             0xF0..=0xF7 => 4,
@@ -89,7 +89,7 @@ pub struct Api<S> {
     ctx: Context,
 }
 
-/// Los argumentos ya revisados contra la tabla.
+/// The arguments already checked against the table.
 struct Args<'a>(&'a Value);
 
 impl Args<'_> {
@@ -98,14 +98,14 @@ impl Args<'_> {
     }
     fn req(&self, k: &str) -> Result<&str, ToolError> {
         self.str(k)
-            .ok_or_else(|| ToolError::Args(format!("falta `{k}`")))
+            .ok_or_else(|| ToolError::Args(format!("missing `{k}`")))
     }
     fn int(&self, k: &str) -> Option<u64> {
         self.0.get(k).and_then(Value::as_u64)
     }
     fn req_int(&self, k: &str) -> Result<u64, ToolError> {
         self.int(k)
-            .ok_or_else(|| ToolError::Args(format!("falta `{k}`")))
+            .ok_or_else(|| ToolError::Args(format!("missing `{k}`")))
     }
     fn flag(&self, k: &str) -> bool {
         self.0.get(k).and_then(Value::as_bool).unwrap_or(false)
@@ -126,35 +126,35 @@ impl Args<'_> {
         let hex = t.trim().trim_start_matches("0x");
         u64::from_str_radix(hex, 16)
             .map(tandem_proto::TunnelId)
-            .map_err(|_| ToolError::Args(format!("`{t}` no es un id de túnel (hex)")))
+            .map_err(|_| ToolError::Args(format!("`{t}` is not a tunnel id (hex)")))
     }
     fn process(&self) -> Result<ProcessId, ToolError> {
         let n = self.req_int("process")?;
         u32::try_from(n)
             .map(ProcessId)
-            .map_err(|_| ToolError::Args(format!("`{n}` no es un id de proceso")))
+            .map_err(|_| ToolError::Args(format!("`{n}` is not a process id")))
     }
     fn port(&self, k: &str) -> Result<u16, ToolError> {
         let n = self.req_int(k)?;
-        u16::try_from(n).map_err(|_| ToolError::Args(format!("`{k}`: {n} no es un puerto")))
+        u16::try_from(n).map_err(|_| ToolError::Args(format!("`{k}`: {n} is not a port")))
     }
 }
 
-/// Revisa tipos y obligatorios, y acepta números y booleanos escritos como texto (lo que
-/// mandan algunos modelos). Devuelve los argumentos normalizados.
+/// Checks types and required ones, and accepts numbers and booleans written as text (what
+/// some models send). Returns the normalized arguments.
 pub fn check_args(tool: &Tool, raw: &Value) -> Result<Value, ToolError> {
     let empty = serde_json::Map::new();
     let obj = match raw {
         Value::Null => &empty,
         Value::Object(o) => o,
-        _ => return Err(ToolError::Args("los argumentos van en un objeto".into())),
+        _ => return Err(ToolError::Args("the arguments must be an object".into())),
     };
     if let Some(k) = obj
         .keys()
         .find(|k| !tool.params.iter().any(|p| p.name == *k))
     {
         return Err(ToolError::Args(format!(
-            "`{}` no tiene el parámetro `{k}`",
+            "`{}` does not have the parameter `{k}`",
             tool.name
         )));
     }
@@ -162,11 +162,11 @@ pub fn check_args(tool: &Tool, raw: &Value) -> Result<Value, ToolError> {
     for p in tool.params {
         let Some(v) = obj.get(p.name).filter(|v| !v.is_null()) else {
             if p.required {
-                return Err(ToolError::Args(format!("falta `{}`", p.name)));
+                return Err(ToolError::Args(format!("missing `{}`", p.name)));
             }
             continue;
         };
-        let bad = || ToolError::Args(format!("`{}` no tiene el tipo esperado", p.name));
+        let bad = || ToolError::Args(format!("`{}` does not have the expected type", p.name));
         let v = match (p.ty, v) {
             (Ty::Str, Value::String(_)) | (Ty::Bool, Value::Bool(_)) => v.clone(),
             (Ty::Int, Value::Number(n)) if n.is_u64() => v.clone(),
@@ -186,21 +186,21 @@ pub fn check_args(tool: &Tool, raw: &Value) -> Result<Value, ToolError> {
 
 fn tunnel_json(t: &Tunnel) -> Value {
     let mut v = serde_json::to_value(t).unwrap_or(Value::Null);
-    // El id de 64 bits va como texto hex: un número así se pierde en JavaScript.
+    // The 64-bit id travels as hex text: a number like that is lost in JavaScript.
     v["id"] = t.id.to_string().into();
     v
 }
 
-/// Agrega `skipped` y un aviso cuando el filtro de credenciales omitió algo (T-130): el
-/// agente que llama tiene que enterarse de que el destino no tiene esos archivos.
+/// Adds `skipped` and a warning when the credentials filter omitted something (T-130): the
+/// calling agent has to learn that the destination does not have those files.
 fn with_skipped(mut v: Value, skipped: &[String]) -> Value {
     if skipped.is_empty() {
         return v;
     }
     v["skipped"] = json!(skipped);
     v["warning"] = format!(
-        "{} archivo(s) omitido(s) por parecer credenciales y no llegaron a la otra máquina: {}. \
-         Si hacen falta de verdad, nómbralos en `include_secrets`.",
+        "{} file(s) omitted for looking like credentials and did not reach the other machine: {}. \
+         If they are really needed, name them in `include_secrets`.",
         skipped.len(),
         skipped.join(", ")
     )
@@ -208,16 +208,16 @@ fn with_skipped(mut v: Value, skipped: &[String]) -> Value {
     v
 }
 
-/// Agrega `history_secrets` y un aviso: lo ya confirmado viaja con su historia y el filtro
-/// no puede quitarlo (T-130). Se une al `warning` previo si lo hay.
+/// Adds `history_secrets` and a warning: what is already committed travels with its history and the filter
+/// cannot remove it (T-130). It is joined to the previous `warning` if there is one.
 fn with_history(mut v: Value, history: &[String]) -> Value {
     if history.is_empty() {
         return v;
     }
     v["history_secrets"] = json!(history);
     let msg = format!(
-        "la historia del repo que viajó contiene archivos que parecen credenciales: {}. Ya \
-         están en la otra máquina; si son reales, rótalas.",
+        "the repo history that traveled contains files that look like credentials: {}. They are \
+         already on the other machine; if they are real, rotate them.",
         history.join(", ")
     );
     v["warning"] = match v["warning"].as_str() {
@@ -235,7 +235,7 @@ fn process_json(p: &TunnelProcess) -> Value {
 }
 
 fn unexpected(r: &Reply) -> ToolError {
-    ToolError::Agent(format!("respuesta inesperada del agente: {r:?}"))
+    ToolError::Agent(format!("unexpected reply from the agent: {r:?}"))
 }
 
 impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
@@ -247,11 +247,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
         match self.ipc.request(cmd).await {
             Ok(Reply::Rejected(why)) => Err(ToolError::Agent(why)),
             Ok(r) => Ok(r),
-            Err(e) => Err(ToolError::Agent(format!("IPC del agente: {e}"))),
+            Err(e) => Err(ToolError::Agent(format!("agent IPC: {e}"))),
         }
     }
 
-    /// Ejecuta la herramienta `name`; el resultado es el mismo JSON para el MCP y para
+    /// Runs tool `name`; the result is the same JSON for the MCP and for
     /// `tandem --json`.
     pub async fn call(&mut self, name: &str, raw: &Value) -> Result<Value, ToolError> {
         let tool = crate::spec::find(name).ok_or_else(|| ToolError::Unknown(name.into()))?;
@@ -302,7 +302,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                         .map(|kv| match kv.split_once('=') {
                             Some((k, v)) => Ok((k.to_owned(), v.to_owned())),
                             None => {
-                                Err(ToolError::Args(format!("`env`: `{kv}` no es NOMBRE=valor")))
+                                Err(ToolError::Args(format!("`env`: `{kv}` is not NAME=value")))
                             }
                         })
                         .collect::<Result<_, _>>()?,
@@ -375,7 +375,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
                     "remote_to_local" => Direction::RemoteToLocal,
                     other => {
                         return Err(ToolError::Args(format!(
-                            "`direction`: `{other}` no es `local_to_remote` ni `remote_to_local`"
+                            "`direction`: `{other}` is neither `local_to_remote` nor `remote_to_local`"
                         )));
                     }
                 };
@@ -452,7 +452,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
         match found {
             Some(c) => Ok(json!({"machine": machine.as_str(), "resources": c})),
             None => Err(ToolError::Agent(format!(
-                "todavía no hay recursos de la máquina {}: ¿está conectada?",
+                "no resources of machine {} yet: is it connected?",
                 machine.as_str()
             ))),
         }
@@ -485,7 +485,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
         let workspace = if a.flag("workspace") {
             let repo_path = root.clone().ok_or_else(|| {
                 ToolError::Args(
-                    "`workspace` necesita `project_root` (no hay carpeta actual)".into(),
+                    "`workspace` needs `project_root` (there is no current folder)".into(),
                 )
             })?;
             Some(WorkspaceSpec {
@@ -497,7 +497,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
             None
         };
         let cmd = UiCommand::OpenTunnel {
-            // Sin título, el agente usa el del proyecto.
+            // Without a title, the agent uses the project's.
             title: a.str("title").unwrap_or_default().to_owned(),
             project,
             target,
@@ -543,16 +543,16 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
             let Reply::Output(o) = reply else {
                 return Err(unexpected(&reply));
             };
-            // El agente no espera: aquí se sondea hasta que haya algo o venza `wait_ms`.
+            // The agent does not wait: here we poll until there is something or `wait_ms` expires.
             let empty = o.stdout.is_empty() && o.stderr.is_empty();
             if !(empty && !o.done && Instant::now() < deadline) {
                 let (so, se) = page(&o.stdout, &o.stderr, budget as usize, budget as usize);
-                // Hay más si recortamos nosotros o si el agente pudo haberse topado con `max`.
+                // There is more if we trimmed or if the agent may have hit `max`.
                 let more = so < o.stdout.len()
                     || se < o.stderr.len()
                     || o.stdout.len() >= budget as usize
                     || o.stderr.len() >= budget as usize;
-                // El cursor avanza solo por lo entregado, no por lo que devolvió el agente.
+                // The cursor advances only by what was delivered, not by what the agent returned.
                 let next_out = o.from.stdout + so as u64;
                 let next_err = o.from.stderr + se as u64;
                 return Ok(json!({
@@ -572,7 +572,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Api<S> {
 
 fn parse_machine(s: &str) -> Result<Machine, ToolError> {
     Machine::parse(&s.trim().to_ascii_lowercase())
-        .ok_or_else(|| ToolError::Args(format!("`{s}` no es una máquina: usa `a` o `b`")))
+        .ok_or_else(|| ToolError::Args(format!("`{s}` is not a machine: use `a` or `b`")))
 }
 
 #[cfg(test)]
@@ -585,7 +585,7 @@ mod tests {
     }
 
     #[test]
-    fn rechaza_lo_que_falta_lo_desconocido_y_los_tipos() {
+    fn rejects_missing_unknown_and_wrong_types() {
         assert!(check("exec", json!({"tunnel": "1"})).is_err());
         assert!(check("kill", json!({"tunnel": "1", "process": 1, "x": 1})).is_err());
         assert!(check("kill", json!({"tunnel": "1", "process": -1})).is_err());
@@ -593,7 +593,7 @@ mod tests {
     }
 
     #[test]
-    fn acepta_numeros_y_booleanos_como_texto() {
+    fn accepts_numbers_and_booleans_as_text() {
         let v = check("kill", json!({"tunnel": "ab", "process": "3"})).unwrap();
         assert_eq!(v["process"], 3);
         let v = check("resources", json!({"rescan": "true", "machine": null})).unwrap();
@@ -601,7 +601,7 @@ mod tests {
     }
 
     #[test]
-    fn la_pagina_reparte_el_tope_entre_flujos() {
+    fn page_splits_the_cap_between_streams() {
         let big = vec![b'a'; 1000];
         assert_eq!(page(&big, &big, 100, 100), (50, 50));
         assert_eq!(page(&big, b"xy", 100, 100), (98, 2));
@@ -609,24 +609,24 @@ mod tests {
     }
 
     #[test]
-    fn recorta_en_el_ultimo_limite_utf8() {
+    fn trims_at_the_last_utf8_boundary() {
         let s = "añ€😀".as_bytes(); // 1 + 2 + 3 + 4 bytes
         assert_eq!(s.len(), 10);
-        // Cortes que parten un carácter retroceden al anterior.
+        // Cuts that split a character move back to the previous one.
         assert_eq!(utf8_cut(s, 2, 100), 1);
         assert_eq!(utf8_cut(s, 5, 100), 3);
         assert_eq!(utf8_cut(s, 7, 100), 6);
         assert_eq!(utf8_cut(s, 9, 100), 6);
         assert_eq!(utf8_cut(s, 6, 100), 6);
-        // El final real de la salida se entrega entero aunque quede una cola rota.
+        // The real end of the output is delivered whole even if a broken tail remains.
         assert_eq!(utf8_cut(&s[..9], 9, 100), 9);
-        // Pero si pudo cortar el agente (len == max), también se recorta.
+        // But if the agent may have cut (len == max), it is trimmed too.
         assert_eq!(utf8_cut(&s[..9], 9, 9), 6);
     }
 
     proptest::proptest! {
         #[test]
-        fn paginar_nunca_pierde_ni_repite_bytes(
+        fn paging_never_loses_or_repeats_bytes(
             text in "\\PC{0,300}", budget in 16usize..64,
         ) {
             let bytes = text.as_bytes();
@@ -646,7 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn el_id_del_tunel_es_hex_y_la_maquina_a_o_b() {
+    fn tunnel_id_is_hex_and_machine_is_a_or_b() {
         let args = json!({"tunnel": "0x00000000000000ff"});
         assert_eq!(Args(&args).tunnel().unwrap().0, 255);
         assert!(Args(&json!({"tunnel": "zz"})).tunnel().is_err());

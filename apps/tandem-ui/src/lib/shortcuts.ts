@@ -9,7 +9,7 @@ import type { Bindings, ShortcutAction, ShortcutsView } from "./model";
 export const ACTIONS: ShortcutAction[] = ["toggle_window"];
 
 export const ACTION_LABEL: Record<ShortcutAction, string> = {
-  toggle_window: "Mostrar u ocultar Tandem",
+  toggle_window: "Show or hide Tandem",
 };
 
 /** Los de siempre (`Shortcuts::default`). */
@@ -41,9 +41,9 @@ export type Combo =
 /** Lee una combinación de un `keydown`, por código físico (en macOS ⌥ cambia la tecla). */
 export function readCombo(e: KeyLike): Combo {
   if (MODIFIER_CODES.test(e.code)) return { kind: "partial" };
-  if (!isKey(e.code)) return { kind: "invalid", reason: "esa tecla no se puede usar en un atajo global" };
+  if (!isKey(e.code)) return { kind: "invalid", reason: "that key cannot be used in a global shortcut" };
   if (!e.ctrlKey && !e.altKey && !e.metaKey) {
-    return { kind: "invalid", reason: "hace falta Ctrl, Alt o ⌘/Win: solo con Mayúsculas se comería lo que escribes" };
+    return { kind: "invalid", reason: "Ctrl, Alt or ⌘/Win is needed: with Shift alone it would swallow what you type" };
   }
   const mods = [e.ctrlKey && "Ctrl", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean);
   return { kind: "ok", accel: [...mods, e.code].join("+") };
@@ -51,10 +51,10 @@ export function readCombo(e: KeyLike): Combo {
 
 const KEY_TEXT: Record<string, string> = {
   Backquote: "`", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Backslash: "\\", Semicolon: ";",
-  Quote: "'", Comma: ",", Period: ".", Slash: "/", Space: "Espacio", Enter: "↩", Tab: "⇥", Escape: "Esc",
-  Backspace: "⌫", Delete: "Supr", Insert: "Insert", Home: "Inicio", End: "Fin", PageUp: "RePág", PageDown: "AvPág",
+  Quote: "'", Comma: ",", Period: ".", Slash: "/", Space: "Space", Enter: "↩", Tab: "⇥", Escape: "Esc",
+  Backspace: "⌫", Delete: "Del", Insert: "Insert", Home: "Start", End: "End", PageUp: "PgUp", PageDown: "PgDn",
   ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→",
-  ScrollLock: "Bloq Despl", Pause: "Pausa", PrintScreen: "ImprPant",
+  ScrollLock: "Scroll Lock", Pause: "Pause", PrintScreen: "PrtScn",
 };
 
 function keyText(code: string): string {
@@ -75,7 +75,7 @@ export function formatAccel(accel: string | null | undefined, mac: boolean): str
   if (mac) {
     return `${has("Ctrl") ? "⌃" : ""}${has("Alt") ? "⌥" : ""}${has("Shift") ? "⇧" : ""}${has("Super") ? "⌘" : ""}${key}`;
   }
-  const names = [has("Ctrl") && "Ctrl", has("Alt") && "Alt", has("Shift") && "Mayús", has("Super") && "Win"].filter(Boolean);
+  const names = [has("Ctrl") && "Ctrl", has("Alt") && "Alt", has("Shift") && "Shift", has("Super") && "Win"].filter(Boolean);
   return [...names, key].join("+");
 }
 
