@@ -9,7 +9,7 @@
 
 | | |
 |---|---|
-| Tasks | **175 done of 181** (`T-001`…`T-322`; open ones below) |
+| Tasks | **176 done of 181** (`T-001`…`T-322`; open ones below) |
 | Tests | **1623 Rust + 732 UI (vitest)**, 0 failures, 11 ignored (`#[ignore = "hardware"]` and latency benches) |
 | Quality | `fmt`, `clippy -D warnings`, `svelte-check` and `pnpm build` with no warnings |
 | CI per PR | Linux · Windows · macOS · UI x3 · coverage · `.dmg` · Windows installer |
@@ -36,7 +36,6 @@
 |---|---|---|
 | T-088, T-095, T-096 | blocked | Ignored monitors, own firmware for the 34" and live UI |
 | T-124 | todo | End-to-end acceptance |
-| T-300 | todo | Acceptance round 6, part A: the `V3-Machine` mockup keeps the switch styles of the removed "Allow remote execution" row |
 | T-322 | todo | Acceptance round 6, part C: `network.rs` desk-migration flake under load |
 | T-140…T-165, T-190…T-291 | done | Failures from the acceptance and hardware runs, personal data out of the repo, CI time limits, English migration (T-200…T-208), one-way links (T-237), macOS and Windows input fixes (T-239, T-241), UI reply races (T-250, T-251), monitor report race after pairing (T-280), this file brought up to date (T-290), a rejection right after pairing no longer unpairs (T-291, supersedes T-190) |
 
