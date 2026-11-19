@@ -1,0 +1,3513 @@
+[
+ {
+  "name": "shot:desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:desk-scene-macbook-only",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:desk-scene-game",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:desk-win-win",
+  "errors": [],
+  "findings": [
+   "mac on win-win /⌘/: ⌘K"
+  ],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:desk-mac-mac",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:tunnels-process-two",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:tunnels-two-processes",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:tunnels-no-processes",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:tunnels-lora",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:tunnels-closed",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:tunnels-project-collapsed",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:tunnels-empty",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:tunnels-twelve-processes",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:monitors-input-mac",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:scene-new",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:scene-shows-mac",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:scene-unchanged",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:progress-in-progress",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:progress-success",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:progress-rollback",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-top-start",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-top-center",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-top-end",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-bottom-start",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-bottom-center",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-bottom-end",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-left-start",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-left-center",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-left-end",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-right-start",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-right-center",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-right-end",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-screen-mac",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:arrangement-unsupported",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:crossing",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:crossing-crossed",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:crossing-no-cross",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:crossing-other-edge",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-machine",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-machine-violet",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-machine-teal",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-machine-amber",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-desk-new",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-permissions",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-permissions-one",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-permissions-all",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-keyboard",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-arrangement",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-arrangement-waiting",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-arrangement-crossed",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-arrangement-other-edge",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:setup-done",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:machine-b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "shot:machine-a",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active"
+  ]
+ },
+ {
+  "name": "shot:settings",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:settings-shortcuts",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:settings-keyboard",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Swap Cmd and Ctrl|checked=true|readonly=-|disabled=false|title=-|row=Swap Cmd and Ctrl between macOS and Windows Copy is ⌘C on the Mac and Ctrl+C on ",
+   "Drag between machines|checked=false|readonly=-|disabled=false|title=-|row=Drag between machines With a button held down, the cursor does not cross the edg",
+   "Shared clipboard|checked=true|readonly=-|disabled=false|title=-|row=Shared clipboard"
+  ]
+ },
+ {
+  "name": "shot:settings-updates",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Update automatically|checked=true|readonly=-|disabled=false|title=-|row=Update automatically"
+  ]
+ },
+ {
+  "name": "shot:settings-updates-checked",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Update automatically|checked=true|readonly=-|disabled=false|title=-|row=Update automatically"
+  ]
+ },
+ {
+  "name": "shot:settings-advanced",
+  "errors": [],
+  "findings": [
+   "config file in the UI: ~/Library/Application Support/Tandem/tandem.toml"
+  ],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:palette",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:palette-filter",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:palette-no-results",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:states",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:notices",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:notices-closed",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "shot:tray",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:a:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:a:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:a:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:a:#/monitors/scene",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:a:#/progress",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:a:#/arrangement",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:a:#/arrangement/crossing",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:a:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:a:#/machine/a",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active"
+  ]
+ },
+ {
+  "name": "mac-win:a:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-win:a:#/settings",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:a:#/states",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:b:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:b:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:b:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:b:#/monitors/scene",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:b:#/progress",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:b:#/arrangement",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:b:#/arrangement/crossing",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:b:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:b:#/machine/a",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-win:b:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active"
+  ]
+ },
+ {
+  "name": "mac-win:b:#/settings",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:b:#/states",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-no-agent:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-no-agent:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-no-agent:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-no-agent:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-no-agent:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-win:trouble-peer-off:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-peer-off:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-peer-off:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-peer-off:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-peer-off:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-win:trouble-link-down:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-link-down:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-link-down:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-link-down:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-link-down:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-win:trouble-permissions:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-permissions:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-permissions:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-permissions:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:trouble-permissions:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-win:wizard-0",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:wizard-1",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:wizard-2",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:wizard-3",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:wizard-4",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:wizard-5",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:setup-unpaired",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:pair-code",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:pair-reject",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:palette",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:tray",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:notices",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-win:peeredit",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:a:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:a:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:a:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:a:#/monitors/scene",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:a:#/progress",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:a:#/arrangement",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:a:#/arrangement/crossing",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:a:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:a:#/machine/a",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active"
+  ]
+ },
+ {
+  "name": "win-win:a:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "win-win:a:#/settings",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:a:#/states",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:b:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:b:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:b:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:b:#/monitors/scene",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:b:#/progress",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:b:#/arrangement",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:b:#/arrangement/crossing",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:b:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:b:#/machine/a",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "win-win:b:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active"
+  ]
+ },
+ {
+  "name": "win-win:b:#/settings",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:b:#/states",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-no-agent:#/desk",
+  "errors": [],
+  "findings": [
+   "mac on win-win /⌘/: ⌘K"
+  ],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-no-agent:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-no-agent:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-no-agent:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-no-agent:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "win-win:trouble-peer-off:#/desk",
+  "errors": [],
+  "findings": [
+   "mac on win-win /⌘/: ⌘K"
+  ],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-peer-off:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-peer-off:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-peer-off:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-peer-off:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "win-win:trouble-link-down:#/desk",
+  "errors": [],
+  "findings": [
+   "mac on win-win /⌘/: ⌘K"
+  ],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-link-down:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-link-down:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-link-down:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-link-down:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "win-win:trouble-permissions:#/desk",
+  "errors": [],
+  "findings": [
+   "mac on win-win /⌘/: ⌘K"
+  ],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-permissions:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-permissions:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-permissions:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:trouble-permissions:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "win-win:wizard-0",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:wizard-1",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:wizard-2",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:wizard-3",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:wizard-4",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:wizard-5",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:setup-unpaired",
+  "errors": [],
+  "findings": [
+   "mac on win-win /⌘/: ⌘K"
+  ],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:pair-code",
+  "errors": [],
+  "findings": [
+   "mac on win-win /⌘/: ⌘K"
+  ],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:pair-reject",
+  "errors": [],
+  "findings": [
+   "mac on win-win /⌘/: ⌘K"
+  ],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:palette",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:tray",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:notices",
+  "errors": [],
+  "findings": [
+   "mac on win-win /⌘/: ⌘K"
+  ],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "win-win:peeredit",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:a:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:a:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:a:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:a:#/monitors/scene",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:a:#/progress",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:a:#/arrangement",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:a:#/arrangement/crossing",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:a:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:a:#/machine/a",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active"
+  ]
+ },
+ {
+  "name": "mac-mac:a:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-mac:a:#/settings",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:a:#/states",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:b:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:b:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:b:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:b:#/monitors/scene",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:b:#/progress",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:b:#/arrangement",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:b:#/arrangement/crossing",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:b:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:b:#/machine/a",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-mac:b:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active"
+  ]
+ },
+ {
+  "name": "mac-mac:b:#/settings",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:b:#/states",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-no-agent:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-no-agent:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-no-agent:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-no-agent:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-no-agent:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-mac:trouble-peer-off:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-peer-off:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-peer-off:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-peer-off:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-peer-off:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-mac:trouble-link-down:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-link-down:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-link-down:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-link-down:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-link-down:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-mac:trouble-permissions:#/desk",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-permissions:#/tunnels",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-permissions:#/monitors",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-permissions:#/network",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:trouble-permissions:#/machine/b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "mac-mac:wizard-0",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:wizard-1",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:wizard-2",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:wizard-3",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:wizard-4",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:wizard-5",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:setup-unpaired",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:pair-code",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:pair-reject",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:palette",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:tray",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:notices",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "mac-mac:peeredit",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:admin-off-mac-win-a",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:admin-off-mac-win-b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:admin-off-win-win",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:admin-off-mac-mac",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:states-mac-win-a",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:states-mac-win-b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:states-win-win",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:states-mac-mac",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:notices-win-win",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:notices-mac-mac",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:machine-b-mac-win",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "new:machine-a-mac-win-here-b",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "new:machine-b-win-win",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "new:machine-a-win-win",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active"
+  ]
+ },
+ {
+  "name": "new:machine-b-mac-mac",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture with CGEventTap and injection with CGEventPost active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "new:machine-b-peer-off",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "new:machine-b-link-down",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "new:network-notices-mac-mac",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:setup1-admin-pending",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:setup1-admin-pending-installed",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:setup1-admin-off",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:setup1-admin-ok",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:setup1-win-win",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:machine-windows-protected",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active",
+   "Allow remote execution|checked=true|readonly=true|disabled=false|title=Always on: remote execution can't be turned off from here.|row=Allow remote execution Always on: remote execution can't be turned off from here"
+  ]
+ },
+ {
+  "name": "new:machine-windows-protected-win-win",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Keyboard and mouse|checked=true|readonly=-|disabled=false|title=Turn off Keyboard and mouse|row=Keyboard and mouse Capture and injection (low-level hooks, SendInput) active",
+   "Clipboard|checked=true|readonly=-|disabled=false|title=Turn off Clipboard|row=Clipboard Text, HTML and image active"
+  ]
+ },
+ {
+  "name": "new:network-notices",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:network-notices-win-win",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:setup4-idle",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:setup4-here",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:setup4-both",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:setup4-other-only",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:setup5-lead",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:crossing-crossed",
+  "errors": [
+   "harness: locator.click: Timeout 5000ms exceeded."
+  ],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:settings-updates",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": [
+   "Update automatically|checked=true|readonly=-|disabled=false|title=-|row=Update automatically"
+  ]
+ },
+ {
+  "name": "new:progress-fail",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ },
+ {
+  "name": "new:pair-code-match",
+  "errors": [],
+  "findings": [],
+  "reduced": {
+   "anims": 0,
+   "withAnim": 0,
+   "withTrans": 0
+  },
+  "topLines": [],
+  "switches": []
+ }
+]
