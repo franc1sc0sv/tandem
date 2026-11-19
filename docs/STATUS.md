@@ -5,7 +5,7 @@
 
 ## In one line
 
-**Everything that can be built and tested without your hardware is done; what remains is testing it on your real Mac, PC and monitors** (the `scripts/hw/run.sh` suite, T-123, is ready to run) and closing the failures found by the acceptance run. The first manual run over the Thunderbolt cable (`reports/hw-2026-11-18-cable.md`) already surfaced and closed several real bugs (T-196, T-197, T-198, T-237…T-241).
+**Everything that can be built and tested without your hardware is done; what remains is testing it on your real Mac, PC and monitors** (the `scripts/hw/run.sh` suite, T-123, is ready to run) and closing the failures found by the acceptance run. The manual runs over the Thunderbolt cable (`reports/hw-2026-11-18-cable.md` and a second run on 2026-11-19) already passed pairing, tunnels, monitor input switching and Mac-side input latency, and surfaced and closed several real bugs (T-196, T-197, T-198, T-237…T-241); an overnight soak that lost the link (cause unknown, T-242) still has to be re-run.
 
 | | |
 |---|---|
@@ -52,7 +52,7 @@ Each task with hardware has its list in `docs/tasks/T-xxx.md`, section `## Pendi
 
 ## Known risks and limitations
 
-- **Hardware testing has only just started.** The 2026-11-18 run over the Thunderbolt 4 cable (`reports/hw-2026-11-18-cable.md`) passed pairing, ping and the process, file and port tunnels on both machines; the workspace tunnel (T-197) and cable detection (T-196) failed and have since been fixed, and `input-cross` / `input-latency` failed only because the Mac's Accessibility permission was not granted, so they must be repeated with you at the Mac. Monitors (DDC/CI), Wake-on-LAN, the SYSTEM service and the UI have not been exercised on real hardware. ssh to the Mac is disabled by company policy (T-198), so the Mac half is run by hand.
+- **Hardware testing is under way, not finished.** Two real-cable runs between the Mac and the PC (the first in `reports/hw-2026-11-18-cable.md`, the second on 2026-11-19 at `develop` facf263, after T-196, T-197 and T-237) have found and closed real bugs. What passed on real hardware: pairing over USB4, ping (p50 and p99 of 1 ms), and the process, file, port and workspace tunnels in both directions; the Mac's `input-latency` check (PC to Mac input, p50 251 µs, p99 735 µs over 307 events, with Accessibility granted); and the monitor input round-trip and watchdog checks (2026-11-18, 11.6 s and 14.5 s). What failed: the PC's `input-cross`, because Windows capture ignored injected motion (fixed by T-239, to be re-verified). **Open: an overnight soak lost the link after about 45 minutes and never recovered; the evidence was lost (T-242 now keeps the logs), the cause is unknown and the soak must be re-run.** Wake-on-LAN, the SYSTEM service and the UI have not been exercised on real hardware. ssh to the Mac is disabled by company policy (T-198), so the Mac half is run by hand.
 - **One unexplained CI flake** (`pairing_hot_opens_the_input_session` on macOS, T-190): T-160, T-195 and T-230 closed the proven causes; if it reappears, the timeout message now names the exact wait.
 - **Private macOS APIs** (`SetsCursorInBackground`, `CGSConfigureDisplayEnabled`): they may change between versions.
 - **Signing:** macOS with ad-hoc signing (TCC permissions may be requested again on reinstall); Windows without Authenticode (SmartScreen warns).
