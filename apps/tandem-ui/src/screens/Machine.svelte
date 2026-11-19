@@ -379,7 +379,8 @@
             <Switch
               checked={tunnels.state === "active"}
               label="Allow remote execution"
-              disabled={!canSwitch(tunnels) || busy !== null}
+              disabled={busy !== null || (tunnels.switchable && !canSwitch(tunnels))}
+              locked={!tunnels.switchable}
               onchange={() => toggle(tunnels)}
             />
           </div>

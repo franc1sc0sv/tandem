@@ -153,6 +153,17 @@ describe("Switch", () => {
     await userEvent.click(screen.getByRole("switch", { name: "Module" }));
     expect(onchange).not.toHaveBeenCalled();
   });
+
+  it("locked (fixed by the agent) does not change and is not dimmed like a disabled one", async () => {
+    const onchange = vi.fn();
+    render(Switch, { checked: true, label: "Locked", locked: true, onchange });
+    const sw = screen.getByRole("switch", { name: "Locked" });
+    expect(sw).toBeDisabled();
+    expect(sw).toHaveClass("locked");
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(sw);
+    expect(onchange).not.toHaveBeenCalled();
+  });
 });
 
 describe("Chip", () => {

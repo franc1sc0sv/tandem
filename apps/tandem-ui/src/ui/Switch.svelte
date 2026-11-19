@@ -4,20 +4,25 @@
     /** Accessible name. */
     label: string;
     disabled?: boolean;
+    /**
+     * Fixed by the agent, not by the moment (it cannot turn that module off): it cannot be toggled
+     * but is not dimmed, so it reads like the mockup's switch.
+     */
+    locked?: boolean;
     onchange?: (checked: boolean) => void;
   }
 
-  let { checked = $bindable(), label, disabled = false, onchange }: Props = $props();
+  let { checked = $bindable(), label, disabled = false, locked = false, onchange }: Props = $props();
 
   function toggle() {
-    if (disabled) return;
+    if (disabled || locked) return;
     checked = !checked;
     onchange?.(checked);
   }
 </script>
 
 <!-- A <button role="switch">: Space and Enter toggle it by themselves (F-Settings). -->
-<button type="button" class="sw" class:off={!checked} role="switch" aria-checked={checked} aria-label={label} {disabled} onclick={toggle}></button>
+<button type="button" class="sw" class:off={!checked} role="switch" aria-checked={checked} aria-label={label} disabled={disabled || locked} class:locked={locked && !disabled} onclick={toggle}></button>
 
 <style>
   .sw {
@@ -55,5 +60,8 @@
   .sw:disabled {
     opacity: 0.45;
     cursor: default;
+  }
+  .sw.locked:disabled {
+    opacity: 1;
   }
 </style>

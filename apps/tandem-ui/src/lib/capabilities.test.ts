@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { hasInputPermissions, isSwitchable, PENDING_SWITCHABLE, perUserAdminNote, SWITCHABLE_MODULES } from "./capabilities";
+import { hasInputPermissions, isSwitchable, perUserAdminNote, SWITCHABLE_MODULES } from "./capabilities";
 import { demoDesk, demoOptions, DemoSource } from "./store/demo";
 import type { DemoPair } from "./store/demo";
 
@@ -30,21 +30,8 @@ function agentSwitchable(): string[] {
 
 describe("capabilities shared with the agent", () => {
   it("the switchable modules are exactly the ones the agent can turn off", () => {
-    const agent = agentSwitchable();
-    // TODO(T-246): the agent will also switch Tunnels; until `modules.rs` says so it is only
-    // pending, and it is left out of this assertion (nothing else is).
-    const known = agent.filter((id) => !PENDING_SWITCHABLE.includes(id));
-    expect(known).toEqual(["clipboard", "input"]);
-    expect([...SWITCHABLE_MODULES].sort()).toEqual(known);
-    // Once the agent announces a pending module, it must move to SWITCHABLE_MODULES (this fails otherwise).
-    for (const id of agent) expect(SWITCHABLE_MODULES.includes(id) || PENDING_SWITCHABLE.includes(id), id).toBe(true);
-  });
-
-  it("only the pending module is switchable beyond the agent's list", () => {
-    expect(PENDING_SWITCHABLE).toEqual(["tunnels"]);
-    expect(isSwitchable("monitors")).toBe(false);
-    expect(isSwitchable("secure_desktop")).toBe(false);
-    expect(isSwitchable("power")).toBe(false);
+    expect(agentSwitchable()).toEqual(["clipboard", "input"]);
+    expect([...SWITCHABLE_MODULES].sort()).toEqual(agentSwitchable());
   });
 
   it("only macOS asks for input permissions", () => {
@@ -64,13 +51,13 @@ const PAIRS: DemoPair[] = ["mac-win", "win-win", "mac-mac"];
 
 describe.each(PAIRS)("demo modules in the %s pair", (pair) => {
   for (const here of ["a", "b"] as const) {
-    it(`machine ${here}: only switchable modules have a switch (Tunnels pending T-246)`, () => {
+    it(`machine ${here}: only the agent's switchable modules have a switch`, () => {
       const d = demoDesk(demoOptions(`demo=${pair}&still&here=${here}`));
       for (const m of ["a", "b"] as const) {
         const mods = d.machines[m]?.modules ?? [];
         expect(mods.length).toBeGreaterThan(0);
         for (const mod of mods) expect(mod.switchable, `${m}/${mod.id}`).toBe(isSwitchable(mod.id));
-        expect(mods.filter((x) => x.switchable).map((x) => x.id).sort()).toEqual(["clipboard", "input", "tunnels"]);
+        expect(mods.filter((x) => x.switchable).map((x) => x.id).sort()).toEqual(["clipboard", "input"]);
       }
     });
 
