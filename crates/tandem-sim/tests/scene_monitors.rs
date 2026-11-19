@@ -418,3 +418,43 @@ fn sim_unplug(d: &Desk, i: usize) {
         sim.set_cable(i, m, None);
     }
 }
+
+/// T-280: right after pairing, the non-owner (the Mac) read the 34" itself for a moment, while it
+/// did not know the PC's channel yet and believed it owned it. That early reading must not hide
+/// the owner's report: the owner has nothing new to send, and without its report every scene
+/// applied from the Mac failed with "it is not known which machine is shown".
+#[tokio::test(start_paused = true)]
+async fn an_early_claim_of_the_non_owner_does_not_hide_the_owners_report() {
+    let d = paired(SwitchBehavior::Done, true).await;
+    let m34 = id(&d, M34);
+    let has_owner_report = |v: &[tandem_proto::MonitorView]| {
+        v.iter().any(|m| {
+            m.id == m34
+                && m.owner == Some(Machine::B)
+                && m.report.as_ref().and_then(|r| r.input) == Some(MonitorInput::DisplayPort)
+        })
+    };
+    d.wait_monitors(Machine::A, "the owner's report", has_owner_report)
+        .await
+        .unwrap();
+
+    // The Mac's early claim, as its own monitor loop stores it: a reading tagged with itself.
+    d.mac.monitor_hub().receive(
+        Machine::A,
+        vec![tandem_proto::MonitorReport {
+            id: m34.clone(),
+            input: Some(MonitorInput::Hdmi),
+            power_on: Some(true),
+            signal: Some(true),
+            events: vec![],
+        }],
+    );
+    // Several scans and polls go by; the owner reads nothing new.
+    tokio::time::sleep(Duration::from_secs(30)).await;
+    let views = d.mac.monitors();
+    assert!(has_owner_report(&views), "{views:#?}");
+
+    let run = d.apply_scene(Machine::A, "only-a").await.unwrap();
+    assert_eq!(run.outcome(), Some(Outcome::Committed), "{:#?}", run.events);
+    assert_eq!(on_screen(&d, M34), Some(Input::Hdmi));
+}

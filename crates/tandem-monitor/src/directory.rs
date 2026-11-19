@@ -17,8 +17,13 @@ pub struct Directory {
     local: Vec<MonitorChannel>,
     /// What the other announced, while it is on and connected; `None` otherwise.
     peer: Option<Vec<MonitorChannel>>,
-    /// The last report of each monitor and who sent it.
-    reports: BTreeMap<String, (Machine, MonitorReport)>,
+    /// The last report of each monitor from each machine. Kept per machine (T-280): a reading
+    /// of the non-owner, made while it did not know the other's channels yet, must not replace
+    /// the owner's, which the owner does not send again while nothing changes on its side.
+    reports: BTreeMap<(String, Machine), MonitorReport>,
+    /// The owners as of the last change of channels, to forget what a machine read once it
+    /// stops owning a monitor.
+    elected: BTreeMap<String, Machine>,
 }
 
 impl Directory {
@@ -28,6 +33,7 @@ impl Directory {
             local: Vec::new(),
             peer: None,
             reports: BTreeMap::new(),
+            elected: BTreeMap::new(),
         }
     }
 
@@ -38,8 +44,12 @@ impl Directory {
     /// This machine turned out to be the other side: the stored reports switch sides with it.
     pub fn set_me(&mut self, me: Machine) {
         if me != self.me {
-            for (from, _) in self.reports.values_mut() {
-                *from = from.other();
+            self.reports = std::mem::take(&mut self.reports)
+                .into_iter()
+                .map(|((id, from), r)| ((id, from.other()), r))
+                .collect();
+            for owner in self.elected.values_mut() {
+                *owner = owner.other();
             }
             self.me = me;
         }
@@ -53,6 +63,7 @@ impl Directory {
     pub fn set_local(&mut self, channels: Vec<MonitorChannel>) -> bool {
         let changed = self.local != channels;
         self.local = channels;
+        self.reelect();
         changed
     }
 
@@ -60,13 +71,39 @@ impl Directory {
     pub fn set_peer(&mut self, channels: Option<Vec<MonitorChannel>>) -> bool {
         let changed = self.peer != channels;
         self.peer = channels;
+        self.reelect();
         changed
+    }
+
+    /// A machine that stops owning a monitor no longer reads it: what it read last stops
+    /// telling the truth and is forgotten, so it is not shown if it becomes the owner again
+    /// before it reads anew. The new owner's report stays, even if it arrived before this
+    /// machine knew the channels that made it the owner (T-280).
+    fn reelect(&mut self) {
+        let owners = self.owners();
+        for (id, before) in &self.elected {
+            if owners.get(id) != Some(before) {
+                self.reports.remove(&(id.clone(), *before));
+            }
+        }
+        self.elected = owners;
     }
 
     /// A report from `from` (this machine or the other). It is only shown while `from` is the
     /// owner: one from a previous owner no longer tells the truth.
     pub fn set_report(&mut self, from: Machine, report: MonitorReport) {
-        self.reports.insert(report.id.clone(), (from, report));
+        self.reports.insert((report.id.clone(), from), report);
+    }
+
+    /// Everything `from` reads now (each `ControlMsg::Monitors` carries the sender's whole
+    /// list): what it no longer reads is forgotten. A reading from a machine that is not the
+    /// owner here is kept only while that machine still reads it, so it is never shown later as
+    /// current if that machine becomes the owner.
+    pub fn set_reports(&mut self, from: Machine, reports: Vec<MonitorReport>) {
+        self.reports.retain(|(_, m), _| *m != from);
+        for r in reports {
+            self.set_report(from, r);
+        }
     }
 
     fn channel_of(&self, machine: Machine, id: &str) -> Option<&MonitorChannel> {
@@ -113,10 +150,7 @@ impl Directory {
     /// The last thing the current owner of `id` read.
     pub fn report(&self, id: &str) -> Option<&MonitorReport> {
         let owner = self.owner(id)?;
-        self.reports
-            .get(id)
-            .filter(|(from, _)| *from == owner)
-            .map(|(_, r)| r)
+        self.reports.get(&(id.to_owned(), owner))
     }
 
     /// The input on screen according to the owner.
@@ -164,6 +198,7 @@ impl Directory {
 
 #[cfg(test)]
 mod tests {
+    use proptest::prelude::*;
     use tandem_proto::MonitorCompat;
 
     use super::*;
@@ -235,10 +270,12 @@ mod tests {
         a.set_report(Machine::B, report("std", MonitorInput::DisplayPort));
         assert_eq!(a.input("std"), Some(MonitorInput::DisplayPort));
         a.set_peer(None);
+        assert_eq!(a.input("std"), Some(MonitorInput::Hdmi), "A's own reading");
+        a.set_peer(Some(vec![ch("std", true, 5)]));
         assert_eq!(
             a.input("std"),
             None,
-            "the report was from the previous owner"
+            "the report was from before B stopped owning it"
         );
     }
 
@@ -261,6 +298,63 @@ mod tests {
         assert_eq!(std.owner, Some(Machine::B));
     }
 
+    /// T-280: `A` reports, then `B` reads the monitor while it still believes it owns it (it does
+    /// not know `A`'s channel yet), then the channels cross and `A` is elected. `A` has nothing
+    /// new to send, so `B` must still have `A`'s report.
+    #[test]
+    fn an_early_reading_of_the_non_owner_does_not_replace_the_owners_report() {
+        let std = ch("std", true, 5);
+        let mut b = Directory::new(Machine::B);
+        b.set_local(vec![std.clone()]);
+        b.set_report(Machine::A, report("std", MonitorInput::DisplayPort));
+        assert_eq!(b.owned_here(), BTreeSet::from(["std".to_owned()]));
+        b.set_report(Machine::B, report("std", MonitorInput::Hdmi));
+        assert_eq!(b.input("std"), Some(MonitorInput::Hdmi));
+        b.set_peer(Some(vec![std]));
+        assert_eq!(b.owner("std"), Some(Machine::A), "a tie goes to A");
+        assert_eq!(b.input("std"), Some(MonitorInput::DisplayPort));
+    }
+
+    /// Review of #183: `B`'s early claim reaches `A`, then `A` is elected. If `A` later loses
+    /// its channel, `B`'s old reading must not show as current. `B` stopped reading once `A`
+    /// was elected, and its next list (empty) clears it.
+    #[test]
+    fn a_reading_the_other_no_longer_sends_is_not_shown_when_it_becomes_the_owner() {
+        let std = ch("std", true, 5);
+        let mut a = Directory::new(Machine::A);
+        a.set_local(vec![std.clone()]);
+        a.set_reports(Machine::A, vec![report("std", MonitorInput::DisplayPort)]);
+        a.set_reports(Machine::B, vec![report("std", MonitorInput::Hdmi)]);
+        a.set_peer(Some(vec![std.clone()]));
+        assert_eq!(a.input("std"), Some(MonitorInput::DisplayPort));
+        a.set_reports(Machine::B, vec![]);
+        a.set_local(vec![]);
+        assert_eq!(a.owner("std"), Some(Machine::B));
+        assert_eq!(
+            a.input("std"),
+            None,
+            "B's reading is from before A was elected"
+        );
+        a.set_reports(Machine::B, vec![report("std", MonitorInput::DisplayPort)]);
+        assert_eq!(a.input("std"), Some(MonitorInput::DisplayPort));
+    }
+
+    #[test]
+    fn a_new_list_replaces_the_senders_previous_one() {
+        let mut d = Directory::new(Machine::A);
+        d.set_peer(Some(vec![ch("std", true, 5), ch("two", true, 5)]));
+        d.set_reports(
+            Machine::B,
+            vec![
+                report("std", MonitorInput::Hdmi),
+                report("two", MonitorInput::Hdmi),
+            ],
+        );
+        d.set_reports(Machine::B, vec![report("two", MonitorInput::DisplayPort)]);
+        assert_eq!(d.input("std"), None);
+        assert_eq!(d.input("two"), Some(MonitorInput::DisplayPort));
+    }
+
     #[test]
     fn changing_sides_keeps_the_reports_with_their_machine() {
         let mut d = Directory::new(Machine::A);
@@ -269,5 +363,32 @@ mod tests {
         d.set_me(Machine::B);
         assert_eq!(d.owner("std"), Some(Machine::B));
         assert_eq!(d.input("std"), Some(MonitorInput::Hdmi));
+    }
+
+    proptest! {
+        /// T-280: both machines see the monitor with the same latency (a tie: `A` owns it).
+        /// Whatever the order in which `A`'s report, `B`'s early reading and the other's
+        /// channels arrive, both end up showing `A`'s report.
+        #[test]
+        fn both_show_the_owners_report_in_any_order(
+            order in Just(vec![0u8, 1, 2]).prop_shuffle(),
+        ) {
+            let std = ch("std", true, 5);
+            for me in Machine::ALL {
+                let mut d = Directory::new(me);
+                d.set_local(vec![std.clone()]);
+                for step in &order {
+                    match step {
+                        0 => d.set_report(Machine::A, report("std", MonitorInput::DisplayPort)),
+                        1 => d.set_report(Machine::B, report("std", MonitorInput::Hdmi)),
+                        _ => {
+                            d.set_peer(Some(vec![std.clone()]));
+                        }
+                    }
+                }
+                prop_assert_eq!(d.owner("std"), Some(Machine::A));
+                prop_assert_eq!(d.input("std"), Some(MonitorInput::DisplayPort), "{:?} on {}", order, me);
+            }
+        }
     }
 }

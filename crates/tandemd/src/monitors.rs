@@ -11,6 +11,7 @@
 //! paused clock does not advance on its own meanwhile.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
@@ -87,6 +88,8 @@ pub struct MonitorHub {
     views: watch::Sender<Vec<MonitorView>>,
     /// The last thing sent to the other machine.
     sent: Mutex<Vec<MonitorReport>>,
+    /// The other's channels changed: the next turn sends what it reads even if it did not change.
+    resend: AtomicBool,
     /// Wakes the loop early (the owner changed, a change finished).
     wake: Notify,
 }
@@ -110,6 +113,7 @@ impl MonitorHub {
             local: Mutex::new(None),
             views: watch::Sender::new(Vec::new()),
             sent: Mutex::new(Vec::new()),
+            resend: AtomicBool::new(false),
             wake: Notify::new(),
         }
     }
@@ -138,22 +142,20 @@ impl MonitorHub {
     }
 
     /// What the other announced, while it is on; `None` if not. If the owners change,
-    /// the loop finds out right away.
+    /// the loop finds out right away. The other may have stored a reading of its own before it
+    /// knew this machine's channels (T-280), so this machine's reports go out again.
     pub fn set_peer(&self, channels: Option<Vec<MonitorChannel>>) {
         if lock(&self.dir).set_peer(channels) {
+            self.resend.store(true, Ordering::Relaxed);
             self.publish();
             self.wake.notify_one();
         }
     }
 
-    /// What the other read from the monitors that are its own.
+    /// What the other read from the monitors that are its own: its whole list, so what is
+    /// missing from it is no longer read there.
     pub fn receive(&self, from: Machine, reports: Vec<MonitorReport>) {
-        {
-            let mut dir = lock(&self.dir);
-            for r in reports {
-                dir.set_report(from, r);
-            }
-        }
+        lock(&self.dir).set_reports(from, reports);
         self.publish();
     }
 
@@ -225,15 +227,11 @@ impl MonitorHub {
         else {
             return tick;
         };
-        {
-            let mut dir = lock(&self.dir);
-            for r in &reports {
-                dir.set_report(me, r.clone());
-            }
-        }
+        lock(&self.dir).set_reports(me, reports.clone());
         self.publish();
+        let resend = self.resend.swap(false, Ordering::Relaxed);
         let mut sent = lock(&self.sent);
-        if *sent != reports {
+        if *sent != reports || resend {
             *sent = reports.clone();
             tick.reports = Some(reports);
         }
@@ -370,6 +368,82 @@ mod tests {
         let e = hub.switch("x", MonitorInput::Hdmi).await.unwrap_err();
         assert_eq!(e, NO_DDC);
         assert!(hub.views().is_empty());
+    }
+
+    /// T-280, with each hub's own loop: `A` reads first and sends its report; `B` reads the same
+    /// monitor before it knows `A`'s channel (it believes it owns it) and sends its own; then the
+    /// channels cross and `A` is elected. `A` reads nothing new, so it does not send again: `B`
+    /// must keep showing `A`'s report.
+    #[tokio::test]
+    async fn the_owners_report_survives_an_early_claim_of_the_other() {
+        let (a, _) = hub_with_bus(Machine::A);
+        let (b, _) = hub_with_bus(Machine::B);
+        let from_a = a.tick(true).await.reports.unwrap();
+        b.receive(Machine::A, from_a);
+        let from_b = b.tick(true).await.reports.unwrap();
+        a.receive(Machine::B, from_b);
+        a.set_peer(Some(b.local_channels()));
+        b.set_peer(Some(a.local_channels()));
+        for _ in 0..3 {
+            for (hub, other, from) in [(&a, &b, Machine::A), (&b, &a, Machine::B)] {
+                if let Some(r) = hub.tick(false).await.reports {
+                    other.receive(from, r);
+                }
+            }
+        }
+        for hub in [&a, &b] {
+            let views = hub.views();
+            assert_eq!(views[0].owner, Some(Machine::A));
+            assert_eq!(
+                views[0].report.as_ref().and_then(|r| r.input),
+                Some(MonitorInput::DisplayPort),
+                "{:?}",
+                hub.dir
+            );
+        }
+    }
+
+    /// Review of #183: `B` reports while it owns the monitor alone, `A` is elected, `B` stops
+    /// reading and sends `[]`; when `A` then loses its channel, it shows no report until `B`
+    /// reads and sends again.
+    #[tokio::test]
+    async fn a_former_reading_of_the_other_is_not_shown_after_the_owner_leaves() {
+        let (a, _) = hub_with_bus(Machine::A);
+        let (b, _) = hub_with_bus(Machine::B);
+        let from_b = b.tick(true).await.reports.unwrap();
+        a.tick(true).await;
+        a.receive(Machine::B, from_b);
+        a.set_peer(Some(b.local_channels()));
+        b.set_peer(Some(a.local_channels()));
+        let id = a.views()[0].id.clone();
+        assert_eq!(a.owner(&id), Some(Machine::A));
+        a.tick(false).await;
+        let from_b = b.tick(false).await.reports.unwrap();
+        assert!(from_b.is_empty(), "B no longer owns it: {from_b:?}");
+        a.receive(Machine::B, from_b);
+        // A's channel goes away (unplugged): B is the owner.
+        lock(&a.dir).set_local(Vec::new());
+        b.set_peer(Some(Vec::new()));
+        a.publish();
+        assert_eq!(a.owner(&id), Some(Machine::B));
+        assert_eq!(a.input(&id), None, "{:?}", a.dir);
+        assert_eq!(a.views()[0].report, None);
+        let from_b = b.tick(false).await.reports.unwrap();
+        a.receive(Machine::B, from_b);
+        assert_eq!(a.input(&id), Some(MonitorInput::DisplayPort));
+    }
+
+    #[tokio::test]
+    async fn new_channels_from_the_other_send_the_reports_again() {
+        let (a, _) = hub_with_bus(Machine::A);
+        let (b, _) = hub_with_bus(Machine::B);
+        assert!(a.tick(true).await.reports.is_some());
+        assert_eq!(a.tick(false).await.reports, None, "nothing changed");
+        b.tick(true).await;
+        a.set_peer(Some(b.local_channels()));
+        let again = a.tick(false).await.reports.unwrap();
+        assert_eq!(again[0].input, Some(MonitorInput::DisplayPort));
+        assert_eq!(a.tick(false).await.reports, None, "only once");
     }
 
     #[tokio::test]
