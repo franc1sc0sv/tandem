@@ -18,8 +18,8 @@ function run(events: TxnView[], t0 = 0): Run {
 const started: TxnView = { type: "started", txn: 2, steps };
 const going: TxnView = { type: "step_started", txn: 2, index: 0 };
 
-describe("tarjeta de energía (F-Transactions)", () => {
-  it("espera con Wake-on-LAN, el reloj contra el máximo y lo que falta", () => {
+describe("power card (F-Transactions)", () => {
+  it("waits with Wake-on-LAN, the clock against the maximum and what is left", () => {
     const v = energyView(run([started, going]), name, "MacBook Pro", 18_000);
     expect(v?.title).toBe("Powering on PC-Desktop");
     expect(v?.waiting).toBe(true);
@@ -31,7 +31,7 @@ describe("tarjeta de energía (F-Transactions)", () => {
     expect(v?.rows[2]?.dim).toBe(true);
   });
 
-  it("termina bien o falla con el error del agente", () => {
+  it("ends well or fails with the agent's error", () => {
     const ok = energyView(
       run([started, going, { type: "step_done", txn: 2, index: 0 }, { type: "committed", txn: 2, state: { on: { a: true, b: true }, scene: null } }]),
       name,
@@ -44,14 +44,14 @@ describe("tarjeta de energía (F-Transactions)", () => {
     expect(bad?.rows[1]).toMatchObject({ icon: "bad", detail: "did not answer en 2:00", mono: false });
   });
 
-  it("solo dibuja corridas de encendido", () => {
+  it("only draws power-on runs", () => {
     const scene = run([{ type: "started", txn: 1, steps: [{ step: "geometry" }] }]);
     expect(powerTarget(scene)).toBeNull();
     expect(energyView(scene, name, "x", 0)).toBeNull();
     expect(energyView(null, name, "x", 0)).toBeNull();
   });
 
-  it("el reloj tiene minutos y segundos y no baja de cero", () => {
+  it("the clock has minutes and seconds and does not go below zero", () => {
     expect(clockText(0)).toBe("0:00");
     expect(clockText(BOOT_WAIT_MS)).toBe("2:00");
     expect(clockText(-5)).toBe("0:00");
@@ -76,8 +76,8 @@ const net = (measuring: NetworkView["measuring"] = "usb4"): NetworkView => ({
   measuring,
 });
 
-describe("tarjeta de medición (F-Transactions)", () => {
-  it("dibuja lo medido, la barra y los otros caminos", () => {
+describe("measurement card (F-Transactions)", () => {
+  it("draws what was measured, the bar and the other paths", () => {
     const v = measureView(net(), "usb4");
     expect(v).toMatchObject({ title: "Measuring the USB-C link", value: "9.4", unit: "Gbps", latency: "0.3 ms", percent: 94, aria: "9.4 of 10 Gbps", caption: "USB4 20 Gbps link" });
     expect(v?.others).toEqual([
@@ -86,7 +86,7 @@ describe("tarjeta de medición (F-Transactions)", () => {
     ]);
   });
 
-  it("el Wi-Fi caído dice «no signal», no «no cable» (T-147)", () => {
+  it("dropped Wi-Fi says \"no signal\", not \"no cable\" (T-147)", () => {
     const n = net("usb4");
     n.paths = [path("usb4", "primary", 0.3, 9.4), path("ethernet", "unplugged", null, null), path("wifi", "unplugged", null, null)];
     expect(measureView(n, "usb4")?.others).toEqual([
@@ -95,14 +95,14 @@ describe("tarjeta de medición (F-Transactions)", () => {
     ]);
   });
 
-  it("not measured todavía muestra guiones y la barra vacía; Mbps bajo 1 Gbps", () => {
+  it("not measured yet shows dashes and the empty bar; Mbps under 1 Gbps", () => {
     const n = net();
     n.paths[0] = path("usb4", "primary", null, null);
     expect(measureView(n, "usb4")).toMatchObject({ value: "—", latency: "—", percent: 0 });
     expect(measureView(net("wifi"), "wifi")).toMatchObject({ value: "410", unit: "Mbps" });
   });
 
-  it("la tarjeta es del camino que se mide, o del último medido, o ninguna", () => {
+  it("the card is of the path being measured, or of the last one measured, or none", () => {
     expect(measureKind(net("wifi"), "usb4")).toBe("wifi");
     expect(measureKind(net(null), "usb4")).toBe("usb4");
     expect(measureKind(net(null), null)).toBeNull();

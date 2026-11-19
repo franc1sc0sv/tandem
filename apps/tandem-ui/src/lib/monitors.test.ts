@@ -27,24 +27,24 @@ const factory: MonitorJson = {
 };
 
 describe("monitors (V3-Monitors)", () => {
-  it("el nombre corto es la diagonal en pulgadas", () => {
+  it("the short name is the diagonal in inches", () => {
     expect(shortMonitor('Odyssey G5 34"')).toBe('34"');
     expect(shortMonitor("Unmeasured")).toBe("Unmeasured");
   });
 
-  it("el acento del indicador es el del mockup para los colores por omisión y se oscurece para el resto", () => {
+  it("the indicator accent is the mockup's for the default colors and darkens for the rest", () => {
     expect(accentOf("#7aa7e6")).toBe("#4f7cbc");
     expect(accentOf("#A99BE8")).toBe("#6a5fa6");
     expect(accentOf("#ffffff")).toBe("#b3b3b3");
-    expect(accentOf("rojo")).toBe("#3a3d45");
+    expect(accentOf("crimson")).toBe("#3a3d45");
   });
 
-  it("la hora del evento sale con dos cifras", () => {
+  it("the event time comes out with two digits", () => {
     const d = new Date(2026, 0, 2, 3, 4).getTime();
     expect(formatClock(d)).toBe("03:04");
   });
 
-  it("cada evento del firmware tiene su ícono y su texto", () => {
+  it("each firmware event has its icon and its text", () => {
     expect(eventView({ at_ms: 1, kind: "SwitchRequested", input: "display_port" })).toMatchObject({ kind: "switch", text: "Input → DP, requested by Tandem" });
     expect(eventView({ at_ms: 1, kind: "Input", input: "hdmi" })).toMatchObject({ kind: "button", text: "Input → HDMI, with the buttons" });
     expect(eventView({ at_ms: 1, kind: "SwitchFailed", input: "hdmi" })).toMatchObject({ kind: "failed", text: "Switch to HDMI with no picture" });
@@ -52,17 +52,17 @@ describe("monitors (V3-Monitors)", () => {
     expect(eventView({ at_ms: 1, kind: "Other", input: null })).toMatchObject({ kind: "other" });
   });
 
-  it("un monitor compatible sabe qué machine muestra por su entrada", () => {
+  it("a compatible monitor knows which machine shows through its input", () => {
     const m = monitorUi(std());
     expect(m).toMatchObject({ compat: { ok: true }, connected: true, owner: "a", input: "hdmi", shows: "b" });
     expect(m.ports).toEqual({ a: "display_port", b: "hdmi" });
   });
 
-  it("D11: uno de fábrica es «no compatible», con su razón, y no tiene entrada", () => {
+  it("D11: a factory one is \"not compatible\", with its reason, and has no input", () => {
     expect(monitorUi(factory)).toMatchObject({ compat: { ok: false, reason: "It joins only once its firmware meets the standard." }, connected: false, shows: null });
   });
 
-  it("los compatibles van primero y solo se listan los eventos más freshs", () => {
+  it("the compatible ones go first and only the most recent events are listed", () => {
     const events = Array.from({ length: 5 }, (_, i) => ({ at_ms: i, kind: "Signal" as const, input: null }));
     const list = monitorsUi([factory, std({ report: { id: "x", input: null, power_on: true, signal: true, events } })]);
     expect(list.map((m) => m.id)).toEqual(["g5-34", "g5-32"]);
@@ -70,7 +70,7 @@ describe("monitors (V3-Monitors)", () => {
     expect(list[0]?.events[0]?.at).toBe(4);
   });
 
-  it("explica por qué no se puede pedir el cambio", () => {
+  it("explains why the change cannot be requested", () => {
     const ok = monitorUi(std());
     expect(whyNotSwitch(ok, "a", "PC")).toBeNull();
     expect(whyNotSwitch(monitorUi(factory), "a", "PC")).toMatch(/does not support/);

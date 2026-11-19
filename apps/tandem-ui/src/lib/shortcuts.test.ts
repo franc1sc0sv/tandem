@@ -22,8 +22,8 @@ const key = (code: string, mods: Partial<KeyboardEvent> = {}) => ({
   ...mods,
 });
 
-describe("leer una combinación", () => {
-  it("en la forma canónica del núcleo, por código físico", () => {
+describe("reading a combination", () => {
+  it("in the core's canonical form, by physical code", () => {
     expect(readCombo(key("Digit1"))).toEqual({ kind: "ok", accel: "Ctrl+Alt+Digit1" });
     expect(readCombo(key("KeyK", { ctrlKey: false, shiftKey: true, metaKey: true }))).toEqual({
       kind: "ok",
@@ -32,23 +32,23 @@ describe("leer una combinación", () => {
     expect(readCombo(key("F12", { altKey: false }))).toEqual({ kind: "ok", accel: "Ctrl+F12" });
   });
 
-  it("solo modificadores: todavía se está escribiendo", () => {
+  it("only modifiers: it is still being typed", () => {
     for (const code of ["ControlLeft", "AltRight", "ShiftLeft", "MetaLeft", "OSRight"]) {
       expect(readCombo(key(code)).kind).toBe("partial");
     }
   });
 
-  it("sin Ctrl, Alt ni ⌘ no sirve: se comería lo que escribes", () => {
+  it("without Ctrl, Alt or ⌘ it is no good: it would eat what you type", () => {
     const c = readCombo(key("KeyA", { ctrlKey: false, altKey: false, shiftKey: true }));
     expect(c.kind).toBe("invalid");
   });
 
-  it("teclas que el núcleo no registra", () => {
+  it("keys the core does not register", () => {
     expect(readCombo(key("IntlBackslash")).kind).toBe("invalid");
     expect(readCombo(key("MediaPlayPause")).kind).toBe("invalid");
   });
 
-  it("las mismas teclas que acepta el núcleo", () => {
+  it("the same keys the core accepts", () => {
     for (const ok of ["KeyA", "KeyZ", "Digit0", "Numpad9", "F1", "F24", "ArrowLeft", "Space", "Backquote"]) {
       expect(isKey(ok), ok).toBe(true);
     }
@@ -58,36 +58,36 @@ describe("leer una combinación", () => {
   });
 });
 
-describe("mostrar un shortcut", () => {
-  it("con símbolos en macOS", () => {
+describe("showing a shortcut", () => {
+  it("with symbols on macOS", () => {
     expect(formatAccel("Ctrl+Alt+Digit1", true)).toBe("⌃⌥1");
     expect(formatAccel("Alt+Shift+Super+KeyK", true)).toBe("⌥⇧⌘K");
     expect(formatAccel("Ctrl+ArrowLeft", true)).toBe("⌃←");
   });
 
-  it("con nombres en Windows", () => {
+  it("with names on Windows", () => {
     expect(formatAccel("Ctrl+Alt+Digit1", false)).toBe("Ctrl+Alt+1");
     expect(formatAccel("Shift+Super+Numpad3", false)).toBe("Shift+Win+Num 3");
     expect(formatAccel("Ctrl+F5", false)).toBe("Ctrl+F5");
   });
 
-  it("sin shortcut, nada", () => {
+  it("without a shortcut, nothing", () => {
     expect(formatAccel(null, true)).toBe("");
     expect(ariaKeys(null)).toBe("");
   });
 
-  it("para lectores de pantalla", () => {
+  it("for screen readers", () => {
     expect(ariaKeys("Ctrl+Alt+Digit1")).toBe("Control+Alt+1");
     expect(ariaKeys("Shift+Super+KeyK")).toBe("Shift+Meta+K");
   });
 
-  it("reconoce macOS", () => {
+  it("recognizes macOS", () => {
     expect(isMacPlatform("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)")).toBe(true);
     expect(isMacPlatform("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")).toBe(false);
   });
 });
 
-describe("qué atiende la ventana", () => {
+describe("what the window handles", () => {
   const view = (failed: ShortcutsView["failed"]): ShortcutsView => ({
     bindings: { ...DEFAULT_BINDINGS },
     failed,
@@ -95,24 +95,24 @@ describe("qué atiende la ventana", () => {
     file: null,
   });
 
-  it("solo los que el sistema no dejó registrar como globales, con la combinación exacta", () => {
+  it("only those the system did not let register as global, with the exact combination", () => {
     expect(localAction(key("Digit0"), view({}))).toBeNull();
     expect(localAction(key("Digit0"), view({ toggle_window: "busy" }))).toBe("toggle_window");
     expect(localAction(key("Digit0", { shiftKey: true }), view({ toggle_window: "x" }))).toBeNull();
     expect(localAction(key("Digit1"), view({ toggle_window: "x" }))).toBeNull();
   });
 
-  it("mostrar u ocultar esconde la ventana, que está al frente", () => {
+  it("showing or hiding hides the window, which is in front", () => {
     expect(windowCommand("toggle_window")).toEqual({ kind: "hide_main" });
   });
 });
 
-describe("editar", () => {
-  it("el de siempre es ⌃⌥0, y los shortcuts de los modos ya no existen", () => {
+describe("editing", () => {
+  it("the default is ⌃⌥0, and the mode shortcuts no longer exist", () => {
     expect(ACTIONS.map((a) => formatAccel(DEFAULT_BINDINGS[a], true))).toEqual(["⌃⌥0"]);
   });
 
-  it("con una sola acción no hay repetidos", () => {
+  it("with a single action there are no duplicates", () => {
     expect(duplicateOf(DEFAULT_BINDINGS, "toggle_window", "Ctrl+Alt+Digit0")).toBeNull();
   });
 });

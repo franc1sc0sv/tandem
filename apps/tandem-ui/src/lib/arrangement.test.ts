@@ -23,7 +23,7 @@ const screen = (id: string, machine: "a" | "b" | null, w: number, h: number, usa
 
 const MOCK: LayoutView = demoDesk(demoOptions("demo&still")).layout;
 
-/** Lo que calcula el mockup (`V3-Arrangement`, `renderVals`) para el Mac, el 34" y el 32". */
+/** What the mockup computes (`V3-Arrangement`, `renderVals`) for the Mac, the 34" and the 32". */
 function mockupBoxes(side: string, al: string) {
   const W = 76,
     H = 26,
@@ -54,7 +54,7 @@ function mockupBoxes(side: string, al: string) {
 
 const overlap = (a: Box, b: Box) => a.left < b.left + b.width - 1e-9 && b.left < a.left + a.width - 1e-9 && a.top < b.top + b.height - 1e-9 && b.top < a.top + a.height - 1e-9;
 
-/** Generador con semilla: las mismas pruebas de propiedades en cada corrida. */
+/** Seeded generator: the same property tests on every run. */
 function rng(seed: number) {
   let s = seed;
   return () => {
@@ -63,8 +63,8 @@ function rng(seed: number) {
   };
 }
 
-describe("dibujo a escala física", () => {
-  it("coincide con el mockup en los 4 lados × 3 alineaciones", () => {
+describe("physical-scale drawing", () => {
+  it("matches the mockup on the 4 sides × 3 alignments", () => {
     for (const side of SIDES) {
       for (const align of ALIGNS) {
         const d = draw({ ...MOCK, arrangement: { aSide: side, align } });
@@ -82,7 +82,7 @@ describe("dibujo a escala física", () => {
     }
   });
 
-  it("propiedades: sin solapes, dentro del lienzo, centrado y con el borde entre las dos", () => {
+  it("properties: no overlaps, inside the canvas, centered and with the edge between the two", () => {
     const r = rng(117);
     for (let i = 0; i < 300; i++) {
       const sz = () => [4 + r() * 60, 3 + r() * 30] as const;
@@ -101,14 +101,14 @@ describe("dibujo a escala física", () => {
         expect(b.top + b.height).toBeLessThanOrEqual(100 + 1e-9);
         for (const c of d.boxes.slice(j + 1)) expect(overlap(b, c), JSON.stringify({ side, align, b, c })).toBe(false);
       }
-      // Se centra solo: el mismo margen a cada lado en el eje que manda.
+      // It centers by itself: the same margin on each side on the governing axis.
       const minL = Math.min(...d.boxes.map((b) => b.left));
       const maxR = Math.max(...d.boxes.map((b) => b.left + b.width));
       const minT = Math.min(...d.boxes.map((b) => b.top));
       const maxB = Math.max(...d.boxes.map((b) => b.top + b.height));
       expect(minL).toBeCloseTo(100 - maxR, 6);
       expect(minT).toBeCloseTo(100 - maxB, 6);
-      // A queda del lado pedido de B, y el borde está entre las dos.
+      // A ends up on the requested side of B, and the edge is between the two.
       const [a, b] = d.boxes as [Box, Box];
       const e = d.edge;
       expect(e).not.toBeNull();
@@ -127,8 +127,8 @@ describe("dibujo a escala física", () => {
     }
   });
 
-  it("el borde de crossing es el tramo compartido (`shared_span` de tandem-input), no el largo de A", () => {
-    // Copia de `tandem_input::geometry::shared_span`: desde dónde hasta dónde del borde de B toca A.
+  it("the crossing edge is the shared stretch (`shared_span` of tandem-input), not the length of A", () => {
+    // Copy of `tandem_input::geometry::shared_span`: from where to where of B's edge A touches.
     const sharedSpan = (mine: number, theirs: number, align: "start" | "center" | "end") => {
       const off = (mine - theirs) * { start: 0, center: 0.5, end: 1 }[align];
       return [Math.max(off, 0), Math.min(off + theirs, mine)] as const;
@@ -147,21 +147,21 @@ describe("dibujo a escala física", () => {
       expect(e).not.toBeNull();
       if (!e) continue;
       const vertical = side === "left" || side === "right";
-      // Todo en porcentaje del lienzo: se pasa a pulgadas con la escala de B.
+      // Everything as a percentage of the canvas: converted to inches with B's scale.
       const [bStart, bLen, bTrue, aStart, aLen] = vertical ? [b.top, b.height, bh, a.top, a.height] : [b.left, b.width, bw, a.left, a.width];
       const inch = bTrue / bLen;
       const [from, to] = vertical ? sharedSpan(bh, ah, align) : sharedSpan(bw, aw, align);
       const eStart = vertical ? e.top : e.left;
-      expect((eStart - bStart) * inch, `${side}/${align} inicio`).toBeCloseTo(from, 6);
-      expect(e.length * inch, `${side}/${align} largo`).toBeCloseTo(to - from, 6);
-      // Y queda dentro de las dos pantallas a lo largo del borde.
+      expect((eStart - bStart) * inch, `${side}/${align} start`).toBeCloseTo(from, 6);
+      expect(e.length * inch, `${side}/${align} length`).toBeCloseTo(to - from, 6);
+      // And it stays inside both screens along the edge.
       expect(eStart).toBeGreaterThanOrEqual(Math.max(bStart, aStart) - 1e-9);
       expect(eStart + e.length).toBeLessThanOrEqual(Math.min(bStart + bLen, aStart + aLen) + 1e-9);
     }
   });
 
-  it("las pantallas de una misma machine se dibujan juntas con su x/y", () => {
-    // A tiene dos pantallas pegadas, la segunda 2" más abajo; B una sola, to the right of de A.
+  it("the screens of the same machine are drawn together with their x/y", () => {
+    // A has two screens side by side, the second 2" lower; B just one, to the right of A.
     const layout: LayoutView = {
       screens: [screen("a1", "a", 10, 8), screen("a2", "a", 10, 8, true, 10, 2), screen("b1", "b", 20, 10), screen("x", null, 6, 5, false)],
       arrangement: { aSide: "left", align: "start" },
@@ -169,27 +169,27 @@ describe("dibujo a escala física", () => {
     const d = draw(layout);
     const box = (id: string) => d.boxes.find((b) => b.id === id) as Box;
     const [a1, a2, b1, x] = [box("a1"), box("a2"), box("b1"), box("x")];
-    // Las de A se tocan en el borde y a2 baja 2" (mismo factor de escala que su ancho: 10" = a1.width).
+    // A's touch at the edge and a2 drops 2" (same scale factor as its width: 10" = a1.width).
     expect(a2.left).toBeCloseTo(a1.left + a1.width, 6);
-    const inH = a1.height / 8; // alto en % por pulgada
+    const inH = a1.height / 8; // height in % per inch
     expect(a2.top - a1.top).toBeCloseTo(2 * inH, 6);
-    // A, como un solo escritorio, queda to the left of de B; la desconectada, aparte.
+    // A, as a single desktop, is to the left of B; the disconnected one, apart.
     expect(Math.max(a1.left + a1.width, a2.left + a2.width)).toBeLessThan(b1.left);
     for (const [i, p] of d.boxes.entries()) for (const q of d.boxes.slice(i + 1)) expect(overlap(p, q), `${p.id}/${q.id}`).toBe(false);
     expect(x.left).toBeGreaterThan(b1.left + b1.width);
-    // El borde es el de todo el escritorio de A (a1 y a2: de 0 a 10" de alto), no el de una pantalla.
+    // The edge is that of A's whole desktop (a1 and a2: from 0 to 10" tall), not that of one screen.
     expect(d.edge).not.toBeNull();
     expect((d.edge?.length ?? 0) / b1.height).toBeCloseTo(10 / 10, 6);
   });
 
-  it("un desk que no entra agranda el lienzo con la misma proporción", () => {
+  it("a desk that does not fit enlarges the canvas with the same aspect ratio", () => {
     const big: LayoutView = { screens: [screen("a1", "a", 70, 40), screen("b1", "b", 70, 40)], arrangement: DEFAULT_ARRANGEMENT };
     const d = draw(big);
     expect(d.aspect).toBeCloseTo(76 / 26, 9);
     for (const b of d.boxes) expect(b.left + b.width).toBeLessThanOrEqual(100 + 1e-9);
   });
 
-  it("sin the other machine dibuja solo lo que hay, sin borde", () => {
+  it("without the other machine it draws only what exists, without an edge", () => {
     const d = draw({ screens: [screen("a1", "a", 12, 8)], arrangement: DEFAULT_ARRANGEMENT });
     expect(d.boxes).toHaveLength(1);
     expect(d.edge).toBeNull();
@@ -198,20 +198,20 @@ describe("dibujo a escala física", () => {
 });
 
 describe("panel", () => {
-  it("con el 34\" elegido pregunta por the other machine y la muestra de su lado", () => {
+  it("with the 34\" chosen it asks about the other machine and shows it on its side", () => {
     const p = panelFor(MOCK, "g34");
     expect(p?.question).toBe("Where is MacBook Pro?");
     expect(p?.other?.id).toBe("mbp");
     expect(p?.shown).toBe("left");
   });
 
-  it("con la pantalla de A elegida el mini plano se ve desde A (lado opuesto)", () => {
+  it("with A's screen chosen the mini plan is seen from A (opposite side)", () => {
     const p = panelFor(MOCK, "mbp");
     expect(p?.question).toBe("Where is the 34\"?");
     expect(p?.shown).toBe("right");
   });
 
-  it("una segunda pantalla conectada de la misma machine se acomoda igual que la principal", () => {
+  it("a second connected screen of the same machine is arranged the same as the main one", () => {
     const two: LayoutView = {
       screens: [screen("a1", "a", 10, 8), screen("a2", "a", 10, 8, true, 10, 0), screen("b1", "b", 20, 10)],
       arrangement: { aSide: "left", align: "center" },
@@ -221,18 +221,18 @@ describe("panel", () => {
     expect(p?.other?.id).toBe("b1");
     expect(p?.question).toBe("Where is b1?");
     expect(p?.shown).toBe("right");
-    // Lo que se elige desde la segunda es lo mismo que desde la primera.
+    // What is chosen from the second is the same as from the first.
     expect(placeOther(two.arrangement, "a", "down")).toEqual({ aSide: "up", align: "center" });
   });
 
-  it("una pantalla desconectada no entra en el arrangement", () => {
+  it("a disconnected screen does not take part in the arrangement", () => {
     const p = panelFor(MOCK, "g32");
     expect(p?.other).toBeNull();
     expect(p?.question).toBe("");
     expect(panelFor(MOCK, "nothing")).toBeNull();
   });
 
-  it("poner the other machine en una casilla y volver a leerla da la misma casilla, desde las dos", () => {
+  it("putting the other machine in a slot and reading it back gives the same slot, from both", () => {
     for (const m of ["a", "b"] as const) {
       for (const slot of SIDES) {
         const arr = placeOther(DEFAULT_ARRANGEMENT, m, slot);
@@ -243,22 +243,22 @@ describe("panel", () => {
     }
   });
 
-  it("la alineación dice Arriba/Centro/Abajo a los lados e Izquierda/Centro/Derecha arriba y abajo", () => {
+  it("the alignment says Top/Center/Bottom on the sides and Left/Center/Right above and below", () => {
     expect(Object.values(alignLabels("left"))).toEqual(["Top", "Center", "Bottom"]);
     expect(Object.values(alignLabels("right"))).toEqual(["Top", "Center", "Bottom"]);
     expect(Object.values(alignLabels("up"))).toEqual(["Left", "Center", "Right"]);
     expect(Object.values(alignLabels("down"))).toEqual(["Left", "Center", "Right"]);
   });
 
-  it("al abrir se elige la pantalla de the other machine", () => {
+  it("on opening, the screen of the other machine is chosen", () => {
     expect(initialSelection(MOCK, "a")).toBe("g34");
     expect(initialSelection(MOCK, "b")).toBe("mbp");
     expect(initialSelection({ screens: [], arrangement: DEFAULT_ARRANGEMENT }, "a")).toBeNull();
   });
 });
 
-describe("datos y colores", () => {
-  it("proporciones con nombre", () => {
+describe("data and colors", () => {
+  it("named aspect ratios", () => {
     expect(ratioLabel(3440, 1440)).toBe("21:9");
     expect(ratioLabel(2560, 1440)).toBe("16:9");
     expect(ratioLabel(1920, 1200)).toBe("16:10");
@@ -266,16 +266,16 @@ describe("datos y colores", () => {
     expect(ratioLabel(0, 10)).toBe("—");
   });
 
-  it("los acentos por omisión dan los tonos del mockup y cualquier otro uno oscuro", () => {
+  it("the default accents give the mockup tones and any other one a dark one", () => {
     expect(fillOf("#7aa7e6")).toBe("#16202e");
     expect(fillOf("#A99BE8")).toBe("#1d1a2b");
     expect(fillOf("#6cc59a")).toMatch(/^#[0-9a-f]{6}$/);
     expect(wallOf("#7aa7e6")).toBe("linear-gradient(160deg,#34496a,#1d2738)");
     expect(wallOf("#6cc59a")).toMatch(/^linear-gradient\(160deg,#[0-9a-f]{6},#[0-9a-f]{6}\)$/);
-    expect(fillOf("rojo")).toBe("#16171b");
+    expect(fillOf("crimson")).toBe("#16171b");
   });
 
-  it("el borde de salida de cada machine es el opuesto del de la other", () => {
+  it("the exit edge of each machine is the opposite of the other's", () => {
     for (const side of SIDES) {
       const arr = { aSide: side, align: "center" as const };
       expect(exitSide(arr, "b")).toBe(side);

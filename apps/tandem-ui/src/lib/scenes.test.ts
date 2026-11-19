@@ -28,7 +28,7 @@ const scene = (over: Partial<SceneJson> = {}): SceneJson => ({
 const ctx = { monitors, name: (m: "a" | "b") => (m === "a" ? "MacBook Pro" : "PC-Desktop"), mac: true };
 
 describe("scenes (D6)", () => {
-  it("el shortcut va de los códigos de teclado al formato de `formatAccel` y de vuelta", () => {
+  it("the shortcut goes from keyboard codes to the `formatAccel` format and back", () => {
     expect(accelOfCodes(["ControlRight", "AltLeft", "Digit4"])).toBe("Ctrl+Alt+Digit4");
     expect(accelOfCodes(["ControlLeft"])).toBe("");
     expect(codesOfAccel("Ctrl+Alt+Digit4")).toEqual(["ControlLeft", "AltLeft", "Digit4"]);
@@ -36,38 +36,38 @@ describe("scenes (D6)", () => {
     expect(shortcutText([], true)).toBe("");
   });
 
-  it("dos shortcuts son el mismo con cualquiera de las teclas de cada modificador; vacío nunca choca", () => {
+  it("two shortcuts are the same with either of the keys of each modifier; empty never clashes", () => {
     expect(sameShortcut(["ControlLeft", "Digit1"], ["ControlRight", "Digit1"])).toBe(true);
     expect(sameShortcut(["ControlLeft", "Digit1"], ["ControlLeft", "Digit2"])).toBe(false);
     expect(sameShortcut([], [])).toBe(false);
   });
 
-  it("la tarjeta dice qué muestra cada monitor y qué machine pone la miniatura", () => {
+  it("the card says what each monitor shows and which machine sets the thumbnail", () => {
     const v = sceneView(scene(), ctx);
     expect(v).toMatchObject({ id: "game", key: "⌃⌥4", desc: '34" → PC-Desktop', shows: "b" });
     expect(sceneView(scene({ monitors: [] }), ctx)).toMatchObject({ desc: "No monitors changed", shows: null });
   });
 
-  it("el borrador fresh deja cada monitor compatible sin cambiar y no ofrece el no compatible", () => {
+  it("the new draft leaves each compatible monitor unchanged and does not offer the incompatible one", () => {
     const d = newDraft(monitors);
     expect(d).toMatchObject({ id: null, name: "", picks: { "g5-34": "keep" }, shortcut: [] });
     expect("g5-32" in d.picks).toBe(false);
   });
 
-  it("editar conserva lo que la pantalla no edita y los monitors que hoy no se ven", () => {
+  it("editing preserves what the screen does not edit and the monitors that are not visible today", () => {
     const base = scene({ icon: "bolt", monitors: [["old", "a"]], require_on: "b" });
     const d = draftOf(sceneView(base, ctx), monitors);
     expect(d.picks).toEqual({ "g5-34": "keep", old: "a" });
     expect(sceneOf({ ...d, name: " New " })).toMatchObject({ id: "game", name: "New", icon: "bolt", require_on: "b", monitors: [["old", "a"]] });
   });
 
-  it("una scene nueva se guarda sin id y sin los monitors «sin cambiar»", () => {
+  it("a new scene is saved without an id and without the \"unchanged\" monitors", () => {
     const d = { ...newDraft(monitors), name: "Work" };
     d.picks["g5-34"] = "a";
     expect(sceneOf(d)).toMatchObject({ id: "", monitors: [["g5-34", "a"]], layout: null });
   });
 
-  it("no deja guardar sin nombre, con nombre largo ni con el shortcut de otra scene", () => {
+  it("does not allow saving without a name, with a long name or with another scene's shortcut", () => {
     const d = newDraft(monitors);
     expect(problemOf(d, [])).toEqual({ field: "name", text: "Give the scene a name" });
     expect(problemOf({ ...d, name: "x".repeat(MAX_NAME + 1) }, [])?.field).toBe("name");

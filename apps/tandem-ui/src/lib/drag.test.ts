@@ -17,20 +17,20 @@ function fake() {
   return { src: new LiveSource(bridge), onNotice, emit: (status: DragStatus) => notice?.({ kind: "drag", status }) };
 }
 
-describe("notice del arrastre de archivos", () => {
-  it("dice qué archivo se copia y cuántos faltan", () => {
+describe("file drag notice", () => {
+  it("says which file is being copied and how many are left", () => {
     expect(dragNotice({ kind: "copying", name: "a.txt", index: 1, total: 3 })).toEqual({ text: "Copying 2 of 3: a.txt", tone: "ok", ongoing: true });
     expect(dragNotice({ kind: "copied", total: 1 }).text).toBe("Ready to drop: 1 file");
     expect(dragNotice({ kind: "copied", total: 2 }).text).toBe("Ready to drop: 2 files");
   });
 
-  it("los finales cierran el notice y un fallo va en tono de error", () => {
+  it("the final ones close the notice and a failure uses the error tone", () => {
     expect(dragNotice({ kind: "dropped" }).ongoing).toBe(false);
     expect(dragNotice({ kind: "cancelled" }).ongoing).toBe(false);
     expect(dragNotice({ kind: "failed", reason: "no space" })).toEqual({ text: "Could not drag: no space", tone: "bad", ongoing: false });
   });
 
-  it("LiveSource reparte el notice con el mismo oyente de notices que las transacciones", async () => {
+  it("LiveSource delivers the notice with the same notice listener as the transactions", async () => {
     const { src, onNotice, emit } = fake();
     const got: DragStatus[] = [];
     const stop = await src.watchDrag((s) => got.push(s));
@@ -42,7 +42,7 @@ describe("notice del arrastre de archivos", () => {
     expect(got).toEqual([{ kind: "dropped" }]);
   });
 
-  it("el store usa un solo notice que se actualiza y se cierra solo al terminar", async () => {
+  it("the store uses a single notice that updates and closes by itself at the end", async () => {
     vi.useFakeTimers();
     const { src, emit } = fake();
     const store = new Store(src);
@@ -50,7 +50,7 @@ describe("notice del arrastre de archivos", () => {
     emit({ kind: "copying", name: "a.txt", index: 0, total: 2 });
     emit({ kind: "copying", name: "b.txt", index: 1, total: 2 });
     expect(store.toasts.map((t) => t.text)).toEqual(["Copying 2 of 2: b.txt"]);
-    // Mientras dura el arrastre no se cierra solo.
+    // While the drag lasts it does not close by itself.
     vi.advanceTimersByTime(30_000);
     expect(store.toasts).toHaveLength(1);
     emit({ kind: "copied", total: 2 });
@@ -60,7 +60,7 @@ describe("notice del arrastre de archivos", () => {
     expect(store.toasts).toHaveLength(0);
   });
 
-  it("un fallo sin avance previo igual se avisa", async () => {
+  it("a failure without prior progress is still announced", async () => {
     const { src, emit } = fake();
     const store = new Store(src);
     await store.start();

@@ -24,13 +24,13 @@ const desk: Desk = {
   scenes: [],
 };
 
-describe("lados", () => {
-  it("cada lado tiene al otro", () => {
+describe("sides", () => {
+  it("each side has the other", () => {
     expect(other("a")).toBe("b");
     expect(other("b")).toBe("a");
   });
 
-  it("los nombres salen del anuncio, del desk o son «machine A/B»; nunca Mac/PC fijos", () => {
+  it("names come from the announcement, from the desk or are \"machine A/B\"; never fixed Mac/PC", () => {
     const caps: Caps = { here: machineCaps("b"), peer: null };
     expect(machineName("b", caps, desk)).toBe("Workshop");
     expect(machineName("a", caps, desk)).toBe("Saved A");
@@ -38,14 +38,14 @@ describe("lados", () => {
     expect(machineName("a")).toBe("machine A");
   });
 
-  it("el color sale del anuncio o del desk, con uno por omisión por lado", () => {
+  it("the color comes from the announcement or the desk, with a default one per side", () => {
     const caps: Caps = { here: machineCaps("a"), peer: machineCaps("b") };
     expect(machineColor("a", caps)).toBe("#6cc59a");
     expect(machineColor("a", null, desk)).toBe("#111111");
     expect(machineColor("b")).toBe("#a99be8");
   });
 
-  it("dos Windows y dos Mac funcionan igual", () => {
+  it("two Windows and two Macs work the same", () => {
     const caps: Caps = { here: machineCaps("a"), peer: machineCaps("b") };
     expect(capsOf(caps, "a")?.os).toBe("windows");
     expect(capsOf(caps, "b")?.os).toBe("windows");
@@ -55,17 +55,17 @@ describe("lados", () => {
   });
 });
 
-describe("progress por pasos", () => {
+describe("progress by steps", () => {
   const name = (m: "a" | "b") => (m === "a" ? "Studio" : "Workshop");
 
-  it("nombra cada paso con la machine", () => {
+  it("names each step with the machine", () => {
     expect(stepLabel({ step: "power_on", machine: "b" }, name)).toBe("Power on Workshop");
     expect(stepLabel({ step: "power_off", machine: "a" }, name)).toBe("Power off Studio");
     expect(stepLabel({ step: "show_machine", monitor: "34", machine: "b" }, name)).toBe("Monitor 34 → Workshop");
     expect(stepLabel({ step: "geometry" }, name)).toBe("Keyboard and mouse: new geometry");
   });
 
-  it("avanza, termina y falla con el error del paso", () => {
+  it("advances, finishes and fails with the step's error", () => {
     let p: Progress | null = advance(null, { type: "started", txn: 1, steps: [{ step: "power_on", machine: "b" }] });
     expect(isRunning(p)).toBe(true);
     p = advance(p, { type: "step_started", txn: 1, index: 0 });
@@ -80,16 +80,16 @@ describe("progress por pasos", () => {
     f = advance(f, { type: "failed", txn: 2, state: { on: { a: true, b: false } } });
     expect(f?.outcome).toEqual({ kind: "failed", error: "no reply" });
 
-    // Una scene que falla en el segundo monitor deshace el primero.
+    // A scene that fails on the second monitor undoes the first.
     const show = (monitor: string) => ({ step: "show_machine" as const, monitor, machine: "b" as const });
     let u = advance(null, { type: "started", txn: 4, steps: [show("34"), show("27")] });
     u = advance(u, { type: "step_done", txn: 4, index: 0 });
-    u = advance(u, { type: "step_failed", txn: 4, index: 1, error: "sin verdict" });
+    u = advance(u, { type: "step_failed", txn: 4, index: 1, error: "no verdict" });
     u = advance(u, { type: "step_undone", txn: 4, index: 0 });
     expect(u?.status).toEqual(["undone", "failed"]);
   });
 
-  it("ignora notices de otra transacción", () => {
+  it("ignores notices of another transaction", () => {
     const p = advance(null, { type: "started", txn: 3, steps: [] });
     expect(advance(p, { type: "committed", txn: 9, state: { on: { a: true, b: false } } })).toBe(p);
     expect(advance(null, { type: "committed", txn: 9, state: { on: { a: true, b: false } } })).toBeNull();

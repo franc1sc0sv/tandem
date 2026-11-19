@@ -8,12 +8,12 @@ const colors = { a: "#7aa7e6", b: "#a99be8" };
 const desk = () => demoDesk(demoOptions("demo&still"));
 const scene = () => sceneOf(desk().layout, names, colors);
 
-describe("escritorios a escala (V3-Desk)", () => {
-  it("el demo cae donde el mockup dibuja the MacBook y el 34\"", () => {
+describe("scaled desktops (V3-Desk)", () => {
+  it("the demo lands where the mockup draws the MacBook and the 34\"", () => {
     const s = scene();
     const mac = s.desks.find((d) => d.machine === "a");
     const pc = s.desks.find((d) => d.machine === "b");
-    // Medidas del mockup, en % del lienzo (tolerancia de medio punto).
+    // Mockup measurements, in % of the canvas (half a point of tolerance).
     const near = (v: number | undefined, want: number) => expect(Math.abs((v ?? 99) - want)).toBeLessThan(0.5);
     near(mac?.left, 7.5);
     near(mac?.top, 36);
@@ -26,7 +26,7 @@ describe("escritorios a escala (V3-Desk)", () => {
     expect(s.aspect).toBeCloseTo(133 / 55, 2);
   });
 
-  it("los nombres y colores salen de cada machine", () => {
+  it("names and colors come from each machine", () => {
     const s = scene();
     expect(s.desks.map((d) => d.label)).toEqual(["MacBook Pro", '34" · PC-Desktop']);
     const other = sceneOf(desk().layout, { a: "Studio", b: "Workshop" }, { a: "#5fbfb0", b: "#e6a07a" });
@@ -34,32 +34,32 @@ describe("escritorios a escala (V3-Desk)", () => {
     expect(other.desks[0]?.wall).not.toBe(s.desks[0]?.wall);
   });
 
-  it("the MacBook tiene base y the monitor, soporte y pie", () => {
+  it("the MacBook has a base and the monitor a support and a stand", () => {
     expect(scene().feet).toHaveLength(3);
     expect(scene().feet.filter((f) => f.radius === 6)).toHaveLength(1);
   });
 
-  it("el borde de crossing cae en el lado de B donde queda A y mide lo que comparten", () => {
+  it("the crossing edge falls on the side of B where A is and measures what they share", () => {
     const s = scene();
     const pc = s.desks.find((d) => d.machine === "b");
     expect(s.edge?.vertical).toBe(true);
     expect(s.edge?.left).toBeCloseTo(pc?.left ?? 0, 5);
-    // Con A abajo del todo (align end) el tramo compartido es el alto de the MacBook.
+    // With A at the very bottom (align end) the shared stretch is the MacBook's height.
     expect(s.edge?.length).toBeGreaterThan(30);
     expect(s.edge?.length).toBeLessThan(40);
   });
 
-  it("sin pantallas no hay nada que dibujar", () => {
+  it("without screens there is nothing to draw", () => {
     const s = sceneOf({ ...desk().layout, screens: [] }, names, colors);
     expect(s.desks).toEqual([]);
     expect(s.edge).toBeNull();
   });
 });
 
-describe("cursor sobre el escritorio", () => {
+describe("cursor over the desktop", () => {
   const layout = () => desk().layout;
 
-  it("el centro de la pantalla nativa cae en el centro de su caja", () => {
+  it("the center of the native screen falls on the center of its box", () => {
     const s = scene();
     const mac = s.desks.find((d) => d.machine === "a");
     const p = cursorPoint(s, layout(), { machine: "a", screen: "mbp", x: 756, y: 491 });
@@ -67,7 +67,7 @@ describe("cursor sobre el escritorio", () => {
     expect(p?.top).toBeCloseTo((mac?.top ?? 0) + (mac?.height ?? 0) / 2, 5);
   });
 
-  it("sin id de pantalla se busca por el punto, y fuera de la pantalla se queda en el borde", () => {
+  it("without a screen id it is looked up by the point, and outside the screen it stays on the edge", () => {
     const s = scene();
     const pc = s.desks.find((d) => d.machine === "b");
     const p = cursorPoint(s, layout(), { machine: "b", screen: "", x: 99999, y: -5 });
@@ -75,12 +75,12 @@ describe("cursor sobre el escritorio", () => {
     expect(p?.top).toBeCloseTo(pc?.top ?? 0, 5);
   });
 
-  it("una machine sin pantallas conocidas no se dibuja", () => {
+  it("a machine without known screens is not drawn", () => {
     const l = { ...layout(), screens: layout().screens.map((x) => ({ ...x, native: undefined })) };
     expect(cursorPoint(scene(), l, { machine: "a", screen: "", x: 1, y: 1 })).toBeNull();
   });
 
-  it("ida y vuelta: del punto a la muestra y de la muestra al punto", () => {
+  it("round trip: from the point to the sample and from the sample to the point", () => {
     const s = scene();
     for (const d of s.desks) {
       for (const fx of [0.05, 0.3, 0.5, 0.95]) {
@@ -96,13 +96,13 @@ describe("cursor sobre el escritorio", () => {
     }
   });
 
-  it("entre las dos pantallas no hay muestra", () => {
+  it("between the two screens there is no sample", () => {
     expect(sampleAt(scene(), layout(), { left: 31.5, top: 50 })).toBeNull();
   });
 });
 
-describe("tráfico del link", () => {
-  it("cuenta eventos por segundo en la ventana", () => {
+describe("link traffic", () => {
+  it("counts events per second in the window", () => {
     const m = new RateMeter();
     for (let t = 0; t < 1000; t += 100) m.push(t);
     expect(m.rate(999)).toBe(10);
@@ -110,7 +110,7 @@ describe("tráfico del link", () => {
     expect(m.rate(5000)).toBe(0);
   });
 
-  it("el pulso va más rápido con más tráfico", () => {
+  it("the pulse goes faster with more traffic", () => {
     expect(flowSeconds(0)).toBeGreaterThan(flowSeconds(5));
     expect(flowSeconds(5)).toBeGreaterThan(flowSeconds(30));
     expect(flowSeconds(30)).toBe(1);
@@ -118,8 +118,8 @@ describe("tráfico del link", () => {
   });
 });
 
-describe("recorrido del demo (los fotogramas de `cur`)", () => {
-  it("parte y termina en el mismo punto y pasa por los del mockup", () => {
+describe("demo path (the `cur` keyframes)", () => {
+  it("starts and ends at the same point and passes through those of the mockup", () => {
     expect(demoPath(0)).toEqual({ left: 16, top: 56 });
     expect(demoPath(1)).toEqual({ left: 16, top: 56 });
     expect(demoPath(0.38)).toEqual({ left: 40, top: 48 });
@@ -127,7 +127,7 @@ describe("recorrido del demo (los fotogramas de `cur`)", () => {
     expect(DEMO_LOOP_MS).toBe(7000);
   });
 
-  it("siempre queda dentro del lienzo", () => {
+  it("always stays inside the canvas", () => {
     for (let i = 0; i <= 200; i++) {
       const p = demoPath(i / 200);
       expect(p.left).toBeGreaterThanOrEqual(0);
