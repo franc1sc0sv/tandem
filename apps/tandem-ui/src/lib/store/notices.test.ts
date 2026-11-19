@@ -1,5 +1,5 @@
-// D5: el recorrido del notice «Cambiado desde X · Deshacer», de punta a punta, por el agente (IPC
-// simulada) y por el modo demo; y el tope y el cierre de los notices.
+// D5: the journey of the "Changed from X · Undo" notice, end to end, through the agent (simulated
+// IPC) and through demo mode; and the cap and closing of notices.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Bridge } from "../bridge";
@@ -50,8 +50,8 @@ function fake() {
   return { bridge, act, emit: (n: Notice) => listeners.forEach((l) => l(n)) };
 }
 
-describe("notice de cambio del desk (D5) por el agente", () => {
-  it("desk_changed -> notice -> «Deshacer» -> undo_desk con la versión anterior", async () => {
+describe("desk change notice (D5) through the agent", () => {
+  it("desk_changed -> notice -> \"Undo\" -> undo_desk with the previous version", async () => {
     const { bridge, act, emit } = fake();
     const store = new Store(new LiveSource(bridge));
     await store.start();
@@ -65,7 +65,7 @@ describe("notice de cambio del desk (D5) por el agente", () => {
     await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "Change undone", tone: "ok" }));
   });
 
-  it("el notice con «Deshacer» no se va solo; los demás sí a los 6 s", async () => {
+  it("the notice with \"Undo\" does not go away by itself; the others do after 6 s", async () => {
     vi.useFakeTimers();
     const { bridge, emit } = fake();
     const store = new Store(new LiveSource(bridge));
@@ -78,7 +78,7 @@ describe("notice de cambio del desk (D5) por el agente", () => {
     expect(store.toasts).toEqual([]);
   });
 
-  it("un notice retenido (`hold`, la pila de ejemplo de F-Notices) no se va solo", async () => {
+  it("a held notice (`hold`, the sample stack of F-Notices) does not go away by itself", async () => {
     vi.useFakeTimers();
     const { bridge } = fake();
     const store = new Store(new LiveSource(bridge));
@@ -90,7 +90,7 @@ describe("notice de cambio del desk (D5) por el agente", () => {
     expect(store.toasts.map((t) => t.text)).toEqual(["Pinned"]);
   });
 
-  it("si el agente rechaza deshacer, avisa la razón", async () => {
+  it("if the agent rejects the undo, it announces the reason", async () => {
     const { bridge, act, emit } = fake();
     act.mockImplementation(async (a: unknown) =>
       (a as { kind: string }).kind === "undo_desk" ? ({ kind: "rejected", reason: "that version is gone" } as never) : ({ kind: "done" } as never),
@@ -102,7 +102,7 @@ describe("notice de cambio del desk (D5) por el agente", () => {
     await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "that version is gone", tone: "bad" }));
   });
 
-  it("la tray (sin ventana principal) no repite el notice", async () => {
+  it("the tray (without a main window) does not repeat the notice", async () => {
     const { bridge, emit } = fake();
     const store = new Store(new LiveSource(bridge), null, TRAY_TOPICS);
     await store.start();
@@ -110,7 +110,7 @@ describe("notice de cambio del desk (D5) por el agente", () => {
     expect(store.toasts).toEqual([]);
   });
 
-  it("la pila guarda a lo más TOAST_MAX notices y el más fresh va arriba", async () => {
+  it("the stack keeps at most TOAST_MAX notices and the newest goes on top", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     await store.start();
     for (let i = 0; i < TOAST_MAX + 3; i++) store.toast(`notice ${i}`);
@@ -119,8 +119,8 @@ describe("notice de cambio del desk (D5) por el agente", () => {
   });
 });
 
-describe("notice de cambio del desk (D5) en modo demo", () => {
-  it("the other machine cambia el desk, avisa y «Deshacer» restaura el estado anterior", async () => {
+describe("desk change notice (D5) in demo mode", () => {
+  it("the other machine changes the desk, announces it and \"Undo\" restores the previous state", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     const store = new Store(src);
     await store.start();
@@ -137,7 +137,7 @@ describe("notice de cambio del desk (D5) en modo demo", () => {
     await vi.waitFor(() => expect(store.toasts[0]).toMatchObject({ text: "Change undone", tone: "ok" }));
   });
 
-  it("?peeredit hace que the other machine cambie el desk sola", async () => {
+  it("?peeredit makes the other machine change the desk by itself", async () => {
     vi.useFakeTimers();
     const store = new Store(new DemoSource(demoOptions("demo&still&peeredit")));
     await store.start();
@@ -146,16 +146,16 @@ describe("notice de cambio del desk (D5) en modo demo", () => {
     expect(store.toasts[0]?.text).toMatch(/^Changed from /);
   });
 
-  it("deshacer una versión que no existe no cambia nada y lo dice", async () => {
+  it("undoing a version that does not exist changes nothing and says so", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     expect(await src.undoDesk(99)).toEqual({ ok: false, reason: expect.any(String) });
   });
 });
 
-describe("notice de transferencia con progress (alcance 3)", () => {
+describe("transfer notice with progress (scope 3)", () => {
   const t = (done: number, finished = false) => ({ kind: "transfer" as const, upload: true, path: "/x/wedding.zip", done, total: 100, finished });
 
-  it("cada muestra actualiza el mismo notice y al terminar queda en ok y se va solo", async () => {
+  it("each sample updates the same notice and on finishing it ends as ok and goes away by itself", async () => {
     vi.useFakeTimers();
     const { bridge, emit } = fake();
     const store = new Store(new LiveSource(bridge));
@@ -173,7 +173,7 @@ describe("notice de transferencia con progress (alcance 3)", () => {
     expect(store.toasts).toEqual([]);
   });
 
-  it("en el demo también se puede simular", async () => {
+  it("in the demo it can also be simulated", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     const store = new Store(src);
     await store.start();

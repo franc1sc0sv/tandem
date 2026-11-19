@@ -12,8 +12,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe("rutas", () => {
-  it("cada pantalla tiene su dirección y vuelve igual", () => {
+describe("routes", () => {
+  it("each screen has its address and comes back the same", () => {
     for (const hash of ["#/desk", "#/tunnels", "#/monitors", "#/arrangement", "#/network", "#/settings", "#/machine/a", "#/machine/b"]) {
       expect(formatHash(parseHash(hash))).toBe(hash);
     }
@@ -24,13 +24,13 @@ describe("rutas", () => {
 });
 
 describe("store", () => {
-  it("se suscribe a lo que el shell muestra siempre más lo de la pantalla visible", async () => {
+  it("subscribes to what the shell always shows plus that of the visible screen", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     const store = new Store(src);
     await store.start();
     const set = (t: string[] | undefined) => new Set(t);
     expect(set(src.watched.at(-1))).toEqual(new Set([...SHELL_TOPICS, ...SCREEN_TOPICS.desk]));
-    // El contador de tunnels de la barra lateral sigue vivo en cualquier pantalla.
+    // The sidebar tunnel counter stays live on any screen.
     store.go({ screen: "network" });
     expect(set(src.watched.at(-1))).toEqual(new Set(["machines", "tunnels", "link", "network"]));
     store.go({ screen: "tunnels" });
@@ -39,7 +39,7 @@ describe("store", () => {
       expect(topicsFor({ screen })).toEqual(expect.arrayContaining(SHELL_TOPICS));
       expect(new Set(topicsFor({ screen })).size).toBe(topicsFor({ screen }).length);
     }
-    // Other machine en la misma pantalla no vuelve a suscribir.
+    // The other machine on the same screen does not subscribe again.
     store.go({ screen: "machine", machine: "a" });
     const n = src.watched.length;
     store.go({ screen: "machine", machine: "b" });
@@ -47,7 +47,7 @@ describe("store", () => {
     expect(store.route).toEqual({ screen: "machine", machine: "b" });
   });
 
-  it("los recursos solo se mueven si la pantalla los muestra", async () => {
+  it("resources only move if the screen shows them", async () => {
     vi.useFakeTimers();
     const src = new DemoSource(demoOptions("demo"));
     const store = new Store(src);
@@ -62,7 +62,7 @@ describe("store", () => {
     store.stop();
   });
 
-  it("cambia la dirección y la sigue", async () => {
+  it("the address changes and follows it", async () => {
     const loc = { hash: "#/network" };
     const store = new Store(new DemoSource(demoOptions("demo&still")), loc);
     expect(store.route).toEqual({ screen: "network" });
@@ -73,7 +73,7 @@ describe("store", () => {
     expect(store.route).toEqual({ screen: "arrangement" });
   });
 
-  it("las acciones avisan lo que pasó", async () => {
+  it("the actions announce what happened", async () => {
     vi.useFakeTimers();
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     await store.start();
@@ -86,7 +86,7 @@ describe("store", () => {
     expect(store.toasts).toEqual([]);
   });
 
-  it("encender, apagar, medir y módulos en el demo", async () => {
+  it("power on, power off, measure and modules in the demo", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     await store.start();
     await store.setPower("b", false);
@@ -100,13 +100,13 @@ describe("store", () => {
     expect(store.desk.machines.b?.modules.find((m) => m.id === "clipboard")?.state).toBe("off");
   });
 
-  it("el contador de tunnels cuenta los activos", async () => {
+  it("the tunnel counter counts the active ones", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     await store.start();
     expect(store.activeTunnels).toBe(3);
   });
 
-  it("la palette y el asistente se abren y se cierran", () => {
+  it("the palette and the setup open and close", () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     store.togglePalette();
     expect(store.paletteOpen).toBe(true);
@@ -118,7 +118,7 @@ describe("store", () => {
     expect(store.paletteOpen).toBe(false);
   });
 
-  it("si la fuente falla, el error se muestra", async () => {
+  it("if the source fails, the error is shown", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     src.applyScene = () => Promise.reject(new Error("it crashed"));
     const store = new Store(src);
@@ -128,7 +128,7 @@ describe("store", () => {
 });
 
 describe("tray", () => {
-  it("pide su propio conjunto de temas y no cambia con la ruta", async () => {
+  it("asks for its own set of topics and does not change with the route", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     const store = new Store(src, null, TRAY_TOPICS);
     await store.start();
@@ -139,8 +139,8 @@ describe("tray", () => {
   });
 });
 
-describe("errores del agente", () => {
-  it("una foto a la que le faltan campos da «no agent» con la razón, no «conectando»", async () => {
+describe("agent errors", () => {
+  it("a snapshot with missing fields gives \"no agent\" with the reason, not \"connecting\"", async () => {
     const broken = { kind: "connected", agent: "a", desk: { screens: [], arrangement: { a_side: "left", offset: 0 } } };
     const bridge = { snapshot: async () => broken, onSnapshot: async () => {} } as unknown as Bridge;
     const store = new Store(new LiveSource(bridge));
@@ -150,19 +150,19 @@ describe("errores del agente", () => {
     expect(store.desk.troubleText).toContain("does not understand");
   });
 
-  it("un agente de la versión anterior (lados mac/pc) también", () => {
+  it("an agent of the previous version (mac/pc sides) too", () => {
     const old = { kind: "connected", agent: "mac", desk: { screens: [], arrangement: { mac_side: "left", offset: 0 } } };
     expect(() => deskFromSnapshot(old as unknown as Snapshot)).toThrow(/side “mac”/);
   });
 
-  it("si la fuente no arranca, se muestra el error", async () => {
+  it("if the source does not start, the error is shown", async () => {
     const bridge = { snapshot: async () => Promise.reject(new Error("no core")), onSnapshot: async () => {} } as unknown as Bridge;
     const store = new Store(new LiveSource(bridge));
     await store.start();
     expect(store.desk).toMatchObject({ ready: true, trouble: "no-agent", troubleText: "no core" });
   });
 
-  it("una foto rota después de arrancar no tumba la ventana", async () => {
+  it("a broken snapshot after starting does not take down the window", async () => {
     let push: ((s: unknown) => void) | undefined;
     const ok = { kind: "unavailable", endpoint: null, reason: "x" };
     const bridge = { snapshot: async () => ok, onSnapshot: async (cb: (s: unknown) => void) => (push = cb) } as unknown as Bridge;
@@ -174,8 +174,8 @@ describe("errores del agente", () => {
   });
 });
 
-describe("emparejar y permisos", () => {
-  it("el asistente se abre solo en el paso de emparejar cuando aparece el código", async () => {
+describe("pairing and permissions", () => {
+  it("the setup opens by itself on the pairing step when the code appears", async () => {
     vi.useFakeTimers();
     const store = new Store(new DemoSource(demoOptions("demo&still&peer=none")));
     await store.start();
@@ -191,7 +191,7 @@ describe("emparejar y permisos", () => {
     store.stop();
   });
 
-  it("la tray no abre el asistente", async () => {
+  it("the tray does not open the setup", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still&peer=none")), null, TRAY_TOPICS);
     await store.start();
     await store.pairAction("start_pairing");
@@ -199,7 +199,7 @@ describe("emparejar y permisos", () => {
     store.stop();
   });
 
-  it("primer arranque: en macOS abre en permisos; en Windows, sin par, abre en «Your desk»", async () => {
+  it("first run: on macOS it opens on permissions; on Windows, without a peer, it opens on \"Your desk\"", async () => {
     const mac = new Store(new DemoSource(demoOptions("demo&still&setup")));
     await mac.start();
     await mac.maybeFirstRun();
@@ -207,20 +207,20 @@ describe("emparejar y permisos", () => {
     const win = new Store(new DemoSource(demoOptions("demo&still&setup&here=b")));
     await win.start();
     await win.maybeFirstRun();
-    // Con par ya hecho no hay nada que ofrecer.
+    // With pairing already done there is nothing to offer.
     expect(win.wizardOpen).toBe(false);
     const fresh = new Store(new DemoSource(demoOptions("demo&still&setup&here=b&peer=none&demo=win-win")));
     await fresh.start();
     await fresh.maybeFirstRun();
     expect([fresh.wizardOpen, fresh.wizardStep]).toEqual([true, 1]);
-    // Una vez terminado, no vuelve a abrirse solo.
+    // Once finished, it does not open by itself again.
     await fresh.finishSetup();
     fresh.wizardOpen = false;
     await fresh.maybeFirstRun();
     expect(fresh.wizardOpen).toBe(false);
   });
 
-  it("la fuente real pasa los pedidos al agente y lee los permisos de macOS", async () => {
+  it("the real source passes the requests to the agent and reads the macOS permissions", async () => {
     const act = vi.fn(async () => ({ kind: "done" as const }));
     const openSettings = vi.fn(async () => {});
     const snap = {
@@ -259,19 +259,19 @@ describe("emparejar y permisos", () => {
     expect(act).toHaveBeenLastCalledWith({ kind: "request_permissions" });
     await store.openPermission("accessibility");
     expect(openSettings).toHaveBeenCalledWith("accessibility");
-    act.mockResolvedValueOnce({ kind: "rejected", reason: "ya hay uno in progress" } as never);
-    expect(await store.pairAction("start_pairing")).toEqual({ ok: false, reason: "ya hay uno in progress" });
+    act.mockResolvedValueOnce({ kind: "rejected", reason: "one is already in progress" } as never);
+    expect(await store.pairAction("start_pairing")).toEqual({ ok: false, reason: "one is already in progress" });
   });
 });
 
-describe("modo demo", () => {
-  it("se pide con ?demo", () => {
+describe("demo mode", () => {
+  it("is requested with ?demo", () => {
     expect(isDemo("?demo")).toBe(true);
     expect(isDemo("?demo=win-win&still")).toBe(true);
     expect(isDemo("?x=1")).toBe(false);
   });
 
-  it("es determinista y coherente en cada combinación de sistemas (D2)", () => {
+  it("is deterministic and coherent in each combination of systems (D2)", () => {
     for (const pair of ["mac-win", "win-win", "mac-mac"] as const) {
       const d = demoDesk({ pair, here: "a", trouble: "none", still: true });
       expect(d).toEqual(demoDesk({ pair, here: "a", trouble: "none", still: true }));
@@ -287,7 +287,7 @@ describe("modo demo", () => {
     expect(mm.here).toBe("b");
   });
 
-  it("cada estado difícil", () => {
+  it("each trouble state", () => {
     const off = demoDesk(demoOptions("demo&trouble=peer-off"));
     expect(off.trouble).toBe("peer-off");
     expect(off.troubleText).toBe("PC-Desktop is off");
@@ -303,7 +303,7 @@ describe("modo demo", () => {
 });
 
 describe("network en el demo (T-102)", () => {
-  it("los caminos de V3-Network: principal, no cable y respaldo, con 60 s y el cambio a Wi-Fi", () => {
+  it("the paths of V3-Network: primary, no cable and backup, with 60 s and the switch to Wi-Fi", () => {
     const n = demoDesk(demoOptions("demo&still")).network;
     expect(n.paths.map((p) => [p.kind, p.state])).toEqual([
       ["usb4", "primary"],
@@ -316,7 +316,7 @@ describe("network en el demo (T-102)", () => {
     expect(n.paths[2]?.targetMs).toBe(20);
     expect(n.switches[1]).toMatchObject({ from: "usb4", to: "wifi", tookMs: 600 });
     expect(n.switches[0]?.at).toBeGreaterThan(n.switches[1]!.at);
-    // El pico de la gráfica es del Wi-Fi, mientras el cable estuvo fuera (corte hace 36 s).
+    // The chart peak belongs to Wi-Fi, while the cable was out (cut 36 s ago).
     const wifi = n.paths[2]!.history;
     const peak = Math.max(...wifi.map((h) => h.inputP99Ms ?? 0));
     expect(peak).toBe(5.6);
@@ -324,12 +324,12 @@ describe("network en el demo (T-102)", () => {
     expect(DEMO_NOW - n.switches[1]!.at).toBe(36_000);
     expect(n.now).toBe(DEMO_NOW);
     expect(n.paths.map((p) => p.detail)).toEqual(["USB4 · 20 Gbps", "2.5 GbE", "Wi-Fi 7 · home"]);
-    // No link, todos no cable.
+    // No link, all no cable.
     const off = demoDesk(demoOptions("demo&trouble=peer-off")).network;
     expect(off.paths.every((p) => p.state === "unplugged" && p.history.length === 0)).toBe(true);
   });
 
-  it("el historial solo avanza con la pantalla Red visible", async () => {
+  it("the history only advances with the Network screen visible", async () => {
     vi.useFakeTimers();
     const src = new DemoSource(demoOptions("demo"));
     const store = new Store(src);
@@ -342,11 +342,11 @@ describe("network en el demo (T-102)", () => {
     vi.advanceTimersByTime(1600);
     expect(usb()).not.toBe(before);
     expect(store.desk.network.paths[0]!.history).toHaveLength(60);
-    // El que no responde no avanza.
+    // The one that does not respond does not advance.
     expect(store.desk.network.paths[1]!.history.every((h) => h.rttMs === null)).toBe(true);
   });
 
-  it("medir cualquier camino que responde", async () => {
+  it("measuring any path that responds", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     const store = new Store(src);
     await store.start();
@@ -357,8 +357,8 @@ describe("network en el demo (T-102)", () => {
   });
 });
 
-describe("prueba de crossing en modo demo", () => {
-  it("«Test crossing» está disponible y el crossing sale por el borde del arrangement (y el equivocado con cross=wrong)", async () => {
+describe("crossing test in demo mode", () => {
+  it("\"Test crossing\" is available and the crossing leaves through the arrangement edge (and the wrong one with cross=wrong)", async () => {
     for (const [opts, same] of [["demo&cross=ok", true], ["demo&cross=wrong", false]] as const) {
       const src = new DemoSource(demoOptions(opts));
       const store = new Store(src);
@@ -374,7 +374,7 @@ describe("prueba de crossing en modo demo", () => {
   });
 });
 
-describe("fuente real", () => {
+describe("real source", () => {
   const connected = (over: Partial<Extract<Snapshot, { kind: "connected" }>> = {}): Snapshot => ({
     kind: "connected",
     agent: "b",
@@ -400,7 +400,7 @@ describe("fuente real", () => {
     ...over,
   });
 
-  it("traduce la foto del agente: nombres, colores y link de cada lado", () => {
+  it("translates the agent snapshot: names, colors and link of each side", () => {
     const d = deskFromSnapshot(connected());
     expect(d.ready).toBe(true);
     expect(d.here).toBe("b");
@@ -410,7 +410,7 @@ describe("fuente real", () => {
     expect(d.trouble).toBe("none");
   });
 
-  it("sin [[screens]], el arrangement usa las pantallas que lee el motor de cada machine, a escala entre sí", () => {
+  it("without [[screens]], the arrangement uses the screens the engine of each machine reads, at scale between them", () => {
     const snap = connected({
       agent: "a",
       input: {
@@ -425,12 +425,12 @@ describe("fuente real", () => {
     const b = screens.find((s) => s.machine === "b");
     expect(a).toMatchObject({ res: "1920 × 1080", ratio: "16:9", scale: "100 %" });
     expect(b).toMatchObject({ res: "3440 × 1440", ratio: "21:9", scale: "150 %" });
-    // 3440 px a 150 % son 2293 puntos: el dibujo respeta esa proporción entre las dos machines.
+    // 3440 px at 150 % is 2293 points: the drawing respects that proportion between the two machines.
     expect(b!.w / a!.w).toBeCloseTo(3440 / 1.5 / 1920, 3);
     expect(a!.native).toMatchObject({ id: "m32", w: 1920 });
   });
 
-  it("watchCrossing entrega el Crossed real con la entrada medida en la pantalla de llegada", async () => {
+  it("watchCrossing delivers the real Crossed with the input measured on the arrival screen", async () => {
     const act = vi.fn(async (_a: unknown) => ({ kind: "done" as const }));
     let notice: ((n: Notice) => void) | undefined;
     const bridge = {
@@ -461,7 +461,7 @@ describe("fuente real", () => {
     expect(act).toHaveBeenLastCalledWith({ kind: "watch_cursor", on: false });
   });
 
-  describe("watchCrossing sin muestra de llegada (reloj falso)", () => {
+  describe("watchCrossing without an arrival sample (fake clock)", () => {
     async function started() {
       vi.useFakeTimers();
       let notice: ((n: Notice) => void) | undefined;
@@ -481,7 +481,7 @@ describe("fuente real", () => {
     }
     afterEach(() => vi.useRealTimers());
 
-    it("un crossed sin cursor se informa a los 250 ms con of 0 y sin latencia inventada", async () => {
+    it("a crossed without a cursor is reported at 250 ms with of 0 and without an invented latency", async () => {
       const { got, notice } = await started();
       notice({ kind: "crossed", from: "a", to: "b", edge: "left" });
       vi.advanceTimersByTime(249);
@@ -490,7 +490,7 @@ describe("fuente real", () => {
       expect(got).toEqual([expect.objectContaining({ from: "a", edge: "left", at: 0, of: 0, ms: null })]);
     });
 
-    it("un crossed fresh reemplaza al pendiente: solo se informa el último", async () => {
+    it("a new crossed replaces the pending one: only the last is reported", async () => {
       const { got, notice } = await started();
       notice({ kind: "crossed", from: "a", to: "b", edge: "up" });
       vi.advanceTimersByTime(200);
@@ -501,7 +501,7 @@ describe("fuente real", () => {
       expect(got).toEqual([expect.objectContaining({ edge: "left", ms: null })]);
     });
 
-    it("una muestra de otra machine no cierra el crossing pendiente", async () => {
+    it("a sample from another machine does not close the pending crossing", async () => {
       const { got, notice } = await started();
       notice({ kind: "crossed", from: "a", to: "b", edge: "left" });
       notice({ kind: "cursor", sample: { machine: "a", screen: "m32", x: 5, y: 5 } });
@@ -511,7 +511,7 @@ describe("fuente real", () => {
     });
   });
 
-  it("los states difíciles salen de la foto", () => {
+  it("the trouble states come from the snapshot", () => {
     expect(deskFromSnapshot({ kind: "connecting" }).ready).toBe(false);
     expect(deskFromSnapshot({ kind: "unavailable", endpoint: null, reason: "not running" })).toMatchObject({ trouble: "no-agent", troubleText: "not running" });
     expect(deskFromSnapshot(connected({ state: { on: { a: false, b: true } } }))).toMatchObject({ trouble: "peer-off", troubleText: "Workshop is off" });
@@ -521,7 +521,7 @@ describe("fuente real", () => {
     expect(deskFromSnapshot(missing).trouble).toBe("permissions");
   });
 
-  it("T-159: el nombre del desk y la MAC para encender salen de la foto", () => {
+  it("T-159: the desk name and the MAC to power on come from the snapshot", () => {
     const snap = connected();
     expect(deskFromSnapshot(snap).deskName).toBe("My desk");
     expect(deskFromSnapshot(snap).machines.a?.wake).toEqual({ mac: null });
@@ -535,7 +535,7 @@ describe("fuente real", () => {
     expect(d.machines.b?.wake).toBeNull();
   });
 
-  it("pide al agente lo que sabe hacer y dice lo que todavía no", async () => {
+  it("asks the agent for what it can do and says what it cannot yet", async () => {
     const act = vi.fn(async (_a: unknown) => ({ kind: "bandwidth" as const, link: "wifi" as const, bytes_per_sec: 51_250_000 }));
     let push: ((s: Snapshot) => void) | undefined;
     const bridge = {
@@ -552,11 +552,11 @@ describe("fuente real", () => {
     push?.(connected({ caps: { ...((connected() as Extract<Snapshot, { kind: "connected" }>).caps), here: { ...(connected() as Extract<Snapshot, { kind: "connected" }>).caps.here, name: "New" } } }));
     expect(store.desk.machines.b?.name).toBe("New");
     expect(src.can("measure")).toBe(true);
-    // Con el agente conectado se aplican scenes y se cambian monitors (T-116).
+    // With the agent connected, scenes are applied and monitors changed (T-116).
     expect(src.can("scenes")).toBe(true);
     expect(src.can("monitors")).toBe(true);
     expect(src.can("forget")).toBe(false);
-    // Sin red a la vista, mide el camino por el que se ve a the other machine (410 Mbps = 51.25 MB/s).
+    // Without a network in sight, it measures the path the other machine is seen through (410 Mbps = 51.25 MB/s).
     expect(await src.measureLink()).toEqual({ ok: true, text: "Wi-Fi: 410 Mbps" });
     expect(act).toHaveBeenLastCalledWith({ kind: "measure_link", path: "wifi" });
     expect(await src.measureLink("usb4")).toEqual({ ok: true, text: "USB-C: 410 Mbps" });
@@ -578,7 +578,7 @@ describe("fuente real", () => {
   });
 });
 
-describe("scenes y transacciones contra el puente simulado", () => {
+describe("scenes and transactions against the simulated bridge", () => {
   const scene: SceneJson = { id: "game", name: "Game", monitors: [["g34", "b"]], shortcut: ["ControlLeft", "AltLeft", "Digit4"] };
 
   function fake() {
@@ -591,7 +591,7 @@ describe("scenes y transacciones contra el puente simulado", () => {
     return { src: new LiveSource(bridge), act, onNotice, emit: (event: TxnView) => notice?.({ kind: "txn", event } as Notice) };
   }
 
-  it("saveScene crea con add_scene y edita con edit_scene, y dice el texto de guardado", async () => {
+  it("saveScene creates with add_scene and edits with edit_scene, and says the saved text", async () => {
     const { src, act } = fake();
     expect(await src.saveScene(scene, true)).toEqual({ ok: true, text: "Scene “Game” saved" });
     expect(act).toHaveBeenLastCalledWith({ kind: "add_scene", scene });
@@ -599,13 +599,13 @@ describe("scenes y transacciones contra el puente simulado", () => {
     expect(act).toHaveBeenLastCalledWith({ kind: "edit_scene", scene });
   });
 
-  it("saveScene devuelve la razón si el agente rechaza la scene", async () => {
+  it("saveScene returns the reason if the agent rejects the scene", async () => {
     const { src, act } = fake();
-    act.mockResolvedValueOnce({ kind: "rejected", reason: "el shortcut ya lo usa “Work”" } as never);
-    expect(await src.saveScene(scene, true)).toEqual({ ok: false, reason: "el shortcut ya lo usa “Work”" });
+    act.mockResolvedValueOnce({ kind: "rejected", reason: "the shortcut is already used by “Work”" } as never);
+    expect(await src.saveScene(scene, true)).toEqual({ ok: false, reason: "the shortcut is already used by “Work”" });
   });
 
-  it("watchTxn oye una sola vez, reparte cada notice a todos y deja de repartir al cancelar", async () => {
+  it("watchTxn listens once, delivers each notice to all and stops delivering on cancel", async () => {
     const { src, onNotice, emit } = fake();
     const a: TxnView[] = [];
     const b: TxnView[] = [];
@@ -622,7 +622,7 @@ describe("scenes y transacciones contra el puente simulado", () => {
     expect(b).toHaveLength(2);
   });
 
-  it("el store separa el encendido de la scene y recuerda el link medido", async () => {
+  it("the store splits power-on from the scene and remembers the measured link", async () => {
     const { src, emit, act } = fake();
     const store = new Store(src);
     await store.start();
@@ -639,8 +639,8 @@ describe("scenes y transacciones contra el puente simulado", () => {
   });
 });
 
-describe("el link del demo sin emparejar", () => {
-  it("antes de emparejar solo se ve a the other machine por Wi-Fi; al emparejar pasa al cable", async () => {
+describe("the demo link without pairing", () => {
+  it("before pairing the other machine is only seen over Wi-Fi; after pairing it goes over the cable", async () => {
     vi.useFakeTimers();
     const store = new Store(new DemoSource(demoOptions("demo&still&peer=none")));
     await store.start();
