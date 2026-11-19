@@ -19,3 +19,6 @@ apps/tandem-ui/src-tauri/gen/
 # Sidecars: los copian scripts/macos/bundle.sh (tandemd-<target>) y
 # tools/windows/installer/build-installer.ps1 (instalador de Windows).
 apps/tandem-ui/src-tauri/binaries/
+
+# Temporary dirs that tests may create next to a crate; never versioned.
+.tmp*/

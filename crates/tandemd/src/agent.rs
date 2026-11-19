@@ -723,13 +723,14 @@ impl Agent {
     /// A new version made here: it stays in memory, in the history, in `tandem.toml`, in
     /// the UI and on the other machine. It is called with the change taken ([`Agent::edit`]).
     fn commit_local(&self, next: DeskVersion) {
+        // The file goes first (the desk in memory is never ahead of it). Writers are already
+        // serialized by the change being taken ([`Agent::edit`]), so the file I/O stays out of
+        // `sync`, which only keeps stamp and desk consistent for `desk_sync`.
+        self.save_desk(&next);
         {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
             clock.stamp = next.stamp;
             clock.history.record(next.clone());
-            // The file goes first (the desk in memory is never ahead of it), still under the
-            // lock so `desk_sync` cannot see the new stamp with the old desk.
-            self.save_desk(&next);
             self.desk.send_if_modified(|d| {
                 let changed = *d != next.desk;
                 d.clone_from(&next.desk);
@@ -766,13 +767,14 @@ impl Agent {
             screens = next.desk.screens.len(),
             "desk updated from the other machine"
         );
+        // The file goes first (the desk in memory is never ahead of it). Writers are already
+        // serialized by the change being taken ([`Agent::edit`]), so the file I/O stays out of
+        // `sync`, which only keeps stamp and desk consistent for `desk_sync`.
+        self.save_desk(&next);
         {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
             clock.stamp = next.stamp;
             clock.history.record(next.clone());
-            // The file goes first (the desk in memory is never ahead of it), still under the
-            // lock so `desk_sync` cannot see the new stamp with the old desk.
-            self.save_desk(&next);
             self.desk.send_if_modified(|d| {
                 let changed = *d != next.desk;
                 d.clone_from(&next.desk);
