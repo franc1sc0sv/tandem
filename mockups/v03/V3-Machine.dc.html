@@ -26,8 +26,6 @@ a{color:#9cc0f0}a:hover{color:#c3d8f6}
 .btn:hover{border-color:#4a4e58}
 .met{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:10px;background:#111215;border:1px solid #1f2126;min-width:0}
 .mod{display:grid;grid-template-columns:22px minmax(120px,170px) minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 4px;border-top:1px solid #1f2126;font-size:13px}
-.sw{width:38px;height:22px;border-radius:11px;background:#2f6a52;position:relative;border:0;cursor:pointer;flex:none}
-.sw::after{content:"";position:absolute;top:3px;left:19px;width:16px;height:16px;border-radius:50%;background:#e8e8eb}
 .met{animation:up .4s cubic-bezier(.2,.8,.2,1) both}
 .met polyline{stroke-dasharray:300;stroke-dashoffset:300;animation:dr 1.6s ease-out .2s forwards}
 .mod{animation:up .4s ease-out both}
@@ -65,8 +63,6 @@ a{color:#9cc0f0}a:hover{color:#c3d8f6}
 .grp polyline{stroke-dasharray:300;stroke-dashoffset:300;animation:dr 1.6s ease-out .2s forwards}
 @keyframes grow{from{width:0}}
 @keyframes wp{0%,100%{box-shadow:0 0 0 0 rgba(217,167,90,.35)}50%{box-shadow:0 0 0 4px rgba(217,167,90,0)}}
-.sw{transition:background .25s}
-.sw::after{transition:left .25s cubic-bezier(.3,1.4,.5,1)}
 @media (prefers-reduced-motion:reduce){.btn,.btn svg,.btn::after{transition:none!important}}
 </style>
 </helmet>
