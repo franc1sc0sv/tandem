@@ -1,6 +1,6 @@
 # Tandem — Project status
 
-> **v0.3** cut: 2026-11-18 · `develop` branch, status as of 2026-11-19 (after T-261) · `develop` CI passes on Linux, Windows and macOS. One rare macOS flake is still unexplained (T-190, blocked; the last 20 full `tandemd` suite runs on each OS had 0 failures).
+> **v0.3** cut: 2026-11-18 · `develop` branch, status as of 2026-11-19 (after T-290) · `develop` CI passes on Linux, Windows and macOS. One rare macOS flake is still unexplained (T-190, blocked; the last 20 full `tandemd` suite runs on each OS had 0 failures).
 > Design in `DESIGN.md` (v0.3) and `DECISIONS.md`; definition of done in `ACCEPTANCE.md`; autonomous work in `dev/night-run.md`; acceptance reports in `reports/`.
 
 ## In one line
@@ -9,8 +9,8 @@
 
 | | |
 |---|---|
-| Tasks | **163 done of 168** (`T-001`…`T-261`; open ones below) |
-| Tests | **1608 Rust + 682 UI (vitest)**, 0 failures, 11 ignored (`#[ignore = "hardware"]` and latency benches) |
+| Tasks | **171 done of 176** (`T-001`…`T-290`; open ones below) |
+| Tests | **1621 Rust + 732 UI (vitest)**, 0 failures, 11 ignored (`#[ignore = "hardware"]` and latency benches) |
 | Quality | `fmt`, `clippy -D warnings`, `svelte-check` and `pnpm build` with no warnings |
 | CI per PR | Linux · Windows · macOS · UI x3 · coverage · `.dmg` · Windows installer |
 
@@ -37,8 +37,8 @@
 | T-088, T-095, T-096 | blocked | Ignored monitors, own firmware for the 34" and live UI |
 | T-124 | todo | End-to-end acceptance |
 | T-190 | blocked | `pairing_hot_opens_the_input_session` failed once on macOS CI (not reproducible; every wait now names what hung, see T-230) |
-| T-231 | in this PR | Brings this file back in line with the backlog (closed by the same PR that adds this row) |
-| T-140…T-165, T-191…T-261 | done | Failures from the acceptance and hardware runs, personal data out of the repo, CI time limits, English migration (T-200…T-208), one-way links (T-237), macOS and Windows input fixes (T-239, T-241) |
+| T-290 | in this PR | Brings this file back in line with the backlog after acceptance round 5 (closed by the same PR that adds this row) |
+| T-140…T-165, T-191…T-280 | done | Failures from the acceptance and hardware runs, personal data out of the repo, CI time limits, English migration (T-200…T-208), one-way links (T-237), macOS and Windows input fixes (T-239, T-241), UI reply races (T-250, T-251), monitor report race after pairing (T-280) |
 
 ## Pending hardware verification
 
