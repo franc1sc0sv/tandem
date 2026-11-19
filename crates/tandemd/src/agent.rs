@@ -1011,6 +1011,7 @@ impl Agent {
             peer.send(ControlMsg::Monitors(reports));
         }
         peer.send(ControlMsg::Update(UpdateMsg::Version(VERSION.to_owned())));
+        self.replay_key_probe(&*peer);
     }
 
     /// Transaction progress, for the UI.

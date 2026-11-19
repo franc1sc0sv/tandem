@@ -36,6 +36,22 @@ impl Agent {
         self.orch.peer().send(ControlMsg::KeyProbe(msg));
     }
 
+    /// A link appeared: the test's notices that went out without one are repeated (what
+    /// [`PeerLink::send`](crate::orchestrator::PeerLink::send) promises). Each side only has a
+    /// link of its own once its manager installs it, which can be after the other side's: a key
+    /// heard in between was never told. Both messages are idempotent on the receiving side.
+    pub(super) fn replay_key_probe(&self, peer: &dyn crate::orchestrator::PeerLink) {
+        let status = self.key_probe_status();
+        if !status.armed {
+            return;
+        }
+        peer.send(ControlMsg::KeyProbe(KeyProbeMsg::Armed));
+        let me = self.machine();
+        if status.heard == Some(me) || status.second == Some(me) {
+            peer.send(ControlMsg::KeyProbe(KeyProbeMsg::Heard));
+        }
+    }
+
     /// The window here heard a key: the keyboard is on this machine.
     pub(super) fn heard_key(&self) {
         if self.hear(self.machine()) {
@@ -72,6 +88,13 @@ impl Agent {
             }
             KeyProbeMsg::Disarm => {
                 self.key_probe.send_replace(KeyProbeStatus::default());
+            }
+            KeyProbeMsg::Armed => {
+                self.key_probe.send_if_modified(|s| {
+                    let was = s.armed;
+                    s.armed = true;
+                    !was
+                });
             }
             KeyProbeMsg::Heard => {
                 self.hear(self.machine().other());
@@ -200,5 +223,83 @@ mod tests {
         assert!(a.input_status().defined);
         let saved = AgentConfig::load(&dir.path().join("tandem.toml")).unwrap();
         assert_eq!(saved.input.keyboard, Some(Machine::B));
+    }
+
+    /// What the agent sent to its peer, to see which notices a new link brings.
+    #[derive(Default)]
+    struct Recorder(std::sync::Mutex<Vec<tandem_proto::ControlMsg>>);
+
+    impl Recorder {
+        fn probes(&self) -> Vec<KeyProbeMsg> {
+            self.0
+                .lock()
+                .unwrap()
+                .iter()
+                .filter_map(|m| match m {
+                    ControlMsg::KeyProbe(p) => Some(*p),
+                    _ => None,
+                })
+                .collect()
+        }
+    }
+
+    impl crate::orchestrator::PeerLink for Recorder {
+        fn execute<'a>(&'a self, _: &'a tandem_core::Step) -> crate::orchestrator::StepFuture<'a> {
+            Box::pin(async { Ok(()) })
+        }
+        fn publish_state(&self, _: &tandem_core::State) {}
+        fn send(&self, msg: ControlMsg) {
+            self.0.lock().unwrap().push(msg);
+        }
+    }
+
+    /// The race of the wizard test on CI: the other side's own link was not installed yet when
+    /// its key was heard, so the notice went nowhere and nobody repeated it (T-240).
+    #[tokio::test]
+    async fn a_key_heard_before_the_link_is_told_when_it_appears() {
+        let dir = tempfile::tempdir().unwrap();
+        let b = fresh(dir.path());
+        // The other side armed us over its own link; ours is not there yet.
+        b.receive_key_probe(KeyProbeMsg::Arm);
+        b.handle(tandem_proto::UiCommand::HeardKey);
+        assert_eq!(b.key_probe_status().heard, Some(Machine::B));
+        let link = Arc::new(Recorder::default());
+        b.set_peer(link.clone());
+        assert_eq!(link.probes(), [KeyProbeMsg::Armed, KeyProbeMsg::Heard]);
+    }
+
+    #[tokio::test]
+    async fn a_new_link_says_nothing_about_a_test_that_is_not_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = fresh(dir.path());
+        let link = Arc::new(Recorder::default());
+        a.set_peer(link.clone());
+        assert!(link.probes().is_empty());
+        // Armed but nothing heard here: only that it listens.
+        a.handle(tandem_proto::UiCommand::KeyProbe { on: true });
+        let again = Arc::new(Recorder::default());
+        a.set_peer(again.clone());
+        assert_eq!(again.probes(), [KeyProbeMsg::Armed]);
+    }
+
+    #[tokio::test]
+    async fn repeating_that_it_listens_keeps_what_was_heard() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = fresh(dir.path());
+        a.receive_key_probe(KeyProbeMsg::Arm);
+        a.handle(tandem_proto::UiCommand::HeardKey);
+        a.receive_key_probe(KeyProbeMsg::Armed);
+        assert_eq!(a.key_probe_status().heard, Some(Machine::B));
+        // And it arms whoever did not get the first notice, without inventing a key.
+        let dir2 = tempfile::tempdir().unwrap();
+        let c = fresh(dir2.path());
+        c.receive_key_probe(KeyProbeMsg::Armed);
+        assert!(c.key_probe_status().armed);
+        assert_eq!(c.key_probe_status().heard, None);
+        // A repeated `Heard` (the replay) does not count twice.
+        c.receive_key_probe(KeyProbeMsg::Heard);
+        c.receive_key_probe(KeyProbeMsg::Heard);
+        assert_eq!(c.key_probe_status().heard, Some(Machine::A));
+        assert_eq!(c.key_probe_status().second, None);
     }
 }

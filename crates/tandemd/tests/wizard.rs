@@ -85,6 +85,17 @@ async fn start(
     port: u16,
     peer: (PublicKey, u16),
 ) -> Result<Running, PortTaken> {
+    start_with(machine, identity, port, peer, true).await
+}
+
+/// Like [`start`]; with `dial` off the agent only has the connection the other opens.
+async fn start_with(
+    machine: Machine,
+    identity: &Identity,
+    port: u16,
+    peer: (PublicKey, u16),
+    dial: bool,
+) -> Result<Running, PortTaken> {
     let dir = tempfile::tempdir().unwrap();
     let paths = Paths {
         config: dir.path().join("tandem.toml"),
@@ -122,6 +133,7 @@ async fn start(
             // Without reservation: a taken port fails right away and others are chosen.
             fallback_ports: Vec::new(),
             health: common::health(),
+            dial,
             ..NetOptions::default()
         },
     );
@@ -378,4 +390,50 @@ async fn activity_on_a_then_b_reaches_both_uis() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn activity_on_b_then_a_reaches_both_uis() {
     both_machines_reach_both_uis(false, 7).await;
+}
+
+/// T-240: each agent installs its own link toward the other on its own time, so the key
+/// can be heard on a machine whose link is not up yet even though the other's already is (slow CI).
+/// B cannot dial: its link only appears when its manager retries and adopts A's connection, a
+/// few seconds after A's is up, which forces that order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_key_heard_before_its_own_link_is_up_still_reaches_the_other() {
+    let (a_id, b_id) = sides(Identity::from_seed([9; 32]), Identity::from_seed([10; 32]));
+    let (mut a, mut b) = tandemd::start_pair!(
+        |a_port, b_port| start_with(Machine::A, &a_id, a_port, (b_id.public_key(), b_port), true),
+        start_with(
+            Machine::B,
+            &b_id,
+            b_port,
+            (a_id.public_key(), a_port),
+            false
+        )
+    );
+    within(async {
+        loop {
+            match a.ui.request(UiCommand::PingPeer).await.unwrap() {
+                Reply::Pong { .. } => break,
+                _ => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+    })
+    .await;
+    a.ui.request(UiCommand::KeyProbe { on: true })
+        .await
+        .unwrap();
+    let mut probe = b.agent.subscribe_key_probe();
+    within(probe.wait_for(|s| s.armed)).await.unwrap();
+    assert!(
+        b.agent.orchestrator().peer().rtt().is_none(),
+        "the premise: B has no link of its own yet"
+    );
+    b.ui.request(UiCommand::HeardKey).await.unwrap();
+    let mut probe = a.agent.subscribe_key_probe();
+    let heard = within(probe.wait_for(|s| s.heard.is_some()))
+        .await
+        .unwrap()
+        .heard;
+    assert_eq!(heard, Some(Machine::B));
+    a.stop().await;
+    b.stop().await;
 }
