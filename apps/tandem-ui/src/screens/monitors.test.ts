@@ -76,7 +76,7 @@ describe("Monitors (V3-Monitors) in demo mode", () => {
     await userEvent.click(within(other).getByRole("button", { name: "Apply" }));
     await waitFor(() => expect(store.route.screen).toBe("progress"));
     expect(await screen.findByRole("heading", { name: "Changes in progress" })).toBeInTheDocument();
-    expect(screen.getByText("Save how everything is")).toBeInTheDocument();
+    expect(screen.getByText("Save the current state")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to Monitors" })).toHaveAttribute("href", "#/monitors");
   });
 });
@@ -131,7 +131,7 @@ describe("Progress (F-Transactions) in demo mode", () => {
 
   it("if the monitor gives no image the rollback is seen and nothing is left half-done", async () => {
     await open("#/progress", "demo&still&txn=fail");
-    expect(await screen.findByText("Rolling back to how it was")).toBeInTheDocument();
+    expect(await screen.findByText("Rolling back to the previous state")).toBeInTheDocument();
     expect(screen.getByText("the monitor said: change failed")).toBeInTheDocument();
     expect(screen.getByText(/nothing was left half done/)).toBeInTheDocument();
   });

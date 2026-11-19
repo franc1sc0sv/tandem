@@ -69,7 +69,7 @@ a{color:#9cc0f0}
     </sc-if>
     <sc-if value="{{passed}}" hint-placeholder-val="{{ false }}">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#6cc59a" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="m7.5 12.5 3 3 6-6.5"></path></svg>
-      <div style="display:flex;flex-direction:column;gap:3px"><b style="font-weight:600">Crossed fine</b><span class="mut" style="font-size:12.5px">It entered PC-Desktop at the right height (y = 612 of 1440). Crossing latency: 0.4 ms.</span></div>
+      <div style="display:flex;flex-direction:column;gap:3px"><b style="font-weight:600">Crossed correctly</b><span class="mut" style="font-size:12.5px">It entered PC-Desktop at the right height (y = 612 of 1440). Crossing latency: 0.4 ms.</span></div>
       <span style="flex:1"></span><button type="button" class="btn" onClick="{{again}}"><svg class="rf" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.9-3M4 13a8 8 0 0 0 14.9 3"></path><path d="M20 4v4h-4M4 20v-4h4"></path></svg>Test again</button><a class="btn pri" href="V3-Arrangement.dc.html"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="m5 12 5 5L20 7"></path></svg>Done</a>
     </sc-if>
     <sc-if value="{{failed}}" hint-placeholder-val="{{ false }}">

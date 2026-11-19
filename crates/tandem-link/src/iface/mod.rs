@@ -30,7 +30,7 @@ pub use addr::{
 pub use assign::{
     AddrAssigner, AssignError, FakeAssigner, SystemAssigner, assign_command, is_permission_failure,
 };
-pub use classify::{classify, kind_for_addr, relabel, worst};
+pub use classify::{Shadowed, classify, kind_for_addr, relabel, relabel_with_shadowed, worst};
 pub use discover::{FakeDiscovery, InterfaceDiscovery, ScopedDiscovery, scoped_peer};
 pub use fake::FakeInterfaces;
 pub use follow::{WiredChange, follow_wired, wired_changes};
@@ -119,5 +119,7 @@ pub fn diff(old: &[NetInterface], new: &[NetInterface]) -> Vec<InterfaceEvent> {
 
 #[cfg(test)]
 mod cable_tests;
+#[cfg(test)]
+mod collision_tests;
 #[cfg(test)]
 mod tests;

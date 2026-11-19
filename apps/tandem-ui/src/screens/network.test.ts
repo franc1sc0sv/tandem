@@ -55,7 +55,7 @@ describe("Network (V3-Network) in demo mode", () => {
     expect(screen.getByText("Keyboard and mouse")).toBeInTheDocument();
     expect(screen.getByText("0.4 ms")).toBeInTheDocument();
     expect(screen.getByText("p99 1.9 ms")).toBeInTheDocument();
-    const bw = screen.getByText("Bandwidth").closest<HTMLElement>(".card")!;
+    const bw = screen.getAllByText("Bandwidth").find((e) => e.classList.contains("lbl"))!.closest<HTMLElement>(".card")!;
     expect(within(bw).getByText("9.4 Gbps")).toBeInTheDocument();
     expect(within(bw).getByText("over USB-C")).toBeInTheDocument();
     expect(screen.getByText("Latency · 60 s")).toBeInTheDocument();
@@ -71,7 +71,7 @@ describe("Network (V3-Network) in demo mode", () => {
     expect(within(usb!).getByText("USB-C cable")).toBeInTheDocument();
     expect(within(usb!).getByText("USB4 · 20 Gbps")).toBeInTheDocument();
     expect(usb!.querySelector(".st")).toHaveClass("primary");
-    expect(within(usb!).getByText("Main")).toBeInTheDocument();
+    expect(within(usb!).getByText("Primary")).toBeInTheDocument();
     expect(within(usb!).getByText("0.3 ms")).toBeInTheDocument();
     expect(within(usb!).getByText("9.4 Gbps")).toBeInTheDocument();
     expect(within(usb!).getByRole("meter", { name: "USB-C bandwidth" })).toHaveAttribute("aria-valuenow", "94");
@@ -221,10 +221,10 @@ describe("Network with the real agent (IPC)", () => {
     expect(screen.getAllByText("No cable")).toHaveLength(2);
     expect(screen.getAllByText("No signal")).toHaveLength(1);
     await flush(() => handlers.network?.(wire({ switches: [] })));
-    expect(screen.getByText("Main")).toBeInTheDocument();
+    expect(screen.getByText("Primary")).toBeInTheDocument();
     expect(screen.getByText("0.4 ms")).toBeInTheDocument();
     expect(screen.getByText("p99 1.9 ms")).toBeInTheDocument();
-    expect(within(screen.getByText("Bandwidth").closest<HTMLElement>(".card")!).getByText("9.4 Gbps")).toBeInTheDocument();
+    expect(within(screen.getAllByText("Bandwidth").find((e) => e.classList.contains("lbl"))!.closest<HTMLElement>(".card")!).getByText("9.4 Gbps")).toBeInTheDocument();
     expect(screen.getByText("Backup")).toBeInTheDocument();
     // Without link detail, the line is not invented.
     expect(screen.queryByText(/USB4 ·/)).toBeNull();

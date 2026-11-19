@@ -64,7 +64,7 @@ export function networkFromWire(w: NetworkWire, now: number): NetworkView {
 // ---------------------------------------------------------------------------------------
 // Texts.
 
-export const STATE_LABEL: Record<PathState, string> = { primary: "Main", backup: "Backup", unplugged: "No cable", down: "Down" };
+export const STATE_LABEL: Record<PathState, string> = { primary: "Primary", backup: "Backup", unplugged: "No cable", down: "Down" };
 
 /** A path with no reply: Wi-Fi has no cable, so it cannot be "No cable". */
 export const unpluggedText = (kind: LinkKind): string => (kind === "wifi" ? "no signal" : "no cable");

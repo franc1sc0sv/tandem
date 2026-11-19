@@ -42,11 +42,13 @@
       </Button>
     {/snippet}
   </PageHeader>
-  {#each network.notices as notice (notice.interface)}
+  {#each network.notices as notice (notice.interface + notice.message)}
     <section class="notice" role="alert">
       <b>{notice.interface}</b>
       <span>{notice.message}</span>
-      <code class="mono">{notice.command}</code>
+      {#if notice.command}
+        <code class="mono">{notice.command}</code>
+      {/if}
     </section>
   {/each}
   <LinkMap {network} a={nodes[0]!} b={nodes[1]!} />

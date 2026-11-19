@@ -5,6 +5,30 @@ use tandem_proto::Link;
 
 use super::*;
 
+#[test]
+fn link_notices_come_first_and_do_not_replace_the_cable_notices() {
+    let m = Metrics::default();
+    let notice = |interface: &str| tandem_proto::NetworkNotice {
+        interface: interface.into(),
+        message: "m".into(),
+        command: String::new(),
+    };
+    m.set_notices(vec![notice("Ethernet 3")]);
+    m.set_link_notices(vec![notice("Link manager")]);
+    let keys = |m: &Metrics| -> Vec<String> {
+        m.status()
+            .notices
+            .into_iter()
+            .map(|n| n.interface)
+            .collect()
+    };
+    assert_eq!(keys(&m), ["Link manager", "Ethernet 3"]);
+    m.set_notices(Vec::new());
+    assert_eq!(keys(&m), ["Link manager"]);
+    m.set_link_notices(Vec::new());
+    assert!(keys(&m).is_empty());
+}
+
 fn status(kind: LinkKind, rtt_ms: Option<u64>) -> LinkStatus {
     LinkStatus {
         kind,
