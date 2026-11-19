@@ -1386,7 +1386,10 @@ pub(crate) mod tests {
                 let (a, done) = (a.clone(), done.clone());
                 std::thread::spawn(move || {
                     let mut seen = 0u32;
-                    while !done.load(Ordering::Relaxed) {
+                    // Read at least once even if the writer already finished: on a busy
+                    // runner a reader may not be scheduled until then.
+                    loop {
+                        let finished = done.load(Ordering::Relaxed);
                         let v = a.desk_sync();
                         if v.stamp.rev > 0 {
                             assert_eq!(
@@ -1396,6 +1399,9 @@ pub(crate) mod tests {
                             );
                         }
                         seen += 1;
+                        if finished {
+                            break;
+                        }
                     }
                     seen
                 })
