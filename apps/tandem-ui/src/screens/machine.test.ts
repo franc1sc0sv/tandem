@@ -173,7 +173,10 @@ describe("V3-Machine (the other machine)", () => {
     const { store } = await mount();
     const sw = screen.getByRole("switch", { name: "Allow remote execution" });
     expect(sw).toHaveAttribute("aria-checked", "true");
-    expect(sw).toBeDisabled();
+    // Locked, not disabled: it stays focusable and says why (T-098: the agent cannot turn Tunnels off).
+    expect(sw).not.toBeDisabled();
+    expect(sw).toHaveAttribute("aria-readonly", "true");
+    expect(sw).toHaveAccessibleDescription("Always on: remote execution can't be turned off from here.");
     await userEvent.click(sw);
     expect(store.desk.machines.b?.modules.find((m) => m.id === "tunnels")?.state).toBe("active");
     expect(within(screen.getByRole("region", { name: "Modules" })).queryByRole("switch", { name: "Tunnels" })).toBeNull();

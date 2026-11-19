@@ -102,13 +102,13 @@ describe.each(PAIRS)("module switches in the $pair pair", ({ pair }) => {
         "Keyboard and mouse",
       ]);
       for (const name of ["Monitors", "Tunnels", "Remote compute", "Protected screens", "Power"]) expect(mods.queryByRole("switch", { name })).toBeNull();
-      // The mockup's "Allow remote execution" block stays on the other machine's page, shown on and disabled:
+      // The mockup's "Allow remote execution" block stays on the other machine's page, shown on and locked:
       // the agent cannot turn Tunnels off (DECISIONS T-098).
       const remote = screen.queryByRole("switch", { name: "Allow remote execution" });
       if (machine === store.desk.here) expect(remote).toBeNull();
       else {
         expect(remote).toBeInTheDocument();
-        expect(remote).toBeDisabled();
+        expect(remote).toHaveAttribute("aria-readonly", "true");
         expect(remote).toHaveAttribute("aria-checked", "true");
       }
     });

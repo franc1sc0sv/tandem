@@ -154,14 +154,30 @@ describe("Switch", () => {
     expect(onchange).not.toHaveBeenCalled();
   });
 
-  it("locked (fixed by the agent) does not change and is not dimmed like a disabled one", async () => {
-    const onchange = vi.fn();
-    render(Switch, { checked: true, label: "Locked", locked: true, onchange });
-    const sw = screen.getByRole("switch", { name: "Locked" });
+  it("disabled is dimmed and uses the native attribute", () => {
+    render(Switch, { checked: true, label: "Module", disabled: true });
+    const sw = screen.getByRole("switch", { name: "Module" });
     expect(sw).toBeDisabled();
+    expect(sw).not.toHaveClass("locked");
+  });
+
+  it("locked stays focusable and read-only, explains itself and never changes", async () => {
+    const user = userEvent.setup();
+    const onchange = vi.fn();
+    render(Switch, { checked: true, label: "Locked", locked: true, hint: "Always on.", onchange });
+    const sw = screen.getByRole("switch", { name: "Locked" });
+    expect(sw).not.toBeDisabled();
     expect(sw).toHaveClass("locked");
+    expect(sw).toHaveAttribute("aria-readonly", "true");
+    expect(sw).toHaveAttribute("aria-disabled", "true");
+    expect(sw).toHaveAttribute("title", "Always on.");
+    expect(sw).toHaveAccessibleDescription("Always on.");
+    await user.tab();
+    expect(sw).toHaveFocus();
+    await user.click(sw);
+    await user.keyboard(" ");
+    await user.keyboard("{Enter}");
     expect(sw).toHaveAttribute("aria-checked", "true");
-    await userEvent.click(sw);
     expect(onchange).not.toHaveBeenCalled();
   });
 });

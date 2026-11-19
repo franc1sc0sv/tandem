@@ -381,6 +381,7 @@
               label="Allow remote execution"
               disabled={busy !== null || (tunnels.switchable && !canSwitch(tunnels))}
               locked={!tunnels.switchable}
+              hint="Always on: remote execution can't be turned off from here."
               onchange={() => toggle(tunnels)}
             />
           </div>

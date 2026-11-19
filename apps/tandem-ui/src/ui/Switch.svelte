@@ -5,14 +5,18 @@
     label: string;
     disabled?: boolean;
     /**
-     * Fixed by the agent, not by the moment (it cannot turn that module off): it cannot be toggled
-     * but is not dimmed, so it reads like the mockup's switch.
+     * Fixed, not momentary (for example the agent cannot turn that module off): it cannot be
+     * toggled but stays focusable, is not dimmed and reads like the mockup's switch. Unlike
+     * `disabled`, it does not use the native attribute.
      */
     locked?: boolean;
+    /** Why it is locked, as the tooltip and the accessible description. */
+    hint?: string;
     onchange?: (checked: boolean) => void;
   }
 
-  let { checked = $bindable(), label, disabled = false, locked = false, onchange }: Props = $props();
+  let { checked = $bindable(), label, disabled = false, locked = false, hint, onchange }: Props = $props();
+  const hintId = $props.id();
 
   function toggle() {
     if (disabled || locked) return;
@@ -21,8 +25,23 @@
   }
 </script>
 
-<!-- A <button role="switch">: Space and Enter toggle it by themselves (F-Settings). -->
-<button type="button" class="sw" class:off={!checked} role="switch" aria-checked={checked} aria-label={label} disabled={disabled || locked} class:locked={locked && !disabled} onclick={toggle}></button>
+<!-- A <button role="switch">: Space and Enter toggle it by themselves (F-Settings). Locked: still a focusable button, read-only. -->
+<button
+  type="button"
+  class="sw"
+  class:off={!checked}
+  class:locked={locked && !disabled}
+  role="switch"
+  aria-checked={checked}
+  aria-label={label}
+  aria-readonly={locked ? "true" : undefined}
+  aria-disabled={locked ? "true" : undefined}
+  aria-describedby={locked && hint ? hintId : undefined}
+  title={locked ? hint : undefined}
+  {disabled}
+  onclick={toggle}
+></button>
+{#if locked && hint}<span id={hintId} class="sr-only">{hint}</span>{/if}
 
 <style>
   .sw {
@@ -61,7 +80,7 @@
     opacity: 0.45;
     cursor: default;
   }
-  .sw.locked:disabled {
-    opacity: 1;
+  .sw.locked {
+    cursor: default;
   }
 </style>
