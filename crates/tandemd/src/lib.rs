@@ -26,6 +26,8 @@
 //! - [`input`]: shared keyboard, mouse and clipboard, and where the keyboard is.
 //! - [`install`]: `--install` / `--uninstall` (initial config and startup with the session).
 //! - [`pairing`]: pairing with the other agent, requested from the UI.
+//! - [`secure`]: keyboard and mouse on the Windows secure desktop: the SYSTEM service, its
+//!   helper and their installation (T-027).
 //! - [`ipc`]: the local API for the UI (Unix socket / named pipe).
 //! - [`daemon`]: the assembled agent, the main loop and the orderly shutdown.
 //! - [`logging`]: `tracing` to stdout and to a file.
@@ -56,6 +58,7 @@ pub mod paths;
 pub mod peer;
 pub mod peer_watch;
 pub mod power;
+pub mod secure;
 #[cfg(feature = "sim-backends")]
 pub mod sim;
 pub mod store;

@@ -13,8 +13,14 @@ Options:
   --data-dir <dir>          directory for state, logs and socket (by default, the app's)
   --check-config <file>     validates the configuration and exits (code != 0 if invalid)
   --install                 registers the startup with the session (Windows; used by the
-                            installer)
-  --uninstall               removes the startup with the session (leaves the configuration)
+                            installer). With administrator it also refreshes the system
+                            service if it is installed
+  --with-service            with --install: also installs the system service for the
+                            secure desktop (UAC, sign-in screen; needs administrator)
+  --uninstall               removes the startup with the session and, with administrator,
+                            the system service (leaves the configuration)
+  --install-service         installs or refreshes only the system service (administrator)
+  --uninstall-service       removes only the system service (administrator)
   links                     lists the network interfaces, their detected type, the address the
                             wired link would use and the state of each path (spike S5)
   -h, --help                shows this help
@@ -25,8 +31,19 @@ pub enum Command {
     Run(RunArgs),
     CheckConfig(PathBuf),
     /// The `RunArgs` paths are the ones the agent will use when starting with the session.
-    Install(RunArgs),
+    /// `with_service`: also install the secure desktop service (T-027).
+    Install {
+        args: RunArgs,
+        with_service: bool,
+    },
     Uninstall,
+    /// Only the secure desktop service (T-027).
+    InstallService,
+    UninstallService,
+    /// `--service`: run as the Windows service (started by the SCM, not by people).
+    Service,
+    /// `--input-helper`: the helper the service launches in the console session.
+    InputHelper,
     /// `tandemd links`: diagnostics of the wired links (T-094). It uses the same paths
     /// as when running the agent.
     Links(RunArgs),
@@ -57,6 +74,10 @@ pub enum CliError {
 
 /// It does not appear in [`USAGE`]: it is not for users.
 const SIM_FLAG: &str = "--sim-backends";
+/// Neither do these: the SCM and the service start them.
+const SERVICE_FLAG: &str = "--service";
+const HELPER_FLAG: &str = "--input-helper";
+const WITH_SERVICE: &str = "--with-service";
 
 /// What to do instead of starting the agent; there can be only one.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -64,6 +85,10 @@ enum Action {
     Check,
     Install,
     Uninstall,
+    InstallService,
+    UninstallService,
+    Service,
+    InputHelper,
 }
 
 impl Action {
@@ -72,6 +97,10 @@ impl Action {
             Action::Check => "--check-config",
             Action::Install => "--install",
             Action::Uninstall => "--uninstall",
+            Action::InstallService => "--install-service",
+            Action::UninstallService => "--uninstall-service",
+            Action::Service => SERVICE_FLAG,
+            Action::InputHelper => HELPER_FLAG,
         }
     }
 }
@@ -82,6 +111,7 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
     let links = args.next_if(|a| a.to_str() == Some("links")).is_some();
     let mut run = RunArgs::default();
     let mut check = None;
+    let mut with_service = false;
     let mut action: Option<Action> = None;
     let mut set_action = |new: Action| match action {
         Some(old) if old == new => Err(CliError::Repeated(new.flag())),
@@ -111,6 +141,16 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
             }
             Some("--install") => set_action(Action::Install)?,
             Some("--uninstall") => set_action(Action::Uninstall)?,
+            Some("--install-service") => set_action(Action::InstallService)?,
+            Some("--uninstall-service") => set_action(Action::UninstallService)?,
+            Some(SERVICE_FLAG) => set_action(Action::Service)?,
+            Some(HELPER_FLAG) => set_action(Action::InputHelper)?,
+            Some(WITH_SERVICE) => {
+                if with_service {
+                    return Err(CliError::Repeated(WITH_SERVICE));
+                }
+                with_service = true;
+            }
             Some(SIM_FLAG) if cfg!(feature = "sim-backends") => {
                 if run.sim_backends {
                     return Err(CliError::Repeated(SIM_FLAG));
@@ -124,6 +164,13 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
     if let (true, Some(action)) = (run.sim_backends, action) {
         return Err(CliError::Conflict(action.flag(), SIM_FLAG));
     }
+    // `--with-service` only modifies `--install`.
+    if with_service && action != Some(Action::Install) {
+        return Err(CliError::Conflict(
+            action.map_or("running the agent", Action::flag),
+            WITH_SERVICE,
+        ));
+    }
     if links {
         return match action {
             Some(action) => Err(CliError::Conflict("links", action.flag())),
@@ -133,8 +180,15 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Command, CliErr
     }
     Ok(match (action, check) {
         (Some(Action::Check), Some(path)) => Command::CheckConfig(path),
-        (Some(Action::Install), _) => Command::Install(run),
+        (Some(Action::Install), _) => Command::Install {
+            args: run,
+            with_service,
+        },
         (Some(Action::Uninstall), _) => Command::Uninstall,
+        (Some(Action::InstallService), _) => Command::InstallService,
+        (Some(Action::UninstallService), _) => Command::UninstallService,
+        (Some(Action::Service), _) => Command::Service,
+        (Some(Action::InputHelper), _) => Command::InputHelper,
         _ => Command::Run(run),
     })
 }
@@ -174,13 +228,22 @@ mod tests {
 
     #[test]
     fn install_and_uninstall() {
-        assert_eq!(p(&["--install"]), Ok(Command::Install(RunArgs::default())));
+        assert_eq!(
+            p(&["--install"]),
+            Ok(Command::Install {
+                args: RunArgs::default(),
+                with_service: false
+            })
+        );
         assert_eq!(
             p(&["--config", "a.toml", "--install"]),
-            Ok(Command::Install(RunArgs {
-                config: Some("a.toml".into()),
-                ..RunArgs::default()
-            }))
+            Ok(Command::Install {
+                args: RunArgs {
+                    config: Some("a.toml".into()),
+                    ..RunArgs::default()
+                },
+                with_service: false
+            })
         );
         assert_eq!(p(&["--uninstall"]), Ok(Command::Uninstall));
         assert_eq!(
@@ -194,6 +257,48 @@ mod tests {
         assert_eq!(
             p(&["--uninstall", "--uninstall"]),
             Err(CliError::Repeated("--uninstall"))
+        );
+    }
+
+    #[test]
+    fn service_commands() {
+        assert_eq!(
+            p(&["--install", "--with-service"]),
+            Ok(Command::Install {
+                args: RunArgs::default(),
+                with_service: true
+            })
+        );
+        assert_eq!(
+            p(&["--with-service", "--install"]),
+            Ok(Command::Install {
+                args: RunArgs::default(),
+                with_service: true
+            })
+        );
+        assert_eq!(p(&["--install-service"]), Ok(Command::InstallService));
+        assert_eq!(p(&["--uninstall-service"]), Ok(Command::UninstallService));
+        assert_eq!(p(&["--service"]), Ok(Command::Service));
+        assert_eq!(p(&["--input-helper"]), Ok(Command::InputHelper));
+        assert_eq!(
+            p(&["--with-service"]),
+            Err(CliError::Conflict("running the agent", "--with-service"))
+        );
+        assert_eq!(
+            p(&["--uninstall", "--with-service"]),
+            Err(CliError::Conflict("--uninstall", "--with-service"))
+        );
+        assert_eq!(
+            p(&["--install", "--with-service", "--with-service"]),
+            Err(CliError::Repeated("--with-service"))
+        );
+        assert_eq!(
+            p(&["--service", "--input-helper"]),
+            Err(CliError::Conflict("--service", "--input-helper"))
+        );
+        assert_eq!(
+            p(&["links", "--service"]),
+            Err(CliError::Conflict("links", "--service"))
         );
     }
 

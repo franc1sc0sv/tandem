@@ -6,6 +6,9 @@
 ;   privileges if there is an administrator, otherwise HKCU\...\Run); then the agent is
 ;   started so as not to wait for the next login. No config is installed: the agent
 ;   generates it on startup with the monitors it detects (T-082).
+; - With an administrator, `--install` also refreshes the secure desktop service (T-027) if it
+;   is installed, and `--uninstall` removes it. The service lives in its own folder
+;   (%ProgramFiles%\Tandem Service), so stopping the user's agent never touches it.
 ; - On uninstall (not on an update): `tandemd --uninstall` removes the autostart. The
 ;   user's data (%APPDATA%\Tandem) is deleted only if the delete-data checkbox is ticked.
 

@@ -95,8 +95,13 @@ pass through as they are and the exit code is `tandemd`'s; errors go to the log 
 
 The `Run` key stays as an alternative because it does not ask for administrator, only affects the user
 who installs and is what Windows shows in *Task Manager → Startup apps*,
-where it can be disabled. The SYSTEM service mode with secure desktop (UAC,
-sign-in screen) is T-027 and stays as a later improvement.
+where it can be disabled.
+
+The SYSTEM service for the secure desktop (UAC prompts, lock screen, Ctrl+Alt+Del; T-027) is
+installed by the app's setup with one UAC prompt (`tandemd --install --with-service`) or by
+hand with `tandemd --install-service`; see `docs/dev/secure-desktop.md`. An elevated
+`tandemd --install` (the installer run as administrator) also refreshes an installed service,
+and an elevated `tandemd --uninstall` removes it.
 
 ### Tunnel privileges
 
@@ -196,5 +201,5 @@ pwsh tools\windows\installer\build-installer.ps1
 
 In CI it would be signed by storing the certificate in a repository secret, importing it into the
 runner's store before the build and passing the thumbprint; it is not enabled because there is no
-certificate. T-027's SYSTEM service will have its own signing requirements (documented
-in that task).
+certificate. What signing means for T-027's SYSTEM service (which binaries, why antivirus and
+WDAC care, when UIAccess would make it mandatory) is in `docs/dev/secure-desktop.md`.

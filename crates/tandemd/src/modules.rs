@@ -379,8 +379,8 @@ impl Module for Power {
     }
 }
 
-/// Keyboard and mouse on the Windows secure desktop (UAC, sign-in). It needs T-027's
-/// system service, which does not exist yet.
+/// Keyboard and mouse on the Windows secure desktop (UAC, sign-in): active while the
+/// injector reaches the helper of T-027's system service ([`crate::secure`]).
 pub struct SecureDesktop;
 
 impl Module for SecureDesktop {
@@ -394,9 +394,7 @@ impl Module for SecureDesktop {
         "The mouse and keyboard also on UAC prompts and at sign-in".into()
     }
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
-        ModuleState::Unavailable {
-            reason: "It needs Tandem's system service, which is not yet in this version".into(),
-        }
+        crate::secure::module_state(crate::secure::status())
     }
 }
 

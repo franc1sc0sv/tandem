@@ -43,14 +43,39 @@ fn main() -> ExitCode {
                 return ExitCode::FAILURE;
             }
         },
-        Command::Install(args) => {
-            if let Err(e) = install(args) {
+        Command::Install { args, with_service } => {
+            if let Err(e) = install(args, with_service) {
                 eprintln!("tandemd: {e:#}");
                 return ExitCode::FAILURE;
             }
         }
         Command::Uninstall => {
             if let Err(e) = uninstall() {
+                eprintln!("tandemd: {e:#}");
+                return ExitCode::FAILURE;
+            }
+        }
+        Command::InstallService => {
+            if let Err(e) = service_cmd::install() {
+                eprintln!("tandemd: {e:#}");
+                return ExitCode::FAILURE;
+            }
+        }
+        Command::UninstallService => {
+            if let Err(e) = service_cmd::uninstall() {
+                eprintln!("tandemd: {e:#}");
+                return ExitCode::FAILURE;
+            }
+        }
+        Command::Service => {
+            if let Err(e) = service_cmd::run_service() {
+                eprintln!("tandemd: {e:#}");
+                return ExitCode::FAILURE;
+            }
+        }
+        Command::InputHelper => {
+            if let Err(e) = service_cmd::run_helper() {
+                tracing::error!("{e:#}");
                 eprintln!("tandemd: {e:#}");
                 return ExitCode::FAILURE;
             }
@@ -211,8 +236,10 @@ fn backends(args: &RunArgs, paths: &Paths) -> (Backends, NetOptions) {
 }
 
 #[cfg(windows)]
-fn install(args: RunArgs) -> anyhow::Result<()> {
-    use tandemd::install::{self, AgentInstall, HighestTask, NotElevated, RunKey, WinAcl};
+fn install(args: RunArgs, with_service: bool) -> anyhow::Result<()> {
+    use tandemd::install::{
+        self, AgentInstall, HighestTask, NotElevated, RunKey, Scheduler, WinAcl,
+    };
 
     let paths = Paths::resolve(args.config.clone(), args.data_dir.clone())?;
     let exe = std::env::current_exe().context("could not find tandemd's executable")?;
@@ -256,6 +283,21 @@ fn install(args: RunArgs) -> anyhow::Result<()> {
             );
         }
     }
+    // The installer runs `--install` on every update: an installed service is refreshed with
+    // this version's binary (only possible with administrator).
+    let installed = tandemd::secure::windows::service_state()
+        .ok()
+        .flatten()
+        .is_some();
+    if with_service || installed {
+        if with_service || HighestTask.is_elevated() {
+            service_cmd::install()?;
+        } else {
+            println!(
+                "the system service was not refreshed (requires an administrator): run tandemd --install-service as administrator"
+            );
+        }
+    }
     Ok(())
 }
 
@@ -263,6 +305,22 @@ fn install(args: RunArgs) -> anyhow::Result<()> {
 fn uninstall() -> anyhow::Result<()> {
     use tandemd::install::{HighestTask, RunKey, uninstall_agent};
 
+    // The service goes first: removing the task requires the same administrator, and an
+    // uninstall without one must not leave the service half removed.
+    let service = tandemd::secure::windows::service_state()
+        .ok()
+        .flatten()
+        .is_some();
+    if service {
+        use tandemd::install::Scheduler;
+        if HighestTask.is_elevated() {
+            service_cmd::uninstall()?;
+        } else {
+            println!(
+                "the system service stays installed (removing it requires an administrator): run tandemd --uninstall-service as administrator"
+            );
+        }
+    }
     let (task, run) = uninstall_agent(&mut HighestTask, &mut RunKey)?;
     if task || run {
         println!("startup with the session removed");
@@ -272,9 +330,80 @@ fn uninstall() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The secure desktop service (T-027): `--install-service`, `--uninstall-service`,
+/// `--service` and `--input-helper`.
+#[cfg(windows)]
+mod service_cmd {
+    use anyhow::Context;
+    use tandemd::secure::install::Step;
+    use tandemd::secure::windows;
+
+    pub fn install() -> anyhow::Result<()> {
+        let exe = std::env::current_exe().context("could not find tandemd's executable")?;
+        let steps =
+            windows::install_service(&exe).context("could not install the system service")?;
+        for step in &steps {
+            if let Step::SetSasPolicy { value, .. } = step {
+                println!(
+                    "policy SoftwareSASGeneration = {value} (lets services send Ctrl+Alt+Del)"
+                );
+            }
+        }
+        println!(
+            "system service \"{}\" installed and running (secure desktop: UAC, sign-in screen, Ctrl+Alt+Del)",
+            tandemd::secure::SERVICE_NAME
+        );
+        Ok(())
+    }
+
+    pub fn uninstall() -> anyhow::Result<()> {
+        let exe = std::env::current_exe().context("could not find tandemd's executable")?;
+        let steps =
+            windows::uninstall_service(&exe).context("could not remove the system service")?;
+        if steps.contains(&Step::Delete) {
+            println!("system service removed");
+        } else {
+            println!("the system service was not installed");
+        }
+        Ok(())
+    }
+
+    pub fn run_service() -> anyhow::Result<()> {
+        windows::run_service().context(
+            "the service dispatcher did not start: --service is only for the Windows service manager",
+        )
+    }
+
+    pub fn run_helper() -> anyhow::Result<()> {
+        if let Ok(dir) = tandemd::secure::windows::service_log_dir("helper") {
+            let _ = tandemd::logging::init(&dir);
+        }
+        windows::run_helper().context("the input helper failed")
+    }
+}
+
+#[cfg(not(windows))]
+mod service_cmd {
+    pub fn install() -> anyhow::Result<()> {
+        anyhow::bail!("--install-service only exists on Windows")
+    }
+
+    pub fn uninstall() -> anyhow::Result<()> {
+        anyhow::bail!("--uninstall-service only exists on Windows")
+    }
+
+    pub fn run_service() -> anyhow::Result<()> {
+        anyhow::bail!("--service only exists on Windows")
+    }
+
+    pub fn run_helper() -> anyhow::Result<()> {
+        anyhow::bail!("--input-helper only exists on Windows")
+    }
+}
+
 // On macOS startup is a LaunchAgent installed by the app (T-070).
 #[cfg(not(windows))]
-fn install(_args: RunArgs) -> anyhow::Result<()> {
+fn install(_args: RunArgs, _with_service: bool) -> anyhow::Result<()> {
     anyhow::bail!("--install only exists on Windows")
 }
 

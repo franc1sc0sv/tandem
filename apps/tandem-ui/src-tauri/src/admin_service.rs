@@ -4,9 +4,11 @@
 //!   there asks for credentials: they are requested with the system dialog (`osascript ... with
 //!   administrator privileges`). The daemon uses its own state directory, so as not to
 //!   fight with the session agent.
-//! - Windows: the elevated task of T-104 (`tandemd --install` with UAC). Before asking for UAC the
-//!   same ACL checks as T-104 are made: elevating an executable that a
-//!   normal user writes would be handing out a UAC jump. The elevated `--install` repeats them.
+//! - Windows: the elevated task of T-104 plus the SYSTEM service of the secure desktop (T-027),
+//!   in one UAC prompt (`tandemd --install --with-service`). Before asking for UAC the same ACL
+//!   checks as T-104 are made: elevating an executable that a normal user writes would be
+//!   handing out a UAC jump. The elevated `--install` repeats them, and the service install
+//!   checks its copy in `%ProgramFiles%\Tandem Service` too.
 //!
 //! Everything it decides is portable. What elevates privileges goes behind [`Elevator`] and the
 //! state behind [`Probe`]; the tests use doubles and never elevate.
@@ -50,7 +52,7 @@ pub enum Platform {
         daemon: PathBuf,
     },
     Windows {
-        /// `tandemd.exe`: what is launched elevated with `--install`.
+        /// `tandemd.exe`: what is launched elevated with `--install --with-service`.
         daemon: PathBuf,
         /// What the task registers to start: `tandemw.exe` if it exists, otherwise `tandemd.exe`.
         /// It is the same one the elevated `--install` chooses (`launcher_for`).
@@ -84,7 +86,8 @@ pub trait Elevator {
 }
 
 pub trait Probe {
-    /// macOS: whether the plist exists and whether launchd has it loaded. Windows: whether the task exists.
+    /// macOS: whether the plist exists and whether launchd has it loaded. Windows: whether the
+    /// elevated task and the secure desktop service exist.
     fn state(&self, platform: &Platform) -> AdminState;
 }
 
@@ -182,6 +185,19 @@ pub fn powershell_args(program: &Path, arg: &str) -> Vec<String> {
     ]
 }
 
+/// The arguments of the elevated `tandemd.exe` on Windows: the task and the service at once.
+pub const WIN_INSTALL_ARGS: &str = "--install --with-service";
+
+/// The Windows state from what is seen: the elevated task and the SYSTEM service. Only one of
+/// them is a half-done install.
+pub fn win_state(task: bool, service: bool) -> AdminState {
+    match (task, service) {
+        (true, true) => AdminState::Ok,
+        (false, false) => AdminState::Off,
+        _ => AdminState::Pending,
+    }
+}
+
 /// The macOS state from what is seen: plist in place and loaded in launchd.
 pub fn mac_state(plist_exists: bool, loaded: bool) -> AdminState {
     match (plist_exists, loaded) {
@@ -261,7 +277,7 @@ pub fn install(
         },
         Platform::Windows { daemon, .. } => Elevation::WinUac {
             program: daemon.clone(),
-            arg: "--install".to_owned(),
+            arg: WIN_INSTALL_ARGS.to_owned(),
         },
         Platform::Unsupported(why) => return Err(AdminError::NotApplicable(why.clone())),
     };
@@ -393,11 +409,12 @@ impl Probe for System {
             #[cfg(windows)]
             Platform::Windows { .. } => {
                 use tandemd::install::{HighestTask, Scheduler};
-                if HighestTask.exists().unwrap_or(false) {
-                    AdminState::Ok
-                } else {
-                    AdminState::Off
-                }
+                let task = HighestTask.exists().unwrap_or(false);
+                let service = tandemd::secure::windows::service_state()
+                    .ok()
+                    .flatten()
+                    .is_some();
+                win_state(task, service)
             }
             _ => AdminState::Off,
         }
@@ -610,7 +627,7 @@ mod tests {
             f.asked.borrow()[0],
             Elevation::WinUac {
                 program: r"C:\Program Files\Tandem\tandemd.exe".into(),
-                arg: "--install".into()
+                arg: "--install --with-service".into()
             }
         );
     }
@@ -669,6 +686,14 @@ mod tests {
     }
 
     #[test]
+    fn win_state_table() {
+        assert_eq!(win_state(false, false), AdminState::Off);
+        assert_eq!(win_state(true, false), AdminState::Pending);
+        assert_eq!(win_state(false, true), AdminState::Pending);
+        assert_eq!(win_state(true, true), AdminState::Ok);
+    }
+
+    #[test]
     fn mac_state_table() {
         assert_eq!(mac_state(false, false), AdminState::Off);
         assert_eq!(mac_state(true, false), AdminState::Pending);
@@ -700,6 +725,9 @@ mod tests {
         let a = powershell_args(Path::new(r"C:\Users\O'Neil\tandemd.exe"), "--install");
         assert!(a[3].contains("-Verb RunAs"));
         assert!(a[3].contains(r"'C:\Users\O''Neil\tandemd.exe'"));
+        // Both flags reach the elevated process as one argument list.
+        let a = powershell_args(Path::new(r"C:\T\tandemd.exe"), WIN_INSTALL_ARGS);
+        assert!(a[3].contains("-ArgumentList '--install --with-service'"));
     }
 
     proptest! {
