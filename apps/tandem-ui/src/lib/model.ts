@@ -277,7 +277,7 @@ export type Notice =
   | { kind: "cursor"; sample: CursorSample }
   /** The cursor crossed the `edge` edge from `from` to `to` (T-128). */
   | { kind: "crossed"; from: Machine; to: Machine; edge: CrossEdge }
-  | { kind: "key_probe"; event: { armed: boolean; heard: Machine | null } }
+  | { kind: "key_probe"; event: { armed: boolean; heard: Machine | null; second?: Machine | null } }
   | { kind: "power"; machine: Machine; reason: string }
   /** The other machine changed the desk and won (D5): "Changed from X · Undo". */
   | { kind: "desk_changed"; by: Machine; rev: number; summary: string; undo_to: number }

@@ -985,6 +985,8 @@ pub struct KeyProbeStatus {
     pub armed: bool,
     /// The machine that received the key, if one has arrived.
     pub heard: Option<Machine>,
+    /// The other machine, when it was heard after `heard` (T-220).
+    pub second: Option<Machine>,
 }
 
 /// macOS permissions (TCC) the input engine needs.
@@ -2079,6 +2081,7 @@ pub(crate) mod samples {
         v.push(AgentToUi::KeyProbe(KeyProbeStatus {
             armed: true,
             heard: Some(Machine::B),
+            second: Some(Machine::A),
         }));
         v.push(AgentToUi::Reply {
             id: 13,

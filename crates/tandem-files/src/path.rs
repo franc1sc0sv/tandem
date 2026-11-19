@@ -118,7 +118,7 @@ mod tests {
 
     #[test]
     fn windows_rejects_what_it_cannot_store() {
-        for bad in ["a:b", "a\\b", "CON", "con.txt", "x?", "fin.", "fin ", "a|b"] {
+        for bad in ["a:b", "a\\b", "CON", "nul.txt", "x?", "fin.", "fin ", "a|b"] {
             assert!(
                 from_wire_for(Path::new("C:\\d"), bad, true).is_err(),
                 "{bad:?}"

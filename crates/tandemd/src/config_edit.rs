@@ -909,6 +909,7 @@ scale = 2.0
             (1u8..=100, proptest::option::of(1u32..10_000)),
             (
                 proptest::collection::btree_map("[a-z0-9-]{1,8}", (0u8..3, any::<bool>()), 0..3),
+                // Includes non-ASCII letters (Unicode test data).
                 proptest::option::of("[A-Za-z0-9áñ]{1,20}"),
             ),
         )

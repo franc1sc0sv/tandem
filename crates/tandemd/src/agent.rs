@@ -254,7 +254,7 @@ impl PeerInbox {
                 }
             }
             None => tracing::debug!(
-                canal = ?incoming.channel,
+                channel = ?incoming.channel,
                 "stream from the other agent without an input engine: closing it"
             ),
         }
@@ -474,8 +474,10 @@ impl Agent {
         }
         self.record_current();
         self.keyboard.send_modify(|k| *k = k.map(Machine::other));
-        self.key_probe
-            .send_modify(|p| p.heard = p.heard.map(Machine::other));
+        self.key_probe.send_modify(|p| {
+            p.heard = p.heard.map(Machine::other);
+            p.second = p.second.map(Machine::other);
+        });
         self.input_status
             .send_modify(|s| s.server = s.server.other());
         self.orch.set_machine(side);
@@ -2057,13 +2059,13 @@ pub(crate) mod tests {
         let file = dir.path().join("tandem.toml");
         let t099 = "machine = \"a\"\ndesk_rev = 7\ndesk_origin = \"b\"\n\
                     [machines.a]\nos = \"macos\"\nname = \"MacBook Pro\"\ncolor = \"#7aa7e6\"\n\
-                    [machines.b]\nos = \"windows\"\nname = \"PC-Escritorio\"\ncolor = \"#a99be8\"\n\
+                    [machines.b]\nos = \"windows\"\nname = \"PC-Desktop\"\ncolor = \"#a99be8\"\n\
                     [shortcuts]\nlock = [\"ControlLeft\", \"AltLeft\", \"Digit1\"]\n";
         std::fs::write(&file, t099).unwrap();
         let cfg = AgentConfig::load(&file).unwrap();
         let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
         let names: Vec<String> = a.desk().scenes.iter().map(|s| s.name.clone()).collect();
-        assert_eq!(names, ["Work", "Only MacBook Pro", "Only PC-Escritorio"]);
+        assert_eq!(names, ["Work", "Only MacBook Pro", "Only PC-Desktop"]);
         assert!(a.desk().scenes[0].shortcut.is_empty(), "⌃⌥1 is the lock");
         assert_eq!(a.desk_sync().stamp.rev, 8, "a change by this machine");
         assert_eq!(a.desk_sync().stamp.by, Machine::A);

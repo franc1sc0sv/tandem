@@ -108,6 +108,7 @@ mod tests {
         assert!("".parse::<Fingerprint>().is_err());
         assert!("ab".repeat(31).parse::<Fingerprint>().is_err());
         assert!("zz".repeat(32).parse::<Fingerprint>().is_err());
+        // Non-ASCII input (Unicode test data).
         assert!("é".repeat(32).parse::<Fingerprint>().is_err());
     }
 

@@ -29,10 +29,16 @@ use tokio::task::JoinHandle;
 const TIMEOUT: Duration = Duration::from_secs(20);
 const GIB: u64 = 1 << 30;
 
-async fn within<F: Future>(f: F) -> F::Output {
-    tokio::time::timeout(TIMEOUT, f)
-        .await
-        .expect("the test exceeded the maximum time")
+/// Says where it waited, to know which step hung (T-230).
+#[track_caller]
+fn within<F: Future>(f: F) -> impl Future<Output = F::Output> {
+    let at = std::panic::Location::caller();
+    async move {
+        match tokio::time::timeout(TIMEOUT, f).await {
+            Ok(v) => v,
+            Err(_) => panic!("the test exceeded the maximum time waiting at {at}"),
+        }
+    }
 }
 
 /// The first is side A's (DECISIONS A1).

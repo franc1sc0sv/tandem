@@ -14,9 +14,9 @@ try {
   const peerName = (await m1.snapshot()).desk.machines[(await m1.snapshot()).agent === "a" ? "b" : "a"].name;
   const row = p1.locator(".row", { hasText: peerName }).first();
   await row.getByRole("button", { name: "Renombrar" }).click();
-  await p1.locator("input.name").fill("Escritorio-PC"); await p1.keyboard.press("Enter"); await L.sleep(1500);
+  await p1.locator("input.name").fill("Desk-PC"); await p1.keyboard.press("Enter"); await L.sleep(1500);
   const n1 = [await names(m1), await names(m2)];
-  L.record(F, "renaming a machine on A reaches B (agent and tandem.toml)", eq(n1[0], n1[1]) && n1[0].includes("Escritorio-PC") && m2.toml().includes('name = "Escritorio-PC"'), JSON.stringify(n1));
+  L.record(F, "renaming a machine on A reaches B (agent and tandem.toml)", eq(n1[0], n1[1]) && n1[0].includes("Desk-PC") && m2.toml().includes('name = "Desk-PC"'), JSON.stringify(n1));
   const t2 = (await L.text(p2)).replace(/\n+/g, " | ");
   L.record(F, "B shows the notice \"Changed from … · Undo\"", /Changed from/.test(t2) && (await undoVisible(p2)), t2.match(/Changed[^|]*\|?[^|]*/)?.[0] ?? "(no notice)");
   await L.shot(p2, F, "notice-change");

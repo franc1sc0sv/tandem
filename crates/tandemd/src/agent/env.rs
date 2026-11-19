@@ -129,7 +129,7 @@ impl Agent {
                 match tokio::task::spawn_blocking(move || host.scan()).await {
                     Ok(scan) => {
                         tracing::info!(
-                            entornos = scan.environments.len(),
+                            environments = scan.environments.len(),
                             gpus = scan.hardware.gpus.len(),
                             ms = started.elapsed().as_millis() as u64,
                             "environments scanned"

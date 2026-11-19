@@ -646,7 +646,7 @@ mod tests {
     }
 
     #[test]
-    fn esquinas_muertas() {
+    fn dead_corners() {
         let l = shared(LayoutOptions {
             corner_margin: 20.0,
         });

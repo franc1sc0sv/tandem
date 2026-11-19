@@ -290,7 +290,7 @@ async fn supervise(
             tracing::info!(side = %agent.machine(), "the input engine restarts");
         } else {
             tracing::info!(
-                encendido = !on,
+                enabled = !on,
                 "keyboard and mouse turned on or off by the user"
             );
         }

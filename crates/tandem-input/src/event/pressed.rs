@@ -105,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn presionar_repetir_soltar() {
+    fn press_repeat_release() {
         let mut p = Pressed::new();
         assert_eq!(p.record(&key(0x04, KeyState::Pressed)), Change::Changed);
         assert_eq!(p.record(&key(0x04, KeyState::Pressed)), Change::Repeat);

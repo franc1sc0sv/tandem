@@ -28,7 +28,7 @@ try {
     await L.sleep(1500); const p = await L.openUi(m1, { hash: "#/tunnels" }); await L.sleep(3000); const tx = (await L.text(p)).replace(/\n+/g, " | ");
     L.record(F, "a UI opened (or reloaded) after opening a tunnel shows it without waiting for another change", /for-the-ui/.test(tx), tx.slice(60, 220));
     await c.call("tunnel_close", { tunnel: t.value.id }); c.close(); await p.ctx.close(); }
-  // Setup: «Cerrar»
+  // Setup: "Close"
   { const F = "F1-setup"; const p = await L.openUi(m1, { hash: "#/settings" }); await L.sleep(1000); await p.getByRole("button", { name: /Open/ }).first().click(); await L.sleep(1500);
     const b = await p.locator(".wz-close").boundingBox(); const hit = await p.evaluate(() => { const e = document.querySelector(".wz-close").getBoundingClientRect(); return document.elementFromPoint(e.x + e.width / 2, e.y + e.height / 2)?.className; });
     L.record(F, "the setup \"Close\" button is visible and can be pressed", b.height >= 24 && /wz-close/.test(String(hit)), `box ${Math.round(b.width)}×${Math.round(b.height)} px; what receives the click: ${hit}`);

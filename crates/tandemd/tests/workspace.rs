@@ -8,7 +8,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use tandem_core::Machine;
 use tandem_link::identity::{Identity, PublicKey};
@@ -23,10 +23,16 @@ use tokio::sync::oneshot;
 
 const TIMEOUT: Duration = Duration::from_secs(60);
 
-async fn within<F: Future>(f: F) -> F::Output {
-    tokio::time::timeout(TIMEOUT, f)
-        .await
-        .expect("the test exceeded the maximum time")
+/// Says where it waited, to know which step hung (T-230).
+#[track_caller]
+fn within<F: Future>(f: F) -> impl Future<Output = F::Output> {
+    let at = std::panic::Location::caller();
+    async move {
+        match tokio::time::timeout(TIMEOUT, f).await {
+            Ok(v) => v,
+            Err(_) => panic!("the test exceeded the maximum time waiting at {at}"),
+        }
+    }
 }
 
 struct Keys(BTreeSet<PublicKey>);
@@ -82,13 +88,42 @@ async fn the_repo_goes_to_the_other_machine_and_comes_back_as_a_branch_over_quic
     round_trip(dir.path(), dir.path()).await;
 }
 
+/// `to` named from the cwd (`../..` and down), without leaving anything in the cwd itself;
+/// `None` if they share no root (another drive on Windows).
+fn relative_from_cwd(to: &Path) -> Option<PathBuf> {
+    let cwd = std::env::current_dir().ok()?.canonicalize().ok()?;
+    let to = to.canonicalize().ok()?;
+    let (from, to): (Vec<_>, Vec<_>) = (cwd.components().collect(), to.components().collect());
+    if from.first() != to.first() {
+        return None;
+    }
+    let common = from.iter().zip(&to).take_while(|(a, b)| a == b).count();
+    let mut path = PathBuf::from(".");
+    path.extend(from[common..].iter().map(|_| Component::ParentDir));
+    path.extend(&to[common..]);
+    Some(path)
+}
+
+#[test]
+fn the_relative_path_from_the_cwd_reaches_the_same_directory() {
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let relative = relative_from_cwd(dir.path()).unwrap();
+    assert!(relative.is_relative());
+    assert_eq!(
+        relative.canonicalize().unwrap(),
+        dir.path().canonicalize().unwrap()
+    );
+}
+
 /// T-197: with a relative `--data-dir`, git runs in another cwd and could not find the bundles.
-/// The temporary directory lives under the test's cwd so it can be named relatively.
+/// The temporary directory lives in Cargo's target tmp dir (not in the crate, where a killed
+/// run used to leave `.tmp*` behind, T-230) and is named relatively from the cwd.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn workspace_works_with_a_relative_data_directory() {
-    let dir = tempfile::tempdir_in(".").unwrap();
-    let name = dir.path().file_name().unwrap();
-    let relative = Path::new(".").join(name).join("data");
+    let dir = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
+    let relative = relative_from_cwd(dir.path())
+        .expect("the target dir shares a root with the crate")
+        .join("data");
     assert!(relative.is_relative());
     fs::create_dir_all(&relative).unwrap();
     round_trip(&dir.path().canonicalize().unwrap(), &relative).await;

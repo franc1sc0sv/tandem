@@ -291,7 +291,7 @@ async fn invoke(app: &Arc<App>, cmd: &str, args: Value) -> Reply {
         }
         "setup_open" => {
             app.record("setup_open", args);
-            Err("estos permisos solo existen en macOS".into())
+            Err("these permissions only exist on macOS".into())
         }
         "agent_restart" => Err("the sign-in agent only exists on macOS".into()),
         "admin_status" => {

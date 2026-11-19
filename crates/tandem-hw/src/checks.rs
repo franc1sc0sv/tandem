@@ -473,8 +473,8 @@ pub async fn tunnel_files(ctx: &Ctx) -> CheckResult {
     let dir = scratch(&ctx.data_dir, "files");
     let out = async {
         let dir = dir?;
-        let sent = dir.join("ida.bin");
-        let back = dir.join("vuelta.bin");
+        let sent = dir.join("there.bin");
+        let back = dir.join("back.bin");
         let data = pattern(3 << 20);
         std::fs::write(&sent, &data)?;
         let (s, b) = (
