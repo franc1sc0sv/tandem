@@ -9,7 +9,7 @@ import { Store } from "../../lib/store/store.svelte";
 import { MCP_COMMAND } from "../../lib/wizard";
 import Shell from "../Shell.svelte";
 
-async function mount(query = "demo&still", step = 0, hash = "#/puesto") {
+async function mount(query = "demo&still", step = 0, hash = "#/desk") {
   const source = new DemoSource(demoOptions(query));
   const store = new Store(source, { hash });
   await store.start();
@@ -73,7 +73,7 @@ describe("paso 1: this machine", () => {
     expect(found.querySelectorAll(".wz-spin")).toHaveLength(0);
   });
 
-  it("el nombre y el color se guardan en el puesto", async () => {
+  it("el nombre y el color se guardan en el desk", async () => {
     const { dlg, store } = await mount();
     const input = within(dlg).getByRole("textbox", { name: "Name" });
     await userEvent.clear(input);
@@ -89,7 +89,7 @@ describe("paso 1: this machine", () => {
   });
 });
 
-describe("paso 2: tu puesto", () => {
+describe("paso 2: tu desk", () => {
   it("unirse: busca sola, el usuario escribe el código y las dos quedan emparejadas", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { dlg, store } = await mount("demo&still&peer=none", 1);
@@ -171,7 +171,7 @@ describe("paso 3: permisos", () => {
 });
 
 describe("paso 4: teclado y mouse", () => {
-  it("cada máquina lista lo que tiene; la que no tiene nada lo dice", async () => {
+  it("cada machine lista lo que tiene; la que no tiene nada lo dice", async () => {
     const { dlg } = await mount("demo&still", 3);
     const mac = within(dlg).getByRole("group", { name: "MacBook Pro" });
     expect(within(mac).getByText("Built-in keyboard")).toBeInTheDocument();
@@ -182,7 +182,7 @@ describe("paso 4: teclado y mouse", () => {
     expect(within(pc).getByText("If you plug the hub in here, it detects it on its own.")).toBeInTheDocument();
   });
 
-  it("marca la actividad de cada máquina cuando la oye (agente y ventana)", async () => {
+  it("marca la actividad de cada machine cuando la oye (agente y ventana)", async () => {
     const { dlg, source } = await mount("demo&still", 3);
     const pc = within(dlg).getByRole("group", { name: "PC-Desktop" });
     expect(within(pc).queryByText("Activity detected")).toBeNull();
@@ -211,8 +211,8 @@ describe("paso 4: el puntero quieto no es actividad", () => {
   });
 });
 
-describe("paso 5: acomodo y prueba de cruce", () => {
-  it("espera el cruce y, si pasa, lo dice y habilita Continuar", async () => {
+describe("paso 5: arrangement y prueba de crossing", () => {
+  it("espera el crossing y, si pasa, lo dice y habilita Continuar", async () => {
     const { dlg, store } = await mount("demo&still&cross=ok", 4);
     const next = within(dlg).getByRole("button", { name: "Continue" });
     expect(next).toHaveClass("wait");
@@ -236,7 +236,7 @@ describe("paso 5: acomodo y prueba de cruce", () => {
     expect(await within(dlg).findByText(/Did not cross in 20 s/)).toBeInTheDocument();
   });
 
-  it("mover the other machine con las flechas guarda el acomodo y reinicia la prueba", async () => {
+  it("mover the other machine con las flechas guarda el arrangement y reinicia la prueba", async () => {
     const { dlg, store } = await mount("demo&still&cross=ok", 4);
     await userEvent.click(within(dlg).getByRole("button", { name: "Test crossing" }));
     await within(dlg).findByText(/Crossed to/);
@@ -278,6 +278,6 @@ describe("paso 6: listo", () => {
     const { dlg, store } = await mount("demo&still", 5);
     await userEvent.click(within(dlg).getByRole("button", { name: "Go to desk" }));
     expect(store.wizardOpen).toBe(false);
-    expect(store.route).toEqual({ screen: "puesto" });
+    expect(store.route).toEqual({ screen: "desk" });
   });
 });

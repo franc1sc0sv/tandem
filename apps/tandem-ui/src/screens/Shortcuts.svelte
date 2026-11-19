@@ -1,10 +1,10 @@
 <script lang="ts">
-  // Ajustes → Atajos (`F-Settings--atajos`): una fila por atajo, que se guarda al grabarlo.
-  // La ventana (ui.toml) y el bloqueo y las escenas (el puesto compartido) se editan aquí;
-  // la paleta es de la ventana y no se cambia.
+  // Settings → Shortcuts (`F-Settings--shortcuts`): una fila por shortcut, que se guarda al grabarlo.
+  // La ventana (ui.toml) y el bloqueo y las scenes (el desk compartido) se editan aquí;
+  // la palette es de la ventana y no se cambia.
   import { onMount } from "svelte";
   import { useStore } from "../lib/context";
-  import { clashOf, codesOf, readLockCombo, rowsOf, type AtajoRow, type RowId } from "../lib/atajos";
+  import { clashOf, codesOf, readLockCombo, rowsOf, type ShortcutRow, type RowId } from "../lib/hotkeys";
   import type { Bindings, ShortcutsView } from "../lib/model";
   import { formatAccel, isMacPlatform, readCombo } from "../lib/shortcuts";
 
@@ -33,13 +33,13 @@
     }
   });
 
-  function record(r: AtajoRow) {
+  function record(r: ShortcutRow) {
     if (!r.editable) return;
     error = null;
     recording = recording === r.id ? null : r.id;
   }
 
-  async function apply(r: AtajoRow, accel: string): Promise<string | null> {
+  async function apply(r: ShortcutRow, accel: string): Promise<string | null> {
     if (r.id === "toggle_window") {
       const next: Bindings = { ...(view?.bindings ?? { toggle_window: null }), toggle_window: accel };
       view = await store.setShortcuts(next);
@@ -56,7 +56,7 @@
     return res.ok ? null : res.reason;
   }
 
-  async function onkeydown(e: KeyboardEvent, r: AtajoRow) {
+  async function onkeydown(e: KeyboardEvent, r: ShortcutRow) {
     if (recording !== r.id || busy) return;
     e.preventDefault();
     e.stopPropagation();

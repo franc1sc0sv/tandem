@@ -1,10 +1,10 @@
 // Crossing test (`F-CrossingTest`): se pide llevar el cursor a the other machine por el borde
-// del acomodo y se juzga con lo que informa el motor de entrada. Puro: el tiempo entra como
+// del arrangement y se juzga con lo que informa el motor de entrada. Puro: el tiempo entra como
 // número para probarlo sin relojes.
 
 import type { Machine, Side } from "./model";
 
-/** Lo que el motor de entrada informa cuando el cursor pasa de una máquina a la otra. */
+/** Lo que el motor de entrada informa cuando el cursor pasa de una machine a la otra. */
 export interface CrossSample {
   from: Machine;
   to: Machine;
@@ -14,7 +14,7 @@ export interface CrossSample {
   at: number;
   /** Largo de ese borde (alto si el borde es vertical, ancho si es horizontal); 0 si el motor no dijo dónde entró. */
   of: number;
-  /** Lo que tardó el cruce, en ms; `null` si el motor no lo midió (no llegó muestra). */
+  /** Lo que tardó el crossing, en ms; `null` si el motor no lo midió (no llegó muestra). */
   ms: number | null;
 }
 
@@ -26,7 +26,7 @@ export type CrossPhase =
   | { kind: "passed"; sample: CrossSample }
   | { kind: "wrong-edge"; sample: CrossSample }
   | { kind: "timeout" }
-  /** La fuente no informa cruces (el agente todavía no manda `CursorSample`). */
+  /** La fuente no informa crossings (el agente todavía no manda `CursorSample`). */
   | { kind: "unavailable"; reason: string };
 
 export function start(now: number): CrossPhase {
@@ -34,8 +34,8 @@ export function start(now: number): CrossPhase {
 }
 
 /**
- * Lo que pasa con un cruce informado. Solo cuenta mientras se espera y si sale de `from`:
- * un cruce de vuelta (de the other machine hacia aquí) no dice nada del borde.
+ * Lo que pasa con un crossing informado. Solo cuenta mientras se espera y si sale de `from`:
+ * un crossing de vuelta (de the other machine hacia aquí) no dice nada del borde.
  */
 export function onSample(phase: CrossPhase, from: Machine, expected: Side, s: CrossSample): CrossPhase {
   if (phase.kind !== "waiting" || s.from !== from) return phase;

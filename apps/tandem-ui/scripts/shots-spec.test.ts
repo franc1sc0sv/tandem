@@ -1,7 +1,7 @@
 import { PNG } from "pngjs";
 import { describe, expect, it } from "vitest";
 
-import { SCREEN_GATE, SHOTS, TUNELES, SIDEBAR_GATE, appUrl, crop, mask } from "./shots-spec.ts";
+import { SCREEN_GATE, SHOTS, TUNNELS, SIDEBAR_GATE, appUrl, crop, mask } from "./shots-spec.ts";
 
 function solid(w: number, h: number, rgb: [number, number, number]): Buffer {
   const p = new PNG({ width: w, height: h });
@@ -27,17 +27,17 @@ describe("arnés de capturas", () => {
   });
 
   it("la barra lateral de V3-Desk tiene el umbral del criterio (≥ 0.99, peor cuadro ≥ 0.97)", () => {
-    const puesto = SHOTS.find((s) => s.name === "desk");
-    expect(puesto?.mockup).toBe("V3-Desk");
-    expect(puesto?.regions?.[0]?.min).toEqual(SIDEBAR_GATE);
+    const desk = SHOTS.find((s) => s.name === "desk");
+    expect(desk?.mockup).toBe("V3-Desk");
+    expect(desk?.regions?.[0]?.min).toEqual(SIDEBAR_GATE);
     // T-113: y toda la pantalla.
-    expect(puesto?.min).toEqual(SIDEBAR_GATE);
+    expect(desk?.min).toEqual(SIDEBAR_GATE);
     expect(SIDEBAR_GATE).toEqual({ similarity: 0.99, worstTile: 0.97 });
     // Lo único que se tapa es lo que D1 quita.
-    expect(puesto?.ignore?.every((i) => i.reason.startsWith("D1"))).toBe(true);
+    expect(desk?.ignore?.every((i) => i.reason.startsWith("D1"))).toBe(true);
   });
 
-  it("la página Máquina (T-115) tiene umbral en la barra lateral y en el contenido", () => {
+  it("la página Machine (T-115) tiene umbral en la barra lateral y en el contenido", () => {
     const b = SHOTS.find((s) => s.name === "machine-b");
     expect(b?.mockup).toBe("V3-Machine");
     expect(b?.regions?.map((r) => [r.name, r.min])).toEqual([
@@ -61,13 +61,13 @@ describe("arnés de capturas", () => {
   });
 
   it("la pantalla Red entera exige el umbral y solo tapa lo permitido por mockups/README.md", () => {
-    const red = SHOTS.find((s) => s.name === "network");
-    expect(red?.mockup).toBe("V3-Network");
-    expect(red?.min).toEqual(SCREEN_GATE);
+    const network = SHOTS.find((s) => s.name === "network");
+    expect(network?.mockup).toBe("V3-Network");
+    expect(network?.min).toEqual(SCREEN_GATE);
     expect(SCREEN_GATE).toEqual({ similarity: 0.99, worstTile: 0.97 });
-    expect(red?.ignore?.map((i) => i.reason.split(":")[0])).toEqual(["D1", "T-102"]);
+    expect(network?.ignore?.map((i) => i.reason.split(":")[0])).toEqual(["D1", "T-102"]);
     // Una sola zona de la pantalla se tapa además de D1: el rótulo de la ventana de la gráfica.
-    expect(red?.ignore?.[1]?.mockupSelector).toContain("Latency · 10 min");
+    expect(network?.ignore?.[1]?.mockupSelector).toContain("Latency · 10 min");
   });
 
   it("tapa las zonas pedidas y nada más", () => {
@@ -80,21 +80,21 @@ describe("arnés de capturas", () => {
   });
 
   it("arma la URL de la app", () => {
-    expect(appUrl("http://app.local", { page: "index.html", query: "demo&still", hash: "#/red" })).toBe("http://app.local/index.html?demo&still#/red");
+    expect(appUrl("http://app.local", { page: "index.html", query: "demo&still", hash: "#/network" })).toBe("http://app.local/index.html?demo&still#/network");
     expect(appUrl("http://app.local", { page: "tray.html", query: "", hash: "" })).toBe("http://app.local/tray.html");
   });
 });
 
-describe("Túneles (T-114)", () => {
-  it("compara los seis estados del mockup y el plegado con el umbral de pantalla, con los clics del mockup", () => {
-    const gated = TUNELES.filter((s) => s.min);
+describe("Tunnels (T-114)", () => {
+  it("compara los seis states del mockup y el plegado con el umbral de pantalla, con los clics del mockup", () => {
+    const gated = TUNNELS.filter((s) => s.min);
     expect(gated.map((s) => s.state ?? "inicial")).toEqual(["inicial", "process-2", "tunnel-2-processes", "tunnel-no-processes", "tunnel-lora", "tunnel-closed", "project-collapsed"]);
     for (const s of gated) expect(s.min).toEqual(SCREEN_GATE);
-    for (const s of TUNELES) expect(SHOTS).toContain(s);
+    for (const s of TUNNELS) expect(SHOTS).toContain(s);
   });
 
-  it("los estados que el mockup no dibuja (vacío y 12 procesos) no llevan umbral de píxeles", () => {
-    const extra = TUNELES.filter((s) => !s.min);
+  it("los states que el mockup no dibuja (vacío y 12 procesos) no llevan umbral de píxeles", () => {
+    const extra = TUNNELS.filter((s) => !s.min);
     expect(extra.map((s) => s.query)).toEqual(["demo&still&tunnels=none", "demo&still&tunnels=many"]);
   });
 });

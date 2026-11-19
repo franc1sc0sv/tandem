@@ -1,5 +1,5 @@
-// El estado de la ventana: el puesto (de la fuente real o del demo), la pantalla visible, la
-// paleta y los avisos. Las pantallas leen de aquí y piden acciones aquí.
+// El estado de la ventana: el desk (de la fuente real o del demo), la pantalla visible, la
+// palette y los notices. Las pantallas leen de aquí y piden acciones aquí.
 
 import type { CommandContext } from "../commands";
 import { shouldOpen as pairingShouldOpen } from "../pairing";
@@ -13,7 +13,7 @@ import { EMPTY_DESK, deskFromError } from "./live";
 import { changeToast, deskEvents, transferToast, type ToastSpec, type ToastTone } from "../notices";
 import type { ActResult, Capability, CursorEvent, DeskView, FilesView, LinkKind, OutputChunk, OutputCursor, PairActionKind, ProcessRow, Source, Topic } from "./types";
 import type { UpdateView } from "../updates";
-import type { Arrangement } from "../acomodo";
+import type { Arrangement } from "../arrangement";
 import type { CrossSample } from "../crossing";
 import { STEP_PAIR, STEP_PERMISSIONS } from "../wizard";
 
@@ -21,10 +21,10 @@ import { STEP_PAIR, STEP_PERMISSIONS } from "../wizard";
 export const WIZARD_PAIR = STEP_PAIR;
 export const WIZARD_PERMISSIONS = STEP_PERMISSIONS;
 
-/** Lo que el shell muestra siempre (barra lateral: máquinas y contador de túneles). */
+/** Lo que el shell muestra siempre (barra lateral: machines y contador de tunnels). */
 export const SHELL_TOPICS: Topic[] = ["machines", "tunnels"];
 
-/** La bandeja: todo lo que lista, sin pantallas. */
+/** La tray: todo lo que lista, sin pantallas. */
 export const TRAY_TOPICS: Topic[] = ["machines", "link", "scenes", "tunnels", "resources"];
 
 /** Temas del shell más los de la pantalla, sin repetir. */
@@ -38,9 +38,9 @@ export interface Toast extends ToastSpec {
   auto: boolean;
 }
 
-/** Lo que dura un aviso en pantalla (`F-Notices`: «se van solos en 6 s»). */
+/** Lo que dura un notice en pantalla (`F-Notices`: «se van solos en 6 s»). */
 export const TOAST_MS = 6000;
-/** Cuántos avisos se apilan a la vez. */
+/** Cuántos notices se apilan a la vez. */
 export const TOAST_MAX = 5;
 
 export class Store implements CommandContext {
@@ -49,17 +49,17 @@ export class Store implements CommandContext {
   paletteOpen = $state(false);
   wizardOpen = $state(false);
   toasts: Toast[] = $state([]);
-  /** La transacción que se está viendo o acaba de terminar (escena, cambio de entrada). */
+  /** La transacción que se está viendo o acaba de terminar (scene, cambio de entrada). */
   run: Run | null = $state(null);
-  /** El encendido de una máquina (otra tarjeta de «Changes in progress»). */
+  /** El encendido de una machine (otra tarjeta de «Changes in progress»). */
   powerRun: Run | null = $state(null);
-  /** El último enlace que se midió desde esta ventana (su tarjeta queda a la vista). */
+  /** El último link que se midió desde esta ventana (su tarjeta queda a la vista). */
   measured: LinkKind | null = $state(null);
-  /** Reloj de la pantalla de progreso (cuenta el tiempo mientras corre). */
+  /** Reloj de la pantalla de progress (cuenta el tiempo mientras corre). */
   clock = $state(Date.now());
-  /** Ya se sabe si hay avisos de transacciones: antes, «sin progreso» todavía no quiere decir nada. */
+  /** Ya se sabe si hay notices de transacciones: antes, «sin progress» todavía no quiere decir nada. */
   txnReady = $state(false);
-  /** Número de túneles activos, para la barra lateral. */
+  /** Número de tunnels activos, para la barra lateral. */
   activeTunnels = $derived(this.desk.tunnels.filter((t) => t.state === "busy").length);
 
   private nextToast = 1;
@@ -67,11 +67,11 @@ export class Store implements CommandContext {
   private origin: { title: string; doneText: string } | null = null;
   private stopTxn: (() => void) | null = null;
   private stopDrag: (() => void) | null = null;
-  /** El aviso del arrastre in progress: se actualiza en lugar de apilar uno por archivo. */
+  /** El notice del arrastre in progress: se actualiza en lugar de apilar uno por archivo. */
   private clockTimer: ReturnType<typeof setInterval> | undefined;
 
   /**
-   * `fixedTopics`: temas fijos (la bandeja); sin esto, los del shell y la pantalla visible.
+   * `fixedTopics`: temas fijos (la tray); sin esto, los del shell y la pantalla visible.
    */
   constructor(
     private readonly source: Source,
@@ -81,7 +81,7 @@ export class Store implements CommandContext {
     if (location) this.route = parseHash(location.hash);
   }
 
-  /** La bandeja no tiene asistente: solo la ventana principal se abre al emparejar. */
+  /** La tray no tiene asistente: solo la ventana principal se abre al emparejar. */
   private get opensOnPairing(): boolean {
     return this.fixedTopics === null;
   }
@@ -98,7 +98,7 @@ export class Store implements CommandContext {
         const prev = this.desk;
         const before = prev.ready ? prev.pair.pairing : null;
         this.desk = d;
-        // Los avisos de lo que cambió, solo en la ventana principal; la bandeja no los repite.
+        // Los notices de lo que cambió, solo en la ventana principal; la tray no los repite.
         if (this.opensOnPairing) for (const spec of deskEvents(prev, d)) this.notify(spec);
         // Si the other machine empezó a emparejar (o apareció el código), el asistente se abre en ese paso.
         if (this.opensOnPairing && pairingShouldOpen(before, d.pair.pairing)) this.openWizard(WIZARD_PAIR);
@@ -114,34 +114,34 @@ export class Store implements CommandContext {
       this.desk = deskFromError(e);
     }
     this.source.watch(this.topics());
-    // No se espera: si la fuente tarda en dar los avisos (o no los tiene), la ventana ya se dibuja.
+    // No se espera: si la fuente tarda en dar los notices (o no los tiene), la ventana ya se dibuja.
     void this.listenTxn();
     void this.listenDrag();
   }
 
-  /** El avance del arrastre de archivos va en un solo aviso que se actualiza (T-121). */
+  /** El avance del arrastre de archivos va en un solo notice que se actualiza (T-121). */
   private async listenDrag(): Promise<void> {
     try {
       this.stopDrag = (await this.source.watchDrag?.((s) => this.showDrag(s))) ?? null;
     } catch {
-      // Sin avisos del agente (fuera de la app): no hay arrastre que mostrar.
+      // Sin notices del agente (fuera de la app): no hay arrastre que mostrar.
     }
   }
 
-  /** Pinta el estado del arrastre en su aviso. */
+  /** Pinta el estado del arrastre en su notice. */
   showDrag(s: DragStatus): void {
     const n = dragNotice(s);
-    // Con clave, cada estado reemplaza al aviso anterior; mientras sigue in progress no se va solo.
+    // Con clave, cada estado reemplaza al notice anterior; mientras sigue in progress no se va solo.
     this.notify({ key: "drag", text: n.text, tone: n.tone, hold: n.ongoing });
   }
 
-  /** Se queda oyendo el avance de las transacciones; sin eso (fuente sin ellas) no hay progreso que mostrar. */
+  /** Se queda oyendo el avance de las transacciones; sin eso (fuente sin ellas) no hay progress que mostrar. */
   private async listenTxn(): Promise<void> {
     try {
       this.stopTxn = await this.source.watchTxn((e, at, given) => {
         const before = this.run;
         const origin = e.type === "started" ? (given ?? this.origin) : null;
-        // Cada tipo de transacción tiene su tarjeta: el encendido va aparte de la escena.
+        // Cada tipo de transacción tiene su tarjeta: el encendido va aparte de la scene.
         if (e.type === "started" && e.steps[0]?.step === "power_on") this.powerRun = feedRun(this.powerRun, e, at ?? this.nowMs(), origin);
         else {
           if (e.type !== "started") this.powerRun = feedRun(this.powerRun, e, at ?? this.nowMs());
@@ -151,17 +151,17 @@ export class Store implements CommandContext {
         this.clock = this.nowMs();
         if ((running(this.run) || running(this.powerRun)) && this.clockTimer === undefined) this.clockTimer = setInterval(() => (this.clock = this.nowMs()), 100);
         if (!running(this.run) && !running(this.powerRun)) this.stopClock();
-        // Un cambio que falló y se deshizo se avisa aunque no se esté mirando el progreso.
+        // Un cambio que falló y se deshizo se avisa aunque no se esté mirando el progress.
         if (e.type === "failed" && running(before) && this.sceneAsked && before?.title?.includes(this.sceneAsked.name)) this.failedScene = this.sceneAsked;
         if (e.type === "committed") this.failedScene = null;
-        if (e.type === "failed" && running(before) && this.route.screen !== "progreso" && this.run) {
+        if (e.type === "failed" && running(before) && this.route.screen !== "progress" && this.run) {
           this.toast(this.runView(this.run)?.message.text ?? "Could not apply the change", "bad");
         }
-        // Lo que sale bien se ve en la pantalla de Monitores (el selector, la escena activa); en las demás se avisa.
-        if (e.type === "committed" && this.run?.doneText && !["monitores", "progreso", "escena"].includes(this.route.screen)) this.toast(this.run.doneText, "ok");
+        // Lo que sale bien se ve en la pantalla de Monitors (el selector, la scene activa); en las demás se avisa.
+        if (e.type === "committed" && this.run?.doneText && !["monitors", "progress", "scene"].includes(this.route.screen)) this.toast(this.run.doneText, "ok");
       });
     } catch {
-      // Sin avisos de transacciones (fuera de la app): no hay progreso que dibujar.
+      // Sin notices de transacciones (fuera de la app): no hay progress que dibujar.
     }
     this.txnReady = true;
   }
@@ -171,7 +171,7 @@ export class Store implements CommandContext {
     return this.nowMs();
   }
 
-  /** Los procesos de un túnel (pantalla Túneles, solo lectura). */
+  /** Los procesos de un tunnel (pantalla Tunnels, solo lectura). */
   processes(tunnel: string): Promise<ProcessRow[]> {
     return this.source.processes(tunnel);
   }
@@ -191,12 +191,12 @@ export class Store implements CommandContext {
     this.clock = this.nowMs();
   }
 
-  /** Los nombres para dibujar el progreso. */
+  /** Los nombres para dibujar el progress. */
   get names(): Names {
     return { machine: (m) => this.desk.machines[m]?.name ?? machineName(m), monitors: this.desk.monitors };
   }
 
-  /** Lo que dibuja la pantalla de progreso, o `null` si no hay transacción. */
+  /** Lo que dibuja la pantalla de progress, o `null` si no hay transacción. */
   runView(run: Run | null = this.run): RunView | null {
     return run ? viewOf(run, this.names, this.clock) : null;
   }
@@ -242,21 +242,21 @@ export class Store implements CommandContext {
     return r;
   }
 
-  /** Lleva a la pantalla de progreso de la transacción in progress (la de Monitores y el editor lo piden al aplicar). */
+  /** Lleva a la pantalla de progress de la transacción in progress (la de Monitors y el editor lo piden al aplicar). */
   showProgress(): void {
-    this.go({ screen: "progreso" });
+    this.go({ screen: "progress" });
   }
 
-  /** Es el modo demo (la pantalla de Estados muestra entonces su galería). */
+  /** Es el modo demo (la pantalla de States muestra entonces su galería). */
   get demo(): boolean {
     return this.source.demo === true;
   }
 
-  /** La escena que se pidió aplicar y la última que falló (D6): «Reintentar» reaplica esa. */
+  /** La scene que se pidió aplicar y la última que falló (D6): «Reintentar» reaplica esa. */
   private sceneAsked: { id: string; name: string } | null = null;
   failedScene: { id: string; name: string } | null = $state(null);
 
-  /** Aplica una escena; si no se pudo empezar, avisa. Su avance llega como transacción. */
+  /** Aplica una scene; si no se pudo empezar, avisa. Su avance llega como transacción. */
   async applyScene(id: string): Promise<ActResult> {
     const scene = this.desk.scenes.find((s) => s.id === id);
     this.sceneAsked = { id, name: scene?.name ?? id };
@@ -266,7 +266,7 @@ export class Store implements CommandContext {
     return r;
   }
 
-  /** Pide la entrada de un monitor compatible. El veredicto lo da the monitor: la pantalla no adivina. */
+  /** Pide la entrada de un monitor compatible. El verdict lo da the monitor: la pantalla no adivina. */
   async switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult> {
     const m = this.desk.monitors.find((x) => x.id === monitor);
     this.origin = { title: `Changing the input of ${m?.name ?? monitor}`, doneText: "Input changed." };
@@ -279,7 +279,7 @@ export class Store implements CommandContext {
     return this.report(this.source.saveScene(scene, isNew));
   }
 
-  /** El id que el agente le dio a una escena recién guardada (llega con el puesto nuevo); `null` si no aparece. */
+  /** El id que el agente le dio a una scene recién guardada (llega con el desk nuevo); `null` si no aparece. */
   async waitForScene(name: string, timeoutMs = 3000): Promise<string | null> {
     const until = Date.now() + timeoutMs;
     for (;;) {
@@ -451,7 +451,7 @@ export class Store implements CommandContext {
   /** Paso del asistente con el que se abre (0 = el primero). */
   wizardStep = $state(0);
 
-  /** El cruce del paso 5 pasó con el acomodo guardado (lo usa el resumen). */
+  /** El crossing del paso 5 pasó con el arrangement guardado (lo usa el resumen). */
   wizardCrossed = $state(false);
 
   openWizard(step = 0): void {
@@ -469,17 +469,17 @@ export class Store implements CommandContext {
     this.notify({ text, tone });
   }
 
-  /** Un aviso nuevo arriba de la pila; el más viejo sale si pasan de `TOAST_MAX`. */
+  /** Un notice nuevo arriba de la pila; el más viejo sale si pasan de `TOAST_MAX`. */
   notify(spec: ToastSpec): void {
     const auto = !spec.action && !spec.progress && !spec.hold;
     const at = spec.key ? this.toasts.findIndex((x) => x.key === spec.key) : -1;
-    // El avance de una copia actualiza su aviso en el sitio; no apila uno por cada muestra.
+    // El avance de una copia actualiza su notice en el sitio; no apila uno por cada muestra.
     const t: Toast = { ...spec, id: at >= 0 ? this.toasts[at].id : this.nextToast++, auto };
     this.toasts = at >= 0 ? this.toasts.map((x, i) => (i === at ? t : x)) : [t, ...this.toasts].slice(0, TOAST_MAX);
     if (t.auto) setTimeout(() => this.dismiss(t.id), TOAST_MS);
   }
 
-  /** «Deshacer» del aviso de cambio: vuelve el puesto a la versión que había. */
+  /** «Deshacer» del notice de cambio: vuelve el desk a la versión que había. */
   undoDesk(rev: number): Promise<ActResult> {
     return this.report(this.source.undoDesk(rev));
   }

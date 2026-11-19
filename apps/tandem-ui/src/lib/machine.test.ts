@@ -97,7 +97,7 @@ describe("nombres del equipo (salen del escaneo, D10)", () => {
     expect(headerSub({ here: true, system: "macOS", power: "on", hardware: null })).toBe("macOS");
   });
 
-  it("el fondo tenue sale del acento (los de la paleta, los del mockup)", () => {
+  it("el fondo tenue sale del acento (los de la palette, los del mockup)", () => {
     expect(tint("#a99be8")).toBe("#1d1a2b");
     expect(tint("#7AA7E6")).toBe("#16202e");
     expect(tint("#123456")).toContain("color-mix");
@@ -167,13 +167,13 @@ describe("muestras del agente → vista en vivo", () => {
     expect(g).toMatchObject({ percent: null, history: [] });
   });
 
-  it("el aviso de VRAM aparece desde el 85 %", () => {
+  it("el notice de VRAM aparece desde el 85 %", () => {
     expect(vramWarn(nextLive(null, sample()))).toBe(true);
     expect(vramWarn(nextLive(null, sample({ gpus: [{ name: "x", load: 1, vram_used: 8 * GIB, vram_total: 16 * GIB, temperature: null }] })))).toBe(false);
     expect(vramWarn(null)).toBe(false);
   });
 
-  it("el resumen del Puesto y la bandeja sale de la misma vista", () => {
+  it("el resumen del Desk y la tray sale de la misma vista", () => {
     const r = summaryOf(nextLive(null, sample()));
     expect(r.cpu).toEqual({ percent: 64, label: "64 %" });
     expect(r.ram.label).toBe("17.1/24 GB");
@@ -192,7 +192,7 @@ describe("fila «Permisos»", () => {
   });
 });
 
-describe("nombre de la máquina", () => {
+describe("nombre de la machine", () => {
   it("se recorta, no queda vacío y no pasa de 40 caracteres", () => {
     expect(checkName("  Estudio ")).toEqual({ ok: true, name: "Estudio" });
     expect(checkName("   ").ok).toBe(false);

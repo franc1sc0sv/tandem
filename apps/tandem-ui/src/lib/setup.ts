@@ -7,7 +7,7 @@ export interface PermissionInfo {
   title: string;
   /** Para qué lo usa Tandem. */
   why: string;
-  /** Qué hacer en Ajustes del Sistema. */
+  /** Qué hacer en Settings del Sistema. */
   how: string;
 }
 

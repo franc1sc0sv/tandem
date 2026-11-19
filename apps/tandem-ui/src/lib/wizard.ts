@@ -1,7 +1,7 @@
 // El asistente de 6 pasos (DESIGN §12, mockups `F-Setup1`…`F-Setup6`): lo que no depende del
 // DOM. Qué pasos hay, qué muestra «What it found», las tarjetas de permisos, el dibujo y el
-// veredicto de la prueba de cruce y el resumen final. Cada dato sale del estado real del
-// puesto: nada se supone por sistema (D2).
+// verdict de la prueba de crossing y el resumen final. Cada dato sale del estado real del
+// desk: nada se supone por sistema (D2).
 
 import { formatMs, type CrossPhase } from "./crossing";
 import { LINK_NAME } from "./machines";
@@ -112,7 +112,7 @@ export interface PermCard {
   missing: boolean;
 }
 
-// Los textos de `F-Setup3`: se dirigen a las otras máquinas del puesto sin nombrar ningún sistema.
+// Los textos de `F-Setup3`: se dirigen a las otras machines del desk sin nombrar ningún sistema.
 const PERM_TEXT: Record<Permission, { title: string; why: string }> = {
   accessibility: { title: "Accessibility", why: "To type and move the mouse on this machine when you use them from another one." },
   input_monitoring: { title: "Input Monitoring", why: "To carry this machine’s keyboard and mouse to another one when the cursor crosses the edge." },
@@ -137,7 +137,7 @@ export interface DeviceRow {
   via?: string;
 }
 
-/** Quién ya mostró actividad: una tecla o un movimiento recibidos en esa máquina. */
+/** Quién ya mostró actividad: una tecla o un movimiento recibidos en esa machine. */
 export type Activity = Record<Machine, boolean>;
 export const NO_ACTIVITY: Activity = { a: false, b: false };
 
@@ -145,7 +145,7 @@ export function heard(a: Activity, m: Machine): Activity {
   return a[m] ? a : { ...a, [m]: true };
 }
 
-/** Teclados y mouse de una máquina: solo los que el agente anuncia; lo supuesto no cuenta. */
+/** Teclados y mouse de una machine: solo los que el agente anuncia; lo supuesto no cuenta. */
 export function deviceRows(m: MachineView | null): DeviceRow[] {
   return m?.inputDevices ?? [];
 }
@@ -155,7 +155,7 @@ export function devicesOfHub(hub: boolean | null | undefined): DeviceRow[] {
   return hub === true ? [{ name: "Keyboard and mouse", via: "through the hub" }] : [];
 }
 
-/** El cómputo funciona: el módulo de túneles no está apagado y hay un entorno listo. */
+/** El cómputo funciona: el módulo de tunnels no está apagado y hay un entorno listo. */
 export function computeWorks(m: MachineView | null | undefined): boolean {
   if (!m) return false;
   // Un módulo que el agente da por unavailable tampoco cuenta como cómputo remoto (T-158).
@@ -163,7 +163,7 @@ export function computeWorks(m: MachineView | null | undefined): boolean {
   return state !== "off" && state !== "unavailable" && m.environments.some((e) => e.ready);
 }
 
-// ---- Paso 5: acomodo y prueba de cruce ------------------------------------------------------
+// ---- Paso 5: arrangement y prueba de crossing ------------------------------------------------------
 
 /** Las cajas del dibujo, en el lienzo de 290 px de alto de `F-Setup5`: la propia, la otra y el borde. */
 export interface Sketch {
@@ -223,7 +223,7 @@ export interface CrossVerdict {
 }
 
 /**
- * Lo que se le dice al usuario según la fase de la prueba. `expected` es el borde del acomodo,
+ * Lo que se le dice al usuario según la fase de la prueba. `expected` es el borde del arrangement,
  * `here` el nombre de this machine y `peer` el de la otra.
  */
 export function crossVerdict(phase: CrossPhase, expected: Side, here: string, peer: string, seconds: number): CrossVerdict {
@@ -266,7 +266,7 @@ export interface SummaryRow {
 }
 
 export interface Facts {
-  /** El cruce del paso 5 pasó con el acomodo guardado. */
+  /** El crossing del paso 5 pasó con el arrangement guardado. */
   crossed: boolean;
 }
 

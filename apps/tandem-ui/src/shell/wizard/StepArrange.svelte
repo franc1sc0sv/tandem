@@ -1,9 +1,9 @@
 <script lang="ts">
-  // Paso 5 (`F-Setup5`): el acomodo que Tandem leyó, que se puede mover arrastrando, y la
-  // prueba de cruce (T-117): se lleva el mouse por el borde marcado y se juzga con el cruce
+  // Paso 5 (`F-Setup5`): el arrangement que Tandem leyó, que se puede mover arrastrando, y la
+  // prueba de crossing (T-117): se lleva el mouse por el borde marcado y se juzga con el crossing
   // que informa el motor de entrada.
   import { onDestroy } from "svelte";
-  import { exitSide, fillOf, mainOf, placeOther } from "../../lib/acomodo";
+  import { exitSide, fillOf, mainOf, placeOther } from "../../lib/arrangement";
   import { useStore } from "../../lib/context";
   import { CROSS_TIMEOUT_MS, onSample, onTick, remaining, start, type CrossPhase } from "../../lib/crossing";
   import { SKETCH, arrowSide, crossVerdict, dropSide } from "../../lib/wizard";
@@ -65,7 +65,7 @@
     stop?.();
   });
 
-  /** Mover the other machine a `side` guarda el acomodo y vuelve a empezar la prueba. */
+  /** Mover the other machine a `side` guarda el arrangement y vuelve a empezar la prueba. */
   async function place(side: Side) {
     if (side === expected) return;
     const r = await store.setArrangement(placeOther(desk.layout.arrangement, here, side));

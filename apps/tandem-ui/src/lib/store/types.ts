@@ -1,11 +1,11 @@
-// Lo que la UI muestra del puesto, ya digerido para las pantallas. Lo llenan el agente real
+// Lo que la UI muestra del desk, ya digerido para las pantallas. Lo llenan el agente real
 // (`live.ts`, por la IPC de tandemd) o el modo demo (`demo.ts`). Las pantallas solo leen de
 // aquí: así cada estado se puede dibujar y probar sin el agente.
 //
 // Los módulos y entornos llegan por la IPC con T-098/T-105; mientras tanto el agente real
 // deja esas listas vacías y el modo demo las simula.
 
-import type { Arrangement, LayoutView } from "../acomodo";
+import type { Arrangement, LayoutView } from "../arrangement";
 import type { CrossSample } from "../crossing";
 import type { AdminView, Bindings, Machine, MonitorInput, Notice, Os, PairingView, PeerView, Permission, SceneJson, SetupView, ShortcutsView, TxnView, DragStatus } from "../model";
 import type { PermissionState } from "../permissions";
@@ -15,7 +15,7 @@ export type { Machine, MonitorInput, Os };
 
 export type ModuleState = "active" | "off" | "unavailable";
 
-/** Un módulo de una máquina (D3): existe donde compila y dice si está activo y por qué no. */
+/** Un módulo de una machine (D3): existe donde compila y dice si está activo y por qué no. */
 export interface ModuleView {
   id: string;
   name: string;
@@ -51,7 +51,7 @@ export interface HardwareView {
   fanless?: boolean;
 }
 
-/** Live resources para la página Máquina (bytes y porcentajes 0–100). */
+/** Live resources para la página Machine (bytes y porcentajes 0–100). */
 export interface LiveView {
   cpu: { percent: number; temp: number | null; history: number[] };
   ram: { used: number; total: number; history: number[] };
@@ -79,7 +79,7 @@ export interface Usage {
 export interface Resources {
   cpu: Usage;
   ram: Usage;
-  /** GPU o VRAM, si la máquina tiene. */
+  /** GPU o VRAM, si la machine tiene. */
   gpu: Usage | null;
   gpuLabel: "GPU" | "VRAM";
   /** Últimas muestras de CPU (0–100), de la más vieja a la más nueva. */
@@ -95,7 +95,7 @@ export interface MachineView {
   color: string;
   /** Línea bajo el nombre: sistema y lo más importante del equipo (sale del escaneo, D10). */
   detail: string;
-  /** Es la máquina de esta ventana. */
+  /** Es la machine de esta ventana. */
   here: boolean;
   power: Power;
   resources: Resources | null;
@@ -104,7 +104,7 @@ export interface MachineView {
   system: string;
   hardware: HardwareView | null;
   environments: EnvView[];
-  /** Live resources (página Máquina); `null` sin muestras. */
+  /** Live resources (página Machine); `null` sin muestras. */
   live: LiveView | null;
   /** Teclados y mouse que anuncia, si los lista (el asistente, paso 4). */
   inputDevices?: { name: string; via?: string }[];
@@ -119,7 +119,7 @@ export interface LinkView {
   kind: LinkKind | null;
   /** Bandwidth medido, en Gbps (`null` not measured). */
   gbps: number | null;
-  /** Latencia del enlace, en ms. */
+  /** Latencia del link, en ms. */
   ms: number | null;
   /** p99 de la latencia de entrada, en ms. */
   inputP99: number | null;
@@ -147,7 +147,7 @@ export interface PathView {
   gbps: number | null;
   /** Hasta 60 muestras, una por segundo, de la más vieja a la más nueva. */
   history: LatencyPoint[];
-  /** Lo que se sabe del enlace («USB4 · 20 Gbps», «Wi-Fi 7 · home»); `null` si el agente no lo dice. */
+  /** Lo que se sabe del link («USB4 · 20 Gbps», «Wi-Fi 7 · home»); `null` si el agente no lo dice. */
   detail: string | null;
 }
 
@@ -169,7 +169,7 @@ export interface NetworkView {
   switches: PathSwitchView[];
   /** El camino que se está midiendo. */
   measuring: LinkKind | null;
-  /** Avisos con la orden exacta que el usuario ejecuta a mano (T-094). */
+  /** Notices con la orden exacta que el usuario ejecuta a mano (T-094). */
   notices: { interface: string; message: string; command: string }[];
   /** Cuándo es el último segundo del historial (milisegundos Unix): fecha los cambios de camino. */
   now: number;
@@ -190,7 +190,7 @@ const unplugged = (kind: LinkKind): PathView => ({
   detail: null,
 });
 
-/** Sin red: los tres caminos no cable. */
+/** Sin network: los tres caminos no cable. */
 export const EMPTY_NETWORK: NetworkView = {
   paths: (["usb4", "ethernet", "wifi"] as LinkKind[]).map(unplugged),
   switches: [],
@@ -201,7 +201,7 @@ export const EMPTY_NETWORK: NetworkView = {
 
 export type TunnelState = "busy" | "idle" | "closed";
 
-/** Un túnel de Claude (D8, solo lectura en la UI, D9). */
+/** Un tunnel de Claude (D8, solo lectura en la UI, D9). */
 export interface TunnelView {
   /** El id del agente (16 hex): viaja como texto porque no cabe en un número de JavaScript. */
   id: string;
@@ -222,17 +222,17 @@ export interface TunnelView {
   idleSince: number | null;
   /** Cuándo se cerró (ms Unix); solo en los cerrados. */
   closedAt: number | null;
-  /** Dónde corren los procesos en la máquina destino («WSL · Ubuntu»); `null` si el agente no lo dice. */
+  /** Dónde corren los procesos en la machine destino («WSL · Ubuntu»); `null` si el agente no lo dice. */
   env: string | null;
-  /** Comandos lanzados en el túnel; `null` si el agente no lo cuenta (la pantalla usa los que ve). */
+  /** Comandos lanzados en el tunnel; `null` si el agente no lo cuenta (la pantalla usa los que ve). */
   commands: number | null;
   /** Puertos reenviados; `null` si el agente no los lista. */
   ports: number | null;
-  /** Bytes que fueron (`up`) y vinieron (`down`) por el túnel. */
+  /** Bytes que fueron (`up`) y vinieron (`down`) por el tunnel. */
   traffic: { up: number; down: number };
 }
 
-/** Un proceso de un túnel (`GetProcesses`). */
+/** Un proceso de un tunnel (`GetProcesses`). */
 export interface ProcessRow {
   id: number;
   command: string;
@@ -260,17 +260,17 @@ export interface OutputChunk {
 export interface SceneView {
   id: string;
   name: string;
-  /** Atajo global (`⌃⌥1`), o vacío. */
+  /** Shortcut global (`⌃⌥1`), o vacío. */
   key: string;
   /** Qué hace, en una línea. */
   desc: string;
-  /** Qué máquina muestra (para la miniatura); `null` si la escena no cambia ningún monitor. */
+  /** Qué machine muestra (para la miniatura); `null` si la scene no cambia ningún monitor. */
   shows: Machine | null;
-  /** Qué máquina muestra cada monitor compatible (los que la escena no toca no están). */
+  /** Qué machine muestra cada monitor compatible (los que la scene no toca no están). */
   monitors: { monitor: string; machine: Machine }[];
-  /** Atajo global crudo (`KeyboardEvent.code`), para editarlo. */
+  /** Shortcut global crudo (`KeyboardEvent.code`), para editarlo. */
   shortcut: string[];
-  /** La escena tal como la guarda el puesto, para editarla sin perder lo que la pantalla no muestra. */
+  /** La scene tal como la guarda el desk, para editarla sin perder lo que la pantalla no muestra. */
   raw: SceneJson | null;
 }
 
@@ -282,20 +282,20 @@ export interface MonitorEventView {
   text: string;
 }
 
-/** Un monitor de la pantalla Monitores. D11: uno no compatible solo se muestra, con su razón. */
+/** Un monitor de la pantalla Monitors. D11: uno no compatible solo se muestra, con su razón. */
 export interface MonitorUi {
   id: string;
   name: string;
   compat: { ok: true } | { ok: false; reason: string };
-  /** Alguna máquina lo ve ahora. */
+  /** Alguna machine lo ve ahora. */
   connected: boolean;
   /** Quién lo lee y lo controla (D13). */
   owner: Machine | null;
   /** La entrada que está en pantalla (la real); `null` si no se sabe. */
   input: MonitorInput | null;
-  /** A qué entrada va el cable de cada máquina, si se sabe. */
+  /** A qué entrada va el cable de cada machine, si se sabe. */
   ports: Partial<Record<Machine, MonitorInput>>;
-  /** La máquina cuya señal se ve ahora, si se deduce de `input` y los cables. */
+  /** La machine cuya señal se ve ahora, si se deduce de `input` y los cables. */
   shows: Machine | null;
   /** Del más nuevo al más viejo (hasta 3). */
   events: MonitorEventView[];
@@ -321,18 +321,18 @@ export interface PermissionsView {
   binary: string | null;
 }
 
-/** Los estados difíciles (`V3-States`). */
+/** Los states difíciles (`V3-States`). */
 export type Trouble = "none" | "no-agent" | "peer-off" | "link-down" | "permissions";
 
-/** Keyboard and mouse compartidos (Ajustes → Keyboard and mouse). */
+/** Keyboard and mouse compartidos (Settings → Keyboard and mouse). */
 export interface PrefsView {
   cmdCtrl: boolean;
   dragFiles: boolean;
-  /** El portapapeles compartido está encendido en las dos máquinas. */
+  /** El portapapeles compartido está encendido en las dos machines. */
   clipboard: boolean;
 }
 
-/** Un cambio del puesto hecho desde the other machine (D5), para el aviso «Deshacer». */
+/** Un cambio del desk hecho desde the other machine (D5), para el notice «Deshacer». */
 export interface DeskChange {
   by: Machine;
   rev: number;
@@ -340,7 +340,7 @@ export interface DeskChange {
   undoTo: number;
 }
 
-/** El avance de una copia de archivos entre las máquinas (aviso con progreso). */
+/** El avance de una copia de archivos entre las machines (notice con progress). */
 export interface TransferView {
   upload: boolean;
   path: string;
@@ -359,11 +359,11 @@ export interface DeskView {
   prefs: PrefsView;
   /** El cursor está bloqueado en this machine («Lock here», T-157). */
   locked: boolean;
-  /** El atajo de bloqueo del puesto (`KeyboardEvent.code`); vacío = sin atajo. */
+  /** El shortcut de bloqueo del desk (`KeyboardEvent.code`); vacío = sin shortcut. */
   lockShortcut: string[];
   /** `connecting` mientras no hay primer estado. */
   ready: boolean;
-  /** El nombre del puesto (junto al logo en `V3-Machine`); «My desk» si no tiene. */
+  /** El nombre del desk (junto al logo en `V3-Machine`); «My desk» si no tiene. */
   deskName: string;
   trouble: Trouble;
   /** Por qué, en una línea (para el estado difícil). */
@@ -376,11 +376,11 @@ export interface DeskView {
   tunnels: TunnelView[];
   scenes: SceneView[];
   activeScene: string | null;
-  /** Los monitores de las dos máquinas (D11: los no compatibles, marcados). */
+  /** Los monitors de las dos machines (D11: los no compatibles, marcados). */
   monitors: MonitorUi[];
   pair: PairState;
   permissions: PermissionsView;
-  /** Las pantallas y el acomodo (D18). */
+  /** Las pantallas y el arrangement (D18). */
   layout: LayoutView;
 }
 
@@ -392,7 +392,7 @@ export const ALL_TOPICS: Topic[] = ["machines", "resources", "link", "network", 
 /** Lo que una fuente puede o no hacer todavía. */
 export type Capability = "scenes" | "modules" | "power" | "measure" | "crossing" | "machine" | "monitors" | "forget" | "cursor" | "lock";
 
-/** Lo que llega con el cursor en vivo (T-128): su posición o un cruce de borde. */
+/** Lo que llega con el cursor en vivo (T-128): su posición o un crossing de borde. */
 export type CursorEvent = Extract<Notice, { kind: "cursor" | "crossed" }>;
 
 export type PairActionKind = "start_pairing" | "confirm_pairing" | "cancel_pairing" | "unpair";
@@ -408,32 +408,32 @@ export interface Source {
   start(onDesk: (d: DeskView) => void, onChange?: (c: DeskChange) => void, onTransfer?: (t: TransferView) => void): Promise<void>;
   /** Keyboard and mouse compartidos: se manda el par entero. */
   setPrefs(p: { cmdCtrl: boolean; dragFiles: boolean }): Promise<ActResult>;
-  /** El atajo de bloqueo del puesto (vacío = sin atajo). */
+  /** El shortcut de bloqueo del desk (vacío = sin shortcut). */
   setLockShortcut(lock: string[]): Promise<ActResult>;
-  /** «Deshacer» el cambio de the other machine: vuelve el puesto a la versión `rev`. */
+  /** «Deshacer» el cambio de the other machine: vuelve el desk a la versión `rev`. */
   undoDesk(rev: number): Promise<ActResult>;
-  /** Archivo de configuración y logs (Ajustes → Avanzado). */
+  /** Archivo de configuración y logs (Settings → Avanzado). */
   files(): Promise<FilesView>;
   /** Muestra en el explorador el archivo de configuración o la carpeta de logs. */
   openFiles(target: "config" | "logs"): Promise<ActResult>;
   /** Temas que la pantalla visible necesita en vivo; el resto se deja de mandar. */
   watch(topics: Topic[]): void;
   applyScene(id: string): Promise<ActResult>;
-  /** Cambiar la entrada de un monitor compatible: una transacción con el veredicto del firmware. */
+  /** Cambiar la entrada de un monitor compatible: una transacción con el verdict del firmware. */
   switchMonitor(monitor: string, input: MonitorInput): Promise<ActResult>;
-  /** Crear (`isNew`) o guardar una escena en el puesto compartido: llega a the other machine. */
+  /** Crear (`isNew`) o guardar una scene en el desk compartido: llega a the other machine. */
   saveScene(scene: SceneJson, isNew: boolean): Promise<ActResult>;
   /** Olvidar un monitor no compatible que ya no está. */
   forgetMonitor(id: string): Promise<ActResult>;
   /**
-   * El avance de cada transacción (escena, monitor, energía) hasta que se llama a la función
+   * El avance de cada transacción (scene, monitor, energía) hasta que se llama a la función
    * que devuelve. `at` es la hora del evento y `origin` el título del `started`, si la fuente los
    * fija (el demo, para capturar).
    */
   watchTxn(onEvent: (e: TxnView, at?: number, origin?: { title: string; doneText: string }) => void): Promise<() => void>;
-  /** Es el modo demo: las pantallas de referencia (Estados) muestran su galería completa. */
+  /** Es el modo demo: las pantallas de referencia (States) muestran su galería completa. */
   readonly demo?: boolean;
-  /** El avance de los arrastres de archivos entre las máquinas; las fuentes sin agente no lo tienen. */
+  /** El avance de los arrastres de archivos entre las machines; las fuentes sin agente no lo tienen. */
   watchDrag?(onStatus: (s: DragStatus) => void): Promise<() => void>;
   /** La hora de la fuente si no es la del reloj (el demo quieto, para capturas deterministas). */
   now?(): number;
@@ -441,11 +441,11 @@ export interface Source {
   /** Medir el ancho de banda de un camino (por omisión, el que lleva el tráfico). */
   measureLink(path?: LinkKind): Promise<ActResult>;
   setModule(machine: Machine, module: string, on: boolean): Promise<ActResult>;
-  /** Scan again los entornos de `machine` (lo nuevo llega con el puesto). */
+  /** Scan again los entornos de `machine` (lo nuevo llega con el desk). */
   rescan(machine: Machine): Promise<ActResult>;
-  /** Nombre o color de una máquina (el puesto compartido, D4/D17). */
+  /** Nombre o color de una machine (el desk compartido, D4/D17). */
   editMachine(machine: Machine, edit: { name?: string; color?: string }): Promise<ActResult>;
-  /** El nombre del puesto; vacío vuelve al de omisión (T-159). */
+  /** El nombre del desk; vacío vuelve al de omisión (T-159). */
   setDeskName(name: string): Promise<ActResult>;
   /** La MAC con que se despierta a the other machine; `null` la borra (T-159). */
   setWol(mac: string | null): Promise<ActResult>;
@@ -455,7 +455,7 @@ export interface Source {
   lockHere(on: boolean): Promise<ActResult>;
   /** macOS muestra su diálogo de permisos a nombre de tandemd. */
   requestPermissions(): Promise<ActResult>;
-  /** Abre el panel de Ajustes del Sistema que concede el permiso. */
+  /** Abre el panel de Settings del Sistema que concede el permiso. */
   openPermission(p: Permission): Promise<ActResult>;
   /** Reinicia tandemd so the permissions you just gave take effect. */
   restartAgent(): Promise<ActResult>;
@@ -470,19 +470,19 @@ export interface Source {
   shortcuts(): Promise<ShortcutsView>;
   /** Rechaza con la razón si no se pueden usar. */
   setShortcuts(b: Bindings): Promise<ShortcutsView>;
-  /** El atajo de la ventana atendido por ella misma (si el sistema no lo dejó registrar). */
+  /** El shortcut de la ventana atendido por ella misma (si el sistema no lo dejó registrar). */
   hideMain(): Promise<void>;
-  /** Ajustes → Actualizaciones (T-122). `onChange` recibe cada cambio (búsqueda, avance). */
+  /** Settings → Actualizaciones (T-122). `onChange` recibe cada cambio (búsqueda, avance). */
   updates(onChange: (v: UpdateView) => void): Promise<UpdateView>;
   checkUpdates(): Promise<UpdateView>;
   /** Rechaza con la razón si no se puede empezar. */
   updateAll(): Promise<UpdateView>;
   setAutoUpdate(on: boolean): Promise<UpdateView>;
-  /** Guarda el acomodo en el puesto compartido (T-099): llega a the other machine. */
+  /** Guarda el arrangement en el desk compartido (T-099): llega a the other machine. */
   setArrangement(a: Arrangement): Promise<ActResult>;
   /**
-   * La prueba de cruce: `onCross` recibe cada cruce del cursor entre las dos máquinas hasta
-   * que se llama a la función que devuelve. Rechaza si la fuente no informa cruces.
+   * La prueba de crossing: `onCross` recibe cada crossing del cursor entre las dos machines hasta
+   * que se llama a la función que devuelve. Rechaza si la fuente no informa crossings.
    */
   watchCrossing(onCross: (s: CrossSample) => void): Promise<() => void>;
   /**
@@ -491,19 +491,19 @@ export interface Source {
    */
   watchCursor(onEvent: (e: CursorEvent) => void): Promise<() => void>;
   /**
-   * Escucha una tecla o un movimiento en cada máquina (paso «Keyboard and mouse»): `onHeard`
-   * recibe la máquina que lo oyó, hasta que se llama a la función que devuelve.
+   * Escucha una tecla o un movimiento en cada machine (paso «Keyboard and mouse»): `onHeard`
+   * recibe la machine que lo oyó, hasta que se llama a la función que devuelve.
    */
   watchKeyProbe(onHeard: (m: Machine) => void): Promise<() => void>;
   /** Avisa al agente de que esta ventana oyó una tecla o un movimiento: él se lo cuenta a the other machine. */
   reportHeardKey?(): Promise<void>;
   /** Tiempo para cruzar, si la fuente lo cambia (el demo, para capturar el tiempo agotado). */
   readonly crossTimeoutMs?: number;
-  /** Los procesos de un túnel, también los que terminaron hace poco (T-104). */
+  /** Los procesos de un tunnel, también los que terminaron hace poco (T-104). */
   processes(tunnel: string): Promise<ProcessRow[]>;
   /** La salida de un proceso desde `from` (T-104). */
   output(tunnel: string, process: number, from: OutputCursor): Promise<OutputChunk>;
-  /** Qué sabe hacer esta fuente hoy (el agente real aún no tiene escenas ni módulos). */
+  /** Qué sabe hacer esta fuente hoy (el agente real aún no tiene scenes ni módulos). */
   can(what: Capability): boolean;
   stop(): void;
 }

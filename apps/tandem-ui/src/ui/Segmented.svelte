@@ -5,13 +5,13 @@
     value: string;
     label: string;
     icon?: IconName;
-    /** Color del ícono (por ejemplo, el de la máquina). */
+    /** Color del ícono (por ejemplo, el de la machine). */
     iconColor?: string;
     /** Texto chico al lado (`HDMI`). */
     note?: string;
     /** Borde del indicador cuando esta opción está elegida. */
     accent?: string;
-    /** Grosor del trazo del ícono (1.8 por omisión; 2 en las alineaciones del acomodo). */
+    /** Grosor del trazo del ícono (1.8 por omisión; 2 en las alineaciones del arrangement). */
     iconStroke?: number;
   }
 </script>
@@ -24,7 +24,7 @@
     value: string;
     /** Nombre accesible del grupo. */
     label: string;
-    /** `md`: 36 px por opción (Acomodo); `lg`: 42 px (Monitores). */
+    /** `md`: 36 px por opción (Arrangement); `lg`: 42 px (Monitors). */
     size?: "md" | "lg";
     onchange?: (value: string) => void;
   }
@@ -104,7 +104,7 @@
   .lg .ind {
     border-radius: 9px;
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
-    /* El borde toma el color de la máquina elegida (V3-Monitors). */
+    /* El borde toma el color de la machine elegida (V3-Monitors). */
     transition:
       transform 0.38s cubic-bezier(0.3, 1.3, 0.5, 1),
       border-color 0.3s;

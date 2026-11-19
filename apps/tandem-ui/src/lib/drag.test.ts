@@ -17,20 +17,20 @@ function fake() {
   return { src: new LiveSource(bridge), onNotice, emit: (status: DragStatus) => notice?.({ kind: "drag", status }) };
 }
 
-describe("aviso del arrastre de archivos", () => {
+describe("notice del arrastre de archivos", () => {
   it("dice qué archivo se copia y cuántos faltan", () => {
     expect(dragNotice({ kind: "copying", name: "a.txt", index: 1, total: 3 })).toEqual({ text: "Copying 2 of 3: a.txt", tone: "ok", ongoing: true });
     expect(dragNotice({ kind: "copied", total: 1 }).text).toBe("Ready to drop: 1 file");
     expect(dragNotice({ kind: "copied", total: 2 }).text).toBe("Ready to drop: 2 files");
   });
 
-  it("los finales cierran el aviso y un fallo va en tono de error", () => {
+  it("los finales cierran el notice y un fallo va en tono de error", () => {
     expect(dragNotice({ kind: "dropped" }).ongoing).toBe(false);
     expect(dragNotice({ kind: "cancelled" }).ongoing).toBe(false);
     expect(dragNotice({ kind: "failed", reason: "sin espacio" })).toEqual({ text: "Could not drag: sin espacio", tone: "bad", ongoing: false });
   });
 
-  it("LiveSource reparte el aviso con el mismo oyente de avisos que las transacciones", async () => {
+  it("LiveSource reparte el notice con el mismo oyente de notices que las transacciones", async () => {
     const { src, onNotice, emit } = fake();
     const got: DragStatus[] = [];
     const stop = await src.watchDrag((s) => got.push(s));
@@ -42,7 +42,7 @@ describe("aviso del arrastre de archivos", () => {
     expect(got).toEqual([{ kind: "dropped" }]);
   });
 
-  it("el store usa un solo aviso que se actualiza y se cierra solo al terminar", async () => {
+  it("el store usa un solo notice que se actualiza y se cierra solo al terminar", async () => {
     vi.useFakeTimers();
     const { src, emit } = fake();
     const store = new Store(src);

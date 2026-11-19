@@ -1,8 +1,8 @@
-// Los monitores de la pantalla Monitores (`V3-Monitors`): del JSON del agente (`MonitorView`)
+// Los monitors de la pantalla Monitors (`V3-Monitors`): del JSON del agente (`MonitorView`)
 // a lo que se dibuja. Puro. D11: un monitor que no habla el estándar se muestra «no
 // compatible» con su razón y nunca se le pide nada.
 
-import { wallOf } from "./acomodo";
+import { wallOf } from "./arrangement";
 import { MACHINES } from "./machines";
 import type { Machine, MonitorEventJson, MonitorInput, MonitorJson } from "./model";
 import type { MonitorEventView, MonitorUi } from "./store/types";
@@ -21,7 +21,7 @@ export function shortMonitor(name: string): string {
 // resto se oscurece igual.
 const ACCENT: Record<string, string> = { "#7aa7e6": "#4f7cbc", "#a99be8": "#6a5fa6" };
 
-/** El borde del indicador deslizante cuando una máquina está elegida. */
+/** El borde del indicador deslizante cuando una machine está elegida. */
 export function accentOf(color: string): string {
   const known = ACCENT[color.toLowerCase()];
   if (known) return known;
@@ -32,7 +32,7 @@ export function accentOf(color: string): string {
   return `#${ch.join("")}`;
 }
 
-/** `HH:MM` en la hora local (la del reloj de la máquina dueña, ya convertida por el agente). */
+/** `HH:MM` en la hora local (la del reloj de la machine dueña, ya convertida por el agente). */
 export function formatClock(ms: number): string {
   const d = new Date(ms);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -90,7 +90,7 @@ export function whyNotSwitch(m: MonitorUi, who: Machine, name: string): string |
   return null;
 }
 
-/** El fondo de la vista previa de una escena (`F-NewScene`): un poco más claro que el de la miniatura. */
+/** El fondo de la vista previa de una scene (`F-NewScene`): un poco más claro que el de la miniatura. */
 export function previewWall(color: string): string {
   const known: Record<string, [string, string]> = { "#7aa7e6": ["#34496a", "#222d3d"], "#a99be8": ["#463d63", "#2a2539"] };
   const hit = known[color.toLowerCase()];
@@ -98,5 +98,5 @@ export function previewWall(color: string): string {
   return wallOf(color);
 }
 
-/** Fondo de «sin cambiar»: la franja de las pantallas que la escena no toca. */
+/** Fondo de «sin cambiar»: la franja de las pantallas que la scene no toca. */
 export const KEEP_WALL = "repeating-linear-gradient(45deg,#1b1c21 0 8px,#15161a 8px 16px)";

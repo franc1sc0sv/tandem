@@ -1,4 +1,4 @@
-// Los dos lados del puesto vistos desde la UI: nombres, colores y el avance de una
+// Los dos lados del desk vistos desde la UI: nombres, colores y el avance de una
 // transacción. Puro, para probarlo sin DOM. Nada supone qué sistema hay en cada lado (D2).
 
 import type { Caps, Desk, Link, Machine, MachineCaps, Step, TxnView } from "./model";
@@ -20,7 +20,7 @@ export function capsOf(caps: Caps, who: Machine): MachineCaps | null {
   return caps.peer && caps.peer.machine === who ? caps.peer : null;
 }
 
-/** Nombre de `who`: su anuncio, lo guardado en el puesto o «máquina A/B». */
+/** Nombre de `who`: su anuncio, lo guardado en el desk o «machine A/B». */
 export function machineName(who: Machine, caps?: Caps | null, desk?: Desk | null): string {
   const fromCaps = caps ? capsOf(caps, who)?.name : undefined;
   const fromDesk = desk?.machines[who]?.name;
@@ -33,7 +33,7 @@ export function machineColor(who: Machine, caps?: Caps | null, desk?: Desk | nul
 }
 
 // ---------------------------------------------------------------------------------------
-// Avance de una transacción (escena, encender o apagar).
+// Avance de una transacción (scene, encender o apagar).
 
 export type StepStatus = "pending" | "run" | "done" | "failed" | "undone";
 
@@ -48,7 +48,7 @@ export interface Progress {
   error?: string;
 }
 
-/** Texto corto de un paso, con el nombre de la máquina. */
+/** Texto corto de un paso, con el nombre de la machine. */
 export function stepLabel(s: Step, name: (m: Machine) => string): string {
   switch (s.step) {
     case "power_on":
@@ -66,7 +66,7 @@ export function stepLabel(s: Step, name: (m: Machine) => string): string {
   }
 }
 
-/** Avanza el progreso con un aviso. Los avisos de otra transacción se ignoran. */
+/** Avanza el progress con un notice. Los notices de otra transacción se ignoran. */
 export function advance(p: Progress | null, e: TxnView): Progress | null {
   if (e.type === "started") {
     return { txn: e.txn, steps: e.steps, status: e.steps.map(() => "pending"), outcome: { kind: "running" } };

@@ -1,9 +1,9 @@
 <script lang="ts">
-  // Paso 2 (`V3-Setup`): unirse a un puesto o crear uno. Quien crea muestra el código de 6
+  // Paso 2 (`V3-Setup`): unirse a un desk o crear uno. Quien crea muestra el código de 6
   // dígitos; quien se une lo escribe, y así prueba que ve la pantalla de the other machine antes
-  // de confirmar. Las dos máquinas se emparejan una vez (D1: exactamente dos).
+  // de confirmar. Las dos machines se emparejan una vez (D1: exactamente dos).
   import { onMount } from "svelte";
-  import { fillOf } from "../../lib/acomodo";
+  import { fillOf } from "../../lib/arrangement";
   import { useStore } from "../../lib/context";
   import { LINK_NAME } from "../../lib/machines";
   import { codeMatches, isComplete, setDigit } from "../../lib/pairing";
@@ -39,12 +39,12 @@
     return `${os} · desk “${desk.deskName}” · 1 machine${via}`;
   });
 
-  // Se busca sola al entrar: las dos máquinas tienen que estar en este paso para encontrarse.
+  // Se busca sola al entrar: las dos machines tienen que estar en este paso para encontrarse.
   onMount(() => {
     if (desk.pair.peer.kind === "unpaired" && desk.pair.pairing.kind === "idle") void store.pairAction("start_pairing");
   });
 
-  // Quien crea el puesto no confirma a mano: the other machine lo hace al escribir el código.
+  // Quien crea el desk no confirma a mano: the other machine lo hace al escribir el código.
   $effect(() => {
     if (mode === "new" && pair.kind === "compare" && !pair.confirmed) void store.pairAction("confirm_pairing");
   });

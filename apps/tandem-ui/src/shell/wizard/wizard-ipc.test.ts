@@ -83,7 +83,7 @@ async function mount(step: number, snap: Connected = snapshot(), onAct?: (a: Act
     adminStatus,
     installAdmin,
   } as unknown as Bridge;
-  const store = new Store(new LiveSource(bridge), { hash: "#/puesto" });
+  const store = new Store(new LiveSource(bridge), { hash: "#/desk" });
   await store.start();
   store.openWizard(step);
   const r = render(Shell, { context: new Map([[STORE_KEY, store]]) });
@@ -161,7 +161,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     await waitFor(() => expect(within(dlg).getByRole("button", { name: "Continue" })).not.toHaveClass("wait"));
   });
 
-  it("paso 4: enciende la sonda de teclas, marca la máquina que oyó y la apaga al salir", async () => {
+  it("paso 4: enciende la sonda de teclas, marca la machine que oyó y la apaga al salir", async () => {
     const { dlg, notice, act, unmount } = await mount(3);
     await waitFor(() => expect(act).toHaveBeenCalledWith({ kind: "key_probe", on: true }));
     const pc = within(dlg).getByRole("group", { name: "PC-Desktop" });
@@ -232,7 +232,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(within(within(dlg).getByRole("group", { name: "MacBook Pro" })).getByText("No keyboard or mouse right now")).toBeInTheDocument();
   });
 
-  it("paso 5: mover the other machine guarda el acomodo con `set_arrangement`", async () => {
+  it("paso 5: mover the other machine guarda el arrangement con `set_arrangement`", async () => {
     const { dlg, act } = await mount(4);
     const other = within(dlg).getByRole("button", { name: /Move PC-Desktop/ });
     other.focus();
@@ -269,7 +269,7 @@ describe("el asistente contra el agente (IPC real)", () => {
     expect(store.wizardCrossed).toBe(true);
   });
 
-  it("paso 5: sin ningún cruce en 20 s la prueba dice «No cruzó» y no habilita seguir", async () => {
+  it("paso 5: sin ningún crossing en 20 s la prueba dice «No cruzó» y no habilita seguir", async () => {
     const { dlg, store, act } = await mount(4);
     vi.useFakeTimers({ toFake: ["Date", "setInterval", "clearInterval"] });
     try {

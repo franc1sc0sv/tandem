@@ -30,7 +30,7 @@ describe("lados", () => {
     expect(other("b")).toBe("a");
   });
 
-  it("los nombres salen del anuncio, del puesto o son «máquina A/B»; nunca Mac/PC fijos", () => {
+  it("los nombres salen del anuncio, del desk o son «machine A/B»; nunca Mac/PC fijos", () => {
     const caps: Caps = { here: machineCaps("b"), peer: null };
     expect(machineName("b", caps, desk)).toBe("Taller");
     expect(machineName("a", caps, desk)).toBe("Guardada A");
@@ -38,7 +38,7 @@ describe("lados", () => {
     expect(machineName("a")).toBe("machine A");
   });
 
-  it("el color sale del anuncio o del puesto, con uno por omisión por lado", () => {
+  it("el color sale del anuncio o del desk, con uno por omisión por lado", () => {
     const caps: Caps = { here: machineCaps("a"), peer: machineCaps("b") };
     expect(machineColor("a", caps)).toBe("#6cc59a");
     expect(machineColor("a", null, desk)).toBe("#111111");
@@ -55,10 +55,10 @@ describe("lados", () => {
   });
 });
 
-describe("progreso por pasos", () => {
+describe("progress por pasos", () => {
   const name = (m: "a" | "b") => (m === "a" ? "Estudio" : "Taller");
 
-  it("nombra cada paso con la máquina", () => {
+  it("nombra cada paso con la machine", () => {
     expect(stepLabel({ step: "power_on", machine: "b" }, name)).toBe("Power on Taller");
     expect(stepLabel({ step: "power_off", machine: "a" }, name)).toBe("Power off Estudio");
     expect(stepLabel({ step: "show_machine", monitor: "34", machine: "b" }, name)).toBe("Monitor 34 → Taller");
@@ -80,16 +80,16 @@ describe("progreso por pasos", () => {
     f = advance(f, { type: "failed", txn: 2, state: { on: { a: true, b: false } } });
     expect(f?.outcome).toEqual({ kind: "failed", error: "sin respuesta" });
 
-    // Una escena que falla en el segundo monitor deshace el primero.
+    // Una scene que falla en el segundo monitor deshace el primero.
     const show = (monitor: string) => ({ step: "show_machine" as const, monitor, machine: "b" as const });
     let u = advance(null, { type: "started", txn: 4, steps: [show("34"), show("27")] });
     u = advance(u, { type: "step_done", txn: 4, index: 0 });
-    u = advance(u, { type: "step_failed", txn: 4, index: 1, error: "sin veredicto" });
+    u = advance(u, { type: "step_failed", txn: 4, index: 1, error: "sin verdict" });
     u = advance(u, { type: "step_undone", txn: 4, index: 0 });
     expect(u?.status).toEqual(["undone", "failed"]);
   });
 
-  it("ignora avisos de otra transacción", () => {
+  it("ignora notices de otra transacción", () => {
     const p = advance(null, { type: "started", txn: 3, steps: [] });
     expect(advance(p, { type: "committed", txn: 9, state: { on: { a: true, b: false } } })).toBe(p);
     expect(advance(null, { type: "committed", txn: 9, state: { on: { a: true, b: false } } })).toBeNull();

@@ -250,7 +250,7 @@ export const PAIRS: StylePair[] = [
   { name: "botón fantasma ícono sm", app: part("btn-ghost-ic-sm", ".btn"), mockup: "V3-Monitors", ref: ref("button.btn.ghost.ic.sm"), groups: [...ALL, "ancho"] },
   // F-Settings: peligro («Leave desk»).
   { name: "botón peligro", app: part("btn-danger", ".btn"), mockup: "F-Settings", ref: ref("button.btn.danger"), groups: ALL },
-  // Segmentados: el de alineación de V3-Arrangement (md) y el de máquina de V3-Monitors (lg).
+  // Segmentados: el de alineación de V3-Arrangement (md) y el de machine de V3-Monitors (lg).
   { name: "segmentado md", app: part("seg-md", ".seg"), mockup: "V3-Arrangement", ref: ref(".seg"), groups: ["relleno", "radio", "borde", "fondo", "sombra"] },
   { name: "segmentado md · indicador", app: part("seg-md", ".ind"), mockup: "V3-Arrangement", ref: ref(".seg .ind"), groups: IND },
   { name: "segmentado md · opción elegida", app: part("seg-md", '[aria-checked="true"]'), mockup: "V3-Arrangement", ref: ref('.seg .sb[aria-checked="true"]'), groups: ALL },
@@ -264,9 +264,9 @@ export const PAIRS: StylePair[] = [
   { name: "interruptor encendido · perilla", app: part("sw-on", ".sw", "::after"), mockup: "F-Settings", state: "keyboard", ref: ref("button.sw:not(.off)", "::after"), groups: KNOB },
   { name: "interruptor apagado", app: part("sw-off", ".sw"), mockup: "F-Settings", state: "keyboard", ref: ref("button.sw.off"), groups: SWITCH },
   { name: "interruptor apagado · perilla", app: part("sw-off", ".sw", "::after"), mockup: "F-Settings", state: "keyboard", ref: ref("button.sw.off", "::after"), groups: KNOB },
-  // V3-Desk: el chip contador de Túneles y las tarjetas (la de escritorios y la de máquina).
+  // V3-Desk: el chip contador de Tunnels y las tarjetas (la de escritorios y la de machine).
   { name: "chip contador", app: part("chip-count", ".chip"), mockup: "V3-Desk", ref: ref(".nav .chip"), groups: ALL },
   { name: "tarjeta", app: part("card", ".card"), mockup: "V3-Desk", ref: ref("div.card"), groups: ["relleno", "radio", "borde", "fondo", "sombra", "transition", "animation"] },
-  // `.mcard` quita el relleno de abajo para la gráfica: de la tarjeta enlace se mira el resto.
-  { name: "tarjeta enlace", app: part("card-link", ".card"), mockup: "V3-Desk", ref: ref("a.card.mcard"), groups: ["radio", "borde", "fondo", "sombra", "transition", "animation"] },
+  // `.mcard` quita el relleno de abajo para la gráfica: de la tarjeta link se mira el resto.
+  { name: "tarjeta link", app: part("card-link", ".card"), mockup: "V3-Desk", ref: ref("a.card.mcard"), groups: ["radio", "borde", "fondo", "sombra", "transition", "animation"] },
 ];

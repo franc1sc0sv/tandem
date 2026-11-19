@@ -1,8 +1,8 @@
 <script lang="ts">
   // Crossing test (F-CrossingTest): pide llevar el cursor a the other machine por el borde del
-  // acomodo guardado y la juzga con los cruces que informa el motor de entrada.
+  // arrangement guardado y la juzga con los crossings que informa el motor de entrada.
   import { onDestroy, onMount } from "svelte";
-  import { SIDE_BY, SIDE_PHRASE, exitSide, fillOf, isVertical, mainOf, type Side } from "../lib/acomodo";
+  import { SIDE_BY, SIDE_PHRASE, exitSide, fillOf, isVertical, mainOf, type Side } from "../lib/arrangement";
   import { useStore } from "../lib/context";
   import { CROSS_TIMEOUT_MS, formatMs, onSample, onTick, start, type CrossPhase } from "../lib/crossing";
   import { formatHash } from "../lib/routes";
@@ -49,10 +49,10 @@
     stop?.();
   });
 
-  const acomodo = formatHash({ screen: "acomodo" });
+  const arrangement = formatHash({ screen: "arrangement" });
   const short = (name: string | undefined) => name?.split(" ")[0] ?? "";
 
-  // El dibujo: la máquina del cursor y la otra, del lado que dice el acomodo.
+  // El dibujo: la machine del cursor y la otra, del lado que dice el arrangement.
   interface Scene {
     from: string;
     to: string;
@@ -105,7 +105,7 @@
 </script>
 
 <div class="cross">
-  <nav aria-label="Path" class="mut crumbs"><a href={acomodo}>Arrangement</a> › Crossing test</nav>
+  <nav aria-label="Path" class="mut crumbs"><a href={arrangement}>Arrangement</a> › Crossing test</nav>
   <div class="stage">
     <div class="desk" style="{scene.from};border:1.5px solid {hereM?.color ?? '#7aa7e6'};background:{fillOf(hereM?.color ?? '#7aa7e6')}">
       <b>{from?.name ?? hereM?.name ?? ""}</b><span class="mut">the cursor is here</span>
@@ -163,7 +163,7 @@
       </div>
       <span class="fill"></span>
       <Button icon="refresh" motion="spin" size="lg" onclick={begin}>Test again</Button>
-      <Button icon="check" variant="pri" size="lg" href={acomodo}>Done</Button>
+      <Button icon="check" variant="pri" size="lg" href={arrangement}>Done</Button>
     {:else}
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d9a75a" stroke-width="2.2" aria-hidden="true"
         ><path d="M12 3 2 20h20z"></path><path d="M12 10v4M12 17h.01"></path></svg
@@ -182,7 +182,7 @@
         {/if}
       </div>
       <span class="fill"></span>
-      <Button icon="edit" size="lg" href={acomodo}>Edit arrangement</Button>
+      <Button icon="edit" size="lg" href={arrangement}>Edit arrangement</Button>
       {#if phase.kind !== "unavailable"}<Button icon="refresh" motion="spin" variant="pri" size="lg" onclick={begin}>Test again</Button>{/if}
     {/if}
   </section>

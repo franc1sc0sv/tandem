@@ -7,7 +7,7 @@
 
   interface Props {
     title: string;
-    /** El acceso a la paleta («Search or run… ⌘K»), como en `V3-Desk`. */
+    /** El acceso a la palette («Search or run… ⌘K»), como en `V3-Desk`. */
     search?: boolean;
     actions?: Snippet;
   }
@@ -43,7 +43,7 @@
   .fill {
     flex: 1;
   }
-  /* Campo de búsqueda que abre la paleta (V3-Desk). */
+  /* Campo de búsqueda que abre la palette (V3-Desk). */
   .find {
     font: inherit;
     font-size: 13px;

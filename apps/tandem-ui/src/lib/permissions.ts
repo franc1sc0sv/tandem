@@ -49,7 +49,7 @@ export const MISSING_HELP = [
   "If it was already on and is still missing, remove the old entry with “−”, press “Request permissions” and restart the agent.",
 ].join(" ");
 
-/** Lo que hacen los botones de permisos, sin DOM: cada uno devuelve el error a mostrar y el aviso. */
+/** Lo que hacen los botones de permisos, sin DOM: cada uno devuelve el error a mostrar y el notice. */
 export interface PermissionDeps {
   request(): Promise<ActionResult>;
   /** `null` fuera de la app (no hay con qué reiniciar el agente). */

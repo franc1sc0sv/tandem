@@ -1,4 +1,4 @@
-// Avisos de la app (F-Notices): qué cambio del puesto merece un aviso y con qué texto. Puro:
+// Notices de la app (F-Notices): qué cambio del desk merece un notice y con qué texto. Puro:
 // el store lo llama con el estado de antes y el de ahora.
 
 import type { Machine } from "./model";
@@ -14,11 +14,11 @@ export interface ToastAction {
   run: () => void;
 }
 
-/** Lo que pide un aviso; el store le pone el id y lo apaga a los 6 s si no pide una decisión. */
+/** Lo que pide un notice; el store le pone el id y lo apaga a los 6 s si no pide una decisión. */
 export interface ToastSpec {
-  /** Con clave, un aviso nuevo reemplaza al que ya la tenga (el avance de una copia). */
+  /** Con clave, un notice nuevo reemplaza al que ya la tenga (el avance de una copia). */
   key?: string;
-  /** Avance con barra: el aviso no se va solo hasta que termina. */
+  /** Avance con barra: el notice no se va solo hasta que termina. */
   progress?: { done: number; total: number };
   text: string;
   body?: string;
@@ -33,10 +33,10 @@ export const KIND_NAME: Record<LinkKind, string> = { usb4: "USB-C", ethernet: "E
 const nameOf = (d: DeskView, m: Machine) => d.machines[m]?.name ?? `machine ${m.toUpperCase()}`;
 
 /**
- * Avisos de ejemplo del modo demo (`?demo&avisos`): los tres con que abre `F-Notices`, del más nuevo
+ * Notices de ejemplo del modo demo (`?demo&notices`): los tres con que abre `F-Notices`, del más nuevo
  * al más viejo. Solo se siembran a pedido, para ver y capturar la pila. El botón «Send over Wi-Fi anyway» no hace nada: el agente no tiene esa función y la app real no lo muestra; está aquí para que la pila mida lo mismo que el mockup.
  */
-export const DEMO_AVISOS: ToastSpec[] = [
+export const DEMO_NOTICES: ToastSpec[] = [
   { text: "The USB-C cable was unplugged", body: "Keyboard and mouse carry on over Wi-Fi. Data transfers wait for the cable.", tone: "warn", action: { label: "Send over Wi-Fi anyway", run: () => {} } },
   { text: "Scene “Work” applied", body: '34" confirmed on PC-Desktop in 1.8 s.', tone: "ok" },
   { text: "Claude opened the tunnel “tandem”", body: "MacBook Pro → PC-Desktop · WSL.", tone: "claude" },
@@ -49,7 +49,7 @@ export function bytesText(n: number): string {
   return `${Math.max(0, Math.round(n / 1e3))} KB`;
 }
 
-/** El aviso de una copia de archivos: con barra mientras avanza y «Listo» al terminar. */
+/** El notice de una copia de archivos: con barra mientras avanza y «Listo» al terminar. */
 export function transferToast(t: TransferView, d: DeskView): ToastSpec {
   const name = t.path.split(/[\\/]/).filter(Boolean).pop() ?? t.path;
   const peer = nameOf(d, d.here === "a" ? "b" : "a");
@@ -65,7 +65,7 @@ export function transferToast(t: TransferView, d: DeskView): ToastSpec {
   };
 }
 
-/** «Cambiado desde X · Deshacer» (D5): el aviso espera la decisión, no se va solo. */
+/** «Cambiado desde X · Deshacer» (D5): el notice espera la decisión, no se va solo. */
 export function changeToast(c: DeskChange, d: DeskView, undo: (rev: number) => void): ToastSpec {
   return {
     text: `Changed from ${nameOf(d, c.by)}`,
@@ -75,7 +75,7 @@ export function changeToast(c: DeskChange, d: DeskView, undo: (rev: number) => v
   };
 }
 
-/** Los avisos que salen de pasar de `before` a `after` (cambio de camino, túnel, máquina). */
+/** Los notices que salen de pasar de `before` a `after` (cambio de camino, tunnel, machine). */
 export function deskEvents(before: DeskView, after: DeskView): ToastSpec[] {
   if (!before.ready || !after.ready) return [];
   const out: ToastSpec[] = [];

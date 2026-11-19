@@ -29,7 +29,7 @@ describe("pantalla", () => {
     expect(pairScreen("Estudio", UNPAIRED, SEARCHING)).toMatchObject({ other: "Estudio" });
   });
 
-  it("el código se muestra igual en las dos máquinas, en dos grupos", () => {
+  it("el código se muestra igual en las dos machines, en dos grupos", () => {
     const a = pairScreen("Taller", UNPAIRED, COMPARING);
     const b = pairScreen("Estudio", UNPAIRED, { ...COMPARING, peer: "Estudio" });
     expect(a).toEqual({ kind: "compare", digits: ["042", "917"], peer: "Taller", confirmed: false });
@@ -54,7 +54,7 @@ describe("código", () => {
   });
 });
 
-describe("línea entre las máquinas", () => {
+describe("línea entre las machines", () => {
   it("sigue el avance", () => {
     const line = (p: PairingView, peer: PeerView = UNPAIRED, ask = false) => pairLine(pairScreen("Taller", peer, p, ask));
     expect(line(IDLE)).toBe("idle");

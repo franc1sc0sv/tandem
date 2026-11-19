@@ -58,10 +58,10 @@ describe("Button", () => {
     expect(onclick).not.toHaveBeenCalled();
   });
 
-  it("con href es un enlace con el mismo aspecto", () => {
-    render(Button, { icon: "arrow-right", href: "#/red", children: text("Ver red") });
-    const a = screen.getByRole("link", { name: "Ver red" });
-    expect(a).toHaveAttribute("href", "#/red");
+  it("con href es un link con el mismo aspecto", () => {
+    render(Button, { icon: "arrow-right", href: "#/network", children: text("Ver network") });
+    const a = screen.getByRole("link", { name: "Ver network" });
+    expect(a).toHaveAttribute("href", "#/network");
     expect(a).toHaveClass("btn");
   });
 
@@ -186,8 +186,8 @@ describe("Card", () => {
     expect(card.style.borderTop).toBe("");
   });
 
-  it("con href es un enlace que se eleva", () => {
-    render(Card, { href: "#/maquina/a", label: "Estudio", children: text("x") });
+  it("con href es un link que se eleva", () => {
+    render(Card, { href: "#/machine/a", label: "Estudio", children: text("x") });
     const a = screen.getByRole("link", { name: "Estudio" });
     expect(a).toHaveClass("card", "lift");
   });

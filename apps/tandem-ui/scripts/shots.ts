@@ -188,7 +188,7 @@ async function shoot(browser: Browser, spec: ShotSpec, args: Args): Promise<Shot
     timezoneId: "UTC",
     colorScheme: "dark",
     reducedMotion: "no-preference",
-    // Los mockups están dibujados en macOS (⌘K): la app se captura con ese atajo.
+    // Los mockups están dibujados en macOS (⌘K): la app se captura con ese shortcut.
     userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
   });
   let png: Buffer;

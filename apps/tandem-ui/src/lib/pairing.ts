@@ -15,7 +15,7 @@ export type PairScreen =
   | { kind: "done"; peer: string }
   | { kind: "failed"; reason: string };
 
-/** El estado de la línea entre las dos máquinas que dibuja el diálogo. */
+/** El estado de la línea entre las dos machines que dibuja el diálogo. */
 export type PairLine = "idle" | "searching" | "found" | "linked" | "broken";
 
 /**
@@ -86,7 +86,7 @@ export function shouldOpen(before: PairingView | null, after: PairingView): bool
   return before.kind === "searching" && after.kind === "comparing";
 }
 
-/** El texto del botón de la píldora del enlace. */
+/** El texto del botón de la píldora del link. */
 export function pairButton(peer: PeerView): string {
   return peer.kind === "paired" ? "Pair again" : "Pair";
 }

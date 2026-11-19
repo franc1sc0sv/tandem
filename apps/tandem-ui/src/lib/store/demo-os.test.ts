@@ -1,4 +1,4 @@
-// G2 (T-170): los textos del demo salen del sistema de cada máquina, no de un Mac/PC fijo.
+// G2 (T-170): los textos del demo salen del sistema de cada machine, no de un Mac/PC fijo.
 import { describe, expect, it } from "vitest";
 
 import { type DemoPair, demoDesk, demoOptions } from "./demo";
@@ -9,7 +9,7 @@ describe.each(["mac-win", "win-win", "mac-mac"] as DemoPair[])("demo %s", (pair)
   const d = demoDesk(demoOptions(`demo=${pair}&still`));
   const desk = { ...d, machines: { a: d.machines.a!, b: d.machines.b! } };
   const oses = [desk.machines.a.os, desk.machines.b.os];
-  it("ningún túnel menciona un sistema que su máquina destino no tiene", () => {
+  it("ningún tunnel menciona un sistema que su machine destino no tiene", () => {
     for (const t of desk.tunnels) {
       if (desk.machines[t.to].os === "macos") expect(t.env).not.toMatch(WIN);
       else expect(t.env).not.toBe("zsh");

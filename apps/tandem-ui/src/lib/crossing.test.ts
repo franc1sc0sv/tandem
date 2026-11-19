@@ -4,19 +4,19 @@ import { CROSS_TIMEOUT_MS, formatMs, onSample, onTick, remaining, start, type Cr
 
 const sample = (over: Partial<CrossSample> = {}): CrossSample => ({ from: "a", to: "b", edge: "right", at: 612, of: 1440, ms: 0.4, ...over });
 
-describe("prueba de cruce", () => {
-  it("pasa con un cruce por el borde del acomodo", () => {
+describe("prueba de crossing", () => {
+  it("pasa con un crossing por el borde del arrangement", () => {
     const p = onSample(start(0), "a", "right", sample());
     expect(p).toEqual({ kind: "passed", sample: sample() });
   });
 
-  it("un cruce por otro borde falla con ese borde", () => {
+  it("un crossing por otro borde falla con ese borde", () => {
     const p = onSample(start(0), "a", "right", sample({ edge: "up" }));
     expect(p.kind).toBe("wrong-edge");
     if (p.kind === "wrong-edge") expect(p.sample.edge).toBe("up");
   });
 
-  it("un cruce de vuelta (desde la otra) no cuenta, y nada cambia el resultado ya dado", () => {
+  it("un crossing de vuelta (desde la otra) no cuenta, y nada cambia el resultado ya dado", () => {
     const waiting = start(0);
     expect(onSample(waiting, "a", "right", sample({ from: "b", to: "a", edge: "left" }))).toBe(waiting);
     const passed = onSample(waiting, "a", "right", sample());
@@ -24,7 +24,7 @@ describe("prueba de cruce", () => {
     expect(onTick(passed, CROSS_TIMEOUT_MS * 2)).toBe(passed);
   });
 
-  it("sin cruce en 20 s se agota el tiempo", () => {
+  it("sin crossing en 20 s se agota el tiempo", () => {
     const w = start(1000);
     expect(onTick(w, 1000 + CROSS_TIMEOUT_MS - 1)).toBe(w);
     expect(onTick(w, 1000 + CROSS_TIMEOUT_MS)).toEqual({ kind: "timeout" });

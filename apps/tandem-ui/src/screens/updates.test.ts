@@ -9,7 +9,7 @@ import { Store } from "../lib/store/store.svelte";
 import Shell from "../shell/Shell.svelte";
 
 async function openUpdates() {
-  const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/ajustes" });
+  const store = new Store(new DemoSource(demoOptions("demo&still")), { hash: "#/settings" });
   await store.start();
   render(Shell, { context: new Map([[STORE_KEY, store]]) });
   await tick();
@@ -18,8 +18,8 @@ async function openUpdates() {
   return store;
 }
 
-describe("Ajustes → Actualizaciones (F-Settings, T-122)", () => {
-  it("muestra la versión de las dos máquinas, el origen y «Update only» encendido", async () => {
+describe("Settings → Actualizaciones (F-Settings, T-122)", () => {
+  it("muestra la versión de las dos machines, el origen y «Update only» encendido", async () => {
     await openUpdates();
     expect(screen.getByText("All machines of the desk on the same version.")).toBeInTheDocument();
     expect(screen.getByText("GitHub Releases · unsigned")).toBeInTheDocument();

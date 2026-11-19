@@ -26,7 +26,7 @@ const factory: MonitorJson = {
   report: null,
 };
 
-describe("monitores (V3-Monitors)", () => {
+describe("monitors (V3-Monitors)", () => {
   it("el nombre corto es la diagonal en pulgadas", () => {
     expect(shortMonitor('Odyssey G5 34"')).toBe('34"');
     expect(shortMonitor("Sin medida")).toBe("Sin medida");
@@ -52,7 +52,7 @@ describe("monitores (V3-Monitors)", () => {
     expect(eventView({ at_ms: 1, kind: "Other", input: null })).toMatchObject({ kind: "other" });
   });
 
-  it("un monitor compatible sabe qué máquina muestra por su entrada", () => {
+  it("un monitor compatible sabe qué machine muestra por su entrada", () => {
     const m = monitorUi(std());
     expect(m).toMatchObject({ compat: { ok: true }, connected: true, owner: "a", input: "hdmi", shows: "b" });
     expect(m.ports).toEqual({ a: "display_port", b: "hdmi" });

@@ -14,7 +14,7 @@
     /** El punto late (estado vivo). */
     pulse?: boolean;
     icon?: IconName;
-    /** Contador chico (el de Túneles en la barra lateral). */
+    /** Contador chico (el de Tunnels en la barra lateral). */
     count?: boolean;
     class?: string;
     style?: string;

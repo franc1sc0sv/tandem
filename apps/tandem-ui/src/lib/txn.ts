@@ -24,7 +24,7 @@ export interface Origin {
   doneText: string;
 }
 
-/** Un `started` abre la corrida; los demás avisos de la misma transacción la avanzan. */
+/** Un `started` abre la corrida; los demás notices de la misma transacción la avanzan. */
 export function feedRun(run: Run | null, e: TxnView, at: number, origin: Origin | null = null): Run | null {
   if (e.type === "started") {
     const progress = advance(null, e);

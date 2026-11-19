@@ -4,7 +4,7 @@ import { availableRow, checkLabel, upToDate, versionRow, type UpdateView } from 
 const base: UpdateView = { here: "0.3.0", peer: "0.3.0", paired: true, available: null, checking: false, step: null, error: null, auto: true };
 
 describe("Updates", () => {
-  it("dice si las dos máquinas están en la misma versión", () => {
+  it("dice si las dos machines están en la misma versión", () => {
     expect(versionRow(base)).toEqual({ title: "Tandem 0.3.0", detail: "All machines of the desk on the same version." });
     expect(versionRow({ ...base, peer: "0.3.1" }).detail).toBe("The other machine has 0.3.1.");
     expect(versionRow({ ...base, peer: null }).detail).toMatch(/not known yet/);

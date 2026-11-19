@@ -42,9 +42,9 @@ export interface ShotSpec {
   mockup: string;
   width: number;
   height: number;
-  /** Campos a llenar antes de los clics (el nombre de la escena). */
+  /** Campos a llenar antes de los clics (el nombre de la scene). */
   fills?: { selector: string; text: string }[];
-  /** Teclas a pulsar al final, después de los clics (abrir la paleta, grabar un atajo). */
+  /** Teclas a pulsar al final, después de los clics (abrir la palette, grabar un shortcut). */
   keys?: string[];
   /** Selectores a los que se hace clic antes de capturar (los pasos del estado del mockup). */
   clicks?: string[];
@@ -90,10 +90,10 @@ export interface Content {
 /** La barra lateral de las pantallas principales (V3-Desk, V3-Arrangement, V3-Network…). */
 export const SIDEBAR: Region = { name: "sidebar", mockupSelector: 'nav[aria-label="Main"]' };
 
-/** D1: no hay tercera máquina, así que la barra lateral no tiene «Agregar máquina». */
+/** D1: no hay tercera machine, así que la barra lateral no tiene «Agregar machine». */
 export const NO_ADD_MACHINE: Ignore = {
   mockupSelector: 'nav[aria-label="Main"] a[href="F-AddHost.dc.html"]',
-  reason: "D1: sin «Agregar máquina» (exactamente dos máquinas)",
+  reason: "D1: sin «Agregar machine» (exactamente dos machines)",
 };
 
 /** Criterio de T-112: la barra lateral igual a la de `V3-Desk`. */
@@ -111,20 +111,20 @@ const DEMO = "demo&still";
 /** Criterio de aceptación de cada pantalla (ACCEPTANCE: similitud y peor cuadro). */
 export const SCREEN_GATE = { similarity: 0.99, worstTile: 0.97 };
 
-// T-117: el acomodo inicial, the other machine en cada lado × cada alineación (con los mismos
-// clics que el mockup), cada pantalla elegida y la prueba de cruce.
-const ACOMODO_SIDES = [
+// T-117: el arrangement inicial, the other machine en cada lado × cada alineación (con los mismos
+// clics que el mockup), cada pantalla elegida y la prueba de crossing.
+const ARRANGEMENT_SIDES = [
   ["top", "Top"],
   ["bottom", "Bottom"],
   ["left", "Left"],
   ["right", "Right"],
 ] as const;
-const ACOMODO_ALIGNS = ["start", "center", "end"] as const;
-const acomodoShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
+const ARRANGEMENT_ALIGNS = ["start", "center", "end"] as const;
+const arrangementShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
   name,
   page: "index.html",
   query: DEMO,
-  hash: "#/acomodo",
+  hash: "#/arrangement",
   mockup: "V3-Arrangement",
   width: W,
   height: H,
@@ -135,14 +135,14 @@ const acomodoShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => (
 });
 /** Los botones «Simular…» son solo del mockup (`mockups/README.md`): se tapan. */
 const SIMULATE: Ignore[] = [
-  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "«Simular cruce» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "«Simular crossing» es solo del mockup" },
   { mockupSelector: 'button.sim:has-text("Simulate no crossing")', reason: "«Simular que no cruza» es solo del mockup" },
 ];
-const cruceShot = (name: string, cross: string, state?: string): ShotSpec => ({
+const crossingShot = (name: string, cross: string, state?: string): ShotSpec => ({
   name,
   page: "index.html",
   query: `${DEMO}${cross ? `&cross=${cross}` : ""}`,
-  hash: "#/acomodo/cruce",
+  hash: "#/arrangement/crossing",
   mockup: "F-CrossingTest",
   state,
   width: W,
@@ -150,28 +150,28 @@ const cruceShot = (name: string, cross: string, state?: string): ShotSpec => ({
   ...(state ? {} : { ignore: SIMULATE }),
   min: SCREEN_GATE,
 });
-export const ACOMODO: ShotSpec[] = [
-  acomodoShot("arrangement"),
-  ...ACOMODO_SIDES.flatMap(([side, label]) =>
-    ACOMODO_ALIGNS.map((al, i) =>
-      acomodoShot(`arrangement-${side}-${al}`, { state: `side-${side}-${al}`, clicks: [`.slot[aria-label="${label}"]`, `.seg .sb >> nth=${i}`] }),
+export const ARRANGEMENT: ShotSpec[] = [
+  arrangementShot("arrangement"),
+  ...ARRANGEMENT_SIDES.flatMap(([side, label]) =>
+    ARRANGEMENT_ALIGNS.map((al, i) =>
+      arrangementShot(`arrangement-${side}-${al}`, { state: `side-${side}-${al}`, clicks: [`.slot[aria-label="${label}"]`, `.seg .sb >> nth=${i}`] }),
     ),
   ),
-  acomodoShot("arrangement-screen-mac", { state: "screen-mac", clicks: ['.scr:has-text("MacBook Pro")'] }),
-  acomodoShot("arrangement-unsupported", { state: "screen-unsupported", clicks: ['.scr:has-text("Odyssey G5 32")'] }),
-  cruceShot("crossing", ""),
-  cruceShot("crossing-crossed", "ok", "crossed"),
-  cruceShot("crossing-no-cross", "timeout", "no-cross"),
+  arrangementShot("arrangement-screen-mac", { state: "screen-mac", clicks: ['.scr:has-text("MacBook Pro")'] }),
+  arrangementShot("arrangement-unsupported", { state: "screen-unsupported", clicks: ['.scr:has-text("Odyssey G5 32")'] }),
+  crossingShot("crossing", ""),
+  crossingShot("crossing-crossed", "ok", "crossed"),
+  crossingShot("crossing-no-cross", "timeout", "no-cross"),
   // Borde equivocado: el mockup no lo dibuja (ACCEPTANCE: mismos componentes, sin umbral).
-  { ...cruceShot("crossing-other-edge", "wrong", "no-cross"), min: undefined },
+  { ...crossingShot("crossing-other-edge", "wrong", "no-cross"), min: undefined },
 ];
 
-// T-116: Monitores (con cada entrada elegida), el editor de escenas y el progreso de una escena.
-const monitoresShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
+// T-116: Monitors (con cada entrada elegida), el editor de scenes y el progress de una scene.
+const monitorsShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
   name,
   page: "index.html",
   query: DEMO,
-  hash: "#/monitores",
+  hash: "#/monitors",
   mockup: "V3-Monitors",
   width: W,
   height: H,
@@ -180,12 +180,12 @@ const monitoresShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec =>
   min: SCREEN_GATE,
   ...extra,
 });
-/** El editor llena lo mismo que el mockup: «Juego», el atajo ⌃⌥4 y lo que muestra el 34". */
-const escenaShot = (name: string, pick: string, state?: string): ShotSpec => ({
+/** El editor llena lo mismo que el mockup: «Juego», el shortcut ⌃⌥4 y lo que muestra el 34". */
+const sceneShot = (name: string, pick: string, state?: string): ShotSpec => ({
   name,
   page: "index.html",
   query: DEMO,
-  hash: "#/monitores/escena",
+  hash: "#/monitors/scene",
   mockup: "F-NewScene",
   state,
   width: W,
@@ -199,13 +199,13 @@ const escenaShot = (name: string, pick: string, state?: string): ShotSpec => ({
 const SIMULAR: Ignore = { mockupSelector: "section.card:nth-of-type(1) > div:last-of-type", reason: "Simular…: botones solo del mockup" };
 /** «Dejar de esperar»: el agente no tiene cómo cancelar un encendido (UiCommand), así que la app no ofrece la acción. */
 const NO_CANCEL: Ignore = { mockupSelector: "section.card:nth-of-type(2) > div:last-of-type", reason: "Dejar de esperar: sin comando de cancelar en la IPC, no se muestra" };
-/** El mockup escribe «de the MacBook»; la app dice el nombre real de la máquina (D10). */
-const MACHINE_NAME: Ignore = { rect: { x: 236, y: 228, width: 90, height: 22 }, reason: "«de the MacBook»: en la app va el nombre real de la máquina" };
-const progresoShot = (name: string, txn: "run" | "ok" | "fail", state?: string): ShotSpec => ({
+/** El mockup escribe «de the MacBook»; la app dice el nombre real de la machine (D10). */
+const MACHINE_NAME: Ignore = { rect: { x: 236, y: 228, width: 90, height: 22 }, reason: "«de the MacBook»: en la app va el nombre real de la machine" };
+const progressShot = (name: string, txn: "run" | "ok" | "fail", state?: string): ShotSpec => ({
   name,
   page: "index.html",
   query: `${DEMO}&txn=${txn}`,
-  hash: "#/progreso",
+  hash: "#/progress",
   mockup: "F-Transactions",
   state,
   width: W,
@@ -213,14 +213,14 @@ const progresoShot = (name: string, txn: "run" | "ok" | "fail", state?: string):
   ignore: [SIMULAR, NO_CANCEL, ...(txn === "fail" ? [] : [MACHINE_NAME])],
   min: SCREEN_GATE,
 });
-// T-114: Túneles contra `V3-Compute` en cada estado que dibuja (con los mismos clics que el
-// mockup). Sin túneles y con 12 procesos el mockup no los dibuja: se capturan con los mismos
+// T-114: Tunnels contra `V3-Compute` en cada estado que dibuja (con los mismos clics que el
+// mockup). Sin tunnels y con 12 procesos el mockup no los dibuja: se capturan con los mismos
 // componentes y tokens, sin umbral (ACCEPTANCE, P2).
-const tunelesShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
+const tunnelsShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => ({
   name,
   page: "index.html",
   query: DEMO,
-  hash: "#/tuneles",
+  hash: "#/tunnels",
   mockup: "V3-Compute",
   width: W,
   height: H,
@@ -229,43 +229,43 @@ const tunelesShot = (name: string, extra: Partial<ShotSpec> = {}): ShotSpec => (
   min: SCREEN_GATE,
   ...extra,
 });
-export const TUNELES: ShotSpec[] = [
-  tunelesShot("tunnels"),
-  tunelesShot("tunnels-process-two", { state: "process-2", clicks: ['[role="option"] >> nth=1'] }),
-  tunelesShot("tunnels-two-processes", { state: "tunnel-2-processes", clicks: ['.tun:has-text("T-101")'] }),
-  tunelesShot("tunnels-no-processes", { state: "tunnel-no-processes", clicks: ['.tun:has-text("Review PR #66")'] }),
-  tunelesShot("tunnels-lora", { state: "tunnel-lora", clicks: ['.tun:has-text("Train style LoRA")'] }),
-  tunelesShot("tunnels-closed", { state: "tunnel-closed", clicks: ['.tun:has-text("ComfyUI")'] }),
-  tunelesShot("tunnels-project-collapsed", { state: "project-collapsed", clicks: ['.proj:has-text("tandem")'] }),
-  tunelesShot("tunnels-empty", { query: `${DEMO}&tunnels=none`, min: undefined }),
-  tunelesShot("tunnels-twelve-processes", { query: `${DEMO}&tunnels=many`, min: undefined }),
+export const TUNNELS: ShotSpec[] = [
+  tunnelsShot("tunnels"),
+  tunnelsShot("tunnels-process-two", { state: "process-2", clicks: ['[role="option"] >> nth=1'] }),
+  tunnelsShot("tunnels-two-processes", { state: "tunnel-2-processes", clicks: ['.tun:has-text("T-101")'] }),
+  tunnelsShot("tunnels-no-processes", { state: "tunnel-no-processes", clicks: ['.tun:has-text("Review PR #66")'] }),
+  tunnelsShot("tunnels-lora", { state: "tunnel-lora", clicks: ['.tun:has-text("Train style LoRA")'] }),
+  tunnelsShot("tunnels-closed", { state: "tunnel-closed", clicks: ['.tun:has-text("ComfyUI")'] }),
+  tunnelsShot("tunnels-project-collapsed", { state: "project-collapsed", clicks: ['.proj:has-text("tandem")'] }),
+  tunnelsShot("tunnels-empty", { query: `${DEMO}&tunnels=none`, min: undefined }),
+  tunnelsShot("tunnels-twelve-processes", { query: `${DEMO}&tunnels=many`, min: undefined }),
 ];
 
-export const MONITORES: ShotSpec[] = [
-  monitoresShot("monitors"),
-  monitoresShot("monitors-input-mac", { state: "input-mac", clicks: ['[role="radio"]:has-text("MacBook Pro")'] }),
-  escenaShot("scene-new", "PC-Desktop"),
-  escenaShot("scene-shows-mac", "MacBook Pro", "shows-mac"),
-  escenaShot("scene-unchanged", "Keep as is", "unchanged"),
-  progresoShot("progress-in-progress", "run"),
-  progresoShot("progress-success", "ok", "success"),
-  progresoShot("progress-rollback", "fail", "rollback"),
+export const MONITORS: ShotSpec[] = [
+  monitorsShot("monitors"),
+  monitorsShot("monitors-input-mac", { state: "input-mac", clicks: ['[role="radio"]:has-text("MacBook Pro")'] }),
+  sceneShot("scene-new", "PC-Desktop"),
+  sceneShot("scene-shows-mac", "MacBook Pro", "shows-mac"),
+  sceneShot("scene-unchanged", "Keep as is", "unchanged"),
+  progressShot("progress-in-progress", "run"),
+  progressShot("progress-success", "ok", "success"),
+  progressShot("progress-rollback", "fail", "rollback"),
 ];
 
-/** El hueco vacío que deja D1 en la fila de las tarjetas de máquina de `V3-Desk`. */
-const NO_ADD_CARD: Ignore = { mockupSelector: 'a[href="F-AddHost.dc.html"].card', reason: "D1: sin tarjeta «Agregar máquina»" };
+/** El hueco vacío que deja D1 en la fila de las tarjetas de machine de `V3-Desk`. */
+const NO_ADD_CARD: Ignore = { mockupSelector: 'a[href="F-AddHost.dc.html"].card', reason: "D1: sin tarjeta «Agregar machine»" };
 
-/** D2: los escritorios a escala toman el color de cada máquina; con dos del mismo sistema el fondo no puede coincidir con el mockup. */
-const D2_DESKS: Ignore = { mockupSelector: 'div:has(> div[role="img"][aria-label^="To scale"])', reason: "D2: el color de las máquinas cambia el fondo de los escritorios" };
+/** D2: los escritorios a escala toman el color de cada machine; con dos del mismo sistema el fondo no puede coincidir con el mockup. */
+const D2_DESKS: Ignore = { mockupSelector: 'div:has(> div[role="img"][aria-label^="To scale"])', reason: "D2: el color de las machines cambia el fondo de los escritorios" };
 
-// T-120: Ajustes (una captura por pestaña) y los estados difíciles. Los dos mockups no tienen
+// T-120: Settings (una captura por pestaña) y los states difíciles. Los dos mockups no tienen
 // barra lateral (G3/D16): se compara el contenido, desde la esquina de su título.
 const NONE = "#sin-contraparte-en-la-app";
-const ajustesShot = (name: string, state: string | undefined, clicks: string[], masks: ContentMask[] = []): ShotSpec => ({
+const settingsShot = (name: string, state: string | undefined, clicks: string[], masks: ContentMask[] = []): ShotSpec => ({
   name,
   page: "index.html",
   query: DEMO,
-  hash: "#/ajustes",
+  hash: "#/settings",
   mockup: "F-Settings",
   state,
   clicks,
@@ -281,29 +281,29 @@ const ajustesShot = (name: string, state: string | undefined, clicks: string[], 
   },
 });
 const tab = (label: string) => `[role="tab"]:has-text("${label}")`;
-export const AJUSTES: ShotSpec[] = [
-  ajustesShot("settings", undefined, [], [
-    { app: ".pane > .row:nth-child(1) > .mut", mockup: ".pane > .row:nth-child(1) > input", reason: "El nombre del puesto es texto: el campo editable del mockup no tiene función aquí (§3.8)" },
-    { app: NONE, mockup: 'button.danger:has-text("Remove from desk")', reason: "D1: sin «Sacar del puesto» (exactamente dos máquinas)" },
-    { app: ".pane > .row:nth-child(3) > button", mockup: ".pane > .row:nth-child(3) > button.ic", reason: "Sin «Sacar del puesto» a su lado, el lápiz de the other machine cae en el borde derecho de la fila" },
-    { app: ".pane > .row:nth-child(4) > .fill", mockup: ".pane > .row:nth-child(4) > span", reason: "D1: «Change the other machine» en lugar de «Agregar una máquina»" },
+export const SETTINGS: ShotSpec[] = [
+  settingsShot("settings", undefined, [], [
+    { app: ".pane > .row:nth-child(1) > .mut", mockup: ".pane > .row:nth-child(1) > input", reason: "El nombre del desk es texto: el campo editable del mockup no tiene función aquí (§3.8)" },
+    { app: NONE, mockup: 'button.danger:has-text("Remove from desk")', reason: "D1: sin «Sacar del desk» (exactamente dos machines)" },
+    { app: ".pane > .row:nth-child(3) > button", mockup: ".pane > .row:nth-child(3) > button.ic", reason: "Sin «Sacar del desk» a su lado, el lápiz de the other machine cae en el borde derecho de la fila" },
+    { app: ".pane > .row:nth-child(4) > .fill", mockup: ".pane > .row:nth-child(4) > span", reason: "D1: «Change the other machine» en lugar de «Agregar una machine»" },
     { app: ".pane > .row:nth-child(4) > button", mockup: ".pane > .row:nth-child(4) > a.btn", reason: "D1: «Pair again» en lugar de «Mostrar código»" },
   ]),
-  { ...ajustesShot("settings-shortcuts", "shortcuts", [tab("Shortcuts")]), query: `${DEMO}&solopc` },
-  ajustesShot("settings-keyboard", "keyboard", [tab("Keyboard and mouse")]),
-  ajustesShot("settings-updates", "updates", [tab("Updates")]),
-  { ...ajustesShot("settings-updates-checked", "updates-checked", [tab("Updates"), 'button:has-text("Check now")']), unhover: true },
-  ajustesShot("settings-advanced", "advanced", [tab("Advanced")], [
+  { ...settingsShot("settings-shortcuts", "shortcuts", [tab("Shortcuts")]), query: `${DEMO}&solopc` },
+  settingsShot("settings-keyboard", "keyboard", [tab("Keyboard and mouse")]),
+  settingsShot("settings-updates", "updates", [tab("Updates")]),
+  { ...settingsShot("settings-updates-checked", "updates-checked", [tab("Updates"), 'button:has-text("Check now")']), unhover: true },
+  settingsShot("settings-advanced", "advanced", [tab("Advanced")], [
     { app: ".pane > .row:nth-child(3) .path", mockup: ".pane > .row:nth-child(3) .mono", reason: "El agente todavía no cuenta las sesiones del servidor MCP" },
   ]),
 ];
 
-export const ESTADOS: ShotSpec = {
+export const STATES: ShotSpec = {
   name: "states",
   page: "index.html",
-  // `?estados` siembra los textos de ejemplo del mockup (nombres, cifras): se compara todo.
-  query: `${DEMO}&estados`,
-  hash: "#/estados",
+  // `?states` siembra los textos de ejemplo del mockup (nombres, cifras): se compara todo.
+  query: `${DEMO}&states`,
+  hash: "#/states",
   mockup: "V3-States",
   width: W,
   height: H,
@@ -314,55 +314,55 @@ export const ESTADOS: ShotSpec = {
     mockup: "h1",
     masks: [
       { app: NONE, mockup: 'button.btn:has-text("Send over Wi-Fi anyway")', reason: "El agente no tiene «enviar por Wi-Fi igual»: sin función, sin botón" },
-      { app: "article.st:nth-child(1) p", mockup: "article.st:nth-child(1) p", reason: "D1: la frase no dice «Agrega otra máquina» (T-142)" },
-      { app: "article.st:nth-child(1) .act button", mockup: "article.st:nth-child(1) a.btn", reason: "D1: «Pair the other machine» en lugar de «Agregar máquina» (T-142)" },
+      { app: "article.st:nth-child(1) p", mockup: "article.st:nth-child(1) p", reason: "D1: la frase no dice «Agrega otra machine» (T-142)" },
+      { app: "article.st:nth-child(1) .act button", mockup: "article.st:nth-child(1) a.btn", reason: "D1: «Pair the other machine» en lugar de «Agregar machine» (T-142)" },
     ],
     min: SIDEBAR_GATE,
   },
 };
 
 /**
- * T-120: la paleta contra `F-Palette`. Se tapan los renglones con datos del puesto (el mockup
- * trae escenas, túneles y colores de ejemplo) y la página de fondo, que en la app es la real y
+ * T-120: la palette contra `F-Palette`. Se tapan los renglones con datos del desk (el mockup
+ * trae scenes, tunnels y colores de ejemplo) y la página de fondo, que en la app es la real y
  * en el mockup un esqueleto.
  */
 const ROW = (text: string) => `section[role="dialog"] .it:has(span:text-is("${text}"))`;
-export const PALETA: ShotSpec = {
+export const PALETTE: ShotSpec = {
   name: "palette",
   page: "index.html",
-  query: `${DEMO}&paleta`,
-  hash: "#/puesto",
+  query: `${DEMO}&palette`,
+  hash: "#/desk",
   mockup: "F-Palette",
   width: W,
   height: H,
   keys: ["Meta+k"],
   ignore: [
-    { mockupSelector: ROW("Add machine…"), reason: "D1: no hay tercera máquina; se cambia la otra" },
+    { mockupSelector: ROW("Add machine…"), reason: "D1: no hay tercera machine; se cambia la otra" },
   ],
   regions: [{ name: "dialog", mockupSelector: 'section[role="dialog"]', min: SCREEN_GATE }],
   min: SCREEN_GATE,
 };
 
-/** T-144: los estados de `F-Palette` que escribe en el campo (tecla a tecla, como el mockup, que filtra al teclear). */
-const PALETA_ESCRIBE = (state: string, text: string): ShotSpec => ({
-  ...PALETA,
+/** T-144: los states de `F-Palette` que escribe en el campo (tecla a tecla, como el mockup, que filtra al teclear). */
+const PALETTE_ESCRIBE = (state: string, text: string): ShotSpec => ({
+  ...PALETTE,
   name: `palette-${state}`,
   state,
   keys: ["Meta+k", ...text.split("")],
   regions: [{ name: "dialog", mockupSelector: 'section[role="dialog"]', min: SCREEN_GATE }],
 });
-export const PALETA_ESTADOS: ShotSpec[] = [PALETA_ESCRIBE("filter", "only"), PALETA_ESCRIBE("no-results", "zzz")];
+export const PALETTE_STATES: ShotSpec[] = [PALETTE_ESCRIBE("filter", "only"), PALETTE_ESCRIBE("no-results", "zzz")];
 
 /**
- * T-120: la bandeja contra `V3-Tray`. Los datos del puesto reemplazan a los de ejemplo
- * (enlace, carga, escenas y túneles); como los túneles reales empujan el aviso hacia abajo, el
- * aviso también se tapa. «Lock here» no existe en la app (DECISIONS, T-112).
+ * T-120: la tray contra `V3-Tray`. Los datos del desk reemplazan a los de ejemplo
+ * (link, carga, scenes y tunnels); como los tunnels reales empujan el notice hacia abajo, el
+ * notice también se tapa. «Lock here» no existe en la app (DECISIONS, T-112).
  */
-export const BANDEJA: ShotSpec = {
+export const TRAY: ShotSpec = {
   name: "tray",
   page: "tray.html",
-  // `bandeja` siembra los datos del mockup: 0.4 ms, la Mac al 18 %, «PC only» y tres proyectos.
-  query: `${DEMO}&bandeja`,
+  // `tray` siembra los datos del mockup: 0.4 ms, la Mac al 18 %, «PC only» y tres proyectos.
+  query: `${DEMO}&tray`,
   hash: "",
   mockup: "V3-Tray",
   width: 380,
@@ -379,16 +379,16 @@ export const BANDEJA: ShotSpec = {
 };
 
 /**
- * `F-Notices`: la pila entera de avisos (`?avisos` siembra los tres del mockup, con sus textos,
+ * `F-Notices`: la pila entera de notices (`?notices` siembra los tres del mockup, con sus textos,
  * tonos y el botón del primero) contra la del mockup. Para medir, la página de fondo se oculta y
  * la pila (fija en la ventana) pasa a absoluta: el mockup la apila en el flujo, dentro de un
  * cuadro, y como capa fija el texto cae en otro píxel (ver `mockups/README.md`).
  */
-export const AVISOS: ShotSpec = {
+export const NOTICES: ShotSpec = {
   name: "notices",
   page: "index.html",
-  query: `${DEMO}&avisos`,
-  hash: "#/puesto",
+  query: `${DEMO}&notices`,
+  hash: "#/desk",
   mockup: "F-Notices",
   width: W,
   height: 860,
@@ -408,7 +408,7 @@ const asisShot = (name: string, mockup: string, query: string, extra: Partial<Sh
   name,
   page: "index.html",
   query: `${DEMO}&${query}`,
-  hash: "#/puesto",
+  hash: "#/desk",
   mockup,
   width: W,
   height: H,
@@ -417,7 +417,7 @@ const asisShot = (name: string, mockup: string, query: string, extra: Partial<Sh
 });
 /** Los botones «Simular…» son solo del mockup (README): en la app esos pasos ocurren de verdad. */
 const SIMULAR_ASIS: Ignore[] = [
-  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "«Simular cruce» es solo del mockup" },
+  { mockupSelector: 'button.sim:has-text("Simulate crossing")', reason: "«Simular crossing» es solo del mockup" },
   { mockupSelector: 'button.sim:has-text("Simulate another edge")', reason: "«Simular otro borde» es solo del mockup" },
 ];
 /**
@@ -430,12 +430,12 @@ const ASIS5_LIST: Ignore[] = [
   { rect: { x: 0, y: 258, width: 300, height: 94 }, reason: "F-Setup5: «Listo» sube 44 px en el mockup por la clase .cur duplicada" },
 ];
 /**
- * `F-Setup5` escribe «de the MacBook a la PC»; la app dice los nombres de las máquinas. Solo se tapa
+ * `F-Setup5` escribe «de the MacBook a la PC»; la app dice los nombres de las machines. Solo se tapa
  * lo que sigue a «el mouse de» en el segundo renglón: el primero y el comienzo del segundo son iguales.
  */
-const ASIS5_LEAD: Ignore = { rect: { x: 438, y: 134, width: 552, height: 20 }, reason: "F-Setup5: los nombres de las máquinas del puesto («the MacBook», «la PC» en el mockup)" };
-/** Los textos del veredicto nombran a las máquinas del puesto (el mockup dice «the MacBook»). */
-const ASIS5_VERDICT: Ignore = { rect: { x: 350, y: 482, width: 440, height: 40 }, reason: "F-Setup5: el veredicto nombra a las máquinas del puesto" };
+const ASIS5_LEAD: Ignore = { rect: { x: 438, y: 134, width: 552, height: 20 }, reason: "F-Setup5: los nombres de las machines del desk («the MacBook», «la PC» en el mockup)" };
+/** Los textos del verdict nombran a las machines del desk (el mockup dice «the MacBook»). */
+const ASIS5_VERDICT: Ignore = { rect: { x: 350, y: 482, width: 440, height: 40 }, reason: "F-Setup5: el verdict nombra a las machines del desk" };
 const ASIS5: Ignore[] = [...ASIS5_LIST, ASIS5_LEAD];
 /** `F-Setup3` escribe «Faltan 1» y no ofrece reiniciar el agente; la app concuerda («1 missing») y lo ofrece (T-090). */
 const PERMS_FOOT: Ignore = { rect: { x: 775, y: 770, width: 200, height: 40 }, reason: "F-Setup3: «Faltan 1» y «Restart agent» (solo en la app)" };
@@ -450,11 +450,11 @@ export const ASISTENTE: ShotSpec[] = [
     // El foco salta solo al dígito siguiente; el mockup no tiene foco en ninguno.
     clicks: [".wiz h1"],
   }),
-  // T-145: «Create a new desk». El panel (nombre del puesto en el mockup, código en la app) se tapa entero.
+  // T-145: «Create a new desk». El panel (nombre del desk en el mockup, código en la app) se tapa entero.
   asisShot("setup-desk-new", "V3-Setup", "wizard=1&peer=none&pair=code", {
     state: "new",
     clicks: ['[role="radio"]:has-text("Create a new desk")'],
-    ignore: [{ rect: { x: 350, y: 315, width: 760, height: 205 }, reason: "T-145: el nombre del puesto no existe en el agente (§3.8); la app muestra el código de emparejamiento (T-097)" }],
+    ignore: [{ rect: { x: 350, y: 315, width: 760, height: 205 }, reason: "T-145: el nombre del desk no existe en el agente (§3.8); la app muestra el código de emparejamiento (T-097)" }],
   }),
   asisShot("setup-permissions", "F-Setup3", "wizard=2&perms=missing"),
   asisShot("setup-permissions-one", "F-Setup3", "wizard=2&perms=missing", { state: "one-granted", clicks: ['button:has-text("Open settings") >> nth=0'], ignore: [PERMS_FOOT] }),
@@ -475,36 +475,36 @@ export const SHOTS: ShotSpec[] = [
     name: "desk",
     page: "index.html",
     query: DEMO,
-    hash: "#/puesto",
+    hash: "#/desk",
     mockup: "V3-Desk",
     width: W,
     height: H,
     ignore: [NO_ADD_MACHINE, NO_ADD_CARD],
     regions: [{ ...SIDEBAR, min: SIDEBAR_GATE }],
-    // T-113: toda la pantalla. Solo se tapa el hueco vacío que D1 quita («Agregar máquina»); la
+    // T-113: toda la pantalla. Solo se tapa el hueco vacío que D1 quita («Agregar machine»); la
     // app no tiene ninguna tarjeta oculta (Encender/Apagar van dentro de la tarjeta de the other machine).
     min: SCREEN_GATE,
   },
-  // D2 (alcance de T-126): el mismo puesto con dos Windows y con dos Mac. Los nombres y
+  // D2 (alcance de T-126): el mismo desk con dos Windows y con dos Mac. Los nombres y
   // colores cambian, así que no tienen umbral: sirven para ver cada combinación.
-  // T-144: aplicar una escena desde el Puesto (los mismos clics que `V3-Desk--escena-*`).
+  // T-144: aplicar una scene desde el Desk (los mismos clics que `V3-Desk--scene-*`).
   ...[
     ["scene-macbook-only", "MacBook only"],
     ["scene-game", "Game"],
-  ].map(([state, label]): ShotSpec => ({ name: `desk-${state}`, page: "index.html", query: DEMO, hash: "#/puesto", mockup: "V3-Desk", state, width: W, height: H, clicks: [`.scene:has-text("${label}")`], ignore: [NO_ADD_MACHINE, NO_ADD_CARD], min: SCREEN_GATE })),
-  { name: "desk-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/puesto", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
-  { name: "desk-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/puesto", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
-  ...TUNELES,
-  ...MONITORES,
-  ...ACOMODO,
+  ].map(([state, label]): ShotSpec => ({ name: `desk-${state}`, page: "index.html", query: DEMO, hash: "#/desk", mockup: "V3-Desk", state, width: W, height: H, clicks: [`.scene:has-text("${label}")`], ignore: [NO_ADD_MACHINE, NO_ADD_CARD], min: SCREEN_GATE })),
+  { name: "desk-win-win", page: "index.html", query: "demo=win-win&still", hash: "#/desk", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
+  { name: "desk-mac-mac", page: "index.html", query: "demo=mac-mac&still", hash: "#/desk", mockup: "V3-Desk", width: W, height: H, ignore: [NO_ADD_MACHINE, NO_ADD_CARD, D2_DESKS], regions: [SIDEBAR] },
+  ...TUNNELS,
+  ...MONITORS,
+  ...ARRANGEMENT,
   ...ASISTENTE,
-  // T-118: la pantalla Red entera contra `V3-Network`. Se tapa lo que D1 quita («Agregar máquina») y
+  // T-118: la pantalla Red entera contra `V3-Network`. Se tapa lo que D1 quita («Agregar machine») y
   // el rótulo de la ventana de la gráfica: el agente guarda 60 s, el mockup dice «10 min».
   {
     name: "network",
     page: "index.html",
     query: DEMO,
-    hash: "#/red",
+    hash: "#/network",
     mockup: "V3-Network",
     width: W,
     height: H,
@@ -517,7 +517,7 @@ export const SHOTS: ShotSpec[] = [
     name: "machine-b",
     page: "index.html",
     query: DEMO,
-    hash: "#/maquina/b",
+    hash: "#/machine/b",
     mockup: "V3-Machine",
     width: W,
     height: H,
@@ -533,7 +533,7 @@ export const SHOTS: ShotSpec[] = [
     name: "machine-a",
     page: "index.html",
     query: `${DEMO}&trouble=permissions`,
-    hash: "#/maquina/a",
+    hash: "#/machine/a",
     mockup: "F-MachineMac",
     width: W,
     height: H,
@@ -543,19 +543,19 @@ export const SHOTS: ShotSpec[] = [
       app: "main header",
       mockup: "header",
       masks: [
-        { app: '[role="radiogroup"][aria-label="Machine color"]', reason: "D17: el color de la máquina se edita en su página" },
+        { app: '[role="radiogroup"][aria-label="Machine color"]', reason: "D17: el color de la machine se edita en su página" },
         { app: ".mod > .chip", mockup: ".mod > span:last-child", reason: "G4: el estado del módulo es el chip uniforme (interruptor); «Open settings» sí se compara" },
       ],
       min: SIDEBAR_GATE,
     },
   },
-  ...AJUSTES,
-  PALETA,
-  ...PALETA_ESTADOS,
-  ESTADOS,
-  AVISOS,
-  { ...AVISOS, name: "notices-closed", state: "closed", clicks: ['button[aria-label="Close"] >> nth=0'] },
-  BANDEJA,
+  ...SETTINGS,
+  PALETTE,
+  ...PALETTE_STATES,
+  STATES,
+  NOTICES,
+  { ...NOTICES, name: "notices-closed", state: "closed", clicks: ['button[aria-label="Close"] >> nth=0'] },
+  TRAY,
 ];
 
 // ---- Imágenes -----------------------------------------------------------------------------

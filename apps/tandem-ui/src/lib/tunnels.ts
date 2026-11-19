@@ -1,6 +1,6 @@
-// La pantalla Túneles (`V3-Compute`) sin DOM: de lo que manda el agente (`tandem_ui::tunnels`)
+// La pantalla Tunnels (`V3-Compute`) sin DOM: de lo que manda el agente (`tandem_ui::tunnels`)
 // a lo que se dibuja, y la lógica de la lista (proyectos plegables, selección, salida en vivo).
-// Solo lectura (D9): nada aquí detiene ni abre túneles.
+// Solo lectura (D9): nada aquí detiene ni abre tunnels.
 
 import type { Machine } from "./model";
 import type { OutputChunk, OutputCursor, ProcessRow, TunnelView } from "./store/types";
@@ -51,7 +51,7 @@ export interface TransferWire {
   finished: boolean;
 }
 
-/** Los túneles sin proyecto se agrupan bajo este nombre. */
+/** Los tunnels sin proyecto se agrupan bajo este nombre. */
 export const NO_PROJECT = "No project";
 
 export function processRow(p: ProcessWire): ProcessRow {
@@ -72,13 +72,13 @@ export function outputChunk(o: OutputWire): OutputChunk {
 // ---------------------------------------------------------------------------------------
 // Qué se acuerda la ventana entre una lista y la siguiente.
 
-/** Lo que la ventana sabe de un túnel que ya no está en la lista del agente (se cerró). */
+/** Lo que la ventana sabe de un tunnel que ya no está en la lista del agente (se cerró). */
 export interface Memory {
   /** Los últimos que se vieron, por id. */
   seen: Map<string, TunnelView>;
-  /** Cuándo cada túnel pasó a inactivo (ms), mientras lo siga estando. */
+  /** Cuándo cada tunnel pasó a inactivo (ms), mientras lo siga estando. */
   idle: Map<string, number>;
-  /** Bytes copiados por túnel; cada transferencia cuenta una vez (la clave es la copia). */
+  /** Bytes copiados por tunnel; cada transferencia cuenta una vez (la clave es la copia). */
   traffic: Map<string, { up: number; down: number }>;
   /** El último avance de cada copia in progress o terminada, para no sumar dos veces. */
   copies: Map<string, number>;
@@ -87,7 +87,7 @@ export interface Memory {
 export const newMemory = (): Memory => ({ seen: new Map(), idle: new Map(), traffic: new Map(), copies: new Map() });
 
 /**
- * El nombre corto de una máquina en el camino de la lista: «Mac», «PC» si son de sistemas distintos.
+ * El nombre corto de una machine en el camino de la lista: «Mac», «PC» si son de sistemas distintos.
  * Con el mismo sistema, su primera palabra; si las primeras palabras no las distinguen («PC-Escritorio»
  * y «PC-Taller», «MacBook Pro» y «Mac mini»), lo que sigue; y el nombre completo si tampoco alcanza.
  * Dos nombres distintos nunca dan el mismo rótulo.
@@ -104,10 +104,10 @@ export function shortLabels(a: { name: string; os: "macos" | "windows" }, b: { n
   return [a.name, b.name];
 }
 
-/** Cuántos túneles cerrados se muestran como mucho: la lista no crece sin fin. */
+/** Cuántos tunnels cerrados se muestran como mucho: la lista no crece sin fin. */
 export const CLOSED_KEPT = 10;
 
-/** Suma el avance de una copia al tráfico de su túnel (por la diferencia con el último aviso). */
+/** Suma el avance de una copia al tráfico de su tunnel (por la diferencia con el último notice). */
 export function addTransfer(m: Memory, t: TransferWire): void {
   const key = `${t.tunnel}|${t.upload ? "up" : "down"}|${t.path}`;
   const before = m.copies.get(key) ?? 0;
@@ -191,7 +191,7 @@ export function groupByProject(tunnels: TunnelView[]): ProjectGroup[] {
   return groups;
 }
 
-/** «1/2»: túneles abiertos sobre el total del proyecto. */
+/** «1/2»: tunnels abiertos sobre el total del proyecto. */
 export const ratio = (g: ProjectGroup): string => `${g.live}/${g.tunnels.length}`;
 
 /** «4 abiertos · 2 proyectos», o «No open tunnels». */
@@ -247,7 +247,7 @@ export function tubeSpeed(state: TunnelView["state"]): { a: number; b: number } 
   return null;
 }
 
-/** El túnel elegido: el que se pidió si sigue, y si no, el primero que no esté cerrado (o el primero). */
+/** El tunnel elegido: el que se pidió si sigue, y si no, el primero que no esté cerrado (o el primero). */
 export function pickTunnel(tunnels: TunnelView[], wanted: string | null): TunnelView | null {
   return tunnels.find((t) => t.id === wanted) ?? tunnels.find((t) => t.state !== "closed") ?? tunnels[0] ?? null;
 }
@@ -278,10 +278,10 @@ export function appendOutput(o: Output, chunk: OutputChunk): Output {
   return { text: text.length > OUTPUT_KEEP ? text.slice(text.length - OUTPUT_KEEP) : text, cursor: chunk.next };
 }
 
-/** «1 túnel», «2 túneles»: el plural no se fija. */
+/** «1 tunnel», «2 tunnels»: el plural no se fija. */
 export const countTunnels = (n: number): string => `${n} ${n === 1 ? "tunnel" : "tunnels"}`;
 
-/** Renglón de una máquina en la bandeja: sale de sus datos, sin mirar qué sistema es. */
+/** Renglón de una machine en la tray: sale de sus datos, sin mirar qué sistema es. */
 export function machineLine(m: { id: Machine; power: string; detail: string }, tunnels: readonly { to: Machine; state: string }[]): string {
   if (m.power !== "on") return "off";
   const busy = tunnels.filter((t) => t.to === m.id && t.state === "busy").length;

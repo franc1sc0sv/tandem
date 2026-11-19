@@ -1,4 +1,4 @@
-// La página Máquina (T-115, `V3-Machine`/`F-MachineMac`): textos, unidades y orden de lo que
+// La página Machine (T-115, `V3-Machine`/`F-MachineMac`): textos, unidades y orden de lo que
 // muestra, y cómo se arma la vista en vivo con las muestras del agente. Puro: se prueba sin
 // pantalla.
 
@@ -10,10 +10,10 @@ const GIB = 2 ** 30;
 /** Muestras que guarda cada línea (una por segundo con el agente). */
 export const HISTORY = 30;
 
-/** Desde aquí la VRAM se da por casi llena (el aviso ámbar). */
+/** Desde aquí la VRAM se da por casi llena (el notice ámbar). */
 export const VRAM_WARN = 0.85;
 
-/** La paleta de colores de máquina (D17), con el nombre de cada uno. */
+/** La palette de colores de machine (D17), con el nombre de cada uno. */
 export const PALETTE: { color: string; name: string }[] = [
   { color: "#7aa7e6", name: "Blue" },
   { color: "#a99be8", name: "Violet" },
@@ -21,7 +21,7 @@ export const PALETTE: { color: string; name: string }[] = [
   { color: "#d9a75a", name: "Amber" },
 ];
 
-/** El nombre largo máximo que acepta el puesto (`tandem_core::desk::MAX_NAME`). */
+/** El nombre largo máximo que acepta el desk (`tandem_core::desk::MAX_NAME`). */
 export const MAX_NAME = 40;
 
 // El fondo tenue de cada acento sobre una tarjeta (los de los mockups).
@@ -32,7 +32,7 @@ const TINTS: Record<string, string> = {
   "#d9a75a": "#1e1a12",
 };
 
-/** El fondo tenue del acento de la máquina (íconos de grupo, entorno predeterminado). */
+/** El fondo tenue del acento de la machine (íconos de grupo, entorno predeterminado). */
 export function tint(color: string): string {
   return TINTS[color.toLowerCase()] ?? `color-mix(in srgb, ${color} 9%, #15161a)`;
 }
@@ -110,7 +110,7 @@ export function gpuSub(hw: HardwareView | null): string {
   return sharedMemory(hw) ? `${n} integrated` : n;
 }
 
-/** La VRAM pasa del umbral del aviso. */
+/** La VRAM pasa del umbral del notice. */
 export function vramWarn(live: LiveView | null): boolean {
   const g = live?.gpu;
   if (!g || g.vramUsed === null || !g.vramTotal) return false;
@@ -201,7 +201,7 @@ export function nextLive(prev: LiveView | null, s: ResourceSample): LiveView {
   };
 }
 
-/** El resumen que muestran el Puesto y la bandeja, a partir de la vista en vivo. */
+/** El resumen que muestran el Desk y la tray, a partir de la vista en vivo. */
 export function summaryOf(live: LiveView): Resources {
   const ram = pct(live.ram.used, live.ram.total);
   const g = live.gpu;
@@ -222,7 +222,7 @@ export function summaryOf(live: LiveView): Resources {
   };
 }
 
-/** Lo que la página puede editar del nombre: recortado y dentro del largo del puesto. */
+/** Lo que la página puede editar del nombre: recortado y dentro del largo del desk. */
 export function checkName(raw: string): { ok: true; name: string } | { ok: false; reason: string } {
   const name = raw.trim();
   if (!name) return { ok: false, reason: "The name cannot be empty" };

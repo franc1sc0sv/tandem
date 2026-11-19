@@ -28,7 +28,7 @@ it("convierte un fallo del puente en un estado sin agente", () => {
   });
 });
 
-it("recibe los atajos nuevos por el evento de `tandem_ui::app`", async () => {
+it("recibe los shortcuts nuevos por el evento de `tandem_ui::app`", async () => {
   const bridge = await tauriBridge();
   const seen: ShortcutsView[] = [];
   await bridge.onShortcuts((v) => seen.push(v));

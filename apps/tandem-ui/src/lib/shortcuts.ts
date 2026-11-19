@@ -1,11 +1,11 @@
-// Atajos globales vistos desde la ventana: leer una combinación del teclado, mostrarla y
+// Shortcuts globales vistos desde la ventana: leer una combinación del teclado, mostrarla y
 // decidir cuáles atiende la ventana misma. La forma canónica es la de
 // `tandem_ui::shortcuts` (`Ctrl+Alt+Shift+Super+<KeyboardEvent.code>`); las pruebas de los
 // dos lados la fijan.
 
 import type { Bindings, ShortcutAction, ShortcutsView } from "./model";
 
-// Los atajos de los modos se fueron con ellos (DESIGN §8): queda el de la ventana.
+// Los shortcuts de los modos se fueron con ellos (DESIGN §8): queda el de la ventana.
 export const ACTIONS: ShortcutAction[] = ["toggle_window"];
 
 export const ACTION_LABEL: Record<ShortcutAction, string> = {
@@ -66,7 +66,7 @@ function keyText(code: string): string {
   return code;
 }
 
-/** Cómo se ve un atajo: `⌃⌥1` en macOS, `Ctrl+Alt+1` en Windows. */
+/** Cómo se ve un shortcut: `⌃⌥1` en macOS, `Ctrl+Alt+1` en Windows. */
 export function formatAccel(accel: string | null | undefined, mac: boolean): string {
   if (!accel) return "";
   const parts = accel.split("+");
@@ -95,7 +95,7 @@ export function isMacPlatform(ua: string = navigator.userAgent): boolean {
 
 /**
  * La acción que la ventana debe atender ella misma con esta tecla: solo las que el sistema
- * no dejó registrar como globales (si no, el atajo global ya la atiende y correría dos veces).
+ * no dejó registrar como globales (si no, el shortcut global ya la atiende y correría dos veces).
  */
 export function localAction(e: KeyLike, view: ShortcutsView): ShortcutAction | null {
   const c = readCombo(e);
@@ -117,7 +117,7 @@ export function windowCommand(action: ShortcutAction): WindowCommand {
   }
 }
 
-/** Atajos repetidos en lo que se está editando (el núcleo también lo rechaza). */
+/** Shortcuts repetidos en lo que se está editando (el núcleo también lo rechaza). */
 export function duplicateOf(bindings: Bindings, action: ShortcutAction, accel: string): ShortcutAction | null {
   return ACTIONS.find((a) => a !== action && bindings[a] === accel) ?? null;
 }

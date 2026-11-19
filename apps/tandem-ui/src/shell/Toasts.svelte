@@ -8,7 +8,7 @@
   const store = useStore();
 </script>
 
-<!-- Avisos dentro de la app (F-Notices): arriba to the right of, se apilan y se van solos en 6 s
+<!-- Notices dentro de la app (F-Notices): arriba to the right of, se apilan y se van solos en 6 s
      salvo los que piden una decisión. -->
 <div class="toasts" role="region" aria-label="Notices">
   {#each store.toasts as t (t.id)}

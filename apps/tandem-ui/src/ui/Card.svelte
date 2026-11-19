@@ -4,9 +4,9 @@
   interface Props {
     /** Retraso de la animación de entrada, en segundos (las tarjetas entran escalonadas). */
     delay?: number;
-    /** Con `href` la tarjeta entera es un enlace y se eleva al pasar. */
+    /** Con `href` la tarjeta entera es un link y se eleva al pasar. */
     href?: string;
-    /** Se eleva al pasar aunque no sea enlace. */
+    /** Se eleva al pasar aunque no sea link. */
     hover?: boolean;
     label?: string;
     tag?: "div" | "section" | "article";

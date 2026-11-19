@@ -1,6 +1,6 @@
-// El asistente de configuración inicial (DESIGN §5, sin monitores): un paso por pantalla y
+// El asistente de configuración inicial (DESIGN §5, sin monitors): un paso por pantalla y
 // cada paso verificado antes de pasar al siguiente: (1) this machine y sus permisos, (2)
-// emparejar y ver el ping del enlace, (3) «presiona una tecla» y (4) el resumen. El acomodo
+// emparejar y ver el ping del link, (3) «presiona una tecla» y (4) el resumen. El arrangement
 // de pantallas llega con T-117. Aquí, lo que no depende del DOM: el estado del asistente, lo
 // que se muestra en cada paso (`viewOf`) y las reglas de cuándo se puede avanzar. El
 // asistente de 6 pasos de v0.3 (T-119) lo usa desde Svelte.
@@ -22,7 +22,7 @@ export const STEPS: { id: StepId; title: string }[] = [
 // Estado
 
 export interface PairFacts {
-  /** El último ping al otro agente, con el enlace por el que fue. */
+  /** El último ping al otro agente, con el link por el que fue. */
   ping: { link: Link; millis: number } | null;
   pingError: string | null;
   /** «Continue alone for now». */
@@ -30,9 +30,9 @@ export interface PairFacts {
 }
 
 export interface KeyFacts {
-  /** Las dos máquinas están escuchando. */
+  /** Las dos machines están escuchando. */
   armed: boolean;
-  /** La máquina que recibió la tecla. */
+  /** La machine que recibió la tecla. */
   heard: Machine | null;
   /** Lo que el usuario confirmó (o eligió a mano). */
   confirmed: Machine | null;

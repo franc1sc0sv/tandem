@@ -35,7 +35,7 @@ import {
 } from "./tunnels";
 
 const proc = (id: number, state: ProcessWire["state"] = { kind: "running" }): ProcessWire => ({ id, command: `cmd ${id}`, pid: 100 + id, started: 1000 * id, duration: null, state });
-const tun = (id: string, running: ProcessWire[] = [], over: Partial<TunnelWire> = {}): TunnelWire => ({ id, title: `Túnel ${id}`, origin: "a", target: "b", open: true, created: 1_000, running, ...over });
+const tun = (id: string, running: ProcessWire[] = [], over: Partial<TunnelWire> = {}): TunnelWire => ({ id, title: `Tunnel ${id}`, origin: "a", target: "b", open: true, created: 1_000, running, ...over });
 const proj = (name: string | null, tunnels: TunnelWire[]): ProjectWire => ({ name, root: name ? `/src/${name}` : null, tunnels });
 
 describe("formatos", () => {
@@ -107,7 +107,7 @@ describe("estado y proyectos con el demo (V3-Compute)", () => {
     expect(summary(g)).toBe("4 open · 2 projects");
   });
 
-  it("sin túneles no hay nada abierto, y con uno se dice en singular", () => {
+  it("sin tunnels no hay nada abierto, y con uno se dice en singular", () => {
     expect(summary([])).toBe("No open tunnels");
     expect(summary(groupByProject(tunnels.slice(0, 1)))).toBe("1 open · 1 project");
   });
@@ -157,14 +157,14 @@ describe("estado y proyectos con el demo (V3-Compute)", () => {
 });
 
 describe("de lo que manda el agente a lo que se dibuja", () => {
-  it("un túnel con procesos está activo y sin ellos, inactivo desde que se abrió", () => {
+  it("un tunnel con procesos está activo y sin ellos, inactivo desde que se abrió", () => {
     const m = newMemory();
     const [busy, idle] = tunnelsFromWire([proj("tandem", [tun("1", [proc(1)]), tun("2")])], 5_000, m);
     expect(busy).toMatchObject({ state: "busy", processes: 1, project: "tandem", projectPath: "/src/tandem", from: "a", to: "b", branch: null, closedAt: null });
     expect(idle).toMatchObject({ state: "idle", processes: 0, idleSince: 1_000 });
   });
 
-  it("un túnel que pasa a inactivo cuenta desde que la ventana lo vio así", () => {
+  it("un tunnel que pasa a inactivo cuenta desde que la ventana lo vio así", () => {
     const m = newMemory();
     tunnelsFromWire([proj("p", [tun("1", [proc(1)])])], 5_000, m);
     const [t] = tunnelsFromWire([proj("p", [tun("1")])], 9_000, m);
@@ -174,7 +174,7 @@ describe("de lo que manda el agente a lo que se dibuja", () => {
     expect(again).toMatchObject({ state: "busy", idleSince: null });
   });
 
-  it("los túneles sin proyecto van bajo «No project»", () => {
+  it("los tunnels sin proyecto van bajo «No project»", () => {
     const [t] = tunnelsFromWire([proj(null, [tun("1")])], 0, newMemory());
     expect(t.project).toBe("No project");
     expect(t.projectPath).toBeNull();
@@ -203,12 +203,12 @@ describe("de lo que manda el agente a lo que se dibuja", () => {
     expect(out.every((t) => t.state === "closed")).toBe(true);
   });
 
-  it("un túnel que el agente ya marca cerrado no se dibuja como abierto", () => {
+  it("un tunnel que el agente ya marca cerrado no se dibuja como abierto", () => {
     const out = tunnelsFromWire([proj("p", [tun("1", [], { open: false })])], 0, newMemory());
     expect(out).toEqual([]);
   });
 
-  it("el tráfico suma lo copiado por cada túnel, sin contar dos veces el mismo avance", () => {
+  it("el tráfico suma lo copiado por cada tunnel, sin contar dos veces el mismo avance", () => {
     const m = newMemory();
     const t = (done: number, finished = false, upload = true) => ({ tunnel: "1", upload, path: "/a", done, total: 100, finished });
     addTransfer(m, t(30));
@@ -242,12 +242,12 @@ describe("la salida en vivo", () => {
   });
 
   it("la respuesta del agente trae stdout y stderr juntos y los cursores de cada flujo", () => {
-    const c = outputChunk({ process: proc(1), stdout: "ok\n", stderr: "aviso\n", next_stdout: 3, next_stderr: 6, done: true });
-    expect(c).toEqual({ text: "ok\naviso\n", next: { stdout: 3, stderr: 6 }, done: true });
+    const c = outputChunk({ process: proc(1), stdout: "ok\n", stderr: "notice\n", next_stdout: 3, next_stderr: 6, done: true });
+    expect(c).toEqual({ text: "ok\nnotice\n", next: { stdout: 3, stderr: 6 }, done: true });
   });
 });
 
-describe("renglón de máquina en la bandeja (T-167)", () => {
+describe("renglón de machine en la tray (T-167)", () => {
   const tun = (to: "a" | "b", state: "busy" | "idle" | "closed" = "busy") => ({ to, state }) as never;
   const mk = (id: "a" | "b", os: string, power = "on") => ({ id, os, detail: os === "macos" ? "macOS" : "Windows", power }) as never;
 
@@ -261,13 +261,13 @@ describe("renglón de máquina en la bandeja (T-167)", () => {
     ["mac-pc", "macos", "windows", "1 tunnel", "Windows"],
     ["mac-mac", "macos", "macos", "1 tunnel", "macOS"],
     ["pc-pc", "windows", "windows", "1 tunnel", "Windows"],
-  ])("%s: un túnel hacia a se cuenta igual en cualquier sistema", (_n, osA, osB, lineA, lineB) => {
+  ])("%s: un tunnel hacia a se cuenta igual en cualquier sistema", (_n, osA, osB, lineA, lineB) => {
     const tunnels = [tun("a"), tun("b", "idle"), tun("b", "closed")];
     expect(machineLine(mk("a", osA), tunnels)).toBe(lineA);
     expect(machineLine(mk("b", osB), tunnels)).toBe(lineB);
   });
 
-  it("un túnel hacia una Mac se cuenta", () => {
+  it("un tunnel hacia una Mac se cuenta", () => {
     expect(machineLine(mk("b", "macos"), [tun("b")])).toBe("1 tunnel");
   });
 

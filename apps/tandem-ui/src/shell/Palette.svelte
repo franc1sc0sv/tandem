@@ -54,7 +54,7 @@
       e.preventDefault();
       close();
     } else if (e.key === "Tab") {
-      // La paleta es modal: el foco se queda en la búsqueda.
+      // La palette es modal: el foco se queda en la búsqueda.
       e.preventDefault();
     }
   }

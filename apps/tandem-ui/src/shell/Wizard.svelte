@@ -1,7 +1,7 @@
 <script lang="ts">
   // Asistente de configuración (`F-Setup1`…`F-Setup6`): la lista de pasos to the left of y el paso
   // actual to the right of. Cada paso vive en `wizard/` y habla con el agente por el store. Se
-  // abre solo la primera vez y se puede reabrir desde Ajustes.
+  // abre solo la primera vez y se puede reabrir desde Settings.
   import { tick } from "svelte";
   import { useStore } from "../lib/context";
   import { enter, leave } from "../lib/motion";
@@ -21,7 +21,7 @@
   const store = useStore();
   let main: HTMLElement | undefined = $state();
   let askUnpair = $state(false);
-  /** El usuario ya abrió un panel de Ajustes del Sistema: ofrece reiniciar el agente. */
+  /** El usuario ya abrió un panel de Settings del Sistema: ofrece reiniciar el agente. */
   let opened = $state(false);
 
   const desk = $derived(store.desk);
@@ -54,7 +54,7 @@
 
   function finish() {
     close();
-    store.go({ screen: "puesto" });
+    store.go({ screen: "desk" });
   }
 
   function onkeydown(e: KeyboardEvent) {

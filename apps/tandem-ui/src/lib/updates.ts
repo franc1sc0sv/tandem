@@ -1,4 +1,4 @@
-// Ajustes → Actualizaciones (`F-Settings`, T-122): lo que se muestra a partir de la vista
+// Settings → Actualizaciones (`F-Settings`, T-122): lo que se muestra a partir de la vista
 // que manda el núcleo de la app (`tandem_ui::update::UpdateView`).
 
 /** Un paso de «Update all» (`tandem_ui::update::Step`). */
@@ -26,7 +26,7 @@ export const STEP_TEXT: Record<UpdateStep, string> = {
   install_here: "Installing on this machine; the app restarts on its own…",
 };
 
-/** «Tandem 0.3.0» y la línea de abajo: si las dos máquinas están en la misma versión. */
+/** «Tandem 0.3.0» y la línea de abajo: si las dos machines están en la misma versión. */
 export function versionRow(v: UpdateView): { title: string; detail: string } {
   const title = `Tandem ${v.here}`;
   if (!v.paired) return { title, detail: "This machine works alone." };

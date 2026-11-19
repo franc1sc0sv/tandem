@@ -1,5 +1,5 @@
-// Los estados difíciles (`V3-States`): cada uno dice qué pasó, qué hizo Tandem solo y qué
-// puede hacer el usuario. Puro: arma las tarjetas con los nombres reales del puesto.
+// Los states difíciles (`V3-States`): cada uno dice qué pasó, qué hizo Tandem solo y qué
+// puede hacer el usuario. Puro: arma las tarjetas con los nombres reales del desk.
 
 import type { IconName } from "../ui/icons";
 import type { DeskView } from "./store/types";
@@ -22,7 +22,7 @@ export interface StateAction {
   icon: IconName;
   variant: "pri" | "default" | "ghost";
   does: StateDo;
-  /** La escena que «Reintentar» reaplica: la que falló. */
+  /** La scene que «Reintentar» reaplica: la que falló. */
   sceneId?: string;
   /** Cuánto tarda, junto al botón («≈ 40 s»). */
   hint?: string;
@@ -57,13 +57,13 @@ export function shortPath(text: string | null): string {
   return parts.length > 4 ? [...parts.slice(0, 3), "…", parts[parts.length - 1]].join("/") : raw;
 }
 
-/** De dónde salen las tarjetas: el estado real del puesto, o la galería completa del demo. */
+/** De dónde salen las tarjetas: el estado real del desk, o la galería completa del demo. */
 export interface StateContext {
   /** Demo: se muestran las nueve, con datos genéricos. En la app real solo las que aplican. */
   gallery: boolean;
-  /** La última escena que no se pudo aplicar (la guarda el store al ver el fallo). */
+  /** La última scene que no se pudo aplicar (la guarda el store al ver el fallo). */
   failedScene: { id: string; name: string } | null;
-  /** `?demo&estados`: los textos de ejemplo de `V3-States` (nombres, cifras), para compararlos con el mockup. */
+  /** `?demo&states`: los textos de ejemplo de `V3-States` (nombres, cifras), para compararlos con el mockup. */
   example?: boolean;
 }
 
@@ -91,9 +91,9 @@ export function stateCards(d: DeskView, ctx: StateContext = { gallery: false, fa
   const g = ctx.gallery;
   const alone = d.pair.peer.kind === "unpaired";
   const peerOff = !alone && d.machines[peerId]?.power === "off";
-  // No cable: por Wi-Fi o, peor, sin ningún enlace (con the other machine apagada es la tarjeta de arriba).
+  // No cable: por Wi-Fi o, peor, sin ningún link (con the other machine apagada es la tarjeta de arriba).
   const noCable = !alone && !peerOff && d.link.kind !== "usb4" && d.link.kind !== "ethernet";
-  // Los datos de la tarjeta salen del puesto; sin ellos (galería) se nombra lo genérico.
+  // Los datos de la tarjeta salen del desk; sin ellos (galería) se nombra lo genérico.
   const tunnel = d.tunnels.find((t) => t.state !== "closed") ?? d.tunnels[0];
   const job = tunnel ? `«${tunnel.title}»` : "The job";
   const scene = ctx.failedScene ?? (g ? { id: d.activeScene ?? d.scenes[0]?.id ?? "", name: d.scenes.find((x) => x.id === d.activeScene)?.name ?? d.scenes[0]?.name ?? "" } : null);

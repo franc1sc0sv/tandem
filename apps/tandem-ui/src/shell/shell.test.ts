@@ -9,7 +9,7 @@ import { Store } from "../lib/store/store.svelte";
 import Tray from "../Tray.svelte";
 import Shell from "./Shell.svelte";
 
-async function mountShell(query = "demo&still", hash = "#/puesto") {
+async function mountShell(query = "demo&still", hash = "#/desk") {
   const loc = { hash };
   const store = new Store(new DemoSource(demoOptions(query)), loc);
   await store.start();
@@ -19,7 +19,7 @@ async function mountShell(query = "demo&still", hash = "#/puesto") {
 }
 
 describe("barra lateral (D16)", () => {
-  it("tiene las pantallas, el contador de túneles, una entrada por máquina con su color y Ajustes", async () => {
+  it("tiene las pantallas, el contador de tunnels, una entrada por machine con su color y Settings", async () => {
     await mountShell();
     const nav = screen.getByRole("navigation", { name: "Main" });
     const links = within(nav).getAllByRole("link").map((a) => a.textContent?.replace(/\s+/g, " ").trim());
@@ -27,7 +27,7 @@ describe("barra lateral (D16)", () => {
     expect(within(nav).getByText("Machines")).toBeInTheDocument();
     const dot = within(nav).getByRole("link", { name: "PC-Desktop" }).querySelector(".mdot") as HTMLElement;
     expect(dot.style.background).toBe("rgb(169, 155, 232)");
-    // D1: sin tercera máquina.
+    // D1: sin tercera machine.
     expect(within(nav).queryByText(/Agregar/)).toBeNull();
   });
 
@@ -36,15 +36,15 @@ describe("barra lateral (D16)", () => {
     const nav = screen.getByRole("navigation", { name: "Main" });
     expect(within(nav).getByRole("link", { name: "Desk" })).toHaveAttribute("aria-current", "page");
     await userEvent.click(within(nav).getByRole("link", { name: "Network" }));
-    expect(store.route).toEqual({ screen: "red" });
-    expect(loc.hash).toBe("#/red");
+    expect(store.route).toEqual({ screen: "network" });
+    expect(loc.hash).toBe("#/network");
     expect(within(nav).getByRole("link", { name: "Network" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Network");
     await userEvent.click(within(nav).getByRole("link", { name: "MacBook Pro" }));
-    expect(store.route).toEqual({ screen: "maquina", machine: "a" });
+    expect(store.route).toEqual({ screen: "machine", machine: "a" });
   });
 
-  it("con dos Windows, los nombres y colores salen de cada máquina (D2)", async () => {
+  it("con dos Windows, los nombres y colores salen de cada machine (D2)", async () => {
     await mountShell("demo=win-win&still");
     const nav = screen.getByRole("navigation", { name: "Main" });
     expect(within(nav).getByRole("link", { name: "PC-Desktop" })).toBeInTheDocument();
@@ -53,7 +53,7 @@ describe("barra lateral (D16)", () => {
   });
 });
 
-describe("paleta ⌘K / Ctrl+K (D15)", () => {
+describe("palette ⌘K / Ctrl+K (D15)", () => {
   it("Ctrl+K la abre con el foco en la búsqueda; Escape la cierra", async () => {
     const { store } = await mountShell();
     await fireEvent.keyDown(window, { key: "k", ctrlKey: true });
@@ -102,18 +102,18 @@ describe("paleta ⌘K / Ctrl+K (D15)", () => {
     expect(screen.getByText("Nothing matches “zzz”.")).toBeInTheDocument();
   });
 
-  it("ir a una pantalla desde la paleta, con clic", async () => {
+  it("ir a una pantalla desde la palette, con clic", async () => {
     const user = userEvent.setup();
     const { store } = await mountShell();
     store.togglePalette(true);
     await tick();
     await user.type(screen.getByRole("combobox", { name: "Search" }), "arrangement");
     await user.click(screen.getByRole("option", { name: /Arrangement/ }));
-    expect(store.route).toEqual({ screen: "acomodo" });
+    expect(store.route).toEqual({ screen: "arrangement" });
     expect(store.paletteOpen).toBe(false);
   });
 
-  it("abrir el asistente desde la paleta", async () => {
+  it("abrir el asistente desde la palette", async () => {
     const user = userEvent.setup();
     const { store } = await mountShell();
     store.togglePalette(true);
@@ -126,7 +126,7 @@ describe("paleta ⌘K / Ctrl+K (D15)", () => {
 });
 
 describe("pantallas", () => {
-  it("Puesto muestra las dos máquinas y aplica escenas", async () => {
+  it("Desk muestra las dos machines y aplica scenes", async () => {
     const { store } = await mountShell();
     expect(screen.getByRole("link", { name: /MacBook Pro.*macOS · M5/ })).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Game/ }));
@@ -134,30 +134,30 @@ describe("pantallas", () => {
     expect(screen.getByRole("button", { name: /Game/ })).toHaveAttribute("aria-pressed", "true");
   });
 
-  it("un estado difícil reemplaza al Puesto y ofrece la acción", async () => {
+  it("un estado difícil reemplaza al Desk y ofrece la acción", async () => {
     const { store } = await mountShell("demo&still&trouble=peer-off");
     expect(screen.getByText("PC-Desktop is off")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Power on PC-Desktop" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.power).toBe("on"));
   });
 
-  it("los módulos de una máquina se apagan con su interruptor", async () => {
-    const { store } = await mountShell("demo&still", "#/maquina/b");
+  it("los módulos de una machine se apagan con su interruptor", async () => {
+    const { store } = await mountShell("demo&still", "#/machine/b");
     await userEvent.click(screen.getByRole("switch", { name: "Clipboard" }));
     await vi.waitFor(() => expect(store.desk.machines.b?.modules.find((m) => m.id === "clipboard")?.state).toBe("off"));
   });
 
-  it("⌘, / Ctrl+, va a Ajustes", async () => {
+  it("⌘, / Ctrl+, va a Settings", async () => {
     const { store } = await mountShell();
     await fireEvent.keyDown(window, { key: ",", ctrlKey: true });
-    expect(store.route).toEqual({ screen: "ajustes" });
+    expect(store.route).toEqual({ screen: "settings" });
   });
 });
 
-describe("Ajustes → Atajos", () => {
+describe("Settings → Shortcuts", () => {
   it("graba una combinación, avisa si no sirve y la guarda", async () => {
     const user = userEvent.setup();
-    const { store } = await mountShell("demo&still", "#/ajustes");
+    const { store } = await mountShell("demo&still", "#/settings");
     await user.click(screen.getByRole("tab", { name: "Shortcuts" }));
     const combo = await screen.findByRole("button", { name: /Shortcut for “Show or hide Tandem”/ });
     expect(combo).toHaveTextContent("Ctrl+Alt+0");
@@ -172,8 +172,8 @@ describe("Ajustes → Atajos", () => {
   });
 });
 
-describe("bandeja (V3-Tray)", () => {
-  it("muestra las máquinas, aplica escenas, abre la ventana y sale", async () => {
+describe("tray (V3-Tray)", () => {
+  it("muestra las machines, aplica scenes, abre la ventana y sale", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     const actions = { showMain: vi.fn(), quit: vi.fn() };
     render(Tray, { store, actions });

@@ -7,7 +7,7 @@ function ctx(can = true): CommandContext & { calls: string[] } {
   const calls: string[] = [];
   return {
     calls,
-    go: (r) => calls.push(`go:${r.screen === "maquina" ? `maquina/${r.machine}` : r.screen}`),
+    go: (r) => calls.push(`go:${r.screen === "machine" ? `machine/${r.machine}` : r.screen}`),
     applyScene: async (id) => (calls.push(`scene:${id}`), { ok: true }),
     setPower: async (m, on) => (calls.push(`power:${m}:${on}`), { ok: true }),
     measureLink: async () => (calls.push("measure"), { ok: true }),
@@ -20,7 +20,7 @@ function ctx(can = true): CommandContext & { calls: string[] } {
 const desk = demoDesk({ pair: "mac-win", here: "a", trouble: "none", still: true });
 
 describe("comandos", () => {
-  it("salen del puesto: escenas, the other machine, túneles abiertos, pantallas y acciones", () => {
+  it("salen del desk: scenes, the other machine, tunnels abiertos, pantallas y acciones", () => {
     const groups = filterCommands(buildCommands(desk, ctx(), true), "");
     expect(groups.map((g) => g.name)).toEqual(["Scenes", "Machines", "Tunnels", "Go to", "Actions"]);
     const titles = flatten(groups).map((c) => c.title);
@@ -29,7 +29,7 @@ describe("comandos", () => {
     expect(titles).toContain("Change the other machine…");
     expect(titles).toContain("Measure the link");
     expect(titles).toContain("Open setup");
-    // Los túneles cerrados no se ofrecen.
+    // Los tunnels cerrados no se ofrecen.
     expect(titles.some((t) => t.includes("ComfyUI"))).toBe(false);
   });
 
@@ -41,12 +41,12 @@ describe("comandos", () => {
     expect(buildCommands(desk, ctx(false), true).some((c) => c.id.startsWith("lock:"))).toBe(false);
   });
 
-  it("D1: nunca ofrece agregar una tercera máquina", () => {
+  it("D1: nunca ofrece agregar una tercera machine", () => {
     const titles = buildCommands(desk, ctx(), true).map((c) => c.title.toLowerCase());
     expect(titles.some((t) => t.includes("agregar"))).toBe(false);
   });
 
-  it("la escena activa lo dice y lleva su atajo", () => {
+  it("la scene activa lo dice y lleva su shortcut", () => {
     const trabajo = buildCommands(desk, ctx(), true).find((c) => c.id === "scene:trabajo");
     expect(trabajo).toMatchObject({ detail: "active", key: "⌃⌥1" });
   });
@@ -56,25 +56,25 @@ describe("comandos", () => {
     expect(ids.some((i) => i.startsWith("scene:"))).toBe(false);
     expect(ids).not.toContain("link:measure");
     expect(ids.some((i) => i.startsWith("power:"))).toBe(false);
-    expect(ids).toContain("go:red");
+    expect(ids).toContain("go:network");
   });
 
-  it("el atajo de Ajustes depende del sistema", () => {
-    expect(buildCommands(desk, ctx(), true).find((c) => c.id === "go:ajustes")?.key).toBe("⌘,");
-    expect(buildCommands(desk, ctx(), false).find((c) => c.id === "go:ajustes")?.key).toBe("Ctrl+,");
+  it("el shortcut de Settings depende del sistema", () => {
+    expect(buildCommands(desk, ctx(), true).find((c) => c.id === "go:settings")?.key).toBe("⌘,");
+    expect(buildCommands(desk, ctx(), false).find((c) => c.id === "go:settings")?.key).toBe("Ctrl+,");
   });
 
-  it("nombres y colores de cada máquina con dos Windows (D2)", () => {
+  it("nombres y colores de cada machine con dos Windows (D2)", () => {
     const ww = demoDesk({ pair: "win-win", here: "b", trouble: "none", still: true });
     const cmds = buildCommands(ww, ctx(), false);
     expect(cmds.find((c) => c.id === "power:a")?.title).toBe("Power off PC-Desktop");
-    expect(cmds.find((c) => c.id === "go:maquina:b")).toMatchObject({ title: "PC-Workshop", color: "#6cc59a" });
+    expect(cmds.find((c) => c.id === "go:machine:b")).toMatchObject({ title: "PC-Workshop", color: "#6cc59a" });
   });
 });
 
-describe("túneles en la paleta", () => {
-  it("usan los rótulos de la lista de Túneles: «Mac → PC» si los sistemas difieren", () => {
-    const d = demoDesk({ pair: "mac-win", here: "a", trouble: "none", still: true, tunnels: "paleta", paleta: true });
+describe("tunnels en la palette", () => {
+  it("usan los rótulos de la lista de Tunnels: «Mac → PC» si los sistemas difieren", () => {
+    const d = demoDesk({ pair: "mac-win", here: "a", trouble: "none", still: true, tunnels: "palette", palette: true });
     const t = buildCommands(d, ctx(), true).filter((c) => c.group === "Tunnels");
     expect(t.map((c) => [c.title, c.detail])).toEqual([
       ["Go to tunnel “ia-local”", "Mac → PC · active"],
@@ -89,7 +89,7 @@ describe("búsqueda", () => {
   it("sin acentos ni mayúsculas, por palabras", () => {
     expect(normalize("  Tunnels ")).toBe("tunnels");
     const hits = flatten(filterCommands(cmds, "tunnels")).map((c) => c.id);
-    expect(hits).toContain("go:tuneles");
+    expect(hits).toContain("go:tunnels");
     const both = flatten(filterCommands(cmds, "apply game")).map((c) => c.id);
     expect(both).toEqual(["scene:juego"]);
   });
@@ -109,7 +109,7 @@ describe("búsqueda", () => {
     expect(move(2, 1, 0)).toBe(0);
   });
 
-  it("nombre corto de una máquina", () => {
+  it("nombre corto de una machine", () => {
     expect(shortName("MacBook Pro")).toBe("MacBook");
     expect(shortName("PC-Desktop")).toBe("PC-Desktop");
   });
@@ -127,10 +127,10 @@ describe("ejecutar", () => {
     await run("lock:on");
     await cmdsLocked.find((x) => x.id === "lock:off")?.run();
     run("wizard:open");
-    run("go:maquina:a");
+    run("go:machine:a");
     run("pair:change");
     run("tunnel:t97");
-    expect(c.calls).toEqual(["scene:juego", "power:b:false", "measure", "lock:true", "lock:false", "wizard", "go:maquina/a", "wizard:1", "go:tuneles"]);
+    expect(c.calls).toEqual(["scene:juego", "power:b:false", "measure", "lock:true", "lock:false", "wizard", "go:machine/a", "wizard:1", "go:tunnels"]);
   });
 
   it("con la otra apagada ofrece encenderla", () => {

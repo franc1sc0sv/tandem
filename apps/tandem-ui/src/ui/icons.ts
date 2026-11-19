@@ -13,11 +13,11 @@ export const ICONS = {
   puesto: {
     body: '<rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect>',
   },
-  tuneles: { body: '<path d="M3 12h4M17 12h4"></path><rect x="7" y="8" width="10" height="8" rx="4"></rect>', linecap: "round" },
-  monitores: { body: '<rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M9 20h6M12 16v4"></path>' },
-  acomodo: { body: '<rect x="2" y="7" width="9" height="10" rx="1.5"></rect><rect x="13" y="5" width="9" height="14" rx="1.5"></rect>' },
-  red: { body: '<circle cx="5" cy="12" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle><path d="M7.5 12h9"></path>' },
-  ajustes: {
+  tunnels: { body: '<path d="M3 12h4M17 12h4"></path><rect x="7" y="8" width="10" height="8" rx="4"></rect>', linecap: "round" },
+  monitors: { body: '<rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M9 20h6M12 16v4"></path>' },
+  arrangement: { body: '<rect x="2" y="7" width="9" height="10" rx="1.5"></rect><rect x="13" y="5" width="9" height="14" rx="1.5"></rect>' },
+  network: { body: '<circle cx="5" cy="12" r="2.5"></circle><circle cx="19" cy="12" r="2.5"></circle><path d="M7.5 12h9"></path>' },
+  settings: {
     body: '<circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"></path>',
   },
   plus: { body: '<path d="M12 5v14M5 12h14"></path>' },
@@ -37,7 +37,7 @@ export const ICONS = {
   "arrow-left": { body: '<path d="M19 12H5M11 6l-6 6 6 6"></path>', linecap: "round", linejoin: "round" },
   "chevron-down": { body: '<path d="m6 9 6 6 6-6"></path>', linecap: "round", linejoin: "round" },
   "chevron-right": { body: '<path d="m9 6 6 6-6 6"></path>' },
-  // Acomodo (V3-Arrangement): flechas del mini plano y alineaciones a lo largo del borde.
+  // Arrangement (V3-Arrangement): flechas del mini plano y alineaciones a lo largo del borde.
   "arrow-up": { body: '<path d="M12 19V5M6 11l6-6 6 6"></path>', linecap: "round", linejoin: "round" },
   "arrow-down": { body: '<path d="M12 5v14M6 13l6 6 6-6"></path>', linecap: "round", linejoin: "round" },
   "align-top": { body: '<path d="M4 4h16"></path><rect x="6" y="8" width="5" height="12" rx="1"></rect><rect x="13" y="8" width="5" height="7" rx="1"></rect>', linecap: "round" },
@@ -85,7 +85,7 @@ export const ICONS = {
   ram: { body: '<rect x="2" y="7" width="20" height="10" rx="1.5"></rect><path d="M6 17v3M10 17v3M14 17v3M18 17v3M6 11h2M10 11h2M14 11h2"></path>' },
   gpu: { body: '<rect x="2" y="6" width="20" height="12" rx="2"></rect><circle cx="9" cy="12" r="3"></circle><path d="M15 10h4M15 14h4M6 18v3"></path>' },
   disk: { body: '<ellipse cx="12" cy="6" rx="8" ry="3"></ellipse><path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6"></path>' },
-  /** El triángulo del aviso de VRAM (sin el punto de `warn`). */
+  /** El triángulo del notice de VRAM (sin el punto de `warn`). */
   alert: { body: '<path d="M12 3 2 20h20z"></path><path d="M12 10v4"></path>' },
   keyboard: { body: '<rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"></path>' },
   /** Medidor de velocidad (`Medir ancho de banda`). */
@@ -96,7 +96,7 @@ export const ICONS = {
 
 export type IconName = keyof typeof ICONS;
 
-/** El ícono de una máquina por su sistema (D2: por `os`, no por lado). */
+/** El ícono de una machine por su sistema (D2: por `os`, no por lado). */
 export function machineIcon(os: "macos" | "windows"): IconName {
   return os === "macos" ? "laptop" : "tower";
 }

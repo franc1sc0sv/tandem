@@ -24,7 +24,7 @@ function play(events: TxnView[], at = 1000): Run {
 }
 const started: TxnView = { type: "started", txn: 7, steps };
 
-describe("progreso de una transacción (F-Transactions)", () => {
+describe("progress de una transacción (F-Transactions)", () => {
   it("empieza con «Save how everything is» listo y los pasos pendientes", () => {
     const run = play([started]);
     expect(running(run)).toBe(true);
@@ -70,7 +70,7 @@ describe("progreso de una transacción (F-Transactions)", () => {
     expect(viewOf(over, names, 5000).rows[2]?.icon).toBe("done");
   });
 
-  it("los avisos de otra transacción no mueven la corrida", () => {
+  it("los notices de otra transacción no mueven la corrida", () => {
     const run = play([started]);
     expect(feedRun(run, { type: "step_started", txn: 99, index: 0 }, 5000)).toBe(run);
     expect(feedRun(null, { type: "committed", txn: 7, state: { on: { a: true, b: true } } }, 5000)).toBeNull();

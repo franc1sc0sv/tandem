@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Bridge } from "../bridge";
 import type { Notice, SceneJson, Snapshot, TxnView } from "../model";
-import { exitSide } from "../acomodo";
+import { exitSide } from "../arrangement";
 import { formatHash, parseHash, SCREEN_TOPICS } from "../routes";
 import { DEMO_NOW, DemoSource, demoDesk, demoOptions, isDemo } from "./demo";
 import { deskFromSnapshot, layoutFromDesk, LiveSource } from "./live";
@@ -14,12 +14,12 @@ afterEach(() => {
 
 describe("rutas", () => {
   it("cada pantalla tiene su dirección y vuelve igual", () => {
-    for (const hash of ["#/puesto", "#/tuneles", "#/monitores", "#/acomodo", "#/red", "#/ajustes", "#/maquina/a", "#/maquina/b"]) {
+    for (const hash of ["#/desk", "#/tunnels", "#/monitors", "#/arrangement", "#/network", "#/settings", "#/machine/a", "#/machine/b"]) {
       expect(formatHash(parseHash(hash))).toBe(hash);
     }
-    expect(parseHash("")).toEqual({ screen: "puesto" });
-    expect(parseHash("#/maquina/c")).toEqual({ screen: "puesto" });
-    expect(parseHash("#/nada")).toEqual({ screen: "puesto" });
+    expect(parseHash("")).toEqual({ screen: "desk" });
+    expect(parseHash("#/machine/c")).toEqual({ screen: "desk" });
+    expect(parseHash("#/nada")).toEqual({ screen: "desk" });
   });
 });
 
@@ -29,22 +29,22 @@ describe("store", () => {
     const store = new Store(src);
     await store.start();
     const set = (t: string[] | undefined) => new Set(t);
-    expect(set(src.watched.at(-1))).toEqual(new Set([...SHELL_TOPICS, ...SCREEN_TOPICS.puesto]));
-    // El contador de túneles de la barra lateral sigue vivo en cualquier pantalla.
-    store.go({ screen: "red" });
+    expect(set(src.watched.at(-1))).toEqual(new Set([...SHELL_TOPICS, ...SCREEN_TOPICS.desk]));
+    // El contador de tunnels de la barra lateral sigue vivo en cualquier pantalla.
+    store.go({ screen: "network" });
     expect(set(src.watched.at(-1))).toEqual(new Set(["machines", "tunnels", "link", "network"]));
-    store.go({ screen: "tuneles" });
+    store.go({ screen: "tunnels" });
     expect(set(src.watched.at(-1))).toEqual(new Set(["machines", "tunnels"]));
-    for (const screen of ["puesto", "tuneles", "monitores", "acomodo", "red", "ajustes"] as const) {
+    for (const screen of ["desk", "tunnels", "monitors", "arrangement", "network", "settings"] as const) {
       expect(topicsFor({ screen })).toEqual(expect.arrayContaining(SHELL_TOPICS));
       expect(new Set(topicsFor({ screen })).size).toBe(topicsFor({ screen }).length);
     }
     // Other machine en la misma pantalla no vuelve a suscribir.
-    store.go({ screen: "maquina", machine: "a" });
+    store.go({ screen: "machine", machine: "a" });
     const n = src.watched.length;
-    store.go({ screen: "maquina", machine: "b" });
+    store.go({ screen: "machine", machine: "b" });
     expect(src.watched.length).toBe(n);
-    expect(store.route).toEqual({ screen: "maquina", machine: "b" });
+    expect(store.route).toEqual({ screen: "machine", machine: "b" });
   });
 
   it("los recursos solo se mueven si la pantalla los muestra", async () => {
@@ -55,7 +55,7 @@ describe("store", () => {
     const before = store.desk.machines.a?.resources?.history.join(",");
     vi.advanceTimersByTime(1600);
     expect(store.desk.machines.a?.resources?.history.join(",")).not.toBe(before);
-    store.go({ screen: "red" });
+    store.go({ screen: "network" });
     const frozen = store.desk.machines.a?.resources?.history.join(",");
     vi.advanceTimersByTime(5000);
     expect(store.desk.machines.a?.resources?.history.join(",")).toBe(frozen);
@@ -63,14 +63,14 @@ describe("store", () => {
   });
 
   it("cambia la dirección y la sigue", async () => {
-    const loc = { hash: "#/red" };
+    const loc = { hash: "#/network" };
     const store = new Store(new DemoSource(demoOptions("demo&still")), loc);
-    expect(store.route).toEqual({ screen: "red" });
-    store.go({ screen: "maquina", machine: "b" });
-    expect(loc.hash).toBe("#/maquina/b");
-    loc.hash = "#/acomodo";
+    expect(store.route).toEqual({ screen: "network" });
+    store.go({ screen: "machine", machine: "b" });
+    expect(loc.hash).toBe("#/machine/b");
+    loc.hash = "#/arrangement";
     store.syncFromLocation();
-    expect(store.route).toEqual({ screen: "acomodo" });
+    expect(store.route).toEqual({ screen: "arrangement" });
   });
 
   it("las acciones avisan lo que pasó", async () => {
@@ -100,13 +100,13 @@ describe("store", () => {
     expect(store.desk.machines.b?.modules.find((m) => m.id === "clipboard")?.state).toBe("off");
   });
 
-  it("el contador de túneles cuenta los activos", async () => {
+  it("el contador de tunnels cuenta los activos", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     await store.start();
     expect(store.activeTunnels).toBe(3);
   });
 
-  it("la paleta y el asistente se abren y se cierran", () => {
+  it("la palette y el asistente se abren y se cierran", () => {
     const store = new Store(new DemoSource(demoOptions("demo&still")));
     store.togglePalette();
     expect(store.paletteOpen).toBe(true);
@@ -114,7 +114,7 @@ describe("store", () => {
     expect(store.paletteOpen).toBe(false);
     expect(store.wizardOpen).toBe(true);
     store.togglePalette(true);
-    store.go({ screen: "red" });
+    store.go({ screen: "network" });
     expect(store.paletteOpen).toBe(false);
   });
 
@@ -127,13 +127,13 @@ describe("store", () => {
   });
 });
 
-describe("bandeja", () => {
+describe("tray", () => {
   it("pide su propio conjunto de temas y no cambia con la ruta", async () => {
     const src = new DemoSource(demoOptions("demo&still"));
     const store = new Store(src, null, TRAY_TOPICS);
     await store.start();
     expect(src.watched).toEqual([TRAY_TOPICS]);
-    store.go({ screen: "red" });
+    store.go({ screen: "network" });
     expect(src.watched).toEqual([TRAY_TOPICS]);
     expect(TRAY_TOPICS).toEqual(expect.arrayContaining(["machines", "link", "scenes", "tunnels", "resources"]));
   });
@@ -191,7 +191,7 @@ describe("emparejar y permisos", () => {
     store.stop();
   });
 
-  it("la bandeja no abre el asistente", async () => {
+  it("la tray no abre el asistente", async () => {
     const store = new Store(new DemoSource(demoOptions("demo&still&peer=none")), null, TRAY_TOPICS);
     await store.start();
     await store.pairAction("start_pairing");
@@ -302,7 +302,7 @@ describe("modo demo", () => {
   });
 });
 
-describe("red en el demo (T-102)", () => {
+describe("network en el demo (T-102)", () => {
   it("los caminos de V3-Network: principal, no cable y respaldo, con 60 s y el cambio a Wi-Fi", () => {
     const n = demoDesk(demoOptions("demo&still")).network;
     expect(n.paths.map((p) => [p.kind, p.state])).toEqual([
@@ -338,7 +338,7 @@ describe("red en el demo (T-102)", () => {
     const before = usb();
     vi.advanceTimersByTime(5000);
     expect(usb()).toBe(before);
-    store.go({ screen: "red" });
+    store.go({ screen: "network" });
     vi.advanceTimersByTime(1600);
     expect(usb()).not.toBe(before);
     expect(store.desk.network.paths[0]!.history).toHaveLength(60);
@@ -357,8 +357,8 @@ describe("red en el demo (T-102)", () => {
   });
 });
 
-describe("prueba de cruce en modo demo", () => {
-  it("«Test crossing» está disponible y el cruce sale por el borde del acomodo (y el equivocado con cross=wrong)", async () => {
+describe("prueba de crossing en modo demo", () => {
+  it("«Test crossing» está disponible y el crossing sale por el borde del arrangement (y el equivocado con cross=wrong)", async () => {
     for (const [opts, same] of [["demo&cross=ok", true], ["demo&cross=wrong", false]] as const) {
       const src = new DemoSource(demoOptions(opts));
       const store = new Store(src);
@@ -400,7 +400,7 @@ describe("fuente real", () => {
     ...over,
   });
 
-  it("traduce la foto del agente: nombres, colores y enlace de cada lado", () => {
+  it("traduce la foto del agente: nombres, colores y link de cada lado", () => {
     const d = deskFromSnapshot(connected());
     expect(d.ready).toBe(true);
     expect(d.here).toBe("b");
@@ -410,7 +410,7 @@ describe("fuente real", () => {
     expect(d.trouble).toBe("none");
   });
 
-  it("sin [[screens]], el acomodo usa las pantallas que lee el motor de cada máquina, a escala entre sí", () => {
+  it("sin [[screens]], el arrangement usa las pantallas que lee el motor de cada machine, a escala entre sí", () => {
     const snap = connected({
       agent: "a",
       input: {
@@ -425,7 +425,7 @@ describe("fuente real", () => {
     const b = screens.find((s) => s.machine === "b");
     expect(a).toMatchObject({ res: "1920 × 1080", ratio: "16:9", scale: "100 %" });
     expect(b).toMatchObject({ res: "3440 × 1440", ratio: "21:9", scale: "150 %" });
-    // 3440 px a 150 % son 2293 puntos: el dibujo respeta esa proporción entre las dos máquinas.
+    // 3440 px a 150 % son 2293 puntos: el dibujo respeta esa proporción entre las dos machines.
     expect(b!.w / a!.w).toBeCloseTo(3440 / 1.5 / 1920, 3);
     expect(a!.native).toMatchObject({ id: "m32", w: 1920 });
   });
@@ -501,7 +501,7 @@ describe("fuente real", () => {
       expect(got).toEqual([expect.objectContaining({ edge: "left", ms: null })]);
     });
 
-    it("una muestra de otra máquina no cierra el cruce pendiente", async () => {
+    it("una muestra de otra machine no cierra el crossing pendiente", async () => {
       const { got, notice } = await started();
       notice({ kind: "crossed", from: "a", to: "b", edge: "left" });
       notice({ kind: "cursor", sample: { machine: "a", screen: "m32", x: 5, y: 5 } });
@@ -511,7 +511,7 @@ describe("fuente real", () => {
     });
   });
 
-  it("los estados difíciles salen de la foto", () => {
+  it("los states difíciles salen de la foto", () => {
     expect(deskFromSnapshot({ kind: "connecting" }).ready).toBe(false);
     expect(deskFromSnapshot({ kind: "unavailable", endpoint: null, reason: "no corre" })).toMatchObject({ trouble: "no-agent", troubleText: "no corre" });
     expect(deskFromSnapshot(connected({ state: { on: { a: false, b: true } } }))).toMatchObject({ trouble: "peer-off", troubleText: "Taller is off" });
@@ -521,7 +521,7 @@ describe("fuente real", () => {
     expect(deskFromSnapshot(missing).trouble).toBe("permissions");
   });
 
-  it("T-159: el nombre del puesto y la MAC para encender salen de la foto", () => {
+  it("T-159: el nombre del desk y la MAC para encender salen de la foto", () => {
     const snap = connected();
     expect(deskFromSnapshot(snap).deskName).toBe("My desk");
     expect(deskFromSnapshot(snap).machines.a?.wake).toEqual({ mac: null });
@@ -552,7 +552,7 @@ describe("fuente real", () => {
     push?.(connected({ caps: { ...((connected() as Extract<Snapshot, { kind: "connected" }>).caps), here: { ...(connected() as Extract<Snapshot, { kind: "connected" }>).caps.here, name: "Nuevo" } } }));
     expect(store.desk.machines.b?.name).toBe("Nuevo");
     expect(src.can("measure")).toBe(true);
-    // Con el agente conectado se aplican escenas y se cambian monitores (T-116).
+    // Con el agente conectado se aplican scenes y se cambian monitors (T-116).
     expect(src.can("scenes")).toBe(true);
     expect(src.can("monitors")).toBe(true);
     expect(src.can("forget")).toBe(false);
@@ -578,7 +578,7 @@ describe("fuente real", () => {
   });
 });
 
-describe("escenas y transacciones contra el puente simulado", () => {
+describe("scenes y transacciones contra el puente simulado", () => {
   const scene: SceneJson = { id: "juego", name: "Game", monitors: [["g34", "b"]], shortcut: ["ControlLeft", "AltLeft", "Digit4"] };
 
   function fake() {
@@ -599,13 +599,13 @@ describe("escenas y transacciones contra el puente simulado", () => {
     expect(act).toHaveBeenLastCalledWith({ kind: "edit_scene", scene });
   });
 
-  it("saveScene devuelve la razón si el agente rechaza la escena", async () => {
+  it("saveScene devuelve la razón si el agente rechaza la scene", async () => {
     const { src, act } = fake();
-    act.mockResolvedValueOnce({ kind: "rejected", reason: "el atajo ya lo usa “Work”" } as never);
-    expect(await src.saveScene(scene, true)).toEqual({ ok: false, reason: "el atajo ya lo usa “Work”" });
+    act.mockResolvedValueOnce({ kind: "rejected", reason: "el shortcut ya lo usa “Work”" } as never);
+    expect(await src.saveScene(scene, true)).toEqual({ ok: false, reason: "el shortcut ya lo usa “Work”" });
   });
 
-  it("watchTxn oye una sola vez, reparte cada aviso a todos y deja de repartir al cancelar", async () => {
+  it("watchTxn oye una sola vez, reparte cada notice a todos y deja de repartir al cancelar", async () => {
     const { src, onNotice, emit } = fake();
     const a: TxnView[] = [];
     const b: TxnView[] = [];
@@ -622,7 +622,7 @@ describe("escenas y transacciones contra el puente simulado", () => {
     expect(b).toHaveLength(2);
   });
 
-  it("el store separa el encendido de la escena y recuerda el enlace medido", async () => {
+  it("el store separa el encendido de la scene y recuerda el link medido", async () => {
     const { src, emit, act } = fake();
     const store = new Store(src);
     await store.start();
@@ -639,7 +639,7 @@ describe("escenas y transacciones contra el puente simulado", () => {
   });
 });
 
-describe("el enlace del demo sin emparejar", () => {
+describe("el link del demo sin emparejar", () => {
   it("antes de emparejar solo se ve a the other machine por Wi-Fi; al emparejar pasa al cable", async () => {
     vi.useFakeTimers();
     const store = new Store(new DemoSource(demoOptions("demo&still&peer=none")));

@@ -76,7 +76,7 @@ it("«Restart agent» avisa solo si de verdad reinició", async () => {
   expect(bad.error).toContain("launchctl");
 });
 
-it("cualquier otro botón de permisos abre el panel de Ajustes", async () => {
+it("cualquier otro botón de permisos abre el panel de Settings", async () => {
   let opened = 0;
   await pressPermission("accessibility", deps({ openSettings: async () => { opened++; } }));
   expect(opened).toBe(1);

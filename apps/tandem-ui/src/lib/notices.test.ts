@@ -19,7 +19,7 @@ describe("changeToast (D5)", () => {
 });
 
 describe("deskEvents", () => {
-  it("sin cambios no hay avisos, y sin agente tampoco", () => {
+  it("sin cambios no hay notices, y sin agente tampoco", () => {
     expect(deskEvents(desk(), desk())).toEqual([]);
     const off = { ready: false } as unknown as DeskView;
     expect(deskEvents(off, desk())).toEqual([]);
@@ -33,7 +33,7 @@ describe("deskEvents", () => {
     expect(deskEvents(wifi, usb)).toEqual([expect.objectContaining({ text: `The ${KIND_NAME.usb4} cable is back`, tone: "ok" })]);
   });
 
-  it("un túnel nuevo lo abrió Claude; uno cerrado o ya conocido no avisa", () => {
+  it("un tunnel nuevo lo abrió Claude; uno cerrado o ya conocido no avisa", () => {
     const d = desk();
     const t0 = d.tunnels[0];
     const nuevo = { ...t0, id: "nuevo", title: "Servidor de pruebas", state: "busy" as const };
@@ -75,7 +75,7 @@ describe("transferToast (alcance 3)", () => {
     expect(t.body).toBe("0 % · 0 KB of 0 KB");
   });
 
-  it("al terminar es un aviso ok con la misma clave y sin barra", () => {
+  it("al terminar es un notice ok con la misma clave y sin barra", () => {
     const run = transferToast({ upload: true, path: "/x/a.bin", done: 1, total: 2, finished: false }, d);
     const end = transferToast({ upload: true, path: "/x/a.bin", done: 2, total: 2, finished: true }, d);
     expect(end).toMatchObject({ key: run.key, text: "Copied “a.bin”", tone: "ok" });

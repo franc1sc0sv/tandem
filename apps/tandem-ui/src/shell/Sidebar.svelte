@@ -10,11 +10,11 @@
   const store = useStore();
 
   const MAIN: { route: Route; label: string; icon: IconName }[] = [
-    { route: { screen: "puesto" }, label: "Desk", icon: "puesto" },
-    { route: { screen: "tuneles" }, label: "Tunnels", icon: "tuneles" },
-    { route: { screen: "monitores" }, label: "Monitors", icon: "monitores" },
-    { route: { screen: "acomodo" }, label: "Arrangement", icon: "acomodo" },
-    { route: { screen: "red" }, label: "Network", icon: "red" },
+    { route: { screen: "desk" }, label: "Desk", icon: "puesto" },
+    { route: { screen: "tunnels" }, label: "Tunnels", icon: "tunnels" },
+    { route: { screen: "monitors" }, label: "Monitors", icon: "monitors" },
+    { route: { screen: "arrangement" }, label: "Arrangement", icon: "arrangement" },
+    { route: { screen: "network" }, label: "Network", icon: "network" },
   ];
 
   const current = $derived(formatHash(store.route));
@@ -26,25 +26,25 @@
   }
 </script>
 
-<!-- Barra lateral (D16, `V3-Desk`): las pantallas, una página por máquina con su color y
-     Ajustes abajo. Sin «Agregar máquina» (D1). -->
+<!-- Barra lateral (D16, `V3-Desk`): las pantallas, una página por machine con su color y
+     Settings abajo. Sin «Agregar machine» (D1). -->
 <nav aria-label="Main" class="side">
-  <!-- El nombre del puesto junto al logo solo en las páginas de máquina (`V3-Machine`); las
+  <!-- El nombre del desk junto al logo solo en las páginas de machine (`V3-Machine`); las
        demás pantallas no lo dibujan (`V3-Desk`, `V3-Network`…). -->
   <div class="brand">
-    <Logo size={20} />Tandem{#if store.route.screen === "maquina"}<span class="fill"></span><span class="desk">{store.desk.deskName}</span>{/if}
+    <Logo size={20} />Tandem{#if store.route.screen === "machine"}<span class="fill"></span><span class="desk">{store.desk.deskName}</span>{/if}
   </div>
   {#each MAIN as item (item.label)}
     {@const href = formatHash(item.route)}
     <a class="nav" class:on={current === href} {href} aria-current={current === href ? "page" : undefined} onclick={(e) => go(e, item.route)}>
       <Icon name={item.icon} />{item.label}
-      {#if item.route.screen === "tuneles" && store.activeTunnels > 0}<span class="fill"></span>{#if current === href}<span class="pdot" title="{store.activeTunnels} active"></span>{:else}<Chip count dot={false}>{store.activeTunnels}</Chip>{/if}{/if}
+      {#if item.route.screen === "tunnels" && store.activeTunnels > 0}<span class="fill"></span>{#if current === href}<span class="pdot" title="{store.activeTunnels} active"></span>{:else}<Chip count dot={false}>{store.activeTunnels}</Chip>{/if}{/if}
     </a>
   {/each}
   {#if machines.length > 0}
     <div class="navh">Machines</div>
     {#each machines as m (m.id)}
-      {@const route: Route = { screen: "maquina", machine: m.id }}
+      {@const route: Route = { screen: "machine", machine: m.id }}
       {@const href = formatHash(route)}
       <a class="nav" class:on={current === href} {href} aria-current={current === href ? "page" : undefined} onclick={(e) => go(e, route)}>
         <span class="mdot" style="background:{m.color}"></span>{m.name}
@@ -52,8 +52,8 @@
     {/each}
   {/if}
   <span class="fill"></span>
-  <a class="nav" class:on={current === "#/ajustes"} href="#/ajustes" aria-current={current === "#/ajustes" ? "page" : undefined} onclick={(e) => go(e, { screen: "ajustes" })}>
-    <Icon name="ajustes" />Settings
+  <a class="nav" class:on={current === "#/settings"} href="#/settings" aria-current={current === "#/settings" ? "page" : undefined} onclick={(e) => go(e, { screen: "settings" })}>
+    <Icon name="settings" />Settings
   </a>
 </nav>
 
@@ -124,7 +124,7 @@
   .fill {
     flex: 1;
   }
-  /* En la pantalla Túneles el contador pasa a un punto vivo (`V3-Compute`). */
+  /* En la pantalla Tunnels el contador pasa a un punto vivo (`V3-Compute`). */
   .pdot {
     width: 7px;
     height: 7px;

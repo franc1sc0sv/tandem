@@ -2,10 +2,10 @@
 // `Snapshot` del agente al `DeskView` de las pantallas.
 //
 // Hoy la IPC manda una foto completa con cada cambio: `watch` solo recuerda qué temas pide
-// la pantalla visible. Los eventos por tema (recursos, túneles, módulos) llegan con
+// la pantalla visible. Los eventos por tema (recursos, tunnels, módulos) llegan con
 // T-098/T-102/T-104 y se suscriben aquí.
 
-import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, isVertical, ratioLabel, type Arrangement, type LayoutScreen, type LayoutView } from "../acomodo";
+import { ASSUMED_PPI, DEFAULT_ARRANGEMENT, EMPTY_LAYOUT, isVertical, ratioLabel, type Arrangement, type LayoutScreen, type LayoutView } from "../arrangement";
 import type { Bridge } from "../bridge";
 import type { CrossSample } from "../crossing";
 import { nextLive, summaryOf } from "../machine";
@@ -24,14 +24,14 @@ import { EMPTY_NETWORK } from "./types";
 /** Los recursos en vivo de cada lado, armados con las muestras del agente. */
 export type LiveByMachine = Partial<Record<Machine, LiveView | null>>;
 
-/** Lo que se espera a la primera muestra del cursor tras un cruce antes de informarlo sin posición. */
+/** Lo que se espera a la primera muestra del cursor tras un crossing antes de informarlo sin posición. */
 const CROSS_SETTLE_MS = 250;
 
 const MAC_PERMISSIONS: Permission[] = ["accessibility", "input_monitoring", "local_network"];
 
 const OS_NAME = { macos: "macOS", windows: "Windows" } as const;
 
-/** El nombre del puesto cuando no tiene uno propio. */
+/** El nombre del desk cuando no tiene uno propio. */
 export const DEFAULT_DESK_NAME = "My desk";
 
 export const EMPTY_DESK: DeskView = {
@@ -75,18 +75,18 @@ export function checkSnapshot(snap: unknown): asserts snap is Snapshot {
   if (snap.kind !== "connected") return;
   if (!isSide(snap.agent)) throw new ShapeError(`side “${String(snap.agent)}”`);
   const desk = snap.desk;
-  if (!isObj(desk) || !isObj(desk.machines) || !Array.isArray(desk.screens) || (desk.arrangement !== null && !isObj(desk.arrangement))) throw new ShapeError("puesto");
+  if (!isObj(desk) || !isObj(desk.machines) || !Array.isArray(desk.screens) || (desk.arrangement !== null && !isObj(desk.arrangement))) throw new ShapeError("desk");
   if (!isObj(snap.state) || !isObj(snap.state.on) || typeof snap.state.on.a !== "boolean" || typeof snap.state.on.b !== "boolean") throw new ShapeError("on");
   if (!isObj(snap.peer) || !isObj(snap.pairing)) throw new ShapeError("pairing");
-  if (!Array.isArray(desk.scenes)) throw new ShapeError("escenas");
-  if (!Array.isArray(snap.monitors)) throw new ShapeError("monitores");
+  if (!Array.isArray(desk.scenes)) throw new ShapeError("scenes");
+  if (!Array.isArray(snap.monitors)) throw new ShapeError("monitors");
   if (!isObj(snap.input) || !Array.isArray(snap.input.missing)) throw new ShapeError("input");
   const caps = snap.caps;
   if (!isObj(caps) || !isObj(caps.here) || !isSide(caps.here.machine) || !isObj(caps.here.input)) throw new ShapeError("capabilities");
   if (caps.peer !== null && (!isObj(caps.peer) || !isSide(caps.peer.machine))) throw new ShapeError("the other one’s capabilities");
 }
 
-/** Keyboard and mouse según el puesto; lo que el agente no diga vale «encendido» (como en su `Default`). */
+/** Keyboard and mouse según el desk; lo que el agente no diga vale «encendido» (como en su `Default`). */
 export function prefsOf(desk: Desk): PrefsView {
   const on = (m: Machine) => desk.modules?.[m]?.clipboard !== false;
   return { cmdCtrl: desk.prefs?.cmd_ctrl ?? true, dragFiles: desk.prefs?.drag_files ?? true, clipboard: on("a") && on("b") };
@@ -148,7 +148,7 @@ function linkOf(kind: DeskView["link"]["kind"], network: NetworkView): DeskView[
   return { kind, gbps: p?.gbps ?? null, ms: p?.rttMs ?? null, inputP99: p?.inputP99Ms ?? null };
 }
 
-/** El puesto que dibuja la UI a partir de la foto del agente. Puro; lanza `ShapeError`. */
+/** El desk que dibuja la UI a partir de la foto del agente. Puro; lanza `ShapeError`. */
 export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, network: NetworkView = EMPTY_NETWORK, tunnels: TunnelView[] = []): DeskView {
   const snap: unknown = raw;
   checkSnapshot(snap);
@@ -174,7 +174,7 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
     troubleText = `No link with ${peerName}`;
   }
   const monitors = monitorsUi(snap.monitors);
-  // Los atajos se escriben según el sistema de this machine, no el del navegador.
+  // Los shortcuts se escriben según el sistema de this machine, no el del navegador.
   const mac = snap.caps.here.os === "macos";
   const name = (m: Machine) => machineName(m, snap.caps, snap.desk);
   return {
@@ -201,8 +201,8 @@ export function deskFromSnapshot(raw: Snapshot, live: LiveByMachine = {}, networ
 }
 
 /**
- * Las pantallas del acomodo según el puesto: las declaradas de cada máquina, o una por
- * máquina si no declaró ninguna. El agente todavía no informa el tamaño físico: se estima
+ * Las pantallas del arrangement según el desk: las declaradas de cada machine, o una por
+ * machine si no declaró ninguna. El agente todavía no informa el tamaño físico: se estima
  * con [`ASSUMED_PPI`] a partir de los puntos lógicos.
  */
 export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): LayoutView {
@@ -220,8 +220,8 @@ export function layoutFromDesk(snap: Extract<Snapshot, { kind: "connected" }>): 
       screens.push({ id: `escritorio-${m}`, machine: m, name, short: name.split(" ")[0] ?? name, ask: name, x: 0, y: 0, w: 16, h: 10, size: "—", res: "—", ratio: "—", scale: "—", usable: true, line: name });
       continue;
     }
-    // Las posiciones (`x`, `y`) van en las coordenadas de la máquina: se pasan a puntos con la
-    // escala de su primera pantalla. Es aproximado si las escalas de sus monitores difieren.
+    // Las posiciones (`x`, `y`) van en las coordenadas de la machine: se pasan a puntos con la
+    // escala de su primera pantalla. Es aproximado si las escalas de sus monitors difieren.
     const base = mac ? 1 : own[0]?.scale || 1;
     for (const s of own) {
       // macOS da puntos; Windows, píxeles físicos que la escala convierte en lógicos.
@@ -270,11 +270,11 @@ export class LiveSource implements Source {
   private network: NetworkView = EMPTY_NETWORK;
   /** Se le pidió al agente la red en vivo. */
   private watchingNetwork = false;
-  /** Los túneles como los mandó el agente por última vez, y lo que la ventana recuerda de ellos. */
+  /** Los tunnels como los mandó el agente por última vez, y lo que la ventana recuerda de ellos. */
   private groups: ProjectWire[] = [];
   private readonly memory: Memory = newMemory();
   private tunnels: TunnelView[] = [];
-  /** Ya llegaron túneles (por evento o por pedido): un pedido tardío no pisa lo más nuevo. */
+  /** Ya llegaron tunnels (por evento o por pedido): un pedido tardío no pisa lo más nuevo. */
   private gotTunnels = false;
   private askedTunnels = false;
   /** Quién recibe el cursor en vivo; el agente solo lo manda mientras haya alguien. */
@@ -295,7 +295,7 @@ export class LiveSource implements Source {
         onDesk(deskFromError(e));
       }
     };
-    // La sesión solo empuja los túneles al conectar y con cada cambio: una ventana que se abre
+    // La sesión solo empuja los tunnels al conectar y con cada cambio: una ventana que se abre
     // o recarga después los pide una vez (T-154). Cualquier otra respuesta se ignora.
     const retunnel = () => {
       this.tunnels = tunnelsFromWire(this.groups, Date.now(), this.memory);
@@ -316,14 +316,14 @@ export class LiveSource implements Source {
         });
     };
     await this.bridge.onSnapshot(push);
-    // El aviso «Cambiado desde X · Deshacer» (D5): solo viaja por los avisos, no por la foto.
+    // El notice «Cambiado desde X · Deshacer» (D5): solo viaja por los notices, no por la foto.
     void Promise.resolve(
       this.bridge.onNotice?.((n) => {
         if (n.kind === "desk_changed") onChange?.({ by: n.by, rev: n.rev, summary: n.summary, undoTo: n.undo_to });
         else if (n.kind === "transfer") onTransfer?.({ upload: n.upload, path: n.path, done: n.done, total: n.total, finished: n.finished });
       }),
     ).catch(() => {});
-    // Las muestras llegan aparte (una por segundo): cada una avanza la línea de su máquina.
+    // Las muestras llegan aparte (una por segundo): cada una avanza la línea de su machine.
     // No se espera la suscripción: la foto no debe depender de que ese canal responda.
     void Promise.resolve(
       this.bridge.onResources?.((machine: Machine, r: ResourceSample) => {
@@ -338,7 +338,7 @@ export class LiveSource implements Source {
         if (this.last.kind === "connected") push(this.last);
       }),
     ).catch(() => {});
-    // Los túneles llegan al conectar y con cada cambio, sin pedirlos; el avance de las copias
+    // Los tunnels llegan al conectar y con cada cambio, sin pedirlos; el avance de las copias
     // alimenta el tráfico de cada uno.
     void Promise.resolve(
       this.bridge.onTunnels?.((g) => {
@@ -536,9 +536,9 @@ export class LiveSource implements Source {
   }
 
   /**
-   * La prueba de cruce con lo que informa el motor (T-128): cada `Crossed` es un cruce real. El
+   * La prueba de crossing con lo que informa el motor (T-128): cada `Crossed` es un crossing real. El
    * punto de entrada sale de la primera muestra del cursor ya en the other machine; si no llega
-   * en [`CROSS_SETTLE_MS`], se informa el cruce sin posición (`of: 0`) en vez de inventarla.
+   * en [`CROSS_SETTLE_MS`], se informa el crossing sin posición (`of: 0`) en vez de inventarla.
    */
   async watchCrossing(onCross: (s: CrossSample) => void): Promise<() => void> {
     let pending: { from: Machine; to: Machine; edge: Side; t0: number; timer: ReturnType<typeof setTimeout> } | null = null;

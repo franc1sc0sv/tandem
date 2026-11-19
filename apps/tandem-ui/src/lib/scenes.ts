@@ -1,4 +1,4 @@
-// Escenas (D6): del puesto del agente a las tarjetas de Monitores, y el borrador del editor
+// Scenes (D6): del desk del agente a las tarjetas de Monitors, y el borrador del editor
 // (`F-NewScene`). Puro.
 
 import { shortMonitor } from "./monitors";
@@ -18,18 +18,18 @@ export function accelOfCodes(codes: string[]): string {
   return key ? [...mods, key].join("+") : "";
 }
 
-/** `Ctrl+Alt+Digit4` → los códigos que guarda la escena. */
+/** `Ctrl+Alt+Digit4` → los códigos que guarda la scene. */
 export function codesOfAccel(accel: string): string[] {
   const names: Record<string, string> = { Ctrl: "ControlLeft", Alt: "AltLeft", Shift: "ShiftLeft", Super: "MetaLeft" };
   return accel.split("+").map((p) => names[p] ?? p);
 }
 
-/** Cómo se ve el atajo de una escena en this machine (`⌃⌥1` o `Ctrl+Alt+1`); vacío sin atajo. */
+/** Cómo se ve el shortcut de una scene en this machine (`⌃⌥1` o `Ctrl+Alt+1`); vacío sin shortcut. */
 export function shortcutText(codes: string[], mac: boolean): string {
   return formatAccel(accelOfCodes(codes), mac);
 }
 
-/** El mismo atajo (con cualquiera de las teclas de cada modificador). */
+/** El mismo shortcut (con cualquiera de las teclas de cada modificador). */
 export function sameShortcut(a: string[], b: string[]): boolean {
   const x = accelOfCodes(a);
   return x !== "" && x === accelOfCodes(b);
@@ -41,7 +41,7 @@ export interface SceneContext {
   mac: boolean;
 }
 
-/** La tarjeta de una escena: `34" → PC-Escritorio`, su atajo y la máquina de la miniatura. */
+/** La tarjeta de una scene: `34" → PC-Escritorio`, su shortcut y la machine de la miniatura. */
 export function sceneView(s: SceneJson, ctx: SceneContext): SceneView {
   const known = s.monitors.flatMap(([id, machine]) => {
     const m = ctx.monitors.find((x) => x.id === id);
@@ -62,42 +62,42 @@ export function sceneView(s: SceneJson, ctx: SceneContext): SceneView {
 
 // ---- El editor -----------------------------------------------------------------------------
 
-/** Qué muestra un monitor en la escena: una máquina, o `keep` (sin cambiar). */
+/** Qué muestra un monitor en la scene: una machine, o `keep` (sin cambiar). */
 export type Pick = Machine | "keep";
 
 export interface Draft {
-  /** `null`: escena nueva. */
+  /** `null`: scene nueva. */
   id: string | null;
   name: string;
   picks: Record<string, Pick>;
   shortcut: string[];
-  /** Lo que la pantalla no edita (acomodo, máquina requerida, ícono) se conserva. */
+  /** Lo que la pantalla no edita (arrangement, machine requerida, ícono) se conserva. */
   base: SceneJson | null;
 }
 
 /** Igual que el núcleo (`MAX_SCENE_NAME`). */
 export const MAX_NAME = 40;
 
-/** Solo los compatibles entran a una escena (D11, DESIGN §5). */
+/** Solo los compatibles entran a una scene (D11, DESIGN §5). */
 export function compatible(monitors: MonitorUi[]): MonitorUi[] {
   return monitors.filter((m) => m.compat.ok);
 }
 
-/** Borrador de una escena nueva: cada monitor compatible, sin cambiar. */
+/** Borrador de una scene nueva: cada monitor compatible, sin cambiar. */
 export function newDraft(monitors: MonitorUi[]): Draft {
   return { id: null, name: "", picks: Object.fromEntries(compatible(monitors).map((m) => [m.id, "keep" as Pick])), shortcut: [], base: null };
 }
 
 export function draftOf(s: SceneView, monitors: MonitorUi[]): Draft {
   const picks: Record<string, Pick> = Object.fromEntries(compatible(monitors).map((m) => [m.id, "keep" as Pick]));
-  // Un monitor de la escena que hoy no se ve se conserva: editar el nombre no lo borra.
+  // Un monitor de la scene que hoy no se ve se conserva: editar el nombre no lo borra.
   for (const { monitor, machine } of s.monitors) picks[monitor] = machine;
   return { id: s.id, name: s.name, picks, shortcut: s.shortcut, base: s.raw };
 }
 
 export type Problem = { field: "name" | "shortcut"; text: string };
 
-/** Lo que impide guardar; `null` si se puede. `others` son las demás escenas (nombres y atajos ya tomados). */
+/** Lo que impide guardar; `null` si se puede. `others` son las demás scenes (nombres y shortcuts ya tomados). */
 export function problemOf(d: Draft, others: SceneView[]): Problem | null {
   const name = d.name.trim();
   if (name === "") return { field: "name", text: "Give the scene a name" };
@@ -107,7 +107,7 @@ export function problemOf(d: Draft, others: SceneView[]): Problem | null {
   return null;
 }
 
-/** La escena que se guarda: lo editado encima de lo que ya tenía. Una nueva va sin id: el agente se lo da. */
+/** La scene que se guarda: lo editado encima de lo que ya tenía. Una nueva va sin id: el agente se lo da. */
 export function sceneOf(d: Draft): SceneJson {
   const monitors = Object.entries(d.picks).flatMap(([monitor, p]) => (p === "keep" ? [] : [[monitor, p] as [string, Machine]]));
   return { id: d.id ?? "", name: d.name.trim(), icon: d.base?.icon, monitors, layout: d.base?.layout ?? null, require_on: d.base?.require_on ?? null, shortcut: d.shortcut };

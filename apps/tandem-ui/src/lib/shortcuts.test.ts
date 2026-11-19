@@ -58,7 +58,7 @@ describe("leer una combinación", () => {
   });
 });
 
-describe("mostrar un atajo", () => {
+describe("mostrar un shortcut", () => {
   it("con símbolos en macOS", () => {
     expect(formatAccel("Ctrl+Alt+Digit1", true)).toBe("⌃⌥1");
     expect(formatAccel("Alt+Shift+Super+KeyK", true)).toBe("⌥⇧⌘K");
@@ -71,7 +71,7 @@ describe("mostrar un atajo", () => {
     expect(formatAccel("Ctrl+F5", false)).toBe("Ctrl+F5");
   });
 
-  it("sin atajo, nada", () => {
+  it("sin shortcut, nada", () => {
     expect(formatAccel(null, true)).toBe("");
     expect(ariaKeys(null)).toBe("");
   });
@@ -108,7 +108,7 @@ describe("qué atiende la ventana", () => {
 });
 
 describe("editar", () => {
-  it("el de siempre es ⌃⌥0, y los atajos de los modos ya no existen", () => {
+  it("el de siempre es ⌃⌥0, y los shortcuts de los modos ya no existen", () => {
     expect(ACTIONS.map((a) => formatAccel(DEFAULT_BINDINGS[a], true))).toEqual(["⌃⌥0"]);
   });
 

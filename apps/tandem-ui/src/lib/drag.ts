@@ -1,12 +1,12 @@
-// El aviso del arrastre de archivos entre las máquinas (T-121). Sin mockup propio: se dibuja
-// con el aviso corto de siempre (`Toasts.svelte`), con el texto del avance. Puro.
+// El notice del arrastre de archivos entre las machines (T-121). Sin mockup propio: se dibuja
+// con el notice corto de siempre (`Toasts.svelte`), con el texto del avance. Puro.
 
 import type { DragStatus } from "./model";
 
 export interface DragNotice {
   text: string;
   tone: "ok" | "bad";
-  /** El arrastre sigue: el aviso se queda hasta el siguiente estado, no se cierra solo. */
+  /** El arrastre sigue: el notice se queda hasta el siguiente estado, no se cierra solo. */
   ongoing: boolean;
 }
 

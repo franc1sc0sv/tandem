@@ -1,5 +1,5 @@
-// Los comandos de la paleta ⌘K / Ctrl+K (D15: solo comandos de Tandem, sin lenguaje
-// natural). Puro: qué comandos hay para un puesto y cómo se filtran; la paleta los dibuja y
+// Los comandos de la palette ⌘K / Ctrl+K (D15: solo comandos de Tandem, sin lenguaje
+// natural). Puro: qué comandos hay para un desk y cómo se filtran; la palette los dibuja y
 // ejecuta.
 
 import type { Machine } from "./model";
@@ -17,14 +17,14 @@ export interface Command {
   title: string;
   /** Texto gris to the right of (estado). */
   detail: string;
-  /** Atajo, o vacío. */
+  /** Shortcut, o vacío. */
   key: string;
   /** Color del punto. */
   color: string;
   run: () => unknown;
 }
 
-/** Lo que la paleta puede pedir: lo da el store. */
+/** Lo que la palette puede pedir: lo da el store. */
 export interface CommandContext {
   go(route: Route): void;
   applyScene(id: string): Promise<ActResult>;
@@ -40,7 +40,7 @@ export interface CommandContext {
 const GREY = "#6a6d76";
 const TEAL = "#5fbfb0";
 
-/** Nombre corto de una máquina para los túneles («MacBook → PC-Escritorio»). */
+/** Nombre corto de una machine para los tunnels («MacBook → PC-Escritorio»). */
 export function shortName(name: string): string {
   return name.split(" ")[0] ?? name;
 }
@@ -63,7 +63,7 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
         run: () => ctx.applyScene(s.id),
       });
     }
-    out.push({ id: "scene:new", group: "Scenes", title: "New scene…", detail: "", key: "", color: GREY, run: () => ctx.go({ screen: "escena", id: null }) });
+    out.push({ id: "scene:new", group: "Scenes", title: "New scene…", detail: "", key: "", color: GREY, run: () => ctx.go({ screen: "scene", id: null }) });
   }
 
   const peer: Machine = desk.here === "a" ? "b" : "a";
@@ -80,13 +80,13 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
       run: () => ctx.setPower(peer, !on),
     });
   }
-  // D1: no hay tercera máquina; sí se puede cambiar la otra (emparejar de nuevo).
+  // D1: no hay tercera machine; sí se puede cambiar la otra (emparejar de nuevo).
   out.push({ id: "pair:change", group: "Machines", title: "Change the other machine…", detail: "", key: "", color: TEAL, run: () => ctx.openWizard(1) });
 
   for (const t of desk.tunnels.filter((t) => t.state !== "closed")) {
     const from = m[t.from];
     const to = m[t.to];
-    // Los mismos rótulos que la lista de Túneles («Mac → PC»).
+    // Los mismos rótulos que la lista de Tunnels («Mac → PC»).
     const [lf, lt] = from && to ? shortLabels(from, to) : [shortName(name(t.from)), shortName(name(t.to))];
     out.push({
       id: `tunnel:${t.id}`,
@@ -95,7 +95,7 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
       detail: `${lf} → ${lt} · ${t.state === "busy" ? "active" : "inactive"}`,
       key: "",
       color: color(t.to),
-      run: () => ctx.go({ screen: "tuneles" }),
+      run: () => ctx.go({ screen: "tunnels" }),
     });
   }
 
@@ -109,15 +109,15 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
     run: () => ctx.go(route),
   });
   out.push(
-    go("monitores", "Monitors", { screen: "monitores" }),
-    go("red", "Network", { screen: "red" }),
-    go("acomodo", "Arrangement", { screen: "acomodo" }),
-    go("ajustes", "Settings", { screen: "ajustes" }, mac ? "⌘," : "Ctrl+,"),
-    go("puesto", "Desk", { screen: "puesto" }),
-    go("tuneles", "Tunnels", { screen: "tuneles" }),
+    go("monitors", "Monitors", { screen: "monitors" }),
+    go("network", "Network", { screen: "network" }),
+    go("arrangement", "Arrangement", { screen: "arrangement" }),
+    go("settings", "Settings", { screen: "settings" }, mac ? "⌘," : "Ctrl+,"),
+    go("desk", "Desk", { screen: "desk" }),
+    go("tunnels", "Tunnels", { screen: "tunnels" }),
   );
   for (const id of ["a", "b"] as Machine[]) {
-    if (m[id]) out.push(go(`maquina:${id}`, m[id].name, { screen: "maquina", machine: id }, "", color(id)));
+    if (m[id]) out.push(go(`machine:${id}`, m[id].name, { screen: "machine", machine: id }, "", color(id)));
   }
 
   if (ctx.can("measure")) {
@@ -135,7 +135,7 @@ export function buildCommands(desk: DeskView, ctx: CommandContext, mac: boolean)
   return out;
 }
 
-/** Minúsculas y sin acentos: «tuneles» encuentra «Túneles». */
+/** Minúsculas y sin acentos: «tunnels» encuentra «Tunnels». */
 export function normalize(s: string): string {
   return s.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().trim();
 }

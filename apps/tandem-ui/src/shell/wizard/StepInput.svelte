@@ -1,7 +1,7 @@
 <script lang="ts">
-  // Paso 4 (`F-Setup4`): teclado y mouse sin dueño. Cada máquina lista lo que tiene y marca
+  // Paso 4 (`F-Setup4`): teclado y mouse sin dueño. Cada machine lista lo que tiene y marca
   // «Activity detected» cuando recibe una tecla o un movimiento: lo oye el agente (cada
-  // máquina por su lado) y, en esta, también la ventana.
+  // machine por su lado) y, en esta, también la ventana.
   import { onDestroy, onMount } from "svelte";
   import { useStore } from "../../lib/context";
   import { NO_ACTIVITY, deviceRows, heard, type Activity } from "../../lib/wizard";

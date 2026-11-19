@@ -71,7 +71,7 @@ const btn = (v: { buttons: { id: string; enabled: boolean }[] }, id: string) => 
 // ---------------------------------------------------------------------------------------
 
 describe("los pasos", () => {
-  it("son cuatro, sin monitores, y en este orden (DESIGN §5)", () => {
+  it("son cuatro, sin monitors, y en este orden (DESIGN §5)", () => {
     expect(STEPS.map((s) => s.id)).toEqual(["machine", "pair", "keyboard", "summary"]);
   });
 
@@ -84,7 +84,7 @@ describe("los pasos", () => {
 });
 
 describe("paso 1: this machine", () => {
-  it("dice cómo se detectó la máquina", () => {
+  it("dice cómo se detectó la machine", () => {
     const v = viewOf(at("machine"), snap({ agent: "b" }));
     expect(v.checks[0]).toMatchObject({ state: "ok", label: "ESCRITORIO", detail: expect.stringContaining("Windows") });
     expect(v.verified).toBe(true);
@@ -151,7 +151,7 @@ describe("paso 2: the other machine", () => {
     expect(v.checks[0]).toMatchObject({ state: "fail", detail: "se rechazó en ESCRITORIO" });
   });
 
-  it("emparejada pero sin verificar el enlace no avanza: hace falta el ping", () => {
+  it("emparejada pero sin verificar el link no avanza: hace falta el ping", () => {
     const v = viewOf(at("pair"), snap());
     expect(v.verified).toBe(false);
     expect(v.blocker).toBe("test the link");
@@ -168,7 +168,7 @@ describe("paso 2: the other machine", () => {
   });
 
   it("un ping fallido se ve", () => {
-    const v = viewOf(at("pair", { pair: { ...begin().pair, pingError: "ningún enlace ve a the other machine" } }), snap());
+    const v = viewOf(at("pair", { pair: { ...begin().pair, pingError: "ningún link ve a the other machine" } }), snap());
     expect(v.checks.find((c) => c.label === "Link ping")).toMatchObject({ state: "fail" });
   });
 });
@@ -181,14 +181,14 @@ describe("paso 3: teclado y mouse", () => {
     expect(v.checks.some((c) => c.detail === "a machine is never assumed")).toBe(true);
   });
 
-  it("escucha en las dos máquinas mientras espera la tecla", () => {
+  it("escucha en las dos machines mientras espera la tecla", () => {
     const v = viewOf(at("keyboard", { keyboard: { ...begin().keyboard, armed: true } }), snap());
     expect(v.checks[0]).toMatchObject({ state: "wait" });
     expect(v.checks[0]!.label).toContain("both machines");
     expect(ids(v)).not.toContain("key:start");
   });
 
-  it("la máquina que recibió la tecla la tiene, pero hay que confirmarlo", () => {
+  it("la machine que recibió la tecla la tiene, pero hay que confirmarlo", () => {
     const heard = at("keyboard", { keyboard: { ...begin().keyboard, armed: true, heard: "b" } });
     const v = viewOf(heard, snap());
     expect(v.checks[0]!.label).toBe("The key arrived on ESCRITORIO");
@@ -216,7 +216,7 @@ describe("paso 3: teclado y mouse", () => {
 });
 
 describe("paso 4: resumen", () => {
-  it("junta todo lo verificado, con el nombre de cada máquina", () => {
+  it("junta todo lo verificado, con el nombre de cada machine", () => {
     const o = at("summary", {
       pair: { ...begin().pair, ping: { link: "usb4", millis: 2 } },
       keyboard: { ...begin().keyboard, confirmed: "b" },

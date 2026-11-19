@@ -62,7 +62,7 @@ describe("paso 1", () => {
     expect(rows.find((r) => r.id === "tunnels")?.mono).toBe(true);
   });
 
-  it("la fila del servicio muestra los tres estados que reporta la app y nunca gira sin dato", async () => {
+  it("la fila del servicio muestra los tres states que reporta la app y nunca gira sin dato", async () => {
     const d = await desk("demo&still&admin=pending");
     const rows = foundRows(d.machines.a!, { state: "pending", canInstall: true, note: "" });
     expect(rows.find((r) => r.id === "tunnels")).toMatchObject({ state: "ok", note: "zsh · Docker · uv · node" });
@@ -76,7 +76,7 @@ describe("paso 1", () => {
     expect(serviceRow(null, false).state).toBe("off");
   });
 
-  it("sin la máquina no hay filas, y en Windows los monitores sí tienen canal", async () => {
+  it("sin la machine no hay filas, y en Windows los monitors sí tienen canal", async () => {
     expect(foundRows(null)).toEqual([]);
     const d = await desk("demo&still");
     expect(foundRows(d.machines.b!).find((r) => r.id === "monitors")).toMatchObject({ state: "ok", note: "DDC channel" });
@@ -104,14 +104,14 @@ describe("paso 3", () => {
 });
 
 describe("paso 4", () => {
-  it("la actividad se acumula por máquina y no cambia lo ya marcado", () => {
+  it("la actividad se acumula por machine y no cambia lo ya marcado", () => {
     const a = heard(NO_ACTIVITY, "b");
     expect(a).toEqual({ a: false, b: true });
     expect(heard(a, "b")).toBe(a);
     expect(heard(a, "a")).toEqual({ a: true, b: true });
   });
 
-  it("lista solo lo que anuncia la máquina: lo supuesto no cuenta", async () => {
+  it("lista solo lo que anuncia la machine: lo supuesto no cuenta", async () => {
     const d = await desk();
     expect(deviceRows(d.machines.a!).map((x) => x.name)).toEqual(["Built-in keyboard", "Trackpad", "Keychron K3 · MX Master 3S"]);
     expect(deviceRows(d.machines.b!)).toEqual([]);
@@ -147,7 +147,7 @@ describe("paso 5", () => {
     expect([arrowSide("ArrowUp"), arrowSide("ArrowDown"), arrowSide("ArrowLeft"), arrowSide("ArrowRight"), arrowSide("Enter")]).toEqual(["up", "down", "left", "right", null]);
   });
 
-  it("el veredicto dice la verdad de cada fase", () => {
+  it("el verdict dice la verdad de cada fase", () => {
     const sample = { from: "a", to: "b", edge: "right", at: 1, of: 2, ms: 0.4 } as const;
     expect(crossVerdict(start(0), "right", "MacBook Pro", "PC", 20)).toMatchObject({ tone: "wait", text: "Waiting for the crossing at the right edge of MacBook Pro…" });
     expect(crossVerdict({ kind: "passed", sample }, "right", "M", "PC", 20)).toMatchObject({ tone: "ok", text: expect.stringContaining("Round trip measured: 0.4 ms") });
@@ -182,7 +182,7 @@ describe("paso 6", () => {
     const b = d.machines.b!;
     expect(a.environments.some((e) => e.ready)).toBe(true);
     expect(tunnels({ a, b })).toMatchObject({ ok: true, note: "MCP ready for Claude Code on both" });
-    // Túneles apagados en una máquina, aunque haya entornos detectados.
+    // Tunnels apagados en una machine, aunque haya entornos detectados.
     expect(tunnels({ a, b: setTunnels(b, "off") })?.ok).toBe(false);
     expect(tunnels({ a, b: setTunnels(b, "unavailable") })?.ok).toBe(false);
     // Entornos sin ninguno listo.

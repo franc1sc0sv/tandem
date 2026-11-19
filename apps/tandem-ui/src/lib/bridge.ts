@@ -15,27 +15,27 @@ export interface Bridge {
   onResources(cb: (machine: Machine, r: ResourceSample) => void): Promise<void>;
   /** El estado de la red, una vez por segundo (solo tras `watch_network`). */
   onNetwork(cb: (n: NetworkWire) => void): Promise<void>;
-  /** Los túneles por proyecto: al conectar y con cada cambio (T-114). */
+  /** Los tunnels por proyecto: al conectar y con cada cambio (T-114). */
   onTunnels(cb: (t: ProjectWire[]) => void): Promise<void>;
-  /** El avance de las copias de archivos de los túneles (T-106). */
+  /** El avance de las copias de archivos de los tunnels (T-106). */
   onTransfer(cb: (t: TransferWire) => void): Promise<void>;
-  /** Lo que pasó con un pedido hecho desde fuera de la ventana (atajo global, menú del ícono). */
+  /** Lo que pasó con un pedido hecho desde fuera de la ventana (shortcut global, menú del ícono). */
   onMessage(cb: (text: string) => void): Promise<void>;
   shortcuts(): Promise<ShortcutsView>;
-  /** Los atajos nuevos cada vez que se cambian (desde cualquier ventana). */
+  /** Los shortcuts nuevos cada vez que se cambian (desde cualquier ventana). */
   onShortcuts(cb: (view: ShortcutsView) => void): Promise<void>;
   /** Rechaza con la razón si no se pueden usar (repetidos, inválidos, sin poder guardar). */
   setShortcuts(bindings: Bindings): Promise<ShortcutsView>;
-  /** Desde la mini escena del ícono. */
+  /** Desde la mini scene del ícono. */
   showMain(): Promise<void>;
-  /** El atajo de mostrar u ocultar, atendido por la ventana principal al frente. */
+  /** El shortcut de mostrar u ocultar, atendido por la ventana principal al frente. */
   hideMain(): Promise<void>;
   hideTray(): Promise<void>;
-  /** «Salir» desde la bandeja: cierra la app (el agente sigue). */
+  /** «Salir» desde la tray: cierra la app (el agente sigue). */
   quit(): Promise<void>;
   /** La guía de permisos del primer arranque (macOS). */
   setup(): Promise<SetupView>;
-  /** Abre el panel de Ajustes del Sistema que concede el permiso. */
+  /** Abre el panel de Settings del Sistema que concede el permiso. */
   openSettings(permission: Permission): Promise<void>;
   /** Reinicia `tandemd` (launchd lo vuelve a levantar) so the permissions you just gave take effect. */
   restartAgent(): Promise<void>;
@@ -45,14 +45,14 @@ export interface Bridge {
   installAdmin(): Promise<AdminView>;
   /** Marca la guía como vista: no vuelve a abrirse sola. */
   finishSetup(): Promise<SetupView>;
-  /** Ajustes → Actualizaciones (T-122): versiones, búsqueda y «Update only». */
+  /** Settings → Actualizaciones (T-122): versiones, búsqueda y «Update only». */
   updates(): Promise<UpdateView>;
   onUpdates(cb: (view: UpdateView) => void): Promise<void>;
   checkUpdates(): Promise<UpdateView>;
   /** «Update all»: rechaza con la razón si no se puede empezar. */
   updateAll(): Promise<UpdateView>;
   setAutoUpdate(on: boolean): Promise<UpdateView>;
-  /** Ajustes → Avanzado: dónde están la configuración y los logs, y mostrarlos. */
+  /** Settings → Avanzado: dónde están la configuración y los logs, y mostrarlos. */
   files(): Promise<{ config: string; logs: string }>;
   openFiles(target: "config" | "logs"): Promise<void>;
 }

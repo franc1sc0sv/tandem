@@ -107,7 +107,7 @@
     font: inherit;
     font-size: var(--btn-fs, var(--fs));
     font-weight: 500;
-    /* Los mockups de Monitores y escenas no fijan el interlineado del botón: `normal`. */
+    /* Los mockups de Monitors y scenes no fijan el interlineado del botón: `normal`. */
     line-height: var(--btn-lh, 1);
     border-radius: var(--btn-r, var(--r));
     border: 1px solid #2e3138;

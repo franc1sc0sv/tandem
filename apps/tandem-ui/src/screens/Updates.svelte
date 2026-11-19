@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Ajustes → Actualizaciones (`F-Settings`, T-122): la versión de las dos máquinas, buscar
+  // Settings → Actualizaciones (`F-Settings`, T-122): la versión de las dos machines, buscar
   // ahora, «Update all» (primero la otra, después esta) y «Update only».
   import { onMount } from "svelte";
   import { useStore } from "../lib/context";
@@ -8,7 +8,7 @@
   import Switch from "../ui/Switch.svelte";
 
   const store = useStore();
-  // Los botones de Ajustes miden 34 px (`F-Settings`).
+  // Los botones de Settings miden 34 px (`F-Settings`).
   const B34 = "--btn-h:34px;--btn-px:13px;--btn-gap:7px";
 
   let view = $state<UpdateView | null>(null);

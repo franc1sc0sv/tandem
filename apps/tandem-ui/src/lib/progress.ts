@@ -1,5 +1,5 @@
 // Las otras dos tarjetas de «Changes in progress» (`F-Transactions`): el encendido de una
-// máquina y la medición de un enlace. Puro: la pantalla solo dibuja lo que sale de aquí.
+// machine y la medición de un link. Puro: la pantalla solo dibuja lo que sale de aquí.
 
 import { LINK_NAME } from "./machines";
 import type { Machine } from "./model";
@@ -7,7 +7,7 @@ import { formatMs, formatRate, RING_GBPS, unpluggedText } from "./network";
 import type { LinkKind, NetworkView, PathView } from "./store/types";
 import type { Run } from "./txn";
 
-/** Lo que se espera a que el agente de la máquina encendida conteste (DESIGN §3.6). */
+/** Lo que se espera a que el agente de la machine encendida conteste (DESIGN §3.6). */
 export const BOOT_WAIT_MS = 120_000;
 /** Cada cuánto se reenvía el paquete Wake-on-LAN. */
 export const WOL_EVERY_S = 5;
@@ -38,7 +38,7 @@ export function clockText(ms: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 }
 
-/** La máquina que se está encendiendo en esta corrida, si lo es. */
+/** La machine que se está encendiendo en esta corrida, si lo es. */
 export function powerTarget(run: Run | null): Machine | null {
   const s = run?.progress.steps[0];
   return s?.step === "power_on" ? s.machine : null;
