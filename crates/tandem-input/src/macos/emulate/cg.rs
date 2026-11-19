@@ -50,7 +50,14 @@ impl CgSink {
         Ok(Self { source })
     }
 
-    fn post_cg(event: &CGEvent) {
+    /// The one way out: every event, including the media keys built through `NSEvent`,
+    /// leaves with `source_user_data` so the tap on this Mac recognises it (T-241).
+    fn post_cg(event: &CGEvent, source_user_data: i64) {
+        CGEvent::set_integer_value_field(
+            Some(event),
+            CGEventField::EventSourceUserData,
+            source_user_data,
+        );
         CGEvent::post(CGEventTapLocation::HIDEventTap, Some(event));
     }
 
@@ -80,7 +87,7 @@ fn mouse_type(kind: MouseKind) -> CGEventType {
 }
 
 impl MacSink for CgSink {
-    fn post(&mut self, event: &MacEvent) -> Result<(), EmulateError> {
+    fn post(&mut self, event: &MacEvent, source_user_data: i64) -> Result<(), EmulateError> {
         match *event {
             MacEvent::Key {
                 keycode,
@@ -95,13 +102,13 @@ impl MacSink for CgSink {
                     CGEventField::KeyboardEventAutorepeat,
                     i64::from(autorepeat),
                 );
-                Self::post_cg(&ev);
+                Self::post_cg(&ev, source_user_data);
             }
             MacEvent::FlagsChanged { keycode, flags } => {
                 let ev = self.keyboard(keycode, true)?;
                 CGEvent::set_type(Some(&ev), CGEventType::FlagsChanged);
                 CGEvent::set_flags(Some(&ev), CGEventFlags(flags));
-                Self::post_cg(&ev);
+                Self::post_cg(&ev, source_user_data);
             }
             MacEvent::Mouse {
                 kind,
@@ -140,7 +147,7 @@ impl MacSink for CgSink {
                     delta.1.round() as i64,
                 );
                 CGEvent::set_flags(Some(&ev), CGEventFlags(flags));
-                Self::post_cg(&ev);
+                Self::post_cg(&ev, source_user_data);
             }
             MacEvent::Scroll {
                 unit,
@@ -162,7 +169,7 @@ impl MacSink for CgSink {
                 )
                 .ok_or_else(|| platform("CGEventCreateScrollWheelEvent2 returned NULL"))?;
                 CGEvent::set_flags(Some(&ev), CGEventFlags(flags));
-                Self::post_cg(&ev);
+                Self::post_cg(&ev, source_user_data);
             }
             MacEvent::SystemKey {
                 data1,
@@ -186,7 +193,7 @@ impl MacSink for CgSink {
                 let ev = ns
                     .CGEvent()
                     .ok_or_else(|| platform("NSEvent without CGEvent"))?;
-                Self::post_cg(&ev);
+                Self::post_cg(&ev, source_user_data);
             }
         }
         Ok(())
