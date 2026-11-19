@@ -240,6 +240,24 @@ describe("Network with the real agent (IPC)", () => {
     expect(screen.getByText("The cable was unplugged · switched to Wi-Fi in 0.6 s")).toBeInTheDocument();
   });
 
+  it("the link notices use the warning pattern (icon and text) and never mention tandem.toml (T-243)", async () => {
+    const { b, handlers } = bridge();
+    await open(new LiveSource(b));
+    const notices = [
+      { interface: "Ethernet path", message: "Two addresses reach the other machine over the Ethernet path. Tandem uses [fe80::2%3]:47770 and ignores 169.254.252.182:47770.", command: "" },
+      { interface: "Link manager", message: "The link manager is not running, so there is no link with the other machine: the health check timings cannot be 0", command: "" },
+    ];
+    await flush(() => handlers.network?.(wire({ notices })));
+    const boxes = screen.getAllByRole("alert");
+    expect(boxes).toHaveLength(2);
+    for (const box of boxes) {
+      expect(box.querySelector("svg")).not.toBeNull();
+      expect(box.textContent).not.toMatch(/tandem\.toml|\[network\]/);
+    }
+    expect(within(boxes[1]!).getByText("Link manager")).toBeInTheDocument();
+    expect(within(boxes[1]!).getByText(/^The link manager is not running/)).toBeInTheDocument();
+  });
+
   it("\"Measure bandwidth\" sends MeasureLink through the primary path and announces what was measured", async () => {
     const { b, act, handlers } = bridge();
     await open(new LiveSource(b));
