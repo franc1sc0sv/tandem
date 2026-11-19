@@ -28,7 +28,6 @@
   import Button from "../ui/Button.svelte";
   import Icon from "../ui/Icon.svelte";
   import { machineIcon } from "../ui/icons";
-  import Switch from "../ui/Switch.svelte";
 
   interface Props {
     machine: Machine;
@@ -41,7 +40,6 @@
   const hw = $derived(m?.hardware ?? null);
   const warn = $derived(vramWarn(live));
   const envs = $derived(orderEnvs(m?.environments ?? []));
-  const tunnels = $derived(m?.modules.find((x) => x.id === "tunnels") ?? null);
   // The "Permissions" row (F-MachineMac): only on this machine's page, if any is missing.
   const perm = $derived(m?.here ? missingPermission(store.desk.permissions.rows.filter((r) => r.state === "missing").map((r) => r.id)) : null);
 
@@ -373,19 +371,6 @@
         {#each envs.rest as e (e.id)}
           <div class="env"><b>{envLabel(e)}</b><span class="mono mut s115">{e.detail}</span></div>
         {/each}
-        {#if tunnels && !m.here}
-          <div class="remote">
-            <span>Allow remote execution</span><span class="fill"></span>
-            <Switch
-              checked={tunnels.state === "active"}
-              label="Allow remote execution"
-              disabled={busy !== null || (tunnels.switchable && !canSwitch(tunnels))}
-              locked={!tunnels.switchable}
-              hint="Always on: remote execution can't be turned off from here."
-              onchange={() => toggle(tunnels)}
-            />
-          </div>
-        {/if}
       </section>
     </div>
   {:else}
@@ -802,15 +787,6 @@
     display: flex;
     gap: 8px;
     align-items: center;
-  }
-  .remote {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding-top: 12px;
-    margin-top: auto;
-    border-top: 1px solid #1f2126;
-    font-size: 13px;
   }
 
   @keyframes up {

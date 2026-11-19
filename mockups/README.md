@@ -39,6 +39,7 @@ More detail in `tools/mockup-render/README.md`.
 
 ## What the mockups say and DECISIONS corrects
 
+- **"Allow remote execution" block of `V3-Machine`** (T-270, user decision 2026-11-19): removed from the mockup itself (`V3-Machine.dc.html` and its PNG), and from the app's Machine page. Tunnels has no switch (DECISIONS T-098) and the Modules list already shows it as a chip, so nothing is masked and `machine-b` is compared in full.
 - **Third machine** (`F-AddHost`, the "MacBook Air", "Add machine" in the sidebar, "Desk of N machines" in the notes): out because of D1. In its place, Settings → "Change the other machine" (pair again).
 - **"Add machine" card of `V3-Desk`** (D1): masked in the comparison (200 × 210 px to the right of the machine cards); in the app that gap stays empty, there is no card to mask. Power on / Power off live inside the other machine's card (which is compared), styled like the mockup's buttons.
 - **Palette shortcut** (`⌘K`): the mockups are drawn on macOS; the app shows `Ctrl+K` on Windows. The screenshot harness uses a macOS user agent.
