@@ -5,7 +5,8 @@ use if_addrs::IfOperStatus;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use super::{Interfaces, NetInterface, classify};
+use super::table::{AddrRow, interfaces_from_rows};
+use super::{Interfaces, NetInterface};
 
 /// How often the system's list is read again.
 pub const POLL: Duration = Duration::from_millis(500);
@@ -59,26 +60,32 @@ impl Interfaces for SystemInterfaces {
     }
 }
 
-/// The system's interfaces, without loopback, one per name and with all their addresses.
+/// The OS interfaces, without loopback, one per name with all their addresses.
 fn read() -> Vec<NetInterface> {
     let Ok(all) = if_addrs::get_if_addrs() else {
         return Vec::new();
     };
-    let mut by_name: BTreeMap<String, NetInterface> = BTreeMap::new();
-    for i in all.into_iter().filter(|i| !i.is_loopback()) {
-        let entry = by_name
-            .entry(i.name.clone())
-            .or_insert_with(|| NetInterface {
-                index: i.index.unwrap_or(0),
-                kind: classify(&i.name),
-                name: i.name.clone(),
-                addrs: Vec::new(),
-                mac: None,
-                speed_mbps: None,
-                up: false,
-            });
-        entry.addrs.push(i.ip());
-        entry.up |= matches!(i.oper_status, IfOperStatus::Up | IfOperStatus::Unknown);
-    }
-    by_name.into_values().collect()
+    let descriptions = descriptions();
+    interfaces_from_rows(all.into_iter().filter(|i| !i.is_loopback()).map(|i| {
+        let index = i.index.unwrap_or(0);
+        AddrRow {
+            description: descriptions.get(&index).cloned(),
+            ip: i.ip(),
+            up: matches!(i.oper_status, IfOperStatus::Up | IfOperStatus::Unknown),
+            name: i.name,
+            index,
+        }
+    }))
+}
+
+/// Hardware description of each adapter by interface index. Only Windows has one worth
+/// reading: there the friendly name of the USB4 cable is a plain "Ethernet N".
+#[cfg(windows)]
+fn descriptions() -> BTreeMap<u32, String> {
+    super::adapters_windows::descriptions()
+}
+
+#[cfg(not(windows))]
+fn descriptions() -> BTreeMap<u32, String> {
+    BTreeMap::new()
 }

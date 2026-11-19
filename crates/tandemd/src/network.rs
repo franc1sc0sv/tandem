@@ -22,7 +22,7 @@
 //! [`NetworkConfig::link_candidates`]: crate::NetworkConfig::link_candidates
 
 use std::collections::BTreeMap;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv6Addr, SocketAddr};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock, Weak};
 use std::time::Duration;
@@ -166,16 +166,12 @@ pub fn bind_first<T>(
     })
 }
 
-/// All interfaces on `port`. IPv6 only if some fixed link is IPv6: an IPv6
-/// socket does not receive IPv4 on every system (on Windows it is IPv6-only by default), and
-/// the direct links of DESIGN §6 are IPv4.
-pub fn default_bind(port: u16, statics: &[LinkCandidate]) -> SocketAddr {
-    let ip = if statics.iter().any(|l| l.addr.is_ipv6()) {
-        IpAddr::V6(Ipv6Addr::UNSPECIFIED)
-    } else {
-        IpAddr::V4(Ipv4Addr::UNSPECIFIED)
-    };
-    SocketAddr::new(ip, port)
+/// Every interface on `port`, dual-stack (`[::]`): the configured cable peer is usually an
+/// IPv4 link-local while the one learned by mDNS is an IPv6 link-local, and an IPv4-only
+/// endpoint refuses to dial the latter (T-196). The endpoint makes the socket accept IPv4
+/// too, and falls back to `0.0.0.0` on a host without IPv6.
+pub fn default_bind(port: u16) -> SocketAddr {
+    SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), port)
 }
 
 /// The manager's link, as the UI sees it.
@@ -357,9 +353,7 @@ impl Network {
         opts: NetOptions,
     ) -> Result<Self, NetError> {
         let net_cfg = &agent.config().network;
-        let wanted = opts
-            .bind
-            .unwrap_or_else(|| default_bind(net_cfg.port, &net_cfg.peers));
+        let wanted = opts.bind.unwrap_or_else(|| default_bind(net_cfg.port));
         // The first peer in trust: for now an agent pairs with just one.
         let paired = trust.peers().next().cloned();
         let trust = Arc::new(RwLock::new(trust));
@@ -1176,15 +1170,43 @@ mod tests {
     }
 
     #[test]
-    fn binds_ipv4_unless_a_static_link_is_ipv6() {
-        assert_eq!(default_bind(47770, &[]), "0.0.0.0:47770".parse().unwrap());
-        let v4 = [link(LinkKind::Usb4, "10.77.1.2:47770")];
-        assert_eq!(default_bind(47770, &v4), "0.0.0.0:47770".parse().unwrap());
-        let mixed = [
-            link(LinkKind::Usb4, "10.77.1.2:47770"),
-            link(LinkKind::Ethernet, "[fe80::1]:47770"),
-        ];
-        assert_eq!(default_bind(1, &mixed), "[::]:1".parse().unwrap());
+    fn binds_dual_stack_even_when_every_static_link_is_ipv4() {
+        assert_eq!(default_bind(47770), "[::]:47770".parse().unwrap());
+    }
+
+    #[tokio::test]
+    async fn the_default_endpoint_dials_an_ipv6_peer_with_ipv4_static_links() {
+        use std::sync::Arc;
+        use tandem_link::identity::{Identity, PublicKey};
+        use tandem_link::transport::{Endpoint, PeerTrust};
+        struct Anyone;
+        impl PeerTrust for Anyone {
+            fn is_trusted(&self, _: &PublicKey) -> bool {
+                true
+            }
+        }
+        // The hardware run: peer configured as `169.254.x.y`, IPv6 link-local from mDNS.
+        let ours = Endpoint::bind(
+            default_bind(0),
+            &Identity::from_seed([1; 32]),
+            Arc::new(Anyone),
+        )
+        .unwrap();
+        let theirs = Endpoint::bind(
+            "[::1]:0".parse().unwrap(),
+            &Identity::from_seed([2; 32]),
+            Arc::new(Anyone),
+        )
+        .unwrap();
+        let port = theirs.local_addr().unwrap().port();
+        let to = SocketAddr::new(IpAddr::V6(Ipv6Addr::LOCALHOST), port);
+        let dialled = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            tokio::join!(ours.connect(to), theirs.accept())
+        })
+        .await
+        .unwrap();
+        dialled.0.unwrap();
+        dialled.1.unwrap().unwrap();
     }
 
     #[test]

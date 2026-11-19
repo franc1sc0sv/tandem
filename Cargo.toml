@@ -38,6 +38,8 @@ proptest = "1.12.0"
 # so as not to drag in aws-lc-rs (cmake/nasm on Windows).
 quinn = { version = "0.11.12", default-features = false, features = ["runtime-tokio", "rustls-ring", "log"] }
 rcgen = "0.14.10"
+# Dual-stack UDP socket for the QUIC endpoint (T-196): Windows defaults to IPv6-only.
+socket2 = "0.6"
 # 0.23 is the stable line and the one quinn 0.11 uses.
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "logging"] }
 serde = { version = "1", features = ["derive"] }
