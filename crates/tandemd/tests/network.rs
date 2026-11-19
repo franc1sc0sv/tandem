@@ -35,10 +35,16 @@ fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
 /// Cap so a broken test fails instead of hanging.
 const TIMEOUT: Duration = Duration::from_secs(20);
 
-async fn within<F: Future>(f: F) -> F::Output {
-    tokio::time::timeout(TIMEOUT, f)
-        .await
-        .expect("the test exceeded the maximum time")
+/// Says where it waited, to know which step hung (T-230).
+#[track_caller]
+fn within<F: Future>(f: F) -> impl Future<Output = F::Output> {
+    let at = std::panic::Location::caller();
+    async move {
+        match tokio::time::timeout(TIMEOUT, f).await {
+            Ok(v) => v,
+            Err(_) => panic!("the test exceeded the maximum time waiting at {at}"),
+        }
+    }
 }
 
 /// Simulated steps: they record what they are asked.
@@ -824,11 +830,16 @@ async fn a_local_setting_moved_to_the_desk_does_not_leave_the_machines_apart() {
     );
     until_peer(&a.agent, paired("B", Some(Link::Usb4))).await;
     until_peer(&b.agent, paired("A", Some(Link::Usb4))).await;
+    // T-235: both start with the same `desk_rev` and sum, so "the same desk" can already be
+    // true before the migrated clipboard is merged; wait for the state being asserted.
+    let off = |d: &tandem_core::Config| d.modules.get(Machine::B, "clipboard") == Some(false);
+    let mut on_a = a.agent.subscribe_desk();
+    let mut on_b = b.agent.subscribe_desk();
+    within(on_a.wait_for(off)).await.unwrap();
+    within(on_b.wait_for(off)).await.unwrap();
     until_same_desk(&a, &b).await;
-    assert_eq!(
-        a.agent.desk().modules.get(Machine::B, "clipboard"),
-        Some(false)
-    );
+    assert!(off(&a.agent.desk()));
+    assert!(off(&b.agent.desk()));
     assert_eq!(
         saved(&a).desk.modules.get(Machine::B, "clipboard"),
         Some(false)

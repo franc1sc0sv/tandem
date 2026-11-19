@@ -28,10 +28,16 @@ use tokio::task::JoinHandle;
 
 const TIMEOUT: Duration = Duration::from_secs(20);
 
-async fn within<F: Future>(f: F) -> F::Output {
-    tokio::time::timeout(TIMEOUT, f)
-        .await
-        .expect("the test exceeded the maximum time")
+/// Says where it waited, to know which step hung (T-230).
+#[track_caller]
+fn within<F: Future>(f: F) -> impl Future<Output = F::Output> {
+    let at = std::panic::Location::caller();
+    async move {
+        match tokio::time::timeout(TIMEOUT, f).await {
+            Ok(v) => v,
+            Err(_) => panic!("the test exceeded the maximum time waiting at {at}"),
+        }
+    }
 }
 
 /// The first is side A's (DECISIONS A1).
@@ -347,6 +353,47 @@ async fn canceling_midway_deletes_what_was_copied_on_the_destination() {
     .await;
     assert!(seen.lock().unwrap().is_empty(), "it never got to drag");
     assert_eq!(drain(&mut status).last(), Some(&DragStatus::Cancelled));
+    server.abort();
+    a.stop().await;
+    b.stop().await;
+}
+
+/// T-230: `serve` runs in a spawned task, so a `Begin` sent right after the link comes up
+/// may arrive before it registers. Before the fix it was discarded and the source waited
+/// for `Staged` forever; here the destination starts serving only after the request arrived.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_begin_that_arrives_before_the_destination_serves_is_not_lost() {
+    let (a, b) = pair().await;
+    let src = tempfile::tempdir().unwrap();
+    let staging = tempfile::tempdir().unwrap();
+    let files = files_in(src.path());
+    let starter = DropStarter {
+        seen: Arc::default(),
+        end: DragEnd::Dropped,
+    };
+    let seen = starter.seen.clone();
+    let origin_agent = a.agent.clone();
+    let run = tokio::spawn(async move {
+        drag::run_origin(
+            &origin_agent,
+            NoDetector,
+            CopyUpload { slow: None },
+            &files,
+            std::future::pending(),
+        )
+        .await
+    });
+    // The request crosses the loopback link in milliseconds; this leaves it waiting at
+    // the destination well before anyone serves there.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let dest_agent = b.agent.clone();
+    let base = staging.path().to_owned();
+    let server = tokio::spawn(async move {
+        drag::serve(&dest_agent, DragIn::new(starter, base)).await;
+    });
+
+    assert_eq!(within(run).await.unwrap().unwrap(), DragEnd::Dropped);
+    assert_eq!(seen.lock().unwrap().len(), 2);
     server.abort();
     a.stop().await;
     b.stop().await;
