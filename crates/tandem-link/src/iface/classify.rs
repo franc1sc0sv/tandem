@@ -75,14 +75,44 @@ fn unmapped(ip: IpAddr) -> IpAddr {
     }
 }
 
+/// A candidate left out because another one already took its kind (or its address).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shadowed {
+    pub kind: LinkKind,
+    /// The candidate that holds the path.
+    pub kept: SocketAddr,
+    /// The one left out.
+    pub dropped: SocketAddr,
+}
+
 /// Relabels the candidates with the type of their interface. Those that fall on no
-/// known interface stay as they are.
+/// known interface stay as they are. See [`relabel_with_shadowed`] for collisions.
 pub fn relabel(candidates: &[LinkCandidate], interfaces: &[NetInterface]) -> Vec<LinkCandidate> {
-    candidates
-        .iter()
-        .map(|c| LinkCandidate {
-            kind: kind_for_addr(interfaces, c.addr).unwrap_or(c.kind),
-            addr: c.addr,
-        })
-        .collect()
+    relabel_with_shadowed(candidates, interfaces).0
+}
+
+/// Relabels and keeps one candidate per kind and per address, because the link manager
+/// holds one path per kind (DESIGN §6.1) and two candidates on the same kind go over
+/// the same interface anyway: one more address there adds no failover. The first one in
+/// the given order wins (the configured order, best declared kind first, so a declared
+/// peer beats a discovered one); the rest come back so the caller can explain them.
+/// Relabelling never removes a kind, so the cable stays as primary.
+pub fn relabel_with_shadowed(
+    candidates: &[LinkCandidate],
+    interfaces: &[NetInterface],
+) -> (Vec<LinkCandidate>, Vec<Shadowed>) {
+    let mut kept: Vec<LinkCandidate> = Vec::with_capacity(candidates.len());
+    let mut shadowed = Vec::new();
+    for c in candidates {
+        let kind = kind_for_addr(interfaces, c.addr).unwrap_or(c.kind);
+        match kept.iter().find(|k| k.kind == kind || k.addr == c.addr) {
+            Some(k) => shadowed.push(Shadowed {
+                kind: k.kind,
+                kept: k.addr,
+                dropped: c.addr,
+            }),
+            None => kept.push(LinkCandidate { kind, addr: c.addr }),
+        }
+    }
+    (kept, shadowed)
 }

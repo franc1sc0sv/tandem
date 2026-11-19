@@ -32,7 +32,7 @@ use tandem_link::discovery::MdnsDiscovery;
 use tandem_link::identity::{Identity, PublicKey, TrustStore, TrustedPeer};
 use tandem_link::iface::{
     AssignNotices, Interfaces, ScopedDiscovery, SystemAssigner, SystemInterfaces, WiredChange,
-    WiredResolver, follow_wired, kind_for_addr, relabel, wired_changes,
+    WiredResolver, follow_wired, kind_for_addr, relabel_with_shadowed, wired_changes,
 };
 use tandem_link::manager::{
     HealthConfig, LinkCandidate, LinkKind, LinkManager, ManagerError, Prober, QuicProber,
@@ -784,7 +784,16 @@ async fn supervise(
         // disconnect later are followed by `follow_wired`. What is configured by hand rules.
         let side = agent.machine();
         let port = agent.config().network.port;
-        let fixed = relabel(&candidates, &interfaces.list());
+        // Two candidates on one interface get the same kind: one is kept, never refused (T-223).
+        let (fixed, shadowed) = relabel_with_shadowed(&candidates, &interfaces.list());
+        for s in &shadowed {
+            tracing::warn!(
+                kind = %s.kind,
+                kept = %s.kept,
+                dropped = %s.dropped,
+                "two peers reach the same link: only the first one is used"
+            );
+        }
         let fixed_kinds: Vec<LinkKind> = fixed.iter().map(|c| c.kind).collect();
         let resolver = Arc::new(WiredResolver {
             side,
@@ -815,16 +824,20 @@ async fn supervise(
             &interfaces,
             &active_link,
         ) {
-            Ok(m) => Some(m),
+            Ok(m) => Ok(m),
             Err(ManagerError::NoCandidates) => {
                 tracing::info!("no links with the peer: waiting to discover it on the LAN");
-                None
+                Err(ManagerError::NoCandidates)
             }
             Err(e) => {
                 tracing::error!("could not start the link manager: {e}");
-                None
+                Err(e)
             }
         };
+        agent
+            .net_metrics()
+            .set_link_notices(metrics::link_notices(&shadowed, managed.as_ref().err()));
+        let managed = managed.ok();
         let mut links = managed.as_ref().map(|m| m.links.watch());
         let _follow = managed
             .as_ref()
