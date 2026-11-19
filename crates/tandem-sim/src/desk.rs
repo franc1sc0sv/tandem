@@ -91,6 +91,8 @@ pub struct DeskBuilder {
     /// The desk's monitors and who has a cable to each one (T-110).
     monitors: Vec<MonitorSpec>,
     scene_screens: SceneScreens,
+    /// What each side's `tandem.toml` says besides the machine and Wake-on-LAN (A's and B's).
+    toml: [String; 2],
 }
 
 impl Default for DeskBuilder {
@@ -102,6 +104,7 @@ impl Default for DeskBuilder {
             os: [Os::MacOs, Os::Windows],
             monitors: Vec::new(),
             scene_screens: SceneScreens::default(),
+            toml: Default::default(),
         }
     }
 }
@@ -145,6 +148,13 @@ impl DeskBuilder {
         self
     }
 
+    /// What `machine`'s `tandem.toml` carries at the start (its desk, its version), as written
+    /// in the file: top-level keys first, then tables.
+    pub fn toml(mut self, machine: Machine, toml: &str) -> Self {
+        self.toml[usize::from(machine == Machine::B)] = toml.to_owned();
+        self
+    }
+
     pub fn monitors(mut self, specs: Vec<MonitorSpec>) -> Self {
         self.monitors = specs;
         self
@@ -156,9 +166,11 @@ impl DeskBuilder {
         let dir = tempfile::tempdir().map_err(|e| SimError::Setup(e.to_string()))?;
         // Both with `[power.wol]` to wake the other: Wake-on-LAN is simulated.
         let os = self.os;
+        let toml = &self.toml;
         let agent_cfg = |machine: Machine| {
+            let extra = &toml[usize::from(machine == Machine::B)];
             let mut cfg = AgentConfig::from_toml(&format!(
-                "machine = \"{}\"\n[power.wol]\nmac = \"{WOL_MAC}\"\n",
+                "machine = \"{}\"\n{extra}\n[power.wol]\nmac = \"{WOL_MAC}\"\n",
                 machine.as_str()
             ))
             .map_err(|e| SimError::Setup(e.to_string()))?;

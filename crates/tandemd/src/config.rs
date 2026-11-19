@@ -124,6 +124,10 @@ pub struct AgentConfig {
     /// as a change.
     #[serde(skip)]
     pub legacy_desk: bool,
+    /// What the T-209 migration renamed in the desk when reading it: the stored state follows
+    /// these renames and no others ([`crate::store::StateStore::load_following`]).
+    #[serde(skip)]
+    pub legacy_renames: tandem_core::legacy::LegacyRenames,
     /// The migration moved into the desk something that belonged to this machine (the turned-off clipboard) or
     /// gave it the default scenes (T-100): it counts as a change by this machine, with a new
     /// version, so the other adopts it.
@@ -480,8 +484,8 @@ impl AgentConfig {
         cfg.rewrite_sides = legacy;
         // Spanish ids from before T-209: translated here and written back once, like the
         // pre-T-099 desk (the fingerprint of the old one no longer matches).
-        let renamed = cfg.desk.migrate_legacy_ids();
-        cfg.legacy_desk = migrated.changed || renamed;
+        cfg.legacy_renames = cfg.desk.migrate_legacy_ids();
+        cfg.legacy_desk = migrated.changed || cfg.legacy_renames.changed();
         cfg.local_to_desk = migrated.local;
         // Already paired: the default scenes replace the modes (D6). It is a change by
         // this machine, with a new version: it is saved and reaches the other.

@@ -293,7 +293,7 @@ impl Agent {
         local: Arc<dyn LocalSteps>,
     ) -> Self {
         let me = cfg.machine;
-        let mut state = store.load_or_initial(me);
+        let mut state = store.load_following(me, &cfg.legacy_renames);
         // This machine is always powered on for itself (DESIGN §3.7); the other, until
         // the links say otherwise, as it was left.
         state.on.set(me, true);
@@ -1958,6 +1958,26 @@ pub(crate) mod tests {
         again.set_config_file(file.clone());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), text);
         assert_eq!(again.desk_sync().stamp.rev, 4);
+    }
+
+    /// Review of #152: the stored scene follows the desk read from the file. Renamed with it when
+    /// the desk renamed it; kept when the desk kept `trabajo` because the user has a `work`.
+    #[test]
+    fn the_stored_scene_follows_the_desk_read_from_the_file() {
+        let base = "machine = \"a\"\n[[scenes]]\nid = \"trabajo\"\nname = \"Trabajo\"\n";
+        for (extra, want) in [
+            ("", "work"),
+            ("[[scenes]]\nid = \"work\"\nname = \"Mine\"\n", "trabajo"),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let state = dir.path().join("state.json");
+            std::fs::write(&state, r#"{"on":{"a":true,"b":false},"scene":"trabajo"}"#).unwrap();
+            let cfg = AgentConfig::from_toml(&format!("{base}{extra}")).unwrap();
+            let a = Agent::new(cfg, StateStore::new(&state));
+            assert_eq!(a.state().scene.as_deref(), Some(want), "{extra}");
+            let ids: Vec<_> = a.desk().scenes.iter().map(|s| s.id.clone()).collect();
+            assert!(ids.iter().any(|id| id == want), "{ids:?}");
+        }
     }
 
     /// T-209: a peer that still has the Spanish ids sends them; they are stored in English.
