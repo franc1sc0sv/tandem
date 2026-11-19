@@ -660,6 +660,7 @@ impl From<CursorSample> for CursorView {
 pub struct KeyProbeView {
     pub armed: bool,
     pub heard: Option<Machine>,
+    pub second: Option<Machine>,
 }
 
 impl From<PowerEvent> for Notice {
@@ -1452,9 +1453,17 @@ impl Runner {
                 }
                 .into(),
             ),
-            AgentToUi::KeyProbe(KeyProbeStatus { armed, heard }) => {
+            AgentToUi::KeyProbe(KeyProbeStatus {
+                armed,
+                heard,
+                second,
+            }) => {
                 self.sink.notice(&Notice::KeyProbe {
-                    event: KeyProbeView { armed, heard },
+                    event: KeyProbeView {
+                        armed,
+                        heard,
+                        second,
+                    },
                 });
             }
             AgentToUi::Monitors(new) => self.update_monitors(new),
