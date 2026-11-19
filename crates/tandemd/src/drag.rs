@@ -5,6 +5,7 @@
 //!   [`run_origin`] runs `DragOut`, publishing progress for the UI;
 //! - destination: [`serve`] handles `Begin`/`Ready`/`Cancel` with a `DragIn`.
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
@@ -25,12 +26,25 @@ type Result<T> = std::result::Result<T, FilesError>;
 /// Drag notices kept for a slow UI.
 const STATUS_BUFFER: usize = 16;
 
+/// Requests kept while nobody serves as destination yet ([`serve`] is spawned and the other
+/// agent may already be sending); a drag needs three at most.
+const EARLY_REQUESTS: usize = 8;
+
+/// Where the source's requests go.
+#[derive(Debug)]
+enum Requests {
+    /// Nobody serves yet: they wait here instead of being lost, so a source that
+    /// sends `Begin` right after the link comes up does not wait forever for `Staged` (T-230).
+    Early(VecDeque<DragMsg>),
+    Serving(mpsc::UnboundedSender<DragMsg>),
+}
+
 /// Distributes the drag messages that arrive from the other agent and the progress for the UI.
 #[derive(Debug)]
 pub struct DragHub {
     status: broadcast::Sender<DragStatus>,
     /// Requests from the source, for whoever serves as destination ([`serve`]).
-    requests: Mutex<Option<mpsc::UnboundedSender<DragMsg>>>,
+    requests: Mutex<Requests>,
     /// Replies from the destination, for the source drag in progress.
     replies: Mutex<Option<mpsc::UnboundedSender<DragMsg>>>,
     next_id: AtomicU64,
@@ -40,7 +54,7 @@ impl Default for DragHub {
     fn default() -> Self {
         DragHub {
             status: broadcast::channel(STATUS_BUFFER).0,
-            requests: Mutex::new(None),
+            requests: Mutex::new(Requests::Early(VecDeque::new())),
             replies: Mutex::new(None),
             next_id: AtomicU64::new(1),
         }
@@ -58,20 +72,48 @@ impl DragHub {
         let _ = self.status.send(status);
     }
 
-    /// Delivers a message from the other agent to whoever waits for it; with nobody, it is discarded.
+    /// Delivers a message from the other agent to whoever waits for it. A reply with no
+    /// drag waiting is discarded; a request with no destination yet waits for [`serve`].
     pub fn deliver(&self, msg: DragMsg) {
-        let slot = match msg {
+        match msg {
             DragMsg::Begin { .. } | DragMsg::Ready { .. } | DragMsg::Cancel { .. } => {
-                &self.requests
+                let mut requests = self.requests.lock().unwrap_or_else(PoisonError::into_inner);
+                match &mut *requests {
+                    Requests::Serving(tx) => {
+                        if tx.send(msg).is_err() {
+                            tracing::debug!("drag request with nobody to handle it");
+                        }
+                    }
+                    Requests::Early(queue) => {
+                        if queue.len() == EARLY_REQUESTS {
+                            queue.pop_front();
+                        }
+                        queue.push_back(msg);
+                    }
+                }
             }
-            DragMsg::Staged { .. } | DragMsg::Finished { .. } => &self.replies,
-        };
-        let tx = slot.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(tx) = tx.as_ref()
-            && tx.send(msg).is_err()
-        {
-            tracing::debug!("drag message with nobody to handle it");
+            DragMsg::Staged { .. } | DragMsg::Finished { .. } => {
+                let tx = self.replies.lock().unwrap_or_else(PoisonError::into_inner);
+                if let Some(tx) = tx.as_ref()
+                    && tx.send(msg).is_err()
+                {
+                    tracing::debug!("drag reply with nobody to handle it");
+                }
+            }
         }
+    }
+
+    /// Becomes the destination of the requests, with those that arrived before.
+    fn serve(&self) -> mpsc::UnboundedReceiver<DragMsg> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let mut requests = self.requests.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Requests::Early(queue) = &mut *requests {
+            for msg in queue.drain(..) {
+                let _ = tx.send(msg);
+            }
+        }
+        *requests = Requests::Serving(tx);
+        rx
     }
 }
 
@@ -193,9 +235,7 @@ pub async fn run_origin<D: DragDetector, U: Upload>(
 /// drag and returns how it ended. It runs until the agent is dropped; it is launched
 /// with `tokio::spawn` and the platform's `DragStarter`.
 pub async fn serve<S: DragStarter>(agent: &Agent, drag: DragIn<S>) {
-    let hub = agent.drag();
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    *hub.requests.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
+    let mut rx = agent.drag().serve();
     let send = |msg| agent.orchestrator().peer().send(ControlMsg::Drag(msg));
     // The drag in progress: a `Ready` or `Cancel` of another id belongs to an old one.
     let mut current: Option<u64> = None;
@@ -357,5 +397,61 @@ impl<D: DragDetector + Send + Sync> FileDragBackend for SystemFileDrag<D> {
 
     fn finish<'a>(&'a self, agent: &'a Agent) -> BoxFuture<'a, ()> {
         Box::pin(self.uploads.finish(agent))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn begin(id: u64) -> DragMsg {
+        DragMsg::Begin {
+            id,
+            names: vec!["a.txt".into()],
+        }
+    }
+
+    fn ids(rx: &mut mpsc::UnboundedReceiver<DragMsg>) -> Vec<u64> {
+        std::iter::from_fn(|| rx.try_recv().ok())
+            .map(|m| match m {
+                DragMsg::Begin { id, .. } | DragMsg::Ready { id } | DragMsg::Cancel { id } => id,
+                _ => u64::MAX,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn requests_before_serving_are_handed_over_in_order() {
+        let hub = DragHub::default();
+        hub.deliver(begin(1));
+        hub.deliver(DragMsg::Ready { id: 1 });
+        let mut rx = hub.serve();
+        hub.deliver(DragMsg::Cancel { id: 2 });
+        assert_eq!(ids(&mut rx), vec![1, 1, 2]);
+    }
+
+    #[test]
+    fn the_early_queue_keeps_only_the_newest() {
+        let hub = DragHub::default();
+        let total = EARLY_REQUESTS as u64 + 3;
+        for id in 0..total {
+            hub.deliver(begin(id));
+        }
+        let mut rx = hub.serve();
+        let got = ids(&mut rx);
+        assert_eq!(got.len(), EARLY_REQUESTS);
+        assert_eq!(got.first(), Some(&3));
+        assert_eq!(got.last(), Some(&(total - 1)));
+    }
+
+    #[test]
+    fn a_reply_without_a_drag_waiting_is_discarded() {
+        let hub = DragHub::default();
+        hub.deliver(DragMsg::Staged {
+            id: 1,
+            dir: Ok("x".into()),
+        });
+        let mut rx = hub.serve();
+        assert!(ids(&mut rx).is_empty());
     }
 }

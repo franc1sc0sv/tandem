@@ -33,8 +33,16 @@ use tokio::task::JoinHandle;
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
-async fn within<F: Future>(f: F) -> F::Output {
-    within_for("an unlabeled wait", f).await
+/// Says where it waited, to know which step hung (T-230).
+#[track_caller]
+fn within<F: Future>(f: F) -> impl Future<Output = F::Output> {
+    let at = std::panic::Location::caller();
+    async move {
+        match tokio::time::timeout(TIMEOUT, f).await {
+            Ok(v) => v,
+            Err(_) => panic!("the test exceeded the maximum time waiting at {at}"),
+        }
+    }
 }
 
 /// Same as [`within`], but the timeout message says what was being waited for.
