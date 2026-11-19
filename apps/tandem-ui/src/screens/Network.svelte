@@ -6,6 +6,7 @@
   import { LINK_NAME, MACHINES, machineName } from "../lib/machines";
   import PageHeader from "../shell/PageHeader.svelte";
   import Button from "../ui/Button.svelte";
+  import Icon from "../ui/Icon.svelte";
   import Indicators from "./network/Indicators.svelte";
   import LinkMap, { type MapNode } from "./network/LinkMap.svelte";
   import PathCard from "./network/PathCard.svelte";
@@ -44,11 +45,14 @@
   </PageHeader>
   {#each network.notices as notice (notice.interface + notice.message)}
     <section class="notice" role="alert">
-      <b>{notice.interface}</b>
-      <span>{notice.message}</span>
-      {#if notice.command}
-        <code class="mono">{notice.command}</code>
-      {/if}
+      <Icon name="warn" size={16} stroke={2} />
+      <div class="text">
+        <b>{notice.interface}</b>
+        <span>{notice.message}</span>
+        {#if notice.command}
+          <code class="mono">{notice.command}</code>
+        {/if}
+      </div>
     </section>
   {/each}
   <LinkMap {network} a={nodes[0]!} b={nodes[1]!} />
@@ -61,14 +65,27 @@
 </div>
 
 <style>
+  /* The warning pattern of the tray: icon, then the text, with the same amber tokens. */
   .notice {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    border: 1px solid #5a4a2c;
+    background: #1e1a12;
+    font-size: 12.5px;
+    color: #e6c48f;
+  }
+  .notice :global(svg) {
+    flex: none;
+    margin-top: 1px;
+  }
+  .text {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    padding: 10px 14px;
-    border-radius: 10px;
-    border: 1px solid #d9a75a;
-    background: rgba(217, 167, 90, 0.1);
+    min-width: 0;
   }
   .notice code {
     user-select: all;

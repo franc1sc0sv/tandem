@@ -391,7 +391,7 @@ impl Module for SecureDesktop {
         "Protected screens"
     }
     fn detail(&self, _ctx: &ModuleContext<'_>) -> String {
-        "The mouse and keyboard also on UAC prompts and at sign-in".into()
+        "The mouse and keyboard also work on UAC prompts and at the sign-in screen.".into()
     }
     fn state(&self, _ctx: &ModuleContext<'_>) -> ModuleState {
         crate::secure::module_state(crate::secure::status())
@@ -551,6 +551,41 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The mockup's line for a module (`V3-Machine`), the text the demo also shows: the
+    /// agent's wording cannot drift from it, which `pnpm shots` cannot catch in the demo.
+    fn mockup_detail(name: &str) -> String {
+        let html = include_str!("../../../mockups/v03/V3-Machine.dc.html");
+        let tail = html
+            .split_once(&format!(
+                "<b style=\"font-weight:600\">{name}</b><span class=\"mut\">"
+            ))
+            .unwrap_or_else(|| panic!("V3-Machine has no row for {name}"))
+            .1;
+        tail.split_once("</span>")
+            .expect("the row ends")
+            .0
+            .to_string()
+    }
+
+    #[test]
+    fn protected_screens_reads_as_the_mockup() {
+        let input = InputStatus::new(Machine::A);
+        let switches = ModuleSwitches::default();
+        let p = power(true, true, true);
+        let ctx = ModuleContext {
+            os: Os::Windows,
+            input: &input,
+            power: &p,
+            switches: &switches,
+        };
+        let detail = SecureDesktop.detail(&ctx);
+        assert_eq!(
+            detail,
+            "The mouse and keyboard also work on UAC prompts and at the sign-in screen."
+        );
+        assert_eq!(detail, mockup_detail("Protected screens"));
     }
 
     #[test]

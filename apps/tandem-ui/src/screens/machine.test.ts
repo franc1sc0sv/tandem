@@ -263,6 +263,16 @@ describe("F-MachineMac (this machine)", () => {
   });
 });
 
+describe("Protected screens (T-245)", () => {
+  it("the demo row reads as V3-Machine, the sentence the agent also sends", async () => {
+    const html = readFileSync(join(process.cwd(), "..", "..", "mockups", "v03", "V3-Machine.dc.html"), "utf8");
+    const line = /Protected screens<\/b><span class="mut">([^<]*)<\/span>/.exec(html)?.[1];
+    expect(line).toBe("The mouse and keyboard also work on UAC prompts and at the sign-in screen.");
+    await mount();
+    expect(screen.getByText(line!)).toBeInTheDocument();
+  });
+});
+
 describe("animations (G7, G8)", () => {
   const css = readFileSync(join(process.cwd(), "src", "screens", "Machine.svelte"), "utf8");
 
