@@ -397,6 +397,35 @@ async fn stdout_until_done(
     }
 }
 
+type StateRead<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<Option<ProcessState>>> + 'a>>;
+
+/// Reads a process's state with `fetch` until it is no longer running, or until `limit` passes, and
+/// returns the last state read.
+///
+/// `Kill` returns when the destination has killed the tree, but the origin only learns the new
+/// state over the tunnel's data channel, a different stream: reading it once right after `Kill`
+/// can still see `Running`, so it is polled within a bounded wait.
+async fn settled_state<C, F>(
+    conn: &mut C,
+    limit: Duration,
+    poll: Duration,
+    mut fetch: F,
+) -> anyhow::Result<Option<ProcessState>>
+where
+    F: for<'a> FnMut(&'a mut C) -> StateRead<'a>,
+{
+    let deadline = Instant::now() + limit;
+    loop {
+        let state = fetch(conn).await?;
+        if state.as_ref().is_none_or(|s| *s != ProcessState::Running) || Instant::now() >= deadline
+        {
+            return Ok(state);
+        }
+        tokio::time::sleep(poll).await;
+    }
+}
+
 /// Opens a tunnel, runs `body` and always closes it, even if `body` fails.
 async fn with_tunnel<F>(
     ctx: &Ctx,
@@ -444,13 +473,20 @@ pub async fn tunnel_process(ctx: &Ctx) -> CheckResult {
                 },
             )
             .await?;
-            let state = match req(c, UiCommand::GetProcesses { tunnel: t }).await? {
-                Reply::Processes(ps) => ps.into_iter().find(|p| p.id == long.id).map(|p| p.state),
-                other => return Err(unexpected(other)),
-            };
+            let state = settled_state(c, STEP, Duration::from_millis(100), |c| {
+                Box::pin(async move {
+                    match req(c, UiCommand::GetProcesses { tunnel: t }).await? {
+                        Reply::Processes(ps) => {
+                            Ok(ps.into_iter().find(|p| p.id == long.id).map(|p| p.state))
+                        }
+                        other => Err(unexpected(other)),
+                    }
+                })
+            })
+            .await?;
             anyhow::ensure!(
                 state == Some(ProcessState::Killed),
-                "the process stayed in {state:?}"
+                "the process stayed in {state:?} for {STEP:?} after being killed"
             );
             Ok("output received from the other machine and process killed".into())
         })
@@ -713,6 +749,86 @@ mod tests {
         let b = scratch(dir.path(), "x").unwrap();
         assert_eq!(a, b);
         assert!(!b.join("old").exists());
+    }
+
+    /// A process whose state reaches the origin `after` reads late.
+    fn lagging(
+        after: usize,
+        reads: Arc<std::sync::atomic::AtomicUsize>,
+    ) -> impl FnMut(&mut ()) -> StateRead<'_> {
+        move |_| {
+            let n = reads.fetch_add(1, Ordering::SeqCst);
+            Box::pin(std::future::ready(Ok(Some(if n < after {
+                ProcessState::Running
+            } else {
+                ProcessState::Killed
+            }))))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_state_that_arrives_late_is_waited_for() {
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let state = settled_state(
+            &mut (),
+            Duration::from_secs(5),
+            Duration::from_millis(1),
+            lagging(3, reads.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(state, Some(ProcessState::Killed));
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            4,
+            "it stops reading once settled"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_process_that_never_stops_is_reported_after_the_limit() {
+        let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let started = Instant::now();
+        let state = settled_state(
+            &mut (),
+            Duration::from_millis(50),
+            Duration::from_millis(5),
+            lagging(usize::MAX, reads.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(state, Some(ProcessState::Running));
+        assert!(started.elapsed() >= Duration::from_millis(50));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the wait is bounded"
+        );
+        assert!(reads.load(Ordering::SeqCst) > 2, "it polled, not read once");
+    }
+
+    #[tokio::test]
+    async fn a_missing_process_is_not_waited_for_forever() {
+        let state = settled_state(
+            &mut (),
+            Duration::from_millis(30),
+            Duration::from_millis(5),
+            |_| Box::pin(std::future::ready(Ok(None))),
+        )
+        .await
+        .unwrap();
+        assert_eq!(state, None);
+    }
+
+    #[tokio::test]
+    async fn a_failed_read_is_an_error() {
+        let r = settled_state(
+            &mut (),
+            Duration::from_secs(1),
+            Duration::from_millis(5),
+            |_| Box::pin(std::future::ready(Err(anyhow::anyhow!("link down")))),
+        )
+        .await;
+        assert!(r.is_err());
     }
 
     #[tokio::test]
