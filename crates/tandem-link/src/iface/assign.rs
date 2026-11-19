@@ -58,6 +58,7 @@ pub fn is_permission_failure(output: &str) -> bool {
     let o = output.to_lowercase();
     [
         "elevation",
+        // Spanish Windows prints `netsh` errors in Spanish: these words are data to match.
         "elevación",
         "administrator",
         "administrador",

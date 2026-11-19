@@ -145,7 +145,7 @@
    reason: The agent does not count MCP server sessions yet
    under the mask (mockup): tandem mcp · 2 sessions connected
 [palette] sel n=1 area=64 (0.0%)
-   sel: section[role="dialog"] .it:has-text("Trabajo") > span:first-child
+   sel: section[role="dialog"] .it:has-text("Work") > span:first-child
    reason: Real data: the dot's color is that of the machine the scene shows
    under the mask (mockup): 
 [palette] sel n=1 area=26376 (2.4%)

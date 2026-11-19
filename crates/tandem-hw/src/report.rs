@@ -71,6 +71,7 @@ pub fn parse_lines(text: &str) -> Vec<CheckResult> {
 /// thinks it was covered.
 pub const MANUAL: &[&str] = &[
     "An hour of normal use with no stuck keys (T-093).",
+    // The "ñ" names the key under test on a Spanish layout; it is data, not prose.
     "ES/LatAm layout: ñ, dead keys, AltGr (T-093).",
     "Different scales between screens: physical cursor speed (T-093).",
     "Real hook loss on Windows and `kCGEventTapDisabledBy*` on macOS (T-093).",

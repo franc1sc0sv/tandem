@@ -221,9 +221,10 @@ async fn the_reduced_wizard_end_to_end() {
         .unwrap()
         .heard;
     assert_eq!(heard, Some(Machine::B));
-    // A second key on the other does not change what was heard first.
+    // A key on the other one does not change what was heard first, but it is recorded (T-220).
     mac.ui.request(UiCommand::HeardKey).await.unwrap();
     assert_eq!(mac.agent.key_probe_status().heard, Some(Machine::B));
+    assert_eq!(mac.agent.key_probe_status().second, Some(Machine::A));
 
     // "Is this right?": yes. It is saved on both and stops being "not set".
     assert_eq!(
@@ -311,4 +312,70 @@ async fn the_other_ones_activity_reaches_the_ui_over_ipc() {
     assert_eq!(heard, Some(Machine::B));
     a.stop().await;
     b.stop().await;
+}
+
+/// T-220: activity on both machines, in either order, reaches both UIs over IPC.
+async fn both_machines_reach_both_uis(first_is_a: bool, seed: u8) {
+    let (a_id, b_id) = sides(
+        Identity::from_seed([seed; 32]),
+        Identity::from_seed([seed + 1; 32]),
+    );
+    let (mut a, mut b) = tandemd::start_pair!(
+        |a_port, b_port| start(Machine::A, &a_id, a_port, (b_id.public_key(), b_port)),
+        start(Machine::B, &b_id, b_port, (a_id.public_key(), a_port))
+    );
+    within(async {
+        loop {
+            match a.ui.request(UiCommand::PingPeer).await.unwrap() {
+                Reply::Pong { .. } => break,
+                _ => tokio::time::sleep(Duration::from_millis(50)).await,
+            }
+        }
+    })
+    .await;
+    a.ui.request(UiCommand::KeyProbe { on: true })
+        .await
+        .unwrap();
+    let mut probe = b.agent.subscribe_key_probe();
+    within(probe.wait_for(|s| s.armed)).await.unwrap();
+    if first_is_a {
+        a.ui.request(UiCommand::HeardKey).await.unwrap();
+        within(probe.wait_for(|s| s.heard.is_some())).await.unwrap();
+        b.ui.request(UiCommand::HeardKey).await.unwrap();
+    } else {
+        b.ui.request(UiCommand::HeardKey).await.unwrap();
+        let mut pa = a.agent.subscribe_key_probe();
+        within(pa.wait_for(|s| s.heard.is_some())).await.unwrap();
+        a.ui.request(UiCommand::HeardKey).await.unwrap();
+    }
+    for ui in [&mut a.ui, &mut b.ui] {
+        let machines = within(async {
+            loop {
+                match ui.next_event().await.unwrap() {
+                    Some(tandem_proto::AgentToUi::KeyProbe(s))
+                        if s.heard.is_some() && s.second.is_some() =>
+                    {
+                        break [s.heard, s.second];
+                    }
+                    Some(_) => {}
+                    None => panic!("the connection closed"),
+                }
+            }
+        })
+        .await;
+        let first = if first_is_a { Machine::A } else { Machine::B };
+        assert_eq!(machines, [Some(first), Some(first.other())]);
+    }
+    a.stop().await;
+    b.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn activity_on_a_then_b_reaches_both_uis() {
+    both_machines_reach_both_uis(true, 5).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn activity_on_b_then_a_reaches_both_uis() {
+    both_machines_reach_both_uis(false, 7).await;
 }

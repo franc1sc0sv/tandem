@@ -1,0 +1,2 @@
+import * as L from "./lib.mjs";
+L.record("G6-buttons-with-effect", "every visible button on the live screens produces an observable effect", false, "81 of 92 buttons have an effect; of the 11 without one, 10 are already-selected options (tabs, monitor input, screen, color) or the palette shortcut, disabled by design; the only button that does nothing real is \"Test crossing\" in Arrangement (always disabled, T-150)");

@@ -87,11 +87,11 @@ try {
   const got = acc.trim().split("\n"); const seqOk = got.length === 24 && got.every((l, i) => l === `n${i + 1}`);
   L.record(F, "cut the link and recover it without losing output (24 consecutive lines)", seqOk, `lines ${got.length}${seqOk ? "" : ": " + got.join(",").slice(0, 160)}; during the cut: ${during.ok ? "responded" : "error: " + String(during.error).slice(0, 100)}${last ? " | " + last : ""}`);
   // 7. bring_back
-  await c.call("exec", { tunnel: id, cmd: "sh", args: ["-c", "echo 'fn desde_b() {}' > src/b.rs && git add -A && git -c user.email=t@t -c user.name=t commit -qm from-b"] }); await L.sleep(1500);
+  await c.call("exec", { tunnel: id, cmd: "sh", args: ["-c", "echo 'fn from_b() {}' > src/b.rs && git add -A && git -c user.email=t@t -c user.name=t commit -qm from-b"] }); await L.sleep(1500);
   const bb = await c.call("bring_back", { tunnel: id, name: "ret" });
   const branches = git(proj, "branch", "--list", "tandem/*");
   L.record(F, "bring_back creates the branch tandem/<name> in the project", bb.ok && /tandem\/ret/.test(branches), `${JSON.stringify(bb.value ?? bb.error).slice(0, 200)} | branches: ${branches.trim()}`);
-  if (/tandem\/ret/.test(branches)) { const l = git(proj, "show", "tandem/ret:src/b.rs"); L.record(F, "bring_back: the branch carries the change made on the other machine", /desde_b/.test(l)); }
+  if (/tandem\/ret/.test(branches)) { const l = git(proj, "show", "tandem/ret:src/b.rs"); L.record(F, "bring_back: the branch carries the change made on the other machine", /from_b/.test(l)); }
   // 8. read-only UI
   await p.goto(m1.origin + "/#/tunnels"); await L.sleep(1800);
   const btns = await p.locator("main button, main input, main textarea").evaluateAll((els) => els.filter((e) => e.offsetParent).map((e) => ((e.getAttribute("aria-label") || e.innerText || e.placeholder || e.tagName) + "").trim().replace(/\n/g, " ")));

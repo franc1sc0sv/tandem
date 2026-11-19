@@ -23,7 +23,7 @@ impl Agent {
         self.key_probe.send_replace(if on {
             KeyProbeStatus {
                 armed: true,
-                heard: None,
+                ..Default::default()
             }
         } else {
             KeyProbeStatus::default()
@@ -45,14 +45,18 @@ impl Agent {
         }
     }
 
-    /// Records the first key that arrives. False if nobody is listening or one already arrived.
+    /// Records the first activity of each machine: the first one is `heard` (the keyboard
+    /// question), the other one `second`. False if nobody is listening or it was already heard.
     fn hear(&self, machine: Machine) -> bool {
         self.key_probe.send_if_modified(|s| {
-            if s.armed && s.heard.is_none() {
+            if !s.armed || s.heard == Some(machine) || s.second == Some(machine) {
+                false
+            } else if s.heard.is_none() {
                 s.heard = Some(machine);
                 true
             } else {
-                false
+                s.second = Some(machine);
+                true
             }
         })
     }
@@ -63,7 +67,7 @@ impl Agent {
             KeyProbeMsg::Arm => {
                 self.key_probe.send_replace(KeyProbeStatus {
                     armed: true,
-                    heard: None,
+                    ..Default::default()
                 });
             }
             KeyProbeMsg::Disarm => {

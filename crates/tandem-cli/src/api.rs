@@ -610,6 +610,7 @@ mod tests {
 
     #[test]
     fn trims_at_the_last_utf8_boundary() {
+        // Unicode test data of 1, 2, 3 and 4 bytes per character.
         let s = "añ€😀".as_bytes(); // 1 + 2 + 3 + 4 bytes
         assert_eq!(s.len(), 10);
         // Cuts that split a character move back to the previous one.
