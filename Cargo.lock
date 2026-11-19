@@ -4537,6 +4537,7 @@ dependencies = [
  "anyhow",
  "dirs",
  "monitor-ddc",
+ "postcard",
  "proptest",
  "serde",
  "serde_json",

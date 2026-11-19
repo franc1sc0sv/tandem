@@ -379,9 +379,15 @@ mod platform {
         .map_err(|e| e.to_string())
     }
 
+    /// `SendInput` through the secure desktop helper when the service is up (UAC prompts,
+    /// sign-in screen, elevated windows; T-027), locally otherwise.
     pub fn injector() -> Result<DynInjector, String> {
+        use crate::secure::routed::RoutedSink;
+        use crate::secure::windows::PipeConnector;
+
         let sink = SendInputSink::new().map_err(|e| e.to_string())?;
-        Emulator::new(sink)
+        let routed = RoutedSink::new(sink, Box::new(PipeConnector::new()));
+        Emulator::new(routed)
             .map(DynInjector::new)
             .map_err(|e| e.to_string())
     }
