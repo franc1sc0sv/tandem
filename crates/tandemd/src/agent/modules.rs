@@ -1,9 +1,9 @@
-//! Los módulos de esta máquina en el agente (T-098): encenderlos y apagarlos desde la UI de
-//! cualquiera de las dos y anunciarlos en las capacidades.
+//! This machine's modules in the agent (T-098): turning them on and off from the UI of
+//! either machine and announcing them in the capabilities.
 //!
-//! Qué módulo está encendido es parte del puesto compartido (`Desk.modules`, D4): se cambia
-//! con un parche, se guarda en `tandem.toml` y llega a la otra con el puesto. Cada agente
-//! copia los de su lado a sus interruptores ([`Agent::sync_switches`]).
+//! Which module is on is part of the shared desk (`Desk.modules`, D4): it is changed
+//! with a patch, saved in `tandem.toml` and reaches the other with the desk. Each agent
+//! copies those of its side to its switches ([`Agent::sync_switches`]).
 
 use tandem_core::{DeskPatch, Machine};
 use tandem_proto::{Capabilities, ModuleId, Reply};
@@ -14,7 +14,7 @@ use crate::capabilities;
 use crate::config::AgentConfig;
 use crate::modules::{ModuleContext, ModuleSwitches, default_name};
 
-/// Lo apagado al arrancar: lo que el puesto apaga en esta máquina (`[modules.<lado>]`).
+/// What is off at startup: what the desk turns off on this machine (`[modules.<side>]`).
 pub(super) fn initial_switches(cfg: &AgentConfig) -> ModuleSwitches {
     let mut s = ModuleSwitches::default();
     for id in ModuleId::ALL {
@@ -26,7 +26,7 @@ pub(super) fn initial_switches(cfg: &AgentConfig) -> ModuleSwitches {
 }
 
 impl Agent {
-    /// Lo que anuncia esta máquina ahora mismo, módulos incluidos.
+    /// What this machine announces right now, modules included.
     pub(super) fn local_capabilities(&self) -> Capabilities {
         let info = self.local_info();
         let input = self.input_status();
@@ -51,18 +51,18 @@ impl Agent {
         caps
     }
 
-    /// Si el usuario no apagó `id` aquí.
+    /// Whether the user did not turn `id` off here.
     pub fn module_on(&self, id: ModuleId) -> bool {
         self.modules.borrow().is_on(id)
     }
 
-    /// Avisa cada vez que se enciende o apaga un módulo, o cambia un problema reportado.
+    /// Notifies every time a module is turned on or off, or a reported problem changes.
     pub fn subscribe_modules(&self) -> watch::Receiver<ModuleSwitches> {
         self.modules.subscribe()
     }
 
-    /// Enciende o apaga un módulo de esta máquina: un cambio del puesto. `Err` con la razón
-    /// si aquí no existe o no se puede apagar.
+    /// Turns a module of this machine on or off: a desk change. `Err` with the reason
+    /// if it does not exist here or cannot be turned off.
     pub fn set_module(&self, id: ModuleId, on: bool) -> Result<(), String> {
         self.registry.check_switch(id)?;
         self.edit_desk(DeskPatch::Module {
@@ -73,8 +73,8 @@ impl Agent {
         .map(|_| ())
     }
 
-    /// Un módulo en marcha avisa que no puede funcionar (`Some`, con la razón para la UI) o
-    /// que ya puede (`None`).
+    /// A running module reports that it cannot work (`Some`, with the reason for the UI) or
+    /// that it now can (`None`).
     pub fn set_module_problem(&self, id: ModuleId, problem: Option<String>) {
         if self
             .modules
@@ -84,9 +84,9 @@ impl Agent {
         }
     }
 
-    /// [`tandem_proto::UiCommand::SetModule`]: aquí se aplica; para la otra se comprueba con
-    /// su último anuncio y se cambia en el puesto, que le llega como cualquier cambio. Su
-    /// estado nuevo llega con su próximo anuncio.
+    /// [`tandem_proto::UiCommand::SetModule`]: here it is applied; for the other it is checked against
+    /// its last announcement and changed in the desk, which reaches it like any change. Its
+    /// new state arrives with its next announcement.
     pub(super) fn switch_module(&self, machine: Machine, module: ModuleId, on: bool) -> Reply {
         if machine == self.machine() {
             return match self.set_module(module, on) {
@@ -96,15 +96,18 @@ impl Agent {
         }
         let name = self.machine_name(machine);
         if !*self.orch.peer_connected().borrow() {
-            return Reply::Rejected(format!("la {name} no está conectada"));
+            return Reply::Rejected(format!("the {name} is not connected"));
         }
         let Some(peer) = self.capabilities().peer else {
-            return Reply::Rejected(format!("todavía no se sabe qué módulos tiene la {name}"));
+            return Reply::Rejected(format!("it is not yet known which modules the {name} has"));
         };
         match peer.modules.iter().find(|m| m.id == module) {
-            None => Reply::Rejected(format!("«{}» no existe en la {name}", default_name(module))),
+            None => Reply::Rejected(format!(
+                "\"{}\" does not exist on the {name}",
+                default_name(module)
+            )),
             Some(m) if !m.switchable => {
-                Reply::Rejected(format!("«{}» no se puede encender ni apagar", m.name))
+                Reply::Rejected(format!("\"{}\" cannot be turned on or off", m.name))
             }
             Some(_) => match self.edit_desk(DeskPatch::Module {
                 machine,
@@ -131,7 +134,7 @@ mod tests {
     use crate::config::fixtures;
     use crate::orchestrator::{PeerLink, StepFuture};
 
-    /// Un par que guarda lo que se le manda.
+    /// A peer that keeps what it is sent.
     #[derive(Default)]
     struct Recorder(Mutex<Vec<ControlMsg>>);
 
@@ -150,7 +153,7 @@ mod tests {
             std::mem::take(&mut *self.0.lock().unwrap())
         }
 
-        /// Solo los anuncios de capacidades (el puesto también viaja con cada cambio).
+        /// Only the capabilities announcements (the desk also travels with each change).
         fn announced(&self) -> Vec<ControlMsg> {
             self.taken()
                 .into_iter()
@@ -170,7 +173,7 @@ mod tests {
             .iter()
             .find(|m| m.id == id)
             .map(|m| m.state.clone())
-            .unwrap_or_else(|| panic!("falta {id:?}"))
+            .unwrap_or_else(|| panic!("missing {id:?}"))
     }
 
     #[test]
@@ -214,9 +217,9 @@ mod tests {
         assert!(!modules.borrow_and_update().is_on(ModuleId::Clipboard));
         let here = a.capabilities().here;
         assert_eq!(state(&here, ModuleId::Clipboard), ModuleState::Off);
-        // Es un cambio del puesto (D4): va guardado, con versión nueva, y la otra lo recibe.
+        // It is a desk change (D4): it is saved, with a new version, and the other receives it.
         assert_eq!(a.desk().modules.get(a.machine(), "clipboard"), Some(false));
-        // Sin runtime, el anuncio sale enseguida, después del puesto.
+        // Without a runtime, the announcement goes out right away, after the desk.
         assert_eq!(
             peer.taken(),
             [
@@ -224,7 +227,7 @@ mod tests {
                 ControlMsg::Capabilities(Box::new(here))
             ]
         );
-        // Pedir lo mismo otra vez no cambia ni anuncia nada.
+        // Asking for the same again neither changes nor announces anything.
         a.set_module(ModuleId::Clipboard, false).unwrap();
         assert!(peer.taken().is_empty());
     }
@@ -238,17 +241,17 @@ mod tests {
             module: ModuleId::SecureDesktop,
             on: true,
         }) else {
-            panic!("el escritorio seguro no existe en macOS");
+            panic!("the secure desktop does not exist on macOS");
         };
-        assert!(why.contains("no existe"), "{why}");
+        assert!(why.contains("does not exist"), "{why}");
         let Reply::Rejected(why) = a.handle(UiCommand::SetModule {
             machine: a.machine(),
             module: ModuleId::Tunnels,
             on: false,
         }) else {
-            panic!("los túneles no se apagan desde aquí");
+            panic!("tunnels cannot be turned off from here");
         };
-        assert!(why.contains("no se puede"), "{why}");
+        assert!(why.contains("cannot"), "{why}");
     }
 
     #[test]
@@ -257,12 +260,12 @@ mod tests {
         let a = agent_on(dir.path(), Os::Windows);
         a.set_module_problem(
             ModuleId::Clipboard,
-            Some("No se pudo abrir el portapapeles del sistema".into()),
+            Some("Could not open the system clipboard".into()),
         );
         assert_eq!(
             state(&a.capabilities().here, ModuleId::Clipboard),
             ModuleState::Unavailable {
-                reason: "No se pudo abrir el portapapeles del sistema".into()
+                reason: "Could not open the system clipboard".into()
             }
         );
         a.set_module_problem(ModuleId::Clipboard, None);
@@ -272,7 +275,7 @@ mod tests {
         );
     }
 
-    /// El otro lado, como si hubiera anunciado sus módulos.
+    /// The other side, as if it had announced its modules.
     fn learn_peer(a: &Agent, os: Os) {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = fixtures::desk_with_wol();
@@ -294,40 +297,40 @@ mod tests {
                 on,
             })
         };
-        // Sin enlace no hay a quién pedírselo.
+        // Without a link there is nobody to ask.
         let Reply::Rejected(why) = set(ModuleId::Clipboard, false) else {
-            panic!("sin la otra conectada");
+            panic!("without the other connected");
         };
-        assert!(why.contains("no está conectada"), "{why}");
+        assert!(why.contains("is not connected"), "{why}");
 
         let peer = Arc::new(Recorder::default());
         a.set_peer(peer.clone());
         peer.taken();
         let Reply::Rejected(why) = set(ModuleId::Clipboard, false) else {
-            panic!("sin su anuncio no se sabe qué tiene");
+            panic!("without its announcement it is not known what it has");
         };
-        assert!(why.contains("todavía no se sabe"), "{why}");
+        assert!(why.contains("not yet known"), "{why}");
 
         learn_peer(&a, Os::Windows);
-        // Conocerla anota las dos máquinas en el puesto, que también viaja.
+        // Learning of it records both machines in the desk, which also travels.
         peer.taken();
         assert_eq!(set(ModuleId::Clipboard, false), Reply::Done);
-        // Va en el puesto, del lado de la otra; aquí no se apaga nada.
+        // It goes in the desk, on the other's side; nothing is turned off here.
         assert_eq!(a.desk().modules.get(other, "clipboard"), Some(false));
         assert!(a.module_on(ModuleId::Clipboard));
         assert_eq!(peer.taken(), [ControlMsg::Desk(Box::new(a.desk_sync()))]);
-        // Lo que la otra no puede apagar ni se le pide.
+        // What the other cannot turn off is not asked of it either.
         assert!(matches!(set(ModuleId::Power, false), Reply::Rejected(_)));
         assert!(peer.taken().is_empty());
-        // Y lo que no existe en su sistema tampoco.
+        // And what does not exist on its system neither.
         learn_peer(&a, Os::MacOs);
         let Reply::Rejected(why) = set(ModuleId::SecureDesktop, true) else {
-            panic!("una Mac no tiene escritorio seguro");
+            panic!("a Mac has no secure desktop");
         };
-        assert!(why.contains("no existe"), "{why}");
+        assert!(why.contains("does not exist"), "{why}");
     }
 
-    /// Lo que la UI de la otra apagó aquí llega con su puesto y se aplica.
+    /// What the other's UI turned off here arrives with its desk and is applied.
     #[test]
     fn a_desk_from_the_peer_switches_the_modules_here() {
         let dir = tempfile::tempdir().unwrap();
@@ -336,7 +339,7 @@ mod tests {
         let mut theirs = a.desk_sync();
         theirs.stamp = theirs.stamp.next(me.other(), 1);
         theirs.desk.modules.set(me, "input", false);
-        // Lo que no se puede cambiar se ignora.
+        // What cannot be changed is ignored.
         theirs.desk.modules.set(me, "power", false);
         a.receive_desk(theirs.clone());
         assert!(!a.module_on(ModuleId::Input));
@@ -345,14 +348,14 @@ mod tests {
             state(&a.capabilities().here, ModuleId::Input),
             ModuleState::Off
         );
-        // Y vuelve a encenderse con el siguiente.
+        // And it turns on again with the next one.
         theirs.stamp = theirs.stamp.next(me.other(), 2);
         theirs.desk.modules.set(me, "input", true);
         a.receive_desk(theirs);
         assert!(a.module_on(ModuleId::Input));
     }
 
-    /// Un `EditDesk` con un módulo pasa por las mismas comprobaciones que `SetModule`.
+    /// An `EditDesk` with a module goes through the same checks as `SetModule`.
     #[test]
     fn a_module_patch_is_checked_like_set_module() {
         let dir = tempfile::tempdir().unwrap();
@@ -369,10 +372,10 @@ mod tests {
         assert!(matches!(edit("clipboard", false), Reply::Desk(_)));
         assert!(!a.module_on(ModuleId::Clipboard));
         assert!(matches!(edit("secure_desktop", true), Reply::Rejected(_)));
-        assert!(matches!(edit("nada", true), Reply::Rejected(_)));
+        assert!(matches!(edit("nothing", true), Reply::Rejected(_)));
     }
 
-    /// Varios cambios seguidos llegan a la otra máquina como un solo anuncio, con lo último.
+    /// Several consecutive changes reach the other machine as a single announcement, with the latest.
     #[tokio::test(start_paused = true)]
     async fn changes_reach_the_peer_debounced() {
         let dir = tempfile::tempdir().unwrap();
@@ -384,7 +387,7 @@ mod tests {
         a.set_module(ModuleId::Input, false).unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
         a.set_module(ModuleId::Input, true).unwrap();
-        assert!(peer.announced().is_empty(), "todavía dentro de la ventana");
+        assert!(peer.announced().is_empty(), "still inside the window");
         tokio::time::sleep(capabilities::ANNOUNCE_DEBOUNCE).await;
         let sent = peer.announced();
         assert_eq!(
@@ -398,18 +401,18 @@ mod tests {
         assert_eq!(state(c, ModuleId::Input), ModuleState::Active);
     }
 
-    /// Hallazgo de la revisión del PR #72: un cambio dentro de la ventana, con un enlace que
-    /// apareció mientras tanto, se mandaba al par de cuando se abrió la ventana (ninguno).
+    /// Finding from the review of PR #72: a change inside the window, with a link that
+    /// appeared in the meantime, was sent to the peer from when the window opened (none).
     #[tokio::test(start_paused = true)]
     async fn a_change_in_the_window_reaches_a_peer_that_connected_meanwhile() {
         let dir = tempfile::tempdir().unwrap();
         let a = Arc::new(agent_on(dir.path(), Os::Windows));
-        a.set_module(ModuleId::Clipboard, false).unwrap(); // abre la ventana sin par
+        a.set_module(ModuleId::Clipboard, false).unwrap(); // opens the window without a peer
         tokio::time::sleep(Duration::from_millis(50)).await;
         let peer = Arc::new(Recorder::default());
         a.set_peer(peer.clone());
         peer.taken();
-        a.set_module(ModuleId::Input, false).unwrap(); // dentro de la ventana
+        a.set_module(ModuleId::Input, false).unwrap(); // inside the window
         tokio::time::sleep(capabilities::ANNOUNCE_DEBOUNCE * 2).await;
         assert_eq!(
             peer.announced(),

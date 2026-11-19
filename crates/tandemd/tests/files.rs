@@ -1,6 +1,6 @@
-//! Archivos y puertos entre dos agentes reales por QUIC en loopback (T-106): un cliente
-//! copia una carpeta a B y la trae de vuelta por la IPC de A, con avance, y reenvía un
-//! puerto TCP en las dos direcciones.
+//! Files and ports between two real agents over QUIC on loopback (T-106): a client
+//! copies a folder to B and brings it back over A's IPC, with progress, and forwards a
+//! TCP port in both directions.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -24,7 +24,7 @@ const TIMEOUT: Duration = Duration::from_secs(60);
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
 struct Keys(BTreeSet<PublicKey>);
@@ -92,7 +92,7 @@ async fn round_trip(port: u16, payload: Vec<u8>) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn copia_carpetas_y_reenvia_puertos_por_quic() {
+async fn copies_folders_and_forwards_ports_over_quic() {
     let dir = tempfile::tempdir().unwrap();
     let mac = agent(dir.path(), Machine::A);
     let pc = agent(dir.path(), Machine::B);
@@ -113,7 +113,7 @@ async fn copia_carpetas_y_reenvia_puertos_por_quic() {
     let mut claude = ipc(&mac, Peer::Client(ClientKind::Mcp), &mut stops).await;
     let mut ui = ipc(&mac, Peer::Ui, &mut stops).await;
     let Reply::Tunnel { tunnel: t, .. } = within(claude.request(UiCommand::OpenTunnel {
-        title: "archivos".into(),
+        title: "files".into(),
         project: None,
         target: Machine::B,
         session: "s".into(),
@@ -121,19 +121,19 @@ async fn copia_carpetas_y_reenvia_puertos_por_quic() {
     }))
     .await
     .unwrap() else {
-        panic!("se esperaba el túnel");
+        panic!("the tunnel was expected");
     };
 
-    // Una carpeta con un archivo de varios MiB (varios fragmentos), uno vacío y nombres con
-    // espacios y acentos.
-    let src = dir.path().join("proyecto");
-    fs::create_dir_all(src.join("sub carpeta")).unwrap();
+    // A folder with a file of several MiB (several chunks), an empty one and names with
+    // spaces and accents.
+    let src = dir.path().join("project");
+    fs::create_dir_all(src.join("sub folder")).unwrap();
     let big: Vec<u8> = (0..2_500_000u32).map(|i| (i % 253) as u8).collect();
-    fs::write(src.join("grande.bin"), &big).unwrap();
-    fs::write(src.join("sub carpeta/ñandú.txt"), "hola").unwrap();
-    fs::write(src.join("vacío"), "").unwrap();
-    let dst = dir.path().join("en-la-pc");
-    let back = dir.path().join("de-vuelta");
+    fs::write(src.join("big.bin"), &big).unwrap();
+    fs::write(src.join("sub folder/smörgås.txt"), "hello").unwrap();
+    fs::write(src.join("empty"), "").unwrap();
+    let dst = dir.path().join("on-the-pc");
+    let back = dir.path().join("back");
     let mut progress = mac.files().subscribe_progress();
 
     let put = UiCommand::FilesPut {
@@ -142,21 +142,21 @@ async fn copia_carpetas_y_reenvia_puertos_por_quic() {
         remote: dst.display().to_string(),
         include: vec![],
     };
-    // La UI solo mira.
+    // The UI only watches.
     assert_eq!(
         within(ui.request(put.clone())).await.unwrap(),
         Reply::Rejected(CLIENTS_ONLY.into())
     );
     let Reply::Files(r) = within(claude.request(put)).await.unwrap() else {
-        panic!("se esperaba el informe");
+        panic!("the report was expected");
     };
-    assert_eq!((r.files, r.bytes, r.sent), (3, 2_500_004, 2_500_004));
-    assert_eq!(fs::read(dst.join("grande.bin")).unwrap(), big);
+    assert_eq!((r.files, r.bytes, r.sent), (3, 2_500_005, 2_500_005));
+    assert_eq!(fs::read(dst.join("big.bin")).unwrap(), big);
     assert_eq!(
-        fs::read(dst.join("sub carpeta/ñandú.txt")).unwrap(),
-        b"hola"
+        fs::read(dst.join("sub folder/smörgås.txt")).unwrap(),
+        b"hello"
     );
-    assert!(dst.join("vacío").is_file());
+    assert!(dst.join("empty").is_file());
     let last = within(async {
         let mut last = None;
         while let Ok(p) = progress.try_recv() {
@@ -165,7 +165,7 @@ async fn copia_carpetas_y_reenvia_puertos_por_quic() {
         last
     })
     .await
-    .expect("hubo avance");
+    .expect("there was progress");
     assert!(last.upload && last.finished && last.done == last.total);
 
     let Reply::Files(r) = within(claude.request(UiCommand::FilesGet {
@@ -175,12 +175,12 @@ async fn copia_carpetas_y_reenvia_puertos_por_quic() {
     }))
     .await
     .unwrap() else {
-        panic!("se esperaba el informe");
+        panic!("the report was expected");
     };
-    assert_eq!((r.files, r.bytes), (3, 2_500_004));
-    assert_eq!(fs::read(back.join("grande.bin")).unwrap(), big);
+    assert_eq!((r.files, r.bytes), (3, 2_500_005));
+    assert_eq!(fs::read(back.join("big.bin")).unwrap(), big);
 
-    // Puertos en las dos direcciones contra un eco de A.
+    // Ports in both directions against an echo of A.
     let echo = echo_server().await;
     for (direction, local_port, remote_port) in [
         (Direction::LocalToRemote, 0, echo),
@@ -195,7 +195,7 @@ async fn copia_carpetas_y_reenvia_puertos_por_quic() {
         }))
         .await
         .unwrap() else {
-            panic!("se esperaba el reenvío");
+            panic!("the port forward was expected");
         };
         let port = if direction == Direction::LocalToRemote {
             f.local_port

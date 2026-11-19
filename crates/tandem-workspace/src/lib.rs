@@ -1,13 +1,13 @@
-//! Workspaces de git por túnel (DESIGN §8, D8, T-107).
+//! Git workspaces per tunnel (DESIGN §8, D8, T-107).
 //!
-//! `tunnel_open { workspace }`: el origen empaqueta el repo (bundle del `HEAD` más un
-//! parche con lo pendiente), lo copia a la destino con `tandem-files` (reanudable) y la
-//! destino arma `<datos>/workspaces/<túnel>`, que pasa a ser el `cwd` de los procesos del
-//! túnel. `bring_back`: lo nuevo vuelve como una rama `tandem/<nombre>` del repo de
-//! origen, sin tocar su rama actual ni su árbol de trabajo.
+//! `tunnel_open { workspace }`: the origin packs the repo (bundle of `HEAD` plus a
+//! patch with the pending work), copies it to the destination with `tandem-files` (resumable) and the
+//! destination builds `<data>/workspaces/<tunnel>`, which becomes the `cwd` of the tunnel's
+//! processes. `bring_back`: the new work returns as a `tandem/<name>` branch of the
+//! origin repo, without touching its current branch or its working tree.
 //!
-//! Todo lo que toca el sistema va por [`git::Git`]; los pedidos viajan como
-//! [`tandem_proto::WorkspaceUp`] por `Channel::Tunnel`, igual que archivos y puertos.
+//! Everything that touches the system goes through [`git::Git`]; requests travel as
+//! [`tandem_proto::WorkspaceUp`] over `Channel::Tunnel`, like files and ports.
 
 pub mod error;
 pub mod git;
@@ -29,18 +29,18 @@ pub use git::{Git, SystemGit};
 
 type Result<T> = std::result::Result<T, WorkspaceError>;
 
-/// Lo que dejó abrir un workspace.
+/// What opening a workspace left behind.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opened {
-    /// La carpeta del workspace en la destino.
+    /// The workspace folder on the destination.
     pub dir: String,
-    /// Lo que no viajó por parecer una credencial (T-130).
+    /// What did not travel because it looked like a credential (T-130).
     pub skipped: Vec<String>,
-    /// Credenciales que ya están en la historia que viaja y no se pueden quitar (T-130).
+    /// Credentials already in the history that travels and that cannot be removed (T-130).
     pub history_secrets: Vec<String>,
 }
 
-/// Los workspaces de un agente, en sus dos papeles.
+/// An agent's workspaces, in its two roles.
 #[derive(Clone)]
 pub struct Workspaces {
     inner: Arc<Inner>,
@@ -48,11 +48,11 @@ pub struct Workspaces {
 
 struct Inner {
     git: Arc<dyn Git>,
-    /// `<datos>/workspaces`.
+    /// `<data>/workspaces`.
     root: PathBuf,
-    /// Destino: los workspaces de los túneles que abrió la otra máquina.
+    /// Destination: the workspaces of the tunnels the other machine opened.
     target: Mutex<HashMap<TunnelId, Dirs>>,
-    /// Origen: el repo de cada túnel que abrió esta máquina con workspace.
+    /// Origin: the repo of each tunnel this machine opened with a workspace.
     origin: Mutex<HashMap<TunnelId, OriginEntry>>,
 }
 
@@ -84,7 +84,7 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'sta
         .map_err(|_| WorkspaceError::Join)?
 }
 
-/// Pide algo a la destino por un stream propio.
+/// Asks the destination for something over a dedicated stream.
 async fn ask(origin: &Origin, req: WorkspaceUp) -> Result<WorkspaceDown> {
     let mut wire = origin.dial().await?;
     wire.send(TunnelUp::Workspace(req)).await?;
@@ -96,7 +96,7 @@ async fn ask(origin: &Origin, req: WorkspaceUp) -> Result<WorkspaceDown> {
     }
 }
 
-/// Al cerrarse el túnel, quita las carpetas (salvo que se pidiera conservarlas).
+/// When the tunnel closes, removes the folders (unless asked to keep them).
 struct Cleanup {
     inner: Arc<Inner>,
     tunnel: TunnelId,
@@ -107,11 +107,11 @@ impl Resource for Cleanup {
     fn close(&self) {
         let dirs = lock(&self.inner.target).remove(&self.tunnel);
         if let (false, Some(d)) = (self.keep, dirs) {
-            // Borrar un árbol grande tarda: fuera de quien cierra el túnel.
+            // Deleting a large tree takes a while: kept off whoever closes the tunnel.
             std::thread::spawn(move || {
                 for dir in [d.work, d.stage] {
                     if let Err(e) = std::fs::remove_dir_all(&dir) {
-                        tracing::debug!("no se pudo quitar {}: {e}", dir.display());
+                        tracing::debug!("could not remove {}: {e}", dir.display());
                     }
                 }
             });
@@ -120,7 +120,7 @@ impl Resource for Cleanup {
 }
 
 impl Workspaces {
-    /// `root` es `<datos>/workspaces`.
+    /// `root` is `<data>/workspaces`.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self::with_git(root, Arc::new(SystemGit))
     }
@@ -136,15 +136,15 @@ impl Workspaces {
         }
     }
 
-    /// La carpeta del workspace de `tunnel` en esta máquina (como destino).
+    /// The workspace folder of `tunnel` on this machine (as destination).
     pub fn dir_of(&self, tunnel: TunnelId) -> Option<PathBuf> {
         lock(&self.inner.target)
             .get(&tunnel)
             .map(|d| d.work.clone())
     }
 
-    /// Atiende un stream de túnel que abrió la otra máquina: los pedidos de workspace
-    /// aquí; archivos y puertos los resuelve `files`.
+    /// Serves a tunnel stream opened by the other machine: workspace requests
+    /// here; files and ports are resolved by `files`.
     pub async fn serve<W: TargetWire>(
         &self,
         files: &Files,
@@ -172,9 +172,10 @@ impl Workspaces {
             | WorkspaceUp::Checkout { tunnel }
             | WorkspaceUp::Pack { tunnel, .. } => *tunnel,
         };
-        let t = host.get(tunnel).filter(|t| t.is_open()).ok_or_else(|| {
-            WorkspaceError::Refused(format!("no hay ningún túnel {tunnel} abierto"))
-        })?;
+        let t = host
+            .get(tunnel)
+            .filter(|t| t.is_open())
+            .ok_or_else(|| WorkspaceError::Refused(format!("no tunnel {tunnel} is open")))?;
         match req {
             WorkspaceUp::Prepare { keep, .. } => {
                 let dirs = Dirs {
@@ -192,16 +193,16 @@ impl Workspaces {
                     if t.add_resource(Box::new(cleanup)).is_err() {
                         lock(&self.inner.target).remove(&tunnel);
                         return Err(WorkspaceError::Refused(format!(
-                            "el túnel {tunnel} se cerró"
+                            "tunnel {tunnel} was closed"
                         )));
                     }
                 }
                 let dir = stage.clone();
                 blocking(move || {
-                    // Un reintento parte de cero: el origen vuelve a copiar todo.
+                    // A retry starts from zero: the origin copies everything again.
                     let _ = std::fs::remove_dir_all(&dir);
                     std::fs::create_dir_all(&dir)
-                        .map_err(|e| WorkspaceError::Io(format!("crear {}: {e}", dir.display())))
+                        .map_err(|e| WorkspaceError::Io(format!("create {}: {e}", dir.display())))
                 })
                 .await?;
                 Ok(WorkspaceDown::Prepared {
@@ -238,11 +239,11 @@ impl Workspaces {
         lock(&self.inner.target)
             .get(&tunnel)
             .cloned()
-            .ok_or_else(|| WorkspaceError::Refused(format!("el túnel {tunnel} no tiene workspace")))
+            .ok_or_else(|| WorkspaceError::Refused(format!("tunnel {tunnel} has no workspace")))
     }
 
-    /// Lleva el repo de `spec` a la destino del túnel (que ya está abierto). Devuelve la
-    /// carpeta de la destino.
+    /// Takes the repo of `spec` to the tunnel's destination (already open). Returns the
+    /// destination folder.
     pub async fn open(
         &self,
         files: &Files,
@@ -301,7 +302,7 @@ impl Workspaces {
         else {
             return Err(WorkspaceError::Unexpected);
         };
-        // Los submódulos van dentro de `submodules/`: ahí también vale el `include`.
+        // Submodules go inside `submodules/`: `include` applies there too.
         let include: Vec<String> = spec
             .include
             .iter()
@@ -313,13 +314,13 @@ impl Workspaces {
         else {
             return Err(WorkspaceError::Unexpected);
         };
-        tracing::info!(tunnel = %id, head = %packed.head, branch = ?packed.branch, "workspace listo");
+        tracing::info!(tunnel = %id, head = %packed.head, branch = ?packed.branch, "workspace ready");
         Ok((dir, packed.root, packed.skipped, packed.history_secrets))
     }
 
-    /// Trae el trabajo del workspace de `tunnel` como la rama `tandem/<nombre>` del repo
-    /// de origen. `name` por omisión es el título del túnel. Con `commit`, antes se hace
-    /// commit de lo pendiente en la destino; sin él, lo pendiente no vuelve.
+    /// Brings the work of `tunnel`'s workspace back as the `tandem/<name>` branch of the
+    /// origin repo. `name` defaults to the tunnel title. With `commit`, the pending work is
+    /// committed on the destination first; without it, the pending work does not come back.
     pub async fn bring_back(
         &self,
         files: &Files,
@@ -352,12 +353,12 @@ impl Workspaces {
         let local = incoming.join(repo::BACK_BUNDLE);
         let _ = std::fs::remove_dir_all(&incoming);
         std::fs::create_dir_all(&incoming)
-            .map_err(|e| WorkspaceError::Io(format!("crear {}: {e}", incoming.display())))?;
+            .map_err(|e| WorkspaceError::Io(format!("create {}: {e}", incoming.display())))?;
         let fetched = async {
             files.get(origin, tunnel, &remote, &local).await?;
             let name = repo::slug(
                 name.as_deref().unwrap_or(&entry.title),
-                &format!("tunel-{tunnel}"),
+                &format!("tunnel-{tunnel}"),
             );
             let git = self.inner.git.clone();
             let (root, bundle) = (entry.root.clone(), local.clone());
@@ -372,7 +373,7 @@ impl Workspaces {
         })
     }
 
-    /// Olvida el repo de un túnel cerrado.
+    /// Forgets the repo of a closed tunnel.
     pub fn forget(&self, tunnel: TunnelId) {
         lock(&self.inner.origin).remove(&tunnel);
     }

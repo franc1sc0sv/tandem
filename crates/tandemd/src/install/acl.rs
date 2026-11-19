@@ -1,15 +1,15 @@
-//! La política de la ACL de la tarea elevada, sin tocar el sistema: dado el propietario y los
-//! ACE de una ruta, dice si solo la pueden escribir administradores. La lectura real de la
-//! DACL vive en `windows.rs`; aquí se prueba en cualquier plataforma.
+//! The elevated task's ACL policy, without touching the system: given the owner and the
+//! ACEs of a path, it says whether only administrators can write it. The real reading of the
+//! DACL lives in `windows.rs`; here it is tested on any platform.
 
-/// SYSTEM, Administrators y NT SERVICE\TrustedInstaller: lo único que puede escribir o ser dueño.
+/// SYSTEM, Administrators and NT SERVICE\TrustedInstaller: the only ones that can write or own.
 pub const TRUSTED_SIDS: [&str; 3] = [
     "S-1-5-18",
     "S-1-5-32-544",
     "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
 ];
 
-const FILE_WRITE_DATA: u32 = 0x2; // y FILE_ADD_FILE en carpetas
+const FILE_WRITE_DATA: u32 = 0x2; // and FILE_ADD_FILE on folders
 const FILE_APPEND_DATA: u32 = 0x4; // y FILE_ADD_SUBDIRECTORY
 const FILE_DELETE_CHILD: u32 = 0x40;
 const DELETE: u32 = 0x1_0000;
@@ -18,7 +18,7 @@ const WRITE_OWNER: u32 = 0x8_0000;
 const GENERIC_ALL: u32 = 0x1000_0000;
 const GENERIC_WRITE: u32 = 0x4000_0000;
 
-/// Cualquiera de estos permisos permite sustituir lo que hay.
+/// Any of these permissions allows replacing what is there.
 pub const WRITE_MASK: u32 = FILE_WRITE_DATA
     | FILE_APPEND_DATA
     | FILE_DELETE_CHILD
@@ -28,18 +28,18 @@ pub const WRITE_MASK: u32 = FILE_WRITE_DATA
     | GENERIC_ALL
     | GENERIC_WRITE;
 
-/// Para los ancestros estrictos basta con lo que permite reemplazar o borrar un hijo que ya
-/// existe: crear archivos o subcarpetas no sustituye nada (`C:\` trae de fábrica
+/// For strict ancestors what allows replacing or deleting an existing child is enough:
+/// creating files or subfolders replaces nothing (`C:\` comes from the factory with
 /// `Authenticated Users:(AD)`).
 pub const ANCESTOR_MASK: u32 =
     FILE_DELETE_CHILD | DELETE | WRITE_DAC | WRITE_OWNER | GENERIC_ALL | GENERIC_WRITE;
 
-/// Cuánto rigor se aplica a una ruta.
+/// How much rigor is applied to a path.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Rigor {
-    /// El ejecutable y su carpeta contenedora: crear un archivo ahí planta una DLL.
+    /// The executable and its containing folder: creating a file there plants a DLL.
     Full,
-    /// Carpetas más arriba en la ruta.
+    /// Folders higher up the path.
     Ancestor,
 }
 
@@ -58,26 +58,26 @@ const ACCESS_ALLOWED_CALLBACK: u8 = 9;
 const ACCESS_ALLOWED_CALLBACK_OBJECT: u8 = 11;
 const INHERIT_ONLY_ACE: u8 = 0x08;
 
-/// Un ACE de permiso de la DACL.
+/// An allow ACE of the DACL.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Ace {
     pub sid: String,
     pub mask: u32,
-    /// Solo se hereda a los hijos: no aplica a este objeto.
+    /// It is only inherited by children: it does not apply to this object.
     pub inherit_only: bool,
 }
 
-/// Lo que aporta un ACE crudo de la DACL.
+/// What a raw ACE of the DACL contributes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RawAce {
-    /// Un ACE de permiso a tener en cuenta.
+    /// An allow ACE to take into account.
     Allow(Ace),
-    /// Denegación, auditoría, etiqueta…: no concede nada, no cuenta.
+    /// Deny, audit, label...: it grants nothing, it does not count.
     Ignored,
 }
 
-/// Clasifica un ACE por su tipo y banderas. Los de permiso con objeto no existen en archivos
-/// y no se interpretan: `Err` (se cuenta como inseguro).
+/// Classifies an ACE by its type and flags. Object allow ACEs do not exist on files
+/// and are not interpreted: `Err` (counted as insecure).
 pub fn classify(ace_type: u8, flags: u8, mask: u32, sid: String) -> Result<RawAce, String> {
     match ace_type {
         ACCESS_ALLOWED | ACCESS_ALLOWED_CALLBACK => Ok(RawAce::Allow(Ace {
@@ -86,26 +86,23 @@ pub fn classify(ace_type: u8, flags: u8, mask: u32, sid: String) -> Result<RawAc
             inherit_only: flags & INHERIT_ONLY_ACE != 0,
         })),
         ACCESS_ALLOWED_OBJECT | ACCESS_ALLOWED_CALLBACK_OBJECT => {
-            Err(format!("ACE de permiso con objeto (tipo {ace_type})"))
+            Err(format!("allow ACE with object (type {ace_type})"))
         }
         _ => Ok(RawAce::Ignored),
     }
 }
 
-/// Lista blanca: el dueño y todo SID con escritura (según `rigor`) tienen que ser de confianza.
-/// `Err` trae el motivo.
+/// Allowlist: the owner and every SID with write (according to `rigor`) must be trusted.
+/// `Err` carries the reason.
 pub fn verdict(owner: &str, aces: &[Ace], rigor: Rigor) -> Result<(), String> {
     let trusted = |sid: &str| TRUSTED_SIDS.contains(&sid);
-    // El dueño tiene WRITE_DAC implícito aunque la DACL no lo diga.
+    // The owner has implicit WRITE_DAC even if the DACL does not say so.
     if !trusted(owner) {
-        return Err(format!("el propietario es {owner}"));
+        return Err(format!("the owner is {owner}"));
     }
     for ace in aces {
         if !ace.inherit_only && ace.mask & rigor.mask() != 0 && !trusted(&ace.sid) {
-            return Err(format!(
-                "{} puede escribir (máscara {:#x})",
-                ace.sid, ace.mask
-            ));
+            return Err(format!("{} can write (mask {:#x})", ace.sid, ace.mask));
         }
     }
     Ok(())
@@ -118,7 +115,7 @@ mod tests {
 
     const ADMINS: &str = "S-1-5-32-544";
     const USER: &str = "S-1-5-21-1-2-3-1001";
-    const READ: u32 = 0x12_00A9; // lectura y ejecución
+    const READ: u32 = 0x12_00A9; // read and execute
 
     fn ace(sid: &str, mask: u32) -> Ace {
         Ace {
@@ -129,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    fn solo_confiables_pasan() {
+    fn only_trusted_pass() {
         let aces = [
             ace("S-1-5-18", GENERIC_ALL),
             ace(ADMINS, 0x1F_01FF),
@@ -140,17 +137,17 @@ mod tests {
     }
 
     #[test]
-    fn dueno_ajeno_se_rechaza_con_dacl_limpia() {
+    fn foreign_owner_is_rejected_with_a_clean_dacl() {
         let aces = [ace(ADMINS, GENERIC_ALL), ace(USER, READ)];
         assert!(
             verdict(USER, &aces, Rigor::Full)
                 .unwrap_err()
-                .contains("propietario")
+                .contains("owner")
         );
     }
 
     #[test]
-    fn cualquier_permiso_de_escritura_de_un_sid_no_listado_se_rechaza() {
+    fn any_write_permission_of_an_unlisted_sid_is_rejected() {
         for sid in ["S-1-5-4", "S-1-5-32-547", USER, "S-1-3-0", "S-1-1-0"] {
             for bit in [
                 FILE_WRITE_DATA,
@@ -172,12 +169,12 @@ mod tests {
     }
 
     #[test]
-    fn solo_lectura_de_otros_sids_pasa() {
+    fn read_only_for_other_sids_passes() {
         assert_eq!(verdict(ADMINS, &[ace(USER, READ)], Rigor::Full), Ok(()));
     }
 
     #[test]
-    fn el_ace_solo_de_herencia_no_aplica_al_objeto() {
+    fn the_inherit_only_ace_does_not_apply_to_the_object() {
         let heredable = Ace {
             inherit_only: true,
             ..ace("S-1-3-0", GENERIC_ALL)
@@ -186,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn clasifica_por_tipo_y_banderas() {
+    fn classifies_by_type_and_flags() {
         let sid = || USER.to_string();
         assert_eq!(classify(0, 0, 2, sid()), Ok(RawAce::Allow(ace(USER, 2))));
         let Ok(RawAce::Allow(a)) = classify(9, 0x08 | 0x01, 2, sid()) else {
@@ -200,9 +197,9 @@ mod tests {
     }
 
     #[test]
-    fn acl_de_fabrica_de_la_raiz_pasa_como_ancestro_y_falla_como_contenedora() {
-        // `icacls C:\\` de un Windows 11: Authenticated Users tiene (OI)(CI)(IO)(M), que no
-        // aplica a la raíz, y (AD) sin herencia.
+    fn factory_acl_of_the_root_passes_as_ancestor_and_fails_as_container() {
+        // `icacls C:\\` of a Windows 11: Authenticated Users has (OI)(CI)(IO)(M), which does
+        // not apply to the root, and (AD) without inheritance.
         const AUTH: &str = "S-1-5-11";
         const USERS: &str = "S-1-5-32-545";
         let inherit_only = |sid: &str, mask| Ace {
@@ -229,16 +226,16 @@ mod tests {
                 .unwrap_err()
                 .contains(AUTH)
         );
-        // Crear subcarpetas no basta como ancestro, pero borrar hijos sí.
+        // Creating subfolders is not enough as an ancestor, but deleting children is.
         let borra = [ace(AUTH, FILE_DELETE_CHILD)];
         assert!(verdict(ADMINS, &borra, Rigor::Ancestor).is_err());
     }
 
     proptest! {
-        // Con dueño de confianza, el veredicto es exactamente "ningún ACE aplicable de un
-        // SID ajeno con escritura".
+        // With a trusted owner, the verdict is exactly "no applicable ACE of a
+        // foreign SID with write access".
         #[test]
-        fn veredicto_igual_al_modelo(
+        fn verdict_equals_the_model(
             raw in proptest::collection::vec((0usize..5, any::<u32>(), any::<bool>()), 0..8)
         ) {
             let sids = [ADMINS, "S-1-5-18", USER, "S-1-5-4", "S-1-1-0"];

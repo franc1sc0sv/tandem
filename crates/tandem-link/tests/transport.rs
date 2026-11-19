@@ -293,8 +293,11 @@ async fn un_agente_sin_anuncio_de_capacidades_se_rechaza_con_un_error_claro() {
         "{e}"
     );
     let text = e.to_string();
-    assert!(text.contains("versión de protocolo incompatible"), "{text}");
-    assert!(text.contains("sin anuncio de capacidades"), "{text}");
+    assert!(text.contains("incompatible protocol version"), "{text}");
+    assert!(
+        text.contains("without a capabilities announcement"),
+        "{text}"
+    );
 }
 
 /// Con el stream partido, los dos lados pueden mandar mucho a la vez: cada uno

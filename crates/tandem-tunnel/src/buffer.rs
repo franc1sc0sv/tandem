@@ -1,38 +1,38 @@
-//! Búfer circular de salida con posición absoluta por byte.
+//! Circular output buffer with absolute per-byte position.
 //!
-//! Cada byte de un flujo tiene su número (0, 1, 2…) desde que el flujo nació. El búfer
-//! guarda los últimos `capacity`: quien lee pide «desde el byte N» y recibe exactamente lo
-//! que sigue, o el aviso de que una parte ya se descartó. Lo usan los dos lados: la destino
-//! para lo que producen los procesos y el origen para lo que ya recibió (su espejo).
+//! Each byte of a flow has its number (0, 1, 2…) since the flow was born. The buffer
+//! keeps the last `capacity`: whoever reads asks "from byte N" and receives exactly what
+//! follows, or the notice that a part was already discarded. Both sides use it: the destination
+//! for what processes produce and the origin for what it already received (its mirror).
 
 use std::collections::VecDeque;
 
-/// Lo que guarda cada flujo por omisión (DESIGN §8: 8 MiB por proceso).
+/// What each flow keeps by default (DESIGN §8: 8 MiB per process).
 pub const DEFAULT_CAPACITY: usize = 8 * 1024 * 1024;
 
-/// Lo que hay a partir de una posición.
+/// What there is from a position onward.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Read {
-    /// `bytes` empieza en `offset`.
+    /// `bytes` starts at `offset`.
     Data { offset: u64, bytes: Vec<u8> },
-    /// `from..to` ya se descartó; lo siguiente que hay empieza en `to`.
+    /// `from..to` was already discarded; what comes next starts at `to`.
     Lost { from: u64, to: u64 },
-    /// Todavía no hay nada desde ahí.
+    /// There is nothing yet from there.
     Pending,
 }
 
 #[derive(Debug, Clone)]
 pub struct OutputBuffer {
     capacity: usize,
-    /// Posición del primer byte guardado.
+    /// Position of the first stored byte.
     start: u64,
     data: VecDeque<u8>,
-    /// Bytes descartados (por falta de lugar o por un hueco que avisó el otro lado).
+    /// Discarded bytes (for lack of room or because of a gap the other side reported).
     dropped: u64,
 }
 
 impl OutputBuffer {
-    /// `capacity` 0 se toma como 1: un búfer que no guarda nada no sirve para reanudar.
+    /// `capacity` 0 is taken as 1: a buffer that stores nothing is useless for resuming.
     pub fn new(capacity: usize) -> Self {
         OutputBuffer {
             capacity: capacity.max(1),
@@ -46,24 +46,24 @@ impl OutputBuffer {
         self.capacity
     }
 
-    /// Posición del primer byte que todavía se puede leer.
+    /// Position of the first byte that can still be read.
     pub fn start(&self) -> u64 {
         self.start
     }
 
-    /// Posición del próximo byte (el total escrito, contando lo descartado).
+    /// Position of the next byte (the total written, counting what was discarded).
     pub fn end(&self) -> u64 {
         self.start + self.data.len() as u64
     }
 
-    /// Cuántos bytes se descartaron sin que nadie los leyera aquí.
+    /// How many bytes were discarded without anyone reading them here.
     pub fn dropped(&self) -> u64 {
         self.dropped
     }
 
-    /// Agrega al final; si no entra, descarta lo más viejo.
+    /// Appends at the end; if it does not fit, discards the oldest.
     pub fn push(&mut self, bytes: &[u8]) {
-        // Lo que no entra ni con el búfer vacío se descarta sin copiarlo.
+        // What does not fit even with the buffer empty is discarded without copying it.
         let skip = bytes.len().saturating_sub(self.capacity);
         if skip > 0 {
             self.discard_front(self.data.len());
@@ -82,7 +82,7 @@ impl OutputBuffer {
         self.dropped += n as u64;
     }
 
-    /// Hasta `max` bytes desde `from`.
+    /// Up to `max` bytes from `from`.
     pub fn read(&self, from: u64, max: usize) -> Read {
         if from < self.start {
             return Read::Lost {
@@ -93,7 +93,7 @@ impl OutputBuffer {
         if from >= self.end() || max == 0 {
             return Read::Pending;
         }
-        // `from - start` < `data.len()`, que es un `usize`.
+        // `from - start` < `data.len()`, which is a `usize`.
         let skip = usize::try_from(from - self.start).unwrap_or(usize::MAX);
         let n = max.min(self.data.len() - skip);
         Read::Data {
@@ -102,10 +102,10 @@ impl OutputBuffer {
         }
     }
 
-    /// Lo que llega del otro lado en `offset` (el espejo del origen): se queda solo con lo
-    /// que todavía no tenía, así que un reenvío no duplica nada. Devuelve cuántos bytes
-    /// nuevos agregó. Si hay un hueco antes de `offset`, falla sin tocar nada: quien llama
-    /// tiene que pedir desde [`Self::end`] o aceptar el hueco con [`Self::skip_to`].
+    /// What arrives from the other side at `offset` (the origin's mirror): keeps only what
+    /// it did not have yet, so a resend does not duplicate anything. Returns how many new
+    /// bytes it added. If there is a gap before `offset`, it fails without touching anything: whoever calls
+    /// has to ask from [`Self::end`] or accept the gap with [`Self::skip_to`].
     pub fn accept(&mut self, offset: u64, bytes: &[u8]) -> Result<usize, Gap> {
         let end = self.end();
         if offset > end {
@@ -117,23 +117,23 @@ impl OutputBuffer {
         Ok(new.len())
     }
 
-    /// Salta hasta `to` dando por perdido lo que falta: lo guardado se suelta (el búfer es
-    /// contiguo) y queda contado en [`Self::dropped`].
+    /// Jumps to `to` giving up what is missing: what is stored is released (the buffer is
+    /// contiguous) and is counted in [`Self::dropped`].
     pub fn skip_to(&mut self, to: u64) {
         let end = self.end();
         if to <= end {
             return;
         }
-        // Lo guardado se suelta pero no se cuenta: ya se recibió, no se perdió.
+        // What is stored is released but not counted: it was already received, not lost.
         self.dropped += to - end;
         self.data.clear();
         self.start = to;
     }
 }
 
-/// Llegaron bytes que empiezan después del final de lo que se tiene.
+/// Bytes arrived that start after the end of what is held.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("hueco en el flujo: se tenía hasta el byte {at} y llegó el {offset}")]
+#[error("gap in the flow: held up to byte {at} and byte {offset} arrived")]
 pub struct Gap {
     pub at: u64,
     pub offset: u64,
@@ -146,7 +146,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn guarda_los_ultimos_y_avisa_lo_perdido() {
+    fn keeps_the_latest_and_reports_what_was_lost() {
         let mut b = OutputBuffer::new(4);
         b.push(b"abcdef");
         assert_eq!((b.start(), b.end(), b.dropped()), (2, 6, 2));
@@ -162,23 +162,23 @@ mod tests {
     }
 
     #[test]
-    fn aceptar_no_duplica_lo_que_ya_estaba() {
+    fn accept_does_not_duplicate_what_was_already_there() {
         let mut b = OutputBuffer::new(64);
-        assert_eq!(b.accept(0, b"hola"), Ok(4));
-        assert_eq!(b.accept(2, b"la mundo"), Ok(6));
-        assert_eq!(b.accept(0, b"ho"), Ok(0));
+        assert_eq!(b.accept(0, b"abcd"), Ok(4));
+        assert_eq!(b.accept(2, b"cd world"), Ok(6));
+        assert_eq!(b.accept(0, b"ab"), Ok(0));
         assert_eq!(b.accept(20, b"x"), Err(Gap { at: 10, offset: 20 }));
         assert_eq!(
             b.read(0, 64),
             Read::Data {
                 offset: 0,
-                bytes: b"hola mundo".to_vec()
+                bytes: b"abcd world".to_vec()
             }
         );
     }
 
     #[test]
-    fn saltar_un_hueco_cuenta_solo_lo_que_falta() {
+    fn skipping_a_gap_counts_only_what_is_missing() {
         let mut b = OutputBuffer::new(64);
         b.push(b"abc");
         b.skip_to(10);
@@ -188,10 +188,10 @@ mod tests {
     }
 
     proptest! {
-        /// Lo que se puede leer siempre es exactamente la cola de lo escrito, nunca más de
-        /// la capacidad, y lo descartado más lo guardado es el total.
+        /// What can be read is always exactly the tail of what was written, never more than
+        /// the capacity, and what was discarded plus what is stored is the total.
         #[test]
-        fn lo_guardado_es_la_cola_de_lo_escrito(
+        fn what_is_stored_is_the_tail_of_what_was_written(
             cap in 1usize..64,
             writes in prop::collection::vec(prop::collection::vec(any::<u8>(), 0..40), 0..20),
         ) {
@@ -208,13 +208,13 @@ mod tests {
             match b.read(b.start(), usize::MAX) {
                 Read::Data { bytes, .. } => prop_assert_eq!(bytes.as_slice(), tail),
                 Read::Pending => prop_assert!(tail.is_empty()),
-                Read::Lost { .. } => prop_assert!(false, "desde start nunca hay pérdida"),
+                Read::Lost { .. } => prop_assert!(false, "from start there is never a loss"),
             }
         }
 
-        /// Recibir pedazos que se solapan (reenvíos tras un corte) da el original.
+        /// Receiving overlapping pieces (resends after a cut) gives the original.
         #[test]
-        fn los_reenvios_solapados_dan_el_original(
+        fn overlapping_resends_give_the_original(
             data in prop::collection::vec(any::<u8>(), 0..300),
             cuts in prop::collection::vec((0usize..300, 0usize..300), 0..30),
         ) {

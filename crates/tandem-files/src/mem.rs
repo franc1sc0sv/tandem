@@ -1,9 +1,9 @@
-//! Caminos en memoria entre un [`Origin`](tandem_tunnel::Origin) y un [`Host`] con
-//! [`Files`], para probar archivos y puertos con dos agentes en el mismo proceso.
+//! In-memory paths between an [`Origin`](tandem_tunnel::Origin) and a [`Host`] with
+//! [`Files`], to test files and ports with two agents in the same process.
 //!
-//! Como [`tandem_tunnel::mem::MemPath`], pero el lado destino atiende también archivos y
-//! puertos, y se puede cortar tras dejar pasar cierta cantidad de fragmentos de archivo
-//! (en cualquier sentido), como un cable desenchufado a mitad de una copia.
+//! Like [`tandem_tunnel::mem::MemPath`], but the destination side also serves files and
+//! ports, and it can be cut after letting a certain number of file chunks through
+//! (in either direction), like a cable unplugged midway through a copy.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -14,13 +14,13 @@ use tokio::sync::{mpsc, watch};
 
 use crate::Files;
 
-/// Un camino en memoria hacia la destino `host`. Se clona barato.
+/// An in-memory path to the destination `host`. Cheap to clone.
 #[derive(Clone)]
 pub struct MemPath {
     inner: Arc<PathInner>,
 }
 
-/// Quien atiende los streams en la destino: por omisión, [`Files::serve`].
+/// Whoever serves the streams on the destination: by default, [`Files::serve`].
 type Server =
     Arc<dyn Fn(Host, MemTarget) -> BoxFuture<'static, Result<(), WireError>> + Send + Sync>;
 
@@ -28,9 +28,9 @@ struct PathInner {
     host: Host,
     server: Server,
     cut: watch::Sender<bool>,
-    /// Pedazos de archivo que todavía pueden pasar antes de cortarse solo.
+    /// File pieces that can still pass before it cuts itself.
     budget: Mutex<Option<u64>>,
-    /// Pedazos de archivo que pasaron en total, para las pruebas.
+    /// File pieces that passed in total, for the tests.
     passed: AtomicU64,
 }
 
@@ -43,8 +43,8 @@ impl MemPath {
         })
     }
 
-    /// Como [`MemPath::new`], con otro atendedor de streams (otros módulos que cuelgan de
-    /// `Files`, como los workspaces de git).
+    /// Like [`MemPath::new`], with another stream server (other modules hanging off
+    /// `Files`, like the git workspaces).
     pub fn with_server(
         host: &Host,
         server: impl Fn(Host, MemTarget) -> BoxFuture<'static, Result<(), WireError>>
@@ -71,7 +71,7 @@ impl MemPath {
         self.inner.cut.send_replace(true);
     }
 
-    /// Se corta cuando pasaría el pedazo de archivo número `pieces + 1`.
+    /// It is cut when the file piece number `pieces + 1` would pass.
     pub fn cut_after_pieces(&self, pieces: u64) {
         *self
             .inner
@@ -86,7 +86,7 @@ impl MemPath {
 
     fn check(&self) -> Result<(), WireError> {
         if *self.inner.cut.borrow() {
-            Err(WireError::new("camino cortado"))
+            Err(WireError::new("cut path"))
         } else {
             Ok(())
         }
@@ -102,7 +102,7 @@ impl MemPath {
             Some(0) => {
                 drop(budget);
                 self.cut();
-                Err(WireError::new("camino cortado"))
+                Err(WireError::new("cut path"))
             }
             Some(left) => {
                 *left -= 1;
@@ -131,7 +131,7 @@ impl Dialer for MemPath {
             let (host, server) = (self.inner.host.clone(), self.inner.server.clone());
             tokio::spawn(async move {
                 if let Err(e) = server(host, target).await {
-                    tracing::debug!("stream en memoria terminado: {e}");
+                    tracing::debug!("in-memory stream finished: {e}");
                 }
             });
             let wire: Box<dyn OriginWire> = Box::new(MemOrigin {
@@ -144,14 +144,14 @@ impl Dialer for MemPath {
     }
 }
 
-/// Como el cable de verdad: un mensaje que no cabe en un marco no pasa.
+/// Like the real cable: a message that does not fit in a frame does not pass.
 fn check_frame<T: serde::Serialize>(msg: &T) -> Result<(), WireError> {
     let len = tandem_proto::encode(msg)
         .map_err(|e| WireError::new(e.to_string()))?
         .len();
     if len > tandem_proto::MAX_FRAME_LEN {
         return Err(WireError::new(format!(
-            "mensaje de {len} B: no cabe en un marco"
+            "message of {len} B does not fit in a frame"
         )));
     }
     Ok(())
@@ -164,7 +164,7 @@ async fn recv_or_cut<T>(
     let mut cut = path.inner.cut.subscribe();
     tokio::select! {
         biased;
-        _ = cut.wait_for(|c| *c) => Err(WireError::new("camino cortado")),
+        _ = cut.wait_for(|c| *c) => Err(WireError::new("cut path")),
         msg = rx.recv() => {
             path.check()?;
             Ok(msg)
@@ -188,7 +188,7 @@ impl OriginWire for MemOrigin {
             check_frame(&msg)?;
             self.tx
                 .send(msg)
-                .map_err(|_| WireError::new("la destino cerró el stream"))
+                .map_err(|_| WireError::new("the destination closed the stream"))
         })
     }
 
@@ -197,7 +197,7 @@ impl OriginWire for MemOrigin {
     }
 }
 
-/// El lado destino de un stream en memoria.
+/// The destination side of an in-memory stream.
 pub struct MemTarget {
     path: MemPath,
     rx: mpsc::UnboundedReceiver<TunnelUp>,
@@ -217,6 +217,6 @@ impl TargetWire for MemTarget {
         check_frame(msg)?;
         self.tx
             .send(msg.clone())
-            .map_err(|_| WireError::new("el origen cerró el stream"))
+            .map_err(|_| WireError::new("the origin closed the stream"))
     }
 }

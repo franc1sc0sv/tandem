@@ -1,9 +1,9 @@
-//! Caminos en memoria entre un [`Origin`](crate::Origin) y un [`Host`], para probar los
-//! túneles con dos agentes en el mismo proceso sin red.
+//! In-memory paths between an [`Origin`](crate::Origin) and a [`Host`], to test
+//! tunnels with two agents in the same process without a network.
 //!
-//! Cada [`MemPath`] es un camino (USB-C, Ethernet, Wi-Fi) que se puede cortar ya o después
-//! de dejar pasar cierta cantidad de bytes de salida: un corte deja muertos todos sus
-//! streams y lo que estaba en vuelo se pierde, como un cable desenchufado.
+//! Each [`MemPath`] is a path (USB-C, Ethernet, Wi-Fi) that can be cut now or after
+//! letting a certain number of output bytes through: a cut leaves all its
+//! streams dead and what was in flight is lost, like an unplugged cable.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -14,7 +14,7 @@ use tokio::sync::{mpsc, watch};
 use crate::host::{Host, serve};
 use crate::wire::{BoxFuture, Dialer, OriginWire, TargetWire, WireError};
 
-/// Un camino en memoria hacia la destino `host`. Se clona barato.
+/// An in-memory path to the destination `host`. Cheap to clone.
 #[derive(Clone)]
 pub struct MemPath {
     inner: Arc<PathInner>,
@@ -23,10 +23,10 @@ pub struct MemPath {
 struct PathInner {
     host: Host,
     cut: watch::Sender<bool>,
-    /// Bytes de salida que todavía pueden pasar antes de cortarse solo.
+    /// Output bytes that can still pass before it cuts itself.
     budget: Mutex<Option<u64>>,
-    /// Cortarse cuando la destino conteste un pedido: el pedido se atendió, la respuesta
-    /// se pierde.
+    /// Cut when the destination answers a request: the request was served, the response
+    /// is lost.
     cut_reply: AtomicBool,
 }
 
@@ -42,7 +42,7 @@ impl MemPath {
         }
     }
 
-    /// Para [`crate::Origin::set_link`]: cada llamada es un enlace distinto.
+    /// For [`crate::Origin::set_link`]: each call is a different link.
     pub fn dialer(&self) -> Arc<dyn Dialer> {
         Arc::new(self.clone())
     }
@@ -51,7 +51,7 @@ impl MemPath {
         self.inner.cut.send_replace(true);
     }
 
-    /// Se corta solo cuando un mensaje de datos pasaría de `bytes` de salida en total.
+    /// It cuts itself when a data message would exceed `bytes` of output in total.
     pub fn cut_after(&self, bytes: u64) {
         *self
             .inner
@@ -60,8 +60,8 @@ impl MemPath {
             .unwrap_or_else(PoisonError::into_inner) = Some(bytes);
     }
 
-    /// Se corta cuando la destino va a contestar un pedido (abrir, cerrar, listar): lo
-    /// hizo, pero el origen no se entera.
+    /// It is cut when the destination is about to answer a request (open, close, list): it
+    /// did it, but the origin does not find out.
     pub fn cut_before_reply(&self) {
         self.inner.cut_reply.store(true, Ordering::SeqCst);
     }
@@ -70,7 +70,7 @@ impl MemPath {
         *self.inner.cut.borrow()
     }
 
-    /// Termina cuando el camino se corta.
+    /// Ends when the path is cut.
     pub async fn wait_cut(&self) {
         let mut rx = self.inner.cut.subscribe();
         let _ = rx.wait_for(|cut| *cut).await;
@@ -78,13 +78,13 @@ impl MemPath {
 
     fn check(&self) -> Result<(), WireError> {
         if self.is_cut() {
-            Err(WireError::new("camino cortado"))
+            Err(WireError::new("cut path"))
         } else {
             Ok(())
         }
     }
 
-    /// Descuenta `n` bytes de salida; si no alcanzan, corta.
+    /// Subtracts `n` output bytes; if they are not enough, cuts.
     fn spend(&self, n: u64) -> Result<(), WireError> {
         let mut budget = self
             .inner
@@ -95,7 +95,7 @@ impl MemPath {
             Some(left) if *left < n => {
                 drop(budget);
                 self.cut();
-                Err(WireError::new("camino cortado"))
+                Err(WireError::new("cut path"))
             }
             Some(left) => {
                 *left -= n;
@@ -120,7 +120,7 @@ impl Dialer for MemPath {
             let host = self.inner.host.clone();
             tokio::spawn(async move {
                 if let Err(e) = serve(&host, target).await {
-                    tracing::debug!("stream de túnel en memoria terminado: {e}");
+                    tracing::debug!("in-memory tunnel stream ended: {e}");
                 }
             });
             let wire: Box<dyn OriginWire> = Box::new(MemOrigin {
@@ -133,8 +133,8 @@ impl Dialer for MemPath {
     }
 }
 
-/// Espera el siguiente mensaje o el corte; con el camino cortado no entrega lo que quedó en
-/// vuelo.
+/// Waits for the next message or the cut; with the path cut it does not deliver what was in
+/// flight.
 async fn recv_or_cut<T>(
     path: &MemPath,
     rx: &mut mpsc::UnboundedReceiver<T>,
@@ -142,7 +142,7 @@ async fn recv_or_cut<T>(
     let mut cut = path.inner.cut.subscribe();
     tokio::select! {
         biased;
-        _ = cut.wait_for(|c| *c) => Err(WireError::new("camino cortado")),
+        _ = cut.wait_for(|c| *c) => Err(WireError::new("cut path")),
         msg = rx.recv() => {
             path.check()?;
             Ok(msg)
@@ -162,7 +162,7 @@ impl OriginWire for MemOrigin {
             self.path.check()?;
             self.tx
                 .send(msg)
-                .map_err(|_| WireError::new("la destino cerró el stream"))
+                .map_err(|_| WireError::new("the destination closed the stream"))
         })
     }
 
@@ -193,12 +193,12 @@ impl TargetWire for MemTarget {
                 if self.path.inner.cut_reply.load(Ordering::SeqCst) =>
             {
                 self.path.cut();
-                return Err(WireError::new("camino cortado"));
+                return Err(WireError::new("cut path"));
             }
             _ => {}
         }
         self.tx
             .send(msg.clone())
-            .map_err(|_| WireError::new("el origen cerró el stream"))
+            .map_err(|_| WireError::new("the origin closed the stream"))
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "tandem-tunnel"
-description = "Túneles entre las dos máquinas: sesiones que sobreviven al enlace, flujos con posición por byte"
+description = "Tunnels between the two machines: sessions that survive the link, flows with per-byte position"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

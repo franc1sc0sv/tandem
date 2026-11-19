@@ -1,27 +1,27 @@
-//! API local para la UI: Unix socket en macOS (y Linux) y named pipe en Windows,
-//! accesibles solo para el usuario actual (DESIGN §9).
+//! Local API for the UI: Unix socket on macOS (and Linux) and named pipe on Windows,
+//! accessible only to the current user (DESIGN §9).
 //!
-//! Habla los mensajes UI ↔ agente de `tandem-proto`: cada lado manda su [`Hello`]
-//! (el agente primero), y después la UI manda [`UiRequest`] y el agente contesta con
-//! [`AgentToUi`]. El agente además empuja [`AgentToUi::State`] cada vez que el estado cambia
-//! y [`AgentToUi::Txn`] con el avance de cada encendido o apagado, [`AgentToUi::Power`]
-//! cuando la otra máquina se da por apagada sin que nadie la apagara, [`AgentToUi::Peer`]
-//! cuando cambia el par o el enlace con él, [`AgentToUi::Pairing`] con cada paso del
-//! emparejamiento, [`AgentToUi::Input`] cuando cambia el teclado y mouse (roles, sesión,
-//! permisos que faltan), [`AgentToUi::Desk`] cuando cambia el puesto compartido,
-//! [`AgentToUi::DeskChanged`] cuando ese cambio vino de la otra máquina (el aviso con
-//! «Deshacer») y [`AgentToUi::Machines`] cuando cambia lo que anuncia alguna de las dos
-//! (módulos y entornos incluidos). Una conexión que pidió
-//! [`UiCommand::WatchResources`] recibe además [`AgentToUi::Resources`] de las dos
-//! máquinas mientras siga abierta, y una que pidió [`UiCommand::WatchNetwork`] recibe
-//! [`AgentToUi::Network`] una vez por segundo (T-102); una que pidió
-//! [`UiCommand::WatchCursor`] recibe [`AgentToUi::Cursor`] (a 30 Hz como mucho) y
-//! [`AgentToUi::Crossed`] (T-128). [`UiCommand::MeasureLink`] se
-//! contesta al terminar la prueba, sin frenar los avisos de esa conexión.
-//! [`AgentToUi::Update`] va cuando cambia la versión de alguna de las dos.
+//! It speaks the UI <-> agent messages of `tandem-proto`: each side sends its [`Hello`]
+//! (the agent first), and then the UI sends [`UiRequest`] and the agent answers with
+//! [`AgentToUi`]. The agent also pushes [`AgentToUi::State`] every time the state changes
+//! and [`AgentToUi::Txn`] with the progress of each power on or off, [`AgentToUi::Power`]
+//! when the other machine is considered off without anyone turning it off, [`AgentToUi::Peer`]
+//! when the peer or the link to it changes, [`AgentToUi::Pairing`] with each pairing
+//! step, [`AgentToUi::Input`] when the keyboard and mouse change (roles, session,
+//! missing permissions), [`AgentToUi::Desk`] when the shared desk changes,
+//! [`AgentToUi::DeskChanged`] when that change came from the other machine (the notice with
+//! "Undo") and [`AgentToUi::Machines`] when what either of the two announces changes
+//! (modules and environments included). A connection that asked for
+//! [`UiCommand::WatchResources`] also receives [`AgentToUi::Resources`] from both
+//! machines while it stays open, and one that asked for [`UiCommand::WatchNetwork`] receives
+//! [`AgentToUi::Network`] once per second (T-102); one that asked for
+//! [`UiCommand::WatchCursor`] receives [`AgentToUi::Cursor`] (at 30 Hz at most) and
+//! [`AgentToUi::Crossed`] (T-128). [`UiCommand::MeasureLink`] is
+//! answered when the test finishes, without holding up the notices of that connection.
+//! [`AgentToUi::Update`] goes when the version of either of the two changes.
 //!
-//! El transporte va detrás de [`Listener`]: la lógica se prueba con [`mem`] y el
-//! socket o pipe reales en las pruebas de integración.
+//! The transport goes behind [`Listener`]: the logic is tested with [`mem`] and the
+//! real socket or pipe in the integration tests.
 
 use std::collections::VecDeque;
 use std::future::Future;
@@ -58,31 +58,31 @@ pub use windows::{PipeListener as PlatformListener, bind, connect, connect_as, d
 
 #[derive(Debug, thiserror::Error)]
 pub enum IpcError {
-    #[error("error de E/S en la IPC: {0}")]
+    #[error("I/O error in the IPC: {0}")]
     Io(#[from] io::Error),
     #[error(transparent)]
     Proto(#[from] ProtoError),
-    #[error("el otro lado cerró la conexión")]
+    #[error("the other side closed the connection")]
     Closed,
-    #[error("se esperaba {expected}, se conectó {got:?}")]
+    #[error("expected {expected}, {got:?} connected")]
     UnexpectedPeer { expected: &'static str, got: Peer },
-    #[error("respuesta inesperada: {0:?}")]
+    #[error("unexpected reply: {0:?}")]
     UnexpectedReply(Box<Reply>),
-    #[error("ya hay un tandemd escuchando en {0}")]
+    #[error("a tandemd is already listening on {0}")]
     AlreadyRunning(PathBuf),
-    #[error("{0} existe y no es un socket; no se borra")]
+    #[error("{0} exists and is not a socket; it is not deleted")]
     NotASocket(PathBuf),
 }
 
-/// Fuente de conexiones de la UI.
+/// Source of UI connections.
 pub trait Listener: Send {
     type Stream: AsyncRead + AsyncWrite + Unpin + Send + 'static;
 
-    /// La siguiente conexión ya aceptada (y, en el socket real, del usuario correcto).
+    /// The next already accepted connection (and, on the real socket, from the right user).
     fn accept(&mut self) -> impl Future<Output = io::Result<Self::Stream>> + Send;
 }
 
-/// Mensajes con trama de `tandem-proto` sobre un flujo de bytes.
+/// Framed `tandem-proto` messages over a byte stream.
 #[derive(Debug)]
 pub struct Framed<S> {
     io: S,
@@ -103,7 +103,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Framed<S> {
         Ok(())
     }
 
-    /// `None` si el otro lado cerró limpio, entre dos mensajes.
+    /// `None` if the other side closed cleanly, between two messages.
     pub async fn recv<T: DeserializeOwned>(&mut self) -> Result<Option<T>, IpcError> {
         match self.recv_frame().await? {
             Some(p) => Ok(Some(decode(&p)?)),
@@ -111,14 +111,14 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Framed<S> {
         }
     }
 
-    /// Lee el [`Hello`] de apertura, rechazando otra versión del protocolo.
+    /// Reads the opening [`Hello`], rejecting another protocol version.
     pub async fn recv_hello(&mut self) -> Result<Hello, IpcError> {
         let p = self.recv_frame().await?.ok_or(IpcError::Closed)?;
         Ok(decode_hello(&p)?)
     }
 
-    /// Se puede cancelar (por ejemplo en un `select!`) sin perder bytes: lo leído se
-    /// guarda en el decodificador antes del siguiente punto de espera.
+    /// It can be canceled (for example in a `select!`) without losing bytes: what was read is
+    /// kept in the decoder before the next wait point.
     async fn recv_frame(&mut self) -> Result<Option<Vec<u8>>, IpcError> {
         let mut buf = [0u8; 4096];
         loop {
@@ -138,7 +138,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Framed<S> {
     }
 }
 
-/// Atiende una conexión de la UI hasta que se cierra o llega el apagado.
+/// Serves a UI connection until it closes or shutdown arrives.
 pub async fn serve_connection<S>(
     io: S,
     agent: Arc<Agent>,
@@ -150,14 +150,14 @@ where
     let mut conn = Framed::new(io);
     conn.send(&Hello::new(Peer::Agent(agent.machine()))).await?;
     let hello = conn.recv_hello().await?;
-    // La UI o un cliente (`tandem mcp`, `tandem`): los dos corren como el usuario, el único
-    // que la IPC deja entrar. Solo un cliente abre y cierra túneles.
+    // The UI or a client (`tandem mcp`, `tandem`): both run as the user, the only one
+    // the IPC lets in. Only a client opens and closes tunnels.
     let client = match hello.peer {
         Peer::Ui => None,
         Peer::Client(kind) => Some(kind),
         Peer::Agent(_) => {
             return Err(IpcError::UnexpectedPeer {
-                expected: "la UI o un cliente",
+                expected: "the UI or a client",
                 got: hello.peer,
             });
         }
@@ -173,8 +173,8 @@ where
     pairing.mark_unchanged();
     let mut input = agent.subscribe_input();
     input.mark_unchanged();
-    // La sonda de teclado (T-166). Sin estado inicial: la ventana arma la sonda al entrar al
-    // paso, y armar ya emite el estado actual.
+    // The keyboard probe (T-166). Without an initial state: the window arms the probe on entering the
+    // step, and arming already emits the current state.
     let mut key_probe = agent.subscribe_key_probe();
     key_probe.mark_unchanged();
     let mut desk = agent.subscribe_desk();
@@ -186,19 +186,19 @@ where
     monitors.mark_unchanged();
     let mut tunnels = agent.tunnels().subscribe();
     tunnels.mark_unchanged();
-    // Los recursos en vivo, si esta conexión los pidió: se dejan de muestrear al cerrarla.
+    // Live resources, if this connection asked for them: they stop being sampled when it closes.
     let mut resources: Option<ResourceWatch> = None;
-    // El cursor en vivo, si esta conexión lo pidió: sin conexiones, el motor no lo muestrea.
+    // The live cursor, if this connection asked for it: without connections, the engine does not sample it.
     let mut cursor: Option<CursorWatch> = None;
     let mut update = agent.subscribe_update();
     update.mark_unchanged();
-    // La red una vez por segundo, si esta conexión la pidió (la pantalla Red visible).
+    // The network once per second, if this connection asked for it (the Network screen visible).
     let mut network: Option<Interval> = None;
-    // La medición de ancho de banda que pidió esta conexión, con el id de su pedido: tarda
-    // unos segundos y mientras tanto la conexión sigue atendiendo lo demás.
+    // The bandwidth measurement this connection asked for, with its request's id: it takes
+    // a few seconds and meanwhile the connection keeps serving the rest.
     let mut measuring: Option<(u64, Measurement)> = None;
-    // Las copias de archivos de esta conexión (T-106), con su canal de respuestas y el avance
-    // de las transferencias de este agente.
+    // This connection's file copies (T-106), with their reply channel and the progress
+    // of this agent's transfers.
     let mut jobs = tokio::task::JoinSet::new();
     let (jobs_tx, mut jobs_rx) = tokio::sync::mpsc::unbounded_channel::<(u64, Reply)>();
     let mut progress = agent.files().subscribe_progress();
@@ -206,7 +206,7 @@ where
         tokio::select! {
             req = conn.recv::<UiRequest>() => {
                 let Some(req) = req? else { return Ok(()) };
-                tracing::debug!(id = req.id, command = ?req.command, "pedido de la UI");
+                tracing::debug!(id = req.id, command = ?req.command, "UI request");
                 let reply = match req.command {
                     UiCommand::WatchResources { on } => {
                         resources = on.then(|| agent.watch_resources());
@@ -217,7 +217,7 @@ where
                         Reply::Done
                     }
                     UiCommand::WatchCursor { on } => {
-                        // Pedirlo dos veces no suma: la conexión cuenta una sola vez.
+                        // Asking twice does not add up: the connection counts once.
                         if on && cursor.is_none() {
                             cursor = Some(agent.watch_cursor());
                         } else if !on {
@@ -226,7 +226,7 @@ where
                         Reply::Done
                     }
                     UiCommand::MeasureLink { .. } if measuring.is_some() => {
-                        Reply::Rejected("Ya se está midiendo un camino".into())
+                        Reply::Rejected("A path is already being measured".into())
                     }
                     UiCommand::MeasureLink { path } => {
                         let agent = agent.clone();
@@ -235,9 +235,9 @@ where
                         continue;
                     }
                     command if crate::tunnels::is_slow(&command) => {
-                        // Una copia tarda: corre aparte y la conexión sigue atendiendo. Si la
-                        // conexión se cierra, `jobs` se suelta y la copia se interrumpe (lo
-                        // recibido queda en disco y se reanuda).
+                        // A copy takes a while: it runs apart and the connection keeps serving. If the
+                        // connection closes, `jobs` is dropped and the copy is interrupted (what was
+                        // received stays on disk and resumes).
                         let (agent, done, id) = (agent.clone(), jobs_tx.clone(), req.id);
                         jobs.spawn(async move {
                             let reply = crate::tunnels::handle(&agent, client, command).await;
@@ -258,7 +258,7 @@ where
             Some(_) = jobs.join_next(), if !jobs.is_empty() => {}
             p = progress.recv() => match p {
                 Ok(p) => conn.send(&AgentToUi::Transfer(p)).await?,
-                // Si esta conexión se atrasó, se pierden avances viejos y no pasa nada.
+                // If this connection lagged, old progress is lost and nothing happens.
                 Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => return Ok(()),
             },
@@ -288,23 +288,23 @@ where
             }
             event = txns.recv() => match event {
                 Ok(event) => conn.send(&AgentToUi::Txn(event)).await?,
-                // La UI vuelve a sincronizarse con el siguiente estado empujado.
+                // The UI resynchronizes with the next pushed state.
                 Err(RecvError::Lagged(n)) => {
-                    tracing::warn!("la UI se atrasó y perdió {n} avisos de transacción");
+                    tracing::warn!("the UI lagged and lost {n} transaction notices");
                 }
                 Err(RecvError::Closed) => return Ok(()),
             },
             event = drag.recv() => match event {
                 Ok(status) => conn.send(&AgentToUi::Drag(status)).await?,
-                // El siguiente aviso reemplaza al que se perdió.
+                // The next notice replaces the lost one.
                 Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => return Ok(()),
             },
             event = power.recv() => match event {
                 Ok(event) => conn.send(&AgentToUi::Power(event)).await?,
-                // El estado empujado ya dice que la otra máquina está apagada.
+                // The pushed state already says the other machine is off.
                 Err(RecvError::Lagged(n)) => {
-                    tracing::warn!("la UI se atrasó y perdió {n} avisos de energía");
+                    tracing::warn!("the UI lagged and lost {n} power notices");
                 }
                 Err(RecvError::Closed) => return Ok(()),
             },
@@ -353,9 +353,9 @@ where
                     })
                     .await?;
                 }
-                // El puesto nuevo ya llegó empujado; solo se pierde el aviso.
+                // The new desk already arrived pushed; only the notice is lost.
                 Err(RecvError::Lagged(n)) => {
-                    tracing::warn!("la UI se atrasó y perdió {n} avisos de cambios del puesto");
+                    tracing::warn!("the UI lagged and lost {n} desk change notices");
                 }
                 Err(RecvError::Closed) => return Ok(()),
             },
@@ -392,20 +392,20 @@ where
     }
 }
 
-/// Una medición de ancho de banda en curso ([`Agent::measure_link`]).
+/// A bandwidth measurement in progress ([`Agent::measure_link`]).
 type Measurement = Pin<Box<dyn Future<Output = Reply> + Send>>;
 
-/// Cada cuánto va [`AgentToUi::Network`] a quien la pidió.
+/// How often [`AgentToUi::Network`] goes to whoever asked for it.
 pub const NETWORK_EVERY: Duration = Duration::from_secs(1);
 
-/// La primera enseguida (la pantalla se dibuja ya), después una por segundo.
+/// The first right away (the screen is drawn now), then one per second.
 fn network_ticker() -> Interval {
     let mut tick = time::interval(NETWORK_EVERY);
     tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
     tick
 }
 
-/// El próximo envío de la red; nunca llega si la conexión no la pidió.
+/// The next network send; it never arrives if the connection did not ask for it.
 async fn next_tick(tick: &mut Option<Interval>) {
     match tick {
         Some(t) => {
@@ -415,7 +415,7 @@ async fn next_tick(tick: &mut Option<Interval>) {
     }
 }
 
-/// El final de la medición en curso, con el id de su pedido; nunca llega sin medición.
+/// The end of the measurement in progress, with its request's id; it never arrives without a measurement.
 async fn measured(m: &mut Option<(u64, Measurement)>) -> (u64, Reply) {
     match m {
         Some((id, run)) => (*id, run.await),
@@ -423,7 +423,7 @@ async fn measured(m: &mut Option<(u64, Measurement)>) -> (u64, Reply) {
     }
 }
 
-/// La siguiente muestra de recursos; nunca termina si la conexión no los pidió.
+/// The next resources sample; it never ends if the connection did not ask for them.
 async fn next_resources(
     watch: &mut Option<ResourceWatch>,
 ) -> Option<(Machine, tandem_proto::Resources)> {
@@ -433,7 +433,7 @@ async fn next_resources(
     }
 }
 
-/// El siguiente evento del cursor; nunca termina si la conexión no lo pidió.
+/// The next cursor event; it never ends if the connection did not ask for it.
 async fn next_cursor(watch: &mut Option<CursorWatch>) -> Option<CursorEvent> {
     match watch {
         Some(w) => w.next().await,
@@ -441,7 +441,7 @@ async fn next_cursor(watch: &mut Option<CursorWatch>) -> Option<CursorEvent> {
     }
 }
 
-/// Lo que anuncian las dos máquinas, como aviso para la UI.
+/// What the two machines announce, as a notice for the UI.
 pub fn machines(c: tandem_proto::DeskCapabilities) -> AgentToUi {
     AgentToUi::Machines {
         local: Box::new(c.here),
@@ -449,19 +449,19 @@ pub fn machines(c: tandem_proto::DeskCapabilities) -> AgentToUi {
     }
 }
 
-/// Termina cuando se pide el apagado o desaparece quien lo pediría.
+/// Ends when shutdown is requested or whoever would request it disappears.
 async fn stopped(shutdown: &mut watch::Receiver<bool>) {
-    // El `Ref` que devuelve `wait_for` no es `Send`: se suelta aquí mismo.
+    // The `Ref` that `wait_for` returns is not `Send`: it is dropped right here.
     let _ = shutdown.wait_for(|stop| *stop).await.map(|_| ());
 }
 
-/// Cliente de la IPC: lo usan las pruebas y, más adelante, la UI.
+/// IPC client: used by the tests and, later, the UI.
 #[derive(Debug)]
 pub struct IpcClient<S> {
     conn: Framed<S>,
     agent: Machine,
     next_id: u64,
-    /// Avisos que llegaron mientras se esperaba una respuesta.
+    /// Notices that arrived while waiting for a reply.
     pending: VecDeque<AgentToUi>,
 }
 
@@ -470,15 +470,15 @@ impl<S: AsyncRead + AsyncWrite + Unpin> IpcClient<S> {
         Self::handshake_as(io, Peer::Ui).await
     }
 
-    /// Como [`Self::handshake`], presentándose como `peer`: `tandem mcp` y la CLI lo hacen
-    /// como [`Peer::Client`] para poder abrir y cerrar túneles.
+    /// Like [`Self::handshake`], introducing itself as `peer`: `tandem mcp` and the CLI do so
+    /// as [`Peer::Client`] to be able to open and close tunnels.
     pub async fn handshake_as(io: S, peer: Peer) -> Result<Self, IpcError> {
         let mut conn = Framed::new(io);
         conn.send(&Hello::new(peer)).await?;
         let hello = conn.recv_hello().await?;
         let Peer::Agent(agent) = hello.peer else {
             return Err(IpcError::UnexpectedPeer {
-                expected: "un agente",
+                expected: "an agent",
                 got: hello.peer,
             });
         };
@@ -490,7 +490,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> IpcClient<S> {
         })
     }
 
-    /// Máquina del agente al otro lado.
+    /// The agent's machine on the other side.
     pub fn agent(&self) -> Machine {
         self.agent
     }
@@ -519,7 +519,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> IpcClient<S> {
         }
     }
 
-    /// El siguiente aviso espontáneo del agente; `None` si cerró.
+    /// The agent's next spontaneous notice; `None` if it closed.
     pub async fn next_event(&mut self) -> Result<Option<AgentToUi>, IpcError> {
         if let Some(ev) = self.pending.pop_front() {
             return Ok(Some(ev));
@@ -557,8 +557,8 @@ mod tests {
         assert_eq!(c.get_state().await.unwrap(), agent.state());
     }
 
-    /// T-105: los recursos llegan solo a la conexión que los pidió, de las dos máquinas, y
-    /// dejan de llegar al pedir que no.
+    /// T-105: resources reach only the connection that asked for them, from both machines, and
+    /// stop arriving when it asks not to.
     #[tokio::test(start_paused = true)]
     async fn resources_flow_only_while_the_connection_watches() {
         let dir = tempfile::tempdir().unwrap();
@@ -571,7 +571,7 @@ mod tests {
             Reply::Done
         );
         let Some(AgentToUi::Resources { machine, .. }) = c.next_event().await.unwrap() else {
-            panic!("se esperaban recursos");
+            panic!("resources were expected");
         };
         assert_eq!(machine, Machine::A);
         let mut theirs = tandem_proto::Resources::default();
@@ -596,19 +596,19 @@ mod tests {
                 .unwrap(),
             Reply::Done
         );
-        // Lo que llegó antes de la respuesta se acaba; después, nada.
+        // What arrived before the reply runs out; afterwards, nothing.
         let mut after = 0;
         while let Ok(ev) =
             tokio::time::timeout(std::time::Duration::from_secs(5), c.next_event()).await
         {
             assert!(matches!(ev.unwrap(), Some(AgentToUi::Resources { .. })));
             after += 1;
-            assert!(after < 5, "siguen llegando recursos");
+            assert!(after < 5, "resources keep arriving");
         }
     }
 
-    /// T-102: sin suscripción no llega la red; con ella, una vez por segundo; al quitarla,
-    /// deja de llegar.
+    /// T-102: without a subscription the network does not arrive; with it, once per second; when it is removed,
+    /// it stops arriving.
     #[tokio::test(start_paused = true)]
     async fn network_flows_only_while_the_connection_watches() {
         let dir = tempfile::tempdir().unwrap();
@@ -618,7 +618,7 @@ mod tests {
             time::timeout(Duration::from_secs(5), c.next_event())
                 .await
                 .is_err(),
-            "llegó algo sin suscripción"
+            "something arrived without a subscription"
         );
         assert_eq!(
             c.request(UiCommand::WatchNetwork { on: true })
@@ -629,11 +629,11 @@ mod tests {
         let t0 = time::Instant::now();
         for _ in 0..3 {
             let Some(AgentToUi::Network(s)) = c.next_event().await.unwrap() else {
-                panic!("se esperaba la red");
+                panic!("the network was expected");
             };
             assert_eq!(s.paths.len(), 3);
         }
-        // La primera enseguida y después una por segundo.
+        // The first right away and then one per second.
         assert_eq!(t0.elapsed(), 2 * NETWORK_EVERY);
         assert_eq!(
             c.request(UiCommand::WatchNetwork { on: false })
@@ -645,12 +645,12 @@ mod tests {
         while let Ok(ev) = time::timeout(Duration::from_secs(5), c.next_event()).await {
             assert!(matches!(ev.unwrap(), Some(AgentToUi::Network(_))));
             after += 1;
-            assert!(after < 3, "sigue llegando la red");
+            assert!(after < 3, "the network keeps arriving");
         }
     }
 
-    /// T-128: el cursor llega solo a la conexión que lo pidió, el motor solo lo muestrea
-    /// mientras alguna lo pide (contadas por ventana), y al cerrarse la conexión se deja.
+    /// T-128: the cursor reaches only the connection that asked for it, the engine only samples it
+    /// while some connection asks (counted per window), and when the connection closes it stops.
     #[tokio::test]
     async fn the_cursor_flows_only_to_connections_that_watch_and_is_counted_per_window() {
         use tandem_proto::CursorSample;
@@ -673,8 +673,8 @@ mod tests {
         assert!(!gate.is_on());
         agent.publish_cursor(CursorEvent::Sample(sample(0)));
 
-        // Dos pedidos de la misma conexión cuentan una vez; una conexión que no lo pide no
-        // lo recibe.
+        // Two requests from the same connection count once; a connection that does not ask for it does not
+        // receive it.
         for _ in 0..2 {
             assert_eq!(
                 watching
@@ -707,10 +707,10 @@ mod tests {
             time::timeout(Duration::from_millis(100), idle.next_event())
                 .await
                 .is_err(),
-            "llegó el cursor a una conexión que no lo pidió"
+            "the cursor reached a connection that did not ask for it"
         );
 
-        // Una segunda ventana que mira y se va no apaga la primera.
+        // A second window that watches and leaves does not turn off the first.
         assert_eq!(
             idle.request(UiCommand::WatchCursor { on: true })
                 .await
@@ -723,9 +723,9 @@ mod tests {
                 .unwrap(),
             Reply::Done
         );
-        assert!(gate.is_on(), "la otra ventana sigue mirando");
+        assert!(gate.is_on(), "the other window keeps watching");
 
-        // Con `on: false` la última se apaga y el motor deja de muestrear.
+        // With `on: false` the last one turns off and the engine stops sampling.
         assert_eq!(
             watching
                 .request(UiCommand::WatchCursor { on: false })
@@ -735,7 +735,7 @@ mod tests {
         );
         assert!(!gate.is_on());
 
-        // Cerrar la conexión sin avisar también deja de mirar.
+        // Closing the connection without notice also stops watching.
         watching
             .request(UiCommand::WatchCursor { on: true })
             .await
@@ -748,10 +748,10 @@ mod tests {
             }
         })
         .await
-        .expect("la conexión cerrada siguió contando");
+        .expect("the closed connection kept counting");
     }
 
-    /// Medir sin conexión por ese camino se rechaza enseguida, por la misma conexión.
+    /// Measuring without a connection over that path is rejected right away, over the same connection.
     #[tokio::test]
     async fn measuring_a_path_without_connection_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
@@ -819,7 +819,7 @@ mod tests {
             ..initial
         };
         agent.set_input_status(missing.clone());
-        // Los permisos también cambian lo que anuncia esta máquina (T-084).
+        // Permissions also change what this machine announces (T-084).
         let mut seen = Vec::new();
         while seen.len() < 2 {
             seen.push(c.next_event().await.unwrap());
@@ -847,9 +847,9 @@ mod tests {
             .await
             .unwrap();
         let Reply::Accepted { txn } = r else {
-            panic!("se esperaba Accepted: {r:?}");
+            panic!("Accepted was expected: {r:?}");
         };
-        // Sin backends, el primer paso falla con un motivo claro y el estado no cambia.
+        // Without backends, the first step fails with a clear reason and the state does not change.
         let mut events = Vec::new();
         loop {
             match c.next_event().await.unwrap().unwrap() {
@@ -860,7 +860,7 @@ mod tests {
                         break;
                     }
                 }
-                other => panic!("aviso inesperado: {other:?}"),
+                other => panic!("unexpected notice: {other:?}"),
             }
         }
         assert!(matches!(&events[0], TxnEvent::Started { txn: t, .. } if *t == txn));
@@ -884,7 +884,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (agent, io, _stop) = start(dir.path());
         let mut c = IpcClient::handshake(io).await.unwrap();
-        // Tras el saludo, la suscripción del servidor ya existe si respondió un pedido.
+        // After the greeting, the server's subscription already exists if a request was answered.
         c.get_state().await.unwrap();
         let mut s = agent.state();
         s.on.b = true;
@@ -900,7 +900,7 @@ mod tests {
         c.get_state().await.unwrap();
         let ev = tandem_proto::PowerEvent::PeerLost {
             machine: Machine::B,
-            reason: "sin enlaces".into(),
+            reason: "no links".into(),
         };
         agent.emit_power(ev.clone());
         assert_eq!(c.next_event().await.unwrap(), Some(AgentToUi::Power(ev)));
@@ -915,7 +915,7 @@ mod tests {
         let mut s = agent.state();
         s.on.b = true;
         agent.set_state(s.clone()).unwrap();
-        // El aviso llega antes que la respuesta; no se pierde.
+        // The notice arrives before the reply; it is not lost.
         assert_eq!(c.get_state().await.unwrap(), s);
         assert_eq!(c.next_event().await.unwrap(), Some(AgentToUi::State(s)));
     }
@@ -980,8 +980,8 @@ mod tests {
         assert!(matches!(c.next_event().await, Ok(None)));
     }
 
-    // QA ronda 1: una UI puede mandar varios pedidos sin esperar respuesta; cada
-    // respuesta lleva su id y salen en orden.
+    // QA round 1: a UI can send several requests without waiting for a reply; each
+    // reply carries its id and they come out in order.
     #[tokio::test]
     async fn pipelined_requests_are_answered_in_order() {
         let dir = tempfile::tempdir().unwrap();
@@ -1022,7 +1022,7 @@ mod tests {
         let mut b = Framed::new(bad_client);
         b.send(&Hello::new(Peer::Ui)).await.unwrap();
         b.recv_hello().await.unwrap();
-        // Una trama bien formada cuyo contenido no es un `UiRequest`.
+        // A well-formed frame whose content is not a `UiRequest`.
         b.io.write_all(&[3, 0, 0, 0, 0xFF, 0xFF, 0xFF])
             .await
             .unwrap();
@@ -1032,7 +1032,7 @@ mod tests {
             "{err}"
         );
 
-        // La otra UI sigue atendida.
+        // The other UI is still served.
         let mut g = IpcClient::handshake(good_client).await.unwrap();
         assert_eq!(g.get_state().await.unwrap(), agent.state());
         drop(stop);
@@ -1048,7 +1048,7 @@ mod tests {
         let mut c = Framed::new(client);
         c.send(&Hello::new(Peer::Ui)).await.unwrap();
         c.recv_hello().await.unwrap();
-        // Solo la cabecera: anuncia 4 GiB y el agente corta sin esperar el cuerpo.
+        // Only the header: it announces 4 GiB and the agent cuts without waiting for the body.
         c.io.write_all(&u32::MAX.to_le_bytes()).await.unwrap();
         let err = task.await.unwrap().unwrap_err();
         assert!(
@@ -1066,7 +1066,7 @@ mod tests {
         let task = tokio::spawn(serve_connection(server, agent, stop_rx));
         let mut c = Framed::new(client);
         c.recv_hello().await.unwrap();
-        // Un pedido en lugar del saludo: no se atiende.
+        // A request instead of the greeting: it is not served.
         c.send(&UiRequest {
             id: 0,
             command: UiCommand::GetState,

@@ -1,8 +1,8 @@
-//! Lo que la ventana muestra del agente: su estado leído por la IPC local, o una razón
-//! clara de por qué no se pudo (agente apagado, sin permiso, otra versión...).
+//! What the window shows of the agent: its state read over the local IPC, or a clear reason
+//! why it could not be (agent off, no permission, another version...).
 //!
-//! La lógica es genérica sobre el transporte para probarla con la IPC en memoria; la app
-//! usa el Unix socket o el named pipe reales de `tandemd`.
+//! The logic is generic over the transport so it can be tested with the in-memory IPC; the app
+//! uses `tandemd`'s real Unix socket or named pipe.
 
 use std::future::Future;
 use std::io;
@@ -16,30 +16,30 @@ use tandemd::ipc::{self, IpcClient, IpcError};
 use tandemd::paths::Paths;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-/// Cuánto se espera a `tandemd` antes de darlo por colgado. Por la IPC local responde en
-/// milisegundos; más que esto es un agente trabado y la ventana no debe quedarse esperando.
+/// How long `tandemd` is waited for before considering it hung. Over the local IPC it answers in
+/// milliseconds; more than this is a stuck agent and the window must not stay waiting.
 pub const QUERY_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Directorio de datos del agente, si `tandemd` corre con `--data-dir` (desarrollo).
+/// The agent's data directory, if `tandemd` runs with `--data-dir` (development).
 pub const DATA_DIR_ENV: &str = "TANDEM_DATA_DIR";
 
-/// Lo que recibe el frontend (JSON con `kind` como discriminante).
+/// What the frontend receives (JSON with `kind` as the discriminant).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum AgentStatus {
     Connected {
-        /// Máquina en la que corre el agente.
+        /// Machine the agent runs on.
         agent: Machine,
         state: State,
     },
     Unavailable {
-        /// Dónde se buscó al agente, si se llegó a saber.
+        /// Where the agent was looked for, if it got to be known.
         endpoint: Option<String>,
         reason: String,
     },
 }
 
-/// Dónde escucha el `tandemd` de este usuario, con el mismo cálculo que usa el agente.
+/// Where this user's `tandemd` listens, with the same calculation the agent uses.
 pub fn endpoint_from_env() -> Result<PathBuf, String> {
     let data_dir = std::env::var_os(DATA_DIR_ENV)
         .filter(|d| !d.is_empty())
@@ -50,15 +50,15 @@ pub fn endpoint_from_env() -> Result<PathBuf, String> {
 pub fn endpoint_for(data_dir: Option<PathBuf>) -> Result<PathBuf, String> {
     let paths = Paths::resolve(None, data_dir).map_err(|e| e.to_string())?;
     ipc::default_endpoint(&paths.data_dir)
-        .map_err(|e| format!("no se pudo calcular dónde escucha tandemd: {e}"))
+        .map_err(|e| format!("could not work out where tandemd listens: {e}"))
 }
 
-/// Pide el estado al agente que escucha en `endpoint`.
+/// Asks the agent listening at `endpoint` for its state.
 pub async fn fetch_status(endpoint: &Path, limit: Duration) -> AgentStatus {
     status_with(endpoint, ipc::connect(endpoint), limit).await
 }
 
-/// Como [`fetch_status`], con la conexión ya encaminada por el transporte que sea.
+/// Like [`fetch_status`], with the connection already routed over whatever transport.
 pub async fn status_with<S, C>(endpoint: &Path, connect: C, limit: Duration) -> AgentStatus
 where
     S: AsyncRead + AsyncWrite + Unpin,
@@ -72,7 +72,7 @@ where
     let reason = match tokio::time::timeout(limit, query).await {
         Ok(Ok((agent, state))) => return AgentStatus::Connected { agent, state },
         Ok(Err(e)) => explain(&e),
-        Err(_) => format!("tandemd no respondió en {} s", limit.as_secs_f64()),
+        Err(_) => format!("tandemd did not respond in {} s", limit.as_secs_f64()),
     };
     AgentStatus::Unavailable {
         endpoint: Some(endpoint.display().to_string()),
@@ -80,31 +80,30 @@ where
     }
 }
 
-pub(crate) const CLOSED: &str = "tandemd cerró la conexión sin responder";
+pub(crate) const CLOSED: &str = "tandemd closed the connection without responding";
 
-/// Un error de la IPC dicho de forma que el usuario sepa qué hacer.
+/// An IPC error worded so the user knows what to do.
 pub(crate) fn explain(e: &IpcError) -> String {
     match e {
         IpcError::Io(io) => match io.kind() {
-            // Sin socket/pipe, o un socket viejo de un agente que ya murió.
+            // No socket/pipe, or an old socket of an agent that already died.
             io::ErrorKind::NotFound | io::ErrorKind::ConnectionRefused => {
-                "tandemd no está corriendo: no hay nadie escuchando en la IPC local".into()
+                "tandemd is not running: nobody is listening on the local IPC".into()
             }
-            // Se cayó a mitad de la conversación.
+            // It dropped midway through the conversation.
             io::ErrorKind::BrokenPipe
             | io::ErrorKind::ConnectionReset
             | io::ErrorKind::UnexpectedEof => CLOSED.into(),
             io::ErrorKind::PermissionDenied => {
-                "sin permiso para hablar con tandemd: su IPC es solo del usuario que lo corre"
-                    .into()
+                "no permission to talk to tandemd: its IPC is only for the user running it".into()
             }
-            _ => format!("no se pudo hablar con tandemd: {io}"),
+            _ => format!("could not talk to tandemd: {io}"),
         },
         IpcError::Proto(ProtoError::IncompatibleVersion { .. }) => {
-            format!("{e}; actualiza la UI o tandemd para que coincidan")
+            format!("{e}; update the UI or tandemd so they match")
         }
         IpcError::Closed => CLOSED.into(),
-        other => format!("respuesta inesperada de tandemd: {other}"),
+        other => format!("unexpected reply from tandemd: {other}"),
     }
 }
 
@@ -129,7 +128,7 @@ machine = "b"
         Path::new("/tmp/tandemd.sock")
     }
 
-    /// Un agente real atendiendo por la IPC en memoria.
+    /// A real agent serving over the in-memory IPC.
     fn agent(dir: &Path) -> (Arc<Agent>, MemConnector, Daemon) {
         let cfg = AgentConfig::from_toml(CONFIG).unwrap();
         let agent = Arc::new(Agent::new(cfg, StateStore::new(dir.join("state.json"))));
@@ -159,7 +158,7 @@ machine = "b"
                 );
                 reason
             }
-            other => panic!("se esperaba un error, llegó {other:?}"),
+            other => panic!("an error was expected, got {other:?}"),
         }
     }
 
@@ -214,7 +213,7 @@ machine = "b"
             let failed =
                 async move { Err::<IpcClient<DuplexStream>, _>(io::Error::from(kind).into()) };
             let r = reason(status_with(here(), failed, QUERY_TIMEOUT).await);
-            assert!(r.contains("no está corriendo"), "{r}");
+            assert!(r.contains("is not running"), "{r}");
         }
     }
 
@@ -228,9 +227,9 @@ machine = "b"
         ));
         daemon.stop.send(()).unwrap();
         daemon.task.await.unwrap().unwrap();
-        // Apagado, el listener ya no está: conectar falla como un socket sin nadie.
+        // Off, the listener is gone: connecting fails like a socket with nobody.
         let r = reason(status_with(here(), connect(&c), QUERY_TIMEOUT).await);
-        assert!(r.contains("no está corriendo"), "{r}");
+        assert!(r.contains("is not running"), "{r}");
     }
 
     #[tokio::test]
@@ -241,24 +240,24 @@ machine = "b"
             )
         };
         let r = reason(status_with(here(), failed, QUERY_TIMEOUT).await);
-        assert!(r.contains("sin permiso"), "{r}");
+        assert!(r.contains("no permission"), "{r}");
     }
 
     #[tokio::test]
     async fn other_io_errors_keep_the_detail() {
         let failed =
-            async { Err::<IpcClient<DuplexStream>, _>(io::Error::other("cable roto").into()) };
+            async { Err::<IpcClient<DuplexStream>, _>(io::Error::other("broken cable").into()) };
         let r = reason(status_with(here(), failed, QUERY_TIMEOUT).await);
-        assert!(r.contains("cable roto"), "{r}");
+        assert!(r.contains("broken cable"), "{r}");
     }
 
     #[tokio::test(start_paused = true)]
     async fn hung_agent_times_out() {
-        // Acepta la conexión pero nunca saluda.
+        // Accepts the connection but never greets.
         let (client, _server) = duplex(64);
         let r =
             reason(status_with(here(), IpcClient::handshake(client), Duration::from_secs(2)).await);
-        assert_eq!(r, "tandemd no respondió en 2 s");
+        assert_eq!(r, "tandemd did not respond in 2 s");
     }
 
     #[tokio::test]
@@ -275,19 +274,19 @@ machine = "b"
             let _ = s.recv_hello().await;
         });
         let r = reason(status_with(here(), IpcClient::handshake(client), QUERY_TIMEOUT).await);
-        assert!(r.contains("versión de protocolo incompatible"), "{r}");
-        assert!(r.contains("actualiza"), "{r}");
+        assert!(r.contains("incompatible protocol version"), "{r}");
+        assert!(r.contains("update the UI or tandemd"), "{r}");
     }
 
     #[tokio::test]
     async fn agent_hanging_up_is_explained() {
-        // Antes de que la UI salude: escribir falla.
+        // Before the UI greets: writing fails.
         let (client, server) = duplex(64);
         drop(server);
         let r = reason(status_with(here(), IpcClient::handshake(client), QUERY_TIMEOUT).await);
         assert_eq!(r, CLOSED);
 
-        // Después de leer el saludo, sin contestar.
+        // After reading the greeting, without answering.
         let (client, server) = duplex(1024);
         tokio::spawn(async move {
             let mut s = Framed::new(server);
@@ -306,12 +305,12 @@ machine = "b"
             let _ = s.recv_hello().await;
         });
         let r = reason(status_with(here(), IpcClient::handshake(client), QUERY_TIMEOUT).await);
-        assert!(r.starts_with("respuesta inesperada de tandemd"), "{r}");
+        assert!(r.starts_with("unexpected reply from tandemd"), "{r}");
     }
 
     #[test]
     fn endpoint_follows_the_agent_data_dir() {
-        let dir = PathBuf::from("/datos/Tandem");
+        let dir = PathBuf::from("/data/Tandem");
         let got = endpoint_for(Some(dir.clone())).unwrap();
         assert_eq!(got, ipc::default_endpoint(&dir).unwrap());
         #[cfg(unix)]
@@ -320,7 +319,7 @@ machine = "b"
 
     #[test]
     fn default_endpoint_is_in_the_app_dir() {
-        // En CI siempre hay HOME / APPDATA.
+        // On CI there is always HOME / APPDATA.
         let got = endpoint_for(None).unwrap();
         let data = Paths::resolve(None, None).unwrap().data_dir;
         assert_eq!(got, ipc::default_endpoint(&data).unwrap());

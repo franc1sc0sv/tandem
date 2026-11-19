@@ -1,4 +1,4 @@
-//! El estado vivo del agente y lo que contesta a la UI.
+//! The agent's live state and what it answers to the UI.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -38,23 +38,23 @@ use crate::monitors::MonitorHub;
 use crate::orchestrator::{LocalSteps, Orchestrator, PeerLink, Unimplemented};
 use crate::store::{StateStore, StoreError};
 
-/// Lo que la UI recibe si pide un cambio con otro en curso.
-pub const BUSY: &str = "ya hay un cambio en curso";
-/// Lo que la UI recibe si pide emparejar sin la red en marcha.
-pub const NO_NETWORK: &str = "la red del agente no está en marcha";
-/// La versión de Tandem que corre este agente: la app y el agente van en el mismo paquete.
+/// What the UI receives if it asks for a change while another is in progress.
+pub const BUSY: &str = "a change is already in progress";
+/// What the UI receives if it asks to pair without the network running.
+pub const NO_NETWORK: &str = "the agent's network is not running";
+/// The Tandem version this agent runs: the app and the agent ship in the same package.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Quien sabe emparejar (la red): el agente le pasa los pedidos de la UI y publica
-/// el avance con [`Agent::set_pairing_status`]. Cada método contesta enseguida; lo
-/// que tarda sigue en segundo plano. `Err` es el motivo para la UI.
+/// Whoever knows how to pair (the network): the agent hands it the UI's requests and publishes
+/// progress with [`Agent::set_pairing_status`]. Each method answers right away; what
+/// takes time continues in the background. `Err` is the reason for the UI.
 pub trait PairingControl: Send + Sync {
     fn start(&self) -> Result<(), String>;
     fn confirm(&self) -> Result<(), String>;
     fn cancel(&self) -> Result<(), String>;
     fn unpair(&self) -> Result<(), String>;
-    /// La otra máquina salió del puesto y avisó (T-152): se olvida igual, pero sin volver a
-    /// avisarle. Un aviso que llega sin par no es un error.
+    /// The other machine left the desk and said so (T-152): it is forgotten just the same, but without
+    /// notifying it again. A notice that arrives without a peer is not an error.
     fn peer_left(&self) -> Result<(), String> {
         self.unpair()
     }
@@ -63,95 +63,95 @@ pub trait PairingControl: Send + Sync {
 #[derive(Debug)]
 pub struct Agent {
     cfg: AgentConfig,
-    /// A quién despierta esta máquina ahora (T-159): el `[power.wol]` de `cfg`, el aprendido
-    /// al emparejar o el que escribió la UI.
+    /// Whom this machine wakes now (T-159): the `[power.wol]` of `cfg`, the one learned
+    /// when pairing or the one the UI wrote.
     wol: std::sync::RwLock<Option<tandem_power::WolTarget>>,
-    /// El usuario borró la MAC: `learn_wol` no la vuelve a aprender (`[power.wol] cleared`).
+    /// The user deleted the MAC: `learn_wol` does not learn it again (`[power.wol] cleared`).
     wol_cleared: std::sync::atomic::AtomicBool,
-    /// Los túneles que esta máquina hospeda y los que abrió (T-103, [`crate::tunnels`]).
+    /// The tunnels this machine hosts and the ones it opened (T-103, [`crate::tunnels`]).
     tunnels: tandem_tunnel::Tunnels,
-    /// Archivos y puertos por túnel (T-106): el lado destino y los clientes locales.
+    /// Files and ports per tunnel (T-106): the destination side and the local clients.
     files: tandem_files::Files,
     workspaces: tandem_workspace::Workspaces,
-    /// Prioridad, tope y pausa de los datos, uno por camino (T-101).
+    /// Priority, cap and pause of the data, one per path (T-101).
     link_qos: LinkQos,
-    /// El lado de esta máquina. Sale de la identidad: cambia una sola vez, si al emparejar
-    /// resulta que esta máquina es el otro lado ([`Agent::adopt_side`]).
+    /// This machine's side. It comes from the identity: it changes only once, if when pairing
+    /// it turns out this machine is the other side ([`Agent::adopt_side`]).
     me: watch::Sender<Machine>,
     store: StateStore,
     state: watch::Sender<State>,
-    /// Leer el estado y guardarlo tiene que ser una sola operación: si no, un
-    /// guardado con el estado viejo puede terminar después de uno con el nuevo.
+    /// Reading the state and saving it must be a single operation: otherwise, a
+    /// save with the old state may end after one with the new.
     persisting: Mutex<()>,
     orch: Orchestrator,
-    /// Avisos de energía de la otra máquina que no vienen de una transacción.
+    /// Power notices about the other machine that do not come from a transaction.
     power: broadcast::Sender<PowerEvent>,
-    /// Con quién está emparejado y por qué enlace lo ve; lo actualiza la red.
+    /// Whom it is paired with and over which link it sees them; updated by the network.
     peer_status: watch::Sender<PeerStatus>,
-    /// En qué va el emparejamiento; lo actualiza la red.
+    /// How pairing is going; updated by the network.
     pairing_status: watch::Sender<PairingStatus>,
     pairing: Mutex<Option<Arc<dyn PairingControl>>>,
-    /// El teclado y mouse como lo ve la UI; lo actualiza [`crate::input`].
+    /// The keyboard and mouse as the UI sees them; updated by [`crate::input`].
     input_status: watch::Sender<InputStatus>,
-    /// Lo que el otro agente manda para el teclado y mouse.
+    /// What the other agent sends for the keyboard and mouse.
     inbox: PeerInbox,
     drag: crate::drag::DragHub,
-    /// El puesto compartido que vale ahora (el de `tandem.toml` o el que llegó de la otra).
+    /// The shared desk that holds now (the one from `tandem.toml` or the one that came from the other).
     desk: watch::Sender<Config>,
-    /// `tandem.toml`, donde se guarda lo que cambia; sin él, solo en memoria.
+    /// `tandem.toml`, where what changes is saved; without it, only in memory.
     config_file: Mutex<Option<PathBuf>>,
-    /// De dónde salió la configuración y en qué puerto escucha el agente.
+    /// Where the configuration came from and which port the agent listens on.
     setup: Mutex<SetupInfo>,
-    /// Lo que puede esta máquina y lo último que anunció la otra (T-084).
+    /// What this machine can do and the latest the other announced (T-084).
     caps: watch::Sender<DeskCapabilities>,
-    /// Los módulos que existen en esta máquina (T-098).
+    /// The modules that exist on this machine (T-098).
     registry: Registry,
-    /// Los módulos apagados aquí (copia de `Desk.modules` de este lado, que es la fuente) y
-    /// los problemas que reportó cada uno en marcha.
+    /// The modules turned off here (copy of this side's `Desk.modules`, which is the source) and
+    /// the problems each one running reported.
     modules: watch::Sender<ModuleSwitches>,
-    /// Los cambios de lo que anuncia esta máquina van a la otra juntos (T-098).
+    /// Changes to what this machine announces go to the other together (T-098).
     announce: capabilities::Debounce,
-    /// El sello del puesto que vale ahora y las últimas versiones ([`crate::desk_sync`]).
+    /// The stamp of the desk that holds now and the latest versions ([`crate::desk_sync`]).
     sync: Mutex<SyncClock>,
-    /// Avisos de que la otra máquina cambió el puesto (D5), para la UI.
+    /// Notices that the other machine changed the desk (D5), for the UI.
     desk_changes: broadcast::Sender<DeskChanged>,
-    /// El puesto de `tandem.toml` se editó a mano: al conocer el archivo se le escribe la
-    /// versión nueva.
+    /// The `tandem.toml` desk was edited by hand: once the file is known the new
+    /// version is written to it.
     hand_edited: bool,
-    /// Los lados del archivo no son los que valen (v0.2, o la identidad dijo otra cosa): al
-    /// conocer el archivo se reescriben enteros.
+    /// The file's sides are not the ones that hold (v0.2, or the identity said otherwise): once
+    /// the file is known they are rewritten whole.
     rewrite_sides: bool,
-    /// Un cambio del puesto (y de `tandem.toml`) a la vez: cambiar de lado mientras llega el
-    /// puesto de la otra no puede mezclar etiquetas viejas y nuevas ni en memoria ni en el
-    /// archivo.
+    /// One desk change (and of `tandem.toml`) at a time: switching sides while the other's
+    /// desk arrives cannot mix old and new labels either in memory or in the
+    /// file.
     editing: Mutex<()>,
-    /// La prueba «presiona una tecla» del asistente.
+    /// The setup's "press a key" test.
     key_probe: watch::Sender<KeyProbeStatus>,
-    /// Hay un motor de entrada que arma el [`InputStatus`] (su tarea de estado escucha lo que
-    /// el usuario declara); sin él, el agente lo actualiza directamente.
+    /// There is an input engine that builds the [`InputStatus`] (its state task listens to what
+    /// the user declares); without it, the agent updates it directly.
     input_engine: std::sync::atomic::AtomicBool,
-    /// Dónde está el teclado según la configuración o el asistente; `None`, sin definir.
+    /// Where the keyboard is according to the configuration or setup; `None`, unset.
     keyboard: watch::Sender<Option<Machine>>,
-    /// Cuántas veces el usuario pidió los permisos de macOS (T-090): el motor de entrada
-    /// escucha el contador y los pide al sistema.
+    /// How many times the user asked for the macOS permissions (T-090): the input engine
+    /// listens to the counter and asks the system for them.
     permission_requests: watch::Sender<u64>,
-    /// Pedidos de «Bloquear aquí» (T-129): el contador sube con cada uno y el motor de
-    /// entrada aplica el último valor pedido.
+    /// "Lock here" requests (T-129): the counter goes up with each one and the input
+    /// engine applies the last requested value.
     lock_requests: watch::Sender<(u64, bool)>,
-    /// Este proceso, para anunciarlo en las capacidades.
+    /// This process, to announce it in the capabilities.
     process: tandem_proto::ProcessInfo,
-    /// Los monitores del puesto: canales, dueños y lo que leyó cada dueño (T-110).
+    /// The desk's monitors: channels, owners and what each owner read (T-110).
     monitors: Arc<MonitorHub>,
-    /// Entornos detectados y recursos en vivo (T-105).
+    /// Detected environments and live resources (T-105).
     env: env::EnvState,
-    /// Las versiones de las dos máquinas y el pedido de actualizar esta (T-122).
+    /// The versions of both machines and the request to update this one (T-122).
     update: watch::Sender<UpdateStatus>,
-    /// Un doble de los pasos de escena de monitor y geometría (la simulación de T-100);
-    /// `None`: los monitores reales ([`scenes`], T-111).
+    /// A double of the monitor and geometry scene steps (T-100's simulation);
+    /// `None`: the real monitors ([`scenes`], T-111).
     scene_backend: std::sync::RwLock<Option<Arc<dyn SceneBackend>>>,
-    /// Métricas de red y la conexión de cada camino sano (T-102).
+    /// Network metrics and the connection of each healthy path (T-102).
     net: net::NetState,
-    /// El cursor en vivo, mientras alguien lo mira (T-128).
+    /// The live cursor, while someone is watching it (T-128).
     cursor: cursor::CursorState,
 }
 
@@ -161,18 +161,18 @@ struct SyncClock {
     history: DeskHistory,
 }
 
-/// La otra máquina cambió el puesto y su versión ganó: lo que dice el aviso «Cambiado desde
-/// X · Deshacer» (`AgentToUi::DeskChanged`).
+/// The other machine changed the desk and its version won: what the "Changed from
+/// X · Undo" notice (`AgentToUi::DeskChanged`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeskChanged {
     pub by: Machine,
     pub rev: u64,
     pub summary: String,
-    /// La versión que había aquí antes.
+    /// The version that was here before.
     pub undo_to: u64,
 }
 
-/// Milisegundos desde la época Unix: la fecha de un cambio del puesto.
+/// Milliseconds since the Unix epoch: the date of a desk change.
 fn now_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -186,19 +186,19 @@ impl std::fmt::Debug for dyn PairingControl {
     }
 }
 
-/// Lo último que mandó el otro agente para el teclado y mouse, y a quién pasarle los
-/// streams de entrada y portapapeles que abre.
+/// The latest the other agent sent for the keyboard and mouse, and whom to hand the
+/// input and clipboard streams it opens to.
 #[derive(Debug)]
 pub struct PeerInbox {
     pub hub: watch::Sender<Option<HubReport>>,
     pub screens: watch::Sender<Option<Vec<ScreenRect>>>,
     channels: Mutex<Option<mpsc::UnboundedSender<IncomingChannel>>>,
-    /// Quien arbitra el teclado y el mouse (D7): recibe los [`FocusMsg`] del otro.
+    /// Whoever arbitrates the keyboard and mouse (D7): receives the other's [`FocusMsg`]s.
     focus: Mutex<Option<mpsc::UnboundedSender<FocusMsg>>>,
 }
 
-/// Un stream de entrada o de portapapeles que abrió el otro agente, sobre su conexión
-/// (los datagramas del mouse llegan por la misma).
+/// An input or clipboard stream the other agent opened, over its connection
+/// (the mouse datagrams arrive over the same one).
 pub struct IncomingChannel {
     pub channel: Channel,
     pub conn: Connection,
@@ -224,60 +224,60 @@ impl PeerInbox {
         }
     }
 
-    /// Quien atiende el arbitraje del teclado y mouse; reemplaza al anterior.
+    /// Whoever handles the keyboard and mouse arbitration; replaces the previous one.
     pub fn set_focus(&self, tx: mpsc::UnboundedSender<FocusMsg>) {
         *self.focus.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
     }
 
-    /// Entrega un mensaje del arbitraje; sin motor de entrada se descarta.
+    /// Delivers an arbitration message; without an input engine it is discarded.
     pub fn deliver_focus(&self, msg: FocusMsg) {
         let tx = self.focus.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(tx) = tx.as_ref()
             && tx.send(msg).is_err()
         {
-            tracing::debug!("arbitraje del teclado sin quien lo atienda");
+            tracing::debug!("keyboard arbitration with nobody to handle it");
         }
     }
 
-    /// Quien atiende los streams de entrada y portapapeles; reemplaza al anterior.
+    /// Whoever handles the input and clipboard streams; replaces the previous one.
     pub fn set_channels(&self, tx: mpsc::UnboundedSender<IncomingChannel>) {
         *self.channels.lock().unwrap_or_else(PoisonError::into_inner) = Some(tx);
     }
 
-    /// Entrega el stream; sin nadie que lo atienda se descarta (se cierra).
+    /// Delivers the stream; with nobody to handle it, it is discarded (closed).
     pub fn deliver(&self, incoming: IncomingChannel) {
         let tx = self.channels.lock().unwrap_or_else(PoisonError::into_inner);
         match tx.as_ref() {
             Some(tx) => {
                 if let Err(e) = tx.send(incoming) {
-                    tracing::debug!(canal = ?e.0.channel, "stream del otro agente sin quien lo atienda");
+                    tracing::debug!(channel = ?e.0.channel, "stream from the other agent with nobody to handle it");
                 }
             }
             None => tracing::debug!(
                 canal = ?incoming.channel,
-                "stream del otro agente sin motor de entrada: se cierra"
+                "stream from the other agent without an input engine: closing it"
             ),
         }
     }
 }
 
-/// Avisos de energía que se guardan para un suscriptor lento.
+/// Power notices kept for a slow subscriber.
 const POWER_EVENT_BUFFER: usize = 16;
-/// Avisos de cambios del puesto que se guardan para un suscriptor lento.
+/// Desk change notices kept for a slow subscriber.
 const DESK_EVENT_BUFFER: usize = 16;
 
 impl Agent {
-    /// Arranca desde el estado guardado (o el inicial, si no hay), sin backends de
-    /// plataforma: todo paso local responde «no implementado».
+    /// Starts from the saved state (or the initial one, if there is none), without platform
+    /// backends: every local step answers "not implemented".
     pub fn new(cfg: AgentConfig, store: StateStore) -> Self {
         Self::with_local_steps(cfg, store, Arc::new(Unimplemented))
     }
 
-    /// Con los backends reales de esta máquina ([`crate::PowerSteps::for_machine`] y el
-    /// escaneo de entornos de [`tandem_env::Host::system`]).
+    /// With this machine's real backends ([`crate::PowerSteps::for_machine`] and the
+    /// environment scan of [`tandem_env::Host::system`]).
     pub fn with_platform(cfg: AgentConfig, store: StateStore) -> Self {
         let mut cfg = cfg;
-        // La MAC de esta máquina, para que la otra la guarde al emparejar (T-159).
+        // This machine's MAC, so the other saves it when pairing (T-159).
         if cfg.power.mac.is_none() {
             cfg.power.mac = tandem_power::nic::detect();
         }
@@ -286,7 +286,7 @@ impl Agent {
             .with_env_host(Arc::new(tandem_env::Host::system()))
     }
 
-    /// Como [`Agent::new`], con los pasos que esta máquina sabe hacer.
+    /// Like [`Agent::new`], with the steps this machine knows how to do.
     pub fn with_local_steps(
         cfg: AgentConfig,
         store: StateStore,
@@ -294,8 +294,8 @@ impl Agent {
     ) -> Self {
         let me = cfg.machine;
         let mut state = store.load_or_initial(me);
-        // Esta máquina siempre está prendida para sí misma (DESIGN §3.7); la otra, hasta
-        // que los enlaces digan otra cosa, como quedó.
+        // This machine is always powered on for itself (DESIGN §3.7); the other, until
+        // the links say otherwise, as it was left.
         state.on.set(me, true);
         let orch = Orchestrator::new(me, local, cfg.orchestrator.timeouts());
         let monitors = Arc::new(MonitorHub::new(me));
@@ -303,17 +303,17 @@ impl Agent {
         let mut input = InputStatus::new(cfg.input.keyboard());
         input.defined = cfg.input.keyboard_defined();
         let process = capabilities::current_process();
-        // Un puesto editado a mano en `tandem.toml` es un cambio de esta máquina: versión
-        // nueva, para que la otra lo adopte y no lo pise con el suyo. Uno del formato de antes
-        // de T-099 tiene una huella vieja: se reescribe sin contarlo como cambio, salvo que
-        // haya pasado al puesto algo que era de esta máquina (revisión de #74).
+        // A desk edited by hand in `tandem.toml` is a change by this machine: new
+        // version, so the other adopts it and does not overwrite it with its own. One in the pre-T-099
+        // format has an old fingerprint: it is rewritten without counting it as a change, unless
+        // something that belonged to this machine moved into the desk (review of #74).
         let hand_edited = cfg.local_to_desk
             || (!cfg.legacy_desk
                 && crate::desk_sync::edited_by_hand(&cfg.desk, cfg.desk_sum.as_deref()));
         let info = local_info(&cfg, me, &cfg.desk);
         let registry = Registry::for_os(cfg.os);
         let mut switches = modules::initial_switches(&cfg);
-        // Hasta que arranque con un bus ([`Agent::start_monitors`]).
+        // Until it starts with a bus ([`Agent::start_monitors`]).
         switches.set_problem(
             tandem_proto::ModuleId::Monitors,
             Some(crate::monitors::NO_DDC.into()),
@@ -331,7 +331,7 @@ impl Agent {
             by: cfg.desk_origin.unwrap_or(me),
         };
         let stamp = if hand_edited {
-            tracing::info!("el puesto de tandem.toml cambió a mano: se le manda a la otra máquina");
+            tracing::info!("the tandem.toml desk changed by hand: sending it to the other machine");
             saved.next(me, now_millis())
         } else {
             saved
@@ -348,7 +348,7 @@ impl Agent {
         Agent {
             tunnels: tandem_tunnel::Tunnels::default(),
             files: tandem_files::Files::default(),
-            // Junto al estado: `<datos>/workspaces` (T-107).
+            // Next to the state: `<data>/workspaces` (T-107).
             workspaces: tandem_workspace::Workspaces::new(
                 store
                     .path()
@@ -365,7 +365,7 @@ impl Agent {
             persisting: Mutex::new(()),
             orch,
             power: broadcast::channel(POWER_EVENT_BUFFER).0,
-            // Hasta que la red diga otra cosa, el agente trabaja solo.
+            // Until the network says otherwise, the agent works alone.
             peer_status: watch::Sender::new(PeerStatus::Unpaired),
             pairing_status: watch::Sender::new(PairingStatus::Idle),
             pairing: Mutex::new(None),
@@ -393,7 +393,7 @@ impl Agent {
             lock_requests: watch::Sender::new((0, false)),
             process,
             monitors,
-            // Sin backends no se encuentra nada; [`Agent::with_env_host`] pone el real.
+            // Without backends nothing is found; [`Agent::with_env_host`] sets the real one.
             env: env::EnvState::new(Arc::new(tandem_env::Host::none())),
             update: watch::Sender::new(UpdateStatus {
                 here: VERSION.to_owned(),
@@ -408,8 +408,8 @@ impl Agent {
         }
     }
 
-    /// El archivo de la configuración, donde se guarda lo que cambia. Si el puesto se editó
-    /// a mano, se le escribe ya la versión nueva.
+    /// The configuration file, where what changes is saved. If the desk was edited
+    /// by hand, the new version is written to it right away.
     pub fn set_config_file(&self, path: PathBuf) {
         self.setup
             .lock()
@@ -431,7 +431,7 @@ impl Agent {
         self.editing.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Todo lo que nombra un lado, al archivo (ver [`crate::config_edit::with_sides`]).
+    /// Everything that names a side, to the file (see [`crate::config_edit::with_sides`]).
     fn save_sides(&self) {
         if let Some(path) = self.config_path()
             && let Err(e) = crate::config_edit::set_sides(
@@ -441,20 +441,20 @@ impl Agent {
                 &self.desk_sync(),
             )
         {
-            tracing::warn!("no se guardaron los lados en {}: {e}", path.display());
+            tracing::warn!("sides were not saved to {}: {e}", path.display());
         }
     }
 
-    /// Esta máquina resultó ser el lado `side` (la identidad del par recién emparejado lo
-    /// dice, DECISIONS A1). Si ya lo era, nada; si no, se cambian los lados de todo lo que
-    /// los nombra (estado, puesto, teclado, capacidades), se guarda y se avisa: el motor de
-    /// entrada vuelve a arrancar con el lado nuevo.
+    /// This machine turned out to be side `side` (the identity of the just-paired peer says
+    /// so, DECISIONS A1). If it already was, nothing; if not, the sides of everything that
+    /// names them are switched (state, desk, keyboard, capabilities), saved and announced: the input
+    /// engine restarts with the new side.
     pub fn adopt_side(&self, side: Machine) {
         let _editing = self.edit();
         if self.machine() == side {
             return;
         }
-        tracing::info!(lado = %side, "por las claves, esta máquina es el otro lado");
+        tracing::info!(side = %side, "by the keys, this machine is the other side");
         let synced = {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
             clock.stamp = clock.stamp.swapped();
@@ -464,9 +464,9 @@ impl Agent {
         self.desk.send_modify(|d| {
             let arrangement = d.arrangement;
             *d = std::mem::take(d).swap_sides();
-            // Un acomodo que nunca se sincronizó no es un lugar físico que conservar: es el
-            // que había con los lados nuevos. Darlo vuelta dejaría a las dos instalaciones
-            // nuevas con A a la derecha. Sin acomodo declarado no hay nada que dar vuelta.
+            // An arrangement that never synced is not a physical place to preserve: it is the
+            // one there was with the new sides. Flipping it would leave both new installations
+            // with A on the right. Without a declared arrangement there is nothing to flip.
             if !synced {
                 d.arrangement = arrangement;
             }
@@ -490,28 +490,28 @@ impl Agent {
         self.save_sides();
     }
 
-    /// Avisa si esta máquina cambia de lado ([`Agent::adopt_side`]).
+    /// Notifies if this machine changes side ([`Agent::adopt_side`]).
     pub fn subscribe_machine(&self) -> watch::Receiver<Machine> {
         self.me.subscribe()
     }
 
-    /// Qué máquina es `side` según el puesto, si ya se sabe.
+    /// Which machine `side` is according to the desk, if already known.
     pub fn machine_info(&self, side: Machine) -> Option<MachineInfo> {
         self.desk.borrow().machines.get(side).cloned()
     }
 
-    /// El nombre de `side` para los textos: el del puesto o «máquina A».
+    /// The name of `side` for texts: the desk's or "machine A".
     pub fn machine_name(&self, side: Machine) -> String {
         self.desk.borrow().machines.name(side)
     }
 
-    /// Anota en el puesto lo que se sabe de las dos máquinas: lo que anunció la otra
-    /// (`peer`) y lo de esta, si faltaba o les cambió el sistema. El nombre y el color que ya
-    /// estén no se pisan: son del usuario. Es un solo cambio del puesto (una versión).
+    /// Records in the desk what is known about both machines: what the other announced
+    /// (`peer`) and this one's, if missing or their system changed. The name and color already
+    /// there are not overwritten: they are the user's. It is a single desk change (one version).
     ///
-    /// Pasa al recibir el anuncio de la otra, que llega después de su puesto
-    /// ([`Agent::set_peer`]): así la versión nueva sale de la más alta de las dos y no pisa
-    /// un cambio de verdad con uno de estos.
+    /// It happens on receiving the other's announcement, which arrives after its desk
+    /// ([`Agent::set_peer`]): this way the new version comes from the higher of the two and does not overwrite
+    /// a real change with one of these.
     fn learn_machines(&self, peer: Machine, info: &MachineInfo) {
         let _editing = self.edit();
         let mut desk = self.desk();
@@ -519,16 +519,16 @@ impl Agent {
         let local = local_info(&self.cfg, me, &desk);
         let mine = learn(&mut desk, me, &local);
         let theirs = learn(&mut desk, peer, info);
-        // Los colores se asignan al conocerse y no se repiten (D17).
+        // Colors are assigned when they meet and are not repeated (D17).
         let colors = desk.machines.distinct_colors();
-        // Al emparejar, las escenas de siempre con los nombres reales (D6).
+        // When pairing, the usual scenes with the real names (D6).
         let scenes = (mine || theirs) && scenes::add_defaults(&mut desk);
         if mine || theirs || colors || scenes {
             self.commit_desk(desk);
         }
     }
 
-    /// El agente generó la configuración al arrancar (T-082): la UI lo dice.
+    /// The agent generated the configuration on start (T-082): the UI says so.
     pub fn set_generated(&self, generated: bool) {
         self.setup
             .lock()
@@ -536,7 +536,7 @@ impl Agent {
             .generated = generated;
     }
 
-    /// El puerto real de la red (puede no ser el de la config, si estaba ocupado).
+    /// The network's real port (it may not be the config's, if it was busy).
     pub fn set_port(&self, port: u16) {
         self.setup
             .lock()
@@ -551,27 +551,27 @@ impl Agent {
             .clone()
     }
 
-    /// El puesto compartido que vale ahora.
+    /// The shared desk that holds now.
     pub fn desk(&self) -> Config {
         self.desk.borrow().clone()
     }
 
-    /// Prioridad, tope y pausa de los datos con la otra máquina, uno por camino y compartido
-    /// por todas las conexiones de ese camino (T-101). La red se lo pone a cada conexión y le
-    /// lleva el `[data]` del puesto. Quien mide la latencia de la entrada (T-093) la anota
-    /// con `conn.qos().record_input_latency(..)` o `link_qos().get(camino)`, en las dos
-    /// máquinas.
+    /// Priority, cap and pause of the data with the other machine, one per path and shared
+    /// by all the connections of that path (T-101). The network sets it on each connection and
+    /// brings it the desk's `[data]`. Whoever measures the input latency (T-093) records it
+    /// with `conn.qos().record_input_latency(..)` or `link_qos().get(path)`, on both
+    /// machines.
     pub fn link_qos(&self) -> &LinkQos {
         &self.link_qos
     }
 
-    /// Avisa cada vez que cambia el puesto.
+    /// Notifies every time the desk changes.
     pub fn subscribe_desk(&self) -> watch::Receiver<Config> {
         self.desk.subscribe()
     }
 
-    /// Cambia el puesto desde esta máquina (el editor del acomodo, T-096): se valida, sube
-    /// la versión, va a `tandem.toml`, a la UI y a la otra máquina.
+    /// Changes the desk from this machine (the arrangement editor, T-096): it is validated, the version
+    /// goes up, it goes to `tandem.toml`, to the UI and to the other machine.
     pub fn set_desk(&self, desk: Config) -> Result<(), String> {
         desk.validate().map_err(|e| e.to_string())?;
         let _editing = self.edit();
@@ -582,9 +582,9 @@ impl Agent {
         Ok(())
     }
 
-    /// Un cambio del puesto pedido por la UI (`UiCommand::EditDesk`): se aplica, sube la
-    /// versión y va a `tandem.toml`, a la UI y a la otra máquina. Devuelve el puesto que
-    /// queda, o por qué no se aplicó.
+    /// A desk change requested by the UI (`UiCommand::EditDesk`): it is applied, the
+    /// version goes up and it goes to `tandem.toml`, to the UI and to the other machine. Returns the desk that
+    /// results, or why it was not applied.
     pub fn edit_desk(&self, patch: DeskPatch) -> Result<Config, String> {
         match &patch {
             DeskPatch::Shortcuts(s) => {
@@ -613,9 +613,9 @@ impl Agent {
         Ok(self.desk())
     }
 
-    /// Los interruptores de los módulos de esta máquina salen del puesto (`Desk.modules` de
-    /// su lado, D4): se copian cada vez que el puesto cambia, venga de donde venga. Lo que
-    /// aquí no se puede encender ni apagar se ignora.
+    /// The module switches of this machine come from the desk (`Desk.modules` of
+    /// its side, D4): they are copied every time the desk changes, wherever it comes from. What
+    /// cannot be turned on or off here is ignored.
     fn sync_switches(&self) {
         let me = self.machine();
         let desk = self.desk();
@@ -627,7 +627,7 @@ impl Agent {
                 }
                 let on = desk.modules.get(me, id.as_str()) != Some(false);
                 if s.set(id, on) {
-                    tracing::info!(modulo = ?id, encendido = on, "módulo cambiado");
+                    tracing::info!(module = ?id, enabled = on, "module changed");
                     changed = true;
                 }
             }
@@ -635,8 +635,8 @@ impl Agent {
         });
     }
 
-    /// «Deshacer» (`UiCommand::UndoDesk`): vuelve a la versión `to_rev` del historial con un
-    /// cambio nuevo, que gana como cualquier otro.
+    /// "Undo" (`UiCommand::UndoDesk`): goes back to version `to_rev` of the history with a
+    /// new change, which wins like any other.
     pub fn undo_desk(&self, to_rev: u64) -> Result<Config, String> {
         let _editing = self.edit();
         let current = self.desk_sync();
@@ -648,13 +648,13 @@ impl Agent {
                 .map_err(|e| e.to_string())?
         };
         if let Some(next) = next {
-            tracing::info!(a = to_rev, rev = next.stamp.rev, "puesto deshecho");
+            tracing::info!(to = to_rev, rev = next.stamp.rev, "desk undone");
             self.commit_local(next);
         }
         Ok(self.desk())
     }
 
-    /// Las últimas versiones del puesto, de la más nueva a la más vieja.
+    /// The latest desk versions, from the newest to the oldest.
     pub fn desk_history(&self) -> Vec<HistoryEntry> {
         self.sync
             .lock()
@@ -663,12 +663,12 @@ impl Agent {
             .entries()
     }
 
-    /// Avisa cada vez que la otra máquina cambia el puesto.
+    /// Notifies every time the other machine changes the desk.
     pub fn subscribe_desk_changes(&self) -> broadcast::Receiver<DeskChanged> {
         self.desk_changes.subscribe()
     }
 
-    /// El puesto compartido con su sello, como se le manda a la otra máquina.
+    /// The shared desk with its stamp, as it is sent to the other machine.
     pub fn desk_sync(&self) -> DeskVersion {
         DeskVersion {
             stamp: self.stamp(),
@@ -683,7 +683,7 @@ impl Agent {
             .stamp
     }
 
-    /// Anota en el historial la versión que vale ahora.
+    /// Records in the history the version that holds now.
     fn record_current(&self) {
         let current = self.desk_sync();
         self.sync
@@ -700,14 +700,14 @@ impl Agent {
             .clone()
     }
 
-    /// El puesto cambió aquí: versión nueva, a `tandem.toml`, a la UI y a la otra máquina.
+    /// The desk changed here: new version, to `tandem.toml`, to the UI and to the other machine.
     pub fn desk_changed(&self) {
         let _editing = self.edit();
         self.bump_desk();
     }
 
-    /// [`Agent::desk_changed`] con el cambio ya tomado ([`Agent::edit`]): el puesto que
-    /// vale en memoria pasa a ser una versión nueva de esta máquina.
+    /// [`Agent::desk_changed`] with the change already taken ([`Agent::edit`]): the desk that
+    /// holds in memory becomes a new version of this machine.
     fn bump_desk(&self) {
         let next = self
             .desk_sync()
@@ -715,17 +715,17 @@ impl Agent {
         self.commit_local(next);
     }
 
-    /// `desk` como versión nueva de esta máquina. No se publica en memoria antes de
-    /// [`Agent::commit_local`]: así lo que ven la UI, la otra máquina y las pruebas ya está
-    /// en `tandem.toml` (antes se veía un instante antes de guardarse). Se llama con el cambio
-    /// tomado ([`Agent::edit`]).
+    /// `desk` as a new version of this machine. It is not published in memory before
+    /// [`Agent::commit_local`]: this way what the UI, the other machine and the tests see is already
+    /// in `tandem.toml` (before it was visible an instant before being saved). It is called with the change
+    /// taken ([`Agent::edit`]).
     fn commit_desk(&self, desk: Config) {
         let next = self.desk_sync().change(desk, self.machine(), now_millis());
         self.commit_local(next);
     }
 
-    /// Una versión nueva hecha aquí: queda en memoria, en el historial, en `tandem.toml`, en
-    /// la UI y en la otra máquina. Se llama con el cambio tomado ([`Agent::edit`]).
+    /// A new version made here: it stays in memory, in the history, in `tandem.toml`, in
+    /// the UI and on the other machine. It is called with the change taken ([`Agent::edit`]).
     fn commit_local(&self, next: DeskVersion) {
         {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
@@ -740,18 +740,18 @@ impl Agent {
         });
         self.orch.peer().send(ControlMsg::Desk(Box::new(next)));
         self.sync_switches();
-        // El nombre y el color de esta máquina (o sus módulos) pueden haber cambiado.
+        // This machine's name and color (or its modules) may have changed.
         self.refresh_capabilities();
         self.settle_scene();
     }
 
-    /// El puesto que mandó la otra máquina: si gana (D5), queda aquí, en caliente y en
-    /// `tandem.toml`, y la UI recibe el aviso con lo que cambió. El motor de entrada
-    /// recalcula la geometría con él.
+    /// The desk the other machine sent: if it wins (D5), it stays here, live and in
+    /// `tandem.toml`, and the UI receives the notice with what changed. The input engine
+    /// recomputes the geometry with it.
     pub fn receive_desk(&self, theirs: DeskVersion) {
-        // Un atajo con teclas que esta versión no conoce no se podría guardar.
+        // A shortcut with keys this version does not know could not be saved.
         if let Err(e) = crate::config::desk_keys(&theirs.desk) {
-            tracing::warn!("puesto de la otra máquina ignorado: {e}");
+            tracing::warn!("desk from the other machine ignored: {e}");
             return;
         }
         let editing = self.edit();
@@ -763,7 +763,7 @@ impl Agent {
             rev = next.stamp.rev,
             origen = %next.stamp.by,
             pantallas = next.desk.screens.len(),
-            "puesto actualizado desde la otra máquina"
+            "desk updated from the other machine"
         );
         {
             let mut clock = self.sync.lock().unwrap_or_else(PoisonError::into_inner);
@@ -784,7 +784,7 @@ impl Agent {
         if let Some(summary) = summary
             && by != self.machine()
         {
-            // Sin UI conectada no hay a quién avisar, y eso no es un error.
+            // Without a connected UI there is nobody to notify, and that is not an error.
             let _ = self.desk_changes.send(DeskChanged {
                 by,
                 rev,
@@ -792,48 +792,48 @@ impl Agent {
                 undo_to: mine.stamp.rev,
             });
         }
-        // El nombre y el color de esta máquina pueden venir de la otra.
+        // This machine's name and color may come from the other.
         self.refresh_capabilities();
         self.settle_scene();
     }
 
-    /// Lo que esta máquina dice de sí misma: su sistema y, del puesto, su nombre y color.
+    /// What this machine says about itself: its system and, from the desk, its name and color.
     pub fn local_info(&self) -> MachineInfo {
         local_info(&self.cfg, self.machine(), &self.desk.borrow())
     }
 
-    /// El puesto al archivo, junto con el lado de ahora: los dos van siempre en la misma
-    /// escritura. Se llama con el cambio tomado ([`Agent::edit`]).
+    /// The desk to the file, together with the current side: both always go in the same
+    /// write. It is called with the change taken ([`Agent::edit`]).
     fn save_desk(&self, sync: &DeskVersion) {
         if let Some(path) = self.config_path()
             && let Err(e) = crate::config_edit::set_desk(&path, self.machine(), sync)
         {
-            tracing::warn!("no se guardó el puesto en {}: {e}", path.display());
+            tracing::warn!("the desk was not saved to {}: {e}", path.display());
         }
     }
 
-    /// Avisa cada vez que el usuario pide los permisos de macOS.
+    /// Notifies every time the user asks for the macOS permissions.
     pub fn subscribe_permission_requests(&self) -> watch::Receiver<u64> {
         self.permission_requests.subscribe()
     }
 
-    /// Avisa cada vez que la UI pide bloquear o soltar el cursor (T-129).
+    /// Notifies every time the UI asks to lock or release the cursor (T-129).
     pub fn subscribe_lock_requests(&self) -> watch::Receiver<(u64, bool)> {
         self.lock_requests.subscribe()
     }
 
-    /// Lo que puede cada máquina, para la UI.
+    /// What each machine can do, for the UI.
     pub fn capabilities(&self) -> DeskCapabilities {
         self.caps.borrow().clone()
     }
 
-    /// Avisa cada vez que cambia lo que puede alguna de las dos.
+    /// Notifies every time what either of the two can do changes.
     pub fn subscribe_capabilities(&self) -> watch::Receiver<DeskCapabilities> {
         self.caps.subscribe()
     }
 
-    /// Vuelve a armar lo que puede esta máquina; si cambió, se lo dice a la UI enseguida y a
-    /// la otra con los cambios de [`capabilities::ANNOUNCE_DEBOUNCE`] juntos.
+    /// Rebuilds what this machine can do; if it changed, tells the UI right away and
+    /// the other with the changes of [`capabilities::ANNOUNCE_DEBOUNCE`] together.
     pub fn refresh_capabilities(&self) {
         let here = self.local_capabilities();
         let changed = self.caps.send_if_modified(|c| {
@@ -844,8 +844,8 @@ impl Agent {
         if changed {
             let peer = self.orch.peer();
             let caps = self.caps.subscribe();
-            // Cada pedido lleva el enlace de ahora y vale el último de la ventana; si el enlace
-            // cambia sin otro cambio, el nuevo ya recibió el anuncio ([`Agent::set_peer`]).
+            // Each request carries the current link and the last of the window holds; if the link
+            // changes without another change, the new one already received the announcement ([`Agent::set_peer`]).
             self.announce.schedule(move || {
                 let here = caps.borrow().here.clone();
                 peer.send(ControlMsg::Capabilities(Box::new(here)));
@@ -853,11 +853,11 @@ impl Agent {
         }
     }
 
-    /// Lo que anunció la otra máquina.
+    /// What the other machine announced.
     pub fn set_peer_capabilities(&self, peer: Capabilities) {
         if peer.machine != self.machine().other() {
             tracing::warn!(
-                "anuncio de capacidades de la máquina {} por el enlace de la otra: se ignora",
+                "capabilities announcement of machine {} over the other's link: ignored",
                 peer.machine
             );
             return;
@@ -872,7 +872,7 @@ impl Agent {
         self.sync_monitor_peer();
     }
 
-    /// La otra máquina salió del puesto: esta también olvida su llave (T-152).
+    /// The other machine left the desk: this one also forgets its key (T-152).
     pub fn receive_unpaired(self: &Arc<Self>) {
         let control = self
             .pairing
@@ -882,36 +882,36 @@ impl Agent {
         if let Some(c) = control
             && c.peer_left().is_ok()
         {
-            tracing::info!("la otra máquina salió del puesto: se olvida su llave");
+            tracing::info!("the other machine left the desk: its key is forgotten");
         }
     }
 
-    /// Lo que el plan puede pedirle a cada máquina ([`capabilities::abilities`]).
+    /// What the plan may ask of each machine ([`capabilities::abilities`]).
     pub fn abilities(&self) -> Abilities {
         let caps = self.caps.borrow();
         capabilities::abilities(&caps.here, caps.peer.as_ref())
     }
 
-    /// «Bloquear aquí»: solo tiene efecto si esta máquina es el servidor y su motor de
-    /// entrada corre; si no, se rechaza para que la UI no crea que se bloqueó.
+    /// "Lock here": it only takes effect if this machine is the server and its input
+    /// engine runs; if not, it is rejected so the UI does not think it was locked.
     fn lock_here(&self, on: bool) -> Reply {
         if self.input_status().server != self.machine() {
-            return Reply::Rejected("esta máquina no es la que tiene el teclado".into());
+            return Reply::Rejected("this machine is not the one that has the keyboard".into());
         }
-        // El motor se suscribe solo mientras hay una sesión de servidor armada.
+        // The engine subscribes only while a server session is armed.
         if self.lock_requests.receiver_count() == 0 {
-            return Reply::Rejected("el motor de entrada no está activo en esta máquina".into());
+            return Reply::Rejected("the input engine is not active on this machine".into());
         }
         self.lock_requests.send_modify(|r| *r = (r.0 + 1, on));
         Reply::Done
     }
 
-    /// El teclado y mouse, para la UI.
+    /// The keyboard and mouse, for the UI.
     pub fn input_status(&self) -> InputStatus {
         self.input_status.borrow().clone()
     }
 
-    /// Avisa cada vez que cambia el teclado y mouse.
+    /// Notifies every time the keyboard and mouse change.
     pub fn subscribe_input(&self) -> watch::Receiver<InputStatus> {
         self.input_status.subscribe()
     }
@@ -922,14 +922,14 @@ impl Agent {
             *s = status;
             changed
         });
-        // El hub y los permisos son parte de lo que anuncia esta máquina.
+        // The hub and the permissions are part of what this machine announces.
         if changed {
             self.refresh_capabilities();
         }
     }
 
-    /// Lo que el otro agente manda para el teclado y mouse.
-    /// Arrastre de archivos entre las máquinas (T-121).
+    /// What the other agent sends for the keyboard and mouse.
+    /// File drag between the machines (T-121).
     pub fn drag(&self) -> &crate::drag::DragHub {
         &self.drag
     }
@@ -942,16 +942,16 @@ impl Agent {
         &self.orch
     }
 
-    /// Conexión con el otro agente para los pasos que le tocan. Lo primero que va por
-    /// ella es su copia del puesto y después lo que puede esta máquina (T-084): el anuncio
-    /// puede cambiar el puesto ([`Agent::learn_machines`]), y para entonces la otra ya
-    /// adoptó la versión más nueva.
+    /// Connection with the other agent for the steps that fall to it. The first thing that goes over
+    /// it is its copy of the desk and then what this machine can do (T-084): the announcement
+    /// may change the desk ([`Agent::learn_machines`]), and by then the other already
+    /// adopted the newest version.
     pub fn set_peer(&self, peer: Arc<dyn PeerLink>) {
         self.orch.set_peer(peer.clone());
         peer.send(ControlMsg::Desk(Box::new(self.desk_sync())));
         peer.send(ControlMsg::Capabilities(Box::new(self.capabilities().here)));
-        // Lo que leyó de sus monitores, si es dueña de alguno: el enlace anterior pudo
-        // perder el último informe.
+        // What it read from its monitors, if it owns any: the previous link may have
+        // lost the last report.
         let reports = self.monitors.reports_here();
         if !reports.is_empty() {
             peer.send(ControlMsg::Monitors(reports));
@@ -959,22 +959,22 @@ impl Agent {
         peer.send(ControlMsg::Update(UpdateMsg::Version(VERSION.to_owned())));
     }
 
-    /// Avance de las transacciones, para la UI.
+    /// Transaction progress, for the UI.
     pub fn subscribe_txns(&self) -> broadcast::Receiver<TxnEvent> {
         self.orch.subscribe()
     }
 
-    /// Avisos de energía de la otra máquina (por ejemplo, que se la dio por apagada), para la UI.
+    /// Power notices about the other machine (for example, that it was considered off), for the UI.
     pub fn subscribe_power(&self) -> broadcast::Receiver<PowerEvent> {
         self.power.subscribe()
     }
 
-    /// El par y el enlace con él, para la UI.
+    /// The peer and the link to it, for the UI.
     pub fn peer_status(&self) -> PeerStatus {
         self.peer_status.borrow().clone()
     }
 
-    /// Avisa cada vez que cambia el par o su enlace.
+    /// Notifies every time the peer or its link changes.
     pub fn subscribe_peer(&self) -> watch::Receiver<PeerStatus> {
         self.peer_status.subscribe()
     }
@@ -987,7 +987,7 @@ impl Agent {
         });
     }
 
-    /// Quién atiende los pedidos de emparejamiento (la red, al arrancar).
+    /// Whoever handles the pairing requests (the network, on start).
     pub fn set_pairing(&self, control: Arc<dyn PairingControl>) {
         *self.pairing.lock().unwrap_or_else(|e| e.into_inner()) = Some(control);
     }
@@ -996,7 +996,7 @@ impl Agent {
         self.pairing_status.borrow().clone()
     }
 
-    /// Avisa con cada paso del emparejamiento.
+    /// Notifies with each pairing step.
     pub fn subscribe_pairing(&self) -> watch::Receiver<PairingStatus> {
         self.pairing_status.subscribe()
     }
@@ -1025,7 +1025,7 @@ impl Agent {
     }
 
     pub(crate) fn emit_power(&self, event: PowerEvent) {
-        // Sin UI conectada no hay a quién avisar, y eso no es un error.
+        // Without a connected UI there is nobody to notify, and that is not an error.
         let _ = self.power.send(event);
     }
 
@@ -1045,17 +1045,17 @@ impl Agent {
         self.state.borrow().clone()
     }
 
-    /// Avisa cada vez que el estado cambia.
+    /// Notifies every time the state changes.
     pub fn subscribe(&self) -> watch::Receiver<State> {
         self.state.subscribe()
     }
 
-    /// Publica el estado nuevo y lo guarda.
+    /// Publishes the new state and saves it.
     ///
-    /// Se publica aunque falle el guardado: el cambio ya ocurrió y la UI tiene que verlo;
-    /// el error se devuelve para registrarlo.
+    /// It is published even if saving fails: the change already happened and the UI has to see it;
+    /// the error is returned to be logged.
     pub fn set_state(&self, mut new: State) -> Result<(), StoreError> {
-        // Venga de donde venga (la otra máquina, una transacción), esta está prendida.
+        // Wherever it comes from (the other machine, a transaction), this one is powered on.
         new.on.set(self.machine(), true);
         scenes::settle(&mut new, &self.desk.borrow());
         let changed = self.state.send_if_modified(|s| {
@@ -1069,23 +1069,23 @@ impl Agent {
         if !changed {
             return Ok(());
         }
-        // Si la otra se apagó (o volvió), sus monitores cambian de dueño.
+        // If the other powered off (or came back), its monitors change owner.
         self.sync_monitor_peer();
         self.persist()
     }
 
     pub fn persist(&self) -> Result<(), StoreError> {
-        // Si otro hilo entró en pánico guardando, el candado no protege datos: se sigue.
+        // If another thread panicked while saving, the lock does not protect data: continue.
         let _guard = self.persisting.lock().unwrap_or_else(|e| e.into_inner());
         let state = self.state.borrow().clone();
         self.store.save(&state)
     }
 
-    /// Contesta un pedido de la UI.
+    /// Answers a UI request.
     ///
-    /// Encender y apagar arrancan una transacción en segundo plano y se contestan con
-    /// [`Reply::Accepted`]; el avance llega como [`TxnEvent`]. Tiene que llamarse dentro de
-    /// un runtime de tokio.
+    /// Power on and off start a background transaction and are answered with
+    /// [`Reply::Accepted`]; progress arrives as [`TxnEvent`]. It must be called inside
+    /// a tokio runtime.
     pub fn handle(self: &Arc<Self>, cmd: UiCommand) -> Reply {
         match cmd {
             UiCommand::GetState => Reply::State(self.state()),
@@ -1117,7 +1117,7 @@ impl Agent {
                     Reply::Done => Reply::Desk(self.desk()),
                     other => other,
                 },
-                None => Reply::Rejected(format!("«{module}» no es un módulo de Tandem")),
+                None => Reply::Rejected(format!("\"{module}\" is not a Tandem module")),
             },
             UiCommand::EditDesk { patch } => match self.edit_desk(patch) {
                 Ok(desk) => Reply::Desk(desk),
@@ -1153,14 +1153,14 @@ impl Agent {
                 self.start_switch_monitor(monitor, input)
             }
             UiCommand::Rescan { machine } => self.rescan_machine(machine),
-            // La suscripción es de la conexión: la atiende la IPC ([`Agent::watch_resources`]).
+            // The subscription belongs to the connection: the IPC handles it ([`Agent::watch_resources`]).
             UiCommand::WatchResources { .. } => {
-                Reply::Rejected("los recursos se piden por una conexión de la IPC".into())
+                Reply::Rejected("resources are requested over an IPC connection".into())
             }
             UiCommand::GetUpdate => Reply::Update(self.update_status()),
             UiCommand::UpdatePeer { version } => self.update_peer(version),
             UiCommand::GetTunnels => Reply::Tunnels(self.tunnels.view()),
-            // Esperan a la otra máquina y solo los puede pedir un cliente: los atiende la IPC
+            // They wait for the other machine and only a client can ask for them: the IPC handles them
             // ([`crate::tunnels::handle`]).
             UiCommand::OpenTunnel { .. }
             | UiCommand::CloseTunnel { .. }
@@ -1171,19 +1171,19 @@ impl Agent {
             | UiCommand::Exec { .. }
             | UiCommand::Kill { .. }
             | UiCommand::BringBack { .. } => Reply::Rejected(crate::tunnels::CLIENTS_ONLY.into()),
-            // También de la conexión: la suscripción y la medición, que tarda unos segundos
+            // Also the connection's: the subscription and the measurement, which takes a few seconds
             // ([`Agent::measure_link`]).
             UiCommand::WatchNetwork { .. } | UiCommand::MeasureLink { .. } => {
-                Reply::Rejected("la red se pide por una conexión de la IPC".into())
+                Reply::Rejected("the network is requested over an IPC connection".into())
             }
-            // La suscripción es de la conexión ([`Agent::watch_cursor`]).
+            // The subscription belongs to the connection ([`Agent::watch_cursor`]).
             UiCommand::WatchCursor { .. } => {
-                Reply::Rejected("el cursor se pide por una conexión de la IPC".into())
+                Reply::Rejected("the cursor is requested over an IPC connection".into())
             }
-            // Solo lectura: lo que ya llegó a esta máquina (D9).
+            // Read only: what already reached this machine (D9).
             UiCommand::GetProcesses { tunnel } => match self.tunnels.processes(tunnel) {
                 Some(list) => Reply::Processes(list),
-                None => Reply::Rejected(format!("no hay ningún túnel {tunnel}")),
+                None => Reply::Rejected(format!("there is no tunnel {tunnel}")),
             },
             UiCommand::Output {
                 tunnel,
@@ -1202,7 +1202,7 @@ impl Agent {
         }
     }
 
-    /// Los túneles de esta máquina (los que hospeda y los que abrió).
+    /// This machine's tunnels (the ones it hosts and the ones it opened).
     pub fn files(&self) -> &tandem_files::Files {
         &self.files
     }
@@ -1215,14 +1215,14 @@ impl Agent {
         &self.tunnels
     }
 
-    /// Encender es solo despertar `machine`; apagar es su apagado limpio. Pedir lo que ya
-    /// está es una transacción vacía.
+    /// Powering on is just waking `machine`; powering off is its clean shutdown. Asking for what already
+    /// is is an empty transaction.
     fn start_power(self: &Arc<Self>, machine: Machine, on: bool) -> Reply {
         let name = self.machine_name(machine);
         let what = if on {
-            format!("encender la {name}")
+            format!("power on the {name}")
         } else {
-            format!("apagar la {name}")
+            format!("power off the {name}")
         };
         let abilities = self.abilities();
         self.start_plan(&what, move |from| {
@@ -1242,8 +1242,8 @@ impl Agent {
         self.start_txn(what, plan_for, None)
     }
 
-    /// Una transacción en segundo plano; con `scene`, la de aplicar esa escena: sus pasos de
-    /// escena los hace ella y, si todo sale bien, queda como la activa.
+    /// A background transaction; with `scene`, the one that applies that scene: it does its
+    /// scene steps and, if everything goes well, it stays as the active one.
     fn start_txn(
         self: &Arc<Self>,
         what: &str,
@@ -1259,7 +1259,7 @@ impl Agent {
             Ok(p) => p,
             Err(e) => return Reply::Rejected(e.to_string()),
         };
-        tracing::info!(txn, what, steps = plan.steps.len(), "transacción");
+        tracing::info!(txn, what, steps = plan.steps.len(), "transaction");
         tokio::spawn(async move {
             let agent = busy.0.clone();
             let mut state = from;
@@ -1274,14 +1274,14 @@ impl Agent {
                 state.scene = Some(run.id.clone());
             }
             match &outcome {
-                Ok(_) => tracing::info!(txn, "transacción aplicada"),
-                Err(e) => tracing::warn!(txn, "transacción fallida: {e}"),
+                Ok(_) => tracing::info!(txn, "transaction applied"),
+                Err(e) => tracing::warn!(txn, "transaction failed: {e}"),
             }
-            // Primero el estado, después el aviso: quien lo reciba ya ve el estado nuevo.
+            // First the state, then the notice: whoever receives it already sees the new state.
             if let Err(e) = agent.set_state(state.clone()) {
                 tracing::warn!("{e}");
             }
-            // Libre antes del aviso: quien lo reciba ya puede pedir el siguiente cambio.
+            // Free before the notice: whoever receives it can already ask for the next change.
             drop(busy);
             agent.orch.finish(txn, &state, &outcome);
         });
@@ -1289,12 +1289,12 @@ impl Agent {
     }
 }
 
-/// Lo que esta máquina dice de sí misma: el sistema siempre es el real; el nombre y el color,
-/// los del puesto si ya los tiene (los puede cambiar el usuario) o, si no, el nombre del
-/// sistema y el color de su lado.
+/// What this machine says about itself: the system is always the real one; the name and color are
+/// the desk's if it already has them (the user can change them) or, if not, the system's name
+/// and the color of its side.
 ///
-/// Si el puesto que ganó no la trae (la otra lo escribió antes de conocerla), vale la de
-/// `tandem.toml` al arrancar: el nombre que eligió el usuario no se pierde.
+/// If the winning desk does not carry it (the other wrote it before knowing it), the one from
+/// `tandem.toml` at startup holds: the name the user chose is not lost.
 fn local_info(cfg: &AgentConfig, me: Machine, desk: &Config) -> MachineInfo {
     if let Some(saved) = desk.machines.get(me) {
         return MachineInfo {
@@ -1307,7 +1307,7 @@ fn local_info(cfg: &AgentConfig, me: Machine, desk: &Config) -> MachineInfo {
     match cfg.desk.machines.get(cfg.machine) {
         Some(first) => MachineInfo {
             name: first.name.clone(),
-            // Un color por omisión es el del lado: con el lado nuevo, el nuevo.
+            // A default color is the side's: with the new side, the new one.
             color: if tandem_core::DEFAULT_COLORS.contains(&first.color.as_str()) {
                 fresh.color
             } else {
@@ -1319,8 +1319,8 @@ fn local_info(cfg: &AgentConfig, me: Machine, desk: &Config) -> MachineInfo {
     }
 }
 
-/// Pone `info` como lo que se sabe de `side` si no se sabía nada o el sistema cambió. El
-/// nombre y el color que ya estaban se respetan. `true` si cambió el puesto.
+/// Sets `info` as what is known about `side` if nothing was known or the system changed. The
+/// name and color that were already there are respected. `true` if the desk changed.
 fn learn(desk: &mut Config, side: Machine, info: &MachineInfo) -> bool {
     match desk.machines.get(side) {
         Some(saved) if saved.os == info.os => false,
@@ -1339,7 +1339,7 @@ fn learn(desk: &mut Config, side: Machine, info: &MachineInfo) -> bool {
     }
 }
 
-/// Libera el orquestador al terminar la transacción, aunque la tarea entre en pánico.
+/// Releases the orchestrator when the transaction ends, even if the task panics.
 struct Busy(Arc<Agent>);
 
 impl Drop for Busy {
@@ -1371,7 +1371,7 @@ pub(crate) mod tests {
     fn lock_here_is_rejected_without_input_engine() {
         let dir = tempfile::tempdir().unwrap();
         let a = Arc::new(agent(dir.path()));
-        // Sin motor de entrada no hay quien escuche la petición.
+        // Without an input engine there is nobody to listen to the request.
         assert!(matches!(
             a.handle(UiCommand::LockHere { on: true }),
             Reply::Rejected(_)
@@ -1436,7 +1436,7 @@ pub(crate) mod tests {
         a.set_peer_status(paired.clone());
         assert!(rx.has_changed().unwrap());
         assert_eq!(*rx.borrow_and_update(), paired);
-        // Lo mismo otra vez no es un cambio.
+        // The same thing again is not a change.
         a.set_peer_status(paired.clone());
         assert!(!rx.has_changed().unwrap());
         assert_eq!(a.handle(UiCommand::GetPeer), Reply::Peer(paired));
@@ -1460,7 +1460,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// Anota lo que se le pide; `confirm` falla para ver que el motivo llega a la UI.
+    /// Records what is asked of it; `confirm` fails so the reason reaches the UI.
     #[derive(Default)]
     struct FakePairing(Mutex<Vec<&'static str>>);
 
@@ -1471,7 +1471,7 @@ pub(crate) mod tests {
         }
         fn confirm(&self) -> Result<(), String> {
             self.0.lock().unwrap().push("confirm");
-            Err("no hay código".into())
+            Err("no code".into())
         }
         fn cancel(&self) -> Result<(), String> {
             self.0.lock().unwrap().push("cancel");
@@ -1492,7 +1492,7 @@ pub(crate) mod tests {
         assert_eq!(a.handle(UiCommand::StartPairing), Reply::Done);
         assert_eq!(
             a.handle(UiCommand::ConfirmPairing),
-            Reply::Rejected("no hay código".into())
+            Reply::Rejected("no code".into())
         );
         assert_eq!(a.handle(UiCommand::CancelPairing), Reply::Done);
         assert_eq!(a.handle(UiCommand::Unpair), Reply::Done);
@@ -1526,11 +1526,11 @@ pub(crate) mod tests {
     fn steps_of(events: &[TxnEvent]) -> Vec<Step> {
         match events.first() {
             Some(TxnEvent::Started { steps, .. }) => steps.clone(),
-            other => panic!("se esperaba Started: {other:?}"),
+            other => panic!("Started was expected: {other:?}"),
         }
     }
 
-    /// Avisos de una transacción hasta su desenlace.
+    /// Notices of a transaction up to its outcome.
     pub async fn until_outcome(rx: &mut broadcast::Receiver<TxnEvent>) -> Vec<TxnEvent> {
         let mut events = Vec::new();
         loop {
@@ -1576,7 +1576,7 @@ pub(crate) mod tests {
         expected.on.b = true;
         assert_eq!(a.state(), expected);
 
-        // Ya encendida, pedirlo otra vez no hace nada.
+        // Already on, asking again does nothing.
         a.handle(UiCommand::SetPower {
             machine: Machine::B,
             on: true,
@@ -1617,7 +1617,7 @@ pub(crate) mod tests {
             machine: Machine::B,
             on: true,
         }) else {
-            panic!("se esperaba Accepted");
+            panic!("Accepted was expected");
         };
         let events = until_outcome(&mut rx).await;
         let initial = State::initial(Machine::A);
@@ -1638,7 +1638,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_machine_that_cannot_be_woken_is_rejected_without_touching_state() {
         let dir = tempfile::tempdir().unwrap();
-        // Sin `[power.wol]` la Mac no tiene con qué despertar a la PC.
+        // Without `[power.wol]` the Mac has nothing to wake the PC with.
         let a = Arc::new(Agent::new(
             fixtures::desk(),
             StateStore::new(dir.path().join("state.json")),
@@ -1653,7 +1653,7 @@ pub(crate) mod tests {
         ));
         assert_eq!(a.state(), State::initial(Machine::A));
         assert!(rx.try_recv().is_err());
-        // Un rechazo no deja el orquestador ocupado.
+        // A rejection does not leave the orchestrator busy.
         assert!(a.orchestrator().try_begin().is_some());
     }
 
@@ -1681,7 +1681,7 @@ pub(crate) mod tests {
         assert!(matches!(a.handle(on.clone()), Reply::Accepted { .. }));
         assert_eq!(a.handle(on.clone()), Reply::Rejected(BUSY.into()));
         until_outcome(&mut rx).await;
-        // Terminada la primera, se acepta la siguiente.
+        // Once the first one finishes, the next is accepted.
         assert!(matches!(a.handle(on), Reply::Accepted { .. }));
     }
 
@@ -1695,13 +1695,13 @@ pub(crate) mod tests {
         a.set_state(s.clone()).unwrap();
         assert!(rx.has_changed().unwrap());
         assert_eq!(*rx.borrow_and_update(), s);
-        // Otro agente sobre el mismo directorio arranca con ese estado.
+        // Another agent over the same directory starts with that state.
         assert_eq!(agent(dir.path()).state(), s);
     }
 
-    // QA ronda 1: `persist` leía el estado y lo guardaba sin exclusión. Con dos
-    // `set_state` a la vez, el que leyó el estado viejo podía escribir último y el
-    // archivo quedaba con un estado que ya no era el vigente.
+    // QA round 1: `persist` read the state and saved it without exclusion. With two
+    // `set_state` at once, the one that read the old state could write last and the
+    // file ended up with a state that was no longer the current one.
     #[test]
     fn concurrent_set_state_persists_the_final_state() {
         let dir = tempfile::tempdir().unwrap();
@@ -1719,7 +1719,7 @@ pub(crate) mod tests {
             let saved = StateStore::new(dir.path().join("state.json"))
                 .load()
                 .unwrap();
-            assert_eq!(saved, Some(a.state()), "ronda {round}");
+            assert_eq!(saved, Some(a.state()), "round {round}");
         }
     }
 
@@ -1772,17 +1772,17 @@ pub(crate) mod tests {
         let saved = AgentConfig::load(&file).unwrap();
         assert_eq!(saved.desk, theirs.desk);
         assert_eq!((saved.desk_rev, saved.desk_at), (5, 77));
-        // La UI recibe el aviso con lo que cambió y a qué versión volver.
+        // The UI receives the notice with what changed and which version to go back to.
         assert_eq!(
             changes.try_recv().unwrap(),
             DeskChanged {
                 by: Machine::B,
                 rev: 5,
-                summary: "Acomodo y pantallas".into(),
+                summary: "Arrangement and screens".into(),
                 undo_to: before,
             }
         );
-        // Uno más viejo no cambia nada.
+        // An older one changes nothing.
         let mut old = theirs.clone();
         old.stamp.rev = 2;
         old.desk.screens.clear();
@@ -1802,8 +1802,8 @@ pub(crate) mod tests {
         assert_eq!(a.desk(), desk);
         assert_eq!(a.desk_sync().stamp.rev, rev + 1);
         assert_eq!(a.desk_sync().stamp.by, Machine::A);
-        assert!(a.desk_sync().stamp.at > 0, "con fecha");
-        // Lo mismo otra vez no sube la versión; uno inválido se rechaza.
+        assert!(a.desk_sync().stamp.at > 0, "with a date");
+        // The same thing again does not bump the version; an invalid one is rejected.
         a.set_desk(desk.clone()).unwrap();
         assert_eq!(a.desk_sync().stamp.rev, rev + 1);
         desk.screens.push(screen(Machine::A, "laptop", 1512));
@@ -1811,8 +1811,8 @@ pub(crate) mod tests {
         assert_eq!(a.desk_sync().stamp.rev, rev + 1);
     }
 
-    /// DESIGN §4.4: la UI edita con parches, puede deshacer a cualquier versión del
-    /// historial y ver el historial; lo inválido se rechaza con el motivo.
+    /// DESIGN §4.4: the UI edits with patches, can undo to any version of the
+    /// history and see the history; what is invalid is rejected with the reason.
     #[tokio::test]
     async fn the_ui_edits_undoes_and_lists_the_desk() {
         let dir = tempfile::tempdir().unwrap();
@@ -1828,17 +1828,17 @@ pub(crate) mod tests {
         let Reply::Desk(d) = a.handle(UiCommand::EditDesk {
             patch: DeskPatch::Arrangement(Some(arr)),
         }) else {
-            panic!("sin puesto");
+            panic!("no desk");
         };
         assert_eq!(d.arrangement, Some(arr));
         let lock = tandem_core::Shortcuts {
-            lock: vec!["Bloq".into()],
+            lock: vec!["NotAKey".into()],
         };
         assert!(matches!(
             a.handle(UiCommand::EditDesk {
                 patch: DeskPatch::Shortcuts(lock)
             }),
-            Reply::Rejected(why) if why.contains("Bloq")
+            Reply::Rejected(why) if why.contains("NotAKey")
         ));
         assert!(matches!(
             a.handle(UiCommand::EditDesk {
@@ -1863,20 +1863,20 @@ pub(crate) mod tests {
         assert_eq!(saved.desk.arrangement, Some(arr));
 
         let Reply::DeskHistory(h) = a.handle(UiCommand::GetDeskHistory) else {
-            panic!("sin historial");
+            panic!("no history");
         };
         let revs: Vec<u64> = h.iter().map(|e| e.stamp.rev).collect();
         assert_eq!(
             revs,
             [start.stamp.rev + 2, start.stamp.rev + 1, start.stamp.rev]
         );
-        assert_eq!(h[0].summary, "Teclado y mouse");
+        assert_eq!(h[0].summary, "Keyboard and mouse");
 
-        // Deshacer hasta el principio: exactamente aquel puesto, como versión nueva.
+        // Undo to the beginning: exactly that desk, as a new version.
         let Reply::Desk(back) = a.handle(UiCommand::UndoDesk {
             to_rev: start.stamp.rev,
         }) else {
-            panic!("no deshizo");
+            panic!("it did not undo");
         };
         assert_eq!(back, start.desk);
         assert_eq!(a.desk_sync().stamp.rev, start.stamp.rev + 3);
@@ -1887,8 +1887,8 @@ pub(crate) mod tests {
         ));
     }
 
-    /// Un `[[screens]]` escrito a mano es un cambio de esta máquina: sube la versión y se
-    /// guarda con su huella, para que la otra lo adopte y no lo pise.
+    /// A `[[screens]]` written by hand is a change by this machine: the version goes up and it is
+    /// saved with its fingerprint, so the other adopts it and does not overwrite it.
     #[test]
     fn a_hand_edited_desk_is_a_change_of_this_machine() {
         let dir = tempfile::tempdir().unwrap();
@@ -1910,19 +1910,19 @@ pub(crate) mod tests {
         let saved = AgentConfig::load(&file).unwrap();
         assert_eq!(saved.desk_rev, 5);
         assert!(saved.desk_sum.is_some());
-        // Al volver a arrancar sin tocar nada, ya no es una edición.
+        // Starting again without touching anything, it is no longer an edit.
         let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
         assert_eq!(again.desk_sync().stamp.rev, 5);
-        // Un archivo recién generado tampoco.
+        // A freshly generated file neither.
         let fresh = AgentConfig::from_toml(&crate::autoconfig::generate(Machine::B)).unwrap();
         let fresh = Agent::new(fresh, StateStore::new(dir.path().join("other.json")));
         assert_eq!(fresh.desk_sync().stamp.rev, 0);
     }
 
-    /// Revisión de #82: un puesto de T-099 ya emparejado (sin la clave `scenes`) recibe las
-    /// escenas por omisión una sola vez al cargarlo, como cambio de esta máquina; la que choca
-    /// con el atajo de bloqueo queda sin atajo. Si después el usuario las borra todas, no
-    /// vuelven.
+    /// Review of #82: an already-paired T-099 desk (without the `scenes` key) receives the
+    /// default scenes only once on loading, as a change by this machine; the one that clashes
+    /// with the lock shortcut is left without a shortcut. If the user then deletes them all, they do not
+    /// come back.
     #[test]
     fn a_paired_t099_desk_gets_the_default_scenes_once() {
         let dir = tempfile::tempdir().unwrap();
@@ -1935,20 +1935,20 @@ pub(crate) mod tests {
         let cfg = AgentConfig::load(&file).unwrap();
         let a = Agent::new(cfg, StateStore::new(dir.path().join("state.json")));
         let names: Vec<String> = a.desk().scenes.iter().map(|s| s.name.clone()).collect();
-        assert_eq!(names, ["Trabajo", "Solo MacBook Pro", "Solo PC-Escritorio"]);
-        assert!(a.desk().scenes[0].shortcut.is_empty(), "⌃⌥1 es el bloqueo");
-        assert_eq!(a.desk_sync().stamp.rev, 8, "un cambio de esta máquina");
+        assert_eq!(names, ["Work", "Only MacBook Pro", "Only PC-Escritorio"]);
+        assert!(a.desk().scenes[0].shortcut.is_empty(), "⌃⌥1 is the lock");
+        assert_eq!(a.desk_sync().stamp.rev, 8, "a change by this machine");
         assert_eq!(a.desk_sync().stamp.by, Machine::A);
         a.set_config_file(file.clone());
 
-        // Ya guardadas: al volver a arrancar no es otro cambio.
+        // Already saved: starting again is not another change.
         let saved = AgentConfig::load(&file).unwrap();
         assert_eq!(saved.desk.scenes, a.desk().scenes);
         assert_eq!(saved.desk_rev, 8);
         let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
         assert_eq!(again.desk_sync().stamp.rev, 8);
 
-        // Borradas todas a propósito: el archivo lo dice y no vuelven.
+        // All deleted on purpose: the file says so and they do not come back.
         again.set_config_file(file.clone());
         for id in ["trabajo", "solo-a", "solo-b"] {
             again
@@ -1962,9 +1962,9 @@ pub(crate) mod tests {
         assert!(!empty.local_to_desk);
     }
 
-    /// Revisión de #74: el portapapeles apagado de antes de T-099 era de esta máquina y ahora
-    /// está en el puesto. Es un cambio suyo: sube la versión (con su lado y fecha) para que la
-    /// otra lo adopte, y queda guardado así.
+    /// Review of #74: the pre-T-099 turned-off clipboard belonged to this machine and now
+    /// is in the desk. It is a change by it: the version goes up (with its side and date) so the
+    /// other adopts it, and it is saved that way.
     #[test]
     fn a_local_setting_moved_to_the_desk_bumps_the_version() {
         let dir = tempfile::tempdir().unwrap();
@@ -1985,13 +1985,13 @@ pub(crate) mod tests {
         let saved = AgentConfig::load(&file).unwrap();
         assert_eq!((saved.desk_rev, saved.desk_origin), (4, Some(Machine::B)));
         assert!(!saved.local_to_desk && !saved.legacy_desk);
-        // Al volver a arrancar ya no es un cambio.
+        // Starting again it is no longer a change.
         let again = Agent::new(saved, StateStore::new(dir.path().join("state.json")));
         assert_eq!(again.desk_sync().stamp.rev, 4);
     }
 
-    /// Un `tandem.toml` de antes de T-099 (atajo en `[input]`, desplazamiento en el acomodo)
-    /// se reescribe en el formato nuevo sin contar como un cambio de nadie.
+    /// A pre-T-099 `tandem.toml` (shortcut in `[input]`, offset in the arrangement)
+    /// is rewritten in the new format without counting as anyone's change.
     #[test]
     fn a_desk_from_before_t099_is_rewritten_without_a_new_version() {
         let dir = tempfile::tempdir().unwrap();
@@ -2031,15 +2031,15 @@ pub(crate) mod tests {
         )
     }
 
-    /// Lo que anuncia la otra (y lo de esta) queda en el puesto, en una sola versión, y el
-    /// nombre que ya estaba no se pisa (DECISIONS A1, D17).
+    /// What the other announces (and this one's) ends up in the desk, in a single version, and the
+    /// name that was already there is not overwritten (DECISIONS A1, D17).
     #[test]
     fn the_announced_machines_are_kept_in_the_desk() {
         let dir = tempfile::tempdir().unwrap();
         let a = agent(dir.path());
         assert!(
             a.desk().machines.is_empty(),
-            "sin otra máquina, nada que guardar"
+            "without another machine, nothing to save"
         );
         let rev = a.desk_sync().stamp.rev;
         a.set_peer_capabilities(caps_of(Machine::B, tandem_core::Os::MacOs, "Air"));
@@ -2050,26 +2050,26 @@ pub(crate) mod tests {
             (tandem_core::Os::MacOs, "Air")
         );
         assert_eq!(desk.machines.get(Machine::A), Some(&a.local_info()));
-        assert_eq!(a.desk_sync().stamp.rev, rev + 1, "un solo cambio");
+        assert_eq!(a.desk_sync().stamp.rev, rev + 1, "a single change");
         assert_eq!(a.machine_name(Machine::B), "Air");
-        // Otro anuncio con otro nombre no lo pisa (el nombre es del usuario); otro sistema
-        // sí se anota.
-        a.set_peer_capabilities(caps_of(Machine::B, tandem_core::Os::MacOs, "Otro"));
+        // Another announcement with another name does not overwrite it (the name is the user's); another system
+        // does get recorded.
+        a.set_peer_capabilities(caps_of(Machine::B, tandem_core::Os::MacOs, "Other"));
         assert_eq!(a.machine_name(Machine::B), "Air");
         assert_eq!(a.desk_sync().stamp.rev, rev + 1);
-        a.set_peer_capabilities(caps_of(Machine::B, tandem_core::Os::Windows, "Otro"));
+        a.set_peer_capabilities(caps_of(Machine::B, tandem_core::Os::Windows, "Other"));
         let theirs = a.machine_info(Machine::B).unwrap();
         assert_eq!(
             (theirs.os, theirs.name.as_str()),
             (tandem_core::Os::Windows, "Air")
         );
-        // Un anuncio con el lado de esta máquina no es de la otra: se ignora.
+        // An announcement with this machine's side is not the other's: ignored.
         a.set_peer_capabilities(caps_of(Machine::A, tandem_core::Os::MacOs, "Yo"));
         assert_ne!(a.machine_name(Machine::A), "Yo");
     }
 
-    /// El sistema que anuncia esta máquina es el suyo, sea el lado que sea; el nombre y el
-    /// color, los del puesto si ya los tiene.
+    /// The system this machine announces is its own, whichever side it is; the name and
+    /// color are the desk's if it already has them.
     #[test]
     fn this_machine_announces_its_own_system_and_the_desk_name() {
         for os in tandem_core::Os::ALL {
@@ -2079,20 +2079,20 @@ pub(crate) mod tests {
             cfg.os = os;
             cfg.desk.machines.b = Some(MachineInfo {
                 os: tandem_core::Os::MacOs,
-                name: "Escritorio".into(),
+                name: "Desktop".into(),
                 color: "#5fbfb0".into(),
             });
             let a = Agent::new(cfg, StateStore::new(dir.path().join("s.json")));
             let here = a.capabilities().here;
             assert_eq!(here.machine, Machine::B);
             assert_eq!(here.info.os, os);
-            assert_eq!(here.info.name, "Escritorio");
+            assert_eq!(here.info.name, "Desktop");
             assert_eq!(here.info.color, "#5fbfb0");
         }
     }
 
-    /// Al emparejar, esta máquina resulta ser el otro lado: todo lo que nombra un lado se da
-    /// vuelta, se guarda y sigue diciendo lo mismo.
+    /// When pairing, this machine turns out to be the other side: everything that names a side is flipped,
+    /// saved and keeps saying the same thing.
     #[tokio::test]
     async fn adopting_the_other_side_swaps_everything_that_names_a_side() {
         let dir = tempfile::tempdir().unwrap();
@@ -2108,12 +2108,15 @@ pub(crate) mod tests {
         let side = a.subscribe_machine();
         let before = a.desk();
         a.adopt_side(Machine::A);
-        assert!(!side.has_changed().unwrap(), "el mismo lado no cambia nada");
+        assert!(
+            !side.has_changed().unwrap(),
+            "the same side changes nothing"
+        );
 
         a.adopt_side(Machine::B);
         assert!(side.has_changed().unwrap());
         assert_eq!(a.machine(), Machine::B);
-        // El acomodo de omisión no se da vuelta (A sigue a la izquierda de B).
+        // The default arrangement is not flipped (A stays to the left of B).
         let mut want = before.clone().swap_sides();
         want.arrangement = before.arrangement;
         assert_eq!(a.desk(), want);
@@ -2128,7 +2131,7 @@ pub(crate) mod tests {
             saved.desk.screens_of(Machine::B).next().unwrap().id,
             "laptop"
         );
-        // Los pasos se reparten con el lado nuevo.
+        // Steps are distributed with the new side.
         let e = a
             .orchestrator()
             .execute_for_peer(&Step::PowerOff {
@@ -2136,12 +2139,12 @@ pub(crate) mod tests {
             })
             .await
             .unwrap_err();
-        assert!(e.contains("no le corresponde"), "{e}");
+        assert!(e.contains("does not belong to"), "{e}");
     }
 
-    /// Revisión del PR #68: cambiar de lado mientras llegan el puesto y el anuncio de la otra
-    /// escribía `tandem.toml` a la vez, y el archivo podía quedar con un lado y las pantallas
-    /// etiquetadas desde el otro (al rearrancar, los lados se daban vuelta dos veces).
+    /// Review of PR #68: switching sides while the desk and the other's announcement arrive
+    /// wrote `tandem.toml` at once, and the file could end up with one side and the screens
+    /// labeled from the other (on restart, the sides were flipped twice).
     #[test]
     fn changing_side_while_the_peer_talks_keeps_the_file_coherent() {
         for round in 0..30 {
@@ -2157,12 +2160,12 @@ pub(crate) mod tests {
                 StateStore::new(dir.path().join("state.json")),
             );
             a.set_config_file(file.clone());
-            // Lo que manda la otra (que es A): su puesto, con las pantallas de las dos.
+            // What the other sends (which is A): its desk, with the screens of both.
             let mut theirs = a.desk_sync();
             theirs.stamp.rev = 9;
             theirs.stamp.by = Machine::A;
             theirs.desk.screens = vec![
-                screen(Machine::A, "torre", 2560),
+                screen(Machine::A, "tower", 2560),
                 screen(Machine::B, "laptop", 1512),
             ];
             let barrier = std::sync::Barrier::new(3);
@@ -2177,19 +2180,19 @@ pub(crate) mod tests {
                 });
                 s.spawn(|| {
                     barrier.wait();
-                    a.set_peer_capabilities(caps_of(Machine::A, tandem_core::Os::Windows, "Torre"));
+                    a.set_peer_capabilities(caps_of(Machine::A, tandem_core::Os::Windows, "Tower"));
                 });
             });
             let saved = AgentConfig::load(&file).unwrap();
-            assert_eq!(saved.machine, a.machine(), "vuelta {round}");
-            assert_eq!(saved.desk, a.desk(), "vuelta {round}");
-            // Al rearrancar con el lado de las claves no hay un segundo cambio de lados.
+            assert_eq!(saved.machine, a.machine(), "round {round}");
+            assert_eq!(saved.desk, a.desk(), "round {round}");
+            // Restarting with the keys' side there is no second side change.
             assert_eq!(saved.clone().with_side(Machine::B).desk, saved.desk);
         }
     }
 
-    /// Revisión del PR #68: dos instalaciones nuevas (acomodo por omisión) no quedan con A a
-    /// la derecha porque una de las dos cambió de lado.
+    /// Review of PR #68: two fresh installations (default arrangement) do not end up with A on
+    /// the right because one of the two switched sides.
     #[test]
     fn the_default_arrangement_is_not_flipped_when_changing_side() {
         let dir = tempfile::tempdir().unwrap();
@@ -2197,7 +2200,7 @@ pub(crate) mod tests {
         assert_eq!(a.desk().arrangement, None);
         a.adopt_side(Machine::B);
         assert_eq!(a.desk().arrangement, None);
-        // Uno declarado y ya sincronizado sí se conserva físicamente.
+        // A declared and already synced one is physically kept.
         let dir = tempfile::tempdir().unwrap();
         let b = agent(dir.path());
         let mut desk = b.desk();

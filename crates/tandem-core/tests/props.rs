@@ -1,9 +1,9 @@
-//! Invariantes del núcleo con pruebas de propiedades.
+//! Core invariants with property tests.
 //!
-//! El ejecutor de prueba lleva un modelo "físico" (qué máquinas están prendidas) que solo
-//! cambia cuando un paso se ejecuta con éxito. Así se comprueba lo que de verdad le importa
-//! al usuario, no solo lo que `State` cree. Los estados se generan desde las dos
-//! perspectivas (DESIGN §3.7).
+//! The test executor carries a "physical" model (which machines are on) that only
+//! changes when a step runs successfully. This checks what really matters
+//! to the user, not just what `State` believes. States are generated from both
+//! perspectives (DESIGN §3.7).
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -15,15 +15,15 @@ use tandem_core::{
     Scale, Scene, ScreenSpec, Shortcuts, Side, State, Step, TxnError, run,
 };
 
-/// Ejecutor que falla exactamente en la llamada número `fail_at` (si la hay). Lleva también
-/// lo que muestra cada monitor y el acomodo, y sabe deshacer esos pasos.
+/// Executor that fails exactly on call number `fail_at` (if any). It also carries
+/// what each monitor shows and the arrangement, and knows how to undo those steps.
 struct Sim {
     on: Powered,
     calls: usize,
     fail_at: Option<usize>,
     shows: BTreeMap<String, Machine>,
     layout: Option<Arrangement>,
-    /// Lo que había antes de cada paso de escena hecho, para deshacerlo.
+    /// What there was before each scene step done, to undo it.
     before: Vec<(Step, Step)>,
 }
 
@@ -55,12 +55,12 @@ impl Executor for Sim {
         let n = self.calls;
         self.calls += 1;
         let r = if Some(n) == self.fail_at {
-            Err(format!("fallo inyectado en la llamada {n}"))
+            Err(format!("injected failure on call {n}"))
         } else {
             match step {
-                // El Wake-on-LAN sale de la otra, que tiene que estar prendida.
+                // Wake-on-LAN comes from the other one, which has to be on.
                 Step::PowerOn { machine } if !self.on.is_on(machine.other()) => {
-                    Err(format!("{} está apagada", machine.other()))
+                    Err(format!("{} is off", machine.other()))
                 }
                 Step::PowerOn { machine } => {
                     self.on.set(*machine, true);
@@ -70,10 +70,10 @@ impl Executor for Sim {
                     self.on.set(*machine, false);
                     Ok(())
                 }
-                // Los planes de energía y de escena no cambian entradas.
-                Step::SwitchMonitor { .. } => Err("sin monitores".to_owned()),
+                // Power and scene plans do not change inputs.
+                Step::SwitchMonitor { .. } => Err("no monitors".to_owned()),
                 Step::ShowMachine { monitor, .. } => {
-                    // Los monitores de la prueba arrancan mostrando A.
+                    // The test's monitors start out showing A.
                     let was = self.shows.get(monitor).copied().unwrap_or(Machine::A);
                     let undo = Step::ShowMachine {
                         monitor: monitor.clone(),
@@ -110,7 +110,7 @@ fn machine() -> impl Strategy<Value = Machine> {
     prop_oneof![Just(Machine::A), Just(Machine::B)]
 }
 
-/// Quien orquesta está prendida; la otra, como sea.
+/// Whoever orchestrates is on; the other, whatever.
 fn state() -> impl Strategy<Value = (Machine, State)> {
     (machine(), any::<bool>()).prop_map(|(me, other_on)| {
         let mut s = State::initial(me);
@@ -166,8 +166,8 @@ fn screen() -> impl Strategy<Value = ScreenSpec> {
 }
 
 proptest! {
-    /// Encender o apagar la otra deja el estado con lo que de verdad se hizo, falle donde
-    /// falle.
+    /// Powering the other on or off leaves the state with what was really done, wherever it
+    /// fails.
     #[test]
     fn the_state_follows_what_really_happened(
         (me, start) in state(),
@@ -184,14 +184,14 @@ proptest! {
         let mut s = start.clone();
         let r = pollster::block_on(run(&mut s, &plan, &mut sim));
         prop_assert_eq!(s.on, sim.on);
-        prop_assert!(s.is_on(me), "quien orquesta nunca se apaga sola");
+        prop_assert!(s.is_on(me), "whoever orchestrates never turns itself off");
         match r {
             Ok(_) => prop_assert_eq!(s.is_on(other), on),
             Err(TxnError::Failed { .. }) => prop_assert_eq!(s, start),
         }
     }
 
-    /// Lo que se declara en `tandem.toml` vuelve igual.
+    /// What is declared in `tandem.toml` comes back the same.
     #[test]
     fn the_declared_desk_round_trips(
         screens in proptest::collection::vec(screen(), 0..5),
@@ -209,8 +209,8 @@ proptest! {
         prop_assert_eq!(back, cfg);
     }
 
-    /// DECISIONS A1: para cualquier par de claves distintas, cada máquina calcula su lado
-    /// por su cuenta y las dos coinciden: una es `A`, la otra `B`, y `A` es la menor.
+    /// DECISIONS A1: for any pair of distinct keys, each machine computes its side
+    /// on its own and both agree: one is `A`, the other `B`, and `A` is the lesser.
     #[test]
     fn both_machines_agree_on_the_sides(
         own in proptest::array::uniform32(any::<u8>()),
@@ -224,8 +224,8 @@ proptest! {
         prop_assert_eq!(a, own.min(peer));
     }
 
-    /// Cambiar los lados dos veces deja el puesto como estaba, y una vez no pierde nada:
-    /// cada pantalla sigue siendo de su máquina.
+    /// Swapping the sides twice leaves the desk as it was, and once loses nothing:
+    /// each screen still belongs to its machine.
     #[test]
     fn swapping_sides_is_an_involution(
         screens in proptest::collection::vec(screen(), 0..5),
@@ -248,8 +248,8 @@ proptest! {
     }
 }
 
-/// Las dos máquinas ya conocidas, con sus colores de omisión: el punto de partida de un
-/// puesto emparejado.
+/// The two machines already known, with their default colors: the starting point of a
+/// paired desk.
 fn paired_desk() -> DeskVersion {
     DeskVersion {
         stamp: DeskStamp {
@@ -308,8 +308,8 @@ fn patch() -> impl Strategy<Value = DeskPatch> {
     ]
 }
 
-/// Lo que puede pasar en el puesto: un cambio en una máquina, o que le llegue a una
-/// máquina uno de los mensajes que tiene en camino (cualquiera, no el más viejo).
+/// What can happen on the desk: a change on one machine, or one of the messages
+/// in transit arriving at a machine (any one, not the oldest).
 #[derive(Debug, Clone)]
 enum Op {
     Edit {
@@ -330,7 +330,7 @@ fn op() -> impl Strategy<Value = Op> {
     ]
 }
 
-/// Una máquina del puesto: su versión y los mensajes que le llegarán.
+/// A desk machine: its version and the messages that will reach it.
 struct Replica {
     me: Machine,
     current: DeskVersion,
@@ -370,9 +370,9 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    /// DESIGN §4.4 / D5: con cambios en las dos máquinas a la vez y los mensajes llegando en
-    /// cualquier orden, «gana el último» deja a las dos con el mismo puesto, y es el del
-    /// cambio con el sello más alto.
+    /// DESIGN §4.4 / D5: with changes on both machines at once and the messages arriving in
+    /// any order, "last one wins" leaves both with the same desk, and it is that of the
+    /// change with the highest stamp.
     #[test]
     fn last_writer_wins_converges_on_both_machines(ops in proptest::collection::vec(op(), 0..40)) {
         let mut a = Replica::new(Machine::A);
@@ -403,9 +403,9 @@ proptest! {
             .unwrap();
         prop_assert_eq!(&a.current, last);
         prop_assert!(a.history.len() <= HISTORY_LEN);
-        // Ningún parche deja un puesto inválido (atajos repetidos, escenas sin nombre…).
+        // No patch leaves an invalid desk (repeated shortcuts, unnamed scenes…).
         prop_assert!(made.iter().all(|v| v.desk.validate().is_ok()));
-        // Los sellos nunca se repiten: el orden es total.
+        // The stamps never repeat: the order is total.
         for (i, x) in made.iter().enumerate() {
             for y in &made[i + 1..] {
                 prop_assert_ne!(x.stamp, y.stamp);
@@ -413,8 +413,8 @@ proptest! {
         }
     }
 
-    /// Deshacer vuelve exactamente al puesto de la versión pedida, como una versión nueva
-    /// que la otra máquina adopta igual.
+    /// Undo goes back exactly to the desk of the requested version, as a new version
+    /// that the other machine adopts the same.
     #[test]
     fn undo_restores_exactly_the_requested_version(
         patches in proptest::collection::vec(patch(), 1..30),
@@ -440,7 +440,7 @@ proptest! {
             Some(v) => {
                 prop_assert_eq!(&v.desk, &target.desk);
                 prop_assert_eq!(v.stamp.rev, a.current.stamp.rev + 1);
-                // La otra la adopta tal cual.
+                // The other one adopts it as is.
                 prop_assert_eq!(b.current.receive(&v), Some(v.clone()));
             }
         }
@@ -461,8 +461,8 @@ fn scene() -> impl Strategy<Value = Scene> {
         })
 }
 
-/// Una escena entera con id de un conjunto chico (para que editar y borrar acierten) y, a
-/// veces, un atajo que puede chocar con el de otra escena.
+/// A whole scene with an id from a small set (so that editing and deleting hit) and, at
+/// times, a shortcut that may clash with another scene's.
 fn full_scene() -> impl Strategy<Value = Scene> {
     (
         scene(),
@@ -483,9 +483,9 @@ fn full_scene() -> impl Strategy<Value = Scene> {
 }
 
 proptest! {
-    /// Aplicar una escena, falle donde falle: con éxito, los monitores y el acomodo quedan
-    /// como dice la escena y lo que necesita está encendido; con un fallo, los monitores y el
-    /// acomodo vuelven exactamente a como estaban (la energía queda como se hizo).
+    /// Applying a scene, wherever it fails: on success, the monitors and the arrangement end up
+    /// as the scene says and what it needs is on; on failure, the monitors and the
+    /// arrangement go back exactly to how they were (power stays as it was done).
     #[test]
     fn a_scene_is_all_or_nothing(
         (me, start) in state(),
@@ -512,7 +512,7 @@ proptest! {
                 }
             }
             Err(_) => {
-                // Lo que no había se queda mostrando lo de antes (A en la prueba).
+                // What was not there stays showing what it showed before (A in the test).
                 for (monitor, machine) in &sim.shows {
                     prop_assert_eq!(shows.get(monitor).unwrap_or(&Machine::A), machine);
                 }
@@ -521,8 +521,8 @@ proptest! {
         }
     }
 
-    /// Los lados cambiados dos veces dejan la escena igual, y lo que necesita sigue siendo
-    /// lo mismo visto desde el otro lado.
+    /// Swapping the sides twice leaves the scene the same, and what it needs stays
+    /// the same seen from the other side.
     #[test]
     fn swapping_a_scene_is_an_involution(scene in scene()) {
         let swapped = scene.clone().swapped();

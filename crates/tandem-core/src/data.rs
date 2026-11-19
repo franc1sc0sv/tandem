@@ -1,25 +1,25 @@
-//! Preferencias del puesto para los datos (túneles, archivos) entre las dos máquinas
+//! Desk preferences for data (tunnels, files) between the two machines
 //! (DECISIONS A2, DESIGN §6).
 //!
-//! Los datos van por cualquier camino, pero en Wi-Fi llevan un tope para no meterle
-//! latencia al teclado y al mouse. El tope sale de aquí; quien lo aplica es `tandem-link`.
+//! Data goes over any path, but over Wi-Fi it carries a cap so as not to add
+//! latency to the keyboard and mouse. The cap comes from here; whoever applies it is `tandem-link`.
 
 use serde::{Deserialize, Serialize};
 
-/// Porcentaje por omisión del último ancho de banda medido del Wi-Fi.
+/// Default percentage of the last measured Wi-Fi bandwidth.
 pub const DEFAULT_WIFI_CAP_PERCENT: u8 = 50;
 
-/// `[data]` de `tandem.toml`, compartido entre las dos máquinas.
+/// `[data]` of `tandem.toml`, shared between the two machines.
 ///
-/// Viaja con postcard dentro del puesto: ningún campo se salta al serializar.
+/// Travels with postcard inside the desk: no field is skipped when serializing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DataPrefs {
-    /// Tope de los datos por Wi-Fi, en % del último ancho de banda medido (1–100).
+    /// Cap on data over Wi-Fi, in % of the last measured bandwidth (1–100).
     #[serde(default = "default_percent")]
     pub wifi_cap_percent: u8,
-    /// Tope fijo por Wi-Fi en Mbit/s (la unidad con que se habla del Wi-Fi). Si está,
-    /// manda sobre el porcentaje.
+    /// Fixed cap over Wi-Fi in Mbit/s (the unit Wi-Fi is talked about in). If present,
+    /// it overrides the percentage.
     #[serde(default)]
     pub wifi_cap_mbps: Option<u32>,
 }
@@ -39,9 +39,9 @@ impl Default for DataPrefs {
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DataPrefsError {
-    #[error("[data] wifi_cap_percent = {0}: tiene que estar entre 1 y 100")]
+    #[error("[data] wifi_cap_percent = {0}: must be between 1 and 100")]
     Percent(u8),
-    #[error("[data] wifi_cap_mbps = 0: para no limitar, quita la clave y sube el porcentaje")]
+    #[error("[data] wifi_cap_mbps = 0: to not limit, remove the key and raise the percentage")]
     ZeroMbps,
 }
 
@@ -56,7 +56,7 @@ impl DataPrefs {
         Ok(())
     }
 
-    /// El tope fijo en bytes por segundo, si hay uno.
+    /// The fixed cap in bytes per second, if there is one.
     pub fn fixed_cap_bytes(&self) -> Option<u64> {
         self.wifi_cap_mbps.map(|m| u64::from(m) * 125_000)
     }

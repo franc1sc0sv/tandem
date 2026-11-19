@@ -1,10 +1,10 @@
-//! Los mensajes del protocolo.
+//! The protocol messages.
 //!
-//! Hay tres canales y todos empiezan con un [`Hello`]:
-//! - agente ↔ agente: [`ControlMsg`] en los dos sentidos;
-//! - agente ↔ agente antes de confiar el uno en el otro: [`PairingMsg`], solo por la
-//!   conexión de emparejamiento;
-//! - UI → agente: [`UiRequest`]; agente → UI: [`AgentToUi`].
+//! There are three channels and all of them start with a [`Hello`]:
+//! - agent <-> agent: [`ControlMsg`] in both directions;
+//! - agent <-> agent before trusting each other: [`PairingMsg`], only over the
+//!   pairing connection;
+//! - UI -> agent: [`UiRequest`]; agent -> UI: [`AgentToUi`].
 
 use serde::{Deserialize, Serialize};
 use tandem_core::{
@@ -23,21 +23,21 @@ use crate::tunnel::{
 use crate::workspace::{BringBackReport, WorkspaceSpec};
 use crate::{PROTOCOL_VERSION, ProtoError, wire};
 
-/// Quién abre la conexión.
+/// Who opens the connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Peer {
     Agent(Machine),
     Ui,
-    /// Un cliente de Claude o de terminal por la IPC local (`tandem mcp`, `tandem`): el
-    /// único que puede abrir y cerrar túneles (DESIGN §11; la UI solo los mira, D9).
+    /// A Claude or terminal client over the local IPC (`tandem mcp`, `tandem`): the
+    /// only one that can open and close tunnels (DESIGN §11; the UI only watches them, D9).
     Client(ClientKind),
 }
 
-/// Primer mensaje de toda conexión, en cada sentido.
+/// First message of every connection, in each direction.
 ///
-/// `version` tiene que seguir siendo el **primer campo** en todas las versiones:
-/// [`crate::decode_hello`] lo lee antes que el resto para poder rechazar con un
-/// error claro aunque lo demás haya cambiado de forma.
+/// `version` must remain the **first field** in every version:
+/// [`crate::decode_hello`] reads it before the rest so it can reject with a
+/// clear error even if the rest has changed shape.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Hello {
     pub version: u16,
@@ -68,140 +68,140 @@ pub(crate) fn check_version(theirs: u16) -> Result<(), ProtoError> {
     }
 }
 
-/// Plano de control entre los dos agentes.
+/// Control plane between the two agents.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ControlMsg {
-    /// Latido; el otro lado contesta [`ControlMsg::Pong`] con el mismo `nonce`.
+    /// Heartbeat; the other side answers [`ControlMsg::Pong`] with the same `nonce`.
     Ping {
         nonce: u64,
     },
     Pong {
         nonce: u64,
     },
-    /// El orquestador pide al otro agente un paso de un plan que solo él puede hacer.
+    /// The orchestrator asks the other agent for a plan step that only it can do.
     ExecuteStep {
         id: u64,
         #[serde(with = "wire::step")]
         step: Step,
     },
-    /// Respuesta a [`ControlMsg::ExecuteStep`] con el mismo `id`.
+    /// Reply to [`ControlMsg::ExecuteStep`] with the same `id`.
     StepResult {
         id: u64,
         outcome: StepOutcome,
     },
     GetState,
     State(State),
-    /// Primer mensaje de un stream que no es de pedidos: lo que sigue por él son los
-    /// mensajes de ese canal, no [`ControlMsg`].
+    /// First message of a stream that is not a request stream: what follows on it are the
+    /// messages of that channel, not [`ControlMsg`].
     Open(Channel),
-    /// Dónde ve el hub este agente y a quién tiene de servidor de teclado y mouse.
+    /// Where the hub sees this agent and whom it has as keyboard and mouse server.
     Hub(HubReport),
-    /// Las pantallas que lee quien lo manda (las que usa si el puesto no declara las
-    /// suyas), para la geometría del teclado y mouse.
+    /// The screens read by the sender (the ones it uses if the desk does not declare
+    /// its own), for the keyboard and mouse geometry.
     Screens(Vec<ScreenRect>),
-    /// Lo que tiene y sabe hacer quien lo manda (T-084). Va al conectarse por cada
-    /// enlace nuevo y cada vez que cambia; las decisiones salen de aquí, no del nombre
-    /// de la máquina (DESIGN §3.7).
+    /// What the sender has and knows how to do (T-084). Sent on connecting, on each
+    /// new link and every time it changes; decisions come from here, not from the machine
+    /// name (DESIGN §3.7).
     Capabilities(Box<Capabilities>),
-    /// El puesto compartido de quien lo manda, con su sello. Va al conectarse y con cada
-    /// cambio; gana el último (T-099, [`DeskVersion::receive`]).
+    /// The sender's shared desk, with its stamp. Sent on connecting and on every
+    /// change; the last one wins (T-099, [`DeskVersion::receive`]).
     Desk(Box<DeskVersion>),
-    /// «Presiona una tecla» del asistente (T-087): armar o desarmar la escucha, o avisar
-    /// que aquí se oyó la tecla.
+    /// Setup's "Press a key" (T-087): arm or disarm listening, or report
+    /// that the key was heard here.
     KeyProbe(KeyProbeMsg),
-    /// El usuario dijo en el asistente dónde está el teclado y el mouse.
+    /// The user said in setup where the keyboard and mouse are.
     Keyboard(Machine),
-    /// Lo que leyó el dueño de cada monitor que tiene (DECISIONS D13): su entrada real, si
-    /// está encendido y los últimos eventos. Solo el dueño lee eventos; la otra máquina los
-    /// conoce por aquí. Va cada vez que cambia algo y al aparecer un enlace.
+    /// What the owner of each monitor it has read (DECISIONS D13): its real input, whether
+    /// it is on and the latest events. Only the owner reads events; the other machine
+    /// knows them from here. Sent every time something changes and when a link appears.
     Monitors(Vec<MonitorReport>),
-    /// Quien lo manda quiere los recursos en vivo de quien lo recibe (T-105). Con `on` se
-    /// renueva cada pocos segundos mientras alguien mira: si deja de llegar (el enlace se
-    /// cayó), el otro deja de mandarlos solo.
+    /// The sender wants the receiver's live resources (T-105). With `on` it is
+    /// renewed every few seconds while someone is watching: if it stops arriving (the link
+    /// dropped), the other side stops sending them on its own.
     WatchResources {
         on: bool,
     },
-    /// Una muestra de los recursos de quien lo manda.
+    /// A sample of the sender's resources.
     Resources(Box<Resources>),
-    /// Volver a escanear los entornos de quien lo recibe; lo encontrado va en su próximo
+    /// Rescan the receiver's environments; what is found goes in its next
     /// [`ControlMsg::Capabilities`].
     Rescan,
-    /// Actualizar las dos máquinas, una a la vez (T-122).
+    /// Update both machines, one at a time (T-122).
     Update(UpdateMsg),
-    /// Quién manda el teclado y el mouse: los dos capturan y manda la máquina que
-    /// recibe entrada física (DECISIONS D7, DESIGN §7).
+    /// Who sends the keyboard and mouse: both capture and the machine that
+    /// receives physical input sends (DECISIONS D7, DESIGN §7).
     Focus(FocusMsg),
-    /// Quien lo manda quiere el cursor en vivo de quien lo recibe (T-128): muestras y
-    /// cruces. Con `on` se renueva cada pocos segundos mientras alguien mira, como
+    /// The sender wants the receiver's live cursor (T-128): samples and
+    /// crossings. With `on` it is renewed every few seconds while someone is watching, like
     /// [`ControlMsg::WatchResources`].
     WatchCursor {
         on: bool,
     },
-    /// Una muestra del cursor de quien lo manda, que tiene el foco. Se descarta si el
-    /// enlace se atrasa: la siguiente la reemplaza.
+    /// A sample of the sender's cursor, which has focus. It is dropped if the
+    /// link lags: the next one replaces it.
     Cursor(CursorSample),
-    /// El cursor cruzó el borde entre las dos máquinas.
+    /// The cursor crossed the edge between the two machines.
     Crossed {
         from: Machine,
         to: Machine,
-        /// El borde de `from` por el que salió.
+        /// The edge of `from` it left through.
         edge: Side,
     },
-    /// Cómo clasifica quien lo manda la conexión por la que va, según su interfaz de
-    /// salida y no según la configuración (T-094). Va al abrir cada conexión; la etiqueta
-    /// del enlace es la peor de las dos clasificaciones.
+    /// How the sender classifies the connection it travels on, according to its output
+    /// interface and not according to the configuration (T-094). Sent when opening each connection; the link
+    /// label is the worse of the two classifications.
     LinkClass {
         kind: Link,
     },
-    /// Arrastre de archivos entre las dos máquinas (T-121).
+    /// File drag between the two machines (T-121).
     Drag(DragMsg),
-    /// Quien lo manda salió del puesto («Salir del puesto»): olvidó la llave de quien lo
-    /// recibe, que también la olvida y queda sin par (T-152). Sin enlace no llega: la otra
-    /// sigue confiando hasta que salga ella.
+    /// The sender left the desk ("Leave desk"): it forgot the receiver's key, which
+    /// also forgets it and is left without a peer (T-152). Without a link it does not arrive: the other
+    /// keeps trusting until it leaves too.
     Unpaired,
 }
 
-/// Los mensajes del arrastre de archivos (D14), uno por paso de `DragPeer`. `id` lo pone
-/// el origen: una respuesta de un arrastre viejo no se confunde con la del actual.
+/// The file drag messages (D14), one per `DragPeer` step. `id` is set by
+/// the source: a reply from an old drag is not confused with the current one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DragMsg {
-    /// Origen → destino: prepara una carpeta temporal para `names`.
+    /// Source -> destination: prepares a temporary folder for `names`.
     Begin { id: u64, names: Vec<String> },
-    /// Destino → origen: la carpeta lista (su ruta) o por qué no se pudo.
+    /// Destination -> source: the folder is ready (its path) or why it could not be.
     Staged {
         id: u64,
         dir: Result<String, String>,
     },
-    /// Origen → destino: todo está copiado, inicia el arrastre sintético.
+    /// Source -> destination: everything is copied, start the synthetic drag.
     Ready { id: u64 },
-    /// Destino → origen: cómo terminó el arrastre allí.
+    /// Destination -> source: how the drag ended there.
     Finished {
         id: u64,
         end: Result<DragOutcome, String>,
     },
-    /// Origen → destino: aborta y borra lo copiado.
+    /// Source -> destination: abort and delete what was copied.
     Cancel { id: u64 },
 }
 
-/// Cómo terminó el arrastre en el destino.
+/// How the drag ended at the destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DragOutcome {
-    /// Soltó sobre una app o carpeta: el sistema copió los archivos.
+    /// Dropped on an app or folder: the system copied the files.
     Dropped,
-    /// Esc, o soltó fuera de un destino válido.
+    /// Esc, or dropped outside a valid target.
     Cancelled,
 }
 
-/// Avance del arrastre de archivos para el aviso de la UI (T-121).
+/// File drag progress for the UI notice (T-121).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DragStatus {
-    /// Copiando `name`, el archivo `index` (desde 0) de `total`.
+    /// Copying `name`, file `index` (from 0) of `total`.
     Copying {
         name: String,
         index: u32,
         total: u32,
     },
-    /// Todo copiado: queda soltar en la otra máquina.
+    /// All copied: all that remains is dropping on the other machine.
     Copied {
         total: u32,
     },
@@ -210,98 +210,98 @@ pub enum DragStatus {
     Failed(String),
 }
 
-/// Lo que se dicen los dos agentes para actualizarse (T-122). Las versiones son las de la
-/// app (`x.y.z` o `x.y.z-rc.n`); quien las compara es la UI.
+/// What the two agents tell each other to update (T-122). The versions are the app's
+/// (`x.y.z` or `x.y.z-rc.n`); the UI is the one that compares them.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UpdateMsg {
-    /// La versión que corre quien lo manda. Va al conectarse: así la otra sabe cuándo
-    /// volvió con la versión nueva.
+    /// The version the sender is running. Sent on connecting: this way the other knows when
+    /// it came back with the new version.
     Version(String),
-    /// «Instala `version`»: el agente que lo recibe se lo pasa a su UI, que es la que
-    /// descarga y reinicia.
+    /// "Install `version`": the agent that receives it hands it to its UI, which is the one
+    /// downloads and restarts.
     Install { version: String },
 }
 
-/// Las versiones de las dos máquinas, para la UI.
+/// The versions of the two machines, for the UI.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UpdateStatus {
-    /// La de este agente.
+    /// This agent's.
     pub here: String,
-    /// La última que anunció la otra; `None` si nunca se la oyó.
+    /// The last one the other announced; `None` if it was never heard.
     pub peer: Option<String>,
-    /// La otra pidió que esta máquina instale esta versión.
+    /// The other asked this machine to install this version.
     pub install: Option<String>,
-    /// La otra se conectó hablando otra versión del protocolo (la suya): corre otra
-    /// versión de Tandem, aunque no se pueda saber cuál.
+    /// The other connected speaking another protocol version (its own): it runs another
+    /// Tandem version, although which one cannot be known.
     pub peer_protocol: Option<u16>,
 }
 
-/// El arbitraje del teclado y el mouse sin dueño (D7). Cada cambio sube `epoch`; con dos
-/// vistas distintas gana la de `epoch` mayor y, empatadas, la del lado `A`.
+/// Keyboard and mouse arbitration with no owner (D7). Each change bumps `epoch`; with two
+/// differing views the one with the higher `epoch` wins and, if tied, the one from side `A`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FocusMsg {
-    /// Quien lo manda recibe entrada física y no es quien manda: la pide.
+    /// The sender receives physical input and is not the one sending: it asks for it.
     Claim { epoch: u64 },
-    /// Quien lo manda deja de mandar: desde `epoch` manda el que lo recibe.
+    /// The sender stops sending: from `epoch` the receiver sends.
     Grant { epoch: u64 },
-    /// Quién manda según quien lo manda (al conectar, cada tanto y ante un pedido viejo).
+    /// Who sends according to the sender (on connect, every so often and on an old request).
     State { epoch: u64, server: Machine },
 }
 
-/// Los mensajes de la prueba «presiona una tecla» entre los dos agentes.
+/// The messages of the "press a key" test between the two agents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum KeyProbeMsg {
     Arm,
     Disarm,
-    /// La tecla llegó a la máquina que lo manda.
+    /// The key reached the machine that sent it.
     Heard,
 }
 
-/// Lo que una máquina tiene y sabe hacer, tal como lo anuncia su agente.
+/// What a machine has and knows how to do, as its agent announces it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Capabilities {
     pub machine: Machine,
-    /// Su sistema, su nombre y su color (DECISIONS A1): la UI y las decisiones que dependen
-    /// del sistema salen de aquí, no del lado.
+    /// Its system, name and color (DECISIONS A1): the UI and the decisions that depend
+    /// on the system come from here, not from the side.
     pub info: MachineInfo,
-    /// El hub del teclado y mouse está conectado aquí; `None` sin detección.
+    /// The keyboard and mouse hub is connected here; `None` without detection.
     pub hub: Option<bool>,
     pub input: InputCaps,
     pub power: PowerCaps,
-    /// Servicios del plano de datos que ofrece (SSH, carpetas...); vacío hasta v2.
+    /// Data plane services it offers (SSH, folders...); empty until v2.
     pub services: Vec<String>,
-    /// Los módulos que existen en su sistema, con su estado (DECISIONS D3, T-098). Los
-    /// que no existen allí no aparecen.
+    /// The modules that exist on its system, with their state (DECISIONS D3, T-098). The
+    /// ones that do not exist there do not appear.
     pub modules: Vec<ModuleInfo>,
-    /// Entornos de ejecución detectados (T-105); vacío hasta que termina el primer escaneo.
+    /// Detected execution environments (T-105); empty until the first scan finishes.
     pub environments: Vec<Environment>,
-    /// El equipo según el escaneo (T-105).
+    /// The hardware according to the scan (T-105).
     pub hardware: Hardware,
-    /// Monitores con canal DDC vivo desde esta máquina. Vacío hasta T-110.
+    /// Monitors with a live DDC channel from this machine. Empty until T-110.
     pub monitors: Vec<MonitorChannel>,
 }
 
-/// Los módulos de Tandem. Cada máquina anuncia solo los que existen en su sistema.
+/// Tandem's modules. Each machine announces only the ones that exist on its system.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum ModuleId {
-    /// Teclado y mouse compartidos.
+    /// Shared keyboard and mouse.
     Input,
     Clipboard,
-    /// Arrastrar archivos entre máquinas (D14).
+    /// Drag files between machines (D14).
     Files,
-    /// Túneles de Claude (D8).
+    /// Claude tunnels (D8).
     Tunnels,
-    /// Control de monitores por DDC (D11).
+    /// Monitor control over DDC (D11).
     Monitors,
-    /// Wake-on-LAN y apagado limpio.
+    /// Wake-on-LAN and clean shutdown.
     Power,
-    /// Entrada en el escritorio seguro de Windows (UAC, inicio de sesión; T-027).
+    /// Input on the Windows secure desktop (UAC, sign-in; T-027).
     SecureDesktop,
 }
 
 impl ModuleId {
-    /// Como se guarda en el puesto (`[modules.a] clipboard = false`): estable, no cambia
-    /// aunque cambie el nombre que muestra la UI.
+    /// As stored in the desk (`[modules.a] clipboard = false`): stable, does not change
+    /// even if the name the UI shows changes.
     pub fn as_str(self) -> &'static str {
         match self {
             ModuleId::Input => "input",
@@ -314,7 +314,7 @@ impl ModuleId {
         }
     }
 
-    /// Lo inverso de [`ModuleId::as_str`].
+    /// The inverse of [`ModuleId::as_str`].
     pub fn parse(s: &str) -> Option<ModuleId> {
         ModuleId::ALL.into_iter().find(|m| m.as_str() == s)
     }
@@ -330,55 +330,55 @@ impl ModuleId {
     ];
 }
 
-/// En qué está un módulo.
+/// What state a module is in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ModuleState {
     Active,
-    /// Lo apagó el usuario.
+    /// The user turned it off.
     Off,
-    /// No puede funcionar; `reason` dice por qué y, si se puede, qué hacer.
+    /// It cannot work; `reason` says why and, if possible, what to do.
     Unavailable {
         reason: String,
     },
 }
 
-/// Un módulo tal como lo anuncia su máquina.
+/// A module as its machine announces it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModuleInfo {
     pub id: ModuleId,
-    /// Para la UI («Teclado y mouse»).
+    /// For the UI ("Keyboard and mouse").
     pub name: String,
-    /// Qué hace en esta máquina (la línea bajo el nombre).
+    /// What it does on this machine (the line under the name).
     pub detail: String,
     pub state: ModuleState,
-    /// El usuario lo puede encender y apagar ([`UiCommand::SetModule`]).
+    /// The user can turn it on and off ([`UiCommand::SetModule`]).
     pub switchable: bool,
 }
 
-/// Un monitor con canal DDC vivo desde la máquina que lo anuncia (T-110): contestó al
-/// sondeo de solo lectura, sea compatible o no.
+/// A monitor with a live DDC channel from the machine that announces it (T-110): it answered the
+/// read-only probe, whether compatible or not.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorChannel {
-    /// `<modelo>-<hash corto del serial del EDID>`: el mismo por DP y por HDMI.
+    /// `<model>-<short hash of the EDID serial>`: the same over DP and over HDMI.
     pub id: String,
-    /// El modelo, para la UI.
+    /// The model, for the UI.
     pub name: String,
     pub compat: MonitorCompat,
-    /// Lo que tardó en contestar el sondeo, medido al abrir el canal (no cambia mientras
-    /// el canal siga vivo, para que la elección del dueño no oscile).
+    /// How long the probe took to answer, measured when opening the channel (it does not change while
+    /// the channel stays alive, so the owner choice does not oscillate).
     pub latency_ms: u32,
-    /// La entrada del monitor a la que va el cable de esta máquina, según el tipo de interfaz
-    /// de su EDID (E-EDID 1.4); `None` si el EDID no lo dice (T-111).
+    /// The monitor input this machine's cable goes to, according to the interface type
+    /// of its EDID (E-EDID 1.4); `None` if the EDID does not say (T-111).
     pub via: Option<MonitorInput>,
 }
 
-/// Si un monitor habla el estándar del firmware propio (DECISIONS D11).
+/// Whether a monitor speaks the own-firmware standard (DECISIONS D11).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MonitorCompat {
     Compatible {
         protocol: u8,
     },
-    /// Se muestra, pero nunca se le escribe nada.
+    /// It is shown, but nothing is ever written to it.
     NotCompatible {
         reason: String,
     },
@@ -390,166 +390,166 @@ impl MonitorCompat {
     }
 }
 
-/// Lo que leyó el dueño de un monitor.
+/// What the owner of a monitor read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorReport {
     pub id: String,
-    /// La entrada que está en pantalla (la real, de `0xEE`); `None` si no se pudo leer.
+    /// The input on screen (the real one, from `0xEE`); `None` if it could not be read.
     pub input: Option<MonitorInput>,
     pub power_on: Option<bool>,
     pub signal: Option<bool>,
-    /// Los últimos eventos, del más viejo al más nuevo.
+    /// The latest events, oldest to newest.
     pub events: Vec<MonitorEvent>,
 }
 
-/// Un evento del firmware, con la hora ya pasada al reloj del dueño.
+/// A firmware event, with the time already converted to the owner's clock.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorEvent {
-    /// Milisegundos desde la época Unix, según el reloj de la máquina dueña.
+    /// Milliseconds since the Unix epoch, according to the owner machine's clock.
     pub at_ms: u64,
     pub kind: MonitorEventKind,
-    /// La entrada de la que habla, si habla de una.
+    /// The input it talks about, if it talks about one.
     pub input: Option<MonitorInput>,
 }
 
-/// Qué pasó, para el ícono y el texto de la UI.
+/// What happened, for the icon and the UI text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MonitorEventKind {
-    /// El monitor arrancó (o se reinició).
+    /// The monitor started (or restarted).
     Boot,
-    /// Cambió la entrada en pantalla (por DDC o desde el menú del monitor).
+    /// The input on screen changed (over DDC or from the monitor menu).
     Input,
-    /// Alguien pidió un cambio de entrada por DDC.
+    /// Someone requested an input change over DDC.
     SwitchRequested,
-    /// El firmware confirmó el cambio: imagen estable en la entrada nueva.
+    /// The firmware confirmed the change: stable image on the new input.
     SwitchDone,
-    /// El cambio no dio imagen; el monitor sigue en la de antes.
+    /// The change gave no image; the monitor stays on the previous one.
     SwitchFailed,
-    /// Se encendió o se apagó.
+    /// It was turned on or off.
     Power,
-    /// Ganó o perdió la señal.
+    /// The signal was gained or lost.
     Signal,
-    /// Cambió un ajuste del menú.
+    /// A menu setting changed.
     Setting,
-    /// Se perdieron eventos (el anillo dio la vuelta entre dos lecturas).
+    /// Events were lost (the ring wrapped between two reads).
     Lost,
     Other,
 }
 
-/// Un monitor como lo ve la UI (pantalla Monitores, mockup `V3-Monitores`).
+/// A monitor as the UI sees it (Monitors screen, mockup `V3-Monitors`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MonitorView {
     pub id: String,
     pub name: String,
     pub compat: MonitorCompat,
-    /// Las máquinas con canal DDC vivo hacia él.
+    /// The machines with a live DDC channel to it.
     pub seen_by: Vec<Machine>,
-    /// La entrada a la que va el cable de cada máquina que lo ve, según su EDID (T-111).
+    /// The input each machine that sees it has its cable on, according to its EDID (T-111).
     pub via: Vec<(Machine, MonitorInput)>,
-    /// Quién lo lee y lo controla; `None` si no es compatible o nadie tiene canal.
+    /// Who reads and controls it; `None` if it is not compatible or nobody has a channel.
     pub owner: Option<Machine>,
-    /// Lo último que leyó el dueño; `None` mientras no haya lectura.
+    /// The latest the owner read; `None` while there is no reading.
     pub report: Option<MonitorReport>,
 }
 
-/// El motor de teclado y mouse de una máquina.
+/// A machine's keyboard and mouse engine.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputCaps {
-    /// Puede capturar el teclado y el mouse (tenerlos y mandarlos).
+    /// It can capture the keyboard and mouse (have them and send them).
     pub capture: bool,
-    /// Puede inyectarlos (recibirlos de la otra).
+    /// It can inject them (receive them from the other).
     pub inject: bool,
-    /// Permisos de macOS que le faltan.
+    /// macOS permissions it is missing.
     pub missing: Vec<InputPermission>,
-    /// El proceso que corre el agente: macOS concede los permisos a ese binario exacto, y
-    /// la UI le dice al usuario cuál es sin pasar por una terminal (T-090).
+    /// The process the agent runs as: macOS grants permissions to that exact binary, and
+    /// the UI tells the user which one without going through a terminal (T-090).
     pub process: ProcessInfo,
 }
 
-/// Qué proceso es el agente.
+/// Which process the agent is.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProcessInfo {
-    /// Ruta del ejecutable en marcha (`/Applications/Tandem.app/Contents/MacOS/tandemd`);
-    /// vacía si el sistema no la dio.
+    /// Path of the running executable (`/Applications/Tandem.app/Contents/MacOS/tandemd`);
+    /// empty if the system did not provide it.
     pub exe: String,
     pub pid: u32,
-    /// Cuándo arrancó, en segundos desde la época Unix: tras reiniciar el agente cambia, y
-    /// así la UI sabe que los permisos recién dados ya se evalúan en un proceso nuevo.
+    /// When it started, in seconds since the Unix epoch: after restarting the agent it changes, and
+    /// so the UI knows that the permissions just granted are now evaluated in a new process.
     pub started: u64,
 }
 
-/// Energía de una máquina.
+/// A machine's power.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PowerCaps {
-    /// Puede despertar a la otra (tiene su `[power.wol]`).
+    /// It can wake the other (it has its `[power.wol]`).
     pub wake_peer: bool,
-    /// Se la puede despertar por Wake-on-LAN.
+    /// It can be woken by Wake-on-LAN.
     pub wakeable: bool,
-    /// Sabe apagarse limpio a pedido de la otra.
+    /// It knows how to shut down cleanly on the other's request.
     pub power_off: bool,
-    /// La MAC de la tarjeta Ethernet de esta máquina (`aa:bb:cc:dd:ee:ff`), para que la otra
-    /// la guarde al emparejar y pueda despertarla (T-159). `None` si no se pudo saber.
+    /// The MAC of this machine's Ethernet card (`aa:bb:cc:dd:ee:ff`), so the other
+    /// stores it when pairing and can wake it (T-159). `None` if it could not be determined.
     pub mac: Option<String>,
-    /// La MAC con que esta máquina despierta a la otra (su `[power.wol]`): la aprendida al
-    /// emparejar o la escrita a mano. `None`: no puede encenderla.
+    /// The MAC this machine wakes the other with (its `[power.wol]`): the one learned when
+    /// pairing or the one typed by hand. `None`: it cannot power it on.
     pub wol_mac: Option<String>,
 }
 
-/// Lo que sabe cada máquina del puesto, para la UI.
+/// What each machine of the desk knows, for the UI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeskCapabilities {
-    /// Esta máquina.
+    /// This machine.
     pub here: Capabilities,
-    /// La otra, según su último anuncio; `None` si nunca se la vio.
+    /// The other, according to its latest announcement; `None` if it was never seen.
     pub peer: Option<Capabilities>,
 }
 
-/// Los streams propios de la entrada y del portapapeles, aparte del de pedidos: una
-/// imagen grande no frena las teclas, y cada uno tiene sus propios mensajes.
+/// The input's and the clipboard's own streams, apart from the request one: a
+/// large image does not hold up the keys, and each one has its own messages.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Channel {
-    /// La sesión de teclado y mouse: la abre el servidor.
+    /// The keyboard and mouse session: opened by the server.
     Input,
-    /// El portapapeles: lo abre el lado A.
+    /// The clipboard: opened by side A.
     Clipboard,
-    /// Un pedido de túnel ([`crate::TunnelUp`]): lo abre el origen. Si es
-    /// [`crate::TunnelUp::Attach`], el stream pasa a ser el canal de datos del túnel.
+    /// A tunnel request ([`crate::TunnelUp`]): opened by the source. If it is
+    /// [`crate::TunnelUp::Attach`], the stream becomes the tunnel's data channel.
     Tunnel,
-    /// La prueba de ancho de banda de un camino (T-102): quien la pide manda datos sin
-    /// trama durante [`crate::net::MEASURE_SECS`] y cierra; el otro contesta
+    /// A path's bandwidth test (T-102): the requester sends unframed data
+    /// for [`crate::net::MEASURE_SECS`] and closes; the other answers
     /// [`crate::net::MeasureReport`].
     Measure,
 }
 
-/// Lo que un agente le reporta al otro para decidir los roles (DESIGN §7).
+/// What one agent reports to the other to decide the roles (DESIGN §7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HubReport {
-    /// El hub (ya con antirrebote) está en la máquina de quien lo manda.
+    /// The hub (already debounced) is on the sender's machine.
     pub hub: bool,
-    /// Quién es el servidor para quien lo manda.
+    /// Who the server is according to the sender.
     pub server: Machine,
 }
 
-/// Una pantalla, en las coordenadas nativas del cursor de su máquina.
+/// A screen, in the native coordinates of its machine's cursor.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ScreenRect {
-    /// Su id en el acomodo (`mac-1`, o el de un `[[screens]]`).
+    /// Its id in the arrangement (`mac-1`, or the one from a `[[screens]]`).
     pub id: String,
     pub x: i32,
     pub y: i32,
     pub width: u32,
     pub height: u32,
-    /// Unidades nativas por punto lógico, en milésimas (1500 = 150 %): entero para que
-    /// el mensaje se pueda comparar.
+    /// Native units per logical point, in thousandths (1500 = 150%): an integer so
+    /// the message can be compared.
     pub scale_milli: u32,
 }
 
-/// Emparejamiento por comparación numérica (DESIGN §9), en el orden en que se mandan:
-/// quien inicia manda `Offer`, quien responde `Answer`, quien inicia `Reveal`; después
-/// cada lado manda `Confirm` cuando su usuario confirma el código, o `Reject`.
+/// Pairing by numeric comparison (DESIGN §9), in the order they are sent:
+/// the initiator sends `Offer`, the responder `Answer`, the initiator `Reveal`; then
+/// each side sends `Confirm` when its user confirms the code, or `Reject`.
 ///
-/// Las llaves van en bytes crudos: este crate no conoce los tipos de identidad. Quien
-/// los recibe comprueba que sean las mismas que autenticó la conexión.
+/// Keys travel as raw bytes: this crate does not know the identity types. Whoever
+/// receives them checks they are the same ones the connection authenticated.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PairingMsg {
     Offer {
@@ -565,11 +565,11 @@ pub enum PairingMsg {
     Reveal {
         nonce: [u8; 32],
     },
-    /// El usuario de este lado confirmó que ve `code`.
+    /// The user on this side confirmed seeing `code`.
     Confirm {
         code: u32,
     },
-    /// El usuario de este lado rechazó el código o canceló.
+    /// The user on this side rejected the code or canceled.
     Reject,
 }
 
@@ -597,7 +597,7 @@ impl From<StepOutcome> for Result<(), String> {
     }
 }
 
-/// Pedido de la UI; la respuesta llega como [`AgentToUi::Reply`] con el mismo `id`.
+/// UI request; the reply arrives as [`AgentToUi::Reply`] with the same `id`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UiRequest {
     pub id: u64,
@@ -607,163 +607,163 @@ pub struct UiRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UiCommand {
     GetState,
-    /// El puesto compartido (el acomodo de pantallas declarado).
+    /// The shared desk (the declared screen arrangement).
     GetDesk,
-    /// Encender o apagar `machine` (la otra, normalmente); apagar es la transacción de
-    /// apagado limpio. Solo si alguna máquina puede (ver [`Capabilities::power`]).
+    /// Power `machine` on or off (the other, normally); powering off is the clean
+    /// shutdown transaction. Only if some machine can (see [`Capabilities::power`]).
     SetPower {
         machine: Machine,
         on: bool,
     },
-    /// Con quién está emparejado el agente y por qué enlace lo ve.
+    /// Who the agent is paired with and over which link it sees them.
     GetPeer,
-    /// En qué va el emparejamiento.
+    /// How pairing is going.
     GetPairing,
-    /// Buscar a la otra máquina para emparejarse; su avance llega en [`AgentToUi::Pairing`].
+    /// Look for the other machine to pair; its progress arrives in [`AgentToUi::Pairing`].
     StartPairing,
-    /// El usuario ve el mismo código en las dos pantallas.
+    /// The user sees the same code on both screens.
     ConfirmPairing,
-    /// El usuario rechaza el código, o deja de buscar.
+    /// The user rejects the code, or stops looking.
     CancelPairing,
-    /// Olvidar al par: se borra de la confianza y deja de buscarse.
+    /// Forget the peer: it is removed from trust and no longer searched for.
     Unpair,
-    /// Quién es el servidor de teclado y mouse y si a esta máquina le faltan permisos.
+    /// Who the keyboard and mouse server is and whether this machine is missing permissions.
     GetInput,
-    /// Pedir a macOS los permisos que falten (diálogo del sistema), a nombre de este
-    /// agente. Solo por orden explícita del usuario; el estado nuevo llega con las
-    /// capacidades (T-090).
+    /// Ask macOS for the missing permissions (system dialog), on behalf of this
+    /// agent. Only on the user's explicit order; the new state arrives in
+    /// capabilities (T-090).
     RequestPermissions,
-    /// De dónde salió la configuración de este agente y en qué puerto escucha.
+    /// Where this agent's configuration came from and which port it listens on.
     GetSetup,
-    /// Lo que puede cada máquina ([`DeskCapabilities`]).
+    /// What each machine can do ([`DeskCapabilities`]).
     GetCapabilities,
-    /// «Presiona una tecla»: las dos máquinas escuchan (o dejan de escuchar).
+    /// "Press a key": both machines listen (or stop listening).
     KeyProbe {
         on: bool,
     },
-    /// La ventana de esta máquina oyó una tecla.
+    /// This machine's window heard a key.
     HeardKey,
-    /// El usuario confirma dónde está el teclado y el mouse. Se guarda y se le dice a la
-    /// otra máquina.
+    /// The user confirms where the keyboard and mouse are. It is saved and the
+    /// other machine is told.
     SetKeyboard(Machine),
-    /// Latencia visible del enlace con la otra máquina.
+    /// Visible latency of the link with the other machine.
     PingPeer,
-    /// Encender o apagar un módulo de `machine` (de esta o de la otra). Es un cambio del
-    /// puesto compartido (`Desk.modules`, D4), así que llega a la otra con el puesto; el
-    /// estado nuevo llega en [`AgentToUi::Machines`].
+    /// Turn a module of `machine` (this one or the other) on or off. It is a change to the
+    /// shared desk (`Desk.modules`, D4), so it reaches the other with the desk; the
+    /// new state arrives in [`AgentToUi::Machines`].
     SetModule {
         machine: Machine,
         module: ModuleId,
         on: bool,
     },
-    /// Cambiar el puesto compartido (DESIGN §4.4): se aplica aquí, se guarda y va a la otra
-    /// máquina. Contesta [`Reply::Desk`] con el puesto que queda, o el motivo del rechazo.
+    /// Change the shared desk (DESIGN §4.4): it is applied here, saved and sent to the other
+    /// machine. Answers [`Reply::Desk`] with the resulting desk, or the reason for rejection.
     EditDesk {
         patch: DeskPatch,
     },
-    /// Volver a la versión `to_rev` del historial (D5, «Deshacer»): es un cambio nuevo con
-    /// exactamente el puesto de aquella.
+    /// Go back to version `to_rev` of the history (D5, "Undo"): it is a new change with
+    /// exactly that version's desk.
     UndoDesk {
         to_rev: u64,
     },
-    /// Las últimas versiones del puesto que tuvo esta máquina.
+    /// The latest desk versions this machine had.
     GetDeskHistory,
-    /// Los monitores de las dos máquinas ([`MonitorView`]).
+    /// The monitors of both machines ([`MonitorView`]).
     GetMonitors,
-    /// Cambiar la entrada de un monitor compatible: una transacción con el veredicto del
-    /// firmware, que hace su dueño (se contesta [`Reply::Accepted`]).
+    /// Change the input of a compatible monitor: a transaction with the firmware's
+    /// verdict, done by its owner (answered with [`Reply::Accepted`]).
     SwitchMonitor {
         monitor: String,
         input: MonitorInput,
     },
-    /// Volver a escanear los entornos de `machine`; lo encontrado llega en
+    /// Rescan the environments of `machine`; what is found arrives in
     /// [`AgentToUi::Machines`] (T-105).
     Rescan {
         machine: Machine,
     },
-    /// Recibir (o dejar de recibir) [`AgentToUi::Resources`] de las dos máquinas por esta
-    /// conexión. Se muestrea solo mientras alguien mira; al cerrarse la conexión se deja.
+    /// Receive (or stop receiving) [`AgentToUi::Resources`] from both machines over this
+    /// connection. It is sampled only while someone is watching; when the connection closes it stops.
     WatchResources {
         on: bool,
     },
-    /// Las versiones de las dos máquinas (T-122).
+    /// The versions of both machines (T-122).
     GetUpdate,
-    /// Pedirle a la otra máquina que instale `version` (T-122); su avance se ve en
-    /// [`AgentToUi::Update`] cuando vuelve con la versión nueva.
+    /// Ask the other machine to install `version` (T-122); its progress shows in
+    /// [`AgentToUi::Update`] when it comes back with the new version.
     UpdatePeer {
         version: String,
     },
-    /// Aplicar la escena `id` del puesto (D6): una transacción (se contesta
-    /// [`Reply::Accepted`]). Crear, editar y borrar escenas son parches del puesto
+    /// Apply scene `id` of the desk (D6): a transaction (answered with
+    /// [`Reply::Accepted`]). Creating, editing and deleting scenes are desk patches
     /// ([`UiCommand::EditDesk`]).
     ApplyScene {
         id: String,
     },
-    /// «Bloquear aquí» (T-129): `on` bloquea el cursor en esta máquina (no cruza a la otra)
-    /// y `!on` lo suelta; el mismo efecto que el atajo de bloqueo del motor de entrada.
+    /// "Lock here" (T-129): `on` locks the cursor on this machine (it does not cross to the other)
+    /// and `!on` releases it; same effect as the input engine's lock shortcut.
     LockHere {
         on: bool,
     },
-    /// La MAC con que esta máquina despierta a la otra (T-159): se guarda en `[power.wol]`.
-    /// `None` la borra. Contesta [`Reply::Done`] o el motivo del rechazo (MAC inválida).
+    /// The MAC this machine wakes the other with (T-159): saved in `[power.wol]`.
+    /// `None` deletes it. Answers [`Reply::Done`] or the reason for rejection (invalid MAC).
     SetWol {
         mac: Option<String>,
     },
-    /// Abrir un túnel hacia `target` (la otra máquina). Solo desde un
-    /// [`Peer::Client`]; contesta [`Reply::Tunnel`] (T-103).
+    /// Open a tunnel to `target` (the other machine). Only from a
+    /// [`Peer::Client`]; answers [`Reply::Tunnel`] (T-103).
     OpenTunnel {
         title: String,
         project: Option<Project>,
         target: Machine,
-        /// La sesión del cliente (la de Claude).
+        /// The client's session (Claude's).
         session: String,
-        /// Un repo de git que acompaña al túnel (T-107): se copia a la destino y los
-        /// procesos arrancan en su carpeta.
+        /// A git repo that goes along with the tunnel (T-107): it is copied to the destination and the
+        /// processes start in its folder.
         workspace: Option<WorkspaceSpec>,
     },
-    /// Cerrar un túnel abierto desde esta máquina: se cierran sus recursos en la destino.
-    /// Solo desde un [`Peer::Client`].
+    /// Close a tunnel opened from this machine: its resources on the destination are closed.
+    /// Only from a [`Peer::Client`].
     CloseTunnel {
         id: TunnelId,
     },
-    /// Los túneles de las dos máquinas, agrupados por proyecto ([`Reply::Tunnels`]).
+    /// The tunnels of both machines, grouped by project ([`Reply::Tunnels`]).
     GetTunnels,
-    /// Recibir (o dejar de recibir) [`AgentToUi::Network`] una vez por segundo por esta
-    /// conexión, mientras la pantalla Red esté visible (T-102).
+    /// Receive (or stop receiving) [`AgentToUi::Network`] once per second over this
+    /// connection, while the Network screen is visible (T-102).
     WatchNetwork {
         on: bool,
     },
-    /// Medir el ancho de banda de un camino (una prueba de
-    /// [`crate::net::MEASURE_SECS`] por un stream de datos). Se contesta al terminar con
-    /// [`Reply::Bandwidth`] o el motivo del rechazo.
+    /// Measure a path's bandwidth (a [`crate::net::MEASURE_SECS`]
+    /// test over a data stream). Answered when it finishes with
+    /// [`Reply::Bandwidth`] or the reason for rejection.
     MeasureLink {
         path: Link,
     },
-    /// Recibir (o dejar de recibir) [`AgentToUi::Cursor`] y [`AgentToUi::Crossed`] de las
-    /// dos máquinas por esta conexión (T-128). Solo se muestrea mientras alguna conexión,
-    /// de aquí o de la otra máquina, lo pida; al cerrarse la conexión se deja.
+    /// Receive (or stop receiving) [`AgentToUi::Cursor`] and [`AgentToUi::Crossed`] from both
+    /// machines over this connection (T-128). It is sampled only while some connection,
+    /// from here or from the other machine, asks for it; when the connection closes it stops.
     WatchCursor {
         on: bool,
     },
-    /// Copiar `local` (archivo o carpeta de esta máquina) a `remote` en la destino del
-    /// túnel (T-106). Solo desde un [`Peer::Client`]; tarda, así que contesta al terminar
-    /// con [`Reply::Files`] y mientras tanto manda [`AgentToUi::Transfer`].
+    /// Copy `local` (file or folder on this machine) to `remote` on the tunnel's
+    /// destination (T-106). Only from a [`Peer::Client`]; it takes a while, so it answers when it finishes
+    /// with [`Reply::Files`] and meanwhile sends [`AgentToUi::Transfer`].
     FilesPut {
         tunnel: TunnelId,
         local: String,
         remote: String,
-        /// Credenciales que sí se mandan, una por una (rutas relativas a `local`). Por
-        /// omisión nada que parezca una se copia (T-130).
+        /// Credentials that are sent, one by one (paths relative to `local`). By
+        /// default nothing that looks like one is copied (T-130).
         include: Vec<String>,
     },
-    /// Traer `remote` de la destino del túnel a `local` (T-106). Contesta como `FilesPut`.
+    /// Bring `remote` from the tunnel's destination to `local` (T-106). Answers like `FilesPut`.
     FilesGet {
         tunnel: TunnelId,
         remote: String,
         local: String,
     },
-    /// Reenviar un puerto TCP por el túnel (T-106); contesta [`Reply::Forward`]. Se cierra
-    /// con el túnel o con [`UiCommand::StopForward`].
+    /// Forward a TCP port through the tunnel (T-106); answers [`Reply::Forward`]. It closes
+    /// with the tunnel or with [`UiCommand::StopForward`].
     PortForward {
         tunnel: TunnelId,
         local_port: u16,
@@ -771,22 +771,22 @@ pub enum UiCommand {
         remote_port: u16,
         direction: Direction,
     },
-    /// Dejar de reenviar el puerto `id` (T-106).
+    /// Stop forwarding port `id` (T-106).
     StopForward {
         id: u64,
     },
-    /// Lanzar un proceso en un túnel abierto desde esta máquina (T-104). Solo desde un
-    /// [`Peer::Client`]; contesta [`Reply::Process`].
+    /// Launch a process in a tunnel opened from this machine (T-104). Only from a
+    /// [`Peer::Client`]; answers [`Reply::Process`].
     Exec {
         tunnel: TunnelId,
         spec: ExecSpec,
     },
-    /// Matar un proceso con todo su árbol. Solo desde un [`Peer::Client`].
+    /// Kill a process with its whole tree. Only from a [`Peer::Client`].
     Kill {
         tunnel: TunnelId,
         process: ProcessId,
     },
-    /// La salida de un proceso desde `from` (hasta `max` bytes de cada flujo); contesta
+    /// A process's output from `from` (up to `max` bytes of each stream); answers
     /// [`Reply::Output`].
     Output {
         tunnel: TunnelId,
@@ -794,30 +794,30 @@ pub enum UiCommand {
         from: OutputCursor,
         max: u32,
     },
-    /// Los procesos de un túnel, también los que terminaron hace poco
+    /// The processes of a tunnel, including the ones that finished recently
     /// ([`Reply::Processes`]).
     GetProcesses {
         tunnel: TunnelId,
     },
-    /// Traer el trabajo del workspace del túnel como una rama del repo de origen (T-107);
-    /// `commit` es el mensaje para hacer commit de lo pendiente en la destino. Solo desde
-    /// un [`Peer::Client`]; contesta [`Reply::BroughtBack`].
+    /// Bring the tunnel workspace's work as a branch of the source repo (T-107);
+    /// `commit` is the message for committing what is pending on the destination. Only from
+    /// a [`Peer::Client`]; answers [`Reply::BroughtBack`].
     BringBack {
         tunnel: TunnelId,
         commit: Option<String>,
-        /// Nombre de la rama (`tandem/<nombre>`); por omisión, el título del túnel.
+        /// Branch name (`tandem/<name>`); by default, the tunnel's title.
         name: Option<String>,
     },
 }
 
-/// La configuración del agente, para que la UI la muestre.
+/// The agent's configuration, for the UI to show.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetupInfo {
-    /// `tandem.toml`; `None` si el agente no tiene archivo (pruebas).
+    /// `tandem.toml`; `None` if the agent has no file (tests).
     pub config_file: Option<String>,
-    /// El agente la generó al arrancar por primera vez (T-082).
+    /// The agent generated it on first start (T-082).
     pub generated: bool,
-    /// El puerto UDP real del agente; `None` sin red.
+    /// The agent's real UDP port; `None` without network.
     pub port: Option<u16>,
 }
 
@@ -827,133 +827,133 @@ pub enum AgentToUi {
         id: u64,
         reply: Reply,
     },
-    /// Aviso espontáneo cuando el estado cambia por cualquier motivo.
+    /// Spontaneous notice when the state changes for any reason.
     State(State),
     Txn(TxnEvent),
     Power(PowerEvent),
-    /// Aviso espontáneo cuando cambia el par o el enlace con él.
+    /// Spontaneous notice when the peer or the link to it changes.
     Peer(PeerStatus),
-    /// Aviso espontáneo con cada paso del emparejamiento.
+    /// Spontaneous notice with each pairing step.
     Pairing(PairingStatus),
-    /// Aviso espontáneo cuando cambia el teclado y mouse (roles, sesión, permisos).
+    /// Spontaneous notice when the keyboard and mouse change (roles, session, permissions).
     Input(InputStatus),
-    /// Aviso espontáneo cuando cambia el puesto compartido.
+    /// Spontaneous notice when the shared desk changes.
     Desk(Config),
-    /// Aviso espontáneo cuando cambia lo que anuncia alguna de las dos máquinas (sistema,
-    /// nombre, color, módulos, entornos, monitores). `remote` es `None` si la otra nunca se
-    /// vio.
+    /// Spontaneous notice when what either machine announces changes (system,
+    /// name, color, modules, environments, monitors). `remote` is `None` if the other was never
+    /// seen.
     Machines {
         local: Box<Capabilities>,
         remote: Option<Box<Capabilities>>,
     },
-    /// Avance de la prueba «presiona una tecla» del asistente (T-087).
+    /// Progress of the setup's "press a key" test (T-087).
     KeyProbe(KeyProbeStatus),
-    /// La otra máquina cambió el puesto y ganó (D5): el aviso «Cambiado desde X ·
-    /// Deshacer». Deshacer es [`UiCommand::UndoDesk`] con `undo_to`.
+    /// The other machine changed the desk and won (D5): the "Changed from X ·
+    /// Undo" notice. Undo is [`UiCommand::UndoDesk`] with `undo_to`.
     DeskChanged {
         by: Machine,
         rev: u64,
-        /// Qué secciones cambiaron («Acomodo y atajos»).
+        /// Which sections changed ("Arrangement and shortcuts").
         summary: String,
-        /// La versión que había aquí antes del cambio.
+        /// The version that was here before the change.
         undo_to: u64,
     },
-    /// Aviso espontáneo cuando cambia algún monitor (canal, dueño, entrada, eventos).
+    /// Spontaneous notice when any monitor changes (channel, owner, input, events).
     Monitors(Vec<MonitorView>),
-    /// Recursos en vivo de `machine`, a las conexiones que pidieron
+    /// Live resources of `machine`, to the connections that asked for
     /// [`UiCommand::WatchResources`] (T-105).
     Resources {
         machine: Machine,
         resources: Box<Resources>,
     },
-    /// Las versiones de las dos máquinas y si la otra pidió actualizar esta (T-122), con
-    /// cada cambio.
+    /// The versions of both machines and whether the other asked to update this one (T-122), with
+    /// each change.
     Update(UpdateStatus),
-    /// Aviso espontáneo cuando cambia algún túnel abierto (T-103): agrupados por proyecto,
-    /// solo para mirar (D9).
+    /// Spontaneous notice when any open tunnel changes (T-103): grouped by project,
+    /// view only (D9).
     Tunnels(Vec<ProjectTunnels>),
-    /// Las métricas de cada camino, a las conexiones que pidieron
+    /// The metrics of each path, to the connections that asked for
     /// [`UiCommand::WatchNetwork`] (T-102).
     Network(Box<NetworkStatus>),
-    /// El cursor, a 30 Hz como mucho, a las conexiones que pidieron
+    /// The cursor, at 30 Hz at most, to the connections that asked for
     /// [`UiCommand::WatchCursor`] (T-128).
     Cursor(CursorSample),
-    /// El cursor cruzó el borde entre las dos máquinas: `edge` es el borde de `from` por el
-    /// que salió. A las mismas conexiones.
+    /// The cursor crossed the edge between the two machines: `edge` is the edge of `from` it
+    /// left through. To the same connections.
     Crossed {
         from: Machine,
         to: Machine,
         edge: Side,
     },
-    /// El avance de una transferencia de archivos de esta máquina (T-106).
+    /// Progress of a file transfer from this machine (T-106).
     Transfer(TransferProgress),
-    /// El avance de un arrastre de archivos entre las máquinas (T-121).
+    /// Progress of a file drag between the machines (T-121).
     Drag(DragStatus),
 }
 
-/// El emparejamiento visto desde la UI.
+/// Pairing as seen from the UI.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PairingStatus {
-    /// Nadie pidió emparejar (o se canceló).
+    /// Nobody asked to pair (or it was canceled).
     Idle,
-    /// Buscando a la otra máquina, que también tiene que estar emparejando.
+    /// Looking for the other machine, which must also be pairing.
     Searching,
-    /// Las dos máquinas se encontraron: el usuario compara `code` en las dos pantallas.
+    /// The two machines found each other: the user compares `code` on both screens.
     Comparing {
-        /// Los 6 dígitos, con los ceros a la izquierda.
+        /// The 6 digits, with leading zeros.
         code: String,
-        /// El nombre con que se presentó el otro agente.
+        /// The name the other agent introduced itself with.
         peer: String,
-        /// El usuario de esta máquina ya confirmó; falta el de la otra.
+        /// This machine's user already confirmed; the other's is missing.
         confirmed: bool,
     },
-    /// Emparejado y guardado en la confianza.
+    /// Paired and saved in trust.
     Done { peer: String },
-    /// No se emparejó; no se guardó nada.
+    /// Not paired; nothing was saved.
     Failed { reason: String },
 }
 
-/// El teclado y el mouse compartidos, vistos desde este agente (el chip de la UI).
+/// The shared keyboard and mouse, seen from this agent (the UI chip).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputStatus {
-    /// La máquina que tiene el teclado y el mouse.
+    /// The machine that has the keyboard and mouse.
     pub server: Machine,
-    /// Si el hub está en esta máquina; `None` sin detección (sin `[input.hub]` o
-    /// sin escáner en este sistema).
+    /// Whether the hub is on this machine; `None` without detection (no `[input.hub]` or
+    /// no scanner on this system).
     pub hub_here: Option<bool>,
-    /// La sesión de entrada con el otro agente está establecida.
+    /// The input session with the other agent is established.
     pub session: bool,
-    /// El cursor está bloqueado en la pantalla actual (atajo del servidor).
+    /// The cursor is locked on the current screen (server shortcut).
     pub locked: bool,
-    /// Permisos del sistema que faltan para capturar o inyectar (macOS). Vacío si
-    /// no falta ninguno.
+    /// System permissions missing to capture or inject (macOS). Empty if
+    /// none is missing.
     pub missing: Vec<InputPermission>,
-    /// Por qué el motor de entrada de esta máquina no funciona, si no funciona.
+    /// Why this machine's input engine does not work, if it does not.
     pub problem: Option<String>,
-    /// Se sabe dónde está el teclado: lo dice el hub, la configuración o el asistente.
-    /// Si no, `server` es solo el valor con el que arranca el motor y la UI dice «sin
-    /// definir»: nunca se supone la Mac (T-087).
+    /// It is known where the keyboard is: the hub says so, or the configuration, or setup.
+    /// If not, `server` is only the value the engine starts with and the UI says "not
+    /// set": the Mac is never assumed (T-087).
     pub defined: bool,
-    /// Latencia de la entrada (captura → inyección) de la última ventana de 5 s, medida
-    /// por quien recibe la entrada (T-093). `None` hasta la primera medición.
+    /// Input latency (capture -> injection) of the last 5 s window, measured
+    /// by the one receiving the input (T-093). `None` until the first measurement.
     #[serde(default)]
     pub latency: Option<InputLatency>,
-    /// Las pantallas que el motor de entrada lee en esta máquina, en sus coordenadas
-    /// nativas (T-150): la UI las dibuja cuando el puesto no declara `[[screens]]`.
+    /// The screens the input engine reads on this machine, in their native
+    /// coordinates (T-150): the UI draws them when the desk does not declare `[[screens]]`.
     #[serde(default)]
     pub screens: Vec<ScreenRect>,
-    /// Las que la otra máquina anunció (`ControlMsg::Screens`); vacío si no ha dicho nada.
+    /// The ones the other machine announced (`ControlMsg::Screens`); empty if it has said nothing.
     #[serde(default)]
     pub peer_screens: Vec<ScreenRect>,
 }
 
-/// Latencia de la entrada en una ventana: de la marca de tiempo del servidor (pasada al
-/// reloj del cliente con el desfase estimado por los latidos) a la inyección.
+/// Input latency over a window: from the server's timestamp (converted to the
+/// client's clock with the offset estimated from the heartbeats) to injection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InputLatency {
-    /// El enlace por el que se midió; `None` si quien la mide no lo sabe.
+    /// The link it was measured over; `None` if the one measuring does not know.
     pub link: Option<Link>,
-    /// Eventos medidos en la ventana.
+    /// Events measured in the window.
     pub count: u32,
     pub p50_us: u32,
     pub p99_us: u32,
@@ -961,7 +961,7 @@ pub struct InputLatency {
 }
 
 impl InputStatus {
-    /// Antes de saber nada: el servidor con el que arranca el agente.
+    /// Before knowing anything: the server the agent starts with.
     pub fn new(server: Machine) -> Self {
         InputStatus {
             server,
@@ -978,38 +978,38 @@ impl InputStatus {
     }
 }
 
-/// La prueba «presiona una tecla» vista desde la UI (T-087).
+/// The "press a key" test as seen from the UI (T-087).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct KeyProbeStatus {
-    /// Las dos máquinas están escuchando.
+    /// Both machines are listening.
     pub armed: bool,
-    /// La máquina que recibió la tecla, si ya llegó una.
+    /// The machine that received the key, if one has arrived.
     pub heard: Option<Machine>,
 }
 
-/// Permisos de macOS (TCC) que necesita el motor de entrada.
+/// macOS permissions (TCC) the input engine needs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InputPermission {
-    /// Accesibilidad: capturar tragando eventos e inyectar.
+    /// Accessibility: capture swallowing events and inject.
     Accessibility,
-    /// Monitorización de entrada: ver el teclado.
+    /// Input monitoring: watching the keyboard.
     InputMonitoring,
 }
 
-/// El otro agente visto desde este.
+/// The other agent as seen from this one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PeerStatus {
-    /// Sin par emparejado: el agente trabaja solo, con lo que esta máquina puede hacer.
+    /// No paired peer: the agent works alone, with what this machine can do.
     Unpaired,
     Paired {
-        /// El nombre con que se guardó en la confianza.
+        /// The name it was saved with in trust.
         name: String,
-        /// El enlace por el que van los pedidos; `None` si ninguno ve al otro agente.
+        /// The link requests go over; `None` if none sees the other agent.
         link: Option<Link>,
     },
 }
 
-/// Los enlaces entre las dos máquinas, de mayor a menor prioridad (DESIGN §6).
+/// The links between the two machines, from highest to lowest priority (DESIGN §6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Link {
     Usb4,
@@ -1017,30 +1017,30 @@ pub enum Link {
     Wifi,
 }
 
-/// Cambios de energía de la otra máquina que no vienen de una transacción.
+/// Power changes of the other machine that do not come from a transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PowerEvent {
-    /// La otra máquina dejó de contestar por todos los enlaces sin que nadie la apagara
-    /// (un corte de corriente, o se suspendió): este agente la da por apagada.
+    /// The other machine stopped answering on all links without anyone turning it off
+    /// (a power cut, or it suspended): this agent considers it off.
     PeerLost {
         machine: Machine,
-        /// Texto para mostrar en la UI.
+        /// Text to show in the UI.
         reason: String,
     },
 }
 
-// El puesto (`Config`) viaja por valor en las respuestas, como en el resto de la UI: la
-// diferencia de tamaño no pesa en un mensaje que se crea por pedido.
+// The desk (`Config`) travels by value in replies, as in the rest of the UI: the
+// size difference does not matter in a message created on request.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Reply {
     State(State),
-    /// El cambio arrancó como la transacción `txn`; su avance llega en [`AgentToUi::Txn`].
+    /// The change started as transaction `txn`; its progress arrives in [`AgentToUi::Txn`].
     Accepted {
         txn: u64,
     },
     Rejected(String),
-    /// Pedido atendido, sin nada más que contestar.
+    /// Request handled, nothing more to answer.
     Done,
     Desk(Config),
     Peer(PeerStatus),
@@ -1048,43 +1048,43 @@ pub enum Reply {
     Input(InputStatus),
     Setup(SetupInfo),
     Capabilities(Box<DeskCapabilities>),
-    /// Lo que tarda un ping por el enlace de `link`.
+    /// How long a ping takes over the `link` link.
     Pong {
         link: Link,
         millis: u32,
     },
-    /// El historial del puesto, de la versión más nueva a la más vieja.
+    /// The desk history, from the newest version to the oldest.
     DeskHistory(Vec<HistoryEntry>),
     Monitors(Vec<MonitorView>),
-    /// Las versiones de las dos máquinas (T-122).
+    /// The versions of both machines (T-122).
     Update(UpdateStatus),
-    /// El túnel que se abrió.
+    /// The tunnel that was opened.
     Tunnel {
         tunnel: Box<Tunnel>,
-        /// Lo que el workspace dejó fuera por parecer una credencial (T-130).
+        /// What the workspace left out for looking like a credential (T-130).
         skipped: Vec<String>,
-        /// Credenciales que ya estaban en la historia del repo y viajan en el bundle (T-130).
+        /// Credentials that were already in the repo history and travel in the bundle (T-130).
         history_secrets: Vec<String>,
     },
     Tunnels(Vec<ProjectTunnels>),
-    /// Lo que dio la medición de [`UiCommand::MeasureLink`].
+    /// The result of [`UiCommand::MeasureLink`].
     Bandwidth {
         link: Link,
         bytes_per_sec: u64,
     },
-    /// Lo que copió [`UiCommand::FilesPut`] o [`UiCommand::FilesGet`].
+    /// What [`UiCommand::FilesPut`] or [`UiCommand::FilesGet`] copied.
     Files(FilesReport),
-    /// El puerto que quedó reenviándose ([`UiCommand::PortForward`]).
+    /// The port that is now being forwarded ([`UiCommand::PortForward`]).
     Forward(ForwardInfo),
-    /// El proceso que se lanzó (T-104).
+    /// The process that was launched (T-104).
     Process(Box<TunnelProcess>),
     Processes(Vec<TunnelProcess>),
     Output(Box<ProcessOutput>),
-    /// El resultado de [`UiCommand::BringBack`].
+    /// The result of [`UiCommand::BringBack`].
     BroughtBack(Box<BringBackReport>),
 }
 
-/// Avance de una transacción, para que la UI muestre cada paso.
+/// Progress of a transaction, for the UI to show each step.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TxnEvent {
     Started {
@@ -1092,7 +1092,7 @@ pub enum TxnEvent {
         #[serde(with = "wire::steps")]
         steps: Vec<Step>,
     },
-    /// `index` es la posición en `steps` de [`TxnEvent::Started`].
+    /// `index` is the position in `steps` of [`TxnEvent::Started`].
     StepStarted {
         txn: u64,
         index: u32,
@@ -1106,7 +1106,7 @@ pub enum TxnEvent {
         index: u32,
         error: String,
     },
-    /// Vuelta atrás: el paso `index`, ya hecho, se deshizo porque falló uno posterior.
+    /// Rollback: step `index`, already done, was undone because a later one failed.
     StepUndone {
         txn: u64,
         index: u32,
@@ -1115,8 +1115,8 @@ pub enum TxnEvent {
         txn: u64,
         state: State,
     },
-    /// Falló un paso: `state` tiene lo que sí quedó hecho (los pasos de energía no se
-    /// deshacen).
+    /// A step failed: `state` has what did get done (power steps are not
+    /// undone).
     Failed {
         txn: u64,
         state: State,
@@ -1125,9 +1125,9 @@ pub enum TxnEvent {
 
 #[cfg(test)]
 pub(crate) mod samples {
-    //! Un ejemplo de cada variante. Las funciones `arm` hacen `match` exhaustivo: una
-    //! variante nueva no compila hasta tener número, y la prueba de cobertura falla
-    //! hasta que tenga ejemplo.
+    //! One example of each variant. The `arm` functions do an exhaustive `match`: a
+    //! new variant does not compile until it has a number, and the coverage test fails
+    //! until it has an example.
 
     use tandem_core::{Align, Arrangement, DeskStamp, Scale, ScreenSpec, Side};
 
@@ -1136,11 +1136,11 @@ pub(crate) mod samples {
     pub fn state() -> State {
         State {
             on: tandem_core::Powered::both(),
-            scene: Some("trabajo".into()),
+            scene: Some("work".into()),
         }
     }
 
-    /// Un puesto con pantallas declaradas de las dos máquinas.
+    /// A desk with declared screens of both machines.
     pub fn desk() -> Config {
         Config {
             machines: tandem_core::Machines {
@@ -1148,7 +1148,7 @@ pub(crate) mod samples {
                 b: Some(MachineInfo::new(
                     Machine::B,
                     tandem_core::Os::Windows,
-                    Some("ESCRITORIO".into()),
+                    Some("DESK".into()),
                 )),
             },
             screens: vec![
@@ -1181,7 +1181,7 @@ pub(crate) mod samples {
                     b: Some(MachineInfo::new(
                         Machine::B,
                         tandem_core::Os::Windows,
-                        Some("ESCRITORIO".into()),
+                        Some("DESK".into()),
                     )),
                 },
                 None,
@@ -1263,7 +1263,7 @@ pub(crate) mod samples {
                 id: "odyssey-0f0f0f0f".into(),
                 name: "Odyssey G5".into(),
                 compat: MonitorCompat::NotCompatible {
-                    reason: "firmware de fábrica".into(),
+                    reason: "factory firmware".into(),
                 },
                 seen_by: vec![Machine::B],
                 via: vec![],
@@ -1324,7 +1324,7 @@ pub(crate) mod samples {
             },
             ControlMsg::StepResult {
                 id: 8,
-                outcome: StepOutcome::Failed("no hay Wake-on-LAN".into()),
+                outcome: StepOutcome::Failed("no Wake-on-LAN".into()),
             },
             ControlMsg::GetState,
             ControlMsg::State(state()),
@@ -1364,7 +1364,7 @@ pub(crate) mod samples {
             ControlMsg::WatchCursor { on: false },
             ControlMsg::Drag(DragMsg::Begin {
                 id: 1,
-                names: vec!["a.txt".into(), "carpeta".into()],
+                names: vec!["a.txt".into(), "folder".into()],
             }),
             ControlMsg::Drag(DragMsg::Staged {
                 id: 1,
@@ -1372,7 +1372,7 @@ pub(crate) mod samples {
             }),
             ControlMsg::Drag(DragMsg::Staged {
                 id: u64::MAX,
-                dir: Err("sin espacio".into()),
+                dir: Err("no space".into()),
             }),
             ControlMsg::Drag(DragMsg::Ready { id: 1 }),
             ControlMsg::Drag(DragMsg::Finished {
@@ -1385,7 +1385,7 @@ pub(crate) mod samples {
             }),
             ControlMsg::Drag(DragMsg::Finished {
                 id: 1,
-                end: Err("falló".into()),
+                end: Err("failed".into()),
             }),
             ControlMsg::Drag(DragMsg::Cancel { id: 1 }),
             ControlMsg::Crossed {
@@ -1460,14 +1460,14 @@ pub(crate) mod samples {
         }
     }
 
-    /// Las dos máquinas del puesto real.
+    /// The two machines of the real desk.
     pub fn capabilities() -> Vec<Capabilities> {
         vec![
             Capabilities {
                 machine: Machine::B,
                 info: MachineInfo {
                     os: tandem_core::Os::Windows,
-                    name: "ESCRITORIO".into(),
+                    name: "DESK".into(),
                     color: "#a99be8".into(),
                 },
                 hub: Some(true),
@@ -1500,7 +1500,7 @@ pub(crate) mod samples {
                         id: "odyssey-0f0f0f0f".into(),
                         name: "Odyssey G5".into(),
                         compat: MonitorCompat::NotCompatible {
-                            reason: "firmware de fábrica".into(),
+                            reason: "factory firmware".into(),
                         },
                         latency_ms: 0,
                         via: None,
@@ -1544,29 +1544,29 @@ pub(crate) mod samples {
         ]
     }
 
-    /// Un módulo en cada estado.
+    /// A module in each state.
     pub fn modules() -> Vec<ModuleInfo> {
         vec![
             ModuleInfo {
                 id: ModuleId::Input,
-                name: "Teclado y mouse".into(),
-                detail: "Captura e inyección".into(),
+                name: "Keyboard and mouse".into(),
+                detail: "Capture and injection".into(),
                 state: ModuleState::Active,
                 switchable: true,
             },
             ModuleInfo {
                 id: ModuleId::Clipboard,
-                name: "Portapapeles".into(),
-                detail: "Texto, HTML e imagen".into(),
+                name: "Clipboard".into(),
+                detail: "Text, HTML and image".into(),
                 state: ModuleState::Off,
                 switchable: true,
             },
             ModuleInfo {
                 id: ModuleId::Monitors,
-                name: "Monitores".into(),
+                name: "Monitors".into(),
                 detail: String::new(),
                 state: ModuleState::Unavailable {
-                    reason: "Sin canal DDC en esta máquina".into(),
+                    reason: "No DDC channel on this machine".into(),
                 },
                 switchable: false,
             },
@@ -1620,7 +1620,7 @@ pub(crate) mod samples {
             },
             PairingStatus::Done { peer: "PC".into() },
             PairingStatus::Failed {
-                reason: "la otra máquina rechazó el código".into(),
+                reason: "the other machine rejected the code".into(),
             },
         ]
     }
@@ -1668,7 +1668,7 @@ pub(crate) mod samples {
                     InputPermission::Accessibility,
                     InputPermission::InputMonitoring,
                 ],
-                problem: Some("falta el permiso de Accesibilidad".into()),
+                problem: Some("the Accessibility permission is missing".into()),
                 defined: true,
                 latency: Some(InputLatency {
                     link: Some(Link::Wifi),
@@ -1731,11 +1731,9 @@ pub(crate) mod samples {
             UiCommand::UpdatePeer {
                 version: "0.3.1".into(),
             },
-            UiCommand::ApplyScene {
-                id: "trabajo".into(),
-            },
+            UiCommand::ApplyScene { id: "work".into() },
             UiCommand::OpenTunnel {
-                title: "Corre los tests".into(),
+                title: "Run the tests".into(),
                 project: tunnel_sample().project,
                 target: Machine::B,
                 session: "claude-1234".into(),
@@ -1821,7 +1819,7 @@ pub(crate) mod samples {
             },
             UiCommand::BringBack {
                 tunnel: crate::TunnelId(1),
-                commit: Some("trabajo en el destino".into()),
+                commit: Some("work on the destination".into()),
                 name: None,
             },
         ];
@@ -1890,12 +1888,12 @@ pub(crate) mod samples {
         }
     }
 
-    /// Un parche de cada sección del puesto.
+    /// A patch for each section of the desk.
     pub fn desk_patches() -> Vec<DeskPatch> {
         vec![
             DeskPatch::Machine {
                 side: Machine::B,
-                name: Some("Torre".into()),
+                name: Some("Tower".into()),
                 color: Some("#5fbfb0".into()),
             },
             DeskPatch::Machine {
@@ -1903,7 +1901,7 @@ pub(crate) mod samples {
                 name: None,
                 color: None,
             },
-            DeskPatch::Name("Oficina".into()),
+            DeskPatch::Name("Office".into()),
             DeskPatch::Arrangement(None),
             DeskPatch::Arrangement(Some(Arrangement {
                 a_side: Side::Down,
@@ -1918,7 +1916,7 @@ pub(crate) mod samples {
             DeskPatch::EditScene(tandem_core::Scene {
                 monitors: vec![("lc34g55t-0a1b2c3d".into(), Machine::A)],
                 require_on: Some(Machine::A),
-                ..tandem_core::Scene::new("trabajo", "Trabajo")
+                ..tandem_core::Scene::new("work", "Work")
             }),
             DeskPatch::DeleteScene { id: "x".into() },
             DeskPatch::Shortcuts(tandem_core::Shortcuts { lock: vec![] }),
@@ -1987,7 +1985,7 @@ pub(crate) mod samples {
             },
             AgentToUi::Reply {
                 id: 3,
-                reply: Reply::Rejected("la PC no responde".into()),
+                reply: Reply::Rejected("the PC is not responding".into()),
             },
             AgentToUi::Reply {
                 id: 4,
@@ -2008,7 +2006,7 @@ pub(crate) mod samples {
             AgentToUi::State(state()),
             AgentToUi::Power(PowerEvent::PeerLost {
                 machine: Machine::B,
-                reason: "la PC no responde".into(),
+                reason: "the PC is not responding".into(),
             }),
             AgentToUi::Power(PowerEvent::PeerLost {
                 machine: Machine::A,
@@ -2028,7 +2026,7 @@ pub(crate) mod samples {
             AgentToUi::Drag(DragStatus::Copied { total: 2 }),
             AgentToUi::Drag(DragStatus::Dropped),
             AgentToUi::Drag(DragStatus::Cancelled),
-            AgentToUi::Drag(DragStatus::Failed("sin espacio".into())),
+            AgentToUi::Drag(DragStatus::Failed("no space".into())),
         ]);
         v.push(AgentToUi::Reply {
             id: 7,
@@ -2057,7 +2055,7 @@ pub(crate) mod samples {
         v.push(AgentToUi::DeskChanged {
             by: Machine::B,
             rev: 7,
-            summary: "Acomodo y atajos".into(),
+            summary: "Arrangement and shortcuts".into(),
             undo_to: 6,
         });
         v.push(AgentToUi::Reply {
@@ -2069,7 +2067,7 @@ pub(crate) mod samples {
                         at: 9,
                         by: Machine::B,
                     },
-                    summary: "Acomodo".into(),
+                    summary: "Arrangement".into(),
                 },
                 HistoryEntry {
                     stamp: DeskStamp::fresh(Machine::A),
@@ -2153,10 +2151,10 @@ pub(crate) mod samples {
         v.push(AgentToUi::Reply {
             id: 18,
             reply: Reply::BroughtBack(Box::new(BringBackReport {
-                branch: Some("tandem/arreglo".into()),
+                branch: Some("tandem/fix".into()),
                 commits: vec![crate::CommitInfo {
                     id: "abc123".into(),
-                    summary: "Arregla el bug".into(),
+                    summary: "Fix the bug".into(),
                     author: "Claude".into(),
                 }],
                 committed_pending: true,
@@ -2341,7 +2339,7 @@ pub(crate) mod samples {
     pub fn tunnel_sample() -> crate::Tunnel {
         crate::Tunnel {
             id: crate::TunnelId(0x1234_5678_9abc_def0),
-            title: "Corre los tests en la Mac".into(),
+            title: "Run the tests on the Mac".into(),
             project: Some(crate::Project {
                 name: "tandem".into(),
                 root: "/home/u/projects/tandem".into(),
@@ -2377,10 +2375,10 @@ mod tests {
         }
     }
 
-    /// Las muestras cubren las `n` variantes de un enum.
+    /// The samples cover the `n` variants of an enum.
     fn covers<T>(samples: &[T], arm: impl Fn(&T) -> usize, n: usize) {
         let seen: BTreeSet<usize> = samples.iter().map(arm).collect();
-        assert_eq!(seen, (0..n).collect(), "faltan muestras de alguna variante");
+        assert_eq!(seen, (0..n).collect(), "samples missing for some variant");
     }
 
     #[test]
@@ -2463,8 +2461,8 @@ mod tests {
         assert_eq!(Hello::new(Peer::Ui).check_version(), Ok(()));
     }
 
-    /// Un agente de antes de los lados A/B (v15, con `Peer::Agent(Mac)`) se corta en el
-    /// saludo, con un mensaje que dice qué hacer.
+    /// An agent from before sides A/B (v15, with `Peer::Agent(Mac)`) is cut off at the
+    /// greeting, with a message saying what to do.
     #[test]
     fn an_agent_from_before_the_sides_is_rejected_in_the_hello() {
         let old = crate::encode(&(15u16, 0u8, 0u8)).unwrap();
@@ -2477,8 +2475,8 @@ mod tests {
             }
         );
         let text = e.to_string();
-        assert!(text.contains("lados A/B"), "{text}");
-        assert!(text.contains("misma versión"), "{text}");
+        assert!(text.contains("sides A/B"), "{text}");
+        assert!(text.contains("the same Tandem version"), "{text}");
     }
 
     #[test]

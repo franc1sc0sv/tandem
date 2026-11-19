@@ -1,9 +1,9 @@
-//! Windows: dispositivos USB presentes, por SetupAPI.
+//! Windows: USB devices present, through SetupAPI.
 //!
-//! Se enumeran los nodos del enumerador `USB` (dispositivos e interfaces de los
-//! compuestos) y se saca el VID/PID de su identificador de instancia, del tipo
-//! `USB\VID_046D&PID_C52B&MI_00\...`. Así un receptor inalámbrico o un teclado
-//! con varias interfaces cuentan igual que en macOS.
+//! The nodes of the `USB` enumerator are listed (devices and interfaces of
+//! composites) and the VID/PID is taken from their instance ID, of the form
+//! `USB\VID_046D&PID_C52B&MI_00\...`. This way a wireless receiver or a keyboard
+//! with several interfaces counts the same as on macOS.
 
 use ::windows::Win32::Devices::DeviceAndDriverInstallation::{
     DIGCF_ALLCLASSES, DIGCF_PRESENT, HDEVINFO, SP_DEVINFO_DATA, SetupDiDestroyDeviceInfoList,
@@ -23,7 +23,7 @@ pub struct ScanError {
     source: ::windows::core::Error,
 }
 
-/// Escáner real de Windows.
+/// Real Windows scanner.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SetupApiScanner;
 
@@ -56,13 +56,13 @@ impl DeviceScanner for SetupApiScanner {
     }
 }
 
-/// Lista de dispositivos de SetupAPI; se libera al soltarla.
+/// SetupAPI device list; freed when dropped.
 struct DeviceSet(HDEVINFO);
 
 impl DeviceSet {
     fn usb_present() -> Result<Self, ScanError> {
-        // SAFETY: sin GUID de clase ni ventana; el enumerador es una cadena
-        // estática terminada en cero.
+        // SAFETY: no class GUID or window; the enumerator is a zero-terminated
+        // static string.
         let set = unsafe {
             SetupDiGetClassDevsW(None, w!("USB"), None, DIGCF_ALLCLASSES | DIGCF_PRESENT)
         }
@@ -73,13 +73,13 @@ impl DeviceSet {
         Ok(DeviceSet(set))
     }
 
-    /// El dispositivo `index`, o `None` al pasar el último.
+    /// The device at `index`, or `None` once past the last one.
     fn device(&self, index: u32) -> Result<Option<SP_DEVINFO_DATA>, ScanError> {
         let mut info = SP_DEVINFO_DATA {
             cbSize: size_of::<SP_DEVINFO_DATA>() as u32,
             ..Default::default()
         };
-        // SAFETY: la lista es válida mientras viva `self` y `info` lleva su tamaño.
+        // SAFETY: the list is valid while `self` lives and `info` carries its size.
         match unsafe { SetupDiEnumDeviceInfo(self.0, index, &mut info) } {
             Ok(()) => Ok(Some(info)),
             Err(e) if e.code() == ERROR_NO_MORE_ITEMS.to_hresult() => Ok(None),
@@ -90,14 +90,14 @@ impl DeviceSet {
         }
     }
 
-    /// Identificador de instancia. Uno que no se pueda leer (un dispositivo que
-    /// se fue a mitad de la lista) se salta.
+    /// Instance ID. One that cannot be read (a device that
+    /// left mid-list) is skipped.
     fn instance_id(&self, info: &SP_DEVINFO_DATA) -> Option<String> {
-        // Los identificadores de instancia miden como mucho 200 caracteres
-        // (MAX_DEVICE_ID_LEN), más el cero final.
+        // Instance IDs are at most 200 characters long
+        // (MAX_DEVICE_ID_LEN), plus the trailing zero.
         let mut buf = [0u16; 256];
-        // SAFETY: `info` salió de esta misma lista; el búfer y su largo van juntos
-        // en el slice.
+        // SAFETY: `info` came from this same list; the buffer and its length go together
+        // in the slice.
         unsafe { SetupDiGetDeviceInstanceIdW(self.0, info, Some(&mut buf), None) }.ok()?;
         let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
         Some(String::from_utf16_lossy(&buf[..end]))
@@ -106,7 +106,7 @@ impl DeviceSet {
 
 impl Drop for DeviceSet {
     fn drop(&mut self) {
-        // SAFETY: la lista la creó `SetupDiGetClassDevsW` y se libera una sola vez.
+        // SAFETY: the list was created by `SetupDiGetClassDevsW` and is freed only once.
         if let Err(e) = unsafe { SetupDiDestroyDeviceInfoList(self.0) } {
             tracing::warn!("SetupDiDestroyDeviceInfoList: {e}");
         }
@@ -117,8 +117,8 @@ impl Drop for DeviceSet {
 mod tests {
     use super::*;
 
-    /// Corre en el runner de Windows: la enumeración funciona aunque no haya
-    /// ningún dispositivo USB (las máquinas virtuales a veces no tienen).
+    /// Runs on the Windows runner: enumeration works even when there is
+    /// no USB device (virtual machines sometimes have none).
     #[test]
     fn scan_runs() {
         let ids = SetupApiScanner::new().scan().unwrap();

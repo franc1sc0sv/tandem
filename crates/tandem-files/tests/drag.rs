@@ -1,5 +1,5 @@
-//! Arrastrar archivos entre dos agentes: detectar, copiar por el túnel, arrastre en el
-//! destino (doble) y soltar o cancelar.
+//! Dragging files between two agents: detect, copy over the tunnel, drag on the
+//! destination (double) and drop or cancel.
 
 mod common;
 
@@ -20,7 +20,7 @@ impl DragDetector for Detector {
     }
 }
 
-/// El «sistema» del destino: al soltar copia lo arrastrado a `drop_to`, como el Explorador.
+/// The destination "system": on drop it copies what was dragged to `drop_to`, like Explorer.
 struct Os {
     drop_to: Option<PathBuf>,
 }
@@ -72,10 +72,10 @@ async fn flow(drop: bool) -> (DragEnd, tempfile::TempDir, usize) {
     let p = pair(4).await;
     let tmp = tempfile::tempdir().unwrap();
     let src = tmp.path().join("src");
-    fs::create_dir_all(src.join("carpeta")).unwrap();
-    fs::write(src.join("nota.txt"), b"contenido de la nota").unwrap();
-    fs::write(src.join("carpeta/dentro.bin"), [7u8; 30]).unwrap();
-    let (staging, desk) = (tmp.path().join("staging"), tmp.path().join("escritorio"));
+    fs::create_dir_all(src.join("folder")).unwrap();
+    fs::write(src.join("note.txt"), b"contents of the note").unwrap();
+    fs::write(src.join("folder/inside.bin"), [7u8; 30]).unwrap();
+    let (staging, desk) = (tmp.path().join("staging"), tmp.path().join("desktop"));
     fs::create_dir_all(&staging).unwrap();
     fs::create_dir_all(&desk).unwrap();
     let din = DragIn::new(
@@ -84,7 +84,7 @@ async fn flow(drop: bool) -> (DragEnd, tempfile::TempDir, usize) {
         },
         staging.clone(),
     );
-    let files = vec![src.join("nota.txt"), src.join("carpeta")];
+    let files = vec![src.join("note.txt"), src.join("folder")];
     let out = DragOut {
         detector: Detector(files.clone()),
         uploader: TunnelUpload {
@@ -105,26 +105,30 @@ async fn flow(drop: bool) -> (DragEnd, tempfile::TempDir, usize) {
     .await
     .unwrap()
     .unwrap();
-    assert_eq!(fs::read_dir(&staging).unwrap().count(), 0, "se limpia");
+    assert_eq!(
+        fs::read_dir(&staging).unwrap().count(),
+        0,
+        "it is cleaned up"
+    );
     (end, tmp, steps.load(Ordering::Relaxed))
 }
 
 #[tokio::test]
-async fn soltar_deja_los_archivos_en_el_destino_y_limpia() {
+async fn drop_leaves_the_files_on_the_destination_and_cleans_up() {
     let (end, tmp, steps) = flow(true).await;
     assert_eq!(end, DragEnd::Dropped);
     assert_eq!(steps, 3);
-    let desk = snapshot(&tmp.path().join("escritorio"));
+    let desk = snapshot(&tmp.path().join("desktop"));
     assert_eq!(
-        desk["nota.txt"].as_deref(),
-        Some(&b"contenido de la nota"[..])
+        desk["note.txt"].as_deref(),
+        Some(&b"contents of the note"[..])
     );
-    assert_eq!(desk["carpeta/dentro.bin"].as_deref(), Some(&[7u8; 30][..]));
+    assert_eq!(desk["folder/inside.bin"].as_deref(), Some(&[7u8; 30][..]));
 }
 
 #[tokio::test]
-async fn cancelar_no_deja_nada_en_el_destino() {
+async fn cancel_leaves_nothing_on_the_destination() {
     let (end, tmp, _) = flow(false).await;
     assert_eq!(end, DragEnd::Cancelled);
-    assert!(snapshot(&tmp.path().join("escritorio")).is_empty());
+    assert!(snapshot(&tmp.path().join("desktop")).is_empty());
 }

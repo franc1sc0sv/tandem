@@ -1,10 +1,10 @@
-//! Métricas de red en el agente (T-102): lo que ve la pantalla Red y el resumen del Puesto.
+//! Network metrics in the agent (T-102): what the Network screen and the Desk summary show.
 //!
-//! Las métricas viven en el agente y no en el gestor de enlaces: la red rearma el gestor
-//! cuando cambian los caminos descubiertos, y el historial y los cambios de camino tienen
-//! que sobrevivir a eso. La red ([`crate::network`]) las alimenta con
-//! [`tandem_link::metrics::follow`] y deja aquí la conexión de cada camino sano, para medir
-//! el ancho de banda de cualquiera, no solo del activo.
+//! The metrics live in the agent and not in the link manager: the network rebuilds the manager
+//! when the discovered paths change, and the history and path changes have
+//! to survive that. The network ([`crate::network`]) feeds them with
+//! [`tandem_link::metrics::follow`] and leaves here the connection of each healthy path, to measure
+//! the bandwidth of any, not only the active one.
 
 use std::collections::BTreeMap;
 use std::sync::{Mutex, PoisonError};
@@ -32,18 +32,18 @@ impl std::fmt::Debug for NetState {
 }
 
 impl Agent {
-    /// Las métricas de red, para que la red las alimente.
+    /// The network metrics, for the network to feed.
     pub fn net_metrics(&self) -> &Metrics {
         &self.net.metrics
     }
 
-    /// Lo que ve la pantalla Red ([`tandem_proto::AgentToUi::Network`]).
+    /// What the Network screen sees ([`tandem_proto::AgentToUi::Network`]).
     pub fn network_status(&self) -> NetworkStatus {
         self.net.metrics.status()
     }
 
-    /// La conexión de cada camino que responde ahora (la red la actualiza con cada foto
-    /// del gestor de enlaces).
+    /// The connection of each path that answers now (the network updates it with each snapshot
+    /// of the link manager).
     pub fn set_path_conns(&self, conns: BTreeMap<LinkKind, Connection>) {
         *self
             .net
@@ -61,28 +61,28 @@ impl Agent {
             .cloned()
     }
 
-    /// [`tandem_proto::UiCommand::MeasureLink`]: la prueba de ancho de banda por `path`.
-    /// Lo medido queda en las métricas y en el tope de los datos de ese camino (T-101).
+    /// [`tandem_proto::UiCommand::MeasureLink`]: the bandwidth test over `path`.
+    /// What is measured stays in the metrics and in that path's data cap (T-101).
     pub async fn measure_link(&self, path: Link) -> Reply {
         let kind = LinkKind::from(path);
-        // La prueba manda datos sin tope durante 3 s: por Wi-Fi le metería latencia a la
-        // entrada. Cuenta la etiqueta del camino, que es la peor de las dos puntas (T-094).
+        // The test sends uncapped data for 3 s: over Wi-Fi it would add latency to the
+        // input. The path's label counts, which is the worse of the two ends (T-094).
         let label = self.link_qos().get(kind).link().unwrap_or(kind);
         if !label.is_wired() {
             return Reply::Rejected(format!(
-                "No se mide el ancho de banda por {label}: la prueba satura el enlace y solo se hace por cable"
+                "Bandwidth is not measured over {label}: the test saturates the link and is only done over a cable"
             ));
         }
         let Some(conn) = self.path_conn(kind) else {
-            return Reply::Rejected(format!("Sin conexión con la otra máquina por {kind}"));
+            return Reply::Rejected(format!("No connection to the other machine over {kind}"));
         };
         let Some(_measuring) = self.net.metrics.begin_measure(kind) else {
-            return Reply::Rejected("Ya se está midiendo un camino".into());
+            return Reply::Rejected("A path is already being measured".into());
         };
-        tracing::info!(link = %kind, "midiendo el ancho de banda");
+        tracing::info!(link = %kind, "measuring the bandwidth");
         match peer::measure(&conn, self.machine()).await {
             Ok(bytes_per_sec) => {
-                tracing::info!(link = %kind, bytes_per_sec, "ancho de banda medido");
+                tracing::info!(link = %kind, bytes_per_sec, "bandwidth measured");
                 self.net
                     .metrics
                     .record_bandwidth(kind, bytes_per_sec, self.link_qos());
@@ -92,8 +92,8 @@ impl Agent {
                 }
             }
             Err(e) => {
-                tracing::warn!(link = %kind, "no se pudo medir el ancho de banda: {e}");
-                Reply::Rejected(format!("No se pudo medir {kind}: {e}"))
+                tracing::warn!(link = %kind, "could not measure the bandwidth: {e}");
+                Reply::Rejected(format!("Could not measure {kind}: {e}"))
             }
         }
     }
@@ -132,35 +132,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sin_conexión_por_ese_camino_no_se_mide() {
+    async fn without_a_connection_over_that_path_it_is_not_measured() {
         let dir = tempfile::tempdir().unwrap();
         let a = agent(dir.path(), Machine::A);
         let Reply::Rejected(why) = a.measure_link(Link::Ethernet).await else {
-            panic!("se esperaba un rechazo");
+            panic!("a rejection was expected");
         };
         assert!(why.contains("Ethernet"), "{why}");
         assert_eq!(a.network_status().measuring, None);
-        // Todos los caminos aparecen, aunque no haya red.
+        // All paths appear, even without a network.
         let s = a.network_status();
         assert_eq!(s.paths.len(), 3);
         assert!(s.paths.iter().all(|p| p.state == PathState::Unplugged));
     }
 
     #[tokio::test]
-    async fn por_wifi_no_se_mide_ni_con_conexion() {
+    async fn over_wifi_it_is_not_measured_even_with_a_connection() {
         let dir = tempfile::tempdir().unwrap();
         let a = agent(dir.path(), Machine::A);
         let Reply::Rejected(why) = a.measure_link(Link::Wifi).await else {
-            panic!("se esperaba un rechazo");
+            panic!("a rejection was expected");
         };
         assert!(why.contains("Wi-Fi") && why.contains("cable"), "{why}");
         assert_eq!(a.network_status().measuring, None);
         assert_eq!(a.link_qos().get(LinkKind::Wifi).measured(), None);
     }
 
-    /// Una etiqueta peor que la propia (el otro extremo ve Wi-Fi) tampoco se mide.
+    /// A label worse than its own (the other end sees Wi-Fi) is not measured either.
     #[tokio::test]
-    async fn si_el_otro_extremo_lo_ve_por_wifi_el_cable_tampoco_se_mide() {
+    async fn if_the_other_end_sees_it_over_wifi_the_cable_is_not_measured_either() {
         let dir = tempfile::tempdir().unwrap();
         let a = agent(dir.path(), Machine::A);
         a.link_qos()
@@ -170,15 +170,15 @@ mod tests {
                 LinkKind::Wifi,
             )));
         let Reply::Rejected(why) = a.measure_link(Link::Ethernet).await else {
-            panic!("se esperaba un rechazo");
+            panic!("a rejection was expected");
         };
         assert!(why.contains("Wi-Fi"), "{why}");
     }
 
-    /// PC con Ethernet, Mac con Wi-Fi: cada extremo anuncia su clasificación al abrir la
-    /// conexión y la etiqueta de los dos es la peor, Wi-Fi: sin plano de datos por cable.
+    /// PC with Ethernet, Mac with Wi-Fi: each end announces its classification when opening the
+    /// connection and both labels are the worse, Wi-Fi: no data plane over the cable.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn clasificaciones_distintas_dan_la_peor() {
+    async fn different_classifications_give_the_worse() {
         let dir = tempfile::tempdir().unwrap();
         let (mac, pc) = (agent(dir.path(), Machine::A), agent(dir.path(), Machine::B));
         let loopback = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
@@ -188,7 +188,7 @@ mod tests {
             Endpoint::bind(loopback, &Identity::from_seed([2; 32]), Arc::new(Anyone)).unwrap();
         let to_b = ep_b.local_addr().unwrap();
         let (conn_a, conn_b) = tokio::join!(ep_a.connect(to_b), ep_b.accept());
-        // La Mac (A) ve el camino como Wi-Fi y la PC (B) como Ethernet.
+        // The Mac (A) sees the path as Wi-Fi and the PC (B) as Ethernet.
         let conn_a = conn_a.unwrap().with_qos(mac.link_qos().get(LinkKind::Wifi));
         let conn_b = conn_b
             .unwrap()
@@ -205,15 +205,15 @@ mod tests {
             }
         })
         .await
-        .expect("la PC no adoptó la etiqueta peor");
+        .expect("the PC did not adopt the worse label");
 
-        // Sin plano de datos por cable: ni se mide ni lleva el tope de un cable.
+        // Without a data plane over the cable: it is neither measured nor carries a cable's cap.
         let Reply::Rejected(why) = pc.measure_link(Link::Ethernet).await else {
-            panic!("se esperaba un rechazo");
+            panic!("a rejection was expected");
         };
         assert!(why.contains("Wi-Fi"), "{why}");
-        // Si la Mac vuelve a anunciar Ethernet, la etiqueta se recupera: la clase del otro
-        // se guarda aparte y no es pegajosa.
+        // If the Mac announces Ethernet again, the label recovers: the other's class
+        // is stored apart and is not sticky.
         let again = crate::PeerClient::open(&conn_a, Machine::A).await.unwrap();
         again.send(tandem_proto::ControlMsg::LinkClass {
             kind: Link::Ethernet,
@@ -224,19 +224,19 @@ mod tests {
             }
         })
         .await
-        .expect("la etiqueta no se recuperó");
-        // La Mac ya lo ve así por su propia clasificación.
+        .expect("the label did not recover");
+        // The Mac already sees it so by its own classification.
         assert_eq!(
             mac.link_qos().get(LinkKind::Wifi).link(),
             Some(LinkKind::Wifi)
         );
     }
 
-    /// Dos agentes por QUIC real en loopback (puertos efímeros): la medición va por la
-    /// conexión del camino pedido, la contesta el otro agente y queda en las métricas y en
-    /// el `Qos` de ese camino.
+    /// Two agents over real QUIC on loopback (ephemeral ports): the measurement goes over the
+    /// requested path's connection, the other agent answers it and it stays in the metrics and in
+    /// that path's `Qos`.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn la_medición_va_por_el_camino_pedido_y_queda_guardada() {
+    async fn the_measurement_goes_over_the_requested_path_and_is_saved() {
         let dir = tempfile::tempdir().unwrap();
         let (a, b) = (agent(dir.path(), Machine::A), agent(dir.path(), Machine::B));
         let loopback = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));

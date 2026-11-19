@@ -2,23 +2,23 @@ use std::fmt::Display;
 
 use crate::content::ClipContent;
 
-/// El portapapeles del sistema, visto por el driver.
+/// The system clipboard, as seen by the driver.
 ///
-/// Las llamadas son bloqueantes pero cortas, salvo leer o escribir una imagen
-/// grande.
+/// Calls are blocking but short, except reading or writing a large
+/// image.
 pub trait Clipboard: Send {
     type Error: Display;
 
-    /// Un número que cambia cada vez que cambia el portapapeles, lo cambie quien
-    /// lo cambie (`changeCount` de NSPasteboard, `GetClipboardSequenceNumber` en
-    /// Windows). Leerlo es barato: el driver lo consulta seguido y solo lee el
-    /// contenido cuando cambia.
+    /// A number that changes every time the clipboard changes, whoever
+    /// changes it (`changeCount` of NSPasteboard, `GetClipboardSequenceNumber` on
+    /// Windows). Reading it is cheap: the driver checks it often and only reads the
+    /// content when it changes.
     fn change_count(&mut self) -> Result<u64, Self::Error>;
 
-    /// Lo que tiene ahora, en los formatos que se sincronizan; `None` si no tiene
-    /// ninguno.
+    /// What it holds now, in the formats that are synchronized; `None` if it holds
+    /// none.
     fn read(&mut self) -> Result<Option<ClipContent>, Self::Error>;
 
-    /// Reemplaza el contenido.
+    /// Replaces the content.
     fn write(&mut self, content: &ClipContent) -> Result<(), Self::Error>;
 }

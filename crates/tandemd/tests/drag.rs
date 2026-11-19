@@ -1,6 +1,6 @@
-//! Arrastrar archivos entre dos `tandemd` reales por loopback (T-121): el origen pide la
-//! carpeta temporal por el canal de control, copia, y el destino inicia el arrastre
-//! sintético (aquí un doble) y avisa cómo terminó. Si se cancela, el destino borra todo.
+//! File drag between two real `tandemd`s over loopback (T-121): the source asks for the
+//! temporary folder over the control channel, copies, and the destination starts the synthetic
+//! drag (here a double) and says how it ended. If canceled, the destination deletes everything.
 
 mod common;
 
@@ -31,10 +31,10 @@ const TIMEOUT: Duration = Duration::from_secs(20);
 async fn within<F: Future>(f: F) -> F::Output {
     tokio::time::timeout(TIMEOUT, f)
         .await
-        .expect("la prueba superó el tiempo máximo")
+        .expect("the test exceeded the maximum time")
 }
 
-/// La primera es la del lado A (DECISIONS A1).
+/// The first is side A's (DECISIONS A1).
 fn sides(x: Identity, y: Identity) -> (Identity, Identity) {
     if x.public_key().as_bytes() < y.public_key().as_bytes() {
         (x, y)
@@ -71,7 +71,7 @@ impl Running {
         within(self.task).await.unwrap().unwrap();
     }
 
-    /// Espera a que haya enlace con la otra máquina.
+    /// Waits for there to be a link with the other machine.
     async fn linked(&mut self) {
         within(async {
             loop {
@@ -181,8 +181,8 @@ impl DragDetector for NoDetector {
     }
 }
 
-/// Copia por el disco local (las dos «máquinas» comparten sistema de archivos); si
-/// `gate` está, espera a que se abra antes de copiar el archivo `slow`.
+/// Copies through the local disk (both "machines" share a file system); if
+/// `gate` is there, it waits for it to open before copying the `slow` file.
 struct CopyUpload {
     slow: Option<(String, Arc<Notify>)>,
 }
@@ -202,7 +202,7 @@ impl Upload for CopyUpload {
 
 type Seen = Arc<Mutex<Vec<(PathBuf, Vec<u8>)>>>;
 
-/// Doble del arrastre sintético: lee lo que el destino dejó y «suelta».
+/// Double of the synthetic drag: reads what the destination left and "drops".
 #[derive(Clone)]
 struct DropStarter {
     seen: Seen,
@@ -221,11 +221,11 @@ impl DragStarter for DropStarter {
 }
 
 fn files_in(dir: &Path) -> Vec<PathBuf> {
-    ["uno.txt", "dos.bin"]
+    ["one.txt", "two.bin"]
         .iter()
         .map(|n| {
             let p = dir.join(n);
-            std::fs::write(&p, format!("contenido de {n}")).unwrap();
+            std::fs::write(&p, format!("content of {n}")).unwrap();
             p
         })
         .collect()
@@ -236,7 +236,7 @@ fn drain(rx: &mut tokio::sync::broadcast::Receiver<DragStatus>) -> Vec<DragStatu
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn el_arrastre_copia_al_destino_y_vuelve_con_como_termino() {
+async fn the_drag_copies_to_the_destination_and_returns_how_it_ended() {
     let (a, b) = pair().await;
     let src = tempfile::tempdir().unwrap();
     let staging = tempfile::tempdir().unwrap();
@@ -266,9 +266,9 @@ async fn el_arrastre_copia_al_destino_y_vuelve_con_como_termino() {
     assert_eq!(end, DragEnd::Dropped);
     let seen = seen.lock().unwrap().clone();
     assert_eq!(seen.len(), 2);
-    assert_eq!(seen[0].1, b"contenido de uno.txt");
-    assert_eq!(seen[1].1, b"contenido de dos.bin");
-    // Al terminar el destino no deja nada en su carpeta temporal.
+    assert_eq!(seen[0].1, b"content of one.txt");
+    assert_eq!(seen[1].1, b"content of two.bin");
+    // When finished the destination leaves nothing in its temporary folder.
     assert_eq!(std::fs::read_dir(staging.path()).unwrap().count(), 0);
     let name = |i: u32, n: &str| DragStatus::Copying {
         name: n.into(),
@@ -278,8 +278,8 @@ async fn el_arrastre_copia_al_destino_y_vuelve_con_como_termino() {
     assert_eq!(
         drain(&mut status),
         vec![
-            name(0, "uno.txt"),
-            name(1, "dos.bin"),
+            name(0, "one.txt"),
+            name(1, "two.bin"),
             DragStatus::Copied { total: 2 },
             DragStatus::Dropped,
         ]
@@ -290,7 +290,7 @@ async fn el_arrastre_copia_al_destino_y_vuelve_con_como_termino() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn cancelar_a_medias_borra_lo_copiado_en_el_destino() {
+async fn canceling_midway_deletes_what_was_copied_on_the_destination() {
     let (a, b) = pair().await;
     let src = tempfile::tempdir().unwrap();
     let staging = tempfile::tempdir().unwrap();
@@ -307,13 +307,13 @@ async fn cancelar_a_medias_borra_lo_copiado_en_el_destino() {
     });
     let mut status = a.agent.drag().subscribe();
 
-    // El segundo archivo se queda esperando; entre tanto el usuario aprieta Esc.
+    // The second file is left waiting; meanwhile the user presses Esc.
     let gate = Arc::new(Notify::new());
     let cancel = Arc::new(Notify::new());
     let esc = cancel.clone();
     let origin_agent = a.agent.clone();
     let slow = CopyUpload {
-        slow: Some(("dos.bin".into(), gate)),
+        slow: Some(("two.bin".into(), gate)),
     };
     let run = tokio::spawn(async move {
         drag::run_origin(&origin_agent, NoDetector, slow, &files, async move {
@@ -321,14 +321,14 @@ async fn cancelar_a_medias_borra_lo_copiado_en_el_destino() {
         })
         .await
     });
-    // Con el primero ya copiado en la carpeta del destino.
+    // With the first already copied in the destination's folder.
     within(async {
         loop {
             let copied = std::fs::read_dir(staging.path())
                 .into_iter()
                 .flatten()
                 .flatten()
-                .any(|d| d.path().join("uno.txt").exists());
+                .any(|d| d.path().join("one.txt").exists());
             if copied {
                 return;
             }
@@ -345,7 +345,7 @@ async fn cancelar_a_medias_borra_lo_copiado_en_el_destino() {
         }
     })
     .await;
-    assert!(seen.lock().unwrap().is_empty(), "no llegó a arrastrar");
+    assert!(seen.lock().unwrap().is_empty(), "it never got to drag");
     assert_eq!(drain(&mut status).last(), Some(&DragStatus::Cancelled));
     server.abort();
     a.stop().await;
@@ -353,7 +353,7 @@ async fn cancelar_a_medias_borra_lo_copiado_en_el_destino() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn el_destino_rechaza_nombres_que_escapan_de_su_carpeta() {
+async fn the_destination_rejects_names_that_escape_its_folder() {
     let (a, b) = pair().await;
     let src = tempfile::tempdir().unwrap();
     let staging = tempfile::tempdir().unwrap();
@@ -368,7 +368,7 @@ async fn el_destino_rechaza_nombres_que_escapan_de_su_carpeta() {
     });
     let mut status = a.agent.drag().subscribe();
 
-    // El origen ya filtra los nombres; aquí se manda el pedido crudo para probar al destino.
+    // The source already filters the names; here the raw request is sent to test the destination.
     let peer = drag::ControlDragPeer::new(&a.agent);
     let err = tandem_files::drag::DragPeer::begin(&peer, vec!["..".into()])
         .await

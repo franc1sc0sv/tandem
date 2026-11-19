@@ -1,15 +1,15 @@
-//! Sincronización del portapapeles entre los dos agentes (DESIGN §7,
+//! Clipboard synchronization between the two agents (DESIGN §7,
 //! docs/research/input-engine.md).
 //!
-//! - [`ClipContent`]: texto, HTML e imagen, con su [`ContentHash`].
-//! - [`ClipSync`]: máquina de estados sin E/S, igual en los dos lados. Anuncia
-//!   las copias locales, suprime el eco por hash y pide lo del otro lado cuando
-//!   esta máquina tiene el foco (transferencia perezosa).
-//! - [`Clipboard`]: lo que cada plataforma implementa (contador de cambios,
-//!   lectura y escritura). [`SystemClipboard`] usa `arboard` y el contador del
-//!   sistema; [`fake::FakeClipboard`] es el doble de prueba.
-//! - [`ClipDriver`]: los une con un stream confiable de `tandem-link`, propio
-//!   del portapapeles para que una imagen grande no frene las teclas.
+//! - [`ClipContent`]: text, HTML and image, with its [`ContentHash`].
+//! - [`ClipSync`]: state machine without I/O, the same on both sides. Announces
+//!   local copies, suppresses the echo by hash and asks for the other side's content when
+//!   this machine has focus (lazy transfer).
+//! - [`Clipboard`]: what each platform implements (change counter,
+//!   read and write). [`SystemClipboard`] uses `arboard` and the system
+//!   counter; [`fake::FakeClipboard`] is the test double.
+//! - [`ClipDriver`]: joins them with a reliable `tandem-link` stream, dedicated
+//!   to the clipboard so a large image does not stall the keys.
 
 mod clipboard;
 pub mod content;

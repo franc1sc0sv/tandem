@@ -6,16 +6,16 @@ use crate::model::{Arrangement, Machine};
 use crate::monitor::MonitorInput;
 use crate::state::State;
 
-/// Lo que cada máquina sabe hacer, según lo que anunció (DESIGN §3.7): a quién se puede
-/// encender. Los planes salen de aquí, no del nombre de la máquina.
+/// What each machine can do, according to what it announced (DESIGN §3.7): which one can be
+/// powered on. Plans come from here, not from the machine's name.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Abilities {
-    /// Las máquinas que la otra puede encender (Wake-on-LAN).
+    /// The machines the other one can power on (Wake-on-LAN).
     pub wakeable: BTreeSet<Machine>,
 }
 
 impl Abilities {
-    /// Las dos se pueden despertar. Sirve de base para las pruebas.
+    /// Both can be woken. Serves as a base for the tests.
     pub fn both_wake() -> Self {
         Abilities {
             wakeable: BTreeSet::from([Machine::A, Machine::B]),
@@ -27,46 +27,46 @@ impl Abilities {
     }
 }
 
-/// Un paso atómico de una transacción.
+/// An atomic step of a transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "step")]
 pub enum Step {
-    /// Encender `machine` desde la otra (Wake-on-LAN) y esperar a que su agente conteste.
+    /// Power on `machine` from the other one (Wake-on-LAN) and wait for its agent to answer.
     PowerOn { machine: Machine },
-    /// Apagado limpio de `machine`.
+    /// Clean shutdown of `machine`.
     PowerOff { machine: Machine },
-    /// Cambiar la entrada del monitor `monitor` (su id, `<modelo>-<hash>`) y esperar el
-    /// veredicto del firmware. Lo hace la máquina dueña del monitor (DECISIONS D13), sea cual
-    /// sea la que orquesta.
+    /// Switch the input of monitor `monitor` (its id, `<model>-<hash>`) and wait for the
+    /// firmware's verdict. Done by the machine that owns the monitor (DECISIONS D13), whichever
+    /// one orchestrates.
     SwitchMonitor {
         monitor: String,
         input: MonitorInput,
     },
-    /// Paso de escena: que el monitor `monitor` muestre `machine` (DESIGN §5). Es el paso
-    /// abstracto de T-100; T-111 lo traduce a [`Step::SwitchMonitor`] con la entrada de esa
-    /// máquina. Lo hace la máquina que aplica la escena.
+    /// Scene step: make monitor `monitor` show `machine` (DESIGN §5). It is the
+    /// abstract step of T-100; T-111 translates it to [`Step::SwitchMonitor`] with that
+    /// machine's input. Done by the machine that applies the scene.
     ShowMachine { monitor: String, machine: Machine },
-    /// Paso de escena: el acomodo de los escritorios (`None`: el de omisión). Es un cambio
-    /// del puesto compartido.
+    /// Scene step: the desktop arrangement (`None`: the default). It is a change
+    /// to the shared desk.
     Arrange { layout: Option<Arrangement> },
-    /// Paso de escena: el motor de entrada toma la geometría que dejan los pasos anteriores.
+    /// Scene step: the input engine takes the geometry left by the previous steps.
     Geometry,
 }
 
 impl Step {
-    /// Refleja en `state` el efecto del paso ya aplicado.
+    /// Reflects in `state` the effect of the step already applied.
     pub fn apply_to(&self, state: &mut State) {
         match self {
             Step::PowerOn { machine } => state.on.set(*machine, true),
             Step::PowerOff { machine } => state.on.set(*machine, false),
-            // La entrada real la cuenta el firmware (eventos del dueño), no el estado.
+            // The real input is reported by the firmware (owner's events), not by the state.
             Step::SwitchMonitor { .. } => {}
-            // La escena activa se anota al terminar la transacción, no paso a paso.
+            // The active scene is recorded when the transaction ends, not step by step.
             Step::ShowMachine { .. } | Step::Arrange { .. } | Step::Geometry => {}
         }
     }
 
-    /// Si es un paso de escena: lo hace la máquina que la aplica, nunca la otra a pedido.
+    /// Whether it is a scene step: done by the machine that applies it, never the other on request.
     pub fn is_scene(&self) -> bool {
         matches!(
             self,
@@ -83,13 +83,13 @@ pub struct Plan {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PlanError {
     #[error(
-        "la máquina {0} está apagada y no hay con qué encenderla: falta la MAC de su tarjeta de red (Wake-on-LAN); se aprende al emparejar o se escribe en la página de la máquina"
+        "machine {0} is off and there is no way to power it on: the MAC of its network card (Wake-on-LAN) is missing; it is learned when pairing or written on the machine's page"
     )]
     CannotWake(Machine),
 }
 
 impl Plan {
-    /// Encender `machine`: solo despertarla. Pedir lo que ya está es un plan vacío.
+    /// Power on `machine`: just wake it. Asking for what is already on is an empty plan.
     pub fn power_on(
         from: &State,
         machine: Machine,
@@ -106,7 +106,7 @@ impl Plan {
         })
     }
 
-    /// Cambiar la entrada de un monitor: un solo paso, con veredicto y vuelta atrás.
+    /// Switch a monitor's input: a single step, with verdict and rollback.
     pub fn switch_monitor(monitor: impl Into<String>, input: MonitorInput) -> Plan {
         Plan {
             steps: vec![Step::SwitchMonitor {
@@ -116,9 +116,9 @@ impl Plan {
         }
     }
 
-    /// Apagado limpio de `machine`. El teclado y el mouse vuelven solos a la que queda: el
-    /// motor de entrada saca de la geometría a la que se apaga en cuanto el estado lo dice.
-    /// Apagar lo que ya está apagado es un plan vacío.
+    /// Clean shutdown of `machine`. The keyboard and mouse return on their own to the one that remains: the
+    /// input engine takes the machine being powered off out of the geometry as soon as the state says so.
+    /// Shutting down what is already off is an empty plan.
     pub fn power_off(from: &State, machine: Machine) -> Plan {
         if !from.is_on(machine) {
             return Plan::default();

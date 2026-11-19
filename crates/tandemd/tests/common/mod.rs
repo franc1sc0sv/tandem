@@ -1,9 +1,9 @@
-//! Tiempos compartidos de las pruebas de dos agentes.
+//! Shared timings for the two-agent tests.
 //!
-//! Los de producción (ping de 250 ms, conexión de 1 s, latido de 3 s) son demasiado
-//! justos para un runner de CI lento con un handshake QUIC en debug: el enlace se
-//! daba por caído y los agentes nunca se emparejaban. Aquí se holgan, pero siguen
-//! acotados: una caída real se detecta en segundos, muy dentro del `TIMEOUT` de cada prueba.
+//! The production ones (250 ms ping, 1 s connect, 3 s heartbeat) are too tight for a slow
+//! CI runner with a debug-build QUIC handshake: the link was declared down and the agents
+//! never paired. They are relaxed here but still bounded: a real drop is detected in
+//! seconds, well within each test's `TIMEOUT`.
 #![allow(dead_code)]
 
 use std::time::Duration;

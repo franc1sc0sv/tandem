@@ -1,5 +1,5 @@
-//! Named pipe `\\.\pipe\tandemd-<SID>`, con una DACL que solo deja entrar al usuario
-//! que corre el agente y sin clientes remotos.
+//! Named pipe `\\.\pipe\tandemd-<SID>`, with a DACL that only lets in the user
+//! who runs the agent and without remote clients.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -22,7 +22,7 @@ use windows::core::{PCWSTR, PWSTR};
 
 use super::{IpcClient, IpcError, Listener};
 
-/// El nombre lleva el SID para que dos usuarios de la misma PC no choquen.
+/// The name carries the SID so that two users of the same PC do not clash.
 pub fn default_endpoint(_data_dir: &Path) -> io::Result<PathBuf> {
     Ok(PathBuf::from(format!(
         r"\\.\pipe\tandemd-{}",
@@ -32,9 +32,9 @@ pub fn default_endpoint(_data_dir: &Path) -> io::Result<PathBuf> {
 
 pub struct PipeListener {
     name: PathBuf,
-    /// Descriptor de seguridad autorrelativo; `u64` para que quede alineado.
+    /// Self-relative security descriptor; `u64` so it stays aligned.
     descriptor: Vec<u64>,
-    /// La instancia que espera al siguiente cliente.
+    /// The instance that waits for the next client.
     next: NamedPipeServer,
 }
 
@@ -58,9 +58,9 @@ pub async fn connect(name: &Path) -> Result<IpcClient<NamedPipeClient>, IpcError
     connect_as(name, Peer::Ui).await
 }
 
-/// Como [`connect`], presentándose como `peer` (`tandem mcp` y la CLI, como cliente).
+/// Like [`connect`], introducing itself as `peer` (`tandem mcp` and the CLI, as a client).
 pub async fn connect_as(name: &Path, peer: Peer) -> Result<IpcClient<NamedPipeClient>, IpcError> {
-    // Todas las instancias ocupadas: el servidor crea otra enseguida.
+    // All instances busy: the server creates another right away.
     let mut tries = 0;
     let client = loop {
         match ClientOptions::new().open(name) {
@@ -93,18 +93,18 @@ fn create(name: &Path, descriptor: &[u64], first: bool) -> io::Result<NamedPipeS
     };
     let mut opts = ServerOptions::new();
     opts.first_pipe_instance(first).reject_remote_clients(true);
-    // SAFETY: `attrs` es un SECURITY_ATTRIBUTES válido y su descriptor (`descriptor`)
-    // vive más que la llamada; Windows copia la DACL al crear el pipe.
+    // SAFETY: `attrs` is a valid SECURITY_ATTRIBUTES and its descriptor (`descriptor`)
+    // outlives the call; Windows copies the DACL when creating the pipe.
     unsafe { opts.create_with_security_attributes_raw(name, (&raw mut attrs).cast()) }
 }
 
-/// DACL protegida (sin herencia) con un único permiso: todo para el usuario actual.
+/// Protected DACL (no inheritance) with a single permission: everything for the current user.
 fn user_only_descriptor() -> io::Result<Vec<u64>> {
     let sddl = format!("D:P(A;;GA;;;{})", current_user_sid()?);
     let wide: Vec<u16> = sddl.encode_utf16().chain(std::iter::once(0)).collect();
     let mut sd = PSECURITY_DESCRIPTOR::default();
     let mut len = 0u32;
-    // SAFETY: `wide` termina en 0 y vive durante la llamada; los punteros de salida son locales.
+    // SAFETY: `wide` ends in 0 and lives during the call; the output pointers are local.
     unsafe {
         ConvertStringSecurityDescriptorToSecurityDescriptorW(
             PCWSTR(wide.as_ptr()),
@@ -114,8 +114,8 @@ fn user_only_descriptor() -> io::Result<Vec<u64>> {
         )
     }?;
     let mut out = vec![0u64; (len as usize).div_ceil(8)];
-    // SAFETY: Windows reservó `len` bytes en `sd`; `out` tiene al menos ese tamaño.
-    // Después se libera con LocalFree, como pide la función.
+    // SAFETY: Windows reserved `len` bytes in `sd`; `out` is at least that size.
+    // It is freed afterwards with LocalFree, as the function requires.
     unsafe {
         std::ptr::copy_nonoverlapping(
             sd.0.cast::<u8>(),
@@ -127,18 +127,18 @@ fn user_only_descriptor() -> io::Result<Vec<u64>> {
     Ok(out)
 }
 
-/// SID del usuario del proceso, en texto (`S-1-5-21-…`).
+/// The process user's SID, as text (`S-1-5-21-...`).
 fn current_user_sid() -> io::Result<String> {
     let mut token = HANDLE::default();
-    // SAFETY: el pseudo-handle del proceso actual siempre es válido; `token` es local.
+    // SAFETY: the current process pseudo-handle is always valid; `token` is local.
     unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) }?;
     let token = Handle(token);
 
     let mut len = 0u32;
-    // SAFETY: primera llamada solo para conocer el tamaño; falla a propósito por búfer nulo.
+    // SAFETY: first call only to learn the size; it fails on purpose due to a null buffer.
     let _ = unsafe { GetTokenInformation(token.0, TokenUser, None, 0, &mut len) };
     let mut buf = vec![0u64; (len as usize).div_ceil(8)];
-    // SAFETY: `buf` tiene `len` bytes alineados a 8, suficiente para un TOKEN_USER.
+    // SAFETY: `buf` has `len` bytes aligned to 8, enough for a TOKEN_USER.
     unsafe {
         GetTokenInformation(
             token.0,
@@ -148,15 +148,15 @@ fn current_user_sid() -> io::Result<String> {
             &mut len,
         )
     }?;
-    // SAFETY: GetTokenInformation dejó un TOKEN_USER válido al principio de `buf`.
+    // SAFETY: GetTokenInformation left a valid TOKEN_USER at the start of `buf`.
     let sid = unsafe { (*buf.as_ptr().cast::<TOKEN_USER>()).User.Sid };
 
     let mut text = PWSTR::null();
-    // SAFETY: `sid` apunta dentro de `buf`, que sigue vivo; `text` se libera con LocalFree.
+    // SAFETY: `sid` points inside `buf`, which is still alive; `text` is freed with LocalFree.
     unsafe { ConvertSidToStringSidW(sid, &mut text) }?;
-    // SAFETY: `text` es una cadena terminada en 0 que reservó Windows.
+    // SAFETY: `text` is a 0-terminated string that Windows reserved.
     let out = unsafe { text.to_string() };
-    // SAFETY: `text` lo reservó ConvertSidToStringSidW con LocalAlloc.
+    // SAFETY: `text` was reserved by ConvertSidToStringSidW with LocalAlloc.
     unsafe { LocalFree(Some(HLOCAL(text.0.cast()))) };
     out.map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
@@ -165,7 +165,7 @@ struct Handle(HANDLE);
 
 impl Drop for Handle {
     fn drop(&mut self) {
-        // SAFETY: el handle lo abrió OpenProcessToken y no se cierra en otro lado.
+        // SAFETY: the handle was opened by OpenProcessToken and is not closed anywhere else.
         let _ = unsafe { CloseHandle(self.0) };
     }
 }

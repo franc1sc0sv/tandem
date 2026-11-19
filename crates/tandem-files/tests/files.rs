@@ -1,5 +1,5 @@
-//! Archivos y carpetas entre dos agentes: llegan idénticos, y tras un corte en cualquier
-//! fragmento se reanuda sin repetir lo que ya llegó.
+//! Files and folders between two agents: they arrive identical, and after a cut at any
+//! chunk it resumes without repeating what already arrived.
 
 mod common;
 
@@ -21,9 +21,9 @@ enum Node {
 }
 
 fn name() -> impl Strategy<Value = String> {
-    // Minúsculas y sin punto ni espacio al final: Windows y macOS no distinguen mayúsculas y no
-    // guardan esos nombres.
-    "f[a-z0-9 ñáéü_-]{0,4}x"
+    // Lowercase and no trailing dot or space: Windows and macOS are case-insensitive and do not
+    // store those names.
+    "f[a-z0-9 \u{f1}\u{e1}\u{e9}\u{fc}_-]{0,4}x"
 }
 
 fn content() -> impl Strategy<Value = Vec<u8>> {
@@ -73,8 +73,8 @@ fn chunks_missing(dst: &Path, src: &Path) -> usize {
     sink.plan().unwrap().iter().map(|n| n.chunks.len()).sum()
 }
 
-/// Lo que falta una vez que el stream cortado dejó de escribir (lo que iba en vuelo todavía
-/// puede aterrizar un instante después del corte).
+/// What is missing once the cut stream stopped writing (what was in flight may still
+/// land an instant after the cut).
 async fn settled_missing(dst: &Path, src: &Path) -> usize {
     let mut last = chunks_missing(dst, src);
     let mut stable = 0;
@@ -107,12 +107,12 @@ fn total_chunks(src: &Path) -> usize {
 proptest! {
     #![proptest_config(ProptestConfig { cases: 24, ..ProptestConfig::default() })]
 
-    /// Cualquier árbol (vacíos, binarios, espacios y acentos) llega idéntico.
+    /// Any tree (empty ones, binaries, spaces and accents) arrives identical.
     #[test]
-    fn el_arbol_llega_identico(t in tree()) {
+    fn the_tree_arrives_identical(t in tree()) {
         rt().block_on(async {
             let d = tempfile::tempdir().unwrap();
-            let (src, dst) = (d.path().join("origen"), d.path().join("destino"));
+            let (src, dst) = (d.path().join("origin"), d.path().join("destination"));
             write_tree(&src, &t);
             let p = pair(CHUNK).await;
             let r = within(p.files_a.put(&p.origin, p.tunnel, &src, dst.to_str().unwrap()))
@@ -124,12 +124,12 @@ proptest! {
         })?;
     }
 
-    /// Un corte en cualquier fragmento y la reanudación no repite lo ya recibido.
+    /// A cut at any chunk and the resumption does not repeat what was already received.
     #[test]
-    fn subir_se_reanuda_sin_repetir(t in tree(), cut in 0u64..12) {
+    fn upload_resumes_without_repeating(t in tree(), cut in 0u64..12) {
         rt().block_on(async {
             let d = tempfile::tempdir().unwrap();
-            let (src, dst) = (d.path().join("origen"), d.path().join("destino"));
+            let (src, dst) = (d.path().join("origin"), d.path().join("destination"));
             write_tree(&src, &t);
             let dst_s = dst.to_str().unwrap();
             let p = pair(CHUNK).await;
@@ -139,7 +139,7 @@ proptest! {
                 prop_assert_eq!(snapshot(&src), snapshot(&dst));
                 return Ok(());
             }
-            // Un camino nuevo contra la misma destino.
+            // A new path against the same destination.
             let again = tandem_files::mem::MemPath::new(&p.host, &p.files_b);
             p.origin.set_link(Some(again.dialer()));
             let missing = settled_missing(&dst, &src).await;
@@ -151,12 +151,12 @@ proptest! {
         })?;
     }
 
-    /// Lo mismo bajando de la destino.
+    /// The same, downloading from the destination.
     #[test]
-    fn bajar_se_reanuda_sin_repetir(t in tree(), cut in 0u64..12) {
+    fn download_resumes_without_repeating(t in tree(), cut in 0u64..12) {
         rt().block_on(async {
             let d = tempfile::tempdir().unwrap();
-            let (remote, local) = (d.path().join("remoto"), d.path().join("local"));
+            let (remote, local) = (d.path().join("remote"), d.path().join("local"));
             write_tree(&remote, &t);
             let remote_s = remote.to_str().unwrap();
             let p = pair(CHUNK).await;
@@ -178,22 +178,22 @@ proptest! {
 }
 
 #[tokio::test]
-async fn el_corte_deja_la_copia_a_medias_y_la_reanudacion_manda_el_resto() {
+async fn the_cut_leaves_the_copy_half_done_and_the_resumption_sends_the_rest() {
     let d = tempfile::tempdir().unwrap();
-    let src = d.path().join("grande.bin");
-    let data: Vec<u8> = (0..80u8).collect(); // 10 fragmentos de 8
+    let src = d.path().join("big.bin");
+    let data: Vec<u8> = (0..80u8).collect(); // 10 chunks of 8
     fs::write(&src, &data).unwrap();
-    let dst = d.path().join("copia.bin");
+    let dst = d.path().join("copy.bin");
     let dst_s = dst.to_str().unwrap();
     let p = pair(CHUNK).await;
     p.path.cut_after_pieces(4);
     let first = within(p.files_a.put(&p.origin, p.tunnel, &src, dst_s)).await;
-    assert!(first.is_err(), "con el corte no puede terminar");
-    assert!(!dst.exists(), "sin terminar no hay archivo final");
+    assert!(first.is_err(), "it cannot finish with the cut");
+    assert!(!dst.exists(), "without finishing there is no final file");
     let again = tandem_files::mem::MemPath::new(&p.host, &p.files_b);
     p.origin.set_link(Some(again.dialer()));
     let missing = settled_missing(&dst, &src).await;
-    assert!(missing <= 10, "faltan {missing}");
+    assert!(missing <= 10, "{missing} missing");
     let r = within(p.files_a.put(&p.origin, p.tunnel, &src, dst_s))
         .await
         .unwrap();
@@ -203,12 +203,12 @@ async fn el_corte_deja_la_copia_a_medias_y_la_reanudacion_manda_el_resto() {
 }
 
 #[tokio::test]
-async fn un_archivo_suelto_y_el_progreso() {
+async fn a_loose_file_and_the_progress() {
     let d = tempfile::tempdir().unwrap();
-    let src = d.path().join("ñandú con espacios.bin");
+    let src = d.path().join("\u{fc}ber with spaces.bin");
     let data: Vec<u8> = (0..100u8).collect();
     fs::write(&src, &data).unwrap();
-    let dst = d.path().join("copia.bin");
+    let dst = d.path().join("copy.bin");
     let p = pair(CHUNK).await;
     let mut rx = p.files_a.subscribe_progress();
     let r = within(
@@ -226,7 +226,7 @@ async fn un_archivo_suelto_y_el_progreso() {
     assert!(seen.iter().all(|p| p.upload && p.total == 100));
     assert!(seen.windows(2).all(|w| w[0].done <= w[1].done));
     assert_eq!(seen.last().map(|p| (p.done, p.finished)), Some((100, true)));
-    // Lo ya copiado no vuelve a viajar.
+    // What was already copied does not travel again.
     let again = within(
         p.files_a
             .put(&p.origin, p.tunnel, &src, dst.to_str().unwrap()),
@@ -237,11 +237,11 @@ async fn un_archivo_suelto_y_el_progreso() {
 }
 
 #[tokio::test]
-async fn un_archivo_suelto_entra_en_una_carpeta_que_ya_existe() {
+async fn a_loose_file_goes_into_a_folder_that_already_exists() {
     let d = tempfile::tempdir().unwrap();
     let src = d.path().join("a.txt");
-    fs::write(&src, b"hola").unwrap();
-    let dst = d.path().join("carpeta");
+    fs::write(&src, b"hello").unwrap();
+    let dst = d.path().join("folder");
     fs::create_dir(&dst).unwrap();
     let p = pair(CHUNK).await;
     within(
@@ -250,14 +250,14 @@ async fn un_archivo_suelto_entra_en_una_carpeta_que_ya_existe() {
     )
     .await
     .unwrap();
-    assert_eq!(fs::read(dst.join("a.txt")).unwrap(), b"hola");
+    assert_eq!(fs::read(dst.join("a.txt")).unwrap(), b"hello");
 }
 
 #[tokio::test]
-async fn un_tunel_cerrado_no_acepta_archivos() {
+async fn a_closed_tunnel_does_not_accept_files() {
     let d = tempfile::tempdir().unwrap();
     let src = d.path().join("a.txt");
-    fs::write(&src, b"hola").unwrap();
+    fs::write(&src, b"hello").unwrap();
     let p: Pair = pair(CHUNK).await;
     p.origin.close(p.tunnel).await.unwrap();
     let r = p
@@ -273,14 +273,14 @@ async fn un_tunel_cerrado_no_acepta_archivos() {
     assert!(!d.path().join("x").exists());
 }
 
-/// T-155: un solo archivo que parece credencial no abre la copia: informe con lo omitido y
-/// nada llega a la destino (antes la otra máquina rechazaba un manifiesto vacío).
+/// T-155: a single file that looks like a credential does not open the copy: report with what was skipped and
+/// nothing reaches the destination (before, the other machine rejected an empty manifest).
 #[tokio::test]
-async fn un_archivo_secreto_suelto_se_omite_sin_error() {
+async fn a_loose_secret_file_is_skipped_without_error() {
     let d = tempfile::tempdir().unwrap();
     let src = d.path().join("id_rsa");
-    fs::write(&src, b"llave").unwrap();
-    let dst = d.path().join("destino");
+    fs::write(&src, b"key").unwrap();
+    let dst = d.path().join("destination");
     let p: Pair = pair(CHUNK).await;
     let r = within(
         p.files_a
@@ -293,13 +293,13 @@ async fn un_archivo_secreto_suelto_se_omite_sin_error() {
     assert!(!dst.exists());
 }
 
-/// Nombrándolo en `include`, el mismo archivo sí se copia.
+/// Naming it in `include`, the same file is copied.
 #[tokio::test]
-async fn un_archivo_secreto_suelto_se_copia_si_se_nombra() {
+async fn a_loose_secret_file_is_copied_if_named() {
     let d = tempfile::tempdir().unwrap();
     let src = d.path().join("id_rsa");
-    fs::write(&src, b"llave").unwrap();
-    let dst = d.path().join("destino");
+    fs::write(&src, b"key").unwrap();
+    let dst = d.path().join("destination");
     let p: Pair = pair(CHUNK).await;
     let r = within(p.files_a.put_with(
         &p.origin,
@@ -312,11 +312,11 @@ async fn un_archivo_secreto_suelto_se_copia_si_se_nombra() {
     .unwrap();
     assert!(r.skipped.is_empty());
     assert_eq!(r.files, 1);
-    assert_eq!(fs::read(&dst).unwrap(), b"llave");
+    assert_eq!(fs::read(&dst).unwrap(), b"key");
 }
 
 #[tokio::test]
-async fn una_ruta_con_escape_no_sale_de_la_carpeta() {
+async fn a_path_with_an_escape_does_not_leave_the_folder() {
     use tandem_proto::{EntryKind, FileEntry, FilesDown, FilesUp, Manifest, TunnelDown, TunnelUp};
     let d = tempfile::tempdir().unwrap();
     let p = pair(CHUNK).await;
@@ -325,7 +325,7 @@ async fn una_ruta_con_escape_no_sale_de_la_carpeta() {
         chunk_size: CHUNK,
         single: false,
         entries: vec![FileEntry {
-            path: "../fuera".into(),
+            path: "../outside".into(),
             kind: EntryKind::File {
                 size: 0,
                 chunks: vec![],
@@ -354,27 +354,23 @@ async fn una_ruta_con_escape_no_sale_de_la_carpeta() {
         reply,
         Some(TunnelDown::Files(FilesDown::Failed(_)))
     ));
-    assert!(!d.path().join("fuera").exists());
+    assert!(!d.path().join("outside").exists());
 }
 
-/// Un árbol de ~12 000 archivos: el manifiesto y el plan no caben en un marco, así que
-/// viajan en páginas; llega idéntico en las dos direcciones.
+/// A tree of ~12,000 files: the manifest and the plan do not fit in a frame, so
+/// they travel in pages; it arrives identical in both directions.
 #[tokio::test(flavor = "multi_thread")]
-async fn un_arbol_enorme_viaja_paginado() {
+async fn a_huge_tree_travels_paged() {
     let d = tempfile::tempdir().unwrap();
     let (src, dst, back) = (
-        d.path().join("origen"),
-        d.path().join("destino"),
-        d.path().join("vuelta"),
+        d.path().join("origin"),
+        d.path().join("destination"),
+        d.path().join("return"),
     );
     for i in 0..12_000u32 {
         let dir = src.join(format!("d{:03}", i / 200));
         fs::create_dir_all(&dir).unwrap();
-        fs::write(
-            dir.join(format!("archivo-{i}.txt")),
-            format!("contenido {i}"),
-        )
-        .unwrap();
+        fs::write(dir.join(format!("file-{i}.txt")), format!("content {i}")).unwrap();
     }
     let p = pair(CHUNK).await;
     let dst_s = dst.to_str().unwrap();
@@ -389,7 +385,7 @@ async fn un_arbol_enorme_viaja_paginado() {
     assert_eq!(snapshot(&src), snapshot(&back));
 }
 
-/// Como `within`, con más margen: 12 000 archivos en el disco de un CI de Windows tardan.
+/// Like `within`, with more margin: 12,000 files on a Windows CI disk take a while.
 async fn slow<T>(f: impl Future<Output = T>) -> T {
     tokio::time::timeout(std::time::Duration::from_secs(240), f)
         .await

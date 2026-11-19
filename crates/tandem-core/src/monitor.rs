@@ -1,5 +1,5 @@
-//! Lo mínimo de los monitores que el núcleo necesita para planear (DESIGN §10): qué
-//! entradas existen y a cuál va el cable de cada máquina. El control real vive en
+//! The minimum about monitors the core needs for planning (DESIGN §10): which
+//! inputs exist and which one each machine's cable goes to. The real control lives in
 //! `tandem-monitor`.
 
 use std::fmt;
@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::Machine;
 
-/// Una entrada de video de un monitor compatible (el estándar del firmware propio).
+/// A video input of a compatible monitor (the standard of the in-house firmware).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MonitorInput {
@@ -27,7 +27,7 @@ impl MonitorInput {
         }
     }
 
-    /// La otra entrada: el estándar tiene exactamente dos.
+    /// The other input: the standard has exactly two.
     pub fn other(self) -> Self {
         match self {
             MonitorInput::DisplayPort => MonitorInput::Hdmi,
@@ -36,26 +36,26 @@ impl MonitorInput {
     }
 }
 
-/// El extremo de una máquina en un monitor: a qué entrada va su cable y cuál de sus pantallas
-/// es ese monitor (el id de sus `[[screens]]` o de las que lee ella).
+/// A machine's end on a monitor: which input its cable goes to and which of its screens
+/// that monitor is (the id in its `[[screens]]` or in those it reads itself).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct CableEnd {
-    /// `None`: no se declaró (vale lo que diga el EDID, o lo contrario de la otra).
+    /// `None`: not declared (whatever the EDID says applies, or the opposite of the other).
     #[serde(default)]
     pub input: Option<MonitorInput>,
-    /// `None`: no se sabe cuál de sus pantallas es, y la geometría no la puede sacar.
+    /// `None`: it is not known which of its screens it is, and the geometry cannot take it out.
     #[serde(default)]
     pub screen: Option<String>,
 }
 
-/// Cómo está conectado un monitor compatible a las dos máquinas (`[[cables]]` del puesto).
-/// Con esto un paso de escena («que el 34" muestre B») sabe qué entrada poner, y la geometría
-/// sabe qué pantalla deja de ser de una máquina cuando el monitor muestra a la otra.
+/// How a compatible monitor is connected to the two machines (`[[cables]]` of the desk).
+/// With this a scene step ("make the 34" show B") knows which input to set, and the geometry
+/// knows which screen stops belonging to one machine when the monitor shows the other.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]
 pub struct MonitorCable {
-    /// El id del monitor (`<modelo>-<hash>`).
+    /// The monitor id (`<model>-<hash>`).
     pub monitor: String,
     #[serde(default)]
     pub a: CableEnd,
@@ -86,7 +86,7 @@ impl MonitorCable {
         }
     }
 
-    /// El mismo cableado con los lados cambiados.
+    /// The same cabling with the sides swapped.
     pub fn swapped(self) -> Self {
         MonitorCable {
             monitor: self.monitor,
@@ -95,14 +95,14 @@ impl MonitorCable {
         }
     }
 
-    /// Qué falla en el cableado por sí solo.
+    /// What fails in the cabling on its own.
     pub fn problem(&self) -> Option<String> {
         if self.monitor.trim().is_empty() {
-            return Some("un cable no dice de qué monitor es".to_owned());
+            return Some("a cable does not say which monitor it is for".to_owned());
         }
         if self.a.input.is_some() && self.a.input == self.b.input {
             return Some(format!(
-                "las dos máquinas no pueden ir a la misma entrada del monitor `{}`",
+                "the two machines cannot go to the same input of monitor `{}`",
                 self.monitor
             ));
         }
@@ -110,16 +110,13 @@ impl MonitorCable {
             .iter()
             .any(|e| e.screen.as_ref().is_some_and(|s| s.trim().is_empty()))
         {
-            return Some(format!(
-                "una pantalla del monitor `{}` no tiene id",
-                self.monitor
-            ));
+            return Some(format!("a screen of monitor `{}` has no id", self.monitor));
         }
         None
     }
 }
 
-/// A qué entrada va el cable de cada máquina, ya resuelto ([`Inputs::resolve`]).
+/// Which input each machine's cable goes to, already resolved ([`Inputs::resolve`]).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Inputs {
     pub a: Option<MonitorInput>,
@@ -127,9 +124,9 @@ pub struct Inputs {
 }
 
 impl Inputs {
-    /// Lo declarado en el puesto manda; sin nada declarado, lo que cada máquina leyó de su
-    /// EDID (`learned`). Sabiendo la de una, la otra es la otra entrada. Si las dos dan la
-    /// misma, no se sabe ninguna: nunca se adivina a qué máquina se cambia.
+    /// What is declared on the desk rules; with nothing declared, what each machine read from its
+    /// EDID (`learned`). Knowing one machine's, the other's is the other input. If both give the
+    /// same one, neither is known: which machine to switch to is never guessed.
     pub fn resolve(
         declared: Option<&MonitorCable>,
         learned: impl Fn(Machine) -> Option<MonitorInput>,
@@ -160,14 +157,14 @@ impl Inputs {
         }
     }
 
-    /// La máquina cuyo cable va a `input`.
+    /// The machine whose cable goes to `input`.
     pub fn machine_on(&self, input: MonitorInput) -> Option<Machine> {
         Machine::ALL
             .into_iter()
             .find(|&m| self.of(m) == Some(input))
     }
 
-    /// Se sabe la entrada de las dos.
+    /// The input of both is known.
     pub fn complete(&self) -> bool {
         self.a.is_some() && self.b.is_some()
     }
@@ -201,10 +198,10 @@ mod tests {
         let got = Inputs::resolve(None, edid);
         assert_eq!((got.a, got.b), (Some(Hdmi), Some(Dp)));
         assert_eq!(got.machine_on(Hdmi), Some(Machine::A));
-        // Lo declarado manda sobre el EDID.
+        // What is declared rules over the EDID.
         let got = Inputs::resolve(Some(&cable(None, Some(Hdmi))), edid);
         assert_eq!((got.a, got.b), (Some(Dp), Some(Hdmi)));
-        // Contradicción: no se sabe ninguna.
+        // Contradiction: neither is known.
         let both = |_| Some(Hdmi);
         assert!(!Inputs::resolve(None, both).complete());
         assert_eq!(Inputs::resolve(None, both).machine_on(Hdmi), None);
@@ -220,11 +217,11 @@ mod tests {
         c.b.screen = Some(String::new());
         assert!(c.problem().is_some());
         let t: MonitorCable = toml::from_str(
-            "monitor = \"m34\"\na = { input = \"hdmi\", screen = \"pantalla-2\" }\nb = { input = \"dp\" }",
+            "monitor = \"m34\"\na = { input = \"hdmi\", screen = \"screen-2\" }\nb = { input = \"dp\" }",
         )
         .unwrap();
         assert_eq!(t.b.input, Some(MonitorInput::DisplayPort));
-        assert_eq!(t.a.screen.as_deref(), Some("pantalla-2"));
+        assert_eq!(t.a.screen.as_deref(), Some("screen-2"));
         assert_eq!(t.clone().swapped().b, t.a);
     }
 
@@ -237,8 +234,8 @@ mod tests {
     }
 
     proptest! {
-        /// Nunca quedan las dos máquinas en la misma entrada; si se sabe una, se saben las dos,
-        /// y cada entrada lleva a su máquina.
+        /// The two machines never end up on the same input; if one is known, both are,
+        /// and each input leads to its machine.
         #[test]
         fn resolved_inputs_never_collide(
             da in input(), db in input(), la in input(), lb in input()

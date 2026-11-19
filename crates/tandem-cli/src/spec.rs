@@ -1,5 +1,5 @@
-//! La tabla de herramientas: una sola descripción para el MCP (esquema JSON) y la CLI
-//! (banderas). Las descripciones van en español e inglés para que Claude elija bien.
+//! The tools table: a single description for the MCP (JSON schema) and the CLI
+//! (flags). Descriptions are in English only.
 
 use serde_json::{Value, json};
 
@@ -8,7 +8,7 @@ pub enum Ty {
     Str,
     Int,
     Bool,
-    /// Texto repetible (`--arg a --arg b`; en MCP, un arreglo de textos).
+    /// Repeatable text (`--arg a --arg b`; in MCP, an array of strings).
     List,
 }
 
@@ -40,116 +40,103 @@ const TUNNEL: Param = p(
     "tunnel",
     Ty::Str,
     true,
-    "Id del túnel (hex, de `tunnel_open` o `tunnels`) / Tunnel id (hex, from `tunnel_open` or `tunnels`)",
+    "Tunnel id (hex, from `tunnel_open` or `tunnels`)",
 );
 const PROCESS: Param = p(
     "process",
     Ty::Int,
     true,
-    "Id del proceso dentro del túnel (número, de `exec`) / Process id inside the tunnel (number, from `exec`)",
+    "Process id inside the tunnel (number, from `exec`)",
 );
 
 pub const TOOLS: &[Tool] = &[
     Tool {
         name: "machines",
-        desc: "Las dos máquinas del puesto (cuál es esta, qué hardware y herramientas tiene cada una). \
-               / The two machines of the desk (which one is this, hardware and tools of each).",
+        desc: "The two machines of the desk (which one is this, hardware and tools of each).",
         params: &[],
     },
     Tool {
         name: "resources",
-        desc: "Recursos de una máquina: CPU, RAM, GPU y entornos detectados (shells, WSL, Docker, toolchains). \
-               Úsala antes de `exec` para elegir `shell`. \
-               / Resources of a machine: CPU, RAM, GPU and detected environments (shells, WSL, Docker, toolchains). \
+        desc: "Resources of a machine: CPU, RAM, GPU and detected environments (shells, WSL, Docker, toolchains). \
                Use it before `exec` to pick `shell`.",
         params: &[
             p(
                 "machine",
                 Ty::Str,
                 false,
-                "`a` o `b`; por omisión, la otra máquina / `a` or `b`; defaults to the other machine",
+                "`a` or `b`; defaults to the other machine",
             ),
-            p(
-                "rescan",
-                Ty::Bool,
-                false,
-                "Volver a escanear antes de leer / Rescan before reading",
-            ),
+            p("rescan", Ty::Bool, false, "Rescan before reading"),
         ],
     },
     Tool {
         name: "tunnels",
-        desc: "Túneles abiertos, agrupados por proyecto, con sus procesos corriendo. \
-               / Open tunnels grouped by project, with their running processes.",
+        desc: "Open tunnels grouped by project, with their running processes.",
         params: &[],
     },
     Tool {
         name: "tunnel_open",
-        desc: "Abre un túnel hacia la otra máquina; dentro se ejecutan procesos, se copian archivos y se abren puertos. \
-               Con `workspace` el repo viaja con el túnel y vuelve como rama con `bring_back`. \
-               / Opens a tunnel to the other machine; run processes, copy files and open ports inside. \
+        desc: "Opens a tunnel to the other machine; run processes, copy files and open ports inside. \
                With `workspace` the repo travels with the tunnel and comes back as a branch via `bring_back`.",
         params: &[
             p(
                 "target",
                 Ty::Str,
                 false,
-                "Máquina destino, `a` o `b`; por omisión, la otra / Target machine, `a` or `b`; defaults to the other",
+                "Target machine, `a` or `b`; defaults to the other",
             ),
             p(
                 "title",
                 Ty::Str,
                 false,
-                "Título del túnel (p. ej. el de la sesión de Claude); sin él, el nombre del proyecto / Tunnel title (e.g. the Claude session's); defaults to the project name",
+                "Tunnel title (e.g. the Claude session's); defaults to the project name",
             ),
             p(
                 "project",
                 Ty::Str,
                 false,
-                "Nombre del proyecto; por omisión, el de la carpeta actual / Project name; defaults to the current folder's",
+                "Project name; defaults to the current folder's",
             ),
             p(
                 "project_root",
                 Ty::Str,
                 false,
-                "Carpeta del proyecto; por omisión, la carpeta actual / Project folder; defaults to the current folder",
+                "Project folder; defaults to the current folder",
             ),
             p(
                 "session",
                 Ty::Str,
                 false,
-                "Id de la sesión que abre el túnel / Id of the session opening the tunnel",
+                "Id of the session opening the tunnel",
             ),
             p(
                 "workspace",
                 Ty::Bool,
                 false,
-                "Llevar el repo de `project_root` al destino / Carry the repo at `project_root` to the target",
+                "Carry the repo at `project_root` to the target",
             ),
             p(
                 "keep",
                 Ty::Bool,
                 false,
-                "Con `workspace`: conservar la carpeta del destino al cerrar / With `workspace`: keep the target folder on close",
+                "With `workspace`: keep the target folder on close",
             ),
             p(
                 "include_secrets",
                 Ty::List,
                 false,
-                "Con `workspace`: credenciales sin seguimiento que sí viajan, rutas del repo (por omisión `.env`, llaves, `.ssh/`… no viajan) / With `workspace`: untracked credentials that do travel, repo paths (by default `.env`, keys, `.ssh/`… do not)",
+                "With `workspace`: untracked credentials that do travel, repo paths (by default `.env`, keys, `.ssh/`… do not)",
             ),
         ],
     },
     Tool {
         name: "tunnel_close",
-        desc: "Cierra un túnel: mata sus procesos y suelta sus puertos. / Closes a tunnel: kills its processes and releases its ports.",
+        desc: "Closes a tunnel: kills its processes and releases its ports.",
         params: &[TUNNEL],
     },
     Tool {
         name: "exec",
-        desc: "Lanza un proceso en la otra máquina (varios en paralelo por túnel) y devuelve su id sin esperar. \
-               Lee la salida con `output`. \
-               / Starts a process on the other machine (several in parallel per tunnel) and returns its id without waiting. \
+        desc: "Starts a process on the other machine (several in parallel per tunnel) and returns its id without waiting. \
                Read the output with `output`.",
         params: &[
             TUNNEL,
@@ -157,46 +144,33 @@ pub const TOOLS: &[Tool] = &[
                 "cmd",
                 Ty::Str,
                 true,
-                "Programa; con `shell`, la línea que ese shell interpreta / Program; with `shell`, the line that shell interprets",
+                "Program; with `shell`, the line that shell interprets",
             ),
-            p("args", Ty::List, false, "Argumentos / Arguments"),
-            p(
-                "shell",
-                Ty::Str,
-                false,
-                "Entorno de `resources` (`zsh`, `pwsh`, `cmd`, `wsl:<distro>`, `docker:<contenedor>`) / Environment from `resources`",
-            ),
-            p(
-                "cwd",
-                Ty::Str,
-                false,
-                "Carpeta de trabajo en el destino / Working directory on the target",
-            ),
+            p("args", Ty::List, false, "Arguments"),
+            p("shell", Ty::Str, false, "Environment from `resources`"),
+            p("cwd", Ty::Str, false, "Working directory on the target"),
             p(
                 "env",
                 Ty::List,
                 false,
-                "Variables, `NOMBRE=valor`; las que parecen secretos (`GH_TOKEN`, `*_KEY`…) se rechazan salvo `allow_secret_env`; `SSH_AUTH_SOCK` nunca / Variables, `NAME=value`; secret-looking ones (`GH_TOKEN`, `*_KEY`…) are rejected unless `allow_secret_env`; `SSH_AUTH_SOCK` never",
+                "Variables, `NAME=value`; secret-looking ones (`GH_TOKEN`, `*_KEY`…) are rejected unless `allow_secret_env`; `SSH_AUTH_SOCK` never",
             ),
             p(
                 "allow_secret_env",
                 Ty::Bool,
                 false,
-                "Deja pasar en esta llamada las variables de `env` que parecen secretos / Lets secret-looking `env` variables through for this call",
+                "Lets secret-looking `env` variables through for this call",
             ),
         ],
     },
     Tool {
         name: "processes",
-        desc: "Procesos de un túnel (los terminados quedan 10 min). / Processes of a tunnel (finished ones stay 10 min).",
+        desc: "Processes of a tunnel (finished ones stay 10 min).",
         params: &[TUNNEL],
     },
     Tool {
         name: "output",
-        desc: "Salida de un proceso desde un punto (stdout y stderr por separado) y si ya terminó. \
-               Devuelve a lo más `max_bytes` (24 KiB por omisión, 64 KiB de tope); si `more` es true, \
-               vuelve a pedir desde `next` para seguir leyendo. `wait_ms` espera salida nueva. \
-               / Output of a process from a point (stdout and stderr apart) and whether it finished. \
+        desc: "Output of a process from a point (stdout and stderr apart) and whether it finished. \
                Returns at most `max_bytes` (24 KiB default, 64 KiB cap); if `more` is true, ask again \
                from `next` to keep reading. `wait_ms` waits for new output.",
         params: &[
@@ -206,130 +180,91 @@ pub const TOOLS: &[Tool] = &[
                 "from_stdout",
                 Ty::Int,
                 false,
-                "Byte de stdout desde el que leer (0) / stdout byte to read from (0)",
+                "stdout byte to read from (0)",
             ),
             p(
                 "from_stderr",
                 Ty::Int,
                 false,
-                "Byte de stderr desde el que leer (0) / stderr byte to read from (0)",
+                "stderr byte to read from (0)",
             ),
             p(
                 "wait_ms",
                 Ty::Int,
                 false,
-                "Esperar hasta tanto por salida nueva o el fin del proceso (máx. 60000) / Wait up to this long for new output or the end of the process (max 60000)",
+                "Wait up to this long for new output or the end of the process (max 60000)",
             ),
             p(
                 "max_bytes",
                 Ty::Int,
                 false,
-                "Bytes como máximo entre stdout y stderr (24576; tope 65536) / Max bytes across stdout and stderr (24576; cap 65536)",
+                "Max bytes across stdout and stderr (24576; cap 65536)",
             ),
         ],
     },
     Tool {
         name: "kill",
-        desc: "Mata un proceso y todo su árbol. / Kills a process and its whole tree.",
+        desc: "Kills a process and its whole tree.",
         params: &[TUNNEL, PROCESS],
     },
     Tool {
         name: "files_put",
-        desc: "Copia un archivo o carpeta de esta máquina a la otra. Lo que parece una credencial (`.env`, llaves, `.ssh/`…) no se copia y se lista en `skipped`. \
-               / Copies a file or folder from this machine to the other. Anything that looks like a credential (`.env`, keys, `.ssh/`…) is not copied and is listed in `skipped`.",
+        desc: "Copies a file or folder from this machine to the other. Anything that looks like a credential (`.env`, keys, `.ssh/`…) is not copied and is listed in `skipped`.",
         params: &[
             TUNNEL,
-            p("local", Ty::Str, true, "Ruta aquí / Path here"),
-            p(
-                "remote",
-                Ty::Str,
-                true,
-                "Ruta en el destino / Path on the target",
-            ),
+            p("local", Ty::Str, true, "Path here"),
+            p("remote", Ty::Str, true, "Path on the target"),
             p(
                 "include_secrets",
                 Ty::List,
                 false,
-                "Credenciales que sí se copian, rutas relativas a `local` / Credentials that do get copied, paths relative to `local`",
+                "Credentials that do get copied, paths relative to `local`",
             ),
         ],
     },
     Tool {
         name: "files_get",
-        desc: "Trae un archivo o carpeta de la otra máquina a esta. / Fetches a file or folder from the other machine to this one.",
+        desc: "Fetches a file or folder from the other machine to this one.",
         params: &[
             TUNNEL,
-            p(
-                "remote",
-                Ty::Str,
-                true,
-                "Ruta en el destino / Path on the target",
-            ),
-            p("local", Ty::Str, true, "Ruta aquí / Path here"),
+            p("remote", Ty::Str, true, "Path on the target"),
+            p("local", Ty::Str, true, "Path here"),
         ],
     },
     Tool {
         name: "port_forward",
-        desc: "Reenvía un puerto por el túnel. `local_to_remote`: escucha aquí y sale por el destino; \
-               `remote_to_local`: escucha en el destino y sale por aquí. \
-               / Forwards a port through the tunnel. `local_to_remote`: listens here and exits on the target; \
+        desc: "Forwards a port through the tunnel. `local_to_remote`: listens here and exits on the target; \
                `remote_to_local`: listens on the target and exits here.",
         params: &[
             TUNNEL,
-            p(
-                "local_port",
-                Ty::Int,
-                true,
-                "Puerto de esta máquina / Port on this machine",
-            ),
-            p(
-                "remote_port",
-                Ty::Int,
-                true,
-                "Puerto del destino / Port on the target",
-            ),
-            p(
-                "remote_host",
-                Ty::Str,
-                false,
-                "Host del destino (127.0.0.1) / Target host (127.0.0.1)",
-            ),
+            p("local_port", Ty::Int, true, "Port on this machine"),
+            p("remote_port", Ty::Int, true, "Port on the target"),
+            p("remote_host", Ty::Str, false, "Target host (127.0.0.1)"),
             p(
                 "direction",
                 Ty::Str,
                 false,
-                "`local_to_remote` (por omisión) o `remote_to_local` / `local_to_remote` (default) or `remote_to_local`",
+                "`local_to_remote` (default) or `remote_to_local`",
             ),
         ],
     },
     Tool {
         name: "port_stop",
-        desc: "Cierra un reenvío de puerto. / Closes a port forward.",
-        params: &[p(
-            "id",
-            Ty::Int,
-            true,
-            "Id que devolvió `port_forward` / Id returned by `port_forward`",
-        )],
+        desc: "Closes a port forward.",
+        params: &[p("id", Ty::Int, true, "Id returned by `port_forward`")],
     },
     Tool {
         name: "bring_back",
-        desc: "Trae el trabajo del workspace del túnel como rama `tandem/<nombre>` del repo local (con un commit de lo pendiente). \
-               / Brings the tunnel workspace's work back as a `tandem/<name>` branch of the local repo (with a commit for pending changes).",
+        desc: "Brings the tunnel workspace's work back as a `tandem/<name>` branch of the local repo (with a commit for pending changes).",
         params: &[
             TUNNEL,
             p(
                 "commit",
                 Ty::Str,
                 false,
-                "Mensaje del commit de lo pendiente / Message for the pending-changes commit",
+                "Message for the pending-changes commit",
             ),
-            p(
-                "name",
-                Ty::Str,
-                false,
-                "Nombre de la rama (sin `tandem/`) / Branch name (without `tandem/`)",
-            ),
+            p("name", Ty::Str, false, "Branch name (without `tandem/`)"),
         ],
     },
 ];
@@ -339,7 +274,7 @@ pub fn find(name: &str) -> Option<&'static Tool> {
 }
 
 impl Tool {
-    /// El esquema JSON de los argumentos (`inputSchema` de MCP).
+    /// The JSON schema of the arguments (MCP `inputSchema`).
     pub fn schema(&self) -> Value {
         let mut props = serde_json::Map::new();
         for p in self.params {
@@ -368,7 +303,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nombres_unicos_y_las_herramientas_de_la_tarea_estan() {
+    fn unique_names_and_the_task_tools_are_present() {
         let mut names: Vec<_> = TOOLS.iter().map(|t| t.name).collect();
         for want in [
             "machines",
@@ -384,7 +319,7 @@ mod tests {
             "port_forward",
             "bring_back",
         ] {
-            assert!(names.contains(&want), "falta {want}");
+            assert!(names.contains(&want), "missing {want}");
         }
         names.sort_unstable();
         let n = names.len();
@@ -393,17 +328,17 @@ mod tests {
     }
 
     #[test]
-    fn cada_descripcion_trae_español_e_ingles() {
+    fn every_description_is_non_empty() {
         for t in TOOLS {
-            assert!(t.desc.contains(" / "), "{}", t.name);
+            assert!(!t.desc.trim().is_empty(), "{}", t.name);
             for p in t.params {
-                assert!(p.desc.contains(" / "), "{}.{}", t.name, p.name);
+                assert!(!p.desc.trim().is_empty(), "{}.{}", t.name, p.name);
             }
         }
     }
 
     #[test]
-    fn el_esquema_marca_lo_obligatorio() {
+    fn the_schema_marks_required_ones() {
         let s = find("exec").unwrap().schema();
         assert_eq!(s["required"], json!(["tunnel", "cmd"]));
         assert_eq!(s["properties"]["args"]["type"], "array");

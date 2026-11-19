@@ -1,10 +1,10 @@
-//! La máquina destino: los túneles viven aquí, con sus flujos y recursos, aunque el enlace
-//! con el origen se caiga.
+//! The destination machine: tunnels live here, with their flows and resources, even if the link
+//! to the origin drops.
 //!
-//! Lo que corre dentro de un túnel (procesos en T-104, puertos en T-106, workspaces en
-//! T-107) se registra en su [`HostTunnel`]: la salida como un flujo ([`FlowWriter`]) y lo
-//! que hay que soltar al cerrar como un [`Resource`]. Los procesos ([`HostTunnel::exec`])
-//! llevan además su propia tabla, que cierra el túnel matando cada árbol.
+//! What runs inside a tunnel (processes in T-104, ports in T-106, workspaces in
+//! T-107) is registered in its [`HostTunnel`]: the output as a flow ([`FlowWriter`]) and what
+//! has to be released on close as a [`Resource`]. Processes ([`HostTunnel::exec`])
+//! also carry their own table, which the tunnel closes by killing each tree.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -26,22 +26,22 @@ use crate::process::table::Table;
 use crate::process::{ExecError, Launch, Os, Spawner, launch};
 use crate::wire::{TargetWire, WireError};
 
-/// Lo más que va en un mensaje de datos: muy por debajo del máximo de una trama, y
-/// suficientemente chico para alternar entre flujos.
+/// The most that goes in a data message: far below a frame's maximum, and
+/// small enough to alternate between flows.
 pub const CHUNK: usize = 64 * 1024;
 
-/// Algo del túnel que hay que soltar al cerrarlo (matar un árbol de procesos, cerrar un
-/// puerto). `close` tiene que volver enseguida: lo lento, en su propia tarea.
+/// Something of the tunnel that has to be released on close (kill a process tree, close a
+/// port). `close` has to return right away: slow work goes in its own task.
 pub trait Resource: Send + Sync {
     fn close(&self);
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct HostOptions {
-    /// Lo que guarda cada flujo mientras nadie lo lee.
+    /// What each flow keeps while nobody reads it.
     pub capacity: usize,
-    /// Cuánto se recuerda un túnel cerrado, para que el origen que se reconecta reciba
-    /// lo que faltaba y el cierre.
+    /// How long a closed tunnel is remembered, so an origin that reconnects receives
+    /// what was missing and the close.
     pub linger: Duration,
 }
 
@@ -54,7 +54,7 @@ impl Default for HostOptions {
     }
 }
 
-/// Los túneles de los que esta máquina es destino. Se clona barato.
+/// The tunnels of which this machine is the destination. Cheap to clone.
 #[derive(Clone)]
 pub struct Host {
     inner: Arc<HostInner>,
@@ -64,7 +64,7 @@ struct HostInner {
     opts: HostOptions,
     tunnels: Mutex<BTreeMap<TunnelId, HostTunnel>>,
     changes: Changes,
-    /// Con el que se lanzan los procesos: el real, salvo en las pruebas.
+    /// With which processes are launched: the real one, except in tests.
     spawner: Mutex<Arc<dyn Spawner>>,
 }
 
@@ -84,7 +84,7 @@ impl Host {
         }
     }
 
-    /// Cambia cómo se lanzan los procesos (las pruebas usan un doble).
+    /// Changes how processes are launched (tests use a double).
     pub fn set_spawner(&self, spawner: Arc<dyn Spawner>) {
         *lock(&self.inner.spawner) = spawner;
     }
@@ -93,18 +93,18 @@ impl Host {
         self.get(id).ok_or(ExecError::UnknownTunnel(id))
     }
 
-    /// Lanza un proceso en el túnel `id` ([`HostTunnel::exec`]).
+    /// Launches a process in tunnel `id` ([`HostTunnel::exec`]).
     pub fn exec(&self, id: TunnelId, spec: ExecSpec) -> Result<TunnelProcess, ExecError> {
         let spawner = lock(&self.inner.spawner).clone();
         self.tunnel(id)?.exec(spawner.as_ref(), spec)
     }
 
-    /// Mata un proceso del túnel con todo su árbol.
+    /// Kills a process of the tunnel with its whole tree.
     pub fn kill(&self, id: TunnelId, process: ProcessId) -> Result<(), ExecError> {
         self.tunnel(id)?.kill(process)
     }
 
-    /// Los túneles abiertos con sus procesos corriendo, para la UI.
+    /// The open tunnels with their processes running, for the UI.
     pub fn views(&self) -> Vec<TunnelView> {
         self.list()
             .into_iter()
@@ -116,7 +116,7 @@ impl Host {
             .collect()
     }
 
-    /// Abre el túnel; si ya existe uno con ese id (un reintento) devuelve ese.
+    /// Opens the tunnel; if one with that id already exists (a retry) returns that one.
     pub fn open(&self, tunnel: Tunnel) -> Tunnel {
         let mut tunnels = lock(&self.inner.tunnels);
         self.purge(&mut tunnels);
@@ -125,7 +125,7 @@ impl Host {
         }
         let mut info = tunnel;
         info.state = TunnelState::Open;
-        tracing::info!(id = %info.id, title = %info.title, "túnel abierto desde {}", info.origin);
+        tracing::info!(id = %info.id, title = %info.title, "tunnel opened from {}", info.origin);
         tunnels.insert(
             info.id,
             HostTunnel::new(info.clone(), self.inner.opts, self.inner.changes.clone()),
@@ -135,18 +135,18 @@ impl Host {
         info
     }
 
-    /// Cierra el túnel: suelta sus recursos y termina sus flujos. Cerrar uno ya cerrado no
-    /// hace nada; uno desconocido es un error.
+    /// Closes the tunnel: releases its resources and ends its flows. Closing one already closed
+    /// does nothing; an unknown one is an error.
     pub fn close(&self, id: TunnelId) -> Result<(), String> {
         let t = self.get(id).ok_or_else(|| unknown(id))?;
         if t.close() {
-            tracing::info!(%id, "túnel cerrado");
+            tracing::info!(%id, "tunnel closed");
             self.inner.changes.bump();
         }
         Ok(())
     }
 
-    /// Todos, también los cerrados que todavía se recuerdan.
+    /// All of them, also the closed ones that are still remembered.
     pub fn list(&self) -> Vec<Tunnel> {
         let mut tunnels = lock(&self.inner.tunnels);
         self.purge(&mut tunnels);
@@ -164,10 +164,10 @@ impl Host {
 }
 
 fn unknown(id: TunnelId) -> String {
-    format!("no hay ningún túnel {id} en esta máquina")
+    format!("no tunnel {id} on this machine")
 }
 
-/// Un túnel en la destino. Se clona barato.
+/// A tunnel on the destination. Cheap to clone.
 #[derive(Clone)]
 pub struct HostTunnel {
     inner: Arc<TunnelInner>,
@@ -178,17 +178,17 @@ struct TunnelInner {
     closed_at: Mutex<Option<Instant>>,
     flows: Mutex<Vec<Arc<Flow>>>,
     resources: Mutex<Vec<Box<dyn Resource>>>,
-    /// Carpeta de trabajo de los procesos que no piden otra (el workspace de git, T-107).
+    /// Working folder of processes that do not ask for another (the git workspace, T-107).
     default_cwd: Mutex<Option<String>>,
     next_flow: AtomicU32,
     opts: HostOptions,
     processes: Table,
-    /// El cierre ya terminó (flujos, recursos y procesos): lo que se manda después ya es lo
-    /// último.
+    /// The close already finished (flows, resources and processes): what is sent afterwards is already the
+    /// last.
     settled: AtomicBool,
-    /// Sube con cada byte escrito, flujo nuevo o cierre: quien manda la salida lo sigue.
+    /// Rises with each byte written, new flow or close: whoever sends the output follows it.
     changes: watch::Sender<u64>,
-    /// Los cambios de todos los túneles (la UI), que también suben con cada proceso.
+    /// Changes of all the tunnels (the UI), which also rise with each process.
     agent_changes: Changes,
 }
 
@@ -200,13 +200,13 @@ struct Flow {
 struct FlowState {
     buf: OutputBuffer,
     ended: bool,
-    /// Ya se avisó en el log que el búfer descarta (una vez por flujo).
+    /// The log was already told that the buffer discards (once per flow).
     warned: bool,
 }
 
-/// El túnel ya está cerrado: no admite flujos ni recursos nuevos.
+/// The tunnel is already closed: it admits no new flows or resources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("el túnel {0} está cerrado")]
+#[error("tunnel {0} is closed")]
 pub struct TunnelClosed(pub TunnelId);
 
 impl HostTunnel {
@@ -228,7 +228,7 @@ impl HostTunnel {
         }
     }
 
-    /// Fija la carpeta de trabajo por omisión de los procesos del túnel.
+    /// Sets the tunnel's default working folder for processes.
     pub fn set_default_cwd(&self, cwd: impl Into<String>) {
         *lock(&self.inner.default_cwd) = Some(cwd.into());
     }
@@ -257,8 +257,8 @@ impl HostTunnel {
         self.inner.changes.send_modify(|n| *n = n.wrapping_add(1));
     }
 
-    /// Un flujo de salida nuevo (por ejemplo, la de un proceso), con el búfer circular del
-    /// túnel.
+    /// A new output flow (for example, a process's), with the tunnel's circular
+    /// buffer.
     pub fn add_flow(&self, label: impl Into<String>) -> Result<FlowWriter, TunnelClosed> {
         let mut flows = lock(&self.inner.flows);
         if !self.is_open() {
@@ -285,7 +285,7 @@ impl HostTunnel {
         })
     }
 
-    /// Registra algo que se suelta al cerrar el túnel. Si ya está cerrado se suelta ya.
+    /// Registers something to release when the tunnel closes. If it is already closed it is released right away.
     pub fn add_resource(&self, resource: Box<dyn Resource>) -> Result<(), TunnelClosed> {
         let mut resources = lock(&self.inner.resources);
         if !self.is_open() {
@@ -297,10 +297,10 @@ impl HostTunnel {
         Ok(())
     }
 
-    /// `true` si lo cerró esta llamada.
+    /// `true` if this call closed it.
     fn close(&self) -> bool {
-        // Con el candado de los flujos (el mismo orden que `add_flow`): quien manda la salida
-        // y ve el túnel cerrado ve también todos sus flujos terminados.
+        // With the flows lock (the same order as `add_flow`): whoever sends the output
+        // and sees the tunnel closed also sees all its flows ended.
         {
             let flows = lock(&self.inner.flows);
             {
@@ -319,7 +319,7 @@ impl HostTunnel {
         for r in &resources {
             r.close();
         }
-        // Con el túnel ya cerrado: ningún proceso nuevo entra (ver `Table::insert`).
+        // With the tunnel already closed: no new process enters (see `Table::insert`).
         self.inner.processes.kill_all();
         self.inner.settled.store(true, Ordering::SeqCst);
         self.bump();
@@ -330,15 +330,15 @@ impl HostTunnel {
         self.inner.settled.load(Ordering::SeqCst)
     }
 
-    /// Lanza un proceso con `spawner` (T-104). Su stdout y su stderr son dos flujos nuevos
-    /// del túnel; el proceso queda en la tabla hasta que pase `linger` de su fin.
+    /// Launches a process with `spawner` (T-104). Its stdout and stderr are two new flows
+    /// of the tunnel; the process stays in the table until `linger` has passed since its end.
     pub fn exec(
         &self,
         spawner: &dyn Spawner,
         mut spec: ExecSpec,
     ) -> Result<TunnelProcess, ExecError> {
         let tunnel = self.id();
-        // Una carpeta de esta máquina no vale dentro de WSL ni de un contenedor.
+        // A folder of this machine is not valid inside WSL or a container.
         let local_shell = !spec
             .shell
             .as_deref()
@@ -382,19 +382,19 @@ impl HostTunnel {
             spawned.child.kill_tree();
             return Err(ExecError::Closed(tunnel));
         }
-        tracing::info!(%tunnel, process = %id, command = %info.command, "proceso lanzado");
+        tracing::info!(%tunnel, process = %id, command = %info.command, "launched process");
         crate::process::supervise(self.clone(), id, spawned, out, err);
         self.process_changed();
         Ok(info)
     }
 
-    /// Mata un proceso con todo su árbol. Matar uno que ya terminó no hace nada.
+    /// Kills a process with its whole tree. Killing one that already ended does nothing.
     pub fn kill(&self, process: ProcessId) -> Result<(), ExecError> {
         match self.inner.processes.kill(process) {
             None => Err(ExecError::UnknownProcess(self.id(), process)),
             Some(was_running) => {
                 if was_running {
-                    tracing::info!(tunnel = %self.id(), %process, "proceso matado");
+                    tracing::info!(tunnel = %self.id(), %process, "killed process");
                     self.process_changed();
                 }
                 Ok(())
@@ -402,10 +402,10 @@ impl HostTunnel {
         }
     }
 
-    /// El proceso terminó solo (lo llama quien lo vigila).
+    /// The process ended on its own (called by whoever watches it).
     pub(crate) fn process_exited(&self, process: ProcessId, code: Option<i32>) {
         if self.inner.processes.exited(process, code) {
-            tracing::info!(tunnel = %self.id(), %process, ?code, "proceso terminado");
+            tracing::info!(tunnel = %self.id(), %process, ?code, "ended process");
             self.process_changed();
         }
     }
@@ -415,18 +415,18 @@ impl HostTunnel {
         self.inner.agent_changes.bump();
     }
 
-    /// Los procesos del túnel, también los que terminaron hace poco.
+    /// The tunnel's processes, also those that ended recently.
     pub fn processes(&self) -> Vec<TunnelProcess> {
         self.purge_processes();
         self.inner.processes.list()
     }
 
-    /// Los que están corriendo, del más viejo al más nuevo.
+    /// Those that are running, from oldest to newest.
     pub fn running(&self) -> Vec<TunnelProcess> {
         self.inner.processes.running()
     }
 
-    /// La salida de un proceso desde `from`, con hasta `max` bytes de cada flujo.
+    /// The output of a process from `from`, with up to `max` bytes of each flow.
     pub fn output(
         &self,
         process: ProcessId,
@@ -450,7 +450,7 @@ impl HostTunnel {
         }))
     }
 
-    /// Olvida los procesos terminados hace más de `linger` con sus flujos.
+    /// Forgets the processes ended more than `linger` ago with their flows.
     fn purge_processes(&self) {
         let gone = self.inner.processes.purge(self.inner.opts.linger);
         if gone.is_empty() {
@@ -475,7 +475,7 @@ fn now_millis() -> u64 {
         .unwrap_or(0)
 }
 
-/// Donde escribe quien produce la salida de un flujo. Al soltarlo, el flujo termina.
+/// Where whoever produces a flow's output writes. Dropping it ends the flow.
 pub struct FlowWriter {
     tunnel: HostTunnel,
     flow: Arc<Flow>,
@@ -486,8 +486,8 @@ impl FlowWriter {
         self.flow.info.id
     }
 
-    /// Agrega al flujo; si el búfer está lleno se descarta lo más viejo (y el origen lo
-    /// sabrá con [`TunnelDown::Lost`]). Después de terminar, no hace nada.
+    /// Appends to the flow; if the buffer is full the oldest is discarded (and the origin will
+    /// learn through [`TunnelDown::Lost`]). After ending, it does nothing.
     pub fn write(&self, bytes: &[u8]) {
         if bytes.is_empty() {
             return;
@@ -503,14 +503,14 @@ impl FlowWriter {
                 tracing::warn!(
                     tunnel = %self.tunnel.id(),
                     flow = %self.flow.info.label,
-                    "el búfer de salida se llenó sin que nadie lo leyera: se descarta lo más viejo"
+                    "the output buffer filled up without anyone reading it: the oldest is discarded"
                 );
             }
         }
         self.tunnel.bump();
     }
 
-    /// Ya no hay más salida.
+    /// There is no more output.
     pub fn finish(&self) {
         let changed = {
             let mut s = lock(&self.flow.state);
@@ -528,8 +528,8 @@ impl Drop for FlowWriter {
     }
 }
 
-/// Atiende un stream de túnel que abrió el origen: un pedido y su respuesta, o el canal
-/// de datos de un túnel hasta que se cierre o se corte.
+/// Serves a tunnel stream opened by the origin: a request and its response, or the data
+/// channel of a tunnel until it closes or is cut.
 pub async fn serve<W: TargetWire>(host: &Host, mut wire: W) -> Result<(), WireError> {
     let Some(req) = wire.recv().await? else {
         return Ok(());
@@ -537,8 +537,8 @@ pub async fn serve<W: TargetWire>(host: &Host, mut wire: W) -> Result<(), WireEr
     serve_request(host, wire, req).await
 }
 
-/// Como [`serve`] con el primer pedido ya leído: para quien reparte los pedidos de otros
-/// módulos (archivos y puertos) y deja el resto a los túneles.
+/// Like [`serve`] with the first request already read: for whoever dispatches the requests of other
+/// modules (files and ports) and leaves the rest to the tunnels.
 pub async fn serve_request<W: TargetWire>(
     host: &Host,
     mut wire: W,
@@ -548,7 +548,7 @@ pub async fn serve_request<W: TargetWire>(
         TunnelUp::Files(_) | TunnelUp::Port(_) | TunnelUp::Workspace(_) => {
             return wire
                 .send(&TunnelDown::Refused(
-                    "esta máquina no atiende archivos, puertos ni workspaces".into(),
+                    "this machine does not serve files, ports or workspaces".into(),
                 ))
                 .await;
         }
@@ -577,8 +577,8 @@ pub async fn serve_request<W: TargetWire>(
     wire.send(&reply).await
 }
 
-/// Manda la salida de `t` desde las posiciones `from`, un pedazo por flujo por vuelta, hasta
-/// que el túnel se cierre y no quede nada.
+/// Sends the output of `t` from the positions `from`, one piece per flow per turn, until
+/// the tunnel closes and nothing is left.
 async fn stream<W: TargetWire>(
     t: &HostTunnel,
     mut pos: BTreeMap<FlowId, u64>,
@@ -589,11 +589,11 @@ async fn stream<W: TargetWire>(
     let mut procs: BTreeMap<ProcessId, u64> = BTreeMap::new();
     let mut changes = t.inner.changes.subscribe();
     loop {
-        // Antes de mirar: lo que se escriba desde aquí despierta la espera de abajo.
+        // Before looking: whatever is written from here wakes the wait below.
         changes.borrow_and_update();
         let closed = t.is_settled();
         let mut sent = false;
-        // Los procesos primero: así el origen sabe de qué son los flujos que siguen.
+        // Processes first: this way the origin knows what the flows that follow belong to.
         for p in t.inner.processes.updates(&mut procs) {
             wire.send(&TunnelDown::Process(p)).await?;
             sent = true;
@@ -657,7 +657,7 @@ mod tests {
     pub(crate) fn tunnel(id: u64) -> Tunnel {
         Tunnel {
             id: TunnelId(id),
-            title: "pruebas".into(),
+            title: "tests".into(),
             project: None,
             origin: Machine::A,
             target: Machine::B,
@@ -679,12 +679,12 @@ mod tests {
     }
 
     #[test]
-    fn abrir_dos_veces_devuelve_el_mismo_y_cerrar_suelta_los_recursos() {
+    fn opening_twice_returns_the_same_and_closing_releases_the_resources() {
         let host = Host::new(HostOptions::default(), Changes::default());
         host.open(tunnel(1));
         let mut again = tunnel(1);
-        again.title = "otro".into();
-        assert_eq!(host.open(again).title, "pruebas");
+        again.title = "other".into();
+        assert_eq!(host.open(again).title, "tests");
         let t = host.get(TunnelId(1)).unwrap();
         let closed = Arc::new(AtomicBool::new(false));
         t.add_resource(Box::new(Flag(closed.clone()))).unwrap();
@@ -692,17 +692,17 @@ mod tests {
         host.close(TunnelId(1)).unwrap();
         assert!(closed.load(Ordering::SeqCst));
         assert_eq!(host.list()[0].state, TunnelState::Closed);
-        // Lo que llegue después se suelta enseguida y no se acepta.
+        // Whatever arrives afterwards is released right away and not accepted.
         let late = Arc::new(AtomicBool::new(false));
         assert!(t.add_resource(Box::new(Flag(late.clone()))).is_err());
         assert!(late.load(Ordering::SeqCst));
         assert!(t.add_flow("x").is_err());
-        w.write(b"tarde");
+        w.write(b"late");
         assert!(host.close(TunnelId(9)).is_err());
     }
 
     #[tokio::test(start_paused = true)]
-    async fn los_cerrados_se_olvidan_despues_de_un_rato() {
+    async fn closed_ones_are_forgotten_after_a_while() {
         let opts = HostOptions {
             linger: Duration::from_secs(5),
             ..HostOptions::default()

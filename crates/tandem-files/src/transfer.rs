@@ -1,13 +1,13 @@
-//! Transferencias de archivos por un stream de túnel.
+//! File transfers over a tunnel stream.
 //!
-//! **Subir (`put`)**: el origen manda el manifiesto; la destino contesta qué fragmentos le
-//! faltan (los que no coinciden con lo que ya tiene en disco, ver [`Sink::plan`]); el
-//! origen manda solo esos, en pedazos de [`PIECE`], y al final pide `Finish`. No hay acuse
-//! por fragmento: QUIC es ordenado y fiable, y si el stream se corta se vuelve a empezar
-//! por el plan, que ya no pide lo que llegó.
+//! **Upload (`put`)**: the origin sends the manifest; the destination answers which chunks it
+//! lacks (those that do not match what it already has on disk, see [`Sink::plan`]); the
+//! origin sends only those, in pieces of [`PIECE`], and at the end asks for `Finish`. There is no ack
+//! per chunk: QUIC is ordered and reliable, and if the stream is cut it starts again
+//! from the plan, which no longer asks for what arrived.
 //!
-//! **Bajar (`get`)**: la destino manda el manifiesto de lo que hay en `remote`; el origen
-//! calcula el plan contra su disco y pide los fragmentos por tandas con `Fetch`.
+//! **Download (`get`)**: the destination sends the manifest of what is in `remote`; the origin
+//! computes the plan against its disk and requests the chunks in batches with `Fetch`.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -24,13 +24,13 @@ use crate::secrets::SecretFilter;
 use crate::sink::Sink;
 use crate::source::Source;
 
-/// Fragmentos que se piden de una vez en `get`.
+/// Chunks requested at once in `get`.
 const FETCH_BATCH: usize = 8;
 
 #[derive(Debug, Clone)]
 pub struct Options {
     pub chunk_size: u32,
-    /// Cuántas veces se intenta (reanudando) si el enlace se corta.
+    /// How many times it tries (resuming) if the link is cut.
     pub attempts: u32,
     pub retry_delay: Duration,
 }
@@ -45,10 +45,10 @@ impl Default for Options {
     }
 }
 
-/// Quien recibe el avance (la UI, el cliente).
+/// Whoever receives progress (the UI, the client).
 pub type Progress<'a> = &'a (dyn Fn(TransferProgress) + Send + Sync);
 
-/// Corre trabajo de disco fuera de los hilos del ejecutor.
+/// Runs disk work off the executor threads.
 pub(crate) async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> Result<T> + Send + 'static,
 ) -> Result<T> {
@@ -57,7 +57,7 @@ pub(crate) async fn blocking<T: Send + 'static>(
         .map_err(|_| FilesError::Join)?
 }
 
-/// Junta los pedazos de un fragmento.
+/// Gathers the pieces of a chunk.
 #[derive(Default)]
 struct Assembler {
     key: (u32, u32),
@@ -65,7 +65,7 @@ struct Assembler {
 }
 
 impl Assembler {
-    /// `Some` cuando el fragmento `(entry, index)` de `expected` bytes ya está completo.
+    /// `Some` when chunk `(entry, index)` of `expected` bytes is already complete.
     fn push(
         &mut self,
         key: (u32, u32),
@@ -96,7 +96,7 @@ async fn send_files(wire: &mut Box<dyn OriginWire>, msg: FilesUp) -> Result<()> 
 
 async fn recv_files(wire: &mut Box<dyn OriginWire>) -> Result<FilesDown> {
     match wire.recv().await? {
-        None => Err(WireError::new("la otra máquina cerró el stream").into()),
+        None => Err(WireError::new("the other machine closed the stream").into()),
         Some(TunnelDown::Refused(why)) | Some(TunnelDown::Files(FilesDown::Failed(why))) => {
             Err(FilesError::Remote(why))
         }
@@ -105,8 +105,8 @@ async fn recv_files(wire: &mut Box<dyn OriginWire>) -> Result<FilesDown> {
     }
 }
 
-/// Las entradas del manifiesto en páginas que caben en un marco; una sola que no cabe
-/// (un archivo gigante) es un error claro y sin reintento.
+/// The manifest entries in pages that fit in a frame; a single one that does not fit
+/// (a giant file) is a clear error and is not retried.
 fn entry_pages(manifest: &Manifest) -> Result<Vec<&[FileEntry]>> {
     if let Some(e) = manifest.entries.iter().find(|e| !entry_fits(e)) {
         return Err(FilesError::TooLarge(e.path.clone()));
@@ -120,12 +120,12 @@ fn entry_pages(manifest: &Manifest) -> Result<Vec<&[FileEntry]>> {
 
 fn check_entries(have: usize, more: usize) -> Result<()> {
     if have + more > MAX_ENTRIES {
-        return Err(FilesError::Manifest("demasiadas entradas".into()));
+        return Err(FilesError::Manifest("too many entries".into()));
     }
     Ok(())
 }
 
-/// Recibe las páginas de entradas hasta la última.
+/// Receives the entry pages up to the last one.
 async fn recv_entries_down(wire: &mut Box<dyn OriginWire>) -> Result<Vec<FileEntry>> {
     let mut all = Vec::new();
     loop {
@@ -140,7 +140,7 @@ async fn recv_entries_down(wire: &mut Box<dyn OriginWire>) -> Result<Vec<FileEnt
     }
 }
 
-/// Recibe las páginas del plan hasta la última.
+/// Receives the plan pages up to the last one.
 async fn recv_plan(wire: &mut Box<dyn OriginWire>) -> Result<Vec<Need>> {
     let mut all = Vec::new();
     loop {
@@ -171,7 +171,7 @@ fn need_bytes(manifest: &Manifest, needs: &[Need]) -> u64 {
         .sum()
 }
 
-/// Copia `local` a `remote` en la destino del túnel, reanudando tras cada corte.
+/// Copies `local` to `remote` on the tunnel's destination, resuming after each cut.
 pub async fn put(
     origin: &Origin,
     tunnel: TunnelId,
@@ -187,8 +187,8 @@ pub async fn put(
     let (path, cs) = (local.to_path_buf(), opts.chunk_size);
     let filter = SecretFilter::new(include);
     let src = Arc::new(blocking(move || Source::scan_with(&path, cs, &filter)).await?);
-    // Un solo archivo (o nada más) que el filtro omitió: no hay copia que abrir, y la
-    // destino rechazaría un manifiesto vacío (T-155). Se informa lo omitido (éxito parcial).
+    // A single file (or nothing more) that the filter skipped: there is no copy to open, and the
+    // destination would reject an empty manifest (T-155). What was skipped is reported (partial success).
     if src.manifest().entries.is_empty() && !src.skipped().is_empty() {
         return Ok(FilesReport {
             skipped: src.skipped().to_vec(),
@@ -206,7 +206,7 @@ pub async fn put(
                 return Ok(r);
             }
             Err(e) if e.retryable() => {
-                tracing::debug!(%tunnel, "subida cortada, se reanuda: {e}");
+                tracing::debug!(%tunnel, "upload cut, resuming: {e}");
                 last = e;
             }
             Err(e) => return Err(e),
@@ -296,7 +296,7 @@ async fn put_once(
     Ok(r)
 }
 
-/// Trae `remote` de la destino a `local`, reanudando tras cada corte.
+/// Fetches `remote` from the destination to `local`, resuming after each cut.
 pub async fn get(
     origin: &Origin,
     tunnel: TunnelId,
@@ -316,7 +316,7 @@ pub async fn get(
         match get_once(origin, tunnel, remote, local, progress).await {
             Ok(r) => return Ok(r),
             Err(e) if e.retryable() => {
-                tracing::debug!(%tunnel, "bajada cortada, se reanuda: {e}");
+                tracing::debug!(%tunnel, "download cut, resuming: {e}");
                 last = e;
             }
             Err(e) => return Err(e),
@@ -419,7 +419,7 @@ async fn get_once(
     Ok(r)
 }
 
-/// El lado de la destino de un pedido de archivos. `first` es el primer mensaje del
+/// The destination side of a file request. `first` is the first message of the
 /// stream.
 pub async fn serve<W: TargetWire>(
     host: &Host,
@@ -438,7 +438,7 @@ pub async fn serve<W: TargetWire>(
         FilesUp::Chunk { .. }
         | FilesUp::Entries { .. }
         | FilesUp::Finish
-        | FilesUp::Fetch { .. } => fail(wire, "el stream tiene que empezar con Put o Get").await,
+        | FilesUp::Fetch { .. } => fail(wire, "the stream has to start with Put or Get").await,
     }
 }
 
@@ -465,7 +465,7 @@ async fn serve_put<W: TargetWire>(
     if !open_tunnel(host, tunnel) {
         return wire
             .send(&TunnelDown::Refused(format!(
-                "no hay ningún túnel {tunnel} abierto en esta máquina"
+                "no tunnel {tunnel} is open on this machine"
             )))
             .await;
     }
@@ -485,7 +485,7 @@ async fn serve_put<W: TargetWire>(
                     break;
                 }
             }
-            Some(_) => return fail(wire, "se esperaba una página del manifiesto").await,
+            Some(_) => return fail(wire, "a manifest page was expected").await,
         }
     }
     let manifest = Manifest {
@@ -518,7 +518,7 @@ async fn serve_put<W: TargetWire>(
     let mut asm = Assembler::default();
     loop {
         match wire.recv().await? {
-            // El origen se fue: lo recibido queda en disco para retomar.
+            // The origin left: what was received stays on disk to resume.
             None => return Ok(()),
             Some(TunnelUp::Files(FilesUp::Chunk {
                 entry,
@@ -545,7 +545,7 @@ async fn serve_put<W: TargetWire>(
                     Err(e) => fail(wire, e).await,
                 };
             }
-            Some(_) => return fail(wire, "mensaje inesperado durante la subida").await,
+            Some(_) => return fail(wire, "unexpected message during the upload").await,
         }
     }
 }
@@ -560,7 +560,7 @@ async fn serve_get<W: TargetWire>(
     if !open_tunnel(host, tunnel) {
         return wire
             .send(&TunnelDown::Refused(format!(
-                "no hay ningún túnel {tunnel} abierto en esta máquina"
+                "no tunnel {tunnel} is open on this machine"
             )))
             .await;
     }
@@ -611,7 +611,7 @@ async fn serve_get<W: TargetWire>(
                     }
                 }
             }
-            Some(_) => return fail(wire, "mensaje inesperado durante la bajada").await,
+            Some(_) => return fail(wire, "unexpected message during the download").await,
         }
     }
 }

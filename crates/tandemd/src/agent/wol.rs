@@ -1,6 +1,6 @@
-//! Wake-on-LAN de esta máquina hacia la otra, sin editar `tandem.toml` a mano (T-159): la
-//! MAC de la otra llega en sus capacidades al conectarse y se guarda sola; la UI también la
-//! puede escribir o borrar.
+//! Wake-on-LAN from this machine to the other, without editing `tandem.toml` by hand (T-159): the
+//! other's MAC arrives in its capabilities on connecting and is saved on its own; the UI can also
+//! write or delete it.
 
 use std::sync::atomic::Ordering;
 
@@ -12,7 +12,7 @@ use super::{Agent, PoisonError};
 use crate::capabilities;
 
 impl Agent {
-    /// A quién despierta esta máquina ahora.
+    /// Whom this machine wakes now.
     pub fn wol(&self) -> Option<WolTarget> {
         self.wol
             .read()
@@ -20,13 +20,13 @@ impl Agent {
             .clone()
     }
 
-    /// La energía de esta máquina con el Wake-on-LAN que vale ahora.
+    /// This machine's power with the Wake-on-LAN that holds now.
     pub(super) fn power_caps(&self, os: Os) -> PowerCaps {
         capabilities::with_wol(capabilities::power(&self.cfg, os), self.wol().as_ref())
     }
 
-    /// La otra máquina anunció la MAC de su tarjeta: si todavía no hay con qué despertarla,
-    /// se guarda. Una MAC puesta a mano o ya aprendida no se pisa.
+    /// The other machine announced its card's MAC: if there is nothing yet to wake it with,
+    /// it is saved. A MAC set by hand or already learned is not overwritten.
     pub(super) fn learn_wol(&self, mac: Option<&str>) {
         let Some(mac) = mac.and_then(|m| m.parse::<MacAddr>().ok()) else {
             return;
@@ -35,12 +35,12 @@ impl Agent {
             return;
         }
         match self.apply_wol(Some(mac)) {
-            Ok(()) => tracing::info!(%mac, "MAC de la otra máquina aprendida para Wake-on-LAN"),
-            Err(e) => tracing::warn!("no se pudo guardar la MAC de la otra máquina: {e}"),
+            Ok(()) => tracing::info!(%mac, "the other machine's MAC learned for Wake-on-LAN"),
+            Err(e) => tracing::warn!("could not save the other machine's MAC: {e}"),
         }
     }
 
-    /// `UiCommand::SetWol`: la MAC con que esta máquina despierta a la otra.
+    /// `UiCommand::SetWol`: the MAC this machine wakes the other with.
     pub(super) fn set_wol_mac(&self, mac: Option<&str>) -> Reply {
         let mac = match mac.map(str::trim).filter(|m| !m.is_empty()) {
             Some(text) => match text.parse::<MacAddr>() {
@@ -51,7 +51,7 @@ impl Agent {
         };
         match self.apply_wol(mac) {
             Ok(()) => {
-                // Borrarla es una elección: la siguiente anuncia de la otra no la deshace.
+                // Deleting it is a choice: the next announcement from the other does not undo it.
                 self.wol_cleared.store(mac.is_none(), Ordering::Relaxed);
                 Reply::Done
             }
@@ -59,7 +59,7 @@ impl Agent {
         }
     }
 
-    /// Cambia la MAC en memoria, en los pasos de energía y en `tandem.toml`, y lo anuncia.
+    /// Changes the MAC in memory, in the power steps and in `tandem.toml`, and announces it.
     fn apply_wol(&self, mac: Option<MacAddr>) -> Result<(), String> {
         let _editing = self.edit();
         if let Some(path) = self.config_path() {
@@ -67,7 +67,7 @@ impl Agent {
         }
         let target = {
             let mut slot = self.wol.write().unwrap_or_else(PoisonError::into_inner);
-            // Se conserva lo demás de `[power.wol]` (origen, destino, puerto).
+            // The rest of `[power.wol]` is kept (source, destination, port).
             let old = slot.take();
             *slot = mac.map(|mac| match old {
                 Some(old) => WolTarget { mac, ..old },
@@ -106,11 +106,11 @@ mod tests {
         assert_eq!(a.set_wol_mac(None), Reply::Done);
         a.learn_wol(Some("02:00:00:00:00:02"));
         assert_eq!(a.wol(), None);
-        // Y sigue así tras reiniciar, por `[power.wol] cleared`.
+        // And it stays that way after restart, through `[power.wol] cleared`.
         let b = agent(&dir, "");
         b.learn_wol(Some("02:00:00:00:00:02"));
         assert_eq!(b.wol(), None);
-        // Escribir una a mano la devuelve.
+        // Writing one by hand brings it back.
         assert_eq!(b.set_wol_mac(Some("aa:bb:cc:dd:ee:ff")), Reply::Done);
         assert!(b.wol().is_some());
     }

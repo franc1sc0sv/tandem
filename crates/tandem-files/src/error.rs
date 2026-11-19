@@ -1,4 +1,4 @@
-//! Errores de archivos y puertos.
+//! File and port errors.
 
 use std::io;
 use std::path::Path;
@@ -8,29 +8,29 @@ use tandem_tunnel::{TunnelError, WireError};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FilesError {
-    #[error("ruta no válida «{path}»: {why}")]
+    #[error("invalid path \"{path}\": {why}")]
     Path { path: String, why: &'static str },
     #[error("{path}: {source}")]
     Io { path: String, source: io::Error },
-    #[error("el fragmento {index} de «{path}» no coincide con su hash")]
+    #[error("chunk {index} of \"{path}\" does not match its hash")]
     BadChunk { path: String, index: u32 },
-    #[error("«{0}» no coincide con su hash al terminar de copiarse")]
+    #[error("\"{0}\" does not match its hash after being copied")]
     BadFile(String),
-    #[error("manifiesto no válido: {0}")]
+    #[error("invalid manifest: {0}")]
     Manifest(String),
-    #[error("«{0}» tiene demasiados fragmentos para describirse en un mensaje")]
+    #[error("\"{0}\" has too many chunks to be described in one message")]
     TooLarge(String),
-    #[error("la otra máquina: {0}")]
+    #[error("the other machine: {0}")]
     Remote(String),
     #[error(transparent)]
     Tunnel(#[from] TunnelError),
-    #[error("se cortó el enlace: {0}")]
+    #[error("the link was cut: {0}")]
     Wire(#[from] WireError),
-    #[error("no hay ningún túnel {0} abierto desde esta máquina")]
+    #[error("no tunnel {0} is open from this machine")]
     NoTunnel(TunnelId),
-    #[error("respuesta inesperada de la otra máquina")]
+    #[error("unexpected response from the other machine")]
     Unexpected,
-    #[error("la tarea de disco se interrumpió")]
+    #[error("the disk task was interrupted")]
     Join,
 }
 
@@ -49,7 +49,7 @@ impl FilesError {
         }
     }
 
-    /// Un corte o un enlace que no está: se vuelve a intentar y se reanuda.
+    /// A cut or a link that is not there: it is retried and resumed.
     pub fn retryable(&self) -> bool {
         matches!(
             self,
