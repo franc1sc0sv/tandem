@@ -253,11 +253,12 @@ pub enum FocusMsg {
 pub enum KeyProbeMsg {
     Arm,
     Disarm,
-    /// The sender is already listening: sent again when a link appears, because the `Arm` may have
-    /// gone out before there was one. Unlike `Arm` it does not clear what the receiver heard.
-    Armed,
     /// The key reached the machine that sent it.
     Heard,
+    /// The sender is already listening: sent again when a link appears, because the `Arm` may have
+    /// gone out before there was one. Unlike `Arm` it does not clear what the receiver heard.
+    /// Last, so the discriminants of the other messages stay where they were.
+    Armed,
 }
 
 /// What a machine has and knows how to do, as its agent announces it.
@@ -1353,8 +1354,8 @@ pub(crate) mod samples {
             ControlMsg::Screens(screens()),
             ControlMsg::KeyProbe(KeyProbeMsg::Arm),
             ControlMsg::KeyProbe(KeyProbeMsg::Disarm),
-            ControlMsg::KeyProbe(KeyProbeMsg::Armed),
             ControlMsg::KeyProbe(KeyProbeMsg::Heard),
+            ControlMsg::KeyProbe(KeyProbeMsg::Armed),
             ControlMsg::Keyboard(Machine::B),
             ControlMsg::WatchResources { on: true },
             ControlMsg::WatchResources { on: false },
